@@ -36,7 +36,7 @@ You can show your support for the project by starring this repo.
 especially concerning flows.
 </p>
 
-![Windmill](./windmill.webp)
+![Windmill Screenshot](./windmill.webp)
 
 Windmill is <b>fully open-sourced</b>:
 
@@ -69,14 +69,14 @@ Windmill is <b>fully open-sourced</b>:
 - typescript runtime is deno
 - python runtime is python3
 
-## Architecture
-
-A detailed section about Windmill architecture is coming soon
-
 ### Development stack
 
 - caddy is the reverse proxy used for local development, see frontend's
   Caddyfile and CaddyfileRemote
+
+## Architecture
+
+![Architecture](./architecture.svg)
 
 ## How to self-host
 
