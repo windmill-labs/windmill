@@ -1,5 +1,5 @@
 <p align="center">
-  <a href="https://alpha.windmill.dev"><img src="./windmill.svg" alt="windmill.dev"></a>
+  <a href="https://alpha.windmill.dev"><img src="./imgs/windmill.svg" alt="windmill.dev"></a>
 </p>
 <p align="center">
     <em>Windmill.dev is an OSS developer platform to quickly build production-grade multi-steps automations and internal apps from minimal Python and Typescript scripts.</em>
@@ -36,12 +36,31 @@ You can show your support for the project by starring this repo.
 especially concerning flows.
 </p>
 
-![Windmill Screenshot](./windmill.webp)
+![Windmill Screenshot](./imgs/windmill.webp)
 
 Windmill is <b>fully open-sourced</b>:
 
 - `community/` and `python-client/` are Apache 2.0
 - backend, frontend and everything else under AGPLv3.
+
+## What is the general idea behind Windmill
+
+1. Define a minimal and generic script in Python or Typescript that solve a
+   specific task. Here sending an email with SMTP. The code can be defined in
+   the provided Web IDE or synchronizing with your own github repo:
+   ![Step 1](./imgs/step1.png)
+
+2. Your scripts parameters are automatically parsed and generate a frontend. You
+   can narrow down the types during task definition to specify regex for string,
+   an enum or a specific format for objects. Each script correspond to an app by
+   itself: ![Step 2](./imgs/step2.png)
+
+3. Make it flow! You can chain your scripts or scripts made by the community
+   inside flow by piping output to input using "Dynamic" fields that are just
+   plain Javascript. You can also refer to external variables, output from any
+   steps or inputs of the flow itself. The flow parameters then generate
+   automatically an intuitive forms that can be triggered by anyone, like for
+   scripts. ![Step 3](./imgs/step3.png)
 
 ## Layout
 
@@ -76,7 +95,7 @@ Windmill is <b>fully open-sourced</b>:
 
 ## Architecture
 
-![Architecture](./architecture.svg)
+![Architecture](./imgs/architecture.svg)
 
 ## How to self-host
 
