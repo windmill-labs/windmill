@@ -31,12 +31,29 @@ You can show your support for the project by starring this repo.
 
 # Windmill
 
+<p align="center">
+<b>Disclaimer: </b>Windmill is in beta. It is secure to run in production but the API might change,
+especially concerning flows.
+</p>
+
 ![Windmill](./windmill.webp)
 
 Windmill is fully open-sourced:
 
 - community parts and python-client are Apache 2.0
 - backend, frontend and everything else under AGPLv3.
+
+## Layout
+
+- `backend/`: The whole Rust backend
+- `frontend`: The whole Svelte fronten
+- `community/`: Scripts and resource types created and curated by the community,
+  included in every workspace
+- `lsp/`: The lsp asssistant for the monaco editor
+- `nsjail/`: The nsjail configuration files for sandboxing of the scripts'
+  execution
+- `python-client/`: The wmill python client used within scripts to interact with
+  the windmill platform
 
 ## Stack
 
