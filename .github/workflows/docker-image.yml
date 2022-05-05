@@ -15,14 +15,14 @@ jobs:
     env:
       DOCKER_BUILDKIT: 1
     steps:
-      # - name: Wait for release to succeed
-      #   if: github.ref == 'refs/heads/main'
-      #   uses: lewagon/wait-on-check-action@v1.0.0
-      #   with:
-      #     ref: ${{ github.ref }}
-      #     check-name: "Release please"
-      #     repo-token: ${{ secrets.GITHUB_TOKEN }}
-      #     wait-interval: 10
+      - name: Wait for release to succeed
+        if: github.ref == 'refs/heads/main'
+        uses: lewagon/wait-on-check-action@v1.0.0
+        with:
+          ref: ${{ github.ref }}
+          check-name: "Release please"
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+          wait-interval: 10
       - uses: actions/checkout@v2
         with:
           fetch-depth: 0

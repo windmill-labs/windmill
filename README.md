@@ -32,15 +32,15 @@ You can show your support for the project by starring this repo.
 # Windmill
 
 <p align="center">
-<b>Disclaimer: </b>Windmill is in beta. It is secure to run in production but the API might change,
+<b>Disclaimer: </b>Windmill is in <b>BETA</b>. It is secure to run in production but the API might change,
 especially concerning flows.
 </p>
 
 ![Windmill](./windmill.webp)
 
-Windmill is fully open-sourced:
+Windmill is <b>fully open-sourced</b>:
 
-- community parts and python-client are Apache 2.0
+- `community/` and `python-client/` are Apache 2.0
 - backend, frontend and everything else under AGPLv3.
 
 ## Layout
@@ -69,9 +69,14 @@ Windmill is fully open-sourced:
 - typescript runtime is deno
 - python runtime is python3
 
+## Architecture
+
+A detailed section about Windmill architecture is coming soon
+
 ### Development stack
 
-- caddy is the reverse proxy + handle https
+- caddy is the reverse proxy used for local development, see frontend's
+  Caddyfile and CaddyfileRemote
 
 ## How to self-host
 
@@ -85,7 +90,6 @@ Complete instructions coming soon
 
 This project is inspired from a previous project called
 [Delightool](https://github.com/windmill-labs/delightool-legacy) which was also
-led by [Ruben](https://github.com/rubenfiszel) but its frontend was realized
-with large contribution from [Malo Marrec](https://github.com/malomarrec).
-Windmill is a child of Delightool but entirely distinct and realized with Malo's
-blessing.
+led by [Ruben](https://github.com/rubenfiszel) and with large contribution on
+the frontend from [Malo Marrec](https://github.com/malomarrec) who gave his
+blessing to Windmill.
