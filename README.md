@@ -47,7 +47,7 @@ Windmill is <b>fully open-sourced</b>:
 
 1. Define a minimal and generic script in Python or Typescript that solve a
    specific task. Here sending an email with SMTP. The code can be defined in
-   the provided Web IDE or synchronizing with your own github repo:
+   the provided Web IDE or synchronized with your own github repo:
    ![Step 1](./imgs/step1.png)
 
 2. Your scripts parameters are automatically parsed and generate a frontend. You
@@ -65,7 +65,7 @@ Windmill is <b>fully open-sourced</b>:
 ## Layout
 
 - `backend/`: The whole Rust backend
-- `frontend`: The whole Svelte fronten
+- `frontend`: The whole Svelte frontend
 - `community/`: Scripts and resource types created and curated by the community,
   included in every workspace
 - `lsp/`: The lsp asssistant for the monaco editor
