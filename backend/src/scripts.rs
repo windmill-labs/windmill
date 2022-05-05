@@ -50,6 +50,13 @@ pub fn workspaced_service() -> Router {
         .route("/deployment_status/h/:hash", get(get_deployment_status))
 }
 
+#[derive(sqlx::Type, Serialize, Deserialize, Debug, PartialEq, Clone, Hash)]
+#[sqlx(type_name = "SCRIPT_LANG", rename_all = "lowercase")]
+#[serde(rename_all(serialize = "lowercase"))]
+pub enum ScriptLang {
+    Deno,
+    Python3,
+}
 #[derive(sqlx::Type, PartialEq, Debug, Hash, Clone, Copy)]
 #[sqlx(transparent)]
 pub struct ScriptHash(pub i64);
@@ -113,6 +120,7 @@ pub struct Script {
     pub extra_perms: serde_json::Value,
     pub lock: Option<String>,
     pub lock_error_logs: Option<String>,
+    pub language: ScriptLang,
 }
 
 #[derive(Serialize, Deserialize, sqlx::Type, Debug)]
@@ -138,6 +146,7 @@ pub struct NewScript {
     pub schema: Option<Schema>,
     pub is_template: Option<bool>,
     pub lock: Option<Vec<String>>,
+    pub language: ScriptLang,
 }
 
 #[derive(Deserialize)]
@@ -181,6 +190,7 @@ async fn list_scripts(
             "extra_perms",
             "null as lock",
             "CASE WHEN lock_error_logs IS NOT NULL THEN 'error' ELSE null END as lock_error_logs",
+            "language",
         ])
         .order_by("created_at", lq.order_desc.unwrap_or(true))
         .and_where("workspace_id = ? OR workspace_id = 'starter'".bind(&w_id))
@@ -347,7 +357,8 @@ async fn create_script(
     //::text::json is to ensure we use serde_json with preserve order
     sqlx::query!(
         "INSERT INTO script (workspace_id, hash, path, parent_hashes, summary, description, content, \
-         created_by, schema, is_template, extra_perms, lock) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::text::json, $10, $11, $12)",
+         created_by, schema, is_template, extra_perms, lock, language) VALUES \
+         ($1, $2, $3, $4, $5, $6, $7, $8, $9::text::json, $10, $11, $12, $13)",
         &w_id,
         &hash.0,
         ns.path,
@@ -359,7 +370,8 @@ async fn create_script(
         ns.schema.and_then(|x| serde_json::to_string(&x.0).ok()),
         ns.is_template.unwrap_or(false),
         extra_perms,
-        ns.lock.as_ref().map(|x| x.join("\n"))
+        ns.lock.as_ref().map(|x| x.join("\n")),
+        ns.language: ScriptLang
     )
     .execute(&mut tx)
     .await?;

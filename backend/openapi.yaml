@@ -1251,11 +1251,16 @@ paths:
                   type: array
                   items:
                     type: string
+                language:
+                  type: string
+                  enum: [python3, deno]
+
               required:
                 - path
                 - summary
                 - description
                 - content
+                - language
       responses:
         "201":
           description: script created
@@ -2588,6 +2593,9 @@ components:
           type: string
         lock_error_logs:
           type: string
+        language:
+          type: string
+          enum: [python3, deno]
       required:
         - hash
         - path
@@ -2599,6 +2607,7 @@ components:
         - deleted
         - is_template
         - extra_perms
+        - language
 
     ScriptArgs:
       type: object
