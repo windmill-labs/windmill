@@ -1,0 +1,18 @@
+name: Deploy to windmill.dev
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Deploy to windmill.dev
+        uses: windmill-labs/windmill-gh-action-deploy@v1.0.0
+        with:
+          dry_run: false
+          input_dir: community
+          windmill_workspace: starter
+          windmill_token: ${{ secrets.WINDMILL_API_TOKEN }}

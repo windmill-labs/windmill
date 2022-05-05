@@ -1,0 +1,38 @@
+name: Build LSP Docker
+on:
+  push:
+    branches: [main]
+    paths:
+      - "python-client/**"
+      - "Pipfile"
+      - ".github/workflows/on-release.yml"
+
+jobs:
+  build_lsp:
+    runs-on: [self-hosted, new]
+    steps:
+      - name: Wait for release to succeed
+        if: github.ref == 'refs/heads/main'
+        uses: lewagon/wait-on-check-action@v1.0.0
+        with:
+          ref: ${{ github.ref }}
+          check-name: "Release please"
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+          wait-interval: 10
+      - uses: actions/checkout@v2
+      - name: Upload python client
+        env:
+          PYPI_PASSWORD: ${{ secrets.PYPI_PASSWORD }}
+        run: |
+          cd python-client
+          export PATH=$PATH:/usr/local/bin
+          export PATH=$PATH:/root/.local/bin
+          ./publish.sh
+      - name: Build the Docker image
+        run: |
+          echo "branch main"
+          sudo docker pull "registry.wimill.xyz/lsp:main" || true
+          sudo docker build -f DockerfileLSP .  --cache-from "registry.wimill.xyz/lsp:main" -t "registry.wimill.xyz/lsp:main" --build-arg BUILDKIT_INLINE_CACHE=1
+      - name: push to registry
+        run: |
+          sudo docker push "registry.wimill.xyz/lsp:main"

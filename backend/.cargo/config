@@ -1,0 +1,3 @@
+[build]
+rustflags = ["--cfg", "tokio_unstable"]
+incremental = true

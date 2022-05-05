@@ -1,0 +1,100 @@
+name: "python run script"
+
+mode: ONCE
+hostname: "python"
+log_level: ERROR
+time_limit: 300
+
+rlimit_as: 2048
+rlimit_cpu: 1000
+rlimit_fsize: 1024
+rlimit_nofile: 64
+
+cwd: "/tmp"
+
+clone_newnet: false
+keep_caps: false
+keep_env: true
+
+mount {
+    src: "/bin"
+    dst: "/bin"
+	is_bind: true
+}
+
+mount {
+    src: "/lib"
+    dst: "/lib"
+	is_bind: true
+}
+
+
+mount {
+    src: "/lib64"
+    dst: "/lib64"
+	is_bind: true
+}
+
+
+mount {
+    src: "/usr"
+    dst: "/usr"
+	is_bind: true
+}
+
+mount {
+	src: "/dev/null"
+	dst: "/dev/null"
+	is_bind: true
+	rw: true
+}
+
+mount {
+	dst: "/tmp"
+	fstype: "tmpfs"
+	rw: true
+    options: "size=500000000"
+}
+
+mount {
+    src: "{JOB_DIR}/inner.py"
+    dst: "/tmp/inner.py"
+    is_bind: true
+}
+
+mount {
+    src: "{JOB_DIR}/main.py"
+    dst: "/tmp/main.py"
+    is_bind: true
+}
+
+mount {
+    src: "{JOB_DIR}/dependencies"
+    dst: "/tmp/dependencies"
+    is_bind: true
+}
+
+mount {
+    src: "/etc/ssl"
+    dst: "/etc/ssl"
+	is_bind: true
+}
+
+mount {
+    src: "/etc/resolv.conf"
+    dst: "/etc/resolv.conf"
+	is_bind: true
+}
+
+mount {
+    src: "/dev/random"
+    dst: "/dev/random"
+    is_bind: true
+}
+
+iface_no_lo: true
+
+envar: "PYTHONPATH=/tmp/dependencies"
+
+
+

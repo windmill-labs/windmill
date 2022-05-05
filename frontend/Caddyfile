@@ -1,0 +1,8 @@
+{
+    auto_https off
+}
+:80 {  
+  bind {$ADDRESS}
+  reverse_proxy /api/* http://localhost:8000
+  reverse_proxy /* http://localhost:3000
+}

@@ -1,0 +1,15 @@
+on:
+  push:
+    branches:
+      - main
+name: release-please
+jobs:
+  release-please:
+    name: "Release please"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: GoogleCloudPlatform/release-please-action@v2
+        with:
+          release-type: simple
+          package-name: windmill
+          token: ${{ secrets.PAT_TOKEN }}

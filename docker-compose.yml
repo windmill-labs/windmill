@@ -1,0 +1,47 @@
+version: '3.7'
+
+services:
+
+  db:
+    image: postgres:13
+    restart: always
+    volumes:
+      - db_data:/var/lib/postgresql/data
+    ports:
+      - 5432:5432
+    environment:
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: windmill
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U postgres" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+  windmill:
+    image: windmill:main
+    restart: unless-stopped
+    ports:
+      - 8000:8000
+    environment:
+      - DATABASE_URL=postgres://postgres:${DB_PASSWORD}@db/windmill?sslmode=disable
+      - VARIABLES_KEY=changeme
+    depends_on:
+      db:
+        condition: service_healthy
+
+  caddy:
+    image: caddy
+    restart: unless-stopped
+    environment:
+      - SITE_URL=${SITE_URL}
+    ports:
+      - 80:80
+      - 443:443
+    volumes:
+      - $PWD/Caddyfile:/etc/caddy/Caddyfile
+      - caddy_data:/data
+
+volumes:
+  caddy_data:
+    external: true
+  db_data: null

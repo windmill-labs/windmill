@@ -1,0 +1,4 @@
+{$SITE_URL} {  
+  bind {$ADDRESS}
+  reverse_proxy /* server:8000
+}

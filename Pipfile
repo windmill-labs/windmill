@@ -1,0 +1,23 @@
+[[source]]
+url = "https://pypi.org/simple"
+verify_ssl = true
+name = "pypi"
+
+[packages]
+wmill = ">=1.5.0"
+wmill_pg = ">=1.5.0"
+requests = "*"
+sendgrid = "*"
+psycopg2-binary = "*"
+mysql-connector-python = "*"
+pymongo = "*"
+slack_sdk = "*"
+google-api-python-client = "*"
+pandas = "*"
+numpy = "*"
+seaborn = "*"
+yfinance = "*"
+pyowm = "*"
+pyairtable = "*"
+matplotlib = "*"
+

@@ -1,0 +1,16 @@
+http://localhost {  
+  bind {$ADDRESS}
+  reverse_proxy /api/* https://alpha.windmill.dev {
+    	header_up Host {http.reverse_proxy.upstream.hostport}
+  }
+  reverse_proxy /* http://localhost:3000
+}
+
+
+https://localhost {  
+  bind {$ADDRESS}
+  reverse_proxy /ws/* https://alpha.windmill.dev {
+    	header_up Host {http.reverse_proxy.upstream.hostport}
+  }
+}
+

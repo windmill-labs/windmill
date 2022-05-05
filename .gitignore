@@ -1,0 +1,5 @@
+target/
+.DS_Store
+local/
+frontend/src/routes/test.svelte
+CaddyfileRemoteMalo

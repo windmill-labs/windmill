@@ -1,0 +1,39 @@
+name: Docker Image CI
+on:
+  push:
+    branches: [main]
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+concurrency:
+  group: ${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: [self-hosted, new]
+    env:
+      DOCKER_BUILDKIT: 1
+    steps:
+      # - name: Wait for release to succeed
+      #   if: github.ref == 'refs/heads/main'
+      #   uses: lewagon/wait-on-check-action@v1.0.0
+      #   with:
+      #     ref: ${{ github.ref }}
+      #     check-name: "Release please"
+      #     repo-token: ${{ secrets.GITHUB_TOKEN }}
+      #     wait-interval: 10
+      - uses: actions/checkout@v2
+        with:
+          fetch-depth: 0
+      - name: deploy staging stack
+        run: |
+          docker build . --cache-from "registry.wimill.xyz/windmill:staging" -t "registry.wimill.xyz/windmill:staging" --build-arg BUILDKIT_INLINE_CACHE=1
+          docker push "registry.wimill.xyz/windmill:staging"
+      - name: deploy demo stack
+        if: github.ref == 'refs/heads/main'
+        run: |
+          docker tag registry.wimill.xyz/windmill:staging registry.wimill.xyz/windmill:main
+          docker push registry.wimill.xyz/windmill:main
+      # - name: pruning unused images
+      #   run: sudo docker image prune -a
