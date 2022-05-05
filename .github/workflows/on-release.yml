@@ -30,9 +30,9 @@ jobs:
           ./publish.sh
       - name: Build the Docker image
         run: |
-          echo "branch main"
+          cd lsp
           sudo docker pull "registry.wimill.xyz/lsp:main" || true
-          sudo docker build -f DockerfileLSP .  --cache-from "registry.wimill.xyz/lsp:main" -t "registry.wimill.xyz/lsp:main" --build-arg BUILDKIT_INLINE_CACHE=1
+          sudo docker build  .  --cache-from "registry.wimill.xyz/lsp:main" -t "registry.wimill.xyz/lsp:main" --build-arg BUILDKIT_INLINE_CACHE=1
       - name: push to registry
         run: |
           sudo docker push "registry.wimill.xyz/lsp:main"
