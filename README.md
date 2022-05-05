@@ -25,8 +25,7 @@
 **We are hiring**: Software Engineers, DevOps, Solutions Engineers, Growth:
 <https://docs.windmill.dev/hiring>
 
-If you would like to, you can show your support for the project by starring this
-repo.
+You can show your support for the project by starring this repo.
 
 ---
 
@@ -65,10 +64,11 @@ Complete instructions coming soon
 
 2021 [Ruben Fiszel](https://github.com/rubenfiszel)
 
-## Acknowledgement
+### Acknowledgement
 
 This project is inspired from a previous project called
 [Delightool](https://github.com/windmill-labs/delightool-legacy) which was also
-build by [Ruben](https://github.com/rubenfiszel) but the frontend was realized
-in large parts by [Malo Marrec]((https://github.com/malomarrec). Windmill is a
-child but distinct project and realized with Malo's blessing.
+led by [Ruben](https://github.com/rubenfiszel) but its frontend was realized
+with large contribution from [Malo Marrec](https://github.com/malomarrec).
+Windmill is a child of Delightool but entirely distinct and realized with Malo's
+blessing.
