@@ -69,7 +69,7 @@ Windmill is fully open-sourced:
 - typescript runtime is deno
 - python runtime is python3
 
-### Developent stack
+### Development stack
 
 - caddy is the reverse proxy + handle https
 
