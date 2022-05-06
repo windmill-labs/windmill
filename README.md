@@ -5,6 +5,9 @@
     <em>Windmill.dev is an OSS developer platform to quickly build production-grade multi-steps automations and internal apps from minimal Python and Typescript scripts.</em>
 </p>
 <p align="center">
+<a href="https://github.com/windmill-labs/windmill/actions/workflows/docker-image.yml" target="_blank">
+    <img src="https://github.com/windmill-labs/windmill/actions/workflows/docker-image.yml/badge.svg" alt="Docker Image CI">
+</a>
 <a href="https://pypi.org/project/wmill" target="_blank">
     <img src="https://img.shields.io/pypi/v/wmill?color=%2334D058&label=pypi%20package" alt="Package version">
 </a>
