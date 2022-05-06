@@ -1,5 +1,5 @@
 <p align="center">
-  <a href="https://alpha.windmill.dev"><img src="./imgs/windmill.svg" alt="windmill.dev"></a>
+  <a href="https://app.windmill.dev"><img src="./imgs/windmill.svg" alt="windmill.dev"></a>
 </p>
 <p align="center">
     <em>Windmill.dev is an OSS developer platform to quickly build production-grade multi-steps automations and internal apps from minimal Python and Typescript scripts.</em>
@@ -16,7 +16,7 @@
 ---
 
 **Join the alpha (personal workspaces are free forever)**:
-<https://alpha.windmill.dev>
+<https://app.windmill.dev>
 
 **Documentation**: <https://docs.windmill.dev>
 
