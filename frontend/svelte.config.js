@@ -44,7 +44,7 @@ const config = {
 		}),
 		prerender: {
 			enabled: true
-		},
+		}
 	}
 };
 
