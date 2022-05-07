@@ -27,7 +27,9 @@ class JobStatus(Enum):
     RUNNING = 2
     COMPLETED = 3
 
+
 _client: AuthenticatedClient | None = None
+
 
 def create_client(base_url: str | None = None, token: str | None = None) -> AuthenticatedClient:
     env_base_url = os.environ.get("BASE_URL")
@@ -36,11 +38,12 @@ def create_client(base_url: str | None = None, token: str | None = None) -> Auth
         env_base_url = env_base_url + "/api"
 
     base_url_: str = base_url or env_base_url or "http://localhost:8000/api"
-    token_ : str = token or os.environ.get("WM_TOKEN") or ""
+    token_: str = token or os.environ.get("WM_TOKEN") or ""
     global _client
     if _client is None:
         _client = AuthenticatedClient(base_url=base_url_, token=token_, timeout=30, verify_ssl=False)
     return _client
+
 
 def get_workspace() -> str:
     from_env = os.environ.get("WM_WORKSPACE")
@@ -48,11 +51,13 @@ def get_workspace() -> str:
         raise Exception("Workspace not passed as WM_WORKSPACE")
     return from_env
 
+
 def get_version() -> str:
     """
     Returns the current version of the backend
     """
     return backend_version.sync_detailed(client=create_client()).content.decode("us-ascii")
+
 
 def run_script_async(
     hash: str,
@@ -71,6 +76,7 @@ def run_script_async(
         parent_job=os.environ.get("DT_JOB_ID"),
     ).content.decode("us-ascii")
 
+
 def run_script_sync(hash: str, args: Dict[str, Any] = {}, verbose: bool = False) -> Dict[str, Any]:
     """
     Run a script, wait for it to complete and return the result of the launched script
@@ -86,6 +92,7 @@ def run_script_sync(hash: str, args: Dict[str, Any] = {}, verbose: bool = False)
             sleep(5.0)
         nb_iter += 1
     return get_result(job_id)
+
 
 def get_job_status(job_id: str) -> JobStatus:
     """
@@ -106,6 +113,7 @@ def get_job_status(job_id: str) -> JobStatus:
         else:
             return JobStatus.WAITING
 
+
 def get_result(job_id: str) -> Dict[str, Any]:
     """
     Returns the result of a completed job
@@ -117,6 +125,7 @@ def get_result(job_id: str) -> Dict[str, Any]:
         raise Exception(f"Unexpected result not found for completed job {job_id}")
     else:
         return res.result.to_dict()  # type: ignore
+
 
 def get_resource(path: str) -> Dict[str, Any]:
     """
@@ -134,6 +143,7 @@ def get_resource(path: str) -> Dict[str, Any]:
 
     return res
 
+
 def get_variable(path: str) -> str:
     """
     Returns the variable at a given path as a string
@@ -142,17 +152,19 @@ def get_variable(path: str) -> str:
     if res is None:
         raise Exception(f"Variable at path {path} does not exist or you do not have read permissions on it")
 
-    return res.value # type: ignore
+    return res.value  # type: ignore
+
 
 def _transform_leaves(d: Dict[str, Any]) -> Dict[str, Any]:
     return {k: _transform_leaf(v) for k, v in d.items()}
+
 
 def _transform_leaf(v: Any) -> Any:
     if isinstance(v, dict):
         return Client._transform_leaves(v)  # type: ignore
     elif isinstance(v, str):
         if v.startswith(VAR_RESOURCE_PREFIX):
-            var_name = v[len(VAR_RESOURCE_PREFIX):]
+            var_name = v[len(VAR_RESOURCE_PREFIX) :]
             return get_variable(var_name)
         else:
             return v
