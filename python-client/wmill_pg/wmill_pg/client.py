@@ -25,7 +25,6 @@ def query(query: str, connection: str | dict[str, Any] = "g/all/postgres") -> li
     else:
         pg_con = connection
 
-
     conn = psycopg2.connect(**pg_con)
     cur = conn.cursor()
     cur.execute(f"{query};")
@@ -37,4 +36,3 @@ def query(query: str, connection: str | dict[str, Any] = "g/all/postgres") -> li
     cur.close()
     conn.close()
     return res
-
