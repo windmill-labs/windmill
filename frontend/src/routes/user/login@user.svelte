@@ -62,10 +62,10 @@
 
 <!-- Enable submit form on enter -->
 <CenteredModal subtitle={error}>
-	<div class="justify-center text-center">
+	<div class="justify-center text-center flex flex-col">
 		<span class="text-xs text-gray-600">Currently only signup through Github is supported</span>
 		<a rel="external" href="/api/oauth/login/github"
-			><button class="w-full default-button bg-black mt-2 py-2"
+			><button class="m-auto default-button bg-black mt-2 py-2 w-96"
 				>Signup or login with Github &nbsp;
 				<Icon class="text-white pb-1" data={faGithub} scale={1.4} />
 			</button></a
@@ -73,7 +73,7 @@
 	</div>
 	<div class="flex flex-row-reverse w-full">
 		<button
-			class="my-6 text-xs text-blue-400"
+			class="my-6 text-xs text-blue-400 m-auto"
 			id="showPassword"
 			on:click={() => {
 				showPassword = !showPassword;
