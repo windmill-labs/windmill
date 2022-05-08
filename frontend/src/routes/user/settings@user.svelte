@@ -1,15 +1,14 @@
 <script lang="ts">
-	import { userStore, workspaceStore } from '../stores';
+	import { usersWorkspaceStore } from '../../stores';
 
-	import { onMount } from 'svelte';
-	import type { TruncatedToken, NewToken } from '../gen';
-	import { UserService, SettingsService } from '../gen';
-	import { displayDate, sendUserToast, getToday } from '../utils';
-	import PageHeader from './components/PageHeader.svelte';
-	import CenteredPage from './components/CenteredPage.svelte';
+	import type { TruncatedToken, NewToken } from '../../gen';
+	import { UserService, SettingsService } from '../../gen';
+	import { displayDate, sendUserToast, getToday } from '../../utils';
+	import PageHeader from './../components/PageHeader.svelte';
 	import Icon from 'svelte-awesome';
 	import { faPlus } from '@fortawesome/free-solid-svg-icons';
-	import TableCustom from './components/TableCustom.svelte';
+	import TableCustom from '../components/TableCustom.svelte';
+	import CenteredModal from './CenteredModal.svelte';
 
 	let newPassword: string | undefined;
 	let passwordError: string | undefined;
@@ -20,14 +19,6 @@
 	let newTokenExpiration: string | undefined;
 	let displayCreateToken = false;
 	let login_type = 'none';
-
-	function handleKeyUp(event: KeyboardEvent) {
-		const key = event.key || event.keyCode;
-		if (key === 13 || key === 'Enter') {
-			event.preventDefault();
-			setPassword();
-		}
-	}
 
 	async function setPassword(): Promise<void> {
 		try {
@@ -90,19 +81,17 @@
 
 	loadVersion();
 	loadLoginType();
-	$: {
-		if ($workspaceStore) {
-			listTokens();
-		}
-	}
+	listTokens();
 </script>
 
-<CenteredPage>
-	<PageHeader title="User settings" />
+<CenteredModal title="User settings">
+	<div class="flex flex-row justify-between">
+		<a href="/user/workspaces">&leftarrow; Back to workspaces</a>
+	</div>
 	<div class="text-2xs text-gray-500 italic pb-6">
 		Running windmill version (backend) {version}
 	</div>
-	<h2 class="border-b">Change password</h2>
+	<h2 class="border-b">User info</h2>
 	<div class="">
 		{#if passwordError}
 			<div class="text-purple-500 text-2xs grow">{passwordError}</div>
@@ -110,10 +99,11 @@
 		<div class="flex flex-col gap-2 w-full ">
 			<div class="mt-4">
 				<label class="block w-60 mb-2 text-gray-500">
-					<input disabled value={$userStore?.email ?? ''} class="input mt-1" />
+					<div class="text-gray-700">email</div>
+					<input disabled value={$usersWorkspaceStore?.email} class="input mt-1" />
 				</label>
 				{#if login_type == 'password'}
-					<label class="block w-12/12">
+					<label class="block w-120">
 						<div class="text-gray-700">password</div>
 						<input
 							type="password"
@@ -131,6 +121,7 @@
 							text-sm
 							"
 						/>
+						<button on:click={() => setPassword()} class="mt-4 default-button">Set password</button>
 					</label>
 				{:else if login_type == 'github'}
 					<span>Authentified through Github OAuth2. Cannot set a password.</span>
@@ -243,7 +234,8 @@
 			</tbody>
 		</TableCustom>
 	</div>
-</CenteredPage>
 
-<style>
-</style>
+	<div class="flex flex-row justify-between pt-4">
+		<a href="/user/workspaces">&leftarrow; Back to workspaces</a>
+	</div>
+</CenteredModal>

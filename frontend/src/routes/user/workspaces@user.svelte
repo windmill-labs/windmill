@@ -6,6 +6,8 @@
 	import { superadmin, usersWorkspaceStore, workspaceStore } from '../../stores';
 	import CenteredModal from './CenteredModal.svelte';
 	import Switch from '../components/Switch.svelte';
+	import { faUser, faUserAlt, faUserCog } from '@fortawesome/free-solid-svg-icons';
+	import Icon from 'svelte-awesome';
 
 	let invites: WorkspaceInvite[] = [];
 	let list_all_as_super_admin: boolean = false;
@@ -68,7 +70,8 @@
 			<button
 				class="
 					block
-					w-full
+					w-96
+					mx-auto
 					py-1
 					px-2
 					rounded-md
@@ -102,7 +105,8 @@
 		<div
 			class="
 					block
-					w-full
+					w-96
+					mx-auto
 					py-1
 					px-2
 					rounded-md
@@ -142,7 +146,10 @@
 			</span>
 		</div>
 	{/each}
-	<div class="flex flex-row-reverse mt-10">
+	<div class="flex justify-between mt-10">
+		<a class="mr-10" href="/user/settings">
+			<Icon data={faUserCog} class="mr-1" scale={1} />User settings</a
+		>
 		<button
 			class="default-button-secondary"
 			on:click={async () => {
