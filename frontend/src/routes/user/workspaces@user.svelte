@@ -6,7 +6,7 @@
 	import { superadmin, usersWorkspaceStore, workspaceStore } from '../../stores';
 	import CenteredModal from './CenteredModal.svelte';
 	import Switch from '../components/Switch.svelte';
-	import { faUser, faUserAlt, faUserCog } from '@fortawesome/free-solid-svg-icons';
+	import { faCrown, faUser, faUserAlt, faUserCog } from '@fortawesome/free-solid-svg-icons';
 	import Icon from 'svelte-awesome';
 
 	let invites: WorkspaceInvite[] = [];
@@ -147,6 +147,11 @@
 		</div>
 	{/each}
 	<div class="flex justify-between mt-10">
+		{#if $superadmin}
+			<a class="mr-10" href="/user/superadmin_settings">
+				<Icon data={faCrown} class="mr-1" scale={1} />Superadmin settings</a
+			>
+		{/if}
 		<a class="mr-10" href="/user/settings">
 			<Icon data={faUserCog} class="mr-1" scale={1} />User settings</a
 		>

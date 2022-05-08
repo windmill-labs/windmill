@@ -136,6 +136,18 @@ export function validatePassword(password: string): boolean {
 	return re.test(password)
 }
 
+export async function refreshSuperadmin(): Promise<void> {
+	if (get(superadmin) == undefined) {
+		UserService.globalWhoami().then((x) => {
+			if (x.super_admin) {
+				superadmin.set(x.email)
+			} else {
+				superadmin.set(false)
+			}
+		})
+	}
+}
+
 export async function logout(logoutMessage?: string): Promise<void> {
 	try {
 		superadmin.set(undefined)

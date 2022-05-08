@@ -4,8 +4,7 @@
 
 	import type Modal from './Modal.svelte';
 	import { createEventDispatcher } from 'svelte';
-	import { workspaceStore } from '../../stores';
-	import { WorkspaceService } from '../../gen';
+	import { UserService } from '../../gen';
 
 	const dispatch = createEventDispatcher();
 
@@ -18,25 +17,30 @@
 	}
 
 	let email: string;
-	let is_admin = false;
+	let is_super_admin = false;
+	let password: string;
+	let name: string | undefined;
+	let company: string | undefined;
 
 	function handleKeyUp(event: KeyboardEvent) {
 		const key = event.key || event.keyCode;
 		if (key === 13 || key === 'Enter') {
 			event.preventDefault();
-			inviteUser();
+			addUser();
 		}
 	}
 
-	async function inviteUser() {
-		await WorkspaceService.inviteUser({
-			workspace: $workspaceStore!,
+	async function addUser() {
+		await UserService.createUserGlobally({
 			requestBody: {
 				email,
-				is_admin
+				password,
+				super_admin: is_super_admin,
+				name,
+				company
 			}
 		});
-		sendUserToast(`Successfully invited ${email}. Welcome to them!`);
+		sendUserToast(`Successfully added ${email}. Welcome to them!`);
 		dispatch('new');
 	}
 </script>
@@ -44,15 +48,19 @@
 <div class="flex flex-row">
 	<input on:keyup={handleKeyUp} placeholder="email" bind:value={email} />
 
-	<Switch class="ml-2" bind:checked={is_admin} horizontal={true} label={'admin: '} />
+	<Switch class="ml-2" bind:checked={is_super_admin} horizontal={true} label={'admin: '} />
+	<input on:keyup={handleKeyUp} type="password" placeholder="" bind:value={password} />
+	<input on:keyup={handleKeyUp} placeholder="name" bind:value={name} />
+	<input on:keyup={handleKeyUp} placeholder="company" bind:value={company} />
+
 	<button
 		class="ml-4 w-40 {valid ? 'default-button' : 'default-button-disabled'}"
 		type="button"
 		on:click={() => {
-			inviteUser();
+			addUser();
 		}}
-		disabled={email == undefined}
+		disabled={email == undefined || password == undefined}
 	>
-		Invite
+		Add
 	</button>
 </div>
