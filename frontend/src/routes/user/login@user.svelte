@@ -2,7 +2,7 @@
 	import { goto } from '$app/navigation';
 
 	import { UserService } from '../../gen';
-	import { sendUserToast } from '../../utils';
+	import { refreshSuperadmin, sendUserToast } from '../../utils';
 	import { page } from '$app/stores';
 	import { userStore, usersWorkspaceStore, workspaceStore } from '../../stores';
 	import CenteredModal from './CenteredModal.svelte';
@@ -26,6 +26,7 @@
 					password
 				}
 			});
+			refreshSuperadmin();
 			if (rd) {
 				goto(decodeURI(rd));
 			} else {

@@ -207,6 +207,72 @@ paths:
               schema:
                 type: string
 
+  /users/create:
+    post:
+      summary: create user
+      operationId: createUserGlobally
+      tags:
+        - user
+      requestBody:
+        description: user info
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                email:
+                  type: string
+                password:
+                  type: string
+                super_admin:
+                  type: boolean
+                name:
+                  type: string
+                company:
+                  type: string
+              required:
+                - email
+                - password
+                - super_admin
+      responses:
+        "201":
+          description: user created
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /users/update/{email}:
+    post:
+      summary: global update user (require super admin)
+      operationId: globalUserUpdate
+      tags:
+        - user
+      parameters:
+        - name: email
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        description: new user info
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                is_super_admin:
+                  type: boolean
+      responses:
+        "200":
+          description: user updated
+          content:
+            text/plain:
+              schema:
+                type: string
+
   /w/{workspace}/users/delete/{username}:
     delete:
       summary: delete user (require admin privilege)
@@ -393,7 +459,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/GlobalWhoami"
+                $ref: "#/components/schemas/GlobalUserInfo"
 
   /users/list_invites:
     get:
@@ -614,7 +680,7 @@ paths:
               schema:
                 type: array
                 items:
-                  $ref: "#/components/schemas/User"
+                  $ref: "#/components/schemas/GlobalUserInfo"
 
   /w/{workspace}/workspaces/list_pending_invites:
     get:
@@ -3243,7 +3309,7 @@ components:
         - email
         - is_admin
 
-    GlobalWhoami:
+    GlobalUserInfo:
       type: object
       properties:
         email:

@@ -59,6 +59,7 @@ pub fn global_service() -> Router {
         .route("/accept_invite", post(accept_invite))
         .route("/list_as_super_admin", get(list_users_as_super_admin))
         .route("/setpassword", post(set_password))
+        .route("/create", post(create_user))
         .route("/update/:user", post(update_user))
         .route("/logout", post(logout))
         .route("/tokens/create", post(create_token))
@@ -316,6 +317,18 @@ pub struct User {
     pub role: Option<String>
 }
 
+
+#[derive(FromRow, Serialize)]
+pub struct GlobalUserInfo {
+    email: String,
+    login_type: Option<String>,
+    super_admin: bool,
+    verified: bool,
+    name: Option<String>,
+    company: Option<String>,
+}
+
+
 #[derive(Serialize)]
 pub struct UserInfo {
     pub workspace_id: String,
@@ -368,9 +381,9 @@ pub struct NewUser {
     pub email: String,
     pub password: String,
     pub super_admin: bool,
+    pub name: Option<String>,
+    pub company: Option<String>
 }
-
-
 
 #[derive(Deserialize)]
 pub struct AcceptInvite {
@@ -385,7 +398,6 @@ pub struct DeclineInvite {
 
 #[derive(Deserialize)]
 pub struct EditUser {
-    pub email: String,
     pub is_super_admin: Option<bool>,
 }
 
@@ -482,12 +494,12 @@ async fn list_users_as_super_admin(
     authed: Authed,
     Extension(db): Extension<DB>,
     Query(pagination): Query<Pagination>
-) -> JsonResult<Vec<User>> {
+) -> JsonResult<Vec<GlobalUserInfo>> {
     let mut tx = db.begin().await?;
     require_super_admin(&mut tx, authed.email).await?;
     let (per_page, offset) = crate::utils::paginate(pagination);
 
-    let rows = sqlx::query_as!(User, "SELECT * from usr LIMIT $1 OFFSET $2", per_page as i32, offset as i32)
+    let rows = sqlx::query_as!(GlobalUserInfo, "SELECT email, login_type::text, verified, super_admin, name, company from password LIMIT $1 OFFSET $2", per_page as i32, offset as i32)
         .fetch_all(&mut tx)
         .await?;
     tx.commit().await?;
@@ -586,16 +598,6 @@ async fn whoami(
             role: Some("superadmin".to_string()),
         }))
     }
-}
-
-#[derive(FromRow, Serialize)]
-pub struct GlobalUserInfo {
-    email: String,
-    login_type: Option<String>,
-    super_admin: bool,
-    verified: bool,
-    name: Option<String>,
-    company: Option<String>,
 }
 
 async fn global_whoami(
@@ -837,6 +839,7 @@ async fn update_workspace_user(
 
 async fn update_user(
     Authed { email, .. }: Authed,
+    Path(email_to_update): Path<String>,
     Extension(db): Extension<DB>,
     Json(eu): Json<EditUser>,
 ) -> Result<String> {
@@ -848,7 +851,7 @@ async fn update_user(
             sqlx::query_scalar!(
             "UPDATE password SET super_admin = $1 WHERE email = $2",
             sa,
-            &eu.email
+            &email_to_update
         )
         .execute(&mut tx)
         .await?;
@@ -860,13 +863,52 @@ async fn update_user(
         "users.update",
         ActionKind::Update,
         "global",
-        Some(&eu.email),
+        Some(&email_to_update),
         None,
     )
     .await?;
     tx.commit().await?;
-    Ok(format!("email {} updated", eu.email))
+    Ok(format!("email {} updated", &email_to_update))
 }
+
+async fn create_user(
+    Authed { email, .. }: Authed,
+    Extension(db): Extension<DB>,
+    Extension(argon2): Extension<Arc<Argon2<'_>>>,
+    Json(nu): Json<NewUser>,
+) -> Result<(StatusCode, String)> {
+    let mut tx = db.begin().await?;
+
+    require_super_admin(&mut tx, email.clone()).await?;
+
+    sqlx::query!(
+        "INSERT INTO password(email, verified, password_hash, login_type, super_admin, name, company)
+    VALUES ($1, $2, $3, 'password', $4, $5, $6)",
+        &nu.email,
+        true,
+        &hash_password(argon2, nu.password)?,
+        &nu.super_admin,
+        nu.name,
+        nu.company
+    )
+    .execute(&mut tx)
+    .await?;
+
+
+    audit_log(
+        &mut tx,
+        &email.unwrap(),
+        "users.update",
+        ActionKind::Update,
+        "global",
+        Some(&nu.email),
+        None,
+    )
+    .await?;
+    tx.commit().await?;
+    Ok((StatusCode::CREATED, format!("email {} created", nu.email)))
+}
+
 
 pub fn owner_to_token_owner(user: &str, is_group: bool) -> String {
     let prefix = if is_group { 'g' } else { 'u' };
@@ -909,7 +951,6 @@ async fn delete_user(
     )
     .await?;
     tx.commit().await?;
-
     Ok(format!("username {} deleted", username_to_delete))
 }
 

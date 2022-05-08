@@ -1,10 +1,9 @@
 <script lang="ts">
 	import { SvelteToast } from '@zerodevx/svelte-toast';
-	import { logout, sendUserToast } from '../../utils';
+	import { logout, refreshSuperadmin, sendUserToast } from '../../utils';
 	import { onMount } from 'svelte';
 	import { page } from '$app/stores';
 	import { superadmin, userStore, workspaceStore } from '../../stores';
-	import { UserService } from '../../gen';
 
 	// Default options
 	const toastOptions = {
@@ -51,15 +50,7 @@
 		};
 		workspaceStore.set(undefined);
 		userStore.set(undefined);
-		if ($superadmin == undefined) {
-			UserService.globalWhoami().then((x) => {
-				if (x.super_admin) {
-					superadmin.set(x.email);
-				} else {
-					superadmin.set(false);
-				}
-			});
-		}
+		refreshSuperadmin();
 	});
 </script>
 

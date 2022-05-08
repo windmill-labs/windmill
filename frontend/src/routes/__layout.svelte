@@ -2,7 +2,14 @@
 	import '../app.css';
 
 	import { OpenAPI, UserService, WorkspaceService } from '../gen';
-	import { logout, clickOutside, sendUserToast, logoutWithRedirect, getUser } from '../utils';
+	import {
+		logout,
+		clickOutside,
+		sendUserToast,
+		logoutWithRedirect,
+		getUser,
+		refreshSuperadmin
+	} from '../utils';
 	import { onDestroy, onMount } from 'svelte';
 	import Icon from 'svelte-awesome';
 	import {
@@ -73,15 +80,7 @@
 	}
 
 	async function loadUserInfo() {
-		if ($superadmin == undefined) {
-			UserService.globalWhoami().then((x) => {
-				if (x.super_admin) {
-					superadmin.set(x.email);
-				} else {
-					superadmin.set(false);
-				}
-			});
-		}
+		refreshSuperadmin();
 
 		if (!$usersWorkspaceStore) {
 			try {
