@@ -102,12 +102,17 @@ Windmill is <b>fully open-sourced</b>:
 
 ## How to self-host
 
-`docker-compose up` with the following docker-compose is sufficient:
+`docker volume create caddy_data && docker-compose up` with the following
+docker-compose is sufficient:
 <https://github.com/windmill-labs/windmill-server/blob/main/docker-compose.yml>
 
-The default super-admin user is: admin@windmill.dev
+The default super-admin user is: admin@windmill.dev / changeme
 
-From there, you can create other users.
+From there, you can create other users (do not forget to change the password!)
+
+Detailed instructions for more complex deployments will come soon. For simpler
+docker based ones, the docker-compose.yml file contains all the necessary
+informations.
 
 ## Copyright
 
