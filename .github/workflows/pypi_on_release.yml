@@ -1,0 +1,19 @@
+name: Publish python-client
+on:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  build_lsp:
+    runs-on: [self-hosted, new]
+    steps:
+      - uses: actions/checkout@v2
+      - name: Upload python client
+        env:
+          PYPI_PASSWORD: ${{ secrets.PYPI_PASSWORD }}
+        run: |
+          cd python-client
+          export PATH=$PATH:/usr/local/bin
+          export PATH=$PATH:/root/.local/bin
+          ./publish.sh
