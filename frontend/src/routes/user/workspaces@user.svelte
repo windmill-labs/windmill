@@ -33,7 +33,7 @@
 	}
 
 	async function loadWorkspacesAsAdmin() {
-		workspaces = (await WorkspaceService.listWorkspacesAsSuperAdmin({})).map((x) => {
+		workspaces = (await WorkspaceService.listWorkspacesAsSuperAdmin({ perPage: 1000 })).map((x) => {
 			return { ...x, username: 'superadmin' };
 		});
 	}
