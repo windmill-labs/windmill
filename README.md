@@ -125,3 +125,4 @@ This project is inspired from a previous project called
 led by [Ruben](https://github.com/rubenfiszel) and with large contribution on
 the frontend from [Malo Marrec](https://github.com/malomarrec) who gave his
 blessing to Windmill.
+
