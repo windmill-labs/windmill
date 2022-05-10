@@ -1,22 +1,22 @@
 <script lang="ts">
-	import { goto } from '$app/navigation';
+	import { goto } from '$app/navigation'
 
-	import { UserService } from '../../gen';
-	import { refreshSuperadmin, sendUserToast } from '../../utils';
-	import { page } from '$app/stores';
-	import { userStore, usersWorkspaceStore, workspaceStore } from '../../stores';
-	import CenteredModal from './CenteredModal.svelte';
-	import Icon from 'svelte-awesome';
-	import { faGithub } from '@fortawesome/free-brands-svg-icons';
-	import { slide } from 'svelte/transition';
-	import { onMount } from 'svelte';
+	import { UserService } from '../../gen'
+	import { refreshSuperadmin, sendUserToast } from '../../utils'
+	import { page } from '$app/stores'
+	import { userStore, usersWorkspaceStore, workspaceStore } from '../../stores'
+	import CenteredModal from './CenteredModal.svelte'
+	import Icon from 'svelte-awesome'
+	import { faGithub } from '@fortawesome/free-brands-svg-icons'
+	import { slide } from 'svelte/transition'
+	import { onMount } from 'svelte'
 
-	let email = $page.url.searchParams.get('email') ?? '';
-	let password = $page.url.searchParams.get('password') ?? '';
-	const error = $page.url.searchParams.get('error') ?? undefined;
-	const rd = $page.url.searchParams.get('rd');
+	let email = $page.url.searchParams.get('email') ?? ''
+	let password = $page.url.searchParams.get('password') ?? ''
+	const error = $page.url.searchParams.get('error') ?? undefined
+	const rd = $page.url.searchParams.get('rd')
 
-	let showPassword = false;
+	let showPassword = false
 
 	async function login(): Promise<void> {
 		try {
@@ -25,40 +25,40 @@
 					email: email,
 					password
 				}
-			});
-			refreshSuperadmin();
+			})
+			refreshSuperadmin()
 			if (rd) {
-				goto(decodeURI(rd));
+				goto(decodeURI(rd))
 			} else {
-				goto('/user/workspaces');
+				goto('/user/workspaces')
 			}
 		} catch (err) {
-			sendUserToast(`Cannot login: ${err.body}`, true);
+			sendUserToast(`Cannot login: ${err.body}`, true)
 		}
 	}
 
 	function handleKeyUp(event: KeyboardEvent) {
-		const key = event.key || event.keyCode;
+		const key = event.key || event.keyCode
 		if (key === 13 || key === 'Enter') {
-			event.preventDefault();
-			login();
+			event.preventDefault()
+			login()
 		}
 	}
 
 	async function redirectIfLoggedIn() {
 		try {
-			await UserService.getCurrentEmail();
-			goto('/');
+			await UserService.getCurrentEmail()
+			goto('/')
 		} catch {
-			usersWorkspaceStore.set(undefined);
-			workspaceStore.set(undefined);
-			userStore.set(undefined);
+			usersWorkspaceStore.set(undefined)
+			workspaceStore.set(undefined)
+			userStore.set(undefined)
 		}
 	}
 
 	onMount(() => {
-		setTimeout(redirectIfLoggedIn, 1000);
-	});
+		setTimeout(redirectIfLoggedIn, 1000)
+	})
 </script>
 
 <!-- Enable submit form on enter -->
@@ -77,7 +77,7 @@
 			class="my-6 text-xs text-blue-400 m-auto"
 			id="showPassword"
 			on:click={() => {
-				showPassword = !showPassword;
+				showPassword = !showPassword
 			}}>login without third-party</button
 		>
 	</div>

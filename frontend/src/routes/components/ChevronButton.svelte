@@ -1,18 +1,18 @@
 <script lang="ts">
-	import { faChevronDown, faChevronUp } from '@fortawesome/free-solid-svg-icons';
+	import { faChevronDown, faChevronUp } from '@fortawesome/free-solid-svg-icons'
 
-	import Icon from 'svelte-awesome';
+	import Icon from 'svelte-awesome'
 
-	export let text: string;
+	export let text: string
 
-	export let viewOptions = false;
+	export let viewOptions = false
 </script>
 
 <button
 	type="submit"
 	class="mr-6 text-sm underline text-gray-700 inline-flex  items-center"
 	on:click={() => {
-		viewOptions = !viewOptions;
+		viewOptions = !viewOptions
 	}}
 >
 	<div>

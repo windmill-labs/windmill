@@ -1,6 +1,6 @@
 <script lang="ts">
-	export let height = '24px';
-	export let width = '24px';
+	export let height = '24px'
+	export let width = '24px'
 </script>
 
 <!-- By Fabián Alexis - https://github.com/fabianalexisinostroza/Antu, CC BY-SA 3.0, https://commons.wikimedia.org/w/index.php?curid=49951194 -->

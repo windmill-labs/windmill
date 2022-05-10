@@ -1,53 +1,53 @@
 <script lang="ts">
-	import { goto } from '$app/navigation';
-	import { page } from '$app/stores';
-	import { logout, logoutWithRedirect, sendUserToast } from '../../utils';
-	import { UserService, type WorkspaceInvite, WorkspaceService } from '../../gen';
-	import { superadmin, usersWorkspaceStore, workspaceStore } from '../../stores';
-	import CenteredModal from './CenteredModal.svelte';
-	import Switch from '../components/Switch.svelte';
-	import { faCrown, faUser, faUserAlt, faUserCog } from '@fortawesome/free-solid-svg-icons';
-	import Icon from 'svelte-awesome';
+	import { goto } from '$app/navigation'
+	import { page } from '$app/stores'
+	import { logout, logoutWithRedirect, sendUserToast } from '../../utils'
+	import { UserService, type WorkspaceInvite, WorkspaceService } from '../../gen'
+	import { superadmin, usersWorkspaceStore, workspaceStore } from '../../stores'
+	import CenteredModal from './CenteredModal.svelte'
+	import Switch from '../components/Switch.svelte'
+	import { faCrown, faUser, faUserAlt, faUserCog } from '@fortawesome/free-solid-svg-icons'
+	import Icon from 'svelte-awesome'
 
-	let invites: WorkspaceInvite[] = [];
-	let list_all_as_super_admin: boolean = false;
-	let workspaces: { id: string; name: string; username: string }[] = [];
+	let invites: WorkspaceInvite[] = []
+	let list_all_as_super_admin: boolean = false
+	let workspaces: { id: string; name: string; username: string }[] = []
 
 	async function loadInvites() {
-		invites = await UserService.listWorkspaceInvites();
+		invites = await UserService.listWorkspaceInvites()
 	}
 
 	async function loadWorkspaces() {
 		if (!$usersWorkspaceStore) {
 			try {
-				usersWorkspaceStore.set(await WorkspaceService.listUserWorkspaces());
+				usersWorkspaceStore.set(await WorkspaceService.listUserWorkspaces())
 			} catch {}
 		}
 		if ($usersWorkspaceStore) {
 			if (!$workspaceStore) {
-				workspaceStore.set(localStorage.getItem('workspace')?.toString());
+				workspaceStore.set(localStorage.getItem('workspace')?.toString())
 			}
 		} else {
-			logoutWithRedirect($page.url.pathname);
+			logoutWithRedirect($page.url.pathname)
 		}
 	}
 
 	async function loadWorkspacesAsAdmin() {
 		workspaces = (await WorkspaceService.listWorkspacesAsSuperAdmin({ perPage: 1000 })).map((x) => {
-			return { ...x, username: 'superadmin' };
-		});
+			return { ...x, username: 'superadmin' }
+		})
 	}
 
 	$: {
 		if (list_all_as_super_admin) {
-			loadWorkspacesAsAdmin();
+			loadWorkspacesAsAdmin()
 		} else {
-			workspaces = $usersWorkspaceStore?.workspaces ?? [];
+			workspaces = $usersWorkspaceStore?.workspaces ?? []
 		}
 	}
 
-	loadInvites();
-	loadWorkspaces();
+	loadInvites()
+	loadWorkspaces()
 </script>
 
 <CenteredModal title="Select a workspace" subtitle="Logged in as {$usersWorkspaceStore?.email}">
@@ -84,8 +84,8 @@
 					hover:ring-indigo-300
 					"
 				on:click={() => {
-					workspaceStore.set(workspace.id);
-					goto('/');
+					workspaceStore.set(workspace.id)
+					goto('/')
 				}}
 				><span class="font-mono">{workspace.id}</span> - {workspace.name} as
 				<span class="font-mono">{workspace.username}</span>
@@ -136,9 +136,9 @@
 					on:click={async () => {
 						await UserService.declineInvite({
 							requestBody: { workspace_id: invite.workspace_id }
-						});
-						sendUserToast(`Declined invite to ${invite.workspace_id}`);
-						loadInvites();
+						})
+						sendUserToast(`Declined invite to ${invite.workspace_id}`)
+						loadInvites()
 					}}
 				>
 					decline
@@ -158,7 +158,7 @@
 		<button
 			class="default-button-secondary"
 			on:click={async () => {
-				logout();
+				logout()
 			}}
 		>
 			logout

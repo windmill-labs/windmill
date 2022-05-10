@@ -1,22 +1,22 @@
 <script lang="ts">
-	import { faPlus } from '@fortawesome/free-solid-svg-icons';
-	import type { Schema } from '../../common';
-	import { emptySchema } from '../../utils';
+	import { faPlus } from '@fortawesome/free-solid-svg-icons'
+	import type { Schema } from '../../common'
+	import { emptySchema } from '../../utils'
 
-	import Icon from 'svelte-awesome';
+	import Icon from 'svelte-awesome'
 
-	import { type Flow, FlowModuleValue, ScriptService } from '../../gen';
-	import SchemaEditor from './SchemaEditor.svelte';
-	import type SchemaForm from './SchemaForm.svelte';
-	import { workspaceStore } from '../../stores';
-	import ModuleStep from './ModuleStep.svelte';
-	import FlowPreview from './FlowPreview.svelte';
+	import { type Flow, FlowModuleValue, ScriptService } from '../../gen'
+	import SchemaEditor from './SchemaEditor.svelte'
+	import type SchemaForm from './SchemaForm.svelte'
+	import { workspaceStore } from '../../stores'
+	import ModuleStep from './ModuleStep.svelte'
+	import FlowPreview from './FlowPreview.svelte'
 
-	export let flow: Flow;
+	export let flow: Flow
 
-	let args: Record<string, any> = {};
-	let schemas: Schema[] = [];
-	let schemaForms: (SchemaForm | undefined)[] = [];
+	let args: Record<string, any> = {}
+	let schemas: Schema[] = []
+	let schemaForms: (SchemaForm | undefined)[] = []
 
 	export async function loadSchemas() {
 		await Promise.all(
@@ -25,47 +25,47 @@
 					const script = await ScriptService.getScriptByPath({
 						workspace: $workspaceStore!,
 						path: x.value.path ?? ''
-					});
+					})
 					if (
 						JSON.stringify(Object.keys(script.schema?.properties ?? {}).sort()) !=
 						JSON.stringify(Object.keys(x.input_transform).sort())
 					) {
-						let it = {};
+						let it = {}
 						Object.keys(script.schema?.properties ?? {}).map(
 							(x) =>
 								(it[x] = {
 									type: 'static',
 									value: ''
 								})
-						);
-						schemaForms[i]?.setArgs(it);
+						)
+						schemaForms[i]?.setArgs(it)
 					}
-					schemas[i] = script.schema ?? emptySchema();
+					schemas[i] = script.schema ?? emptySchema()
 				} else {
-					schemaForms[i]?.setArgs({});
-					schemas[i] = emptySchema();
+					schemaForms[i]?.setArgs({})
+					schemas[i] = emptySchema()
 				}
 			})
-		);
-		schemas = schemas;
+		)
+		schemas = schemas
 
 		if (flow.value.modules.length == 0) {
-			addModule();
+			addModule()
 		}
 	}
 
 	function addModule() {
-		schemaForms.push(undefined);
+		schemaForms.push(undefined)
 
 		let newModule = {
 			value: { type: FlowModuleValue.type.SCRIPT, path: '' },
 			input_transform: {}
-		};
-		flow.value.modules = flow.value.modules.concat(newModule);
-		schemas.push(emptySchema());
+		}
+		flow.value.modules = flow.value.modules.concat(newModule)
+		schemas.push(emptySchema())
 	}
 
-	$: $workspaceStore && loadSchemas();
+	$: $workspaceStore && loadSchemas()
 </script>
 
 <!-- <PageHeader title="Flow" /> -->
@@ -87,8 +87,8 @@
 								const script = await ScriptService.getScriptByPath({
 									workspace: $workspaceStore ?? '',
 									path: flow.value.modules[0].value.path ?? ''
-								});
-								flow.schema = script.schema;
+								})
+								flow.schema = script.schema
 							}}
 							>Copy from step 1's schema
 						</button>

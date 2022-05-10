@@ -1,8 +1,8 @@
 <script lang="ts">
-	import { goto } from '$app/navigation';
-	import CenteredPage from './components/CenteredPage.svelte';
+	import { goto } from '$app/navigation'
+	import CenteredPage from './components/CenteredPage.svelte'
 
-	goto('/scripts');
+	goto('/scripts')
 </script>
 
 <CenteredPage>

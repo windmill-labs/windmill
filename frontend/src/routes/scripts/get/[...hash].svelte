@@ -1,8 +1,8 @@
 <script lang="ts">
-	import { page } from '$app/stores';
-	import { ScriptService, type Script } from '../../../gen';
-	import { truncateHash, sendUserToast, displayDaysAgo, canWrite, getUser } from '../../../utils';
-	import Icon from 'svelte-awesome';
+	import { page } from '$app/stores'
+	import { ScriptService, type Script } from '../../../gen'
+	import { truncateHash, sendUserToast, displayDaysAgo, canWrite, getUser } from '../../../utils'
+	import Icon from 'svelte-awesome'
 	import {
 		faPlay,
 		faEdit,
@@ -12,52 +12,52 @@
 		faCalendar,
 		faShare,
 		faSpinner
-	} from '@fortawesome/free-solid-svg-icons';
-	import Highlight from 'svelte-highlight';
-	import python from 'svelte-highlight/src/languages/python';
+	} from '@fortawesome/free-solid-svg-icons'
+	import Highlight from 'svelte-highlight'
+	import python from 'svelte-highlight/src/languages/python'
 
-	import github from 'svelte-highlight/src/styles/github';
-	import Tooltip from '../../components/Tooltip.svelte';
-	import ShareModal from '../../components/ShareModal.svelte';
-	import { userStore, workspaceStore } from '../../../stores';
-	import SharedBadge from '../../components/SharedBadge.svelte';
-	import SvelteMarkdown from 'svelte-markdown';
-	import SchemaViewer from '../../components/SchemaViewer.svelte';
-	import Dropdown from '../../components/Dropdown.svelte';
-	import CenteredPage from '../../components/CenteredPage.svelte';
-	import { onDestroy } from 'svelte';
+	import github from 'svelte-highlight/src/styles/github'
+	import Tooltip from '../../components/Tooltip.svelte'
+	import ShareModal from '../../components/ShareModal.svelte'
+	import { userStore, workspaceStore } from '../../../stores'
+	import SharedBadge from '../../components/SharedBadge.svelte'
+	import SvelteMarkdown from 'svelte-markdown'
+	import SchemaViewer from '../../components/SchemaViewer.svelte'
+	import Dropdown from '../../components/Dropdown.svelte'
+	import CenteredPage from '../../components/CenteredPage.svelte'
+	import { onDestroy } from 'svelte'
 
-	let script: Script | undefined;
-	let topHash: string | undefined;
-	let can_write = false;
-	let deploymentInProgress = false;
-	let intervalId: NodeJS.Timer;
+	let script: Script | undefined
+	let topHash: string | undefined
+	let can_write = false
+	let deploymentInProgress = false
+	let intervalId: NodeJS.Timer
 
-	let shareModal: ShareModal;
+	let shareModal: ShareModal
 
 	$: {
 		if ($workspaceStore) {
-			loadScript($page.params.hash);
+			loadScript($page.params.hash)
 		}
 	}
 
 	async function deleteScript(hash: string): Promise<void> {
 		try {
-			await ScriptService.deleteScriptByHash({ workspace: $workspaceStore!, hash });
-			loadScript(hash);
+			await ScriptService.deleteScriptByHash({ workspace: $workspaceStore!, hash })
+			loadScript(hash)
 		} catch (err) {
-			console.error(err);
-			sendUserToast(`Could not delete this script ${err.body}`, true);
+			console.error(err)
+			sendUserToast(`Could not delete this script ${err.body}`, true)
 		}
 	}
 
 	async function archiveScript(hash: string): Promise<void> {
 		try {
-			await ScriptService.archiveScriptByHash({ workspace: $workspaceStore!, hash });
-			loadScript(hash);
+			await ScriptService.archiveScriptByHash({ workspace: $workspaceStore!, hash })
+			loadScript(hash)
 		} catch (err) {
-			console.error(err);
-			sendUserToast(`Could not archive this script ${err.body}`, true);
+			console.error(err)
+			sendUserToast(`Could not archive this script ${err.body}`, true)
 		}
 	}
 
@@ -66,45 +66,45 @@
 			const status = await ScriptService.getScriptDeploymentStatus({
 				workspace: $workspaceStore!,
 				hash: script?.hash!
-			});
+			})
 			if (status.lock != undefined || status.lock_error_logs != undefined) {
-				deploymentInProgress = false;
-				script.lock = status.lock;
-				script.lock_error_logs = status.lock_error_logs;
-				clearInterval(intervalId);
+				deploymentInProgress = false
+				script.lock = status.lock
+				script.lock_error_logs = status.lock_error_logs
+				clearInterval(intervalId)
 			}
 		}
 	}
 
 	async function loadScript(hash: string): Promise<void> {
 		try {
-			script = await ScriptService.getScriptByHash({ workspace: $workspaceStore!, hash });
+			script = await ScriptService.getScriptByHash({ workspace: $workspaceStore!, hash })
 		} catch {
-			script = await ScriptService.getScriptByPath({ workspace: $workspaceStore!, path: hash });
-			hash = script.hash;
+			script = await ScriptService.getScriptByPath({ workspace: $workspaceStore!, path: hash })
+			hash = script.hash
 		}
-		const user = await getUser($workspaceStore!);
+		const user = await getUser($workspaceStore!)
 		can_write =
-			script.workspace_id == $workspaceStore && canWrite(script.path, script.extra_perms!, user);
+			script.workspace_id == $workspaceStore && canWrite(script.path, script.extra_perms!, user)
 		if (script.path && script.archived) {
 			const script_by_path = await ScriptService.getScriptByPath({
 				workspace: $workspaceStore!,
 				path: script.path
-			}).catch((e) => console.error('this script has no non-archived version'));
-			topHash = script_by_path?.hash;
+			}).catch((e) => console.error('this script has no non-archived version'))
+			topHash = script_by_path?.hash
 		} else {
-			topHash = undefined;
+			topHash = undefined
 		}
-		intervalId && clearInterval(intervalId);
-		deploymentInProgress = script.lock == undefined && script.lock_error_logs == undefined;
+		intervalId && clearInterval(intervalId)
+		deploymentInProgress = script.lock == undefined && script.lock_error_logs == undefined
 		if (deploymentInProgress) {
-			intervalId = setInterval(syncer, 500);
+			intervalId = setInterval(syncer, 500)
 		}
 	}
 
 	onDestroy(() => {
-		intervalId && clearInterval(intervalId);
-	});
+		intervalId && clearInterval(intervalId)
+	})
 </script>
 
 <svelte:head>
@@ -146,7 +146,7 @@
 							displayName: 'Share',
 							icon: faShare,
 							action: () => {
-								shareModal.openModal();
+								shareModal.openModal()
 							},
 							disabled: !can_write
 						},
@@ -160,7 +160,7 @@
 							icon: faArchive,
 							type: 'delete',
 							action: () => {
-								script?.hash && archiveScript(script.hash);
+								script?.hash && archiveScript(script.hash)
 							},
 							disabled: script.archived || !can_write
 						},
@@ -169,7 +169,7 @@
 							icon: faTrash,
 							type: 'delete',
 							action: () => {
-								script?.hash && deleteScript(script.hash);
+								script?.hash && deleteScript(script.hash)
 							},
 							disabled: script.deleted || !($userStore?.is_admin ?? false)
 						}

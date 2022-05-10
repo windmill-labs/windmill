@@ -1,20 +1,20 @@
 <script lang="ts">
-	import { faSortDown } from '@fortawesome/free-solid-svg-icons';
-	import type { DropdownItem } from '../../utils';
-	import { createEventDispatcher } from 'svelte';
-	import Icon from 'svelte-awesome';
-	import Dropdown from './Dropdown.svelte';
+	import { faSortDown } from '@fortawesome/free-solid-svg-icons'
+	import type { DropdownItem } from '../../utils'
+	import { createEventDispatcher } from 'svelte'
+	import Icon from 'svelte-awesome'
+	import Dropdown from './Dropdown.svelte'
 
-	export let dropdownItems: DropdownItem[] = [];
+	export let dropdownItems: DropdownItem[] = []
 
-	const dispatch = createEventDispatcher();
+	const dispatch = createEventDispatcher()
 </script>
 
 <div class="bg-blue-500 rounded-sm {$$props.class} inline-block py-0 my-0 ">
 	<button
 		class="inline pl-2 text-white text-sm py-0 my-0"
 		on:click={() => {
-			dispatch('clickMain');
+			dispatch('clickMain')
 		}}><slot name="name">Add script</slot></button
 	>
 	<Dropdown

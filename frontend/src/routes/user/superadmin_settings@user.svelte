@@ -1,41 +1,41 @@
 <script lang="ts">
-	import Fuse from 'fuse.js';
+	import Fuse from 'fuse.js'
 
-	import { superadmin, usersWorkspaceStore } from '../../stores';
+	import { superadmin, usersWorkspaceStore } from '../../stores'
 
-	import { UserService, SettingsService, GlobalUserInfo } from '../../gen';
-	import { displayDate, sendUserToast, getToday } from '../../utils';
-	import Icon from 'svelte-awesome';
-	import { faPlus } from '@fortawesome/free-solid-svg-icons';
-	import TableCustom from '../components/TableCustom.svelte';
-	import CenteredModal from './CenteredModal.svelte';
-	import PageHeader from '../components/PageHeader.svelte';
-	import InviteGlobalUser from '../components/InviteGlobalUser.svelte';
+	import { UserService, SettingsService, GlobalUserInfo } from '../../gen'
+	import { displayDate, sendUserToast, getToday } from '../../utils'
+	import Icon from 'svelte-awesome'
+	import { faPlus } from '@fortawesome/free-solid-svg-icons'
+	import TableCustom from '../components/TableCustom.svelte'
+	import CenteredModal from './CenteredModal.svelte'
+	import PageHeader from '../components/PageHeader.svelte'
+	import InviteGlobalUser from '../components/InviteGlobalUser.svelte'
 
-	let version: string | undefined;
-	let users: GlobalUserInfo[] = [];
-	let filteredUsers: GlobalUserInfo[] | undefined;
-	let userFilter = '';
+	let version: string | undefined
+	let users: GlobalUserInfo[] = []
+	let filteredUsers: GlobalUserInfo[] | undefined
+	let userFilter = ''
 
 	const fuseOptions = {
 		includeScore: false,
 		keys: ['email', 'name', 'company']
-	};
+	}
 
-	const fuse: Fuse<GlobalUserInfo> = new Fuse(users, fuseOptions);
-	$: filteredUsers = fuse?.search(userFilter).map((value) => value.item);
+	const fuse: Fuse<GlobalUserInfo> = new Fuse(users, fuseOptions)
+	$: filteredUsers = fuse?.search(userFilter).map((value) => value.item)
 
 	async function loadVersion(): Promise<void> {
-		version = await SettingsService.backendVersion();
+		version = await SettingsService.backendVersion()
 	}
 
 	async function listUsers(): Promise<void> {
-		users = await UserService.listUsersAsSuperAdmin({});
-		fuse?.setCollection(users);
+		users = await UserService.listUsersAsSuperAdmin({})
+		fuse?.setCollection(users)
 	}
 
-	loadVersion();
-	listUsers();
+	loadVersion()
+	listUsers()
 </script>
 
 <CenteredModal title="Global Users Settings">
@@ -79,8 +79,8 @@
 										requestBody: {
 											is_super_admin: !super_admin
 										}
-									});
-									listUsers();
+									})
+									listUsers()
 								}}>{super_admin ? 'demote' : 'promote'}</button
 							></td
 						>

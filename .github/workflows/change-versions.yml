@@ -8,7 +8,7 @@ jobs:
   change_version:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v3
       - name: Change versions
         run: ./.github/change-versions.sh "$(cat version.txt)"
       - uses: stefanzweifel/git-auto-commit-action@v4

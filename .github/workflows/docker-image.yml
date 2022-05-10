@@ -19,7 +19,7 @@ jobs:
   build:
     runs-on: [self-hosted, new]
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v3
         with:
           fetch-depth: 0
       - name: Set up Docker Buildx
@@ -35,7 +35,21 @@ jobs:
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
 
+      - name: Build and push privately
+        uses: docker/build-push-action@v3
+        if: github.event_name == 'pull_request'
+        with:
+          context: .
+          push: true
+          tags: |
+            ${{ steps.metalocal.outputs.tags }}
+
+          labels: ${{ steps.metalocal.outputs.labels }}
+          cache-from: type=registry,ref=registry.wimill.xyz/windmilllabs/windmill:buildcache
+          cache-to: type=registry,ref=registry.wimill.xyz/windmilllabs/windmill:buildcache,mode=max
+
       - name: Docker meta
+        if: github.event_name != 'pull_request'
         id: meta
         uses: docker/metadata-action@v4
         with:
@@ -54,11 +68,12 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build and push
+      - name: Build and push publically
         uses: docker/build-push-action@v3
+        if: github.event_name != 'pull_request'
         with:
           context: .
-          push: ${{ github.event_name != 'pull_request' }}
+          push: true
           tags: |
             ${{ steps.metalocal.outputs.tags }}
             ${{ steps.meta.outputs.tags }}

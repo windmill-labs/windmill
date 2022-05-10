@@ -1,24 +1,18 @@
 <script lang="ts">
-	import { faHourglassHalf, faSpinner, faTimes } from '@fortawesome/free-solid-svg-icons';
-	import { truncateRev } from '../../utils';
+	import { faHourglassHalf, faSpinner, faTimes } from '@fortawesome/free-solid-svg-icons'
+	import { truncateRev } from '../../utils'
 
-	import Icon from 'svelte-awesome';
-	import { check } from 'svelte-awesome/icons';
+	import Icon from 'svelte-awesome'
+	import { check } from 'svelte-awesome/icons'
 
-	import {
-		CompletedJob,
-		FlowModuleValue,
-		FlowStatusModule,
-		JobService,
-		QueuedJob
-	} from '../../gen';
-	import { workspaceStore } from '../../stores';
-	import DisplayResult from './DisplayResult.svelte';
-	import ChevronButton from './ChevronButton.svelte';
-	import JobStatus from './JobStatus.svelte';
+	import { CompletedJob, FlowModuleValue, FlowStatusModule, JobService, QueuedJob } from '../../gen'
+	import { workspaceStore } from '../../stores'
+	import DisplayResult from './DisplayResult.svelte'
+	import ChevronButton from './ChevronButton.svelte'
+	import JobStatus from './JobStatus.svelte'
 
-	export let job: QueuedJob | CompletedJob;
-	export let jobs: (CompletedJob | undefined)[];
+	export let job: QueuedJob | CompletedJob
+	export let jobs: (CompletedJob | undefined)[]
 
 	function loadResults() {
 		job?.flow_status?.modules?.forEach(async (x, i) => {
@@ -26,13 +20,13 @@
 				(i >= jobs.length && x.type == FlowStatusModule.type.SUCCESS) ||
 				x.type == FlowStatusModule.type.FAILURE
 			) {
-				jobs.push(undefined);
-				jobs[i] = await JobService.getCompletedJob({ workspace: $workspaceStore!, id: x.job! });
+				jobs.push(undefined)
+				jobs[i] = await JobService.getCompletedJob({ workspace: $workspaceStore!, id: x.job! })
 			}
-		});
+		})
 	}
 
-	$: $workspaceStore && job && loadResults();
+	$: $workspaceStore && job && loadResults()
 </script>
 
 <div class="flow-root max-w-lg w-full p-4">

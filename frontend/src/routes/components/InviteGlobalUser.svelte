@@ -1,32 +1,32 @@
 <script lang="ts">
-	import { sendUserToast } from '../../utils';
-	import Switch from '../components/Switch.svelte';
+	import { sendUserToast } from '../../utils'
+	import Switch from '../components/Switch.svelte'
 
-	import type Modal from './Modal.svelte';
-	import { createEventDispatcher } from 'svelte';
-	import { UserService } from '../../gen';
+	import type Modal from './Modal.svelte'
+	import { createEventDispatcher } from 'svelte'
+	import { UserService } from '../../gen'
 
-	const dispatch = createEventDispatcher();
+	const dispatch = createEventDispatcher()
 
-	let valid = true;
+	let valid = true
 
-	let modal: Modal;
+	let modal: Modal
 
 	export function openModal(): void {
-		modal.openModal();
+		modal.openModal()
 	}
 
-	let email: string;
-	let is_super_admin = false;
-	let password: string;
-	let name: string | undefined;
-	let company: string | undefined;
+	let email: string
+	let is_super_admin = false
+	let password: string
+	let name: string | undefined
+	let company: string | undefined
 
 	function handleKeyUp(event: KeyboardEvent) {
-		const key = event.key || event.keyCode;
+		const key = event.key || event.keyCode
 		if (key === 13 || key === 'Enter') {
-			event.preventDefault();
-			addUser();
+			event.preventDefault()
+			addUser()
 		}
 	}
 
@@ -39,9 +39,9 @@
 				name,
 				company
 			}
-		});
-		sendUserToast(`Successfully added ${email}. Welcome to them!`);
-		dispatch('new');
+		})
+		sendUserToast(`Successfully added ${email}. Welcome to them!`)
+		dispatch('new')
 	}
 </script>
 
@@ -57,7 +57,7 @@
 		class="ml-4 w-40 {valid ? 'default-button' : 'default-button-disabled'}"
 		type="button"
 		on:click={() => {
-			addUser();
+			addUser()
 		}}
 		disabled={email == undefined || password == undefined}
 	>

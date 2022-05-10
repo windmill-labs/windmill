@@ -1,14 +1,14 @@
 <script lang="ts">
-	import { createEventDispatcher } from 'svelte';
+	import { createEventDispatcher } from 'svelte'
 	// A table suitable if you can pass data as a list of row objects
-	export let headers: string[] | undefined;
-	export let data: any[] | undefined; // Object containing the data
-	export let keys: string[];
-	export let defaultText: string = 'No data to display';
-	export let paginated = false;
-	export let twTextSize: string = 'text-sm md:text-base';
+	export let headers: string[] | undefined
+	export let data: any[] | undefined // Object containing the data
+	export let keys: string[]
+	export let defaultText: string = 'No data to display'
+	export let paginated = false
+	export let twTextSize: string = 'text-sm md:text-base'
 
-	const dispatch = createEventDispatcher();
+	const dispatch = createEventDispatcher()
 </script>
 
 <div class="mt-8 flex flex-col {$$props.class}">
@@ -55,13 +55,13 @@
 	<div class="flex flex-row-reverse text-gray-500">
 		<button
 			on:click={() => {
-				dispatch('next');
+				dispatch('next')
 			}}>Next</button
 		>
 		<button
 			class="mx-2"
 			on:click={() => {
-				dispatch('next');
+				dispatch('next')
 			}}>Previous</button
 		>
 	</div>

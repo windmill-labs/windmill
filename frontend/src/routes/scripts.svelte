@@ -1,10 +1,10 @@
 <script lang="ts">
-	import Fuse from 'fuse.js';
-	import { ScriptService } from '../gen';
-	import type { Script } from '../gen';
+	import Fuse from 'fuse.js'
+	import { ScriptService } from '../gen'
+	import type { Script } from '../gen'
 
-	import { sendUserToast, groupBy, truncateHash, canWrite } from '../utils';
-	import Icon from 'svelte-awesome';
+	import { sendUserToast, groupBy, truncateHash, canWrite } from '../utils'
+	import Icon from 'svelte-awesome'
 	import {
 		faArchive,
 		faCalendarAlt,
@@ -14,118 +14,118 @@
 		faPlay,
 		faPlus,
 		faShare
-	} from '@fortawesome/free-solid-svg-icons';
+	} from '@fortawesome/free-solid-svg-icons'
 
-	import Dropdown from './components/Dropdown.svelte';
-	import PageHeader from './components/PageHeader.svelte';
-	import Modal from './components/Modal.svelte';
-	import Tooltip from './components/Tooltip.svelte';
-	import ShareModal from './components/ShareModal.svelte';
-	import SharedBadge from './components/SharedBadge.svelte';
-	import { superadmin, usernameStore, userStore, workspaceStore } from '../stores';
-	import CenteredPage from './components/CenteredPage.svelte';
-	import Tabs from './components/Tabs.svelte';
-	import { slide } from 'svelte/transition';
-	import Badge from './components/Badge.svelte';
+	import Dropdown from './components/Dropdown.svelte'
+	import PageHeader from './components/PageHeader.svelte'
+	import Modal from './components/Modal.svelte'
+	import Tooltip from './components/Tooltip.svelte'
+	import ShareModal from './components/ShareModal.svelte'
+	import SharedBadge from './components/SharedBadge.svelte'
+	import { superadmin, usernameStore, userStore, workspaceStore } from '../stores'
+	import CenteredPage from './components/CenteredPage.svelte'
+	import Tabs from './components/Tabs.svelte'
+	import { slide } from 'svelte/transition'
+	import Badge from './components/Badge.svelte'
 
-	type Tab = 'all' | 'personal' | 'groups' | 'shared' | 'community';
-	type Section = [string, ScriptW[]];
-	type ScriptW = Script & { canWrite: boolean; tab: Tab };
-	let scripts: ScriptW[] = [];
-	let filteredScripts: ScriptW[];
-	let scriptFilter = '';
-	let groupedScripts: Section[] = [];
-	let communityScripts: Section[] = [];
+	type Tab = 'all' | 'personal' | 'groups' | 'shared' | 'community'
+	type Section = [string, ScriptW[]]
+	type ScriptW = Script & { canWrite: boolean; tab: Tab }
+	let scripts: ScriptW[] = []
+	let filteredScripts: ScriptW[]
+	let scriptFilter = ''
+	let groupedScripts: Section[] = []
+	let communityScripts: Section[] = []
 
-	let templateModal: Modal;
-	let templateScripts: Script[] = [];
-	let templateFilter = '';
-	let filteredTemplates: Script[] | undefined;
-	let tab: Tab = 'all';
+	let templateModal: Modal
+	let templateScripts: Script[] = []
+	let templateFilter = ''
+	let filteredTemplates: Script[] | undefined
+	let tab: Tab = 'all'
 
-	let shareModal: ShareModal;
+	let shareModal: ShareModal
 
 	const fuseOptions = {
 		includeScore: false,
 		keys: ['description', 'path', 'content', 'hash', 'summary']
-	};
-	const fuse: Fuse<ScriptW> = new Fuse(scripts, fuseOptions);
+	}
+	const fuse: Fuse<ScriptW> = new Fuse(scripts, fuseOptions)
 
-	const templateFuse: Fuse<Script> = new Fuse(templateScripts, fuseOptions);
+	const templateFuse: Fuse<Script> = new Fuse(templateScripts, fuseOptions)
 
 	$: filteredScripts =
-		scriptFilter.length > 0 ? fuse.search(scriptFilter).map((value) => value.item) : scripts;
+		scriptFilter.length > 0 ? fuse.search(scriptFilter).map((value) => value.item) : scripts
 
 	$: filteredTemplates =
 		templateFilter.length > 0
 			? templateFuse.search(templateFilter).map((value) => value.item)
-			: templateScripts;
+			: templateScripts
 
 	$: {
-		let defaults: string[] = [];
+		let defaults: string[] = []
 
 		if (tab == 'all' || tab == 'personal') {
-			defaults = defaults.concat(`u/${$usernameStore}`);
+			defaults = defaults.concat(`u/${$usernameStore}`)
 		}
 		if (tab == 'all' || tab == 'groups') {
-			defaults = defaults.concat($userStore?.groups.map((x) => `g/${x}`) ?? []);
+			defaults = defaults.concat($userStore?.groups.map((x) => `g/${x}`) ?? [])
 		}
 		groupedScripts = groupBy(
 			filteredScripts.filter((x) => x.tab != 'community'),
 			(sc: Script) => sc.path.split('/').slice(0, 2).join('/'),
 			defaults
-		);
-		communityScripts = [['community', filteredScripts.filter((x) => x.tab == 'community')]];
+		)
+		communityScripts = [['community', filteredScripts.filter((x) => x.tab == 'community')]]
 	}
 
 	async function loadTemplateScripts(): Promise<void> {
 		templateScripts = await ScriptService.listScripts({
 			workspace: $workspaceStore!,
 			isTemplate: true
-		});
-		templateFuse.setCollection(templateScripts);
+		})
+		templateFuse.setCollection(templateScripts)
 	}
 
 	function tabFromPath(path: string) {
-		let t: Tab = 'shared';
-		let path_prefix = path.split('/').slice(0, 2);
+		let t: Tab = 'shared'
+		let path_prefix = path.split('/').slice(0, 2)
 		if (path_prefix[0] == 'u' && path_prefix[1] == $usernameStore) {
-			t = 'personal';
+			t = 'personal'
 		} else if (path_prefix[0] == 'g' && $userStore?.groups.includes(path_prefix[1])) {
-			t = 'groups';
+			t = 'groups'
 		}
-		return t;
+		return t
 	}
 
 	async function loadScripts(): Promise<void> {
 		const allScripts = (await ScriptService.listScripts({ workspace: $workspaceStore! })).map(
 			(x: Script) => {
-				let t: Tab = x.workspace_id == $workspaceStore ? tabFromPath(x.path) : 'community';
+				let t: Tab = x.workspace_id == $workspaceStore ? tabFromPath(x.path) : 'community'
 				return {
 					canWrite:
 						canWrite(x.path, x.extra_perms, $userStore) && x.workspace_id == $workspaceStore,
 					tab: t,
 					...x
-				};
+				}
 			}
-		);
-		scripts = tab == 'all' ? allScripts : allScripts.filter((x) => x.tab == tab);
-		fuse.setCollection(scripts);
+		)
+		scripts = tab == 'all' ? allScripts : allScripts.filter((x) => x.tab == tab)
+		fuse.setCollection(scripts)
 	}
 
 	async function archiveScript(path: string): Promise<void> {
 		try {
-			await ScriptService.archiveScriptByPath({ workspace: $workspaceStore!, path });
-			loadScripts();
-			sendUserToast(`Successfully archived script ${path}`);
+			await ScriptService.archiveScriptByPath({ workspace: $workspaceStore!, path })
+			loadScripts()
+			sendUserToast(`Successfully archived script ${path}`)
 		} catch (err) {
-			sendUserToast(`Could not archive this script ${err.body}`, true);
+			sendUserToast(`Could not archive this script ${err.body}`, true)
 		}
 	}
 
 	$: {
 		if ($workspaceStore && ($userStore || $superadmin)) {
-			loadScripts();
+			loadScripts()
 		}
 	}
 </script>
@@ -144,7 +144,7 @@
 			<button
 				class="default-button-secondary border-none"
 				on:click={() => {
-					templateModal.openModal();
+					templateModal.openModal()
 				}}
 				><Icon class="text-blue-500 mb-1" data={faPlus} scale={0.9} /> New script from template</button
 			>
@@ -279,7 +279,7 @@
 															displayName: 'Share',
 															icon: faShare,
 															action: () => {
-																shareModal.openModal(path);
+																shareModal.openModal(path)
 															},
 															disabled: !canWrite
 														},
@@ -287,7 +287,7 @@
 															displayName: 'Archive',
 															icon: faArchive,
 															action: () => {
-																path ? archiveScript(path) : null;
+																path ? archiveScript(path) : null
 															},
 															type: 'delete',
 															disabled: !canWrite
@@ -322,14 +322,14 @@
 	bind:this={shareModal}
 	kind="script"
 	on:change={() => {
-		loadScripts();
+		loadScripts()
 	}}
 />
 
 <Modal
 	bind:this={templateModal}
 	on:open={() => {
-		loadTemplateScripts();
+		loadTemplateScripts()
 	}}
 >
 	<div slot="title">Pick a template</div>

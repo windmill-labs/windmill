@@ -1,58 +1,58 @@
 <script lang="ts">
-	import { canWrite, emptySchema, getUser, sendUserToast } from '../utils';
-	import { ResourceService } from '../gen';
-	import type { Resource, ResourceType } from '../gen';
-	import PageHeader from './components/PageHeader.svelte';
-	import ResourceEditor from './components/ResourceEditor.svelte';
-	import Button from './components/Button.svelte';
-	import TableCustom from './components/TableCustom.svelte';
-	import Modal from './components/Modal.svelte';
-	import Highlight from 'svelte-highlight';
-	import json from 'svelte-highlight/src/languages/json';
-	import github from 'svelte-highlight/src/styles/github';
-	import IconedResourceType from './components/IconedResourceType.svelte';
-	import ShareModal from './components/ShareModal.svelte';
-	import SharedBadge from './components/SharedBadge.svelte';
-	import SvelteMarkdown from 'svelte-markdown';
-	import { userStore, workspaceStore, type UserExt } from '../stores';
-	import SchemaEditor from './components/SchemaEditor.svelte';
-	import type { Schema } from '../common';
-	import SchemaViewer from './components/SchemaViewer.svelte';
-	import Dropdown from './components/Dropdown.svelte';
-	import { faEdit, faPlus, faShare, faTrash } from '@fortawesome/free-solid-svg-icons';
-	import CenteredPage from './components/CenteredPage.svelte';
-	import Icon from 'svelte-awesome';
-	import Required from './components/Required.svelte';
+	import { canWrite, emptySchema, getUser, sendUserToast } from '../utils'
+	import { ResourceService } from '../gen'
+	import type { Resource, ResourceType } from '../gen'
+	import PageHeader from './components/PageHeader.svelte'
+	import ResourceEditor from './components/ResourceEditor.svelte'
+	import Button from './components/Button.svelte'
+	import TableCustom from './components/TableCustom.svelte'
+	import Modal from './components/Modal.svelte'
+	import Highlight from 'svelte-highlight'
+	import json from 'svelte-highlight/src/languages/json'
+	import github from 'svelte-highlight/src/styles/github'
+	import IconedResourceType from './components/IconedResourceType.svelte'
+	import ShareModal from './components/ShareModal.svelte'
+	import SharedBadge from './components/SharedBadge.svelte'
+	import SvelteMarkdown from 'svelte-markdown'
+	import { userStore, workspaceStore, type UserExt } from '../stores'
+	import SchemaEditor from './components/SchemaEditor.svelte'
+	import type { Schema } from '../common'
+	import SchemaViewer from './components/SchemaViewer.svelte'
+	import Dropdown from './components/Dropdown.svelte'
+	import { faEdit, faPlus, faShare, faTrash } from '@fortawesome/free-solid-svg-icons'
+	import CenteredPage from './components/CenteredPage.svelte'
+	import Icon from 'svelte-awesome'
+	import Required from './components/Required.svelte'
 
-	type ResourceW = Resource & { canWrite: boolean };
-	type ResourceTypeW = ResourceType & { canWrite: boolean };
+	type ResourceW = Resource & { canWrite: boolean }
+	type ResourceTypeW = ResourceType & { canWrite: boolean }
 
-	let resources: ResourceW[] | undefined;
-	let resourceTypes: ResourceTypeW[] | undefined;
-	let resourceViewer: Modal;
-	let resourceViewerTitle: string = '';
-	let resourceViewerSchema: Schema = emptySchema();
+	let resources: ResourceW[] | undefined
+	let resourceTypes: ResourceTypeW[] | undefined
+	let resourceViewer: Modal
+	let resourceViewerTitle: string = ''
+	let resourceViewerSchema: Schema = emptySchema()
 
-	let typeModalMode: 'view' | 'view-type' | 'create' = 'view';
-	let newResourceTypeName: string;
-	let newResourceTypeSchema: Schema;
-	let newResourceTypeDescription: string;
+	let typeModalMode: 'view' | 'view-type' | 'create' = 'view'
+	let newResourceTypeName: string
+	let newResourceTypeSchema: Schema
+	let newResourceTypeDescription: string
 
-	let resourceEditor: ResourceEditor | undefined;
+	let resourceEditor: ResourceEditor | undefined
 
-	let user: UserExt | undefined;
-	$: user = $userStore;
+	let user: UserExt | undefined
+	$: user = $userStore
 
-	let shareModal: ShareModal;
+	let shareModal: ShareModal
 
 	async function loadResources(): Promise<void> {
-		const user = await getUser($workspaceStore!);
+		const user = await getUser($workspaceStore!)
 		resources = (await ResourceService.listResource({ workspace: $workspaceStore! })).map((x) => {
 			return {
 				canWrite: canWrite(x.path, x.extra_perms!, user) && $workspaceStore! == x.workspace_id,
 				...x
-			};
-		});
+			}
+		})
 	}
 
 	async function loadResourceTypes(): Promise<void> {
@@ -61,14 +61,14 @@
 				return {
 					canWrite: $workspaceStore! == x.workspace_id,
 					...x
-				};
+				}
 			}
-		);
+		)
 	}
 
 	async function deleteResource(path: string): Promise<void> {
-		await ResourceService.deleteResource({ workspace: $workspaceStore!, path });
-		loadResources();
+		await ResourceService.deleteResource({ workspace: $workspaceStore!, path })
+		loadResources()
 	}
 
 	async function addResourceType(): Promise<void> {
@@ -80,34 +80,34 @@
 					schema: newResourceTypeSchema,
 					description: newResourceTypeDescription
 				}
-			});
-			resourceViewer.closeModal();
-			loadResourceTypes();
+			})
+			resourceViewer.closeModal()
+			loadResourceTypes()
 		} catch (err) {
-			sendUserToast(`Could not create resource type: ${err?.body || err}`, true);
+			sendUserToast(`Could not create resource type: ${err?.body || err}`, true)
 		}
 	}
 
 	async function handleDeleteResourceType(name: string) {
 		try {
-			await ResourceService.deleteResourceType({ workspace: $workspaceStore!, path: name });
-			loadResourceTypes();
+			await ResourceService.deleteResourceType({ workspace: $workspaceStore!, path: name })
+			loadResourceTypes()
 		} catch (err) {
 			if (err.status === 400 && err.body.includes('foreign key')) {
 				sendUserToast(
 					`Could not delete resource type because there are resources attached to it. Delete resources using this type first.`,
 					true
-				);
+				)
 			} else {
-				sendUserToast(`Could not delete resource type: ${err?.body || err}`, true);
+				sendUserToast(`Could not delete resource type: ${err?.body || err}`, true)
 			}
 		}
 	}
 
 	$: {
 		if ($workspaceStore) {
-			loadResources();
-			loadResourceTypes();
+			loadResources()
+			loadResourceTypes()
 		}
 	}
 </script>
@@ -121,7 +121,7 @@
 		<button
 			class="default-button"
 			on:click={() => {
-				resourceEditor?.initNew();
+				resourceEditor?.initNew()
 			}}><Icon class="text-white mb-1" data={faPlus} scale={0.9} /> &nbsp; Add a resource</button
 		>
 	</PageHeader>
@@ -142,15 +142,15 @@
 								><a
 									href="#{path}"
 									on:click={async () => {
-										resourceViewerTitle = `Resource ${path}`;
+										resourceViewerTitle = `Resource ${path}`
 										resourceViewerSchema = (
 											await ResourceService.getResource({
 												workspace: $workspaceStore ?? 'no_workspace',
 												path
 											})
-										).value;
-										typeModalMode = 'view';
-										resourceViewer.openModal();
+										).value
+										typeModalMode = 'view'
+										resourceViewer.openModal()
 									}}>{path}</a
 								>
 								<div class="mb-1 -mt-1"><SharedBadge {canWrite} extraPerms={extra_perms} /></div>
@@ -165,7 +165,7 @@
 											icon: faShare,
 											disabled: !canWrite,
 											action: () => {
-												shareModal.openModal(path);
+												shareModal.openModal(path)
 											}
 										},
 										{
@@ -173,7 +173,7 @@
 											icon: faEdit,
 											disabled: !canWrite,
 											action: () => {
-												resourceEditor?.initEdit(path);
+												resourceEditor?.initEdit(path)
 											}
 										},
 										{
@@ -182,7 +182,7 @@
 											icon: faTrash,
 											type: 'delete',
 											action: () => {
-												deleteResource(path);
+												deleteResource(path)
 											}
 										}
 									]}
@@ -204,13 +204,13 @@
 		<button
 			class="default-button"
 			on:click={() => {
-				resourceViewerTitle = `Create resource type`;
+				resourceViewerTitle = `Create resource type`
 
-				newResourceTypeName = 'my_resource_type';
-				newResourceTypeSchema = emptySchema();
-				newResourceTypeDescription = 'my description';
-				typeModalMode = 'create';
-				resourceViewer.openModal();
+				newResourceTypeName = 'my_resource_type'
+				newResourceTypeSchema = emptySchema()
+				newResourceTypeDescription = 'my description'
+				typeModalMode = 'create'
+				resourceViewer.openModal()
 			}}><Icon class="text-white mb-1" data={faPlus} scale={0.9} /> &nbsp; Add a type</button
 		>
 	</PageHeader>
@@ -229,10 +229,10 @@
 							><a
 								href="#{name}"
 								on:click={() => {
-									resourceViewerTitle = `Resource type ${name}`;
-									resourceViewerSchema = schema;
-									typeModalMode = 'view-type';
-									resourceViewer.openModal();
+									resourceViewerTitle = `Resource type ${name}`
+									resourceViewerSchema = schema
+									typeModalMode = 'view-type'
+									resourceViewer.openModal()
 								}}><IconedResourceType {name} /></a
 							></td
 						>
@@ -243,7 +243,7 @@
 									category="delete"
 									class="mx-2"
 									on:click={() => {
-										handleDeleteResourceType(name);
+										handleDeleteResourceType(name)
 									}}
 									disabled={!(user?.is_admin ?? false)}
 								/>
@@ -266,7 +266,7 @@
 	bind:this={shareModal}
 	kind="resource"
 	on:change={() => {
-		loadResources();
+		loadResources()
 	}}
 />
 

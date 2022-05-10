@@ -1,86 +1,86 @@
 <script lang="ts">
-	import { page } from '$app/stores';
-	import type monaco from 'monaco-editor';
-	import { browser, mode } from '$app/env';
+	import { page } from '$app/stores'
+	import type monaco from 'monaco-editor'
+	import { browser, mode } from '$app/env'
 
-	import { listen } from '@codingame/monaco-jsonrpc';
-	import { onDestroy, onMount } from 'svelte';
-	import editorWorker from 'monaco-editor/esm/vs/editor/editor.worker?worker';
-	import jsonWorker from 'monaco-editor/esm/vs/language/json/json.worker?worker';
-	import tsWorker from 'monaco-editor/esm/vs/language/typescript/ts.worker?worker';
+	import { listen } from '@codingame/monaco-jsonrpc'
+	import { onDestroy, onMount } from 'svelte'
+	import editorWorker from 'monaco-editor/esm/vs/editor/editor.worker?worker'
+	import jsonWorker from 'monaco-editor/esm/vs/language/json/json.worker?worker'
+	import tsWorker from 'monaco-editor/esm/vs/language/typescript/ts.worker?worker'
 
-	let divEl: HTMLDivElement | null = null;
-	let editor: monaco.editor.IStandaloneCodeEditor;
-	let monaco;
-	export let lang = 'python';
-	export let code: string;
-	export let readOnly = false;
-	export let hash: string = (Math.random() + 1).toString(36).substring(2);
-	export let cmdEnterAction: (() => void) | undefined = undefined;
-	export let formatAction: (() => void) | undefined = undefined;
-	export let automaticLayout = true;
-	export let websocketAlive = { pyright: false, black: false };
-	let websockets: WebSocket[] = [];
+	let divEl: HTMLDivElement | null = null
+	let editor: monaco.editor.IStandaloneCodeEditor
+	let monaco
+	export let lang = 'python'
+	export let code: string
+	export let readOnly = false
+	export let hash: string = (Math.random() + 1).toString(36).substring(2)
+	export let cmdEnterAction: (() => void) | undefined = undefined
+	export let formatAction: (() => void) | undefined = undefined
+	export let automaticLayout = true
+	export let websocketAlive = { pyright: false, black: false }
+	let websockets: WebSocket[] = []
 
-	let disposeMethod: () => void | undefined;
+	let disposeMethod: () => void | undefined
 
 	if (browser) {
 		// @ts-ignore
 		self.MonacoEnvironment = {
 			getWorker: function (_moduleId: any, label: string) {
 				if (label === 'json') {
-					return new jsonWorker();
+					return new jsonWorker()
 				}
 				if (label === 'typescript' || label === 'javascript') {
-					return new tsWorker();
+					return new tsWorker()
 				}
-				return new editorWorker();
+				return new editorWorker()
 			}
-		};
+		}
 	}
 
 	export function getCode(): string {
-		return editor?.getValue();
+		return editor?.getValue()
 	}
 
 	export function insertAtCursor(code: string): void {
 		if (editor) {
-			editor.trigger('keyboard', 'type', { text: code });
+			editor.trigger('keyboard', 'type', { text: code })
 		}
 	}
 
 	export function insertAtBeginning(code: string): void {
 		if (editor) {
-			const range = new monaco.Range(1, 1, 1, 1);
-			const op = { range: range, text: code, forceMoveMarkers: true };
-			editor.executeEdits('external', [op]);
+			const range = new monaco.Range(1, 1, 1, 1)
+			const op = { range: range, text: code, forceMoveMarkers: true }
+			editor.executeEdits('external', [op])
 		}
 	}
 
 	export function setCode(ncode: string): void {
 		if (editor) {
-			return editor.setValue(ncode);
+			return editor.setValue(ncode)
 		} else {
-			code = ncode;
+			code = ncode
 		}
 	}
 
 	function format() {
 		if (editor) {
-			editor.getAction('editor.action.formatDocument').run();
+			editor.getAction('editor.action.formatDocument').run()
 			if (formatAction) {
-				formatAction();
+				formatAction()
 			}
 		}
 	}
 
 	export async function reloadWebsocket() {
-		closeWebsockets();
+		closeWebsockets()
 		if (lang == 'python') {
 			// install Monaco language client services
 			const { MonacoLanguageClient, CloseAction, ErrorAction, createConnection } = await import(
 				'@codingame/monaco-languageclient'
-			);
+			)
 
 			function createLanguageClient(connection: any, name: string, initializationOptions?: any) {
 				return new MonacoLanguageClient({
@@ -99,37 +99,37 @@
 					},
 					connectionProvider: {
 						get: (errorHandler, closeHandler) => {
-							return Promise.resolve(createConnection(connection, errorHandler, closeHandler));
+							return Promise.resolve(createConnection(connection, errorHandler, closeHandler))
 						}
 					}
-				});
+				})
 			}
 
 			function connectToLanguageServer(url: string, name: string, options?: any) {
 				try {
-					const webSocket = new WebSocket(url);
-					websockets.push(webSocket);
+					const webSocket = new WebSocket(url)
+					websockets.push(webSocket)
 					// listen when the web socket is opened
 					listen({
 						webSocket,
 						onConnection: (connection) => {
 							// create and start the language client
-							const languageClient = createLanguageClient(connection, name, options);
-							const disposable = languageClient.start();
-							websocketAlive[name] = true;
+							const languageClient = createLanguageClient(connection, name, options)
+							const disposable = languageClient.start()
+							websocketAlive[name] = true
 
 							connection.onClose(() => {
-								websocketAlive[name] = false;
+								websocketAlive[name] = false
 								try {
-									disposable.dispose();
+									disposable.dispose()
 								} catch (err) {
-									console.error('error disposing websocket', err);
+									console.error('error disposing websocket', err)
 								}
-							});
+							})
 						}
-					});
+					})
 				} catch (err) {
-					console.error(`connection to ${name} language server failed`);
+					console.error(`connection to ${name} language server failed`)
 				}
 			}
 			connectToLanguageServer(`wss://${$page.url.host}/ws/pyright`, 'pyright', {
@@ -141,7 +141,7 @@
 						extraPaths: []
 					}
 				]
-			});
+			})
 
 			connectToLanguageServer(`wss://${$page.url.host}/ws/black`, 'black', {
 				formatters: {
@@ -153,21 +153,21 @@
 				formatFiletypes: {
 					python: 'black'
 				}
-			});
+			})
 		}
 	}
 
 	function closeWebsockets() {
 		websockets.forEach((x) => {
 			try {
-				x.close();
+				x.close()
 			} catch (err) {
-				console.log('error disposing websocket', err);
+				console.log('error disposing websocket', err)
 			}
-		});
+		})
 	}
 	async function loadMonaco() {
-		monaco = await import('monaco-editor');
+		monaco = await import('monaco-editor')
 
 		if (lang == 'python') {
 			monaco.languages.register({
@@ -175,21 +175,21 @@
 				extensions: ['.py'],
 				aliases: ['python'],
 				mimetypes: ['application/text']
-			});
+			})
 		}
 
-		let path: string = 'unknown';
+		let path: string = 'unknown'
 		if (lang == 'python') {
-			path = `${hash}.py`;
+			path = `${hash}.py`
 		} else if (lang == 'json') {
-			path = `${hash}.json`;
+			path = `${hash}.json`
 		} else if (lang == 'javascript') {
-			path = `${hash}.js`;
+			path = `${hash}.js`
 		} else if (lang == 'typescript') {
-			path = `${hash}.ts`;
+			path = `${hash}.ts`
 		}
-		const model = monaco.editor.createModel(code, lang, monaco.Uri.parse(`file:///${path}`));
-		model.updateOptions({ tabSize: 4, insertSpaces: true });
+		const model = monaco.editor.createModel(code, lang, monaco.Uri.parse(`file:///${path}`))
+		model.updateOptions({ tabSize: 4, insertSpaces: true })
 		editor = monaco.editor.create(divEl as HTMLDivElement, {
 			model: model,
 			value: code,
@@ -206,21 +206,21 @@
 			minimap: {
 				enabled: false
 			}
-		});
+		})
 
 		editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, function () {
-			format();
-		});
+			format()
+		})
 
 		editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.Enter, function () {
 			if (cmdEnterAction) {
-				cmdEnterAction();
+				cmdEnterAction()
 			}
-		});
+		})
 
 		editor.onDidChangeModelContent((event) => {
-			code = getCode();
-		});
+			code = getCode()
+		})
 
 		if (lang == 'json') {
 			monaco.languages.json.jsonDefaults.setDiagnosticsOptions({
@@ -228,7 +228,7 @@
 				allowComments: false,
 				schemas: [],
 				enableSchemaRequest: true
-			});
+			})
 		}
 
 		if (lang == 'typescript') {
@@ -237,7 +237,7 @@
 				target: monaco.languages.typescript.ScriptTarget.ES6,
 				allowNonTsExtensions: true,
 				noLib: true
-			});
+			})
 
 			monaco.languages.typescript.typescriptDefaults.addExtraLib(
 				`
@@ -277,39 +277,39 @@ export const previous_result: any;
 export const params: any;
 				`,
 				'file:///node_modules/@types/windmill/index.d.ts'
-			);
+			)
 		}
 
 		if (lang == 'python') {
-			const { MonacoServices } = await import('@codingame/monaco-languageclient');
+			const { MonacoServices } = await import('@codingame/monaco-languageclient')
 
-			MonacoServices.install(monaco);
+			MonacoServices.install(monaco)
 		}
 
-		reloadWebsocket();
+		reloadWebsocket()
 
 		return () => {
 			if (editor) {
 				try {
-					editor.dispose();
+					editor.dispose()
 				} catch (err) {
-					console.log('error disposing editor', err);
+					console.log('error disposing editor', err)
 				}
 			}
-		};
+		}
 	}
 
 	onMount(() => {
 		if (browser) {
-			loadMonaco().then((x) => (disposeMethod = x));
+			loadMonaco().then((x) => (disposeMethod = x))
 		}
-	});
+	})
 
 	onDestroy(() => {
 		if (disposeMethod) {
-			disposeMethod();
+			disposeMethod()
 		}
-	});
+	})
 </script>
 
 <!-- <button class="default-button px-6 max-h-8" type="button" on:click={format}>

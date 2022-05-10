@@ -1,23 +1,23 @@
 <script lang="ts">
-	import type { Schema } from '../../common';
+	import type { Schema } from '../../common'
 
-	import PageHeader from './PageHeader.svelte';
-	import SchemaForm from './SchemaForm.svelte';
-	import Tabs from './Tabs.svelte';
+	import PageHeader from './PageHeader.svelte'
+	import SchemaForm from './SchemaForm.svelte'
+	import Tabs from './Tabs.svelte'
 
-	import Highlight from 'svelte-highlight';
-	import json from 'svelte-highlight/src/languages/json';
-	import github from 'svelte-highlight/src/styles/github';
-	import SvelteMarkdown from 'svelte-markdown';
+	import Highlight from 'svelte-highlight'
+	import json from 'svelte-highlight/src/languages/json'
+	import github from 'svelte-highlight/src/styles/github'
+	import SvelteMarkdown from 'svelte-markdown'
 
-	export let schema: Schema;
-	export let summary: string;
-	export let description: string | undefined;
-	export let synchronizedHeader = true;
+	export let schema: Schema
+	export let summary: string
+	export let description: string | undefined
+	export let synchronizedHeader = true
 
-	let tab: 'ui' | 'jsonschema' = 'ui';
+	let tab: 'ui' | 'jsonschema' = 'ui'
 	export function setSchema(newSchema: Schema) {
-		schema = newSchema;
+		schema = newSchema
 	}
 </script>
 

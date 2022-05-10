@@ -1,20 +1,20 @@
 <script lang="ts" context="module">
-	import type { SchemaProperty } from '../../common';
-	import Modal from '../../routes/components/Modal.svelte';
+	import type { SchemaProperty } from '../../common'
+	import Modal from '../../routes/components/Modal.svelte'
 
-	export const ARG_TYPES = ['integer', 'number', 'string', 'boolean', 'object', 'array'] as const;
-	export type ArgType = typeof ARG_TYPES[number];
+	export const ARG_TYPES = ['integer', 'number', 'string', 'boolean', 'object', 'array'] as const
+	export type ArgType = typeof ARG_TYPES[number]
 
 	export interface ModalSchemaProperty {
-		selectedType?: string;
-		description: string;
-		name: string;
-		required: boolean;
-		format?: string;
-		pattern?: string;
-		enum_?: string[];
-		default?: any;
-		items?: { type?: 'string' | 'number' };
+		selectedType?: string
+		description: string
+		name: string
+		required: boolean
+		format?: string
+		pattern?: string
+		enum_?: string[]
+		default?: any
+		items?: { type?: 'string' | 'number' }
 	}
 
 	export function modalToSchema(schema: ModalSchemaProperty): SchemaProperty {
@@ -25,7 +25,7 @@
 			default: schema.default,
 			enum: schema.enum_,
 			items: schema.items
-		};
+		}
 	}
 
 	export function schemaToModal(
@@ -40,7 +40,7 @@
 			pattern: schema.pattern,
 			default: schema.default,
 			required
-		};
+		}
 	}
 
 	export const DEFAULT_PROPERTY: ModalSchemaProperty = {
@@ -48,41 +48,41 @@
 		description: '',
 		name: '',
 		required: false
-	};
+	}
 </script>
 
 <script lang="ts">
-	import Switch from './Switch.svelte';
-	import { createEventDispatcher } from 'svelte';
-	import ArgInput from './ArgInput.svelte';
-	import StringTypeNarrowing from './StringTypeNarrowing.svelte';
-	import Required from './Required.svelte';
+	import Switch from './Switch.svelte'
+	import { createEventDispatcher } from 'svelte'
+	import ArgInput from './ArgInput.svelte'
+	import StringTypeNarrowing from './StringTypeNarrowing.svelte'
+	import Required from './Required.svelte'
 
-	export let property: ModalSchemaProperty = DEFAULT_PROPERTY;
-	export let error = '';
-	export let editing = false;
-	export let oldArgName: string | undefined;
+	export let property: ModalSchemaProperty = DEFAULT_PROPERTY
+	export let error = ''
+	export let editing = false
+	export let oldArgName: string | undefined
 
-	const dispatch = createEventDispatcher();
-	let modal: Modal;
+	const dispatch = createEventDispatcher()
+	let modal: Modal
 
 	export function openModal(): void {
-		modal.openModal();
+		modal.openModal()
 	}
 
 	export function closeModal(): void {
-		modal.closeModal();
+		modal.closeModal()
 	}
 
 	function clearModal(): void {
-		error = '';
-		editing = false;
-		oldArgName = undefined;
-		property.name = DEFAULT_PROPERTY.name;
-		property.default = DEFAULT_PROPERTY.default;
-		property.description = DEFAULT_PROPERTY.description;
-		property.required = DEFAULT_PROPERTY.required;
-		property.selectedType = DEFAULT_PROPERTY.selectedType;
+		error = ''
+		editing = false
+		oldArgName = undefined
+		property.name = DEFAULT_PROPERTY.name
+		property.default = DEFAULT_PROPERTY.default
+		property.description = DEFAULT_PROPERTY.description
+		property.required = DEFAULT_PROPERTY.required
+		property.selectedType = DEFAULT_PROPERTY.selectedType
 	}
 </script>
 
@@ -111,14 +111,14 @@
 					<button
 						class={argType == property.selectedType ? 'item-button-selected' : 'item-button'}
 						on:click={() => {
-							property.selectedType = argType;
+							property.selectedType = argType
 						}}>{argType}</button
 					>
 				{/each}
 				<button
 					class={!property.selectedType ? 'item-button-selected' : 'item-button'}
 					on:click={() => {
-						property.selectedType = undefined;
+						property.selectedType = undefined
 					}}>any</button
 				>
 			</div>
@@ -160,7 +160,7 @@
 		slot="submission"
 		class="px-4 py-2 text-white font-semibold bg-blue-500 rounded"
 		on:click={() => {
-			dispatch('save');
+			dispatch('save')
 		}}
 	>
 		Save
