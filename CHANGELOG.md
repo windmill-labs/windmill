@@ -1,5 +1,12 @@
 # Changelog
 
+### [1.6.1](https://github.com/windmill-labs/windmill/compare/v1.6.0...v1.6.1) (2022-05-10)
+
+
+### Bug Fixes
+
+* also store and display "started at" for completed jobs ([#33](https://github.com/windmill-labs/windmill/issues/33)) ([2c28031](https://github.com/windmill-labs/windmill/commit/2c28031e44453740ad8c4b7e3c248173eab34b9c))
+
 ## 1.6.0 (2022-05-10)
 
 ### Features
