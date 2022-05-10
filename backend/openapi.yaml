@@ -2673,6 +2673,8 @@ components:
     QueuedJob:
       type: object
       properties:
+        workspace_id:
+          type: string
         id:
           type: string
           format: uuid
@@ -2738,6 +2740,8 @@ components:
     CompletedJob:
       type: object
       properties:
+        workspace_id:
+          type: string
         id:
           type: string
           format: uuid
@@ -2747,6 +2751,9 @@ components:
         created_by:
           type: string
         created_at:
+          type: string
+          format: date-time
+        started_at:
           type: string
           format: date-time
         duration:
@@ -2791,6 +2798,10 @@ components:
           type: boolean
       required:
         - id
+        - created_by
+        - duration
+        - created_at
+        - started_at
         - success
         - canceled
         - job_kind
