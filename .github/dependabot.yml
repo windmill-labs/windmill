@@ -25,3 +25,15 @@ updates:
     directory: "/"
     schedule:
       interval: "daily"
+
+  # Maintain dependencies for wmill python client
+  - package-ecosystem: "pip"
+    directory: "/python-client/wmill"
+    schedule:
+      interval: "daily"
+      
+  # Maintain dependencies for wmill_pg python client
+  - package-ecosystem: "pip"
+    directory: "/python-client/wmill_pg"
+    schedule:
+      interval: "daily"
