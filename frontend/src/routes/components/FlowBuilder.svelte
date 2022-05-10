@@ -1,20 +1,20 @@
 <script lang="ts">
-	import { type Flow, FlowService } from '../../gen';
+	import { type Flow, FlowService } from '../../gen'
 
-	import { sendUserToast } from '../../utils';
-	import { page } from '$app/stores';
-	import { goto } from '$app/navigation';
-	import Path from './Path.svelte';
-	import SvelteMarkdown from 'svelte-markdown';
-	import { workspaceStore } from '../../stores';
-	import ScriptSchema from './ScriptSchema.svelte';
-	import Required from './Required.svelte';
-	import FlowEditor from './FlowEditor.svelte';
+	import { sendUserToast } from '../../utils'
+	import { page } from '$app/stores'
+	import { goto } from '$app/navigation'
+	import Path from './Path.svelte'
+	import SvelteMarkdown from 'svelte-markdown'
+	import { workspaceStore } from '../../stores'
+	import ScriptSchema from './ScriptSchema.svelte'
+	import Required from './Required.svelte'
+	import FlowEditor from './FlowEditor.svelte'
 
-	export let flow: Flow;
-	export let initialPath: string = '';
+	export let flow: Flow
+	export let initialPath: string = ''
 
-	$: step = Number($page.url.searchParams.get('step')) || 1;
+	$: step = Number($page.url.searchParams.get('step')) || 1
 
 	async function saveFlow(): Promise<void> {
 		try {
@@ -28,7 +28,7 @@
 						value: flow.value,
 						schema: flow.schema
 					}
-				});
+				})
 			} else {
 				await FlowService.updateFlow({
 					workspace: $workspaceStore!,
@@ -40,16 +40,16 @@
 						value: flow.value,
 						schema: flow.schema
 					}
-				});
+				})
 			}
-			sendUserToast(`Success! flow saved at ${flow.path}`);
-			goto(`/flows/get/${flow.path}`);
+			sendUserToast(`Success! flow saved at ${flow.path}`)
+			goto(`/flows/get/${flow.path}`)
 		} catch (error) {
 			if (error.status === 400) {
-				sendUserToast(error.body, true);
+				sendUserToast(error.body, true)
 			} else {
-				sendUserToast(`Ooops.Something bad happened: ${error}`, true);
-				console.error(error);
+				sendUserToast(`Ooops.Something bad happened: ${error}`, true)
+				console.error(error)
 			}
 		}
 	}
@@ -59,12 +59,12 @@
 	}
 
 	async function changeStep(step: number) {
-		goto(`?step=${step}`);
+		goto(`?step=${step}`)
 	}
 
 	$: {
-		$page.url.searchParams.set('state', btoa(JSON.stringify(flow)));
-		history.replaceState({}, '', $page.url);
+		$page.url.searchParams.set('state', btoa(JSON.stringify(flow)))
+		history.replaceState({}, '', $page.url)
 	}
 </script>
 
@@ -78,7 +78,7 @@
 						? 'default-button-disabled text-gray-700'
 						: 'default-button-secondary'} min-w-max ml-2"
 					on:click={() => {
-						changeStep(1);
+						changeStep(1)
 					}}>Step 1: Metadata</button
 				>
 				<button
@@ -86,7 +86,7 @@
 						? 'default-button-disabled text-gray-700'
 						: 'default-button-secondary'} min-w-max ml-2"
 					on:click={() => {
-						changeStep(2);
+						changeStep(2)
 					}}>Step 2: Flow</button
 				>
 				<button
@@ -94,7 +94,7 @@
 						? 'default-button-disabled text-gray-700'
 						: 'default-button-secondary'} min-w-max ml-2"
 					on:click={() => {
-						changeStep(3);
+						changeStep(3)
 					}}>Step 3: UI customisation</button
 				>
 			</div>
@@ -105,7 +105,7 @@
 							(flow.path == undefined || flow.path == '' || flow.path.split('/')[2] == '')}
 						class="default-button px-6 max-h-8"
 						on:click={() => {
-							changeStep(step + 1);
+							changeStep(step + 1)
 						}}>Next</button
 					>
 					{#if step == 2}

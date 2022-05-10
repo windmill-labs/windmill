@@ -4,67 +4,67 @@
 		ResourceService,
 		type ResourceType,
 		VariableService
-	} from '../../../src/gen';
-	import { allTrue, emptySchema, sendUserToast } from '../../../src/utils';
-	import { createEventDispatcher } from 'svelte';
-	import type { Schema } from '../../common';
-	import Modal from './Modal.svelte';
-	import Path from './Path.svelte';
-	import ArgInput from './ArgInput.svelte';
-	import AutosizedTextarea from './AutosizedTextarea.svelte';
-	import ItemPicker from './ItemPicker.svelte';
-	import VariableEditor from './VariableEditor.svelte';
-	import Required from './Required.svelte';
+	} from '../../../src/gen'
+	import { allTrue, emptySchema, sendUserToast } from '../../../src/utils'
+	import { createEventDispatcher } from 'svelte'
+	import type { Schema } from '../../common'
+	import Modal from './Modal.svelte'
+	import Path from './Path.svelte'
+	import ArgInput from './ArgInput.svelte'
+	import AutosizedTextarea from './AutosizedTextarea.svelte'
+	import ItemPicker from './ItemPicker.svelte'
+	import VariableEditor from './VariableEditor.svelte'
+	import Required from './Required.svelte'
 
-	import { workspaceStore } from '../../stores';
-	import ResourceTypePicker from './ResourceTypePicker.svelte';
+	import { workspaceStore } from '../../stores'
+	import ResourceTypePicker from './ResourceTypePicker.svelte'
 
-	let path = '';
-	let initialPath = '';
+	let path = ''
+	let initialPath = ''
 
-	let step = 1;
+	let step = 1
 
-	let resourceToEdit: Resource | undefined;
+	let resourceToEdit: Resource | undefined
 
-	let description: string = '';
+	let description: string = ''
 	let DESCRIPTION_PLACEHOLDER = `You can use markdown to style your description.
-A good way to make resources user friendly is to link to a default script for your resource [example](scripts/add?template=f2d1dc8df796d9e8)`;
-	let selectedResourceType: string | undefined;
-	let resourceType: ResourceType;
-	let resourceSchema: Schema | undefined;
-	let args: Record<string, any> = {};
+A good way to make resources user friendly is to link to a default script for your resource [example](scripts/add?template=f2d1dc8df796d9e8)`
+	let selectedResourceType: string | undefined
+	let resourceType: ResourceType
+	let resourceSchema: Schema | undefined
+	let args: Record<string, any> = {}
 
-	let error: string | undefined;
+	let error: string | undefined
 
-	let pickForField: string | undefined;
-	let itemPicker: ItemPicker;
-	let variableEditor: VariableEditor;
-	let modal: Modal;
+	let pickForField: string | undefined
+	let itemPicker: ItemPicker
+	let variableEditor: VariableEditor
+	let modal: Modal
 
-	const dispatch = createEventDispatcher();
+	const dispatch = createEventDispatcher()
 
 	export async function initNew() {
-		selectedResourceType = undefined;
-		step = 1;
-		args = {};
-		path = '';
-		description = '';
-		initialPath = '';
-		resourceSchema = emptySchema();
-		resourceToEdit = undefined;
-		modal.openModal();
+		selectedResourceType = undefined
+		step = 1
+		args = {}
+		path = ''
+		description = ''
+		initialPath = ''
+		resourceSchema = emptySchema()
+		resourceToEdit = undefined
+		modal.openModal()
 	}
 
 	export async function initEdit(p: string): Promise<void> {
-		initialPath = p;
-		path = p;
-		step = 2;
-		resourceToEdit = await ResourceService.getResource({ workspace: $workspaceStore!, path: p });
-		description = resourceToEdit!.description ?? '';
-		selectedResourceType = resourceToEdit!.resource_type;
-		await loadResourceType();
-		args = resourceToEdit!.value;
-		modal.openModal();
+		initialPath = p
+		path = p
+		step = 2
+		resourceToEdit = await ResourceService.getResource({ workspace: $workspaceStore!, path: p })
+		description = resourceToEdit!.description ?? ''
+		selectedResourceType = resourceToEdit!.resource_type
+		await loadResourceType()
+		args = resourceToEdit!.value
+		modal.openModal()
 	}
 
 	async function createResource(): Promise<void> {
@@ -72,13 +72,13 @@ A good way to make resources user friendly is to link to a default script for yo
 			await ResourceService.createResource({
 				workspace: $workspaceStore!,
 				requestBody: { path, value: args, description, resource_type: resourceType.name }
-			});
-			sendUserToast(`Successfully created resource at ${path}`);
+			})
+			sendUserToast(`Successfully created resource at ${path}`)
 
-			dispatch('refresh');
-			modal.closeModal();
+			dispatch('refresh')
+			modal.closeModal()
 		} catch (err) {
-			sendUserToast(`${err}`, true);
+			sendUserToast(`${err}`, true)
 		}
 	}
 
@@ -89,15 +89,15 @@ A good way to make resources user friendly is to link to a default script for yo
 					workspace: $workspaceStore!,
 					path: resourceToEdit.path,
 					requestBody: { path, value: args, description }
-				});
-				sendUserToast(`Successfully updated resource at ${path}`);
-				dispatch('refresh');
-				modal.closeModal();
+				})
+				sendUserToast(`Successfully updated resource at ${path}`)
+				dispatch('refresh')
+				modal.closeModal()
 			} else {
-				throw Error('Cannot edit undefined resourceToEdit');
+				throw Error('Cannot edit undefined resourceToEdit')
 			}
 		} catch (err) {
-			sendUserToast(`${err}`, true);
+			sendUserToast(`${err}`, true)
 		}
 	}
 
@@ -106,25 +106,25 @@ A good way to make resources user friendly is to link to a default script for yo
 			resourceType = await ResourceService.getResourceType({
 				workspace: $workspaceStore!,
 				path: selectedResourceType
-			});
+			})
 
 			if (resourceType.schema) {
-				resourceSchema = resourceType.schema as Schema;
+				resourceSchema = resourceType.schema as Schema
 			}
 		} else {
-			sendUserToast(`ResourceType cannot be undefined.`, true);
+			sendUserToast(`ResourceType cannot be undefined.`, true)
 		}
 	}
 
-	let inputCheck: { [id: string]: boolean } = {};
+	let inputCheck: { [id: string]: boolean } = {}
 
-	$: isValid = allTrue(inputCheck) ?? false;
+	$: isValid = allTrue(inputCheck) ?? false
 </script>
 
 <Modal
 	bind:this={modal}
 	on:close={() => {
-		dispatch('close');
+		dispatch('close')
 	}}
 >
 	<div slot="title">{resourceToEdit ? 'Edit ' + resourceToEdit.path : 'Add a resource'}</div>
@@ -161,7 +161,7 @@ A good way to make resources user friendly is to link to a default script for yo
 						bind:value={selectedResourceType}
 						notPickable={resourceToEdit != undefined}
 						on:click={() => {
-							args = {};
+							args = {}
 						}}
 					/>
 				</div>
@@ -189,8 +189,8 @@ A good way to make resources user friendly is to link to a default script for yo
 								<button
 									class="default-button-secondary min-w-min items-center leading-4 py-0"
 									on:click={() => {
-										pickForField = fieldName;
-										itemPicker.openModal();
+										pickForField = fieldName
+										itemPicker.openModal()
 									}}>insert variable</button
 								>
 							</div>
@@ -208,8 +208,8 @@ A good way to make resources user friendly is to link to a default script for yo
 				<button
 					class="default-button px-4 py-2 font-semibold"
 					on:click={async () => {
-						await loadResourceType();
-						step = 2;
+						await loadResourceType()
+						step = 2
 					}}
 				>
 					Next
@@ -221,7 +221,7 @@ A good way to make resources user friendly is to link to a default script for yo
 			<button
 				class="default-button-secondary px-4 py-2 font-semibold"
 				on:click={() => {
-					step = 1;
+					step = 1
 				}}
 			>
 				Back
@@ -231,9 +231,9 @@ A good way to make resources user friendly is to link to a default script for yo
 				class="default-button px-4 py-2 font-semibold"
 				on:click={() => {
 					if (resourceToEdit) {
-						editResource();
+						editResource()
 					} else {
-						createResource();
+						createResource()
 					}
 				}}
 			>
@@ -247,7 +247,7 @@ A good way to make resources user friendly is to link to a default script for yo
 	bind:this={itemPicker}
 	pickCallback={(path, _) => {
 		if (pickForField) {
-			args[pickForField] = '$var:' + path;
+			args[pickForField] = '$var:' + path
 		}
 	}}
 	itemName="Variable"
@@ -266,7 +266,7 @@ A good way to make resources user friendly is to link to a default script for yo
 			class="default-button-secondary"
 			type="button"
 			on:click={() => {
-				variableEditor.initNew();
+				variableEditor.initNew()
 			}}
 		>
 			Create a new variable

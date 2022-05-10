@@ -1,28 +1,28 @@
 <script lang="ts">
-	import { clickOutside } from '../../utils';
-	import type { DropdownItem } from '../../utils';
-	import { createEventDispatcher } from 'svelte';
-	import Icon from 'svelte-awesome';
-	import { faEllipsisH } from '@fortawesome/free-solid-svg-icons';
+	import { clickOutside } from '../../utils'
+	import type { DropdownItem } from '../../utils'
+	import { createEventDispatcher } from 'svelte'
+	import Icon from 'svelte-awesome'
+	import { faEllipsisH } from '@fortawesome/free-solid-svg-icons'
 
-	let open = false;
+	let open = false
 
-	export let dropdownItems: DropdownItem[];
-	export let name: string | undefined = undefined;
+	export let dropdownItems: DropdownItem[]
+	export let name: string | undefined = undefined
 	// The dropdown is positioned versus its first relatively positioned partent
 	// By default, the dropdown is positioned relative to its button
 	// This can cause the dropdown to be hidden if it is in an overflow-hidden div.
 	// In that case, set relative to false and control the dropdown positioning from the div
-	export let relative = true;
+	export let relative = true
 
-	const dispatch = createEventDispatcher();
+	const dispatch = createEventDispatcher()
 
 	function openMenu() {
-		open = true;
+		open = true
 	}
 
 	function handleClickOutsideMenu(event: Event) {
-		open = false;
+		open = false
 	}
 </script>
 
@@ -57,9 +57,9 @@
 					<button
 						on:click={() => {
 							if (!item.disabled) {
-								open = false;
-								item.action && item.action();
-								dispatch('click', { item: item?.eventName });
+								open = false
+								item.action && item.action()
+								dispatch('click', { item: item?.eventName })
 							}
 						}}
 						class="block hover:drop-shadow-sm hover:bg-gray-50 hover:bg-opacity-30 px-4 py-2 text-sm text-gray-700 text-left{item.separatorTop
@@ -86,7 +86,7 @@
 						href={item.href}
 						on:click={() => {
 							if (!item.disabled) {
-								open = false;
+								open = false
 							}
 						}}
 						class="block px-4 py-2 text-sm text-gray-700 hover:drop-shadow-sm hover:bg-gray-50 hover:bg-opacity-30"

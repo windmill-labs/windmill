@@ -1,10 +1,10 @@
 <script lang="ts">
-	import Fuse from 'fuse.js';
-	import { FlowService } from '../gen';
-	import type { Flow } from '../gen';
+	import Fuse from 'fuse.js'
+	import { FlowService } from '../gen'
+	import type { Flow } from '../gen'
 
-	import { sendUserToast, groupBy, canWrite } from '../utils';
-	import Icon from 'svelte-awesome';
+	import { sendUserToast, groupBy, canWrite } from '../utils'
+	import Icon from 'svelte-awesome'
 	import {
 		faArchive,
 		faCalendarAlt,
@@ -14,95 +14,95 @@
 		faPlay,
 		faPlus,
 		faShare
-	} from '@fortawesome/free-solid-svg-icons';
+	} from '@fortawesome/free-solid-svg-icons'
 
-	import Dropdown from './components/Dropdown.svelte';
-	import PageHeader from './components/PageHeader.svelte';
-	import Tooltip from './components/Tooltip.svelte';
-	import ShareModal from './components/ShareModal.svelte';
-	import SharedBadge from './components/SharedBadge.svelte';
-	import { superadmin, usernameStore, userStore, workspaceStore } from '../stores';
-	import CenteredPage from './components/CenteredPage.svelte';
-	import Tabs from './components/Tabs.svelte';
-	import { slide } from 'svelte/transition';
+	import Dropdown from './components/Dropdown.svelte'
+	import PageHeader from './components/PageHeader.svelte'
+	import Tooltip from './components/Tooltip.svelte'
+	import ShareModal from './components/ShareModal.svelte'
+	import SharedBadge from './components/SharedBadge.svelte'
+	import { superadmin, usernameStore, userStore, workspaceStore } from '../stores'
+	import CenteredPage from './components/CenteredPage.svelte'
+	import Tabs from './components/Tabs.svelte'
+	import { slide } from 'svelte/transition'
 
-	type Tab = 'all' | 'personal' | 'groups' | 'shared';
-	type Section = [string, FlowW[]];
-	type FlowW = Flow & { canWrite: boolean; tab: Tab };
-	let flows: FlowW[] = [];
-	let filteredFlows: FlowW[];
-	let flowFilter = '';
-	let groupedFlows: Section[] = [];
+	type Tab = 'all' | 'personal' | 'groups' | 'shared'
+	type Section = [string, FlowW[]]
+	type FlowW = Flow & { canWrite: boolean; tab: Tab }
+	let flows: FlowW[] = []
+	let filteredFlows: FlowW[]
+	let flowFilter = ''
+	let groupedFlows: Section[] = []
 
-	let tab: Tab = 'all';
+	let tab: Tab = 'all'
 
-	let shareModal: ShareModal;
+	let shareModal: ShareModal
 
 	const fuseOptions = {
 		includeScore: false,
 		keys: ['description', 'path', 'content', 'hash', 'summary']
-	};
-	const fuse: Fuse<FlowW> = new Fuse(flows, fuseOptions);
+	}
+	const fuse: Fuse<FlowW> = new Fuse(flows, fuseOptions)
 
 	$: filteredFlows =
-		flowFilter.length > 0 ? fuse.search(flowFilter).map((value) => value.item) : flows;
+		flowFilter.length > 0 ? fuse.search(flowFilter).map((value) => value.item) : flows
 
 	$: {
-		let defaults: string[] = [];
+		let defaults: string[] = []
 
 		if (tab == 'all' || tab == 'personal') {
-			defaults = defaults.concat(`u/${$usernameStore}`);
+			defaults = defaults.concat(`u/${$usernameStore}`)
 		}
 		if (tab == 'all' || tab == 'groups') {
-			defaults = defaults.concat($userStore?.groups.map((x) => `g/${x}`) ?? []);
+			defaults = defaults.concat($userStore?.groups.map((x) => `g/${x}`) ?? [])
 		}
 		groupedFlows = groupBy(
 			filteredFlows,
 			(sc: Flow) => sc.path.split('/').slice(0, 2).join('/'),
 			defaults
-		);
+		)
 	}
 
 	function tabFromPath(path: string) {
-		let t: Tab = 'shared';
-		let path_prefix = path.split('/').slice(0, 2);
+		let t: Tab = 'shared'
+		let path_prefix = path.split('/').slice(0, 2)
 		if (path_prefix[0] == 'u' && path_prefix[1] == $usernameStore) {
-			t = 'personal';
+			t = 'personal'
 		} else if (path_prefix[0] == 'g' && $userStore?.groups.includes(path_prefix[1])) {
-			t = 'groups';
+			t = 'groups'
 		}
-		return t;
+		return t
 	}
 
 	async function loadFlows(): Promise<void> {
 		const allFlows = (await FlowService.listFlows({ workspace: $workspaceStore! })).map(
 			(x: Flow) => {
-				let t: Tab = tabFromPath(x.path);
+				let t: Tab = tabFromPath(x.path)
 				return {
 					canWrite:
 						canWrite(x.path, x.extra_perms, $userStore) && x.workspace_id == $workspaceStore,
 					tab: t,
 					...x
-				};
+				}
 			}
-		);
-		flows = tab == 'all' ? allFlows : allFlows.filter((x) => x.tab == tab);
-		fuse.setCollection(flows);
+		)
+		flows = tab == 'all' ? allFlows : allFlows.filter((x) => x.tab == tab)
+		fuse.setCollection(flows)
 	}
 
 	async function archiveFlow(path: string): Promise<void> {
 		try {
-			await FlowService.archiveFlowByPath({ workspace: $workspaceStore!, path });
-			loadFlows();
-			sendUserToast(`Successfully archived flow ${path}`);
+			await FlowService.archiveFlowByPath({ workspace: $workspaceStore!, path })
+			loadFlows()
+			sendUserToast(`Successfully archived flow ${path}`)
 		} catch (err) {
-			sendUserToast(`Could not archive this flow ${err.body}`, true);
+			sendUserToast(`Could not archive this flow ${err.body}`, true)
 		}
 	}
 
 	$: {
 		if ($workspaceStore && ($userStore || $superadmin)) {
-			loadFlows();
+			loadFlows()
 		}
 	}
 </script>
@@ -215,7 +215,7 @@
 															displayName: 'Share',
 															icon: faShare,
 															action: () => {
-																shareModal.openModal(path);
+																shareModal.openModal(path)
 															},
 															disabled: !canWrite
 														},
@@ -223,7 +223,7 @@
 															displayName: 'Archive',
 															icon: faArchive,
 															action: () => {
-																path ? archiveFlow(path) : null;
+																path ? archiveFlow(path) : null
 															},
 															type: 'delete',
 															disabled: !canWrite
@@ -258,7 +258,7 @@
 	bind:this={shareModal}
 	kind="flow"
 	on:change={() => {
-		loadFlows();
+		loadFlows()
 	}}
 />
 

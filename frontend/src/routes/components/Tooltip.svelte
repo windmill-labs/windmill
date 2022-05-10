@@ -1,27 +1,27 @@
 <script lang="ts">
-	import Icon from 'svelte-awesome';
-	import { faInfoCircle } from '@fortawesome/free-solid-svg-icons';
-	import { fade } from 'svelte/transition';
+	import Icon from 'svelte-awesome'
+	import { faInfoCircle } from '@fortawesome/free-solid-svg-icons'
+	import { fade } from 'svelte/transition'
 
-	export let position: ActionKind = 'above';
-	export let direction: DirectionKind = 'default';
-	type ActionKind = 'above' | 'below';
-	type DirectionKind = 'default' | 'left';
+	export let position: ActionKind = 'above'
+	export let direction: DirectionKind = 'default'
+	type ActionKind = 'above' | 'below'
+	type DirectionKind = 'default' | 'left'
 
-	let viewTooltip = false;
-	let mouseOnMessage = false;
-	let mouseOver = false;
+	let viewTooltip = false
+	let mouseOnMessage = false
+	let mouseOver = false
 
 	// This function makes sure the tooltip does not disappear when moving the mouse to the tooltip
 	// message, so that users can click links there for example
 	function hideTooltip(): void {
 		setTimeout(function () {
 			if (!mouseOnMessage && !mouseOver) {
-				viewTooltip = false;
+				viewTooltip = false
 			} else {
-				hideTooltip();
+				hideTooltip()
 			}
-		}, 300);
+		}, 300)
 	}
 </script>
 
@@ -33,11 +33,11 @@
 			{viewTooltip ? 'tooltip-visible' : 'tooltip'} {direction === 'left' ? 'right-0' : ''}
 			text-2xs text-gray-700"
 			on:mouseover={() => {
-				mouseOnMessage = true;
+				mouseOnMessage = true
 			}}
 			on:focus={() => {}}
 			on:mouseout={() => {
-				mouseOnMessage = false;
+				mouseOnMessage = false
 			}}
 			on:blur={() => {}}
 			><slot />
@@ -48,15 +48,15 @@
 	<div
 		class="relative w-4 h-5 -mt-5 -ml-1"
 		on:mouseover={() => {
-			viewTooltip = true;
-			mouseOver = true;
+			viewTooltip = true
+			mouseOver = true
 		}}
 		on:focus={() => {
-			viewTooltip = true;
+			viewTooltip = true
 		}}
 		on:mouseout={() => {
-			hideTooltip();
-			mouseOver = false;
+			hideTooltip()
+			mouseOver = false
 		}}
 		on:blur={() => {}}
 	/>

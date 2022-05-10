@@ -6,11 +6,11 @@
 		VariableService,
 		ResourceService,
 		ScriptService
-	} from '../../gen';
-	import { sendUserToast, emptySchema, displayDate } from '../../utils';
-	import type { Schema } from '../../common';
-	import { fade } from 'svelte/transition';
-	import Icon from 'svelte-awesome';
+	} from '../../gen'
+	import { sendUserToast, emptySchema, displayDate } from '../../utils'
+	import type { Schema } from '../../common'
+	import { fade } from 'svelte/transition'
+	import Icon from 'svelte-awesome'
 	import {
 		faCheck,
 		faChevronDown,
@@ -20,87 +20,87 @@
 		faSearch,
 		faSpinner,
 		faTimes
-	} from '@fortawesome/free-solid-svg-icons';
-	import Editor from './Editor.svelte';
-	import Tooltip from './Tooltip.svelte';
-	import { onDestroy, onMount } from 'svelte';
-	import { userStore, workspaceStore } from '../../stores';
-	import TableCustom from './TableCustom.svelte';
-	import { check } from 'svelte-awesome/icons';
-	import Modal from './Modal.svelte';
-	import { Highlight } from 'svelte-highlight';
-	import { json, python } from 'svelte-highlight/src/languages';
-	import github from 'svelte-highlight/src/styles/github';
-	import ItemPicker from './ItemPicker.svelte';
-	import VariableEditor from './VariableEditor.svelte';
-	import ResourceEditor from './ResourceEditor.svelte';
-	import { inferArgs } from '../../infer';
+	} from '@fortawesome/free-solid-svg-icons'
+	import Editor from './Editor.svelte'
+	import Tooltip from './Tooltip.svelte'
+	import { onDestroy, onMount } from 'svelte'
+	import { userStore, workspaceStore } from '../../stores'
+	import TableCustom from './TableCustom.svelte'
+	import { check } from 'svelte-awesome/icons'
+	import Modal from './Modal.svelte'
+	import { Highlight } from 'svelte-highlight'
+	import { json, python } from 'svelte-highlight/src/languages'
+	import github from 'svelte-highlight/src/styles/github'
+	import ItemPicker from './ItemPicker.svelte'
+	import VariableEditor from './VariableEditor.svelte'
+	import ResourceEditor from './ResourceEditor.svelte'
+	import { inferArgs } from '../../infer'
 
 	// @ts-ignore
-	import { VSplitPane } from 'svelte-split-pane';
-	import SchemaForm from './SchemaForm.svelte';
-	import DisplayResult from './DisplayResult.svelte';
+	import { VSplitPane } from 'svelte-split-pane'
+	import SchemaForm from './SchemaForm.svelte'
+	import DisplayResult from './DisplayResult.svelte'
 
 	// Exported
-	export let schema: Schema = emptySchema();
+	export let schema: Schema = emptySchema()
 
-	export let code: string;
-	export let path: string | undefined;
+	export let code: string
+	export let path: string | undefined
 
 	// Control Editor layout
-	export let viewPreview = true;
-	export let previewTab: 'logs' | 'input' | 'output' | 'history' | 'last_save' = 'logs';
+	export let viewPreview = true
+	export let previewTab: 'logs' | 'input' | 'output' | 'history' | 'last_save' = 'logs'
 
-	let websocketAlive = { pyright: false, black: false };
+	let websocketAlive = { pyright: false, black: false }
 
 	// Internal state
-	let editor: Editor;
+	let editor: Editor
 
 	// Preview args input
-	let args: Record<string, any> = {};
-	let isValid: boolean = true;
+	let args: Record<string, any> = {}
+	let isValid: boolean = true
 
 	// Preview
-	let previewIsLoading = false;
-	let previewIntervalId: NodeJS.Timer;
-	let previewJob: Job | undefined;
-	let pastPreviews: CompletedJob[] = [];
+	let previewIsLoading = false
+	let previewIntervalId: NodeJS.Timer
+	let previewJob: Job | undefined
+	let pastPreviews: CompletedJob[] = []
 
-	let modalViewer: Modal;
-	let modalViewerTitle: string = '';
-	let modalViewerContent: any;
-	let modalViewerMode: 'logs' | 'result' | 'code' = 'logs';
+	let modalViewer: Modal
+	let modalViewerTitle: string = ''
+	let modalViewerContent: any
+	let modalViewerMode: 'logs' | 'result' | 'code' = 'logs'
 
-	let variablePicker: ItemPicker;
-	let resourcePicker: ItemPicker;
-	let scriptPicker: ItemPicker;
-	let variableEditor: VariableEditor;
-	let resourceEditor: ResourceEditor;
+	let variablePicker: ItemPicker
+	let resourcePicker: ItemPicker
+	let scriptPicker: ItemPicker
+	let variableEditor: VariableEditor
+	let resourceEditor: ResourceEditor
 
-	let syncIteration: number = 0;
-	let ITERATIONS_BEFORE_SLOW_REFRESH = 100;
+	let syncIteration: number = 0
+	let ITERATIONS_BEFORE_SLOW_REFRESH = 100
 
-	let lastSave: string | null;
+	let lastSave: string | null
 
-	$: lastSave = localStorage.getItem(path ?? 'last_save');
+	$: lastSave = localStorage.getItem(path ?? 'last_save')
 
 	export function getEditor(): Editor {
-		return editor;
+		return editor
 	}
 
 	export async function runPreview(): Promise<void> {
 		try {
 			if (previewIntervalId) {
-				clearInterval(previewIntervalId);
+				clearInterval(previewIntervalId)
 			}
 			if (previewIsLoading && previewJob) {
 				JobService.cancelQueuedJob({
 					workspace: $workspaceStore!,
 					id: previewJob.id,
 					requestBody: {}
-				});
+				})
 			}
-			previewIsLoading = true;
+			previewIsLoading = true
 
 			const previewId = await JobService.runScriptPreview({
 				workspace: $workspaceStore!,
@@ -109,17 +109,17 @@
 					content: editor.getCode(),
 					args: args
 				}
-			});
-			previewJob = undefined;
-			loadPreviewJob(previewId);
-			syncIteration = 0;
+			})
+			previewJob = undefined
+			loadPreviewJob(previewId)
+			syncIteration = 0
 			previewIntervalId = setInterval(() => {
-				syncer(previewId);
-			}, 500);
+				syncer(previewId)
+			}, 500)
 			//TODO fetch preview, every x time, until it's completed
 		} catch (err) {
-			previewIsLoading = false;
-			sendUserToast(`Could not run preview: ${err} `, true);
+			previewIsLoading = false
+			sendUserToast(`Could not run preview: ${err} `, true)
 		}
 	}
 
@@ -129,7 +129,7 @@
 			jobKinds: 'preview',
 			createdBy: $userStore?.username,
 			scriptPathExact: path
-		});
+		})
 	}
 
 	async function loadPreviewJob(id: string): Promise<void> {
@@ -140,98 +140,98 @@
 					id,
 					running: previewJob.running,
 					logOffset: previewJob.logs?.length ?? 0
-				});
+				})
 
 				if (previewJobUpdates.new_logs) {
-					previewJob.logs = (previewJob.logs ?? '').concat(previewJobUpdates.new_logs);
+					previewJob.logs = (previewJob.logs ?? '').concat(previewJobUpdates.new_logs)
 				}
 				if ((previewJobUpdates.running ?? false) || (previewJobUpdates.completed ?? false)) {
-					previewJob = await JobService.getJob({ workspace: $workspaceStore!, id });
+					previewJob = await JobService.getJob({ workspace: $workspaceStore!, id })
 				}
 			} else {
-				previewJob = await JobService.getJob({ workspace: $workspaceStore!, id });
+				previewJob = await JobService.getJob({ workspace: $workspaceStore!, id })
 			}
 			if (previewJob?.type === 'CompletedJob') {
 				//only CompletedJob has success property
-				clearInterval(previewIntervalId);
-				previewIsLoading = false;
-				loadPastPreviews();
+				clearInterval(previewIntervalId)
+				previewIsLoading = false
+				loadPastPreviews()
 			}
 		} catch (err) {
-			console.error(err);
+			console.error(err)
 		}
 	}
 
 	async function inferSchema() {
-		let isDefault: string[] = [];
+		let isDefault: string[] = []
 		Object.entries(args).forEach(([k, v]) => {
 			if (schema.properties[k].default == v) {
-				isDefault.push(k);
+				isDefault.push(k)
 			}
-		});
-		await inferArgs(editor.getCode(), schema);
-		schema = schema;
+		})
+		await inferArgs(editor.getCode(), schema)
+		schema = schema
 
-		isDefault.forEach((key) => (args[key] = schema.properties[key].default));
+		isDefault.forEach((key) => (args[key] = schema.properties[key].default))
 		for (const key of Object.keys(args)) {
 			if (schema.properties[key] == undefined) {
-				delete args[key];
+				delete args[key]
 			}
 		}
 	}
 
 	function syncer(id: string): void {
 		if (syncIteration > ITERATIONS_BEFORE_SLOW_REFRESH) {
-			loadPreviewJob(id);
+			loadPreviewJob(id)
 			if (previewIntervalId) {
-				clearInterval(previewIntervalId);
-				previewIntervalId = setInterval(() => loadPreviewJob(id), 5000);
+				clearInterval(previewIntervalId)
+				previewIntervalId = setInterval(() => loadPreviewJob(id), 5000)
 			}
 		} else {
-			syncIteration++;
-			loadPreviewJob(id);
+			syncIteration++
+			loadPreviewJob(id)
 		}
 	}
 
 	async function loadVariables() {
-		let r: { name: string; path?: string; description?: string }[] = [];
+		let r: { name: string; path?: string; description?: string }[] = []
 		const variables = (
 			await VariableService.listVariable({ workspace: $workspaceStore ?? 'NO_W' })
 		).map((x) => {
-			return { name: x.path, ...x };
-		});
+			return { name: x.path, ...x }
+		})
 
 		const rvariables = await VariableService.listContextualVariables({
 			workspace: $workspaceStore ?? 'NO_W'
-		});
-		r = r.concat(variables).concat(rvariables);
-		return r;
+		})
+		r = r.concat(variables).concat(rvariables)
+		return r
 	}
 
 	async function loadScripts(): Promise<{ path: string; summary?: string }[]> {
-		return await ScriptService.listScripts({ workspace: $workspaceStore ?? 'NO_W' });
+		return await ScriptService.listScripts({ workspace: $workspaceStore ?? 'NO_W' })
 	}
 
-	let syncCode: NodeJS.Timer;
+	let syncCode: NodeJS.Timer
 	onMount(() => {
 		syncCode = setInterval(() => {
-			const newCode = editor?.getCode();
+			const newCode = editor?.getCode()
 			if (newCode && code != newCode) {
-				code = editor.getCode();
+				code = editor.getCode()
 			}
-		}, 3000);
-	});
+		}, 3000)
+	})
 	onDestroy(() => {
 		if (editor) {
-			code = editor.getCode();
+			code = editor.getCode()
 		}
 		if (previewIntervalId) {
-			clearInterval(previewIntervalId);
+			clearInterval(previewIntervalId)
 		}
 		if (syncCode) {
-			clearInterval(syncCode);
+			clearInterval(syncCode)
 		}
-	});
+	})
 </script>
 
 <svelte:head>
@@ -241,15 +241,15 @@
 <ItemPicker
 	bind:this={scriptPicker}
 	pickCallback={async (path, _) => {
-		modalViewerMode = 'code';
-		modalViewerTitle = 'Script ' + path;
+		modalViewerMode = 'code'
+		modalViewerTitle = 'Script ' + path
 		modalViewerContent = (
 			await ScriptService.getScriptByPath({
 				workspace: $workspaceStore ?? '',
 				path
 			})
-		).content;
-		modalViewer.openModal();
+		).content
+		modalViewer.openModal()
 	}}
 	closeOnClick={false}
 	itemName="script"
@@ -277,16 +277,16 @@
 	pickCallback={(path, name) => {
 		if (!path) {
 			if (!getEditor().getCode().includes('import os')) {
-				getEditor().insertAtBeginning('import os\n');
+				getEditor().insertAtBeginning('import os\n')
 			}
-			getEditor().insertAtCursor(`os.environ.get("${name}")`);
-			sendUserToast(`${name} inserted at cursor`);
+			getEditor().insertAtCursor(`os.environ.get("${name}")`)
+			sendUserToast(`${name} inserted at cursor`)
 		} else {
 			if (!getEditor().getCode().includes('import wmill')) {
-				getEditor().insertAtBeginning('import wmill\n');
+				getEditor().insertAtBeginning('import wmill\n')
 			}
-			getEditor().insertAtCursor(`wmill.get_variable("${path}")`);
-			sendUserToast(`${name} inserted at cursor`);
+			getEditor().insertAtCursor(`wmill.get_variable("${path}")`)
+			sendUserToast(`${name} inserted at cursor`)
 		}
 	}}
 	itemName="Variable"
@@ -301,7 +301,7 @@
 			class="default-button-secondary"
 			type="button"
 			on:click={() => {
-				variableEditor.initNew();
+				variableEditor.initNew()
 			}}
 		>
 			Create a new variable
@@ -312,8 +312,8 @@
 <ItemPicker
 	bind:this={resourcePicker}
 	pickCallback={(path, _) => {
-		getEditor().insertAtCursor(`client.get_resource("${path}")`);
-		sendUserToast(`${path} inserted at cursor`);
+		getEditor().insertAtCursor(`client.get_resource("${path}")`)
+		sendUserToast(`${path} inserted at cursor`)
 	}}
 	itemName="Resource"
 	extraField="resource_type"
@@ -328,7 +328,7 @@
 			class="default-button-secondary"
 			type="button"
 			on:click={() => {
-				resourceEditor.initNew();
+				resourceEditor.initNew()
 			}}
 		>
 			Create a new resource
@@ -346,7 +346,7 @@
 	downPanelSize={viewPreview ? '25%' : '10%'}
 	updateCallback={() => {
 		if (!viewPreview) {
-			viewPreview = true;
+			viewPreview = true
 		}
 	}}
 >
@@ -357,7 +357,7 @@
 					<button
 						class="default-button-secondary font-semibold py-px mr-2 text-xs align-middle max-h-8"
 						on:click|stopPropagation={() => {
-							variablePicker.openModal();
+							variablePicker.openModal()
 						}}
 						>Variable picker <Icon data={faSearch} scale={0.7} />
 					</button>
@@ -365,7 +365,7 @@
 					<button
 						class="default-button-secondary font-semibold py-px text-xs mr-2 align-middle max-h-8"
 						on:click|stopPropagation={() => {
-							resourcePicker.openModal();
+							resourcePicker.openModal()
 						}}
 						>Resource picker <Icon data={faSearch} scale={0.7} />
 					</button>
@@ -373,7 +373,7 @@
 					<button
 						class="default-button-secondary font-semibold py-px text-xs mr-2 align-middle max-h-8"
 						on:click|stopPropagation={() => {
-							scriptPicker.openModal();
+							scriptPicker.openModal()
 						}}
 						>Script explorer <Icon data={faSearch} scale={0.7} />
 					</button>
@@ -381,7 +381,7 @@
 					<button
 						class="default-button-secondary py-px max-h-8 text-xs"
 						on:click|stopPropagation={() => {
-							editor.reloadWebsocket();
+							editor.reloadWebsocket()
 						}}
 					>
 						Reload assistants (status: <span
@@ -396,12 +396,12 @@
 					bind:websocketAlive
 					bind:this={editor}
 					cmdEnterAction={() => {
-						runPreview();
-						viewPreview = true;
+						runPreview()
+						viewPreview = true
 					}}
 					formatAction={() => {
-						code = getEditor().getCode();
-						localStorage.setItem(path ?? 'last_save', code);
+						code = getEditor().getCode()
+						localStorage.setItem(path ?? 'last_save', code)
 					}}
 					class="h-full"
 					automaticLayout={true}
@@ -414,7 +414,7 @@
 			<div
 				class="flex flex-row w-full cursor-pointer h-full"
 				on:click={() => {
-					viewPreview = !viewPreview;
+					viewPreview = !viewPreview
 				}}
 			>
 				<div class="flex flex-row items-baseline">
@@ -437,9 +437,9 @@
 							? 'underline drop-shadow-md'
 							: ''}"
 						on:click|stopPropagation={() => {
-							previewTab = 'input';
-							viewPreview = true;
-							inferSchema();
+							previewTab = 'input'
+							viewPreview = true
+							inferSchema()
 						}}
 					>
 						Inputs
@@ -447,8 +447,8 @@
 					<button
 						class="font-semibold my-0 py-0 h-full ml-3 {previewTab === 'logs' ? 'underline' : ''}"
 						on:click|stopPropagation={() => {
-							previewTab = 'logs';
-							viewPreview = true;
+							previewTab = 'logs'
+							viewPreview = true
 						}}
 					>
 						Logs
@@ -456,8 +456,8 @@
 					<button
 						class="font-semibold my-0 py-0 h-full ml-3 {previewTab === 'output' ? 'underline' : ''}"
 						on:click|stopPropagation={() => {
-							previewTab = 'output';
-							viewPreview = true;
+							previewTab = 'output'
+							viewPreview = true
 						}}
 					>
 						Result
@@ -468,10 +468,10 @@
 							: ''}"
 						on:click|stopPropagation={() => {
 							if (pastPreviews.length == 0) {
-								loadPastPreviews();
+								loadPastPreviews()
 							}
-							previewTab = 'history';
-							viewPreview = true;
+							previewTab = 'history'
+							viewPreview = true
 						}}
 					>
 						History
@@ -481,8 +481,8 @@
 							? 'underline'
 							: ''}"
 						on:click|stopPropagation={() => {
-							previewTab = 'last_save';
-							viewPreview = true;
+							previewTab = 'last_save'
+							viewPreview = true
 						}}
 					>
 						Local save
@@ -492,16 +492,16 @@
 					<button
 						class="mb-1 ml-2"
 						on:click|stopPropagation={() => {
-							viewPreview = !viewPreview;
+							viewPreview = !viewPreview
 						}}
 						><Icon data={viewPreview ? faChevronDown : faChevronUp} scale={0.7} />
 					</button>
 					<button
 						class="default-button py-px text-xs mx-2 align-middle max-h-8"
 						on:click|stopPropagation={() => {
-							runPreview();
-							viewPreview = true;
-							previewTab = 'logs';
+							runPreview()
+							viewPreview = true
+							previewTab = 'logs'
 						}}
 						>Run preview
 					</button>
@@ -559,9 +559,9 @@
 							href="#last_save"
 							class="text-xs"
 							on:click={() => {
-								modalViewerContent = lastSave;
-								modalViewerMode = 'code';
-								modalViewer.openModal();
+								modalViewerContent = lastSave
+								modalViewerMode = 'code'
+								modalViewer.openModal()
 							}}>View last local save for path {path}</a
 						>
 					{:else}No local save{/if}
@@ -595,9 +595,9 @@
 										href="#result"
 										class="text-xs"
 										on:click={() => {
-											modalViewerContent = result;
-											modalViewerMode = 'result';
-											modalViewer.openModal();
+											modalViewerContent = result
+											modalViewerMode = 'result'
+											modalViewer.openModal()
 										}}>{JSON.stringify(result).substring(0, 30)}...</a
 									></td
 								>
@@ -611,9 +611,9 @@
 													workspace: $workspaceStore ?? 'NO_W',
 													id
 												})
-											).raw_code;
-											modalViewerMode = 'code';
-											modalViewer.openModal();
+											).raw_code
+											modalViewerMode = 'code'
+											modalViewer.openModal()
 										}}
 										>View code
 									</a></td
@@ -628,9 +628,9 @@
 													workspace: $workspaceStore ?? 'NO_W',
 													id
 												})
-											).logs;
-											modalViewerMode = 'logs';
-											modalViewer.openModal();
+											).logs
+											modalViewerMode = 'logs'
+											modalViewer.openModal()
 										}}
 										>View logs
 									</a></td

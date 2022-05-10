@@ -1,34 +1,34 @@
 <script lang="ts">
-	import { AuditService, AuditLog, UserService } from '../gen';
-	import type { ActionKind } from '../common';
-	import { page } from '$app/stores';
-	import { displayDate, sendUserToast } from '../utils';
-	import { goto } from '$app/navigation';
-	import PageHeader from './components/PageHeader.svelte';
-	import { usernameStore, userStore, workspaceStore } from '../stores';
-	import TableCustom from './components/TableCustom.svelte';
-	import CenteredPage from './components/CenteredPage.svelte';
-	import Icon from 'svelte-awesome';
-	import { faCross, faEdit, faPlay, faPlus, faQuestion } from '@fortawesome/free-solid-svg-icons';
+	import { AuditService, AuditLog, UserService } from '../gen'
+	import type { ActionKind } from '../common'
+	import { page } from '$app/stores'
+	import { displayDate, sendUserToast } from '../utils'
+	import { goto } from '$app/navigation'
+	import PageHeader from './components/PageHeader.svelte'
+	import { usernameStore, userStore, workspaceStore } from '../stores'
+	import TableCustom from './components/TableCustom.svelte'
+	import CenteredPage from './components/CenteredPage.svelte'
+	import Icon from 'svelte-awesome'
+	import { faCross, faEdit, faPlay, faPlus, faQuestion } from '@fortawesome/free-solid-svg-icons'
 
-	let logs: AuditLog[];
-	let usernames: string[];
+	let logs: AuditLog[]
+	let usernames: string[]
 
 	// Get all page params
-	let username: string | undefined = $page.url.searchParams.get('username') ?? undefined;
-	let pageIndex: number | undefined = Number($page.url.searchParams.get('page')) || undefined;
-	let before: string | undefined = $page.url.searchParams.get('before') ?? undefined;
-	let after: string | undefined = $page.url.searchParams.get('after') ?? undefined;
-	let perPage: number | undefined = Number($page.url.searchParams.get('perPage')) || undefined;
-	let operation: string | undefined = $page.url.searchParams.get('operation') ?? undefined;
-	let resource: string | undefined = $page.url.searchParams.get('resource') ?? undefined;
+	let username: string | undefined = $page.url.searchParams.get('username') ?? undefined
+	let pageIndex: number | undefined = Number($page.url.searchParams.get('page')) || undefined
+	let before: string | undefined = $page.url.searchParams.get('before') ?? undefined
+	let after: string | undefined = $page.url.searchParams.get('after') ?? undefined
+	let perPage: number | undefined = Number($page.url.searchParams.get('perPage')) || undefined
+	let operation: string | undefined = $page.url.searchParams.get('operation') ?? undefined
+	let resource: string | undefined = $page.url.searchParams.get('resource') ?? undefined
 	let actionKind: ActionKind | undefined =
-		($page.url.searchParams.get('actionKind') as ActionKind) ?? undefined;
+		($page.url.searchParams.get('actionKind') as ActionKind) ?? undefined
 
 	async function loadLogs(username: string | undefined, page: number | undefined): Promise<void> {
 		try {
 			if (username == 'all') {
-				username = undefined;
+				username = undefined
 			}
 			logs = await AuditService.listAuditLogs({
 				workspace: $workspaceStore!,
@@ -40,49 +40,49 @@
 				operation,
 				resource,
 				actionKind
-			});
+			})
 		} catch (err) {
-			sendUserToast(`Could not load users: ${err}`, true);
+			sendUserToast(`Could not load users: ${err}`, true)
 		}
 	}
 
 	async function loadUsers() {
 		try {
-			usernames = await UserService.listUsernames({ workspace: $workspaceStore! });
+			usernames = await UserService.listUsernames({ workspace: $workspaceStore! })
 		} catch (err) {
-			sendUserToast(`Could not load users: ${err}`, true);
+			sendUserToast(`Could not load users: ${err}`, true)
 		}
 	}
 
 	async function gotoUsername(username: string | undefined): Promise<void> {
-		goto(`?username=` + (username ? encodeURIComponent(username) : ''));
+		goto(`?username=` + (username ? encodeURIComponent(username) : ''))
 	}
 
 	async function gotoPage(index: number): Promise<void> {
-		pageIndex = index;
-		goto(`?page=${index}` + (username ? `&username=${encodeURIComponent(username)}` : ''));
+		pageIndex = index
+		goto(`?page=${index}` + (username ? `&username=${encodeURIComponent(username)}` : ''))
 	}
 
 	function kindToIcon(kind: string) {
 		if (kind == 'Execute') {
-			return faPlay;
+			return faPlay
 		} else if (kind == 'Delete') {
-			return faCross;
+			return faCross
 		} else if (kind == 'Update') {
-			return faEdit;
+			return faEdit
 		} else if (kind == 'Create') {
-			return faPlus;
+			return faPlus
 		}
-		return faQuestion;
+		return faQuestion
 	}
 
 	$: {
 		if ($workspaceStore) {
-			loadUsers();
-			loadLogs(username, pageIndex);
+			loadUsers()
+			loadLogs(username, pageIndex)
 		}
 		if ($usernameStore) {
-			username = $usernameStore;
+			username = $usernameStore
 		}
 	}
 </script>
@@ -115,10 +115,10 @@
 
 	<TableCustom
 		on:next={() => {
-			gotoPage((pageIndex ?? 1) + 1);
+			gotoPage((pageIndex ?? 1) + 1)
 		}}
 		on:previous={() => {
-			gotoPage((pageIndex ?? 1) - 1);
+			gotoPage((pageIndex ?? 1) - 1)
 		}}
 		currentPage={pageIndex}
 	>

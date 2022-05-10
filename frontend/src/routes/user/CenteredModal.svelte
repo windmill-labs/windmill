@@ -1,13 +1,13 @@
 <script lang="ts">
-	import { SettingsService } from '../../gen';
+	import { SettingsService } from '../../gen'
 
-	export let subtitle: string | undefined = undefined;
-	export let title = 'Welcome to Windmill (beta)';
-	let version = '';
+	export let subtitle: string | undefined = undefined
+	export let title = 'Welcome to Windmill (beta)'
+	let version = ''
 
 	SettingsService.backendVersion().then((x) => {
-		version = x;
-	});
+		version = x
+	})
 </script>
 
 <div class="flex justify-center min-h-screen bg-gray-50 pt-10">

@@ -1,8 +1,8 @@
 <script lang="ts">
-	import { page } from '$app/stores';
-	import { FlowService, type Flow } from '../../../gen';
-	import { sendUserToast, displayDaysAgo, canWrite, getUser } from '../../../utils';
-	import Icon from 'svelte-awesome';
+	import { page } from '$app/stores'
+	import { FlowService, type Flow } from '../../../gen'
+	import { sendUserToast, displayDaysAgo, canWrite, getUser } from '../../../utils'
+	import Icon from 'svelte-awesome'
 	import {
 		faPlay,
 		faEdit,
@@ -10,46 +10,46 @@
 		faList,
 		faCalendar,
 		faShare
-	} from '@fortawesome/free-solid-svg-icons';
-	import Highlight from 'svelte-highlight';
-	import json from 'svelte-highlight/src/languages/json';
+	} from '@fortawesome/free-solid-svg-icons'
+	import Highlight from 'svelte-highlight'
+	import json from 'svelte-highlight/src/languages/json'
 
-	import github from 'svelte-highlight/src/styles/github';
-	import Tooltip from '../../components/Tooltip.svelte';
-	import ShareModal from '../../components/ShareModal.svelte';
-	import { workspaceStore } from '../../../stores';
-	import SharedBadge from '../../components/SharedBadge.svelte';
-	import SvelteMarkdown from 'svelte-markdown';
-	import SchemaViewer from '../../components/SchemaViewer.svelte';
-	import Dropdown from '../../components/Dropdown.svelte';
-	import CenteredPage from '../../components/CenteredPage.svelte';
+	import github from 'svelte-highlight/src/styles/github'
+	import Tooltip from '../../components/Tooltip.svelte'
+	import ShareModal from '../../components/ShareModal.svelte'
+	import { workspaceStore } from '../../../stores'
+	import SharedBadge from '../../components/SharedBadge.svelte'
+	import SvelteMarkdown from 'svelte-markdown'
+	import SchemaViewer from '../../components/SchemaViewer.svelte'
+	import Dropdown from '../../components/Dropdown.svelte'
+	import CenteredPage from '../../components/CenteredPage.svelte'
 
-	let flow: Flow | undefined;
-	let can_write = false;
+	let flow: Flow | undefined
+	let can_write = false
 
-	let path = $page.params.path;
-	let shareModal: ShareModal;
+	let path = $page.params.path
+	let shareModal: ShareModal
 
 	$: {
 		if ($workspaceStore) {
-			loadFlow(path);
+			loadFlow(path)
 		}
 	}
 
 	async function archiveFlow(hash: string): Promise<void> {
 		try {
-			await FlowService.archiveFlowByPath({ workspace: $workspaceStore!, path });
-			loadFlow(path);
+			await FlowService.archiveFlowByPath({ workspace: $workspaceStore!, path })
+			loadFlow(path)
 		} catch (err) {
-			console.error(err);
-			sendUserToast(`Could not archive this flow ${err.body}`, true);
+			console.error(err)
+			sendUserToast(`Could not archive this flow ${err.body}`, true)
 		}
 	}
 
 	async function loadFlow(hash: string): Promise<void> {
-		flow = await FlowService.getFlowByPath({ workspace: $workspaceStore!, path });
-		const user = await getUser($workspaceStore!);
-		can_write = canWrite(flow.path, flow.extra_perms!, user);
+		flow = await FlowService.getFlowByPath({ workspace: $workspaceStore!, path })
+		const user = await getUser($workspaceStore!)
+		can_write = canWrite(flow.path, flow.extra_perms!, user)
 	}
 </script>
 
@@ -78,7 +78,7 @@
 							displayName: 'Share',
 							icon: faShare,
 							action: () => {
-								shareModal.openModal();
+								shareModal.openModal()
 							},
 							disabled: !can_write
 						},
@@ -92,7 +92,7 @@
 							icon: faArchive,
 							type: 'delete',
 							action: () => {
-								flow?.path && archiveFlow(flow.path);
+								flow?.path && archiveFlow(flow.path)
 							},
 							disabled: flow.archived || !can_write
 						}

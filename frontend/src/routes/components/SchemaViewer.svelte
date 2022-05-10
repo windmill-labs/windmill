@@ -1,15 +1,15 @@
 <script lang="ts">
-	import type { Schema } from '../../common';
-	import { emptySchema } from '../../utils';
+	import type { Schema } from '../../common'
+	import { emptySchema } from '../../utils'
 
-	import Highlight from 'svelte-highlight';
-	import json from 'svelte-highlight/src/languages/json';
-	import github from 'svelte-highlight/src/styles/github';
-	import TableCustom from './TableCustom.svelte';
+	import Highlight from 'svelte-highlight'
+	import json from 'svelte-highlight/src/languages/json'
+	import github from 'svelte-highlight/src/styles/github'
+	import TableCustom from './TableCustom.svelte'
 
-	export let schema: Schema | undefined = emptySchema();
+	export let schema: Schema | undefined = emptySchema()
 
-	let viewJsonSchema = false;
+	let viewJsonSchema = false
 </script>
 
 <svelte:head>

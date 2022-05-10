@@ -1,9 +1,9 @@
 <script lang="ts">
-	import { onDestroy, onMount } from 'svelte';
-	import { JobService, Job, CompletedJob } from '../../gen';
-	import { displayDate, displayDaysAgo, forLater, truncateHash } from '../../utils';
-	import Icon from 'svelte-awesome';
-	import { check } from 'svelte-awesome/icons';
+	import { onDestroy, onMount } from 'svelte'
+	import { JobService, Job, CompletedJob } from '../../gen'
+	import { displayDate, displayDaysAgo, forLater, truncateHash } from '../../utils'
+	import Icon from 'svelte-awesome'
+	import { check } from 'svelte-awesome/icons'
 	import {
 		faCalendar,
 		faCircle,
@@ -13,33 +13,33 @@
 		faTimes,
 		faUser,
 		faWind
-	} from '@fortawesome/free-solid-svg-icons';
-	import { page } from '$app/stores';
-	import { sendUserToast } from '../../utils';
-	import { goto } from '$app/navigation';
-	import PageHeader from '../components/PageHeader.svelte';
-	import { workspaceStore } from '../../stores';
-	import CenteredPage from '../components/CenteredPage.svelte';
-	import Tabs from '../components/Tabs.svelte';
+	} from '@fortawesome/free-solid-svg-icons'
+	import { page } from '$app/stores'
+	import { sendUserToast } from '../../utils'
+	import { goto } from '$app/navigation'
+	import PageHeader from '../components/PageHeader.svelte'
+	import { workspaceStore } from '../../stores'
+	import CenteredPage from '../components/CenteredPage.svelte'
+	import Tabs from '../components/Tabs.svelte'
 
-	let jobs: Job[] | undefined;
-	let error: Error | undefined;
-	let intervalId: NodeJS.Timer | undefined;
-	let path: string = $page.params.path;
-	let createdBefore: string | undefined = $page.url.searchParams.get('createdBefore') ?? undefined;
-	let showOlderJobs = true;
+	let jobs: Job[] | undefined
+	let error: Error | undefined
+	let intervalId: NodeJS.Timer | undefined
+	let path: string = $page.params.path
+	let createdBefore: string | undefined = $page.url.searchParams.get('createdBefore') ?? undefined
+	let showOlderJobs = true
 	// The API returns 30 jobs per page. We use it to display a next page button or not.
-	const jobsPerPage = 30;
+	const jobsPerPage = 30
 
-	let jobKinds: string;
+	let jobKinds: string
 
 	$: jobKinds =
 		$page.url.searchParams.get('jobKinds') ??
-		`${CompletedJob.job_kind.SCRIPT},${CompletedJob.job_kind.FLOW}`;
+		`${CompletedJob.job_kind.SCRIPT},${CompletedJob.job_kind.FLOW}`
 
-	$: jobKinds && $workspaceStore && loadJobs();
+	$: jobKinds && $workspaceStore && loadJobs()
 
-	const SMALL_ICON_SCALE = 0.7;
+	const SMALL_ICON_SCALE = 0.7
 
 	async function fetchJobs(
 		createdBefore: string | undefined,
@@ -51,7 +51,7 @@
 			createdAfter,
 			scriptPathExact: path === '' ? undefined : path,
 			jobKinds
-		});
+		})
 	}
 
 	async function fetchCompletedJobs(createdBefore: string): Promise<CompletedJob[]> {
@@ -60,57 +60,57 @@
 			createdBefore,
 			scriptPathExact: path === '' ? undefined : path,
 			jobKinds: jobKinds
-		});
+		})
 	}
 
 	async function loadJobs(): Promise<void> {
 		try {
-			const newJobs = await fetchJobs(createdBefore);
-			showOlderJobs = newJobs.length === jobsPerPage;
-			jobs = newJobs;
+			const newJobs = await fetchJobs(createdBefore)
+			showOlderJobs = newJobs.length === jobsPerPage
+			jobs = newJobs
 		} catch (err) {
-			sendUserToast(`There was a problem fetching jobs: ${err}`, true);
-			error = err;
-			console.error(JSON.stringify(err));
+			sendUserToast(`There was a problem fetching jobs: ${err}`, true)
+			error = err
+			console.error(JSON.stringify(err))
 		}
 	}
 
 	async function loadOlderJobs() {
 		if (jobs) {
-			const ts = jobs[jobs.length - 1].created_at;
-			const olderJobs = await fetchCompletedJobs(ts!);
-			showOlderJobs = olderJobs.length === jobsPerPage;
-			jobs = jobs.concat(...olderJobs);
+			const ts = jobs[jobs.length - 1].created_at
+			const olderJobs = await fetchCompletedJobs(ts!)
+			showOlderJobs = olderJobs.length === jobsPerPage
+			jobs = jobs.concat(...olderJobs)
 		}
 	}
 
 	async function syncer() {
 		if (jobs && createdBefore === undefined) {
-			const reversedJobs = jobs.slice(0, jobsPerPage).reverse();
-			const lastIndex = reversedJobs.findIndex((x) => x.type == Job.type.QUEUED_JOB) - 1;
-			const ts = lastIndex >= 0 ? reversedJobs[lastIndex].created_at : undefined;
-			const newJobs = await fetchJobs(undefined, ts);
-			const oldJobs = jobs.map((x) => x.id);
-			jobs = newJobs.filter((x) => !oldJobs.includes(x.id)).concat(jobs);
+			const reversedJobs = jobs.slice(0, jobsPerPage).reverse()
+			const lastIndex = reversedJobs.findIndex((x) => x.type == Job.type.QUEUED_JOB) - 1
+			const ts = lastIndex >= 0 ? reversedJobs[lastIndex].created_at : undefined
+			const newJobs = await fetchJobs(undefined, ts)
+			const oldJobs = jobs.map((x) => x.id)
+			jobs = newJobs.filter((x) => !oldJobs.includes(x.id)).concat(jobs)
 			newJobs
 				.filter((x) => oldJobs.includes(x.id))
-				.forEach((x) => (jobs![jobs?.findIndex((y) => y.id == x.id)!] = x));
-			jobs = jobs;
+				.forEach((x) => (jobs![jobs?.findIndex((y) => y.id == x.id)!] = x))
+			jobs = jobs
 		}
 	}
 
 	$: {
 		if ($workspaceStore) {
-			loadJobs();
-			intervalId = setInterval(syncer, 5000);
+			loadJobs()
+			intervalId = setInterval(syncer, 5000)
 		}
 	}
 
 	onDestroy(() => {
 		if (intervalId) {
-			clearInterval(intervalId);
+			clearInterval(intervalId)
 		}
-	});
+	})
 </script>
 
 <CenteredPage>
@@ -137,7 +137,7 @@ the bearer token they use has less privilege."
 				]}
 				dflt={1}
 				on:update={(tab) => {
-					goto(`?jobKinds=${tab.detail}`);
+					goto(`?jobKinds=${tab.detail}`)
 				}}
 			/>
 			{#if jobs}

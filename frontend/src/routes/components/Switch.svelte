@@ -1,8 +1,8 @@
 <script>
-	export let checked = false;
-	export let label = '';
-	export let horizontal = true; // Determines if the switch and label are on a row or col
-	export let textFormat = 'text-base'; // Tailwind CSS classes to format the text
+	export let checked = false
+	export let label = ''
+	export let horizontal = true // Determines if the switch and label are on a row or col
+	export let textFormat = 'text-base' // Tailwind CSS classes to format the text
 </script>
 
 <div class="flex {horizontal ? 'flex-row justify-between' : 'flex-col'}  {$$props.class}">

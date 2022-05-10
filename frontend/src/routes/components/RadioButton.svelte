@@ -1,12 +1,12 @@
 <script lang="ts">
-	export let label = '';
-	export let options: [string, any][];
-	export let value: any;
-	export let small = false;
+	export let label = ''
+	export let options: [string, any][]
+	export let value: any
+	export let small = false
 
-	import { createEventDispatcher } from 'svelte';
+	import { createEventDispatcher } from 'svelte'
 
-	const dispatch = createEventDispatcher();
+	const dispatch = createEventDispatcher()
 </script>
 
 <fieldset class="mt-2 mr-4">
