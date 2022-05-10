@@ -6,19 +6,19 @@
 		faPlay,
 		faShare,
 		faTrash
-	} from '@fortawesome/free-solid-svg-icons';
-	import { createEventDispatcher } from 'svelte';
-	import Icon from 'svelte-awesome';
+	} from '@fortawesome/free-solid-svg-icons'
+	import { createEventDispatcher } from 'svelte'
+	import Icon from 'svelte-awesome'
 
-	export let category: 'delete' | 'list' | 'run' | 'add' | 'edit' | 'archive' | 'share';
-	export let disabled: boolean = false;
-	const dispatch = createEventDispatcher();
+	export let category: 'delete' | 'list' | 'run' | 'add' | 'edit' | 'archive' | 'share'
+	export let disabled: boolean = false
+	const dispatch = createEventDispatcher()
 </script>
 
 <button
 	class="{$$props.class} inline-flex items-center default-button py-0 px-1 {category} default-button-secondary"
 	on:click={() => {
-		dispatch('click');
+		dispatch('click')
 	}}
 	{disabled}
 >

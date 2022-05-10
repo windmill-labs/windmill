@@ -2,16 +2,15 @@ export type OwnerKind = 'group' | 'user'
 
 export type ActionKind = 'Create' | 'Update' | 'Delete' | 'Execute'
 
-
 export interface SchemaProperty {
 	type: string | undefined
 	description: string
 	pattern?: string
 	default?: any
 	enum?: string[]
-	contentEncoding?: "base64" | "binary"
+	contentEncoding?: 'base64' | 'binary'
 	format?: string
-	items?: { type?: "string" | "number" }
+	items?: { type?: 'string' | 'number' }
 }
 
 export type Schema = {
@@ -22,7 +21,6 @@ export type Schema = {
 }
 
 export type Meta = { ownerKind: OwnerKind; owner: string; name: string }
-
 
 export function pathToMeta(path: string): Meta {
 	const splitted = path.split('/')

@@ -1,25 +1,25 @@
 <script lang="ts">
-	import { createEventDispatcher } from 'svelte';
+	import { createEventDispatcher } from 'svelte'
 
-	import { ResourceService } from '../../gen';
-	import { workspaceStore } from '../../stores';
-	import IconedResourceType from './IconedResourceType.svelte';
+	import { ResourceService } from '../../gen'
+	import { workspaceStore } from '../../stores'
+	import IconedResourceType from './IconedResourceType.svelte'
 
-	let resources: string[] = [];
+	let resources: string[] = []
 
-	export let value: string | undefined;
+	export let value: string | undefined
 
-	export let notPickable = false;
+	export let notPickable = false
 
 	async function loadResources() {
-		resources = await ResourceService.listResourceTypeNames({ workspace: $workspaceStore! });
+		resources = await ResourceService.listResourceTypeNames({ workspace: $workspaceStore! })
 	}
 
-	const dispatch = createEventDispatcher();
+	const dispatch = createEventDispatcher()
 
 	$: {
 		if ($workspaceStore) {
-			loadResources();
+			loadResources()
 		}
 	}
 </script>
@@ -33,8 +33,8 @@
 				? 'item-button-disabled'
 				: 'item-button'}"
 			on:click={() => {
-				value = r;
-				dispatch('click');
+				value = r
+				dispatch('click')
 			}}
 		>
 			<IconedResourceType name={r} after={true} />

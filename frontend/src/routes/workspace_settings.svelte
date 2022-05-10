@@ -1,33 +1,33 @@
 <script lang="ts">
-	import Fuse from 'fuse.js';
-	import { UserService, type WorkspaceInvite, WorkspaceService } from '../gen';
-	import type { User } from '../gen';
-	import { sendUserToast } from '../utils';
-	import PageHeader from './components/PageHeader.svelte';
-	import { userStore, usersWorkspaceStore, workspaceStore } from '../stores';
-	import CenteredPage from './components/CenteredPage.svelte';
-	import Icon from 'svelte-awesome';
-	import { faSlack } from '@fortawesome/free-brands-svg-icons';
-	import TableCustom from './components/TableCustom.svelte';
-	import { goto } from '$app/navigation';
-	import InviteUser from './components/InviteUser.svelte';
-	import ScriptPicker from './components/ScriptPicker.svelte';
+	import Fuse from 'fuse.js'
+	import { UserService, type WorkspaceInvite, WorkspaceService } from '../gen'
+	import type { User } from '../gen'
+	import { sendUserToast } from '../utils'
+	import PageHeader from './components/PageHeader.svelte'
+	import { userStore, usersWorkspaceStore, workspaceStore } from '../stores'
+	import CenteredPage from './components/CenteredPage.svelte'
+	import Icon from 'svelte-awesome'
+	import { faSlack } from '@fortawesome/free-brands-svg-icons'
+	import TableCustom from './components/TableCustom.svelte'
+	import { goto } from '$app/navigation'
+	import InviteUser from './components/InviteUser.svelte'
+	import ScriptPicker from './components/ScriptPicker.svelte'
 
-	let users: User[] = [];
-	let invites: WorkspaceInvite[] = [];
-	let filteredUsers: User[] | undefined;
-	let userFilter = '';
-	let scriptPath: string;
-	let team_name: string | undefined;
-	let slackLoaded = false;
+	let users: User[] = []
+	let invites: WorkspaceInvite[] = []
+	let filteredUsers: User[] | undefined
+	let userFilter = ''
+	let scriptPath: string
+	let team_name: string | undefined
+	let slackLoaded = false
 
 	const fuseOptions = {
 		includeScore: false,
 		keys: ['username', 'email']
-	};
+	}
 
-	const fuse: Fuse<User> = new Fuse(users, fuseOptions);
-	$: filteredUsers = fuse?.search(userFilter).map((value) => value.item);
+	const fuse: Fuse<User> = new Fuse(users, fuseOptions)
+	$: filteredUsers = fuse?.search(userFilter).map((value) => value.item)
 
 	// function getDropDownItems(username: string): DropdownItem[] {
 	// 	return [
@@ -58,30 +58,30 @@
 		await WorkspaceService.editSlackCommand({
 			workspace: $workspaceStore!,
 			requestBody: { slack_command_script: scriptPath }
-		});
-		sendUserToast(`slack command script set to ${scriptPath}`);
+		})
+		sendUserToast(`slack command script set to ${scriptPath}`)
 	}
 
 	async function loadSlack(): Promise<void> {
-		const settings = await WorkspaceService.getSettings({ workspace: $workspaceStore! });
-		team_name = settings.slack_name;
-		scriptPath = settings.slack_command_script ?? '';
+		const settings = await WorkspaceService.getSettings({ workspace: $workspaceStore! })
+		team_name = settings.slack_name
+		scriptPath = settings.slack_command_script ?? ''
 	}
 
 	async function listUsers(): Promise<void> {
-		users = await UserService.listUsers({ workspace: $workspaceStore! });
-		fuse?.setCollection(users);
+		users = await UserService.listUsers({ workspace: $workspaceStore! })
+		fuse?.setCollection(users)
 	}
 
 	async function listInvites(): Promise<void> {
-		invites = await WorkspaceService.listPendingInvites({ workspace: $workspaceStore! });
+		invites = await WorkspaceService.listPendingInvites({ workspace: $workspaceStore! })
 	}
 
 	$: {
 		if ($workspaceStore) {
-			listUsers();
-			listInvites();
-			loadSlack();
+			listUsers()
+			listInvites()
+			loadSlack()
 		}
 	}
 </script>
@@ -116,8 +116,8 @@
 										await UserService.deleteUser({
 											workspace: $workspaceStore ?? '',
 											username
-										});
-										listUsers();
+										})
+										listUsers()
 									}}>remove</button
 								>
 								-
@@ -130,8 +130,8 @@
 											requestBody: {
 												is_admin: !is_admin
 											}
-										});
-										listUsers();
+										})
+										listUsers()
 									}}>{is_admin ? 'demote' : 'promote'}</button
 								></td
 							>
@@ -165,8 +165,8 @@
 											email,
 											is_admin
 										}
-									});
-									listInvites();
+									})
+									listInvites()
 								}}>remove</button
 							></td
 						>
@@ -192,9 +192,9 @@
 					await WorkspaceService.disconnectClient({
 						workspace: $workspaceStore ?? '',
 						clientName: 'slack'
-					});
-					loadSlack();
-					sendUserToast('Disconnected slack');
+					})
+					loadSlack()
+					sendUserToast('Disconnected slack')
 				}}
 				>Disconnect slack <Icon class="text-white mb-1" data={faSlack} scale={0.9} />
 			</button>
@@ -226,11 +226,11 @@
 		</p>
 		<button
 			on:click={async () => {
-				await WorkspaceService.deleteWorkspace({ workspace: $workspaceStore ?? '' });
-				sendUserToast(`Successfully deleted workspace ${$workspaceStore}`);
-				workspaceStore.set(undefined);
-				usersWorkspaceStore.set(undefined);
-				goto('/user/workspaces');
+				await WorkspaceService.deleteWorkspace({ workspace: $workspaceStore ?? '' })
+				sendUserToast(`Successfully deleted workspace ${$workspaceStore}`)
+				workspaceStore.set(undefined)
+				usersWorkspaceStore.set(undefined)
+				goto('/user/workspaces')
 			}}
 			class="default-button mt-2 bg-red-500">Delete workspace</button
 		>

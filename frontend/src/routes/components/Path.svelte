@@ -1,75 +1,75 @@
 <script lang="ts">
-	import { type Meta, pathToMeta } from '../../common';
+	import { type Meta, pathToMeta } from '../../common'
 
-	import type { Group } from '../../gen';
-	import { GroupService } from '../../gen';
-	import Tooltip from './Tooltip.svelte';
-	import { userStore, workspaceStore } from '../../stores';
-	import { sleep } from '../../utils';
+	import type { Group } from '../../gen'
+	import { GroupService } from '../../gen'
+	import Tooltip from './Tooltip.svelte'
+	import { userStore, workspaceStore } from '../../stores'
+	import { sleep } from '../../utils'
 
 	export let meta: Meta = {
 		ownerKind: 'user',
 		owner: '',
 		name: ''
-	};
-	export let namePlaceholder = '';
-	export let initialPath: string;
-	export let path = '';
+	}
+	export let namePlaceholder = ''
+	export let initialPath: string
+	export let path = ''
 
-	let groups: Group[] = [];
-	let error = '';
+	let groups: Group[] = []
+	let error = ''
 
 	$: {
-		path = [meta.ownerKind === 'group' ? 'g' : 'u', meta.owner, meta.name].join('/');
+		path = [meta.ownerKind === 'group' ? 'g' : 'u', meta.owner, meta.name].join('/')
 	}
 
 	export function getPath() {
-		return path;
+		return path
 	}
 	export async function reset() {
 		if (path == '' || path == 'u//') {
-			meta.ownerKind = 'user';
+			meta.ownerKind = 'user'
 
 			while ($userStore == undefined) {
-				await sleep(500);
+				await sleep(500)
 			}
-			meta.owner = $userStore!.username;
-			meta.name = '';
+			meta.owner = $userStore!.username
+			meta.name = ''
 		} else {
-			meta = pathToMeta(path);
+			meta = pathToMeta(path)
 		}
 	}
 
-	$: validateName(meta);
+	$: validateName(meta)
 
 	async function loadGroups(): Promise<void> {
-		groups = await GroupService.listGroups({ workspace: $workspaceStore! });
+		groups = await GroupService.listGroups({ workspace: $workspaceStore! })
 	}
 
 	function validateName(meta: Meta): void {
 		if (meta.name == undefined || meta.name == '') {
-			error = 'choose a name';
-			return;
+			error = 'choose a name'
+			return
 		}
-		const regex = new RegExp(/^[\w-]+(\/[\w-]+)*$/);
+		const regex = new RegExp(/^[\w-]+(\/[\w-]+)*$/)
 		if (regex.test(meta.name)) {
-			error = '';
+			error = ''
 		} else {
-			error = 'This name is not valid. ';
+			error = 'This name is not valid. '
 		}
 	}
 
 	$: {
 		if ($workspaceStore) {
-			loadGroups();
+			loadGroups()
 		}
 	}
 
 	$: {
 		if (initialPath == undefined || initialPath == '') {
-			reset();
+			reset()
 		} else {
-			meta = pathToMeta(initialPath);
+			meta = pathToMeta(initialPath)
 		}
 	}
 </script>
@@ -87,9 +87,9 @@
 				bind:value={meta.ownerKind}
 				on:change={() => {
 					if (meta.ownerKind === 'group') {
-						meta.owner = 'all';
+						meta.owner = 'all'
 					} else {
-						meta.owner = $userStore?.username ?? '';
+						meta.owner = $userStore?.username ?? ''
 					}
 				}}
 			>

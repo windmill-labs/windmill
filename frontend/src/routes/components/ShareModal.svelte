@@ -1,54 +1,54 @@
 <script lang="ts">
-	import Modal from './Modal.svelte';
-	import TableCustom from './TableCustom.svelte';
+	import Modal from './Modal.svelte'
+	import TableCustom from './TableCustom.svelte'
 
-	import { GranularAclService } from '../../gen/services/GranularAclService';
-	import { sendUserToast } from '../../utils';
-	import { GroupService, UserService } from '../../gen';
-	import { createEventDispatcher } from 'svelte';
-	import AutoComplete from 'simple-svelte-autocomplete';
-	import { workspaceStore } from '../../stores';
+	import { GranularAclService } from '../../gen/services/GranularAclService'
+	import { sendUserToast } from '../../utils'
+	import { GroupService, UserService } from '../../gen'
+	import { createEventDispatcher } from 'svelte'
+	import AutoComplete from 'simple-svelte-autocomplete'
+	import { workspaceStore } from '../../stores'
 
-	const dispatch = createEventDispatcher();
+	const dispatch = createEventDispatcher()
 
-	export let kind: 'script' | 'group_' | 'resource' | 'schedule' | 'variable' | 'flow';
-	export let path: string = '';
+	export let kind: 'script' | 'group_' | 'resource' | 'schedule' | 'variable' | 'flow'
+	export let path: string = ''
 
-	let ownerKind: 'user' | 'group' = 'user';
-	let owner: string = '';
+	let ownerKind: 'user' | 'group' = 'user'
+	let owner: string = ''
 
-	let newOwner: string = '';
-	let write: boolean = false;
-	let acls: [string, boolean][] = [];
-	let groups: String[] = [];
-	let usernames: string[] = [];
+	let newOwner: string = ''
+	let write: boolean = false
+	let acls: [string, boolean][] = []
+	let groups: String[] = []
+	let usernames: string[] = []
 
-	let modal: Modal;
+	let modal: Modal
 
-	$: newOwner = [ownerKind === 'group' ? 'g' : 'u', owner].join('/');
+	$: newOwner = [ownerKind === 'group' ? 'g' : 'u', owner].join('/')
 
 	export async function openModal(newPath?: string) {
 		if (newPath) {
-			path = newPath;
+			path = newPath
 		}
-		loadAcls();
-		loadGroups();
-		loadUsernames();
-		modal.openModal();
+		loadAcls()
+		loadGroups()
+		loadUsernames()
+		modal.openModal()
 	}
 
 	async function loadAcls() {
 		acls = Object.entries(
 			await GranularAclService.getGranularAcls({ workspace: $workspaceStore!, path, kind })
-		);
+		)
 	}
 
 	async function loadGroups(): Promise<void> {
-		groups = await GroupService.listGroupNames({ workspace: $workspaceStore! });
+		groups = await GroupService.listGroupNames({ workspace: $workspaceStore! })
 	}
 
 	async function loadUsernames(): Promise<void> {
-		usernames = await UserService.listUsernames({ workspace: $workspaceStore! });
+		usernames = await UserService.listUsernames({ workspace: $workspaceStore! })
 	}
 
 	async function deleteAcl(owner: string) {
@@ -58,11 +58,11 @@
 				path,
 				kind,
 				requestBody: { owner }
-			});
-			loadAcls();
-			dispatch('change');
+			})
+			loadAcls()
+			dispatch('change')
 		} catch (err) {
-			sendUserToast(err.toString(), true);
+			sendUserToast(err.toString(), true)
 		}
 	}
 
@@ -73,11 +73,11 @@
 				path,
 				kind,
 				requestBody: { owner, write }
-			});
-			loadAcls();
-			dispatch('change');
+			})
+			loadAcls()
+			dispatch('change')
 		} catch (err) {
-			sendUserToast(err.toString(), true);
+			sendUserToast(err.toString(), true)
 		}
 	}
 </script>
@@ -95,9 +95,9 @@
 					bind:value={ownerKind}
 					on:change={() => {
 						if (ownerKind === 'group') {
-							owner = 'all';
+							owner = 'all'
 						} else {
-							owner = '';
+							owner = ''
 						}
 					}}
 				>

@@ -1,115 +1,115 @@
 <script lang="ts">
-	import Tooltip from './Tooltip.svelte';
+	import Tooltip from './Tooltip.svelte'
 
-	import { slide } from 'svelte/transition';
+	import { slide } from 'svelte/transition'
 
-	import { faChevronDown, faChevronUp, faMinus, faPlus } from '@fortawesome/free-solid-svg-icons';
+	import { faChevronDown, faChevronUp, faMinus, faPlus } from '@fortawesome/free-solid-svg-icons'
 
-	import StringTypeNarrowing from './StringTypeNarrowing.svelte';
-	import Icon from 'svelte-awesome';
-	import ResourcePicker from './ResourcePicker.svelte';
-	import ObjectTypeNarrowing from './ObjectTypeNarrowing.svelte';
-	import ObjectResourceInput from './ObjectResourceInput.svelte';
-	import FieldHeader from './FieldHeader.svelte';
+	import StringTypeNarrowing from './StringTypeNarrowing.svelte'
+	import Icon from 'svelte-awesome'
+	import ResourcePicker from './ResourcePicker.svelte'
+	import ObjectTypeNarrowing from './ObjectTypeNarrowing.svelte'
+	import ObjectResourceInput from './ObjectResourceInput.svelte'
+	import FieldHeader from './FieldHeader.svelte'
 
-	export let label: string = '';
-	export let value: any;
-	export let defaultValue: any = undefined;
-	export let description: string = '';
-	export let format: string = '';
-	export let contentEncoding = '';
-	export let type: string | undefined = undefined;
-	export let required = false;
-	export let pattern: undefined | string;
-	export let valid = required ? false : true;
-	export let minRows = 1;
-	export let maxRows = 10;
-	export let enum_: string[] | undefined = undefined;
-	export let disabled = false;
-	export let editableSchema = false;
-	export let itemsType: { type?: 'string' | 'number' } | undefined = undefined;
-	export let displayHeader = true;
+	export let label: string = ''
+	export let value: any
+	export let defaultValue: any = undefined
+	export let description: string = ''
+	export let format: string = ''
+	export let contentEncoding = ''
+	export let type: string | undefined = undefined
+	export let required = false
+	export let pattern: undefined | string
+	export let valid = required ? false : true
+	export let minRows = 1
+	export let maxRows = 10
+	export let enum_: string[] | undefined = undefined
+	export let disabled = false
+	export let editableSchema = false
+	export let itemsType: { type?: 'string' | 'number' } | undefined = undefined
+	export let displayHeader = true
 
-	let seeEditable: boolean = enum_ != undefined || pattern != undefined;
+	let seeEditable: boolean = enum_ != undefined || pattern != undefined
 
-	$: minHeight = `${1 + minRows * 1.2}em`;
-	$: maxHeight = maxRows ? `${1 + maxRows * 1.2}em` : `auto`;
+	$: minHeight = `${1 + minRows * 1.2}em`
+	$: maxHeight = maxRows ? `${1 + maxRows * 1.2}em` : `auto`
 
-	$: validateInput(pattern, value);
+	$: validateInput(pattern, value)
 
-	let error: string = '';
+	let error: string = ''
 
-	let rawValue: string | undefined;
+	let rawValue: string | undefined
 
 	$: {
 		if (rawValue) {
 			try {
-				value = JSON.parse(rawValue);
+				value = JSON.parse(rawValue)
 			} catch (err) {
-				error = err.toString();
+				error = err.toString()
 			}
 		}
 	}
 
 	$: {
 		if (!type || type == 'object' || (type == 'array' && itemsType?.type == undefined)) {
-			evalValueToRaw();
+			evalValueToRaw()
 		}
 		if (defaultValue) {
-			let stringified = JSON.stringify(defaultValue, null, 4);
+			let stringified = JSON.stringify(defaultValue, null, 4)
 			if (stringified.length > 50) {
-				minRows = 3;
+				minRows = 3
 			}
 			if (type != 'string') {
-				minRows = Math.max(minRows, Math.min(stringified.split(/\r\n|\r|\n/).length + 1, maxRows));
+				minRows = Math.max(minRows, Math.min(stringified.split(/\r\n|\r|\n/).length + 1, maxRows))
 			}
 		}
 	}
 
 	export function evalValueToRaw() {
-		rawValue = JSON.stringify(value, null, 4);
+		rawValue = JSON.stringify(value, null, 4)
 	}
 
 	function fileChanged(e: any) {
-		let t = e.target;
+		let t = e.target
 		if (t && 'files' in t && t.files.length > 0) {
-			let reader = new FileReader();
+			let reader = new FileReader()
 			reader.onload = (e: any) => {
-				value = e.target.result.split('base64,')[1];
-			};
-			reader.readAsDataURL(t.files[0]);
+				value = e.target.result.split('base64,')[1]
+			}
+			reader.readAsDataURL(t.files[0])
 		} else {
-			value = undefined;
+			value = undefined
 		}
 	}
 
 	function validateInput(pattern: string | undefined, v: any): void {
 		if (required && v == undefined) {
-			error = 'This field is required';
-			valid = false;
+			error = 'This field is required'
+			valid = false
 		} else {
 			if (pattern && !testRegex(pattern, v)) {
-				error = `Should match ${pattern}`;
-				valid = false;
+				error = `Should match ${pattern}`
+				valid = false
 			} else {
-				error = '';
-				valid = true;
+				error = ''
+				valid = true
 			}
 		}
 	}
 
 	function testRegex(pattern: string, value: any): boolean {
 		try {
-			const regex = new RegExp(pattern);
-			return regex.test(value);
+			const regex = new RegExp(pattern)
+			return regex.test(value)
 		} catch (err) {
-			return false;
+			return false
 		}
 	}
 
 	$: {
 		if (value == undefined) {
-			value = defaultValue;
+			value = defaultValue
 		}
 	}
 </script>
@@ -124,7 +124,7 @@
 				<span
 					class="underline"
 					on:click={() => {
-						seeEditable = !seeEditable;
+						seeEditable = !seeEditable
 					}}
 					>Customize argument<Icon
 						class="ml-2"
@@ -198,9 +198,9 @@
 						<button
 							class="default-button-secondary mx-6"
 							on:click={() => {
-								value = value.filter((el) => el != v);
+								value = value.filter((el) => el != v)
 								if (value.length == 0) {
-									value = undefined;
+									value = undefined
 								}
 							}}><Icon data={faMinus} class="mb-1" /></button
 						>
@@ -210,9 +210,9 @@
 					class="default-button-secondary mt-1"
 					on:click={() => {
 						if (value == undefined) {
-							value = [];
+							value = []
 						}
-						value = value.concat('');
+						value = value.concat('')
 					}}>Add item &nbsp;<Icon data={faPlus} class="mb-1" /></button
 				><span class="ml-2">{(value ?? []).length} item(s)</span>
 			{:else if type == 'object' && format?.startsWith('resource')}

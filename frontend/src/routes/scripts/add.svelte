@@ -1,11 +1,11 @@
 <script lang="ts">
-	import { ScriptService, type Script } from '../../gen';
+	import { ScriptService, type Script } from '../../gen'
 
-	import { page } from '$app/stores';
-	import { workspaceStore } from '../../stores';
-	import ScriptBuilder from '../components/ScriptBuilder.svelte';
-	import type { Schema } from '../../common';
-	import { sendUserToast } from '../../utils';
+	import { page } from '$app/stores'
+	import { workspaceStore } from '../../stores'
+	import ScriptBuilder from '../components/ScriptBuilder.svelte'
+	import type { Schema } from '../../common'
+	import { sendUserToast } from '../../utils'
 
 	// Default
 	let schema: Schema = {
@@ -36,7 +36,7 @@
 		},
 		required: [],
 		type: 'object'
-	};
+	}
 
 	let code = `import os
 import wmill
@@ -79,11 +79,11 @@ def main(name: str = "Nicolas Bourbaki",
     # the return value is then parsed and can be retrieved by other scripts conveniently
     return {"version": version, "splitted": name.split(), "user": user}
 
-`;
+`
 
-	$: templatePath = $page.url.searchParams.get('template');
+	$: templatePath = $page.url.searchParams.get('template')
 
-	const initialState = $page.url.searchParams.get('state');
+	const initialState = $page.url.searchParams.get('state')
 
 	let script: Script =
 		initialState != undefined
@@ -100,7 +100,7 @@ def main(name: str = "Nicolas Bourbaki",
 					deleted: false,
 					is_template: false,
 					extra_perms: {}
-			  };
+			  }
 
 	async function loadTemplate(): Promise<void> {
 		if (templatePath) {
@@ -108,21 +108,21 @@ def main(name: str = "Nicolas Bourbaki",
 				const template = await ScriptService.getScriptByPath({
 					workspace: $workspaceStore!,
 					path: templatePath
-				});
-				script.summary = `Copy of ${template.summary}`;
-				script.description = template.description;
-				script.content = template.content;
-				script.schema = template.schema;
-				sendUserToast('Code & arguments have been loaded from template.');
+				})
+				script.summary = `Copy of ${template.summary}`
+				script.description = template.description
+				script.content = template.content
+				script.schema = template.schema
+				sendUserToast('Code & arguments have been loaded from template.')
 			} catch (err) {
-				sendUserToast(`Could not load template: ${err}`, true);
+				sendUserToast(`Could not load template: ${err}`, true)
 			}
 		}
 	}
 
 	$: {
 		if ($workspaceStore) {
-			loadTemplate();
+			loadTemplate()
 		}
 	}
 </script>

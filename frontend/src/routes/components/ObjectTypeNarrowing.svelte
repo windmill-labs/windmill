@@ -1,17 +1,17 @@
 <script lang="ts">
-	import RadioButton from './RadioButton.svelte';
-	import ResourceTypePicker from './ResourceTypePicker.svelte';
+	import RadioButton from './RadioButton.svelte'
+	import ResourceTypePicker from './ResourceTypePicker.svelte'
 
-	export let format: string | undefined;
+	export let format: string | undefined
 
-	let kind: 'resource' | 'none' = format?.startsWith('resource') ? 'resource' : 'none';
+	let kind: 'resource' | 'none' = format?.startsWith('resource') ? 'resource' : 'none'
 
 	let resource: string | undefined = format?.startsWith('resource-')
 		? format.substring('resource-'.length)
-		: undefined;
+		: undefined
 
 	$: format =
-		kind == 'resource' ? (resource != undefined ? `resource-${resource}` : 'resource') : undefined;
+		kind == 'resource' ? (resource != undefined ? `resource-${resource}` : 'resource') : undefined
 </script>
 
 <RadioButton

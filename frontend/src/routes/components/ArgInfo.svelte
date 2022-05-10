@@ -1,26 +1,26 @@
 <script lang="ts">
-	import { truncate } from '../../utils';
-	import Modal from './Modal.svelte';
-	import Tooltip from './Tooltip.svelte';
-	import json from 'svelte-highlight/src/languages/json';
-	import github from 'svelte-highlight/src/styles/github';
-	import { Highlight } from 'svelte-highlight';
-	import { ResourceService, type Resource } from '../../gen';
-	import { workspaceStore } from '../../stores';
+	import { truncate } from '../../utils'
+	import Modal from './Modal.svelte'
+	import Tooltip from './Tooltip.svelte'
+	import json from 'svelte-highlight/src/languages/json'
+	import github from 'svelte-highlight/src/styles/github'
+	import { Highlight } from 'svelte-highlight'
+	import { ResourceService, type Resource } from '../../gen'
+	import { workspaceStore } from '../../stores'
 
-	export let value: any;
-	let resourceViewer: Modal;
-	let resource: Resource;
+	export let value: any
+	let resourceViewer: Modal
+	let resource: Resource
 
 	function isString(value: any) {
-		return typeof value === 'string' || value instanceof String;
+		return typeof value === 'string' || value instanceof String
 	}
 
 	async function getResource(path) {
-		resource = await ResourceService.getResource({ workspace: $workspaceStore!, path });
+		resource = await ResourceService.getResource({ workspace: $workspaceStore!, path })
 	}
 
-	let asJson: string = JSON.stringify(value, null, 4);
+	let asJson: string = JSON.stringify(value, null, 4)
 </script>
 
 <svelte:head>
@@ -43,8 +43,8 @@
 	<button
 		class="text-xs text-blue-500"
 		on:click={async () => {
-			await getResource(value.substring('$res:'.length));
-			resourceViewer.openModal();
+			await getResource(value.substring('$res:'.length))
+			resourceViewer.openModal()
 		}}>{value}</button
 	>{:else if asJson.length > 40}
 	{truncate(asJson, 40)}<Tooltip>{asJson}</Tooltip>

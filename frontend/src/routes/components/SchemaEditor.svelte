@@ -1,130 +1,126 @@
 <script lang="ts">
-	import SchemaModal, {
-		DEFAULT_PROPERTY,
-		modalToSchema,
-		schemaToModal
-	} from './SchemaModal.svelte';
-	import type { ModalSchemaProperty } from './SchemaModal.svelte';
-	import type { Schema } from '../../common';
-	import Editor from './Editor.svelte';
-	import { emptySchema, sendUserToast } from '../../utils';
-	import Tooltip from './Tooltip.svelte';
-	import TableCustom from './TableCustom.svelte';
+	import SchemaModal, { DEFAULT_PROPERTY, modalToSchema, schemaToModal } from './SchemaModal.svelte'
+	import type { ModalSchemaProperty } from './SchemaModal.svelte'
+	import type { Schema } from '../../common'
+	import Editor from './Editor.svelte'
+	import { emptySchema, sendUserToast } from '../../utils'
+	import Tooltip from './Tooltip.svelte'
+	import TableCustom from './TableCustom.svelte'
 
-	export let schema: Schema = emptySchema();
+	export let schema: Schema = emptySchema()
 
-	let schemaModal: SchemaModal;
-	let schemaString: string = '';
+	let schemaModal: SchemaModal
+	let schemaString: string = ''
 
 	// Internal state: bound to args builder modal
-	let modalProperty: ModalSchemaProperty = Object.assign({}, DEFAULT_PROPERTY);
-	let argError = '';
-	let editing = false;
-	let oldArgName: string | undefined; // when editing argument and changing name
+	let modalProperty: ModalSchemaProperty = Object.assign({}, DEFAULT_PROPERTY)
+	let argError = ''
+	let editing = false
+	let oldArgName: string | undefined // when editing argument and changing name
 
-	let viewJsonSchema = false;
-	let editor: Editor;
+	let viewJsonSchema = false
+	let editor: Editor
 
-	$: schemaString = JSON.stringify(schema, null, '\t');
+	$: schemaString = JSON.stringify(schema, null, '\t')
 
 	export function getEditor(): Editor {
-		return editor;
+		return editor
 	}
 	// Binding is not enough because monaco Editor does not support two-way binding
 	export function getSchema(): Schema {
 		if (viewJsonSchema) {
 			try {
-				schema = JSON.parse(editor.getCode());
-				return schema;
+				schema = JSON.parse(editor.getCode())
+				return schema
 			} catch (err) {
-				throw Error(`Error: input is not a valid schema: ${err}`);
+				throw Error(`Error: input is not a valid schema: ${err}`)
 			}
 		} else {
 			try {
-				editor.setCode(JSON.stringify(schema, null, '\t'));
-				return schema;
+				editor.setCode(JSON.stringify(schema, null, '\t'))
+				return schema
 			} catch (err) {
-				throw Error(`Error: input is not a valid schema: ${err}`);
+				throw Error(`Error: input is not a valid schema: ${err}`)
 			}
 		}
 	}
 
 	function handleAddOrEditArgument(): void {
 		// If editing the arg's name, oldName containing the old argument name must be provided
-		argError = '';
+		argError = ''
 		if (modalProperty.name.length === 0) {
-			argError = 'Arguments need to have a name';
+			argError = 'Arguments need to have a name'
 		} else if (Object.keys(schema.properties).includes(modalProperty.name) && !editing) {
-			argError = 'There is already an argument with this name';
+			argError = 'There is already an argument with this name'
 		} else {
-			schema.properties[modalProperty.name] = modalToSchema(modalProperty);
+			schema.properties[modalProperty.name] = modalToSchema(modalProperty)
 			if (modalProperty.required) {
-				schema.required = [...schema.required, modalProperty.name];
+				schema.required = [...schema.required, modalProperty.name]
 			} else if (schema.required.includes(modalProperty.name)) {
-				const index = schema.required.indexOf(modalProperty.name, 0);
+				const index = schema.required.indexOf(modalProperty.name, 0)
 				if (index > -1) {
-					schema.required.splice(index, 1);
+					schema.required.splice(index, 1)
 				}
 			}
 
 			if (editing && oldArgName && oldArgName !== modalProperty.name) {
-				handleDeleteArgument(oldArgName);
+				handleDeleteArgument(oldArgName)
 			}
-			modalProperty = Object.assign({}, DEFAULT_PROPERTY);
-			editing = false;
-			oldArgName = undefined;
-			schemaModal.closeModal();
+			modalProperty = Object.assign({}, DEFAULT_PROPERTY)
+			editing = false
+			oldArgName = undefined
+			schemaModal.closeModal()
 		}
 	}
 
 	function startEditArgument(argName: string): void {
-		argError = '';
+		argError = ''
 		if (Object.keys(schema.properties).includes(argName)) {
-			schemaModal.openModal();
-			editing = true;
+			schemaModal.openModal()
+			editing = true
 			modalProperty = schemaToModal(
 				schema.properties[argName],
 				argName,
 				schema.required.includes(argName)
-			);
-			oldArgName = argName;
+			)
+			oldArgName = argName
 		} else {
-			sendUserToast(`This argument does not exist and can't be edited`, true);
+			sendUserToast(`This argument does not exist and can't be edited`, true)
 		}
 	}
 
 	function handleDeleteArgument(argName: string): void {
 		try {
 			if (Object.keys(schema.properties).includes(argName)) {
-				delete schema.properties[argName];
-				schema = schema; //needed for reactivity, see https://svelte.dev/tutorial/updating-arrays-and-objects
+				delete schema.properties[argName]
+				schema = schema //needed for reactivity, see https://svelte.dev/tutorial/updating-arrays-and-objects
 			} else {
-				throw Error('Argument not found!');
+				throw Error('Argument not found!')
 			}
 		} catch (err) {
-			console.error(err);
-			sendUserToast(`Could not delete argument: ${err}`, true);
+			console.error(err)
+			sendUserToast(`Could not delete argument: ${err}`, true)
 		}
 	}
 
 	function switchTab(): void {
 		if (viewJsonSchema) {
-			let schemaString = editor.getCode();
+			let schemaString = editor.getCode()
 			if (schemaString === '') {
-				schemaString = JSON.stringify(emptySchema(), null, 4);
+				schemaString = JSON.stringify(emptySchema(), null, 4)
 			}
 			try {
-				schema = JSON.parse(schemaString);
-				viewJsonSchema = false;
+				schema = JSON.parse(schemaString)
+				viewJsonSchema = false
 			} catch (err) {
-				sendUserToast(err, true);
+				sendUserToast(err, true)
 			}
 		} else {
 			try {
-				editor.setCode(JSON.stringify(schema, null, '\t'));
-				viewJsonSchema = true;
+				editor.setCode(JSON.stringify(schema, null, '\t'))
+				viewJsonSchema = true
 			} catch (err) {
-				sendUserToast(err, true);
+				sendUserToast(err, true)
 			}
 		}
 	}
@@ -155,8 +151,8 @@
 			<button
 				class="default-button-secondary grow"
 				on:click={() => {
-					modalProperty = Object.assign({}, DEFAULT_PROPERTY);
-					schemaModal.openModal();
+					modalProperty = Object.assign({}, DEFAULT_PROPERTY)
+					schemaModal.openModal()
 				}}>Add argument</button
 			>
 		</div>
@@ -203,7 +199,7 @@
 									<button
 										class="default-button-secondary text-xs inline-flex"
 										on:click={() => {
-											startEditArgument(name);
+											startEditArgument(name)
 										}}>edit</button
 									></td
 								>

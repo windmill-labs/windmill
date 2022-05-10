@@ -1,11 +1,11 @@
 <script lang="ts">
-	export let value: string;
-	export let placeholder = '';
-	export let minRows = 1;
-	export let maxRows = 20;
+	export let value: string
+	export let placeholder = ''
+	export let minRows = 1
+	export let maxRows = 20
 
-	$: minHeight = `${1 + minRows * 1.2}em`;
-	$: maxHeight = maxRows ? `${1 + maxRows * 1.2}em` : `auto`;
+	$: minHeight = `${1 + minRows * 1.2}em`
+	$: maxHeight = maxRows ? `${1 + maxRows * 1.2}em` : `auto`
 </script>
 
 <div class="container">

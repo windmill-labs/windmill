@@ -1,51 +1,51 @@
 <script lang="ts">
-	import { canWrite, getUser } from '../utils';
-	import { GroupService } from '../gen';
-	import type { Group } from '../gen';
+	import { canWrite, getUser } from '../utils'
+	import { GroupService } from '../gen'
+	import type { Group } from '../gen'
 
-	import PageHeader from './components/PageHeader.svelte';
-	import TableCustom from './components/TableCustom.svelte';
-	import Dropdown from './components/Dropdown.svelte';
-	import ShareModal from './components/ShareModal.svelte';
-	import SharedBadge from './components/SharedBadge.svelte';
-	import { faEdit, faPlus, faShare } from '@fortawesome/free-solid-svg-icons';
-	import { workspaceStore } from '../stores';
-	import CenteredPage from './components/CenteredPage.svelte';
-	import Icon from 'svelte-awesome';
-	import GroupModal from './components/GroupModal.svelte';
+	import PageHeader from './components/PageHeader.svelte'
+	import TableCustom from './components/TableCustom.svelte'
+	import Dropdown from './components/Dropdown.svelte'
+	import ShareModal from './components/ShareModal.svelte'
+	import SharedBadge from './components/SharedBadge.svelte'
+	import { faEdit, faPlus, faShare } from '@fortawesome/free-solid-svg-icons'
+	import { workspaceStore } from '../stores'
+	import CenteredPage from './components/CenteredPage.svelte'
+	import Icon from 'svelte-awesome'
+	import GroupModal from './components/GroupModal.svelte'
 
-	type GroupW = Group & { canWrite: boolean };
+	type GroupW = Group & { canWrite: boolean }
 
-	let newGroupName: string = '';
-	let groups: GroupW[] = [];
-	let shareModal: ShareModal;
-	let groupModal: GroupModal;
+	let newGroupName: string = ''
+	let groups: GroupW[] = []
+	let shareModal: ShareModal
+	let groupModal: GroupModal
 
 	async function loadGroups(): Promise<void> {
-		const user = await getUser($workspaceStore!);
+		const user = await getUser($workspaceStore!)
 		groups = (await GroupService.listGroups({ workspace: $workspaceStore! })).map((x) => {
-			return { canWrite: canWrite(x.name, x.extra_perms ?? {}, user), ...x };
-		});
+			return { canWrite: canWrite(x.name, x.extra_perms ?? {}, user), ...x }
+		})
 	}
 
 	function handleKeyUp(event: KeyboardEvent) {
-		const key = event.key || event.keyCode;
+		const key = event.key || event.keyCode
 		if (key === 13 || key === 'Enter') {
-			event.preventDefault();
-			addGroup();
+			event.preventDefault()
+			addGroup()
 		}
 	}
 	async function addGroup() {
 		await GroupService.createGroup({
 			workspace: $workspaceStore ?? '',
 			requestBody: { name: newGroupName }
-		});
-		loadGroups();
+		})
+		loadGroups()
 	}
 
 	$: {
 		if ($workspaceStore) {
-			loadGroups();
+			loadGroups()
 		}
 	}
 </script>
@@ -54,7 +54,7 @@
 	bind:this={shareModal}
 	kind="group_"
 	on:change={() => {
-		loadGroups();
+		loadGroups()
 	}}
 />
 
@@ -90,7 +90,7 @@
 							><a
 								href="#{name}"
 								on:click={() => {
-									groupModal.openModal(name);
+									groupModal.openModal(name)
 								}}>{name}</a
 							>
 							<div>
@@ -106,7 +106,7 @@
 										icon: faEdit,
 										disabled: !canWrite,
 										action: () => {
-											groupModal.openModal(name);
+											groupModal.openModal(name)
 										}
 									},
 									{
@@ -114,7 +114,7 @@
 										icon: faShare,
 										disabled: !canWrite,
 										action: () => {
-											shareModal.openModal(name);
+											shareModal.openModal(name)
 										}
 									}
 								]}

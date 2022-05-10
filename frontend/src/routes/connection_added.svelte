@@ -1,22 +1,22 @@
 <script lang="ts">
-	import { goto } from '$app/navigation';
-	import { page } from '$app/stores';
-	import { sendUserToast } from '../utils';
-	import CenteredPage from './components/CenteredPage.svelte';
+	import { goto } from '$app/navigation'
+	import { page } from '$app/stores'
+	import { sendUserToast } from '../utils'
+	import CenteredPage from './components/CenteredPage.svelte'
 
-	let error = $page.url.searchParams.get('error');
-	let client_name = $page.url.searchParams.get('client_name');
+	let error = $page.url.searchParams.get('error')
+	let client_name = $page.url.searchParams.get('client_name')
 
 	if (client_name) {
 		sendUserToast(
 			`Connection added for ${client_name}. The oauth token has been stored in the variables`
-		);
+		)
 	} else if (error) {
-		sendUserToast(`Error adding connection ${error}`, true);
+		sendUserToast(`Error adding connection ${error}`, true)
 	} else {
-		goto('/variables');
+		goto('/variables')
 	}
-	setTimeout(() => goto('/workspace_settings'), 5000);
+	setTimeout(() => goto('/workspace_settings'), 5000)
 </script>
 
 <CenteredPage>

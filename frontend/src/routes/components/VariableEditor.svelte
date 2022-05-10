@@ -1,62 +1,62 @@
 <script lang="ts">
-	import Password from '../components/Password.svelte';
-	import { sendUserToast } from '../../utils';
-	import { VariableService } from '../../gen';
-	import AutosizedTextarea from '../components/AutosizedTextarea.svelte';
-	import Path from '../components/Path.svelte';
-	import Modal from './Modal.svelte';
-	import { createEventDispatcher } from 'svelte';
-	import { workspaceStore } from '../../stores';
-	import Required from './Required.svelte';
+	import Password from '../components/Password.svelte'
+	import { sendUserToast } from '../../utils'
+	import { VariableService } from '../../gen'
+	import AutosizedTextarea from '../components/AutosizedTextarea.svelte'
+	import Path from '../components/Path.svelte'
+	import Modal from './Modal.svelte'
+	import { createEventDispatcher } from 'svelte'
+	import { workspaceStore } from '../../stores'
+	import Required from './Required.svelte'
 
-	const dispatch = createEventDispatcher();
+	const dispatch = createEventDispatcher()
 
-	let path: string = '';
+	let path: string = ''
 
 	let variable: {
-		value: string;
-		is_secret: boolean;
-		description: string;
+		value: string
+		is_secret: boolean
+		description: string
 	} = {
 		value: '',
 		is_secret: true,
 		description: ''
-	};
-	let valid = true;
+	}
+	let valid = true
 
-	let modal: Modal;
-	let edit = false;
-	let initialPath: string;
+	let modal: Modal
+	let edit = false
+	let initialPath: string
 
 	export function initNew(): void {
 		variable = {
 			value: '',
 			is_secret: true,
 			description: ''
-		};
-		edit = false;
-		modal.openModal();
+		}
+		edit = false
+		modal.openModal()
 	}
 
 	export async function editVariable(path: string): Promise<void> {
-		edit = true;
+		edit = true
 		const getV = await VariableService.getVariable({
 			workspace: $workspaceStore ?? '',
 			path,
 			decryptSecret: false
-		});
+		})
 		variable = {
 			value: getV.value ?? '',
 			is_secret: getV.is_secret,
 			description: getV.description ?? ''
-		};
-		initialPath = path;
-		modal.openModal();
+		}
+		initialPath = path
+		modal.openModal()
 	}
 
-	const MAX_VARIABLE_LENGTH = 3000;
+	const MAX_VARIABLE_LENGTH = 3000
 
-	$: valid = variable.value.length < MAX_VARIABLE_LENGTH;
+	$: valid = variable.value.length < MAX_VARIABLE_LENGTH
 
 	async function createVariable(): Promise<void> {
 		try {
@@ -68,12 +68,12 @@
 					is_secret: variable.is_secret,
 					description: variable.description
 				}
-			});
-			sendUserToast(`Successfully created variable ${path}`);
-			dispatch('create');
-			modal.closeModal();
+			})
+			sendUserToast(`Successfully created variable ${path}`)
+			dispatch('create')
+			modal.closeModal()
 		} catch (err) {
-			sendUserToast(`Could not create variable: ${err.body}`, true);
+			sendUserToast(`Could not create variable: ${err.body}`, true)
 		}
 	}
 
@@ -83,7 +83,7 @@
 				workspace: $workspaceStore ?? '',
 				path: initialPath,
 				decryptSecret: false
-			});
+			})
 
 			await VariableService.updateVariable({
 				workspace: $workspaceStore!,
@@ -94,12 +94,12 @@
 					is_secret: getV.is_secret != variable.is_secret ? variable.is_secret : undefined,
 					description: getV.description != variable.description ? variable.description : undefined
 				}
-			});
-			sendUserToast(`Successfully updated variable at ${initialPath}`);
-			dispatch('create');
-			modal.closeModal();
+			})
+			sendUserToast(`Successfully updated variable at ${initialPath}`)
+			dispatch('create')
+			modal.closeModal()
 		} catch (err) {
-			sendUserToast(`Could not update variable: ${err.body}`, true);
+			sendUserToast(`Could not update variable: ${err.body}`, true)
 		}
 	}
 </script>
@@ -157,9 +157,9 @@
 		type="button"
 		on:click={() => {
 			if (edit) {
-				updateVariable();
+				updateVariable()
 			} else {
-				createVariable();
+				createVariable()
 			}
 		}}
 		disabled={!valid}

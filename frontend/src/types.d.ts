@@ -1,1 +1,1 @@
-declare module "simple-svelte-autocomplete"
+declare module 'simple-svelte-autocomplete'

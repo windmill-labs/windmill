@@ -1,24 +1,24 @@
 <script lang="ts">
-	import { usersWorkspaceStore } from '../../stores';
+	import { usersWorkspaceStore } from '../../stores'
 
-	import type { TruncatedToken, NewToken } from '../../gen';
-	import { UserService, SettingsService } from '../../gen';
-	import { displayDate, sendUserToast, getToday } from '../../utils';
-	import PageHeader from './../components/PageHeader.svelte';
-	import Icon from 'svelte-awesome';
-	import { faPlus } from '@fortawesome/free-solid-svg-icons';
-	import TableCustom from '../components/TableCustom.svelte';
-	import CenteredModal from './CenteredModal.svelte';
+	import type { TruncatedToken, NewToken } from '../../gen'
+	import { UserService, SettingsService } from '../../gen'
+	import { displayDate, sendUserToast, getToday } from '../../utils'
+	import PageHeader from './../components/PageHeader.svelte'
+	import Icon from 'svelte-awesome'
+	import { faPlus } from '@fortawesome/free-solid-svg-icons'
+	import TableCustom from '../components/TableCustom.svelte'
+	import CenteredModal from './CenteredModal.svelte'
 
-	let newPassword: string | undefined;
-	let passwordError: string | undefined;
-	let version: string | undefined;
-	let tokens: TruncatedToken[];
-	let newToken: string | undefined;
-	let newTokenLabel: string | undefined;
-	let newTokenExpiration: string | undefined;
-	let displayCreateToken = false;
-	let login_type = 'none';
+	let newPassword: string | undefined
+	let passwordError: string | undefined
+	let version: string | undefined
+	let tokens: TruncatedToken[]
+	let newToken: string | undefined
+	let newTokenLabel: string | undefined
+	let newTokenExpiration: string | undefined
+	let displayCreateToken = false
+	let login_type = 'none'
 
 	async function setPassword(): Promise<void> {
 		try {
@@ -27,61 +27,61 @@
 					requestBody: {
 						password: newPassword
 					}
-				});
-				sendUserToast('Your password was successfully updated');
+				})
+				sendUserToast('Your password was successfully updated')
 			} else {
-				sendUserToast('Specify a new password value to change your passord', true);
+				sendUserToast('Specify a new password value to change your passord', true)
 			}
 		} catch (error) {
-			sendUserToast(`Could not set this user's password: ${error}`, true);
+			sendUserToast(`Could not set this user's password: ${error}`, true)
 		}
 	}
 
 	async function loadVersion(): Promise<void> {
-		version = await SettingsService.backendVersion();
+		version = await SettingsService.backendVersion()
 	}
 	async function loadLoginType(): Promise<void> {
-		login_type = (await UserService.globalWhoami()).login_type;
+		login_type = (await UserService.globalWhoami()).login_type
 	}
 
 	async function createToken(): Promise<void> {
-		newToken = undefined;
-		let expirationISO: Date | undefined;
+		newToken = undefined
+		let expirationISO: Date | undefined
 		if (newTokenExpiration) {
-			expirationISO = new Date(newTokenExpiration);
+			expirationISO = new Date(newTokenExpiration)
 		}
 		try {
 			newToken = await UserService.createToken({
 				requestBody: { label: newTokenLabel, expiration: expirationISO?.toISOString() } as NewToken
-			});
-			listTokens();
-			displayCreateToken = false;
+			})
+			listTokens()
+			displayCreateToken = false
 		} catch (err) {
-			sendUserToast(`Could not create token: ${err}`, true);
+			sendUserToast(`Could not create token: ${err}`, true)
 		}
 	}
 
 	async function listTokens(): Promise<void> {
 		try {
-			tokens = await UserService.listTokens();
+			tokens = await UserService.listTokens()
 		} catch (err) {
-			sendUserToast(`Could not fetch tokens: ${err}`, true);
+			sendUserToast(`Could not fetch tokens: ${err}`, true)
 		}
 	}
 
 	async function deleteToken(tokenPrefix: string) {
 		try {
-			await UserService.deleteToken({ tokenPrefix });
-			sendUserToast('Succesfully deleted token');
-			listTokens();
+			await UserService.deleteToken({ tokenPrefix })
+			sendUserToast('Succesfully deleted token')
+			listTokens()
 		} catch (err) {
-			sendUserToast(`There was an error deleting this token: ${err}`, true);
+			sendUserToast(`There was an error deleting this token: ${err}`, true)
 		}
 	}
 
-	loadVersion();
-	loadLoginType();
-	listTokens();
+	loadVersion()
+	loadLoginType()
+	listTokens()
 </script>
 
 <CenteredModal title="User settings">
@@ -135,10 +135,10 @@
 		<div class="text-right py-0 my-0 border-b">
 			<button
 				on:click={() => {
-					displayCreateToken = !displayCreateToken;
-					newToken = undefined;
-					newTokenExpiration = undefined;
-					newTokenLabel = undefined;
+					displayCreateToken = !displayCreateToken
+					newToken = undefined
+					newTokenExpiration = undefined
+					newTokenLabel = undefined
 				}}
 				class="default-button py-0 {displayCreateToken ? 'hidden' : ''}"
 				><Icon class="text-white mb-1" data={faPlus} scale={0.9} /> &nbsp; Create token</button
@@ -218,7 +218,7 @@
 								><button
 									class="text-red-500 text-xs underline"
 									on:click={() => {
-										deleteToken(token_prefix);
+										deleteToken(token_prefix)
 									}}>Delete</button
 								></td
 							>

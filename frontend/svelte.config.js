@@ -1,6 +1,6 @@
-import preprocess from 'svelte-preprocess';
-import adapter from '@sveltejs/adapter-static';
-const ppath = process.env.PREVIEW_PATH;
+import preprocess from 'svelte-preprocess'
+import adapter from '@sveltejs/adapter-static'
+const ppath = process.env.PREVIEW_PATH
 
 /** @type {import('@sveltejs/kit').Config} */
 const config = {
@@ -44,8 +44,8 @@ const config = {
 		}),
 		prerender: {
 			enabled: true
-		},
+		}
 	}
-};
+}
 
-export default config;
+export default config
