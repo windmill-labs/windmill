@@ -1,0 +1,39 @@
+# Basic set up for three package managers
+
+version: 2
+updates:
+  # Maintain dependencies for GitHub Actions
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+
+  # Maintain dependencies for npm
+  - package-ecosystem: "npm"
+    directory: "/frontend"
+    schedule:
+      interval: "weekly"
+
+  # Maintain dependencies for cargo
+  - package-ecosystem: "cargo"
+    directory: "/backend"
+    schedule:
+      interval: "weekly"
+
+  # Maintain dependencies for Docker
+  - package-ecosystem: "docker"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+
+  # Maintain dependencies for wmill python client
+  - package-ecosystem: "pip"
+    directory: "/python-client/wmill"
+    schedule:
+      interval: "weekly"
+      
+  # Maintain dependencies for wmill_pg python client
+  - package-ecosystem: "pip"
+    directory: "/python-client/wmill_pg"
+    schedule:
+      interval: "weekly"
