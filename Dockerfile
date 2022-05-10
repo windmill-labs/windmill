@@ -19,7 +19,7 @@ RUN git clone -b master --single-branch https://github.com/google/nsjail.git . \
     && git checkout dccf911fd2659e7b08ce9507c25b2b38ec2c5800
 RUN make
 
-FROM mhart/alpine-node:14 as frontend
+FROM mhart/alpine-node:16 as frontend
 
 # install dependencies
 WORKDIR /frontend
