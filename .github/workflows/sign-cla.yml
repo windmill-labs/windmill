@@ -15,12 +15,11 @@ jobs:
         uses: cla-assistant/github-action@v2.1.3-beta
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          PERSONAL_ACCESS_TOKEN: ${{ secrets.PAT }}
+          PERSONAL_ACCESS_TOKEN: ${{ secrets.CLA_PAT }}
         with:
           path-to-signatures: "signatures/cla.json"
           path-to-document: "https://github.com/windmill-labs/windmill/blob/master/CLA.md"
-          # branch should not be protected
-          branch: "main"
+          branch: "signatures"
           allowlist: rubenfiszel,bot*
 
           #below are the optional inputs - If the optional inputs are not given, then default values will be taken
