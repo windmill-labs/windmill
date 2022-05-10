@@ -8,7 +8,7 @@ jobs:
   build_lsp:
     runs-on: [self-hosted, new]
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v3
       - name: Upload python client
         env:
           PYPI_PASSWORD: ${{ secrets.PYPI_PASSWORD }}
