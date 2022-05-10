@@ -92,6 +92,7 @@ struct CompletedJob {
     parent_job: Option<Uuid>,
     created_by: String,
     created_at: chrono::DateTime<chrono::Utc>,
+    started_at: chrono::DateTime<chrono::Utc>,
     duration: i32,
     success: bool,
     script_hash: Option<ScriptHash>,
