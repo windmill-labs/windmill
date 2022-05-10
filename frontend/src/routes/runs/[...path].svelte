@@ -132,7 +132,7 @@ the bearer token they use has less privilege."
 				tabs={[
 					['script,dependencies,preview,flow', 'all'],
 					[`${CompletedJob.job_kind.SCRIPT},${CompletedJob.job_kind.FLOW}`, 'runs'],
-					[`${CompletedJob.job_kind.FLOW},${CompletedJob.job_kind.FLOWPREVIEW}`, 'previews'],
+					[`${CompletedJob.job_kind.PREVIEW},${CompletedJob.job_kind.FLOWPREVIEW}`, 'previews'],
 					[CompletedJob.job_kind.DEPENDENCIES, 'dependencies']
 				]}
 				dflt={1}
