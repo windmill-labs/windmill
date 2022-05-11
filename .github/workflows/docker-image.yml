@@ -72,6 +72,7 @@ jobs:
         uses: docker/build-push-action@v3
         if: github.event_name != 'pull_request'
         with:
+          platforms: linux/amd64,linux/arm64
           context: .
           push: true
           tags: |
