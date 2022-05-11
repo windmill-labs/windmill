@@ -42,12 +42,7 @@
 			sendUserToast(`Success! New script version created with hash ${newHash}`)
 			goto(`/scripts/get/${newHash}`)
 		} catch (error) {
-			if (error.status === 400) {
-				sendUserToast(error.body, true)
-			} else {
-				sendUserToast(`Ooops.Something bad happened: ${error}`, true)
-				console.error(error)
-			}
+			sendUserToast(`Impossible to save the script: ${error.body}`, true)
 		}
 	}
 
