@@ -24,6 +24,10 @@ jobs:
           fetch-depth: 0
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v2
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v2
+        with:
+          platforms: arm64
       - name: Docker meta local
         id: metalocal
         uses: docker/metadata-action@v4
