@@ -104,7 +104,7 @@ Windmill is <b>fully open-sourced</b>:
 
 `docker volume create caddy_data && docker-compose up` with the following
 docker-compose is sufficient:
-<https://github.com/windmill-labs/windmill-server/blob/main/docker-compose.yml>
+<https://github.com/windmill-labs/windmill/blob/main/docker-compose.yml>
 
 The default super-admin user is: admin@windmill.dev / changeme
 
