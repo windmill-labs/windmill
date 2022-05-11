@@ -40,6 +40,7 @@ jobs:
         if: github.event_name == 'pull_request'
         with:
           context: .
+          platforms: linux/amd64,linux/arm64
           push: true
           tags: |
             ${{ steps.metalocal.outputs.tags }}
