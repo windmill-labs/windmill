@@ -43,8 +43,9 @@ export function displayDate(dateString: string | undefined): string {
 	if (date.toString() === 'Invalid Date') {
 		return ''
 	} else {
-		return `${date.getFullYear()}/${date.getMonth() + 1
-			}/${date.getDate()} at ${date.toLocaleTimeString()}`
+		return `${date.getFullYear()}/${
+			date.getMonth() + 1
+		}/${date.getDate()} at ${date.toLocaleTimeString()}`
 	}
 }
 
@@ -136,6 +137,18 @@ export function validatePassword(password: string): boolean {
 	return re.test(password)
 }
 
+export async function refreshSuperadmin(): Promise<void> {
+	if (get(superadmin) == undefined) {
+		UserService.globalWhoami().then((x) => {
+			if (x.super_admin) {
+				superadmin.set(x.email)
+			} else {
+				superadmin.set(false)
+			}
+		})
+	}
+}
+
 export async function logout(logoutMessage?: string): Promise<void> {
 	try {
 		superadmin.set(undefined)
@@ -143,7 +156,11 @@ export async function logout(logoutMessage?: string): Promise<void> {
 		await UserService.logout()
 		sendUserToast('you have been logged out')
 	} catch (error) {
-		goto(`/user/login?error=${encodeURIComponent('There was a problem logging you out, check the logs')}`)
+		goto(
+			`/user/login?error=${encodeURIComponent(
+				'There was a problem logging you out, check the logs'
+			)}`
+		)
 		console.error(error)
 	}
 }
@@ -262,18 +279,15 @@ export function elapsedSinceSecs(date: string): number {
 	return Math.round((new Date().getTime() - new Date(date).getTime()) / 1000)
 }
 
-
 export function groupBy<T>(
 	scripts: T[],
 	toGroup: (t: T) => string,
-	dflts: string[] = [],
+	dflts: string[] = []
 ): [string, T[]][] {
-
 	let r: Record<string, T[]> = {}
 	for (const dflt of dflts) {
 		r[dflt] = []
 	}
-
 
 	scripts.forEach((sc) => {
 		let section = toGroup(sc)
@@ -290,8 +304,7 @@ export function groupBy<T>(
 
 		if (n1 > n2) {
 			return 1
-		}
-		else if (n1 < n2) {
+		} else if (n1 < n2) {
 			return -1
 		} else {
 			return 0

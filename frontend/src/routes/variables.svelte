@@ -1,53 +1,53 @@
 <script lang="ts">
-	import { canWrite, getUser, sendUserToast } from '../utils';
-	import { VariableService } from '../gen';
-	import type { ListableVariable, ContextualVariable } from '../gen';
-	import Dropdown from './components/Dropdown.svelte';
-	import PageHeader from './components/PageHeader.svelte';
-	import TableSimple from './components/TableSimple.svelte';
-	import TableCustom from './components/TableCustom.svelte';
-	import ShareModal from './components/ShareModal.svelte';
-	import SharedBadge from './components/SharedBadge.svelte';
-	import VariableEditor from './components/VariableEditor.svelte';
-	import { workspaceStore } from './../stores';
-	import CenteredPage from './components/CenteredPage.svelte';
-	import Icon from 'svelte-awesome';
-	import { faPlus } from '@fortawesome/free-solid-svg-icons';
+	import { canWrite, getUser, sendUserToast } from '../utils'
+	import { VariableService } from '../gen'
+	import type { ListableVariable, ContextualVariable } from '../gen'
+	import Dropdown from './components/Dropdown.svelte'
+	import PageHeader from './components/PageHeader.svelte'
+	import TableSimple from './components/TableSimple.svelte'
+	import TableCustom from './components/TableCustom.svelte'
+	import ShareModal from './components/ShareModal.svelte'
+	import SharedBadge from './components/SharedBadge.svelte'
+	import VariableEditor from './components/VariableEditor.svelte'
+	import { workspaceStore } from './../stores'
+	import CenteredPage from './components/CenteredPage.svelte'
+	import Icon from 'svelte-awesome'
+	import { faPlus } from '@fortawesome/free-solid-svg-icons'
 
-	type ListableVariableW = ListableVariable & { canWrite: boolean };
+	type ListableVariableW = ListableVariable & { canWrite: boolean }
 
-	let variables: ListableVariableW[] = [];
-	let contextualVariables: ContextualVariable[] = [];
+	let variables: ListableVariableW[] = []
+	let contextualVariables: ContextualVariable[] = []
 
-	let shareModal: ShareModal;
-	let variableEditor: VariableEditor;
+	let shareModal: ShareModal
+	let variableEditor: VariableEditor
 
 	// If relative, the dropdown is positioned relative to its button
 	async function loadVariables(): Promise<void> {
-		const user = await getUser($workspaceStore!);
+		const user = await getUser($workspaceStore!)
 		variables = (await VariableService.listVariable({ workspace: $workspaceStore! })).map((x) => {
 			return {
 				canWrite: canWrite(x.path, x.extra_perms!, user) && x.workspace_id == $workspaceStore,
 				...x
-			};
-		});
+			}
+		})
 	}
 	async function loadContextualVariables(): Promise<void> {
 		contextualVariables = await VariableService.listContextualVariables({
 			workspace: $workspaceStore!
-		});
+		})
 	}
 
 	async function deleteVariable(path: string): Promise<void> {
-		await VariableService.deleteVariable({ workspace: $workspaceStore!, path });
-		loadVariables();
-		sendUserToast(`Variable ${path} was deleted`);
+		await VariableService.deleteVariable({ workspace: $workspaceStore!, path })
+		loadVariables()
+		sendUserToast(`Variable ${path} was deleted`)
 	}
 
 	$: {
 		if ($workspaceStore) {
-			loadVariables();
-			loadContextualVariables();
+			loadVariables()
+			loadContextualVariables()
 		}
 	}
 </script>
@@ -57,7 +57,7 @@
 		<button
 			class="default-button"
 			on:click={() => {
-				variableEditor.initNew();
+				variableEditor.initNew()
 			}}
 		>
 			<Icon class="text-white mb-1" data={faPlus} scale={0.9} /> &nbsp; New variable</button
@@ -104,7 +104,7 @@
 									{
 										displayName: 'Share',
 										action: () => {
-											shareModal.openModal(path);
+											shareModal.openModal(path)
 										},
 										disabled: !canWrite
 									}
@@ -122,7 +122,7 @@
 		bind:this={shareModal}
 		kind="variable"
 		on:change={() => {
-			loadVariables();
+			loadVariables()
 		}}
 	/>
 	<div class="my-10" />

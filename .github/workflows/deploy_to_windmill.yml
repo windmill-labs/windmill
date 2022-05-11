@@ -3,6 +3,8 @@ name: Deploy to windmill.dev
 on:
   push:
     branches: [main]
+    paths:
+      - "community/*"
 
 jobs:
   deploy:

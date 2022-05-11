@@ -170,6 +170,23 @@
       ]
     }
   },
+  "11b1586acdfc180c5a077861ee1f7201fcbcec9d0ebada464f9d952c9c3e400d": {
+    "query": "INSERT INTO password(email, verified, password_hash, login_type, super_admin, name, company)\n    VALUES ($1, $2, $3, 'password', $4, $5, $6)",
+    "describe": {
+      "columns": [],
+      "parameters": {
+        "Left": [
+          "Varchar",
+          "Bool",
+          "Varchar",
+          "Bool",
+          "Varchar",
+          "Varchar"
+        ]
+      },
+      "nullable": []
+    }
+  },
   "11eb4dd4a2c9b0b759294dde5e8b505c5a4391aa0d8cb629c665711ee0fc04a0": {
     "query": "SELECT substr(logs, $1) as logs FROM queue WHERE workspace_id = $2 AND id = $3",
     "describe": {
@@ -1247,6 +1264,57 @@
         ]
       },
       "nullable": []
+    }
+  },
+  "77ba7207c8f5fd7156542cfd9943aa9a9fa87a652131c261f5020bab9ba6b5a3": {
+    "query": "SELECT email, login_type::text, verified, super_admin, name, company from password LIMIT $1 OFFSET $2",
+    "describe": {
+      "columns": [
+        {
+          "ordinal": 0,
+          "name": "email",
+          "type_info": "Varchar"
+        },
+        {
+          "ordinal": 1,
+          "name": "login_type",
+          "type_info": "Text"
+        },
+        {
+          "ordinal": 2,
+          "name": "verified",
+          "type_info": "Bool"
+        },
+        {
+          "ordinal": 3,
+          "name": "super_admin",
+          "type_info": "Bool"
+        },
+        {
+          "ordinal": 4,
+          "name": "name",
+          "type_info": "Varchar"
+        },
+        {
+          "ordinal": 5,
+          "name": "company",
+          "type_info": "Varchar"
+        }
+      ],
+      "parameters": {
+        "Left": [
+          "Int8",
+          "Int8"
+        ]
+      },
+      "nullable": [
+        false,
+        null,
+        false,
+        false,
+        true,
+        true
+      ]
     }
   },
   "7b1239ad6460e8f5fb41bfe12f662a779528784ec8cf3f6dcce5545ab90bf234": {
@@ -2711,69 +2779,6 @@
         ]
       },
       "nullable": []
-    }
-  },
-  "ef8b14d0feb4bda6a1f9834712ab47bd21e07f0a743f74a8d1f84cb3d54bfdae": {
-    "query": "SELECT * from usr LIMIT $1 OFFSET $2",
-    "describe": {
-      "columns": [
-        {
-          "ordinal": 0,
-          "name": "workspace_id",
-          "type_info": "Varchar"
-        },
-        {
-          "ordinal": 1,
-          "name": "username",
-          "type_info": "Varchar"
-        },
-        {
-          "ordinal": 2,
-          "name": "email",
-          "type_info": "Varchar"
-        },
-        {
-          "ordinal": 3,
-          "name": "is_admin",
-          "type_info": "Bool"
-        },
-        {
-          "ordinal": 4,
-          "name": "created_at",
-          "type_info": "Timestamptz"
-        },
-        {
-          "ordinal": 5,
-          "name": "operator",
-          "type_info": "Bool"
-        },
-        {
-          "ordinal": 6,
-          "name": "disabled",
-          "type_info": "Bool"
-        },
-        {
-          "ordinal": 7,
-          "name": "role",
-          "type_info": "Varchar"
-        }
-      ],
-      "parameters": {
-        "Left": [
-          "Int8",
-          "Int8"
-        ]
-      },
-      "nullable": [
-        false,
-        false,
-        false,
-        false,
-        false,
-        false,
-        false,
-        true
-      ]
     }
   },
   "f056b5f3e66a764748925f1bfd3180923fde8c7fdf69088d0e4a5555cc049545": {

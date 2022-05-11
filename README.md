@@ -1,10 +1,13 @@
 <p align="center">
-  <a href="https://alpha.windmill.dev"><img src="./windmill.svg" alt="windmill.dev"></a>
+  <a href="https://app.windmill.dev"><img src="./imgs/windmill.svg" alt="windmill.dev"></a>
 </p>
 <p align="center">
     <em>Windmill.dev is an OSS developer platform to quickly build production-grade multi-steps automations and internal apps from minimal Python and Typescript scripts.</em>
 </p>
 <p align="center">
+<a href="https://github.com/windmill-labs/windmill/actions/workflows/docker-image.yml" target="_blank">
+    <img src="https://github.com/windmill-labs/windmill/actions/workflows/docker-image.yml/badge.svg" alt="Docker Image CI">
+</a>
 <a href="https://pypi.org/project/wmill" target="_blank">
     <img src="https://img.shields.io/pypi/v/wmill?color=%2334D058&label=pypi%20package" alt="Package version">
 </a>
@@ -16,7 +19,7 @@
 ---
 
 **Join the alpha (personal workspaces are free forever)**:
-<https://alpha.windmill.dev>
+<https://app.windmill.dev>
 
 **Documentation**: <https://docs.windmill.dev>
 
@@ -32,21 +35,40 @@ You can show your support for the project by starring this repo.
 # Windmill
 
 <p align="center">
-<b>Disclaimer: </b>Windmill is in beta. It is secure to run in production but the API might change,
+<b>Disclaimer: </b>Windmill is in <b>BETA</b>. It is secure to run in production but the API might change,
 especially concerning flows.
 </p>
 
-![Windmill](./windmill.webp)
+![Windmill Screenshot](./imgs/windmill.webp)
 
-Windmill is fully open-sourced:
+Windmill is <b>fully open-sourced</b>:
 
-- community parts and python-client are Apache 2.0
+- `community/` and `python-client/` are Apache 2.0
 - backend, frontend and everything else under AGPLv3.
+
+## What is the general idea behind Windmill
+
+1. Define a minimal and generic script in Python or Typescript that solve a
+   specific task. Here sending an email with SMTP. The code can be defined in
+   the provided Web IDE or synchronized with your own github repo:
+   ![Step 1](./imgs/step1.png)
+
+2. Your scripts parameters are automatically parsed and generate a frontend. You
+   can narrow down the types during task definition to specify regex for string,
+   an enum or a specific format for objects. Each script correspond to an app by
+   itself: ![Step 2](./imgs/step2.png)
+
+3. Make it flow! You can chain your scripts or scripts made by the community
+   inside flow by piping output to input using "Dynamic" fields that are just
+   plain Javascript. You can also refer to external variables, output from any
+   steps or inputs of the flow itself. The flow parameters then generate
+   automatically an intuitive forms that can be triggered by anyone, like for
+   scripts. ![Step 3](./imgs/step3.png)
 
 ## Layout
 
 - `backend/`: The whole Rust backend
-- `frontend`: The whole Svelte fronten
+- `frontend`: The whole Svelte frontend
 - `community/`: Scripts and resource types created and curated by the community,
   included in every workspace
 - `lsp/`: The lsp asssistant for the monaco editor
@@ -71,11 +93,26 @@ Windmill is fully open-sourced:
 
 ### Development stack
 
-- caddy is the reverse proxy + handle https
+- caddy is the reverse proxy used for local development, see frontend's
+  Caddyfile and CaddyfileRemote
+
+## Architecture
+
+![Architecture](./imgs/architecture.svg)
 
 ## How to self-host
 
-Complete instructions coming soon
+`docker volume create caddy_data && docker-compose up` with the following
+docker-compose is sufficient:
+<https://github.com/windmill-labs/windmill/blob/main/docker-compose.yml>
+
+The default super-admin user is: admin@windmill.dev / changeme
+
+From there, you can create other users (do not forget to change the password!)
+
+Detailed instructions for more complex deployments will come soon. For simpler
+docker based ones, the docker-compose.yml file contains all the necessary
+informations.
 
 ## Copyright
 
@@ -85,7 +122,6 @@ Complete instructions coming soon
 
 This project is inspired from a previous project called
 [Delightool](https://github.com/windmill-labs/delightool-legacy) which was also
-led by [Ruben](https://github.com/rubenfiszel) but its frontend was realized
-with large contribution from [Malo Marrec](https://github.com/malomarrec).
-Windmill is a child of Delightool but entirely distinct and realized with Malo's
-blessing.
+led by [Ruben](https://github.com/rubenfiszel) and with large contribution on
+the frontend from [Malo Marrec](https://github.com/malomarrec) who gave his
+blessing to Windmill.

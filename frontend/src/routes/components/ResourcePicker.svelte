@@ -1,20 +1,20 @@
 <script lang="ts">
-	import { type Resource, ResourceService } from '../../gen';
-	import { workspaceStore } from '../../stores';
+	import { type Resource, ResourceService } from '../../gen'
+	import { workspaceStore } from '../../stores'
 
-	let resources: Resource[] = [];
+	let resources: Resource[] = []
 
-	export let value: string | undefined;
+	export let value: string | undefined
 
-	export let resourceType: string | undefined;
+	export let resourceType: string | undefined
 
 	async function loadResources(resourceType: string | undefined) {
-		resources = await ResourceService.listResource({ workspace: $workspaceStore!, resourceType });
+		resources = await ResourceService.listResource({ workspace: $workspaceStore!, resourceType })
 	}
 
 	$: {
 		if ($workspaceStore) {
-			loadResources(resourceType);
+			loadResources(resourceType)
 		}
 	}
 </script>

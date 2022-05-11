@@ -1,40 +1,40 @@
 <script lang="ts">
-	import { page } from '$app/stores';
-	import type { Script, Flow } from '../../gen';
-	import { getToday } from '../../utils';
-	import { slide } from 'svelte/transition';
+	import { page } from '$app/stores'
+	import type { Script, Flow } from '../../gen'
+	import { getToday } from '../../utils'
+	import { slide } from 'svelte/transition'
 
-	import { faChevronDown, faChevronUp } from '@fortawesome/free-solid-svg-icons';
-	import Icon from 'svelte-awesome';
-	import Tooltip from './Tooltip.svelte';
-	import SvelteMarkdown from 'svelte-markdown';
-	import SchemaForm from './SchemaForm.svelte';
+	import { faChevronDown, faChevronUp } from '@fortawesome/free-solid-svg-icons'
+	import Icon from 'svelte-awesome'
+	import Tooltip from './Tooltip.svelte'
+	import SvelteMarkdown from 'svelte-markdown'
+	import SchemaForm from './SchemaForm.svelte'
 
-	export let runnable: Script | Flow | undefined;
-	export let runAction: (scheduledForStr: string | undefined, args: Record<string, any>) => void;
-	export let buttonText = 'Run';
-	export let schedulable = true;
-	export let detailed = true;
+	export let runnable: Script | Flow | undefined
+	export let runAction: (scheduledForStr: string | undefined, args: Record<string, any>) => void
+	export let buttonText = 'Run'
+	export let schedulable = true
+	export let detailed = true
 
-	export let args: Record<string, any> = {};
+	export let args: Record<string, any> = {}
 
-	let isValid = true;
+	let isValid = true
 
-	let queryArgs = $page.url.searchParams.get('args');
+	let queryArgs = $page.url.searchParams.get('args')
 	if (queryArgs) {
-		const parsed = JSON.parse(atob(queryArgs));
+		const parsed = JSON.parse(atob(queryArgs))
 		Object.entries(parsed).forEach(([k, v]) => {
 			if (v == '<function call>') {
-				parsed[k] = undefined;
+				parsed[k] = undefined
 			}
-		});
-		console.log(parsed);
-		args = parsed;
+		})
+		console.log(parsed)
+		args = parsed
 	}
 
 	// Run later
-	let viewOptions = false;
-	let scheduledForStr: string | undefined;
+	let viewOptions = false
+	let scheduledForStr: string | undefined
 </script>
 
 <div class="max-w-5xl">
@@ -97,7 +97,7 @@
 					<button
 						class="default-button-secondary mx-2 mb-1"
 						on:click={() => {
-							scheduledForStr = undefined;
+							scheduledForStr = undefined
 						}}>clear</button
 					>
 				</div>
@@ -109,7 +109,7 @@
 			type="submit"
 			class="mr-6 text-sm underline text-gray-700 inline-flex  items-center"
 			on:click={() => {
-				viewOptions = !viewOptions;
+				viewOptions = !viewOptions
 			}}
 		>
 			{#if schedulable}
@@ -126,7 +126,7 @@
 			disabled={!isValid}
 			class="{isValid ? 'default-button' : 'default-button-disabled'} w-min px-6"
 			on:click={() => {
-				runAction(scheduledForStr, args);
+				runAction(scheduledForStr, args)
 			}}
 		>
 			{scheduledForStr ? 'Schedule run to a later time' : buttonText}

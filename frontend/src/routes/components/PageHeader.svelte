@@ -1,9 +1,9 @@
 <script lang="ts">
-	import Tooltip from './Tooltip.svelte';
+	import Tooltip from './Tooltip.svelte'
 
-	export let title: string;
-	export let tooltip: string = '';
-	export let primary: boolean = true;
+	export let title: string
+	export let tooltip: string = ''
+	export let primary: boolean = true
 </script>
 
 <div class="flex flex-col sm:flex-row justify-between mt-4 mb-2">

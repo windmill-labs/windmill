@@ -1,31 +1,31 @@
 <script lang="ts">
 	// @ts-nocheck
-	import { onMount } from 'svelte';
-	export let password: string;
-	export let label = 'password';
-	export let placeholder = '******';
+	import { onMount } from 'svelte'
+	export let password: string
+	export let label = 'password'
+	export let placeholder = '******'
 
 	onMount(() => {
-		const passwordToggle = document.querySelector('.js-password-toggle');
+		const passwordToggle = document.querySelector('.js-password-toggle')
 		if (passwordToggle) {
 			passwordToggle.addEventListener('change', function () {
 				const password = document.querySelector('.js-password'),
-					passwordLabel = document.querySelector('.js-password-label');
+					passwordLabel = document.querySelector('.js-password-label')
 
 				if (password.type === 'password') {
-					password.type = 'text';
-					passwordLabel.innerHTML = 'hide';
+					password.type = 'text'
+					passwordLabel.innerHTML = 'hide'
 				} else {
-					password.type = 'password';
-					passwordLabel.innerHTML = 'show';
+					password.type = 'password'
+					passwordLabel.innerHTML = 'show'
 				}
 
-				password.focus();
-			});
+				password.focus()
+			})
 		} else {
-			throw Error('Password component is undefined');
+			throw Error('Password component is undefined')
 		}
-	});
+	})
 </script>
 
 <label class="block text-gray-700" for="password"> {label} </label>

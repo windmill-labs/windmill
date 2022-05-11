@@ -1,12 +1,12 @@
 <script lang="ts">
-	import Required from './Required.svelte';
+	import Required from './Required.svelte'
 
-	export let label: string;
-	export let format: string = '';
-	export let contentEncoding = '';
-	export let type: string | undefined = undefined;
-	export let required = false;
-	export let itemsType: { type?: 'string' | 'number' } | undefined = undefined;
+	export let label: string
+	export let format: string = ''
+	export let contentEncoding = ''
+	export let type: string | undefined = undefined
+	export let required = false
+	export let itemsType: { type?: 'string' | 'number' } | undefined = undefined
 </script>
 
 <h3>

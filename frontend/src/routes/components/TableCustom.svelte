@@ -1,11 +1,11 @@
 <script lang="ts">
-	import { createEventDispatcher } from 'svelte';
+	import { createEventDispatcher } from 'svelte'
 
-	export let paginated = false;
-	export let currentPage = 1;
-	export let showNext = true;
+	export let paginated = false
+	export let currentPage = 1
+	export let showNext = true
 
-	const dispatch = createEventDispatcher();
+	const dispatch = createEventDispatcher()
 </script>
 
 <!-- A custom table 
@@ -26,13 +26,13 @@
 			<button
 				class="ml-2 drop-shadow-md {showNext ? 'visible' : 'invisible'}"
 				on:click={() => {
-					dispatch('next');
+					dispatch('next')
 				}}>Next</button
 			>
 			<button
 				class="mx-2 drop-shadow-md {currentPage === 1 ? 'hidden' : ''}"
 				on:click={() => {
-					dispatch('previous');
+					dispatch('previous')
 				}}>Previous</button
 			>
 		</div>

@@ -1,7 +1,13 @@
-name: Docker Image CI
+env:
+  LOCAL_REGISTRY: registry.wimill.xyz
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+name: Build and push docker image
 on:
   push:
     branches: [main]
+    tags: ["*"]
   pull_request:
     types: [opened, synchronize, reopened]
 
@@ -12,28 +18,66 @@ concurrency:
 jobs:
   build:
     runs-on: [self-hosted, new]
-    env:
-      DOCKER_BUILDKIT: 1
     steps:
-      # - name: Wait for release to succeed
-      #   if: github.ref == 'refs/heads/main'
-      #   uses: lewagon/wait-on-check-action@v1.0.0
-      #   with:
-      #     ref: ${{ github.ref }}
-      #     check-name: "Release please"
-      #     repo-token: ${{ secrets.GITHUB_TOKEN }}
-      #     wait-interval: 10
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v3
         with:
           fetch-depth: 0
-      - name: deploy staging stack
-        run: |
-          docker build . --cache-from "registry.wimill.xyz/windmill:staging" -t "registry.wimill.xyz/windmill:staging" --build-arg BUILDKIT_INLINE_CACHE=1
-          docker push "registry.wimill.xyz/windmill:staging"
-      - name: deploy demo stack
-        if: github.ref == 'refs/heads/main'
-        run: |
-          docker tag registry.wimill.xyz/windmill:staging registry.wimill.xyz/windmill:main
-          docker push registry.wimill.xyz/windmill:main
-      # - name: pruning unused images
-      #   run: sudo docker image prune -a
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v2
+      - name: Docker meta local
+        id: metalocal
+        uses: docker/metadata-action@v4
+        with:
+          images: ${{ env.LOCAL_REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=ref,event=branch
+            type=ref,event=pr
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+
+      - name: Build and push privately
+        uses: docker/build-push-action@v3
+        if: github.event_name == 'pull_request'
+        with:
+          context: .
+          push: true
+          tags: |
+            ${{ steps.metalocal.outputs.tags }}
+
+          labels: ${{ steps.metalocal.outputs.labels }}
+          cache-from: type=registry,ref=registry.wimill.xyz/windmilllabs/windmill:buildcache
+          cache-to: type=registry,ref=registry.wimill.xyz/windmilllabs/windmill:buildcache,mode=max
+
+      - name: Docker meta
+        if: github.event_name != 'pull_request'
+        id: meta
+        uses: docker/metadata-action@v4
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=ref,event=branch
+            type=ref,event=pr
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+
+      - name: Login to registry
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v2
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push publically
+        uses: docker/build-push-action@v3
+        if: github.event_name != 'pull_request'
+        with:
+          context: .
+          push: true
+          tags: |
+            ${{ steps.metalocal.outputs.tags }}
+            ${{ steps.meta.outputs.tags }}
+
+          labels: ${{ steps.metalocal.outputs.labels }}
+          cache-from: type=registry,ref=registry.wimill.xyz/windmilllabs/windmill:buildcache
+          cache-to: type=registry,ref=registry.wimill.xyz/windmilllabs/windmill:buildcache,mode=max

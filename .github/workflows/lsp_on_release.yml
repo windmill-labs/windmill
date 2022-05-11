@@ -1,0 +1,37 @@
+name: Publish LSP Server
+on:
+  push:
+    branches: [main]
+    paths:
+      - "python-client/*W"
+      - "lsp/*"
+    tags:
+      - "*"
+jobs:
+  build:
+    runs-on: [self-hosted, new]
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v2
+      - name: Docker meta local
+        id: metalocal
+        uses: docker/metadata-action@v4
+        with:
+          images: registry.wimill.xyz/windmilllabs/lsp
+          tags: |
+            type=ref,event=branch
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+
+      - name: Build and push
+        uses: docker/build-push-action@v3
+        with:
+          context: "{{defaultContext}}:lsp"
+          push: true
+          tags: ${{ steps.metalocal.outputs.tags }}
+          labels: ${{ steps.metalocal.outputs.labels }}
+          cache-from: type=registry,ref=registry.wimill.xyz/windmilllabs/lsp:buildcache
+          cache-to: type=registry,ref=registry.wimill.xyz/windmilllabs/lsp:buildcache,mode=max

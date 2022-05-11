@@ -1,56 +1,56 @@
 <script lang="ts">
-	import { Highlight } from 'svelte-highlight';
-	import github from 'svelte-highlight/src/styles/github';
-	import { json } from 'svelte-highlight/src/languages';
-	import TableCustom from './TableCustom.svelte';
+	import { Highlight } from 'svelte-highlight'
+	import github from 'svelte-highlight/src/styles/github'
+	import { json } from 'svelte-highlight/src/languages'
+	import TableCustom from './TableCustom.svelte'
 
-	export let result: any;
+	export let result: any
 
 	let resultKind: 'json' | 'table-col' | 'table-row' | 'png' | 'file' | undefined =
-		inferResultKind(result);
+		inferResultKind(result)
 
 	function isArray(obj: any) {
-		return Object.prototype.toString.call(obj) === '[object Array]';
+		return Object.prototype.toString.call(obj) === '[object Array]'
 	}
 
 	function isRectangularArray(obj: any) {
 		if (!isArray(obj) || obj.length == 0) {
-			return false;
+			return false
 		}
 		if (
 			!Object.values(obj)
 				.map(isArray)
 				.reduce((a, b) => a && b)
 		) {
-			return false;
+			return false
 		}
-		let innerSize = obj[0].length;
+		let innerSize = obj[0].length
 
 		return Object.values(obj)
 			.map((x: any) => x.length == innerSize)
-			.reduce((a, b) => a && b);
+			.reduce((a, b) => a && b)
 	}
 
 	function asListOfList(obj: any): ArrayLike<ArrayLike<any>> {
-		return obj as ArrayLike<ArrayLike<any>>;
+		return obj as ArrayLike<ArrayLike<any>>
 	}
 
 	function inferResultKind(result: any) {
 		if (result) {
 			try {
-				let keys = Object.keys(result);
+				let keys = Object.keys(result)
 				if (keys.length == 1 && isRectangularArray(result[keys[0]])) {
-					return 'table-row';
+					return 'table-row'
 				} else if (keys.map((k) => isArray(result[k])).reduce((a, b) => a && b)) {
-					return 'table-col';
+					return 'table-col'
 				} else if (keys.length == 1 && keys[0] == 'png') {
-					return 'png';
+					return 'png'
 				} else if (keys.length == 1 && keys[0] == 'file') {
-					return 'file';
+					return 'file'
 				}
 			} catch (err) {}
 		}
-		return 'json';
+		return 'json'
 	}
 </script>
 

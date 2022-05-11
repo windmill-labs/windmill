@@ -1,37 +1,37 @@
 <script lang="ts">
-	import { WorkerService, type WorkerPing } from '../gen';
-	import { onDestroy, onMount } from 'svelte';
-	import { displayDate, elapsedSinceSecs, groupBy, sendUserToast } from '../utils';
-	import PageHeader from './components/PageHeader.svelte';
-	import TableCustom from './components/TableCustom.svelte';
-	import CenteredPage from './components/CenteredPage.svelte';
+	import { WorkerService, type WorkerPing } from '../gen'
+	import { onDestroy, onMount } from 'svelte'
+	import { displayDate, elapsedSinceSecs, groupBy, sendUserToast } from '../utils'
+	import PageHeader from './components/PageHeader.svelte'
+	import TableCustom from './components/TableCustom.svelte'
+	import CenteredPage from './components/CenteredPage.svelte'
 
-	let workers: WorkerPing[] = [];
-	let filteredWorkers: WorkerPing[] = [];
-	let groupedWorkers: [string, WorkerPing[]][] = [];
-	let intervalId: NodeJS.Timer | undefined;
+	let workers: WorkerPing[] = []
+	let filteredWorkers: WorkerPing[] = []
+	let groupedWorkers: [string, WorkerPing[]][] = []
+	let intervalId: NodeJS.Timer | undefined
 
-	$: filteredWorkers = workers.filter((x) => elapsedSinceSecs(x.ping_at) < 300);
-	$: groupedWorkers = groupBy(filteredWorkers, (wp: WorkerPing) => wp.worker_instance);
+	$: filteredWorkers = workers.filter((x) => elapsedSinceSecs(x.ping_at) < 300)
+	$: groupedWorkers = groupBy(filteredWorkers, (wp: WorkerPing) => wp.worker_instance)
 
 	async function loadWorkers(): Promise<void> {
 		try {
-			workers = await WorkerService.listWorkers({ perPage: 100 });
+			workers = await WorkerService.listWorkers({ perPage: 100 })
 		} catch (err) {
-			sendUserToast(`Could not load workers: ${err}`, true);
+			sendUserToast(`Could not load workers: ${err}`, true)
 		}
 	}
 
 	onMount(() => {
-		loadWorkers();
-		intervalId = setInterval(loadWorkers, 5000);
-	});
+		loadWorkers()
+		intervalId = setInterval(loadWorkers, 5000)
+	})
 
 	onDestroy(() => {
 		if (intervalId) {
-			clearInterval(intervalId);
+			clearInterval(intervalId)
 		}
-	});
+	})
 </script>
 
 <CenteredPage>

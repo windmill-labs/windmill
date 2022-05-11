@@ -1,10 +1,17 @@
 <script lang="ts">
-	import '../app.css';
+	import '../app.css'
 
-	import { OpenAPI, UserService, WorkspaceService } from '../gen';
-	import { logout, clickOutside, sendUserToast, logoutWithRedirect, getUser } from '../utils';
-	import { onDestroy, onMount } from 'svelte';
-	import Icon from 'svelte-awesome';
+	import { OpenAPI, UserService, WorkspaceService } from '../gen'
+	import {
+		logout,
+		clickOutside,
+		sendUserToast,
+		logoutWithRedirect,
+		getUser,
+		refreshSuperadmin
+	} from '../utils'
+	import { onDestroy, onMount } from 'svelte'
+	import Icon from 'svelte-awesome'
 	import {
 		faScroll,
 		faPlay,
@@ -22,20 +29,20 @@
 		faCrown,
 		faUsersCog,
 		faWind
-	} from '@fortawesome/free-solid-svg-icons';
-	import { SvelteToast } from '@zerodevx/svelte-toast';
-	import { faDiscord, faGithub, faPython } from '@fortawesome/free-brands-svg-icons';
-	import { page } from '$app/stores';
+	} from '@fortawesome/free-solid-svg-icons'
+	import { SvelteToast } from '@zerodevx/svelte-toast'
+	import { faDiscord, faGithub, faPython } from '@fortawesome/free-brands-svg-icons'
+	import { page } from '$app/stores'
 	import {
 		superadmin,
 		usernameStore,
 		userStore,
 		usersWorkspaceStore,
 		workspaceStore
-	} from '../stores';
-	import { goto } from '$app/navigation';
+	} from '../stores'
+	import { goto } from '$app/navigation'
 
-	OpenAPI.WITH_CREDENTIALS = true;
+	OpenAPI.WITH_CREDENTIALS = true
 
 	// Default toast options
 	const toastOptions = {
@@ -47,71 +54,63 @@
 		reversed: false, // insert new toast to bottom of stack
 		intro: { x: 256 }, // toast intro fly animation settings
 		theme: {} // css var overrides
-	};
+	}
 
-	let menuOpen = false;
-	let workspacePickerOpen = false;
-	let isMobile = false;
-	let viewportWidth = 3000;
-	let isCollapsed = false;
+	let menuOpen = false
+	let workspacePickerOpen = false
+	let isMobile = false
+	let viewportWidth = 3000
+	let isCollapsed = false
 
 	function openMenu(): void {
-		menuOpen = true;
+		menuOpen = true
 	}
 
 	function handleClickOutside(event: any): void {
 		if (isMobile || viewportWidth < 640) {
-			isCollapsed = true;
+			isCollapsed = true
 		}
 	}
 
 	function handleClickOutsideMenu(event: any): void {
-		menuOpen = false;
+		menuOpen = false
 	}
 	function handleClickOutsideWorkspacePicker(event: any): void {
-		workspacePickerOpen = false;
+		workspacePickerOpen = false
 	}
 
 	async function loadUserInfo() {
-		if ($superadmin == undefined) {
-			UserService.globalWhoami().then((x) => {
-				if (x.super_admin) {
-					superadmin.set(x.email);
-				} else {
-					superadmin.set(false);
-				}
-			});
-		}
+		refreshSuperadmin()
 
 		if (!$usersWorkspaceStore) {
 			try {
-				usersWorkspaceStore.set(await WorkspaceService.listUserWorkspaces());
+				usersWorkspaceStore.set(await WorkspaceService.listUserWorkspaces())
 			} catch {}
 		}
 		if ($usersWorkspaceStore) {
 			if (!$workspaceStore) {
-				workspaceStore.set(localStorage.getItem('workspace')?.toString());
+				workspaceStore.set(localStorage.getItem('workspace')?.toString())
 			}
 			if ($workspaceStore && $usernameStore) {
-				await getUser($workspaceStore);
+				await getUser($workspaceStore)
 			} else if ($superadmin) {
-				console.log('You are a superadmin, you can go wherever you please');
+				console.log('You are a superadmin, you can go wherever you please')
 			} else {
-				goto('/user/workspaces');
+				goto('/user/workspaces')
 			}
 		} else {
-			logoutWithRedirect($page.url.pathname);
+			logoutWithRedirect($page.url.pathname)
 		}
 	}
 
 	$: {
 		if ($workspaceStore) {
-			localStorage.setItem('workspace', $workspaceStore);
+			localStorage.setItem('workspace', $workspaceStore)
 		}
 	}
 
 	onMount(() => {
-		loadUserInfo();
+		loadUserInfo()
 		window.onunhandledrejection = (e) => {
 			if (e.reason && e.reason.message) {
 				if (
@@ -120,27 +119,27 @@
 					)
 				) {
 					// monaco editor promise cancelation
-					console.log('caught expected error');
+					console.log('caught expected error')
 				} else {
 					if (e.reason.status == '401') {
-						sendUserToast('Logged out after a request was unauthorized', true);
-						logout($page.url.pathname);
+						sendUserToast('Logged out after a request was unauthorized', true)
+						logout($page.url.pathname)
 					} else {
-						let message = `${e.reason?.message}: ${e.reason?.body ?? ''}`;
-						sendUserToast(message, true);
+						let message = `${e.reason?.message}: ${e.reason?.body ?? ''}`
+						sendUserToast(message, true)
 					}
 				}
 			} else {
-				console.log('unexpected error ignored', e);
+				console.log('unexpected error ignored', e)
 			}
-			e.preventDefault();
-			return false;
-		};
+			e.preventDefault()
+			return false
+		}
 
-		isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+		isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent)
 		//Mobile
-		isCollapsed = isMobile;
-	});
+		isCollapsed = isMobile
+	})
 </script>
 
 <div bind:clientWidth={viewportWidth} class="h-full max-w-screen">
@@ -155,7 +154,7 @@
 			<button
 				class="w-full flex flex-row-reverse transform hover:translate-x-1 transition-transform ease-in duration-200"
 				on:click={() => {
-					isCollapsed = !isCollapsed;
+					isCollapsed = !isCollapsed
 				}}
 			>
 				<div class="pt-1 pr-3">
@@ -181,7 +180,7 @@
 						<div
 							class="flex flex-row items-center w-full justify-content"
 							on:click={() => {
-								workspacePickerOpen = true;
+								workspacePickerOpen = true
 							}}
 						>
 							<span class:hidden={isCollapsed} class="pr-2 font-mono text-xs flex"
@@ -203,8 +202,8 @@
 						{#each $usersWorkspaceStore?.workspaces ?? [] as workspace}
 							<button
 								on:click={() => {
-									workspaceStore.set(workspace.id);
-									workspacePickerOpen = false;
+									workspaceStore.set(workspace.id)
+									workspacePickerOpen = false
 								}}
 								class="block px-4 py-2 text-xs text-gray-500 "
 								role="menuitem"
@@ -231,7 +230,7 @@
 							tabindex="-1"
 							id="user-menu-item-2"
 							on:click={() => {
-								localStorage.removeItem('workspace');
+								localStorage.removeItem('workspace')
 							}}
 						>
 							See all workspaces & invites</a
@@ -278,7 +277,7 @@
 					>
 						<span class="block px-4 py-2 text-sm text-gray-500">{$usersWorkspaceStore?.email}</span>
 						<a
-							href="/settings"
+							href="/user/settings"
 							class="block px-4 py-2 text-sm text-gray-700"
 							role="menuitem"
 							tabindex="-1"
@@ -405,7 +404,7 @@
 				<button
 					class="h-12 flex flex-row text-sm font-medium min-w-full px-5 items-center transform hover:translate-x-1 transition-transform ease-in duration-200"
 					on:click={() => {
-						isCollapsed = !isCollapsed;
+						isCollapsed = !isCollapsed
 					}}
 				>
 					<div class="w-full -ml-4">

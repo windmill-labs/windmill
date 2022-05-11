@@ -1,54 +1,54 @@
 <script lang="ts">
-	import { page } from '$app/stores';
-	import { emptySchema, sendUserToast } from '../../../utils';
-	import { ScriptService, type Script, JobService } from '../../../gen';
-	import { goto } from '$app/navigation';
-	import { workspaceStore } from '../../../stores';
-	import { inferArgs } from '../../../infer';
-	import CenteredPage from '../../components/CenteredPage.svelte';
-	import RunForm from '../../components/RunForm.svelte';
-	import PageHeader from '../../components/PageHeader.svelte';
+	import { page } from '$app/stores'
+	import { emptySchema, sendUserToast } from '../../../utils'
+	import { ScriptService, type Script, JobService } from '../../../gen'
+	import { goto } from '$app/navigation'
+	import { workspaceStore } from '../../../stores'
+	import { inferArgs } from '../../../infer'
+	import CenteredPage from '../../components/CenteredPage.svelte'
+	import RunForm from '../../components/RunForm.svelte'
+	import PageHeader from '../../components/PageHeader.svelte'
 
-	const hash = $page.params.hash;
-	let script: Script | undefined;
+	const hash = $page.params.hash
+	let script: Script | undefined
 
 	async function loadScript() {
 		try {
 			if (hash) {
-				script = await ScriptService.getScriptByHash({ workspace: $workspaceStore!, hash });
+				script = await ScriptService.getScriptByHash({ workspace: $workspaceStore!, hash })
 				if (script.schema == undefined) {
-					script.schema = emptySchema();
-					inferArgs(script.content, script.schema);
-					script = script;
+					script.schema = emptySchema()
+					inferArgs(script.content, script.schema)
+					script = script
 				}
 			} else {
-				sendUserToast(`Failed to fetch script hash from URL`, true);
+				sendUserToast(`Failed to fetch script hash from URL`, true)
 			}
 		} catch (err) {
-			console.error(err);
-			sendUserToast(`Could not load script: ${err}`, true);
+			console.error(err)
+			sendUserToast(`Could not load script: ${err}`, true)
 		}
 	}
 
 	async function runScript(scheduledForStr: string | undefined, args: Record<string, any>) {
 		try {
-			const scheduledFor = scheduledForStr ? new Date(scheduledForStr).toISOString() : undefined;
+			const scheduledFor = scheduledForStr ? new Date(scheduledForStr).toISOString() : undefined
 			let run = await JobService.runScriptByHash({
 				workspace: $workspaceStore!,
 				hash,
 				requestBody: args,
 				scheduledFor
-			});
-			sendUserToast(`Job <a href='/run/${run}'>${run}</a> was created.`);
-			goto('/run/' + run);
+			})
+			sendUserToast(`Job <a href='/run/${run}'>${run}</a> was created.`)
+			goto('/run/' + run)
 		} catch (err) {
-			sendUserToast(`Could not create job: ${err}`, true);
+			sendUserToast(`Could not create job: ${err}`, true)
 		}
 	}
 
 	$: {
 		if ($workspaceStore) {
-			loadScript();
+			loadScript()
 		}
 	}
 </script>
