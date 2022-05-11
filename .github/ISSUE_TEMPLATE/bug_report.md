@@ -21,4 +21,7 @@ happen.
 
 **Screenshots** If applicable, add screenshots to help explain your problem.
 
+**Windmill version** Go on the left menu -> <user> -> User Settings and copy the
+printed version in "Running windmill version (backend): XXX".
+
 **Additional context** Add any other context about the problem here.
