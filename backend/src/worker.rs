@@ -458,7 +458,6 @@ print(res_json)
             )
             .into_iter()
             .map(|rv| (rv.name, rv.value));
-
             let _ = write_file(
                 &job_dir,
                 "run.config.proto",

@@ -46,6 +46,7 @@
 
 	export let code: string
 	export let path: string | undefined
+	export let deno = false
 
 	// Control Editor layout
 	export let viewPreview = true
@@ -404,6 +405,7 @@
 						localStorage.setItem(path ?? 'last_save', code)
 					}}
 					class="h-full"
+					{deno}
 					automaticLayout={true}
 				/>
 			</div>
