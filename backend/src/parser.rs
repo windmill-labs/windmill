@@ -230,6 +230,7 @@ fn binding_ident_to_arg(
                     TsKeywordTypeKind::TsStringKeyword => Typ::Str,
                     _ => Typ::Unknown,
                 },
+                // TODO: we can do better here and extract the inner type of array
                 TsType::TsArrayType(_) => Typ::List,
                 _ => Typ::Unknown,
             })
