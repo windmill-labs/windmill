@@ -35,7 +35,12 @@ use std::{
 const MAX_HASH_HISTORY_LENGTH_STORED: usize = 20;
 
 pub fn global_service() -> Router {
-    Router::new().route("/tojsonschema", post(parse_code_to_jsonschema))
+    Router::new()
+        .route(
+            "/python/tojsonschema",
+            post(parse_python_code_to_jsonschema),
+        )
+        .route("/deno/tojsonschema", post(parse_deno_code_to_jsonschema))
 }
 
 pub fn workspaced_service() -> Router {
@@ -377,7 +382,7 @@ async fn create_script(
     .await?;
 
     let mut tx = if ns.lock.is_none() {
-        let dependencies = parser::parse_imports(&ns.content)?;
+        let dependencies = parser::parse_python_imports(&ns.content)?;
         let (_, tx) = jobs::push(
             tx,
             &w_id,
@@ -605,10 +610,16 @@ async fn delete_script_by_hash(
     Ok(Json(script))
 }
 
-async fn parse_code_to_jsonschema(
+async fn parse_python_code_to_jsonschema(
     Json(code): Json<String>,
 ) -> JsonResult<parser::MainArgSignature> {
-    parser::parse_signature(&code).map(Json)
+    parser::parse_python_signature(&code).map(Json)
+}
+
+async fn parse_deno_code_to_jsonschema(
+    Json(code): Json<String>,
+) -> JsonResult<parser::MainArgSignature> {
+    parser::parse_deno_signature(&code).map(Json)
 }
 
 pub fn to_i64(s: &str) -> Result<i64> {

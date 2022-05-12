@@ -37,6 +37,10 @@ def main(name: str = "Nicolas Bourbaki",
 assertEquals("hello", "hello")
 assertEquals("world", "world")
 console.log("Asserted!")
+
+function main(x: string) {
+    let x = 2
+}
 `
 </script>
 

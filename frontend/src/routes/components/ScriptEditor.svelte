@@ -52,7 +52,7 @@
 	export let viewPreview = true
 	export let previewTab: 'logs' | 'input' | 'output' | 'history' | 'last_save' = 'logs'
 
-	let websocketAlive = { pyright: false, black: false }
+	let websocketAlive = { pyright: false, black: false, deno: false }
 
 	// Internal state
 	let editor: Editor
@@ -385,9 +385,14 @@
 							editor.reloadWebsocket()
 						}}
 					>
-						Reload assistants (status: <span
-							class={websocketAlive.pyright ? 'text-green-600' : 'text-red-600'}>pyright</span
-						> <span class={websocketAlive.black ? 'text-green-600' : 'text-red-600'}> black</span>)
+						Reload assistants (status: {#if deno}<span
+								class={websocketAlive.deno ? 'text-green-600' : 'text-red-600'}>deno</span
+							>{:else}<span class={websocketAlive.pyright ? 'text-green-600' : 'text-red-600'}
+								>pyright</span
+							>
+							<span class={websocketAlive.black ? 'text-green-600' : 'text-red-600'}>
+								black</span
+							>{/if})
 					</button>
 				</div>
 			</div>

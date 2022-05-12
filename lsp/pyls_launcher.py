@@ -76,7 +76,7 @@ class DenoLS(LanguageServerWebSocketHandler):
 
 
 if __name__ == "__main__":
-     app = web.Application([
+    app = web.Application([
         (r"/ws/pyright", PyrightLS),
         (r"/ws/black", DiagnosticLS),
         (r"/ws/deno", DenoLS),

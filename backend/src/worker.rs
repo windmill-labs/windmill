@@ -346,7 +346,7 @@ async fn handle_job(
     } else {
         let (inner_content, requirements_o) = if matches!(job.job_kind, JobKind::Preview) {
             let code = (job.raw_code.as_ref().unwrap_or(&"no raw code".to_owned())).to_owned();
-            let reqs = parser::parse_imports(&code)?.join("\n");
+            let reqs = parser::parse_python_imports(&code)?.join("\n");
             (code, Some(reqs))
         } else {
             sqlx::query_as::<_, (String, Option<String>)>("SELECT content, lock FROM script WHERE hash = $1 AND (workspace_id = $2 OR workspace_id = 'starter')")
@@ -387,7 +387,7 @@ async fn handle_job(
 
             let _ = write_file(&job_dir, "inner.py", &inner_content).await?;
 
-            let sig = crate::parser::parse_signature(&inner_content)?;
+            let sig = crate::parser::parse_python_signature(&inner_content)?;
             let transforms = sig.args.into_iter().map(|x| match x.typ {
         Typ::Bytes => format!("if \"{}\" in kwargs and kwargs[\"{}\"] is not None:\n    kwargs[\"{}\"] = base64.b64decode(kwargs[\"{}\"])\n", x.name, x.name, x.name, x.name),
         Typ::Datetime => format!("if \"{}\" in kwargs and kwargs[\"{}\"] is not None:\n    kwargs[\"{}\"] = datetime.strptime(kwargs[\"{}\"], '%Y-%m-%dT%H:%M')\n", x.name, x.name, x.name, x.name),
