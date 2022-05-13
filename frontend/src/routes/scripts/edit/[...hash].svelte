@@ -8,39 +8,28 @@
 	const initialState = $page.url.searchParams.get('state')
 	let scriptLoadedFromUrl = initialState != undefined ? JSON.parse(atob(initialState)) : undefined
 
-	let script: Script = {
-		hash: $page.params.hash,
-		path: '',
-		summary: '',
-		content: '',
-		created_by: '',
-		created_at: '',
-		archived: false,
-		deleted: false,
-		is_template: false,
-		extra_perms: {}
-	}
+	let script: Script | undefined
 
 	let initialPath: string = ''
-	let scriptBuilder: ScriptBuilder
 
 	async function loadScript(): Promise<void> {
 		script =
-			scriptLoadedFromUrl != undefined && scriptLoadedFromUrl.hash == script.hash
+			scriptLoadedFromUrl != undefined && scriptLoadedFromUrl.hash == $page.params.hash
 				? scriptLoadedFromUrl
 				: await ScriptService.getScriptByHash({
 						workspace: $workspaceStore!,
-						hash: script.hash
+						hash: $page.params.hash
 				  })
-		initialPath = script.path
-		scriptBuilder.setCode(script)
+		initialPath = script!.path
 	}
 
 	$: {
-		if ($workspaceStore && scriptBuilder) {
+		if ($workspaceStore) {
 			loadScript()
 		}
 	}
 </script>
 
-<ScriptBuilder bind:this={scriptBuilder} {initialPath} {script} />
+{#if script}
+	<ScriptBuilder {initialPath} {script} />
+{/if}

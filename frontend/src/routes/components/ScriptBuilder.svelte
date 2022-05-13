@@ -208,8 +208,8 @@ export function main(x: string) {
 					label="Language"
 					small={true}
 					options={[
-						['Typescript (Deno)', 'deno'],
-						['Python 3.10', 'python3']
+						['Python 3.10', 'python3'],
+						['Typescript (Deno) WIP', 'deno']
 					]}
 					on:change={(e) => initContent(e.detail)}
 					bind:value={script.language}

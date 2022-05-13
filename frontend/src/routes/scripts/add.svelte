@@ -5,38 +5,10 @@
 	import { workspaceStore } from '../../stores'
 	import ScriptBuilder from '../components/ScriptBuilder.svelte'
 	import type { Schema } from '../../common'
-	import { sendUserToast } from '../../utils'
+	import { emptySchema, sendUserToast } from '../../utils'
 
 	// Default
-	let schema: Schema = {
-		$schema: 'https://json-schema.org/draft/2020-12/schema',
-		properties: {
-			age: {
-				default: 42,
-				description: '',
-				type: 'integer'
-			},
-			l: {
-				default: ['or', 'lists!'],
-				description: '',
-				type: 'array'
-			},
-			name: {
-				default: 'Nicolas Bourbaki',
-				description: '',
-				type: 'string'
-			},
-			obj: {
-				default: {
-					even: 'dicts'
-				},
-				description: '',
-				type: 'object'
-			}
-		},
-		required: [],
-		type: 'object'
-	}
+	let schema: Schema = emptySchema()
 
 	$: templatePath = $page.url.searchParams.get('template')
 
@@ -57,7 +29,7 @@
 					deleted: false,
 					is_template: false,
 					extra_perms: {},
-					language: 'deno'
+					language: 'python3'
 			  }
 
 	async function loadTemplate(): Promise<void> {

@@ -14,7 +14,7 @@
 		faSpinner
 	} from '@fortawesome/free-solid-svg-icons'
 	import Highlight from 'svelte-highlight'
-	import python from 'svelte-highlight/src/languages/python'
+	import { typescript, python } from 'svelte-highlight/src/languages'
 
 	import github from 'svelte-highlight/src/styles/github'
 	import Tooltip from '../../components/Tooltip.svelte'
@@ -327,7 +327,11 @@
 			</div>
 			<div>
 				<h3 class="text-gray-700 pb-1 mb-3 border-b">Code</h3>
-				<Highlight language={python} code={script.content} />
+				{#if script.language == 'python3'}
+					<Highlight language={python} code={script.content} />
+				{:else if script.language == 'deno'}
+					<Highlight language={typescript} code={script.content} />
+				{/if}
 			</div>
 			<div>
 				<h3 class="text-gray-700 pb-1 mb-3 border-b">Dependencies lock file</h3>

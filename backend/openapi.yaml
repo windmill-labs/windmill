@@ -2759,6 +2759,9 @@ components:
           $ref: "#/components/schemas/FlowValue"
         is_flow_step:
           type: boolean
+        language:
+          type: string
+          enum: [python3, deno]
       required:
         - id
         - running
@@ -2826,6 +2829,9 @@ components:
           $ref: "#/components/schemas/FlowValue"
         is_flow_step:
           type: boolean
+        language:
+          type: string
+          enum: [python3, deno]
       required:
         - id
         - created_by

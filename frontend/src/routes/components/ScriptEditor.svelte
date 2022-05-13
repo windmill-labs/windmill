@@ -29,7 +29,7 @@
 	import { check } from 'svelte-awesome/icons'
 	import Modal from './Modal.svelte'
 	import { Highlight } from 'svelte-highlight'
-	import { json, python } from 'svelte-highlight/src/languages'
+	import { json, python, typescript } from 'svelte-highlight/src/languages'
 	import github from 'svelte-highlight/src/styles/github'
 	import ItemPicker from './ItemPicker.svelte'
 	import VariableEditor from './VariableEditor.svelte'
@@ -270,7 +270,11 @@
 				{modalViewerContent}
 			</pre>
 		{:else if modalViewerMode === 'code'}
-			<Highlight language={python} code={modalViewerContent} />
+			{#if lang == 'python3'}
+				<Highlight language={python} code={modalViewerContent} />
+			{:else if lang == 'deno'}
+				<Highlight language={typescript} code={modalViewerContent} />
+			{/if}
 		{/if}
 	</div></Modal
 >
@@ -357,22 +361,23 @@
 		<div class="flex flex-col h-full">
 			<div class="header">
 				<div class="flex flex-row justify-around w-full">
-					<button
-						class="default-button-secondary font-semibold py-px mr-2 text-xs align-middle max-h-8"
-						on:click|stopPropagation={() => {
-							variablePicker.openModal()
-						}}
-						>Variable picker <Icon data={faSearch} scale={0.7} />
-					</button>
+					{#if lang != 'deno'}
+						<button
+							class="default-button-secondary font-semibold py-px mr-2 text-xs align-middle max-h-8"
+							on:click|stopPropagation={() => {
+								variablePicker.openModal()
+							}}
+							>Variable picker <Icon data={faSearch} scale={0.7} />
+						</button>
 
-					<button
-						class="default-button-secondary font-semibold py-px text-xs mr-2 align-middle max-h-8"
-						on:click|stopPropagation={() => {
-							resourcePicker.openModal()
-						}}
-						>Resource picker <Icon data={faSearch} scale={0.7} />
-					</button>
-
+						<button
+							class="default-button-secondary font-semibold py-px text-xs mr-2 align-middle max-h-8"
+							on:click|stopPropagation={() => {
+								resourcePicker.openModal()
+							}}
+							>Resource picker <Icon data={faSearch} scale={0.7} />
+						</button>
+					{/if}
 					<button
 						class="default-button-secondary font-semibold py-px text-xs mr-2 align-middle max-h-8"
 						on:click|stopPropagation={() => {

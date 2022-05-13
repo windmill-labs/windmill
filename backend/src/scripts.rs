@@ -359,6 +359,11 @@ async fn create_script(
         .map(|v| v.1.clone())
         .unwrap_or(json!({}));
 
+    let lock = if ns.language == ScriptLang::Deno {
+        Some("".to_string())
+    } else {
+        ns.lock.as_ref().map(|x| x.join("\n"))
+    };
     //::text::json is to ensure we use serde_json with preserve order
     sqlx::query!(
         "INSERT INTO script (workspace_id, hash, path, parent_hashes, summary, description, content, \
@@ -375,7 +380,7 @@ async fn create_script(
         ns.schema.and_then(|x| serde_json::to_string(&x.0).ok()),
         ns.is_template.unwrap_or(false),
         extra_perms,
-        ns.lock.as_ref().map(|x| x.join("\n")),
+        lock,
         ns.language: ScriptLang
     )
     .execute(&mut tx)
