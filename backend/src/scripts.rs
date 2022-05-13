@@ -57,7 +57,7 @@ pub fn workspaced_service() -> Router {
 
 #[derive(sqlx::Type, Serialize, Deserialize, Debug, PartialEq, Clone, Hash)]
 #[sqlx(type_name = "SCRIPT_LANG", rename_all = "lowercase")]
-#[serde(rename_all(serialize = "lowercase"))]
+#[serde(rename_all(serialize = "lowercase", deserialize = "lowercase"))]
 pub enum ScriptLang {
     Deno,
     Python3,
@@ -381,7 +381,7 @@ async fn create_script(
     .execute(&mut tx)
     .await?;
 
-    let mut tx = if ns.lock.is_none() {
+    let mut tx = if ns.lock.is_none() && ns.language == ScriptLang::Python3 {
         let dependencies = parser::parse_python_imports(&ns.content)?;
         let (_, tx) = jobs::push(
             tx,

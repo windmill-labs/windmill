@@ -33,13 +33,9 @@ def main(name: str = "Nicolas Bourbaki",
     # the return value is then parsed and can be retrieved by other scripts conveniently
     return {"version": version, "splitted": name.split(), "user": user}
 `
-	const DENO_INIT_CODE = `import { assertEquals } from "https://deno.land/std@0.120.0/testing/asserts.ts"
-assertEquals("hello", "hello")
-assertEquals("world", "world")
-console.log("Asserted!")
-
-function main(x: string) {
-    let x = 2
+	const DENO_INIT_CODE = `
+export function main(x: string) {
+    console.log(x);
 }
 `
 </script>
@@ -114,7 +110,7 @@ function main(x: string) {
 	}
 
 	async function inferSchema() {
-		await inferArgs(script.content, script.schema)
+		await inferArgs(script.language, script.content, script.schema)
 	}
 
 	async function changeStep(step: number) {
@@ -279,7 +275,7 @@ function main(x: string) {
 				bind:schema={script.schema}
 				path={script.path}
 				bind:code={script.content}
-				deno={script.language == 'deno'}
+				lang={script.language}
 			/>
 		</div>
 	{:else if step === 3}

@@ -3087,10 +3087,14 @@ components:
           type: string
         args:
           $ref: "#/components/schemas/ScriptArgs"
+        language:
+          type: string
+          enum: [python3, deno]
 
       required:
         - content
         - args
+        - language
 
     CreateResource:
       type: object

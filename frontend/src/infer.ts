@@ -1,12 +1,22 @@
 import type { Schema, SchemaProperty } from './common'
-import { ScriptService } from './gen'
+import { ScriptService, type MainArgSignature } from './gen'
 import { sendUserToast } from './utils'
 
-export async function inferArgs(code: string, schema: Schema): Promise<void> {
+export async function inferArgs(language: "python3" | "deno", code: string, schema: Schema): Promise<void> {
 	try {
-		const inferedSchema = await ScriptService.pythonToJsonschema({
-			requestBody: code
-		})
+		let inferedSchema: MainArgSignature
+		if (language == "python3") {
+			inferedSchema = await ScriptService.pythonToJsonschema({
+				requestBody: code
+			})
+		} else if (language == "deno") {
+			inferedSchema = await ScriptService.denoToJsonschema({
+				requestBody: code
+			})
+		} else {
+			return
+		}
+
 		schema.required = []
 		const oldProperties = Object.assign({}, schema.properties)
 		schema.properties = {}

@@ -40,13 +40,14 @@
 	import { VSplitPane } from 'svelte-split-pane'
 	import SchemaForm from './SchemaForm.svelte'
 	import DisplayResult from './DisplayResult.svelte'
+	import type { Preview } from '../../gen/models/Preview'
 
 	// Exported
 	export let schema: Schema = emptySchema()
 
 	export let code: string
 	export let path: string | undefined
-	export let deno = false
+	export let lang: Preview.language
 
 	// Control Editor layout
 	export let viewPreview = true
@@ -108,7 +109,8 @@
 				requestBody: {
 					path,
 					content: editor.getCode(),
-					args: args
+					args: args,
+					language: lang
 				}
 			})
 			previewJob = undefined
@@ -170,7 +172,7 @@
 				isDefault.push(k)
 			}
 		})
-		await inferArgs(editor.getCode(), schema)
+		await inferArgs(lang, editor.getCode(), schema)
 		schema = schema
 
 		isDefault.forEach((key) => (args[key] = schema.properties[key].default))
@@ -385,10 +387,10 @@
 							editor.reloadWebsocket()
 						}}
 					>
-						Reload assistants (status: {#if deno}<span
+						Reload assistants (status: {#if lang == 'deno'}<span
 								class={websocketAlive.deno ? 'text-green-600' : 'text-red-600'}>deno</span
-							>{:else}<span class={websocketAlive.pyright ? 'text-green-600' : 'text-red-600'}
-								>pyright</span
+							>{:else if lang == 'python3'}<span
+								class={websocketAlive.pyright ? 'text-green-600' : 'text-red-600'}>pyright</span
 							>
 							<span class={websocketAlive.black ? 'text-green-600' : 'text-red-600'}>
 								black</span
@@ -410,7 +412,7 @@
 						localStorage.setItem(path ?? 'last_save', code)
 					}}
 					class="h-full"
-					{deno}
+					deno={lang == 'deno'}
 					automaticLayout={true}
 				/>
 			</div>

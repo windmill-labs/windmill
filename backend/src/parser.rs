@@ -25,7 +25,7 @@ pub struct MainArgSignature {
     pub args: Vec<Arg>,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Clone)]
 #[serde(rename_all(serialize = "lowercase"))]
 pub enum Typ {
     Str,
@@ -39,7 +39,7 @@ pub enum Typ {
     Unknown,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Clone)]
 pub struct Arg {
     pub name: String,
     pub typ: Typ,
@@ -118,7 +118,8 @@ pub fn parse_python_signature(code: &str) -> error::Result<MainArgSignature> {
 use swc_common::sync::Lrc;
 use swc_common::{FileName, SourceMap};
 use swc_ecma_ast::{
-    AssignPat, BindingIdent, Decl, FnDecl, Ident, ModuleItem, Pat, Stmt, TsKeywordTypeKind, TsType,
+    AssignPat, BindingIdent, Decl, ExportDecl, FnDecl, Ident, ModuleDecl, ModuleItem, Pat, Stmt,
+    TsKeywordTypeKind, TsType,
 };
 use swc_ecma_parser::{lexer::Lexer, Parser, StringInput, Syntax, TsConfig};
 
@@ -148,17 +149,22 @@ pub fn parse_deno_signature(code: &str) -> error::Result<MainArgSignature> {
         })?
         .body;
 
+    // println!("{ast:?}");
     let params = ast.into_iter().find_map(|x| match x {
-        ModuleItem::Stmt(Stmt::Decl(Decl::Fn(FnDecl {
-            ident:
-                Ident {
-                    span: _,
-                    sym,
-                    optional: _,
-                },
-            declare: _,
-            function,
-        }))) if &sym.to_string() == "main" => Some(function.params),
+        ModuleItem::ModuleDecl(ModuleDecl::ExportDecl(ExportDecl {
+            decl:
+                Decl::Fn(FnDecl {
+                    ident:
+                        Ident {
+                            span: _,
+                            sym,
+                            optional: _,
+                        },
+                    declare: _,
+                    function,
+                }),
+            span: _,
+        })) if &sym.to_string() == "main" => Some(function.params),
         _ => None,
     });
     if let Some(params) = params {
@@ -209,7 +215,8 @@ pub fn parse_deno_signature(code: &str) -> error::Result<MainArgSignature> {
         })
     } else {
         Err(error::Error::ExecutionErr(
-            "main function was not findable".to_string(),
+            "main function was not findable (expected to find 'export main function(...)'"
+                .to_string(),
         ))
     }
 }
@@ -717,7 +724,7 @@ def main():
     fn test_parse_deno_sig() -> anyhow::Result<()> {
         let code = "
 
-function main(test1: string, test2: string = \"burkina\") {
+export function main(test1: string, test2: string = \"burkina\") {
     console.log(42)
 }
 
