@@ -588,7 +588,7 @@ console.log(res_json);
                         "--",
                         "/usr/bin/deno",
                         "run",
-                        "--v8-flags=--max-old-space-size=2048",
+                        "--v8-flags=--max-old-space-size=1536",
                         "-A",
                         "/tmp/main.ts",
                     ])

@@ -1,7 +1,7 @@
 name: "deno run script"
 
 mode: ONCE
-hostname: "python"
+hostname: "deno"
 log_level: ERROR
 time_limit: 300
 
