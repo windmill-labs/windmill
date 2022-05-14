@@ -27,11 +27,13 @@ services:
     environment:
       - DATABASE_URL=postgres://postgres:${DB_PASSWORD}@db/windmill?sslmode=disable
       - APP_USER_PASSWORD=changeme
-      - BASE_URL=https://localhost"
-      - BASE_INTERNAL_URL=http://localhost:8000"
+      - BASE_URL=https://${SITE_URL}
+      - BASE_INTERNAL_URL=http://localhost:8000
       - RUST_LOG=info
       - NUM_WORKERS=3
       - RUST_BACKTRACE=1
+      - GITHUB_OAUTH_CLIENT_ID=${GITHUB_OAUTH_CLIENT_ID}
+      - GITHUB_OAUTH_CLIENT_SECRET=${GITHUB_OAUTH_CLIENT_SECRET}
 
     depends_on:
       db:
