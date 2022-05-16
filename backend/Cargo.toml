@@ -38,7 +38,7 @@ git-version = "^0"
 rustpython-parser = "^0"
 cron = "^0"
 external-ip = "^4"
-lettre = { version = "^0.10.0-rc.4", features = ["rustls-tls", "tokio1", "tokio1-rustls-tls", "builder", "smtp-transport"],  default-features = false}
+lettre = { version = "^0.10.0-rc.6", features = ["rustls-tls", "tokio1", "tokio1-rustls-tls", "builder", "smtp-transport"],  default-features = false}
 urlencoding = "^2"
 oauth2 = "^4"
 url = "^2"
