@@ -2698,7 +2698,7 @@ components:
 
     ScriptArgs:
       type: object
-      additionalProperties: true
+      additionalProperties: {}
 
     QueuedJob:
       type: object
