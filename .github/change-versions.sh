@@ -10,7 +10,9 @@ sed -i -e "/^version =/s/= .*/= \"$VERSION\"/" python-client/wmill/pyproject.tom
 sed -i -e "/^windmill-api =/s/= .*/= \"\\^$VERSION\"/" python-client/wmill/pyproject.toml
 sed -i -e "/^version =/s/= .*/= \"$VERSION\"/" python-client/wmill_pg/pyproject.toml
 # sed -i -e "/^wmill =/s/= .*/= \"\\^$VERSION\"/" python-client/wmill_pg/pyproject.toml
-sed -i -e "/^wmill =/s/= .*/= \">=$VERSION\"/" Pipfile
-sed -i -e "/^wmill_pg =/s/= .*/= \">=$VERSION\"/" Pipfile
+sed -i -e "/^wmill =/s/= .*/= \">=$VERSION\"/" lsp/Pipfile
+sed -i -e "/^wmill_pg =/s/= .*/= \">=$VERSION\"/" lsp/Pipfile
 
 sed -i -zE "s/name = \"windmill\"\nversion = \"[^\"]*\"\\n(.*)/name = \"windmill\"\nversion = \"$VERSION\"\\n\\1/" backend/Cargo.lock
+
+cd python-client/wmill && poetry lock
