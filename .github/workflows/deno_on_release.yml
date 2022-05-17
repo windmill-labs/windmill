@@ -3,11 +3,11 @@ on:
   push:
     # tags:
     #   - "v*"
+env:
+  repo: windmill-deno-client
 
 jobs:
   deno:
-    env:
-      repo: windmill-deno-client
     runs-on: ubuntu-latest
     container: openapitools/openapi-generator-cli:v6.0.0-beta
     steps:
