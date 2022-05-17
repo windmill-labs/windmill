@@ -7,7 +7,7 @@ export function createConf(): Configuration & { workspace_id: string } {
     const token = Deno.env.get("WM_TOKEN") ?? 'no_token'
     return {
         ...createConfiguration({
-            baseServer: new ServerConfiguration(Deno.env.get("BASE_INTERNAL_URL") ?? 'no_base_url', {}),
+            baseServer: new ServerConfiguration(Deno.env.get("BASE_URL") ?? 'http://localhost:8000/api', {}),
             authMethods: { bearerAuth: { tokenProvider: { getToken() { return token } } } },
         }), workspace_id: Deno.env.get("WM_WORKSPACE") ?? 'no_workspace'
     }
@@ -32,7 +32,7 @@ export async function transformLeaves(d: { [key: string]: any }): Promise<{ [key
     return d
 }
 
-const VAR_RESOURCE_PREFIX = "$VAR:"
+const VAR_RESOURCE_PREFIX = "$var:"
 async function _transformLeaf(v: any): Promise<any> {
     if (typeof v === 'object') {
         return transformLeaves(v)
