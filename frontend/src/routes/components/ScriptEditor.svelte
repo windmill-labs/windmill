@@ -41,7 +41,6 @@
 	import SchemaForm from './SchemaForm.svelte'
 	import DisplayResult from './DisplayResult.svelte'
 	import type { Preview } from '../../gen/models/Preview'
-	import { version } from '../../../package.json'
 
 	// Exported
 	export let schema: Schema = emptySchema()
@@ -297,7 +296,7 @@
 			if (lang == 'deno') {
 				if (!getEditor().getCode().includes('import * as wmill from')) {
 					getEditor().insertAtBeginning(
-						`import * as wmill from 'https://deno.land/x/windmill@v${version}/index.ts'\n`
+						`import * as wmill from 'https://deno.land/x/windmill@v${__pkg__.version}/index.ts'\n`
 					)
 				}
 				getEditor().insertAtCursor(`wmill.getVariable('${path}'')`)
@@ -336,7 +335,7 @@
 		if (lang == 'deno') {
 			if (!getEditor().getCode().includes('import * as wmill from')) {
 				getEditor().insertAtBeginning(
-					`import * as wmill from 'https://deno.land/x/windmill@v${version}/index.ts'\n`
+					`import * as wmill from 'https://deno.land/x/windmill@v${__pkg__.version}/index.ts'\n`
 				)
 			}
 			getEditor().insertAtCursor(`wmill.getResource('${path}'')`)
