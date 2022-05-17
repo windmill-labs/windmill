@@ -29,11 +29,19 @@ jobs:
           user-email: ruben@windmill.dev
           commit-message: See ORIGIN_COMMIT from $GITHUB_REF
           target-branch: main
-      - name: Tag commit
-        uses: fatjyc/tagger-action@v0.0.3
+
+  tag_repo:
+    needs: [deno]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
         with:
-          repo: ${{ env.repo }}
-          owner: ${{ github.repository_owner }}
+          repository: ${{ github.repository_owner }}/${{ env.repo }}
           token: ${{ secrets.DENO_PAT }}
-          ref: "refs/heads/main"
-          tag: ${{ github.ref_name }}
+          path: ./client
+
+      - name: Push client
+        run: |
+          cd ./client
+          git tag -a ${{ github.ref_name }} -m "${{ github.ref_name }}"
+          git push --tags
