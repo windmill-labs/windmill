@@ -7,6 +7,7 @@ on:
 jobs:
   change_version:
     runs-on: ubuntu-latest
+    container: node:18
     steps:
       - uses: actions/checkout@v3
       - name: Change versions
