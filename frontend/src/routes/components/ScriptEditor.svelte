@@ -29,7 +29,7 @@
 	import { check } from 'svelte-awesome/icons'
 	import Modal from './Modal.svelte'
 	import { Highlight } from 'svelte-highlight'
-	import { json, python } from 'svelte-highlight/src/languages'
+	import { json, python, typescript } from 'svelte-highlight/src/languages'
 	import github from 'svelte-highlight/src/styles/github'
 	import ItemPicker from './ItemPicker.svelte'
 	import VariableEditor from './VariableEditor.svelte'
@@ -40,18 +40,20 @@
 	import { VSplitPane } from 'svelte-split-pane'
 	import SchemaForm from './SchemaForm.svelte'
 	import DisplayResult from './DisplayResult.svelte'
+	import type { Preview } from '../../gen/models/Preview'
 
 	// Exported
 	export let schema: Schema = emptySchema()
 
 	export let code: string
 	export let path: string | undefined
+	export let lang: Preview.language
 
 	// Control Editor layout
 	export let viewPreview = true
 	export let previewTab: 'logs' | 'input' | 'output' | 'history' | 'last_save' = 'logs'
 
-	let websocketAlive = { pyright: false, black: false }
+	let websocketAlive = { pyright: false, black: false, deno: false }
 
 	// Internal state
 	let editor: Editor
@@ -107,7 +109,8 @@
 				requestBody: {
 					path,
 					content: editor.getCode(),
-					args: args
+					args: args,
+					language: lang
 				}
 			})
 			previewJob = undefined
@@ -169,7 +172,7 @@
 				isDefault.push(k)
 			}
 		})
-		await inferArgs(editor.getCode(), schema)
+		await inferArgs(lang, editor.getCode(), schema)
 		schema = schema
 
 		isDefault.forEach((key) => (args[key] = schema.properties[key].default))
@@ -267,7 +270,11 @@
 				{modalViewerContent}
 			</pre>
 		{:else if modalViewerMode === 'code'}
-			<Highlight language={python} code={modalViewerContent} />
+			{#if lang == 'python3'}
+				<Highlight language={python} code={modalViewerContent} />
+			{:else if lang == 'deno'}
+				<Highlight language={typescript} code={modalViewerContent} />
+			{/if}
 		{/if}
 	</div></Modal
 >
@@ -276,16 +283,29 @@
 	bind:this={variablePicker}
 	pickCallback={(path, name) => {
 		if (!path) {
-			if (!getEditor().getCode().includes('import os')) {
-				getEditor().insertAtBeginning('import os\n')
+			if (lang == 'deno') {
+				getEditor().insertAtCursor(`Deno.env.get('${name}')`)
+			} else {
+				if (!getEditor().getCode().includes('import os')) {
+					getEditor().insertAtBeginning('import os\n')
+				}
+				getEditor().insertAtCursor(`os.environ.get("${name}")`)
 			}
-			getEditor().insertAtCursor(`os.environ.get("${name}")`)
 			sendUserToast(`${name} inserted at cursor`)
 		} else {
-			if (!getEditor().getCode().includes('import wmill')) {
-				getEditor().insertAtBeginning('import wmill\n')
+			if (lang == 'deno') {
+				if (!getEditor().getCode().includes('import * as wmill from')) {
+					getEditor().insertAtBeginning(
+						`import * as wmill from 'https://deno.land/x/windmill@v${__pkg__.version}/index.ts'\n`
+					)
+				}
+				getEditor().insertAtCursor(`wmill.getVariable('${path}'')`)
+			} else {
+				if (!getEditor().getCode().includes('import wmill')) {
+					getEditor().insertAtBeginning('import wmill\n')
+				}
+				getEditor().insertAtCursor(`wmill.get_variable("${path}")`)
 			}
-			getEditor().insertAtCursor(`wmill.get_variable("${path}")`)
 			sendUserToast(`${name} inserted at cursor`)
 		}
 	}}
@@ -312,7 +332,19 @@
 <ItemPicker
 	bind:this={resourcePicker}
 	pickCallback={(path, _) => {
-		getEditor().insertAtCursor(`client.get_resource("${path}")`)
+		if (lang == 'deno') {
+			if (!getEditor().getCode().includes('import * as wmill from')) {
+				getEditor().insertAtBeginning(
+					`import * as wmill from 'https://deno.land/x/windmill@v${__pkg__.version}/index.ts'\n`
+				)
+			}
+			getEditor().insertAtCursor(`wmill.getResource('${path}'')`)
+		} else {
+			if (!getEditor().getCode().includes('import wmill')) {
+				getEditor().insertAtBeginning('import wmill\n')
+			}
+			getEditor().insertAtCursor(`wmill.get_resource("${path}")`)
+		}
 		sendUserToast(`${path} inserted at cursor`)
 	}}
 	itemName="Resource"
@@ -369,7 +401,6 @@
 						}}
 						>Resource picker <Icon data={faSearch} scale={0.7} />
 					</button>
-
 					<button
 						class="default-button-secondary font-semibold py-px text-xs mr-2 align-middle max-h-8"
 						on:click|stopPropagation={() => {
@@ -384,9 +415,14 @@
 							editor.reloadWebsocket()
 						}}
 					>
-						Reload assistants (status: <span
-							class={websocketAlive.pyright ? 'text-green-600' : 'text-red-600'}>pyright</span
-						> <span class={websocketAlive.black ? 'text-green-600' : 'text-red-600'}> black</span>)
+						Reload assistants (status: {#if lang == 'deno'}<span
+								class={websocketAlive.deno ? 'text-green-600' : 'text-red-600'}>deno</span
+							>{:else if lang == 'python3'}<span
+								class={websocketAlive.pyright ? 'text-green-600' : 'text-red-600'}>pyright</span
+							>
+							<span class={websocketAlive.black ? 'text-green-600' : 'text-red-600'}>
+								black</span
+							>{/if})
 					</button>
 				</div>
 			</div>
@@ -404,6 +440,7 @@
 						localStorage.setItem(path ?? 'last_save', code)
 					}}
 					class="h-full"
+					deno={lang == 'deno'}
 					automaticLayout={true}
 				/>
 			</div>

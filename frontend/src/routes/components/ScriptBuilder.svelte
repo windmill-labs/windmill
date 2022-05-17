@@ -1,3 +1,51 @@
+<script context="module">
+	const PYTHON_INIT_CODE = `import os
+import wmill
+from datetime import datetime
+# Our webeditor includes a syntax, type checker through a language server running pyright
+# and the autoformatter Black in our servers. Use Cmd/Ctrl + S to autoformat the code.
+# Beware that the code is only saved when you click Save and not across reload.
+# You can however navigate to any steps safely.
+"""
+The client is used to interact with windmill itself through its standard API.
+One can explore the methods available through autocompletion of \`client.XXX\`.
+Only the most common methods are included for ease of use. Request more as
+feedback if you feel you are missing important ones.
+"""
+def main(name: str = "Nicolas Bourbaki",
+         age: int = 42,
+         obj: dict = {"even": "dicts"},
+         l: list = ["or", "lists!"],
+         file_: bytes = bytes(0),
+         dtime: datetime = datetime.now()):
+    """A main function is required for the script to be able to accept arguments.
+    Types are recommended."""
+    print(f"Hello World and a warm welcome especially to {name}")
+    print("and its acolytes..", age, obj, l, len(file_), dtime)
+    # retrieve variables, including secrets by querying the windmill platform.
+    # secret fetching is audited by windmill.
+    secret = wmill.get_variable("g/all/pretty_secret")
+    print(f"The env variable at \`g_all/pretty_secret\`: {secret}")
+    # interact with the windmill platform to get the version
+    version = wmill.get_version()
+    # fetch reserved variables as environment variables
+    user = os.environ.get("WM_USERNAME")
+    # the return value is then parsed and can be retrieved by other scripts conveniently
+    return {"version": version, "splitted": name.split(), "user": user}
+`
+	const DENO_INIT_CODE = `
+// only do the following import if you require your script to interact with the windmill
+// for instance to get a variable or resource
+// import * as wmill from 'https://deno.land/x/windmill@v${__pkg__.version}/index.ts'
+
+export function main(x: string, y: string = 'default arg') {
+	// let x = wmill.getVariable('u/user/foo');
+	// let y = wmill.getResource('u/user/foo')
+	return { foo: x }
+}
+`
+</script>
+
 <script lang="ts">
 	import { ScriptService, type Script } from '../../gen'
 
@@ -12,6 +60,7 @@
 	import ScriptSchema from './ScriptSchema.svelte'
 	import { inferArgs } from '../../infer'
 	import Required from './Required.svelte'
+	import RadioButton from './RadioButton.svelte'
 
 	let editor: ScriptEditor
 	let scriptSchema: ScriptSchema
@@ -25,6 +74,13 @@
 		history.replaceState({}, '', $page.url)
 	}
 
+	if (script.content == '') {
+		initContent(script.language)
+	}
+	function initContent(lang: string) {
+		script.content = lang == 'deno' ? DENO_INIT_CODE : PYTHON_INIT_CODE
+	}
+
 	async function editScript(): Promise<void> {
 		try {
 			const newHash = await ScriptService.createScript({
@@ -36,7 +92,8 @@
 					content: script.content,
 					parent_hash: script.hash != '' ? script.hash : undefined,
 					schema: script.schema,
-					is_template: script.is_template
+					is_template: script.is_template,
+					language: script.language
 				}
 			})
 			sendUserToast(`Success! New script version created with hash ${newHash}`)
@@ -59,7 +116,7 @@
 	}
 
 	async function inferSchema() {
-		await inferArgs(script.content, script.schema)
+		await inferArgs(script.language, script.content, script.schema)
 	}
 
 	async function changeStep(step: number) {
@@ -151,6 +208,19 @@
 					<a href="https://docs.windmill.dev/docs/reference/namespaces">docs</a>
 				</div>
 			</Path>
+			<h3 class="text-gray-700 pb-1 border-b">Language</h3>
+			<div class="max-w-md">
+				<RadioButton
+					label="Language"
+					small={true}
+					options={[
+						['Python 3.10', 'python3'],
+						['Typescript (Deno) WIP', 'deno']
+					]}
+					on:change={(e) => initContent(e.detail)}
+					bind:value={script.language}
+				/>
+			</div>
 			<h3 class="text-gray-700 pb-1 border-b">Metadata</h3>
 
 			<label class="block ">
@@ -211,6 +281,7 @@
 				bind:schema={script.schema}
 				path={script.path}
 				bind:code={script.content}
+				lang={script.language}
 			/>
 		</div>
 	{:else if step === 3}

@@ -12,7 +12,9 @@
 	let divEl: HTMLDivElement | null = null
 	let editor: monaco.editor.IStandaloneCodeEditor
 	let monaco
-	export let lang = 'python'
+
+	export let deno = false
+	export let lang = deno ? 'typescript' : 'python'
 	export let code: string
 	export let readOnly = false
 	export let hash: string = (Math.random() + 1).toString(36).substring(2)
@@ -76,7 +78,7 @@
 
 	export async function reloadWebsocket() {
 		closeWebsockets()
-		if (lang == 'python') {
+		if (lang == 'python' || deno) {
 			// install Monaco language client services
 			const { MonacoLanguageClient, CloseAction, ErrorAction, createConnection } = await import(
 				'@codingame/monaco-languageclient'
@@ -86,7 +88,7 @@
 				return new MonacoLanguageClient({
 					name: name,
 					clientOptions: {
-						documentSelector: ['python'],
+						documentSelector: deno ? ['typescript'] : ['python'],
 						errorHandler: {
 							error: () => ErrorAction.Shutdown,
 							closed: () => CloseAction.Restart
@@ -95,7 +97,18 @@
 							isTrusted: true
 						},
 						// workspaceFolder: { uri: Uri.parse(`/tmp/${name}`), name: 'tmp', index: 0 },
-						initializationOptions
+						initializationOptions,
+						middleware: {
+							workspace: {
+								configuration: (params, token, configuration) => {
+									return [
+										{
+											enable: true
+										}
+									]
+								}
+							}
+						}
 					},
 					connectionProvider: {
 						get: (errorHandler, closeHandler) => {
@@ -132,28 +145,38 @@
 					console.error(`connection to ${name} language server failed`)
 				}
 			}
-			connectToLanguageServer(`wss://${$page.url.host}/ws/pyright`, 'pyright', {
-				executionEnvironments: [
-					{
-						root: '/tmp/pyright',
-						pythonVersion: '3.7',
-						pythonPlatform: 'platform',
-						extraPaths: []
-					}
-				]
-			})
 
-			connectToLanguageServer(`wss://${$page.url.host}/ws/black`, 'black', {
-				formatters: {
-					black: {
-						command: 'black',
-						args: ['--quiet', '-']
+			if (deno) {
+				connectToLanguageServer(`ws://${$page.url.host}/ws/deno`, 'deno', {
+					deno: {
+						enable: true,
+						lint: true
 					}
-				},
-				formatFiletypes: {
-					python: 'black'
-				}
-			})
+				})
+			} else {
+				connectToLanguageServer(`wss://${$page.url.host}/ws/pyright`, 'pyright', {
+					executionEnvironments: [
+						{
+							root: '/tmp/pyright',
+							pythonVersion: '3.7',
+							pythonPlatform: 'platform',
+							extraPaths: []
+						}
+					]
+				})
+
+				connectToLanguageServer(`wss://${$page.url.host}/ws/black`, 'black', {
+					formatters: {
+						black: {
+							command: 'black',
+							args: ['--quiet', '-']
+						}
+					},
+					formatFiletypes: {
+						python: 'black'
+					}
+				})
+			}
 		}
 	}
 
@@ -232,15 +255,20 @@
 		}
 
 		if (lang == 'typescript') {
-			// compiler options
-			monaco.languages.typescript.typescriptDefaults.setCompilerOptions({
-				target: monaco.languages.typescript.ScriptTarget.ES6,
-				allowNonTsExtensions: true,
-				noLib: true
-			})
+			if (deno) {
+				monaco.languages.typescript.typescriptDefaults.setDiagnosticsOptions({
+					diagnosticCodesToIgnore: [2691]
+				})
+			} else {
+				// compiler options
+				monaco.languages.typescript.typescriptDefaults.setCompilerOptions({
+					target: monaco.languages.typescript.ScriptTarget.ES6,
+					allowNonTsExtensions: true,
+					noLib: true
+				})
 
-			monaco.languages.typescript.typescriptDefaults.addExtraLib(
-				`
+				monaco.languages.typescript.typescriptDefaults.addExtraLib(
+					`
 /**
  * get variable (including secret) at path
  * @param {string} path - path of the variable (e.g: g/all/pretty_secret)
@@ -276,11 +304,11 @@ export const previous_result: any;
  */
 export const params: any;
 				`,
-				'file:///node_modules/@types/windmill/index.d.ts'
-			)
+					'file:///node_modules/@types/windmill/index.d.ts'
+				)
+			}
 		}
-
-		if (lang == 'python') {
+		if (lang == 'python' || deno) {
 			const { MonacoServices } = await import('@codingame/monaco-languageclient')
 
 			MonacoServices.install(monaco)

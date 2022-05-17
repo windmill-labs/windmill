@@ -10,7 +10,8 @@
 	import RadioButton from './RadioButton.svelte'
 	import Modal from './Modal.svelte'
 	import { Highlight } from 'svelte-highlight'
-	import { python } from 'svelte-highlight/src/languages'
+	import { python, typescript } from 'svelte-highlight/src/languages'
+
 	import github from 'svelte-highlight/src/styles/github'
 
 	export let scriptPath: string | undefined = undefined
@@ -21,12 +22,17 @@
 	let itemPicker: ItemPicker
 	let modalViewer: Modal
 	let code: string = ''
+	let lang: 'deno' | 'python3' | undefined
 
 	const dispatch = createEventDispatcher()
 
 	async function getScript() {
-		code = (await ScriptService.getScriptByPath({ workspace: $workspaceStore!, path: scriptPath! }))
-			.content
+		const script = await ScriptService.getScriptByPath({
+			workspace: $workspaceStore!,
+			path: scriptPath!
+		})
+		code = script.content
+		lang = script.language
 	}
 
 	async function loadItems(isFlow: boolean): Promise<void> {
@@ -103,6 +109,10 @@
 <Modal bind:this={modalViewer}>
 	<div slot="title">Script {scriptPath}</div>
 	<div slot="content">
-		<Highlight language={python} {code} />
+		{#if lang == 'python3'}
+			<Highlight language={python} {code} />
+		{:else if lang == 'deno'}
+			<Highlight language={typescript} {code} />
+		{/if}
 	</div>
 </Modal>
