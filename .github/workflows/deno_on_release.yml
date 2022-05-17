@@ -15,6 +15,7 @@ jobs:
       - name: generate_deno
         run: |
           cd deno-client
+          rm .gitignore
           ./generate.sh
       - name: Pushes to another repository
         id: push_directory
@@ -29,7 +30,7 @@ jobs:
           commit-message: See ORIGIN_COMMIT from $GITHUB_REF
           target-branch: main
       - name: Tag commit
-        uses: fatjyc/tagger-action@v0.0.3
+        uses: fatjyc/tagger-action@v0.0.1
         with:
           repo: ${{ env.repo }}
           owner: ${{ github.repository_owner }}
