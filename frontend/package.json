@@ -50,7 +50,7 @@
 		"@zerodevx/svelte-toast": "^0.6.2",
 		"fuse.js": "^6.4.6",
 		"highlight.js": "^11.5.1",
-		"monaco-editor": "^0.30.0",
+		"monaco-editor": "^0.33.0",
 		"svelte-awesome": "^2.4.2",
 		"svelte-markdown": "^0.2.1",
 		"svelte-split-pane": "^0.1.2"
