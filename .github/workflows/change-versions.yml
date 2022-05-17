@@ -7,7 +7,7 @@ on:
 jobs:
   change_version:
     runs-on: ubuntu-latest
-    container: docker pull fnndsc/python-poetry
+    container: fnndsc/python-poetry:latest
     steps:
       - uses: actions/checkout@v3
       - name: Change versions
