@@ -10,7 +10,7 @@
 		getUser,
 		refreshSuperadmin
 	} from '../utils'
-	import { onDestroy, onMount } from 'svelte'
+	import { onMount } from 'svelte'
 	import Icon from 'svelte-awesome'
 	import {
 		faScroll,
