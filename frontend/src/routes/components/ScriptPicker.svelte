@@ -10,9 +10,9 @@
 	import RadioButton from './RadioButton.svelte'
 	import Modal from './Modal.svelte'
 	import { Highlight } from 'svelte-highlight'
-	import { python, typescript } from 'svelte-highlight/src/languages'
+	import { python, typescript } from 'svelte-highlight/languages'
 
-	import github from 'svelte-highlight/src/styles/github'
+	import github from 'svelte-highlight/styles/github'
 
 	export let scriptPath: string | undefined = undefined
 	export let allowFlow = false

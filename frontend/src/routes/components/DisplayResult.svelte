@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { Highlight } from 'svelte-highlight'
-	import github from 'svelte-highlight/src/styles/github'
-	import { json } from 'svelte-highlight/src/languages'
+	import github from 'svelte-highlight/styles/github'
+	import { json } from 'svelte-highlight/languages'
 	import TableCustom from './TableCustom.svelte'
 
 	export let result: any

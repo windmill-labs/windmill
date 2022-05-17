@@ -12,9 +12,9 @@
 		faShare
 	} from '@fortawesome/free-solid-svg-icons'
 	import Highlight from 'svelte-highlight'
-	import json from 'svelte-highlight/src/languages/json'
+	import json from 'svelte-highlight/languages/json'
 
-	import github from 'svelte-highlight/src/styles/github'
+	import github from 'svelte-highlight/styles/github'
 	import Tooltip from '../../components/Tooltip.svelte'
 	import ShareModal from '../../components/ShareModal.svelte'
 	import { workspaceStore } from '../../../stores'

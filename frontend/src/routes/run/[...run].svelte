@@ -32,8 +32,8 @@
 	import DisplayResult from '../components/DisplayResult.svelte'
 
 	import Highlight from 'svelte-highlight'
-	import { python, typescript } from 'svelte-highlight/src/languages'
-	import github from 'svelte-highlight/src/styles/github'
+	import { python, typescript } from 'svelte-highlight/languages'
+	import github from 'svelte-highlight/styles/github'
 	import { userStore, workspaceStore } from '../../stores'
 	import CenteredPage from '../components/CenteredPage.svelte'
 	import FlowStatusViewer from '../components/FlowStatusViewer.svelte'

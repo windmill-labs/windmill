@@ -6,8 +6,8 @@
 	import Tabs from './Tabs.svelte'
 
 	import Highlight from 'svelte-highlight'
-	import json from 'svelte-highlight/src/languages/json'
-	import github from 'svelte-highlight/src/styles/github'
+	import json from 'svelte-highlight/languages/json'
+	import github from 'svelte-highlight/styles/github'
 	import SvelteMarkdown from 'svelte-markdown'
 
 	export let schema: Schema

@@ -14,9 +14,9 @@
 		faSpinner
 	} from '@fortawesome/free-solid-svg-icons'
 	import Highlight from 'svelte-highlight'
-	import { typescript, python } from 'svelte-highlight/src/languages'
+	import { typescript, python } from 'svelte-highlight/languages'
 
-	import github from 'svelte-highlight/src/styles/github'
+	import github from 'svelte-highlight/styles/github'
 	import Tooltip from '../../components/Tooltip.svelte'
 	import ShareModal from '../../components/ShareModal.svelte'
 	import { userStore, workspaceStore } from '../../../stores'
