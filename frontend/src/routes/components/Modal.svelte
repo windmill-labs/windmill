@@ -1,27 +1,27 @@
 <script lang="ts">
-	import { createEventDispatcher } from 'svelte';
+	import { createEventDispatcher } from 'svelte'
 
-	export let open: boolean = false;
-	export let z = 'z-30';
+	export let open: boolean = false
+	export let z = 'z-30'
 
-	const dispatch = createEventDispatcher();
+	const dispatch = createEventDispatcher()
 
 	export function closeModal(): void {
-		open = false;
-		dispatch('close');
+		open = false
+		dispatch('close')
 	}
 
 	export function openModal(): void {
-		open = true;
-		dispatch('open');
+		open = true
+		dispatch('open')
 	}
 
 	function handleKeyUp(event: KeyboardEvent): void {
-		const key = event.key || event.keyCode;
+		const key = event.key || event.keyCode
 		if (key === 27 || key === 'Escape' || key === 'Esc') {
 			if (open) {
-				event.preventDefault();
-				closeModal();
+				event.preventDefault()
+				closeModal()
 			}
 		}
 	}
@@ -39,8 +39,8 @@
 			<div class="flex flex-row justify-between p-2  bg-white border-b border-gray-200">
 				<button
 					on:click={() => {
-						open = false;
-						closeModal();
+						open = false
+						closeModal()
 					}}
 				>
 					<svg
@@ -68,7 +68,7 @@
 				<div class="flex flex-row justify-between p-2 ">
 					<button
 						on:click={() => {
-							closeModal();
+							closeModal()
 						}}
 					>
 						<svg

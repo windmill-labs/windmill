@@ -1,28 +1,84 @@
+<script context="module">
+	const PYTHON_INIT_CODE = `import os
+import wmill
+from datetime import datetime
+# Our webeditor includes a syntax, type checker through a language server running pyright
+# and the autoformatter Black in our servers. Use Cmd/Ctrl + S to autoformat the code.
+# Beware that the code is only saved when you click Save and not across reload.
+# You can however navigate to any steps safely.
+"""
+The client is used to interact with windmill itself through its standard API.
+One can explore the methods available through autocompletion of \`client.XXX\`.
+Only the most common methods are included for ease of use. Request more as
+feedback if you feel you are missing important ones.
+"""
+def main(name: str = "Nicolas Bourbaki",
+         age: int = 42,
+         obj: dict = {"even": "dicts"},
+         l: list = ["or", "lists!"],
+         file_: bytes = bytes(0),
+         dtime: datetime = datetime.now()):
+    """A main function is required for the script to be able to accept arguments.
+    Types are recommended."""
+    print(f"Hello World and a warm welcome especially to {name}")
+    print("and its acolytes..", age, obj, l, len(file_), dtime)
+    # retrieve variables, including secrets by querying the windmill platform.
+    # secret fetching is audited by windmill.
+    secret = wmill.get_variable("g/all/pretty_secret")
+    print(f"The env variable at \`g_all/pretty_secret\`: {secret}")
+    # interact with the windmill platform to get the version
+    version = wmill.get_version()
+    # fetch reserved variables as environment variables
+    user = os.environ.get("WM_USERNAME")
+    # the return value is then parsed and can be retrieved by other scripts conveniently
+    return {"version": version, "splitted": name.split(), "user": user}
+`
+	const DENO_INIT_CODE = `
+// only do the following import if you require your script to interact with the windmill
+// for instance to get a variable or resource
+// import * as wmill from 'https://deno.land/x/windmill@v${__pkg__.version}/index.ts'
+
+export function main(x: string, y: string = 'default arg') {
+	// let x = wmill.getVariable('u/user/foo');
+	// let y = wmill.getResource('u/user/foo')
+	return { foo: x }
+}
+`
+</script>
+
 <script lang="ts">
-	import { ScriptService, type Script } from '../../gen';
+	import { ScriptService, type Script } from '../../gen'
 
-	import { emptySchema, sendUserToast } from '../../utils';
-	import { onDestroy } from 'svelte';
-	import ScriptEditor from './ScriptEditor.svelte';
-	import { page } from '$app/stores';
-	import { goto } from '$app/navigation';
-	import Path from './Path.svelte';
-	import SvelteMarkdown from 'svelte-markdown';
-	import { workspaceStore } from '../../stores';
-	import ScriptSchema from './ScriptSchema.svelte';
-	import { inferArgs } from '../../infer';
-	import Required from './Required.svelte';
+	import { emptySchema, sendUserToast } from '../../utils'
+	import { onDestroy } from 'svelte'
+	import ScriptEditor from './ScriptEditor.svelte'
+	import { page } from '$app/stores'
+	import { goto } from '$app/navigation'
+	import Path from './Path.svelte'
+	import SvelteMarkdown from 'svelte-markdown'
+	import { workspaceStore } from '../../stores'
+	import ScriptSchema from './ScriptSchema.svelte'
+	import { inferArgs } from '../../infer'
+	import Required from './Required.svelte'
+	import RadioButton from './RadioButton.svelte'
 
-	let editor: ScriptEditor;
-	let scriptSchema: ScriptSchema;
-	$: step = Number($page.url.searchParams.get('step')) || 1;
+	let editor: ScriptEditor
+	let scriptSchema: ScriptSchema
+	$: step = Number($page.url.searchParams.get('step')) || 1
 
-	export let script: Script;
-	export let initialPath: string = '';
+	export let script: Script
+	export let initialPath: string = ''
 
 	$: {
-		$page.url.searchParams.set('state', btoa(JSON.stringify(script)));
-		history.replaceState({}, '', $page.url);
+		$page.url.searchParams.set('state', btoa(JSON.stringify(script)))
+		history.replaceState({}, '', $page.url)
+	}
+
+	if (script.content == '') {
+		initContent(script.language)
+	}
+	function initContent(lang: string) {
+		script.content = lang == 'deno' ? DENO_INIT_CODE : PYTHON_INIT_CODE
 	}
 
 	async function editScript(): Promise<void> {
@@ -36,49 +92,45 @@
 					content: script.content,
 					parent_hash: script.hash != '' ? script.hash : undefined,
 					schema: script.schema,
-					is_template: script.is_template
+					is_template: script.is_template,
+					language: script.language
 				}
-			});
-			sendUserToast(`Success! New script version created with hash ${newHash}`);
-			goto(`/scripts/get/${newHash}`);
+			})
+			sendUserToast(`Success! New script version created with hash ${newHash}`)
+			goto(`/scripts/get/${newHash}`)
 		} catch (error) {
-			if (error.status === 400) {
-				sendUserToast(error.body, true);
-			} else {
-				sendUserToast(`Ooops.Something bad happened: ${error}`, true);
-				console.error(error);
-			}
+			sendUserToast(`Impossible to save the script: ${error.body}`, true)
 		}
 	}
 
 	export function setCode(script: Script) {
-		editor?.getEditor().setCode(script.content);
+		editor?.getEditor().setCode(script.content)
 
 		if (scriptSchema) {
 			if (script.schema) {
-				scriptSchema.setSchema(script.schema);
+				scriptSchema.setSchema(script.schema)
 			} else {
-				scriptSchema.setSchema(emptySchema());
+				scriptSchema.setSchema(emptySchema())
 			}
 		}
 	}
 
 	async function inferSchema() {
-		await inferArgs(script.content, script.schema);
+		await inferArgs(script.language, script.content, script.schema)
 	}
 
 	async function changeStep(step: number) {
 		if (step == 3) {
-			script.content = editor?.getEditor().getCode() ?? script.content;
-			await inferSchema();
-			script.schema = script.schema;
+			script.content = editor?.getEditor().getCode() ?? script.content
+			await inferSchema()
+			script.schema = script.schema
 		}
-		goto(`?step=${step}`);
+		goto(`?step=${step}`)
 	}
 
 	onDestroy(() => {
-		editor?.$destroy();
-	});
+		editor?.$destroy()
+	})
 </script>
 
 <div class="flex flex-col h-screen max-w-screen-lg xl:-ml-20 xl:pl-4 w-full -mt-4 pt-4 md:mx-10 ">
@@ -91,7 +143,7 @@
 						? 'default-button-disabled text-gray-700'
 						: 'default-button-secondary'} min-w-max ml-2"
 					on:click={() => {
-						changeStep(1);
+						changeStep(1)
 					}}>Step 1: Metadata</button
 				>
 				<button
@@ -99,7 +151,7 @@
 						? 'default-button-disabled text-gray-700'
 						: 'default-button-secondary'} min-w-max ml-2"
 					on:click={() => {
-						changeStep(2);
+						changeStep(2)
 					}}>Step 2: Code</button
 				>
 				<button
@@ -107,7 +159,7 @@
 						? 'default-button-disabled text-gray-700'
 						: 'default-button-secondary'} min-w-max ml-2"
 					on:click={() => {
-						changeStep(3);
+						changeStep(3)
 					}}>Step 3: UI customisation</button
 				>
 			</div>
@@ -118,15 +170,15 @@
 							(script.path == undefined || script.path == '' || script.path.split('/')[2] == '')}
 						class="default-button px-6 max-h-8"
 						on:click={() => {
-							changeStep(step + 1);
+							changeStep(step + 1)
 						}}>Next</button
 					>
 					{#if step == 2}
 						<button
 							class="default-button-secondary px-6 max-h-8 mr-2"
 							on:click={async () => {
-								await inferSchema();
-								editScript();
+								await inferSchema()
+								editScript()
 							}}>Save (commit)</button
 						>
 					{/if}
@@ -156,6 +208,19 @@
 					<a href="https://docs.windmill.dev/docs/reference/namespaces">docs</a>
 				</div>
 			</Path>
+			<h3 class="text-gray-700 pb-1 border-b">Language</h3>
+			<div class="max-w-md">
+				<RadioButton
+					label="Language"
+					small={true}
+					options={[
+						['Python 3.10', 'python3'],
+						['Typescript (Deno) WIP', 'deno']
+					]}
+					on:change={(e) => initContent(e.detail)}
+					bind:value={script.language}
+				/>
+			</div>
 			<h3 class="text-gray-700 pb-1 border-b">Metadata</h3>
 
 			<label class="block ">
@@ -216,6 +281,7 @@
 				bind:schema={script.schema}
 				path={script.path}
 				bind:code={script.content}
+				lang={script.language}
 			/>
 		</div>
 	{:else if step === 3}

@@ -1,17 +1,17 @@
 <script lang="ts">
-	import { goto } from '$app/navigation';
+	import { goto } from '$app/navigation'
 
-	import { UserService, WorkspaceService } from '../../gen';
-	import { sendUserToast } from '../../utils';
-	import { page } from '$app/stores';
-	import { usersWorkspaceStore, workspaceStore } from '../../stores';
-	import CenteredModal from './CenteredModal.svelte';
+	import { UserService, WorkspaceService } from '../../gen'
+	import { sendUserToast } from '../../utils'
+	import { page } from '$app/stores'
+	import { usersWorkspaceStore, workspaceStore } from '../../stores'
+	import CenteredModal from './CenteredModal.svelte'
 
-	let workspace_id = $page.url.searchParams.get('workspace') ?? '';
-	let username = '';
-	let errorUsername = '';
+	let workspace_id = $page.url.searchParams.get('workspace') ?? ''
+	let username = ''
+	let errorUsername = ''
 
-	$: validateName(username);
+	$: validateName(username)
 
 	async function acceptInvite(): Promise<void> {
 		await UserService.acceptInvite({
@@ -19,38 +19,38 @@
 				username,
 				workspace_id
 			}
-		});
-		sendUserToast(`Invitation to ${workspace_id} accepted as ${username}`);
-		usersWorkspaceStore.set(await WorkspaceService.listUserWorkspaces());
-		workspaceStore.set(workspace_id);
-		goto('/');
+		})
+		sendUserToast(`Invitation to ${workspace_id} accepted as ${username}`)
+		usersWorkspaceStore.set(await WorkspaceService.listUserWorkspaces())
+		workspaceStore.set(workspace_id)
+		goto('/')
 	}
 
 	async function validateName(username: string): Promise<void> {
 		try {
-			await WorkspaceService.validateUsername({ requestBody: { id: workspace_id, username } });
-			errorUsername = '';
+			await WorkspaceService.validateUsername({ requestBody: { id: workspace_id, username } })
+			errorUsername = ''
 		} catch {
-			errorUsername = 'username already exists';
+			errorUsername = 'username already exists'
 		}
 	}
 
 	function handleKey(event: KeyboardEvent) {
-		const key = event.key || event.keyCode;
+		const key = event.key || event.keyCode
 		if (key === 13 || key === 'Enter') {
-			event.preventDefault();
-			acceptInvite();
+			event.preventDefault()
+			acceptInvite()
 		}
 	}
 
 	UserService.globalWhoami().then((x) => {
 		if (x.name) {
-			username = x.name.split(' ')[0];
+			username = x.name.split(' ')[0]
 		} else {
-			username = x.email.split('@')[0];
+			username = x.email.split('@')[0]
 		}
-		username = username.toLowerCase();
-	});
+		username = username.toLowerCase()
+	})
 </script>
 
 <!-- Enable submit form on enter -->

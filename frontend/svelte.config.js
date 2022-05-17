@@ -1,6 +1,15 @@
-import preprocess from 'svelte-preprocess';
-import adapter from '@sveltejs/adapter-static';
-const ppath = process.env.PREVIEW_PATH;
+import preprocess from 'svelte-preprocess'
+import adapter from '@sveltejs/adapter-static'
+const ppath = process.env.PREVIEW_PATH
+
+import { readFileSync } from 'fs';
+import { fileURLToPath } from 'url';
+
+const file = fileURLToPath(new URL('package.json', import.meta.url));
+const json = readFileSync(file, 'utf8');
+const version = JSON.parse(json)
+
+
 
 /** @type {import('@sveltejs/kit').Config} */
 const config = {
@@ -17,6 +26,9 @@ const config = {
 			base: ppath ? ppath : ''
 		},
 		vite: {
+			define: {
+				'__pkg__': version
+			},
 			ssr: {
 				noExternal: ['dayjs']
 			},
@@ -44,8 +56,8 @@ const config = {
 		}),
 		prerender: {
 			enabled: true
-		},
+		}
 	}
-};
+}
 
-export default config;
+export default config

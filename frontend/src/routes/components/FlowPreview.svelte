@@ -1,41 +1,41 @@
 <script lang="ts">
-	import { faChevronDown, faChevronUp } from '@fortawesome/free-solid-svg-icons';
-	import { sendUserToast, truncateRev } from '../../utils';
+	import { faChevronDown, faChevronUp } from '@fortawesome/free-solid-svg-icons'
+	import { sendUserToast, truncateRev } from '../../utils'
 
-	import Icon from 'svelte-awesome';
+	import Icon from 'svelte-awesome'
 
-	import { type Flow, Job, JobService, InputTransform } from '../../gen';
+	import { type Flow, Job, JobService, InputTransform } from '../../gen'
 
-	import { workspaceStore } from '../../stores';
-	import RunForm from './RunForm.svelte';
-	import FlowStatusViewer from './FlowStatusViewer.svelte';
-	import { onDestroy } from 'svelte';
-	import ChevronButton from './ChevronButton.svelte';
-	import DisplayResult from './DisplayResult.svelte';
-	import Tabs from './Tabs.svelte';
-	import type { Schema } from '../../common';
+	import { workspaceStore } from '../../stores'
+	import RunForm from './RunForm.svelte'
+	import FlowStatusViewer from './FlowStatusViewer.svelte'
+	import { onDestroy } from 'svelte'
+	import ChevronButton from './ChevronButton.svelte'
+	import DisplayResult from './DisplayResult.svelte'
+	import Tabs from './Tabs.svelte'
+	import type { Schema } from '../../common'
 
-	export let i: number;
-	export let flow: Flow;
-	export let schemas: Schema[] = [];
+	export let i: number
+	export let flow: Flow
+	export let schemas: Schema[] = []
 
-	export let args: Record<string, any> = {};
+	export let args: Record<string, any> = {}
 
-	let stepArgs: Record<string, any> = {};
+	let stepArgs: Record<string, any> = {}
 
-	let tab: 'upto' | 'justthis' = 'upto';
-	let viewPreview = false;
-	let intervalId: NodeJS.Timer;
+	let tab: 'upto' | 'justthis' = 'upto'
+	let viewPreview = false
+	let intervalId: NodeJS.Timer
 
 	let uptoText =
-		i == flow.value.modules.length - 1 ? 'Preview whole flow' : 'Preview up to this step';
-	let job: Job | undefined;
-	let jobs = [];
-	let jobId: string;
+		i == flow.value.modules.length - 1 ? 'Preview whole flow' : 'Preview up to this step'
+	let job: Job | undefined
+	let jobs = []
+	let jobId: string
 
 	async function runPreview(args) {
-		intervalId && clearInterval(intervalId);
-		const newFlow = tab == 'upto' ? truncateFlow(flow) : extractStep(flow);
+		intervalId && clearInterval(intervalId)
+		const newFlow = tab == 'upto' ? truncateFlow(flow) : extractStep(flow)
 		jobId = await JobService.runFlowPreview({
 			workspace: $workspaceStore ?? '',
 			requestBody: {
@@ -43,46 +43,46 @@
 				value: newFlow.value,
 				path: newFlow.path
 			}
-		});
-		jobs = [];
-		intervalId = setInterval(loadJob, 1000);
-		sendUserToast(`started preview ${truncateRev(jobId, 10)}`);
+		})
+		jobs = []
+		intervalId = setInterval(loadJob, 1000)
+		sendUserToast(`started preview ${truncateRev(jobId, 10)}`)
 	}
 
 	function truncateFlow(flow: Flow): Flow {
-		const localFlow = JSON.parse(JSON.stringify(flow));
-		localFlow.value.modules = flow.value.modules.slice(0, i + 1);
-		return localFlow;
+		const localFlow = JSON.parse(JSON.stringify(flow))
+		localFlow.value.modules = flow.value.modules.slice(0, i + 1)
+		return localFlow
 	}
 
 	function extractStep(flow: Flow): Flow {
-		const localFlow = JSON.parse(JSON.stringify(flow));
-		localFlow.value.modules = flow.value.modules.slice(i, i + 1);
-		localFlow.schema = schemas[i];
-		stepArgs = {};
+		const localFlow = JSON.parse(JSON.stringify(flow))
+		localFlow.value.modules = flow.value.modules.slice(i, i + 1)
+		localFlow.schema = schemas[i]
+		stepArgs = {}
 		Object.entries(flow.value.modules[i].input_transform).forEach((x) => {
 			if (x[1].type == InputTransform.type.STATIC) {
-				stepArgs[x[0]] = x[1].value;
+				stepArgs[x[0]] = x[1].value
 			}
-		});
-		return localFlow;
+		})
+		return localFlow
 	}
 
 	async function loadJob() {
 		try {
-			job = await JobService.getJob({ workspace: $workspaceStore!, id: jobId });
+			job = await JobService.getJob({ workspace: $workspaceStore!, id: jobId })
 			if (job?.type == 'CompletedJob') {
 				//only CompletedJob has success property
-				clearInterval(intervalId);
+				clearInterval(intervalId)
 			}
 		} catch (err) {
-			sendUserToast(err, true);
+			sendUserToast(err, true)
 		}
 	}
 
 	onDestroy(() => {
-		intervalId && clearInterval(intervalId);
-	});
+		intervalId && clearInterval(intervalId)
+	})
 </script>
 
 <h2 class="mb-5 mt-2">
@@ -90,7 +90,7 @@
 		type="submit"
 		class="underline text-gray-700 inline-flex  items-center"
 		on:click={() => {
-			viewPreview = !viewPreview;
+			viewPreview = !viewPreview
 		}}
 	>
 		<div>

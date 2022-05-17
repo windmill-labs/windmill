@@ -1,7 +1,7 @@
 <script lang="ts">
-	import { page } from '$app/stores';
-	import { JobService, Job } from '../../gen';
-	import { onDestroy } from 'svelte';
+	import { page } from '$app/stores'
+	import { JobService, Job } from '../../gen'
+	import { onDestroy } from 'svelte'
 	import {
 		canWrite,
 		displayDaysAgo,
@@ -9,9 +9,9 @@
 		sendUserToast,
 		truncate,
 		truncateHash
-	} from '../../utils';
-	import Icon from 'svelte-awesome';
-	import { check, minus } from 'svelte-awesome/icons';
+	} from '../../utils'
+	import Icon from 'svelte-awesome'
+	import { check, minus } from 'svelte-awesome/icons'
 	import {
 		faBolt,
 		faCircle,
@@ -27,121 +27,121 @@
 		faRobot,
 		faScroll,
 		faWind
-	} from '@fortawesome/free-solid-svg-icons';
-	import Tooltip from '../components/Tooltip.svelte';
-	import DisplayResult from '../components/DisplayResult.svelte';
+	} from '@fortawesome/free-solid-svg-icons'
+	import Tooltip from '../components/Tooltip.svelte'
+	import DisplayResult from '../components/DisplayResult.svelte'
 
-	import Highlight from 'svelte-highlight';
-	import python from 'svelte-highlight/src/languages/python';
-	import github from 'svelte-highlight/src/styles/github';
-	import { userStore, workspaceStore } from '../../stores';
-	import CenteredPage from '../components/CenteredPage.svelte';
-	import FlowStatusViewer from '../components/FlowStatusViewer.svelte';
-	import JobStatus from '../components/JobStatus.svelte';
-	import TableCustom from '../components/TableCustom.svelte';
-	import ArgInfo from '../components/ArgInfo.svelte';
+	import Highlight from 'svelte-highlight'
+	import { python, typescript } from 'svelte-highlight/src/languages'
+	import github from 'svelte-highlight/src/styles/github'
+	import { userStore, workspaceStore } from '../../stores'
+	import CenteredPage from '../components/CenteredPage.svelte'
+	import FlowStatusViewer from '../components/FlowStatusViewer.svelte'
+	import JobStatus from '../components/JobStatus.svelte'
+	import TableCustom from '../components/TableCustom.svelte'
+	import ArgInfo from '../components/ArgInfo.svelte'
 
-	let workspace_id_query: string | undefined = $page.url.searchParams.get('workspace') ?? undefined;
-	let workspace_id: string | undefined;
+	let workspace_id_query: string | undefined = $page.url.searchParams.get('workspace') ?? undefined
+	let workspace_id: string | undefined
 
-	let intervalId: NodeJS.Timer;
-	let job: Job | undefined;
-	let jobs = [];
-	let error: Error | undefined;
-	const iconScale = 1;
-	let syncIteration: number = 0;
-	const iterationsBeforeSlowRefresh = 100;
-	let viewTab: 'result' | 'logs' | 'code' = 'result';
+	let intervalId: NodeJS.Timer
+	let job: Job | undefined
+	let jobs = []
+	let error: Error | undefined
+	const iconScale = 1
+	let syncIteration: number = 0
+	const iterationsBeforeSlowRefresh = 100
+	let viewTab: 'result' | 'logs' | 'code' = 'result'
 
-	const SMALL_ICON_SCALE = 0.7;
+	const SMALL_ICON_SCALE = 0.7
 
 	async function deleteCompletedJob(id: string): Promise<void> {
 		try {
-			await JobService.deleteCompletedJob({ workspace: workspace_id!, id });
-			loadLogs();
+			await JobService.deleteCompletedJob({ workspace: workspace_id!, id })
+			loadLogs()
 		} catch (err) {
-			console.error(err);
-			sendUserToast(`Could not delete this script ${err.body}`, true);
+			console.error(err)
+			sendUserToast(`Could not delete this script ${err.body}`, true)
 		}
 	}
 
 	async function cancelJob(id: string) {
 		try {
-			await JobService.cancelQueuedJob({ workspace: workspace_id!, id, requestBody: {} });
-			sendUserToast(`job ${id} canceled`);
+			await JobService.cancelQueuedJob({ workspace: workspace_id!, id, requestBody: {} })
+			sendUserToast(`job ${id} canceled`)
 		} catch (err) {
-			sendUserToast('could not cancel job', true);
+			sendUserToast('could not cancel job', true)
 		}
 	}
 
 	async function checkCompleted(): Promise<void> {
 		if (job?.type === 'CompletedJob') {
 			//only CompletedJob has success property
-			clearInterval(intervalId);
+			clearInterval(intervalId)
 		}
 	}
 
 	async function loadLogs(): Promise<void> {
 		try {
-			let jobId = $page.params.run;
+			let jobId = $page.params.run
 			if (job && `running` in job && job.job_kind != 'flow' && job.job_kind != 'flowpreview') {
 				let jobUpdates = await JobService.getJobUpdates({
 					workspace: workspace_id!,
 					id: jobId,
 					running: job.running,
 					logOffset: job.logs?.length ?? 0
-				});
+				})
 				if (jobUpdates.new_logs) {
-					job.logs = (job.logs ?? '').concat(jobUpdates.new_logs);
+					job.logs = (job.logs ?? '').concat(jobUpdates.new_logs)
 				}
 				if ((jobUpdates.running ?? false) || (jobUpdates.completed ?? false)) {
-					job = await JobService.getJob({ workspace: workspace_id!, id: jobId });
+					job = await JobService.getJob({ workspace: workspace_id!, id: jobId })
 				}
 			} else {
-				job = await JobService.getJob({ workspace: workspace_id!, id: jobId });
+				job = await JobService.getJob({ workspace: workspace_id!, id: jobId })
 			}
 
-			checkCompleted();
-			initView();
+			checkCompleted()
+			initView()
 		} catch (err) {
-			error = err;
-			console.error(error);
+			error = err
+			console.error(error)
 		}
 	}
 
 	function syncer(): void {
 		if (syncIteration > iterationsBeforeSlowRefresh) {
-			loadLogs();
+			loadLogs()
 			if (intervalId) {
-				clearInterval(intervalId);
-				intervalId = setInterval(loadLogs, 5000);
+				clearInterval(intervalId)
+				intervalId = setInterval(loadLogs, 5000)
 			}
 		} else {
-			syncIteration++;
-			loadLogs();
+			syncIteration++
+			loadLogs()
 		}
 	}
 
 	// If we get results, focus on that tab. Else, focus on logs
 	function initView(): void {
 		if (job && 'result' in job && job.result) {
-			viewTab = 'result';
+			viewTab = 'result'
 		} else {
-			viewTab = 'logs';
+			viewTab = 'logs'
 		}
 	}
 
 	$: {
 		if ($workspaceStore && $page.params.run) {
-			workspace_id = workspace_id_query ?? $workspaceStore;
-			intervalId && clearInterval(intervalId);
-			intervalId = setInterval(syncer, 500);
+			workspace_id = workspace_id_query ?? $workspaceStore
+			intervalId && clearInterval(intervalId)
+			intervalId = setInterval(syncer, 500)
 		}
 	}
 
 	onDestroy(() => {
-		intervalId && clearInterval(intervalId);
-	});
+		intervalId && clearInterval(intervalId)
+	})
 </script>
 
 <CenteredPage>
@@ -206,7 +206,7 @@
 					class="default-button-secondary bg-transparent hover:bg-red-500 text-red-700 border-red-500 hover:text-white hover:border-transparent py-1"
 					on:click={() => {
 						if (job?.id) {
-							deleteCompletedJob(job?.id);
+							deleteCompletedJob(job?.id)
 						}
 					}}
 				>
@@ -221,7 +221,7 @@
 					class="default-button-secondary  bg-transparent hover:bg-red-500 text-red-700 border-red-500 hover:text-white hover:border-transparent"
 					on:click|once={() => {
 						if (job?.id) {
-							cancelJob(job?.id);
+							cancelJob(job?.id)
 						}
 					}}
 				>
@@ -420,10 +420,13 @@
 				class="text-xs overflow-auto max-h-96 w-full p-3">{#if viewTab == 'logs'}{#if job && 'logs' in job && job.logs}{job.logs}
 					{:else if job}No logs are available yet
 					{:else}Loading...{/if}
-				{:else if viewTab == 'code'}{#if job && 'raw_code' in job && job.raw_code}<Highlight
-							language={python}
-							code={job.raw_code}
-						/>
+				{:else if viewTab == 'code'}
+					{#if job && 'raw_code' in job && job.raw_code}
+						{#if job.language == 'python3'}
+							<Highlight language={python} code={job.raw_code} />
+						{:else if job.language == 'deno'}
+							<Highlight language={typescript} code={job.raw_code} />
+						{/if}
 					{:else if job}No code is available
 					{:else}Loading...{/if}
 				{:else if job && 'result' in job && job.result}<DisplayResult result={job.result} />

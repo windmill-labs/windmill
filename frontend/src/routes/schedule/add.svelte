@@ -1,58 +1,58 @@
 <script lang="ts">
-	import { page } from '$app/stores';
-	import { sendUserToast, displayDate } from '../../utils';
-	import { ScriptService, type Script, ScheduleService, type Flow, FlowService } from '../../gen';
+	import { page } from '$app/stores'
+	import { sendUserToast, displayDate } from '../../utils'
+	import { ScriptService, type Script, ScheduleService, type Flow, FlowService } from '../../gen'
 
-	import PageHeader from '../components/PageHeader.svelte';
-	import Path from '../components/Path.svelte';
+	import PageHeader from '../components/PageHeader.svelte'
+	import Path from '../components/Path.svelte'
 
-	import Tooltip from '../components/Tooltip.svelte';
-	import { goto } from '$app/navigation';
-	import { workspaceStore } from '../../stores';
-	import CenteredPage from '../components/CenteredPage.svelte';
-	import SchemaForm from '../components/SchemaForm.svelte';
-	import ScriptPicker from '../components/ScriptPicker.svelte';
-	import Required from '../components/Required.svelte';
+	import Tooltip from '../components/Tooltip.svelte'
+	import { goto } from '$app/navigation'
+	import { workspaceStore } from '../../stores'
+	import CenteredPage from '../components/CenteredPage.svelte'
+	import SchemaForm from '../components/SchemaForm.svelte'
+	import ScriptPicker from '../components/ScriptPicker.svelte'
+	import Required from '../components/Required.svelte'
 
-	let initialPath = $page.url.searchParams.get('edit') || '';
-	let edit = initialPath === '' ? false : true;
-	let scheduleInput: string = '0 0 12 * *';
-	let cronError = '';
+	let initialPath = $page.url.searchParams.get('edit') || ''
+	let edit = initialPath === '' ? false : true
+	let scheduleInput: string = '0 0 12 * *'
+	let cronError = ''
 
-	let script_path = $page.url.searchParams.get('path') || '';
-	let is_flow = $page.url.searchParams.get('isFlow') == 'true';
+	let script_path = $page.url.searchParams.get('path') || ''
+	let is_flow = $page.url.searchParams.get('isFlow') == 'true'
 
-	let runnable: Script | Flow | undefined;
-	let args: Record<string, any> = {};
+	let runnable: Script | Flow | undefined
+	let args: Record<string, any> = {}
 
-	let validCRON = true;
-	let allowSchedule: boolean;
-	let isValid = true;
-	let preview: string[] = [];
+	let validCRON = true
+	let allowSchedule: boolean
+	let isValid = true
+	let preview: string[] = []
 
-	let path: string = '';
+	let path: string = ''
 
-	const offset = new Date().getTimezoneOffset();
+	const offset = new Date().getTimezoneOffset()
 
-	$: allowSchedule = isValid && validCRON && script_path != '';
+	$: allowSchedule = isValid && validCRON && script_path != ''
 
-	$: handleScheduleInput(scheduleInput);
+	$: handleScheduleInput(scheduleInput)
 
-	$: script_path && loadScript(script_path);
+	$: script_path && loadScript(script_path)
 
 	async function loadScript(p: string | undefined): Promise<void> {
 		if (p) {
 			try {
 				if (is_flow) {
-					runnable = await FlowService.getFlowByPath({ workspace: $workspaceStore!, path: p });
+					runnable = await FlowService.getFlowByPath({ workspace: $workspaceStore!, path: p })
 				} else {
-					runnable = await ScriptService.getScriptByPath({ workspace: $workspaceStore!, path: p });
+					runnable = await ScriptService.getScriptByPath({ workspace: $workspaceStore!, path: p })
 				}
 			} catch (err) {
-				sendUserToast(`Could not load script: ${err}`, true);
+				sendUserToast(`Could not load script: ${err}`, true)
 			}
 		} else {
-			runnable = undefined;
+			runnable = undefined
 		}
 	}
 
@@ -61,12 +61,12 @@
 			const s = await ScheduleService.getSchedule({
 				workspace: $workspaceStore!,
 				path: initialPath
-			});
-			scheduleInput = s.schedule;
-			script_path = s.script_path ?? '';
-			args = s.args ?? {};
+			})
+			scheduleInput = s.schedule
+			script_path = s.script_path ?? ''
+			args = s.args ?? {}
 		} catch (err) {
-			sendUserToast(`Could not load schedule: ${err}`, true);
+			sendUserToast(`Could not load schedule: ${err}`, true)
 		}
 	}
 
@@ -82,8 +82,8 @@
 						is_flow: is_flow,
 						args
 					}
-				});
-				goto('/schedules');
+				})
+				goto('/schedules')
 			} else {
 				await ScheduleService.createSchedule({
 					workspace: $workspaceStore!,
@@ -95,22 +95,22 @@
 						is_flow,
 						args
 					}
-				});
-				goto('/schedules');
+				})
+				goto('/schedules')
 			}
 		} catch (err) {
-			sendUserToast(`Could not schedule script: ${err}`, true);
+			sendUserToast(`Could not schedule script: ${err}`, true)
 		}
 	}
 
 	function formatInput(input: string): string {
 		// Allow for cron expressions inputted by the user to omit month and year
-		let splitted = input.split(' ');
-		splitted = splitted.filter(String); //remove empty string elements
+		let splitted = input.split(' ')
+		splitted = splitted.filter(String) //remove empty string elements
 		if (6 - splitted.length > 0) {
-			return splitted.concat(Array(6 - splitted.length).fill('*')).join(' ');
+			return splitted.concat(Array(6 - splitted.length).fill('*')).join(' ')
 		} else {
-			return input;
+			return input
 		}
 	}
 
@@ -118,16 +118,16 @@
 		try {
 			preview = await ScheduleService.previewSchedule({
 				requestBody: { schedule: formatInput(input), offset }
-			});
-			cronError = '';
-			validCRON = true;
+			})
+			cronError = ''
+			validCRON = true
 		} catch (err) {
 			if (err.status == 400 && err.body.includes('cron')) {
-				cronError = `Invalid cron expression`;
-				validCRON = false;
+				cronError = `Invalid cron expression`
+				validCRON = false
 			} else {
-				sendUserToast(`Cannot preview: ${err}`, true);
-				validCRON = false;
+				sendUserToast(`Cannot preview: ${err}`, true)
+				validCRON = false
 			}
 		}
 	}
@@ -135,7 +135,7 @@
 	$: {
 		if ($workspaceStore) {
 			if (edit) {
-				loadSchedule();
+				loadSchedule()
 			}
 		}
 	}
@@ -197,20 +197,20 @@
 		<div class="flex flex-row text-xs text-blue-500 gap-3 pl-28">
 			<button
 				on:click={() => {
-					scheduleInput = '0 */15 * * *';
-					cronError = '';
+					scheduleInput = '0 */15 * * *'
+					cronError = ''
 				}}>every 15 min</button
 			>
 			<button
 				on:click={() => {
-					scheduleInput = '0 0 * * * *';
-					cronError = '';
+					scheduleInput = '0 0 * * * *'
+					cronError = ''
 				}}>every hour</button
 			>
 			<button
 				on:click={() => {
-					scheduleInput = '0 0 8 * * *';
-					cronError = '';
+					scheduleInput = '0 0 8 * * *'
+					cronError = ''
 				}}>once a day at 8AM</button
 			>
 		</div>
@@ -233,7 +233,7 @@
 					The next 10 runs of this script will be:
 					<button
 						on:click={() => {
-							preview = [];
+							preview = []
 						}}
 					>
 						<svg

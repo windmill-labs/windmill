@@ -20,4 +20,4 @@ module.exports = {
 	rules: {
 		'no-console': ['log', { allow: ['warn', 'error'] }]
 	}
-};
+}

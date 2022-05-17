@@ -25,7 +25,7 @@ pub struct MainArgSignature {
     pub args: Vec<Arg>,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Clone)]
 #[serde(rename_all(serialize = "lowercase"))]
 pub enum Typ {
     Str,
@@ -39,7 +39,7 @@ pub enum Typ {
     Unknown,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Clone)]
 pub struct Arg {
     pub name: String,
     pub typ: Typ,
@@ -47,7 +47,7 @@ pub struct Arg {
     pub has_default: bool,
 }
 
-pub fn parse_signature(code: &str) -> error::Result<MainArgSignature> {
+pub fn parse_python_signature(code: &str) -> error::Result<MainArgSignature> {
     let ast = parser::parse_program(code)
         .map_err(|e| error::Error::ExecutionErr(format!("Error parsing code: {}", e.to_string())))?
         .statements;
@@ -113,6 +113,136 @@ pub fn parse_signature(code: &str) -> error::Result<MainArgSignature> {
             "main function was not findable".to_string(),
         ))
     }
+}
+
+use swc_common::sync::Lrc;
+use swc_common::{FileName, SourceMap};
+use swc_ecma_ast::{
+    AssignPat, BindingIdent, Decl, ExportDecl, FnDecl, Ident, ModuleDecl, ModuleItem, Pat,
+    TsKeywordTypeKind, TsType,
+};
+use swc_ecma_parser::{lexer::Lexer, Parser, StringInput, Syntax, TsConfig};
+
+pub fn parse_deno_signature(code: &str) -> error::Result<MainArgSignature> {
+    let cm: Lrc<SourceMap> = Default::default();
+    let fm = cm.new_source_file(FileName::Custom("test.ts".into()), code.into());
+    let lexer = Lexer::new(
+        // We want to parse ecmascript
+        Syntax::Typescript(TsConfig::default()),
+        // EsVersion defaults to es5
+        Default::default(),
+        StringInput::from(&*fm),
+        None,
+    );
+
+    let mut parser = Parser::new_from(lexer);
+
+    let mut err_s = "".to_string();
+    for e in parser.take_errors() {
+        err_s += &e.into_kind().msg().to_string();
+    }
+
+    let ast = parser
+        .parse_module()
+        .map_err(|e| {
+            error::Error::ExecutionErr(format!("impossible to parse module: {err_s}\n{e:?}"))
+        })?
+        .body;
+
+    // println!("{ast:?}");
+    let params = ast.into_iter().find_map(|x| match x {
+        ModuleItem::ModuleDecl(ModuleDecl::ExportDecl(ExportDecl {
+            decl:
+                Decl::Fn(FnDecl {
+                    ident:
+                        Ident {
+                            span: _,
+                            sym,
+                            optional: _,
+                        },
+                    declare: _,
+                    function,
+                }),
+            span: _,
+        })) if &sym.to_string() == "main" => Some(function.params),
+        _ => None,
+    });
+    if let Some(params) = params {
+        Ok(MainArgSignature {
+            star_args: false,
+            star_kwargs: false,
+            args: params
+                .into_iter()
+                .map(|x| match x.pat {
+                    Pat::Ident(ident) => {
+                        let (name, typ) = binding_ident_to_arg(&ident)?;
+                        Ok(Arg {
+                            name,
+                            typ,
+                            default: None,
+                            has_default: false,
+                        })
+                    }
+                    Pat::Assign(AssignPat {
+                        span: _,
+                        left,
+                        right,
+                        type_ann: _,
+                    }) => {
+                        let (name, typ) =
+                            left.as_ident().map(binding_ident_to_arg).ok_or_else(|| {
+                                error::Error::ExecutionErr(format!(
+                                    "Arg {left:?} has unexepected syntax"
+                                ))
+                            })??;
+                        Ok(Arg {
+                            name,
+                            typ,
+                            default: serde_json::to_value(right)
+                                .map_err(|e| error::Error::ExecutionErr(e.to_string()))?
+                                .as_object()
+                                .and_then(|x| x.get("value").to_owned())
+                                .cloned(),
+
+                            has_default: true,
+                        })
+                    }
+                    _ => Err(error::Error::ExecutionErr(format!(
+                        "Arg {x:?} has unexepected syntax"
+                    ))),
+                })
+                .collect::<Result<Vec<Arg>, error::Error>>()?,
+        })
+    } else {
+        Err(error::Error::ExecutionErr(
+            "main function was not findable (expected to find 'export main function(...)'"
+                .to_string(),
+        ))
+    }
+}
+
+fn binding_ident_to_arg(
+    BindingIdent { id, type_ann }: &BindingIdent,
+) -> anyhow::Result<(String, Typ)> {
+    Ok((
+        id.sym.to_string(),
+        type_ann
+            .as_ref()
+            .map(|x| match &*x.type_ann {
+                TsType::TsKeywordType(t) => match t.kind {
+                    TsKeywordTypeKind::TsObjectKeyword => Typ::Dict,
+                    TsKeywordTypeKind::TsBooleanKeyword => Typ::Bool,
+                    TsKeywordTypeKind::TsBigIntKeyword => Typ::Int,
+                    TsKeywordTypeKind::TsNumberKeyword => Typ::Float,
+                    TsKeywordTypeKind::TsStringKeyword => Typ::Str,
+                    _ => Typ::Unknown,
+                },
+                // TODO: we can do better here and extract the inner type of array
+                TsType::TsArrayType(_) => Typ::List,
+                _ => Typ::Unknown,
+            })
+            .unwrap_or(Typ::Unknown),
+    ))
 }
 
 const STDIMPORTS: [&str; 301] = [
@@ -468,7 +598,7 @@ fn to_value(et: &ExpressionType) -> Option<serde_json::Value> {
     }
 }
 
-pub fn parse_imports(code: &str) -> error::Result<Vec<String>> {
+pub fn parse_python_imports(code: &str) -> error::Result<Vec<String>> {
     let find_requirements = code
         .lines()
         .find_position(|x| x.starts_with("#requirements:"));
@@ -527,7 +657,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_parse_sig() -> anyhow::Result<()> {
+    fn test_parse_python_sig() -> anyhow::Result<()> {
         //let code = "print(2 + 3, fd=sys.stderr)";
         let code = "
 
@@ -540,13 +670,13 @@ def main(test1: str, name: datetime.datetime = datetime.now(), byte: bytes = byt
 	return {\"len\": len(name), \"splitted\": name.split() }
 
 ";
-        println!("{}", serde_json::to_string(&parse_signature(code)?)?);
+        println!("{}", serde_json::to_string(&parse_python_signature(code)?)?);
 
         Ok(())
     }
 
     #[test]
-    fn test_parse_imports() -> anyhow::Result<()> {
+    fn test_parse_python_imports() -> anyhow::Result<()> {
         //let code = "print(2 + 3, fd=sys.stderr)";
         let code = "
 
@@ -559,14 +689,14 @@ def main():
     pass
 
 ";
-        let r = parse_imports(code)?;
+        let r = parse_python_imports(code)?;
         println!("{}", serde_json::to_string(&r)?);
         assert_eq!(r, vec!["wmill", "zanzibar", "matplotlib"]);
         Ok(())
     }
 
     #[test]
-    fn test_parse_imports2() -> anyhow::Result<()> {
+    fn test_parse_python_imports2() -> anyhow::Result<()> {
         //let code = "print(2 + 3, fd=sys.stderr)";
         let code = "
 #requirements:
@@ -583,9 +713,23 @@ def main():
     pass
 
 ";
-        let r = parse_imports(code)?;
+        let r = parse_python_imports(code)?;
         println!("{}", serde_json::to_string(&r)?);
         assert_eq!(r, vec!["burkina=0.4", "nigeria"]);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_parse_deno_sig() -> anyhow::Result<()> {
+        let code = "
+
+export function main(test1: string, test2: string = \"burkina\") {
+    console.log(42)
+}
+
+";
+        println!("{}", serde_json::to_string(&parse_deno_signature(code)?)?);
 
         Ok(())
     }

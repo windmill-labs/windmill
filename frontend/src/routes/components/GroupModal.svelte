@@ -1,26 +1,24 @@
 <script lang="ts">
-	import { workspaceStore } from '../../stores';
+	import { workspaceStore } from '../../stores'
 
-	import { createEventDispatcher } from 'svelte';
+	import Modal from '../../routes/components/Modal.svelte'
+	import { type Group, GroupService, UserService } from '../../gen'
+	import AutoComplete from 'simple-svelte-autocomplete'
+	import PageHeader from './PageHeader.svelte'
+	import TableCustom from './TableCustom.svelte'
+	import { canWrite, getUser } from '../../utils'
 
-	import Modal from '../../routes/components/Modal.svelte';
-	import { Group, GroupService, UserService } from '../../gen';
-	import AutoComplete from 'simple-svelte-autocomplete';
-	import PageHeader from './PageHeader.svelte';
-	import TableCustom from './TableCustom.svelte';
-	import { canWrite, getUser } from '../../utils';
+	let name = ''
+	let modal: Modal
+	let can_write = false
 
-	let name = '';
-	let modal: Modal;
-	let can_write = false;
-
-	let group: Group | undefined;
-	let members: { name: string; isAdmin: boolean }[] = [];
-	let usernames: string[] = [];
-	let username: string = '';
+	let group: Group | undefined
+	let members: { name: string; isAdmin: boolean }[] = []
+	let usernames: string[] = []
+	let username: string = ''
 
 	async function loadUsernames(): Promise<void> {
-		usernames = await UserService.listUsernames({ workspace: $workspaceStore! });
+		usernames = await UserService.listUsernames({ workspace: $workspaceStore! })
 	}
 
 	$: {
@@ -29,15 +27,15 @@
 				return {
 					name: x,
 					isAdmin: x in (group?.extra_perms ?? {}) && (group?.extra_perms ?? {})[name]
-				};
-			});
+				}
+			})
 		}
 	}
 	export function openModal(newName: string): void {
-		name = newName;
-		loadGroup();
-		loadUsernames();
-		modal.openModal();
+		name = newName
+		loadGroup()
+		loadUsernames()
+		modal.openModal()
 	}
 
 	async function addToGroup() {
@@ -45,14 +43,14 @@
 			workspace: $workspaceStore ?? '',
 			name,
 			requestBody: { username }
-		});
-		loadGroup();
+		})
+		loadGroup()
 	}
 
 	async function loadGroup(): Promise<void> {
-		group = await GroupService.getGroup({ workspace: $workspaceStore!, name });
-		const user = await getUser($workspaceStore!);
-		can_write = canWrite(group.name!, group.extra_perms ?? {}, user);
+		group = await GroupService.getGroup({ workspace: $workspaceStore!, name })
+		const user = await getUser($workspaceStore!)
+		can_write = canWrite(group.name!, group.extra_perms ?? {}, user)
 	}
 </script>
 
@@ -88,8 +86,8 @@
 											workspace: $workspaceStore ?? '',
 											name: group?.name ?? '',
 											requestBody: { username: name }
-										});
-										loadGroup();
+										})
+										loadGroup()
 									}}>remove</button
 								>
 							{/if}</td

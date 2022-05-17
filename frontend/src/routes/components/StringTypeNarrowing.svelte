@@ -1,15 +1,15 @@
 <script lang="ts">
-	import RadioButton from './RadioButton.svelte';
-	import ResourceTypePicker from './ResourceTypePicker.svelte';
+	import RadioButton from './RadioButton.svelte'
+	import ResourceTypePicker from './ResourceTypePicker.svelte'
 
-	export let pattern: string | undefined;
-	export let enum_: string[] | undefined;
-	export let format: string | undefined;
+	export let pattern: string | undefined
+	export let enum_: string[] | undefined
+	export let format: string | undefined
 
-	let kind: 'none' | 'pattern' | 'enum' | 'resource' | 'format' = 'none';
-	let patternStr: string = pattern ?? '';
+	let kind: 'none' | 'pattern' | 'enum' | 'resource' | 'format' = 'none'
+	let patternStr: string = pattern ?? ''
 
-	let resource: string | undefined;
+	let resource: string | undefined
 
 	const FORMATS = [
 		'email',
@@ -22,11 +22,11 @@
 		// 'duration',
 		// 'ipv6',
 		// 'jsonpointer'
-	];
+	]
 
 	$: format =
-		kind == 'resource' ? (resource != undefined ? `resource-${resource}` : 'resource') : undefined;
-	$: pattern = patternStr == '' ? undefined : patternStr;
+		kind == 'resource' ? (resource != undefined ? `resource-${resource}` : 'resource') : undefined
+	$: pattern = patternStr == '' ? undefined : patternStr
 </script>
 
 <RadioButton
@@ -54,7 +54,7 @@
 			<button
 				class="default-button-secondary mx-2 mb-1"
 				on:click={() => {
-					patternStr = '';
+					patternStr = ''
 				}}>clear</button
 			>
 		</div>
@@ -68,9 +68,9 @@
 				<button
 					class="default-button mx-6"
 					on:click={() => {
-						enum_ = (enum_ ?? []).filter((el) => el != e);
+						enum_ = (enum_ ?? []).filter((el) => el != e)
 						if (enum_.length == 0) {
-							enum_ = undefined;
+							enum_ = undefined
 						}
 					}}>-</button
 				>
@@ -81,15 +81,15 @@
 				class="default-button"
 				on:click={() => {
 					if (enum_ == undefined) {
-						enum_ = [];
+						enum_ = []
 					}
-					enum_ = enum_.concat('');
+					enum_ = enum_.concat('')
 				}}>+</button
 			>
 			<button
 				class="default-button-secondary ml-2"
 				on:click={() => {
-					enum_ = undefined;
+					enum_ = undefined
 				}}>clear</button
 			>
 		</div>

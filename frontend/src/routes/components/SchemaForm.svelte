@@ -1,32 +1,32 @@
 <script lang="ts">
-	import { allTrue } from '../../utils';
+	import { allTrue } from '../../utils'
 
-	import { slide } from 'svelte/transition';
+	import { slide } from 'svelte/transition'
 
-	import type { Schema } from '../../common';
-	import ArgInput from './ArgInput.svelte';
-	import RadioButton from './RadioButton.svelte';
-	import Editor from './Editor.svelte';
-	import FieldHeader from './FieldHeader.svelte';
-	import Icon from 'svelte-awesome';
+	import type { Schema } from '../../common'
+	import ArgInput from './ArgInput.svelte'
+	import RadioButton from './RadioButton.svelte'
+	import Editor from './Editor.svelte'
+	import FieldHeader from './FieldHeader.svelte'
+	import Icon from 'svelte-awesome'
 
-	import { faChevronDown, faChevronUp } from '@fortawesome/free-solid-svg-icons';
+	import { faChevronDown, faChevronUp } from '@fortawesome/free-solid-svg-icons'
 
-	export let inputTransform = false;
-	export let schema: Schema;
-	export let args: Record<string, any> = {};
+	export let inputTransform = false
+	export let schema: Schema
+	export let args: Record<string, any> = {}
 
-	export let isValid: boolean = true;
-	export let editableSchema = false;
+	export let isValid: boolean = true
+	export let editableSchema = false
 
-	let inputCheck: { [id: string]: boolean } = {};
-	let seeHelp: { [id: string]: boolean } = {};
+	let inputCheck: { [id: string]: boolean } = {}
+	let seeHelp: { [id: string]: boolean } = {}
 
 	export function setArgs(nargs: Record<string, any>) {
-		args = nargs;
+		args = nargs
 	}
 
-	$: isValid = allTrue(inputCheck) ?? false;
+	$: isValid = allTrue(inputCheck) ?? false
 </script>
 
 <div class="w-full">
@@ -51,13 +51,13 @@
 						small={true}
 						bind:value={args[argName].type}
 						on:change={(e) => {
-							console.log(e.detail);
+							console.log(e.detail)
 							args[argName].expr =
 								e.detail == 'javascript'
 									? `import { previous_result, flow_input, step, variable, resource, params } from 'windmill'
 
 previous_result.myfield`
-									: undefined;
+									: undefined
 						}}
 					/>
 				</div>
@@ -86,7 +86,7 @@ previous_result.myfield`
 							<span
 								class="underline mr-4"
 								on:click={() => {
-									seeHelp[argName] = seeHelp[argName] == undefined ? true : !seeHelp[argName];
+									seeHelp[argName] = seeHelp[argName] == undefined ? true : !seeHelp[argName]
 								}}
 								>Help<Icon
 									class="ml-2"

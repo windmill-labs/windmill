@@ -1,35 +1,35 @@
 <script lang="ts">
-	import { sendUserToast, truncateHash, displayDate, canWrite, getUser } from '../utils';
-	import { type Schedule, ScheduleService } from '../gen';
+	import { sendUserToast, truncateHash, displayDate, canWrite, getUser } from '../utils'
+	import { type Schedule, ScheduleService } from '../gen'
 
-	import PageHeader from './components/PageHeader.svelte';
-	import TableCustom from './components/TableCustom.svelte';
-	import Dropdown from './components/Dropdown.svelte';
-	import { goto } from '$app/navigation';
-	import ShareModal from './components/ShareModal.svelte';
-	import SharedBadge from './components/SharedBadge.svelte';
+	import PageHeader from './components/PageHeader.svelte'
+	import TableCustom from './components/TableCustom.svelte'
+	import Dropdown from './components/Dropdown.svelte'
+	import { goto } from '$app/navigation'
+	import ShareModal from './components/ShareModal.svelte'
+	import SharedBadge from './components/SharedBadge.svelte'
 	import {
 		faEdit,
 		faPlus,
 		faShare,
 		faToggleOff,
 		faToggleOn
-	} from '@fortawesome/free-solid-svg-icons';
-	import { workspaceStore } from '../stores';
-	import CenteredPage from './components/CenteredPage.svelte';
-	import Icon from 'svelte-awesome';
+	} from '@fortawesome/free-solid-svg-icons'
+	import { workspaceStore } from '../stores'
+	import CenteredPage from './components/CenteredPage.svelte'
+	import Icon from 'svelte-awesome'
 
-	type ScheduleW = Schedule & { canWrite: boolean };
+	type ScheduleW = Schedule & { canWrite: boolean }
 
-	let schedules: ScheduleW[] = [];
+	let schedules: ScheduleW[] = []
 
-	let shareModal: ShareModal;
+	let shareModal: ShareModal
 
 	async function loadSchedules(): Promise<void> {
-		const user = await getUser($workspaceStore!);
+		const user = await getUser($workspaceStore!)
 		schedules = (await ScheduleService.listSchedules({ workspace: $workspaceStore! })).map((x) => {
-			return { canWrite: canWrite(x.path, x.extra_perms!, user), ...x };
-		});
+			return { canWrite: canWrite(x.path, x.extra_perms!, user), ...x }
+		})
 	}
 
 	async function setScheduleEnabled(path: string, enabled: boolean): Promise<void> {
@@ -38,16 +38,16 @@
 				path,
 				workspace: $workspaceStore!,
 				requestBody: { enabled }
-			});
-			loadSchedules();
+			})
+			loadSchedules()
 		} catch (err) {
-			sendUserToast(`Cannot ` + enabled ? 'disable' : 'enable' + ` schedule: ${err}`, true);
+			sendUserToast(`Cannot ` + enabled ? 'disable' : 'enable' + ` schedule: ${err}`, true)
 		}
 	}
 
 	$: {
 		if ($workspaceStore) {
-			loadSchedules();
+			loadSchedules()
 		}
 	}
 </script>
@@ -92,9 +92,9 @@
 								style="cursor: pointer;"
 								on:click={() => {
 									if (canWrite) {
-										setScheduleEnabled(path, enabled ? false : true);
+										setScheduleEnabled(path, enabled ? false : true)
 									} else {
-										sendUserToast('not enough permission', true);
+										sendUserToast('not enough permission', true)
 									}
 								}}
 								><span class="m-auto block text-center">
@@ -112,7 +112,7 @@
 										icon: enabled ? faToggleOff : faToggleOn,
 										disabled: !canWrite,
 										action: () => {
-											setScheduleEnabled(path, enabled ? false : true);
+											setScheduleEnabled(path, enabled ? false : true)
 										}
 									},
 									{
@@ -120,7 +120,7 @@
 										icon: faEdit,
 										disabled: !canWrite,
 										action: () => {
-											goto(`/schedule/add?edit=${path}&isFlow=${is_flow}`);
+											goto(`/schedule/add?edit=${path}&isFlow=${is_flow}`)
 										}
 									},
 									{
@@ -128,7 +128,7 @@
 										icon: faShare,
 										disabled: !canWrite,
 										action: () => {
-											shareModal.openModal(path);
+											shareModal.openModal(path)
 										}
 									}
 								]}
@@ -146,7 +146,7 @@
 	bind:this={shareModal}
 	kind="schedule"
 	on:change={() => {
-		loadSchedules();
+		loadSchedules()
 	}}
 />
 

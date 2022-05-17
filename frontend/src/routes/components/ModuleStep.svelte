@@ -1,49 +1,49 @@
 <script lang="ts">
-	import { workspaceStore } from '../../stores';
+	import { workspaceStore } from '../../stores'
 
-	import type { Schema } from '../../common';
-	import { ScriptService, type Flow, type FlowModule } from '../../gen';
+	import type { Schema } from '../../common'
+	import { ScriptService, type Flow, type FlowModule } from '../../gen'
 
-	import SchemaForm from './SchemaForm.svelte';
-	import ScriptPicker from './ScriptPicker.svelte';
-	import { emptySchema } from '../../utils';
-	import FlowPreview from './FlowPreview.svelte';
+	import SchemaForm from './SchemaForm.svelte'
+	import ScriptPicker from './ScriptPicker.svelte'
+	import { emptySchema } from '../../utils'
+	import FlowPreview from './FlowPreview.svelte'
 
-	export let flow: Flow;
-	export let i: number;
-	export let mod: FlowModule;
-	export let args: Record<string, any> = {};
+	export let flow: Flow
+	export let i: number
+	export let mod: FlowModule
+	export let args: Record<string, any> = {}
 
-	export let schemas: Schema[] = [];
-	export let schemaForms: (SchemaForm | undefined)[] = [];
+	export let schemas: Schema[] = []
+	export let schemaForms: (SchemaForm | undefined)[] = []
 
 	export async function loadSchema() {
 		if (mod.value.path) {
 			const script = await ScriptService.getScriptByPath({
 				workspace: $workspaceStore!,
 				path: mod.value.path ?? ''
-			});
+			})
 			if (
 				JSON.stringify(Object.keys(script.schema?.properties ?? {}).sort()) !=
 				JSON.stringify(Object.keys(mod.input_transform).sort())
 			) {
-				let it = {};
+				let it = {}
 				Object.keys(script.schema?.properties ?? {}).map(
 					(x) =>
 						(it[x] = {
 							type: 'static',
 							value: ''
 						})
-				);
-				schemaForms[i]?.setArgs(it);
+				)
+				schemaForms[i]?.setArgs(it)
 			}
-			schemas[i] = script.schema ?? emptySchema();
+			schemas[i] = script.schema ?? emptySchema()
 		} else {
-			schemaForms[i]?.setArgs({});
-			schemas[i] = emptySchema();
+			schemaForms[i]?.setArgs({})
+			schemas[i] = emptySchema()
 		}
 
-		schemas = schemas;
+		schemas = schemas
 	}
 </script>
 
@@ -56,10 +56,10 @@
 			<button
 				class="text-xs default-button-secondary max-h-6 place-self-end"
 				on:click={() => {
-					flow.value.modules.splice(i, 1);
-					schemas.splice(i, 1);
-					schemaForms.splice(i, 1);
-					flow = flow;
+					flow.value.modules.splice(i, 1)
+					schemas.splice(i, 1)
+					schemaForms.splice(i, 1)
+					flow = flow
 				}}
 				>Remove this step
 			</button>

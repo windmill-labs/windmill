@@ -436,6 +436,64 @@
       ]
     }
   },
+  "2420cb110a116dfbc6b8658a6d2d35db60c6aadd157488cb72eb9116ae7e9f54": {
+    "query": "INSERT INTO queue\n            (workspace_id, id, parent_job, created_by, permissioned_as, scheduled_for, \n                script_hash, script_path, raw_code, args, job_kind, schedule_path, raw_flow, flow_status, is_flow_step, language)\n            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16) RETURNING id",
+    "describe": {
+      "columns": [
+        {
+          "ordinal": 0,
+          "name": "id",
+          "type_info": "Uuid"
+        }
+      ],
+      "parameters": {
+        "Left": [
+          "Varchar",
+          "Uuid",
+          "Uuid",
+          "Varchar",
+          "Varchar",
+          "Timestamptz",
+          "Int8",
+          "Varchar",
+          "Text",
+          "Jsonb",
+          {
+            "Custom": {
+              "name": "job_kind",
+              "kind": {
+                "Enum": [
+                  "script",
+                  "preview",
+                  "flow",
+                  "dependencies",
+                  "flowpreview"
+                ]
+              }
+            }
+          },
+          "Varchar",
+          "Jsonb",
+          "Jsonb",
+          "Bool",
+          {
+            "Custom": {
+              "name": "script_lang",
+              "kind": {
+                "Enum": [
+                  "python3",
+                  "deno"
+                ]
+              }
+            }
+          }
+        ]
+      },
+      "nullable": [
+        false
+      ]
+    }
+  },
   "255aafff962738317f3227ae4eb871830d89b4c12c73d8dbabe6836da124e54d": {
     "query": "select path from script where hash = $1 AND (workspace_id = $2 OR workspace_id = 'starter')",
     "describe": {
@@ -1902,53 +1960,6 @@
       "nullable": []
     }
   },
-  "a151ceeddfd4a2825d4528542d3adc5c0a6947573558a2fd62429ba5da369617": {
-    "query": "INSERT INTO queue\n            (workspace_id, id, parent_job, created_by, permissioned_as, scheduled_for, \n                script_hash, script_path, raw_code, args, job_kind, schedule_path, raw_flow, flow_status, is_flow_step)\n            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15) RETURNING id",
-    "describe": {
-      "columns": [
-        {
-          "ordinal": 0,
-          "name": "id",
-          "type_info": "Uuid"
-        }
-      ],
-      "parameters": {
-        "Left": [
-          "Varchar",
-          "Uuid",
-          "Uuid",
-          "Varchar",
-          "Varchar",
-          "Timestamptz",
-          "Int8",
-          "Varchar",
-          "Text",
-          "Jsonb",
-          {
-            "Custom": {
-              "name": "job_kind",
-              "kind": {
-                "Enum": [
-                  "script",
-                  "preview",
-                  "flow",
-                  "dependencies",
-                  "flowpreview"
-                ]
-              }
-            }
-          },
-          "Varchar",
-          "Jsonb",
-          "Jsonb",
-          "Bool"
-        ]
-      },
-      "nullable": [
-        false
-      ]
-    }
-  },
   "a1d46b44718a63d6ce5a9054d493dadbffb205500dc8fb55e9816bcdb613e0d5": {
     "query": "DELETE FROM queue WHERE schedule_path = $1",
     "describe": {
@@ -2298,6 +2309,40 @@
       "nullable": [
         null
       ]
+    }
+  },
+  "be33c6eb702c149044650d49b3c50493d7538d590be3f4ff6242fea85c57c667": {
+    "query": "INSERT INTO script (workspace_id, hash, path, parent_hashes, summary, description, content, created_by, schema, is_template, extra_perms, lock, language) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::text::json, $10, $11, $12, $13)",
+    "describe": {
+      "columns": [],
+      "parameters": {
+        "Left": [
+          "Varchar",
+          "Int8",
+          "Varchar",
+          "Int8Array",
+          "Text",
+          "Text",
+          "Text",
+          "Varchar",
+          "Text",
+          "Bool",
+          "Jsonb",
+          "Text",
+          {
+            "Custom": {
+              "name": "script_lang",
+              "kind": {
+                "Enum": [
+                  "python3",
+                  "deno"
+                ]
+              }
+            }
+          }
+        ]
+      },
+      "nullable": []
     }
   },
   "bf1d8e043338867e1da1ed236ff6c85a566d5fd58d4b0d5c3a10454513811ba3": {
@@ -2800,29 +2845,6 @@
       "nullable": [
         true
       ]
-    }
-  },
-  "f12e710a0c2b2e13b98fd522028b6af8be74a9126a8207aa2974b47fd36e1845": {
-    "query": "INSERT INTO script (workspace_id, hash, path, parent_hashes, summary, description, content, created_by, schema, is_template, extra_perms, lock) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::text::json, $10, $11, $12)",
-    "describe": {
-      "columns": [],
-      "parameters": {
-        "Left": [
-          "Varchar",
-          "Int8",
-          "Varchar",
-          "Int8Array",
-          "Text",
-          "Text",
-          "Text",
-          "Varchar",
-          "Text",
-          "Bool",
-          "Jsonb",
-          "Text"
-        ]
-      },
-      "nullable": []
     }
   },
   "f325a1262084bd3468e12dc8bcc289a96536f172b679af54dd0fbc82d4d7c987": {

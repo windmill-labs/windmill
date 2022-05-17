@@ -1,11 +1,11 @@
 <script lang="ts">
-	import { page } from '$app/stores';
+	import { page } from '$app/stores'
 
-	import FlowBuilder from '../components/FlowBuilder.svelte';
-	import type { Flow } from '../../gen';
-	import { emptySchema } from '../../utils';
+	import FlowBuilder from '../components/FlowBuilder.svelte'
+	import type { Flow } from '../../gen'
+	import { emptySchema } from '../../utils'
 
-	const initialState = $page.url.searchParams.get('state');
+	const initialState = $page.url.searchParams.get('state')
 
 	let flow: Flow =
 		initialState != undefined
@@ -19,7 +19,7 @@
 					archived: false,
 					extra_perms: {},
 					schema: emptySchema()
-			  };
+			  }
 </script>
 
 <FlowBuilder {flow} />

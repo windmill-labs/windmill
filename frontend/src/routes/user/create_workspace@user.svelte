@@ -1,29 +1,29 @@
 <script lang="ts">
-	import { goto } from '$app/navigation';
+	import { goto } from '$app/navigation'
 
-	import { UserService, WorkspaceService } from '../../gen';
-	import { logoutWithRedirect, sendUserToast } from '../../utils';
-	import { page } from '$app/stores';
-	import { usersWorkspaceStore, workspaceStore } from '../../stores';
-	import CenteredModal from './CenteredModal.svelte';
+	import { UserService, WorkspaceService } from '../../gen'
+	import { logoutWithRedirect, sendUserToast } from '../../utils'
+	import { page } from '$app/stores'
+	import { usersWorkspaceStore, workspaceStore } from '../../stores'
+	import CenteredModal from './CenteredModal.svelte'
 
-	let id = '';
-	let name = '';
-	let username = '';
-	let domain = '';
+	let id = ''
+	let name = ''
+	let username = ''
+	let domain = ''
 
-	let errorId = '';
+	let errorId = ''
 
-	$: id = name.toLowerCase().replace(/\s/gi, '-');
+	$: id = name.toLowerCase().replace(/\s/gi, '-')
 
-	$: validateName(id);
+	$: validateName(id)
 
 	async function validateName(id: string): Promise<void> {
 		try {
-			await WorkspaceService.validateId({ requestBody: { id } });
-			errorId = '';
+			await WorkspaceService.validateId({ requestBody: { id } })
+			errorId = ''
 		} catch {
-			errorId = 'id already exists';
+			errorId = 'id already exists'
 		}
 	}
 	async function createWorkspace(): Promise<void> {
@@ -35,46 +35,46 @@
 					username,
 					domain
 				}
-			});
-			sendUserToast(`Successfully created workspace id: ${id}`);
-			usersWorkspaceStore.set(await WorkspaceService.listUserWorkspaces());
-			workspaceStore.set(id);
-			goto('/');
+			})
+			sendUserToast(`Successfully created workspace id: ${id}`)
+			usersWorkspaceStore.set(await WorkspaceService.listUserWorkspaces())
+			workspaceStore.set(id)
+			goto('/')
 		} catch (err) {
-			console.error(err);
-			sendUserToast(`Cannot create workspace: ${err.body}`, true);
+			console.error(err)
+			sendUserToast(`Cannot create workspace: ${err.body}`, true)
 		}
 	}
 
 	function handleKeyUp(event: KeyboardEvent) {
-		const key = event.key || event.keyCode;
+		const key = event.key || event.keyCode
 		if (key === 13 || key === 'Enter') {
-			event.preventDefault();
-			createWorkspace();
+			event.preventDefault()
+			createWorkspace()
 		}
 	}
 
 	async function loadWorkspaces() {
 		if (!$usersWorkspaceStore) {
 			try {
-				usersWorkspaceStore.set(await WorkspaceService.listUserWorkspaces());
+				usersWorkspaceStore.set(await WorkspaceService.listUserWorkspaces())
 			} catch {}
 		}
 		if (!$usersWorkspaceStore) {
-			logoutWithRedirect($page.url.pathname);
+			logoutWithRedirect($page.url.pathname)
 		}
 	}
 
-	loadWorkspaces();
+	loadWorkspaces()
 
 	UserService.globalWhoami().then((x) => {
 		if (x.name) {
-			username = x.name.split(' ')[0];
+			username = x.name.split(' ')[0]
 		} else {
-			username = x.email.split('@')[0];
+			username = x.email.split('@')[0]
 		}
-		username = username.toLowerCase();
-	});
+		username = username.toLowerCase()
+	})
 </script>
 
 <CenteredModal title="Create a new workspace">
