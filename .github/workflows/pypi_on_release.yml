@@ -5,7 +5,7 @@ on:
       - "v*"
 
 jobs:
-  build_lsp:
+  publish_pypi``:
     runs-on: [self-hosted, new]
     steps:
       - uses: actions/checkout@v3

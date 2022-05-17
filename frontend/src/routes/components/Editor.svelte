@@ -147,7 +147,7 @@
 			}
 
 			if (deno) {
-				connectToLanguageServer(`ws://${$page.url.host}/ws/deno`, 'deno', {
+				connectToLanguageServer(`wss://${$page.url.host}/ws/deno`, 'deno', {
 					deno: {
 						enable: true,
 						lint: true
