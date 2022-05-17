@@ -9,7 +9,7 @@ sed -i -e "/\"version\": /s/: .*,/: \"$VERSION\",/" frontend/package.json
 sed -i -e "/^version =/s/= .*/= \"$VERSION\"/" python-client/wmill/pyproject.toml
 sed -i -e "/^windmill-api =/s/= .*/= \"\\^$VERSION\"/" python-client/wmill/pyproject.toml
 sed -i -e "/^version =/s/= .*/= \"$VERSION\"/" python-client/wmill_pg/pyproject.toml
-sed -i -e "/^wmill =/s/= .*/= \"\\^$VERSION\"/" python-client/wmill_pg/pyproject.toml
+# sed -i -e "/^wmill =/s/= .*/= \"\\^$VERSION\"/" python-client/wmill_pg/pyproject.toml
 sed -i -e "/^wmill =/s/= .*/= \">=$VERSION\"/" Pipfile
 sed -i -e "/^wmill_pg =/s/= .*/= \">=$VERSION\"/" Pipfile
 
