@@ -81,7 +81,7 @@
 		if (lang == 'python' || deno) {
 			// install Monaco language client services
 			const { MonacoLanguageClient, CloseAction, ErrorAction, createConnection } = await import(
-				'@codingame/monaco-languageclient'
+				'monaco-languageclient'
 			)
 
 			function createLanguageClient(connection: any, name: string, initializationOptions?: any) {
@@ -309,7 +309,7 @@ export const params: any;
 			}
 		}
 		if (lang == 'python' || deno) {
-			const { MonacoServices } = await import('@codingame/monaco-languageclient')
+			const { MonacoServices } = await import('monaco-languageclient')
 
 			MonacoServices.install(monaco)
 		}
