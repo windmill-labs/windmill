@@ -7,7 +7,7 @@
 
 use ::oauth2::basic::BasicClient;
 use argon2::Argon2;
-use axum::{extract::extractor_middleware, handler::Handler, routing::get, Extension, Router};
+use axum::{handler::Handler, middleware::from_extractor, routing::get, Extension, Router};
 use db::DB;
 use git_version::git_version;
 use hyper::Response;
@@ -215,8 +215,8 @@ pub async fn run_server(
                 .nest("/workers", worker_ping::global_service())
                 .nest("/scripts", scripts::global_service())
                 .nest("/schedules", schedule::global_service())
-                .route_layer(extractor_middleware::<users::Authed>())
-                .route_layer(extractor_middleware::<users::Tokened>())
+                .route_layer(from_extractor::<users::Authed>())
+                .route_layer(from_extractor::<users::Tokened>())
                 .nest(
                     "/auth",
                     users::make_unauthed_service().layer(Extension(argon2)),
