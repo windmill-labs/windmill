@@ -43,7 +43,7 @@ pub fn global_service() -> Router {
         .route("/login_callback/:client", get(login_callback))
         .route(
             "/slack_command",
-            post(slack_command).route_layer(axum::extract::extractor_middleware::<SlackSig>()),
+            post(slack_command).route_layer(axum::middleware::from_extractor::<SlackSig>()),
         )
 }
 
