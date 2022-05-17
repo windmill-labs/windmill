@@ -32,7 +32,7 @@
 	import DisplayResult from '../components/DisplayResult.svelte'
 
 	import Highlight from 'svelte-highlight'
-	import python from 'svelte-highlight/src/languages/python'
+	import { python, typescript } from 'svelte-highlight/src/languages'
 	import github from 'svelte-highlight/src/styles/github'
 	import { userStore, workspaceStore } from '../../stores'
 	import CenteredPage from '../components/CenteredPage.svelte'
@@ -420,10 +420,13 @@
 				class="text-xs overflow-auto max-h-96 w-full p-3">{#if viewTab == 'logs'}{#if job && 'logs' in job && job.logs}{job.logs}
 					{:else if job}No logs are available yet
 					{:else}Loading...{/if}
-				{:else if viewTab == 'code'}{#if job && 'raw_code' in job && job.raw_code}<Highlight
-							language={python}
-							code={job.raw_code}
-						/>
+				{:else if viewTab == 'code'}
+					{#if job && 'raw_code' in job && job.raw_code}
+						{#if job.language == 'python3'}
+							<Highlight language={python} code={job.raw_code} />
+						{:else if job.language == 'deno'}
+							<Highlight language={typescript} code={job.raw_code} />
+						{/if}
 					{:else if job}No code is available
 					{:else}Loading...{/if}
 				{:else if job && 'result' in job && job.result}<DisplayResult result={job.result} />

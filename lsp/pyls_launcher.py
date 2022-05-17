@@ -71,10 +71,15 @@ class DiagnosticLS(LanguageServerWebSocketHandler):
     procargs = ["diagnostic-languageserver", "--stdio"]
 
 
+class DenoLS(LanguageServerWebSocketHandler):
+    procargs = ["deno", "lsp"]
+
+
 if __name__ == "__main__":
     app = web.Application([
         (r"/ws/pyright", PyrightLS),
         (r"/ws/black", DiagnosticLS),
+        (r"/ws/deno", DenoLS),
     ])
     app.listen(3001, address="0.0.0.0")
     ioloop.IOLoop.current().start()

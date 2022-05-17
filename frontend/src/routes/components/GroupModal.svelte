@@ -1,10 +1,8 @@
 <script lang="ts">
 	import { workspaceStore } from '../../stores'
 
-	import { createEventDispatcher } from 'svelte'
-
 	import Modal from '../../routes/components/Modal.svelte'
-	import { Group, GroupService, UserService } from '../../gen'
+	import { type Group, GroupService, UserService } from '../../gen'
 	import AutoComplete from 'simple-svelte-autocomplete'
 	import PageHeader from './PageHeader.svelte'
 	import TableCustom from './TableCustom.svelte'

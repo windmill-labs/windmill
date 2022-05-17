@@ -12,6 +12,7 @@ use sqlx::{query_scalar, Postgres, Transaction};
 use std::collections::HashMap;
 
 use crate::js_eval::eval_timeout;
+use crate::scripts::ScriptLang;
 use crate::users::create_token_for_owner;
 use crate::{
     audit::{audit_log, ActionKind},
@@ -83,6 +84,7 @@ pub struct QueuedJob {
     pub flow_status: Option<serde_json::Value>,
     pub raw_flow: Option<serde_json::Value>,
     pub is_flow_step: bool,
+    pub language: ScriptLang,
 }
 
 #[derive(Debug, sqlx::FromRow, Serialize)]
@@ -111,6 +113,7 @@ struct CompletedJob {
     flow_status: Option<serde_json::Value>,
     raw_flow: Option<serde_json::Value>,
     is_flow_step: bool,
+    language: ScriptLang,
 }
 
 #[derive(Deserialize, Clone, Copy)]
@@ -264,6 +267,7 @@ async fn run_preview_job(
         JobPayload::Code(RawCode {
             content: preview.content,
             path: preview.path,
+            language: preview.language,
         }),
         preview.args,
         &authed.username,
@@ -417,6 +421,7 @@ async fn list_jobs(
             "permissioned_as",
             "flow_status",
             "is_flow_step",
+            "language",
         ],
     );
     let sqlc = list_completed_jobs_query(
@@ -450,6 +455,7 @@ async fn list_jobs(
             "permissioned_as",
             "flow_status",
             "is_flow_step",
+            "language",
         ],
     );
     let sql = format!(
@@ -564,6 +570,7 @@ async fn list_completed_jobs(
             "null as flow_status",
             "null as raw_flow",
             "is_flow_step",
+            "language",
         ],
     )
     .sql()?;
@@ -857,6 +864,7 @@ struct UnifiedJob {
     permissioned_as: String,
     flow_status: Option<serde_json::Value>,
     is_flow_step: bool,
+    language: ScriptLang,
 }
 
 impl From<UnifiedJob> for Job {
@@ -887,6 +895,7 @@ impl From<UnifiedJob> for Job {
                 flow_status: uj.flow_status,
                 raw_flow: None,
                 is_flow_step: uj.is_flow_step,
+                language: uj.language,
             }),
             "QueuedJob" => Job::QueuedJob(QueuedJob {
                 workspace_id: uj.workspace_id,
@@ -912,6 +921,7 @@ impl From<UnifiedJob> for Job {
                 flow_status: uj.flow_status,
                 raw_flow: None,
                 is_flow_step: uj.is_flow_step,
+                language: uj.language,
             }),
             t => panic!("job type {} not valid", t),
         }
@@ -925,6 +935,7 @@ struct CancelJob {
 pub struct RawCode {
     content: String,
     path: Option<String>,
+    language: ScriptLang,
 }
 
 #[derive(Deserialize)]
@@ -932,6 +943,7 @@ struct Preview {
     content: String,
     path: Option<String>,
     args: Option<Map<String, Value>>,
+    language: ScriptLang,
 }
 
 #[derive(Deserialize)]
@@ -1004,22 +1016,32 @@ pub async fn push<'c>(
         }
     }
 
-    let (script_hash, script_path, raw_code, job_kind, raw_flow) = match job_payload {
+    let (script_hash, script_path, raw_code, job_kind, raw_flow, language) = match job_payload {
         JobPayload::ScriptHash { hash, path } => {
-            (Some(hash.0), Some(path), None, JobKind::Script, None)
+            (Some(hash.0), Some(path), None, JobKind::Script, None, None)
         }
-        JobPayload::Code(RawCode { content, path }) => {
-            (None, path, Some(content), JobKind::Preview, None)
-        }
+        JobPayload::Code(RawCode {
+            content,
+            path,
+            language,
+        }) => (
+            None,
+            path,
+            Some(content),
+            JobKind::Preview,
+            None,
+            Some(language),
+        ),
         JobPayload::Dependencies { hash, dependencies } => (
             Some(hash.0),
             None,
             Some(dependencies.join("\n")),
             JobKind::Dependencies,
             None,
+            Some(ScriptLang::Python3),
         ),
         JobPayload::RawFlow { value, path } => {
-            (None, path, None, JobKind::FlowPreview, Some(value))
+            (None, path, None, JobKind::FlowPreview, Some(value), None)
         }
         JobPayload::Flow(flow) => {
             let value_json = sqlx::query_scalar!("SELECT value FROM flow WHERE path = $1 AND (workspace_id = $2 OR workspace_id = 'starter')", 
@@ -1032,7 +1054,7 @@ pub async fn push<'c>(
                     "could not convert json to flow for {flow}: {err:?}"
                 ))
             })?;
-            (None, Some(flow), None, JobKind::Flow, Some(value))
+            (None, Some(flow), None, JobKind::Flow, Some(value), None)
         }
     };
 
@@ -1046,8 +1068,8 @@ pub async fn push<'c>(
     let uuid = sqlx::query_scalar!(
         "INSERT INTO queue
             (workspace_id, id, parent_job, created_by, permissioned_as, scheduled_for, 
-                script_hash, script_path, raw_code, args, job_kind, schedule_path, raw_flow, flow_status, is_flow_step)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15) RETURNING id",
+                script_hash, script_path, raw_code, args, job_kind, schedule_path, raw_flow, flow_status, is_flow_step, language)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16) RETURNING id",
         workspace_id,
         job_id,
         parent_job,
@@ -1062,7 +1084,8 @@ pub async fn push<'c>(
         schedule_path,
         raw_flow.map(|f| serde_json::json!(f)),
         flow_status.map(|f| serde_json::json!(f)),
-        is_flow_step
+        is_flow_step,
+        language: ScriptLang
     )
     .fetch_one(&mut tx)
     .await?;

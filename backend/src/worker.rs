@@ -24,7 +24,7 @@ use crate::{
         QueuedJob,
     },
     parser::{self, Typ},
-    scripts::ScriptHash,
+    scripts::{ScriptHash, ScriptLang},
     users::{create_token_for_owner, get_email_from_username},
     variables,
 };
@@ -44,11 +44,14 @@ use tokio::sync::mpsc;
 
 const TMP_DIR: &str = "/tmp/windmill";
 const PIP_CACHE_DIR: &str = "/tmp/windmill/cache/pip";
+const DENO_CACHE_DIR: &str = "/tmp/windmill/cache/deno";
 const NUM_SECS_ENV_CHECK: u64 = 15;
 
 const INCLUDE_DEPS_SH_CONTENT: &str = include_str!("../../nsjail/download_deps.sh");
 const NSJAIL_CONFIG_DOWNLOAD_CONTENT: &str = include_str!("../../nsjail/download.config.proto");
-const NSJAIL_CONFIG_RUN_CONTENT: &str = include_str!("../../nsjail/run.config.proto");
+const NSJAIL_CONFIG_RUN_PYTHON3_CONTENT: &str =
+    include_str!("../../nsjail/run.python3.config.proto");
+const NSJAIL_CONFIG_RUN_DENO_CONTENT: &str = include_str!("../../nsjail/run.deno.config.proto");
 
 pub async fn run_worker(
     db: &DB,
@@ -66,17 +69,13 @@ pub async fn run_worker(
     let worker_dir = format!("{TMP_DIR}/{worker_name}");
     tracing::debug!(worker_dir = %worker_dir, worker_name = %worker_name, "Creating worker dir");
 
-    DirBuilder::new()
-        .recursive(true)
-        .create(&worker_dir)
-        .await
-        .expect("could not create initial worker dir");
-
-    DirBuilder::new()
-        .recursive(true)
-        .create(&PIP_CACHE_DIR)
-        .await
-        .expect("could not create initial worker dir");
+    for x in [&worker_dir, PIP_CACHE_DIR, DENO_CACHE_DIR] {
+        DirBuilder::new()
+            .recursive(true)
+            .create(x)
+            .await
+            .expect("could not create initial worker dir");
+    }
 
     let _ = write_file(&worker_dir, "download_deps.sh", INCLUDE_DEPS_SH_CONTENT).await;
 
@@ -289,6 +288,7 @@ async fn handle_job(
         .expect("could not create initial job dir");
 
     let mut status: Result<ExitStatus, Error>;
+
     if matches!(job.job_kind, JobKind::Dependencies) {
         let requirements = job
             .raw_code
@@ -344,12 +344,17 @@ async fn handle_job(
             .await?;
         }
     } else {
-        let (inner_content, requirements_o) = if matches!(job.job_kind, JobKind::Preview) {
+        let (inner_content, requirements_o, language) = if matches!(job.job_kind, JobKind::Preview)
+        {
             let code = (job.raw_code.as_ref().unwrap_or(&"no raw code".to_owned())).to_owned();
-            let reqs = parser::parse_imports(&code)?.join("\n");
-            (code, Some(reqs))
+            let reqs = if job.language == ScriptLang::Python3 {
+                Some(parser::parse_python_imports(&code)?.join("\n"))
+            } else {
+                None
+            };
+            (code, reqs, job.language.to_owned())
         } else {
-            sqlx::query_as::<_, (String, Option<String>)>("SELECT content, lock FROM script WHERE hash = $1 AND (workspace_id = $2 OR workspace_id = 'starter')")
+            sqlx::query_as::<_, (String, Option<String>, ScriptLang)>("SELECT content, lock, language FROM script WHERE hash = $1 AND (workspace_id = $2 OR workspace_id = 'starter')")
             .bind(&job.script_hash.unwrap_or(ScriptHash(0)).0)
             .bind(&job.workspace_id)
             .fetch_optional(db)
@@ -357,69 +362,76 @@ async fn handle_job(
             .ok_or_else(|| Error::InternalErr(format!("expected content and lock")))?
         };
 
-        let requirements =
-            requirements_o.ok_or_else(|| Error::InternalErr(format!("lockfile missing")))?;
+        match language {
+            ScriptLang::Python3 => {
+                let requirements = requirements_o
+                    .ok_or_else(|| Error::InternalErr(format!("lockfile missing")))?;
 
-        let _ = write_file(
-            &job_dir,
-            "download.config.proto",
-            &NSJAIL_CONFIG_DOWNLOAD_CONTENT
-                .replace("{JOB_DIR}", &job_dir)
-                .replace("{WORKER_DIR}", &worker_dir)
-                .replace("{CACHE_DIR}", PIP_CACHE_DIR),
-        )
-        .await?;
-        let _ = write_file(&job_dir, "requirements.txt", &requirements).await?;
+                let _ = write_file(
+                    &job_dir,
+                    "download.config.proto",
+                    &NSJAIL_CONFIG_DOWNLOAD_CONTENT
+                        .replace("{JOB_DIR}", &job_dir)
+                        .replace("{WORKER_DIR}", &worker_dir)
+                        .replace("{CACHE_DIR}", PIP_CACHE_DIR),
+                )
+                .await?;
+                let _ = write_file(&job_dir, "requirements.txt", &requirements).await?;
 
-        let child = Command::new("nsjail")
-            .current_dir(&job_dir)
-            .args(vec!["--config", "download.config.proto"])
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()?;
+                let child = Command::new("nsjail")
+                    .current_dir(&job_dir)
+                    .args(vec!["--config", "download.config.proto"])
+                    .stdout(Stdio::piped())
+                    .stderr(Stdio::piped())
+                    .spawn()?;
 
-        logs.push_str("\n--- DEPENDENCIES INSTALL ---\n");
-        status = handle_child(job, db, &mut logs, &mut last_line, timeout, child).await;
-        if status.is_ok() {
-            logs.push_str("\n\n--- CODE EXECUTION ---\n");
+                logs.push_str("\n--- PIP DEPENDENCIES INSTALL ---\n");
+                status = handle_child(job, db, &mut logs, &mut last_line, timeout, child).await;
 
-            set_logs(logs, job.id, db).await;
+                if status.is_ok() {
+                    logs.push_str("\n\n--- PTHON CODE EXECUTION ---\n");
 
-            let _ = write_file(&job_dir, "inner.py", &inner_content).await?;
+                    set_logs(logs, job.id, db).await;
 
-            let sig = crate::parser::parse_signature(&inner_content)?;
-            let transforms = sig.args.into_iter().map(|x| match x.typ {
+                    let _ = write_file(&job_dir, "inner.py", &inner_content).await?;
+
+                    let sig = crate::parser::parse_python_signature(&inner_content)?;
+                    let transforms = sig.args.into_iter().map(|x| match x.typ {
         Typ::Bytes => format!("if \"{}\" in kwargs and kwargs[\"{}\"] is not None:\n    kwargs[\"{}\"] = base64.b64decode(kwargs[\"{}\"])\n", x.name, x.name, x.name, x.name),
         Typ::Datetime => format!("if \"{}\" in kwargs and kwargs[\"{}\"] is not None:\n    kwargs[\"{}\"] = datetime.strptime(kwargs[\"{}\"], '%Y-%m-%dT%H:%M')\n", x.name, x.name, x.name, x.name),
         _ => "".to_string()
     }).collect::<Vec<String>>().join("");
 
-            let tx = db.begin().await?;
+                    let tx = db.begin().await?;
 
-            let token = create_token_for_owner(
-                &db,
-                &job.workspace_id,
-                &job.permissioned_as,
-                crate::users::NewToken {
-                    label: Some("ephemeral-script".to_string()),
-                    expiration: Some(
-                        chrono::Utc::now() + chrono::Duration::seconds((timeout * 2).into()),
-                    ),
-                },
-                &job.created_by,
-            )
-            .await?;
+                    let token = create_token_for_owner(
+                        &db,
+                        &job.workspace_id,
+                        &job.permissioned_as,
+                        crate::users::NewToken {
+                            label: Some("ephemeral-script".to_string()),
+                            expiration: Some(
+                                chrono::Utc::now()
+                                    + chrono::Duration::seconds((timeout * 2).into()),
+                            ),
+                        },
+                        &job.created_by,
+                    )
+                    .await?;
 
-            let args = if let Some(args) = &job.args {
-                Some(transform_json_value(&token, &job.workspace_id, base_url, args.clone()).await)
-            } else {
-                None
-            };
-            let ser_args = serde_json::to_string(&args)
-                .map_err(|e| Error::ExecutionErr(e.to_string()))?
-                .replace("\\\"", "\\\\\"");
-            let wrapper_content: String = format!(
-                r#"
+                    let args = if let Some(args) = &job.args {
+                        Some(
+                            transform_json_value(&token, &job.workspace_id, base_url, args.clone())
+                                .await,
+                        )
+                    } else {
+                        None
+                    };
+                    let ser_args = serde_json::to_string(&args)
+                        .map_err(|e| Error::ExecutionErr(e.to_string()))?
+                        .replace("\\\"", "\\\\\"");
+                    let wrapper_content: String = format!(
+                        r#"
 import json
 import base64
 from datetime import datetime
@@ -443,44 +455,150 @@ print()
 print("result:")
 print(res_json)
 "#,
-            );
-            write_file(&job_dir, "main.py", &wrapper_content).await?;
+                    );
+                    write_file(&job_dir, "main.py", &wrapper_content).await?;
 
-            tx.commit().await?;
-            let reserved_variables = variables::get_reserved_variables(
-                &job.workspace_id,
-                &token,
-                &get_email_from_username(&job.created_by, db)
-                    .await?
-                    .unwrap_or_else(|| "nosuitable@email.xyz".to_string()),
-                &job.created_by,
-                &job.id.to_string(),
-            )
-            .into_iter()
-            .map(|rv| (rv.name, rv.value));
+                    tx.commit().await?;
+                    let reserved_variables = variables::get_reserved_variables(
+                        &job.workspace_id,
+                        &token,
+                        &get_email_from_username(&job.created_by, db)
+                            .await?
+                            .unwrap_or_else(|| "nosuitable@email.xyz".to_string()),
+                        &job.created_by,
+                        &job.id.to_string(),
+                    )
+                    .into_iter()
+                    .map(|rv| (rv.name, rv.value));
+                    let _ = write_file(
+                        &job_dir,
+                        "run.config.proto",
+                        &NSJAIL_CONFIG_RUN_PYTHON3_CONTENT.replace("{JOB_DIR}", &job_dir),
+                    )
+                    .await?;
 
-            let _ = write_file(
-                &job_dir,
-                "run.config.proto",
-                &NSJAIL_CONFIG_RUN_CONTENT.replace("{JOB_DIR}", &job_dir),
-            )
-            .await?;
+                    let child = Command::new("nsjail")
+                        .current_dir(&job_dir)
+                        .envs(reserved_variables)
+                        .args(vec![
+                            "--config",
+                            "run.config.proto",
+                            "--",
+                            "/usr/local/bin/python3",
+                            "-u",
+                            "/tmp/main.py",
+                        ])
+                        .stdout(Stdio::piped())
+                        .stderr(Stdio::piped())
+                        .spawn()?;
+                    status = handle_child(job, db, &mut logs, &mut last_line, timeout, child).await;
+                }
+            }
+            ScriptLang::Deno => {
+                logs.push_str("\n\n--- DENO CODE EXECUTION ---\n");
 
-            let child = Command::new("nsjail")
-                .current_dir(&job_dir)
-                .envs(reserved_variables)
-                .args(vec![
-                    "--config",
+                set_logs(logs, job.id, db).await;
+
+                let _ = write_file(&job_dir, "inner.ts", &inner_content).await?;
+
+                let sig = crate::parser::parse_deno_signature(&inner_content)?;
+                //             let transforms = sig.args.clone().into_iter().map(|x| match x.typ {
+                //     Typ::Bytes => format!("if \"{}\" in kwargs and kwargs[\"{}\"] is not None:\n    kwargs[\"{}\"] = base64.b64decode(kwargs[\"{}\"])\n", x.name, x.name, x.name, x.name),
+                //     Typ::Datetime => format!("if \"{}\" in kwargs and kwargs[\"{}\"] is not None:\n    kwargs[\"{}\"] = datetime.strptime(kwargs[\"{}\"], '%Y-%m-%dT%H:%M')\n", x.name, x.name, x.name, x.name),
+                //     _ => "".to_string()
+                // }).collect::<Vec<String>>().join("");
+
+                let tx = db.begin().await?;
+
+                let token = create_token_for_owner(
+                    &db,
+                    &job.workspace_id,
+                    &job.permissioned_as,
+                    crate::users::NewToken {
+                        label: Some("ephemeral-script".to_string()),
+                        expiration: Some(
+                            chrono::Utc::now() + chrono::Duration::seconds((timeout * 2).into()),
+                        ),
+                    },
+                    &job.created_by,
+                )
+                .await?;
+
+                let args = if let Some(args) = &job.args {
+                    Some(
+                        transform_json_value(&token, &job.workspace_id, base_url, args.clone())
+                            .await,
+                    )
+                } else {
+                    None
+                };
+                let ser_args = serde_json::to_string(&args)
+                    .map_err(|e| Error::ExecutionErr(e.to_string()))?
+                    .replace("\\\"", "\\\\\"");
+                let spread = sig.args.into_iter().map(|x| x.name).join(",");
+                let wrapper_content: String = format!(
+                    r#"
+import {{ main }} from "./inner.ts";
+const {{{spread}}}= JSON.parse(`{ser_args}`);
+
+async function run() {{
+    let res: any = await main({spread});
+    if (res == undefined) {{
+        res = {{}}
+    }}
+    if (typeof res !== 'object') {{
+        res = {{ res1: res }}
+    }}
+
+    const res_json = JSON.stringify(res);
+    console.log();
+    console.log("result:");
+    console.log(res_json);
+}}
+run();
+"#,
+                );
+                write_file(&job_dir, "main.ts", &wrapper_content).await?;
+
+                tx.commit().await?;
+                let reserved_variables = variables::get_reserved_variables(
+                    &job.workspace_id,
+                    &token,
+                    &get_email_from_username(&job.created_by, db)
+                        .await?
+                        .unwrap_or_else(|| "nosuitable@email.xyz".to_string()),
+                    &job.created_by,
+                    &job.id.to_string(),
+                )
+                .into_iter()
+                .map(|rv| (rv.name, rv.value));
+                let _ = write_file(
+                    &job_dir,
                     "run.config.proto",
-                    "--",
-                    "/usr/local/bin/python3",
-                    "-u",
-                    "/tmp/main.py",
-                ])
-                .stdout(Stdio::piped())
-                .stderr(Stdio::piped())
-                .spawn()?;
-            status = handle_child(job, db, &mut logs, &mut last_line, timeout, child).await;
+                    &NSJAIL_CONFIG_RUN_DENO_CONTENT
+                        .replace("{JOB_DIR}", &job_dir)
+                        .replace("{CACHE_DIR}", DENO_CACHE_DIR),
+                )
+                .await?;
+
+                let child = Command::new("nsjail")
+                    .current_dir(&job_dir)
+                    .envs(reserved_variables)
+                    .args(vec![
+                        "--config",
+                        "run.config.proto",
+                        "--",
+                        "/usr/bin/deno",
+                        "run",
+                        "--v8-flags=--max-heap-size=2048",
+                        "-A",
+                        "/tmp/main.ts",
+                    ])
+                    .stdout(Stdio::piped())
+                    .stderr(Stdio::piped())
+                    .spawn()?;
+                status = handle_child(job, db, &mut logs, &mut last_line, timeout, child).await;
+            }
         }
     }
     tokio::fs::remove_dir_all(job_dir).await?;

@@ -1,12 +1,22 @@
 import type { Schema, SchemaProperty } from './common'
-import { ScriptService } from './gen'
+import { ScriptService, type MainArgSignature } from './gen'
 import { sendUserToast } from './utils'
 
-export async function inferArgs(code: string, schema: Schema): Promise<void> {
+export async function inferArgs(language: "python3" | "deno", code: string, schema: Schema): Promise<void> {
 	try {
-		const inferedSchema = await ScriptService.toJsonschema({
-			requestBody: code
-		})
+		let inferedSchema: MainArgSignature
+		if (language == "python3") {
+			inferedSchema = await ScriptService.pythonToJsonschema({
+				requestBody: code
+			})
+		} else if (language == "deno") {
+			inferedSchema = await ScriptService.denoToJsonschema({
+				requestBody: code
+			})
+		} else {
+			return
+		}
+
 		schema.required = []
 		const oldProperties = Object.assign({}, schema.properties)
 		schema.properties = {}
@@ -28,12 +38,6 @@ export async function inferArgs(code: string, schema: Schema): Promise<void> {
 		console.error(err)
 		sendUserToast(`Could not infer schema: ${err.body ?? err}`, true)
 	}
-}
-
-function array_move<T>(arr: T[], fromIndex: number, toIndex: number) {
-	var element = arr[fromIndex]
-	arr.splice(fromIndex, 1)
-	arr.splice(toIndex, 0, element)
 }
 
 function pythonToJsonSchemaType(t: string, s: SchemaProperty): void {

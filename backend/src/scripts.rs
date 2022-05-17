@@ -35,7 +35,12 @@ use std::{
 const MAX_HASH_HISTORY_LENGTH_STORED: usize = 20;
 
 pub fn global_service() -> Router {
-    Router::new().route("/tojsonschema", post(parse_code_to_jsonschema))
+    Router::new()
+        .route(
+            "/python/tojsonschema",
+            post(parse_python_code_to_jsonschema),
+        )
+        .route("/deno/tojsonschema", post(parse_deno_code_to_jsonschema))
 }
 
 pub fn workspaced_service() -> Router {
@@ -50,6 +55,13 @@ pub fn workspaced_service() -> Router {
         .route("/deployment_status/h/:hash", get(get_deployment_status))
 }
 
+#[derive(sqlx::Type, Serialize, Deserialize, Debug, PartialEq, Clone, Hash)]
+#[sqlx(type_name = "SCRIPT_LANG", rename_all = "lowercase")]
+#[serde(rename_all(serialize = "lowercase", deserialize = "lowercase"))]
+pub enum ScriptLang {
+    Deno,
+    Python3,
+}
 #[derive(sqlx::Type, PartialEq, Debug, Hash, Clone, Copy)]
 #[sqlx(transparent)]
 pub struct ScriptHash(pub i64);
@@ -113,6 +125,7 @@ pub struct Script {
     pub extra_perms: serde_json::Value,
     pub lock: Option<String>,
     pub lock_error_logs: Option<String>,
+    pub language: ScriptLang,
 }
 
 #[derive(Serialize, Deserialize, sqlx::Type, Debug)]
@@ -138,6 +151,7 @@ pub struct NewScript {
     pub schema: Option<Schema>,
     pub is_template: Option<bool>,
     pub lock: Option<Vec<String>>,
+    pub language: ScriptLang,
 }
 
 #[derive(Deserialize)]
@@ -181,6 +195,7 @@ async fn list_scripts(
             "extra_perms",
             "null as lock",
             "CASE WHEN lock_error_logs IS NOT NULL THEN 'error' ELSE null END as lock_error_logs",
+            "language",
         ])
         .order_by("created_at", lq.order_desc.unwrap_or(true))
         .and_where("workspace_id = ? OR workspace_id = 'starter'".bind(&w_id))
@@ -344,10 +359,16 @@ async fn create_script(
         .map(|v| v.1.clone())
         .unwrap_or(json!({}));
 
+    let lock = if ns.language == ScriptLang::Deno {
+        Some("".to_string())
+    } else {
+        ns.lock.as_ref().map(|x| x.join("\n"))
+    };
     //::text::json is to ensure we use serde_json with preserve order
     sqlx::query!(
         "INSERT INTO script (workspace_id, hash, path, parent_hashes, summary, description, content, \
-         created_by, schema, is_template, extra_perms, lock) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::text::json, $10, $11, $12)",
+         created_by, schema, is_template, extra_perms, lock, language) VALUES \
+         ($1, $2, $3, $4, $5, $6, $7, $8, $9::text::json, $10, $11, $12, $13)",
         &w_id,
         &hash.0,
         ns.path,
@@ -359,13 +380,14 @@ async fn create_script(
         ns.schema.and_then(|x| serde_json::to_string(&x.0).ok()),
         ns.is_template.unwrap_or(false),
         extra_perms,
-        ns.lock.as_ref().map(|x| x.join("\n"))
+        lock,
+        ns.language: ScriptLang
     )
     .execute(&mut tx)
     .await?;
 
-    let mut tx = if ns.lock.is_none() {
-        let dependencies = parser::parse_imports(&ns.content)?;
+    let mut tx = if ns.lock.is_none() && ns.language == ScriptLang::Python3 {
+        let dependencies = parser::parse_python_imports(&ns.content)?;
         let (_, tx) = jobs::push(
             tx,
             &w_id,
@@ -593,10 +615,16 @@ async fn delete_script_by_hash(
     Ok(Json(script))
 }
 
-async fn parse_code_to_jsonschema(
+async fn parse_python_code_to_jsonschema(
     Json(code): Json<String>,
 ) -> JsonResult<parser::MainArgSignature> {
-    parser::parse_signature(&code).map(Json)
+    parser::parse_python_signature(&code).map(Json)
+}
+
+async fn parse_deno_code_to_jsonschema(
+    Json(code): Json<String>,
+) -> JsonResult<parser::MainArgSignature> {
+    parser::parse_deno_signature(&code).map(Json)
 }
 
 pub fn to_i64(s: &str) -> Result<i64> {

@@ -18,7 +18,7 @@
 				script = await ScriptService.getScriptByHash({ workspace: $workspaceStore!, hash })
 				if (script.schema == undefined) {
 					script.schema = emptySchema()
-					inferArgs(script.content, script.schema)
+					inferArgs(script.language, script.content, script.schema)
 					script = script
 				}
 			} else {
