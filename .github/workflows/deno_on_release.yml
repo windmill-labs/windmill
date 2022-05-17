@@ -31,7 +31,7 @@ jobs:
           target-branch: main
 
   tag_repo:
-    needs: [deno]
+    needs: [build_deno_and_push_to_repo]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
