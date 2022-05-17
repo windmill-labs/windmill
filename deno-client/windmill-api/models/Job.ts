@@ -232,7 +232,7 @@ export class Job {
     }
 
     public constructor() {
-        this.type = "Job";
+        
     }
 }
 

@@ -1,0 +1,38 @@
+name: Publish deno-client
+on:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  build_deno:
+    env:
+      repo: windmill-deno-client
+    runs-on: [self-hosted, new]
+    container: openapitools/openapi-generator-cli:v6.0.0-beta
+    steps:
+      - uses: actions/checkout@v3
+      - name: generate_deno
+        run: |
+          cd deno-client
+          ./generate.sh
+      - name: Pushes to another repository
+        id: push_directory
+        uses: cpina/github-action-push-to-another-repository@devel
+        env:
+          API_TOKEN_GITHUB: ${{ secrets.DENO_PAT }}
+        with:
+          source-directory: windmill-api-client/
+          destination-github-username: ${{ github.repository_owner }}
+          destination-repository-name: ${{ env.repo }}
+          user-email: ruben@windmill.dev
+          commit-message: See ORIGIN_COMMIT from $GITHUB_REF
+          target-branch: main
+      - name: Tag commit
+        uses: fatjyc/github-tagger@v0.0.3
+        with:
+          repo: ${{ env.repo }}
+          owner: ${{ github.repository_owner }}
+          token: ${{ secrets.DENO_PAT }}
+          ref: "refs/heads/main"
+          tag: ${{ github.ref_name }}

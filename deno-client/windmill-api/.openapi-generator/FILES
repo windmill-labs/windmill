@@ -1,5 +1,4 @@
 .gitignore
-.openapi-generator-ignore
 AdminApi.md
 AuditApi.md
 FlowApi.md

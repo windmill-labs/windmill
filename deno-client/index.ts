@@ -2,7 +2,6 @@ import { ResourceApi, VariableApi, ServerConfiguration } from "./windmill-api/in
 import { createConfiguration, type Configuration as Configuration } from './windmill-api/configuration.ts'
 
 
-
 function createConf(): Configuration & { workspace_id: string } {
     const token = Deno.env.get("WM_TOKEN") ?? 'no_token'
     return {
