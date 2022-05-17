@@ -1,4 +1,6 @@
 <script context="module">
+	import { version } from '../../../package.json'
+
 	const PYTHON_INIT_CODE = `import os
 import wmill
 from datetime import datetime
@@ -34,8 +36,14 @@ def main(name: str = "Nicolas Bourbaki",
     return {"version": version, "splitted": name.split(), "user": user}
 `
 	const DENO_INIT_CODE = `
-export function main(x: string) {
-    console.log(x);
+// only do the following import if you require your script to interact with the windmill
+// for instance to get a variable or resource
+// import * as wmill from 'https://deno.land/x/windmill@v${version}/index.ts'
+
+export function main(x: string, y: string = 'default arg') {
+	// let x = wmill.getVariable('u/user/foo');
+	// let y = wmill.getResource('u/user/foo')
+	return { foo: x }
 }
 `
 </script>
