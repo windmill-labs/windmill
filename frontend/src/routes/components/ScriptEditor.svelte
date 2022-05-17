@@ -41,6 +41,7 @@
 	import SchemaForm from './SchemaForm.svelte'
 	import DisplayResult from './DisplayResult.svelte'
 	import type { Preview } from '../../gen/models/Preview'
+	import { version } from '../../../package.json'
 
 	// Exported
 	export let schema: Schema = emptySchema()
@@ -283,16 +284,29 @@
 	bind:this={variablePicker}
 	pickCallback={(path, name) => {
 		if (!path) {
-			if (!getEditor().getCode().includes('import os')) {
-				getEditor().insertAtBeginning('import os\n')
+			if (lang == 'deno') {
+				getEditor().insertAtCursor(`Deno.env.get('${name}')`)
+			} else {
+				if (!getEditor().getCode().includes('import os')) {
+					getEditor().insertAtBeginning('import os\n')
+				}
+				getEditor().insertAtCursor(`os.environ.get("${name}")`)
 			}
-			getEditor().insertAtCursor(`os.environ.get("${name}")`)
 			sendUserToast(`${name} inserted at cursor`)
 		} else {
-			if (!getEditor().getCode().includes('import wmill')) {
-				getEditor().insertAtBeginning('import wmill\n')
+			if (lang == 'deno') {
+				if (!getEditor().getCode().includes('import * as wmill from')) {
+					getEditor().insertAtBeginning(
+						`import * as wmill from 'https://deno.land/x/windmill@v${version}/index.ts'\n`
+					)
+				}
+				getEditor().insertAtCursor(`wmill.getVariable('${path}'')`)
+			} else {
+				if (!getEditor().getCode().includes('import wmill')) {
+					getEditor().insertAtBeginning('import wmill\n')
+				}
+				getEditor().insertAtCursor(`wmill.get_variable("${path}")`)
 			}
-			getEditor().insertAtCursor(`wmill.get_variable("${path}")`)
 			sendUserToast(`${name} inserted at cursor`)
 		}
 	}}
@@ -319,7 +333,19 @@
 <ItemPicker
 	bind:this={resourcePicker}
 	pickCallback={(path, _) => {
-		getEditor().insertAtCursor(`client.get_resource("${path}")`)
+		if (lang == 'deno') {
+			if (!getEditor().getCode().includes('import * as wmill from')) {
+				getEditor().insertAtBeginning(
+					`import * as wmill from 'https://deno.land/x/windmill@v${version}/index.ts'\n`
+				)
+			}
+			getEditor().insertAtCursor(`wmill.getResource('${path}'')`)
+		} else {
+			if (!getEditor().getCode().includes('import wmill')) {
+				getEditor().insertAtBeginning('import wmill\n')
+			}
+			getEditor().insertAtCursor(`wmill.get_resource("${path}")`)
+		}
 		sendUserToast(`${path} inserted at cursor`)
 	}}
 	itemName="Resource"
@@ -361,23 +387,21 @@
 		<div class="flex flex-col h-full">
 			<div class="header">
 				<div class="flex flex-row justify-around w-full">
-					{#if lang != 'deno'}
-						<button
-							class="default-button-secondary font-semibold py-px mr-2 text-xs align-middle max-h-8"
-							on:click|stopPropagation={() => {
-								variablePicker.openModal()
-							}}
-							>Variable picker <Icon data={faSearch} scale={0.7} />
-						</button>
+					<button
+						class="default-button-secondary font-semibold py-px mr-2 text-xs align-middle max-h-8"
+						on:click|stopPropagation={() => {
+							variablePicker.openModal()
+						}}
+						>Variable picker <Icon data={faSearch} scale={0.7} />
+					</button>
 
-						<button
-							class="default-button-secondary font-semibold py-px text-xs mr-2 align-middle max-h-8"
-							on:click|stopPropagation={() => {
-								resourcePicker.openModal()
-							}}
-							>Resource picker <Icon data={faSearch} scale={0.7} />
-						</button>
-					{/if}
+					<button
+						class="default-button-secondary font-semibold py-px text-xs mr-2 align-middle max-h-8"
+						on:click|stopPropagation={() => {
+							resourcePicker.openModal()
+						}}
+						>Resource picker <Icon data={faSearch} scale={0.7} />
+					</button>
 					<button
 						class="default-button-secondary font-semibold py-px text-xs mr-2 align-middle max-h-8"
 						on:click|stopPropagation={() => {

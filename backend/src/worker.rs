@@ -502,11 +502,11 @@ print(res_json)
                 let _ = write_file(&job_dir, "inner.ts", &inner_content).await?;
 
                 let sig = crate::parser::parse_deno_signature(&inner_content)?;
-                let transforms = sig.args.clone().into_iter().map(|x| match x.typ {
-        Typ::Bytes => format!("if \"{}\" in kwargs and kwargs[\"{}\"] is not None:\n    kwargs[\"{}\"] = base64.b64decode(kwargs[\"{}\"])\n", x.name, x.name, x.name, x.name),
-        Typ::Datetime => format!("if \"{}\" in kwargs and kwargs[\"{}\"] is not None:\n    kwargs[\"{}\"] = datetime.strptime(kwargs[\"{}\"], '%Y-%m-%dT%H:%M')\n", x.name, x.name, x.name, x.name),
-        _ => "".to_string()
-    }).collect::<Vec<String>>().join("");
+                //             let transforms = sig.args.clone().into_iter().map(|x| match x.typ {
+                //     Typ::Bytes => format!("if \"{}\" in kwargs and kwargs[\"{}\"] is not None:\n    kwargs[\"{}\"] = base64.b64decode(kwargs[\"{}\"])\n", x.name, x.name, x.name, x.name),
+                //     Typ::Datetime => format!("if \"{}\" in kwargs and kwargs[\"{}\"] is not None:\n    kwargs[\"{}\"] = datetime.strptime(kwargs[\"{}\"], '%Y-%m-%dT%H:%M')\n", x.name, x.name, x.name, x.name),
+                //     _ => "".to_string()
+                // }).collect::<Vec<String>>().join("");
 
                 let tx = db.begin().await?;
 
@@ -541,19 +541,21 @@ print(res_json)
 import {{ main }} from "./inner.ts";
 const {{{spread}}}= JSON.parse(`{ser_args}`);
 
-let res: any = main({spread});
-if (res == undefined) {{
-    res = {{}}
+async function run() {{
+    let res: any = await main({spread});
+    if (res == undefined) {{
+        res = {{}}
+    }}
+    if (typeof res !== 'object') {{
+        res = {{ res1: res }}
+    }}
+
+    const res_json = JSON.stringify(res);
+    console.log();
+    console.log("result:");
+    console.log(res_json);
 }}
-// }} else (res.isArray) {{
-//     res = {{f"res{{i+1}}": v for i, v in enumerate(res)}}
-// else if (not isinstance(res, dict)) {{
-//     res = {{ "res1": res }};
-// }}
-const res_json = JSON.stringify(res);
-console.log();
-console.log("result:");
-console.log(res_json);
+run();
 "#,
                 );
                 write_file(&job_dir, "main.ts", &wrapper_content).await?;

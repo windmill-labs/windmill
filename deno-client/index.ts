@@ -38,7 +38,7 @@ async function _transformLeaf(v: any): Promise<any> {
         return transformLeaves(v)
     }
     else if (typeof v === 'string' && v.startsWith(VAR_RESOURCE_PREFIX)) {
-        const varName = v.substring(0, VAR_RESOURCE_PREFIX.length)
+        const varName = v.substring(VAR_RESOURCE_PREFIX.length)
         return await getVariable(varName)
     } else {
         return v
