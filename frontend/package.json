@@ -42,8 +42,8 @@
 	},
 	"type": "module",
 	"dependencies": {
-		"@codingame/monaco-jsonrpc": "^0.4.0",
-		"@codingame/monaco-languageclient": "^0.17.0",
+		"@codingame/monaco-jsonrpc": "^0.3.1",
+		"monaco-languageclient": "^0.18.1",
 		"@fortawesome/free-brands-svg-icons": "^6.1.1",
 		"@fortawesome/free-solid-svg-icons": "^6.1.1",
 		"@types/vscode": "^1.63.0",
