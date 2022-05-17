@@ -1,14 +1,14 @@
 name: Publish deno-client
 on:
   push:
-    tags:
-      - "v*"
+    # tags:
+    #   - "v*"
 
 jobs:
   build_deno:
     env:
       repo: windmill-deno-client
-    runs-on: [self-hosted, new]
+    runs-on: ubuntu-latest
     container: openapitools/openapi-generator-cli:v6.0.0-beta
     steps:
       - uses: actions/checkout@v3
