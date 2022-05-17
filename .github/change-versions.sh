@@ -15,4 +15,3 @@ sed -i -e "/^wmill_pg =/s/= .*/= \">=$VERSION\"/" lsp/Pipfile
 
 sed -i -zE "s/name = \"windmill\"\nversion = \"[^\"]*\"\\n(.*)/name = \"windmill\"\nversion = \"$VERSION\"\\n\\1/" backend/Cargo.lock
 
-cd python-client/wmill && poetry lock
