@@ -85,7 +85,7 @@
 			)
 
 			function createLanguageClient(connection: any, name: string, initializationOptions?: any) {
-				return new MonacoLanguageClient({
+				const client = new MonacoLanguageClient({
 					name: name,
 					clientOptions: {
 						documentSelector: deno ? ['typescript'] : ['python'],
@@ -96,6 +96,7 @@
 						markdown: {
 							isTrusted: true
 						},
+
 						// workspaceFolder: { uri: Uri.parse(`/tmp/${name}`), name: 'tmp', index: 0 },
 						initializationOptions,
 						middleware: {
@@ -116,6 +117,7 @@
 						}
 					}
 				})
+				return client
 			}
 
 			function connectToLanguageServer(url: string, name: string, options?: any) {
@@ -148,9 +150,33 @@
 
 			if (deno) {
 				connectToLanguageServer(`wss://${$page.url.host}/ws/deno`, 'deno', {
-					deno: {
-						enable: true,
-						lint: true
+					certificateStores: null,
+					enablePaths: [],
+					config: null,
+					importMap: null,
+					internalDebug: false,
+					lint: false,
+					path: null,
+					tlsCertificate: null,
+					unsafelyIgnoreCertificateErrors: null,
+					unstable: false,
+					enable: true,
+					cache: null,
+					codeLens: {
+						implementations: true,
+						references: true
+					},
+					suggest: {
+						autoImports: true,
+						completeFunctionCalls: false,
+						names: true,
+						paths: true,
+						imports: {
+							autoDiscover: true,
+							hosts: {
+								'https://deno.land': true
+							}
+						}
 					}
 				})
 			} else {
