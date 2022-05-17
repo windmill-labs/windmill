@@ -90,6 +90,8 @@ COPY --from=builder /windmill/target/release/windmill ${APP}/windmill
 
 COPY --from=nsjail /nsjail/nsjail /bin/nsjail
 
+COPY --from=denoland/deno:latest /usr/bin/deno /usr/bin/deno
+
 RUN mkdir -p ${APP}
 
 WORKDIR ${APP}
