@@ -7,7 +7,7 @@ env:
   repo: windmill-deno-client
 
 jobs:
-  deno:
+  build_deno_and_push_to_repo:
     runs-on: ubuntu-latest
     container: openapitools/openapi-generator-cli:v6.0.0-beta
     steps:
@@ -43,5 +43,7 @@ jobs:
       - name: Push client
         run: |
           cd ./client
+          git config --global user.email "ruben@windmill.dev"
+          git config --global user.name "rubenfiszel[bot]"
           git tag -a ${{ github.ref_name }} -m "${{ github.ref_name }}"
           git push --tags
