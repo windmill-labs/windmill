@@ -5,7 +5,7 @@ on:
     #   - "v*"
 
 jobs:
-  build_deno:
+  deno:
     env:
       repo: windmill-deno-client
     runs-on: ubuntu-latest
