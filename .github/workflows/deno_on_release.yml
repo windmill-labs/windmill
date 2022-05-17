@@ -22,7 +22,7 @@ jobs:
         env:
           API_TOKEN_GITHUB: ${{ secrets.DENO_PAT }}
         with:
-          source-directory: windmill-api-client/
+          source-directory: deno-client/
           destination-github-username: ${{ github.repository_owner }}
           destination-repository-name: ${{ env.repo }}
           user-email: ruben@windmill.dev
