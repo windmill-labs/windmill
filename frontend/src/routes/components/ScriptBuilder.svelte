@@ -38,9 +38,9 @@ def main(name: str = "Nicolas Bourbaki",
 // for instance to get a variable or resource
 // import * as wmill from 'https://deno.land/x/windmill@v${__pkg__.version}/index.ts'
 
-export function main(x: string, y: string = 'default arg') {
-	// let x = wmill.getVariable('u/user/foo');
-	// let y = wmill.getResource('u/user/foo')
+export async function main(x: string, y: string = 'default arg') {
+	// let x = await wmill.getVariable('u/user/foo');
+	// let y = await wmill.getResource('u/user/foo')
 	return { foo: x }
 }
 `
