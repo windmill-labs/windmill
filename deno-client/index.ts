@@ -25,7 +25,7 @@ export async function getVariable(path: string): Promise<string | undefined> {
     return variable.value
 }
 
-export async function transformLeaves(d: { [key: string]: any }): { [key: string]: any } {
+export async function transformLeaves(d: { [key: string]: any }): Promise<{ [key: string]: any }> {
     for (const k in d) {
         d[k] = await _transformLeaf(d[k])
     }
