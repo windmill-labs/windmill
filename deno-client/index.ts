@@ -15,13 +15,13 @@ export function createConf(): Configuration & { workspace_id: string } {
 
 export async function getResource(path: string): Promise<any> {
     const conf = createConf()
-    const resource = await new ResourceApi(conf).getResource(path, conf.workspace_id)
+    const resource = await new ResourceApi(conf).getResource(conf.workspace_id, path)
     return await transformLeaves(resource.value)
 }
 
 export async function getVariable(path: string): Promise<string | undefined> {
     const conf = createConf()
-    const variable = await new VariableApi(conf).getVariable(path, conf.workspace_id)
+    const variable = await new VariableApi(conf).getVariable(conf.workspace_id, path)
     return variable.value
 }
 
