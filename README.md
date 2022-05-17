@@ -43,7 +43,7 @@ especially concerning flows.
 
 Windmill is <b>fully open-sourced</b>:
 
-- `community/` and `python-client/` are Apache 2.0
+- `community/`, `python-client/` and `deno-client/` are Apache 2.0
 - backend, frontend and everything else under AGPLv3.
 
 ## What is the general idea behind Windmill
