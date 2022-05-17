@@ -30,7 +30,7 @@ jobs:
           commit-message: See ORIGIN_COMMIT from $GITHUB_REF
           target-branch: main
       - name: Tag commit
-        uses: fatjyc/tagger-action@v0.0.3
+        uses: fatjyc/tagger-action@v0.0.1
         with:
           repo: ${{ env.repo }}
           owner: ${{ github.repository_owner }}
