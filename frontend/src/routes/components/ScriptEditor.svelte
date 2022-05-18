@@ -299,7 +299,7 @@
 						`import * as wmill from 'https://deno.land/x/windmill@v${__pkg__.version}/index.ts'\n`
 					)
 				}
-				getEditor().insertAtCursor(`await wmill.getVariable('${path}'')`)
+				getEditor().insertAtCursor(`(await wmill.getVariable('${path}'))`)
 			} else {
 				if (!getEditor().getCode().includes('import wmill')) {
 					getEditor().insertAtBeginning('import wmill\n')
@@ -338,7 +338,7 @@
 					`import * as wmill from 'https://deno.land/x/windmill@v${__pkg__.version}/index.ts'\n`
 				)
 			}
-			getEditor().insertAtCursor(`await wmill.getResource('${path}'')`)
+			getEditor().insertAtCursor(`(await wmill.getResource('${path})')`)
 		} else {
 			if (!getEditor().getCode().includes('import wmill')) {
 				getEditor().insertAtBeginning('import wmill\n')
