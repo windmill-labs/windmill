@@ -347,14 +347,19 @@ async fn handle_job(
         let (inner_content, requirements_o, language) = if matches!(job.job_kind, JobKind::Preview)
         {
             let code = (job.raw_code.as_ref().unwrap_or(&"no raw code".to_owned())).to_owned();
-            let reqs = if job.language == ScriptLang::Python3 {
+            let reqs = if job
+                .language
+                .as_ref()
+                .map(|x| matches!(x, ScriptLang::Python3))
+                .unwrap_or(false)
+            {
                 Some(parser::parse_python_imports(&code)?.join("\n"))
             } else {
                 None
             };
             (code, reqs, job.language.to_owned())
         } else {
-            sqlx::query_as::<_, (String, Option<String>, ScriptLang)>("SELECT content, lock, language FROM script WHERE hash = $1 AND (workspace_id = $2 OR workspace_id = 'starter')")
+            sqlx::query_as::<_, (String, Option<String>, Option<ScriptLang>)>("SELECT content, lock, language FROM script WHERE hash = $1 AND (workspace_id = $2 OR workspace_id = 'starter')")
             .bind(&job.script_hash.unwrap_or(ScriptHash(0)).0)
             .bind(&job.workspace_id)
             .fetch_optional(db)
@@ -363,7 +368,12 @@ async fn handle_job(
         };
 
         match language {
-            ScriptLang::Python3 => {
+            None => {
+                return Err(Error::ExecutionErr(
+                    "Require language to be not null".to_string(),
+                ))?;
+            }
+            Some(ScriptLang::Python3) => {
                 let requirements = requirements_o
                     .ok_or_else(|| Error::InternalErr(format!("lockfile missing")))?;
 
@@ -494,7 +504,7 @@ print(res_json)
                     status = handle_child(job, db, &mut logs, &mut last_line, timeout, child).await;
                 }
             }
-            ScriptLang::Deno => {
+            Some(ScriptLang::Deno) => {
                 logs.push_str("\n\n--- DENO CODE EXECUTION ---\n");
 
                 set_logs(logs, job.id, db).await;

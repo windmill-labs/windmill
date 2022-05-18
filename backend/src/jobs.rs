@@ -84,7 +84,7 @@ pub struct QueuedJob {
     pub flow_status: Option<serde_json::Value>,
     pub raw_flow: Option<serde_json::Value>,
     pub is_flow_step: bool,
-    pub language: ScriptLang,
+    pub language: Option<ScriptLang>,
 }
 
 #[derive(Debug, sqlx::FromRow, Serialize)]
@@ -113,7 +113,7 @@ struct CompletedJob {
     flow_status: Option<serde_json::Value>,
     raw_flow: Option<serde_json::Value>,
     is_flow_step: bool,
-    language: ScriptLang,
+    language: Option<ScriptLang>,
 }
 
 #[derive(Deserialize, Clone, Copy)]
@@ -864,7 +864,7 @@ struct UnifiedJob {
     permissioned_as: String,
     flow_status: Option<serde_json::Value>,
     is_flow_step: bool,
-    language: ScriptLang,
+    language: Option<ScriptLang>,
 }
 
 impl From<UnifiedJob> for Job {
