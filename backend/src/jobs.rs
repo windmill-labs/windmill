@@ -1018,7 +1018,17 @@ pub async fn push<'c>(
 
     let (script_hash, script_path, raw_code, job_kind, raw_flow, language) = match job_payload {
         JobPayload::ScriptHash { hash, path } => {
-            (Some(hash.0), Some(path), None, JobKind::Script, None, None)
+            let language =  sqlx::query_scalar!("SELECT language as \"language: ScriptLang\" FROM script WHERE hash = $1 AND (workspace_id = $2 OR workspace_id = 'starter')", hash.0, workspace_id)
+            .fetch_one(&mut tx)
+            .await?;
+            (
+                Some(hash.0),
+                Some(path),
+                None,
+                JobKind::Script,
+                None,
+                Some(language),
+            )
         }
         JobPayload::Code(RawCode {
             content,
