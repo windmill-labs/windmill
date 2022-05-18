@@ -5,6 +5,8 @@ use deno_core::{JsRuntime, RuntimeOptions};
 
 fn main() {
     println!("cargo:rerun-if-changed=build.rs");
+    println!("cargo:rerun-if-changed=Cargo.lock");
+
     let options = RuntimeOptions {
         will_snapshot: true,
         ..Default::default()
