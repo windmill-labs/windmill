@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.8.2
+  version: 1.8.3
   title: Windmill server API
   contact:
     name: Windmill contact
