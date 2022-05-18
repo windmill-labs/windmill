@@ -76,6 +76,8 @@ Windmill is <b>fully open-sourced</b>:
   execution
 - `python-client/`: The wmill python client used within scripts to interact with
   the windmill platform
+- `deno-client/`: The wmill deno client used within scripts to interact with the
+  windmill platform
 
 ## Stack
 
