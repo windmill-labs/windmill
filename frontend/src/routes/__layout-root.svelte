@@ -3,9 +3,9 @@
 	import { page } from '$app/stores'
 	import { SvelteToast } from '@zerodevx/svelte-toast'
 	import { onMount } from 'svelte'
-	import type { UserWorkspaceList } from '../gen'
-	import { userStore, usersWorkspaceStore, type UserExt } from '../stores'
-	import { logout, sendUserToast } from '../utils'
+	import { UserService } from '../gen'
+	import { userStore, workspaceStore, type UserExt } from '../stores'
+	import { getUser, logout, refreshSuperadmin, sendUserToast } from '../utils'
 
 	// Default toast options
 	const toastOptions = {
@@ -25,22 +25,28 @@
 		'Connection got disposed.'
 	]
 
-	async function handleRedirections(user?: UserExt, workspace?: UserWorkspaceList) {
-		if (user) {
-			if (workspace) {
-				// Default page when logged in
-				goto('/scripts')
-			} else {
-				// Redirect to workspaces when no workspace is selected
-				goto('/user/workspaces')
-			}
+	async function handleRedirections(user?: UserExt, workspace?: string) {
+		if (workspace && !user) {
+			await UserService.getCurrentEmail()
+			$userStore = await getUser(workspace)
+			refreshSuperadmin()
 		} else {
-			goto('/user/login')
+			if (user) {
+				if (workspace) {
+					// Default page when logged in
+					goto('/scripts')
+				} else {
+					// Redirect to workspaces when no workspace is selected
+					goto('/user/workspaces')
+				}
+			} else {
+				goto('/user/login')
+			}
 		}
 	}
 
 	$: {
-		handleRedirections($userStore, $usersWorkspaceStore)
+		handleRedirections($userStore, $workspaceStore)
 	}
 
 	onMount(() => {
