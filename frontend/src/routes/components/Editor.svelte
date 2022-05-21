@@ -1,14 +1,24 @@
 <script lang="ts">
 	import { page } from '$app/stores'
 	import type monaco from 'monaco-editor'
-	import { browser, mode } from '$app/env'
+	import { browser } from '$app/env'
 
-	import { listen } from '@codingame/monaco-jsonrpc'
+	import {
+		RequestType,
+		toSocket,
+		WebSocketMessageReader,
+		WebSocketMessageWriter
+	} from '@codingame/monaco-jsonrpc'
 	import { onDestroy, onMount } from 'svelte'
 	import editorWorker from 'monaco-editor/esm/vs/editor/editor.worker?worker'
 	import jsonWorker from 'monaco-editor/esm/vs/language/json/json.worker?worker'
 	import tsWorker from 'monaco-editor/esm/vs/language/typescript/ts.worker?worker'
-
+	import type {
+		DocumentUri,
+		MessageTransports,
+		TextDocumentIdentifier
+	} from 'monaco-languageclient'
+	import * as vscode from 'vscode'
 	let divEl: HTMLDivElement | null = null
 	let editor: monaco.editor.IStandaloneCodeEditor
 	let monaco
@@ -23,7 +33,7 @@
 	export let automaticLayout = true
 	export let websocketAlive = { pyright: false, black: false }
 	let websockets: WebSocket[] = []
-
+	let uri: string = ''
 	let disposeMethod: () => void | undefined
 
 	if (browser) {
@@ -80,18 +90,23 @@
 		closeWebsockets()
 		if (lang == 'python' || deno) {
 			// install Monaco language client services
-			const { MonacoLanguageClient, CloseAction, ErrorAction, createConnection } = await import(
-				'monaco-languageclient'
-			)
+			const { MonacoLanguageClient } = await import('monaco-languageclient')
+			const { CloseAction, ErrorAction } = await import('vscode-languageclient')
 
-			function createLanguageClient(connection: any, name: string, initializationOptions?: any) {
+			function createLanguageClient(
+				transports: MessageTransports,
+				name: string,
+				initializationOptions?: any
+			) {
 				const client = new MonacoLanguageClient({
 					name: name,
 					clientOptions: {
 						documentSelector: deno ? ['typescript'] : ['python'],
 						errorHandler: {
-							error: () => ErrorAction.Shutdown,
-							closed: () => CloseAction.Restart
+							error: () => ({ action: ErrorAction.Shutdown }),
+							closed: () => ({
+								action: CloseAction.Restart
+							})
 						},
 						markdown: {
 							isTrusted: true
@@ -112,44 +127,44 @@
 						}
 					},
 					connectionProvider: {
-						get: (errorHandler, closeHandler) => {
-							return Promise.resolve(createConnection(connection, errorHandler, closeHandler))
+						get: () => {
+							return Promise.resolve(transports)
 						}
 					}
 				})
 				return client
 			}
 
-			function connectToLanguageServer(url: string, name: string, options?: any) {
+			async function connectToLanguageServer(url: string, name: string, options?: any) {
 				try {
 					const webSocket = new WebSocket(url)
-					websockets.push(webSocket)
-					// listen when the web socket is opened
-					listen({
-						webSocket,
-						onConnection: (connection) => {
-							// create and start the language client
-							const languageClient = createLanguageClient(connection, name, options)
-							const disposable = languageClient.start()
-							websocketAlive[name] = true
+					webSocket.onclose = () => {
+						websocketAlive[name] = false
+					}
+					webSocket.onopen = () => {
+						websockets.push(webSocket)
+						const socket = toSocket(webSocket)
+						const reader = new WebSocketMessageReader(socket)
+						const writer = new WebSocketMessageWriter(socket)
+						const languageClient = createLanguageClient({ reader, writer }, name, options)
+						languageClient.start()
 
-							connection.onClose(() => {
-								websocketAlive[name] = false
-								try {
-									disposable.dispose()
-								} catch (err) {
-									console.error('error disposing websocket', err)
-								}
+						vscode.commands.registerCommand('deno.cache', (uris: DocumentUri[] = []) => {
+							languageClient.sendRequest(new RequestType('deno/cache'), {
+								referrer: { uri },
+								uris: uris.map((uri) => ({ uri }))
 							})
-						}
-					})
+						})
+
+						websocketAlive[name] = true
+					}
 				} catch (err) {
 					console.error(`connection to ${name} language server failed`)
 				}
 			}
 
 			if (deno) {
-				connectToLanguageServer(`wss://${$page.url.host}/ws/deno`, 'deno', {
+				await connectToLanguageServer(`wss://${$page.url.host}/ws/deno`, 'deno', {
 					certificateStores: null,
 					enablePaths: [],
 					config: null,
@@ -180,7 +195,7 @@
 					}
 				})
 			} else {
-				connectToLanguageServer(`wss://${$page.url.host}/ws/pyright`, 'pyright', {
+				await connectToLanguageServer(`wss://${$page.url.host}/ws/pyright`, 'pyright', {
 					executionEnvironments: [
 						{
 							root: '/tmp/pyright',
@@ -237,7 +252,8 @@
 		} else if (lang == 'typescript') {
 			path = `${hash}.ts`
 		}
-		const model = monaco.editor.createModel(code, lang, monaco.Uri.parse(`file:///${path}`))
+		uri = `file:///${path}`
+		const model = monaco.editor.createModel(code, lang, monaco.Uri.parse(uri))
 		model.updateOptions({ tabSize: 4, insertSpaces: true })
 		editor = monaco.editor.create(divEl as HTMLDivElement, {
 			model: model,

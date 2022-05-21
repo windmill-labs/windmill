@@ -36,14 +36,14 @@ const config = {
 				include: [
 					'highlight.js',
 					'highlight.js/lib/core',
-					'monaco-languageclient/lib/vscode-compatibility'
+					'monaco-languageclient/vscode-compatibility'
 				]
 			},
 			resolve: {
 				alias: [
 					{
 						find: 'vscode',
-						replacement: 'monaco-languageclient/lib/vscode-compatibility'
+						replacement: 'monaco-languageclient/vscode-compatibility'
 					}
 				]
 			}
