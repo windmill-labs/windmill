@@ -26,7 +26,7 @@
 	export let cmdEnterAction: (() => void) | undefined = undefined
 	export let formatAction: (() => void) | undefined = undefined
 	export let automaticLayout = true
-	export let websocketAlive = { pyright: false, black: false }
+	export let websocketAlive = { pyright: false, black: false, deno: false }
 	let websockets: WebSocket[] = []
 	let uri: string = ''
 	let disposeMethod: () => void | undefined
