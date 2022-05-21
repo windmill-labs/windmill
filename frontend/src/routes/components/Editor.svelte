@@ -132,9 +132,7 @@
 			async function connectToLanguageServer(url: string, name: string, options?: any) {
 				try {
 					const webSocket = new WebSocket(url)
-					webSocket.onclose = () => {
-						websocketAlive[name] = false
-					}
+
 					webSocket.onopen = () => {
 						websockets.push(webSocket)
 						const socket = toSocket(webSocket)
@@ -142,6 +140,9 @@
 						const writer = new WebSocketMessageWriter(socket)
 						const languageClient = createLanguageClient({ reader, writer }, name, options)
 						languageClient.start()
+						socket.onClose((_code, _reason) => {
+							websocketAlive[name] = false
+						})
 
 						vscode.commands.registerCommand('deno.cache', (uris: DocumentUri[] = []) => {
 							languageClient.sendRequest(new RequestType('deno/cache'), {
