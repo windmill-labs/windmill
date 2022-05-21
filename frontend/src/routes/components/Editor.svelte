@@ -13,15 +13,10 @@
 	import editorWorker from 'monaco-editor/esm/vs/editor/editor.worker?worker'
 	import jsonWorker from 'monaco-editor/esm/vs/language/json/json.worker?worker'
 	import tsWorker from 'monaco-editor/esm/vs/language/typescript/ts.worker?worker'
-	import type {
-		DocumentUri,
-		MessageTransports,
-		TextDocumentIdentifier
-	} from 'monaco-languageclient'
+	import type { DocumentUri, MessageTransports } from 'monaco-languageclient'
 	import * as vscode from 'vscode'
 	let divEl: HTMLDivElement | null = null
 	let editor: monaco.editor.IStandaloneCodeEditor
-	let monaco
 
 	export let deno = false
 	export let lang = deno ? 'typescript' : 'python'
@@ -35,18 +30,17 @@
 	let websockets: WebSocket[] = []
 	let uri: string = ''
 	let disposeMethod: () => void | undefined
-
 	if (browser) {
 		// @ts-ignore
 		self.MonacoEnvironment = {
 			getWorker: function (_moduleId: any, label: string) {
 				if (label === 'json') {
 					return new jsonWorker()
-				}
-				if (label === 'typescript' || label === 'javascript') {
+				} else if (label === 'typescript' || label === 'javascript') {
 					return new tsWorker()
+				} else {
+					return new editorWorker()
 				}
-				return new editorWorker()
 			}
 		}
 	}
@@ -63,7 +57,7 @@
 
 	export function insertAtBeginning(code: string): void {
 		if (editor) {
-			const range = new monaco.Range(1, 1, 1, 1)
+			const range = { startLineNumber: 1, startColumn: 1, endLineNumber: 1, endColumn: 1 }
 			const op = { range: range, text: code, forceMoveMarkers: true }
 			editor.executeEdits('external', [op])
 		}
@@ -222,17 +216,18 @@
 	}
 
 	function closeWebsockets() {
-		websockets.forEach((x) => {
+		for (const x of websockets) {
 			try {
 				x.close()
 			} catch (err) {
 				console.log('error disposing websocket', err)
 			}
-		})
+		}
+		websockets = []
 	}
-	async function loadMonaco() {
-		monaco = await import('monaco-editor')
 
+	async function loadMonaco() {
+		const monaco = await import('monaco-editor')
 		if (lang == 'python') {
 			monaco.languages.register({
 				id: 'python',
@@ -297,18 +292,18 @@
 		}
 
 		if (lang == 'typescript') {
+			monaco.languages.typescript.typescriptDefaults.setCompilerOptions({
+				target: monaco.languages.typescript.ScriptTarget.Latest,
+				allowNonTsExtensions: true,
+				noLib: true
+			})
 			if (deno) {
 				monaco.languages.typescript.typescriptDefaults.setDiagnosticsOptions({
-					diagnosticCodesToIgnore: [2691]
+					noSemanticValidation: true,
+					noSuggestionDiagnostics: true,
+					noSyntaxValidation: true
 				})
 			} else {
-				// compiler options
-				monaco.languages.typescript.typescriptDefaults.setCompilerOptions({
-					target: monaco.languages.typescript.ScriptTarget.ES6,
-					allowNonTsExtensions: true,
-					noLib: true
-				})
-
 				monaco.languages.typescript.typescriptDefaults.addExtraLib(
 					`
 /**
@@ -361,6 +356,7 @@ export const params: any;
 		return () => {
 			if (editor) {
 				try {
+					closeWebsockets()
 					editor.dispose()
 				} catch (err) {
 					console.log('error disposing editor', err)
