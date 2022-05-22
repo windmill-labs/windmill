@@ -18,9 +18,12 @@ export let workspaceStore = writable<string | undefined>(
 	persistedWorkspace ? JSON.parse(persistedWorkspace) : undefined
 )
 export const usersWorkspaceStore = writable<UserWorkspaceList | undefined>(undefined)
-export const usernameStore: Readable<string | undefined> = derived([userStore], ($values, set) => {
-	set($values[0]?.username)
-})
+export const usernameStore: Readable<string | undefined> = derived(
+	[usersWorkspaceStore, workspaceStore],
+	($values, set) => {
+		set($values[0]?.workspaces.find((x) => x.id == $values[1])?.username)
+	}
+)
 export const superadmin = writable<String | false | undefined>(undefined)
 
 if (browser) {

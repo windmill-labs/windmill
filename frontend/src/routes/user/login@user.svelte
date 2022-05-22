@@ -12,6 +12,7 @@
 	let email = $page.url.searchParams.get('email') ?? ''
 	let password = $page.url.searchParams.get('password') ?? ''
 	const error = $page.url.searchParams.get('error') ?? undefined
+	const rd = $page.url.searchParams.get('rd')
 
 	let showPassword = false
 
@@ -30,7 +31,11 @@
 			// Finally, we check whether the user is a superadmin
 			refreshSuperadmin()
 
-			goto('/user/workspaces')
+			if (rd) {
+				goto(decodeURI(rd))
+			} else {
+				goto('/user/workspaces')
+			}
 		} catch (error) {
 			sendUserToast(error.message, true)
 		}
