@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { goto } from '$app/navigation'
 	import { page } from '$app/stores'
 	import { faGithub } from '@fortawesome/free-brands-svg-icons'
 	import Icon from 'svelte-awesome'
@@ -28,6 +29,8 @@
 			$userStore = await getUser($workspaceStore!)
 			// Finally, we check whether the user is a superadmin
 			refreshSuperadmin()
+
+			goto('/user/workspaces')
 		} catch (error) {
 			sendUserToast(error.message, true)
 		}

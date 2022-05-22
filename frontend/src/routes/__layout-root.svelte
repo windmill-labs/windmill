@@ -25,31 +25,22 @@
 		'Connection got disposed.'
 	]
 
-	async function handleRedirections(user?: UserExt, workspace?: string) {
-		if (workspace && !user) {
-			await UserService.getCurrentEmail()
-			$userStore = await getUser(workspace)
-			refreshSuperadmin()
-		} else {
-			if (user) {
-				if (workspace) {
-					// Default page when logged in
-					goto('/scripts')
-				} else {
-					// Redirect to workspaces when no workspace is selected
-					goto('/user/workspaces')
-				}
-			} else {
-				goto('/user/login')
+	async function redirectIfLoggedIn(user?: UserExt, workspace?: string) {
+		try {
+			if (workspace && !user) {
+				await UserService.getCurrentEmail()
+				$userStore = await getUser(workspace)
+				refreshSuperadmin()
+				goto('/scripts')
 			}
+		} catch (error) {
+			console.error(error.message)
 		}
 	}
 
-	$: {
-		handleRedirections($userStore, $workspaceStore)
-	}
-
 	onMount(() => {
+		redirectIfLoggedIn($userStore, $workspaceStore)
+
 		window.onunhandledrejection = (event: PromiseRejectionEvent) => {
 			event.preventDefault()
 

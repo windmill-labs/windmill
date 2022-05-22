@@ -25,7 +25,6 @@ export const superadmin = writable<String | false | undefined>(undefined)
 
 if (browser) {
 	workspaceStore.subscribe((workspace) => {
-		console.log(workspace)
 		if (workspace) {
 			localStorage.setItem('workspace', JSON.stringify(workspace))
 		}
