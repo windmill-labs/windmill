@@ -34,7 +34,8 @@
 				goto('/scripts')
 			}
 		} catch (error) {
-			console.error(error.message)
+			// If the user is not logged in, we go to the login screen
+			goto('/user/login')
 		}
 	}
 
