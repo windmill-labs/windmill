@@ -1,17 +1,22 @@
 <script lang="ts">
 	import { page } from '$app/stores'
 	import type monaco from 'monaco-editor'
-	import { browser, mode } from '$app/env'
+	import { browser } from '$app/env'
 
-	import { listen } from '@codingame/monaco-jsonrpc'
+	import {
+		RequestType,
+		toSocket,
+		WebSocketMessageReader,
+		WebSocketMessageWriter
+	} from '@codingame/monaco-jsonrpc'
 	import { onDestroy, onMount } from 'svelte'
 	import editorWorker from 'monaco-editor/esm/vs/editor/editor.worker?worker'
 	import jsonWorker from 'monaco-editor/esm/vs/language/json/json.worker?worker'
 	import tsWorker from 'monaco-editor/esm/vs/language/typescript/ts.worker?worker'
-
+	import type { DocumentUri, MessageTransports } from 'monaco-languageclient'
+	import * as vscode from 'vscode'
 	let divEl: HTMLDivElement | null = null
 	let editor: monaco.editor.IStandaloneCodeEditor
-	let monaco
 
 	export let deno = false
 	export let lang = deno ? 'typescript' : 'python'
@@ -21,22 +26,21 @@
 	export let cmdEnterAction: (() => void) | undefined = undefined
 	export let formatAction: (() => void) | undefined = undefined
 	export let automaticLayout = true
-	export let websocketAlive = { pyright: false, black: false }
+	export let websocketAlive = { pyright: false, black: false, deno: false }
 	let websockets: WebSocket[] = []
-
+	let uri: string = ''
 	let disposeMethod: () => void | undefined
-
 	if (browser) {
 		// @ts-ignore
 		self.MonacoEnvironment = {
 			getWorker: function (_moduleId: any, label: string) {
 				if (label === 'json') {
 					return new jsonWorker()
-				}
-				if (label === 'typescript' || label === 'javascript') {
+				} else if (label === 'typescript' || label === 'javascript') {
 					return new tsWorker()
+				} else {
+					return new editorWorker()
 				}
-				return new editorWorker()
 			}
 		}
 	}
@@ -53,7 +57,7 @@
 
 	export function insertAtBeginning(code: string): void {
 		if (editor) {
-			const range = new monaco.Range(1, 1, 1, 1)
+			const range = { startLineNumber: 1, startColumn: 1, endLineNumber: 1, endColumn: 1 }
 			const op = { range: range, text: code, forceMoveMarkers: true }
 			editor.executeEdits('external', [op])
 		}
@@ -80,18 +84,23 @@
 		closeWebsockets()
 		if (lang == 'python' || deno) {
 			// install Monaco language client services
-			const { MonacoLanguageClient, CloseAction, ErrorAction, createConnection } = await import(
-				'monaco-languageclient'
-			)
+			const { MonacoLanguageClient } = await import('monaco-languageclient')
+			const { CloseAction, ErrorAction } = await import('vscode-languageclient')
 
-			function createLanguageClient(connection: any, name: string, initializationOptions?: any) {
+			function createLanguageClient(
+				transports: MessageTransports,
+				name: string,
+				initializationOptions?: any
+			) {
 				const client = new MonacoLanguageClient({
 					name: name,
 					clientOptions: {
 						documentSelector: deno ? ['typescript'] : ['python'],
 						errorHandler: {
-							error: () => ErrorAction.Shutdown,
-							closed: () => CloseAction.Restart
+							error: () => ({ action: ErrorAction.Shutdown }),
+							closed: () => ({
+								action: CloseAction.Restart
+							})
 						},
 						markdown: {
 							isTrusted: true
@@ -112,44 +121,45 @@
 						}
 					},
 					connectionProvider: {
-						get: (errorHandler, closeHandler) => {
-							return Promise.resolve(createConnection(connection, errorHandler, closeHandler))
+						get: () => {
+							return Promise.resolve(transports)
 						}
 					}
 				})
 				return client
 			}
 
-			function connectToLanguageServer(url: string, name: string, options?: any) {
+			async function connectToLanguageServer(url: string, name: string, options?: any) {
 				try {
 					const webSocket = new WebSocket(url)
-					websockets.push(webSocket)
-					// listen when the web socket is opened
-					listen({
-						webSocket,
-						onConnection: (connection) => {
-							// create and start the language client
-							const languageClient = createLanguageClient(connection, name, options)
-							const disposable = languageClient.start()
-							websocketAlive[name] = true
 
-							connection.onClose(() => {
-								websocketAlive[name] = false
-								try {
-									disposable.dispose()
-								} catch (err) {
-									console.error('error disposing websocket', err)
-								}
+					webSocket.onopen = () => {
+						websockets.push(webSocket)
+						const socket = toSocket(webSocket)
+						const reader = new WebSocketMessageReader(socket)
+						const writer = new WebSocketMessageWriter(socket)
+						const languageClient = createLanguageClient({ reader, writer }, name, options)
+						languageClient.start()
+						socket.onClose((_code, _reason) => {
+							websocketAlive[name] = false
+						})
+
+						vscode.commands.registerCommand('deno.cache', (uris: DocumentUri[] = []) => {
+							languageClient.sendRequest(new RequestType('deno/cache'), {
+								referrer: { uri },
+								uris: uris.map((uri) => ({ uri }))
 							})
-						}
-					})
+						})
+
+						websocketAlive[name] = true
+					}
 				} catch (err) {
 					console.error(`connection to ${name} language server failed`)
 				}
 			}
 
 			if (deno) {
-				connectToLanguageServer(`wss://${$page.url.host}/ws/deno`, 'deno', {
+				await connectToLanguageServer(`wss://${$page.url.host}/ws/deno`, 'deno', {
 					certificateStores: null,
 					enablePaths: [],
 					config: null,
@@ -180,7 +190,7 @@
 					}
 				})
 			} else {
-				connectToLanguageServer(`wss://${$page.url.host}/ws/pyright`, 'pyright', {
+				await connectToLanguageServer(`wss://${$page.url.host}/ws/pyright`, 'pyright', {
 					executionEnvironments: [
 						{
 							root: '/tmp/pyright',
@@ -207,17 +217,18 @@
 	}
 
 	function closeWebsockets() {
-		websockets.forEach((x) => {
+		for (const x of websockets) {
 			try {
 				x.close()
 			} catch (err) {
 				console.log('error disposing websocket', err)
 			}
-		})
+		}
+		websockets = []
 	}
-	async function loadMonaco() {
-		monaco = await import('monaco-editor')
 
+	async function loadMonaco() {
+		const monaco = await import('monaco-editor')
 		if (lang == 'python') {
 			monaco.languages.register({
 				id: 'python',
@@ -237,7 +248,8 @@
 		} else if (lang == 'typescript') {
 			path = `${hash}.ts`
 		}
-		const model = monaco.editor.createModel(code, lang, monaco.Uri.parse(`file:///${path}`))
+		uri = `file:///${path}`
+		const model = monaco.editor.createModel(code, lang, monaco.Uri.parse(uri))
 		model.updateOptions({ tabSize: 4, insertSpaces: true })
 		editor = monaco.editor.create(divEl as HTMLDivElement, {
 			model: model,
@@ -281,18 +293,18 @@
 		}
 
 		if (lang == 'typescript') {
+			monaco.languages.typescript.typescriptDefaults.setCompilerOptions({
+				target: monaco.languages.typescript.ScriptTarget.Latest,
+				allowNonTsExtensions: true,
+				noLib: true
+			})
 			if (deno) {
 				monaco.languages.typescript.typescriptDefaults.setDiagnosticsOptions({
-					diagnosticCodesToIgnore: [2691]
+					noSemanticValidation: true,
+					noSuggestionDiagnostics: true,
+					noSyntaxValidation: true
 				})
 			} else {
-				// compiler options
-				monaco.languages.typescript.typescriptDefaults.setCompilerOptions({
-					target: monaco.languages.typescript.ScriptTarget.ES6,
-					allowNonTsExtensions: true,
-					noLib: true
-				})
-
 				monaco.languages.typescript.typescriptDefaults.addExtraLib(
 					`
 /**
@@ -345,6 +357,7 @@ export const params: any;
 		return () => {
 			if (editor) {
 				try {
+					closeWebsockets()
 					editor.dispose()
 				} catch (err) {
 					console.log('error disposing editor', err)
