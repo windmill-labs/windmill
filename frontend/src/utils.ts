@@ -3,8 +3,7 @@ import { goto } from '$app/navigation'
 import { toast } from '@zerodevx/svelte-toast'
 import { get } from 'svelte/store'
 import { CancelablePromise, UserService, type User } from './gen'
-import type { UserExt } from './stores'
-import { superadmin, userStore, workspaceStore } from './stores'
+import { clearStores, superadmin, userStore, workspaceStore, type UserExt } from './stores'
 
 export function isToday(someDate: Date): boolean {
 	const today = new Date()
@@ -144,7 +143,7 @@ export async function refreshSuperadmin(): Promise<void> {
 
 export async function logout(logoutMessage?: string): Promise<void> {
 	try {
-		superadmin.set(undefined)
+		clearStores()
 		goto(`/user/login${logoutMessage ? '?error=' + encodeURIComponent(logoutMessage) : ''}`)
 		await UserService.logout()
 		sendUserToast('you have been logged out')
