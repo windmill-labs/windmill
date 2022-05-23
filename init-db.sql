@@ -17,7 +17,7 @@ BEGIN
         SELECT
         FROM   pg_catalog.pg_roles
         WHERE  rolname = 'admin') THEN
-        CREATE ROLE admin LOGIN PASSWORD 'changeme';
+        CREATE ROLE admin WITH BYPASSRLS LOGIN PASSWORD 'changeme';
     END IF;
 END
 $do$;
