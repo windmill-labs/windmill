@@ -3,9 +3,15 @@
 	import { page } from '$app/stores'
 	import { SvelteToast } from '@zerodevx/svelte-toast'
 	import { onMount } from 'svelte'
-	import { UserService } from '../gen'
-	import { userStore, workspaceStore, type UserExt } from '../stores'
-	import { getUser, logout, refreshSuperadmin, sendUserToast } from '../utils'
+	import { UserService, WorkspaceService } from '../gen'
+	import {
+		clearStores,
+		superadmin,
+		usernameStore,
+		usersWorkspaceStore,
+		workspaceStore
+	} from '../stores'
+	import { getUser, logout, logoutWithRedirect, sendUserToast } from '../utils'
 
 	// Default toast options
 	const toastOptions = {
@@ -25,22 +31,41 @@
 		'Connection got disposed.'
 	]
 
-	async function redirectIfLoggedIn(user?: UserExt, workspace?: string) {
+	async function redirectIfLoggedIn(): Promise<void> {
 		try {
-			if (workspace && !user) {
-				await UserService.getCurrentEmail()
-				$userStore = await getUser(workspace)
-				refreshSuperadmin()
-				goto('/scripts')
+			await UserService.getCurrentEmail()
+			goto('/')
+		} catch {
+			clearStores()
+		}
+	}
+
+	async function loadData() {
+		try {
+			$usersWorkspaceStore = await WorkspaceService.listUserWorkspaces()
+
+			if ($workspaceStore && $usernameStore) {
+				await getUser($workspaceStore)
+			} else if ($superadmin) {
+				console.log('You are a superadmin, you can go wherever you please')
+			} else {
+				goto('/user/workspaces')
 			}
-		} catch (error) {
-			// If the user is not logged in, we go to the login screen
-			goto('/user/login')
+		} catch {
+			logoutWithRedirect($page.url.pathname)
+		}
+	}
+
+	async function handleRedirectionsAndLoadData() {
+		if ($page.url.pathname === '/user/login') {
+			redirectIfLoggedIn()
+		} else {
+			loadData()
 		}
 	}
 
 	onMount(() => {
-		redirectIfLoggedIn($userStore, $workspaceStore)
+		handleRedirectionsAndLoadData()
 
 		window.onunhandledrejection = (event: PromiseRejectionEvent) => {
 			event.preventDefault()

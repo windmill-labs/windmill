@@ -24,6 +24,7 @@
 			}
 
 			await UserService.login({ requestBody })
+
 			// Once logged in, we can fetch the workspaces
 			$usersWorkspaceStore = await WorkspaceService.listUserWorkspaces()
 			// And the actual user
@@ -36,8 +37,8 @@
 			} else {
 				goto('/user/workspaces')
 			}
-		} catch (error) {
-			sendUserToast(error.message, true)
+		} catch (err) {
+			sendUserToast(`Cannot login: ${err.body}`, true)
 		}
 	}
 

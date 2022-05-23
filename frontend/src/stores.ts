@@ -15,7 +15,7 @@ let persistedWorkspace = browser && localStorage.getItem('workspace')
 
 export const userStore = writable<UserExt | undefined>(undefined)
 export let workspaceStore = writable<string | undefined>(
-	persistedWorkspace ? JSON.parse(persistedWorkspace) : undefined
+	persistedWorkspace ? String(persistedWorkspace) : undefined
 )
 export const usersWorkspaceStore = writable<UserWorkspaceList | undefined>(undefined)
 export const usernameStore: Readable<string | undefined> = derived(
@@ -29,7 +29,14 @@ export const superadmin = writable<String | false | undefined>(undefined)
 if (browser) {
 	workspaceStore.subscribe((workspace) => {
 		if (workspace) {
-			localStorage.setItem('workspace', JSON.stringify(workspace))
+			localStorage.setItem('workspace', String(workspace))
 		}
 	})
+}
+
+export function clearStores(): void {
+	userStore.set(undefined)
+	workspaceStore.set(undefined)
+	usersWorkspaceStore.set(undefined)
+	superadmin.set(undefined)
 }
