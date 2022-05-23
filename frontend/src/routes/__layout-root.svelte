@@ -11,7 +11,7 @@
 		usersWorkspaceStore,
 		workspaceStore
 	} from '../stores'
-	import { getUser, logout, logoutWithRedirect, sendUserToast } from '../utils'
+	import { getUser, logout, logoutWithRedirect, refreshSuperadmin, sendUserToast } from '../utils'
 
 	// Default toast options
 	const toastOptions = {
@@ -43,6 +43,7 @@
 	async function loadData() {
 		try {
 			$usersWorkspaceStore = await WorkspaceService.listUserWorkspaces()
+			await refreshSuperadmin()
 
 			if ($workspaceStore && $usernameStore) {
 				await getUser($workspaceStore)
