@@ -2,14 +2,12 @@ import preprocess from 'svelte-preprocess'
 import adapter from '@sveltejs/adapter-static'
 const ppath = process.env.PREVIEW_PATH
 
-import { readFileSync } from 'fs';
-import { fileURLToPath } from 'url';
+import { readFileSync } from 'fs'
+import { fileURLToPath } from 'url'
 
-const file = fileURLToPath(new URL('package.json', import.meta.url));
-const json = readFileSync(file, 'utf8');
+const file = fileURLToPath(new URL('package.json', import.meta.url))
+const json = readFileSync(file, 'utf8')
 const version = JSON.parse(json)
-
-
 
 /** @type {import('@sveltejs/kit').Config} */
 const config = {
@@ -27,7 +25,7 @@ const config = {
 		},
 		vite: {
 			define: {
-				'__pkg__': version
+				__pkg__: version
 			},
 			ssr: {
 				noExternal: ['dayjs']
