@@ -1,10 +1,4 @@
 <script lang="ts">
-	import Fuse from 'fuse.js'
-	import { ScriptService } from '../gen'
-	import type { Script } from '../gen'
-
-	import { sendUserToast, groupBy, truncateHash, canWrite } from '../utils'
-	import Icon from 'svelte-awesome'
 	import {
 		faArchive,
 		faCalendarAlt,
@@ -15,18 +9,22 @@
 		faPlus,
 		faShare
 	} from '@fortawesome/free-solid-svg-icons'
-
-	import Dropdown from './components/Dropdown.svelte'
-	import PageHeader from './components/PageHeader.svelte'
-	import Modal from './components/Modal.svelte'
-	import Tooltip from './components/Tooltip.svelte'
-	import ShareModal from './components/ShareModal.svelte'
-	import SharedBadge from './components/SharedBadge.svelte'
-	import { superadmin, usernameStore, userStore, workspaceStore } from '../stores'
-	import CenteredPage from './components/CenteredPage.svelte'
-	import Tabs from './components/Tabs.svelte'
+	import Fuse from 'fuse.js'
+	import Icon from 'svelte-awesome'
 	import { slide } from 'svelte/transition'
+	import type { Script } from '../gen'
+	import { ScriptService } from '../gen'
+	import { superadmin, usernameStore, userStore, workspaceStore } from '../stores'
+	import { canWrite, groupBy, sendUserToast, truncateHash } from '../utils'
 	import Badge from './components/Badge.svelte'
+	import CenteredPage from './components/CenteredPage.svelte'
+	import Dropdown from './components/Dropdown.svelte'
+	import Modal from './components/Modal.svelte'
+	import PageHeader from './components/PageHeader.svelte'
+	import SharedBadge from './components/SharedBadge.svelte'
+	import ShareModal from './components/ShareModal.svelte'
+	import Tabs from './components/Tabs.svelte'
+	import Tooltip from './components/Tooltip.svelte'
 
 	type Tab = 'all' | 'personal' | 'groups' | 'shared' | 'community'
 	type Section = [string, ScriptW[]]

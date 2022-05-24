@@ -1,38 +1,27 @@
 <script lang="ts">
-	import '../app.css'
-
-	import { OpenAPI, UserService, WorkspaceService } from '../gen'
+	import { faDiscord, faGithub } from '@fortawesome/free-brands-svg-icons'
 	import {
-		logout,
-		clickOutside,
-		sendUserToast,
-		logoutWithRedirect,
-		getUser,
-		refreshSuperadmin
-	} from '../utils'
-	import { onMount } from 'svelte'
-	import Icon from 'svelte-awesome'
-	import {
-		faScroll,
-		faPlay,
-		faWallet,
-		faEye,
-		faChevronDown,
-		faChevronRight,
-		faChevronLeft,
 		faBookOpen,
-		faCubes,
 		faCalendar,
-		faRobot,
+		faChevronDown,
+		faChevronLeft,
+		faChevronRight,
 		faCog,
-		faUser,
 		faCrown,
+		faCubes,
+		faEye,
+		faPlay,
+		faRobot,
+		faScroll,
+		faUser,
 		faUsersCog,
+		faWallet,
 		faWind
 	} from '@fortawesome/free-solid-svg-icons'
-	import { SvelteToast } from '@zerodevx/svelte-toast'
-	import { faDiscord, faGithub, faPython } from '@fortawesome/free-brands-svg-icons'
-	import { page } from '$app/stores'
+	import { onMount } from 'svelte'
+	import Icon from 'svelte-awesome'
+	import '../app.css'
+	import { OpenAPI } from '../gen'
 	import {
 		superadmin,
 		usernameStore,
@@ -40,21 +29,9 @@
 		usersWorkspaceStore,
 		workspaceStore
 	} from '../stores'
-	import { goto } from '$app/navigation'
+	import { clickOutside, logout } from '../utils'
 
 	OpenAPI.WITH_CREDENTIALS = true
-
-	// Default toast options
-	const toastOptions = {
-		duration: 4000, // duration of progress bar tween to the `next` value
-		initial: 1, // initial progress bar value
-		next: 0, // next progress value
-		pausable: false, // pause progress bar tween on mouse hover
-		dismissable: true, // allow dismiss with close button
-		reversed: false, // insert new toast to bottom of stack
-		intro: { x: 256 }, // toast intro fly animation settings
-		theme: {} // css var overrides
-	}
 
 	let menuOpen = false
 	let workspacePickerOpen = false
@@ -79,63 +56,7 @@
 		workspacePickerOpen = false
 	}
 
-	async function loadUserInfo() {
-		refreshSuperadmin()
-
-		if (!$usersWorkspaceStore) {
-			try {
-				usersWorkspaceStore.set(await WorkspaceService.listUserWorkspaces())
-			} catch {}
-		}
-		if ($usersWorkspaceStore) {
-			if (!$workspaceStore) {
-				workspaceStore.set(localStorage.getItem('workspace')?.toString())
-			}
-			if ($workspaceStore && $usernameStore) {
-				await getUser($workspaceStore)
-			} else if ($superadmin) {
-				console.log('You are a superadmin, you can go wherever you please')
-			} else {
-				goto('/user/workspaces')
-			}
-		} else {
-			logoutWithRedirect($page.url.pathname)
-		}
-	}
-
-	$: {
-		if ($workspaceStore) {
-			localStorage.setItem('workspace', $workspaceStore)
-		}
-	}
-
 	onMount(() => {
-		loadUserInfo()
-		window.onunhandledrejection = (e) => {
-			if (e.reason && e.reason.message) {
-				if (
-					['Model not found', 'Connection is disposed.', 'Connection got disposed.'].includes(
-						e.reason.message
-					)
-				) {
-					// monaco editor promise cancelation
-					console.log('caught expected error')
-				} else {
-					if (e.reason.status == '401') {
-						sendUserToast('Logged out after a request was unauthorized', true)
-						logout($page.url.pathname)
-					} else {
-						let message = `${e.reason?.message}: ${e.reason?.body ?? ''}`
-						sendUserToast(message, true)
-					}
-				}
-			} else {
-				console.log('unexpected error ignored', e)
-			}
-			e.preventDefault()
-			return false
-		}
-
 		isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent)
 		//Mobile
 		isCollapsed = isMobile
@@ -425,7 +346,6 @@
 			: 'pl-44'} pr-8 flex h-full max-w-screen flex-col items-center"
 	>
 		<slot />
-		<SvelteToast {toastOptions} />
 	</div>
 </div>
 
@@ -435,11 +355,5 @@
 	}
 	.menu-link {
 		@apply flex flex-row h-10 transform hover:translate-x-1 transition-transform ease-in duration-200 text-gray-200 hover:text-white;
-	}
-
-	:root {
-		--toastBackground: #eff6ff;
-		--toastBarBackground: #eff6ff;
-		--toastColor: #123456;
 	}
 </style>
