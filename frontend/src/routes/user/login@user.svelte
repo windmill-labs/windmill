@@ -1,15 +1,13 @@
 <script lang="ts">
 	import { goto } from '$app/navigation'
-
-	import { UserService } from '../../gen'
-	import { refreshSuperadmin, sendUserToast } from '../../utils'
 	import { page } from '$app/stores'
-	import { userStore, usersWorkspaceStore, workspaceStore } from '../../stores'
-	import CenteredModal from './CenteredModal.svelte'
-	import Icon from 'svelte-awesome'
 	import { faGithub } from '@fortawesome/free-brands-svg-icons'
+	import Icon from 'svelte-awesome'
 	import { slide } from 'svelte/transition'
-	import { onMount } from 'svelte'
+	import { UserService, WorkspaceService } from '../../gen'
+	import { userStore, usersWorkspaceStore, workspaceStore } from '../../stores'
+	import { getUser, refreshSuperadmin, sendUserToast } from '../../utils'
+	import CenteredModal from './CenteredModal.svelte'
 
 	let email = $page.url.searchParams.get('email') ?? ''
 	let password = $page.url.searchParams.get('password') ?? ''
@@ -20,13 +18,20 @@
 
 	async function login(): Promise<void> {
 		try {
-			await UserService.login({
-				requestBody: {
-					email: email,
-					password
-				}
-			})
+			const requestBody = {
+				email,
+				password
+			}
+
+			await UserService.login({ requestBody })
+
+			// Once logged in, we can fetch the workspaces
+			$usersWorkspaceStore = await WorkspaceService.listUserWorkspaces()
+			// And the actual user
+			$userStore = await getUser($workspaceStore!)
+			// Finally, we check whether the user is a superadmin
 			refreshSuperadmin()
+
 			if (rd) {
 				goto(decodeURI(rd))
 			} else {
@@ -39,30 +44,20 @@
 
 	function handleKeyUp(event: KeyboardEvent) {
 		const key = event.key || event.keyCode
+
 		if (key === 13 || key === 'Enter') {
 			event.preventDefault()
 			login()
 		}
 	}
 
-	async function redirectIfLoggedIn() {
-		try {
-			await UserService.getCurrentEmail()
-			goto('/')
-		} catch {
-			usersWorkspaceStore.set(undefined)
-			workspaceStore.set(undefined)
-			userStore.set(undefined)
-		}
+	if (error) {
+		sendUserToast(error, true)
 	}
-
-	onMount(() => {
-		setTimeout(redirectIfLoggedIn, 1000)
-	})
 </script>
 
 <!-- Enable submit form on enter -->
-<CenteredModal subtitle={error}>
+<CenteredModal>
 	<div class="justify-center text-center flex flex-col">
 		<span class="text-xs text-gray-600">Currently only signup through Github is supported</span>
 		<a rel="external" href="/api/oauth/login/github"

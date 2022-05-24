@@ -1,10 +1,9 @@
 /* eslint-disable @typescript-eslint/explicit-module-boundary-types */
-import { toast } from '@zerodevx/svelte-toast'
-import { CancelablePromise, UserService } from './gen'
-import { superadmin, userStore, workspaceStore } from './stores'
-import type { UserExt } from './stores'
-import { get } from 'svelte/store'
 import { goto } from '$app/navigation'
+import { toast } from '@zerodevx/svelte-toast'
+import { get } from 'svelte/store'
+import { CancelablePromise, UserService, type User } from './gen'
+import { clearStores, superadmin, userStore, workspaceStore, type UserExt } from './stores'
 
 export function isToday(someDate: Date): boolean {
 	const today = new Date()
@@ -76,14 +75,7 @@ export function truncateHash(hash: string): string {
 async function loadStore(workspace: string): Promise<UserExt | undefined> {
 	try {
 		const user = await UserService.whoami({ workspace })
-		const nuser = {
-			username: user.username,
-			email: user.email,
-			created_at: user.created_at,
-			is_admin: user.is_admin,
-			groups: user.groups!,
-			pgroups: user.groups!.map((x) => `g/${x}`)
-		}
+		const nuser = mapUserToUserExt(user)
 		userStore.set(nuser)
 		return nuser
 	} catch (error) {
@@ -151,7 +143,7 @@ export async function refreshSuperadmin(): Promise<void> {
 
 export async function logout(logoutMessage?: string): Promise<void> {
 	try {
-		superadmin.set(undefined)
+		clearStores()
 		goto(`/user/login${logoutMessage ? '?error=' + encodeURIComponent(logoutMessage) : ''}`)
 		await UserService.logout()
 		sendUserToast('you have been logged out')
@@ -265,10 +257,7 @@ export function removeKeysWithEmptyValues(obj: any): any {
 }
 
 export function allTrue(dict: { [id: string]: boolean }): boolean {
-	for (let v of Object.values(dict)) {
-		if (!v) return false
-	}
-	return true
+	return Object.values(dict).every(Boolean)
 }
 
 export function forLater(scheduledString: string): boolean {
@@ -330,4 +319,12 @@ export function truncateRev(s: string, n: number, prefix: string = '...'): strin
 
 export function isString(value: any) {
 	return typeof value === 'string' || value instanceof String
+}
+
+export function mapUserToUserExt(user: User): UserExt {
+	return {
+		...user,
+		groups: user.groups!,
+		pgroups: user.groups!.map((x) => `g/${x}`)
+	}
 }
