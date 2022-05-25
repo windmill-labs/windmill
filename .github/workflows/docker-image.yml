@@ -45,8 +45,8 @@ jobs:
             ${{ steps.metalocal.outputs.tags }}
 
           labels: ${{ steps.metalocal.outputs.labels }}
-          cache-from: type=registry,ref=registry.wimill.xyz/windmilllabs/windmill:buildcache
-          cache-to: type=registry,ref=registry.wimill.xyz/windmilllabs/windmill:buildcache,mode=max
+          cache-from: type=registry,ref=${{ env.LOCAL_REGISTRY }}/${{ env.IMAGE_NAME }}:buildcache
+          cache-to: type=registry,ref=${{ env.LOCAL_REGISTRY }}/${{ env.IMAGE_NAME }}:buildcache,mode=max
 
       - name: Docker meta
         if: github.event_name != 'pull_request'
@@ -79,5 +79,5 @@ jobs:
             ${{ steps.meta.outputs.tags }}
 
           labels: ${{ steps.metalocal.outputs.labels }}
-          cache-from: type=registry,ref=registry.wimill.xyz/windmilllabs/windmill:buildcache
-          cache-to: type=registry,ref=registry.wimill.xyz/windmilllabs/windmill:buildcache,mode=max
+          cache-from: type=registry,ref=${{ env.LOCAL_REGISTRY }}/${{ env.IMAGE_NAME }}:buildcache
+          cache-to: type=registry,ref=${{ env.LOCAL_REGISTRY }}/${{ env.IMAGE_NAME }}:buildcache,mode=max

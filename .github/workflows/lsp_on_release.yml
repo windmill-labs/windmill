@@ -1,3 +1,7 @@
+env:
+  LOCAL_REGISTRY: registry.wimill.xyz
+  IMAGE_NAME: ${{ github.repository }}
+
 name: Publish LSP Server
 on:
   push:
@@ -20,7 +24,7 @@ jobs:
         id: metalocal
         uses: docker/metadata-action@v4
         with:
-          images: registry.wimill.xyz/windmilllabs/lsp
+          images: ${{ env.LOCAL_REGISTRY }}/${{ env.IMAGE_NAME }}-lsp
           tags: |
             type=ref,event=branch
             type=semver,pattern={{version}}
@@ -33,5 +37,5 @@ jobs:
           push: true
           tags: ${{ steps.metalocal.outputs.tags }}
           labels: ${{ steps.metalocal.outputs.labels }}
-          cache-from: type=registry,ref=registry.wimill.xyz/windmilllabs/lsp:buildcache
-          cache-to: type=registry,ref=registry.wimill.xyz/windmilllabs/lsp:buildcache,mode=max
+          cache-from: type=registry,ref=${{ env.LOCAL_REGISTRY }}/${{ env.IMAGE_NAME }}-lsp:buildcache
+          cache-to: type=registry,ref=${{ env.LOCAL_REGISTRY }}/${{ env.IMAGE_NAME }}-lsp:buildcache,mode=max
