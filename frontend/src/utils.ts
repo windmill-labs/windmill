@@ -31,7 +31,7 @@ export function displayDaysAgo(dateString: string): string {
 	} else if (isToday(date)) {
 		return `today at ${date.toLocaleTimeString()}`
 	} else {
-		return `${daysAgo(date) + 1} day ago`
+		return `${daysAgo(date) + 1} days ago`
 	}
 }
 
