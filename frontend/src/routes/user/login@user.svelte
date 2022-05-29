@@ -61,7 +61,7 @@
 	<div class="justify-center text-center flex flex-col">
 		<span class="text-xs text-gray-600">Currently only signup through Github is supported</span>
 		<a rel="external" href="/api/oauth/login/github"
-			><button class="m-auto default-button bg-black mt-2 py-2 w-96"
+			><button class="m-auto default-button bg-black mt-2 py-2 w-96 text-gray-700"
 				>Signup or login with Github &nbsp;
 				<Icon class="text-white pb-1" data={faGithub} scale={1.4} />
 			</button></a

@@ -93,7 +93,7 @@
 </script>
 
 <slot />
-<SvelteToast {toastOptions} />
+<SvelteToast options={toastOptions} />
 
 <style>
 	:root {
