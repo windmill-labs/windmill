@@ -23,7 +23,7 @@
 		"cssnano": "^5.1.10",
 		"eslint": "^8.16.0",
 		"eslint-config-prettier": "^8.3.0",
-		"eslint-plugin-svelte3": "^3.2.1",
+		"eslint-plugin-svelte3": "^4.0.0",
 		"openapi-typescript-codegen": "^0.22.0",
 		"postcss": "^8.4.5",
 		"postcss-load-config": "^4.0.0",
