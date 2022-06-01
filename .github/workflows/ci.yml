@@ -46,10 +46,9 @@ jobs:
       - name: "Rust server"
         working-directory: ./backend
         run: cargo run
-  test:
-    needs: [build]
-    steps:
+      
       - name: Cypress run
         uses: cypress-io/github-action@v4
         with:
           project: ./frontend
+
