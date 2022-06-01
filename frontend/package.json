@@ -26,7 +26,7 @@
 		"eslint-plugin-svelte3": "^4.0.0",
 		"openapi-typescript-codegen": "^0.22.0",
 		"postcss": "^8.4.5",
-		"postcss-load-config": "^4.0.0",
+		"postcss-load-config": "^4.0.1",
 		"prettier": "^2.4.1",
 		"prettier-plugin-svelte": "^2.4.0",
 		"simple-svelte-autocomplete": "^2.2.4",
