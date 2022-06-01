@@ -36,12 +36,11 @@ jobs:
           echo BASE_INTERNAL_URL=http://localhost/ >> .env
           cat .env
 
-      - name: "Svelte client"
+      - name: "Generate backend client"
         working-directory: ./frontend
         run: |
           npm install
           npm run generate-backend-client
-          npm run dev
 
       - name: "Caddy"
         working-directory: ./frontend
@@ -54,5 +53,7 @@ jobs:
       - name: Cypress run
         uses: cypress-io/github-action@v4
         with:
-          project: ./frontend
+          working-directory: ./frontend
+          start: npm run dev
+          wait-on: http://localhost
 
