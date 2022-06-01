@@ -16,6 +16,8 @@ jobs:
           POSTGRES_DB: windmill
           POSTGRES_USER: admin
           POSTGRES_PASSWORD: changeme
+        ports:
+          - 5432:5432
         options: >-
           --health-cmd pg_isready
           --health-interval 10s
@@ -28,13 +30,6 @@ jobs:
         uses: actions/setup-node@v3
         with:
           node-version: '16'
-      - name: "Create backend env file"
-        run: |
-          cd ./backend
-          touch .env
-          echo DATABASE_URL=postgres://admin:changeme@localhost/windmill >> .env
-          echo BASE_INTERNAL_URL=http://localhost:8000/ >> .env
-          cat .env
 
       - name: "Generate backend client"
         working-directory: ./frontend
@@ -44,6 +39,9 @@ jobs:
 
       - name: "Rust server"
         working-directory: ./backend
+        env:
+          DATABASE_URL: postgres://admin:changeme@localhost:5432/windmill
+          BASE_INTERNAL_URL: http://localhost/
         run: cargo run
       
       - name: Cypress run
