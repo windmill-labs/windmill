@@ -1,0 +1,55 @@
+name: CI
+
+on: [push]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    services:
+      # Label used to access the service container
+      postgres:
+        # Docker Hub image
+        image: postgres
+        # Provide the password for postgres
+        env:
+          POSTGRES_DB: windmill
+          POSTGRES_USER: admin
+          POSTGRES_PASSWORD: changeme
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: "Create backend env file"
+        run: |
+          cd ./backend
+          touch .env
+          echo DATABASE_URL=postgres://admin:changeme@localhost/windmill >> .env
+          echo BASE_INTERNAL_URL=http://localhost/ >> .env
+          cat .env
+
+      - name: "Svelte client"
+        working-directory: ./frontend
+        run: |
+          npm run generate-backend-client
+          npm run dev
+
+      - name: "Caddy"
+        working-directory: ./frontend
+        run: caddy run --config ./Caddyfile
+
+      - name: "Rust server"
+        working-directory: ./backend
+        run: cargo run
+  test:
+    needs: [build]
+    steps:
+      - name: Cypress run
+        uses: cypress-io/github-action@v4
+        with:
+          project: ./frontend
