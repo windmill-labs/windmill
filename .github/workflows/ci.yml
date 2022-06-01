@@ -7,11 +7,8 @@ jobs:
     runs-on: ubuntu-latest
 
     services:
-      # Label used to access the service container
       postgres:
-        # Docker Hub image
         image: postgres
-        # Provide the password for postgres
         env:
           POSTGRES_DB: windmill
           POSTGRES_USER: admin
@@ -36,6 +33,7 @@ jobs:
         run: |
           npm install
           npm run generate-backend-client
+          npm run build
 
       - name: "Rust server"
         working-directory: ./backend
@@ -48,6 +46,5 @@ jobs:
         uses: cypress-io/github-action@v4
         with:
           working-directory: ./frontend
-          start: npm run dev
           wait-on: http://localhost:8000
 
