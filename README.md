@@ -116,6 +116,12 @@ Detailed instructions for more complex deployments will come soon. For simpler
 docker based ones, the docker-compose.yml file contains all the necessary
 informations.
 
+## Contributors
+
+<a href="https://github.com/windmill-labs/windmill/graphs/contributors">
+  <img src="https://contrib.rocks/image?repo=windmill-labs/windmill" />
+</a>
+
 ## Copyright
 
 2021 [Ruben Fiszel](https://github.com/rubenfiszel)
