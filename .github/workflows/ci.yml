@@ -28,6 +28,9 @@ jobs:
         uses: actions/setup-node@v3
         with:
           node-version: '16'
+      - uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
       - name: "Create backend env file"
         run: |
           cd ./backend
@@ -41,6 +44,14 @@ jobs:
         run: |
           npm install
           npm run generate-backend-client
+
+      - name: Install Caddy
+        run: |
+          sudo apt install -y debian-keyring debian-archive-keyring apt-transport-https
+          curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' | sudo gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
+          curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' | sudo tee /etc/apt/sources.list.d/caddy-stable.list
+          sudo apt update
+          sudo apt install caddy
 
       - name: "Caddy"
         working-directory: ./frontend
