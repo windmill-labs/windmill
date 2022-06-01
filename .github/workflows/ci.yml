@@ -33,7 +33,7 @@ jobs:
           cd ./backend
           touch .env
           echo DATABASE_URL=postgres://admin:changeme@localhost/windmill >> .env
-          echo BASE_INTERNAL_URL=http://localhost/ >> .env
+          echo BASE_INTERNAL_URL=http://localhost:8000/ >> .env
           cat .env
 
       - name: "Generate backend client"
@@ -41,19 +41,6 @@ jobs:
         run: |
           npm install
           npm run generate-backend-client
-
-      - name: Install Caddy
-        run: |
-          sudo apt install -y debian-keyring debian-archive-keyring apt-transport-https
-          curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' | sudo gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
-          curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' | sudo tee /etc/apt/sources.list.d/caddy-stable.list
-          sudo apt update
-          sudo apt install caddy
-          caddy stop
-
-      - name: "Caddy"
-        working-directory: ./frontend
-        run: caddy run --config ./Caddyfile
 
       - name: "Rust server"
         working-directory: ./backend
@@ -64,5 +51,5 @@ jobs:
         with:
           working-directory: ./frontend
           start: npm run dev
-          wait-on: http://localhost
+          wait-on: http://localhost:8000
 
