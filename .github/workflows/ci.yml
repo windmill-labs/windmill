@@ -28,9 +28,6 @@ jobs:
         uses: actions/setup-node@v3
         with:
           node-version: '16'
-      - uses: actions-rs/toolchain@v1
-        with:
-          toolchain: stable
       - name: "Create backend env file"
         run: |
           cd ./backend
