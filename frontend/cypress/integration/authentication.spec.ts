@@ -7,13 +7,7 @@ Cypress.on('uncaught:exception', (err, runnable) => {
 
 describe('Authentication', () => {
 	it('can login using email and password', () => {
-		cy.visit(`${Cypress.env('baseUrl')}/user/login`)
-
-		cy.get('#showPassword').click()
-		cy.get('#email').type('admin@windmill.dev')
-		cy.get('#password').type('changeme')
-		cy.get('.flex > .default-button').click()
-
+		cy.login('admin@windmill.dev', 'changeme')
 		cy.contains('Select a workspace')
 	})
 
