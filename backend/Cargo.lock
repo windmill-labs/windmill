@@ -235,7 +235,7 @@ dependencies = [
  "headers",
  "http",
  "http-body 0.4.4",
- "hyper 0.14.18",
+ "hyper 0.14.19",
  "itoa 1.0.2",
  "matchit",
  "memchr",
@@ -885,7 +885,7 @@ checksum = "2406194c5c4be3678bd7c1c128237ec589a6a3b7a3b05786971998bda7693c27"
 dependencies = [
  "futures",
  "http",
- "hyper 0.14.18",
+ "hyper 0.14.19",
  "hyper-tls 0.5.0",
  "igd",
  "log",
@@ -1430,9 +1430,9 @@ dependencies = [
 
 [[package]]
 name = "hyper"
-version = "0.14.18"
+version = "0.14.19"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b26ae0a80afebe130861d90abf98e3814a4f28a4c6ffeb5ab8ebb2be311e0ef2"
+checksum = "42dc3c131584288d375f2d07f822b0cb012d8c6fb899a5b9fdb3cb7eb9b6004f"
 dependencies = [
  "bytes 1.1.0",
  "futures-channel",
@@ -1459,7 +1459,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d87c48c02e0dc5e3b849a2041db3029fd066650f8f717c07bf8ed78ccb895cac"
 dependencies = [
  "http",
- "hyper 0.14.18",
+ "hyper 0.14.19",
  "rustls 0.20.5",
  "tokio 1.18.2",
  "tokio-rustls 0.23.4",
@@ -1471,7 +1471,7 @@ version = "0.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bbb958482e8c7be4bc3cf272a766a2b0bf1a6755e7a6ae777f017a31d11b13b1"
 dependencies = [
- "hyper 0.14.18",
+ "hyper 0.14.19",
  "pin-project-lite 0.2.9",
  "tokio 1.18.2",
  "tokio-io-timeout",
@@ -1497,7 +1497,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d6183ddfa99b85da61a140bea0efc93fdf56ceaa041b37d553518030827f9905"
 dependencies = [
  "bytes 1.1.0",
- "hyper 0.14.18",
+ "hyper 0.14.19",
  "native-tls",
  "tokio 1.18.2",
  "tokio-native-tls",
@@ -2604,9 +2604,9 @@ dependencies = [
 
 [[package]]
 name = "regex"
-version = "1.5.5"
+version = "1.5.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1a11647b6b25ff05a515cb92c365cec08801e83423a235b51e231e1808747286"
+checksum = "d83f127d94bdbcda4c8cc2e50f6f84f4b611f69c902699ca385a39c3a75f9ff1"
 dependencies = [
  "aho-corasick",
  "memchr",
@@ -2624,9 +2624,9 @@ dependencies = [
 
 [[package]]
 name = "regex-syntax"
-version = "0.6.25"
+version = "0.6.26"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f497285884f3fcff424ffc933e56d7cbca511def0c9831a7f9b5f6153e3cc89b"
+checksum = "49b3de9ec5dc0a3417da371aab17d729997c15010e7fd24ff707773a33bddb64"
 
 [[package]]
 name = "remove_dir_all"
@@ -2686,7 +2686,7 @@ dependencies = [
  "h2 0.3.13",
  "http",
  "http-body 0.4.4",
- "hyper 0.14.18",
+ "hyper 0.14.19",
  "hyper-rustls",
  "hyper-tls 0.5.0",
  "ipnet",
@@ -3791,7 +3791,7 @@ dependencies = [
  "h2 0.3.13",
  "http",
  "http-body 0.4.4",
- "hyper 0.14.18",
+ "hyper 0.14.19",
  "hyper-timeout",
  "percent-encoding",
  "pin-project",
@@ -4484,7 +4484,7 @@ dependencies = [
  "git-version",
  "headers",
  "hex",
- "hyper 0.14.18",
+ "hyper 0.14.19",
  "indexmap",
  "itertools 0.10.3",
  "json-pointer",
