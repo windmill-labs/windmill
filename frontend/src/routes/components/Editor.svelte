@@ -21,7 +21,6 @@
 	export let deno = false
 	export let lang = deno ? 'typescript' : 'python'
 	export let code: string
-	export let readOnly = false
 	export let hash: string = (Math.random() + 1).toString(36).substring(2)
 	export let cmdEnterAction: (() => void) | undefined = undefined
 	export let formatAction: (() => void) | undefined = undefined
@@ -30,6 +29,7 @@
 	let websockets: WebSocket[] = []
 	let uri: string = ''
 	let disposeMethod: () => void | undefined
+
 	if (browser) {
 		// @ts-ignore
 		self.MonacoEnvironment = {
@@ -256,7 +256,7 @@
 			value: code,
 			language: lang,
 			automaticLayout,
-			readOnly: readOnly,
+			readOnly: false,
 			autoDetectHighContrast: true,
 			//lineNumbers: 'off',
 			//lineDecorationsWidth: 0,
