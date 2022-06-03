@@ -35,7 +35,6 @@
 		"simple-svelte-autocomplete": "^2.2.4",
 		"stylelint-config-recommended": "^7.0.0",
 		"svelte": "^3.42.6",
-		"svelte-awesome": "^2.4.2",
 		"svelte-check": "^2.2.6",
 		"svelte-highlight": "^6.0.1",
 		"svelte-preprocess": "^4.9.8",
