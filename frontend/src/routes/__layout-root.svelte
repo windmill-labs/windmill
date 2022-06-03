@@ -31,15 +31,6 @@
 		'Connection got disposed.'
 	]
 
-	async function redirectIfLoggedIn(): Promise<void> {
-		try {
-			await UserService.getCurrentEmail()
-			goto('/')
-		} catch {
-			clearStores()
-		}
-	}
-
 	async function loadData() {
 		try {
 			$usersWorkspaceStore = await WorkspaceService.listUserWorkspaces()
@@ -57,16 +48,8 @@
 		}
 	}
 
-	async function handleRedirectionsAndLoadData() {
-		if ($page.url.pathname === '/user/login') {
-			redirectIfLoggedIn()
-		} else {
-			loadData()
-		}
-	}
-
 	onMount(() => {
-		handleRedirectionsAndLoadData()
+		loadData()
 
 		window.onunhandledrejection = (event: PromiseRejectionEvent) => {
 			event.preventDefault()

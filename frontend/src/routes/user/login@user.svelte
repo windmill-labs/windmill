@@ -2,10 +2,11 @@
 	import { goto } from '$app/navigation'
 	import { page } from '$app/stores'
 	import { faGithub } from '@fortawesome/free-brands-svg-icons'
+	import { onMount } from 'svelte'
 	import Icon from 'svelte-awesome'
 	import { slide } from 'svelte/transition'
 	import { UserService, WorkspaceService } from '../../gen'
-	import { userStore, usersWorkspaceStore, workspaceStore } from '../../stores'
+	import { clearStores, userStore, usersWorkspaceStore, workspaceStore } from '../../stores'
 	import { getUser, refreshSuperadmin, sendUserToast } from '../../utils'
 	import CenteredModal from './CenteredModal.svelte'
 
@@ -41,6 +42,15 @@
 			sendUserToast(`Cannot login: ${err.body}`, true)
 		}
 	}
+
+	onMount(async () => {
+		try {
+			await UserService.getCurrentEmail()
+			goto('/')
+		} catch {
+			clearStores()
+		}
+	})
 
 	function handleKeyUp(event: KeyboardEvent) {
 		const key = event.key || event.keyCode
