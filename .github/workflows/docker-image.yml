@@ -102,7 +102,7 @@ jobs:
     steps:
     - uses: actions/checkout@v3
     - name: "Docker"
-      run: echo "::set-output name=id::$(docker run -d -p 8000:8000 --privileged --rm -it -e DATABASE_URL=postgres://admin:changeme@postgres:5432/windmill -e BASE_INTERNAL_URL=http://localhost:8000 ${{ env.LOCAL_REGISTRY }}/${{ env.IMAGE_NAME }}:latest)"
+      run: echo "::set-output name=id::$(docker run -d -p 8000:8000 --privileged --rm -it -e DATABASE_URL=postgres://admin:changeme@0.0.0.0:5432/windmill -e BASE_INTERNAL_URL=http://localhost:8000 ${{ env.LOCAL_REGISTRY }}/${{ env.IMAGE_NAME }}:latest)"
       id: docker-container
     - name: 'Print logs'
       run: docker logs ${{ steps.docker-container.outputs.id }}
@@ -114,4 +114,3 @@ jobs:
     - name: "Clean up"
       run: docker kill ${{ steps.docker-container.outputs.id }}
       if: always()
-      
