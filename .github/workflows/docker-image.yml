@@ -102,7 +102,7 @@ jobs:
     steps:
     - uses: actions/checkout@v3
     - name: "Docker"
-      run: docker run -d -p 8000 --privileged --rm -it -e DATABASE_URL=postgres://admin:changeme@postgres:5432/windmill -e BASE_INTERNAL_URL=http://localhost:8000 ${{ env.LOCAL_REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+      run: docker run -d -p 127.0.0.1:8000:8000 -e BIND_ADDR=0.0.0.0:8000 --privileged --rm -it -e DATABASE_URL=postgres://admin:changeme@postgres:5432/windmill -e BASE_INTERNAL_URL=http://localhost:8000 ${{ env.LOCAL_REGISTRY }}/${{ env.IMAGE_NAME }}:latest
       id: docker-container-id
     - name: "Cypress run"
       uses: cypress-io/github-action@v4
