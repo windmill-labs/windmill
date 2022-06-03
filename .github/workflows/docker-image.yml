@@ -103,9 +103,8 @@ jobs:
       - uses: actions/checkout@v3
       - name: "Docker"
         run: |
-          sleep 10
           docker ps -a
-          echo "::set-output name=id::$(docker run -d -p 8000:8000 --privileged -it -e DATABASE_URL=postgres://admin:changeme@localhost:5432/windmill -e BASE_INTERNAL_URL=http://localhost:8000 ${{ env.LOCAL_REGISTRY }}/${{ env.IMAGE_NAME }}:latest)"
+          echo "::set-output name=id::$(docker run --network=host -d -p 8000:8000 --privileged -it -e DATABASE_URL=postgres://admin:changeme@localhost:5432/windmill -e BASE_INTERNAL_URL=http://localhost:8000 ${{ env.LOCAL_REGISTRY }}/${{ env.IMAGE_NAME }}:latest)"
         id: docker-container
       - name: "Docker logs"
         run: docker logs ${{ steps.docker-container.outputs.id }}
