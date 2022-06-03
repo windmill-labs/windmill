@@ -77,7 +77,37 @@ jobs:
           tags: |
             ${{ steps.metalocal.outputs.tags }}
             ${{ steps.meta.outputs.tags }}
-
+            latest
           labels: ${{ steps.metalocal.outputs.labels }}
           cache-from: type=registry,ref=${{ env.LOCAL_REGISTRY }}/${{ env.IMAGE_NAME }}:buildcache
           cache-to: type=registry,ref=${{ env.LOCAL_REGISTRY }}/${{ env.IMAGE_NAME }}:buildcache,mode=max
+  cypress:
+    runs-on: [self-hosted, new]
+    needs: [build]
+    services:
+      postgres:
+        image: postgres
+        env:
+          POSTGRES_DB: windmill
+          POSTGRES_USER: admin
+          POSTGRES_PASSWORD: changeme
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+    - uses: actions/checkout@v3
+    - name: "Docker"
+      run: docker run -d -p 8000 --privileged --rm -it -e DATABASE_URL=postgres://admin:changeme@localhost:5432/windmill BASE_INTERNAL_URL=http://localhost:8000 windmill:latest
+      id: docker-container-id
+    - name: "Cypress run"
+      uses: cypress-io/github-action@v4
+      with:
+        working-directory: ./frontend
+        wait-on: http://localhost:8000
+    - name: "Clean up"
+      run: docker kill ${{ steps.docker-container-id.outputs.stdout }}
+      if: always()
