@@ -107,6 +107,8 @@ jobs:
     - name: 'Get container IP'
       run: echo "::set-output name=ip::$(docker inspect -f '{{range.NetworkSettings.Networks}}{{.IPAddress}}{{end}}' ${{ steps.docker-container.outputs.id }})"
       id: container-ip
+    - name: 'Print IP'
+      run: echo ${{ steps.container-ip.outputs.ip }}
     - name: "Cypress run"
       uses: cypress-io/github-action@v4
       with:
