@@ -111,7 +111,6 @@ jobs:
       uses: cypress-io/github-action@v4
       with:
         working-directory: ./frontend
-        wait-on: http://${{ steps.container-ip.outputs.ip }}:8000
       env:
         baseUrl: http://${{ steps.container-ip.outputs.ip }}:8000
     - name: "Clean up"
