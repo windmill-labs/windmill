@@ -105,8 +105,8 @@ jobs:
       run: docker run -d -p 8000:8000 --privileged --rm -it -e DATABASE_URL=postgres://admin:changeme@postgres:5432/windmill -e BASE_INTERNAL_URL=http://localhost:8000 ${{ env.LOCAL_REGISTRY }}/${{ env.IMAGE_NAME }}:latest
     #   run: echo "::set-output name=id::$(docker run -d -p 8000:8000 --privileged --rm -it -e DATABASE_URL=postgres://admin:changeme@postgres:5432/windmill -e BASE_INTERNAL_URL=http://localhost:8000 ${{ env.LOCAL_REGISTRY }}/${{ env.IMAGE_NAME }}:latest)"
     #   id: docker-container
-    # - name: "Docker logs"
-    #   run: docker logs --follow --until=30s ${{ steps.docker-container.outputs.id }}
+    - name: "Docker logs"
+      run: docker logs ${{ steps.docker-container.outputs.id }}
     # - name: 'Get container IP'
     #   run: echo "::set-output name=ip::$(docker inspect -f '{{range.NetworkSettings.Networks}}{{.IPAddress}}{{end}}' ${{ steps.docker-container.outputs.id }})"
     #   id: container-ip
