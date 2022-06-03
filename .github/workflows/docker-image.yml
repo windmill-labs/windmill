@@ -77,7 +77,7 @@ jobs:
           tags: |
             ${{ steps.metalocal.outputs.tags }}
             ${{ steps.meta.outputs.tags }}
-            latest
+            windmill:latest
           labels: ${{ steps.metalocal.outputs.labels }}
           cache-from: type=registry,ref=${{ env.LOCAL_REGISTRY }}/${{ env.IMAGE_NAME }}:buildcache
           cache-to: type=registry,ref=${{ env.LOCAL_REGISTRY }}/${{ env.IMAGE_NAME }}:buildcache,mode=max
