@@ -119,7 +119,7 @@ jobs:
         uses: cypress-io/github-action@v4
         with:
           working-directory: ./frontend
-          config: baseUrl=http://${{ steps.container-ip.outputs.ip }}:8000
+          config: baseUrl=http://localhost:8000
       - name: "Clean up"
         run: docker kill ${{ steps.docker-container.outputs.id }}
         if: always()
