@@ -76,7 +76,7 @@ jobs:
           context: .
           push: true
           tags: |
-            windmill:latest
+            ${{ env.LOCAL_REGISTRY }}/${{ env.IMAGE_NAME }}:latest
             ${{ steps.metalocal.outputs.tags }}
             ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.metalocal.outputs.labels }}
