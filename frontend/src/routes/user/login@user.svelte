@@ -85,7 +85,7 @@
 			</p>
 			<label class="block pb-2">
 				<span class="text-gray-700">email</span>
-				<input bind:value={email} class="default-input" />
+				<input bind:value={email} class="default-input" id="email" />
 			</label>
 			<label class="block ">
 				<span class="text-gray-700">password</span>
@@ -95,6 +95,7 @@
 					on:keyup={handleKeyUp}
 					bind:value={password}
 					class="default-input"
+					id="password"
 				/>
 			</label>
 			<div class="flex flex-row-reverse  pt-4">

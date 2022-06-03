@@ -5,4 +5,4 @@ node_modules
 /package
 /src/gen
 CaddyfileRemoteRuben
-
+cypress/videos
