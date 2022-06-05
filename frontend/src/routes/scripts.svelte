@@ -11,7 +11,6 @@
 	} from '@fortawesome/free-solid-svg-icons'
 	import Fuse from 'fuse.js'
 	import Icon from 'svelte-awesome'
-	import { slide } from 'svelte/transition'
 	import type { Script } from '../gen'
 	import { ScriptService } from '../gen'
 	import { superadmin, usernameStore, userStore, workspaceStore } from '../stores'
@@ -166,7 +165,7 @@
 	<input placeholder="Search scripts" bind:value={scriptFilter} class="search-bar mt-2" />
 	<div class="grid grid-cols-1 divide-y">
 		{#each tab == 'all' ? ['personal', 'groups', 'shared', 'community'] : [tab] as sectionTab}
-			<div class="shadow p-4 my-2" transition:slide>
+			<div class="shadow p-4 my-2">
 				{#if sectionTab == 'personal'}
 					<h2 class="">
 						My personal space ({`u/${$usernameStore}`})

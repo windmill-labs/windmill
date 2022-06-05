@@ -24,7 +24,6 @@
 	import { superadmin, usernameStore, userStore, workspaceStore } from '../stores'
 	import CenteredPage from './components/CenteredPage.svelte'
 	import Tabs from './components/Tabs.svelte'
-	import { slide } from 'svelte/transition'
 
 	type Tab = 'all' | 'personal' | 'groups' | 'shared'
 	type Section = [string, FlowW[]]
@@ -129,7 +128,7 @@
 	<input placeholder="Search flows" bind:value={flowFilter} class="search-bar mt-2" />
 	<div class="grid grid-cols-1 divide-y">
 		{#each tab == 'all' ? ['personal', 'groups', 'shared'] : [tab] as sectionTab}
-			<div class="shadow p-4 my-2" transition:slide>
+			<div class="shadow p-4 my-2">
 				{#if sectionTab == 'personal'}
 					<h2 class="">
 						My personal space ({`u/${$usernameStore}`})
