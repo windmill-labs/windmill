@@ -1,5 +1,24 @@
 # Changelog
 
+## [1.9.0](https://github.com/windmill-labs/windmill/compare/v1.8.6...v1.9.0) (2022-06-05)
+
+
+### Features
+
+* update postgres 13->14 in docker-compose ([479a12f](https://github.com/windmill-labs/windmill/commit/479a12f33ca26bfd1b67bcdd24a64ca26cc6bebe))
+
+
+### Bug Fixes
+
+* bypass RLS for admin at init-db.sql ([dc70dfc](https://github.com/windmill-labs/windmill/commit/dc70dfcf74137228955d4f2f2088004cfedbaf73))
+* remove annoying transitions for scripts and flows ([f2348b5](https://github.com/windmill-labs/windmill/commit/f2348b5526bb8197519685cb57049f74c6f3a11d))
+* update monaco language-client for better lsp support ([e905d65](https://github.com/windmill-labs/windmill/commit/e905d65ca624be539fa2e9ed1fb08a8d8af6fa47))
+* update monaco language-client for better lsp support ([9b79cc9](https://github.com/windmill-labs/windmill/commit/9b79cc9870d11cce3ba284208458bb80d53af940))
+* update monaco language-client for better lsp support ([68a3e1b](https://github.com/windmill-labs/windmill/commit/68a3e1b333664e48810d69455837e3449c8236fb))
+* update monaco language-client for better lsp support ([9177173](https://github.com/windmill-labs/windmill/commit/917717373fbdceab5ff36fe7c65fc7a1776a0f22))
+* update monaco language-client for better lsp support ([b61fb6d](https://github.com/windmill-labs/windmill/commit/b61fb6dc302aa8dd5e270bd8c1dd2b1edd4c9907))
+* update monaco language-client for better lsp support ([42aa386](https://github.com/windmill-labs/windmill/commit/42aa386119adc6845081dbe44330efa605395a2e))
+
 ### [1.8.6](https://github.com/windmill-labs/windmill/compare/v1.8.5...v1.8.6) (2022-05-18)
 
 
