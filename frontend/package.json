@@ -1,6 +1,6 @@
 {
 	"name": "windmill",
-	"version": "1.8.6",
+	"version": "1.9.0",
 	"scripts": {
 		"dev": "svelte-kit dev",
 		"build": "svelte-kit build",
