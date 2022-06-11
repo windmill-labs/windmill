@@ -1,12 +1,12 @@
 <script lang="ts">
-	import { workspaceStore } from '../../stores'
+	import { userStore, workspaceStore } from '../../stores'
 
 	import Modal from '../../routes/components/Modal.svelte'
 	import { type Group, GroupService, UserService } from '../../gen'
 	import AutoComplete from 'simple-svelte-autocomplete'
 	import PageHeader from './PageHeader.svelte'
 	import TableCustom from './TableCustom.svelte'
-	import { canWrite, getUser } from '../../utils'
+	import { canWrite } from '../../utils'
 
 	let name = ''
 	let modal: Modal
@@ -22,7 +22,7 @@
 	}
 
 	$: {
-		if (group && $workspaceStore) {
+		if (group && $workspaceStore && userStore) {
 			members = (group.members ?? []).map((x) => {
 				return {
 					name: x,
@@ -49,8 +49,7 @@
 
 	async function loadGroup(): Promise<void> {
 		group = await GroupService.getGroup({ workspace: $workspaceStore!, name })
-		const user = await getUser($workspaceStore!)
-		can_write = canWrite(group.name!, group.extra_perms ?? {}, user)
+		can_write = canWrite(group.name!, group.extra_perms ?? {}, $userStore)
 	}
 </script>
 

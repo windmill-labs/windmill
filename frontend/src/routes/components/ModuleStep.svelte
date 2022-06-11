@@ -8,6 +8,7 @@
 	import ScriptPicker from './ScriptPicker.svelte'
 	import { emptySchema } from '../../utils'
 	import FlowPreview from './FlowPreview.svelte'
+	import { inferArgs } from '../../infer'
 
 	export let flow: Flow
 	export let i: number
@@ -19,16 +20,24 @@
 
 	export async function loadSchema() {
 		if (mod.value.path) {
-			const script = await ScriptService.getScriptByPath({
-				workspace: $workspaceStore!,
-				path: mod.value.path ?? ''
-			})
+			let schema
+			if (mod.value.path.startsWith('hub/')) {
+				const code = await ScriptService.getHubScriptContentByPath({ path: mod.value.path })
+				schema = emptySchema()
+				await inferArgs('deno', code, schema)
+			} else {
+				const script = await ScriptService.getScriptByPath({
+					workspace: $workspaceStore!,
+					path: mod.value.path ?? ''
+				})
+				schema = script.schema
+			}
 			if (
-				JSON.stringify(Object.keys(script.schema?.properties ?? {}).sort()) !=
+				JSON.stringify(Object.keys(schema?.properties ?? {}).sort()) !=
 				JSON.stringify(Object.keys(mod.input_transform).sort())
 			) {
 				let it = {}
-				Object.keys(script.schema?.properties ?? {}).map(
+				Object.keys(schema?.properties ?? {}).map(
 					(x) =>
 						(it[x] = {
 							type: 'static',
@@ -37,7 +46,7 @@
 				)
 				schemaForms[i]?.setArgs(it)
 			}
-			schemas[i] = script.schema ?? emptySchema()
+			schemas[i] = schema ?? emptySchema()
 		} else {
 			schemaForms[i]?.setArgs({})
 			schemas[i] = emptySchema()
@@ -66,7 +75,7 @@
 		</div>
 		<div class="p-10">
 			<h2 class="mb-4">Step script</h2>
-			<ScriptPicker bind:scriptPath={mod.value.path} on:select={loadSchema} />
+			<ScriptPicker allowHub={true} bind:scriptPath={mod.value.path} on:select={loadSchema} />
 			<div class="my-4" />
 			<h2 class="mb-4">Step inputs</h2>
 			<SchemaForm

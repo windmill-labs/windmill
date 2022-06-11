@@ -21,7 +21,7 @@
 	import Tooltip from './components/Tooltip.svelte'
 	import ShareModal from './components/ShareModal.svelte'
 	import SharedBadge from './components/SharedBadge.svelte'
-	import { superadmin, usernameStore, userStore, workspaceStore } from '../stores'
+	import { superadmin, userStore, workspaceStore } from '../stores'
 	import CenteredPage from './components/CenteredPage.svelte'
 	import Tabs from './components/Tabs.svelte'
 
@@ -50,7 +50,7 @@
 		let defaults: string[] = []
 
 		if (tab == 'all' || tab == 'personal') {
-			defaults = defaults.concat(`u/${$usernameStore}`)
+			defaults = defaults.concat(`u/${$userStore?.username}`)
 		}
 		if (tab == 'all' || tab == 'groups') {
 			defaults = defaults.concat($userStore?.groups.map((x) => `g/${x}`) ?? [])
@@ -65,7 +65,7 @@
 	function tabFromPath(path: string) {
 		let t: Tab = 'shared'
 		let path_prefix = path.split('/').slice(0, 2)
-		if (path_prefix[0] == 'u' && path_prefix[1] == $usernameStore) {
+		if (path_prefix[0] == 'u' && path_prefix[1] == $userStore?.username) {
 			t = 'personal'
 		} else if (path_prefix[0] == 'g' && $userStore?.groups.includes(path_prefix[1])) {
 			t = 'groups'
@@ -118,7 +118,7 @@
 	<Tabs
 		tabs={[
 			['all', 'all'],
-			['personal', `personal space (${$usernameStore})`],
+			['personal', `personal space (${$userStore?.username})`],
 			['groups', 'groups'],
 			['shared', 'shared']
 		]}
@@ -131,7 +131,7 @@
 			<div class="shadow p-4 my-2">
 				{#if sectionTab == 'personal'}
 					<h2 class="">
-						My personal space ({`u/${$usernameStore}`})
+						My personal space ({`u/${$userStore?.username}`})
 					</h2>
 					<p class="italic text-xs text-gray-600 mb-4">
 						All flows owned by you (and visible only to you if you do not explicitely share them)

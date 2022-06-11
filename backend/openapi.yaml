@@ -1210,6 +1210,52 @@ paths:
                 items:
                   type: string
 
+  /scripts/hub/list:
+    get:
+      summary: list all available hub scripts
+      operationId: listHubScripts
+      tags:
+        - script
+      responses:
+        "200":
+          description: hub scripts list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    id:
+                      type: number
+                    summary:
+                      type: string
+                    app:
+                      type: string
+                    approved:
+                      type: boolean
+                  required:
+                    - id
+                    - summary
+                    - app
+                    - approved
+
+  /scripts/hub/get/{path}:
+    get:
+      summary: get hub script content by path
+      operationId: getHubScriptContentByPath
+      tags:
+        - script
+      parameters:
+        - $ref: "#/components/parameters/ScriptPath"
+      responses:
+        "200":
+          description: script details
+          content:
+            text/plain:
+              schema:
+                type: string
+
   /w/{workspace}/scripts/list:
     get:
       summary: list all available scripts

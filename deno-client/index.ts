@@ -13,7 +13,7 @@ export {
  */
 export function createConf(): Configuration & { workspace_id: string } {
     const token = Deno.env.get("WM_TOKEN") ?? 'no_token'
-    const base_url = Deno.env.get("BASE_URL") ?? 'http://localhost:8000'
+    const base_url = Deno.env.get("BASE_INTERNAL_URL") ?? 'http://localhost:8000'
     return {
         ...createConfiguration({
             baseServer: new ServerConfiguration(`${base_url}/api`, {}),

@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { canWrite, emptySchema, getUser, sendUserToast } from '../utils'
+	import { canWrite, emptySchema, sendUserToast } from '../utils'
 	import { ResourceService } from '../gen'
 	import type { Resource, ResourceType } from '../gen'
 	import PageHeader from './components/PageHeader.svelte'
@@ -40,16 +40,13 @@
 
 	let resourceEditor: ResourceEditor | undefined
 
-	let user: UserExt | undefined
-	$: user = $userStore
-
 	let shareModal: ShareModal
 
 	async function loadResources(): Promise<void> {
-		const user = await getUser($workspaceStore!)
 		resources = (await ResourceService.listResource({ workspace: $workspaceStore! })).map((x) => {
 			return {
-				canWrite: canWrite(x.path, x.extra_perms!, user) && $workspaceStore! == x.workspace_id,
+				canWrite:
+					canWrite(x.path, x.extra_perms!, $userStore) && $workspaceStore! == x.workspace_id,
 				...x
 			}
 		})
@@ -105,7 +102,7 @@
 	}
 
 	$: {
-		if ($workspaceStore) {
+		if ($workspaceStore && $userStore) {
 			loadResources()
 			loadResourceTypes()
 		}
@@ -245,7 +242,7 @@
 									on:click={() => {
 										handleDeleteResourceType(name)
 									}}
-									disabled={!(user?.is_admin ?? false)}
+									disabled={!($userStore?.is_admin ?? false)}
 								/>
 							{/if}
 						</td>

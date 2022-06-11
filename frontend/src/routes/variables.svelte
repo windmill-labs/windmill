@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { canWrite, getUser, sendUserToast } from '../utils'
+	import { canWrite, sendUserToast } from '../utils'
 	import { VariableService } from '../gen'
 	import type { ListableVariable, ContextualVariable } from '../gen'
 	import Dropdown from './components/Dropdown.svelte'
@@ -9,7 +9,7 @@
 	import ShareModal from './components/ShareModal.svelte'
 	import SharedBadge from './components/SharedBadge.svelte'
 	import VariableEditor from './components/VariableEditor.svelte'
-	import { workspaceStore } from './../stores'
+	import { userStore, workspaceStore } from './../stores'
 	import CenteredPage from './components/CenteredPage.svelte'
 	import Icon from 'svelte-awesome'
 	import { faPlus } from '@fortawesome/free-solid-svg-icons'
@@ -24,10 +24,9 @@
 
 	// If relative, the dropdown is positioned relative to its button
 	async function loadVariables(): Promise<void> {
-		const user = await getUser($workspaceStore!)
 		variables = (await VariableService.listVariable({ workspace: $workspaceStore! })).map((x) => {
 			return {
-				canWrite: canWrite(x.path, x.extra_perms!, user) && x.workspace_id == $workspaceStore,
+				canWrite: canWrite(x.path, x.extra_perms!, $userStore) && x.workspace_id == $workspaceStore,
 				...x
 			}
 		})
@@ -45,7 +44,7 @@
 	}
 
 	$: {
-		if ($workspaceStore) {
+		if ($workspaceStore && $userStore) {
 			loadVariables()
 			loadContextualVariables()
 		}

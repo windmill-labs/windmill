@@ -9,7 +9,7 @@
 	const dispatch = createEventDispatcher()
 </script>
 
-<fieldset class="mt-2 mr-4">
+<fieldset>
 	<legend class="sr-only">{label}</legend>
 	<div class="flex flex-row gap-2">
 		{#each options as [label, val]}

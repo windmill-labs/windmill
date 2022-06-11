@@ -5,7 +5,7 @@
 	import { displayDate, sendUserToast } from '../utils'
 	import { goto } from '$app/navigation'
 	import PageHeader from './components/PageHeader.svelte'
-	import { usernameStore, userStore, workspaceStore } from '../stores'
+	import { userStore, workspaceStore } from '../stores'
 	import TableCustom from './components/TableCustom.svelte'
 	import CenteredPage from './components/CenteredPage.svelte'
 	import Icon from 'svelte-awesome'
@@ -81,9 +81,7 @@
 			loadUsers()
 			loadLogs(username, pageIndex)
 		}
-		if ($usernameStore) {
-			username = $usernameStore
-		}
+		username = $userStore?.username
 	}
 </script>
 

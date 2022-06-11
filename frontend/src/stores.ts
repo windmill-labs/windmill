@@ -1,7 +1,7 @@
 import { browser } from '$app/env'
-import type { Readable } from 'svelte/store'
-import { derived, writable } from 'svelte/store'
+import { writable } from 'svelte/store'
 import type { UserWorkspaceList } from './gen'
+import { getUserExt } from './utils'
 
 export interface UserExt {
 	email: string
@@ -11,27 +11,31 @@ export interface UserExt {
 	groups: string[]
 	pgroups: string[]
 }
+
 let persistedWorkspace = browser && localStorage.getItem('workspace')
 
 export const userStore = writable<UserExt | undefined>(undefined)
-export let workspaceStore = writable<string | undefined>(
+export const workspaceStore = writable<string | undefined>(
 	persistedWorkspace ? String(persistedWorkspace) : undefined
 )
 export const usersWorkspaceStore = writable<UserWorkspaceList | undefined>(undefined)
-export const usernameStore: Readable<string | undefined> = derived(
-	[usersWorkspaceStore, workspaceStore],
-	($values, set) => {
-		set($values[0]?.workspaces.find((x) => x.id == $values[1])?.username)
-	}
-)
 export const superadmin = writable<String | false | undefined>(undefined)
+export const hubScripts = writable<Array<{
+	path: string
+	summary: string
+	approved: boolean
+}> | undefined>(undefined)
 
 if (browser) {
-	workspaceStore.subscribe((workspace) => {
+	workspaceStore.subscribe(async (workspace) => {
 		if (workspace) {
 			localStorage.setItem('workspace', String(workspace))
+			userStore.set(await getUserExt(workspace))
+		} else {
+			userStore.set(undefined)
 		}
 	})
+
 }
 
 export function clearStores(): void {

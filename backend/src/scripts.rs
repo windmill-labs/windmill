@@ -11,7 +11,7 @@ use sql_builder::prelude::*;
 use crate::{
     audit::{audit_log, ActionKind},
     db::{UserDB, DB},
-    error::{Error, JsonResult, Result},
+    error::{to_anyhow, Error, JsonResult, Result},
     jobs, parser,
     users::{owner_to_token_owner, truncate_token, Authed, Tokened},
     utils::{require_admin, Pagination, StripPath},
@@ -41,6 +41,8 @@ pub fn global_service() -> Router {
             post(parse_python_code_to_jsonschema),
         )
         .route("/deno/tojsonschema", post(parse_deno_code_to_jsonschema))
+        .route("/hub/list", get(list_hub_scripts))
+        .route("/hub/get/*path", get(get_hub_script_by_path))
 }
 
 pub fn workspaced_service() -> Router {
@@ -238,6 +240,41 @@ async fn list_scripts(
     let mut tx = user_db.begin(&authed).await?;
     let rows = sqlx::query_as::<_, Script>(&sql).fetch_all(&mut tx).await?;
     tx.commit().await?;
+    Ok(Json(rows))
+}
+
+#[derive(Deserialize, Serialize)]
+struct SearchData {
+    asks: Vec<ScriptSearch>,
+}
+#[derive(Deserialize, Serialize)]
+struct ScriptSearch {
+    id: i32,
+    summary: String,
+    app: String,
+    approved: bool,
+}
+
+async fn list_hub_scripts(
+    Authed {
+        email, username, ..
+    }: Authed,
+) -> JsonResult<Vec<ScriptSearch>> {
+    let http_client = reqwest::ClientBuilder::new()
+        .user_agent("windmill/beta")
+        .build()
+        .map_err(to_anyhow)?;
+    let rows = http_client
+        .get("https://hub.windmill.dev/searchData?approved=true")
+        .header("X-email", email.unwrap_or_else(|| "".to_string()))
+        .header("X-username", username)
+        .send()
+        .await
+        .map_err(to_anyhow)?
+        .json::<SearchData>()
+        .await
+        .map_err(to_anyhow)?
+        .asks;
     Ok(Json(rows))
 }
 
@@ -446,6 +483,34 @@ async fn create_script(
     tx.commit().await?;
 
     Ok((StatusCode::CREATED, format!("{}", hash)))
+}
+
+pub async fn get_hub_script_by_path(
+    Authed {
+        email, username, ..
+    }: Authed,
+    Path(path): Path<StripPath>,
+) -> Result<String> {
+    let path = path
+        .to_path()
+        .strip_prefix("hub/")
+        .ok_or_else(|| Error::BadRequest("Impossible to remove prefix hex".to_string()))?;
+
+    let http_client = reqwest::ClientBuilder::new()
+        .user_agent("windmill/beta")
+        .build()
+        .map_err(to_anyhow)?;
+    let content = http_client
+        .get(format!("https://hub.windmill.dev/raw/{path}.ts"))
+        .header("X-email", email.unwrap_or_else(|| "".to_string()))
+        .header("X-username", username)
+        .send()
+        .await
+        .map_err(to_anyhow)?
+        .text()
+        .await
+        .map_err(to_anyhow)?;
+    Ok(content)
 }
 
 async fn get_script_by_path(

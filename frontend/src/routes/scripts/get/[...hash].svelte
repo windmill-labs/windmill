@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { page } from '$app/stores'
 	import { ScriptService, type Script } from '../../../gen'
-	import { truncateHash, sendUserToast, displayDaysAgo, canWrite, getUser } from '../../../utils'
+	import { truncateHash, sendUserToast, displayDaysAgo, canWrite } from '../../../utils'
 	import Icon from 'svelte-awesome'
 	import {
 		faPlay,
@@ -83,9 +83,9 @@
 			script = await ScriptService.getScriptByPath({ workspace: $workspaceStore!, path: hash })
 			hash = script.hash
 		}
-		const user = await getUser($workspaceStore!)
 		can_write =
-			script.workspace_id == $workspaceStore && canWrite(script.path, script.extra_perms!, user)
+			script.workspace_id == $workspaceStore &&
+			canWrite(script.path, script.extra_perms!, $userStore)
 		if (script.path && script.archived) {
 			const script_by_path = await ScriptService.getScriptByPath({
 				workspace: $workspaceStore!,

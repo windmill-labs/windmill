@@ -30,7 +30,7 @@ class JobStatus(Enum):
 _client: AuthenticatedClient | None = None
 
 def create_client(base_url: str | None = None, token: str | None = None) -> AuthenticatedClient:
-    env_base_url = os.environ.get("BASE_URL")
+    env_base_url = os.environ.get("BASE_INTERNAL_URL")
 
     if env_base_url is not None:
         env_base_url = env_base_url + "/api"
