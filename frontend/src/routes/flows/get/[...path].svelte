@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { page } from '$app/stores'
 	import { FlowService, type Flow } from '../../../gen'
-	import { sendUserToast, displayDaysAgo, canWrite, getUser } from '../../../utils'
+	import { sendUserToast, displayDaysAgo, canWrite } from '../../../utils'
 	import Icon from 'svelte-awesome'
 	import {
 		faPlay,
@@ -17,7 +17,7 @@
 	import github from 'svelte-highlight/styles/github'
 	import Tooltip from '../../components/Tooltip.svelte'
 	import ShareModal from '../../components/ShareModal.svelte'
-	import { workspaceStore } from '../../../stores'
+	import { userStore, workspaceStore } from '../../../stores'
 	import SharedBadge from '../../components/SharedBadge.svelte'
 	import SvelteMarkdown from 'svelte-markdown'
 	import SchemaViewer from '../../components/SchemaViewer.svelte'
@@ -31,7 +31,7 @@
 	let shareModal: ShareModal
 
 	$: {
-		if ($workspaceStore) {
+		if ($workspaceStore && $userStore) {
 			loadFlow(path)
 		}
 	}
@@ -48,8 +48,7 @@
 
 	async function loadFlow(hash: string): Promise<void> {
 		flow = await FlowService.getFlowByPath({ workspace: $workspaceStore!, path })
-		const user = await getUser($workspaceStore!)
-		can_write = canWrite(flow.path, flow.extra_perms!, user)
+		can_write = canWrite(flow.path, flow.extra_perms!, $userStore)
 	}
 </script>
 

@@ -7,7 +7,7 @@
 	import { slide } from 'svelte/transition'
 	import { UserService, WorkspaceService } from '../../gen'
 	import { clearStores, userStore, usersWorkspaceStore, workspaceStore } from '../../stores'
-	import { getUser, refreshSuperadmin, sendUserToast } from '../../utils'
+	import { refreshSuperadmin, sendUserToast } from '../../utils'
 	import CenteredModal from './CenteredModal.svelte'
 
 	let email = $page.url.searchParams.get('email') ?? ''
@@ -28,25 +28,32 @@
 
 			// Once logged in, we can fetch the workspaces
 			$usersWorkspaceStore = await WorkspaceService.listUserWorkspaces()
-			// And the actual user
-			$userStore = await getUser($workspaceStore!)
+			// trigger a reload of the user
+			$workspaceStore = $workspaceStore
 			// Finally, we check whether the user is a superadmin
 			refreshSuperadmin()
+			redirectUser()
+		} catch (err) {
+			sendUserToast(`Cannot login: ${err.body}`, true)
+		}
+	}
 
+	function redirectUser() {
+		if ($workspaceStore) {
 			if (rd) {
 				goto(decodeURI(rd))
 			} else {
-				goto('/user/workspaces')
+				goto('/')
 			}
-		} catch (err) {
-			sendUserToast(`Cannot login: ${err.body}`, true)
+		} else {
+			goto('/user/workspaces')
 		}
 	}
 
 	onMount(async () => {
 		try {
 			await UserService.getCurrentEmail()
-			goto('/')
+			redirectUser()
 		} catch {
 			clearStores()
 		}

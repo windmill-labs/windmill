@@ -69,24 +69,12 @@ export function truncateHash(hash: string): string {
 	}
 }
 
-async function loadStore(workspace: string): Promise<UserExt | undefined> {
+export async function getUserExt(workspace: string): Promise<UserExt | undefined> {
 	try {
 		const user = await UserService.whoami({ workspace })
-		const nuser = mapUserToUserExt(user)
-		userStore.set(nuser)
-		return nuser
+		return mapUserToUserExt(user)
 	} catch (error) {
-		userStore.set(undefined)
 		return undefined
-	}
-}
-
-export async function getUser(workspace: string): Promise<UserExt | undefined> {
-	const user = get(userStore)
-	if (user === undefined) {
-		return loadStore(workspace)
-	} else {
-		return user
 	}
 }
 
@@ -95,27 +83,6 @@ export function logoutWithRedirect(rd?: string): void {
 	goto(`/user/login?error=${error}${rd ? '&rd=' + encodeURIComponent(rd) : ''}`)
 }
 
-export async function handle401<T>(
-	promise: CancelablePromise<T> | Promise<T>,
-	rd?: string
-): Promise<T> {
-	// Redirects to login if the `promise` returns a 401 due to lack of authentication
-	// Optionnally provide `rd`, to which the user will be redirected after logging back in
-
-	return promise.catch(async (error) => {
-		if (error.status === 401) {
-			if (getUser(get(workspaceStore)!) === undefined) {
-				logoutWithRedirect(rd)
-				// eslint-disable-next-line @typescript-eslint/no-explicit-any
-				return null as any
-			} else {
-				throw Error('You do not have enough privilege to access this')
-			}
-		} else {
-			throw error
-		}
-	})
-}
 
 export function sleep(ms: number): Promise<void> {
 	return new Promise((resolve) => setTimeout(resolve, ms))
@@ -141,8 +108,8 @@ export async function refreshSuperadmin(): Promise<void> {
 export async function logout(logoutMessage?: string): Promise<void> {
 	try {
 		clearStores()
-		goto(`/user/login${logoutMessage ? '?error=' + encodeURIComponent(logoutMessage) : ''}`)
 		await UserService.logout()
+		goto(`/user/login${logoutMessage ? '?error=' + encodeURIComponent(logoutMessage) : ''}`)
 		sendUserToast('you have been logged out')
 	} catch (error) {
 		goto(

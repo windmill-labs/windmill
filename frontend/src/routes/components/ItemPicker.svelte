@@ -40,7 +40,7 @@
 		<div class="w-12/12 pb-4">
 			<input placeholder="Search {itemName}" bind:value={itemsFilter} class="search-item" />
 		</div>
-		<ul role="list" class="divide-y divide-gray-200">
+		<ul class="divide-y divide-gray-200">
 			{#each filteredItems as obj}
 				<li
 					class="py-4 px-1 gap-1 flex flex-col hover:bg-white hover:border text-black cursor-pointer"

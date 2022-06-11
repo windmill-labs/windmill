@@ -12,7 +12,7 @@ use sqlx::{query_scalar, Postgres, Transaction};
 use std::collections::HashMap;
 
 use crate::js_eval::eval_timeout;
-use crate::scripts::ScriptLang;
+use crate::scripts::{get_hub_script_by_path, ScriptLang};
 use crate::users::create_token_for_owner;
 use crate::{
     audit::{audit_log, ActionKind},
@@ -167,14 +167,11 @@ pub async fn run_job_by_path(
 ) -> error::Result<(StatusCode, String)> {
     let script_path = script_path.to_path();
     let mut tx = user_db.begin(&authed).await?;
-    let script_hash = get_latest_hash_for_path(&mut tx, &w_id, script_path).await?;
+    let job_payload = script_path_to_payload(script_path, &mut tx, &w_id).await?;
     let (uuid, tx) = push(
         tx,
         &w_id,
-        JobPayload::ScriptHash {
-            hash: script_hash,
-            path: script_path.to_owned(),
-        },
+        job_payload,
         args,
         &authed.username,
         owner_to_token_owner(&authed.username, false),
@@ -186,6 +183,25 @@ pub async fn run_job_by_path(
     .await?;
     tx.commit().await?;
     Ok((StatusCode::CREATED, uuid.to_string()))
+}
+
+async fn script_path_to_payload<'c>(
+    script_path: &str,
+    db: &mut Transaction<'c, Postgres>,
+    w_id: &String,
+) -> Result<JobPayload, Error> {
+    let job_payload = if script_path.starts_with("hub/") {
+        JobPayload::ScriptHub {
+            path: script_path.to_owned(),
+        }
+    } else {
+        let script_hash = get_latest_hash_for_path(db, w_id, script_path).await?;
+        JobPayload::ScriptHash {
+            hash: script_hash,
+            path: script_path.to_owned(),
+        }
+    };
+    Ok(job_payload)
 }
 
 pub async fn get_latest_hash_for_path<'c>(
@@ -816,6 +832,7 @@ enum Job {
 #[serde(rename_all(serialize = "lowercase"))]
 pub enum JobKind {
     Script,
+    Script_Hub,
     Preview,
     Dependencies,
     Flow,
@@ -954,6 +971,9 @@ struct PreviewFlow {
 }
 
 pub enum JobPayload {
+    ScriptHub {
+        path: String,
+    },
     ScriptHash {
         hash: ScriptHash,
         path: String,
@@ -1030,6 +1050,25 @@ pub async fn push<'c>(
                 Some(language),
             )
         }
+        JobPayload::ScriptHub { path } => (
+            None,
+            Some(path.clone()),
+            Some(
+                get_hub_script_by_path(
+                    Authed {
+                        email: Some("".to_string()),
+                        username: user.to_string(),
+                        is_admin: false,
+                        groups: vec![],
+                    },
+                    Path(StripPath(path)),
+                )
+                .await?,
+            ),
+            JobKind::Script_Hub,
+            None,
+            Some(ScriptLang::Deno),
+        ),
         JobPayload::Code(RawCode {
             content,
             path,
@@ -1446,12 +1485,7 @@ async fn push_next_flow_job(
         let mut tx = db.begin().await?;
         let job_payload = match &module.value {
             FlowModuleValue::Script { path: script_path } => {
-                let script_hash =
-                    get_latest_hash_for_path(&mut tx, &job.workspace_id, script_path).await?;
-                JobPayload::ScriptHash {
-                    hash: script_hash,
-                    path: script_path.to_owned(),
-                }
+                script_path_to_payload(script_path, &mut tx, &job.workspace_id).await?
             }
             a @ _ => {
                 tracing::info!("Unrecognized module values {:?}", a);

@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { sendUserToast, truncateHash, displayDate, canWrite, getUser } from '../utils'
+	import { sendUserToast, displayDate, canWrite } from '../utils'
 	import { type Schedule, ScheduleService } from '../gen'
 
 	import PageHeader from './components/PageHeader.svelte'
@@ -15,7 +15,7 @@
 		faToggleOff,
 		faToggleOn
 	} from '@fortawesome/free-solid-svg-icons'
-	import { workspaceStore } from '../stores'
+	import { userStore, workspaceStore } from '../stores'
 	import CenteredPage from './components/CenteredPage.svelte'
 	import Icon from 'svelte-awesome'
 
@@ -26,9 +26,8 @@
 	let shareModal: ShareModal
 
 	async function loadSchedules(): Promise<void> {
-		const user = await getUser($workspaceStore!)
 		schedules = (await ScheduleService.listSchedules({ workspace: $workspaceStore! })).map((x) => {
-			return { canWrite: canWrite(x.path, x.extra_perms!, user), ...x }
+			return { canWrite: canWrite(x.path, x.extra_perms!, $userStore), ...x }
 		})
 	}
 
@@ -46,7 +45,7 @@
 	}
 
 	$: {
-		if ($workspaceStore) {
+		if ($workspaceStore && $userStore) {
 			loadSchedules()
 		}
 	}

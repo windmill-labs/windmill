@@ -345,6 +345,7 @@ async fn handle_job(
         }
     } else {
         let (inner_content, requirements_o, language) = if matches!(job.job_kind, JobKind::Preview)
+            || matches!(job.job_kind, JobKind::Script_Hub)
         {
             let code = (job.raw_code.as_ref().unwrap_or(&"no raw code".to_owned())).to_owned();
             let reqs = if job
@@ -549,7 +550,7 @@ print(res_json)
                 let wrapper_content: String = format!(
                     r#"
 import {{ main }} from "./inner.ts";
-const {{{spread}}}= JSON.parse(`{ser_args}`);
+const {{{spread}}} = JSON.parse(`{ser_args}`);
 
 async function run() {{
     let res: any = await main({spread});

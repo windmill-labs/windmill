@@ -3,15 +3,15 @@
 	import { page } from '$app/stores'
 	import { SvelteToast } from '@zerodevx/svelte-toast'
 	import { onMount } from 'svelte'
-	import { UserService, WorkspaceService } from '../gen'
+	import { WorkspaceService } from '../gen'
+	import { superadmin, userStore, usersWorkspaceStore, workspaceStore } from '../stores'
 	import {
-		clearStores,
-		superadmin,
-		usernameStore,
-		usersWorkspaceStore,
-		workspaceStore
-	} from '../stores'
-	import { getUser, logout, logoutWithRedirect, refreshSuperadmin, sendUserToast } from '../utils'
+		getUserExt,
+		logout,
+		logoutWithRedirect,
+		refreshSuperadmin,
+		sendUserToast
+	} from '../utils'
 
 	// Default toast options
 	const toastOptions = {
@@ -31,15 +31,20 @@
 		'Connection got disposed.'
 	]
 
-	async function loadData() {
+	async function loadUser() {
 		try {
 			$usersWorkspaceStore = await WorkspaceService.listUserWorkspaces()
 			await refreshSuperadmin()
 
-			if ($workspaceStore && $usernameStore) {
-				await getUser($workspaceStore)
-			} else if ($superadmin) {
-				console.log('You are a superadmin, you can go wherever you please')
+			if ($workspaceStore) {
+				if ($userStore) {
+					console.log(`Welcome ${$userStore.email}`)
+				} else if ($superadmin) {
+					console.log('You are a superadmin, you can go wherever you please')
+				} else {
+					$userStore = await getUserExt($workspaceStore)
+					throw Error('Not logged in')
+				}
 			} else {
 				goto('/user/workspaces')
 			}
@@ -49,7 +54,7 @@
 	}
 
 	onMount(() => {
-		loadData()
+		loadUser()
 
 		window.onunhandledrejection = (event: PromiseRejectionEvent) => {
 			event.preventDefault()

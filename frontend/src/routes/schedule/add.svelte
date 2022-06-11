@@ -21,6 +21,9 @@
 
 	let script_path = $page.url.searchParams.get('path') || ''
 	let is_flow = $page.url.searchParams.get('isFlow') == 'true'
+	let itemKind: 'flow' | 'script' = is_flow ? 'flow' : 'script'
+
+	$: is_flow = itemKind == 'flow'
 
 	let runnable: Script | Flow | undefined
 	let args: Record<string, any> = {}
@@ -163,7 +166,7 @@
 		<p class="text-xs text-gray-600">
 			Pick a script or flow to be triggered by the schedule<Required required={true} />
 		</p>
-		<ScriptPicker allowFlow={true} bind:isFlow={is_flow} bind:scriptPath={script_path} />
+		<ScriptPicker allowFlow={true} bind:itemKind bind:scriptPath={script_path} />
 		<div class="max-w-5xl {edit ? '' : 'mt-2 md:mt-6'}">
 			<h2>Arguments</h2>
 			{#if runnable}

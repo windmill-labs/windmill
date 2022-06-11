@@ -20,11 +20,15 @@ pub struct Pagination {
     pub per_page: Option<usize>,
 }
 #[derive(Deserialize)]
-pub struct StripPath(String);
+pub struct StripPath(pub String);
 
 impl StripPath {
     pub fn to_path(&self) -> &str {
-        self.0.strip_prefix('/').unwrap()
+        if self.0.starts_with('/') {
+            self.0.strip_prefix('/').unwrap()
+        } else {
+            &self.0
+        }
     }
 }
 

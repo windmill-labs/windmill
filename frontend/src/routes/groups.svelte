@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { canWrite, getUser } from '../utils'
+	import { canWrite } from '../utils'
 	import { GroupService } from '../gen'
 	import type { Group } from '../gen'
 
@@ -9,7 +9,7 @@
 	import ShareModal from './components/ShareModal.svelte'
 	import SharedBadge from './components/SharedBadge.svelte'
 	import { faEdit, faPlus, faShare } from '@fortawesome/free-solid-svg-icons'
-	import { workspaceStore } from '../stores'
+	import { userStore, workspaceStore } from '../stores'
 	import CenteredPage from './components/CenteredPage.svelte'
 	import Icon from 'svelte-awesome'
 	import GroupModal from './components/GroupModal.svelte'
@@ -22,9 +22,8 @@
 	let groupModal: GroupModal
 
 	async function loadGroups(): Promise<void> {
-		const user = await getUser($workspaceStore!)
 		groups = (await GroupService.listGroups({ workspace: $workspaceStore! })).map((x) => {
-			return { canWrite: canWrite(x.name, x.extra_perms ?? {}, user), ...x }
+			return { canWrite: canWrite(x.name, x.extra_perms ?? {}, $userStore), ...x }
 		})
 	}
 
@@ -44,7 +43,7 @@
 	}
 
 	$: {
-		if ($workspaceStore) {
+		if ($workspaceStore && $userStore) {
 			loadGroups()
 		}
 	}

@@ -21,14 +21,8 @@
 	import { onMount } from 'svelte'
 	import Icon from 'svelte-awesome'
 	import '../app.css'
-	import { OpenAPI } from '../gen'
-	import {
-		superadmin,
-		usernameStore,
-		userStore,
-		usersWorkspaceStore,
-		workspaceStore
-	} from '../stores'
+	import { OpenAPI, ScriptService } from '../gen'
+	import { hubScripts, superadmin, userStore, usersWorkspaceStore, workspaceStore } from '../stores'
 	import { clickOutside, logout } from '../utils'
 
 	OpenAPI.WITH_CREDENTIALS = true
@@ -56,10 +50,20 @@
 		workspacePickerOpen = false
 	}
 
+	async function loadSearchData() {
+		const scripts = await ScriptService.listHubScripts()
+		$hubScripts = scripts.map((x) => ({
+			path: `hub/${x.id}/${x.summary.toLowerCase().replaceAll(/\s+/g, '_')}`,
+			summary: `${x.summary} (${x.app})`,
+			approved: x.approved
+		}))
+	}
+
 	onMount(() => {
 		isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent)
 		//Mobile
 		isCollapsed = isMobile
+		loadSearchData()
 	})
 </script>
 
@@ -179,7 +183,7 @@
 						<div class="mx-auto">
 							<span class:hidden={isCollapsed} class="px-2 font-mono text-xs whitespace-nowrap">
 								<Icon class="text-white" data={faUser} scale={0.6} />
-								{$usernameStore ?? $superadmin ?? '___'}
+								{$userStore?.username ?? $superadmin ?? '___'}
 								{#if $userStore?.is_admin}
 									<Icon class="text-white" data={faCrown} scale={0.6} />
 								{/if}
