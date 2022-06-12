@@ -23,11 +23,11 @@ services:
     privileged: true
     restart: unless-stopped
     ports:
-      - 8000:8000
+      - 80:8000
     environment:
       - DATABASE_URL=postgres://postgres:${DB_PASSWORD}@db/windmill?sslmode=disable
       - APP_USER_PASSWORD=changeme
-      - BASE_URL=https://${SITE_URL}
+      - BASE_URL=http://localhost
       - BASE_INTERNAL_URL=http://localhost:8000
       - RUST_LOG=info
       - NUM_WORKERS=3
@@ -38,20 +38,6 @@ services:
     depends_on:
       db:
         condition: service_healthy
-
-  caddy:
-    image: caddy
-    restart: unless-stopped
-    environment:
-      - SITE_URL=${SITE_URL}
-    ports:
-      - 80:80
-      - 443:443
-    volumes:
-      - $PWD/Caddyfile:/etc/caddy/Caddyfile
-      - caddy_data:/data
-
 volumes:
-  caddy_data:
-    external: true
+
   db_data: null
