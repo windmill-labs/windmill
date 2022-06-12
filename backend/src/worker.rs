@@ -395,18 +395,15 @@ async fn handle_job(
                     &NSJAIL_CONFIG_DOWNLOAD_CONTENT
                         .replace("{JOB_DIR}", &job_dir)
                         .replace("{WORKER_DIR}", &worker_dir)
-                        .replace("{CACHE_DIR}", PIP_CACHE_DIR),
+                        .replace("{CACHE_DIR}", PIP_CACHE_DIR)
+                        .replace("{CLONE_NEWUSER}", &(!disable_nuser).to_string()),
                 )
                 .await?;
                 let _ = write_file(&job_dir, "requirements.txt", &requirements).await?;
 
-                let mut args = vec!["--config", "download.config.proto"];
-                if disable_nuser {
-                    args.insert(0, "--disable_clone_newuser")
-                }
                 let child = Command::new("nsjail")
                     .current_dir(&job_dir)
-                    .args(args)
+                    .args(vec!["--config", "download.config.proto"])
                     .stdout(Stdio::piped())
                     .stderr(Stdio::piped())
                     .spawn()?;
@@ -499,25 +496,23 @@ print(res_json)
                     let _ = write_file(
                         &job_dir,
                         "run.config.proto",
-                        &NSJAIL_CONFIG_RUN_PYTHON3_CONTENT.replace("{JOB_DIR}", &job_dir),
+                        &NSJAIL_CONFIG_RUN_PYTHON3_CONTENT
+                            .replace("{JOB_DIR}", &job_dir)
+                            .replace("{CLONE_NEWUSER}", &(!disable_nuser).to_string()),
                     )
                     .await?;
 
-                    let mut args = vec![
-                        "--config",
-                        "run.config.proto",
-                        "--",
-                        "/usr/local/bin/python3",
-                        "-u",
-                        "/tmp/main.py",
-                    ];
-                    if disable_nuser {
-                        args.insert(0, "--disable_clone_newuser")
-                    }
                     let child = Command::new("nsjail")
                         .current_dir(&job_dir)
                         .envs(reserved_variables)
-                        .args(args)
+                        .args(vec![
+                            "--config",
+                            "run.config.proto",
+                            "--",
+                            "/usr/local/bin/python3",
+                            "-u",
+                            "/tmp/main.py",
+                        ])
                         .stdout(Stdio::piped())
                         .stderr(Stdio::piped())
                         .spawn()?;
@@ -607,27 +602,24 @@ run();
                     "run.config.proto",
                     &NSJAIL_CONFIG_RUN_DENO_CONTENT
                         .replace("{JOB_DIR}", &job_dir)
-                        .replace("{CACHE_DIR}", DENO_CACHE_DIR),
+                        .replace("{CACHE_DIR}", DENO_CACHE_DIR)
+                        .replace("{CLONE_NEWUSER}", &(!disable_nuser).to_string()),
                 )
                 .await?;
 
-                let mut args = vec![
-                    "--config",
-                    "run.config.proto",
-                    "--",
-                    "/usr/bin/deno",
-                    "run",
-                    "--v8-flags=--max-heap-size=2048",
-                    "-A",
-                    "/tmp/main.ts",
-                ];
-                if disable_nuser {
-                    args.insert(0, "--disable_clone_newuser")
-                }
                 let child = Command::new("nsjail")
                     .current_dir(&job_dir)
                     .envs(reserved_variables)
-                    .args(args)
+                    .args(vec![
+                        "--config",
+                        "run.config.proto",
+                        "--",
+                        "/usr/bin/deno",
+                        "run",
+                        "--v8-flags=--max-heap-size=2048",
+                        "-A",
+                        "/tmp/main.ts",
+                    ])
                     .stdout(Stdio::piped())
                     .stderr(Stdio::piped())
                     .spawn()?;
