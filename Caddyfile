@@ -1,4 +1,0 @@
-:80 {  
-  bind {$ADDRESS}
-  reverse_proxy /* windmill:8000
-}
