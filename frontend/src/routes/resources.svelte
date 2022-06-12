@@ -73,7 +73,7 @@
 			await ResourceService.createResourceType({
 				workspace: $workspaceStore!,
 				requestBody: {
-					name: newResourceTypeName,
+					name: 'c_' + newResourceTypeName,
 					schema: newResourceTypeSchema,
 					description: newResourceTypeDescription
 				}
@@ -273,11 +273,19 @@
 		{#if typeModalMode === 'create'}
 			<label
 				><h3 class="font-semibold text-gray-700">Name<Required required={true} /></h3>
-				<input bind:value={newResourceTypeName} /></label
-			>
+				<div>
+					<span
+						class="border border-gray-700 rounded p-1 -mr-4 text-sm bg-gray-200 inline-block w-8"
+						>c_</span
+					>
+					<div class="inline-block">
+						<input type="text" bind:value={newResourceTypeName} />
+					</div>
+				</div>
+			</label>
 			<label
 				><h3 class="mt-4 font-semibold text-gray-700">Description</h3>
-				<input bind:value={newResourceTypeDescription} /></label
+				<input type="text" bind:value={newResourceTypeDescription} /></label
 			>
 			<!-- svelte-ignore a11y-label-has-associated-control -->
 			<!-- <label>Schema <AutosizedTextarea minRows={10} bind:value={newResourceTypeSchema} /></label> -->
@@ -297,6 +305,3 @@
 		{/if}
 	</div></Modal
 >
-
-<style>
-</style>
