@@ -14,6 +14,8 @@ cwd: "/tmp"
 
 
 clone_newnet: false
+clone_newuser: {CLONE_NEWUSER}
+
 keep_caps: false
 keep_env: true
 mount_proc: true
