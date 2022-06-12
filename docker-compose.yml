@@ -34,6 +34,7 @@ services:
       - RUST_BACKTRACE=1
       - GITHUB_OAUTH_CLIENT_ID=${GITHUB_OAUTH_CLIENT_ID}
       - GITHUB_OAUTH_CLIENT_SECRET=${GITHUB_OAUTH_CLIENT_SECRET}
+      - DISABLE_NUSER=false
 
     depends_on:
       db:

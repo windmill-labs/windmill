@@ -107,6 +107,9 @@ Windmill is <b>fully open-sourced</b>:
 `docker compose up` with the following docker-compose is sufficient:
 <https://github.com/windmill-labs/windmill/blob/main/docker-compose.yml>
 
+For older kernels < 4.18, set DISABLE_NUSER to true otherwise nsjail will not be
+able to launch the isolated scripts.
+
 The default super-admin user is: admin@windmill.dev / changeme
 
 From there, you can create other users (do not forget to change the password!)

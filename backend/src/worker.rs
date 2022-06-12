@@ -64,6 +64,7 @@ pub async fn run_worker(
     ip: &str,
     sleep_queue: u64,
     base_url: &str,
+    disable_nuser: bool,
     tx: tokio::sync::broadcast::Sender<()>,
 ) {
     let worker_dir = format!("{TMP_DIR}/{worker_name}");
@@ -106,10 +107,17 @@ pub async fn run_worker(
 
                 tracing::info!(worker = %worker_name, id = %job.id, "Fetched job");
                 let job2 = job.clone();
-                if let Some(err) =
-                    handle_queued_job(job, db, timeout, &worker_name, &worker_dir, base_url)
-                        .await
-                        .err()
+                if let Some(err) = handle_queued_job(
+                    job,
+                    db,
+                    timeout,
+                    &worker_name,
+                    &worker_dir,
+                    base_url,
+                    disable_nuser,
+                )
+                .await
+                .err()
                 {
                     let err_string = err.to_string().clone();
                     let _ = add_completed_job_error(
@@ -161,6 +169,7 @@ async fn handle_queued_job(
     worker_name: &str,
     worker_dir: &str,
     base_url: &str,
+    disable_nuser: bool,
 ) -> crate::error::Result<()> {
     let job_id = job.id;
     let w_id = &job.workspace_id.clone();
@@ -197,6 +206,7 @@ async fn handle_queued_job(
                 &mut logs,
                 &mut last_line,
                 base_url,
+                disable_nuser,
             )
             .await;
 
@@ -272,6 +282,7 @@ async fn handle_job(
     mut logs: &mut String,
     mut last_line: &mut String,
     base_url: &str,
+    disable_nuser: bool,
 ) -> Result<JobResult, Error> {
     tracing::info!(
         worker = %worker_name,
@@ -389,9 +400,13 @@ async fn handle_job(
                 .await?;
                 let _ = write_file(&job_dir, "requirements.txt", &requirements).await?;
 
+                let mut args = vec!["--config", "download.config.proto"];
+                if disable_nuser {
+                    args.insert(0, "--disable_clone_newuser")
+                }
                 let child = Command::new("nsjail")
                     .current_dir(&job_dir)
-                    .args(vec!["--config", "download.config.proto"])
+                    .args(args)
                     .stdout(Stdio::piped())
                     .stderr(Stdio::piped())
                     .spawn()?;
@@ -488,17 +503,21 @@ print(res_json)
                     )
                     .await?;
 
+                    let mut args = vec![
+                        "--config",
+                        "run.config.proto",
+                        "--",
+                        "/usr/local/bin/python3",
+                        "-u",
+                        "/tmp/main.py",
+                    ];
+                    if disable_nuser {
+                        args.insert(0, "--disable_clone_newuser")
+                    }
                     let child = Command::new("nsjail")
                         .current_dir(&job_dir)
                         .envs(reserved_variables)
-                        .args(vec![
-                            "--config",
-                            "run.config.proto",
-                            "--",
-                            "/usr/local/bin/python3",
-                            "-u",
-                            "/tmp/main.py",
-                        ])
+                        .args(args)
                         .stdout(Stdio::piped())
                         .stderr(Stdio::piped())
                         .spawn()?;
@@ -592,19 +611,23 @@ run();
                 )
                 .await?;
 
+                let mut args = vec![
+                    "--config",
+                    "run.config.proto",
+                    "--",
+                    "/usr/bin/deno",
+                    "run",
+                    "--v8-flags=--max-heap-size=2048",
+                    "-A",
+                    "/tmp/main.ts",
+                ];
+                if disable_nuser {
+                    args.insert(0, "--disable_clone_newuser")
+                }
                 let child = Command::new("nsjail")
                     .current_dir(&job_dir)
                     .envs(reserved_variables)
-                    .args(vec![
-                        "--config",
-                        "run.config.proto",
-                        "--",
-                        "/usr/bin/deno",
-                        "run",
-                        "--v8-flags=--max-heap-size=2048",
-                        "-A",
-                        "/tmp/main.ts",
-                    ])
+                    .args(args)
                     .stdout(Stdio::piped())
                     .stderr(Stdio::piped())
                     .spawn()?;

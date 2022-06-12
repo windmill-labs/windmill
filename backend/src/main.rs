@@ -66,7 +66,14 @@ async fn main() -> anyhow::Result<()> {
                     .ok()
                     .and_then(|x| x.parse::<u64>().ok())
                     .unwrap_or(windmill::DEFAULT_SLEEP_QUEUE);
+                let disable_nuser = std::env::var("DISABLE_NUSER")
+                    .ok()
+                    .and_then(|x| x.parse::<bool>().ok())
+                    .unwrap_or(false);
 
+                tracing::info!(
+                    "DISABLE_NUSER: {disable_nuser}, BASE_URL: {base_url}, SLEEP_QUEUE: {sleep_queue}, NUM_WORKERS: {num_workers}, TIMEOUT: {timeout}"
+                );
                 windmill::run_workers(
                     db.clone(),
                     addr,
@@ -74,6 +81,7 @@ async fn main() -> anyhow::Result<()> {
                     num_workers,
                     sleep_queue,
                     base_url,
+                    disable_nuser,
                     tx.clone(),
                 )
                 .await?;
