@@ -39,7 +39,7 @@ def create_client(base_url: str | None = None, token: str | None = None) -> Auth
     token_ : str = token or os.environ.get("WM_TOKEN") or ""
     global _client
     if _client is None:
-        _client = AuthenticatedClient(base_url=base_url_, token=token_, timeout=30, verify_ssl=False)
+        _client = AuthenticatedClient(base_url=base_url_, token=token_, timeout=30)
     return _client
 
 def get_workspace() -> str:
