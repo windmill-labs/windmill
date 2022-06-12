@@ -108,6 +108,5 @@ mount {
 exec_bin {
  	path: "/bin/sh"
  	arg: "/download_deps.sh"
- 	exec_fd: true
 }
 
