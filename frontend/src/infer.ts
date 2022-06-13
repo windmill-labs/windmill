@@ -31,7 +31,7 @@ export async function inferArgs(
 			} else {
 				schema.properties[arg.name] = oldProperties[arg.name]
 			}
-			pythonToJsonSchemaType(arg.typ, schema.properties[arg.name])
+			argSigToJsonSchemaType(arg.typ, schema.properties[arg.name])
 			schema.properties[arg.name].default = arg.default
 
 			if (!arg.has_default) {
@@ -44,7 +44,7 @@ export async function inferArgs(
 	}
 }
 
-function pythonToJsonSchemaType(t: string, s: SchemaProperty): void {
+function argSigToJsonSchemaType(t: string | { resourcetype: string }, s: SchemaProperty): void {
 	if (t === 'int') {
 		s.type = 'integer'
 	} else if (t === 'float') {
@@ -63,6 +63,9 @@ function pythonToJsonSchemaType(t: string, s: SchemaProperty): void {
 	} else if (t === 'datetime') {
 		s.type = 'string'
 		s.format = 'date-time'
+	} else if (typeof t !== 'string' && t.resourcetype != undefined) {
+		s.type = 'object'
+		s.format = `resource-${t.resourcetype}`
 	} else {
 		s.type = undefined
 	}
