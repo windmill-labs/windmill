@@ -78,6 +78,7 @@
 	itemName={itemKind == 'flow' ? 'Flow' : 'Script'}
 	extraField="summary"
 	loadItems={async () => {
+		await loadItems()
 		return items
 	}}
 />
