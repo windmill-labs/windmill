@@ -7,6 +7,11 @@ export {
     UserApi, WorkspaceApi
 } from './windmill-api/index.ts'
 
+export type string_regex<S extends string> = String
+export type string_email = String
+
+export type ResourceType<S extends string> = {}
+
 /**
  * Create a client configuration from env variables
  * @returns client configuration

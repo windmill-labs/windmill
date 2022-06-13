@@ -3117,8 +3117,15 @@ components:
               name:
                 type: string
               typ:
-                type: string
-                enum: ["str", "float", "int", "bool", "unknown"]
+                oneOf:
+                  - type: string
+                    enum: ["str", "float", "int", "bool", "unknown"]
+                  - type: object
+                    properties:
+                      resourcetype:
+                        type: string
+                    required:
+                      - resourcetype
               has_default:
                 type: boolean
               default: {}

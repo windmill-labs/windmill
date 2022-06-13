@@ -36,6 +36,7 @@ pub enum Typ {
     List,
     Bytes,
     Datetime,
+    ResourceType(String),
     Unknown,
 }
 
@@ -119,7 +120,7 @@ use swc_common::sync::Lrc;
 use swc_common::{FileName, SourceMap};
 use swc_ecma_ast::{
     AssignPat, BindingIdent, Decl, ExportDecl, FnDecl, Ident, ModuleDecl, ModuleItem, Pat,
-    TsKeywordTypeKind, TsType,
+    TsEntityName, TsKeywordTypeKind, TsType, TsTypeRef,
 };
 use swc_ecma_parser::{lexer::Lexer, Parser, StringInput, Syntax, TsConfig};
 
@@ -239,6 +240,33 @@ fn binding_ident_to_arg(
                 },
                 // TODO: we can do better here and extract the inner type of array
                 TsType::TsArrayType(_) => Typ::List,
+                TsType::TsTypeRef(TsTypeRef {
+                    span: _,
+                    type_name:
+                        TsEntityName::Ident(Ident {
+                            span: _,
+                            sym,
+                            optional: _,
+                        }),
+                    type_params,
+                }) => {
+                    println!("N{sym:?}\nP{type_params:?}");
+                    match sym.to_string().as_str() {
+                        "ResourceType" => Typ::ResourceType(
+                            type_params
+                                .as_ref()
+                                .and_then(|x| {
+                                    x.params.get(0).and_then(|y| {
+                                        y.as_ts_lit_type().and_then(|z| {
+                                            z.lit.as_str().map(|a| a.to_owned().value.to_string())
+                                        })
+                                    })
+                                })
+                                .unwrap_or_else(|| "unknown".to_string()),
+                        ),
+                        _ => Typ::Unknown,
+                    }
+                }
                 _ => Typ::Unknown,
             })
             .unwrap_or(Typ::Unknown),
@@ -724,7 +752,8 @@ def main():
     fn test_parse_deno_sig() -> anyhow::Result<()> {
         let code = "
 
-export function main(test1: string, test2: string = \"burkina\") {
+export function main(test1: string, test2: string = \"burkina\",
+    test3: ResourceType<'rt'>, email: email_string) {
     console.log(42)
 }
 
