@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.12.0](https://github.com/windmill-labs/windmill/compare/v1.11.0...v1.12.0) (2022-06-14)
+
+
+### Features
+
+* add ResourceType<'name'> as deno signature arg type ([e127d2f](https://github.com/windmill-labs/windmill/commit/e127d2f79ffc9caf0f81ad176522f68113cf0781))
+
+
+### Bug Fixes
+
+* more flexible ResourceType MainArgSignature parser ([359ef15](https://github.com/windmill-labs/windmill/commit/359ef15fa2a9024507a71f2c656373925fba3ebe))
+* rename ResourceType -> Resource ([28b5671](https://github.com/windmill-labs/windmill/commit/28b56714023ea69a20f003e08f6c40de64202ac5))
+
 ## [1.11.0](https://github.com/windmill-labs/windmill/compare/v1.10.1...v1.11.0) (2022-06-13)
 
 
