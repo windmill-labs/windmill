@@ -242,17 +242,19 @@ fn binding_ident_to_arg(
                 TsType::TsArrayType(_) => Typ::List,
                 TsType::TsTypeRef(TsTypeRef {
                     span: _,
-                    type_name:
+                    type_name,
+                    type_params,
+                }) => {
+                    let sym = match type_name {
                         TsEntityName::Ident(Ident {
                             span: _,
                             sym,
                             optional: _,
-                        }),
-                    type_params,
-                }) => {
-                    println!("N{sym:?}\nP{type_params:?}");
-                    match sym.to_string().as_str().split(".").last() {
-                        Some("ResourceType") => Typ::ResourceType(
+                        }) => sym,
+                        TsEntityName::TsQualifiedName(p) => &*p.right.sym,
+                    };
+                    match sym.to_string().as_str() {
+                        "ResourceType" => Typ::ResourceType(
                             type_params
                                 .as_ref()
                                 .and_then(|x| {
@@ -753,7 +755,7 @@ def main():
         let code = "
 
 export function main(test1: string, test2: string = \"burkina\",
-    test3: ResourceType<'rt'>, email: email_string) {
+    test3: wmill.ResourceType<'rt'>, email: email_string) {
     console.log(42)
 }
 
