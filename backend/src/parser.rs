@@ -251,8 +251,8 @@ fn binding_ident_to_arg(
                     type_params,
                 }) => {
                     println!("N{sym:?}\nP{type_params:?}");
-                    match sym.to_string().as_str() {
-                        "ResourceType" => Typ::ResourceType(
+                    match sym.to_string().as_str().split(".").last() {
+                        Some("ResourceType") => Typ::ResourceType(
                             type_params
                                 .as_ref()
                                 .and_then(|x| {
