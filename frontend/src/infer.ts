@@ -44,7 +44,7 @@ export async function inferArgs(
 	}
 }
 
-function argSigToJsonSchemaType(t: string | { resourcetype: string }, s: SchemaProperty): void {
+function argSigToJsonSchemaType(t: string | { resource: string }, s: SchemaProperty): void {
 	if (t === 'int') {
 		s.type = 'integer'
 	} else if (t === 'float') {
@@ -63,9 +63,9 @@ function argSigToJsonSchemaType(t: string | { resourcetype: string }, s: SchemaP
 	} else if (t === 'datetime') {
 		s.type = 'string'
 		s.format = 'date-time'
-	} else if (typeof t !== 'string' && t.resourcetype != undefined) {
+	} else if (typeof t !== 'string' && t.resource != undefined) {
 		s.type = 'object'
-		s.format = `resource-${t.resourcetype}`
+		s.format = `resource-${t.resource}`
 	} else {
 		s.type = undefined
 	}

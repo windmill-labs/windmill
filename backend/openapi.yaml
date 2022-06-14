@@ -3122,10 +3122,10 @@ components:
                     enum: ["str", "float", "int", "bool", "unknown"]
                   - type: object
                     properties:
-                      resourcetype:
+                      resource:
                         type: string
                     required:
-                      - resourcetype
+                      - resource
               has_default:
                 type: boolean
               default: {}
