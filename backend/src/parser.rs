@@ -36,7 +36,7 @@ pub enum Typ {
     List,
     Bytes,
     Datetime,
-    ResourceType(String),
+    Resource(String),
     Unknown,
 }
 
@@ -254,7 +254,7 @@ fn binding_ident_to_arg(
                         TsEntityName::TsQualifiedName(p) => &*p.right.sym,
                     };
                     match sym.to_string().as_str() {
-                        "ResourceType" => Typ::ResourceType(
+                        "Resource" => Typ::Resource(
                             type_params
                                 .as_ref()
                                 .and_then(|x| {
@@ -755,7 +755,7 @@ def main():
         let code = "
 
 export function main(test1: string, test2: string = \"burkina\",
-    test3: wmill.ResourceType<'rt'>, email: email_string) {
+    test3: wmill.Resource<'postgres'>, email: email_string) {
     console.log(42)
 }
 

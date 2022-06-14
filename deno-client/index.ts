@@ -10,7 +10,7 @@ export {
 export type string_regex<S extends string> = String
 export type string_email = String
 
-export type ResourceType<S extends string> = {}
+export type Resource<S extends string> = {}
 
 /**
  * Create a client configuration from env variables
