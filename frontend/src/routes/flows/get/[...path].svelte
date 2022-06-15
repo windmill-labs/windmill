@@ -174,8 +174,8 @@
 					by clicking your username on the top-left.</Tooltip
 				>
 				<pre><code
-						><a href="/api/w/{$workspaceStore}/jobs/run/p/{flow?.path}"
-							>/api/w/{$workspaceStore}/jobs/run/p/{flow?.path}</a
+						><a href="/api/w/{$workspaceStore}/jobs/run/f/{flow?.path}"
+							>/api/w/{$workspaceStore}/jobs/run/f/{flow?.path}</a
 						></code
 					></pre>
 			</div>

@@ -130,8 +130,7 @@
 		title="Contextual Variables"
 		tooltip="
 			Contextual variables are utility variables passed to your environment when running a script
-			and depends on the execution context. Variables cannot use a reseved variable name. Most
-			reserved variables values are context-dependent of the script they are running in."
+			and depends on the execution context. Variables cannot use a reseved variable name."
 		primary={false}
 	/>
 
