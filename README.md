@@ -82,7 +82,7 @@ Windmill is <b>fully open-sourced</b>:
 ## Stack
 
 - postgres as the database
-- backend in Rust with the follwing highly-available and horizontally scalable
+- backend in Rust with the following highly-available and horizontally scalable
   architecture:
   - stateless API backend
   - workers that pull jobs from a queue
