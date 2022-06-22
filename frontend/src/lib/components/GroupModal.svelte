@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { userStore, workspaceStore } from '../../stores'
 
-	import Modal from '../../routes/components/Modal.svelte'
+	import Modal from './Modal.svelte'
 	import { type Group, GroupService, UserService } from '../../gen'
 	import AutoComplete from 'simple-svelte-autocomplete'
 	import PageHeader from './PageHeader.svelte'

@@ -15,14 +15,14 @@
 	import json from 'svelte-highlight/languages/json'
 
 	import github from 'svelte-highlight/styles/github'
-	import Tooltip from '../../components/Tooltip.svelte'
-	import ShareModal from '../../components/ShareModal.svelte'
+	import Tooltip from '$lib/components/Tooltip.svelte'
+	import ShareModal from '$lib/components/ShareModal.svelte'
 	import { userStore, workspaceStore } from '../../../stores'
-	import SharedBadge from '../../components/SharedBadge.svelte'
+	import SharedBadge from '$lib/components/SharedBadge.svelte'
 	import SvelteMarkdown from 'svelte-markdown'
-	import SchemaViewer from '../../components/SchemaViewer.svelte'
-	import Dropdown from '../../components/Dropdown.svelte'
-	import CenteredPage from '../../components/CenteredPage.svelte'
+	import SchemaViewer from '$lib/components/SchemaViewer.svelte'
+	import Dropdown from '$lib/components/Dropdown.svelte'
+	import CenteredPage from '$lib/components/CenteredPage.svelte'
 
 	let flow: Flow | undefined
 	let can_write = false

@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { sendUserToast } from '../../utils'
-	import Switch from '../components/Switch.svelte'
+	import Switch from './Switch.svelte'
 
 	import type Modal from './Modal.svelte'
 	import { createEventDispatcher } from 'svelte'

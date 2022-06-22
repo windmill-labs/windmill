@@ -28,18 +28,18 @@
 		faScroll,
 		faWind
 	} from '@fortawesome/free-solid-svg-icons'
-	import Tooltip from '../components/Tooltip.svelte'
-	import DisplayResult from '../components/DisplayResult.svelte'
+	import Tooltip from '$lib/components/Tooltip.svelte'
+	import DisplayResult from '$lib/components/DisplayResult.svelte'
 
 	import Highlight from 'svelte-highlight'
 	import { python, typescript } from 'svelte-highlight/languages'
 	import github from 'svelte-highlight/styles/github'
 	import { userStore, workspaceStore } from '../../stores'
-	import CenteredPage from '../components/CenteredPage.svelte'
-	import FlowStatusViewer from '../components/FlowStatusViewer.svelte'
-	import JobStatus from '../components/JobStatus.svelte'
-	import TableCustom from '../components/TableCustom.svelte'
-	import ArgInfo from '../components/ArgInfo.svelte'
+	import CenteredPage from '$lib/components/CenteredPage.svelte'
+	import FlowStatusViewer from '$lib/components/FlowStatusViewer.svelte'
+	import JobStatus from '$lib/components/JobStatus.svelte'
+	import TableCustom from '$lib/components/TableCustom.svelte'
+	import ArgInfo from '$lib/components/ArgInfo.svelte'
 
 	let workspace_id_query: string | undefined = $page.url.searchParams.get('workspace') ?? undefined
 	let workspace_id: string | undefined

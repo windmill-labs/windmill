@@ -4,9 +4,9 @@
 	import { FlowService, type Flow, JobService } from '../../../gen'
 	import { goto } from '$app/navigation'
 	import { workspaceStore } from '../../../stores'
-	import CenteredPage from '../../components/CenteredPage.svelte'
-	import RunForm from '../../components/RunForm.svelte'
-	import PageHeader from '../../components/PageHeader.svelte'
+	import CenteredPage from '$lib/components/CenteredPage.svelte'
+	import RunForm from '$lib/components/RunForm.svelte'
+	import PageHeader from '$lib/components/PageHeader.svelte'
 
 	const path = $page.params.path
 	let flow: Flow | undefined

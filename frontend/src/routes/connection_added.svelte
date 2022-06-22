@@ -2,7 +2,7 @@
 	import { goto } from '$app/navigation'
 	import { page } from '$app/stores'
 	import { sendUserToast } from '../utils'
-	import CenteredPage from './components/CenteredPage.svelte'
+	import CenteredPage from '$lib/components/CenteredPage.svelte'
 
 	let error = $page.url.searchParams.get('error')
 	let client_name = $page.url.searchParams.get('client_name')

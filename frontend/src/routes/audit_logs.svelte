@@ -4,10 +4,10 @@
 	import { page } from '$app/stores'
 	import { displayDate, sendUserToast } from '../utils'
 	import { goto } from '$app/navigation'
-	import PageHeader from './components/PageHeader.svelte'
+	import PageHeader from '$lib/components/PageHeader.svelte'
 	import { userStore, workspaceStore } from '../stores'
-	import TableCustom from './components/TableCustom.svelte'
-	import CenteredPage from './components/CenteredPage.svelte'
+	import TableCustom from '$lib/components/TableCustom.svelte'
+	import CenteredPage from '$lib/components/CenteredPage.svelte'
 	import Icon from 'svelte-awesome'
 	import { faCross, faEdit, faPlay, faPlus, faQuestion } from '@fortawesome/free-solid-svg-icons'
 

@@ -3,7 +3,7 @@
 
 	import { page } from '$app/stores'
 	import { workspaceStore } from '../../../stores'
-	import FlowBuilder from '../../components/FlowBuilder.svelte'
+	import FlowBuilder from '$lib/components/FlowBuilder.svelte'
 	import { emptySchema } from '../../../utils'
 
 	const initialState = $page.url.searchParams.get('state')

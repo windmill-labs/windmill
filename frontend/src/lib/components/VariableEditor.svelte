@@ -1,9 +1,9 @@
 <script lang="ts">
-	import Password from '../components/Password.svelte'
+	import Password from './Password.svelte'
 	import { sendUserToast } from '../../utils'
 	import { VariableService } from '../../gen'
-	import AutosizedTextarea from '../components/AutosizedTextarea.svelte'
-	import Path from '../components/Path.svelte'
+	import AutosizedTextarea from './AutosizedTextarea.svelte'
+	import Path from './Path.svelte'
 	import Modal from './Modal.svelte'
 	import { createEventDispatcher } from 'svelte'
 	import { workspaceStore } from '../../stores'

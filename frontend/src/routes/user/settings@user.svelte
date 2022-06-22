@@ -4,10 +4,10 @@
 	import type { TruncatedToken, NewToken } from '../../gen'
 	import { UserService, SettingsService } from '../../gen'
 	import { displayDate, sendUserToast, getToday } from '../../utils'
-	import PageHeader from './../components/PageHeader.svelte'
+	import PageHeader from '$lib/components/PageHeader.svelte'
 	import Icon from 'svelte-awesome'
 	import { faPlus } from '@fortawesome/free-solid-svg-icons'
-	import TableCustom from '../components/TableCustom.svelte'
+	import TableCustom from '$lib/components/TableCustom.svelte'
 	import CenteredModal from './CenteredModal.svelte'
 
 	let newPassword: string | undefined

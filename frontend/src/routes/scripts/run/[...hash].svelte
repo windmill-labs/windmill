@@ -5,9 +5,9 @@
 	import { goto } from '$app/navigation'
 	import { workspaceStore } from '../../../stores'
 	import { inferArgs } from '../../../infer'
-	import CenteredPage from '../../components/CenteredPage.svelte'
-	import RunForm from '../../components/RunForm.svelte'
-	import PageHeader from '../../components/PageHeader.svelte'
+	import CenteredPage from '$lib/components/CenteredPage.svelte'
+	import RunForm from '$lib/components/RunForm.svelte'
+	import PageHeader from '$lib/components/PageHeader.svelte'
 
 	const hash = $page.params.hash
 	let script: Script | undefined

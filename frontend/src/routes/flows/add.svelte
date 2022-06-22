@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { page } from '$app/stores'
 
-	import FlowBuilder from '../components/FlowBuilder.svelte'
+	import FlowBuilder from '$lib/components/FlowBuilder.svelte'
 	import type { Flow } from '../../gen'
 	import { emptySchema } from '../../utils'
 

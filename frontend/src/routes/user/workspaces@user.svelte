@@ -5,7 +5,7 @@
 	import { UserService, type WorkspaceInvite, WorkspaceService } from '../../gen'
 	import { superadmin, usersWorkspaceStore, workspaceStore } from '../../stores'
 	import CenteredModal from './CenteredModal.svelte'
-	import Switch from '../components/Switch.svelte'
+	import Switch from '$lib/components/Switch.svelte'
 	import { faCrown, faUser, faUserAlt, faUserCog } from '@fortawesome/free-solid-svg-icons'
 	import Icon from 'svelte-awesome'
 

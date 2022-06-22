@@ -1,11 +1,6 @@
 <script lang="ts">
-	import {
-		type Resource,
-		ResourceService,
-		type ResourceType,
-		VariableService
-	} from '../../../src/gen'
-	import { allTrue, emptySchema, sendUserToast } from '../../../src/utils'
+	import { type Resource, ResourceService, type ResourceType, VariableService } from '../../gen'
+	import { allTrue, emptySchema, sendUserToast } from '../../utils'
 	import { createEventDispatcher } from 'svelte'
 	import type { Schema } from '../../common'
 	import Modal from './Modal.svelte'
