@@ -27,16 +27,27 @@ pub struct MainArgSignature {
 
 #[derive(Serialize, Clone)]
 #[serde(rename_all(serialize = "lowercase"))]
+pub enum InnerTyp {
+    Str,
+    Int,
+    Float,
+    Bytes,
+    Email,
+}
+
+#[derive(Serialize, Clone)]
+#[serde(rename_all(serialize = "lowercase"))]
 pub enum Typ {
     Str,
     Int,
     Float,
     Bool,
     Dict,
-    List,
+    List(InnerTyp),
     Bytes,
     Datetime,
     Resource(String),
+    Email,
     Unknown,
 }
 
@@ -95,7 +106,7 @@ pub fn parse_python_signature(code: &str) -> error::Result<MainArgSignature> {
                                 "int" => Typ::Int,
                                 "bool" => Typ::Bool,
                                 "dict" => Typ::Dict,
-                                "list" => Typ::List,
+                                "list" => Typ::List(InnerTyp::Str),
                                 "bytes" => Typ::Bytes,
                                 "datetime" => Typ::Datetime,
                                 "datetime.datetime" => Typ::Datetime,
@@ -120,7 +131,7 @@ use swc_common::sync::Lrc;
 use swc_common::{FileName, SourceMap};
 use swc_ecma_ast::{
     AssignPat, BindingIdent, Decl, ExportDecl, FnDecl, Ident, ModuleDecl, ModuleItem, Pat,
-    TsEntityName, TsKeywordTypeKind, TsType, TsTypeRef,
+    TsArrayType, TsEntityName, TsKeywordTypeKind, TsType, TsTypeRef,
 };
 use swc_ecma_parser::{lexer::Lexer, Parser, StringInput, Syntax, TsConfig};
 
@@ -239,7 +250,28 @@ fn binding_ident_to_arg(
                     _ => Typ::Unknown,
                 },
                 // TODO: we can do better here and extract the inner type of array
-                TsType::TsArrayType(_) => Typ::List,
+                TsType::TsArrayType(TsArrayType { span: _, elem_type }) => {
+                    match &**elem_type {
+                        TsType::TsTypeRef(TsTypeRef {
+                            span: _,
+                            type_name:
+                                TsEntityName::Ident(Ident {
+                                    span: _,
+                                    sym,
+                                    optional: _,
+                                }),
+                            type_params: _,
+                        }) => match sym.to_string().as_str() {
+                            "Base64" => Typ::List(InnerTyp::Bytes),
+                            "Email" => Typ::List(InnerTyp::Email),
+                            "bigint" => Typ::List(InnerTyp::Int),
+                            "number" => Typ::List(InnerTyp::Float),
+                            _ => Typ::List(InnerTyp::Str),
+                        },
+                        //TsType::TsKeywordType(())
+                        _ => Typ::List(InnerTyp::Str),
+                    }
+                }
                 TsType::TsTypeRef(TsTypeRef {
                     span: _,
                     type_name,
@@ -266,6 +298,8 @@ fn binding_ident_to_arg(
                                 })
                                 .unwrap_or_else(|| "unknown".to_string()),
                         ),
+                        "Base64" => Typ::Bytes,
+                        "Email" => Typ::Email,
                         _ => Typ::Unknown,
                     }
                 }
@@ -755,7 +789,7 @@ def main():
         let code = "
 
 export function main(test1: string, test2: string = \"burkina\",
-    test3: wmill.Resource<'postgres'>, email: email_string) {
+    test3: wmill.Resource<'postgres'>, b64: Base64, ls: Base64[], email: Email) {
     console.log(42)
 }
 

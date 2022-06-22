@@ -44,7 +44,7 @@ export async function inferArgs(
 	}
 }
 
-function argSigToJsonSchemaType(t: string | { resource: string }, s: SchemaProperty): void {
+function argSigToJsonSchemaType(t: string | { resource: string } | { list: string }, s: SchemaProperty): void {
 	if (t === 'int') {
 		s.type = 'integer'
 	} else if (t === 'float') {
@@ -55,18 +55,23 @@ function argSigToJsonSchemaType(t: string | { resource: string }, s: SchemaPrope
 		s.type = 'string'
 	} else if (t === 'dict') {
 		s.type = 'object'
-	} else if (t === 'list') {
-		s.type = 'array'
 	} else if (t === 'bytes') {
 		s.type = 'string'
 		s.contentEncoding = 'base64'
 	} else if (t === 'datetime') {
 		s.type = 'string'
 		s.format = 'date-time'
-	} else if (typeof t !== 'string' && t.resource != undefined) {
+	} else if (typeof t !== 'string' && `resource` in t) {
 		s.type = 'object'
 		s.format = `resource-${t.resource}`
-	} else {
-		s.type = undefined
+	} else if (typeof t !== 'string' && `list` in t) {
+		s.type = 'array'
+		if (t.list === 'int' || t.list === 'float') {
+			s.items = { type: 'number' }
+		} else if (t.list === 'bytes') {
+			s.items = { type: 'string', contentEncoding: 'base64' }
+		} else {
+			s.items = { type: 'string' }
+		}
 	}
 }

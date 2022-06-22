@@ -10,7 +10,7 @@ export interface SchemaProperty {
 	enum?: string[]
 	contentEncoding?: 'base64' | 'binary'
 	format?: string
-	items?: { type?: 'string' | 'number' }
+	items?: { type?: 'string' | 'number' | 'bytes', contentEncoding?: 'base64' },
 }
 
 export type Schema = {

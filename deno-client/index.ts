@@ -7,9 +7,8 @@ export {
     UserApi, WorkspaceApi
 } from './windmill-api/index.ts'
 
-export type string_regex<S extends string> = String
-export type string_email = String
-
+export type Email = string
+export type Base64 = string
 export type Resource<S extends string> = {}
 
 /**
