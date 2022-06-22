@@ -65,7 +65,7 @@ function argSigToJsonSchemaType(t: string | { resource: string } | { list: strin
 		s.type = 'object'
 		s.format = `resource-${t.resource}`
 	} else if (typeof t !== 'string' && `list` in t) {
-		s.type = 'list'
+		s.type = 'array'
 		if (t.list === 'int' || t.list === 'float') {
 			s.items = { type: 'number' }
 		} else if (t.list === 'bytes') {
