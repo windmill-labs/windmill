@@ -3126,6 +3126,12 @@ components:
                         type: string
                     required:
                       - resource
+                  - type: object
+                    properties:
+                      list:
+                        type: string
+                    required:
+                      - list
               has_default:
                 type: boolean
               default: {}
