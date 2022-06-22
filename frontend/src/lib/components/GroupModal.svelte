@@ -1,12 +1,12 @@
 <script lang="ts">
-	import { userStore, workspaceStore } from '../../stores'
+	import { userStore, workspaceStore } from '$lib/stores'
 
 	import Modal from './Modal.svelte'
-	import { type Group, GroupService, UserService } from '../../gen'
+	import { type Group, GroupService, UserService } from '$lib/gen'
 	import AutoComplete from 'simple-svelte-autocomplete'
 	import PageHeader from './PageHeader.svelte'
 	import TableCustom from './TableCustom.svelte'
-	import { canWrite } from '../../utils'
+	import { canWrite } from '$lib/utils'
 
 	let name = ''
 	let modal: Modal

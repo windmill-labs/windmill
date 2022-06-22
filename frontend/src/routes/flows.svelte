@@ -1,9 +1,9 @@
 <script lang="ts">
 	import Fuse from 'fuse.js'
-	import { FlowService } from '../gen'
-	import type { Flow } from '../gen'
+	import { FlowService } from '$lib/gen'
+	import type { Flow } from '$lib/gen'
 
-	import { sendUserToast, groupBy, canWrite } from '../utils'
+	import { sendUserToast, groupBy, canWrite } from '$lib/utils'
 	import Icon from 'svelte-awesome'
 	import {
 		faArchive,
@@ -21,7 +21,7 @@
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import ShareModal from '$lib/components/ShareModal.svelte'
 	import SharedBadge from '$lib/components/SharedBadge.svelte'
-	import { superadmin, userStore, workspaceStore } from '../stores'
+	import { superadmin, userStore, workspaceStore } from '$lib/stores'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
 	import Tabs from '$lib/components/Tabs.svelte'
 

@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { page } from '$app/stores'
-	import type { Script, Flow } from '../../gen'
-	import { getToday } from '../../utils'
+	import type { Script, Flow } from '$lib/gen'
+	import { getToday } from '$lib/utils'
 	import { slide } from 'svelte/transition'
 
 	import { faChevronDown, faChevronUp } from '@fortawesome/free-solid-svg-icons'

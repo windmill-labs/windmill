@@ -1,10 +1,10 @@
 <script lang="ts">
-	import type { Schema } from '../../common'
-	import type { Flow, FlowModule } from '../../gen'
+	import type { Schema } from '$lib/common'
+	import type { Flow, FlowModule } from '$lib/gen'
 
 	import SchemaForm from './SchemaForm.svelte'
 	import ScriptPicker from './ScriptPicker.svelte'
-	import { emptySchema, loadSchema as UloadSchema } from '../../utils'
+	import { emptySchema, loadSchema as UloadSchema } from '$lib/utils'
 	import FlowPreview from './FlowPreview.svelte'
 
 	export let flow: Flow

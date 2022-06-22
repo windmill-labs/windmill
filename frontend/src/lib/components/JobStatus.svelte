@@ -6,12 +6,12 @@
 		faHourglassHalf,
 		faTimes
 	} from '@fortawesome/free-solid-svg-icons'
-	import { displayDate, forLater } from '../../utils'
+	import { displayDate, forLater } from '$lib/utils'
 
 	import Icon from 'svelte-awesome'
 	import { check } from 'svelte-awesome/icons'
 
-	import type { CompletedJob, QueuedJob } from '../../gen'
+	import type { CompletedJob, QueuedJob } from '$lib/gen'
 
 	const SMALL_ICON_SCALE = 0.7
 

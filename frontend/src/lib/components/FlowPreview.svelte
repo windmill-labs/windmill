@@ -1,19 +1,19 @@
 <script lang="ts">
 	import { faChevronDown, faChevronUp } from '@fortawesome/free-solid-svg-icons'
-	import { sendUserToast, truncateRev } from '../../utils'
+	import { sendUserToast, truncateRev } from '$lib/utils'
 
 	import Icon from 'svelte-awesome'
 
-	import { type Flow, Job, JobService, InputTransform } from '../../gen'
+	import { type Flow, Job, JobService, InputTransform } from '$lib/gen'
 
-	import { workspaceStore } from '../../stores'
+	import { workspaceStore } from '$lib/stores'
 	import RunForm from './RunForm.svelte'
 	import FlowStatusViewer from './FlowStatusViewer.svelte'
 	import { onDestroy } from 'svelte'
 	import ChevronButton from './ChevronButton.svelte'
 	import DisplayResult from './DisplayResult.svelte'
 	import Tabs from './Tabs.svelte'
-	import type { Schema } from '../../common'
+	import type { Schema } from '$lib/common'
 
 	export let i: number
 	export let flow: Flow

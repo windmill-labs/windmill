@@ -1,9 +1,9 @@
 <script lang="ts">
-	import { usersWorkspaceStore } from '../../stores'
+	import { usersWorkspaceStore } from '$lib/stores'
 
-	import type { TruncatedToken, NewToken } from '../../gen'
-	import { UserService, SettingsService } from '../../gen'
-	import { displayDate, sendUserToast, getToday } from '../../utils'
+	import type { TruncatedToken, NewToken } from '$lib/gen'
+	import { UserService, SettingsService } from '$lib/gen'
+	import { displayDate, sendUserToast, getToday } from '$lib/utils'
 	import PageHeader from '$lib/components/PageHeader.svelte'
 	import Icon from 'svelte-awesome'
 	import { faPlus } from '@fortawesome/free-solid-svg-icons'

@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { SettingsService } from '../../gen'
+	import { SettingsService } from '$lib/gen'
 
 	export let subtitle: string | undefined = undefined
 	export let title = 'Welcome to Windmill (beta)'

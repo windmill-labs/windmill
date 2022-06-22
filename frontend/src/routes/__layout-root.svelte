@@ -3,15 +3,15 @@
 	import { page } from '$app/stores'
 	import { SvelteToast } from '@zerodevx/svelte-toast'
 	import { onMount } from 'svelte'
-	import { WorkspaceService } from '../gen'
-	import { superadmin, userStore, usersWorkspaceStore, workspaceStore } from '../stores'
+	import { WorkspaceService } from '$lib/gen'
+	import { superadmin, userStore, usersWorkspaceStore, workspaceStore } from '$lib/stores'
 	import {
 		getUserExt,
 		logout,
 		logoutWithRedirect,
 		refreshSuperadmin,
 		sendUserToast
-	} from '../utils'
+	} from '$lib/utils'
 
 	// Default toast options
 	const toastOptions = {

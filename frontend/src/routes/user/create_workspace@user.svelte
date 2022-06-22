@@ -1,10 +1,10 @@
 <script lang="ts">
 	import { goto } from '$app/navigation'
 
-	import { UserService, WorkspaceService } from '../../gen'
-	import { logoutWithRedirect, sendUserToast } from '../../utils'
+	import { UserService, WorkspaceService } from '$lib/gen'
+	import { logoutWithRedirect, sendUserToast } from '$lib/utils'
 	import { page } from '$app/stores'
-	import { usersWorkspaceStore, workspaceStore } from '../../stores'
+	import { usersWorkspaceStore, workspaceStore } from '$lib/stores'
 	import CenteredModal from './CenteredModal.svelte'
 
 	let id = ''

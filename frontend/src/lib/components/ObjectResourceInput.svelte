@@ -1,8 +1,8 @@
 <script lang="ts">
-	import { ResourceService } from '../../gen'
+	import { ResourceService } from '$lib/gen'
 
 	import ResourcePicker from './ResourcePicker.svelte'
-	import { workspaceStore } from '../../stores'
+	import { workspaceStore } from '$lib/stores'
 	import SchemaForm from './SchemaForm.svelte'
 	import RadioButton from './RadioButton.svelte'
 

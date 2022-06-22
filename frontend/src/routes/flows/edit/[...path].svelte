@@ -1,10 +1,10 @@
 <script lang="ts">
-	import { FlowService, type Flow } from '../../../gen'
+	import { FlowService, type Flow } from '$lib/gen'
 
 	import { page } from '$app/stores'
-	import { workspaceStore } from '../../../stores'
+	import { workspaceStore } from '$lib/stores'
 	import FlowBuilder from '$lib/components/FlowBuilder.svelte'
-	import { emptySchema } from '../../../utils'
+	import { emptySchema } from '$lib/utils'
 
 	const initialState = $page.url.searchParams.get('state')
 	let flowLoadedFromUrl = initialState != undefined ? JSON.parse(atob(initialState)) : undefined

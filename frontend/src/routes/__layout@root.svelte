@@ -21,9 +21,15 @@
 	import { onMount } from 'svelte'
 	import Icon from 'svelte-awesome'
 	import '../app.css'
-	import { OpenAPI, ScriptService } from '../gen'
-	import { hubScripts, superadmin, userStore, usersWorkspaceStore, workspaceStore } from '../stores'
-	import { clickOutside, logout } from '../utils'
+	import { OpenAPI, ScriptService } from '$lib/gen'
+	import {
+		hubScripts,
+		superadmin,
+		userStore,
+		usersWorkspaceStore,
+		workspaceStore
+	} from '$lib/stores'
+	import { clickOutside, logout } from '$lib/utils'
 
 	OpenAPI.WITH_CREDENTIALS = true
 

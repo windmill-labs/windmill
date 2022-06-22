@@ -1,12 +1,12 @@
 <script lang="ts">
-	import { truncate } from '../../utils'
+	import { truncate } from '$lib/utils'
 	import Modal from './Modal.svelte'
 	import Tooltip from './Tooltip.svelte'
 	import json from 'svelte-highlight/languages/json'
 	import github from 'svelte-highlight/styles/github'
 	import { Highlight } from 'svelte-highlight'
-	import { ResourceService, type Resource } from '../../gen'
-	import { workspaceStore } from '../../stores'
+	import { ResourceService, type Resource } from '$lib/gen'
+	import { workspaceStore } from '$lib/stores'
 
 	export let value: any
 	let resourceViewer: Modal

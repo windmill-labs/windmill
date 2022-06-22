@@ -1,7 +1,7 @@
 <script lang="ts">
-	import { WorkerService, type WorkerPing } from '../gen'
+	import { WorkerService, type WorkerPing } from '$lib/gen'
 	import { onDestroy, onMount } from 'svelte'
-	import { displayDate, elapsedSinceSecs, groupBy, sendUserToast } from '../utils'
+	import { displayDate, elapsedSinceSecs, groupBy, sendUserToast } from '$lib/utils'
 	import PageHeader from '$lib/components/PageHeader.svelte'
 	import TableCustom from '$lib/components/TableCustom.svelte'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'

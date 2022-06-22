@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { goto } from '$app/navigation'
 	import { page } from '$app/stores'
-	import { sendUserToast } from '../utils'
+	import { sendUserToast } from '$lib/utils'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
 
 	let error = $page.url.searchParams.get('error')

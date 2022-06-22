@@ -2,7 +2,7 @@
 import { goto } from '$app/navigation'
 import { toast } from '@zerodevx/svelte-toast'
 import { get } from 'svelte/store'
-import { ScriptService, UserService, type User } from './gen'
+import { ScriptService, UserService, type User } from '$lib/gen'
 import { inferArgs } from './infer'
 import { clearStores, superadmin, workspaceStore, type UserExt } from './stores'
 

@@ -1,9 +1,9 @@
 <script lang="ts">
 	import SchemaModal, { DEFAULT_PROPERTY, modalToSchema, schemaToModal } from './SchemaModal.svelte'
 	import type { ModalSchemaProperty } from './SchemaModal.svelte'
-	import type { Schema } from '../../common'
+	import type { Schema } from '$lib/common'
 	import Editor from './Editor.svelte'
-	import { emptySchema, sendUserToast } from '../../utils'
+	import { emptySchema, sendUserToast } from '$lib/utils'
 	import Tooltip from './Tooltip.svelte'
 	import TableCustom from './TableCustom.svelte'
 

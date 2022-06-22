@@ -6,9 +6,9 @@
 		VariableService,
 		ResourceService,
 		ScriptService
-	} from '../../gen'
-	import { sendUserToast, emptySchema, displayDate } from '../../utils'
-	import type { Schema } from '../../common'
+	} from '$lib/gen'
+	import { sendUserToast, emptySchema, displayDate } from '$lib/utils'
+	import type { Schema } from '$lib/common'
 	import { fade } from 'svelte/transition'
 	import Icon from 'svelte-awesome'
 	import {
@@ -24,7 +24,7 @@
 	import Editor from './Editor.svelte'
 	import Tooltip from './Tooltip.svelte'
 	import { onDestroy, onMount } from 'svelte'
-	import { userStore, workspaceStore } from '../../stores'
+	import { userStore, workspaceStore } from '$lib/stores'
 	import TableCustom from './TableCustom.svelte'
 	import { check } from 'svelte-awesome/icons'
 	import Modal from './Modal.svelte'
@@ -34,13 +34,13 @@
 	import ItemPicker from './ItemPicker.svelte'
 	import VariableEditor from './VariableEditor.svelte'
 	import ResourceEditor from './ResourceEditor.svelte'
-	import { inferArgs } from '../../infer'
+	import { inferArgs } from '$lib/infer'
 
 	// @ts-ignore
 	import { VSplitPane } from 'svelte-split-pane'
 	import SchemaForm from './SchemaForm.svelte'
 	import DisplayResult from './DisplayResult.svelte'
-	import type { Preview } from '../../gen/models/Preview'
+	import type { Preview } from '$lib/gen/models/Preview'
 
 	// Exported
 	export let schema: Schema = emptySchema()

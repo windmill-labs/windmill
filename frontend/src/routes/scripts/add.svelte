@@ -1,11 +1,11 @@
 <script lang="ts">
-	import { ScriptService, type Script } from '../../gen'
+	import { ScriptService, type Script } from '$lib/gen'
 
 	import { page } from '$app/stores'
-	import { workspaceStore } from '../../stores'
+	import { workspaceStore } from '$lib/stores'
 	import ScriptBuilder from '$lib/components/ScriptBuilder.svelte'
-	import type { Schema } from '../../common'
-	import { emptySchema, sendUserToast } from '../../utils'
+	import type { Schema } from '$lib/common'
+	import { emptySchema, sendUserToast } from '$lib/utils'
 
 	// Default
 	let schema: Schema = emptySchema()

@@ -1,9 +1,9 @@
 <script lang="ts">
 	import { goto } from '$app/navigation'
 	import { page } from '$app/stores'
-	import { logout, logoutWithRedirect, sendUserToast } from '../../utils'
-	import { UserService, type WorkspaceInvite, WorkspaceService } from '../../gen'
-	import { superadmin, usersWorkspaceStore, workspaceStore } from '../../stores'
+	import { logout, logoutWithRedirect, sendUserToast } from '$lib/utils'
+	import { UserService, type WorkspaceInvite, WorkspaceService } from '$lib/gen'
+	import { superadmin, usersWorkspaceStore, workspaceStore } from '$lib/stores'
 	import CenteredModal from './CenteredModal.svelte'
 	import Switch from '$lib/components/Switch.svelte'
 	import { faCrown, faUser, faUserAlt, faUserCog } from '@fortawesome/free-solid-svg-icons'

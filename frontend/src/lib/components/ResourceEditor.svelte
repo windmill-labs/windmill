@@ -1,8 +1,8 @@
 <script lang="ts">
-	import { type Resource, ResourceService, type ResourceType, VariableService } from '../../gen'
-	import { allTrue, emptySchema, sendUserToast } from '../../utils'
+	import { type Resource, ResourceService, type ResourceType, VariableService } from '$lib/gen'
+	import { allTrue, emptySchema, sendUserToast } from '$lib/utils'
 	import { createEventDispatcher } from 'svelte'
-	import type { Schema } from '../../common'
+	import type { Schema } from '$lib/common'
 	import Modal from './Modal.svelte'
 	import Path from './Path.svelte'
 	import ArgInput from './ArgInput.svelte'
@@ -11,7 +11,7 @@
 	import VariableEditor from './VariableEditor.svelte'
 	import Required from './Required.svelte'
 
-	import { workspaceStore } from '../../stores'
+	import { workspaceStore } from '$lib/stores'
 	import ResourceTypePicker from './ResourceTypePicker.svelte'
 
 	let path = ''

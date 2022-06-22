@@ -1,6 +1,6 @@
 <script lang="ts">
-	import { sendUserToast, displayDate, canWrite } from '../utils'
-	import { type Schedule, ScheduleService } from '../gen'
+	import { sendUserToast, displayDate, canWrite } from '$lib/utils'
+	import { type Schedule, ScheduleService } from '$lib/gen'
 
 	import PageHeader from '$lib/components/PageHeader.svelte'
 	import TableCustom from '$lib/components/TableCustom.svelte'
@@ -15,7 +15,7 @@
 		faToggleOff,
 		faToggleOn
 	} from '@fortawesome/free-solid-svg-icons'
-	import { userStore, workspaceStore } from '../stores'
+	import { userStore, workspaceStore } from '$lib/stores'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
 	import Icon from 'svelte-awesome'
 

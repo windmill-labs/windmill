@@ -1,12 +1,12 @@
 <script lang="ts">
 	import { faHourglassHalf, faSpinner, faTimes } from '@fortawesome/free-solid-svg-icons'
-	import { truncateRev } from '../../utils'
+	import { truncateRev } from '$lib/utils'
 
 	import Icon from 'svelte-awesome'
 	import { check } from 'svelte-awesome/icons'
 
-	import { CompletedJob, FlowModuleValue, FlowStatusModule, JobService, QueuedJob } from '../../gen'
-	import { workspaceStore } from '../../stores'
+	import { CompletedJob, FlowModuleValue, FlowStatusModule, JobService, QueuedJob } from '$lib/gen'
+	import { workspaceStore } from '$lib/stores'
 	import DisplayResult from './DisplayResult.svelte'
 	import ChevronButton from './ChevronButton.svelte'
 	import JobStatus from './JobStatus.svelte'

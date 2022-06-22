@@ -1,6 +1,6 @@
 import { browser } from '$app/env'
 import { writable } from 'svelte/store'
-import type { UserWorkspaceList } from './gen'
+import type { UserWorkspaceList } from '$lib/gen'
 import { getUserExt } from './utils'
 
 export interface UserExt {

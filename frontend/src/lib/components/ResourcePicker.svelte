@@ -1,6 +1,6 @@
 <script lang="ts">
-	import { type Resource, ResourceService } from '../../gen'
-	import { workspaceStore } from '../../stores'
+	import { type Resource, ResourceService } from '$lib/gen'
+	import { workspaceStore } from '$lib/stores'
 
 	let resources: Resource[] = []
 
