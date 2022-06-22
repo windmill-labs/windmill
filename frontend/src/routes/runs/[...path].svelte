@@ -17,10 +17,10 @@
 	import { page } from '$app/stores'
 	import { sendUserToast } from '../../utils'
 	import { goto } from '$app/navigation'
-	import PageHeader from '../components/PageHeader.svelte'
+	import PageHeader from '$lib/components/PageHeader.svelte'
 	import { workspaceStore } from '../../stores'
-	import CenteredPage from '../components/CenteredPage.svelte'
-	import Tabs from '../components/Tabs.svelte'
+	import CenteredPage from '$lib/components/CenteredPage.svelte'
+	import Tabs from '$lib/components/Tabs.svelte'
 
 	let jobs: Job[] | undefined
 	let error: Error | undefined

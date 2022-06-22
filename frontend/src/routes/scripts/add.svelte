@@ -3,7 +3,7 @@
 
 	import { page } from '$app/stores'
 	import { workspaceStore } from '../../stores'
-	import ScriptBuilder from '../components/ScriptBuilder.svelte'
+	import ScriptBuilder from '$lib/components/ScriptBuilder.svelte'
 	import type { Schema } from '../../common'
 	import { emptySchema, sendUserToast } from '../../utils'
 

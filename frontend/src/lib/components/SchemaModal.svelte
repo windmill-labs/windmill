@@ -1,6 +1,6 @@
 <script lang="ts" context="module">
 	import type { SchemaProperty } from '../../common'
-	import Modal from '../../routes/components/Modal.svelte'
+	import Modal from './Modal.svelte'
 
 	export const ARG_TYPES = ['integer', 'number', 'string', 'boolean', 'object', 'array'] as const
 	export type ArgType = typeof ARG_TYPES[number]

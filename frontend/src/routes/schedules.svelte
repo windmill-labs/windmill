@@ -2,12 +2,12 @@
 	import { sendUserToast, displayDate, canWrite } from '../utils'
 	import { type Schedule, ScheduleService } from '../gen'
 
-	import PageHeader from './components/PageHeader.svelte'
-	import TableCustom from './components/TableCustom.svelte'
-	import Dropdown from './components/Dropdown.svelte'
+	import PageHeader from '$lib/components/PageHeader.svelte'
+	import TableCustom from '$lib/components/TableCustom.svelte'
+	import Dropdown from '$lib/components/Dropdown.svelte'
 	import { goto } from '$app/navigation'
-	import ShareModal from './components/ShareModal.svelte'
-	import SharedBadge from './components/SharedBadge.svelte'
+	import ShareModal from '$lib/components/ShareModal.svelte'
+	import SharedBadge from '$lib/components/SharedBadge.svelte'
 	import {
 		faEdit,
 		faPlus,
@@ -16,7 +16,7 @@
 		faToggleOn
 	} from '@fortawesome/free-solid-svg-icons'
 	import { userStore, workspaceStore } from '../stores'
-	import CenteredPage from './components/CenteredPage.svelte'
+	import CenteredPage from '$lib/components/CenteredPage.svelte'
 	import Icon from 'svelte-awesome'
 
 	type ScheduleW = Schedule & { canWrite: boolean }

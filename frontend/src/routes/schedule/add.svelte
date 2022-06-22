@@ -3,16 +3,16 @@
 	import { sendUserToast, displayDate } from '../../utils'
 	import { ScriptService, type Script, ScheduleService, type Flow, FlowService } from '../../gen'
 
-	import PageHeader from '../components/PageHeader.svelte'
-	import Path from '../components/Path.svelte'
+	import PageHeader from '$lib/components/PageHeader.svelte'
+	import Path from '$lib/components/Path.svelte'
 
-	import Tooltip from '../components/Tooltip.svelte'
+	import Tooltip from '$lib/components/Tooltip.svelte'
 	import { goto } from '$app/navigation'
 	import { workspaceStore } from '../../stores'
-	import CenteredPage from '../components/CenteredPage.svelte'
-	import SchemaForm from '../components/SchemaForm.svelte'
-	import ScriptPicker from '../components/ScriptPicker.svelte'
-	import Required from '../components/Required.svelte'
+	import CenteredPage from '$lib/components/CenteredPage.svelte'
+	import SchemaForm from '$lib/components/SchemaForm.svelte'
+	import ScriptPicker from '$lib/components/ScriptPicker.svelte'
+	import Required from '$lib/components/Required.svelte'
 
 	let initialPath = $page.url.searchParams.get('edit') || ''
 	let edit = initialPath === '' ? false : true

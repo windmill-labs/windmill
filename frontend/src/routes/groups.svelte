@@ -3,16 +3,16 @@
 	import { GroupService } from '../gen'
 	import type { Group } from '../gen'
 
-	import PageHeader from './components/PageHeader.svelte'
-	import TableCustom from './components/TableCustom.svelte'
-	import Dropdown from './components/Dropdown.svelte'
-	import ShareModal from './components/ShareModal.svelte'
-	import SharedBadge from './components/SharedBadge.svelte'
+	import PageHeader from '$lib/components/PageHeader.svelte'
+	import TableCustom from '$lib/components/TableCustom.svelte'
+	import Dropdown from '$lib/components/Dropdown.svelte'
+	import ShareModal from '$lib/components/ShareModal.svelte'
+	import SharedBadge from '$lib/components/SharedBadge.svelte'
 	import { faEdit, faPlus, faShare } from '@fortawesome/free-solid-svg-icons'
 	import { userStore, workspaceStore } from '../stores'
-	import CenteredPage from './components/CenteredPage.svelte'
+	import CenteredPage from '$lib/components/CenteredPage.svelte'
 	import Icon from 'svelte-awesome'
-	import GroupModal from './components/GroupModal.svelte'
+	import GroupModal from '$lib/components/GroupModal.svelte'
 
 	type GroupW = Group & { canWrite: boolean }
 

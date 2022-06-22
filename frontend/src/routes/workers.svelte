@@ -2,9 +2,9 @@
 	import { WorkerService, type WorkerPing } from '../gen'
 	import { onDestroy, onMount } from 'svelte'
 	import { displayDate, elapsedSinceSecs, groupBy, sendUserToast } from '../utils'
-	import PageHeader from './components/PageHeader.svelte'
-	import TableCustom from './components/TableCustom.svelte'
-	import CenteredPage from './components/CenteredPage.svelte'
+	import PageHeader from '$lib/components/PageHeader.svelte'
+	import TableCustom from '$lib/components/TableCustom.svelte'
+	import CenteredPage from '$lib/components/CenteredPage.svelte'
 
 	let workers: WorkerPing[] = []
 	let filteredWorkers: WorkerPing[] = []

@@ -3,7 +3,7 @@
 
 	import { page } from '$app/stores'
 	import { workspaceStore } from '../../../stores'
-	import ScriptBuilder from '../../components/ScriptBuilder.svelte'
+	import ScriptBuilder from '$lib/components/ScriptBuilder.svelte'
 
 	const initialState = $page.url.searchParams.get('state')
 	let scriptLoadedFromUrl = initialState != undefined ? JSON.parse(atob(initialState)) : undefined

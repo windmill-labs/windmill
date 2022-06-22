@@ -3,15 +3,15 @@
 	import { UserService, type WorkspaceInvite, WorkspaceService } from '../gen'
 	import type { User } from '../gen'
 	import { sendUserToast } from '../utils'
-	import PageHeader from './components/PageHeader.svelte'
+	import PageHeader from '$lib/components/PageHeader.svelte'
 	import { userStore, usersWorkspaceStore, workspaceStore } from '../stores'
-	import CenteredPage from './components/CenteredPage.svelte'
+	import CenteredPage from '$lib/components/CenteredPage.svelte'
 	import Icon from 'svelte-awesome'
 	import { faSlack } from '@fortawesome/free-brands-svg-icons'
-	import TableCustom from './components/TableCustom.svelte'
+	import TableCustom from '$lib/components/TableCustom.svelte'
 	import { goto } from '$app/navigation'
-	import InviteUser from './components/InviteUser.svelte'
-	import ScriptPicker from './components/ScriptPicker.svelte'
+	import InviteUser from '$lib/components/InviteUser.svelte'
+	import ScriptPicker from '$lib/components/ScriptPicker.svelte'
 
 	let users: User[] = []
 	let invites: WorkspaceInvite[] = []
