@@ -1,14 +1,11 @@
 <script lang="ts">
-	import { workspaceStore } from '../../stores'
-
 	import type { Schema } from '../../common'
-	import { ScriptService, type Flow, type FlowModule } from '../../gen'
+	import type { Flow, FlowModule } from '../../gen'
 
 	import SchemaForm from './SchemaForm.svelte'
 	import ScriptPicker from './ScriptPicker.svelte'
-	import { emptySchema } from '../../utils'
+	import { emptySchema, loadSchema as UloadSchema } from '../../utils'
 	import FlowPreview from './FlowPreview.svelte'
-	import { inferArgs } from '../../infer'
 
 	export let flow: Flow
 	export let i: number
@@ -20,18 +17,7 @@
 
 	export async function loadSchema() {
 		if (mod.value.path) {
-			let schema
-			if (mod.value.path.startsWith('hub/')) {
-				const code = await ScriptService.getHubScriptContentByPath({ path: mod.value.path })
-				schema = emptySchema()
-				await inferArgs('deno', code, schema)
-			} else {
-				const script = await ScriptService.getScriptByPath({
-					workspace: $workspaceStore!,
-					path: mod.value.path ?? ''
-				})
-				schema = script.schema
-			}
+			let schema = await UloadSchema(mod.value.path)
 			if (
 				JSON.stringify(Object.keys(schema?.properties ?? {}).sort()) !=
 				JSON.stringify(Object.keys(mod.input_transform).sort())
