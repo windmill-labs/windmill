@@ -27,7 +27,8 @@
 	export let enum_: string[] | undefined = undefined
 	export let disabled = false
 	export let editableSchema = false
-	export let itemsType: { type?: 'string' | 'number' } | undefined = undefined
+	export let itemsType: { type?: 'string' | 'number'; contentEncoding?: string } | undefined =
+		undefined
 	export let displayHeader = true
 
 	let seeEditable: boolean = enum_ != undefined || pattern != undefined
@@ -70,16 +71,16 @@
 		rawValue = JSON.stringify(value, null, 4)
 	}
 
-	function fileChanged(e: any) {
+	function fileChanged(e: any, cb: (v: string | undefined) => void) {
 		let t = e.target
 		if (t && 'files' in t && t.files.length > 0) {
 			let reader = new FileReader()
 			reader.onload = (e: any) => {
-				value = e.target.result.split('base64,')[1]
+				cb(e.target.result.split('base64,')[1])
 			}
 			reader.readAsDataURL(t.files[0])
 		} else {
-			value = undefined
+			cb(undefined)
 		}
 	}
 
@@ -147,6 +148,9 @@
 									<option value={undefined}>No specific item type</option>
 									<option value={{ type: 'string' }}> Items are strings</option>
 									<option value={{ type: 'number' }}>Items are numbers</option>
+									<option value={{ type: 'string', contentEncoding: 'base64' }}
+										>Items are bytes</option
+									>
 								</select>
 							{/if}
 						</label>
@@ -192,6 +196,13 @@
 					<div class="flex flex-row max-w-md">
 						{#if itemsType.type == 'number'}
 							<input type="number" bind:value={v} />
+						{:else if itemsType.type == 'string' && itemsType.contentEncoding == 'base64'}
+							<input
+								type="file"
+								class="my-6"
+								on:change={(x) => fileChanged(x, (val) => (v = val))}
+								multiple={false}
+							/>
 						{:else}
 							<input type="text" bind:value={v} />
 						{/if}
@@ -236,7 +247,12 @@
 			{:else if type == 'string' && format == 'date-time'}
 				<input class="inline-block" type="datetime-local" bind:value />
 			{:else if type == 'string' && contentEncoding == 'base64'}
-				<input type="file" class="my-6" on:change={fileChanged} multiple={false} />
+				<input
+					type="file"
+					class="my-6"
+					on:change={(x) => fileChanged(x, (val) => (value = val))}
+					multiple={false}
+				/>
 			{:else if type == 'string' && format?.startsWith('resource')}
 				<ResourcePicker
 					bind:value

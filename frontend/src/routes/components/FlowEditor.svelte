@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { faPlus } from '@fortawesome/free-solid-svg-icons'
 	import type { Schema } from '../../common'
-	import { emptySchema } from '../../utils'
+	import { emptySchema, loadSchema } from '../../utils'
 
 	import Icon from 'svelte-awesome'
 
@@ -22,16 +22,13 @@
 		await Promise.all(
 			flow.value.modules.map(async (x, i) => {
 				if (x.value.path) {
-					const script = await ScriptService.getScriptByPath({
-						workspace: $workspaceStore!,
-						path: x.value.path ?? ''
-					})
+					const schema = await loadSchema(x.value.path ?? '')
 					if (
-						JSON.stringify(Object.keys(script.schema?.properties ?? {}).sort()) !=
+						JSON.stringify(Object.keys(schema?.properties ?? {}).sort()) !=
 						JSON.stringify(Object.keys(x.input_transform).sort())
 					) {
 						let it = {}
-						Object.keys(script.schema?.properties ?? {}).map(
+						Object.keys(schema?.properties ?? {}).map(
 							(x) =>
 								(it[x] = {
 									type: 'static',
@@ -40,7 +37,7 @@
 						)
 						schemaForms[i]?.setArgs(it)
 					}
-					schemas[i] = script.schema ?? emptySchema()
+					schemas[i] = schema ?? emptySchema()
 				} else {
 					schemaForms[i]?.setArgs({})
 					schemas[i] = emptySchema()
@@ -84,11 +81,7 @@
 							disabled={flow.value.modules.length == 0 ||
 								flow.value.modules[0].value.path == undefined}
 							on:click={async () => {
-								const script = await ScriptService.getScriptByPath({
-									workspace: $workspaceStore ?? '',
-									path: flow.value.modules[0].value.path ?? ''
-								})
-								flow.schema = script.schema
+								flow.schema = await loadSchema(flow.value.modules[0].value.path ?? '')
 							}}
 							>Copy from step 1's schema
 						</button>

@@ -2,8 +2,9 @@
 import { goto } from '$app/navigation'
 import { toast } from '@zerodevx/svelte-toast'
 import { get } from 'svelte/store'
-import { CancelablePromise, UserService, type User } from './gen'
-import { clearStores, superadmin, userStore, workspaceStore, type UserExt } from './stores'
+import { ScriptService, UserService, type User } from './gen'
+import { inferArgs } from './infer'
+import { clearStores, superadmin, workspaceStore, type UserExt } from './stores'
 
 export function isToday(someDate: Date): boolean {
 	const today = new Date()
@@ -138,6 +139,21 @@ export function clickOutside(node: any): any {
 	}
 }
 
+export async function loadSchema(path: string) {
+
+	if (path.startsWith('hub/')) {
+		const code = await ScriptService.getHubScriptContentByPath({ path })
+		const schema = emptySchema()
+		await inferArgs('deno', code, schema)
+		return schema
+	} else {
+		const script = await ScriptService.getScriptByPath({
+			workspace: get(workspaceStore)!,
+			path: path ?? ''
+		})
+		return script.schema
+	}
+}
 export type DropdownType = 'action' | 'delete'
 
 export interface DropdownItem {

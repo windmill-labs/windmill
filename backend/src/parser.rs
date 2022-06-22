@@ -266,6 +266,7 @@ fn binding_ident_to_arg(
                                 })
                                 .unwrap_or_else(|| "unknown".to_string()),
                         ),
+                        "Base64" => Typ::Bytes,
                         _ => Typ::Unknown,
                     }
                 }
