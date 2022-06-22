@@ -3119,7 +3119,7 @@ components:
               typ:
                 oneOf:
                   - type: string
-                    enum: ["str", "float", "int", "bool", "unknown"]
+                    enum: ["str", "float", "int", "bool", "email", "unknown"]
                   - type: object
                     properties:
                       resource:
@@ -3130,6 +3130,7 @@ components:
                     properties:
                       list:
                         type: string
+                        enum: ["str", "float", "int", "email"]
                     required:
                       - list
               has_default:
