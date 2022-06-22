@@ -5,9 +5,9 @@
 	import { onMount } from 'svelte'
 	import Icon from 'svelte-awesome'
 	import { slide } from 'svelte/transition'
-	import { UserService, WorkspaceService } from '../../gen'
-	import { clearStores, userStore, usersWorkspaceStore, workspaceStore } from '../../stores'
-	import { refreshSuperadmin, sendUserToast } from '../../utils'
+	import { UserService, WorkspaceService } from '$lib/gen'
+	import { clearStores, userStore, usersWorkspaceStore, workspaceStore } from '$lib/stores'
+	import { refreshSuperadmin, sendUserToast } from '$lib/utils'
 	import CenteredModal from './CenteredModal.svelte'
 
 	let email = $page.url.searchParams.get('email') ?? ''

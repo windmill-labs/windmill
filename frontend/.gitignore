@@ -3,6 +3,6 @@ node_modules
 /build
 /.svelte-kit
 /package
-/src/gen
+/src/lib/gen
 CaddyfileRemoteRuben
 cypress/videos

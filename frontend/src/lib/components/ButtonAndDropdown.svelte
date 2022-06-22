@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { faSortDown } from '@fortawesome/free-solid-svg-icons'
-	import type { DropdownItem } from '../../utils'
+	import type { DropdownItem } from '$lib/utils'
 	import { createEventDispatcher } from 'svelte'
 	import Icon from 'svelte-awesome'
 	import Dropdown from './Dropdown.svelte'

@@ -1,14 +1,14 @@
 <script lang="ts">
 	import { page } from '$app/stores'
-	import { sendUserToast, displayDate } from '../../utils'
-	import { ScriptService, type Script, ScheduleService, type Flow, FlowService } from '../../gen'
+	import { sendUserToast, displayDate } from '$lib/utils'
+	import { ScriptService, type Script, ScheduleService, type Flow, FlowService } from '$lib/gen'
 
 	import PageHeader from '$lib/components/PageHeader.svelte'
 	import Path from '$lib/components/Path.svelte'
 
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import { goto } from '$app/navigation'
-	import { workspaceStore } from '../../stores'
+	import { workspaceStore } from '$lib/stores'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
 	import SchemaForm from '$lib/components/SchemaForm.svelte'
 	import ScriptPicker from '$lib/components/ScriptPicker.svelte'

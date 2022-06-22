@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { page } from '$app/stores'
-	import { JobService, Job } from '../../gen'
+	import { JobService, Job } from '$lib/gen'
 	import { onDestroy } from 'svelte'
 	import {
 		canWrite,
@@ -9,7 +9,7 @@
 		sendUserToast,
 		truncate,
 		truncateHash
-	} from '../../utils'
+	} from '$lib/utils'
 	import Icon from 'svelte-awesome'
 	import { check, minus } from 'svelte-awesome/icons'
 	import {
@@ -34,7 +34,7 @@
 	import Highlight from 'svelte-highlight'
 	import { python, typescript } from 'svelte-highlight/languages'
 	import github from 'svelte-highlight/styles/github'
-	import { userStore, workspaceStore } from '../../stores'
+	import { userStore, workspaceStore } from '$lib/stores'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
 	import FlowStatusViewer from '$lib/components/FlowStatusViewer.svelte'
 	import JobStatus from '$lib/components/JobStatus.svelte'

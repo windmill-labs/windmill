@@ -1,5 +1,5 @@
 <script lang="ts">
-	import type { Schema } from '../../common'
+	import type { Schema } from '$lib/common'
 
 	import PageHeader from './PageHeader.svelte'
 	import SchemaForm from './SchemaForm.svelte'

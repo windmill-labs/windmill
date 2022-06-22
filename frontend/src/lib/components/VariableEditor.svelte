@@ -1,12 +1,12 @@
 <script lang="ts">
 	import Password from './Password.svelte'
-	import { sendUserToast } from '../../utils'
-	import { VariableService } from '../../gen'
+	import { sendUserToast } from '$lib/utils'
+	import { VariableService } from '$lib/gen'
 	import AutosizedTextarea from './AutosizedTextarea.svelte'
 	import Path from './Path.svelte'
 	import Modal from './Modal.svelte'
 	import { createEventDispatcher } from 'svelte'
-	import { workspaceStore } from '../../stores'
+	import { workspaceStore } from '$lib/stores'
 	import Required from './Required.svelte'
 
 	const dispatch = createEventDispatcher()

@@ -1,11 +1,11 @@
 <script lang="ts">
-	import { sendUserToast } from '../../utils'
+	import { sendUserToast } from '$lib/utils'
 	import Switch from './Switch.svelte'
 
 	import type Modal from './Modal.svelte'
 	import { createEventDispatcher } from 'svelte'
-	import { workspaceStore } from '../../stores'
-	import { WorkspaceService } from '../../gen'
+	import { workspaceStore } from '$lib/stores'
+	import { WorkspaceService } from '$lib/gen'
 
 	const dispatch = createEventDispatcher()
 

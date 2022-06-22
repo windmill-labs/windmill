@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { page } from '$app/stores'
-	import { ScriptService, type Script } from '../../../gen'
-	import { truncateHash, sendUserToast, displayDaysAgo, canWrite } from '../../../utils'
+	import { ScriptService, type Script } from '$lib/gen'
+	import { truncateHash, sendUserToast, displayDaysAgo, canWrite } from '$lib/utils'
 	import Icon from 'svelte-awesome'
 	import {
 		faPlay,
@@ -19,7 +19,7 @@
 	import github from 'svelte-highlight/styles/github'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import ShareModal from '$lib/components/ShareModal.svelte'
-	import { userStore, workspaceStore } from '../../../stores'
+	import { userStore, workspaceStore } from '$lib/stores'
 	import SharedBadge from '$lib/components/SharedBadge.svelte'
 	import SvelteMarkdown from 'svelte-markdown'
 	import SchemaViewer from '$lib/components/SchemaViewer.svelte'

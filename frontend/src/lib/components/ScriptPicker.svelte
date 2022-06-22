@@ -1,10 +1,10 @@
 <script lang="ts">
-	import { sendUserToast } from '../../utils'
-	import { ScriptService, FlowService, Script } from '../../gen'
+	import { sendUserToast } from '$lib/utils'
+	import { ScriptService, FlowService, Script } from '$lib/gen'
 
 	import Icon from 'svelte-awesome'
 	import { faSearch } from '@fortawesome/free-solid-svg-icons'
-	import { hubScripts, workspaceStore } from '../../stores'
+	import { hubScripts, workspaceStore } from '$lib/stores'
 	import { createEventDispatcher } from 'svelte'
 	import ItemPicker from './ItemPicker.svelte'
 	import RadioButton from './RadioButton.svelte'

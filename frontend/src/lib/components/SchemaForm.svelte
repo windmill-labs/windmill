@@ -1,9 +1,9 @@
 <script lang="ts">
-	import { allTrue } from '../../utils'
+	import { allTrue } from '$lib/utils'
 
 	import { slide } from 'svelte/transition'
 
-	import type { Schema } from '../../common'
+	import type { Schema } from '$lib/common'
 	import ArgInput from './ArgInput.svelte'
 	import RadioButton from './RadioButton.svelte'
 	import Editor from './Editor.svelte'

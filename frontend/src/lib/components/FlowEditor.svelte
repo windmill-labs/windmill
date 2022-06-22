@@ -1,14 +1,14 @@
 <script lang="ts">
 	import { faPlus } from '@fortawesome/free-solid-svg-icons'
-	import type { Schema } from '../../common'
-	import { emptySchema, loadSchema } from '../../utils'
+	import type { Schema } from '$lib/common'
+	import { emptySchema, loadSchema } from '$lib/utils'
 
 	import Icon from 'svelte-awesome'
 
-	import { type Flow, FlowModuleValue, ScriptService } from '../../gen'
+	import { type Flow, FlowModuleValue, ScriptService } from '$lib/gen'
 	import SchemaEditor from './SchemaEditor.svelte'
 	import type SchemaForm from './SchemaForm.svelte'
-	import { workspaceStore } from '../../stores'
+	import { workspaceStore } from '$lib/stores'
 	import ModuleStep from './ModuleStep.svelte'
 	import FlowPreview from './FlowPreview.svelte'
 

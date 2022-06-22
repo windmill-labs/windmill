@@ -1,7 +1,7 @@
 <script lang="ts">
-	import { canWrite } from '../utils'
-	import { GroupService } from '../gen'
-	import type { Group } from '../gen'
+	import { canWrite } from '$lib/utils'
+	import { GroupService } from '$lib/gen'
+	import type { Group } from '$lib/gen'
 
 	import PageHeader from '$lib/components/PageHeader.svelte'
 	import TableCustom from '$lib/components/TableCustom.svelte'
@@ -9,7 +9,7 @@
 	import ShareModal from '$lib/components/ShareModal.svelte'
 	import SharedBadge from '$lib/components/SharedBadge.svelte'
 	import { faEdit, faPlus, faShare } from '@fortawesome/free-solid-svg-icons'
-	import { userStore, workspaceStore } from '../stores'
+	import { userStore, workspaceStore } from '$lib/stores'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
 	import Icon from 'svelte-awesome'
 	import GroupModal from '$lib/components/GroupModal.svelte'

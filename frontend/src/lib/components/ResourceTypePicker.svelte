@@ -1,8 +1,8 @@
 <script lang="ts">
 	import { createEventDispatcher } from 'svelte'
 
-	import { ResourceService } from '../../gen'
-	import { workspaceStore } from '../../stores'
+	import { ResourceService } from '$lib/gen'
+	import { workspaceStore } from '$lib/stores'
 	import IconedResourceType from './IconedResourceType.svelte'
 
 	let resources: string[] = []

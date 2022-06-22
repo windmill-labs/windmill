@@ -1,5 +1,5 @@
 import type { Schema, SchemaProperty } from './common'
-import { ScriptService, type MainArgSignature } from './gen'
+import { ScriptService, type MainArgSignature } from '$lib/gen'
 import { sendUserToast } from './utils'
 
 export async function inferArgs(

@@ -2,12 +2,12 @@
 	import Modal from './Modal.svelte'
 	import TableCustom from './TableCustom.svelte'
 
-	import { GranularAclService } from '../../gen/services/GranularAclService'
-	import { sendUserToast } from '../../utils'
-	import { GroupService, UserService } from '../../gen'
+	import { GranularAclService } from '$lib/gen/services/GranularAclService'
+	import { sendUserToast } from '$lib/utils'
+	import { GroupService, UserService } from '$lib/gen'
 	import { createEventDispatcher } from 'svelte'
 	import AutoComplete from 'simple-svelte-autocomplete'
-	import { workspaceStore } from '../../stores'
+	import { workspaceStore } from '$lib/stores'
 
 	const dispatch = createEventDispatcher()
 

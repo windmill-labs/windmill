@@ -1,11 +1,11 @@
 <script lang="ts">
-	import { type Meta, pathToMeta } from '../../common'
+	import { type Meta, pathToMeta } from '$lib/common'
 
-	import type { Group } from '../../gen'
-	import { GroupService } from '../../gen'
+	import type { Group } from '$lib/gen'
+	import { GroupService } from '$lib/gen'
 	import Tooltip from './Tooltip.svelte'
-	import { userStore, workspaceStore } from '../../stores'
-	import { sleep } from '../../utils'
+	import { userStore, workspaceStore } from '$lib/stores'
+	import { sleep } from '$lib/utils'
 
 	export let meta: Meta = {
 		ownerKind: 'user',

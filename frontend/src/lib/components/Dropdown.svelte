@@ -1,6 +1,6 @@
 <script lang="ts">
-	import { clickOutside } from '../../utils'
-	import type { DropdownItem } from '../../utils'
+	import { clickOutside } from '$lib/utils'
+	import type { DropdownItem } from '$lib/utils'
 	import { createEventDispatcher } from 'svelte'
 	import Icon from 'svelte-awesome'
 	import { faEllipsisH } from '@fortawesome/free-solid-svg-icons'

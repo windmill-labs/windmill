@@ -47,18 +47,18 @@ export async function main(x: string, y: string = 'default arg') {
 </script>
 
 <script lang="ts">
-	import { ScriptService, type Script } from '../../gen'
+	import { ScriptService, type Script } from '$lib/gen'
 
-	import { emptySchema, sendUserToast } from '../../utils'
+	import { emptySchema, sendUserToast } from '$lib/utils'
 	import { onDestroy } from 'svelte'
 	import ScriptEditor from './ScriptEditor.svelte'
 	import { page } from '$app/stores'
 	import { goto } from '$app/navigation'
 	import Path from './Path.svelte'
 	import SvelteMarkdown from 'svelte-markdown'
-	import { workspaceStore } from '../../stores'
+	import { workspaceStore } from '$lib/stores'
 	import ScriptSchema from './ScriptSchema.svelte'
-	import { inferArgs } from '../../infer'
+	import { inferArgs } from '$lib/infer'
 	import Required from './Required.svelte'
 	import RadioButton from './RadioButton.svelte'
 

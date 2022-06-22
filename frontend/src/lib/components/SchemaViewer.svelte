@@ -1,6 +1,6 @@
 <script lang="ts">
-	import type { Schema } from '../../common'
-	import { emptySchema } from '../../utils'
+	import type { Schema } from '$lib/common'
+	import { emptySchema } from '$lib/utils'
 
 	import Highlight from 'svelte-highlight'
 	import json from 'svelte-highlight/languages/json'

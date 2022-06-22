@@ -1,10 +1,10 @@
 <script lang="ts">
 	import Fuse from 'fuse.js'
 
-	import { superadmin, usersWorkspaceStore } from '../../stores'
+	import { superadmin, usersWorkspaceStore } from '$lib/stores'
 
-	import { UserService, SettingsService, GlobalUserInfo } from '../../gen'
-	import { displayDate, sendUserToast, getToday } from '../../utils'
+	import { UserService, SettingsService, GlobalUserInfo } from '$lib/gen'
+	import { displayDate, sendUserToast, getToday } from '$lib/utils'
 	import Icon from 'svelte-awesome'
 	import { faPlus } from '@fortawesome/free-solid-svg-icons'
 	import TableCustom from '$lib/components/TableCustom.svelte'

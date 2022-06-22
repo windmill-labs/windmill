@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { userStore } from '../../stores'
+	import { userStore } from '$lib/stores'
 
 	import Badge from './Badge.svelte'
 	export let extraPerms: Record<string, boolean> = {}
