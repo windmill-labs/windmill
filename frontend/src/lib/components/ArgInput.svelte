@@ -27,8 +27,9 @@
 	export let enum_: string[] | undefined = undefined
 	export let disabled = false
 	export let editableSchema = false
-	export let itemsType: { type?: 'string' | 'number'; contentEncoding?: string } | undefined =
-		undefined
+	export let itemsType:
+		| { type?: 'string' | 'number' | 'bytes'; contentEncoding?: 'base64' }
+		| undefined = undefined
 	export let displayHeader = true
 
 	let seeEditable: boolean = enum_ != undefined || pattern != undefined
