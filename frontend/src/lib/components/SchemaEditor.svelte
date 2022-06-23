@@ -19,25 +19,19 @@
 	let oldArgName: string | undefined // when editing argument and changing name
 
 	let viewJsonSchema = false
-	let editor: Editor
 
-	$: schemaString = JSON.stringify(schema, null, '\t')
-
-	export function getEditor(): Editor {
-		return editor
-	}
 	// Binding is not enough because monaco Editor does not support two-way binding
 	export function getSchema(): Schema {
 		if (viewJsonSchema) {
 			try {
-				schema = JSON.parse(editor.getCode())
+				schema = JSON.parse(schemaString)
 				return schema
 			} catch (err) {
 				throw Error(`Error: input is not a valid schema: ${err}`)
 			}
 		} else {
 			try {
-				editor.setCode(JSON.stringify(schema, null, '\t'))
+				schemaString = JSON.stringify(schema, null, '\t')
 				return schema
 			} catch (err) {
 				throw Error(`Error: input is not a valid schema: ${err}`)
@@ -71,6 +65,8 @@
 			oldArgName = undefined
 			schemaModal.closeModal()
 		}
+		schema = schema
+		schemaString = JSON.stringify(schema, null, '\t')
 	}
 
 	function startEditArgument(argName: string): void {
@@ -93,7 +89,8 @@
 		try {
 			if (Object.keys(schema.properties).includes(argName)) {
 				delete schema.properties[argName]
-				schema = schema //needed for reactivity, see https://svelte.dev/tutorial/updating-arrays-and-objects
+				schema = schema
+				schemaString = JSON.stringify(schema, null, '\t')
 			} else {
 				throw Error('Argument not found!')
 			}
@@ -105,19 +102,13 @@
 
 	function switchTab(): void {
 		if (viewJsonSchema) {
-			let schemaString = editor.getCode()
 			if (schemaString === '') {
 				schemaString = JSON.stringify(emptySchema(), null, 4)
 			}
-			try {
-				schema = JSON.parse(schemaString)
-				viewJsonSchema = false
-			} catch (err) {
-				sendUserToast(err, true)
-			}
+			viewJsonSchema = false
 		} else {
 			try {
-				editor.setCode(JSON.stringify(schema, null, '\t'))
+				schemaString = JSON.stringify(schema, null, '\t')
 				viewJsonSchema = true
 			} catch (err) {
 				sendUserToast(err, true)
@@ -159,61 +150,75 @@
 	</div>
 	<!--json schema or table view-->
 	<div class="border-t py-1  h-full overflow-y-auto">
-		<div class="h-full {viewJsonSchema ? 'hidden' : ''}">
-			{#if schema.properties && Object.keys(schema.properties).length > 0 && schema.required}
-				<TableCustom class="w-full min-h-full">
-					<tr slot="header-row" class="underline">
-						<th>name</th>
-						<th>type</th>
-						<th>description</th>
-						<th>default</th>
-						<th>required</th>
-					</tr>
-					<tbody slot="body">
-						{#each Object.entries(schema.properties) as [name, property] (name)}
-							<tr>
-								<td>{name}</td>
-								<td
-									>{#if !property.type} any {:else} {property.type} {/if}</td
-								>
-								<td>{property.description}</td>
-								<td>{JSON.stringify(property.default) ?? ''}</td>
-								<td>{schema.required.includes(name) ? 'required' : 'optional'}</td>
-								<td class="">
-									<button class="mr-2" on:click={() => handleDeleteArgument(name)}
-										><svg
-											class="w-4 h-4"
-											fill="none"
-											stroke="currentColor"
-											viewBox="0 0 24 14"
-											xmlns="http://www.w3.org/2000/svg"
-										>
-											<path
-												stroke-linecap="round"
-												stroke-linejoin="round"
-												stroke-width="2"
-												d="M6 18L18 6M6 6l12 12"
-											/>
-										</svg></button
+		{#if !viewJsonSchema}
+			<div class="h-full">
+				{#if schema.properties && Object.keys(schema.properties).length > 0 && schema.required}
+					<TableCustom class="w-full min-h-full">
+						<tr slot="header-row" class="underline">
+							<th>name</th>
+							<th>type</th>
+							<th>description</th>
+							<th>default</th>
+							<th>required</th>
+						</tr>
+						<tbody slot="body">
+							{#each Object.entries(schema.properties) as [name, property] (name)}
+								<tr>
+									<td>{name}</td>
+									<td
+										>{#if !property.type} any {:else} {property.type} {/if}</td
 									>
-									<button
-										class="default-button-secondary text-xs inline-flex"
-										on:click={() => {
-											startEditArgument(name)
-										}}>edit</button
-									></td
-								>
-							</tr>
-						{/each}
-					</tbody>
-				</TableCustom>
-			{:else}
-				<div class="text-gray-700 text-xs italic">This script has no argument</div>
-			{/if}
-		</div>
-		<div class={viewJsonSchema ? '' : 'hidden'}>
-			<Editor code={schemaString} bind:this={editor} lang={'json'} class="small-editor" />
-		</div>
+									<td>{property.description}</td>
+									<td>{JSON.stringify(property.default) ?? ''}</td>
+									<td>{schema.required.includes(name) ? 'required' : 'optional'}</td>
+									<td class="">
+										<button class="mr-2" on:click={() => handleDeleteArgument(name)}
+											><svg
+												class="w-4 h-4"
+												fill="none"
+												stroke="currentColor"
+												viewBox="0 0 24 14"
+												xmlns="http://www.w3.org/2000/svg"
+											>
+												<path
+													stroke-linecap="round"
+													stroke-linejoin="round"
+													stroke-width="2"
+													d="M6 18L18 6M6 6l12 12"
+												/>
+											</svg></button
+										>
+										<button
+											class="default-button-secondary text-xs inline-flex"
+											on:click={() => {
+												startEditArgument(name)
+											}}>edit</button
+										></td
+									>
+								</tr>
+							{/each}
+						</tbody>
+					</TableCustom>
+				{:else}
+					<div class="text-gray-700 text-xs italic">This script has no argument</div>
+				{/if}
+			</div>
+		{:else}
+			<div>
+				<Editor
+					on:change={() => {
+						try {
+							schema = JSON.parse(schemaString)
+						} catch (err) {
+							sendUserToast(err.message, true)
+						}
+					}}
+					bind:code={schemaString}
+					lang={'json'}
+					class="small-editor"
+				/>
+			</div>
+		{/if}
 	</div>
 </div>
 

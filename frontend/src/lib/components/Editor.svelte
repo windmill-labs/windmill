@@ -15,6 +15,10 @@
 	import tsWorker from 'monaco-editor/esm/vs/language/typescript/ts.worker?worker'
 	import type { DocumentUri, MessageTransports } from 'monaco-languageclient'
 	import * as vscode from 'vscode'
+	import { createEventDispatcher } from 'svelte'
+
+	const dispatch = createEventDispatcher()
+
 	let divEl: HTMLDivElement | null = null
 	let editor: monaco.editor.IStandaloneCodeEditor
 
@@ -281,6 +285,7 @@
 
 		editor.onDidChangeModelContent((event) => {
 			code = getCode()
+			dispatch('change')
 		})
 
 		if (lang == 'json') {
