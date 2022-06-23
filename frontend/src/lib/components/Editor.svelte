@@ -8,7 +8,6 @@
 	import jsonWorker from 'monaco-editor/esm/vs/language/json/json.worker?worker'
 	import tsWorker from 'monaco-editor/esm/vs/language/typescript/ts.worker?worker'
 	import type { DocumentUri, MessageTransports } from 'monaco-languageclient'
-	import * as vscode from 'vscode'
 	import { createEventDispatcher } from 'svelte'
 
 	const dispatch = createEventDispatcher()
@@ -84,6 +83,8 @@
 			// install Monaco language client services
 			const { MonacoLanguageClient } = await import('monaco-languageclient')
 			const { CloseAction, ErrorAction } = await import('vscode-languageclient')
+			const vscode = await import('vscode')
+
 			const { RequestType, toSocket, WebSocketMessageReader, WebSocketMessageWriter } =
 				await import('@codingame/monaco-jsonrpc')
 

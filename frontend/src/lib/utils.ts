@@ -1,10 +1,6 @@
 /* eslint-disable @typescript-eslint/explicit-module-boundary-types */
-import { goto } from '$app/navigation'
 import { toast } from '@zerodevx/svelte-toast'
-import { get } from 'svelte/store'
-import { ScriptService, UserService, type User } from '$lib/gen'
-import { inferArgs } from './infer'
-import { clearStores, superadmin, workspaceStore, type UserExt } from './stores'
+import type { UserExt } from './stores.js'
 
 export function isToday(someDate: Date): boolean {
 	const today = new Date()
@@ -70,21 +66,6 @@ export function truncateHash(hash: string): string {
 	}
 }
 
-export async function getUserExt(workspace: string): Promise<UserExt | undefined> {
-	try {
-		const user = await UserService.whoami({ workspace })
-		return mapUserToUserExt(user)
-	} catch (error) {
-		return undefined
-	}
-}
-
-export function logoutWithRedirect(rd?: string): void {
-	const error = encodeURIComponent('You have been logged out because your session has expired.')
-	goto(`/user/login?error=${error}${rd ? '&rd=' + encodeURIComponent(rd) : ''}`)
-}
-
-
 export function sleep(ms: number): Promise<void> {
 	return new Promise((resolve) => setTimeout(resolve, ms))
 }
@@ -94,33 +75,7 @@ export function validatePassword(password: string): boolean {
 	return re.test(password)
 }
 
-export async function refreshSuperadmin(): Promise<void> {
-	if (get(superadmin) == undefined) {
-		UserService.globalWhoami().then((x) => {
-			if (x.super_admin) {
-				superadmin.set(x.email)
-			} else {
-				superadmin.set(false)
-			}
-		})
-	}
-}
 
-export async function logout(logoutMessage?: string): Promise<void> {
-	try {
-		clearStores()
-		await UserService.logout()
-		goto(`/user/login${logoutMessage ? '?error=' + encodeURIComponent(logoutMessage) : ''}`)
-		sendUserToast('you have been logged out')
-	} catch (error) {
-		goto(
-			`/user/login?error=${encodeURIComponent(
-				'There was a problem logging you out, check the logs'
-			)}`
-		)
-		console.error(error)
-	}
-}
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export function clickOutside(node: any): any {
@@ -139,21 +94,6 @@ export function clickOutside(node: any): any {
 	}
 }
 
-export async function loadSchema(path: string) {
-
-	if (path.startsWith('hub/')) {
-		const code = await ScriptService.getHubScriptContentByPath({ path })
-		const schema = emptySchema()
-		await inferArgs('deno', code, schema)
-		return schema
-	} else {
-		const script = await ScriptService.getScriptByPath({
-			workspace: get(workspaceStore)!,
-			path: path ?? ''
-		})
-		return script.schema
-	}
-}
 export type DropdownType = 'action' | 'delete'
 
 export interface DropdownItem {
@@ -301,10 +241,3 @@ export function isString(value: any) {
 	return typeof value === 'string' || value instanceof String
 }
 
-export function mapUserToUserExt(user: User): UserExt {
-	return {
-		...user,
-		groups: user.groups!,
-		pgroups: user.groups!.map((x) => `g/${x}`)
-	}
-}

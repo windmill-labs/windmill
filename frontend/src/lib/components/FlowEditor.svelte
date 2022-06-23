@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { faPlus } from '@fortawesome/free-solid-svg-icons'
 	import type { Schema } from '$lib/common'
-	import { emptySchema, loadSchema } from '$lib/utils'
+	import { emptySchema } from '$lib/utils'
 
 	import Icon from 'svelte-awesome'
 
@@ -11,6 +11,7 @@
 	import { workspaceStore } from '$lib/stores'
 	import ModuleStep from './ModuleStep.svelte'
 	import FlowPreview from './FlowPreview.svelte'
+	import { loadSchema } from '$lib/scripts'
 
 	export let flow: Flow
 
