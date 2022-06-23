@@ -68,7 +68,11 @@
 					sendUserToast('Logged out after a request was unauthorized', true)
 					logout($page.url.pathname)
 				} else {
-					sendUserToast(`${message}: ${body ?? ''}`, true)
+					if (body) {
+						sendUserToast(`${body}`, true)
+					} else {
+						sendUserToast(`${message}`, true)
+					}
 				}
 			} else {
 				console.log('Caught unhandled promise rejection without message', event)
