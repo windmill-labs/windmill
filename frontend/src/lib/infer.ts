@@ -1,6 +1,6 @@
-import type { Schema, SchemaProperty } from './common'
+import type { Schema, SchemaProperty } from './common.js'
 import { ScriptService, type MainArgSignature } from '$lib/gen'
-import { sendUserToast } from './utils'
+import { sendUserToast } from './utils.js'
 
 export async function inferArgs(
 	language: 'python3' | 'deno',

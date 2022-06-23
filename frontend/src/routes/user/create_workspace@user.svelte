@@ -2,7 +2,9 @@
 	import { goto } from '$app/navigation'
 
 	import { UserService, WorkspaceService } from '$lib/gen'
-	import { logoutWithRedirect, sendUserToast } from '$lib/utils'
+	import { sendUserToast } from '$lib/utils'
+	import { logoutWithRedirect } from '$lib/logout'
+
 	import { page } from '$app/stores'
 	import { usersWorkspaceStore, workspaceStore } from '$lib/stores'
 	import CenteredModal from './CenteredModal.svelte'

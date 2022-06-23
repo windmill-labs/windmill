@@ -5,13 +5,10 @@
 	import { onMount } from 'svelte'
 	import { WorkspaceService } from '$lib/gen'
 	import { superadmin, userStore, usersWorkspaceStore, workspaceStore } from '$lib/stores'
-	import {
-		getUserExt,
-		logout,
-		logoutWithRedirect,
-		refreshSuperadmin,
-		sendUserToast
-	} from '$lib/utils'
+	import { sendUserToast } from '$lib/utils'
+
+	import { logout, logoutWithRedirect } from '$lib/logout'
+	import { getUserExt, refreshSuperadmin } from '$lib/user'
 
 	// Default toast options
 	const toastOptions = {

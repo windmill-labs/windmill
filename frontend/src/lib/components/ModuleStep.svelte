@@ -4,7 +4,8 @@
 
 	import SchemaForm from './SchemaForm.svelte'
 	import ScriptPicker from './ScriptPicker.svelte'
-	import { emptySchema, loadSchema as UloadSchema } from '$lib/utils'
+	import { emptySchema } from '$lib/utils'
+	import { loadSchema as UloadSchema } from '$lib/scripts'
 	import FlowPreview from './FlowPreview.svelte'
 
 	export let flow: Flow

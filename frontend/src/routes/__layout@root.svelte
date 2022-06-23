@@ -29,7 +29,8 @@
 		usersWorkspaceStore,
 		workspaceStore
 	} from '$lib/stores'
-	import { clickOutside, logout } from '$lib/utils'
+	import { clickOutside } from '$lib/utils'
+	import { logout } from '$lib/logout'
 
 	OpenAPI.WITH_CREDENTIALS = true
 

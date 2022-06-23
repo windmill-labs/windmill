@@ -6,9 +6,10 @@
 	import Icon from 'svelte-awesome'
 	import { slide } from 'svelte/transition'
 	import { UserService, WorkspaceService } from '$lib/gen'
-	import { clearStores, userStore, usersWorkspaceStore, workspaceStore } from '$lib/stores'
-	import { refreshSuperadmin, sendUserToast } from '$lib/utils'
+	import { clearStores, usersWorkspaceStore, workspaceStore } from '$lib/stores'
+	import { sendUserToast } from '$lib/utils'
 	import CenteredModal from './CenteredModal.svelte'
+	import { refreshSuperadmin } from '$lib/user'
 
 	let email = $page.url.searchParams.get('email') ?? ''
 	let password = $page.url.searchParams.get('password') ?? ''
