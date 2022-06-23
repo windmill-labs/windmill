@@ -19,24 +19,20 @@
 	let showPassword = false
 
 	async function login(): Promise<void> {
-		try {
-			const requestBody = {
-				email,
-				password
-			}
-
-			await UserService.login({ requestBody })
-
-			// Once logged in, we can fetch the workspaces
-			$usersWorkspaceStore = await WorkspaceService.listUserWorkspaces()
-			// trigger a reload of the user
-			$workspaceStore = $workspaceStore
-			// Finally, we check whether the user is a superadmin
-			refreshSuperadmin()
-			redirectUser()
-		} catch (err) {
-			sendUserToast(`Cannot login: ${err.body}`, true)
+		const requestBody = {
+			email,
+			password
 		}
+
+		await UserService.login({ requestBody })
+
+		// Once logged in, we can fetch the workspaces
+		$usersWorkspaceStore = await WorkspaceService.listUserWorkspaces()
+		// trigger a reload of the user
+		$workspaceStore = $workspaceStore
+		// Finally, we check whether the user is a superadmin
+		refreshSuperadmin()
+		redirectUser()
 	}
 
 	function redirectUser() {
