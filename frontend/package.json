@@ -24,7 +24,7 @@
 		"@typescript-eslint/parser": "^5.27.0",
 		"@zerodevx/svelte-toast": "^0.7.2",
 		"autoprefixer": "^10.4.1",
-		"cssnano": "^5.1.10",
+		"cssnano": "^5.1.12",
 		"cypress": "^9.7.0",
 		"eslint": "^8.16.0",
 		"eslint-config-prettier": "^8.3.0",
