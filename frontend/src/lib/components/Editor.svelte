@@ -3,12 +3,6 @@
 	import type monaco from 'monaco-editor'
 	import { browser } from '$app/env'
 
-	import {
-		RequestType,
-		toSocket,
-		WebSocketMessageReader,
-		WebSocketMessageWriter
-	} from '@codingame/monaco-jsonrpc'
 	import { onDestroy, onMount } from 'svelte'
 	import editorWorker from 'monaco-editor/esm/vs/editor/editor.worker?worker'
 	import jsonWorker from 'monaco-editor/esm/vs/language/json/json.worker?worker'
@@ -90,6 +84,8 @@
 			// install Monaco language client services
 			const { MonacoLanguageClient } = await import('monaco-languageclient')
 			const { CloseAction, ErrorAction } = await import('vscode-languageclient')
+			const { RequestType, toSocket, WebSocketMessageReader, WebSocketMessageWriter } =
+				await import('@codingame/monaco-jsonrpc')
 
 			function createLanguageClient(
 				transports: MessageTransports,
