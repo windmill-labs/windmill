@@ -63,18 +63,14 @@ A good way to make resources user friendly is to link to a default script for yo
 	}
 
 	async function createResource(): Promise<void> {
-		try {
-			await ResourceService.createResource({
-				workspace: $workspaceStore!,
-				requestBody: { path, value: args, description, resource_type: resourceType.name }
-			})
-			sendUserToast(`Successfully created resource at ${path}`)
+		await ResourceService.createResource({
+			workspace: $workspaceStore!,
+			requestBody: { path, value: args, description, resource_type: resourceType.name }
+		})
+		sendUserToast(`Successfully created resource at ${path}`)
 
-			dispatch('refresh')
-			modal.closeModal()
-		} catch (err) {
-			sendUserToast(`${err}`, true)
-		}
+		dispatch('refresh')
+		modal.closeModal()
 	}
 
 	async function editResource(): Promise<void> {

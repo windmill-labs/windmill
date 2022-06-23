@@ -52,13 +52,8 @@
 	}
 
 	async function archiveScript(hash: string): Promise<void> {
-		try {
-			await ScriptService.archiveScriptByHash({ workspace: $workspaceStore!, hash })
-			loadScript(hash)
-		} catch (err) {
-			console.error(err)
-			sendUserToast(`Could not archive this script ${err.body}`, true)
-		}
+		await ScriptService.archiveScriptByHash({ workspace: $workspaceStore!, hash })
+		loadScript(hash)
 	}
 
 	async function syncer(): Promise<void> {

@@ -13,20 +13,15 @@
 	let script: Script | undefined
 
 	async function loadScript() {
-		try {
-			if (hash) {
-				script = await ScriptService.getScriptByHash({ workspace: $workspaceStore!, hash })
-				if (script.schema == undefined) {
-					script.schema = emptySchema()
-					inferArgs(script.language, script.content, script.schema)
-					script = script
-				}
-			} else {
-				sendUserToast(`Failed to fetch script hash from URL`, true)
+		if (hash) {
+			script = await ScriptService.getScriptByHash({ workspace: $workspaceStore!, hash })
+			if (script.schema == undefined) {
+				script.schema = emptySchema()
+				inferArgs(script.language, script.content, script.schema)
+				script = script
 			}
-		} catch (err) {
-			console.error(err)
-			sendUserToast(`Could not load script: ${err}`, true)
+		} else {
+			sendUserToast(`Failed to fetch script hash from URL`, true)
 		}
 	}
 

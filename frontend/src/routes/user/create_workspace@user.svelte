@@ -29,23 +29,18 @@
 		}
 	}
 	async function createWorkspace(): Promise<void> {
-		try {
-			await WorkspaceService.createWorkspace({
-				requestBody: {
-					id,
-					name,
-					username,
-					domain
-				}
-			})
-			sendUserToast(`Successfully created workspace id: ${id}`)
-			usersWorkspaceStore.set(await WorkspaceService.listUserWorkspaces())
-			workspaceStore.set(id)
-			goto('/')
-		} catch (err) {
-			console.error(err)
-			sendUserToast(`Cannot create workspace: ${err.body}`, true)
-		}
+		await WorkspaceService.createWorkspace({
+			requestBody: {
+				id,
+				name,
+				username,
+				domain
+			}
+		})
+		sendUserToast(`Successfully created workspace id: ${id}`)
+		usersWorkspaceStore.set(await WorkspaceService.listUserWorkspaces())
+		workspaceStore.set(id)
+		goto('/')
 	}
 
 	function handleKeyUp(event: KeyboardEvent) {

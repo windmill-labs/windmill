@@ -37,13 +37,8 @@
 	}
 
 	async function archiveFlow(hash: string): Promise<void> {
-		try {
-			await FlowService.archiveFlowByPath({ workspace: $workspaceStore!, path })
-			loadFlow(path)
-		} catch (err) {
-			console.error(err)
-			sendUserToast(`Could not archive this flow ${err.body}`, true)
-		}
+		await FlowService.archiveFlowByPath({ workspace: $workspaceStore!, path })
+		loadFlow(path)
 	}
 
 	async function loadFlow(hash: string): Promise<void> {

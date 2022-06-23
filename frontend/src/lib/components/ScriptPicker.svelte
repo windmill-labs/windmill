@@ -45,16 +45,12 @@
 	}
 
 	async function loadItems(): Promise<void> {
-		try {
-			if (itemKind == 'flow') {
-				items = await FlowService.listFlows({ workspace: $workspaceStore! })
-			} else if (itemKind == 'script') {
-				items = await ScriptService.listScripts({ workspace: $workspaceStore! })
-			} else {
-				items = $hubScripts ?? []
-			}
-		} catch (err) {
-			sendUserToast(`Could not load items: ${err}`, true)
+		if (itemKind == 'flow') {
+			items = await FlowService.listFlows({ workspace: $workspaceStore! })
+		} else if (itemKind == 'script') {
+			items = await ScriptService.listScripts({ workspace: $workspaceStore! })
+		} else {
+			items = $hubScripts ?? []
 		}
 	}
 

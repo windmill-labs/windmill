@@ -111,13 +111,9 @@
 	}
 
 	async function archiveScript(path: string): Promise<void> {
-		try {
-			await ScriptService.archiveScriptByPath({ workspace: $workspaceStore!, path })
-			loadScripts()
-			sendUserToast(`Successfully archived script ${path}`)
-		} catch (err) {
-			sendUserToast(`Could not archive this script ${err.body}`, true)
-		}
+		await ScriptService.archiveScriptByPath({ workspace: $workspaceStore!, path })
+		loadScripts()
+		sendUserToast(`Successfully archived script ${path}`)
 	}
 
 	$: {

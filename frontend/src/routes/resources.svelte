@@ -69,20 +69,16 @@
 	}
 
 	async function addResourceType(): Promise<void> {
-		try {
-			await ResourceService.createResourceType({
-				workspace: $workspaceStore!,
-				requestBody: {
-					name: 'c_' + newResourceTypeName,
-					schema: newResourceTypeSchema,
-					description: newResourceTypeDescription
-				}
-			})
-			resourceViewer.closeModal()
-			loadResourceTypes()
-		} catch (err) {
-			sendUserToast(`Could not create resource type: ${err?.body || err}`, true)
-		}
+		await ResourceService.createResourceType({
+			workspace: $workspaceStore!,
+			requestBody: {
+				name: 'c_' + newResourceTypeName,
+				schema: newResourceTypeSchema,
+				description: newResourceTypeDescription
+			}
+		})
+		resourceViewer.closeModal()
+		loadResourceTypes()
 	}
 
 	async function handleDeleteResourceType(name: string) {

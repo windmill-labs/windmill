@@ -22,20 +22,16 @@
 
 	// Binding is not enough because monaco Editor does not support two-way binding
 	export function getSchema(): Schema {
-		if (viewJsonSchema) {
-			try {
+		try {
+			if (viewJsonSchema) {
 				schema = JSON.parse(schemaString)
 				return schema
-			} catch (err) {
-				throw Error(`Error: input is not a valid schema: ${err}`)
-			}
-		} else {
-			try {
+			} else {
 				schemaString = JSON.stringify(schema, null, '\t')
 				return schema
-			} catch (err) {
-				throw Error(`Error: input is not a valid schema: ${err}`)
 			}
+		} catch (err) {
+			throw Error(`Error: input is not a valid schema: ${err}`)
 		}
 	}
 
@@ -95,7 +91,6 @@
 				throw Error('Argument not found!')
 			}
 		} catch (err) {
-			console.error(err)
 			sendUserToast(`Could not delete argument: ${err}`, true)
 		}
 	}
@@ -107,12 +102,8 @@
 			}
 			viewJsonSchema = false
 		} else {
-			try {
-				schemaString = JSON.stringify(schema, null, '\t')
-				viewJsonSchema = true
-			} catch (err) {
-				sendUserToast(err, true)
-			}
+			schemaString = JSON.stringify(schema, null, '\t')
+			viewJsonSchema = true
 		}
 	}
 </script>

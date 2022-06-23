@@ -21,19 +21,15 @@
 	let login_type = 'none'
 
 	async function setPassword(): Promise<void> {
-		try {
-			if (newPassword) {
-				await UserService.setPassword({
-					requestBody: {
-						password: newPassword
-					}
-				})
-				sendUserToast('Your password was successfully updated')
-			} else {
-				sendUserToast('Specify a new password value to change your passord', true)
-			}
-		} catch (error) {
-			sendUserToast(`Could not set this user's password: ${error}`, true)
+		if (newPassword) {
+			await UserService.setPassword({
+				requestBody: {
+					password: newPassword
+				}
+			})
+			sendUserToast('Your password was successfully updated')
+		} else {
+			sendUserToast('Specify a new password value to change your passord', true)
 		}
 	}
 
@@ -50,33 +46,21 @@
 		if (newTokenExpiration) {
 			expirationISO = new Date(newTokenExpiration)
 		}
-		try {
-			newToken = await UserService.createToken({
-				requestBody: { label: newTokenLabel, expiration: expirationISO?.toISOString() } as NewToken
-			})
-			listTokens()
-			displayCreateToken = false
-		} catch (err) {
-			sendUserToast(`Could not create token: ${err}`, true)
-		}
+		newToken = await UserService.createToken({
+			requestBody: { label: newTokenLabel, expiration: expirationISO?.toISOString() } as NewToken
+		})
+		listTokens()
+		displayCreateToken = false
 	}
 
 	async function listTokens(): Promise<void> {
-		try {
-			tokens = await UserService.listTokens()
-		} catch (err) {
-			sendUserToast(`Could not fetch tokens: ${err}`, true)
-		}
+		tokens = await UserService.listTokens()
 	}
 
 	async function deleteToken(tokenPrefix: string) {
-		try {
-			await UserService.deleteToken({ tokenPrefix })
-			sendUserToast('Succesfully deleted token')
-			listTokens()
-		} catch (err) {
-			sendUserToast(`There was an error deleting this token: ${err}`, true)
-		}
+		await UserService.deleteToken({ tokenPrefix })
+		sendUserToast('Succesfully deleted token')
+		listTokens()
 	}
 
 	loadVersion()

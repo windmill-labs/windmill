@@ -7,40 +7,35 @@ export async function inferArgs(
 	code: string,
 	schema: Schema
 ): Promise<void> {
-	try {
-		let inferedSchema: MainArgSignature
-		if (language == 'python3') {
-			inferedSchema = await ScriptService.pythonToJsonschema({
-				requestBody: code
-			})
-		} else if (language == 'deno') {
-			inferedSchema = await ScriptService.denoToJsonschema({
-				requestBody: code
-			})
+	let inferedSchema: MainArgSignature
+	if (language == 'python3') {
+		inferedSchema = await ScriptService.pythonToJsonschema({
+			requestBody: code
+		})
+	} else if (language == 'deno') {
+		inferedSchema = await ScriptService.denoToJsonschema({
+			requestBody: code
+		})
+	} else {
+		return
+	}
+
+	schema.required = []
+	const oldProperties = Object.assign({}, schema.properties)
+	schema.properties = {}
+
+	for (const arg of inferedSchema.args) {
+		if (!(arg.name in oldProperties)) {
+			schema.properties[arg.name] = { description: '', type: '' }
 		} else {
-			return
+			schema.properties[arg.name] = oldProperties[arg.name]
 		}
+		argSigToJsonSchemaType(arg.typ, schema.properties[arg.name])
+		schema.properties[arg.name].default = arg.default
 
-		schema.required = []
-		const oldProperties = Object.assign({}, schema.properties)
-		schema.properties = {}
-
-		for (const arg of inferedSchema.args) {
-			if (!(arg.name in oldProperties)) {
-				schema.properties[arg.name] = { description: '', type: '' }
-			} else {
-				schema.properties[arg.name] = oldProperties[arg.name]
-			}
-			argSigToJsonSchemaType(arg.typ, schema.properties[arg.name])
-			schema.properties[arg.name].default = arg.default
-
-			if (!arg.has_default) {
-				schema.required.push(arg.name)
-			}
+		if (!arg.has_default) {
+			schema.required.push(arg.name)
 		}
-	} catch (err) {
-		console.error(err)
-		sendUserToast(`Could not infer schema: ${err.body ?? err}`, true)
 	}
 }
 
