@@ -72,7 +72,8 @@
 			<button
 				class="
 					block
-					w-96
+					w-full
+					max-w-md
 					mx-auto
 					py-1
 					px-2
