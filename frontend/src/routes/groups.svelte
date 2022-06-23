@@ -75,6 +75,14 @@
 			>
 		</div>
 	</PageHeader>
+
+	<div class="bg-blue-100 border-l-4 border-blue-600 text-blue-700 p-4 m-4" role="alert">
+		<p class="font-bold">Groups are a team or enterprise feature - Unlimited during beta</p>
+		<p>
+			Groups are a team or enterprise feature and the feature might be significantly different after
+			beta in the community edition
+		</p>
+	</div>
 	<div class="relative">
 		<TableCustom>
 			<tr slot="header-row">

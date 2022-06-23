@@ -75,6 +75,15 @@
 </script>
 
 <CenteredModal title="Create a new workspace">
+	{#if $page.url.hostname != 'app.windmill.dev'}
+		<div class="bg-blue-100 border-l-4 border-blue-600 text-blue-700 p-4 m-4" role="alert">
+			<p class="font-bold">
+				More than 1 user-created workspace for self-hosted will require a team or enterprise license
+				- Unlimited during beta
+			</p>
+		</div>
+	{/if}
+
 	<label class="block pb-2">
 		<span class="text-gray-700">workspace name:</span>
 		<input bind:value={name} class="default-input" />
