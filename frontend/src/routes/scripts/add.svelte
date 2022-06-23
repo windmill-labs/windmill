@@ -34,19 +34,15 @@
 
 	async function loadTemplate(): Promise<void> {
 		if (templatePath) {
-			try {
-				const template = await ScriptService.getScriptByPath({
-					workspace: $workspaceStore!,
-					path: templatePath
-				})
-				script.summary = `Copy of ${template.summary}`
-				script.description = template.description
-				script.content = template.content
-				script.schema = template.schema
-				sendUserToast('Code & arguments have been loaded from template.')
-			} catch (err) {
-				sendUserToast(`Could not load template: ${err}`, true)
-			}
+			const template = await ScriptService.getScriptByPath({
+				workspace: $workspaceStore!,
+				path: templatePath
+			})
+			script.summary = `Copy of ${template.summary}`
+			script.description = template.description
+			script.content = template.content
+			script.schema = template.schema
+			sendUserToast('Code & arguments have been loaded from template.')
 		}
 	}
 

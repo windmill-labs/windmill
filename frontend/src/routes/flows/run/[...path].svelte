@@ -25,19 +25,15 @@
 	}
 
 	async function runFlow(scheduledForStr: string | undefined, args: Record<string, any>) {
-		try {
-			const scheduledFor = scheduledForStr ? new Date(scheduledForStr).toISOString() : undefined
-			let run = await JobService.runFlowByPath({
-				workspace: $workspaceStore!,
-				path,
-				requestBody: args,
-				scheduledFor
-			})
-			sendUserToast(`Job <a href='/run/${run}'>${run}</a> was created.`)
-			goto('/run/' + run)
-		} catch (err) {
-			sendUserToast(`Could not create job: ${err}`, true)
-		}
+		const scheduledFor = scheduledForStr ? new Date(scheduledForStr).toISOString() : undefined
+		let run = await JobService.runFlowByPath({
+			workspace: $workspaceStore!,
+			path,
+			requestBody: args,
+			scheduledFor
+		})
+		sendUserToast(`Job <a href='/run/${run}'>${run}</a> was created.`)
+		goto('/run/' + run)
 	}
 
 	$: {

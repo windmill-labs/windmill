@@ -56,13 +56,8 @@
 	const SMALL_ICON_SCALE = 0.7
 
 	async function deleteCompletedJob(id: string): Promise<void> {
-		try {
-			await JobService.deleteCompletedJob({ workspace: workspace_id!, id })
-			loadLogs()
-		} catch (err) {
-			console.error(err)
-			sendUserToast(`Could not delete this script ${err.body}`, true)
-		}
+		await JobService.deleteCompletedJob({ workspace: workspace_id!, id })
+		loadLogs()
 	}
 
 	async function cancelJob(id: string) {

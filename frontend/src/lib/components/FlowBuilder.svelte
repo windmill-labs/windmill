@@ -17,45 +17,32 @@
 	$: step = Number($page.url.searchParams.get('step')) || 1
 
 	async function saveFlow(): Promise<void> {
-		try {
-			if (initialPath == '') {
-				await FlowService.createFlow({
-					workspace: $workspaceStore!,
-					requestBody: {
-						path: flow.path,
-						summary: flow.summary,
-						description: flow.description ?? '',
-						value: flow.value,
-						schema: flow.schema
-					}
-				})
-			} else {
-				await FlowService.updateFlow({
-					workspace: $workspaceStore!,
-					path: initialPath,
-					requestBody: {
-						path: flow.path,
-						summary: flow.summary,
-						description: flow.description ?? '',
-						value: flow.value,
-						schema: flow.schema
-					}
-				})
-			}
-			sendUserToast(`Success! flow saved at ${flow.path}`)
-			goto(`/flows/get/${flow.path}`)
-		} catch (error) {
-			if (error.status === 400) {
-				sendUserToast(error.body, true)
-			} else {
-				sendUserToast(`Ooops.Something bad happened: ${error}`, true)
-				console.error(error)
-			}
+		if (initialPath == '') {
+			await FlowService.createFlow({
+				workspace: $workspaceStore!,
+				requestBody: {
+					path: flow.path,
+					summary: flow.summary,
+					description: flow.description ?? '',
+					value: flow.value,
+					schema: flow.schema
+				}
+			})
+		} else {
+			await FlowService.updateFlow({
+				workspace: $workspaceStore!,
+				path: initialPath,
+				requestBody: {
+					path: flow.path,
+					summary: flow.summary,
+					description: flow.description ?? '',
+					value: flow.value,
+					schema: flow.schema
+				}
+			})
 		}
-	}
-
-	async function inferSchema() {
-		//await inferArgs(flow.content, flow.schema);
+		sendUserToast(`Success! flow saved at ${flow.path}`)
+		goto(`/flows/get/${flow.path}`)
 	}
 
 	async function changeStep(step: number) {

@@ -67,18 +67,14 @@
 	}
 
 	async function addAcl(owner: string, write: boolean) {
-		try {
-			await GranularAclService.addGranularAcls({
-				workspace: $workspaceStore!,
-				path,
-				kind,
-				requestBody: { owner, write }
-			})
-			loadAcls()
-			dispatch('change')
-		} catch (err) {
-			sendUserToast(err.toString(), true)
-		}
+		await GranularAclService.addGranularAcls({
+			workspace: $workspaceStore!,
+			path,
+			kind,
+			requestBody: { owner, write }
+		})
+		loadAcls()
+		dispatch('change')
 	}
 </script>
 

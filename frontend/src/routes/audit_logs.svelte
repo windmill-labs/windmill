@@ -26,32 +26,24 @@
 		($page.url.searchParams.get('actionKind') as ActionKind) ?? undefined
 
 	async function loadLogs(username: string | undefined, page: number | undefined): Promise<void> {
-		try {
-			if (username == 'all') {
-				username = undefined
-			}
-			logs = await AuditService.listAuditLogs({
-				workspace: $workspaceStore!,
-				page,
-				perPage,
-				before,
-				after,
-				username,
-				operation,
-				resource,
-				actionKind
-			})
-		} catch (err) {
-			sendUserToast(`Could not load users: ${err}`, true)
+		if (username == 'all') {
+			username = undefined
 		}
+		logs = await AuditService.listAuditLogs({
+			workspace: $workspaceStore!,
+			page,
+			perPage,
+			before,
+			after,
+			username,
+			operation,
+			resource,
+			actionKind
+		})
 	}
 
 	async function loadUsers() {
-		try {
-			usernames = await UserService.listUsernames({ workspace: $workspaceStore! })
-		} catch (err) {
-			sendUserToast(`Could not load users: ${err}`, true)
-		}
+		usernames = await UserService.listUsernames({ workspace: $workspaceStore! })
 	}
 
 	async function gotoUsername(username: string | undefined): Promise<void> {

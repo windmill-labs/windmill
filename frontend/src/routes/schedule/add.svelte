@@ -45,14 +45,10 @@
 
 	async function loadScript(p: string | undefined): Promise<void> {
 		if (p) {
-			try {
-				if (is_flow) {
-					runnable = await FlowService.getFlowByPath({ workspace: $workspaceStore!, path: p })
-				} else {
-					runnable = await ScriptService.getScriptByPath({ workspace: $workspaceStore!, path: p })
-				}
-			} catch (err) {
-				sendUserToast(`Could not load script: ${err}`, true)
+			if (is_flow) {
+				runnable = await FlowService.getFlowByPath({ workspace: $workspaceStore!, path: p })
+			} else {
+				runnable = await ScriptService.getScriptByPath({ workspace: $workspaceStore!, path: p })
 			}
 		} else {
 			runnable = undefined
@@ -74,35 +70,31 @@
 	}
 
 	async function scheduleScript(): Promise<void> {
-		try {
-			if (edit) {
-				await ScheduleService.updateSchedule({
-					workspace: $workspaceStore!,
-					path: initialPath,
-					requestBody: {
-						schedule: formatInput(scheduleInput),
-						script_path: script_path,
-						is_flow: is_flow,
-						args
-					}
-				})
-				goto('/schedules')
-			} else {
-				await ScheduleService.createSchedule({
-					workspace: $workspaceStore!,
-					requestBody: {
-						path,
-						schedule: formatInput(scheduleInput),
-						offset,
-						script_path,
-						is_flow,
-						args
-					}
-				})
-				goto('/schedules')
-			}
-		} catch (err) {
-			sendUserToast(`Could not schedule script: ${err}`, true)
+		if (edit) {
+			await ScheduleService.updateSchedule({
+				workspace: $workspaceStore!,
+				path: initialPath,
+				requestBody: {
+					schedule: formatInput(scheduleInput),
+					script_path: script_path,
+					is_flow: is_flow,
+					args
+				}
+			})
+			goto('/schedules')
+		} else {
+			await ScheduleService.createSchedule({
+				workspace: $workspaceStore!,
+				requestBody: {
+					path,
+					schedule: formatInput(scheduleInput),
+					offset,
+					script_path,
+					is_flow,
+					args
+				}
+			})
+			goto('/schedules')
 		}
 	}
 

@@ -59,22 +59,18 @@
 	$: valid = variable.value.length < MAX_VARIABLE_LENGTH
 
 	async function createVariable(): Promise<void> {
-		try {
-			await VariableService.createVariable({
-				workspace: $workspaceStore!,
-				requestBody: {
-					path,
-					value: variable.value,
-					is_secret: variable.is_secret,
-					description: variable.description
-				}
-			})
-			sendUserToast(`Successfully created variable ${path}`)
-			dispatch('create')
-			modal.closeModal()
-		} catch (err) {
-			sendUserToast(`Could not create variable: ${err.body}`, true)
-		}
+		await VariableService.createVariable({
+			workspace: $workspaceStore!,
+			requestBody: {
+				path,
+				value: variable.value,
+				is_secret: variable.is_secret,
+				description: variable.description
+			}
+		})
+		sendUserToast(`Successfully created variable ${path}`)
+		dispatch('create')
+		modal.closeModal()
 	}
 
 	async function updateVariable(): Promise<void> {

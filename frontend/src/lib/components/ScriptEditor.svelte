@@ -122,7 +122,7 @@
 			//TODO fetch preview, every x time, until it's completed
 		} catch (err) {
 			previewIsLoading = false
-			sendUserToast(`Could not run preview: ${err} `, true)
+			throw err
 		}
 	}
 
