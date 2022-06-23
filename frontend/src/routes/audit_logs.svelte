@@ -83,6 +83,13 @@
 		tooltip="You can only see the audit logs you have visibility on, so only your own as a user."
 	/>
 
+	<div class="bg-blue-100 border-l-4 border-blue-600 text-blue-700 p-4 m-4" role="alert">
+		<p class="font-bold">Audit logs are a team or enterprise feature - Unlimited during beta</p>
+		<p>
+			Audit logs are a team or enterprise feature and the feature might be significantly different
+			after beta in the community edition
+		</p>
+	</div>
 	<!-- Filtering -->
 	<div class="flex flex-row mb-3">
 		<label>

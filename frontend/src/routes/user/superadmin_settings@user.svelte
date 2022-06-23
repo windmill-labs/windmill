@@ -47,6 +47,7 @@
 	</div>
 
 	<PageHeader title="All users" primary={false} />
+
 	<div class="pb-1" />
 	<InviteGlobalUser on:new={listUsers} />
 	<div class="pb-1" />
