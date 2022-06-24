@@ -1,11 +1,11 @@
 <script lang="ts">
 	import type { Schema } from '$lib/common'
+	import { FlowModuleValue, type Flow } from '$lib/gen'
 	import { loadSchema } from '$lib/scripts'
 	import { workspaceStore } from '$lib/stores'
 	import { emptySchema } from '$lib/utils'
 	import { faPlus } from '@fortawesome/free-solid-svg-icons'
 	import Icon from 'svelte-awesome'
-	import { FlowModuleValue, type Flow } from '../../gen'
 	import FlowPreview from './FlowPreview.svelte'
 	import { loadFlowSchemas } from './flows/loadFlowSchemas'
 	import ModuleStep from './ModuleStep.svelte'

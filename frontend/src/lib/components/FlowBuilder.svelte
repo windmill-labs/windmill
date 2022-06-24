@@ -1,11 +1,11 @@
 <script lang="ts">
 	import { goto } from '$app/navigation'
 	import { page } from '$app/stores'
+	import { FlowService, type Flow } from '$lib/gen'
 	import { clearPreviewResults, workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/utils'
 	import { onMount } from 'svelte'
 	import SvelteMarkdown from 'svelte-markdown'
-	import { FlowService, type Flow } from '../../gen'
 	import FlowEditor from './FlowEditor.svelte'
 	import Path from './Path.svelte'
 	import Required from './Required.svelte'

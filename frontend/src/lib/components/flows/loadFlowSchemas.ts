@@ -1,6 +1,6 @@
-import type { Schema } from '../../../common'
-import { ScriptService, type Flow, type FlowModule } from '../../../gen'
-import { emptySchema } from '../../../utils'
+import type { Schema } from '$lib/common'
+import { ScriptService, type Flow, type FlowModule } from '$lib/gen'
+import { emptySchema } from '$lib/utils'
 
 export async function loadFlowSchemas(flow: Flow, workspace: string): Promise<Schema[]> {
 	const schemas = await Promise.all(

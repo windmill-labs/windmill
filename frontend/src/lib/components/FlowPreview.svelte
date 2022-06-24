@@ -1,11 +1,11 @@
 <script lang="ts">
 	import type { Schema } from '$lib/common'
+	import { InputTransform, Job, JobService, type Flow } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { sendUserToast, truncateRev } from '$lib/utils'
 	import { faChevronDown, faChevronUp } from '@fortawesome/free-solid-svg-icons'
 	import { createEventDispatcher, onDestroy } from 'svelte'
 	import Icon from 'svelte-awesome'
-	import { InputTransform, Job, JobService, type Flow } from '../../gen'
 	import ChevronButton from './ChevronButton.svelte'
 	import DisplayResult from './DisplayResult.svelte'
 	import FlowStatusViewer from './FlowStatusViewer.svelte'
