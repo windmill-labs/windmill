@@ -1,16 +1,14 @@
 <script lang="ts">
-	import { allTrue } from '../../utils'
-
+	import { faChevronDown, faChevronUp } from '@fortawesome/free-solid-svg-icons'
+	import Icon from 'svelte-awesome'
 	import { slide } from 'svelte/transition'
-
 	import type { Schema } from '../../common'
+	import { allTrue } from '../../utils'
 	import ArgInput from './ArgInput.svelte'
-	import RadioButton from './RadioButton.svelte'
 	import Editor from './Editor.svelte'
 	import FieldHeader from './FieldHeader.svelte'
-	import Icon from 'svelte-awesome'
-
-	import { faChevronDown, faChevronUp } from '@fortawesome/free-solid-svg-icons'
+	import PropPicker from './flows/PropPicker.svelte'
+	import RadioButton from './RadioButton.svelte'
 
 	export let inputTransform = false
 	export let schema: Schema
@@ -19,11 +17,22 @@
 	export let isValid: boolean = true
 	export let editableSchema = false
 
+	export let extraLib: string
+	export let i: number
+	export let previousSchema: Object
+
 	let inputCheck: { [id: string]: boolean } = {}
 	let seeHelp: { [id: string]: boolean } = {}
+	let editor: Editor
 
 	export function setArgs(nargs: Record<string, any>) {
 		args = nargs
+	}
+
+	function getDefaultExpr(i: number, key: string = 'myfield') {
+		return `import { previous_result, flow_input, step, variable, resource, params } from 'windmill@${i}'
+
+previous_result.${key}`
 	}
 
 	$: isValid = allTrue(inputCheck) ?? false
@@ -51,13 +60,7 @@
 						small={true}
 						bind:value={args[argName].type}
 						on:change={(e) => {
-							console.log(e.detail)
-							args[argName].expr =
-								e.detail == 'javascript'
-									? `import { previous_result, flow_input, step, variable, resource, params } from 'windmill'
-
-previous_result.myfield`
-									: undefined
+							args[argName].expr = e.detail == 'javascript' ? getDefaultExpr(i) : undefined
 						}}
 					/>
 				</div>
@@ -79,9 +82,37 @@ previous_result.myfield`
 					/>
 				{:else if args[argName].type == 'javascript'}
 					{#if args[argName].expr != undefined}
-						<div class="border rounded p-2 mt-2 border-gray-500">
-							<Editor bind:code={args[argName].expr} lang="typescript" class="few-lines-editor" />
+						<div class="border rounded p-2 mt-2 border-gray-300">
+							<Editor
+								bind:this={editor}
+								bind:code={args[argName].expr}
+								lang="typescript"
+								class="few-lines-editor"
+								{extraLib}
+								extraLibPath="file:///node_modules/@types/windmill@{i}/index.d.ts"
+							/>
 						</div>
+						<div class="mt-4">
+							{#if Boolean(previousSchema)}
+								<PropPicker
+									props={previousSchema}
+									on:change={(event) => {
+										editor.setCode(getDefaultExpr(i, event.detail))
+									}}
+								/>
+							{:else}
+								<div
+									class="flex p-4 mb-4 bg-yellow-100 border-t-4 border-yellow-500 dark:bg-yellow-200"
+									role="alert"
+								>
+									<div class="ml-3 text-sm font-medium text-yellow-700">
+										Previous results are not avaiable. The property picker and type inference are
+										not avaiable.
+									</div>
+								</div>
+							{/if}
+						</div>
+
 						<div class="text-xs flex flex-row-reverse">
 							<span
 								class="underline mr-4"

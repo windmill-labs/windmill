@@ -1,20 +1,18 @@
 <script lang="ts">
 	import { faChevronDown, faChevronUp } from '@fortawesome/free-solid-svg-icons'
-	import { sendUserToast, truncateRev } from '../../utils'
-
+	import { createEventDispatcher, onDestroy } from 'svelte'
 	import Icon from 'svelte-awesome'
-
-	import { type Flow, Job, JobService, InputTransform } from '../../gen'
-
+	import type { Schema } from '../../common'
+	import { InputTransform, Job, JobService, type Flow } from '../../gen'
 	import { workspaceStore } from '../../stores'
-	import RunForm from './RunForm.svelte'
-	import FlowStatusViewer from './FlowStatusViewer.svelte'
-	import { onDestroy } from 'svelte'
+	import { sendUserToast, truncateRev } from '../../utils'
 	import ChevronButton from './ChevronButton.svelte'
 	import DisplayResult from './DisplayResult.svelte'
+	import FlowStatusViewer from './FlowStatusViewer.svelte'
+	import RunForm from './RunForm.svelte'
 	import Tabs from './Tabs.svelte'
-	import type { Schema } from '../../common'
 
+	const dispatch = createEventDispatcher()
 	export let i: number
 	export let flow: Flow
 	export let schemas: Schema[] = []
@@ -75,6 +73,7 @@
 				//only CompletedJob has success property
 				clearInterval(intervalId)
 			}
+			dispatch('change', job)
 		} catch (err) {
 			sendUserToast(err, true)
 		}

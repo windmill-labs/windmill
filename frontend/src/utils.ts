@@ -2,8 +2,9 @@
 import { goto } from '$app/navigation'
 import { toast } from '@zerodevx/svelte-toast'
 import { get } from 'svelte/store'
-import { CancelablePromise, UserService, type User } from './gen'
-import { clearStores, superadmin, userStore, workspaceStore, type UserExt } from './stores'
+import type { Schema } from './common'
+import { UserService, type User } from './gen'
+import { clearStores, superadmin, type UserExt } from './stores'
 
 export function isToday(someDate: Date): boolean {
 	const today = new Date()
@@ -40,8 +41,9 @@ export function displayDate(dateString: string | undefined): string {
 	if (date.toString() === 'Invalid Date') {
 		return ''
 	} else {
-		return `${date.getFullYear()}/${date.getMonth() + 1
-			}/${date.getDate()} at ${date.toLocaleTimeString()}`
+		return `${date.getFullYear()}/${
+			date.getMonth() + 1
+		}/${date.getDate()} at ${date.toLocaleTimeString()}`
 	}
 }
 
@@ -82,7 +84,6 @@ export function logoutWithRedirect(rd?: string): void {
 	const error = encodeURIComponent('You have been logged out because your session has expired.')
 	goto(`/user/login?error=${error}${rd ? '&rd=' + encodeURIComponent(rd) : ''}`)
 }
-
 
 export function sleep(ms: number): Promise<void> {
 	return new Promise((resolve) => setTimeout(resolve, ms))
@@ -291,4 +292,120 @@ export function mapUserToUserExt(user: User): UserExt {
 		groups: user.groups!,
 		pgroups: user.groups!.map((x) => `g/${x}`)
 	}
+}
+
+export function buildExtraLib(previousResultType?: string): string {
+	return `
+/**
+* get variable (including secret) at path
+* @param {string} path - path of the variable (e.g: g/all/pretty_secret)
+*/
+export function variable(path: string): string;
+
+/**
+* get resource at path
+* @param {string} path - path of the resource (e.g: g/all/my_resource)
+*/
+export function resource(path: string): any;
+
+/**
+* get result of step n.
+* If n is negative, for instance -1, it is the step just before this one.
+* Step 0 is flow input.
+* @param {number} n - step number.
+*/
+export function step(n: number): any;
+
+/**
+* flow input as an object
+*/
+export const flow_input: any;
+
+/**
+* previous result as an object
+*/
+export const previous_result: ${previousResultType || 'any'};
+
+/**
+* static params of this same step
+*/
+export const params: any;`
+}
+
+export function schemaToTsType(schema: Schema): string {
+	if (!schema) {
+		return 'any'
+	}
+	const propKeys = Object.keys(schema.properties)
+
+	const types = propKeys
+		.map((key: string) => {
+			const prop = schema.properties[key]
+			const isOptional = !schema.required.includes(key)
+			const prefix = `${key}${isOptional ? '?' : ''}`
+			if (prop.type === 'string') {
+				return `${prefix}: string`
+			} else if (prop.type === 'number' || prop.type === 'integer') {
+				return `${prefix}: number`
+			} else if (prop.type === 'boolean') {
+				return `${prefix}: boolean`
+			} else if (prop.type === 'object') {
+				return `${prefix}: any`
+			} else if (prop.type === 'array') {
+				const type = prop.items?.type ?? 'any'
+				return `${prefix}: ${type}[]`
+			} else {
+				return `${prefix}: any`
+			}
+		})
+		.join(';')
+
+	return `{ ${types} }`
+}
+
+export function schemaToObject(schema: Schema): Object {
+	const object = {}
+
+	if (!schema) {
+		return object
+	}
+	const propKeys = Object.keys(schema.properties)
+
+	propKeys.forEach((key: string) => {
+		const prop = schema.properties[key]
+		object[key] = prop.type
+	})
+
+	return object
+}
+
+export function objectToTsType(object: Object): string {
+	if (!object) {
+		return 'any'
+	}
+	const propKeys = Object.keys(object)
+
+	const types = propKeys
+		.map((key: string) => {
+			const prop = object[key]
+			if (typeof prop === 'string') {
+				return `${key}: string`
+			} else if (typeof prop === 'number') {
+				return `${key}: number`
+			} else if (typeof prop === 'boolean') {
+				return `${key}: boolean`
+			} else if (typeof prop === 'object') {
+				return `${key}: ${objectToTsType(prop)}`
+			} else if (Array.isArray(prop)) {
+				const type = objectToTsType(prop[0])
+				return `${key}: ${type}[]`
+			} else {
+				return `${key}: any`
+			}
+		})
+		.join(';')
+
+	console.log(`{ ${types} }`)
+
+	return `{ ${types} }`
 }

@@ -1,20 +1,20 @@
 <script lang="ts">
-	import { page } from '$app/stores'
-	import type monaco from 'monaco-editor'
 	import { browser } from '$app/env'
-
+	import { page } from '$app/stores'
 	import {
 		RequestType,
 		toSocket,
 		WebSocketMessageReader,
 		WebSocketMessageWriter
 	} from '@codingame/monaco-jsonrpc'
-	import { onDestroy, onMount } from 'svelte'
+	import type monaco from 'monaco-editor'
 	import editorWorker from 'monaco-editor/esm/vs/editor/editor.worker?worker'
 	import jsonWorker from 'monaco-editor/esm/vs/language/json/json.worker?worker'
 	import tsWorker from 'monaco-editor/esm/vs/language/typescript/ts.worker?worker'
 	import type { DocumentUri, MessageTransports } from 'monaco-languageclient'
+	import { onDestroy, onMount } from 'svelte'
 	import * as vscode from 'vscode'
+	import { buildExtraLib } from '../../utils'
 	let divEl: HTMLDivElement | null = null
 	let editor: monaco.editor.IStandaloneCodeEditor
 
@@ -26,6 +26,9 @@
 	export let formatAction: (() => void) | undefined = undefined
 	export let automaticLayout = true
 	export let websocketAlive = { pyright: false, black: false, deno: false }
+	export let extraLib: string = buildExtraLib()
+	export let extraLibPath: string = 'file:///node_modules/@types/windmill/index.d.ts'
+
 	let websockets: WebSocket[] = []
 	let uri: string = ''
 	let disposeMethod: () => void | undefined
@@ -305,45 +308,7 @@
 					noSyntaxValidation: true
 				})
 			} else {
-				monaco.languages.typescript.typescriptDefaults.addExtraLib(
-					`
-/**
- * get variable (including secret) at path
- * @param {string} path - path of the variable (e.g: g/all/pretty_secret)
- */
-export function variable(path: string): string;
-
-/**
- * get resource at path
- * @param {string} path - path of the resource (e.g: g/all/my_resource)
- */
-export function resource(path: string): any;
-
-/**
- * get result of step n.
- * If n is negative, for instance -1, it is the step just before this one.
- * Step 0 is flow input.
- * @param {number} n - step number.
- */
-export function step(n: number): any;
-
-/**
- * flow input as an object
- */
-export const flow_input: any;
-
-/**
- * previous result as an object
- */
-export const previous_result: any;
-
-/**
- * static params of this same step
- */
-export const params: any;
-				`,
-					'file:///node_modules/@types/windmill/index.d.ts'
-				)
+				monaco.languages.typescript.typescriptDefaults.addExtraLib(extraLib, extraLibPath)
 			}
 		}
 		if (lang == 'python' || deno) {
