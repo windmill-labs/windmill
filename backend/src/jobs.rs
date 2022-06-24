@@ -1006,22 +1006,28 @@ pub async fn push<'c>(
     let args_json = args.map(serde_json::Value::Object);
     let job_id: Uuid = Ulid::new().into();
 
-    let rate_limiting_queue = sqlx::query_scalar!(
-        "SELECT COUNT(id) FROM queue WHERE created_by = $1 AND workspace_id = $2",
-        user,
-        workspace_id
-    )
-    .fetch_one(&mut tx)
-    .await?;
+    let premium_workspace =
+        sqlx::query_scalar!("SELECT premium FROM workspace WHERE id = $1", workspace_id)
+            .fetch_one(&mut tx)
+            .await?;
 
-    if let Some(nb_jobs) = rate_limiting_queue {
-        if nb_jobs > MAX_NB_OF_JOBS_IN_Q_PER_USER {
-            return Err(error::Error::ExecutionErr(format!(
+    if !premium_workspace && std::env::var("CLOUD_HOSTED").is_ok() {
+        let rate_limiting_queue = sqlx::query_scalar!(
+            "SELECT COUNT(id) FROM queue WHERE created_by = $1 AND workspace_id = $2",
+            user,
+            workspace_id
+        )
+        .fetch_one(&mut tx)
+        .await?;
+
+        if let Some(nb_jobs) = rate_limiting_queue {
+            if nb_jobs > MAX_NB_OF_JOBS_IN_Q_PER_USER {
+                return Err(error::Error::ExecutionErr(format!(
                 "You have exceeded the number of authorized elements of queue at any given time: {}", MAX_NB_OF_JOBS_IN_Q_PER_USER)));
+            }
         }
-    }
 
-    let rate_limiting_duration = sqlx::query_scalar!(
+        let rate_limiting_duration = sqlx::query_scalar!(
         "SELECT SUM(duration) FROM completed_job WHERE created_by = $1 AND created_at > NOW() - INTERVAL '1200 seconds' AND workspace_id = $2",
         user,
         workspace_id
@@ -1029,10 +1035,11 @@ pub async fn push<'c>(
     .fetch_one(&mut tx)
     .await?;
 
-    if let Some(sum_duration) = rate_limiting_duration {
-        if sum_duration > MAX_DURATION_LAST_1200 {
-            return Err(error::Error::ExecutionErr(format!(
+        if let Some(sum_duration) = rate_limiting_duration {
+            if sum_duration > MAX_DURATION_LAST_1200 {
+                return Err(error::Error::ExecutionErr(format!(
                 "You have exceeded the scripts cumulative duration limit over the last 20m which is: {}", MAX_DURATION_LAST_1200)));
+            }
         }
     }
 
