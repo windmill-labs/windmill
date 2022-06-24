@@ -143,6 +143,11 @@
 						languageClient.start()
 						socket.onClose((_code, _reason) => {
 							websocketAlive[name] = false
+							try {
+								languageClient.stop()
+							} catch (err) {
+								console.error(err)
+							}
 						})
 
 						vscode.commands.registerCommand('deno.cache', (uris: DocumentUri[] = []) => {
