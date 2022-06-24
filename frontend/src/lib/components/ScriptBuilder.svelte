@@ -215,7 +215,7 @@ export async function main(x: string, y: string = 'default arg') {
 					small={true}
 					options={[
 						['Python 3.10', 'python3'],
-						['Typescript (Deno) WIP', 'deno']
+						['Typescript (Deno)', 'deno']
 					]}
 					on:change={(e) => initContent(e.detail)}
 					bind:value={script.language}
