@@ -579,6 +579,7 @@ async function run() {{
     console.log();
     console.log("result:");
     console.log(res_json);
+    Deno.exit(0);
 }}
 run();
 "#,
