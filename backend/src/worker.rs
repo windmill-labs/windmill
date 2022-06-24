@@ -579,6 +579,7 @@ async function run() {{
     console.log();
     console.log("result:");
     console.log(res_json);
+    Deno.exit(0);
 }}
 run();
 "#,
@@ -616,6 +617,7 @@ run();
                         "--",
                         "/usr/bin/deno",
                         "run",
+                        "--unstable",
                         "--v8-flags=--max-heap-size=2048",
                         "-A",
                         "/tmp/main.ts",

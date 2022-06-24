@@ -5,10 +5,11 @@
 	import { onMount } from 'svelte'
 	import Icon from 'svelte-awesome'
 	import { slide } from 'svelte/transition'
-	import { UserService, WorkspaceService } from '../../gen'
-	import { clearStores, userStore, usersWorkspaceStore, workspaceStore } from '../../stores'
-	import { refreshSuperadmin, sendUserToast } from '../../utils'
+	import { UserService, WorkspaceService } from '$lib/gen'
+	import { clearStores, usersWorkspaceStore, workspaceStore } from '$lib/stores'
+	import { sendUserToast } from '$lib/utils'
 	import CenteredModal from './CenteredModal.svelte'
+	import { refreshSuperadmin } from '$lib/user'
 
 	let email = $page.url.searchParams.get('email') ?? ''
 	let password = $page.url.searchParams.get('password') ?? ''
@@ -18,24 +19,20 @@
 	let showPassword = false
 
 	async function login(): Promise<void> {
-		try {
-			const requestBody = {
-				email,
-				password
-			}
-
-			await UserService.login({ requestBody })
-
-			// Once logged in, we can fetch the workspaces
-			$usersWorkspaceStore = await WorkspaceService.listUserWorkspaces()
-			// trigger a reload of the user
-			$workspaceStore = $workspaceStore
-			// Finally, we check whether the user is a superadmin
-			refreshSuperadmin()
-			redirectUser()
-		} catch (err) {
-			sendUserToast(`Cannot login: ${err.body}`, true)
+		const requestBody = {
+			email,
+			password
 		}
+
+		await UserService.login({ requestBody })
+
+		// Once logged in, we can fetch the workspaces
+		$usersWorkspaceStore = await WorkspaceService.listUserWorkspaces()
+		// trigger a reload of the user
+		$workspaceStore = $workspaceStore
+		// Finally, we check whether the user is a superadmin
+		refreshSuperadmin()
+		redirectUser()
 	}
 
 	function redirectUser() {

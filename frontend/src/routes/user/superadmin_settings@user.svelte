@@ -1,16 +1,16 @@
 <script lang="ts">
 	import Fuse from 'fuse.js'
 
-	import { superadmin, usersWorkspaceStore } from '../../stores'
+	import { superadmin, usersWorkspaceStore } from '$lib/stores'
 
-	import { UserService, SettingsService, GlobalUserInfo } from '../../gen'
-	import { displayDate, sendUserToast, getToday } from '../../utils'
+	import { UserService, SettingsService, GlobalUserInfo } from '$lib/gen'
+	import { displayDate, sendUserToast, getToday } from '$lib/utils'
 	import Icon from 'svelte-awesome'
 	import { faPlus } from '@fortawesome/free-solid-svg-icons'
-	import TableCustom from '../components/TableCustom.svelte'
+	import TableCustom from '$lib/components/TableCustom.svelte'
 	import CenteredModal from './CenteredModal.svelte'
-	import PageHeader from '../components/PageHeader.svelte'
-	import InviteGlobalUser from '../components/InviteGlobalUser.svelte'
+	import PageHeader from '$lib/components/PageHeader.svelte'
+	import InviteGlobalUser from '$lib/components/InviteGlobalUser.svelte'
 
 	let version: string | undefined
 	let users: GlobalUserInfo[] = []
@@ -47,6 +47,7 @@
 	</div>
 
 	<PageHeader title="All users" primary={false} />
+
 	<div class="pb-1" />
 	<InviteGlobalUser on:new={listUsers} />
 	<div class="pb-1" />

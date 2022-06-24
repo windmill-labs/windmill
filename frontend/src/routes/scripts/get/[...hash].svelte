@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { page } from '$app/stores'
-	import { ScriptService, type Script } from '../../../gen'
-	import { truncateHash, sendUserToast, displayDaysAgo, canWrite } from '../../../utils'
+	import { ScriptService, type Script } from '$lib/gen'
+	import { truncateHash, sendUserToast, displayDaysAgo, canWrite } from '$lib/utils'
 	import Icon from 'svelte-awesome'
 	import {
 		faPlay,
@@ -17,14 +17,14 @@
 	import { typescript, python } from 'svelte-highlight/languages'
 
 	import github from 'svelte-highlight/styles/github'
-	import Tooltip from '../../components/Tooltip.svelte'
-	import ShareModal from '../../components/ShareModal.svelte'
-	import { userStore, workspaceStore } from '../../../stores'
-	import SharedBadge from '../../components/SharedBadge.svelte'
+	import Tooltip from '$lib/components/Tooltip.svelte'
+	import ShareModal from '$lib/components/ShareModal.svelte'
+	import { userStore, workspaceStore } from '$lib/stores'
+	import SharedBadge from '$lib/components/SharedBadge.svelte'
 	import SvelteMarkdown from 'svelte-markdown'
-	import SchemaViewer from '../../components/SchemaViewer.svelte'
-	import Dropdown from '../../components/Dropdown.svelte'
-	import CenteredPage from '../../components/CenteredPage.svelte'
+	import SchemaViewer from '$lib/components/SchemaViewer.svelte'
+	import Dropdown from '$lib/components/Dropdown.svelte'
+	import CenteredPage from '$lib/components/CenteredPage.svelte'
 	import { onDestroy } from 'svelte'
 
 	let script: Script | undefined
@@ -52,13 +52,8 @@
 	}
 
 	async function archiveScript(hash: string): Promise<void> {
-		try {
-			await ScriptService.archiveScriptByHash({ workspace: $workspaceStore!, hash })
-			loadScript(hash)
-		} catch (err) {
-			console.error(err)
-			sendUserToast(`Could not archive this script ${err.body}`, true)
-		}
+		await ScriptService.archiveScriptByHash({ workspace: $workspaceStore!, hash })
+		loadScript(hash)
 	}
 
 	async function syncer(): Promise<void> {

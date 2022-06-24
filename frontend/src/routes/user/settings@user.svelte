@@ -1,13 +1,13 @@
 <script lang="ts">
-	import { usersWorkspaceStore } from '../../stores'
+	import { usersWorkspaceStore } from '$lib/stores'
 
-	import type { TruncatedToken, NewToken } from '../../gen'
-	import { UserService, SettingsService } from '../../gen'
-	import { displayDate, sendUserToast, getToday } from '../../utils'
-	import PageHeader from './../components/PageHeader.svelte'
+	import type { TruncatedToken, NewToken } from '$lib/gen'
+	import { UserService, SettingsService } from '$lib/gen'
+	import { displayDate, sendUserToast, getToday } from '$lib/utils'
+	import PageHeader from '$lib/components/PageHeader.svelte'
 	import Icon from 'svelte-awesome'
 	import { faPlus } from '@fortawesome/free-solid-svg-icons'
-	import TableCustom from '../components/TableCustom.svelte'
+	import TableCustom from '$lib/components/TableCustom.svelte'
 	import CenteredModal from './CenteredModal.svelte'
 
 	let newPassword: string | undefined
@@ -21,19 +21,15 @@
 	let login_type = 'none'
 
 	async function setPassword(): Promise<void> {
-		try {
-			if (newPassword) {
-				await UserService.setPassword({
-					requestBody: {
-						password: newPassword
-					}
-				})
-				sendUserToast('Your password was successfully updated')
-			} else {
-				sendUserToast('Specify a new password value to change your passord', true)
-			}
-		} catch (error) {
-			sendUserToast(`Could not set this user's password: ${error}`, true)
+		if (newPassword) {
+			await UserService.setPassword({
+				requestBody: {
+					password: newPassword
+				}
+			})
+			sendUserToast('Your password was successfully updated')
+		} else {
+			sendUserToast('Specify a new password value to change your passord', true)
 		}
 	}
 
@@ -50,33 +46,21 @@
 		if (newTokenExpiration) {
 			expirationISO = new Date(newTokenExpiration)
 		}
-		try {
-			newToken = await UserService.createToken({
-				requestBody: { label: newTokenLabel, expiration: expirationISO?.toISOString() } as NewToken
-			})
-			listTokens()
-			displayCreateToken = false
-		} catch (err) {
-			sendUserToast(`Could not create token: ${err}`, true)
-		}
+		newToken = await UserService.createToken({
+			requestBody: { label: newTokenLabel, expiration: expirationISO?.toISOString() } as NewToken
+		})
+		listTokens()
+		displayCreateToken = false
 	}
 
 	async function listTokens(): Promise<void> {
-		try {
-			tokens = await UserService.listTokens()
-		} catch (err) {
-			sendUserToast(`Could not fetch tokens: ${err}`, true)
-		}
+		tokens = await UserService.listTokens()
 	}
 
 	async function deleteToken(tokenPrefix: string) {
-		try {
-			await UserService.deleteToken({ tokenPrefix })
-			sendUserToast('Succesfully deleted token')
-			listTokens()
-		} catch (err) {
-			sendUserToast(`There was an error deleting this token: ${err}`, true)
-		}
+		await UserService.deleteToken({ tokenPrefix })
+		sendUserToast('Succesfully deleted token')
+		listTokens()
 	}
 
 	loadVersion()

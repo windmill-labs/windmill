@@ -1,10 +1,12 @@
 <script lang="ts">
 	import { goto } from '$app/navigation'
 
-	import { UserService, WorkspaceService } from '../../gen'
-	import { logoutWithRedirect, sendUserToast } from '../../utils'
+	import { UserService, WorkspaceService } from '$lib/gen'
+	import { sendUserToast } from '$lib/utils'
+	import { logoutWithRedirect } from '$lib/logout'
+
 	import { page } from '$app/stores'
-	import { usersWorkspaceStore, workspaceStore } from '../../stores'
+	import { usersWorkspaceStore, workspaceStore } from '$lib/stores'
 	import CenteredModal from './CenteredModal.svelte'
 
 	let id = ''
@@ -27,23 +29,18 @@
 		}
 	}
 	async function createWorkspace(): Promise<void> {
-		try {
-			await WorkspaceService.createWorkspace({
-				requestBody: {
-					id,
-					name,
-					username,
-					domain
-				}
-			})
-			sendUserToast(`Successfully created workspace id: ${id}`)
-			usersWorkspaceStore.set(await WorkspaceService.listUserWorkspaces())
-			workspaceStore.set(id)
-			goto('/')
-		} catch (err) {
-			console.error(err)
-			sendUserToast(`Cannot create workspace: ${err.body}`, true)
-		}
+		await WorkspaceService.createWorkspace({
+			requestBody: {
+				id,
+				name,
+				username,
+				domain
+			}
+		})
+		sendUserToast(`Successfully created workspace id: ${id}`)
+		usersWorkspaceStore.set(await WorkspaceService.listUserWorkspaces())
+		workspaceStore.set(id)
+		goto('/')
 	}
 
 	function handleKeyUp(event: KeyboardEvent) {
@@ -78,6 +75,15 @@
 </script>
 
 <CenteredModal title="Create a new workspace">
+	{#if $page.url.hostname != 'app.windmill.dev'}
+		<div class="bg-blue-100 border-l-4 border-blue-600 text-blue-700 p-4 m-4" role="alert">
+			<p class="font-bold">
+				More than 1 user-created workspace for self-hosted will require a team or enterprise license
+				- Unlimited during beta
+			</p>
+		</div>
+	{/if}
+
 	<label class="block pb-2">
 		<span class="text-gray-700">workspace name:</span>
 		<input bind:value={name} class="default-input" />

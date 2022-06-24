@@ -53,7 +53,8 @@ struct Workspace {
     name: String,
     owner: String,
     domain: Option<String>,
-    deleted: bool
+    deleted: bool,
+    premium: bool
 }
 
 #[derive(FromRow, Serialize, Debug)]

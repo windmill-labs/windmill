@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { page } from '$app/stores'
-	import { FlowService, type Flow } from '../../../gen'
-	import { sendUserToast, displayDaysAgo, canWrite } from '../../../utils'
+	import { FlowService, type Flow } from '$lib/gen'
+	import { sendUserToast, displayDaysAgo, canWrite } from '$lib/utils'
 	import Icon from 'svelte-awesome'
 	import {
 		faPlay,
@@ -15,14 +15,14 @@
 	import json from 'svelte-highlight/languages/json'
 
 	import github from 'svelte-highlight/styles/github'
-	import Tooltip from '../../components/Tooltip.svelte'
-	import ShareModal from '../../components/ShareModal.svelte'
-	import { userStore, workspaceStore } from '../../../stores'
-	import SharedBadge from '../../components/SharedBadge.svelte'
+	import Tooltip from '$lib/components/Tooltip.svelte'
+	import ShareModal from '$lib/components/ShareModal.svelte'
+	import { userStore, workspaceStore } from '$lib/stores'
+	import SharedBadge from '$lib/components/SharedBadge.svelte'
 	import SvelteMarkdown from 'svelte-markdown'
-	import SchemaViewer from '../../components/SchemaViewer.svelte'
-	import Dropdown from '../../components/Dropdown.svelte'
-	import CenteredPage from '../../components/CenteredPage.svelte'
+	import SchemaViewer from '$lib/components/SchemaViewer.svelte'
+	import Dropdown from '$lib/components/Dropdown.svelte'
+	import CenteredPage from '$lib/components/CenteredPage.svelte'
 
 	let flow: Flow | undefined
 	let can_write = false
@@ -37,13 +37,8 @@
 	}
 
 	async function archiveFlow(hash: string): Promise<void> {
-		try {
-			await FlowService.archiveFlowByPath({ workspace: $workspaceStore!, path })
-			loadFlow(path)
-		} catch (err) {
-			console.error(err)
-			sendUserToast(`Could not archive this flow ${err.body}`, true)
-		}
+		await FlowService.archiveFlowByPath({ workspace: $workspaceStore!, path })
+		loadFlow(path)
 	}
 
 	async function loadFlow(hash: string): Promise<void> {

@@ -1,9 +1,9 @@
 <script lang="ts">
-	import { ScriptService, type Script } from '../../../gen'
+	import { ScriptService, type Script } from '$lib/gen'
 
 	import { page } from '$app/stores'
-	import { workspaceStore } from '../../../stores'
-	import ScriptBuilder from '../../components/ScriptBuilder.svelte'
+	import { workspaceStore } from '$lib/stores'
+	import ScriptBuilder from '$lib/components/ScriptBuilder.svelte'
 
 	const initialState = $page.url.searchParams.get('state')
 	let scriptLoadedFromUrl = initialState != undefined ? JSON.parse(atob(initialState)) : undefined

@@ -1,9 +1,9 @@
 <script lang="ts">
 	import Fuse from 'fuse.js'
-	import { FlowService } from '../gen'
-	import type { Flow } from '../gen'
+	import { FlowService } from '$lib/gen'
+	import type { Flow } from '$lib/gen'
 
-	import { sendUserToast, groupBy, canWrite } from '../utils'
+	import { sendUserToast, groupBy, canWrite } from '$lib/utils'
 	import Icon from 'svelte-awesome'
 	import {
 		faArchive,
@@ -16,14 +16,14 @@
 		faShare
 	} from '@fortawesome/free-solid-svg-icons'
 
-	import Dropdown from './components/Dropdown.svelte'
-	import PageHeader from './components/PageHeader.svelte'
-	import Tooltip from './components/Tooltip.svelte'
-	import ShareModal from './components/ShareModal.svelte'
-	import SharedBadge from './components/SharedBadge.svelte'
-	import { superadmin, userStore, workspaceStore } from '../stores'
-	import CenteredPage from './components/CenteredPage.svelte'
-	import Tabs from './components/Tabs.svelte'
+	import Dropdown from '$lib/components/Dropdown.svelte'
+	import PageHeader from '$lib/components/PageHeader.svelte'
+	import Tooltip from '$lib/components/Tooltip.svelte'
+	import ShareModal from '$lib/components/ShareModal.svelte'
+	import SharedBadge from '$lib/components/SharedBadge.svelte'
+	import { superadmin, userStore, workspaceStore } from '$lib/stores'
+	import CenteredPage from '$lib/components/CenteredPage.svelte'
+	import Tabs from '$lib/components/Tabs.svelte'
 
 	type Tab = 'all' | 'personal' | 'groups' | 'shared'
 	type Section = [string, FlowW[]]

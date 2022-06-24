@@ -1,32 +1,27 @@
 <script lang="ts">
 	import { page } from '$app/stores'
-	import { emptySchema, sendUserToast } from '../../../utils'
-	import { ScriptService, type Script, JobService } from '../../../gen'
+	import { emptySchema, sendUserToast } from '$lib/utils'
+	import { ScriptService, type Script, JobService } from '$lib/gen'
 	import { goto } from '$app/navigation'
-	import { workspaceStore } from '../../../stores'
-	import { inferArgs } from '../../../infer'
-	import CenteredPage from '../../components/CenteredPage.svelte'
-	import RunForm from '../../components/RunForm.svelte'
-	import PageHeader from '../../components/PageHeader.svelte'
+	import { workspaceStore } from '$lib/stores'
+	import { inferArgs } from '$lib/infer'
+	import CenteredPage from '$lib/components/CenteredPage.svelte'
+	import RunForm from '$lib/components/RunForm.svelte'
+	import PageHeader from '$lib/components/PageHeader.svelte'
 
 	const hash = $page.params.hash
 	let script: Script | undefined
 
 	async function loadScript() {
-		try {
-			if (hash) {
-				script = await ScriptService.getScriptByHash({ workspace: $workspaceStore!, hash })
-				if (script.schema == undefined) {
-					script.schema = emptySchema()
-					inferArgs(script.language, script.content, script.schema)
-					script = script
-				}
-			} else {
-				sendUserToast(`Failed to fetch script hash from URL`, true)
+		if (hash) {
+			script = await ScriptService.getScriptByHash({ workspace: $workspaceStore!, hash })
+			if (script.schema == undefined) {
+				script.schema = emptySchema()
+				inferArgs(script.language, script.content, script.schema)
+				script = script
 			}
-		} catch (err) {
-			console.error(err)
-			sendUserToast(`Could not load script: ${err}`, true)
+		} else {
+			sendUserToast(`Failed to fetch script hash from URL`, true)
 		}
 	}
 

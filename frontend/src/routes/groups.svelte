@@ -1,18 +1,18 @@
 <script lang="ts">
-	import { canWrite } from '../utils'
-	import { GroupService } from '../gen'
-	import type { Group } from '../gen'
+	import { canWrite } from '$lib/utils'
+	import { GroupService } from '$lib/gen'
+	import type { Group } from '$lib/gen'
 
-	import PageHeader from './components/PageHeader.svelte'
-	import TableCustom from './components/TableCustom.svelte'
-	import Dropdown from './components/Dropdown.svelte'
-	import ShareModal from './components/ShareModal.svelte'
-	import SharedBadge from './components/SharedBadge.svelte'
+	import PageHeader from '$lib/components/PageHeader.svelte'
+	import TableCustom from '$lib/components/TableCustom.svelte'
+	import Dropdown from '$lib/components/Dropdown.svelte'
+	import ShareModal from '$lib/components/ShareModal.svelte'
+	import SharedBadge from '$lib/components/SharedBadge.svelte'
 	import { faEdit, faPlus, faShare } from '@fortawesome/free-solid-svg-icons'
-	import { userStore, workspaceStore } from '../stores'
-	import CenteredPage from './components/CenteredPage.svelte'
+	import { userStore, workspaceStore } from '$lib/stores'
+	import CenteredPage from '$lib/components/CenteredPage.svelte'
 	import Icon from 'svelte-awesome'
-	import GroupModal from './components/GroupModal.svelte'
+	import GroupModal from '$lib/components/GroupModal.svelte'
 
 	type GroupW = Group & { canWrite: boolean }
 
@@ -75,6 +75,14 @@
 			>
 		</div>
 	</PageHeader>
+
+	<div class="bg-blue-100 border-l-4 border-blue-600 text-blue-700 p-4 m-4" role="alert">
+		<p class="font-bold">Groups are a team or enterprise feature - Unlimited during beta</p>
+		<p>
+			Groups are a team or enterprise feature and the feature might be significantly different after
+			beta in the community edition
+		</p>
+	</div>
 	<div class="relative">
 		<TableCustom>
 			<tr slot="header-row">

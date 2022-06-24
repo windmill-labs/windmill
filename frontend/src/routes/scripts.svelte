@@ -11,19 +11,19 @@
 	} from '@fortawesome/free-solid-svg-icons'
 	import Fuse from 'fuse.js'
 	import Icon from 'svelte-awesome'
-	import type { Script } from '../gen'
-	import { ScriptService } from '../gen'
-	import { superadmin, userStore, workspaceStore } from '../stores'
-	import { canWrite, groupBy, sendUserToast, truncateHash } from '../utils'
-	import Badge from './components/Badge.svelte'
-	import CenteredPage from './components/CenteredPage.svelte'
-	import Dropdown from './components/Dropdown.svelte'
-	import Modal from './components/Modal.svelte'
-	import PageHeader from './components/PageHeader.svelte'
-	import SharedBadge from './components/SharedBadge.svelte'
-	import ShareModal from './components/ShareModal.svelte'
-	import Tabs from './components/Tabs.svelte'
-	import Tooltip from './components/Tooltip.svelte'
+	import type { Script } from '$lib/gen'
+	import { ScriptService } from '$lib/gen'
+	import { superadmin, userStore, workspaceStore } from '$lib/stores'
+	import { canWrite, groupBy, sendUserToast, truncateHash } from '$lib/utils'
+	import Badge from '$lib/components/Badge.svelte'
+	import CenteredPage from '$lib/components/CenteredPage.svelte'
+	import Dropdown from '$lib/components/Dropdown.svelte'
+	import Modal from '$lib/components/Modal.svelte'
+	import PageHeader from '$lib/components/PageHeader.svelte'
+	import SharedBadge from '$lib/components/SharedBadge.svelte'
+	import ShareModal from '$lib/components/ShareModal.svelte'
+	import Tabs from '$lib/components/Tabs.svelte'
+	import Tooltip from '$lib/components/Tooltip.svelte'
 
 	type Tab = 'all' | 'personal' | 'groups' | 'shared' | 'community'
 	type Section = [string, ScriptW[]]
@@ -111,13 +111,9 @@
 	}
 
 	async function archiveScript(path: string): Promise<void> {
-		try {
-			await ScriptService.archiveScriptByPath({ workspace: $workspaceStore!, path })
-			loadScripts()
-			sendUserToast(`Successfully archived script ${path}`)
-		} catch (err) {
-			sendUserToast(`Could not archive this script ${err.body}`, true)
-		}
+		await ScriptService.archiveScriptByPath({ workspace: $workspaceStore!, path })
+		loadScripts()
+		sendUserToast(`Successfully archived script ${path}`)
 	}
 
 	$: {

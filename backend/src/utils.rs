@@ -12,7 +12,7 @@ use sqlx::{Postgres, Transaction};
 use crate::error::{Error, Result};
 
 pub const MAX_PER_PAGE: usize = 1000;
-pub const DEFAULT_PER_PAGE: usize = 30;
+pub const DEFAULT_PER_PAGE: usize = 100;
 
 #[derive(Deserialize)]
 pub struct Pagination {

@@ -3,15 +3,12 @@
 	import { page } from '$app/stores'
 	import { SvelteToast } from '@zerodevx/svelte-toast'
 	import { onMount } from 'svelte'
-	import { WorkspaceService } from '../gen'
-	import { superadmin, userStore, usersWorkspaceStore, workspaceStore } from '../stores'
-	import {
-		getUserExt,
-		logout,
-		logoutWithRedirect,
-		refreshSuperadmin,
-		sendUserToast
-	} from '../utils'
+	import { WorkspaceService } from '$lib/gen'
+	import { superadmin, userStore, usersWorkspaceStore, workspaceStore } from '$lib/stores'
+	import { sendUserToast } from '$lib/utils'
+
+	import { logout, logoutWithRedirect } from '$lib/logout'
+	import { getUserExt, refreshSuperadmin } from '$lib/user'
 
 	// Default toast options
 	const toastOptions = {
@@ -71,7 +68,11 @@
 					sendUserToast('Logged out after a request was unauthorized', true)
 					logout($page.url.pathname)
 				} else {
-					sendUserToast(`${message}: ${body ?? ''}`, true)
+					if (body) {
+						sendUserToast(`${body}`, true)
+					} else {
+						sendUserToast(`${message}`, true)
+					}
 				}
 			} else {
 				console.log('Caught unhandled promise rejection without message', event)

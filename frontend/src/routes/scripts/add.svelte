@@ -1,11 +1,11 @@
 <script lang="ts">
-	import { ScriptService, type Script } from '../../gen'
+	import { ScriptService, type Script } from '$lib/gen'
 
 	import { page } from '$app/stores'
-	import { workspaceStore } from '../../stores'
-	import ScriptBuilder from '../components/ScriptBuilder.svelte'
-	import type { Schema } from '../../common'
-	import { emptySchema, sendUserToast } from '../../utils'
+	import { workspaceStore } from '$lib/stores'
+	import ScriptBuilder from '$lib/components/ScriptBuilder.svelte'
+	import type { Schema } from '$lib/common'
+	import { emptySchema, sendUserToast } from '$lib/utils'
 
 	// Default
 	let schema: Schema = emptySchema()
@@ -34,19 +34,15 @@
 
 	async function loadTemplate(): Promise<void> {
 		if (templatePath) {
-			try {
-				const template = await ScriptService.getScriptByPath({
-					workspace: $workspaceStore!,
-					path: templatePath
-				})
-				script.summary = `Copy of ${template.summary}`
-				script.description = template.description
-				script.content = template.content
-				script.schema = template.schema
-				sendUserToast('Code & arguments have been loaded from template.')
-			} catch (err) {
-				sendUserToast(`Could not load template: ${err}`, true)
-			}
+			const template = await ScriptService.getScriptByPath({
+				workspace: $workspaceStore!,
+				path: templatePath
+			})
+			script.summary = `Copy of ${template.summary}`
+			script.description = template.description
+			script.content = template.content
+			script.schema = template.schema
+			sendUserToast('Code & arguments have been loaded from template.')
 		}
 	}
 

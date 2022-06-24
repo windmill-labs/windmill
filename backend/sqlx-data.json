@@ -257,6 +257,11 @@
           "ordinal": 4,
           "name": "deleted",
           "type_info": "Bool"
+        },
+        {
+          "ordinal": 5,
+          "name": "premium",
+          "type_info": "Bool"
         }
       ],
       "parameters": {
@@ -270,6 +275,7 @@
         false,
         false,
         true,
+        false,
         false
       ]
     }
@@ -467,7 +473,8 @@
                   "preview",
                   "flow",
                   "dependencies",
-                  "flowpreview"
+                  "flowpreview",
+                  "script_hub"
                 ]
               }
             }
@@ -2061,7 +2068,8 @@
                   "preview",
                   "flow",
                   "dependencies",
-                  "flowpreview"
+                  "flowpreview",
+                  "script_hub"
                 ]
               }
             }
@@ -2616,6 +2624,26 @@
       "nullable": []
     }
   },
+  "d768bbc46f8a9c4289b918c88ca50aa180b29bbe931d948f6e61976f71b7cdb9": {
+    "query": "SELECT premium FROM workspace WHERE id = $1",
+    "describe": {
+      "columns": [
+        {
+          "ordinal": 0,
+          "name": "premium",
+          "type_info": "Bool"
+        }
+      ],
+      "parameters": {
+        "Left": [
+          "Text"
+        ]
+      },
+      "nullable": [
+        false
+      ]
+    }
+  },
   "d9c8f6ec7bd10e533876526255c15e376ccb4f898b9c0ab8840b2930bda24fdc": {
     "query": "SELECT * FROM group_ WHERE name = $1 AND workspace_id = $2",
     "describe": {
@@ -2947,6 +2975,11 @@
           "ordinal": 4,
           "name": "deleted",
           "type_info": "Bool"
+        },
+        {
+          "ordinal": 5,
+          "name": "premium",
+          "type_info": "Bool"
         }
       ],
       "parameters": {
@@ -2959,6 +2992,7 @@
         false,
         false,
         true,
+        false,
         false
       ]
     }

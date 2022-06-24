@@ -1,18 +1,18 @@
 <script lang="ts">
 	import { page } from '$app/stores'
-	import { sendUserToast, displayDate } from '../../utils'
-	import { ScriptService, type Script, ScheduleService, type Flow, FlowService } from '../../gen'
+	import { sendUserToast, displayDate } from '$lib/utils'
+	import { ScriptService, type Script, ScheduleService, type Flow, FlowService } from '$lib/gen'
 
-	import PageHeader from '../components/PageHeader.svelte'
-	import Path from '../components/Path.svelte'
+	import PageHeader from '$lib/components/PageHeader.svelte'
+	import Path from '$lib/components/Path.svelte'
 
-	import Tooltip from '../components/Tooltip.svelte'
+	import Tooltip from '$lib/components/Tooltip.svelte'
 	import { goto } from '$app/navigation'
-	import { workspaceStore } from '../../stores'
-	import CenteredPage from '../components/CenteredPage.svelte'
-	import SchemaForm from '../components/SchemaForm.svelte'
-	import ScriptPicker from '../components/ScriptPicker.svelte'
-	import Required from '../components/Required.svelte'
+	import { workspaceStore } from '$lib/stores'
+	import CenteredPage from '$lib/components/CenteredPage.svelte'
+	import SchemaForm from '$lib/components/SchemaForm.svelte'
+	import ScriptPicker from '$lib/components/ScriptPicker.svelte'
+	import Required from '$lib/components/Required.svelte'
 
 	let initialPath = $page.url.searchParams.get('edit') || ''
 	let edit = initialPath === '' ? false : true
@@ -45,14 +45,10 @@
 
 	async function loadScript(p: string | undefined): Promise<void> {
 		if (p) {
-			try {
-				if (is_flow) {
-					runnable = await FlowService.getFlowByPath({ workspace: $workspaceStore!, path: p })
-				} else {
-					runnable = await ScriptService.getScriptByPath({ workspace: $workspaceStore!, path: p })
-				}
-			} catch (err) {
-				sendUserToast(`Could not load script: ${err}`, true)
+			if (is_flow) {
+				runnable = await FlowService.getFlowByPath({ workspace: $workspaceStore!, path: p })
+			} else {
+				runnable = await ScriptService.getScriptByPath({ workspace: $workspaceStore!, path: p })
 			}
 		} else {
 			runnable = undefined
@@ -74,35 +70,31 @@
 	}
 
 	async function scheduleScript(): Promise<void> {
-		try {
-			if (edit) {
-				await ScheduleService.updateSchedule({
-					workspace: $workspaceStore!,
-					path: initialPath,
-					requestBody: {
-						schedule: formatInput(scheduleInput),
-						script_path: script_path,
-						is_flow: is_flow,
-						args
-					}
-				})
-				goto('/schedules')
-			} else {
-				await ScheduleService.createSchedule({
-					workspace: $workspaceStore!,
-					requestBody: {
-						path,
-						schedule: formatInput(scheduleInput),
-						offset,
-						script_path,
-						is_flow,
-						args
-					}
-				})
-				goto('/schedules')
-			}
-		} catch (err) {
-			sendUserToast(`Could not schedule script: ${err}`, true)
+		if (edit) {
+			await ScheduleService.updateSchedule({
+				workspace: $workspaceStore!,
+				path: initialPath,
+				requestBody: {
+					schedule: formatInput(scheduleInput),
+					script_path: script_path,
+					is_flow: is_flow,
+					args
+				}
+			})
+			goto('/schedules')
+		} else {
+			await ScheduleService.createSchedule({
+				workspace: $workspaceStore!,
+				requestBody: {
+					path,
+					schedule: formatInput(scheduleInput),
+					offset,
+					script_path,
+					is_flow,
+					args
+				}
+			})
+			goto('/schedules')
 		}
 	}
 

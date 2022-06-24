@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { goto } from '$app/navigation'
-	import CenteredPage from './components/CenteredPage.svelte'
+	import CenteredPage from '$lib/components/CenteredPage.svelte'
 
 	goto('/scripts')
 </script>

@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.12.0
+  version: 1.13.0
   title: Windmill server API
   contact:
     name: Windmill contact
@@ -3119,13 +3119,20 @@ components:
               typ:
                 oneOf:
                   - type: string
-                    enum: ["str", "float", "int", "bool", "unknown"]
+                    enum: ["str", "float", "int", "bool", "email", "unknown"]
                   - type: object
                     properties:
                       resource:
                         type: string
                     required:
                       - resource
+                  - type: object
+                    properties:
+                      list:
+                        type: string
+                        enum: ["str", "float", "int", "email"]
+                    required:
+                      - list
               has_default:
                 type: boolean
               default: {}

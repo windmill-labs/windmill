@@ -1,12 +1,14 @@
 <script lang="ts">
 	import { goto } from '$app/navigation'
 	import { page } from '$app/stores'
-	import { logout, logoutWithRedirect, sendUserToast } from '../../utils'
-	import { UserService, type WorkspaceInvite, WorkspaceService } from '../../gen'
-	import { superadmin, usersWorkspaceStore, workspaceStore } from '../../stores'
+	import { sendUserToast } from '$lib/utils'
+	import { logout, logoutWithRedirect } from '$lib/logout'
+
+	import { UserService, type WorkspaceInvite, WorkspaceService } from '$lib/gen'
+	import { superadmin, usersWorkspaceStore, workspaceStore } from '$lib/stores'
 	import CenteredModal from './CenteredModal.svelte'
-	import Switch from '../components/Switch.svelte'
-	import { faCrown, faUser, faUserAlt, faUserCog } from '@fortawesome/free-solid-svg-icons'
+	import Switch from '$lib/components/Switch.svelte'
+	import { faCrown, faUserCog } from '@fortawesome/free-solid-svg-icons'
 	import Icon from 'svelte-awesome'
 
 	let invites: WorkspaceInvite[] = []
@@ -70,7 +72,8 @@
 			<button
 				class="
 					block
-					w-96
+					w-full
+					max-w-md
 					mx-auto
 					py-1
 					px-2

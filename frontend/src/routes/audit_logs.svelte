@@ -1,13 +1,13 @@
 <script lang="ts">
-	import { AuditService, AuditLog, UserService } from '../gen'
-	import type { ActionKind } from '../common'
+	import { AuditService, AuditLog, UserService } from '$lib/gen'
+	import type { ActionKind } from '$lib/common'
 	import { page } from '$app/stores'
-	import { displayDate, sendUserToast } from '../utils'
+	import { displayDate, sendUserToast } from '$lib/utils'
 	import { goto } from '$app/navigation'
-	import PageHeader from './components/PageHeader.svelte'
-	import { userStore, workspaceStore } from '../stores'
-	import TableCustom from './components/TableCustom.svelte'
-	import CenteredPage from './components/CenteredPage.svelte'
+	import PageHeader from '$lib/components/PageHeader.svelte'
+	import { userStore, workspaceStore } from '$lib/stores'
+	import TableCustom from '$lib/components/TableCustom.svelte'
+	import CenteredPage from '$lib/components/CenteredPage.svelte'
 	import Icon from 'svelte-awesome'
 	import { faCross, faEdit, faPlay, faPlus, faQuestion } from '@fortawesome/free-solid-svg-icons'
 
@@ -26,32 +26,24 @@
 		($page.url.searchParams.get('actionKind') as ActionKind) ?? undefined
 
 	async function loadLogs(username: string | undefined, page: number | undefined): Promise<void> {
-		try {
-			if (username == 'all') {
-				username = undefined
-			}
-			logs = await AuditService.listAuditLogs({
-				workspace: $workspaceStore!,
-				page,
-				perPage,
-				before,
-				after,
-				username,
-				operation,
-				resource,
-				actionKind
-			})
-		} catch (err) {
-			sendUserToast(`Could not load users: ${err}`, true)
+		if (username == 'all') {
+			username = undefined
 		}
+		logs = await AuditService.listAuditLogs({
+			workspace: $workspaceStore!,
+			page,
+			perPage,
+			before,
+			after,
+			username,
+			operation,
+			resource,
+			actionKind
+		})
 	}
 
 	async function loadUsers() {
-		try {
-			usernames = await UserService.listUsernames({ workspace: $workspaceStore! })
-		} catch (err) {
-			sendUserToast(`Could not load users: ${err}`, true)
-		}
+		usernames = await UserService.listUsernames({ workspace: $workspaceStore! })
 	}
 
 	async function gotoUsername(username: string | undefined): Promise<void> {
@@ -91,6 +83,13 @@
 		tooltip="You can only see the audit logs you have visibility on, so only your own as a user."
 	/>
 
+	<div class="bg-blue-100 border-l-4 border-blue-600 text-blue-700 p-4 m-4" role="alert">
+		<p class="font-bold">Audit logs are a team or enterprise feature - Unlimited during beta</p>
+		<p>
+			Audit logs are a team or enterprise feature and the feature might be significantly different
+			after beta in the community edition
+		</p>
+	</div>
 	<!-- Filtering -->
 	<div class="flex flex-row mb-3">
 		<label>

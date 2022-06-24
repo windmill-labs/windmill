@@ -1,12 +1,12 @@
 <script lang="ts">
 	import { page } from '$app/stores'
-	import { sendUserToast } from '../../../utils'
-	import { FlowService, type Flow, JobService } from '../../../gen'
+	import { sendUserToast } from '$lib/utils'
+	import { FlowService, type Flow, JobService } from '$lib/gen'
 	import { goto } from '$app/navigation'
-	import { workspaceStore } from '../../../stores'
-	import CenteredPage from '../../components/CenteredPage.svelte'
-	import RunForm from '../../components/RunForm.svelte'
-	import PageHeader from '../../components/PageHeader.svelte'
+	import { workspaceStore } from '$lib/stores'
+	import CenteredPage from '$lib/components/CenteredPage.svelte'
+	import RunForm from '$lib/components/RunForm.svelte'
+	import PageHeader from '$lib/components/PageHeader.svelte'
 
 	const path = $page.params.path
 	let flow: Flow | undefined
@@ -25,19 +25,15 @@
 	}
 
 	async function runFlow(scheduledForStr: string | undefined, args: Record<string, any>) {
-		try {
-			const scheduledFor = scheduledForStr ? new Date(scheduledForStr).toISOString() : undefined
-			let run = await JobService.runFlowByPath({
-				workspace: $workspaceStore!,
-				path,
-				requestBody: args,
-				scheduledFor
-			})
-			sendUserToast(`Job <a href='/run/${run}'>${run}</a> was created.`)
-			goto('/run/' + run)
-		} catch (err) {
-			sendUserToast(`Could not create job: ${err}`, true)
-		}
+		const scheduledFor = scheduledForStr ? new Date(scheduledForStr).toISOString() : undefined
+		let run = await JobService.runFlowByPath({
+			workspace: $workspaceStore!,
+			path,
+			requestBody: args,
+			scheduledFor
+		})
+		sendUserToast(`Job <a href='/run/${run}'>${run}</a> was created.`)
+		goto('/run/' + run)
 	}
 
 	$: {
