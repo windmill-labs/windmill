@@ -4,7 +4,7 @@ on:
   push:
     branches: [main]
     paths:
-      - "community/*"
+      - "community/**"
 
 jobs:
   deploy:
