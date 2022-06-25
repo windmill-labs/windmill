@@ -16,3 +16,5 @@ jobs:
         run: ./.github/pull_hub_items.sh
       - name: Create Pull Request
         uses: peter-evans/create-pull-request@v4
+        with:
+          title: sync hub items with community
