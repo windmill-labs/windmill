@@ -12,7 +12,7 @@ jobs:
     steps:
       - uses: actions/checkout@v3
       - name: Deploy to windmill.dev
-        uses: windmill-labs/windmill-gh-action-deploy@v1.0.0
+        uses: windmill-labs/windmill-gh-action-deploy@v2.0.0
         with:
           dry_run: false
           input_dir: community
