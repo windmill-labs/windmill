@@ -28,5 +28,5 @@
       }
     }
   },
-  "description": "SMTP connections info"
+  "description": "SMTP connection info"
 }
