@@ -17,11 +17,11 @@
 	{#if !after}
 		{name}
 	{/if}
-	{#if name === 'postgres'}
+	{#if name === 'postgresql'}
 		<PostgresIcon {height} {width} />
 	{:else if name === 'mysql'}
 		<Mysql {height} {width} />
-	{:else if name === 'SMTP'}
+	{:else if name === 'smtp'}
 		<Mail {height} {width} />
 	{:else if name === 'mongodb'}
 		<DbIcon {height} {width} />
