@@ -1057,25 +1057,34 @@ pub async fn push<'c>(
                 Some(language),
             )
         }
-        JobPayload::ScriptHub { path } => (
-            None,
-            Some(path.clone()),
-            Some(
-                get_hub_script_by_path(
-                    Authed {
-                        email: Some("".to_string()),
-                        username: user.to_string(),
-                        is_admin: false,
-                        groups: vec![],
-                    },
-                    Path(StripPath(path)),
-                )
-                .await?,
-            ),
-            JobKind::Script_Hub,
-            None,
-            Some(ScriptLang::Deno),
-        ),
+        JobPayload::ScriptHub { path } => {
+            let email = sqlx::query_scalar!(
+                "SELECT email FROM usr WHERE username = $1 AND workspace_id = $2",
+                user,
+                workspace_id
+            )
+            .fetch_optional(&mut tx)
+            .await?;
+            (
+                None,
+                Some(path.clone()),
+                Some(
+                    get_hub_script_by_path(
+                        Authed {
+                            email,
+                            username: user.to_string(),
+                            is_admin: false,
+                            groups: vec![],
+                        },
+                        Path(StripPath(path)),
+                    )
+                    .await?,
+                ),
+                JobKind::Script_Hub,
+                None,
+                Some(ScriptLang::Deno),
+            )
+        }
         JobPayload::Code(RawCode {
             content,
             path,

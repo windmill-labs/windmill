@@ -1007,6 +1007,27 @@
       ]
     }
   },
+  "5b7a1d16d8109a65479ab33d411c60d14ea91d870fdff8606d7aa4ad39f0ba00": {
+    "query": "SELECT email FROM usr WHERE username = $1 AND workspace_id = $2",
+    "describe": {
+      "columns": [
+        {
+          "ordinal": 0,
+          "name": "email",
+          "type_info": "Varchar"
+        }
+      ],
+      "parameters": {
+        "Left": [
+          "Text",
+          "Text"
+        ]
+      },
+      "nullable": [
+        false
+      ]
+    }
+  },
   "5b9b58612ca0f703a5d154a76fab82ac2329aef965fa937bfab2810b6e1336a4": {
     "query": "DELETE FROM group_ WHERE name = $1 AND workspace_id = $2",
     "describe": {
