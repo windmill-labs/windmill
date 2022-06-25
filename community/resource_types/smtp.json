@@ -1,38 +1,32 @@
 {
   "workspace_id": "starter",
-  "name": "mongodb",
+  "name": "smtp",
   "schema": {
     "type": "object",
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "required": [
-      "host",
-      "password",
-      "username"
+      "host"
     ],
     "properties": {
-      "tls": {
-        "type": "boolean",
-        "description": ""
-      },
       "host": {
         "type": "string",
-        "default": "localhost:27017",
-        "description": "Hostname or IP address or Unix domain socket path of a single mongod or mongos instance to connect to, or a mongodb URI"
+        "default": "mail.smtpbucket.com",
+        "description": "SMTP host address"
       },
       "port": {
         "type": "integer",
-        "default": 27017,
+        "default": 8025,
         "description": "port number on which to connect"
       },
-      "password": {
+      "user": {
         "type": "string",
         "description": ""
       },
-      "username": {
+      "password": {
         "type": "string",
         "description": ""
       }
     }
   },
-  "description": "Mongodb connection infos"
+  "description": "SMTP connections info"
 }
