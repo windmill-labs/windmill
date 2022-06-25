@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/explicit-module-boundary-types */
+import type { User } from '$lib/gen'
 import { toast } from '@zerodevx/svelte-toast'
-import type { User } from 'src/gen'
 import type { Schema } from './common'
 import type { UserExt } from './stores'
 
@@ -360,8 +360,6 @@ export function objectToTsType(object: Object): string {
 			}
 		})
 		.join(';')
-
-	console.log(`{ ${types} }`)
 
 	return `{ ${types} }`
 }

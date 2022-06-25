@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { createEventDispatcher } from 'svelte'
 	import { derived, writable } from 'svelte/store'
-	import JsonView from './JsonView.svelte'
+	import ObjectViewer from './ObjectViewer.svelte'
 	import { keepByKey } from './utils'
 
 	export let props: Object = {}
@@ -25,6 +25,6 @@
 			class="bg-gray-50 border border-gray-300 text-gray-900 text-sm rounded-lg block w-full p-2 mb-2"
 			placeholder="Search prop..."
 		/>
-		<JsonView json={$propsFiltered} on:change={(e) => dispatch('change', e.detail)} />
+		<ObjectViewer json={$propsFiltered} on:select />
 	</div>
 </div>

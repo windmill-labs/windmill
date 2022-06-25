@@ -1,5 +1,6 @@
 <script lang="ts">
 	import type { Schema } from '$lib/common'
+	import type { Flow, FlowModule } from '$lib/gen'
 	import { loadSchema as UloadSchema } from '$lib/scripts'
 	import { addPreviewResult, previewResults } from '$lib/stores'
 	import {
@@ -9,7 +10,6 @@
 		schemaToObject,
 		schemaToTsType
 	} from '$lib/utils'
-	import type { Flow, FlowModule } from 'src/gen'
 	import FlowPreview from './FlowPreview.svelte'
 	import SchemaForm from './SchemaForm.svelte'
 	import ScriptPicker from './ScriptPicker.svelte'

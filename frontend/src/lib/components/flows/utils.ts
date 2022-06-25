@@ -1,14 +1,8 @@
-export function getTypeAsString(arg: any): string {
-	if (arg === null) {
-		return 'null'
-	}
-	return typeof arg
-}
-
 function filterByKey(obj: Object, key: string): Object {
 	if (Object(obj) !== obj) {
 		return obj
 	} else if (Array.isArray(obj)) {
+		debugger
 		return obj.map((o) => filterByKey(o, key))
 	} else {
 		return Object.fromEntries(
@@ -43,4 +37,18 @@ function diff(target: Object, source: Object): Object {
 
 export function keepByKey(json: Object, key: string): Object {
 	return diff(json, filterByKey(json, key))
+}
+
+export function getTypeAsString(arg: any): string {
+	if (arg === null) {
+		return 'null'
+	}
+	return typeof arg
+}
+
+export function formatValue(arg: any) {
+	if (getTypeAsString(arg) === 'string') {
+		return `"${arg}"`
+	}
+	return arg
 }

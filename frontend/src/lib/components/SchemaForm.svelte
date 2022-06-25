@@ -96,7 +96,7 @@ previous_result.${key}`
 							{#if Boolean(previousSchema)}
 								<PropPicker
 									props={previousSchema}
-									on:change={(event) => {
+									on:select={(event) => {
 										editor.setCode(getDefaultExpr(i, event.detail))
 									}}
 								/>
