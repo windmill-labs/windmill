@@ -1,6 +1,6 @@
 {
   "workspace_id": "starter",
-  "name": "SMTP",
+  "name": "smtp",
   "schema": {
     "type": "object",
     "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -28,5 +28,5 @@
       }
     }
   },
-  "description": "SMTP connection info"
+  "description": "SMTP connections info"
 }

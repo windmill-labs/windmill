@@ -10,6 +10,6 @@
     "password": "demodb"
   },
   "description": "demodb",
-  "resource_type": "postgres",
+  "resource_type": "postgresql",
   "extra_perms": {}
 }

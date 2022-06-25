@@ -12,5 +12,5 @@
       }
     }
   },
-  "description": "A slack token to interact with a specific workspace. Can be obtained from the OAuth integration in the workspace settings."
+  "description": "Slack token"
 }

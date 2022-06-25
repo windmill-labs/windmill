@@ -34,5 +34,5 @@
       }
     }
   },
-  "description": "MongoDB connection info"
+  "description": "Mongodb connection infos"
 }

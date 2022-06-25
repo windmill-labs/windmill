@@ -1,6 +1,6 @@
 {
   "workspace_id": "starter",
-  "name": "postgres",
+  "name": "postgresql",
   "schema": {
     "type": "object",
     "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -44,5 +44,5 @@
       }
     }
   },
-  "description": "A postgres database connection resource"
+  "description": "Postgres connection info"
 }

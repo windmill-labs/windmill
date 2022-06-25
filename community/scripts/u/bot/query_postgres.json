@@ -12,7 +12,7 @@
         "description": "",
         "type": "object",
         "default": null,
-        "format": "resource-postgres"
+        "format": "resource-postgresql"
       },
       "sql_query": {
         "description": "",
