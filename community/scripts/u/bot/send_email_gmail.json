@@ -15,7 +15,7 @@
         "description": "",
         "type": "object",
         "default": null,
-        "format": "resource-SMTP"
+        "format": "resource-smtp"
       },
       "to": {
         "type": "string",
