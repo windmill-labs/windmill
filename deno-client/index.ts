@@ -31,14 +31,14 @@ export function createConf(): Configuration & { workspace_id: string } {
  * @param path path of the resource
  * @returns resource value
  */
-export async function getResource(path: string, initializeToAnyIfNotExist?: boolean): Promise<any> {
+export async function getResource(path: string, initializeToTypeIfNotExist?: string): Promise<any> {
     const conf = createConf()
     try {
         const resource = await new ResourceApi(conf).getResource(conf.workspace_id, path)
         return await transformLeaves(resource.value)
     } catch (e) {
-        if (initializeToAnyIfNotExist && e.code === 404) {
-            await new ResourceApi(conf).createResource(conf.workspace_id, { path, value: {}, resourceType: 'state' })
+        if (initializeToTypeIfNotExist && e.code === 404) {
+            await new ResourceApi(conf).createResource(conf.workspace_id, { path, value: {}, resourceType: initializeToTypeIfNotExist })
             return undefined
         } else {
             throw e
@@ -48,25 +48,26 @@ export async function getResource(path: string, initializeToAnyIfNotExist?: bool
 }
 
 function getInternalStatePath(suffix?: string): string {
-    let permissioned_as = Deno.env.get("WM_PERMISSIONED_AS")
+    const permissioned_as = Deno.env.get("WM_PERMISSIONED_AS")
+    const flow_path = Deno.env.get("WM_FLOW_PATH") ?? 'NO_FLOW_PATH'
+    const script_path = suffix ?? Deno.env.get("WM_JOB_PATH") ?? 'NO_JOB_PATH'
 
-    let flow_path = Deno.env.get("WM_FLOW_PATH") ?? 'NO_FLOW_PATH'
-    let script_path = Deno.env.get("WM_JOB_PATH") ?? 'NO_JOB_PATH'
-
-    return `${permissioned_as}/${flow_path}/${script_path}${suffix ? `/${suffix}` : ''}`
+    return `${permissioned_as}/${flow_path}/${script_path}`
 }
 
 /**
- * Set the internal state
- * @param state state to set
+ * Set a resource value by path
+ * @param path path of the resource to set
+ * @param value new value of the resource to set
+ * @param initializeToTypeIfNotExist if the resource does not exist, initialize it with this type
  */
-export async function setResource(path: string, value: any, initializeToAnyIfNotExist?: boolean): Promise<void> {
+export async function setResource(path: string, value: any, initializeToTypeIfNotExist?: string): Promise<void> {
     const conf = createConf()
     try {
         await new ResourceApi(conf).updateResource(conf.workspace_id, path, { value })
     } catch (e) {
-        if (initializeToAnyIfNotExist && e.code === 404) {
-            await new ResourceApi(conf).createResource(conf.workspace_id, { path, value: {}, resourceType: 'any' })
+        if (initializeToTypeIfNotExist && e.code === 404) {
+            await new ResourceApi(conf).createResource(conf.workspace_id, { path, value: {}, resourceType: initializeToTypeIfNotExist })
         } else {
             throw e
         }
@@ -76,17 +77,18 @@ export async function setResource(path: string, value: any, initializeToAnyIfNot
 /**
  * Set the internal state
  * @param state state to set
+ * @param suffix suffix of the path of the internal state (useful to share internal state between jobs)
  */
 export async function setInternalState(state: any, suffix?: string): Promise<void> {
-    await setResource(getInternalStatePath(suffix), state)
+    await setResource(getInternalStatePath(suffix), state, 'state')
 }
 
 /**
- * Set the internal state
+ * Get the internal state
+ * @param suffix suffix of the path of the internal state (useful to share internal state between jobs)
  */
 export async function getInternalState(suffix?: string): Promise<any> {
-    const conf = createConf()
-    await new ResourceApi(conf).getResource(conf.workspace_id, getInternalStatePath(suffix))
+    return await getResource(getInternalStatePath(suffix), 'state')
 }
 
 /**
