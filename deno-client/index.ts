@@ -69,7 +69,7 @@ export async function setResource(path: string, value: any, initializeToTypeIfNo
         await new ResourceApi(conf).updateResource(conf.workspace_id, path, { value })
     } catch (e) {
         if (initializeToTypeIfNotExist && e.code === 404) {
-            await new ResourceApi(conf).createResource(conf.workspace_id, { path, value: {}, resourceType: initializeToTypeIfNotExist })
+            await new ResourceApi(conf).createResource(conf.workspace_id, { path, value, resourceType: initializeToTypeIfNotExist })
         } else {
             throw e
         }
