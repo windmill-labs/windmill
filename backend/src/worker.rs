@@ -7,6 +7,7 @@
 
 use itertools::Itertools;
 use std::{
+    collections::HashMap,
     process::{ExitStatus, Stdio},
     sync::{
         atomic::{AtomicBool, Ordering},
@@ -279,8 +280,8 @@ async fn handle_job(
     timeout: i32,
     worker_name: &str,
     worker_dir: &str,
-    mut logs: &mut String,
-    mut last_line: &mut String,
+    logs: &mut String,
+    last_line: &mut String,
     base_url: &str,
     disable_nuser: bool,
 ) -> Result<JobResult, Error> {
@@ -298,336 +299,25 @@ async fn handle_job(
         .await
         .expect("could not create initial job dir");
 
-    let mut status: Result<ExitStatus, Error>;
+    let mut status: Result<ExitStatus, Error> =
+        Err(Error::InternalErr("job not started".to_string()));
 
     if matches!(job.job_kind, JobKind::Dependencies) {
-        let requirements = job
-            .raw_code
-            .as_ref()
-            .ok_or_else(|| Error::ExecutionErr("missing requirements".to_string()))?;
-        logs.push_str(&format!("content of requirements:\n{}\n", &requirements));
-
-        let file = "requirements.in";
-        write_file(&job_dir, file, &requirements).await?;
-
-        let child = Command::new("pip-compile")
-            .current_dir(&job_dir)
-            .args(vec!["-q", "--no-header", file])
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()?;
-
-        status = handle_child(job, db, &mut logs, &mut last_line, timeout, child).await;
-
-        if status.is_ok() && status.as_ref().unwrap().success() {
-            let path_lock = format!("{}/requirements.txt", job_dir);
-            let mut file = File::open(path_lock).await?;
-
-            let mut content = "".to_string();
-            file.read_to_string(&mut content).await?;
-            content = content
-                .lines()
-                .filter(|x| !x.trim_start().starts_with('#'))
-                .map(|x| x.to_string())
-                .collect::<Vec<String>>()
-                .join("\n");
-            let as_json = json!(content);
-
-            *last_line =
-                format!(r#"{{ "success": "Successful lock file generation", "lock": {as_json} }}"#);
-
-            sqlx::query!(
-                "UPDATE script SET lock = $1 WHERE hash = $2 AND workspace_id = $3",
-                &content,
-                &job.script_hash.unwrap_or(ScriptHash(0)).0,
-                &job.workspace_id
-            )
-            .execute(db)
-            .await?;
-        } else {
-            sqlx::query!(
-                "UPDATE script SET lock_error_logs = $1 WHERE hash = $2 AND workspace_id = $3",
-                &logs.clone(),
-                &job.script_hash.unwrap_or(ScriptHash(0)).0,
-                &job.workspace_id
-            )
-            .execute(db)
-            .await?;
-        }
+        handle_dependency_job(job, logs, &job_dir, &mut status, db, last_line, timeout).await?;
     } else {
-        let (inner_content, requirements_o, language) = if matches!(job.job_kind, JobKind::Preview)
-            || matches!(job.job_kind, JobKind::Script_Hub)
-        {
-            let code = (job.raw_code.as_ref().unwrap_or(&"no raw code".to_owned())).to_owned();
-            let reqs = if job
-                .language
-                .as_ref()
-                .map(|x| matches!(x, ScriptLang::Python3))
-                .unwrap_or(false)
-            {
-                Some(parser::parse_python_imports(&code)?.join("\n"))
-            } else {
-                None
-            };
-            (code, reqs, job.language.to_owned())
-        } else {
-            sqlx::query_as::<_, (String, Option<String>, Option<ScriptLang>)>("SELECT content, lock, language FROM script WHERE hash = $1 AND (workspace_id = $2 OR workspace_id = 'starter')")
-            .bind(&job.script_hash.unwrap_or(ScriptHash(0)).0)
-            .bind(&job.workspace_id)
-            .fetch_optional(db)
-            .await?
-            .ok_or_else(|| Error::InternalErr(format!("expected content and lock")))?
-        };
-
-        match language {
-            None => {
-                return Err(Error::ExecutionErr(
-                    "Require language to be not null".to_string(),
-                ))?;
-            }
-            Some(ScriptLang::Python3) => {
-                let requirements = requirements_o
-                    .ok_or_else(|| Error::InternalErr(format!("lockfile missing")))?;
-
-                let _ = write_file(
-                    &job_dir,
-                    "download.config.proto",
-                    &NSJAIL_CONFIG_DOWNLOAD_CONTENT
-                        .replace("{JOB_DIR}", &job_dir)
-                        .replace("{WORKER_DIR}", &worker_dir)
-                        .replace("{CACHE_DIR}", PIP_CACHE_DIR)
-                        .replace("{CLONE_NEWUSER}", &(!disable_nuser).to_string()),
-                )
-                .await?;
-                let _ = write_file(&job_dir, "requirements.txt", &requirements).await?;
-
-                let child = Command::new("nsjail")
-                    .current_dir(&job_dir)
-                    .args(vec!["--config", "download.config.proto"])
-                    .stdout(Stdio::piped())
-                    .stderr(Stdio::piped())
-                    .spawn()?;
-
-                logs.push_str("\n--- PIP DEPENDENCIES INSTALL ---\n");
-                status = handle_child(job, db, &mut logs, &mut last_line, timeout, child).await;
-
-                if status.is_ok() {
-                    logs.push_str("\n\n--- PTHON CODE EXECUTION ---\n");
-
-                    set_logs(logs, job.id, db).await;
-
-                    let _ = write_file(&job_dir, "inner.py", &inner_content).await?;
-
-                    let sig = crate::parser::parse_python_signature(&inner_content)?;
-                    let transforms = sig.args.into_iter().map(|x| match x.typ {
-        Typ::Bytes => format!("if \"{}\" in kwargs and kwargs[\"{}\"] is not None:\n    kwargs[\"{}\"] = base64.b64decode(kwargs[\"{}\"])\n", x.name, x.name, x.name, x.name),
-        Typ::Datetime => format!("if \"{}\" in kwargs and kwargs[\"{}\"] is not None:\n    kwargs[\"{}\"] = datetime.strptime(kwargs[\"{}\"], '%Y-%m-%dT%H:%M')\n", x.name, x.name, x.name, x.name),
-        _ => "".to_string()
-    }).collect::<Vec<String>>().join("");
-
-                    let tx = db.begin().await?;
-
-                    let token = create_token_for_owner(
-                        &db,
-                        &job.workspace_id,
-                        &job.permissioned_as,
-                        crate::users::NewToken {
-                            label: Some("ephemeral-script".to_string()),
-                            expiration: Some(
-                                chrono::Utc::now()
-                                    + chrono::Duration::seconds((timeout * 2).into()),
-                            ),
-                        },
-                        &job.created_by,
-                    )
-                    .await?;
-
-                    let args = if let Some(args) = &job.args {
-                        Some(
-                            transform_json_value(&token, &job.workspace_id, base_url, args.clone())
-                                .await,
-                        )
-                    } else {
-                        None
-                    };
-                    let ser_args = serde_json::to_string(&args)
-                        .map_err(|e| Error::ExecutionErr(e.to_string()))?
-                        .replace("\\\"", "\\\\\"");
-                    let wrapper_content: String = format!(
-                        r#"
-import json
-import base64
-from datetime import datetime
-
-inner_script = __import__("inner")
-
-kwargs = json.loads("""{ser_args}""", strict=False)
-for k, v in kwargs.items():
-    if v == '<function call>':
-        kwargs[k] = None
-{transforms}
-res = inner_script.main(**kwargs)
-if res is None:
-    res = {{}}
-if isinstance(res, tuple):
-    res = {{f"res{{i+1}}": v for i, v in enumerate(res)}}
-if not isinstance(res, dict):
-    res = {{ "res1": res }}
-res_json = json.dumps(res, separators=(',', ':'), default=str).replace('\n', '')
-print()
-print("result:")
-print(res_json)
-"#,
-                    );
-                    write_file(&job_dir, "main.py", &wrapper_content).await?;
-
-                    tx.commit().await?;
-                    let reserved_variables = variables::get_reserved_variables(
-                        &job.workspace_id,
-                        &token,
-                        &get_email_from_username(&job.created_by, db)
-                            .await?
-                            .unwrap_or_else(|| "nosuitable@email.xyz".to_string()),
-                        &job.created_by,
-                        &job.id.to_string(),
-                    )
-                    .into_iter()
-                    .map(|rv| (rv.name, rv.value));
-                    let _ = write_file(
-                        &job_dir,
-                        "run.config.proto",
-                        &NSJAIL_CONFIG_RUN_PYTHON3_CONTENT
-                            .replace("{JOB_DIR}", &job_dir)
-                            .replace("{CLONE_NEWUSER}", &(!disable_nuser).to_string()),
-                    )
-                    .await?;
-
-                    let child = Command::new("nsjail")
-                        .current_dir(&job_dir)
-                        .envs(reserved_variables)
-                        .args(vec![
-                            "--config",
-                            "run.config.proto",
-                            "--",
-                            "/usr/local/bin/python3",
-                            "-u",
-                            "/tmp/main.py",
-                        ])
-                        .stdout(Stdio::piped())
-                        .stderr(Stdio::piped())
-                        .spawn()?;
-                    status = handle_child(job, db, &mut logs, &mut last_line, timeout, child).await;
-                }
-            }
-            Some(ScriptLang::Deno) => {
-                logs.push_str("\n\n--- DENO CODE EXECUTION ---\n");
-
-                set_logs(logs, job.id, db).await;
-
-                let _ = write_file(&job_dir, "inner.ts", &inner_content).await?;
-
-                let sig = crate::parser::parse_deno_signature(&inner_content)?;
-                //             let transforms = sig.args.clone().into_iter().map(|x| match x.typ {
-                //     Typ::Bytes => format!("if \"{}\" in kwargs and kwargs[\"{}\"] is not None:\n    kwargs[\"{}\"] = base64.b64decode(kwargs[\"{}\"])\n", x.name, x.name, x.name, x.name),
-                //     Typ::Datetime => format!("if \"{}\" in kwargs and kwargs[\"{}\"] is not None:\n    kwargs[\"{}\"] = datetime.strptime(kwargs[\"{}\"], '%Y-%m-%dT%H:%M')\n", x.name, x.name, x.name, x.name),
-                //     _ => "".to_string()
-                // }).collect::<Vec<String>>().join("");
-
-                let tx = db.begin().await?;
-
-                let token = create_token_for_owner(
-                    &db,
-                    &job.workspace_id,
-                    &job.permissioned_as,
-                    crate::users::NewToken {
-                        label: Some("ephemeral-script".to_string()),
-                        expiration: Some(
-                            chrono::Utc::now() + chrono::Duration::seconds((timeout * 2).into()),
-                        ),
-                    },
-                    &job.created_by,
-                )
-                .await?;
-
-                let args = if let Some(args) = &job.args {
-                    Some(
-                        transform_json_value(&token, &job.workspace_id, base_url, args.clone())
-                            .await,
-                    )
-                } else {
-                    None
-                };
-                let ser_args = serde_json::to_string(&args)
-                    .map_err(|e| Error::ExecutionErr(e.to_string()))?
-                    .replace("\\\"", "\\\\\"");
-                let spread = sig.args.into_iter().map(|x| x.name).join(",");
-                let wrapper_content: String = format!(
-                    r#"
-import {{ main }} from "./inner.ts";
-const {{{spread}}} = JSON.parse(`{ser_args}`);
-
-async function run() {{
-    let res: any = await main({spread});
-    if (res == undefined) {{
-        res = {{}}
-    }}
-    if (typeof res !== 'object') {{
-        res = {{ res1: res }}
-    }}
-
-    const res_json = JSON.stringify(res);
-    console.log();
-    console.log("result:");
-    console.log(res_json);
-    Deno.exit(0);
-}}
-run();
-"#,
-                );
-                write_file(&job_dir, "main.ts", &wrapper_content).await?;
-
-                tx.commit().await?;
-                let reserved_variables = variables::get_reserved_variables(
-                    &job.workspace_id,
-                    &token,
-                    &get_email_from_username(&job.created_by, db)
-                        .await?
-                        .unwrap_or_else(|| "nosuitable@email.xyz".to_string()),
-                    &job.created_by,
-                    &job.id.to_string(),
-                )
-                .into_iter()
-                .map(|rv| (rv.name, rv.value));
-                let _ = write_file(
-                    &job_dir,
-                    "run.config.proto",
-                    &NSJAIL_CONFIG_RUN_DENO_CONTENT
-                        .replace("{JOB_DIR}", &job_dir)
-                        .replace("{CACHE_DIR}", DENO_CACHE_DIR)
-                        .replace("{CLONE_NEWUSER}", &(!disable_nuser).to_string()),
-                )
-                .await?;
-
-                let child = Command::new("nsjail")
-                    .current_dir(&job_dir)
-                    .envs(reserved_variables)
-                    .args(vec![
-                        "--config",
-                        "run.config.proto",
-                        "--",
-                        "/usr/bin/deno",
-                        "run",
-                        "--unstable",
-                        "--v8-flags=--max-heap-size=2048",
-                        "-A",
-                        "/tmp/main.ts",
-                    ])
-                    .stdout(Stdio::piped())
-                    .stderr(Stdio::piped())
-                    .spawn()?;
-                status = handle_child(job, db, &mut logs, &mut last_line, timeout, child).await;
-            }
-        }
+        handle_nondep_job(
+            job,
+            db,
+            &job_dir,
+            worker_dir,
+            disable_nuser,
+            logs,
+            &mut status,
+            last_line,
+            timeout,
+            base_url,
+        )
+        .await?;
     }
     tokio::fs::remove_dir_all(job_dir).await?;
 
@@ -658,6 +348,360 @@ run();
         };
         Err(Error::ExecutionErr(err))
     }
+}
+
+async fn handle_nondep_job(
+    job: &QueuedJob,
+    db: &sqlx::Pool<sqlx::Postgres>,
+    job_dir: &String,
+    worker_dir: &str,
+    disable_nuser: bool,
+    logs: &mut String,
+    status: &mut Result<ExitStatus, Error>,
+    last_line: &mut String,
+    timeout: i32,
+    base_url: &str,
+) -> Result<(), Error> {
+    let (inner_content, requirements_o, language) = if matches!(job.job_kind, JobKind::Preview)
+        || matches!(job.job_kind, JobKind::Script_Hub)
+    {
+        let code = (job.raw_code.as_ref().unwrap_or(&"no raw code".to_owned())).to_owned();
+        let reqs = if job
+            .language
+            .as_ref()
+            .map(|x| matches!(x, ScriptLang::Python3))
+            .unwrap_or(false)
+        {
+            Some(parser::parse_python_imports(&code)?.join("\n"))
+        } else {
+            None
+        };
+        (code, reqs, job.language.to_owned())
+    } else {
+        sqlx::query_as::<_, (String, Option<String>, Option<ScriptLang>)>("SELECT content, lock, language FROM script WHERE hash = $1 AND (workspace_id = $2 OR workspace_id = 'starter')")
+        .bind(&job.script_hash.unwrap_or(ScriptHash(0)).0)
+        .bind(&job.workspace_id)
+        .fetch_optional(db)
+        .await?
+        .ok_or_else(|| Error::InternalErr(format!("expected content and lock")))?
+    };
+    match language {
+        None => {
+            return Err(Error::ExecutionErr(
+                "Require language to be not null".to_string(),
+            ))?;
+        }
+        Some(ScriptLang::Python3) => {
+            let requirements =
+                requirements_o.ok_or_else(|| Error::InternalErr(format!("lockfile missing")))?;
+
+            let _ = write_file(
+                job_dir,
+                "download.config.proto",
+                &NSJAIL_CONFIG_DOWNLOAD_CONTENT
+                    .replace("{JOB_DIR}", job_dir)
+                    .replace("{WORKER_DIR}", &worker_dir)
+                    .replace("{CACHE_DIR}", PIP_CACHE_DIR)
+                    .replace("{CLONE_NEWUSER}", &(!disable_nuser).to_string()),
+            )
+            .await?;
+            let _ = write_file(job_dir, "requirements.txt", &requirements).await?;
+
+            let child = Command::new("nsjail")
+                .current_dir(job_dir)
+                .args(vec!["--config", "download.config.proto"])
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped())
+                .spawn()?;
+
+            logs.push_str("\n--- PIP DEPENDENCIES INSTALL ---\n");
+            *status = handle_child(job, db, logs, last_line, timeout, child).await;
+
+            if status.is_ok() {
+                logs.push_str("\n\n--- PTHON CODE EXECUTION ---\n");
+
+                set_logs(logs, job.id, db).await;
+
+                let _ = write_file(job_dir, "inner.py", &inner_content).await?;
+
+                let sig = crate::parser::parse_python_signature(&inner_content)?;
+                let transforms = sig.args.into_iter().map(|x| match x.typ {
+    Typ::Bytes => format!("if \"{}\" in kwargs and kwargs[\"{}\"] is not None:\n    kwargs[\"{}\"] = base64.b64decode(kwargs[\"{}\"])\n", x.name, x.name, x.name, x.name),
+    Typ::Datetime => format!("if \"{}\" in kwargs and kwargs[\"{}\"] is not None:\n    kwargs[\"{}\"] = datetime.strptime(kwargs[\"{}\"], '%Y-%m-%dT%H:%M')\n", x.name, x.name, x.name, x.name),
+    _ => "".to_string()
+        }).collect::<Vec<String>>().join("");
+
+                let tx = db.begin().await?;
+
+                let token = create_token_for_owner(
+                    &db,
+                    &job.workspace_id,
+                    &job.permissioned_as,
+                    crate::users::NewToken {
+                        label: Some("ephemeral-script".to_string()),
+                        expiration: Some(
+                            chrono::Utc::now() + chrono::Duration::seconds((timeout * 2).into()),
+                        ),
+                    },
+                    &job.created_by,
+                )
+                .await?;
+
+                let args = if let Some(args) = &job.args {
+                    Some(
+                        transform_json_value(&token, &job.workspace_id, base_url, args.clone())
+                            .await,
+                    )
+                } else {
+                    None
+                };
+                let ser_args = serde_json::to_string(&args)
+                    .map_err(|e| Error::ExecutionErr(e.to_string()))?
+                    .replace("\\\"", "\\\\\"");
+                let wrapper_content: String = format!(
+                    r#"
+import json
+import base64
+from datetime import datetime
+
+inner_script = __import__("inner")
+
+kwargs = json.loads("""{ser_args}""", strict=False)
+for k, v in kwargs.items():
+    if v == '<function call>':
+        kwargs[k] = None
+{transforms}
+res = inner_script.main(**kwargs)
+if res is None:
+    res = {{}}
+if isinstance(res, tuple):
+    res = {{f"res{{i+1}}": v for i, v in enumerate(res)}}
+if not isinstance(res, dict):
+    res = {{ "res1": res }}
+res_json = json.dumps(res, separators=(',', ':'), default=str).replace('\n', '')
+print()
+print("result:")
+print(res_json)
+"#,
+                );
+                write_file(job_dir, "main.py", &wrapper_content).await?;
+
+                tx.commit().await?;
+                let reserved_variables = get_reserved_variables(job, token, db).await?;
+                let _ = write_file(
+                    job_dir,
+                    "run.config.proto",
+                    &NSJAIL_CONFIG_RUN_PYTHON3_CONTENT
+                        .replace("{JOB_DIR}", job_dir)
+                        .replace("{CLONE_NEWUSER}", &(!disable_nuser).to_string()),
+                )
+                .await?;
+
+                let child = Command::new("nsjail")
+                    .current_dir(job_dir)
+                    .envs(reserved_variables)
+                    .args(vec![
+                        "--config",
+                        "run.config.proto",
+                        "--",
+                        "/usr/local/bin/python3",
+                        "-u",
+                        "/tmp/main.py",
+                    ])
+                    .stdout(Stdio::piped())
+                    .stderr(Stdio::piped())
+                    .spawn()?;
+                *status = handle_child(job, db, logs, last_line, timeout, child).await;
+            }
+        }
+        Some(ScriptLang::Deno) => {
+            logs.push_str("\n\n--- DENO CODE EXECUTION ---\n");
+
+            set_logs(logs, job.id, db).await;
+
+            let _ = write_file(job_dir, "inner.ts", &inner_content).await?;
+
+            let sig = crate::parser::parse_deno_signature(&inner_content)?;
+            //             let transforms = sig.args.clone().into_iter().map(|x| match x.typ {
+            //     Typ::Bytes => format!("if \"{}\" in kwargs and kwargs[\"{}\"] is not None:\n    kwargs[\"{}\"] = base64.b64decode(kwargs[\"{}\"])\n", x.name, x.name, x.name, x.name),
+            //     Typ::Datetime => format!("if \"{}\" in kwargs and kwargs[\"{}\"] is not None:\n    kwargs[\"{}\"] = datetime.strptime(kwargs[\"{}\"], '%Y-%m-%dT%H:%M')\n", x.name, x.name, x.name, x.name),
+            //     _ => "".to_string()
+            // }).collect::<Vec<String>>().join("");
+
+            let tx = db.begin().await?;
+
+            let token = create_token_for_owner(
+                &db,
+                &job.workspace_id,
+                &job.permissioned_as,
+                crate::users::NewToken {
+                    label: Some("ephemeral-script".to_string()),
+                    expiration: Some(
+                        chrono::Utc::now() + chrono::Duration::seconds((timeout * 2).into()),
+                    ),
+                },
+                &job.created_by,
+            )
+            .await?;
+
+            let args = if let Some(args) = &job.args {
+                Some(transform_json_value(&token, &job.workspace_id, base_url, args.clone()).await)
+            } else {
+                None
+            };
+            let ser_args = serde_json::to_string(&args)
+                .map_err(|e| Error::ExecutionErr(e.to_string()))?
+                .replace("\\\"", "\\\\\"");
+            let spread = sig.args.into_iter().map(|x| x.name).join(",");
+            let wrapper_content: String = format!(
+                r#"
+import {{ main }} from "./inner.ts";
+const {{{spread}}} = JSON.parse(`{ser_args}`);
+
+async function run() {{
+    let res: any = await main({spread});
+    if (res == undefined) {{
+        res = {{}}
+    }}
+    if (typeof res !== 'object') {{
+        res = {{ res1: res }}
+    }}
+
+    const res_json = JSON.stringify(res);
+    console.log();
+    console.log("result:");
+    console.log(res_json);
+    Deno.exit(0);
+}}
+run();
+"#,
+            );
+            write_file(job_dir, "main.ts", &wrapper_content).await?;
+
+            tx.commit().await?;
+            let reserved_variables = get_reserved_variables(job, token, db).await?;
+            let _ = write_file(
+                job_dir,
+                "run.config.proto",
+                &NSJAIL_CONFIG_RUN_DENO_CONTENT
+                    .replace("{JOB_DIR}", job_dir)
+                    .replace("{CACHE_DIR}", DENO_CACHE_DIR)
+                    .replace("{CLONE_NEWUSER}", &(!disable_nuser).to_string()),
+            )
+            .await?;
+
+            let child = Command::new("nsjail")
+                .current_dir(job_dir)
+                .envs(reserved_variables)
+                .args(vec![
+                    "--config",
+                    "run.config.proto",
+                    "--",
+                    "/usr/bin/deno",
+                    "run",
+                    "--unstable",
+                    "--v8-flags=--max-heap-size=2048",
+                    "-A",
+                    "/tmp/main.ts",
+                ])
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped())
+                .spawn()?;
+            *status = handle_child(job, db, logs, last_line, timeout, child).await;
+        }
+    }
+    Ok(())
+}
+
+async fn handle_dependency_job(
+    job: &QueuedJob,
+    logs: &mut String,
+    job_dir: &String,
+    status: &mut Result<ExitStatus, Error>,
+    db: &sqlx::Pool<sqlx::Postgres>,
+    last_line: &mut String,
+    timeout: i32,
+) -> Result<(), Error> {
+    let requirements = job
+        .raw_code
+        .as_ref()
+        .ok_or_else(|| Error::ExecutionErr("missing requirements".to_string()))?;
+    logs.push_str(&format!("content of requirements:\n{}\n", &requirements));
+    let file = "requirements.in";
+    write_file(job_dir, file, &requirements).await?;
+    let child = Command::new("pip-compile")
+        .current_dir(job_dir)
+        .args(vec!["-q", "--no-header", file])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()?;
+    *status = handle_child(job, db, logs, last_line, timeout, child).await;
+    Ok(if status.is_ok() && status.as_ref().unwrap().success() {
+        let path_lock = format!("{}/requirements.txt", job_dir);
+        let mut file = File::open(path_lock).await?;
+
+        let mut content = "".to_string();
+        file.read_to_string(&mut content).await?;
+        content = content
+            .lines()
+            .filter(|x| !x.trim_start().starts_with('#'))
+            .map(|x| x.to_string())
+            .collect::<Vec<String>>()
+            .join("\n");
+        let as_json = json!(content);
+
+        *last_line =
+            format!(r#"{{ "success": "Successful lock file generation", "lock": {as_json} }}"#);
+
+        sqlx::query!(
+            "UPDATE script SET lock = $1 WHERE hash = $2 AND workspace_id = $3",
+            &content,
+            &job.script_hash.unwrap_or(ScriptHash(0)).0,
+            &job.workspace_id
+        )
+        .execute(db)
+        .await?;
+    } else {
+        sqlx::query!(
+            "UPDATE script SET lock_error_logs = $1 WHERE hash = $2 AND workspace_id = $3",
+            &logs.clone(),
+            &job.script_hash.unwrap_or(ScriptHash(0)).0,
+            &job.workspace_id
+        )
+        .execute(db)
+        .await?;
+    })
+}
+
+async fn get_reserved_variables(
+    job: &QueuedJob,
+    token: String,
+    db: &sqlx::Pool<sqlx::Postgres>,
+) -> Result<HashMap<String, String>, Error> {
+    let flow_path = if let Some(uuid) = job.parent_job {
+        sqlx::query_scalar!("SELECT script_path FROM queue WHERE id = $1", uuid)
+            .fetch_optional(db)
+            .await?
+            .flatten()
+    } else {
+        None
+    };
+    let variables = variables::get_reserved_variables(
+        &job.workspace_id,
+        &token,
+        &get_email_from_username(&job.created_by, db)
+            .await?
+            .unwrap_or_else(|| "nosuitable@email.xyz".to_string()),
+        &job.created_by,
+        &job.id.to_string(),
+        &job.permissioned_as,
+        job.script_path.clone(),
+        flow_path,
+    );
+    Ok(variables
+        .into_iter()
+        .map(|rv| (rv.name, rv.value))
+        .collect())
 }
 
 async fn handle_child(

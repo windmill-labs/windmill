@@ -42,6 +42,26 @@
       ]
     }
   },
+  "04effcc6050250a02661323c880d493982dd1bfb63ca7373e035a98c268428e2": {
+    "query": "SELECT script_path FROM queue WHERE id = $1",
+    "describe": {
+      "columns": [
+        {
+          "ordinal": 0,
+          "name": "script_path",
+          "type_info": "Varchar"
+        }
+      ],
+      "parameters": {
+        "Left": [
+          "Uuid"
+        ]
+      },
+      "nullable": [
+        true
+      ]
+    }
+  },
   "09246e9ff5b2beb61ab51a5f73d980f7638904d5a18a415e52d5e1c94dffd0aa": {
     "query": "SELECT SUM(duration) FROM completed_job WHERE created_by = $1 AND created_at > NOW() - INTERVAL '1200 seconds' AND workspace_id = $2",
     "describe": {
