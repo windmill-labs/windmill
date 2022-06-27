@@ -5,7 +5,6 @@
 
 ### Bug Fixes
 
-* internal state for script triggers v2 ([e7ae94e](https://github.com/windmill-labs/windmill/commit/e7ae94eb4567aaea9571c57942ec3e64210ee219))
 * internal state for script triggers v2 ([f9eedc3](https://github.com/windmill-labs/windmill/commit/f9eedc31ed6e5d7e0a8a26633cca9965ac3b6a05))
 
 ## [1.14.1](https://github.com/windmill-labs/windmill/compare/v1.14.0...v1.14.1) (2022-06-27)
