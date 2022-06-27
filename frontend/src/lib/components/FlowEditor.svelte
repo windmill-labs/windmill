@@ -1,56 +1,22 @@
 <script lang="ts">
-	import { faPlus } from '@fortawesome/free-solid-svg-icons'
 	import type { Schema } from '$lib/common'
+	import { FlowModuleValue, type Flow } from '$lib/gen'
+	import { loadSchema } from '$lib/scripts'
+	import { workspaceStore } from '$lib/stores'
 	import { emptySchema } from '$lib/utils'
-
+	import { faPlus } from '@fortawesome/free-solid-svg-icons'
 	import Icon from 'svelte-awesome'
-
-	import { type Flow, FlowModuleValue, ScriptService } from '$lib/gen'
+	import FlowPreview from './FlowPreview.svelte'
+	import { loadFlowSchemas } from './flows/loadFlowSchemas'
+	import ModuleStep from './ModuleStep.svelte'
 	import SchemaEditor from './SchemaEditor.svelte'
 	import type SchemaForm from './SchemaForm.svelte'
-	import { workspaceStore } from '$lib/stores'
-	import ModuleStep from './ModuleStep.svelte'
-	import FlowPreview from './FlowPreview.svelte'
-	import { loadSchema } from '$lib/scripts'
 
 	export let flow: Flow
 
 	let args: Record<string, any> = {}
 	let schemas: Schema[] = []
 	let schemaForms: (SchemaForm | undefined)[] = []
-
-	export async function loadSchemas() {
-		await Promise.all(
-			flow.value.modules.map(async (x, i) => {
-				if (x.value.path) {
-					const schema = await loadSchema(x.value.path ?? '')
-					if (
-						JSON.stringify(Object.keys(schema?.properties ?? {}).sort()) !=
-						JSON.stringify(Object.keys(x.input_transform).sort())
-					) {
-						let it = {}
-						Object.keys(schema?.properties ?? {}).map(
-							(x) =>
-								(it[x] = {
-									type: 'static',
-									value: ''
-								})
-						)
-						schemaForms[i]?.setArgs(it)
-					}
-					schemas[i] = schema ?? emptySchema()
-				} else {
-					schemaForms[i]?.setArgs({})
-					schemas[i] = emptySchema()
-				}
-			})
-		)
-		schemas = schemas
-
-		if (flow.value.modules.length == 0) {
-			addModule()
-		}
-	}
 
 	function addModule() {
 		schemaForms.push(undefined)
@@ -61,6 +27,10 @@
 		}
 		flow.value.modules = flow.value.modules.concat(newModule)
 		schemas.push(emptySchema())
+	}
+
+	async function loadSchemas() {
+		schemas = await loadFlowSchemas(flow, $workspaceStore!)
 	}
 
 	$: $workspaceStore && loadSchemas()

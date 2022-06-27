@@ -67,6 +67,7 @@ pub struct Resource {
     pub description: Option<String>,
     pub resource_type: String,
     pub extra_perms: serde_json::Value,
+    pub account: Option<i32>,
 }
 
 #[derive(Deserialize)]

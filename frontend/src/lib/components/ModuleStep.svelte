@@ -1,12 +1,18 @@
 <script lang="ts">
 	import type { Schema } from '$lib/common'
 	import type { Flow, FlowModule } from '$lib/gen'
-
+	import { loadSchema as UloadSchema } from '$lib/scripts'
+	import { addPreviewResult, previewResults } from '$lib/stores'
+	import {
+		buildExtraLib,
+		emptySchema,
+		objectToTsType,
+		schemaToObject,
+		schemaToTsType
+	} from '$lib/utils'
+	import FlowPreview from './FlowPreview.svelte'
 	import SchemaForm from './SchemaForm.svelte'
 	import ScriptPicker from './ScriptPicker.svelte'
-	import { emptySchema } from '$lib/utils'
-	import { loadSchema as UloadSchema } from '$lib/scripts'
-	import FlowPreview from './FlowPreview.svelte'
 
 	export let flow: Flow
 	export let i: number
@@ -15,6 +21,12 @@
 
 	export let schemas: Schema[] = []
 	export let schemaForms: (SchemaForm | undefined)[] = []
+
+	$: previousSchema = i === 0 ? schemaToObject(flow.schema) : $previewResults[i]
+
+	$: extraLib = buildExtraLib(
+		i == 0 ? schemaToTsType(flow.schema) : objectToTsType($previewResults[i])
+	)
 
 	export async function loadSchema() {
 		if (mod.value.path) {
@@ -44,7 +56,7 @@
 </script>
 
 <li class="flex flex-row flex-shrink max-w-full  mx-auto mt-20">
-	<div class="bg-white border border-gray xl-rounded shadow-lg w-full max-w-3xl mx-4 md:mx-auto">
+	<div class="bg-white border border-gray xl-rounded shadow-lg w-full max-w-4xl mx-4 md:mx-auto">
 		<div
 			class="flex items-center justify-between flex-wra px-4 py-5 border-b border-gray-200 sm:px-6"
 		>
@@ -69,9 +81,20 @@
 				bind:this={schemaForms[i]}
 				inputTransform={true}
 				schema={schemas[i]}
+				{extraLib}
+				{i}
+				{previousSchema}
 				bind:args={mod.input_transform}
 			/>
-			<FlowPreview {flow} {i} bind:args {schemas} />
+			<FlowPreview
+				{flow}
+				{i}
+				bind:args
+				{schemas}
+				on:change={(e) => {
+					addPreviewResult(e.detail.result, i + 1)
+				}}
+			/>
 		</div>
 	</div>
 </li>

@@ -5,14 +5,13 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
-use ::oauth2::basic::BasicClient;
 use argon2::Argon2;
 use axum::{handler::Handler, middleware::from_extractor, routing::get, Extension, Router};
 use db::DB;
 use git_version::git_version;
 use hyper::Response;
 use slack_http_verifier::SlackVerifier;
-use std::{collections::HashMap, net::SocketAddr, sync::Arc};
+use std::{net::SocketAddr, sync::Arc};
 use tokio::sync::Mutex;
 use tower::ServiceBuilder;
 use tower_cookies::CookieManagerLayer;
@@ -49,7 +48,7 @@ mod workspaces;
 use error::Error;
 
 pub use crate::email::EmailSender;
-use crate::{db::UserDB, utils::rd_string};
+use crate::{db::UserDB, oauth2::build_oauth_clients, utils::rd_string};
 
 const GIT_VERSION: &str = git_version!(args = ["--tag", "--always"], fallback = "unknown-version");
 pub const DEFAULT_NUM_WORKERS: usize = 3;
@@ -132,20 +131,6 @@ pub async fn connect_db() -> anyhow::Result<DB> {
     Ok(db::connect(&database_url).await?)
 }
 
-type BasicClientsMap = HashMap<String, BasicClient>;
-
-pub fn build_oauth_clients(base_url: &str) -> BasicClientsMap {
-    [(
-        "github".to_string(),
-        oauth2::build_gh_client(
-            &std::env::var("GITHUB_OAUTH_CLIENT_ID").unwrap_or_else(|_| "".to_string()),
-            &std::env::var("GITHUB_OAUTH_CLIENT_SECRET").unwrap_or_else(|_| "".to_string()),
-            base_url,
-        ),
-    )]
-    .into()
-}
-
 #[derive(Clone)]
 struct BaseUrl(String);
 
@@ -161,7 +146,7 @@ pub async fn run_server(
     let auth_cache = Arc::new(users::AuthCache::new(db.clone()));
     let argon2 = Arc::new(Argon2::default());
     let email_sender = Arc::new(es);
-    let basic_clients = Arc::new(build_oauth_clients(base_url));
+    let basic_clients = Arc::new(build_oauth_clients(base_url).await?);
     let slack_verifier = Arc::new(
         std::env::var("SLACK_SIGNING_SECRET")
             .ok()

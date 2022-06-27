@@ -126,5 +126,5 @@ async function _transformLeaf(v: any): Promise<any> {
 
 export async function databaseUrlFromResource(path: string): Promise<string> {
     const resource = await getResource(path)
-    return `postgresql://${resource.user}:${resource.password}@${resource.host}:${resource.port}/${resource.database}?sslmode=${resource.sslmode}`
+    return `postgresql://${resource.user}:${resource.password}@${resource.host}:${resource.port}/${resource.dbname}?sslmode=${resource.sslmode}`
 }

@@ -1,15 +1,16 @@
+use std::collections::HashMap;
 use std::fmt::Debug;
 
 use std::sync::Arc;
 use std::time::Duration;
 
 use axum::body::Bytes;
-use axum::extract::{Extension, FromRequest, Path, Query, RequestParts};
+use axum::extract::{Extension, FromRequest, Path, RequestParts};
 use axum::response::Redirect;
 use axum::routing::{get, post};
-use axum::{async_trait, Router};
-use futures::TryFutureExt;
+use axum::{async_trait, Json, Router};
 use hyper::StatusCode;
+use itertools::Itertools;
 use oauth2::basic::{
     BasicClient, BasicErrorResponse, BasicRevocationErrorResponse, BasicTokenIntrospectionResponse,
     BasicTokenType,
@@ -25,96 +26,186 @@ use oauth2::{
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use slack_http_verifier::SlackVerifier;
+use tokio::fs::File;
+use tokio::io::AsyncReadExt;
 use tower_cookies::{Cookie, Cookies};
 
 use crate::audit::{audit_log, ActionKind};
 use crate::db::{UserDB, DB};
-use crate::error::{self, to_anyhow, Error, Result};
+use crate::error::{self, to_anyhow, Result};
+use crate::jobs;
 use crate::jobs::{get_latest_hash_for_path, JobPayload};
-use crate::users::{Authed, LoginType};
-use crate::variables::build_crypt;
+use crate::users::Authed;
 use crate::workspaces::WorkspaceSettings;
-use crate::{jobs, BasicClientsMap};
-use crate::{variables, BaseUrl};
+use crate::BaseUrl;
 
 pub fn global_service() -> Router {
     Router::new()
         .route("/login/:client", get(login))
-        .route("/login_callback/:client", get(login_callback))
+        .route("/login_callback/:client", post(login_callback))
+        .route("/connect/:client", get(connect))
+        .route("/connect_callback/:client", post(connect_callback))
+        .route("/connect_slack", get(connect_slack))
+        .route("/connect_slack_callback", post(connect_slack_callback))
         .route(
             "/slack_command",
             post(slack_command).route_layer(axum::middleware::from_extractor::<SlackSig>()),
         )
+        .route("/list_logins", get(list_logins))
+        .route("/list_connects", get(list_connects))
 }
 
 pub fn workspaced_service() -> Router {
     Router::new()
-        .route("/connect/:client", get(connect))
-        .route("/disconnect/:client", post(disconnect))
-        .route("/connect_callback/:client", get(connect_callback))
+        .route("/disconnect/:account_id", post(disconnect))
+        .route("/disconnect_slack", post(disconnect_slack))
+        .route("/set_workspace_slack", post(set_workspace_slack))
 }
 
-pub fn build_gh_client(client_id: &str, client_secret: &str, base_uri: &str) -> BasicClient {
-    let auth_url = AuthUrl::new("https://github.com/login/oauth/authorize".to_string())
-        .expect("Invalid authorization endpoint URL");
-    let token_url = TokenUrl::new("https://github.com/login/oauth/access_token".to_string())
-        .expect("Invalid token endpoint URL");
-
-    // Set up the config for the Github OAuth2 process.
-    BasicClient::new(
-        ClientId::new(client_id.to_string()),
-        Some(ClientSecret::new(client_secret.to_string())),
-        auth_url,
-        Some(token_url),
-    )
-    .set_redirect_uri(
-        RedirectUrl::new(format!("{base_uri}/api/oauth/login_callback/github")).unwrap(),
-    )
+pub struct ClientWithScopes {
+    client: BasicClient,
+    scopes: Vec<String>,
 }
 
-pub fn build_connect_client(w_id: &str, client_name: &str, base_uri: &str) -> Result<BasicClient> {
-    let (auth_str, token_str) = match client_name {
-        "gmail" => ("", ""),
-        "slack" => (
-            "https://slack.com/oauth/authorize",
-            "https://slack.com/api/oauth.access",
-        ),
-        _ => Err(Error::BadRequest(format!("unrecognized client!")))?,
+pub type BasicClientsMap = HashMap<String, ClientWithScopes>;
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct OAuthConfig {
+    auth_url: String,
+    token_url: String,
+    scopes: Option<Vec<String>>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct OAuthClient {
+    id: String,
+    secret: String,
+}
+pub struct AllClients {
+    pub logins: BasicClientsMap,
+    pub connects: BasicClientsMap,
+    pub slack: Option<SlackClient>,
+}
+
+pub async fn build_oauth_clients(base_url: &str) -> anyhow::Result<AllClients> {
+    let connect_configs = serde_json::from_str::<HashMap<String, OAuthConfig>>(include_str!(
+        "../oauth_connect.json"
+    ))?;
+    let login_configs =
+        serde_json::from_str::<HashMap<String, OAuthConfig>>(include_str!("../oauth_login.json"))?;
+
+    let mut content = String::new();
+    let path = "./oauth.json";
+    if std::path::Path::new(path).exists() {
+        let mut file = File::open(path).await?;
+        file.read_to_string(&mut content).await?;
+    } else {
+        content.push_str("{}");
+    }
+
+    let oauths: HashMap<String, OAuthClient> =
+        match serde_json::from_str::<HashMap<String, OAuthClient>>(&content) {
+            Ok(clients) => clients,
+            Err(e) => {
+                tracing::error!("Error while deserializing oauth.json: {e}");
+                HashMap::new()
+            }
+        }
+        .into_iter()
+        .collect();
+
+    tracing::info!("OAuth loaded clients: {}", oauths.keys().join(", "));
+
+    let logins = login_configs
+        .into_iter()
+        .filter(|x| oauths.contains_key(&x.0))
+        .map(|(k, v)| {
+            let scopes = v.scopes.clone();
+
+            let named_client =
+                build_basic_client(k.clone(), v, oauths.get(&k).unwrap(), true, base_url);
+            (
+                named_client.0,
+                ClientWithScopes {
+                    client: named_client.1,
+                    scopes: scopes.unwrap_or(vec![]),
+                },
+            )
+        })
+        .collect();
+
+    let connects = connect_configs
+        .into_iter()
+        .filter(|x| oauths.contains_key(&x.0))
+        .map(|(k, v)| {
+            let scopes = v.scopes.clone();
+            let named_client =
+                build_basic_client(k.clone(), v, oauths.get(&k).unwrap(), true, base_url);
+            (
+                named_client.0,
+                ClientWithScopes {
+                    client: named_client.1,
+                    scopes: scopes.unwrap_or(vec![]),
+                },
+            )
+        })
+        .collect();
+
+    let slack = oauths.get("slack").map(|v| build_slack_client(v, base_url));
+
+    Ok(AllClients {
+        logins,
+        connects,
+        slack,
+    })
+}
+
+pub fn build_basic_client(
+    name: String,
+    config: OAuthConfig,
+    client: &OAuthClient,
+    login: bool,
+    base_url: &str,
+) -> (String, BasicClient) {
+    let auth_url =
+        AuthUrl::new(config.auth_url.to_string()).expect("Invalid authorization endpoint URL");
+    let token_url =
+        TokenUrl::new(config.token_url.to_string()).expect("Invalid token endpoint URL");
+
+    let redirect_url = if login {
+        format!("{base_url}/user/login_callback/{name}")
+    } else {
+        format!("{base_url}/oauth/callback/{name}")
     };
 
-    let auth_url = AuthUrl::new(auth_str.to_string()).expect("Invalid authorization endpoint URL");
-    let token_url = TokenUrl::new(token_str.to_string()).expect("Invalid token endpoint URL");
-
     // Set up the config for the Github OAuth2 process.
-    Ok(BasicClient::new(
-        ClientId::new(
-            std::env::var(&format!("{}_OAUTH_CLIENT_ID", client_name.to_uppercase()))
-                .ok()
-                .ok_or(Error::BadRequest(format!(
-                    "client id for {} not in env",
-                    client_name
-                )))?,
-        ),
-        Some(ClientSecret::new(
-            std::env::var(&format!(
-                "{}_OAUTH_CLIENT_SECRET",
-                client_name.to_uppercase()
-            ))
-            .ok()
-            .ok_or(Error::BadRequest(format!(
-                "client secret for {} not in env",
-                client_name
-            )))?,
-        )),
+    (
+        name.to_string(),
+        BasicClient::new(
+            ClientId::new(client.id.to_string()),
+            Some(ClientSecret::new(client.secret.to_string())),
+            auth_url,
+            Some(token_url),
+        )
+        .set_redirect_uri(RedirectUrl::new(redirect_url).unwrap()),
+    )
+}
+
+pub fn build_slack_client(client: &OAuthClient, base_url: &str) -> SlackClient {
+    let auth_url = AuthUrl::new("https://slack.com/oauth/authorize".to_string())
+        .expect("Invalid authorization endpoint URL");
+    let token_url = TokenUrl::new("https://slack.com/api/oauth.access".to_string())
+        .expect("Invalid token endpoint URL");
+
+    let redirect_url = format!("{base_url}/oauth/callback_slack");
+
+    SlackClient::new(
+        ClientId::new(client.id.to_string()),
+        Some(ClientSecret::new(client.secret.to_string())),
         auth_url,
         Some(token_url),
     )
-    .set_redirect_uri(
-        RedirectUrl::new(format!(
-            "{base_uri}/api/w/{w_id}/oauth/connect_callback/{client_name}"
-        ))
-        .unwrap(),
-    ))
+    .set_redirect_uri(RedirectUrl::new(redirect_url).unwrap())
 }
 
 type SlackClient = OClient<
@@ -129,11 +220,8 @@ type SlackClient = OClient<
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct SlackTokenResponse {
     access_token: AccessToken,
-
     team_id: String,
-
     team_name: String,
-
     #[serde(rename = "scope")]
     #[serde(deserialize_with = "helpers::deserialize_space_delimited_vec")]
     #[serde(serialize_with = "helpers::serialize_space_delimited_vec")]
@@ -196,137 +284,120 @@ where
     }
 }
 
-pub fn build_slack_client(w_id: &str, client_name: &str, base_uri: &str) -> Result<SlackClient> {
-    let (auth_str, token_str) = (
-        "https://slack.com/oauth/authorize",
-        "https://slack.com/api/oauth.access",
-    );
+async fn connect(
+    Path(client_name): Path<String>,
+    Extension(clients): Extension<Arc<AllClients>>,
+    cookies: Cookies,
+) -> error::Result<Redirect> {
+    let connects = &clients.connects;
+    oauth_redirect(connects, client_name, cookies)
+}
 
-    let auth_url = AuthUrl::new(auth_str.to_string()).expect("Invalid authorization endpoint URL");
-    let token_url = TokenUrl::new(token_str.to_string()).expect("Invalid token endpoint URL");
-
-    // Set up the config for the Github OAuth2 process.
-    Ok(SlackClient::new(
-        ClientId::new(
-            std::env::var(&format!("{}_OAUTH_CLIENT_ID", client_name.to_uppercase()))
-                .ok()
-                .ok_or(Error::BadRequest(format!(
-                    "client id for {} not in env",
-                    client_name
-                )))?,
-        ),
-        Some(ClientSecret::new(
-            std::env::var(&format!(
-                "{}_OAUTH_CLIENT_SECRET",
-                client_name.to_uppercase()
-            ))
-            .ok()
-            .ok_or(Error::BadRequest(format!(
-                "client secret for {} not in env",
-                client_name
-            )))?,
-        )),
-        auth_url,
-        Some(token_url),
-    )
-    .set_redirect_uri(
-        RedirectUrl::new(format!(
-            "{base_uri}/api/w/{w_id}/oauth/connect_callback/{client_name}"
-        ))
-        .unwrap(),
+async fn list_logins(
+    Extension(clients): Extension<Arc<AllClients>>,
+) -> error::JsonResult<Vec<String>> {
+    Ok(Json(
+        clients
+            .logins
+            .keys()
+            .map(|x| x.to_owned())
+            .collect::<Vec<String>>(),
     ))
 }
 
-async fn connect(
-    Path((w_id, client_name)): Path<(String, String)>,
-    Extension(base_url): Extension<BaseUrl>,
+async fn list_connects(
+    Extension(clients): Extension<Arc<AllClients>>,
+) -> error::JsonResult<Vec<String>> {
+    Ok(Json(
+        clients
+            .connects
+            .keys()
+            .map(|x| x.to_owned())
+            .collect::<Vec<String>>(),
+    ))
+}
+
+async fn connect_slack(
+    Extension(clients): Extension<Arc<AllClients>>,
     cookies: Cookies,
 ) -> error::Result<Redirect> {
-    let client = build_connect_client(&w_id, &client_name, &base_url.0)?;
-
-    let (authorize_url, csrf_state) = client
+    let client = clients
+        .slack
+        .as_ref()
+        .ok_or_else(|| error::Error::BadRequest("slack client not setup".to_string()))?
         .authorize_url(CsrfToken::new_random)
         .add_scope(Scope::new("bot".to_string()))
-        .add_scope(Scope::new("commands".to_string()))
-        .url();
-
-    let csrf = csrf_state.secret().to_string();
-    let mut cookie = Cookie::new("csrf", csrf);
-    cookie.set_path("/");
-    cookies.add(cookie);
+        .add_scope(Scope::new("commands".to_string()));
+    let authorize_url = set_csrf_and_retrieve_auth_url(client, cookies);
     Ok(Redirect::to(authorize_url.as_str()))
 }
 
 async fn disconnect(
     authed: Authed,
-    Path((w_id, client_name)): Path<(String, String)>,
+    Path((w_id, id)): Path<(String, i32)>,
     Extension(user_db): Extension<UserDB>,
 ) -> error::Result<String> {
     let mut tx = user_db.begin(&authed).await?;
 
-    match client_name.as_str() {
-        "slack" => {
-            sqlx::query!(
-                "UPDATE workspace_settings
-            SET slack_team_id = null, slack_name = null WHERE workspace_id = $1",
-                &w_id
-            )
-            .execute(&mut tx)
-            .await?;
-        }
-        _ => Err(error::Error::BadRequest(format!(
-            "Not recognized client name {client_name}"
-        )))?,
-    }
+    sqlx::query!(
+        "DELETE FROM account WHERE id = $1 AND workspace_id = $2",
+        id,
+        w_id
+    )
+    .execute(&mut tx)
+    .await?;
     tx.commit().await?;
-    Ok(format!("{client_name} disconnected"))
+
+    Ok(format!("account {id} disconnected"))
+}
+
+async fn disconnect_slack(
+    authed: Authed,
+    Path(w_id): Path<String>,
+    Extension(user_db): Extension<UserDB>,
+) -> error::Result<String> {
+    let mut tx = user_db.begin(&authed).await?;
+
+    sqlx::query!(
+        "UPDATE workspace_settings
+            SET slack_team_id = null, slack_name = null WHERE workspace_id = $1",
+        &w_id
+    )
+    .execute(&mut tx)
+    .await?;
+    tx.commit().await?;
+
+    Ok(format!("slack disconnected"))
 }
 
 async fn login(
-    Extension(clients): Extension<Arc<BasicClientsMap>>,
+    Extension(clients): Extension<Arc<AllClients>>,
     Path(client_name): Path<String>,
     cookies: Cookies,
 ) -> error::Result<Redirect> {
-    let client = clients
-        .get(&client_name)
-        .ok_or(Error::BadRequest(format!("client {} invalid", client_name)))?;
-    let (authorize_url, csrf_state) = client
-        .authorize_url(CsrfToken::new_random)
-        .add_scope(Scope::new("user:email".to_string()))
-        //        .add_scope(Scope::new("read:user".to_string()))
-        .url();
-
-    let csrf = csrf_state.secret().to_string();
-    let mut cookie = Cookie::new("csrf", csrf);
-    cookie.set_path("/");
-    cookies.add(cookie);
-    Ok(Redirect::to(authorize_url.as_str()))
+    let clients = &clients.logins;
+    oauth_redirect(clients, client_name, cookies)
 }
 
 #[derive(Deserialize)]
-pub struct CallbackQuery {
+pub struct OAuthCallback {
     code: Option<String>,
     state: Option<String>,
-    error: Option<String>,
+}
+
+#[derive(Serialize)]
+pub struct ConnectResponse {
+    token: String,
 }
 
 async fn connect_callback(
-    authed: Authed,
-    Path((w_id, client_name)): Path<(String, String)>,
-    Query(query): Query<CallbackQuery>,
     cookies: Cookies,
-    Extension(user_db): Extension<UserDB>,
-    Extension(base_url): Extension<BaseUrl>,
-) -> error::Result<Redirect> {
-    if let Some(error) = query.error {
-        return Ok(Redirect::to(&format!(
-            "/connection_added?error={}",
-            urlencoding::encode(&error).into_owned()
-        )));
-    }
-
-    let code = AuthorizationCode::new(query.code.unwrap());
-    let state = CsrfToken::new(query.state.unwrap());
+    Path(client_name): Path<String>,
+    Json(oauth): Json<OAuthCallback>,
+    Extension(clients): Extension<Arc<AllClients>>,
+) -> error::JsonResult<ConnectResponse> {
+    let code = AuthorizationCode::new(oauth.code.unwrap());
+    let state = CsrfToken::new(oauth.state.unwrap());
 
     let csrf_state = cookies
         .get("csrf")
@@ -337,100 +408,84 @@ async fn connect_callback(
         return Err(error::Error::BadRequest("csrf did not match".to_string()));
     }
 
+    let token = (&clients
+        .connects
+        .get(&client_name)
+        .ok_or_else(|| error::Error::BadRequest("invalid client".to_string()))?
+        .client
+        .exchange_code(code)
+        .request_async(async_http_client)
+        .await
+        .map_err(|e| error::Error::InternalErr(format!("invalid code: {e:?}")))?
+        .access_token()
+        .secret())
+        .to_string();
+
+    Ok(Json(ConnectResponse { token }))
+}
+
+async fn connect_slack_callback(
+    cookies: Cookies,
+    Json(oauth): Json<OAuthCallback>,
+    Extension(clients): Extension<Arc<AllClients>>,
+) -> error::JsonResult<SlackTokenResponse> {
+    let code = AuthorizationCode::new(oauth.code.unwrap());
+    let state = CsrfToken::new(oauth.state.unwrap());
+
+    let csrf_state = cookies
+        .get("csrf")
+        .map(|x| x.value().to_string())
+        .unwrap_or("".to_string());
+
+    if state.secret().to_string() != csrf_state {
+        return Err(error::Error::BadRequest("csrf did not match".to_string()));
+    }
+
+    let slack_token = (&clients
+        .slack
+        .as_ref()
+        .ok_or_else(|| error::Error::BadRequest("slack client not setup".to_string()))?
+        .exchange_code(code)
+        .request_async(async_http_client)
+        .await
+        .map_err(|e| error::Error::InternalErr(format!("invalid code: {e:?}")))?)
+        .to_owned();
+
+    Ok(Json(slack_token))
+}
+
+async fn set_workspace_slack(
+    Path(w_id): Path<String>,
+    Json(token): Json<SlackTokenResponse>,
+    Extension(user_db): Extension<UserDB>,
+    authed: Authed,
+) -> Result<String> {
     let mut tx = user_db.begin(&authed).await?;
 
-    let mc = build_crypt(&mut tx, &w_id).await?;
-
-    let token_res = match client_name.as_str() {
-        "slack" => {
-            let t = build_slack_client(&w_id, &client_name, &base_url.0)?
-                .exchange_code(code)
-                .request_async(async_http_client)
-                .await;
-            if let Ok(token) = t {
-                sqlx::query!(
-                    "INSERT INTO workspace_settings
+    sqlx::query!(
+        "INSERT INTO workspace_settings
             (workspace_id, slack_team_id, slack_name)
             VALUES ($1, $2, $3) ON CONFLICT (workspace_id) DO UPDATE SET slack_team_id = $2, slack_name = $3",
-                    &w_id,
-                    token.team_id,
-                    token.team_name
-                )
-                .execute(&mut tx)
-                .await?;
-                sqlx::query!(
-                    "INSERT INTO group_
+        &w_id,
+        token.team_id,
+        token.team_name
+    )
+    .execute(&mut tx)
+    .await?;
+    sqlx::query!(
+        "INSERT INTO group_
             (workspace_id, name, summary)
             VALUES ($1, $2, $3) ON CONFLICT DO NOTHING",
-                    &w_id,
-                    "slack",
-                    "The group that runs the script triggered by the slack /windmill command.
+        &w_id,
+        "slack",
+        "The group that runs the script triggered by the slack /windmill command.
                      Share scripts to this group to make them executable from slack and add
                      members to this group to let them manage the slack related owner space."
-                )
-                .execute(&mut tx)
-                .await?;
-                Ok(token.bot.bot_access_token.to_owned())
-            } else {
-                Err(t.unwrap_err())
-            }
-        }
-        _ => {
-            build_connect_client(&w_id, &client_name, &base_url.0)?
-                .exchange_code(code)
-                .request_async(async_http_client)
-                .map_ok(|t| t.access_token().secret().to_owned())
-                .await
-        }
-    };
-
-    if let Ok(token) = token_res {
-        tracing::info!("{token}");
-        let variable_path = &format!("g/all/{}_token", &client_name);
-        sqlx::query!(
-            "INSERT INTO variable
-            (workspace_id, path, value, is_secret, description)
-            VALUES ($1, $2, $3, true, $4) ON CONFLICT (workspace_id, path) DO UPDATE SET value = $3",
-            &w_id,
-            variable_path,
-            variables::encrypt(&mc, token.to_string()),
-            format!("OAuth2 token for {client_name}"),
-        )
-        .execute(&mut tx)
-        .await?;
-        sqlx::query!(
-            "INSERT INTO resource
-            (workspace_id, path, value, description, resource_type)
-            VALUES ($1, $2, $3, $4, $5) ON CONFLICT (workspace_id, path) DO UPDATE SET value = $3",
-            &w_id,
-            variable_path,
-            serde_json::json!({ "token": format!("$var:{variable_path}") }),
-            format!("OAuth2 token for {client_name}"),
-            &client_name
-        )
-        .execute(&mut tx)
-        .await?;
-        audit_log(
-            &mut tx,
-            &authed.username,
-            "oauth2.connect",
-            ActionKind::Create,
-            &w_id,
-            Some(&client_name),
-            None,
-        )
-        .await?;
-        tx.commit().await?;
-        Ok(Redirect::to(
-            format!("/connection_added?client_name={}", &client_name).as_str(),
-        ))
-    } else {
-        let error = token_res.unwrap_err().to_string();
-        Ok(Redirect::to(&format!(
-            "/connection_added?error={}",
-            urlencoding::encode(&format!("error fetching token: {error}")).into_owned()
-        )))
-    }
+    )
+    .execute(&mut tx)
+    .await?;
+    tx.commit().await?;
+    Ok("slack workspace connected".to_string())
 }
 
 #[derive(Deserialize, Debug)]
@@ -547,20 +602,13 @@ pub struct UserInfo {
 
 async fn login_callback(
     Path(client_name): Path<String>,
-    Query(query): Query<CallbackQuery>,
+    Json(callback): Json<OAuthCallback>,
     cookies: Cookies,
-    Extension(clients): Extension<Arc<BasicClientsMap>>,
+    Extension(clients): Extension<Arc<AllClients>>,
     Extension(db): Extension<DB>,
-) -> error::Result<Redirect> {
-    if let Some(error) = query.error {
-        return Ok(Redirect::to(&format!(
-            "/user/login?error={}",
-            urlencoding::encode(&error).into_owned()
-        )));
-    }
-
-    let code = AuthorizationCode::new(query.code.unwrap());
-    let state = CsrfToken::new(query.state.unwrap());
+) -> error::Result<String> {
+    let code = AuthorizationCode::new(callback.code.unwrap());
+    let state = CsrfToken::new(callback.state.unwrap());
 
     let csrf_state = cookies
         .get("csrf")
@@ -571,7 +619,7 @@ async fn login_callback(
         return Err(error::Error::BadRequest("csrf did not match".to_string()));
     }
 
-    let client = clients.get(&client_name).unwrap();
+    let client = &clients.logins.get(&client_name).unwrap().client;
 
     // Exchange the code with a token.
     let token_res = client
@@ -590,7 +638,7 @@ async fn login_callback(
 
         let mut tx = db.begin().await?;
 
-        let login: Option<(String, LoginType, bool)> =
+        let login: Option<(String, String, bool)> =
             sqlx::query_as("SELECT email, login_type, super_admin FROM password WHERE email = $1")
                 .bind(&email)
                 .fetch_optional(&mut tx)
@@ -644,12 +692,11 @@ async fn login_callback(
             }
         }
         tx.commit().await?;
-        Ok(Redirect::to("/user/workspaces"))
+        Ok("Successfully logged in".to_string())
     } else {
-        Ok(Redirect::to(&format!(
-            "/user/login?error={}",
-            urlencoding::encode("invalid token").into_owned()
-        )))
+        Err(error::Error::BadRequest(
+            "failed to exchange code".to_string(),
+        ))
     }
 }
 
@@ -660,7 +707,13 @@ pub struct GHEmailInfo {
     primary: bool,
 }
 
+#[derive(Deserialize)]
+pub struct EmailInfo {
+    email: String,
+}
+
 async fn get_email(http_client: &Client, client_name: &str, token: &str) -> error::Result<String> {
+    tracing::info!("{token}");
     let email = match client_name {
         "github" => http_client
             .get("https://api.github.com/user/emails")
@@ -676,6 +729,17 @@ async fn get_email(http_client: &Client, client_name: &str, token: &str) -> erro
             .ok_or(error::Error::BadRequest(format!(
                 "user does not have any primary and verified address"
             )))?
+            .email
+            .to_string(),
+        "gitlab" => http_client
+            .get("https://gitlab.com/api/v4/user")
+            .bearer_auth(token)
+            .send()
+            .await
+            .map_err(to_anyhow)?
+            .json::<EmailInfo>()
+            .await
+            .map_err(to_anyhow)?
             .email
             .to_string(),
         _ => {
@@ -709,4 +773,32 @@ async fn get_user_info(
         }
     };
     Ok(email)
+}
+
+fn oauth_redirect(
+    clients: &HashMap<String, ClientWithScopes>,
+    client_name: String,
+    cookies: Cookies,
+) -> error::Result<Redirect> {
+    let client_w_scopes = clients
+        .get(&client_name)
+        .ok_or_else(|| error::Error::BadRequest("client not found".to_string()))?;
+    let mut client = client_w_scopes.client.authorize_url(CsrfToken::new_random);
+    for scope in client_w_scopes.scopes.iter() {
+        client = client.add_scope(oauth2::Scope::new(scope.to_string()));
+    }
+    let authorize_url = set_csrf_and_retrieve_auth_url(client, cookies);
+    Ok(Redirect::to(authorize_url.as_str()))
+}
+
+fn set_csrf_and_retrieve_auth_url(
+    client: oauth2::AuthorizationRequest,
+    cookies: Cookies,
+) -> url::Url {
+    let (authorize_url, csrf_state) = client.url();
+    let csrf = csrf_state.secret().to_string();
+    let mut cookie = Cookie::new("csrf", csrf);
+    cookie.set_path("/");
+    cookies.add(cookie);
+    authorize_url
 }

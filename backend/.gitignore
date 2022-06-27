@@ -1,3 +1,4 @@
 target/
 .env
 v8.snap
+oauth.json

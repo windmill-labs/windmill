@@ -146,6 +146,19 @@
       "nullable": []
     }
   },
+  "0dd3fe3ddf9cb72760687d2ee0950afdcce2d54721bfe8dba008b15e4b581956": {
+    "query": "DELETE FROM account WHERE id = $1 AND workspace_id = $2",
+    "describe": {
+      "columns": [],
+      "parameters": {
+        "Left": [
+          "Int4",
+          "Text"
+        ]
+      },
+      "nullable": []
+    }
+  },
   "103e321fbaa847831682b5cba2fd94f12c508ddf372f9facd18e30d00afd1ea3": {
     "query": "SELECT label, concat(substring(token for 10)) as token_prefix, expiration, created_at, last_used_at FROM token WHERE email = $1",
     "describe": {
@@ -1061,21 +1074,6 @@
       "nullable": []
     }
   },
-  "5da22b7f44b631740697e49d5766c31668233fe2453d51e8d9d4c45974492616": {
-    "query": "INSERT INTO variable\n            (workspace_id, path, value, is_secret, description)\n            VALUES ($1, $2, $3, true, $4) ON CONFLICT (workspace_id, path) DO UPDATE SET value = $3",
-    "describe": {
-      "columns": [],
-      "parameters": {
-        "Left": [
-          "Varchar",
-          "Varchar",
-          "Varchar",
-          "Varchar"
-        ]
-      },
-      "nullable": []
-    }
-  },
   "6199e8be5cb13db71108e555ea20f0b76dc38476670f9fc0667b057d2766d42e": {
     "query": "SELECT set_config('session.groups', $1, true)",
     "describe": {
@@ -1936,6 +1934,11 @@
           "ordinal": 5,
           "name": "extra_perms",
           "type_info": "Jsonb"
+        },
+        {
+          "ordinal": 6,
+          "name": "account",
+          "type_info": "Int4"
         }
       ],
       "parameters": {
@@ -1950,7 +1953,8 @@
         true,
         true,
         false,
-        false
+        false,
+        true
       ]
     }
   },
@@ -2910,22 +2914,6 @@
       "nullable": []
     }
   },
-  "ea8ebb8d972fe99c960b5a69f794ee2b57bfb1914bf370c5b10313e45fa9b65f": {
-    "query": "INSERT INTO resource\n            (workspace_id, path, value, description, resource_type)\n            VALUES ($1, $2, $3, $4, $5) ON CONFLICT (workspace_id, path) DO UPDATE SET value = $3",
-    "describe": {
-      "columns": [],
-      "parameters": {
-        "Left": [
-          "Varchar",
-          "Varchar",
-          "Jsonb",
-          "Text",
-          "Varchar"
-        ]
-      },
-      "nullable": []
-    }
-  },
   "f056b5f3e66a764748925f1bfd3180923fde8c7fdf69088d0e4a5555cc049545": {
     "query": "SELECT result FROM completed_job WHERE id = $1 AND workspace_id = $2",
     "describe": {
@@ -3085,6 +3073,11 @@
           "ordinal": 5,
           "name": "extra_perms",
           "type_info": "Jsonb"
+        },
+        {
+          "ordinal": 6,
+          "name": "account",
+          "type_info": "Int4"
         }
       ],
       "parameters": {
@@ -3098,7 +3091,8 @@
         true,
         true,
         false,
-        false
+        false,
+        true
       ]
     }
   }

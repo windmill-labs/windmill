@@ -31,6 +31,7 @@
 	} from '$lib/stores'
 	import { clickOutside } from '$lib/utils'
 	import { logout } from '$lib/logout'
+	import { goto } from '$app/navigation'
 
 	OpenAPI.WITH_CREDENTIALS = true
 
@@ -67,6 +68,9 @@
 	}
 
 	onMount(() => {
+		if (!$workspaceStore || !$userStore) {
+			goto('/user/workspaces')
+		}
 		isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent)
 		//Mobile
 		isCollapsed = isMobile
@@ -190,7 +194,7 @@
 						<div class="mx-auto">
 							<span class:hidden={isCollapsed} class="px-2 font-mono text-xs whitespace-nowrap">
 								<Icon class="text-white" data={faUser} scale={0.6} />
-								{$userStore?.username ?? $superadmin ?? '___'}
+								{$userStore?.username ?? $superadmin ? $superadmin : '___'}
 								{#if $userStore?.is_admin}
 									<Icon class="text-white" data={faCrown} scale={0.6} />
 								{/if}

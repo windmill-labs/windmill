@@ -20,11 +20,14 @@ export const workspaceStore = writable<string | undefined>(
 )
 export const usersWorkspaceStore = writable<UserWorkspaceList | undefined>(undefined)
 export const superadmin = writable<String | false | undefined>(undefined)
-export const hubScripts = writable<Array<{
-	path: string
-	summary: string
-	approved: boolean
-}> | undefined>(undefined)
+export const hubScripts = writable<
+	| Array<{
+		path: string
+		summary: string
+		approved: boolean
+	}>
+	| undefined
+>(undefined)
 
 if (browser) {
 	workspaceStore.subscribe(async (workspace) => {
@@ -35,12 +38,26 @@ if (browser) {
 			userStore.set(undefined)
 		}
 	})
-
 }
 
 export function clearStores(): void {
+	localStorage.removeItem('workspace')
 	userStore.set(undefined)
 	workspaceStore.set(undefined)
 	usersWorkspaceStore.set(undefined)
 	superadmin.set(undefined)
+}
+
+export const previewResults = writable<Record<number, Object>>({})
+
+export function clearPreviewResults() {
+	previewResults.set({})
+}
+
+export function addPreviewResult(res: Object, index: number) {
+	previewResults.update((rec) => {
+		rec[index] = res
+
+		return rec
+	})
 }

@@ -5,7 +5,7 @@
 	import { sendUserToast } from '$lib/utils'
 	import { page } from '$app/stores'
 	import { usersWorkspaceStore, workspaceStore } from '$lib/stores'
-	import CenteredModal from './CenteredModal.svelte'
+	import CenteredModal from '$lib/components/CenteredModal.svelte'
 
 	let workspace_id = $page.url.searchParams.get('workspace') ?? ''
 	let username = ''

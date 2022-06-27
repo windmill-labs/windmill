@@ -1,6 +1,6 @@
 <script lang="ts">
 	import Fuse from 'fuse.js'
-	import { UserService, type WorkspaceInvite, WorkspaceService } from '$lib/gen'
+	import { UserService, type WorkspaceInvite, WorkspaceService, OauthService } from '$lib/gen'
 	import type { User } from '$lib/gen'
 	import { sendUserToast } from '$lib/utils'
 	import PageHeader from '$lib/components/PageHeader.svelte'
@@ -19,7 +19,6 @@
 	let userFilter = ''
 	let scriptPath: string
 	let team_name: string | undefined
-	let slackLoaded = false
 
 	const fuseOptions = {
 		includeScore: false,
@@ -179,19 +178,15 @@
 		<p class="text-xs text-gray-700 my-1">
 			Status: {#if team_name}Connected to slack workspace {team_name}{:else}Not connected{/if}
 		</p>
-		<a
-			class="default-button mt-2"
-			rel="external"
-			href="/api/w/{$workspaceStore}/oauth/connect/slack"
+		<a class="default-button mt-2" rel="external" href="/api/oauth/connect_slack"
 			>Connect to slack <Icon class="text-white mb-1" data={faSlack} scale={0.9} />
 		</a>
 		{#if team_name}
 			<button
 				class="default-button mt-2"
 				on:click={async () => {
-					await WorkspaceService.disconnectClient({
-						workspace: $workspaceStore ?? '',
-						clientName: 'slack'
+					await OauthService.disconnectSlack({
+						workspace: $workspaceStore ?? ''
 					})
 					loadSlack()
 					sendUserToast('Disconnected slack')
