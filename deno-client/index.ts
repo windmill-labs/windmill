@@ -47,7 +47,7 @@ export async function getResource(path: string, initializeToTypeIfNotExist?: str
 
 }
 
-function getInternalStatePath(suffix?: string): string {
+export function getInternalStatePath(suffix?: string): string {
     const env_flow_path = Deno.env.get("WM_FLOW_PATH")
     const env_job_path = Deno.env.get("WM_JOB_PATH")
     const permissioned_as = Deno.env.get("WM_PERMISSIONED_AS")
