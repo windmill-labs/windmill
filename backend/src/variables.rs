@@ -74,7 +74,10 @@ pub fn get_reserved_variables(
     email: &str,
     username: &str,
     job_id: &str,
-) -> [ContextualVariable; 5] {
+    permissioned_as: &str,
+    path: Option<String>,
+    flow_path: Option<String>,
+) -> [ContextualVariable; 8] {
     [
         ContextualVariable {
             name: "WM_WORKSPACE".to_string(),
@@ -101,6 +104,21 @@ pub fn get_reserved_variables(
             value: job_id.to_string(),
             description: "Job id of the current script".to_string()
         },
+        ContextualVariable {
+            name: "WM_JOB_PATH".to_string(),
+            value: path.unwrap_or_else(|| "".to_string()),
+            description: "Path of the script or flow being run if any".to_string()
+        },
+        ContextualVariable {
+            name: "WM_FLOW_PATH".to_string(),
+            value: flow_path.unwrap_or_else(|| "".to_string()),
+            description: "Path of the encapsulating flow if the job is a flow step".to_string()
+        },
+        ContextualVariable {
+            name: "WM_PERMISSIONED_AS".to_string(),
+            value: permissioned_as.to_string(),
+            description: "Fully Qualified (u/g) owner name of executor of the job".to_string()
+        },
     ]
 }
 
@@ -117,6 +135,9 @@ async fn list_contextual_variables(
             &email.unwrap_or_else(|| "no email".to_string()),
             &username,
             "017e0ad5-f499-73b6-5488-92a61c5196dd",
+            format!("u/{username}").as_str(),
+            Some("u/user/script_path".to_string()),
+            Some("u/user/encapsulating_flow_path".to_string()),
         )
         .to_vec(),
     ))
