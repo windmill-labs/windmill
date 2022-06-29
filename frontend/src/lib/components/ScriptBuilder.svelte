@@ -36,7 +36,7 @@ def main(name: str = "Nicolas Bourbaki",
 	const DENO_INIT_CODE = `
 // only do the following import if you require your script to interact with the windmill
 // for instance to get a variable or resource
-// import * as wmill from 'https://deno.land/x/windmill@v${__pkg__.version}/index.ts'
+// import * as wmill from 'https://deno.land/x/windmill@v${__pkg__.version}/mod.ts'
 
 export async function main(x: string, y: string = 'default arg') {
 	// let x = await wmill.getVariable('u/user/foo');
