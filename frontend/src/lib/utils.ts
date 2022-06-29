@@ -299,20 +299,22 @@ export function schemaToTsType(schema: Schema): string {
 			const prop = schema.properties[key]
 			const isOptional = !schema.required.includes(key)
 			const prefix = `${key}${isOptional ? '?' : ''}`
+			let type: string = 'any'
 			if (prop.type === 'string') {
-				return `${prefix}: string`
+				type = 'string'
 			} else if (prop.type === 'number' || prop.type === 'integer') {
-				return `${prefix}: number`
+				type = 'number'
 			} else if (prop.type === 'boolean') {
-				return `${prefix}: boolean`
-			} else if (prop.type === 'object') {
-				return `${prefix}: any`
+				type = 'boolean'
 			} else if (prop.type === 'array') {
-				const type = prop.items?.type ?? 'any'
-				return `${prefix}: ${type}[]`
-			} else {
-				return `${prefix}: any`
+				let type = prop.items?.type ?? 'any'
+				if (type === 'integer') {
+					type = 'number'
+				}
+				type = `${type}[]`
 			}
+
+			return `${prefix}: ${type}`
 		})
 		.join(';')
 
@@ -335,31 +337,26 @@ export function schemaToObject(schema: Schema): Object {
 	return object
 }
 
+export function valueToTsType(value: any): string {
+	const typeOfValue: string = typeof value
+
+	if (['string', 'number', 'boolean'].includes(typeOfValue)) {
+		return typeOfValue
+	} else if (Array.isArray(value)) {
+		const type = objectToTsType(value[0])
+		return `Array<${type}>`
+	} else if (typeof value === 'object') {
+		return objectToTsType(value)
+	} else {
+		return 'any'
+	}
+}
+
 export function objectToTsType(object: Object): string {
 	if (!object) {
 		return 'any'
 	}
 	const propKeys = Object.keys(object)
-
-	const types = propKeys
-		.map((key: string) => {
-			const prop = object[key]
-			if (typeof prop === 'string') {
-				return `${key}: string`
-			} else if (typeof prop === 'number') {
-				return `${key}: number`
-			} else if (typeof prop === 'boolean') {
-				return `${key}: boolean`
-			} else if (typeof prop === 'object') {
-				return `${key}: ${objectToTsType(prop)}`
-			} else if (Array.isArray(prop)) {
-				const type = objectToTsType(prop[0])
-				return `${key}: ${type}[]`
-			} else {
-				return `${key}: any`
-			}
-		})
-		.join(';')
-
+	const types = propKeys.map((key: string) => `${key}: ${valueToTsType(object[key])}`).join(';')
 	return `{ ${types} }`
 }

@@ -2,7 +2,6 @@ function filterByKey(obj: Object, key: string): Object {
 	if (Object(obj) !== obj) {
 		return obj
 	} else if (Array.isArray(obj)) {
-		debugger
 		return obj.map((o) => filterByKey(o, key))
 	} else {
 		return Object.fromEntries(

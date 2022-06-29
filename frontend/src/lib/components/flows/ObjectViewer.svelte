@@ -51,7 +51,9 @@
 		<ul>
 			{#each keys as key, index}
 				<li class={getTypeAsString(json[key]) !== 'object' ? 'hover:bg-sky-100 py-2' : 'py-2'}>
-					<span class="key">{key}:</span>
+					{#if !isArray}
+						<span class="key">{key}:</span>
+					{/if}
 
 					{#if getTypeAsString(json[key]) === 'object'}
 						<svelte:self
