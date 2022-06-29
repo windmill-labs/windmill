@@ -19,7 +19,7 @@
 	export let formatAction: (() => void) | undefined = undefined
 	export let automaticLayout = true
 	export let websocketAlive = { pyright: false, black: false, deno: false }
-	export let extraLib: string = buildExtraLib()
+	export let extraLib: string = (lang == 'typescript' && !deno) ? buildExtraLib() : ''
 	export let extraLibPath: string = 'file:///node_modules/@types/windmill/index.d.ts'
 
 	let websockets: WebSocket[] = []
