@@ -1,14 +1,13 @@
 <script lang="ts">
 	import { goto } from '$app/navigation'
 	import { page } from '$app/stores'
+	import { WorkspaceService } from '$lib/gen'
+	import { logout, logoutWithRedirect } from '$lib/logout'
+	import { superadmin, userStore, usersWorkspaceStore, workspaceStore } from '$lib/stores'
+	import { getUserExt, refreshSuperadmin } from '$lib/user'
+	import { sendUserToast } from '$lib/utils'
 	import { SvelteToast } from '@zerodevx/svelte-toast'
 	import { onMount } from 'svelte'
-	import { WorkspaceService } from '$lib/gen'
-	import { superadmin, userStore, usersWorkspaceStore, workspaceStore } from '$lib/stores'
-	import { sendUserToast } from '$lib/utils'
-
-	import { logout, logoutWithRedirect } from '$lib/logout'
-	import { getUserExt, refreshSuperadmin } from '$lib/user'
 
 	// Default toast options
 	const toastOptions = {

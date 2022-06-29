@@ -1,6 +1,8 @@
 /* eslint-disable @typescript-eslint/explicit-module-boundary-types */
+import type { User } from '$lib/gen'
 import { toast } from '@zerodevx/svelte-toast'
-import type { UserExt } from './stores.js'
+import type { Schema } from './common'
+import type { UserExt } from './stores'
 
 export function isToday(someDate: Date): boolean {
 	const today = new Date()
@@ -37,8 +39,9 @@ export function displayDate(dateString: string | undefined): string {
 	if (date.toString() === 'Invalid Date') {
 		return ''
 	} else {
-		return `${date.getFullYear()}/${date.getMonth() + 1
-			}/${date.getDate()} at ${date.toLocaleTimeString()}`
+		return `${date.getFullYear()}/${
+			date.getMonth() + 1
+		}/${date.getDate()} at ${date.toLocaleTimeString()}`
 	}
 }
 
@@ -74,8 +77,6 @@ export function validatePassword(password: string): boolean {
 	const re = /^(?=.*[\d])(?=.*[!@#$%^&*])[\w!@#$%^&*]{8,30}$/
 	return re.test(password)
 }
-
-
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export function clickOutside(node: any): any {
@@ -241,3 +242,121 @@ export function isString(value: any) {
 	return typeof value === 'string' || value instanceof String
 }
 
+export function mapUserToUserExt(user: User): UserExt {
+	return {
+		...user,
+		groups: user.groups!,
+		pgroups: user.groups!.map((x) => `g/${x}`)
+	}
+}
+
+export function buildExtraLib(previousResultType?: string): string {
+	return `
+/**
+* get variable (including secret) at path
+* @param {string} path - path of the variable (e.g: g/all/pretty_secret)
+*/
+export function variable(path: string): string;
+
+/**
+* get resource at path
+* @param {string} path - path of the resource (e.g: g/all/my_resource)
+*/
+export function resource(path: string): any;
+
+/**
+* get result of step n.
+* If n is negative, for instance -1, it is the step just before this one.
+* Step 0 is flow input.
+* @param {number} n - step number.
+*/
+export function step(n: number): any;
+
+/**
+* flow input as an object
+*/
+export const flow_input: any;
+
+/**
+* previous result as an object
+*/
+export const previous_result: ${previousResultType || 'any'};
+
+/**
+* static params of this same step
+*/
+export const params: any;`
+}
+
+export function schemaToTsType(schema: Schema): string {
+	if (!schema) {
+		return 'any'
+	}
+	const propKeys = Object.keys(schema.properties)
+
+	const types = propKeys
+		.map((key: string) => {
+			const prop = schema.properties[key]
+			const isOptional = !schema.required.includes(key)
+			const prefix = `${key}${isOptional ? '?' : ''}`
+			let type: string = 'any'
+			if (prop.type === 'string') {
+				type = 'string'
+			} else if (prop.type === 'number' || prop.type === 'integer') {
+				type = 'number'
+			} else if (prop.type === 'boolean') {
+				type = 'boolean'
+			} else if (prop.type === 'array') {
+				let type = prop.items?.type ?? 'any'
+				if (type === 'integer') {
+					type = 'number'
+				}
+				type = `${type}[]`
+			}
+
+			return `${prefix}: ${type}`
+		})
+		.join(';')
+
+	return `{ ${types} }`
+}
+
+export function schemaToObject(schema: Schema): Object {
+	const object = {}
+
+	if (!schema) {
+		return object
+	}
+	const propKeys = Object.keys(schema.properties)
+
+	propKeys.forEach((key: string) => {
+		const prop = schema.properties[key]
+		object[key] = prop.type
+	})
+
+	return object
+}
+
+export function valueToTsType(value: any): string {
+	const typeOfValue: string = typeof value
+
+	if (['string', 'number', 'boolean'].includes(typeOfValue)) {
+		return typeOfValue
+	} else if (Array.isArray(value)) {
+		const type = objectToTsType(value[0])
+		return `Array<${type}>`
+	} else if (typeof value === 'object') {
+		return objectToTsType(value)
+	} else {
+		return 'any'
+	}
+}
+
+export function objectToTsType(object: Object): string {
+	if (!object) {
+		return 'any'
+	}
+	const propKeys = Object.keys(object)
+	const types = propKeys.map((key: string) => `${key}: ${valueToTsType(object[key])}`).join(';')
+	return `{ ${types} }`
+}

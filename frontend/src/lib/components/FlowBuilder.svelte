@@ -1,15 +1,15 @@
 <script lang="ts">
-	import { type Flow, FlowService } from '$lib/gen'
-
-	import { sendUserToast } from '$lib/utils'
-	import { page } from '$app/stores'
 	import { goto } from '$app/navigation'
-	import Path from './Path.svelte'
+	import { page } from '$app/stores'
+	import { FlowService, type Flow } from '$lib/gen'
+	import { clearPreviewResults, workspaceStore } from '$lib/stores'
+	import { sendUserToast } from '$lib/utils'
+	import { onMount } from 'svelte'
 	import SvelteMarkdown from 'svelte-markdown'
-	import { workspaceStore } from '$lib/stores'
-	import ScriptSchema from './ScriptSchema.svelte'
-	import Required from './Required.svelte'
 	import FlowEditor from './FlowEditor.svelte'
+	import Path from './Path.svelte'
+	import Required from './Required.svelte'
+	import ScriptSchema from './ScriptSchema.svelte'
 
 	export let flow: Flow
 	export let initialPath: string = ''
@@ -53,6 +53,10 @@
 		$page.url.searchParams.set('state', btoa(JSON.stringify(flow)))
 		history.replaceState({}, '', $page.url)
 	}
+
+	onMount(() => {
+		clearPreviewResults()
+	})
 </script>
 
 <div class="flex flex-col h-screen max-w-screen-lg xl:-ml-20 xl:pl-4 w-full -mt-4 pt-4 md:mx-10 ">
