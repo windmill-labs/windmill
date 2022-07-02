@@ -87,7 +87,7 @@
 
 			const { RequestType, toSocket, WebSocketMessageReader, WebSocketMessageWriter } =
 				await import('vscode-ws-jsonrpc')
-s			function createLanguageClient(
+			function createLanguageClient(
 				transports: MessageTransports,
 				name: string,
 				initializationOptions?: any
