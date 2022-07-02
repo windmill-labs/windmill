@@ -118,6 +118,24 @@ Detailed instructions for more complex deployments will come soon. For simpler
 docker based ones, the docker-compose.yml file contains all the necessary
 informations.
 
+### OAuth for self-hosting
+
+To get the same oauth integrations as Windmill Cloud, mount `oauth.json` with
+the following format:
+
+```json
+{
+  "<client>":
+    "id": "<CLIENT_ID>",
+    "secret": "<CLIENT_SECRET>"
+}
+```
+
+and mount it at `/src/usr/app/oauth.json`.
+
+You will also want to import all the approved resource types from
+[WindmillHub](https://hub.windmill.dev).
+
 ## Contributors
 
 <a href="https://github.com/windmill-labs/windmill/graphs/contributors">

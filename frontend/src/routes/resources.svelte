@@ -14,7 +14,7 @@
 	import ShareModal from '$lib/components/ShareModal.svelte'
 	import SharedBadge from '$lib/components/SharedBadge.svelte'
 	import SvelteMarkdown from 'svelte-markdown'
-	import { userStore, workspaceStore, type UserExt } from '$lib/stores'
+	import { userStore, workspaceStore, oauthStore } from '$lib/stores'
 	import SchemaEditor from '$lib/components/SchemaEditor.svelte'
 	import type { Schema } from '$lib/common'
 	import SchemaViewer from '$lib/components/SchemaViewer.svelte'
@@ -23,6 +23,10 @@
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
 	import Icon from 'svelte-awesome'
 	import Required from '$lib/components/Required.svelte'
+	import AppConnect from '$lib/components/AppConnect.svelte'
+	import { page } from '$app/stores'
+
+	import { onMount } from 'svelte'
 
 	type ResourceW = Resource & { canWrite: boolean }
 	type ResourceTypeW = ResourceType & { canWrite: boolean }
@@ -34,6 +38,7 @@
 	let resourceViewerSchema: Schema = emptySchema()
 
 	let typeModalMode: 'view' | 'view-type' | 'create' = 'view'
+
 	let newResourceTypeName: string
 	let newResourceTypeSchema: Schema
 	let newResourceTypeDescription: string
@@ -41,6 +46,7 @@
 	let resourceEditor: ResourceEditor | undefined
 
 	let shareModal: ShareModal
+	let appConnect: AppConnect
 
 	async function loadResources(): Promise<void> {
 		resources = (await ResourceService.listResource({ workspace: $workspaceStore! })).map((x) => {
@@ -103,6 +109,13 @@
 			loadResourceTypes()
 		}
 	}
+
+	onMount(() => {
+		let resource_type = $page.url.searchParams.get('resource_type')
+		if ($oauthStore && resource_type) {
+			appConnect.openFromOauth(resource_type)
+		}
+	})
 </script>
 
 <svelte:head>
@@ -111,12 +124,20 @@
 
 <CenteredPage>
 	<PageHeader title="Resources">
-		<button
-			class="default-button"
-			on:click={() => {
-				resourceEditor?.initNew()
-			}}><Icon class="text-white mb-1" data={faPlus} scale={0.9} /> &nbsp; Add a resource</button
-		>
+		<div class="flex flex-row space-x-4">
+			<button
+				class="default-button"
+				on:click={() => {
+					appConnect.open()
+				}}>Connect an App</button
+			>
+			<button
+				class="default-button"
+				on:click={() => {
+					resourceEditor?.initNew()
+				}}><Icon class="text-white mb-1" data={faPlus} scale={0.9} /> &nbsp; Add a resource</button
+			>
+		</div>
 	</PageHeader>
 
 	<div class="relative">
@@ -218,7 +239,7 @@
 			{#if resourceTypes}
 				{#each resourceTypes as { name, description, schema, canWrite }}
 					<tr>
-						<td
+						<td class="pr-4"
 							><a
 								href="#{name}"
 								on:click={() => {
@@ -253,6 +274,7 @@
 	</TableCustom>
 </CenteredPage>
 
+<AppConnect bind:this={appConnect} on:refresh={loadResources} />
 <ResourceEditor bind:this={resourceEditor} on:refresh={loadResources} />
 
 <ShareModal

@@ -39,13 +39,21 @@
 					console.log('You are a superadmin, you can go wherever you please')
 				} else {
 					$userStore = await getUserExt($workspaceStore)
-					throw Error('Not logged in')
+					if (!userStore) {
+						throw Error('Not logged in')
+					}
 				}
 			} else {
 				goto('/user/workspaces')
 			}
-		} catch {
-			logoutWithRedirect($page.url.pathname)
+		} catch (e) {
+			if (
+				$page.url.pathname != '/user/login' &&
+				!$page.url.pathname.startsWith('/user/login_callback')
+			) {
+				console.error(e)
+				logoutWithRedirect($page.url.pathname)
+			}
 		}
 	}
 

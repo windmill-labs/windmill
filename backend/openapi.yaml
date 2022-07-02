@@ -104,7 +104,7 @@ paths:
       tags:
         - user
       requestBody:
-        description: Partially filled script
+        description: credentials
         required: true
         content:
           application/json:
@@ -970,15 +970,117 @@ paths:
                 items:
                   $ref: "#/components/schemas/ContextualVariable"
 
-  /w/{workspace}/oauth/disconnect/{client_name}:
+  /oauth/login_callback/{client_name}:
     post:
-      summary: disconnect client
-      operationId: disconnectClient
+      security: []
+      summary: login with oauth authorization flow
+      operationId: loginWithOauth
       tags:
-        - workspace
+        - user
+      parameters:
+        - $ref: "#/components/parameters/ClientName"
+      requestBody:
+        description: Partially filled script
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                code:
+                  type: string
+                state:
+                  type: string
+
+      responses:
+        "200":
+          description: >
+            Successfully authenticated.
+            The session ID is returned in a cookie named `token` and as plaintext response.
+            Preferred method of authorization is through the bearer token. The cookie is only for browser convenience.
+
+          headers:
+            Set-Cookie:
+              schema:
+                type: string
+                example: token=abcde12345; Path=/; HttpOnly
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /oauth/connect_slack_callback:
+    post:
+      summary: connect slack callback
+      operationId: connectSlackCallback
+      tags:
+        - oauth
+      requestBody:
+        description: code endpoint
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                code:
+                  type: string
+                state:
+                  type: string
+              required:
+                - code
+                - state
+      responses:
+        "200":
+          description: slack token
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SlackToken"
+
+  /oauth/connect_callback/{client_name}:
+    post:
+      summary: connect callback
+      operationId: connectCallback
+      tags:
+        - oauth
+      parameters:
+        - $ref: "#/components/parameters/ClientName"
+      requestBody:
+        description: code endpoint
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                code:
+                  type: string
+                state:
+                  type: string
+              required:
+                - code
+                - state
+      responses:
+        "200":
+          description: oauth token
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  token:
+                    type: string
+
+  /w/{workspace}/oauth/disconnect/{account_id}:
+    post:
+      summary: disconnect account
+      operationId: disconnectAccount
+      tags:
+        - oauth
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
-        - $ref: "#/components/parameters/ClientName"
+        - $ref: "#/components/parameters/AccountId"
       responses:
         "200":
           description: disconnected client
@@ -986,6 +1088,77 @@ paths:
             text/plain:
               schema:
                 type: string
+
+  /w/{workspace}/oauth/disconnect_slack:
+    post:
+      summary: disconnect slack
+      operationId: disconnectSlack
+      tags:
+        - oauth
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      responses:
+        "200":
+          description: disconnected slack
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/oauth/set_workspace_slack:
+    post:
+      summary: set workspace's slack
+      operationId: setWorkspaceSlack
+      tags:
+        - oauth
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SlackToken"
+      responses:
+        "200":
+          description: workspace slack is set
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /oauth/list_logins:
+    get:
+      summary: list oauth logins
+      operationId: listOAuthLogins
+      tags:
+        - oauth
+      responses:
+        "200":
+          description: list of oauth login clients
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: string
+
+  /oauth/list_connects:
+    get:
+      summary: list oauth connects
+      operationId: listOAuthConnects
+      tags:
+        - oauth
+      responses:
+        "200":
+          description: list of oauth connects clients
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: array
+                  items:
+                    type: string
 
   /w/{workspace}/resources/create:
     post:
@@ -2516,6 +2689,12 @@ components:
       required: true
       schema:
         type: string
+    AccountId:
+      name: account
+      in: path
+      required: true
+      schema:
+        type: string
     ClientName:
       name: client_name
       in: path
@@ -3581,3 +3760,23 @@ components:
           type: string
 
       required: [type]
+
+    SlackToken:
+      type: object
+      properties:
+        access_token:
+          type: string
+        team_id:
+          type: string
+        team_name:
+          type: string
+        bot:
+          type: object
+          properties:
+            bot_access_token:
+              type: string
+      required:
+        - access_token
+        - team_id
+        - team_name
+        - bot

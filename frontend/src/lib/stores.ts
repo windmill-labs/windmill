@@ -14,6 +14,7 @@ export interface UserExt {
 
 let persistedWorkspace = browser && localStorage.getItem('workspace')
 
+export const oauthStore = writable<string | undefined>(undefined)
 export const userStore = writable<UserExt | undefined>(undefined)
 export const workspaceStore = writable<string | undefined>(
 	persistedWorkspace ? String(persistedWorkspace) : undefined
@@ -22,10 +23,10 @@ export const usersWorkspaceStore = writable<UserWorkspaceList | undefined>(undef
 export const superadmin = writable<String | false | undefined>(undefined)
 export const hubScripts = writable<
 	| Array<{
-			path: string
-			summary: string
-			approved: boolean
-	  }>
+		path: string
+		summary: string
+		approved: boolean
+	}>
 	| undefined
 >(undefined)
 
@@ -41,6 +42,7 @@ if (browser) {
 }
 
 export function clearStores(): void {
+	localStorage.removeItem('workspace')
 	userStore.set(undefined)
 	workspaceStore.set(undefined)
 	usersWorkspaceStore.set(undefined)

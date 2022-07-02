@@ -1,10 +1,10 @@
 <script lang="ts">
 	import Fuse from 'fuse.js'
-	import { UserService, type WorkspaceInvite, WorkspaceService } from '$lib/gen'
+	import { UserService, type WorkspaceInvite, WorkspaceService, OauthService } from '$lib/gen'
 	import type { User } from '$lib/gen'
 	import { sendUserToast } from '$lib/utils'
 	import PageHeader from '$lib/components/PageHeader.svelte'
-	import { userStore, usersWorkspaceStore, workspaceStore } from '$lib/stores'
+	import { userStore, usersWorkspaceStore, workspaceStore, oauthStore } from '$lib/stores'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
 	import Icon from 'svelte-awesome'
 	import { faSlack } from '@fortawesome/free-brands-svg-icons'
@@ -12,6 +12,8 @@
 	import { goto } from '$app/navigation'
 	import InviteUser from '$lib/components/InviteUser.svelte'
 	import ScriptPicker from '$lib/components/ScriptPicker.svelte'
+	import AppConnect from '$lib/components/AppConnect.svelte'
+	import { onMount } from 'svelte'
 
 	let users: User[] = []
 	let invites: WorkspaceInvite[] = []
@@ -19,8 +21,8 @@
 	let userFilter = ''
 	let scriptPath: string
 	let team_name: string | undefined
-	let slackLoaded = false
 
+	let appConnect: AppConnect
 	const fuseOptions = {
 		includeScore: false,
 		keys: ['username', 'email']
@@ -84,8 +86,15 @@
 			loadSlack()
 		}
 	}
+
+	onMount(() => {
+		if ($oauthStore) {
+			appConnect.openFromOauth('slack')
+		}
+	})
 </script>
 
+<AppConnect bind:this={appConnect} />
 <CenteredPage>
 	{#if $userStore?.is_admin}
 		<PageHeader title="Workspace Settings of {$workspaceStore}" />
@@ -179,19 +188,15 @@
 		<p class="text-xs text-gray-700 my-1">
 			Status: {#if team_name}Connected to slack workspace {team_name}{:else}Not connected{/if}
 		</p>
-		<a
-			class="default-button mt-2"
-			rel="external"
-			href="/api/w/{$workspaceStore}/oauth/connect/slack"
+		<a class="default-button mt-2" rel="external" href="/api/oauth/connect_slack"
 			>Connect to slack <Icon class="text-white mb-1" data={faSlack} scale={0.9} />
 		</a>
 		{#if team_name}
 			<button
 				class="default-button mt-2"
 				on:click={async () => {
-					await WorkspaceService.disconnectClient({
-						workspace: $workspaceStore ?? '',
-						clientName: 'slack'
+					await OauthService.disconnectSlack({
+						workspace: $workspaceStore ?? ''
 					})
 					loadSlack()
 					sendUserToast('Disconnected slack')

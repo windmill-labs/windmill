@@ -5,7 +5,7 @@
 	import { sendUserToast } from '$lib/utils'
 	import { page } from '$app/stores'
 	import { usersWorkspaceStore, workspaceStore } from '$lib/stores'
-	import CenteredModal from './CenteredModal.svelte'
+	import CenteredModal from '$lib/components/CenteredModal.svelte'
 
 	let workspace_id = $page.url.searchParams.get('workspace') ?? ''
 	let username = ''
@@ -23,7 +23,7 @@
 		sendUserToast(`Invitation to ${workspace_id} accepted as ${username}`)
 		usersWorkspaceStore.set(await WorkspaceService.listUserWorkspaces())
 		workspaceStore.set(workspace_id)
-		goto('/')
+		goto('/scripts')
 	}
 
 	async function validateName(username: string): Promise<void> {

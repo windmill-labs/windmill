@@ -1,5 +1,6 @@
 # Changelog
 
+
 ## [1.15.1](https://github.com/windmill-labs/windmill/compare/v1.15.0...v1.15.1) (2022-06-29)
 
 

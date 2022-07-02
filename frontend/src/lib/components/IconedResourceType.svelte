@@ -3,9 +3,9 @@
 	import Mail from './icons/Mail.svelte'
 	import DbIcon from './icons/DbIcon.svelte'
 	import PostgresIcon from './icons/PostgresIcon.svelte'
-	import Icon from 'svelte-awesome'
-	import { faSlack } from '@fortawesome/free-brands-svg-icons'
+	import { faGithub } from '@fortawesome/free-brands-svg-icons'
 	import Slack from './icons/Slack.svelte'
+	import Icon from 'svelte-awesome'
 
 	export let name: string
 	export let after: boolean = false
@@ -27,6 +27,8 @@
 		<DbIcon {height} {width} />
 	{:else if name === 'slack'}
 		<Slack {height} {width} />
+	{:else if name === 'github'}
+		<Icon data={faGithub} scale={1.4} />
 	{/if}
 	{#if after}
 		{name}
