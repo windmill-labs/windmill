@@ -69,7 +69,7 @@ FROM debian:buster-slim
 ARG APP=/usr/src/app
 
 RUN apt-get update \
-    && apt-get install -y ca-certificates tzdata libpq5 python3 python3-pip \
+    && apt-get install -y ca-certificates tzdata libpq5 \
     make build-essential libssl-dev zlib1g-dev libbz2-dev libreadline-dev \
     libsqlite3-dev wget curl llvm libncurses5-dev libncursesw5-dev xz-utils tk-dev libxml2-dev \
     libxmlsec1-dev libffi-dev liblzma-dev mecab-ipadic-utf8 libgdbm-dev libc6-dev git libprotobuf-dev=3.6.* libnl-route-3-dev=3.4.* \
@@ -84,7 +84,7 @@ RUN wget https://www.python.org/ftp/python/${PYTHON_VERSION}/Python-${PYTHON_VER
     && tar -xf Python-${PYTHON_VERSION}.tgz && cd Python-${PYTHON_VERSION}/ && ./configure --enable-optimizations \
     && make -j 4 && make install
 
-RUN python3 -m pip install pip-tools
+RUN /usr/local/bin/python3 -m pip install pip-tools
 
 COPY --from=builder /windmill/target/release/windmill ${APP}/windmill
 
