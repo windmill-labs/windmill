@@ -6,7 +6,7 @@
 
 	import { UserService, type WorkspaceInvite, WorkspaceService } from '$lib/gen'
 	import { superadmin, usersWorkspaceStore, workspaceStore } from '$lib/stores'
-	import CenteredModal from './CenteredModal.svelte'
+	import CenteredModal from '../../lib/components/CenteredModal.svelte'
 	import Switch from '$lib/components/Switch.svelte'
 	import { faCrown, faUserCog } from '@fortawesome/free-solid-svg-icons'
 	import Icon from 'svelte-awesome'
@@ -88,8 +88,7 @@
 					"
 				on:click={() => {
 					workspaceStore.set(workspace.id)
-
-					goto('/')
+					goto('/scripts')
 				}}
 				><span class="font-mono">{workspace.id}</span> - {workspace.name} as
 				<span class="font-mono">{workspace.username}</span>

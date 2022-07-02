@@ -50,6 +50,7 @@ pub struct ListableVariable {
     pub is_secret: bool,
     pub description: String,
     pub extra_perms: serde_json::Value,
+    pub account: Option<i32>,
 }
 
 #[derive(Deserialize)]
@@ -151,7 +152,7 @@ async fn list_variables(
     let mut tx = user_db.begin(&authed).await?;
 
     let rows = sqlx::query_as::<_, ListableVariable>(
-        "SELECT workspace_id, path, CASE WHEN is_secret IS TRUE THEN null ELSE value::text END as value, is_secret, description, extra_perms from variable
+        "SELECT workspace_id, path, CASE WHEN is_secret IS TRUE THEN null ELSE value::text END as value, is_secret, description, extra_perms, account from variable
          WHERE (workspace_id = $1 OR (is_secret IS NOT TRUE AND workspace_id = 'starter')) ORDER BY path",
     )
     .bind(&w_id)

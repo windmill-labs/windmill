@@ -1,15 +1,15 @@
 <script lang="ts">
 	import { goto } from '$app/navigation'
 	import { page } from '$app/stores'
-	import { faGithub } from '@fortawesome/free-brands-svg-icons'
+	import { faGithub, faGitlab } from '@fortawesome/free-brands-svg-icons'
 	import { onMount } from 'svelte'
 	import Icon from 'svelte-awesome'
 	import { slide } from 'svelte/transition'
-	import { UserService, WorkspaceService } from '$lib/gen'
-	import { clearStores, usersWorkspaceStore, workspaceStore } from '$lib/stores'
+	import { OauthService, UserService, WorkspaceService } from '$lib/gen'
+	import { clearStores, usersWorkspaceStore, workspaceStore, userStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/utils'
-	import CenteredModal from './CenteredModal.svelte'
-	import { refreshSuperadmin } from '$lib/user'
+	import CenteredModal from '$lib/components/CenteredModal.svelte'
+	import { getUserExt, refreshSuperadmin } from '$lib/user'
 
 	let email = $page.url.searchParams.get('email') ?? ''
 	let password = $page.url.searchParams.get('password') ?? ''
@@ -17,6 +17,7 @@
 	const rd = $page.url.searchParams.get('rd')
 
 	let showPassword = false
+	let logins: string[] = []
 
 	async function login(): Promise<void> {
 		const requestBody = {
@@ -29,7 +30,10 @@
 		// Once logged in, we can fetch the workspaces
 		$usersWorkspaceStore = await WorkspaceService.listUserWorkspaces()
 		// trigger a reload of the user
-		$workspaceStore = $workspaceStore
+		if ($workspaceStore) {
+			$userStore = await getUserExt($workspaceStore)
+		}
+
 		// Finally, we check whether the user is a superadmin
 		refreshSuperadmin()
 		redirectUser()
@@ -47,8 +51,14 @@
 		}
 	}
 
+	async function loadLogins() {
+		logins = await OauthService.listOAuthLogins()
+		showPassword = logins.length == 0
+	}
+
 	onMount(async () => {
 		try {
+			loadLogins()
 			await UserService.getCurrentEmail()
 			redirectUser()
 		} catch {
@@ -73,13 +83,23 @@
 <!-- Enable submit form on enter -->
 <CenteredModal>
 	<div class="justify-center text-center flex flex-col">
-		<span class="text-xs text-gray-600">Currently only signup through Github is supported</span>
-		<a rel="external" href="/api/oauth/login/github"
-			><button class="m-auto default-button bg-black mt-2 py-2 w-full text-gray-200"
-				>Signup or login with Github &nbsp;
-				<Icon class="text-white pb-1" data={faGithub} scale={1.4} />
-			</button></a
-		>
+		{#if logins.includes('github')}
+			<a rel="external" href="/api/oauth/login/github"
+				><button class="m-auto default-button bg-black mt-2 py-2 w-full text-gray-200"
+					>Github &nbsp;
+					<Icon class="text-white pb-1" data={faGithub} scale={1.4} />
+				</button></a
+			>
+		{/if}
+		{#if logins.includes('gitlab')}
+			<a rel="external" href="/api/oauth/login/gitlab"
+				><button
+					class="m-auto default-button bg-orange-400 mt-2 py-2 w-full text-black hover:bg-orange-600"
+					>Gitlab &nbsp;
+					<Icon class="pb-1" data={faGitlab} scale={1.4} />
+				</button></a
+			>
+		{/if}
 	</div>
 	<div class="flex flex-row-reverse w-full">
 		<button

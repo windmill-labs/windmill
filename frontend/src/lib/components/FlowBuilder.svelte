@@ -1,8 +1,8 @@
 <script lang="ts">
 	import { goto } from '$app/navigation'
 	import { page } from '$app/stores'
-	import { FlowService, type Flow } from '$lib/gen'
-	import { clearPreviewResults, workspaceStore } from '$lib/stores'
+	import { FlowService, ScriptService, type Flow } from '$lib/gen'
+	import { clearPreviewResults, workspaceStore, hubScripts } from '$lib/stores'
 	import { sendUserToast } from '$lib/utils'
 	import { onMount } from 'svelte'
 	import SvelteMarkdown from 'svelte-markdown'
@@ -15,6 +15,15 @@
 	export let initialPath: string = ''
 
 	$: step = Number($page.url.searchParams.get('step')) || 1
+
+	async function loadSearchData() {
+		const scripts = await ScriptService.listHubScripts()
+		$hubScripts = scripts.map((x) => ({
+			path: `hub/${x.id}/${x.summary.toLowerCase().replaceAll(/\s+/g, '_')}`,
+			summary: `${x.summary} (${x.app})`,
+			approved: x.approved
+		}))
+	}
 
 	async function saveFlow(): Promise<void> {
 		if (initialPath == '') {
@@ -55,6 +64,7 @@
 	}
 
 	onMount(() => {
+		loadSearchData()
 		clearPreviewResults()
 	})
 </script>

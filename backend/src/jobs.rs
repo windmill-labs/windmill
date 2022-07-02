@@ -832,6 +832,7 @@ enum Job {
 #[serde(rename_all(serialize = "lowercase"))]
 pub enum JobKind {
     Script,
+    #[allow(non_camel_case_types)]
     Script_Hub,
     Preview,
     Dependencies,

@@ -1,8 +1,15 @@
 <script lang="ts">
 	import { goto } from '$app/navigation'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
+	import { workspaceStore } from '$lib/stores'
 
-	goto('/scripts')
+	$workspaceStore = localStorage.getItem('workspace') ?? undefined
+
+	if (!$workspaceStore) {
+		goto('/user/workspaces')
+	} else {
+		goto('/scripts')
+	}
 </script>
 
 <CenteredPage>

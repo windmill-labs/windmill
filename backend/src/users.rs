@@ -452,13 +452,6 @@ struct WorkspaceUsername {
     pub username: String,
 }
 
-#[derive(sqlx::Type, Serialize, Deserialize)]
-#[sqlx(type_name = "LOGIN_TYPE", rename_all = "lowercase")]
-#[serde(rename_all(serialize = "lowercase"))]
-pub enum LoginType {
-    Password,
-    Github,
-}
 
 async fn exists_username(
     authed: Authed,
@@ -1418,7 +1411,7 @@ pub async fn delete_expired_items_perdiodically(
 
 
         match tokens_deleted_r {
-            Ok(tokens) => tracing::info!("deleted {} tokens: {:?}", tokens.len(), tokens),
+            Ok(tokens) => tracing::debug!("deleted {} tokens: {:?}", tokens.len(), tokens),
             Err(e) => tracing::error!("Error deleting token: {}", e.to_string()),
         }
         
@@ -1431,7 +1424,7 @@ pub async fn delete_expired_items_perdiodically(
         .await;
 
         match magic_links_deleted_r {
-            Ok(tokens) => tracing::info!("deleted {} tokens: {:?}", tokens.len(), tokens),
+            Ok(tokens) => tracing::debug!("deleted {} tokens: {:?}", tokens.len(), tokens),
             Err(e) => tracing::error!("Error deleting token: {}", e.to_string()),
         }
 

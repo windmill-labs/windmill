@@ -7,7 +7,7 @@
 
 	import { page } from '$app/stores'
 	import { usersWorkspaceStore, workspaceStore } from '$lib/stores'
-	import CenteredModal from './CenteredModal.svelte'
+	import CenteredModal from '$lib/components/CenteredModal.svelte'
 
 	let id = ''
 	let name = ''

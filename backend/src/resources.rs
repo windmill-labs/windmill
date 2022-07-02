@@ -67,6 +67,7 @@ pub struct Resource {
     pub description: Option<String>,
     pub resource_type: String,
     pub extra_perms: serde_json::Value,
+    pub account: Option<i32>,
 }
 
 #[derive(Deserialize)]
@@ -104,6 +105,7 @@ async fn list_resources(
             "description",
             "resource_type",
             "extra_perms",
+            "account",
         ])
         .order_by("path", true)
         .and_where("workspace_id = ? OR workspace_id = 'starter'".bind(&w_id))
