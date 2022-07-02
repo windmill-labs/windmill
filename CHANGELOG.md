@@ -12,9 +12,7 @@
 ### Bug Fixes
 
 * add gitlab to connects ([d4e7c9e](https://github.com/windmill-labs/windmill/commit/d4e7c9e171cd02a7aa0846b43c127720260600b5))
-* misc frontend ([84dc982](https://github.com/windmill-labs/windmill/commit/84dc98237fc336716e7f5167768a4765f5eded0a))
-* misc frontend ([7941f4d](https://github.com/windmill-labs/windmill/commit/7941f4d3bb6c4f6c6518410f9a29395f06105081))
-* misc frontend ([a979494](https://github.com/windmill-labs/windmill/commit/a97949472dfe6aec5127b24f2828ee361565489a))
+* diverse frontend fixes
 
 ## [1.15.1](https://github.com/windmill-labs/windmill/compare/v1.15.0...v1.15.1) (2022-06-29)
 
