@@ -6,5 +6,12 @@
             "workflow",
             "repo"
         ]
+    },
+    "gitlab": {
+        "auth_url": "https://gitlab.com/oauth/authorize",
+        "token_url": "https://gitlab.com/oauth/token",
+        "scopes": [
+            "api"
+        ]
     }
 }
