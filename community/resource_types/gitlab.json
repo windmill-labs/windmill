@@ -1,0 +1,18 @@
+{
+  "workspace_id": "starter",
+  "name": "gitlab",
+  "schema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+      "token": {
+        "type": "string",
+        "description": ""
+      }
+    },
+    "required": [
+      "token"
+    ],
+    "type": "object"
+  },
+  "description": "GitLab OAuth credentials"
+}
