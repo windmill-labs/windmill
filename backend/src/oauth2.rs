@@ -5,7 +5,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use axum::body::Bytes;
-use axum::extract::{Extension, FromRequest, Path, RequestParts};
+use axum::extract::{Extension, FromRequest, Path, Query, RequestParts};
 use axum::response::Redirect;
 use axum::routing::{get, post};
 use axum::{async_trait, Json, Router};
@@ -24,6 +24,7 @@ use oauth2::{
     TokenResponse, TokenUrl,
 };
 use reqwest::Client;
+use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use slack_http_verifier::SlackVerifier;
 use tokio::fs::File;
@@ -140,7 +141,7 @@ pub async fn build_oauth_clients(base_url: &str) -> anyhow::Result<AllClients> {
         .map(|(k, v)| {
             let scopes = v.scopes.clone();
             let named_client =
-                build_basic_client(k.clone(), v, oauths.get(&k).unwrap(), true, base_url);
+                build_basic_client(k.clone(), v, oauths.get(&k).unwrap(), false, base_url);
             (
                 named_client.0,
                 ClientWithScopes {
@@ -284,13 +285,23 @@ where
     }
 }
 
+#[derive(Deserialize)]
+struct ConnectScopes {
+    scopes: Option<String>,
+}
 async fn connect(
     Path(client_name): Path<String>,
+    Query(ConnectScopes { scopes }): Query<ConnectScopes>,
     Extension(clients): Extension<Arc<AllClients>>,
     cookies: Cookies,
 ) -> error::Result<Redirect> {
     let connects = &clients.connects;
-    oauth_redirect(connects, client_name, cookies)
+    oauth_redirect(
+        connects,
+        client_name,
+        cookies,
+        scopes.map(|x| x.split('+').map(|x| x.to_owned()).collect()),
+    )
 }
 
 async fn list_logins(
@@ -307,13 +318,12 @@ async fn list_logins(
 
 async fn list_connects(
     Extension(clients): Extension<Arc<AllClients>>,
-) -> error::JsonResult<Vec<String>> {
+) -> error::JsonResult<HashMap<String, Vec<String>>> {
     Ok(Json(
-        clients
-            .connects
-            .keys()
-            .map(|x| x.to_owned())
-            .collect::<Vec<String>>(),
+        (&clients.connects)
+            .into_iter()
+            .map(|(k, v)| (k.to_owned(), v.scopes.clone()))
+            .collect::<HashMap<String, Vec<String>>>(),
     ))
 }
 
@@ -376,7 +386,7 @@ async fn login(
     cookies: Cookies,
 ) -> error::Result<Redirect> {
     let clients = &clients.logins;
-    oauth_redirect(clients, client_name, cookies)
+    oauth_redirect(clients, client_name, cookies, None)
 }
 
 #[derive(Deserialize)]
@@ -715,33 +725,25 @@ pub struct EmailInfo {
 async fn get_email(http_client: &Client, client_name: &str, token: &str) -> error::Result<String> {
     tracing::info!("{token}");
     let email = match client_name {
-        "github" => http_client
-            .get("https://api.github.com/user/emails")
-            .bearer_auth(token)
-            .send()
-            .await
-            .map_err(to_anyhow)?
-            .json::<Vec<GHEmailInfo>>()
-            .await
-            .map_err(to_anyhow)?
-            .iter()
-            .find(|x| x.primary && x.verified)
-            .ok_or(error::Error::BadRequest(format!(
-                "user does not have any primary and verified address"
-            )))?
-            .email
-            .to_string(),
-        "gitlab" => http_client
-            .get("https://gitlab.com/api/v4/user")
-            .bearer_auth(token)
-            .send()
-            .await
-            .map_err(to_anyhow)?
-            .json::<EmailInfo>()
-            .await
-            .map_err(to_anyhow)?
-            .email
-            .to_string(),
+        "github" => http_get_user_info::<Vec<GHEmailInfo>>(
+            http_client,
+            "https://api.github.com/user/emails",
+            token,
+        )
+        .await?
+        .iter()
+        .find(|x| x.primary && x.verified)
+        .ok_or(error::Error::BadRequest(format!(
+            "user does not have any primary and verified address"
+        )))?
+        .email
+        .to_string(),
+        "gitlab" => {
+            http_get_user_info::<EmailInfo>(http_client, "https://gitlab.com/api/v4/user", token)
+                .await?
+                .email
+                .to_string()
+        }
         _ => {
             return Err(error::Error::BadRequest(
                 "client name not recognized".to_string(),
@@ -757,15 +759,10 @@ async fn get_user_info(
     token: &str,
 ) -> error::Result<UserInfo> {
     let email = match client_name {
-        "github" => http_client
-            .get("https://api.github.com/user")
-            .bearer_auth(token)
-            .send()
-            .await
-            .map_err(to_anyhow)?
-            .json::<UserInfo>()
-            .await
-            .map_err(to_anyhow)?,
+        "github" => http_get_user_info(http_client, "https://api.github.com/user", token).await?,
+        "gitlab" => {
+            http_get_user_info(http_client, "https://gitlab.com/api/v4/user", token).await?
+        }
         _ => {
             return Err(error::Error::BadRequest(
                 "client name not recognized".to_string(),
@@ -775,16 +772,38 @@ async fn get_user_info(
     Ok(email)
 }
 
+async fn http_get_user_info<T: DeserializeOwned>(
+    http_client: &Client,
+    url: &str,
+    token: &str,
+) -> error::Result<T> {
+    Ok(http_client
+        .get(url)
+        .bearer_auth(token)
+        .send()
+        .await
+        .map_err(to_anyhow)?
+        .json::<T>()
+        .await
+        .map_err(to_anyhow)?)
+}
+
 fn oauth_redirect(
     clients: &HashMap<String, ClientWithScopes>,
     client_name: String,
     cookies: Cookies,
+    scopes: Option<Vec<String>>,
 ) -> error::Result<Redirect> {
     let client_w_scopes = clients
         .get(&client_name)
         .ok_or_else(|| error::Error::BadRequest("client not found".to_string()))?;
     let mut client = client_w_scopes.client.authorize_url(CsrfToken::new_random);
-    for scope in client_w_scopes.scopes.iter() {
+    let scopes_iter = if let Some(scopes) = scopes {
+        scopes
+    } else {
+        client_w_scopes.scopes.clone()
+    };
+    for scope in scopes_iter.iter() {
         client = client.add_scope(oauth2::Scope::new(scope.to_string()));
     }
     let authorize_url = set_csrf_and_retrieve_auth_url(client, cookies);

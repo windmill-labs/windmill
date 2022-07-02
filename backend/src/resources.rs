@@ -105,6 +105,7 @@ async fn list_resources(
             "description",
             "resource_type",
             "extra_perms",
+            "account",
         ])
         .order_by("path", true)
         .and_where("workspace_id = ? OR workspace_id = 'starter'".bind(&w_id))

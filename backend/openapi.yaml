@@ -1038,6 +1038,40 @@ paths:
               schema:
                 $ref: "#/components/schemas/SlackToken"
 
+  /oauth/connect_callback/{client_name}:
+    post:
+      summary: connect callback
+      operationId: connectCallback
+      tags:
+        - oauth
+      parameters:
+        - $ref: "#/components/parameters/ClientName"
+      requestBody:
+        description: code endpoint
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                code:
+                  type: string
+                state:
+                  type: string
+              required:
+                - code
+                - state
+      responses:
+        "200":
+          description: oauth token
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  token:
+                    type: string
+
   /w/{workspace}/oauth/disconnect/{account_id}:
     post:
       summary: disconnect account
@@ -1121,9 +1155,10 @@ paths:
           content:
             application/json:
               schema:
-                type: array
-                items:
-                  type: string
+                additionalProperties:
+                  type: array
+                  items:
+                    type: string
 
   /w/{workspace}/resources/create:
     post:
@@ -3736,7 +3771,10 @@ components:
         team_name:
           type: string
         bot:
-          type: string
+          type: object
+          properties:
+            bot_access_token:
+              type: string
       required:
         - access_token
         - team_id

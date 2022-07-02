@@ -88,8 +88,7 @@
 					"
 				on:click={() => {
 					workspaceStore.set(workspace.id)
-
-					goto('/')
+					goto('/scripts')
 				}}
 				><span class="font-mono">{workspace.id}</span> - {workspace.name} as
 				<span class="font-mono">{workspace.username}</span>

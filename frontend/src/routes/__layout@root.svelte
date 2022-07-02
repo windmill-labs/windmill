@@ -21,15 +21,9 @@
 	import { onMount } from 'svelte'
 	import Icon from 'svelte-awesome'
 	import '../app.css'
-	import { OpenAPI, ScriptService } from '$lib/gen'
-	import {
-		hubScripts,
-		superadmin,
-		userStore,
-		usersWorkspaceStore,
-		workspaceStore
-	} from '$lib/stores'
-	import { clickOutside } from '$lib/utils'
+	import { OpenAPI } from '$lib/gen'
+	import { superadmin, userStore, usersWorkspaceStore, workspaceStore } from '$lib/stores'
+	import { clickOutside, sendUserToast, sleep } from '$lib/utils'
 	import { logout } from '$lib/logout'
 	import { goto } from '$app/navigation'
 
@@ -58,23 +52,18 @@
 		workspacePickerOpen = false
 	}
 
-	async function loadSearchData() {
-		const scripts = await ScriptService.listHubScripts()
-		$hubScripts = scripts.map((x) => ({
-			path: `hub/${x.id}/${x.summary.toLowerCase().replaceAll(/\s+/g, '_')}`,
-			summary: `${x.summary} (${x.app})`,
-			approved: x.approved
-		}))
-	}
-
-	onMount(() => {
-		if (!$workspaceStore || !$userStore) {
-			goto('/user/workspaces')
-		}
+	onMount(async () => {
 		isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent)
 		//Mobile
 		isCollapsed = isMobile
-		loadSearchData()
+		await sleep(2000)
+		if (!$workspaceStore || !$userStore) {
+			sendUserToast(
+				'Workspace not set or corresponding to another user. Redirecting to list of workspaces.',
+				true
+			)
+			goto('/user/workspaces')
+		}
 	})
 </script>
 
@@ -194,7 +183,7 @@
 						<div class="mx-auto">
 							<span class:hidden={isCollapsed} class="px-2 font-mono text-xs whitespace-nowrap">
 								<Icon class="text-white" data={faUser} scale={0.6} />
-								{$userStore?.username ?? $superadmin ? $superadmin : '___'}
+								{$userStore?.username ?? ($superadmin ? $superadmin : '___')}
 								{#if $userStore?.is_admin}
 									<Icon class="text-white" data={faCrown} scale={0.6} />
 								{/if}

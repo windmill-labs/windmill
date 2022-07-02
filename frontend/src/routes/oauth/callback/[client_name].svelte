@@ -4,33 +4,37 @@
 	import { sendUserToast } from '$lib/utils'
 	import { onMount } from 'svelte'
 	import { OauthService } from '$lib/gen'
-	import { workspaceStore, oauthStore } from '$lib/stores'
+	import { oauthStore } from '$lib/stores'
 	import Icon from 'svelte-awesome'
 	import { faSpinner } from '@fortawesome/free-solid-svg-icons'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
 	import PageHeader from '$lib/components/PageHeader.svelte'
 
+	let client_name = $page.params.client_name
 	let error = $page.url.searchParams.get('error')
 	let code = $page.url.searchParams.get('code') ?? undefined
 	let state = $page.url.searchParams.get('state') ?? undefined
 
 	onMount(async () => {
 		if (error) {
-			sendUserToast(`Error trying to add slack connection: ${error}`, true)
+			sendUserToast(`Error trying to add ${client_name} connection: ${error}`, true)
+			goto('/resources')
 		} else if (code && state) {
-			const res = await OauthService.connectSlackCallback({ requestBody: { code, state } })
-			$oauthStore = res.bot.bot_access_token
-			await OauthService.setWorkspaceSlack({ workspace: $workspaceStore!, requestBody: res })
-			sendUserToast('Slack workspace connected to your Windmill workspace')
+			const res = await OauthService.connectCallback({
+				clientName: client_name,
+				requestBody: { code, state }
+			})
+			$oauthStore = res.token
+			goto(`/resources?resource_type=${client_name}`)
 		} else {
 			sendUserToast('Missing code or state as query params', true)
+			goto('/resources')
 		}
-		goto('/workspace_settings')
 	})
 </script>
 
 <CenteredPage>
-	<PageHeader title="Connection to slack in progress" />
+	<PageHeader title="Connection to {client_name} in progress" />
 	<div class="mx-auto w-0">
 		<Icon class="animate-spin" data={faSpinner} scale={2.0} />
 	</div>

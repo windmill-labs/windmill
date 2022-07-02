@@ -1424,7 +1424,7 @@ pub async fn delete_expired_items_perdiodically(
         .await;
 
         match magic_links_deleted_r {
-            Ok(tokens) => tracing::info!("deleted {} tokens: {:?}", tokens.len(), tokens),
+            Ok(tokens) => tracing::debug!("deleted {} tokens: {:?}", tokens.len(), tokens),
             Err(e) => tracing::error!("Error deleting token: {}", e.to_string()),
         }
 

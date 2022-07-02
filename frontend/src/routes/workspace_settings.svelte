@@ -4,7 +4,7 @@
 	import type { User } from '$lib/gen'
 	import { sendUserToast } from '$lib/utils'
 	import PageHeader from '$lib/components/PageHeader.svelte'
-	import { userStore, usersWorkspaceStore, workspaceStore } from '$lib/stores'
+	import { userStore, usersWorkspaceStore, workspaceStore, oauthStore } from '$lib/stores'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
 	import Icon from 'svelte-awesome'
 	import { faSlack } from '@fortawesome/free-brands-svg-icons'
@@ -12,6 +12,8 @@
 	import { goto } from '$app/navigation'
 	import InviteUser from '$lib/components/InviteUser.svelte'
 	import ScriptPicker from '$lib/components/ScriptPicker.svelte'
+	import AppConnect from '$lib/components/AppConnect.svelte'
+	import { onMount } from 'svelte'
 
 	let users: User[] = []
 	let invites: WorkspaceInvite[] = []
@@ -20,6 +22,7 @@
 	let scriptPath: string
 	let team_name: string | undefined
 
+	let appConnect: AppConnect
 	const fuseOptions = {
 		includeScore: false,
 		keys: ['username', 'email']
@@ -83,8 +86,15 @@
 			loadSlack()
 		}
 	}
+
+	onMount(() => {
+		if ($oauthStore) {
+			appConnect.openFromOauth('slack')
+		}
+	})
 </script>
 
+<AppConnect bind:this={appConnect} />
 <CenteredPage>
 	{#if $userStore?.is_admin}
 		<PageHeader title="Workspace Settings of {$workspaceStore}" />

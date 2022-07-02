@@ -3,6 +3,8 @@
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
 	import { workspaceStore } from '$lib/stores'
 
+	$workspaceStore = localStorage.getItem('workspace') ?? undefined
+
 	if (!$workspaceStore) {
 		goto('/user/workspaces')
 	} else {
