@@ -1,6 +1,6 @@
 {
 	"name": "windmill",
-	"version": "1.15.0",
+	"version": "1.15.1",
 	"scripts": {
 		"dev": "svelte-kit dev",
 		"build": "svelte-kit build",
@@ -24,7 +24,7 @@
 		"@typescript-eslint/parser": "^5.27.0",
 		"@zerodevx/svelte-toast": "^0.7.2",
 		"autoprefixer": "^10.4.1",
-		"cssnano": "^5.1.10",
+		"cssnano": "^5.1.12",
 		"cypress": "^9.7.0",
 		"eslint": "^8.16.0",
 		"eslint-config-prettier": "^8.3.0",
@@ -37,7 +37,7 @@
 		"simple-svelte-autocomplete": "^2.2.4",
 		"stylelint-config-recommended": "^7.0.0",
 		"svelte": "^3.42.6",
-		"svelte-check": "^2.2.6",
+		"svelte-check": "^2.8.0",
 		"svelte-highlight": "^6.0.1",
 		"svelte-preprocess": "^4.9.8",
 		"svelte2tsx": "^0.5.10",
