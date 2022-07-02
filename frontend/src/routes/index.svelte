@@ -5,9 +5,7 @@
 
 	$workspaceStore = localStorage.getItem('workspace') ?? undefined
 
-	if (!$workspaceStore) {
-		goto('/user/workspaces')
-	} else {
+	if ($workspaceStore) {
 		goto('/scripts')
 	}
 </script>

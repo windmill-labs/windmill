@@ -16,7 +16,9 @@
 	let workspaces: { id: string; name: string; username: string }[] = []
 
 	async function loadInvites() {
-		invites = await UserService.listWorkspaceInvites()
+		try {
+			invites = await UserService.listWorkspaceInvites()
+		} catch {}
 	}
 
 	async function loadWorkspaces() {

@@ -21,6 +21,7 @@
 	import { onMount } from 'svelte'
 	import Icon from 'svelte-awesome'
 	import '../app.css'
+	import { page } from '$app/stores'
 	import { OpenAPI } from '$lib/gen'
 	import { superadmin, userStore, usersWorkspaceStore, workspaceStore } from '$lib/stores'
 	import { clickOutside, sendUserToast, sleep } from '$lib/utils'
@@ -56,12 +57,9 @@
 		isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent)
 		//Mobile
 		isCollapsed = isMobile
-		await sleep(2000)
-		if (!$workspaceStore || !$userStore) {
-			sendUserToast(
-				'Workspace not set or corresponding to another user. Redirecting to list of workspaces.',
-				true
-			)
+		if (!document.cookie.includes('token')) {
+			goto('/user/login')
+		} else if (!$workspaceStore) {
 			goto('/user/workspaces')
 		}
 	})

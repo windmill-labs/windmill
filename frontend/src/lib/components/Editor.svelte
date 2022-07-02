@@ -19,7 +19,7 @@
 	export let formatAction: (() => void) | undefined = undefined
 	export let automaticLayout = true
 	export let websocketAlive = { pyright: false, black: false, deno: false }
-	export let extraLib: string = (lang == 'typescript' && !deno) ? buildExtraLib() : ''
+	export let extraLib: string = lang == 'typescript' && !deno ? buildExtraLib() : ''
 	export let extraLibPath: string = 'file:///node_modules/@types/windmill/index.d.ts'
 
 	let websockets: WebSocket[] = []
@@ -86,9 +86,8 @@
 			const vscode = await import('vscode')
 
 			const { RequestType, toSocket, WebSocketMessageReader, WebSocketMessageWriter } =
-				await import('@codingame/monaco-jsonrpc')
-
-			function createLanguageClient(
+				await import('vscode-ws-jsonrpc')
+s			function createLanguageClient(
 				transports: MessageTransports,
 				name: string,
 				initializationOptions?: any
