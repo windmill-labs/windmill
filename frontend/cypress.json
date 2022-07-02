@@ -1,6 +1,0 @@
-{
-	"pluginsFile": false,
-	"env": {
-		"baseUrl": "http://localhost:8000"
-	}
-}
