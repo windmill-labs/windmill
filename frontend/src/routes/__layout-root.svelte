@@ -24,7 +24,8 @@
 	const monacoEditorUnhandledErrors = [
 		'Model not found',
 		'Connection is disposed.',
-		'Connection got disposed.'
+		'Connection got disposed.',
+		'Stopping server timed out.'
 	]
 
 	async function loadUser() {
@@ -72,8 +73,10 @@
 				}
 
 				if (status == '401') {
-					sendUserToast('Logged out after a request was unauthorized', true)
-					logout($page.url.pathname)
+					if ($page.url.pathname != '/user/login') {
+						sendUserToast('Logged out after a request was unauthorized', true)
+						logout($page.url.pathname)
+					}
 				} else {
 					if (body) {
 						sendUserToast(`${body}`, true)
