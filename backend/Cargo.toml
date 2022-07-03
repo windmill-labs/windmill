@@ -40,8 +40,8 @@ cron = "^0"
 external-ip = "^4"
 lettre = { version = "^0", features = ["rustls-tls", "tokio1", "tokio1-rustls-tls", "builder", "smtp-transport"],  default-features = false}
 urlencoding = "^2"
-oauth2 = "^4"
 url = "^2"
+async-oauth2 = "^0"
 reqwest = { version = "^0", features = ["json"] }
 time = "^0"
 slack-http-verifier = "^0"
@@ -62,4 +62,3 @@ sqlx = { version = "^0", features = ["macros", "offline", "migrate", "uuid", "js
 dotenv = "^0"
 ulid = { version = "^0", features = ["uuid"] }
 futures = "^0"
-indexmap = "~1.6.2"

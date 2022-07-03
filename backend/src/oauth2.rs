@@ -2,7 +2,6 @@ use std::collections::HashMap;
 use std::fmt::Debug;
 
 use std::sync::Arc;
-use std::time::Duration;
 
 use axum::body::Bytes;
 use axum::extract::{Extension, FromRequest, Path, Query, RequestParts};
@@ -11,18 +10,8 @@ use axum::routing::{get, post};
 use axum::{async_trait, Json, Router};
 use hyper::StatusCode;
 use itertools::Itertools;
-use oauth2::basic::{
-    BasicClient, BasicErrorResponse, BasicRevocationErrorResponse, BasicTokenIntrospectionResponse,
-    BasicTokenType,
-};
-use oauth2::reqwest::async_http_client;
-use oauth2::{helpers, TokenType};
-use oauth2::{AccessToken, Client as OClient, RefreshToken, StandardRevocableToken};
-// Alternatively, this can be `oauth2::curl::http_client` or a custom client.
-use oauth2::{
-    AuthUrl, AuthorizationCode, ClientId, ClientSecret, CsrfToken, RedirectUrl, Scope,
-    TokenResponse, TokenUrl,
-};
+
+use oauth2::{Client as OClient, *};
 use reqwest::Client;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
@@ -64,20 +53,20 @@ pub fn workspaced_service() -> Router {
 }
 
 pub struct ClientWithScopes {
-    client: BasicClient,
+    client: OClient,
     scopes: Vec<String>,
 }
 
 pub type BasicClientsMap = HashMap<String, ClientWithScopes>;
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct OAuthConfig {
     auth_url: String,
     token_url: String,
     scopes: Option<Vec<String>>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct OAuthClient {
     id: String,
     secret: String,
@@ -85,7 +74,7 @@ pub struct OAuthClient {
 pub struct AllClients {
     pub logins: BasicClientsMap,
     pub connects: BasicClientsMap,
-    pub slack: Option<SlackClient>,
+    pub slack: Option<OClient>,
 }
 
 pub async fn build_oauth_clients(base_url: &str) -> anyhow::Result<AllClients> {
@@ -123,8 +112,13 @@ pub async fn build_oauth_clients(base_url: &str) -> anyhow::Result<AllClients> {
         .map(|(k, v)| {
             let scopes = v.scopes.clone();
 
-            let named_client =
-                build_basic_client(k.clone(), v, oauths.get(&k).unwrap(), true, base_url);
+            let named_client = build_basic_client(
+                k.clone(),
+                v,
+                oauths.get(&k).unwrap().clone(),
+                true,
+                base_url,
+            );
             (
                 named_client.0,
                 ClientWithScopes {
@@ -140,8 +134,13 @@ pub async fn build_oauth_clients(base_url: &str) -> anyhow::Result<AllClients> {
         .filter(|x| oauths.contains_key(&x.0))
         .map(|(k, v)| {
             let scopes = v.scopes.clone();
-            let named_client =
-                build_basic_client(k.clone(), v, oauths.get(&k).unwrap(), false, base_url);
+            let named_client = build_basic_client(
+                k.clone(),
+                v,
+                oauths.get(&k).unwrap().clone(),
+                false,
+                base_url,
+            );
             (
                 named_client.0,
                 ClientWithScopes {
@@ -152,7 +151,20 @@ pub async fn build_oauth_clients(base_url: &str) -> anyhow::Result<AllClients> {
         })
         .collect();
 
-    let slack = oauths.get("slack").map(|v| build_slack_client(v, base_url));
+    let slack = oauths.get("slack").map(|v| {
+        build_basic_client(
+            "slack".to_string(),
+            OAuthConfig {
+                auth_url: "https://slack.com/oauth/authorize".to_string(),
+                token_url: "https://slack.com/api/oauth.access".to_string(),
+                scopes: None,
+            },
+            v.clone(),
+            false,
+            base_url,
+        )
+        .1
+    });
 
     Ok(AllClients {
         logins,
@@ -164,14 +176,12 @@ pub async fn build_oauth_clients(base_url: &str) -> anyhow::Result<AllClients> {
 pub fn build_basic_client(
     name: String,
     config: OAuthConfig,
-    client: &OAuthClient,
+    client_params: OAuthClient,
     login: bool,
     base_url: &str,
-) -> (String, BasicClient) {
-    let auth_url =
-        AuthUrl::new(config.auth_url.to_string()).expect("Invalid authorization endpoint URL");
-    let token_url =
-        TokenUrl::new(config.token_url.to_string()).expect("Invalid token endpoint URL");
+) -> (String, OClient) {
+    let auth_url = Url::parse(&config.auth_url).expect("Invalid authorization endpoint URL");
+    let token_url = Url::parse(&config.token_url).expect("Invalid token endpoint URL");
 
     let redirect_url = if login {
         format!("{base_url}/user/login_callback/{name}")
@@ -179,44 +189,12 @@ pub fn build_basic_client(
         format!("{base_url}/oauth/callback/{name}")
     };
 
+    let mut client = OClient::new(client_params.id, auth_url, token_url);
+    client.set_client_secret(client_params.secret.clone());
+    client.set_redirect_url(Url::parse(&redirect_url).expect("Invalid redirect URL"));
     // Set up the config for the Github OAuth2 process.
-    (
-        name.to_string(),
-        BasicClient::new(
-            ClientId::new(client.id.to_string()),
-            Some(ClientSecret::new(client.secret.to_string())),
-            auth_url,
-            Some(token_url),
-        )
-        .set_redirect_uri(RedirectUrl::new(redirect_url).unwrap()),
-    )
+    (name.to_string(), client)
 }
-
-pub fn build_slack_client(client: &OAuthClient, base_url: &str) -> SlackClient {
-    let auth_url = AuthUrl::new("https://slack.com/oauth/authorize".to_string())
-        .expect("Invalid authorization endpoint URL");
-    let token_url = TokenUrl::new("https://slack.com/api/oauth.access".to_string())
-        .expect("Invalid token endpoint URL");
-
-    let redirect_url = format!("{base_url}/oauth/callback_slack");
-
-    SlackClient::new(
-        ClientId::new(client.id.to_string()),
-        Some(ClientSecret::new(client.secret.to_string())),
-        auth_url,
-        Some(token_url),
-    )
-    .set_redirect_uri(RedirectUrl::new(redirect_url).unwrap())
-}
-
-type SlackClient = OClient<
-    BasicErrorResponse,
-    SlackTokenResponse,
-    BasicTokenType,
-    BasicTokenIntrospectionResponse,
-    StandardRevocableToken,
-    BasicRevocationErrorResponse,
->;
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct SlackTokenResponse {
@@ -232,57 +210,20 @@ pub struct SlackTokenResponse {
     bot: SlackBotToken,
 }
 
+#[derive(Clone, Debug, Deserialize)]
+pub struct TokenResponse {
+    access_token: AccessToken,
+    expires_in: Option<u64>,
+    refresh_token: Option<RefreshToken>,
+    #[serde(deserialize_with = "helpers::deserialize_space_delimited_vec")]
+    #[serde(serialize_with = "helpers::serialize_space_delimited_vec")]
+    #[serde(default)]
+    scope: Option<Vec<Scope>>,
+}
+
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct SlackBotToken {
     bot_access_token: String,
-}
-
-impl TokenResponse<BasicTokenType> for SlackTokenResponse
-where
-    BasicTokenType: TokenType,
-{
-    ///
-    /// REQUIRED. The access token issued by the authorization server.
-    ///
-    fn access_token(&self) -> &AccessToken {
-        &self.access_token
-    }
-    ///
-    /// REQUIRED. The type of the token issued as described in
-    /// [Section 7.1](https://tools.ietf.org/html/rfc6749#section-7.1).
-    /// Value is case insensitive and deserialized to the generic `TokenType` parameter.
-    /// But in this particular case as the service is non compliant, it has a default value
-    ///
-    fn token_type(&self) -> &BasicTokenType {
-        &BasicTokenType::Bearer
-    }
-    ///
-    /// RECOMMENDED. The lifetime in seconds of the access token. For example, the value 3600
-    /// denotes that the access token will expire in one hour from the time the response was
-    /// generated. If omitted, the authorization server SHOULD provide the expiration time via
-    /// other means or document the default value.
-    ///
-    fn expires_in(&self) -> Option<Duration> {
-        None
-    }
-    ///
-    /// OPTIONAL. The refresh token, which can be used to obtain new access tokens using the same
-    /// authorization grant as described in
-    /// [Section 6](https://tools.ietf.org/html/rfc6749#section-6).
-    ///
-    fn refresh_token(&self) -> Option<&RefreshToken> {
-        None
-    }
-    ///
-    /// OPTIONAL, if identical to the scope requested by the client; otherwise, REQUIRED. The
-    /// scipe of the access token as described by
-    /// [Section 3.3](https://tools.ietf.org/html/rfc6749#section-3.3). If included in the response,
-    /// this space-delimited field is parsed into a `Vec` of individual scopes. If omitted from
-    /// the response, this field is `None`.
-    ///
-    fn scopes(&self) -> Option<&Vec<Scope>> {
-        self.scopes.as_ref()
-    }
 }
 
 #[derive(Deserialize)]
@@ -331,15 +272,19 @@ async fn connect_slack(
     Extension(clients): Extension<Arc<AllClients>>,
     cookies: Cookies,
 ) -> error::Result<Redirect> {
-    let client = clients
+    let mut client = clients
         .slack
         .as_ref()
         .ok_or_else(|| error::Error::BadRequest("slack client not setup".to_string()))?
-        .authorize_url(CsrfToken::new_random)
-        .add_scope(Scope::new("bot".to_string()))
-        .add_scope(Scope::new("commands".to_string()));
-    let authorize_url = set_csrf_and_retrieve_auth_url(client, cookies);
-    Ok(Redirect::to(authorize_url.as_str()))
+        .to_owned();
+    let state = State::new_random();
+
+    client.add_scope("bot");
+    client.add_scope("commands");
+    let url = client.authorize_url(&state);
+
+    set_cookie(&state, cookies);
+    Ok(Redirect::to(url.as_str()))
 }
 
 async fn disconnect(
@@ -391,8 +336,8 @@ async fn login(
 
 #[derive(Deserialize)]
 pub struct OAuthCallback {
-    code: Option<String>,
-    state: Option<String>,
+    code: String,
+    state: String,
 }
 
 #[derive(Serialize)]
@@ -403,32 +348,20 @@ pub struct ConnectResponse {
 async fn connect_callback(
     cookies: Cookies,
     Path(client_name): Path<String>,
-    Json(oauth): Json<OAuthCallback>,
+    Json(callback): Json<OAuthCallback>,
     Extension(clients): Extension<Arc<AllClients>>,
+    Extension(http_client): Extension<Client>,
 ) -> error::JsonResult<ConnectResponse> {
-    let code = AuthorizationCode::new(oauth.code.unwrap());
-    let state = CsrfToken::new(oauth.state.unwrap());
-
-    let csrf_state = cookies
-        .get("csrf")
-        .map(|x| x.value().to_string())
-        .unwrap_or("".to_string());
-
-    if state.secret().to_string() != csrf_state {
-        return Err(error::Error::BadRequest("csrf did not match".to_string()));
-    }
-
-    let token = (&clients
+    let client = (&clients
         .connects
         .get(&client_name)
         .ok_or_else(|| error::Error::BadRequest("invalid client".to_string()))?
-        .client
-        .exchange_code(code)
-        .request_async(async_http_client)
-        .await
-        .map_err(|e| error::Error::InternalErr(format!("invalid code: {e:?}")))?
-        .access_token()
-        .secret())
+        .client)
+        .to_owned();
+
+    let token = exchange_code::<TokenResponse>(callback, &cookies, client, &http_client)
+        .await?
+        .access_token
         .to_string();
 
     Ok(Json(ConnectResponse { token }))
@@ -436,32 +369,19 @@ async fn connect_callback(
 
 async fn connect_slack_callback(
     cookies: Cookies,
-    Json(oauth): Json<OAuthCallback>,
+    Json(callback): Json<OAuthCallback>,
     Extension(clients): Extension<Arc<AllClients>>,
+    Extension(http_client): Extension<Client>,
 ) -> error::JsonResult<SlackTokenResponse> {
-    let code = AuthorizationCode::new(oauth.code.unwrap());
-    let state = CsrfToken::new(oauth.state.unwrap());
-
-    let csrf_state = cookies
-        .get("csrf")
-        .map(|x| x.value().to_string())
-        .unwrap_or("".to_string());
-
-    if state.secret().to_string() != csrf_state {
-        return Err(error::Error::BadRequest("csrf did not match".to_string()));
-    }
-
-    let slack_token = (&clients
+    let client = clients
         .slack
         .as_ref()
         .ok_or_else(|| error::Error::BadRequest("slack client not setup".to_string()))?
-        .exchange_code(code)
-        .request_async(async_http_client)
-        .await
-        .map_err(|e| error::Error::InternalErr(format!("invalid code: {e:?}")))?)
         .to_owned();
+    let token =
+        exchange_code::<SlackTokenResponse>(callback, &cookies, client, &http_client).await?;
 
-    Ok(Json(slack_token))
+    Ok(Json(token))
 }
 
 async fn set_workspace_slack(
@@ -616,33 +536,18 @@ async fn login_callback(
     cookies: Cookies,
     Extension(clients): Extension<Arc<AllClients>>,
     Extension(db): Extension<DB>,
+    Extension(http_client): Extension<Client>,
 ) -> error::Result<String> {
-    let code = AuthorizationCode::new(callback.code.unwrap());
-    let state = CsrfToken::new(callback.state.unwrap());
-
-    let csrf_state = cookies
-        .get("csrf")
-        .map(|x| x.value().to_string())
-        .unwrap_or("".to_string());
-
-    if state.secret().to_string() != csrf_state {
-        return Err(error::Error::BadRequest("csrf did not match".to_string()));
-    }
-
-    let client = &clients.logins.get(&client_name).unwrap().client;
-
-    // Exchange the code with a token.
-    let token_res = client
-        .exchange_code(code)
-        .request_async(async_http_client)
-        .await;
+    let client = (&clients
+        .logins
+        .get(&client_name)
+        .ok_or_else(|| error::Error::BadRequest("invalid client".to_string()))?
+        .client)
+        .to_owned();
+    let token_res = exchange_code::<TokenResponse>(callback, &cookies, client, &http_client).await;
 
     if let Ok(token) = token_res {
-        let token = token.access_token().secret();
-        let http_client = reqwest::ClientBuilder::new()
-            .user_agent("windmill/beta")
-            .build()
-            .map_err(to_anyhow)?;
+        let token = &token.access_token.to_string();
 
         let email = get_email(&http_client, &client_name, token).await?;
 
@@ -704,10 +609,32 @@ async fn login_callback(
         tx.commit().await?;
         Ok("Successfully logged in".to_string())
     } else {
-        Err(error::Error::BadRequest(
-            "failed to exchange code".to_string(),
-        ))
+        Err(error::Error::BadRequest(format!(
+            "failed to exchange code: {:?}",
+            token_res.err().unwrap()
+        )))
     }
+}
+
+async fn exchange_code<T: DeserializeOwned>(
+    callback: OAuthCallback,
+    cookies: &Cookies,
+    client: OClient,
+    http_client: &Client,
+) -> error::Result<T> {
+    let csrf_state = cookies
+        .get("csrf")
+        .map(|x| x.value().to_string())
+        .unwrap_or("".to_string());
+    if callback.state != csrf_state {
+        return Err(error::Error::BadRequest("csrf did not match".to_string()));
+    }
+    client
+        .exchange_code(callback.code)
+        .with_client(http_client)
+        .execute::<T>()
+        .await
+        .map_err(|e| error::Error::InternalErr(format!("{:?}", e)))
 }
 
 #[derive(Deserialize)]
@@ -797,27 +724,24 @@ fn oauth_redirect(
     let client_w_scopes = clients
         .get(&client_name)
         .ok_or_else(|| error::Error::BadRequest("client not found".to_string()))?;
-    let mut client = client_w_scopes.client.authorize_url(CsrfToken::new_random);
+    let state = State::new_random();
+    let mut client = client_w_scopes.client.clone();
+    let url = client.authorize_url(&state);
     let scopes_iter = if let Some(scopes) = scopes {
         scopes
     } else {
         client_w_scopes.scopes.clone()
     };
     for scope in scopes_iter.iter() {
-        client = client.add_scope(oauth2::Scope::new(scope.to_string()));
+        client.add_scope(scope);
     }
-    let authorize_url = set_csrf_and_retrieve_auth_url(client, cookies);
-    Ok(Redirect::to(authorize_url.as_str()))
+    set_cookie(&state, cookies);
+    Ok(Redirect::to(url.as_str()))
 }
 
-fn set_csrf_and_retrieve_auth_url(
-    client: oauth2::AuthorizationRequest,
-    cookies: Cookies,
-) -> url::Url {
-    let (authorize_url, csrf_state) = client.url();
-    let csrf = csrf_state.secret().to_string();
+fn set_cookie(state: &State, cookies: Cookies) {
+    let csrf = state.to_base64();
     let mut cookie = Cookie::new("csrf", csrf);
     cookie.set_path("/");
     cookies.add(cookie);
-    authorize_url
 }

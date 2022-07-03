@@ -20,12 +20,17 @@
 			sendUserToast(`Error trying to add ${client_name} connection: ${error}`, true)
 			goto('/resources')
 		} else if (code && state) {
-			const res = await OauthService.connectCallback({
-				clientName: client_name,
-				requestBody: { code, state }
-			})
-			$oauthStore = res.token
-			goto(`/resources?resource_type=${client_name}`)
+			try {
+				const res = await OauthService.connectCallback({
+					clientName: client_name,
+					requestBody: { code, state }
+				})
+				$oauthStore = res.token
+				goto(`/resources?resource_type=${client_name}`)
+			} catch (e) {
+				sendUserToast(`Error parsing the response token, ${e.body}`, true)
+				goto('/resources')
+			}
 		} else {
 			sendUserToast('Missing code or state as query params', true)
 			goto('/resources')

@@ -1,7 +1,10 @@
 {
     "github": {
         "auth_url": "https://github.com/login/oauth/authorize",
-        "token_url": "https://github.com/login/oauth/access_token"
+        "token_url": "https://github.com/login/oauth/access_token",
+        "scopes": [
+            "user:email"
+        ]
     },
     "gitlab": {
         "auth_url": "https://gitlab.com/oauth/authorize",

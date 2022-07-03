@@ -48,7 +48,7 @@ mod workspaces;
 use error::Error;
 
 pub use crate::email::EmailSender;
-use crate::{db::UserDB, oauth2::build_oauth_clients, utils::rd_string};
+use crate::{db::UserDB, error::to_anyhow, oauth2::build_oauth_clients, utils::rd_string};
 
 const GIT_VERSION: &str = git_version!(args = ["--tag", "--always"], fallback = "unknown-version");
 pub const DEFAULT_NUM_WORKERS: usize = 3;
@@ -152,7 +152,10 @@ pub async fn run_server(
             .ok()
             .map(|x| SlackVerifier::new(x).unwrap()),
     );
-
+    let http_client = reqwest::ClientBuilder::new()
+        .user_agent("windmill/beta")
+        .build()
+        .map_err(to_anyhow)?;
     let middleware_stack = ServiceBuilder::new()
         .layer(
             TraceLayer::new_for_http()
@@ -165,6 +168,7 @@ pub async fn run_server(
         .layer(Extension(auth_cache.clone()))
         .layer(Extension(basic_clients))
         .layer(Extension(BaseUrl(base_url.to_string())))
+        .layer(Extension(http_client))
         .layer(CookieManagerLayer::new());
     // build our application with a route
     let app = Router::new()
