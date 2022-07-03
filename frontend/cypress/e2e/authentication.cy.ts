@@ -12,7 +12,7 @@ describe('Authentication', () => {
 	})
 
 	it('should redirect to login page if user is not logged in', () => {
-		cy.visit(`${Cypress.env('baseUrl')}/user/workspaces`)
+		cy.visit(`/user/workspaces`)
 		cy.url().should('include', '/user/login')
 	})
 })
