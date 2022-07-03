@@ -34,17 +34,8 @@ const config = {
 				include: [
 					'highlight.js',
 					'highlight.js/lib/core',
-					'monaco-languageclient/vscode-compatibility'
 				]
 			},
-			resolve: {
-				alias: [
-					{
-						find: 'vscode',
-						replacement: 'monaco-languageclient/vscode-compatibility'
-					}
-				]
-			}
 		},
 		adapter: adapter({
 			// default options are shown

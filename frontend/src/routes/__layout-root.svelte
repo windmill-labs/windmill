@@ -25,7 +25,7 @@
 		'Model not found',
 		'Connection is disposed.',
 		'Connection got disposed.',
-		'Stopping server timed out.'
+		'Stopping the server timed out'
 	]
 
 	async function loadUser() {

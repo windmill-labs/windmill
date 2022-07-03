@@ -56,7 +56,7 @@
 		"fuse.js": "^6.4.6",
 		"highlight.js": "^11.5.1",
 		"monaco-editor": "^0.33.0",
-		"monaco-languageclient": "^1.0.1",
+		"monaco-languageclient": "^2.0.2",
 		"vscode-ws-jsonrpc": "^1.0.1"
 	}
 }
