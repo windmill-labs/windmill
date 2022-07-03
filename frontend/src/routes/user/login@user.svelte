@@ -80,61 +80,63 @@
 	}
 </script>
 
-<!-- Enable submit form on enter -->
-<CenteredModal>
-	<div class="justify-center text-center flex flex-col">
-		{#if logins.includes('github')}
-			<a rel="external" href="/api/oauth/login/github"
-				><button class="m-auto default-button bg-black mt-2 py-2 w-full text-gray-200"
-					>Github &nbsp;
-					<Icon class="text-white pb-1" data={faGithub} scale={1.4} />
-				</button></a
-			>
-		{/if}
-		{#if logins.includes('gitlab')}
-			<a rel="external" href="/api/oauth/login/gitlab"
-				><button
-					class="m-auto default-button bg-orange-400 mt-2 py-2 w-full text-black hover:bg-orange-600"
-					>Gitlab &nbsp;
-					<Icon class="pb-1" data={faGitlab} scale={1.4} />
-				</button></a
-			>
-		{/if}
-	</div>
-	<div class="flex flex-row-reverse w-full">
-		<button
-			class="my-6 text-xs text-blue-400 m-auto"
-			id="showPassword"
-			on:click={() => {
-				showPassword = !showPassword
-			}}>login without third-party</button
-		>
-	</div>
-	{#if showPassword}
-		<div transition:slide>
-			<p class="text-xs text-gray-400 italic my-2">
-				Signup without Github is not supported currently but if you do not want to use the github
-				login flow, you can send us an email at contact@windmill.dev and you will receive
-				credentials that you can use below.
-			</p>
-			<label class="block pb-2">
-				<span class="text-gray-700">email</span>
-				<input bind:value={email} class="default-input" id="email" />
-			</label>
-			<label class="block ">
-				<span class="text-gray-700">password</span>
-				<input
-					py-8
-					type="password"
-					on:keyup={handleKeyUp}
-					bind:value={password}
-					class="default-input"
-					id="password"
-				/>
-			</label>
-			<div class="flex flex-row-reverse  pt-4">
-				<button class="default-button" type="button" on:click={login}> Login </button>
-			</div>
+<div class="min-h-screen antialiased text-gray-900">
+	<!-- Enable submit form on enter -->
+	<CenteredModal>
+		<div class="justify-center text-center flex flex-col">
+			{#if logins.includes('github')}
+				<a rel="external" href="/api/oauth/login/github"
+					><button class="m-auto default-button bg-black mt-2 py-2 w-full text-gray-200"
+						>Github &nbsp;
+						<Icon class="text-white pb-1" data={faGithub} scale={1.4} />
+					</button></a
+				>
+			{/if}
+			{#if logins.includes('gitlab')}
+				<a rel="external" href="/api/oauth/login/gitlab"
+					><button
+						class="m-auto default-button bg-orange-400 mt-2 py-2 w-full text-black hover:bg-orange-600"
+						>Gitlab &nbsp;
+						<Icon class="pb-1" data={faGitlab} scale={1.4} />
+					</button></a
+				>
+			{/if}
 		</div>
-	{/if}
-</CenteredModal>
+		<div class="flex flex-row-reverse w-full">
+			<button
+				class="my-6 text-xs text-blue-400 m-auto"
+				id="showPassword"
+				on:click={() => {
+					showPassword = !showPassword
+				}}>login without third-party</button
+			>
+		</div>
+		{#if showPassword}
+			<div transition:slide>
+				<p class="text-xs text-gray-400 italic my-2">
+					Signup without Github is not supported currently but if you do not want to use the github
+					login flow, you can send us an email at contact@windmill.dev and you will receive
+					credentials that you can use below.
+				</p>
+				<label class="block pb-2">
+					<span class="text-gray-700">email</span>
+					<input bind:value={email} class="default-input" id="email" />
+				</label>
+				<label class="block ">
+					<span class="text-gray-700">password</span>
+					<input
+						py-8
+						type="password"
+						on:keyup={handleKeyUp}
+						bind:value={password}
+						class="default-input"
+						id="password"
+					/>
+				</label>
+				<div class="flex flex-row-reverse  pt-4">
+					<button class="default-button" type="button" on:click={login}> Login </button>
+				</div>
+			</div>
+		{/if}
+	</CenteredModal>
+</div>

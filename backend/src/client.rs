@@ -31,14 +31,17 @@ pub async fn get_resource(
     base_url: &str,
 ) -> Result<Option<serde_json::Value>, anyhow::Error> {
     let client = reqwest::Client::new();
-    let result = client
+    let res = client
         .get(format!(
             "{base_url}/api/w/{workspace}/resources/get_value/{path}"
         ))
         .bearer_auth(token)
         .send()
-        .await?
-        .json::<Option<serde_json::Value>>()
         .await?;
-    Ok(result)
+    if res.status().is_success() {
+        let value = res.json::<Option<serde_json::Value>>().await?;
+        Ok(value)
+    } else {
+        Err(Error::NotFound(format!("Variable not found at {path}")))?
+    }
 }
