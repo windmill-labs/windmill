@@ -87,6 +87,7 @@
 
 			const { RequestType, toSocket, WebSocketMessageReader, WebSocketMessageWriter } =
 				await import('vscode-ws-jsonrpc')
+
 			function createLanguageClient(
 				transports: MessageTransports,
 				name: string,
@@ -148,13 +149,18 @@
 								console.error(err)
 							}
 						})
-
-						vscode.commands.registerCommand('deno.cache', (uris: DocumentUri[] = []) => {
-							languageClient.sendRequest(new RequestType('deno/cache'), {
-								referrer: { uri },
-								uris: uris.map((uri) => ({ uri }))
+						if (name == 'deno') {
+							vscode.commands.getCommands().then((v) => {
+								if (!v.includes('deno.cache')) {
+									vscode.commands.registerCommand('deno.cache', (uris: DocumentUri[] = []) => {
+										languageClient.sendRequest(new RequestType('deno/cache'), {
+											referrer: { uri },
+											uris: uris.map((uri) => ({ uri }))
+										})
+									})
+								}
 							})
-						})
+						}
 
 						websocketAlive[name] = true
 					}
