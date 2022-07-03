@@ -99,6 +99,7 @@ jobs:
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
+    container: cypress/browsers:node12.13.0-chrome78-ff70
     steps:
       - uses: actions/checkout@v3
       - name: "Docker"
@@ -109,6 +110,7 @@ jobs:
         timeout-minutes: 10
         with:
           working-directory: ./frontend
+          browser: chrome
       - name: "Clean up"
         run: docker kill ${{ steps.docker-container.outputs.id }}
         if: always()
