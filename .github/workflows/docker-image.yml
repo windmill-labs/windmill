@@ -106,6 +106,7 @@ jobs:
         id: docker-container
       - name: "Cypress run"
         uses: cypress-io/github-action@v4
+        timeout-minutes: 10
         with:
           working-directory: ./frontend
       - name: "Clean up"
