@@ -650,7 +650,6 @@ pub struct EmailInfo {
 }
 
 async fn get_email(http_client: &Client, client_name: &str, token: &str) -> error::Result<String> {
-    tracing::info!("{token}");
     let email = match client_name {
         "github" => http_get_user_info::<Vec<GHEmailInfo>>(
             http_client,
