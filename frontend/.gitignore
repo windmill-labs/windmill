@@ -6,3 +6,4 @@ node_modules
 /src/lib/gen
 CaddyfileRemoteRuben
 tests-out/
+storageState.json
