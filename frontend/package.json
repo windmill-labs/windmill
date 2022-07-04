@@ -12,7 +12,7 @@
 		"package": "svelte-kit package && cd package && rm README.md && rm README_DEV.md && sed -i -e 's/windmill/windmill-components/g' package.json",
 		"generate-backend-client": "openapi --input ../backend/openapi.yaml --output ./src/lib/gen --useOptions",
 		"pretest": "tsc --incremental -p tests/tsconfig.json",
-		"test": "playwright test -c tests-out"
+		"test": "playwright test --config=tests-out/playwright.config.js"
 	},
 	"devDependencies": {
 		"@playwright/test": "^1.23.1",
