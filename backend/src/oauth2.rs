@@ -111,7 +111,6 @@ pub async fn build_oauth_clients(base_url: &str) -> anyhow::Result<AllClients> {
         .filter(|x| oauths.contains_key(&x.0))
         .map(|(k, v)| {
             let scopes = v.scopes.clone();
-
             let named_client = build_basic_client(
                 k.clone(),
                 v,
@@ -650,7 +649,6 @@ pub struct EmailInfo {
 }
 
 async fn get_email(http_client: &Client, client_name: &str, token: &str) -> error::Result<String> {
-    tracing::info!("{token}");
     let email = match client_name {
         "github" => http_get_user_info::<Vec<GHEmailInfo>>(
             http_client,
@@ -726,15 +724,16 @@ fn oauth_redirect(
         .ok_or_else(|| error::Error::BadRequest("client not found".to_string()))?;
     let state = State::new_random();
     let mut client = client_w_scopes.client.clone();
-    let url = client.authorize_url(&state);
     let scopes_iter = if let Some(scopes) = scopes {
         scopes
     } else {
         client_w_scopes.scopes.clone()
     };
+
     for scope in scopes_iter.iter() {
         client.add_scope(scope);
     }
+    let url = client.authorize_url(&state);
     set_cookie(&state, cookies);
     Ok(Redirect::to(url.as_str()))
 }

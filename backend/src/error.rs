@@ -62,6 +62,7 @@ impl IntoResponse for Error {
             Self::SqlErr(_) | Self::BadRequest(_) => StatusCode::BAD_REQUEST,
             _ => StatusCode::INTERNAL_SERVER_ERROR,
         };
+        tracing::error!(status = %status, error = %e, kind = "error");
         Response::builder().status(status).body(body).unwrap()
     }
 }
