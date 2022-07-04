@@ -134,7 +134,7 @@
 					/>
 				</label>
 				<div class="flex flex-row-reverse  pt-4">
-					<button class="default-button" type="button" on:click={login}> Login </button>
+					<button id="login2" class="default-button" type="button" on:click={login}> Login </button>
 				</div>
 			</div>
 		{/if}

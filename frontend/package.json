@@ -10,7 +10,9 @@
 		"lint": "prettier --ignore-path .gitignore --check --plugin-search-dir=. . && eslint --ignore-path .gitignore .",
 		"format": "prettier --ignore-path .gitignore --write --plugin-search-dir=. .",
 		"package": "svelte-kit package && cd package && rm README.md && rm README_DEV.md && sed -i -e 's/windmill/windmill-components/g' package.json",
-		"generate-backend-client": "openapi --input ../backend/openapi.yaml --output ./src/lib/gen --useOptions"
+		"generate-backend-client": "openapi --input ../backend/openapi.yaml --output ./src/lib/gen --useOptions",
+		"pretest": "tsc --incremental -p tests/tsconfig.json",
+		"test": "playwright test -c tests-out"
 	},
 	"devDependencies": {
 		"@playwright/test": "^1.23.1",
