@@ -1,0 +1,8 @@
+{
+    "compilerOptions": {
+        "target": "ESNext",
+        "module": "commonjs",
+        "moduleResolution": "node",
+        "sourceMap": true,
+    }
+}

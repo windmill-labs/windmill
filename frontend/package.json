@@ -10,16 +10,16 @@
 		"lint": "prettier --ignore-path .gitignore --check --plugin-search-dir=. . && eslint --ignore-path .gitignore .",
 		"format": "prettier --ignore-path .gitignore --write --plugin-search-dir=. .",
 		"package": "svelte-kit package && cd package && rm README.md && rm README_DEV.md && sed -i -e 's/windmill/windmill-components/g' package.json",
-		"generate-backend-client": "openapi --input ../backend/openapi.yaml --output ./src/lib/gen --useOptions",
-		"cypress:open": "cypress open",
-		"cypress:run": "cypress run"
+		"generate-backend-client": "openapi --input ../backend/openapi.yaml --output ./src/lib/gen --useOptions"
 	},
 	"devDependencies": {
+		"@playwright/test": "^1.23.1",
 		"@sveltejs/adapter-node": "^1.0.0-next.78",
 		"@sveltejs/adapter-static": "^1.0.0-next.34",
 		"@sveltejs/kit": "next",
 		"@tailwindcss/forms": "^0.5.1",
 		"@tailwindcss/typography": "^0.5.0",
+		"@types/vscode": "^1.68.1",
 		"@typescript-eslint/eslint-plugin": "^5.30.3",
 		"@typescript-eslint/parser": "^5.30.3",
 		"@zerodevx/svelte-toast": "^0.7.2",
@@ -37,17 +37,16 @@
 		"simple-svelte-autocomplete": "^2.2.4",
 		"stylelint-config-recommended": "^8.0.0",
 		"svelte": "^3.42.6",
+		"svelte-awesome": "^3.0.0",
 		"svelte-check": "^2.8.0",
 		"svelte-highlight": "^6.1.2",
+		"svelte-markdown": "^0.2.1",
 		"svelte-preprocess": "^4.9.8",
+		"svelte-split-pane": "^0.1.2",
 		"svelte2tsx": "^0.5.11",
 		"tailwindcss": "^3.1.4",
 		"tslib": "^2.3.1",
-		"typescript": "^4.7.4",
-		"@types/vscode": "^1.68.1",
-		"svelte-awesome": "^3.0.0",
-		"svelte-markdown": "^0.2.1",
-		"svelte-split-pane": "^0.1.2"
+		"typescript": "^4.7.4"
 	},
 	"type": "module",
 	"dependencies": {
