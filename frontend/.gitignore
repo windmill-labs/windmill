@@ -5,5 +5,5 @@ node_modules
 /package
 /src/lib/gen
 CaddyfileRemoteRuben
-cypress/videos
-cypress/screenshots
+tests-out/
+storageState.json
