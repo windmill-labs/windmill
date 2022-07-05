@@ -34,7 +34,6 @@ pub async fn eval_timeout(
     timeout(
         std::time::Duration::from_millis(2000),
         tokio::task::spawn_blocking(move || {
-            //            let buffer = include_bytes!("../v8.snap");
 
             let mut ops = vec![
                 // An op for summing an array of numbers
