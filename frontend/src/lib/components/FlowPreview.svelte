@@ -32,6 +32,7 @@
 	let jobId: string
 
 	export async function runPreview(args) {
+		viewPreview = true
 		intervalId && clearInterval(intervalId)
 		const newFlow = tab == 'upto' ? truncateFlow(flow) : extractStep(flow)
 		jobId = await JobService.runFlowPreview({
