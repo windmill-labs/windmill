@@ -18,7 +18,7 @@ jobs:
       - uses: hmarr/auto-approve-action@v2
         if: github.actor == 'dependabot[bot]'
         with:
-          github-token: ${{ secrets.PAT_TOKEN }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
       - name: Enable auto-merge for Dependabot PRs
         if: steps.metadata.outputs.update-type == 'version-update:semver-patch' ||  steps.metadata.outputs.update-type == 'version-update:semver-minor'
         run: gh pr merge --auto --merge "$PR_URL"
