@@ -2,12 +2,10 @@
 	import type { Schema } from '$lib/common'
 	import { FlowModuleValue, type Flow } from '$lib/gen'
 	import { loadSchema } from '$lib/scripts'
-	import { workspaceStore } from '$lib/stores'
 	import { emptySchema } from '$lib/utils'
 	import { faPlus } from '@fortawesome/free-solid-svg-icons'
 	import Icon from 'svelte-awesome'
 	import FlowPreview from './FlowPreview.svelte'
-	import { loadFlowSchemas } from './flows/loadFlowSchemas'
 	import ModuleStep from './ModuleStep.svelte'
 	import SchemaEditor from './SchemaEditor.svelte'
 	import type SchemaForm from './SchemaForm.svelte'
@@ -28,12 +26,6 @@
 		flow.value.modules = flow.value.modules.concat(newModule)
 		schemas.push(emptySchema())
 	}
-
-	async function loadSchemas() {
-		schemas = await loadFlowSchemas(flow, $workspaceStore!)
-	}
-
-	$: $workspaceStore && loadSchemas()
 </script>
 
 <!-- <PageHeader title="Flow" /> -->

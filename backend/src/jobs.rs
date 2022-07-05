@@ -950,10 +950,11 @@ struct CancelJob {
     reason: Option<String>,
 }
 
+#[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct RawCode {
-    content: String,
-    path: Option<String>,
-    language: ScriptLang,
+    pub content: String,
+    pub path: Option<String>,
+    pub language: ScriptLang,
 }
 
 #[derive(Deserialize)]
@@ -1504,6 +1505,7 @@ async fn push_next_flow_job(
             FlowModuleValue::Script { path: script_path } => {
                 script_path_to_payload(script_path, &mut tx, &job.workspace_id).await?
             }
+            FlowModuleValue::RawScript(raw_code) => JobPayload::Code(raw_code.clone()),
             a @ _ => {
                 tracing::info!("Unrecognized module values {:?}", a);
                 Err(Error::BadRequest(format!(
