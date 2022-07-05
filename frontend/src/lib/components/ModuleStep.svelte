@@ -12,6 +12,7 @@
 		schemaToObject,
 		schemaToTsType
 	} from '$lib/utils'
+	import { language, mehO } from 'svelte-awesome/icons'
 	import Editor from './Editor.svelte'
 	import FlowPreview from './FlowPreview.svelte'
 	import RadioButton from './RadioButton.svelte'
@@ -27,6 +28,7 @@
 	export let schemaForms: (SchemaForm | undefined)[] = []
 
 	let editor: Editor
+	let flowPreview: FlowPreview
 
 	$: previousSchema = i === 0 ? schemaToObject(flow.schema) : $previewResults[i]
 
@@ -125,7 +127,13 @@
 					bind:value={mod.value.language}
 				/>
 				<div class="h-96 mt-4">
-					<Editor bind:this={editor} class="h-full" bind:code={mod.value.content} />
+					<Editor
+						bind:this={editor}
+						class="h-full"
+						bind:code={mod.value.content}
+						deno={mod.value.language == 'deno'}
+						cmdEnterAction={() => flowPreview.runPreview(mod.input_transform)}
+					/>
 				</div>
 				<button class="default-button w-full p-1 mt-4" on:click={loadSchema}>Infer schema</button>
 			{/if}
@@ -141,6 +149,7 @@
 				bind:args={mod.input_transform}
 			/>
 			<FlowPreview
+				bind:this={flowPreview}
 				{flow}
 				{i}
 				bind:args
