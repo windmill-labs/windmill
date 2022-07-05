@@ -3701,14 +3701,21 @@ components:
       properties:
         path:
           type: string
+        content:
+          type: string
+        language:
+          type: string
+          enum:
+            - deno
+            - python3
         type:
           type: string
           enum:
             - script
             - flow
+            - rawscript
       required:
         - type
-        - path
 
     FlowPreview:
       type: object

@@ -18,7 +18,6 @@
 	let args: Record<string, any> = {}
 
 	if (!isString(value) && value) {
-		console.log(value)
 		args = value
 	}
 

@@ -1,8 +1,10 @@
 <script lang="ts">
 	import type { Schema } from '$lib/common'
-	import type { Flow, FlowModule } from '$lib/gen'
+	import { FlowModuleValue, type Flow, type FlowModule } from '$lib/gen'
+	import { inferArgs } from '$lib/infer'
 	import { loadSchema as UloadSchema } from '$lib/scripts'
-	import { addPreviewResult, previewResults } from '$lib/stores'
+	import { DENO_INIT_CODE, PYTHON_INIT_CODE } from '$lib/script_helpers'
+	import { addPreviewResult, previewResults, workspaceStore } from '$lib/stores'
 	import {
 		buildExtraLib,
 		emptySchema,
@@ -10,7 +12,9 @@
 		schemaToObject,
 		schemaToTsType
 	} from '$lib/utils'
+	import Editor from './Editor.svelte'
 	import FlowPreview from './FlowPreview.svelte'
+	import RadioButton from './RadioButton.svelte'
 	import SchemaForm from './SchemaForm.svelte'
 	import ScriptPicker from './ScriptPicker.svelte'
 
@@ -22,15 +26,39 @@
 	export let schemas: Schema[] = []
 	export let schemaForms: (SchemaForm | undefined)[] = []
 
+	let editor: Editor
+
 	$: previousSchema = i === 0 ? schemaToObject(flow.schema) : $previewResults[i]
 
 	$: extraLib = buildExtraLib(
 		i == 0 ? schemaToTsType(flow.schema) : objectToTsType($previewResults[i])
 	)
 
+	function initContent(lang: string) {
+		const newStart = lang == 'deno' ? DENO_INIT_CODE : PYTHON_INIT_CODE
+		if (editor) {
+			editor.setCode(newStart)
+		} else {
+			mod.value.content = newStart
+		}
+	}
+
+	$: mod.value.type == 'rawscript' &&
+		mod.value.language == undefined &&
+		(mod.value.language = FlowModuleValue.language.DENO)
+
+	$: mod.value.type == 'rawscript' && mod.value.language && initContent(mod.value.language)
+
 	export async function loadSchema() {
-		if (mod.value.path) {
-			let schema = await UloadSchema(mod.value.path)
+		let isRaw = mod.value.type == 'rawscript'
+		if ((!isRaw && mod.value.path) || isRaw) {
+			let schema: Schema
+			if (isRaw) {
+				schema = emptySchema()
+				await inferArgs(mod.value.language!, mod.value.content!, schema)
+			} else {
+				schema = await UloadSchema(mod.value.path!)
+			}
 			if (
 				JSON.stringify(Object.keys(schema?.properties ?? {}).sort()) !=
 				JSON.stringify(Object.keys(mod.input_transform).sort())
@@ -50,9 +78,10 @@
 			schemaForms[i]?.setArgs({})
 			schemas[i] = emptySchema()
 		}
-
 		schemas = schemas
 	}
+
+	$: $workspaceStore && loadSchema()
 </script>
 
 <li class="flex flex-row flex-shrink max-w-full  mx-auto mt-20">
@@ -74,7 +103,32 @@
 		</div>
 		<div class="p-10">
 			<h2 class="mb-4">Step script</h2>
-			<ScriptPicker allowHub={true} bind:scriptPath={mod.value.path} on:select={loadSchema} />
+			<RadioButton
+				small={true}
+				options={[
+					['Pick from an existing script', 'script'],
+					['Edit in-place', 'rawscript']
+				]}
+				bind:value={mod.value.type}
+			/>
+			{#if mod.value.type == 'script'}
+				<ScriptPicker allowHub={true} bind:scriptPath={mod.value.path} on:select={loadSchema} />
+			{:else}
+				<div class="mt-2" />
+				<RadioButton
+					label="Language"
+					small={true}
+					options={[
+						['Python 3.10', 'python3'],
+						['Typescript (Deno)', 'deno']
+					]}
+					bind:value={mod.value.language}
+				/>
+				<div class="h-96 mt-4">
+					<Editor bind:this={editor} class="h-full" bind:code={mod.value.content} />
+				</div>
+				<button class="default-button w-full p-1 mt-4" on:click={loadSchema}>Infer schema</button>
+			{/if}
 			<div class="my-4" />
 			<h2 class="mb-4">Step inputs</h2>
 			<SchemaForm

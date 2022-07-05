@@ -22,6 +22,7 @@ use crate::{
     audit::{audit_log, ActionKind},
     db::UserDB,
     error::{Error, JsonResult, Result},
+    jobs::RawCode,
     scripts::Schema,
     users::Authed,
     utils::{Pagination, StripPath},
@@ -90,6 +91,7 @@ pub enum InputTransform {
 pub enum FlowModuleValue {
     Script { path: String },
     Flow { path: String },
+    RawScript(RawCode),
 }
 
 #[derive(Deserialize)]
@@ -307,12 +309,22 @@ mod tests {
             },
         );
         let fv = FlowValue {
-            modules: vec![FlowModule {
-                input_transform: hm,
-                value: FlowModuleValue::Script {
-                    path: "test".to_string(),
+            modules: vec![
+                FlowModule {
+                    input_transform: hm,
+                    value: FlowModuleValue::Script {
+                        path: "test".to_string(),
+                    },
                 },
-            }],
+                FlowModule {
+                    input_transform: HashMap::new(),
+                    value: FlowModuleValue::RawScript(RawCode {
+                        content: "test".to_string(),
+                        language: crate::scripts::ScriptLang::Deno,
+                        path: None,
+                    }),
+                },
+            ],
             failure_module: Some(FlowModule {
                 input_transform: HashMap::new(),
                 value: FlowModuleValue::Flow {

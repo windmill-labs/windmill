@@ -13,7 +13,7 @@
 	let editor: monaco.editor.IStandaloneCodeEditor
 	export let deno = false
 	export let lang = deno ? 'typescript' : 'python'
-	export let code: string
+	export let code: string = ''
 	export let hash: string = (Math.random() + 1).toString(36).substring(2)
 	export let cmdEnterAction: (() => void) | undefined = undefined
 	export let formatAction: (() => void) | undefined = undefined
@@ -277,6 +277,9 @@
 			scrollBeyondLastLine: false,
 			minimap: {
 				enabled: false
+			},
+			scrollbar: {
+				alwaysConsumeMouseWheel: false
 			}
 		})
 
