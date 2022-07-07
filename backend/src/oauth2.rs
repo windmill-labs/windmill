@@ -26,6 +26,7 @@ use crate::error::{self, to_anyhow, Result};
 use crate::jobs;
 use crate::jobs::{get_latest_hash_for_path, JobPayload};
 use crate::users::Authed;
+use crate::utils::not_found_if_none;
 use crate::workspaces::WorkspaceSettings;
 use crate::BaseUrl;
 
@@ -50,6 +51,9 @@ pub fn workspaced_service() -> Router {
         .route("/disconnect/:account_id", post(disconnect))
         .route("/disconnect_slack", post(disconnect_slack))
         .route("/set_workspace_slack", post(set_workspace_slack))
+        .route("/set_account", post(set_account))
+        .route("/delete_account/:id", post(delete_account))
+        .route("/refresh_token/:id", post(refresh_token))
 }
 
 pub struct ClientWithScopes {
@@ -242,6 +246,53 @@ async fn connect(
         cookies,
         scopes.map(|x| x.split('+').map(|x| x.to_owned()).collect()),
     )
+}
+
+#[derive(Deserialize)]
+struct SetAccount {
+    scopes: Option<String>,
+}
+async fn set_account(Extension(user_db): Extension<UserDB>) -> error::Result<String> {
+    todo!()
+}
+
+async fn refresh_token(
+    Extension(user_db): Extension<UserDB>,
+    Query(id): Query<i32>,
+) -> error::Result<String> {
+    todo!()
+}
+
+async fn delete_account(
+    authed: Authed,
+    Extension(user_db): Extension<UserDB>,
+    Query((w_id, id)): Query<(String, i32)>,
+) -> error::Result<String> {
+    let mut tx = user_db.begin(&authed).await?;
+
+    let exists = sqlx::query!(
+        "DELETE FROM account WHERE workspace_id = $1 AND id = $2 RETURNING id",
+        w_id,
+        id,
+    )
+    .fetch_optional(&mut tx)
+    .await?;
+
+    let id_str = id.to_string();
+    not_found_if_none(exists, "Account", &id_str)?;
+
+    audit_log(
+        &mut tx,
+        &authed.username,
+        "account.delete",
+        ActionKind::Delete,
+        &w_id,
+        Some(&id_str),
+        None,
+    )
+    .await?;
+    tx.commit().await?;
+    Ok(format!("Deleted account id {id}"))
 }
 
 async fn list_logins(
