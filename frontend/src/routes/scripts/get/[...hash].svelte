@@ -273,7 +273,7 @@
 					>
 				</h3>
 				<p class="text-gray-700">
-					<a href="/w/{$workspaceStore}/api/scripts/get/{script?.hash}">{script?.hash}</a>
+					<a href="/scripts/get/{script?.hash}">{script?.hash}</a>
 				</p>
 				<span>Webhook to run this script:</span>
 				<Tooltip class="font-normal mx-1"
@@ -295,7 +295,7 @@
 					></pre>
 			</div>
 			<div>
-				<h3 class="text-gray-700 ">
+				<h3 class="text-gray-700">
 					Previous versions of this hash<Tooltip class="font-normal mx-1"
 						>When you edit a script, a new hash is created and old versions are archived</Tooltip
 					>
