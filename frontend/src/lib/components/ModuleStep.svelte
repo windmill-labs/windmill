@@ -127,13 +127,23 @@
 					bind:value={mod.value.language}
 				/>
 				<div class="h-96 mt-4">
-					<Editor
-						bind:this={editor}
-						class="h-full"
-						bind:code={mod.value.content}
-						deno={mod.value.language == 'deno'}
-						cmdEnterAction={() => flowPreview.runPreview(mod.input_transform)}
-					/>
+					{#if mod.value.language == 'deno'}
+						<Editor
+							bind:this={editor}
+							class="h-full"
+							bind:code={mod.value.content}
+							deno={true}
+							cmdEnterAction={() => flowPreview.runPreview(mod.input_transform)}
+						/>
+					{:else}
+						<Editor
+							bind:this={editor}
+							class="h-full"
+							bind:code={mod.value.content}
+							deno={false}
+							cmdEnterAction={() => flowPreview.runPreview(mod.input_transform)}
+						/>
+					{/if}
 				</div>
 				<button class="default-button w-full p-1 mt-4" on:click={loadSchema}>Infer schema</button>
 			{/if}
