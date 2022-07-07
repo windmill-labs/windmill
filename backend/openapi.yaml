@@ -3222,6 +3222,10 @@ components:
           type: boolean
         description:
           type: string
+        account:
+          type: integer
+        is_account:
+          type: boolean
       required:
         - path
         - value
@@ -3352,6 +3356,10 @@ components:
           type: string
         resource_type:
           type: string
+        account:
+          type: integer
+        is_account:
+          type: boolean
       required:
         - path
         - value

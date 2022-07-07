@@ -213,7 +213,7 @@ pub struct SlackTokenResponse {
     bot: SlackBotToken,
 }
 
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct TokenResponse {
     access_token: AccessToken,
     expires_in: Option<u64>,
@@ -250,7 +250,9 @@ async fn connect(
 
 #[derive(Deserialize)]
 struct SetAccount {
-    scopes: Option<String>,
+    client: String,
+    refresh_token: String,
+    expires_at: chrono::DateTime<chrono::Utc>,
 }
 async fn set_account(Extension(user_db): Extension<UserDB>) -> error::Result<String> {
     todo!()
@@ -419,18 +421,13 @@ pub struct OAuthCallback {
     state: String,
 }
 
-#[derive(Serialize)]
-pub struct ConnectResponse {
-    token: String,
-}
-
 async fn connect_callback(
     cookies: Cookies,
     Path(client_name): Path<String>,
     Json(callback): Json<OAuthCallback>,
     Extension(clients): Extension<Arc<AllClients>>,
     Extension(http_client): Extension<Client>,
-) -> error::JsonResult<ConnectResponse> {
+) -> error::JsonResult<TokenResponse> {
     let client = (&clients
         .connects
         .get(&client_name)
@@ -438,12 +435,10 @@ async fn connect_callback(
         .client)
         .to_owned();
 
-    let token = exchange_code::<TokenResponse>(callback, &cookies, client, &http_client)
-        .await?
-        .access_token
-        .to_string();
+    let token_response =
+        exchange_code::<TokenResponse>(callback, &cookies, client, &http_client).await?;
 
-    Ok(Json(ConnectResponse { token }))
+    Ok(Json(token_response))
 }
 
 async fn connect_slack_callback(

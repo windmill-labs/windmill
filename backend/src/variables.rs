@@ -51,6 +51,7 @@ pub struct ListableVariable {
     pub description: String,
     pub extra_perms: serde_json::Value,
     pub account: Option<i32>,
+    pub is_oauth: bool,
 }
 
 #[derive(Deserialize)]
@@ -59,6 +60,8 @@ pub struct CreateVariable {
     pub value: String,
     pub is_secret: bool,
     pub description: String,
+    pub account: Option<i32>,
+    pub is_oauth: Option<bool>,
 }
 
 #[derive(Deserialize)]
@@ -152,7 +155,7 @@ async fn list_variables(
     let mut tx = user_db.begin(&authed).await?;
 
     let rows = sqlx::query_as::<_, ListableVariable>(
-        "SELECT workspace_id, path, CASE WHEN is_secret IS TRUE THEN null ELSE value::text END as value, is_secret, description, extra_perms, account from variable
+        "SELECT workspace_id, path, CASE WHEN is_secret IS TRUE THEN null ELSE value::text END as value, is_secret, description, extra_perms, account, is_oauth from variable
          WHERE (workspace_id = $1 OR (is_secret IS NOT TRUE AND workspace_id = 'starter')) ORDER BY path",
     )
     .bind(&w_id)
@@ -238,13 +241,15 @@ async fn create_variable(
 
     sqlx::query!(
         "INSERT INTO variable
-            (workspace_id, path, value, is_secret, description)
-            VALUES ($1, $2, $3, $4, $5)",
+            (workspace_id, path, value, is_secret, description, account, is_oauth)
+            VALUES ($1, $2, $3, $4, $5, $6, $7)",
         &w_id,
         variable.path,
         value,
         variable.is_secret,
-        variable.description
+        variable.description,
+        variable.account,
+        variable.is_oauth.unwrap_or(false),
     )
     .execute(&mut tx)
     .await?;
