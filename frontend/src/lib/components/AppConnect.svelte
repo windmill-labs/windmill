@@ -109,7 +109,7 @@
 				requestBody: {
 					resource_type,
 					path,
-					value: `{ "token": "$var:${path}"}`,
+					value: { token: '$var:${path}' },
 					description: `OAuth token for ${resource_type}`
 				}
 			})
