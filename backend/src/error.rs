@@ -63,6 +63,10 @@ impl IntoResponse for Error {
             _ => StatusCode::INTERNAL_SERVER_ERROR,
         };
         tracing::error!(status = %status, error = %e, kind = "error");
-        Response::builder().status(status).body(body).unwrap()
+        Response::builder()
+            .header("Content-Type", "text/plain")
+            .status(status)
+            .body(body)
+            .unwrap()
     }
 }
