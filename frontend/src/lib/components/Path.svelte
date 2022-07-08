@@ -44,6 +44,7 @@
 
 	async function loadGroups(): Promise<void> {
 		groups = await GroupService.listGroups({ workspace: $workspaceStore! })
+		meta.owner = meta.owner
 	}
 
 	function validateName(meta: Meta): void {
