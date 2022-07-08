@@ -35,6 +35,8 @@
 			description: ''
 		}
 		edit = false
+		initialPath = ''
+		path = ''
 		modal.openModal()
 	}
 
