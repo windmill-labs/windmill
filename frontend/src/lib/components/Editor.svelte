@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { browser } from '$app/env'
+	import { browser, dev } from '$app/env'
 	import { page } from '$app/stores'
 	import { buildExtraLib } from '$lib/utils'
 	import type monaco from 'monaco-editor'
@@ -8,6 +8,7 @@
 	import tsWorker from 'monaco-editor/esm/vs/language/typescript/ts.worker?worker'
 	import type { DocumentUri, MessageTransports } from 'monaco-languageclient'
 	import { createEventDispatcher, onDestroy, onMount } from 'svelte'
+	import { buildWorkerDefinition } from 'monaco-editor-workers'
 
 	let divEl: HTMLDivElement | null = null
 	let editor: monaco.editor.IStandaloneCodeEditor
@@ -28,15 +29,23 @@
 	const dispatch = createEventDispatcher()
 
 	if (browser) {
-		// @ts-ignore
-		self.MonacoEnvironment = {
-			getWorker: function (_moduleId: any, label: string) {
-				if (label === 'json') {
-					return new jsonWorker()
-				} else if (label === 'typescript' || label === 'javascript') {
-					return new tsWorker()
-				} else {
-					return new editorWorker()
+		if (dev) {
+			buildWorkerDefinition(
+				'../../../node_modules/monaco-editor-workers/dist/workers',
+				import.meta.url,
+				false
+			)
+		} else {
+			// @ts-ignore
+			self.MonacoEnvironment = {
+				getWorker: function (_moduleId: any, label: string) {
+					if (label === 'json') {
+						return new jsonWorker()
+					} else if (label === 'typescript' || label === 'javascript') {
+						return new tsWorker()
+					} else {
+						return new editorWorker()
+					}
 				}
 			}
 		}
@@ -85,8 +94,11 @@
 			const { CloseAction, ErrorAction } = await import('vscode-languageclient')
 			const vscode = await import('vscode')
 
-			const { RequestType, toSocket, WebSocketMessageReader, WebSocketMessageWriter } =
-				await import('vscode-ws-jsonrpc')
+			const { toSocket, WebSocketMessageReader, WebSocketMessageWriter } = await import(
+				'vscode-ws-jsonrpc'
+			)
+
+			const { RequestType } = await import('vscode-jsonrpc')
 
 			function createLanguageClient(
 				transports: MessageTransports,
