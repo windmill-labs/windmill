@@ -98,9 +98,9 @@
 					clientOptions: {
 						documentSelector: deno ? ['typescript'] : ['python'],
 						errorHandler: {
-							error: () => ({ action: ErrorAction.Shutdown }),
+							error: () => ({ action: ErrorAction.Continue }),
 							closed: () => ({
-								action: CloseAction.Restart
+								action: CloseAction.DoNotRestart
 							})
 						},
 						markdown: {
@@ -280,6 +280,9 @@
 			},
 			scrollbar: {
 				alwaysConsumeMouseWheel: false
+			},
+			lightbulb: {
+				enabled: true
 			}
 		})
 
