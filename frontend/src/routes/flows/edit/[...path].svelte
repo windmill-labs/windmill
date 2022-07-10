@@ -2,8 +2,8 @@
 	import { FlowService, type Flow } from '$lib/gen'
 
 	import { page } from '$app/stores'
-	import { workspaceStore } from '$lib/stores'
 	import FlowBuilder from '$lib/components/FlowBuilder.svelte'
+	import { workspaceStore } from '$lib/stores'
 	import { emptySchema } from '$lib/utils'
 
 	const initialState = $page.url.searchParams.get('state')

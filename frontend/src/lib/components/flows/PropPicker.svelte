@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { createEventDispatcher } from 'svelte'
 	import { derived, writable } from 'svelte/store'
 	import ObjectViewer from './ObjectViewer.svelte'
 	import { keepByKey } from './utils'
@@ -7,7 +6,6 @@
 	export let props: Object = {}
 
 	const EMPTY_STRING = ''
-	const dispatch = createEventDispatcher()
 	const search = writable(EMPTY_STRING)
 
 	$: propsFiltered = derived(search, ($search: string) => {
