@@ -21,9 +21,8 @@
 	export let args: Record<string, any> = {}
 
 	const flow = get(flowStore)
-	const schemas = get(schemasStore)
-	$: schema = $schemasStore[i]
 
+	$: schema = $schemasStore[i]
 	$: shouldPick = mod.value.path === '' && mod.value.language === undefined
 	$: previousSchema = i === 0 ? schemaToObject($flowStore?.schema) : $previewResults[i]
 	$: extraLib = buildExtraLib(
@@ -79,7 +78,7 @@
 					bind:args
 					{flow}
 					{i}
-					{schemas}
+					bind:schemas={$schemasStore}
 					on:change={(e) => {
 						addPreviewResult(e.detail.result, i + 1)
 					}}

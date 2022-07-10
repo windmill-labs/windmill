@@ -8,7 +8,8 @@ import { createInlineScriptModuleFromPath, getFirstStepSchema, loadSchemaFromMod
 export const flowStore = writable<Flow>(undefined)
 export const schemasStore = writable<Schema[]>([])
 
-flowStore.subscribe((flow: Flow) => {
+export function initFlow(flow: Flow) {
+	flowStore.set(flow)
 	if (flow) {
 		const schemas = get(schemasStore)
 		if (flow.value.modules.length !== schemas.length) {
@@ -17,10 +18,6 @@ flowStore.subscribe((flow: Flow) => {
 			})
 		}
 	}
-})
-
-export function initFlow(flow: Flow) {
-	flowStore.set(flow)
 }
 
 export const isCopyFirstStepSchemaDisabled = derived(flowStore, (flow) => {
@@ -151,7 +148,7 @@ export async function copyFirstStepSchema() {
 	})
 }
 
-export function shouldPickOfCreateScript(step: number): boolean {
+export function shouldPickOrCreateScript(step: number): boolean {
 	const flow = get(flowStore)
 	const module = flow.value.modules[step]
 	return module.value.path === '' && module.value.language === undefined
