@@ -10,17 +10,13 @@ export const schemasStore = writable<Schema[]>([])
 
 export function initFlow(flow: Flow) {
 	flowStore.set(flow)
-	if (flow) {
-		const schemas = get(schemasStore)
-		if (flow.value.modules.length !== schemas.length) {
-			flow.value.modules.forEach((module, index) => {
-				loadSchema(index)
-			})
-		}
-	}
+	// For each module in flow, we should load the corresponding schema
+	flow.value.modules.forEach((_, index) => {
+		loadSchema(index)
+	})
 }
 
-export const isCopyFirstStepSchemaDisabled = derived(flowStore, (flow) => {
+export const isCopyFirstStepSchemaDisabled = derived(flowStore, (flow: Flow) => {
 	const modules = flow.value.modules
 	const [firstModule] = modules
 	return (

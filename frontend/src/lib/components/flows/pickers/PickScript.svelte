@@ -5,7 +5,7 @@
 	import { ScriptService } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { createEventDispatcher } from 'svelte'
-	import FlowScriptPicker from '../FlowScriptPicker.svelte'
+	import FlowScriptPicker from './FlowScriptPicker.svelte'
 
 	type Item = { summary: String; path: String; version?: String }
 

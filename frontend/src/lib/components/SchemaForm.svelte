@@ -1,5 +1,6 @@
 <script lang="ts">
 	import type { Schema } from '$lib/common'
+	import type { InputTransform } from '$lib/gen'
 	import { allTrue } from '$lib/utils'
 	import ArgInput from './ArgInput.svelte'
 	import Editor from './Editor.svelte'
@@ -10,7 +11,7 @@
 
 	export let inputTransform = false
 	export let schema: Schema
-	export let args: Record<string, any> = {}
+	export let args: Record<string, InputTransform> = {}
 	export let editableSchema = false
 	export let extraLib: string
 	export let isValid: boolean = true

@@ -3,7 +3,7 @@
 
 	import { faCode } from '@fortawesome/free-solid-svg-icons'
 	import { createEventDispatcher } from 'svelte'
-	import FlowScriptPicker from './FlowScriptPicker.svelte'
+	import FlowScriptPicker from './pickers/FlowScriptPicker.svelte'
 	import PickHubScript from './pickers/PickHubScript.svelte'
 	import PickScript from './pickers/PickScript.svelte'
 

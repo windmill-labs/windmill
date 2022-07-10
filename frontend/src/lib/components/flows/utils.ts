@@ -92,16 +92,32 @@ export function createInlineScriptModule(language: FlowModuleValue.language): Fl
 	}
 }
 
+export async function getScriptByPath(path: string) {
+	if (path.startsWith('hub/')) {
+		const content = await ScriptService.getHubScriptContentByPath({ path })
+		return {
+			content,
+			language: FlowModuleValue.language.DENO
+		}
+	} else {
+		const script = await ScriptService.getScriptByPath({
+			workspace: get(workspaceStore)!,
+			path: path ?? ''
+		})
+		return {
+			content: script.content,
+			language: script.language
+		}
+	}
+}
+
 export async function createInlineScriptModuleFromPath(path: string): Promise<FlowModuleValue> {
-	const script = await ScriptService.getScriptByPath({
-		workspace: get(workspaceStore)!,
-		path
-	})
+	const { content, language } = await getScriptByPath(path)
 
 	return {
 		type: FlowModuleValue.type.RAWSCRIPT,
-		language: script.language,
-		content: script.content
+		language: language,
+		content: content
 	}
 }
 

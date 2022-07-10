@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { faUserGroup } from '@fortawesome/free-solid-svg-icons'
 
-	import FlowScriptPicker from '$lib/components/flows/FlowScriptPicker.svelte'
+	import FlowScriptPicker from '$lib/components/flows/pickers/FlowScriptPicker.svelte'
 	import ItemPicker from '$lib/components/ItemPicker.svelte'
 	import { hubScripts } from '$lib/stores'
 	import { createEventDispatcher } from 'svelte'
