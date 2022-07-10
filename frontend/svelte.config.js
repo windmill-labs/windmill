@@ -44,8 +44,8 @@ const config = {
 			fallback: '200.html'
 		}),
 		prerender: {
-			enabled: true
-		}
+			default: false
+		},
 	}
 }
 

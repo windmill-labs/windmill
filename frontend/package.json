@@ -1,6 +1,6 @@
 {
 	"name": "windmill",
-	"version": "1.17.0",
+	"version": "1.17.1",
 	"scripts": {
 		"dev": "svelte-kit dev",
 		"build": "svelte-kit build",
@@ -57,6 +57,7 @@
 		"fuse.js": "^6.4.6",
 		"highlight.js": "^11.5.1",
 		"monaco-editor": "^0.33.0",
+		"monaco-editor-workers": "^0.33.0",
 		"monaco-languageclient": "^2.0.2",
 		"vscode-ws-jsonrpc": "^1.0.1"
 	}
