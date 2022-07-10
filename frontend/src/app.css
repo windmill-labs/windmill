@@ -102,15 +102,15 @@
 		@apply text-center; 
 		@apply inline-flex;
 		@apply items-center;
-		&:hover {
-			@apply bg-gray-100 
-		}
 	}
 
 	.default-secondary-button-v2:focus {
 		@apply ring-4; 
 		@apply outline-none;
 		@apply ring-gray-100;
+	}
+	.default-secondary-button-v2:hover {
+		@apply bg-gray-100 
 	}
 
 	.input-error {

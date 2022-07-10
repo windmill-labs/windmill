@@ -92,7 +92,10 @@ export function createInlineScriptModule(language: FlowModuleValue.language): Fl
 	}
 }
 
-export async function getScriptByPath(path: string) {
+export async function getScriptByPath(path: string): Promise<{
+	content: string
+	language: FlowModuleValue.language
+}> {
 	if (path.startsWith('hub/')) {
 		const content = await ScriptService.getHubScriptContentByPath({ path })
 		return {

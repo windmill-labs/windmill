@@ -27,7 +27,7 @@
 	}
 
 	async function saveFlow(): Promise<void> {
-		if (!Boolean(flow.path)) {
+		if (initialPath === '') {
 			await FlowService.createFlow({
 				workspace: $workspaceStore!,
 				requestBody: {

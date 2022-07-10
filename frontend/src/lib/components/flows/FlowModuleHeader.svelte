@@ -1,12 +1,12 @@
 <script lang="ts">
-	import { FlowModuleValue, Script, ScriptService } from '$lib/gen'
-	import { workspaceStore } from '$lib/stores'
+	import { FlowModuleValue, Script } from '$lib/gen'
 	import { faCode, faCodeBranch, faPlus, faTrashAlt } from '@fortawesome/free-solid-svg-icons'
 	import Icon from 'svelte-awesome'
 	import { Highlight } from 'svelte-highlight'
 	import { python, typescript } from 'svelte-highlight/languages'
 	import Modal from '../Modal.svelte'
 	import { createScriptFromInlineScript, flowStore, fork, removeModule } from './flowStore'
+	import { getScriptByPath } from './utils'
 
 	export let i: number
 	export let shouldPick = false
@@ -17,13 +17,9 @@
 	let modalViewerLanguage: Script.language = Script.language.DENO
 
 	async function viewCode() {
-		const script = await ScriptService.getScriptByPath({
-			workspace: $workspaceStore!,
-			path: mod.value.path!
-		})
-		modalViewerContent = script.content
-		modalViewerLanguage = script.language
-
+		const { content, language } = await getScriptByPath(mod.value.path!)
+		modalViewerContent = content
+		modalViewerLanguage = language
 		modalViewer.openModal()
 	}
 </script>
