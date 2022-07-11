@@ -3456,7 +3456,34 @@ dependencies = [
  "string_cache 0.8.4",
  "swc_atoms",
  "swc_eq_ignore_macros",
- "swc_visit",
+ "swc_visit 0.3.0",
+ "tracing",
+ "unicode-width",
+ "url",
+]
+
+[[package]]
+name = "swc_common"
+version = "0.23.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "68e76a324fa0d7240e790c78914f39fdecfa9d87ef4efed591124b58607a4a4a"
+dependencies = [
+ "ahash",
+ "ast_node",
+ "better_scoped_tls",
+ "cfg-if 1.0.0",
+ "debug_unreachable",
+ "either",
+ "from_variant",
+ "num-bigint 0.4.3",
+ "once_cell",
+ "rustc-hash",
+ "serde",
+ "siphasher 0.3.10",
+ "string_cache 0.8.4",
+ "swc_atoms",
+ "swc_eq_ignore_macros",
+ "swc_visit 0.4.0",
  "tracing",
  "unicode-width",
  "url",
@@ -3475,7 +3502,24 @@ dependencies = [
  "serde",
  "string_enum",
  "swc_atoms",
- "swc_common",
+ "swc_common 0.20.1",
+ "unicode-id",
+]
+
+[[package]]
+name = "swc_ecma_ast"
+version = "0.84.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cce1fb31e3a100feb31f94647fe27e457bc13b17a8931204fdc9bc58a15c936a"
+dependencies = [
+ "bitflags",
+ "is-macro",
+ "num-bigint 0.4.3",
+ "scoped-tls",
+ "serde",
+ "string_enum",
+ "swc_atoms",
+ "swc_common 0.23.0",
  "unicode-id",
 ]
 
@@ -3492,8 +3536,8 @@ dependencies = [
  "serde",
  "smallvec",
  "swc_atoms",
- "swc_common",
- "swc_ecma_ast",
+ "swc_common 0.20.1",
+ "swc_ecma_ast 0.81.0",
  "tracing",
  "typed-arena",
 ]
@@ -3529,7 +3573,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e5c639379dd2a8a0221fa1e12fafbdd594ba53a0cace6560054da52409dfcc1a"
 dependencies = [
  "either",
- "swc_visit_macros",
+ "swc_visit_macros 0.3.1",
+]
+
+[[package]]
+name = "swc_visit"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fafa6c946bdbe601f5511140776d59e82a03f52a5e5039192b4b96f3ca639d88"
+dependencies = [
+ "either",
+ "swc_visit_macros 0.4.0",
 ]
 
 [[package]]
@@ -3537,6 +3591,20 @@ name = "swc_visit_macros"
 version = "0.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c3b9b72892df873972549838bf84d6c56234c7502148a7e23b5a3da6e0fedfb8"
+dependencies = [
+ "Inflector",
+ "pmutil",
+ "proc-macro2",
+ "quote",
+ "swc_macros_common",
+ "syn",
+]
+
+[[package]]
+name = "swc_visit_macros"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cad1b8e0b2d48660bc454f70495e9bb583f9bf501f28165568569946e62f44a2"
 dependencies = [
  "Inflector",
  "pmutil",
@@ -4536,8 +4604,8 @@ dependencies = [
  "slack-http-verifier",
  "sql-builder",
  "sqlx",
- "swc_common",
- "swc_ecma_ast",
+ "swc_common 0.20.1",
+ "swc_ecma_ast 0.84.0",
  "swc_ecma_parser",
  "tempfile",
  "thiserror",
