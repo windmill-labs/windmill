@@ -151,7 +151,9 @@ export function removeModule(step: number) {
 	})
 }
 
-export async function copyFirstStepSchema(flow: Flow) {
+export async function copyFirstStepSchema() {
+	const flow = get(flowStore)
+
 	const flowSchema = await getFirstStepSchema(flow)
 
 	flowStore.update((flow: Flow) => {
