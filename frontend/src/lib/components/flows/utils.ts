@@ -120,7 +120,8 @@ export async function createInlineScriptModuleFromPath(path: string): Promise<Fl
 	return {
 		type: FlowModuleValue.type.RAWSCRIPT,
 		language: language,
-		content: content
+		content: content,
+		path
 	}
 }
 

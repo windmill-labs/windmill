@@ -1,7 +1,7 @@
 import type { Schema } from '$lib/common'
 import { FlowModuleValue, ScriptService, type Flow, type FlowModule } from '$lib/gen'
 import { DENO_INIT_CODE, PYTHON_INIT_CODE } from '$lib/script_helpers'
-import { workspaceStore } from '$lib/stores'
+import { userStore, workspaceStore } from '$lib/stores'
 import { derived, get, writable } from 'svelte/store'
 import { createInlineScriptModuleFromPath, getFirstStepSchema, loadSchemaFromModule } from './utils'
 
@@ -94,16 +94,30 @@ export async function fork(step: number) {
 export async function createScriptFromInlineScript(step: number) {
 	const flow = get(flowStore)
 	const schemas = get(schemasStore)
+	const user = get(userStore)
+
 	const flowModuleValue = flow.value.modules[step].value
 
-	const path = `u/flow/step-${step}-${Math.floor(Math.random() * 255)}`
+	const originalScriptPath = flowModuleValue.path
+	const wasForked = Boolean(originalScriptPath)
+
+	let suffix = `step-${step}`
+
+	if (wasForked && originalScriptPath) {
+		const [first, second, ...others] = originalScriptPath.split('/')
+		suffix = others.join('/')
+	}
+
+	const path = `${flow.path}/${suffix}`
+	const forkedDescription = wasForked ? `as a fork of ${originalScriptPath}` : ''
+	const description = `This script was edited in place of flow ${flow.path} ${forkedDescription} by ${user?.username} at step ${step}.`
 
 	await ScriptService.createScript({
 		workspace: get(workspaceStore)!,
 		requestBody: {
 			path,
 			summary: '',
-			description: '',
+			description,
 			content: flowModuleValue.content!,
 			parent_hash: undefined,
 			schema: schemas[step],
