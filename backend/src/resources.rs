@@ -67,7 +67,6 @@ pub struct Resource {
     pub description: Option<String>,
     pub resource_type: String,
     pub extra_perms: serde_json::Value,
-    pub account: Option<i32>,
     pub is_oauth: bool,
 }
 
@@ -77,7 +76,6 @@ pub struct CreateResource {
     pub value: Option<serde_json::Value>,
     pub description: Option<String>,
     pub resource_type: String,
-    pub account: Option<i32>,
     pub is_oauth: Option<bool>,
 }
 #[derive(Deserialize)]
@@ -108,7 +106,6 @@ async fn list_resources(
             "description",
             "resource_type",
             "extra_perms",
-            "account",
             "is_oauth",
         ])
         .order_by("path", true)
@@ -184,14 +181,13 @@ async fn create_resource(
 
     sqlx::query!(
         "INSERT INTO resource
-            (workspace_id, path, value, description, resource_type, account, is_oauth)
-            VALUES ($1, $2, $3, $4, $5, $6, $7)",
+            (workspace_id, path, value, description, resource_type, is_oauth)
+            VALUES ($1, $2, $3, $4, $5, $6)",
         w_id,
         resource.path,
         resource.value,
         resource.description,
         resource.resource_type,
-        resource.account,
         resource.is_oauth
     )
     .execute(&mut tx)

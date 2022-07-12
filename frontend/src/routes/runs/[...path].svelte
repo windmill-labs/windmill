@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onDestroy, onMount } from 'svelte'
+	import { onDestroy } from 'svelte'
 	import { JobService, Job, CompletedJob } from '$lib/gen'
 	import { displayDate, displayDaysAgo, forLater, truncateHash } from '$lib/utils'
 	import Icon from 'svelte-awesome'

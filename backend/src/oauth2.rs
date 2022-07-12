@@ -8,7 +8,7 @@ use axum::extract::{Extension, FromRequest, Path, Query, RequestParts};
 use axum::response::Redirect;
 use axum::routing::{get, post};
 use axum::{async_trait, Json, Router};
-use chrono::Duration;
+use chrono::{Duration, Utc};
 use hyper::StatusCode;
 use itertools::Itertools;
 
@@ -17,13 +17,14 @@ use reqwest::Client;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use slack_http_verifier::SlackVerifier;
+use sqlx::{Postgres, Transaction};
 use tokio::fs::File;
 use tokio::io::AsyncReadExt;
 use tower_cookies::{Cookie, Cookies};
 
 use crate::audit::{audit_log, ActionKind};
 use crate::db::{UserDB, DB};
-use crate::error::{self, to_anyhow, Result};
+use crate::error::{self, to_anyhow, Error, Result};
 use crate::jobs;
 use crate::jobs::{get_latest_hash_for_path, JobPayload};
 use crate::users::Authed;
@@ -49,11 +50,12 @@ pub fn global_service() -> Router {
 
 pub fn workspaced_service() -> Router {
     Router::new()
-        .route("/disconnect/:account_id", post(disconnect))
+        .route("/disconnect/:id", post(disconnect))
         .route("/disconnect_slack", post(disconnect_slack))
         .route("/set_workspace_slack", post(set_workspace_slack))
-        .route("/set_account/:client_name", post(set_account))
+        .route("/create_account", post(create_account))
         .route("/delete_account/:id", post(delete_account))
+        .route("/refresh_token/:id", post(refresh_token))
 }
 
 pub struct ClientWithScopes {
@@ -249,23 +251,26 @@ async fn connect(
 }
 
 #[derive(Deserialize)]
-struct SetAccount {
+struct CreateAccount {
+    client: String,
+    owner: String,
     refresh_token: String,
     expires_in: i64,
 }
-async fn set_account(
+async fn create_account(
     authed: Authed,
     Extension(user_db): Extension<UserDB>,
-    Path((w_id, client)): Path<(String, String)>,
-    Json(payload): Json<SetAccount>,
+    Path(w_id): Path<String>,
+    Json(payload): Json<CreateAccount>,
 ) -> error::Result<String> {
     let mut tx = user_db.begin(&authed).await?;
 
     let expires_at = chrono::Utc::now() + Duration::seconds(payload.expires_in);
     let id = sqlx::query_scalar!(
-        "INSERT INTO account (workspace_id, client, expires_at, refresh_token) VALUES ($1, $2, $3, $4) RETURNING id",
+        "INSERT INTO account (workspace_id, client, owner, expires_at, refresh_token) VALUES ($1, $2, $3, $4, $5) RETURNING id",
         w_id,
-        client,
+        payload.client,
+        payload.owner,
         expires_at,
         payload.refresh_token
     )
@@ -394,6 +399,83 @@ async fn login(
 ) -> error::Result<Redirect> {
     let clients = &clients.logins;
     oauth_redirect(clients, client_name, cookies, None)
+}
+
+#[derive(Deserialize)]
+struct VariablePath {
+    path: String,
+}
+async fn refresh_token(
+    authed: Authed,
+    Path((w_id, id)): Path<(String, i32)>,
+    Json(VariablePath { path }): Json<VariablePath>,
+    Extension(user_db): Extension<UserDB>,
+    Extension(clients): Extension<Arc<AllClients>>,
+    Extension(http_client): Extension<Client>,
+) -> error::Result<String> {
+    let tx = user_db.begin(&authed).await?;
+
+    _refresh_token(tx, &path, w_id, id, clients, http_client).await?;
+
+    Ok(format!("Token at path {path} refreshed"))
+}
+
+pub async fn _refresh_token<'c>(
+    mut tx: Transaction<'c, Postgres>,
+    path: &str,
+    w_id: String,
+    id: i32,
+    clients: Arc<AllClients>,
+    http_client: Client,
+) -> error::Result<String> {
+    let account = sqlx::query!(
+        "SELECT client, refresh_token FROM account WHERE workspace_id = $1 AND id = $2",
+        w_id,
+        id,
+    )
+    .fetch_optional(&mut tx)
+    .await?;
+    let account = not_found_if_none(account, "Account", &id.to_string())?;
+    let client = (&clients
+        .connects
+        .get(&account.client)
+        .ok_or_else(|| error::Error::BadRequest("invalid client".to_string()))?
+        .client)
+        .to_owned();
+    let token = client
+        .exchange_refresh_token(&RefreshToken::from(account.refresh_token))
+        .with_client(&http_client)
+        .execute::<TokenResponse>()
+        .await
+        .map_err(to_anyhow)?;
+    let expires_at = Utc::now()
+        + chrono::Duration::seconds(
+            token
+                .expires_in
+                .ok_or_else(|| Error::InternalErr("expires_in exepcted and not found".to_string()))?
+                .try_into()
+                .unwrap(),
+        );
+    sqlx::query!(
+        "UPDATE account SET refresh_token = $1, expires_at = $2 WHERE workspace_id = $3 AND id = $4",
+        token.refresh_token.map(|x| x.to_string()),
+        expires_at,
+        w_id,
+        id
+    )
+    .execute(&mut tx)
+    .await?;
+    let token = token.access_token.to_string();
+    sqlx::query!(
+        "UPDATE variable SET value = $1 WHERE workspace_id = $2 AND path = $3",
+        token,
+        w_id,
+        path
+    )
+    .execute(&mut tx)
+    .await?;
+    tx.commit().await?;
+    Ok(token)
 }
 
 #[derive(Deserialize)]

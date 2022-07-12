@@ -13,7 +13,7 @@
 	import { workspaceStore, userStore, oauthStore } from '$lib/stores'
 	import { faMinus, faPlus } from '@fortawesome/free-solid-svg-icons'
 
-	import { OauthService, ResourceService, VariableService } from '$lib/gen'
+	import { OauthService, ResourceService, VariableService, type TokenResponse } from '$lib/gen'
 
 	import { createEventDispatcher, onMount } from 'svelte'
 	import Modal from './Modal.svelte'
@@ -23,7 +23,8 @@
 	import { sendUserToast, truncateRev } from '$lib/utils'
 
 	let manual = false
-	let value = ''
+	let value: string = ''
+	let valueToken: TokenResponse
 	let connects: Record<string, string[]> = {}
 	let connectsManual: [string, { img?: string; instructions: string }][] = []
 
@@ -46,6 +47,7 @@
 	export function openFromOauth(rt: string) {
 		resource_type = rt
 		value = $oauthStore?.access_token!
+		valueToken = $oauthStore!
 		$oauthStore = undefined
 		manual = false
 		step = 3
@@ -94,13 +96,30 @@
 			if (exists) {
 				throw Error(`Resource at path ${path} already exists. Delete it or pick another path`)
 			}
+
+			let account: number | undefined = undefined
+			if (valueToken.refresh_token != undefined && valueToken.expires_in != undefined) {
+				account = Number(
+					await OauthService.createAccount({
+						workspace: $workspaceStore!,
+						requestBody: {
+							refresh_token: valueToken.refresh_token!,
+							expires_in: valueToken.expires_in!,
+							owner: path.split('/').slice(0, 2).join('/'),
+							client: resource_type
+						}
+					})
+				)
+			}
 			await VariableService.createVariable({
 				workspace: $workspaceStore!,
 				requestBody: {
 					path,
 					value,
 					is_secret: true,
-					description: `OAuth token for ${resource_type}`
+					description: `OAuth token for ${resource_type}`,
+					is_oauth: true,
+					account: account
 				}
 			})
 			await ResourceService.createResource({
@@ -109,7 +128,8 @@
 					resource_type,
 					path,
 					value: { token: `$var:${path}` },
-					description: `OAuth token for ${resource_type}`
+					description: `OAuth token for ${resource_type}`,
+					is_oauth: true
 				}
 			})
 			dispatch('refresh')
