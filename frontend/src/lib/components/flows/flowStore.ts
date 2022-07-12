@@ -112,10 +112,12 @@ export async function createScriptFromInlineScript(step: number) {
 	const forkedDescription = wasForked ? `as a fork of ${originalScriptPath}` : ''
 	const description = `This script was edited in place of flow ${flow.path} ${forkedDescription} by ${user?.username} at step ${step}.`
 
+	const availablePath = await findNextAvailablePath(path)
+
 	await ScriptService.createScript({
 		workspace: get(workspaceStore)!,
 		requestBody: {
-			path,
+			path: availablePath,
 			summary: '',
 			description,
 			content: flowModuleValue.content!,
@@ -129,7 +131,7 @@ export async function createScriptFromInlineScript(step: number) {
 	flowStore.update((flow: Flow) => {
 		flow.value.modules[step].value = {
 			type: FlowModuleValue.type.SCRIPT,
-			path: path
+			path: availablePath
 		}
 
 		return flow
@@ -149,8 +151,7 @@ export function removeModule(step: number) {
 	})
 }
 
-export async function copyFirstStepSchema() {
-	const flow = get(flowStore)
+export async function copyFirstStepSchema(flow: Flow) {
 	const flowSchema = await getFirstStepSchema(flow)
 
 	flowStore.update((flow: Flow) => {
@@ -159,8 +160,29 @@ export async function copyFirstStepSchema() {
 	})
 }
 
-export function shouldPickOrCreateScript(step: number): boolean {
-	const flow = get(flowStore)
+export async function findNextAvailablePath(path: string): Promise<string> {
+	try {
+		await ScriptService.getScriptByPath({
+			workspace: get(workspaceStore)!,
+			path
+		})
+
+		const [_, version] = path.split(/.*_([0-9]*)/)
+
+		if (version.length > 0) {
+			path = path.slice(0, -(version.length + 1))
+		}
+
+		path = `${path}_${Number(version) + 1}`
+
+		return findNextAvailablePath(path)
+	} catch (e) {
+		// Catching an error means the path is available
+		return path
+	}
+}
+
+export function shouldPickOrCreateScript(flow: Flow, step: number): boolean {
 	const module = flow.value.modules[step]
 	return module.value.path === '' && module.value.language === undefined
 }
