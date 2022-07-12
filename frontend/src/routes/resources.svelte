@@ -181,7 +181,7 @@
 										class="text-green-600"
 										data={faCircle}
 										scale={0.7}
-										label="Variable is tied to an OAuth app"
+										label="Resource is tied to an OAuth app"
 									/>
 								{/if}
 							</td>
