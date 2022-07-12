@@ -374,6 +374,42 @@ async fn update_variable(
     Ok(format!("variable {} updated (npath: {:?})", path, ns.path))
 }
 
+async fn refresh_token(
+    authed: Authed,
+    Extension(user_db): Extension<UserDB>,
+    Query((w_id, client_name, id)): Query<(String, String, i32)>,
+    Extension(clients): Extension<Arc<AllClients>>,
+    Extension(http_client): Extension<Client>,
+) -> error::Result<String> {
+    let mut tx = user_db.begin(&authed).await?;
+
+    let exists = sqlx::query!(
+        "SELECT * FROM account WHERE workspace_id = $1 AND id = $2",
+        w_id,
+        id,
+    )
+    .fetch_optional(&mut tx)
+    .await?;
+
+    let client = (&clients
+        .connects
+        .get(&client_name)
+        .ok_or_else(|| error::Error::BadRequest("invalid client".to_string()))?
+        .client)
+        .to_owned();
+
+    let token = client
+        .exchange_refresh_token(&RefreshToken::from(id.to_string()))
+        .with_client(&http_client)
+        .execute::<TokenResponse>()
+        .await
+        .map_err(to_anyhow)?;
+
+    let id_str = id.to_string();
+    not_found_if_none(exists, "Account", &id_str)?;
+    todo!()
+}
+
 pub async fn build_crypt<'c>(
     db: &mut Transaction<'c, Postgres>,
     w_id: &str,

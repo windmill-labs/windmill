@@ -8,6 +8,7 @@ use axum::extract::{Extension, FromRequest, Path, Query, RequestParts};
 use axum::response::Redirect;
 use axum::routing::{get, post};
 use axum::{async_trait, Json, Router};
+use chrono::Duration;
 use hyper::StatusCode;
 use itertools::Itertools;
 
@@ -51,9 +52,8 @@ pub fn workspaced_service() -> Router {
         .route("/disconnect/:account_id", post(disconnect))
         .route("/disconnect_slack", post(disconnect_slack))
         .route("/set_workspace_slack", post(set_workspace_slack))
-        .route("/set_account", post(set_account))
+        .route("/set_account/:client_name", post(set_account))
         .route("/delete_account/:id", post(delete_account))
-        .route("/refresh_token/:id", post(refresh_token))
 }
 
 pub struct ClientWithScopes {
@@ -250,48 +250,29 @@ async fn connect(
 
 #[derive(Deserialize)]
 struct SetAccount {
-    client: String,
     refresh_token: String,
-    expires_at: chrono::DateTime<chrono::Utc>,
+    expires_in: i64,
 }
-async fn set_account(Extension(user_db): Extension<UserDB>) -> error::Result<String> {
-    todo!()
-}
-
-async fn refresh_token(
+async fn set_account(
     authed: Authed,
     Extension(user_db): Extension<UserDB>,
-    Query((w_id, client_name, id)): Query<(String, String, i32)>,
-    Extension(clients): Extension<Arc<AllClients>>,
-    Extension(http_client): Extension<Client>,
+    Path((w_id, client)): Path<(String, String)>,
+    Json(payload): Json<SetAccount>,
 ) -> error::Result<String> {
     let mut tx = user_db.begin(&authed).await?;
 
-    let exists = sqlx::query!(
-        "SELECT * FROM account WHERE workspace_id = $1 AND id = $2",
+    let expires_at = chrono::Utc::now() + Duration::seconds(payload.expires_in);
+    let id = sqlx::query_scalar!(
+        "INSERT INTO account (workspace_id, client, expires_at, refresh_token) VALUES ($1, $2, $3, $4) RETURNING id",
         w_id,
-        id,
+        client,
+        expires_at,
+        payload.refresh_token
     )
-    .fetch_optional(&mut tx)
+    .fetch_one(&mut tx)
     .await?;
-
-    let client = (&clients
-        .connects
-        .get(&client_name)
-        .ok_or_else(|| error::Error::BadRequest("invalid client".to_string()))?
-        .client)
-        .to_owned();
-
-    let token = client
-        .exchange_refresh_token(&RefreshToken::from(id.to_string()))
-        .with_client(&http_client)
-        .execute::<TokenResponse>()
-        .await
-        .map_err(to_anyhow)?;
-
-    let id_str = id.to_string();
-    not_found_if_none(exists, "Account", &id_str)?;
-    todo!()
+    tx.commit().await?;
+    Ok(id.to_string())
 }
 
 async fn delete_account(

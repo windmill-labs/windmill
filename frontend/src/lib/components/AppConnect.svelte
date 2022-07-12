@@ -20,8 +20,7 @@
 	import Icon from 'svelte-awesome'
 	import Path from './Path.svelte'
 	import Password from './Password.svelte'
-	import { sendUserToast, truncate, truncateRev } from '$lib/utils'
-	import { goto } from '$app/navigation'
+	import { sendUserToast, truncateRev } from '$lib/utils'
 
 	let manual = false
 	let value = ''
@@ -46,7 +45,7 @@
 
 	export function openFromOauth(rt: string) {
 		resource_type = rt
-		value = $oauthStore!
+		value = $oauthStore?.access_token!
 		$oauthStore = undefined
 		manual = false
 		step = 3
@@ -147,7 +146,7 @@
 	<div slot="title">Connect an app</div>
 	<div slot="content">
 		{#if step == 1}
-			<PageHeader title="Oauth apps" />
+			<PageHeader title="OAuth apps" />
 			<div class="grid sm:grid-cols-2 md:grid-cols-3 gap-x-2 gap-y-1 items-center mb-2">
 				{#each Object.entries(connects) as [key, values]}
 					<button

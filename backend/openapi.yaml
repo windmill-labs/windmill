@@ -1067,10 +1067,38 @@ paths:
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  token:
-                    type: string
+                $ref: "#/components/schemas/TokenResponse"
+
+  /oauth/set_account/{client_name}:
+    post:
+      summary: set OAuth account
+      operationId: setAccount
+      tags:
+        - oauth
+      parameters:
+        - $ref: "#/components/parameters/ClientName"
+      requestBody:
+        description: code endpoint
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                refresh_token:
+                  type: string
+                expires_in:
+                  type: integer
+              required:
+                - refresh_token
+                - expires_in
+      responses:
+        "200":
+          description: account set
+          content:
+            text/plain:
+              schema:
+                type: string
 
   /w/{workspace}/oauth/disconnect/{account_id}:
     post:
@@ -3795,3 +3823,23 @@ components:
         - team_id
         - team_name
         - bot
+
+    TokenResponse:
+      type: object
+      properties:
+        access_token:
+          type: string
+        expires_in:
+          type: integer
+        refresh_token:
+          type: string
+        scope:
+          type: array
+          items:
+            type: string
+
+      required:
+        - access_token
+        - expires_in
+        - refresh_token
+        - scope
