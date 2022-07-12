@@ -13,6 +13,7 @@
 
 <div class="flow-root bg-gray-50 rounded-xl border  border-gray-200">
 	<ul class="relative -mt-10">
+		<span class="absolute top-0 left-1/2  h-full w-1 bg-gray-400" aria-hidden="true" />
 		<div class="relative">
 			<li class="flex flex-row flex-shrink max-w-full mx-auto mt-20">
 				<div class="bg-white border border-gray xl-rounded shadow-lg w-full mx-4 xl:mx-20">

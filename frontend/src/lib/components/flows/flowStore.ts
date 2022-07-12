@@ -98,7 +98,7 @@ export async function createScriptFromInlineScript(step: number) {
 
 	const path = `u/flow/step-${step}-${Math.floor(Math.random() * 255)}`
 
-	const newHash = await ScriptService.createScript({
+	await ScriptService.createScript({
 		workspace: get(workspaceStore)!,
 		requestBody: {
 			path,

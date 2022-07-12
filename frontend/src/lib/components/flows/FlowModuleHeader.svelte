@@ -4,6 +4,7 @@
 	import Icon from 'svelte-awesome'
 	import { Highlight } from 'svelte-highlight'
 	import { python, typescript } from 'svelte-highlight/languages'
+	import github from 'svelte-highlight/styles/github'
 	import Modal from '../Modal.svelte'
 	import { createScriptFromInlineScript, flowStore, fork, removeModule } from './flowStore'
 	import { getScriptByPath } from './utils'
@@ -23,6 +24,10 @@
 		modalViewer.openModal()
 	}
 </script>
+
+<svelte:head>
+	{@html github}
+</svelte:head>
 
 <div>
 	<slot />
