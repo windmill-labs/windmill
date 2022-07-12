@@ -33,11 +33,7 @@
 			<Icon data={faCodeBranch} class={`w-4 mr-2 h-4`} />
 			Fork
 		</button>
-		<button
-			type="button"
-			on:click={async () => await viewCode()}
-			class="default-secondary-button-v2 text-xs"
-		>
+		<button type="button" on:click={viewCode} class="default-secondary-button-v2 text-xs">
 			<Icon data={faCode} class="w-4 mr-2 h-4" />
 			View code
 		</button>

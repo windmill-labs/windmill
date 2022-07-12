@@ -112,10 +112,6 @@ export async function createScriptFromInlineScript(step: number) {
 		}
 	})
 
-	if (!newHash) {
-		return
-	}
-
 	flowStore.update((flow: Flow) => {
 		flow.value.modules[step].value = {
 			type: FlowModuleValue.type.SCRIPT,
@@ -131,6 +127,11 @@ export function removeModule(step: number) {
 	flowStore.update((flow: Flow) => {
 		flow.value.modules.splice(step, 1)
 		return flow
+	})
+
+	schemasStore.update((schemas: Schema[]) => {
+		schemas.splice(step, 1)
+		return schemas
 	})
 }
 

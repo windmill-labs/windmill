@@ -2,7 +2,6 @@
 	import { FlowModuleValue, type FlowModule } from '$lib/gen'
 	import { addPreviewResult, previewResults } from '$lib/stores'
 	import { buildExtraLib, objectToTsType, schemaToObject, schemaToTsType } from '$lib/utils'
-	import { get } from 'svelte/store'
 	import Editor from './Editor.svelte'
 	import FlowPreview from './FlowPreview.svelte'
 	import FlowInputs from './flows/FlowInputs.svelte'
@@ -20,8 +19,6 @@
 	export let mod: FlowModule
 	export let args: Record<string, any> = {}
 
-	const flow = get(flowStore)
-
 	$: schema = $schemasStore[i]
 	$: shouldPick = mod.value.path === '' && mod.value.language === undefined
 	$: previousSchema = i === 0 ? schemaToObject($flowStore?.schema) : $previewResults[i]
@@ -35,7 +32,7 @@
 		<div class="flex items-center justify-between flex-wra p-4 sm:px-6">
 			<FlowModuleHeader bind:i bind:shouldPick>
 				<h3 class="text-lg font-bold text-gray-900">Step {i + 1}</h3>
-				<p>{mod.value.path || String(mod.value.language).toUpperCase()}</p>
+				<p>{mod.value.path ?? ''}</p>
 			</FlowModuleHeader>
 		</div>
 		<div class="border-b border-gray-200" />
@@ -76,7 +73,7 @@
 			<div class="p-3">
 				<FlowPreview
 					bind:args
-					{flow}
+					bind:flow={$flowStore}
 					{i}
 					bind:schemas={$schemasStore}
 					on:change={(e) => {

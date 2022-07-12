@@ -5,7 +5,7 @@
 <button
 	class="default-secondary-button-v2"
 	disabled={$isCopyFirstStepSchemaDisabled}
-	on:click={async () => await copyFirstStepSchema()}
+	on:click={copyFirstStepSchema}
 >
 	Copy from step 1's schema
 </button>
