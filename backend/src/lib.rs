@@ -255,6 +255,7 @@ pub async fn run_workers(
     sleep_queue: u64,
     base_url: String,
     disable_nuser: bool,
+    disable_nsjail: bool,
     tx: tokio::sync::broadcast::Sender<()>,
 ) -> anyhow::Result<()> {
     let instance_name = rd_string(5);
@@ -295,6 +296,7 @@ pub async fn run_workers(
                 sleep_queue,
                 &base_url,
                 disable_nuser,
+                disable_nsjail,
                 tx,
             )
             .await
