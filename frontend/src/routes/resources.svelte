@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { canWrite, emptySchema, sendUserToast } from '$lib/utils'
-	import { ResourceService } from '$lib/gen'
+	import { ResourceService, VariableService } from '$lib/gen'
 	import type { Resource, ResourceType } from '$lib/gen'
 	import PageHeader from '$lib/components/PageHeader.svelte'
 	import ResourceEditor from '$lib/components/ResourceEditor.svelte'
@@ -19,7 +19,7 @@
 	import type { Schema } from '$lib/common'
 	import SchemaViewer from '$lib/components/SchemaViewer.svelte'
 	import Dropdown from '$lib/components/Dropdown.svelte'
-	import { faEdit, faPlus, faShare, faTrash } from '@fortawesome/free-solid-svg-icons'
+	import { faEdit, faPlus, faShare, faTrash, faCircle } from '@fortawesome/free-solid-svg-icons'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
 	import Icon from 'svelte-awesome'
 	import Required from '$lib/components/Required.svelte'
@@ -69,7 +69,10 @@
 		)
 	}
 
-	async function deleteResource(path: string): Promise<void> {
+	async function deleteResource(path: string, is_oauth: boolean): Promise<void> {
+		if (is_oauth) {
+			await VariableService.deleteVariable({ workspace: $workspaceStore!, path })
+		}
 		await ResourceService.deleteResource({ workspace: $workspaceStore!, path })
 		loadResources()
 	}
@@ -146,11 +149,12 @@
 				<th>path</th>
 				<th>resource_type</th>
 				<th>description</th>
+				<th>OAuth</th>
 				<th />
 			</tr>
 			<tbody slot="body">
 				{#if resources}
-					{#each resources as { path, description, resource_type, extra_perms, canWrite }}
+					{#each resources as { path, description, resource_type, extra_perms, canWrite, is_oauth }}
 						<tr>
 							<td class="my-12"
 								><a
@@ -171,6 +175,16 @@
 							</td>
 							<td><IconedResourceType name={resource_type} /></td>
 							<td><SvelteMarkdown source={description ?? ''} /></td>
+							<td>
+								{#if is_oauth}
+									<Icon
+										class="text-green-600"
+										data={faCircle}
+										scale={0.7}
+										label="Resource is tied to an OAuth app"
+									/>
+								{/if}
+							</td>
 							<td>
 								<Dropdown
 									dropdownItems={[
@@ -196,7 +210,7 @@
 											icon: faTrash,
 											type: 'delete',
 											action: () => {
-												deleteResource(path)
+												deleteResource(path, is_oauth)
 											}
 										}
 									]}

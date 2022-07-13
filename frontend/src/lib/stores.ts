@@ -2,6 +2,7 @@ import { browser } from '$app/env'
 import { writable } from 'svelte/store'
 import type { UserWorkspaceList } from '$lib/gen/models/UserWorkspaceList.js'
 import { getUserExt } from './user'
+import type { TokenResponse } from './gen'
 
 export interface UserExt {
 	email: string
@@ -14,7 +15,7 @@ export interface UserExt {
 
 let persistedWorkspace = browser && localStorage.getItem('workspace')
 
-export const oauthStore = writable<string | undefined>(undefined)
+export const oauthStore = writable<TokenResponse | undefined>(undefined)
 export const userStore = writable<UserExt | undefined>(undefined)
 export const workspaceStore = writable<string | undefined>(
 	persistedWorkspace ? String(persistedWorkspace) : undefined

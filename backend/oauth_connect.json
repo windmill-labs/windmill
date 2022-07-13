@@ -13,5 +13,19 @@
         "scopes": [
             "api"
         ]
+    },
+    "bitbucket": {
+        "auth_url": "https://bitbucket.org/site/oauth2/authorize",
+        "token_url": "https://bitbucket.org/site/oauth2/access_token",
+        "scopes": [
+            "repository"
+        ]
+    },
+    "slack": {
+        "auth_url": "https://slack.com/oauth/authorize",
+        "token_url": "https://slack.com/api/oauth.access",
+        "scopes": [
+            "chat:write:user"
+        ]
     }
 }

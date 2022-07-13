@@ -5,10 +5,13 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
+use std::sync::Arc;
+
 use crate::{
     audit::{audit_log, ActionKind},
     db::{UserDB, DB},
     error::{Error, JsonResult, Result},
+    oauth2::{AllClients, _refresh_token},
     users::Authed,
     utils::StripPath,
 };
@@ -20,6 +23,7 @@ use axum::{
 use hyper::StatusCode;
 
 use magic_crypt::{MagicCrypt256, MagicCryptTrait};
+use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use sqlx::{FromRow, Postgres, Transaction};
 
@@ -51,6 +55,8 @@ pub struct ListableVariable {
     pub description: String,
     pub extra_perms: serde_json::Value,
     pub account: Option<i32>,
+    pub is_oauth: bool,
+    pub is_expired: Option<bool>,
 }
 
 #[derive(Deserialize)]
@@ -59,6 +65,8 @@ pub struct CreateVariable {
     pub value: String,
     pub is_secret: bool,
     pub description: String,
+    pub account: Option<i32>,
+    pub is_oauth: Option<bool>,
 }
 
 #[derive(Deserialize)]
@@ -152,7 +160,7 @@ async fn list_variables(
     let mut tx = user_db.begin(&authed).await?;
 
     let rows = sqlx::query_as::<_, ListableVariable>(
-        "SELECT workspace_id, path, CASE WHEN is_secret IS TRUE THEN null ELSE value::text END as value, is_secret, description, extra_perms, account from variable
+        "SELECT workspace_id, path, CASE WHEN is_secret IS TRUE THEN null ELSE value::text END as value, is_secret, description, extra_perms, account, is_oauth, false as is_expired from variable
          WHERE (workspace_id = $1 OR (is_secret IS NOT TRUE AND workspace_id = 'starter')) ORDER BY path",
     )
     .bind(&w_id)
@@ -173,12 +181,17 @@ async fn get_variable(
     Extension(user_db): Extension<UserDB>,
     Query(q): Query<GetVariableQuery>,
     Path((w_id, path)): Path<(String, StripPath)>,
+    Extension(clients): Extension<Arc<AllClients>>,
+    Extension(http_client): Extension<Client>,
 ) -> JsonResult<ListableVariable> {
     let path = path.to_path();
     let mut tx = user_db.begin(&authed).await?;
 
     let variable_o = sqlx::query_as::<_, ListableVariable>(
-        "SELECT * from variable WHERE path = $1 AND (workspace_id = $2 OR (is_secret IS NOT TRUE AND workspace_id = 'starter'))",
+        "SELECT variable.*, (now() > account.expires_at) as is_expired from variable
+        LEFT JOIN account ON variable.account = account.id
+        WHERE variable.path = $1 AND (variable.workspace_id = $2 OR (is_secret IS NOT TRUE AND variable.workspace_id = 'starter')) 
+        LIMIT 1",
     )
     .bind(&path)
     .bind(&w_id)
@@ -202,8 +215,22 @@ async fn get_variable(
         .await?;
         let value = variable.value.unwrap_or_else(|| "".to_string());
         ListableVariable {
-            value: if !value.is_empty() && decrypt_secret {
+            value: if variable.is_expired.unwrap_or(false) && variable.account.is_some() {
+                Some(
+                    _refresh_token(
+                        tx,
+                        &variable.path,
+                        w_id,
+                        variable.account.unwrap(),
+                        clients,
+                        http_client,
+                    )
+                    .await?,
+                )
+            } else if !value.is_empty() && decrypt_secret {
                 let mc = build_crypt(&mut tx, &w_id).await?;
+                tx.commit().await?;
+
                 Some(
                     mc.decrypt_base64_to_string(value)
                         .map_err(|e| Error::InternalErr(e.to_string()))?,
@@ -216,7 +243,6 @@ async fn get_variable(
     } else {
         variable
     };
-    tx.commit().await?;
 
     Ok(Json(r))
 }
@@ -238,13 +264,15 @@ async fn create_variable(
 
     sqlx::query!(
         "INSERT INTO variable
-            (workspace_id, path, value, is_secret, description)
-            VALUES ($1, $2, $3, $4, $5)",
+            (workspace_id, path, value, is_secret, description, account, is_oauth)
+            VALUES ($1, $2, $3, $4, $5, $6, $7)",
         &w_id,
         variable.path,
         value,
         variable.is_secret,
-        variable.description
+        variable.description,
+        variable.account,
+        variable.is_oauth.unwrap_or(false),
     )
     .execute(&mut tx)
     .await?;

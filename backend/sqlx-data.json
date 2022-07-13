@@ -555,6 +555,23 @@
       ]
     }
   },
+  "27eb5f99dc9289670673fb999ba9e67abccba212b506c30ba47e6c4fef6d53c4": {
+    "query": "INSERT INTO resource\n            (workspace_id, path, value, description, resource_type, is_oauth)\n            VALUES ($1, $2, $3, $4, $5, $6)",
+    "describe": {
+      "columns": [],
+      "parameters": {
+        "Left": [
+          "Varchar",
+          "Varchar",
+          "Jsonb",
+          "Text",
+          "Varchar",
+          "Bool"
+        ]
+      },
+      "nullable": []
+    }
+  },
   "28c042adef65c3055edc324fbbd2f267285d3566cbec58404983323d410ace27": {
     "query": "SELECT super_admin FROM password WHERE email = $1",
     "describe": {
@@ -644,6 +661,24 @@
       "nullable": [
         false
       ]
+    }
+  },
+  "2e4115bb2e6c8c85ad1492ad135d6b0454b342126cb5fa17e58caf71b32ee755": {
+    "query": "INSERT INTO variable\n            (workspace_id, path, value, is_secret, description, account, is_oauth)\n            VALUES ($1, $2, $3, $4, $5, $6, $7)",
+    "describe": {
+      "columns": [],
+      "parameters": {
+        "Left": [
+          "Varchar",
+          "Varchar",
+          "Varchar",
+          "Bool",
+          "Varchar",
+          "Int4",
+          "Bool"
+        ]
+      },
+      "nullable": []
     }
   },
   "37d3ee8009055e869941e548a6d5a352053a5d7782f662c34b94706488abccb6": {
@@ -1697,22 +1732,6 @@
       ]
     }
   },
-  "8a80333c2fbf7b50fed305882de6e4ffda985d5c648cd617add6c9e6a9c03f34": {
-    "query": "INSERT INTO resource\n            (workspace_id, path, value, description, resource_type)\n            VALUES ($1, $2, $3, $4, $5)",
-    "describe": {
-      "columns": [],
-      "parameters": {
-        "Left": [
-          "Varchar",
-          "Varchar",
-          "Jsonb",
-          "Text",
-          "Varchar"
-        ]
-      },
-      "nullable": []
-    }
-  },
   "8ad6a17eecce77f61236e0585ba89b99a32e07ad37b97662007db35acb59d139": {
     "query": "SELECT * from resource_type WHERE (workspace_id = $1 OR workspace_id = 'starter') ORDER BY name",
     "describe": {
@@ -1937,8 +1956,8 @@
         },
         {
           "ordinal": 6,
-          "name": "account",
-          "type_info": "Int4"
+          "name": "is_oauth",
+          "type_info": "Bool"
         }
       ],
       "parameters": {
@@ -1954,7 +1973,7 @@
         true,
         false,
         false,
-        true
+        false
       ]
     }
   },
@@ -2278,22 +2297,6 @@
       "nullable": []
     }
   },
-  "afe9ea97d6e4c45453e21dc3d218fe8927f9faa58921666ceb7014e1f695d900": {
-    "query": "INSERT INTO variable\n            (workspace_id, path, value, is_secret, description)\n            VALUES ($1, $2, $3, $4, $5)",
-    "describe": {
-      "columns": [],
-      "parameters": {
-        "Left": [
-          "Varchar",
-          "Varchar",
-          "Varchar",
-          "Bool",
-          "Varchar"
-        ]
-      },
-      "nullable": []
-    }
-  },
   "b20977e70ebac7ccbaec5a2a1e940301dd331a5f9a4be67a27cfbff8619ac8f0": {
     "query": "INSERT INTO usr\n            (workspace_id, email, username, is_admin)\n            VALUES ($1, $2, $3, true)",
     "describe": {
@@ -2392,6 +2395,27 @@
       },
       "nullable": [
         null
+      ]
+    }
+  },
+  "bb56e61c7cfb09c0a28fb3226dfe91704c70d9fe15eda18e6889adfd7496f80b": {
+    "query": "DELETE FROM account WHERE workspace_id = $1 AND id = $2 RETURNING id",
+    "describe": {
+      "columns": [
+        {
+          "ordinal": 0,
+          "name": "id",
+          "type_info": "Int4"
+        }
+      ],
+      "parameters": {
+        "Left": [
+          "Text",
+          "Int4"
+        ]
+      },
+      "nullable": [
+        false
       ]
     }
   },
@@ -2598,6 +2622,21 @@
       ]
     }
   },
+  "cac594031a21b4806de9c4616317d3541522ef9712a83ecff7bd8b5f6e870748": {
+    "query": "UPDATE account SET refresh_token = $1, expires_at = $2 WHERE workspace_id = $3 AND id = $4",
+    "describe": {
+      "columns": [],
+      "parameters": {
+        "Left": [
+          "Varchar",
+          "Timestamptz",
+          "Text",
+          "Int4"
+        ]
+      },
+      "nullable": []
+    }
+  },
   "cb12aee5f8e04cb196d4b8fad81699fcbb1ae7b0c84090d5705b14eac76074ff": {
     "query": "INSERT INTO group_\n            VALUES ($1, 'all', 'The group that always contains all users of this workspace')",
     "describe": {
@@ -2608,6 +2647,30 @@
         ]
       },
       "nullable": []
+    }
+  },
+  "d1513cfa13037cbfe076d184cc698b896add2daba02b8add600f643249b95ad2": {
+    "query": "INSERT INTO account (workspace_id, client, owner, expires_at, refresh_token) VALUES ($1, $2, $3, $4, $5) RETURNING id",
+    "describe": {
+      "columns": [
+        {
+          "ordinal": 0,
+          "name": "id",
+          "type_info": "Int4"
+        }
+      ],
+      "parameters": {
+        "Left": [
+          "Varchar",
+          "Varchar",
+          "Varchar",
+          "Timestamptz",
+          "Varchar"
+        ]
+      },
+      "nullable": [
+        false
+      ]
     }
   },
   "d2dcf69b20488d610599c309862722f805049e479035be6a416d05d73528a8e1": {
@@ -3076,8 +3139,8 @@
         },
         {
           "ordinal": 6,
-          "name": "account",
-          "type_info": "Int4"
+          "name": "is_oauth",
+          "type_info": "Bool"
         }
       ],
       "parameters": {
@@ -3092,8 +3155,49 @@
         true,
         false,
         false,
-        true
+        false
       ]
+    }
+  },
+  "fbe14569717b4c4937b74e6dc6f6b4ea29a2b0c2b1cde48ef06d687f6f9e8f15": {
+    "query": "SELECT client, refresh_token FROM account WHERE workspace_id = $1 AND id = $2",
+    "describe": {
+      "columns": [
+        {
+          "ordinal": 0,
+          "name": "client",
+          "type_info": "Varchar"
+        },
+        {
+          "ordinal": 1,
+          "name": "refresh_token",
+          "type_info": "Varchar"
+        }
+      ],
+      "parameters": {
+        "Left": [
+          "Text",
+          "Int4"
+        ]
+      },
+      "nullable": [
+        false,
+        false
+      ]
+    }
+  },
+  "fcb6ce4fab662602827281e3e85fffaa48542f8d590100d0e7eead2ad4ad4873": {
+    "query": "UPDATE variable SET value = $1 WHERE workspace_id = $2 AND path = $3",
+    "describe": {
+      "columns": [],
+      "parameters": {
+        "Left": [
+          "Varchar",
+          "Text",
+          "Text"
+        ]
+      },
+      "nullable": []
     }
   }
 }
