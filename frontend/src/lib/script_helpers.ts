@@ -32,8 +32,7 @@ def main(name: str = "Nicolas Bourbaki",
     # the return value is then parsed and can be retrieved by other scripts conveniently
     return {"version": version, "splitted": name.split(), "user": user}
 `
-export const DENO_INIT_CODE = `
-// only do the following import if you require your script to interact with the windmill
+export const DENO_INIT_CODE = `// only do the following import if you require your script to interact with the windmill
 // for instance to get a variable or resource
 // import * as wmill from 'https://deno.land/x/windmill@v${__pkg__.version}/mod.ts'
 

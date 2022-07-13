@@ -1,13 +1,12 @@
 <script lang="ts">
 	import type { Schema } from '$lib/common'
-	import type { InputTransform } from '$lib/gen'
+	import { InputTransform } from '$lib/gen'
 	import { allTrue } from '$lib/utils'
 	import ArgInput from './ArgInput.svelte'
 	import Editor from './Editor.svelte'
 	import FieldHeader from './FieldHeader.svelte'
 	import DynamicInputHelpBox from './flows/DynamicInputHelpBox.svelte'
-	import PropPicker from './flows/PropPicker.svelte'
-	import RadioButton from './RadioButton.svelte'
+	import Toggle from './Toggle.svelte'
 
 	export let inputTransform = false
 	export let schema: Schema
@@ -29,13 +28,46 @@ previous_result.${key}`
 	}
 
 	$: isValid = allTrue(inputCheck) ?? false
+
+	function wasPicked(expr: string | undefined): boolean {
+		if (!expr) {
+			return false
+		}
+		const lines = expr.split('\n')
+		const [returnStatement] = lines.reverse()
+
+		const returnStatementRegex = new RegExp(/\$\{(.*)\}{1}/)
+		if (returnStatementRegex.test(returnStatement)) {
+			const [_, argName] = returnStatement.split(returnStatementRegex)
+
+			return Boolean(argName)
+		}
+		return false
+	}
+
+	$: types = Object.keys(schema?.properties ?? {}).map((prop, index) => {
+		const arg = args[prop]
+
+		return arg.type
+		const displayed_expr = wasPicked(arg.value)
+
+		if (!displayed_expr) {
+			return arg.type
+		}
+
+		args[prop].expr = getDefaultExpr(index, prop)
+		args[prop].type = InputTransform.type.JAVASCRIPT
+		return InputTransform.type.STATIC
+	})
+
+	$: console.log(Object.keys(schema?.properties ?? {}).map((p) => args[p]))
 </script>
 
 <div class="w-full">
 	{#if Object.keys(schema?.properties ?? {}).length > 0}
-		{#each Object.keys(schema?.properties ?? {}) as argName}
+		{#each Object.keys(schema?.properties ?? {}) as argName, index}
 			{#if inputTransform && args[argName] != undefined}
-				<div class="mt-10" />
+				<div class={index > 0 ? 'mt-8' : ''} />
 				<FieldHeader
 					label={argName}
 					format={schema.properties[argName].format}
@@ -44,20 +76,25 @@ previous_result.${key}`
 					type={schema.properties[argName].type}
 					itemsType={schema.properties[argName].items}
 				/>
-				<div class="max-w-xs">
-					<RadioButton
-						options={[
-							['Static', 'static'],
-							['Dynamic (JS)', 'javascript']
-						]}
-						small={true}
-						bind:value={args[argName].type}
-						on:change={(e) => {
-							args[argName].expr = e.detail == 'javascript' ? getDefaultExpr(i) : undefined
-						}}
-					/>
-				</div>
-				{#if args[argName].type == 'static'}
+				<Toggle
+					options={{
+						left: { value: InputTransform.type.STATIC },
+						right: { label: 'Dynamic', value: InputTransform.type.JAVASCRIPT }
+					}}
+					bind:value={types[index]}
+					on:change={(e) => {
+						if (e.detail === InputTransform.type.JAVASCRIPT) {
+							args[argName].expr = getDefaultExpr(i)
+							args[argName].value = undefined
+						} else {
+							args[argName].expr = undefined
+						}
+
+						args[argName].type = e.detail
+					}}
+				/>
+				<div class="max-w-xs" />
+				{#if types[index] === 'static'}
 					<ArgInput
 						label={argName}
 						bind:description={schema.properties[argName].description}
@@ -73,7 +110,7 @@ previous_result.${key}`
 						bind:itemsType={schema.properties[argName].items}
 						displayHeader={false}
 					/>
-				{:else if args[argName].type == 'javascript'}
+				{:else if types[index] === InputTransform.type.JAVASCRIPT}
 					{#if args[argName].expr != undefined}
 						<div class="border rounded p-2 mt-2 border-gray-300">
 							<Editor
@@ -84,26 +121,6 @@ previous_result.${key}`
 								{extraLib}
 								extraLibPath="file:///node_modules/@types/windmill@{i}/index.d.ts"
 							/>
-						</div>
-						<div class="mt-4">
-							{#if Boolean(previousSchema)}
-								<PropPicker
-									props={previousSchema}
-									on:select={(event) => {
-										editor.setCode(getDefaultExpr(i, event.detail))
-									}}
-								/>
-							{:else}
-								<div
-									class="flex p-4 mb-4 bg-yellow-100 border-t-4 border-yellow-500 dark:bg-yellow-200"
-									role="alert"
-								>
-									<div class="ml-3 text-sm font-medium text-yellow-700">
-										Previous results are not avaiable. The property picker and type inference are
-										not avaiable.
-									</div>
-								</div>
-							{/if}
 						</div>
 
 						<DynamicInputHelpBox />

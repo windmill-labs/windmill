@@ -2,6 +2,8 @@
 	import { FlowModuleValue, type FlowModule } from '$lib/gen'
 	import { addPreviewResult, previewResults } from '$lib/stores'
 	import { buildExtraLib, objectToTsType, schemaToObject, schemaToTsType } from '$lib/utils'
+	import { faRobot } from '@fortawesome/free-solid-svg-icons'
+	import Icon from 'svelte-awesome'
 	import Editor from './Editor.svelte'
 	import FlowPreview from './FlowPreview.svelte'
 	import FlowInputs from './flows/FlowInputs.svelte'
@@ -31,7 +33,7 @@
 	<div class="bg-white border border-gray xl-rounded shadow-lg w-full max-w-4xl mx-4 md:mx-auto">
 		<div class="flex items-center justify-between flex-wra p-4 sm:px-6">
 			<FlowModuleHeader bind:i bind:shouldPick>
-				<h3 class="text-lg font-bold text-gray-900">Step {i + 1}</h3>
+				<span class="text-xl font-bold text-gray-900">Step {i + 1}</span>
 				<p>{mod.value.path ?? ''}</p>
 			</FlowModuleHeader>
 		</div>
@@ -44,19 +46,21 @@
 				/>
 			{/if}
 			{#if mod.value.type === FlowModuleValue.type.RAWSCRIPT}
-				<div class="h-96">
-					<Editor
-						class="h-full"
-						bind:code={mod.value.content}
-						deno={mod.value.language === FlowModuleValue.language.DENO}
-					/>
+				<Editor
+					class="h-80 border p-2 rounded"
+					bind:code={mod.value.content}
+					deno={mod.value.language === FlowModuleValue.language.DENO}
+				/>
+				<div class="mt-2 mb-8">
+					<button class="default-primary-button-v2" on:click={() => loadSchema(i)}>
+						<Icon data={faRobot} class="w-4 h-4 mr-2 -ml-2" />
+
+						Infer step inputs from code
+					</button>
 				</div>
-				<button class="default-button w-full p-1 mt-4" on:click={() => loadSchema(i)}>
-					Infer schema
-				</button>
 			{/if}
 			{#if !shouldPick}
-				<h2 class="mb-4">Step inputs</h2>
+				<p class="text-lg font-bold text-gray-900 mb-2">Step inputs</p>
 				<SchemaForm
 					inputTransform={true}
 					{schema}
