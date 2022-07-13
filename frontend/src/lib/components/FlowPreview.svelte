@@ -85,10 +85,9 @@
 	})
 </script>
 
-<h2 class="mb-5 mt-2">
+<h2 class="flex justify-center">
 	<button
-		type="submit"
-		class="underline text-gray-700 inline-flex  items-center"
+		class="default-button	"
 		on:click={() => {
 			viewPreview = !viewPreview
 		}}

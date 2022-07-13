@@ -2,11 +2,12 @@
 	import { goto } from '$app/navigation'
 	import { page } from '$app/stores'
 	import { FlowService, ScriptService, type Flow } from '$lib/gen'
-	import { clearPreviewResults, workspaceStore, hubScripts } from '$lib/stores'
+	import { clearPreviewResults, hubScripts, workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/utils'
 	import { onMount } from 'svelte'
 	import SvelteMarkdown from 'svelte-markdown'
 	import FlowEditor from './FlowEditor.svelte'
+	import { flowStore, initFlow } from './flows/flowStore'
 	import Path from './Path.svelte'
 	import Required from './Required.svelte'
 	import ScriptSchema from './ScriptSchema.svelte'
@@ -26,7 +27,7 @@
 	}
 
 	async function saveFlow(): Promise<void> {
-		if (initialPath == '') {
+		if (initialPath === '') {
 			await FlowService.createFlow({
 				workspace: $workspaceStore!,
 				requestBody: {
@@ -40,7 +41,7 @@
 		} else {
 			await FlowService.updateFlow({
 				workspace: $workspaceStore!,
-				path: initialPath,
+				path: flow.path,
 				requestBody: {
 					path: flow.path,
 					summary: flow.summary,
@@ -58,10 +59,12 @@
 		goto(`?step=${step}`)
 	}
 
-	$: {
+	flowStore.subscribe((flow: Flow) => {
 		$page.url.searchParams.set('state', btoa(JSON.stringify(flow)))
 		history.replaceState({}, '', $page.url)
-	}
+	})
+
+	$: flow && initFlow(flow)
 
 	onMount(() => {
 		loadSearchData()
@@ -107,12 +110,14 @@
 						class="default-button px-6 max-h-8"
 						on:click={() => {
 							changeStep(step + 1)
-						}}>Next</button
+						}}
 					>
+						Next
+					</button>
 					{#if step == 2}
-						<button class="default-button-secondary px-6 max-h-8 mr-2" on:click={saveFlow}
-							>Save</button
-						>
+						<button class="default-button-secondary px-6 max-h-8 mr-2" on:click={saveFlow}>
+							Save
+						</button>
 					{/if}
 				{:else}
 					<button class="default-button px-6 self-end" on:click={saveFlow}>Save</button>
@@ -187,7 +192,7 @@
 			</div>
 		</div>
 	{:else if step === 2}
-		<FlowEditor bind:flow />
+		<FlowEditor />
 	{:else if step === 3}
 		<ScriptSchema
 			synchronizedHeader={false}
