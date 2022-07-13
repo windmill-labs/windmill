@@ -36,7 +36,7 @@ previous_result.${key}`
 		const lines = expr.split('\n')
 		const [returnStatement] = lines.reverse()
 
-		const returnStatementRegex = new RegExp(/\$\{(.*)\}{1}/)
+		const returnStatementRegex = new RegExp(/\$\{(.*)\}/)
 		if (returnStatementRegex.test(returnStatement)) {
 			const [_, argName] = returnStatement.split(returnStatementRegex)
 
@@ -48,14 +48,13 @@ previous_result.${key}`
 	$: types = Object.keys(schema?.properties ?? {}).map((prop, index) => {
 		const arg = args[prop]
 
-		return arg.type
 		const displayed_expr = wasPicked(arg.value)
 
 		if (!displayed_expr) {
 			return arg.type
 		}
 
-		args[prop].expr = getDefaultExpr(index, prop)
+		args[prop].expr = `\`${arg.value}\``
 		args[prop].type = InputTransform.type.JAVASCRIPT
 		return InputTransform.type.STATIC
 	})
@@ -76,23 +75,25 @@ previous_result.${key}`
 					type={schema.properties[argName].type}
 					itemsType={schema.properties[argName].items}
 				/>
-				<Toggle
-					options={{
-						left: { value: InputTransform.type.STATIC },
-						right: { label: 'Dynamic', value: InputTransform.type.JAVASCRIPT }
-					}}
-					bind:value={types[index]}
-					on:change={(e) => {
-						if (e.detail === InputTransform.type.JAVASCRIPT) {
-							args[argName].expr = getDefaultExpr(i)
-							args[argName].value = undefined
-						} else {
-							args[argName].expr = undefined
-						}
+				<span>
+					<Toggle
+						options={{
+							left: { value: InputTransform.type.STATIC },
+							right: { label: 'Code editor', value: InputTransform.type.JAVASCRIPT }
+						}}
+						bind:value={types[index]}
+						on:change={(e) => {
+							if (e.detail === InputTransform.type.JAVASCRIPT) {
+								args[argName].expr = getDefaultExpr(i)
+								args[argName].value = undefined
+							} else {
+								args[argName].expr = undefined
+							}
 
-						args[argName].type = e.detail
-					}}
-				/>
+							args[argName].type = e.detail
+						}}
+					/></span
+				>
 				<div class="max-w-xs" />
 				{#if types[index] === 'static'}
 					<ArgInput
