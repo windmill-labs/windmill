@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.17.1
+  version: 1.18.0
   title: Windmill server API
   contact:
     name: Windmill contact
@@ -1067,12 +1067,75 @@ paths:
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  token:
-                    type: string
+                $ref: "#/components/schemas/TokenResponse"
 
-  /w/{workspace}/oauth/disconnect/{account_id}:
+  /w/{workspace}/oauth/create_account:
+    post:
+      summary: create OAuth account
+      operationId: createAccount
+      tags:
+        - oauth
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        description: code endpoint
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                refresh_token:
+                  type: string
+                expires_in:
+                  type: integer
+                owner:
+                  type: string
+                client:
+                  type: string
+              required:
+                - refresh_token
+                - expires_in
+                - owner
+                - client
+      responses:
+        "200":
+          description: account set
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/oauth/refresh_token/{id}:
+    post:
+      summary: refresh token
+      operationId: refreshToken
+      tags:
+        - oauth
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/AccountId"
+      requestBody:
+        description: variable path
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                path:
+                  type: string
+              required:
+                - path
+      responses:
+        "200":
+          description: token refreshed
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/oauth/disconnect/{id}:
     post:
       summary: disconnect account
       operationId: disconnectAccount
@@ -2690,7 +2753,7 @@ components:
       schema:
         type: string
     AccountId:
-      name: account
+      name: id
       in: path
       required: true
       schema:
@@ -3187,6 +3250,10 @@ components:
           type: boolean
         description:
           type: string
+        account:
+          type: string
+        is_oauth:
+          type: boolean
         extra_perms:
           type: object
           additionalProperties:
@@ -3222,6 +3289,10 @@ components:
           type: boolean
         description:
           type: string
+        account:
+          type: integer
+        is_oauth:
+          type: boolean
       required:
         - path
         - value
@@ -3352,6 +3423,8 @@ components:
           type: string
         resource_type:
           type: string
+        is_oauth:
+          type: boolean
       required:
         - path
         - value
@@ -3380,6 +3453,8 @@ components:
           type: string
         value:
           type: object
+        is_oauth:
+          type: boolean
         extra_perms:
           type: object
           additionalProperties:
@@ -3387,6 +3462,7 @@ components:
       required:
         - path
         - resource_type
+        - is_oauth
 
     ResourceType:
       type: object
@@ -3787,3 +3863,23 @@ components:
         - team_id
         - team_name
         - bot
+
+    TokenResponse:
+      type: object
+      properties:
+        access_token:
+          type: string
+        expires_in:
+          type: integer
+        refresh_token:
+          type: string
+        scope:
+          type: array
+          items:
+            type: string
+
+      required:
+        - access_token
+        - expires_in
+        - refresh_token
+        - scope

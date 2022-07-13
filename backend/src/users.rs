@@ -698,7 +698,7 @@ async fn decline_invite(
          &mut tx,
          &email,
         "users.decline_invite",
-        ActionKind::Create,
+        ActionKind::Delete,
         &nu.workspace_id,
         Some(&email),
         None,
