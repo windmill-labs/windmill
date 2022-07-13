@@ -66,6 +66,7 @@ pub async fn run_worker(
     sleep_queue: u64,
     base_url: &str,
     disable_nuser: bool,
+    disable_nsjail: bool,
     tx: tokio::sync::broadcast::Sender<()>,
 ) {
     let worker_dir = format!("{TMP_DIR}/{worker_name}");
@@ -116,6 +117,7 @@ pub async fn run_worker(
                     &worker_dir,
                     base_url,
                     disable_nuser,
+                    disable_nsjail,
                 )
                 .await
                 .err()
@@ -171,6 +173,7 @@ async fn handle_queued_job(
     worker_dir: &str,
     base_url: &str,
     disable_nuser: bool,
+    disable_nsjail: bool,
 ) -> crate::error::Result<()> {
     let job_id = job.id;
     let w_id = &job.workspace_id.clone();
@@ -208,6 +211,7 @@ async fn handle_queued_job(
                 &mut last_line,
                 base_url,
                 disable_nuser,
+                disable_nsjail,
             )
             .await;
 
@@ -284,6 +288,7 @@ async fn handle_job(
     last_line: &mut String,
     base_url: &str,
     disable_nuser: bool,
+    disable_nsjail: bool,
 ) -> Result<JobResult, Error> {
     tracing::info!(
         worker = %worker_name,
@@ -311,6 +316,7 @@ async fn handle_job(
             &job_dir,
             worker_dir,
             disable_nuser,
+            disable_nsjail,
             logs,
             &mut status,
             last_line,
@@ -356,6 +362,7 @@ async fn handle_nondep_job(
     job_dir: &String,
     worker_dir: &str,
     disable_nuser: bool,
+    disable_nsjail: bool,
     logs: &mut String,
     status: &mut Result<ExitStatus, Error>,
     last_line: &mut String,
@@ -395,24 +402,47 @@ async fn handle_nondep_job(
             let requirements =
                 requirements_o.ok_or_else(|| Error::InternalErr(format!("lockfile missing")))?;
 
-            let _ = write_file(
-                job_dir,
-                "download.config.proto",
-                &NSJAIL_CONFIG_DOWNLOAD_CONTENT
-                    .replace("{JOB_DIR}", job_dir)
-                    .replace("{WORKER_DIR}", &worker_dir)
-                    .replace("{CACHE_DIR}", PIP_CACHE_DIR)
-                    .replace("{CLONE_NEWUSER}", &(!disable_nuser).to_string()),
-            )
-            .await?;
+            if !disable_nsjail {
+                let _ = write_file(
+                    job_dir,
+                    "download.config.proto",
+                    &NSJAIL_CONFIG_DOWNLOAD_CONTENT
+                        .replace("{JOB_DIR}", job_dir)
+                        .replace("{WORKER_DIR}", &worker_dir)
+                        .replace("{CACHE_DIR}", PIP_CACHE_DIR)
+                        .replace("{CLONE_NEWUSER}", &(!disable_nuser).to_string()),
+                )
+                .await?;
+            }
             let _ = write_file(job_dir, "requirements.txt", &requirements).await?;
 
-            let child = Command::new("nsjail")
-                .current_dir(job_dir)
-                .args(vec!["--config", "download.config.proto"])
-                .stdout(Stdio::piped())
-                .stderr(Stdio::piped())
-                .spawn()?;
+            let child = if !disable_nsjail {
+                Command::new("nsjail")
+                    .current_dir(job_dir)
+                    .args(vec!["--config", "download.config.proto"])
+                    .stdout(Stdio::piped())
+                    .stderr(Stdio::piped())
+                    .spawn()?
+            } else {
+                Command::new("/usr/local/bin/python3")
+                    .current_dir(job_dir)
+                    .args(vec![
+                        "-m",
+                        "pip",
+                        "install",
+                        "--no-color",
+                        "--isolated",
+                        "--no-warn-conflicts",
+                        "--disable-pip-version-check",
+                        "-t",
+                        "./dependencies",
+                        "-r",
+                        "./requirements.txt",
+                    ])
+                    .stdout(Stdio::piped())
+                    .stderr(Stdio::piped())
+                    .spawn()?
+            };
 
             logs.push_str("\n--- PIP DEPENDENCIES INSTALL ---\n");
             *status = handle_child(job, db, logs, last_line, timeout, child).await;
@@ -487,30 +517,45 @@ print(res_json)
                 write_file(job_dir, "main.py", &wrapper_content).await?;
 
                 tx.commit().await?;
-                let reserved_variables = get_reserved_variables(job, token, db).await?;
-                let _ = write_file(
-                    job_dir,
-                    "run.config.proto",
-                    &NSJAIL_CONFIG_RUN_PYTHON3_CONTENT
-                        .replace("{JOB_DIR}", job_dir)
-                        .replace("{CLONE_NEWUSER}", &(!disable_nuser).to_string()),
-                )
-                .await?;
-
-                let child = Command::new("nsjail")
-                    .current_dir(job_dir)
-                    .envs(reserved_variables)
-                    .args(vec![
-                        "--config",
+                let mut reserved_variables = get_reserved_variables(job, token, db).await?;
+                if !disable_nuser {
+                    let _ = write_file(
+                        job_dir,
                         "run.config.proto",
-                        "--",
-                        "/usr/local/bin/python3",
-                        "-u",
-                        "/tmp/main.py",
-                    ])
-                    .stdout(Stdio::piped())
-                    .stderr(Stdio::piped())
-                    .spawn()?;
+                        &NSJAIL_CONFIG_RUN_PYTHON3_CONTENT
+                            .replace("{JOB_DIR}", job_dir)
+                            .replace("{CLONE_NEWUSER}", &(!disable_nuser).to_string()),
+                    )
+                    .await?;
+                } else {
+                    reserved_variables
+                        .insert("PYTHONPATH".to_string(), format!("{job_dir}/dependencies"));
+                }
+
+                let child = if !disable_nuser {
+                    Command::new("nsjail")
+                        .current_dir(job_dir)
+                        .envs(reserved_variables)
+                        .args(vec![
+                            "--config",
+                            "run.config.proto",
+                            "--",
+                            "/usr/local/bin/python3",
+                            "-u",
+                            "/tmp/main.py",
+                        ])
+                        .stdout(Stdio::piped())
+                        .stderr(Stdio::piped())
+                        .spawn()?
+                } else {
+                    Command::new("/usr/local/bin/python3")
+                        .current_dir(job_dir)
+                        .envs(reserved_variables)
+                        .args(vec!["-u", "main.py"])
+                        .stdout(Stdio::piped())
+                        .stderr(Stdio::piped())
+                        .spawn()?
+                };
                 *status = handle_child(job, db, logs, last_line, timeout, child).await;
             }
         }
@@ -580,33 +625,52 @@ run();
 
             tx.commit().await?;
             let reserved_variables = get_reserved_variables(job, token, db).await?;
-            let _ = write_file(
-                job_dir,
-                "run.config.proto",
-                &NSJAIL_CONFIG_RUN_DENO_CONTENT
-                    .replace("{JOB_DIR}", job_dir)
-                    .replace("{CACHE_DIR}", DENO_CACHE_DIR)
-                    .replace("{CLONE_NEWUSER}", &(!disable_nuser).to_string()),
-            )
-            .await?;
 
-            let child = Command::new("nsjail")
-                .current_dir(job_dir)
-                .envs(reserved_variables)
-                .args(vec![
-                    "--config",
+            if !disable_nuser {
+                let _ = write_file(
+                    job_dir,
                     "run.config.proto",
-                    "--",
-                    "/usr/bin/deno",
-                    "run",
-                    "--unstable",
-                    "--v8-flags=--max-heap-size=2048",
-                    "-A",
-                    "/tmp/main.ts",
-                ])
-                .stdout(Stdio::piped())
-                .stderr(Stdio::piped())
-                .spawn()?;
+                    &NSJAIL_CONFIG_RUN_DENO_CONTENT
+                        .replace("{JOB_DIR}", job_dir)
+                        .replace("{CACHE_DIR}", DENO_CACHE_DIR)
+                        .replace("{CLONE_NEWUSER}", &(!disable_nuser).to_string()),
+                )
+                .await?;
+            }
+
+            let child = if !disable_nsjail {
+                Command::new("nsjail")
+                    .current_dir(job_dir)
+                    .envs(reserved_variables)
+                    .args(vec![
+                        "--config",
+                        "run.config.proto",
+                        "--",
+                        "/usr/bin/deno",
+                        "run",
+                        "--unstable",
+                        "--v8-flags=--max-heap-size=2048",
+                        "-A",
+                        "/tmp/main.ts",
+                    ])
+                    .stdout(Stdio::piped())
+                    .stderr(Stdio::piped())
+                    .spawn()?
+            } else {
+                Command::new("/usr/bin/deno")
+                    .current_dir(job_dir)
+                    .envs(reserved_variables)
+                    .args(vec![
+                        "run",
+                        "--unstable",
+                        "--v8-flags=--max-heap-size=2048",
+                        "-A",
+                        "main.ts",
+                    ])
+                    .stdout(Stdio::piped())
+                    .stderr(Stdio::piped())
+                    .spawn()?
+            };
             *status = handle_child(job, db, logs, last_line, timeout, child).await;
         }
     }
