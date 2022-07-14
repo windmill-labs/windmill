@@ -188,7 +188,7 @@ async fn create_resource(
         resource.value,
         resource.description,
         resource.resource_type,
-        resource.is_oauth
+        resource.is_oauth.unwrap_or(false)
     )
     .execute(&mut tx)
     .await?;
