@@ -456,7 +456,7 @@ async fn handle_nondep_job(
             *status = handle_child(job, db, logs, last_line, timeout, child).await;
 
             if status.is_ok() {
-                logs.push_str("\n\n--- PTHON CODE EXECUTION ---\n");
+                logs.push_str("\n\n--- PYTHON CODE EXECUTION ---\n");
 
                 set_logs(logs, job.id, db).await;
 
@@ -494,8 +494,9 @@ async fn handle_nondep_job(
                     None
                 };
                 let ser_args = serde_json::to_string(&args)
-                    .map_err(|e| Error::ExecutionErr(e.to_string()))?
-                    .replace("\\\"", "\\\\\"");
+                    .map_err(|e| Error::ExecutionErr(e.to_string()))?;
+                write_file(job_dir, "args.json", &ser_args).await?;
+
                 let wrapper_content: String = format!(
                     r#"
 import json
@@ -504,7 +505,8 @@ from datetime import datetime
 
 inner_script = __import__("inner")
 
-kwargs = json.loads("""{ser_args}""", strict=False)
+with open("args.json") as f:
+    kwargs = json.load(f, strict=False)
 for k, v in kwargs.items():
     if v == '<function call>':
         kwargs[k] = None
@@ -603,13 +605,14 @@ print(res_json)
                 None
             };
             let ser_args = serde_json::to_string(&args)
-                .map_err(|e| Error::ExecutionErr(e.to_string()))?
-                .replace("\\\"", "\\\\\"");
+                .map_err(|e| Error::ExecutionErr(e.to_string()))?;
+            write_file(job_dir, "args.json", &ser_args).await?;
+
             let spread = sig.args.into_iter().map(|x| x.name).join(",");
             let wrapper_content: String = format!(
                 r#"
 import {{ main }} from "./inner.ts";
-const {{{spread}}} = JSON.parse(`{ser_args}`);
+const {{{spread}}} = JSON.parse(await Deno.readTextFile("args.json"))
 
 async function run() {{
     let res: any = await main({spread});
