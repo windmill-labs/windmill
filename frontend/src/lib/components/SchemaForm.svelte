@@ -6,11 +6,13 @@
 	import Editor from './Editor.svelte'
 	import FieldHeader from './FieldHeader.svelte'
 	import DynamicInputHelpBox from './flows/DynamicInputHelpBox.svelte'
+	import { getCodeInjectionExpr, getDefaultExpr, isCodeInjection } from './flows/utils'
+	import OverlayPropertyPicker from './propertyPicker/OverlayPropertyPicker.svelte'
 	import Toggle from './Toggle.svelte'
 
 	export let inputTransform = false
 	export let schema: Schema
-	export let args: Record<string, InputTransform> = {}
+	export let args: Record<string, any> = {}
 	export let editableSchema = false
 	export let extraLib: string
 	export let isValid: boolean = true
@@ -19,47 +21,26 @@
 	export let previousSchema: Object
 
 	let inputCheck: { [id: string]: boolean } = {}
-	let editor: Editor
-
-	function getDefaultExpr(i: number, key: string = 'myfield') {
-		return `import { previous_result, flow_input, step, variable, resource, params } from 'windmill@${i}'
-
-previous_result.${key}`
-	}
 
 	$: isValid = allTrue(inputCheck) ?? false
-
-	function wasPicked(expr: string | undefined): boolean {
-		if (!expr) {
-			return false
-		}
-		const lines = expr.split('\n')
-		const [returnStatement] = lines.reverse()
-
-		const returnStatementRegex = new RegExp(/\$\{(.*)\}/)
-		if (returnStatementRegex.test(returnStatement)) {
-			const [_, argName] = returnStatement.split(returnStatementRegex)
-
-			return Boolean(argName)
-		}
-		return false
-	}
-
 	$: types = Object.keys(schema?.properties ?? {}).map((prop, index) => {
 		const arg = args[prop]
 
-		const displayed_expr = wasPicked(arg.value)
-
-		if (!displayed_expr) {
-			return arg.type
+		if (isCodeInjection(arg.value)) {
+			args[prop].expr = getCodeInjectionExpr(arg.value)
+			args[prop].type = InputTransform.type.JAVASCRIPT
+			return InputTransform.type.STATIC
+		} else {
+			if (
+				args[prop].type === InputTransform.type.JAVASCRIPT &&
+				types?.at(index) === InputTransform.type.STATIC
+			) {
+				args[prop].type = InputTransform.type.STATIC
+			}
 		}
 
-		args[prop].expr = `\`${arg.value}\``
-		args[prop].type = InputTransform.type.JAVASCRIPT
-		return InputTransform.type.STATIC
+		return arg.type
 	})
-
-	$: console.log(Object.keys(schema?.properties ?? {}).map((p) => args[p]))
 </script>
 
 <div class="w-full">
@@ -67,18 +48,27 @@ previous_result.${key}`
 		{#each Object.keys(schema?.properties ?? {}) as argName, index}
 			{#if inputTransform && args[argName] != undefined}
 				<div class={index > 0 ? 'mt-8' : ''} />
-				<FieldHeader
-					label={argName}
-					format={schema.properties[argName].format}
-					contentEncoding={schema.properties[argName].contentEncoding}
-					required={schema.required.includes(argName)}
-					type={schema.properties[argName].type}
-					itemsType={schema.properties[argName].items}
-				/>
-				<span>
+				<div class="flex justify-between items-center">
+					<div class="flex items-center">
+						<FieldHeader
+							label={argName}
+							format={schema.properties[argName].format}
+							contentEncoding={schema.properties[argName].contentEncoding}
+							required={schema.required.includes(argName)}
+							type={schema.properties[argName].type}
+							itemsType={schema.properties[argName].items}
+						/>
+						{#if types[index] === 'static' && args[argName].type === InputTransform.type.JAVASCRIPT}
+							<span
+								class="bg-green-100 text-green-800 text-sm font-medium mr-2 px-2.5 py-0.5 rounded ml-2"
+							>
+								Dynamic
+							</span>
+						{/if}
+					</div>
 					<Toggle
 						options={{
-							left: { value: InputTransform.type.STATIC },
+							left: { label: '', value: InputTransform.type.STATIC },
 							right: { label: 'Code editor', value: InputTransform.type.JAVASCRIPT }
 						}}
 						bind:value={types[index]}
@@ -88,34 +78,43 @@ previous_result.${key}`
 								args[argName].value = undefined
 							} else {
 								args[argName].expr = undefined
+								args[argName].value = undefined
 							}
 
 							args[argName].type = e.detail
 						}}
-					/></span
-				>
-				<div class="max-w-xs" />
-				{#if types[index] === 'static'}
-					<ArgInput
-						label={argName}
-						bind:description={schema.properties[argName].description}
-						bind:value={args[argName].value}
-						type={schema.properties[argName].type}
-						required={schema.required.includes(argName)}
-						bind:pattern={schema.properties[argName].pattern}
-						bind:valid={inputCheck[argName]}
-						defaultValue={schema.properties[argName].default}
-						bind:enum_={schema.properties[argName].enum}
-						bind:format={schema.properties[argName].format}
-						contentEncoding={schema.properties[argName].contentEncoding}
-						bind:itemsType={schema.properties[argName].items}
-						displayHeader={false}
 					/>
+				</div>
+				<div class="max-w-xs" />
+
+				{#if types[index] === 'static'}
+					<OverlayPropertyPicker
+						{previousSchema}
+						{index}
+						on:select={(event) => {
+							args[argName].value = `\$\{${event.detail}}`
+						}}
+					>
+						<ArgInput
+							label={argName}
+							bind:description={schema.properties[argName].description}
+							bind:value={args[argName].value}
+							type={schema.properties[argName].type}
+							required={schema.required.includes(argName)}
+							bind:pattern={schema.properties[argName].pattern}
+							bind:valid={inputCheck[argName]}
+							defaultValue={schema.properties[argName].default}
+							bind:enum_={schema.properties[argName].enum}
+							bind:format={schema.properties[argName].format}
+							contentEncoding={schema.properties[argName].contentEncoding}
+							bind:itemsType={schema.properties[argName].items}
+							displayHeader={false}
+						/>
+					</OverlayPropertyPicker>
 				{:else if types[index] === InputTransform.type.JAVASCRIPT}
 					{#if args[argName].expr != undefined}
 						<div class="border rounded p-2 mt-2 border-gray-300">
 							<Editor
-								bind:this={editor}
 								bind:code={args[argName].expr}
 								lang="typescript"
 								class="few-lines-editor"

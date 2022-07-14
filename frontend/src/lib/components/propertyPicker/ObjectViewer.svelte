@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { createEventDispatcher } from 'svelte'
-	import { formatValue, getTypeAsString } from './utils'
+	import { formatValue, getTypeAsString } from '../flows/utils'
 
 	export let json: Object
 	export let level = 0
