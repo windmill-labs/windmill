@@ -1425,7 +1425,7 @@ pub async fn handle_flow(
         .ok_or_else(|| Error::InternalErr(format!("requiring a raw flow value")))?
         .to_owned();
     let flow = serde_json::from_value::<FlowValue>(value.to_owned())?;
-    push_next_flow_job(job, flow, db, last_result).await?;
+    push_next_flow_job(job, flow, job.schedule_path.clone(), db, last_result).await?;
     Ok(())
 }
 
@@ -1488,6 +1488,7 @@ async fn transform_input(
 async fn push_next_flow_job(
     job: &QueuedJob,
     flow: FlowValue,
+    schedule_path: Option<String>,
     db: &sqlx::Pool<sqlx::Postgres>,
     last_result: Option<Map<String, serde_json::Value>>,
 ) -> anyhow::Result<()> {
@@ -1551,7 +1552,7 @@ async fn push_next_flow_job(
             &job.created_by,
             job.permissioned_as.to_owned(),
             None,
-            None,
+            schedule_path,
             Some(job.id),
             true,
         )

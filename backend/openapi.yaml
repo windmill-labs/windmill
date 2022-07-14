@@ -1602,7 +1602,8 @@ paths:
                 language:
                   type: string
                   enum: [python3, deno]
-
+                trigger_reco_interval:
+                  type: integer
               required:
                 - path
                 - summary
@@ -2971,6 +2972,8 @@ components:
         language:
           type: string
           enum: [python3, deno]
+        trigger_reco_interval:
+          type: integer
       required:
         - hash
         - path

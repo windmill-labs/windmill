@@ -761,6 +761,7 @@ async fn get_reserved_variables(
         &job.permissioned_as,
         job.script_path.clone(),
         flow_path,
+        job.schedule_path.clone(),
     );
     Ok(variables
         .into_iter()
