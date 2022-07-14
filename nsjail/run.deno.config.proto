@@ -73,6 +73,11 @@ mount {
     is_bind: true
 }
 
+mount {
+    src: "{JOB_DIR}/args.json"
+    dst: "/tmp/args.json"
+    is_bind: true
+}
 
 mount {
     src: "/etc/ssl"
