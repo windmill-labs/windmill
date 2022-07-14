@@ -198,9 +198,9 @@
 				<button
 					class="default-button-secondary mt-1"
 					on:click={() => {
-						resource_type = resource_type.concat('')
+						scopes = scopes.concat('')
 					}}>Add item &nbsp;<Icon data={faPlus} class="mb-1" /></button
-				><span class="ml-2">{(resource_type ?? []).length} item(s)</span>
+				><span class="ml-2">{(scopes ?? []).length} item(s)</span>
 			{:else}
 				<p class="italic text-sm">Pick an oauth app and customize the scopes here</p>
 			{/if}
