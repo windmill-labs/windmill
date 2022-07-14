@@ -114,6 +114,7 @@ struct CompletedJob {
     raw_flow: Option<serde_json::Value>,
     is_flow_step: bool,
     language: Option<ScriptLang>,
+    is_skipped: bool,
 }
 
 #[derive(Deserialize, Clone, Copy)]
@@ -853,7 +854,7 @@ pub enum FlowStatusModule {
     WaitingForPriorSteps,
     WaitingForEvent { event: String },
     WaitingForExecutor { job: Uuid },
-    InProgress { job: Uuid },
+    InProgress { job: Uuid, iter: Option<u8> },
     Success { job: Uuid },
     Failure { job: Uuid },
 }
@@ -883,6 +884,7 @@ struct UnifiedJob {
     flow_status: Option<serde_json::Value>,
     is_flow_step: bool,
     language: Option<ScriptLang>,
+    is_skipped: bool,
 }
 
 impl From<UnifiedJob> for Job {
@@ -914,6 +916,7 @@ impl From<UnifiedJob> for Job {
                 raw_flow: None,
                 is_flow_step: uj.is_flow_step,
                 language: uj.language,
+                is_skipped: uj.is_skipped,
             }),
             "QueuedJob" => Job::QueuedJob(QueuedJob {
                 workspace_id: uj.workspace_id,
@@ -1207,6 +1210,7 @@ pub async fn add_completed_job_error<E: ToString>(
         db,
         &queued_job,
         false,
+        false,
         Some(output_map.clone()),
         format!("{}\n{}", logs, e.to_string()),
     )
@@ -1218,6 +1222,7 @@ pub async fn add_completed_job(
     db: &DB,
     queued_job: &QueuedJob,
     success: bool,
+    skipped: bool,
     result: Option<Map<String, Value>>,
     logs: String,
 ) -> Result<Uuid, Error> {
@@ -1229,8 +1234,8 @@ pub async fn add_completed_job(
             (workspace_id, id, parent_job, created_by, created_at, duration, success, script_hash, script_path, \
         args, result, logs, 
             raw_code, canceled, canceled_by, canceled_reason, job_kind, schedule_path, permissioned_as, flow_status, raw_flow, \
-            is_flow_step)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22) \
+            is_flow_step, is_skipped)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23) \
         ON CONFLICT (id) DO UPDATE SET success = $7, result = $11, logs = concat(cj.logs, $12) \
         RETURNING id",
         queued_job.workspace_id,
@@ -1254,7 +1259,8 @@ pub async fn add_completed_job(
         queued_job.permissioned_as,
         queued_job.flow_status,
         queued_job.raw_flow,
-        queued_job.is_flow_step
+        queued_job.is_flow_step,
+        skipped
     )
     .fetch_one(db)
     .await?;
@@ -1286,7 +1292,8 @@ pub async fn update_flow_status_in_progress(
         step
     ))
     .bind(serde_json::json!(FlowStatusModule::InProgress {
-        job: job_in_progress
+        job: job_in_progress,
+        iter: None,
     }))
     .bind(flow)
     .bind(w_id)
@@ -1299,6 +1306,7 @@ pub async fn update_flow_status_after_job_completion(
     db: &DB,
     job: &QueuedJob,
     success: bool,
+    skipped: bool,
     result: Option<Map<String, Value>>,
 ) -> error::Result<()> {
     tracing::info!("HANDLE FLOW: {job:?} {success} {result:?}");
@@ -1358,6 +1366,7 @@ pub async fn update_flow_status_after_job_completion(
             db,
             &flow_job,
             success,
+            skipped,
             result,
             "Flow job completed".to_string(),
         )
@@ -1476,9 +1485,6 @@ async fn transform_input(
                 mapped.insert(key.to_string(), v);
                 ()
             }
-            _ => Err(error::Error::BadRequest(format!(
-                "impossible to handle unknown input transform"
-            )))?,
         }
     }
 
@@ -1544,6 +1550,7 @@ async fn push_next_flow_job(
                 .collect(),
         )
         .await?; //job.args
+
         let (uuid, mut tx) = push(
             tx,
             &job.workspace_id,

@@ -215,18 +215,26 @@ async fn handle_queued_job(
             )
             .await;
 
+            let skipped = false;
             match execution {
                 Ok(r) => {
-                    add_completed_job(db, &job, true, r.result.clone(), logs).await?;
+                    add_completed_job(db, &job, true, skipped, r.result.clone(), logs).await?;
                     if job.is_flow_step {
-                        update_flow_status_after_job_completion(db, &job, true, r.result).await?;
+                        update_flow_status_after_job_completion(db, &job, true, skipped, r.result)
+                            .await?;
                     }
                 }
                 Err(e) => {
                     let (_, output_map) = add_completed_job_error(db, &job, logs, e).await?;
                     if job.is_flow_step {
-                        update_flow_status_after_job_completion(db, &job, false, Some(output_map))
-                            .await?;
+                        update_flow_status_after_job_completion(
+                            db,
+                            &job,
+                            false,
+                            false,
+                            Some(output_map),
+                        )
+                        .await?;
                     }
                 }
             };
