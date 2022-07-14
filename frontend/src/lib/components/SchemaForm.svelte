@@ -60,9 +60,9 @@
 						/>
 						{#if types[index] === 'static' && args[argName].type === InputTransform.type.JAVASCRIPT}
 							<span
-								class="bg-green-100 text-green-800 text-sm font-medium mr-2 px-2.5 py-0.5 rounded ml-2"
+								class="bg-blue-100 text-blue-800 text-sm font-medium mr-2 px-2.5 py-0.5 rounded ml-2"
 							>
-								Dynamic
+								{'${...}'}
 							</span>
 						{/if}
 					</div>
@@ -92,7 +92,7 @@
 						{previousSchema}
 						{index}
 						on:select={(event) => {
-							args[argName].value = `\$\{${event.detail}}`
+							args[argName].value = `\$\{previous_result.${event.detail}}`
 						}}
 					>
 						<ArgInput

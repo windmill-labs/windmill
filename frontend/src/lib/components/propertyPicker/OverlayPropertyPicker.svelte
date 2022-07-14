@@ -10,7 +10,7 @@
 
 	const dispatch = createEventDispatcher()
 
-	function handleWindowKeyDown(event) {
+	function handleWindowKeyDown(event: { key: string }) {
 		if (event.key === 'Escape') {
 			isOpen = false
 		}
@@ -29,7 +29,7 @@
 		<slot />
 	</div>
 
-	<div slot="content" class="content" let:toggle on:mouseleave={toggle}>
+	<div slot="content" class="content" let:toggle on:mouseleave={toggle} let:close>
 		{#if Boolean(previousSchema)}
 			<PropPicker
 				props={previousSchema}
@@ -39,7 +39,7 @@
 				}}
 			/>
 		{:else}
-			<WarningMessage />
+			<WarningMessage {close} />
 		{/if}
 	</div>
 </Overlay>
