@@ -71,6 +71,12 @@ mount {
 }
 
 mount {
+    src: "{JOB_DIR}/args.json"
+    dst: "/tmp/args.json"
+    is_bind: true
+}
+
+mount {
     src: "{JOB_DIR}/dependencies"
     dst: "/tmp/dependencies"
     is_bind: true
