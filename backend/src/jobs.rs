@@ -1598,9 +1598,10 @@ async fn push_next_flow_job(
         let module = &flow.modules[i];
         let mut tx = db.begin().await?;
         let job_payload = match &module.value {
-            FlowModuleValue::Script { path: script_path } => {
-                script_path_to_payload(script_path, &mut tx, &job.workspace_id).await?
-            }
+            FlowModuleValue::Script {
+                path: script_path,
+                trigger_script: None,
+            } => script_path_to_payload(script_path, &mut tx, &job.workspace_id).await?,
             FlowModuleValue::RawScript(raw_code) => JobPayload::Code(raw_code.clone()),
             FlowModuleValue::ForloopFlow { iterator: _, value } => JobPayload::RawFlow {
                 value: *(*value).to_owned(),

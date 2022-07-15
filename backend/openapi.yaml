@@ -3779,13 +3779,15 @@ components:
       type: object
       properties:
         value:
-          $ref: "#/components/schemas/FlowModuleValue"
+          $ref: "#/components/schemas/FlowValue"
         iterator:
           $ref: "#/components/schemas/InputTransform"
         path:
           type: string
         content:
           type: string
+        trigger_script:
+          type: boolean
         language:
           type: string
           enum:

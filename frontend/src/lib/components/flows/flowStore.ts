@@ -5,6 +5,8 @@ import { userStore, workspaceStore } from '$lib/stores'
 import { derived, get, writable } from 'svelte/store'
 import { createInlineScriptModuleFromPath, getFirstStepSchema, loadSchemaFromModule } from './utils'
 
+export type FlowMode = 'push' | 'pull'
+
 export const flowStore = writable<Flow>(undefined)
 export const schemasStore = writable<Schema[]>([])
 
@@ -48,13 +50,14 @@ export async function pickScript(path: string, step: number) {
 	await loadSchema(step)
 }
 
-export async function createInlineScriptModule(language: FlowModuleValue.language, step: number) {
+export async function createInlineScriptModule(language: FlowModuleValue.language, step: number, mode: FlowMode) {
 	const code = language === FlowModuleValue.language.DENO ? DENO_INIT_CODE : PYTHON_INIT_CODE
 	flowStore.update((flow: Flow) => {
 		flow.value.modules[step].value = {
 			type: FlowModuleValue.type.RAWSCRIPT,
 			content: code,
-			language
+			language,
+			trigger_script: mode === 'pull'
 		}
 
 		return flow

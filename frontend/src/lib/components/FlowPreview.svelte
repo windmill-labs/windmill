@@ -2,12 +2,13 @@
 	import type { Schema } from '$lib/common'
 	import { InputTransform, Job, JobService, type Flow } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
-	import { sendUserToast, truncateRev } from '$lib/utils'
+	import { flowToMode, sendUserToast, truncateRev } from '$lib/utils'
 	import { faChevronDown, faChevronUp } from '@fortawesome/free-solid-svg-icons'
 	import { createEventDispatcher, onDestroy } from 'svelte'
 	import Icon from 'svelte-awesome'
 	import ChevronButton from './ChevronButton.svelte'
 	import DisplayResult from './DisplayResult.svelte'
+	import type { FlowMode } from './flows/flowStore'
 	import FlowStatusViewer from './FlowStatusViewer.svelte'
 	import RunForm from './RunForm.svelte'
 	import Tabs from './Tabs.svelte'
@@ -16,6 +17,7 @@
 	export let i: number
 	export let flow: Flow
 	export let schemas: Schema[] = []
+	export let mode: FlowMode
 
 	export let args: Record<string, any> = {}
 
@@ -34,7 +36,8 @@
 	export async function runPreview(args) {
 		viewPreview = true
 		intervalId && clearInterval(intervalId)
-		const newFlow = tab == 'upto' ? truncateFlow(flow) : extractStep(flow)
+		let newFlow = flowToMode(flow, mode)
+		newFlow = tab == 'upto' ? truncateFlow(newFlow) : extractStep(newFlow)
 		jobId = await JobService.runFlowPreview({
 			workspace: $workspaceStore ?? '',
 			requestBody: {

@@ -1,8 +1,30 @@
 /* eslint-disable @typescript-eslint/explicit-module-boundary-types */
-import type { User } from '$lib/gen'
+import { FlowModuleValue, InputTransform, type Flow, type User } from '$lib/gen'
 import { toast } from '@zerodevx/svelte-toast'
 import type { Schema } from './common'
+import type { FlowMode } from './components/flows/flowStore'
 import type { UserExt } from './stores'
+
+export function flowToMode(flow: Flow, mode: FlowMode): Flow {
+	console.log(mode)
+	if (mode == 'pull') {
+		const newFlow: Flow = JSON.parse(JSON.stringify(flow))
+		const oldModules = newFlow.value.modules.slice(1)
+		newFlow.value.modules = newFlow.value.modules.slice(0, 1)
+		newFlow.value.modules.push({
+			input_transform: oldModules[0].input_transform,
+			value: {
+				type: FlowModuleValue.type.FORLOOPFLOW,
+				iterator: { type: InputTransform.type.JAVASCRIPT, expr: 'result.res1' },
+				value: {
+					modules: oldModules
+				}
+			}
+		})
+		return newFlow
+	}
+	return flow
+}
 
 export function isToday(someDate: Date): boolean {
 	const today = new Date()
@@ -39,9 +61,8 @@ export function displayDate(dateString: string | undefined): string {
 	if (date.toString() === 'Invalid Date') {
 		return ''
 	} else {
-		return `${date.getFullYear()}/${
-			date.getMonth() + 1
-		}/${date.getDate()} at ${date.toLocaleTimeString()}`
+		return `${date.getFullYear()}/${date.getMonth() + 1
+			}/${date.getDate()} at ${date.toLocaleTimeString()}`
 	}
 }
 

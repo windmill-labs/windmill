@@ -92,6 +92,7 @@ pub enum InputTransform {
 pub enum FlowModuleValue {
     Script {
         path: String,
+        trigger_script: Option<bool>,
     },
     ForloopFlow {
         iterator: InputTransform,
@@ -323,6 +324,7 @@ mod tests {
                     input_transform: hm,
                     value: FlowModuleValue::Script {
                         path: "test".to_string(),
+                        trigger_script: Some(false),
                     },
                     stop_after_if_expr: None,
                     skip_if_stopped: Some(false),
