@@ -610,10 +610,13 @@ print(res_json)
             let wrapper_content: String = format!(
                 r#"
 import {{ main }} from "./inner.ts";
-const {{{spread}}} = JSON.parse(await Deno.readTextFile("args.json"))
+
+const args = await Deno.readTextFile("args.json")
+    .then(JSON.parse)
+    .then(({{ {spread} }}) => [ {spread} ])
 
 async function run() {{
-    let res: any = await main({spread});
+    let res: any = await main(...args);
     if (res == undefined) {{
         res = {{}}
     }}
