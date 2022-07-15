@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [1.19.2](https://github.com/windmill-labs/windmill/compare/v1.19.1...v1.19.2) (2022-07-15)
+
+
+### Bug Fixes
+
+* **deno-client:** handle text/plain parse ([18e33bb](https://github.com/windmill-labs/windmill/commit/18e33bb40739fd699323f2da87de8c9696c0ef6c))
+
 ## [1.19.1](https://github.com/windmill-labs/windmill/compare/v1.19.0...v1.19.1) (2022-07-14)
 
 
