@@ -102,7 +102,9 @@ pub async fn initialize_tracing() -> anyhow::Result<()> {
                 .flatten_event(true)
                 .with_span_list(false)
                 .with_current_span(true)
-                .with_filter(filter_fn(|meta| meta.target().starts_with("windmill"))),
+                .with_filter(filter_fn(|meta| {
+                    meta.target().starts_with("windmill") || meta.target().starts_with("sqlx")
+                })),
         );
 
     if std::env::var("TOKIO_CONSOLE")

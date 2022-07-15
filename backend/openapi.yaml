@@ -3123,6 +3123,8 @@ components:
         language:
           type: string
           enum: [python3, deno]
+        is_skipped:
+          type: boolean
       required:
         - id
         - created_by
@@ -3134,6 +3136,7 @@ components:
         - job_kind
         - permissioned_as
         - is_flow_step
+        - is_skipped
 
     Job:
       allOf:

@@ -6,7 +6,6 @@ import type { FlowMode } from './components/flows/flowStore'
 import type { UserExt } from './stores'
 
 export function flowToMode(flow: Flow, mode: FlowMode): Flow {
-	console.log(mode)
 	if (mode == 'pull') {
 		const newFlow: Flow = JSON.parse(JSON.stringify(flow))
 		const oldModules = newFlow.value.modules.slice(1)

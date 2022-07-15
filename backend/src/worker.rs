@@ -620,7 +620,7 @@ async function run() {{
     if (res == undefined) {{
         res = {{}}
     }}
-    if (typeof res !== 'object') {{
+    if (typeof res !== 'object' || Array.isArray(res)) {{
         res = {{ res1: res }}
     }}
 

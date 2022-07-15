@@ -440,6 +440,7 @@ async fn list_jobs(
             "flow_status",
             "is_flow_step",
             "language",
+            "false as is_skipped",
         ],
     );
     let sqlc = list_completed_jobs_query(
@@ -474,6 +475,7 @@ async fn list_jobs(
             "flow_status",
             "is_flow_step",
             "language",
+            "is_skipped",
         ],
     );
     let sql = format!(
@@ -1177,7 +1179,9 @@ pub async fn push<'c>(
         language: ScriptLang
     )
     .fetch_one(&mut tx)
-    .await?;
+    .await
+    .map_err(|e| Error::InternalErr(format!("Could not insert into queue {job_id}: {e}")))?;
+
     let uuid_string = job_id.to_string();
     let uuid_str = uuid_string.as_str();
     let mut hm = HashMap::from([("uuid", uuid_str), ("permissioned_as", &permissioned_as)]);
@@ -1246,6 +1250,7 @@ pub async fn add_completed_job(
     logs: String,
 ) -> Result<Uuid, Error> {
     let result_json = result.map(serde_json::Value::Object);
+    let job_id = queued_job.id.clone();
     let duration = (chrono::Utc::now() - queued_job.started_at.unwrap_or(queued_job.created_at))
         .num_seconds() as i32;
     let _ = sqlx::query!(
@@ -1282,7 +1287,8 @@ pub async fn add_completed_job(
         skipped
     )
     .fetch_one(db)
-    .await?;
+    .await
+    .map_err(|e| Error::InternalErr(format!("Could not add completed job {job_id}: {e}")))?;
     tracing::debug!("Added completed job {}", queued_job.id);
     Ok(queued_job.id)
 }
@@ -1605,7 +1611,12 @@ async fn push_next_flow_job(
             FlowModuleValue::RawScript(raw_code) => JobPayload::Code(raw_code.clone()),
             FlowModuleValue::ForloopFlow { iterator: _, value } => JobPayload::RawFlow {
                 value: *(*value).to_owned(),
-                path: Some(format!("{:?}/{i}", job.script_path)),
+                path: Some(format!(
+                    "{}/{i}",
+                    job.script_path
+                        .as_ref()
+                        .unwrap_or(&"NO_FLOW_PATH".to_owned())
+                )),
             },
             a @ _ => {
                 tracing::info!("Unrecognized module values {:?}", a);
@@ -1811,7 +1822,8 @@ pub async fn delete_job(db: &DB, w_id: &str, job_id: Uuid) -> Result<(), crate::
         job_id
     )
     .fetch_one(db)
-    .await?
+    .await
+    .map_err(|e| Error::InternalErr(format!("Error during deletion of job {job_id}: {e}")))?
     .unwrap_or(0)
         == 1;
     tracing::debug!("Job {job_id} deletion was achieved with success: {job_removed}");
