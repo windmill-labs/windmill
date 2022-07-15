@@ -131,9 +131,14 @@ pub async fn run_worker(
                     )
                     .await;
 
-                    let _ =
-                        postprocess_queued_job(job2.schedule_path, &job2.workspace_id, job2.id, db)
-                            .await;
+                    let _ = postprocess_queued_job(
+                        job2.schedule_path,
+                        job2.script_path,
+                        &job2.workspace_id,
+                        job2.id,
+                        db,
+                    )
+                    .await;
                     tracing::error!(job_id = %job2.id, "Error handling job: {err_string}");
                 };
             }
@@ -231,7 +236,8 @@ async fn handle_queued_job(
                 }
             };
 
-            let _ = postprocess_queued_job(job.schedule_path, &w_id, job_id, db).await;
+            let _ =
+                postprocess_queued_job(job.schedule_path, job.script_path, &w_id, job_id, db).await;
         }
     }
     Ok(())

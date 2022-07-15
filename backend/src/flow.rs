@@ -60,13 +60,13 @@ pub struct NewFlow {
     pub schema: Option<Schema>,
 }
 
-#[derive(Deserialize, Serialize, Debug)]
+#[derive(Deserialize, Serialize, Debug, Clone)]
 pub struct FlowValue {
     pub modules: Vec<FlowModule>,
     pub failure_module: Option<FlowModule>,
 }
 
-#[derive(Deserialize, Serialize, Debug)]
+#[derive(Deserialize, Serialize, Debug, Clone)]
 pub struct FlowModule {
     pub input_transform: HashMap<String, InputTransform>,
     pub value: FlowModuleValue,
@@ -74,7 +74,7 @@ pub struct FlowModule {
     pub skip_if_stopped: Option<bool>,
 }
 
-#[derive(Deserialize, Serialize, Debug)]
+#[derive(Deserialize, Serialize, Debug, Clone)]
 #[serde(
     tag = "type",
     rename_all(serialize = "lowercase", deserialize = "lowercase")
@@ -84,7 +84,7 @@ pub enum InputTransform {
     Javascript { expr: String },
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(
     tag = "type",
     rename_all(serialize = "lowercase", deserialize = "lowercase")
@@ -94,7 +94,7 @@ pub enum FlowModuleValue {
         path: String,
     },
     ForloopFlow {
-        iterand_key: String,
+        iterator: InputTransform,
         value: Box<FlowValue>,
     },
     Flow {
@@ -346,7 +346,9 @@ mod tests {
                     )]
                     .into(),
                     value: FlowModuleValue::ForloopFlow {
-                        iterand_key: "iterand".to_string(),
+                        iterator: InputTransform::Static {
+                            value: serde_json::json!([1, 2, 3]),
+                        },
                         value: Box::new(FlowValue {
                             modules: vec![],
                             failure_module: None,

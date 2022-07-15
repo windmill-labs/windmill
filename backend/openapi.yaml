@@ -3778,6 +3778,10 @@ components:
     FlowModuleValue:
       type: object
       properties:
+        value:
+          $ref: "#/components/schemas/FlowModuleValue"
+        iterator:
+          $ref: "#/components/schemas/InputTransform"
         path:
           type: string
         content:
@@ -3793,6 +3797,7 @@ components:
             - script
             - flow
             - rawscript
+            - forloopflow
       required:
         - type
 
@@ -3844,7 +3849,15 @@ components:
           format: uuid
         event:
           type: string
-
+        iterator:
+          type: object
+          properties:
+            index:
+              type: integer
+            itered:
+              type: array
+              items: {}
+            args: {}
       required: [type]
 
     SlackToken:

@@ -5,6 +5,7 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
+use async_recursion::async_recursion;
 use chrono::Duration;
 
 use sql_builder::prelude::*;
@@ -848,15 +849,33 @@ pub struct FlowStatus {
     pub failure_module: FlowStatusModule,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct Iterator {
+    pub index: u8,
+    pub itered: Vec<Value>,
+    pub args: Map<String, Value>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(tag = "type")]
 pub enum FlowStatusModule {
     WaitingForPriorSteps,
-    WaitingForEvent { event: String },
-    WaitingForExecutor { job: Uuid },
-    InProgress { job: Uuid, iter: Option<u8> },
-    Success { job: Uuid },
-    Failure { job: Uuid },
+    WaitingForEvent {
+        event: String,
+    },
+    WaitingForExecutor {
+        job: Uuid,
+    },
+    InProgress {
+        job: Uuid,
+        iterator: Option<Iterator>,
+    },
+    Success {
+        job: Uuid,
+    },
+    Failure {
+        job: Uuid,
+    },
 }
 
 #[derive(sqlx::FromRow)]
@@ -1278,6 +1297,7 @@ pub async fn get_step_of_flow_status(db: &DB, id: Uuid) -> error::Result<i32> {
     .ok_or_else(|| Error::InternalErr(format!("not found step")))?;
     Ok(r)
 }
+
 pub async fn update_flow_status_in_progress(
     db: &DB,
     w_id: &str,
@@ -1293,7 +1313,7 @@ pub async fn update_flow_status_in_progress(
     ))
     .bind(serde_json::json!(FlowStatusModule::InProgress {
         job: job_in_progress,
-        iter: None,
+        iterator: None,
     }))
     .bind(flow)
     .bind(w_id)
@@ -1302,6 +1322,7 @@ pub async fn update_flow_status_in_progress(
     Ok(())
 }
 
+#[async_recursion]
 pub async fn update_flow_status_after_job_completion(
     db: &DB,
     job: &QueuedJob,
@@ -1334,10 +1355,27 @@ pub async fn update_flow_status_after_job_completion(
         })?;
 
     let last_step = (old_status.step + 1) as usize == old_status.modules.len();
-    let new_status = if success {
-        FlowStatusModule::Success { job: job.id }
-    } else {
-        FlowStatusModule::Failure { job: job.id }
+
+    let (step_counter, new_status) = match &old_status.modules[old_status.step as usize] {
+        module_status @ FlowStatusModule::InProgress {
+            job: _,
+            iterator:
+                Some(Iterator {
+                    index,
+                    itered,
+                    args: _,
+                }),
+        } if (index.to_owned() as usize) < itered.len() - 1 => {
+            (old_status.step, module_status.clone())
+        }
+        _ => {
+            let new_status = if success {
+                FlowStatusModule::Success { job: job.id }
+            } else {
+                FlowStatusModule::Failure { job: job.id }
+            };
+            (old_status.step + 1, new_status)
+        }
     };
 
     sqlx::query(&format!(
@@ -1348,7 +1386,7 @@ pub async fn update_flow_status_after_job_completion(
         old_status.step,
     ))
     .bind(serde_json::json!(new_status))
-    .bind(serde_json::json!(old_status.step + 1))
+    .bind(serde_json::json!(step_counter))
     .bind(flow)
     .execute(&mut tx)
     .await?;
@@ -1366,7 +1404,7 @@ pub async fn update_flow_status_after_job_completion(
             &flow_job,
             success,
             false,
-            result,
+            result.clone(),
             "Flow job completed".to_string(),
         )
         .await?;
@@ -1390,7 +1428,7 @@ pub async fn update_flow_status_after_job_completion(
                     &flow_job,
                     true,
                     matches!(stop_early, StopEarly::Skip),
-                    result,
+                    result.clone(),
                     "Flow job stopped early".to_string(),
                 )
                 .await;
@@ -1400,7 +1438,18 @@ pub async fn update_flow_status_after_job_completion(
     };
 
     if done {
-        postprocess_queued_job(flow_job.schedule_path, &w_id, flow, db).await?;
+        postprocess_queued_job(
+            flow_job.schedule_path,
+            flow_job.script_path,
+            &w_id,
+            flow,
+            db,
+        )
+        .await?;
+
+        if flow_job.parent_job.is_some() {
+            return Ok(update_flow_status_after_job_completion(db, &job, success, result).await?);
+        }
     }
 
     Ok(())
@@ -1408,17 +1457,19 @@ pub async fn update_flow_status_after_job_completion(
 
 pub async fn postprocess_queued_job(
     schedule_path: Option<String>,
+    script_path: Option<String>,
     w_id: &str,
     job_id: Uuid,
     db: &DB,
 ) -> crate::error::Result<()> {
     let _ = delete_job(db, w_id, job_id).await?;
-    schedule_again_if_scheduled(schedule_path, &w_id, db).await?;
+    schedule_again_if_scheduled(schedule_path, script_path, &w_id, db).await?;
     Ok(())
 }
 
 pub async fn schedule_again_if_scheduled(
     schedule_path: Option<String>,
+    script_path: Option<String>,
     w_id: &str,
     db: &DB,
 ) -> crate::error::Result<()> {
@@ -1427,7 +1478,8 @@ pub async fn schedule_again_if_scheduled(
         let schedule = get_schedule_opt(&mut tx, &w_id, &schedule_path)
             .await?
             .unwrap();
-        if schedule.enabled {
+        if schedule.enabled && script_path.is_some() && script_path.unwrap() == schedule.script_path
+        {
             tx = crate::schedule::push_scheduled_job(tx, schedule).await?;
         }
         tx.commit().await?;
@@ -1550,6 +1602,10 @@ async fn push_next_flow_job(
                 script_path_to_payload(script_path, &mut tx, &job.workspace_id).await?
             }
             FlowModuleValue::RawScript(raw_code) => JobPayload::Code(raw_code.clone()),
+            FlowModuleValue::ForloopFlow { iterator: _, value } => JobPayload::RawFlow {
+                value: *(*value).to_owned(),
+                path: Some(format!("{:?}/{i}", job.script_path)),
+            },
             a @ _ => {
                 tracing::info!("Unrecognized module values {:?}", a);
                 Err(Error::BadRequest(format!(
@@ -1570,29 +1626,122 @@ async fn push_next_flow_job(
             &job.created_by,
         )
         .await?;
+        let mut input_transform = module.input_transform.clone();
 
-        let args = transform_input(
-            &job.args,
-            last_result,
-            &module.input_transform,
-            &job.workspace_id,
-            &token,
-            status
+        let (forloop_args, forloop_iterator) = match &module.value {
+            FlowModuleValue::ForloopFlow { iterator, .. } => {
+                let (index_forloop, itered, args) = match &status.modules[i] {
+                    FlowStatusModule::WaitingForPriorSteps { .. } => {
+                        let itered = match iterator {
+                            InputTransform::Static { value } => value.clone(),
+                            InputTransform::Javascript { expr } => {
+                                let result = serde_json::Value::Object(
+                                    last_result.clone().unwrap_or_else(|| Map::new()),
+                                );
+                                eval_timeout(
+                                    expr.to_string(),
+                                    [("result".to_string(), result)].into(),
+                                    None,
+                                    vec![],
+                                )
+                                .await?
+                            }
+                        };
+                        input_transform.insert(
+                            "_index".to_string(),
+                            InputTransform::Static {
+                                value: serde_json::Value::Number(serde_json::Number::from(0)),
+                            },
+                        );
+                        input_transform.insert(
+                            "_values".to_string(),
+                            InputTransform::Static {
+                                value: json!(itered),
+                            },
+                        );
+                        input_transform.insert(
+                            "_value".to_string(),
+                            InputTransform::Static {
+                                value: json!(itered[0]),
+                            },
+                        );
+                        match itered {
+                            serde_json::Value::Array(arr) => (0 as u8, arr, None),
+                            a @ _ => Err(Error::BadRequest(format!(
+                                "Expected an array value, found: {:?}",
+                                a
+                            )))?,
+                        }
+                    }
+                    FlowStatusModule::InProgress {
+                        job: _,
+                        iterator:
+                            Some(Iterator {
+                                index,
+                                itered,
+                                args,
+                            }),
+                    } => {
+                        let mut args = args.clone();
+                        args.insert(
+                            "_index".to_string(),
+                            serde_json::Value::Number(serde_json::Number::from(index.to_owned())),
+                        );
+                        args.insert(
+                            "_value".to_string(),
+                            itered[index.to_owned() as usize].clone(),
+                        );
+                        (index.to_owned() + 1, itered.to_owned(), Some(args))
+                    }
+                    a @ _ => Err(Error::BadRequest(format!(
+                        "Unrecognized module status for ForloopFlow {:?}",
+                        a
+                    )))?,
+                };
+                (args, Some((index_forloop, itered)))
+            }
+            _ => (None, None),
+        };
+
+        let args = if forloop_args.is_some() {
+            forloop_args.map(|x| x.to_owned())
+        } else {
+            let steps = status
                 .modules
                 .into_iter()
                 .map(|x| match x {
                     FlowStatusModule::Success { job } => job.to_string(),
                     _ => "invalid step status".to_string(),
                 })
-                .collect(),
-        )
-        .await?; //job.args
+                .collect();
+
+            let transformed = transform_input(
+                &job.args,
+                last_result,
+                &input_transform,
+                &job.workspace_id,
+                &token,
+                steps,
+            )
+            .await?;
+
+            match (&job.args, &module.value) {
+                (Some(Value::Object(m)), FlowModuleValue::ForloopFlow { .. }) => {
+                    transformed.map(|x| {
+                        let mut args = m.to_owned();
+                        args.extend(x);
+                        args
+                    })
+                }
+                _ => transformed,
+            }
+        };
 
         let (uuid, mut tx) = push(
             tx,
             &job.workspace_id,
             job_payload,
-            args,
+            args.clone(),
             &job.created_by,
             job.permissioned_as.to_owned(),
             None,
@@ -1602,6 +1751,18 @@ async fn push_next_flow_job(
         )
         .await?;
 
+        let new_status = if let Some((index, itered)) = forloop_iterator {
+            serde_json::json!(FlowStatusModule::InProgress {
+                job: uuid,
+                iterator: Some(Iterator {
+                    index: index,
+                    itered: itered,
+                    args: args.unwrap_or_else(|| Map::new()),
+                })
+            })
+        } else {
+            serde_json::json!(FlowStatusModule::WaitingForExecutor { job: uuid })
+        };
         sqlx::query(&format!(
             "UPDATE queue
             SET 
@@ -1609,9 +1770,7 @@ async fn push_next_flow_job(
             WHERE id = $2",
             i
         ))
-        .bind(serde_json::json!(FlowStatusModule::WaitingForExecutor {
-            job: uuid
-        }))
+        .bind(new_status)
         .bind(job.parent_job)
         .execute(&mut tx)
         .await?;
