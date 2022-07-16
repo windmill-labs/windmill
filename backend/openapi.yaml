@@ -3036,7 +3036,15 @@ components:
           format: date-time
         job_kind:
           type: string
-          enum: ["script", "preview", "dependencies", "flow", "flowpreview"]
+          enum:
+            [
+              "script",
+              "preview",
+              "dependencies",
+              "flow",
+              "flowpreview",
+              "script_hub",
+            ]
         schedule_path:
           type: string
         permissioned_as:
@@ -3106,7 +3114,15 @@ components:
           type: string
         job_kind:
           type: string
-          enum: ["script", "preview", "dependencies", "flow", "flowpreview"]
+          enum:
+            [
+              "script",
+              "preview",
+              "dependencies",
+              "flow",
+              "flowpreview",
+              "script_hub",
+            ]
         schedule_path:
           type: string
         permissioned_as:

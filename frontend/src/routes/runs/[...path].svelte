@@ -130,8 +130,14 @@ the bearer token they use has less privilege."
 		<div class="xl:max-w-screen-lg">
 			<Tabs
 				tabs={[
-					['script,dependencies,preview,flow', 'all'],
-					[`${CompletedJob.job_kind.SCRIPT},${CompletedJob.job_kind.FLOW}`, 'runs'],
+					[
+						`${CompletedJob.job_kind.SCRIPT},${CompletedJob.job_kind.FLOW},${CompletedJob.job_kind.DEPENDENCIES},${CompletedJob.job_kind.PREVIEW},${CompletedJob.job_kind.FLOWPREVIEW},${CompletedJob.job_kind.SCRIPT_HUB}`,
+						'all'
+					],
+					[
+						`${CompletedJob.job_kind.SCRIPT},${CompletedJob.job_kind.FLOW},${CompletedJob.job_kind.SCRIPT_HUB}`,
+						'runs'
+					],
 					[`${CompletedJob.job_kind.PREVIEW},${CompletedJob.job_kind.FLOWPREVIEW}`, 'previews'],
 					[CompletedJob.job_kind.DEPENDENCIES, 'dependencies']
 				]}

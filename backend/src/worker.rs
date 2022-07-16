@@ -20,14 +20,16 @@ use crate::{
     db::DB,
     error::Error,
     jobs::{
-        add_completed_job, add_completed_job_error, handle_flow, postprocess_queued_job, pull,
-        update_flow_status_after_job_completion, update_flow_status_in_progress, JobKind,
+        add_completed_job, add_completed_job_error, postprocess_queued_job, pull, JobKind,
         QueuedJob,
     },
     parser::{self, Typ},
     scripts::{ScriptHash, ScriptLang},
     users::{create_token_for_owner, get_email_from_username},
     variables,
+    worker_flow::{
+        handle_flow, update_flow_status_after_job_completion, update_flow_status_in_progress,
+    },
 };
 
 use serde_json::{json, Map, Value};
@@ -636,7 +638,9 @@ run();
             write_file(job_dir, "main.ts", &wrapper_content).await?;
 
             tx.commit().await?;
-            let reserved_variables = get_reserved_variables(job, token, db).await?;
+
+            let mut reserved_variables = get_reserved_variables(job, token, db).await?;
+            reserved_variables.insert("RUST_LOG".to_string(), "info".to_string());
 
             if !disable_nuser {
                 let _ = write_file(

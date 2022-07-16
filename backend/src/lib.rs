@@ -9,15 +9,13 @@ use argon2::Argon2;
 use axum::{handler::Handler, middleware::from_extractor, routing::get, Extension, Router};
 use db::DB;
 use git_version::git_version;
-use hyper::Response;
 use slack_http_verifier::SlackVerifier;
 use std::{net::SocketAddr, sync::Arc};
 use tokio::sync::Mutex;
 use tower::ServiceBuilder;
 use tower_cookies::CookieManagerLayer;
-use tower_http::trace::{MakeSpan, OnResponse, TraceLayer};
-use tracing::{field, Span};
-use tracing_subscriber::{filter::filter_fn, prelude::*, EnvFilter};
+use tower_http::trace::TraceLayer;
+
 extern crate magic_crypt;
 
 extern crate dotenv;
@@ -38,86 +36,30 @@ mod resources;
 mod schedule;
 mod scripts;
 mod static_assets;
+mod tracing_init;
 mod users;
 mod utils;
 mod variables;
 mod worker;
+mod worker_flow;
 mod worker_ping;
 mod workspaces;
 
 use error::Error;
 
 pub use crate::email::EmailSender;
-use crate::{db::UserDB, error::to_anyhow, oauth2::build_oauth_clients, utils::rd_string};
+use crate::{
+    db::UserDB,
+    error::to_anyhow,
+    oauth2::build_oauth_clients,
+    tracing_init::{MyMakeSpan, MyOnResponse},
+    utils::rd_string,
+};
 
 const GIT_VERSION: &str = git_version!(args = ["--tag", "--always"], fallback = "unknown-version");
 pub const DEFAULT_NUM_WORKERS: usize = 3;
 pub const DEFAULT_TIMEOUT: i32 = 300;
 pub const DEFAULT_SLEEP_QUEUE: u64 = 50;
-
-#[derive(Clone)]
-struct MyOnResponse {}
-
-impl<B> OnResponse<B> for MyOnResponse {
-    fn on_response(
-        self,
-        response: &Response<B>,
-        latency: std::time::Duration,
-        _span: &tracing::Span,
-    ) {
-        tracing::info!(
-            latency = %latency.as_millis(),
-            status = ?response.status(),
-            "finished processed request")
-    }
-}
-
-#[derive(Clone)]
-struct MyMakeSpan {}
-
-impl<B> MakeSpan<B> for MyMakeSpan {
-    fn make_span(&mut self, request: &hyper::Request<B>) -> Span {
-        tracing::info_span!(
-            "request",
-            method = %request.method(),
-            uri = %request.uri(),
-            version = ?request.version(),
-            username = field::Empty,
-        )
-    }
-}
-
-pub async fn initialize_tracing() -> anyhow::Result<()> {
-    //let log_level = if std::env::var("RUST_LOG").map(|x| &x == "debug")
-    let ts_base = tracing_subscriber::registry()
-        .with(
-            EnvFilter::from_default_env()
-                //.add_directive("windmill".parse()?)
-                .add_directive("runtime=trace".parse()?)
-                .add_directive("tokio=trace".parse()?),
-        )
-        .with(
-            tracing_subscriber::fmt::layer()
-                .json()
-                .flatten_event(true)
-                .with_span_list(false)
-                .with_current_span(true)
-                .with_filter(filter_fn(|meta| {
-                    meta.target().starts_with("windmill") || meta.target().starts_with("sqlx")
-                })),
-        );
-
-    if std::env::var("TOKIO_CONSOLE")
-        .map(|x| x == "true")
-        .unwrap_or(false)
-    {
-        let console_layer = console_subscriber::spawn();
-        ts_base.with(console_layer).init();
-    } else {
-        ts_base.init();
-    }
-    Ok(())
-}
 
 pub async fn migrate_db(db: &DB) -> anyhow::Result<()> {
     let app_password = std::env::var("APP_USER_PASSWORD").unwrap_or_else(|_| "changeme".to_owned());
@@ -131,6 +73,10 @@ pub async fn connect_db() -> anyhow::Result<DB> {
     let database_url = std::env::var("DATABASE_URL")
         .map_err(|_| Error::BadConfig("DATABASE_URL env var is missing".to_string()))?;
     Ok(db::connect(&database_url).await?)
+}
+
+pub async fn initialize_tracing() -> anyhow::Result<()> {
+    tracing_init::initialize_tracing().await
 }
 
 #[derive(Clone)]
