@@ -31,6 +31,7 @@ pub struct Iterator {
     pub index: u8,
     pub itered: Vec<Value>,
     pub args: Map<String, Value>,
+    pub forloop_jobs: Vec<Uuid>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -49,9 +50,11 @@ pub enum FlowStatusModule {
     },
     Success {
         job: Uuid,
+        forloop_jobs: Option<Vec<Uuid>>,
     },
     Failure {
         job: Uuid,
+        forloop_jobs: Option<Vec<Uuid>>,
     },
 }
 
@@ -91,20 +94,28 @@ pub async fn update_flow_status_after_job_completion(
     let (step_counter, new_status) = match &old_status.modules[old_status.step as usize] {
         module_status @ FlowStatusModule::InProgress {
             job: _,
-            iterator:
-                Some(Iterator {
-                    index,
-                    itered,
-                    args: _,
-                }),
-        } if (index.to_owned() as usize) < itered.len() - 1 => {
+            iterator: Some(Iterator { index, itered, .. }),
+        } if (index.to_owned() as usize) < itered.len() - 1 && success => {
             (old_status.step, module_status.clone())
         }
-        _ => {
+        module_status @ _ => {
+            let forloop_jobs = match module_status {
+                FlowStatusModule::InProgress {
+                    job: _,
+                    iterator: Some(Iterator { forloop_jobs, .. }),
+                } => Some(forloop_jobs.clone()),
+                _ => None,
+            };
             let new_status = if success {
-                FlowStatusModule::Success { job: job.id }
+                FlowStatusModule::Success {
+                    job: job.id,
+                    forloop_jobs,
+                }
             } else {
-                FlowStatusModule::Failure { job: job.id }
+                FlowStatusModule::Failure {
+                    job: job.id,
+                    forloop_jobs,
+                }
             };
             (old_status.step + 1, new_status)
         }
@@ -139,6 +150,30 @@ pub async fn update_flow_status_after_job_completion(
     tx.commit().await?;
 
     let done = if !success || last_step {
+        let result = match new_status {
+            FlowStatusModule::Success {
+                forloop_jobs: Some(jobs),
+                ..
+            } => {
+                let mut results = Vec::new();
+                for job in jobs {
+                    let result = sqlx::query_scalar!(
+                        "SELECT result FROM completed_job WHERE id = $1 AND workspace_id = $2",
+                        job,
+                        w_id,
+                    )
+                    .fetch_optional(db)
+                    .await?
+                    .flatten();
+                    results.push(result.clone());
+                }
+                let mut results_map = serde_json::Map::new();
+                results_map.insert("res1".to_string(), serde_json::json!(results));
+                Some(results_map)
+            }
+            _ => result.clone(),
+        };
+
         add_completed_job(
             db,
             &flow_job,
@@ -396,7 +431,7 @@ async fn push_next_flow_job(
         );
         let (forloop_args, forloop_iterator) = match &module.value {
             FlowModuleValue::ForloopFlow { iterator, .. } => {
-                let (index_forloop, itered, args) = match &status.modules[i] {
+                let (index_forloop, itered, args, forloop_jobs) = match &status.modules[i] {
                     FlowStatusModule::WaitingForPriorSteps { .. } => {
                         let itered = match iterator {
                             InputTransform::Static { value } => value.clone(),
@@ -414,25 +449,26 @@ async fn push_next_flow_job(
                             }
                         };
                         input_transform.insert(
-                            "_index".to_string(),
-                            InputTransform::Static {
-                                value: serde_json::Value::Number(serde_json::Number::from(0)),
-                            },
-                        );
-                        input_transform.insert(
                             "_values".to_string(),
                             InputTransform::Static {
                                 value: json!(itered),
                             },
                         );
                         input_transform.insert(
-                            "_value".to_string(),
+                            "_index".to_string(),
                             InputTransform::Static {
-                                value: json!(itered[0]),
+                                value: serde_json::Value::Number(serde_json::Number::from(0)),
                             },
                         );
+                        input_transform.insert(
+                            "_value".to_string(),
+                            InputTransform::Static {
+                                value: itered[0].clone(),
+                            },
+                        );
+
                         match itered {
-                            serde_json::Value::Array(arr) => (0 as u8, arr, None),
+                            serde_json::Value::Array(arr) => (0 as u8, arr, None, vec![]),
                             a @ _ => Err(Error::BadRequest(format!(
                                 "Expected an array value, found: {:?}",
                                 a
@@ -446,6 +482,7 @@ async fn push_next_flow_job(
                                 index,
                                 itered,
                                 args,
+                                forloop_jobs,
                             }),
                     } => {
                         let mut args = args.clone();
@@ -458,14 +495,19 @@ async fn push_next_flow_job(
                             "_value".to_string(),
                             itered[nindex.to_owned() as usize].clone(),
                         );
-                        (nindex, itered.to_owned(), Some(args))
+                        (
+                            nindex,
+                            itered.to_owned(),
+                            Some(args),
+                            forloop_jobs.to_owned(),
+                        )
                     }
                     a @ _ => Err(Error::BadRequest(format!(
                         "Unrecognized module status for ForloopFlow {:?}",
                         a
                     )))?,
                 };
-                (args, Some((index_forloop, itered)))
+                (args, Some((index_forloop, itered, forloop_jobs)))
             }
             _ => (None, None),
         };
@@ -477,7 +519,10 @@ async fn push_next_flow_job(
                 .modules
                 .into_iter()
                 .map(|x| match x {
-                    FlowStatusModule::Success { job } => job.to_string(),
+                    FlowStatusModule::Success {
+                        job,
+                        forloop_jobs: _,
+                    } => job.to_string(),
                     _ => "invalid step status".to_string(),
                 })
                 .collect();
@@ -518,13 +563,15 @@ async fn push_next_flow_job(
         )
         .await?;
 
-        let new_status = if let Some((index, itered)) = forloop_iterator {
+        let new_status = if let Some((index, itered, mut forloop_jobs)) = forloop_iterator {
+            forloop_jobs.push(uuid.to_owned());
             serde_json::json!(FlowStatusModule::InProgress {
                 job: uuid,
                 iterator: Some(Iterator {
                     index: index,
                     itered: itered,
                     args: args.unwrap_or_else(|| Map::new()),
+                    forloop_jobs: forloop_jobs,
                 })
             })
         } else {

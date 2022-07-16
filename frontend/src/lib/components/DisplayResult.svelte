@@ -3,6 +3,7 @@
 	import github from 'svelte-highlight/styles/github'
 	import { json } from 'svelte-highlight/languages'
 	import TableCustom from './TableCustom.svelte'
+	import { stringify } from 'postcss'
 
 	export let result: any
 
@@ -69,7 +70,9 @@
 					{col}
 				</div>
 				{#each result[col] as item}
-					<div class="px-12 text-left">{item}</div>
+					<div class="px-12 text-left">
+						{typeof item === 'string' ? item : JSON.stringify(item)}
+					</div>
 				{/each}
 			</div>
 		{/each}
