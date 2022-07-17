@@ -31,7 +31,6 @@ pub struct Iterator {
     pub index: u8,
     pub itered: Vec<Value>,
     pub args: Map<String, Value>,
-    pub forloop_jobs: Vec<Uuid>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -47,6 +46,7 @@ pub enum FlowStatusModule {
     InProgress {
         job: Uuid,
         iterator: Option<Iterator>,
+        forloop_jobs: Option<Vec<Uuid>>,
     },
     Success {
         job: Uuid,
@@ -93,17 +93,17 @@ pub async fn update_flow_status_after_job_completion(
 
     let (step_counter, new_status) = match &old_status.modules[old_status.step as usize] {
         module_status @ FlowStatusModule::InProgress {
-            job: _,
             iterator: Some(Iterator { index, itered, .. }),
+            ..
         } if (index.to_owned() as usize) < itered.len() - 1 && success => {
             (old_status.step, module_status.clone())
         }
         module_status @ _ => {
             let forloop_jobs = match module_status {
                 FlowStatusModule::InProgress {
-                    job: _,
-                    iterator: Some(Iterator { forloop_jobs, .. }),
-                } => Some(forloop_jobs.clone()),
+                    forloop_jobs: Some(jobs),
+                    ..
+                } => Some(jobs.clone()),
                 _ => None,
             };
             let new_status = if success {
@@ -258,6 +258,7 @@ pub async fn update_flow_status_in_progress(
     .bind(serde_json::json!(FlowStatusModule::InProgress {
         job: job_in_progress,
         iterator: None,
+        forloop_jobs: None,
     }))
     .bind(flow)
     .bind(w_id)
@@ -449,12 +450,6 @@ async fn push_next_flow_job(
                             }
                         };
                         input_transform.insert(
-                            "_values".to_string(),
-                            InputTransform::Static {
-                                value: json!(itered),
-                            },
-                        );
-                        input_transform.insert(
                             "_index".to_string(),
                             InputTransform::Static {
                                 value: serde_json::Value::Number(serde_json::Number::from(0)),
@@ -476,14 +471,14 @@ async fn push_next_flow_job(
                         }
                     }
                     FlowStatusModule::InProgress {
-                        job: _,
                         iterator:
                             Some(Iterator {
                                 index,
                                 itered,
                                 args,
-                                forloop_jobs,
                             }),
+                        forloop_jobs,
+                        ..
                     } => {
                         let mut args = args.clone();
                         let nindex = index.to_owned() + 1;
@@ -499,7 +494,7 @@ async fn push_next_flow_job(
                             nindex,
                             itered.to_owned(),
                             Some(args),
-                            forloop_jobs.to_owned(),
+                            forloop_jobs.to_owned().unwrap_or_else(Vec::new),
                         )
                     }
                     a @ _ => Err(Error::BadRequest(format!(
@@ -529,7 +524,7 @@ async fn push_next_flow_job(
 
             let transformed = transform_input(
                 &flow_job.args,
-                last_result,
+                last_result.clone(),
                 &input_transform,
                 &flow_job.workspace_id,
                 &token,
@@ -539,11 +534,10 @@ async fn push_next_flow_job(
 
             match (&flow_job.args, &module.value) {
                 (Some(Value::Object(m)), FlowModuleValue::ForloopFlow { .. }) => {
-                    transformed.map(|x| {
-                        let mut args = m.to_owned();
-                        args.extend(x);
-                        args
-                    })
+                    let mut args = transformed.unwrap_or_else(Map::new);
+                    args.extend(m.to_owned());
+                    args.extend(last_result.unwrap());
+                    Some(args)
                 }
                 _ => transformed,
             }
@@ -571,8 +565,8 @@ async fn push_next_flow_job(
                     index: index,
                     itered: itered,
                     args: args.unwrap_or_else(|| Map::new()),
-                    forloop_jobs: forloop_jobs,
-                })
+                }),
+                forloop_jobs: Some(forloop_jobs),
             })
         } else {
             serde_json::json!(FlowStatusModule::WaitingForExecutor { job: uuid })

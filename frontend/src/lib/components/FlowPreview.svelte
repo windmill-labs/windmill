@@ -2,13 +2,13 @@
 	import type { Schema } from '$lib/common'
 	import { InputTransform, Job, JobService, type Flow } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
-	import { flowToMode, sendUserToast, truncateRev } from '$lib/utils'
+	import { sendUserToast, truncateRev } from '$lib/utils'
 	import { faChevronDown, faChevronUp } from '@fortawesome/free-solid-svg-icons'
 	import { createEventDispatcher, onDestroy } from 'svelte'
 	import Icon from 'svelte-awesome'
-	import ChevronButton from './ChevronButton.svelte'
-	import DisplayResult from './DisplayResult.svelte'
+	import FlowJobResult from './FlowJobResult.svelte'
 	import type { FlowMode } from './flows/flowStore'
+	import { flowToMode } from './flows/utils'
 	import FlowStatusViewer from './FlowStatusViewer.svelte'
 	import RunForm from './RunForm.svelte'
 	import Tabs from './Tabs.svelte'
@@ -137,22 +137,7 @@
 			<FlowStatusViewer {job} bind:jobs />
 		</div>
 		{#if `result` in job}
-			<div class="flex flex-col ml-10">
-				<div>
-					<ChevronButton text="result" viewOptions={true}>
-						<div class="text-xs">
-							<DisplayResult result={job.result} />
-						</div>
-					</ChevronButton>
-				</div>
-				<div>
-					<ChevronButton text="logs" viewOptions={true}>
-						<div class="text-xs p-4 bg-gray-50 overflow-auto max-h-lg">
-							<pre class="w-full">{job.logs}</pre>
-						</div>
-					</ChevronButton>
-				</div>
-			</div>
+			<FlowJobResult {job} />
 		{/if}
 	{/if}
 {/if}

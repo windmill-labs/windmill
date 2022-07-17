@@ -3879,6 +3879,10 @@ components:
               type: array
               items: {}
             args: {}
+        forloop_jobs:
+          type: array
+          items:
+            type: string
       required: [type]
 
     SlackToken:

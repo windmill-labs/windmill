@@ -35,7 +35,7 @@
 							],
 							[
 								{
-									title: 'Pull',
+									title: 'Pull (WIP)',
 									desc: 'This flow will trigger itself with a schedule to detect changes in external services using a trigger script.'
 								},
 								'pull'
