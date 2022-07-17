@@ -44,7 +44,6 @@ export async function getResource(path: string, undefinedIfEmpty?: boolean): Pro
             throw e
         }
     }
-
 }
 
 export function getInternalStatePath(suffix?: string): string {
@@ -56,6 +55,9 @@ export function getInternalStatePath(suffix?: string): string {
     const env_schedule_path = Deno.env.get("WM_SCHEDULE_PATH")
     const schedule_path = env_flow_path != undefined && env_flow_path != "" ? `/${env_schedule_path}` : ''
 
+    if (script_path.slice(script_path.length - 1) === '/') {
+        throw Error(`The script path must not end with '/', give a name to your script!`)
+    }
     return `${permissioned_as}/${flow_path}/${script_path}${schedule_path}`
 }
 
