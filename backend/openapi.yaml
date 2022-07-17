@@ -1810,6 +1810,44 @@ paths:
                 type: string
                 format: uuid
 
+  /w/{workspace}/jobs/run_wait_result/p/{path}:
+    post:
+      summary: run script by path
+      operationId: runWaitResultScriptByPath
+      tags:
+        - job
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/ScriptPath"
+        - name: scheduled_for
+          description: when to schedule this job (leave empty for immediate run)
+          in: query
+          schema:
+            type: string
+            format: date-time
+        - name: scheduled_in_secs
+          description: schedule the script to execute in the number of seconds starting now
+          in: query
+          schema:
+            type: number
+            format: int64
+        - $ref: "#/components/parameters/ParentJob"
+
+      requestBody:
+        description: script args
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ScriptArgs"
+
+      responses:
+        "200":
+          description: job result
+          content:
+            application/json:
+              schema: {}
+
   /w/{workspace}/flows/list:
     get:
       summary: list all available flows
