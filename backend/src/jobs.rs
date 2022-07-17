@@ -45,6 +45,10 @@ pub fn workspaced_service() -> Router {
     Router::new()
         .route("/run/f/*script_path", post(run_flow_by_path))
         .route("/run/p/*script_path", post(run_job_by_path))
+        .route(
+            "/run_wait_result/p/*script_path",
+            post(run_wait_result_job_by_path),
+        )
         .route("/run/h/:hash", post(run_job_by_hash))
         .route("/run/preview", post(run_preview_job))
         .route("/run/preview_flow", post(run_preview_flow_job))
@@ -184,6 +188,58 @@ pub async fn run_job_by_path(
     .await?;
     tx.commit().await?;
     Ok((StatusCode::CREATED, uuid.to_string()))
+}
+
+pub async fn run_wait_result_job_by_path(
+    authed: Authed,
+    Extension(user_db): Extension<UserDB>,
+    Path((w_id, script_path)): Path<(String, StripPath)>,
+    axum::Json(args): axum::Json<Option<Map<String, Value>>>,
+    Query(run_query): Query<RunJobQuery>,
+) -> error::JsonResult<serde_json::Value> {
+    let script_path = script_path.to_path();
+    let mut tx = user_db.clone().begin(&authed).await?;
+    let job_payload = script_path_to_payload(script_path, &mut tx, &w_id).await?;
+    let (uuid, tx) = push(
+        tx,
+        &w_id,
+        job_payload,
+        args,
+        &authed.username,
+        owner_to_token_owner(&authed.username, false),
+        run_query.get_scheduled_for(),
+        None,
+        run_query.parent_job,
+        false,
+    )
+    .await?;
+    tx.commit().await?;
+
+    //wait 5 secs top
+    let mut result = None;
+    for i in 0..48 {
+        let mut tx = user_db.clone().begin(&authed).await?;
+
+        result = sqlx::query_scalar!(
+            "SELECT result FROM completed_job WHERE id = $1 AND workspace_id = $2",
+            uuid,
+            &w_id
+        )
+        .fetch_optional(&mut tx)
+        .await?
+        .flatten();
+
+        if result.is_some() {
+            break;
+        }
+        let delay = if i < 10 { 100 } else { 500 };
+        tokio::time::sleep(core::time::Duration::from_millis(delay)).await;
+    }
+    if let Some(result) = result {
+        Ok(Json(result))
+    } else {
+        Err(Error::ExecutionErr("timeout after 20s".to_string()))
+    }
 }
 
 pub async fn script_path_to_payload<'c>(
@@ -664,7 +720,7 @@ async fn cancel_job(
         .await?;
         Ok(id.to_string())
     } else {
-        let (job_o, tx) = get_job_from_id(tx, &w_id, id).await?;
+        let (job_o, tx) = get_job_by_id(tx, &w_id, id).await?;
         tx.commit().await?;
         let err = match job_o {
             Some(Job::CompletedJob(_)) => error::Error::BadRequest(format!(
@@ -782,13 +838,13 @@ async fn get_job(
     Path((w_id, id)): Path<(String, Uuid)>,
 ) -> error::JsonResult<Job> {
     let tx = user_db.begin(&authed).await?;
-    let (job_o, tx) = get_job_from_id(tx, &w_id, id).await?;
+    let (job_o, tx) = get_job_by_id(tx, &w_id, id).await?;
     let job = crate::utils::not_found_if_none(job_o, "Completed Job", id.to_string())?;
     tx.commit().await?;
     Ok(Json(job))
 }
 
-async fn get_job_from_id<'c>(
+async fn get_job_by_id<'c>(
     mut tx: Transaction<'c, Postgres>,
     w_id: &str,
     id: Uuid,
