@@ -9,7 +9,7 @@
 	const dispatch = createEventDispatcher()
 </script>
 
-<div class="columns-2 m-4">
+<div class="flex flex-row space-x-4 m-4">
 	{#each options as [label, val]}
 		<button
 			type="button"
