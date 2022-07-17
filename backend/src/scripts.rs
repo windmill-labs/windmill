@@ -256,6 +256,7 @@ struct ScriptSearch {
     summary: String,
     app: String,
     approved: bool,
+    is_trigger: bool,
 }
 
 async fn list_hub_scripts(

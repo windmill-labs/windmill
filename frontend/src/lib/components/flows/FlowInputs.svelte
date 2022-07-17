@@ -2,9 +2,7 @@
 	import { FlowModuleValue } from '$lib/gen/models/FlowModuleValue'
 
 	import { faCode } from '@fortawesome/free-solid-svg-icons'
-	import type { integer } from 'monaco-languageclient'
 	import { createEventDispatcher } from 'svelte'
-	import type { FlowMode } from './flowStore'
 	import FlowScriptPicker from './pickers/FlowScriptPicker.svelte'
 	import PickHubScript from './pickers/PickHubScript.svelte'
 	import PickScript from './pickers/PickScript.svelte'

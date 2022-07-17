@@ -10,9 +10,12 @@
 
 	type Item = { summary: String; path: String; version?: String }
 
-	const items: Item[] = $hubScripts ?? []
+	let items: Item[]
+	$: items = $hubScripts?.filter((x) => x.is_trigger == isTrigger) ?? []
 	let itemPicker: ItemPicker
 
+	$: console.log('X', $hubScripts)
+	$: console.log(items)
 	const dispatch = createEventDispatcher()
 </script>
 
@@ -29,7 +32,7 @@
 />
 
 <FlowScriptPicker
-	label={'Pick a script from the Hub'}
+	label={`Pick a ${isTrigger ? 'trigger ' : ''} script from the Hub`}
 	icon={faUserGroup}
 	iconColor="text-blue-500"
 	on:click={() => itemPicker.openModal()}
