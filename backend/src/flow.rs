@@ -60,19 +60,21 @@ pub struct NewFlow {
     pub schema: Option<Schema>,
 }
 
-#[derive(Deserialize, Serialize)]
+#[derive(Deserialize, Serialize, Debug, Clone)]
 pub struct FlowValue {
     pub modules: Vec<FlowModule>,
     pub failure_module: Option<FlowModule>,
 }
 
-#[derive(Deserialize, Serialize)]
+#[derive(Deserialize, Serialize, Debug, Clone)]
 pub struct FlowModule {
     pub input_transform: HashMap<String, InputTransform>,
     pub value: FlowModuleValue,
+    pub stop_after_if_expr: Option<String>,
+    pub skip_if_stopped: Option<bool>,
 }
 
-#[derive(Deserialize, Serialize)]
+#[derive(Deserialize, Serialize, Debug, Clone)]
 #[serde(
     tag = "type",
     rename_all(serialize = "lowercase", deserialize = "lowercase")
@@ -80,17 +82,24 @@ pub struct FlowModule {
 pub enum InputTransform {
     Static { value: serde_json::Value },
     Javascript { expr: String },
-    Resource { path: String },
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(
     tag = "type",
     rename_all(serialize = "lowercase", deserialize = "lowercase")
 )]
 pub enum FlowModuleValue {
-    Script { path: String },
-    Flow { path: String },
+    Script {
+        path: String,
+    },
+    ForloopFlow {
+        iterator: InputTransform,
+        value: Box<FlowValue>,
+    },
+    Flow {
+        path: String,
+    },
     RawScript(RawCode),
 }
 
@@ -315,6 +324,8 @@ mod tests {
                     value: FlowModuleValue::Script {
                         path: "test".to_string(),
                     },
+                    stop_after_if_expr: None,
+                    skip_if_stopped: Some(false),
                 },
                 FlowModule {
                     input_transform: HashMap::new(),
@@ -323,6 +334,28 @@ mod tests {
                         language: crate::scripts::ScriptLang::Deno,
                         path: None,
                     }),
+                    stop_after_if_expr: Some("foo = 'bar'".to_string()),
+                    skip_if_stopped: None,
+                },
+                FlowModule {
+                    input_transform: [(
+                        "iterand".to_string(),
+                        InputTransform::Static {
+                            value: serde_json::json!(vec![1, 2, 3]),
+                        },
+                    )]
+                    .into(),
+                    value: FlowModuleValue::ForloopFlow {
+                        iterator: InputTransform::Static {
+                            value: serde_json::json!([1, 2, 3]),
+                        },
+                        value: Box::new(FlowValue {
+                            modules: vec![],
+                            failure_module: None,
+                        }),
+                    },
+                    stop_after_if_expr: Some("previous.res1.isEmpty()".to_string()),
+                    skip_if_stopped: None,
                 },
             ],
             failure_module: Some(FlowModule {
@@ -330,6 +363,8 @@ mod tests {
                 value: FlowModuleValue::Flow {
                     path: "test".to_string(),
                 },
+                stop_after_if_expr: Some("previous.res1.isEmpty()".to_string()),
+                skip_if_stopped: None,
             }),
         };
         println!("{}", serde_json::json!(fv).to_string());

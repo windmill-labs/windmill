@@ -57,52 +57,58 @@
 <svelte:head>
 	{@html github}
 </svelte:head>
-{#if Object.keys(result).length > 0}<div>
-		The result keys are: <b>{Object.keys(result).join(', ')}</b>
-	</div>
-{/if}
-{#if resultKind == 'table-col'}
-	<div class="grid grid-flow-col-dense border border-gray-200 rounded-md ">
-		{#each Object.keys(result) as col}
-			<div class="flex flex-col  min-w-full">
-				<div class="px-12 text-left uppercase border-b bg-gray-50 overflow-hidden rounded-t-md ">
-					{col}
-				</div>
-				{#each result[col] as item}
-					<div class="px-12 text-left">{item}</div>
-				{/each}
-			</div>
-		{/each}
-	</div>
-{:else if resultKind == 'table-row'}<div
-		class="grid grid-flow-col-dense border border-gray-200 rounded-md "
-	>
-		<TableCustom>
-			<tbody slot="body">
-				{#each asListOfList(Object.values(result)[0]) as row}
-					<tr>
-						{#each row as v}
-							<td>{v ?? ''}</td>
+{#if result}
+	{#if Object.keys(result).length > 0}<div>
+			The result keys are: <b>{Object.keys(result).join(', ')}</b>
+		</div>
+	{/if}
+	{#if resultKind == 'table-col'}
+		<div class="grid grid-flow-col-dense border border-gray-200 rounded-md ">
+			{#each Object.keys(result) as col}
+				<div class="flex flex-col  min-w-full">
+					<div class="px-12 text-left uppercase border-b bg-gray-50 overflow-hidden rounded-t-md ">
+						{col}
+					</div>
+					{#if Array.isArray(result[col])}
+						{#each result[col] as item}
+							<div class="px-12 text-left">
+								{typeof item === 'string' ? item : JSON.stringify(item)}
+							</div>
 						{/each}
-					</tr>
-				{/each}
-			</tbody>
-		</TableCustom>
-	</div>
-{:else if resultKind == 'png'}
-	<div class="h-full">
-		Result is an image: <img
-			alt="png rendered"
-			class="w-auto h-full"
-			src="data:image/png;base64,{result.png}"
-		/>
-	</div>
-{:else if resultKind == 'file'}
-	<div>
-		Result is a file: <a
-			download="windmill.file"
-			href="data:application/octet-stream;base64,{result.file}">Download</a
+					{/if}
+				</div>
+			{/each}
+		</div>
+	{:else if resultKind == 'table-row'}<div
+			class="grid grid-flow-col-dense border border-gray-200 rounded-md "
 		>
-	</div>
-{:else}<Highlight language={json} code={JSON.stringify(result, null, 4).replace(/\\n/g, '\n')} />
+			<TableCustom>
+				<tbody slot="body">
+					{#each asListOfList(Object.values(result)[0]) as row}
+						<tr>
+							{#each row as v}
+								<td>{v ?? ''}</td>
+							{/each}
+						</tr>
+					{/each}
+				</tbody>
+			</TableCustom>
+		</div>
+	{:else if resultKind == 'png'}
+		<div class="h-full">
+			Result is an image: <img
+				alt="png rendered"
+				class="w-auto h-full"
+				src="data:image/png;base64,{result.png}"
+			/>
+		</div>
+	{:else if resultKind == 'file'}
+		<div>
+			Result is a file: <a
+				download="windmill.file"
+				href="data:application/octet-stream;base64,{result.file}">Download</a
+			>
+		</div>
+	{:else}<Highlight language={json} code={JSON.stringify(result, null, 4).replace(/\\n/g, '\n')} />
+	{/if}
 {/if}

@@ -7,12 +7,13 @@
 
 	import { CompletedJob, FlowModuleValue, FlowStatusModule, JobService, QueuedJob } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
-	import DisplayResult from './DisplayResult.svelte'
-	import ChevronButton from './ChevronButton.svelte'
 	import JobStatus from './JobStatus.svelte'
+	import FlowJobResult from './FlowJobResult.svelte'
 
 	export let job: QueuedJob | CompletedJob
-	export let jobs: (CompletedJob | undefined)[]
+	export let jobs: (CompletedJob | CompletedJob[] | undefined)[] = []
+
+	let forloop_selected = ''
 
 	function loadResults() {
 		job?.flow_status?.modules?.forEach(async (x, i) => {
@@ -20,10 +21,29 @@
 				(i >= jobs.length && x.type == FlowStatusModule.type.SUCCESS) ||
 				x.type == FlowStatusModule.type.FAILURE
 			) {
-				jobs.push(undefined)
-				jobs[i] = await JobService.getCompletedJob({ workspace: $workspaceStore!, id: x.job! })
+				if (x.forloop_jobs) {
+					const forloop_jobs: CompletedJob[] = []
+
+					for (let j of x.forloop_jobs) {
+						forloop_jobs.push(
+							await JobService.getCompletedJob({ workspace: $workspaceStore!, id: j })
+						)
+					}
+					jobs.push(forloop_jobs)
+				} else {
+					jobs.push(await JobService.getCompletedJob({ workspace: $workspaceStore!, id: x.job! }))
+				}
+				jobs = jobs
 			}
 		})
+	}
+
+	function toCompletedJob(x: any): CompletedJob {
+		return x as CompletedJob
+	}
+
+	function toCompletedJobs(x: any): CompletedJob[] {
+		return x as CompletedJob[]
 	}
 
 	$: $workspaceStore && job && loadResults()
@@ -51,7 +71,7 @@
 		out of <span class="font-medium text-gray-900">{job?.raw_flow?.modules.length}</span>
 		<span class="mt-4" />
 	</p>
-	<ul role="list" class="-mb-8 w-full">
+	<ul class="-mb-8 w-full">
 		{#each job?.raw_flow?.modules ?? [] as mod, i}
 			<li class="w-full">
 				<div class="relative pb-8 w-full">
@@ -112,7 +132,15 @@
 							</div>
 							<div class="text-right text-sm whitespace-nowrap text-gray-500">
 								{job.flow_status?.modules[i].type}
-								{#if job.flow_status?.modules[i].job}
+								{#if job.flow_status?.modules[i].forloop_jobs}
+									{#each job.flow_status?.modules[i].forloop_jobs ?? [] as job}
+										<div class="flex flex-col">
+											<a href="/run/{job}" class="font-medium text-blue-600"
+												>{truncateRev(job ?? '', 10)}</a
+											>
+										</div>
+									{/each}
+								{:else if job.flow_status?.modules[i].job}
 									<a href="/run/{job.flow_status?.modules[i].job}" class="font-medium text-blue-600"
 										>{truncateRev(job.flow_status?.modules[i].job ?? '', 10)}</a
 									>
@@ -120,23 +148,29 @@
 							</div>
 						</div>
 					</div>
-					{#if i < jobs.length && jobs[i] != undefined}
-						<div class="flex flex-col ml-10">
-							<div>
-								<ChevronButton text="result" viewOptions={true}>
-									<div class="text-xs">
-										<DisplayResult result={jobs[i]?.result} />
-									</div>
-								</ChevronButton>
+					{#if jobs[i]}
+						{#if Array.isArray(jobs[i])}
+							<div class="flex flex-col space-y-2">
+								{#each toCompletedJobs(jobs[i]) as job, i}
+									<button
+										class="underline text-blue-600 hover:text-blue-700"
+										on:click={() => {
+											if (forloop_selected == job.id) {
+												forloop_selected = ''
+											} else {
+												forloop_selected = job.id
+											}
+										}}
+										>Iteration: #{i}: {job.id} {forloop_selected == job.id ? '(-)' : '(+)'}</button
+									>
+									{#if forloop_selected == job.id}
+										<svelte:self {job} />
+									{/if}
+								{/each}
 							</div>
-							<div>
-								<ChevronButton text="logs">
-									<div class="text-xs p-4 bg-gray-50 overflow-auto max-h-lg">
-										<pre class="w-full">{jobs[i]?.logs}</pre>
-									</div>
-								</ChevronButton>
-							</div>
-						</div>
+						{:else}
+							<FlowJobResult job={toCompletedJob(jobs[i])} />
+						{/if}
 					{/if}
 				</div>
 			</li>

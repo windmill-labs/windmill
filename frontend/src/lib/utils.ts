@@ -4,6 +4,8 @@ import { toast } from '@zerodevx/svelte-toast'
 import type { Schema } from './common'
 import type { UserExt } from './stores'
 
+
+
 export function isToday(someDate: Date): boolean {
 	const today = new Date()
 	return (
@@ -39,9 +41,8 @@ export function displayDate(dateString: string | undefined): string {
 	if (date.toString() === 'Invalid Date') {
 		return ''
 	} else {
-		return `${date.getFullYear()}/${
-			date.getMonth() + 1
-		}/${date.getDate()} at ${date.toLocaleTimeString()}`
+		return `${date.getFullYear()}/${date.getMonth() + 1
+			}/${date.getDate()} at ${date.toLocaleTimeString()}`
 	}
 }
 

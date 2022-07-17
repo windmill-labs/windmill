@@ -8,6 +8,7 @@
 		faCalendar,
 		faCircle,
 		faClock,
+		faFastForward,
 		faHourglassHalf,
 		faRobot,
 		faTimes,
@@ -130,8 +131,14 @@ the bearer token they use has less privilege."
 		<div class="xl:max-w-screen-lg">
 			<Tabs
 				tabs={[
-					['script,dependencies,preview,flow', 'all'],
-					[`${CompletedJob.job_kind.SCRIPT},${CompletedJob.job_kind.FLOW}`, 'runs'],
+					[
+						`${CompletedJob.job_kind.SCRIPT},${CompletedJob.job_kind.FLOW},${CompletedJob.job_kind.DEPENDENCIES},${CompletedJob.job_kind.PREVIEW},${CompletedJob.job_kind.FLOWPREVIEW},${CompletedJob.job_kind.SCRIPT_HUB}`,
+						'all'
+					],
+					[
+						`${CompletedJob.job_kind.SCRIPT},${CompletedJob.job_kind.FLOW},${CompletedJob.job_kind.SCRIPT_HUB}`,
+						'runs'
+					],
 					[`${CompletedJob.job_kind.PREVIEW},${CompletedJob.job_kind.FLOWPREVIEW}`, 'previews'],
 					[CompletedJob.job_kind.DEPENDENCIES, 'dependencies']
 				]}
@@ -151,12 +158,21 @@ the bearer token they use has less privilege."
 									{:else}
 										<div class="block text-center align-middle pb-3 pt-2 px-6">
 											{#if 'success' in job && job.success}
-												<Icon
-													class="text-green-600"
-													data={check}
-													scale={SMALL_ICON_SCALE}
-													label="Job completed successfully"
-												/>
+												{#if job.is_skipped}
+													<Icon
+														class="text-green-600"
+														data={faFastForward}
+														scale={SMALL_ICON_SCALE}
+														label="Job completed successfully but was skipped"
+													/>
+												{:else}
+													<Icon
+														class="text-green-600"
+														data={check}
+														scale={SMALL_ICON_SCALE}
+														label="Job completed successfully"
+													/>
+												{/if}
 											{:else if 'success' in job}
 												<Icon
 													class="text-red-700"

@@ -13,11 +13,11 @@
 	export let schema: Schema
 	export let args: Record<string, InputTransform> = {}
 	export let editableSchema = false
-	export let extraLib: string
+	export let extraLib: string = 'missing extraLib'
 	export let isValid: boolean = true
 
-	export let i: number
-	export let previousSchema: Object
+	export let i: number | undefined = undefined
+	export let previousSchema: Object | undefined = undefined
 
 	let inputCheck: { [id: string]: boolean } = {}
 	let editor: Editor
@@ -53,7 +53,7 @@ previous_result.${key}`
 						small={true}
 						bind:value={args[argName].type}
 						on:change={(e) => {
-							args[argName].expr = e.detail == 'javascript' ? getDefaultExpr(i) : undefined
+							args[argName].expr = e.detail == 'javascript' ? getDefaultExpr(i ?? -1) : undefined
 						}}
 					/>
 				</div>
@@ -90,7 +90,7 @@ previous_result.${key}`
 								<PropPicker
 									props={previousSchema}
 									on:select={(event) => {
-										editor.setCode(getDefaultExpr(i, event.detail))
+										editor.setCode(getDefaultExpr(i ?? -1, event.detail))
 									}}
 								/>
 							{:else}
