@@ -24,16 +24,18 @@ export function flowToMode(flow: Flow, mode: FlowMode): Flow {
 			triggerModule.skip_if_stopped = true
 		}
 		newFlow.value.modules = newFlow.value.modules.slice(0, 1)
-		newFlow.value.modules.push({
-			input_transform: oldModules[0].input_transform,
-			value: {
-				type: FlowModuleValue.type.FORLOOPFLOW,
-				iterator: { type: InputTransform.type.JAVASCRIPT, expr: 'result.res1' },
+		if (oldModules.length > 0) {
+			newFlow.value.modules.push({
+				input_transform: oldModules[0].input_transform,
 				value: {
-					modules: oldModules
+					type: FlowModuleValue.type.FORLOOPFLOW,
+					iterator: { type: InputTransform.type.JAVASCRIPT, expr: 'result.res1' },
+					value: {
+						modules: oldModules
+					}
 				}
-			}
-		})
+			})
+		}
 		return newFlow
 	}
 	return flow
