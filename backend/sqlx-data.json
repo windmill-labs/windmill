@@ -2095,61 +2095,6 @@
       ]
     }
   },
-  "a8507084c0f45f4c08c0b317d69db26f97295bb2d410e3e5b8da2cd420536145": {
-    "query": "INSERT INTO completed_job as cj\n            (workspace_id, id, parent_job, created_by, created_at, duration, success, script_hash, script_path, args, result, logs, \n            raw_code, canceled, canceled_by, canceled_reason, job_kind, schedule_path, permissioned_as, flow_status, raw_flow, is_flow_step)\n            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22) ON CONFLICT (id) DO UPDATE SET success = $7, result = $11, logs = concat(cj.logs, $12) RETURNING id",
-    "describe": {
-      "columns": [
-        {
-          "ordinal": 0,
-          "name": "id",
-          "type_info": "Uuid"
-        }
-      ],
-      "parameters": {
-        "Left": [
-          "Varchar",
-          "Uuid",
-          "Uuid",
-          "Varchar",
-          "Timestamptz",
-          "Int4",
-          "Bool",
-          "Int8",
-          "Varchar",
-          "Jsonb",
-          "Jsonb",
-          "Text",
-          "Text",
-          "Bool",
-          "Varchar",
-          "Text",
-          {
-            "Custom": {
-              "name": "job_kind",
-              "kind": {
-                "Enum": [
-                  "script",
-                  "preview",
-                  "flow",
-                  "dependencies",
-                  "flowpreview",
-                  "script_hub"
-                ]
-              }
-            }
-          },
-          "Varchar",
-          "Varchar",
-          "Jsonb",
-          "Jsonb",
-          "Bool"
-        ]
-      },
-      "nullable": [
-        false
-      ]
-    }
-  },
   "a98b2d68f023f46ab91167d3147416df672c2aed2ba5ab70e98a9da5fa47255a": {
     "query": "INSERT INTO workspace_settings\n            (workspace_id)\n            VALUES ($1)",
     "describe": {
@@ -2297,6 +2242,62 @@
       "nullable": []
     }
   },
+  "b032ac8a438eb36a61bf5a81a0c41eb10646349e8c79014f83142be35139205c": {
+    "query": "INSERT INTO completed_job as cj\n            (workspace_id, id, parent_job, created_by, created_at, duration, success, script_hash, script_path, args, result, logs, \n            raw_code, canceled, canceled_by, canceled_reason, job_kind, schedule_path, permissioned_as, flow_status, raw_flow, is_flow_step, is_skipped)\n            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23) ON CONFLICT (id) DO UPDATE SET success = $7, result = $11, logs = concat(cj.logs, $12) RETURNING id",
+    "describe": {
+      "columns": [
+        {
+          "ordinal": 0,
+          "name": "id",
+          "type_info": "Uuid"
+        }
+      ],
+      "parameters": {
+        "Left": [
+          "Varchar",
+          "Uuid",
+          "Uuid",
+          "Varchar",
+          "Timestamptz",
+          "Int4",
+          "Bool",
+          "Int8",
+          "Varchar",
+          "Jsonb",
+          "Jsonb",
+          "Text",
+          "Text",
+          "Bool",
+          "Varchar",
+          "Text",
+          {
+            "Custom": {
+              "name": "job_kind",
+              "kind": {
+                "Enum": [
+                  "script",
+                  "preview",
+                  "flow",
+                  "dependencies",
+                  "flowpreview",
+                  "script_hub"
+                ]
+              }
+            }
+          },
+          "Varchar",
+          "Varchar",
+          "Jsonb",
+          "Jsonb",
+          "Bool",
+          "Bool"
+        ]
+      },
+      "nullable": [
+        false
+      ]
+    }
+  },
   "b20977e70ebac7ccbaec5a2a1e940301dd331a5f9a4be67a27cfbff8619ac8f0": {
     "query": "INSERT INTO usr\n            (workspace_id, email, username, is_admin)\n            VALUES ($1, $2, $3, true)",
     "describe": {
@@ -2417,40 +2418,6 @@
       "nullable": [
         false
       ]
-    }
-  },
-  "be33c6eb702c149044650d49b3c50493d7538d590be3f4ff6242fea85c57c667": {
-    "query": "INSERT INTO script (workspace_id, hash, path, parent_hashes, summary, description, content, created_by, schema, is_template, extra_perms, lock, language) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::text::json, $10, $11, $12, $13)",
-    "describe": {
-      "columns": [],
-      "parameters": {
-        "Left": [
-          "Varchar",
-          "Int8",
-          "Varchar",
-          "Int8Array",
-          "Text",
-          "Text",
-          "Text",
-          "Varchar",
-          "Text",
-          "Bool",
-          "Jsonb",
-          "Text",
-          {
-            "Custom": {
-              "name": "script_lang",
-              "kind": {
-                "Enum": [
-                  "python3",
-                  "deno"
-                ]
-              }
-            }
-          }
-        ]
-      },
-      "nullable": []
     }
   },
   "bf1d8e043338867e1da1ed236ff6c85a566d5fd58d4b0d5c3a10454513811ba3": {
@@ -3007,6 +2974,41 @@
           "Text",
           "Text",
           "Text"
+        ]
+      },
+      "nullable": []
+    }
+  },
+  "f503c8f37507c89bf99063f49ef72e2d021898583708e776fc58d99809f4bc3c": {
+    "query": "INSERT INTO script (workspace_id, hash, path, parent_hashes, summary, description, content, created_by, schema, is_template, extra_perms, lock, language, trigger_reco_interval) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::text::json, $10, $11, $12, $13, $14)",
+    "describe": {
+      "columns": [],
+      "parameters": {
+        "Left": [
+          "Varchar",
+          "Int8",
+          "Varchar",
+          "Int8Array",
+          "Text",
+          "Text",
+          "Text",
+          "Varchar",
+          "Text",
+          "Bool",
+          "Jsonb",
+          "Text",
+          {
+            "Custom": {
+              "name": "script_lang",
+              "kind": {
+                "Enum": [
+                  "python3",
+                  "deno"
+                ]
+              }
+            }
+          },
+          "Int4"
         ]
       },
       "nullable": []

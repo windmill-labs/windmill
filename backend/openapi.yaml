@@ -3776,6 +3776,10 @@ components:
             $ref: "#/components/schemas/InputTransform"
         value:
           $ref: "#/components/schemas/FlowModuleValue"
+        stop_after_if_expr:
+          type: string
+        skip_if_stopped:
+          type: boolean
       required:
         - input_transform
         - value
@@ -3805,8 +3809,6 @@ components:
           type: string
         content:
           type: string
-        trigger_script:
-          type: boolean
         language:
           type: string
           enum:

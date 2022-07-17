@@ -65,7 +65,7 @@
 	}
 
 	flowStore.subscribe((flow: Flow) => {
-		$page.url.searchParams.set('state', btoa(JSON.stringify(flow)))
+		$page.url.searchParams.set('state', btoa(JSON.stringify(flowToMode(flow, mode))))
 		history.replaceState({}, '', $page.url)
 	})
 

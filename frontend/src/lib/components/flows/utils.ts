@@ -17,7 +17,12 @@ import type { FlowMode } from './flowStore'
 export function flowToMode(flow: Flow, mode: FlowMode): Flow {
 	if (mode == 'pull') {
 		const newFlow: Flow = JSON.parse(JSON.stringify(flow))
+		const triggerModule = newFlow.value.modules[0]
 		const oldModules = newFlow.value.modules.slice(1)
+		if (triggerModule) {
+			triggerModule.stop_after_if_expr = "result.res1.length == 0"
+			triggerModule.skip_if_stopped = true
+		}
 		newFlow.value.modules = newFlow.value.modules.slice(0, 1)
 		newFlow.value.modules.push({
 			input_transform: oldModules[0].input_transform,
@@ -35,8 +40,8 @@ export function flowToMode(flow: Flow, mode: FlowMode): Flow {
 }
 
 export function flattenForloopFlows(flow: Flow): Flow {
-	let newFlow = JSON.parse(JSON.stringify(flow))
-	if (newFlow.value.modules[0].value.trigger_script) {
+	let newFlow: Flow = JSON.parse(JSON.stringify(flow))
+	if (newFlow.value.modules[1]?.value.type == FlowModuleValue.type.FORLOOPFLOW) {
 		if (newFlow.value.modules.length > 0) {
 			const oldModules = newFlow.value.modules[1].value.value?.modules ?? []
 			newFlow.value.modules = newFlow.value.modules.slice(0, 1)

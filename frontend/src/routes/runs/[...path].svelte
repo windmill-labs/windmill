@@ -8,6 +8,7 @@
 		faCalendar,
 		faCircle,
 		faClock,
+		faFastForward,
 		faHourglassHalf,
 		faRobot,
 		faTimes,
@@ -157,12 +158,21 @@ the bearer token they use has less privilege."
 									{:else}
 										<div class="block text-center align-middle pb-3 pt-2 px-6">
 											{#if 'success' in job && job.success}
-												<Icon
-													class="text-green-600"
-													data={check}
-													scale={SMALL_ICON_SCALE}
-													label="Job completed successfully"
-												/>
+												{#if job.is_skipped}
+													<Icon
+														class="text-green-600"
+														data={faFastForward}
+														scale={SMALL_ICON_SCALE}
+														label="Job completed successfully but was skipped"
+													/>
+												{:else}
+													<Icon
+														class="text-green-600"
+														data={check}
+														scale={SMALL_ICON_SCALE}
+														label="Job completed successfully"
+													/>
+												{/if}
 											{:else if 'success' in job}
 												<Icon
 													class="text-red-700"

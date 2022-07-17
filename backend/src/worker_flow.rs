@@ -129,17 +129,20 @@ pub async fn update_flow_status_after_job_completion(
         new_status
     );
 
-    sqlx::query(&format!(
+    let prev_step = old_status.step;
+    let (stop_early_expr, skip_if_stop_early) = sqlx::query_as::<_, (Option<String>, Option<bool>)>(&format!(
         "UPDATE queue
             SET 
-                flow_status = jsonb_set(jsonb_set(flow_status, '{{modules, {}}}', $1), '{{\"step\"}}', $2)
-            WHERE id = $3",
-        old_status.step,
+                flow_status = jsonb_set(jsonb_set(flow_status, '{{modules, {prev_step}}}', $1), '{{\"step\"}}', $2)
+            WHERE id = $3
+            RETURNING 
+                (raw_flow->'modules'->{prev_step}->>'stop_after_if_expr'), 
+                (raw_flow->'modules'->{prev_step}->>'skip_if_stopped')::bool",
     ))
     .bind(serde_json::json!(new_status))
     .bind(serde_json::json!(step_counter))
     .bind(flow)
-    .execute(&mut tx)
+    .fetch_one(&mut tx)
     .await?;
 
     tracing::info!("UPDATE: {:?}", new_status);
@@ -149,7 +152,14 @@ pub async fn update_flow_status_after_job_completion(
         .ok_or_else(|| Error::InternalErr(format!("requiring flow to be in the queue")))?;
     tx.commit().await?;
 
-    let done = if !success || last_step {
+    let stop_early = success
+        && if let Some(expr) = stop_early_expr {
+            compute_stop_early(expr, result.clone()).await?
+        } else {
+            false
+        };
+
+    let done = if !success || last_step || stop_early {
         let result = match new_status {
             FlowStatusModule::Success {
                 forloop_jobs: Some(jobs),
@@ -174,13 +184,19 @@ pub async fn update_flow_status_after_job_completion(
             _ => result.clone(),
         };
 
+        let logs = if stop_early {
+            "Flow job stopped early".to_string()
+        } else {
+            "Flow job completed".to_string()
+        };
+        tracing::debug!("{skip_if_stop_early:?}");
         add_completed_job(
             db,
             &flow_job,
             success,
-            false,
+            stop_early && skip_if_stop_early.unwrap_or(false),
             result.clone(),
-            "Flow job completed".to_string(),
+            logs,
         )
         .await?;
         true
@@ -196,19 +212,7 @@ pub async fn update_flow_status_after_job_completion(
                 .await;
                 true
             }
-            Ok(StopEarly::Continue) => false,
-            Ok(stop_early) => {
-                let _ = add_completed_job(
-                    db,
-                    &flow_job,
-                    true,
-                    matches!(stop_early, StopEarly::Skip),
-                    result.clone(),
-                    "Flow job stopped early".to_string(),
-                )
-                .await;
-                true
-            }
+            Ok(_) => false,
         }
     };
 
@@ -230,6 +234,20 @@ pub async fn update_flow_status_after_job_completion(
     }
 
     Ok(())
+}
+
+async fn compute_stop_early(
+    expr: String,
+    result: Option<Map<String, Value>>,
+) -> error::Result<bool> {
+    let result = serde_json::Value::Object(result.clone().unwrap_or_else(|| Map::new()));
+    match eval_timeout(expr, [("result".to_string(), result)].into(), None, vec![]).await? {
+        serde_json::Value::Bool(true) => Ok(true),
+        serde_json::Value::Bool(false) => Ok(false),
+        a @ _ => Err(Error::ExecutionErr(format!(
+            "Expected a boolean value, found: {a:?}"
+        ))),
+    }
 }
 
 pub fn init_flow_status(f: &FlowValue) -> FlowStatus {
@@ -335,12 +353,29 @@ async fn transform_input(
     Ok(Some(mapped))
 }
 
-#[derive(Debug)]
-pub enum StopEarly {
-    Skip,
-    Success,
-    Continue,
+#[instrument(level = "trace", skip_all)]
+pub async fn handle_flow(
+    flow_job: &QueuedJob,
+    db: &sqlx::Pool<sqlx::Postgres>,
+    last_result: Option<Map<String, serde_json::Value>>,
+) -> anyhow::Result<()> {
+    let value = flow_job
+        .raw_flow
+        .as_ref()
+        .ok_or_else(|| Error::InternalErr(format!("requiring a raw flow value")))?
+        .to_owned();
+    let flow = serde_json::from_value::<FlowValue>(value.to_owned())?;
+    push_next_flow_job(
+        flow_job,
+        flow,
+        flow_job.schedule_path.clone(),
+        db,
+        last_result,
+    )
+    .await?;
+    Ok(())
 }
+
 #[instrument(level = "trace", skip_all)]
 async fn push_next_flow_job(
     flow_job: &QueuedJob,
@@ -348,37 +383,19 @@ async fn push_next_flow_job(
     schedule_path: Option<String>,
     db: &sqlx::Pool<sqlx::Postgres>,
     last_result: Option<Map<String, serde_json::Value>>,
-) -> anyhow::Result<StopEarly> {
+) -> anyhow::Result<()> {
     let flow_status_json = flow_job.flow_status.as_ref().ok_or_else(|| {
         Error::InternalErr(format!("not found status for flow job {:?}", flow_job.id))
     })?;
     let status = serde_json::from_value::<FlowStatus>(flow_status_json.to_owned())?;
     let i = status.step as usize;
 
-    if i > 0 {
-        let prev_module = &flow.modules[i - 1];
-        if let Some(expr) = prev_module.stop_after_if_expr.clone() {
-            let result =
-                serde_json::Value::Object(last_result.clone().unwrap_or_else(|| Map::new()));
-            match eval_timeout(expr, [("result".to_string(), result)].into(), None, vec![]).await? {
-                serde_json::Value::Bool(true) => {
-                    if let Some(true) = prev_module.skip_if_stopped {
-                        return Ok(StopEarly::Skip);
-                    } else {
-                        return Ok(StopEarly::Success);
-                    }
-                }
-                a @ _ => Error::ExecutionErr(format!("Expected a boolean value, found: {a:?}")),
-            };
-        }
-    }
     if flow.modules.len() > i {
         let module = &flow.modules[i];
         let mut tx = db.begin().await?;
         let job_payload = match &module.value {
             FlowModuleValue::Script {
-                path: script_path,
-                trigger_script: None,
+                path: script_path
             } => script_path_to_payload(script_path, &mut tx, &flow_job.workspace_id).await?,
             FlowModuleValue::RawScript(raw_code) => {
                 let mut raw_code = raw_code.clone();
@@ -585,29 +602,5 @@ async fn push_next_flow_job(
         .await?;
         tx.commit().await?;
     }
-    Ok(StopEarly::Continue)
-}
-
-#[instrument(level = "trace", skip_all)]
-pub async fn handle_flow(
-    flow_job: &QueuedJob,
-    db: &sqlx::Pool<sqlx::Postgres>,
-    last_result: Option<Map<String, serde_json::Value>>,
-) -> anyhow::Result<StopEarly> {
-    let value = flow_job
-        .raw_flow
-        .as_ref()
-        .ok_or_else(|| Error::InternalErr(format!("requiring a raw flow value")))?
-        .to_owned();
-    let flow = serde_json::from_value::<FlowValue>(value.to_owned())?;
-    let stop_early = push_next_flow_job(
-        flow_job,
-        flow,
-        flow_job.schedule_path.clone(),
-        db,
-        last_result,
-    )
-    .await?;
-    tracing::debug!("{:?}", stop_early);
-    Ok(stop_early)
+    Ok(())
 }

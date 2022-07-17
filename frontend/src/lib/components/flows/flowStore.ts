@@ -57,7 +57,6 @@ export async function createInlineScriptModule(language: FlowModuleValue.languag
 			type: FlowModuleValue.type.RAWSCRIPT,
 			content: code,
 			language,
-			trigger_script: mode === 'pull'
 		}
 
 		return flow

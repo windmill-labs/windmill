@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { FlowModuleValue } from '$lib/gen'
+
 	import { faPlus } from '@fortawesome/free-solid-svg-icons'
 	import Icon from 'svelte-awesome'
 	import FlowPreview from './FlowPreview.svelte'
@@ -10,9 +12,7 @@
 
 	let args: Record<string, any> = {}
 	export let mode: FlowMode =
-		$flowStore?.value.modules.length >= 1 && $flowStore?.value.modules[0].value.trigger_script
-			? 'pull'
-			: 'push'
+		$flowStore?.value.modules[1]?.value.type == FlowModuleValue.type.FORLOOPFLOW ? 'pull' : 'push'
 	$: numberOfSteps = $flowStore?.value.modules.length - 1
 </script>
 
