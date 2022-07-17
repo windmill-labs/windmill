@@ -1470,11 +1470,14 @@ paths:
                       type: string
                     approved:
                       type: boolean
+                    is_trigger:
+                      type: boolean
                   required:
                     - id
                     - summary
                     - app
                     - approved
+                    - is_trigger
 
   /scripts/hub/get/{path}:
     get:

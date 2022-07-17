@@ -40,7 +40,7 @@
 />
 
 <FlowScriptPicker
-	label={'Pick a script from your workspace'}
+	label={`Pick a ${isTrigger ? 'trigger ' : ''}script from your workspace`}
 	icon={faUserGroup}
 	iconColor="text-blue-500"
 	on:click={() => itemPicker.openModal()}

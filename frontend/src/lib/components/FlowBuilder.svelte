@@ -25,7 +25,8 @@
 		$hubScripts = scripts.map((x) => ({
 			path: `hub/${x.id}/${x.summary.toLowerCase().replaceAll(/\s+/g, '_')}`,
 			summary: `${x.summary} (${x.app})`,
-			approved: x.approved
+			approved: x.approved,
+			is_trigger: x.is_trigger
 		}))
 	}
 
