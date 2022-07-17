@@ -52,8 +52,8 @@ export async function pickScript(path: string, step: number) {
 
 export async function createInlineScriptModule(language: FlowModuleValue.language, step: number, mode: FlowMode) {
 	const code = language === FlowModuleValue.language.DENO ? (
-		mode === 'pull' ? DENO_INIT_CODE_TRIGGER : DENO_INIT_CODE) : (
-		mode === 'pull' ? PYTHON_INIT_CODE_TRIGGER : PYTHON_INIT_CODE
+		(mode === 'pull' && step == 0) ? DENO_INIT_CODE_TRIGGER : DENO_INIT_CODE) : (
+		(mode === 'pull' && step == 0) ? PYTHON_INIT_CODE_TRIGGER : PYTHON_INIT_CODE
 	)
 	flowStore.update((flow: Flow) => {
 		flow.value.modules[step].value = {
