@@ -128,6 +128,7 @@ pub struct Script {
     pub lock: Option<String>,
     pub lock_error_logs: Option<String>,
     pub language: ScriptLang,
+    pub trigger_reco_interval: Option<i32>,
 }
 
 #[derive(Serialize, Deserialize, sqlx::Type, Debug)]
@@ -154,6 +155,7 @@ pub struct NewScript {
     pub is_template: Option<bool>,
     pub lock: Option<Vec<String>>,
     pub language: ScriptLang,
+    pub trigger_reco_interval: Option<i32>,
 }
 
 #[derive(Deserialize)]
@@ -198,6 +200,7 @@ async fn list_scripts(
             "null as lock",
             "CASE WHEN lock_error_logs IS NOT NULL THEN 'error' ELSE null END as lock_error_logs",
             "language",
+            "trigger_reco_interval",
         ])
         .order_by("created_at", lq.order_desc.unwrap_or(true))
         .and_where("workspace_id = ? OR workspace_id = 'starter'".bind(&w_id))
@@ -404,8 +407,8 @@ async fn create_script(
     //::text::json is to ensure we use serde_json with preserve order
     sqlx::query!(
         "INSERT INTO script (workspace_id, hash, path, parent_hashes, summary, description, content, \
-         created_by, schema, is_template, extra_perms, lock, language) VALUES \
-         ($1, $2, $3, $4, $5, $6, $7, $8, $9::text::json, $10, $11, $12, $13)",
+         created_by, schema, is_template, extra_perms, lock, language, trigger_reco_interval) VALUES \
+         ($1, $2, $3, $4, $5, $6, $7, $8, $9::text::json, $10, $11, $12, $13, $14)",
         &w_id,
         &hash.0,
         ns.path,
@@ -418,7 +421,8 @@ async fn create_script(
         ns.is_template.unwrap_or(false),
         extra_perms,
         lock,
-        ns.language: ScriptLang
+        ns.language: ScriptLang,
+        ns.trigger_reco_interval,
     )
     .execute(&mut tx)
     .await?;

@@ -11,10 +11,12 @@
 		flowStore,
 		loadSchema,
 		pickScript,
-		schemasStore
+		schemasStore,
+		type FlowMode
 	} from './flows/flowStore'
 	import SchemaForm from './SchemaForm.svelte'
 
+	export let mode: FlowMode
 	export let i: number
 	export let mod: FlowModule
 	export let args: Record<string, any> = {}
@@ -39,8 +41,9 @@
 		<div class="p-6">
 			{#if shouldPick}
 				<FlowInputs
+					isTrigger={mode == 'pull' && i == 0}
 					on:pick={(e) => pickScript(e.detail.path, i)}
-					on:new={(e) => createInlineScriptModule(e.detail.language, i)}
+					on:new={(e) => createInlineScriptModule(e.detail.language, i, mode)}
 				/>
 			{/if}
 			{#if mod.value.type === FlowModuleValue.type.RAWSCRIPT}
@@ -75,6 +78,7 @@
 					bind:args
 					bind:flow={$flowStore}
 					{i}
+					{mode}
 					bind:schemas={$schemasStore}
 					on:change={(e) => {
 						addPreviewResult(e.detail.result, i + 1)

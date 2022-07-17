@@ -1,13 +1,18 @@
 <script lang="ts">
+	import { FlowModuleValue } from '$lib/gen'
+
 	import { faPlus } from '@fortawesome/free-solid-svg-icons'
 	import Icon from 'svelte-awesome'
 	import FlowPreview from './FlowPreview.svelte'
 	import CopyFirstStepSchema from './flows/CopyFirstStepSchema.svelte'
-	import { addModule, flowStore } from './flows/flowStore'
+	import { addModule, flowStore, type FlowMode } from './flows/flowStore'
 	import ModuleStep from './ModuleStep.svelte'
+	import RadioButtonV2 from './RadioButtonV2.svelte'
 	import SchemaEditor from './SchemaEditor.svelte'
 
 	let args: Record<string, any> = {}
+	export let mode: FlowMode =
+		$flowStore?.value.modules[1]?.value.type == FlowModuleValue.type.FORLOOPFLOW ? 'pull' : 'push'
 	$: numberOfSteps = $flowStore?.value.modules.length - 1
 </script>
 
@@ -15,6 +20,31 @@
 	<ul class="relative -mt-10">
 		<span class="absolute top-0 left-1/2  h-full w-1 bg-gray-400" aria-hidden="true" />
 		<div class="relative">
+			<li class="flex flex-row flex-shrink max-w-full mx-auto mt-20">
+				<div
+					class="bg-white border border-gray xl-rounded shadow-lg w-full max-w-4xl mx-4 md:mx-auto p4"
+				>
+					<RadioButtonV2
+						options={[
+							[
+								{
+									title: 'Push',
+									desc: 'Trigger this flow through the generated UI, a manual schedule or by calling the associated webhook'
+								},
+								'push'
+							],
+							[
+								{
+									title: 'Pull (WIP)',
+									desc: 'This flow will trigger itself with a schedule to detect changes in external services using a trigger script.'
+								},
+								'pull'
+							]
+						]}
+						bind:value={mode}
+					/>
+				</div>
+			</li>
 			<li class="flex flex-row flex-shrink max-w-full mx-auto mt-20">
 				<div class="bg-white border border-gray xl-rounded shadow-lg w-full mx-4 xl:mx-20">
 					<div
@@ -26,12 +56,12 @@
 					<div class="p-4">
 						<SchemaEditor bind:schema={$flowStore.schema} />
 						<div class="my-4" />
-						<FlowPreview bind:flow={$flowStore} i={numberOfSteps} bind:args />
+						<FlowPreview {mode} bind:flow={$flowStore} i={numberOfSteps} bind:args />
 					</div>
 				</div>
 			</li>
 			{#each $flowStore?.value.modules as mod, i}
-				<ModuleStep bind:mod bind:args {i} />
+				<ModuleStep bind:mod bind:args {i} {mode} />
 			{/each}
 			<li class="relative m-20 ">
 				<div class="relative flex justify-center">

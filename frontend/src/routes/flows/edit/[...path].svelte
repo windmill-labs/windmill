@@ -5,6 +5,7 @@
 	import FlowBuilder from '$lib/components/FlowBuilder.svelte'
 	import { workspaceStore } from '$lib/stores'
 	import { emptySchema } from '$lib/utils'
+	import { flattenForloopFlows } from '$lib/components/flows/utils'
 
 	const initialState = $page.url.searchParams.get('state')
 	let flowLoadedFromUrl = initialState != undefined ? JSON.parse(atob(initialState)) : undefined
@@ -30,6 +31,7 @@
 						workspace: $workspaceStore!,
 						path: flow.path
 				  })
+		flow = flattenForloopFlows(flow)
 		initialPath = flow.path
 	}
 

@@ -52,11 +52,13 @@ export function getInternalStatePath(suffix?: string): string {
     const permissioned_as = Deno.env.get("WM_PERMISSIONED_AS")
     const flow_path = env_flow_path != undefined && env_flow_path != "" ? env_flow_path : 'NO_FLOW_PATH'
     const script_path = suffix ?? (env_job_path != undefined && env_job_path != "" ? env_job_path : 'NO_JOB_PATH')
+    const env_schedule_path = Deno.env.get("WM_SCHEDULE_PATH")
+    const schedule_path = env_flow_path != undefined && env_flow_path != "" ? `/${env_schedule_path}` : ''
 
     if (script_path.slice(script_path.length - 1) === '/') {
         throw Error(`The script path must not end with '/', give a name to your script!`)
     }
-    return `${permissioned_as}/${flow_path}/${script_path}`
+    return `${permissioned_as}/${flow_path}/${script_path}${schedule_path}`
 }
 
 /**

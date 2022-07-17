@@ -1602,7 +1602,8 @@ paths:
                 language:
                   type: string
                   enum: [python3, deno]
-
+                trigger_reco_interval:
+                  type: integer
               required:
                 - path
                 - summary
@@ -2971,6 +2972,8 @@ components:
         language:
           type: string
           enum: [python3, deno]
+        trigger_reco_interval:
+          type: integer
       required:
         - hash
         - path
@@ -3033,7 +3036,15 @@ components:
           format: date-time
         job_kind:
           type: string
-          enum: ["script", "preview", "dependencies", "flow", "flowpreview"]
+          enum:
+            [
+              "script",
+              "preview",
+              "dependencies",
+              "flow",
+              "flowpreview",
+              "script_hub",
+            ]
         schedule_path:
           type: string
         permissioned_as:
@@ -3103,7 +3114,15 @@ components:
           type: string
         job_kind:
           type: string
-          enum: ["script", "preview", "dependencies", "flow", "flowpreview"]
+          enum:
+            [
+              "script",
+              "preview",
+              "dependencies",
+              "flow",
+              "flowpreview",
+              "script_hub",
+            ]
         schedule_path:
           type: string
         permissioned_as:
@@ -3120,6 +3139,8 @@ components:
         language:
           type: string
           enum: [python3, deno]
+        is_skipped:
+          type: boolean
       required:
         - id
         - created_by
@@ -3131,6 +3152,7 @@ components:
         - job_kind
         - permissioned_as
         - is_flow_step
+        - is_skipped
 
     Job:
       allOf:
@@ -3754,6 +3776,10 @@ components:
             $ref: "#/components/schemas/InputTransform"
         value:
           $ref: "#/components/schemas/FlowModuleValue"
+        stop_after_if_expr:
+          type: string
+        skip_if_stopped:
+          type: boolean
       required:
         - input_transform
         - value
@@ -3775,6 +3801,10 @@ components:
     FlowModuleValue:
       type: object
       properties:
+        value:
+          $ref: "#/components/schemas/FlowValue"
+        iterator:
+          $ref: "#/components/schemas/InputTransform"
         path:
           type: string
         content:
@@ -3790,6 +3820,7 @@ components:
             - script
             - flow
             - rawscript
+            - forloopflow
       required:
         - type
 
@@ -3841,7 +3872,19 @@ components:
           format: uuid
         event:
           type: string
-
+        iterator:
+          type: object
+          properties:
+            index:
+              type: integer
+            itered:
+              type: array
+              items: {}
+            args: {}
+        forloop_jobs:
+          type: array
+          items:
+            type: string
       required: [type]
 
     SlackToken:

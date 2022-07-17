@@ -86,7 +86,8 @@ pub fn get_reserved_variables(
     permissioned_as: &str,
     path: Option<String>,
     flow_path: Option<String>,
-) -> [ContextualVariable; 8] {
+    schedule_path: Option<String>,
+) -> [ContextualVariable; 9] {
     [
         ContextualVariable {
             name: "WM_WORKSPACE".to_string(),
@@ -124,6 +125,11 @@ pub fn get_reserved_variables(
             description: "Path of the encapsulating flow if the job is a flow step".to_string()
         },
         ContextualVariable {
+            name: "WM_SCHEDULE_PATH".to_string(),
+            value: schedule_path.unwrap_or_else(|| "".to_string()),
+            description: "Path of the schedule if the job of the step or encapsulating step has been triggered by a schedule".to_string()
+        },
+        ContextualVariable {
             name: "WM_PERMISSIONED_AS".to_string(),
             value: permissioned_as.to_string(),
             description: "Fully Qualified (u/g) owner name of executor of the job".to_string()
@@ -147,6 +153,7 @@ async fn list_contextual_variables(
             format!("u/{username}").as_str(),
             Some("u/user/script_path".to_string()),
             Some("u/user/encapsulating_flow_path".to_string()),
+            Some("u/user/triggering_flow_path".to_string()),
         )
         .to_vec(),
     ))

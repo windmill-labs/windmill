@@ -7,13 +7,16 @@
 	import { onMount } from 'svelte'
 	import SvelteMarkdown from 'svelte-markdown'
 	import FlowEditor from './FlowEditor.svelte'
-	import { flowStore, initFlow } from './flows/flowStore'
+	import { flowStore, initFlow, type FlowMode } from './flows/flowStore'
+	import { flowToMode } from './flows/utils'
 	import Path from './Path.svelte'
 	import Required from './Required.svelte'
 	import ScriptSchema from './ScriptSchema.svelte'
 
 	export let flow: Flow
 	export let initialPath: string = ''
+
+	let mode: FlowMode
 
 	$: step = Number($page.url.searchParams.get('step')) || 1
 
@@ -27,27 +30,29 @@
 	}
 
 	async function saveFlow(): Promise<void> {
+		const newFlow = flowToMode($flowStore, mode)
+
 		if (initialPath === '') {
 			await FlowService.createFlow({
 				workspace: $workspaceStore!,
 				requestBody: {
-					path: flow.path,
-					summary: flow.summary,
-					description: flow.description ?? '',
-					value: flow.value,
-					schema: flow.schema
+					path: newFlow.path,
+					summary: newFlow.summary,
+					description: newFlow.description ?? '',
+					value: newFlow.value,
+					schema: newFlow.schema
 				}
 			})
 		} else {
 			await FlowService.updateFlow({
 				workspace: $workspaceStore!,
-				path: flow.path,
+				path: newFlow.path,
 				requestBody: {
-					path: flow.path,
-					summary: flow.summary,
-					description: flow.description ?? '',
-					value: flow.value,
-					schema: flow.schema
+					path: newFlow.path,
+					summary: newFlow.summary,
+					description: newFlow.description ?? '',
+					value: newFlow.value,
+					schema: newFlow.schema
 				}
 			})
 		}
@@ -60,7 +65,7 @@
 	}
 
 	flowStore.subscribe((flow: Flow) => {
-		$page.url.searchParams.set('state', btoa(JSON.stringify(flow)))
+		$page.url.searchParams.set('state', btoa(JSON.stringify(flowToMode(flow, mode))))
 		history.replaceState({}, '', $page.url)
 	})
 
@@ -192,7 +197,7 @@
 			</div>
 		</div>
 	{:else if step === 2}
-		<FlowEditor />
+		<FlowEditor bind:mode />
 	{:else if step === 3}
 		<ScriptSchema
 			synchronizedHeader={false}
