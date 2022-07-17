@@ -14,8 +14,6 @@
 	$: items = $hubScripts?.filter((x) => x.is_trigger == isTrigger) ?? []
 	let itemPicker: ItemPicker
 
-	$: console.log('X', $hubScripts)
-	$: console.log(items)
 	const dispatch = createEventDispatcher()
 </script>
 

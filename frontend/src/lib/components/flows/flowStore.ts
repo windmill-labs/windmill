@@ -1,6 +1,6 @@
 import type { Schema } from '$lib/common'
 import { FlowModuleValue, ScriptService, type Flow, type FlowModule } from '$lib/gen'
-import { DENO_INIT_CODE, PYTHON_INIT_CODE } from '$lib/script_helpers'
+import { DENO_INIT_CODE, DENO_INIT_CODE_TRIGGER, PYTHON_INIT_CODE, PYTHON_INIT_CODE_TRIGGER } from '$lib/script_helpers'
 import { userStore, workspaceStore } from '$lib/stores'
 import { derived, get, writable } from 'svelte/store'
 import { createInlineScriptModuleFromPath, getFirstStepSchema, loadSchemaFromModule } from './utils'
@@ -51,7 +51,10 @@ export async function pickScript(path: string, step: number) {
 }
 
 export async function createInlineScriptModule(language: FlowModuleValue.language, step: number, mode: FlowMode) {
-	const code = language === FlowModuleValue.language.DENO ? DENO_INIT_CODE : PYTHON_INIT_CODE
+	const code = language === FlowModuleValue.language.DENO ? (
+		mode === 'pull' ? DENO_INIT_CODE_TRIGGER : DENO_INIT_CODE) : (
+		mode === 'pull' ? PYTHON_INIT_CODE_TRIGGER : PYTHON_INIT_CODE
+	)
 	flowStore.update((flow: Flow) => {
 		flow.value.modules[step].value = {
 			type: FlowModuleValue.type.RAWSCRIPT,
