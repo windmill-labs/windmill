@@ -28,7 +28,7 @@
 		"autoprefixer": "^10.4.1",
 		"cssnano": "^5.1.12",
 		"cypress": "^10.3.0",
-		"eslint": "^8.19.0",
+		"eslint": "^8.20.0",
 		"eslint-config-prettier": "^8.3.0",
 		"eslint-plugin-svelte3": "^4.0.0",
 		"openapi-typescript-codegen": "^0.23.0",
