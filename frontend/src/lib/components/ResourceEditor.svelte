@@ -16,6 +16,7 @@
 
 	let path = ''
 	let initialPath = ''
+	let pathError = ''
 
 	let step = 1
 
@@ -126,7 +127,13 @@ A good way to make resources user friendly is to link to a default script for yo
 				<div>
 					<span class="text-purple-500 text-2xs grow">{error ?? ''}</span>
 					<span class="mb-1 font-semibold text-gray-700">Path</span>
-					<Path bind:path {initialPath} namePlaceholder="my/resource">
+					<Path
+						bind:error={pathError}
+						bind:path
+						{initialPath}
+						namePlaceholder="my/resource"
+						kind="resource"
+					>
 						<div slot="ownerToolkit" class="text-gray-700 text-2xs">
 							Resource permissions depend on their path. Select the group <span class="font-mono"
 								>all</span
@@ -195,19 +202,16 @@ A good way to make resources user friendly is to link to a default script for yo
 	</div>
 	<span slot="submission">
 		{#if step === 1}
-			{#if selectedResourceType && path != undefined && path != '' && path.split('/')[2] != ''}
-				<button
-					class="default-button px-4 py-2 font-semibold"
-					on:click={async () => {
-						await loadResourceType()
-						step = 2
-					}}
-				>
-					Next
-				</button>
-			{:else}
-				<button class="default-button-disabled px-4 py-2 font-semibold">Next</button>
-			{/if}
+			<button
+				class="default-button px-4 py-2 font-semibold"
+				on:click={async () => {
+					await loadResourceType()
+					step = 2
+				}}
+				disabled={selectedResourceType == undefined || pathError != ''}
+			>
+				Next
+			</button>
 		{:else}
 			<button
 				class="default-button-secondary px-4 py-2 font-semibold"

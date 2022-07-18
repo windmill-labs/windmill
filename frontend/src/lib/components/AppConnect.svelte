@@ -36,6 +36,9 @@
 	let step = 1
 
 	let no_back = false
+
+	let pathError = ''
+
 	export function open() {
 		step = 1
 		value = ''
@@ -72,27 +75,18 @@
 		} else if (step == 1 && !manual) {
 			window.location.href = `/api/oauth/connect/${resource_type}?scopes=${scopes.join('+')}`
 		} else {
-			let exists = true
-			try {
-				await VariableService.getVariable({
-					workspace: $workspaceStore!,
-					path
-				})
-			} catch (e) {
-				exists = false
-			}
+			let exists = await VariableService.existsVariable({
+				workspace: $workspaceStore!,
+				path
+			})
 			if (exists) {
 				throw Error(`Variable at path ${path} already exists. Delete it or pick another path`)
 			}
-			exists = true
-			try {
-				await ResourceService.getResource({
-					workspace: $workspaceStore!,
-					path
-				})
-			} catch (e) {
-				exists = false
-			}
+			exists = await ResourceService.existsResource({
+				workspace: $workspaceStore!,
+				path
+			})
+
 			if (exists) {
 				throw Error(`Resource at path ${path} already exists. Delete it or pick another path`)
 			}
@@ -235,7 +229,12 @@
 				</div>
 			{/if}
 		{:else}
-			<Path bind:path initialPath={`u/${$userStore?.username ?? ''}/my_${resource_type}`} />
+			<Path
+				bind:error={pathError}
+				bind:path
+				initialPath={`u/${$userStore?.username ?? ''}/my_${resource_type}`}
+				kind="resource"
+			/>
 			<ul class="mt-10 bg-white">
 				<li>
 					1. A secret variable containing the token <span class="font-bold"
@@ -266,7 +265,8 @@
 		<button
 			class="default-button px-4 py-2 font-semibold"
 			class:default-button-disabled={(step == 1 && resource_type == '') ||
-				(step == 2 && value == '')}
+				(step == 2 && value == '') ||
+				(step == 3 && pathError != '')}
 			on:click={next}
 		>
 			{step == 3 ? 'Connect' : 'Next'}

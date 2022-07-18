@@ -32,6 +32,7 @@ pub fn workspaced_service() -> Router {
         .route("/list", get(list_variables))
         .route("/list_contextual", get(list_contextual_variables))
         .route("/get/*path", get(get_variable))
+        .route("/exists/*path", get(exists_variable))
         .route("/update/*path", post(update_variable))
         .route("/delete/*path", delete(delete_variable))
         .route("/create", post(create_variable))
@@ -252,6 +253,24 @@ async fn get_variable(
     };
 
     Ok(Json(r))
+}
+
+async fn exists_variable(
+    Extension(db): Extension<DB>,
+    Path((w_id, path)): Path<(String, StripPath)>,
+) -> JsonResult<bool> {
+    let path = path.to_path();
+
+    let exists = sqlx::query_scalar!(
+        "SELECT EXISTS(SELECT 1 FROM variable WHERE path = $1 AND workspace_id = $2)",
+        path,
+        w_id
+    )
+    .fetch_one(&db)
+    .await?
+    .unwrap_or(false);
+
+    Ok(Json(exists))
 }
 
 async fn create_variable(

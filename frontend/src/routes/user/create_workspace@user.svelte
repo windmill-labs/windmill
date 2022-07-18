@@ -21,13 +21,16 @@
 	$: validateName(id)
 
 	async function validateName(id: string): Promise<void> {
-		try {
-			await WorkspaceService.validateId({ requestBody: { id } })
-			errorId = ''
-		} catch {
+		let exists = await WorkspaceService.existsWorkspace({ requestBody: { id } })
+		if (exists) {
 			errorId = 'id already exists'
+		} else if (id != '' && !/^\w+(-\w+)*$/.test(id)) {
+			errorId = 'id can only contain letters, numbers and dashes and must not finish by a dash'
+		} else {
+			errorId = ''
 		}
 	}
+
 	async function createWorkspace(): Promise<void> {
 		await WorkspaceService.createWorkspace({
 			requestBody: {

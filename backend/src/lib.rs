@@ -79,8 +79,9 @@ pub async fn initialize_tracing() -> anyhow::Result<()> {
     tracing_init::initialize_tracing().await
 }
 
-#[derive(Clone)]
 struct BaseUrl(String);
+
+struct CloudHosted(bool);
 
 pub async fn run_server(
     db: DB,
@@ -115,7 +116,10 @@ pub async fn run_server(
         .layer(Extension(user_db))
         .layer(Extension(auth_cache.clone()))
         .layer(Extension(basic_clients))
-        .layer(Extension(BaseUrl(base_url.to_string())))
+        .layer(Extension(Arc::new(BaseUrl(base_url.to_string()))))
+        .layer(Extension(Arc::new(CloudHosted(
+            std::env::var("CLOUD_HOSTED").is_ok(),
+        ))))
         .layer(Extension(http_client))
         .layer(CookieManagerLayer::new());
     // build our application with a route

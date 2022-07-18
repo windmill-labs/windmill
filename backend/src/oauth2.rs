@@ -597,7 +597,7 @@ async fn slack_command(
     SlackSig { sig, ts }: SlackSig,
     Extension(slack_verifier): Extension<Arc<Option<SlackVerifier>>>,
     Extension(db): Extension<DB>,
-    Extension(base_url): Extension<BaseUrl>,
+    Extension(base_url): Extension<Arc<BaseUrl>>,
     body: Bytes,
 ) -> error::Result<String> {
     let form: SlackCommand = serde_urlencoded::from_bytes(&body)
@@ -651,7 +651,7 @@ async fn slack_command(
             )
             .await?;
             tx.commit().await?;
-            let url = base_url.0;
+            let url = base_url.0.to_owned();
             return Ok(format!("Job launched. See details at {url}/run/{uuid}"));
         }
     }
