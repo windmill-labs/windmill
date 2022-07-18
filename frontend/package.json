@@ -15,7 +15,7 @@
 		"test": "playwright test --config=tests-out/playwright.config.js"
 	},
 	"devDependencies": {
-		"@playwright/test": "^1.23.2",
+		"@playwright/test": "^1.23.4",
 		"@sveltejs/adapter-node": "^1.0.0-next.81",
 		"@sveltejs/adapter-static": "^1.0.0-next.37",
 		"@sveltejs/kit": "next",
