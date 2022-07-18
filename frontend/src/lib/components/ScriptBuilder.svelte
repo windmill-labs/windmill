@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { ScriptService, type Script } from '$lib/gen'
 
-	import { emptySchema, sendUserToast } from '$lib/utils'
+	import { emptySchema, pathIsEmpty, sendUserToast } from '$lib/utils'
 	import { onDestroy } from 'svelte'
 	import ScriptEditor from './ScriptEditor.svelte'
 	import { page } from '$app/stores'
@@ -21,6 +21,8 @@
 
 	export let script: Script
 	export let initialPath: string = ''
+
+	let pathError = ''
 
 	$: {
 		$page.url.searchParams.set('state', btoa(JSON.stringify(script)))
@@ -100,6 +102,7 @@
 					}}>Step 1: Metadata</button
 				>
 				<button
+					disabled={pathError != ''}
 					class="{step === 2
 						? 'default-button-disabled text-gray-700'
 						: 'default-button-secondary'} min-w-max ml-2"
@@ -108,6 +111,7 @@
 					}}>Step 2: Code</button
 				>
 				<button
+					disabled={pathError != ''}
 					class="{step === 3
 						? 'default-button-disabled text-gray-700'
 						: 'default-button-secondary'} min-w-max ml-2"
@@ -119,8 +123,7 @@
 			<div class="flex flex-row-reverse ml-2">
 				{#if step != 3}
 					<button
-						disabled={step == 1 &&
-							(script.path == undefined || script.path == '' || script.path.split('/')[2] == '')}
+						disabled={step == 1 && pathError != ''}
 						class="default-button px-6 max-h-8"
 						on:click={() => {
 							changeStep(step + 1)
@@ -152,7 +155,13 @@
 	<!-- metadata -->
 	{#if step === 1}
 		<div class="grid grid-cols-1 gap-6 max-w-7xl">
-			<Path bind:path={script.path} {initialPath} namePlaceholder="example/my/script">
+			<Path
+				bind:error={pathError}
+				bind:path={script.path}
+				{initialPath}
+				namePlaceholder="example/my/script"
+				kind="script"
+			>
 				<div slot="ownerToolkit" class="text-gray-700 text-2xs">
 					Script permissions depend on their path. Select the group <span class="font-mono"
 						>all</span

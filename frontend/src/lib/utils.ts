@@ -190,6 +190,10 @@ export function elapsedSinceSecs(date: string): number {
 	return Math.round((new Date().getTime() - new Date(date).getTime()) / 1000)
 }
 
+export function pathIsEmpty(path: string): boolean {
+	return path == undefined || path.split('/')[2] == ''
+}
+
 export function groupBy<T>(
 	scripts: T[],
 	toGroup: (t: T) => string,

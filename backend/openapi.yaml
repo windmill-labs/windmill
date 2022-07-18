@@ -379,10 +379,10 @@ paths:
               schema:
                 type: string
 
-  /workspaces/validate_id:
+  /workspaces/exists:
     post:
-      summary: validate id
-      operationId: validateId
+      summary: exists workspace
+      operationId: existsWorkspace
       tags:
         - workspace
       requestBody:
@@ -403,12 +403,12 @@ paths:
           content:
             text/plain:
               schema:
-                type: string
+                type: boolean
 
-  /workspaces/validate_username:
+  /workspaces/exists_username:
     post:
-      summary: validate username
-      operationId: validateUsername
+      summary: exists username
+      operationId: existsUsername
       tags:
         - workspace
       requestBody:
@@ -431,7 +431,7 @@ paths:
           content:
             text/plain:
               schema:
-                type: string
+                type: boolean
 
   /users/email:
     get:
@@ -934,6 +934,23 @@ paths:
               schema:
                 $ref: "#/components/schemas/ListableVariable"
 
+  /w/{workspace}/variables/exists/{path}:
+    get:
+      summary: does variable exists at path
+      operationId: existsVariable
+      tags:
+        - variable
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+      responses:
+        "200":
+          description: variable
+          content:
+            application/json:
+              schema:
+                type: boolean
+
   /w/{workspace}/variables/list:
     get:
       summary: list variables
@@ -1304,6 +1321,23 @@ paths:
               schema:
                 $ref: "#/components/schemas/Resource"
 
+  /w/{workspace}/resources/exists/{path}:
+    get:
+      summary: does resource exists
+      operationId: existsResource
+      tags:
+        - resource
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+      responses:
+        "200":
+          description: does resource exists
+          content:
+            application/json:
+              schema:
+                type: boolean
+
   /w/{workspace}/resources/list:
     get:
       summary: list resources
@@ -1409,6 +1443,23 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ResourceType"
+
+  /w/{workspace}/resources/type/exists/{path}:
+    get:
+      summary: does resource_type exists
+      operationId: existsResourceType
+      tags:
+        - resource
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+      responses:
+        "200":
+          description: does resource_type exist
+          content:
+            application/json:
+              schema:
+                type: boolean
 
   /w/{workspace}/resources/type/list:
     get:
@@ -1731,6 +1782,23 @@ paths:
               schema:
                 $ref: "#/components/schemas/Script"
 
+  /w/{workspace}/scripts/exists/p/{path}:
+    get:
+      summary: exists script by path
+      operationId: existsScriptByPath
+      tags:
+        - script
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/ScriptPath"
+      responses:
+        "200":
+          description: does it exists
+          content:
+            application/json:
+              schema:
+                type: boolean
+
   /w/{workspace}/scripts/get/h/{hash}:
     get:
       summary: get script by hash
@@ -1905,6 +1973,23 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Flow"
+
+  /w/{workspace}/flows/exists/{path}:
+    get:
+      summary: exists flow by path
+      operationId: existsFlowByPath
+      tags:
+        - flow
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/ScriptPath"
+      responses:
+        "200":
+          description: flow details
+          content:
+            application/json:
+              schema:
+                type: boolean
 
   /w/{workspace}/flows/create:
     post:
@@ -2461,6 +2546,23 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Schedule"
+
+  /w/{workspace}/schedules/exists/{path}:
+    get:
+      summary: does schedule exists
+      operationId: existsSchedule
+      tags:
+        - schedule
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+      responses:
+        "200":
+          description: schedule deleted
+          content:
+            application/json:
+              schema:
+                type: boolean
 
   /w/{workspace}/schedules/list:
     get:

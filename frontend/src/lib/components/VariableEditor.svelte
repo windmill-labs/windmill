@@ -27,6 +27,7 @@
 	let modal: Modal
 	let edit = false
 	let initialPath: string
+	let pathError = ''
 
 	export function initNew(): void {
 		variable = {
@@ -122,7 +123,13 @@
 		<div class="flex flex-col gap-2 ">
 			<div>
 				<div class="text-gray-700 mb-0 pb-0">path</div>
-				<Path bind:path {initialPath} namePlaceholder="my/variable" />
+				<Path
+					bind:error={pathError}
+					bind:path
+					{initialPath}
+					namePlaceholder="my/variable"
+					kind="variable"
+				/>
 			</div>
 
 			<label class="block pb-6">
@@ -160,7 +167,7 @@
 				createVariable()
 			}
 		}}
-		disabled={!valid}
+		disabled={!valid || pathError != ''}
 	>
 		{#if edit}
 			Save

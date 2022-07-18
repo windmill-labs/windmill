@@ -28,7 +28,7 @@
 
 	async function validateName(username: string): Promise<void> {
 		try {
-			await WorkspaceService.validateUsername({ requestBody: { id: workspace_id, username } })
+			await WorkspaceService.existsUsername({ requestBody: { id: workspace_id, username } })
 			errorUsername = ''
 		} catch {
 			errorUsername = 'username already exists'

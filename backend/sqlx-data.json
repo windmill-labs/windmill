@@ -62,6 +62,27 @@
       ]
     }
   },
+  "0784bb86a503f02b9ef247a2b83a82ddfa49632552b223a9f4536a449b0a1eb8": {
+    "query": "SELECT EXISTS(SELECT 1 FROM resource WHERE path = $1 AND workspace_id = $2)",
+    "describe": {
+      "columns": [
+        {
+          "ordinal": 0,
+          "name": "exists",
+          "type_info": "Bool"
+        }
+      ],
+      "parameters": {
+        "Left": [
+          "Text",
+          "Text"
+        ]
+      },
+      "nullable": [
+        null
+      ]
+    }
+  },
   "09246e9ff5b2beb61ab51a5f73d980f7638904d5a18a415e52d5e1c94dffd0aa": {
     "query": "SELECT SUM(duration) FROM completed_job WHERE created_by = $1 AND created_at > NOW() - INTERVAL '1200 seconds' AND workspace_id = $2",
     "describe": {
@@ -679,6 +700,27 @@
         ]
       },
       "nullable": []
+    }
+  },
+  "355dcb2cbebd13f0e3bdd4929b9e431b0e6d72716d1c4f9ab6af6adce5b5e4b3": {
+    "query": "SELECT EXISTS(SELECT 1 FROM resource_type WHERE name = $1 AND workspace_id = $2)",
+    "describe": {
+      "columns": [
+        {
+          "ordinal": 0,
+          "name": "exists",
+          "type_info": "Bool"
+        }
+      ],
+      "parameters": {
+        "Left": [
+          "Text",
+          "Text"
+        ]
+      },
+      "nullable": [
+        null
+      ]
     }
   },
   "37d3ee8009055e869941e548a6d5a352053a5d7782f662c34b94706488abccb6": {
@@ -1691,6 +1733,27 @@
       ]
     }
   },
+  "88a3f58a1a315200fdd2e4bb8638246ee21818f8aaaf56f6e9d7ddce1490d886": {
+    "query": "SELECT EXISTS(SELECT 1 FROM variable WHERE path = $1 AND workspace_id = $2)",
+    "describe": {
+      "columns": [
+        {
+          "ordinal": 0,
+          "name": "exists",
+          "type_info": "Bool"
+        }
+      ],
+      "parameters": {
+        "Left": [
+          "Text",
+          "Text"
+        ]
+      },
+      "nullable": [
+        null
+      ]
+    }
+  },
   "88b7589a6416da8be4b26af3bf30fcfcd6aeae7bc5a37e9a735cabbe2691c570": {
     "query": "SELECT login_type::TEXT FROM password WHERE email = $1",
     "describe": {
@@ -2092,6 +2155,27 @@
       },
       "nullable": [
         false
+      ]
+    }
+  },
+  "a38059dc3574da498ce986c916b6d385b1f18d5bd659ef13c43fafa9daff6bda": {
+    "query": "SELECT EXISTS(SELECT 1 FROM flow WHERE path = $1 AND (workspace_id = $2 OR workspace_id = 'starter'))",
+    "describe": {
+      "columns": [
+        {
+          "ordinal": 0,
+          "name": "exists",
+          "type_info": "Bool"
+        }
+      ],
+      "parameters": {
+        "Left": [
+          "Text",
+          "Text"
+        ]
+      },
+      "nullable": [
+        null
       ]
     }
   },
@@ -2931,6 +3015,27 @@
       ]
     }
   },
+  "e587299612077e6de39b5a501aa8a736cae4a21f11853f8ae66a610b4e65f49e": {
+    "query": "SELECT EXISTS(SELECT 1 FROM script WHERE path = $1 AND (workspace_id = $2 OR workspace_id = 'starter') AND\n         created_at = (SELECT max(created_at) FROM script WHERE path = $1 AND (workspace_id = $2 OR workspace_id = 'starter')))",
+    "describe": {
+      "columns": [
+        {
+          "ordinal": 0,
+          "name": "exists",
+          "type_info": "Bool"
+        }
+      ],
+      "parameters": {
+        "Left": [
+          "Text",
+          "Text"
+        ]
+      },
+      "nullable": [
+        null
+      ]
+    }
+  },
   "e94abd39ec51b7e0c48c190d47ed766fd4f401187c3b60b3e599426c95232f7f": {
     "query": "UPDATE queue SET last_ping = $1 WHERE id = $2",
     "describe": {
@@ -2942,6 +3047,27 @@
         ]
       },
       "nullable": []
+    }
+  },
+  "ee99cb974fb35d2d92fa96cecb53b8ad3a729ac710f362dc55a576613b66f9be": {
+    "query": "SELECT EXISTS(SELECT 1 FROM schedule WHERE path = $1 AND workspace_id = $2)",
+    "describe": {
+      "columns": [
+        {
+          "ordinal": 0,
+          "name": "exists",
+          "type_info": "Bool"
+        }
+      ],
+      "parameters": {
+        "Left": [
+          "Text",
+          "Text"
+        ]
+      },
+      "nullable": [
+        null
+      ]
     }
   },
   "f056b5f3e66a764748925f1bfd3180923fde8c7fdf69088d0e4a5555cc049545": {

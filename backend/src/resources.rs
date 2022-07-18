@@ -26,6 +26,7 @@ pub fn workspaced_service() -> Router {
     Router::new()
         .route("/list", get(list_resources))
         .route("/get/*path", get(get_resource))
+        .route("/exists/*path", get(exists_resource))
         .route("/get_value/*path", get(get_resource_value))
         .route("/update/*path", post(update_resource))
         .route("/delete/*path", delete(delete_resource))
@@ -33,6 +34,7 @@ pub fn workspaced_service() -> Router {
         .route("/type/list", get(list_resource_types))
         .route("/type/listnames", get(list_resource_types_names))
         .route("/type/get/:name", get(get_resource_type))
+        .route("/type/exists/:name", get(exists_resource_type))
         .route("/type/update/:name", post(update_resource_type))
         .route("/type/delete/:name", delete(delete_resource_type))
         .route("/type/create", post(create_resource_type))
@@ -148,6 +150,24 @@ async fn get_resource(
 
     let resource = crate::utils::not_found_if_none(resource_o, "Resource", path)?;
     Ok(Json(resource))
+}
+
+async fn exists_resource(
+    Extension(db): Extension<DB>,
+    Path((w_id, path)): Path<(String, StripPath)>,
+) -> JsonResult<bool> {
+    let path = path.to_path();
+
+    let exists = sqlx::query_scalar!(
+        "SELECT EXISTS(SELECT 1 FROM resource WHERE path = $1 AND workspace_id = $2)",
+        path,
+        w_id
+    )
+    .fetch_one(&db)
+    .await?
+    .unwrap_or(false);
+
+    Ok(Json(exists))
 }
 
 async fn get_resource_value(
@@ -323,6 +343,22 @@ async fn get_resource_type(
 
     let resource_type = crate::utils::not_found_if_none(resource_type_o, "ResourceType", name)?;
     Ok(Json(resource_type))
+}
+
+async fn exists_resource_type(
+    Extension(db): Extension<DB>,
+    Path((w_id, name)): Path<(String, String)>,
+) -> JsonResult<bool> {
+    let exists = sqlx::query_scalar!(
+        "SELECT EXISTS(SELECT 1 FROM resource_type WHERE name = $1 AND workspace_id = $2)",
+        name,
+        w_id
+    )
+    .fetch_one(&db)
+    .await?
+    .unwrap_or(false);
+
+    Ok(Json(exists))
 }
 
 async fn create_resource_type(

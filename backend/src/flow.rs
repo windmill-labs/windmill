@@ -20,7 +20,7 @@ use sqlx::FromRow;
 
 use crate::{
     audit::{audit_log, ActionKind},
-    db::UserDB,
+    db::{UserDB, DB},
     error::{Error, JsonResult, Result},
     jobs::RawCode,
     scripts::Schema,
@@ -35,6 +35,7 @@ pub fn workspaced_service() -> Router {
         .route("/update/*path", post(update_flow))
         .route("/archive/*path", post(archive_flow_by_path))
         .route("/get/*path", get(get_flow_by_path))
+        .route("/exists/*path", get(exists_flow_by_path))
 }
 
 #[derive(FromRow, Serialize)]
@@ -269,6 +270,24 @@ async fn get_flow_by_path(
 
     let flow = crate::utils::not_found_if_none(flow_o, "Flow", path)?;
     Ok(Json(flow))
+}
+
+async fn exists_flow_by_path(
+    Extension(db): Extension<DB>,
+    Path((w_id, path)): Path<(String, StripPath)>,
+) -> JsonResult<bool> {
+    let path = path.to_path();
+
+    let exists = sqlx::query_scalar!(
+        "SELECT EXISTS(SELECT 1 FROM flow WHERE path = $1 AND (workspace_id = $2 OR workspace_id = 'starter'))",
+        path,
+        w_id
+    )
+    .fetch_one(&db)
+    .await?
+    .unwrap_or(false);
+
+    Ok(Json(exists))
 }
 
 async fn archive_flow_by_path(

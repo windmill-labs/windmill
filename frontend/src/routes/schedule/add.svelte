@@ -34,6 +34,7 @@
 	let preview: string[] = []
 
 	let path: string = ''
+	let pathError = ''
 
 	const offset = new Date().getTimezoneOffset()
 
@@ -143,7 +144,13 @@
 		{#if !edit}
 			<h2>Save schedule as</h2>
 
-			<Path bind:path {initialPath} namePlaceholder={'my/schedule'}>
+			<Path
+				bind:error={pathError}
+				bind:path
+				{initialPath}
+				namePlaceholder={'my/schedule'}
+				kind="schedule"
+			>
 				<div slot="ownerToolkit" class="text-gray-700 text-2xs">
 					Schedule permissions depend on their path. Select the group <span class="font-mono"
 						>all</span
@@ -213,8 +220,8 @@
 			<div>
 				<button
 					type="submit"
-					disabled={!allowSchedule}
-					class="{allowSchedule ? 'default-button' : 'default-button-disabled'} w-min px-6"
+					disabled={!allowSchedule || pathError != ''}
+					class="default-button w-min px-6"
 					on:click={scheduleScript}
 				>
 					{edit ? 'Save' : 'Schedule'}

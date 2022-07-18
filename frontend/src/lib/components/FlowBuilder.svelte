@@ -3,7 +3,7 @@
 	import { page } from '$app/stores'
 	import { FlowService, ScriptService, type Flow } from '$lib/gen'
 	import { clearPreviewResults, hubScripts, workspaceStore } from '$lib/stores'
-	import { sendUserToast } from '$lib/utils'
+	import { pathIsEmpty, sendUserToast } from '$lib/utils'
 	import { onMount } from 'svelte'
 	import SvelteMarkdown from 'svelte-markdown'
 	import FlowEditor from './FlowEditor.svelte'
@@ -17,6 +17,8 @@
 	export let initialPath: string = ''
 
 	let mode: FlowMode
+
+	let pathError = ''
 
 	$: step = Number($page.url.searchParams.get('step')) || 1
 
@@ -92,6 +94,7 @@
 					}}>Step 1: Metadata</button
 				>
 				<button
+					disabled={pathError != ''}
 					class="{step === 2
 						? 'default-button-disabled text-gray-700'
 						: 'default-button-secondary'} min-w-max ml-2"
@@ -100,6 +103,7 @@
 					}}>Step 2: Flow</button
 				>
 				<button
+					disabled={pathError != ''}
 					class="{step === 3
 						? 'default-button-disabled text-gray-700'
 						: 'default-button-secondary'} min-w-max ml-2"
@@ -111,8 +115,7 @@
 			<div class="flex flex-row-reverse ml-2">
 				{#if step != 3}
 					<button
-						disabled={step == 1 &&
-							(flow.path == undefined || flow.path == '' || flow.path.split('/')[2] == '')}
+						disabled={step == 1 && pathError != ''}
 						class="default-button px-6 max-h-8"
 						on:click={() => {
 							changeStep(step + 1)
@@ -141,7 +144,13 @@
 	<!-- metadata -->
 	{#if step === 1}
 		<div class="grid grid-cols-1 gap-6 max-w-7xl">
-			<Path bind:path={flow.path} {initialPath} namePlaceholder="example/my/flow">
+			<Path
+				bind:error={pathError}
+				bind:path={flow.path}
+				{initialPath}
+				namePlaceholder="example/my/flow"
+				kind="flow"
+			>
 				<div slot="ownerToolkit" class="text-gray-700 text-2xs">
 					Flow permissions depend on their path. Select the group <span class="font-mono">all</span>
 					to share your flow, and <span class="font-mono">user</span> to keep it private.

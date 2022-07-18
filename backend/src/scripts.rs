@@ -17,7 +17,7 @@ use crate::{
     utils::{require_admin, Pagination, StripPath},
 };
 use axum::{
-    extract::{Extension, Path, Query},
+    extract::{Extension, Host, Path, Query},
     routing::{get, post},
     Json, Router,
 };
@@ -51,6 +51,7 @@ pub fn workspaced_service() -> Router {
         .route("/create", post(create_script))
         .route("/archive/p/*path", post(archive_script_by_path))
         .route("/get/p/*path", get(get_script_by_path))
+        .route("/exists/p/*path", get(exists_script_by_path))
         .route("/archive/h/:hash", post(archive_script_by_hash))
         .route("/delete/h/:hash", post(delete_script_by_hash))
         .route("/get/h/:hash", get(get_script_by_hash))
@@ -263,6 +264,7 @@ async fn list_hub_scripts(
     Authed {
         email, username, ..
     }: Authed,
+    Host(host): Host,
 ) -> JsonResult<Vec<ScriptSearch>> {
     let http_client = reqwest::ClientBuilder::new()
         .user_agent("windmill/beta")
@@ -272,6 +274,7 @@ async fn list_hub_scripts(
         .get("https://hub.windmill.dev/searchData?approved=true")
         .header("X-email", email.unwrap_or_else(|| "".to_string()))
         .header("X-username", username)
+        .header("X-hostname", host)
         .send()
         .await
         .map_err(to_anyhow)?
@@ -538,6 +541,24 @@ async fn get_script_by_path(
 
     let script = crate::utils::not_found_if_none(script_o, "Script", path)?;
     Ok(Json(script))
+}
+
+async fn exists_script_by_path(
+    Extension(db): Extension<DB>,
+    Path((w_id, path)): Path<(String, StripPath)>,
+) -> JsonResult<bool> {
+    let path = path.to_path();
+
+    let exists = sqlx::query_scalar!(
+        "SELECT EXISTS(SELECT 1 FROM script WHERE path = $1 AND (workspace_id = $2 OR workspace_id = 'starter') AND
+         created_at = (SELECT max(created_at) FROM script WHERE path = $1 AND (workspace_id = $2 OR workspace_id = 'starter')))",
+         path, w_id
+    )
+    .fetch_one(&db)
+    .await?
+    .unwrap_or(false);
+
+    Ok(Json(exists))
 }
 
 async fn get_script_by_hash_internal<'c>(
