@@ -265,7 +265,7 @@ dependencies = [
  "serde_json",
  "serde_urlencoded",
  "sync_wrapper",
- "tokio 1.19.2",
+ "tokio 1.20.0",
  "tower",
  "tower-http",
  "tower-layer",
@@ -518,7 +518,7 @@ dependencies = [
  "serde",
  "serde_json",
  "thread_local",
- "tokio 1.19.2",
+ "tokio 1.20.0",
  "tokio-stream",
  "tonic",
  "tracing",
@@ -1273,7 +1273,7 @@ dependencies = [
  "http",
  "indexmap",
  "slab",
- "tokio 1.19.2",
+ "tokio 1.20.0",
  "tokio-util 0.7.3",
  "tracing",
 ]
@@ -1501,7 +1501,7 @@ dependencies = [
  "itoa 1.0.2",
  "pin-project-lite 0.2.9",
  "socket2 0.4.4",
- "tokio 1.19.2",
+ "tokio 1.20.0",
  "tower-service",
  "tracing",
  "want",
@@ -1515,7 +1515,7 @@ checksum = "bbb958482e8c7be4bc3cf272a766a2b0bf1a6755e7a6ae777f017a31d11b13b1"
 dependencies = [
  "hyper 0.14.20",
  "pin-project-lite 0.2.9",
- "tokio 1.19.2",
+ "tokio 1.20.0",
  "tokio-io-timeout",
 ]
 
@@ -1541,7 +1541,7 @@ dependencies = [
  "bytes 1.1.0",
  "hyper 0.14.20",
  "native-tls",
- "tokio 1.19.2",
+ "tokio 1.20.0",
  "tokio-native-tls",
 ]
 
@@ -1757,7 +1757,7 @@ dependencies = [
  "rustls",
  "rustls-pemfile",
  "socket2 0.4.4",
- "tokio 1.19.2",
+ "tokio 1.20.0",
  "tokio-rustls",
  "webpki-roots",
 ]
@@ -2738,7 +2738,7 @@ dependencies = [
  "serde",
  "serde_json",
  "serde_urlencoded",
- "tokio 1.19.2",
+ "tokio 1.20.0",
  "tokio-native-tls",
  "tower-service",
  "url",
@@ -3311,7 +3311,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "874e93a365a598dc3dadb197565952cb143ae4aa716f7bcc933a8d836f6bf89f"
 dependencies = [
  "once_cell",
- "tokio 1.19.2",
+ "tokio 1.20.0",
  "tokio-rustls",
 ]
 
@@ -3692,10 +3692,11 @@ dependencies = [
 
 [[package]]
 name = "tokio"
-version = "1.19.2"
+version = "1.20.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c51a52ed6686dd62c320f9b89299e9dfb46f730c7a48e635c19f21d116cb1439"
+checksum = "57aec3cfa4c296db7255446efb4928a6be304b431a806216105542a67b6ca82e"
 dependencies = [
+ "autocfg 1.1.0",
  "bytes 1.1.0",
  "libc",
  "memchr",
@@ -3718,7 +3719,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "30b74022ada614a1b4834de765f9bb43877f910cc8ce4be40e89042c9223a8bf"
 dependencies = [
  "pin-project-lite 0.2.9",
- "tokio 1.19.2",
+ "tokio 1.20.0",
 ]
 
 [[package]]
@@ -3739,7 +3740,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f7d995660bd2b7f8c1568414c1126076c13fbb725c40112dc0120b78eb9b717b"
 dependencies = [
  "native-tls",
- "tokio 1.19.2",
+ "tokio 1.20.0",
 ]
 
 [[package]]
@@ -3749,7 +3750,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c43ee83903113e03984cb9e5cebe6c04a5116269e900e3ddba8f068a62adda59"
 dependencies = [
  "rustls",
- "tokio 1.19.2",
+ "tokio 1.20.0",
  "webpki",
 ]
 
@@ -3761,7 +3762,7 @@ checksum = "df54d54117d6fdc4e4fea40fe1e4e566b3505700e148a6827e59b34b0d2600d9"
 dependencies = [
  "futures-core",
  "pin-project-lite 0.2.9",
- "tokio 1.19.2",
+ "tokio 1.20.0",
 ]
 
 [[package]]
@@ -3774,7 +3775,7 @@ dependencies = [
  "futures-core",
  "libc",
  "redox_syscall 0.2.13",
- "tokio 1.19.2",
+ "tokio 1.20.0",
  "tokio-stream",
  "xattr",
 ]
@@ -3813,7 +3814,7 @@ dependencies = [
  "futures-core",
  "futures-sink",
  "pin-project-lite 0.2.9",
- "tokio 1.19.2",
+ "tokio 1.20.0",
  "tracing",
 ]
 
@@ -3848,7 +3849,7 @@ dependencies = [
  "pin-project",
  "prost",
  "prost-derive",
- "tokio 1.19.2",
+ "tokio 1.20.0",
  "tokio-stream",
  "tokio-util 0.7.3",
  "tower",
@@ -3871,7 +3872,7 @@ dependencies = [
  "pin-project-lite 0.2.9",
  "rand 0.8.5",
  "slab",
- "tokio 1.19.2",
+ "tokio 1.20.0",
  "tokio-util 0.7.3",
  "tower-layer",
  "tower-service",
@@ -4034,7 +4035,7 @@ dependencies = [
  "smallvec",
  "thiserror",
  "tinyvec",
- "tokio 1.19.2",
+ "tokio 1.20.0",
  "url",
 ]
 
@@ -4054,7 +4055,7 @@ dependencies = [
  "resolv-conf",
  "smallvec",
  "thiserror",
- "tokio 1.19.2",
+ "tokio 1.20.0",
  "trust-dns-proto",
 ]
 
@@ -4542,7 +4543,7 @@ dependencies = [
  "tempfile",
  "thiserror",
  "time 0.3.11",
- "tokio 1.19.2",
+ "tokio 1.20.0",
  "tokio-tar",
  "tokio-util 0.7.3",
  "tower",
