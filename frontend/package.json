@@ -17,7 +17,7 @@
 	"devDependencies": {
 		"@playwright/test": "^1.23.2",
 		"@sveltejs/adapter-node": "^1.0.0-next.79",
-		"@sveltejs/adapter-static": "^1.0.0-next.35",
+		"@sveltejs/adapter-static": "^1.0.0-next.37",
 		"@sveltejs/kit": "next",
 		"@tailwindcss/forms": "^0.5.1",
 		"@tailwindcss/typography": "^0.5.3",
@@ -41,7 +41,7 @@
 		"svelte": "^3.49.0",
 		"svelte-awesome": "^3.0.0",
 		"svelte-check": "^2.8.0",
-		"svelte-highlight": "^6.1.2",
+		"svelte-highlight": "^6.2.0",
 		"svelte-markdown": "^0.2.1",
 		"svelte-preprocess": "^4.9.8",
 		"svelte-split-pane": "^0.1.2",
