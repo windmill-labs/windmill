@@ -545,6 +545,7 @@ print(res_json)
                 let child = if !disable_nuser {
                     Command::new("nsjail")
                         .current_dir(job_dir)
+                        .env_clear()
                         .envs(reserved_variables)
                         .args(vec![
                             "--config",
@@ -560,6 +561,7 @@ print(res_json)
                 } else {
                     Command::new("/usr/local/bin/python3")
                         .current_dir(job_dir)
+                        .env_clear()
                         .envs(reserved_variables)
                         .args(vec!["-u", "main.py"])
                         .stdout(Stdio::piped())
@@ -657,6 +659,7 @@ run();
             let child = if !disable_nsjail {
                 Command::new("nsjail")
                     .current_dir(job_dir)
+                    .env_clear()
                     .envs(reserved_variables)
                     .args(vec![
                         "--config",
@@ -675,6 +678,7 @@ run();
             } else {
                 Command::new("/usr/bin/deno")
                     .current_dir(job_dir)
+                    .env_clear()
                     .envs(reserved_variables)
                     .args(vec![
                         "run",
