@@ -2,6 +2,7 @@
 	import { page } from '$app/stores'
 
 	import FlowBuilder from '$lib/components/FlowBuilder.svelte'
+	import { initFlow } from '$lib/components/flows/flowStore'
 	import type { Flow } from '$lib/gen'
 	import { emptySchema } from '$lib/utils'
 
@@ -20,6 +21,8 @@
 					extra_perms: {},
 					schema: emptySchema()
 			  }
+
+	initFlow(flow)
 </script>
 
 <FlowBuilder {flow} />

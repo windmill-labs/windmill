@@ -8,7 +8,6 @@ import {
 } from '$lib/gen'
 import { inferArgs } from '$lib/infer'
 import { loadSchema } from '$lib/scripts'
-import { DENO_INIT_CODE, PYTHON_INIT_CODE } from '$lib/script_helpers'
 import { workspaceStore } from '$lib/stores'
 import { emptySchema } from '$lib/utils'
 import { get } from 'svelte/store'
@@ -119,16 +118,6 @@ export async function getFirstStepSchema(flow: Flow): Promise<Schema> {
 		return await loadSchema(firstModule.value.path)
 	}
 	return emptySchema()
-}
-
-export function createInlineScriptModule(language: FlowModuleValue.language): FlowModuleValue {
-	const code = language === FlowModuleValue.language.DENO ? DENO_INIT_CODE : PYTHON_INIT_CODE
-
-	return {
-		type: FlowModuleValue.type.RAWSCRIPT,
-		content: code,
-		language
-	}
 }
 
 export async function getScriptByPath(path: string): Promise<{

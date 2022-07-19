@@ -165,7 +165,7 @@
 		<p class="text-xs text-gray-600">
 			Pick a script or flow to be triggered by the schedule<Required required={true} />
 		</p>
-		<ScriptPicker allowFlow={true} bind:itemKind bind:scriptPath={script_path} />
+		<ScriptPicker isTrigger={false} allowFlow={true} bind:itemKind bind:scriptPath={script_path} />
 		<div class="max-w-5xl {edit ? '' : 'mt-2 md:mt-6'}">
 			<h2>Arguments</h2>
 			{#if runnable}

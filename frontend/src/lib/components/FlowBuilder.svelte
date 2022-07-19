@@ -3,11 +3,11 @@
 	import { page } from '$app/stores'
 	import { FlowService, ScriptService, type Flow } from '$lib/gen'
 	import { clearPreviewResults, hubScripts, workspaceStore } from '$lib/stores'
-	import { pathIsEmpty, sendUserToast } from '$lib/utils'
+	import { sendUserToast, setQueryWithoutLoad } from '$lib/utils'
 	import { onMount } from 'svelte'
 	import SvelteMarkdown from 'svelte-markdown'
 	import FlowEditor from './FlowEditor.svelte'
-	import { flowStore, initFlow, type FlowMode } from './flows/flowStore'
+	import { flowStore, type FlowMode } from './flows/flowStore'
 	import { flowToMode } from './flows/utils'
 	import Path from './Path.svelte'
 	import Required from './Required.svelte'
@@ -68,11 +68,8 @@
 	}
 
 	flowStore.subscribe((flow: Flow) => {
-		$page.url.searchParams.set('state', btoa(JSON.stringify(flowToMode(flow, mode))))
-		history.replaceState({}, '', $page.url)
+		setQueryWithoutLoad($page.url, 'state', btoa(JSON.stringify(flowToMode(flow, mode))))
 	})
-
-	$: flow && initFlow(flow)
 
 	onMount(() => {
 		loadSearchData()

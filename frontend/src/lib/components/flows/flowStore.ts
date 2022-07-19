@@ -1,6 +1,6 @@
 import type { Schema } from '$lib/common'
 import { FlowModuleValue, ScriptService, type Flow, type FlowModule } from '$lib/gen'
-import { DENO_INIT_CODE, DENO_INIT_CODE_TRIGGER, PYTHON_INIT_CODE, PYTHON_INIT_CODE_TRIGGER } from '$lib/script_helpers'
+import { initialCode } from '$lib/script_helpers'
 import { userStore, workspaceStore } from '$lib/stores'
 import { derived, get, writable } from 'svelte/store'
 import { createInlineScriptModuleFromPath, getFirstStepSchema, loadSchemaFromModule } from './utils'
@@ -18,12 +18,16 @@ export function initFlow(flow: Flow) {
 	})
 }
 
-export const isCopyFirstStepSchemaDisabled = derived(flowStore, (flow: Flow) => {
-	const modules = flow.value.modules
-	const [firstModule] = modules
-	return (
-		modules.length === 0 || (firstModule.value.path === '' && firstModule.value.type === 'script')
-	)
+export const isCopyFirstStepSchemaDisabled = derived(flowStore, (flow: Flow | undefined) => {
+	if (flow) {
+		const modules = flow.value.modules
+		const [firstModule] = modules
+		return (
+			modules.length === 0 || (firstModule.value.path === '' && firstModule.value.type === 'script')
+		)
+	} else {
+		return true
+	}
 })
 
 export function addModule() {
@@ -51,10 +55,7 @@ export async function pickScript(path: string, step: number) {
 }
 
 export async function createInlineScriptModule(language: FlowModuleValue.language, step: number, mode: FlowMode) {
-	const code = language === FlowModuleValue.language.DENO ? (
-		(mode === 'pull' && step == 0) ? DENO_INIT_CODE_TRIGGER : DENO_INIT_CODE) : (
-		(mode === 'pull' && step == 0) ? PYTHON_INIT_CODE_TRIGGER : PYTHON_INIT_CODE
-	)
+	const code = initialCode(language, (mode === 'pull' && step == 0))
 	flowStore.update((flow: Flow) => {
 		flow.value.modules[step].value = {
 			type: FlowModuleValue.type.RAWSCRIPT,

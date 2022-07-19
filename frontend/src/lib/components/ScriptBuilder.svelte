@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { ScriptService, type Script } from '$lib/gen'
 
-	import { emptySchema, pathIsEmpty, sendUserToast } from '$lib/utils'
+	import { emptySchema, sendUserToast, setQueryWithoutLoad } from '$lib/utils'
 	import { onDestroy } from 'svelte'
 	import ScriptEditor from './ScriptEditor.svelte'
 	import { page } from '$app/stores'
@@ -13,7 +13,7 @@
 	import { inferArgs } from '$lib/infer'
 	import Required from './Required.svelte'
 	import RadioButton from './RadioButton.svelte'
-	import { DENO_INIT_CODE, PYTHON_INIT_CODE } from '$lib/script_helpers'
+	import { DENO_INIT_CODE, DENO_INIT_CODE_TRIGGER, initialCode } from '$lib/script_helpers'
 
 	let editor: ScriptEditor
 	let scriptSchema: ScriptSchema
@@ -25,15 +25,21 @@
 	let pathError = ''
 
 	$: {
-		$page.url.searchParams.set('state', btoa(JSON.stringify(script)))
-		history.replaceState({}, '', $page.url)
+		setQueryWithoutLoad($page.url, 'state', btoa(JSON.stringify(script)))
+	}
+
+	$: {
+		if (script.language == 'python3') {
+			script.is_trigger = false
+		}
 	}
 
 	if (script.content == '') {
-		initContent(script.language)
+		initContent(script.language, script.is_trigger)
 	}
-	function initContent(lang: string) {
-		script.content = lang == 'deno' ? DENO_INIT_CODE : PYTHON_INIT_CODE
+
+	function initContent(lang: 'deno' | 'python3', is_trigger: boolean) {
+		script.content = initialCode(lang, is_trigger)
 	}
 
 	async function editScript(): Promise<void> {
@@ -48,7 +54,8 @@
 					parent_hash: script.hash != '' ? script.hash : undefined,
 					schema: script.schema,
 					is_template: script.is_template,
-					language: script.language
+					language: script.language,
+					is_trigger: script.is_trigger
 				}
 			})
 			sendUserToast(`Success! New script version created with hash ${newHash}`)
@@ -176,10 +183,10 @@
 					label="Language"
 					small={true}
 					options={[
-						['Python 3.10', 'python3'],
-						['Typescript (Deno)', 'deno']
+						['Typescript (Deno)', 'deno'],
+						['Python 3.10', 'python3']
 					]}
-					on:change={(e) => initContent(e.detail)}
+					on:change={(e) => initContent(e.detail, script.is_trigger)}
 					bind:value={script.language}
 				/>
 			</div>
@@ -221,9 +228,24 @@
 					/>
 				</span></label
 			>
+
 			<label class="block">
 				<span class="text-gray-700 mr-2">Save as template</span>
 				<input type="checkbox" bind:checked={script.is_template} />
+			</label>
+
+			<label class="block">
+				<span class="text-gray-700 mr-2">Save as trigger script</span>
+				<input
+					disabled={script.language == 'python3'}
+					type="checkbox"
+					bind:checked={script.is_trigger}
+					on:change={() => {
+						if (script.content == DENO_INIT_CODE || script.content == DENO_INIT_CODE_TRIGGER) {
+							initContent(script.language, script.is_trigger)
+						}
+					}}
+				/>
 			</label>
 
 			<div>

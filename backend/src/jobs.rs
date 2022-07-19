@@ -557,6 +557,7 @@ pub struct ListCompletedQuery {
     pub parent_job: Option<String>,
     pub order_desc: Option<bool>,
     pub job_kinds: Option<String>,
+    pub is_skipped: Option<bool>,
 }
 fn list_completed_jobs_query(
     w_id: &str,
@@ -596,6 +597,9 @@ fn list_completed_jobs_query(
     }
     if let Some(dt) = &lq.created_after {
         sqlb.and_where_gt("created_at", format!("to_timestamp({})", dt.timestamp()));
+    }
+    if let Some(sk) = &lq.is_skipped {
+        sqlb.and_where_eq("is_skipped", sk);
     }
     if let Some(jk) = &lq.job_kinds {
         sqlb.and_where_in(

@@ -66,31 +66,33 @@
 	let validateTimeout: NodeJS.Timeout | undefined = undefined
 
 	async function validatePath(path: string, kind: PathKind): Promise<void> {
-		if (initialPath == '' && initialPath != path) {
+		if (initialPath != '' && initialPath != path) {
 			if (validateTimeout) {
 				clearTimeout(validateTimeout)
 			}
 			validateTimeout = setTimeout(async () => {
 				if (
-					(kind == 'flow' &&
+					initialPath != '' &&
+					initialPath != path &&
+					((kind == 'flow' &&
 						(await FlowService.existsFlowByPath({ workspace: $workspaceStore!, path: path }))) ||
-					(kind == 'script' &&
-						(await ScriptService.existsScriptByPath({
-							workspace: $workspaceStore!,
-							path: path
-						}))) ||
-					(kind == 'resource' &&
-						(await ResourceService.existsResource({
-							workspace: $workspaceStore!,
-							path: path
-						}))) ||
-					(kind == 'variable' &&
-						(await VariableService.existsVariable({
-							workspace: $workspaceStore!,
-							path: path
-						}))) ||
-					(kind == 'schedule' &&
-						(await ScheduleService.existsSchedule({ workspace: $workspaceStore!, path: path })))
+						(kind == 'script' &&
+							(await ScriptService.existsScriptByPath({
+								workspace: $workspaceStore!,
+								path: path
+							}))) ||
+						(kind == 'resource' &&
+							(await ResourceService.existsResource({
+								workspace: $workspaceStore!,
+								path: path
+							}))) ||
+						(kind == 'variable' &&
+							(await VariableService.existsVariable({
+								workspace: $workspaceStore!,
+								path: path
+							}))) ||
+						(kind == 'schedule' &&
+							(await ScheduleService.existsSchedule({ workspace: $workspaceStore!, path: path }))))
 				) {
 					error = 'path already used'
 				} else if (validateName(meta)) {

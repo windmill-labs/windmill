@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { onDestroy } from 'svelte'
 	import { JobService, Job, CompletedJob } from '$lib/gen'
-	import { displayDate, displayDaysAgo, forLater, truncateHash } from '$lib/utils'
+	import { displayDate, displayDaysAgo, forLater, setQuery, truncateHash } from '$lib/utils'
 	import Icon from 'svelte-awesome'
 	import { check } from 'svelte-awesome/icons'
 	import {
@@ -28,45 +28,76 @@
 	let intervalId: NodeJS.Timer | undefined
 	let path: string = $page.params.path
 	let createdBefore: string | undefined = $page.url.searchParams.get('createdBefore') ?? undefined
+
+	let success: boolean | undefined =
+		$page.url.searchParams.get('success') != undefined
+			? $page.url.searchParams.get('success') == 'true'
+			: undefined
+	let isSkipped: boolean | undefined =
+		$page.url.searchParams.get('is_skipped') != undefined
+			? $page.url.searchParams.get('is_skipped') == 'true'
+			: false
+
 	let showOlderJobs = true
 	// The API returns 30 jobs per page. We use it to display a next page button or not.
 	const jobsPerPage = 30
 
-	let jobKinds: string
+	let jobKindsCat: string | undefined = $page.url.searchParams.get('job_kinds') ?? 'runs'
 
-	$: jobKinds =
-		$page.url.searchParams.get('jobKinds') ??
-		`${CompletedJob.job_kind.SCRIPT},${CompletedJob.job_kind.FLOW}`
+	$: jobKinds = computeJobKinds(jobKindsCat)
 
-	$: jobKinds && $workspaceStore && loadJobs()
+	function computeJobKinds(jobKindsCat: string | undefined): string {
+		console.log('jobKindsCat', jobKindsCat)
+		if (jobKindsCat == 'all') {
+			return `${CompletedJob.job_kind.SCRIPT},${CompletedJob.job_kind.FLOW},${CompletedJob.job_kind.DEPENDENCIES},${CompletedJob.job_kind.PREVIEW},${CompletedJob.job_kind.FLOWPREVIEW},${CompletedJob.job_kind.SCRIPT_HUB}`
+		} else if (jobKindsCat == 'dependencies') {
+			return CompletedJob.job_kind.DEPENDENCIES
+		} else if (jobKindsCat == 'previews') {
+			return `${CompletedJob.job_kind.PREVIEW},${CompletedJob.job_kind.FLOWPREVIEW}`
+		} else {
+			return `${CompletedJob.job_kind.SCRIPT},${CompletedJob.job_kind.FLOW},${CompletedJob.job_kind.SCRIPT_HUB}`
+		}
+	}
+
+	$: $workspaceStore && loadJobs(createdBefore, success, isSkipped, jobKinds)
 
 	const SMALL_ICON_SCALE = 0.7
 
 	async function fetchJobs(
 		createdBefore: string | undefined,
-		createdAfter?: string
+		createdAfter: string | undefined
 	): Promise<Job[]> {
 		return JobService.listJobs({
 			workspace: $workspaceStore!,
 			createdBefore,
 			createdAfter,
 			scriptPathExact: path === '' ? undefined : path,
-			jobKinds
+			jobKinds,
+			success,
+			isSkipped
 		})
 	}
 
-	async function fetchCompletedJobs(createdBefore: string): Promise<CompletedJob[]> {
+	async function fetchCompletedJobs(createdBefore: string | undefined): Promise<CompletedJob[]> {
 		return JobService.listCompletedJobs({
 			workspace: $workspaceStore!,
 			createdBefore,
 			scriptPathExact: path === '' ? undefined : path,
-			jobKinds: jobKinds
+			jobKinds: jobKinds,
+			success,
+			isSkipped
 		})
 	}
 
-	async function loadJobs(): Promise<void> {
+	async function loadJobs(
+		createdBefore: string | undefined,
+		success: boolean | undefined,
+		isSkipped: boolean | undefined,
+		jobKinds: string | undefined
+	): Promise<void> {
 		try {
-			const newJobs = await fetchJobs(createdBefore)
+			console.log(jobKinds, success, isSkipped)
+			const newJobs = await fetchJobs(createdBefore, undefined)
 			showOlderJobs = newJobs.length === jobsPerPage
 			jobs = newJobs
 		} catch (err) {
@@ -102,7 +133,10 @@
 
 	$: {
 		if ($workspaceStore) {
-			loadJobs()
+			loadJobs(createdBefore, success, isSkipped, jobKinds)
+			if (intervalId) {
+				clearInterval(intervalId)
+			}
 			intervalId = setInterval(syncer, 5000)
 		}
 	}
@@ -128,23 +162,36 @@ the bearer token they use has less privilege."
 	/>
 
 	<div class="max-w-7x">
+		<div class="flex flex-row space-x-4">
+			<select
+				bind:value={success}
+				on:change={async () => await setQuery($page.url, 'success', String(success))}
+			>
+				<option value={undefined}>Successful and not jobs</option>
+				<option value={true}>Only successful jobs</option>
+				<option value={false}>Only non successful jobs</option>
+			</select>
+			<select
+				bind:value={isSkipped}
+				on:change={async () => await setQuery($page.url, 'is_skipped', String(isSkipped))}
+			>
+				<option value={false}>Ignore skipped flow jobs</option>
+				<option value={true}>If a flow jobs, show only if it was not skipped</option>
+				<option value={undefined}>Show flow jobs regardless of being skipped</option>
+			</select>
+		</div>
 		<div class="xl:max-w-screen-lg">
 			<Tabs
 				tabs={[
-					[
-						`${CompletedJob.job_kind.SCRIPT},${CompletedJob.job_kind.FLOW},${CompletedJob.job_kind.DEPENDENCIES},${CompletedJob.job_kind.PREVIEW},${CompletedJob.job_kind.FLOWPREVIEW},${CompletedJob.job_kind.SCRIPT_HUB}`,
-						'all'
-					],
-					[
-						`${CompletedJob.job_kind.SCRIPT},${CompletedJob.job_kind.FLOW},${CompletedJob.job_kind.SCRIPT_HUB}`,
-						'runs'
-					],
-					[`${CompletedJob.job_kind.PREVIEW},${CompletedJob.job_kind.FLOWPREVIEW}`, 'previews'],
-					[CompletedJob.job_kind.DEPENDENCIES, 'dependencies']
+					['all', 'all'],
+					['runs', 'runs'],
+					['previews', 'previews'],
+					['dependencies', 'dependencies']
 				]}
 				dflt={1}
-				on:update={(tab) => {
-					goto(`?jobKinds=${tab.detail}`)
+				bind:tab={jobKindsCat}
+				on:update={async (tab) => {
+					await setQuery($page.url, 'job_kinds', tab.detail)
 				}}
 			/>
 			{#if jobs}
