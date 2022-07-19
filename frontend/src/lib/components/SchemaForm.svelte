@@ -69,7 +69,7 @@
 					<Toggle
 						options={{
 							left: { label: '', value: InputTransform.type.STATIC },
-							right: { label: 'Code editor', value: InputTransform.type.JAVASCRIPT }
+							right: { label: 'Raw Javascript Mode', value: InputTransform.type.JAVASCRIPT }
 						}}
 						bind:value={types[index]}
 						on:change={(e) => {
