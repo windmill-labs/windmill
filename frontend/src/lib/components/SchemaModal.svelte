@@ -61,7 +61,7 @@
 	export let property: ModalSchemaProperty = DEFAULT_PROPERTY
 	export let error = ''
 	export let editing = false
-	export let oldArgName: string | undefined
+	export let oldArgName: string | undefined = undefined
 
 	const dispatch = createEventDispatcher()
 	let modal: Modal

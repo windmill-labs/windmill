@@ -10,16 +10,16 @@ use chrono::Duration;
 use sql_builder::prelude::*;
 use sqlx::{query_scalar, Postgres, Transaction};
 use std::collections::HashMap;
+use tracing::instrument;
 
-use crate::js_eval::eval_timeout;
 use crate::scripts::{get_hub_script_by_path, ScriptLang};
-use crate::users::create_token_for_owner;
+use crate::worker_flow::init_flow_status;
 use crate::{
     audit::{audit_log, ActionKind},
     db::{UserDB, DB},
     error,
     error::Error,
-    flow::{FlowModuleValue, FlowValue, InputTransform},
+    flow::FlowValue,
     schedule::get_schedule_opt,
     scripts::ScriptHash,
     users::{owner_to_token_owner, Authed},
@@ -32,7 +32,7 @@ use axum::{
 };
 use hyper::StatusCode;
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Map, Value};
+use serde_json::{Map, Value};
 use sql_builder::SqlBuilder;
 
 use ulid::Ulid;
@@ -45,6 +45,10 @@ pub fn workspaced_service() -> Router {
     Router::new()
         .route("/run/f/*script_path", post(run_flow_by_path))
         .route("/run/p/*script_path", post(run_job_by_path))
+        .route(
+            "/run_wait_result/p/*script_path",
+            post(run_wait_result_job_by_path),
+        )
         .route("/run/h/:hash", post(run_job_by_hash))
         .route("/run/preview", post(run_preview_job))
         .route("/run/preview_flow", post(run_preview_flow_job))
@@ -114,6 +118,7 @@ struct CompletedJob {
     raw_flow: Option<serde_json::Value>,
     is_flow_step: bool,
     language: Option<ScriptLang>,
+    is_skipped: bool,
 }
 
 #[derive(Deserialize, Clone, Copy)]
@@ -185,7 +190,59 @@ pub async fn run_job_by_path(
     Ok((StatusCode::CREATED, uuid.to_string()))
 }
 
-async fn script_path_to_payload<'c>(
+pub async fn run_wait_result_job_by_path(
+    authed: Authed,
+    Extension(user_db): Extension<UserDB>,
+    Path((w_id, script_path)): Path<(String, StripPath)>,
+    axum::Json(args): axum::Json<Option<Map<String, Value>>>,
+    Query(run_query): Query<RunJobQuery>,
+) -> error::JsonResult<serde_json::Value> {
+    let script_path = script_path.to_path();
+    let mut tx = user_db.clone().begin(&authed).await?;
+    let job_payload = script_path_to_payload(script_path, &mut tx, &w_id).await?;
+    let (uuid, tx) = push(
+        tx,
+        &w_id,
+        job_payload,
+        args,
+        &authed.username,
+        owner_to_token_owner(&authed.username, false),
+        run_query.get_scheduled_for(),
+        None,
+        run_query.parent_job,
+        false,
+    )
+    .await?;
+    tx.commit().await?;
+
+    //wait 5 secs top
+    let mut result = None;
+    for i in 0..48 {
+        let mut tx = user_db.clone().begin(&authed).await?;
+
+        result = sqlx::query_scalar!(
+            "SELECT result FROM completed_job WHERE id = $1 AND workspace_id = $2",
+            uuid,
+            &w_id
+        )
+        .fetch_optional(&mut tx)
+        .await?
+        .flatten();
+
+        if result.is_some() {
+            break;
+        }
+        let delay = if i < 10 { 100 } else { 500 };
+        tokio::time::sleep(core::time::Duration::from_millis(delay)).await;
+    }
+    if let Some(result) = result {
+        Ok(Json(result))
+    } else {
+        Err(Error::ExecutionErr("timeout after 20s".to_string()))
+    }
+}
+
+pub async fn script_path_to_payload<'c>(
     script_path: &str,
     db: &mut Transaction<'c, Postgres>,
     w_id: &String,
@@ -438,6 +495,7 @@ async fn list_jobs(
             "flow_status",
             "is_flow_step",
             "language",
+            "false as is_skipped",
         ],
     );
     let sqlc = list_completed_jobs_query(
@@ -472,6 +530,7 @@ async fn list_jobs(
             "flow_status",
             "is_flow_step",
             "language",
+            "is_skipped",
         ],
     );
     let sql = format!(
@@ -498,6 +557,7 @@ pub struct ListCompletedQuery {
     pub parent_job: Option<String>,
     pub order_desc: Option<bool>,
     pub job_kinds: Option<String>,
+    pub is_skipped: Option<bool>,
 }
 fn list_completed_jobs_query(
     w_id: &str,
@@ -537,6 +597,9 @@ fn list_completed_jobs_query(
     }
     if let Some(dt) = &lq.created_after {
         sqlb.and_where_gt("created_at", format!("to_timestamp({})", dt.timestamp()));
+    }
+    if let Some(sk) = &lq.is_skipped {
+        sqlb.and_where_eq("is_skipped", sk);
     }
     if let Some(jk) = &lq.job_kinds {
         sqlb.and_where_in(
@@ -587,6 +650,7 @@ async fn list_completed_jobs(
             "null as raw_flow",
             "is_flow_step",
             "language",
+            "is_skipped",
         ],
     )
     .sql()?;
@@ -661,7 +725,7 @@ async fn cancel_job(
         .await?;
         Ok(id.to_string())
     } else {
-        let (job_o, tx) = get_job_from_id(tx, &w_id, id).await?;
+        let (job_o, tx) = get_job_by_id(tx, &w_id, id).await?;
         tx.commit().await?;
         let err = match job_o {
             Some(Job::CompletedJob(_)) => error::Error::BadRequest(format!(
@@ -779,13 +843,13 @@ async fn get_job(
     Path((w_id, id)): Path<(String, Uuid)>,
 ) -> error::JsonResult<Job> {
     let tx = user_db.begin(&authed).await?;
-    let (job_o, tx) = get_job_from_id(tx, &w_id, id).await?;
+    let (job_o, tx) = get_job_by_id(tx, &w_id, id).await?;
     let job = crate::utils::not_found_if_none(job_o, "Completed Job", id.to_string())?;
     tx.commit().await?;
     Ok(Json(job))
 }
 
-async fn get_job_from_id<'c>(
+async fn get_job_by_id<'c>(
     mut tx: Transaction<'c, Postgres>,
     w_id: &str,
     id: Uuid,
@@ -804,7 +868,7 @@ async fn get_job_from_id<'c>(
     Ok((job_option, tx))
 }
 
-async fn get_queued_job<'c>(
+pub async fn get_queued_job<'c>(
     id: Uuid,
     w_id: &str,
     tx: &mut Transaction<'c, Postgres>,
@@ -840,24 +904,6 @@ pub enum JobKind {
     FlowPreview,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
-pub struct FlowStatus {
-    pub step: i32,
-    pub modules: Vec<FlowStatusModule>,
-    pub failure_module: FlowStatusModule,
-}
-
-#[derive(Serialize, Deserialize, Debug)]
-#[serde(tag = "type")]
-pub enum FlowStatusModule {
-    WaitingForPriorSteps,
-    WaitingForEvent { event: String },
-    WaitingForExecutor { job: Uuid },
-    InProgress { job: Uuid },
-    Success { job: Uuid },
-    Failure { job: Uuid },
-}
-
 #[derive(sqlx::FromRow)]
 struct UnifiedJob {
     workspace_id: String,
@@ -883,6 +929,7 @@ struct UnifiedJob {
     flow_status: Option<serde_json::Value>,
     is_flow_step: bool,
     language: Option<ScriptLang>,
+    is_skipped: bool,
 }
 
 impl From<UnifiedJob> for Job {
@@ -914,6 +961,7 @@ impl From<UnifiedJob> for Job {
                 raw_flow: None,
                 is_flow_step: uj.is_flow_step,
                 language: uj.language,
+                is_skipped: uj.is_skipped,
             }),
             "QueuedJob" => Job::QueuedJob(QueuedJob {
                 workspace_id: uj.workspace_id,
@@ -972,6 +1020,7 @@ struct PreviewFlow {
     args: Option<Map<String, Value>>,
 }
 
+#[derive(Debug)]
 pub enum JobPayload {
     ScriptHub {
         path: String,
@@ -992,6 +1041,7 @@ pub enum JobPayload {
     },
 }
 
+#[instrument(level = "trace", skip_all)]
 pub async fn push<'c>(
     mut tx: Transaction<'c, Postgres>,
     workspace_id: &str,
@@ -1125,13 +1175,7 @@ pub async fn push<'c>(
         }
     };
 
-    let flow_status = raw_flow.as_ref().map(|f| FlowStatus {
-        step: 0,
-        modules: (0..f.modules.len())
-            .map(|_| FlowStatusModule::WaitingForPriorSteps)
-            .collect(),
-        failure_module: FlowStatusModule::WaitingForPriorSteps,
-    });
+    let flow_status = raw_flow.as_ref().map(init_flow_status);
     let uuid = sqlx::query_scalar!(
         "INSERT INTO queue
             (workspace_id, id, parent_job, created_by, permissioned_as, scheduled_for, 
@@ -1155,7 +1199,9 @@ pub async fn push<'c>(
         language: ScriptLang
     )
     .fetch_one(&mut tx)
-    .await?;
+    .await
+    .map_err(|e| Error::InternalErr(format!("Could not insert into queue {job_id}: {e}")))?;
+
     let uuid_string = job_id.to_string();
     let uuid_str = uuid_string.as_str();
     let mut hm = HashMap::from([("uuid", uuid_str), ("permissioned_as", &permissioned_as)]);
@@ -1192,7 +1238,8 @@ pub async fn push<'c>(
     Ok((uuid, tx))
 }
 
-pub async fn add_completed_job_error<E: ToString>(
+#[instrument(level = "trace", skip_all)]
+pub async fn add_completed_job_error<E: ToString + std::fmt::Debug>(
     db: &DB,
     queued_job: &QueuedJob,
     logs: String,
@@ -1207,6 +1254,7 @@ pub async fn add_completed_job_error<E: ToString>(
         db,
         &queued_job,
         false,
+        false,
         Some(output_map.clone()),
         format!("{}\n{}", logs, e.to_string()),
     )
@@ -1214,14 +1262,17 @@ pub async fn add_completed_job_error<E: ToString>(
     Ok((a, output_map))
 }
 
+#[instrument(level = "trace", skip_all)]
 pub async fn add_completed_job(
     db: &DB,
     queued_job: &QueuedJob,
     success: bool,
+    skipped: bool,
     result: Option<Map<String, Value>>,
     logs: String,
 ) -> Result<Uuid, Error> {
     let result_json = result.map(serde_json::Value::Object);
+    let job_id = queued_job.id.clone();
     let duration = (chrono::Utc::now() - queued_job.started_at.unwrap_or(queued_job.created_at))
         .num_seconds() as i32;
     let _ = sqlx::query!(
@@ -1229,8 +1280,8 @@ pub async fn add_completed_job(
             (workspace_id, id, parent_job, created_by, created_at, duration, success, script_hash, script_path, \
         args, result, logs, 
             raw_code, canceled, canceled_by, canceled_reason, job_kind, schedule_path, permissioned_as, flow_status, raw_flow, \
-            is_flow_step)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22) \
+            is_flow_step, is_skipped)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23) \
         ON CONFLICT (id) DO UPDATE SET success = $7, result = $11, logs = concat(cj.logs, $12) \
         RETURNING id",
         queued_job.workspace_id,
@@ -1254,150 +1305,33 @@ pub async fn add_completed_job(
         queued_job.permissioned_as,
         queued_job.flow_status,
         queued_job.raw_flow,
-        queued_job.is_flow_step
+        queued_job.is_flow_step,
+        skipped
     )
     .fetch_one(db)
-    .await?;
+    .await
+    .map_err(|e| Error::InternalErr(format!("Could not add completed job {job_id}: {e}")))?;
     tracing::debug!("Added completed job {}", queued_job.id);
     Ok(queued_job.id)
 }
 
-pub async fn get_step_of_flow_status(db: &DB, id: Uuid) -> error::Result<i32> {
-    let r = sqlx::query_scalar!(
-        "SELECT (flow_status->'step')::integer FROM queue WHERE id = $1",
-        id
-    )
-    .fetch_one(db)
-    .await?
-    .ok_or_else(|| Error::InternalErr(format!("not found step")))?;
-    Ok(r)
-}
-pub async fn update_flow_status_in_progress(
-    db: &DB,
-    w_id: &str,
-    flow: Uuid,
-    job_in_progress: Uuid,
-) -> error::Result<()> {
-    let step = get_step_of_flow_status(db, flow).await?;
-    sqlx::query(&format!(
-        "UPDATE queue
-            SET flow_status = jsonb_set(flow_status, '{{modules, {}}}', $1)
-            WHERE id = $2 AND workspace_id = $3",
-        step
-    ))
-    .bind(serde_json::json!(FlowStatusModule::InProgress {
-        job: job_in_progress
-    }))
-    .bind(flow)
-    .bind(w_id)
-    .execute(db)
-    .await?;
-    Ok(())
-}
-
-pub async fn update_flow_status_after_job_completion(
-    db: &DB,
-    job: &QueuedJob,
-    success: bool,
-    result: Option<Map<String, Value>>,
-) -> error::Result<()> {
-    tracing::info!("HANDLE FLOW: {job:?} {success} {result:?}");
-
-    let mut tx = db.begin().await?;
-
-    let w_id = &job.workspace_id;
-
-    let flow = job
-        .parent_job
-        .ok_or_else(|| Error::InternalErr(format!("expected parent job")))?;
-
-    let old_status_json = sqlx::query_scalar!(
-        "SELECT flow_status FROM queue WHERE id = $1 AND workspace_id = $2",
-        flow,
-        w_id
-    )
-    .fetch_one(&mut tx)
-    .await?
-    .ok_or_else(|| Error::InternalErr(format!("requiring a previous status")))?;
-
-    let old_status = serde_json::from_value::<FlowStatus>(old_status_json)
-        .ok()
-        .ok_or_else(|| {
-            Error::InternalErr(format!("requiring status to be parsabled as FlowStatus"))
-        })?;
-
-    let last_step = (old_status.step + 1) as usize == old_status.modules.len();
-    let new_status = if success {
-        FlowStatusModule::Success { job: job.id }
-    } else {
-        FlowStatusModule::Failure { job: job.id }
-    };
-
-    sqlx::query(&format!(
-        "UPDATE queue
-            SET 
-                flow_status = jsonb_set(jsonb_set(flow_status, '{{modules, {}}}', $1), '{{\"step\"}}', $2)
-            WHERE id = $3",
-        old_status.step,
-    ))
-    .bind(serde_json::json!(new_status))
-    .bind(serde_json::json!(old_status.step + 1))
-    .bind(flow)
-    .execute(&mut tx)
-    .await?;
-
-    tracing::info!("UPDATE: {:?}", new_status);
-
-    let flow_job = get_queued_job(flow, w_id, &mut tx)
-        .await?
-        .ok_or_else(|| Error::InternalErr(format!("requiring flow to be in the queue")))?;
-    tx.commit().await?;
-
-    let done = if !success || last_step {
-        add_completed_job(
-            db,
-            &flow_job,
-            success,
-            result,
-            "Flow job completed".to_string(),
-        )
-        .await?;
-        true
-    } else {
-        if let Err(err) = handle_flow(&flow_job, db, result).await {
-            let _ = add_completed_job_error(
-                db,
-                &flow_job,
-                "Unexpected error during flow chaining:\n".to_string(),
-                err,
-            )
-            .await;
-            true
-        } else {
-            false
-        }
-    };
-
-    if done {
-        postprocess_queued_job(flow_job.schedule_path, &w_id, flow, db).await?;
-    }
-
-    Ok(())
-}
-
+#[instrument(level = "trace", skip_all)]
 pub async fn postprocess_queued_job(
     schedule_path: Option<String>,
+    script_path: Option<String>,
     w_id: &str,
     job_id: Uuid,
     db: &DB,
 ) -> crate::error::Result<()> {
     let _ = delete_job(db, w_id, job_id).await?;
-    schedule_again_if_scheduled(schedule_path, &w_id, db).await?;
+    schedule_again_if_scheduled(schedule_path, script_path, &w_id, db).await?;
     Ok(())
 }
 
+#[instrument(level = "trace", skip_all)]
 pub async fn schedule_again_if_scheduled(
     schedule_path: Option<String>,
+    script_path: Option<String>,
     w_id: &str,
     db: &DB,
 ) -> crate::error::Result<()> {
@@ -1406,170 +1340,10 @@ pub async fn schedule_again_if_scheduled(
         let schedule = get_schedule_opt(&mut tx, &w_id, &schedule_path)
             .await?
             .unwrap();
-        if schedule.enabled {
+        if schedule.enabled && script_path.is_some() && script_path.unwrap() == schedule.script_path
+        {
             tx = crate::schedule::push_scheduled_job(tx, schedule).await?;
         }
-        tx.commit().await?;
-    }
-    Ok(())
-}
-
-pub async fn handle_flow(
-    job: &QueuedJob,
-    db: &sqlx::Pool<sqlx::Postgres>,
-    last_result: Option<Map<String, serde_json::Value>>,
-) -> anyhow::Result<()> {
-    let value = job
-        .raw_flow
-        .as_ref()
-        .ok_or_else(|| Error::InternalErr(format!("requiring a raw flow value")))?
-        .to_owned();
-    let flow = serde_json::from_value::<FlowValue>(value.to_owned())?;
-    push_next_flow_job(job, flow, db, last_result).await?;
-    Ok(())
-}
-
-async fn transform_input(
-    flow_args: &Option<serde_json::Value>,
-    last_result: Option<Map<String, serde_json::Value>>,
-    input_transform: &HashMap<String, InputTransform>,
-    workspace: &str,
-    token: &str,
-    steps: Vec<String>,
-) -> anyhow::Result<Option<Map<String, serde_json::Value>>> {
-    let mut mapped = serde_json::Map::new();
-
-    for (key, val) in input_transform.into_iter() {
-        match val {
-            InputTransform::Static { value } => {
-                mapped.insert(key.to_string(), value.to_owned());
-                ()
-            }
-            _ => (),
-        };
-    }
-
-    for (key, val) in input_transform.into_iter() {
-        match val {
-            InputTransform::Static { value: _ } => (),
-            InputTransform::Javascript { expr } => {
-                let previous_result =
-                    serde_json::Value::Object(last_result.clone().unwrap_or_else(|| Map::new()));
-                let flow_input = flow_args.clone().unwrap_or_else(|| json!({}));
-                let v = eval_timeout(
-                    expr.to_string(),
-                    vec![
-                        ("params".to_string(), serde_json::json!(mapped)),
-                        ("previous_result".to_string(), previous_result),
-                        ("flow_input".to_string(), flow_input),
-                    ],
-                    workspace,
-                    token,
-                    steps.clone(),
-                )
-                .await
-                .map_err(|e| {
-                    Error::ExecutionErr(format!(
-                        "Error during isolated evaluation of expression `{expr}`:\n{e}"
-                    ))
-                })?;
-                mapped.insert(key.to_string(), v);
-                ()
-            }
-            _ => Err(error::Error::BadRequest(format!(
-                "impossible to handle unknown input transform"
-            )))?,
-        }
-    }
-
-    Ok(Some(mapped))
-}
-
-async fn push_next_flow_job(
-    job: &QueuedJob,
-    flow: FlowValue,
-    db: &sqlx::Pool<sqlx::Postgres>,
-    last_result: Option<Map<String, serde_json::Value>>,
-) -> anyhow::Result<()> {
-    let flow_status_json = job
-        .flow_status
-        .as_ref()
-        .ok_or_else(|| Error::InternalErr(format!("not found status for flow job {:?}", job.id)))?;
-    let status = serde_json::from_value::<FlowStatus>(flow_status_json.to_owned())?;
-    let i = status.step as usize;
-
-    if flow.modules.len() > i {
-        let module = &flow.modules[i];
-        let mut tx = db.begin().await?;
-        let job_payload = match &module.value {
-            FlowModuleValue::Script { path: script_path } => {
-                script_path_to_payload(script_path, &mut tx, &job.workspace_id).await?
-            }
-            FlowModuleValue::RawScript(raw_code) => JobPayload::Code(raw_code.clone()),
-            a @ _ => {
-                tracing::info!("Unrecognized module values {:?}", a);
-                Err(Error::BadRequest(format!(
-                    "Unrecognized module values {:?}",
-                    a
-                )))?
-            }
-        };
-
-        let token = create_token_for_owner(
-            &db,
-            &job.workspace_id,
-            &job.permissioned_as,
-            crate::users::NewToken {
-                label: Some("transform-input".to_string()),
-                expiration: Some(chrono::Utc::now() + chrono::Duration::seconds(10)),
-            },
-            &job.created_by,
-        )
-        .await?;
-
-        let args = transform_input(
-            &job.args,
-            last_result,
-            &module.input_transform,
-            &job.workspace_id,
-            &token,
-            status
-                .modules
-                .into_iter()
-                .map(|x| match x {
-                    FlowStatusModule::Success { job } => job.to_string(),
-                    _ => "invalid step status".to_string(),
-                })
-                .collect(),
-        )
-        .await?; //job.args
-        let (uuid, mut tx) = push(
-            tx,
-            &job.workspace_id,
-            job_payload,
-            args,
-            &job.created_by,
-            job.permissioned_as.to_owned(),
-            None,
-            None,
-            Some(job.id),
-            true,
-        )
-        .await?;
-
-        sqlx::query(&format!(
-            "UPDATE queue
-            SET 
-                flow_status = jsonb_set(flow_status, '{{modules, {}}}', $1)
-            WHERE id = $2",
-            i
-        ))
-        .bind(serde_json::json!(FlowStatusModule::WaitingForExecutor {
-            job: uuid
-        }))
-        .bind(job.parent_job)
-        .execute(&mut tx)
-        .await?;
         tx.commit().await?;
     }
     Ok(())
@@ -1599,6 +1373,7 @@ pub async fn pull(db: &DB) -> Result<Option<QueuedJob>, crate::Error> {
     Ok(job)
 }
 
+#[instrument(level = "trace", skip_all)]
 pub async fn delete_job(db: &DB, w_id: &str, job_id: Uuid) -> Result<(), crate::Error> {
     let job_removed = sqlx::query_scalar!(
         "DELETE FROM queue WHERE workspace_id = $1 AND id = $2 RETURNING 1",
@@ -1606,7 +1381,8 @@ pub async fn delete_job(db: &DB, w_id: &str, job_id: Uuid) -> Result<(), crate::
         job_id
     )
     .fetch_one(db)
-    .await?
+    .await
+    .map_err(|e| Error::InternalErr(format!("Error during deletion of job {job_id}: {e}")))?
     .unwrap_or(0)
         == 1;
     tracing::debug!("Job {job_id} deletion was achieved with success: {job_removed}");

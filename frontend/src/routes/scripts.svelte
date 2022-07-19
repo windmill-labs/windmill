@@ -207,7 +207,7 @@
 						</p>
 					{:else}
 						<div class="grid md:grid-cols-2 gap-4 sm:grid-cols-1 2xl:grid-cols-3">
-							{#each scripts as { summary, path, hash, language, extra_perms, canWrite, lock_error_logs }}
+							{#each scripts as { summary, path, hash, language, extra_perms, canWrite, lock_error_logs, is_trigger }}
 								<div
 									class="flex flex-col justify-between script max-w-lg overflow-visible shadow-sm shadow-blue-100 border border-gray-200 bg-gray-50 py-2"
 								>
@@ -227,6 +227,9 @@
 										<div class="mr-3 w-full">
 											<SharedBadge {canWrite} extraPerms={extra_perms} />
 											<Badge twBgColor="bg-blue-200">{language}</Badge>
+											{#if is_trigger}
+												<Badge twBgColor="bg-blue-300">{is_trigger}</Badge>
+											{/if}
 											{#if lock_error_logs}<Badge
 													twBgColor="bg-red-200"
 													tooltip="The script was not deployed due to an error during deployment. See more details about the error on the script page."

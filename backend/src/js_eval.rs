@@ -21,27 +21,33 @@ use tokio::time::timeout;
 use crate::client;
 use crate::error::Error;
 
+pub struct EvalCreds {
+    pub workspace: String,
+    pub token: String,
+}
+
 pub async fn eval_timeout(
     expr: String,
     env: Vec<(String, serde_json::Value)>,
-    workspace: &str,
-    token: &str,
+    creds: Option<EvalCreds>,
     steps: Vec<String>,
 ) -> anyhow::Result<serde_json::Value> {
     let expr2 = expr.clone();
     let (sender, mut receiver) = oneshot::channel::<IsolateHandle>();
-    let (workspace, token) = (workspace.to_string().clone(), token.to_string().clone());
     timeout(
         std::time::Duration::from_millis(2000),
         tokio::task::spawn_blocking(move || {
+            let mut ops = vec![];
 
-            let mut ops = vec![
-                // An op for summing an array of numbers
-                // The op-layer automatically deserializes inputs
-                // and serializes the returned Result & value
-                op_variable::decl(),
-                op_resource::decl(),
-            ];
+            if creds.is_some() {
+                ops.extend([
+                    // An op for summing an array of numbers
+                    // The op-layer automatically deserializes inputs
+                    // and serializes the returned Result & value
+                    op_variable::decl(),
+                    op_resource::decl(),
+                ])
+            }
 
             if !steps.is_empty() {
                 ops.push(op_get_result::decl())
@@ -72,8 +78,7 @@ pub async fn eval_timeout(
                 .into_iter()
                 .fold(expr, replace_with_await);
 
-            let r =
-                runtime.block_on(eval(&mut js_runtime, &expr, env, &workspace, &token, steps))?;
+            let r = runtime.block_on(eval(&mut js_runtime, &expr, env, creds, steps))?;
 
             Ok(r) as anyhow::Result<Value>
         }),
@@ -123,8 +128,7 @@ async fn eval(
     context: &mut JsRuntime,
     expr: &str,
     env: Vec<(String, serde_json::Value)>,
-    workspace: &str,
-    token: &str,
+    creds: Option<EvalCreds>,
     steps: Vec<String>,
 ) -> anyhow::Result<serde_json::Value> {
     let expr = expr.trim();
@@ -135,9 +139,10 @@ async fn eval(
             .join("\n"),
         expr.split(SPLIT_PAT).last().unwrap_or_else(|| "")
     );
-    let steps_code = if !steps.is_empty() {
-        format!(
-            r#"
+    let (steps_code, api_code) = if let Some(EvalCreds { workspace, token }) = creds {
+        let steps_code = if !steps.is_empty() {
+            format!(
+                r#"
 let steps = [{}];
 async function step(n) {{
     if (n == -1) {{
@@ -151,14 +156,14 @@ async function step(n) {{
     let id = steps[n];
     return await Deno.core.opAsync("op_get_result", [workspace, id, token, base_url]);
 }}"#,
-            steps.into_iter().map(|x| format!("\"{x}\"")).join(",")
-        )
-    } else {
-        "".to_string()
-    };
+                steps.into_iter().map(|x| format!("\"{x}\"")).join(",")
+            )
+        } else {
+            String::new()
+        };
 
-    let code = format!(
-        r#"
+        let api_code = format!(
+            r#"
 let workspace = "{workspace}";
 let base_url = "{}";
 async function variable(path) {{
@@ -169,14 +174,24 @@ async function resource(path) {{
     let token = "{token}";
     return await Deno.core.opAsync("op_resource", [workspace, path, token, base_url]);
 }}
+        "#,
+            std::env::var("BASE_INTERNAL_URL")
+                .unwrap_or_else(|_| "http://missing-base-url".to_string()),
+        );
+        (steps_code, api_code)
+    } else {
+        (String::new(), String::new())
+    };
+
+    let code = format!(
+        r#"
+{api_code}
 {}
 {steps_code}
 (async () => {{ 
     {expr} 
 }})()
         "#,
-        std::env::var("BASE_INTERNAL_URL")
-            .unwrap_or_else(|_| "http://missing-base-url".to_string()),
         env.into_iter()
             .map(|(a, b)| format!(
                 "let {a} = {};\n",
@@ -259,7 +274,7 @@ mod tests {
         let code = "value.test + params.test";
 
         let mut runtime = JsRuntime::new(RuntimeOptions::default());
-        let res = eval(&mut runtime, code, env, "workspace", "token", vec![]).await?;
+        let res = eval(&mut runtime, code, env, None, vec![]).await?;
         assert_eq!(res, json!(4));
         Ok(())
     }
@@ -272,7 +287,7 @@ mod tests {
 multiline template`";
 
         let mut runtime = JsRuntime::new(RuntimeOptions::default());
-        let res = eval(&mut runtime, code, env, "workspace", "token", vec![]).await?;
+        let res = eval(&mut runtime, code, env, None, vec![]).await?;
         assert_eq!(res, json!("my 5\nmultiline template"));
         Ok(())
     }
@@ -285,7 +300,7 @@ multiline template`";
         ];
         let code = r#"variable("test")"#;
 
-        let res = eval_timeout(code.to_string(), env, "workspace", "token", vec![]).await?;
+        let res = eval_timeout(code.to_string(), env, None, vec![]).await?;
         assert_eq!(res, json!("test"));
         Ok(())
     }

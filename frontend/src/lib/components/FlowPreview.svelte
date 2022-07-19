@@ -6,8 +6,9 @@
 	import { faChevronDown, faChevronUp } from '@fortawesome/free-solid-svg-icons'
 	import { createEventDispatcher, onDestroy } from 'svelte'
 	import Icon from 'svelte-awesome'
-	import ChevronButton from './ChevronButton.svelte'
-	import DisplayResult from './DisplayResult.svelte'
+	import FlowJobResult from './FlowJobResult.svelte'
+	import type { FlowMode } from './flows/flowStore'
+	import { flowToMode } from './flows/utils'
 	import FlowStatusViewer from './FlowStatusViewer.svelte'
 	import RunForm from './RunForm.svelte'
 	import Tabs from './Tabs.svelte'
@@ -16,6 +17,7 @@
 	export let i: number
 	export let flow: Flow
 	export let schemas: Schema[] = []
+	export let mode: FlowMode
 
 	export let args: Record<string, any> = {}
 
@@ -34,7 +36,8 @@
 	export async function runPreview(args) {
 		viewPreview = true
 		intervalId && clearInterval(intervalId)
-		const newFlow = tab == 'upto' ? truncateFlow(flow) : extractStep(flow)
+		let newFlow = flowToMode(flow, mode)
+		newFlow = tab == 'upto' ? truncateFlow(newFlow) : extractStep(newFlow)
 		jobId = await JobService.runFlowPreview({
 			workspace: $workspaceStore ?? '',
 			requestBody: {
@@ -134,22 +137,7 @@
 			<FlowStatusViewer {job} bind:jobs />
 		</div>
 		{#if `result` in job}
-			<div class="flex flex-col ml-10">
-				<div>
-					<ChevronButton text="result" viewOptions={true}>
-						<div class="text-xs">
-							<DisplayResult result={job.result} />
-						</div>
-					</ChevronButton>
-				</div>
-				<div>
-					<ChevronButton text="logs" viewOptions={true}>
-						<div class="text-xs p-4 bg-gray-50 overflow-auto max-h-lg">
-							<pre class="w-full">{job.logs}</pre>
-						</div>
-					</ChevronButton>
-				</div>
-			</div>
+			<FlowJobResult {job} />
 		{/if}
 	{/if}
 {/if}

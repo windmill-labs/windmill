@@ -1,12 +1,21 @@
 <script lang="ts">
 	import { type Meta, pathToMeta } from '$lib/common'
 
-	import type { Group } from '$lib/gen'
+	import {
+		FlowService,
+		ResourceService,
+		ScheduleService,
+		ScriptService,
+		VariableService,
+		type Group
+	} from '$lib/gen'
 	import { GroupService } from '$lib/gen'
 	import Tooltip from './Tooltip.svelte'
 	import { userStore, workspaceStore } from '$lib/stores'
 	import { sleep } from '$lib/utils'
+	import { workspace } from 'vscode'
 
+	type PathKind = 'resource' | 'script' | 'variable' | 'flow' | 'schedule'
 	export let meta: Meta = {
 		ownerKind: 'user',
 		owner: '',
@@ -15,9 +24,11 @@
 	export let namePlaceholder = ''
 	export let initialPath: string
 	export let path = ''
+	export let error = ''
+
+	export let kind: PathKind
 
 	let groups: Group[] = []
-	let error = ''
 
 	$: {
 		path = [meta.ownerKind === 'group' ? 'g' : 'u', meta.owner, meta.name].join('/')
@@ -26,6 +37,7 @@
 	export function getPath() {
 		return path
 	}
+
 	export async function reset() {
 		if (path == '' || path == 'u//') {
 			meta.ownerKind = 'user'
@@ -40,23 +52,68 @@
 		}
 	}
 
-	$: validateName(meta)
+	$: validate(meta, path, kind)
 
 	async function loadGroups(): Promise<void> {
 		groups = await GroupService.listGroups({ workspace: $workspaceStore! })
 		meta.owner = meta.owner
 	}
 
-	function validateName(meta: Meta): void {
+	async function validate(meta: Meta, path: string, kind: PathKind) {
+		validateName(meta) && (await validatePath(path, kind))
+	}
+
+	let validateTimeout: NodeJS.Timeout | undefined = undefined
+
+	async function validatePath(path: string, kind: PathKind): Promise<void> {
+		if (initialPath != '' && initialPath != path) {
+			if (validateTimeout) {
+				clearTimeout(validateTimeout)
+			}
+			validateTimeout = setTimeout(async () => {
+				if (
+					initialPath != '' &&
+					initialPath != path &&
+					((kind == 'flow' &&
+						(await FlowService.existsFlowByPath({ workspace: $workspaceStore!, path: path }))) ||
+						(kind == 'script' &&
+							(await ScriptService.existsScriptByPath({
+								workspace: $workspaceStore!,
+								path: path
+							}))) ||
+						(kind == 'resource' &&
+							(await ResourceService.existsResource({
+								workspace: $workspaceStore!,
+								path: path
+							}))) ||
+						(kind == 'variable' &&
+							(await VariableService.existsVariable({
+								workspace: $workspaceStore!,
+								path: path
+							}))) ||
+						(kind == 'schedule' &&
+							(await ScheduleService.existsSchedule({ workspace: $workspaceStore!, path: path }))))
+				) {
+					error = 'path already used'
+				} else if (validateName(meta)) {
+					error = ''
+				}
+				validateTimeout = undefined
+			}, 500)
+		} else {
+			error = ''
+		}
+	}
+
+	function validateName(meta: Meta): boolean {
 		if (meta.name == undefined || meta.name == '') {
 			error = 'choose a name'
-			return
-		}
-		const regex = new RegExp(/^[\w-]+(\/[\w-]+)*$/)
-		if (regex.test(meta.name)) {
-			error = ''
+			return false
+		} else if (!/^[\w-]+(\/[\w-]+)*$/.test(meta.name)) {
+			error = 'This name is not valid.'
+			return false
 		} else {
-			error = 'This name is not valid. '
+			return true
 		}
 	}
 

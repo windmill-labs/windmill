@@ -17,7 +17,7 @@ use crate::{
     utils::{require_admin, Pagination, StripPath},
 };
 use axum::{
-    extract::{Extension, Path, Query},
+    extract::{Extension, Host, Path, Query},
     routing::{get, post},
     Json, Router,
 };
@@ -51,6 +51,7 @@ pub fn workspaced_service() -> Router {
         .route("/create", post(create_script))
         .route("/archive/p/*path", post(archive_script_by_path))
         .route("/get/p/*path", get(get_script_by_path))
+        .route("/exists/p/*path", get(exists_script_by_path))
         .route("/archive/h/:hash", post(archive_script_by_hash))
         .route("/delete/h/:hash", post(delete_script_by_hash))
         .route("/get/h/:hash", get(get_script_by_hash))
@@ -128,6 +129,7 @@ pub struct Script {
     pub lock: Option<String>,
     pub lock_error_logs: Option<String>,
     pub language: ScriptLang,
+    pub is_trigger: bool,
 }
 
 #[derive(Serialize, Deserialize, sqlx::Type, Debug)]
@@ -154,6 +156,7 @@ pub struct NewScript {
     pub is_template: Option<bool>,
     pub lock: Option<Vec<String>>,
     pub language: ScriptLang,
+    pub is_trigger: Option<bool>,
 }
 
 #[derive(Deserialize)]
@@ -168,6 +171,7 @@ pub struct ListScriptQuery {
     pub order_by: Option<String>,
     pub order_desc: Option<bool>,
     pub is_template: Option<bool>,
+    pub is_trigger: Option<bool>,
 }
 
 async fn list_scripts(
@@ -198,6 +202,7 @@ async fn list_scripts(
             "null as lock",
             "CASE WHEN lock_error_logs IS NOT NULL THEN 'error' ELSE null END as lock_error_logs",
             "language",
+            "is_trigger",
         ])
         .order_by("created_at", lq.order_desc.unwrap_or(true))
         .and_where("workspace_id = ? OR workspace_id = 'starter'".bind(&w_id))
@@ -235,6 +240,9 @@ async fn list_scripts(
     if let Some(it) = &lq.is_template {
         sqlb.and_where_eq("is_template", it);
     }
+    if let Some(it) = &lq.is_trigger {
+        sqlb.and_where_eq("is_trigger", it);
+    }
 
     let sql = sqlb.sql().map_err(|e| Error::InternalErr(e.to_string()))?;
     let mut tx = user_db.begin(&authed).await?;
@@ -253,12 +261,14 @@ struct ScriptSearch {
     summary: String,
     app: String,
     approved: bool,
+    is_trigger: bool,
 }
 
 async fn list_hub_scripts(
     Authed {
         email, username, ..
     }: Authed,
+    Host(host): Host,
 ) -> JsonResult<Vec<ScriptSearch>> {
     let http_client = reqwest::ClientBuilder::new()
         .user_agent("windmill/beta")
@@ -268,6 +278,7 @@ async fn list_hub_scripts(
         .get("https://hub.windmill.dev/searchData?approved=true")
         .header("X-email", email.unwrap_or_else(|| "".to_string()))
         .header("X-username", username)
+        .header("X-hostname", host)
         .send()
         .await
         .map_err(to_anyhow)?
@@ -404,8 +415,8 @@ async fn create_script(
     //::text::json is to ensure we use serde_json with preserve order
     sqlx::query!(
         "INSERT INTO script (workspace_id, hash, path, parent_hashes, summary, description, content, \
-         created_by, schema, is_template, extra_perms, lock, language) VALUES \
-         ($1, $2, $3, $4, $5, $6, $7, $8, $9::text::json, $10, $11, $12, $13)",
+         created_by, schema, is_template, extra_perms, lock, language, is_trigger) VALUES \
+         ($1, $2, $3, $4, $5, $6, $7, $8, $9::text::json, $10, $11, $12, $13, $14)",
         &w_id,
         &hash.0,
         ns.path,
@@ -418,7 +429,8 @@ async fn create_script(
         ns.is_template.unwrap_or(false),
         extra_perms,
         lock,
-        ns.language: ScriptLang
+        ns.language: ScriptLang,
+        ns.is_trigger.unwrap_or(false),
     )
     .execute(&mut tx)
     .await?;
@@ -533,6 +545,24 @@ async fn get_script_by_path(
 
     let script = crate::utils::not_found_if_none(script_o, "Script", path)?;
     Ok(Json(script))
+}
+
+async fn exists_script_by_path(
+    Extension(db): Extension<DB>,
+    Path((w_id, path)): Path<(String, StripPath)>,
+) -> JsonResult<bool> {
+    let path = path.to_path();
+
+    let exists = sqlx::query_scalar!(
+        "SELECT EXISTS(SELECT 1 FROM script WHERE path = $1 AND (workspace_id = $2 OR workspace_id = 'starter') AND
+         created_at = (SELECT max(created_at) FROM script WHERE path = $1 AND (workspace_id = $2 OR workspace_id = 'starter')))",
+         path, w_id
+    )
+    .fetch_one(&db)
+    .await?
+    .unwrap_or(false);
+
+    Ok(Json(exists))
 }
 
 async fn get_script_by_hash_internal<'c>(

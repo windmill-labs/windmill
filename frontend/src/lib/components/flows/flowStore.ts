@@ -1,14 +1,17 @@
 import type { Schema } from '$lib/common'
 import { FlowModuleValue, ScriptService, type Flow, type FlowModule } from '$lib/gen'
-import { DENO_INIT_CODE, PYTHON_INIT_CODE } from '$lib/script_helpers'
+import { initialCode } from '$lib/script_helpers'
 import { userStore, workspaceStore } from '$lib/stores'
 import { derived, get, writable } from 'svelte/store'
 import { createInlineScriptModuleFromPath, getFirstStepSchema, loadSchemaFromModule } from './utils'
+
+export type FlowMode = 'push' | 'pull'
 
 export const flowStore = writable<Flow>(undefined)
 export const schemasStore = writable<Schema[]>([])
 
 export function initFlow(flow: Flow) {
+	schemasStore.set([])
 	flowStore.set(flow)
 	// For each module in flow, we should load the corresponding schema
 	flow.value.modules.forEach((_, index) => {
@@ -16,12 +19,16 @@ export function initFlow(flow: Flow) {
 	})
 }
 
-export const isCopyFirstStepSchemaDisabled = derived(flowStore, (flow: Flow) => {
-	const modules = flow.value.modules
-	const [firstModule] = modules
-	return (
-		modules.length === 0 || (firstModule.value.path === '' && firstModule.value.type === 'script')
-	)
+export const isCopyFirstStepSchemaDisabled = derived(flowStore, (flow: Flow | undefined) => {
+	if (flow) {
+		const modules = flow.value.modules
+		const [firstModule] = modules
+		return (
+			modules.length === 0 || (firstModule.value.path === '' && firstModule.value.type === 'script')
+		)
+	} else {
+		return true
+	}
 })
 
 export function addModule() {
@@ -48,13 +55,13 @@ export async function pickScript(path: string, step: number) {
 	await loadSchema(step)
 }
 
-export async function createInlineScriptModule(language: FlowModuleValue.language, step: number) {
-	const code = language === FlowModuleValue.language.DENO ? DENO_INIT_CODE : PYTHON_INIT_CODE
+export async function createInlineScriptModule(language: FlowModuleValue.language, step: number, mode: FlowMode) {
+	const code = initialCode(language, (mode === 'pull' && step == 0))
 	flowStore.update((flow: Flow) => {
 		flow.value.modules[step].value = {
 			type: FlowModuleValue.type.RAWSCRIPT,
 			content: code,
-			language
+			language,
 		}
 
 		return flow

@@ -8,10 +8,48 @@ import {
 } from '$lib/gen'
 import { inferArgs } from '$lib/infer'
 import { loadSchema } from '$lib/scripts'
-import { DENO_INIT_CODE, PYTHON_INIT_CODE } from '$lib/script_helpers'
 import { workspaceStore } from '$lib/stores'
 import { emptySchema } from '$lib/utils'
 import { get } from 'svelte/store'
+import type { FlowMode } from './flowStore'
+
+export function flowToMode(flow: Flow, mode: FlowMode): Flow {
+	if (mode == 'pull') {
+		const newFlow: Flow = JSON.parse(JSON.stringify(flow))
+		const triggerModule = newFlow.value.modules[0]
+		const oldModules = newFlow.value.modules.slice(1)
+		if (triggerModule) {
+			triggerModule.stop_after_if_expr = "result.res1.length == 0"
+			triggerModule.skip_if_stopped = true
+		}
+		newFlow.value.modules = newFlow.value.modules.slice(0, 1)
+		if (oldModules.length > 0) {
+			newFlow.value.modules.push({
+				input_transform: oldModules[0].input_transform,
+				value: {
+					type: FlowModuleValue.type.FORLOOPFLOW,
+					iterator: { type: InputTransform.type.JAVASCRIPT, expr: 'result.res1' },
+					value: {
+						modules: oldModules
+					}
+				}
+			})
+		}
+		return newFlow
+	}
+	return flow
+}
+
+export function flattenForloopFlows(flow: Flow): Flow {
+	let newFlow: Flow = JSON.parse(JSON.stringify(flow))
+	if (newFlow.value.modules[1]?.value.type == FlowModuleValue.type.FORLOOPFLOW) {
+		const oldModules = newFlow.value.modules[1].value.value?.modules ?? []
+		newFlow.value.modules = newFlow.value.modules.slice(0, 1)
+		newFlow.value.modules.push(...oldModules)
+
+	}
+	return newFlow
+}
 
 export function getTypeAsString(arg: any): string {
 	if (arg === null) {
@@ -40,16 +78,6 @@ export async function getFirstStepSchema(flow: Flow): Promise<Schema> {
 		return await loadSchema(firstModule.value.path)
 	}
 	return emptySchema()
-}
-
-export function createInlineScriptModule(language: FlowModuleValue.language): FlowModuleValue {
-	const code = language === FlowModuleValue.language.DENO ? DENO_INIT_CODE : PYTHON_INIT_CODE
-
-	return {
-		type: FlowModuleValue.type.RAWSCRIPT,
-		content: code,
-		language
-	}
 }
 
 export async function getScriptByPath(path: string): Promise<{

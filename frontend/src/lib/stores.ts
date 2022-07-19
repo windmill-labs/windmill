@@ -27,6 +27,7 @@ export const hubScripts = writable<
 		path: string
 		summary: string
 		approved: boolean
+		is_trigger: boolean
 	}>
 	| undefined
 >(undefined)

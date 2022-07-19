@@ -14,11 +14,11 @@
 	export let schema: Schema
 	export let args: Record<string, any> = {}
 	export let editableSchema = false
-	export let extraLib: string
+	export let extraLib: string = 'missing extraLib'
 	export let isValid: boolean = true
 
-	export let i: number
-	export let previousSchema: Object
+	export let i: number | undefined = undefined
+	export let previousSchema: Object | undefined = undefined
 
 	let inputCheck: { [id: string]: boolean } = {}
 
@@ -73,6 +73,7 @@
 						}}
 						bind:value={types[index]}
 						on:change={(e) => {
+							// 	args[argName].expr = e.detail == 'javascript' ? getDefaultExpr(i ?? -1) : undefined
 							if (e.detail === InputTransform.type.JAVASCRIPT) {
 								args[argName].expr = getDefaultExpr(i)
 								args[argName].value = undefined
@@ -122,7 +123,6 @@
 								extraLibPath="file:///node_modules/@types/windmill@{i}/index.d.ts"
 							/>
 						</div>
-
 						<DynamicInputHelpBox />
 					{/if}
 				{:else}

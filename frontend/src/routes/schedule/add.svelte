@@ -34,6 +34,7 @@
 	let preview: string[] = []
 
 	let path: string = ''
+	let pathError = ''
 
 	const offset = new Date().getTimezoneOffset()
 
@@ -143,7 +144,13 @@
 		{#if !edit}
 			<h2>Save schedule as</h2>
 
-			<Path bind:path {initialPath} namePlaceholder={'my/schedule'}>
+			<Path
+				bind:error={pathError}
+				bind:path
+				{initialPath}
+				namePlaceholder={'my/schedule'}
+				kind="schedule"
+			>
 				<div slot="ownerToolkit" class="text-gray-700 text-2xs">
 					Schedule permissions depend on their path. Select the group <span class="font-mono"
 						>all</span
@@ -158,7 +165,7 @@
 		<p class="text-xs text-gray-600">
 			Pick a script or flow to be triggered by the schedule<Required required={true} />
 		</p>
-		<ScriptPicker allowFlow={true} bind:itemKind bind:scriptPath={script_path} />
+		<ScriptPicker isTrigger={false} allowFlow={true} bind:itemKind bind:scriptPath={script_path} />
 		<div class="max-w-5xl {edit ? '' : 'mt-2 md:mt-6'}">
 			<h2>Arguments</h2>
 			{#if runnable}
@@ -213,8 +220,8 @@
 			<div>
 				<button
 					type="submit"
-					disabled={!allowSchedule}
-					class="{allowSchedule ? 'default-button' : 'default-button-disabled'} w-min px-6"
+					disabled={!allowSchedule || pathError != ''}
+					class="default-button w-min px-6"
 					on:click={scheduleScript}
 				>
 					{edit ? 'Save' : 'Schedule'}

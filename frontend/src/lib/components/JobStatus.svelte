@@ -20,7 +20,7 @@
 
 {#if job && 'success' in job && job.success}
 	<Icon class="text-green-600" data={check} scale={SMALL_ICON_SCALE} />
-	<span class="mx-2">Succeeded</span>
+	<span class="mx-2">Succeeded {job.is_skipped ? '(Skipped)' : ''}</span>
 	<div>
 		<Icon class="text-gray-700" data={faHourglassHalf} scale={SMALL_ICON_SCALE} /><span class="mx-2"
 			>Job ran in {job.duration}

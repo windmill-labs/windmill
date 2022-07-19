@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { sendUserToast } from '$lib/utils'
 	import { ScriptService, FlowService, Script } from '$lib/gen'
 
 	import Icon from 'svelte-awesome'
@@ -18,6 +17,7 @@
 	export let allowFlow = false
 	export let allowHub = false
 	export let itemKind: 'hub' | 'script' | 'flow' = allowHub ? 'hub' : 'script'
+	export let isTrigger: boolean | undefined = undefined
 
 	let items: { summary: String; path: String; version?: String }[] = []
 	let itemPicker: ItemPicker
@@ -48,7 +48,7 @@
 		if (itemKind == 'flow') {
 			items = await FlowService.listFlows({ workspace: $workspaceStore! })
 		} else if (itemKind == 'script') {
-			items = await ScriptService.listScripts({ workspace: $workspaceStore! })
+			items = await ScriptService.listScripts({ workspace: $workspaceStore!, isTrigger })
 		} else {
 			items = $hubScripts ?? []
 		}

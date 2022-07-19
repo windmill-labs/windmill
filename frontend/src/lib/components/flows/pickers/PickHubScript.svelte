@@ -6,9 +6,12 @@
 	import { hubScripts } from '$lib/stores'
 	import { createEventDispatcher } from 'svelte'
 
+	export let isTrigger: boolean
+
 	type Item = { summary: String; path: String; version?: String }
 
-	const items: Item[] = $hubScripts ?? []
+	let items: Item[]
+	$: items = $hubScripts?.filter((x) => x.is_trigger == isTrigger) ?? []
 	let itemPicker: ItemPicker
 
 	const dispatch = createEventDispatcher()
@@ -27,7 +30,7 @@
 />
 
 <FlowScriptPicker
-	label={'Pick a script from the Hub'}
+	label={`Pick a ${isTrigger ? 'trigger ' : ''} script from the Hub`}
 	icon={faUserGroup}
 	iconColor="text-blue-500"
 	on:click={() => itemPicker.openModal()}

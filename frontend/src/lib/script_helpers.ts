@@ -42,3 +42,31 @@ export async function main(x: string, y: string = 'default arg') {
 	return { foo: x }
 }
 `
+
+export const DENO_INIT_CODE_TRIGGER = `import * as wmill from 'https://deno.land/x/windmill@v${__pkg__.version}/mod.ts'
+
+export async function main() {
+
+    // A common trigger script would follow this pattern:
+    // 1. Get the last saved state
+	// let state = wmill.getInternalState()
+    // 2. Get the actual state from the external service
+    // let newState = useApiToFetchState()
+    // 3. Compare the two states and update the internal state if necessary
+    // wmill.setInternalState(newState)
+    // 4. Return the new ros
+    // return newState - state
+
+    // You may refer to each row/value returned by the trigger script using
+    // previous_result._value
+	return [1,2,3]
+}
+`
+
+export function initialCode(language: 'deno' | 'python3', is_trigger: boolean): string {
+	return language === 'deno'
+		? is_trigger
+			? DENO_INIT_CODE_TRIGGER
+			: DENO_INIT_CODE
+		: PYTHON_INIT_CODE
+}
