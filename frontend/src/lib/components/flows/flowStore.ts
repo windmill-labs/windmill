@@ -11,6 +11,7 @@ export const flowStore = writable<Flow>(undefined)
 export const schemasStore = writable<Schema[]>([])
 
 export function initFlow(flow: Flow) {
+	schemasStore.set([])
 	flowStore.set(flow)
 	// For each module in flow, we should load the corresponding schema
 	flow.value.modules.forEach((_, index) => {

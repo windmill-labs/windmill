@@ -4,9 +4,9 @@
 
 	let resources: Resource[] = []
 
-	export let value: string | undefined
+	export let value: string | undefined = undefined
 
-	export let resourceType: string | undefined
+	export let resourceType: string | undefined = undefined
 
 	async function loadResources(resourceType: string | undefined) {
 		resources = await ResourceService.listResource({ workspace: $workspaceStore!, resourceType })

@@ -47,7 +47,6 @@
 	$: jobKinds = computeJobKinds(jobKindsCat)
 
 	function computeJobKinds(jobKindsCat: string | undefined): string {
-		console.log('jobKindsCat', jobKindsCat)
 		if (jobKindsCat == 'all') {
 			return `${CompletedJob.job_kind.SCRIPT},${CompletedJob.job_kind.FLOW},${CompletedJob.job_kind.DEPENDENCIES},${CompletedJob.job_kind.PREVIEW},${CompletedJob.job_kind.FLOWPREVIEW},${CompletedJob.job_kind.SCRIPT_HUB}`
 		} else if (jobKindsCat == 'dependencies') {
@@ -96,7 +95,6 @@
 		jobKinds: string | undefined
 	): Promise<void> {
 		try {
-			console.log(jobKinds, success, isSkipped)
 			const newJobs = await fetchJobs(createdBefore, undefined)
 			showOlderJobs = newJobs.length === jobsPerPage
 			jobs = newJobs
@@ -167,17 +165,17 @@ the bearer token they use has less privilege."
 				bind:value={success}
 				on:change={async () => await setQuery($page.url, 'success', String(success))}
 			>
-				<option value={undefined}>Successful and not jobs</option>
+				<option value={undefined}>Successful and error jobs</option>
 				<option value={true}>Only successful jobs</option>
-				<option value={false}>Only non successful jobs</option>
+				<option value={false}>Only error jobs</option>
 			</select>
 			<select
 				bind:value={isSkipped}
 				on:change={async () => await setQuery($page.url, 'is_skipped', String(isSkipped))}
 			>
 				<option value={false}>Ignore skipped flow jobs</option>
-				<option value={true}>If a flow jobs, show only if it was not skipped</option>
-				<option value={undefined}>Show flow jobs regardless of being skipped</option>
+				<option value={true}>If a flow job, show only if it was not skipped</option>
+				<option value={undefined}>Show flow jobs regardless of being skipped or not</option>
 			</select>
 		</div>
 		<div class="xl:max-w-screen-lg">
