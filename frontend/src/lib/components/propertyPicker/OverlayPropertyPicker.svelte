@@ -4,7 +4,7 @@
 	import PropPicker from './PropPicker.svelte'
 	import WarningMessage from './WarningMessage.svelte'
 
-	export let previousSchema: Object
+	export let previousSchema: Object | undefined
 	export let index: number
 	let isOpen = false
 

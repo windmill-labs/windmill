@@ -75,7 +75,7 @@
 						on:change={(e) => {
 							// 	args[argName].expr = e.detail == 'javascript' ? getDefaultExpr(i ?? -1) : undefined
 							if (e.detail === InputTransform.type.JAVASCRIPT) {
-								args[argName].expr = getDefaultExpr(i)
+								args[argName].expr = getDefaultExpr(i ?? -1)
 								args[argName].value = undefined
 							} else {
 								args[argName].expr = undefined
