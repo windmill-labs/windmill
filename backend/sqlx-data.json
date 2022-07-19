@@ -2442,6 +2442,41 @@
       ]
     }
   },
+  "b49868120aa48f9163ffb0262804c0528723c858d20d7e556750fe712e3d5123": {
+    "query": "INSERT INTO script (workspace_id, hash, path, parent_hashes, summary, description, content, created_by, schema, is_template, extra_perms, lock, language, is_trigger) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::text::json, $10, $11, $12, $13, $14)",
+    "describe": {
+      "columns": [],
+      "parameters": {
+        "Left": [
+          "Varchar",
+          "Int8",
+          "Varchar",
+          "Int8Array",
+          "Text",
+          "Text",
+          "Text",
+          "Varchar",
+          "Text",
+          "Bool",
+          "Jsonb",
+          "Text",
+          {
+            "Custom": {
+              "name": "script_lang",
+              "kind": {
+                "Enum": [
+                  "python3",
+                  "deno"
+                ]
+              }
+            }
+          },
+          "Bool"
+        ]
+      },
+      "nullable": []
+    }
+  },
   "b7dd791cd69748ef51b7520f505c0c8bb1b4014a273476eddfecf1ab658a18b4": {
     "query": "select hash from script where path = $1 AND (workspace_id = $2 OR workspace_id = 'starter') AND\n    created_at = (SELECT max(created_at) FROM script WHERE path = $1 AND (workspace_id = $2 OR workspace_id = 'starter')) AND\n    deleted = false",
     "describe": {
@@ -3080,41 +3115,6 @@
           "Text",
           "Text",
           "Text"
-        ]
-      },
-      "nullable": []
-    }
-  },
-  "f503c8f37507c89bf99063f49ef72e2d021898583708e776fc58d99809f4bc3c": {
-    "query": "INSERT INTO script (workspace_id, hash, path, parent_hashes, summary, description, content, created_by, schema, is_template, extra_perms, lock, language, trigger_reco_interval) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::text::json, $10, $11, $12, $13, $14)",
-    "describe": {
-      "columns": [],
-      "parameters": {
-        "Left": [
-          "Varchar",
-          "Int8",
-          "Varchar",
-          "Int8Array",
-          "Text",
-          "Text",
-          "Text",
-          "Varchar",
-          "Text",
-          "Bool",
-          "Jsonb",
-          "Text",
-          {
-            "Custom": {
-              "name": "script_lang",
-              "kind": {
-                "Enum": [
-                  "python3",
-                  "deno"
-                ]
-              }
-            }
-          },
-          "Int4"
         ]
       },
       "nullable": []
