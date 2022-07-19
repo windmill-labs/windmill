@@ -2854,26 +2854,6 @@
       "nullable": []
     }
   },
-  "dd7940ec390357b268d616e1880516ecc08d506db2109efcce840f096d7a594e": {
-    "query": "SELECT EXISTS(SELECT 1 FROM workspace WHERE id = $1)",
-    "describe": {
-      "columns": [
-        {
-          "ordinal": 0,
-          "name": "exists",
-          "type_info": "Bool"
-        }
-      ],
-      "parameters": {
-        "Left": [
-          "Text"
-        ]
-      },
-      "nullable": [
-        null
-      ]
-    }
-  },
   "df8f9b2e601b0157759e9507308ea7df562a7a42516be0fcb465b8e34de0f438": {
     "query": "SELECT EXISTS(SELECT 1 FROM workspace WHERE workspace.id = $1)",
     "describe": {

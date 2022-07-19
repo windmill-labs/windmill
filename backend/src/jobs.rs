@@ -646,6 +646,7 @@ async fn list_completed_jobs(
             "null as raw_flow",
             "is_flow_step",
             "language",
+            "is_skipped",
         ],
     )
     .sql()?;
