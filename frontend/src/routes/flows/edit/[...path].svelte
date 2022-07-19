@@ -6,6 +6,7 @@
 	import { workspaceStore } from '$lib/stores'
 	import { emptySchema } from '$lib/utils'
 	import { flattenForloopFlows } from '$lib/components/flows/utils'
+	import { initFlow } from '$lib/components/flows/flowStore'
 
 	const initialState = $page.url.searchParams.get('state')
 	let flowLoadedFromUrl = initialState != undefined ? JSON.parse(atob(initialState)) : undefined
@@ -33,6 +34,7 @@
 				  })
 		flow = flattenForloopFlows(flow)
 		initialPath = flow.path
+		initFlow(flow)
 	}
 
 	$: {

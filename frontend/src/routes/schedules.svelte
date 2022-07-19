@@ -63,7 +63,7 @@
 				<th>Schedule</th>
 				<th>Script or Flow</th>
 				<th>schedule</th>
-				<th>on/off</th>
+				<th>off/on</th>
 				<th>timezone</th>
 				<th>last edit</th>
 				<th />

@@ -33,11 +33,6 @@ def main(name: str = "Nicolas Bourbaki",
     return {"version": version, "splitted": name.split(), "user": user}
 `
 
-export const PYTHON_INIT_CODE_TRIGGER = `import wmill
-
-def main():
-    return [1,2,3]
-`
 export const DENO_INIT_CODE = `// only do the following import if you require your script to interact with the windmill
 // for instance to get a variable or resource
 // import * as wmill from 'https://deno.land/x/windmill@v${__pkg__.version}/mod.ts'
@@ -68,3 +63,9 @@ export async function main() {
 	return [1,2,3]
 }
 `
+
+export function initialCode(language: 'deno' | 'python3', is_trigger: boolean): string {
+    return language === 'deno' ?
+        (is_trigger ? DENO_INIT_CODE_TRIGGER : DENO_INIT_CODE) : PYTHON_INIT_CODE
+
+}

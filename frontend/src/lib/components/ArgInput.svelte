@@ -20,7 +20,7 @@
 	export let contentEncoding = ''
 	export let type: string | undefined = undefined
 	export let required = false
-	export let pattern: undefined | string
+	export let pattern: undefined | string = undefined
 	export let valid = required ? false : true
 	export let minRows = 1
 	export let maxRows = 10

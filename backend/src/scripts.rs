@@ -129,7 +129,7 @@ pub struct Script {
     pub lock: Option<String>,
     pub lock_error_logs: Option<String>,
     pub language: ScriptLang,
-    pub trigger_reco_interval: Option<i32>,
+    pub is_trigger: bool,
 }
 
 #[derive(Serialize, Deserialize, sqlx::Type, Debug)]
@@ -156,7 +156,7 @@ pub struct NewScript {
     pub is_template: Option<bool>,
     pub lock: Option<Vec<String>>,
     pub language: ScriptLang,
-    pub trigger_reco_interval: Option<i32>,
+    pub is_trigger: Option<bool>,
 }
 
 #[derive(Deserialize)]
@@ -171,6 +171,7 @@ pub struct ListScriptQuery {
     pub order_by: Option<String>,
     pub order_desc: Option<bool>,
     pub is_template: Option<bool>,
+    pub is_trigger: Option<bool>,
 }
 
 async fn list_scripts(
@@ -201,7 +202,7 @@ async fn list_scripts(
             "null as lock",
             "CASE WHEN lock_error_logs IS NOT NULL THEN 'error' ELSE null END as lock_error_logs",
             "language",
-            "trigger_reco_interval",
+            "is_trigger",
         ])
         .order_by("created_at", lq.order_desc.unwrap_or(true))
         .and_where("workspace_id = ? OR workspace_id = 'starter'".bind(&w_id))
@@ -238,6 +239,9 @@ async fn list_scripts(
     }
     if let Some(it) = &lq.is_template {
         sqlb.and_where_eq("is_template", it);
+    }
+    if let Some(it) = &lq.is_trigger {
+        sqlb.and_where_eq("is_trigger", it);
     }
 
     let sql = sqlb.sql().map_err(|e| Error::InternalErr(e.to_string()))?;
@@ -411,7 +415,7 @@ async fn create_script(
     //::text::json is to ensure we use serde_json with preserve order
     sqlx::query!(
         "INSERT INTO script (workspace_id, hash, path, parent_hashes, summary, description, content, \
-         created_by, schema, is_template, extra_perms, lock, language, trigger_reco_interval) VALUES \
+         created_by, schema, is_template, extra_perms, lock, language, is_trigger) VALUES \
          ($1, $2, $3, $4, $5, $6, $7, $8, $9::text::json, $10, $11, $12, $13, $14)",
         &w_id,
         &hash.0,
@@ -426,7 +430,7 @@ async fn create_script(
         extra_perms,
         lock,
         ns.language: ScriptLang,
-        ns.trigger_reco_interval,
+        ns.is_trigger.unwrap_or(false),
     )
     .execute(&mut tx)
     .await?;

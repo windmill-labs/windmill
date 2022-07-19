@@ -1609,6 +1609,15 @@ paths:
           in: query
           schema:
             type: boolean
+        - name: is_trigger
+          description: |
+            (default regardless)
+            if true show only the trigger scripts
+            if false show only the non trigger scripts
+            if not defined, show all regardless of if the script is a trigger script
+          in: query
+          schema:
+            type: boolean
       responses:
         "200":
           description: All available scripts
@@ -1656,8 +1665,8 @@ paths:
                 language:
                   type: string
                   enum: [python3, deno]
-                trigger_reco_interval:
-                  type: integer
+                is_trigger:
+                  type: boolean
               required:
                 - path
                 - summary
@@ -2266,7 +2275,11 @@ paths:
         - $ref: "#/components/parameters/CreatedAfter"
         - $ref: "#/components/parameters/Success"
         - $ref: "#/components/parameters/JobKinds"
-
+        - name: is_skipped
+          description: is the job skipped
+          in: query
+          schema:
+            type: boolean
       responses:
         "200":
           description: All available completed jobs
@@ -2293,7 +2306,11 @@ paths:
         - $ref: "#/components/parameters/CreatedBefore"
         - $ref: "#/components/parameters/CreatedAfter"
         - $ref: "#/components/parameters/JobKinds"
-
+        - name: is_skipped
+          description: is the job skipped
+          in: query
+          schema:
+            type: boolean
         - name: success
           description: filter on successful jobs
           in: query
@@ -3115,8 +3132,8 @@ components:
         language:
           type: string
           enum: [python3, deno]
-        trigger_reco_interval:
-          type: integer
+        is_trigger:
+          type: boolean
       required:
         - hash
         - path
@@ -3129,6 +3146,7 @@ components:
         - is_template
         - extra_perms
         - language
+        - is_trigger
 
     ScriptArgs:
       type: object

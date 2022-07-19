@@ -205,7 +205,7 @@
 			</button>
 		{/if}
 		<h3 class="mt-5 text-gray-700">Select a script to run on /windmill command:</h3>
-		<ScriptPicker bind:scriptPath on:select={editSlackCommand} />
+		<ScriptPicker isTrigger={false} bind:scriptPath on:select={editSlackCommand} />
 
 		<p class="text-sm text-gray-700 italic mt-3">
 			A script run from slack /windmill command is run as group 'slack' and hence every variables or

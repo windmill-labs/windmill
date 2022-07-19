@@ -22,6 +22,7 @@
 		on:click={() => dispatch('new', { language: FlowModuleValue.language.DENO })}
 	/>
 	<FlowScriptPicker
+		disabled={isTrigger}
 		label="New Python {isTrigger ? 'trigger ' : ''}script (3.10)"
 		icon={faCode}
 		iconColor="text-yellow-500"

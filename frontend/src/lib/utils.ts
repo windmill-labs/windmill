@@ -1,4 +1,5 @@
 /* eslint-disable @typescript-eslint/explicit-module-boundary-types */
+import { goto } from '$app/navigation'
 import type { User } from '$lib/gen'
 import { toast } from '@zerodevx/svelte-toast'
 import type { Schema } from './common'
@@ -192,6 +193,17 @@ export function elapsedSinceSecs(date: string): number {
 
 export function pathIsEmpty(path: string): boolean {
 	return path == undefined || path.split('/')[2] == ''
+}
+
+export async function setQuery(url: URL, key: string, value: string): Promise<void> {
+	url.searchParams.set(key, value)
+	await goto(`?${url.searchParams.toString()}`)
+}
+
+export async function setQueryWithoutLoad(url: URL, key: string, value: string): Promise<void> {
+	const nurl = new URL(url.toString())
+	nurl.searchParams.set(key, value)
+	history.replaceState(null, '', nurl.toString())
 }
 
 export function groupBy<T>(

@@ -120,6 +120,11 @@
 					>Template</span
 				>
 			{/if}
+			{#if script?.is_trigger}
+				<span class="mx-2 bg-blue-500 rounded-md bg-opacity-25 text-sm font-normal px-1 py-px"
+					>Trigger</span
+				>
+			{/if}
 			<SharedBadge canWrite={can_write} extraPerms={script?.extra_perms ?? {}} />
 			{#if deploymentInProgress}
 				<span class="bg-yellow-200 text-gray-700 text-xs rounded px-1 mx-3">
