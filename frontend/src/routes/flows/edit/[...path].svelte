@@ -44,4 +44,4 @@
 	}
 </script>
 
-<FlowBuilder {initialPath} {flow} />
+<FlowBuilder {initialPath} />

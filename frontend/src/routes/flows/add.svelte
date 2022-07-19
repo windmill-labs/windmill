@@ -25,4 +25,4 @@
 	initFlow(flow)
 </script>
 
-<FlowBuilder {flow} />
+<FlowBuilder />

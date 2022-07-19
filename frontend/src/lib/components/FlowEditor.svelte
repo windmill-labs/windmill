@@ -7,8 +7,13 @@
 	import CopyFirstStepSchema from './flows/CopyFirstStepSchema.svelte'
 	import { addModule, flowStore, type FlowMode } from './flows/flowStore'
 	import ModuleStep from './ModuleStep.svelte'
+	import Path from './Path.svelte'
 	import RadioButtonV2 from './RadioButtonV2.svelte'
 	import SchemaEditor from './SchemaEditor.svelte'
+	import Required from './Required.svelte'
+
+	export let pathError = ''
+	export let initialPath: string = ''
 
 	let args: Record<string, any> = {}
 	export let mode: FlowMode =
@@ -22,8 +27,43 @@
 		<div class="relative">
 			<li class="flex flex-row flex-shrink max-w-full mx-auto mt-20">
 				<div
-					class="bg-white border border-gray xl-rounded shadow-lg w-full max-w-4xl mx-4 md:mx-auto p4"
+					class="bg-white border border-gray xl-rounded shadow-lg w-full max-w-4xl mx-4 md:mx-auto p-4"
 				>
+					<div class="mb-8 p-4">
+						<Path
+							bind:error={pathError}
+							bind:path={$flowStore.path}
+							{initialPath}
+							namePlaceholder="example/my/flow"
+							kind="flow"
+						>
+							<div slot="ownerToolkit" class="text-gray-700 text-2xs">
+								Flow permissions depend on their path. Select the group <span class="font-mono"
+									>all</span
+								>
+								to share your flow, and <span class="font-mono">user</span> to keep it private.
+								<a href="https://docs.windmill.dev/docs/reference/namespaces">docs</a>
+							</div>
+						</Path>
+
+						<label class="block mt-4">
+							<span class="text-gray-700">Summary <Required required={false} /></span>
+							<textarea
+								bind:value={$flowStore.summary}
+								class="
+					mt-1
+					block
+					w-full
+					rounded-md
+					border-gray-300
+					shadow-sm
+					focus:border-indigo-300 focus:ring focus:ring-indigo-200 focus:ring-opacity-50
+					"
+								placeholder="A very short summary of the flow displayed when the flow is listed"
+								rows="1"
+							/>
+						</label>
+					</div>
 					<RadioButtonV2
 						options={[
 							[
