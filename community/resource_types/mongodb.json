@@ -2,37 +2,57 @@
   "workspace_id": "starter",
   "name": "mongodb",
   "schema": {
-    "type": "object",
     "$schema": "https://json-schema.org/draft/2020-12/schema",
-    "required": [
-      "host",
-      "password",
-      "username"
-    ],
     "properties": {
+      "db": {
+        "type": "string",
+        "description": ""
+      },
       "tls": {
         "type": "boolean",
-        "description": ""
+        "description": "",
+        "default": true
       },
-      "host": {
-        "type": "string",
-        "default": "localhost:27017",
-        "description": "Hostname or IP address or Unix domain socket path of a single mongod or mongos instance to connect to, or a mongodb URI"
-      },
-      "port": {
-        "type": "integer",
-        "default": 27017,
-        "description": "port number on which to connect"
-      },
-      "password": {
-        "type": "string",
-        "description": ""
-      },
-      "username": {
-        "type": "string",
-        "description": ""
+      "servers": [
+        {
+          "host": {
+            "type": "string",
+            "description": ""
+          },
+          "port": {
+            "type": "integer",
+            "description": "",
+            "default": 27017
+          }
+        }
+      ],
+      "credential": {
+        "username": {
+          "type": "string",
+          "description": ""
+        },
+        "password": {
+          "type": "string",
+          "description": ""
+        },
+        "db": {
+          "type": "string",
+          "description": ""
+        },
+        "mechanism": {
+          "type": "string",
+          "description": "",
+          "default": "SCRAM-SHA-1"
+        }
       }
-    }
+    },
+    "required": [
+      "db",
+      "tls",
+      "servers",
+      "credential"
+    ],
+    "type": "object"
   },
-  "description": "Mongodb connection infos"
+  "description": "MongoDb connection infos"
 }
