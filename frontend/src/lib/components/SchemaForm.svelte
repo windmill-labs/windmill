@@ -19,24 +19,30 @@
 	export let i: number | undefined = undefined
 	export let previousSchema: Object | undefined = undefined
 
-	$: types = Object.keys(schema?.properties ?? {}).map((prop, index) => {
-		const arg = args[prop]
+	$: propertiesTypes = Object.keys(schema?.properties ?? {})
+		.map((prop, index) => {
+			const arg = args[prop]
 
-		if (isCodeInjection(arg.value)) {
-			args[prop].expr = getCodeInjectionExpr(arg.value)
-			args[prop].type = InputTransform.type.JAVASCRIPT
-			return InputTransform.type.STATIC
-		} else {
-			if (
-				args[prop].type === InputTransform.type.JAVASCRIPT &&
-				types?.at(index) === InputTransform.type.STATIC
-			) {
-				args[prop].type = InputTransform.type.STATIC
+			if (!arg) {
+				return
 			}
-		}
 
-		return arg.type
-	})
+			if (isCodeInjection(arg.value)) {
+				args[prop].expr = getCodeInjectionExpr(arg.value)
+				args[prop].type = InputTransform.type.JAVASCRIPT
+				return InputTransform.type.STATIC
+			} else {
+				if (
+					args[prop].type === InputTransform.type.JAVASCRIPT &&
+					propertiesTypes?.at(index) === InputTransform.type.STATIC
+				) {
+					args[prop].type = InputTransform.type.STATIC
+				}
+			}
+
+			return arg.type
+		})
+		.filter(Boolean)
 </script>
 
 <div class="w-full">
@@ -54,7 +60,7 @@
 							type={schema.properties[argName].type}
 							itemsType={schema.properties[argName].items}
 						/>
-						{#if types[index] === 'static' && args[argName].type === InputTransform.type.JAVASCRIPT}
+						{#if propertiesTypes[index] === 'static' && args[argName].type === InputTransform.type.JAVASCRIPT}
 							<span
 								class="bg-blue-100 text-blue-800 text-sm font-medium mr-2 px-2.5 py-0.5 rounded ml-2"
 							>
@@ -65,9 +71,9 @@
 					<Toggle
 						options={{
 							left: { label: '', value: InputTransform.type.STATIC },
-							right: { label: 'Code editor', value: InputTransform.type.JAVASCRIPT }
+							right: { label: 'Raw Javascript editor', value: InputTransform.type.JAVASCRIPT }
 						}}
-						bind:value={types[index]}
+						bind:value={propertiesTypes[index]}
 						on:change={(e) => {
 							if (e.detail === InputTransform.type.JAVASCRIPT) {
 								args[argName].expr = getDefaultExpr(i ?? -1)
@@ -83,7 +89,7 @@
 				</div>
 				<div class="max-w-xs" />
 
-				{#if types[index] === 'static'}
+				{#if propertiesTypes[index] === 'static'}
 					<OverlayPropertyPicker
 						{previousSchema}
 						{index}
@@ -107,7 +113,7 @@
 							displayHeader={false}
 						/>
 					</OverlayPropertyPicker>
-				{:else if types[index] === InputTransform.type.JAVASCRIPT}
+				{:else if propertiesTypes[index] === InputTransform.type.JAVASCRIPT}
 					{#if args[argName].expr != undefined}
 						<div class="border rounded p-2 mt-2 border-gray-300">
 							<Editor
