@@ -167,6 +167,27 @@
       "nullable": []
     }
   },
+  "0d6412bc3ebb1d58bdd9cbcef774dacf9016fa402af5c1b4e339b9a3d7163d5e": {
+    "query": "SELECT EXISTS (SELECT 1 FROM schedule WHERE path = $1 AND workspace_id = $2 AND path != script_path)",
+    "describe": {
+      "columns": [
+        {
+          "ordinal": 0,
+          "name": "exists",
+          "type_info": "Bool"
+        }
+      ],
+      "parameters": {
+        "Left": [
+          "Text",
+          "Text"
+        ]
+      },
+      "nullable": [
+        null
+      ]
+    }
+  },
   "0dd3fe3ddf9cb72760687d2ee0950afdcce2d54721bfe8dba008b15e4b581956": {
     "query": "DELETE FROM account WHERE id = $1 AND workspace_id = $2",
     "describe": {
@@ -2901,6 +2922,27 @@
       ],
       "parameters": {
         "Left": [
+          "Text"
+        ]
+      },
+      "nullable": [
+        null
+      ]
+    }
+  },
+  "e262f83b672a558092dc959b28a919f18e44b2a0d03b27b0ddba99896940c6d3": {
+    "query": "SELECT EXISTS (SELECT 1 FROM flow WHERE path = $1 AND workspace_id = $2)",
+    "describe": {
+      "columns": [
+        {
+          "ordinal": 0,
+          "name": "exists",
+          "type_info": "Bool"
+        }
+      ],
+      "parameters": {
+        "Left": [
+          "Text",
           "Text"
         ]
       },
