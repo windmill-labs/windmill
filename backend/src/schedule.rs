@@ -17,7 +17,7 @@ use crate::{
 };
 use axum::{
     extract::{Extension, Path, Query},
-    routing::{get, post},
+    routing::{delete, get, post},
     Json, Router,
 };
 
@@ -33,6 +33,7 @@ pub fn workspaced_service() -> Router {
         .route("/exists/*path", get(exists_schedule))
         .route("/create", post(create_schedule))
         .route("/update/*path", post(edit_schedule))
+        .route("/delete/*path", delete(delete_schedule))
         .route("/setenabled/*path", post(set_enabled))
 }
 
@@ -402,6 +403,38 @@ pub async fn set_enabled(
         "succesfully updated schedule at path {} to status {}",
         path, enabled
     ))
+}
+
+async fn delete_schedule(
+    authed: Authed,
+    Extension(user_db): Extension<UserDB>,
+    Path((w_id, path)): Path<(String, StripPath)>,
+) -> Result<String> {
+    let path = path.to_path();
+    let mut tx = user_db.begin(&authed).await?;
+
+    sqlx::query!(
+        "DELETE FROM schedule WHERE path = $1 AND workspace_id = $2",
+        path,
+        w_id
+    )
+    .execute(&mut tx)
+    .await?;
+
+    audit_log(
+        &mut tx,
+        &authed.username,
+        "schedule.delete",
+        ActionKind::Delete,
+        &w_id,
+        Some(path),
+        None,
+    )
+    .await?;
+
+    tx.commit().await?;
+
+    Ok(format!("schedule {} deleted", path))
 }
 
 fn schedule_to_user(path: &str) -> String {

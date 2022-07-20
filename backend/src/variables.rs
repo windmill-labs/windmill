@@ -325,7 +325,6 @@ async fn create_variable(
 async fn delete_variable(
     authed: Authed,
     Extension(user_db): Extension<UserDB>,
-    Extension(db): Extension<DB>,
     Path((w_id, path)): Path<(String, StripPath)>,
 ) -> Result<String> {
     let path = path.to_path();
@@ -336,7 +335,7 @@ async fn delete_variable(
         path,
         w_id
     )
-    .execute(&db)
+    .execute(&mut tx)
     .await?;
     audit_log(
         &mut tx,

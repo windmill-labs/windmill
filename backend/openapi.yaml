@@ -2547,6 +2547,23 @@ paths:
               schema:
                 type: string
 
+  /w/{workspace}/schedules/delete/{path}:
+    delete:
+      summary: delete schedule
+      operationId: deleteSchedule
+      tags:
+        - schedule
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+      responses:
+        "200":
+          description: schedule deleted
+          content:
+            text/plain:
+              schema:
+                type: string
+
   /w/{workspace}/schedules/get/{path}:
     get:
       summary: get schedule
