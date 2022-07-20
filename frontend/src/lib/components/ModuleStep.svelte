@@ -72,7 +72,7 @@
 								deno={mod.value.language === FlowModuleValue.language.DENO}
 							/>
 						</div>
-						<button class="default-button w-full p-1 mt-4" on:click={() => loadSchema(i)}>
+						<button class="default-button w-full p-1 mt-4 mb-4" on:click={() => loadSchema(i)}>
 							Infer schema
 						</button>
 					{/if}

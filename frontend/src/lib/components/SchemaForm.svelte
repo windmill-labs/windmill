@@ -35,7 +35,7 @@ previous_result.${key}`
 	{#if Object.keys(schema?.properties ?? {}).length > 0}
 		{#each Object.keys(schema?.properties ?? {}) as argName}
 			{#if inputTransform && args[argName] != undefined}
-				<div class="mt-10" />
+				<div class="mt-4" />
 				<FieldHeader
 					label={argName}
 					format={schema.properties[argName].format}

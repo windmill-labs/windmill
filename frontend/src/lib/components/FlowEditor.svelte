@@ -11,6 +11,7 @@
 	import RadioButtonV2 from './RadioButtonV2.svelte'
 	import SchemaEditor from './SchemaEditor.svelte'
 	import Required from './Required.svelte'
+	import { pathIsEmpty } from '$lib/utils'
 
 	export let pathError = ''
 	export let initialPath: string = ''
@@ -120,6 +121,7 @@
 			<li class="relative m-20 ">
 				<div class="relative flex justify-center">
 					<button
+						disabled={pathIsEmpty($flowStore.path)}
 						class="default-button h-10 w-10 shadow-blue-600/40  border-blue-600 shadow"
 						on:click={() => {
 							addModule()
@@ -127,7 +129,7 @@
 						}}
 					>
 						<Icon class="text-white mb-1" data={faPlus} />
-						Add step
+						Add step {pathIsEmpty($flowStore.path) ? '(pick a path!)' : ''}
 					</button>
 				</div>
 			</li>

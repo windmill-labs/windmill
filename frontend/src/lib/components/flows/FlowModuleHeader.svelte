@@ -7,7 +7,7 @@
 	import github from 'svelte-highlight/styles/github'
 	import Modal from '../Modal.svelte'
 	import { createScriptFromInlineScript, fork, removeModule } from './flowStore'
-	import { getScriptByPath } from './utils'
+	import { getScriptByPath, scrollIntoView } from './utils'
 
 	export let open: number
 	export let i: number
@@ -25,16 +25,9 @@
 		modalViewer.openModal()
 	}
 
-	function scrollIntoView({ target }) {
+	function scrollTo({ target }) {
 		const el = document.querySelector(target.getAttribute('href'))
-		console.log(el)
-
-		if (!el) return
-		el.scrollIntoView({
-			behavior: 'smooth',
-			block: 'start',
-			inline: 'nearest'
-		})
+		scrollIntoView(el)
 	}
 </script>
 
@@ -44,11 +37,8 @@
 
 <div class="flex flex-row w-full space-x-2">
 	<slot />
-	<a
-		href="#module-{i}"
-		class="grow"
-		on:click={() => (open = i)}
-		on:click|preventDefault={scrollIntoView}><div class="w-full" /></a
+	<a href="#module-{i}" class="grow" on:click={() => (open = i)} on:click|preventDefault={scrollTo}
+		><div class="w-full" /></a
 	>
 
 	<div class="flex flex-row space-x-2">

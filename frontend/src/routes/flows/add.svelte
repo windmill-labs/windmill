@@ -23,7 +23,6 @@
 			  }
 
 	initFlow(flow)
-	addModule()
 </script>
 
 <FlowBuilder />
