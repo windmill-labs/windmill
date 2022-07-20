@@ -31,14 +31,15 @@ export const isCopyFirstStepSchemaDisabled = derived(flowStore, (flow: Flow | un
 	}
 })
 
-export function addModule() {
+export function addModule(i?: number) {
 	const newModule: FlowModule = {
 		value: { type: FlowModuleValue.type.SCRIPT, path: '' },
 		input_transform: {}
 	}
 
 	flowStore.update((flow: Flow) => {
-		flow.value.modules = flow.value.modules.concat(newModule)
+		flow.value.modules.splice(i ?? flow.value.modules.length, 0, newModule)
+		flow.value.modules = flow.value.modules
 		return flow
 	})
 }

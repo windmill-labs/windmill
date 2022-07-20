@@ -15,7 +15,9 @@
 		type FlowMode
 	} from './flows/flowStore'
 	import SchemaForm from './SchemaForm.svelte'
+	import { slide } from 'svelte/transition'
 
+	export let open: number
 	export let mode: FlowMode
 	export let i: number
 	export let mod: FlowModule
@@ -29,61 +31,79 @@
 	)
 </script>
 
-<li class="flex flex-row flex-shrink max-w-full mx-auto mt-20">
+<li class="flex flex-row flex-shrink max-w-full mx-auto mt-16">
 	<div class="bg-white border border-gray xl-rounded shadow-lg w-full max-w-4xl mx-4 md:mx-auto">
 		<div class="flex items-center justify-between flex-wra p-4 sm:px-6">
-			<FlowModuleHeader bind:i bind:shouldPick>
+			<FlowModuleHeader bind:open {mod} {i} {shouldPick}>
 				<h3 class="text-lg font-bold text-gray-900">Step {i + 1}</h3>
-				<p>{mod.value.path ?? ''}</p>
+				<p>
+					{#if mod.value.path}
+						{mod.value.path}
+					{/if}
+					{#if mod.value.language}
+						Inline {mod.value.language}
+					{/if}
+				</p>
 			</FlowModuleHeader>
 		</div>
 		<div class="border-b border-gray-200" />
-		<div class="p-6">
-			{#if shouldPick}
-				<FlowInputs
-					isTrigger={mode == 'pull' && i == 0}
-					on:pick={(e) => pickScript(e.detail.path, i)}
-					on:new={(e) => createInlineScriptModule(e.detail.language, i, mode)}
-				/>
-			{/if}
-			{#if mod.value.type === FlowModuleValue.type.RAWSCRIPT}
-				<div class="h-96">
-					<Editor
-						class="h-full"
-						bind:code={mod.value.content}
-						deno={mod.value.language === FlowModuleValue.language.DENO}
-					/>
+		{#if open == i}
+			<div transition:slide>
+				<div class="p-6">
+					{#if shouldPick}
+						<FlowInputs
+							isTrigger={mode == 'pull' && i == 0}
+							on:pick={(e) => pickScript(e.detail.path, i)}
+							on:new={(e) => createInlineScriptModule(e.detail.language, i, mode)}
+						/>
+					{/if}
+					{#if mod.value.type === FlowModuleValue.type.RAWSCRIPT}
+						<div class="h-96">
+							<Editor
+								class="h-full"
+								bind:code={mod.value.content}
+								deno={mod.value.language === FlowModuleValue.language.DENO}
+							/>
+						</div>
+						<button class="default-button w-full p-1 mt-4" on:click={() => loadSchema(i)}>
+							Infer schema
+						</button>
+					{/if}
+					{#if !shouldPick}
+						<h2 class="mb-4">Step inputs</h2>
+						<SchemaForm
+							inputTransform={true}
+							{schema}
+							{extraLib}
+							{i}
+							{previousSchema}
+							bind:args={mod.input_transform}
+						/>
+					{/if}
 				</div>
-				<button class="default-button w-full p-1 mt-4" on:click={() => loadSchema(i)}>
-					Infer schema
-				</button>
-			{/if}
-			{#if !shouldPick}
-				<h2 class="mb-4">Step inputs</h2>
-				<SchemaForm
-					inputTransform={true}
-					{schema}
-					{extraLib}
-					{i}
-					{previousSchema}
-					bind:args={mod.input_transform}
-				/>
-			{/if}
-		</div>
 
-		{#if !shouldPick}
-			<div class="border-b border-gray-200" />
-			<div class="p-3">
-				<FlowPreview
-					bind:args
-					bind:flow={$flowStore}
-					{i}
-					{mode}
-					bind:schemas={$schemasStore}
-					on:change={(e) => {
-						addPreviewResult(e.detail.result, i + 1)
-					}}
-				/>
+				{#if !shouldPick}
+					<div class="border-b border-gray-200" />
+					<div class="p-3">
+						<FlowPreview
+							bind:args
+							flow={$flowStore}
+							{i}
+							{mode}
+							schemas={$schemasStore}
+							on:change={(e) => {
+								addPreviewResult(e.detail.result, i + 1)
+							}}
+						/>
+					</div>
+				{/if}
+			</div>
+			<div>
+				<button class="w-full h-full" on:click={() => (open = -1)}>(-)</button>
+			</div>
+		{:else}
+			<div>
+				<button class="w-full h-full" on:click={() => (open = i)}>(+)</button>
 			</div>
 		{/if}
 	</div>

@@ -15,6 +15,7 @@
 	export let pathError = ''
 	export let initialPath: string = ''
 
+	let open = -1
 	let args: Record<string, any> = {}
 	export let mode: FlowMode =
 		$flowStore?.value.modules[1]?.value.type == FlowModuleValue.type.FORLOOPFLOW ? 'pull' : 'push'
@@ -94,20 +95,36 @@
 						<CopyFirstStepSchema />
 					</div>
 					<div class="p-4">
-						<SchemaEditor bind:schema={$flowStore.schema} />
+						<SchemaEditor schema={$flowStore.schema} />
 						<div class="my-4" />
-						<FlowPreview {mode} bind:flow={$flowStore} i={numberOfSteps} bind:args />
+						<FlowPreview {mode} flow={$flowStore} i={numberOfSteps} bind:args />
 					</div>
 				</div>
 			</li>
 			{#each $flowStore?.value.modules as mod, i}
-				<ModuleStep bind:mod bind:args {i} {mode} />
+				<li class="relative mt-16">
+					<div class="relative flex justify-center">
+						<button
+							class="default-button h-10 w-10 shadow-blue-600/40  border-blue-600 shadow"
+							on:click={() => {
+								addModule(i)
+								open = i
+							}}
+						>
+							<Icon class="text-white mb-1" data={faPlus} />
+						</button>
+					</div>
+				</li>
+				<ModuleStep bind:open bind:mod bind:args {i} {mode} />
 			{/each}
 			<li class="relative m-20 ">
 				<div class="relative flex justify-center">
 					<button
 						class="default-button h-10 w-10 shadow-blue-600/40  border-blue-600 shadow"
-						on:click={() => addModule()}
+						on:click={() => {
+							addModule()
+							open = $flowStore?.value.modules.length - 1
+						}}
 					>
 						<Icon class="text-white mb-1" data={faPlus} />
 						Add step

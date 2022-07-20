@@ -11,6 +11,9 @@ const config = {
     server: {
         port: 3000,
     },
+    preview: {
+        port: 3000,
+    },
     plugins: [sveltekit()],
     define: {
         __pkg__: version
