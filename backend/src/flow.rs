@@ -16,12 +16,12 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 use sql_builder::SqlBuilder;
-use sqlx::FromRow;
+use sqlx::{FromRow, Postgres, Transaction};
 
 use crate::{
     audit::{audit_log, ActionKind},
     db::{UserDB, DB},
-    error::{Error, JsonResult, Result},
+    error::{self, Error, JsonResult, Result},
     jobs::RawCode,
     scripts::Schema,
     users::Authed,
@@ -171,6 +171,8 @@ async fn create_flow(
     // cron::Schedule::from_str(&ns.schedule).map_err(|e| error::Error::BadRequest(e.to_string()))?;
     let mut tx = user_db.begin(&authed).await?;
 
+    check_schedule_conflict(&mut tx, &w_id, &nf.path).await?;
+
     sqlx::query!(
         "INSERT INTO flow (workspace_id, path, summary, description, value, edited_by, edited_at, schema) VALUES ($1, $2, $3, $4, $5, $6, $7, $8::text::json)",
         w_id,
@@ -205,6 +207,27 @@ async fn create_flow(
     Ok(nf.path.to_string())
 }
 
+async fn check_schedule_conflict<'c>(
+    tx: &mut Transaction<'c, Postgres>,
+    w_id: &str,
+    path: &str,
+) -> error::Result<()> {
+    let exists_flow = sqlx::query_scalar!(
+        "SELECT EXISTS (SELECT 1 FROM schedule WHERE path = $1 AND workspace_id = $2 AND path != script_path)",
+        path,
+        w_id
+    )
+    .fetch_one(tx)
+    .await?
+    .unwrap_or(false);
+    if exists_flow {
+        return Err(error::Error::BadConfig(format!(
+            "A flow cannot have the same path as a schedule if the schedule does not trigger that same flow: {path}",
+        )));
+    };
+    Ok(())
+}
+
 async fn update_flow(
     authed: Authed,
     Extension(user_db): Extension<UserDB>,
@@ -214,6 +237,8 @@ async fn update_flow(
     let mut tx = user_db.begin(&authed).await?;
 
     let flow_path = flow_path.to_path();
+    check_schedule_conflict(&mut tx, &w_id, flow_path).await?;
+
     let schema = nf.schema.map(|x| x.0);
     let flow = sqlx::query_scalar!(
         "UPDATE flow SET path = $1, summary = $2, description = $3, value = $4, edited_by = $5, edited_at = $6, schema = $7 WHERE path = $8 AND workspace_id = $9 RETURNING path",
