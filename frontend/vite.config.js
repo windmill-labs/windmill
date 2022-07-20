@@ -8,12 +8,12 @@ const version = JSON.parse(json)
 
 /** @type {import('vite').UserConfig} */
 const config = {
+    server: {
+        port: 3000,
+    },
     plugins: [sveltekit()],
     define: {
         __pkg__: version
-    },
-    ssr: {
-        noExternal: ['dayjs']
     },
     optimizeDeps: {
         include: [
