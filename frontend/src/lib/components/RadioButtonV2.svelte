@@ -32,6 +32,6 @@
 		display: block;
 	}
 	.selected {
-		@apply bg-gray-300/90;
+		@apply bg-blue-500/70;
 	}
 </style>

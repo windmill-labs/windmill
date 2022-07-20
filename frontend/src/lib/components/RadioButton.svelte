@@ -34,6 +34,6 @@
 	}
 
 	label.selected {
-		@apply border bg-blue-500/90 text-white rounded-md px-3 flex items-center justify-center text-sm font-medium uppercase sm:flex-1 cursor-pointer focus:outline-none;
+		@apply border bg-blue-500/70 text-white rounded-md px-3 flex items-center justify-center text-sm font-medium uppercase sm:flex-1 cursor-pointer focus:outline-none;
 	}
 </style>
