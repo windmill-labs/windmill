@@ -1,7 +1,6 @@
 <script lang="ts">
 	import type { Schema } from '$lib/common'
 	import { InputTransform } from '$lib/gen'
-	import { allTrue } from '$lib/utils'
 	import ArgInput from './ArgInput.svelte'
 	import Editor from './Editor.svelte'
 	import FieldHeader from './FieldHeader.svelte'
@@ -20,9 +19,6 @@
 	export let i: number | undefined = undefined
 	export let previousSchema: Object | undefined = undefined
 
-	let inputCheck: { [id: string]: boolean } = {}
-
-	$: isValid = allTrue(inputCheck) ?? false
 	$: types = Object.keys(schema?.properties ?? {}).map((prop, index) => {
 		const arg = args[prop]
 
@@ -69,11 +65,10 @@
 					<Toggle
 						options={{
 							left: { label: '', value: InputTransform.type.STATIC },
-							right: { label: 'Raw Javascript Mode', value: InputTransform.type.JAVASCRIPT }
+							right: { label: 'Code editor', value: InputTransform.type.JAVASCRIPT }
 						}}
 						bind:value={types[index]}
 						on:change={(e) => {
-							// 	args[argName].expr = e.detail == 'javascript' ? getDefaultExpr(i ?? -1) : undefined
 							if (e.detail === InputTransform.type.JAVASCRIPT) {
 								args[argName].expr = getDefaultExpr(i ?? -1)
 								args[argName].value = undefined
@@ -103,7 +98,7 @@
 							type={schema.properties[argName].type}
 							required={schema.required.includes(argName)}
 							bind:pattern={schema.properties[argName].pattern}
-							bind:valid={inputCheck[argName]}
+							bind:valid={isValid}
 							defaultValue={schema.properties[argName].default}
 							bind:enum_={schema.properties[argName].enum}
 							bind:format={schema.properties[argName].format}
@@ -136,7 +131,7 @@
 					type={schema.properties[argName].type}
 					required={schema.required.includes(argName)}
 					bind:pattern={schema.properties[argName].pattern}
-					bind:valid={inputCheck[argName]}
+					bind:valid={isValid}
 					defaultValue={schema.properties[argName].default}
 					bind:enum_={schema.properties[argName].enum}
 					bind:format={schema.properties[argName].format}
