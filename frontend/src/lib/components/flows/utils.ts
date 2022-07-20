@@ -19,7 +19,7 @@ export function flowToMode(flow: Flow, mode: FlowMode): Flow {
 		const triggerModule = newFlow.value.modules[0]
 		const oldModules = newFlow.value.modules.slice(1)
 		if (triggerModule) {
-			triggerModule.stop_after_if_expr = "result.res1.length == 0"
+			triggerModule.stop_after_if_expr = 'result.res1.length == 0'
 			triggerModule.skip_if_stopped = true
 		}
 		newFlow.value.modules = newFlow.value.modules.slice(0, 1)
@@ -46,7 +46,6 @@ export function flattenForloopFlows(flow: Flow): Flow {
 		const oldModules = newFlow.value.modules[1].value.value?.modules ?? []
 		newFlow.value.modules = newFlow.value.modules.slice(0, 1)
 		newFlow.value.modules.push(...oldModules)
-
 	}
 	return newFlow
 }

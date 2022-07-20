@@ -15,6 +15,14 @@
 			isOpen = false
 		}
 	}
+
+	function onMouseLeave(mouseEvent: MouseEvent) {
+		const target = mouseEvent.target as HTMLInputElement
+
+		if (target?.id !== 'property-picker') {
+			isOpen = !isOpen
+		}
+	}
 </script>
 
 <Overlay
@@ -23,9 +31,14 @@
 	closeOnScroll
 	bind:isOpen
 	class="w-full"
-	zIndex={100 - index}
+	zIndex={30 - 1 - index}
 >
-	<div slot="parent" let:toggle on:mouseenter={toggle}>
+	<div
+		slot="parent"
+		let:toggle
+		on:mousemove={() => !isOpen && toggle()}
+		on:mouseleave={onMouseLeave}
+	>
 		<slot />
 	</div>
 

@@ -37,7 +37,7 @@
 		class="bg-white border border-gray xl-rounded shadow-lg w-full max-w-4xl mx-4 md:mx-auto"
 		id="module-{i}"
 	>
-		<div class="flex items-center justify-between flex-wra p-4 sm:px-6">
+		<div class="flex items-center justify-between flex-wra p-4 sm:px-6 z-10">
 			<FlowModuleHeader bind:open {mod} {i} {shouldPick}>
 				<div>
 					<h3 class="text-lg font-bold text-gray-900">Step {i + 1}</h3>

@@ -27,7 +27,7 @@
 				return
 			}
 
-			if (isCodeInjection(arg.value)) {
+			if (isCodeInjection(String(arg.value))) {
 				args[prop].expr = getCodeInjectionExpr(arg.value)
 				args[prop].type = InputTransform.type.JAVASCRIPT
 				return InputTransform.type.STATIC
