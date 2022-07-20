@@ -24,6 +24,8 @@
 
 	let initialPath: string = ''
 
+	initFlow(flow)
+
 	async function loadFlow(): Promise<void> {
 		flow =
 			flowLoadedFromUrl != undefined && flowLoadedFromUrl.path == flow.path

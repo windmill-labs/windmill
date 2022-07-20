@@ -76,7 +76,7 @@
 							[
 								{
 									title: 'Pull',
-									desc: 'This flow will trigger itself with a schedule to detect changes in external services using a trigger script.'
+									desc: 'The first module of this flow is a trigger script whose purpose is to pull data from an external source and return all new items since last run. This flow is meant to be scheduled very regularly to reduce latency to react to new events. It will trigger the rest of the flow once per item. If no new items, the flow will be skipped.'
 								},
 								'pull'
 							]
