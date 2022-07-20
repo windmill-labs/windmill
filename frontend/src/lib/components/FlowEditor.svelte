@@ -122,14 +122,14 @@
 				<div class="relative flex justify-center">
 					<button
 						disabled={pathIsEmpty($flowStore.path)}
-						class="default-button h-10 w-10 shadow-blue-600/40  border-blue-600 shadow"
+						class="default-button h-10 w-10 shadow"
 						on:click={() => {
 							addModule()
 							open = $flowStore?.value.modules.length - 1
 						}}
 					>
 						<Icon class="text-white mb-1" data={faPlus} />
-						Add step {pathIsEmpty($flowStore.path) ? '(pick a path!)' : ''}
+						Add step {pathIsEmpty($flowStore.path) ? '(pick a name first!)' : ''}
 					</button>
 				</div>
 			</li>
@@ -137,3 +137,9 @@
 	</ul>
 </div>
 <div class="py-10 bg-white" />
+
+<style>
+	.shadow:not([disabled]) {
+		@apply border-blue-600 shadow-blue-600/40;
+	}
+</style>
