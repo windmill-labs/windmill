@@ -32,6 +32,9 @@
 		display: block;
 	}
 	.selected {
-		@apply bg-blue-500/70;
+		@apply bg-blue-500/70 text-white;
+	}
+	.selected > h2 {
+		@apply text-white;
 	}
 </style>
