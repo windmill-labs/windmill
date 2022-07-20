@@ -15,7 +15,6 @@
 		type FlowMode
 	} from './flows/flowStore'
 	import SchemaForm from './SchemaForm.svelte'
-	import { slide } from 'svelte/transition'
 
 	export let open: number
 	export let mode: FlowMode
@@ -31,8 +30,11 @@
 	)
 </script>
 
-<li class="flex flex-row flex-shrink max-w-full mx-auto mt-16" id="module-{i}">
-	<div class="bg-white border border-gray xl-rounded shadow-lg w-full max-w-4xl mx-4 md:mx-auto">
+<li class="flex flex-row flex-shrink max-w-full mx-auto mt-16">
+	<div
+		class="bg-white border border-gray xl-rounded shadow-lg w-full max-w-4xl mx-4 md:mx-auto"
+		id="module-{i}"
+	>
 		<div class="flex items-center justify-between flex-wra p-4 sm:px-6 z-10">
 			<FlowModuleHeader bind:open {mod} {i} {shouldPick}>
 				<div>
@@ -53,7 +55,7 @@
 		</div>
 		<div class="border-b border-gray-200" />
 		{#if open == i}
-			<div transition:slide>
+			<div>
 				<div class="p-6">
 					{#if shouldPick}
 						<FlowInputs
