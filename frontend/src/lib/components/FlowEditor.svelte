@@ -15,7 +15,7 @@
 	export let pathError = ''
 	export let initialPath: string = ''
 
-	let open = -1
+	let open = 0
 	let args: Record<string, any> = {}
 	export let mode: FlowMode =
 		$flowStore?.value.modules[1]?.value.type == FlowModuleValue.type.FORLOOPFLOW ? 'pull' : 'push'

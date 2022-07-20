@@ -24,35 +24,52 @@
 		modalViewerLanguage = language
 		modalViewer.openModal()
 	}
+
+	function scrollIntoView({ target }) {
+		const el = document.querySelector(target.getAttribute('href'))
+		console.log(el)
+
+		if (!el) return
+		el.scrollIntoView({
+			behavior: 'smooth',
+			block: 'start',
+			inline: 'nearest'
+		})
+	}
 </script>
 
 <svelte:head>
 	{@html github}
 </svelte:head>
 
-<div>
+<div class="flex flex-row w-full space-x-2">
 	<slot />
-</div>
-<div>
-	{#if mod.value.type === FlowModuleValue.type.SCRIPT && !shouldPick}
-		<button
-			type="button"
-			on:click={() => {
-				open = i
-				fork(i)
-			}}
-			class="default-secondary-button-v2 text-xs"
-		>
-			<Icon data={faCodeBranch} class={`w-4 mr-2 h-4`} />
-			Fork
-		</button>
-		<button type="button" on:click={viewCode} class="default-secondary-button-v2 text-xs">
-			<Icon data={faCode} class="w-4 mr-2 h-4" />
-			View code
-		</button>
-	{/if}
+	<a
+		href="#module-{i}"
+		class="grow"
+		on:click={() => (open = i)}
+		on:click|preventDefault={scrollIntoView}><div class="w-full" /></a
+	>
 
 	<div class="flex flex-row space-x-2">
+		{#if mod.value.type === FlowModuleValue.type.SCRIPT && !shouldPick}
+			<button
+				type="button"
+				on:click={() => {
+					open = i
+					fork(i)
+				}}
+				class="default-secondary-button-v2 text-xs"
+			>
+				<Icon data={faCodeBranch} class={`w-4 mr-2 h-4`} />
+				Fork
+			</button>
+			<button type="button" on:click={viewCode} class="default-secondary-button-v2 text-xs">
+				<Icon data={faCode} class="w-4 mr-2 h-4" />
+				View code
+			</button>
+		{/if}
+
 		{#if mod.value.type === FlowModuleValue.type.RAWSCRIPT && !shouldPick}
 			<button
 				type="button"

@@ -31,19 +31,24 @@
 	)
 </script>
 
-<li class="flex flex-row flex-shrink max-w-full mx-auto mt-16">
+<li class="flex flex-row flex-shrink max-w-full mx-auto mt-16" id="module-{i}">
 	<div class="bg-white border border-gray xl-rounded shadow-lg w-full max-w-4xl mx-4 md:mx-auto">
-		<div class="flex items-center justify-between flex-wra p-4 sm:px-6">
+		<div class="flex items-center justify-between flex-wra p-4 sm:px-6 z-10">
 			<FlowModuleHeader bind:open {mod} {i} {shouldPick}>
-				<h3 class="text-lg font-bold text-gray-900">Step {i + 1}</h3>
-				<p>
-					{#if mod.value.path}
-						{mod.value.path}
-					{/if}
-					{#if mod.value.language}
-						Inline {mod.value.language}
-					{/if}
-				</p>
+				<div>
+					<h3 class="text-lg font-bold text-gray-900">Step {i + 1}</h3>
+					<p>
+						{#if mod.value.path}
+							{mod.value.path}
+						{/if}
+						{#if mod.value.language}
+							Inline {mod.value.language}
+						{/if}
+						{#if !mod.value.path && !mod.value.language}
+							Select a script
+						{/if}
+					</p>
+				</div>
 			</FlowModuleHeader>
 		</div>
 		<div class="border-b border-gray-200" />

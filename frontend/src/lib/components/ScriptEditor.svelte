@@ -561,7 +561,7 @@
 			{:else if previewTab === 'input'}
 				<div class="break-all relative h-full font-sans">
 					<div class="p-2 w-full">
-						<button class="default-button w-full" on:click|stopPropagation={inferSchema}
+						<button class="default-button w-full mb-4" on:click|stopPropagation={inferSchema}
 							><Icon data={faMagic} scale={0.7} /><span class="pl-1"
 								>Infer schema from main parameters</span
 							>
