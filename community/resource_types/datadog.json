@@ -1,0 +1,26 @@
+{
+  "workspace_id": "starter",
+  "name": "datadog",
+  "schema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+      "apiKey": {
+        "type": "string",
+        "description": ""
+      },
+      "appKey": {
+        "type": "string",
+        "description": ""
+      },
+      "apiBase": {
+        "type": "string",
+        "description": ""
+      }
+    },
+    "required": [
+      "apiKey"
+    ],
+    "type": "object"
+  },
+  "description": ""
+}

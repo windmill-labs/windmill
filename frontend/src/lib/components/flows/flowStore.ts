@@ -3,7 +3,7 @@ import { FlowModuleValue, ScriptService, type Flow, type FlowModule } from '$lib
 import { initialCode } from '$lib/script_helpers'
 import { userStore, workspaceStore } from '$lib/stores'
 import { derived, get, writable } from 'svelte/store'
-import { createInlineScriptModuleFromPath, getFirstStepSchema, loadSchemaFromModule } from './utils'
+import { createInlineScriptModuleFromPath, getFirstStepSchema, loadSchemaFromModule, scrollIntoView } from './utils'
 
 export type FlowMode = 'push' | 'pull'
 
@@ -31,14 +31,20 @@ export const isCopyFirstStepSchemaDisabled = derived(flowStore, (flow: Flow | un
 	}
 })
 
-export function addModule() {
+export function addModule(i?: number) {
 	const newModule: FlowModule = {
 		value: { type: FlowModuleValue.type.SCRIPT, path: '' },
 		input_transform: {}
 	}
 
+
 	flowStore.update((flow: Flow) => {
-		flow.value.modules = flow.value.modules.concat(newModule)
+		const insertAt = i ?? flow.value.modules.length
+
+		flow.value.modules.splice(insertAt, 0, newModule)
+		flow.value.modules = flow.value.modules
+		setTimeout(() => scrollIntoView(document.querySelector(`#module-${insertAt}`)), 100)
+
 		return flow
 	})
 }

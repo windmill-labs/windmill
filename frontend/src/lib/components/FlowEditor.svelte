@@ -11,10 +11,12 @@
 	import RadioButtonV2 from './RadioButtonV2.svelte'
 	import SchemaEditor from './SchemaEditor.svelte'
 	import Required from './Required.svelte'
+	import { pathIsEmpty } from '$lib/utils'
 
 	export let pathError = ''
 	export let initialPath: string = ''
 
+	let open = 0
 	let args: Record<string, any> = {}
 	export let mode: FlowMode =
 		$flowStore?.value.modules[1]?.value.type == FlowModuleValue.type.FORLOOPFLOW ? 'pull' : 'push'
@@ -76,7 +78,7 @@
 							[
 								{
 									title: 'Pull',
-									desc: 'This flow will trigger itself with a schedule to detect changes in external services using a trigger script.'
+									desc: 'The first module of this flow is a trigger script whose purpose is to pull data from an external source and return all new items since last run. This flow is meant to be scheduled very regularly to reduce latency to react to new events. It will trigger the rest of the flow once per item. If no new items, the flow will be skipped.'
 								},
 								'pull'
 							]
@@ -94,23 +96,40 @@
 						<CopyFirstStepSchema />
 					</div>
 					<div class="p-4">
-						<SchemaEditor bind:schema={$flowStore.schema} />
+						<SchemaEditor schema={$flowStore.schema} />
 						<div class="my-4" />
-						<FlowPreview {mode} bind:flow={$flowStore} i={numberOfSteps} bind:args />
+						<FlowPreview {mode} flow={$flowStore} i={numberOfSteps} bind:args />
 					</div>
 				</div>
 			</li>
 			{#each $flowStore?.value.modules as mod, i}
-				<ModuleStep bind:mod bind:args {i} {mode} />
+				<li class="relative mt-16">
+					<div class="relative flex justify-center">
+						<button
+							class="default-button h-10 w-10 shadow-blue-600/40  border-blue-600 shadow"
+							on:click={() => {
+								addModule(i)
+								open = i
+							}}
+						>
+							<Icon class="text-white mb-1" data={faPlus} />
+						</button>
+					</div>
+				</li>
+				<ModuleStep bind:open bind:mod bind:args {i} {mode} />
 			{/each}
 			<li class="relative m-20 ">
 				<div class="relative flex justify-center">
 					<button
-						class="default-button h-10 w-10 shadow-blue-600/40  border-blue-600 shadow"
-						on:click={() => addModule()}
+						disabled={pathIsEmpty($flowStore.path)}
+						class="default-button h-10 w-10 shadow"
+						on:click={() => {
+							addModule()
+							open = $flowStore?.value.modules.length - 1
+						}}
 					>
 						<Icon class="text-white mb-1" data={faPlus} />
-						Add step
+						Add step {pathIsEmpty($flowStore.path) ? '(pick a name first!)' : ''}
 					</button>
 				</div>
 			</li>
@@ -118,3 +137,9 @@
 	</ul>
 </div>
 <div class="py-10 bg-white" />
+
+<style>
+	.shadow:not([disabled]) {
+		@apply border-blue-600 shadow-blue-600/40;
+	}
+</style>

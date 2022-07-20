@@ -17,7 +17,7 @@ use crate::{
 };
 use axum::{
     extract::{Extension, Path, Query},
-    routing::{get, post},
+    routing::{delete, get, post},
     Json, Router,
 };
 
@@ -33,6 +33,7 @@ pub fn workspaced_service() -> Router {
         .route("/exists/*path", get(exists_schedule))
         .route("/create", post(create_schedule))
         .route("/update/*path", post(edit_schedule))
+        .route("/delete/*path", delete(delete_schedule))
         .route("/setenabled/*path", post(set_enabled))
 }
 
@@ -129,6 +130,8 @@ async fn create_schedule(
     cron::Schedule::from_str(&ns.schedule).map_err(|e| error::Error::BadRequest(e.to_string()))?;
     let mut tx = user_db.begin(&authed).await?;
 
+    check_flow_conflict(&mut tx, &w_id, &ns.path, ns.is_flow, &ns.script_path).await?;
+
     let schedule = sqlx::query_as!(Schedule,
         "INSERT INTO schedule (workspace_id, path, schedule, offset_, edited_by, script_path, is_flow, args) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *",
         w_id,
@@ -167,6 +170,32 @@ async fn create_schedule(
     Ok(ns.path.to_string())
 }
 
+async fn check_flow_conflict<'c>(
+    tx: &mut Transaction<'c, Postgres>,
+    w_id: &str,
+    path: &str,
+    is_flow: bool,
+    script_path: &str,
+) -> error::Result<()> {
+    if path != script_path || !is_flow {
+        let exists_flow = sqlx::query_scalar!(
+            "SELECT EXISTS (SELECT 1 FROM flow WHERE path = $1 AND workspace_id = $2)",
+            path,
+            w_id
+        )
+        .fetch_one(tx)
+        .await?
+        .unwrap_or(false);
+        if exists_flow {
+            return Err(error::Error::BadConfig(format!(
+            "If a schedule has the same path as or a flow, it must be its primary schedule and hence can only trigger it. 
+            However the provided path is: {script_path} and is_flow is: {is_flow}",
+        )));
+        };
+    }
+    Ok(())
+}
+
 #[derive(Deserialize)]
 pub struct EditSchedule {
     pub schedule: String,
@@ -193,6 +222,8 @@ async fn edit_schedule(
     cron::Schedule::from_str(&es.schedule).map_err(|e| error::Error::BadRequest(e.to_string()))?;
 
     let mut tx = user_db.begin(&authed).await?;
+
+    check_flow_conflict(&mut tx, &w_id, &path, es.is_flow, &es.script_path).await?;
 
     clear_schedule(&mut tx, path).await?;
     let schedule = sqlx::query_as!(Schedule,
@@ -372,6 +403,38 @@ pub async fn set_enabled(
         "succesfully updated schedule at path {} to status {}",
         path, enabled
     ))
+}
+
+async fn delete_schedule(
+    authed: Authed,
+    Extension(user_db): Extension<UserDB>,
+    Path((w_id, path)): Path<(String, StripPath)>,
+) -> Result<String> {
+    let path = path.to_path();
+    let mut tx = user_db.begin(&authed).await?;
+
+    sqlx::query!(
+        "DELETE FROM schedule WHERE path = $1 AND workspace_id = $2",
+        path,
+        w_id
+    )
+    .execute(&mut tx)
+    .await?;
+
+    audit_log(
+        &mut tx,
+        &authed.username,
+        "schedule.delete",
+        ActionKind::Delete,
+        &w_id,
+        Some(path),
+        None,
+    )
+    .await?;
+
+    tx.commit().await?;
+
+    Ok(format!("schedule {} deleted", path))
 }
 
 fn schedule_to_user(path: &str) -> String {

@@ -113,6 +113,15 @@ export async function createInlineScriptModuleFromPath(path: string): Promise<Fl
 	}
 }
 
+export function scrollIntoView(el: any) {
+	if (!el) return
+
+	el.scrollIntoView({
+		behavior: 'smooth',
+		block: 'start',
+		inline: 'nearest'
+	})
+}
 export async function loadSchemaFromModule(module: FlowModule): Promise<{
 	input_transform: Record<string, InputTransform>
 	schema: Schema

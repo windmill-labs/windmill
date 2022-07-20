@@ -1,18 +1,19 @@
 <script lang="ts">
-	import { FlowModuleValue, Script } from '$lib/gen'
-	import { faCode, faCodeBranch, faPlus, faTrashAlt } from '@fortawesome/free-solid-svg-icons'
+	import { FlowModuleValue, Script, type FlowModule } from '$lib/gen'
+	import { faCode, faCodeBranch, faSave, faTrashAlt } from '@fortawesome/free-solid-svg-icons'
 	import Icon from 'svelte-awesome'
 	import { Highlight } from 'svelte-highlight'
 	import { python, typescript } from 'svelte-highlight/languages'
 	import github from 'svelte-highlight/styles/github'
 	import Modal from '../Modal.svelte'
-	import { createScriptFromInlineScript, flowStore, fork, removeModule } from './flowStore'
-	import { getScriptByPath } from './utils'
+	import { createScriptFromInlineScript, fork, removeModule } from './flowStore'
+	import { getScriptByPath, scrollIntoView } from './utils'
 
+	export let open: number
 	export let i: number
 	export let shouldPick = false
+	export let mod: FlowModule
 
-	$: mod = $flowStore.value.modules[i]
 	let modalViewer: Modal
 	let modalViewerContent = ''
 	let modalViewerLanguage: Script.language = Script.language.DENO
@@ -23,45 +24,64 @@
 		modalViewerLanguage = language
 		modalViewer.openModal()
 	}
+
+	function scrollTo({ target }) {
+		const el = document.querySelector(target.getAttribute('href'))
+		scrollIntoView(el)
+	}
 </script>
 
 <svelte:head>
 	{@html github}
 </svelte:head>
 
-<div>
+<div class="flex flex-row w-full space-x-2">
 	<slot />
-</div>
-<div>
-	{#if mod.value.type === FlowModuleValue.type.SCRIPT && !shouldPick}
-		<button type="button" on:click={() => fork(i)} class="default-secondary-button-v2 text-xs">
-			<Icon data={faCodeBranch} class={`w-4 mr-2 h-4`} />
-			Fork
-		</button>
-		<button type="button" on:click={viewCode} class="default-secondary-button-v2 text-xs">
-			<Icon data={faCode} class="w-4 mr-2 h-4" />
-			View code
-		</button>
-	{/if}
+	<a href="#module-{i}" class="grow" on:click={() => (open = i)} on:click|preventDefault={scrollTo}
+		><div class="w-full" /></a
+	>
 
-	{#if mod.value.type === FlowModuleValue.type.RAWSCRIPT && !shouldPick}
+	<div class="flex flex-row space-x-2">
+		{#if mod.value.type === FlowModuleValue.type.SCRIPT && !shouldPick}
+			<button
+				type="button"
+				on:click={() => {
+					open = i
+					fork(i)
+				}}
+				class="default-secondary-button-v2 text-xs"
+			>
+				<Icon data={faCodeBranch} class={`w-4 mr-2 h-4`} />
+				Fork
+			</button>
+			<button type="button" on:click={viewCode} class="default-secondary-button-v2 text-xs">
+				<Icon data={faCode} class="w-4 mr-2 h-4" />
+				View code
+			</button>
+		{/if}
+
+		{#if mod.value.type === FlowModuleValue.type.RAWSCRIPT && !shouldPick}
+			<button
+				type="button"
+				on:click={() => createScriptFromInlineScript(i)}
+				class="default-secondary-button-v2 text-sm"
+			>
+				<Icon data={faSave} class="w-4 mr-4" />
+				Save to workspace
+			</button>
+		{/if}
 		<button
 			type="button"
-			on:click={() => createScriptFromInlineScript(i)}
-			class="default-secondary-button-v2 text-sm"
+			on:click={() => {
+				open = -1
+				removeModule(i)
+			}}
+			class="default-secondary-button-v2 text-xs"
 		>
-			<Icon data={faPlus} class="w-4 mr-2" />
-			Create script
+			<Icon data={faTrashAlt} class="w-4 mr-2 h-4" />
+			Remove step
 		</button>
-	{/if}
-	<button
-		type="button"
-		on:click={() => removeModule(i)}
-		class="default-secondary-button-v2 text-xs"
-	>
-		<Icon data={faTrashAlt} class="w-4 mr-2 h-4" />
-		Remove step
-	</button>
+	</div>
 </div>
 
 <Modal bind:this={modalViewer}>

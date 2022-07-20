@@ -18,6 +18,7 @@
 	} from './flows/flowStore'
 	import SchemaForm from './SchemaForm.svelte'
 
+	export let open: number
 	export let mode: FlowMode
 	export let i: number
 	export let mod: FlowModule
@@ -34,61 +35,82 @@
 <li class="flex flex-row flex-shrink max-w-full mx-auto mt-20">
 	<div class="bg-white border border-gray xl-rounded shadow-lg w-full max-w-4xl mx-4 md:mx-auto">
 		<div class="flex items-center justify-between flex-wra p-4 sm:px-6">
-			<FlowModuleHeader bind:i bind:shouldPick>
-				<span class="text-xl font-bold text-gray-900">Step {i + 1}</span>
-				<p>{mod.value.path ?? ''}</p>
+			<FlowModuleHeader bind:open {mod} {i} {shouldPick}>
+				<div>
+					<h3 class="text-lg font-bold text-gray-900">Step {i + 1}</h3>
+					<p>
+						{#if mod.value.path}
+							{mod.value.path}
+						{/if}
+						{#if mod.value.language}
+							Inline {mod.value.language}
+						{/if}
+						{#if !mod.value.path && !mod.value.language}
+							Select a script
+						{/if}
+					</p>
+				</div>
 			</FlowModuleHeader>
 		</div>
 		<div class="border-b border-gray-200" />
-		<div class="p-6">
-			{#if shouldPick}
-				<FlowInputs
-					isTrigger={mode == 'pull' && i == 0}
-					on:pick={(e) => pickScript(e.detail.path, i)}
-					on:new={(e) => createInlineScriptModule(e.detail.language, i, mode)}
-				/>
-			{/if}
-			{#if mod.value.type === FlowModuleValue.type.RAWSCRIPT}
-				<Editor
-					class="h-80 border p-2 rounded"
-					bind:code={mod.value.content}
-					deno={mod.value.language === FlowModuleValue.language.DENO}
-				/>
-				<div class="mt-2 mb-8">
-					<button class="default-primary-button-v2" on:click={() => loadSchema(i)}>
-						<Icon data={faRobot} class="w-4 h-4 mr-2 -ml-2" />
+		{#if open == i}
+			<div class="p-6">
+				{#if shouldPick}
+					<FlowInputs
+						isTrigger={mode == 'pull' && i == 0}
+						on:pick={(e) => pickScript(e.detail.path, i)}
+						on:new={(e) => createInlineScriptModule(e.detail.language, i, mode)}
+					/>
+				{/if}
+				{#if mod.value.type === FlowModuleValue.type.RAWSCRIPT}
+					<Editor
+						class="h-80 border p-2 rounded"
+						bind:code={mod.value.content}
+						deno={mod.value.language === FlowModuleValue.language.DENO}
+					/>
+					<div class="mt-2 mb-8">
+						<button class="default-primary-button-v2" on:click={() => loadSchema(i)}>
+							<Icon data={faRobot} class="w-4 h-4 mr-2 -ml-2" />
 
-						Infer step inputs from code
-					</button>
+							Infer step inputs from code
+						</button>
+					</div>
+				{/if}
+				{#if !shouldPick}
+					<p class="text-lg font-bold text-gray-900 mb-2">Step inputs</p>
+					<SchemaForm
+						inputTransform={true}
+						{schema}
+						{extraLib}
+						{i}
+						{previousSchema}
+						bind:args={mod.input_transform}
+					/>
+				{/if}
+			</div>
+
+			{#if !shouldPick}
+				<div class="border-b border-gray-200" />
+				<div class="p-3">
+					<FlowPreview
+						bind:args
+						flow={$flowStore}
+						{i}
+						{mode}
+						schemas={$schemasStore}
+						on:change={(e) => {
+							addPreviewResult(e.detail.result, i + 1)
+						}}
+					/>
+				</div>
+				<div>
+					<button class="w-full h-full" on:click={() => (open = -1)}>(-)</button>
+				</div>
+			{:else}
+				<div>
+					<button class="w-full h-full" on:click={() => (open = i)}>(+)</button>
 				</div>
 			{/if}
-			{#if !shouldPick}
-				<p class="text-lg font-bold text-gray-900 mb-2">Step inputs</p>
-				<SchemaForm
-					inputTransform={true}
-					{schema}
-					{extraLib}
-					{i}
-					{previousSchema}
-					bind:args={mod.input_transform}
-				/>
-			{/if}
-		</div>
-
-		{#if !shouldPick}
-			<div class="border-b border-gray-200" />
-			<div class="p-3">
-				<FlowPreview
-					bind:args
-					bind:flow={$flowStore}
-					{i}
-					{mode}
-					bind:schemas={$schemasStore}
-					on:change={(e) => {
-						addPreviewResult(e.detail.result, i + 1)
-					}}
-				/>
-			</div>
 		{/if}
 	</div>
 </li>

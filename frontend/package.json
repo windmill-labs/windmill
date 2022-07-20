@@ -2,9 +2,9 @@
 	"name": "windmill",
 	"version": "1.21.0",
 	"scripts": {
-		"dev": "svelte-kit dev",
-		"build": "svelte-kit build",
-		"preview": "svelte-kit preview",
+		"dev": "vite dev",
+		"build": "vite build",
+		"preview": "vite preview",
 		"check": "svelte-check --tsconfig ./tsconfig.json",
 		"check:watch": "svelte-check --tsconfig ./tsconfig.json --watch",
 		"lint": "prettier --ignore-path .gitignore --check --plugin-search-dir=. . && eslint --ignore-path .gitignore .",
@@ -16,7 +16,6 @@
 	},
 	"devDependencies": {
 		"@playwright/test": "^1.23.4",
-		"@sveltejs/adapter-node": "^1.0.0-next.81",
 		"@sveltejs/adapter-static": "^1.0.0-next.37",
 		"@sveltejs/kit": "next",
 		"@tailwindcss/forms": "^0.5.1",
@@ -27,7 +26,6 @@
 		"@zerodevx/svelte-toast": "^0.7.2",
 		"autoprefixer": "^10.4.1",
 		"cssnano": "^5.1.12",
-		"cypress": "^10.3.0",
 		"eslint": "^8.20.0",
 		"eslint-config-prettier": "^8.3.0",
 		"eslint-plugin-svelte3": "^4.0.0",

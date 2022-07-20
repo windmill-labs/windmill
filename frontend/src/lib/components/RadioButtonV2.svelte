@@ -9,18 +9,18 @@
 	const dispatch = createEventDispatcher()
 </script>
 
-<div class="flex flex-row space-x-4 m-4">
+<div class="flex flex-row space-x-4 m-4 reveal">
 	{#each options as [label, val]}
 		<button
 			type="button"
 			on:click={() => {
 				value = val
 			}}
-			class="default-secondary-button-v2 mb-2 w-full"
+			class="flex flex-col default-secondary-button-v2 mb-2 w-full"
 			class:selected={value == val}
 		>
-			<h3>{label.title}</h3>
-			<p>
+			<h2 class="mb-2">{label.title}</h2>
+			<p class="hidden">
 				{label.desc}
 			</p>
 		</button>
@@ -28,7 +28,13 @@
 </div>
 
 <style>
+	.reveal:hover > button > p {
+		display: block;
+	}
 	.selected {
-		@apply bg-blue-500/90 text-white;
+		@apply bg-blue-500/70 text-white;
+	}
+	.selected > h2 {
+		@apply text-white;
 	}
 </style>
