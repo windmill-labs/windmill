@@ -1192,6 +1192,19 @@
       ]
     }
   },
+  "61e9662fe42506131222412ab3de48cf6485dea10aa3a2f97c0fd6322a0cb17f": {
+    "query": "DELETE FROM schedule WHERE path = $1 AND workspace_id = $2",
+    "describe": {
+      "columns": [],
+      "parameters": {
+        "Left": [
+          "Text",
+          "Text"
+        ]
+      },
+      "nullable": []
+    }
+  },
   "62432110a09e68593ac52b3174c8bfa8736d5c7c1d8c7d6bed68f0dd9e06db7b": {
     "query": "SELECT EXISTS(SELECT 1 FROM usr WHERE username = $1 AND workspace_id = $2)",
     "describe": {
