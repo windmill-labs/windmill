@@ -54,5 +54,5 @@
     ],
     "type": "object"
   },
-  "description": ""
+  "description": "MongoDb connection infos"
 }
