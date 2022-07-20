@@ -15,19 +15,32 @@
 	let domain = ''
 
 	let errorId = ''
+	let errorUser = ''
 
 	$: id = name.toLowerCase().replace(/\s/gi, '-')
 
 	$: validateName(id)
+	$: validateUsername(username)
 
 	async function validateName(id: string): Promise<void> {
-		try {
-			await WorkspaceService.validateId({ requestBody: { id } })
-			errorId = ''
-		} catch {
+		let exists = await WorkspaceService.existsWorkspace({ requestBody: { id } })
+		if (exists) {
 			errorId = 'id already exists'
+		} else if (id != '' && !/^\w+(-\w+)*$/.test(id)) {
+			errorId = 'id can only contain letters, numbers and dashes and must not finish by a dash'
+		} else {
+			errorId = ''
 		}
 	}
+
+	async function validateUsername(username: string): Promise<void> {
+		if (username != '' && !/^\w+$/.test(username)) {
+			errorUser = 'username can only contain letters and numbers'
+		} else {
+			errorUser = ''
+		}
+	}
+
 	async function createWorkspace(): Promise<void> {
 		await WorkspaceService.createWorkspace({
 			requestBody: {
@@ -97,12 +110,15 @@
 	</label>
 	<label class="block pb-2">
 		<span class="text-gray-700">your username in that workspace:</span>
+		{#if errorUser}
+			<span class="text-red-500 text-xs">{errorId}</span>
+		{/if}
 		<input bind:value={username} on:keyup={handleKeyUp} class="default-input" />
 	</label>
 	<div class="flex flex-row justify-between pt-4">
 		<a href="/user/workspaces">&leftarrow; Back to workspaces</a>
 		<button
-			disabled={errorId != '' || !name || !username || !id}
+			disabled={errorId != '' || errorUser != '' || !name || !username || !id}
 			class="default-button"
 			type="button"
 			on:click={createWorkspace}

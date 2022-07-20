@@ -1,73 +1,117 @@
 <script lang="ts">
-	import type { Schema } from '$lib/common'
-	import { FlowModuleValue, type Flow } from '$lib/gen'
-	import { loadSchema } from '$lib/scripts'
-	import { emptySchema } from '$lib/utils'
+	import { FlowModuleValue } from '$lib/gen'
+
 	import { faPlus } from '@fortawesome/free-solid-svg-icons'
 	import Icon from 'svelte-awesome'
 	import FlowPreview from './FlowPreview.svelte'
+	import CopyFirstStepSchema from './flows/CopyFirstStepSchema.svelte'
+	import { addModule, flowStore, type FlowMode } from './flows/flowStore'
 	import ModuleStep from './ModuleStep.svelte'
+	import Path from './Path.svelte'
+	import RadioButtonV2 from './RadioButtonV2.svelte'
 	import SchemaEditor from './SchemaEditor.svelte'
-	import type SchemaForm from './SchemaForm.svelte'
+	import Required from './Required.svelte'
 
-	export let flow: Flow
+	export let pathError = ''
+	export let initialPath: string = ''
 
 	let args: Record<string, any> = {}
-	let schemas: Schema[] = []
-	let schemaForms: (SchemaForm | undefined)[] = []
-
-	function addModule() {
-		schemaForms.push(undefined)
-
-		let newModule = {
-			value: { type: FlowModuleValue.type.SCRIPT, path: '' },
-			input_transform: {}
-		}
-		flow.value.modules = flow.value.modules.concat(newModule)
-		schemas.push(emptySchema())
-	}
+	export let mode: FlowMode =
+		$flowStore?.value.modules[1]?.value.type == FlowModuleValue.type.FORLOOPFLOW ? 'pull' : 'push'
+	$: numberOfSteps = $flowStore?.value.modules.length - 1
 </script>
 
-<!-- <PageHeader title="Flow" /> -->
 <div class="flow-root bg-gray-50 rounded-xl border  border-gray-200">
 	<ul class="relative -mt-10">
 		<span class="absolute top-0 left-1/2  h-full w-1 bg-gray-400" aria-hidden="true" />
 		<div class="relative">
-			<li class="flex flex-row flex-shrink max-w-full  mx-auto mt-20">
+			<li class="flex flex-row flex-shrink max-w-full mx-auto mt-20">
+				<div
+					class="bg-white border border-gray xl-rounded shadow-lg w-full max-w-4xl mx-4 md:mx-auto p-4"
+				>
+					<div class="mb-8 p-4">
+						<Path
+							bind:error={pathError}
+							bind:path={$flowStore.path}
+							{initialPath}
+							namePlaceholder="example/my/flow"
+							kind="flow"
+						>
+							<div slot="ownerToolkit" class="text-gray-700 text-2xs">
+								Flow permissions depend on their path. Select the group <span class="font-mono"
+									>all</span
+								>
+								to share your flow, and <span class="font-mono">user</span> to keep it private.
+								<a href="https://docs.windmill.dev/docs/reference/namespaces">docs</a>
+							</div>
+						</Path>
+
+						<label class="block mt-4">
+							<span class="text-gray-700">Summary <Required required={false} /></span>
+							<textarea
+								bind:value={$flowStore.summary}
+								class="
+					mt-1
+					block
+					w-full
+					rounded-md
+					border-gray-300
+					shadow-sm
+					focus:border-indigo-300 focus:ring focus:ring-indigo-200 focus:ring-opacity-50
+					"
+								placeholder="A very short summary of the flow displayed when the flow is listed"
+								rows="1"
+							/>
+						</label>
+					</div>
+					<RadioButtonV2
+						options={[
+							[
+								{
+									title: 'Push',
+									desc: 'Trigger this flow through the generated UI, a manual schedule or by calling the associated webhook'
+								},
+								'push'
+							],
+							[
+								{
+									title: 'Pull',
+									desc: 'This flow will trigger itself with a schedule to detect changes in external services using a trigger script.'
+								},
+								'pull'
+							]
+						]}
+						bind:value={mode}
+					/>
+				</div>
+			</li>
+			<li class="flex flex-row flex-shrink max-w-full mx-auto mt-20">
 				<div class="bg-white border border-gray xl-rounded shadow-lg w-full mx-4 xl:mx-20">
 					<div
 						class="flex items-center justify-between flex-wra px-4 py-5 border-b border-gray-200 sm:px-6"
 					>
 						<h3 class="text-lg leading-6 font-medium text-gray-900">Flow Input</h3>
-						<button
-							class="text-xs default-button-secondary max-h-6 place-self-end"
-							disabled={flow.value.modules.length == 0 ||
-								flow.value.modules[0].value.path == undefined}
-							on:click={async () => {
-								flow.schema = await loadSchema(flow.value.modules[0].value.path ?? '')
-							}}
-							>Copy from step 1's schema
-						</button>
+						<CopyFirstStepSchema />
 					</div>
 					<div class="p-4">
-						<SchemaEditor bind:schema={flow.schema} />
+						<SchemaEditor bind:schema={$flowStore.schema} />
 						<div class="my-4" />
-						<FlowPreview {flow} i={flow.value.modules.length - 1} bind:args />
+						<FlowPreview {mode} bind:flow={$flowStore} i={numberOfSteps} bind:args />
 					</div>
 				</div>
 			</li>
-			{#each flow.value.modules as mod, i}
-				<ModuleStep bind:flow bind:mod bind:schemas bind:schemaForms bind:args {i} />
+			{#each $flowStore?.value.modules as mod, i}
+				<ModuleStep bind:mod bind:args {i} {mode} />
 			{/each}
 			<li class="relative m-20 ">
-				<div class="absolute inset-0 flex items-center" aria-hidden="true">
-					<div class="w-full border-t border-gray-300" />
-				</div>
 				<div class="relative flex justify-center">
 					<button
 						class="default-button h-10 w-10 shadow-blue-600/40  border-blue-600 shadow"
-						on:click={addModule}><Icon class="text-white mb-1" data={faPlus} scale={0.9} /></button
+						on:click={() => addModule()}
 					>
+						<Icon class="text-white mb-1" data={faPlus} />
+						Add step
+					</button>
 				</div>
 			</li>
 		</div>

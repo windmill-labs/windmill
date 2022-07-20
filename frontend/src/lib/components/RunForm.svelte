@@ -28,7 +28,6 @@
 				parsed[k] = undefined
 			}
 		})
-		console.log(parsed)
 		args = parsed
 	}
 

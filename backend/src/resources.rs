@@ -26,6 +26,7 @@ pub fn workspaced_service() -> Router {
     Router::new()
         .route("/list", get(list_resources))
         .route("/get/*path", get(get_resource))
+        .route("/exists/*path", get(exists_resource))
         .route("/get_value/*path", get(get_resource_value))
         .route("/update/*path", post(update_resource))
         .route("/delete/*path", delete(delete_resource))
@@ -33,6 +34,7 @@ pub fn workspaced_service() -> Router {
         .route("/type/list", get(list_resource_types))
         .route("/type/listnames", get(list_resource_types_names))
         .route("/type/get/:name", get(get_resource_type))
+        .route("/type/exists/:name", get(exists_resource_type))
         .route("/type/update/:name", post(update_resource_type))
         .route("/type/delete/:name", delete(delete_resource_type))
         .route("/type/create", post(create_resource_type))
@@ -67,7 +69,7 @@ pub struct Resource {
     pub description: Option<String>,
     pub resource_type: String,
     pub extra_perms: serde_json::Value,
-    pub account: Option<i32>,
+    pub is_oauth: bool,
 }
 
 #[derive(Deserialize)]
@@ -76,6 +78,7 @@ pub struct CreateResource {
     pub value: Option<serde_json::Value>,
     pub description: Option<String>,
     pub resource_type: String,
+    pub is_oauth: Option<bool>,
 }
 #[derive(Deserialize)]
 struct EditResource {
@@ -105,7 +108,7 @@ async fn list_resources(
             "description",
             "resource_type",
             "extra_perms",
-            "account",
+            "is_oauth",
         ])
         .order_by("path", true)
         .and_where("workspace_id = ? OR workspace_id = 'starter'".bind(&w_id))
@@ -149,6 +152,24 @@ async fn get_resource(
     Ok(Json(resource))
 }
 
+async fn exists_resource(
+    Extension(db): Extension<DB>,
+    Path((w_id, path)): Path<(String, StripPath)>,
+) -> JsonResult<bool> {
+    let path = path.to_path();
+
+    let exists = sqlx::query_scalar!(
+        "SELECT EXISTS(SELECT 1 FROM resource WHERE path = $1 AND workspace_id = $2)",
+        path,
+        w_id
+    )
+    .fetch_one(&db)
+    .await?
+    .unwrap_or(false);
+
+    Ok(Json(exists))
+}
+
 async fn get_resource_value(
     authed: Authed,
     Extension(user_db): Extension<UserDB>,
@@ -180,13 +201,14 @@ async fn create_resource(
 
     sqlx::query!(
         "INSERT INTO resource
-            (workspace_id, path, value, description, resource_type)
-            VALUES ($1, $2, $3, $4, $5)",
+            (workspace_id, path, value, description, resource_type, is_oauth)
+            VALUES ($1, $2, $3, $4, $5, $6)",
         w_id,
         resource.path,
         resource.value,
         resource.description,
         resource.resource_type,
+        resource.is_oauth.unwrap_or(false)
     )
     .execute(&mut tx)
     .await?;
@@ -321,6 +343,22 @@ async fn get_resource_type(
 
     let resource_type = crate::utils::not_found_if_none(resource_type_o, "ResourceType", name)?;
     Ok(Json(resource_type))
+}
+
+async fn exists_resource_type(
+    Extension(db): Extension<DB>,
+    Path((w_id, name)): Path<(String, String)>,
+) -> JsonResult<bool> {
+    let exists = sqlx::query_scalar!(
+        "SELECT EXISTS(SELECT 1 FROM resource_type WHERE name = $1 AND workspace_id = $2)",
+        name,
+        w_id
+    )
+    .fetch_one(&db)
+    .await?
+    .unwrap_or(false);
+
+    Ok(Json(exists))
 }
 
 async fn create_resource_type(

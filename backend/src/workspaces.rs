@@ -41,10 +41,7 @@ pub fn global_service() -> Router {
     .route("/users", get(user_workspaces))
     .route("/create", post(create_workspace))
     .route("/exists", post(exists_workspace))
-    .route("/validate_username", post(validate_username))
-    .route("/validate_id", post(validate_id))
-
-
+    .route("/exists_username", post(exists_username))
 }
 
 #[derive(FromRow, Serialize)]
@@ -485,7 +482,7 @@ async fn delete_invite(
     ))
 }
 
-async fn validate_username(
+async fn exists_username(
     Extension(db): Extension<DB>,
     Json(vu): Json<ValidateUsername>,
 ) -> Result<String> {
@@ -504,27 +501,6 @@ async fn validate_username(
     }
 
     Ok("valid username".to_string())
-}
-
-
-async fn validate_id(
-    Extension(db): Extension<DB>,
-    Json(wi): Json<WorkspaceId>,
-) -> Result<String> {
-
-    let exists = sqlx::query_scalar!(
-        "SELECT EXISTS(SELECT 1 FROM workspace WHERE id = $1)",
-        wi.id
-    )
-    .fetch_one(&db)
-    .await?
-    .unwrap_or(true);
-
-    if exists {
-        return Err(Error::BadRequest("id already taken".to_string()))
-    }
-
-    Ok("valid workspace".to_string())
 }
 
 #[derive(Serialize)]

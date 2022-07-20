@@ -20,14 +20,16 @@ use crate::{
     db::DB,
     error::Error,
     jobs::{
-        add_completed_job, add_completed_job_error, handle_flow, postprocess_queued_job, pull,
-        update_flow_status_after_job_completion, update_flow_status_in_progress, JobKind,
+        add_completed_job, add_completed_job_error, postprocess_queued_job, pull, JobKind,
         QueuedJob,
     },
     parser::{self, Typ},
     scripts::{ScriptHash, ScriptLang},
     users::{create_token_for_owner, get_email_from_username},
     variables,
+    worker_flow::{
+        handle_flow, update_flow_status_after_job_completion, update_flow_status_in_progress,
+    },
 };
 
 use serde_json::{json, Map, Value};
@@ -66,6 +68,7 @@ pub async fn run_worker(
     sleep_queue: u64,
     base_url: &str,
     disable_nuser: bool,
+    disable_nsjail: bool,
     tx: tokio::sync::broadcast::Sender<()>,
 ) {
     let worker_dir = format!("{TMP_DIR}/{worker_name}");
@@ -116,6 +119,7 @@ pub async fn run_worker(
                     &worker_dir,
                     base_url,
                     disable_nuser,
+                    disable_nsjail,
                 )
                 .await
                 .err()
@@ -129,9 +133,14 @@ pub async fn run_worker(
                     )
                     .await;
 
-                    let _ =
-                        postprocess_queued_job(job2.schedule_path, &job2.workspace_id, job2.id, db)
-                            .await;
+                    let _ = postprocess_queued_job(
+                        job2.schedule_path,
+                        job2.script_path,
+                        &job2.workspace_id,
+                        job2.id,
+                        db,
+                    )
+                    .await;
                     tracing::error!(job_id = %job2.id, "Error handling job: {err_string}");
                 };
             }
@@ -171,6 +180,7 @@ async fn handle_queued_job(
     worker_dir: &str,
     base_url: &str,
     disable_nuser: bool,
+    disable_nsjail: bool,
 ) -> crate::error::Result<()> {
     let job_id = job.id;
     let w_id = &job.workspace_id.clone();
@@ -208,12 +218,13 @@ async fn handle_queued_job(
                 &mut last_line,
                 base_url,
                 disable_nuser,
+                disable_nsjail,
             )
             .await;
 
             match execution {
                 Ok(r) => {
-                    add_completed_job(db, &job, true, r.result.clone(), logs).await?;
+                    add_completed_job(db, &job, true, false, r.result.clone(), logs).await?;
                     if job.is_flow_step {
                         update_flow_status_after_job_completion(db, &job, true, r.result).await?;
                     }
@@ -227,7 +238,8 @@ async fn handle_queued_job(
                 }
             };
 
-            let _ = postprocess_queued_job(job.schedule_path, &w_id, job_id, db).await;
+            let _ =
+                postprocess_queued_job(job.schedule_path, job.script_path, &w_id, job_id, db).await;
         }
     }
     Ok(())
@@ -284,6 +296,7 @@ async fn handle_job(
     last_line: &mut String,
     base_url: &str,
     disable_nuser: bool,
+    disable_nsjail: bool,
 ) -> Result<JobResult, Error> {
     tracing::info!(
         worker = %worker_name,
@@ -311,6 +324,7 @@ async fn handle_job(
             &job_dir,
             worker_dir,
             disable_nuser,
+            disable_nsjail,
             logs,
             &mut status,
             last_line,
@@ -356,6 +370,7 @@ async fn handle_nondep_job(
     job_dir: &String,
     worker_dir: &str,
     disable_nuser: bool,
+    disable_nsjail: bool,
     logs: &mut String,
     status: &mut Result<ExitStatus, Error>,
     last_line: &mut String,
@@ -395,30 +410,53 @@ async fn handle_nondep_job(
             let requirements =
                 requirements_o.ok_or_else(|| Error::InternalErr(format!("lockfile missing")))?;
 
-            let _ = write_file(
-                job_dir,
-                "download.config.proto",
-                &NSJAIL_CONFIG_DOWNLOAD_CONTENT
-                    .replace("{JOB_DIR}", job_dir)
-                    .replace("{WORKER_DIR}", &worker_dir)
-                    .replace("{CACHE_DIR}", PIP_CACHE_DIR)
-                    .replace("{CLONE_NEWUSER}", &(!disable_nuser).to_string()),
-            )
-            .await?;
+            if !disable_nsjail {
+                let _ = write_file(
+                    job_dir,
+                    "download.config.proto",
+                    &NSJAIL_CONFIG_DOWNLOAD_CONTENT
+                        .replace("{JOB_DIR}", job_dir)
+                        .replace("{WORKER_DIR}", &worker_dir)
+                        .replace("{CACHE_DIR}", PIP_CACHE_DIR)
+                        .replace("{CLONE_NEWUSER}", &(!disable_nuser).to_string()),
+                )
+                .await?;
+            }
             let _ = write_file(job_dir, "requirements.txt", &requirements).await?;
 
-            let child = Command::new("nsjail")
-                .current_dir(job_dir)
-                .args(vec!["--config", "download.config.proto"])
-                .stdout(Stdio::piped())
-                .stderr(Stdio::piped())
-                .spawn()?;
+            let child = if !disable_nsjail {
+                Command::new("nsjail")
+                    .current_dir(job_dir)
+                    .args(vec!["--config", "download.config.proto"])
+                    .stdout(Stdio::piped())
+                    .stderr(Stdio::piped())
+                    .spawn()?
+            } else {
+                Command::new("/usr/local/bin/python3")
+                    .current_dir(job_dir)
+                    .args(vec![
+                        "-m",
+                        "pip",
+                        "install",
+                        "--no-color",
+                        "--isolated",
+                        "--no-warn-conflicts",
+                        "--disable-pip-version-check",
+                        "-t",
+                        "./dependencies",
+                        "-r",
+                        "./requirements.txt",
+                    ])
+                    .stdout(Stdio::piped())
+                    .stderr(Stdio::piped())
+                    .spawn()?
+            };
 
             logs.push_str("\n--- PIP DEPENDENCIES INSTALL ---\n");
             *status = handle_child(job, db, logs, last_line, timeout, child).await;
 
             if status.is_ok() {
-                logs.push_str("\n\n--- PTHON CODE EXECUTION ---\n");
+                logs.push_str("\n\n--- PYTHON CODE EXECUTION ---\n");
 
                 set_logs(logs, job.id, db).await;
 
@@ -455,9 +493,10 @@ async fn handle_nondep_job(
                 } else {
                     None
                 };
-                let ser_args = serde_json::to_string(&args)
-                    .map_err(|e| Error::ExecutionErr(e.to_string()))?
-                    .replace("\\\"", "\\\\\"");
+                let ser_args =
+                    serde_json::to_string(&args).map_err(|e| Error::ExecutionErr(e.to_string()))?;
+                write_file(job_dir, "args.json", &ser_args).await?;
+
                 let wrapper_content: String = format!(
                     r#"
 import json
@@ -466,7 +505,8 @@ from datetime import datetime
 
 inner_script = __import__("inner")
 
-kwargs = json.loads("""{ser_args}""", strict=False)
+with open("args.json") as f:
+    kwargs = json.load(f, strict=False)
 for k, v in kwargs.items():
     if v == '<function call>':
         kwargs[k] = None
@@ -487,30 +527,47 @@ print(res_json)
                 write_file(job_dir, "main.py", &wrapper_content).await?;
 
                 tx.commit().await?;
-                let reserved_variables = get_reserved_variables(job, token, db).await?;
-                let _ = write_file(
-                    job_dir,
-                    "run.config.proto",
-                    &NSJAIL_CONFIG_RUN_PYTHON3_CONTENT
-                        .replace("{JOB_DIR}", job_dir)
-                        .replace("{CLONE_NEWUSER}", &(!disable_nuser).to_string()),
-                )
-                .await?;
-
-                let child = Command::new("nsjail")
-                    .current_dir(job_dir)
-                    .envs(reserved_variables)
-                    .args(vec![
-                        "--config",
+                let mut reserved_variables = get_reserved_variables(job, token, db).await?;
+                if !disable_nuser {
+                    let _ = write_file(
+                        job_dir,
                         "run.config.proto",
-                        "--",
-                        "/usr/local/bin/python3",
-                        "-u",
-                        "/tmp/main.py",
-                    ])
-                    .stdout(Stdio::piped())
-                    .stderr(Stdio::piped())
-                    .spawn()?;
+                        &NSJAIL_CONFIG_RUN_PYTHON3_CONTENT
+                            .replace("{JOB_DIR}", job_dir)
+                            .replace("{CLONE_NEWUSER}", &(!disable_nuser).to_string()),
+                    )
+                    .await?;
+                } else {
+                    reserved_variables
+                        .insert("PYTHONPATH".to_string(), format!("{job_dir}/dependencies"));
+                }
+
+                let child = if !disable_nuser {
+                    Command::new("nsjail")
+                        .current_dir(job_dir)
+                        .env_clear()
+                        .envs(reserved_variables)
+                        .args(vec![
+                            "--config",
+                            "run.config.proto",
+                            "--",
+                            "/usr/local/bin/python3",
+                            "-u",
+                            "/tmp/main.py",
+                        ])
+                        .stdout(Stdio::piped())
+                        .stderr(Stdio::piped())
+                        .spawn()?
+                } else {
+                    Command::new("/usr/local/bin/python3")
+                        .current_dir(job_dir)
+                        .env_clear()
+                        .envs(reserved_variables)
+                        .args(vec!["-u", "main.py"])
+                        .stdout(Stdio::piped())
+                        .stderr(Stdio::piped())
+                        .spawn()?
+                };
                 *status = handle_child(job, db, logs, last_line, timeout, child).await;
             }
         }
@@ -549,21 +606,25 @@ print(res_json)
             } else {
                 None
             };
-            let ser_args = serde_json::to_string(&args)
-                .map_err(|e| Error::ExecutionErr(e.to_string()))?
-                .replace("\\\"", "\\\\\"");
+            let ser_args =
+                serde_json::to_string(&args).map_err(|e| Error::ExecutionErr(e.to_string()))?;
+            write_file(job_dir, "args.json", &ser_args).await?;
+
             let spread = sig.args.into_iter().map(|x| x.name).join(",");
             let wrapper_content: String = format!(
                 r#"
 import {{ main }} from "./inner.ts";
-const {{{spread}}} = JSON.parse(`{ser_args}`);
+
+const args = await Deno.readTextFile("args.json")
+    .then(JSON.parse)
+    .then(({{ {spread} }}) => [ {spread} ])
 
 async function run() {{
-    let res: any = await main({spread});
+    let res: any = await main(...args);
     if (res == undefined) {{
         res = {{}}
     }}
-    if (typeof res !== 'object') {{
+    if (typeof res !== 'object' || Array.isArray(res)) {{
         res = {{ res1: res }}
     }}
 
@@ -579,34 +640,57 @@ run();
             write_file(job_dir, "main.ts", &wrapper_content).await?;
 
             tx.commit().await?;
-            let reserved_variables = get_reserved_variables(job, token, db).await?;
-            let _ = write_file(
-                job_dir,
-                "run.config.proto",
-                &NSJAIL_CONFIG_RUN_DENO_CONTENT
-                    .replace("{JOB_DIR}", job_dir)
-                    .replace("{CACHE_DIR}", DENO_CACHE_DIR)
-                    .replace("{CLONE_NEWUSER}", &(!disable_nuser).to_string()),
-            )
-            .await?;
 
-            let child = Command::new("nsjail")
-                .current_dir(job_dir)
-                .envs(reserved_variables)
-                .args(vec![
-                    "--config",
+            let mut reserved_variables = get_reserved_variables(job, token, db).await?;
+            reserved_variables.insert("RUST_LOG".to_string(), "info".to_string());
+
+            if !disable_nuser {
+                let _ = write_file(
+                    job_dir,
                     "run.config.proto",
-                    "--",
-                    "/usr/bin/deno",
-                    "run",
-                    "--unstable",
-                    "--v8-flags=--max-heap-size=2048",
-                    "-A",
-                    "/tmp/main.ts",
-                ])
-                .stdout(Stdio::piped())
-                .stderr(Stdio::piped())
-                .spawn()?;
+                    &NSJAIL_CONFIG_RUN_DENO_CONTENT
+                        .replace("{JOB_DIR}", job_dir)
+                        .replace("{CACHE_DIR}", DENO_CACHE_DIR)
+                        .replace("{CLONE_NEWUSER}", &(!disable_nuser).to_string()),
+                )
+                .await?;
+            }
+
+            let child = if !disable_nsjail {
+                Command::new("nsjail")
+                    .current_dir(job_dir)
+                    .env_clear()
+                    .envs(reserved_variables)
+                    .args(vec![
+                        "--config",
+                        "run.config.proto",
+                        "--",
+                        "/usr/bin/deno",
+                        "run",
+                        "--unstable",
+                        "--v8-flags=--max-heap-size=2048",
+                        "-A",
+                        "/tmp/main.ts",
+                    ])
+                    .stdout(Stdio::piped())
+                    .stderr(Stdio::piped())
+                    .spawn()?
+            } else {
+                Command::new("/usr/bin/deno")
+                    .current_dir(job_dir)
+                    .env_clear()
+                    .envs(reserved_variables)
+                    .args(vec![
+                        "run",
+                        "--unstable",
+                        "--v8-flags=--max-heap-size=2048",
+                        "-A",
+                        "main.ts",
+                    ])
+                    .stdout(Stdio::piped())
+                    .stderr(Stdio::piped())
+                    .spawn()?
+            };
             *status = handle_child(job, db, logs, last_line, timeout, child).await;
         }
     }
@@ -697,6 +781,7 @@ async fn get_reserved_variables(
         &job.permissioned_as,
         job.script_path.clone(),
         flow_path,
+        job.schedule_path.clone(),
     );
     Ok(variables
         .into_iter()

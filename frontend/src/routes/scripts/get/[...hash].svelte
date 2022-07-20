@@ -120,6 +120,11 @@
 					>Template</span
 				>
 			{/if}
+			{#if script?.is_trigger}
+				<span class="mx-2 bg-blue-500 rounded-md bg-opacity-25 text-sm font-normal px-1 py-px"
+					>Trigger</span
+				>
+			{/if}
 			<SharedBadge canWrite={can_write} extraPerms={script?.extra_perms ?? {}} />
 			{#if deploymentInProgress}
 				<span class="bg-yellow-200 text-gray-700 text-xs rounded px-1 mx-3">
@@ -275,7 +280,7 @@
 				<p class="text-gray-700">
 					<a href="/scripts/get/{script?.hash}">{script?.hash}</a>
 				</p>
-				<span>Webhook to run this script:</span>
+				<span>Webhook to run this script and get job's uuid as response:</span>
 				<Tooltip class="font-normal mx-1"
 					>Send a POST http request with a token as bearer token and the args respecting the
 					corresponding jsonschema as payload. To create a permanent token, go to your user setting
@@ -291,6 +296,19 @@
 				<pre><code
 						><a href="/api/w/{$workspaceStore}/jobs/run/p/{script?.path}"
 							>/api/w/{$workspaceStore}/jobs/run/p/{script?.path}</a
+						></code
+					></pre>
+				<span>Endpoint to run this script and get job's result as response:</span>
+				<Tooltip class="font-normal mx-1"
+					>Send a POST http request with a token as bearer token and the args respecting the
+					corresponding jsonschema as payload. To create a permanent token, go to your user setting
+					by clicking your username on the top-left. For more info about openapi, see <a
+						href="https://docs.windmill.dev/openapi/run-script-by-hash">openapi doc</a
+					></Tooltip
+				>
+				<pre><code
+						><a href="/api/w/{$workspaceStore}/jobs/run_wait_result/p/{script?.path}"
+							>/api/w/{$workspaceStore}/jobs/run_wait_result/p/{script?.path}</a
 						></code
 					></pre>
 			</div>

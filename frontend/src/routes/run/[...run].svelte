@@ -26,7 +26,8 @@
 		faHourglassHalf,
 		faRobot,
 		faScroll,
-		faWind
+		faWind,
+		faFastForward
 	} from '@fortawesome/free-solid-svg-icons'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import DisplayResult from '$lib/components/DisplayResult.svelte'
@@ -145,12 +146,21 @@
 			<div>
 				{#if job}
 					{#if 'success' in job && job.success}
-						<Icon
-							class="text-green-600"
-							data={check}
-							scale={iconScale}
-							label="Job completed successfully"
-						/>
+						{#if job.is_skipped}
+							<Icon
+								class="text-green-600"
+								data={faFastForward}
+								scale={SMALL_ICON_SCALE}
+								label="Job completed successfully but was skipped"
+							/>
+						{:else}
+							<Icon
+								class="text-green-600"
+								data={check}
+								scale={SMALL_ICON_SCALE}
+								label="Job completed successfully"
+							/>
+						{/if}
 					{:else if job && 'success' in job}
 						<Icon
 							class="text-red-700"

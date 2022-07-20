@@ -13,18 +13,18 @@
 	import { workspaceStore, userStore, oauthStore } from '$lib/stores'
 	import { faMinus, faPlus } from '@fortawesome/free-solid-svg-icons'
 
-	import { OauthService, ResourceService, VariableService } from '$lib/gen'
+	import { OauthService, ResourceService, VariableService, type TokenResponse } from '$lib/gen'
 
 	import { createEventDispatcher, onMount } from 'svelte'
 	import Modal from './Modal.svelte'
 	import Icon from 'svelte-awesome'
 	import Path from './Path.svelte'
 	import Password from './Password.svelte'
-	import { sendUserToast, truncate, truncateRev } from '$lib/utils'
-	import { goto } from '$app/navigation'
+	import { sendUserToast, truncateRev } from '$lib/utils'
 
 	let manual = false
-	let value = ''
+	let value: string = ''
+	let valueToken: TokenResponse
 	let connects: Record<string, string[]> = {}
 	let connectsManual: [string, { img?: string; instructions: string }][] = []
 
@@ -36,6 +36,9 @@
 	let step = 1
 
 	let no_back = false
+
+	let pathError = ''
+
 	export function open() {
 		step = 1
 		value = ''
@@ -46,7 +49,8 @@
 
 	export function openFromOauth(rt: string) {
 		resource_type = rt
-		value = $oauthStore!
+		value = $oauthStore?.access_token!
+		valueToken = $oauthStore!
 		$oauthStore = undefined
 		manual = false
 		step = 3
@@ -71,29 +75,35 @@
 		} else if (step == 1 && !manual) {
 			window.location.href = `/api/oauth/connect/${resource_type}?scopes=${scopes.join('+')}`
 		} else {
-			let exists = true
-			try {
-				await VariableService.getVariable({
-					workspace: $workspaceStore!,
-					path
-				})
-			} catch (e) {
-				exists = false
-			}
+			let exists = await VariableService.existsVariable({
+				workspace: $workspaceStore!,
+				path
+			})
 			if (exists) {
 				throw Error(`Variable at path ${path} already exists. Delete it or pick another path`)
 			}
-			exists = true
-			try {
-				await ResourceService.getResource({
-					workspace: $workspaceStore!,
-					path
-				})
-			} catch (e) {
-				exists = false
-			}
+			exists = await ResourceService.existsResource({
+				workspace: $workspaceStore!,
+				path
+			})
+
 			if (exists) {
 				throw Error(`Resource at path ${path} already exists. Delete it or pick another path`)
+			}
+
+			let account: number | undefined = undefined
+			if (valueToken.refresh_token != undefined && valueToken.expires_in != undefined) {
+				account = Number(
+					await OauthService.createAccount({
+						workspace: $workspaceStore!,
+						requestBody: {
+							refresh_token: valueToken.refresh_token!,
+							expires_in: valueToken.expires_in!,
+							owner: path.split('/').slice(0, 2).join('/'),
+							client: resource_type
+						}
+					})
+				)
 			}
 			await VariableService.createVariable({
 				workspace: $workspaceStore!,
@@ -101,7 +111,9 @@
 					path,
 					value,
 					is_secret: true,
-					description: `OAuth token for ${resource_type}`
+					description: `OAuth token for ${resource_type}`,
+					is_oauth: true,
+					account: account
 				}
 			})
 			await ResourceService.createResource({
@@ -110,7 +122,8 @@
 					resource_type,
 					path,
 					value: { token: `$var:${path}` },
-					description: `OAuth token for ${resource_type}`
+					description: `OAuth token for ${resource_type}`,
+					is_oauth: true
 				}
 			})
 			dispatch('refresh')
@@ -147,7 +160,7 @@
 	<div slot="title">Connect an app</div>
 	<div slot="content">
 		{#if step == 1}
-			<PageHeader title="Oauth apps" />
+			<PageHeader title="OAuth apps" />
 			<div class="grid sm:grid-cols-2 md:grid-cols-3 gap-x-2 gap-y-1 items-center mb-2">
 				{#each Object.entries(connects) as [key, values]}
 					<button
@@ -179,9 +192,9 @@
 				<button
 					class="default-button-secondary mt-1"
 					on:click={() => {
-						resource_type = resource_type.concat('')
+						scopes = scopes.concat('')
 					}}>Add item &nbsp;<Icon data={faPlus} class="mb-1" /></button
-				><span class="ml-2">{(resource_type ?? []).length} item(s)</span>
+				><span class="ml-2">{(scopes ?? []).length} item(s)</span>
 			{:else}
 				<p class="italic text-sm">Pick an oauth app and customize the scopes here</p>
 			{/if}
@@ -216,7 +229,12 @@
 				</div>
 			{/if}
 		{:else}
-			<Path bind:path initialPath={`u/${$userStore?.username ?? ''}/my_${resource_type}`} />
+			<Path
+				bind:error={pathError}
+				bind:path
+				initialPath={`u/${$userStore?.username ?? ''}/my_${resource_type}`}
+				kind="resource"
+			/>
 			<ul class="mt-10 bg-white">
 				<li>
 					1. A secret variable containing the token <span class="font-bold"
@@ -247,7 +265,8 @@
 		<button
 			class="default-button px-4 py-2 font-semibold"
 			class:default-button-disabled={(step == 1 && resource_type == '') ||
-				(step == 2 && value == '')}
+				(step == 2 && value == '') ||
+				(step == 3 && pathError != '')}
 			on:click={next}
 		>
 			{step == 3 ? 'Connect' : 'Next'}

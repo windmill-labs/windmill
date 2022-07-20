@@ -29,7 +29,8 @@
 					deleted: false,
 					is_template: false,
 					extra_perms: {},
-					language: 'python3'
+					language: 'deno',
+					is_trigger: false
 			  }
 
 	async function loadTemplate(): Promise<void> {

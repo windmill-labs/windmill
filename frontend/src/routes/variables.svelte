@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { canWrite, sendUserToast } from '$lib/utils'
-	import { VariableService } from '$lib/gen'
+	import { OauthService, VariableService } from '$lib/gen'
 	import type { ListableVariable, ContextualVariable } from '$lib/gen'
 	import Dropdown from '$lib/components/Dropdown.svelte'
 	import PageHeader from '$lib/components/PageHeader.svelte'
@@ -12,7 +12,7 @@
 	import { userStore, workspaceStore } from '$lib/stores'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
 	import Icon from 'svelte-awesome'
-	import { faPlus } from '@fortawesome/free-solid-svg-icons'
+	import { faPlus, faCircle } from '@fortawesome/free-solid-svg-icons'
 
 	type ListableVariableW = ListableVariable & { canWrite: boolean }
 
@@ -37,7 +37,10 @@
 		})
 	}
 
-	async function deleteVariable(path: string): Promise<void> {
+	async function deleteVariable(path: string, account?: string): Promise<void> {
+		if (account) {
+			OauthService.disconnectAccount({ workspace: $workspaceStore!, id: account })
+		}
 		await VariableService.deleteVariable({ workspace: $workspaceStore!, path })
 		loadVariables()
 		sendUserToast(`Variable ${path} was deleted`)
@@ -71,10 +74,11 @@
 				<th>value</th>
 				<th>secret</th>
 				<th>description</th>
+				<th>OAuth</th>
 				<th />
 			</tr>
 			<tbody slot="body">
-				{#each variables as { path, value, is_secret, description, extra_perms, canWrite }}
+				{#each variables as { path, value, is_secret, description, extra_perms, canWrite, account, is_oauth }}
 					<tr>
 						<td
 							><a
@@ -87,6 +91,16 @@
 						<td>{value ?? '******'}</td>
 						<td>{is_secret ? 'secret' : 'visible'}</td>
 						<td>{description}</td>
+						<td>
+							{#if is_oauth}
+								<Icon
+									class="text-green-600"
+									data={faCircle}
+									scale={0.7}
+									label="Variable is tied to an OAuth app"
+								/>
+							{/if}
+						</td>
 						<td
 							><Dropdown
 								dropdownItems={[
@@ -97,7 +111,7 @@
 									},
 									{
 										displayName: 'Delete',
-										action: () => deleteVariable(path),
+										action: () => deleteVariable(path, account),
 										disabled: !canWrite
 									},
 									{
@@ -106,7 +120,24 @@
 											shareModal.openModal(path)
 										},
 										disabled: !canWrite
-									}
+									},
+									...(account != undefined
+										? [
+												{
+													displayName: 'Refresh token',
+													action: async () => {
+														await OauthService.refreshToken({
+															workspace: $workspaceStore ?? '',
+															id: account,
+															requestBody: {
+																path
+															}
+														})
+														sendUserToast('Token refreshed')
+													}
+												}
+										  ]
+										: [])
 								]}
 								relative={false}
 							/></td

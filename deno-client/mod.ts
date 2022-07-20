@@ -29,22 +29,21 @@ export function createConf(): Configuration & { workspace_id: string } {
 /**
  * Get a resource value by path
  * @param path path of the resource
+ * @param undefinedIfEmpty if the resource does not exist, return undefined instead of throwing an error
  * @returns resource value
  */
-export async function getResource(path: string, initializeToTypeIfNotExist?: string): Promise<any> {
+export async function getResource(path: string, undefinedIfEmpty?: boolean): Promise<any> {
     const conf = createConf()
     try {
         const resource = await new ResourceApi(conf).getResource(conf.workspace_id, path)
         return await transformLeaves(resource.value)
     } catch (e) {
-        if (initializeToTypeIfNotExist && e.code === 404) {
-            await new ResourceApi(conf).createResource(conf.workspace_id, { path, value: {}, resourceType: initializeToTypeIfNotExist })
+        if (undefinedIfEmpty && e.code === 404) {
             return undefined
         } else {
             throw e
         }
     }
-
 }
 
 export function getInternalStatePath(suffix?: string): string {
@@ -53,8 +52,13 @@ export function getInternalStatePath(suffix?: string): string {
     const permissioned_as = Deno.env.get("WM_PERMISSIONED_AS")
     const flow_path = env_flow_path != undefined && env_flow_path != "" ? env_flow_path : 'NO_FLOW_PATH'
     const script_path = suffix ?? (env_job_path != undefined && env_job_path != "" ? env_job_path : 'NO_JOB_PATH')
+    const env_schedule_path = Deno.env.get("WM_SCHEDULE_PATH")
+    const schedule_path = env_flow_path != undefined && env_flow_path != "" ? `/${env_schedule_path}` : ''
 
-    return `${permissioned_as}/${flow_path}/${script_path}`
+    if (script_path.slice(script_path.length - 1) === '/') {
+        throw Error(`The script path must not end with '/', give a name to your script!`)
+    }
+    return `${permissioned_as}/${flow_path}/${script_path}${schedule_path}`
 }
 
 /**
@@ -90,7 +94,7 @@ export async function setInternalState(state: any, suffix?: string): Promise<voi
  * @param suffix suffix of the path of the internal state (useful to share internal state between jobs)
  */
 export async function getInternalState(suffix?: string): Promise<any> {
-    return await getResource(getInternalStatePath(suffix), 'state')
+    return await getResource(getInternalStatePath(suffix), true)
 }
 
 /**

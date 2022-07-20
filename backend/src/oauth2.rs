@@ -8,6 +8,7 @@ use axum::extract::{Extension, FromRequest, Path, Query, RequestParts};
 use axum::response::Redirect;
 use axum::routing::{get, post};
 use axum::{async_trait, Json, Router};
+use chrono::{Duration, Utc};
 use hyper::StatusCode;
 use itertools::Itertools;
 
@@ -16,16 +17,18 @@ use reqwest::Client;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use slack_http_verifier::SlackVerifier;
+use sqlx::{Postgres, Transaction};
 use tokio::fs::File;
 use tokio::io::AsyncReadExt;
 use tower_cookies::{Cookie, Cookies};
 
 use crate::audit::{audit_log, ActionKind};
 use crate::db::{UserDB, DB};
-use crate::error::{self, to_anyhow, Result};
+use crate::error::{self, to_anyhow, Error, Result};
 use crate::jobs;
 use crate::jobs::{get_latest_hash_for_path, JobPayload};
 use crate::users::Authed;
+use crate::utils::not_found_if_none;
 use crate::workspaces::WorkspaceSettings;
 use crate::BaseUrl;
 
@@ -47,9 +50,12 @@ pub fn global_service() -> Router {
 
 pub fn workspaced_service() -> Router {
     Router::new()
-        .route("/disconnect/:account_id", post(disconnect))
+        .route("/disconnect/:id", post(disconnect))
         .route("/disconnect_slack", post(disconnect_slack))
         .route("/set_workspace_slack", post(set_workspace_slack))
+        .route("/create_account", post(create_account))
+        .route("/delete_account/:id", post(delete_account))
+        .route("/refresh_token/:id", post(refresh_token))
 }
 
 pub struct ClientWithScopes {
@@ -209,7 +215,7 @@ pub struct SlackTokenResponse {
     bot: SlackBotToken,
 }
 
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct TokenResponse {
     access_token: AccessToken,
     expires_in: Option<u64>,
@@ -242,6 +248,68 @@ async fn connect(
         cookies,
         scopes.map(|x| x.split('+').map(|x| x.to_owned()).collect()),
     )
+}
+
+#[derive(Deserialize)]
+struct CreateAccount {
+    client: String,
+    owner: String,
+    refresh_token: String,
+    expires_in: i64,
+}
+async fn create_account(
+    authed: Authed,
+    Extension(user_db): Extension<UserDB>,
+    Path(w_id): Path<String>,
+    Json(payload): Json<CreateAccount>,
+) -> error::Result<String> {
+    let mut tx = user_db.begin(&authed).await?;
+
+    let expires_at = chrono::Utc::now() + Duration::seconds(payload.expires_in);
+    let id = sqlx::query_scalar!(
+        "INSERT INTO account (workspace_id, client, owner, expires_at, refresh_token) VALUES ($1, $2, $3, $4, $5) RETURNING id",
+        w_id,
+        payload.client,
+        payload.owner,
+        expires_at,
+        payload.refresh_token
+    )
+    .fetch_one(&mut tx)
+    .await?;
+    tx.commit().await?;
+    Ok(id.to_string())
+}
+
+async fn delete_account(
+    authed: Authed,
+    Extension(user_db): Extension<UserDB>,
+    Query((w_id, id)): Query<(String, i32)>,
+) -> error::Result<String> {
+    let mut tx = user_db.begin(&authed).await?;
+
+    let exists = sqlx::query!(
+        "DELETE FROM account WHERE workspace_id = $1 AND id = $2 RETURNING id",
+        w_id,
+        id,
+    )
+    .fetch_optional(&mut tx)
+    .await?;
+
+    let id_str = id.to_string();
+    not_found_if_none(exists, "Account", &id_str)?;
+
+    audit_log(
+        &mut tx,
+        &authed.username,
+        "account.delete",
+        ActionKind::Delete,
+        &w_id,
+        Some(&id_str),
+        None,
+    )
+    .await?;
+    tx.commit().await?;
+    Ok(format!("Deleted account id {id}"))
 }
 
 async fn list_logins(
@@ -334,14 +402,86 @@ async fn login(
 }
 
 #[derive(Deserialize)]
+struct VariablePath {
+    path: String,
+}
+async fn refresh_token(
+    authed: Authed,
+    Path((w_id, id)): Path<(String, i32)>,
+    Json(VariablePath { path }): Json<VariablePath>,
+    Extension(user_db): Extension<UserDB>,
+    Extension(clients): Extension<Arc<AllClients>>,
+    Extension(http_client): Extension<Client>,
+) -> error::Result<String> {
+    let tx = user_db.begin(&authed).await?;
+
+    _refresh_token(tx, &path, w_id, id, clients, http_client).await?;
+
+    Ok(format!("Token at path {path} refreshed"))
+}
+
+pub async fn _refresh_token<'c>(
+    mut tx: Transaction<'c, Postgres>,
+    path: &str,
+    w_id: String,
+    id: i32,
+    clients: Arc<AllClients>,
+    http_client: Client,
+) -> error::Result<String> {
+    let account = sqlx::query!(
+        "SELECT client, refresh_token FROM account WHERE workspace_id = $1 AND id = $2",
+        w_id,
+        id,
+    )
+    .fetch_optional(&mut tx)
+    .await?;
+    let account = not_found_if_none(account, "Account", &id.to_string())?;
+    let client = (&clients
+        .connects
+        .get(&account.client)
+        .ok_or_else(|| error::Error::BadRequest("invalid client".to_string()))?
+        .client)
+        .to_owned();
+    let token = client
+        .exchange_refresh_token(&RefreshToken::from(account.refresh_token))
+        .with_client(&http_client)
+        .execute::<TokenResponse>()
+        .await
+        .map_err(to_anyhow)?;
+    let expires_at = Utc::now()
+        + chrono::Duration::seconds(
+            token
+                .expires_in
+                .ok_or_else(|| Error::InternalErr("expires_in exepcted and not found".to_string()))?
+                .try_into()
+                .unwrap(),
+        );
+    sqlx::query!(
+        "UPDATE account SET refresh_token = $1, expires_at = $2 WHERE workspace_id = $3 AND id = $4",
+        token.refresh_token.map(|x| x.to_string()),
+        expires_at,
+        w_id,
+        id
+    )
+    .execute(&mut tx)
+    .await?;
+    let token = token.access_token.to_string();
+    sqlx::query!(
+        "UPDATE variable SET value = $1 WHERE workspace_id = $2 AND path = $3",
+        token,
+        w_id,
+        path
+    )
+    .execute(&mut tx)
+    .await?;
+    tx.commit().await?;
+    Ok(token)
+}
+
+#[derive(Deserialize)]
 pub struct OAuthCallback {
     code: String,
     state: String,
-}
-
-#[derive(Serialize)]
-pub struct ConnectResponse {
-    token: String,
 }
 
 async fn connect_callback(
@@ -350,7 +490,7 @@ async fn connect_callback(
     Json(callback): Json<OAuthCallback>,
     Extension(clients): Extension<Arc<AllClients>>,
     Extension(http_client): Extension<Client>,
-) -> error::JsonResult<ConnectResponse> {
+) -> error::JsonResult<TokenResponse> {
     let client = (&clients
         .connects
         .get(&client_name)
@@ -358,12 +498,10 @@ async fn connect_callback(
         .client)
         .to_owned();
 
-    let token = exchange_code::<TokenResponse>(callback, &cookies, client, &http_client)
-        .await?
-        .access_token
-        .to_string();
+    let token_response =
+        exchange_code::<TokenResponse>(callback, &cookies, client, &http_client).await?;
 
-    Ok(Json(ConnectResponse { token }))
+    Ok(Json(token_response))
 }
 
 async fn connect_slack_callback(
@@ -459,7 +597,7 @@ async fn slack_command(
     SlackSig { sig, ts }: SlackSig,
     Extension(slack_verifier): Extension<Arc<Option<SlackVerifier>>>,
     Extension(db): Extension<DB>,
-    Extension(base_url): Extension<BaseUrl>,
+    Extension(base_url): Extension<Arc<BaseUrl>>,
     body: Bytes,
 ) -> error::Result<String> {
     let form: SlackCommand = serde_urlencoded::from_bytes(&body)
@@ -513,7 +651,7 @@ async fn slack_command(
             )
             .await?;
             tx.commit().await?;
-            let url = base_url.0;
+            let url = base_url.0.to_owned();
             return Ok(format!("Job launched. See details at {url}/run/{uuid}"));
         }
     }

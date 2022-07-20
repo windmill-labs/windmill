@@ -25,7 +25,7 @@
 					clientName: client_name,
 					requestBody: { code, state }
 				})
-				$oauthStore = res.token
+				$oauthStore = res
 				goto(`/resources?resource_type=${client_name}`)
 			} catch (e) {
 				sendUserToast(`Error parsing the response token, ${e.body}`, true)

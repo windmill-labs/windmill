@@ -70,9 +70,13 @@ async fn main() -> anyhow::Result<()> {
                     .ok()
                     .and_then(|x| x.parse::<bool>().ok())
                     .unwrap_or(false);
+                let disable_nsjail = std::env::var("DISABLE_NSJAIL")
+                    .ok()
+                    .and_then(|x| x.parse::<bool>().ok())
+                    .unwrap_or(false);
 
                 tracing::info!(
-                    "DISABLE_NUSER: {disable_nuser}, BASE_URL: {base_url}, SLEEP_QUEUE: {sleep_queue}, NUM_WORKERS: {num_workers}, TIMEOUT: {timeout}"
+                    "DISABLE_NSJAIL: {disable_nsjail}, DISABLE_NUSER: {disable_nuser}, BASE_URL: {base_url}, SLEEP_QUEUE: {sleep_queue}, NUM_WORKERS: {num_workers}, TIMEOUT: {timeout}"
                 );
                 windmill::run_workers(
                     db.clone(),
@@ -82,6 +86,7 @@ async fn main() -> anyhow::Result<()> {
                     sleep_queue,
                     base_url,
                     disable_nuser,
+                    disable_nsjail,
                     tx.clone(),
                 )
                 .await?;

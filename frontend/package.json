@@ -1,6 +1,6 @@
 {
 	"name": "windmill",
-	"version": "1.17.1",
+	"version": "1.21.0",
 	"scripts": {
 		"dev": "vite dev",
 		"build": "vite build",
@@ -15,19 +15,19 @@
 		"test": "playwright test --config=tests-out/playwright.config.js"
 	},
 	"devDependencies": {
-		"@playwright/test": "^1.23.2",
-		"@sveltejs/adapter-static": "^1.0.0-next.35",
+		"@playwright/test": "^1.23.4",
+		"@sveltejs/adapter-static": "^1.0.0-next.37",
 		"@sveltejs/kit": "next",
 		"@tailwindcss/forms": "^0.5.1",
-		"@tailwindcss/typography": "^0.5.0",
+		"@tailwindcss/typography": "^0.5.3",
 		"@types/vscode": "^1.69.0",
-		"@typescript-eslint/eslint-plugin": "^5.30.6",
-		"@typescript-eslint/parser": "^5.30.6",
+		"@typescript-eslint/eslint-plugin": "^5.30.7",
+		"@typescript-eslint/parser": "^5.30.7",
 		"@zerodevx/svelte-toast": "^0.7.2",
 		"autoprefixer": "^10.4.1",
 		"cssnano": "^5.1.12",
 		"cypress": "^10.3.0",
-		"eslint": "^8.19.0",
+		"eslint": "^8.20.0",
 		"eslint-config-prettier": "^8.3.0",
 		"eslint-plugin-svelte3": "^4.0.0",
 		"openapi-typescript-codegen": "^0.23.0",
@@ -40,7 +40,7 @@
 		"svelte": "^3.49.0",
 		"svelte-awesome": "^3.0.0",
 		"svelte-check": "^2.8.0",
-		"svelte-highlight": "^6.1.2",
+		"svelte-highlight": "^6.2.0",
 		"svelte-markdown": "^0.2.1",
 		"svelte-preprocess": "^4.9.8",
 		"svelte-split-pane": "^0.1.2",
@@ -48,7 +48,7 @@
 		"tailwindcss": "^3.1.6",
 		"tslib": "^2.3.1",
 		"typescript": "^4.7.4",
-		"vite": "^2.9.14"
+		"vite": "^3.0.2"
 	},
 	"type": "module",
 	"dependencies": {

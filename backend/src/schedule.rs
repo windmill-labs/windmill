@@ -9,7 +9,7 @@ use std::str::FromStr;
 
 use crate::{
     audit::{audit_log, ActionKind},
-    db::UserDB,
+    db::{UserDB, DB},
     error::{self, JsonResult, Result},
     jobs::{self, push, JobPayload},
     users::Authed,
@@ -30,6 +30,7 @@ pub fn workspaced_service() -> Router {
     Router::new()
         .route("/list", get(list_schedule))
         .route("/get/*path", get(get_schedule))
+        .route("/exists/*path", get(exists_schedule))
         .route("/create", post(create_schedule))
         .route("/update/*path", post(edit_schedule))
         .route("/setenabled/*path", post(set_enabled))
@@ -282,6 +283,24 @@ async fn get_schedule(
     let schedule = crate::utils::not_found_if_none(schedule_o, "Schedule", path)?;
     tx.commit().await?;
     Ok(Json(schedule))
+}
+
+async fn exists_schedule(
+    Extension(db): Extension<DB>,
+    Path((w_id, path)): Path<(String, StripPath)>,
+) -> JsonResult<bool> {
+    let path = path.to_path();
+
+    let exists = sqlx::query_scalar!(
+        "SELECT EXISTS(SELECT 1 FROM schedule WHERE path = $1 AND workspace_id = $2)",
+        path,
+        w_id
+    )
+    .fetch_one(&db)
+    .await?
+    .unwrap_or(false);
+
+    Ok(Json(exists))
 }
 
 #[derive(Deserialize)]
