@@ -13,7 +13,8 @@
 		faPlus,
 		faShare,
 		faToggleOff,
-		faToggleOn
+		faToggleOn,
+		faTrash
 	} from '@fortawesome/free-solid-svg-icons'
 	import { userStore, workspaceStore } from '$lib/stores'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
@@ -112,6 +113,18 @@
 										disabled: !canWrite,
 										action: () => {
 											setScheduleEnabled(path, enabled ? false : true)
+										}
+									},
+									{
+										displayName: 'Delete',
+										icon: faTrash,
+										disabled: !canWrite,
+										action: async () => {
+											await ScheduleService.deleteSchedule({
+												workspace: $workspaceStore ?? '',
+												path
+											})
+											loadSchedules()
 										}
 									},
 									{
