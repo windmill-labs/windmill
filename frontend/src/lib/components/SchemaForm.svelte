@@ -87,7 +87,7 @@
 						bind:value={propertiesTypes[argName]}
 						on:change={(e) => {
 							if (e.detail === InputTransform.type.JAVASCRIPT) {
-								args[argName].expr = getDefaultExpr(i ?? -1)
+								args[argName].expr = getDefaultExpr(i ?? -1, argName)
 								args[argName].value = undefined
 							} else {
 								args[argName].expr = undefined

@@ -192,5 +192,5 @@ ${expr}`
 export function getDefaultExpr(i: number, key: string = 'myfield') {
 	return `import { previous_result, flow_input, step, variable, resource, params } from 'windmill@${i}'
 
-	previous_result.${key}`
+previous_result.${key}`
 }

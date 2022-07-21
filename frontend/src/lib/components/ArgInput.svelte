@@ -93,7 +93,7 @@
 	}
 
 	function validateInput(pattern: string | undefined, v: any): void {
-		if (required && v == undefined) {
+		if (required && (v == undefined || v == null)) {
 			error = 'This field is required'
 			valid = false
 		} else {
