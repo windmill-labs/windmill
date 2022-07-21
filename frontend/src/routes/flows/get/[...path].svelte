@@ -157,7 +157,7 @@
 			</div>
 			<div>
 				<span>Webhook to run this flow:</span>
-				<Tooltip class="font-normal mx-1"
+				<Tooltip
 					>Send a POST http request with a token as bearer token and the args respecting the
 					corresponding jsonschema as payload. To create a permanent token, go to your user setting
 					by clicking your username on the top-left.</Tooltip
@@ -171,7 +171,7 @@
 			<div>
 				<div class="grid grid-cols-2 gap-4 pb-1 mb-3 border-b">
 					<h3 class="text-gray-700 ">
-						Arguments JSON schema <Tooltip class="font-normal mx-1"
+						Arguments JSON schema <Tooltip
 							>The jsonschema defines the constraints that the payload must respect to be compatible
 							with the input parameters of this flow. The UI form is generated automatically from
 							the flow jsonschema. See <a href="https://json-schema.org/"

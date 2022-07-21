@@ -169,7 +169,7 @@
 				namePlaceholder="example/my/script"
 				kind="script"
 			>
-				<div slot="ownerToolkit" class="text-gray-700 text-2xs">
+				<div slot="ownerToolkit">
 					Script permissions depend on their path. Select the group <span class="font-mono"
 						>all</span
 					>

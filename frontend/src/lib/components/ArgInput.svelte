@@ -295,9 +295,7 @@
 						{disabled}
 						class="default-button-secondary items-center leading-4 py-0 my-px px-1 float-right"
 						on:click={() => (value = undefined)}
-						>Reset<Tooltip class="pl-1" position={'above'} direction={'left'}
-							>Reset to default value
-						</Tooltip></button
+						>Reset<Tooltip>Reset to default value</Tooltip></button
 					>
 				</div>
 			{/if}

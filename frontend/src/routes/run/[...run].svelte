@@ -396,7 +396,7 @@
 					: 'text-gray-700 font-semibold  '}"
 				on:click={() => (viewTab = 'result')}
 			>
-				Result <Tooltip class="font-normal"
+				Result <Tooltip
 					>What is returned by the <span class="font-mono">main</span> function of the script. Dictionary
 					of columns are rendered as a table</Tooltip
 				>

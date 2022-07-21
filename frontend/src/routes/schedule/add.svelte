@@ -151,7 +151,7 @@
 				namePlaceholder={'my/schedule'}
 				kind="schedule"
 			>
-				<div slot="ownerToolkit" class="text-gray-700 text-2xs">
+				<div slot="ownerToolkit">
 					Schedule permissions depend on their path. Select the group <span class="font-mono"
 						>all</span
 					>

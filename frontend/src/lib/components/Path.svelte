@@ -136,7 +136,7 @@
 	<div class="flex flex-col sm:grid sm:grid-cols-4 sm:gap-4 pb-0 mb-1">
 		<label class="block">
 			<span class="text-gray-700 text-sm">
-				Owner Kind<Tooltip class="mx-1">
+				Owner Kind <Tooltip>
 					<slot name="ownerToolkit" />
 				</Tooltip>
 			</span>

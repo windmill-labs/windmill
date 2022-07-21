@@ -16,7 +16,16 @@
 		}
 	})
 	const extraOpts = {
-		modifiers: [betterPreventOverflow({ padding: 50 })]
+		modifiers: [
+			betterPreventOverflow({ padding: 50 }),
+			{ name: 'offset', options: { offset: [8, 8] } },
+			{
+				name: 'arrow',
+				options: {
+					padding: 10 // 5px from the edges of the popper
+				}
+			}
+		]
 	}
 
 	let showTooltip = false
