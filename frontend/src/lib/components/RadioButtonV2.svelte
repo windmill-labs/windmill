@@ -3,13 +3,14 @@
 	export let value: any
 
 	import { createEventDispatcher } from 'svelte'
+	import Tooltip from './Tooltip.svelte'
 
 	$: dispatch('change', value)
 
 	const dispatch = createEventDispatcher()
 </script>
 
-<div class="flex flex-row space-x-4 m-4 reveal">
+<div class="flex flex-row space-x-4 m-4 reveal ">
 	{#each options as [label, val]}
 		<button
 			type="button"
@@ -19,18 +20,12 @@
 			class="flex flex-col default-secondary-button-v2 mb-2 w-full"
 			class:selected={value == val}
 		>
-			<h2 class="mb-2">{label.title}</h2>
-			<p class="hidden">
-				{label.desc}
-			</p>
+			<h2 class="mb-2 whitespace-nowrap">{label.title} <Tooltip>{label.desc}</Tooltip></h2>
 		</button>
 	{/each}
 </div>
 
 <style>
-	.reveal:hover > button > p {
-		display: block;
-	}
 	.selected {
 		@apply bg-blue-500/70 text-white;
 	}

@@ -1,76 +1,54 @@
 <script lang="ts">
 	import Icon from 'svelte-awesome'
 	import { faInfoCircle } from '@fortawesome/free-solid-svg-icons'
+	import { createPopperActions } from 'svelte-popperjs'
 	import { fade } from 'svelte/transition'
+	const [popperRef, popperContent] = createPopperActions({
+		placement: 'auto'
+	})
+	const betterPreventOverflow = (options) => ({
+		name: 'preventOverflow',
+		options,
+		effect: ({ state }) => {
+			const { padding = 0 } = options
 
-	export let position: ActionKind = 'above'
-	export let direction: DirectionKind = 'default'
-	type ActionKind = 'above' | 'below'
-	type DirectionKind = 'default' | 'left'
+			state.elements.popper.style.maxWidth = `calc(100vw - ${padding * 2}px)`
+		}
+	})
+	const extraOpts = {
+		modifiers: [betterPreventOverflow({ padding: 50 })]
+	}
 
-	let viewTooltip = false
-	let mouseOnMessage = false
-	let mouseOver = false
+	let showTooltip = false
+	let timeout: NodeJS.Timeout
 
-	// This function makes sure the tooltip does not disappear when moving the mouse to the tooltip
-	// message, so that users can click links there for example
-	function hideTooltip(): void {
-		setTimeout(function () {
-			if (!mouseOnMessage && !mouseOver) {
-				viewTooltip = false
-			} else {
-				hideTooltip()
-			}
-		}, 300)
+	function open() {
+		clearTimeout(timeout)
+		showTooltip = true
+	}
+	function close() {
+		timeout = setTimeout(() => (showTooltip = false), 200)
 	}
 </script>
 
-<div class="inline-block has-tooltip {$$props.class}">
-	{#if viewTooltip}
-		<span
-			transition:fade
-			class="tooltip rounded shadow-lg p-1 leading-4 {position === 'above' ? '-mt-8' : 'mt-6'} 
-			{viewTooltip ? 'tooltip-visible' : 'tooltip'} {direction === 'left' ? 'right-0' : ''}
-			text-2xs text-gray-700"
-			on:mouseover={() => {
-				mouseOnMessage = true
-			}}
-			on:focus={() => {}}
-			on:mouseout={() => {
-				mouseOnMessage = false
-			}}
-			on:blur={() => {}}
-			><slot />
-		</span>
-	{/if}
-	<Icon class="text-gray-500 font-thin inline-block align-middle" data={faInfoCircle} scale={0.6} />
-	<!-- Hovering on this (invisible) area triggers the apparition of the tooltip. Needed because the icon is too small-->
+<button use:popperRef on:mouseenter={open} on:mouseleave={close}>
+	<Icon class="text-gray-500 font-thin inline-block align-middle" data={faInfoCircle} scale={0.8} />
+</button>
+{#if showTooltip}
 	<div
-		class="relative w-4 h-5 -mt-5 -ml-1"
-		on:mouseover={() => {
-			viewTooltip = true
-			mouseOver = true
-		}}
-		on:focus={() => {
-			viewTooltip = true
-		}}
-		on:mouseout={() => {
-			hideTooltip()
-			mouseOver = false
-		}}
-		on:blur={() => {}}
-	/>
-</div>
+		transition:fade
+		id="tooltip"
+		use:popperContent={extraOpts}
+		on:mouseenter={open}
+		on:mouseleave={close}
+	>
+		<slot />
+		<div id="arrow" data-popper-arrow />
+	</div>
+{/if}
 
 <style>
-	.tooltip {
-		@apply invisible absolute;
-		@apply duration-100 transition-opacity;
-	}
-
-	.tooltip-visible {
-		@apply absolute visible z-50 bg-white;
-		@apply max-w-sm;
-		@apply transition-opacity;
+	#tooltip {
+		@apply z-50 font-normal text-gray-300 bg-zinc-800 p-4 rounded-xl whitespace-normal;
 	}
 </style>
