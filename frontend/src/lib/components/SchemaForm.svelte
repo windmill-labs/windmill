@@ -34,7 +34,7 @@
 		}
 
 		if (isCodeInjection(rawValue)) {
-			args[id].expr = getCodeInjectionExpr(arg.value, isRaw)
+			args[id].expr = getCodeInjectionExpr(rawValue, isRaw)
 			args[id].type = InputTransform.type.JAVASCRIPT
 			return InputTransform.type.STATIC
 		} else {
@@ -53,7 +53,7 @@
 	}
 
 	function hasOverlay(inputCat: InputCat) {
-		return inputCat === 'string' || inputCat === 'number' || inputCat === 'object'
+		return inputCat === 'string' || inputCat === 'number'
 	}
 </script>
 
@@ -106,10 +106,11 @@
 						{previousSchema}
 						disabled={!hasOverlay(inputCats[argName])}
 						on:select={(event) => {
+							const toAppend = `\$\{previous_result.${event.detail}}`
 							if (inputCats[argName] === 'string' || inputCats[argName] === 'number') {
-								args[argName].value = `${args[argName].value}\$\{previous_result.${event.detail}}`
+								args[argName].value = `${args[argName].value ?? ''}${toAppend}`
 							} else if (inputCats[argName] === 'object') {
-								rawValues[argName] = args[argName].value
+								rawValues[argName] = `${rawValues[argName] ?? ''}${toAppend}`
 							}
 						}}
 					>
