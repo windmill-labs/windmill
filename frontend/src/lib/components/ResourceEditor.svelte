@@ -134,7 +134,7 @@ A good way to make resources user friendly is to link to a default script for yo
 						namePlaceholder="my/resource"
 						kind="resource"
 					>
-						<div slot="ownerToolkit" class="text-gray-700 text-2xs">
+						<div slot="ownerToolkit">
 							Resource permissions depend on their path. Select the group <span class="font-mono"
 								>all</span
 							>

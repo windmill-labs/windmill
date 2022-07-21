@@ -10,14 +10,14 @@
 	const dispatch = createEventDispatcher()
 </script>
 
-<div class="flex flex-row space-x-4 m-4 reveal ">
+<div class="flex flex-row gap-x-4 m-4 reveal flex-wrap ">
 	{#each options as [label, val]}
 		<button
 			type="button"
 			on:click={() => {
 				value = val
 			}}
-			class="flex flex-col default-secondary-button-v2 mb-2 w-full"
+			class="flex flex-col default-secondary-button-v2 mb-2 grow"
 			class:selected={value == val}
 		>
 			<h2 class="mb-2 whitespace-nowrap">{label.title} <Tooltip>{label.desc}</Tooltip></h2>

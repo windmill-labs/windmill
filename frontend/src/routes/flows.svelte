@@ -153,7 +153,7 @@
 						<h3 class="mt-2 mb-2">
 							owner: {section}
 							{#if section == 'g/all'}
-								<Tooltip class="mx-1"
+								<Tooltip
 									>'g/all' is the namespace for the group all. Every user is a member of all.
 									Everything in this namespace is visible by all users. At the opposite, 'u/myuser'
 									are private user namespaces.</Tooltip

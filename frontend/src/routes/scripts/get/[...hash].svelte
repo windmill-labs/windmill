@@ -113,7 +113,7 @@
 			<a href="/scripts/get/{script?.hash}"
 				><span class="commit-hash">{truncateHash(script?.hash ?? '')}</span></a
 			>
-			<Tooltip class="font-normal">Each script version has an immutable hash.</Tooltip>
+			<Tooltip>Each script version has an immutable hash.</Tooltip>
 
 			{#if script?.is_template}
 				<span class="mx-2 bg-blue-500 rounded-md bg-opacity-25 text-sm font-normal px-1 py-px"
@@ -271,7 +271,7 @@
 			</div>
 			<div>
 				<h3>
-					Current hash <Tooltip class="font-normal mx-1"
+					Current hash <Tooltip
 						>The hash is an immutable and perpetual unique identifier for this version of this
 						script. The history of all hashes of a script constitute its lineage. This mechanism
 						shares some of the principles of git which identify each commit with an equivalent hash</Tooltip
@@ -281,7 +281,7 @@
 					<a href="/scripts/get/{script?.hash}">{script?.hash}</a>
 				</p>
 				<span>Webhook to run this script and get job's uuid as response:</span>
-				<Tooltip class="font-normal mx-1"
+				<Tooltip
 					>Send a POST http request with a token as bearer token and the args respecting the
 					corresponding jsonschema as payload. To create a permanent token, go to your user setting
 					by clicking your username on the top-left. For more info about openapi, see <a
@@ -299,7 +299,7 @@
 						></code
 					></pre>
 				<span>Endpoint to run this script and get job's result as response:</span>
-				<Tooltip class="font-normal mx-1"
+				<Tooltip
 					>Send a POST http request with a token as bearer token and the args respecting the
 					corresponding jsonschema as payload. To create a permanent token, go to your user setting
 					by clicking your username on the top-left. For more info about openapi, see <a
@@ -314,7 +314,7 @@
 			</div>
 			<div>
 				<h3 class="text-gray-700">
-					Previous versions of this hash<Tooltip class="font-normal mx-1"
+					Previous versions of this hash<Tooltip
 						>When you edit a script, a new hash is created and old versions are archived</Tooltip
 					>
 				</h3>
@@ -327,7 +327,7 @@
 			<div>
 				<div class="grid grid-cols-2 gap-4 pb-1 mb-3 border-b">
 					<h3 class="text-gray-700 ">
-						Arguments JSON schema <Tooltip class="font-normal mx-1"
+						Arguments JSON schema <Tooltip
 							>The jsonschema defines the constraints that the payload must respect to be compatible
 							with the input parameters of this script. The UI form is generated automatically from
 							the script jsonschema. See <a href="https://json-schema.org/"
