@@ -58,8 +58,9 @@
 	}
 
 	$: {
-		if (!type || type == 'object' || (type == 'array' && itemsType?.type == undefined)) {
+		if (inputCat === 'object') {
 			evalValueToRaw()
+			validateInput(pattern, value)
 		}
 		if (defaultValue) {
 			let stringified = JSON.stringify(defaultValue, null, 4)
@@ -73,7 +74,9 @@
 	}
 
 	export function evalValueToRaw() {
-		rawValue = JSON.stringify(value, null, 4)
+		if (value) {
+			rawValue = JSON.stringify(value, null, 4)
+		}
 	}
 
 	function fileChanged(e: any, cb: (v: string | undefined) => void) {
@@ -249,7 +252,7 @@
 					class="col-span-10 {valid
 						? ''
 						: 'border border-red-700 border-opacity-30 focus:border-red-700 focus:border-opacity-30 bg-red-100'}"
-					placeholder={JSON.stringify(defaultValue, null, 4)}
+					placeholder={defaultValue ? JSON.stringify(defaultValue, null, 4) : ''}
 					bind:value={rawValue}
 				/>
 			{:else if inputCat == 'enum'}
