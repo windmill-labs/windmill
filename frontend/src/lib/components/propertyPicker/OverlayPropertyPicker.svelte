@@ -19,7 +19,7 @@
 	function onMouseLeave(mouseEvent: MouseEvent) {
 		const target = mouseEvent.target as HTMLInputElement
 
-		if (target?.id !== 'property-picker') {
+		if (!target?.classList.contains('property-picker')) {
 			isOpen = !isOpen
 		}
 	}
@@ -38,6 +38,7 @@
 		let:toggle
 		on:mousemove={() => !isOpen && toggle()}
 		on:mouseleave={onMouseLeave}
+		class="property-picker"
 	>
 		<slot />
 	</div>

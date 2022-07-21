@@ -17,7 +17,7 @@
 </script>
 
 <div class="relative">
-	<div class="p-3 bg-white rounded-lg border border-gray-200 shadow-md" id="property-picker">
+	<div class="p-3 bg-white rounded-lg border border-gray-200 shadow-md">
 		<input
 			bind:value={$search}
 			class="bg-gray-50 border border-gray-300 text-gray-900 text-sm rounded-lg block w-full p-2 mb-2"
