@@ -16,6 +16,9 @@ const config = {
 			},
 			minHeight: {
 				'1/2': '50vh'
+			},
+			transitionProperty: {
+				'height': 'height'
 			}
 		}
 	},
