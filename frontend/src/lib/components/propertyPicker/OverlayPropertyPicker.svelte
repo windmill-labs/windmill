@@ -5,7 +5,6 @@
 	import WarningMessage from './WarningMessage.svelte'
 
 	export let previousSchema: Object | undefined
-	export let index: number
 	let isOpen = false
 
 	const dispatch = createEventDispatcher()
@@ -17,11 +16,19 @@
 	}
 
 	function onMouseLeave(mouseEvent: MouseEvent) {
+		const { offsetY } = mouseEvent
 		const target = mouseEvent.target as HTMLInputElement
 
-		if (!target?.classList.contains('property-picker')) {
-			isOpen = !isOpen
+		const down = offsetY >= target.clientHeight
+		const up = offsetY <= 0
+
+		const content = document.getElementsByClassName('content')
+		const overlayBottom = content.item(0)?.classList.contains('bottom-right')
+
+		if ((down && overlayBottom) || (up && !overlayBottom)) {
+			return
 		}
+		isOpen = !isOpen
 	}
 </script>
 
@@ -31,14 +38,13 @@
 	closeOnScroll
 	bind:isOpen
 	class="w-full"
-	zIndex={30 - 1 - index}
+	style="z-index:unset"
 >
 	<div
 		slot="parent"
 		let:toggle
 		on:mousemove={() => !isOpen && toggle()}
 		on:mouseleave={onMouseLeave}
-		class="property-picker"
 	>
 		<slot />
 	</div>

@@ -95,7 +95,6 @@
 				{#if propertiesTypes[argName] === undefined || propertiesTypes[argName] === InputTransform.type.STATIC}
 					<OverlayPropertyPicker
 						{previousSchema}
-						{index}
 						on:select={(event) => {
 							args[argName].value = `\$\{previous_result.${event.detail}}`
 						}}
