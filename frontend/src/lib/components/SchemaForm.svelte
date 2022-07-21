@@ -35,7 +35,7 @@
 		if (isCodeInjection(rawValue)) {
 			args[id].expr = getCodeInjectionExpr(rawValue, isRaw)
 			args[id].type = InputTransform.type.JAVASCRIPT
-			return InputTransform.type.STATIC
+			propertiesTypes[id] = InputTransform.type.STATIC
 		} else {
 			if (
 				args[id].type === InputTransform.type.JAVASCRIPT &&
@@ -46,9 +46,10 @@
 					args[id].value = Number(args[id].value)
 				}
 			}
+			if (arg.type) {
+				propertiesTypes[id] = arg.type
+			}
 		}
-
-		return arg.type
 	}
 
 	function hasOverlay(inputCat: InputCat) {
@@ -107,6 +108,7 @@
 						on:select={(event) => {
 							const toAppend = `\$\{previous_result.${event.detail}}`
 							args[argName].value = `${args[argName].value ?? ''}${toAppend}`
+							setPropertyType(argName, args[argName].value, false)
 						}}
 					>
 						<ArgInput
@@ -127,10 +129,7 @@
 							numberAsString={true}
 							on:input={(e) => {
 								if (hasOverlay(inputCats[argName])) {
-									const pType = setPropertyType(argName, e.detail.rawValue, e.detail.isRaw)
-									if (pType) {
-										propertiesTypes[argName] = pType
-									}
+									setPropertyType(argName, e.detail.rawValue, e.detail.isRaw)
 								}
 							}}
 						/>
