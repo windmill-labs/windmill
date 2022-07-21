@@ -25,14 +25,14 @@
 
 	let propertiesTypes: { [id: string]: InputTransform.type } = {}
 
-	function setPropertyType(id: string, rawValue: string) {
+	function setPropertyType(id: string, rawValue: string, isRaw: boolean) {
 		const arg = args[id]
 		if (!arg) {
 			return
 		}
 
 		if (isCodeInjection(rawValue)) {
-			args[id].expr = getCodeInjectionExpr(arg.value)
+			args[id].expr = getCodeInjectionExpr(arg.value, isRaw)
 			args[id].type = InputTransform.type.JAVASCRIPT
 			return InputTransform.type.STATIC
 		} else {
@@ -115,7 +115,7 @@
 							bind:itemsType={schema.properties[argName].items}
 							displayHeader={false}
 							on:input={(e) => {
-								const pType = setPropertyType(argName, e.detail)
+								const pType = setPropertyType(argName, e.detail.rawValue, e.detail.isRaw)
 								if (pType) {
 									propertiesTypes[argName] = pType
 								}
