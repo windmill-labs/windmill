@@ -341,7 +341,7 @@
 		if (lang == 'python' || deno) {
 			const { MonacoServices } = await import('monaco-languageclient')
 
-			MonacoServices.install(monaco)
+			MonacoServices.install()
 		}
 
 		reloadWebsocket()

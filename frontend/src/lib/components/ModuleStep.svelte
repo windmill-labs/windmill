@@ -2,6 +2,8 @@
 	import { FlowModuleValue, type FlowModule } from '$lib/gen'
 	import { addPreviewResult, previewResults } from '$lib/stores'
 	import { buildExtraLib, objectToTsType, schemaToObject, schemaToTsType } from '$lib/utils'
+	import { faRobot } from '@fortawesome/free-solid-svg-icons'
+	import Icon from 'svelte-awesome'
 	import Editor from './Editor.svelte'
 	import FlowPreview from './FlowPreview.svelte'
 	import FlowInputs from './flows/FlowInputs.svelte'
@@ -55,63 +57,63 @@
 		</div>
 		<div class="border-b border-gray-200" />
 		{#if open == i}
-			<div>
-				<div class="p-6">
-					{#if shouldPick}
-						<FlowInputs
-							isTrigger={mode == 'pull' && i == 0}
-							on:pick={(e) => pickScript(e.detail.path, i)}
-							on:new={(e) => createInlineScriptModule(e.detail.language, i, mode)}
-						/>
-					{/if}
-					{#if mod.value.type === FlowModuleValue.type.RAWSCRIPT}
-						<div class="h-96">
-							<Editor
-								class="h-full"
-								bind:code={mod.value.content}
-								deno={mod.value.language === FlowModuleValue.language.DENO}
-							/>
-						</div>
-						<button class="default-button w-full p-1 mt-4 mb-4" on:click={() => loadSchema(i)}>
-							Infer schema
-						</button>
-					{/if}
-					{#if !shouldPick}
-						<h2 class="mb-4">Step inputs</h2>
-						<SchemaForm
-							inputTransform={true}
-							{schema}
-							{extraLib}
-							{i}
-							{previousSchema}
-							bind:args={mod.input_transform}
-						/>
-					{/if}
-				</div>
+			<div class="p-6">
+				{#if shouldPick}
+					<FlowInputs
+						isTrigger={mode == 'pull' && i == 0}
+						on:pick={(e) => pickScript(e.detail.path, i)}
+						on:new={(e) => createInlineScriptModule(e.detail.language, i, mode)}
+					/>
+				{/if}
+				{#if mod.value.type === FlowModuleValue.type.RAWSCRIPT}
+					<Editor
+						class="h-80 border p-2 rounded"
+						bind:code={mod.value.content}
+						deno={mod.value.language === FlowModuleValue.language.DENO}
+					/>
+					<div class="mt-2 mb-8">
+						<button class="default-primary-button-v2" on:click={() => loadSchema(i)}>
+							<Icon data={faRobot} class="w-4 h-4 mr-2 -ml-2" />
 
-				{#if !shouldPick}
-					<div class="border-b border-gray-200" />
-					<div class="p-3">
-						<FlowPreview
-							bind:args
-							flow={$flowStore}
-							{i}
-							{mode}
-							schemas={$schemasStore}
-							on:change={(e) => {
-								addPreviewResult(e.detail.result, i + 1)
-							}}
-						/>
+							Infer step inputs from code
+						</button>
 					</div>
 				{/if}
+				{#if !shouldPick}
+					<p class="text-lg font-bold text-gray-900 mb-2">Step inputs</p>
+					<SchemaForm
+						inputTransform={true}
+						{schema}
+						{extraLib}
+						{i}
+						{previousSchema}
+						bind:args={mod.input_transform}
+					/>
+				{/if}
 			</div>
-			<div>
-				<button class="w-full h-full" on:click={() => (open = -1)}>(-)</button>
-			</div>
-		{:else}
-			<div>
-				<button class="w-full h-full" on:click={() => (open = i)}>(+)</button>
-			</div>
+
+			{#if !shouldPick}
+				<div class="border-b border-gray-200" />
+				<div class="p-3">
+					<FlowPreview
+						bind:args
+						flow={$flowStore}
+						{i}
+						{mode}
+						schemas={$schemasStore}
+						on:change={(e) => {
+							addPreviewResult(e.detail.result, i + 1)
+						}}
+					/>
+				</div>
+				<div>
+					<button class="w-full h-full" on:click={() => (open = -1)}>(-)</button>
+				</div>
+			{:else}
+				<div>
+					<button class="w-full h-full" on:click={() => (open = i)}>(+)</button>
+				</div>
+			{/if}
 		{/if}
 	</div>
 </li>

@@ -19,7 +19,7 @@ export function flowToMode(flow: Flow, mode: FlowMode): Flow {
 		const triggerModule = newFlow.value.modules[0]
 		const oldModules = newFlow.value.modules.slice(1)
 		if (triggerModule) {
-			triggerModule.stop_after_if_expr = "result.res1.length == 0"
+			triggerModule.stop_after_if_expr = 'result.res1.length == 0'
 			triggerModule.skip_if_stopped = true
 		}
 		newFlow.value.modules = newFlow.value.modules.slice(0, 1)
@@ -46,49 +46,8 @@ export function flattenForloopFlows(flow: Flow): Flow {
 		const oldModules = newFlow.value.modules[1].value.value?.modules ?? []
 		newFlow.value.modules = newFlow.value.modules.slice(0, 1)
 		newFlow.value.modules.push(...oldModules)
-
 	}
 	return newFlow
-}
-
-function filterByKey(obj: Object, key: string): Object {
-	if (Object(obj) !== obj) {
-		return obj
-	} else if (Array.isArray(obj)) {
-		return obj.map((o) => filterByKey(o, key))
-	} else {
-		return Object.fromEntries(
-			Object.entries(obj)
-				.filter(([k, v]) => !k.includes(key))
-				.map(([k, v]) => [k, filterByKey(v, key)])
-		)
-	}
-}
-
-function diff(target: Object, source: Object): Object {
-	if (Array.isArray(target)) {
-		return target
-	}
-
-	const result = {}
-
-	Object.keys(target).forEach((key: string) => {
-		if (typeof source[key] === 'object') {
-			const difference = diff(target[key], source[key])
-
-			if (Object.keys(difference).length > 0) {
-				result[key] = difference
-			}
-		} else if (source[key] !== target[key]) {
-			result[key] = target[key]
-		}
-	})
-
-	return result
-}
-
-export function keepByKey(json: Object, key: string): Object {
-	return diff(json, filterByKey(json, key))
 }
 
 export function getTypeAsString(arg: any): string {
@@ -203,4 +162,35 @@ export async function loadSchemaFromModule(module: FlowModule): Promise<{
 		input_transform: {},
 		schema: emptySchema()
 	}
+}
+
+export function isCodeInjection(expr: string | undefined): boolean {
+	if (!expr) {
+		return false
+	}
+	const lines = expr.split('\n')
+	const [returnStatement] = lines.reverse()
+
+	const returnStatementRegex = new RegExp(/\$\{(.*)\}/)
+	if (returnStatementRegex.test(returnStatement)) {
+		const [_, argName] = returnStatement.split(returnStatementRegex)
+
+		return Boolean(argName)
+	}
+	return false
+}
+
+export function getCodeInjectionExpr(code: string, isRaw: boolean): string {
+	let expr = `\`${code}\``
+	if (isRaw) {
+		expr = `JSON.parse(${expr})`
+	}
+	return `import { previous_result, flow_input, step, variable, resource, params } from 'windmill'
+${expr}`
+}
+
+export function getDefaultExpr(i: number, key: string = 'myfield') {
+	return `import { previous_result, flow_input, step, variable, resource, params } from 'windmill@${i}'
+
+previous_result.${key}`
 }

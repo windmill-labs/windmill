@@ -89,6 +89,30 @@
 		@apply text-sm;
 	}
 
+	.default-primary-button-v2 {
+		@apply text-white;
+		@apply bg-blue-500;
+		@apply border;
+		@apply border-blue-200;
+		@apply font-medium;
+		@apply rounded-lg;
+		@apply text-sm;
+		@apply px-5;
+		@apply py-2.5; 
+		@apply text-center; 
+		@apply inline-flex;
+		@apply items-center;
+	}
+
+	.default-primary-button-v2:focus {
+		@apply ring-4; 
+		@apply outline-none;
+		@apply bg-blue-800;
+	}
+	.default-primary-button-v2:hover {
+		@apply bg-blue-800 
+	}
+
 	.default-secondary-button-v2 {
 		@apply text-gray-900;
 		@apply bg-white;
