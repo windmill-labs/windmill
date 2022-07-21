@@ -402,3 +402,11 @@ export function setInputCat(type: string | undefined, format: string | undefined
 		return 'string'
 	}
 }
+
+export function scriptPathToHref(path: string): string {
+	if (path.startsWith('hub/')) {
+		return 'https://hub.windmill.dev/scripts/get/' + path.substring(4)
+	} else {
+		return `/scripts/get/${path}`
+	}
+}

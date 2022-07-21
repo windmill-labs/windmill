@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { faHourglassHalf, faSpinner, faTimes } from '@fortawesome/free-solid-svg-icons'
-	import { truncateRev } from '$lib/utils'
+	import { scriptPathToHref, truncateRev } from '$lib/utils'
 
 	import Icon from 'svelte-awesome'
 	import { check } from 'svelte-awesome/icons'
@@ -124,7 +124,8 @@
 								<p class="text-sm text-gray-500">
 									{#if mod.value.type == FlowModuleValue.type.SCRIPT}
 										Script at path <a
-											href="/scripts/get/{mod.value.path}"
+											target="_blank"
+											href={scriptPathToHref(mod.value.path ?? '')}
 											class="font-medium text-gray-900">{mod.value.path}</a
 										>
 									{/if}
