@@ -32,7 +32,7 @@
 	)
 </script>
 
-<li class="flex flex-row flex-shrink max-w-full mx-auto mt-20">
+<li class="flex flex-row flex-shrink max-w-full mx-auto mt-16">
 	<div
 		class="bg-white border border-gray xl-rounded shadow-lg w-full max-w-4xl mx-4 md:mx-auto"
 		id="module-{i}"
