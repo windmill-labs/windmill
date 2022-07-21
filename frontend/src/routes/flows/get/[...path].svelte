@@ -11,10 +11,7 @@
 		faCalendar,
 		faShare
 	} from '@fortawesome/free-solid-svg-icons'
-	import Highlight from 'svelte-highlight'
-	import json from 'svelte-highlight/languages/json'
 
-	import github from 'svelte-highlight/styles/github'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import ShareModal from '$lib/components/ShareModal.svelte'
 	import { userStore, workspaceStore } from '$lib/stores'
@@ -23,6 +20,7 @@
 	import SchemaViewer from '$lib/components/SchemaViewer.svelte'
 	import Dropdown from '$lib/components/Dropdown.svelte'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
+	import FlowViewer from '$lib/components/FlowViewer.svelte'
 
 	let flow: Flow | undefined
 	let can_write = false
@@ -46,10 +44,6 @@
 		can_write = canWrite(flow.path, flow.extra_perms!, $userStore)
 	}
 </script>
-
-<svelte:head>
-	{@html github}
-</svelte:head>
 
 <CenteredPage>
 	<div class="flex flex-row justify-between">
@@ -190,7 +184,7 @@
 			</div>
 			<div>
 				<h3 class="text-gray-700 pb-1 mb-3 border-b">Flow</h3>
-				<Highlight language={json} code={JSON.stringify(flow.value, null, 4)} />
+				<FlowViewer {flow} />
 			</div>
 		{/if}
 	</div>
