@@ -5,6 +5,7 @@
 	import WarningMessage from './WarningMessage.svelte'
 
 	export let previousSchema: Object | undefined
+	export let disabled = false
 	let isOpen = false
 
 	const dispatch = createEventDispatcher()
@@ -32,37 +33,41 @@
 	}
 </script>
 
-<Overlay
-	onWindowKeyDown={handleWindowKeyDown}
-	closeOnClickOutside
-	closeOnScroll
-	bind:isOpen
-	class="w-full"
-	style="z-index:unset"
->
-	<div
-		slot="parent"
-		let:toggle
-		on:mousemove={() => !isOpen && toggle()}
-		on:mouseleave={onMouseLeave}
+{#if !disabled}
+	<Overlay
+		onWindowKeyDown={handleWindowKeyDown}
+		closeOnClickOutside
+		closeOnScroll
+		bind:isOpen
+		class="w-full"
+		style="z-index:unset"
 	>
-		<slot />
-	</div>
+		<div
+			slot="parent"
+			let:toggle
+			on:mousemove={() => !isOpen && toggle()}
+			on:mouseleave={onMouseLeave}
+		>
+			<slot />
+		</div>
 
-	<div slot="content" class="content" let:toggle on:mouseleave={toggle} let:close>
-		{#if Boolean(previousSchema)}
-			<PropPicker
-				props={previousSchema}
-				on:select={(event) => {
-					isOpen = false
-					dispatch('select', event.detail)
-				}}
-			/>
-		{:else}
-			<WarningMessage {close} />
-		{/if}
-	</div>
-</Overlay>
+		<div slot="content" class="content" let:toggle on:mouseleave={toggle} let:close>
+			{#if Boolean(previousSchema)}
+				<PropPicker
+					props={previousSchema}
+					on:select={(event) => {
+						isOpen = false
+						dispatch('select', event.detail)
+					}}
+				/>
+			{:else}
+				<WarningMessage {close} />
+			{/if}
+		</div>
+	</Overlay>
+{:else}
+	<slot />
+{/if}
 
 <style>
 	.content {

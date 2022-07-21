@@ -1,7 +1,7 @@
 <script lang="ts">
 	import type { Schema } from '$lib/common'
 	import { InputTransform } from '$lib/gen'
-	import { allTrue } from '$lib/utils'
+	import { allTrue, type InputCat } from '$lib/utils'
 	import ArgInput from './ArgInput.svelte'
 	import Editor from './Editor.svelte'
 	import FieldHeader from './FieldHeader.svelte'
@@ -24,6 +24,8 @@
 	$: isValid = allTrue(inputCheck) ?? false
 
 	let propertiesTypes: { [id: string]: InputTransform.type } = {}
+	let inputCats: { [id: string]: InputCat } = {}
+	let rawValues: { [id: string]: string } = {}
 
 	function setPropertyType(id: string, rawValue: string, isRaw: boolean) {
 		const arg = args[id]
@@ -41,10 +43,17 @@
 				propertiesTypes[id] === InputTransform.type.STATIC
 			) {
 				args[id].type = InputTransform.type.STATIC
+				if (inputCats[id] == 'number') {
+					args[id].value = Number(args[id].value)
+				}
 			}
 		}
 
 		return arg.type
+	}
+
+	function hasOverlay(inputCat: InputCat) {
+		return inputCat === 'string' || inputCat === 'number' || inputCat === 'object'
 	}
 </script>
 
@@ -95,8 +104,13 @@
 				{#if propertiesTypes[argName] === undefined || propertiesTypes[argName] === InputTransform.type.STATIC}
 					<OverlayPropertyPicker
 						{previousSchema}
+						disabled={!hasOverlay(inputCats[argName])}
 						on:select={(event) => {
-							args[argName].value = `\$\{previous_result.${event.detail}}`
+							if (inputCats[argName] === 'string' || inputCats[argName] === 'number') {
+								args[argName].value = `${args[argName].value}\$\{previous_result.${event.detail}}`
+							} else if (inputCats[argName] === 'object') {
+								rawValues[argName] = args[argName].value
+							}
 						}}
 					>
 						<ArgInput
@@ -113,10 +127,15 @@
 							contentEncoding={schema.properties[argName].contentEncoding}
 							bind:itemsType={schema.properties[argName].items}
 							displayHeader={false}
+							bind:inputCat={inputCats[argName]}
+							bind:rawValue={rawValues[argName]}
+							numberAsString={true}
 							on:input={(e) => {
-								const pType = setPropertyType(argName, e.detail.rawValue, e.detail.isRaw)
-								if (pType) {
-									propertiesTypes[argName] = pType
+								if (hasOverlay(inputCats[argName])) {
+									const pType = setPropertyType(argName, e.detail.rawValue, e.detail.isRaw)
+									if (pType) {
+										propertiesTypes[argName] = pType
+									}
 								}
 							}}
 						/>

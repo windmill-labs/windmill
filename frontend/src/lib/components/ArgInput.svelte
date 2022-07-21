@@ -12,6 +12,7 @@
 	import ObjectResourceInput from './ObjectResourceInput.svelte'
 	import FieldHeader from './FieldHeader.svelte'
 	import { createEventDispatcher } from 'svelte'
+	import { setInputCat as computeInputCat, type InputCat } from '$lib/utils'
 
 	export let label: string = ''
 	export let value: any
@@ -32,6 +33,7 @@
 		| { type?: 'string' | 'number' | 'bytes'; contentEncoding?: 'base64' }
 		| undefined = undefined
 	export let displayHeader = true
+	export let numberAsString = false
 
 	let seeEditable: boolean = enum_ != undefined || pattern != undefined
 	const dispatch = createEventDispatcher()
@@ -43,7 +45,7 @@
 
 	let error: string = ''
 
-	let rawValue: string | undefined
+	export let rawValue: string | undefined = undefined
 
 	$: {
 		if (rawValue) {
@@ -116,6 +118,14 @@
 			value = defaultValue
 		}
 	}
+
+	export let inputCat: InputCat = computeInputCat(
+		type,
+		format,
+		itemsType?.type,
+		enum_,
+		contentEncoding
+	)
 </script>
 
 <div class="flex flex-col w-full">
@@ -172,7 +182,7 @@
 			</div>
 		</div>
 		<div class="container">
-			{#if type == 'number' || type == 'integer'}
+			{#if inputCat == 'number' && !numberAsString}
 				<input
 					{disabled}
 					type="number"
@@ -181,8 +191,9 @@
 						: 'border border-red-700 border-opacity-30 focus:border-red-700 focus:border-opacity-30 bg-red-100'}
 					placeholder={defaultValue}
 					bind:value
+					on:input={() => dispatch('input', { value, isRaw: true })}
 				/>
-			{:else if type == 'boolean'}
+			{:else if inputCat == 'boolean'}
 				<input
 					{disabled}
 					type="checkbox"
@@ -194,12 +205,12 @@
 				{#if type == 'boolean' && value == undefined}
 					<span>&nbsp; Not set</span>
 				{/if}
-			{:else if type == 'array' && itemsType?.type != undefined}
+			{:else if inputCat == 'list'}
 				{#each value ?? [] as v}
 					<div class="flex flex-row max-w-md">
-						{#if itemsType.type == 'number'}
+						{#if itemsType?.type == 'number'}
 							<input type="number" bind:value={v} />
-						{:else if itemsType.type == 'string' && itemsType.contentEncoding == 'base64'}
+						{:else if itemsType?.type == 'string' && itemsType?.contentEncoding == 'base64'}
 							<input
 								type="file"
 								class="my-6"
@@ -229,9 +240,9 @@
 						value = value.concat('')
 					}}>Add item &nbsp;<Icon data={faPlus} class="mb-1" /></button
 				><span class="ml-2">{(value ?? []).length} item(s)</span>
-			{:else if type == 'object' && format?.startsWith('resource')}
+			{:else if inputCat == 'resource-object'}
 				<ObjectResourceInput {format} bind:value />
-			{:else if !type || type == 'object' || type == 'array'}
+			{:else if inputCat == 'object'}
 				<textarea
 					{disabled}
 					style="min-height: {minHeight}; max-height: {maxHeight}"
@@ -242,29 +253,29 @@
 					bind:value={rawValue}
 					on:input={() => dispatch('input', { rawValue, isRaw: true })}
 				/>
-			{:else if type == 'string' && enum_}
+			{:else if inputCat == 'enum'}
 				<select {disabled} class="px-6" bind:value>
-					{#each enum_ as e}
+					{#each enum_ ?? [] as e}
 						<option>{e}</option>
 					{/each}
 				</select>
-			{:else if type == 'string' && format == 'date-time'}
+			{:else if inputCat == 'date'}
 				<input class="inline-block" type="datetime-local" bind:value />
-			{:else if type == 'string' && contentEncoding == 'base64'}
+			{:else if inputCat == 'base64'}
 				<input
 					type="file"
 					class="my-6"
 					on:change={(x) => fileChanged(x, (val) => (value = val))}
 					multiple={false}
 				/>
-			{:else if type == 'string' && format?.startsWith('resource')}
+			{:else if inputCat == 'resource-string'}
 				<ResourcePicker
 					bind:value
 					resourceType={format.split('-').length > 1
 						? format.substring('resource-'.length)
 						: undefined}
 				/>
-			{:else}
+			{:else if inputCat == 'string'}
 				<textarea
 					{disabled}
 					style="height: {minHeight}; max-height: {maxHeight}"
