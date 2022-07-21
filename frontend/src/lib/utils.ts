@@ -377,3 +377,28 @@ export function objectToTsType(object: Object): string {
 	const types = propKeys.map((key: string) => `${key}: ${valueToTsType(object[key])}`).join(';')
 	return `{ ${types} }`
 }
+
+export type InputCat = "string" | "number" | "boolean" | "list" | "resource-object" | "enum" | "date" | "base64" | "resource-string" | "object"
+export function setInputCat(type: string | undefined, format: string | undefined, itemsType: string | undefined, enum_: any, contentEncoding: string | undefined): InputCat {
+	if (type === 'number' || type === 'integer') {
+		return 'number'
+	} else if (type === 'boolean') {
+		return 'boolean'
+	} else if (type == 'array' && itemsType != undefined) {
+		return 'list'
+	} else if (type == 'object' && format?.startsWith('resource')) {
+		return 'resource-object'
+	} else if (!type || type == 'object' || type == 'array') {
+		return 'object'
+	} else if (type == 'string' && enum_) {
+		return 'enum'
+	} else if (type == 'string' && format == 'date-time') {
+		return 'date'
+	} else if (type == 'string' && contentEncoding == 'base64') {
+		return 'base64'
+	} else if (type == 'string' && format?.startsWith('resource')) {
+		return 'resource-string'
+	} else {
+		return 'string'
+	}
+}
