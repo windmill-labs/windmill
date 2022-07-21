@@ -114,7 +114,7 @@
 							contentEncoding={schema.properties[argName].contentEncoding}
 							bind:itemsType={schema.properties[argName].items}
 							displayHeader={false}
-							on:change={(e) => {
+							on:input={(e) => {
 								const pType = setPropertyType(argName, e.detail)
 								if (pType) {
 									propertiesTypes[argName] = pType

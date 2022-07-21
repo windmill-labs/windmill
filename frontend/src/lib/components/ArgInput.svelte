@@ -240,7 +240,7 @@
 						: 'border border-red-700 border-opacity-30 focus:border-red-700 focus:border-opacity-30 bg-red-100'}"
 					placeholder={JSON.stringify(defaultValue, null, 4)}
 					bind:value={rawValue}
-					on:change={(e) => dispatch('change', rawValue)}
+					on:input={() => dispatch('input', rawValue)}
 				/>
 			{:else if type == 'string' && enum_}
 				<select {disabled} class="px-6" bind:value>
@@ -273,7 +273,7 @@
 						: 'border border-red-700 border-opacity-30 focus:border-red-700 focus:border-opacity-30 bg-red-100'}"
 					placeholder={defaultValue}
 					bind:value
-					on:change={(e) => dispatch('change', rawValue)}
+					on:input={() => dispatch('input', value)}
 				/>
 			{/if}
 			{#if !required}

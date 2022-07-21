@@ -10,7 +10,7 @@
 
 	const dispatch = createEventDispatcher()
 
-	$: checked = options.left.value !== value
+	$: checked = options.right.value === value
 </script>
 
 <span>
