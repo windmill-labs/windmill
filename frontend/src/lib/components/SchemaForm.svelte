@@ -1,6 +1,7 @@
 <script lang="ts">
 	import type { Schema } from '$lib/common'
 	import { InputTransform } from '$lib/gen'
+	import { allTrue } from '$lib/utils'
 	import ArgInput from './ArgInput.svelte'
 	import Editor from './Editor.svelte'
 	import FieldHeader from './FieldHeader.svelte'
@@ -11,7 +12,7 @@
 
 	export let inputTransform = false
 	export let schema: Schema
-	export let args: Record<string, any> = {}
+	export let args: Record<string, InputTransform> = {}
 	export let editableSchema = false
 	export let extraLib: string = 'missing extraLib'
 	export let isValid: boolean = true
@@ -19,30 +20,32 @@
 	export let i: number | undefined = undefined
 	export let previousSchema: Object | undefined = undefined
 
-	$: propertiesTypes = Object.keys(schema?.properties ?? {})
-		.map((prop, index) => {
-			const arg = args[prop]
+	let inputCheck: { [id: string]: boolean } = {}
+	$: isValid = allTrue(inputCheck) ?? false
 
-			if (!arg) {
-				return
+	let propertiesTypes: { [id: string]: InputTransform.type } = {}
+
+	function setPropertyType(id: string, rawValue: string) {
+		const arg = args[id]
+		if (!arg) {
+			return
+		}
+
+		if (isCodeInjection(rawValue)) {
+			args[id].expr = getCodeInjectionExpr(arg.value)
+			args[id].type = InputTransform.type.JAVASCRIPT
+			return InputTransform.type.STATIC
+		} else {
+			if (
+				args[id].type === InputTransform.type.JAVASCRIPT &&
+				propertiesTypes[id] === InputTransform.type.STATIC
+			) {
+				args[id].type = InputTransform.type.STATIC
 			}
+		}
 
-			if (isCodeInjection(String(arg.value))) {
-				args[prop].expr = getCodeInjectionExpr(arg.value)
-				args[prop].type = InputTransform.type.JAVASCRIPT
-				return InputTransform.type.STATIC
-			} else {
-				if (
-					args[prop].type === InputTransform.type.JAVASCRIPT &&
-					propertiesTypes?.at(index) === InputTransform.type.STATIC
-				) {
-					args[prop].type = InputTransform.type.STATIC
-				}
-			}
-
-			return arg.type
-		})
-		.filter(Boolean)
+		return arg.type
+	}
 </script>
 
 <div class="w-full">
@@ -60,7 +63,7 @@
 							type={schema.properties[argName].type}
 							itemsType={schema.properties[argName].items}
 						/>
-						{#if propertiesTypes[index] === 'static' && args[argName].type === InputTransform.type.JAVASCRIPT}
+						{#if propertiesTypes[argName] === InputTransform.type.STATIC && args[argName].type === InputTransform.type.JAVASCRIPT}
 							<span
 								class="bg-blue-100 text-blue-800 text-sm font-medium mr-2 px-2.5 py-0.5 rounded ml-2"
 							>
@@ -71,9 +74,9 @@
 					<Toggle
 						options={{
 							left: { label: '', value: InputTransform.type.STATIC },
-							right: { label: 'Raw Javascript editor', value: InputTransform.type.JAVASCRIPT }
+							right: { label: 'Raw Javascript Editor', value: InputTransform.type.JAVASCRIPT }
 						}}
-						bind:value={propertiesTypes[index]}
+						bind:value={propertiesTypes[argName]}
 						on:change={(e) => {
 							if (e.detail === InputTransform.type.JAVASCRIPT) {
 								args[argName].expr = getDefaultExpr(i ?? -1)
@@ -89,7 +92,7 @@
 				</div>
 				<div class="max-w-xs" />
 
-				{#if propertiesTypes[index] === 'static'}
+				{#if propertiesTypes[argName] === undefined || propertiesTypes[argName] === InputTransform.type.STATIC}
 					<OverlayPropertyPicker
 						{previousSchema}
 						{index}
@@ -104,16 +107,22 @@
 							type={schema.properties[argName].type}
 							required={schema.required.includes(argName)}
 							bind:pattern={schema.properties[argName].pattern}
-							bind:valid={isValid}
+							bind:valid={inputCheck[argName]}
 							defaultValue={schema.properties[argName].default}
 							bind:enum_={schema.properties[argName].enum}
 							bind:format={schema.properties[argName].format}
 							contentEncoding={schema.properties[argName].contentEncoding}
 							bind:itemsType={schema.properties[argName].items}
 							displayHeader={false}
+							on:change={(e) => {
+								const pType = setPropertyType(argName, e.detail)
+								if (pType) {
+									propertiesTypes[argName] = pType
+								}
+							}}
 						/>
 					</OverlayPropertyPicker>
-				{:else if propertiesTypes[index] === InputTransform.type.JAVASCRIPT}
+				{:else if propertiesTypes[argName] === InputTransform.type.JAVASCRIPT}
 					{#if args[argName].expr != undefined}
 						<div class="border rounded p-2 mt-2 border-gray-300">
 							<Editor
@@ -137,7 +146,7 @@
 					type={schema.properties[argName].type}
 					required={schema.required.includes(argName)}
 					bind:pattern={schema.properties[argName].pattern}
-					bind:valid={isValid}
+					bind:valid={inputCheck[argName]}
 					defaultValue={schema.properties[argName].default}
 					bind:enum_={schema.properties[argName].enum}
 					bind:format={schema.properties[argName].format}

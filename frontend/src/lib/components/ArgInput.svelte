@@ -11,6 +11,7 @@
 	import ObjectTypeNarrowing from './ObjectTypeNarrowing.svelte'
 	import ObjectResourceInput from './ObjectResourceInput.svelte'
 	import FieldHeader from './FieldHeader.svelte'
+	import { createEventDispatcher } from 'svelte'
 
 	export let label: string = ''
 	export let value: any
@@ -33,6 +34,7 @@
 	export let displayHeader = true
 
 	let seeEditable: boolean = enum_ != undefined || pattern != undefined
+	const dispatch = createEventDispatcher()
 
 	$: minHeight = `${1 + minRows * 1.2}em`
 	$: maxHeight = maxRows ? `${1 + maxRows * 1.2}em` : `auto`
@@ -238,6 +240,7 @@
 						: 'border border-red-700 border-opacity-30 focus:border-red-700 focus:border-opacity-30 bg-red-100'}"
 					placeholder={JSON.stringify(defaultValue, null, 4)}
 					bind:value={rawValue}
+					on:change={(e) => dispatch('change', rawValue)}
 				/>
 			{:else if type == 'string' && enum_}
 				<select {disabled} class="px-6" bind:value>
@@ -270,6 +273,7 @@
 						: 'border border-red-700 border-opacity-30 focus:border-red-700 focus:border-opacity-30 bg-red-100'}"
 					placeholder={defaultValue}
 					bind:value
+					on:change={(e) => dispatch('change', rawValue)}
 				/>
 			{/if}
 			{#if !required}
