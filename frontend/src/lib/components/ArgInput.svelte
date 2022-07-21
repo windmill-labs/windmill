@@ -192,7 +192,7 @@
 					class={valid
 						? ''
 						: 'border border-red-700 border-opacity-30 focus:border-red-700 focus:border-opacity-30 bg-red-100'}
-					placeholder={defaultValue}
+					placeholder={defaultValue ?? ''}
 					bind:value
 					on:input={() => dispatch('input', { value, isRaw: true })}
 				/>
@@ -284,7 +284,7 @@
 					class="col-span-10 {valid
 						? ''
 						: 'border border-red-700 border-opacity-30 focus:border-red-700 focus:border-opacity-30 bg-red-100'}"
-					placeholder={defaultValue}
+					placeholder={defaultValue ?? ''}
 					bind:value
 					on:input={() => dispatch('input', { rawValue: value, isRaw: false })}
 				/>
