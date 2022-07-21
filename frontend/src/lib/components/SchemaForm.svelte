@@ -25,7 +25,6 @@
 
 	let propertiesTypes: { [id: string]: InputTransform.type } = {}
 	let inputCats: { [id: string]: InputCat } = {}
-	let rawValues: { [id: string]: string } = {}
 
 	function setPropertyType(id: string, rawValue: string, isRaw: boolean) {
 		const arg = args[id]
@@ -107,11 +106,7 @@
 						disabled={!hasOverlay(inputCats[argName])}
 						on:select={(event) => {
 							const toAppend = `\$\{previous_result.${event.detail}}`
-							if (inputCats[argName] === 'string' || inputCats[argName] === 'number') {
-								args[argName].value = `${args[argName].value ?? ''}${toAppend}`
-							} else if (inputCats[argName] === 'object') {
-								rawValues[argName] = `${rawValues[argName] ?? ''}${toAppend}`
-							}
+							args[argName].value = `${args[argName].value ?? ''}${toAppend}`
 						}}
 					>
 						<ArgInput
@@ -129,7 +124,6 @@
 							bind:itemsType={schema.properties[argName].items}
 							displayHeader={false}
 							bind:inputCat={inputCats[argName]}
-							bind:rawValue={rawValues[argName]}
 							numberAsString={true}
 							on:input={(e) => {
 								if (hasOverlay(inputCats[argName])) {

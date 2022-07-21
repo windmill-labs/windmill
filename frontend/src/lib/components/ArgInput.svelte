@@ -45,7 +45,7 @@
 
 	let error: string = ''
 
-	export let rawValue: string | undefined = undefined
+	let rawValue: string | undefined = undefined
 
 	$: {
 		if (rawValue) {
@@ -251,7 +251,6 @@
 						: 'border border-red-700 border-opacity-30 focus:border-red-700 focus:border-opacity-30 bg-red-100'}"
 					placeholder={JSON.stringify(defaultValue, null, 4)}
 					bind:value={rawValue}
-					on:input={() => dispatch('input', { rawValue, isRaw: true })}
 				/>
 			{:else if inputCat == 'enum'}
 				<select {disabled} class="px-6" bind:value>
