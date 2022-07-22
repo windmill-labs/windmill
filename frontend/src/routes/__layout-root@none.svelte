@@ -47,7 +47,9 @@
 					}
 				}
 			} else {
-				goto(`/user/workspaces?rd=${encodeURIComponent($page.url.pathname + $page.url.search)}`)
+				if (!$page.url.pathname.startsWith('/user/')) {
+					goto(`/user/workspaces?rd=${encodeURIComponent($page.url.pathname + $page.url.search)}`)
+				}
 				let user = await UserService.globalWhoami()
 				sendUserToast(`Welcome back ${user.email}`)
 			}
