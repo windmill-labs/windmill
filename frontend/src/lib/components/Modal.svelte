@@ -7,11 +7,14 @@
 	const dispatch = createEventDispatcher()
 
 	export function closeModal(): void {
+		document.body.style.overflow = 'auto'
+
 		open = false
 		dispatch('close')
 	}
 
 	export function openModal(): void {
+		document.body.style.overflow = 'hidden'
 		open = true
 		dispatch('open')
 	}
@@ -29,9 +32,9 @@
 
 <svelte:window on:keyup={handleKeyUp} />
 
-<div class="blurred-background z-0  {open ? '' : 'hidden'}" />
+<div class="blurred-background  {open ? '' : 'hidden'}" />
 
-<div class="fixed top-0 w-screen h-screen  {open ? '' : 'hidden'} {z}">
+<div class="fixed top-0 w-screen h-screen {open ? '' : 'hidden'} {z}">
 	<div
 		class="fixed right-0 flex flex-col w-3/4 sm:w-2/3 lg:w-1/2 h-screen border border-gray-300 shadow-xl"
 	>
@@ -100,6 +103,6 @@
 		@apply bg-gray-400 opacity-75;
 		@apply w-screen;
 		@apply h-screen;
-		z-index: 1;
+		z-index: 10;
 	}
 </style>
