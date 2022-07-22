@@ -17,6 +17,7 @@
 		type FlowMode
 	} from './flows/flowStore'
 	import SchemaForm from './SchemaForm.svelte'
+	import Tooltip from './Tooltip.svelte'
 
 	export let open: number
 	export let mode: FlowMode
@@ -41,6 +42,17 @@
 			<FlowModuleHeader bind:open {mod} {i} {shouldPick}>
 				<div>
 					<h3 class="text-lg font-bold text-gray-900">Step {i + 1}</h3>
+					{#if i == 0 && mode == 'pull'}
+						<h3 class="font-bold">
+							Trigger Script <Tooltip
+								>When a flow is 'Pull', the first step is a trigger script. Trigger scripts are
+								scripts that must return a list which are the new items to be treated one by one by
+								the rest of the flow, usually the list of new items since last time the flow was
+								run. One can retrieve the item in the next step using `previous_result._value`. To
+								easily compute the diff, windmill provides some helpers under the form of
+								`getInternalState` and `setInternalState`.</Tooltip
+							>
+						</h3>{/if}
 					<p>
 						{#if mod.value.path}
 							{mod.value.path}
@@ -117,3 +129,14 @@
 		{/if}
 	</div>
 </li>
+{#if i == 0 && mode == 'pull'}
+	<li class="relative m-20 ">
+		<div class="relative flex justify-center bg-white shadow p-2">
+			Starting from here, the flow for loop over items from last step result &nbsp;<Tooltip
+				>This flow being in 'Pull' mode, the rest of the flow will for loop over the list of items
+				returned by the trigger script right above. Retrieve the item value using
+				`previous_result._value`</Tooltip
+			>
+		</div>
+	</li>
+{/if}
