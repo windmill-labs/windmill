@@ -32,7 +32,7 @@
 				workspaceStore.set(localStorage.getItem('workspace')?.toString())
 			}
 		} else {
-			logoutWithRedirect($page.url.pathname)
+			logoutWithRedirect($page.url.pathname + $page.url.search)
 		}
 	}
 
@@ -90,7 +90,7 @@
 					"
 				on:click={() => {
 					workspaceStore.set(workspace.id)
-					goto('/scripts')
+					goto($page.url.searchParams.get('rd') ?? '/scripts')
 				}}
 				><span class="font-mono">{workspace.id}</span> - {workspace.name} as
 				<span class="font-mono">{workspace.username}</span>

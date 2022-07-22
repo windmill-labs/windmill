@@ -6,12 +6,24 @@
 	import python from 'svelte-highlight/languages/python'
 	import typescript from 'svelte-highlight/languages/typescript'
 
-	import { FlowModuleValue, type Flow } from '$lib/gen'
+	import { FlowModuleValue, type FlowValue } from '$lib/gen'
 	import github from 'svelte-highlight/styles/github'
 	import { slide } from 'svelte/transition'
 	import Tabs from './Tabs.svelte'
 
-	export let flow: Flow
+	export let flow: {
+		summary: string
+		description?: string
+		value: FlowValue
+		schema?: any
+	}
+
+	let flowFiltered = {
+		summary: flow.summary,
+		description: flow.description,
+		value: flow.value,
+		schema: flow.schema
+	}
 
 	export let embedded = false
 
@@ -96,5 +108,5 @@
 		</ul>
 	</div>
 {:else}
-	<Highlight language={json} code={JSON.stringify(flow.value, null, 4)} />
+	<Highlight language={json} code={JSON.stringify(flowFiltered, null, 4)} />
 {/if}

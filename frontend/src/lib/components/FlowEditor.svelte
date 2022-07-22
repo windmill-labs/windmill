@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { FlowModuleValue } from '$lib/gen'
 
-	import { faFileExport, faFileImport, faPlus } from '@fortawesome/free-solid-svg-icons'
+	import { faFileExport, faFileImport, faGlobe, faPlus } from '@fortawesome/free-solid-svg-icons'
 	import Icon from 'svelte-awesome'
 	import FlowPreview from './FlowPreview.svelte'
 	import CopyFirstStepSchema from './flows/CopyFirstStepSchema.svelte'
@@ -42,7 +42,9 @@
 		<button
 			class="default-button px-4 py-2 font-semibold"
 			on:click={() => {
-				$flowStore.value = JSON.parse(jsonValue)
+				Object.assign($flowStore, JSON.parse(jsonValue))
+				$flowStore = $flowStore
+				open = -1
 				sendUserToast('Flow imported from JSON')
 				jsonSetter.closeModal()
 			}}
@@ -83,6 +85,21 @@
 									action: () => {
 										jsonViewer.openModal()
 									}
+								},
+								{
+									displayName: 'Publish to Hub',
+									icon: faGlobe,
+									action: () => {
+										const url = new URL('https://hub.windmill.dev/flows/add')
+										url.searchParams.append(
+											'flow',
+											btoa(JSON.stringify(flowToMode($flowStore, mode).value))
+										)
+										url.searchParams.append('schema', btoa(JSON.stringify($flowStore.schema)))
+										url.searchParams.append('description', $flowStore.description ?? '')
+										url.searchParams.append('summary', $flowStore.summary)
+										window.open(url, '_blank')?.focus()
+									}
 								}
 							]}
 							relative={false}
@@ -93,7 +110,7 @@
 							bind:error={pathError}
 							bind:path={$flowStore.path}
 							{initialPath}
-							namePlaceholder="example/my/flow"
+							namePlaceholder="my_flow"
 							kind="flow"
 						>
 							<div slot="ownerToolkit">
