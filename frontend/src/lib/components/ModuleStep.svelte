@@ -132,7 +132,7 @@
 {#if i == 0 && mode == 'pull'}
 	<li class="relative m-20 ">
 		<div class="relative flex justify-center bg-white shadow p-2">
-			Starting from here, the flow for loop over items from last step result &nbsp;<Tooltip
+			Starting from here, the flow for loop over items from step 1's result above &nbsp;<Tooltip
 				>This flow being in 'Pull' mode, the rest of the flow will for loop over the list of items
 				returned by the trigger script right above. Retrieve the item value using
 				`previous_result._value`</Tooltip
