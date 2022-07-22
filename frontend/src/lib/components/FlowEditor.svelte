@@ -16,6 +16,7 @@
 	import Editor from './Editor.svelte'
 	import Modal from './Modal.svelte'
 	import FlowViewer from './FlowViewer.svelte'
+	import { flowToMode } from './flows/utils'
 
 	export let pathError = ''
 	export let initialPath: string = ''
@@ -54,7 +55,7 @@
 <Modal bind:this={jsonViewer}>
 	<div slot="title">See JSON</div>
 	<div slot="content" class="h-full">
-		<FlowViewer flow={$flowStore} tab="json" />
+		<FlowViewer flow={flowToMode($flowStore, mode)} tab="json" />
 	</div>
 </Modal>
 
