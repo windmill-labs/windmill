@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { FlowModuleValue } from '$lib/gen'
 
-	import { faPlus } from '@fortawesome/free-solid-svg-icons'
+	import { faFileExport, faFileImport, faPlus } from '@fortawesome/free-solid-svg-icons'
 	import Icon from 'svelte-awesome'
 	import FlowPreview from './FlowPreview.svelte'
 	import CopyFirstStepSchema from './flows/CopyFirstStepSchema.svelte'
@@ -11,10 +11,19 @@
 	import RadioButtonV2 from './RadioButtonV2.svelte'
 	import SchemaEditor from './SchemaEditor.svelte'
 	import Required from './Required.svelte'
-	import { pathIsEmpty } from '$lib/utils'
+	import { pathIsEmpty, sendUserToast } from '$lib/utils'
+	import Dropdown from './Dropdown.svelte'
+	import Editor from './Editor.svelte'
+	import Modal from './Modal.svelte'
+	import FlowViewer from './FlowViewer.svelte'
 
 	export let pathError = ''
 	export let initialPath: string = ''
+
+	let jsonSetter: Modal
+	let jsonViewer: Modal
+
+	let jsonValue: string = ''
 
 	let open = 0
 	let args: Record<string, any> = {}
@@ -22,6 +31,32 @@
 		$flowStore?.value.modules[1]?.value.type == FlowModuleValue.type.FORLOOPFLOW ? 'pull' : 'push'
 	$: numberOfSteps = $flowStore?.value.modules.length - 1
 </script>
+
+<Modal bind:this={jsonSetter}>
+	<div slot="title">Import JSON</div>
+	<div slot="content" class="h-full">
+		<Editor bind:code={jsonValue} lang={'json'} class="h-full" />
+	</div>
+	<div slot="submission">
+		<button
+			class="default-button px-4 py-2 font-semibold"
+			on:click={() => {
+				$flowStore.value = JSON.parse(jsonValue)
+				sendUserToast('Flow imported from JSON')
+				jsonSetter.closeModal()
+			}}
+		>
+			Import
+		</button>
+	</div></Modal
+>
+
+<Modal bind:this={jsonViewer}>
+	<div slot="title">See JSON</div>
+	<div slot="content" class="h-full">
+		<FlowViewer flow={$flowStore} tab="json" />
+	</div>
+</Modal>
 
 <div class="flow-root bg-gray-50 rounded-xl border  border-gray-200">
 	<ul class="relative -mt-10">
@@ -31,6 +66,27 @@
 				<div
 					class="bg-white border border-gray xl-rounded shadow-lg w-full max-w-4xl mx-4 md:mx-auto p-4"
 				>
+					<div class="flex flex-row-reverse mr-4">
+						<Dropdown
+							dropdownItems={[
+								{
+									displayName: 'Import from JSON',
+									icon: faFileImport,
+									action: () => {
+										jsonSetter.openModal()
+									}
+								},
+								{
+									displayName: 'Export to JSON',
+									icon: faFileExport,
+									action: () => {
+										jsonViewer.openModal()
+									}
+								}
+							]}
+							relative={false}
+						/>
+					</div>
 					<div class="mb-8 p-4">
 						<Path
 							bind:error={pathError}
