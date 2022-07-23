@@ -18,7 +18,7 @@
 	export let isValid: boolean = true
 
 	export let i: number | undefined = undefined
-	export let previousSchema: Object | undefined = undefined
+	export let pickableProperties: Object | undefined = undefined
 
 	let inputCheck: { [id: string]: boolean } = {}
 	$: isValid = allTrue(inputCheck) ?? false
@@ -103,10 +103,10 @@
 
 				{#if propertiesTypes[argName] === undefined || propertiesTypes[argName] === InputTransform.type.STATIC}
 					<OverlayPropertyPicker
-						{previousSchema}
+						{pickableProperties}
 						disabled={!hasOverlay(inputCats[argName])}
 						on:select={(event) => {
-							const toAppend = `\$\{previous_result.${event.detail}}`
+							const toAppend = `\$\{${event.detail}}`
 							args[argName].value = `${args[argName].value ?? ''}${toAppend}`
 							setPropertyType(argName, args[argName].value, false)
 						}}

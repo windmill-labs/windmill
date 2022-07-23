@@ -27,7 +27,11 @@
 
 	$: schema = $schemasStore[i]
 	$: shouldPick = mod.value.path === '' && mod.value.language === undefined
-	$: previousSchema = i === 0 ? schemaToObject($flowStore?.schema) : $previewResults[i]
+	$: pickableProperties = {
+		flow_input: schemaToObject($flowStore?.schema),
+		step: i,
+		previous_result: $previewResults[i]
+	}
 	$: extraLib = buildExtraLib(
 		i === 0 ? schemaToTsType($flowStore?.schema) : objectToTsType($previewResults[i])
 	)
@@ -98,7 +102,7 @@
 						{schema}
 						{extraLib}
 						{i}
-						{previousSchema}
+						{pickableProperties}
 						bind:args={mod.input_transform}
 					/>
 				{/if}

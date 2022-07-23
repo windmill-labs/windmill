@@ -3,16 +3,16 @@
 	import ObjectViewer from './ObjectViewer.svelte'
 	import { keepByKey } from './utils'
 
-	export let props: Object = {}
+	export let pickableProperties: Object = {}
 
 	const EMPTY_STRING = ''
 	const search = writable(EMPTY_STRING)
 
-	$: propsFiltered = derived(search, ($search: string) => {
+	const propsFiltered = derived(search, ($search: string) => {
 		if ($search === EMPTY_STRING) {
-			return props
+			return pickableProperties
 		}
-		return keepByKey(props, $search)
+		return keepByKey(pickableProperties, $search)
 	})
 </script>
 
