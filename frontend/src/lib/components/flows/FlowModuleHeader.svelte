@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { FlowModuleValue, Script, type FlowModule } from '$lib/gen'
+	import { getScriptByPath } from '$lib/utils'
 	import { faCode, faCodeBranch, faSave, faTrashAlt } from '@fortawesome/free-solid-svg-icons'
 	import Icon from 'svelte-awesome'
 	import { Highlight } from 'svelte-highlight'
@@ -7,7 +8,7 @@
 	import github from 'svelte-highlight/styles/github'
 	import Modal from '../Modal.svelte'
 	import { createScriptFromInlineScript, fork, removeModule } from './flowStore'
-	import { getScriptByPath, scrollIntoView } from './utils'
+	import { scrollIntoView } from './utils'
 
 	export let open: number
 	export let i: number
@@ -16,7 +17,7 @@
 
 	let modalViewer: Modal
 	let modalViewerContent = ''
-	let modalViewerLanguage: Script.language = Script.language.DENO
+	let modalViewerLanguage: 'deno' | 'python3' = 'deno'
 
 	async function viewCode() {
 		const { content, language } = await getScriptByPath(mod.value.path!)

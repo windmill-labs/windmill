@@ -17,6 +17,10 @@
 	a {
 		@apply text-blue-500;
 	}
+	
+	.flex pre code.hljs {
+		@apply text-sm;
+	}
 
 	#table-custom th {
 		@apply py-3.5 text-left text-sm font-semibold text-gray-900 capitalize;

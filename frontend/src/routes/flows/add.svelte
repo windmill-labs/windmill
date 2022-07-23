@@ -2,7 +2,7 @@
 	import { page } from '$app/stores'
 
 	import FlowBuilder from '$lib/components/FlowBuilder.svelte'
-	import { addModule, initFlow } from '$lib/components/flows/flowStore'
+	import { initFlow } from '$lib/components/flows/flowStore'
 	import type { Flow } from '$lib/gen'
 	import { emptySchema } from '$lib/utils'
 

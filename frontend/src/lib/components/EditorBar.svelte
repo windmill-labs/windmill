@@ -1,11 +1,11 @@
 <script lang="ts">
 	import { ResourceService, ScriptService, VariableService } from '$lib/gen'
-	import { sendUserToast } from '$lib/utils'
+	import { getScriptByPath, loadHubScripts, sendUserToast } from '$lib/utils'
 
 	import Icon from 'svelte-awesome'
 	import { faSearch } from '@fortawesome/free-solid-svg-icons'
 
-	import { workspaceStore } from '$lib/stores'
+	import { workspaceStore, hubScripts } from '$lib/stores'
 	import ItemPicker from './ItemPicker.svelte'
 	import VariableEditor from './VariableEditor.svelte'
 	import ResourceEditor from './ResourceEditor.svelte'
@@ -26,6 +26,7 @@
 	let resourceEditor: ResourceEditor
 
 	let codeViewer: Modal
+	let codeLang: 'python3' | 'deno' = 'deno'
 	let codeContent: string = ''
 
 	async function loadVariables() {
@@ -44,7 +45,13 @@
 	}
 
 	async function loadScripts(): Promise<{ path: string; summary?: string }[]> {
-		return await ScriptService.listScripts({ workspace: $workspaceStore ?? 'NO_W' })
+		const workspaceScripts: { path: string; summary?: string }[] = await ScriptService.listScripts({
+			workspace: $workspaceStore ?? 'NO_W'
+		})
+		await loadHubScripts()
+		const hubScripts_ = $hubScripts ?? []
+
+		return workspaceScripts.concat(hubScripts_)
 	}
 </script>
 
@@ -55,12 +62,9 @@
 <ItemPicker
 	bind:this={scriptPicker}
 	pickCallback={async (path, _) => {
-		codeContent = (
-			await ScriptService.getScriptByPath({
-				workspace: $workspaceStore ?? '',
-				path
-			})
-		).content
+		const { language, content } = await getScriptByPath(path ?? '')
+		codeContent = content
+		codeLang = language
 		codeViewer.openModal()
 	}}
 	closeOnClick={false}
@@ -72,9 +76,9 @@
 <Modal bind:this={codeViewer}>
 	<div slot="title">Code</div>
 	<div slot="content">
-		{#if lang == 'python3'}
+		{#if codeLang == 'python3'}
 			<Highlight language={python} code={codeContent} />
-		{:else if lang == 'deno'}
+		{:else if codeLang == 'deno'}
 			<Highlight language={typescript} code={codeContent} />
 		{/if}
 	</div></Modal
