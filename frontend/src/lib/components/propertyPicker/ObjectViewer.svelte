@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { createEventDispatcher } from 'svelte'
 	import { formatValue, getTypeAsString } from '../flows/utils'
+	import WarningMessage from './WarningMessage.svelte'
 
 	export let json: Object
 	export let level = 0
@@ -65,13 +66,20 @@
 						/>
 					{:else}
 						<span class="val {getTypeAsString(json[key])}">
-							{formatValue(json[key])}
+							{#if formatValue(json[key]) === undefined}
+								<WarningMessage />
+							{:else}
+								{formatValue(json[key])}
+							{/if}
+
 							{#if index < keys.length - 1}
 								<span class="text-black">,</span>
 							{/if}
-							<button class="default-button-secondary" on:click={() => selectProp(key)}>
-								Select
-							</button>
+							{#if formatValue(json[key]) !== undefined}
+								<button class="default-button-secondary" on:click={() => selectProp(key)}>
+									Select
+								</button>
+							{/if}
 						</span>
 					{/if}
 				</li>

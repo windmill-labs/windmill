@@ -2,9 +2,8 @@
 	import { createEventDispatcher } from 'svelte'
 	import Overlay from 'svelte-overlay'
 	import PropPicker from './PropPicker.svelte'
-	import WarningMessage from './WarningMessage.svelte'
 
-	export let previousSchema: Object | undefined
+	export let pickableProperties: Object | undefined
 	export let disabled = false
 	let isOpen = false
 
@@ -52,17 +51,13 @@
 		</div>
 
 		<div slot="content" class="content" let:toggle on:mouseleave={toggle} let:close>
-			{#if Boolean(previousSchema)}
-				<PropPicker
-					props={previousSchema}
-					on:select={(event) => {
-						isOpen = false
-						dispatch('select', event.detail)
-					}}
-				/>
-			{:else}
-				<WarningMessage {close} />
-			{/if}
+			<PropPicker
+				{pickableProperties}
+				on:select={(event) => {
+					isOpen = false
+					dispatch('select', event.detail)
+				}}
+			/>
 		</div>
 	</Overlay>
 {:else}
