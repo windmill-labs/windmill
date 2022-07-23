@@ -792,15 +792,14 @@ pub struct JobUpdate {
 }
 
 async fn get_job_update(
-    authed: Authed,
-    Extension(user_db): Extension<UserDB>,
+    Extension(db): Extension<DB>,
     Path((w_id, id)): Path<(String, Uuid)>,
     Query(JobUpdateQuery {
         running,
         log_offset,
     }): Query<JobUpdateQuery>,
 ) -> error::JsonResult<JobUpdate> {
-    let mut tx = user_db.begin(&authed).await?;
+    let mut tx = db.begin().await?;
 
     let logs = query_scalar!(
         "SELECT substr(logs, $1) as logs FROM queue WHERE workspace_id = $2 AND id = $3",
@@ -838,11 +837,10 @@ async fn get_job_update(
 }
 
 async fn get_job(
-    authed: Authed,
-    Extension(user_db): Extension<UserDB>,
+    Extension(db): Extension<DB>,
     Path((w_id, id)): Path<(String, Uuid)>,
 ) -> error::JsonResult<Job> {
-    let tx = user_db.begin(&authed).await?;
+    let tx = db.begin().await?;
     let (job_o, tx) = get_job_by_id(tx, &w_id, id).await?;
     let job = crate::utils::not_found_if_none(job_o, "Completed Job", id.to_string())?;
     tx.commit().await?;
