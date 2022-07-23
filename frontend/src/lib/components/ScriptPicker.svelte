@@ -12,6 +12,7 @@
 	import { python, typescript } from 'svelte-highlight/languages'
 
 	import github from 'svelte-highlight/styles/github'
+	import { getScript, getScriptByPath } from '$lib/utils'
 
 	export let scriptPath: string | undefined = undefined
 	export let allowFlow = false
@@ -29,20 +30,6 @@
 	allowHub && options.unshift(['Hub', 'hub'])
 	allowFlow && options.push(['Flow', 'flow'])
 	const dispatch = createEventDispatcher()
-
-	async function getScript() {
-		if (itemKind == 'hub') {
-			code = await ScriptService.getHubScriptContentByPath({ path: scriptPath! })
-			lang = Script.language.DENO
-		} else {
-			const script = await ScriptService.getScriptByPath({
-				workspace: $workspaceStore!,
-				path: scriptPath!
-			})
-			code = script.content
-			lang = script.language
-		}
-	}
 
 	async function loadItems(): Promise<void> {
 		if (itemKind == 'flow') {
@@ -92,7 +79,9 @@
 		<button
 			class="text-xs text-blue-500"
 			on:click={async () => {
-				await getScript()
+				const { language, content } = await getScriptByPath(scriptPath ?? '')
+				code = content
+				lang = language
 				modalViewer.openModal()
 			}}>show code</button
 		>

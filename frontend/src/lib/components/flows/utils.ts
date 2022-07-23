@@ -9,7 +9,7 @@ import {
 import { inferArgs } from '$lib/infer'
 import { loadSchema } from '$lib/scripts'
 import { workspaceStore } from '$lib/stores'
-import { emptySchema } from '$lib/utils'
+import { emptySchema, getScriptByPath } from '$lib/utils'
 import { get } from 'svelte/store'
 import type { FlowMode } from './flowStore'
 
@@ -79,34 +79,14 @@ export async function getFirstStepSchema(flow: Flow): Promise<Schema> {
 	return emptySchema()
 }
 
-export async function getScriptByPath(path: string): Promise<{
-	content: string
-	language: FlowModuleValue.language
-}> {
-	if (path.startsWith('hub/')) {
-		const content = await ScriptService.getHubScriptContentByPath({ path })
-		return {
-			content,
-			language: FlowModuleValue.language.DENO
-		}
-	} else {
-		const script = await ScriptService.getScriptByPath({
-			workspace: get(workspaceStore)!,
-			path: path ?? ''
-		})
-		return {
-			content: script.content,
-			language: script.language
-		}
-	}
-}
+
 
 export async function createInlineScriptModuleFromPath(path: string): Promise<FlowModuleValue> {
 	const { content, language } = await getScriptByPath(path)
 
 	return {
 		type: FlowModuleValue.type.RAWSCRIPT,
-		language: language,
+		language: language as FlowModuleValue.language,
 		content: content,
 		path
 	}

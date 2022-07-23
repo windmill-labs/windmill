@@ -3,7 +3,7 @@
 	import { page } from '$app/stores'
 	import { FlowService, ScriptService, type Flow } from '$lib/gen'
 	import { clearPreviewResults, hubScripts, workspaceStore } from '$lib/stores'
-	import { sendUserToast, setQueryWithoutLoad } from '$lib/utils'
+	import { loadHubScripts, sendUserToast, setQueryWithoutLoad } from '$lib/utils'
 	import { faFileExport, faFileImport } from '@fortawesome/free-solid-svg-icons'
 	import { onMount } from 'svelte'
 	import Icon from 'svelte-awesome'
@@ -19,16 +19,6 @@
 	let mode: FlowMode
 
 	$: step = Number($page.url.searchParams.get('step')) || 1
-
-	async function loadSearchData() {
-		const scripts = await ScriptService.listHubScripts()
-		$hubScripts = scripts.map((x) => ({
-			path: `hub/${x.id}/${x.summary.toLowerCase().replaceAll(/\s+/g, '_')}`,
-			summary: `${x.summary} (${x.app})`,
-			approved: x.approved,
-			is_trigger: x.is_trigger
-		}))
-	}
 
 	async function saveFlow(): Promise<void> {
 		const newFlow = flowToMode($flowStore, mode)
@@ -70,7 +60,7 @@
 	})
 
 	onMount(() => {
-		loadSearchData()
+		loadHubScripts()
 		clearPreviewResults()
 	})
 </script>
