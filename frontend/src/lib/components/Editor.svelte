@@ -239,6 +239,7 @@
 					}
 				})
 			}
+			websocketInterval && clearInterval(websocketInterval)
 			websocketInterval = setInterval(() => {
 				if (document.visibilityState == 'visible') {
 					if (!websocketAlive.black && !websocketAlive.deno && !websocketAlive.pyright) {
