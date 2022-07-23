@@ -1,13 +1,6 @@
 <script lang="ts">
-	import {
-		JobService,
-		Job,
-		CompletedJob,
-		VariableService,
-		ResourceService,
-		ScriptService
-	} from '$lib/gen'
-	import { sendUserToast, emptySchema, displayDate } from '$lib/utils'
+	import { JobService, Job, CompletedJob, VariableService, ScriptService } from '$lib/gen'
+	import { emptySchema, displayDate } from '$lib/utils'
 	import type { Schema } from '$lib/common'
 	import { fade } from 'svelte/transition'
 	import Icon from 'svelte-awesome'
@@ -17,7 +10,6 @@
 		faChevronUp,
 		faExclamationTriangle,
 		faMagic,
-		faSearch,
 		faSpinner,
 		faTimes
 	} from '@fortawesome/free-solid-svg-icons'
@@ -28,12 +20,7 @@
 	import TableCustom from './TableCustom.svelte'
 	import { check } from 'svelte-awesome/icons'
 	import Modal from './Modal.svelte'
-	import { Highlight } from 'svelte-highlight'
-	import { json, python, typescript } from 'svelte-highlight/languages'
-	import github from 'svelte-highlight/styles/github'
-	import ItemPicker from './ItemPicker.svelte'
-	import VariableEditor from './VariableEditor.svelte'
-	import ResourceEditor from './ResourceEditor.svelte'
+
 	import { inferArgs } from '$lib/infer'
 
 	// @ts-ignore
@@ -41,6 +28,9 @@
 	import SchemaForm from './SchemaForm.svelte'
 	import DisplayResult from './DisplayResult.svelte'
 	import type { Preview } from '$lib/gen/models/Preview'
+	import EditorBar from './EditorBar.svelte'
+	import { Highlight } from 'svelte-highlight'
+	import { json, python, typescript } from 'svelte-highlight/languages'
 
 	// Exported
 	export let schema: Schema = emptySchema()
@@ -54,6 +44,10 @@
 	export let previewTab: 'logs' | 'input' | 'output' | 'history' | 'last_save' = 'logs'
 
 	let websocketAlive = { pyright: false, black: false, deno: false }
+
+	let modalViewerTitle: string = ''
+	let modalViewerContent: any
+	let modalViewerMode: 'logs' | 'result' | 'code' = 'logs'
 
 	// Internal state
 	let editor: Editor
@@ -69,15 +63,6 @@
 	let pastPreviews: CompletedJob[] = []
 
 	let modalViewer: Modal
-	let modalViewerTitle: string = ''
-	let modalViewerContent: any
-	let modalViewerMode: 'logs' | 'result' | 'code' = 'logs'
-
-	let variablePicker: ItemPicker
-	let resourcePicker: ItemPicker
-	let scriptPicker: ItemPicker
-	let variableEditor: VariableEditor
-	let resourceEditor: ResourceEditor
 
 	let syncIteration: number = 0
 	let ITERATIONS_BEFORE_SLOW_REFRESH = 100
@@ -196,25 +181,6 @@
 		}
 	}
 
-	async function loadVariables() {
-		let r: { name: string; path?: string; description?: string }[] = []
-		const variables = (
-			await VariableService.listVariable({ workspace: $workspaceStore ?? 'NO_W' })
-		).map((x) => {
-			return { name: x.path, ...x }
-		})
-
-		const rvariables = await VariableService.listContextualVariables({
-			workspace: $workspaceStore ?? 'NO_W'
-		})
-		r = r.concat(variables).concat(rvariables)
-		return r
-	}
-
-	async function loadScripts(): Promise<{ path: string; summary?: string }[]> {
-		return await ScriptService.listScripts({ workspace: $workspaceStore ?? 'NO_W' })
-	}
-
 	let syncCode: NodeJS.Timer
 	onMount(() => {
 		syncCode = setInterval(() => {
@@ -237,29 +203,6 @@
 	})
 </script>
 
-<svelte:head>
-	{@html github}
-</svelte:head>
-
-<ItemPicker
-	bind:this={scriptPicker}
-	pickCallback={async (path, _) => {
-		modalViewerMode = 'code'
-		modalViewerTitle = 'Script ' + path
-		modalViewerContent = (
-			await ScriptService.getScriptByPath({
-				workspace: $workspaceStore ?? '',
-				path
-			})
-		).content
-		modalViewer.openModal()
-	}}
-	closeOnClick={false}
-	itemName="script"
-	extraField="summary"
-	loadItems={loadScripts}
-/>
-
 <Modal bind:this={modalViewer}>
 	<div slot="title">{modalViewerTitle}</div>
 	<div slot="content">
@@ -279,99 +222,6 @@
 	</div></Modal
 >
 
-<ItemPicker
-	bind:this={variablePicker}
-	pickCallback={(path, name) => {
-		if (!path) {
-			if (lang == 'deno') {
-				getEditor().insertAtCursor(`Deno.env.get('${name}')`)
-			} else {
-				if (!getEditor().getCode().includes('import os')) {
-					getEditor().insertAtBeginning('import os\n')
-				}
-				getEditor().insertAtCursor(`os.environ.get("${name}")`)
-			}
-			sendUserToast(`${name} inserted at cursor`)
-		} else {
-			if (lang == 'deno') {
-				if (!getEditor().getCode().includes('import * as wmill from')) {
-					getEditor().insertAtBeginning(
-						`import * as wmill from 'https://deno.land/x/windmill@v${__pkg__.version}/index.ts'\n`
-					)
-				}
-				getEditor().insertAtCursor(`(await wmill.getVariable('${path}'))`)
-			} else {
-				if (!getEditor().getCode().includes('import wmill')) {
-					getEditor().insertAtBeginning('import wmill\n')
-				}
-				getEditor().insertAtCursor(`wmill.get_variable("${path}")`)
-			}
-			sendUserToast(`${name} inserted at cursor`)
-		}
-	}}
-	itemName="Variable"
-	extraField="name"
-	loadItems={loadVariables}
->
-	<div slot="submission" class="flex flex-row">
-		<div class="text-xs mr-2 align-middle">
-			The variable you were looking for does not exist yet?
-		</div>
-		<button
-			class="default-button-secondary"
-			type="button"
-			on:click={() => {
-				variableEditor.initNew()
-			}}
-		>
-			Create a new variable
-		</button>
-	</div>
-</ItemPicker>
-
-<ItemPicker
-	bind:this={resourcePicker}
-	pickCallback={(path, _) => {
-		if (lang == 'deno') {
-			if (!getEditor().getCode().includes('import * as wmill from')) {
-				getEditor().insertAtBeginning(
-					`import * as wmill from 'https://deno.land/x/windmill@v${__pkg__.version}/index.ts'\n`
-				)
-			}
-			getEditor().insertAtCursor(`(await wmill.getResource('${path}'))`)
-		} else {
-			if (!getEditor().getCode().includes('import wmill')) {
-				getEditor().insertAtBeginning('import wmill\n')
-			}
-			getEditor().insertAtCursor(`wmill.get_resource("${path}")`)
-		}
-		sendUserToast(`${path} inserted at cursor`)
-	}}
-	itemName="Resource"
-	extraField="resource_type"
-	loadItems={async () =>
-		await ResourceService.listResource({ workspace: $workspaceStore ?? 'NO_W' })}
->
-	<div slot="submission" class="flex flex-row">
-		<div class="text-xs mr-2 align-middle">
-			The resource you were looking for does not exist yet?
-		</div>
-		<button
-			class="default-button-secondary"
-			type="button"
-			on:click={() => {
-				resourceEditor.initNew()
-			}}
-		>
-			Create a new resource
-		</button>
-	</div>
-</ItemPicker>
-
-<ResourceEditor bind:this={resourceEditor} on:refresh={resourcePicker.openModal} />
-
-<VariableEditor bind:this={variableEditor} on:create={variablePicker.openModal} />
-
 <VSplitPane
 	class="h-full"
 	topPanelSize={viewPreview ? '75%' : '90%'}
@@ -385,46 +235,7 @@
 	<top slot="top">
 		<div class="flex flex-col h-full">
 			<div class="header">
-				<div class="flex flex-row justify-around w-full">
-					<button
-						class="default-button-secondary font-semibold py-px mr-2 text-xs align-middle max-h-8"
-						on:click|stopPropagation={() => {
-							variablePicker.openModal()
-						}}
-						>Variable picker <Icon data={faSearch} scale={0.7} />
-					</button>
-
-					<button
-						class="default-button-secondary font-semibold py-px text-xs mr-2 align-middle max-h-8"
-						on:click|stopPropagation={() => {
-							resourcePicker.openModal()
-						}}
-						>Resource picker <Icon data={faSearch} scale={0.7} />
-					</button>
-					<button
-						class="default-button-secondary font-semibold py-px text-xs mr-2 align-middle max-h-8"
-						on:click|stopPropagation={() => {
-							scriptPicker.openModal()
-						}}
-						>Script explorer <Icon data={faSearch} scale={0.7} />
-					</button>
-
-					<button
-						class="default-button-secondary py-px max-h-8 text-xs"
-						on:click|stopPropagation={() => {
-							editor.reloadWebsocket()
-						}}
-					>
-						Reload assistants (status: {#if lang == 'deno'}<span
-								class={websocketAlive.deno ? 'text-green-600' : 'text-red-600'}>deno</span
-							>{:else if lang == 'python3'}<span
-								class={websocketAlive.pyright ? 'text-green-600' : 'text-red-600'}>pyright</span
-							>
-							<span class={websocketAlive.black ? 'text-green-600' : 'text-red-600'}>
-								black</span
-							>{/if})
-					</button>
-				</div>
+				<EditorBar {editor} {lang} {websocketAlive} />
 			</div>
 			<div class="flex-1 overflow-hidden">
 				<Editor
@@ -438,6 +249,7 @@
 					formatAction={() => {
 						code = getEditor().getCode()
 						localStorage.setItem(path ?? 'last_save', code)
+						lastSave = code
 					}}
 					class="h-full"
 					deno={lang == 'deno'}

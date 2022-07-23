@@ -30,6 +30,7 @@
 		"eslint-config-prettier": "^8.3.0",
 		"eslint-plugin-svelte3": "^4.0.0",
 		"openapi-typescript-codegen": "^0.23.0",
+		"path-browserify": "^1.0.1",
 		"postcss": "^8.4.5",
 		"postcss-load-config": "^4.0.1",
 		"prettier": "^2.7.1",

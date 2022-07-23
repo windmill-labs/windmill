@@ -24,6 +24,11 @@ const config = {
             'highlight.js/lib/core',
         ]
     },
+    resolve: {
+        alias: {
+            path: "path-browserify",
+        },
+    },
 };
 
 export default config;
