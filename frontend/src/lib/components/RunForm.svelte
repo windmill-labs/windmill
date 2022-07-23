@@ -60,8 +60,8 @@
 	{#if runnable?.schema}
 		{#if detailed}
 			<h2>
-				Arguments<Tooltip class="px-2 mb-6"
-					>Optioal fields, if left blank, will use the placeholder value as default.</Tooltip
+				Arguments <Tooltip
+					>The optional fields, if left blank, will use the placeholder value as default.</Tooltip
 				>
 			</h2>
 		{/if}

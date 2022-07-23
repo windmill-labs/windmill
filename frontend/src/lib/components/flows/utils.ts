@@ -8,9 +8,7 @@ import {
 } from '$lib/gen'
 import { inferArgs } from '$lib/infer'
 import { loadSchema } from '$lib/scripts'
-import { workspaceStore } from '$lib/stores'
 import { emptySchema, getScriptByPath } from '$lib/utils'
-import { get } from 'svelte/store'
 import type { FlowMode } from './flowStore'
 
 export function flowToMode(flow: Flow, mode: FlowMode): Flow {
@@ -18,10 +16,12 @@ export function flowToMode(flow: Flow, mode: FlowMode): Flow {
 		const newFlow: Flow = JSON.parse(JSON.stringify(flow))
 		const triggerModule = newFlow.value.modules[0]
 		const oldModules = newFlow.value.modules.slice(1)
+
 		if (triggerModule) {
 			triggerModule.stop_after_if_expr = 'result.res1.length == 0'
 			triggerModule.skip_if_stopped = true
 		}
+
 		newFlow.value.modules = newFlow.value.modules.slice(0, 1)
 		if (oldModules.length > 0) {
 			newFlow.value.modules.push({
@@ -127,7 +127,7 @@ export async function loadSchemaFromModule(module: FlowModule): Promise<{
 			input_transform = keys.reduce((accu, key) => {
 				accu[key] = {
 					type: 'static',
-					value: ''
+					value: undefined
 				}
 				return accu
 			}, {})
