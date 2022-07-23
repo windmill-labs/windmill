@@ -223,7 +223,6 @@
 >
 
 <VSplitPane
-	class="h-full"
 	topPanelSize={viewPreview ? '75%' : '90%'}
 	downPanelSize={viewPreview ? '25%' : '10%'}
 	updateCallback={() => {
