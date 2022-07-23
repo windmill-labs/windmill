@@ -82,10 +82,11 @@
 					/>
 				{/if}
 				{#if mod.value.type === FlowModuleValue.type.RAWSCRIPT}
-					<div class="p-1">
+					<div class="p-1 overflow-hidden">
 						<EditorBar {editor} {websocketAlive} lang={mod.value.language ?? 'deno'} />
 					</div>
 					<Editor
+						bind:websocketAlive
 						bind:this={editor}
 						class="h-80 border p-2 rounded"
 						bind:code={mod.value.content}
