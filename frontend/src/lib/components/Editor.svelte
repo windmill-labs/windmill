@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { browser, dev } from '$app/env'
 	import { page } from '$app/stores'
-	import { buildExtraLib } from '$lib/utils'
+	import { buildExtraLib, sendUserToast } from '$lib/utils'
 	import type monaco from 'monaco-editor'
 	import editorWorker from 'monaco-editor/esm/vs/editor/editor.worker?worker'
 	import jsonWorker from 'monaco-editor/esm/vs/language/json/json.worker?worker'
@@ -24,6 +24,7 @@
 	export let extraLibPath: string = 'file:///node_modules/@types/windmill/index.d.ts'
 
 	let websockets: WebSocket[] = []
+	let websocketInterval: NodeJS.Timer | undefined
 	let uri: string = ''
 	let disposeMethod: () => void | undefined
 	const dispatch = createEventDispatcher()
@@ -153,13 +154,15 @@
 						const writer = new WebSocketMessageWriter(socket)
 						const languageClient = createLanguageClient({ reader, writer }, name, options)
 						languageClient.start()
-						socket.onClose((_code, _reason) => {
-							websocketAlive[name] = false
+						reader.onClose(() => {
 							try {
 								languageClient.stop()
 							} catch (err) {
 								console.error(err)
 							}
+						})
+						socket.onClose((_code, _reason) => {
+							websocketAlive[name] = false
 						})
 						if (name == 'deno') {
 							vscode.commands.getCommands().then((v) => {
@@ -236,6 +239,16 @@
 					}
 				})
 			}
+			websocketInterval = setInterval(() => {
+				if (document.visibilityState == 'visible') {
+					if (!websocketAlive.black && !websocketAlive.deno && !websocketAlive.pyright) {
+						sendUserToast(
+							'Smart assistant got disconnected. Reconnecting to windmill language server for smart assistance'
+						)
+						reloadWebsocket()
+					}
+				}
+			}, 5000)
 		}
 	}
 
@@ -248,6 +261,7 @@
 			}
 		}
 		websockets = []
+		websocketInterval && clearInterval(websocketInterval)
 	}
 
 	async function loadMonaco() {
