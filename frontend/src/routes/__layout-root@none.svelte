@@ -47,13 +47,15 @@
 					}
 				}
 			} else {
-				goto('/user/workspaces')
+				if (!$page.url.pathname.startsWith('/user/')) {
+					goto(`/user/workspaces?rd=${encodeURIComponent($page.url.pathname + $page.url.search)}`)
+				}
 				let user = await UserService.globalWhoami()
 				sendUserToast(`Welcome back ${user.email}`)
 			}
 		} catch (e) {
 			console.error(e)
-			logoutWithRedirect($page.url.pathname)
+			logoutWithRedirect($page.url.pathname + $page.url.search)
 		}
 	}
 
