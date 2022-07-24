@@ -14,7 +14,14 @@
 	import type { Script } from '$lib/gen'
 	import { ScriptService } from '$lib/gen'
 	import { superadmin, userStore, workspaceStore, hubScripts } from '$lib/stores'
-	import { canWrite, getScriptByPath, groupBy, loadHubScripts, sendUserToast, truncateHash } from '$lib/utils'
+	import {
+		canWrite,
+		getScriptByPath,
+		groupBy,
+		loadHubScripts,
+		sendUserToast,
+		truncateHash
+	} from '$lib/utils'
 	import Badge from '$lib/components/Badge.svelte'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
 	import Dropdown from '$lib/components/Dropdown.svelte'
@@ -140,10 +147,11 @@
 		codeViewerPath = path
 		codeViewer.openModal()
 	}
+	loadHubScripts()
+
 	$: {
 		if ($workspaceStore && ($userStore || $superadmin)) {
 			loadScripts()
-			loadHubScripts()
 		}
 	}
 </script>
@@ -186,11 +194,11 @@
 	<Tabs
 		tabs={[
 			['all', 'all'],
+			['hub', 'hub'],
 			['personal', `personal space (${$userStore?.username})`],
 			['groups', 'groups'],
 			['shared', 'shared'],
-			['examples', 'examples'],
-			['hub', 'hub']
+			['examples', 'examples']
 		]}
 		bind:tab
 		on:update={loadScripts}
