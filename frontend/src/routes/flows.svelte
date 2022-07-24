@@ -118,6 +118,7 @@
 	<Tabs
 		tabs={[
 			['all', 'all'],
+			['hub', 'hub'],
 			['personal', `personal space (${$userStore?.username})`],
 			['groups', 'groups'],
 			['shared', 'shared']

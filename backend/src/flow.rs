@@ -133,7 +133,7 @@ async fn list_flows(
             "edited_by",
             "edited_at",
             "archived",
-            "schema",
+            "null schema",
             "extra_perms",
         ])
         .order_by("edited_at", lq.order_desc.unwrap_or(true))

@@ -195,7 +195,7 @@ async fn list_scripts(
             "created_by",
             "created_at",
             "archived",
-            "schema",
+            "null as schema",
             "deleted",
             "is_template",
             "extra_perms",
@@ -252,16 +252,20 @@ async fn list_scripts(
 }
 
 #[derive(Deserialize, Serialize)]
-struct SearchData {
+struct SearchScriptData {
     asks: Vec<ScriptSearch>,
 }
+
 #[derive(Deserialize, Serialize)]
 struct ScriptSearch {
     id: i32,
+    ask_id: i32,
     summary: String,
     app: String,
     approved: bool,
     is_trigger: bool,
+    views: i32,
+    votes: i32,
 }
 
 async fn list_hub_scripts(
@@ -282,7 +286,49 @@ async fn list_hub_scripts(
         .send()
         .await
         .map_err(to_anyhow)?
-        .json::<SearchData>()
+        .json::<SearchScriptData>()
+        .await
+        .map_err(to_anyhow)?
+        .asks;
+    Ok(Json(rows))
+}
+
+#[derive(Deserialize, Serialize)]
+struct SearchFlowData {
+    asks: Vec<FlowSearch>,
+}
+
+#[derive(Deserialize, Serialize)]
+struct FlowSearch {
+    id: i32,
+    ask_id: i32,
+    summary: String,
+    app: String,
+    approved: bool,
+    is_trigger: bool,
+    views: i32,
+    votes: i32,
+}
+
+async fn list_hub_flows(
+    Authed {
+        email, username, ..
+    }: Authed,
+    Host(host): Host,
+) -> JsonResult<Vec<ScriptSearch>> {
+    let http_client = reqwest::ClientBuilder::new()
+        .user_agent("windmill/beta")
+        .build()
+        .map_err(to_anyhow)?;
+    let rows = http_client
+        .get("https://hub.windmill.dev/searchFlowData?approved=true")
+        .header("X-email", email.unwrap_or_else(|| "".to_string()))
+        .header("X-username", username)
+        .header("X-hostname", host)
+        .send()
+        .await
+        .map_err(to_anyhow)?
+        .json::<SearchScriptData>()
         .await
         .map_err(to_anyhow)?
         .asks;
