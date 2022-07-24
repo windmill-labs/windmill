@@ -103,7 +103,7 @@
 
 				{#if propertiesTypes[argName] === undefined || propertiesTypes[argName] === InputTransform.type.STATIC}
 					<OverlayPropertyPicker
-						{pickableProperties}
+						bind:pickableProperties
 						disabled={!hasOverlay(inputCats[argName])}
 						on:select={(event) => {
 							const toAppend = `\$\{${event.detail}}`

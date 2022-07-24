@@ -52,7 +52,7 @@
 
 		<div slot="content" class="content" let:toggle on:mouseleave={toggle} let:close>
 			<PropPicker
-				{pickableProperties}
+				bind:pickableProperties
 				on:select={(event) => {
 					isOpen = false
 					dispatch('select', event.detail)

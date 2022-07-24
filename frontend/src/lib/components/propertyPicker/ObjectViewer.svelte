@@ -31,6 +31,9 @@
 
 	function computeKey(key: string) {
 		if (isArray) {
+			if (currentPath === 'step') {
+				return `${currentPath}(${key})?`
+			}
 			return `${currentPath}[${key}]`
 		} else {
 			if (currentPath) {
