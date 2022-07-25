@@ -1,3 +1,11 @@
+<script context="module">
+	export function load() {
+		return {
+			stuff: { title: 'Workspace Selection' }
+		}
+	}
+</script>
+
 <script lang="ts">
 	import { goto } from '$app/navigation'
 	import { page } from '$app/stores'
@@ -110,7 +118,7 @@
 		<div
 			class="
 					block
-					w-96
+					w-full
 					mx-auto
 					py-1
 					px-2

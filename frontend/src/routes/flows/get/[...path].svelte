@@ -1,7 +1,15 @@
+<script context="module">
+	export function load({ params }) {
+		return {
+			stuff: { title: `Flow ${params.path}` }
+		}
+	}
+</script>
+
 <script lang="ts">
 	import { page } from '$app/stores'
 	import { FlowService, type Flow } from '$lib/gen'
-	import { sendUserToast, displayDaysAgo, canWrite } from '$lib/utils'
+	import { displayDaysAgo, canWrite } from '$lib/utils'
 	import Icon from 'svelte-awesome'
 	import {
 		faPlay,
@@ -17,7 +25,6 @@
 	import { userStore, workspaceStore } from '$lib/stores'
 	import SharedBadge from '$lib/components/SharedBadge.svelte'
 	import SvelteMarkdown from 'svelte-markdown'
-	import SchemaViewer from '$lib/components/SchemaViewer.svelte'
 	import Dropdown from '$lib/components/Dropdown.svelte'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
 	import FlowViewer from '$lib/components/FlowViewer.svelte'
@@ -167,20 +174,6 @@
 							>/api/w/{$workspaceStore}/jobs/run/f/{flow?.path}</a
 						></code
 					></pre>
-			</div>
-			<div>
-				<div class="grid grid-cols-2 gap-4 pb-1 mb-3 border-b">
-					<h3 class="text-gray-700 ">
-						Arguments JSON schema <Tooltip
-							>The jsonschema defines the constraints that the payload must respect to be compatible
-							with the input parameters of this flow. The UI form is generated automatically from
-							the flow jsonschema. See <a href="https://json-schema.org/"
-								>jsonschema documentation</a
-							></Tooltip
-						>
-					</h3>
-				</div>
-				<SchemaViewer schema={flow.schema} />
 			</div>
 			<div>
 				<h3 class="text-gray-700 pb-1 mb-3 border-b">Flow</h3>

@@ -5,6 +5,7 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
+use reqwest::Client;
 use serde::Deserializer;
 use sql_builder::prelude::*;
 
@@ -14,7 +15,7 @@ use crate::{
     error::{to_anyhow, Error, JsonResult, Result},
     jobs, parser,
     users::{owner_to_token_owner, truncate_token, Authed, Tokened},
-    utils::{require_admin, Pagination, StripPath},
+    utils::{http_get_from_hub, list_elems_from_hub, require_admin, Pagination, StripPath},
 };
 use axum::{
     extract::{Extension, Host, Path, Query},
@@ -195,7 +196,7 @@ async fn list_scripts(
             "created_by",
             "created_at",
             "archived",
-            "schema",
+            "null as schema",
             "deleted",
             "is_template",
             "extra_perms",
@@ -251,42 +252,22 @@ async fn list_scripts(
     Ok(Json(rows))
 }
 
-#[derive(Deserialize, Serialize)]
-struct SearchData {
-    asks: Vec<ScriptSearch>,
-}
-#[derive(Deserialize, Serialize)]
-struct ScriptSearch {
-    id: i32,
-    summary: String,
-    app: String,
-    approved: bool,
-    is_trigger: bool,
-}
-
 async fn list_hub_scripts(
     Authed {
         email, username, ..
     }: Authed,
+    Extension(http_client): Extension<Client>,
     Host(host): Host,
-) -> JsonResult<Vec<ScriptSearch>> {
-    let http_client = reqwest::ClientBuilder::new()
-        .user_agent("windmill/beta")
-        .build()
-        .map_err(to_anyhow)?;
-    let rows = http_client
-        .get("https://hub.windmill.dev/searchData?approved=true")
-        .header("X-email", email.unwrap_or_else(|| "".to_string()))
-        .header("X-username", username)
-        .header("X-hostname", host)
-        .send()
-        .await
-        .map_err(to_anyhow)?
-        .json::<SearchData>()
-        .await
-        .map_err(to_anyhow)?
-        .asks;
-    Ok(Json(rows))
+) -> JsonResult<serde_json::Value> {
+    let asks = list_elems_from_hub(
+        http_client,
+        "https://hub.windmill.dev/searchData?approved=true",
+        email,
+        username,
+        host,
+    )
+    .await?;
+    Ok(Json(asks))
 }
 
 fn hash_script(ns: &NewScript) -> i64 {
@@ -502,26 +483,26 @@ pub async fn get_hub_script_by_path(
         email, username, ..
     }: Authed,
     Path(path): Path<StripPath>,
+    Extension(http_client): Extension<Client>,
+    Host(host): Host,
 ) -> Result<String> {
     let path = path
         .to_path()
         .strip_prefix("hub/")
         .ok_or_else(|| Error::BadRequest("Impossible to remove prefix hex".to_string()))?;
 
-    let http_client = reqwest::ClientBuilder::new()
-        .user_agent("windmill/beta")
-        .build()
-        .map_err(to_anyhow)?;
-    let content = http_client
-        .get(format!("https://hub.windmill.dev/raw/{path}.ts"))
-        .header("X-email", email.unwrap_or_else(|| "".to_string()))
-        .header("X-username", username)
-        .send()
-        .await
-        .map_err(to_anyhow)?
-        .text()
-        .await
-        .map_err(to_anyhow)?;
+    let content = http_get_from_hub(
+        http_client,
+        &format!("https://hub.windmill.dev/raw/{path}.ts"),
+        email,
+        username,
+        host,
+        true,
+    )
+    .await?
+    .text()
+    .await
+    .map_err(to_anyhow)?;
     Ok(content)
 }
 

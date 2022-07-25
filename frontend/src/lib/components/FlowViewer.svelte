@@ -10,6 +10,8 @@
 	import github from 'svelte-highlight/styles/github'
 	import { slide } from 'svelte/transition'
 	import Tabs from './Tabs.svelte'
+	import SchemaViewer from './SchemaViewer.svelte'
+	import FieldHeader from './FieldHeader.svelte'
 
 	export let flow: {
 		summary: string
@@ -27,7 +29,7 @@
 
 	export let embedded = false
 
-	export let tab: 'ui' | 'json' = 'ui'
+	export let tab: 'ui' | 'json' | 'schema' = 'ui'
 	let open: { [id: number]: boolean } = {}
 </script>
 
@@ -39,22 +41,48 @@
 	<Tabs
 		tabs={[
 			['ui', 'Flow rendered'],
-			['json', 'JSON']
+			['json', 'JSON'],
+			['schema', 'Input schema of the flow']
 		]}
 		bind:tab
 	/>
 {/if}
 {#if tab == 'ui'}
 	<div class="flow-root w-full p-4">
-		<p class="font-black text-lg mb-6 w-full ml-2">
-			<span>{flow.value.modules.length} Steps </span>
+		<p class="font-black text-lg w-full ml-2">
+			<span>Inputs</span>
+		</p>
+		{#if flow.schema && flow.schema.properties && Object.keys(flow.schema.properties).length > 0 && flow.schema}
+			<ul class="my-4 ml-6">
+				{#each Object.entries(flow.schema.properties) as [inp, v]}
+					<li class="list-disc flex flex-row">
+						<FieldHeader
+							label={inp}
+							required={flow.schema.required?.includes(inp)}
+							type={v?.type}
+							contentEncoding={v?.contentEncoding}
+							format={v?.format}
+							itemsType={v?.itemsType}
+						/><span class="ml-4 mt-2 text-xs"
+							>{v.default != undefined ? 'default: ' + JSON.stringify(v.default) : ''}</span
+						>
+					</li>
+				{/each}
+			</ul>
+		{:else}
+			<div class="text-gray-700 text-xs italic mb-4">
+				This script has no argument or is ill-defined
+			</div>
+		{/if}
+		<p class="font-black text-lg my-6 w-full ml-2">
+			<span>{flow?.value?.modules?.length} Steps </span>
 			<span class="mt-4" />
 		</p>
 		<ul class="-mb-8 w-full">
-			{#each flow.value.modules ?? [] as mod, i}
+			{#each flow?.value?.modules ?? [] as mod, i}
 				<li class="w-full">
 					<div class="relative pb-8 w-full">
-						{#if i < (flow.value.modules ?? []).length - 1}
+						{#if i < (flow?.value?.modules ?? []).length - 1}
 							<span
 								class="absolute top-4 left-4 -ml-px h-full w-0.5 bg-gray-200"
 								aria-hidden="true"
@@ -70,33 +98,33 @@
 							<div class="min-w-0 flex-1 pt-1.5 flex justify-between space-x-4 w-full">
 								<div class="w-full">
 									<p class="text-sm text-gray-500">
-										{#if mod.value.type == FlowModuleValue.type.SCRIPT}
+										{#if mod?.value?.type == FlowModuleValue.type.SCRIPT}
 											Script at path <a
 												target="_blank"
-												href={scriptPathToHref(mod.value.path ?? '')}
-												class="font-medium text-gray-900">{mod.value.path}</a
+												href={scriptPathToHref(mod?.value?.path ?? '')}
+												class="font-medium text-gray-900">{mod?.value?.path}</a
 											>
-										{:else if mod.value.type == FlowModuleValue.type.RAWSCRIPT}
+										{:else if mod?.value?.type == FlowModuleValue.type.RAWSCRIPT}
 											<button
 												on:click={() => (open[i] = !open[i])}
 												class="mb-2 underline text-black"
 											>
-												Raw {mod.value.language} script {open[i] ? '(-)' : '(+)'}</button
+												Raw {mod?.value?.language} script {open[i] ? '(-)' : '(+)'}</button
 											>
 
 											{#if open[i]}
 												<div transition:slide class="border border-black p-2 bg-gray-50 w-full">
 													<Highlight
-														language={mod.value.language == 'deno' ? typescript : python}
-														code={mod.value.content}
+														language={mod?.value?.language == 'deno' ? typescript : python}
+														code={mod?.value?.content}
 													/>
 												</div>
 											{/if}
-										{:else if mod.value.type == FlowModuleValue.type.FLOW}
-											Flow at path {mod.value.path}
-										{:else if mod.value.type == FlowModuleValue.type.FORLOOPFLOW}
+										{:else if mod?.value?.type == FlowModuleValue.type.FLOW}
+											Flow at path {mod?.value?.path}
+										{:else if mod?.value?.type == FlowModuleValue.type.FORLOOPFLOW}
 											For loop over step {i}'s result':
-											<svelte:self flow={mod.value} embedded={true} />
+											<svelte:self flow={mod?.value} embedded={true} />
 										{/if}
 									</p>
 								</div>
@@ -107,6 +135,17 @@
 			{/each}
 		</ul>
 	</div>
-{:else}
-	<Highlight language={json} code={JSON.stringify(flowFiltered, null, 4)} />
+{:else if tab == 'json'}
+	<div class="relative">
+		<button
+			on:click={async () => {
+				await navigator.clipboard.writeText(JSON.stringify(flowFiltered, null, 4))
+			}}
+			class="absolute default-secondary-button-v2 bg-white/30 right-0 my-2 ml-4"
+			>copy content</button
+		>
+		<Highlight language={json} code={JSON.stringify(flowFiltered, null, 4)} />
+	</div>
+{:else if tab == 'schema'}
+	<SchemaViewer schema={flow.schema} />
 {/if}

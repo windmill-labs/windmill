@@ -1,3 +1,11 @@
+<script context="module">
+	export function load() {
+		return {
+			stuff: { title: 'New Schedule' }
+		}
+	}
+</script>
+
 <script lang="ts">
 	import { page } from '$app/stores'
 	import { sendUserToast, displayDate } from '$lib/utils'
@@ -183,7 +191,7 @@
 			{/if}
 		</div>
 		<h2 class="mt-2 md:mt-6">
-			Schedule<Tooltip class="mx-2">Schedules use CRON syntax. Milliseconds are mandatory.</Tooltip>
+			Schedule<Tooltip>Schedules use CRON syntax. Milliseconds are mandatory.</Tooltip>
 		</h2>
 		<div class="text-purple-500 text-2xs grow">{cronError}</div>
 		<div class="flex flex-row items-end max-w-5xl">

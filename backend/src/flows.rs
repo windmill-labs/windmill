@@ -7,10 +7,11 @@
 
 use std::collections::HashMap;
 
+use reqwest::Client;
 use sql_builder::prelude::*;
 
 use axum::{
-    extract::{Extension, Path, Query},
+    extract::{Extension, Host, Path, Query},
     routing::{get, post},
     Json, Router,
 };
@@ -21,11 +22,11 @@ use sqlx::{FromRow, Postgres, Transaction};
 use crate::{
     audit::{audit_log, ActionKind},
     db::{UserDB, DB},
-    error::{self, Error, JsonResult, Result},
+    error::{self, to_anyhow, Error, JsonResult, Result},
     jobs::RawCode,
     scripts::Schema,
     users::Authed,
-    utils::{Pagination, StripPath},
+    utils::{http_get_from_hub, list_elems_from_hub, Pagination, StripPath},
 };
 
 pub fn workspaced_service() -> Router {
@@ -36,6 +37,12 @@ pub fn workspaced_service() -> Router {
         .route("/archive/*path", post(archive_flow_by_path))
         .route("/get/*path", get(get_flow_by_path))
         .route("/exists/*path", get(exists_flow_by_path))
+}
+
+pub fn global_service() -> Router {
+    Router::new()
+        .route("/hub/list", get(list_hub_flows))
+        .route("/hub/get/:id", get(get_hub_flow_by_id))
 }
 
 #[derive(FromRow, Serialize)]
@@ -133,7 +140,7 @@ async fn list_flows(
             "edited_by",
             "edited_at",
             "archived",
-            "schema",
+            "null schema",
             "extra_perms",
         ])
         .order_by("edited_at", lq.order_desc.unwrap_or(true))
@@ -160,6 +167,47 @@ async fn list_flows(
     let rows = sqlx::query_as::<_, Flow>(&sql).fetch_all(&mut tx).await?;
     tx.commit().await?;
     Ok(Json(rows))
+}
+
+async fn list_hub_flows(
+    Authed {
+        email, username, ..
+    }: Authed,
+    Extension(http_client): Extension<Client>,
+    Host(host): Host,
+) -> JsonResult<serde_json::Value> {
+    let flows = list_elems_from_hub(
+        http_client,
+        "https://hub.windmill.dev/searchFlowData?approved=true",
+        email,
+        username,
+        host,
+    )
+    .await?;
+    Ok(Json(flows))
+}
+
+pub async fn get_hub_flow_by_id(
+    Authed {
+        email, username, ..
+    }: Authed,
+    Path(id): Path<i32>,
+    Extension(http_client): Extension<Client>,
+    Host(host): Host,
+) -> JsonResult<serde_json::Value> {
+    let value = http_get_from_hub(
+        http_client,
+        &format!("https://hub.windmill.dev/flows/{id}/json"),
+        email,
+        username,
+        host,
+        false,
+    )
+    .await?
+    .json()
+    .await
+    .map_err(to_anyhow)?;
+    Ok(Json(value))
 }
 
 async fn create_flow(

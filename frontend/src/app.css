@@ -17,6 +17,10 @@
 	a {
 		@apply text-blue-500;
 	}
+	
+	.flex pre code.hljs {
+		@apply text-sm;
+	}
 
 	#table-custom th {
 		@apply py-3.5 text-left text-sm font-semibold text-gray-900 capitalize;
@@ -49,6 +53,21 @@
 		@apply text-gray-500;
 		@apply bg-gray-200;
 		@apply font-mono;
+	}
+
+	.item-button {
+		@apply py-1;
+		@apply border border-gray-300;
+		@apply rounded-sm;
+	}
+	.item-button:hover {
+		@apply border border-gray-800 bg-gray-100 border-opacity-50;
+	}
+	.item-button-selected {
+		@apply py-1;
+		@apply border border-blue-500;
+		@apply bg-blue-50;
+		@apply rounded-sm;
 	}
 
 	.default-button {

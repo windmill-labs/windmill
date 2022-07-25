@@ -5,6 +5,7 @@
 	import { faRobot } from '@fortawesome/free-solid-svg-icons'
 	import Icon from 'svelte-awesome'
 	import Editor from './Editor.svelte'
+	import EditorBar from './EditorBar.svelte'
 	import FlowPreview from './FlowPreview.svelte'
 	import FlowInputs from './flows/FlowInputs.svelte'
 	import FlowModuleHeader from './flows/FlowModuleHeader.svelte'
@@ -25,6 +26,9 @@
 	export let i: number
 	export let mod: FlowModule
 	export let args: Record<string, any> = {}
+
+	let editor: Editor
+	let websocketAlive = { pyright: false, black: false, deno: false }
 
 	$: schema = $schemasStore[i]
 	$: shouldPick = mod.value.path === '' && mod.value.language === undefined
@@ -79,7 +83,12 @@
 					/>
 				{/if}
 				{#if mod.value.type === FlowModuleValue.type.RAWSCRIPT}
+					<div class="p-1 overflow-hidden">
+						<EditorBar {editor} {websocketAlive} lang={mod.value.language ?? 'deno'} />
+					</div>
 					<Editor
+						bind:websocketAlive
+						bind:this={editor}
 						class="h-80 border p-2 rounded"
 						bind:code={mod.value.content}
 						deno={mod.value.language === FlowModuleValue.language.DENO}

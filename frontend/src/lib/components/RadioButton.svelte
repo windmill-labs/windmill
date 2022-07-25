@@ -13,7 +13,7 @@
 	<legend class="sr-only">{label}</legend>
 	<div class="flex flex-row gap-2">
 		{#each options as [label, val]}
-			<label class:selected={val == value} class={small ? 'py-0' : 'py-3'}>
+			<label class:selected={val == value} class={`item-button ${small ? 'py-0' : 'py-3'}`}>
 				<input
 					type="radio"
 					value={val}
@@ -30,10 +30,10 @@
 
 <style>
 	label {
-		@apply border rounded-md px-3 flex items-center justify-center text-sm font-medium uppercase sm:flex-1 cursor-pointer focus:outline-none;
+		@apply rounded-md px-3 flex items-center justify-center text-sm font-medium uppercase sm:flex-1 cursor-pointer focus:outline-none;
 	}
 
 	label.selected {
-		@apply border bg-blue-500/70 text-white rounded-md px-3 flex items-center justify-center text-sm font-medium uppercase sm:flex-1 cursor-pointer focus:outline-none;
+		@apply bg-blue-500/70 text-white rounded-md px-3 flex items-center justify-center text-sm font-medium uppercase sm:flex-1 cursor-pointer focus:outline-none;
 	}
 </style>

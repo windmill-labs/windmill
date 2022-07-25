@@ -1,16 +1,25 @@
+<script context="module">
+	export function load() {
+		return {
+			stuff: { title: `New Script` }
+		}
+	}
+</script>
+
 <script lang="ts">
-	import { ScriptService, type Script } from '$lib/gen'
+	import { Script, ScriptService } from '$lib/gen'
 
 	import { page } from '$app/stores'
 	import { workspaceStore } from '$lib/stores'
 	import ScriptBuilder from '$lib/components/ScriptBuilder.svelte'
 	import type { Schema } from '$lib/common'
-	import { emptySchema, sendUserToast } from '$lib/utils'
+	import { emptySchema, getScriptByPath, sendUserToast } from '$lib/utils'
 
 	// Default
 	let schema: Schema = emptySchema()
 
-	$: templatePath = $page.url.searchParams.get('template')
+	const templatePath = $page.url.searchParams.get('template')
+	const hubPath = $page.url.searchParams.get('hub')
 
 	const initialState = $page.url.searchParams.get('state')
 
@@ -46,6 +55,18 @@
 			sendUserToast('Code & arguments have been loaded from template.')
 		}
 	}
+
+	async function loadHub(): Promise<void> {
+		if (hubPath) {
+			const template = await getScriptByPath(hubPath)
+			script.description = `Fork of ${hubPath}`
+			script.content = template.content
+			script.language = Script.language.DENO
+			sendUserToast(`Code has been loaded from hub script ${hubPath}.`)
+		}
+	}
+
+	loadHub()
 
 	$: {
 		if ($workspaceStore) {

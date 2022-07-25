@@ -1,7 +1,15 @@
+<script context="module">
+	export function load() {
+		return {
+			stuff: { title: 'Login' }
+		}
+	}
+</script>
+
 <script lang="ts">
 	import { goto } from '$app/navigation'
 	import { page } from '$app/stores'
-	import { faGithub, faGitlab } from '@fortawesome/free-brands-svg-icons'
+	import { faGithub, faGitlab, faGoogle } from '@fortawesome/free-brands-svg-icons'
 	import { onMount } from 'svelte'
 	import Icon from 'svelte-awesome'
 	import { slide } from 'svelte/transition'
@@ -101,6 +109,15 @@
 					</button></a
 				>
 			{/if}
+			{#if logins.includes('google')}
+				<a rel="external" href="/api/oauth/login/google"
+					><button
+						class="m-auto default-button bg-gray-100 mt-2 py-2 w-full text-black hover:bg-blue-300"
+						>Google &nbsp;
+						<Icon class="pb-1" data={faGoogle} scale={1.4} />
+					</button></a
+				>
+			{/if}
 		</div>
 		<div class="flex flex-row-reverse w-full">
 			<button
@@ -114,9 +131,9 @@
 		{#if showPassword}
 			<div transition:slide>
 				<p class="text-xs text-gray-400 italic my-2">
-					Signup without Github is not supported currently but if you do not want to use the github
-					login flow, you can send us an email at contact@windmill.dev and you will receive
-					credentials that you can use below.
+					To get credentials without the OAuth providers above, you can send us an email at
+					contact@windmill.dev or your admin owners if this instance is self-hosted and you will
+					receive credentials that you can use below.
 				</p>
 				<label class="block pb-2">
 					<span class="text-gray-700">email</span>

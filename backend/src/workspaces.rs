@@ -8,7 +8,7 @@
 use crate::{
     db::{UserDB, DB},
     error::{Error, JsonResult, Result},
-    users::{Authed, WorkspaceInvite}, utils::{require_admin, require_super_admin, Pagination}, audit::{audit_log, ActionKind}, scripts::{Script, Schema}, resources::{Resource, ResourceType}, flow::Flow, variables::ListableVariable,
+    users::{Authed, WorkspaceInvite}, utils::{require_admin, require_super_admin, Pagination}, audit::{audit_log, ActionKind}, scripts::{Script, Schema}, resources::{Resource, ResourceType}, flows::Flow, variables::ListableVariable,
 };
 use axum::{extract::{Extension, Path, Query}, routing::{get, post, delete}, Json, Router, response::{IntoResponse}, body::StreamBody};
 

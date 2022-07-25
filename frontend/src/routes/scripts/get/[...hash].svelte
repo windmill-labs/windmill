@@ -1,3 +1,11 @@
+<script context="module">
+	export function load({ params }) {
+		return {
+			stuff: { title: `Script ${params.hash}` }
+		}
+	}
+</script>
+
 <script lang="ts">
 	import { page } from '$app/stores'
 	import { ScriptService, type Script } from '$lib/gen'

@@ -13,7 +13,6 @@
 	import Tooltip from './Tooltip.svelte'
 	import { userStore, workspaceStore } from '$lib/stores'
 	import { sleep } from '$lib/utils'
-	import { workspace } from 'vscode'
 
 	type PathKind = 'resource' | 'script' | 'variable' | 'flow' | 'schedule'
 	export let meta: Meta = {
@@ -177,6 +176,7 @@
 		<label class="block col-span-2">
 			<span class="text-gray-700 text-sm">Name<span class="text-red-600 text-sm">*</span></span>
 			<input
+				autofocus
 				bind:value={meta.name}
 				placeholder={namePlaceholder}
 				class={error === ''

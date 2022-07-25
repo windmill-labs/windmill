@@ -1,3 +1,11 @@
+<script context="module">
+	export function load({ params }) {
+		return {
+			stuff: { title: `Run ${params.run}` }
+		}
+	}
+</script>
+
 <script lang="ts">
 	import { page } from '$app/stores'
 	import { JobService, Job } from '$lib/gen'

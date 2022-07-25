@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { page } from '$app/stores'
+
 	import { SvelteToast } from '@zerodevx/svelte-toast'
 
 	// Default toast options
@@ -13,6 +15,10 @@
 		theme: {} // css var overrides
 	}
 </script>
+
+<svelte:head>
+	<title>{$page.stuff.title ? `${$page.stuff.title} | ` : ''}Windmill</title>
+</svelte:head>
 
 <slot />
 <SvelteToast options={toastOptions} />

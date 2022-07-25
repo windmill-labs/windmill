@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.22.0
+  version: 1.23.0
   title: Windmill server API
   contact:
     name: Windmill contact
@@ -1509,26 +1509,99 @@ paths:
           content:
             application/json:
               schema:
-                type: array
-                items:
-                  type: object
-                  properties:
-                    id:
-                      type: number
-                    summary:
-                      type: string
-                    app:
-                      type: string
-                    approved:
-                      type: boolean
-                    is_trigger:
-                      type: boolean
-                  required:
-                    - id
-                    - summary
-                    - app
-                    - approved
-                    - is_trigger
+                type: object
+                properties:
+                  asks:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: number
+                        ask_id:
+                          type: number
+                        summary:
+                          type: string
+                        app:
+                          type: string
+                        approved:
+                          type: boolean
+                        is_trigger:
+                          type: boolean
+                        votes:
+                          type: number
+                        views:
+                          type: number
+                      required:
+                        - id
+                        - ask_id
+                        - summary
+                        - app
+                        - approved
+                        - is_trigger
+                        - views
+                        - votes
+
+  /flows/hub/list:
+    get:
+      summary: list all available hub flows
+      operationId: listHubFlows
+      tags:
+        - flow
+      responses:
+        "200":
+          description: hub flows list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  flows:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: number
+                        flow_id:
+                          type: number
+                        summary:
+                          type: string
+                        apps:
+                          type: array
+                          items:
+                            type: string
+                        approved:
+                          type: boolean
+                        votes:
+                          type: number
+
+                      required:
+                        - id
+                        - flow_id
+                        - summary
+                        - apps
+                        - approved
+                        - votes
+
+  /flows/hub/get/{id}:
+    get:
+      summary: get hub flow by id
+      operationId: getHubFlowById
+      tags:
+        - flow
+      parameters:
+        - $ref: "#/components/parameters/PathId"
+      responses:
+        "200":
+          description: flow
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  flow:
+                    $ref: "#/components/schemas/OpenFlow"
 
   /scripts/hub/get/{path}:
     get:
@@ -3932,6 +4005,21 @@ components:
         - edited_at
         - archived
         - extra_perms
+
+    OpenFlow:
+      type: object
+      properties:
+        summary:
+          type: string
+        description:
+          type: string
+        value:
+          $ref: "#/components/schemas/FlowValue"
+        schema:
+          type: object
+      required:
+        - summary
+        - value
 
     FlowValue:
       type: object

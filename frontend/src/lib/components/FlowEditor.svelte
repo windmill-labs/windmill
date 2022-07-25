@@ -61,72 +61,76 @@
 	</div>
 </Modal>
 
-<div class="flow-root bg-gray-50 rounded-xl border  border-gray-200">
-	<ul class="relative -mt-10">
-		<span class="absolute top-0 left-1/2  h-full w-1 bg-gray-400" aria-hidden="true" />
-		<div class="relative">
-			<li class="flex flex-row flex-shrink max-w-full mx-auto mt-20">
-				<div
-					class="bg-white border border-gray xl-rounded shadow-lg w-full max-w-4xl mx-4 md:mx-auto p-4"
-				>
-					<div class="flex flex-row-reverse mr-4">
-						<Dropdown
-							dropdownItems={[
-								{
-									displayName: 'Import from JSON',
-									icon: faFileImport,
-									action: () => {
-										jsonSetter.openModal()
+{#if $flowStore}
+	<div class="flow-root bg-gray-50 rounded-xl border  border-gray-200">
+		<ul class="relative -mt-10">
+			<span class="absolute top-0 left-1/2  h-full w-1 bg-gray-400" aria-hidden="true" />
+			<div class="relative">
+				<li class="flex flex-row flex-shrink max-w-full mx-auto mt-20">
+					<div
+						class="bg-white border border-gray xl-rounded shadow-lg w-full max-w-4xl mx-4 md:mx-auto p-4"
+					>
+						<div class="flex flex-row-reverse mr-4">
+							<Dropdown
+								dropdownItems={[
+									{
+										displayName: 'Import from JSON',
+										icon: faFileImport,
+										action: () => {
+											jsonSetter.openModal()
+										}
+									},
+									{
+										displayName: 'Export to JSON',
+										icon: faFileExport,
+										action: () => {
+											jsonViewer.openModal()
+										}
+									},
+									{
+										displayName: 'Publish to Hub',
+										icon: faGlobe,
+										action: () => {
+											const url = new URL('https://hub.windmill.dev/flows/add')
+											const openFlow = {
+												value: $flowStore.value,
+												summary: $flowStore.summary,
+												description: $flowStore.description,
+												schema: $flowStore.schema
+											}
+											url.searchParams.append(
+												'flow',
+												btoa(JSON.stringify(flowToMode(openFlow, mode)))
+											)
+											window.open(url, '_blank')?.focus()
+										}
 									}
-								},
-								{
-									displayName: 'Export to JSON',
-									icon: faFileExport,
-									action: () => {
-										jsonViewer.openModal()
-									}
-								},
-								{
-									displayName: 'Publish to Hub',
-									icon: faGlobe,
-									action: () => {
-										const url = new URL('https://hub.windmill.dev/flows/add')
-										url.searchParams.append(
-											'flow',
-											btoa(JSON.stringify(flowToMode($flowStore, mode).value))
-										)
-										url.searchParams.append('schema', btoa(JSON.stringify($flowStore.schema)))
-										url.searchParams.append('description', $flowStore.description ?? '')
-										url.searchParams.append('summary', $flowStore.summary)
-										window.open(url, '_blank')?.focus()
-									}
-								}
-							]}
-							relative={false}
-						/>
-					</div>
-					<div class="mb-8 p-4">
-						<Path
-							bind:error={pathError}
-							bind:path={$flowStore.path}
-							{initialPath}
-							namePlaceholder="my_flow"
-							kind="flow"
-						>
-							<div slot="ownerToolkit">
-								Flow permissions depend on their path. Select the group <span class="font-mono"
-									>all</span
-								>
-								to share your flow, and <span class="font-mono">user</span> to keep it private.
-								<a href="https://docs.windmill.dev/docs/reference/namespaces">docs</a>
-							</div>
-						</Path>
+								]}
+								relative={false}
+							/>
+						</div>
+						<div class="mb-8 p-4">
+							<Path
+								bind:error={pathError}
+								bind:path={$flowStore.path}
+								{initialPath}
+								namePlaceholder="my_flow"
+								kind="flow"
+							>
+								<div slot="ownerToolkit">
+									Flow permissions depend on their path. Select the group <span class="font-mono"
+										>all</span
+									>
+									to share your flow, and <span class="font-mono">user</span> to keep it private.
+									<a href="https://docs.windmill.dev/docs/reference/namespaces">docs</a>
+								</div>
+							</Path>
 
-						<label class="block mt-4">
-							<span class="text-gray-700">Summary <Required required={false} /></span>
-							<textarea
-								bind:value={$flowStore.summary}
-								class="
+							<label class="block mt-4">
+								<span class="text-gray-700">Summary <Required required={false} /></span>
+								<textarea
+									bind:value={$flowStore.summary}
+									class="
 					mt-1
 					block
 					w-full
@@ -135,82 +139,85 @@
 					shadow-sm
 					focus:border-indigo-300 focus:ring focus:ring-indigo-200 focus:ring-opacity-50
 					"
-								placeholder="A very short summary of the flow displayed when the flow is listed"
-								rows="1"
-							/>
-						</label>
+									placeholder="A very short summary of the flow displayed when the flow is listed"
+									rows="1"
+								/>
+							</label>
+						</div>
+						<RadioButtonV2
+							options={[
+								[
+									{
+										title: 'Push',
+										desc: 'Trigger this flow through the generated UI, a manual schedule or by calling the associated webhook'
+									},
+									'push'
+								],
+								[
+									{
+										title: 'Pull',
+										desc: 'The first module of this flow is a trigger script whose purpose is to pull data from an external source and return all new items since last run. This flow is meant to be scheduled very regularly to reduce latency to react to new events. It will trigger the rest of the flow once per item. If no new items, the flow will be skipped.'
+									},
+									'pull'
+								]
+							]}
+							bind:value={mode}
+						/>
 					</div>
-					<RadioButtonV2
-						options={[
-							[
-								{
-									title: 'Push',
-									desc: 'Trigger this flow through the generated UI, a manual schedule or by calling the associated webhook'
-								},
-								'push'
-							],
-							[
-								{
-									title: 'Pull',
-									desc: 'The first module of this flow is a trigger script whose purpose is to pull data from an external source and return all new items since last run. This flow is meant to be scheduled very regularly to reduce latency to react to new events. It will trigger the rest of the flow once per item. If no new items, the flow will be skipped.'
-								},
-								'pull'
-							]
-						]}
-						bind:value={mode}
-					/>
-				</div>
-			</li>
-			<li class="flex flex-row flex-shrink max-w-full mx-auto mt-20">
-				<div class="bg-white border border-gray xl-rounded shadow-lg w-full mx-4 xl:mx-20">
-					<div
-						class="flex items-center justify-between flex-wra px-4 py-5 border-b border-gray-200 sm:px-6"
-					>
-						<h3 class="text-lg leading-6 font-medium text-gray-900">Flow Input</h3>
-						<CopyFirstStepSchema />
+				</li>
+				<li class="flex flex-row flex-shrink max-w-full mx-auto mt-20">
+					<div class="bg-white border border-gray xl-rounded shadow-lg w-full mx-4 xl:mx-20">
+						<div
+							class="flex items-center justify-between flex-wra px-4 py-5 border-b border-gray-200 sm:px-6"
+						>
+							<h3 class="text-lg leading-6 font-medium text-gray-900">Flow Input</h3>
+							<CopyFirstStepSchema />
+						</div>
+						<div class="p-4">
+							<SchemaEditor schema={$flowStore.schema} />
+							<div class="my-4" />
+							<FlowPreview {mode} flow={$flowStore} i={numberOfSteps} bind:args />
+						</div>
 					</div>
-					<div class="p-4">
-						<SchemaEditor schema={$flowStore.schema} />
-						<div class="my-4" />
-						<FlowPreview {mode} flow={$flowStore} i={numberOfSteps} bind:args />
-					</div>
-				</div>
-			</li>
-			{#each $flowStore?.value.modules as mod, i}
-				<li class="relative mt-16">
+				</li>
+				{#each $flowStore?.value.modules as mod, i}
+					<li class="relative mt-16">
+						<div class="relative flex justify-center">
+							<button
+								class="default-button h-10 w-10 shadow-blue-600/40  border-blue-600 shadow"
+								on:click={() => {
+									addModule(i)
+									open = i
+								}}
+							>
+								<Icon class="text-white mb-1" data={faPlus} />
+							</button>
+						</div>
+					</li>
+					<ModuleStep bind:open bind:mod bind:args {i} {mode} />
+				{/each}
+				<li class="relative m-20 ">
 					<div class="relative flex justify-center">
 						<button
-							class="default-button h-10 w-10 shadow-blue-600/40  border-blue-600 shadow"
+							disabled={pathIsEmpty($flowStore.path)}
+							class="default-button h-10 w-10 shadow"
 							on:click={() => {
-								addModule(i)
-								open = i
+								addModule()
+								open = $flowStore?.value.modules.length - 1
 							}}
 						>
 							<Icon class="text-white mb-1" data={faPlus} />
+							Add step {pathIsEmpty($flowStore?.path) ? '(pick a name first!)' : ''}
 						</button>
 					</div>
 				</li>
-				<ModuleStep bind:open bind:mod bind:args {i} {mode} />
-			{/each}
-			<li class="relative m-20 ">
-				<div class="relative flex justify-center">
-					<button
-						disabled={pathIsEmpty($flowStore.path)}
-						class="default-button h-10 w-10 shadow"
-						on:click={() => {
-							addModule()
-							open = $flowStore?.value.modules.length - 1
-						}}
-					>
-						<Icon class="text-white mb-1" data={faPlus} />
-						Add step {pathIsEmpty($flowStore.path) ? '(pick a name first!)' : ''}
-					</button>
-				</div>
-			</li>
-		</div>
-	</ul>
-</div>
-<div class="py-10 bg-white" />
+			</div>
+		</ul>
+	</div>
+	<div class="py-10 bg-white" />
+{:else}
+	<h3>Loading flow</h3>
+{/if}
 
 <style>
 	.shadow:not([disabled]) {

@@ -1,3 +1,11 @@
+<script context="module">
+	export function load() {
+		return {
+			stuff: { title: 'Variables' }
+		}
+	}
+</script>
+
 <script lang="ts">
 	import { canWrite, sendUserToast } from '$lib/utils'
 	import { OauthService, VariableService } from '$lib/gen'

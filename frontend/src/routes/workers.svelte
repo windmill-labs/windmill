@@ -1,3 +1,11 @@
+<script context="module">
+	export function load() {
+		return {
+			stuff: { title: 'Workers' }
+		}
+	}
+</script>
+
 <script lang="ts">
 	import { WorkerService, type WorkerPing } from '$lib/gen'
 	import { onDestroy, onMount } from 'svelte'

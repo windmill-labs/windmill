@@ -5,6 +5,7 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
+use axum::extract::Host;
 use chrono::Duration;
 
 use sql_builder::prelude::*;
@@ -12,6 +13,7 @@ use sqlx::{query_scalar, Postgres, Transaction};
 use std::collections::HashMap;
 use tracing::instrument;
 
+use crate::error::to_anyhow;
 use crate::scripts::{get_hub_script_by_path, ScriptLang};
 use crate::worker_flow::init_flow_status;
 use crate::{
@@ -19,7 +21,7 @@ use crate::{
     db::{UserDB, DB},
     error,
     error::Error,
-    flow::FlowValue,
+    flows::FlowValue,
     schedule::get_schedule_opt,
     scripts::ScriptHash,
     users::{owner_to_token_owner, Authed},
@@ -792,15 +794,14 @@ pub struct JobUpdate {
 }
 
 async fn get_job_update(
-    authed: Authed,
-    Extension(user_db): Extension<UserDB>,
+    Extension(db): Extension<DB>,
     Path((w_id, id)): Path<(String, Uuid)>,
     Query(JobUpdateQuery {
         running,
         log_offset,
     }): Query<JobUpdateQuery>,
 ) -> error::JsonResult<JobUpdate> {
-    let mut tx = user_db.begin(&authed).await?;
+    let mut tx = db.begin().await?;
 
     let logs = query_scalar!(
         "SELECT substr(logs, $1) as logs FROM queue WHERE workspace_id = $2 AND id = $3",
@@ -838,11 +839,10 @@ async fn get_job_update(
 }
 
 async fn get_job(
-    authed: Authed,
-    Extension(user_db): Extension<UserDB>,
+    Extension(db): Extension<DB>,
     Path((w_id, id)): Path<(String, Uuid)>,
 ) -> error::JsonResult<Job> {
-    let tx = user_db.begin(&authed).await?;
+    let tx = db.begin().await?;
     let (job_o, tx) = get_job_by_id(tx, &w_id, id).await?;
     let job = crate::utils::not_found_if_none(job_o, "Completed Job", id.to_string())?;
     tx.commit().await?;
@@ -1129,6 +1129,13 @@ pub async fn push<'c>(
                             groups: vec![],
                         },
                         Path(StripPath(path)),
+                        Extension(
+                            reqwest::ClientBuilder::new()
+                                .user_agent("windmill/beta")
+                                .build()
+                                .map_err(to_anyhow)?,
+                        ),
+                        Host(std::env::var("BASE_URL").unwrap_or_else(|_| "".to_string())),
                     )
                     .await?,
                 ),
@@ -1339,7 +1346,12 @@ pub async fn schedule_again_if_scheduled(
         let mut tx = db.begin().await?;
         let schedule = get_schedule_opt(&mut tx, &w_id, &schedule_path)
             .await?
-            .unwrap();
+            .ok_or_else(|| {
+                Error::InternalErr(format!(
+                    "Could not find schedule {:?} for workspace {}",
+                    schedule_path, w_id
+                ))
+            })?;
         if schedule.enabled && script_path.is_some() && script_path.unwrap() == schedule.script_path
         {
             tx = crate::schedule::push_scheduled_job(tx, schedule).await?;

@@ -139,16 +139,6 @@
 	}
 
 	const dispatch = createEventDispatcher()
-
-	$: {
-		if ($workspaceStore) {
-			loadResources()
-		}
-	}
-
-	onMount(() => {
-		loadConnects()
-	})
 </script>
 
 <Modal
@@ -156,13 +146,17 @@
 	on:close={() => {
 		dispatch('close')
 	}}
+	on:open={() => {
+		loadConnects()
+		loadResources()
+	}}
 >
-	<div slot="title">Connect an app</div>
+	<div slot="title">Connect an App</div>
 	<div slot="content">
 		{#if step == 1}
 			<PageHeader title="OAuth apps" />
 			<div class="grid sm:grid-cols-2 md:grid-cols-3 gap-x-2 gap-y-1 items-center mb-2">
-				{#each Object.entries(connects) as [key, values]}
+				{#each Object.entries(connects).sort((a, b) => a[0].localeCompare(b[0])) as [key, values]}
 					<button
 						class="px-4 h-8 {key == resource_type ? 'item-button-selected' : 'item-button'}"
 						on:click={() => {
@@ -275,18 +269,6 @@
 </Modal>
 
 <style>
-	.item-button {
-		@apply py-1;
-		@apply border;
-		@apply rounded-sm;
-	}
-	.item-button-selected {
-		@apply py-1;
-		@apply border border-blue-500;
-		@apply bg-blue-50;
-		@apply rounded-sm;
-	}
-
 	.selected:hover {
 		@apply border border-gray-400 rounded-md border-opacity-50;
 	}

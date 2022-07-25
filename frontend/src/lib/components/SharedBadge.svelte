@@ -46,7 +46,7 @@
 	}
 </script>
 
-<span>
+<span class="mr-1">
 	{#if kind == 'read'}
 		<Badge tooltip={reason}>shared to you (read-only)</Badge>
 	{:else if kind == 'write'}

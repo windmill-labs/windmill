@@ -1,3 +1,11 @@
+<script context="module">
+	export function load() {
+		return {
+			stuff: { title: 'Scripts' }
+		}
+	}
+</script>
+
 <script lang="ts">
 	import {
 		faArchive,
@@ -13,8 +21,15 @@
 	import Icon from 'svelte-awesome'
 	import type { Script } from '$lib/gen'
 	import { ScriptService } from '$lib/gen'
-	import { superadmin, userStore, workspaceStore } from '$lib/stores'
-	import { canWrite, groupBy, sendUserToast, truncateHash } from '$lib/utils'
+	import { superadmin, userStore, workspaceStore, hubScripts } from '$lib/stores'
+	import {
+		canWrite,
+		getScriptByPath,
+		groupBy,
+		loadHubScripts,
+		sendUserToast,
+		truncateHash
+	} from '$lib/utils'
 	import Badge from '$lib/components/Badge.svelte'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
 	import Dropdown from '$lib/components/Dropdown.svelte'
@@ -24,13 +39,18 @@
 	import ShareModal from '$lib/components/ShareModal.svelte'
 	import Tabs from '$lib/components/Tabs.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
+	import TableCustom from '$lib/components/TableCustom.svelte'
+	import { Highlight } from 'svelte-highlight'
+	import { typescript } from 'svelte-highlight/languages'
+	import github from 'svelte-highlight/styles/github'
 
-	type Tab = 'all' | 'personal' | 'groups' | 'shared' | 'community'
+	type Tab = 'all' | 'personal' | 'groups' | 'shared' | 'examples' | 'hub'
 	type Section = [string, ScriptW[]]
 	type ScriptW = Script & { canWrite: boolean; tab: Tab }
 	let scripts: ScriptW[] = []
 	let filteredScripts: ScriptW[]
 	let scriptFilter = ''
+	let hubFilter = ''
 	let groupedScripts: Section[] = []
 	let communityScripts: Section[] = []
 
@@ -50,8 +70,22 @@
 
 	const templateFuse: Fuse<Script> = new Fuse(templateScripts, fuseOptions)
 
+	const hubScriptsFuse: Fuse<any> = new Fuse($hubScripts ?? [], {
+		includeScore: false,
+		keys: ['app', 'path', 'summary']
+	})
+
+	let codeViewer: Modal
+	let codeViewerContent: string = ''
+	let codeViewerPath: string = ''
+
 	$: filteredScripts =
 		scriptFilter.length > 0 ? fuse.search(scriptFilter).map((value) => value.item) : scripts
+
+	$: filteredHub =
+		hubFilter.length > 0
+			? hubScriptsFuse.search(hubFilter).map((value) => value.item)
+			: $hubScripts ?? []
 
 	$: filteredTemplates =
 		templateFilter.length > 0
@@ -68,11 +102,11 @@
 			defaults = defaults.concat($userStore?.groups.map((x) => `g/${x}`) ?? [])
 		}
 		groupedScripts = groupBy(
-			filteredScripts.filter((x) => x.tab != 'community'),
+			filteredScripts.filter((x) => x.tab != 'examples'),
 			(sc: Script) => sc.path.split('/').slice(0, 2).join('/'),
 			defaults
 		)
-		communityScripts = [['community', filteredScripts.filter((x) => x.tab == 'community')]]
+		communityScripts = [['examples', filteredScripts.filter((x) => x.tab == 'examples')]]
 	}
 
 	async function loadTemplateScripts(): Promise<void> {
@@ -97,7 +131,7 @@
 	async function loadScripts(): Promise<void> {
 		const allScripts = (await ScriptService.listScripts({ workspace: $workspaceStore! })).map(
 			(x: Script) => {
-				let t: Tab = x.workspace_id == $workspaceStore ? tabFromPath(x.path) : 'community'
+				let t: Tab = x.workspace_id == $workspaceStore ? tabFromPath(x.path) : 'examples'
 				return {
 					canWrite:
 						canWrite(x.path, x.extra_perms, $userStore) && x.workspace_id == $workspaceStore,
@@ -116,6 +150,19 @@
 		sendUserToast(`Successfully archived script ${path}`)
 	}
 
+	async function viewCode(path) {
+		codeViewerContent = (await getScriptByPath(path)).content
+		codeViewerPath = path
+		codeViewer.openModal()
+	}
+
+	async function loadHubScriptsWFuse(): Promise<void> {
+		await loadHubScripts()
+		hubScriptsFuse.setCollection($hubScripts ?? [])
+	}
+
+	loadHubScriptsWFuse()
+
 	$: {
 		if ($workspaceStore && ($userStore || $superadmin)) {
 			loadScripts()
@@ -123,12 +170,23 @@
 	}
 </script>
 
+<svelte:head>
+	{@html github}
+</svelte:head>
+
+<Modal bind:this={codeViewer}>
+	<div slot="title">{codeViewerPath}</div>
+	<div slot="content">
+		<Highlight language={typescript} code={codeViewerContent} />
+	</div></Modal
+>
+
 <CenteredPage>
 	<PageHeader
 		title="Scripts"
-		tooltip="Scripts are the building blocks of windmill. A script has an auto-generated UI from its
-		parameters whom you can access clicking on 'Run...'. Like everything in windmill, scripts have
-		owners (users or groups) and can be shared to other users and other groups. It is enough to have
+		tooltip="Scripts are the building blocks of windmill. A script can either be used standalone or as part of a Flow. 
+		When standalone, it has an auto-generated UI from its parameters whom you can access clicking on 'Run...'. L
+		ike everything in windmill, scripts have owners (users or groups) and can be shared to other users and other groups. It is enough to have
 		read-access on a script to be able to execute it. However, you will also need to have been
 		granted visibility on the resources and variables it uses, otherwise it will behave as if those
 		items did not exist at runtime of the script."
@@ -150,17 +208,20 @@
 	<Tabs
 		tabs={[
 			['all', 'all'],
+			['hub', 'hub'],
 			['personal', `personal space (${$userStore?.username})`],
 			['groups', 'groups'],
 			['shared', 'shared'],
-			['community', 'community']
+			['examples', 'examples']
 		]}
 		bind:tab
 		on:update={loadScripts}
 	/>
-	<input placeholder="Search scripts" bind:value={scriptFilter} class="search-bar mt-2" />
+	{#if tab != 'hub'}
+		<input placeholder="Search scripts" bind:value={scriptFilter} class="search-bar mt-2" />
+	{/if}
 	<div class="grid grid-cols-1 divide-y">
-		{#each tab == 'all' ? ['personal', 'groups', 'shared', 'community'] : [tab] as sectionTab}
+		{#each tab == 'all' ? ['personal', 'groups', 'shared', 'examples', 'hub'] : [tab] as sectionTab}
 			<div class="shadow p-4 my-2">
 				{#if sectionTab == 'personal'}
 					<h2 class="">
@@ -168,32 +229,67 @@
 					</h2>
 					<p class="italic text-xs text-gray-600 mb-4">
 						All scripts owned by you (and visible only to you if you do not explicitely share them)
-						will be displayed below
 					</p>
 				{:else if sectionTab == 'groups'}
 					<h2 class="">Groups that I am member of</h2>
 					<p class="italic text-xs text-gray-600">
-						All scripts being owned by groups that you are member of will be displayed below
+						All scripts being owned by groups that you are member of
 					</p>
 				{:else if sectionTab == 'shared'}
 					<h2 class="">Shared with me</h2>
 					<p class="italic text-xs text-gray-600">
-						All scripts visible to you because they have been shared to you will be displayed below
+						All scripts visible to you because they have been shared to you
 					</p>
-				{:else if sectionTab == 'community'}
-					<h2 class="">Community templates & examples</h2>
+				{:else if sectionTab == 'examples'}
+					<h2 class="">Shared across all workspaces of this instance</h2>
 					<p class="italic text-xs text-gray-600 mb-8">
-						All scripts by the community that went through a review process and merged to the
-						<a href="https://github.com/windmill-labs/windmill">official github repo</a> will be displayed
-						below. Contributions welcome as Github PR.
+						Template and examples shared across all workspaces of this instance. They are managed
+						from a special workspace called 'starter' that only superadmin can change.
 					</p>
+				{:else if sectionTab == 'hub'}
+					<h2 class="">Approved scripts from the WindmillHub</h2>
+					<p class="italic text-xs text-gray-600 mb-8">
+						All approved Deno scripts from the <a href="https://hub.windmill.dev">WindmillHub</a>.
+						Approved scripts have been reviewed by the Windmill team and are safe to use in
+						production. The hub only offers Deno scripts because Hub scripts are meant to be solely
+						used as building blocks of flows and are much more efficient to execute than their
+						Python counterparts.
+					</p>
+					<input placeholder="Search hub scripts" bind:value={hubFilter} class="search-bar mt-2" />
+					<div class="relative">
+						<TableCustom>
+							<tr slot="header-row">
+								<th>App</th>
+								<th>Summary</th>
+								<th />
+							</tr>
+							<tbody slot="body">
+								{#each filteredHub ?? [] as { path, summary, app, ask_id }}
+									<tr>
+										<td class="font-black">{app}</td>
+										<td><button on:click={() => viewCode(path)}>{summary}</button></td>
+										<td
+											><button class="text-blue-500" on:click={() => viewCode(path)}
+												>view code</button
+											>
+											|
+											<a target="_blank" href={`https://hub.windmill.dev/scripts/${app}/${ask_id}`}
+												>hub's page</a
+											>
+											| <a href={`/scripts/add?hub=${encodeURIComponent(path)}`}>fork</a>
+										</td>
+									</tr>
+								{/each}
+							</tbody>
+						</TableCustom>
+					</div>
 				{/if}
-				{#each sectionTab == 'community' ? communityScripts : groupedScripts.filter((x) => tabFromPath(x[0]) == sectionTab) as [section, scripts]}
-					{#if sectionTab != 'personal' && sectionTab != 'community'}
+				{#each sectionTab == 'examples' ? communityScripts : groupedScripts.filter((x) => tabFromPath(x[0]) == sectionTab) as [section, scripts]}
+					{#if sectionTab != 'personal' && sectionTab != 'examples'}
 						<h3 class="mt-2 mb-2">
 							owner: {section}
 							{#if section == 'g/all'}
-								<Tooltip class="mx-1"
+								<Tooltip
 									>'g/all' is the namespace for the group all. Every user is a member of all.
 									Everything in this namespace is visible by all users. At the opposite, 'u/myuser'
 									are private user namespaces.</Tooltip

@@ -1,9 +1,10 @@
 /* eslint-disable @typescript-eslint/explicit-module-boundary-types */
 import { goto } from '$app/navigation'
-import type { User } from '$lib/gen'
+import { FlowService, Script, ScriptService, type User } from '$lib/gen'
 import { toast } from '@zerodevx/svelte-toast'
+import { get } from 'svelte/store'
 import type { Schema } from './common'
-import type { UserExt } from './stores'
+import { hubScripts, workspaceStore, type UserExt } from './stores'
 
 
 
@@ -405,8 +406,54 @@ export function setInputCat(type: string | undefined, format: string | undefined
 
 export function scriptPathToHref(path: string): string {
 	if (path.startsWith('hub/')) {
-		return 'https://hub.windmill.dev/scripts/get/' + path.substring(4)
+		return 'https://hub.windmill.dev/from_version/' + path.substring(4)
 	} else {
 		return `/scripts/get/${path}`
 	}
+}
+
+export async function getScriptByPath(path: string): Promise<{
+	content: string
+	language: 'deno' | 'python3',
+}> {
+	if (path.startsWith('hub/')) {
+		const content = await ScriptService.getHubScriptContentByPath({ path })
+		return {
+			content,
+			language: 'deno'
+		}
+	} else {
+		const script = await ScriptService.getScriptByPath({
+			workspace: get(workspaceStore)!,
+			path: path ?? ''
+		})
+		return {
+			content: script.content,
+			language: script.language
+		}
+	}
+}
+
+
+
+export async function loadHubScripts() {
+	const scripts = (await ScriptService.listHubScripts()).asks ?? []
+	const processed = scripts.map((x) => ({
+		path: `hub/${x.id}/${x.summary.toLowerCase().replaceAll(/\s+/g, '_')}`,
+		summary: `${x.summary} (${x.app}) ${x.views} uses`,
+		approved: x.approved,
+		is_trigger: x.is_trigger,
+		app: x.app,
+		views: x.views,
+		votes: x.votes,
+		ask_id: x.ask_id,
+	})).sort((a, b) => b.views - a.views)
+	hubScripts.set(processed)
+}
+
+
+export async function loadHubFlows() {
+	const flows = (await FlowService.listHubFlows()).flows ?? []
+	const processed = flows.sort((a, b) => b.votes - a.votes)
+	return processed
 }
