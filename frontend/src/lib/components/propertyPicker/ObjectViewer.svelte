@@ -54,7 +54,7 @@
 		<span class="cursor-pointer hover:bg-slate-200" on:click={collapse}>{openBracket}</span>
 		<ul>
 			{#each keys as key, index}
-				<li class={getTypeAsString(json[key]) !== 'object' ? 'hover:bg-sky-100 py-2' : 'py-2'}>
+				<li class={getTypeAsString(json[key]) !== 'object' ? 'hover:bg-sky-100 pt-1' : 'pt-1'}>
 					{#if !isArray}
 						<span class="key">{key}:</span>
 					{/if}
@@ -75,9 +75,6 @@
 								{formatValue(json[key])}
 							{/if}
 
-							{#if index < keys.length - 1}
-								<span class="text-black">,</span>
-							{/if}
 							{#if formatValue(json[key]) !== undefined}
 								<button class="default-button-secondary" on:click={() => selectProp(key)}>
 									Select
@@ -89,9 +86,6 @@
 			{/each}
 		</ul>
 		<span class="cursor-pointer hover:bg-slate-200" on:click={collapse}>{closeBracket}</span>
-		{#if !isLast}
-			<span class="text-black">,</span>
-		{/if}
 	</span>
 	<span class="cursor-pointer hover:bg-slate-200" class:hidden={!collapsed} on:click={collapse}>
 		{openBracket}{collapsedSymbol}{closeBracket}
