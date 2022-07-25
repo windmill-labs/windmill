@@ -665,6 +665,7 @@ async fn slack_command(
 pub struct UserInfo {
     name: Option<String>,
     company: Option<String>,
+    displayName: Option<String>,
 }
 
 async fn login_callback(
@@ -807,6 +808,14 @@ async fn get_email(http_client: &Client, client_name: &str, token: &str) -> erro
                 .email
                 .to_string()
         }
+        "google" => http_get_user_info::<EmailInfo>(
+            http_client,
+            "https://www.googleapis.com/oauth2/v1/userinfo?alt=json",
+            token,
+        )
+        .await?
+        .email
+        .to_string(),
         _ => {
             return Err(error::Error::BadRequest(
                 "client name not recognized".to_string(),
@@ -825,6 +834,19 @@ async fn get_user_info(
         "github" => http_get_user_info(http_client, "https://api.github.com/user", token).await?,
         "gitlab" => {
             http_get_user_info(http_client, "https://gitlab.com/api/v4/user", token).await?
+        }
+        "google" => {
+            let google_user_info: UserInfo = http_get_user_info(
+                http_client,
+                "https://www.googleapis.com/oauth2/v1/userinfo?alt=json",
+                token,
+            )
+            .await?;
+            UserInfo {
+                name: google_user_info.displayName.clone(),
+                company: None,
+                displayName: google_user_info.displayName,
+            }
         }
         _ => {
             return Err(error::Error::BadRequest(

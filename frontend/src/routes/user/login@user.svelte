@@ -109,6 +109,15 @@
 					</button></a
 				>
 			{/if}
+			{#if logins.includes('google')}
+				<a rel="external" href="/api/oauth/login/google"
+					><button
+						class="m-auto default-button bg-gray-100 mt-2 py-2 w-full text-black hover:bg-blue-300"
+						>Google &nbsp;
+						<Icon class="pb-1" data={faGitlab} scale={1.4} />
+					</button></a
+				>
+			{/if}
 		</div>
 		<div class="flex flex-row-reverse w-full">
 			<button
