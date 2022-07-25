@@ -775,7 +775,10 @@ async fn exchange_code<T: DeserializeOwned>(
         return Err(error::Error::BadRequest("csrf did not match".to_string()));
     }
     let mut refresh_client = client.exchange_code(callback.code);
-    if ["gcal", "gdrive", "gsheets", "gcloud", "gmail"].contains(&client_name) {
+    if ["gcal", "gdrive", "gsheets", "gcloud", "gmail"]
+        .into_iter()
+        .any(|x| x == client_name)
+    {
         refresh_client = refresh_client
             .param("access_type", "offline")
             .param("prompt", "consent");
