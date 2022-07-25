@@ -27,5 +27,40 @@
         "scopes": [
             "chat:write:user"
         ]
+    },
+    "gsheets": {
+        "auth_url": "https://accounts.google.com/o/oauth2/v2/auth",
+        "token_url": "https://oauth2.googleapis.com/token",
+        "scopes": [
+            "https://www.googleapis.com/auth/spreadsheets"
+        ]
+    },
+    "gdrive": {
+        "auth_url": "https://accounts.google.com/o/oauth2/v2/auth",
+        "token_url": "https://oauth2.googleapis.com/token",
+        "scopes": [
+            "https://www.googleapis.com/auth/drive"
+        ]
+    },
+    "gmail": {
+        "auth_url": "https://accounts.google.com/o/oauth2/v2/auth",
+        "token_url": "https://oauth2.googleapis.com/token",
+        "scopes": [
+            "https://mail.google.com/"
+        ]
+    },
+    "gcal": {
+        "auth_url": "https://accounts.google.com/o/oauth2/v2/auth",
+        "token_url": "https://oauth2.googleapis.com/token",
+        "scopes": [
+            "https://www.googleapis.com/auth/calendar.events"
+        ]
+    },
+    "gcloud": {
+        "auth_url": "https://accounts.google.com/o/oauth2/v2/auth",
+        "token_url": "https://oauth2.googleapis.com/token",
+        "scopes": [
+            "https://www.googleapis.com/auth/cloud-platform"
+        ]
     }
 }
