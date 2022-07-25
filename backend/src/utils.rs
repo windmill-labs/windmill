@@ -6,10 +6,11 @@
  */
 
 use rand::{distributions::Alphanumeric, thread_rng, Rng};
+use reqwest::Response;
 use serde::Deserialize;
 use sqlx::{Postgres, Transaction};
 
-use crate::error::{Error, Result};
+use crate::error::{to_anyhow, Error, Result};
 
 pub const MAX_PER_PAGE: usize = 1000;
 pub const DEFAULT_PER_PAGE: usize = 100;
@@ -94,4 +95,47 @@ pub fn not_found_if_none<T, U: AsRef<str>>(opt: Option<T>, kind: &str, name: U) 
 
 pub fn get_owner_from_path(path: &str) -> String {
     path.split('/').take(2).collect::<Vec<_>>().join("/")
+}
+
+pub async fn list_elems_from_hub(
+    http_client: reqwest::Client,
+    url: &str,
+    email: Option<String>,
+    username: String,
+    host: String,
+) -> Result<serde_json::Value> {
+    let rows = http_get_from_hub(http_client, url, email, username, host, false)
+        .await?
+        .json::<serde_json::Value>()
+        .await
+        .map_err(to_anyhow)?;
+    Ok(rows)
+}
+
+pub async fn http_get_from_hub(
+    http_client: reqwest::Client,
+    url: &str,
+    email: Option<String>,
+    username: String,
+    host: String,
+    plain: bool,
+) -> Result<Response> {
+    let response = http_client
+        .get(url)
+        .header(
+            "Accept",
+            if plain {
+                "text/plain"
+            } else {
+                "application/json"
+            },
+        )
+        .header("X-email", email.unwrap_or_else(|| "".to_string()))
+        .header("X-username", username)
+        .header("X-hostname", host)
+        .send()
+        .await
+        .map_err(to_anyhow)?;
+
+    Ok(response)
 }

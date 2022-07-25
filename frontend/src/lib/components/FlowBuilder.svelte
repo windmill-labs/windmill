@@ -1,12 +1,10 @@
 <script lang="ts">
 	import { goto } from '$app/navigation'
 	import { page } from '$app/stores'
-	import { FlowService, ScriptService, type Flow } from '$lib/gen'
+	import { FlowService, type Flow } from '$lib/gen'
 	import { clearPreviewResults, hubScripts, workspaceStore } from '$lib/stores'
 	import { loadHubScripts, sendUserToast, setQueryWithoutLoad } from '$lib/utils'
-	import { faFileExport, faFileImport } from '@fortawesome/free-solid-svg-icons'
 	import { onMount } from 'svelte'
-	import Icon from 'svelte-awesome'
 	import FlowEditor from './FlowEditor.svelte'
 	import { flowStore, type FlowMode } from './flows/flowStore'
 	import { flowToMode } from './flows/utils'
@@ -114,8 +112,8 @@
 		</div>
 		<div class="flex flex-row-reverse">
 			<span class="my-1 text-sm text-gray-500 italic">
-				{#if initialPath && initialPath != $flowStore.path} {initialPath} &rightarrow; {/if}
-				{$flowStore.path}
+				{#if initialPath && initialPath != $flowStore?.path} {initialPath} &rightarrow; {/if}
+				{$flowStore?.path}
 			</span>
 		</div>
 	</div>

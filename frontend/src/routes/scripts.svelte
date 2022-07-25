@@ -147,7 +147,13 @@
 		codeViewerPath = path
 		codeViewer.openModal()
 	}
-	loadHubScripts()
+
+	async function loadHubScriptsWFuse(): Promise<void> {
+		await loadHubScripts()
+		hubScriptsFuse.setCollection($hubScripts ?? [])
+	}
+
+	loadHubScriptsWFuse()
 
 	$: {
 		if ($workspaceStore && ($userStore || $superadmin)) {
@@ -250,7 +256,7 @@
 								<th />
 							</tr>
 							<tbody slot="body">
-								{#each filteredHub ?? [] as { path, summary, app }}
+								{#each filteredHub ?? [] as { path, summary, app, ask_id }}
 									<tr>
 										<td class="font-black">{app}</td>
 										<td><button on:click={() => viewCode(path)}>{summary}</button></td>
@@ -259,12 +265,8 @@
 												>view code</button
 											>
 											|
-											<a
-												target="_blank"
-												href={`https://hub.windmill.dev/from_version/${path
-													.split('/')
-													.slice(1, 3)
-													.join('/')}`}>hub's page</a
+											<a target="_blank" href={`https://hub.windmill.dev/scripts/${app}/${ask_id}`}
+												>hub's page</a
 											>
 											| <a href={`/scripts/add?hub=${encodeURIComponent(path)}`}>fork</a>
 										</td>

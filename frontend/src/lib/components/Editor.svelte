@@ -25,6 +25,8 @@
 
 	let websockets: WebSocket[] = []
 	let websocketInterval: NodeJS.Timer | undefined
+	let lastWsAttempt: Date | undefined
+	let nbWsAttempt = 0
 	let uri: string = ''
 	let disposeMethod: () => void | undefined
 	const dispatch = createEventDispatcher()
@@ -154,6 +156,8 @@
 						const writer = new WebSocketMessageWriter(socket)
 						const languageClient = createLanguageClient({ reader, writer }, name, options)
 						languageClient.start()
+						lastWsAttempt = undefined
+						nbWsAttempt = 0
 						reader.onClose(() => {
 							try {
 								languageClient.stop()
@@ -239,14 +243,27 @@
 					}
 				})
 			}
+
 			websocketInterval && clearInterval(websocketInterval)
 			websocketInterval = setInterval(() => {
 				if (document.visibilityState == 'visible') {
-					if (!websocketAlive.black && !websocketAlive.deno && !websocketAlive.pyright) {
-						sendUserToast(
-							'Smart assistant got disconnected. Reconnecting to windmill language server for smart assistance'
-						)
-						reloadWebsocket()
+					if (
+						!lastWsAttempt ||
+						(lastWsAttempt.getTime() - new Date().getTime() > 60000 && nbWsAttempt < 2)
+					) {
+						if (!websocketAlive.black && !websocketAlive.deno && !websocketAlive.pyright) {
+							sendUserToast(
+								'Smart assistant got disconnected. Reconnecting to windmill language server for smart assistance'
+							)
+							lastWsAttempt = new Date()
+							nbWsAttempt++
+							reloadWebsocket()
+						} else {
+							if (nbWsAttempt >= 2) {
+								sendUserToast('Giving up on establishing smart assistant connection', true)
+								clearInterval(websocketInterval)
+							}
+						}
 					}
 				}
 			}, 5000)
@@ -380,9 +397,8 @@
 	})
 
 	onDestroy(() => {
-		if (disposeMethod) {
-			disposeMethod()
-		}
+		disposeMethod && disposeMethod()
+		websocketInterval && clearInterval(websocketInterval)
 	})
 </script>
 
