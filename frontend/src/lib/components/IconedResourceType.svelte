@@ -6,6 +6,13 @@
 	import { faGithub } from '@fortawesome/free-brands-svg-icons'
 	import Slack from './icons/Slack.svelte'
 	import Icon from 'svelte-awesome'
+	import GmailIcon from './icons/GmailIcon.svelte'
+	import GSheetsIcon from './icons/GSheetsIcon.svelte'
+	import GitlabIcon from './icons/GItlabIcon.svelte'
+	import GCloudIcon from './icons/GCloudIcon.svelte'
+	import GdriveIcon from './icons/GdriveIcon.svelte'
+	import GcalIcon from './icons/GcalIcon.svelte'
+	import AirtableIcon from './icons/AirtableIcon.svelte'
 
 	export let name: string
 	export let after: boolean = false
@@ -29,6 +36,20 @@
 		<Slack {height} {width} />
 	{:else if name === 'github'}
 		<Icon data={faGithub} scale={1.4} />
+	{:else if name === 'gmail'}
+		<GmailIcon {height} {width} />
+	{:else if name === 'gsheets'}
+		<GSheetsIcon {height} {width} />
+	{:else if name === 'gitlab'}
+		<GitlabIcon {height} {width} />
+	{:else if name === 'gcloud'}
+		<GCloudIcon {height} {width} />
+	{:else if name === 'gcal'}
+		<GcalIcon {height} {width} />
+	{:else if name === 'gdrive'}
+		<GdriveIcon {height} {width} />
+	{:else if name === 'airtable'}
+		<AirtableIcon {height} {width} />
 	{/if}
 	{#if after}
 		{name}

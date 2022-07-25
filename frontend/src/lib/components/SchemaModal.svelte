@@ -166,19 +166,3 @@
 		Save
 	</button>
 </Modal>
-
-<style>
-	.item-button {
-		@apply py-1;
-		@apply border;
-		@apply rounded-sm;
-	}
-	.item-button-selected {
-		@apply underline;
-		@apply font-bold;
-		@apply py-1;
-		@apply border border-blue-500;
-		@apply bg-blue-50;
-		@apply rounded-sm;
-	}
-</style>
