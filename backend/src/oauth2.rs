@@ -442,8 +442,12 @@ pub async fn _refresh_token<'c>(
         .ok_or_else(|| error::Error::BadRequest("invalid client".to_string()))?
         .client)
         .to_owned();
-    let token = client
-        .exchange_refresh_token(&RefreshToken::from(account.refresh_token))
+    let mut refresh_client =
+        client.exchange_refresh_token(&RefreshToken::from(account.refresh_token));
+    if ["gcal", "gdrive", "gsheets", "gcloud", "gmail"].contains(&account.client.as_str()) {
+        refresh_client = refresh_client.param("access_type", "offline");
+    }
+    let token = refresh_client
         .with_client(&http_client)
         .execute::<TokenResponse>()
         .await
@@ -661,6 +665,7 @@ async fn slack_command(
     ));
 }
 
+#[allow(non_snake_case)]
 #[derive(Deserialize)]
 pub struct UserInfo {
     name: Option<String>,

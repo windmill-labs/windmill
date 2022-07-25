@@ -118,7 +118,7 @@
 		<div
 			class="
 					block
-					w-96
+					w-full
 					mx-auto
 					py-1
 					px-2
