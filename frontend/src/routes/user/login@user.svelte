@@ -9,7 +9,7 @@
 <script lang="ts">
 	import { goto } from '$app/navigation'
 	import { page } from '$app/stores'
-	import { faGithub, faGitlab } from '@fortawesome/free-brands-svg-icons'
+	import { faGithub, faGitlab, faGoogle } from '@fortawesome/free-brands-svg-icons'
 	import { onMount } from 'svelte'
 	import Icon from 'svelte-awesome'
 	import { slide } from 'svelte/transition'
@@ -114,7 +114,7 @@
 					><button
 						class="m-auto default-button bg-gray-100 mt-2 py-2 w-full text-black hover:bg-blue-300"
 						>Google &nbsp;
-						<Icon class="pb-1" data={faGitlab} scale={1.4} />
+						<Icon class="pb-1" data={faGoogle} scale={1.4} />
 					</button></a
 				>
 			{/if}
