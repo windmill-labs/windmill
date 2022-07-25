@@ -60,7 +60,7 @@ belong to us`</code
 			<li><b>params</b>: the object containing the current step static values</li>
 			<li>
 				<b>step(n)</b>: the function returning the result of step number n. One can also use a
-				negative n. step(0) == flow_input , step(-1) == previous_result
+				negative n. step(0) == result of the first step , step(-1) == previous_result
 			</li>
 			<li>
 				<b>variable(path)</b>: the function returning the variable (including secrets) at given path

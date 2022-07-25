@@ -277,7 +277,7 @@
 						? format.substring('resource-'.length)
 						: undefined}
 				/>
-			{:else if inputCat == 'string'}
+			{:else if inputCat == 'string' || (inputCat == 'number' && numberAsString)}
 				<textarea
 					{disabled}
 					style="height: {minHeight}; max-height: {maxHeight}"
