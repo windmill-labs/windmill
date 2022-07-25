@@ -10,6 +10,8 @@
 	import github from 'svelte-highlight/styles/github'
 	import { slide } from 'svelte/transition'
 	import Tabs from './Tabs.svelte'
+	import SchemaViewer from './SchemaViewer.svelte'
+	import FieldHeader from './FieldHeader.svelte'
 
 	export let flow: {
 		summary: string
@@ -27,7 +29,7 @@
 
 	export let embedded = false
 
-	export let tab: 'ui' | 'json' = 'ui'
+	export let tab: 'ui' | 'json' | 'schema' = 'ui'
 	let open: { [id: number]: boolean } = {}
 </script>
 
@@ -39,14 +41,40 @@
 	<Tabs
 		tabs={[
 			['ui', 'Flow rendered'],
-			['json', 'JSON']
+			['json', 'JSON'],
+			['schema', 'Input schema of the flow']
 		]}
 		bind:tab
 	/>
 {/if}
 {#if tab == 'ui'}
 	<div class="flow-root w-full p-4">
-		<p class="font-black text-lg mb-6 w-full ml-2">
+		<p class="font-black text-lg w-full ml-2">
+			<span>Inputs</span>
+		</p>
+		{#if flow.schema && flow.schema.properties && Object.keys(flow.schema.properties).length > 0 && flow.schema}
+			<ul class="my-4 ml-6">
+				{#each Object.entries(flow.schema.properties) as [inp, v]}
+					<li class="list-disc flex flex-row">
+						<FieldHeader
+							label={inp}
+							required={flow.schema.required?.includes(inp)}
+							type={v?.type}
+							contentEncoding={v?.contentEncoding}
+							format={v?.format}
+							itemsType={v?.itemsType}
+						/><span class="ml-4 mt-2 text-xs"
+							>{v.default != undefined ? 'default: ' + JSON.stringify(v.default) : ''}</span
+						>
+					</li>
+				{/each}
+			</ul>
+		{:else}
+			<div class="text-gray-700 text-xs italic mb-4">
+				This script has no argument or is ill-defined
+			</div>
+		{/if}
+		<p class="font-black text-lg my-6 w-full ml-2">
 			<span>{flow?.value?.modules?.length} Steps </span>
 			<span class="mt-4" />
 		</p>
@@ -107,6 +135,17 @@
 			{/each}
 		</ul>
 	</div>
-{:else}
-	<Highlight language={json} code={JSON.stringify(flowFiltered, null, 4)} />
+{:else if tab == 'json'}
+	<div class="relative">
+		<button
+			on:click={async () => {
+				await navigator.clipboard.writeText(JSON.stringify(flowFiltered, null, 4))
+			}}
+			class="absolute default-secondary-button-v2 bg-white/30 right-0 my-2 ml-4"
+			>copy content</button
+		>
+		<Highlight language={json} code={JSON.stringify(flowFiltered, null, 4)} />
+	</div>
+{:else if tab == 'schema'}
+	<SchemaViewer schema={flow.schema} />
 {/if}

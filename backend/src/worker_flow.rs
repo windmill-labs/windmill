@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use crate::flow::{FlowModuleValue, FlowValue, InputTransform};
+use crate::flows::{FlowModuleValue, FlowValue, InputTransform};
 use crate::jobs::{
     add_completed_job, add_completed_job_error, get_queued_job, postprocess_queued_job, push,
     script_path_to_payload, JobPayload,
@@ -394,9 +394,9 @@ async fn push_next_flow_job(
         let module = &flow.modules[i];
         let mut tx = db.begin().await?;
         let job_payload = match &module.value {
-            FlowModuleValue::Script {
-                path: script_path
-            } => script_path_to_payload(script_path, &mut tx, &flow_job.workspace_id).await?,
+            FlowModuleValue::Script { path: script_path } => {
+                script_path_to_payload(script_path, &mut tx, &flow_job.workspace_id).await?
+            }
             FlowModuleValue::RawScript(raw_code) => {
                 let mut raw_code = raw_code.clone();
                 if raw_code.path.is_none() {

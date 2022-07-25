@@ -176,6 +176,7 @@
 		<label class="block col-span-2">
 			<span class="text-gray-700 text-sm">Name<span class="text-red-600 text-sm">*</span></span>
 			<input
+				autofocus
 				bind:value={meta.name}
 				placeholder={namePlaceholder}
 				class={error === ''

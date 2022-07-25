@@ -169,20 +169,6 @@
 					></pre>
 			</div>
 			<div>
-				<div class="grid grid-cols-2 gap-4 pb-1 mb-3 border-b">
-					<h3 class="text-gray-700 ">
-						Arguments JSON schema <Tooltip
-							>The jsonschema defines the constraints that the payload must respect to be compatible
-							with the input parameters of this flow. The UI form is generated automatically from
-							the flow jsonschema. See <a href="https://json-schema.org/"
-								>jsonschema documentation</a
-							></Tooltip
-						>
-					</h3>
-				</div>
-				<SchemaViewer schema={flow.schema} />
-			</div>
-			<div>
 				<h3 class="text-gray-700 pb-1 mb-3 border-b">Flow</h3>
 				<FlowViewer {flow} />
 			</div>

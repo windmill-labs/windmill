@@ -25,7 +25,7 @@ mod client;
 mod db;
 mod email;
 mod error;
-mod flow;
+mod flows;
 mod granular_acls;
 mod groups;
 mod jobs;
@@ -146,7 +146,7 @@ pub async fn run_server(
                         .nest("/audit", audit::workspaced_service())
                         .nest("/acls", granular_acls::workspaced_service())
                         .nest("/workspaces", workspaces::workspaced_service())
-                        .nest("/flows", flow::workspaced_service()),
+                        .nest("/flows", flows::workspaced_service()),
                 )
                 .nest("/workspaces", workspaces::global_service())
                 .nest(
@@ -155,6 +155,7 @@ pub async fn run_server(
                 )
                 .nest("/workers", worker_ping::global_service())
                 .nest("/scripts", scripts::global_service())
+                .nest("/flows", flows::global_service())
                 .nest("/schedules", schedule::global_service())
                 .route_layer(from_extractor::<users::Authed>())
                 .route_layer(from_extractor::<users::Tokened>())

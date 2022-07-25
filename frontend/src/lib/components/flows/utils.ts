@@ -11,7 +11,7 @@ import { loadSchema } from '$lib/scripts'
 import { emptySchema, getScriptByPath } from '$lib/utils'
 import type { FlowMode } from './flowStore'
 
-export function flowToMode(flow: Flow, mode: FlowMode): Flow {
+export function flowToMode(flow: Flow | any, mode: FlowMode): Flow {
 	if (mode == 'pull') {
 		const newFlow: Flow = JSON.parse(JSON.stringify(flow))
 		const triggerModule = newFlow.value.modules[0]

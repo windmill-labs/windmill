@@ -58,10 +58,11 @@
 		}
 	}
 
+	loadHub()
+
 	$: {
 		if ($workspaceStore) {
 			loadTemplate()
-			loadHub()
 		}
 	}
 </script>

@@ -114,9 +114,9 @@
 		{#if showPassword}
 			<div transition:slide>
 				<p class="text-xs text-gray-400 italic my-2">
-					Signup without Github is not supported currently but if you do not want to use the github
-					login flow, you can send us an email at contact@windmill.dev and you will receive
-					credentials that you can use below.
+					To get credentials without the OAuth providers above, you can send us an email at
+					contact@windmill.dev or your admin owners if this instance is self-hosted and you will
+					receive credentials that you can use below.
 				</p>
 				<label class="block pb-2">
 					<span class="text-gray-700">email</span>

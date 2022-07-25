@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/explicit-module-boundary-types */
 import { goto } from '$app/navigation'
-import { Script, ScriptService, type User } from '$lib/gen'
+import { FlowService, Script, ScriptService, type User } from '$lib/gen'
 import { toast } from '@zerodevx/svelte-toast'
 import { get } from 'svelte/store'
 import type { Schema } from './common'
@@ -437,12 +437,23 @@ export async function getScriptByPath(path: string): Promise<{
 
 
 export async function loadHubScripts() {
-	const scripts = await ScriptService.listHubScripts()
-	hubScripts.set(scripts.map((x) => ({
+	const scripts = (await ScriptService.listHubScripts()).asks ?? []
+	const processed = scripts.map((x) => ({
 		path: `hub/${x.id}/${x.summary.toLowerCase().replaceAll(/\s+/g, '_')}`,
-		summary: `${x.summary} (${x.app})`,
+		summary: `${x.summary} (${x.app}) ${x.views} uses`,
 		approved: x.approved,
 		is_trigger: x.is_trigger,
-		app: x.app
-	})))
+		app: x.app,
+		views: x.views,
+		votes: x.votes,
+		ask_id: x.ask_id,
+	})).sort((a, b) => b.views - a.views)
+	hubScripts.set(processed)
+}
+
+
+export async function loadHubFlows() {
+	const flows = (await FlowService.listHubFlows()).flows ?? []
+	const processed = flows.sort((a, b) => b.votes - a.votes)
+	return processed
 }

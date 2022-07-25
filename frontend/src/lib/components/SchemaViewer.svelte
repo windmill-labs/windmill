@@ -72,7 +72,7 @@
 				</TableCustom>
 			</div>
 		{:else}
-			<div class="text-gray-700 text-xs italic">This script has no argument</div>
+			<div class="text-gray-700 text-xs italic">This script has no arguments</div>
 		{/if}
 	</div>
 	<div class={viewJsonSchema ? '' : 'hidden'}>
