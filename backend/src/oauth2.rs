@@ -442,12 +442,9 @@ pub async fn _refresh_token<'c>(
         .ok_or_else(|| error::Error::BadRequest("invalid client".to_string()))?
         .client)
         .to_owned();
-    let mut refresh_client =
-        client.exchange_refresh_token(&RefreshToken::from(account.refresh_token));
-    if ["gcal", "gdrive", "gsheets", "gcloud", "gmail"].contains(&account.client.as_str()) {
-        refresh_client = refresh_client.param("access_type", "offline");
-    }
-    let token = refresh_client
+
+    let token = client
+        .exchange_refresh_token(&RefreshToken::from(account.refresh_token))
         .with_client(&http_client)
         .execute::<TokenResponse>()
         .await
@@ -503,7 +500,8 @@ async fn connect_callback(
         .to_owned();
 
     let token_response =
-        exchange_code::<TokenResponse>(callback, &cookies, client, &http_client).await?;
+        exchange_code::<TokenResponse>(callback, &cookies, client, &http_client, &client_name)
+            .await?;
 
     Ok(Json(token_response))
 }
@@ -520,7 +518,8 @@ async fn connect_slack_callback(
         .ok_or_else(|| error::Error::BadRequest("slack client not setup".to_string()))?
         .to_owned();
     let token =
-        exchange_code::<SlackTokenResponse>(callback, &cookies, client, &http_client).await?;
+        exchange_code::<SlackTokenResponse>(callback, &cookies, client, &http_client, "slack")
+            .await?;
 
     Ok(Json(token))
 }
@@ -687,7 +686,9 @@ async fn login_callback(
         .ok_or_else(|| error::Error::BadRequest("invalid client".to_string()))?
         .client)
         .to_owned();
-    let token_res = exchange_code::<TokenResponse>(callback, &cookies, client, &http_client).await;
+    let token_res =
+        exchange_code::<TokenResponse>(callback, &cookies, client, &http_client, "no_refresh")
+            .await;
 
     if let Ok(token) = token_res {
         let token = &token.access_token.to_string();
@@ -764,6 +765,7 @@ async fn exchange_code<T: DeserializeOwned>(
     cookies: &Cookies,
     client: OClient,
     http_client: &Client,
+    client_name: &str,
 ) -> error::Result<T> {
     let csrf_state = cookies
         .get("csrf")
@@ -772,8 +774,13 @@ async fn exchange_code<T: DeserializeOwned>(
     if callback.state != csrf_state {
         return Err(error::Error::BadRequest("csrf did not match".to_string()));
     }
-    client
-        .exchange_code(callback.code)
+    let mut refresh_client = client.exchange_code(callback.code);
+    if ["gcal", "gdrive", "gsheets", "gcloud", "gmail"].contains(&client_name) {
+        refresh_client = refresh_client
+            .param("access_type", "offline")
+            .param("prompt", "consent");
+    }
+    refresh_client
         .with_client(http_client)
         .execute::<T>()
         .await
