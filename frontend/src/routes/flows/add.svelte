@@ -1,3 +1,11 @@
+<script context="module">
+	export function load() {
+		return {
+			stuff: { title: `New Flow` }
+		}
+	}
+</script>
+
 <script lang="ts">
 	import { page } from '$app/stores'
 

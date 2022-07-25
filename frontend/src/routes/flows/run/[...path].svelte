@@ -1,3 +1,11 @@
+<script context="module">
+	export function load({ params }) {
+		return {
+			stuff: { title: `Run Flow ${params.path}` }
+		}
+	}
+</script>
+
 <script lang="ts">
 	import { page } from '$app/stores'
 	import { sendUserToast } from '$lib/utils'

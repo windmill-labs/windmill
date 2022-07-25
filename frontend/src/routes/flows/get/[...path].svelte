@@ -1,7 +1,15 @@
+<script context="module">
+	export function load({ params }) {
+		return {
+			stuff: { title: `Flow ${params.path}` }
+		}
+	}
+</script>
+
 <script lang="ts">
 	import { page } from '$app/stores'
 	import { FlowService, type Flow } from '$lib/gen'
-	import { sendUserToast, displayDaysAgo, canWrite } from '$lib/utils'
+	import { displayDaysAgo, canWrite } from '$lib/utils'
 	import Icon from 'svelte-awesome'
 	import {
 		faPlay,
@@ -17,7 +25,6 @@
 	import { userStore, workspaceStore } from '$lib/stores'
 	import SharedBadge from '$lib/components/SharedBadge.svelte'
 	import SvelteMarkdown from 'svelte-markdown'
-	import SchemaViewer from '$lib/components/SchemaViewer.svelte'
 	import Dropdown from '$lib/components/Dropdown.svelte'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
 	import FlowViewer from '$lib/components/FlowViewer.svelte'

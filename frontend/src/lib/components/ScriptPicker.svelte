@@ -12,7 +12,7 @@
 	import { python, typescript } from 'svelte-highlight/languages'
 
 	import github from 'svelte-highlight/styles/github'
-	import { getScript, getScriptByPath } from '$lib/utils'
+	import { getScriptByPath } from '$lib/utils'
 
 	export let scriptPath: string | undefined = undefined
 	export let allowFlow = false

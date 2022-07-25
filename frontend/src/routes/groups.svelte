@@ -1,3 +1,11 @@
+<script context="module">
+	export function load() {
+		return {
+			stuff: { title: 'Groups' }
+		}
+	}
+</script>
+
 <script lang="ts">
 	import { canWrite } from '$lib/utils'
 	import { GroupService } from '$lib/gen'

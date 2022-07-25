@@ -1,3 +1,11 @@
+<script context="module">
+	export function load() {
+		return {
+			stuff: { title: 'Flows' }
+		}
+	}
+</script>
+
 <script lang="ts">
 	import Fuse from 'fuse.js'
 	import { FlowService, type OpenFlow } from '$lib/gen'

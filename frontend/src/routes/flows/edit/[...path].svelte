@@ -1,3 +1,11 @@
+<script context="module">
+	export function load({ params }) {
+		return {
+			stuff: { title: `Edit Flow ${params.path}` }
+		}
+	}
+</script>
+
 <script lang="ts">
 	import { FlowService, type Flow } from '$lib/gen'
 
