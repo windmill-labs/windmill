@@ -18,8 +18,8 @@
 	// Default
 	let schema: Schema = emptySchema()
 
-	$: templatePath = $page.url.searchParams.get('template')
-	$: hubPath = $page.url.searchParams.get('hub')
+	const templatePath = $page.url.searchParams.get('template')
+	const hubPath = $page.url.searchParams.get('hub')
 
 	const initialState = $page.url.searchParams.get('state')
 
@@ -59,7 +59,7 @@
 	async function loadHub(): Promise<void> {
 		if (hubPath) {
 			const template = await getScriptByPath(hubPath)
-			script.summary = `Fork of ${hubPath}`
+			script.description = `Fork of ${hubPath}`
 			script.content = template.content
 			script.language = Script.language.DENO
 			sendUserToast(`Code has been loaded from hub script ${hubPath}.`)
