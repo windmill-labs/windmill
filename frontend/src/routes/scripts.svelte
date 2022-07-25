@@ -1,3 +1,11 @@
+<script context="module">
+	export function load() {
+		return {
+			stuff: { title: 'Scripts' }
+		}
+	}
+</script>
+
 <script lang="ts">
 	import {
 		faArchive,

@@ -1,3 +1,11 @@
+<script context="module">
+	export function load() {
+		return {
+			stuff: { title: 'Workspace Settings' }
+		}
+	}
+</script>
+
 <script lang="ts">
 	import Fuse from 'fuse.js'
 	import { UserService, type WorkspaceInvite, WorkspaceService, OauthService } from '$lib/gen'

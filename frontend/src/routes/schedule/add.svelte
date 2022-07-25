@@ -1,3 +1,11 @@
+<script context="module">
+	export function load() {
+		return {
+			stuff: { title: 'New Schedule' }
+		}
+	}
+</script>
+
 <script lang="ts">
 	import { page } from '$app/stores'
 	import { sendUserToast, displayDate } from '$lib/utils'

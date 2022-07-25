@@ -1,3 +1,11 @@
+<script context="module">
+	export function load() {
+		return {
+			stuff: { title: 'Resources' }
+		}
+	}
+</script>
+
 <script lang="ts">
 	import { canWrite, emptySchema, sendUserToast } from '$lib/utils'
 	import { ResourceService, VariableService } from '$lib/gen'

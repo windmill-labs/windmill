@@ -1,3 +1,11 @@
+<script context="module">
+	export function load() {
+		return {
+			stuff: { title: 'Schedules' }
+		}
+	}
+</script>
+
 <script lang="ts">
 	import { sendUserToast, displayDate, canWrite } from '$lib/utils'
 	import { type Schedule, ScheduleService } from '$lib/gen'
