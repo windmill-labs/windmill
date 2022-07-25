@@ -43,26 +43,6 @@
 </div>
 
 <style>
-	.item-button {
-		@apply py-1;
-		@apply border;
-		@apply rounded-sm;
-	}
-	.item-button-selected {
-		@apply py-1;
-		@apply border border-blue-500;
-		@apply bg-blue-50;
-		@apply rounded-sm;
-	}
-
-	.item-button-disabled {
-		@apply py-1;
-		@apply border;
-		@apply bg-gray-100;
-		@apply text-gray-300;
-		@apply rounded-sm;
-	}
-
 	.selected:hover {
 		@apply border border-gray-400 rounded-md border-opacity-50;
 	}

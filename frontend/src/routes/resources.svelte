@@ -181,7 +181,7 @@
 								>
 								<div class="mb-1 -mt-1"><SharedBadge {canWrite} extraPerms={extra_perms} /></div>
 							</td>
-							<td><IconedResourceType name={resource_type} /></td>
+							<td class="px-2"><IconedResourceType name={resource_type} after={true} /></td>
 							<td><SvelteMarkdown source={description ?? ''} /></td>
 							<td>
 								{#if is_oauth}
@@ -269,7 +269,7 @@
 									resourceViewerSchema = schema
 									typeModalMode = 'view-type'
 									resourceViewer.openModal()
-								}}><IconedResourceType {name} /></a
+								}}><span class="text-gray-700"><IconedResourceType {name} /></span></a
 							></td
 						>
 						<td><SvelteMarkdown source={description ?? ''} /></td>
