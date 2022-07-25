@@ -58,7 +58,7 @@ export async function main() {
     // return newState - state
 
     // You may refer to each row/value returned by the trigger script using
-    // previous_result._value
+    // flow_input._value
 	return [1,2,3]
 }
 `

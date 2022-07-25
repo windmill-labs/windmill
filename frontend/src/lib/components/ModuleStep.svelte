@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { FlowModuleValue, type FlowModule } from '$lib/gen'
 	import { addPreviewResult, previewResults } from '$lib/stores'
-	import { buildExtraLib, objectToTsType, schemaToObject, schemaToTsType } from '$lib/utils'
+	import { buildExtraLib, objectToTsType, schemaToTsType } from '$lib/utils'
 	import { faRobot } from '@fortawesome/free-solid-svg-icons'
 	import Icon from 'svelte-awesome'
 	import Editor from './Editor.svelte'
@@ -16,6 +16,7 @@
 		schemasStore,
 		type FlowMode
 	} from './flows/flowStore'
+	import { getPickableProperties } from './flows/utils'
 	import SchemaForm from './SchemaForm.svelte'
 	import Tooltip from './Tooltip.svelte'
 
@@ -27,12 +28,7 @@
 
 	$: schema = $schemasStore[i]
 	$: shouldPick = mod.value.path === '' && mod.value.language === undefined
-	$: flowInputAsObject = schemaToObject($flowStore?.schema)
-	$: pickableProperties = {
-		flow_input: flowInputAsObject,
-		step: [flowInputAsObject, Object.values($previewResults).slice(0, i)],
-		previous_result: $previewResults[i]
-	}
+	$: pickableProperties = getPickableProperties($flowStore?.schema, $previewResults, mode, i)
 	$: extraLib = buildExtraLib(
 		i === 0 ? schemaToTsType($flowStore?.schema) : objectToTsType($previewResults[i])
 	)
@@ -140,7 +136,7 @@
 			Starting from here, the flow for loop over items from step 1's result above &nbsp;<Tooltip
 				>This flow being in 'Pull' mode, the rest of the flow will for loop over the list of items
 				returned by the trigger script right above. Retrieve the item value using
-				`previous_result._value`</Tooltip
+				`flow_input._value`</Tooltip
 			>
 		</div>
 	</li>

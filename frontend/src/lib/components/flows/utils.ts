@@ -9,7 +9,7 @@ import {
 import { inferArgs } from '$lib/infer'
 import { loadSchema } from '$lib/scripts'
 import { workspaceStore } from '$lib/stores'
-import { emptySchema } from '$lib/utils'
+import { emptySchema, schemaToObject } from '$lib/utils'
 import { get } from 'svelte/store'
 import type { FlowMode } from './flowStore'
 
@@ -54,6 +54,9 @@ export function getTypeAsString(arg: any): string {
 	if (arg === null) {
 		return 'null'
 	}
+	if (arg === undefined) {
+		return 'undefined'
+	}
 	return typeof arg
 }
 
@@ -61,6 +64,8 @@ export function formatValue(arg: any) {
 	if (getTypeAsString(arg) === 'string') {
 		return `"${arg}"`
 	}
+
+	debugger
 	return arg
 }
 
@@ -193,4 +198,31 @@ export function getDefaultExpr(i: number, key: string = 'myfield') {
 	return `import { previous_result, flow_input, step, variable, resource, params } from 'windmill@${i}'
 
 previous_result.${key}`
+}
+
+export function getPickableProperties(
+	schema: Schema,
+	previewResults: Record<number, Object>,
+	mode: FlowMode,
+	i: number
+) {
+	const flowInputAsObject = schemaToObject(schema)
+	const flowInput =
+		mode === 'pull'
+			? Object.assign(
+					{
+						_value: 'The current value of the iteration.',
+						_index: 'The current index of the iteration.'
+					},
+					flowInputAsObject
+			  )
+			: flowInputAsObject
+
+	const pickableProperties = {
+		flow_input: flowInput,
+		previous_result: i === 0 ? flowInput : previewResults[i],
+		step: i >= 1 ? Object.values(previewResults).slice(0, i) : []
+	}
+
+	return pickableProperties
 }

@@ -1,7 +1,12 @@
 <script lang="ts">
 	import { createEventDispatcher } from 'svelte'
-	import Overlay from 'svelte-overlay'
+	import { createPopperActions } from 'svelte-popperjs'
 	import PropPicker from './PropPicker.svelte'
+
+	const [popperRef, popperContent] = createPopperActions({
+		placement: 'bottom',
+		strategy: 'fixed'
+	})
 
 	export let pickableProperties: Object | undefined
 	export let disabled = false
@@ -9,10 +14,8 @@
 
 	const dispatch = createEventDispatcher()
 
-	function handleWindowKeyDown(event: { key: string }) {
-		if (event.key === 'Escape') {
-			isOpen = false
-		}
+	function toggle() {
+		isOpen = !isOpen
 	}
 
 	function onMouseLeave(mouseEvent: MouseEvent) {
@@ -23,50 +26,44 @@
 		const up = offsetY <= 0
 
 		const content = document.getElementsByClassName('content')
-		const overlayBottom = content.item(0)?.classList.contains('bottom-right')
+		const overlayBottom = content.item(0)?.getAttribute('data-popper-placement') === 'bottom'
 
 		if ((down && overlayBottom) || (up && !overlayBottom)) {
 			return
 		}
-		isOpen = !isOpen
+		toggle()
 	}
 </script>
 
 {#if !disabled}
-	<Overlay
-		onWindowKeyDown={handleWindowKeyDown}
-		closeOnClickOutside
-		closeOnScroll
-		bind:isOpen
-		class="w-full"
-		style="z-index:unset"
-	>
-		<div
-			slot="parent"
-			let:toggle
-			on:mousemove={() => !isOpen && toggle()}
-			on:mouseleave={onMouseLeave}
-		>
+	<div class="w-full">
+		<div use:popperRef on:mousemove={() => !isOpen && toggle()} on:mouseleave={onMouseLeave}>
 			<slot />
 		</div>
 
-		<div slot="content" class="content" let:toggle on:mouseleave={toggle} let:close>
-			<PropPicker
-				bind:pickableProperties
-				on:select={(event) => {
-					isOpen = false
-					dispatch('select', event.detail)
-				}}
-			/>
-		</div>
-	</Overlay>
+		{#if isOpen}
+			<div class="content" use:popperContent on:mouseleave={toggle}>
+				<PropPicker
+					bind:pickableProperties
+					on:select={(event) => {
+						isOpen = false
+						dispatch('select', event.detail)
+					}}
+				/>
+			</div>
+		{/if}
+	</div>
 {:else}
 	<slot />
 {/if}
 
 <style>
 	.content {
-		@apply w-full;
 		@apply drop-shadow-xl;
+		@apply w-full;
+		@apply max-w-4xl;
+
+		@apply px-6;
+		@apply z-50;
 	}
 </style>
