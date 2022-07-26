@@ -1,14 +1,9 @@
 import type { Schema } from '$lib/common'
-import {
-	FlowModuleValue,
-	InputTransform,
-	ScriptService,
-	type Flow,
-	type FlowModule
-} from '$lib/gen'
+import { FlowModuleValue, InputTransform, type Flow, type FlowModule } from '$lib/gen'
 import { inferArgs } from '$lib/infer'
 import { loadSchema } from '$lib/scripts'
-import { emptySchema, getScriptByPath } from '$lib/utils'
+import { emptySchema, getScriptByPath, schemaToObject } from '$lib/utils'
+
 import type { FlowMode } from './flowStore'
 
 export function flowToMode(flow: Flow | any, mode: FlowMode): Flow {
@@ -54,15 +49,12 @@ export function getTypeAsString(arg: any): string {
 	if (arg === null) {
 		return 'null'
 	}
+	if (arg === undefined) {
+		return 'undefined'
+	}
 	return typeof arg
 }
 
-export function formatValue(arg: any) {
-	if (getTypeAsString(arg) === 'string') {
-		return `"${arg}"`
-	}
-	return arg
-}
 
 export async function getFirstStepSchema(flow: Flow): Promise<Schema> {
 	const [firstModule] = flow.value.modules
@@ -78,8 +70,6 @@ export async function getFirstStepSchema(flow: Flow): Promise<Schema> {
 	}
 	return emptySchema()
 }
-
-
 
 export async function createInlineScriptModuleFromPath(path: string): Promise<FlowModuleValue> {
 	const { content, language } = await getScriptByPath(path)
@@ -173,4 +163,33 @@ export function getDefaultExpr(i: number, key: string = 'myfield') {
 	return `import { previous_result, flow_input, step, variable, resource, params } from 'windmill@${i}'
 
 previous_result.${key}`
+}
+
+export function getPickableProperties(
+	schema: Schema,
+	args: Record<string, any>,
+	previewResults: Record<number, Object>,
+	mode: FlowMode,
+	i: number
+) {
+	const flowInputAsObject = schemaToObject(schema, args)
+	const flowInput =
+		mode === 'pull'
+			? Object.assign(
+				{
+					_value: 'The current value of the iteration.',
+					_index: 'The current index of the iteration.'
+				},
+				flowInputAsObject
+			)
+			: flowInputAsObject
+
+	console.log(previewResults)
+	const pickableProperties = {
+		flow_input: flowInput,
+		previous_result: i === 0 ? flowInput : previewResults[i - 1],
+		step: i >= 1 ? Object.values(previewResults).slice(0, i) : []
+	}
+
+	return pickableProperties
 }

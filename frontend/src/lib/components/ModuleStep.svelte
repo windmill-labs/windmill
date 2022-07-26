@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { FlowModuleValue, type FlowModule } from '$lib/gen'
-	import { addPreviewResult, previewResults } from '$lib/stores'
-	import { buildExtraLib, objectToTsType, schemaToObject, schemaToTsType } from '$lib/utils'
+	import { previewResults } from '$lib/stores'
+	import { buildExtraLib, objectToTsType, schemaToTsType } from '$lib/utils'
 	import { faRobot } from '@fortawesome/free-solid-svg-icons'
 	import Icon from 'svelte-awesome'
 	import Editor from './Editor.svelte'
@@ -17,6 +17,7 @@
 		schemasStore,
 		type FlowMode
 	} from './flows/flowStore'
+	import { getPickableProperties } from './flows/utils'
 	import SchemaForm from './SchemaForm.svelte'
 	import Tooltip from './Tooltip.svelte'
 
@@ -28,10 +29,11 @@
 
 	let editor: Editor
 	let websocketAlive = { pyright: false, black: false, deno: false }
+	let pickableProperties: Object | undefined = undefined
 
 	$: schema = $schemasStore[i]
 	$: shouldPick = mod.value.path === '' && mod.value.language === undefined
-	$: previousSchema = i === 0 ? schemaToObject($flowStore?.schema) : $previewResults[i]
+	$: pickableProperties = getPickableProperties($flowStore?.schema, args, $previewResults, mode, i)
 	$: extraLib = buildExtraLib(
 		i === 0 ? schemaToTsType($flowStore?.schema) : objectToTsType($previewResults[i])
 	)
@@ -107,7 +109,7 @@
 						{schema}
 						{extraLib}
 						{i}
-						{previousSchema}
+						bind:pickableProperties
 						bind:args={mod.input_transform}
 					/>
 				{/if}
@@ -123,18 +125,21 @@
 						{mode}
 						schemas={$schemasStore}
 						on:change={(e) => {
-							addPreviewResult(e.detail.result, i + 1)
+							const results = e.detail.map((x) => x.result)
+							previewResults.set(results)
 						}}
 					/>
 				</div>
-				<div>
-					<button class="w-full h-full" on:click={() => (open = -1)}>(-)</button>
-				</div>
-			{:else}
-				<div>
-					<button class="w-full h-full" on:click={() => (open = i)}>(+)</button>
-				</div>
 			{/if}
+		{/if}
+		{#if open == i}
+			<div>
+				<button class="w-full h-full" on:click={() => (open = -1)}>(-)</button>
+			</div>
+		{:else}
+			<div>
+				<button class="w-full h-full" on:click={() => (open = i)}>(+)</button>
+			</div>
 		{/if}
 	</div>
 </li>
@@ -144,7 +149,7 @@
 			Starting from here, the flow for loop over items from step 1's result above &nbsp;<Tooltip
 				>This flow being in 'Pull' mode, the rest of the flow will for loop over the list of items
 				returned by the trigger script right above. Retrieve the item value using
-				`previous_result._value`</Tooltip
+				`flow_input._value`</Tooltip
 			>
 		</div>
 	</li>
