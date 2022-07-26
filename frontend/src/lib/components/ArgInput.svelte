@@ -184,7 +184,7 @@
 				{error === '' ? '...' : error}
 			</div>
 		</div>
-		<div class="container">
+		<div class="flex flex-row gap-1">
 			{#if inputCat == 'number' && !numberAsString}
 				<input
 					{disabled}
@@ -279,6 +279,7 @@
 				/>
 			{:else if inputCat == 'string' || (inputCat == 'number' && numberAsString)}
 				<textarea
+					on:focus={() => dispatch('focus')}
 					{disabled}
 					style="height: {minHeight}; max-height: {maxHeight}"
 					class="col-span-10 {valid
@@ -302,6 +303,3 @@
 		</div>
 	</div>
 </div>
-
-<style>
-</style>

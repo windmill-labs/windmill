@@ -36,8 +36,6 @@
 
 	let open = 0
 	let args: Record<string, any> = {}
-
-	$: numberOfSteps = $flowStore?.value.modules.length - 1
 </script>
 
 <Modal bind:this={jsonSetter}>
@@ -197,7 +195,12 @@
 						<div class="p-4">
 							<SchemaEditor schema={$flowStore.schema} />
 							<div class="my-4" />
-							<FlowPreview {mode} flow={$flowStore} i={numberOfSteps} bind:args />
+							<FlowPreview
+								{mode}
+								flow={$flowStore}
+								i={$flowStore?.value.modules.length}
+								bind:args
+							/>
 						</div>
 					</div>
 				</li>

@@ -2,7 +2,7 @@
 	import { FlowModuleValue, type FlowModule } from '$lib/gen'
 	import { previewResults } from '$lib/stores'
 	import { buildExtraLib, objectToTsType, schemaToTsType } from '$lib/utils'
-	import { faRobot } from '@fortawesome/free-solid-svg-icons'
+	import { faChevronDown, faChevronUp, faRobot } from '@fortawesome/free-solid-svg-icons'
 	import Icon from 'svelte-awesome'
 	import Editor from './Editor.svelte'
 	import EditorBar from './EditorBar.svelte'
@@ -143,11 +143,15 @@
 		{/if}
 		{#if open == i}
 			<div>
-				<button class="w-full h-full" on:click={() => (open = -1)}>(-)</button>
+				<button class="w-full h-full" on:click={() => (open = -1)}
+					><Icon data={faChevronUp} scale={1.0} /></button
+				>
 			</div>
 		{:else}
 			<div>
-				<button class="w-full h-full" on:click={() => (open = i)}>(+)</button>
+				<button class="w-full h-full" on:click={() => (open = i)}
+					><Icon data={faChevronDown} scale={1.0} /></button
+				>
 			</div>
 		{/if}
 	</div>

@@ -102,9 +102,6 @@
 		@apply text-black;
 	}
 
-	.hidden {
-		display: none;
-	}
 	.val {
 		@apply text-black;
 	}

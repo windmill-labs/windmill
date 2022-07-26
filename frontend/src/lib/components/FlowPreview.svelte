@@ -28,7 +28,7 @@
 	let intervalId: NodeJS.Timer
 
 	let uptoText =
-		i == flow.value.modules.length - 1 ? 'Preview whole flow' : 'Preview up to this step'
+		i >= flow.value.modules.length - 1 ? 'Preview whole flow' : 'Preview up to this step'
 	let job: Job | undefined
 	let jobs = []
 	let jobId: string
@@ -89,21 +89,21 @@
 	})
 </script>
 
-<h2 class="flex justify-center">
-	<button
-		class="default-button	"
-		on:click={() => {
-			viewPreview = !viewPreview
-		}}
-	>
+<button
+	class="w-full bg-blue-200"
+	on:click={() => {
+		viewPreview = !viewPreview
+	}}
+>
+	<h2 class="flex justify-center">
 		<div>
 			Preview mode<Icon class="ml-1" data={viewPreview ? faChevronUp : faChevronDown} scale={1} />
 		</div>
-	</button>
-</h2>
+	</h2>
+</button>
 
 {#if viewPreview}
-	{#if i != flow.value.modules.length - 1}
+	{#if i != flow.value.modules.length}
 		<Tabs
 			tabs={[
 				['upto', uptoText],
