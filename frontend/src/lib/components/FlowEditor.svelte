@@ -51,7 +51,7 @@
 				Object.assign($flowStore, JSON.parse(jsonValue))
 				initFlow($flowStore)
 				open = -1
-				sendUserToast('Flow imported from JSON')
+				sendUserToast('OpenFlow imported from JSON')
 				jsonSetter.closeModal()
 			}}
 		>
@@ -80,14 +80,14 @@
 							<Dropdown
 								dropdownItems={[
 									{
-										displayName: 'Import from JSON',
+										displayName: 'Import from a JSON OpenFlow',
 										icon: faFileImport,
 										action: () => {
 											jsonSetter.openModal()
 										}
 									},
 									{
-										displayName: 'Export to JSON',
+										displayName: 'Export to a JSON OpenFlow',
 										icon: faFileExport,
 										action: () => {
 											jsonViewer.openModal()
