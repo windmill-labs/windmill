@@ -58,10 +58,3 @@ export function clearPreviewResults() {
 	previewResults.set({})
 }
 
-export function addPreviewResult(res: Object, index: number) {
-	previewResults.update((rec) => {
-		rec[index] = res
-
-		return rec
-	})
-}

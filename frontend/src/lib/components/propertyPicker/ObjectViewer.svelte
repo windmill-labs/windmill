@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { createEventDispatcher } from 'svelte'
-	import { formatValue, getTypeAsString } from '../flows/utils'
+	import { getTypeAsString } from '../flows/utils'
+	import WarningMessage from './WarningMessage.svelte'
 
 	export let json: Object
 	export let level = 0
@@ -30,6 +31,9 @@
 
 	function computeKey(key: string) {
 		if (isArray) {
+			if (currentPath === 'step') {
+				return `${currentPath}(${key})?`
+			}
 			return `${currentPath}[${key}]`
 		} else {
 			if (currentPath) {
@@ -47,12 +51,14 @@
 
 {#if keys.length > 0}
 	<span class:hidden={collapsed}>
-		<span class="cursor-pointer hover:bg-slate-200" on:click={collapse}>{openBracket}</span>
-		<ul>
+		<!-- <span class="cursor-pointer hover:bg-slate-200" on:click={collapse}>{openBracket}</span> -->
+		<ul class="w-full">
 			{#each keys as key, index}
-				<li class={getTypeAsString(json[key]) !== 'object' ? 'hover:bg-sky-100 py-2' : 'py-2'}>
+				<li class={getTypeAsString(json[key]) !== 'object' ? 'hover:bg-sky-100 pt-1' : 'pt-1'}>
 					{#if !isArray}
-						<span class="key">{key}:</span>
+						<span class="key mr-1">{key}:</span>
+					{:else}
+						<span class="key mr-1">{index}:</span>
 					{/if}
 
 					{#if getTypeAsString(json[key]) === 'object'}
@@ -64,23 +70,19 @@
 							on:select
 						/>
 					{:else}
-						<span class="val {getTypeAsString(json[key])}">
-							{formatValue(json[key])}
-							{#if index < keys.length - 1}
-								<span class="text-black">,</span>
+						<button class="val {getTypeAsString(json[key])}" on:click={() => selectProp(key)}>
+							{#if json[key] === undefined}
+								<WarningMessage />
+							{:else}
+								<span> {JSON.stringify(json[key])}</span>
+								<button class="ml-2 default-button-secondary py-0"> Select </button>
 							{/if}
-							<button class="default-button-secondary" on:click={() => selectProp(key)}>
-								Select
-							</button>
-						</span>
+						</button>
 					{/if}
 				</li>
 			{/each}
 		</ul>
-		<span class="cursor-pointer hover:bg-slate-200" on:click={collapse}>{closeBracket}</span>
-		{#if !isLast}
-			<span class="text-black">,</span>
-		{/if}
+		<!-- <span class="cursor-pointer hover:bg-slate-200" on:click={collapse}>{closeBracket}</span> -->
 	</span>
 	<span class="cursor-pointer hover:bg-slate-200" class:hidden={!collapsed} on:click={collapse}>
 		{openBracket}{collapsedSymbol}{closeBracket}
@@ -88,6 +90,8 @@
 	{#if !isLast && collapsed}
 		<span class="text-black">,</span>
 	{/if}
+{:else}
+	<span class="text-black">{openBracket}{closeBracket}</span>
 {/if}
 
 <style>
@@ -103,6 +107,12 @@
 	}
 	.val {
 		@apply text-black;
+	}
+	.val.undefined {
+		@apply text-red-500;
+	}
+	.val.null {
+		@apply text-red-500;
 	}
 	.val.string {
 		@apply text-lime-600;

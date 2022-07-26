@@ -339,7 +339,7 @@ export function schemaToTsType(schema: Schema): string {
 	return `{ ${types} }`
 }
 
-export function schemaToObject(schema: Schema): Object {
+export function schemaToObject(schema: Schema, args: Record<string, any>): Object {
 	const object = {}
 
 	if (!schema) {
@@ -348,8 +348,7 @@ export function schemaToObject(schema: Schema): Object {
 	const propKeys = Object.keys(schema.properties)
 
 	propKeys.forEach((key: string) => {
-		const prop = schema.properties[key]
-		object[key] = prop.type
+		object[key] = args[key] ?? null
 	})
 
 	return object
