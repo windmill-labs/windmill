@@ -66,7 +66,7 @@
 			</h2>
 		{/if}
 		{#if !runnable.schema.properties || Object.keys(runnable.schema.properties).length === 0}
-			<div class="text-sm p-6">No arguments</div>
+			<div class="text-sm p-4">No arguments</div>
 		{:else}
 			<div
 				class="bg-gray-50 border border shadow-md shadow-blue-100 shadow-inner rounded border-gray-300 p-6"
