@@ -55,13 +55,6 @@ export function getTypeAsString(arg: any): string {
 	return typeof arg
 }
 
-export function formatValue(arg: any) {
-	if (getTypeAsString(arg) === 'string') {
-		return `"${arg}"`
-	}
-
-	return arg
-}
 
 export async function getFirstStepSchema(flow: Flow): Promise<Schema> {
 	const [firstModule] = flow.value.modules
@@ -174,25 +167,27 @@ previous_result.${key}`
 
 export function getPickableProperties(
 	schema: Schema,
+	args: Record<string, any>,
 	previewResults: Record<number, Object>,
 	mode: FlowMode,
 	i: number
 ) {
-	const flowInputAsObject = schemaToObject(schema)
+	const flowInputAsObject = schemaToObject(schema, args)
 	const flowInput =
 		mode === 'pull'
 			? Object.assign(
-					{
-						_value: 'The current value of the iteration.',
-						_index: 'The current index of the iteration.'
-					},
-					flowInputAsObject
-			  )
+				{
+					_value: 'The current value of the iteration.',
+					_index: 'The current index of the iteration.'
+				},
+				flowInputAsObject
+			)
 			: flowInputAsObject
 
+	console.log(previewResults)
 	const pickableProperties = {
 		flow_input: flowInput,
-		previous_result: i === 0 ? flowInput : previewResults[i],
+		previous_result: i === 0 ? flowInput : previewResults[i - 1],
 		step: i >= 1 ? Object.values(previewResults).slice(0, i) : []
 	}
 

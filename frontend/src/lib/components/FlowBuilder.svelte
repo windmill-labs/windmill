@@ -54,7 +54,7 @@
 	}
 
 	flowStore.subscribe((flow: Flow) => {
-		setQueryWithoutLoad($page.url, 'state', btoa(JSON.stringify(flowToMode(flow, mode))))
+		//setQueryWithoutLoad($page.url, 'state', btoa(JSON.stringify(flowToMode(flow, mode))))
 	})
 
 	onMount(() => {

@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { FlowModuleValue, type FlowModule } from '$lib/gen'
-	import { addPreviewResult, previewResults } from '$lib/stores'
+	import { previewResults } from '$lib/stores'
 	import { buildExtraLib, objectToTsType, schemaToTsType } from '$lib/utils'
 	import { faRobot } from '@fortawesome/free-solid-svg-icons'
 	import Icon from 'svelte-awesome'
@@ -29,10 +29,11 @@
 
 	let editor: Editor
 	let websocketAlive = { pyright: false, black: false, deno: false }
+	let pickableProperties: Object | undefined = undefined
 
 	$: schema = $schemasStore[i]
 	$: shouldPick = mod.value.path === '' && mod.value.language === undefined
-	$: pickableProperties = getPickableProperties($flowStore?.schema, $previewResults, mode, i)
+	$: pickableProperties = getPickableProperties($flowStore?.schema, args, $previewResults, mode, i)
 	$: extraLib = buildExtraLib(
 		i === 0 ? schemaToTsType($flowStore?.schema) : objectToTsType($previewResults[i])
 	)
@@ -124,18 +125,21 @@
 						{mode}
 						schemas={$schemasStore}
 						on:change={(e) => {
-							addPreviewResult(e.detail.result, i + 1)
+							const results = e.detail.map((x) => x.result)
+							previewResults.set(results)
 						}}
 					/>
 				</div>
-				<div>
-					<button class="w-full h-full" on:click={() => (open = -1)}>(-)</button>
-				</div>
-			{:else}
-				<div>
-					<button class="w-full h-full" on:click={() => (open = i)}>(+)</button>
-				</div>
 			{/if}
+		{/if}
+		{#if open == i}
+			<div>
+				<button class="w-full h-full" on:click={() => (open = -1)}>(-)</button>
+			</div>
+		{:else}
+			<div>
+				<button class="w-full h-full" on:click={() => (open = i)}>(+)</button>
+			</div>
 		{/if}
 	</div>
 </li>

@@ -33,6 +33,8 @@
 	let jobs = []
 	let jobId: string
 
+	$: dispatch('change', jobs)
+
 	export async function runPreview(args) {
 		viewPreview = true
 		intervalId && clearInterval(intervalId)
@@ -77,7 +79,6 @@
 				//only CompletedJob has success property
 				clearInterval(intervalId)
 			}
-			dispatch('change', job)
 		} catch (err) {
 			sendUserToast(err, true)
 		}
