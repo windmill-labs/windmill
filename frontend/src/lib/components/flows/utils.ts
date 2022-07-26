@@ -159,10 +159,11 @@ export function getCodeInjectionExpr(code: string, isRaw: boolean): string {
 ${expr}`
 }
 
-export function getDefaultExpr(i: number, key: string = 'myfield') {
+export function getDefaultExpr(i: number, key: string = 'myfield', previousExpr?: string) {
+	const expr = previousExpr ? `\`${previousExpr}\`` : `previous_result.${key}`
 	return `import { previous_result, flow_input, step, variable, resource, params } from 'windmill@${i}'
 
-previous_result.${key}`
+${expr}`
 }
 
 export function getPickableProperties(
