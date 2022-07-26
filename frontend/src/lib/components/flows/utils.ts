@@ -1,16 +1,8 @@
 import type { Schema } from '$lib/common'
-import {
-	FlowModuleValue,
-	InputTransform,
-	ScriptService,
-	type Flow,
-	type FlowModule
-} from '$lib/gen'
+import { FlowModuleValue, InputTransform, type Flow, type FlowModule } from '$lib/gen'
 import { inferArgs } from '$lib/infer'
 import { loadSchema } from '$lib/scripts'
-import { workspaceStore } from '$lib/stores'
-import { emptySchema, schemaToObject, getScriptByPath } from '$lib/utils'
-import { get } from 'svelte/store'
+import { emptySchema, getScriptByPath, schemaToObject } from '$lib/utils'
 
 import type { FlowMode } from './flowStore'
 
@@ -68,7 +60,6 @@ export function formatValue(arg: any) {
 		return `"${arg}"`
 	}
 
-	debugger
 	return arg
 }
 
@@ -86,8 +77,6 @@ export async function getFirstStepSchema(flow: Flow): Promise<Schema> {
 	}
 	return emptySchema()
 }
-
-
 
 export async function createInlineScriptModuleFromPath(path: string): Promise<FlowModuleValue> {
 	const { content, language } = await getScriptByPath(path)
