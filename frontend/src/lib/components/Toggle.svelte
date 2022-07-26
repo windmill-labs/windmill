@@ -9,7 +9,7 @@
 		| undefined = undefined
 	export let checked = options?.right.value === value
 
-	const id = Date.now().toString(36)
+	const id = (Math.random() + 1).toString(36).substring(10)
 
 	const dispatch = createEventDispatcher()
 </script>
