@@ -104,11 +104,17 @@ pub enum FlowModuleValue {
     ForloopFlow {
         iterator: InputTransform,
         value: Box<FlowValue>,
+        #[serde(default = "wat")]
+        skip_failures: bool,
     },
     Flow {
         path: String,
     },
     RawScript(RawCode),
+}
+
+fn wat() -> bool {
+    true
 }
 
 #[derive(Deserialize)]
