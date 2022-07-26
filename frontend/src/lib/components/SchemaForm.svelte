@@ -21,6 +21,7 @@
 	export let pickableProperties: Object | undefined = undefined
 
 	let inputCheck: { [id: string]: boolean } = {}
+	let overlays: { [id: string]: OverlayPropertyPicker } = {}
 	$: isValid = allTrue(inputCheck) ?? false
 
 	let propertiesTypes: { [id: string]: InputTransform.type } = {}
@@ -103,6 +104,7 @@
 
 				{#if propertiesTypes[argName] === undefined || propertiesTypes[argName] === InputTransform.type.STATIC}
 					<OverlayPropertyPicker
+						bind:this={overlays[argName]}
 						bind:pickableProperties
 						disabled={!hasOverlay(inputCats[argName])}
 						on:select={(event) => {
@@ -112,6 +114,15 @@
 						}}
 					>
 						<ArgInput
+							on:focus={() => {
+								Object.keys(overlays).forEach((k) => {
+									if (k == argName) {
+										overlays[k].focus()
+									} else {
+										overlays[k].unfocus()
+									}
+								})
+							}}
 							label={argName}
 							bind:description={schema.properties[argName].description}
 							bind:value={args[argName].value}

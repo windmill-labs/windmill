@@ -11,38 +11,40 @@
 	export let pickableProperties: Object | undefined
 	export let disabled = false
 	let isOpen = false
+	let isFocused = true
+
+	let timeout: NodeJS.Timeout
+
+	export function unfocus() {
+		isFocused = false
+		close()
+	}
+	export function focus() {
+		isFocused = true
+		open()
+	}
+
+	function open() {
+		if (isFocused) {
+			clearTimeout(timeout)
+			!isOpen && (isOpen = true)
+		}
+	}
+	function close() {
+		timeout = setTimeout(() => (isOpen = false), 200)
+	}
 
 	const dispatch = createEventDispatcher()
-
-	function toggle() {
-		isOpen = !isOpen
-	}
-
-	function onMouseLeave(mouseEvent: MouseEvent) {
-		const { offsetY } = mouseEvent
-		const target = mouseEvent.target as HTMLInputElement
-
-		const down = offsetY >= target.clientHeight
-		const up = offsetY <= 0
-
-		const content = document.getElementsByClassName('content')
-		const overlayBottom = content.item(0)?.getAttribute('data-popper-placement') === 'bottom'
-
-		if ((down && overlayBottom) || (up && !overlayBottom)) {
-			return
-		}
-		toggle()
-	}
 </script>
 
 {#if !disabled}
 	<div class="w-full">
-		<div use:popperRef on:mousemove={() => !isOpen && toggle()} on:mouseleave={onMouseLeave}>
+		<div use:popperRef on:mouseenter={open} on:mouseleave={close}>
 			<slot />
 		</div>
 
 		{#if isOpen}
-			<div class="content" use:popperContent on:mouseleave={toggle}>
+			<div class="content" use:popperContent on:mouseenter={open} on:mouseleave={close}>
 				<PropPicker
 					bind:pickableProperties
 					on:select={(event) => {
