@@ -174,21 +174,38 @@ export function getPickableProperties(
 ) {
 	const flowInputAsObject = schemaToObject(schema, args)
 	const flowInput =
-		mode === 'pull'
-			? Object.assign(
+		mode === 'pull' && i >= 1
+			? Object.assign(Object.assign(
 				{
 					_value: 'The current value of the iteration.',
 					_index: 'The current index of the iteration.'
 				},
-				flowInputAsObject
-			)
+				flowInputAsObject), previewResults[0])
+
 			: flowInputAsObject
 
-	console.log(previewResults)
+
+	let previous_result
+	if (i === 0 || (i == 1 && mode == 'pull')) {
+		previous_result = flowInput
+	} else if (mode == 'pull') {
+		previous_result = previewResults[1] ? previewResults[1][i - 2] : undefined
+	} else {
+		previous_result = previewResults[i - 1]
+	}
+
+	let step
+	if (i >= 1 && mode == 'push') {
+		step = Object.values(previewResults).slice(0, i)
+	} else if (i >= 2 && mode == 'pull') {
+		step = Object.values(previewResults[1] ?? {}).slice(0, i - 1)
+	} else {
+		step = []
+	}
 	const pickableProperties = {
 		flow_input: flowInput,
-		previous_result: i === 0 ? flowInput : previewResults[i - 1],
-		step: i >= 1 ? Object.values(previewResults).slice(0, i) : []
+		previous_result,
+		step
 	}
 
 	return pickableProperties

@@ -37,6 +37,16 @@
 	$: extraLib = buildExtraLib(
 		i === 0 ? schemaToTsType($flowStore?.schema) : objectToTsType($previewResults[i])
 	)
+
+	function toResults(jobs: any) {
+		return jobs.map((x) => {
+			if (x.result) {
+				return x.result
+			} else if (x.length) {
+				return toResults(x)
+			}
+		})
+	}
 </script>
 
 <li class="flex flex-row flex-shrink max-w-full mx-auto mt-16">
@@ -125,8 +135,7 @@
 						{mode}
 						schemas={$schemasStore}
 						on:change={(e) => {
-							const results = e.detail.map((x) => x.result)
-							previewResults.set(results)
+							previewResults.set(toResults(e.detail))
 						}}
 					/>
 				</div>
