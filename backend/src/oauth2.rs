@@ -185,8 +185,18 @@ pub fn build_basic_client(
     login: bool,
     base_url: &str,
 ) -> (String, OClient) {
-    let auth_url = Url::parse(&config.auth_url).expect("Invalid authorization endpoint URL");
+    let mut auth_url = Url::parse(&config.auth_url).expect("Invalid authorization endpoint URL");
     let token_url = Url::parse(&config.token_url).expect("Invalid token endpoint URL");
+
+    if ["gcal", "gdrive", "gsheets", "gcloud", "gmail"]
+        .into_iter()
+        .any(|x| x == name)
+    {
+        auth_url
+            .query_pairs_mut()
+            .append_pair("access_type", "offline")
+            .append_pair("prompt", "consent");
+    }
 
     let redirect_url = if login {
         format!("{base_url}/user/login_callback/{name}")
@@ -442,12 +452,9 @@ pub async fn _refresh_token<'c>(
         .ok_or_else(|| error::Error::BadRequest("invalid client".to_string()))?
         .client)
         .to_owned();
-    let mut refresh_client =
-        client.exchange_refresh_token(&RefreshToken::from(account.refresh_token));
-    if ["gcal", "gdrive", "gsheets", "gcloud", "gmail"].contains(&account.client.as_str()) {
-        refresh_client = refresh_client.param("access_type", "offline");
-    }
-    let token = refresh_client
+
+    let token = client
+        .exchange_refresh_token(&RefreshToken::from(account.refresh_token))
         .with_client(&http_client)
         .execute::<TokenResponse>()
         .await
@@ -772,6 +779,7 @@ async fn exchange_code<T: DeserializeOwned>(
     if callback.state != csrf_state {
         return Err(error::Error::BadRequest("csrf did not match".to_string()));
     }
+
     client
         .exchange_code(callback.code)
         .with_client(http_client)
@@ -898,6 +906,7 @@ fn oauth_redirect(
     for scope in scopes_iter.iter() {
         client.add_scope(scope);
     }
+
     let url = client.authorize_url(&state);
     set_cookie(&state, cookies);
     Ok(Redirect::to(url.as_str()))
