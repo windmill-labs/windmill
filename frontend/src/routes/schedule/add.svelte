@@ -8,7 +8,7 @@
 
 <script lang="ts">
 	import { page } from '$app/stores'
-	import { sendUserToast, displayDate } from '$lib/utils'
+	import { sendUserToast, displayDate, formatCron } from '$lib/utils'
 	import { ScriptService, type Script, ScheduleService, type Flow, FlowService } from '$lib/gen'
 
 	import PageHeader from '$lib/components/PageHeader.svelte'
@@ -21,11 +21,11 @@
 	import SchemaForm from '$lib/components/SchemaForm.svelte'
 	import ScriptPicker from '$lib/components/ScriptPicker.svelte'
 	import Required from '$lib/components/Required.svelte'
+	import CronInput, { OFFSET } from '$lib/components/CronInput.svelte'
 
 	let initialPath = $page.url.searchParams.get('edit') || ''
 	let edit = initialPath === '' ? false : true
-	let scheduleInput: string = '0 0 12 * *'
-	let cronError = ''
+	let schedule: string = '0 0 12 * *'
 
 	let script_path = $page.url.searchParams.get('path') || ''
 	let is_flow = $page.url.searchParams.get('isFlow') == 'true'
@@ -36,19 +36,13 @@
 	let runnable: Script | Flow | undefined
 	let args: Record<string, any> = {}
 
-	let validCRON = true
-	let allowSchedule: boolean
 	let isValid = true
-	let preview: string[] = []
 
 	let path: string = ''
 	let pathError = ''
 
-	const offset = new Date().getTimezoneOffset()
-
+	let validCRON = true
 	$: allowSchedule = isValid && validCRON && script_path != ''
-
-	$: handleScheduleInput(scheduleInput)
 
 	$: script_path && loadScript(script_path)
 
@@ -70,7 +64,7 @@
 				workspace: $workspaceStore!,
 				path: initialPath
 			})
-			scheduleInput = s.schedule
+			schedule = s.schedule
 			script_path = s.script_path ?? ''
 			args = s.args ?? {}
 		} catch (err) {
@@ -84,7 +78,7 @@
 				workspace: $workspaceStore!,
 				path: initialPath,
 				requestBody: {
-					schedule: formatInput(scheduleInput),
+					schedule: formatCron(schedule),
 					script_path: script_path,
 					is_flow: is_flow,
 					args
@@ -96,43 +90,14 @@
 				workspace: $workspaceStore!,
 				requestBody: {
 					path,
-					schedule: formatInput(scheduleInput),
-					offset,
+					schedule: formatCron(schedule),
+					offset: OFFSET,
 					script_path,
 					is_flow,
 					args
 				}
 			})
 			goto('/schedules')
-		}
-	}
-
-	function formatInput(input: string): string {
-		// Allow for cron expressions inputted by the user to omit month and year
-		let splitted = input.split(' ')
-		splitted = splitted.filter(String) //remove empty string elements
-		if (6 - splitted.length > 0) {
-			return splitted.concat(Array(6 - splitted.length).fill('*')).join(' ')
-		} else {
-			return input
-		}
-	}
-
-	async function handleScheduleInput(input: string): Promise<void> {
-		try {
-			preview = await ScheduleService.previewSchedule({
-				requestBody: { schedule: formatInput(input), offset }
-			})
-			cronError = ''
-			validCRON = true
-		} catch (err) {
-			if (err.status == 400 && err.body.includes('cron')) {
-				cronError = `Invalid cron expression`
-				validCRON = false
-			} else {
-				sendUserToast(`Cannot preview: ${err}`, true)
-				validCRON = false
-			}
 		}
 	}
 
@@ -191,39 +156,9 @@
 			{/if}
 		</div>
 		<h2 class="mt-2 md:mt-6">
-			Schedule<Tooltip>Schedules use CRON syntax. Milliseconds are mandatory.</Tooltip>
+			Schedule<Tooltip>Schedules use CRON syntax. Seconds are mandatory.</Tooltip>
 		</h2>
-		<div class="text-purple-500 text-2xs grow">{cronError}</div>
-		<div class="flex flex-row items-end max-w-5xl">
-			<label class="text-xs min-w-max mr-2 self-center" for="cron-schedule">CRON expression</label>
-			<input
-				class="inline-block"
-				type="text"
-				id="cron-schedule"
-				name="cron-schedule"
-				bind:value={scheduleInput}
-			/>
-		</div>
-		<div class="flex flex-row text-xs text-blue-500 gap-3 pl-28">
-			<button
-				on:click={() => {
-					scheduleInput = '0 */15 * * *'
-					cronError = ''
-				}}>every 15 min</button
-			>
-			<button
-				on:click={() => {
-					scheduleInput = '0 0 * * * *'
-					cronError = ''
-				}}>every hour</button
-			>
-			<button
-				on:click={() => {
-					scheduleInput = '0 0 8 * * *'
-					cronError = ''
-				}}>once a day at 8AM</button
-			>
-		</div>
+		<CronInput bind:schedule bind:validCRON />
 		<div class="flex flex-row-reverse mt-2 ">
 			<div>
 				<button
@@ -236,44 +171,5 @@
 				</button>
 			</div>
 		</div>
-
-		{#if preview && preview.length > 0}
-			<div class="text-sm text-gray-700 border mt-6 p-2 rounded-md">
-				<div class="flex flex-row justify-between">
-					The next 10 runs of this script will be:
-					<button
-						on:click={() => {
-							preview = []
-						}}
-					>
-						<svg
-							class="w-4 h-4"
-							fill="none"
-							stroke="currentColor"
-							viewBox="0 0 24 24"
-							xmlns="http://www.w3.org/2000/svg"
-						>
-							<path
-								stroke-linecap="round"
-								stroke-linejoin="round"
-								stroke-width="2"
-								d="M6 18L18 6M6 6l12 12"
-							/>
-						</svg>
-					</button>
-				</div>
-				<ul class="list-disc mx-12">
-					{#each preview as p}
-						<li class="mx-2 text-gray-700 text-sm">{displayDate(p)}</li>
-					{/each}
-				</ul>
-			</div>
-		{/if}
 	</div>
 </CenteredPage>
-
-<style>
-	.selected:hover {
-		@apply border border-gray-400 rounded-md border-opacity-50;
-	}
-</style>

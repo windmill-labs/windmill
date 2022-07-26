@@ -17,9 +17,17 @@
 	import Modal from './Modal.svelte'
 	import FlowViewer from './FlowViewer.svelte'
 	import { flowToMode } from './flows/utils'
+	import CronInput from './CronInput.svelte'
+	import CollapseLink from './CollapseLink.svelte'
+	import Toggle from './Toggle.svelte'
 
 	export let pathError = ''
 	export let initialPath: string = ''
+	export let mode: FlowMode =
+		$flowStore?.value.modules[1]?.value.type == FlowModuleValue.type.FORLOOPFLOW ? 'pull' : 'push'
+
+	let allowSchedule = false
+	let cronSchedule: string | undefined
 
 	let jsonSetter: Modal
 	let jsonViewer: Modal
@@ -28,8 +36,7 @@
 
 	let open = 0
 	let args: Record<string, any> = {}
-	export let mode: FlowMode =
-		$flowStore?.value.modules[1]?.value.type == FlowModuleValue.type.FORLOOPFLOW ? 'pull' : 'push'
+
 	$: numberOfSteps = $flowStore?.value.modules.length - 1
 </script>
 
@@ -163,6 +170,20 @@
 							]}
 							bind:value={mode}
 						/>
+						<div class="p-4 hidden">
+							<CollapseLink text="set primary schedule" open={mode == 'pull'}>
+								<Toggle
+									bind:value={allowSchedule}
+									options={{
+										left: { label: 'disabled', value: false },
+										right: { label: 'enabled', value: true }
+									}}
+								/>
+								<div class="p-2 mt-2 rounded" class:bg-gray-300={!allowSchedule}>
+									<CronInput schedule={cronSchedule} />
+								</div>
+							</CollapseLink>
+						</div>
 					</div>
 				</li>
 				<li class="flex flex-row flex-shrink max-w-full mx-auto mt-20">
