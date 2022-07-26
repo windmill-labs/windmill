@@ -5,7 +5,7 @@
 	import Icon from 'svelte-awesome'
 	import FlowPreview from './FlowPreview.svelte'
 	import CopyFirstStepSchema from './flows/CopyFirstStepSchema.svelte'
-	import { addModule, flowStore, type FlowMode } from './flows/flowStore'
+	import { addModule, flowStore, initFlow, type FlowMode } from './flows/flowStore'
 	import ModuleStep from './ModuleStep.svelte'
 	import Path from './Path.svelte'
 	import RadioButtonV2 from './RadioButtonV2.svelte'
@@ -20,6 +20,7 @@
 	import CronInput from './CronInput.svelte'
 	import CollapseLink from './CollapseLink.svelte'
 	import Toggle from './Toggle.svelte'
+	import { loadSchema } from '$lib/scripts'
 
 	export let pathError = ''
 	export let initialPath: string = ''
@@ -48,7 +49,7 @@
 			class="default-button px-4 py-2 font-semibold"
 			on:click={() => {
 				Object.assign($flowStore, JSON.parse(jsonValue))
-				$flowStore = $flowStore
+				initFlow($flowStore)
 				open = -1
 				sendUserToast('Flow imported from JSON')
 				jsonSetter.closeModal()
