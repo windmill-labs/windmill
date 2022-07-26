@@ -456,3 +456,14 @@ export async function loadHubFlows() {
 	const processed = flows.sort((a, b) => b.votes - a.votes)
 	return processed
 }
+
+export function formatCron(inp: string): string {
+	// Allow for cron expressions inputted by the user to omit month and year
+	let splitted = inp.split(' ')
+	splitted = splitted.filter(String) //remove empty string elements
+	if (6 - splitted.length > 0) {
+		return splitted.concat(Array(6 - splitted.length).fill('*')).join(' ')
+	} else {
+		return inp
+	}
+}
