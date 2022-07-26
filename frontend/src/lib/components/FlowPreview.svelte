@@ -90,14 +90,14 @@
 </script>
 
 <button
-	class="w-full bg-blue-200"
+	class="w-full rounded border-1 border border-gray-200"
 	on:click={() => {
 		viewPreview = !viewPreview
 	}}
 >
-	<h2 class="flex justify-center">
+	<h2 class="flex justify-center text-gray-600">
 		<div>
-			Preview mode<Icon class="ml-1" data={viewPreview ? faChevronUp : faChevronDown} scale={1} />
+			Preview<Icon class="ml-1" data={viewPreview ? faChevronUp : faChevronDown} scale={1} />
 		</div>
 	</h2>
 </button>

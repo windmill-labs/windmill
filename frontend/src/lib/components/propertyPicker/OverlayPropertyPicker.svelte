@@ -11,7 +11,7 @@
 	export let pickableProperties: Object | undefined
 	export let disabled = false
 	let isOpen = false
-	let isFocused = true
+	let isFocused = false
 
 	let timeout: NodeJS.Timeout
 
