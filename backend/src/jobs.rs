@@ -1215,10 +1215,10 @@ pub async fn push<'c>(
     {
         let s: String;
         let audit_o = match job_kind {
-            JobKind::Preview => {
-                s = format!("preview {:?}", script_path);
-                Some(("jobs.run.preview", Some(s)))
-            }
+            JobKind::Preview => Some((
+                "jobs.run.preview",
+                Some(format!("{}", script_path.unwrap_or_else(String::new))),
+            )),
             JobKind::Script => {
                 s = ScriptHash(script_hash.unwrap()).to_string();
                 hm.insert("hash", s.as_str());

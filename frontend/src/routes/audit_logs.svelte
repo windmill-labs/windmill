@@ -81,7 +81,6 @@
 			loadUsers()
 			loadLogs(username, pageIndex)
 		}
-		username = $userStore?.username
 	}
 </script>
 
@@ -126,6 +125,7 @@
 			gotoPage((pageIndex ?? 1) - 1)
 		}}
 		currentPage={pageIndex}
+		paginated={true}
 	>
 		<tr slot="header-row">
 			<th>id</th>

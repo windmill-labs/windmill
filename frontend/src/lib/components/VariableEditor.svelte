@@ -8,6 +8,7 @@
 	import { createEventDispatcher } from 'svelte'
 	import { workspaceStore } from '$lib/stores'
 	import Required from './Required.svelte'
+	import Tooltip from './Tooltip.svelte'
 
 	const dispatch = createEventDispatcher()
 
@@ -135,6 +136,18 @@
 			<label class="block pb-6">
 				<input type="checkbox" bind:checked={variable.is_secret} />
 				<span class="ml-2">Secret</span>
+				{#if variable.is_secret}
+					<div
+						class="bg-orange-100 border-l-4 border-orange-500 text-orange-700 p-1 mt-1 text-sm"
+						role="alert"
+					>
+						When a secret, you will not be able to read this variable value from the variable editor
+						UI but only within scripts. <Tooltip>
+							Within scripts, every read of the value create the audit log:
+							'variables.decrypt_secret'</Tooltip
+						>
+					</div>
+				{/if}
 			</label>
 			<div class="font-semibold text-gray-700 col-span-10 }">
 				{#if variable.is_secret}
