@@ -150,7 +150,7 @@
 						<div class="border rounded p-2 mt-2 border-gray-300">
 							<Editor
 								bind:code={args[argName].expr}
-								lang="typescript"
+								lang="javascript"
 								class="few-lines-editor"
 								{extraLib}
 								extraLibPath="file:///node_modules/@types/windmill@{i}/index.d.ts"

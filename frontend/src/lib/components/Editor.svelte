@@ -361,22 +361,27 @@
 			})
 		}
 
-		if (lang == 'typescript') {
-			monaco.languages.typescript.typescriptDefaults.setCompilerOptions({
+		if (lang == 'javascript' || lang == 'typescript') {
+			monaco.languages.typescript.javascriptDefaults.setCompilerOptions({
 				target: monaco.languages.typescript.ScriptTarget.Latest,
 				allowNonTsExtensions: true,
 				noLib: true
 			})
+		}
+
+		if (lang == 'typescript') {
 			if (deno) {
 				monaco.languages.typescript.typescriptDefaults.setDiagnosticsOptions({
 					noSemanticValidation: true,
 					noSuggestionDiagnostics: true,
 					noSyntaxValidation: true
 				})
-			} else {
-				if (extraLib != '' && extraLibPath != '') {
-					monaco.languages.typescript.typescriptDefaults.addExtraLib(extraLib, extraLibPath)
-				}
+			}
+		}
+
+		if (lang == 'javascript') {
+			if (extraLib != '' && extraLibPath != '') {
+				monaco.languages.typescript.javascriptDefaults.addExtraLib(extraLib, extraLibPath)
 			}
 		}
 
