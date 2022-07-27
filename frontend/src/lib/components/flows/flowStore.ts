@@ -7,16 +7,30 @@ import { createInlineScriptModuleFromPath, getFirstStepSchema, loadSchemaFromMod
 
 export type FlowMode = 'push' | 'pull'
 
+export const mode = writable<FlowMode>('push')
 export const flowStore = writable<Flow>(undefined)
 export const schemasStore = writable<Schema[]>([])
 
 export function initFlow(flow: Flow) {
+	const newMode = flow.value.modules[1]?.value.type === FlowModuleValue.type.FORLOOPFLOW ? 'pull' : 'push'
+	mode.set(newMode)
+	flow = flattenForloopFlows(flow, newMode)
 	schemasStore.set([])
 	flowStore.set(flow)
 	// For each module in flow, we should load the corresponding schema
 	flow.value.modules.forEach((_, index) => {
 		loadSchema(index)
 	})
+}
+
+export function flattenForloopFlows(flow: Flow, mode: FlowMode): Flow {
+	let newFlow: Flow = JSON.parse(JSON.stringify(flow))
+	if (mode == 'pull') {
+		const oldModules = newFlow.value.modules[1].value.value?.modules ?? []
+		newFlow.value.modules = newFlow.value.modules.slice(0, 1)
+		newFlow.value.modules.push(...oldModules)
+	}
+	return newFlow
 }
 
 export const isCopyFirstStepSchemaDisabled = derived(flowStore, (flow: Flow | undefined) => {

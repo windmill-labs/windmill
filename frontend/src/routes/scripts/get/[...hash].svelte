@@ -9,7 +9,13 @@
 <script lang="ts">
 	import { page } from '$app/stores'
 	import { ScriptService, type Script } from '$lib/gen'
-	import { truncateHash, sendUserToast, displayDaysAgo, canWrite } from '$lib/utils'
+	import {
+		truncateHash,
+		sendUserToast,
+		displayDaysAgo,
+		canWrite,
+		defaultIfEmptyString
+	} from '$lib/utils'
 	import Icon from 'svelte-awesome'
 	import {
 		faPlay,
@@ -230,6 +236,13 @@
 		{#if script === undefined}
 			<p>loading</p>
 		{:else}
+			<h2>{script.summary}</h2>
+			<p>Edited at {displayDaysAgo(script.created_at ?? '')} by {script.created_by}</p>
+
+			<div class="prose">
+				<SvelteMarkdown source={defaultIfEmptyString(script.description, 'No description')} />
+			</div>
+
 			{#if script.lock_error_logs}
 				<div class="bg-red-100 border-l-4 border-red-500 text-red-700 p-4" role="alert">
 					<p class="font-bold">Error deploying this script</p>
@@ -260,24 +273,6 @@
 			{/if}
 
 			<div>
-				<h3 class="text-gray-700 ">Edited at</h3>
-				{displayDaysAgo(script.created_at ?? '')}
-			</div>
-			<div>
-				<h3 class="text-gray-700 ">Last editor</h3>
-				{script.created_by}
-			</div>
-			<div>
-				<h3 class="text-gray-700 ">Summary</h3>
-				{script.summary}
-			</div>
-			<div>
-				<h3 class="text-gray-700 ">Description</h3>
-				<div class="prose mt-5">
-					<SvelteMarkdown source={script.description ?? ''} />
-				</div>
-			</div>
-			<div>
 				<h3>
 					Current hash <Tooltip
 						>The hash is an immutable and perpetual unique identifier for this version of this
@@ -288,32 +283,38 @@
 				<p class="text-gray-700">
 					<a href="/scripts/get/{script?.hash}">{script?.hash}</a>
 				</p>
-				<span>Webhook to run this script and get job's uuid as response:</span>
-				<Tooltip
-					>Send a POST http request with a token as bearer token and the args respecting the
-					corresponding jsonschema as payload. To create a permanent token, go to your user setting
-					by clicking your username on the top-left. For more info about openapi, see <a
-						href="https://docs.windmill.dev/openapi/run-script-by-hash">openapi doc</a
-					></Tooltip
-				>
+				<h3 class="whitespace-nowrap mt-2">
+					Webhook to run this script and get job's uuid as response
+					<Tooltip
+						>Send a POST http request with a token as bearer token and the args respecting the
+						corresponding jsonschema as payload. To create a permanent token, go to your user
+						setting by clicking your username on the top-left. For more info about openapi, see <a
+							href="https://docs.windmill.dev/openapi/run-script-by-hash">openapi doc</a
+						></Tooltip
+					>
+				</h3>
+
 				<pre><code
-						><a href="/api/w/{$workspaceStore}/jobs/run/h/{script?.hash}"
+						>By hash: <a href="/api/w/{$workspaceStore}/jobs/run/h/{script?.hash}"
 							>/api/w/{$workspaceStore}/jobs/run/h/{script?.hash}</a
 						></code
 					></pre>
 				<pre><code
-						><a href="/api/w/{$workspaceStore}/jobs/run/p/{script?.path}"
+						>By path: <a href="/api/w/{$workspaceStore}/jobs/run/p/{script?.path}"
 							>/api/w/{$workspaceStore}/jobs/run/p/{script?.path}</a
 						></code
 					></pre>
-				<span>Endpoint to run this script and get job's result as response:</span>
-				<Tooltip
-					>Send a POST http request with a token as bearer token and the args respecting the
-					corresponding jsonschema as payload. To create a permanent token, go to your user setting
-					by clicking your username on the top-left. For more info about openapi, see <a
-						href="https://docs.windmill.dev/openapi/run-script-by-hash">openapi doc</a
-					></Tooltip
-				>
+				<h3 class="whitespace-nowrap mt-2">
+					Endpoint to run this script and get job's result as response
+					<Tooltip
+						>Send a POST http request with a token as bearer token and the args respecting the
+						corresponding jsonschema as payload. To create a permanent token, go to your user
+						setting by clicking your username on the top-left. For more info about openapi, see <a
+							href="https://docs.windmill.dev/openapi/run-script-by-hash">openapi doc</a
+						></Tooltip
+					>
+				</h3>
+
 				<pre><code
 						><a href="/api/w/{$workspaceStore}/jobs/run_wait_result/p/{script?.path}"
 							>/api/w/{$workspaceStore}/jobs/run_wait_result/p/{script?.path}</a
@@ -321,8 +322,8 @@
 					></pre>
 			</div>
 			<div>
-				<h3 class="text-gray-700">
-					Previous versions of this hash<Tooltip
+				<h3>
+					Previous versions of this hash <Tooltip
 						>When you edit a script, a new hash is created and old versions are archived</Tooltip
 					>
 				</h3>
@@ -361,3 +362,9 @@
 		{/if}
 	</div>
 </CenteredPage>
+
+<style>
+	h3 {
+		@apply text-lg mb-2 mt-4 text-gray-600;
+	}
+</style>

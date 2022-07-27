@@ -20,7 +20,7 @@
 			class="flex flex-col default-secondary-button-v2 mb-2 grow"
 			class:selected={value == val}
 		>
-			<h2 class="mb-2 whitespace-nowrap">{label.title} <Tooltip>{label.desc}</Tooltip></h2>
+			<h2 class="mb-2">{label.title} <Tooltip>{label.desc}</Tooltip></h2>
 		</button>
 	{/each}
 </div>

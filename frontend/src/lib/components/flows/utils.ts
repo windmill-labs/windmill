@@ -35,15 +35,6 @@ export function flowToMode(flow: Flow | any, mode: FlowMode): Flow {
 	return flow
 }
 
-export function flattenForloopFlows(flow: Flow): Flow {
-	let newFlow: Flow = JSON.parse(JSON.stringify(flow))
-	if (newFlow.value.modules[1]?.value.type == FlowModuleValue.type.FORLOOPFLOW) {
-		const oldModules = newFlow.value.modules[1].value.value?.modules ?? []
-		newFlow.value.modules = newFlow.value.modules.slice(0, 1)
-		newFlow.value.modules.push(...oldModules)
-	}
-	return newFlow
-}
 
 export function getTypeAsString(arg: any): string {
 	if (arg === null) {

@@ -1,11 +1,11 @@
 <script lang="ts">
-	import { FlowModuleValue } from '$lib/gen'
+	import { ScheduleService } from '$lib/gen'
 
 	import { faFileExport, faFileImport, faGlobe, faPlus } from '@fortawesome/free-solid-svg-icons'
 	import Icon from 'svelte-awesome'
 	import FlowPreview from './FlowPreview.svelte'
 	import CopyFirstStepSchema from './flows/CopyFirstStepSchema.svelte'
-	import { addModule, flowStore, initFlow, type FlowMode } from './flows/flowStore'
+	import { addModule, flowStore, initFlow, mode } from './flows/flowStore'
 	import ModuleStep from './ModuleStep.svelte'
 	import Path from './Path.svelte'
 	import RadioButtonV2 from './RadioButtonV2.svelte'
@@ -20,20 +20,40 @@
 	import CronInput from './CronInput.svelte'
 	import CollapseLink from './CollapseLink.svelte'
 	import Toggle from './Toggle.svelte'
-	import { loadSchema } from '$lib/scripts'
+	import SchemaForm from './SchemaForm.svelte'
+	import Tooltip from './Tooltip.svelte'
+	import { workspaceStore } from '$lib/stores'
 
 	export let pathError = ''
 	export let initialPath: string = ''
-	export let mode: FlowMode =
-		$flowStore?.value.modules[1]?.value.type == FlowModuleValue.type.FORLOOPFLOW ? 'pull' : 'push'
 
-	let allowSchedule = false
-	let cronSchedule: string | undefined
+	export let scheduleArgs: Record<string, any> = {}
+	export let scheduleEnabled = false
+	export let scheduleCron: string = '0 */5 * * *'
 
 	let jsonSetter: Modal
 	let jsonViewer: Modal
 
 	let jsonValue: string = ''
+
+	async function loadSchedule() {
+		try {
+			const schedule = await ScheduleService.getSchedule({
+				workspace: $workspaceStore ?? '',
+				path: initialPath
+			})
+			scheduleEnabled = schedule.enabled
+			scheduleCron = schedule.schedule
+			scheduleArgs = scheduleArgs
+			console.log(schedule.enabled, schedule.schedule)
+		} catch (e) {
+			console.log(`no primary schedule found for ${initialPath}`)
+		}
+	}
+
+	$: if ($workspaceStore && initialPath != '') {
+		loadSchedule()
+	}
 
 	let open = 0
 	let args: Record<string, any> = {}
@@ -63,7 +83,7 @@
 <Modal bind:this={jsonViewer}>
 	<div slot="title">See JSON</div>
 	<div slot="content" class="h-full">
-		<FlowViewer flow={flowToMode($flowStore, mode)} tab="json" />
+		<FlowViewer flow={flowToMode($flowStore, $mode)} tab="json" />
 	</div>
 </Modal>
 
@@ -106,7 +126,7 @@
 											}
 											url.searchParams.append(
 												'flow',
-												btoa(JSON.stringify(flowToMode(openFlow, mode)))
+												btoa(JSON.stringify(flowToMode(openFlow, $mode)))
 											)
 											window.open(url, '_blank')?.focus()
 										}
@@ -154,35 +174,48 @@
 							options={[
 								[
 									{
-										title: 'Push',
+										title: 'UI or webhook triggered',
 										desc: 'Trigger this flow through the generated UI, a manual schedule or by calling the associated webhook'
 									},
 									'push'
 								],
 								[
 									{
-										title: 'Pull',
+										title: 'Watching changes regularly',
 										desc: 'The first module of this flow is a trigger script whose purpose is to pull data from an external source and return all new items since last run. This flow is meant to be scheduled very regularly to reduce latency to react to new events. It will trigger the rest of the flow once per item. If no new items, the flow will be skipped.'
 									},
 									'pull'
 								]
 							]}
-							bind:value={mode}
+							bind:value={$mode}
 						/>
-						<div class="p-4 hidden">
-							<CollapseLink text="set primary schedule" open={mode == 'pull'}>
-								<Toggle
-									bind:value={allowSchedule}
-									options={{
-										left: { label: 'disabled', value: false },
-										right: { label: 'enabled', value: true }
-									}}
-								/>
-								<div class="p-2 mt-2 rounded" class:bg-gray-300={!allowSchedule}>
-									<CronInput schedule={cronSchedule} />
-								</div>
-							</CollapseLink>
-						</div>
+						{#if $mode == 'pull'}
+							<div class="p-4">
+								<CollapseLink text="set primary schedule" open={true}>
+									<Tooltip
+										>The primary schedule of a flow is simply a schedule that has the same name as a
+										flow. It can be set and enabled directly within the flow editor. "Watching for
+										new changes" flows are meant to be watching regularly for new items in an
+										external systems. The primary schedule purpose is there to set the periodicity
+										at which you want this watcher to operate.
+									</Tooltip> &nbsp;
+									<Toggle
+										bind:checked={scheduleEnabled}
+										options={{
+											left: { label: 'disabled', value: false },
+											right: { label: 'enabled', value: true }
+										}}
+									/>
+									<div class="p-2 mt-2 rounded" class:bg-gray-300={!scheduleEnabled}>
+										{#if !scheduleEnabled}
+											<span class="font-black">No next scheduled run when disabled</span>
+										{/if}
+										<CronInput bind:schedule={scheduleCron} />
+									</div>
+									<SchemaForm schema={$flowStore.schema} bind:args={scheduleArgs} />
+								</CollapseLink>
+							</div>
+						{/if}
 					</div>
 				</li>
 				<li class="flex flex-row flex-shrink max-w-full mx-auto mt-20">
@@ -194,10 +227,15 @@
 							<CopyFirstStepSchema />
 						</div>
 						<div class="p-4">
-							<SchemaEditor schema={$flowStore.schema} />
+							<SchemaEditor
+								on:change={() => {
+									$flowStore = $flowStore
+								}}
+								schema={$flowStore.schema}
+							/>
 							<div class="my-4" />
 							<FlowPreview
-								{mode}
+								mode={$mode}
 								flow={$flowStore}
 								i={$flowStore?.value.modules.length}
 								bind:args
@@ -219,7 +257,7 @@
 							</button>
 						</div>
 					</li>
-					<ModuleStep bind:open bind:mod bind:args {i} {mode} />
+					<ModuleStep bind:open bind:mod bind:args {i} mode={$mode} />
 				{/each}
 				<li class="relative m-20 ">
 					<div class="relative flex justify-center">
