@@ -29,6 +29,7 @@ use crate::jobs;
 use crate::jobs::{get_latest_hash_for_path, JobPayload};
 use crate::users::Authed;
 use crate::utils::not_found_if_none;
+use crate::variables::{build_crypt, encrypt};
 use crate::workspaces::WorkspaceSettings;
 use crate::BaseUrl;
 
@@ -476,17 +477,20 @@ pub async fn _refresh_token<'c>(
     )
     .execute(&mut tx)
     .await?;
-    let token = token.access_token.to_string();
+
+    let mc = build_crypt(&mut tx, &w_id).await?;
+    let encrypted_token = encrypt(&mc, token.access_token.to_string());
+
     sqlx::query!(
         "UPDATE variable SET value = $1 WHERE workspace_id = $2 AND path = $3",
-        token,
+        encrypted_token,
         w_id,
         path
     )
     .execute(&mut tx)
     .await?;
     tx.commit().await?;
-    Ok(token)
+    Ok(encrypted_token)
 }
 
 #[derive(Deserialize)]
