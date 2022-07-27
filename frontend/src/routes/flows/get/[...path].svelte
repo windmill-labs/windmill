@@ -8,8 +8,8 @@
 
 <script lang="ts">
 	import { page } from '$app/stores'
-	import { FlowService, type Flow } from '$lib/gen'
-	import { displayDaysAgo, canWrite } from '$lib/utils'
+	import { FlowService, ScheduleService, type Flow, type Schedule } from '$lib/gen'
+	import { displayDaysAgo, canWrite, sendUserToast, defaultIfEmptyString } from '$lib/utils'
 	import Icon from 'svelte-awesome'
 	import {
 		faPlay,
@@ -22,14 +22,17 @@
 
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import ShareModal from '$lib/components/ShareModal.svelte'
+	import Toggle from '$lib/components/Toggle.svelte'
 	import { userStore, workspaceStore } from '$lib/stores'
 	import SharedBadge from '$lib/components/SharedBadge.svelte'
 	import SvelteMarkdown from 'svelte-markdown'
 	import Dropdown from '$lib/components/Dropdown.svelte'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
 	import FlowViewer from '$lib/components/FlowViewer.svelte'
+	import ObjectViewer from '$lib/components/propertyPicker/ObjectViewer.svelte'
 
 	let flow: Flow | undefined
+	let schedule: Schedule | undefined
 	let can_write = false
 
 	let path = $page.params.path
@@ -37,16 +40,41 @@
 
 	$: {
 		if ($workspaceStore && $userStore) {
-			loadFlow(path)
+			loadFlow()
+			loadSchedule()
 		}
 	}
 
-	async function archiveFlow(hash: string): Promise<void> {
-		await FlowService.archiveFlowByPath({ workspace: $workspaceStore!, path })
-		loadFlow(path)
+	async function loadSchedule() {
+		try {
+			schedule = await ScheduleService.getSchedule({
+				workspace: $workspaceStore ?? '',
+				path
+			})
+		} catch (e) {
+			console.log('no primary schedule')
+		}
 	}
 
-	async function loadFlow(hash: string): Promise<void> {
+	async function archiveFlow(): Promise<void> {
+		await FlowService.archiveFlowByPath({ workspace: $workspaceStore!, path })
+		loadFlow()
+	}
+
+	async function setScheduleEnabled(path: string, enabled: boolean): Promise<void> {
+		try {
+			await ScheduleService.setScheduleEnabled({
+				path,
+				workspace: $workspaceStore!,
+				requestBody: { enabled }
+			})
+			loadSchedule()
+		} catch (err) {
+			sendUserToast(`Cannot ` + enabled ? 'disable' : 'enable' + ` schedule: ${err}`, true)
+		}
+	}
+
+	async function loadFlow(): Promise<void> {
 		flow = await FlowService.getFlowByPath({ workspace: $workspaceStore!, path })
 		can_write = canWrite(flow.path, flow.extra_perms!, $userStore)
 	}
@@ -87,7 +115,7 @@
 							icon: faArchive,
 							type: 'delete',
 							action: () => {
-								flow?.path && archiveFlow(flow.path)
+								flow?.path && archiveFlow()
 							},
 							disabled: flow.archived || !can_write
 						}
@@ -137,31 +165,46 @@
 		{#if flow === undefined}
 			<p>loading</p>
 		{:else}
+			<h2>{flow.summary}</h2>
+			<p>Edited at {displayDaysAgo(flow.edited_at ?? '')} by {flow.edited_by}</p>
+
+			<div class="prose">
+				<SvelteMarkdown source={defaultIfEmptyString(flow.description, 'No description')} />
+			</div>
+			{#if schedule}
+				<div>
+					<h2 class="text-gray-700 pb-1 mb-3 border-b">Primary Schedule</h2>
+					<div>
+						<h3 class="text-gray-700 ">Enabled</h3>
+						<Toggle
+							checked={schedule.enabled}
+							on:change={(e) => {
+								if (can_write) {
+									setScheduleEnabled(path, e.detail)
+								} else {
+									sendUserToast('not enough permission', true)
+								}
+							}}
+						/>
+					</div>
+					<div class:bg-gray-300={!schedule.enabled}>
+						<div>
+							<h3 class="text-gray-700 ">Schedule</h3>
+							{schedule.schedule}
+						</div>
+						<div>
+							<h3 class="text-gray-700 ">Args</h3>
+							<ObjectViewer json={schedule.args ?? {}} pureViewer={true} />
+						</div>
+					</div>
+				</div>
+			{/if}
 			{#if flow.archived}
 				<div class="bg-red-100 border-l-4 border-red-500 text-orange-700 p-4" role="alert">
 					<p class="font-bold">Archived</p>
 					<p>This version was archived</p>
 				</div>
 			{/if}
-
-			<div>
-				<h3 class="text-gray-700 ">Edited at</h3>
-				{displayDaysAgo(flow.edited_at ?? '')}
-			</div>
-			<div>
-				<h3 class="text-gray-700 ">Last editor</h3>
-				{flow.edited_by}
-			</div>
-			<div>
-				<h3 class="text-gray-700 ">Summary</h3>
-				{flow.summary}
-			</div>
-			<div>
-				<h3 class="text-gray-700 ">Description</h3>
-				<div class="prose mt-5">
-					<SvelteMarkdown source={flow.description ?? ''} />
-				</div>
-			</div>
 			<div>
 				<span>Webhook to run this flow:</span>
 				<Tooltip
@@ -176,7 +219,7 @@
 					></pre>
 			</div>
 			<div>
-				<h3 class="text-gray-700 pb-1 mb-3 border-b">Flow</h3>
+				<h2 class="text-gray-700 pb-1 mb-3 border-b">Flow</h2>
 				<FlowViewer {flow} />
 			</div>
 		{/if}

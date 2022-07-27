@@ -1,12 +1,13 @@
 <script lang="ts">
 	import { goto } from '$app/navigation'
 	import { page } from '$app/stores'
-	import { FlowService, type Flow } from '$lib/gen'
+	import { FlowService, ScheduleService, ScriptService, type Flow } from '$lib/gen'
 	import { clearPreviewResults, hubScripts, workspaceStore } from '$lib/stores'
-	import { loadHubScripts, sendUserToast, setQueryWithoutLoad } from '$lib/utils'
+	import { formatCron, loadHubScripts, sendUserToast, setQueryWithoutLoad } from '$lib/utils'
 	import { onMount } from 'svelte'
+	import { OFFSET } from './CronInput.svelte'
 	import FlowEditor from './FlowEditor.svelte'
-	import { flowStore, type FlowMode } from './flows/flowStore'
+	import { flowStore, mode } from './flows/flowStore'
 	import { flowToMode } from './flows/utils'
 
 	import ScriptSchema from './ScriptSchema.svelte'
@@ -14,36 +15,90 @@
 	export let initialPath: string = ''
 	let pathError = ''
 
-	let mode: FlowMode
+	let scheduleArgs: Record<string, any>
+	let scheduleEnabled
+	let scheduleCron: string
 
 	$: step = Number($page.url.searchParams.get('step')) || 1
 
+	async function createSchedule(path: string) {
+		await ScheduleService.createSchedule({
+			workspace: $workspaceStore!,
+			requestBody: {
+				path: path,
+				schedule: formatCron(scheduleCron),
+				offset: OFFSET,
+				script_path: path,
+				is_flow: true,
+				args: scheduleArgs,
+				enabled: scheduleEnabled
+			}
+		})
+	}
 	async function saveFlow(): Promise<void> {
-		const newFlow = flowToMode($flowStore, mode)
+		const flow = flowToMode($flowStore, $mode)
 
 		if (initialPath === '') {
 			await FlowService.createFlow({
 				workspace: $workspaceStore!,
 				requestBody: {
-					path: newFlow.path,
-					summary: newFlow.summary,
-					description: newFlow.description ?? '',
-					value: newFlow.value,
-					schema: newFlow.schema
+					path: flow.path,
+					summary: flow.summary,
+					description: flow.description ?? '',
+					value: flow.value,
+					schema: flow.schema
 				}
 			})
+			if ($mode == 'pull') {
+				await createSchedule(flow.path)
+			}
 		} else {
 			await FlowService.updateFlow({
 				workspace: $workspaceStore!,
-				path: newFlow.path,
+				path: initialPath,
 				requestBody: {
-					path: newFlow.path,
-					summary: newFlow.summary,
-					description: newFlow.description ?? '',
-					value: newFlow.value,
-					schema: newFlow.schema
+					path: flow.path,
+					summary: flow.summary,
+					description: flow.description ?? '',
+					value: flow.value,
+					schema: flow.schema
 				}
 			})
+			const scheduleExists = await ScheduleService.existsSchedule({
+				workspace: $workspaceStore ?? '',
+				path: initialPath
+			})
+			if (scheduleExists) {
+				const schedule = await ScheduleService.getSchedule({
+					workspace: $workspaceStore ?? '',
+					path: initialPath
+				})
+				if (
+					schedule.path != flow.path ||
+					JSON.stringify(schedule.args) != JSON.stringify(scheduleArgs) ||
+					schedule.schedule != scheduleCron
+				) {
+					await ScheduleService.updateSchedule({
+						workspace: $workspaceStore ?? '',
+						path: initialPath,
+						requestBody: {
+							schedule: formatCron(scheduleCron),
+							script_path: flow.path,
+							is_flow: true,
+							args: scheduleArgs
+						}
+					})
+				}
+				if (scheduleEnabled != schedule.enabled) {
+					await ScheduleService.setScheduleEnabled({
+						workspace: $workspaceStore ?? '',
+						path: flow.path,
+						requestBody: { enabled: scheduleEnabled }
+					})
+				}
+			} else {
+				await createSchedule(flow.path)
+			}
 		}
 		sendUserToast(`Success! flow saved at ${$flowStore.path}`)
 		goto(`/flows/get/${$flowStore.path}`)
@@ -54,7 +109,7 @@
 	}
 
 	flowStore.subscribe((flow: Flow) => {
-		setQueryWithoutLoad($page.url, 'state', btoa(JSON.stringify(flowToMode(flow, mode))))
+		setQueryWithoutLoad($page.url, 'state', btoa(JSON.stringify(flowToMode(flow, $mode))))
 	})
 
 	onMount(() => {
@@ -121,7 +176,13 @@
 	<!-- metadata -->
 
 	{#if step === 1}
-		<FlowEditor bind:mode bind:pathError bind:initialPath />
+		<FlowEditor
+			bind:pathError
+			bind:initialPath
+			bind:scheduleEnabled
+			bind:scheduleCron
+			bind:scheduleArgs
+		/>
 	{:else if step === 2}
 		<ScriptSchema
 			synchronizedHeader={false}

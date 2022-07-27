@@ -64,6 +64,7 @@ pub struct NewSchedule {
     pub script_path: String,
     pub is_flow: bool,
     pub args: Option<serde_json::Value>,
+    pub enabled: Option<bool>,
 }
 
 pub async fn push_scheduled_job<'c>(
@@ -133,7 +134,7 @@ async fn create_schedule(
     check_flow_conflict(&mut tx, &w_id, &ns.path, ns.is_flow, &ns.script_path).await?;
 
     let schedule = sqlx::query_as!(Schedule,
-        "INSERT INTO schedule (workspace_id, path, schedule, offset_, edited_by, script_path, is_flow, args) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *",
+        "INSERT INTO schedule (workspace_id, path, schedule, offset_, edited_by, script_path, is_flow, args, enabled) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING *",
         w_id,
         ns.path,
         ns.schedule,
@@ -141,7 +142,8 @@ async fn create_schedule(
         &authed.username,
         ns.script_path,
         ns.is_flow,
-        ns.args
+        ns.args,
+        ns.enabled
     )
     .fetch_one(&mut tx)
     .await?;
@@ -165,8 +167,13 @@ async fn create_schedule(
     )
     .await?;
 
-    let tx = push_scheduled_job(tx, schedule).await?;
+    let tx = if ns.enabled.unwrap_or(true) {
+        push_scheduled_job(tx, schedule).await?
+    } else {
+        tx
+    };
     tx.commit().await?;
+
     Ok(ns.path.to_string())
 }
 
