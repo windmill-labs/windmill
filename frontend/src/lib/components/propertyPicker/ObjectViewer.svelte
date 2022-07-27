@@ -7,6 +7,7 @@
 	export let level = 0
 	export let isLast = true
 	export let currentPath: string = ''
+	export let pureViewer = false
 
 	const collapsedSymbol = '...'
 	let keys: string | any[]
@@ -67,6 +68,7 @@
 							level={level + 1}
 							isLast={index === keys.length - 1}
 							currentPath={computeKey(key)}
+							{pureViewer}
 							on:select
 						/>
 					{:else}
@@ -75,7 +77,9 @@
 								<WarningMessage />
 							{:else}
 								<span> {JSON.stringify(json[key])}</span>
-								<button class="ml-2 default-button-secondary py-0"> Select </button>
+								{#if !pureViewer}
+									<button class="ml-2 default-button-secondary py-0"> Select </button>
+								{/if}
 							{/if}
 						</button>
 					{/if}

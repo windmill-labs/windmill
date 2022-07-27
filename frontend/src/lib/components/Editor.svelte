@@ -252,9 +252,7 @@
 						(lastWsAttempt.getTime() - new Date().getTime() > 60000 && nbWsAttempt < 2)
 					) {
 						if (!websocketAlive.black && !websocketAlive.deno && !websocketAlive.pyright) {
-							sendUserToast(
-								'Smart assistant got disconnected. Reconnecting to windmill language server for smart assistance'
-							)
+							console.log('reconnecting to language servers')
 							lastWsAttempt = new Date()
 							nbWsAttempt++
 							reloadWebsocket()

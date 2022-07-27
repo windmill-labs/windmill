@@ -6,6 +6,9 @@
 	import { emptySchema, sendUserToast } from '$lib/utils'
 	import Tooltip from './Tooltip.svelte'
 	import TableCustom from './TableCustom.svelte'
+	import { createEventDispatcher } from 'svelte'
+
+	const dispatch = createEventDispatcher()
 
 	export let schema: Schema = emptySchema()
 
@@ -63,6 +66,7 @@
 		}
 		schema = schema
 		schemaString = JSON.stringify(schema, null, '\t')
+		dispatch('change', schema)
 	}
 
 	function startEditArgument(argName: string): void {
@@ -87,6 +91,7 @@
 				delete schema.properties[argName]
 				schema = schema
 				schemaString = JSON.stringify(schema, null, '\t')
+				dispatch('change', schema)
 			} else {
 				throw Error('Argument not found!')
 			}

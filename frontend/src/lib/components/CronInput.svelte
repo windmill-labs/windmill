@@ -12,6 +12,7 @@
 	let preview: string[] = []
 	let cronError = ''
 	export let schedule: string = '0 0 12 * *'
+	let limit = 3
 
 	$: handleScheduleInput(schedule)
 
@@ -69,11 +70,17 @@
 <CollapseLink text="preview next runs" open={true}>
 	{#if preview && preview.length > 0}
 		<div class="text-sm text-gray-700 border p-2 rounded-md">
-			<div class="flex flex-row justify-between">The next 10 runs will be scheduled at:</div>
+			<div class="flex flex-row justify-between">The next runs will be scheduled at:</div>
 			<ul class="list-disc mx-12">
-				{#each preview as p}
+				{#each preview.slice(0, limit) as p}
 					<li class="mx-2 text-gray-700 text-sm">{displayDate(p)}</li>
 				{/each}
+				<li class="text-sm mx-2">...</li>
+				{#if limit != 10}
+					<button class="underline text-gray-400" on:click={() => (limit = 10)}>Load more</button>
+				{:else}
+					<button class="underline text-gray-400" on:click={() => (limit = 3)}>Load less</button>
+				{/if}
 			</ul>
 		</div>
 	{/if}

@@ -27,6 +27,7 @@
 	import { userStore, workspaceStore } from '$lib/stores'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
 	import Icon from 'svelte-awesome'
+	import Toggle from '$lib/components/Toggle.svelte'
 
 	type ScheduleW = Schedule & { canWrite: boolean }
 
@@ -79,36 +80,31 @@
 			</tr>
 			<tbody slot="body">
 				{#each schedules as { path, edited_by, edited_at, schedule, offset_, enabled, script_path, is_flow, extra_perms, canWrite }}
-					<tr class={enabled ? '' : 'bg-gray-200'}>
+					<tr class={enabled ? '' : 'bg-gray-100'}>
 						<td
 							><a href="/schedule/add?edit={path}&isFlow={is_flow}" style="cursor: pointer;"
 								>{path}</a
 							>
-							<div>
-								<SharedBadge {canWrite} extraPerms={extra_perms} />
-							</div>
+							<SharedBadge {canWrite} extraPerms={extra_perms} />
 						</td>
-						<td
-							>{script_path}<span class="text-2xs text-gray-500 bg-gray-100 font-mono ml-2"
+						<td class="whitespace-nowrap"
+							><a href="{is_flow ? '/flows/get' : '/scripts/get'}/{script_path}">{script_path}</a
+							><span class="text-2xs text-gray-500 bg-gray-100 font-mono ml-2"
 								>{is_flow ? 'flow' : 'script'}</span
 							></td
 						>
 						<td>{schedule}</td>
-						<td
-							><a
-								id="toggle-{path}"
-								style="cursor: pointer;"
-								on:click={() => {
+						<td>
+							<Toggle
+								checked={enabled}
+								on:change={(e) => {
 									if (canWrite) {
-										setScheduleEnabled(path, enabled ? false : true)
+										setScheduleEnabled(path, e.detail)
 									} else {
 										sendUserToast('not enough permission', true)
 									}
 								}}
-								><span class="m-auto block text-center">
-									<Icon data={enabled ? faToggleOn : faToggleOff} scale={1.5} />
-								</span></a
-							></td
+							/></td
 						>
 						<td>{offset_ < 0 ? '+' : ''}{(offset_ / 60) * -1}</td>
 						<td class="text-2xs">By {edited_by} <br />at {displayDate(edited_at)}</td>
@@ -171,4 +167,7 @@
 />
 
 <style>
+	td {
+		@apply px-2;
+	}
 </style>

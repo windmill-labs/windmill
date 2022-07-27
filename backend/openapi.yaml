@@ -3793,6 +3793,7 @@ components:
         - offset_
         - extra_perms
         - is_flow
+        - enabled
 
     NewSchedule:
       type: object
@@ -3809,6 +3810,8 @@ components:
           type: boolean
         args:
           $ref: "#/components/schemas/ScriptArgs"
+        enabled:
+          type: boolean
       required:
         - path
         - schedule
