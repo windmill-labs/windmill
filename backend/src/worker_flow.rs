@@ -66,7 +66,7 @@ pub async fn update_flow_status_after_job_completion(
     success: bool,
     result: Option<Map<String, Value>>,
 ) -> error::Result<()> {
-    tracing::info!("HANDLE FLOW: {job:?} {success} {result:?}");
+    tracing::debug!("HANDLE FLOW: {job:?} {success} {result:?}");
 
     let mut tx = db.begin().await?;
 
