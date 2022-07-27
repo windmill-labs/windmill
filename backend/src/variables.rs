@@ -283,7 +283,7 @@ async fn create_variable(
 
     let value = if variable.is_secret {
         let mc = build_crypt(&mut tx, &w_id).await?;
-        encrypt(&mc, variable.value)
+        encrypt(&mc, &variable.value)
     } else {
         variable.value
     };
@@ -385,7 +385,7 @@ async fn update_variable(
 
         let value = if is_secret {
             let mc = build_crypt(&mut tx, &w_id).await?;
-            encrypt(&mc, nvalue)
+            encrypt(&mc, &nvalue)
         } else {
             nvalue
         };
@@ -435,6 +435,6 @@ pub async fn build_crypt<'c>(
     Ok(magic_crypt::new_magic_crypt!(key, 256))
 }
 
-pub fn encrypt(mc: &MagicCrypt256, value: String) -> String {
+pub fn encrypt(mc: &MagicCrypt256, value: &str) -> String {
     mc.encrypt_str_to_base64(value)
 }

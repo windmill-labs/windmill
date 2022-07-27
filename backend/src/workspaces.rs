@@ -305,7 +305,7 @@ async fn create_workspace(
             VALUES ($1, 'g/all/pretty_secret', $2, true, 'This item is secret'), 
                 ($3, 'g/all/not_secret', $4, false, 'This item is not secret')",
         nw.id,
-        crate::variables::encrypt(&mc, "pretty secret value".to_string()),
+        crate::variables::encrypt(&mc, "pretty secret value"),
         nw.id,
         "finland does not actually exist",
     )
