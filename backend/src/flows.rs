@@ -104,7 +104,7 @@ pub enum FlowModuleValue {
     ForloopFlow {
         iterator: InputTransform,
         value: Box<FlowValue>,
-        #[serde(default = "wat")]
+        #[serde(default = "default_true")]
         skip_failures: bool,
     },
     Flow {
@@ -113,7 +113,7 @@ pub enum FlowModuleValue {
     RawScript(RawCode),
 }
 
-fn wat() -> bool {
+fn default_true() -> bool {
     true
 }
 
@@ -451,6 +451,7 @@ mod tests {
                             modules: vec![],
                             failure_module: None,
                         }),
+                        skip_failures: true,
                     },
                     stop_after_if_expr: Some("previous.res1.isEmpty()".to_string()),
                     skip_if_stopped: None,

@@ -110,7 +110,7 @@ pub async fn update_flow_status_after_job_completion(
                 } => Some(jobs.clone()),
                 _ => None,
             };
-            let new_status = if success {
+            let new_status = if success || (forloop_jobs.is_some() && skip_loop_failures) {
                 FlowStatusModule::Success {
                     job: job.id,
                     forloop_jobs,

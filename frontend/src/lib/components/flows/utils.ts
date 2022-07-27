@@ -26,7 +26,8 @@ export function flowToMode(flow: Flow | any, mode: FlowMode): Flow {
 					iterator: { type: InputTransform.type.JAVASCRIPT, expr: 'result.res1' },
 					value: {
 						modules: oldModules
-					}
+					},
+					skip_failures: true
 				}
 			})
 		}
