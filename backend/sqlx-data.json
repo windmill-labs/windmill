@@ -2998,93 +2998,6 @@
       ]
     }
   },
-  "e541e2d255e39cc3372769e3ccbd610441871e9f2af6249a8599a2a720913baa": {
-    "query": "INSERT INTO schedule (workspace_id, path, schedule, offset_, edited_by, script_path, is_flow, args) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *",
-    "describe": {
-      "columns": [
-        {
-          "ordinal": 0,
-          "name": "workspace_id",
-          "type_info": "Varchar"
-        },
-        {
-          "ordinal": 1,
-          "name": "path",
-          "type_info": "Varchar"
-        },
-        {
-          "ordinal": 2,
-          "name": "edited_by",
-          "type_info": "Varchar"
-        },
-        {
-          "ordinal": 3,
-          "name": "edited_at",
-          "type_info": "Timestamptz"
-        },
-        {
-          "ordinal": 4,
-          "name": "schedule",
-          "type_info": "Varchar"
-        },
-        {
-          "ordinal": 5,
-          "name": "offset_",
-          "type_info": "Int4"
-        },
-        {
-          "ordinal": 6,
-          "name": "enabled",
-          "type_info": "Bool"
-        },
-        {
-          "ordinal": 7,
-          "name": "script_path",
-          "type_info": "Varchar"
-        },
-        {
-          "ordinal": 8,
-          "name": "args",
-          "type_info": "Jsonb"
-        },
-        {
-          "ordinal": 9,
-          "name": "extra_perms",
-          "type_info": "Jsonb"
-        },
-        {
-          "ordinal": 10,
-          "name": "is_flow",
-          "type_info": "Bool"
-        }
-      ],
-      "parameters": {
-        "Left": [
-          "Varchar",
-          "Varchar",
-          "Varchar",
-          "Int4",
-          "Varchar",
-          "Varchar",
-          "Bool",
-          "Jsonb"
-        ]
-      },
-      "nullable": [
-        false,
-        false,
-        false,
-        false,
-        false,
-        false,
-        false,
-        false,
-        true,
-        false,
-        false
-      ]
-    }
-  },
   "e587299612077e6de39b5a501aa8a736cae4a21f11853f8ae66a610b4e65f49e": {
     "query": "SELECT EXISTS(SELECT 1 FROM script WHERE path = $1 AND (workspace_id = $2 OR workspace_id = 'starter') AND\n         created_at = (SELECT max(created_at) FROM script WHERE path = $1 AND (workspace_id = $2 OR workspace_id = 'starter')))",
     "describe": {
@@ -3173,6 +3086,94 @@
         ]
       },
       "nullable": []
+    }
+  },
+  "f4a1bb4dfeafa3f28385c19d10730f2f49b4ebe5bba631cee46c760cee2e6949": {
+    "query": "INSERT INTO schedule (workspace_id, path, schedule, offset_, edited_by, script_path, is_flow, args, enabled) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING *",
+    "describe": {
+      "columns": [
+        {
+          "ordinal": 0,
+          "name": "workspace_id",
+          "type_info": "Varchar"
+        },
+        {
+          "ordinal": 1,
+          "name": "path",
+          "type_info": "Varchar"
+        },
+        {
+          "ordinal": 2,
+          "name": "edited_by",
+          "type_info": "Varchar"
+        },
+        {
+          "ordinal": 3,
+          "name": "edited_at",
+          "type_info": "Timestamptz"
+        },
+        {
+          "ordinal": 4,
+          "name": "schedule",
+          "type_info": "Varchar"
+        },
+        {
+          "ordinal": 5,
+          "name": "offset_",
+          "type_info": "Int4"
+        },
+        {
+          "ordinal": 6,
+          "name": "enabled",
+          "type_info": "Bool"
+        },
+        {
+          "ordinal": 7,
+          "name": "script_path",
+          "type_info": "Varchar"
+        },
+        {
+          "ordinal": 8,
+          "name": "args",
+          "type_info": "Jsonb"
+        },
+        {
+          "ordinal": 9,
+          "name": "extra_perms",
+          "type_info": "Jsonb"
+        },
+        {
+          "ordinal": 10,
+          "name": "is_flow",
+          "type_info": "Bool"
+        }
+      ],
+      "parameters": {
+        "Left": [
+          "Varchar",
+          "Varchar",
+          "Varchar",
+          "Int4",
+          "Varchar",
+          "Varchar",
+          "Bool",
+          "Jsonb",
+          "Bool"
+        ]
+      },
+      "nullable": [
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        true,
+        false,
+        false
+      ]
     }
   },
   "f7906298e4204ad55ec84021bb2461f369386493519637279f1188227230c580": {
