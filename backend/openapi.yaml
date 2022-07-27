@@ -4075,7 +4075,7 @@ components:
         iterator:
           $ref: "#/components/schemas/InputTransform"
         skip_failures:
-          type: bool
+          type: boolean
         path:
           type: string
         content:
