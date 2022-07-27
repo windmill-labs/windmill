@@ -26,7 +26,7 @@ const config = {
     },
     resolve: {
         alias: {
-            path: "path-browserify",
+            path: "path-browserify"
         },
     },
 };
