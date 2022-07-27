@@ -272,7 +272,7 @@ export function mapUserToUserExt(user: User): UserExt {
 	}
 }
 
-export function buildExtraLib(previousResultType?: string): string {
+export function buildExtraLib(flowInput: string, previousResultType?: string): string {
 	return `
 /**
 * get variable (including secret) at path
@@ -297,7 +297,7 @@ export function step(n: number): any;
 /**
 * flow input as an object
 */
-export const flow_input: any;
+export const flow_input: ${previousResultType};
 
 /**
 * previous result as an object

@@ -1,17 +1,28 @@
 <script lang="ts">
 	import { browser, dev } from '$app/env'
 	import { page } from '$app/stores'
-	import { buildExtraLib, sendUserToast } from '$lib/utils'
-	import type monaco from 'monaco-editor'
+	import { sendUserToast } from '$lib/utils'
+
 	import editorWorker from 'monaco-editor/esm/vs/editor/editor.worker?worker'
 	import jsonWorker from 'monaco-editor/esm/vs/language/json/json.worker?worker'
 	import tsWorker from 'monaco-editor/esm/vs/language/typescript/ts.worker?worker'
+
+	import * as monaco from 'monaco-editor'
+
 	import type { DocumentUri, MessageTransports } from 'monaco-languageclient'
 	import { createEventDispatcher, onDestroy, onMount } from 'svelte'
 	import { buildWorkerDefinition } from 'monaco-editor-workers'
 
+	import { StandaloneServices } from 'vscode/services'
+	import getMessageServiceOverride from 'vscode/service-override/messages'
+
+	StandaloneServices.initialize({
+		...getMessageServiceOverride(document.body)
+	})
+
 	let divEl: HTMLDivElement | null = null
 	let editor: monaco.editor.IStandaloneCodeEditor
+
 	export let deno = false
 	export let lang = deno ? 'typescript' : 'python'
 	export let code: string = ''
@@ -20,12 +31,12 @@
 	export let formatAction: (() => void) | undefined = undefined
 	export let automaticLayout = true
 	export let websocketAlive = { pyright: false, black: false, deno: false }
-	export let extraLib: string = lang == 'typescript' && !deno ? buildExtraLib() : ''
-	export let extraLibPath: string = 'file:///node_modules/@types/windmill/index.d.ts'
+	export let extraLib: string = ''
+	export let extraLibPath: string = ''
 
 	let websockets: WebSocket[] = []
 	let websocketInterval: NodeJS.Timer | undefined
-	let lastWsAttempt: Date | undefined
+	let lastWsAttempt: Date = new Date()
 	let nbWsAttempt = 0
 	let uri: string = ''
 	let disposeMethod: () => void | undefined
@@ -92,14 +103,12 @@
 	export async function reloadWebsocket() {
 		closeWebsockets()
 		if (lang == 'python' || deno) {
-			// install Monaco language client services
 			const { MonacoLanguageClient } = await import('monaco-languageclient')
 			const { CloseAction, ErrorAction } = await import('vscode-languageclient')
-			const vscode = await import('vscode')
-
 			const { toSocket, WebSocketMessageReader, WebSocketMessageWriter } = await import(
 				'vscode-ws-jsonrpc'
 			)
+			const vscode = await import('vscode')
 
 			const { RequestType } = await import('vscode-jsonrpc')
 
@@ -156,18 +165,8 @@
 						const writer = new WebSocketMessageWriter(socket)
 						const languageClient = createLanguageClient({ reader, writer }, name, options)
 						languageClient.start()
-						lastWsAttempt = undefined
+						lastWsAttempt = new Date()
 						nbWsAttempt = 0
-						reader.onClose(() => {
-							try {
-								languageClient.stop()
-							} catch (err) {
-								console.error(err)
-							}
-						})
-						socket.onClose((_code, _reason) => {
-							websocketAlive[name] = false
-						})
 						if (name == 'deno') {
 							vscode.commands.getCommands().then((v) => {
 								if (!v.includes('deno.cache')) {
@@ -180,6 +179,16 @@
 								}
 							})
 						}
+						reader.onClose(() => {
+							try {
+								languageClient.stop()
+							} catch (err) {
+								console.error(err)
+							}
+						})
+						socket.onClose((_code, _reason) => {
+							websocketAlive[name] = false
+						})
 
 						websocketAlive[name] = true
 					}
@@ -281,7 +290,6 @@
 	}
 
 	async function loadMonaco() {
-		const monaco = await import('monaco-editor')
 		if (lang == 'python') {
 			monaco.languages.register({
 				id: 'python',
@@ -303,6 +311,7 @@
 		}
 		uri = `file:///${path}`
 		const model = monaco.editor.createModel(code, lang, monaco.Uri.parse(uri))
+
 		model.updateOptions({ tabSize: 4, insertSpaces: true })
 		editor = monaco.editor.create(divEl as HTMLDivElement, {
 			model: model,
@@ -365,16 +374,20 @@
 					noSyntaxValidation: true
 				})
 			} else {
-				monaco.languages.typescript.typescriptDefaults.addExtraLib(extraLib, extraLibPath)
+				if (extraLib != '' && extraLibPath != '') {
+					monaco.languages.typescript.typescriptDefaults.addExtraLib(extraLib, extraLibPath)
+				}
 			}
 		}
+
 		if (lang == 'python' || deno) {
 			const { MonacoServices } = await import('monaco-languageclient')
 
 			MonacoServices.install()
-		}
+			// install Monaco language client services
 
-		reloadWebsocket()
+			reloadWebsocket()
+		}
 
 		return () => {
 			if (editor) {

@@ -20,7 +20,7 @@
 		"@sveltejs/kit": "next",
 		"@tailwindcss/forms": "^0.5.1",
 		"@tailwindcss/typography": "^0.5.3",
-		"@types/vscode": "^1.69.0",
+		"@types/vscode": "~1.67.0",
 		"@typescript-eslint/eslint-plugin": "^5.31.0",
 		"@typescript-eslint/parser": "^5.31.0",
 		"@zerodevx/svelte-toast": "^0.7.2",
@@ -59,7 +59,7 @@
 		"highlight.js": "^11.5.1",
 		"monaco-editor": "^0.33.0",
 		"monaco-editor-workers": "^0.33.0",
-		"monaco-languageclient": "2.0.2",
+		"monaco-languageclient": "2.1.0",
 		"vscode-ws-jsonrpc": "^1.0.2"
 	}
 }

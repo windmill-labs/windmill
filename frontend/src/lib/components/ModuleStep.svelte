@@ -35,6 +35,7 @@
 	$: shouldPick = mod.value.path === '' && mod.value.language === undefined
 	$: pickableProperties = getPickableProperties($flowStore?.schema, args, $previewResults, mode, i)
 	$: extraLib = buildExtraLib(
+		schemaToTsType($flowStore?.schema),
 		i === 0 ? schemaToTsType($flowStore?.schema) : objectToTsType($previewResults[i])
 	)
 
