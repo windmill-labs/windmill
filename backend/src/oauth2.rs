@@ -454,7 +454,7 @@ pub async fn _refresh_token<'c>(
         .to_owned();
 
     let token = client
-        .exchange_refresh_token(&RefreshToken::from(account.refresh_token))
+        .exchange_refresh_token(&RefreshToken::from(account.refresh_token.clone()))
         .with_client(&http_client)
         .execute::<TokenResponse>()
         .await
@@ -469,7 +469,7 @@ pub async fn _refresh_token<'c>(
         );
     sqlx::query!(
         "UPDATE account SET refresh_token = $1, expires_at = $2 WHERE workspace_id = $3 AND id = $4",
-        token.refresh_token.map(|x| x.to_string()),
+        token.refresh_token.map(|x| x.to_string()).unwrap_or(account.refresh_token),
         expires_at,
         w_id,
         id
