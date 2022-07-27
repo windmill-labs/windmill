@@ -69,7 +69,7 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build and push publically
+      - name: Build and push publicly
         uses: docker/build-push-action@v3
         if: github.event_name != 'pull_request'
         with:
