@@ -478,8 +478,9 @@ pub async fn _refresh_token<'c>(
     .execute(&mut tx)
     .await?;
 
+    let token_str = token.access_token.to_string();
     let mc = build_crypt(&mut tx, &w_id).await?;
-    let encrypted_token = encrypt(&mc, token.access_token.to_string());
+    let encrypted_token = encrypt(&mc, token_str.as_str());
 
     sqlx::query!(
         "UPDATE variable SET value = $1 WHERE workspace_id = $2 AND path = $3",
@@ -490,7 +491,7 @@ pub async fn _refresh_token<'c>(
     .execute(&mut tx)
     .await?;
     tx.commit().await?;
-    Ok(encrypted_token)
+    Ok(token_str)
 }
 
 #[derive(Deserialize)]
