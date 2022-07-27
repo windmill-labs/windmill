@@ -91,11 +91,15 @@ pub async fn update_flow_status_after_job_completion(
             Error::InternalErr(format!("requiring status to be parsabled as FlowStatus"))
         })?;
 
+    let skip_loop_failures = skip_loop_failures(flow, old_status.step, &mut tx)
+        .await?
+        .unwrap_or(false);
+
     let (step_counter, new_status) = match &old_status.modules[old_status.step as usize] {
         module_status @ FlowStatusModule::InProgress {
             iterator: Some(Iterator { index, itered, .. }),
             ..
-        } if (index.to_owned() as usize) < itered.len() - 1 && success => {
+        } if (index.to_owned() as usize) < itered.len() - 1 && (success || skip_loop_failures) => {
             (old_status.step, module_status.clone())
         }
         module_status @ _ => {
@@ -106,7 +110,7 @@ pub async fn update_flow_status_after_job_completion(
                 } => Some(jobs.clone()),
                 _ => None,
             };
-            let new_status = if success {
+            let new_status = if success || (forloop_jobs.is_some() && skip_loop_failures) {
                 FlowStatusModule::Success {
                     job: job.id,
                     forloop_jobs,
@@ -159,24 +163,28 @@ pub async fn update_flow_status_after_job_completion(
             false
         };
 
-    let done = if !success || last_step || stop_early {
+    let done = if !(success || skip_loop_failures) || last_step || stop_early {
         let result = match new_status {
             FlowStatusModule::Success {
                 forloop_jobs: Some(jobs),
                 ..
             } => {
-                let mut results = Vec::new();
-                for job in jobs {
-                    let result = sqlx::query_scalar!(
-                        "SELECT result FROM completed_job WHERE id = $1 AND workspace_id = $2",
-                        job,
-                        w_id,
-                    )
-                    .fetch_optional(db)
-                    .await?
-                    .flatten();
-                    results.push(result.clone());
-                }
+                use futures::TryStreamExt;
+                let results = sqlx::query_as(
+                    "
+                  SELECT result
+                    FROM completed_job
+                   WHERE id = ANY($1)
+                     AND workspace_id = $2
+                     AND success = true
+                    ",
+                )
+                .bind(jobs.as_slice())
+                .bind(w_id)
+                .fetch(db)
+                .map_ok(|(v,)| v)
+                .try_collect::<Vec<serde_json::Value>>()
+                .await?;
                 let mut results_map = serde_json::Map::new();
                 results_map.insert("res1".to_string(), serde_json::json!(results));
                 Some(results_map)
@@ -236,6 +244,25 @@ pub async fn update_flow_status_after_job_completion(
     Ok(())
 }
 
+async fn skip_loop_failures<'c>(
+    flow: Uuid,
+    step: i32,
+    tx: &mut sqlx::Transaction<'c, sqlx::Postgres>,
+) -> Result<Option<bool>, sqlx::Error> {
+    sqlx::query_as(
+        "
+    SELECT (raw_flow->'modules'->$1->'value'->>'skip_failures')::bool
+      FROM queue
+     WHERE id = $2
+        ",
+    )
+    .bind(step)
+    .bind(flow)
+    .fetch_one(tx)
+    .await
+    .map(|(v,)| v)
+}
+
 async fn compute_stop_early(
     expr: String,
     result: Option<Map<String, Value>>,
@@ -253,9 +280,7 @@ async fn compute_stop_early(
 pub fn init_flow_status(f: &FlowValue) -> FlowStatus {
     FlowStatus {
         step: 0,
-        modules: (0..f.modules.len())
-            .map(|_| FlowStatusModule::WaitingForPriorSteps)
-            .collect(),
+        modules: vec![FlowStatusModule::WaitingForPriorSteps; f.modules.len()],
         failure_module: FlowStatusModule::WaitingForPriorSteps,
     }
 }
@@ -410,7 +435,7 @@ async fn push_next_flow_job(
                 }
                 JobPayload::Code(raw_code)
             }
-            FlowModuleValue::ForloopFlow { iterator: _, value } => JobPayload::RawFlow {
+            FlowModuleValue::ForloopFlow { value, .. } => JobPayload::RawFlow {
                 value: *(*value).to_owned(),
                 path: Some(format!(
                     "{}/{i}",

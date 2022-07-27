@@ -4074,6 +4074,8 @@ components:
           $ref: "#/components/schemas/FlowValue"
         iterator:
           $ref: "#/components/schemas/InputTransform"
+        skip_failures:
+          type: bool
         path:
           type: string
         content:
