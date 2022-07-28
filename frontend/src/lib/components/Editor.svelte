@@ -208,7 +208,7 @@
 					path: null,
 					tlsCertificate: null,
 					unsafelyIgnoreCertificateErrors: null,
-					unstable: false,
+					unstable: true,
 					enable: true,
 					cache: null,
 					codeLens: {
@@ -312,7 +312,7 @@
 		uri = `file:///${path}`
 		const model = monaco.editor.createModel(code, lang, monaco.Uri.parse(uri))
 
-		model.updateOptions({ tabSize: 4, insertSpaces: true })
+		model.updateOptions({ tabSize: 2, insertSpaces: true })
 		editor = monaco.editor.create(divEl as HTMLDivElement, {
 			model: model,
 			value: code,
@@ -370,6 +370,11 @@
 		}
 
 		if (lang == 'typescript') {
+			monaco.languages.typescript.typescriptDefaults.setCompilerOptions({
+				target: monaco.languages.typescript.ScriptTarget.Latest,
+				allowNonTsExtensions: true,
+				noLib: true
+			})
 			if (deno) {
 				monaco.languages.typescript.typescriptDefaults.setDiagnosticsOptions({
 					noSemanticValidation: true,
