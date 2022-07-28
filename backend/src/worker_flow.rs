@@ -149,7 +149,7 @@ pub async fn update_flow_status_after_job_completion(
     .fetch_one(&mut tx)
     .await?;
 
-    tracing::info!("UPDATE: {:?}", new_status);
+    tracing::debug!("UPDATE: {:?}", new_status);
 
     let flow_job = get_queued_job(flow, w_id, &mut tx)
         .await?

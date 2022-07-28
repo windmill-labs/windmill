@@ -20,8 +20,8 @@ impl<B> OnResponse<B> for MyOnResponse {
     ) {
         tracing::info!(
             latency = %latency.as_millis(),
-            status = ?response.status(),
-            "finished processed request")
+            status = response.status().as_u16(),
+            "response")
     }
 }
 
@@ -34,8 +34,9 @@ impl<B> MakeSpan<B> for MyMakeSpan {
             "request",
             method = %request.method(),
             uri = %request.uri(),
-            version = ?request.version(),
             username = field::Empty,
+            workspace_id = field::Empty,
+            email = field::Empty,
         )
     }
 }

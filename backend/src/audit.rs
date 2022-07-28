@@ -64,10 +64,7 @@ pub async fn audit_log<'c>(
     let p_json: serde_json::Value = serde_json::to_value(&parameters).unwrap();
 
     tracing::info!(
-        username = username,
-        kind = "audit",
         operation = operation,
-        workspace = w_id,
         action_kind = ?action_kind,
         resource = resource,
         parameters = %p_json

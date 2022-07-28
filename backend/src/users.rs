@@ -293,9 +293,15 @@ where
             };
             if let Some(token) = token_o {
                 if let Ok(Extension(cache)) = Extension::<Arc<AuthCache>>::from_request(req).await {
-                    if let Some(authed) = cache.get_authed(workspace_id, &token).await {
+                    if let Some(authed) = cache.get_authed(workspace_id.clone(), &token).await {
                         req.extensions_mut().insert(authed.clone());
                         Span::current().record("username", &authed.username.as_str());
+                        if let Some(email) = authed.email.clone() {
+                            Span::current().record("email", &email.as_str());
+                        }
+                        if let Some(workspace_id) = workspace_id {
+                            Span::current().record("workspace_id", &workspace_id);
+                        }
                         return Ok(authed);
                     }
                 }
