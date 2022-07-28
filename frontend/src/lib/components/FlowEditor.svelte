@@ -11,7 +11,7 @@
 	import RadioButtonV2 from './RadioButtonV2.svelte'
 	import SchemaEditor from './SchemaEditor.svelte'
 	import Required from './Required.svelte'
-	import { pathIsEmpty, sendUserToast } from '$lib/utils'
+	import { flowToHubUrl, pathIsEmpty, sendUserToast } from '$lib/utils'
 	import Dropdown from './Dropdown.svelte'
 	import Editor from './Editor.svelte'
 	import Modal from './Modal.svelte'
@@ -117,17 +117,7 @@
 										displayName: 'Publish to Hub',
 										icon: faGlobe,
 										action: () => {
-											const url = new URL('https://hub.windmill.dev/flows/add')
-											const openFlow = {
-												value: $flowStore.value,
-												summary: $flowStore.summary,
-												description: $flowStore.description,
-												schema: $flowStore.schema
-											}
-											url.searchParams.append(
-												'flow',
-												btoa(JSON.stringify(flowToMode(openFlow, $mode)))
-											)
+											const url = flowToHubUrl(flowToMode($flowStore, $mode))
 											window.open(url, '_blank')?.focus()
 										}
 									}
