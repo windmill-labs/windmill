@@ -51,7 +51,8 @@ export async function main() {
     // 1. Get the last saved state
 	// let state = wmill.getInternalState()
     // 2. Get the actual state from the external service
-    // let newState = useApiToFetchState()
+    // let newState = await (await fetch('https://hacker-news.firebaseio.com/v0/topstories.json')).json()
+    // console.log(newState)
     // 3. Compare the two states and update the internal state if necessary
     // wmill.setInternalState(newState)
     // 4. Return the new ros
@@ -64,9 +65,9 @@ export async function main() {
 `
 
 export function initialCode(language: 'deno' | 'python3', is_trigger: boolean): string {
-	return language === 'deno'
-		? is_trigger
-			? DENO_INIT_CODE_TRIGGER
-			: DENO_INIT_CODE
-		: PYTHON_INIT_CODE
+    return language === 'deno'
+        ? is_trigger
+            ? DENO_INIT_CODE_TRIGGER
+            : DENO_INIT_CODE
+        : PYTHON_INIT_CODE
 }
