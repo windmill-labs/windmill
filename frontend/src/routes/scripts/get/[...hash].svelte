@@ -126,11 +126,12 @@
 	<div class="flex flex-row justify-between">
 		<h1>
 			{script?.path ?? 'Loading...'}
-			<a href="/scripts/get/{script?.hash}"
-				><span class="commit-hash">{truncateHash(script?.hash ?? '')}</span></a
-			>
-			<Tooltip>Each script version has an immutable hash.</Tooltip>
-
+			<span class="whitespace-nowrap">
+				<a href="/scripts/get/{script?.hash}"
+					><span class="commit-hash">{truncateHash(script?.hash ?? '')}</span></a
+				>
+				<Tooltip>Each script version has an immutable hash.</Tooltip>
+			</span>
 			{#if script?.is_template}
 				<span class="mx-2 bg-blue-500 rounded-md bg-opacity-25 text-sm font-normal px-1 py-px"
 					>Template</span
