@@ -34,7 +34,7 @@
 	export let extraLib: string = ''
 	export let extraLibPath: string = ''
 
-	let websockets: MonacoLanguageClient[] = []
+	let websockets: [MonacoLanguageClient, WebSocket][] = []
 	let websocketInterval: NodeJS.Timer | undefined
 	let lastWsAttempt: Date = new Date()
 	let nbWsAttempt = 0
@@ -165,7 +165,7 @@
 						const reader = new WebSocketMessageReader(socket)
 						const writer = new WebSocketMessageWriter(socket)
 						const languageClient = createLanguageClient({ reader, writer }, name, options)
-						websockets.push(languageClient)
+						websockets.push([languageClient, webSocket])
 
 						languageClient.start()
 						lastWsAttempt = new Date()
@@ -284,7 +284,8 @@
 	async function closeWebsockets() {
 		for (const x of websockets) {
 			try {
-				await x.stop()
+				await x[0].stop()
+				x[1].close()
 			} catch (err) {
 				console.log('error disposing websocket', err)
 			}
