@@ -9,7 +9,7 @@
 
 	import * as monaco from 'monaco-editor'
 
-	import type { DocumentUri, MessageTransports } from 'monaco-languageclient'
+	import type { DocumentUri, MessageTransports, MonacoLanguageClient } from 'monaco-languageclient'
 	import { createEventDispatcher, onDestroy, onMount } from 'svelte'
 	import { buildWorkerDefinition } from 'monaco-editor-workers'
 
@@ -34,7 +34,7 @@
 	export let extraLib: string = ''
 	export let extraLibPath: string = ''
 
-	let websockets: WebSocket[] = []
+	let websockets: MonacoLanguageClient[] = []
 	let websocketInterval: NodeJS.Timer | undefined
 	let lastWsAttempt: Date = new Date()
 	let nbWsAttempt = 0
@@ -101,7 +101,7 @@
 	}
 
 	export async function reloadWebsocket() {
-		closeWebsockets()
+		await closeWebsockets()
 		if (lang == 'python' || deno) {
 			const { MonacoLanguageClient } = await import('monaco-languageclient')
 			const { CloseAction, ErrorAction } = await import('vscode-languageclient')
@@ -109,8 +109,10 @@
 				'vscode-ws-jsonrpc'
 			)
 			const vscode = await import('vscode')
-
 			const { RequestType } = await import('vscode-jsonrpc')
+			const { MonacoServices } = await import('monaco-languageclient')
+
+			MonacoServices.install()
 
 			function createLanguageClient(
 				transports: MessageTransports,
@@ -124,7 +126,7 @@
 						errorHandler: {
 							error: () => ({ action: ErrorAction.Continue }),
 							closed: () => ({
-								action: CloseAction.DoNotRestart
+								action: CloseAction.Restart
 							})
 						},
 						markdown: {
@@ -159,11 +161,12 @@
 					const webSocket = new WebSocket(url)
 
 					webSocket.onopen = () => {
-						websockets.push(webSocket)
 						const socket = toSocket(webSocket)
 						const reader = new WebSocketMessageReader(socket)
 						const writer = new WebSocketMessageWriter(socket)
 						const languageClient = createLanguageClient({ reader, writer }, name, options)
+						websockets.push(languageClient)
+
 						languageClient.start()
 						lastWsAttempt = new Date()
 						nbWsAttempt = 0
@@ -181,6 +184,7 @@
 						}
 						reader.onClose(() => {
 							try {
+								console.log('CLOSE')
 								languageClient.stop()
 							} catch (err) {
 								console.error(err)
@@ -277,10 +281,10 @@
 		}
 	}
 
-	function closeWebsockets() {
+	async function closeWebsockets() {
 		for (const x of websockets) {
 			try {
-				x.close()
+				await x.stop()
 			} catch (err) {
 				console.log('error disposing websocket', err)
 			}
@@ -391,9 +395,6 @@
 		}
 
 		if (lang == 'python' || deno) {
-			const { MonacoServices } = await import('monaco-languageclient')
-
-			MonacoServices.install()
 			// install Monaco language client services
 
 			reloadWebsocket()
