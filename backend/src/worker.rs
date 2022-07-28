@@ -268,6 +268,9 @@ async fn transform_json_value(token: &str, workspace: &str, base_url: &str, v: V
         }
         Value::String(y) if y.starts_with("$res:") => {
             let path = y.strip_prefix("$res:").unwrap();
+            if path.split("/").count() < 2 {
+                return Value::String(format!("resource path: {path} is ill-defined"));
+            }
             let v = crate::client::get_resource(workspace, path, token, base_url)
                 .await
                 .ok()
