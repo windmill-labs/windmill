@@ -1,6 +1,6 @@
 [package]
 name = "windmill"
-version = "1.24.1"
+version = "1.24.2"
 authors = ["Ruben Fiszel <ruben@rubenfiszel.com>"]
 edition = "2021"
 
