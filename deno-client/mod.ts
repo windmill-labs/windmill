@@ -9,7 +9,7 @@ export {
 
 export type Email = string
 export type Base64 = string
-export type Resource<S extends string> = {}
+export type Resource<S extends string> = any
 
 /**
  * Create a client configuration from env variables
