@@ -192,7 +192,7 @@ pub fn parse_deno_signature(code: &str) -> error::Result<MainArgSignature> {
                             name,
                             typ,
                             default: None,
-                            has_default: false,
+                            has_default: ident.id.optional,
                         })
                     }
                     Pat::Assign(AssignPat {
@@ -204,7 +204,7 @@ pub fn parse_deno_signature(code: &str) -> error::Result<MainArgSignature> {
                         let (name, typ) =
                             left.as_ident().map(binding_ident_to_arg).ok_or_else(|| {
                                 error::Error::ExecutionErr(format!(
-                                    "Arg {left:?} has unexepected syntax"
+                                    "Arg {left:?} has unexpected syntax"
                                 ))
                             })??;
                         Ok(Arg {
@@ -220,7 +220,7 @@ pub fn parse_deno_signature(code: &str) -> error::Result<MainArgSignature> {
                         })
                     }
                     _ => Err(error::Error::ExecutionErr(format!(
-                        "Arg {x:?} has unexepected syntax"
+                        "Arg {x:?} has unexpected syntax"
                     ))),
                 })
                 .collect::<Result<Vec<Arg>, error::Error>>()?,
@@ -788,7 +788,7 @@ def main():
     fn test_parse_deno_sig() -> anyhow::Result<()> {
         let code = "
 
-export function main(test1: string, test2: string = \"burkina\",
+export function main(test1?: string, test2: string = \"burkina\",
     test3: wmill.Resource<'postgres'>, b64: Base64, ls: Base64[], email: Email) {
     console.log(42)
 }
