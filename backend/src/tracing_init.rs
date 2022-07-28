@@ -19,9 +19,10 @@ impl<B> OnResponse<B> for MyOnResponse {
         _span: &tracing::Span,
     ) {
         tracing::info!(
-            latency = %latency.as_millis(),
+            latency = latency.as_millis(),
             status = response.status().as_u16(),
-            "response")
+            "response"
+        )
     }
 }
 

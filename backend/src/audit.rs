@@ -67,7 +67,9 @@ pub async fn audit_log<'c>(
         operation = operation,
         action_kind = ?action_kind,
         resource = resource,
-        parameters = %p_json
+        parameters = %p_json,
+        workspace_id = w_id,
+        username = username,
     );
     sqlx::query(
         "INSERT INTO audit
