@@ -3440,6 +3440,8 @@ components:
           type: array
           items:
             type: string
+        job_duration:
+          type: integer
       required:
         - email
         - username

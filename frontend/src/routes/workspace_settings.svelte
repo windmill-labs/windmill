@@ -117,15 +117,16 @@
 				<th>email</th>
 				<th>username</th>
 				<th>role</th>
-				<th />
+				<th>run time (2w)</th>
 			</tr>
 			<tbody slot="body">
 				{#if filteredUsers && users}
-					{#each userFilter === '' ? users : filteredUsers as { email, username, is_admin }}
+					{#each userFilter === '' ? users : filteredUsers as { email, username, is_admin, jobs_duration }}
 						<tr class="border">
 							<td>{email}</td>
 							<td>{username}</td>
 							<td>{is_admin ? 'admin' : 'user'}</td>
+							<td>{jobs_duration}s</td>
 							<td
 								><button
 									class="ml-2 text-red-500"

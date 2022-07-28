@@ -25,7 +25,7 @@ use hyper::StatusCode;
 use rand::rngs::OsRng;
 use retainer::Cache;
 use serde::{Deserialize, Serialize};
-use sqlx::{FromRow};
+use sqlx::{FromRow, Row};
 use time::OffsetDateTime;
 use tower_cookies::{Cookie, Cookies};
 use tracing::Span;
@@ -323,6 +323,12 @@ pub struct User {
     pub role: Option<String>
 }
 
+#[derive(Serialize)]
+pub struct UserWithJobsDuration {
+    #[serde(flatten)]
+    pub user: User,
+    pub jobs_duration: i64,
+}
 
 #[derive(FromRow, Serialize)]
 pub struct GlobalUserInfo {
@@ -479,10 +485,24 @@ async fn exists_username(
 async fn list_users(
     authed: Authed,
     Extension(user_db): Extension<UserDB>,
-    Path(w_id): Path<String>
-) -> JsonResult<Vec<User>> {
+    Path(w_id): Path<String>,
+) -> JsonResult<Vec<UserWithJobsDuration>> {
     let mut tx = user_db.begin(&authed).await?;
-    let rows = sqlx::query_as!(User, "SELECT * from usr WHERE workspace_id = $1", &w_id)
+    let rows = sqlx::query("
+        SELECT *
+             , ( SELECT sum(duration)
+                   FROM completed_job
+                  WHERE workspace_id = usr.workspace_id
+                    AND created_by   = usr.username
+                    AND created_at > now() - '2 week'::interval
+               ) jobs_duration
+          FROM usr
+         WHERE workspace_id = $1")
+        .bind(&w_id)
+        .try_map(|row| Ok(UserWithJobsDuration {
+            user: FromRow::from_row(&row)?,
+            jobs_duration: row.try_get::<Option<_>, _>("jobs_duration")?.unwrap_or(0),
+        }))
         .fetch_all(&mut tx)
         .await?;
     tx.commit().await?;
