@@ -346,7 +346,7 @@ async fn create_workspace(
         "workspaces.create",
         ActionKind::Create,
         &nw.id,
-        Some(&authed.email.unwrap()),
+        Some(nw.name.as_str()),
         None,
     )
     .await?;
