@@ -3,7 +3,7 @@
 	import type { ModalSchemaProperty } from './SchemaModal.svelte'
 	import type { Schema } from '$lib/common'
 	import Editor from './Editor.svelte'
-	import { emptySchema, sendUserToast } from '$lib/utils'
+	import { emptySchema, sendUserToast, truncate } from '$lib/utils'
 	import Tooltip from './Tooltip.svelte'
 	import TableCustom from './TableCustom.svelte'
 	import { createEventDispatcher } from 'svelte'
@@ -162,10 +162,12 @@
 								<tr>
 									<td>{name}</td>
 									<td
-										>{#if !property.type} any {:else} {property.type} {/if}</td
-									>
-									<td>{property.description}</td>
-									<td>{JSON.stringify(property.default) ?? ''}</td>
+										>{property.type ?? 'any'}
+										{property.format ? `(format: ${property.format})` : ''}
+										{property.contentEncoding ? `(encoding: ${property.contentEncoding})` : ''}
+									</td>
+									<td>{truncate(property.description, 20)}</td>
+									<td>{truncate(JSON.stringify(property.default) ?? '', 20)}</td>
 									<td>{schema.required.includes(name) ? 'required' : 'optional'}</td>
 									<td class="">
 										<button class="mr-2" on:click={() => handleDeleteArgument(name)}

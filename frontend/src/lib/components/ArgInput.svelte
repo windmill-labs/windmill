@@ -19,7 +19,7 @@
 	export let defaultValue: any = undefined
 	export let description: string = ''
 	export let format: string = ''
-	export let contentEncoding = ''
+	export let contentEncoding: 'base64' | 'binary' | undefined = undefined
 	export let type: string | undefined = undefined
 	export let required = false
 	export let pattern: undefined | string = undefined
@@ -156,7 +156,7 @@
 							>Description
 							<textarea rows="1" bind:value={description} placeholder="Edit description" />
 							{#if type == 'string' && !contentEncoding && format != 'date-time'}
-								<StringTypeNarrowing bind:format bind:pattern bind:enum_ />
+								<StringTypeNarrowing bind:format bind:pattern bind:enum_ bind:contentEncoding />
 							{:else if type == 'object'}
 								<ObjectTypeNarrowing bind:format />
 							{:else if type == 'array'}

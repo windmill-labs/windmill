@@ -75,7 +75,7 @@ export async function setResource(path: string, value: any, initializeToTypeIfNo
     } else if (initializeToTypeIfNotExist) {
         await resourceApi.createResource(conf.workspace_id, { path, value, resourceType: initializeToTypeIfNotExist })
     } else {
-        throw Error(`Resoucr at path ${path} does not exist and no type was provided to initialize it`)
+        throw Error(`Resource at path ${path} does not exist and no type was provided to initialize it`)
     }
 }
 

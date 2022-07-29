@@ -15,6 +15,7 @@
 		enum_?: string[]
 		default?: any
 		items?: { type?: 'string' | 'number' }
+		contentEncoding?: 'base64' | 'binary'
 	}
 
 	export function modalToSchema(schema: ModalSchemaProperty): SchemaProperty {
@@ -24,7 +25,8 @@
 			pattern: schema.pattern,
 			default: schema.default,
 			enum: schema.enum_,
-			items: schema.items
+			items: schema.items,
+			contentEncoding: schema.contentEncoding
 		}
 	}
 
@@ -39,6 +41,7 @@
 			description: schema.description,
 			pattern: schema.pattern,
 			default: schema.default,
+			contentEncoding: schema.contentEncoding,
 			required
 		}
 	}
@@ -142,6 +145,7 @@
 						bind:format={property.format}
 						bind:pattern={property.pattern}
 						bind:enum_={property.enum_}
+						bind:contentEncoding={property.contentEncoding}
 					/>
 				{:else if property.selectedType == 'array'}
 					<select bind:value={property.items}>
