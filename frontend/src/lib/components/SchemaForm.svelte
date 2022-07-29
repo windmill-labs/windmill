@@ -61,105 +61,109 @@
 <div class="w-full">
 	{#if Object.keys(schema?.properties ?? {}).length > 0}
 		{#each Object.keys(schema?.properties ?? {}) as argName, index}
-			{#if inputTransform && args[argName] != undefined}
-				<div class={index > 0 ? 'mt-8' : ''} />
-				<div class="flex justify-between items-center">
-					<div class="flex items-center">
-						<FieldHeader
-							label={argName}
-							format={schema.properties[argName].format}
-							contentEncoding={schema.properties[argName].contentEncoding}
-							required={schema.required.includes(argName)}
-							type={schema.properties[argName].type}
-							itemsType={schema.properties[argName].items}
-						/>
-						{#if propertiesTypes[argName] === InputTransform.type.STATIC && args[argName].type === InputTransform.type.JAVASCRIPT}
-							<span
-								class="bg-blue-100 text-blue-800 text-sm font-medium mr-2 px-2.5 py-0.5 rounded ml-2"
-							>
-								{'${...}'}
-							</span>
-						{/if}
-					</div>
-					<Toggle
-						options={{
-							left: { label: '', value: InputTransform.type.STATIC },
-							right: { label: 'Raw Javascript Editor', value: InputTransform.type.JAVASCRIPT }
-						}}
-						bind:value={propertiesTypes[argName]}
-						on:change={(e) => {
-							if (e.detail === InputTransform.type.JAVASCRIPT) {
-								args[argName].expr = getDefaultExpr(i ?? -1, argName, args[argName].value)
-								args[argName].value = undefined
-							} else {
-								args[argName].expr = undefined
-								args[argName].value = undefined
-							}
-
-							args[argName].type = e.detail
-						}}
-					/>
-				</div>
-				<div class="max-w-xs" />
-
-				{#if propertiesTypes[argName] === undefined || propertiesTypes[argName] === InputTransform.type.STATIC}
-					<OverlayPropertyPicker
-						bind:this={overlays[argName]}
-						bind:pickableProperties
-						disabled={!hasOverlay(inputCats[argName])}
-						on:select={(event) => {
-							const toAppend = `\$\{${event.detail}}`
-							args[argName].value = `${args[argName].value ?? ''}${toAppend}`
-							setPropertyType(argName, args[argName].value, false)
-						}}
-					>
-						<ArgInput
-							on:focus={() => {
-								Object.keys(overlays).forEach((k) => {
-									if (k == argName) {
-										overlays[k].focus()
-									} else {
-										overlays[k].unfocus()
-									}
-								})
-							}}
-							label={argName}
-							bind:description={schema.properties[argName].description}
-							bind:value={args[argName].value}
-							type={schema.properties[argName].type}
-							required={schema.required.includes(argName)}
-							bind:pattern={schema.properties[argName].pattern}
-							bind:valid={inputCheck[argName]}
-							defaultValue={schema.properties[argName].default}
-							bind:enum_={schema.properties[argName].enum}
-							bind:format={schema.properties[argName].format}
-							contentEncoding={schema.properties[argName].contentEncoding}
-							bind:itemsType={schema.properties[argName].items}
-							displayHeader={false}
-							bind:inputCat={inputCats[argName]}
-							numberAsString={true}
-							on:input={(e) => {
-								if (hasOverlay(inputCats[argName])) {
-									setPropertyType(argName, e.detail.rawValue, e.detail.isRaw)
-								}
-							}}
-						/>
-					</OverlayPropertyPicker>
-				{:else if propertiesTypes[argName] === InputTransform.type.JAVASCRIPT}
-					{#if args[argName].expr != undefined}
-						<div class="border rounded p-2 mt-2 border-gray-300">
-							<Editor
-								bind:code={args[argName].expr}
-								lang="javascript"
-								class="few-lines-editor"
-								{extraLib}
-								extraLibPath="file:///node_modules/@types/windmill@{i}/index.d.ts"
+			{#if inputTransform}
+				{#if args[argName] != undefined}
+					<div class={index > 0 ? 'mt-8' : ''} />
+					<div class="flex justify-between items-center">
+						<div class="flex items-center">
+							<FieldHeader
+								label={argName}
+								format={schema.properties[argName].format}
+								contentEncoding={schema.properties[argName].contentEncoding}
+								required={schema.required.includes(argName)}
+								type={schema.properties[argName].type}
+								itemsType={schema.properties[argName].items}
 							/>
+							{#if propertiesTypes[argName] === InputTransform.type.STATIC && args[argName].type === InputTransform.type.JAVASCRIPT}
+								<span
+									class="bg-blue-100 text-blue-800 text-sm font-medium mr-2 px-2.5 py-0.5 rounded ml-2"
+								>
+									{'${...}'}
+								</span>
+							{/if}
 						</div>
-						<DynamicInputHelpBox />
+						<Toggle
+							options={{
+								left: { label: '', value: InputTransform.type.STATIC },
+								right: { label: 'Raw Javascript Editor', value: InputTransform.type.JAVASCRIPT }
+							}}
+							bind:value={propertiesTypes[argName]}
+							on:change={(e) => {
+								if (e.detail === InputTransform.type.JAVASCRIPT) {
+									args[argName].expr = getDefaultExpr(i ?? -1, argName, args[argName].value)
+									args[argName].value = undefined
+								} else {
+									args[argName].expr = undefined
+									args[argName].value = undefined
+								}
+
+								args[argName].type = e.detail
+							}}
+						/>
+					</div>
+					<div class="max-w-xs" />
+
+					{#if propertiesTypes[argName] === undefined || propertiesTypes[argName] === InputTransform.type.STATIC}
+						<OverlayPropertyPicker
+							bind:this={overlays[argName]}
+							bind:pickableProperties
+							disabled={!hasOverlay(inputCats[argName])}
+							on:select={(event) => {
+								const toAppend = `\$\{${event.detail}}`
+								args[argName].value = `${args[argName].value ?? ''}${toAppend}`
+								setPropertyType(argName, args[argName].value, false)
+							}}
+						>
+							<ArgInput
+								on:focus={() => {
+									Object.keys(overlays).forEach((k) => {
+										if (k == argName) {
+											overlays[k].focus()
+										} else {
+											overlays[k].unfocus()
+										}
+									})
+								}}
+								label={argName}
+								bind:description={schema.properties[argName].description}
+								bind:value={args[argName].value}
+								type={schema.properties[argName].type}
+								required={schema.required.includes(argName)}
+								bind:pattern={schema.properties[argName].pattern}
+								bind:valid={inputCheck[argName]}
+								defaultValue={schema.properties[argName].default}
+								bind:enum_={schema.properties[argName].enum}
+								bind:format={schema.properties[argName].format}
+								contentEncoding={schema.properties[argName].contentEncoding}
+								bind:itemsType={schema.properties[argName].items}
+								displayHeader={false}
+								bind:inputCat={inputCats[argName]}
+								numberAsString={true}
+								on:input={(e) => {
+									if (hasOverlay(inputCats[argName])) {
+										setPropertyType(argName, e.detail.rawValue, e.detail.isRaw)
+									}
+								}}
+							/>
+						</OverlayPropertyPicker>
+					{:else if propertiesTypes[argName] === InputTransform.type.JAVASCRIPT}
+						{#if args[argName].expr != undefined}
+							<div class="border rounded p-2 mt-2 border-gray-300">
+								<Editor
+									bind:code={args[argName].expr}
+									lang="javascript"
+									class="few-lines-editor"
+									{extraLib}
+									extraLibPath="file:///node_modules/@types/windmill@{i}/index.d.ts"
+								/>
+							</div>
+							<DynamicInputHelpBox />
+						{/if}
+					{:else}
+						<p>Not recognized arg type {args[argName].type}</p>
 					{/if}
 				{:else}
-					<p>Not recognized arg type {args[argName].type}</p>
+					<p>Arg at {argName} is undefined</p>
 				{/if}
 			{:else}
 				<ArgInput

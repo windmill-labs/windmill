@@ -37,7 +37,11 @@
 	let jsonValue: string = ''
 
 	async function loadSchedule() {
-		try {
+		const existsSchedule = await ScheduleService.existsSchedule({
+			workspace: $workspaceStore ?? '',
+			path: initialPath
+		})
+		if (existsSchedule) {
 			const schedule = await ScheduleService.getSchedule({
 				workspace: $workspaceStore ?? '',
 				path: initialPath
@@ -46,8 +50,6 @@
 			scheduleCron = schedule.schedule
 			scheduleArgs = scheduleArgs
 			console.log(schedule.enabled, schedule.schedule)
-		} catch (e) {
-			console.log(`no primary schedule found for ${initialPath}`)
 		}
 	}
 

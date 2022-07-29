@@ -69,14 +69,13 @@ export function getInternalStatePath(suffix?: string): string {
  */
 export async function setResource(path: string, value: any, initializeToTypeIfNotExist?: string): Promise<void> {
     const conf = createConf()
-    try {
-        await new ResourceApi(conf).updateResource(conf.workspace_id, path, { value })
-    } catch (e) {
-        if (initializeToTypeIfNotExist && e.code === 404) {
-            await new ResourceApi(conf).createResource(conf.workspace_id, { path, value, resourceType: initializeToTypeIfNotExist })
-        } else {
-            throw e
-        }
+    const resourceApi = new ResourceApi(conf)
+    if (await resourceApi.existsResource(conf.workspace_id, path)) {
+        await resourceApi.updateResource(conf.workspace_id, path, { value })
+    } else if (initializeToTypeIfNotExist) {
+        await resourceApi.createResource(conf.workspace_id, { path, value, resourceType: initializeToTypeIfNotExist })
+    } else {
+        throw Error(`Resoucr at path ${path} does not exist and no type was provided to initialize it`)
     }
 }
 

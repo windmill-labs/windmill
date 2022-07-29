@@ -356,7 +356,6 @@ async fn delete_variable(
 async fn update_variable(
     authed: Authed,
     Extension(user_db): Extension<UserDB>,
-    Extension(db): Extension<DB>,
     Path((w_id, path)): Path<(String, StripPath)>,
     Json(ns): Json<EditVariable>,
 ) -> Result<String> {
@@ -404,9 +403,14 @@ async fn update_variable(
         }
         sqlb.set_str("is_secret", nbool);
     }
+    sqlb.returning("path");
+
     let sql = sqlb.sql().map_err(|e| Error::InternalErr(e.to_string()))?;
 
-    sqlx::query(&sql).execute(&db).await?;
+    let npath_o: Option<String> = sqlx::query_scalar(&sql).fetch_optional(&mut tx).await?;
+
+    let npath = crate::utils::not_found_if_none(npath_o, "Variable", path)?;
+
     audit_log(
         &mut tx,
         &authed.username,
@@ -419,7 +423,7 @@ async fn update_variable(
     .await?;
     tx.commit().await?;
 
-    Ok(format!("variable {} updated (npath: {:?})", path, ns.path))
+    Ok(format!("variable {} updated (npath: {:?})", path, npath))
 }
 
 pub async fn build_crypt<'c>(
