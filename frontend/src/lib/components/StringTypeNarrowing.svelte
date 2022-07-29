@@ -1,5 +1,5 @@
 <script lang="ts">
-	import RadioButton from './RadioButton.svelte'
+	import RadioButtonV3 from './RadioButtonV3.svelte'
 	import ResourceTypePicker from './ResourceTypePicker.svelte'
 
 	export let pattern: string | undefined
@@ -31,9 +31,8 @@
 	$: contentEncoding = kind == 'base64' ? 'base64' : undefined
 </script>
 
-<RadioButton
+<RadioButtonV3
 	label="Kind"
-	small={true}
 	options={[
 		['None', 'none'],
 		['File (base64)', 'base64'],
@@ -44,6 +43,7 @@
 	]}
 	bind:value={kind}
 />
+<div class="my-2" />
 
 {#if kind == 'pattern'}
 	<label for="input" class="mb-2 text-gray-700 text-xs"

@@ -290,7 +290,7 @@
 					on:input={() => dispatch('input', { rawValue: value, isRaw: false })}
 				/>
 			{/if}
-			{#if !required}
+			{#if !required && inputCat != 'resource-object'}
 				<div class="flex flex-row-reverse">
 					<button
 						{disabled}

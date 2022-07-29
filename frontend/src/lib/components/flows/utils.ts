@@ -9,6 +9,16 @@ import type { FlowMode } from './flowStore'
 export function flowToMode(flow: Flow | any, mode: FlowMode): Flow {
 	if (mode == 'pull') {
 		const newFlow: Flow = JSON.parse(JSON.stringify(flow))
+		newFlow.value.modules.forEach((mod) => {
+			Object.values(mod.input_transform).forEach((inp) => {
+				if (inp.type == InputTransform.type.JAVASCRIPT) {
+					inp.value = undefined
+				} else {
+					inp.expr = undefined
+
+				}
+			})
+		})
 		const triggerModule = newFlow.value.modules[0]
 		const oldModules = newFlow.value.modules.slice(1)
 
