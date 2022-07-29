@@ -494,6 +494,7 @@ async fn list_users(
                    FROM completed_job
                   WHERE workspace_id = usr.workspace_id
                     AND created_by   = usr.username
+                    AND parent_job IS NULL
                     AND created_at > now() - '2 week'::interval
                ) jobs_duration_ms
           FROM usr
