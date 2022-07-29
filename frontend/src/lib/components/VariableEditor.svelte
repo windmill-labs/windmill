@@ -149,18 +149,20 @@
 					</div>
 				{/if}
 			</label>
-			<div class="font-semibold text-gray-700 col-span-10 }">
-				{#if variable.is_secret}
+			{#if variable.is_secret}
+				<div class="font-semibold text-gray-700 col-span-10 }">
 					<Password
 						bind:password={variable.value}
 						placeholder={'******** (only fill to update value)'}
 						label={'variable (max 3000 characters)'}
 					/>
-				{:else}
-					<span>variable (max 3000 characters)</span>
+				</div>
+			{:else}
+				<div>
+					<span>Variable (max 3000 characters)</span>
 					<AutosizedTextarea bind:value={variable.value} minRows={5} />
-				{/if}
-			</div>
+				</div>
+			{/if}
 
 			<div class="flex flex-col w-full">
 				<span class="text-gray-700">Description<Required required={false} /></span>

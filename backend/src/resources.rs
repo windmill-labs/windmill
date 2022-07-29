@@ -283,10 +283,16 @@ async fn update_resource(
     if let Some(ndesc) = ns.description {
         sqlb.set_str("description", ndesc);
     }
+
+    sqlb.returning("path");
+
     let mut tx = user_db.begin(&authed).await?;
 
     let sql = sqlb.sql().map_err(|e| Error::InternalErr(e.to_string()))?;
-    sqlx::query(&sql).execute(&mut tx).await?;
+    let npath_o: Option<String> = sqlx::query_scalar(&sql).fetch_optional(&mut tx).await?;
+
+    let npath = crate::utils::not_found_if_none(npath_o, "Resource", path)?;
+
     audit_log(
         &mut tx,
         &authed.username,
@@ -299,7 +305,7 @@ async fn update_resource(
     .await?;
     tx.commit().await?;
 
-    Ok(format!("resource {} updated (npath: {:?})", path, ns.path))
+    Ok(format!("resource {} updated (npath: {:?})", path, npath))
 }
 
 async fn list_resource_types(
