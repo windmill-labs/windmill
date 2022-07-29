@@ -140,7 +140,8 @@ async fn get_resource(
 
     let resource_o = sqlx::query_as!(
         Resource,
-        "SELECT * from resource WHERE path = $1 AND (workspace_id = $2 OR workspace_id = 'starter')",
+        "SELECT * from resource WHERE path = $1 AND (workspace_id = $2 OR workspace_id = \
+         'starter')",
         path.to_owned(),
         &w_id
     )
@@ -179,7 +180,8 @@ async fn get_resource_value(
     let mut tx = user_db.begin(&authed).await?;
 
     let value_o = sqlx::query_scalar!(
-        "SELECT value from resource WHERE path = $1 AND (workspace_id = $2 OR workspace_id = 'starter')",
+        "SELECT value from resource WHERE path = $1 AND (workspace_id = $2 OR workspace_id = \
+         'starter')",
         path.to_owned(),
         &w_id
     )
@@ -312,9 +314,14 @@ async fn list_resource_types(
     Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
 ) -> JsonResult<Vec<ResourceType>> {
-    let rows = sqlx::query_as!(ResourceType, "SELECT * from resource_type WHERE (workspace_id = $1 OR workspace_id = 'starter') ORDER BY name", &w_id)
-        .fetch_all(&db)
-        .await?;
+    let rows = sqlx::query_as!(
+        ResourceType,
+        "SELECT * from resource_type WHERE (workspace_id = $1 OR workspace_id = 'starter') ORDER \
+         BY name",
+        &w_id
+    )
+    .fetch_all(&db)
+    .await?;
 
     Ok(Json(rows))
 }
@@ -323,9 +330,13 @@ async fn list_resource_types_names(
     Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
 ) -> JsonResult<Vec<String>> {
-    let rows = sqlx::query_scalar!("SELECT name from resource_type WHERE (workspace_id = $1 OR workspace_id = 'starter') ORDER BY name", &w_id)
-        .fetch_all(&db)
-        .await?;
+    let rows = sqlx::query_scalar!(
+        "SELECT name from resource_type WHERE (workspace_id = $1 OR workspace_id = 'starter') \
+         ORDER BY name",
+        &w_id
+    )
+    .fetch_all(&db)
+    .await?;
 
     Ok(Json(rows))
 }
@@ -339,7 +350,8 @@ async fn get_resource_type(
 
     let resource_type_o = sqlx::query_as!(
         ResourceType,
-        "SELECT * from resource_type WHERE name = $1 AND (workspace_id = $2 OR workspace_id = 'starter')",
+        "SELECT * from resource_type WHERE name = $1 AND (workspace_id = $2 OR workspace_id = \
+         'starter')",
         &name,
         &w_id
     )

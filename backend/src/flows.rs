@@ -228,7 +228,8 @@ async fn create_flow(
     check_schedule_conflict(&mut tx, &w_id, &nf.path).await?;
 
     sqlx::query!(
-        "INSERT INTO flow (workspace_id, path, summary, description, value, edited_by, edited_at, schema) VALUES ($1, $2, $3, $4, $5, $6, $7, $8::text::json)",
+        "INSERT INTO flow (workspace_id, path, summary, description, value, edited_by, edited_at, \
+         schema) VALUES ($1, $2, $3, $4, $5, $6, $7, $8::text::json)",
         w_id,
         nf.path,
         nf.summary,
@@ -267,7 +268,8 @@ async fn check_schedule_conflict<'c>(
     path: &str,
 ) -> error::Result<()> {
     let exists_flow = sqlx::query_scalar!(
-        "SELECT EXISTS (SELECT 1 FROM schedule WHERE path = $1 AND workspace_id = $2 AND path != script_path)",
+        "SELECT EXISTS (SELECT 1 FROM schedule WHERE path = $1 AND workspace_id = $2 AND path != \
+         script_path)",
         path,
         w_id
     )
@@ -276,7 +278,8 @@ async fn check_schedule_conflict<'c>(
     .unwrap_or(false);
     if exists_flow {
         return Err(error::Error::BadConfig(format!(
-            "A flow cannot have the same path as a schedule if the schedule does not trigger that same flow: {path}",
+            "A flow cannot have the same path as a schedule if the schedule does not trigger that \
+             same flow: {path}",
         )));
     };
     Ok(())
@@ -295,7 +298,8 @@ async fn update_flow(
 
     let schema = nf.schema.map(|x| x.0);
     let flow = sqlx::query_scalar!(
-        "UPDATE flow SET path = $1, summary = $2, description = $3, value = $4, edited_by = $5, edited_at = $6, schema = $7 WHERE path = $8 AND workspace_id = $9 RETURNING path",
+        "UPDATE flow SET path = $1, summary = $2, description = $3, value = $4, edited_by = $5, \
+         edited_at = $6, schema = $7 WHERE path = $8 AND workspace_id = $9 RETURNING path",
         nf.path,
         nf.summary,
         nf.description,
@@ -358,7 +362,8 @@ async fn exists_flow_by_path(
     let path = path.to_path();
 
     let exists = sqlx::query_scalar!(
-        "SELECT EXISTS(SELECT 1 FROM flow WHERE path = $1 AND (workspace_id = $2 OR workspace_id = 'starter'))",
+        "SELECT EXISTS(SELECT 1 FROM flow WHERE path = $1 AND (workspace_id = $2 OR workspace_id \
+         = 'starter'))",
         path,
         w_id
     )

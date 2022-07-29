@@ -76,7 +76,9 @@ async fn main() -> anyhow::Result<()> {
                     .unwrap_or(false);
 
                 tracing::info!(
-                    "DISABLE_NSJAIL: {disable_nsjail}, DISABLE_NUSER: {disable_nuser}, BASE_URL: {base_url}, SLEEP_QUEUE: {sleep_queue}, NUM_WORKERS: {num_workers}, TIMEOUT: {timeout}"
+                    "DISABLE_NSJAIL: {disable_nsjail}, DISABLE_NUSER: {disable_nuser}, BASE_URL: \
+                     {base_url}, SLEEP_QUEUE: {sleep_queue}, NUM_WORKERS: {num_workers}, TIMEOUT: \
+                     {timeout}"
                 );
                 windmill::run_workers(
                     db.clone(),

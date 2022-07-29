@@ -1,21 +1,19 @@
 use std::collections::HashMap;
 
-use crate::flows::{FlowModuleValue, FlowValue, InputTransform};
-use crate::jobs::{
-    add_completed_job, add_completed_job_error, get_queued_job, postprocess_queued_job, push,
-    script_path_to_payload, JobPayload,
-};
-use crate::js_eval::{eval_timeout, EvalCreds};
-use crate::users::create_token_for_owner;
 use crate::{
     db::DB,
     error::{self, Error},
-    jobs::QueuedJob,
+    flows::{FlowModuleValue, FlowValue, InputTransform},
+    jobs::{
+        add_completed_job, add_completed_job_error, get_queued_job, postprocess_queued_job, push,
+        script_path_to_payload, JobPayload, QueuedJob,
+    },
+    js_eval::{eval_timeout, EvalCreds},
+    users::create_token_for_owner,
 };
 use async_recursion::async_recursion;
 use serde::{Deserialize, Serialize};
-use serde_json::json;
-use serde_json::{Map, Value};
+use serde_json::{json, Map, Value};
 use tracing::instrument;
 use uuid::Uuid;
 
@@ -134,20 +132,22 @@ pub async fn update_flow_status_after_job_completion(
     );
 
     let prev_step = old_status.step;
-    let (stop_early_expr, skip_if_stop_early) = sqlx::query_as::<_, (Option<String>, Option<bool>)>(&format!(
-        "UPDATE queue
+    let (stop_early_expr, skip_if_stop_early) =
+        sqlx::query_as::<_, (Option<String>, Option<bool>)>(&format!(
+            "UPDATE queue
             SET 
-                flow_status = jsonb_set(jsonb_set(flow_status, '{{modules, {prev_step}}}', $1), '{{\"step\"}}', $2)
+                flow_status = jsonb_set(jsonb_set(flow_status, '{{modules, {prev_step}}}', $1), \
+             '{{\"step\"}}', $2)
             WHERE id = $3
             RETURNING 
                 (raw_flow->'modules'->{prev_step}->>'stop_after_if_expr'), 
                 (raw_flow->'modules'->{prev_step}->>'skip_if_stopped')::bool",
-    ))
-    .bind(serde_json::json!(new_status))
-    .bind(serde_json::json!(step_counter))
-    .bind(flow)
-    .fetch_one(&mut tx)
-    .await?;
+        ))
+        .bind(serde_json::json!(new_status))
+        .bind(serde_json::json!(step_counter))
+        .bind(flow)
+        .fetch_one(&mut tx)
+        .await?;
 
     tracing::debug!("UPDATE: {:?}", new_status);
 
