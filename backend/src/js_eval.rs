@@ -200,6 +200,7 @@ async function resource(path) {{
             ))
             .join(""),
     );
+    tracing::debug!("{}", code);
     let global = context.execute_script("<anon>", &code)?;
     let global = context.resolve_value(global).await?;
 
