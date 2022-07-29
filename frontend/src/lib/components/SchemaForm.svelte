@@ -6,6 +6,7 @@
 	import Editor from './Editor.svelte'
 	import FieldHeader from './FieldHeader.svelte'
 	import DynamicInputHelpBox from './flows/DynamicInputHelpBox.svelte'
+	import { codeToStaticTemplate } from './flows/flowStore'
 	import { getCodeInjectionExpr, getDefaultExpr, isCodeInjection } from './flows/utils'
 	import OverlayPropertyPicker from './propertyPicker/OverlayPropertyPicker.svelte'
 	import Toggle from './Toggle.svelte'
@@ -40,23 +41,6 @@
 		: {}
 
 	let inputCats: { [id: string]: InputCat } = {}
-
-	function codeToStaticTemplate(code?: string): string | undefined {
-		if (!code) return undefined
-
-		const lines = code
-			.split('\n')
-			.slice(1)
-			.filter((x) => x != '')
-
-		if (lines.length == 1) {
-			const line = lines[0].trim()
-			if (line[0] == '`' && line.charAt(line.length - 1) == '`') {
-				return line.slice(1, line.length - 1)
-			}
-		}
-		return undefined
-	}
 
 	function setPropertyType(id: string, rawValue: string, isRaw: boolean) {
 		const arg = args[id]
