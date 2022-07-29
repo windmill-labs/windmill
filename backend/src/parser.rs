@@ -127,8 +127,7 @@ pub fn parse_python_signature(code: &str) -> error::Result<MainArgSignature> {
     }
 }
 
-use swc_common::sync::Lrc;
-use swc_common::{FileName, SourceMap};
+use swc_common::{sync::Lrc, FileName, SourceMap};
 use swc_ecma_ast::{
     AssignPat, BindingIdent, Decl, ExportDecl, FnDecl, Ident, ModuleDecl, ModuleItem, Pat,
     TsArrayType, TsEntityName, TsKeywordTypeKind, TsType, TsTypeRef,
@@ -240,70 +239,74 @@ fn binding_ident_to_arg(
         id.sym.to_string(),
         type_ann
             .as_ref()
-            .map(|x| match &*x.type_ann {
-                TsType::TsKeywordType(t) => match t.kind {
-                    TsKeywordTypeKind::TsObjectKeyword => Typ::Dict,
-                    TsKeywordTypeKind::TsBooleanKeyword => Typ::Bool,
-                    TsKeywordTypeKind::TsBigIntKeyword => Typ::Int,
-                    TsKeywordTypeKind::TsNumberKeyword => Typ::Float,
-                    TsKeywordTypeKind::TsStringKeyword => Typ::Str,
-                    _ => Typ::Unknown,
-                },
-                // TODO: we can do better here and extract the inner type of array
-                TsType::TsArrayType(TsArrayType { span: _, elem_type }) => {
-                    match &**elem_type {
-                        TsType::TsTypeRef(TsTypeRef {
-                            span: _,
-                            type_name:
-                                TsEntityName::Ident(Ident {
-                                    span: _,
-                                    sym,
-                                    optional: _,
-                                }),
-                            type_params: _,
-                        }) => match sym.to_string().as_str() {
-                            "Base64" => Typ::List(InnerTyp::Bytes),
-                            "Email" => Typ::List(InnerTyp::Email),
-                            "bigint" => Typ::List(InnerTyp::Int),
-                            "number" => Typ::List(InnerTyp::Float),
+            .map(|x| {
+                match &*x.type_ann {
+                    TsType::TsKeywordType(t) => match t.kind {
+                        TsKeywordTypeKind::TsObjectKeyword => Typ::Dict,
+                        TsKeywordTypeKind::TsBooleanKeyword => Typ::Bool,
+                        TsKeywordTypeKind::TsBigIntKeyword => Typ::Int,
+                        TsKeywordTypeKind::TsNumberKeyword => Typ::Float,
+                        TsKeywordTypeKind::TsStringKeyword => Typ::Str,
+                        _ => Typ::Unknown,
+                    },
+                    // TODO: we can do better here and extract the inner type of array
+                    TsType::TsArrayType(TsArrayType { span: _, elem_type }) => {
+                        match &**elem_type {
+                            TsType::TsTypeRef(TsTypeRef {
+                                span: _,
+                                type_name:
+                                    TsEntityName::Ident(Ident {
+                                        span: _,
+                                        sym,
+                                        optional: _,
+                                    }),
+                                type_params: _,
+                            }) => match sym.to_string().as_str() {
+                                "Base64" => Typ::List(InnerTyp::Bytes),
+                                "Email" => Typ::List(InnerTyp::Email),
+                                "bigint" => Typ::List(InnerTyp::Int),
+                                "number" => Typ::List(InnerTyp::Float),
+                                _ => Typ::List(InnerTyp::Str),
+                            },
+                            //TsType::TsKeywordType(())
                             _ => Typ::List(InnerTyp::Str),
-                        },
-                        //TsType::TsKeywordType(())
-                        _ => Typ::List(InnerTyp::Str),
+                        }
                     }
-                }
-                TsType::TsTypeRef(TsTypeRef {
-                    span: _,
-                    type_name,
-                    type_params,
-                }) => {
-                    let sym = match type_name {
-                        TsEntityName::Ident(Ident {
-                            span: _,
-                            sym,
-                            optional: _,
-                        }) => sym,
-                        TsEntityName::TsQualifiedName(p) => &*p.right.sym,
-                    };
-                    match sym.to_string().as_str() {
-                        "Resource" => Typ::Resource(
-                            type_params
-                                .as_ref()
-                                .and_then(|x| {
-                                    x.params.get(0).and_then(|y| {
-                                        y.as_ts_lit_type().and_then(|z| {
-                                            z.lit.as_str().map(|a| a.to_owned().value.to_string())
+                    TsType::TsTypeRef(TsTypeRef {
+                        span: _,
+                        type_name,
+                        type_params,
+                    }) => {
+                        let sym = match type_name {
+                            TsEntityName::Ident(Ident {
+                                span: _,
+                                sym,
+                                optional: _,
+                            }) => sym,
+                            TsEntityName::TsQualifiedName(p) => &*p.right.sym,
+                        };
+                        match sym.to_string().as_str() {
+                            "Resource" => Typ::Resource(
+                                type_params
+                                    .as_ref()
+                                    .and_then(|x| {
+                                        x.params.get(0).and_then(|y| {
+                                            y.as_ts_lit_type().and_then(|z| {
+                                                z.lit
+                                                    .as_str()
+                                                    .map(|a| a.to_owned().value.to_string())
+                                            })
                                         })
                                     })
-                                })
-                                .unwrap_or_else(|| "unknown".to_string()),
-                        ),
-                        "Base64" => Typ::Bytes,
-                        "Email" => Typ::Email,
-                        _ => Typ::Unknown,
+                                    .unwrap_or_else(|| "unknown".to_string()),
+                            ),
+                            "Base64" => Typ::Bytes,
+                            "Email" => Typ::Email,
+                            _ => Typ::Unknown,
+                        }
                     }
+                    _ => Typ::Unknown,
                 }
-                _ => Typ::Unknown,
             })
             .unwrap_or(Typ::Unknown),
     ))

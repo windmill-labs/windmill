@@ -46,7 +46,8 @@ async fn add_granular_acl(
 
     let identifier = if kind == "group_" { "name" } else { "path" };
     let obj_o = sqlx::query_scalar::<_, serde_json::Value>(&format!(
-        "UPDATE {kind} SET extra_perms = jsonb_set(extra_perms, '{{\"{owner}\"}}', to_jsonb($1), true) WHERE {identifier} = $2 AND workspace_id = $3 RETURNING extra_perms"
+        "UPDATE {kind} SET extra_perms = jsonb_set(extra_perms, '{{\"{owner}\"}}', to_jsonb($1), \
+         true) WHERE {identifier} = $2 AND workspace_id = $3 RETURNING extra_perms"
     ))
     .bind(write.unwrap_or(false))
     .bind(path)
@@ -74,7 +75,8 @@ async fn remove_granular_acl(
 
     let identifier = if kind == "group_" { "name" } else { "path" };
     let obj_o = sqlx::query_scalar::<_, serde_json::Value>(&format!(
-        "UPDATE {kind} SET extra_perms = extra_perms - $1 WHERE {identifier} = $2 AND workspace_id = $3 RETURNING extra_perms"
+        "UPDATE {kind} SET extra_perms = extra_perms - $1 WHERE {identifier} = $2 AND \
+         workspace_id = $3 RETURNING extra_perms"
     ))
     .bind(owner)
     .bind(path)
