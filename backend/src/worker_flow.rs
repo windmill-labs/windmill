@@ -465,7 +465,7 @@ async fn push_next_flow_job(
             &flow_job.created_by,
         )
         .await?;
-        let mut input_transform = module.input_transform.clone();
+        let input_transform = module.input_transform.clone();
 
         tracing::debug!(
             "PUSH: module: {:#?}, status: {:#?}",
@@ -473,84 +473,90 @@ async fn push_next_flow_job(
             status.modules[i]
         );
         let (forloop_args, forloop_iterator) = match &module.value {
-            FlowModuleValue::ForloopFlow { iterator, .. } => {
-                let (index_forloop, itered, args, forloop_jobs) = match &status.modules[i] {
-                    FlowStatusModule::WaitingForPriorSteps { .. } => {
-                        let itered = match iterator {
-                            InputTransform::Static { value } => value.clone(),
-                            InputTransform::Javascript { expr } => {
-                                let result = serde_json::Value::Object(
-                                    last_result.clone().unwrap_or_else(|| Map::new()),
-                                );
-                                eval_timeout(
-                                    expr.to_string(),
-                                    [("result".to_string(), result)].into(),
-                                    None,
-                                    vec![],
-                                )
-                                .await?
-                            }
-                        };
-                        input_transform.insert(
-                            "_index".to_string(),
-                            InputTransform::Static {
-                                value: serde_json::Value::Number(serde_json::Number::from(0)),
-                            },
-                        );
-                        input_transform.insert(
-                            "_value".to_string(),
-                            InputTransform::Static {
-                                value: itered[0].clone(),
-                            },
-                        );
-
-                        match itered {
-                            serde_json::Value::Array(arr) => (0 as u8, arr, None, vec![]),
-                            a @ _ => Err(Error::BadRequest(format!(
-                                "Expected an array value, found: {:?}",
-                                a
-                            )))?,
+            FlowModuleValue::ForloopFlow { iterator, .. } => match &status.modules[i] {
+                FlowStatusModule::WaitingForPriorSteps { .. } => {
+                    let itered = match iterator {
+                        InputTransform::Static { value } => value.clone(),
+                        InputTransform::Javascript { expr } => {
+                            let result = serde_json::Value::Object(
+                                last_result.clone().unwrap_or_else(|| Map::new()),
+                            );
+                            eval_timeout(
+                                expr.to_string(),
+                                [("result".to_string(), result)].into(),
+                                None,
+                                vec![],
+                            )
+                            .await?
                         }
+                    };
+
+                    let mut args = last_result.clone().unwrap_or_else(Map::new);
+
+                    args.insert(
+                        "_index".to_string(),
+                        serde_json::Value::Number(serde_json::Number::from(0)),
+                    );
+                    args.insert("_value".to_string(), itered[0].clone());
+                    match itered {
+                        serde_json::Value::Array(arr) => (Some(args), Some((0 as u8, arr, vec![]))),
+                        a @ _ => Err(Error::BadRequest(format!(
+                            "Expected an array value, found: {:?}",
+                            a
+                        )))?,
                     }
-                    FlowStatusModule::InProgress {
-                        iterator:
-                            Some(Iterator {
-                                index,
-                                itered,
-                                args,
-                            }),
-                        forloop_jobs,
-                        ..
-                    } => {
-                        let mut args = args.clone();
-                        let nindex = index.to_owned() + 1;
-                        args.insert(
-                            "_index".to_string(),
-                            serde_json::Value::Number(serde_json::Number::from(nindex.to_owned())),
-                        );
-                        args.insert(
-                            "_value".to_string(),
-                            itered[nindex.to_owned() as usize].clone(),
-                        );
-                        (
-                            nindex,
-                            itered.to_owned(),
-                            Some(args),
-                            forloop_jobs.to_owned().unwrap_or_else(Vec::new),
-                        )
-                    }
-                    a @ _ => Err(Error::BadRequest(format!(
-                        "Unrecognized module status for ForloopFlow {:?}",
-                        a
-                    )))?,
-                };
-                (args, Some((index_forloop, itered, forloop_jobs)))
-            }
+                }
+                FlowStatusModule::InProgress {
+                    iterator:
+                        Some(Iterator {
+                            index,
+                            itered,
+                            args,
+                        }),
+                    forloop_jobs: Some(forloop_jobs),
+                    ..
+                } => {
+                    let mut args = args.clone();
+                    let nindex = index.to_owned() + 1;
+                    args.insert(
+                        "_index".to_string(),
+                        serde_json::Value::Number(serde_json::Number::from(nindex.to_owned())),
+                    );
+                    args.insert(
+                        "_value".to_string(),
+                        itered[nindex.to_owned() as usize].clone(),
+                    );
+                    (
+                        Some(args),
+                        Some((nindex, itered.clone(), forloop_jobs.clone())),
+                    )
+                }
+                a @ _ => Err(Error::BadRequest(format!(
+                    "Unrecognized module status for ForloopFlow {:?}",
+                    a
+                )))?,
+            },
             _ => (None, None),
         };
 
         let args = if forloop_args.is_some() {
-            forloop_args.map(|x| x.to_owned())
+            let mut args = forloop_args.unwrap();
+            if let Some(flow_args) = &flow_job.args {
+                match flow_args {
+                    serde_json::Value::Object(obj) => {
+                        for (k, v) in obj {
+                            args.insert(k.to_string(), v.clone());
+                        }
+                    }
+                    _ => {
+                        (Err(Error::BadRequest(format!(
+                            "Expected an object value, found: {:?}",
+                            flow_args
+                        ))))?
+                    }
+                }
+            }
+            Some(args)
         } else {
             let steps = status
                 .modules
@@ -574,15 +580,7 @@ async fn push_next_flow_job(
             )
             .await?;
 
-            match (&flow_job.args, &module.value) {
-                (Some(Value::Object(m)), FlowModuleValue::ForloopFlow { .. }) => {
-                    let mut args = transformed.unwrap_or_else(Map::new);
-                    args.extend(m.to_owned());
-                    args.extend(last_result.unwrap());
-                    Some(args)
-                }
-                _ => transformed,
-            }
+            transformed
         };
 
         let (uuid, mut tx) = push(
