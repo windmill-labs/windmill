@@ -23,8 +23,7 @@
 	let resourceToEdit: Resource | undefined
 
 	let description: string = ''
-	let DESCRIPTION_PLACEHOLDER = `You can use markdown to style your description.
-A good way to make resources user friendly is to link to a default script for your resource [example](scripts/add?template=f2d1dc8df796d9e8)`
+	let DESCRIPTION_PLACEHOLDER = `You can use markdown to style your description`
 	let selectedResourceType: string | undefined
 	let resourceType: ResourceType
 	let resourceSchema: Schema | undefined
@@ -39,8 +38,7 @@ A good way to make resources user friendly is to link to a default script for yo
 
 	const dispatch = createEventDispatcher()
 
-	export async function initNew() {
-		selectedResourceType = undefined
+	export async function initNew(rt?: string) {
 		step = 1
 		args = {}
 		path = ''
@@ -48,6 +46,7 @@ A good way to make resources user friendly is to link to a default script for yo
 		initialPath = ''
 		resourceSchema = emptySchema()
 		resourceToEdit = undefined
+		selectedResourceType = rt
 		modal.openModal()
 	}
 
@@ -152,7 +151,7 @@ A good way to make resources user friendly is to link to a default script for yo
 					minRows={3}
 				/>
 				<div>
-					<div class="mb-1 font-semibold text-gray-700">
+					<div class="mb-2 font-semibold text-gray-700">
 						Resource type<Required required={true} />
 					</div>
 					<ResourceTypePicker
