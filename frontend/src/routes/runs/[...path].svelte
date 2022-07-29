@@ -322,14 +322,6 @@ the bearer token they use has less privilege."
 									</div>
 								{/if}
 								<div>
-									{#if job && job.schedule_path}
-										<Icon class="text-gray-700" data={faCalendar} scale={SMALL_ICON_SCALE} />
-										<span class="mx-2"
-											>Triggered by the schedule: <a
-												href={`/schedule/add?edit=${job.schedule_path}`}>{job.schedule_path}</a
-											></span
-										>
-									{/if}
 									{#if job && job.parent_job}
 										{#if job.is_flow_step}
 											<Icon class="text-gray-700" data={faWind} scale={SMALL_ICON_SCALE} /><span
@@ -345,6 +337,13 @@ the bearer token they use has less privilege."
 												></span
 											>
 										{/if}
+									{:else if job && job.schedule_path}
+										<Icon class="text-gray-700" data={faCalendar} scale={SMALL_ICON_SCALE} />
+										<span class="mx-2"
+											>Triggered by the schedule: <a
+												href={`/schedule/add?edit=${job.schedule_path}`}>{job.schedule_path}</a
+											></span
+										>
 									{:else}
 										<Icon class="text-gray-700" data={faUser} scale={SMALL_ICON_SCALE} /><span
 											class="mx-2"
