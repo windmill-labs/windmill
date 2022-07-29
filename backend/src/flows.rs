@@ -176,9 +176,7 @@ async fn list_flows(
 }
 
 async fn list_hub_flows(
-    Authed {
-        email, username, ..
-    }: Authed,
+    Authed { email, username, .. }: Authed,
     Extension(http_client): Extension<Client>,
     Host(host): Host,
 ) -> JsonResult<serde_json::Value> {
@@ -194,9 +192,7 @@ async fn list_hub_flows(
 }
 
 pub async fn get_hub_flow_by_id(
-    Authed {
-        email, username, ..
-    }: Authed,
+    Authed { email, username, .. }: Authed,
     Path(id): Path<i32>,
     Extension(http_client): Extension<Client>,
     Host(host): Host,
@@ -416,17 +412,13 @@ mod tests {
         let mut hm = HashMap::new();
         hm.insert(
             "test".to_owned(),
-            InputTransform::Static {
-                value: serde_json::json!("test2"),
-            },
+            InputTransform::Static { value: serde_json::json!("test2") },
         );
         let fv = FlowValue {
             modules: vec![
                 FlowModule {
                     input_transform: hm,
-                    value: FlowModuleValue::Script {
-                        path: "test".to_string(),
-                    },
+                    value: FlowModuleValue::Script { path: "test".to_string() },
                     stop_after_if_expr: None,
                     skip_if_stopped: Some(false),
                 },
@@ -443,19 +435,12 @@ mod tests {
                 FlowModule {
                     input_transform: [(
                         "iterand".to_string(),
-                        InputTransform::Static {
-                            value: serde_json::json!(vec![1, 2, 3]),
-                        },
+                        InputTransform::Static { value: serde_json::json!(vec![1, 2, 3]) },
                     )]
                     .into(),
                     value: FlowModuleValue::ForloopFlow {
-                        iterator: InputTransform::Static {
-                            value: serde_json::json!([1, 2, 3]),
-                        },
-                        value: Box::new(FlowValue {
-                            modules: vec![],
-                            failure_module: None,
-                        }),
+                        iterator: InputTransform::Static { value: serde_json::json!([1, 2, 3]) },
+                        value: Box::new(FlowValue { modules: vec![], failure_module: None }),
                         skip_failures: true,
                     },
                     stop_after_if_expr: Some("previous.res1.isEmpty()".to_string()),
@@ -464,9 +449,7 @@ mod tests {
             ],
             failure_module: Some(FlowModule {
                 input_transform: HashMap::new(),
-                value: FlowModuleValue::Flow {
-                    path: "test".to_string(),
-                },
+                value: FlowModuleValue::Flow { path: "test".to_string() },
                 stop_after_if_expr: Some("previous.res1.isEmpty()".to_string()),
                 skip_if_stopped: None,
             }),

@@ -144,9 +144,7 @@ pub fn get_reserved_variables(
 
 async fn list_contextual_variables(
     Path(w_id): Path<String>,
-    Authed {
-        username, email, ..
-    }: Authed,
+    Authed { username, email, .. }: Authed,
 ) -> JsonResult<Vec<ContextualVariable>> {
     Ok(Json(
         get_reserved_variables(

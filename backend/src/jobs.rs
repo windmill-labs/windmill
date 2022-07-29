@@ -248,15 +248,10 @@ pub async fn script_path_to_payload<'c>(
     w_id: &String,
 ) -> Result<JobPayload, Error> {
     let job_payload = if script_path.starts_with("hub/") {
-        JobPayload::ScriptHub {
-            path: script_path.to_owned(),
-        }
+        JobPayload::ScriptHub { path: script_path.to_owned() }
     } else {
         let script_hash = get_latest_hash_for_path(db, w_id, script_path).await?;
-        JobPayload::ScriptHash {
-            hash: script_hash,
-            path: script_path.to_owned(),
-        }
+        JobPayload::ScriptHash { hash: script_hash, path: script_path.to_owned() }
     };
     Ok(job_payload)
 }
@@ -296,10 +291,7 @@ pub async fn run_job_by_hash(
     let (uuid, tx) = push(
         tx,
         &w_id,
-        JobPayload::ScriptHash {
-            hash: ScriptHash(hash),
-            path,
-        },
+        JobPayload::ScriptHash { hash: ScriptHash(hash), path },
         args,
         &authed.username,
         owner_to_token_owner(&authed.username, false),
@@ -369,10 +361,7 @@ async fn run_preview_flow_job(
     let (uuid, tx) = push(
         tx,
         &w_id,
-        JobPayload::RawFlow {
-            value: raw_flow.value,
-            path: raw_flow.path,
-        },
+        JobPayload::RawFlow { value: raw_flow.value, path: raw_flow.path },
         raw_flow.args,
         &authed.username,
         owner_to_token_owner(&authed.username, false),
@@ -505,10 +494,7 @@ async fn list_jobs(
         &w_id,
         per_page + offset,
         0,
-        &ListCompletedQuery {
-            order_desc: Some(true),
-            ..lqc
-        },
+        &ListCompletedQuery { order_desc: Some(true), ..lqc },
         &[
             "'CompletedJob' as typ",
             "id",
@@ -797,10 +783,7 @@ pub struct JobUpdate {
 async fn get_job_update(
     Extension(db): Extension<DB>,
     Path((w_id, id)): Path<(String, Uuid)>,
-    Query(JobUpdateQuery {
-        running,
-        log_offset,
-    }): Query<JobUpdateQuery>,
+    Query(JobUpdateQuery { running, log_offset }): Query<JobUpdateQuery>,
 ) -> error::JsonResult<JobUpdate> {
     let mut tx = db.begin().await?;
 
@@ -1024,23 +1007,12 @@ struct PreviewFlow {
 
 #[derive(Debug)]
 pub enum JobPayload {
-    ScriptHub {
-        path: String,
-    },
-    ScriptHash {
-        hash: ScriptHash,
-        path: String,
-    },
+    ScriptHub { path: String },
+    ScriptHash { hash: ScriptHash, path: String },
     Code(RawCode),
-    Dependencies {
-        hash: ScriptHash,
-        dependencies: Vec<String>,
-    },
+    Dependencies { hash: ScriptHash, dependencies: Vec<String> },
     Flow(String),
-    RawFlow {
-        value: FlowValue,
-        path: Option<String>,
-    },
+    RawFlow { value: FlowValue, path: Option<String> },
 }
 
 #[instrument(level = "trace", skip_all)]
@@ -1158,11 +1130,7 @@ pub async fn push<'c>(
                 Some(ScriptLang::Deno),
             )
         }
-        JobPayload::Code(RawCode {
-            content,
-            path,
-            language,
-        }) => (
+        JobPayload::Code(RawCode { content, path, language }) => (
             None,
             path,
             Some(content),
