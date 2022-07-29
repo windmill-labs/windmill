@@ -1255,7 +1255,7 @@ pub async fn add_completed_job_error<E: ToString + std::fmt::Debug>(
         false,
         false,
         Some(output_map.clone()),
-        format!("{}\n{}", logs, e.to_string()),
+        format!("\n{}\n{}", logs, e.to_string()),
     )
     .await?;
     Ok((a, output_map))

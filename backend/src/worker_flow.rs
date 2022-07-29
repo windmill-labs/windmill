@@ -124,7 +124,12 @@ pub async fn update_flow_status_after_job_completion(
         .bind(serde_json::json!(step_counter))
         .bind(flow)
         .fetch_one(&mut tx)
-        .await?;
+        .await
+        .map_err(|e| {
+            Error::InternalErr(format!(
+                "error during retrieval of stop_early_expr from state: {e}"
+            ))
+        })?;
 
     tracing::debug!("UPDATE: {:?}", new_status);
 
@@ -222,7 +227,7 @@ async fn skip_loop_failures<'c>(
     flow: Uuid,
     step: i32,
     tx: &mut sqlx::Transaction<'c, sqlx::Postgres>,
-) -> Result<Option<bool>, sqlx::Error> {
+) -> Result<Option<bool>, Error> {
     sqlx::query_as(
         "
     SELECT (raw_flow->'modules'->$1->'value'->>'skip_failures')::bool
@@ -235,6 +240,7 @@ async fn skip_loop_failures<'c>(
     .fetch_one(tx)
     .await
     .map(|(v,)| v)
+    .map_err(|e| Error::InternalErr(format!("error during retrieval of skip_loop_failures: {e}")))
 }
 
 async fn compute_stop_early(
