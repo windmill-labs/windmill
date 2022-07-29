@@ -126,6 +126,9 @@
 		if ($oauthStore && resource_type) {
 			appConnect.openFromOauth(resource_type)
 		}
+		if ($page.url.searchParams.get('connect_app')) {
+			appConnect.open($page.url.searchParams.get('connect_app') ?? undefined)
+		}
 	})
 </script>
 

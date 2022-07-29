@@ -122,13 +122,8 @@
 		}
 	}
 
-	export let inputCat: InputCat = computeInputCat(
-		type,
-		format,
-		itemsType?.type,
-		enum_,
-		contentEncoding
-	)
+	export let inputCat: InputCat = 'string'
+	$: inputCat = computeInputCat(type, format, itemsType?.type, enum_, contentEncoding)
 </script>
 
 <div class="flex flex-col w-full">

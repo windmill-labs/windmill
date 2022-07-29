@@ -39,11 +39,12 @@
 
 	let pathError = ''
 
-	export function open() {
+	export function open(rt?: string) {
 		step = 1
 		value = ''
 		resource_type = ''
 		no_back = false
+		resource_type = rt ?? ''
 		modal.openModal()
 	}
 
@@ -154,6 +155,16 @@
 	<div slot="title">Connect an App</div>
 	<div slot="content">
 		{#if step == 1}
+			{#if resource_type && !connects[resource_type] && !connectsManual[resource_type]}
+				<div class="bg-red-100 border-l-4 border-red-600 text-orange-700 p-4" role="alert">
+					<p class="font-bold">No app integration for {resource_type}</p>
+					<p>
+						The resource type "{resource_type}" seems to not have an app integration. You can still
+						create this resource manually by closing this modal and pressing: "Add a resource". You
+						can also contribute to windmill and add it as an app integration if relevant.
+					</p>
+				</div>
+			{/if}
 			<PageHeader title="OAuth apps" />
 			<div class="grid sm:grid-cols-2 md:grid-cols-3 gap-x-2 gap-y-1 items-center mb-2">
 				{#each Object.entries(connects).sort((a, b) => a[0].localeCompare(b[0])) as [key, values]}
@@ -190,7 +201,7 @@
 					}}>Add item &nbsp;<Icon data={faPlus} class="mb-1" /></button
 				><span class="ml-2">{(scopes ?? []).length} item(s)</span>
 			{:else}
-				<p class="italic text-sm">Pick an oauth app and customize the scopes here</p>
+				<p class="italic text-sm">Pick an OAuth app and customize the scopes here</p>
 			{/if}
 			<PageHeader title="API token apps" />
 			<div class="grid sm:grid-cols-2 md:grid-cols-3 gap-x-2 gap-y-1 items-center mb-2">
