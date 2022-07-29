@@ -199,7 +199,8 @@
 					on:click={() => {
 						scopes = scopes.concat('')
 					}}>Add item &nbsp;<Icon data={faPlus} class="mb-1" /></button
-				><span class="ml-2">{(scopes ?? []).length} item(s)</span>
+				><span class="ml-2">{(scopes ?? []).length} item{(scopes ?? []).length > 1 ? 's' : ''}</span
+				>
 			{:else}
 				<p class="italic text-sm">Pick an OAuth app and customize the scopes here</p>
 			{/if}
