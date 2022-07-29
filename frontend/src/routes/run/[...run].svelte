@@ -366,7 +366,8 @@
 									>{job.schedule_path}</a
 								></span
 							>
-						{:else if job && job.parent_job}
+						{/if}
+						{#if job && job.parent_job}
 							{#if job.is_flow_step}
 								<Icon class="text-gray-700" data={faWind} scale={SMALL_ICON_SCALE} /><span
 									class="mx-2"
