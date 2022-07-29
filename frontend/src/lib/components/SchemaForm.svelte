@@ -22,6 +22,8 @@
 
 	let inputCheck: { [id: string]: boolean } = {}
 	let overlays: { [id: string]: OverlayPropertyPicker } = {}
+	let monacos: { [id: string]: Editor } = {}
+
 	$: isValid = allTrue(inputCheck) ?? false
 
 	let propertiesTypes: { [id: string]: InputTransform.type } = inputTransform
@@ -85,6 +87,16 @@
 	function isStaticTemplate(inputCat: InputCat) {
 		return inputCat === 'string' || inputCat === 'number'
 	}
+
+	function focusProp(argName: string) {
+		Object.keys(overlays).forEach((k) => {
+			if (k == argName) {
+				overlays[k].focus()
+			} else {
+				overlays[k].unfocus()
+			}
+		})
+	}
 </script>
 
 <div class="w-full">
@@ -142,7 +154,7 @@
 					{#if propertiesTypes[argName] === undefined || propertiesTypes[argName] === InputTransform.type.STATIC}
 						<OverlayPropertyPicker
 							bind:this={overlays[argName]}
-							bind:pickableProperties
+							{pickableProperties}
 							disabled={!isStaticTemplate(inputCats[argName])}
 							on:select={(event) => {
 								const toAppend = `\$\{${event.detail}}`
@@ -151,15 +163,7 @@
 							}}
 						>
 							<ArgInput
-								on:focus={() => {
-									Object.keys(overlays).forEach((k) => {
-										if (k == argName) {
-											overlays[k].focus()
-										} else {
-											overlays[k].unfocus()
-										}
-									})
-								}}
+								on:focus={() => focusProp(argName)}
 								label={argName}
 								bind:description={schema.properties[argName].description}
 								bind:value={args[argName].value}
@@ -184,15 +188,25 @@
 						</OverlayPropertyPicker>
 					{:else if propertiesTypes[argName] === InputTransform.type.JAVASCRIPT}
 						{#if args[argName].expr != undefined}
-							<div class="border rounded p-2 mt-2 border-gray-300">
-								<Editor
-									bind:code={args[argName].expr}
-									lang="javascript"
-									class="few-lines-editor"
-									{extraLib}
-									extraLibPath="file:///node_modules/@types/windmill@{i}/index.d.ts"
-								/>
-							</div>
+							<OverlayPropertyPicker
+								bind:this={overlays[argName]}
+								{pickableProperties}
+								on:select={(event) => {
+									monacos[argName].insertAtCursor(event.detail)
+								}}
+							>
+								<div class="border rounded p-2 mt-2 border-gray-300">
+									<Editor
+										bind:this={monacos[argName]}
+										on:focus={() => focusProp(argName)}
+										bind:code={args[argName].expr}
+										lang="javascript"
+										class="few-lines-editor"
+										{extraLib}
+										extraLibPath="file:///node_modules/@types/windmill@{i}/index.d.ts"
+									/>
+								</div>
+							</OverlayPropertyPicker>
 							<DynamicInputHelpBox />
 						{/if}
 					{:else}

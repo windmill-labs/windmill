@@ -22,7 +22,7 @@
 		closeBracket = isArray ? ']' : '}'
 	}
 
-	$: collapsed = false
+	$: collapsed = level == 2
 
 	function collapse() {
 		collapsed = !collapsed
@@ -52,7 +52,8 @@
 
 {#if keys.length > 0}
 	<span class:hidden={collapsed}>
-		<!-- <span class="cursor-pointer hover:bg-slate-200" on:click={collapse}>{openBracket}</span> -->
+		{#if level != 0}<span class="cursor-pointer hover:bg-slate-200" on:click={collapse}>(-)</span
+			>{/if}
 		<ul class="w-full">
 			{#each keys as key, index}
 				<li class={getTypeAsString(json[key]) !== 'object' ? 'hover:bg-sky-100 pt-1' : 'pt-1'}>
@@ -86,7 +87,6 @@
 				</li>
 			{/each}
 		</ul>
-		<!-- <span class="cursor-pointer hover:bg-slate-200" on:click={collapse}>{closeBracket}</span> -->
 	</span>
 	<span class="cursor-pointer hover:bg-slate-200" class:hidden={!collapsed} on:click={collapse}>
 		{openBracket}{collapsedSymbol}{closeBracket}
