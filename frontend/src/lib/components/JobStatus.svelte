@@ -6,7 +6,7 @@
 		faHourglassHalf,
 		faTimes
 	} from '@fortawesome/free-solid-svg-icons'
-	import { displayDate, forLater } from '$lib/utils'
+	import { displayDate, forLater, msToSec } from '$lib/utils'
 
 	import Icon from 'svelte-awesome'
 	import { check } from 'svelte-awesome/icons'
@@ -23,7 +23,7 @@
 	<span class="mx-2">Succeeded {job.is_skipped ? '(Skipped)' : ''}</span>
 	<div>
 		<Icon class="text-gray-700" data={faHourglassHalf} scale={SMALL_ICON_SCALE} /><span class="mx-2"
-			>Job ran in {job.duration}
+			>Job ran in {msToSec(job.duration_ms)}
 			s</span
 		>
 	</div>
@@ -32,7 +32,7 @@
 	<span class="mx-2">Failed</span>
 	<div>
 		<Icon class="text-gray-700" data={faHourglassHalf} scale={SMALL_ICON_SCALE} /><span class="mx-2"
-			>Job ran in {job.duration}
+			>Job ran in {msToSec(job.duration_ms)}
 			s</span
 		>
 	</div>
