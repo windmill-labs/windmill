@@ -5,8 +5,9 @@
 	export let pattern: string | undefined
 	export let enum_: string[] | undefined
 	export let format: string | undefined
+	export let contentEncoding: 'base64' | 'binary' | undefined
 
-	let kind: 'none' | 'pattern' | 'enum' | 'resource' | 'format' = 'none'
+	let kind: 'none' | 'pattern' | 'enum' | 'resource' | 'format' | 'base64' = 'none'
 	let patternStr: string = pattern ?? ''
 
 	let resource: string | undefined
@@ -27,6 +28,7 @@
 	$: format =
 		kind == 'resource' ? (resource != undefined ? `resource-${resource}` : 'resource') : undefined
 	$: pattern = patternStr == '' ? undefined : patternStr
+	$: contentEncoding = kind == 'base64' ? 'base64' : undefined
 </script>
 
 <RadioButton
@@ -34,6 +36,7 @@
 	small={true}
 	options={[
 		['None', 'none'],
+		['File (base64)', 'base64'],
 		['Enum', 'enum'],
 		['Resource Path', 'resource'],
 		['Format', 'format'],
@@ -43,10 +46,11 @@
 />
 
 {#if kind == 'pattern'}
-	<label class="mb-2 text-gray-700 text-xs"
+	<label for="input" class="mb-2 text-gray-700 text-xs"
 		>Pattern (Regex)
 		<div class="flex flex-row">
 			<input
+				id="input"
 				type="text"
 				placeholder="^(\\([0-9]{3}\\))?[0-9]{3}-[0-9]{4}$"
 				bind:value={patternStr}
@@ -60,11 +64,11 @@
 		</div>
 	</label>
 {:else if kind == 'enum'}
-	<label class="mb-2 text-gray-700 text-xs"
+	<label for="input" class="mb-2 text-gray-700 text-xs"
 		>Enums
 		{#each enum_ ?? [] as e}
 			<div class="flex flex-row max-w-md">
-				<input type="text" bind:value={e} />
+				<input id="input" type="text" bind:value={e} />
 				<button
 					class="default-button mx-6"
 					on:click={() => {

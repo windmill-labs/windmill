@@ -64,7 +64,10 @@
 										? JSON.stringify(property.default)
 										: ''}</td
 								>
-								<td>{property.format ?? ''}</td>
+								<td
+									>{property.format ?? ''}
+									{property.contentEncoding ? `(encoding: ${property.contentEncoding})` : ''}</td
+								>
 								<td>{schema.required.includes(name) ? 'required' : 'optional'}</td>
 							</tr>
 						{/each}
