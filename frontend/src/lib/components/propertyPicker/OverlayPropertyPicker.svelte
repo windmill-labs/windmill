@@ -31,7 +31,7 @@
 		}
 	}
 	function close() {
-		timeout = setTimeout(() => (isOpen = false), 200)
+		timeout = setTimeout(() => (isOpen = false), 50)
 	}
 
 	const dispatch = createEventDispatcher()

@@ -36,7 +36,7 @@
 
 			if ($workspaceStore) {
 				if ($userStore) {
-					sendUserToast(`Welcome back ${$userStore.username} to ${$workspaceStore}`)
+					console.log(`Welcome back ${$userStore.username} to ${$workspaceStore}`)
 				} else if ($superadmin) {
 					console.log(
 						`You are a superadmin, you can go wherever you please, even at ${$workspaceStore}`
@@ -52,7 +52,7 @@
 					goto(`/user/workspaces?rd=${encodeURIComponent($page.url.pathname + $page.url.search)}`)
 				}
 				let user = await UserService.globalWhoami()
-				sendUserToast(`Welcome back ${user.email}`)
+				console.log(`Welcome back ${user.email}`)
 			}
 		} catch (e) {
 			console.error(e)
