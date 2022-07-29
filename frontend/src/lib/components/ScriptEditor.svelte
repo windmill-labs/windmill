@@ -270,8 +270,8 @@
 					viewPreview = !viewPreview
 				}}
 			>
-				<div class="flex flex-row items-baseline">
-					<div class="font-base py-0 mr-6">
+				<div class="flex flex-row flex-wrap items-baseline">
+					<div class="font-base py-0 mr-6 hidden md:block">
 						Preview <Tooltip
 							><span class="font-normal"
 								>Test your script by running a preview, passing inputs as if you were a user</span
@@ -358,7 +358,7 @@
 						}}
 						>Run preview
 					</button>
-					<div class="text-xs text-gray-700 min-w-max mx-2">
+					<div class="text-xs text-gray-700 min-w-max hidden md:block mx-2">
 						Shortcuts: <Tooltip>
 							Cmd/Ctrl+S: autoformat code and overwrite local save <br />
 							Cmd/Ctrl+Enter: run preview</Tooltip
@@ -376,7 +376,7 @@
 			</pre>
 			{:else if previewTab === 'input'}
 				<div class="break-all relative h-full font-sans -mt-2">
-					<div class="items-baseline text-xs text-gray-700 px-2 ml-8 italic">
+					<div class="items-baseline text-xs text-gray-700 px-2 ml-8 italic hidden md:block">
 						<p>
 							Move the focus outside of the text editor to recompute the input schema from main
 							signature or press Ctrl/Cmd+S
@@ -387,7 +387,7 @@
 								matches requirements defined in arguments
 							{:else}
 								<Icon data={faExclamationTriangle} class="text-yellow-500 mr-1" scale={0.6} />The
-								current preview input doesn't match requirements defined in arguments. Are you sure?{/if}
+								current preview input doesn't match requirements defined in arguments{/if}
 						</p>
 					</div>
 					<div class="sm:px-8">
