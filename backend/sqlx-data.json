@@ -2630,45 +2630,7 @@
     },
     "query": "INSERT INTO group_\n            VALUES ($1, 'all', 'The group that always contains all users of this workspace')"
   },
-  "d1513cfa13037cbfe076d184cc698b896add2daba02b8add600f643249b95ad2": {
-    "describe": {
-      "columns": [
-        {
-          "name": "id",
-          "ordinal": 0,
-          "type_info": "Int4"
-        }
-      ],
-      "nullable": [
-        false
-      ],
-      "parameters": {
-        "Left": [
-          "Varchar",
-          "Varchar",
-          "Varchar",
-          "Timestamptz",
-          "Varchar"
-        ]
-      }
-    },
-    "query": "INSERT INTO account (workspace_id, client, owner, expires_at, refresh_token) VALUES ($1, $2, $3, $4, $5) RETURNING id"
-  },
-  "d2dcf69b20488d610599c309862722f805049e479035be6a416d05d73528a8e1": {
-    "describe": {
-      "columns": [],
-      "nullable": [],
-      "parameters": {
-        "Left": [
-          "Varchar",
-          "Varchar",
-          "Text"
-        ]
-      }
-    },
-    "query": "INSERT INTO group_\n            (workspace_id, name, summary)\n            VALUES ($1, $2, $3) ON CONFLICT DO NOTHING"
-  },
-  "d43d9db5c6912108f0c94ca747b062caab142886188ef4a3be30195ab36eee35": {
+  "ce828d41f9184dcb4457b25ebf9a8e8e86e4da5aa37b2b2b413d56d766deeb0c": {
     "describe": {
       "columns": [
         {
@@ -2722,7 +2684,45 @@
         ]
       }
     },
-    "query": "INSERT INTO completed_job as cj\n            (workspace_id, id, parent_job, created_by, created_at, duration_ms, success, script_hash, script_path, args, result, logs, \n            raw_code, canceled, canceled_by, canceled_reason, job_kind, schedule_path, permissioned_as, flow_status, raw_flow, is_flow_step, is_skipped)\n            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23) ON CONFLICT (id) DO UPDATE SET success = $7, result = $11, logs = concat(cj.logs, $12) RETURNING id"
+    "query": "INSERT INTO completed_job as cj\n            (workspace_id, id, parent_job, created_by, created_at, duration_ms, success, script_hash, script_path, args, result, logs, raw_code, canceled, canceled_by, canceled_reason, job_kind, schedule_path, permissioned_as, flow_status, raw_flow, is_flow_step, is_skipped)\n            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23)\n         ON CONFLICT (id) DO UPDATE SET success = $7, result = $11, logs = concat(cj.logs, $12)\n         RETURNING id"
+  },
+  "d1513cfa13037cbfe076d184cc698b896add2daba02b8add600f643249b95ad2": {
+    "describe": {
+      "columns": [
+        {
+          "name": "id",
+          "ordinal": 0,
+          "type_info": "Int4"
+        }
+      ],
+      "nullable": [
+        false
+      ],
+      "parameters": {
+        "Left": [
+          "Varchar",
+          "Varchar",
+          "Varchar",
+          "Timestamptz",
+          "Varchar"
+        ]
+      }
+    },
+    "query": "INSERT INTO account (workspace_id, client, owner, expires_at, refresh_token) VALUES ($1, $2, $3, $4, $5) RETURNING id"
+  },
+  "d2dcf69b20488d610599c309862722f805049e479035be6a416d05d73528a8e1": {
+    "describe": {
+      "columns": [],
+      "nullable": [],
+      "parameters": {
+        "Left": [
+          "Varchar",
+          "Varchar",
+          "Text"
+        ]
+      }
+    },
+    "query": "INSERT INTO group_\n            (workspace_id, name, summary)\n            VALUES ($1, $2, $3) ON CONFLICT DO NOTHING"
   },
   "d4eb7aea60894b65498144b9bf522beba612f36368d62fe4e94b5b9e26349d32": {
     "describe": {
@@ -2788,6 +2788,27 @@
       }
     },
     "query": "SELECT premium FROM workspace WHERE id = $1"
+  },
+  "d9beef36b05f9889794d0eb9bae309974abc85240305ca154de25a54bc7d60f9": {
+    "describe": {
+      "columns": [
+        {
+          "name": "sum",
+          "ordinal": 0,
+          "type_info": "Int8"
+        }
+      ],
+      "nullable": [
+        null
+      ],
+      "parameters": {
+        "Left": [
+          "Text",
+          "Text"
+        ]
+      }
+    },
+    "query": "\n           SELECT SUM(duration_ms)\n             FROM completed_job\n            WHERE created_by = $1\n              AND created_at > NOW() - INTERVAL '1200 seconds'\n              AND workspace_id = $2"
   },
   "d9c8f6ec7bd10e533876526255c15e376ccb4f898b9c0ab8840b2930bda24fdc": {
     "describe": {
@@ -2969,27 +2990,6 @@
       }
     },
     "query": "SELECT EXISTS(SELECT 1 FROM schedule WHERE path = $1 AND workspace_id = $2)"
-  },
-  "f040369f50a12d1eb96ce84c2ad362f4fea79907bb45a2c7b5317c5c9a03dde1": {
-    "describe": {
-      "columns": [
-        {
-          "name": "sum",
-          "ordinal": 0,
-          "type_info": "Int8"
-        }
-      ],
-      "nullable": [
-        null
-      ],
-      "parameters": {
-        "Left": [
-          "Text",
-          "Text"
-        ]
-      }
-    },
-    "query": "SELECT SUM(duration_ms) FROM completed_job WHERE created_by = $1 AND created_at > NOW() - INTERVAL '1200 seconds' AND workspace_id = $2"
   },
   "f056b5f3e66a764748925f1bfd3180923fde8c7fdf69088d0e4a5555cc049545": {
     "describe": {

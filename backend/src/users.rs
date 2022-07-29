@@ -81,10 +81,7 @@ pub struct AuthCache {
 
 impl AuthCache {
     pub fn new(db: DB) -> Self {
-        AuthCache {
-            cache: Cache::new(),
-            db,
-        }
+        AuthCache { cache: Cache::new(), db }
     }
 
     pub async fn get_authed(&self, w_id: Option<String>, token: &str) -> Option<Authed> {
@@ -228,12 +225,10 @@ async fn extract_token<B: Send>(req: &mut RequestParts<B>) -> Option<String> {
 
     match auth_header {
         Some(x) => Some(x.to_owned()),
-        None => {
-            Extension::<Cookies>::from_request(req)
-                .await
-                .ok()
-                .and_then(|cookies| cookies.get(COOKIE_NAME).map(|c| c.value().to_owned()))
-        }
+        None => Extension::<Cookies>::from_request(req)
+            .await
+            .ok()
+            .and_then(|cookies| cookies.get(COOKIE_NAME).map(|c| c.value().to_owned())),
     }
 }
 
@@ -521,10 +516,7 @@ async fn list_users(
     .bind(&w_id)
     .try_map(|row| {
         // flatten not released yet https://github.com/launchbadge/sqlx/pull/1959
-        Ok(UserWithUsage {
-            user: FromRow::from_row(&row)?,
-            usage: FromRow::from_row(&row)?,
-        })
+        Ok(UserWithUsage { user: FromRow::from_row(&row)?, usage: FromRow::from_row(&row)? })
     })
     .fetch_all(&mut tx)
     .await?;
@@ -627,12 +619,7 @@ async fn logout(
 async fn whoami(
     Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
-    Authed {
-        username,
-        email,
-        is_admin,
-        groups,
-    }: Authed,
+    Authed { username, email, is_admin, groups }: Authed,
 ) -> JsonResult<UserInfo> {
     let user = get_user(&w_id, &username, &db).await?;
     if let Some(user) = user {
@@ -693,19 +680,17 @@ async fn get_user(w_id: &str, username: &str, db: &DB) -> Result<Option<UserInfo
     .await?
     .unwrap_or(false);
     let groups = get_groups_for_user(&w_id, username, db).await?;
-    Ok(user.map(|usr| {
-        UserInfo {
-            groups,
-            workspace_id: usr.workspace_id,
-            email: usr.email,
-            username: usr.username,
-            is_admin: usr.is_admin,
-            is_super_admin,
-            created_at: usr.created_at,
-            operator: usr.operator,
-            disabled: usr.disabled,
-            role: usr.role,
-        }
+    Ok(user.map(|usr| UserInfo {
+        groups,
+        workspace_id: usr.workspace_id,
+        email: usr.email,
+        username: usr.username,
+        is_admin: usr.is_admin,
+        is_super_admin,
+        created_at: usr.created_at,
+        operator: usr.operator,
+        disabled: usr.disabled,
+        role: usr.role,
     }))
 }
 
@@ -886,9 +871,7 @@ async fn add_user_to_workspace<'c>(
 }
 
 async fn update_workspace_user(
-    Authed {
-        username, is_admin, ..
-    }: Authed,
+    Authed { username, is_admin, .. }: Authed,
     Extension(db): Extension<DB>,
     Path((w_id, username_to_update)): Path<(String, String)>,
     Json(eu): Json<EditWorkspaceUser>,
@@ -1000,9 +983,7 @@ pub fn owner_to_token_owner(user: &str, is_group: bool) -> String {
 }
 
 async fn delete_user(
-    Authed {
-        username, is_admin, ..
-    }: Authed,
+    Authed { username, is_admin, .. }: Authed,
     Extension(db): Extension<DB>,
     Path((w_id, username_to_delete)): Path<(String, String)>,
 ) -> Result<String> {
@@ -1042,9 +1023,7 @@ async fn delete_user(
 async fn set_password(
     Extension(db): Extension<DB>,
     Extension(argon2): Extension<Arc<Argon2<'_>>>,
-    Authed {
-        username, email, ..
-    }: Authed,
+    Authed { username, email, .. }: Authed,
     Json(EditPassword { password }): Json<EditPassword>,
 ) -> Result<String> {
     let mut tx = db.begin().await?;

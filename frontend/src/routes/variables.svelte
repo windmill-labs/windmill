@@ -7,7 +7,7 @@
 </script>
 
 <script lang="ts">
-	import { canWrite, sendUserToast } from '$lib/utils'
+	import { canWrite, sendUserToast, truncate } from '$lib/utils'
 	import { OauthService, VariableService } from '$lib/gen'
 	import type { ListableVariable, ContextualVariable } from '$lib/gen'
 	import Dropdown from '$lib/components/Dropdown.svelte'
@@ -96,7 +96,7 @@
 							>
 							<div><SharedBadge {canWrite} extraPerms={extra_perms} /></div>
 						</td>
-						<td>{value ?? '******'}</td>
+						<td>{truncate(value ?? '******', 40)}</td>
 						<td>{is_secret ? 'secret' : 'visible'}</td>
 						<td>{description}</td>
 						<td>

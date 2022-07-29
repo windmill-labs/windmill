@@ -8,7 +8,7 @@
 
 <script lang="ts">
 	import { page } from '$app/stores'
-	import { sendUserToast, displayDate, formatCron } from '$lib/utils'
+	import { sendUserToast, formatCron } from '$lib/utils'
 	import { ScriptService, type Script, ScheduleService, type Flow, FlowService } from '$lib/gen'
 
 	import PageHeader from '$lib/components/PageHeader.svelte'
@@ -135,7 +135,7 @@
 		{/if}
 
 		<h2 class="my-2 md:mt-6">Script</h2>
-		<p class="text-xs text-gray-600">
+		<p class="text-xs mb-1 text-gray-600">
 			Pick a script or flow to be triggered by the schedule<Required required={true} />
 		</p>
 		<ScriptPicker isTrigger={false} allowFlow={true} bind:itemKind bind:scriptPath={script_path} />

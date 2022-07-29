@@ -9,6 +9,16 @@ import type { FlowMode } from './flowStore'
 export function flowToMode(flow: Flow | any, mode: FlowMode): Flow {
 	if (mode == 'pull') {
 		const newFlow: Flow = JSON.parse(JSON.stringify(flow))
+		newFlow.value.modules.forEach((mod) => {
+			Object.values(mod.input_transform).forEach((inp) => {
+				if (inp.type == InputTransform.type.JAVASCRIPT) {
+					inp.value = undefined
+				} else {
+					inp.expr = undefined
+
+				}
+			})
+		})
 		const triggerModule = newFlow.value.modules[0]
 		const oldModules = newFlow.value.modules.slice(1)
 
@@ -103,14 +113,15 @@ export async function loadSchemaFromModule(module: FlowModule): Promise<{
 		let input_transform = module.input_transform
 
 		if (
-			JSON.stringify(Object.keys(schema?.properties ?? {}).sort()) !==
+			JSON.stringify(keys.sort()) !==
 			JSON.stringify(Object.keys(module.input_transform).sort())
 		) {
 			input_transform = keys.reduce((accu, key) => {
-				accu[key] = {
+				let nv = module.input_transform[key] ?? {
 					type: 'static',
 					value: undefined
 				}
+				accu[key] = nv
 				return accu
 			}, {})
 		}
@@ -170,8 +181,8 @@ export function getPickableProperties(
 		mode === 'pull' && i >= 1
 			? Object.assign(Object.assign(
 				{
-					_value: 'The current value of the iteration.',
-					_index: 'The current index of the iteration.'
+					_value: 'The current value of the iteration as an object',
+					_index: 'The current index of the iteration as a number'
 				},
 				flowInputAsObject), previewResults[0])
 

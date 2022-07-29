@@ -1,7 +1,5 @@
-imports_granularity = "Crate"
 max_width = 100
 use_small_heuristics = "Default"
-indent_style = "Block"
-fn_single_line = false
-force_multiline_blocks = true
-format_strings = true
+match_arm_leading_pipes="Preserve"
+struct_lit_width=100
+struct_variant_width=100

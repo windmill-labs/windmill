@@ -19,7 +19,7 @@
 	export let defaultValue: any = undefined
 	export let description: string = ''
 	export let format: string = ''
-	export let contentEncoding = ''
+	export let contentEncoding: 'base64' | 'binary' | undefined = undefined
 	export let type: string | undefined = undefined
 	export let required = false
 	export let pattern: undefined | string = undefined
@@ -122,13 +122,8 @@
 		}
 	}
 
-	export let inputCat: InputCat = computeInputCat(
-		type,
-		format,
-		itemsType?.type,
-		enum_,
-		contentEncoding
-	)
+	export let inputCat: InputCat = 'string'
+	$: inputCat = computeInputCat(type, format, itemsType?.type, enum_, contentEncoding)
 </script>
 
 <div class="flex flex-col w-full">
@@ -156,7 +151,7 @@
 							>Description
 							<textarea rows="1" bind:value={description} placeholder="Edit description" />
 							{#if type == 'string' && !contentEncoding && format != 'date-time'}
-								<StringTypeNarrowing bind:format bind:pattern bind:enum_ />
+								<StringTypeNarrowing bind:format bind:pattern bind:enum_ bind:contentEncoding />
 							{:else if type == 'object'}
 								<ObjectTypeNarrowing bind:format />
 							{:else if type == 'array'}
@@ -209,40 +204,45 @@
 					<span>&nbsp; Not set</span>
 				{/if}
 			{:else if inputCat == 'list'}
-				{#each value ?? [] as v}
-					<div class="flex flex-row max-w-md">
-						{#if itemsType?.type == 'number'}
-							<input type="number" bind:value={v} />
-						{:else if itemsType?.type == 'string' && itemsType?.contentEncoding == 'base64'}
-							<input
-								type="file"
-								class="my-6"
-								on:change={(x) => fileChanged(x, (val) => (v = val))}
-								multiple={false}
-							/>
-						{:else}
-							<input type="text" bind:value={v} />
-						{/if}
-						<button
-							class="default-button-secondary mx-6"
-							on:click={() => {
-								value = value.filter((el) => el != v)
-								if (value.length == 0) {
-									value = undefined
-								}
-							}}><Icon data={faMinus} class="mb-1" /></button
-						>
+				<div>
+					<div>
+						{#each value ?? [] as v}
+							<div class="flex flex-row max-w-md mt-1">
+								{#if itemsType?.type == 'number'}
+									<input type="number" bind:value={v} />
+								{:else if itemsType?.type == 'string' && itemsType?.contentEncoding == 'base64'}
+									<input
+										type="file"
+										class="my-6"
+										on:change={(x) => fileChanged(x, (val) => (v = val))}
+										multiple={false}
+									/>
+								{:else}
+									<input type="text" bind:value={v} />
+								{/if}
+								<button
+									class="default-button-secondary mx-6"
+									on:click={() => {
+										value = value.filter((el) => el != v)
+										if (value.length == 0) {
+											value = undefined
+										}
+									}}><Icon data={faMinus} class="mb-1" /></button
+								>
+							</div>
+						{/each}
 					</div>
-				{/each}
-				<button
-					class="default-button-secondary mt-1"
-					on:click={() => {
-						if (value == undefined) {
-							value = []
-						}
-						value = value.concat('')
-					}}>Add item &nbsp;<Icon data={faPlus} class="mb-1" /></button
-				><span class="ml-2">{(value ?? []).length} item(s)</span>
+					<button
+						class="default-button-secondary mt-1"
+						on:click={() => {
+							if (value == undefined) {
+								value = []
+							}
+							value = value.concat('')
+						}}>Add item &nbsp;<Icon data={faPlus} class="mb-1" /></button
+					><span class="ml-2">{(value ?? []).length} item{(value ?? []).length > 1 ? 's' : ''}</span
+					>
+				</div>
 			{:else if inputCat == 'resource-object'}
 				<ObjectResourceInput {format} bind:value />
 			{:else if inputCat == 'object'}
@@ -290,7 +290,7 @@
 					on:input={() => dispatch('input', { rawValue: value, isRaw: false })}
 				/>
 			{/if}
-			{#if !required}
+			{#if !required && inputCat != 'resource-object'}
 				<div class="flex flex-row-reverse">
 					<button
 						{disabled}

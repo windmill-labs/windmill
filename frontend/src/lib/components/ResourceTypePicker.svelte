@@ -10,6 +10,7 @@
 	export let value: string | undefined
 
 	export let notPickable = false
+	export let nonePickable = false
 
 	async function loadResources() {
 		resources = await ResourceService.listResourceTypeNames({ workspace: $workspaceStore! })
@@ -25,9 +26,24 @@
 </script>
 
 <div class="grid sm:grid-cols-2 md:grid-cols-3 gap-x-2 gap-y-1 items-center mb-2">
+	{#if nonePickable}
+		<button
+			class="px-4 h-8 text-center {undefined == value
+				? 'item-button-selected'
+				: notPickable
+				? 'item-button-disabled'
+				: 'item-button'}"
+			on:click={() => {
+				value = undefined
+				dispatch('click')
+			}}
+		>
+			None
+		</button>
+	{/if}
 	{#each resources as r}
 		<button
-			class="px-4 h-8 {r == value
+			class="px-4 h-8 text-center {r == value
 				? 'item-button-selected'
 				: notPickable
 				? 'item-button-disabled'

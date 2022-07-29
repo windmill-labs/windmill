@@ -1,5 +1,5 @@
 import type { Schema } from '$lib/common'
-import { FlowModuleValue, ScriptService, type Flow, type FlowModule } from '$lib/gen'
+import { FlowModuleValue, InputTransform, ScriptService, type Flow, type FlowModule } from '$lib/gen'
 import { initialCode } from '$lib/script_helpers'
 import { userStore, workspaceStore } from '$lib/stores'
 import { derived, get, writable } from 'svelte/store'
@@ -15,6 +15,13 @@ export function initFlow(flow: Flow) {
 	const newMode = flow.value.modules[1]?.value.type === FlowModuleValue.type.FORLOOPFLOW ? 'pull' : 'push'
 	mode.set(newMode)
 	flow = flattenForloopFlows(flow, newMode)
+	flow.value.modules.forEach((mod) => {
+		Object.values(mod.input_transform).forEach((inp) => {
+			if (inp.type == InputTransform.type.JAVASCRIPT) {
+				inp.value = codeToStaticTemplate(inp.expr)
+			}
+		})
+	})
 	schemasStore.set([])
 	flowStore.set(flow)
 	// For each module in flow, we should load the corresponding schema
@@ -23,6 +30,22 @@ export function initFlow(flow: Flow) {
 	})
 }
 
+export function codeToStaticTemplate(code?: string): string | undefined {
+	if (!code) return undefined
+
+	const lines = code
+		.split('\n')
+		.slice(1)
+		.filter((x) => x != '')
+
+	if (lines.length == 1) {
+		const line = lines[0].trim()
+		if (line[0] == '`' && line.charAt(line.length - 1) == '`') {
+			return line.slice(1, line.length - 1)
+		}
+	}
+	return undefined
+}
 export function flattenForloopFlows(flow: Flow, mode: FlowMode): Flow {
 	let newFlow: Flow = JSON.parse(JSON.stringify(flow))
 	if (mode == 'pull') {

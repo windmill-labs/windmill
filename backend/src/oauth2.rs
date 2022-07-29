@@ -1,37 +1,39 @@
-use std::collections::HashMap;
-use std::fmt::Debug;
+use std::{collections::HashMap, fmt::Debug};
 
 use std::sync::Arc;
 
-use axum::body::Bytes;
-use axum::extract::{Extension, FromRequest, Path, Query, RequestParts};
-use axum::response::Redirect;
-use axum::routing::{get, post};
-use axum::{async_trait, Json, Router};
+use axum::{
+    async_trait,
+    body::Bytes,
+    extract::{Extension, FromRequest, Path, Query, RequestParts},
+    response::Redirect,
+    routing::{get, post},
+    Json, Router,
+};
 use chrono::{Duration, Utc};
 use hyper::StatusCode;
 use itertools::Itertools;
 
 use oauth2::{Client as OClient, *};
 use reqwest::Client;
-use serde::de::DeserializeOwned;
-use serde::{Deserialize, Serialize};
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use slack_http_verifier::SlackVerifier;
 use sqlx::{Postgres, Transaction};
-use tokio::fs::File;
-use tokio::io::AsyncReadExt;
+use tokio::{fs::File, io::AsyncReadExt};
 use tower_cookies::{Cookie, Cookies};
 
-use crate::audit::{audit_log, ActionKind};
-use crate::db::{UserDB, DB};
-use crate::error::{self, to_anyhow, Error, Result};
-use crate::jobs;
-use crate::jobs::{get_latest_hash_for_path, JobPayload};
-use crate::users::Authed;
-use crate::utils::not_found_if_none;
-use crate::variables::{build_crypt, encrypt};
-use crate::workspaces::WorkspaceSettings;
-use crate::BaseUrl;
+use crate::{
+    audit::{audit_log, ActionKind},
+    db::{UserDB, DB},
+    error::{self, to_anyhow, Error, Result},
+    jobs,
+    jobs::{get_latest_hash_for_path, JobPayload},
+    users::Authed,
+    utils::not_found_if_none,
+    variables::{build_crypt, encrypt},
+    workspaces::WorkspaceSettings,
+    BaseUrl,
+};
 
 pub fn global_service() -> Router {
     Router::new()
@@ -127,10 +129,7 @@ pub async fn build_oauth_clients(base_url: &str) -> anyhow::Result<AllClients> {
             );
             (
                 named_client.0,
-                ClientWithScopes {
-                    client: named_client.1,
-                    scopes: scopes.unwrap_or(vec![]),
-                },
+                ClientWithScopes { client: named_client.1, scopes: scopes.unwrap_or(vec![]) },
             )
         })
         .collect();
@@ -149,10 +148,7 @@ pub async fn build_oauth_clients(base_url: &str) -> anyhow::Result<AllClients> {
             );
             (
                 named_client.0,
-                ClientWithScopes {
-                    client: named_client.1,
-                    scopes: scopes.unwrap_or(vec![]),
-                },
+                ClientWithScopes { client: named_client.1, scopes: scopes.unwrap_or(vec![]) },
             )
         })
         .collect();
@@ -172,11 +168,7 @@ pub async fn build_oauth_clients(base_url: &str) -> anyhow::Result<AllClients> {
         .1
     });
 
-    Ok(AllClients {
-        logins,
-        connects,
-        slack,
-    })
+    Ok(AllClients { logins, connects, slack })
 }
 
 pub fn build_basic_client(
@@ -278,7 +270,8 @@ async fn create_account(
 
     let expires_at = chrono::Utc::now() + Duration::seconds(payload.expires_in);
     let id = sqlx::query_scalar!(
-        "INSERT INTO account (workspace_id, client, owner, expires_at, refresh_token) VALUES ($1, $2, $3, $4, $5) RETURNING id",
+        "INSERT INTO account (workspace_id, client, owner, expires_at, refresh_token) VALUES ($1, \
+         $2, $3, $4, $5) RETURNING id",
         w_id,
         payload.client,
         payload.owner,
@@ -469,8 +462,12 @@ pub async fn _refresh_token<'c>(
                 .unwrap(),
         );
     sqlx::query!(
-        "UPDATE account SET refresh_token = $1, expires_at = $2 WHERE workspace_id = $3 AND id = $4",
-        token.refresh_token.map(|x| x.to_string()).unwrap_or(account.refresh_token),
+        "UPDATE account SET refresh_token = $1, expires_at = $2 WHERE workspace_id = $3 AND id = \
+         $4",
+        token
+            .refresh_token
+            .map(|x| x.to_string())
+            .unwrap_or(account.refresh_token),
         expires_at,
         w_id,
         id
@@ -548,7 +545,8 @@ async fn set_workspace_slack(
     sqlx::query!(
         "INSERT INTO workspace_settings
             (workspace_id, slack_team_id, slack_name)
-            VALUES ($1, $2, $3) ON CONFLICT (workspace_id) DO UPDATE SET slack_team_id = $2, slack_name = $3",
+            VALUES ($1, $2, $3) ON CONFLICT (workspace_id) DO UPDATE SET slack_team_id = $2, \
+         slack_name = $3",
         &w_id,
         token.team_id,
         token.team_name
@@ -653,10 +651,7 @@ async fn slack_command(
             let (uuid, tx) = jobs::push(
                 tx,
                 &settings.workspace_id,
-                JobPayload::ScriptHash {
-                    hash: script_hash,
-                    path: script.to_owned(),
-                },
+                JobPayload::ScriptHash { hash: script_hash, path: script.to_owned() },
                 Some(map),
                 &form.user_name,
                 "g/slack".to_string(),
@@ -720,15 +715,18 @@ async fn login_callback(
                 crate::users::create_session_token(&email, super_admin, &mut tx, cookies).await?;
             } else {
                 return Err(error::Error::BadRequest(format!(
-                "an user with the email associated to this login exists but with a different login type {login_type}")
-            ));
+                    "an user with the email associated to this login exists but with a different \
+                     login type {login_type}"
+                )));
             }
         } else {
             let user = get_user_info(&http_client, &client_name, &token).await?;
 
-            sqlx::query(
-                &format!("INSERT INTO password (email, name, company, login_type, verified) VALUES ($1, $2, $3, '{}', true)", &client_name)
-            )
+            sqlx::query(&format!(
+                "INSERT INTO password (email, name, company, login_type, verified) VALUES ($1, \
+                 $2, $3, '{}', true)",
+                &client_name
+            ))
             .bind(&email)
             .bind(&user.name)
             .bind(user.company)

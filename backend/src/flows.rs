@@ -176,9 +176,7 @@ async fn list_flows(
 }
 
 async fn list_hub_flows(
-    Authed {
-        email, username, ..
-    }: Authed,
+    Authed { email, username, .. }: Authed,
     Extension(http_client): Extension<Client>,
     Host(host): Host,
 ) -> JsonResult<serde_json::Value> {
@@ -194,9 +192,7 @@ async fn list_hub_flows(
 }
 
 pub async fn get_hub_flow_by_id(
-    Authed {
-        email, username, ..
-    }: Authed,
+    Authed { email, username, .. }: Authed,
     Path(id): Path<i32>,
     Extension(http_client): Extension<Client>,
     Host(host): Host,
@@ -228,7 +224,8 @@ async fn create_flow(
     check_schedule_conflict(&mut tx, &w_id, &nf.path).await?;
 
     sqlx::query!(
-        "INSERT INTO flow (workspace_id, path, summary, description, value, edited_by, edited_at, schema) VALUES ($1, $2, $3, $4, $5, $6, $7, $8::text::json)",
+        "INSERT INTO flow (workspace_id, path, summary, description, value, edited_by, edited_at, \
+         schema) VALUES ($1, $2, $3, $4, $5, $6, $7, $8::text::json)",
         w_id,
         nf.path,
         nf.summary,
@@ -267,7 +264,8 @@ async fn check_schedule_conflict<'c>(
     path: &str,
 ) -> error::Result<()> {
     let exists_flow = sqlx::query_scalar!(
-        "SELECT EXISTS (SELECT 1 FROM schedule WHERE path = $1 AND workspace_id = $2 AND path != script_path)",
+        "SELECT EXISTS (SELECT 1 FROM schedule WHERE path = $1 AND workspace_id = $2 AND path != \
+         script_path)",
         path,
         w_id
     )
@@ -276,7 +274,8 @@ async fn check_schedule_conflict<'c>(
     .unwrap_or(false);
     if exists_flow {
         return Err(error::Error::BadConfig(format!(
-            "A flow cannot have the same path as a schedule if the schedule does not trigger that same flow: {path}",
+            "A flow cannot have the same path as a schedule if the schedule does not trigger that \
+             same flow: {path}",
         )));
     };
     Ok(())
@@ -295,7 +294,8 @@ async fn update_flow(
 
     let schema = nf.schema.map(|x| x.0);
     let flow = sqlx::query_scalar!(
-        "UPDATE flow SET path = $1, summary = $2, description = $3, value = $4, edited_by = $5, edited_at = $6, schema = $7 WHERE path = $8 AND workspace_id = $9 RETURNING path",
+        "UPDATE flow SET path = $1, summary = $2, description = $3, value = $4, edited_by = $5, \
+         edited_at = $6, schema = $7 WHERE path = $8 AND workspace_id = $9 RETURNING path",
         nf.path,
         nf.summary,
         nf.description,
@@ -358,7 +358,8 @@ async fn exists_flow_by_path(
     let path = path.to_path();
 
     let exists = sqlx::query_scalar!(
-        "SELECT EXISTS(SELECT 1 FROM flow WHERE path = $1 AND (workspace_id = $2 OR workspace_id = 'starter'))",
+        "SELECT EXISTS(SELECT 1 FROM flow WHERE path = $1 AND (workspace_id = $2 OR workspace_id \
+         = 'starter'))",
         path,
         w_id
     )
@@ -411,17 +412,13 @@ mod tests {
         let mut hm = HashMap::new();
         hm.insert(
             "test".to_owned(),
-            InputTransform::Static {
-                value: serde_json::json!("test2"),
-            },
+            InputTransform::Static { value: serde_json::json!("test2") },
         );
         let fv = FlowValue {
             modules: vec![
                 FlowModule {
                     input_transform: hm,
-                    value: FlowModuleValue::Script {
-                        path: "test".to_string(),
-                    },
+                    value: FlowModuleValue::Script { path: "test".to_string() },
                     stop_after_if_expr: None,
                     skip_if_stopped: Some(false),
                 },
@@ -438,19 +435,12 @@ mod tests {
                 FlowModule {
                     input_transform: [(
                         "iterand".to_string(),
-                        InputTransform::Static {
-                            value: serde_json::json!(vec![1, 2, 3]),
-                        },
+                        InputTransform::Static { value: serde_json::json!(vec![1, 2, 3]) },
                     )]
                     .into(),
                     value: FlowModuleValue::ForloopFlow {
-                        iterator: InputTransform::Static {
-                            value: serde_json::json!([1, 2, 3]),
-                        },
-                        value: Box::new(FlowValue {
-                            modules: vec![],
-                            failure_module: None,
-                        }),
+                        iterator: InputTransform::Static { value: serde_json::json!([1, 2, 3]) },
+                        value: Box::new(FlowValue { modules: vec![], failure_module: None }),
                         skip_failures: true,
                     },
                     stop_after_if_expr: Some("previous.res1.isEmpty()".to_string()),
@@ -459,9 +449,7 @@ mod tests {
             ],
             failure_module: Some(FlowModule {
                 input_transform: HashMap::new(),
-                value: FlowModuleValue::Flow {
-                    path: "test".to_string(),
-                },
+                value: FlowModuleValue::Flow { path: "test".to_string() },
                 stop_after_if_expr: Some("previous.res1.isEmpty()".to_string()),
                 skip_if_stopped: None,
             }),

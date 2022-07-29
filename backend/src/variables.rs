@@ -93,56 +93,58 @@ pub fn get_reserved_variables(
         ContextualVariable {
             name: "WM_WORKSPACE".to_string(),
             value: w_id.to_string(),
-            description: "Workspace id of the current script".to_string()
+            description: "Workspace id of the current script".to_string(),
         },
         ContextualVariable {
             name: "WM_TOKEN".to_string(),
             value: token.to_string(),
-            description: "Token ephemeral to the current script with equal permission to the permission of the run (Usable as a bearer token)".to_string()
+            description: "Token ephemeral to the current script with equal permission to the \
+                          permission of the run (Usable as a bearer token)"
+                .to_string(),
         },
         ContextualVariable {
             name: "WM_EMAIL".to_string(),
             value: email.to_string(),
-            description: "Email of the user that executed the current script".to_string()
+            description: "Email of the user that executed the current script".to_string(),
         },
         ContextualVariable {
             name: "WM_USERNAME".to_string(),
             value: username.to_string(),
-            description: "Username of the user that executed the current script".to_string()
+            description: "Username of the user that executed the current script".to_string(),
         },
         ContextualVariable {
             name: "WM_JOB_ID".to_string(),
             value: job_id.to_string(),
-            description: "Job id of the current script".to_string()
+            description: "Job id of the current script".to_string(),
         },
         ContextualVariable {
             name: "WM_JOB_PATH".to_string(),
             value: path.unwrap_or_else(|| "".to_string()),
-            description: "Path of the script or flow being run if any".to_string()
+            description: "Path of the script or flow being run if any".to_string(),
         },
         ContextualVariable {
             name: "WM_FLOW_PATH".to_string(),
             value: flow_path.unwrap_or_else(|| "".to_string()),
-            description: "Path of the encapsulating flow if the job is a flow step".to_string()
+            description: "Path of the encapsulating flow if the job is a flow step".to_string(),
         },
         ContextualVariable {
             name: "WM_SCHEDULE_PATH".to_string(),
             value: schedule_path.unwrap_or_else(|| "".to_string()),
-            description: "Path of the schedule if the job of the step or encapsulating step has been triggered by a schedule".to_string()
+            description: "Path of the schedule if the job of the step or encapsulating step has \
+                          been triggered by a schedule"
+                .to_string(),
         },
         ContextualVariable {
             name: "WM_PERMISSIONED_AS".to_string(),
             value: permissioned_as.to_string(),
-            description: "Fully Qualified (u/g) owner name of executor of the job".to_string()
+            description: "Fully Qualified (u/g) owner name of executor of the job".to_string(),
         },
     ]
 }
 
 async fn list_contextual_variables(
     Path(w_id): Path<String>,
-    Authed {
-        username, email, ..
-    }: Authed,
+    Authed { username, email, .. }: Authed,
 ) -> JsonResult<Vec<ContextualVariable>> {
     Ok(Json(
         get_reserved_variables(
@@ -168,8 +170,11 @@ async fn list_variables(
     let mut tx = user_db.begin(&authed).await?;
 
     let rows = sqlx::query_as::<_, ListableVariable>(
-        "SELECT workspace_id, path, CASE WHEN is_secret IS TRUE THEN null ELSE value::text END as value, is_secret, description, extra_perms, account, is_oauth, false as is_expired from variable
-         WHERE (workspace_id = $1 OR (is_secret IS NOT TRUE AND workspace_id = 'starter')) ORDER BY path",
+        "SELECT workspace_id, path, CASE WHEN is_secret IS TRUE THEN null ELSE value::text END as \
+         value, is_secret, description, extra_perms, account, is_oauth, false as is_expired from \
+         variable
+         WHERE (workspace_id = $1 OR (is_secret IS NOT TRUE AND workspace_id = 'starter')) ORDER \
+         BY path",
     )
     .bind(&w_id)
     .fetch_all(&mut tx)
@@ -198,7 +203,8 @@ async fn get_variable(
     let variable_o = sqlx::query_as::<_, ListableVariable>(
         "SELECT variable.*, (now() > account.expires_at) as is_expired from variable
         LEFT JOIN account ON variable.account = account.id
-        WHERE variable.path = $1 AND (variable.workspace_id = $2 OR (is_secret IS NOT TRUE AND variable.workspace_id = 'starter')) 
+        WHERE variable.path = $1 AND (variable.workspace_id = $2 OR (is_secret IS NOT TRUE AND \
+         variable.workspace_id = 'starter')) 
         LIMIT 1",
     )
     .bind(&path)
@@ -356,7 +362,6 @@ async fn delete_variable(
 async fn update_variable(
     authed: Authed,
     Extension(user_db): Extension<UserDB>,
-    Extension(db): Extension<DB>,
     Path((w_id, path)): Path<(String, StripPath)>,
     Json(ns): Json<EditVariable>,
 ) -> Result<String> {
@@ -404,9 +409,14 @@ async fn update_variable(
         }
         sqlb.set_str("is_secret", nbool);
     }
+    sqlb.returning("path");
+
     let sql = sqlb.sql().map_err(|e| Error::InternalErr(e.to_string()))?;
 
-    sqlx::query(&sql).execute(&db).await?;
+    let npath_o: Option<String> = sqlx::query_scalar(&sql).fetch_optional(&mut tx).await?;
+
+    let npath = crate::utils::not_found_if_none(npath_o, "Variable", path)?;
+
     audit_log(
         &mut tx,
         &authed.username,
@@ -419,7 +429,7 @@ async fn update_variable(
     .await?;
     tx.commit().await?;
 
-    Ok(format!("variable {} updated (npath: {:?})", path, ns.path))
+    Ok(format!("variable {} updated (npath: {:?})", path, npath))
 }
 
 pub async fn build_crypt<'c>(

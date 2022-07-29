@@ -1,9 +1,9 @@
 <script lang="ts">
-	import SchemaModal, { DEFAULT_PROPERTY, modalToSchema, schemaToModal } from './SchemaModal.svelte'
+	import SchemaModal, { DEFAULT_PROPERTY, schemaToModal } from './SchemaModal.svelte'
 	import type { ModalSchemaProperty } from './SchemaModal.svelte'
-	import type { Schema } from '$lib/common'
+	import type { Schema, SchemaProperty } from '$lib/common'
 	import Editor from './Editor.svelte'
-	import { emptySchema, sendUserToast } from '$lib/utils'
+	import { emptySchema, sendUserToast, truncate } from '$lib/utils'
 	import Tooltip from './Tooltip.svelte'
 	import TableCustom from './TableCustom.svelte'
 	import { createEventDispatcher } from 'svelte'
@@ -38,6 +38,18 @@
 		}
 	}
 
+	function modalToSchema(schema: ModalSchemaProperty): SchemaProperty {
+		return {
+			type: schema.selectedType,
+			description: schema.description,
+			pattern: schema.pattern,
+			default: schema.default,
+			enum: schema.enum_,
+			items: schema.items,
+			contentEncoding: schema.contentEncoding,
+			format: schema.format
+		}
+	}
 	function handleAddOrEditArgument(): void {
 		// If editing the arg's name, oldName containing the old argument name must be provided
 		argError = ''
@@ -46,6 +58,7 @@
 		} else if (Object.keys(schema.properties).includes(modalProperty.name) && !editing) {
 			argError = 'There is already an argument with this name'
 		} else {
+			console.log('XXXXXX')
 			schema.properties[modalProperty.name] = modalToSchema(modalProperty)
 			if (modalProperty.required) {
 				schema.required = [...schema.required, modalProperty.name]
@@ -72,7 +85,6 @@
 	function startEditArgument(argName: string): void {
 		argError = ''
 		if (Object.keys(schema.properties).includes(argName)) {
-			schemaModal.openModal()
 			editing = true
 			modalProperty = schemaToModal(
 				schema.properties[argName],
@@ -80,6 +92,7 @@
 				schema.required.includes(argName)
 			)
 			oldArgName = argName
+			schemaModal.openModal()
 		} else {
 			sendUserToast(`This argument does not exist and can't be edited`, true)
 		}
@@ -136,7 +149,7 @@
 				>
 			</button>
 			<button
-				class="default-button-secondary grow"
+				class="default-button-secondary grow mb-1"
 				on:click={() => {
 					modalProperty = Object.assign({}, DEFAULT_PROPERTY)
 					schemaModal.openModal()
@@ -162,10 +175,12 @@
 								<tr>
 									<td>{name}</td>
 									<td
-										>{#if !property.type} any {:else} {property.type} {/if}</td
-									>
-									<td>{property.description}</td>
-									<td>{JSON.stringify(property.default) ?? ''}</td>
+										>{property.type ?? 'any'}
+										{property.format ? `(format: ${property.format})` : ''}
+										{property.contentEncoding ? `(encoding: ${property.contentEncoding})` : ''}
+									</td>
+									<td>{truncate(property.description, 20)}</td>
+									<td>{truncate(JSON.stringify(property.default) ?? '', 20)}</td>
 									<td>{schema.required.includes(name) ? 'required' : 'optional'}</td>
 									<td class="">
 										<button class="mr-2" on:click={() => handleDeleteArgument(name)}

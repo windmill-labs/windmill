@@ -14,7 +14,8 @@
 		sendUserToast,
 		displayDaysAgo,
 		canWrite,
-		defaultIfEmptyString
+		defaultIfEmptyString,
+		scriptToHubUrl
 	} from '$lib/utils'
 	import Icon from 'svelte-awesome'
 	import {
@@ -25,7 +26,8 @@
 		faTrash,
 		faCalendar,
 		faShare,
-		faSpinner
+		faSpinner,
+		faGlobe
 	} from '@fortawesome/free-solid-svg-icons'
 	import Highlight from 'svelte-highlight'
 	import { typescript, python } from 'svelte-highlight/languages'
@@ -124,11 +126,12 @@
 	<div class="flex flex-row justify-between">
 		<h1>
 			{script?.path ?? 'Loading...'}
-			<a href="/scripts/get/{script?.hash}"
-				><span class="commit-hash">{truncateHash(script?.hash ?? '')}</span></a
-			>
-			<Tooltip>Each script version has an immutable hash.</Tooltip>
-
+			<span class="whitespace-nowrap">
+				<a href="/scripts/get/{script?.hash}"
+					><span class="commit-hash">{truncateHash(script?.hash ?? '')}</span></a
+				>
+				<Tooltip>Each script version has an immutable hash.</Tooltip>
+			</span>
 			{#if script?.is_template}
 				<span class="mx-2 bg-blue-500 rounded-md bg-opacity-25 text-sm font-normal px-1 py-px"
 					>Template</span
@@ -189,6 +192,23 @@
 						}
 					]}
 				/>
+				<div class="px-1">
+					<a
+						target="_blank"
+						class="inline-flex items-center default-button bg-transparent hover:bg-blue-500 text-blue-700 font-normal hover:text-white py-0 px-1 border-blue-500 hover:border-transparent rounded"
+						href={scriptToHubUrl(
+							script.content,
+							script.summary,
+							script.description ?? '',
+							script.is_trigger
+						).toString()}
+					>
+						<div class="inline-flex items-center justify-center">
+							<Icon class="text-blue-500" data={faGlobe} scale={0.5} />
+							<span class="pl-1">Publish to Hub</span>
+						</div>
+					</a>
+				</div>
 				<div class="px-1">
 					<a
 						class="inline-flex items-center default-button bg-transparent hover:bg-blue-500 text-blue-700 font-normal hover:text-white py-0 px-1 border-blue-500 hover:border-transparent rounded"

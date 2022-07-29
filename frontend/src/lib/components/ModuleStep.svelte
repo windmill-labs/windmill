@@ -31,6 +31,8 @@
 	let websocketAlive = { pyright: false, black: false, deno: false }
 	let pickableProperties: Object | undefined = undefined
 
+	let bigEditor = false
+
 	$: schema = $schemasStore[i]
 	$: shouldPick = mod.value.path === '' && mod.value.language === undefined
 	$: pickableProperties = getPickableProperties($flowStore?.schema, args, $previewResults, mode, i)
@@ -98,19 +100,29 @@
 					<div class="p-1 overflow-hidden">
 						<EditorBar {editor} {websocketAlive} lang={mod.value.language ?? 'deno'} />
 					</div>
-					<Editor
-						bind:websocketAlive
-						bind:this={editor}
-						class="h-80 border p-2 rounded"
-						bind:code={mod.value.content}
-						deno={mod.value.language === FlowModuleValue.language.DENO}
-					/>
+					<div>
+						<Editor
+							bind:websocketAlive
+							bind:this={editor}
+							class="{bigEditor ? 'h-2/3' : 'h-80'} border p-2 rounded"
+							bind:code={mod.value.content}
+							deno={mod.value.language === FlowModuleValue.language.DENO}
+							automaticLayout={true}
+							on:blur={() => loadSchema(i)}
+							formatAction={() => loadSchema(i)}
+						/>
+						<button
+							class="w-full text-center"
+							on:click={() => {
+								bigEditor = !bigEditor
+							}}><Icon data={bigEditor ? faChevronUp : faChevronDown} scale={1.0} /></button
+						>
+					</div>
 					<div class="mt-2 mb-8">
-						<button class="default-primary-button-v2" on:click={() => loadSchema(i)}>
-							<Icon data={faRobot} class="w-4 h-4 mr-2 -ml-2" />
-
-							Infer step inputs from code
-						</button>
+						<p class="text-gray-500 italic">
+							Move the focus outside of the text editor to recompute the input schema or press
+							Ctrl/Cmd+S
+						</p>
 					</div>
 				{/if}
 				{#if !shouldPick}

@@ -133,14 +133,22 @@ pub async fn run_worker(
                     )
                     .await;
 
-                    let _ = postprocess_queued_job(
-                        job2.schedule_path,
-                        job2.script_path,
-                        &job2.workspace_id,
-                        job2.id,
-                        db,
-                    )
-                    .await;
+                    {
+                        let job = job2.clone();
+                        let _ = postprocess_queued_job(
+                            job.schedule_path,
+                            job.script_path,
+                            &job2.workspace_id,
+                            job2.id,
+                            db,
+                        )
+                        .await;
+                    }
+
+                    if job2.parent_job.is_some() {
+                        let _ =
+                            update_flow_status_after_job_completion(db, &job2, false, None).await;
+                    }
                     tracing::error!(job_id = %job2.id, "Error handling job: {err_string}");
                 };
             }
@@ -346,9 +354,7 @@ async fn handle_job(
                 e.to_string()
             ))
         })?;
-        Ok(JobResult {
-            result: Some(result),
-        })
+        Ok(JobResult { result: Some(result) })
     } else {
         let err = match status {
             Ok(_) => {
@@ -396,7 +402,10 @@ async fn handle_nondep_job(
         };
         (code, reqs, job.language.to_owned())
     } else {
-        sqlx::query_as::<_, (String, Option<String>, Option<ScriptLang>)>("SELECT content, lock, language FROM script WHERE hash = $1 AND (workspace_id = $2 OR workspace_id = 'starter')")
+        sqlx::query_as::<_, (String, Option<String>, Option<ScriptLang>)>(
+            "SELECT content, lock, language FROM script WHERE hash = $1 AND (workspace_id = $2 OR \
+             workspace_id = 'starter')",
+        )
         .bind(&job.script_hash.unwrap_or(ScriptHash(0)).0)
         .bind(&job.workspace_id)
         .fetch_optional(db)
@@ -466,11 +475,29 @@ async fn handle_nondep_job(
                 let _ = write_file(job_dir, "inner.py", &inner_content).await?;
 
                 let sig = crate::parser::parse_python_signature(&inner_content)?;
-                let transforms = sig.args.into_iter().map(|x| match x.typ {
-    Typ::Bytes => format!("if \"{}\" in kwargs and kwargs[\"{}\"] is not None:\n    kwargs[\"{}\"] = base64.b64decode(kwargs[\"{}\"])\n", x.name, x.name, x.name, x.name),
-    Typ::Datetime => format!("if \"{}\" in kwargs and kwargs[\"{}\"] is not None:\n    kwargs[\"{}\"] = datetime.strptime(kwargs[\"{}\"], '%Y-%m-%dT%H:%M')\n", x.name, x.name, x.name, x.name),
-    _ => "".to_string()
-        }).collect::<Vec<String>>().join("");
+                let transforms = sig
+                    .args
+                    .into_iter()
+                    .map(|x| match x.typ {
+                        Typ::Bytes => {
+                            format!(
+                                "if \"{}\" in kwargs and kwargs[\"{}\"] is not None:\n    \
+                                     kwargs[\"{}\"] = base64.b64decode(kwargs[\"{}\"])\n",
+                                x.name, x.name, x.name, x.name
+                            )
+                        }
+                        Typ::Datetime => {
+                            format!(
+                                "if \"{}\" in kwargs and kwargs[\"{}\"] is not None:\n    \
+                                     kwargs[\"{}\"] = datetime.strptime(kwargs[\"{}\"], \
+                                     '%Y-%m-%dT%H:%M')\n",
+                                x.name, x.name, x.name, x.name
+                            )
+                        }
+                        _ => "".to_string(),
+                    })
+                    .collect::<Vec<String>>()
+                    .join("");
 
                 let tx = db.begin().await?;
 

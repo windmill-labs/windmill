@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/explicit-module-boundary-types */
 import { goto } from '$app/navigation'
-import { FlowService, Script, ScriptService, type User } from '$lib/gen'
+import { FlowService, Script, ScriptService, type Flow, type User } from '$lib/gen'
 import { toast } from '@zerodevx/svelte-toast'
 import { get } from 'svelte/store'
 import type { Schema } from './common'
@@ -475,4 +475,31 @@ export function formatCron(inp: string): string {
 	} else {
 		return inp
 	}
+}
+
+export function flowToHubUrl(flow: Flow): URL {
+	const url = new URL('https://hub.windmill.dev/flows/add')
+	const openFlow = {
+		value: flow.value,
+		summary: flow.summary,
+		description: flow.description,
+		schema: flow.schema
+	}
+	url.searchParams.append(
+		'flow',
+		btoa(JSON.stringify(openFlow))
+	)
+	return url
+}
+
+
+export function scriptToHubUrl(content: string, summary: string, description: string, trigger: boolean): URL {
+	const url = new URL('https://hub.windmill.dev/scripts/add')
+
+	url.searchParams.append('content', content)
+	url.searchParams.append('summary', summary)
+	url.searchParams.append('description', description)
+	url.searchParams.append('trigger', trigger.toString())
+
+	return url
 }
