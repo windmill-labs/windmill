@@ -1,4 +1,4 @@
-<div class="flex p-4 bg-yellow-100 rounded-lg dark:bg-yellow-200" role="alert">
+<div class="flex px-4 pt-1 bg-yellow-100 rounded-lg dark:bg-yellow-200" role="alert">
 	<svg
 		class="flex-shrink-0 w-5 h-5 text-yellow-700 dark:text-yellow-800"
 		fill="currentColor"

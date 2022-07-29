@@ -357,6 +357,10 @@
 			dispatch('change')
 		})
 
+		editor.onDidFocusEditorText(() => {
+			dispatch('focus')
+		})
+
 		if (lang == 'json') {
 			monaco.languages.json.jsonDefaults.setDiagnosticsOptions({
 				validate: true,
