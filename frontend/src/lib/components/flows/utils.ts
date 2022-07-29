@@ -180,8 +180,8 @@ export function getPickableProperties(
 		mode === 'pull' && i >= 1
 			? Object.assign(Object.assign(
 				{
-					_value: 'The current value of the iteration.',
-					_index: 'The current index of the iteration.'
+					_value: 'The current value of the iteration as an object',
+					_index: 'The current index of the iteration as a number'
 				},
 				flowInputAsObject), previewResults[0])
 

@@ -25,3 +25,6 @@
 		<option value={r.path}>{r.path}{r.description ? ' | ' + r.description : ''}</option>
 	{/each}
 </select>
+<a class="text-xs" target="_blank" href="/resources"
+	>Connect an app/add a resource on resources page</a
+>
