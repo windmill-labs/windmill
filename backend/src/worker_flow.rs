@@ -515,7 +515,7 @@ async fn push_next_flow_job(
                         }),
                     forloop_jobs: Some(forloop_jobs),
                     ..
-                } => {
+                } if index.to_owned() + 1 < itered.len() as u8 => {
                     let mut args = args.clone();
                     let nindex = index.to_owned() + 1;
                     args.insert(
