@@ -113,14 +113,15 @@ export async function loadSchemaFromModule(module: FlowModule): Promise<{
 		let input_transform = module.input_transform
 
 		if (
-			JSON.stringify(Object.keys(schema?.properties ?? {}).sort()) !==
+			JSON.stringify(keys.sort()) !==
 			JSON.stringify(Object.keys(module.input_transform).sort())
 		) {
 			input_transform = keys.reduce((accu, key) => {
-				accu[key] = {
+				let nv = module.input_transform[key] ?? {
 					type: 'static',
 					value: undefined
 				}
+				accu[key] = nv
 				return accu
 			}, {})
 		}

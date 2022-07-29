@@ -108,6 +108,8 @@
 							bind:code={mod.value.content}
 							deno={mod.value.language === FlowModuleValue.language.DENO}
 							automaticLayout={true}
+							on:blur={() => loadSchema(i)}
+							formatAction={() => loadSchema(i)}
 						/>
 						<button
 							class="w-full text-center"
@@ -117,11 +119,10 @@
 						>
 					</div>
 					<div class="mt-2 mb-8">
-						<button class="default-primary-button-v2" on:click={() => loadSchema(i)}>
-							<Icon data={faRobot} class="w-4 h-4 mr-2 -ml-2" />
-
-							Infer step inputs from code
-						</button>
+						<p class="text-gray-500 italic">
+							Move the focus outside of the text editor to recompute the input schema or press
+							Ctrl/Cmd+S
+						</p>
 					</div>
 				{/if}
 				{#if !shouldPick}

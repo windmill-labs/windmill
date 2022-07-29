@@ -361,6 +361,10 @@
 			dispatch('focus')
 		})
 
+		editor.onDidBlurEditorText(() => {
+			dispatch('blur')
+		})
+
 		if (lang == 'json') {
 			monaco.languages.json.jsonDefaults.setDiagnosticsOptions({
 				validate: true,
