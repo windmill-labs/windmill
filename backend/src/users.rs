@@ -326,6 +326,20 @@ pub struct User {
 }
 
 #[derive(FromRow, Serialize)]
+pub struct Usage {
+    pub duration_ms: i64,
+    pub jobs: i64,
+    pub flows: i64,
+}
+
+#[derive(Serialize)]
+pub struct UserWithUsage {
+    #[serde(flatten)]
+    pub user: User,
+    pub usage: Usage,
+}
+
+#[derive(FromRow, Serialize)]
 pub struct GlobalUserInfo {
     email: String,
     login_type: Option<String>,
@@ -480,11 +494,32 @@ async fn list_users(
     authed: Authed,
     Extension(user_db): Extension<UserDB>,
     Path(w_id): Path<String>,
-) -> JsonResult<Vec<User>> {
+) -> JsonResult<Vec<UserWithUsage>> {
     let mut tx = user_db.begin(&authed).await?;
-    let rows = sqlx::query_as!(User, "SELECT * from usr WHERE workspace_id = $1", &w_id)
-        .fetch_all(&mut tx)
-        .await?;
+    let rows = sqlx::query(
+        "
+        SELECT usr.*, usage.*
+          FROM usr
+             , LATERAL (
+                SELECT COALESCE(SUM(duration_ms), 0)  duration_ms
+                     , COALESCE(SUM(job_kind     IN ('flow', 'flowpreview') ::int), 0)  flows
+                     , COALESCE(SUM(job_kind NOT IN ('flow', 'flowpreview') ::int), 0)  jobs
+                  FROM completed_job
+                 WHERE workspace_id = usr.workspace_id
+                   AND created_by = usr.username
+                   AND parent_job IS NULL
+                   AND now() - '2 week'::interval < created_at 
+               ) usage
+         WHERE workspace_id = $1
+         ",
+    )
+    .bind(&w_id)
+    .try_map(|row| {
+        // flatten not released yet https://github.com/launchbadge/sqlx/pull/1959
+        Ok(UserWithUsage { user: FromRow::from_row(&row)?, usage: FromRow::from_row(&row)? })
+    })
+    .fetch_all(&mut tx)
+    .await?;
     tx.commit().await?;
     Ok(Json(rows))
 }

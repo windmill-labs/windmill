@@ -3339,7 +3339,7 @@ components:
         started_at:
           type: string
           format: date-time
-        duration:
+        duration_ms:
           type: integer
         success:
           type: boolean
@@ -3395,7 +3395,7 @@ components:
       required:
         - id
         - created_by
-        - duration
+        - duration_ms
         - created_at
         - started_at
         - success
@@ -3440,6 +3440,8 @@ components:
           type: array
           items:
             type: string
+        job_duration_ms:
+          $ref: "#/components/schemas/Usage"
       required:
         - email
         - username
@@ -3448,6 +3450,16 @@ components:
         - created_at
         - operator
         - disabled
+
+    Usage:
+      type: object
+      properties:
+        duration_ms:
+          type: integer
+        jobs:
+          type: integer
+        flows:
+          type: integer
 
     Login:
       type: object

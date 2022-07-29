@@ -39,7 +39,7 @@ use ulid::Ulid;
 use uuid::Uuid;
 
 const MAX_NB_OF_JOBS_IN_Q_PER_USER: i64 = 10;
-const MAX_DURATION_LAST_1200: i64 = 400;
+const MAX_DURATION_LAST_1200: std::time::Duration = std::time::Duration::from_secs(400);
 
 pub fn workspaced_service() -> Router {
     Router::new()
@@ -99,7 +99,7 @@ struct CompletedJob {
     created_by: String,
     created_at: chrono::DateTime<chrono::Utc>,
     started_at: chrono::DateTime<chrono::Utc>,
-    duration: i32,
+    duration_ms: i32,
     success: bool,
     script_hash: Option<ScriptHash>,
     script_path: Option<String>,
@@ -476,7 +476,7 @@ async fn list_jobs(
             "script_hash",
             "script_path",
             "args",
-            "null as duration",
+            "null as duration_ms",
             "null as success",
             "false as deleted",
             "canceled",
@@ -508,7 +508,7 @@ async fn list_jobs(
             "script_hash",
             "script_path",
             "args",
-            "duration",
+            "duration_ms",
             "success",
             "deleted",
             "canceled",
@@ -620,7 +620,7 @@ async fn list_completed_jobs(
             "created_by",
             "created_at",
             "started_at",
-            "duration",
+            "duration_ms",
             "success",
             "script_hash",
             "script_path",
@@ -903,7 +903,7 @@ struct UnifiedJob {
     script_hash: Option<ScriptHash>,
     script_path: Option<String>,
     args: Option<serde_json::Value>,
-    duration: Option<i32>,
+    duration_ms: Option<i32>,
     success: Option<bool>,
     deleted: bool,
     canceled: bool,
@@ -927,7 +927,7 @@ impl From<UnifiedJob> for Job {
                 created_by: uj.created_by,
                 created_at: uj.created_at,
                 started_at: uj.started_at.unwrap_or(uj.created_at),
-                duration: uj.duration.unwrap(),
+                duration_ms: uj.duration_ms.unwrap(),
                 success: uj.success.unwrap(),
                 script_hash: uj.script_hash,
                 script_path: uj.script_path,
@@ -1056,21 +1056,25 @@ pub async fn push<'c>(
             }
         }
 
-        let rate_limiting_duration = sqlx::query_scalar!(
-            "SELECT SUM(duration) FROM completed_job WHERE created_by = $1 AND created_at > NOW() \
-             - INTERVAL '1200 seconds' AND workspace_id = $2",
+        let rate_limiting_duration_ms = sqlx::query_scalar!(
+            "
+           SELECT SUM(duration_ms)
+             FROM completed_job
+            WHERE created_by = $1
+              AND created_at > NOW() - INTERVAL '1200 seconds'
+              AND workspace_id = $2",
             user,
             workspace_id
         )
         .fetch_one(&mut tx)
         .await?;
 
-        if let Some(sum_duration) = rate_limiting_duration {
-            if sum_duration > MAX_DURATION_LAST_1200 {
+        if let Some(sum_duration_ms) = rate_limiting_duration_ms {
+            if sum_duration_ms as u128 > MAX_DURATION_LAST_1200.as_millis() {
                 return Err(error::Error::ExecutionErr(format!(
                     "You have exceeded the scripts cumulative duration limit over the last 20m \
-                     which is: {}",
-                    MAX_DURATION_LAST_1200
+                     which is: {} seconds",
+                    MAX_DURATION_LAST_1200.as_secs()
                 )));
             }
         }
@@ -1268,23 +1272,24 @@ pub async fn add_completed_job(
 ) -> Result<Uuid, Error> {
     let result_json = result.map(serde_json::Value::Object);
     let job_id = queued_job.id.clone();
-    let duration = (chrono::Utc::now() - queued_job.started_at.unwrap_or(queued_job.created_at))
-        .num_seconds() as i32;
+    let duration_ms = (chrono::Utc::now() - queued_job.started_at.unwrap_or(queued_job.created_at))
+        .num_milliseconds() as i32;
     let _ = sqlx::query!(
         "INSERT INTO completed_job as cj
-            (workspace_id, id, parent_job, created_by, created_at, duration, success, script_hash, \
-         script_path, args, result, logs, 
+            (workspace_id, id, parent_job, created_by, created_at, duration_ms, success, \
+            script_hash, script_path, args, result, logs, \
             raw_code, canceled, canceled_by, canceled_reason, job_kind, schedule_path, \
-         permissioned_as, flow_status, raw_flow, is_flow_step, is_skipped)
+            permissioned_as, flow_status, raw_flow, is_flow_step, is_skipped)
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, \
-         $18, $19, $20, $21, $22, $23) ON CONFLICT (id) DO UPDATE SET success = $7, result = $11, \
-         logs = concat(cj.logs, $12) RETURNING id",
+                    $18, $19, $20, $21, $22, $23)
+         ON CONFLICT (id) DO UPDATE SET success = $7, result = $11, logs = concat(cj.logs, $12)
+         RETURNING id",
         queued_job.workspace_id,
         queued_job.id,
         queued_job.parent_job,
         queued_job.created_by,
         queued_job.created_at,
-        duration,
+        duration_ms,
         success,
         queued_job.script_hash.map(|x| x.0),
         queued_job.script_path,
