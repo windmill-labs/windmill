@@ -48,6 +48,11 @@ export function displayDate(dateString: string | undefined): string {
 	}
 }
 
+export function msToSec(ms: integer | undefined): string {
+	if (ms === undefined) return '?';
+	return (ms / 1000).toLocaleString(undefined, {maximumFractionDigits: 3});
+}
+
 export function getToday() {
 	var today = new Date()
 	return today

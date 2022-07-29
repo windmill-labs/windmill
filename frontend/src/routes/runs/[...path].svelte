@@ -9,7 +9,7 @@
 <script lang="ts">
 	import { onDestroy } from 'svelte'
 	import { JobService, Job, CompletedJob } from '$lib/gen'
-	import { displayDate, displayDaysAgo, forLater, setQuery, truncateHash } from '$lib/utils'
+	import { displayDate, displayDaysAgo, forLater, setQuery, truncateHash, msToSec } from '$lib/utils'
 	import Icon from 'svelte-awesome'
 	import { check } from 'svelte-awesome/icons'
 	import {
@@ -305,13 +305,13 @@ the bearer token they use has less privilege."
 										>
 									</div>
 								{/if}
-								{#if job && 'duration' in job && job.duration != undefined}
+								{#if job && 'duration_ms' in job && job.duration_ms != undefined}
 									<div>
 										<Icon
 											class="text-gray-700"
 											data={faHourglassHalf}
 											scale={SMALL_ICON_SCALE}
-										/><span class="mx-2"> Ran in {job.duration}s</span>
+										/><span class="mx-2"> Ran in {msToSec(job.duration_ms)}s</span>
 									</div>
 								{/if}
 								<div>

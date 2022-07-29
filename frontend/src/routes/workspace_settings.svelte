@@ -10,7 +10,7 @@
 	import Fuse from 'fuse.js'
 	import { UserService, type WorkspaceInvite, WorkspaceService, OauthService } from '$lib/gen'
 	import type { User } from '$lib/gen'
-	import { sendUserToast } from '$lib/utils'
+	import { sendUserToast, msToSec } from '$lib/utils'
 	import PageHeader from '$lib/components/PageHeader.svelte'
 	import { userStore, usersWorkspaceStore, workspaceStore, oauthStore } from '$lib/stores'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
@@ -121,12 +121,12 @@
 			</tr>
 			<tbody slot="body">
 				{#if filteredUsers && users}
-					{#each userFilter === '' ? users : filteredUsers as { email, username, is_admin, jobs_duration }}
+					{#each userFilter === '' ? users : filteredUsers as { email, username, is_admin, jobs_duration_ms }}
 						<tr class="border">
 							<td>{email}</td>
 							<td>{username}</td>
 							<td>{is_admin ? 'admin' : 'user'}</td>
-							<td>{jobs_duration}s</td>
+							<td>{msToSec(jobs_duration_ms)}s</td>
 							<td
 								><button
 									class="ml-2 text-red-500"

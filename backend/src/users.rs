@@ -327,7 +327,7 @@ pub struct User {
 pub struct UserWithJobsDuration {
     #[serde(flatten)]
     pub user: User,
-    pub jobs_duration: i64,
+    pub jobs_duration_ms: i64,
 }
 
 #[derive(FromRow, Serialize)]
@@ -490,18 +490,18 @@ async fn list_users(
     let mut tx = user_db.begin(&authed).await?;
     let rows = sqlx::query("
         SELECT *
-             , ( SELECT sum(duration)
+             , ( SELECT sum(duration_ms)
                    FROM completed_job
                   WHERE workspace_id = usr.workspace_id
                     AND created_by   = usr.username
                     AND created_at > now() - '2 week'::interval
-               ) jobs_duration
+               ) jobs_duration_ms
           FROM usr
          WHERE workspace_id = $1")
         .bind(&w_id)
         .try_map(|row| Ok(UserWithJobsDuration {
             user: FromRow::from_row(&row)?,
-            jobs_duration: row.try_get::<Option<_>, _>("jobs_duration")?.unwrap_or(0),
+            jobs_duration_ms: row.try_get::<Option<_>, _>("jobs_duration_ms")?.unwrap_or(0),
         }))
         .fetch_all(&mut tx)
         .await?;

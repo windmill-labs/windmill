@@ -3339,7 +3339,7 @@ components:
         started_at:
           type: string
           format: date-time
-        duration:
+        duration_ms:
           type: integer
         success:
           type: boolean
@@ -3395,7 +3395,7 @@ components:
       required:
         - id
         - created_by
-        - duration
+        - duration_ms
         - created_at
         - started_at
         - success
@@ -3440,7 +3440,7 @@ components:
           type: array
           items:
             type: string
-        job_duration:
+        job_duration_ms:
           type: integer
       required:
         - email
