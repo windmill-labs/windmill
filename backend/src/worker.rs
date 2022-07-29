@@ -133,14 +133,22 @@ pub async fn run_worker(
                     )
                     .await;
 
-                    let _ = postprocess_queued_job(
-                        job2.schedule_path,
-                        job2.script_path,
-                        &job2.workspace_id,
-                        job2.id,
-                        db,
-                    )
-                    .await;
+                    {
+                        let job = job2.clone();
+                        let _ = postprocess_queued_job(
+                            job.schedule_path,
+                            job.script_path,
+                            &job2.workspace_id,
+                            job2.id,
+                            db,
+                        )
+                        .await;
+                    }
+
+                    if job2.parent_job.is_some() {
+                        let _ =
+                            update_flow_status_after_job_completion(db, &job2, false, None).await;
+                    }
                     tracing::error!(job_id = %job2.id, "Error handling job: {err_string}");
                 };
             }
