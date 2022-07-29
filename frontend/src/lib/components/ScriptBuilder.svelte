@@ -12,8 +12,8 @@
 	import ScriptSchema from './ScriptSchema.svelte'
 	import { inferArgs } from '$lib/infer'
 	import Required from './Required.svelte'
-	import RadioButton from './RadioButton.svelte'
 	import { DENO_INIT_CODE, DENO_INIT_CODE_TRIGGER, initialCode } from '$lib/script_helpers'
+	import RadioButtonV3 from './RadioButtonV3.svelte'
 
 	let editor: ScriptEditor
 	let scriptSchema: ScriptSchema
@@ -179,9 +179,8 @@
 			</Path>
 			<h3 class="text-gray-700 pb-1 border-b">Language</h3>
 			<div class="max-w-md">
-				<RadioButton
+				<RadioButtonV3
 					label="Language"
-					small={true}
 					options={[
 						['Typescript (Deno)', 'deno'],
 						['Python 3.10', 'python3']

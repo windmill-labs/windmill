@@ -12,7 +12,7 @@
 
 	export let inputTransform = false
 	export let schema: Schema
-	export let args: Record<string, InputTransform> = {}
+	export let args: Record<string, InputTransform | any> = {}
 	export let editableSchema = false
 	export let extraLib: string = 'missing extraLib'
 	export let isValid: boolean = true
@@ -24,8 +24,37 @@
 	let overlays: { [id: string]: OverlayPropertyPicker } = {}
 	$: isValid = allTrue(inputCheck) ?? false
 
-	let propertiesTypes: { [id: string]: InputTransform.type } = {}
+	let propertiesTypes: { [id: string]: InputTransform.type } = inputTransform
+		? Object.keys(args).reduce((acc, key) => {
+				let type = args[key].type
+				if (type == InputTransform.type.JAVASCRIPT) {
+					if (codeToStaticTemplate(args[key].expr)) {
+						type = InputTransform.type.STATIC
+					}
+				}
+				acc[key] = type
+				return acc
+		  }, {})
+		: {}
+
 	let inputCats: { [id: string]: InputCat } = {}
+
+	function codeToStaticTemplate(code?: string): string | undefined {
+		if (!code) return undefined
+
+		const lines = code
+			.split('\n')
+			.slice(1)
+			.filter((x) => x != '')
+
+		if (lines.length == 1) {
+			const line = lines[0].trim()
+			if (line[0] == '`' && line.charAt(line.length - 1) == '`') {
+				return line.slice(1, line.length - 1)
+			}
+		}
+		return undefined
+	}
 
 	function setPropertyType(id: string, rawValue: string, isRaw: boolean) {
 		const arg = args[id]
@@ -53,7 +82,7 @@
 		}
 	}
 
-	function hasOverlay(inputCat: InputCat) {
+	function isStaticTemplate(inputCat: InputCat) {
 		return inputCat === 'string' || inputCat === 'number'
 	}
 </script>
@@ -89,12 +118,19 @@
 							}}
 							bind:value={propertiesTypes[argName]}
 							on:change={(e) => {
+								const staticTemplate = isStaticTemplate(inputCats[argName])
 								if (e.detail === InputTransform.type.JAVASCRIPT) {
-									args[argName].expr = getDefaultExpr(i ?? -1, argName, args[argName].value)
+									args[argName].expr = getDefaultExpr(
+										i ?? -1,
+										argName,
+										staticTemplate ? args[argName].value : undefined
+									)
 									args[argName].value = undefined
 								} else {
+									args[argName].value = staticTemplate
+										? codeToStaticTemplate(args[argName].expr)
+										: undefined
 									args[argName].expr = undefined
-									args[argName].value = undefined
 								}
 
 								args[argName].type = e.detail
@@ -107,7 +143,7 @@
 						<OverlayPropertyPicker
 							bind:this={overlays[argName]}
 							bind:pickableProperties
-							disabled={!hasOverlay(inputCats[argName])}
+							disabled={!isStaticTemplate(inputCats[argName])}
 							on:select={(event) => {
 								const toAppend = `\$\{${event.detail}}`
 								args[argName].value = `${args[argName].value ?? ''}${toAppend}`
@@ -140,7 +176,7 @@
 								bind:inputCat={inputCats[argName]}
 								numberAsString={true}
 								on:input={(e) => {
-									if (hasOverlay(inputCats[argName])) {
+									if (isStaticTemplate(inputCats[argName])) {
 										setPropertyType(argName, e.detail.rawValue, e.detail.isRaw)
 									}
 								}}

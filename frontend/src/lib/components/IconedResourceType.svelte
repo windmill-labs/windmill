@@ -20,10 +20,11 @@
 	export let width = '24px'
 </script>
 
-<div class="flex flex-row gap-2">
+<div class="flex flex-row gap-2 justify-center -pl-2 whitespace-nowrap">
 	{#if !after}
 		{name}
 	{/if}
+
 	{#if name === 'postgresql'}
 		<PostgresIcon {height} {width} />
 	{:else if name === 'mysql'}
