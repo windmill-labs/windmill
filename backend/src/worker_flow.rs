@@ -35,25 +35,11 @@ pub struct Iterator {
 #[serde(tag = "type")]
 pub enum FlowStatusModule {
     WaitingForPriorSteps,
-    WaitingForEvent {
-        event: String,
-    },
-    WaitingForExecutor {
-        job: Uuid,
-    },
-    InProgress {
-        job: Uuid,
-        iterator: Option<Iterator>,
-        forloop_jobs: Option<Vec<Uuid>>,
-    },
-    Success {
-        job: Uuid,
-        forloop_jobs: Option<Vec<Uuid>>,
-    },
-    Failure {
-        job: Uuid,
-        forloop_jobs: Option<Vec<Uuid>>,
-    },
+    WaitingForEvent { event: String },
+    WaitingForExecutor { job: Uuid },
+    InProgress { job: Uuid, iterator: Option<Iterator>, forloop_jobs: Option<Vec<Uuid>> },
+    Success { job: Uuid, forloop_jobs: Option<Vec<Uuid>> },
+    Failure { job: Uuid, forloop_jobs: Option<Vec<Uuid>> },
 }
 
 #[async_recursion]
@@ -102,22 +88,13 @@ pub async fn update_flow_status_after_job_completion(
         }
         module_status @ _ => {
             let forloop_jobs = match module_status {
-                FlowStatusModule::InProgress {
-                    forloop_jobs: Some(jobs),
-                    ..
-                } => Some(jobs.clone()),
+                FlowStatusModule::InProgress { forloop_jobs: Some(jobs), .. } => Some(jobs.clone()),
                 _ => None,
             };
             let new_status = if success || (forloop_jobs.is_some() && skip_loop_failures) {
-                FlowStatusModule::Success {
-                    job: job.id,
-                    forloop_jobs,
-                }
+                FlowStatusModule::Success { job: job.id, forloop_jobs }
             } else {
-                FlowStatusModule::Failure {
-                    job: job.id,
-                    forloop_jobs,
-                }
+                FlowStatusModule::Failure { job: job.id, forloop_jobs }
             };
             (old_status.step + 1, new_status)
         }
@@ -165,10 +142,7 @@ pub async fn update_flow_status_after_job_completion(
 
     let done = if !(success || skip_loop_failures) || last_step || stop_early {
         let result = match new_status {
-            FlowStatusModule::Success {
-                forloop_jobs: Some(jobs),
-                ..
-            } => {
+            FlowStatusModule::Success { forloop_jobs: Some(jobs), .. } => {
                 use futures::TryStreamExt;
                 let results = sqlx::query_as(
                     "
@@ -357,10 +331,7 @@ async fn transform_input(
                         ("previous_result".to_string(), previous_result),
                         ("flow_input".to_string(), flow_input),
                     ],
-                    Some(EvalCreds {
-                        workspace: workspace.to_string(),
-                        token: token.to_string(),
-                    }),
+                    Some(EvalCreds { workspace: workspace.to_string(), token: token.to_string() }),
                     steps.clone(),
                 )
                 .await
@@ -507,12 +478,7 @@ async fn push_next_flow_job(
                     }
                 }
                 FlowStatusModule::InProgress {
-                    iterator:
-                        Some(Iterator {
-                            index,
-                            itered,
-                            args,
-                        }),
+                    iterator: Some(Iterator { index, itered, args }),
                     forloop_jobs: Some(forloop_jobs),
                     ..
                 } if index.to_owned() + 1 < itered.len() as u8 => {
@@ -562,10 +528,7 @@ async fn push_next_flow_job(
                 .modules
                 .into_iter()
                 .map(|x| match x {
-                    FlowStatusModule::Success {
-                        job,
-                        forloop_jobs: _,
-                    } => job.to_string(),
+                    FlowStatusModule::Success { job, forloop_jobs: _ } => job.to_string(),
                     _ => "invalid step status".to_string(),
                 })
                 .collect();

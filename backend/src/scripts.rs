@@ -253,9 +253,7 @@ async fn list_scripts(
 }
 
 async fn list_hub_scripts(
-    Authed {
-        email, username, ..
-    }: Authed,
+    Authed { email, username, .. }: Authed,
     Extension(http_client): Extension<Client>,
     Host(host): Host,
 ) -> JsonResult<serde_json::Value> {
@@ -479,9 +477,7 @@ async fn create_script(
 }
 
 pub async fn get_hub_script_by_path(
-    Authed {
-        email, username, ..
-    }: Authed,
+    Authed { email, username, .. }: Authed,
     Path(path): Path<StripPath>,
     Extension(http_client): Extension<Client>,
     Host(host): Host,

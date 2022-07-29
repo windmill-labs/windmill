@@ -1,2 +1,5 @@
 max_width = 100
 use_small_heuristics = "Default"
+match_arm_leading_pipes="Preserve"
+struct_lit_width=100
+struct_variant_width=100

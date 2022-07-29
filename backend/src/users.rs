@@ -81,10 +81,7 @@ pub struct AuthCache {
 
 impl AuthCache {
     pub fn new(db: DB) -> Self {
-        AuthCache {
-            cache: Cache::new(),
-            db,
-        }
+        AuthCache { cache: Cache::new(), db }
     }
 
     pub async fn get_authed(&self, w_id: Option<String>, token: &str) -> Option<Authed> {
@@ -587,12 +584,7 @@ async fn logout(
 async fn whoami(
     Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
-    Authed {
-        username,
-        email,
-        is_admin,
-        groups,
-    }: Authed,
+    Authed { username, email, is_admin, groups }: Authed,
 ) -> JsonResult<UserInfo> {
     let user = get_user(&w_id, &username, &db).await?;
     if let Some(user) = user {
@@ -844,9 +836,7 @@ async fn add_user_to_workspace<'c>(
 }
 
 async fn update_workspace_user(
-    Authed {
-        username, is_admin, ..
-    }: Authed,
+    Authed { username, is_admin, .. }: Authed,
     Extension(db): Extension<DB>,
     Path((w_id, username_to_update)): Path<(String, String)>,
     Json(eu): Json<EditWorkspaceUser>,
@@ -958,9 +948,7 @@ pub fn owner_to_token_owner(user: &str, is_group: bool) -> String {
 }
 
 async fn delete_user(
-    Authed {
-        username, is_admin, ..
-    }: Authed,
+    Authed { username, is_admin, .. }: Authed,
     Extension(db): Extension<DB>,
     Path((w_id, username_to_delete)): Path<(String, String)>,
 ) -> Result<String> {
@@ -1000,9 +988,7 @@ async fn delete_user(
 async fn set_password(
     Extension(db): Extension<DB>,
     Extension(argon2): Extension<Arc<Argon2<'_>>>,
-    Authed {
-        username, email, ..
-    }: Authed,
+    Authed { username, email, .. }: Authed,
     Json(EditPassword { password }): Json<EditPassword>,
 ) -> Result<String> {
     let mut tx = db.begin().await?;

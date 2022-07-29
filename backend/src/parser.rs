@@ -97,21 +97,20 @@ pub fn parse_python_signature(code: &str) -> error::Result<MainArgSignature> {
                     Arg {
                         name: x.arg,
                         typ: x.annotation.map_or(Typ::Unknown, |e| match *e {
-                            Located {
-                                location: _,
-                                node: ExpressionType::Identifier { name },
-                            } => match name.as_ref() {
-                                "str" => Typ::Str,
-                                "float" => Typ::Float,
-                                "int" => Typ::Int,
-                                "bool" => Typ::Bool,
-                                "dict" => Typ::Dict,
-                                "list" => Typ::List(InnerTyp::Str),
-                                "bytes" => Typ::Bytes,
-                                "datetime" => Typ::Datetime,
-                                "datetime.datetime" => Typ::Datetime,
-                                _ => Typ::Unknown,
-                            },
+                            Located { location: _, node: ExpressionType::Identifier { name } } => {
+                                match name.as_ref() {
+                                    "str" => Typ::Str,
+                                    "float" => Typ::Float,
+                                    "int" => Typ::Int,
+                                    "bool" => Typ::Bool,
+                                    "dict" => Typ::Dict,
+                                    "list" => Typ::List(InnerTyp::Str),
+                                    "bytes" => Typ::Bytes,
+                                    "datetime" => Typ::Datetime,
+                                    "datetime.datetime" => Typ::Datetime,
+                                    _ => Typ::Unknown,
+                                }
+                            }
                             _ => Typ::Unknown,
                         }),
                         has_default: default.is_some(),
@@ -161,23 +160,19 @@ pub fn parse_deno_signature(code: &str) -> error::Result<MainArgSignature> {
         .body;
 
     // println!("{ast:?}");
-    let params = ast.into_iter().find_map(|x| match x {
-        ModuleItem::ModuleDecl(ModuleDecl::ExportDecl(ExportDecl {
-            decl:
-                Decl::Fn(FnDecl {
-                    ident:
-                        Ident {
-                            span: _,
-                            sym,
-                            optional: _,
-                        },
-                    declare: _,
-                    function,
-                }),
-            span: _,
-        })) if &sym.to_string() == "main" => Some(function.params),
-        _ => None,
-    });
+    let params =
+        ast.into_iter().find_map(|x| match x {
+            ModuleItem::ModuleDecl(ModuleDecl::ExportDecl(ExportDecl {
+                decl:
+                    Decl::Fn(FnDecl {
+                        ident: Ident { span: _, sym, optional: _ },
+                        declare: _,
+                        function,
+                    }),
+                span: _,
+            })) if &sym.to_string() == "main" => Some(function.params),
+            _ => None,
+        });
     if let Some(params) = params {
         Ok(MainArgSignature {
             star_args: false,
@@ -187,19 +182,9 @@ pub fn parse_deno_signature(code: &str) -> error::Result<MainArgSignature> {
                 .map(|x| match x.pat {
                     Pat::Ident(ident) => {
                         let (name, typ) = binding_ident_to_arg(&ident)?;
-                        Ok(Arg {
-                            name,
-                            typ,
-                            default: None,
-                            has_default: ident.id.optional,
-                        })
+                        Ok(Arg { name, typ, default: None, has_default: ident.id.optional })
                     }
-                    Pat::Assign(AssignPat {
-                        span: _,
-                        left,
-                        right,
-                        type_ann: _,
-                    }) => {
+                    Pat::Assign(AssignPat { span: _, left, right, type_ann: _ }) => {
                         let (name, typ) =
                             left.as_ident().map(binding_ident_to_arg).ok_or_else(|| {
                                 error::Error::ExecutionErr(format!(
@@ -254,12 +239,7 @@ fn binding_ident_to_arg(
                         match &**elem_type {
                             TsType::TsTypeRef(TsTypeRef {
                                 span: _,
-                                type_name:
-                                    TsEntityName::Ident(Ident {
-                                        span: _,
-                                        sym,
-                                        optional: _,
-                                    }),
+                                type_name: TsEntityName::Ident(Ident { span: _, sym, optional: _ }),
                                 type_params: _,
                             }) => match sym.to_string().as_str() {
                                 "Base64" => Typ::List(InnerTyp::Bytes),
@@ -272,17 +252,9 @@ fn binding_ident_to_arg(
                             _ => Typ::List(InnerTyp::Str),
                         }
                     }
-                    TsType::TsTypeRef(TsTypeRef {
-                        span: _,
-                        type_name,
-                        type_params,
-                    }) => {
+                    TsType::TsTypeRef(TsTypeRef { span: _, type_name, type_params }) => {
                         let sym = match type_name {
-                            TsEntityName::Ident(Ident {
-                                span: _,
-                                sym,
-                                optional: _,
-                            }) => sym,
+                            TsEntityName::Ident(Ident { span: _, sym, optional: _ }) => sym,
                             TsEntityName::TsQualifiedName(p) => &*p.right.sym,
                         };
                         match sym.to_string().as_str() {
@@ -618,9 +590,7 @@ const STDIMPORTS: [&str; 301] = [
 
 fn to_value(et: &ExpressionType) -> Option<serde_json::Value> {
     match et {
-        ExpressionType::String {
-            value: StringGroup::Constant { value },
-        } => Some(json!(value)),
+        ExpressionType::String { value: StringGroup::Constant { value } } => Some(json!(value)),
         ExpressionType::Number { value } => match value {
             Number::Integer { value } => Some(json!(value.to_string().parse::<i64>().unwrap())),
             Number::Float { value } => Some(json!(value)),
@@ -655,11 +625,9 @@ fn to_value(et: &ExpressionType) -> Option<serde_json::Value> {
         }
         ExpressionType::None => Some(json!(null)),
 
-        ExpressionType::Call {
-            function: _,
-            args: _,
-            keywords: _,
-        } => Some(json!("<function call>")),
+        ExpressionType::Call { function: _, args: _, keywords: _ } => {
+            Some(json!("<function call>"))
+        }
 
         _ => None,
     }
@@ -696,16 +664,14 @@ pub fn parse_python_imports(code: &str) -> error::Result<Vec<String>> {
                             .map(|x| x.symbol.split('.').next().unwrap_or("").to_string())
                             .collect::<Vec<String>>(),
                     ),
-                    StatementType::ImportFrom {
-                        level: _,
-                        module: Some(mod_),
-                        names: _,
-                    } => Some(vec![mod_
-                        .split('.')
-                        .next()
-                        .unwrap_or("")
-                        .to_string()
-                        .replace("_", "-")]),
+                    StatementType::ImportFrom { level: _, module: Some(mod_), names: _ } => {
+                        Some(vec![mod_
+                            .split('.')
+                            .next()
+                            .unwrap_or("")
+                            .to_string()
+                            .replace("_", "-")])
+                    }
                     _ => None,
                 },
             })

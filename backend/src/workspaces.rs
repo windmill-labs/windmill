@@ -199,9 +199,7 @@ async fn edit_slack_command(
     authed: Authed,
     Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
-    Authed {
-        is_admin, username, ..
-    }: Authed,
+    Authed { is_admin, username, .. }: Authed,
     Json(es): Json<EditCommandScript>,
 ) -> Result<String> {
     require_admin(is_admin, &username)?;
@@ -380,9 +378,7 @@ async fn edit_workspace(
     authed: Authed,
     Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
-    Authed {
-        is_admin, username, ..
-    }: Authed,
+    Authed { is_admin, username, .. }: Authed,
     Json(ew): Json<EditWorkspace>,
 ) -> Result<String> {
     require_admin(is_admin, &username)?;
@@ -421,12 +417,7 @@ async fn edit_workspace(
 async fn delete_workspace(
     Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
-    Authed {
-        is_admin,
-        username,
-        email,
-        ..
-    }: Authed,
+    Authed { is_admin, username, email, .. }: Authed,
 ) -> Result<String> {
     require_admin(is_admin, &username)?;
     let mut tx = db.begin().await?;
@@ -450,9 +441,7 @@ async fn delete_workspace(
 }
 
 async fn invite_user(
-    Authed {
-        username, is_admin, ..
-    }: Authed,
+    Authed { username, is_admin, .. }: Authed,
     Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
     Json(nu): Json<NewWorkspaceInvite>,
@@ -481,9 +470,7 @@ async fn invite_user(
 }
 
 async fn delete_invite(
-    Authed {
-        username, is_admin, ..
-    }: Authed,
+    Authed { username, is_admin, .. }: Authed,
     Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
     Json(nu): Json<NewWorkspaceInvite>,

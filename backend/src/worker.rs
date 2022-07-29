@@ -354,9 +354,7 @@ async fn handle_job(
                 e.to_string()
             ))
         })?;
-        Ok(JobResult {
-            result: Some(result),
-        })
+        Ok(JobResult { result: Some(result) })
     } else {
         let err = match status {
             Ok(_) => {

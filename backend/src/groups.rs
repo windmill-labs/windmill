@@ -258,9 +258,7 @@ async fn add_user(
     authed: Authed,
     Extension(user_db): Extension<UserDB>,
     Path((w_id, name)): Path<(String, String)>,
-    Json(Username {
-        username: user_username,
-    }): Json<Username>,
+    Json(Username { username: user_username }): Json<Username>,
 ) -> Result<String> {
     let mut tx = user_db.begin(&authed).await?;
 
@@ -294,9 +292,7 @@ async fn remove_user(
     authed: Authed,
     Extension(user_db): Extension<UserDB>,
     Path((w_id, name)): Path<(String, String)>,
-    Json(Username {
-        username: user_username,
-    }): Json<Username>,
+    Json(Username { username: user_username }): Json<Username>,
 ) -> Result<String> {
     let mut tx = user_db.begin(&authed).await?;
 

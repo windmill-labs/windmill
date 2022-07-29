@@ -129,10 +129,7 @@ pub async fn build_oauth_clients(base_url: &str) -> anyhow::Result<AllClients> {
             );
             (
                 named_client.0,
-                ClientWithScopes {
-                    client: named_client.1,
-                    scopes: scopes.unwrap_or(vec![]),
-                },
+                ClientWithScopes { client: named_client.1, scopes: scopes.unwrap_or(vec![]) },
             )
         })
         .collect();
@@ -151,10 +148,7 @@ pub async fn build_oauth_clients(base_url: &str) -> anyhow::Result<AllClients> {
             );
             (
                 named_client.0,
-                ClientWithScopes {
-                    client: named_client.1,
-                    scopes: scopes.unwrap_or(vec![]),
-                },
+                ClientWithScopes { client: named_client.1, scopes: scopes.unwrap_or(vec![]) },
             )
         })
         .collect();
@@ -174,11 +168,7 @@ pub async fn build_oauth_clients(base_url: &str) -> anyhow::Result<AllClients> {
         .1
     });
 
-    Ok(AllClients {
-        logins,
-        connects,
-        slack,
-    })
+    Ok(AllClients { logins, connects, slack })
 }
 
 pub fn build_basic_client(
@@ -661,10 +651,7 @@ async fn slack_command(
             let (uuid, tx) = jobs::push(
                 tx,
                 &settings.workspace_id,
-                JobPayload::ScriptHash {
-                    hash: script_hash,
-                    path: script.to_owned(),
-                },
+                JobPayload::ScriptHash { hash: script_hash, path: script.to_owned() },
                 Some(map),
                 &form.user_name,
                 "g/slack".to_string(),
