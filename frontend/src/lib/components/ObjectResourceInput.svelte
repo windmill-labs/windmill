@@ -9,21 +9,27 @@
 	export let format: string
 	export let value: any
 
+	console.log(value)
 	function isString(value: any) {
 		return typeof value === 'string' || value instanceof String
 	}
 
-	let path: string =
-		isString(value) && value.length >= '$res:'.length ? value.substr('$res:'.length) : undefined
+	let path: string = ''
 	let args: Record<string, any> = {}
 
 	if (!isString(value) && value) {
 		args = value
 	}
 
+	valueToPath()
+
 	let schema: any | undefined = undefined
 	let isValid = true
 	let resourceTypeName: string = ''
+
+	let option: 'resource' | 'raw' = isString(value) || value == undefined ? 'resource' : 'raw'
+
+	$: format.startsWith('resource-') && loadSchema(format)
 
 	async function loadSchema(format: string) {
 		resourceTypeName = format.substring('resource-'.length)
@@ -32,16 +38,19 @@
 		).schema
 	}
 
-	let option: 'resource' | 'raw' = isString(value) || value == undefined ? 'resource' : 'raw'
-
-	$: {
+	function argToValue() {
 		if (option == 'resource') {
 			value = `$res:${path}`
 		} else {
 			value = args
 		}
 	}
-	$: format.startsWith('resource-') && loadSchema(format)
+	function valueToPath() {
+		path =
+			isString(value) && value.length >= '$res:'.length ? value.substr('$res:'.length) : undefined
+	}
+
+	$: value && valueToPath()
 </script>
 
 <div class="flex flex-row w-full gap-2">
@@ -51,12 +60,18 @@
 				[`Resource (${resourceTypeName})`, 'resource'],
 				[`Raw object value`, 'raw']
 			]}
+			on:change={argToValue}
 			bind:value={option}
 		/>
 	</div>
 	<div class="grow">
 		{#if option == 'resource'}
 			<ResourcePicker
+				on:refresh={() => loadSchema(format)}
+				on:change={(e) => {
+					path = e.detail
+					argToValue()
+				}}
 				bind:value={path}
 				resourceType={format.split('-').length > 1
 					? format.substring('resource-'.length)

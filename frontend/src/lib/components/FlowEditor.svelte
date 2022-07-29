@@ -48,8 +48,8 @@
 			})
 			scheduleEnabled = schedule.enabled
 			scheduleCron = schedule.schedule
-			scheduleArgs = scheduleArgs
-			console.log(schedule.enabled, schedule.schedule)
+			scheduleArgs = schedule.args ?? {}
+			console.log(scheduleArgs)
 		}
 	}
 

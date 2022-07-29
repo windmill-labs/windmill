@@ -206,10 +206,12 @@
 							}}
 						/>
 					</div>
-					<div class:bg-gray-300={!schedule.enabled}>
+					<div>
 						<div>
-							<h3 class="text-gray-700 ">Schedule</h3>
-							{schedule.schedule}
+							<h3 class="text-gray-700">Schedule</h3>
+							<span class="font-mono p-1 border" class:bg-gray-300={!schedule.enabled}
+								>{schedule.schedule}</span
+							>
 						</div>
 						<div>
 							<h3 class="text-gray-700 ">Args</h3>

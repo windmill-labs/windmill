@@ -18,7 +18,7 @@
 		</div>
 		<div>
 			<ChevronButton text="logs" viewOptions={true}>
-				<div class="text-xs p-4 bg-gray-50 overflow-auto max-h-lg">
+				<div class="text-xs p-4 bg-gray-50 overflow-auto max-h-80 border mt-1">
 					<pre class="w-full">{job.logs}</pre>
 				</div>
 			</ChevronButton>

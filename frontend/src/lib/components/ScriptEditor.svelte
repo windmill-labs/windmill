@@ -75,6 +75,8 @@
 		return editor
 	}
 
+	let div: HTMLElement | null = null
+
 	export async function runPreview(): Promise<void> {
 		try {
 			if (previewIntervalId) {
@@ -145,6 +147,7 @@
 				previewIsLoading = false
 				loadPastPreviews()
 			}
+			div?.scroll({ top: div?.scrollHeight, behavior: 'smooth' })
 		} catch (err) {
 			console.error(err)
 		}
@@ -367,7 +370,7 @@
 				</div>
 			</div>
 		</div>
-		<div class="preview flex-1 overflow-hidden p-3">
+		<div bind:this={div} class="preview flex-1 overflow-hidden p-3">
 			{#if previewTab === 'logs'}
 				<pre
 					class="break-all relative h-full mx-2">{#if previewJob && previewJob.logs}{previewJob.logs}
