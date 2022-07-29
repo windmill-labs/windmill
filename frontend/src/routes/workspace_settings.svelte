@@ -117,16 +117,18 @@
 				<th>email</th>
 				<th>username</th>
 				<th>role</th>
-				<th>run time (2w)</th>
+				<th colspan=3>jobs &amp; flows (<abbr title="past two weeks">2w</abbr>)</th>
 			</tr>
 			<tbody slot="body">
 				{#if filteredUsers && users}
-					{#each userFilter === '' ? users : filteredUsers as { email, username, is_admin, jobs_duration_ms }}
+					{#each userFilter === '' ? users : filteredUsers as { email, username, is_admin, usage }}
 						<tr class="border">
 							<td>{email}</td>
 							<td>{username}</td>
 							<td>{is_admin ? 'admin' : 'user'}</td>
-							<td>{msToSec(jobs_duration_ms)}s</td>
+							<td>{usage.jobs}</td>
+							<td>{usage.flows}</td>
+							<td>{msToSec(usage.duration_ms)}s</td>
 							<td
 								><button
 									class="ml-2 text-red-500"

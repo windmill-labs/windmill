@@ -3441,7 +3441,7 @@ components:
           items:
             type: string
         job_duration_ms:
-          type: integer
+          $ref: "#/components/schemas/Usage"
       required:
         - email
         - username
@@ -3450,6 +3450,16 @@ components:
         - created_at
         - operator
         - disabled
+
+    Usage:
+      type: object
+      properties:
+        duration_ms:
+          type: integer
+        jobs:
+          type: integer
+        flows:
+          type: integer
 
     Login:
       type: object
