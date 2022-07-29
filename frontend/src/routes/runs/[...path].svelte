@@ -9,7 +9,14 @@
 <script lang="ts">
 	import { onDestroy } from 'svelte'
 	import { JobService, Job, CompletedJob } from '$lib/gen'
-	import { displayDate, displayDaysAgo, forLater, setQuery, truncateHash, msToSec } from '$lib/utils'
+	import {
+		displayDate,
+		displayDaysAgo,
+		forLater,
+		setQuery,
+		truncateHash,
+		msToSec
+	} from '$lib/utils'
 	import Icon from 'svelte-awesome'
 	import { check } from 'svelte-awesome/icons'
 	import {
@@ -322,7 +329,8 @@ the bearer token they use has less privilege."
 												href={`/schedule/add?edit=${job.schedule_path}`}>{job.schedule_path}</a
 											></span
 										>
-									{:else if job && job.parent_job}
+									{/if}
+									{#if job && job.parent_job}
 										{#if job.is_flow_step}
 											<Icon class="text-gray-700" data={faWind} scale={SMALL_ICON_SCALE} /><span
 												class="mx-2"
