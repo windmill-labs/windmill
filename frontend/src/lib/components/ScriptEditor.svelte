@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { JobService, Job, CompletedJob, VariableService, ScriptService } from '$lib/gen'
+	import { JobService, Job, CompletedJob } from '$lib/gen'
 	import { emptySchema, displayDate } from '$lib/utils'
 	import type { Schema } from '$lib/common'
 	import { fade } from 'svelte/transition'
@@ -9,7 +9,6 @@
 		faChevronDown,
 		faChevronUp,
 		faExclamationTriangle,
-		faMagic,
 		faSpinner,
 		faTimes
 	} from '@fortawesome/free-solid-svg-icons'
@@ -30,7 +29,9 @@
 	import type { Preview } from '$lib/gen/models/Preview'
 	import EditorBar from './EditorBar.svelte'
 	import { Highlight } from 'svelte-highlight'
-	import { json, python, typescript } from 'svelte-highlight/languages'
+	import typescript from 'svelte-highlight/languages/typescript'
+	import python from 'svelte-highlight/languages/python'
+	import json from 'svelte-highlight/languages/json'
 
 	// Exported
 	export let schema: Schema = emptySchema()
@@ -432,7 +433,7 @@
 						<th class="text-xs">logs</th>
 					</tr>
 					<tbody slot="body">
-						{#each pastPreviews as { id, created_at, success, result, logs }}
+						{#each pastPreviews as { id, created_at, success, result }}
 							<tr class="">
 								<td class="text-xs"
 									><a class="pr-3" href="/run/{id}" target="_blank">{id.substring(30)}</a></td

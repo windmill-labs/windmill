@@ -21,10 +21,9 @@
 	import { onMount } from 'svelte'
 	import Icon from 'svelte-awesome'
 	import '../app.css'
-	import { page } from '$app/stores'
 	import { OpenAPI } from '$lib/gen'
 	import { superadmin, userStore, usersWorkspaceStore, workspaceStore } from '$lib/stores'
-	import { clickOutside, sendUserToast, sleep } from '$lib/utils'
+	import { clickOutside } from '$lib/utils'
 	import { logout } from '$lib/logout'
 	import { goto } from '$app/navigation'
 

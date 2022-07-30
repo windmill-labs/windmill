@@ -8,6 +8,7 @@
 	import { sendUserToast } from '$lib/utils'
 	import { SvelteToast } from '@zerodevx/svelte-toast'
 	import { onMount } from 'svelte'
+	import github from 'svelte-highlight/styles/github'
 
 	// Default toast options
 	const toastOptions = {
@@ -92,6 +93,10 @@
 		}
 	})
 </script>
+
+<svelte:head>
+	{@html github}
+</svelte:head>
 
 <slot />
 <SvelteToast options={toastOptions} />

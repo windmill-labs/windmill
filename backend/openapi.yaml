@@ -3423,7 +3423,7 @@ components:
           type: array
           items:
             type: string
-        job_duration_ms:
+        usage:
           $ref: "#/components/schemas/Usage"
       required:
         - email
@@ -4050,6 +4050,3 @@ components:
 
       required:
         - access_token
-        - expires_in
-        - refresh_token
-        - scope

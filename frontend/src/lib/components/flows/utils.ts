@@ -1,5 +1,5 @@
 import type { Schema } from '$lib/common'
-import { FlowModuleValue, InputTransform, type Flow, type FlowModule } from '$lib/gen'
+import { type FlowModuleValue, InputTransform, type Flow, type FlowModule, RawScript } from '$lib/gen'
 import { inferArgs } from '$lib/infer'
 import { loadSchema } from '$lib/scripts'
 import { emptySchema, getScriptByPath, schemaToObject } from '$lib/utils'
@@ -32,7 +32,7 @@ export function flowToMode(flow: Flow | any, mode: FlowMode): Flow {
 			newFlow.value.modules.push({
 				input_transform: oldModules[0].input_transform,
 				value: {
-					type: FlowModuleValue.type.FORLOOPFLOW,
+					type: 'forloopflow',
 					iterator: { type: InputTransform.type.JAVASCRIPT, expr: 'result.res1' },
 					value: {
 						modules: oldModules
@@ -60,14 +60,14 @@ export function getTypeAsString(arg: any): string {
 
 export async function getFirstStepSchema(flow: Flow): Promise<Schema> {
 	const [firstModule] = flow.value.modules
-	if (firstModule.value.type === FlowModuleValue.type.RAWSCRIPT) {
+	if (firstModule.value.type === 'rawscript') {
 		const { language, content } = firstModule.value
 		if (language && content) {
 			const schema = emptySchema()
 			await inferArgs(language, content, schema)
 			return schema
 		}
-	} else if (firstModule.value.path) {
+	} else if (firstModule.value.type == 'script') {
 		return await loadSchema(firstModule.value.path)
 	}
 	return emptySchema()
@@ -77,8 +77,8 @@ export async function createInlineScriptModuleFromPath(path: string): Promise<Fl
 	const { content, language } = await getScriptByPath(path)
 
 	return {
-		type: FlowModuleValue.type.RAWSCRIPT,
-		language: language as FlowModuleValue.language,
+		type: 'rawscript',
+		language: language as RawScript.language,
 		content: content,
 		path
 	}
@@ -97,15 +97,15 @@ export async function loadSchemaFromModule(module: FlowModule): Promise<{
 	input_transform: Record<string, InputTransform>
 	schema: Schema
 }> {
-	const isRaw = module?.value.type === FlowModuleValue.type.RAWSCRIPT
+	const mod = module.value
 
-	if (isRaw || Boolean(module.value.path)) {
+	if (mod.type == 'rawscript' || mod.type === 'script') {
 		let schema: Schema
-		if (isRaw) {
+		if (mod.type === 'rawscript') {
 			schema = emptySchema()
-			await inferArgs(module.value.language!, module.value.content!, schema)
+			await inferArgs(mod.language!, mod.content!, schema)
 		} else {
-			schema = await loadSchema(module.value.path!)
+			schema = await loadSchema(mod.path!)
 		}
 
 		const keys = Object.keys(schema?.properties ?? {})

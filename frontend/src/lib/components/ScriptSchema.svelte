@@ -7,7 +7,6 @@
 
 	import Highlight from 'svelte-highlight'
 	import json from 'svelte-highlight/languages/json'
-	import github from 'svelte-highlight/styles/github'
 	import SvelteMarkdown from 'svelte-markdown'
 
 	export let schema: Schema
@@ -20,10 +19,6 @@
 		schema = newSchema
 	}
 </script>
-
-<svelte:head>
-	{@html github}
-</svelte:head>
 
 <div class="w-full">
 	<PageHeader title="UI customisation" />

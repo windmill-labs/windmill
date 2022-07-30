@@ -7,3 +7,11 @@ declare namespace App {
         title: string?
     }
 }
+
+declare var __pkg__: { version: string }
+
+declare module 'svelte-highlight/languages/json'
+declare module 'svelte-highlight/languages/python'
+declare module 'svelte-highlight/languages/typescript'
+declare module 'svelte-highlight/styles/github'
+declare module 'svelte-split-pane'

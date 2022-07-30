@@ -1,8 +1,8 @@
 <script lang="ts">
-	import { FlowModuleValue, type FlowModule } from '$lib/gen'
+	import { type FlowModule, RawScript } from '$lib/gen'
 	import { previewResults } from '$lib/stores'
 	import { buildExtraLib, objectToTsType, schemaToTsType } from '$lib/utils'
-	import { faChevronDown, faChevronUp, faRobot } from '@fortawesome/free-solid-svg-icons'
+	import { faChevronDown, faChevronUp } from '@fortawesome/free-solid-svg-icons'
 	import Icon from 'svelte-awesome'
 	import Editor from './Editor.svelte'
 	import EditorBar from './EditorBar.svelte'
@@ -34,7 +34,7 @@
 	let bigEditor = false
 
 	$: schema = $schemasStore[i]
-	$: shouldPick = mod.value.path === '' && mod.value.language === undefined
+	$: shouldPick = 'path' in mod.value && mod.value.path === '' && !('language' in mod.value)
 	$: pickableProperties = getPickableProperties($flowStore?.schema, args, $previewResults, mode, i)
 	$: extraLib = buildExtraLib(
 		schemaToTsType($flowStore?.schema),
@@ -73,13 +73,13 @@
 							>
 						</h3>{/if}
 					<p>
-						{#if mod.value.path}
+						{#if 'path' in mod.value && mod.value.path}
 							{mod.value.path}
 						{/if}
-						{#if mod.value.language}
+						{#if 'language' in mod.value && mod.value.language}
 							Inline {mod.value.language}
 						{/if}
-						{#if !mod.value.path && !mod.value.language}
+						{#if !('path' in mod.value) && !('language' in mod.value)}
 							Select a script
 						{/if}
 					</p>
@@ -96,7 +96,7 @@
 						on:new={(e) => createInlineScriptModule(e.detail.language, i, mode)}
 					/>
 				{/if}
-				{#if mod.value.type === FlowModuleValue.type.RAWSCRIPT}
+				{#if mod.value.type === 'rawscript'}
 					<div class="p-1 overflow-hidden">
 						<EditorBar {editor} {websocketAlive} lang={mod.value.language ?? 'deno'} />
 					</div>
@@ -106,7 +106,7 @@
 							bind:this={editor}
 							class="{bigEditor ? 'h-2/3' : 'h-80'} border p-2 rounded"
 							bind:code={mod.value.content}
-							deno={mod.value.language === FlowModuleValue.language.DENO}
+							deno={mod.value.language === RawScript.language.DENO}
 							automaticLayout={true}
 							on:blur={() => loadSchema(i)}
 							formatAction={() => loadSchema(i)}

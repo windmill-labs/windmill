@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { goto } from '$app/navigation'
 	import { page } from '$app/stores'
-	import { sendUserToast, sleep } from '$lib/utils'
+	import { sendUserToast } from '$lib/utils'
 	import { onMount } from 'svelte'
 	import { UserService } from '$lib/gen'
 	import CenteredModal from '$lib/components/CenteredModal.svelte'

@@ -5,7 +5,7 @@
 	import Icon from 'svelte-awesome'
 	import { check } from 'svelte-awesome/icons'
 
-	import { CompletedJob, FlowModuleValue, FlowStatusModule, JobService, QueuedJob } from '$lib/gen'
+	import { CompletedJob, FlowStatusModule, JobService, QueuedJob } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import JobStatus from './JobStatus.svelte'
 	import FlowJobResult from './FlowJobResult.svelte'
@@ -142,7 +142,7 @@
 						<div class="min-w-0 flex-1 pt-1.5 flex justify-between space-x-4 w-full">
 							<div class="w-full">
 								<p class="text-sm text-gray-500">
-									{#if mod.value.type == FlowModuleValue.type.SCRIPT}
+									{#if mod.value.type == 'script'}
 										Script at path <a
 											target="_blank"
 											href={scriptPathToHref(mod.value.path ?? '')}

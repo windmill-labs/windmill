@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { ScriptService, FlowService, Script } from '$lib/gen'
+	import { ScriptService, FlowService } from '$lib/gen'
 
 	import Icon from 'svelte-awesome'
 	import { faSearch } from '@fortawesome/free-solid-svg-icons'
@@ -8,9 +8,9 @@
 	import ItemPicker from './ItemPicker.svelte'
 	import Modal from './Modal.svelte'
 	import { Highlight } from 'svelte-highlight'
-	import { python, typescript } from 'svelte-highlight/languages'
+	import typescript from 'svelte-highlight/languages/typescript'
+	import python from 'svelte-highlight/languages/python'
 
-	import github from 'svelte-highlight/styles/github'
 	import { getScriptByPath } from '$lib/utils'
 	import RadioButtonV3 from './RadioButtonV3.svelte'
 
@@ -47,10 +47,6 @@
 		}
 	}
 </script>
-
-<svelte:head>
-	{@html github}
-</svelte:head>
 
 <ItemPicker
 	bind:this={itemPicker}

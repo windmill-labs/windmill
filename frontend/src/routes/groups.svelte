@@ -36,8 +36,8 @@
 	}
 
 	function handleKeyUp(event: KeyboardEvent) {
-		const key = event.key || event.keyCode
-		if (key === 13 || key === 'Enter') {
+		const key = event.key
+		if (key === 'Enter') {
 			event.preventDefault()
 			addGroup()
 		}

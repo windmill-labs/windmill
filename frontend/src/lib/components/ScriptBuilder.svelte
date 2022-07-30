@@ -208,10 +208,11 @@
 					rows="1"
 				/>
 			</label>
-			<label class="block ">
+			<label class="block" for="inp">
 				<span class="text-gray-700"
 					>Description<Required required={false} detail="accept markdown formatting" />
 					<textarea
+						id="inp"
 						bind:value={script.description}
 						class="
 					mt-1

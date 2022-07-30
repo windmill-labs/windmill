@@ -1,8 +1,8 @@
 <script lang="ts">
 	import { goto } from '$app/navigation'
 	import { page } from '$app/stores'
-	import { FlowService, ScheduleService, ScriptService, type Flow } from '$lib/gen'
-	import { clearPreviewResults, hubScripts, workspaceStore } from '$lib/stores'
+	import { FlowService, ScheduleService, type Flow } from '$lib/gen'
+	import { clearPreviewResults, workspaceStore } from '$lib/stores'
 	import { formatCron, loadHubScripts, sendUserToast, setQueryWithoutLoad } from '$lib/utils'
 	import { onMount } from 'svelte'
 	import { OFFSET } from './CronInput.svelte'

@@ -32,7 +32,6 @@
 	} from '@fortawesome/free-solid-svg-icons'
 	import { page } from '$app/stores'
 	import { sendUserToast } from '$lib/utils'
-	import { goto } from '$app/navigation'
 	import PageHeader from '$lib/components/PageHeader.svelte'
 	import { workspaceStore } from '$lib/stores'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
@@ -73,7 +72,7 @@
 		}
 	}
 
-	$: $workspaceStore && loadJobs(createdBefore, success, isSkipped, jobKinds)
+	$: ($workspaceStore && loadJobs(createdBefore)) || (success && isSkipped && jobKinds)
 
 	const SMALL_ICON_SCALE = 0.7
 
@@ -103,12 +102,7 @@
 		})
 	}
 
-	async function loadJobs(
-		createdBefore: string | undefined,
-		success: boolean | undefined,
-		isSkipped: boolean | undefined,
-		jobKinds: string | undefined
-	): Promise<void> {
+	async function loadJobs(createdBefore: string | undefined): Promise<void> {
 		try {
 			const newJobs = await fetchJobs(createdBefore, undefined)
 			showOlderJobs = newJobs.length === jobsPerPage
@@ -146,7 +140,8 @@
 
 	$: {
 		if ($workspaceStore) {
-			loadJobs(createdBefore, success, isSkipped, jobKinds)
+			loadJobs(createdBefore)
+			success && isSkipped && jobKinds
 			if (intervalId) {
 				clearInterval(intervalId)
 			}
