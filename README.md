@@ -31,6 +31,12 @@ You can show your support for the project by starring this repo.
 
 ---
 
+If you would like to run this in production self-hosted, or know someone that
+would, Windmill would gladly help you to achieve it and more. If interested,
+send an email to ruben@windmill.dev (founder and creator of Windmill).
+
+---
+
 # Windmill
 
 <p align="center">
