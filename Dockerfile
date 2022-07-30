@@ -32,8 +32,8 @@ RUN mkdir /backend
 COPY /backend/openapi.yaml /backend/openapi.yaml
 COPY /openflow.openapi.yaml /openflow.openapi.yaml
 RUN npm run generate-backend-client
-RUN npm run check
 RUN npm run build
+RUN npm run check
 
 FROM rust:slim-buster as builder
 
