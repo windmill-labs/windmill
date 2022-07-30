@@ -7,7 +7,7 @@
 </script>
 
 <script lang="ts">
-	import { FlowModuleValue, FlowService, type Flow } from '$lib/gen'
+	import { FlowService, type Flow } from '$lib/gen'
 
 	import { page } from '$app/stores'
 	import FlowBuilder from '$lib/components/FlowBuilder.svelte'

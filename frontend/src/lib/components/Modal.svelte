@@ -20,8 +20,8 @@
 	}
 
 	function handleKeyUp(event: KeyboardEvent): void {
-		const key = event.key || event.keyCode
-		if (key === 27 || key === 'Escape' || key === 'Esc') {
+		const key = event.key
+		if (key === 'Escape' || key === 'Esc') {
 			if (open) {
 				event.preventDefault()
 				closeModal()

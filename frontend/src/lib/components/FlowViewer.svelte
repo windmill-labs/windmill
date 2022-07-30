@@ -6,8 +6,7 @@
 	import python from 'svelte-highlight/languages/python'
 	import typescript from 'svelte-highlight/languages/typescript'
 
-	import { FlowModuleValue, type FlowValue } from '$lib/gen'
-	import github from 'svelte-highlight/styles/github'
+	import type { FlowValue } from '$lib/gen'
 	import { slide } from 'svelte/transition'
 	import Tabs from './Tabs.svelte'
 	import SchemaViewer from './SchemaViewer.svelte'
@@ -31,11 +30,11 @@
 
 	export let tab: 'ui' | 'json' | 'schema' = 'ui'
 	let open: { [id: number]: boolean } = {}
-</script>
 
-<svelte:head>
-	{@html github}
-</svelte:head>
+	function toAny(x: unknown): any {
+		return x as any
+	}
+</script>
 
 {#if !embedded}
 	<Tabs
@@ -59,12 +58,14 @@
 						<FieldHeader
 							label={inp}
 							required={flow.schema.required?.includes(inp)}
-							type={v?.type}
-							contentEncoding={v?.contentEncoding}
-							format={v?.format}
-							itemsType={v?.itemsType}
+							type={toAny(v)?.type}
+							contentEncoding={toAny(v)?.contentEncoding}
+							format={toAny(v)?.format}
+							itemsType={toAny(v)?.itemsType}
 						/><span class="ml-4 mt-2 text-xs"
-							>{v.default != undefined ? 'default: ' + JSON.stringify(v.default) : ''}</span
+							>{toAny(v)?.default != undefined
+								? 'default: ' + JSON.stringify(toAny(v)?.default)
+								: ''}</span
 						>
 					</li>
 				{/each}
@@ -98,13 +99,13 @@
 							<div class="min-w-0 flex-1 pt-1.5 flex justify-between space-x-4 w-full">
 								<div class="w-full">
 									<p class="text-sm text-gray-500">
-										{#if mod?.value?.type == FlowModuleValue.type.SCRIPT}
+										{#if mod?.value?.type == 'script'}
 											Script at path <a
 												target="_blank"
 												href={scriptPathToHref(mod?.value?.path ?? '')}
 												class="font-medium text-gray-900">{mod?.value?.path}</a
 											>
-										{:else if mod?.value?.type == FlowModuleValue.type.RAWSCRIPT}
+										{:else if mod?.value?.type == 'rawscript'}
 											<button
 												on:click={() => (open[i] = !open[i])}
 												class="mb-2 underline text-black"
@@ -120,9 +121,9 @@
 													/>
 												</div>
 											{/if}
-										{:else if mod?.value?.type == FlowModuleValue.type.FLOW}
+										{:else if mod?.value?.type == 'flow'}
 											Flow at path {mod?.value?.path}
-										{:else if mod?.value?.type == FlowModuleValue.type.FORLOOPFLOW}
+										{:else if mod?.value?.type == 'forloopflow'}
 											For loop over step {i}'s result':
 											<svelte:self flow={mod?.value} embedded={true} />
 										{/if}

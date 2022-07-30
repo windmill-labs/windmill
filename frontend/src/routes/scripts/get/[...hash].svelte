@@ -30,9 +30,9 @@
 		faGlobe
 	} from '@fortawesome/free-solid-svg-icons'
 	import Highlight from 'svelte-highlight'
-	import { typescript, python } from 'svelte-highlight/languages'
+	import typescript from 'svelte-highlight/languages/typescript'
+	import python from 'svelte-highlight/languages/python'
 
-	import github from 'svelte-highlight/styles/github'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import ShareModal from '$lib/components/ShareModal.svelte'
 	import { userStore, workspaceStore } from '$lib/stores'
@@ -101,7 +101,7 @@
 			const script_by_path = await ScriptService.getScriptByPath({
 				workspace: $workspaceStore!,
 				path: script.path
-			}).catch((e) => console.error('this script has no non-archived version'))
+			}).catch((_) => console.error('this script has no non-archived version'))
 			topHash = script_by_path?.hash
 		} else {
 			topHash = undefined
@@ -117,10 +117,6 @@
 		intervalId && clearInterval(intervalId)
 	})
 </script>
-
-<svelte:head>
-	{@html github}
-</svelte:head>
 
 <CenteredPage>
 	<div class="flex flex-row justify-between">

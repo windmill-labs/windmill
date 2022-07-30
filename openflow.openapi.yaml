@@ -77,6 +77,67 @@ components:
           type: string
 
     FlowModuleValue:
+      oneOf:
+        - $ref: "#/components/schemas/RawScript"
+        - $ref: "#/components/schemas/PathScript"
+        - $ref: "#/components/schemas/ForloopFlow"
+        - $ref: "#/components/schemas/PathFlow"
+      discriminator:
+        propertyName: type
+        mapping:
+          rawscript: "#/components/schemas/RawScript"
+          script: "#/components/schemas/PathScript"
+          forloopflow: "#/components/schemas/ForloopFlow"
+          flow: "#/components/schemas/PathFlow"
+
+      required:
+        - type
+
+    RawScript:
+      type: object
+      properties:
+        content:
+          type: string
+        language:
+          type: string
+          enum:
+            - deno
+            - python3
+        path:
+          type: string
+        type:
+          type: string
+      required:
+        - type
+        - content
+        - language
+
+    PathScript:
+      type: object
+      properties:
+        path:
+          type: string
+        type:
+          type: string
+          enum:
+            - script
+      required:
+        - type
+        - path
+
+    PathFlow:
+      type: object
+      properties:
+        path:
+          type: string
+        type:
+          type: string
+          enum:
+            - flow
+      required:
+        - type
+
+    ForloopFlow:
       type: object
       properties:
         value:
@@ -85,23 +146,14 @@ components:
           $ref: "#/components/schemas/InputTransform"
         skip_failures:
           type: boolean
-        path:
-          type: string
-        content:
-          type: string
-        language:
-          type: string
-          enum:
-            - deno
-            - python3
         type:
           type: string
           enum:
-            - script
-            - flow
-            - rawscript
             - forloopflow
       required:
+        - value
+        - iterator
+        - skip_failures
         - type
 
     FlowStatus:

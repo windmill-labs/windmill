@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { FlowModuleValue } from '$lib/gen/models/FlowModuleValue'
+	import { RawScript } from '$lib/gen'
 
 	import { faCode } from '@fortawesome/free-solid-svg-icons'
 	import { createEventDispatcher } from 'svelte'
@@ -19,13 +19,13 @@
 		label="New Typescript {isTrigger ? 'trigger ' : ''}script (Deno)"
 		icon={faCode}
 		iconColor="text-blue-800"
-		on:click={() => dispatch('new', { language: FlowModuleValue.language.DENO })}
+		on:click={() => dispatch('new', { language: RawScript.language.DENO })}
 	/>
 	<FlowScriptPicker
 		disabled={isTrigger}
 		label="New Python {isTrigger ? 'trigger ' : ''}script (3.10)"
 		icon={faCode}
 		iconColor="text-yellow-500"
-		on:click={() => dispatch('new', { language: FlowModuleValue.language.PYTHON3 })}
+		on:click={() => dispatch('new', { language: RawScript.language.PYTHON3 })}
 	/>
 </div>

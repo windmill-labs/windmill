@@ -49,7 +49,6 @@
 	import ArgInput from './ArgInput.svelte'
 	import StringTypeNarrowing from './StringTypeNarrowing.svelte'
 	import Required from './Required.svelte'
-	import ResourceTypePicker from './ResourceTypePicker.svelte'
 	import ObjectTypeNarrowing from './ObjectTypeNarrowing.svelte'
 
 	export let property: ModalSchemaProperty = DEFAULT_PROPERTY

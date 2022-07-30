@@ -1,6 +1,5 @@
 <script lang="ts">
 	import { Highlight } from 'svelte-highlight'
-	import github from 'svelte-highlight/styles/github'
 	import { json } from 'svelte-highlight/languages'
 	import TableCustom from './TableCustom.svelte'
 	import { truncate } from '$lib/utils'
@@ -55,9 +54,6 @@
 	}
 </script>
 
-<svelte:head>
-	{@html github}
-</svelte:head>
 {#if result}
 	{#if Object.keys(result).length > 0}<div>
 			The result keys are: <b>{Object.keys(result).join(', ')}</b>

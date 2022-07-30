@@ -41,8 +41,7 @@
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import TableCustom from '$lib/components/TableCustom.svelte'
 	import { Highlight } from 'svelte-highlight'
-	import { typescript } from 'svelte-highlight/languages'
-	import github from 'svelte-highlight/styles/github'
+	import { typescript } from 'svelte-highlight/languages/typescript'
 
 	type Tab = 'all' | 'personal' | 'groups' | 'shared' | 'examples' | 'hub'
 	type Section = [string, ScriptW[]]
@@ -169,10 +168,6 @@
 		}
 	}
 </script>
-
-<svelte:head>
-	{@html github}
-</svelte:head>
 
 <Modal bind:this={codeViewer}>
 	<div slot="title">{codeViewerPath}</div>

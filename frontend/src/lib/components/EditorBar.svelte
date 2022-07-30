@@ -11,7 +11,6 @@
 	import ResourceEditor from './ResourceEditor.svelte'
 	import { Highlight } from 'svelte-highlight'
 	import { python, typescript } from 'svelte-highlight/languages'
-	import github from 'svelte-highlight/styles/github'
 	import Modal from './Modal.svelte'
 	import type Editor from './Editor.svelte'
 
@@ -54,10 +53,6 @@
 		return workspaceScripts.concat(hubScripts_)
 	}
 </script>
-
-<svelte:head>
-	{@html github}
-</svelte:head>
 
 <ItemPicker
 	bind:this={scriptPicker}

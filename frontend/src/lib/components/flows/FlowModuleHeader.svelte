@@ -1,11 +1,11 @@
 <script lang="ts">
-	import { FlowModuleValue, Script, type FlowModule } from '$lib/gen'
+	import type { FlowModule } from '$lib/gen'
 	import { getScriptByPath } from '$lib/utils'
 	import { faCode, faCodeBranch, faSave, faTrashAlt } from '@fortawesome/free-solid-svg-icons'
 	import Icon from 'svelte-awesome'
 	import { Highlight } from 'svelte-highlight'
-	import { python, typescript } from 'svelte-highlight/languages'
-	import github from 'svelte-highlight/styles/github'
+	import typescript from 'svelte-highlight/languages/typescript'
+	import python from 'svelte-highlight/languages/python'
 	import Modal from '../Modal.svelte'
 	import { createScriptFromInlineScript, fork, removeModule } from './flowStore'
 	import { scrollIntoView } from './utils'
@@ -20,10 +20,14 @@
 	let modalViewerLanguage: 'deno' | 'python3' = 'deno'
 
 	async function viewCode() {
-		const { content, language } = await getScriptByPath(mod.value.path!)
-		modalViewerContent = content
-		modalViewerLanguage = language
-		modalViewer.openModal()
+		if (mod.value.type == 'script') {
+			const { content, language } = await getScriptByPath(mod.value.path!)
+			modalViewerContent = content
+			modalViewerLanguage = language
+			modalViewer.openModal()
+		} else {
+			throw Error('Not a script')
+		}
 	}
 
 	function scrollTo({ target }) {
@@ -32,10 +36,6 @@
 	}
 </script>
 
-<svelte:head>
-	{@html github}
-</svelte:head>
-
 <div class="flex flex-row w-full space-x-2">
 	<slot />
 	<a href="#module-{i}" class="grow" on:click={() => (open = i)} on:click|preventDefault={scrollTo}
@@ -43,7 +43,7 @@
 	>
 
 	<div class="flex flex-row space-x-2">
-		{#if mod.value.type === FlowModuleValue.type.SCRIPT && !shouldPick}
+		{#if mod.value.type === 'script' && !shouldPick}
 			<button
 				type="button"
 				on:click={() => {
@@ -61,7 +61,7 @@
 			</button>
 		{/if}
 
-		{#if mod.value.type === FlowModuleValue.type.RAWSCRIPT && !shouldPick}
+		{#if mod.value.type === 'rawscript' && !shouldPick}
 			<button
 				type="button"
 				on:click={() => createScriptFromInlineScript(i)}
@@ -86,7 +86,7 @@
 </div>
 
 <Modal bind:this={modalViewer}>
-	<div slot="title">Script {mod?.value.path}</div>
+	<div slot="title">Script {'path' in mod?.value ? mod?.value.path : ''}</div>
 	<div slot="content">
 		{#if modalViewerLanguage === 'python3'}
 			<Highlight language={python} code={modalViewerContent} />

@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/explicit-module-boundary-types */
 import { goto } from '$app/navigation'
-import { FlowService, Script, ScriptService, type Flow, type User } from '$lib/gen'
+import { FlowService, ScriptService, type Flow, type User } from '$lib/gen'
 import { toast } from '@zerodevx/svelte-toast'
 import { get } from 'svelte/store'
 import type { Schema } from './common'
@@ -48,9 +48,9 @@ export function displayDate(dateString: string | undefined): string {
 	}
 }
 
-export function msToSec(ms: integer | undefined): string {
-	if (ms === undefined) return '?';
-	return (ms / 1000).toLocaleString(undefined, {maximumFractionDigits: 3});
+export function msToSec(ms: number | undefined): string {
+	if (ms === undefined) return '?'
+	return (ms / 1000).toLocaleString(undefined, { maximumFractionDigits: 3 })
 }
 
 export function getToday() {
@@ -302,7 +302,7 @@ export function step(n: number): any;
 /**
 * flow input as an object
 */
-export const flow_input: ${previousResultType};
+export const flow_input: ${flowInput};
 
 /**
 * previous result as an object

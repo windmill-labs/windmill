@@ -10,16 +10,9 @@
 	import { page } from '$app/stores'
 	import { JobService, Job } from '$lib/gen'
 	import { onDestroy } from 'svelte'
-	import {
-		canWrite,
-		displayDaysAgo,
-		forLater,
-		sendUserToast,
-		truncate,
-		truncateHash
-	} from '$lib/utils'
+	import { canWrite, displayDaysAgo, forLater, sendUserToast, truncateHash } from '$lib/utils'
 	import Icon from 'svelte-awesome'
-	import { check, minus } from 'svelte-awesome/icons'
+	import { check } from 'svelte-awesome/icons'
 	import {
 		faBolt,
 		faCircle,
@@ -41,8 +34,8 @@
 	import DisplayResult from '$lib/components/DisplayResult.svelte'
 
 	import Highlight from 'svelte-highlight'
-	import { python, typescript } from 'svelte-highlight/languages'
-	import github from 'svelte-highlight/styles/github'
+	import typescript from 'svelte-highlight/languages/typescript'
+	import python from 'svelte-highlight/languages/python'
 	import { userStore, workspaceStore } from '$lib/stores'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
 	import FlowStatusViewer from '$lib/components/FlowStatusViewer.svelte'
@@ -452,10 +445,3 @@
 		</div>
 	</div>
 </CenteredPage>
-
-<svelte:head>
-	{@html github}
-</svelte:head>
-
-<style>
-</style>
