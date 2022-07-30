@@ -1,4 +1,5 @@
 openapi-deref.yaml
 dist/
 __pycache__/
-openapi.yaml.tmp
+openapi.yaml
+openflow.openapi.yaml
