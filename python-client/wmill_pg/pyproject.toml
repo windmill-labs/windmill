@@ -6,7 +6,7 @@ license = "Apache-2.0"
 homepage = "https://windmill.dev"
 documentation = "https://docs.windmill.dev"
 
-authors = ["Ruben Fiszel <ruben@rubenfiszel.com>"]
+authors = ["Ruben Fiszel <ruben@windmill.dev>"]
 
 readme = "README.md"
 packages = [
