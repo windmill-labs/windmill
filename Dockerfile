@@ -30,6 +30,7 @@ RUN npm ci
 COPY frontend .
 RUN mkdir /backend
 COPY /backend/openapi.yaml /backend/openapi.yaml
+COPY /backend/openflow.openapi.yaml /backend/openflow.openapi.yaml
 RUN npm run generate-backend-client
 RUN npm run build
 

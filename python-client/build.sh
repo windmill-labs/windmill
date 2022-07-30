@@ -2,9 +2,13 @@
 set -e
 
 #TODO: remove once openapi-python-client supports recursive values
-sed -z 's/    FlowModuleValue:\n      type: object\n      properties:\n        value:\n          $ref: "#\/components\/schemas\/FlowValue"/    FlowModuleValue:\n      type: object\n      properties:/' ../backend/openapi.yaml > openapi.yaml.tmp
+sed -z 's/    FlowModuleValue:\n      type: object\n      properties:\n        value:\n          $ref: "#\/components\/schemas\/FlowValue"/    FlowModuleValue:\n      type: object\n      properties:/' ../backend/openflow.openapi.yaml > openflow.openapi.yaml
+cp  ../backend/openapi.yaml openapi.yaml
 
 swagger-cli bundle -r openapi.yaml.tmp -o openapi-deref.yaml
+
+rm openapi.yaml && rm openflow.openapi.yaml
+
 rm -rf windmill-api/ || true
 openapi-python-client generate --config $PWD/python-gen.yaml --path openapi-deref.yaml
 
