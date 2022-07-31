@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { ScriptService, type Script } from '$lib/gen'
 
-	import { emptySchema, sendUserToast, setQueryWithoutLoad } from '$lib/utils'
+	import { emptySchema, encodeState, sendUserToast, setQueryWithoutLoad } from '$lib/utils'
 	import { onDestroy } from 'svelte'
 	import ScriptEditor from './ScriptEditor.svelte'
 	import { page } from '$app/stores'
@@ -24,9 +24,7 @@
 
 	let pathError = ''
 
-	$: {
-		setQueryWithoutLoad($page.url, 'state', btoa(JSON.stringify(script)))
-	}
+	$: setQueryWithoutLoad($page.url, 'state', encodeState(script))
 
 	$: {
 		if (script.language == 'python3') {

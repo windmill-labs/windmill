@@ -12,11 +12,11 @@
 	import { page } from '$app/stores'
 	import FlowBuilder from '$lib/components/FlowBuilder.svelte'
 	import { workspaceStore } from '$lib/stores'
-	import { emptySchema } from '$lib/utils'
+	import { decodeState, emptySchema } from '$lib/utils'
 	import { initFlow } from '$lib/components/flows/flowStore'
 
 	const initialState = $page.url.searchParams.get('state')
-	let flowLoadedFromUrl = initialState != undefined ? JSON.parse(atob(initialState)) : undefined
+	let flowLoadedFromUrl = initialState != undefined ? decodeState(initialState) : undefined
 
 	let flow: Flow = {
 		path: $page.params.path,
