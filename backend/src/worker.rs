@@ -126,13 +126,15 @@ pub async fn run_worker(
                 .err()
                 {
                     let err_string = err.to_string().clone();
-                    let _ = add_completed_job_error(
+                    let m = add_completed_job_error(
                         db,
                         &job2,
                         "Unexpected error during job execution:\n".to_string(),
                         err,
                     )
-                    .await;
+                    .await
+                    .map(|(_, m)| m)
+                    .unwrap_or_else(|_| Map::new());
 
                     {
                         let job = job2.clone();
@@ -147,8 +149,8 @@ pub async fn run_worker(
                     }
 
                     if job2.parent_job.is_some() {
-                        let _ =
-                            update_flow_status_after_job_completion(db, &job2, false, None).await;
+                        let _ = update_flow_status_after_job_completion(db, &job2, false, Some(m))
+                            .await;
                     }
                     tracing::error!(job_id = %job2.id, "Error handling job: {err_string}");
                 };
