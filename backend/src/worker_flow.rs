@@ -280,7 +280,7 @@ pub async fn update_flow_status_in_progress(
             SET flow_status = jsonb_set(flow_status, '{{modules, {step}, job}}', $1)
             WHERE id = $2 AND workspace_id = $3",
     ))
-    .bind(job_in_progress.to_string())
+    .bind(json!(job_in_progress.to_string()))
     .bind(flow)
     .bind(w_id)
     .execute(db)
