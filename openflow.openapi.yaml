@@ -111,9 +111,6 @@ components:
           forloopflow: "#/components/schemas/ForloopFlow"
           flow: "#/components/schemas/PathFlow"
 
-      required:
-        - type
-
     RawScript:
       type: object
       properties:
