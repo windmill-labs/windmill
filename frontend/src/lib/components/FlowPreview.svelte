@@ -1,6 +1,6 @@
 <script lang="ts">
 	import type { Schema } from '$lib/common'
-	import { InputTransform, Job, JobService, type Flow } from '$lib/gen'
+	import { type InputTransform, Job, JobService, type Flow } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { sendUserToast, truncateRev } from '$lib/utils'
 	import { faChevronDown, faChevronUp } from '@fortawesome/free-solid-svg-icons'
@@ -65,7 +65,7 @@
 		localFlow.schema = schemas[i]
 		stepArgs = {}
 		Object.entries(flow.value.modules[i].input_transform).forEach((x) => {
-			if (x[1].type == InputTransform.type.STATIC) {
+			if (x[1].type == 'static') {
 				stepArgs[x[0]] = x[1].value
 			}
 		})

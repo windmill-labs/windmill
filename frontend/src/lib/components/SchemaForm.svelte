@@ -1,6 +1,6 @@
 <script lang="ts">
 	import type { Schema } from '$lib/common'
-	import { InputTransform } from '$lib/gen'
+	import type { InputTransform } from '$lib/gen'
 	import { allTrue, type InputCat } from '$lib/utils'
 	import ArgInput from './ArgInput.svelte'
 	import Editor from './Editor.svelte'
@@ -27,12 +27,12 @@
 
 	$: isValid = allTrue(inputCheck) ?? false
 
-	let propertiesTypes: { [id: string]: InputTransform.type } = inputTransform
+	let propertiesTypes: { [id: string]: 'javascript' | 'static' } = inputTransform
 		? Object.keys(args).reduce((acc, key) => {
 				let type = args[key].type
-				if (type == InputTransform.type.JAVASCRIPT) {
+				if (type == 'javascript') {
 					if (codeToStaticTemplate(args[key].expr)) {
-						type = InputTransform.type.STATIC
+						type = 'static'
 					}
 				}
 				acc[key] = type
@@ -50,14 +50,11 @@
 
 		if (isCodeInjection(rawValue)) {
 			args[id].expr = getCodeInjectionExpr(rawValue, isRaw)
-			args[id].type = InputTransform.type.JAVASCRIPT
-			propertiesTypes[id] = InputTransform.type.STATIC
+			args[id].type = 'javascript'
+			propertiesTypes[id] = 'static'
 		} else {
-			if (
-				args[id].type === InputTransform.type.JAVASCRIPT &&
-				propertiesTypes[id] === InputTransform.type.STATIC
-			) {
-				args[id].type = InputTransform.type.STATIC
+			if (args[id].type === 'javascript' && propertiesTypes[id] === 'static') {
+				args[id].type = 'static'
 				if (inputCats[id] == 'number') {
 					args[id].value = Number(args[id].value)
 				}
@@ -99,7 +96,7 @@
 								type={schema.properties[argName].type}
 								itemsType={schema.properties[argName].items}
 							/>
-							{#if propertiesTypes[argName] === InputTransform.type.STATIC && args[argName].type === InputTransform.type.JAVASCRIPT}
+							{#if propertiesTypes[argName] === 'static' && args[argName].type === 'javascript'}
 								<span
 									class="bg-blue-100 text-blue-800 text-sm font-medium mr-2 px-2.5 py-0.5 rounded ml-2"
 								>
@@ -109,13 +106,13 @@
 						</div>
 						<Toggle
 							options={{
-								left: { label: '', value: InputTransform.type.STATIC },
-								right: { label: 'Raw Javascript Editor', value: InputTransform.type.JAVASCRIPT }
+								left: { label: '', value: 'static' },
+								right: { label: 'Raw Javascript Editor', value: 'javascript' }
 							}}
 							bind:value={propertiesTypes[argName]}
 							on:change={(e) => {
 								const staticTemplate = isStaticTemplate(inputCats[argName])
-								if (e.detail === InputTransform.type.JAVASCRIPT) {
+								if (e.detail === 'javascript') {
 									args[argName].expr = getDefaultExpr(
 										i ?? -1,
 										argName,
@@ -135,7 +132,7 @@
 					</div>
 					<div class="max-w-xs" />
 
-					{#if propertiesTypes[argName] === undefined || propertiesTypes[argName] === InputTransform.type.STATIC}
+					{#if propertiesTypes[argName] === undefined || propertiesTypes[argName] === 'static'}
 						<OverlayPropertyPicker
 							bind:this={overlays[argName]}
 							{pickableProperties}
@@ -170,7 +167,7 @@
 								}}
 							/>
 						</OverlayPropertyPicker>
-					{:else if propertiesTypes[argName] === InputTransform.type.JAVASCRIPT}
+					{:else if propertiesTypes[argName] === 'javascript'}
 						{#if args[argName].expr != undefined}
 							<OverlayPropertyPicker
 								bind:this={overlays[argName]}
