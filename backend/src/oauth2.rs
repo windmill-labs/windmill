@@ -106,7 +106,7 @@ pub async fn build_oauth_clients(base_url: &str) -> anyhow::Result<AllClients> {
         match serde_json::from_str::<HashMap<String, OAuthClient>>(&content) {
             Ok(clients) => clients,
             Err(e) => {
-                tracing::error!("Error while deserializing oauth.json: {e}");
+                tracing::error!("deserializing oauth.json: {e}");
                 HashMap::new()
             }
         }
@@ -279,7 +279,8 @@ async fn create_account(
         payload.refresh_token
     )
     .fetch_one(&mut tx)
-    .await?;
+    .await
+    .map_err(|e| Error::InternalErr(format!("creating account in {w_id}: {e}")))?;
     tx.commit().await?;
     Ok(id.to_string())
 }

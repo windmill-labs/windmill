@@ -191,7 +191,9 @@ async fn get_settings(
         &w_id
     )
     .fetch_one(&mut tx)
-    .await?;
+    .await
+    .map_err(|e| Error::InternalErr(format!("getting settings: {e}")))?;
+
     tx.commit().await?;
     Ok(Json(settings))
 }

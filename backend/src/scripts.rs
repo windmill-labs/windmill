@@ -619,7 +619,8 @@ async fn archive_script_by_path(
         &w_id
     )
     .fetch_one(&db)
-    .await?;
+    .await
+    .map_err(|e| Error::InternalErr(format!("archiving script in {w_id}: {e}")))?;
     audit_log(
         &mut tx,
         &authed.username,
@@ -647,7 +648,9 @@ async fn archive_script_by_hash(
     )
     .bind(&hash.0)
     .fetch_one(&mut tx)
-    .await?;
+    .await
+    .map_err(|e| Error::InternalErr(format!("archiving script in {w_id}: {e}")))?;
+
     audit_log(
         &mut tx,
         &authed.username,
@@ -679,7 +682,9 @@ async fn delete_script_by_hash(
     .bind(&hash.0)
     .bind(&w_id)
     .fetch_one(&db)
-    .await?;
+    .await
+    .map_err(|e| Error::InternalErr(format!("deleting script by hash {w_id}: {e}")))?;
+
     audit_log(
         &mut tx,
         &authed.username,

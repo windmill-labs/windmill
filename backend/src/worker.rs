@@ -927,9 +927,10 @@ async fn handle_child(
                 let canceled = sqlx::query_scalar!("SELECT canceled FROM queue WHERE id = $1", id)
                     .fetch_one(db)
                     .await
-                    .map_err(|_| tracing::error!("error getting canceled for id {}", id));
+                    .map_err(|e| tracing::error!("error getting canceled for id {}: {e}", id))
+                    .unwrap_or(false);
 
-                if canceled.unwrap_or(false) {
+                if canceled {
                     tracing::info!("killed after cancel: {}", job.id);
                     done.store(true, Ordering::Relaxed);
                 }
@@ -1008,8 +1009,8 @@ pub async fn restart_zombie_jobs_periodically(
     mut rx: tokio::sync::broadcast::Receiver<()>,
 ) {
     loop {
-        let restarted = sqlx::query_scalar!(
-            "UPDATE queue SET running = false WHERE last_ping < $1 RETURNING id",
+        let restarted = sqlx::query!(
+            "UPDATE queue SET running = false WHERE last_ping < $1 and running = true RETURNING id, workspace_id",
             chrono::Utc::now() - chrono::Duration::seconds(timeout as i64 * 2)
         )
         .fetch_all(db)
@@ -1017,8 +1018,8 @@ pub async fn restart_zombie_jobs_periodically(
         .ok()
         .unwrap_or_else(|| vec![]);
 
-        if restarted.len() > 0 {
-            tracing::info!("restarted zombie jobs {restarted:?}");
+        for r in restarted {
+            tracing::info!("restarted zombie jobs {} {}", r.id, r.workspace_id);
         }
 
         tokio::select! {

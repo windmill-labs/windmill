@@ -318,7 +318,12 @@ pub async fn get_path_for_hash<'c>(
         w_id
     )
     .fetch_one(db)
-    .await?;
+    .await
+    .map_err(|e| {
+        Error::InternalErr(format!(
+            "querying getting path for hash {hash} in {w_id}: {e}"
+        ))
+    })?;
     Ok(path)
 }
 
@@ -1036,7 +1041,10 @@ pub async fn push<'c>(
     let premium_workspace =
         sqlx::query_scalar!("SELECT premium FROM workspace WHERE id = $1", workspace_id)
             .fetch_one(&mut tx)
-            .await?;
+            .await
+            .map_err(|e| {
+                Error::InternalErr(format!("fetching if {workspace_id} is premium: {e}"))
+            })?;
 
     if !premium_workspace && std::env::var("CLOUD_HOSTED").is_ok() {
         let rate_limiting_queue = sqlx::query_scalar!(
@@ -1090,7 +1098,12 @@ pub async fn push<'c>(
                 workspace_id
             )
             .fetch_one(&mut tx)
-            .await?;
+            .await
+            .map_err(|e| {
+                Error::InternalErr(format!(
+                    "fetching language for hash {hash} in {workspace_id}: {e}"
+                ))
+            })?;
             (
                 Some(hash.0),
                 Some(path),

@@ -653,7 +653,9 @@ async fn global_whoami(
         email
     )
     .fetch_one(&db)
-    .await?;
+    .await
+    .map_err(|e| Error::InternalErr(format!("fetching global identity: {e}")))?;
+
     Ok(Json(user))
 }
 
@@ -1037,7 +1039,8 @@ async fn set_password(
         &email
     )
     .fetch_one(&mut tx)
-    .await?
+    .await
+    .map_err(|e| Error::InternalErr(format!("setting password: {e}")))?
     .unwrap_or("".to_string());
 
     if custom_type != "password".to_string() {

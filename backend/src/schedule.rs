@@ -11,7 +11,7 @@ use std::str::FromStr;
 use crate::{
     audit::{audit_log, ActionKind},
     db::{UserDB, DB},
-    error::{self, JsonResult, Result},
+    error::{self, Error, JsonResult, Result},
     jobs::{self, push, JobPayload},
     users::Authed,
     utils::{get_owner_from_path, Pagination, StripPath},
@@ -149,7 +149,8 @@ async fn create_schedule(
         ns.enabled
     )
     .fetch_one(&mut tx)
-    .await?;
+    .await
+    .map_err(|e| Error::InternalErr(format!("inserting schedule in {w_id}: {e}")))?;
 
     audit_log(
         &mut tx,
@@ -249,7 +250,8 @@ async fn edit_schedule(
         w_id,
     )
     .fetch_one(&mut tx)
-    .await?;
+    .await
+    .map_err(|e| Error::InternalErr(format!("updating schedule in {w_id}: {e}")))?;
 
     if schedule.enabled {
         tx = push_scheduled_job(tx, schedule).await?;

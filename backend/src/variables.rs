@@ -442,7 +442,9 @@ pub async fn build_crypt<'c>(
         w_id
     )
     .fetch_one(db)
-    .await?;
+    .await
+    .map_err(|e| Error::InternalErr(format!("fetching crypt key: {e}")))?;
+
     Ok(magic_crypt::new_magic_crypt!(key, 256))
 }
 
