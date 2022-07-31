@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [1.26.2](https://github.com/windmill-labs/windmill/compare/v1.26.1...v1.26.2) (2022-07-31)
+
+
+### Bug Fixes
+
+* deno api generator now supports openflow ([5b548a0](https://github.com/windmill-labs/windmill/commit/5b548a0e71669aad90343e70f3f1c9dc3a6d4baf))
+
 ## [1.26.1](https://github.com/windmill-labs/windmill/compare/v1.26.0...v1.26.1) (2022-07-31)
 
 
