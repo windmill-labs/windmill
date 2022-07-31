@@ -48,8 +48,8 @@ export function codeToStaticTemplate(code?: string): string | undefined {
 }
 export function flattenForloopFlows(flow: Flow): Flow {
 	let newFlow: Flow = JSON.parse(JSON.stringify(flow))
-	const mod = flow.value.modules[1]?.value
-	if (mod.type === 'forloopflow') {
+	const mod = newFlow.value.modules[1]?.value
+	if (mod?.type === 'forloopflow') {
 		const oldModules = mod.value?.modules ?? []
 		newFlow.value.modules = newFlow.value.modules.slice(0, 1)
 		newFlow.value.modules.push(...oldModules)
