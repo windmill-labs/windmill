@@ -1,5 +1,5 @@
 import type { Schema } from '$lib/common'
-import { type FlowModuleValue, InputTransform, type Flow, type FlowModule, RawScript } from '$lib/gen'
+import type { FlowModuleValue, InputTransform, Flow, FlowModule, RawScript } from '$lib/gen'
 import { inferArgs } from '$lib/infer'
 import { loadSchema } from '$lib/scripts'
 import { emptySchema, getScriptByPath, schemaToObject } from '$lib/utils'
@@ -7,18 +7,22 @@ import { emptySchema, getScriptByPath, schemaToObject } from '$lib/utils'
 import type { FlowMode } from './flowStore'
 
 export function flowToMode(flow: Flow | any, mode: FlowMode): Flow {
-	if (mode == 'pull') {
-		const newFlow: Flow = JSON.parse(JSON.stringify(flow))
-		newFlow.value.modules.forEach((mod) => {
-			Object.values(mod.input_transform).forEach((inp) => {
-				if (inp.type == InputTransform.type.JAVASCRIPT) {
-					inp.value = undefined
-				} else {
-					inp.expr = undefined
-
-				}
-			})
+	const newFlow: Flow = JSON.parse(JSON.stringify(flow))
+	newFlow.value.modules.forEach((mod) => {
+		Object.values(mod.input_transform).forEach((inp) => {
+			// for now we use the value for dynamic expression when done in the static editor so we have to resort to this
+			if (inp.type == 'javascript') {
+				//@ts-ignore
+				inp.value = undefined
+			} else {
+				//@ts-ignore
+				inp.expr = undefined
+			}
 		})
+	})
+
+	if (mode == 'pull') {
+
 		const triggerModule = newFlow.value.modules[0]
 		const oldModules = newFlow.value.modules.slice(1)
 
@@ -33,7 +37,7 @@ export function flowToMode(flow: Flow | any, mode: FlowMode): Flow {
 				input_transform: oldModules[0].input_transform,
 				value: {
 					type: 'forloopflow',
-					iterator: { type: InputTransform.type.JAVASCRIPT, expr: 'result.res1' },
+					iterator: { type: 'javascript', expr: 'result.res1' },
 					value: {
 						modules: oldModules
 					},
@@ -41,9 +45,8 @@ export function flowToMode(flow: Flow | any, mode: FlowMode): Flow {
 				}
 			})
 		}
-		return newFlow
 	}
-	return flow
+	return newFlow
 }
 
 

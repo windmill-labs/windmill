@@ -1,5 +1,5 @@
 import type { Schema } from '$lib/common'
-import { InputTransform, RawScript, ScriptService, type Flow, type FlowModule } from '$lib/gen'
+import { type InputTransform, RawScript, ScriptService, type Flow, type FlowModule } from '$lib/gen'
 import { initialCode } from '$lib/script_helpers'
 import { userStore, workspaceStore } from '$lib/stores'
 import { derived, get, writable } from 'svelte/store'
@@ -17,7 +17,9 @@ export function initFlow(flow: Flow) {
 	flow = flattenForloopFlows(flow)
 	flow.value.modules.forEach((mod) => {
 		Object.values(mod.input_transform).forEach((inp) => {
-			if (inp.type == InputTransform.type.JAVASCRIPT) {
+			if (inp.type == 'javascript') {				// for now we use the value for dynamic expression when done in the static editor so we have to resort to this
+
+				//@ts-ignore
 				inp.value = codeToStaticTemplate(inp.expr)
 			}
 		})

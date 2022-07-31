@@ -63,18 +63,39 @@ components:
         - value
 
     InputTransform:
+      oneOf:
+        - $ref: "#/components/schemas/StaticTransform"
+        - $ref: "#/components/schemas/JavascriptTransform"
+      discriminator:
+        propertyName: type
+        mapping:
+          static: "#/components/schemas/StaticTransform"
+          javascript: "#/components/schemas/JavascriptTransform"
+
+    StaticTransform:
       type: object
       properties:
+        value: {}
         type:
           type: string
           enum:
-            - static
             - javascript
-        step:
-          type: number
-        value: {}
+      required:
+        - expr
+        - type
+
+    JavascriptTransform:
+      type: object
+      properties:
         expr:
           type: string
+        type:
+          type: string
+          enum:
+            - javascript
+      required:
+        - expr
+        - type
 
     FlowModuleValue:
       oneOf:
