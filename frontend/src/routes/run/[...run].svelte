@@ -10,7 +10,14 @@
 	import { page } from '$app/stores'
 	import { JobService, Job } from '$lib/gen'
 	import { onDestroy } from 'svelte'
-	import { canWrite, displayDaysAgo, forLater, sendUserToast, truncateHash } from '$lib/utils'
+	import {
+		canWrite,
+		displayDaysAgo,
+		encodeState,
+		forLater,
+		sendUserToast,
+		truncateHash
+	} from '$lib/utils'
 	import Icon from 'svelte-awesome'
 	import { check } from 'svelte-awesome/icons'
 	import {
@@ -255,7 +262,7 @@
 				>
 				<a
 					href="/scripts/run/{job?.script_hash}{job?.args
-						? `?args=${encodeURIComponent(btoa(JSON.stringify(job?.args)))}`
+						? `?args=${encodeURIComponent(encodeState(job?.args))}`
 						: ''}"
 					class="default-button-secondary py-1 text-sm px-2"
 					><Icon class="text-yellow-400" data={faBolt} scale={0.6} label="Run again" /><span
@@ -280,7 +287,7 @@
 				>
 				<a
 					href="/flows/run/{job?.script_path}{job?.args
-						? `?args=${encodeURIComponent(btoa(JSON.stringify(job?.args)))}`
+						? `?args=${encodeURIComponent(encodeState(job?.args))}`
 						: ''}"
 					class="default-button-secondary py-1 text-sm px-2"
 					><Icon class="text-yellow-400" data={faBolt} scale={0.6} label="Run again" /><span

@@ -13,7 +13,7 @@
 	import { workspaceStore } from '$lib/stores'
 	import ScriptBuilder from '$lib/components/ScriptBuilder.svelte'
 	import type { Schema } from '$lib/common'
-	import { emptySchema, getScriptByPath, sendUserToast } from '$lib/utils'
+	import { decodeState, emptySchema, getScriptByPath, sendUserToast } from '$lib/utils'
 
 	// Default
 	let schema: Schema = emptySchema()
@@ -25,7 +25,7 @@
 
 	let script: Script =
 		initialState != undefined
-			? JSON.parse(atob(initialState))
+			? decodeState(initialState)
 			: {
 					hash: '',
 					path: '',

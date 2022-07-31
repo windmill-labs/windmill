@@ -205,12 +205,20 @@ export function pathIsEmpty(path: string): boolean {
 	return path == undefined || path.split('/')[2] == ''
 }
 
+export function encodeState(state: any): string {
+	return btoa(encodeURIComponent(JSON.stringify(state)))
+}
+
+export function decodeState(query: string): any {
+	return JSON.parse(decodeURIComponent(atob(query)))
+}
+
 export async function setQuery(url: URL, key: string, value: string): Promise<void> {
 	url.searchParams.set(key, value)
 	await goto(`?${url.searchParams.toString()}`)
 }
 
-export async function setQueryWithoutLoad(url: URL, key: string, value: string): Promise<void> {
+export function setQueryWithoutLoad(url: URL, key: string, value: string): void {
 	const nurl = new URL(url.toString())
 	nurl.searchParams.set(key, value)
 	history.replaceState(null, '', nurl.toString())
@@ -487,7 +495,7 @@ export function flowToHubUrl(flow: Flow): URL {
 	}
 	url.searchParams.append(
 		'flow',
-		btoa(JSON.stringify(openFlow))
+		encodeState(openFlow)
 	)
 	return url
 }

@@ -12,14 +12,14 @@
 	import FlowBuilder from '$lib/components/FlowBuilder.svelte'
 	import { initFlow, mode } from '$lib/components/flows/flowStore'
 	import { FlowService, type Flow } from '$lib/gen'
-	import { emptySchema, sendUserToast } from '$lib/utils'
+	import { decodeState, emptySchema, sendUserToast } from '$lib/utils'
 
 	const initialState = $page.url.searchParams.get('state')
 	const hubId = $page.url.searchParams.get('hub')
 
 	let flow: Flow =
 		initialState != undefined
-			? JSON.parse(atob(initialState))
+			? decodeState(initialState)
 			: {
 					path: '',
 					summary: '',
