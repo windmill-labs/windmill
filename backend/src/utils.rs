@@ -43,7 +43,8 @@ pub async fn require_super_admin<'c>(
         email.as_ref()
     )
     .fetch_one(db)
-    .await?;
+    .await
+    .map_err(|e| Error::InternalErr(format!("fetching super admin: {e}")))?;
     if !is_admin {
         Err(Error::NotAuthorized(
             "This endpoint require caller to be a super admin".to_owned(),

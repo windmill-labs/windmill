@@ -66,7 +66,8 @@ pub async fn update_flow_status_after_job_completion(
         w_id
     )
     .fetch_one(&mut tx)
-    .await?
+    .await
+    .map_err(|e| Error::InternalErr(format!("fetching flow status: {e}")))?
     .ok_or_else(|| Error::InternalErr(format!("requiring a previous status")))?;
 
     let old_status = serde_json::from_value::<FlowStatus>(old_status_json)
@@ -125,11 +126,7 @@ pub async fn update_flow_status_after_job_completion(
         .bind(flow)
         .fetch_one(&mut tx)
         .await
-        .map_err(|e| {
-            Error::InternalErr(format!(
-                "error during retrieval of stop_early_expr from state: {e}"
-            ))
-        })?;
+        .map_err(|e| Error::InternalErr(format!("retrieval of stop_early_expr from state: {e}")))?;
 
     tracing::debug!("UPDATE: {:?}", new_status);
 
@@ -297,7 +294,8 @@ pub async fn get_step_of_flow_status(db: &DB, id: Uuid) -> error::Result<i32> {
         id
     )
     .fetch_one(db)
-    .await?
+    .await
+    .map_err(|e| Error::InternalErr(format!("fetching step flow status: {e}")))?
     .ok_or_else(|| Error::InternalErr(format!("not found step")))?;
     Ok(r)
 }

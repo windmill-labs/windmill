@@ -45,7 +45,7 @@ pub enum Error {
     HexErr(#[from] hex::FromHexError),
     #[error("Migrating database: {0}")]
     DatabaseMigration(#[from] MigrateError),
-    #[error("{0}")]
+    #[error(transparent)]
     Anyhow(#[from] anyhow::Error),
 }
 
