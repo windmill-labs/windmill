@@ -139,6 +139,7 @@ pub async fn run_worker(
                     {
                         let job = job2.clone();
                         let _ = postprocess_queued_job(
+                            job.is_flow_step,
                             job.schedule_path,
                             job.script_path,
                             &job2.workspace_id,
@@ -249,8 +250,15 @@ async fn handle_queued_job(
                 }
             };
 
-            let _ =
-                postprocess_queued_job(job.schedule_path, job.script_path, &w_id, job_id, db).await;
+            let _ = postprocess_queued_job(
+                job.is_flow_step,
+                job.schedule_path,
+                job.script_path,
+                &w_id,
+                job_id,
+                db,
+            )
+            .await;
         }
     }
     Ok(())
