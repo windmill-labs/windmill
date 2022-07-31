@@ -13,6 +13,8 @@
 	export let job: QueuedJob | CompletedJob
 	export let jobs: (CompletedJob | CompletedJob[] | undefined)[] = []
 
+	let lastJobid: string | undefined
+
 	let forloop_selected = ''
 
 	let logs: { [key: number]: string } = {}
@@ -35,6 +37,10 @@
 					}
 				}
 			}
+		}
+		if (job.id != lastJobid) {
+			lastJobid = job.id
+			jobs = []
 		}
 		job?.flow_status?.modules?.forEach(async (x, i) => {
 			if (
