@@ -67,7 +67,7 @@ pub async fn update_flow_status_after_job_completion(
     )
     .fetch_one(&mut tx)
     .await
-    .map_err(|e| Error::InternalErr(format!("fetching flow status: {e}")))?
+    .map_err(|e| Error::InternalErr(format!("fetching flow status {flow}: {e}")))?
     .ok_or_else(|| Error::InternalErr(format!("requiring a previous status")))?;
 
     let old_status = serde_json::from_value::<FlowStatus>(old_status_json)
