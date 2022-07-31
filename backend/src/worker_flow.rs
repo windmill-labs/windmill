@@ -277,15 +277,11 @@ pub async fn update_flow_status_in_progress(
     let step = get_step_of_flow_status(db, flow).await?;
     sqlx::query(&format!(
         "UPDATE queue
-            SET flow_status = jsonb_set(flow_status, '{{modules, {}}}', $1)
+            SET flow_status = jsonb_set(flow_status, '{{modules, {}, job}}', $1)
             WHERE id = $2 AND workspace_id = $3",
         step
     ))
-    .bind(serde_json::json!(FlowStatusModule::InProgress {
-        job: job_in_progress,
-        iterator: None,
-        forloop_jobs: None,
-    }))
+    .bind(job_in_progress)
     .bind(flow)
     .bind(w_id)
     .execute(db)
