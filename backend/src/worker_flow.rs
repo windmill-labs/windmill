@@ -206,6 +206,7 @@ pub async fn update_flow_status_after_job_completion(
 
     if done {
         postprocess_queued_job(
+            flow_job.is_flow_step,
             flow_job.schedule_path.clone(),
             flow_job.script_path.clone(),
             &w_id,
