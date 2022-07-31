@@ -1011,7 +1011,7 @@ pub async fn restart_zombie_jobs_periodically(
     loop {
         let restarted = sqlx::query!(
             "UPDATE queue SET running = false WHERE last_ping < $1 and running = true RETURNING id, workspace_id",
-            chrono::Utc::now() - chrono::Duration::seconds(timeout as i64 * 2)
+            chrono::Utc::now() - chrono::Duration::seconds(timeout as i64 * 5)
         )
         .fetch_all(db)
         .await
@@ -1019,7 +1019,7 @@ pub async fn restart_zombie_jobs_periodically(
         .unwrap_or_else(|| vec![]);
 
         for r in restarted {
-            tracing::info!("restarted zombie jobs {} {}", r.id, r.workspace_id);
+            tracing::info!("restarted zombie job {} {}", r.id, r.workspace_id);
         }
 
         tokio::select! {
