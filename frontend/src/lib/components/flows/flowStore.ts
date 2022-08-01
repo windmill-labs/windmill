@@ -2,8 +2,14 @@ import type { Schema } from '$lib/common'
 import { FlowModuleValue, ScriptService, type Flow, type FlowModule } from '$lib/gen'
 import { initialCode } from '$lib/script_helpers'
 import { userStore, workspaceStore } from '$lib/stores'
+import { emptySchema } from '$lib/utils'
 import { derived, get, writable } from 'svelte/store'
-import { createInlineScriptModuleFromPath, getFirstStepSchema, loadSchemaFromModule, scrollIntoView } from './utils'
+import {
+	createInlineScriptModuleFromPath,
+	getFirstStepSchema,
+	loadSchemaFromModule,
+	scrollIntoView
+} from './utils'
 
 export type FlowMode = 'push' | 'pull'
 
@@ -12,7 +18,8 @@ export const flowStore = writable<Flow>(undefined)
 export const schemasStore = writable<Schema[]>([])
 
 export function initFlow(flow: Flow) {
-	const newMode = flow.value.modules[1]?.value.type === FlowModuleValue.type.FORLOOPFLOW ? 'pull' : 'push'
+	const newMode =
+		flow.value.modules[1]?.value.type === FlowModuleValue.type.FORLOOPFLOW ? 'pull' : 'push'
 	mode.set(newMode)
 	flow = flattenForloopFlows(flow, newMode)
 	schemasStore.set([])
@@ -51,7 +58,6 @@ export function addModule(i?: number) {
 		input_transform: {}
 	}
 
-
 	flowStore.update((flow: Flow) => {
 		const insertAt = i ?? flow.value.modules.length
 
@@ -60,6 +66,19 @@ export function addModule(i?: number) {
 		setTimeout(() => scrollIntoView(document.querySelector(`#module-${insertAt}`)), 100)
 
 		return flow
+	})
+
+	schemasStore.update((schemas: Schema[]) => {
+		if (typeof i !== 'undefined') {
+			const previousSchema = schemas[i]
+			const hadSchema = Boolean(previousSchema)
+			if (hadSchema) {
+				schemas[i] = emptySchema()
+				schemas[i + 1] = previousSchema
+			}
+		}
+
+		return schemas
 	})
 }
 
@@ -75,13 +94,17 @@ export async function pickScript(path: string, step: number) {
 	await loadSchema(step)
 }
 
-export async function createInlineScriptModule(language: FlowModuleValue.language, step: number, mode: FlowMode) {
-	const code = initialCode(language, (mode === 'pull' && step == 0))
+export async function createInlineScriptModule(
+	language: FlowModuleValue.language,
+	step: number,
+	mode: FlowMode
+) {
+	const code = initialCode(language, mode === 'pull' && step == 0)
 	flowStore.update((flow: Flow) => {
 		flow.value.modules[step].value = {
 			type: FlowModuleValue.type.RAWSCRIPT,
 			content: code,
-			language,
+			language
 		}
 
 		return flow

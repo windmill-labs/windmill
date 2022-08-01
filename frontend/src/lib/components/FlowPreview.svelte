@@ -97,7 +97,8 @@
 >
 	<h2 class="flex justify-center text-gray-600">
 		<div>
-			Preview<Icon class="ml-1" data={viewPreview ? faChevronUp : faChevronDown} scale={1} />
+			Preview
+			<Icon class="ml-1" data={viewPreview ? faChevronUp : faChevronDown} scale={1} />
 		</div>
 	</h2>
 </button>

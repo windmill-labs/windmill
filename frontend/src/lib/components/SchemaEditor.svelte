@@ -1,12 +1,16 @@
 <script lang="ts">
-	import SchemaModal, { DEFAULT_PROPERTY, modalToSchema, schemaToModal } from './SchemaModal.svelte'
-	import type { ModalSchemaProperty } from './SchemaModal.svelte'
 	import type { Schema } from '$lib/common'
-	import Editor from './Editor.svelte'
 	import { emptySchema, sendUserToast } from '$lib/utils'
-	import Tooltip from './Tooltip.svelte'
-	import TableCustom from './TableCustom.svelte'
+	import { faClose, faPen, faPlus } from '@fortawesome/free-solid-svg-icons'
+	import { Badge, Button } from 'flowbite-svelte'
 	import { createEventDispatcher } from 'svelte'
+	import Icon from 'svelte-awesome'
+	import Editor from './Editor.svelte'
+	import type { ModalSchemaProperty } from './SchemaModal.svelte'
+	import SchemaModal, { DEFAULT_PROPERTY, modalToSchema, schemaToModal } from './SchemaModal.svelte'
+	import TableCustom from './TableCustom.svelte'
+	import Toggle from './Toggle.svelte'
+	import Tooltip from './Tooltip.svelte'
 
 	const dispatch = createEventDispatcher()
 
@@ -89,6 +93,13 @@
 		try {
 			if (Object.keys(schema.properties).includes(argName)) {
 				delete schema.properties[argName]
+
+				const requiredIndex = schema.required.findIndex((arg) => arg === argName)
+
+				if (requiredIndex > -1) {
+					schema.required = schema.required.slice(requiredIndex, 1)
+				}
+
 				schema = schema
 				schemaString = JSON.stringify(schema, null, '\t')
 				dispatch('change', schema)
@@ -114,43 +125,40 @@
 </script>
 
 <div class="flex flex-col">
-	<div class="w-full">
-		<div class="flex flex-row text-base">
-			<button
-				class="text-xs sm:text-base py-1 px-6 block hover:text-blue-500 focus:outline-noneborder-gray-200  {viewJsonSchema
-					? 'text-gray-500 '
-					: 'text-gray-700 font-semibold  '}"
-				on:click={() => (viewJsonSchema ? switchTab() : null)}
-			>
-				arguments
-			</button><button
-				class="py-1 px-6 block hover:text-blue-500 focus:outline-none border-gray-200  {viewJsonSchema
-					? 'text-gray-700 font-semibold '
-					: 'text-gray-500'}"
-				on:click={() => (viewJsonSchema ? null : switchTab())}
-			>
-				advanced <Tooltip
-					>Arguments can be edited either using the wizard, or by editing their json-schema <a
-						href="https://docs.windmill.dev/docs/reference/script_arguments_reference">docs</a
-					></Tooltip
-				>
-			</button>
-			<button
-				class="default-button-secondary grow"
-				on:click={() => {
-					modalProperty = Object.assign({}, DEFAULT_PROPERTY)
-					schemaModal.openModal()
-				}}>Add argument</button
-			>
+	<div class="flex justify-between">
+		<Button
+			on:click={() => {
+				modalProperty = Object.assign({}, DEFAULT_PROPERTY)
+				schemaModal.openModal()
+			}}
+		>
+			<Icon data={faPlus} class="mr-1" />
+			Add argument
+		</Button>
+		<div class="flex items-center">
+			<Toggle
+				on:change={() => switchTab()}
+				options={{
+					left: { label: '', value: false },
+					right: { label: 'Json Schema Editor', value: true }
+				}}
+			/>
+			<div class="ml-2">
+				<Tooltip>
+					Arguments can be edited either using the wizard, or by editing their json-schema
+					<a href="https://docs.windmill.dev/docs/reference/script_arguments_reference">docs</a>
+				</Tooltip>
+			</div>
 		</div>
 	</div>
+
 	<!--json schema or table view-->
-	<div class="border-t py-1  h-full overflow-y-auto">
+	<div class="h-full overflow-y-auto">
 		{#if !viewJsonSchema}
 			<div class="h-full">
 				{#if schema.properties && Object.keys(schema.properties).length > 0 && schema.required}
-					<TableCustom class="w-full min-h-full">
-						<tr slot="header-row" class="underline">
+					<TableCustom>
+						<tr slot="header-row">
 							<th>name</th>
 							<th>type</th>
 							<th>description</th>
@@ -160,37 +168,32 @@
 						<tbody slot="body">
 							{#each Object.entries(schema.properties) as [name, property] (name)}
 								<tr>
-									<td>{name}</td>
-									<td
-										>{#if !property.type} any {:else} {property.type} {/if}</td
-									>
+									<td class="font-bold">{name}</td>
+									<td>
+										{#if !property.type}
+											<Badge color="red">ANY</Badge>
+										{:else}
+											<Badge color="blue">{property.type.toLocaleUpperCase()}</Badge>
+										{/if}
+									</td>
 									<td>{property.description}</td>
 									<td>{JSON.stringify(property.default) ?? ''}</td>
-									<td>{schema.required.includes(name) ? 'required' : 'optional'}</td>
-									<td class="">
-										<button class="mr-2" on:click={() => handleDeleteArgument(name)}
-											><svg
-												class="w-4 h-4"
-												fill="none"
-												stroke="currentColor"
-												viewBox="0 0 24 14"
-												xmlns="http://www.w3.org/2000/svg"
-											>
-												<path
-													stroke-linecap="round"
-													stroke-linejoin="round"
-													stroke-width="2"
-													d="M6 18L18 6M6 6l12 12"
-												/>
-											</svg></button
+									<td>{schema.required.includes(name) ? 'Required' : 'Optional'}</td>
+									<td class="justify-end flex">
+										<Button
+											color="alternative"
+											outline={false}
+											class="mr-2"
+											on:click={() => handleDeleteArgument(name)}
 										>
-										<button
-											class="default-button-secondary text-xs inline-flex"
-											on:click={() => {
-												startEditArgument(name)
-											}}>edit</button
-										></td
-									>
+											<Icon data={faClose} class="mr-2" />
+											Delete
+										</Button>
+										<Button color="alternative" on:click={() => startEditArgument(name)}>
+											<Icon data={faPen} class="mr-2" />
+											Edit
+										</Button>
+									</td>
 								</tr>
 							{/each}
 						</tbody>

@@ -1,9 +1,8 @@
 <script lang="ts">
-	import { JobService, Job, CompletedJob, VariableService, ScriptService } from '$lib/gen'
-	import { emptySchema, displayDate } from '$lib/utils'
 	import type { Schema } from '$lib/common'
-	import { fade } from 'svelte/transition'
-	import Icon from 'svelte-awesome'
+	import { CompletedJob, Job, JobService } from '$lib/gen'
+	import { userStore, workspaceStore } from '$lib/stores'
+	import { displayDate, emptySchema } from '$lib/utils'
 	import {
 		faCheck,
 		faChevronDown,
@@ -13,24 +12,25 @@
 		faSpinner,
 		faTimes
 	} from '@fortawesome/free-solid-svg-icons'
-	import Editor from './Editor.svelte'
-	import Tooltip from './Tooltip.svelte'
 	import { onDestroy, onMount } from 'svelte'
-	import { userStore, workspaceStore } from '$lib/stores'
-	import TableCustom from './TableCustom.svelte'
+	import Icon from 'svelte-awesome'
 	import { check } from 'svelte-awesome/icons'
+	import { fade } from 'svelte/transition'
+	import Editor from './Editor.svelte'
 	import Modal from './Modal.svelte'
+	import TableCustom from './TableCustom.svelte'
+	import Tooltip from './Tooltip.svelte'
 
 	import { inferArgs } from '$lib/infer'
 
 	// @ts-ignore
-	import { VSplitPane } from 'svelte-split-pane'
-	import SchemaForm from './SchemaForm.svelte'
-	import DisplayResult from './DisplayResult.svelte'
 	import type { Preview } from '$lib/gen/models/Preview'
-	import EditorBar from './EditorBar.svelte'
 	import { Highlight } from 'svelte-highlight'
 	import { json, python, typescript } from 'svelte-highlight/languages'
+	import { VSplitPane } from 'svelte-split-pane'
+	import DisplayResult from './DisplayResult.svelte'
+	import EditorBar from './EditorBar.svelte'
+	import SchemaForm from './SchemaForm.svelte'
 
 	// Exported
 	export let schema: Schema = emptySchema()
@@ -415,7 +415,7 @@
 					{:else}No local save{/if}
 				</div>
 			{:else if previewTab === 'history'}
-				<TableCustom paginated={false}>
+				<TableCustom>
 					<tr slot="header-row">
 						<th class="text-xs">id</th>
 						<th class="text-xs">created at</th>

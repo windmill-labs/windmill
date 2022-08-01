@@ -1,11 +1,13 @@
 <script lang="ts">
+	import { Button } from 'flowbite-svelte'
 	import { copyFirstStepSchema, isCopyFirstStepSchemaDisabled } from './flowStore'
 </script>
 
-<button
-	class="default-secondary-button-v2"
+<Button
+	color="alternative"
+	size="sm"
 	disabled={$isCopyFirstStepSchemaDisabled}
 	on:click={copyFirstStepSchema}
 >
-	Copy from step 1's schema
-</button>
+	Copy from first step schema
+</Button>
