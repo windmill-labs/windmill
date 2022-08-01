@@ -128,17 +128,16 @@
 	}
 
 	async function loadScripts(): Promise<void> {
-		const allScripts = (await ScriptService.listScripts({ workspace: $workspaceStore! })).map(
-			(x: Script) => {
-				let t: Tab = x.workspace_id == $workspaceStore ? tabFromPath(x.path) : 'examples'
-				return {
-					canWrite:
-						canWrite(x.path, x.extra_perms, $userStore) && x.workspace_id == $workspaceStore,
-					tab: t,
-					...x
-				}
+		const allScripts = (
+			await ScriptService.listScripts({ workspace: $workspaceStore!, perPage: 300 })
+		).map((x: Script) => {
+			let t: Tab = x.workspace_id == $workspaceStore ? tabFromPath(x.path) : 'examples'
+			return {
+				canWrite: canWrite(x.path, x.extra_perms, $userStore) && x.workspace_id == $workspaceStore,
+				tab: t,
+				...x
 			}
-		)
+		})
 		scripts = tab == 'all' ? allScripts : allScripts.filter((x) => x.tab == tab)
 		fuse.setCollection(scripts)
 	}
