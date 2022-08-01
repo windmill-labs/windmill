@@ -2,11 +2,13 @@
 	import type { FlowModule } from '$lib/gen'
 	import { getScriptByPath } from '$lib/utils'
 	import { faCode, faCodeBranch, faSave, faTrashAlt } from '@fortawesome/free-solid-svg-icons'
+	import { Button } from 'flowbite-svelte'
 	import Icon from 'svelte-awesome'
 	import { Highlight } from 'svelte-highlight'
-	import typescript from 'svelte-highlight/languages/typescript'
 	import python from 'svelte-highlight/languages/python'
+	import typescript from 'svelte-highlight/languages/typescript'
 	import Modal from '../Modal.svelte'
+	import FlowBoxHeader from './FlowBoxHeader.svelte'
 	import { createScriptFromInlineScript, fork, removeModule } from './flowStore'
 	import { scrollIntoView } from './utils'
 
@@ -36,54 +38,54 @@
 	}
 </script>
 
-<div class="flex flex-row w-full space-x-2">
-	<slot />
-	<a href="#module-{i}" class="grow" on:click={() => (open = i)} on:click|preventDefault={scrollTo}
-		><div class="w-full" /></a
+<FlowBoxHeader>
+	<a
+		href="#module-{i}"
+		class="grow text-inherit"
+		on:click={() => (open = i)}
+		on:click|preventDefault={scrollTo}
 	>
+		<slot />
+	</a>
 
 	<div class="flex flex-row space-x-2">
 		{#if mod.value.type === 'script' && !shouldPick}
-			<button
-				type="button"
+			<Button
 				on:click={() => {
 					open = i
 					fork(i)
 				}}
-				class="default-secondary-button-v2 text-xs"
+				size="sm"
+				color="alternative"
 			>
-				<Icon data={faCodeBranch} class={`w-4 mr-2 h-4`} />
+				<Icon data={faCodeBranch} class="mr-2" />
 				Fork
-			</button>
-			<button type="button" on:click={viewCode} class="default-secondary-button-v2 text-xs">
-				<Icon data={faCode} class="w-4 mr-2 h-4" />
+			</Button>
+			<Button size="sm" color="alternative" on:click={viewCode}>
+				<Icon data={faCode} class="mr-2" />
 				View code
-			</button>
+			</Button>
 		{/if}
 
 		{#if mod.value.type === 'rawscript' && !shouldPick}
-			<button
-				type="button"
-				on:click={() => createScriptFromInlineScript(i)}
-				class="default-secondary-button-v2 text-sm"
-			>
-				<Icon data={faSave} class="w-4 mr-4" />
+			<Button size="sm" color="alternative" on:click={() => createScriptFromInlineScript(i)}>
+				<Icon data={faSave} class="mr-2" />
 				Save to workspace
-			</button>
+			</Button>
 		{/if}
-		<button
-			type="button"
+		<Button
+			size="sm"
+			color="alternative"
 			on:click={() => {
 				open = -1
 				removeModule(i)
 			}}
-			class="default-secondary-button-v2 text-xs"
 		>
-			<Icon data={faTrashAlt} class="w-4 mr-2 h-4" />
+			<Icon data={faTrashAlt} class="mr-2" />
 			Remove step
-		</button>
+		</Button>
 	</div>
-</div>
+</FlowBoxHeader>
 
 <Modal bind:this={modalViewer}>
 	<div slot="title">Script {'path' in mod?.value ? mod?.value.path : ''}</div>

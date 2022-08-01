@@ -3,6 +3,12 @@
 @tailwind components;
 @tailwind utilities;
 
+html {
+
+	/* Avoid content shifting */
+	overflow-y: overlay;
+} 
+
 @layer base {
 	h1 {
 		@apply text-2xl;

@@ -37,10 +37,10 @@
 
 	<div class="fixed top-0 w-screen h-screen {z}">
 		<div
-			class="fixed right-0 flex flex-col w-3/4 sm:w-2/3 lg:w-1/2 h-screen border border-gray-300 shadow-xl"
+			class="fixed right-0 top-0 flex flex-col w-3/4 sm:w-2/3 lg:w-1/2 h-screen border border-gray-300 shadow-xl"
 		>
 			{#if open}
-				<div class="flex flex-row justify-between p-2  bg-white border-b border-gray-200">
+				<div class="flex flex-row justify-between p-2 bg-white border-b border-gray-200">
 					<button
 						on:click={() => {
 							open = false

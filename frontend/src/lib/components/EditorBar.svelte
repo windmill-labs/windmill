@@ -2,17 +2,18 @@
 	import { ResourceService, ScriptService, VariableService } from '$lib/gen'
 	import { getScriptByPath, loadHubScripts, sendUserToast } from '$lib/utils'
 
-	import Icon from 'svelte-awesome'
 	import { faSearch } from '@fortawesome/free-solid-svg-icons'
+	import Icon from 'svelte-awesome'
 
-	import { workspaceStore, hubScripts } from '$lib/stores'
-	import ItemPicker from './ItemPicker.svelte'
-	import VariableEditor from './VariableEditor.svelte'
-	import ResourceEditor from './ResourceEditor.svelte'
+	import { hubScripts, workspaceStore } from '$lib/stores'
+	import { Button } from 'flowbite-svelte'
 	import { Highlight } from 'svelte-highlight'
 	import { python, typescript } from 'svelte-highlight/languages'
-	import Modal from './Modal.svelte'
 	import type Editor from './Editor.svelte'
+	import ItemPicker from './ItemPicker.svelte'
+	import Modal from './Modal.svelte'
+	import ResourceEditor from './ResourceEditor.svelte'
+	import VariableEditor from './VariableEditor.svelte'
 
 	export let lang: 'python3' | 'deno'
 	export let editor: Editor
@@ -172,41 +173,57 @@
 
 <VariableEditor bind:this={variableEditor} on:create={variablePicker.openModal} />
 
-<div class="flex flex-row justify-around w-full">
-	<button
-		class="default-button-secondary font-semibold py-px mr-2 text-xs align-middle max-h-8"
-		on:click|stopPropagation={() => {
+<div class="flex flex-row justify-end w-full  space-x-2">
+	<Button
+		size="xs"
+		color="blue"
+		outline
+		on:click={() => {
 			variablePicker.openModal()
 		}}
-		>Variable picker <Icon data={faSearch} scale={0.7} />
-	</button>
+	>
+		<Icon data={faSearch} scale={0.7} class="mr-2" />
+		Variable picker
+	</Button>
 
-	<button
-		class="default-button-secondary font-semibold py-px text-xs mr-2 align-middle max-h-8"
-		on:click|stopPropagation={() => {
+	<Button
+		size="xs"
+		color="blue"
+		outline
+		on:click={() => {
 			resourcePicker.openModal()
 		}}
-		>Resource picker <Icon data={faSearch} scale={0.7} />
-	</button>
-	<button
-		class="default-button-secondary font-semibold py-px text-xs mr-2 align-middle max-h-8"
-		on:click|stopPropagation={() => {
+	>
+		<Icon data={faSearch} scale={0.7} class="mr-2" />
+		Resource picker
+	</Button>
+
+	<Button
+		size="xs"
+		color="blue"
+		outline
+		on:click={() => {
 			scriptPicker.openModal()
 		}}
-		>Script explorer <Icon data={faSearch} scale={0.7} />
-	</button>
+	>
+		<Icon data={faSearch} scale={0.7} class="mr-2" />
+		Script explorer
+	</Button>
 
-	<button
-		class="default-button-secondary py-px max-h-8 text-xs"
-		on:click|stopPropagation={() => {
+	<Button
+		size="xs"
+		color="blue"
+		outline
+		on:click={() => {
 			editor.reloadWebsocket()
 		}}
 	>
-		Reload assistants (status: {#if lang == 'deno'}<span
-				class={websocketAlive.deno ? 'text-green-600' : 'text-red-600'}>deno</span
-			>{:else if lang == 'python3'}<span
-				class={websocketAlive.pyright ? 'text-green-600' : 'text-red-600'}>pyright</span
-			>
-			<span class={websocketAlive.black ? 'text-green-600' : 'text-red-600'}> black</span>{/if})
-	</button>
+		Reload assistants (status:&nbsp;
+		{#if lang == 'deno'}
+			<span class={websocketAlive.deno ? 'text-green-600' : 'text-red-600'}>Deno</span>
+		{:else if lang == 'python3'}
+			<span class={websocketAlive.pyright ? 'text-green-600' : 'text-red-600'}>Pyright</span>
+			<span class={websocketAlive.black ? 'text-green-600' : 'text-red-600'}>Black</span>
+		{/if})
+	</Button>
 </div>
