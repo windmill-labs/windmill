@@ -2087,14 +2087,7 @@ paths:
         content:
           application/json:
             schema:
-              allOf:
-                - $ref: "../openflow.openapi.yaml#/components/schemas/OpenFlow"
-                - type: object
-                  properties:
-                    path:
-                      type: string
-                  required:
-                    - path
+              $ref: "#/components/schemas/OpenFlowWPath"
 
       responses:
         "201":
@@ -2119,14 +2112,7 @@ paths:
         content:
           application/json:
             schema:
-              allOf:
-                - $ref: "../openflow.openapi.yaml#/components/schemas/OpenFlow"
-                - type: object
-                  properties:
-                    path:
-                      type: string
-                  required:
-                    - path
+              $ref: "#/components/schemas/OpenFlowWPath"
 
       responses:
         "200":
@@ -3159,7 +3145,6 @@ components:
       # explode: false
 
   schemas:
-    $ref: "../openflow.openapi.yaml#/components/schemas"
     Script:
       type: object
       properties:
@@ -3998,6 +3983,16 @@ components:
         - edited_at
         - archived
         - extra_perms
+
+    OpenFlowWPath:
+      allOf:
+        - $ref: "../openflow.openapi.yaml#/components/schemas/OpenFlow"
+        - type: object
+          properties:
+            path:
+              type: string
+          required:
+            - path
 
     FlowPreview:
       type: object
