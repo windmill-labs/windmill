@@ -9,7 +9,6 @@
 	export let format: string
 	export let value: any
 
-	console.log(value)
 	function isString(value: any) {
 		return typeof value === 'string' || value instanceof String
 	}

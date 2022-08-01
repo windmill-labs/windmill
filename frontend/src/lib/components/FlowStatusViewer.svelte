@@ -31,7 +31,6 @@
 						logs[i] =
 							(await JobService.getJob({ workspace: $workspaceStore ?? '', id: last.job ?? '' }))
 								.logs ?? ''
-						console.log(logs[i])
 						logs = logs
 						pres[i].scroll({ top: pres[i]?.scrollHeight, behavior: 'smooth' })
 					}

@@ -58,7 +58,6 @@
 		} else if (Object.keys(schema.properties).includes(modalProperty.name) && !editing) {
 			argError = 'There is already an argument with this name'
 		} else {
-			console.log('XXXXXX')
 			schema.properties[modalProperty.name] = modalToSchema(modalProperty)
 			if (modalProperty.required) {
 				schema.required = [...schema.required, modalProperty.name]
