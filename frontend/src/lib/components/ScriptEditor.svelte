@@ -238,7 +238,7 @@
 			<div class="header">
 				<EditorBar {editor} {lang} {websocketAlive} />
 			</div>
-			<div class="flex-1 overflow-hidden">
+			<div class="flex-1 overflow-hidden border p-2 rounded">
 				<Editor
 					{code}
 					bind:websocketAlive
@@ -500,12 +500,7 @@
 
 <style>
 	.header {
-		max-height: 28px;
-		@apply border;
-		@apply px-2 py-1;
-		@apply border-l border-r;
-		@apply bg-gray-100;
-		@apply text-xs text-gray-700;
+		@apply py-2;
 	}
 
 	.preview {
