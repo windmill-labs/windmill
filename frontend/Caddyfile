@@ -1,9 +1,9 @@
 {
     auto_https off
 }
-:5050 {  
+:80 {  
   bind {$ADDRESS}
-  reverse_proxy /api/* http://localhost
+  reverse_proxy /api/* http://localhost:8000
   reverse_proxy /* http://localhost:3000
   reverse_proxy /ws/* http://localhost:3001 {
     lb_policy header "Authorization"

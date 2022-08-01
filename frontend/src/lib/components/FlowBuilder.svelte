@@ -111,6 +111,10 @@
 		goto(`/flows/get/${$flowStore.path}`)
 	}
 
+	async function changeStep(step: number) {
+		goto(`?step=${step}`)
+	}
+
 	flowStore.subscribe((flow: Flow) => {
 		setQueryWithoutLoad($page.url, 'state', encodeState(flowToMode(flow, $mode)))
 	})
@@ -125,10 +129,10 @@
 	<!-- Nav between steps-->
 	<div class="justify-between flex flex-row w-full">
 		<Breadcrumb>
-			<BreadcrumbItem href={step != 1 && '?step=1'} variation={step === 1 ? 'solid' : null}>
+			<BreadcrumbItem on:click={() => changeStep(1)} variation={step === 1 ? 'solid' : null}>
 				Flow Editor
 			</BreadcrumbItem>
-			<BreadcrumbItem href={step != 2 && '?step=2'} variation={step === 2 ? 'solid' : null}>
+			<BreadcrumbItem on:click={() => changeStep(2)} variation={step === 2 ? 'solid' : null}>
 				UI customisation
 			</BreadcrumbItem>
 		</Breadcrumb>
@@ -137,7 +141,7 @@
 				<button
 					disabled={pathError != ''}
 					class="default-button px-6 max-h-8"
-					href={`?step=${step + 1}`}
+					on:click={() => changeStep(2)}
 				>
 					Next
 				</button>
