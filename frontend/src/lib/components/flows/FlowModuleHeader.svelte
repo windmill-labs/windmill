@@ -7,7 +7,6 @@
 	import { Highlight } from 'svelte-highlight'
 	import python from 'svelte-highlight/languages/python'
 	import typescript from 'svelte-highlight/languages/typescript'
-	import github from 'svelte-highlight/styles/github'
 	import Modal from '../Modal.svelte'
 	import FlowBoxHeader from './FlowBoxHeader.svelte'
 	import { createScriptFromInlineScript, fork, removeModule } from './flowStore'
@@ -38,10 +37,6 @@
 		scrollIntoView(el)
 	}
 </script>
-
-<svelte:head>
-	{@html github}
-</svelte:head>
 
 <FlowBoxHeader>
 	<a
