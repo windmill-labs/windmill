@@ -341,7 +341,7 @@ paths:
 
   /workspaces/list_as_superadmin:
     get:
-      summary: list all workspaces as super admin (require to be super amdin)
+      summary: list all workspaces as super admin (require to be super admin)
       operationId: listWorkspacesAsSuperAdmin
       tags:
         - workspace
@@ -1632,7 +1632,7 @@ paths:
         - $ref: "#/components/parameters/OrderDesc"
         - $ref: "#/components/parameters/CreatedBy"
         - name: path_start
-          description: mask to filter matching starting parh
+          description: mask to filter matching starting path
           in: query
           schema:
             type: string
@@ -2011,7 +2011,7 @@ paths:
         - $ref: "#/components/parameters/OrderDesc"
         - $ref: "#/components/parameters/CreatedBy"
         - name: path_start
-          description: mask to filter matching starting parh
+          description: mask to filter matching starting path
           in: query
           schema:
             type: string
@@ -2228,7 +2228,7 @@ paths:
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
       requestBody:
-        description: previw
+        description: preview
         required: true
         content:
           application/json:
