@@ -253,7 +253,7 @@
 			<p>loading</p>
 		{:else}
 			<h2>{script.summary}</h2>
-			<p>Edited at {displayDaysAgo(script.created_at ?? '')} by {script.created_by}</p>
+			<p>Edited {displayDaysAgo(script.created_at ?? '')} by {script.created_by}</p>
 
 			<div class="prose">
 				<SvelteMarkdown source={defaultIfEmptyString(script.description, 'No description')} />
