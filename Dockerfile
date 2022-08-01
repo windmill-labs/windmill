@@ -32,6 +32,7 @@ RUN mkdir /backend
 COPY /backend/openapi.yaml /backend/openapi.yaml
 COPY /openflow.openapi.yaml /openflow.openapi.yaml
 RUN npm run generate-backend-client
+ENV NODE_OPTIONS "--max-old-space-size=8192"
 RUN npm run build
 RUN npm run check
 
