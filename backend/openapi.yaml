@@ -3145,6 +3145,7 @@ components:
       # explode: false
 
   schemas:
+    $ref: "../openflow.openapi.yaml"
     Script:
       type: object
       properties:
