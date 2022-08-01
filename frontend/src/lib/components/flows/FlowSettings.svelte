@@ -124,27 +124,12 @@
 			<span class="text-gray-700">Summary <Required required={false} /></span>
 			<textarea
 				bind:value={$flowStore.summary}
-				class="
-mt-1
-block
-w-full
-rounded-md
-border-gray-300
-shadow-sm
-focus:border-indigo-300 focus:ring focus:ring-indigo-200 focus:ring-opacity-50
-"
+				class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-300 focus:ring focus:ring-indigo-200 focus:ring-opacity-50"
 				placeholder="A very short summary of the flow displayed when the flow is listed"
 				rows="1"
 			/>
 		</label>
 	</div>
-
-	<FlowPreview
-		mode={$mode}
-		flow={$flowStore}
-		i={$flowStore?.value.modules.length}
-		bind:args={scheduleArgs}
-	/>
 
 	<RadioButtonV2
 		options={[
@@ -192,4 +177,13 @@ focus:border-indigo-300 focus:ring focus:ring-indigo-200 focus:ring-opacity-50
 			</CollapseLink>
 		</div>
 	{/if}
+
+	<div class="p-6">
+		<FlowPreview
+			mode={$mode}
+			flow={$flowStore}
+			i={$flowStore?.value.modules.length}
+			bind:args={scheduleArgs}
+		/>
+	</div>
 </FlowBox>

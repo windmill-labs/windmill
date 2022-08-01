@@ -57,13 +57,13 @@
 </script>
 
 <button
-	class="rounded-full h-10 w-10 border bg-white border-2 border-gray-500"
+	class="rounded-full h-10 w-10 bg-white border-2 border-gray-400"
 	on:click={() => {
 		addModule(i)
 		open = i
 	}}
 >
-	<Icon class="text-gray-500 mb-1" data={faPlus} />
+	<Icon class="text-gray-400 mb-1" data={faPlus} />
 </button>
 <FlowBox>
 	<div id="module-{i}">
@@ -106,7 +106,7 @@
 					/>
 				{/if}
 				{#if mod.value.type === 'rawscript'}
-					<div class="p-1 overflow-hidden">
+					<div class="mb-2 overflow-hidden">
 						<EditorBar {editor} {websocketAlive} lang={mod.value.language ?? 'deno'} />
 					</div>
 					<div>

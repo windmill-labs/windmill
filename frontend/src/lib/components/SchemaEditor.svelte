@@ -1,7 +1,7 @@
 <script lang="ts">
 	import type { Schema, SchemaProperty } from '$lib/common'
 	import { emptySchema, sendUserToast } from '$lib/utils'
-	import { faClose, faPen, faPlus } from '@fortawesome/free-solid-svg-icons'
+	import { faPen, faPlus, faTrash } from '@fortawesome/free-solid-svg-icons'
 	import { Badge, Button } from 'flowbite-svelte'
 	import { createEventDispatcher } from 'svelte'
 	import Icon from 'svelte-awesome'
@@ -144,10 +144,12 @@
 				modalProperty = Object.assign({}, DEFAULT_PROPERTY)
 				schemaModal.openModal()
 			}}
+			color="blue"
 		>
 			<Icon data={faPlus} class="mr-1" />
 			Add argument
 		</Button>
+
 		<div class="flex items-center">
 			<Toggle
 				on:change={() => switchTab()}
@@ -172,11 +174,12 @@
 				{#if schema.properties && Object.keys(schema.properties).length > 0 && schema.required}
 					<TableCustom>
 						<tr slot="header-row">
-							<th>name</th>
-							<th>type</th>
-							<th>description</th>
-							<th>default</th>
-							<th>required</th>
+							<th>Name</th>
+							<th>Type</th>
+							<th>Description</th>
+							<th>Default</th>
+							<th>Required</th>
+							<th />
 						</tr>
 						<tbody slot="body">
 							{#each Object.entries(schema.properties) as [name, property] (name)}
@@ -194,15 +197,16 @@
 									<td>{schema.required.includes(name) ? 'Required' : 'Optional'}</td>
 									<td class="justify-end flex">
 										<Button
-											color="alternative"
-											outline={false}
+											color="red"
+											outline
 											class="mr-2"
+											size="xs"
 											on:click={() => handleDeleteArgument(name)}
 										>
-											<Icon data={faClose} class="mr-2" />
+											<Icon data={faTrash} class="mr-2" />
 											Delete
 										</Button>
-										<Button color="alternative" on:click={() => startEditArgument(name)}>
+										<Button color="alternative" size="xs" on:click={() => startEditArgument(name)}>
 											<Icon data={faPen} class="mr-2" />
 											Edit
 										</Button>
@@ -216,7 +220,7 @@
 				{/if}
 			</div>
 		{:else}
-			<div>
+			<div class="border rounded mt-4 p-2">
 				<Editor
 					on:change={() => {
 						try {

@@ -121,7 +121,7 @@
 	})
 </script>
 
-<div class="flex flex-col h-screen max-w-screen-lg xl:-ml-20 xl:pl-4 w-full -mt-4 pt-4 md:mx-10">
+<div class="flex flex-col max-w-screen-lg w-full mb-96">
 	<!-- Nav between steps-->
 	<div class="justify-between flex flex-row w-full">
 		<Breadcrumb>

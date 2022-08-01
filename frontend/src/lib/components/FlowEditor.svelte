@@ -4,6 +4,7 @@
 	import { workspaceStore } from '$lib/stores'
 	import { pathIsEmpty } from '$lib/utils'
 	import { faPlus } from '@fortawesome/free-solid-svg-icons'
+	import { Button } from 'flowbite-svelte'
 	import Icon from 'svelte-awesome'
 	import FlowInput from './flows/FlowInput.svelte'
 	import FlowSettings from './flows/FlowSettings.svelte'
@@ -66,17 +67,17 @@
 				</div>
 			{/if}
 		{/each}
-		<button
+		<Button
 			disabled={pathIsEmpty($flowStore.path)}
-			class="default-button h-10 w-10 shadow"
+			color="blue"
 			on:click={() => {
 				addModule()
 				open = $flowStore?.value.modules.length - 1
 			}}
 		>
-			<Icon class="text-white mb-1" data={faPlus} />
+			<Icon class="text-white mr-2" data={faPlus} />
 			Add step {pathIsEmpty($flowStore?.path) ? '(pick a name first!)' : ''}
-		</button>
+		</Button>
 	</div>
 {:else}
 	<h3>Loading flow</h3>
