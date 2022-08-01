@@ -153,13 +153,13 @@
 	{#if $mode == 'pull'}
 		<div class="p-4">
 			<CollapseLink text="set primary schedule" open={true}>
-				<Tooltip
-					>The primary schedule of a flow is simply a schedule that has the same name as a flow. It
+				<Tooltip>
+					The primary schedule of a flow is simply a schedule that has the same name as a flow. It
 					can be set and enabled directly within the flow editor. "Watching for new changes" flows
 					are meant to be watching regularly for new items in an external systems. The primary
 					schedule purpose is there to set the periodicity at which you want this watcher to
 					operate.
-				</Tooltip> &nbsp;
+				</Tooltip>
 				<Toggle
 					bind:checked={scheduleEnabled}
 					options={{
