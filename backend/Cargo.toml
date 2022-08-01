@@ -24,6 +24,7 @@ chrono = { version = "^0", features = ["serde"]}
 tracing = "^0"
 tracing-subscriber = { version = "^0", features = ["env-filter", "json"]}
 console-subscriber = "^0"
+prometheus = { version = "^0", default-features = false }
 
 rust-embed = "^6"
 mime_guess = "^2"

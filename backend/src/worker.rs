@@ -89,6 +89,13 @@ pub async fn run_worker(
 
     insert_initial_ping(worker_instance, &worker_name, ip, db).await;
 
+    let job_duration_seconds = prometheus::register_histogram!(prometheus::HistogramOpts::new(
+        "job_duration_seconds",
+        "The duration between receiving a job and completing it"
+    )
+    .const_label("name", &worker_name))
+    .expect("register prometheus histogram");
+
     let mut jobs_executed = 0;
     let mut rx = tx.subscribe();
     loop {
@@ -108,6 +115,8 @@ pub async fn run_worker(
 
         match pull(db).await {
             Ok(Some(job)) => {
+                let _timer = job_duration_seconds.start_timer();
+
                 jobs_executed += 1;
 
                 tracing::info!(worker = %worker_name, id = %job.id, "Fetched job");

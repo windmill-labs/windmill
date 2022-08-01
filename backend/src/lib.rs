@@ -9,6 +9,7 @@
 use argon2::Argon2;
 use axum::{handler::Handler, middleware::from_extractor, routing::get, Extension, Router};
 use db::DB;
+use futures::FutureExt;
 use git_version::git_version;
 use slack_http_verifier::SlackVerifier;
 use std::{net::SocketAddr, sync::Arc};
@@ -286,4 +287,26 @@ pub async fn shutdown_signal(tx: tokio::sync::broadcast::Sender<()>) -> anyhow::
     println!("signal received, starting graceful shutdown");
     let _ = tx.send(());
     Ok(())
+}
+
+pub async fn serve_metrics(
+    addr: SocketAddr,
+    mut rx: tokio::sync::broadcast::Receiver<()>,
+) -> Result<(), hyper::Error> {
+    axum::Server::bind(&addr)
+        .serve(
+            Router::new()
+                .route("/metrics", get(metrics))
+                .into_make_service(),
+        )
+        .with_graceful_shutdown(rx.recv().map(drop))
+        .await
+}
+
+async fn metrics() -> Result<String, Error> {
+    let metric_families = prometheus::gather();
+    prometheus::TextEncoder::new()
+        .encode_to_string(&metric_families)
+        .map_err(anyhow::Error::from)
+        .map_err(Error::Anyhow)
 }

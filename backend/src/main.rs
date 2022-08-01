@@ -6,6 +6,7 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
+use futures::TryFutureExt;
 use std::net::SocketAddr;
 
 use dotenv::dotenv;
@@ -104,7 +105,11 @@ async fn main() -> anyhow::Result<()> {
             Ok(()) as anyhow::Result<()>
         };
 
-        futures::try_join!(shutdown_signal, server_f, workers_f, monitor_f)?;
+        let metrics_f =
+            windmill::serve_metrics(SocketAddr::from(([0, 0, 0, 0], 8001)), tx.subscribe())
+                .map_err(anyhow::Error::from);
+
+        futures::try_join!(shutdown_signal, server_f, workers_f, monitor_f, metrics_f)?;
     }
 
     Ok(())
