@@ -125,15 +125,19 @@
 	})
 </script>
 
-<div class="flex flex-col max-w-screen-lg w-full mb-96">
+<div class="flex flex-col max-w-screen-lg w-full mb-96 px-8">
 	<!-- Nav between steps-->
 	<div class="justify-between flex flex-row w-full">
 		<Breadcrumb>
-			<BreadcrumbItem on:click={() => changeStep(1)} variation={step === 1 ? 'solid' : null}>
-				Flow Editor
+			<BreadcrumbItem>
+				<button on:click={() => changeStep(1)} class={step === 1 ? 'font-bold' : null}
+					>Flow Editor</button
+				>
 			</BreadcrumbItem>
-			<BreadcrumbItem on:click={() => changeStep(2)} variation={step === 2 ? 'solid' : null}>
-				UI customisation
+			<BreadcrumbItem>
+				<button on:click={() => changeStep(2)} class={step === 2 ? 'font-bold' : null}
+					>UI customisation</button
+				>
 			</BreadcrumbItem>
 		</Breadcrumb>
 		<div class="flex flex-row-reverse ml-2">

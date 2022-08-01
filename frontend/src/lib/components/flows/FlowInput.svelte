@@ -7,10 +7,10 @@
 </script>
 
 <FlowBox>
-	<FlowBoxHeader title="Flow Input">
+	<FlowBoxHeader title="Flow Inputs">
 		<CopyFirstStepSchema />
 	</FlowBoxHeader>
-	<div class="p-6">
+	<div class="p-6 ">
 		<SchemaEditor
 			on:change={() => {
 				$flowStore = $flowStore

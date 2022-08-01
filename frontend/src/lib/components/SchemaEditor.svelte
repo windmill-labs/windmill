@@ -203,11 +203,11 @@
 											size="xs"
 											on:click={() => handleDeleteArgument(name)}
 										>
-											<Icon data={faTrash} class="mr-2" />
+											<Icon data={faTrash} class="mr-2" scale={0.8} />
 											Delete
 										</Button>
 										<Button color="alternative" size="xs" on:click={() => startEditArgument(name)}>
-											<Icon data={faPen} class="mr-2" />
+											<Icon data={faPen} class="mr-2" scale={0.8} />
 											Edit
 										</Button>
 									</td>
@@ -216,7 +216,7 @@
 						</tbody>
 					</TableCustom>
 				{:else}
-					<div class="text-gray-700 text-xs italic">This script has no argument</div>
+					<div class="text-gray-700 text-xs italic mt-2">This schema has no arguments.</div>
 				{/if}
 			</div>
 		{:else}
