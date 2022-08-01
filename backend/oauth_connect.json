@@ -62,5 +62,12 @@
         "scopes": [
             "https://www.googleapis.com/auth/cloud-platform"
         ]
+    },
+    "discord": {
+        "auth_url": "https://discordapp.com/api/oauth2/authorize",
+        "token_url": "https://discordapp.com/api/oauth2/token",
+        "scopes": [
+            "bot"
+        ]
     }
 }
