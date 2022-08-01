@@ -184,8 +184,8 @@
 		{#if flow === undefined}
 			<p>loading</p>
 		{:else}
+			<p class="text-sm">Edited {displayDaysAgo(flow.edited_at ?? '')} by {flow.edited_by}</p>
 			<h2>{flow.summary}</h2>
-			<p>Edited {displayDaysAgo(flow.edited_at ?? '')} by {flow.edited_by}</p>
 
 			<div class="prose">
 				<SvelteMarkdown source={defaultIfEmptyString(flow.description, 'No description')} />
