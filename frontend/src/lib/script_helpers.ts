@@ -24,7 +24,7 @@ def main(name: str = "Nicolas Bourbaki",
     # retrieve variables, including secrets by querying the windmill platform.
     # secret fetching is audited by windmill.
     secret = wmill.get_variable("g/all/pretty_secret")
-    print(f"The env variable at \`g_all/pretty_secret\`: {secret}")
+    print(f"The env variable at \`g/all/pretty_secret\`: {secret}")
     # interact with the windmill platform to get the version
     version = wmill.get_version()
     # fetch reserved variables as environment variables
