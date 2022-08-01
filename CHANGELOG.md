@@ -1,6 +1,14 @@
 # Changelog
 
 
+## [1.26.3](https://github.com/windmill-labs/windmill/compare/v1.26.2...v1.26.3) (2022-08-01)
+
+
+### Bug Fixes
+
+* displaying which group you are a member of that gave you access to item ([1bd0269](https://github.com/windmill-labs/windmill/commit/1bd026924b8a3b01f7729b627f939d8af872a483))
+* refresh jobs result when hopping from flow to flow ([c86abe6](https://github.com/windmill-labs/windmill/commit/c86abe6ae01efd519f67ead233ebddf39f1539c0))
+
 ## [1.26.2](https://github.com/windmill-labs/windmill/compare/v1.26.1...v1.26.2) (2022-07-31)
 
 
