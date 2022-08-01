@@ -17,27 +17,24 @@
 	const initialState = $page.url.searchParams.get('state')
 	const hubId = $page.url.searchParams.get('hub')
 
-	let flow: Flow =
-		initialState != undefined
-			? decodeState(initialState)
-			: {
-					path: '',
-					summary: '',
-					value: { modules: [] },
-					edited_by: '',
-					edited_at: '',
-					archived: false,
-					extra_perms: {},
-					schema: emptySchema()
-			  }
-
 	async function loadFlow() {
+		let flow: Flow =
+			initialState != undefined
+				? decodeState(initialState)
+				: {
+						path: '',
+						summary: '',
+						value: { modules: [] },
+						edited_by: '',
+						edited_at: '',
+						archived: false,
+						extra_perms: {},
+						schema: emptySchema()
+				  }
+
 		if (hubId) {
 			const hub = (await FlowService.getHubFlowById({ id: Number(hubId) })).flow
-			flow.summary = hub?.summary ?? ''
-			flow.value = hub?.value ?? { modules: [] }
-			flow.description = hub?.description
-			flow.schema = hub?.schema ?? emptySchema()
+			Object.assign(flow, hub)
 			flow = flow
 			$page.url.searchParams.delete('hub')
 			sendUserToast(`Flow has been loaded from hub flow id ${hubId}.`)

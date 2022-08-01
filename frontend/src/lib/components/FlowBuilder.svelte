@@ -116,7 +116,9 @@
 	}
 
 	flowStore.subscribe((flow: Flow) => {
-		setQueryWithoutLoad($page.url, 'state', encodeState(flowToMode(flow, $mode)))
+		if (flow) {
+			setQueryWithoutLoad($page.url, 'state', encodeState(flowToMode(flow, $mode)))
+		}
 	})
 
 	onMount(() => {
@@ -170,20 +172,24 @@
 
 	<!-- metadata -->
 
-	{#if step === 1}
-		<FlowEditor
-			bind:pathError
-			bind:initialPath
-			bind:scheduleEnabled
-			bind:scheduleCron
-			bind:scheduleArgs
-		/>
-	{:else if step === 2}
-		<ScriptSchema
-			synchronizedHeader={false}
-			bind:summary={$flowStore.summary}
-			bind:description={$flowStore.description}
-			bind:schema={$flowStore.schema}
-		/>
+	{#if $flowStore}
+		{#if step === 1}
+			<FlowEditor
+				bind:pathError
+				bind:initialPath
+				bind:scheduleEnabled
+				bind:scheduleCron
+				bind:scheduleArgs
+			/>
+		{:else if step === 2}
+			<ScriptSchema
+				synchronizedHeader={false}
+				bind:summary={$flowStore.summary}
+				bind:description={$flowStore.description}
+				bind:schema={$flowStore.schema}
+			/>
+		{/if}
+	{:else}
+		<p>Loading</p>
 	{/if}
 </div>
