@@ -1,6 +1,6 @@
 <script lang="ts">
-	import Icon from 'svelte-awesome'
 	import { faInfoCircle } from '@fortawesome/free-solid-svg-icons'
+	import Icon from 'svelte-awesome'
 	import { createPopperActions } from 'svelte-popperjs'
 	import { fade } from 'svelte/transition'
 	const [popperRef, popperContent] = createPopperActions({
@@ -50,6 +50,7 @@
 		use:popperContent={extraOpts}
 		on:mouseenter={open}
 		on:mouseleave={close}
+		class="w-96 text-left"
 	>
 		<slot />
 		<div id="arrow" data-popper-arrow />

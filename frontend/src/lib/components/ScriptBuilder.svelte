@@ -1,19 +1,19 @@
 <script lang="ts">
 	import { ScriptService, type Script } from '$lib/gen'
 
+	import { goto } from '$app/navigation'
+	import { page } from '$app/stores'
+	import { inferArgs } from '$lib/infer'
+	import { DENO_INIT_CODE, DENO_INIT_CODE_TRIGGER, initialCode } from '$lib/script_helpers'
+	import { workspaceStore } from '$lib/stores'
 	import { emptySchema, encodeState, sendUserToast, setQueryWithoutLoad } from '$lib/utils'
 	import { onDestroy } from 'svelte'
-	import ScriptEditor from './ScriptEditor.svelte'
-	import { page } from '$app/stores'
-	import { goto } from '$app/navigation'
-	import Path from './Path.svelte'
 	import SvelteMarkdown from 'svelte-markdown'
-	import { workspaceStore } from '$lib/stores'
-	import ScriptSchema from './ScriptSchema.svelte'
-	import { inferArgs } from '$lib/infer'
-	import Required from './Required.svelte'
-	import { DENO_INIT_CODE, DENO_INIT_CODE_TRIGGER, initialCode } from '$lib/script_helpers'
+	import Path from './Path.svelte'
 	import RadioButtonV3 from './RadioButtonV3.svelte'
+	import Required from './Required.svelte'
+	import ScriptEditor from './ScriptEditor.svelte'
+	import ScriptSchema from './ScriptSchema.svelte'
 
 	let editor: ScriptEditor
 	let scriptSchema: ScriptSchema

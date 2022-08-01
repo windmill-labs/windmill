@@ -10,6 +10,7 @@
 		sendUserToast,
 		setQueryWithoutLoad
 	} from '$lib/utils'
+	import { Breadcrumb, BreadcrumbItem } from 'flowbite-svelte'
 	import { onMount } from 'svelte'
 	import { OFFSET } from './CronInput.svelte'
 	import FlowEditor from './FlowEditor.svelte'
@@ -126,60 +127,47 @@
 	})
 </script>
 
-<div class="flex flex-col h-screen max-w-screen-lg xl:-ml-20 xl:pl-4 w-full -mt-4 pt-4 md:mx-10 ">
+<div class="flex flex-col max-w-screen-lg w-full mb-96 px-8">
 	<!-- Nav between steps-->
-	<div class="flex flex-col w-full">
-		<div class="justify-between flex flex-row drop-shadow-sm w-full">
-			<div class="wizard-nav flex flex-row w-full">
+	<div class="justify-between flex flex-row w-full">
+		<Breadcrumb>
+			<BreadcrumbItem>
+				<button on:click={() => changeStep(1)} class={step === 1 ? 'font-bold' : null}
+					>Flow Editor</button
+				>
+			</BreadcrumbItem>
+			<BreadcrumbItem>
+				<button on:click={() => changeStep(2)} class={step === 2 ? 'font-bold' : null}
+					>UI customisation</button
+				>
+			</BreadcrumbItem>
+		</Breadcrumb>
+		<div class="flex flex-row-reverse ml-2">
+			{#if step == 1}
 				<button
 					disabled={pathError != ''}
-					class="{step === 1
-						? 'default-button-disabled text-gray-700'
-						: 'default-button-secondary'} min-w-max ml-2"
-					on:click={() => {
-						changeStep(1)
-					}}>Step 1: Flow</button
+					class="default-button px-6 max-h-8"
+					on:click={() => changeStep(2)}
 				>
+					Next
+				</button>
 				<button
 					disabled={pathError != ''}
-					class="{step === 2
-						? 'default-button-disabled text-gray-700'
-						: 'default-button-secondary'} min-w-max ml-2"
-					on:click={() => {
-						changeStep(2)
-					}}>Step 2: UI customisation</button
+					class="default-button-secondary px-6 max-h-8 mr-2"
+					on:click={saveFlow}
 				>
-			</div>
-			<div class="flex flex-row-reverse ml-2">
-				{#if step == 1}
-					<button
-						disabled={pathError != ''}
-						class="default-button px-6 max-h-8"
-						on:click={() => {
-							changeStep(step + 1)
-						}}
-					>
-						Next
-					</button>
-					<button
-						disabled={pathError != ''}
-						class="default-button-secondary px-6 max-h-8 mr-2"
-						on:click={saveFlow}
-					>
-						Save
-					</button>
-				{:else}
-					<button class="default-button px-6 self-end" on:click={saveFlow}>Save</button>
-				{/if}
-			</div>
+					Save
+				</button>
+			{:else}
+				<button class="default-button px-6 self-end" on:click={saveFlow}>Save</button>
+			{/if}
 		</div>
-
-		<div class="flex flex-row-reverse">
-			<span class="my-1 text-sm text-gray-500 italic">
-				{#if initialPath && initialPath != $flowStore?.path} {initialPath} &rightarrow; {/if}
-				{$flowStore?.path}
-			</span>
-		</div>
+	</div>
+	<div class="flex flex-row-reverse">
+		<span class="my-1 text-sm text-gray-500 italic">
+			{#if initialPath && initialPath != $flowStore?.path} {initialPath} &rightarrow; {/if}
+			{$flowStore?.path}
+		</span>
 	</div>
 
 	<!-- metadata -->
@@ -205,13 +193,3 @@
 		<p>Loading</p>
 	{/if}
 </div>
-
-<style>
-	/* .wizard-nav {
-		@apply w-1/2 sm:w-1/4;
-	} */
-
-	.wizard-nav button {
-		max-height: 30px;
-	}
-</style>
