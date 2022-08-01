@@ -3466,6 +3466,33 @@ dependencies = [
 ]
 
 [[package]]
+name = "swc_common"
+version = "0.26.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f7b3ce2fcc4e51ffb3e0556f04bf50e6cdeaaab9b019282f68acb2311c4b75f8"
+dependencies = [
+ "ahash",
+ "ast_node",
+ "better_scoped_tls",
+ "cfg-if 1.0.0",
+ "debug_unreachable",
+ "either",
+ "from_variant",
+ "num-bigint 0.4.3",
+ "once_cell",
+ "rustc-hash",
+ "serde",
+ "siphasher 0.3.10",
+ "string_cache 0.8.4",
+ "swc_atoms",
+ "swc_eq_ignore_macros",
+ "swc_visit",
+ "tracing",
+ "unicode-width",
+ "url",
+]
+
+[[package]]
 name = "swc_ecma_ast"
 version = "0.88.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3478,7 +3505,7 @@ dependencies = [
  "serde",
  "string_enum",
  "swc_atoms",
- "swc_common",
+ "swc_common 0.25.0",
  "unicode-id",
 ]
 
@@ -3495,7 +3522,7 @@ dependencies = [
  "serde",
  "smallvec",
  "swc_atoms",
- "swc_common",
+ "swc_common 0.25.0",
  "swc_ecma_ast",
  "tracing",
  "typed-arena",
@@ -4540,7 +4567,7 @@ dependencies = [
  "slack-http-verifier",
  "sql-builder",
  "sqlx",
- "swc_common",
+ "swc_common 0.26.0",
  "swc_ecma_ast",
  "swc_ecma_parser",
  "tempfile",
