@@ -252,8 +252,9 @@
 		{#if script === undefined}
 			<p>loading</p>
 		{:else}
+			<p class="text-sm">Edited {displayDaysAgo(script.created_at ?? '')} by {script.created_by}</p>
+
 			<h2>{script.summary}</h2>
-			<p>Edited {displayDaysAgo(script.created_at ?? '')} by {script.created_by}</p>
 
 			<div class="prose">
 				<SvelteMarkdown source={defaultIfEmptyString(script.description, 'No description')} />
