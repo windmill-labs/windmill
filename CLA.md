@@ -2,8 +2,8 @@
 
 ## Individual Contributor Non-Exclusive License Agreement
 
-Thank you for your interest in contributing to Ruben Fiszel's Windmill ("We" or
-"Us").
+Thank you for your interest in contributing to Windmill Labs, Inc's Windmill
+("We" or "Us").
 
 The purpose of this contributor agreement ("Agreement") is to clarify and
 document the rights granted by contributors to Us.

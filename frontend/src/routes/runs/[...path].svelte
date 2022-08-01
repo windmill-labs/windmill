@@ -9,7 +9,14 @@
 <script lang="ts">
 	import { onDestroy } from 'svelte'
 	import { JobService, Job, CompletedJob } from '$lib/gen'
-	import { displayDate, displayDaysAgo, forLater, setQuery, truncateHash } from '$lib/utils'
+	import {
+		displayDate,
+		displayDaysAgo,
+		forLater,
+		setQuery,
+		truncateHash,
+		msToSec
+	} from '$lib/utils'
 	import Icon from 'svelte-awesome'
 	import { check } from 'svelte-awesome/icons'
 	import {
@@ -25,7 +32,6 @@
 	} from '@fortawesome/free-solid-svg-icons'
 	import { page } from '$app/stores'
 	import { sendUserToast } from '$lib/utils'
-	import { goto } from '$app/navigation'
 	import PageHeader from '$lib/components/PageHeader.svelte'
 	import { workspaceStore } from '$lib/stores'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
@@ -66,7 +72,7 @@
 		}
 	}
 
-	$: $workspaceStore && loadJobs(createdBefore, success, isSkipped, jobKinds)
+	$: ($workspaceStore && loadJobs(createdBefore)) || (success && isSkipped && jobKinds)
 
 	const SMALL_ICON_SCALE = 0.7
 
@@ -96,12 +102,7 @@
 		})
 	}
 
-	async function loadJobs(
-		createdBefore: string | undefined,
-		success: boolean | undefined,
-		isSkipped: boolean | undefined,
-		jobKinds: string | undefined
-	): Promise<void> {
+	async function loadJobs(createdBefore: string | undefined): Promise<void> {
 		try {
 			const newJobs = await fetchJobs(createdBefore, undefined)
 			showOlderJobs = newJobs.length === jobsPerPage
@@ -139,7 +140,8 @@
 
 	$: {
 		if ($workspaceStore) {
-			loadJobs(createdBefore, success, isSkipped, jobKinds)
+			loadJobs(createdBefore)
+			success && isSkipped && jobKinds
 			if (intervalId) {
 				clearInterval(intervalId)
 			}
@@ -305,24 +307,17 @@ the bearer token they use has less privilege."
 										>
 									</div>
 								{/if}
-								{#if job && 'duration' in job && job.duration != undefined}
+								{#if job && 'duration_ms' in job && job.duration_ms != undefined}
 									<div>
 										<Icon
 											class="text-gray-700"
 											data={faHourglassHalf}
 											scale={SMALL_ICON_SCALE}
-										/><span class="mx-2"> Ran in {job.duration}s</span>
+										/><span class="mx-2"> Ran in {msToSec(job.duration_ms)}s</span>
 									</div>
 								{/if}
 								<div>
-									{#if job && job.schedule_path}
-										<Icon class="text-gray-700" data={faCalendar} scale={SMALL_ICON_SCALE} />
-										<span class="mx-2"
-											>Triggered by the schedule: <a
-												href={`/schedule/add?edit=${job.schedule_path}`}>{job.schedule_path}</a
-											></span
-										>
-									{:else if job && job.parent_job}
+									{#if job && job.parent_job}
 										{#if job.is_flow_step}
 											<Icon class="text-gray-700" data={faWind} scale={SMALL_ICON_SCALE} /><span
 												class="mx-2"
@@ -337,6 +332,13 @@ the bearer token they use has less privilege."
 												></span
 											>
 										{/if}
+									{:else if job && job.schedule_path}
+										<Icon class="text-gray-700" data={faCalendar} scale={SMALL_ICON_SCALE} />
+										<span class="mx-2"
+											>Triggered by the schedule: <a
+												href={`/schedule/add?edit=${job.schedule_path}`}>{job.schedule_path}</a
+											></span
+										>
 									{:else}
 										<Icon class="text-gray-700" data={faUser} scale={SMALL_ICON_SCALE} /><span
 											class="mx-2"

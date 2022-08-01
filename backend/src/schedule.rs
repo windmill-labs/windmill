@@ -1,5 +1,6 @@
 /*
- * Author & Copyright: Ruben Fiszel 2021
+ * Author: Ruben Fiszel
+ * Copyright: Windmill Labs, Inc 2022
  * This file and its contents are licensed under the AGPLv3 License.
  * Please see the included NOTICE for copyright information and
  * LICENSE-AGPL for a copy of the license.
@@ -10,7 +11,7 @@ use std::str::FromStr;
 use crate::{
     audit::{audit_log, ActionKind},
     db::{UserDB, DB},
-    error::{self, JsonResult, Result},
+    error::{self, Error, JsonResult, Result},
     jobs::{self, push, JobPayload},
     users::Authed,
     utils::{get_owner_from_path, Pagination, StripPath},
@@ -133,8 +134,10 @@ async fn create_schedule(
 
     check_flow_conflict(&mut tx, &w_id, &ns.path, ns.is_flow, &ns.script_path).await?;
 
-    let schedule = sqlx::query_as!(Schedule,
-        "INSERT INTO schedule (workspace_id, path, schedule, offset_, edited_by, script_path, is_flow, args, enabled) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING *",
+    let schedule = sqlx::query_as!(
+        Schedule,
+        "INSERT INTO schedule (workspace_id, path, schedule, offset_, edited_by, script_path, \
+         is_flow, args, enabled) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING *",
         w_id,
         ns.path,
         ns.schedule,
@@ -146,7 +149,8 @@ async fn create_schedule(
         ns.enabled
     )
     .fetch_one(&mut tx)
-    .await?;
+    .await
+    .map_err(|e| Error::InternalErr(format!("inserting schedule in {w_id}: {e}")))?;
 
     audit_log(
         &mut tx,
@@ -195,9 +199,10 @@ async fn check_flow_conflict<'c>(
         .unwrap_or(false);
         if exists_flow {
             return Err(error::Error::BadConfig(format!(
-            "If a schedule has the same path as or a flow, it must be its primary schedule and hence can only trigger it. 
+                "If a schedule has the same path as or a flow, it must be its primary schedule \
+                 and hence can only trigger it. 
             However the provided path is: {script_path} and is_flow is: {is_flow}",
-        )));
+            )));
         };
     }
     Ok(())
@@ -233,8 +238,10 @@ async fn edit_schedule(
     check_flow_conflict(&mut tx, &w_id, &path, es.is_flow, &es.script_path).await?;
 
     clear_schedule(&mut tx, path).await?;
-    let schedule = sqlx::query_as!(Schedule,
-        "UPDATE schedule SET schedule = $1, script_path = $2, is_flow = $3, args = $4 WHERE path = $5 AND workspace_id = $6 RETURNING *",
+    let schedule = sqlx::query_as!(
+        Schedule,
+        "UPDATE schedule SET schedule = $1, script_path = $2, is_flow = $3, args = $4 WHERE path \
+         = $5 AND workspace_id = $6 RETURNING *",
         es.schedule,
         es.script_path,
         es.is_flow,
@@ -243,7 +250,8 @@ async fn edit_schedule(
         w_id,
     )
     .fetch_one(&mut tx)
-    .await?;
+    .await
+    .map_err(|e| Error::InternalErr(format!("updating schedule in {w_id}: {e}")))?;
 
     if schedule.enabled {
         tx = push_scheduled_job(tx, schedule).await?;

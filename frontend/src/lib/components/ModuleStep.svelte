@@ -1,8 +1,8 @@
 <script lang="ts">
-	import { FlowModuleValue, type FlowModule } from '$lib/gen'
+	import { RawScript, type FlowModule } from '$lib/gen'
 	import { previewResults } from '$lib/stores'
 	import { buildExtraLib, objectToTsType, schemaToTsType } from '$lib/utils'
-	import { faChevronDown, faChevronUp, faPlus, faRobot } from '@fortawesome/free-solid-svg-icons'
+	import { faChevronDown, faChevronUp, faPlus } from '@fortawesome/free-solid-svg-icons'
 	import Icon from 'svelte-awesome'
 	import Editor from './Editor.svelte'
 	import EditorBar from './EditorBar.svelte'
@@ -33,8 +33,10 @@
 	let websocketAlive = { pyright: false, black: false, deno: false }
 	let pickableProperties: Object | undefined = undefined
 
+	let bigEditor = false
+
 	$: schema = $schemasStore[i]
-	$: shouldPick = mod.value.path === '' && mod.value.language === undefined
+	$: shouldPick = 'path' in mod.value && mod.value.path === '' && !('language' in mod.value)
 	$: pickableProperties = getPickableProperties($flowStore?.schema, args, $previewResults, mode, i)
 	$: extraLib = buildExtraLib(
 		schemaToTsType($flowStore?.schema),
@@ -82,13 +84,13 @@
 					</h3>
 				{/if}
 				<p>
-					{#if mod.value.path}
+					{#if 'path' in mod.value && mod.value.path}
 						{mod.value.path}
 					{/if}
-					{#if mod.value.language}
+					{#if 'language' in mod.value && mod.value.language}
 						Inline {mod.value.language}
 					{/if}
-					{#if !mod.value.path && !mod.value.language}
+					{#if !('path' in mod.value) && !('language' in mod.value)}
 						Select a script
 					{/if}
 				</p>
@@ -103,23 +105,33 @@
 						on:new={(e) => createInlineScriptModule(e.detail.language, i, mode)}
 					/>
 				{/if}
-				{#if mod.value.type === FlowModuleValue.type.RAWSCRIPT}
+				{#if mod.value.type === 'rawscript'}
 					<div class="p-1 overflow-hidden">
 						<EditorBar {editor} {websocketAlive} lang={mod.value.language ?? 'deno'} />
 					</div>
-					<Editor
-						bind:websocketAlive
-						bind:this={editor}
-						class="h-80 border p-2 rounded"
-						bind:code={mod.value.content}
-						deno={mod.value.language === FlowModuleValue.language.DENO}
-					/>
+					<div>
+						<Editor
+							bind:websocketAlive
+							bind:this={editor}
+							class="{bigEditor ? 'h-2/3' : 'h-80'} border p-2 rounded"
+							bind:code={mod.value.content}
+							deno={mod.value.language === RawScript.language.DENO}
+							automaticLayout={true}
+							on:blur={() => loadSchema(i)}
+							formatAction={() => loadSchema(i)}
+						/>
+						<button
+							class="w-full text-center"
+							on:click={() => {
+								bigEditor = !bigEditor
+							}}><Icon data={bigEditor ? faChevronUp : faChevronDown} scale={1.0} /></button
+						>
+					</div>
 					<div class="mt-2 mb-8">
-						<button class="default-primary-button-v2" on:click={() => loadSchema(i)}>
-							<Icon data={faRobot} class="w-4 h-4 mr-2 -ml-2" />
-
-							Infer step inputs from code
-						</button>
+						<p class="text-gray-500 italic">
+							Move the focus outside of the text editor to recompute the input schema or press
+							Ctrl/Cmd+S
+						</p>
 					</div>
 				{/if}
 				{#if !shouldPick}

@@ -1,5 +1,6 @@
 /*
- * Author & Copyright: Ruben Fiszel 2021
+ * Author: Ruben Fiszel
+ * Copyright: Windmill Labs, Inc 2022
  * This file and its contents are licensed under the AGPLv3 License.
  * Please see the included NOTICE for copyright information and
  * LICENSE-AGPL for a copy of the license.
@@ -253,9 +254,7 @@ async fn list_scripts(
 }
 
 async fn list_hub_scripts(
-    Authed {
-        email, username, ..
-    }: Authed,
+    Authed { email, username, .. }: Authed,
     Extension(http_client): Extension<Client>,
     Host(host): Host,
 ) -> JsonResult<serde_json::Value> {
@@ -342,7 +341,7 @@ async fn create_script(
                 if let Some(clashing_hash) = clashing_hash_o {
                     return Err(Error::BadRequest(format!(
                         "A script with hash {} with same parent_hash has been found. However, the \
-                     lineage must be linear: no 2 scripts can have the same parent",
+                         lineage must be linear: no 2 scripts can have the same parent",
                         ScriptHash(clashing_hash)
                     )));
                 };
@@ -395,9 +394,9 @@ async fn create_script(
     };
     //::text::json is to ensure we use serde_json with preserve order
     sqlx::query!(
-        "INSERT INTO script (workspace_id, hash, path, parent_hashes, summary, description, content, \
-         created_by, schema, is_template, extra_perms, lock, language, is_trigger) VALUES \
-         ($1, $2, $3, $4, $5, $6, $7, $8, $9::text::json, $10, $11, $12, $13, $14)",
+        "INSERT INTO script (workspace_id, hash, path, parent_hashes, summary, description, \
+         content, created_by, schema, is_template, extra_perms, lock, language, is_trigger) \
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::text::json, $10, $11, $12, $13, $14)",
         &w_id,
         &hash.0,
         ns.path,
@@ -479,9 +478,7 @@ async fn create_script(
 }
 
 pub async fn get_hub_script_by_path(
-    Authed {
-        email, username, ..
-    }: Authed,
+    Authed { email, username, .. }: Authed,
     Path(path): Path<StripPath>,
     Extension(http_client): Extension<Client>,
     Host(host): Host,
@@ -515,8 +512,10 @@ async fn get_script_by_path(
     let mut tx = user_db.begin(&authed).await?;
 
     let script_o = sqlx::query_as::<_, Script>(
-        "SELECT * FROM script WHERE path = $1 AND (workspace_id = $2 OR workspace_id = 'starter') AND
-         created_at = (SELECT max(created_at) FROM script WHERE path = $1 AND archived = false AND (workspace_id = $2 OR workspace_id = 'starter'))",
+        "SELECT * FROM script WHERE path = $1 AND (workspace_id = $2 OR workspace_id = 'starter') \
+         AND
+         created_at = (SELECT max(created_at) FROM script WHERE path = $1 AND archived = false AND \
+         (workspace_id = $2 OR workspace_id = 'starter'))",
     )
     .bind(path)
     .bind(w_id)
@@ -535,9 +534,12 @@ async fn exists_script_by_path(
     let path = path.to_path();
 
     let exists = sqlx::query_scalar!(
-        "SELECT EXISTS(SELECT 1 FROM script WHERE path = $1 AND (workspace_id = $2 OR workspace_id = 'starter') AND
-         created_at = (SELECT max(created_at) FROM script WHERE path = $1 AND (workspace_id = $2 OR workspace_id = 'starter')))",
-         path, w_id
+        "SELECT EXISTS(SELECT 1 FROM script WHERE path = $1 AND (workspace_id = $2 OR \
+         workspace_id = 'starter') AND
+         created_at = (SELECT max(created_at) FROM script WHERE path = $1 AND (workspace_id = $2 \
+         OR workspace_id = 'starter')))",
+        path,
+        w_id
     )
     .fetch_one(&db)
     .await?
@@ -586,8 +588,10 @@ async fn get_deployment_status(
     Path((w_id, hash)): Path<(String, ScriptHash)>,
 ) -> JsonResult<DeploymentStatus> {
     let mut tx = user_db.begin(&authed).await?;
-    let status_o: Option<DeploymentStatus> = sqlx::query_as!(DeploymentStatus,
-        "SELECT lock, lock_error_logs FROM script WHERE hash = $1 AND (workspace_id = $2 OR workspace_id = 'starter')",
+    let status_o: Option<DeploymentStatus> = sqlx::query_as!(
+        DeploymentStatus,
+        "SELECT lock, lock_error_logs FROM script WHERE hash = $1 AND (workspace_id = $2 OR \
+         workspace_id = 'starter')",
         hash.0,
         w_id,
     )
@@ -615,7 +619,8 @@ async fn archive_script_by_path(
         &w_id
     )
     .fetch_one(&db)
-    .await?;
+    .await
+    .map_err(|e| Error::InternalErr(format!("archiving script in {w_id}: {e}")))?;
     audit_log(
         &mut tx,
         &authed.username,
@@ -643,7 +648,9 @@ async fn archive_script_by_hash(
     )
     .bind(&hash.0)
     .fetch_one(&mut tx)
-    .await?;
+    .await
+    .map_err(|e| Error::InternalErr(format!("archiving script in {w_id}: {e}")))?;
+
     audit_log(
         &mut tx,
         &authed.username,
@@ -669,13 +676,15 @@ async fn delete_script_by_hash(
 
     require_admin(authed.is_admin, &authed.username)?;
     let script = sqlx::query_as::<_, Script>(
-        "UPDATE script SET content = '', archived = true, deleted = true WHERE hash = $1 AND workspace_id = $2\
-         RETURNING *",
+        "UPDATE script SET content = '', archived = true, deleted = true WHERE hash = $1 AND \
+         workspace_id = $2RETURNING *",
     )
     .bind(&hash.0)
     .bind(&w_id)
     .fetch_one(&db)
-    .await?;
+    .await
+    .map_err(|e| Error::InternalErr(format!("deleting script by hash {w_id}: {e}")))?;
+
     audit_log(
         &mut tx,
         &authed.username,

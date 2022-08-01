@@ -1,5 +1,6 @@
 /*
- * Author & Copyright: Ruben Fiszel 2021
+ * Author: Ruben Fiszel
+ * Copyright: Windmill Labs, Inc 2022
  * This file and its contents are licensed under the AGPLv3 License.
  * Please see the included NOTICE for copyright information and
  * LICENSE-AGPL for a copy of the license.
@@ -125,22 +126,33 @@ pub async fn run_worker(
                 .err()
                 {
                     let err_string = err.to_string().clone();
-                    let _ = add_completed_job_error(
+                    let m = add_completed_job_error(
                         db,
                         &job2,
                         "Unexpected error during job execution:\n".to_string(),
                         err,
                     )
-                    .await;
+                    .await
+                    .map(|(_, m)| m)
+                    .unwrap_or_else(|_| Map::new());
 
-                    let _ = postprocess_queued_job(
-                        job2.schedule_path,
-                        job2.script_path,
-                        &job2.workspace_id,
-                        job2.id,
-                        db,
-                    )
-                    .await;
+                    {
+                        let job = job2.clone();
+                        let _ = postprocess_queued_job(
+                            job.is_flow_step,
+                            job.schedule_path,
+                            job.script_path,
+                            &job2.workspace_id,
+                            job2.id,
+                            db,
+                        )
+                        .await;
+                    }
+
+                    if job2.parent_job.is_some() {
+                        let _ = update_flow_status_after_job_completion(db, &job2, false, Some(m))
+                            .await;
+                    }
                     tracing::error!(job_id = %job2.id, "Error handling job: {err_string}");
                 };
             }
@@ -238,8 +250,15 @@ async fn handle_queued_job(
                 }
             };
 
-            let _ =
-                postprocess_queued_job(job.schedule_path, job.script_path, &w_id, job_id, db).await;
+            let _ = postprocess_queued_job(
+                job.is_flow_step,
+                job.schedule_path,
+                job.script_path,
+                &w_id,
+                job_id,
+                db,
+            )
+            .await;
         }
     }
     Ok(())
@@ -268,6 +287,9 @@ async fn transform_json_value(token: &str, workspace: &str, base_url: &str, v: V
         }
         Value::String(y) if y.starts_with("$res:") => {
             let path = y.strip_prefix("$res:").unwrap();
+            if path.split("/").count() < 2 {
+                return Value::String(format!("resource path: {path} is ill-defined"));
+            }
             let v = crate::client::get_resource(workspace, path, token, base_url)
                 .await
                 .ok()
@@ -343,9 +365,7 @@ async fn handle_job(
                 e.to_string()
             ))
         })?;
-        Ok(JobResult {
-            result: Some(result),
-        })
+        Ok(JobResult { result: Some(result) })
     } else {
         let err = match status {
             Ok(_) => {
@@ -393,7 +413,10 @@ async fn handle_nondep_job(
         };
         (code, reqs, job.language.to_owned())
     } else {
-        sqlx::query_as::<_, (String, Option<String>, Option<ScriptLang>)>("SELECT content, lock, language FROM script WHERE hash = $1 AND (workspace_id = $2 OR workspace_id = 'starter')")
+        sqlx::query_as::<_, (String, Option<String>, Option<ScriptLang>)>(
+            "SELECT content, lock, language FROM script WHERE hash = $1 AND (workspace_id = $2 OR \
+             workspace_id = 'starter')",
+        )
         .bind(&job.script_hash.unwrap_or(ScriptHash(0)).0)
         .bind(&job.workspace_id)
         .fetch_optional(db)
@@ -463,11 +486,29 @@ async fn handle_nondep_job(
                 let _ = write_file(job_dir, "inner.py", &inner_content).await?;
 
                 let sig = crate::parser::parse_python_signature(&inner_content)?;
-                let transforms = sig.args.into_iter().map(|x| match x.typ {
-    Typ::Bytes => format!("if \"{}\" in kwargs and kwargs[\"{}\"] is not None:\n    kwargs[\"{}\"] = base64.b64decode(kwargs[\"{}\"])\n", x.name, x.name, x.name, x.name),
-    Typ::Datetime => format!("if \"{}\" in kwargs and kwargs[\"{}\"] is not None:\n    kwargs[\"{}\"] = datetime.strptime(kwargs[\"{}\"], '%Y-%m-%dT%H:%M')\n", x.name, x.name, x.name, x.name),
-    _ => "".to_string()
-        }).collect::<Vec<String>>().join("");
+                let transforms = sig
+                    .args
+                    .into_iter()
+                    .map(|x| match x.typ {
+                        Typ::Bytes => {
+                            format!(
+                                "if \"{}\" in kwargs and kwargs[\"{}\"] is not None:\n    \
+                                     kwargs[\"{}\"] = base64.b64decode(kwargs[\"{}\"])\n",
+                                x.name, x.name, x.name, x.name
+                            )
+                        }
+                        Typ::Datetime => {
+                            format!(
+                                "if \"{}\" in kwargs and kwargs[\"{}\"] is not None:\n    \
+                                     kwargs[\"{}\"] = datetime.strptime(kwargs[\"{}\"], \
+                                     '%Y-%m-%dT%H:%M')\n",
+                                x.name, x.name, x.name, x.name
+                            )
+                        }
+                        _ => "".to_string(),
+                    })
+                    .collect::<Vec<String>>()
+                    .join("");
 
                 let tx = db.begin().await?;
 
@@ -896,9 +937,10 @@ async fn handle_child(
                 let canceled = sqlx::query_scalar!("SELECT canceled FROM queue WHERE id = $1", id)
                     .fetch_one(db)
                     .await
-                    .map_err(|_| tracing::error!("error getting canceled for id {}", id));
+                    .map_err(|e| tracing::error!("error getting canceled for id {}: {e}", id))
+                    .unwrap_or(false);
 
-                if canceled.unwrap_or(false) {
+                if canceled {
                     tracing::info!("killed after cancel: {}", job.id);
                     done.store(true, Ordering::Relaxed);
                 }
@@ -977,17 +1019,17 @@ pub async fn restart_zombie_jobs_periodically(
     mut rx: tokio::sync::broadcast::Receiver<()>,
 ) {
     loop {
-        let restarted = sqlx::query_scalar!(
-            "UPDATE queue SET running = false WHERE last_ping < $1 RETURNING id",
-            chrono::Utc::now() - chrono::Duration::seconds(timeout as i64 * 2)
+        let restarted = sqlx::query!(
+            "UPDATE queue SET running = false WHERE last_ping < $1 and running = true RETURNING id, workspace_id",
+            chrono::Utc::now() - chrono::Duration::seconds(timeout as i64 * 5)
         )
         .fetch_all(db)
         .await
         .ok()
         .unwrap_or_else(|| vec![]);
 
-        if restarted.len() > 0 {
-            tracing::info!("restarted zombie jobs {restarted:?}");
+        for r in restarted {
+            tracing::info!("restarted zombie job {} {}", r.id, r.workspace_id);
         }
 
         tokio::select! {

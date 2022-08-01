@@ -1,8 +1,8 @@
 <script lang="ts">
 	import { Highlight } from 'svelte-highlight'
-	import github from 'svelte-highlight/styles/github'
 	import { json } from 'svelte-highlight/languages'
 	import TableCustom from './TableCustom.svelte'
+	import { truncate } from '$lib/utils'
 
 	export let result: any
 
@@ -54,9 +54,6 @@
 	}
 </script>
 
-<svelte:head>
-	{@html github}
-</svelte:head>
 {#if result}
 	{#if Object.keys(result).length > 0}<div>
 			The result keys are: <b>{Object.keys(result).join(', ')}</b>
@@ -65,13 +62,13 @@
 	{#if resultKind == 'table-col'}
 		<div class="grid grid-flow-col-dense border border-gray-200 rounded-md ">
 			{#each Object.keys(result) as col}
-				<div class="flex flex-col  min-w-full">
+				<div class="flex flex-col max-h-40 min-w-full overflow-auto">
 					<div class="px-12 text-left uppercase border-b bg-gray-50 overflow-hidden rounded-t-md ">
 						{col}
 					</div>
 					{#if Array.isArray(result[col])}
 						{#each result[col] as item}
-							<div class="px-12 text-left">
+							<div class="px-12 text-left  whitespace-nowrap">
 								{typeof item === 'string' ? item : JSON.stringify(item)}
 							</div>
 						{/each}
@@ -87,7 +84,7 @@
 					{#each asListOfList(Object.values(result)[0]) as row}
 						<tr>
 							{#each row as v}
-								<td>{v ?? ''}</td>
+								<td>{truncate(v, 200) ?? ''}</td>
 							{/each}
 						</tr>
 					{/each}

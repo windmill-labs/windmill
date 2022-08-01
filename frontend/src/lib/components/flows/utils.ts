@@ -1,5 +1,5 @@
 import type { Schema } from '$lib/common'
-import { FlowModuleValue, InputTransform, type Flow, type FlowModule } from '$lib/gen'
+import type { FlowModuleValue, InputTransform, Flow, FlowModule, RawScript } from '$lib/gen'
 import { inferArgs } from '$lib/infer'
 import { loadSchema } from '$lib/scripts'
 import { emptySchema, getScriptByPath, schemaToObject } from '$lib/utils'
@@ -7,8 +7,22 @@ import { emptySchema, getScriptByPath, schemaToObject } from '$lib/utils'
 import type { FlowMode } from './flowStore'
 
 export function flowToMode(flow: Flow | any, mode: FlowMode): Flow {
+	const newFlow: Flow = JSON.parse(JSON.stringify(flow))
+	newFlow.value.modules.forEach((mod) => {
+		Object.values(mod.input_transform).forEach((inp) => {
+			// for now we use the value for dynamic expression when done in the static editor so we have to resort to this
+			if (inp.type == 'javascript') {
+				//@ts-ignore
+				inp.value = undefined
+			} else {
+				//@ts-ignore
+				inp.expr = undefined
+			}
+		})
+	})
+
 	if (mode == 'pull') {
-		const newFlow: Flow = JSON.parse(JSON.stringify(flow))
+
 		const triggerModule = newFlow.value.modules[0]
 		const oldModules = newFlow.value.modules.slice(1)
 
@@ -22,8 +36,8 @@ export function flowToMode(flow: Flow | any, mode: FlowMode): Flow {
 			newFlow.value.modules.push({
 				input_transform: oldModules[0].input_transform,
 				value: {
-					type: FlowModuleValue.type.FORLOOPFLOW,
-					iterator: { type: InputTransform.type.JAVASCRIPT, expr: 'result.res1' },
+					type: 'forloopflow',
+					iterator: { type: 'javascript', expr: 'result.res1' },
 					value: {
 						modules: oldModules
 					},
@@ -31,9 +45,8 @@ export function flowToMode(flow: Flow | any, mode: FlowMode): Flow {
 				}
 			})
 		}
-		return newFlow
 	}
-	return flow
+	return newFlow
 }
 
 
@@ -50,14 +63,14 @@ export function getTypeAsString(arg: any): string {
 
 export async function getFirstStepSchema(flow: Flow): Promise<Schema> {
 	const [firstModule] = flow.value.modules
-	if (firstModule.value.type === FlowModuleValue.type.RAWSCRIPT) {
+	if (firstModule.value.type === 'rawscript') {
 		const { language, content } = firstModule.value
 		if (language && content) {
 			const schema = emptySchema()
 			await inferArgs(language, content, schema)
 			return schema
 		}
-	} else if (firstModule.value.path) {
+	} else if (firstModule.value.type == 'script') {
 		return await loadSchema(firstModule.value.path)
 	}
 	return emptySchema()
@@ -67,8 +80,8 @@ export async function createInlineScriptModuleFromPath(path: string): Promise<Fl
 	const { content, language } = await getScriptByPath(path)
 
 	return {
-		type: FlowModuleValue.type.RAWSCRIPT,
-		language: language as FlowModuleValue.language,
+		type: 'rawscript',
+		language: language as RawScript.language,
 		content: content,
 		path
 	}
@@ -87,15 +100,15 @@ export async function loadSchemaFromModule(module: FlowModule): Promise<{
 	input_transform: Record<string, InputTransform>
 	schema: Schema
 }> {
-	const isRaw = module?.value.type === FlowModuleValue.type.RAWSCRIPT
+	const mod = module.value
 
-	if (isRaw || Boolean(module.value.path)) {
+	if (mod.type == 'rawscript' || mod.type === 'script') {
 		let schema: Schema
-		if (isRaw) {
+		if (mod.type === 'rawscript') {
 			schema = emptySchema()
-			await inferArgs(module.value.language!, module.value.content!, schema)
+			await inferArgs(mod.language!, mod.content!, schema)
 		} else {
-			schema = await loadSchema(module.value.path!)
+			schema = await loadSchema(mod.path!)
 		}
 
 		const keys = Object.keys(schema?.properties ?? {})
@@ -103,14 +116,15 @@ export async function loadSchemaFromModule(module: FlowModule): Promise<{
 		let input_transform = module.input_transform
 
 		if (
-			JSON.stringify(Object.keys(schema?.properties ?? {}).sort()) !==
+			JSON.stringify(keys.sort()) !==
 			JSON.stringify(Object.keys(module.input_transform).sort())
 		) {
 			input_transform = keys.reduce((accu, key) => {
-				accu[key] = {
+				let nv = module.input_transform[key] ?? {
 					type: 'static',
 					value: undefined
 				}
+				accu[key] = nv
 				return accu
 			}, {})
 		}
@@ -170,8 +184,8 @@ export function getPickableProperties(
 		mode === 'pull' && i >= 1
 			? Object.assign(Object.assign(
 				{
-					_value: 'The current value of the iteration.',
-					_index: 'The current index of the iteration.'
+					_value: 'The current value of the iteration as an object',
+					_index: 'The current index of the iteration as a number'
 				},
 				flowInputAsObject), previewResults[0])
 

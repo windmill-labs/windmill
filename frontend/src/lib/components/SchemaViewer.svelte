@@ -4,17 +4,12 @@
 
 	import Highlight from 'svelte-highlight'
 	import json from 'svelte-highlight/languages/json'
-	import github from 'svelte-highlight/styles/github'
 	import TableCustom from './TableCustom.svelte'
 
 	export let schema: Schema | undefined = emptySchema()
 
 	let viewJsonSchema = false
 </script>
-
-<svelte:head>
-	{@html github}
-</svelte:head>
 
 <div class="w-full">
 	<div class="flex flex-col sm:flex-row text-base">
@@ -64,7 +59,10 @@
 										? JSON.stringify(property.default)
 										: ''}</td
 								>
-								<td>{property.format ?? ''}</td>
+								<td
+									>{property.format ?? ''}
+									{property.contentEncoding ? `(encoding: ${property.contentEncoding})` : ''}</td
+								>
 								<td>{schema.required.includes(name) ? 'required' : 'optional'}</td>
 							</tr>
 						{/each}

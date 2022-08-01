@@ -10,7 +10,7 @@
 	import { AuditService, AuditLog, UserService } from '$lib/gen'
 	import type { ActionKind } from '$lib/common'
 	import { page } from '$app/stores'
-	import { displayDate, sendUserToast } from '$lib/utils'
+	import { displayDate } from '$lib/utils'
 	import { goto } from '$app/navigation'
 	import PageHeader from '$lib/components/PageHeader.svelte'
 	import { userStore, workspaceStore } from '$lib/stores'

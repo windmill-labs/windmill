@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { ScriptService, type Script } from '$lib/gen'
 
-	import { emptySchema, sendUserToast, setQueryWithoutLoad } from '$lib/utils'
+	import { emptySchema, encodeState, sendUserToast, setQueryWithoutLoad } from '$lib/utils'
 	import { onDestroy } from 'svelte'
 	import ScriptEditor from './ScriptEditor.svelte'
 	import { page } from '$app/stores'
@@ -12,8 +12,8 @@
 	import ScriptSchema from './ScriptSchema.svelte'
 	import { inferArgs } from '$lib/infer'
 	import Required from './Required.svelte'
-	import RadioButton from './RadioButton.svelte'
 	import { DENO_INIT_CODE, DENO_INIT_CODE_TRIGGER, initialCode } from '$lib/script_helpers'
+	import RadioButtonV3 from './RadioButtonV3.svelte'
 
 	let editor: ScriptEditor
 	let scriptSchema: ScriptSchema
@@ -24,9 +24,7 @@
 
 	let pathError = ''
 
-	$: {
-		setQueryWithoutLoad($page.url, 'state', btoa(JSON.stringify(script)))
-	}
+	$: setQueryWithoutLoad($page.url, 'state', encodeState(script))
 
 	$: {
 		if (script.language == 'python3') {
@@ -179,9 +177,8 @@
 			</Path>
 			<h3 class="text-gray-700 pb-1 border-b">Language</h3>
 			<div class="max-w-md">
-				<RadioButton
+				<RadioButtonV3
 					label="Language"
-					small={true}
 					options={[
 						['Typescript (Deno)', 'deno'],
 						['Python 3.10', 'python3']
@@ -209,10 +206,11 @@
 					rows="1"
 				/>
 			</label>
-			<label class="block ">
+			<label class="block" for="inp">
 				<span class="text-gray-700"
 					>Description<Required required={false} detail="accept markdown formatting" />
 					<textarea
+						id="inp"
 						bind:value={script.description}
 						class="
 					mt-1

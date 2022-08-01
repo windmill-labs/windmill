@@ -1,5 +1,6 @@
 /*
- * Author & Copyright: Ruben Fiszel 2021
+ * Author: Ruben Fiszel
+ * Copyright: Windmill Labs, Inc 2022
  * This file and its contents are licensed under the AGPLv3 License.
  * Please see the included NOTICE for copyright information and
  * LICENSE-AGPL for a copy of the license.
@@ -42,7 +43,8 @@ pub async fn require_super_admin<'c>(
         email.as_ref()
     )
     .fetch_one(db)
-    .await?;
+    .await
+    .map_err(|e| Error::InternalErr(format!("fetching super admin: {e}")))?;
     if !is_admin {
         Err(Error::NotAuthorized(
             "This endpoint require caller to be a super admin".to_owned(),

@@ -12,9 +12,10 @@
 	import { page } from '$app/stores'
 	import { workspaceStore } from '$lib/stores'
 	import ScriptBuilder from '$lib/components/ScriptBuilder.svelte'
+	import { decodeState } from '$lib/utils'
 
 	const initialState = $page.url.searchParams.get('state')
-	let scriptLoadedFromUrl = initialState != undefined ? JSON.parse(atob(initialState)) : undefined
+	let scriptLoadedFromUrl = initialState != undefined ? decodeState(initialState) : undefined
 
 	let script: Script | undefined
 

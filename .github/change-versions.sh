@@ -5,6 +5,7 @@ echo "Updating versions to: $VERSION"
 
 sed -i -e "/^version =/s/= .*/= \"$VERSION\"/" backend/Cargo.toml
 sed -i -e "/version: /s/: .*/: $VERSION/" backend/openapi.yaml
+sed -i -e "/version: /s/: .*/: $VERSION/" openflow.openapi.yaml
 sed -i -e "/\"version\": /s/: .*,/: \"$VERSION\",/" frontend/package.json
 sed -i -e "/^version =/s/= .*/= \"$VERSION\"/" python-client/wmill/pyproject.toml
 sed -i -e "/^windmill-api =/s/= .*/= \"\\^$VERSION\"/" python-client/wmill/pyproject.toml

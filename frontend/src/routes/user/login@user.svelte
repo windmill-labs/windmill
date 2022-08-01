@@ -75,9 +75,9 @@
 	})
 
 	function handleKeyUp(event: KeyboardEvent) {
-		const key = event.key || event.keyCode
+		const key = event.key
 
-		if (key === 13 || key === 'Enter') {
+		if (key === 'Enter') {
 			event.preventDefault()
 			login()
 		}

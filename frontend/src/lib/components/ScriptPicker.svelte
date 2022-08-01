@@ -1,18 +1,18 @@
 <script lang="ts">
-	import { ScriptService, FlowService, Script } from '$lib/gen'
+	import { ScriptService, FlowService } from '$lib/gen'
 
 	import Icon from 'svelte-awesome'
 	import { faSearch } from '@fortawesome/free-solid-svg-icons'
 	import { hubScripts, workspaceStore } from '$lib/stores'
 	import { createEventDispatcher } from 'svelte'
 	import ItemPicker from './ItemPicker.svelte'
-	import RadioButton from './RadioButton.svelte'
 	import Modal from './Modal.svelte'
 	import { Highlight } from 'svelte-highlight'
-	import { python, typescript } from 'svelte-highlight/languages'
+	import typescript from 'svelte-highlight/languages/typescript'
+	import python from 'svelte-highlight/languages/python'
 
-	import github from 'svelte-highlight/styles/github'
 	import { getScriptByPath } from '$lib/utils'
+	import RadioButtonV3 from './RadioButtonV3.svelte'
 
 	export let scriptPath: string | undefined = undefined
 	export let allowFlow = false
@@ -48,10 +48,6 @@
 	}
 </script>
 
-<svelte:head>
-	{@html github}
-</svelte:head>
-
 <ItemPicker
 	bind:this={itemPicker}
 	pickCallback={(path, _) => {
@@ -67,9 +63,11 @@
 />
 
 <div class="flex flex-row items-center space-x-5">
-	{#if options.length > 1}
-		<RadioButton bind:value={itemKind} {options} />
-	{/if}
+	<div class="w-80">
+		{#if options.length > 1}
+			<RadioButtonV3 bind:value={itemKind} {options} />
+		{/if}
+	</div>
 
 	<input type="text" value={scriptPath ?? 'No path chosen yet'} disabled />
 	<button class="default-button text-gray-100" on:click={() => itemPicker.openModal()}

@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { page } from '$app/stores'
 	import type { Script, Flow } from '$lib/gen'
-	import { getToday } from '$lib/utils'
+	import { decodeState, getToday } from '$lib/utils'
 	import { slide } from 'svelte/transition'
 
 	import { faChevronDown, faChevronUp } from '@fortawesome/free-solid-svg-icons'
@@ -22,7 +22,7 @@
 
 	let queryArgs = $page.url.searchParams.get('args')
 	if (queryArgs) {
-		const parsed = JSON.parse(atob(queryArgs))
+		const parsed = decodeState(queryArgs)
 		Object.entries(parsed).forEach(([k, v]) => {
 			if (v == '<function call>') {
 				parsed[k] = undefined

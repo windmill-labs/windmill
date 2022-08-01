@@ -1,5 +1,6 @@
 /*
- * Author & Copyright: Ruben Fiszel 2021
+ * Author: Ruben Fiszel
+ * Copyright: Windmill Labs, Inc 2022
  * This file and its contents are licensed under the AGPLv3 License.
  * Please see the included NOTICE for copyright information and
  * LICENSE-AGPL for a copy of the license.
@@ -97,21 +98,20 @@ pub fn parse_python_signature(code: &str) -> error::Result<MainArgSignature> {
                     Arg {
                         name: x.arg,
                         typ: x.annotation.map_or(Typ::Unknown, |e| match *e {
-                            Located {
-                                location: _,
-                                node: ExpressionType::Identifier { name },
-                            } => match name.as_ref() {
-                                "str" => Typ::Str,
-                                "float" => Typ::Float,
-                                "int" => Typ::Int,
-                                "bool" => Typ::Bool,
-                                "dict" => Typ::Dict,
-                                "list" => Typ::List(InnerTyp::Str),
-                                "bytes" => Typ::Bytes,
-                                "datetime" => Typ::Datetime,
-                                "datetime.datetime" => Typ::Datetime,
-                                _ => Typ::Unknown,
-                            },
+                            Located { location: _, node: ExpressionType::Identifier { name } } => {
+                                match name.as_ref() {
+                                    "str" => Typ::Str,
+                                    "float" => Typ::Float,
+                                    "int" => Typ::Int,
+                                    "bool" => Typ::Bool,
+                                    "dict" => Typ::Dict,
+                                    "list" => Typ::List(InnerTyp::Str),
+                                    "bytes" => Typ::Bytes,
+                                    "datetime" => Typ::Datetime,
+                                    "datetime.datetime" => Typ::Datetime,
+                                    _ => Typ::Unknown,
+                                }
+                            }
                             _ => Typ::Unknown,
                         }),
                         has_default: default.is_some(),
@@ -127,8 +127,7 @@ pub fn parse_python_signature(code: &str) -> error::Result<MainArgSignature> {
     }
 }
 
-use swc_common::sync::Lrc;
-use swc_common::{FileName, SourceMap};
+use swc_common::{sync::Lrc, FileName, SourceMap};
 use swc_ecma_ast::{
     AssignPat, BindingIdent, Decl, ExportDecl, FnDecl, Ident, ModuleDecl, ModuleItem, Pat,
     TsArrayType, TsEntityName, TsKeywordTypeKind, TsType, TsTypeRef,
@@ -162,23 +161,19 @@ pub fn parse_deno_signature(code: &str) -> error::Result<MainArgSignature> {
         .body;
 
     // println!("{ast:?}");
-    let params = ast.into_iter().find_map(|x| match x {
-        ModuleItem::ModuleDecl(ModuleDecl::ExportDecl(ExportDecl {
-            decl:
-                Decl::Fn(FnDecl {
-                    ident:
-                        Ident {
-                            span: _,
-                            sym,
-                            optional: _,
-                        },
-                    declare: _,
-                    function,
-                }),
-            span: _,
-        })) if &sym.to_string() == "main" => Some(function.params),
-        _ => None,
-    });
+    let params =
+        ast.into_iter().find_map(|x| match x {
+            ModuleItem::ModuleDecl(ModuleDecl::ExportDecl(ExportDecl {
+                decl:
+                    Decl::Fn(FnDecl {
+                        ident: Ident { span: _, sym, optional: _ },
+                        declare: _,
+                        function,
+                    }),
+                span: _,
+            })) if &sym.to_string() == "main" => Some(function.params),
+            _ => None,
+        });
     if let Some(params) = params {
         Ok(MainArgSignature {
             star_args: false,
@@ -188,23 +183,13 @@ pub fn parse_deno_signature(code: &str) -> error::Result<MainArgSignature> {
                 .map(|x| match x.pat {
                     Pat::Ident(ident) => {
                         let (name, typ) = binding_ident_to_arg(&ident)?;
-                        Ok(Arg {
-                            name,
-                            typ,
-                            default: None,
-                            has_default: false,
-                        })
+                        Ok(Arg { name, typ, default: None, has_default: ident.id.optional })
                     }
-                    Pat::Assign(AssignPat {
-                        span: _,
-                        left,
-                        right,
-                        type_ann: _,
-                    }) => {
+                    Pat::Assign(AssignPat { span: _, left, right, type_ann: _ }) => {
                         let (name, typ) =
                             left.as_ident().map(binding_ident_to_arg).ok_or_else(|| {
                                 error::Error::ExecutionErr(format!(
-                                    "Arg {left:?} has unexepected syntax"
+                                    "Arg {left:?} has unexpected syntax"
                                 ))
                             })??;
                         Ok(Arg {
@@ -220,7 +205,7 @@ pub fn parse_deno_signature(code: &str) -> error::Result<MainArgSignature> {
                         })
                     }
                     _ => Err(error::Error::ExecutionErr(format!(
-                        "Arg {x:?} has unexepected syntax"
+                        "Arg {x:?} has unexpected syntax"
                     ))),
                 })
                 .collect::<Result<Vec<Arg>, error::Error>>()?,
@@ -240,70 +225,61 @@ fn binding_ident_to_arg(
         id.sym.to_string(),
         type_ann
             .as_ref()
-            .map(|x| match &*x.type_ann {
-                TsType::TsKeywordType(t) => match t.kind {
-                    TsKeywordTypeKind::TsObjectKeyword => Typ::Dict,
-                    TsKeywordTypeKind::TsBooleanKeyword => Typ::Bool,
-                    TsKeywordTypeKind::TsBigIntKeyword => Typ::Int,
-                    TsKeywordTypeKind::TsNumberKeyword => Typ::Float,
-                    TsKeywordTypeKind::TsStringKeyword => Typ::Str,
-                    _ => Typ::Unknown,
-                },
-                // TODO: we can do better here and extract the inner type of array
-                TsType::TsArrayType(TsArrayType { span: _, elem_type }) => {
-                    match &**elem_type {
-                        TsType::TsTypeRef(TsTypeRef {
-                            span: _,
-                            type_name:
-                                TsEntityName::Ident(Ident {
-                                    span: _,
-                                    sym,
-                                    optional: _,
-                                }),
-                            type_params: _,
-                        }) => match sym.to_string().as_str() {
-                            "Base64" => Typ::List(InnerTyp::Bytes),
-                            "Email" => Typ::List(InnerTyp::Email),
-                            "bigint" => Typ::List(InnerTyp::Int),
-                            "number" => Typ::List(InnerTyp::Float),
+            .map(|x| {
+                match &*x.type_ann {
+                    TsType::TsKeywordType(t) => match t.kind {
+                        TsKeywordTypeKind::TsObjectKeyword => Typ::Dict,
+                        TsKeywordTypeKind::TsBooleanKeyword => Typ::Bool,
+                        TsKeywordTypeKind::TsBigIntKeyword => Typ::Int,
+                        TsKeywordTypeKind::TsNumberKeyword => Typ::Float,
+                        TsKeywordTypeKind::TsStringKeyword => Typ::Str,
+                        _ => Typ::Unknown,
+                    },
+                    // TODO: we can do better here and extract the inner type of array
+                    TsType::TsArrayType(TsArrayType { span: _, elem_type }) => {
+                        match &**elem_type {
+                            TsType::TsTypeRef(TsTypeRef {
+                                span: _,
+                                type_name: TsEntityName::Ident(Ident { span: _, sym, optional: _ }),
+                                type_params: _,
+                            }) => match sym.to_string().as_str() {
+                                "Base64" => Typ::List(InnerTyp::Bytes),
+                                "Email" => Typ::List(InnerTyp::Email),
+                                "bigint" => Typ::List(InnerTyp::Int),
+                                "number" => Typ::List(InnerTyp::Float),
+                                _ => Typ::List(InnerTyp::Str),
+                            },
+                            //TsType::TsKeywordType(())
                             _ => Typ::List(InnerTyp::Str),
-                        },
-                        //TsType::TsKeywordType(())
-                        _ => Typ::List(InnerTyp::Str),
+                        }
                     }
-                }
-                TsType::TsTypeRef(TsTypeRef {
-                    span: _,
-                    type_name,
-                    type_params,
-                }) => {
-                    let sym = match type_name {
-                        TsEntityName::Ident(Ident {
-                            span: _,
-                            sym,
-                            optional: _,
-                        }) => sym,
-                        TsEntityName::TsQualifiedName(p) => &*p.right.sym,
-                    };
-                    match sym.to_string().as_str() {
-                        "Resource" => Typ::Resource(
-                            type_params
-                                .as_ref()
-                                .and_then(|x| {
-                                    x.params.get(0).and_then(|y| {
-                                        y.as_ts_lit_type().and_then(|z| {
-                                            z.lit.as_str().map(|a| a.to_owned().value.to_string())
+                    TsType::TsTypeRef(TsTypeRef { span: _, type_name, type_params }) => {
+                        let sym = match type_name {
+                            TsEntityName::Ident(Ident { span: _, sym, optional: _ }) => sym,
+                            TsEntityName::TsQualifiedName(p) => &*p.right.sym,
+                        };
+                        match sym.to_string().as_str() {
+                            "Resource" => Typ::Resource(
+                                type_params
+                                    .as_ref()
+                                    .and_then(|x| {
+                                        x.params.get(0).and_then(|y| {
+                                            y.as_ts_lit_type().and_then(|z| {
+                                                z.lit
+                                                    .as_str()
+                                                    .map(|a| a.to_owned().value.to_string())
+                                            })
                                         })
                                     })
-                                })
-                                .unwrap_or_else(|| "unknown".to_string()),
-                        ),
-                        "Base64" => Typ::Bytes,
-                        "Email" => Typ::Email,
-                        _ => Typ::Unknown,
+                                    .unwrap_or_else(|| "unknown".to_string()),
+                            ),
+                            "Base64" => Typ::Bytes,
+                            "Email" => Typ::Email,
+                            _ => Typ::Unknown,
+                        }
                     }
+                    _ => Typ::Unknown,
                 }
-                _ => Typ::Unknown,
             })
             .unwrap_or(Typ::Unknown),
     ))
@@ -615,9 +591,7 @@ const STDIMPORTS: [&str; 301] = [
 
 fn to_value(et: &ExpressionType) -> Option<serde_json::Value> {
     match et {
-        ExpressionType::String {
-            value: StringGroup::Constant { value },
-        } => Some(json!(value)),
+        ExpressionType::String { value: StringGroup::Constant { value } } => Some(json!(value)),
         ExpressionType::Number { value } => match value {
             Number::Integer { value } => Some(json!(value.to_string().parse::<i64>().unwrap())),
             Number::Float { value } => Some(json!(value)),
@@ -652,11 +626,9 @@ fn to_value(et: &ExpressionType) -> Option<serde_json::Value> {
         }
         ExpressionType::None => Some(json!(null)),
 
-        ExpressionType::Call {
-            function: _,
-            args: _,
-            keywords: _,
-        } => Some(json!("<function call>")),
+        ExpressionType::Call { function: _, args: _, keywords: _ } => {
+            Some(json!("<function call>"))
+        }
 
         _ => None,
     }
@@ -693,16 +665,14 @@ pub fn parse_python_imports(code: &str) -> error::Result<Vec<String>> {
                             .map(|x| x.symbol.split('.').next().unwrap_or("").to_string())
                             .collect::<Vec<String>>(),
                     ),
-                    StatementType::ImportFrom {
-                        level: _,
-                        module: Some(mod_),
-                        names: _,
-                    } => Some(vec![mod_
-                        .split('.')
-                        .next()
-                        .unwrap_or("")
-                        .to_string()
-                        .replace("_", "-")]),
+                    StatementType::ImportFrom { level: _, module: Some(mod_), names: _ } => {
+                        Some(vec![mod_
+                            .split('.')
+                            .next()
+                            .unwrap_or("")
+                            .to_string()
+                            .replace("_", "-")])
+                    }
                     _ => None,
                 },
             })
@@ -788,7 +758,7 @@ def main():
     fn test_parse_deno_sig() -> anyhow::Result<()> {
         let code = "
 
-export function main(test1: string, test2: string = \"burkina\",
+export function main(test1?: string, test2: string = \"burkina\",
     test3: wmill.Resource<'postgres'>, b64: Base64, ls: Base64[], email: Email) {
     console.log(42)
 }

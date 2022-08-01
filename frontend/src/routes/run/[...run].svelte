@@ -13,13 +13,13 @@
 	import {
 		canWrite,
 		displayDaysAgo,
+		encodeState,
 		forLater,
 		sendUserToast,
-		truncate,
 		truncateHash
 	} from '$lib/utils'
 	import Icon from 'svelte-awesome'
-	import { check, minus } from 'svelte-awesome/icons'
+	import { check } from 'svelte-awesome/icons'
 	import {
 		faBolt,
 		faCircle,
@@ -41,8 +41,8 @@
 	import DisplayResult from '$lib/components/DisplayResult.svelte'
 
 	import Highlight from 'svelte-highlight'
-	import { python, typescript } from 'svelte-highlight/languages'
-	import github from 'svelte-highlight/styles/github'
+	import typescript from 'svelte-highlight/languages/typescript'
+	import python from 'svelte-highlight/languages/python'
 	import { userStore, workspaceStore } from '$lib/stores'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
 	import FlowStatusViewer from '$lib/components/FlowStatusViewer.svelte'
@@ -262,7 +262,7 @@
 				>
 				<a
 					href="/scripts/run/{job?.script_hash}{job?.args
-						? `?args=${encodeURIComponent(btoa(JSON.stringify(job?.args)))}`
+						? `?args=${encodeURIComponent(encodeState(job?.args))}`
 						: ''}"
 					class="default-button-secondary py-1 text-sm px-2"
 					><Icon class="text-yellow-400" data={faBolt} scale={0.6} label="Run again" /><span
@@ -287,7 +287,7 @@
 				>
 				<a
 					href="/flows/run/{job?.script_path}{job?.args
-						? `?args=${encodeURIComponent(btoa(JSON.stringify(job?.args)))}`
+						? `?args=${encodeURIComponent(encodeState(job?.args))}`
 						: ''}"
 					class="default-button-secondary py-1 text-sm px-2"
 					><Icon class="text-yellow-400" data={faBolt} scale={0.6} label="Run again" /><span
@@ -330,7 +330,9 @@
 
 			{#if job?.job_kind == 'flow' || job?.job_kind == 'flowpreview'}
 				<div class="mt-10" />
-				<FlowStatusViewer {job} bind:jobs />
+				<div class="max-w-lg">
+					<FlowStatusViewer {job} bind:jobs />
+				</div>
 			{/if}
 		</div>
 		<div>
@@ -357,14 +359,7 @@
 						</div>
 					{/if}
 					<div>
-						{#if job && job.schedule_path}
-							<Icon class="text-gray-700" data={faCalendar} scale={SMALL_ICON_SCALE} />
-							<span class="mx-2"
-								>Triggered by the schedule: <a href={`/schedule/add?edit=${job.schedule_path}`}
-									>{job.schedule_path}</a
-								></span
-							>
-						{:else if job && job.parent_job}
+						{#if job && job.parent_job}
 							{#if job.is_flow_step}
 								<Icon class="text-gray-700" data={faWind} scale={SMALL_ICON_SCALE} /><span
 									class="mx-2"
@@ -378,6 +373,13 @@
 									Triggered by parent <a href={`/run/${job.parent_job}`}>{job.parent_job}</a></span
 								>
 							{/if}
+						{:else if job && job.schedule_path}
+							<Icon class="text-gray-700" data={faCalendar} scale={SMALL_ICON_SCALE} />
+							<span class="mx-2"
+								>Triggered by the schedule: <a href={`/schedule/add?edit=${job.schedule_path}`}
+									>{job.schedule_path}</a
+								></span
+							>
 						{:else}
 							<Icon class="text-gray-700" data={faUser} scale={SMALL_ICON_SCALE} /><span
 								class="mx-2"
@@ -450,10 +452,3 @@
 		</div>
 	</div>
 </CenteredPage>
-
-<svelte:head>
-	{@html github}
-</svelte:head>
-
-<style>
-</style>

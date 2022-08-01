@@ -17,7 +17,6 @@
 	import Modal from '$lib/components/Modal.svelte'
 	import Highlight from 'svelte-highlight'
 	import json from 'svelte-highlight/languages/json'
-	import github from 'svelte-highlight/styles/github'
 	import IconedResourceType from '$lib/components/IconedResourceType.svelte'
 	import ShareModal from '$lib/components/ShareModal.svelte'
 	import SharedBadge from '$lib/components/SharedBadge.svelte'
@@ -126,12 +125,11 @@
 		if ($oauthStore && resource_type) {
 			appConnect.openFromOauth(resource_type)
 		}
+		if ($page.url.searchParams.get('connect_app')) {
+			appConnect.open($page.url.searchParams.get('connect_app') ?? undefined)
+		}
 	})
 </script>
-
-<svelte:head>
-	{@html github}
-</svelte:head>
 
 <CenteredPage>
 	<PageHeader title="Resources">
@@ -311,7 +309,7 @@
 	<div slot="title">{resourceViewerTitle}</div>
 	<div slot="content">
 		{#if typeModalMode === 'create'}
-			<label
+			<label for="inp"
 				><h3 class="font-semibold text-gray-700">Name<Required required={true} /></h3>
 				<div>
 					<span
@@ -319,7 +317,7 @@
 						>c_</span
 					>
 					<div class="inline-block">
-						<input type="text" bind:value={newResourceTypeName} />
+						<input id="inp" type="text" bind:value={newResourceTypeName} />
 					</div>
 				</div>
 			</label>

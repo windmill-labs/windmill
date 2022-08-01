@@ -1,5 +1,6 @@
 /*
- * Author & Copyright: Ruben Fiszel 2021
+ * Author: Ruben Fiszel
+ * Copyright: Windmill Labs, Inc 2022
  * This file and its contents are licensed under the AGPLv3 License.
  * Please see the included NOTICE for copyright information and
  * LICENSE-AGPL for a copy of the license.
@@ -140,7 +141,8 @@ async fn get_resource(
 
     let resource_o = sqlx::query_as!(
         Resource,
-        "SELECT * from resource WHERE path = $1 AND (workspace_id = $2 OR workspace_id = 'starter')",
+        "SELECT * from resource WHERE path = $1 AND (workspace_id = $2 OR workspace_id = \
+         'starter')",
         path.to_owned(),
         &w_id
     )
@@ -179,7 +181,8 @@ async fn get_resource_value(
     let mut tx = user_db.begin(&authed).await?;
 
     let value_o = sqlx::query_scalar!(
-        "SELECT value from resource WHERE path = $1 AND (workspace_id = $2 OR workspace_id = 'starter')",
+        "SELECT value from resource WHERE path = $1 AND (workspace_id = $2 OR workspace_id = \
+         'starter')",
         path.to_owned(),
         &w_id
     )
@@ -283,10 +286,16 @@ async fn update_resource(
     if let Some(ndesc) = ns.description {
         sqlb.set_str("description", ndesc);
     }
+
+    sqlb.returning("path");
+
     let mut tx = user_db.begin(&authed).await?;
 
     let sql = sqlb.sql().map_err(|e| Error::InternalErr(e.to_string()))?;
-    sqlx::query(&sql).execute(&mut tx).await?;
+    let npath_o: Option<String> = sqlx::query_scalar(&sql).fetch_optional(&mut tx).await?;
+
+    let npath = crate::utils::not_found_if_none(npath_o, "Resource", path)?;
+
     audit_log(
         &mut tx,
         &authed.username,
@@ -299,16 +308,21 @@ async fn update_resource(
     .await?;
     tx.commit().await?;
 
-    Ok(format!("resource {} updated (npath: {:?})", path, ns.path))
+    Ok(format!("resource {} updated (npath: {:?})", path, npath))
 }
 
 async fn list_resource_types(
     Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
 ) -> JsonResult<Vec<ResourceType>> {
-    let rows = sqlx::query_as!(ResourceType, "SELECT * from resource_type WHERE (workspace_id = $1 OR workspace_id = 'starter') ORDER BY name", &w_id)
-        .fetch_all(&db)
-        .await?;
+    let rows = sqlx::query_as!(
+        ResourceType,
+        "SELECT * from resource_type WHERE (workspace_id = $1 OR workspace_id = 'starter') ORDER \
+         BY name",
+        &w_id
+    )
+    .fetch_all(&db)
+    .await?;
 
     Ok(Json(rows))
 }
@@ -317,9 +331,13 @@ async fn list_resource_types_names(
     Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
 ) -> JsonResult<Vec<String>> {
-    let rows = sqlx::query_scalar!("SELECT name from resource_type WHERE (workspace_id = $1 OR workspace_id = 'starter') ORDER BY name", &w_id)
-        .fetch_all(&db)
-        .await?;
+    let rows = sqlx::query_scalar!(
+        "SELECT name from resource_type WHERE (workspace_id = $1 OR workspace_id = 'starter') \
+         ORDER BY name",
+        &w_id
+    )
+    .fetch_all(&db)
+    .await?;
 
     Ok(Json(rows))
 }
@@ -333,7 +351,8 @@ async fn get_resource_type(
 
     let resource_type_o = sqlx::query_as!(
         ResourceType,
-        "SELECT * from resource_type WHERE name = $1 AND (workspace_id = $2 OR workspace_id = 'starter')",
+        "SELECT * from resource_type WHERE name = $1 AND (workspace_id = $2 OR workspace_id = \
+         'starter')",
         &name,
         &w_id
     )

@@ -1,5 +1,6 @@
 /*
- * Author & Copyright: Ruben Fiszel 2021
+ * Author: Ruben Fiszel
+ * Copyright: Windmill Labs, Inc 2022
  * This file and its contents are licensed under the AGPLv3 License.
  * Please see the included NOTICE for copyright information and
  * LICENSE-AGPL for a copy of the license.
@@ -10,13 +11,13 @@ use std::{sync::Arc, time::Duration};
 use crate::{
     audit::{audit_log, ActionKind},
     db::{UserDB, DB},
-    error::{Error, JsonResult, Result, self},
-    utils::{require_admin, require_super_admin, Pagination}
+    error::{self, Error, JsonResult, Result},
+    utils::{require_admin, require_super_admin, Pagination},
 };
 use argon2::{password_hash::SaltString, Argon2, PasswordHash, PasswordHasher, PasswordVerifier};
 use axum::{
     async_trait,
-    extract::{Extension, FromRequest, Path, RequestParts, Query},
+    extract::{Extension, FromRequest, Path, Query, RequestParts},
     http,
     routing::{delete, get, post},
     Json, Router,
@@ -25,7 +26,7 @@ use hyper::StatusCode;
 use rand::rngs::OsRng;
 use retainer::Cache;
 use serde::{Deserialize, Serialize};
-use sqlx::{FromRow};
+use sqlx::FromRow;
 use time::OffsetDateTime;
 use tower_cookies::{Cookie, Cookies};
 use tracing::Span;
@@ -48,8 +49,6 @@ pub fn workspaced_service() -> Router {
         .route("/leave", post(leave_workspace))
 }
 
-
-
 pub fn global_service() -> Router {
     Router::new()
         .route("/email", get(get_email))
@@ -65,13 +64,11 @@ pub fn global_service() -> Router {
         .route("/tokens/create", post(create_token))
         .route("/tokens/delete/:token_prefix", delete(delete_token))
         .route("/tokens/list", get(list_tokens))
-        // .route("/list_invite_codes", get(list_invite_codes))
-        // .route("/create_invite_code", post(create_invite_code))
-        // .route("/signup", post(signup))
-        // .route("/lost_password", post(lost_password))
-        // .route("/use_magic_link", get(use_magic_link))
-
-
+    // .route("/list_invite_codes", get(list_invite_codes))
+    // .route("/create_invite_code", post(create_invite_code))
+    // .route("/signup", post(signup))
+    // .route("/lost_password", post(lost_password))
+    // .route("/use_magic_link", get(use_magic_link))
 }
 
 pub fn make_unauthed_service() -> Router {
@@ -85,22 +82,21 @@ pub struct AuthCache {
 
 impl AuthCache {
     pub fn new(db: DB) -> Self {
-        AuthCache {
-            cache: Cache::new(),
-            db,
-        }
+        AuthCache { cache: Cache::new(), db }
     }
 
     pub async fn get_authed(&self, w_id: Option<String>, token: &str) -> Option<Authed> {
-        let key = (w_id.as_ref().unwrap_or(&"".to_string()).to_string(), token.to_string());
+        let key = (
+            w_id.as_ref().unwrap_or(&"".to_string()).to_string(),
+            token.to_string(),
+        );
         let s = self.cache.get(&key).await.map(|c| c.to_owned());
         match s {
-            a @ Some(_) => {
-                a
-            },
+            a @ Some(_) => a,
             None => {
                 let user_o = sqlx::query_as::<_, (Option<String>, Option<String>, bool)>(
-                    "UPDATE token SET last_used_at = $1 WHERE token = $2 AND (expiration > NOW() OR expiration IS NULL) RETURNING owner, email, super_admin",
+                    "UPDATE token SET last_used_at = $1 WHERE token = $2 AND (expiration > NOW() \
+                     OR expiration IS NULL) RETURNING owner, email, super_admin",
                 )
                 .bind(chrono::Utc::now())
                 .bind(token)
@@ -114,40 +110,44 @@ impl AuthCache {
                         match user {
                             (_, Some(email), super_admin) => {
                                 if w_id.is_some() {
-                                    let row_o = 
-                                    sqlx::query_as::<_, (String, bool)>(
-                                "SELECT username, is_admin FROM usr where email = $1 AND workspace_id = $2",
-                            )
-                            .bind(&email)
-                            .bind(&w_id.as_ref().unwrap())
-                            .fetch_optional(&self.db)
-                            .await
-                            .unwrap_or(Some(("error".to_string(), false)));
+                                    let row_o = sqlx::query_as::<_, (String, bool)>(
+                                        "SELECT username, is_admin FROM usr where email = $1 AND \
+                                         workspace_id = $2",
+                                    )
+                                    .bind(&email)
+                                    .bind(&w_id.as_ref().unwrap())
+                                    .fetch_optional(&self.db)
+                                    .await
+                                    .unwrap_or(Some(("error".to_string(), false)));
 
-                            match row_o {
-                                Some((username, is_admin)) => {
-                             let groups = get_groups_for_user(&w_id.as_ref().unwrap(),
-                                 &username, &self.db)
-                                .await
-                                .ok()
-                                .unwrap_or_default();
+                                    match row_o {
+                                        Some((username, is_admin)) => {
+                                            let groups = get_groups_for_user(
+                                                &w_id.as_ref().unwrap(),
+                                                &username,
+                                                &self.db,
+                                            )
+                                            .await
+                                            .ok()
+                                            .unwrap_or_default();
 
-                                    Some(Authed {
-                                        email: Some(email),
-                                        username,
-                                        is_admin: is_admin || super_admin,
-                                        groups,
-                                    })
-                                }, 
-                                None if super_admin || w_id.unwrap() == "starter" => Some(Authed {
-                                        email: Some(email.to_string()),
-                                        username: email,
-                                        is_admin: super_admin,
-                                        groups: vec![],
-                                    }),
-                                None => None
-                            
-                            }
+                                            Some(Authed {
+                                                email: Some(email),
+                                                username,
+                                                is_admin: is_admin || super_admin,
+                                                groups,
+                                            })
+                                        }
+                                        None if super_admin || w_id.unwrap() == "starter" => {
+                                            Some(Authed {
+                                                email: Some(email.to_string()),
+                                                username: email,
+                                                is_admin: super_admin,
+                                                groups: vec![],
+                                            })
+                                        }
+                                        None => None,
+                                    }
                                 } else {
                                     Some(Authed {
                                         email: Some(email.to_string()),
@@ -160,21 +160,23 @@ impl AuthCache {
                             (Some(owner), _, super_admin) if w_id.is_some() => {
                                 if let Some((prefix, name)) = owner.split_once('/') {
                                     if prefix == "u" {
-
-                                        let is_admin = super_admin || sqlx::query_scalar!(
-                                            "SELECT is_admin FROM usr where username = $1 AND workspace_id = $2",
-                                            name,
-                                            &w_id.as_ref().unwrap()
-                                        )
-                                        .fetch_one(&self.db)
-                                        .await
-                                        .ok()
-                                        .unwrap_or(false);
-
-                                        let groups = get_groups_for_user(&w_id.unwrap(), &name, &self.db)
+                                        let is_admin = super_admin
+                                            || sqlx::query_scalar!(
+                                                "SELECT is_admin FROM usr where username = $1 AND \
+                                                 workspace_id = $2",
+                                                name,
+                                                &w_id.as_ref().unwrap()
+                                            )
+                                            .fetch_one(&self.db)
                                             .await
                                             .ok()
-                                            .unwrap_or_default();
+                                            .unwrap_or(false);
+
+                                        let groups =
+                                            get_groups_for_user(&w_id.unwrap(), &name, &self.db)
+                                                .await
+                                                .ok()
+                                                .unwrap_or_default();
 
                                         Some(Authed {
                                             email: None,
@@ -217,7 +219,8 @@ impl AuthCache {
 
 async fn extract_token<B: Send>(req: &mut RequestParts<B>) -> Option<String> {
     let auth_header = req
-        .headers().get(http::header::AUTHORIZATION)
+        .headers()
+        .get(http::header::AUTHORIZATION)
         .and_then(|value| value.to_str().ok())
         .and_then(|s| s.strip_prefix("Bearer "));
 
@@ -248,14 +251,14 @@ where
             Ok(tokened.clone())
         } else {
             let token_o = extract_token(req).await;
-                if let Some(token) = token_o {
-                    let tokened = Self { token };
-                    req.extensions_mut().insert(tokened.clone());
-                    Ok(tokened)
-                } else {
-                    Err((StatusCode::UNAUTHORIZED, "Unauthorized".to_owned()))
-                }
+            if let Some(token) = token_o {
+                let tokened = Self { token };
+                req.extensions_mut().insert(tokened.clone());
+                Ok(tokened)
+            } else {
+                Err((StatusCode::UNAUTHORIZED, "Unauthorized".to_owned()))
             }
+        }
     }
 }
 
@@ -320,9 +323,22 @@ pub struct User {
     pub created_at: chrono::DateTime<chrono::Utc>,
     pub operator: bool,
     pub disabled: bool,
-    pub role: Option<String>
+    pub role: Option<String>,
 }
 
+#[derive(FromRow, Serialize)]
+pub struct Usage {
+    pub duration_ms: i64,
+    pub jobs: i64,
+    pub flows: i64,
+}
+
+#[derive(Serialize)]
+pub struct UserWithUsage {
+    #[serde(flatten)]
+    pub user: User,
+    pub usage: Usage,
+}
 
 #[derive(FromRow, Serialize)]
 pub struct GlobalUserInfo {
@@ -333,7 +349,6 @@ pub struct GlobalUserInfo {
     name: Option<String>,
     company: Option<String>,
 }
-
 
 #[derive(Serialize)]
 pub struct UserInfo {
@@ -346,7 +361,7 @@ pub struct UserInfo {
     pub groups: Vec<String>,
     pub operator: bool,
     pub disabled: bool,
-    pub role: Option<String>
+    pub role: Option<String>,
 }
 
 #[derive(FromRow, Serialize)]
@@ -388,7 +403,7 @@ pub struct NewUser {
     pub password: String,
     pub super_admin: bool,
     pub name: Option<String>,
-    pub company: Option<String>
+    pub company: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -439,7 +454,6 @@ pub struct Login {
     pub password: String,
 }
 
-
 #[derive(Deserialize)]
 pub struct Signup {
     pub email: String,
@@ -458,20 +472,21 @@ struct WorkspaceUsername {
     pub username: String,
 }
 
-
 async fn exists_username(
     authed: Authed,
     Extension(user_db): Extension<UserDB>,
     Path(w_id): Path<String>,
-    Json(WorkspaceUsername { username }): Json<WorkspaceUsername>
+    Json(WorkspaceUsername { username }): Json<WorkspaceUsername>,
 ) -> JsonResult<bool> {
     let mut tx = user_db.begin(&authed).await?;
     let exists = sqlx::query_scalar!(
-        "SELECT EXISTS(SELECT 1 FROM usr WHERE workspace_id = $1 AND username = $2)", 
-        &w_id, &username)
-        .fetch_one(&mut tx)
-        .await?
-        .unwrap_or(false);
+        "SELECT EXISTS(SELECT 1 FROM usr WHERE workspace_id = $1 AND username = $2)",
+        &w_id,
+        &username
+    )
+    .fetch_one(&mut tx)
+    .await?
+    .unwrap_or(false);
     tx.commit().await?;
     Ok(Json(exists))
 }
@@ -479,12 +494,33 @@ async fn exists_username(
 async fn list_users(
     authed: Authed,
     Extension(user_db): Extension<UserDB>,
-    Path(w_id): Path<String>
-) -> JsonResult<Vec<User>> {
+    Path(w_id): Path<String>,
+) -> JsonResult<Vec<UserWithUsage>> {
     let mut tx = user_db.begin(&authed).await?;
-    let rows = sqlx::query_as!(User, "SELECT * from usr WHERE workspace_id = $1", &w_id)
-        .fetch_all(&mut tx)
-        .await?;
+    let rows = sqlx::query(
+        "
+        SELECT usr.*, usage.*
+          FROM usr
+             , LATERAL (
+                SELECT COALESCE(SUM(duration_ms), 0)  duration_ms
+                     , COALESCE(SUM(job_kind     IN ('flow', 'flowpreview') ::int), 0)  flows
+                     , COALESCE(SUM(job_kind NOT IN ('flow', 'flowpreview') ::int), 0)  jobs
+                  FROM completed_job
+                 WHERE workspace_id = usr.workspace_id
+                   AND created_by = usr.username
+                   AND parent_job IS NULL
+                   AND now() - '2 week'::interval < created_at 
+               ) usage
+         WHERE workspace_id = $1
+         ",
+    )
+    .bind(&w_id)
+    .try_map(|row| {
+        // flatten not released yet https://github.com/launchbadge/sqlx/pull/1959
+        Ok(UserWithUsage { user: FromRow::from_row(&row)?, usage: FromRow::from_row(&row)? })
+    })
+    .fetch_all(&mut tx)
+    .await?;
     tx.commit().await?;
     Ok(Json(rows))
 }
@@ -492,19 +528,24 @@ async fn list_users(
 async fn list_users_as_super_admin(
     authed: Authed,
     Extension(db): Extension<DB>,
-    Query(pagination): Query<Pagination>
+    Query(pagination): Query<Pagination>,
 ) -> JsonResult<Vec<GlobalUserInfo>> {
     let mut tx = db.begin().await?;
     require_super_admin(&mut tx, authed.email).await?;
     let (per_page, offset) = crate::utils::paginate(pagination);
 
-    let rows = sqlx::query_as!(GlobalUserInfo, "SELECT email, login_type::text, verified, super_admin, name, company from password LIMIT $1 OFFSET $2", per_page as i32, offset as i32)
-        .fetch_all(&mut tx)
-        .await?;
+    let rows = sqlx::query_as!(
+        GlobalUserInfo,
+        "SELECT email, login_type::text, verified, super_admin, name, company from password LIMIT \
+         $1 OFFSET $2",
+        per_page as i32,
+        offset as i32
+    )
+    .fetch_all(&mut tx)
+    .await?;
     tx.commit().await?;
     Ok(Json(rows))
 }
-
 
 // async fn list_invite_codes(
 //     authed: Authed,
@@ -522,11 +563,10 @@ async fn list_users_as_super_admin(
 //     Ok(Json(rows))
 // }
 
-
 async fn list_usernames(
     authed: Authed,
     Extension(user_db): Extension<UserDB>,
-    Path(w_id): Path<String>
+    Path(w_id): Path<String>,
 ) -> JsonResult<Vec<String>> {
     let mut tx = user_db.begin(&authed).await?;
     let rows = sqlx::query_scalar!("SELECT username from usr WHERE workspace_id = $1", &w_id)
@@ -541,13 +581,16 @@ async fn list_invites(
     Extension(db): Extension<DB>,
 ) -> JsonResult<Vec<WorkspaceInvite>> {
     let mut tx = db.begin().await?;
-    let rows = sqlx::query_as!(WorkspaceInvite, "SELECT * from workspace_invite WHERE email = $1", authed.email)
-        .fetch_all(&mut tx)
-        .await?;
+    let rows = sqlx::query_as!(
+        WorkspaceInvite,
+        "SELECT * from workspace_invite WHERE email = $1",
+        authed.email
+    )
+    .fetch_all(&mut tx)
+    .await?;
     tx.commit().await?;
     Ok(Json(rows))
 }
-
 
 async fn logout(
     Tokened { token }: Tokened,
@@ -603,27 +646,42 @@ async fn global_whoami(
     Extension(db): Extension<DB>,
     Authed { email, .. }: Authed,
 ) -> JsonResult<GlobalUserInfo> {
-    let user: GlobalUserInfo = sqlx::query_as!(GlobalUserInfo, "SELECT email, login_type::TEXT, super_admin, verified, name, company FROM password WHERE email = $1", email)
-        .fetch_one(&db)
-        .await?;
+    let user: GlobalUserInfo = sqlx::query_as!(
+        GlobalUserInfo,
+        "SELECT email, login_type::TEXT, super_admin, verified, name, company FROM password WHERE \
+         email = $1",
+        email
+    )
+    .fetch_one(&db)
+    .await
+    .map_err(|e| Error::InternalErr(format!("fetching global identity: {e}")))?;
+
     Ok(Json(user))
 }
 
-async fn get_email(
-    Authed { email, .. }: Authed,
-) -> Result<String> {
-    let email = email.ok_or(Error::BadRequest("current session does not correspond to an user with email".to_string()))?;
+async fn get_email(Authed { email, .. }: Authed) -> Result<String> {
+    let email = email.ok_or(Error::BadRequest(
+        "current session does not correspond to an user with email".to_string(),
+    ))?;
     Ok(email)
 }
 
 async fn get_user(w_id: &str, username: &str, db: &DB) -> Result<Option<UserInfo>> {
-    let user = sqlx::query_as!(User, "SELECT * FROM usr where username = $1 AND workspace_id = $2", username, w_id)
-        .fetch_optional(db)
-        .await?;
-    let is_super_admin = sqlx::query_scalar!("SELECT super_admin FROM password WHERE email = $1", user.as_ref().map(|x| &x.email))
-        .fetch_optional(db)
-        .await?
-        .unwrap_or(false);
+    let user = sqlx::query_as!(
+        User,
+        "SELECT * FROM usr where username = $1 AND workspace_id = $2",
+        username,
+        w_id
+    )
+    .fetch_optional(db)
+    .await?;
+    let is_super_admin = sqlx::query_scalar!(
+        "SELECT super_admin FROM password WHERE email = $1",
+        user.as_ref().map(|x| &x.email)
+    )
+    .fetch_optional(db)
+    .await?
+    .unwrap_or(false);
     let groups = get_groups_for_user(&w_id, username, db).await?;
     Ok(user.map(|usr| UserInfo {
         groups,
@@ -635,32 +693,35 @@ async fn get_user(w_id: &str, username: &str, db: &DB) -> Result<Option<UserInfo
         created_at: usr.created_at,
         operator: usr.operator,
         disabled: usr.disabled,
-        role: usr.role
+        role: usr.role,
     }))
 }
 
 async fn get_groups_for_user(w_id: &str, username: &str, db: &DB) -> Result<Vec<String>> {
-    let groups = sqlx::query_scalar!("SELECT group_ FROM usr_to_group where usr = $1 AND workspace_id = $2", username, w_id)
-        .fetch_all(db)
-        .await?;
+    let groups = sqlx::query_scalar!(
+        "SELECT group_ FROM usr_to_group where usr = $1 AND workspace_id = $2",
+        username,
+        w_id
+    )
+    .fetch_all(db)
+    .await?;
     Ok(groups)
 }
 
-async fn whois(Extension(db): Extension<DB>, Path((w_id, username)): Path<(String, String)>) -> JsonResult<UserInfo> {
+async fn whois(
+    Extension(db): Extension<DB>,
+    Path((w_id, username)): Path<(String, String)>,
+) -> JsonResult<UserInfo> {
     let user_o = get_user(&w_id, &username, &db).await?;
     let user = crate::utils::not_found_if_none(user_o, "User", username)?;
     Ok(Json(user))
 }
-
-
-
 
 // async fn create_invite_code(
 //     Authed { email, .. }: Authed,
 //     Extension(db): Extension<DB>,
 //     Json(nu): Json<NewInviteCode>,
 // ) -> Result<(StatusCode, String)> {
-
 
 //     let mut tx = db.begin().await?;
 //     require_super_admin(&mut tx, email).await?;
@@ -688,7 +749,6 @@ async fn decline_invite(
     Extension(db): Extension<DB>,
     Json(nu): Json<DeclineInvite>,
 ) -> Result<(StatusCode, String)> {
-
     let mut tx = db.begin().await?;
 
     let email = email.unwrap_or("".to_string());
@@ -701,8 +761,8 @@ async fn decline_invite(
     .await?;
 
     audit_log(
-         &mut tx,
-         &email,
+        &mut tx,
+        &email,
         "users.decline_invite",
         ActionKind::Delete,
         &nu.workspace_id,
@@ -715,7 +775,10 @@ async fn decline_invite(
     if is_admin.is_some() {
         Ok((
             StatusCode::OK,
-            format!("user {} declined invite to workspace {}", &email, nu.workspace_id),
+            format!(
+                "user {} declined invite to workspace {}",
+                &email, nu.workspace_id
+            ),
         ))
     } else {
         Err(Error::NotFound(format!("invite for {email} not found")))
@@ -728,7 +791,7 @@ async fn accept_invite(
     Json(nu): Json<AcceptInvite>,
 ) -> Result<(StatusCode, String)> {
     if &nu.username == "bot" {
-        return Err(Error::BadRequest("bot is a reserved username".to_string()))
+        return Err(Error::BadRequest("bot is a reserved username".to_string()));
     }
     let mut tx = db.begin().await?;
 
@@ -746,7 +809,7 @@ async fn accept_invite(
     }
 
     audit_log(
-         &mut tx,
+        &mut tx,
         &nu.username,
         "users.accept_invite",
         ActionKind::Create,
@@ -760,14 +823,23 @@ async fn accept_invite(
     if is_admin.is_some() {
         Ok((
             StatusCode::CREATED,
-            format!("user {} accepted invite to workspace {}", &email, nu.workspace_id),
+            format!(
+                "user {} accepted invite to workspace {}",
+                &email, nu.workspace_id
+            ),
         ))
     } else {
         Err(Error::NotFound(format!("invite for {email} not found")))
     }
 }
 
-async fn add_user_to_workspace<'c>(w_id: &str, email: &str, username: &str, is_admin: bool, mut tx: sqlx::Transaction<'c, sqlx::Postgres>) -> error::Result<sqlx::Transaction<'c, sqlx::Postgres>> {
+async fn add_user_to_workspace<'c>(
+    w_id: &str,
+    email: &str,
+    username: &str,
+    is_admin: bool,
+    mut tx: sqlx::Transaction<'c, sqlx::Postgres>,
+) -> error::Result<sqlx::Transaction<'c, sqlx::Postgres>> {
     sqlx::query!(
         "INSERT INTO usr
             (workspace_id, email, username, is_admin)
@@ -789,7 +861,7 @@ async fn add_user_to_workspace<'c>(w_id: &str, email: &str, username: &str, is_a
     .execute(&mut tx)
     .await?;
     audit_log(
-         &mut tx,
+        &mut tx,
         username,
         "users.add_to_workspace",
         ActionKind::Create,
@@ -812,7 +884,7 @@ async fn update_workspace_user(
     require_admin(is_admin, &username)?;
 
     if let Some(a) = eu.is_admin {
-            sqlx::query_scalar!(
+        sqlx::query_scalar!(
             "UPDATE usr SET is_admin = $1 WHERE username = $2 AND workspace_id = $3",
             a,
             &username_to_update,
@@ -847,7 +919,7 @@ async fn update_user(
     require_super_admin(&mut tx, email.clone()).await?;
 
     if let Some(sa) = eu.is_super_admin {
-            sqlx::query_scalar!(
+        sqlx::query_scalar!(
             "UPDATE password SET super_admin = $1 WHERE email = $2",
             sa,
             &email_to_update
@@ -881,7 +953,8 @@ async fn create_user(
     require_super_admin(&mut tx, email.clone()).await?;
 
     sqlx::query!(
-        "INSERT INTO password(email, verified, password_hash, login_type, super_admin, name, company)
+        "INSERT INTO password(email, verified, password_hash, login_type, super_admin, name, \
+         company)
     VALUES ($1, $2, $3, 'password', $4, $5, $6)",
         &nu.email,
         true,
@@ -892,7 +965,6 @@ async fn create_user(
     )
     .execute(&mut tx)
     .await?;
-
 
     audit_log(
         &mut tx,
@@ -908,7 +980,6 @@ async fn create_user(
     Ok((StatusCode::CREATED, format!("email {} created", nu.email)))
 }
 
-
 pub fn owner_to_token_owner(user: &str, is_group: bool) -> String {
     let prefix = if is_group { 'g' } else { 'u' };
     format!("{}/{}", prefix, user)
@@ -922,7 +993,6 @@ async fn delete_user(
     let mut tx = db.begin().await?;
 
     require_admin(is_admin, &username)?;
-
 
     let email_to_delete_o = sqlx::query_scalar!(
         "SELECT email FROM usr where username = $1 AND workspace_id = $2",
@@ -960,18 +1030,24 @@ async fn set_password(
     Json(EditPassword { password }): Json<EditPassword>,
 ) -> Result<String> {
     let mut tx = db.begin().await?;
-    let email = email.ok_or("no_email").map_err(|e| Error::NotAuthorized(e.to_string()))?;
+    let email = email
+        .ok_or("no_email")
+        .map_err(|e| Error::NotAuthorized(e.to_string()))?;
 
     let custom_type = sqlx::query_scalar!(
-            "SELECT login_type::TEXT FROM password WHERE email = $1",
-        &email)
-        .fetch_one(&mut tx)
-        .await?
-        .unwrap_or("".to_string());
-    
+        "SELECT login_type::TEXT FROM password WHERE email = $1",
+        &email
+    )
+    .fetch_one(&mut tx)
+    .await
+    .map_err(|e| Error::InternalErr(format!("setting password: {e}")))?
+    .unwrap_or("".to_string());
+
     if custom_type != "password".to_string() {
-        return Err(Error::BadRequest(format!("login type for {email} is of type {custom_type}. Cannot set password.")))
-    } 
+        return Err(Error::BadRequest(format!(
+            "login type for {email} is of type {custom_type}. Cannot set password."
+        )));
+    }
 
     sqlx::query!(
         "UPDATE password SET password_hash = $1 WHERE email = $2",
@@ -1012,7 +1088,6 @@ pub fn hash_password(argon2: Arc<Argon2>, password: String) -> Result<String> {
     Ok(password_hash)
 }
 
-
 // async fn lost_password(
 //     Extension(db): Extension<DB>,
 //     Extension(es): Extension<Arc<EmailSender>>,
@@ -1032,7 +1107,7 @@ pub fn hash_password(argon2: Arc<Argon2>, password: String) -> Result<String> {
 
 //     if !exists {
 //         return Err(Error::NotFound(format!("no user found at email {email}")))
-//     } 
+//     }
 
 //     let already = sqlx::query_scalar!(
 //             "SELECT EXISTS(SELECT 1 FROM magic_link WHERE email = $1)",
@@ -1082,7 +1157,6 @@ pub fn hash_password(argon2: Arc<Argon2>, password: String) -> Result<String> {
 //     }
 // }
 
-
 // async fn signup(
 //     TypedHeader(host): TypedHeader<headers::Host>,
 //     Extension(db): Extension<DB>,
@@ -1097,13 +1171,11 @@ pub fn hash_password(argon2: Arc<Argon2>, password: String) -> Result<String> {
 // ) -> Result<(StatusCode, String)> {
 //     let mut tx = db.begin().await?;
 
-
 //     let email = sqlx::query_scalar!(
 //             "INSERT INTO password (email, password_hash, name, company) VALUES ($1, $2, $3, $4) RETURNING email",
 //         &email, &hash_password(argon2, password)?, name, company)
 //         .fetch_optional(&mut tx)
 //         .await?;
-
 
 //     if let Some(email) = email {
 //         let tx = create_magic_link(&host.hostname(), &email, &es, tx).await?;
@@ -1118,7 +1190,6 @@ pub fn hash_password(argon2: Arc<Argon2>, password: String) -> Result<String> {
 //     }
 // }
 
-
 // async fn create_magic_link<'c>(host: &str, email: &str, es: &EmailSender, mut tx: sqlx::Transaction<'c, sqlx::Postgres>) -> error::Result<sqlx::Transaction<'c, sqlx::Postgres>> {
 //     let token = gen_token();
 
@@ -1131,7 +1202,7 @@ pub fn hash_password(argon2: Arc<Argon2>, password: String) -> Result<String> {
 //     )
 //     .execute(&mut tx)
 //     .await?;
-    
+
 //     let encoded_token = urlencoding::encode(&token);
 //     let encoded_email = urlencoding::encode(email);
 //     es.send_email(Message::builder()
@@ -1157,20 +1228,17 @@ async fn login(
     cookies: Cookies,
     Extension(db): Extension<DB>,
     Extension(argon2): Extension<Arc<Argon2<'_>>>,
-    Json(Login {
-        email,
-        password,
-    }): Json<Login>,
+    Json(Login { email, password }): Json<Login>,
 ) -> Result<String> {
     let mut tx = db.begin().await?;
 
-
-    let email_w_h: Option<(String,  String, bool)> = sqlx::query_as(
-            "SELECT email, password_hash, super_admin FROM password WHERE email = $1 AND login_type = 'password'",
-        )
-        .bind(&email)
-        .fetch_optional(&mut tx)
-        .await?;
+    let email_w_h: Option<(String, String, bool)> = sqlx::query_as(
+        "SELECT email, password_hash, super_admin FROM password WHERE email = $1 AND login_type = \
+         'password'",
+    )
+    .bind(&email)
+    .fetch_optional(&mut tx)
+    .await?;
 
     if let Some((email, hash, super_admin)) = email_w_h {
         let parsed_hash =
@@ -1190,7 +1258,12 @@ async fn login(
     }
 }
 
-pub async fn create_session_token<'c>(email: &str, super_admin: bool, tx: &mut sqlx::Transaction<'c, sqlx::Postgres>, cookies: Cookies) -> Result<String> {
+pub async fn create_session_token<'c>(
+    email: &str,
+    super_admin: bool,
+    tx: &mut sqlx::Transaction<'c, sqlx::Postgres>,
+    cookies: Cookies,
+) -> Result<String> {
     let token = gen_token();
     sqlx::query!(
         "INSERT INTO token
@@ -1238,8 +1311,11 @@ pub async fn create_token_for_owner(
         .map(char::from)
         .collect();
     let mut tx = db.begin().await?;
-    let is_super_admin = username.contains('@') && sqlx::query_scalar!("SELECT super_admin FROM password WHERE email = $1",
-     owner.split_once('/').map(|x| x.1).unwrap_or(""))
+    let is_super_admin = username.contains('@')
+        && sqlx::query_scalar!(
+            "SELECT super_admin FROM password WHERE email = $1",
+            owner.split_once('/').map(|x| x.1).unwrap_or("")
+        )
         .fetch_optional(&mut tx)
         .await?
         .unwrap_or(false);
@@ -1284,16 +1360,19 @@ pub async fn create_token_for_owner(
 
 async fn create_token(
     Extension(db): Extension<DB>,
-    Authed { email,.. }: Authed,
+    Authed { email, .. }: Authed,
     Json(new_token): Json<NewToken>,
 ) -> Result<(StatusCode, String)> {
     let token = gen_token();
     let mut tx = db.begin().await?;
-    let email = email.ok_or_else(|| error::Error::BadRequest(format!("Only users with email can create tokens")))?;
-    let is_super_admin = sqlx::query_scalar!("SELECT super_admin FROM password WHERE email = $1", email)
-        .fetch_optional(&mut tx)
-        .await?
-        .unwrap_or(false);
+    let email = email.ok_or_else(|| {
+        error::Error::BadRequest(format!("Only users with email can create tokens"))
+    })?;
+    let is_super_admin =
+        sqlx::query_scalar!("SELECT super_admin FROM password WHERE email = $1", email)
+            .fetch_optional(&mut tx)
+            .await?
+            .unwrap_or(false);
     sqlx::query!(
         "INSERT INTO token
             (token, email, label, expiration, super_admin)
@@ -1327,8 +1406,8 @@ async fn list_tokens(
 ) -> JsonResult<Vec<TruncatedToken>> {
     let rows = sqlx::query_as!(
         TruncatedToken,
-        "SELECT label, concat(substring(token for 10)) as token_prefix, expiration, created_at, last_used_at FROM token \
-         WHERE email = $1",
+        "SELECT label, concat(substring(token for 10)) as token_prefix, expiration, created_at, \
+         last_used_at FROM token WHERE email = $1",
         email,
     )
     .fetch_all(&db)
@@ -1342,7 +1421,9 @@ async fn delete_token(
     Path(token_prefix): Path<String>,
 ) -> Result<String> {
     let mut tx = db.begin().await?;
-    let email = email.ok_or_else(|| error::Error::BadRequest(format!("Only users with email can create tokens")))?;
+    let email = email.ok_or_else(|| {
+        error::Error::BadRequest(format!("Only users with email can create tokens"))
+    })?;
     let tokens_deleted: Vec<String> = sqlx::query_scalar(
         "DELETE FROM token WHERE email = $1 AND
      token LIKE concat($3, '%') RETURNING concat(substring(token for 10), '*****')",
@@ -1387,20 +1468,19 @@ async fn leave_workspace(
     .await?;
 
     audit_log(
-         &mut tx,
+        &mut tx,
         &username,
         "users.leave_workspace",
         ActionKind::Delete,
         &w_id,
-None,
-None,
+        None,
+        None,
     )
     .await?;
     tx.commit().await?;
 
     Ok(format!("left workspace {w_id}"))
 }
-
 
 pub async fn delete_expired_items_perdiodically(
     db: &DB,
@@ -1415,12 +1495,11 @@ pub async fn delete_expired_items_perdiodically(
         .fetch_all(db)
         .await;
 
-
         match tokens_deleted_r {
             Ok(tokens) => tracing::debug!("deleted {} tokens: {:?}", tokens.len(), tokens),
             Err(e) => tracing::error!("Error deleting token: {}", e.to_string()),
         }
-        
+
         let magic_links_deleted_r: std::result::Result<Vec<String>, _> = sqlx::query_scalar(
             "DELETE FROM magic_link WHERE expiration <= $1
         RETURNING concat(substring(token for 10), '*****')",

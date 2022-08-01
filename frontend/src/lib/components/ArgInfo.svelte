@@ -3,7 +3,6 @@
 	import Modal from './Modal.svelte'
 	import Tooltip from './Tooltip.svelte'
 	import json from 'svelte-highlight/languages/json'
-	import github from 'svelte-highlight/styles/github'
 	import { Highlight } from 'svelte-highlight'
 	import { ResourceService, type Resource } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
@@ -22,10 +21,6 @@
 
 	let asJson: string = JSON.stringify(value, null, 4)
 </script>
-
-<svelte:head>
-	{@html github}
-</svelte:head>
 
 <Modal bind:this={resourceViewer}>
 	<div slot="title">{resource.path}</div>

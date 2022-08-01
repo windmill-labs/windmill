@@ -51,22 +51,23 @@ export async function main() {
     // 1. Get the last saved state
 	// let state = wmill.getInternalState()
     // 2. Get the actual state from the external service
-    // let newState = useApiToFetchState()
-    // 3. Compare the two states and update the internal state if necessary
+    // let newState = await (await fetch('https://hacker-news.firebaseio.com/v0/topstories.json')).json()
+    // 3. Compare the two states and update the internal state
     // wmill.setInternalState(newState)
     // 4. Return the new ros
-    // return newState - state
+    // return range from (state to newState)
 
-    // You may refer to each row/value returned by the trigger script using
-    // flow_input._value
 	return [1,2,3]
+
+    // In subsequent scripts, you may refer to each row/value returned by the trigger script using
+    // 'flow_input._value'
 }
 `
 
 export function initialCode(language: 'deno' | 'python3', is_trigger: boolean): string {
-	return language === 'deno'
-		? is_trigger
-			? DENO_INIT_CODE_TRIGGER
-			: DENO_INIT_CODE
-		: PYTHON_INIT_CODE
+    return language === 'deno'
+        ? is_trigger
+            ? DENO_INIT_CODE_TRIGGER
+            : DENO_INIT_CODE
+        : PYTHON_INIT_CODE
 }

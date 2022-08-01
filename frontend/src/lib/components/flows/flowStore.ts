@@ -1,5 +1,5 @@
 import type { Schema } from '$lib/common'
-import { FlowModuleValue, ScriptService, type Flow, type FlowModule } from '$lib/gen'
+import { RawScript, ScriptService, type Flow, type FlowModule } from '$lib/gen'
 import { initialCode } from '$lib/script_helpers'
 import { userStore, workspaceStore } from '$lib/stores'
 import { emptySchema } from '$lib/utils'
@@ -18,10 +18,19 @@ export const flowStore = writable<Flow>(undefined)
 export const schemasStore = writable<Schema[]>([])
 
 export function initFlow(flow: Flow) {
-	const newMode =
-		flow.value.modules[1]?.value.type === FlowModuleValue.type.FORLOOPFLOW ? 'pull' : 'push'
+	const newMode = flow.value.modules[1]?.value.type === 'forloopflow' ? 'pull' : 'push'
 	mode.set(newMode)
-	flow = flattenForloopFlows(flow, newMode)
+	flow = flattenForloopFlows(flow)
+	flow.value.modules.forEach((mod) => {
+		Object.values(mod.input_transform).forEach((inp) => {
+			if (inp.type == 'javascript') {
+				// for now we use the value for dynamic expression when done in the static editor so we have to resort to this
+
+				//@ts-ignore
+				inp.value = codeToStaticTemplate(inp.expr)
+			}
+		})
+	})
 	schemasStore.set([])
 	flowStore.set(flow)
 	// For each module in flow, we should load the corresponding schema
@@ -30,10 +39,27 @@ export function initFlow(flow: Flow) {
 	})
 }
 
-export function flattenForloopFlows(flow: Flow, mode: FlowMode): Flow {
+export function codeToStaticTemplate(code?: string): string | undefined {
+	if (!code) return undefined
+
+	const lines = code
+		.split('\n')
+		.slice(1)
+		.filter((x) => x != '')
+
+	if (lines.length == 1) {
+		const line = lines[0].trim()
+		if (line[0] == '`' && line.charAt(line.length - 1) == '`') {
+			return line.slice(1, line.length - 1)
+		}
+	}
+	return undefined
+}
+export function flattenForloopFlows(flow: Flow): Flow {
 	let newFlow: Flow = JSON.parse(JSON.stringify(flow))
-	if (mode == 'pull') {
-		const oldModules = newFlow.value.modules[1].value.value?.modules ?? []
+	const mod = newFlow.value.modules[1]?.value
+	if (mod?.type === 'forloopflow') {
+		const oldModules = mod.value?.modules ?? []
 		newFlow.value.modules = newFlow.value.modules.slice(0, 1)
 		newFlow.value.modules.push(...oldModules)
 	}
@@ -45,7 +71,7 @@ export const isCopyFirstStepSchemaDisabled = derived(flowStore, (flow: Flow | un
 		const modules = flow.value.modules
 		const [firstModule] = modules
 		return (
-			modules.length === 0 || (firstModule.value.path === '' && firstModule.value.type === 'script')
+			modules.length === 0 || (firstModule.value.type === 'script' && firstModule.value.path === '')
 		)
 	} else {
 		return true
@@ -54,7 +80,7 @@ export const isCopyFirstStepSchemaDisabled = derived(flowStore, (flow: Flow | un
 
 export function addModule(i?: number) {
 	const newModule: FlowModule = {
-		value: { type: FlowModuleValue.type.SCRIPT, path: '' },
+		value: { type: 'script', path: '' },
 		input_transform: {}
 	}
 
@@ -85,7 +111,7 @@ export function addModule(i?: number) {
 export async function pickScript(path: string, step: number) {
 	flowStore.update((flow: Flow) => {
 		if (flow.value.modules[step]) {
-			flow.value.modules[step].value.path = path
+			flow.value.modules[step].value = { type: 'script', path }
 		}
 
 		return flow
@@ -95,14 +121,14 @@ export async function pickScript(path: string, step: number) {
 }
 
 export async function createInlineScriptModule(
-	language: FlowModuleValue.language,
+	language: RawScript.language,
 	step: number,
 	mode: FlowMode
 ) {
 	const code = initialCode(language, mode === 'pull' && step == 0)
 	flowStore.update((flow: Flow) => {
 		flow.value.modules[step].value = {
-			type: FlowModuleValue.type.RAWSCRIPT,
+			type: 'rawscript',
 			content: code,
 			language
 		}
@@ -132,6 +158,9 @@ export async function fork(step: number) {
 	const flow = get(flowStore)
 	const flowModuleValue = flow.value.modules[step].value
 
+	if (flowModuleValue.type !== 'script') {
+		throw new Error('Can only fork a script module')
+	}
 	if (flowModuleValue.path) {
 		const moduleValue = await createInlineScriptModuleFromPath(flowModuleValue.path)
 		flowStore.update((flow: Flow) => {
@@ -147,6 +176,10 @@ export async function createScriptFromInlineScript(step: number) {
 	const user = get(userStore)
 
 	const flowModuleValue = flow.value.modules[step].value
+
+	if (flowModuleValue.type != 'rawscript') {
+		throw new Error("Can't create script from non-inline script")
+	}
 
 	const originalScriptPath = flowModuleValue.path
 	const wasForked = Boolean(originalScriptPath)
@@ -170,17 +203,17 @@ export async function createScriptFromInlineScript(step: number) {
 			path: availablePath,
 			summary: '',
 			description,
-			content: flowModuleValue.content!,
+			content: flowModuleValue.content,
 			parent_hash: undefined,
 			schema: schemas[step],
 			is_template: false,
-			language: flowModuleValue.language!
+			language: flowModuleValue.language
 		}
 	})
 
 	flowStore.update((flow: Flow) => {
 		flow.value.modules[step].value = {
-			type: FlowModuleValue.type.SCRIPT,
+			type: 'script',
 			path: availablePath
 		}
 
@@ -236,5 +269,5 @@ export async function findNextAvailablePath(path: string): Promise<string> {
 
 export function shouldPickOrCreateScript(flow: Flow, step: number): boolean {
 	const module = flow.value.modules[step]
-	return module.value.path === '' && module.value.language === undefined
+	return module.value.type === 'script' && module.value.path === ''
 }

@@ -1,5 +1,6 @@
 /*
- * Author & Copyright: Ruben Fiszel 2021
+ * Author: Ruben Fiszel
+ * Copyright: Windmill Labs, Inc 2022
  * This file and its contents are licensed under the AGPLv3 License.
  * Please see the included NOTICE for copyright information and
  * LICENSE-AGPL for a copy of the license.
@@ -13,19 +14,17 @@ use sqlx::{query_scalar, Postgres, Transaction};
 use std::collections::HashMap;
 use tracing::instrument;
 
-use crate::error::to_anyhow;
-use crate::scripts::{get_hub_script_by_path, ScriptLang};
-use crate::worker_flow::init_flow_status;
 use crate::{
     audit::{audit_log, ActionKind},
     db::{UserDB, DB},
     error,
-    error::Error,
+    error::{to_anyhow, Error},
     flows::FlowValue,
     schedule::get_schedule_opt,
-    scripts::ScriptHash,
+    scripts::{get_hub_script_by_path, ScriptHash, ScriptLang},
     users::{owner_to_token_owner, Authed},
     utils::{require_admin, Pagination, StripPath},
+    worker_flow::init_flow_status,
 };
 use axum::{
     extract::{Extension, Path, Query},
@@ -41,7 +40,7 @@ use ulid::Ulid;
 use uuid::Uuid;
 
 const MAX_NB_OF_JOBS_IN_Q_PER_USER: i64 = 10;
-const MAX_DURATION_LAST_1200: i64 = 400;
+const MAX_DURATION_LAST_1200: std::time::Duration = std::time::Duration::from_secs(400);
 
 pub fn workspaced_service() -> Router {
     Router::new()
@@ -101,7 +100,7 @@ struct CompletedJob {
     created_by: String,
     created_at: chrono::DateTime<chrono::Utc>,
     started_at: chrono::DateTime<chrono::Utc>,
-    duration: i32,
+    duration_ms: i32,
     success: bool,
     script_hash: Option<ScriptHash>,
     script_path: Option<String>,
@@ -250,15 +249,10 @@ pub async fn script_path_to_payload<'c>(
     w_id: &String,
 ) -> Result<JobPayload, Error> {
     let job_payload = if script_path.starts_with("hub/") {
-        JobPayload::ScriptHub {
-            path: script_path.to_owned(),
-        }
+        JobPayload::ScriptHub { path: script_path.to_owned() }
     } else {
         let script_hash = get_latest_hash_for_path(db, w_id, script_path).await?;
-        JobPayload::ScriptHash {
-            hash: script_hash,
-            path: script_path.to_owned(),
-        }
+        JobPayload::ScriptHash { hash: script_hash, path: script_path.to_owned() }
     };
     Ok(job_payload)
 }
@@ -269,8 +263,10 @@ pub async fn get_latest_hash_for_path<'c>(
     script_path: &str,
 ) -> error::Result<ScriptHash> {
     let script_hash_o = sqlx::query_scalar!(
-        "select hash from script where path = $1 AND (workspace_id = $2 OR workspace_id = 'starter') AND
-    created_at = (SELECT max(created_at) FROM script WHERE path = $1 AND (workspace_id = $2 OR workspace_id = 'starter')) AND
+        "select hash from script where path = $1 AND (workspace_id = $2 OR workspace_id = \
+         'starter') AND
+    created_at = (SELECT max(created_at) FROM script WHERE path = $1 AND (workspace_id = $2 OR \
+         workspace_id = 'starter')) AND
     deleted = false",
         script_path,
         w_id
@@ -296,10 +292,7 @@ pub async fn run_job_by_hash(
     let (uuid, tx) = push(
         tx,
         &w_id,
-        JobPayload::ScriptHash {
-            hash: ScriptHash(hash),
-            path,
-        },
+        JobPayload::ScriptHash { hash: ScriptHash(hash), path },
         args,
         &authed.username,
         owner_to_token_owner(&authed.username, false),
@@ -319,12 +312,18 @@ pub async fn get_path_for_hash<'c>(
     hash: i64,
 ) -> error::Result<String> {
     let path = sqlx::query_scalar!(
-        "select path from script where hash = $1 AND (workspace_id = $2 OR workspace_id = 'starter')",
+        "select path from script where hash = $1 AND (workspace_id = $2 OR workspace_id = \
+         'starter')",
         hash,
         w_id
     )
     .fetch_one(db)
-    .await?;
+    .await
+    .map_err(|e| {
+        Error::InternalErr(format!(
+            "querying getting path for hash {hash} in {w_id}: {e}"
+        ))
+    })?;
     Ok(path)
 }
 
@@ -368,10 +367,7 @@ async fn run_preview_flow_job(
     let (uuid, tx) = push(
         tx,
         &w_id,
-        JobPayload::RawFlow {
-            value: raw_flow.value,
-            path: raw_flow.path,
-        },
+        JobPayload::RawFlow { value: raw_flow.value, path: raw_flow.path },
         raw_flow.args,
         &authed.username,
         owner_to_token_owner(&authed.username, false),
@@ -486,7 +482,7 @@ async fn list_jobs(
             "script_hash",
             "script_path",
             "args",
-            "null as duration",
+            "null as duration_ms",
             "null as success",
             "false as deleted",
             "canceled",
@@ -504,10 +500,7 @@ async fn list_jobs(
         &w_id,
         per_page + offset,
         0,
-        &ListCompletedQuery {
-            order_desc: Some(true),
-            ..lqc
-        },
+        &ListCompletedQuery { order_desc: Some(true), ..lqc },
         &[
             "'CompletedJob' as typ",
             "id",
@@ -521,7 +514,7 @@ async fn list_jobs(
             "script_hash",
             "script_path",
             "args",
-            "duration",
+            "duration_ms",
             "success",
             "deleted",
             "canceled",
@@ -633,7 +626,7 @@ async fn list_completed_jobs(
             "created_by",
             "created_at",
             "started_at",
-            "duration",
+            "duration_ms",
             "success",
             "script_hash",
             "script_path",
@@ -703,9 +696,8 @@ async fn cancel_job(
     let mut tx = user_db.begin(&authed).await?;
 
     let job_option = sqlx::query_scalar!(
-        "UPDATE queue SET canceled = true, canceled_by = $1, canceled_reason = $2 \
-         WHERE id = $3 AND schedule_path IS NULL AND workspace_id = $4\
-         RETURNING id",
+        "UPDATE queue SET canceled = true, canceled_by = $1, canceled_reason = $2 WHERE id = $3 \
+         AND schedule_path IS NULL AND workspace_id = $4RETURNING id",
         &authed.username,
         reason,
         id,
@@ -756,7 +748,8 @@ async fn delete_completed_job(
 
     require_admin(authed.is_admin, &authed.username)?;
     let job_o = sqlx::query_as::<_, CompletedJob>(
-        "UPDATE completed_job SET logs = '', deleted = true WHERE id = $1 AND workspace_id = $2 RETURNING *",
+        "UPDATE completed_job SET logs = '', deleted = true WHERE id = $1 AND workspace_id = $2 \
+         RETURNING *",
     )
     .bind(id)
     .bind(&w_id)
@@ -796,10 +789,7 @@ pub struct JobUpdate {
 async fn get_job_update(
     Extension(db): Extension<DB>,
     Path((w_id, id)): Path<(String, Uuid)>,
-    Query(JobUpdateQuery {
-        running,
-        log_offset,
-    }): Query<JobUpdateQuery>,
+    Query(JobUpdateQuery { running, log_offset }): Query<JobUpdateQuery>,
 ) -> error::JsonResult<JobUpdate> {
     let mut tx = db.begin().await?;
 
@@ -821,7 +811,8 @@ async fn get_job_update(
         }))
     } else {
         let logs = query_scalar!(
-            "SELECT substr(logs, $1) as logs FROM completed_job WHERE workspace_id = $2 AND id = $3",
+            "SELECT substr(logs, $1) as logs FROM completed_job WHERE workspace_id = $2 AND id = \
+             $3",
             log_offset,
             &w_id,
             &id
@@ -918,7 +909,7 @@ struct UnifiedJob {
     script_hash: Option<ScriptHash>,
     script_path: Option<String>,
     args: Option<serde_json::Value>,
-    duration: Option<i32>,
+    duration_ms: Option<i32>,
     success: Option<bool>,
     deleted: bool,
     canceled: bool,
@@ -942,7 +933,7 @@ impl From<UnifiedJob> for Job {
                 created_by: uj.created_by,
                 created_at: uj.created_at,
                 started_at: uj.started_at.unwrap_or(uj.created_at),
-                duration: uj.duration.unwrap(),
+                duration_ms: uj.duration_ms.unwrap(),
                 success: uj.success.unwrap(),
                 script_hash: uj.script_hash,
                 script_path: uj.script_path,
@@ -1022,23 +1013,12 @@ struct PreviewFlow {
 
 #[derive(Debug)]
 pub enum JobPayload {
-    ScriptHub {
-        path: String,
-    },
-    ScriptHash {
-        hash: ScriptHash,
-        path: String,
-    },
+    ScriptHub { path: String },
+    ScriptHash { hash: ScriptHash, path: String },
     Code(RawCode),
-    Dependencies {
-        hash: ScriptHash,
-        dependencies: Vec<String>,
-    },
+    Dependencies { hash: ScriptHash, dependencies: Vec<String> },
     Flow(String),
-    RawFlow {
-        value: FlowValue,
-        path: Option<String>,
-    },
+    RawFlow { value: FlowValue, path: Option<String> },
 }
 
 #[instrument(level = "trace", skip_all)]
@@ -1061,7 +1041,10 @@ pub async fn push<'c>(
     let premium_workspace =
         sqlx::query_scalar!("SELECT premium FROM workspace WHERE id = $1", workspace_id)
             .fetch_one(&mut tx)
-            .await?;
+            .await
+            .map_err(|e| {
+                Error::InternalErr(format!("fetching if {workspace_id} is premium: {e}"))
+            })?;
 
     if !premium_workspace && std::env::var("CLOUD_HOSTED").is_ok() {
         let rate_limiting_queue = sqlx::query_scalar!(
@@ -1075,31 +1058,52 @@ pub async fn push<'c>(
         if let Some(nb_jobs) = rate_limiting_queue {
             if nb_jobs > MAX_NB_OF_JOBS_IN_Q_PER_USER {
                 return Err(error::Error::ExecutionErr(format!(
-                "You have exceeded the number of authorized elements of queue at any given time: {}", MAX_NB_OF_JOBS_IN_Q_PER_USER)));
+                    "You have exceeded the number of authorized elements of queue at any given \
+                     time: {}",
+                    MAX_NB_OF_JOBS_IN_Q_PER_USER
+                )));
             }
         }
 
-        let rate_limiting_duration = sqlx::query_scalar!(
-        "SELECT SUM(duration) FROM completed_job WHERE created_by = $1 AND created_at > NOW() - INTERVAL '1200 seconds' AND workspace_id = $2",
-        user,
-        workspace_id
-    )
-    .fetch_one(&mut tx)
-    .await?;
+        let rate_limiting_duration_ms = sqlx::query_scalar!(
+            "
+           SELECT SUM(duration_ms)
+             FROM completed_job
+            WHERE created_by = $1
+              AND created_at > NOW() - INTERVAL '1200 seconds'
+              AND workspace_id = $2",
+            user,
+            workspace_id
+        )
+        .fetch_one(&mut tx)
+        .await?;
 
-        if let Some(sum_duration) = rate_limiting_duration {
-            if sum_duration > MAX_DURATION_LAST_1200 {
+        if let Some(sum_duration_ms) = rate_limiting_duration_ms {
+            if sum_duration_ms as u128 > MAX_DURATION_LAST_1200.as_millis() {
                 return Err(error::Error::ExecutionErr(format!(
-                "You have exceeded the scripts cumulative duration limit over the last 20m which is: {}", MAX_DURATION_LAST_1200)));
+                    "You have exceeded the scripts cumulative duration limit over the last 20m \
+                     which is: {} seconds",
+                    MAX_DURATION_LAST_1200.as_secs()
+                )));
             }
         }
     }
 
     let (script_hash, script_path, raw_code, job_kind, raw_flow, language) = match job_payload {
         JobPayload::ScriptHash { hash, path } => {
-            let language =  sqlx::query_scalar!("SELECT language as \"language: ScriptLang\" FROM script WHERE hash = $1 AND (workspace_id = $2 OR workspace_id = 'starter')", hash.0, workspace_id)
+            let language = sqlx::query_scalar!(
+                "SELECT language as \"language: ScriptLang\" FROM script WHERE hash = $1 AND \
+                 (workspace_id = $2 OR workspace_id = 'starter')",
+                hash.0,
+                workspace_id
+            )
             .fetch_one(&mut tx)
-            .await?;
+            .await
+            .map_err(|e| {
+                Error::InternalErr(format!(
+                    "fetching language for hash {hash} in {workspace_id}: {e}"
+                ))
+            })?;
             (
                 Some(hash.0),
                 Some(path),
@@ -1144,11 +1148,7 @@ pub async fn push<'c>(
                 Some(ScriptLang::Deno),
             )
         }
-        JobPayload::Code(RawCode {
-            content,
-            path,
-            language,
-        }) => (
+        JobPayload::Code(RawCode { content, path, language }) => (
             None,
             path,
             Some(content),
@@ -1168,11 +1168,15 @@ pub async fn push<'c>(
             (None, path, None, JobKind::FlowPreview, Some(value), None)
         }
         JobPayload::Flow(flow) => {
-            let value_json = sqlx::query_scalar!("SELECT value FROM flow WHERE path = $1 AND (workspace_id = $2 OR workspace_id = 'starter')", 
-            flow, workspace_id)
-                .fetch_optional(&mut tx)
-                .await?
-                .ok_or_else(|| Error::InternalErr(format!("not found flow at path {:?}", flow)))?;
+            let value_json = sqlx::query_scalar!(
+                "SELECT value FROM flow WHERE path = $1 AND (workspace_id = $2 OR workspace_id = \
+                 'starter')",
+                flow,
+                workspace_id
+            )
+            .fetch_optional(&mut tx)
+            .await?
+            .ok_or_else(|| Error::InternalErr(format!("not found flow at path {:?}", flow)))?;
             let value = serde_json::from_value::<FlowValue>(value_json).map_err(|err| {
                 Error::InternalErr(format!(
                     "could not convert json to flow for {flow}: {err:?}"
@@ -1186,8 +1190,10 @@ pub async fn push<'c>(
     let uuid = sqlx::query_scalar!(
         "INSERT INTO queue
             (workspace_id, id, parent_job, created_by, permissioned_as, scheduled_for, 
-                script_hash, script_path, raw_code, args, job_kind, schedule_path, raw_flow, flow_status, is_flow_step, language)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16) RETURNING id",
+                script_hash, script_path, raw_code, args, job_kind, schedule_path, raw_flow, \
+         flow_status, is_flow_step, language)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16) \
+         RETURNING id",
         workspace_id,
         job_id,
         parent_job,
@@ -1263,7 +1269,7 @@ pub async fn add_completed_job_error<E: ToString + std::fmt::Debug>(
         false,
         false,
         Some(output_map.clone()),
-        format!("{}\n{}", logs, e.to_string()),
+        format!("\n{}\n{}", logs, e.to_string()),
     )
     .await?;
     Ok((a, output_map))
@@ -1280,23 +1286,24 @@ pub async fn add_completed_job(
 ) -> Result<Uuid, Error> {
     let result_json = result.map(serde_json::Value::Object);
     let job_id = queued_job.id.clone();
-    let duration = (chrono::Utc::now() - queued_job.started_at.unwrap_or(queued_job.created_at))
-        .num_seconds() as i32;
+    let duration_ms = (chrono::Utc::now() - queued_job.started_at.unwrap_or(queued_job.created_at))
+        .num_milliseconds() as i32;
     let _ = sqlx::query!(
         "INSERT INTO completed_job as cj
-            (workspace_id, id, parent_job, created_by, created_at, duration, success, script_hash, script_path, \
-        args, result, logs, 
-            raw_code, canceled, canceled_by, canceled_reason, job_kind, schedule_path, permissioned_as, flow_status, raw_flow, \
-            is_flow_step, is_skipped)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23) \
-        ON CONFLICT (id) DO UPDATE SET success = $7, result = $11, logs = concat(cj.logs, $12) \
-        RETURNING id",
+            (workspace_id, id, parent_job, created_by, created_at, duration_ms, success, \
+            script_hash, script_path, args, result, logs, \
+            raw_code, canceled, canceled_by, canceled_reason, job_kind, schedule_path, \
+            permissioned_as, flow_status, raw_flow, is_flow_step, is_skipped)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, \
+                    $18, $19, $20, $21, $22, $23)
+         ON CONFLICT (id) DO UPDATE SET success = $7, result = $11, logs = concat(cj.logs, $12)
+         RETURNING id",
         queued_job.workspace_id,
         queued_job.id,
         queued_job.parent_job,
         queued_job.created_by,
         queued_job.created_at,
-        duration,
+        duration_ms,
         success,
         queued_job.script_hash.map(|x| x.0),
         queued_job.script_path,
@@ -1324,6 +1331,7 @@ pub async fn add_completed_job(
 
 #[instrument(level = "trace", skip_all)]
 pub async fn postprocess_queued_job(
+    is_flow_step: bool,
     schedule_path: Option<String>,
     script_path: Option<String>,
     w_id: &str,
@@ -1331,7 +1339,9 @@ pub async fn postprocess_queued_job(
     db: &DB,
 ) -> crate::error::Result<()> {
     let _ = delete_job(db, w_id, job_id).await?;
-    schedule_again_if_scheduled(schedule_path, script_path, &w_id, db).await?;
+    if !is_flow_step {
+        schedule_again_if_scheduled(schedule_path, script_path, &w_id, db).await?;
+    }
     Ok(())
 }
 

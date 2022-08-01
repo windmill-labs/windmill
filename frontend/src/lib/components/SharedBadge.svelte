@@ -23,12 +23,12 @@
 			reason = 'This item was shared to you personally'
 		} else {
 			let writeGroup = pgroups.find((x) => extraPermsKeys.includes(x) && extraPerms[x])
-			if (pgroups.find((x) => x in extraPermsKeys && extraPerms[x])) {
+			if (writeGroup) {
 				kind = 'write'
 				reason = `This item was write shared to the group ${writeGroup} which you are a member of`
 			} else {
-				let readGroup = pgroups.find((x) => extraPermsKeys.includes(x) && extraPerms[x])
-				if (pgroups.find((x) => extraPermsKeys.includes(x))) {
+				let readGroup = pgroups.find((x) => extraPermsKeys.includes(x))
+				if (readGroup) {
 					kind = 'read'
 					reason = `This item was read-only shared to the group ${readGroup} which you are a member of`
 				} else {

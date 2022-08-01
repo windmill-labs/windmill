@@ -21,6 +21,32 @@
       ]
     }
   },
+  "04207ceb4e5e520e3a759ed0b0b513c6fc9afda4f0e34a8fbbfce227e984e053": {
+    "query": "UPDATE queue SET running = false WHERE last_ping < $1 and running = true RETURNING id, workspace_id",
+    "describe": {
+      "columns": [
+        {
+          "ordinal": 0,
+          "name": "id",
+          "type_info": "Uuid"
+        },
+        {
+          "ordinal": 1,
+          "name": "workspace_id",
+          "type_info": "Varchar"
+        }
+      ],
+      "parameters": {
+        "Left": [
+          "Timestamptz"
+        ]
+      },
+      "nullable": [
+        false,
+        false
+      ]
+    }
+  },
   "04a15674cf66f2822085e65ca33ee42b8e7f3f9d63ffac0585a12368d0322252": {
     "query": "SELECT group_ FROM usr_to_group where usr = $1 AND workspace_id = $2",
     "describe": {
@@ -70,27 +96,6 @@
           "ordinal": 0,
           "name": "exists",
           "type_info": "Bool"
-        }
-      ],
-      "parameters": {
-        "Left": [
-          "Text",
-          "Text"
-        ]
-      },
-      "nullable": [
-        null
-      ]
-    }
-  },
-  "09246e9ff5b2beb61ab51a5f73d980f7638904d5a18a415e52d5e1c94dffd0aa": {
-    "query": "SELECT SUM(duration) FROM completed_job WHERE created_by = $1 AND created_at > NOW() - INTERVAL '1200 seconds' AND workspace_id = $2",
-    "describe": {
-      "columns": [
-        {
-          "ordinal": 0,
-          "name": "sum",
-          "type_info": "Int8"
         }
       ],
       "parameters": {
@@ -741,26 +746,6 @@
       },
       "nullable": [
         null
-      ]
-    }
-  },
-  "37d3ee8009055e869941e548a6d5a352053a5d7782f662c34b94706488abccb6": {
-    "query": "UPDATE queue SET running = false WHERE last_ping < $1 RETURNING id",
-    "describe": {
-      "columns": [
-        {
-          "ordinal": 0,
-          "name": "id",
-          "type_info": "Uuid"
-        }
-      ],
-      "parameters": {
-        "Left": [
-          "Timestamptz"
-        ]
-      },
-      "nullable": [
-        false
       ]
     }
   },
@@ -1705,68 +1690,6 @@
       "nullable": []
     }
   },
-  "87f08f146fc899d317728f21468a1474ed7c58aa5da19bef642efe66fabe5118": {
-    "query": "SELECT * from usr WHERE workspace_id = $1",
-    "describe": {
-      "columns": [
-        {
-          "ordinal": 0,
-          "name": "workspace_id",
-          "type_info": "Varchar"
-        },
-        {
-          "ordinal": 1,
-          "name": "username",
-          "type_info": "Varchar"
-        },
-        {
-          "ordinal": 2,
-          "name": "email",
-          "type_info": "Varchar"
-        },
-        {
-          "ordinal": 3,
-          "name": "is_admin",
-          "type_info": "Bool"
-        },
-        {
-          "ordinal": 4,
-          "name": "created_at",
-          "type_info": "Timestamptz"
-        },
-        {
-          "ordinal": 5,
-          "name": "operator",
-          "type_info": "Bool"
-        },
-        {
-          "ordinal": 6,
-          "name": "disabled",
-          "type_info": "Bool"
-        },
-        {
-          "ordinal": 7,
-          "name": "role",
-          "type_info": "Varchar"
-        }
-      ],
-      "parameters": {
-        "Left": [
-          "Text"
-        ]
-      },
-      "nullable": [
-        false,
-        false,
-        false,
-        false,
-        false,
-        false,
-        false,
-        true
-      ]
-    }
-  },
   "88a3f58a1a315200fdd2e4bb8638246ee21818f8aaaf56f6e9d7ddce1490d886": {
     "query": "SELECT EXISTS(SELECT 1 FROM variable WHERE path = $1 AND workspace_id = $2)",
     "describe": {
@@ -2360,62 +2283,6 @@
       "nullable": []
     }
   },
-  "b032ac8a438eb36a61bf5a81a0c41eb10646349e8c79014f83142be35139205c": {
-    "query": "INSERT INTO completed_job as cj\n            (workspace_id, id, parent_job, created_by, created_at, duration, success, script_hash, script_path, args, result, logs, \n            raw_code, canceled, canceled_by, canceled_reason, job_kind, schedule_path, permissioned_as, flow_status, raw_flow, is_flow_step, is_skipped)\n            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23) ON CONFLICT (id) DO UPDATE SET success = $7, result = $11, logs = concat(cj.logs, $12) RETURNING id",
-    "describe": {
-      "columns": [
-        {
-          "ordinal": 0,
-          "name": "id",
-          "type_info": "Uuid"
-        }
-      ],
-      "parameters": {
-        "Left": [
-          "Varchar",
-          "Uuid",
-          "Uuid",
-          "Varchar",
-          "Timestamptz",
-          "Int4",
-          "Bool",
-          "Int8",
-          "Varchar",
-          "Jsonb",
-          "Jsonb",
-          "Text",
-          "Text",
-          "Bool",
-          "Varchar",
-          "Text",
-          {
-            "Custom": {
-              "name": "job_kind",
-              "kind": {
-                "Enum": [
-                  "script",
-                  "preview",
-                  "flow",
-                  "dependencies",
-                  "flowpreview",
-                  "script_hub"
-                ]
-              }
-            }
-          },
-          "Varchar",
-          "Varchar",
-          "Jsonb",
-          "Jsonb",
-          "Bool",
-          "Bool"
-        ]
-      },
-      "nullable": [
-        false
-      ]
-    }
-  },
   "b20977e70ebac7ccbaec5a2a1e940301dd331a5f9a4be67a27cfbff8619ac8f0": {
     "query": "INSERT INTO usr\n            (workspace_id, email, username, is_admin)\n            VALUES ($1, $2, $3, true)",
     "describe": {
@@ -2769,6 +2636,62 @@
       "nullable": []
     }
   },
+  "ce828d41f9184dcb4457b25ebf9a8e8e86e4da5aa37b2b2b413d56d766deeb0c": {
+    "query": "INSERT INTO completed_job as cj\n            (workspace_id, id, parent_job, created_by, created_at, duration_ms, success, script_hash, script_path, args, result, logs, raw_code, canceled, canceled_by, canceled_reason, job_kind, schedule_path, permissioned_as, flow_status, raw_flow, is_flow_step, is_skipped)\n            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23)\n         ON CONFLICT (id) DO UPDATE SET success = $7, result = $11, logs = concat(cj.logs, $12)\n         RETURNING id",
+    "describe": {
+      "columns": [
+        {
+          "ordinal": 0,
+          "name": "id",
+          "type_info": "Uuid"
+        }
+      ],
+      "parameters": {
+        "Left": [
+          "Varchar",
+          "Uuid",
+          "Uuid",
+          "Varchar",
+          "Timestamptz",
+          "Int4",
+          "Bool",
+          "Int8",
+          "Varchar",
+          "Jsonb",
+          "Jsonb",
+          "Text",
+          "Text",
+          "Bool",
+          "Varchar",
+          "Text",
+          {
+            "Custom": {
+              "name": "job_kind",
+              "kind": {
+                "Enum": [
+                  "script",
+                  "preview",
+                  "flow",
+                  "dependencies",
+                  "flowpreview",
+                  "script_hub"
+                ]
+              }
+            }
+          },
+          "Varchar",
+          "Varchar",
+          "Jsonb",
+          "Jsonb",
+          "Bool",
+          "Bool"
+        ]
+      },
+      "nullable": [
+        false
+      ]
+    }
+  },
   "d1513cfa13037cbfe076d184cc698b896add2daba02b8add600f643249b95ad2": {
     "query": "INSERT INTO account (workspace_id, client, owner, expires_at, refresh_token) VALUES ($1, $2, $3, $4, $5) RETURNING id",
     "describe": {
@@ -2869,6 +2792,27 @@
       },
       "nullable": [
         false
+      ]
+    }
+  },
+  "d9beef36b05f9889794d0eb9bae309974abc85240305ca154de25a54bc7d60f9": {
+    "query": "\n           SELECT SUM(duration_ms)\n             FROM completed_job\n            WHERE created_by = $1\n              AND created_at > NOW() - INTERVAL '1200 seconds'\n              AND workspace_id = $2",
+    "describe": {
+      "columns": [
+        {
+          "ordinal": 0,
+          "name": "sum",
+          "type_info": "Int8"
+        }
+      ],
+      "parameters": {
+        "Left": [
+          "Text",
+          "Text"
+        ]
+      },
+      "nullable": [
+        null
       ]
     }
   },

@@ -2,7 +2,7 @@
   <a href="https://app.windmill.dev"><img src="./imgs/windmill.svg" alt="windmill.dev"></a>
 </p>
 <p align="center">
-    <em>Windmill.dev is an OSS developer platform to quickly build production-grade multi-steps automations and internal apps from minimal Python and Typescript scripts.</em>
+    <em>Windmill is an open-source developer platform to quickly build production-grade multi-steps automations and internal apps from minimal Python and Typescript scripts.</em>
 </p>
 <p align="center">
 <a href="https://github.com/windmill-labs/windmill/actions/workflows/docker-image.yml" target="_blank">
@@ -18,17 +18,22 @@
 
 ---
 
-**Join the alpha (personal workspaces are free forever)**:
+**Join the beta (personal workspaces are free forever)**:
 <https://app.windmill.dev>
 
 **Documentation**: <https://docs.windmill.dev>
 
 **Discord**: <https://discord.gg/V7PM2YHsPB>
 
-**We are hiring**: Software Engineers, DevOps, Solutions Engineers, Growth:
-<https://docs.windmill.dev/hiring>
+**Hub**: <https://hub.windmill.dev>
 
 You can show your support for the project by starring this repo.
+
+---
+
+If you would like to run this in production self-hosted, or know someone that
+would, Windmill would gladly help you to achieve it and more. If interested,
+send an email to ruben@windmill.dev (founder and creator of Windmill).
 
 ---
 
@@ -86,7 +91,7 @@ Windmill is <b>fully open-sourced</b>:
   architecture:
   - stateless API backend
   - workers that pull jobs from a queue
-- frontend in svelte
+- frontend in Svelte
 - scripts executions are sandboxed using google's nsjail
 - javascript runtime is deno_core rust library (which itself uses the rusty_v8
   and hence V8 underneath)
@@ -146,12 +151,4 @@ You will also want to import all the approved resource types from
 
 ## Copyright
 
-2021 [Ruben Fiszel](https://github.com/rubenfiszel)
-
-### Acknowledgement
-
-This project is inspired from a previous project called
-[Delightool](https://github.com/windmill-labs/delightool-legacy) which was also
-led by [Ruben](https://github.com/rubenfiszel) and with large contribution on
-the frontend from [Malo Marrec](https://github.com/malomarrec) who gave his
-blessing to Windmill.
+Windmill Labs, Inc 2022

@@ -101,7 +101,7 @@
 					<option>group</option>
 				</select>
 			</label>
-			<label class="block grow mx-2">
+			<label class="block grow mx-2" for="inp">
 				<span class="text-sm text-gray-700">Owner</span>
 				<div class="block mt-1">
 					<div class="static z-50">

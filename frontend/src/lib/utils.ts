@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/explicit-module-boundary-types */
 import { goto } from '$app/navigation'
-import { FlowService, Script, ScriptService, type User } from '$lib/gen'
+import { FlowService, ScriptService, type Flow, type User } from '$lib/gen'
 import { toast } from '@zerodevx/svelte-toast'
 import { get } from 'svelte/store'
 import type { Schema } from './common'
@@ -46,6 +46,11 @@ export function displayDate(dateString: string | undefined): string {
 		return `${date.getFullYear()}/${date.getMonth() + 1
 			}/${date.getDate()} at ${date.toLocaleTimeString()}`
 	}
+}
+
+export function msToSec(ms: number | undefined): string {
+	if (ms === undefined) return '?'
+	return (ms / 1000).toLocaleString(undefined, { maximumFractionDigits: 3 })
 }
 
 export function getToday() {
@@ -200,12 +205,20 @@ export function pathIsEmpty(path: string): boolean {
 	return path == undefined || path.split('/')[2] == ''
 }
 
+export function encodeState(state: any): string {
+	return btoa(encodeURIComponent(JSON.stringify(state)))
+}
+
+export function decodeState(query: string): any {
+	return JSON.parse(decodeURIComponent(atob(query)))
+}
+
 export async function setQuery(url: URL, key: string, value: string): Promise<void> {
 	url.searchParams.set(key, value)
 	await goto(`?${url.searchParams.toString()}`)
 }
 
-export async function setQueryWithoutLoad(url: URL, key: string, value: string): Promise<void> {
+export function setQueryWithoutLoad(url: URL, key: string, value: string): void {
 	const nurl = new URL(url.toString())
 	nurl.searchParams.set(key, value)
 	history.replaceState(null, '', nurl.toString())
@@ -297,7 +310,7 @@ export function step(n: number): any;
 /**
 * flow input as an object
 */
-export const flow_input: ${previousResultType};
+export const flow_input: ${flowInput};
 
 /**
 * previous result as an object
@@ -470,4 +483,31 @@ export function formatCron(inp: string): string {
 	} else {
 		return inp
 	}
+}
+
+export function flowToHubUrl(flow: Flow): URL {
+	const url = new URL('https://hub.windmill.dev/flows/add')
+	const openFlow = {
+		value: flow.value,
+		summary: flow.summary,
+		description: flow.description,
+		schema: flow.schema
+	}
+	url.searchParams.append(
+		'flow',
+		encodeState(openFlow)
+	)
+	return url
+}
+
+
+export function scriptToHubUrl(content: string, summary: string, description: string, trigger: boolean): URL {
+	const url = new URL('https://hub.windmill.dev/scripts/add')
+
+	url.searchParams.append('content', content)
+	url.searchParams.append('summary', summary)
+	url.searchParams.append('description', description)
+	url.searchParams.append('trigger', trigger.toString())
+
+	return url
 }

@@ -3,7 +3,13 @@
 	import { page } from '$app/stores'
 	import { FlowService, ScheduleService, type Flow } from '$lib/gen'
 	import { clearPreviewResults, workspaceStore } from '$lib/stores'
-	import { formatCron, loadHubScripts, sendUserToast, setQueryWithoutLoad } from '$lib/utils'
+	import {
+		encodeState,
+		formatCron,
+		loadHubScripts,
+		sendUserToast,
+		setQueryWithoutLoad
+	} from '$lib/utils'
 	import { Breadcrumb, BreadcrumbItem } from 'flowbite-svelte'
 	import { onMount } from 'svelte'
 	import { OFFSET } from './CronInput.svelte'
@@ -106,7 +112,7 @@
 	}
 
 	flowStore.subscribe((flow: Flow) => {
-		setQueryWithoutLoad($page.url, 'state', btoa(JSON.stringify(flowToMode(flow, $mode))))
+		setQueryWithoutLoad($page.url, 'state', encodeState(flowToMode(flow, $mode)))
 	})
 
 	onMount(() => {

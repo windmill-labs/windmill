@@ -9,7 +9,13 @@
 <script lang="ts">
 	import { page } from '$app/stores'
 	import { FlowService, ScheduleService, type Flow, type Schedule } from '$lib/gen'
-	import { displayDaysAgo, canWrite, sendUserToast, defaultIfEmptyString } from '$lib/utils'
+	import {
+		displayDaysAgo,
+		canWrite,
+		sendUserToast,
+		defaultIfEmptyString,
+		flowToHubUrl
+	} from '$lib/utils'
 	import Icon from 'svelte-awesome'
 	import {
 		faPlay,
@@ -17,7 +23,8 @@
 		faArchive,
 		faList,
 		faCalendar,
-		faShare
+		faShare,
+		faGlobe
 	} from '@fortawesome/free-solid-svg-icons'
 
 	import Tooltip from '$lib/components/Tooltip.svelte'
@@ -123,6 +130,18 @@
 				/>
 				<div class="px-1">
 					<a
+						target="_blank"
+						class="inline-flex items-center default-button bg-transparent hover:bg-blue-500 text-blue-700 font-normal hover:text-white py-0 px-1 border-blue-500 hover:border-transparent rounded"
+						href={flowToHubUrl(flow).toString()}
+					>
+						<div class="inline-flex items-center justify-center">
+							<Icon class="text-blue-500" data={faGlobe} scale={0.5} />
+							<span class="pl-1">Publish to Hub</span>
+						</div>
+					</a>
+				</div>
+				<div class="px-1">
+					<a
 						class="inline-flex items-center default-button bg-transparent hover:bg-blue-500 text-blue-700 font-normal hover:text-white py-0 px-1 border-blue-500 hover:border-transparent rounded"
 						href="/runs/{flow.path}"
 					>
@@ -165,8 +184,8 @@
 		{#if flow === undefined}
 			<p>loading</p>
 		{:else}
+			<p class="text-sm">Edited {displayDaysAgo(flow.edited_at ?? '')} by {flow.edited_by}</p>
 			<h2>{flow.summary}</h2>
-			<p>Edited at {displayDaysAgo(flow.edited_at ?? '')} by {flow.edited_by}</p>
 
 			<div class="prose">
 				<SvelteMarkdown source={defaultIfEmptyString(flow.description, 'No description')} />
@@ -187,10 +206,12 @@
 							}}
 						/>
 					</div>
-					<div class:bg-gray-300={!schedule.enabled}>
+					<div>
 						<div>
-							<h3 class="text-gray-700 ">Schedule</h3>
-							{schedule.schedule}
+							<h3 class="text-gray-700">Schedule</h3>
+							<span class="font-mono p-1 border" class:bg-gray-300={!schedule.enabled}
+								>{schedule.schedule}</span
+							>
 						</div>
 						<div>
 							<h3 class="text-gray-700 ">Args</h3>

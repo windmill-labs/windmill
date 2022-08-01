@@ -1,25 +1,18 @@
 /*
- * Author & Copyright: Ruben Fiszel 2021
+ * Author: Ruben Fiszel
+ * Copyright: Windmill Labs, Inc 2022
  * This file and its contents are licensed under the AGPLv3 License.
  * Please see the included NOTICE for copyright information and
  * LICENSE-AGPL for a copy of the license.
  */
 
-use deno_core::op;
-use deno_core::serde_v8;
-use deno_core::v8;
-use deno_core::v8::IsolateHandle;
-use deno_core::Extension;
-use deno_core::JsRuntime;
-use deno_core::RuntimeOptions;
+use deno_core::{op, serde_v8, v8, v8::IsolateHandle, Extension, JsRuntime, RuntimeOptions};
 use itertools::Itertools;
 use regex::Regex;
 use serde_json::Value;
-use tokio::sync::oneshot;
-use tokio::time::timeout;
+use tokio::{sync::oneshot, time::timeout};
 
-use crate::client;
-use crate::error::Error;
+use crate::{client, error::Error};
 
 pub struct EvalCreds {
     pub workspace: String,
@@ -193,13 +186,16 @@ async function resource(path) {{
 }})()
         "#,
         env.into_iter()
-            .map(|(a, b)| format!(
-                "let {a} = {};\n",
-                serde_json::to_string(&b)
-                    .unwrap_or_else(|_| "\"error serializing value\"".to_string())
-            ))
+            .map(|(a, b)| {
+                format!(
+                    "let {a} = {};\n",
+                    serde_json::to_string(&b)
+                        .unwrap_or_else(|_| "\"error serializing value\"".to_string())
+                )
+            })
             .join(""),
     );
+    tracing::debug!("{}", code);
     let global = context.execute_script("<anon>", &code)?;
     let global = context.resolve_value(global).await?;
 

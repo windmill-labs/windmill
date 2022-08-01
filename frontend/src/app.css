@@ -62,6 +62,7 @@ html {
 	}
 
 	.item-button {
+		@apply cursor-pointer;
 		@apply py-1;
 		@apply border border-gray-300;
 		@apply rounded-sm;

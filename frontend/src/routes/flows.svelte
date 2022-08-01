@@ -215,7 +215,7 @@
 								<th />
 							</tr>
 							<tbody slot="body">
-								{#each filteredHubFlows ?? [] as { summary, apps, id, flow_id }}
+								{#each filteredHubFlows ?? [] as { summary, apps, flow_id }}
 									<tr>
 										<td class="font-black">{apps.join(', ')}</td>
 										<td><button on:click={() => viewFlow(flow_id)}>{summary}</button></td>
