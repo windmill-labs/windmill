@@ -42,6 +42,7 @@
 		"svelte": "^3.49.0",
 		"svelte-awesome": "^3.0.0",
 		"svelte-check": "^2.8.0",
+		"svelte-heros": "^2.3.3",
 		"svelte-highlight": "^6.2.0",
 		"svelte-markdown": "^0.2.1",
 		"svelte-overlay": "^1.4.1",
