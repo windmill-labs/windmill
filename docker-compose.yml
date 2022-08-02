@@ -11,7 +11,7 @@ services:
     ports:
       - 5432:5432
     environment:
-      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_PASSWORD: changeme
       POSTGRES_DB: windmill
     healthcheck:
       test: [ "CMD-SHELL", "pg_isready -U postgres" ]
@@ -19,13 +19,15 @@ services:
       timeout: 5s
       retries: 5
   windmill:
-    image: ghcr.io/windmill-labs/windmill:main
+    # image: ghcr.io/windmill-labs/windmill:main
+    build: 
+      context: .
     privileged: true
     restart: unless-stopped
     ports:
       - 80:8000
     environment:
-      - DATABASE_URL=postgres://postgres:${DB_PASSWORD}@db/windmill?sslmode=disable
+      - DATABASE_URL=postgres://postgres:changeme@db/windmill?sslmode=disable
       - APP_USER_PASSWORD=changeme
       - BASE_URL=http://localhost
       - BASE_INTERNAL_URL=http://localhost:8000

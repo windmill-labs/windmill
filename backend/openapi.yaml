@@ -1619,7 +1619,7 @@ paths:
               schema:
                 type: string
 
-  /w/{workspace}/scripts/list:
+  /w/{workspace}/scripts:
     get:
       summary: list all available scripts
       operationId: listScripts
@@ -1701,7 +1701,6 @@ paths:
                 items:
                   $ref: "#/components/schemas/Script"
 
-  /w/{workspace}/scripts/create:
     post:
       summary: create script
       operationId: createScript
@@ -1796,7 +1795,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/MainArgSignature"
 
-  /w/{workspace}/scripts/archive/p/{path}:
+  /w/{workspace}/scripts/p/archive/{path}:
     post:
       summary: archive script by path
       operationId: archiveScriptByPath
@@ -1813,41 +1812,7 @@ paths:
               schema:
                 type: string
 
-  /w/{workspace}/scripts/archive/h/{hash}:
-    post:
-      summary: archive script by hash
-      operationId: archiveScriptByHash
-      tags:
-        - script
-      parameters:
-        - $ref: "#/components/parameters/WorkspaceId"
-        - $ref: "#/components/parameters/ScriptHash"
-      responses:
-        "200":
-          description: script details
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Script"
-
-  /w/{workspace}/scripts/delete/h/{hash}:
-    post:
-      summary: delete script by hash (erase content but keep hash)
-      operationId: deleteScriptByHash
-      tags:
-        - script
-      parameters:
-        - $ref: "#/components/parameters/WorkspaceId"
-        - $ref: "#/components/parameters/ScriptHash"
-      responses:
-        "200":
-          description: script details
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Script"
-
-  /w/{workspace}/scripts/get/p/{path}:
+  /w/{workspace}/scripts/p/get/{path}:
     get:
       summary: get script by path
       operationId: getScriptByPath
@@ -1864,7 +1829,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/Script"
 
-  /w/{workspace}/scripts/exists/p/{path}:
+  /w/{workspace}/scripts/p/exists/{path}:
     get:
       summary: exists script by path
       operationId: existsScriptByPath
@@ -1881,7 +1846,24 @@ paths:
               schema:
                 type: boolean
 
-  /w/{workspace}/scripts/get/h/{hash}:
+  /w/{workspace}/scripts/h/{hash}/archive:
+    post:
+      summary: archive script by hash
+      operationId: archiveScriptByHash
+      tags:
+        - script
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/ScriptHash"
+      responses:
+        "200":
+          description: script details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Script"
+
+  /w/{workspace}/scripts/h/{hash}:
     get:
       summary: get script by hash
       operationId: getScriptByHash
@@ -1897,8 +1879,23 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Script"
+    delete:
+      summary: delete script by hash (erase content but keep hash)
+      operationId: deleteScriptByHash
+      tags:
+        - script
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/ScriptHash"
+      responses:
+        "200":
+          description: script details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Script"
 
-  /w/{workspace}/scripts/deployment_status/h/{hash}:
+  /w/{workspace}/scripts/h/{hash}/deployment-status:
     get:
       summary: get script deployment status
       operationId: getScriptDeploymentStatus
