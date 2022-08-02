@@ -6,7 +6,6 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
-use futures::TryFutureExt;
 use std::net::SocketAddr;
 
 use dotenv::dotenv;
@@ -23,6 +22,16 @@ async fn main() -> anyhow::Result<()> {
         .ok()
         .and_then(|x| x.parse::<i32>().ok())
         .unwrap_or(windmill::DEFAULT_NUM_WORKERS as i32);
+
+    let metrics_addr: Option<SocketAddr> = std::env::var("METRICS_ADDR")
+        .ok()
+        .map(|s| {
+            s.parse::<bool>()
+                .map(|b| b.then(|| SocketAddr::from(([0, 0, 0, 0], 8001))))
+                .or_else(|_| s.parse::<SocketAddr>().map(Some))
+        })
+        .transpose()?
+        .flatten();
 
     let (server_mode, monitor_mode, migrate_db) = (true, true, true);
 
@@ -105,9 +114,14 @@ async fn main() -> anyhow::Result<()> {
             Ok(()) as anyhow::Result<()>
         };
 
-        let metrics_f =
-            windmill::serve_metrics(SocketAddr::from(([0, 0, 0, 0], 8001)), tx.subscribe())
-                .map_err(anyhow::Error::from);
+        let metrics_f = async {
+            match metrics_addr {
+                Some(addr) => windmill::serve_metrics(addr, tx.subscribe())
+                    .await
+                    .map_err(anyhow::Error::from),
+                None => Ok(()),
+            }
+        };
 
         futures::try_join!(shutdown_signal, server_f, workers_f, monitor_f, metrics_f)?;
     }
