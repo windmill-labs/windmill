@@ -39,11 +39,14 @@ const COOKIE_PATH: &str = "/";
 
 pub fn workspaced_service() -> Router {
     Router::new()
-        .route("/list", get(list_users))
-        .route("/list_usernames", get(list_usernames))
+        .route("/", get(list_users))
+        .route("/usernames", get(list_usernames))
         .route("/exists", post(exists_username))
-        .route("/update/:user", post(update_workspace_user))
-        .route("/delete/:user", delete(delete_user))
+
+        // FIXME: Absent from the spec
+        .route("/:username", post(update_workspace_user)) 
+        
+        .route("/:username", delete(delete_user))
         .route("/whois/:email", get(whois))
         .route("/whoami", get(whoami))
         .route("/leave", post(leave_workspace))
@@ -53,17 +56,20 @@ pub fn global_service() -> Router {
     Router::new()
         .route("/email", get(get_email))
         .route("/whoami", get(global_whoami))
-        .route("/list_invites", get(list_invites))
-        .route("/decline_invite", post(decline_invite))
-        .route("/accept_invite", post(accept_invite))
+        
+        .route("/invites", get(list_invites))
+        .route("/invites/accept", post(accept_invite))
+        .route("/invites/decline", post(decline_invite))
+        
         .route("/list_as_super_admin", get(list_users_as_super_admin))
-        .route("/setpassword", post(set_password))
-        .route("/create", post(create_user))
-        .route("/update/:user", post(update_user))
+        .route("/password", post(set_password))
+        .route("/", post(create_user))
+        .route("/:email", post(update_user))
         .route("/logout", post(logout))
-        .route("/tokens/create", post(create_token))
-        .route("/tokens/delete/:token_prefix", delete(delete_token))
-        .route("/tokens/list", get(list_tokens))
+        
+        .route("/tokens", get(list_tokens))
+        .route("/tokens", post(create_token))
+        .route("/tokens/:token_prefix", delete(delete_token))
     // .route("/list_invite_codes", get(list_invite_codes))
     // .route("/create_invite_code", post(create_invite_code))
     // .route("/signup", post(signup))

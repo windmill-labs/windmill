@@ -152,36 +152,7 @@ paths:
               schema:
                 type: string
 
-  /w/{workspace}/users/update/{username}:
-    post:
-      summary: update user (require admin privilege)
-      operationId: updateUser
-      tags:
-        - user
-        - admin
-      parameters:
-        - $ref: "#/components/parameters/WorkspaceId"
-        - name: username
-          in: path
-          required: true
-          schema:
-            type: string
-      requestBody:
-        description: new user
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/EditWorkspaceUser"
-      responses:
-        "200":
-          description: edited user
-          content:
-            text/plain:
-              schema:
-                type: string
-
-  /users/setpassword:
+  /users/password:
     post:
       summary: set password
       operationId: setPassword
@@ -207,7 +178,7 @@ paths:
               schema:
                 type: string
 
-  /users/create:
+  /users:
     post:
       summary: create user
       operationId: createUserGlobally
@@ -273,7 +244,34 @@ paths:
               schema:
                 type: string
 
-  /w/{workspace}/users/delete/{username}:
+  /w/{workspace}/users/{username}:
+    post:
+      summary: update user (require admin privilege)
+      operationId: updateUser
+      tags:
+        - user
+        - admin
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: username
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        description: new user
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EditWorkspaceUser"
+      responses:
+        "200":
+          description: edited user
+          content:
+            text/plain:
+              schema:
+                type: string
     delete:
       summary: delete user (require admin privilege)
       operationId: deleteUser
@@ -461,7 +459,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/GlobalUserInfo"
 
-  /users/list_invites:
+  /users/invites:
     get:
       summary: list all workspace invites
       operationId: listWorkspaceInvites
@@ -509,7 +507,7 @@ paths:
               schema:
                 type: string
 
-  /users/accept_invite:
+  /users/invites/accept:
     post:
       summary: accept invite to workspace
       operationId: acceptInvite
@@ -538,7 +536,7 @@ paths:
               schema:
                 type: string
 
-  /users/decline_invite:
+  /users/invites/decline:
     post:
       summary: decline invite to workspace
       operationId: declineInvite
@@ -753,7 +751,7 @@ paths:
               schema:
                 type: string
 
-  /w/{workspace}/users/list:
+  /w/{workspace}/users:
     get:
       summary: list users
       operationId: listUsers
@@ -771,7 +769,7 @@ paths:
                 items:
                   $ref: "#/components/schemas/User"
 
-  /w/{workspace}/users/list_usernames:
+  /w/{workspace}/users/usernames:
     get:
       summary: list usernames
       operationId: listUsernames
@@ -789,28 +787,7 @@ paths:
                 items:
                   type: string
 
-  /users/tokens/create:
-    post:
-      summary: create token
-      operationId: createToken
-      tags:
-        - user
-      requestBody:
-        description: new token
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/NewToken"
-      responses:
-        "201":
-          description: token created
-          content:
-            text/plain:
-              schema:
-                type: string
-
-  /users/tokens/delete/{token_prefix}:
+  /users/tokens/{token_prefix}:
     delete:
       summary: delete token
       operationId: deleteToken
@@ -830,7 +807,7 @@ paths:
               schema:
                 type: string
 
-  /users/tokens/list:
+  /users/tokens:
     get:
       summary: list token
       operationId: listTokens
@@ -845,6 +822,25 @@ paths:
                 type: array
                 items:
                   $ref: "#/components/schemas/TruncatedToken"
+    post:
+      summary: create token
+      operationId: createToken
+      tags:
+        - user
+      requestBody:
+        description: new token
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/NewToken"
+      responses:
+        "201":
+          description: token created
+          content:
+            text/plain:
+              schema:
+                type: string
 
   /w/{workspace}/variables/create:
     post:
@@ -2241,7 +2237,7 @@ paths:
                 type: string
                 format: uuid
 
-  /w/{workspace}/jobs/run/preview_flow:
+  /w/{workspace}/jobs/run/preview/f:
     post:
       summary: run flow preview
       operationId: runFlowPreview
@@ -2266,7 +2262,7 @@ paths:
                 type: string
                 format: uuid
 
-  /w/{workspace}/jobs/queue/list:
+  /w/{workspace}/jobs/queue:
     get:
       summary: list all available queued jobs
       operationId: listQueue
@@ -2295,40 +2291,7 @@ paths:
                 items:
                   $ref: "#/components/schemas/QueuedJob"
 
-  /w/{workspace}/jobs/completed/list:
-    get:
-      summary: list all available completed jobs
-      operationId: listCompletedJobs
-      tags:
-        - job
-      parameters:
-        - $ref: "#/components/parameters/WorkspaceId"
-        - $ref: "#/components/parameters/OrderDesc"
-        - $ref: "#/components/parameters/CreatedBy"
-        - $ref: "#/components/parameters/ParentJob"
-        - $ref: "#/components/parameters/ScriptExactPath"
-        - $ref: "#/components/parameters/ScriptStartPath"
-        - $ref: "#/components/parameters/ScriptExactHash"
-        - $ref: "#/components/parameters/CreatedBefore"
-        - $ref: "#/components/parameters/CreatedAfter"
-        - $ref: "#/components/parameters/Success"
-        - $ref: "#/components/parameters/JobKinds"
-        - name: is_skipped
-          description: is the job skipped
-          in: query
-          schema:
-            type: boolean
-      responses:
-        "200":
-          description: All available completed jobs
-          content:
-            application/json:
-              schema:
-                type: array
-                items:
-                  $ref: "#/components/schemas/CompletedJob"
-
-  /w/{workspace}/jobs/list:
+  /w/{workspace}/jobs:
     get:
       summary: list all available jobs
       operationId: listJobs
@@ -2364,7 +2327,7 @@ paths:
                 items:
                   $ref: "#/components/schemas/Job"
 
-  /w/{workspace}/jobs/get/{id}:
+  /w/{workspace}/jobs/{id}:
     get:
       summary: get job
       operationId: getJob
@@ -2381,7 +2344,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/Job"
 
-  /w/{workspace}/jobs/getupdate/{id}:
+  /w/{workspace}/jobs/{id}/status:
     get:
       summary: get job updates
       operationId: getJobUpdates
@@ -2415,7 +2378,40 @@ paths:
                   new_logs:
                     type: string
 
-  /w/{workspace}/jobs/completed/get/{id}:
+  /w/{workspace}/jobs/completed:
+    get:
+      summary: list all available completed jobs
+      operationId: listCompletedJobs
+      tags:
+        - job
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/OrderDesc"
+        - $ref: "#/components/parameters/CreatedBy"
+        - $ref: "#/components/parameters/ParentJob"
+        - $ref: "#/components/parameters/ScriptExactPath"
+        - $ref: "#/components/parameters/ScriptStartPath"
+        - $ref: "#/components/parameters/ScriptExactHash"
+        - $ref: "#/components/parameters/CreatedBefore"
+        - $ref: "#/components/parameters/CreatedAfter"
+        - $ref: "#/components/parameters/Success"
+        - $ref: "#/components/parameters/JobKinds"
+        - name: is_skipped
+          description: is the job skipped
+          in: query
+          schema:
+            type: boolean
+      responses:
+        "200":
+          description: All available completed jobs
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/CompletedJob"
+
+  /w/{workspace}/jobs/completed/{id}:
     get:
       summary: get completed job
       operationId: getCompletedJob
@@ -2431,9 +2427,7 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/CompletedJob"
-
-  /w/{workspace}/jobs/completed/delete/{id}:
-    post:
+    delete:
       summary: delete completed job (erase content but keep run id)
       operationId: deleteCompletedJob
       tags:
@@ -2449,7 +2443,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/CompletedJob"
 
-  /w/{workspace}/jobs/queue/cancel/{id}:
+  /w/{workspace}/jobs/queue/{id}/cancel:
     post:
       summary: cancel queued job
       operationId: cancelQueuedJob
@@ -2952,6 +2946,7 @@ paths:
             text/plain:
               schema:
                 type: string
+
 components:
   securitySchemes:
     bearerAuth:
