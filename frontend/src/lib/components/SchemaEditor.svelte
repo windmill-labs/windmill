@@ -229,7 +229,7 @@
 						}
 					}}
 					bind:code={schemaString}
-					lang={'json'}
+					lang="json"
 					class="small-editor"
 				/>
 			</div>

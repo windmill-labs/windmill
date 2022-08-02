@@ -369,7 +369,7 @@
 				</div>
 			</div>
 		</div>
-		<div bind:this={div} class="preview flex-1 overflow-hidden p-3">
+		<div bind:this={div} class="preview flex-1 p-3">
 			{#if previewTab === 'logs'}
 				<pre
 					class="break-all relative h-full mx-2">{#if previewJob && previewJob.logs}{previewJob.logs}

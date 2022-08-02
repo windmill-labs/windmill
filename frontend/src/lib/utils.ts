@@ -395,7 +395,8 @@ export function objectToTsType(object: Object): string {
 	return `{ ${types} }`
 }
 
-export type InputCat = "string" | "number" | "boolean" | "list" | "resource-object" | "enum" | "date" | "base64" | "resource-string" | "object"
+export type InputCat = "string" | "number" | "boolean" | "list" | "resource-object" | "enum" | "date" | "base64" | "resource-string" | "object" | "sql"
+
 export function setInputCat(type: string | undefined, format: string | undefined, itemsType: string | undefined, enum_: any, contentEncoding: string | undefined): InputCat {
 	if (type === 'number' || type === 'integer') {
 		return 'number'
@@ -411,6 +412,8 @@ export function setInputCat(type: string | undefined, format: string | undefined
 		return 'enum'
 	} else if (type == 'string' && format == 'date-time') {
 		return 'date'
+	} else if (type == 'string' && format == 'sql') {
+		return 'sql'
 	} else if (type == 'string' && contentEncoding == 'base64') {
 		return 'base64'
 	} else if (type == 'string' && format?.startsWith('resource')) {
