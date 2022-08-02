@@ -56,8 +56,8 @@ const NSJAIL_CONFIG_RUN_PYTHON3_CONTENT: &str =
     include_str!("../../nsjail/run.python3.config.proto");
 const NSJAIL_CONFIG_RUN_DENO_CONTENT: &str = include_str!("../../nsjail/run.deno.config.proto");
 
-tokio::task_local! {
-    pub static JOBS_FAILED: prometheus::IntCounter;
+pub struct Metrics {
+    pub jobs_failed: prometheus::IntCounter,
 }
 
 pub async fn run_worker(
@@ -153,56 +153,58 @@ pub async fn run_worker(
 
                 jobs_executed += 1;
 
+                let metrics =
+                    Metrics { jobs_failed: jobs_failed.with_label_values(label_values.as_slice()) };
+
                 tracing::info!(worker = %worker_name, id = %job.id, "Fetched job");
 
-                let f = async {
-                    if let Some(err) = handle_queued_job(
-                        job.clone(),
+                if let Some(err) = handle_queued_job(
+                    job.clone(),
+                    db,
+                    timeout,
+                    &worker_name,
+                    &worker_dir,
+                    base_url,
+                    disable_nuser,
+                    disable_nsjail,
+                    &metrics,
+                )
+                .await
+                .err()
+                {
+                    let m = add_completed_job_error(
                         db,
-                        timeout,
-                        &worker_name,
-                        &worker_dir,
-                        base_url,
-                        disable_nuser,
-                        disable_nsjail,
+                        &job,
+                        "Unexpected error during job execution:\n".to_string(),
+                        &err,
+                        &metrics,
                     )
                     .await
-                    .err()
-                    {
-                        jobs_failed.with_label_values(label_values.as_slice()).inc();
+                    .map(|(_, m)| m)
+                    .unwrap_or_else(|_| Map::new());
 
-                        let m = add_completed_job_error(
+                    let _ = postprocess_queued_job(
+                        job.is_flow_step,
+                        job.schedule_path.clone(),
+                        job.script_path.clone(),
+                        &job.workspace_id,
+                        job.id,
+                        db,
+                    )
+                    .await;
+
+                    if job.parent_job.is_some() {
+                        let _ = update_flow_status_after_job_completion(
                             db,
                             &job,
-                            "Unexpected error during job execution:\n".to_string(),
-                            &err,
-                        )
-                        .await
-                        .map(|(_, m)| m)
-                        .unwrap_or_else(|_| Map::new());
-
-                        let _ = postprocess_queued_job(
-                            job.is_flow_step,
-                            job.schedule_path.clone(),
-                            job.script_path.clone(),
-                            &job.workspace_id,
-                            job.id,
-                            db,
+                            false,
+                            Some(m),
+                            &metrics,
                         )
                         .await;
-
-                        if job.parent_job.is_some() {
-                            let _ =
-                                update_flow_status_after_job_completion(db, &job, false, Some(m))
-                                    .await;
-                        }
-                        tracing::error!(job_id = %job.id, "Error handling job: {err}");
                     }
+                    tracing::error!(job_id = %job.id, "Error handling job: {err}");
                 };
-
-                JOBS_FAILED
-                    .scope(jobs_failed.with_label_values(label_values.as_slice()), f)
-                    .await;
             }
             Ok(None) => (),
             Err(err) => {
@@ -241,6 +243,7 @@ async fn handle_queued_job(
     base_url: &str,
     disable_nuser: bool,
     disable_nsjail: bool,
+    metrics: &Metrics,
 ) -> crate::error::Result<()> {
     let job_id = job.id;
     let w_id = &job.workspace_id.clone();
@@ -286,14 +289,22 @@ async fn handle_queued_job(
                 Ok(r) => {
                     add_completed_job(db, &job, true, false, r.result.clone(), logs).await?;
                     if job.is_flow_step {
-                        update_flow_status_after_job_completion(db, &job, true, r.result).await?;
+                        update_flow_status_after_job_completion(db, &job, true, r.result, metrics)
+                            .await?;
                     }
                 }
                 Err(e) => {
-                    let (_, output_map) = add_completed_job_error(db, &job, logs, e).await?;
+                    let (_, output_map) =
+                        add_completed_job_error(db, &job, logs, e, &metrics).await?;
                     if job.is_flow_step {
-                        update_flow_status_after_job_completion(db, &job, false, Some(output_map))
-                            .await?;
+                        update_flow_status_after_job_completion(
+                            db,
+                            &job,
+                            false,
+                            Some(output_map),
+                            metrics,
+                        )
+                        .await?;
                     }
                 }
             };

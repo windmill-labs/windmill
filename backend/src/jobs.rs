@@ -24,6 +24,7 @@ use crate::{
     scripts::{get_hub_script_by_path, ScriptHash, ScriptLang},
     users::{owner_to_token_owner, Authed},
     utils::{require_admin, Pagination, StripPath},
+    worker,
     worker_flow::init_flow_status,
 };
 use axum::{
@@ -1257,9 +1258,9 @@ pub async fn add_completed_job_error<E: ToString + std::fmt::Debug>(
     queued_job: &QueuedJob,
     logs: String,
     e: E,
+    metrics: &worker::Metrics,
 ) -> Result<(Uuid, Map<String, Value>), Error> {
-    let _ = crate::worker::JOBS_FAILED.try_with(|metric| metric.inc());
-
+    metrics.jobs_failed.inc();
     let mut output_map = serde_json::Map::new();
     output_map.insert(
         "error".to_string(),
