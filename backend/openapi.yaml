@@ -842,7 +842,23 @@ paths:
               schema:
                 type: string
 
-  /w/{workspace}/variables/create:
+  /w/{workspace}/variables:
+    get:
+      summary: list variables
+      operationId: listVariable
+      tags:
+        - variable
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      responses:
+        "200":
+          description: variable list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ListableVariable"
     post:
       summary: create variable
       operationId: createVariable
@@ -865,48 +881,7 @@ paths:
               schema:
                 type: string
 
-  /w/{workspace}/variables/delete/{path}:
-    delete:
-      summary: delete variable
-      operationId: deleteVariable
-      tags:
-        - variable
-      parameters:
-        - $ref: "#/components/parameters/WorkspaceId"
-        - $ref: "#/components/parameters/Path"
-      responses:
-        "200":
-          description: variable deleted
-          content:
-            text/plain:
-              schema:
-                type: string
-
-  /w/{workspace}/variables/update/{path}:
-    post:
-      summary: update variable
-      operationId: updateVariable
-      tags:
-        - variable
-      parameters:
-        - $ref: "#/components/parameters/WorkspaceId"
-        - $ref: "#/components/parameters/Path"
-      requestBody:
-        description: updated variable
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/EditVariable"
-      responses:
-        "200":
-          description: variable updated
-          content:
-            text/plain:
-              schema:
-                type: string
-
-  /w/{workspace}/variables/get/{path}:
+  /w/{workspace}/variables/p/{path}:
     get:
       summary: get variable
       operationId: getVariable
@@ -929,6 +904,43 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ListableVariable"
+    post:
+      summary: update variable
+      operationId: updateVariable
+      tags:
+        - variable
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+      requestBody:
+        description: updated variable
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EditVariable"
+      responses:
+        "200":
+          description: variable updated
+          content:
+            text/plain:
+              schema:
+                type: string
+    delete:
+      summary: delete variable
+      operationId: deleteVariable
+      tags:
+        - variable
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+      responses:
+        "200":
+          description: variable deleted
+          content:
+            text/plain:
+              schema:
+                type: string
 
   /w/{workspace}/variables/exists/{path}:
     get:
@@ -947,25 +959,7 @@ paths:
               schema:
                 type: boolean
 
-  /w/{workspace}/variables/list:
-    get:
-      summary: list variables
-      operationId: listVariable
-      tags:
-        - variable
-      parameters:
-        - $ref: "#/components/parameters/WorkspaceId"
-      responses:
-        "200":
-          description: variable list
-          content:
-            application/json:
-              schema:
-                type: array
-                items:
-                  $ref: "#/components/schemas/ListableVariable"
-
-  /w/{workspace}/variables/list_contextual:
+  /w/{workspace}/variables/contextual:
     get:
       summary: list contextual variables
       operationId: listContextualVariables

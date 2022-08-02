@@ -30,13 +30,14 @@ use sqlx::{FromRow, Postgres, Transaction};
 
 pub fn workspaced_service() -> Router {
     Router::new()
-        .route("/list", get(list_variables))
-        .route("/list_contextual", get(list_contextual_variables))
-        .route("/get/*path", get(get_variable))
+        .route("/", get(list_variables))
+        .route("/", post(create_variable))
+        .route("/contextual", get(list_contextual_variables))
+        // Can be simplified by merging exists with GET path, and returning 404 if doesn't
         .route("/exists/*path", get(exists_variable))
-        .route("/update/*path", post(update_variable))
-        .route("/delete/*path", delete(delete_variable))
-        .route("/create", post(create_variable))
+        .route("/p/*path", get(get_variable))
+        .route("/p/*path", post(update_variable))
+        .route("/p/*path", delete(delete_variable))
 }
 
 #[derive(Serialize, Clone)]
