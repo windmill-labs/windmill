@@ -1258,6 +1258,8 @@ pub async fn add_completed_job_error<E: ToString + std::fmt::Debug>(
     logs: String,
     e: E,
 ) -> Result<(Uuid, Map<String, Value>), Error> {
+    let _ = crate::worker::JOBS_FAILED.try_with(|metric| metric.inc());
+
     let mut output_map = serde_json::Map::new();
     output_map.insert(
         "error".to_string(),

@@ -39,12 +39,11 @@ use tokio::{
     fs::{DirBuilder, File},
     io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader},
     process::{Child, Command},
-    sync::Mutex,
+    sync::{mpsc, Mutex},
     time::Instant,
 };
 
 use async_recursion::async_recursion;
-use tokio::sync::mpsc;
 
 const TMP_DIR: &str = "/tmp/windmill";
 const PIP_CACHE_DIR: &str = "/tmp/windmill/cache/pip";
@@ -56,6 +55,10 @@ const NSJAIL_CONFIG_DOWNLOAD_CONTENT: &str = include_str!("../../nsjail/download
 const NSJAIL_CONFIG_RUN_PYTHON3_CONTENT: &str =
     include_str!("../../nsjail/run.python3.config.proto");
 const NSJAIL_CONFIG_RUN_DENO_CONTENT: &str = include_str!("../../nsjail/run.deno.config.proto");
+
+tokio::task_local! {
+    pub static JOBS_FAILED: prometheus::IntCounter;
+}
 
 pub async fn run_worker(
     db: &DB,
@@ -151,48 +154,55 @@ pub async fn run_worker(
                 jobs_executed += 1;
 
                 tracing::info!(worker = %worker_name, id = %job.id, "Fetched job");
-                if let Some(err) = handle_queued_job(
-                    job.clone(),
-                    db,
-                    timeout,
-                    &worker_name,
-                    &worker_dir,
-                    base_url,
-                    disable_nuser,
-                    disable_nsjail,
-                )
-                .await
-                .err()
-                {
-                    jobs_failed.with_label_values(label_values.as_slice()).inc();
 
-                    let err_string = err.to_string().clone();
-                    let m = add_completed_job_error(
+                let f = async {
+                    if let Some(err) = handle_queued_job(
+                        job.clone(),
                         db,
-                        &job,
-                        "Unexpected error during job execution:\n".to_string(),
-                        err,
+                        timeout,
+                        &worker_name,
+                        &worker_dir,
+                        base_url,
+                        disable_nuser,
+                        disable_nsjail,
                     )
                     .await
-                    .map(|(_, m)| m)
-                    .unwrap_or_else(|_| Map::new());
+                    .err()
+                    {
+                        jobs_failed.with_label_values(label_values.as_slice()).inc();
 
-                    let _ = postprocess_queued_job(
-                        job.is_flow_step,
-                        job.schedule_path.clone(),
-                        job.script_path.clone(),
-                        &job.workspace_id,
-                        job.id,
-                        db,
-                    )
-                    .await;
+                        let m = add_completed_job_error(
+                            db,
+                            &job,
+                            "Unexpected error during job execution:\n".to_string(),
+                            &err,
+                        )
+                        .await
+                        .map(|(_, m)| m)
+                        .unwrap_or_else(|_| Map::new());
 
-                    if job.parent_job.is_some() {
-                        let _ =
-                            update_flow_status_after_job_completion(db, &job, false, Some(m)).await;
+                        let _ = postprocess_queued_job(
+                            job.is_flow_step,
+                            job.schedule_path.clone(),
+                            job.script_path.clone(),
+                            &job.workspace_id,
+                            job.id,
+                            db,
+                        )
+                        .await;
+
+                        if job.parent_job.is_some() {
+                            let _ =
+                                update_flow_status_after_job_completion(db, &job, false, Some(m))
+                                    .await;
+                        }
+                        tracing::error!(job_id = %job.id, "Error handling job: {err}");
                     }
-                    tracing::error!(job_id = %job.id, "Error handling job: {err_string}");
                 };
+
+                JOBS_FAILED
+                    .scope(jobs_failed.with_label_values(label_values.as_slice()), f)
+                    .await;
             }
             Ok(None) => (),
             Err(err) => {
