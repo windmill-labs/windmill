@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.26.2
+  version: 1.27.1
   title: Windmill server API
   contact:
     name: Windmill contact
@@ -341,7 +341,7 @@ paths:
 
   /workspaces/list_as_superadmin:
     get:
-      summary: list all workspaces as super admin (require to be super amdin)
+      summary: list all workspaces as super admin (require to be super admin)
       operationId: listWorkspacesAsSuperAdmin
       tags:
         - workspace
@@ -1632,7 +1632,7 @@ paths:
         - $ref: "#/components/parameters/OrderDesc"
         - $ref: "#/components/parameters/CreatedBy"
         - name: path_start
-          description: mask to filter matching starting parh
+          description: mask to filter matching starting path
           in: query
           schema:
             type: string
@@ -2011,7 +2011,7 @@ paths:
         - $ref: "#/components/parameters/OrderDesc"
         - $ref: "#/components/parameters/CreatedBy"
         - name: path_start
-          description: mask to filter matching starting parh
+          description: mask to filter matching starting path
           in: query
           schema:
             type: string
@@ -2087,14 +2087,7 @@ paths:
         content:
           application/json:
             schema:
-              allOf:
-                - $ref: "../openflow.openapi.yaml#/components/schemas/OpenFlow"
-                - type: object
-                  properties:
-                    path:
-                      type: string
-                  required:
-                    - path
+              $ref: "#/components/schemas/OpenFlowWPath"
 
       responses:
         "201":
@@ -2119,14 +2112,7 @@ paths:
         content:
           application/json:
             schema:
-              allOf:
-                - $ref: "../openflow.openapi.yaml#/components/schemas/OpenFlow"
-                - type: object
-                  properties:
-                    path:
-                      type: string
-                  required:
-                    - path
+              $ref: "#/components/schemas/OpenFlowWPath"
 
       responses:
         "200":
@@ -2242,7 +2228,7 @@ paths:
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
       requestBody:
-        description: previw
+        description: preview
         required: true
         content:
           application/json:
@@ -3637,7 +3623,19 @@ components:
               typ:
                 oneOf:
                   - type: string
-                    enum: ["str", "float", "int", "bool", "email", "unknown"]
+                    enum:
+                      [
+                        "str",
+                        "float",
+                        "int",
+                        "bool",
+                        "email",
+                        "unknown",
+                        "bytes",
+                        "dict",
+                        "datetime",
+                        "sql",
+                      ]
                   - type: object
                     properties:
                       resource:
@@ -3998,6 +3996,16 @@ components:
         - edited_at
         - archived
         - extra_perms
+
+    OpenFlowWPath:
+      allOf:
+        - $ref: "../openflow.openapi.yaml#/components/schemas/OpenFlow"
+        - type: object
+          properties:
+            path:
+              type: string
+          required:
+            - path
 
     FlowPreview:
       type: object

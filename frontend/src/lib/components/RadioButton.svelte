@@ -1,9 +1,10 @@
 <script lang="ts">
 	export let label = ''
-	export let options: ([string, any] | string)[]
+	export let options: [string | { title: string; desc: string }, any][]
 	export let value: any
 
 	import { createEventDispatcher } from 'svelte'
+	import Tooltip from './Tooltip.svelte'
 
 	const dispatch = createEventDispatcher()
 </script>
@@ -24,7 +25,10 @@
 					aria-labelledby="memory-option-0-label"
 					on:click={() => dispatch('change', val)}
 				/>
-				<p>{label}</p>
+				<p>
+					{#if typeof label !== 'string'}{label.title} <Tooltip>{label.desc}</Tooltip>
+					{:else}{label}{/if}
+				</p>
 			</label>
 		{/each}
 	</div>

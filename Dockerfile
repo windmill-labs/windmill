@@ -32,6 +32,7 @@ RUN mkdir /backend
 COPY /backend/openapi.yaml /backend/openapi.yaml
 COPY /openflow.openapi.yaml /openflow.openapi.yaml
 RUN npm run generate-backend-client
+ENV NODE_OPTIONS "--max-old-space-size=8192"
 RUN npm run build
 RUN npm run check
 
@@ -58,11 +59,11 @@ RUN rm src/*.rs
 RUN rm ./target/release/deps/windmill*
 ENV SQLX_OFFLINE=true
 
-ADD ./backend ./
-ADD ./nsjail /nsjail
+COPY ./backend ./
+COPY ./nsjail /nsjail
 
-COPY --from=1 /frontend /frontend
-ADD .git/ .git/
+COPY --from=frontend /frontend /frontend
+COPY .git/ .git/
 
 RUN cargo build --release
 

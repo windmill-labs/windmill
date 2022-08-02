@@ -7,13 +7,13 @@
 	import FlowPreview from '../FlowPreview.svelte'
 	import FlowViewer from '../FlowViewer.svelte'
 	import Modal from '../Modal.svelte'
+	import RadioButton from '../RadioButton.svelte'
 	import CollapseLink from './../CollapseLink.svelte'
 	import CronInput from './../CronInput.svelte'
 	import FlowBox from './../flows/FlowBox.svelte'
 	import { flowStore, initFlow, mode } from './../flows/flowStore'
 	import { flowToMode } from './../flows/utils'
 	import Path from './../Path.svelte'
-	import RadioButtonV2 from './../RadioButtonV2.svelte'
 	import Required from './../Required.svelte'
 	import SchemaForm from './../SchemaForm.svelte'
 	import Toggle from './../Toggle.svelte'
@@ -131,25 +131,27 @@
 		</label>
 	</div>
 
-	<RadioButtonV2
-		options={[
-			[
-				{
-					title: 'UI or webhook triggered',
-					desc: 'Trigger this flow through the generated UI, a manual schedule or by calling the associated webhook'
-				},
-				'push'
-			],
-			[
-				{
-					title: 'Watching changes regularly',
-					desc: 'The first module of this flow is a trigger script whose purpose is to pull data from an external source and return all new items since last run. This flow is meant to be scheduled very regularly to reduce latency to react to new events. It will trigger the rest of the flow once per item. If no new items, the flow will be skipped.'
-				},
-				'pull'
-			]
-		]}
-		bind:value={$mode}
-	/>
+	<div class="mx-6">
+		<RadioButton
+			options={[
+				[
+					{
+						title: 'UI or webhook triggered',
+						desc: 'Trigger this flow through the generated UI, a manual schedule or by calling the associated webhook'
+					},
+					'push'
+				],
+				[
+					{
+						title: 'Watching changes regularly',
+						desc: 'The first module of this flow is a trigger script whose purpose is to pull data from an external source and return all new items since last run. This flow is meant to be scheduled very regularly to reduce latency to react to new events. It will trigger the rest of the flow once per item. If no new items, the flow will be skipped.'
+					},
+					'pull'
+				]
+			]}
+			bind:value={$mode}
+		/>
+	</div>
 	{#if $mode == 'pull'}
 		<div class="p-4">
 			<CollapseLink text="set primary schedule" open={true}>

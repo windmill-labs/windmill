@@ -49,6 +49,7 @@ pub enum Typ {
     Datetime,
     Resource(String),
     Email,
+    Sql,
     Unknown,
 }
 
@@ -275,6 +276,7 @@ fn binding_ident_to_arg(
                             ),
                             "Base64" => Typ::Bytes,
                             "Email" => Typ::Email,
+                            "Sql" => Typ::Sql,
                             _ => Typ::Unknown,
                         }
                     }

@@ -12,7 +12,7 @@
 	import python from 'svelte-highlight/languages/python'
 
 	import { getScriptByPath } from '$lib/utils'
-	import RadioButtonV3 from './RadioButtonV3.svelte'
+	import RadioButton from './RadioButton.svelte'
 
 	export let scriptPath: string | undefined = undefined
 	export let allowFlow = false
@@ -65,7 +65,7 @@
 <div class="flex flex-row items-center space-x-5">
 	<div class="w-80">
 		{#if options.length > 1}
-			<RadioButtonV3 bind:value={itemKind} {options} />
+			<RadioButton bind:value={itemKind} {options} />
 		{/if}
 	</div>
 

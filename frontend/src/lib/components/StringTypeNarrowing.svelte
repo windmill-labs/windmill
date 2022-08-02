@@ -1,5 +1,5 @@
 <script lang="ts">
-	import RadioButtonV3 from './RadioButtonV3.svelte'
+	import RadioButton from './RadioButton.svelte'
 	import ResourceTypePicker from './ResourceTypePicker.svelte'
 
 	export let pattern: string | undefined
@@ -31,7 +31,7 @@
 	$: contentEncoding = kind == 'base64' ? 'base64' : undefined
 </script>
 
-<RadioButtonV3
+<RadioButton
 	label="Kind"
 	options={[
 		['None', 'none'],
