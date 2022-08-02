@@ -1,6 +1,19 @@
 # Changelog
 
 
+## [1.27.0](https://github.com/windmill-labs/windmill/compare/v1.26.3...v1.27.0) (2022-08-02)
+
+
+### Features
+
+* add primitive sql format ([#320](https://github.com/windmill-labs/windmill/issues/320)) ([9daff2a](https://github.com/windmill-labs/windmill/commit/9daff2a228791234a3dd70c0ee829e284daf1592))
+
+
+### Bug Fixes
+
+* prefer `COPY` over `ADD` ([#319](https://github.com/windmill-labs/windmill/issues/319)) ([24a7e46](https://github.com/windmill-labs/windmill/commit/24a7e46fe99d5a1f7d5b22334fa5f6ce76e82d94))
+* typos ([#301](https://github.com/windmill-labs/windmill/issues/301)) ([9e84b45](https://github.com/windmill-labs/windmill/commit/9e84b458b139e86eb51dba9c5b228f141ca649b3))
+
 ## [1.26.3](https://github.com/windmill-labs/windmill/compare/v1.26.2...v1.26.3) (2022-08-01)
 
 
