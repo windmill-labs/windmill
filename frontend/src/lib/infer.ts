@@ -47,6 +47,12 @@ function argSigToJsonSchemaType(t: string | { resource: string } | { list: strin
 		s.type = 'boolean'
 	} else if (t === 'str') {
 		s.type = 'string'
+	} else if (t === 'email') {
+		s.type = 'string'
+		s.format = 'email'
+	} else if (t === 'sql') {
+		s.type = 'string'
+		s.format = 'sql'
 	} else if (t === 'dict') {
 		s.type = 'object'
 	} else if (t === 'bytes') {

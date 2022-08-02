@@ -13,6 +13,7 @@
 	import FieldHeader from './FieldHeader.svelte'
 	import { createEventDispatcher } from 'svelte'
 	import { setInputCat as computeInputCat, type InputCat } from '$lib/utils'
+	import Editor from './Editor.svelte'
 
 	export let label: string = ''
 	export let value: any
@@ -44,6 +45,8 @@
 	$: validateInput(pattern, value)
 
 	let error: string = ''
+
+	export let editor: Editor | undefined = undefined
 
 	let rawValue: string | undefined = undefined
 
@@ -263,6 +266,17 @@
 				</select>
 			{:else if inputCat == 'date'}
 				<input class="inline-block" type="datetime-local" bind:value />
+			{:else if inputCat == 'sql'}
+				<div class="border rounded mb-4 w-full border-gray-700">
+					<Editor
+						on:focus={() => dispatch('focus')}
+						on:blur={() => dispatch('blur')}
+						bind:this={editor}
+						lang="sql"
+						bind:code={value}
+						class="two-lines-editor"
+					/>
+				</div>
 			{:else if inputCat == 'base64'}
 				<input
 					type="file"
@@ -280,6 +294,7 @@
 			{:else if inputCat == 'string' || (inputCat == 'number' && numberAsString)}
 				<textarea
 					on:focus={() => dispatch('focus')}
+					on:blur={() => dispatch('blur')}
 					{disabled}
 					style="height: {minHeight}; max-height: {maxHeight}"
 					class="col-span-10 {valid

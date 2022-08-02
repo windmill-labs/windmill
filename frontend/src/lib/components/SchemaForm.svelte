@@ -1,6 +1,7 @@
 <script lang="ts">
 	import type { Schema } from '$lib/common'
 	import type { InputTransform } from '$lib/gen'
+	import { logout } from '$lib/logout'
 	import { allTrue, type InputCat } from '$lib/utils'
 	import ArgInput from './ArgInput.svelte'
 	import Editor from './Editor.svelte'
@@ -66,7 +67,7 @@
 	}
 
 	function isStaticTemplate(inputCat: InputCat) {
-		return inputCat === 'string' || inputCat === 'number'
+		return inputCat === 'string' || inputCat === 'number' || inputCat === 'sql'
 	}
 
 	function focusProp(argName: string) {
@@ -140,12 +141,16 @@
 							on:select={(event) => {
 								const toAppend = `\$\{${event.detail}}`
 								args[argName].value = `${args[argName].value ?? ''}${toAppend}`
+								if (monacos[argName]) {
+									monacos[argName].setCode(args[argName].value)
+								}
 								setPropertyType(argName, args[argName].value, false)
 							}}
 						>
 							<ArgInput
 								on:focus={() => focusProp(argName)}
 								label={argName}
+								bind:editor={monacos[argName]}
 								bind:description={schema.properties[argName].description}
 								bind:value={args[argName].value}
 								type={schema.properties[argName].type}

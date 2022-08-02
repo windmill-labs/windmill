@@ -1,3 +1,39 @@
+<script lang="ts" context="module">
+	import * as monaco from 'monaco-editor'
+	import { language as sql } from 'monaco-editor/esm/vs/basic-languages/sql/sql'
+	monaco.languages.register({
+		id: 'python',
+		extensions: ['.py'],
+		aliases: ['python'],
+		mimetypes: ['application/text']
+	})
+
+	monaco.languages.register({
+		id: 'sql',
+		extensions: ['.sql'],
+		aliases: ['SQL'],
+		mimetypes: ['application/text']
+	})
+
+	monaco.languages.registerInlineCompletionsProvider('sql', {
+		provideInlineCompletions: (a, b, c, d) => {
+			const w = a.getWordUntilPosition(b).word.toLowerCase()
+			return {
+				items:
+					w.length > 0
+						? ['SELECT', 'FROM', 'WHILE', 'AND', 'OR', 'DELETE', 'UPDATE', 'SET', 'WHEN', 'LIMIT']
+								.concat(sql.keywords)
+								.filter((x) => x.toLowerCase().startsWith(w))
+								.map((x) => ({
+									text: x + ' '
+								}))
+						: []
+			}
+		},
+		freeInlineCompletions: () => {}
+	})
+</script>
+
 <script lang="ts">
 	import { browser, dev } from '$app/env'
 	import { page } from '$app/stores'
@@ -6,8 +42,6 @@
 	import editorWorker from 'monaco-editor/esm/vs/editor/editor.worker?worker'
 	import jsonWorker from 'monaco-editor/esm/vs/language/json/json.worker?worker'
 	import tsWorker from 'monaco-editor/esm/vs/language/typescript/ts.worker?worker'
-
-	import * as monaco from 'monaco-editor'
 
 	import type { DocumentUri, MessageTransports, MonacoLanguageClient } from 'monaco-languageclient'
 	import { createEventDispatcher, onDestroy, onMount } from 'svelte'
@@ -38,9 +72,10 @@
 	let websocketInterval: NodeJS.Timer | undefined
 	let lastWsAttempt: Date = new Date()
 	let nbWsAttempt = 0
-	let uri: string = ''
 	let disposeMethod: () => void | undefined
 	const dispatch = createEventDispatcher()
+
+	const uri = `file:///${hash}.${langToExt(lang)}`
 
 	if (browser) {
 		if (dev) {
@@ -72,6 +107,23 @@
 	export function insertAtCursor(code: string): void {
 		if (editor) {
 			editor.trigger('keyboard', 'type', { text: code })
+		}
+	}
+
+	function langToExt(lang: string): string {
+		switch (lang) {
+			case 'typescript':
+				return 'ts'
+			case 'python':
+				return 'py'
+			case 'javascript':
+				return 'js'
+			case 'json':
+				return 'json'
+			case 'sql':
+				return 'sql'
+			default:
+				return 'unknown'
 		}
 	}
 
@@ -295,26 +347,6 @@
 	}
 
 	async function loadMonaco() {
-		if (lang == 'python') {
-			monaco.languages.register({
-				id: 'python',
-				extensions: ['.py'],
-				aliases: ['python'],
-				mimetypes: ['application/text']
-			})
-		}
-
-		let path: string = 'unknown'
-		if (lang == 'python') {
-			path = `${hash}.py`
-		} else if (lang == 'json') {
-			path = `${hash}.json`
-		} else if (lang == 'javascript') {
-			path = `${hash}.js`
-		} else if (lang == 'typescript') {
-			path = `${hash}.ts`
-		}
-		uri = `file:///${path}`
 		const model = monaco.editor.createModel(code, lang, monaco.Uri.parse(uri))
 
 		model.updateOptions({ tabSize: 2, insertSpaces: true })
@@ -324,6 +356,7 @@
 			language: lang,
 			automaticLayout,
 			readOnly: false,
+			fixedOverflowWidgets: true,
 			autoDetectHighContrast: true,
 			//lineNumbers: 'off',
 			//lineDecorationsWidth: 0,
@@ -365,41 +398,40 @@
 			dispatch('blur')
 		})
 
-		if (lang == 'json') {
+		if (lang == 'sql') {
+			monaco.languages.register
+		} else if (lang == 'json') {
 			monaco.languages.json.jsonDefaults.setDiagnosticsOptions({
 				validate: true,
 				allowComments: false,
 				schemas: [],
 				enableSchemaRequest: true
 			})
-		}
-
-		if (lang == 'javascript' || lang == 'typescript') {
+		} else if (lang == 'javascript' || lang == 'typescript') {
 			monaco.languages.typescript.javascriptDefaults.setCompilerOptions({
 				target: monaco.languages.typescript.ScriptTarget.Latest,
 				allowNonTsExtensions: true,
 				noLib: true
 			})
-		}
-
-		if (lang == 'typescript') {
-			monaco.languages.typescript.typescriptDefaults.setCompilerOptions({
-				target: monaco.languages.typescript.ScriptTarget.Latest,
-				allowNonTsExtensions: true,
-				noLib: true
-			})
-			if (deno) {
-				monaco.languages.typescript.typescriptDefaults.setDiagnosticsOptions({
-					noSemanticValidation: true,
-					noSuggestionDiagnostics: true,
-					noSyntaxValidation: true
+			if (lang == 'typescript') {
+				monaco.languages.typescript.typescriptDefaults.setCompilerOptions({
+					target: monaco.languages.typescript.ScriptTarget.Latest,
+					allowNonTsExtensions: true,
+					noLib: true
 				})
+				if (deno) {
+					monaco.languages.typescript.typescriptDefaults.setDiagnosticsOptions({
+						noSemanticValidation: true,
+						noSuggestionDiagnostics: true,
+						noSyntaxValidation: true
+					})
+				}
 			}
-		}
 
-		if (lang == 'javascript') {
-			if (extraLib != '' && extraLibPath != '') {
-				monaco.languages.typescript.javascriptDefaults.addExtraLib(extraLib, extraLibPath)
+			if (lang == 'javascript') {
+				if (extraLib != '' && extraLibPath != '') {
+					monaco.languages.typescript.javascriptDefaults.addExtraLib(extraLib, extraLibPath)
+				}
 			}
 		}
 
@@ -454,5 +486,10 @@
 	.few-lines-editor {
 		/* stylelint-disable-next-line unit-allowed-list */
 		height: 80px;
+	}
+
+	.two-lines-editor {
+		/* stylelint-disable-next-line unit-allowed-list */
+		height: 40px;
 	}
 </style>
