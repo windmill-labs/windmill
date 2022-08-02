@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [1.27.1](https://github.com/windmill-labs/windmill/compare/v1.27.0...v1.27.1) (2022-08-02)
+
+
+### Bug Fixes
+
+* migrate to new style radio button ([893ee94](https://github.com/windmill-labs/windmill/commit/893ee941d72a7036f0ea272c49bbe5cd3eee64d5))
+
 ## [1.27.0](https://github.com/windmill-labs/windmill/compare/v1.26.3...v1.27.0) (2022-08-02)
 
 
