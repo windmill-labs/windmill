@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [1.27.2](https://github.com/windmill-labs/windmill/compare/v1.27.1...v1.27.2) (2022-08-02)
+
+
+### Bug Fixes
+
+* **deno-client:** getResource can now fetch non-object values ([b128388](https://github.com/windmill-labs/windmill/commit/b128388cc652d4cd369a88b93985a2c051003abd))
+
 ## [1.27.1](https://github.com/windmill-labs/windmill/compare/v1.27.0...v1.27.1) (2022-08-02)
 
 
