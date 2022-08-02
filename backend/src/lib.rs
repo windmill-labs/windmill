@@ -127,7 +127,7 @@ pub async fn run_server(
     // build our application with a route
     let app = Router::new()
         .nest(
-            "/api",
+            "/api/v1",
             Router::new()
                 .nest(
                     "/w/:workspace_id",
