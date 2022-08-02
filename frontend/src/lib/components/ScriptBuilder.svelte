@@ -10,7 +10,7 @@
 	import { onDestroy } from 'svelte'
 	import SvelteMarkdown from 'svelte-markdown'
 	import Path from './Path.svelte'
-	import RadioButtonV3 from './RadioButtonV3.svelte'
+	import RadioButton from './RadioButton.svelte'
 	import Required from './Required.svelte'
 	import ScriptEditor from './ScriptEditor.svelte'
 	import ScriptSchema from './ScriptSchema.svelte'
@@ -177,7 +177,7 @@
 			</Path>
 			<h3 class="text-gray-700 pb-1 border-b">Language</h3>
 			<div class="max-w-md">
-				<RadioButtonV3
+				<RadioButton
 					label="Language"
 					options={[
 						['Typescript (Deno)', 'deno'],
