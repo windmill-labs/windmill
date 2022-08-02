@@ -4,7 +4,7 @@
 	import ResourcePicker from './ResourcePicker.svelte'
 	import { workspaceStore } from '$lib/stores'
 	import SchemaForm from './SchemaForm.svelte'
-	import RadioButtonV3 from './RadioButtonV3.svelte'
+	import RadioButton from './RadioButton.svelte'
 
 	export let format: string
 	export let value: any
@@ -54,7 +54,7 @@
 
 <div class="flex flex-row w-full gap-2">
 	<div class="shrink w-40">
-		<RadioButtonV3
+		<RadioButton
 			options={[
 				[`Resource (${resourceTypeName})`, 'resource'],
 				[`Raw object value`, 'raw']
