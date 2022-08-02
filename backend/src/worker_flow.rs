@@ -10,6 +10,7 @@ use crate::{
     },
     js_eval::{eval_timeout, EvalCreds},
     users::create_token_for_owner,
+    worker,
 };
 use async_recursion::async_recursion;
 use serde::{Deserialize, Serialize};
@@ -49,6 +50,7 @@ pub async fn update_flow_status_after_job_completion(
     job: &QueuedJob,
     success: bool,
     result: Option<Map<String, Value>>,
+    metrics: &worker::Metrics,
 ) -> error::Result<()> {
     tracing::debug!("HANDLE FLOW: {job:?} {success} {result:?}");
 
@@ -197,6 +199,7 @@ pub async fn update_flow_status_after_job_completion(
                     &flow_job,
                     "Unexpected error during flow chaining:\n".to_string(),
                     err,
+                    metrics,
                 )
                 .await;
                 true
@@ -217,9 +220,10 @@ pub async fn update_flow_status_after_job_completion(
         .await?;
 
         if flow_job.parent_job.is_some() {
-            return Ok(
-                update_flow_status_after_job_completion(db, &flow_job, success, result).await?,
-            );
+            return Ok(update_flow_status_after_job_completion(
+                db, &flow_job, success, result, metrics,
+            )
+            .await?);
         }
     }
 
