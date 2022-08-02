@@ -67,6 +67,16 @@ pub enum ScriptLang {
     Deno,
     Python3,
 }
+
+impl ScriptLang {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            ScriptLang::Deno => "deno",
+            ScriptLang::Python3 => "python3",
+        }
+    }
+}
+
 #[derive(sqlx::Type, PartialEq, Debug, Hash, Clone, Copy)]
 #[sqlx(transparent)]
 pub struct ScriptHash(pub i64);

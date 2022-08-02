@@ -305,8 +305,7 @@ pub async fn serve_metrics(
 
 async fn metrics() -> Result<String, Error> {
     let metric_families = prometheus::gather();
-    prometheus::TextEncoder::new()
+    Ok(prometheus::TextEncoder::new()
         .encode_to_string(&metric_families)
-        .map_err(anyhow::Error::from)
-        .map_err(Error::Anyhow)
+        .map_err(anyhow::Error::from)?)
 }
