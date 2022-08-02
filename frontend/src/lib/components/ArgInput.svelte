@@ -1,18 +1,24 @@
 <script lang="ts">
-	import Tooltip from './Tooltip.svelte'
-
 	import { slide } from 'svelte/transition'
 
-	import { faChevronDown, faChevronUp, faMinus, faPlus } from '@fortawesome/free-solid-svg-icons'
+	import {
+		faArrowRotateLeft,
+		faChain,
+		faChevronDown,
+		faChevronUp,
+		faMinus,
+		faPlus
+	} from '@fortawesome/free-solid-svg-icons'
 
-	import StringTypeNarrowing from './StringTypeNarrowing.svelte'
-	import Icon from 'svelte-awesome'
-	import ResourcePicker from './ResourcePicker.svelte'
-	import ObjectTypeNarrowing from './ObjectTypeNarrowing.svelte'
-	import ObjectResourceInput from './ObjectResourceInput.svelte'
-	import FieldHeader from './FieldHeader.svelte'
-	import { createEventDispatcher } from 'svelte'
 	import { setInputCat as computeInputCat, type InputCat } from '$lib/utils'
+	import { Button } from 'flowbite-svelte'
+	import { createEventDispatcher } from 'svelte'
+	import Icon from 'svelte-awesome'
+	import FieldHeader from './FieldHeader.svelte'
+	import ObjectResourceInput from './ObjectResourceInput.svelte'
+	import ObjectTypeNarrowing from './ObjectTypeNarrowing.svelte'
+	import ResourcePicker from './ResourcePicker.svelte'
+	import StringTypeNarrowing from './StringTypeNarrowing.svelte'
 
 	export let label: string = ''
 	export let value: any
@@ -291,15 +297,13 @@
 				/>
 			{/if}
 			{#if !required && inputCat != 'resource-object'}
-				<div class="flex flex-row-reverse">
-					<button
-						{disabled}
-						class="default-button-secondary items-center leading-4 py-0 my-px px-1 float-right"
-						on:click={() => (value = undefined)}
-						>Reset&nbsp;<Tooltip>Reset to default value</Tooltip></button
-					>
-				</div>
+				<Button on:click={() => (value = undefined)} {disabled} color="blue" size="xs">
+					<Icon data={faArrowRotateLeft} />
+				</Button>
 			{/if}
+			<Button on:click={() => (value = undefined)} {disabled} color="dark" size="xs">
+				<Icon data={faChain} />
+			</Button>
 		</div>
 	</div>
 </div>

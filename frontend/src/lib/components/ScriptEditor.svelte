@@ -433,9 +433,9 @@
 					<tbody slot="body">
 						{#each pastPreviews as { id, created_at, success, result }}
 							<tr class="">
-								<td class="text-xs"
-									><a class="pr-3" href="/run/{id}" target="_blank">{id.substring(30)}</a></td
-								>
+								<td class="text-xs">
+									<a class="pr-3" href="/run/{id}" target="_blank">{id.substring(30)}</a>
+								</td>
 								<td class="text-xs">{displayDate(created_at)}</td>
 								<td class="text-xs">
 									{#if success}
@@ -452,9 +452,10 @@
 											modalViewerContent = result
 											modalViewerMode = 'result'
 											modalViewer.openModal()
-										}}>{JSON.stringify(result).substring(0, 30)}...</a
-									></td
-								>
+										}}
+										>{JSON.stringify(result).substring(0, 30)}...
+									</a>
+								</td>
 								<td class="text-xs"
 									><a
 										href="#code"

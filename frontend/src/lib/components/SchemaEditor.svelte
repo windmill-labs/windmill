@@ -2,10 +2,11 @@
 	import type { Schema, SchemaProperty } from '$lib/common'
 	import { emptySchema, sendUserToast } from '$lib/utils'
 	import { faPen, faPlus, faTrash } from '@fortawesome/free-solid-svg-icons'
-	import { Badge, Button } from 'flowbite-svelte'
+	import { Button } from 'flowbite-svelte'
 	import { createEventDispatcher } from 'svelte'
 	import Icon from 'svelte-awesome'
 	import Editor from './Editor.svelte'
+	import SchemaEditorProperty from './SchemaEditorProperty.svelte'
 	import type { ModalSchemaProperty } from './SchemaModal.svelte'
 	import SchemaModal, { DEFAULT_PROPERTY, schemaToModal } from './SchemaModal.svelte'
 	import TableCustom from './TableCustom.svelte'
@@ -185,11 +186,7 @@
 								<tr>
 									<td class="font-bold">{name}</td>
 									<td>
-										{#if !property.type}
-											<Badge color="red">ANY</Badge>
-										{:else}
-											<Badge color="blue">{property.type.toLocaleUpperCase()}</Badge>
-										{/if}
+										<SchemaEditorProperty {property} />
 									</td>
 									<td>{property.description}</td>
 									<td>{JSON.stringify(property.default) ?? ''}</td>

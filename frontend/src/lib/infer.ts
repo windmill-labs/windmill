@@ -1,5 +1,5 @@
-import type { Schema, SchemaProperty } from './common.js'
 import { ScriptService, type MainArgSignature } from '$lib/gen'
+import type { Schema, SchemaProperty } from './common.js'
 
 export async function inferArgs(
 	language: 'python3' | 'deno',
@@ -36,9 +36,14 @@ export async function inferArgs(
 			schema.required.push(arg.name)
 		}
 	}
+
+	console.log({ schema })
 }
 
-function argSigToJsonSchemaType(t: string | { resource: string } | { list: string }, s: SchemaProperty): void {
+function argSigToJsonSchemaType(
+	t: string | { resource: string } | { list: string },
+	s: SchemaProperty
+): void {
 	if (t === 'int') {
 		s.type = 'integer'
 	} else if (t === 'float') {
