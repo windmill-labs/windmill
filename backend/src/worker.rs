@@ -216,6 +216,16 @@ pub async fn run_worker(
                                         &metrics,
                                     )
                                     .await;
+
+                                    let _ = postprocess_queued_job(
+                                        parent_job.is_flow_step,
+                                        parent_job.schedule_path.clone(),
+                                        parent_job.script_path.clone(),
+                                        &job.workspace_id,
+                                        parent_job.id,
+                                        db,
+                                    )
+                                    .await;
                                 }
                             }
                         }
