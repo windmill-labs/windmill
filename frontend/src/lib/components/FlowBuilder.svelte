@@ -132,14 +132,14 @@
 	<div class="justify-between flex flex-row w-full">
 		<Breadcrumb>
 			<BreadcrumbItem>
-				<button on:click={() => changeStep(1)} class={step === 1 ? 'font-bold' : null}
-					>Flow Editor</button
-				>
+				<button on:click={() => changeStep(1)} class={step === 1 ? 'font-bold' : null}>
+					Flow Editor
+				</button>
 			</BreadcrumbItem>
 			<BreadcrumbItem>
-				<button on:click={() => changeStep(2)} class={step === 2 ? 'font-bold' : null}
-					>UI customisation</button
-				>
+				<button on:click={() => changeStep(2)} class={step === 2 ? 'font-bold' : null}>
+					UI customisation
+				</button>
 			</BreadcrumbItem>
 		</Breadcrumb>
 		<div class="flex flex-row-reverse ml-2">

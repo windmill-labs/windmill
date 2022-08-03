@@ -1,5 +1,5 @@
 import type { Schema } from '$lib/common'
-import type { FlowModuleValue, InputTransform, Flow, FlowModule, RawScript } from '$lib/gen'
+import type { Flow, FlowModule, FlowModuleValue, InputTransform, RawScript } from '$lib/gen'
 import { inferArgs } from '$lib/infer'
 import { loadSchema } from '$lib/scripts'
 import { emptySchema, getScriptByPath, schemaToObject } from '$lib/utils'
@@ -22,7 +22,6 @@ export function flowToMode(flow: Flow | any, mode: FlowMode): Flow {
 	})
 
 	if (mode == 'pull') {
-
 		const triggerModule = newFlow.value.modules[0]
 		const oldModules = newFlow.value.modules.slice(1)
 
@@ -49,7 +48,6 @@ export function flowToMode(flow: Flow | any, mode: FlowMode): Flow {
 	return newFlow
 }
 
-
 export function getTypeAsString(arg: any): string {
 	if (arg === null) {
 		return 'null'
@@ -59,7 +57,6 @@ export function getTypeAsString(arg: any): string {
 	}
 	return typeof arg
 }
-
 
 export async function getFirstStepSchema(flow: Flow): Promise<Schema> {
 	const [firstModule] = flow.value.modules
@@ -116,8 +113,7 @@ export async function loadSchemaFromModule(module: FlowModule): Promise<{
 		let input_transform = module.input_transform
 
 		if (
-			JSON.stringify(keys.sort()) !==
-			JSON.stringify(Object.keys(module.input_transform).sort())
+			JSON.stringify(keys.sort()) !== JSON.stringify(Object.keys(module.input_transform).sort())
 		) {
 			input_transform = keys.reduce((accu, key) => {
 				let nv = module.input_transform[key] ?? {
@@ -128,6 +124,7 @@ export async function loadSchemaFromModule(module: FlowModule): Promise<{
 				return accu
 			}, {})
 		}
+
 		return {
 			input_transform: input_transform,
 			schema: schema ?? emptySchema()
@@ -162,11 +159,12 @@ export function getCodeInjectionExpr(code: string, isRaw: boolean): string {
 		expr = `JSON.parse(${expr})`
 	}
 	return `import { previous_result, flow_input, step, variable, resource, params } from 'windmill'
+	
 ${expr}`
 }
 
 export function getDefaultExpr(i: number, key: string = 'myfield', previousExpr?: string) {
-	const expr = previousExpr ? `\`${previousExpr}\`` : `previous_result.${key}`
+	const expr = previousExpr ?? `previous_result.${key}`
 	return `import { previous_result, flow_input, step, variable, resource, params } from 'windmill@${i}'
 
 ${expr}`
@@ -182,15 +180,17 @@ export function getPickableProperties(
 	const flowInputAsObject = schemaToObject(schema, args)
 	const flowInput =
 		mode === 'pull' && i >= 1
-			? Object.assign(Object.assign(
-				{
-					_value: 'The current value of the iteration as an object',
-					_index: 'The current index of the iteration as a number'
-				},
-				flowInputAsObject), previewResults[0])
-
+			? Object.assign(
+					Object.assign(
+						{
+							_value: 'The current value of the iteration as an object',
+							_index: 'The current index of the iteration as a number'
+						},
+						flowInputAsObject
+					),
+					previewResults[0]
+			  )
 			: flowInputAsObject
-
 
 	let previous_result
 	if (i === 0 || (i == 1 && mode == 'pull')) {

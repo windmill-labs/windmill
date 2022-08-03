@@ -12,7 +12,7 @@
 </script>
 
 <div class="mt-8 flex flex-col {$$props.class}">
-	<div class="inline-block min-w-full py-2 align-middle md:px-6 lg:px-8">
+	<div class="inline-block min-w-full align-middle">
 		<table class="min-w-full divide-y divide-gray-300 table-auto">
 			<thead>
 				<tr class={twTextSize}>

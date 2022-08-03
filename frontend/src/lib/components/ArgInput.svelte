@@ -1,23 +1,30 @@
 <script lang="ts">
-	import Tooltip from './Tooltip.svelte'
-
 	import { slide } from 'svelte/transition'
 
-	import { faChevronDown, faChevronUp, faMinus, faPlus } from '@fortawesome/free-solid-svg-icons'
+	import {
+		faArrowRotateLeft,
+		faChevronDown,
+		faChevronUp,
+		faMinus,
+		faPlus
+	} from '@fortawesome/free-solid-svg-icons'
 
-	import StringTypeNarrowing from './StringTypeNarrowing.svelte'
-	import Icon from 'svelte-awesome'
-	import ResourcePicker from './ResourcePicker.svelte'
-	import ObjectTypeNarrowing from './ObjectTypeNarrowing.svelte'
-	import ObjectResourceInput from './ObjectResourceInput.svelte'
-	import FieldHeader from './FieldHeader.svelte'
-	import { createEventDispatcher } from 'svelte'
 	import { setInputCat as computeInputCat, type InputCat } from '$lib/utils'
+	import { Button, Tooltip } from 'flowbite-svelte'
+	import { createEventDispatcher } from 'svelte'
+	import Icon from 'svelte-awesome'
 	import Editor from './Editor.svelte'
+	import FieldHeader from './FieldHeader.svelte'
+	import ObjectResourceInput from './ObjectResourceInput.svelte'
+	import ObjectTypeNarrowing from './ObjectTypeNarrowing.svelte'
+	import ResourcePicker from './ResourcePicker.svelte'
+	import StringTypeNarrowing from './StringTypeNarrowing.svelte'
 
 	export let label: string = ''
 	export let value: any
+
 	export let defaultValue: any = undefined
+
 	export let description: string = ''
 	export let format: string = ''
 	export let contentEncoding: 'base64' | 'binary' | undefined = undefined
@@ -141,17 +148,15 @@
 					on:click={() => {
 						seeEditable = !seeEditable
 					}}
-					>Customize argument<Icon
-						class="ml-2"
-						data={seeEditable ? faChevronUp : faChevronDown}
-						scale={0.7}
-					/></span
 				>
+					Customize argument
+					<Icon class="ml-2" data={seeEditable ? faChevronUp : faChevronDown} scale={0.7} />
+				</span>
 
 				{#if seeEditable}
 					<div transition:slide class="mt-2">
-						<label class="text-gray-700"
-							>Description
+						<label class="text-gray-700">
+							Description
 							<textarea rows="1" bind:value={description} placeholder="Edit description" />
 							{#if type == 'string' && !contentEncoding && format != 'date-time'}
 								<StringTypeNarrowing bind:format bind:pattern bind:enum_ bind:contentEncoding />
@@ -182,7 +187,7 @@
 				{error === '' ? '...' : error}
 			</div>
 		</div>
-		<div class="flex flex-row gap-1">
+		<div class="flex space-x-1">
 			{#if inputCat == 'number' && !numberAsString}
 				<input
 					{disabled}
@@ -230,8 +235,10 @@
 										if (value.length == 0) {
 											value = undefined
 										}
-									}}><Icon data={faMinus} class="mb-1" /></button
+									}}
 								>
+									<Icon data={faMinus} class="mb-1" />
+								</button>
 							</div>
 						{/each}
 					</div>
@@ -242,9 +249,14 @@
 								value = []
 							}
 							value = value.concat('')
-						}}>Add item &nbsp;<Icon data={faPlus} class="mb-1" /></button
-					><span class="ml-2">{(value ?? []).length} item{(value ?? []).length > 1 ? 's' : ''}</span
+						}}
 					>
+						<Icon data={faPlus} class="mr-2" />
+						Add item
+					</button>
+					<span class="ml-2">
+						{(value ?? []).length} item{(value ?? []).length > 1 ? 's' : ''}
+					</span>
 				</div>
 			{:else if inputCat == 'resource-object'}
 				<ObjectResourceInput {format} bind:value />
@@ -306,15 +318,19 @@
 				/>
 			{/if}
 			{#if !required && inputCat != 'resource-object'}
-				<div class="flex flex-row-reverse">
-					<button
-						{disabled}
-						class="default-button-secondary items-center leading-4 py-0 my-px px-1 float-right"
+				<Tooltip placement="bottom" content="Reset to default value">
+					<Button
 						on:click={() => (value = undefined)}
-						>Reset&nbsp;<Tooltip>Reset to default value</Tooltip></button
+						{disabled}
+						color="alternative"
+						size="sm"
+						class="h-8"
 					>
-				</div>
+						<Icon data={faArrowRotateLeft} />
+					</Button>
+				</Tooltip>
 			{/if}
+			<slot name="actions" />
 		</div>
 	</div>
 </div>
