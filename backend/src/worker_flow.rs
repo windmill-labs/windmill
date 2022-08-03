@@ -139,7 +139,6 @@ pub async fn update_flow_status_after_job_completion(
     let flow_job = get_queued_job(flow, w_id, &mut tx)
         .await?
         .ok_or_else(|| Error::InternalErr(format!("requiring flow to be in the queue")))?;
-    tx.commit().await?;
 
     let stop_early = success
         && if let Some(expr) = stop_early_expr {
@@ -164,7 +163,7 @@ pub async fn update_flow_status_after_job_completion(
                 )
                 .bind(jobs.as_slice())
                 .bind(w_id)
-                .fetch(db)
+                .fetch(&mut tx)
                 .map_ok(|(v,)| v)
                 .try_collect::<Vec<serde_json::Value>>()
                 .await?;
@@ -174,6 +173,7 @@ pub async fn update_flow_status_after_job_completion(
             }
             _ => result.clone(),
         };
+        tx.commit().await?;
 
         let logs = if stop_early {
             "Flow job stopped early".to_string()
@@ -192,6 +192,8 @@ pub async fn update_flow_status_after_job_completion(
         .await?;
         true
     } else {
+        tx.commit().await?;
+
         match handle_flow(&flow_job, db, result.clone()).await {
             Err(err) => {
                 let _ = add_completed_job_error(
