@@ -37,7 +37,7 @@ export async function getResource(path: string, undefinedIfEmpty?: boolean): Pro
     const conf = createConf()
     try {
         const resource = await new ResourceApi(conf).getResource(conf.workspace_id, path)
-        return await transformLeaves(resource.value)
+        return await _transformLeaf(resource.value)
     } catch (e) {
         if (undefinedIfEmpty && e.code === 404) {
             return undefined

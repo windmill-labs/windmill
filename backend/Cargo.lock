@@ -2406,6 +2406,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "prometheus"
+version = "0.13.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cface98dfa6d645ea4c789839f176e4b072265d085bfcc48eaa8d137f58d3c39"
+dependencies = [
+ "cfg-if 1.0.0",
+ "fnv",
+ "lazy_static",
+ "memchr",
+ "parking_lot 0.12.1",
+ "thiserror",
+]
+
+[[package]]
 name = "prost"
 version = "0.10.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4515,7 +4529,7 @@ checksum = "712e227841d057c1ee1cd2fb22fa7e5a5461ae8e48fa2ca79ec42cfc1931183f"
 
 [[package]]
 name = "windmill"
-version = "1.27.1"
+version = "1.27.2"
 dependencies = [
  "anyhow",
  "argon2",
@@ -4538,6 +4552,7 @@ dependencies = [
  "lettre",
  "magic-crypt",
  "mime_guess",
+ "prometheus",
  "rand 0.8.5",
  "rand_core 0.6.3",
  "regex",

@@ -39,12 +39,11 @@ use tokio::{
     fs::{DirBuilder, File},
     io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader},
     process::{Child, Command},
-    sync::Mutex,
+    sync::{mpsc, Mutex},
     time::Instant,
 };
 
 use async_recursion::async_recursion;
-use tokio::sync::mpsc;
 
 const TMP_DIR: &str = "/tmp/windmill";
 const PIP_CACHE_DIR: &str = "/tmp/windmill/cache/pip";
@@ -56,6 +55,10 @@ const NSJAIL_CONFIG_DOWNLOAD_CONTENT: &str = include_str!("../../nsjail/download
 const NSJAIL_CONFIG_RUN_PYTHON3_CONTENT: &str =
     include_str!("../../nsjail/run.python3.config.proto");
 const NSJAIL_CONFIG_RUN_DENO_CONTENT: &str = include_str!("../../nsjail/run.deno.config.proto");
+
+pub struct Metrics {
+    pub jobs_failed: prometheus::IntCounter,
+}
 
 pub async fn run_worker(
     db: &DB,
@@ -89,6 +92,37 @@ pub async fn run_worker(
 
     insert_initial_ping(worker_instance, &worker_name, ip, db).await;
 
+    prometheus::register_int_gauge!(prometheus::Opts::new(
+        "start_time_seconds",
+        "Start time of worker as seconds since unix epoch",
+    )
+    .const_label("name", &worker_name))
+    .expect("register prometheus metric")
+    .set(
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .ok()
+            .map(|duration| duration.as_secs() as i64)
+            .unwrap_or(0),
+    );
+
+    let job_duration_seconds = prometheus::register_histogram_vec!(
+        prometheus::HistogramOpts::new(
+            "job_duration_seconds",
+            "Duration between receiving a job and completing it",
+        )
+        .const_label("name", &worker_name),
+        &["workspace_id", "language"],
+    )
+    .expect("register prometheus metric");
+
+    let jobs_failed = prometheus::register_int_counter_vec!(
+        prometheus::Opts::new("jobs_failed", "Number of failed jobs",)
+            .const_label("name", &worker_name),
+        &["workspace_id", "language"],
+    )
+    .expect("register prometheus metric");
+
     let mut jobs_executed = 0;
     let mut rx = tx.subscribe();
     loop {
@@ -108,12 +142,24 @@ pub async fn run_worker(
 
         match pull(db).await {
             Ok(Some(job)) => {
+                let label_values = [
+                    &job.workspace_id,
+                    job.language.as_ref().map(|l| l.as_str()).unwrap_or(""),
+                ];
+
+                let _timer = job_duration_seconds
+                    .with_label_values(label_values.as_slice())
+                    .start_timer();
+
                 jobs_executed += 1;
 
+                let metrics =
+                    Metrics { jobs_failed: jobs_failed.with_label_values(label_values.as_slice()) };
+
                 tracing::info!(worker = %worker_name, id = %job.id, "Fetched job");
-                let job2 = job.clone();
+
                 if let Some(err) = handle_queued_job(
-                    job,
+                    job.clone(),
                     db,
                     timeout,
                     &worker_name,
@@ -121,39 +167,43 @@ pub async fn run_worker(
                     base_url,
                     disable_nuser,
                     disable_nsjail,
+                    &metrics,
                 )
                 .await
                 .err()
                 {
-                    let err_string = err.to_string().clone();
                     let m = add_completed_job_error(
                         db,
-                        &job2,
+                        &job,
                         "Unexpected error during job execution:\n".to_string(),
-                        err,
+                        &err,
+                        &metrics,
                     )
                     .await
                     .map(|(_, m)| m)
                     .unwrap_or_else(|_| Map::new());
 
-                    {
-                        let job = job2.clone();
-                        let _ = postprocess_queued_job(
-                            job.is_flow_step,
-                            job.schedule_path,
-                            job.script_path,
-                            &job2.workspace_id,
-                            job2.id,
+                    let _ = postprocess_queued_job(
+                        job.is_flow_step,
+                        job.schedule_path.clone(),
+                        job.script_path.clone(),
+                        &job.workspace_id,
+                        job.id,
+                        db,
+                    )
+                    .await;
+
+                    if job.parent_job.is_some() {
+                        let _ = update_flow_status_after_job_completion(
                             db,
+                            &job,
+                            false,
+                            Some(m),
+                            &metrics,
                         )
                         .await;
                     }
-
-                    if job2.parent_job.is_some() {
-                        let _ = update_flow_status_after_job_completion(db, &job2, false, Some(m))
-                            .await;
-                    }
-                    tracing::error!(job_id = %job2.id, "Error handling job: {err_string}");
+                    tracing::error!(job_id = %job.id, "Error handling job: {err}");
                 };
             }
             Ok(None) => (),
@@ -193,6 +243,7 @@ async fn handle_queued_job(
     base_url: &str,
     disable_nuser: bool,
     disable_nsjail: bool,
+    metrics: &Metrics,
 ) -> crate::error::Result<()> {
     let job_id = job.id;
     let w_id = &job.workspace_id.clone();
@@ -238,14 +289,22 @@ async fn handle_queued_job(
                 Ok(r) => {
                     add_completed_job(db, &job, true, false, r.result.clone(), logs).await?;
                     if job.is_flow_step {
-                        update_flow_status_after_job_completion(db, &job, true, r.result).await?;
+                        update_flow_status_after_job_completion(db, &job, true, r.result, metrics)
+                            .await?;
                     }
                 }
                 Err(e) => {
-                    let (_, output_map) = add_completed_job_error(db, &job, logs, e).await?;
+                    let (_, output_map) =
+                        add_completed_job_error(db, &job, logs, e, &metrics).await?;
                     if job.is_flow_step {
-                        update_flow_status_after_job_completion(db, &job, false, Some(output_map))
-                            .await?;
+                        update_flow_status_after_job_completion(
+                            db,
+                            &job,
+                            false,
+                            Some(output_map),
+                            metrics,
+                        )
+                        .await?;
                     }
                 }
             };
