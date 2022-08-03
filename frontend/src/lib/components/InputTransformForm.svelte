@@ -11,7 +11,6 @@
 	import DynamicInputHelpBox from './flows/DynamicInputHelpBox.svelte'
 	import { codeToStaticTemplate } from './flows/flowStore'
 	import { getCodeInjectionExpr, getDefaultExpr, isCodeInjection } from './flows/utils'
-	import ClickablePropertyPicker from './propertyPicker/ClickablePropertyPicker.svelte'
 	import OverlayPropertyPicker from './propertyPicker/OverlayPropertyPicker.svelte'
 	import Toggle from './Toggle.svelte'
 
@@ -75,7 +74,7 @@
 		})
 	}
 
-	function onPropertyLink(argName: string, rawValue: string) {
+	function connectProperty(argName: string, rawValue: string) {
 		if (isStaticTemplate(inputCats[argName])) {
 			arg.value = `\$\{${rawValue}}`
 			setPropertyType(argName, arg.value, false)
@@ -147,13 +146,17 @@
 			bind:this={overlays[argName]}
 			{pickableProperties}
 			disabled={!isStaticTemplate(inputCats[argName])}
-			on:select={(event) => {
-				const toAppend = `\$\{${event.detail}}`
-				arg.value = `${arg.value ?? ''}${toAppend}`
-				if (monacos[argName]) {
-					monacos[argName].setCode(arg.value)
+			on:select={({ detail }) => {
+				if (detail.pickerVariation === 'connect') {
+					connectProperty(argName, detail.propPath)
+				} else {
+					const toAppend = `\$\{${detail.propPath}}`
+					arg.value = `${arg.value ?? ''}${toAppend}`
+					if (monacos[argName]) {
+						monacos[argName].setCode(arg.value)
+					}
+					setPropertyType(argName, arg.value, false)
 				}
-				setPropertyType(argName, arg.value, false)
 			}}
 		>
 			<ArgInput
@@ -181,16 +184,13 @@
 				}}
 			>
 				<div slot="actions">
-					<ClickablePropertyPicker
-						bind:pickableProperties
-						on:select={(event) => onPropertyLink(argName, event.detail)}
-					>
+					<div on:click={() => overlays[argName].focus('connect')}>
 						<Tooltip placement="bottom" content="Input connect">
 							<Button color="blue" size="sm" class="h-8">
 								<Icon data={faChain} />
 							</Button>
 						</Tooltip>
-					</ClickablePropertyPicker>
+					</div>
 				</div>
 			</ArgInput>
 		</OverlayPropertyPicker>

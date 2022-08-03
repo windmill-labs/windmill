@@ -15,11 +15,17 @@
 
 	let timeout: NodeJS.Timeout
 
+	type PickerVariation = 'append' | 'connect'
+	let pickerVariation: PickerVariation = 'append'
+
 	export function unfocus() {
 		isFocused = false
 		close()
 	}
-	export function focus() {
+	export function focus(newPickerVariation?: PickerVariation) {
+		if (newPickerVariation) {
+			pickerVariation = newPickerVariation
+		}
 		isFocused = true
 		open()
 	}
@@ -31,6 +37,7 @@
 		}
 	}
 	function close() {
+		pickerVariation = 'append'
 		timeout = setTimeout(() => (isOpen = false), 50)
 	}
 
@@ -39,7 +46,7 @@
 
 {#if !disabled}
 	<div class="w-full">
-		<div use:popperRef on:mouseleave={close}>
+		<div use:popperRef>
 			<slot />
 		</div>
 
@@ -48,8 +55,9 @@
 				<PropPicker
 					bind:pickableProperties
 					on:select={(event) => {
+						dispatch('select', { propPath: event.detail, pickerVariation })
 						isOpen = false
-						dispatch('select', event.detail)
+						pickerVariation = 'append'
 					}}
 				/>
 			</div>
@@ -64,7 +72,6 @@
 		@apply drop-shadow-xl;
 		@apply w-full;
 		@apply max-w-4xl;
-
 		@apply px-6;
 		@apply z-50;
 	}
