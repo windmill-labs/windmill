@@ -1,14 +1,14 @@
 <script lang="ts">
 	import { page } from '$app/stores'
-	import type { Script, Flow } from '$lib/gen'
+	import type { Flow, Script } from '$lib/gen'
 	import { decodeState, getToday } from '$lib/utils'
 	import { slide } from 'svelte/transition'
 
 	import { faChevronDown, faChevronUp } from '@fortawesome/free-solid-svg-icons'
 	import Icon from 'svelte-awesome'
-	import Tooltip from './Tooltip.svelte'
 	import SvelteMarkdown from 'svelte-markdown'
 	import SchemaForm from './SchemaForm.svelte'
+	import Tooltip from './Tooltip.svelte'
 
 	export let runnable: Script | Flow | undefined
 	export let runAction: (scheduledForStr: string | undefined, args: Record<string, any>) => void
@@ -60,17 +60,16 @@
 	{#if runnable?.schema}
 		{#if detailed}
 			<h2>
-				Arguments <Tooltip
-					>The optional fields, if left blank, will use the placeholder value as default.</Tooltip
-				>
+				Arguments
+				<Tooltip>
+					The optional fields, if left blank, will use the placeholder value as default.
+				</Tooltip>
 			</h2>
 		{/if}
 		{#if !runnable.schema.properties || Object.keys(runnable.schema.properties).length === 0}
 			<div class="text-sm p-4">No arguments</div>
 		{:else}
-			<div
-				class="bg-gray-50 border border shadow-md shadow-blue-100 shadow-inner rounded border-gray-300 p-6"
-			>
+			<div class="bg-gray-50 border  shadow-blue-100 shadow-inner rounded border-gray-300 p-6">
 				<SchemaForm schema={runnable.schema} bind:isValid bind:args />
 			</div>
 		{/if}
@@ -97,8 +96,10 @@
 						class="default-button-secondary mx-2 mb-1"
 						on:click={() => {
 							scheduledForStr = undefined
-						}}>clear</button
+						}}
 					>
+						Clear
+					</button>
 				</div>
 			</div>
 		</div>
@@ -113,10 +114,8 @@
 		>
 			{#if schedulable}
 				<div>
-					schedule to run later <Icon
-						data={viewOptions ? faChevronUp : faChevronDown}
-						scale={0.5}
-					/>
+					Schedule to run later
+					<Icon data={viewOptions ? faChevronUp : faChevronDown} scale={0.5} />
 				</div>
 			{/if}
 		</button>

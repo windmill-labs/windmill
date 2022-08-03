@@ -7,12 +7,13 @@
 </script>
 
 <script lang="ts">
-	import { WorkerService, type WorkerPing } from '$lib/gen'
-	import { onDestroy, onMount } from 'svelte'
-	import { displayDate, elapsedSinceSecs, groupBy, sendUserToast } from '$lib/utils'
+	import CenteredPage from '$lib/components/CenteredPage.svelte'
 	import PageHeader from '$lib/components/PageHeader.svelte'
 	import TableCustom from '$lib/components/TableCustom.svelte'
-	import CenteredPage from '$lib/components/CenteredPage.svelte'
+	import { WorkerService, type WorkerPing } from '$lib/gen'
+	import { displayDate, elapsedSinceSecs, groupBy, sendUserToast } from '$lib/utils'
+	import { Badge } from 'flowbite-svelte'
+	import { onDestroy, onMount } from 'svelte'
 
 	let workers: WorkerPing[] = []
 	let filteredWorkers: WorkerPing[] = []
@@ -53,9 +54,9 @@
 		<p>No workers seems to be available</p>
 	{/if}
 	{#each groupedWorkers as [section, workers]}
-		<h2 class="m-5">
-			Instance: {section} | Ip:
-			<span class="text-gray-500 bg-gray-100 font-mono">{workers[0].ip}</span>
+		<h2 class="my-5">
+			Instance: {section} | IP:
+			<Badge large color="gray">{workers[0].ip}</Badge>
 		</h2>
 
 		<TableCustom>
