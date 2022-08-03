@@ -459,7 +459,7 @@ pub async fn _refresh_token<'c>(
         + chrono::Duration::seconds(
             token
                 .expires_in
-                .ok_or_else(|| Error::InternalErr("expires_in exepcted and not found".to_string()))?
+                .ok_or_else(|| Error::InternalErr("expires_in expected and not found".to_string()))?
                 .try_into()
                 .unwrap(),
         );

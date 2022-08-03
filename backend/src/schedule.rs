@@ -415,7 +415,7 @@ pub async fn set_enabled(
     .await?;
     tx.commit().await?;
     Ok(format!(
-        "succesfully updated schedule at path {} to status {}",
+        "successfully updated schedule at path {} to status {}",
         path, enabled
     ))
 }

@@ -1488,7 +1488,7 @@ async fn leave_workspace(
     Ok(format!("left workspace {w_id}"))
 }
 
-pub async fn delete_expired_items_perdiodically(
+pub async fn delete_expired_items_periodically(
     db: &DB,
     mut rx: tokio::sync::broadcast::Receiver<()>,
 ) -> () {
