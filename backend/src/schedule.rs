@@ -18,7 +18,7 @@ use crate::{
 };
 use axum::{
     extract::{Extension, Path, Query},
-    routing::{delete, get, post},
+    routing::{delete, get, patch, post},
     Json, Router,
 };
 
@@ -29,13 +29,13 @@ use sqlx::{FromRow, Postgres, Transaction};
 
 pub fn workspaced_service() -> Router {
     Router::new()
-        .route("/list", get(list_schedule))
-        .route("/get/*path", get(get_schedule))
-        .route("/exists/*path", get(exists_schedule))
-        .route("/create", post(create_schedule))
-        .route("/update/*path", post(edit_schedule))
-        .route("/delete/*path", delete(delete_schedule))
-        .route("/setenabled/*path", post(set_enabled))
+        .route("/", get(list_schedule))
+        .route("/", post(create_schedule))
+        .route("/p/exists/*path", get(exists_schedule))
+        .route("/p/*path", get(get_schedule))
+        .route("/p/*path", delete(delete_schedule))
+        .route("/p/*path", patch(edit_schedule))
+        .route("/p/enable/*path", post(set_enabled))
 }
 
 pub fn global_service() -> Router {

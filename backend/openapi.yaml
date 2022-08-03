@@ -1230,8 +1230,6 @@ paths:
                   items:
                     type: string
 
-  /w/{workspace}/resources/create:
-
   /w/{workspace}/resources/p/{path}:
     get:
       summary: get resource
@@ -2486,54 +2484,7 @@ paths:
                   type: string
                   format: date-time
 
-  /w/{workspace}/schedules/create:
-    post:
-      summary: create schedule
-      operationId: createSchedule
-      tags:
-        - schedule
-      parameters:
-        - $ref: "#/components/parameters/WorkspaceId"
-      requestBody:
-        description: new schedule
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/NewSchedule"
-      responses:
-        "201":
-          description: schedule created
-          content:
-            text/plain:
-              schema:
-                type: string
-
-  /w/{workspace}/schedules/update/{path}:
-    post:
-      summary: update schedule
-      operationId: updateSchedule
-      tags:
-        - schedule
-      parameters:
-        - $ref: "#/components/parameters/WorkspaceId"
-        - $ref: "#/components/parameters/Path"
-      requestBody:
-        description: updated schedule
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/EditSchedule"
-      responses:
-        "200":
-          description: schedule updated
-          content:
-            text/plain:
-              schema:
-                type: string
-
-  /w/{workspace}/schedules/setenabled/{path}:
+  /w/{workspace}/schedules/p/enable/{path}:
     post:
       summary: set enabled schedule
       operationId: setScheduleEnabled
@@ -2563,7 +2514,44 @@ paths:
               schema:
                 type: string
 
-  /w/{workspace}/schedules/delete/{path}:
+  /w/{workspace}/schedules/p/{path}:
+    get:
+      summary: get schedule
+      operationId: getSchedule
+      tags:
+        - schedule
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+      responses:
+        "200":
+          description: schedule deleted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Schedule"
+    patch:
+      summary: update schedule
+      operationId: updateSchedule
+      tags:
+        - schedule
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+      requestBody:
+        description: updated schedule
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EditSchedule"
+      responses:
+        "200":
+          description: schedule updated
+          content:
+            text/plain:
+              schema:
+                type: string
     delete:
       summary: delete schedule
       operationId: deleteSchedule
@@ -2580,24 +2568,7 @@ paths:
               schema:
                 type: string
 
-  /w/{workspace}/schedules/get/{path}:
-    get:
-      summary: get schedule
-      operationId: getSchedule
-      tags:
-        - schedule
-      parameters:
-        - $ref: "#/components/parameters/WorkspaceId"
-        - $ref: "#/components/parameters/Path"
-      responses:
-        "200":
-          description: schedule deleted
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Schedule"
-
-  /w/{workspace}/schedules/exists/{path}:
+  /w/{workspace}/schedules/p/exists/{path}:
     get:
       summary: does schedule exists
       operationId: existsSchedule
@@ -2614,7 +2585,7 @@ paths:
               schema:
                 type: boolean
 
-  /w/{workspace}/schedules/list:
+  /w/{workspace}/schedules:
     get:
       summary: list schedules
       operationId: listSchedules
@@ -2633,6 +2604,27 @@ paths:
                 type: array
                 items:
                   $ref: "#/components/schemas/Schedule"
+    post:
+      summary: create schedule
+      operationId: createSchedule
+      tags:
+        - schedule
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        description: new schedule
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/NewSchedule"
+      responses:
+        "201":
+          description: schedule created
+          content:
+            text/plain:
+              schema:
+                type: string
 
   /w/{workspace}/groups/list:
     get:
