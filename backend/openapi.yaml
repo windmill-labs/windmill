@@ -1231,29 +1231,23 @@ paths:
                     type: string
 
   /w/{workspace}/resources/create:
-    post:
-      summary: create resource
-      operationId: createResource
+
+  /w/{workspace}/resources/p/{path}:
+    get:
+      summary: get resource
+      operationId: getResource
       tags:
         - resource
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
-      requestBody:
-        description: new resource
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/CreateResource"
+        - $ref: "#/components/parameters/Path"
       responses:
-        "201":
-          description: resource created
+        "200":
+          description: resource deleted
           content:
-            text/plain:
+            application/json:
               schema:
-                type: string
-
-  /w/{workspace}/resources/delete/{path}:
+                $ref: "#/components/schemas/Resource"
     delete:
       summary: delete resource
       operationId: deleteResource
@@ -1269,8 +1263,6 @@ paths:
             text/plain:
               schema:
                 type: string
-
-  /w/{workspace}/resources/update/{path}:
     post:
       summary: update resource
       operationId: updateResource
@@ -1294,23 +1286,6 @@ paths:
               schema:
                 type: string
 
-  /w/{workspace}/resources/get/{path}:
-    get:
-      summary: get resource
-      operationId: getResource
-      tags:
-        - resource
-      parameters:
-        - $ref: "#/components/parameters/WorkspaceId"
-        - $ref: "#/components/parameters/Path"
-      responses:
-        "200":
-          description: resource deleted
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Resource"
-
   /w/{workspace}/resources/exists/{path}:
     get:
       summary: does resource exists
@@ -1328,7 +1303,7 @@ paths:
               schema:
                 type: boolean
 
-  /w/{workspace}/resources/list:
+  /w/{workspace}/resources:
     get:
       summary: list resources
       operationId: listResource
@@ -1352,31 +1327,44 @@ paths:
                 type: array
                 items:
                   $ref: "#/components/schemas/Resource"
-
-  /w/{workspace}/resources/type/create:
     post:
-      summary: create resource_type
-      operationId: createResourceType
+      summary: create resource
+      operationId: createResource
       tags:
         - resource
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
       requestBody:
-        description: new resource_type
+        description: new resource
         required: true
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/ResourceType"
+              $ref: "#/components/schemas/CreateResource"
       responses:
         "201":
-          description: resource_type created
+          description: resource created
           content:
             text/plain:
               schema:
                 type: string
 
-  /w/{workspace}/resources/type/delete/{path}:
+  /w/{workspace}/resources/type/{path}:
+    get:
+      summary: get resource_type
+      operationId: getResourceType
+      tags:
+        - resource
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+      responses:
+        "200":
+          description: resource_type deleted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ResourceType"
     delete:
       summary: delete resource_type
       operationId: deleteResourceType
@@ -1392,8 +1380,6 @@ paths:
             text/plain:
               schema:
                 type: string
-
-  /w/{workspace}/resources/type/update/{path}:
     post:
       summary: update resource_type
       operationId: updateResourceType
@@ -1417,23 +1403,6 @@ paths:
               schema:
                 type: string
 
-  /w/{workspace}/resources/type/get/{path}:
-    get:
-      summary: get resource_type
-      operationId: getResourceType
-      tags:
-        - resource
-      parameters:
-        - $ref: "#/components/parameters/WorkspaceId"
-        - $ref: "#/components/parameters/Path"
-      responses:
-        "200":
-          description: resource_type deleted
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ResourceType"
-
   /w/{workspace}/resources/type/exists/{path}:
     get:
       summary: does resource_type exists
@@ -1451,7 +1420,7 @@ paths:
               schema:
                 type: boolean
 
-  /w/{workspace}/resources/type/list:
+  /w/{workspace}/resources/type:
     get:
       summary: list resource_types
       operationId: listResourceType
@@ -1468,8 +1437,29 @@ paths:
                 type: array
                 items:
                   $ref: "#/components/schemas/ResourceType"
+    post:
+      summary: create resource_type
+      operationId: createResourceType
+      tags:
+        - resource
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        description: new resource_type
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ResourceType"
+      responses:
+        "201":
+          description: resource_type created
+          content:
+            text/plain:
+              schema:
+                type: string
 
-  /w/{workspace}/resources/type/listnames:
+  /w/{workspace}/resources/type/names:
     get:
       summary: list resource_types names
       operationId: listResourceTypeNames
