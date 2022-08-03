@@ -38,12 +38,11 @@ use crate::{
 pub fn global_service() -> Router {
     Router::new()
         .route("/login/:client", get(login))
-        .route("/login/:client/callback", post(login_callback))
+        .route("/login/:client_name/callback", post(login_callback))
         .route("/connect/slack", get(connect_slack))
-        .route("/connect/:client", get(connect))
         .route("/connect/slack/callback", post(connect_slack_callback))
-        // .route("/connect_callback/:client", post(connect_callback))
-        .route("/connect/:client/callback", post(connect_callback))
+        .route("/connect/:client", get(connect))
+        .route("/connect/:client_name/callback", post(connect_callback))
         .route(
             "/slack_command",
             post(slack_command).route_layer(axum::middleware::from_extractor::<SlackSig>()),
@@ -54,8 +53,8 @@ pub fn global_service() -> Router {
 
 pub fn workspaced_service() -> Router {
     Router::new()
+        .route("/disconnect/slack", post(disconnect_slack))
         .route("/disconnect/:id", post(disconnect))
-        .route("/disconnect_slack", post(disconnect_slack))
         .route("/set_workspace_slack", post(set_workspace_slack))
         .route("/accounts", post(create_account))
         .route("/accounts/:id", delete(delete_account))

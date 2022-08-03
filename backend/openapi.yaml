@@ -1159,7 +1159,7 @@ paths:
               schema:
                 type: string
 
-  /w/{workspace}/oauth/disconnect_slack:
+  /w/{workspace}/oauth/disconnect/slack:
     post:
       summary: disconnect slack
       operationId: disconnectSlack
