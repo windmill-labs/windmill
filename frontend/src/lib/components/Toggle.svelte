@@ -5,7 +5,7 @@
 				right?: string
 		  }
 		| undefined = undefined
-	export let checked: boolean
+	export let checked: boolean = false
 
 	const id = (Math.random() + 1).toString(36).substring(10)
 </script>
