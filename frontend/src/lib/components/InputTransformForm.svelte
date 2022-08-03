@@ -81,7 +81,7 @@
 			arg.value = `\$\{${rawValue}}`
 			setPropertyType(argName, arg.value, false)
 		} else {
-			arg.expr = getCodeInjectionExpr(`\$\{${rawValue}}`, false)
+			arg.expr = getDefaultExpr(i ?? -1, undefined, rawValue)
 			arg.type = 'javascript'
 			checked = true
 		}
