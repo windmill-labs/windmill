@@ -9,17 +9,22 @@
 	})
 
 	export let pickableProperties: Object | undefined
-	export let disabled = false
 	let isOpen = false
 	let isFocused = false
 
 	let timeout: NodeJS.Timeout
 
+	type PickerVariation = 'append' | 'connect'
+	let pickerVariation: PickerVariation = 'append'
+
 	export function unfocus() {
 		isFocused = false
 		close()
 	}
-	export function focus() {
+	export function focus(newPickerVariation?: PickerVariation) {
+		if (newPickerVariation) {
+			pickerVariation = newPickerVariation
+		}
 		isFocused = true
 		open()
 	}
@@ -31,40 +36,42 @@
 		}
 	}
 	function close() {
+		if (pickerVariation === 'append') {
+			timeout = setTimeout(() => (isOpen = false), 50)
+		}
+	}
+
+	function closePropertyPicker() {
 		timeout = setTimeout(() => (isOpen = false), 50)
 	}
 
 	const dispatch = createEventDispatcher()
 </script>
 
-{#if !disabled}
-	<div class="w-full">
-		<div use:popperRef on:mouseleave={close}>
-			<slot />
-		</div>
-
-		{#if isOpen}
-			<div class="content" use:popperContent on:mouseenter={open} on:mouseleave={close}>
-				<PropPicker
-					bind:pickableProperties
-					on:select={(event) => {
-						isOpen = false
-						dispatch('select', event.detail)
-					}}
-				/>
-			</div>
-		{/if}
+<div class="w-full">
+	<div use:popperRef on:mouseleave={close}>
+		<slot />
 	</div>
-{:else}
-	<slot />
-{/if}
+
+	{#if isOpen}
+		<div class="content" use:popperContent on:mouseenter={open} on:mouseleave={closePropertyPicker}>
+			<PropPicker
+				bind:pickableProperties
+				on:select={(event) => {
+					dispatch('select', { propPath: event.detail, pickerVariation })
+					isOpen = false
+					pickerVariation = 'append'
+				}}
+			/>
+		</div>
+	{/if}
+</div>
 
 <style>
 	.content {
 		@apply drop-shadow-xl;
 		@apply w-full;
 		@apply max-w-4xl;
-
 		@apply px-6;
 		@apply z-50;
 	}
