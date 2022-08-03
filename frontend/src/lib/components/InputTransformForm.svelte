@@ -166,8 +166,8 @@
 						bind:pickableProperties
 						on:select={(event) => onPropertyLink(argName, event.detail)}
 					>
-						<Tooltip placement="bottom" content="Link input">
-							<Button color="purple" size="sm" class="h-8">
+						<Tooltip placement="bottom" content="Input connect">
+							<Button color="blue" size="sm" class="h-8">
 								<Icon data={faChain} />
 							</Button>
 						</Tooltip>

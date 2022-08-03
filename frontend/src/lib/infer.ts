@@ -36,8 +36,6 @@ export async function inferArgs(
 			schema.required.push(arg.name)
 		}
 	}
-
-	console.log({ schema })
 }
 
 function argSigToJsonSchemaType(

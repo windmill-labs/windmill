@@ -10,5 +10,5 @@
 	<Badge color="green">{property.format?.toUpperCase()}</Badge>
 {/if}
 {#if property.contentEncoding}
-	<Badge color="indigo">{property.contentEncoding}</Badge>
+	<Badge color="indigo">{property.contentEncoding?.toUpperCase()}</Badge>
 {/if}
