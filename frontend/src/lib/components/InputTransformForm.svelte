@@ -27,6 +27,7 @@
 	let monacos: { [id: string]: Editor } = {}
 
 	let inputCats: { [id: string]: InputCat } = {}
+	let propertyType = getPropertyType(arg)
 
 	function getPropertyType(arg: InputTransform | any): 'static' | 'javascript' {
 		let type: 'static' | 'javascript' = arg.type
@@ -37,8 +38,6 @@
 		}
 		return type
 	}
-
-	$: propertyType = getPropertyType(arg)
 
 	function setPropertyType(id: string, rawValue: string, isRaw: boolean) {
 		if (!arg) {
@@ -82,8 +81,10 @@
 			setPropertyType(argName, arg.value, false)
 		} else {
 			arg.expr = getDefaultExpr(i ?? -1, undefined, rawValue)
+
 			arg.type = 'javascript'
-			checked = true
+
+			propertyType = 'javascript'
 		}
 
 		if (monacos[argName]) {
@@ -91,7 +92,7 @@
 		}
 	}
 
-	$: checked = propertyType === 'javascript'
+	$: checked = propertyType == 'javascript'
 </script>
 
 {#if arg != undefined}
@@ -121,11 +122,18 @@
 				const type = e.detail ? 'javascript' : 'static'
 				const staticTemplate = isStaticTemplate(inputCats[argName])
 				if (type === 'javascript') {
-					arg.expr = getDefaultExpr(i ?? -1, argName, staticTemplate ? arg.value : undefined)
+					arg.expr = getDefaultExpr(
+						i ?? -1,
+						argName,
+						staticTemplate ? `\`${arg.value ?? ''}\`` : undefined
+					)
 					arg.value = undefined
+					propertyType = 'javascript'
 				} else {
 					arg.value = staticTemplate ? codeToStaticTemplate(arg.expr) : undefined
+
 					arg.expr = undefined
+					propertyType = 'static'
 				}
 
 				arg.type = type

@@ -55,6 +55,7 @@ export function codeToStaticTemplate(code?: string): string | undefined {
 	}
 	return undefined
 }
+
 export function flattenForloopFlows(flow: Flow): Flow {
 	let newFlow: Flow = JSON.parse(JSON.stringify(flow))
 	const mod = newFlow.value.modules[1]?.value
