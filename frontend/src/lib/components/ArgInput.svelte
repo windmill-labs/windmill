@@ -10,7 +10,7 @@
 	} from '@fortawesome/free-solid-svg-icons'
 
 	import { setInputCat as computeInputCat, type InputCat } from '$lib/utils'
-	import { Button } from 'flowbite-svelte'
+	import { Button, Tooltip } from 'flowbite-svelte'
 	import { createEventDispatcher } from 'svelte'
 	import Icon from 'svelte-awesome'
 	import Editor from './Editor.svelte'
@@ -187,7 +187,7 @@
 				{error === '' ? '...' : error}
 			</div>
 		</div>
-		<div class="flex flex-row gap-1 items-center">
+		<div class="flex space-x-1">
 			{#if inputCat == 'number' && !numberAsString}
 				<input
 					{disabled}
@@ -318,9 +318,17 @@
 				/>
 			{/if}
 			{#if !required && inputCat != 'resource-object'}
-				<Button on:click={() => (value = undefined)} {disabled} color="alternative" size="xs">
-					<Icon data={faArrowRotateLeft} />
-				</Button>
+				<Tooltip placement="bottom" content="Reset to default value">
+					<Button
+						on:click={() => (value = undefined)}
+						{disabled}
+						color="alternative"
+						size="sm"
+						class="h-8"
+					>
+						<Icon data={faArrowRotateLeft} />
+					</Button>
+				</Tooltip>
 			{/if}
 			<slot name="actions" />
 		</div>

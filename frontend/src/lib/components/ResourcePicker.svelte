@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { type Resource, ResourceService } from '$lib/gen'
+	import { ResourceService, type Resource } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { createEventDispatcher } from 'svelte'
 	import ResourceEditor from './ResourceEditor.svelte'
@@ -27,7 +27,7 @@
 </script>
 
 <ResourceEditor bind:this={resourceEditor} on:refresh={() => loadResources(resourceType)} />
-<select class="mt-1" bind:value placeholder="Pick a resource {resourceType}">
+<select bind:value placeholder="Pick a resource {resourceType}">
 	<option value={undefined} />
 	{#each resources as r}
 		<option value={r.path}>{r.path}{r.description ? ' | ' + r.description : ''}</option>

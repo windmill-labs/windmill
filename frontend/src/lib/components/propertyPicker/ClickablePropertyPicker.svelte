@@ -4,7 +4,7 @@
 	import PropPicker from './PropPicker.svelte'
 
 	const [popperRef, popperContent] = createPopperActions({
-		placement: 'top-end',
+		placement: 'bottom-end',
 		strategy: 'fixed'
 	})
 

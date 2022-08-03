@@ -84,7 +84,6 @@
 		} else {
 			arg.expr = getCodeInjectionExpr(`\$\{${rawValue}}`, false)
 			arg.type = 'javascript'
-			//propertyType = 'javascript'
 			checked = true
 		}
 
@@ -168,7 +167,7 @@
 						on:select={(event) => onPropertyLink(argName, event.detail)}
 					>
 						<Tooltip placement="bottom" content="Link input">
-							<Button color="dark" class="h-full" size="sm">
+							<Button color="purple" size="sm" class="h-8">
 								<Icon data={faChain} />
 							</Button>
 						</Tooltip>
