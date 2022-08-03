@@ -154,8 +154,7 @@
 			<Toggle
 				on:change={() => switchTab()}
 				options={{
-					left: { label: '', value: false },
-					right: { label: 'Json Schema Editor', value: true }
+					right: 'Json Schema Editor'
 				}}
 			/>
 			<div class="ml-2">

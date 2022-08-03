@@ -116,8 +116,7 @@
 		<Toggle
 			bind:checked
 			options={{
-				left: { label: '', value: 'static' },
-				right: { label: 'Raw Javascript Editor', value: 'javascript' }
+				right: 'Raw Javascript Editor'
 			}}
 		/>
 	</div>

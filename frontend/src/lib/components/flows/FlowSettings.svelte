@@ -165,8 +165,8 @@
 				<Toggle
 					bind:checked={scheduleEnabled}
 					options={{
-						left: { label: 'disabled', value: false },
-						right: { label: 'enabled', value: true }
+						left: 'disabled',
+						right: 'enabled'
 					}}
 				/>
 				<div class="p-2 mt-2 rounded" class:bg-gray-300={!scheduleEnabled}>
