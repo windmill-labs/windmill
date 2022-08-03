@@ -4,34 +4,16 @@
 	import PropPicker from './PropPicker.svelte'
 
 	const [popperRef, popperContent] = createPopperActions({
-		placement: 'bottom',
+		placement: 'top-end',
 		strategy: 'fixed'
 	})
 
 	export let pickableProperties: Object | undefined
 	export let disabled = false
 	let isOpen = false
-	let isFocused = false
 
-	let timeout: NodeJS.Timeout
-
-	export function unfocus() {
-		isFocused = false
-		close()
-	}
-	export function focus() {
-		isFocused = true
-		open()
-	}
-
-	function open() {
-		if (isFocused) {
-			clearTimeout(timeout)
-			!isOpen && (isOpen = true)
-		}
-	}
-	function close() {
-		timeout = setTimeout(() => (isOpen = false), 50)
+	function toggle() {
+		isOpen = !isOpen
 	}
 
 	const dispatch = createEventDispatcher()
@@ -39,12 +21,12 @@
 
 {#if !disabled}
 	<div class="w-full">
-		<div use:popperRef on:mouseleave={close}>
+		<div use:popperRef on:click={toggle}>
 			<slot />
 		</div>
 
 		{#if isOpen}
-			<div class="content" use:popperContent on:mouseenter={open} on:mouseleave={close}>
+			<div class="content" use:popperContent>
 				<PropPicker
 					bind:pickableProperties
 					on:select={(event) => {
@@ -64,7 +46,6 @@
 		@apply drop-shadow-xl;
 		@apply w-full;
 		@apply max-w-4xl;
-
 		@apply px-6;
 		@apply z-50;
 	}

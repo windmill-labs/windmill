@@ -3,7 +3,6 @@
 
 	import {
 		faArrowRotateLeft,
-		faChain,
 		faChevronDown,
 		faChevronUp,
 		faMinus,
@@ -23,7 +22,9 @@
 
 	export let label: string = ''
 	export let value: any
+
 	export let defaultValue: any = undefined
+
 	export let description: string = ''
 	export let format: string = ''
 	export let contentEncoding: 'base64' | 'binary' | undefined = undefined
@@ -147,17 +148,15 @@
 					on:click={() => {
 						seeEditable = !seeEditable
 					}}
-					>Customize argument<Icon
-						class="ml-2"
-						data={seeEditable ? faChevronUp : faChevronDown}
-						scale={0.7}
-					/></span
 				>
+					Customize argument
+					<Icon class="ml-2" data={seeEditable ? faChevronUp : faChevronDown} scale={0.7} />
+				</span>
 
 				{#if seeEditable}
 					<div transition:slide class="mt-2">
-						<label class="text-gray-700"
-							>Description
+						<label class="text-gray-700">
+							Description
 							<textarea rows="1" bind:value={description} placeholder="Edit description" />
 							{#if type == 'string' && !contentEncoding && format != 'date-time'}
 								<StringTypeNarrowing bind:format bind:pattern bind:enum_ bind:contentEncoding />
@@ -188,7 +187,7 @@
 				{error === '' ? '...' : error}
 			</div>
 		</div>
-		<div class="flex flex-row gap-1">
+		<div class="flex flex-row gap-1 items-center">
 			{#if inputCat == 'number' && !numberAsString}
 				<input
 					{disabled}
@@ -236,8 +235,10 @@
 										if (value.length == 0) {
 											value = undefined
 										}
-									}}><Icon data={faMinus} class="mb-1" /></button
+									}}
 								>
+									<Icon data={faMinus} class="mb-1" />
+								</button>
 							</div>
 						{/each}
 					</div>
@@ -248,9 +249,14 @@
 								value = []
 							}
 							value = value.concat('')
-						}}>Add item &nbsp;<Icon data={faPlus} class="mb-1" /></button
-					><span class="ml-2">{(value ?? []).length} item{(value ?? []).length > 1 ? 's' : ''}</span
+						}}
 					>
+						<Icon data={faPlus} class="mr-2" />
+						Add item
+					</button>
+					<span class="ml-2">
+						{(value ?? []).length} item{(value ?? []).length > 1 ? 's' : ''}
+					</span>
 				</div>
 			{:else if inputCat == 'resource-object'}
 				<ObjectResourceInput {format} bind:value />
@@ -312,13 +318,11 @@
 				/>
 			{/if}
 			{#if !required && inputCat != 'resource-object'}
-				<Button on:click={() => (value = undefined)} {disabled} color="blue" size="xs">
+				<Button on:click={() => (value = undefined)} {disabled} color="alternative" size="xs">
 					<Icon data={faArrowRotateLeft} />
 				</Button>
 			{/if}
-			<Button on:click={() => (value = undefined)} {disabled} color="dark" size="xs">
-				<Icon data={faChain} />
-			</Button>
+			<slot name="actions" />
 		</div>
 	</div>
 </div>
