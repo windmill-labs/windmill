@@ -10,7 +10,7 @@
 	import FieldHeader from './FieldHeader.svelte'
 	import DynamicInputHelpBox from './flows/DynamicInputHelpBox.svelte'
 	import { codeToStaticTemplate } from './flows/flowStore'
-	import { getCodeInjectionExpr, getDefaultExpr, isCodeInjection } from './flows/utils'
+	import { getDefaultExpr, isCodeInjection } from './flows/utils'
 	import OverlayPropertyPicker from './propertyPicker/OverlayPropertyPicker.svelte'
 	import Toggle from './Toggle.svelte'
 
@@ -38,21 +38,18 @@
 		return type
 	}
 
-	function setPropertyType(id: string, rawValue: string, isRaw: boolean) {
+	function setPropertyType(rawValue: string) {
 		if (!arg) {
 			return
 		}
 
 		if (isCodeInjection(rawValue)) {
-			arg.expr = getCodeInjectionExpr(rawValue, isRaw)
+			arg.expr = getDefaultExpr(i!, argName, `\`${rawValue}\``)
 			arg.type = 'javascript'
 			propertyType = 'static'
 		} else {
 			if (arg.type === 'javascript' && propertyType === 'static') {
 				arg.type = 'static'
-				if (inputCats[id] == 'number') {
-					arg.value = Number(arg.value)
-				}
 			}
 			if (arg.type) {
 				propertyType = arg.type
@@ -61,12 +58,12 @@
 	}
 
 	function isStaticTemplate(inputCat: InputCat) {
-		return inputCat === 'string' || inputCat === 'number' || inputCat === 'sql'
+		return inputCat === 'string' || inputCat === 'sql'
 	}
 
-	function focusProp(argName: string) {
+	function focusProp(argName: string, monacoEditor: boolean = false) {
 		Object.keys(overlays).forEach((k) => {
-			if (k == argName) {
+			if (k == argName && (isStaticTemplate(inputCats[argName]) || monacoEditor)) {
 				overlays[k].focus()
 			} else {
 				overlays[k].unfocus()
@@ -77,12 +74,10 @@
 	function connectProperty(argName: string, rawValue: string) {
 		if (isStaticTemplate(inputCats[argName])) {
 			arg.value = `\$\{${rawValue}}`
-			setPropertyType(argName, arg.value, false)
+			setPropertyType(arg.value)
 		} else {
 			arg.expr = getDefaultExpr(i ?? -1, undefined, rawValue)
-
 			arg.type = 'javascript'
-
 			propertyType = 'javascript'
 		}
 
@@ -124,8 +119,9 @@
 					arg.expr = getDefaultExpr(
 						i ?? -1,
 						argName,
-						staticTemplate ? `\`${arg.value ?? ''}\`` : undefined
+						staticTemplate ? `\`${arg.value ?? ''}\`` : arg.value
 					)
+
 					arg.value = undefined
 					propertyType = 'javascript'
 				} else {
@@ -143,9 +139,8 @@
 
 	{#if propertyType === undefined || !checked}
 		<OverlayPropertyPicker
-			bind:this={overlays[argName]}
 			{pickableProperties}
-			disabled={!isStaticTemplate(inputCats[argName])}
+			bind:this={overlays[argName]}
 			on:select={({ detail }) => {
 				if (detail.pickerVariation === 'connect') {
 					connectProperty(argName, detail.propPath)
@@ -155,7 +150,9 @@
 					if (monacos[argName]) {
 						monacos[argName].setCode(arg.value)
 					}
-					setPropertyType(argName, arg.value, false)
+					if (isStaticTemplate(inputCats[argName])) {
+						setPropertyType(arg.value)
+					}
 				}
 			}}
 		>
@@ -176,15 +173,14 @@
 				bind:itemsType={schema.properties[argName].items}
 				displayHeader={false}
 				bind:inputCat={inputCats[argName]}
-				numberAsString={true}
 				on:input={(e) => {
 					if (isStaticTemplate(inputCats[argName])) {
-						setPropertyType(argName, e.detail.rawValue, e.detail.isRaw)
+						setPropertyType(e.detail.rawValue)
 					}
 				}}
 			>
 				<div slot="actions">
-					<div on:click={() => overlays[argName].focus('connect')}>
+					<div on:click={() => overlays[argName]?.focus('connect')}>
 						<Tooltip placement="bottom" content="Input connect">
 							<Button color="blue" size="sm" class="h-8">
 								<Icon data={faChain} />
@@ -200,13 +196,13 @@
 				bind:this={overlays[argName]}
 				{pickableProperties}
 				on:select={(event) => {
-					monacos[argName].insertAtCursor(event.detail)
+					monacos[argName].insertAtCursor(event.detail.propPath)
 				}}
 			>
 				<div class="border rounded p-2 mt-2 border-gray-300">
 					<Editor
 						bind:this={monacos[argName]}
-						on:focus={() => focusProp(argName)}
+						on:focus={() => focusProp(argName, true)}
 						bind:code={arg.expr}
 						lang="javascript"
 						class="few-lines-editor"

@@ -153,17 +153,8 @@ export function isCodeInjection(expr: string | undefined): boolean {
 	return false
 }
 
-export function getCodeInjectionExpr(code: string, isRaw: boolean): string {
-	let expr = `\`${code}\``
-	if (isRaw) {
-		expr = `JSON.parse(${expr})`
-	}
-	return `import { previous_result, flow_input, step, variable, resource, params } from 'windmill'
-	
-${expr}`
-}
-
 export function getDefaultExpr(i: number, key: string = 'myfield', previousExpr?: string) {
+	console.log(key, previousExpr)
 	const expr = previousExpr ?? `previous_result.${key}`
 	return `import { previous_result, flow_input, step, variable, resource, params } from 'windmill@${i}'
 
