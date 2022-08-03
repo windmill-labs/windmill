@@ -10,7 +10,7 @@
 	import FieldHeader from './FieldHeader.svelte'
 	import DynamicInputHelpBox from './flows/DynamicInputHelpBox.svelte'
 	import { codeToStaticTemplate } from './flows/flowStore'
-	import { getCodeInjectionExpr, isCodeInjection } from './flows/utils'
+	import { getCodeInjectionExpr, getDefaultExpr, isCodeInjection } from './flows/utils'
 	import ClickablePropertyPicker from './propertyPicker/ClickablePropertyPicker.svelte'
 	import OverlayPropertyPicker from './propertyPicker/OverlayPropertyPicker.svelte'
 	import Toggle from './Toggle.svelte'
@@ -20,7 +20,6 @@
 	export let argName: string
 	export let extraLib: string = 'missing extraLib'
 	export let inputCheck: { [id: string]: boolean }
-
 	export let i: number | undefined = undefined
 	export let pickableProperties: Object | undefined = undefined
 
@@ -117,6 +116,19 @@
 			bind:checked
 			options={{
 				right: 'Raw Javascript Editor'
+			}}
+			on:change={(e) => {
+				const type = e.detail ? 'javascript' : 'static'
+				const staticTemplate = isStaticTemplate(inputCats[argName])
+				if (type === 'javascript') {
+					arg.expr = getDefaultExpr(i ?? -1, argName, staticTemplate ? arg.value : undefined)
+					arg.value = undefined
+				} else {
+					arg.value = staticTemplate ? codeToStaticTemplate(arg.expr) : undefined
+					arg.expr = undefined
+				}
+
+				arg.type = type
 			}}
 		/>
 	</div>

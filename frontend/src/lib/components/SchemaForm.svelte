@@ -11,6 +11,8 @@
 	export let editableSchema = false
 	export let isValid: boolean = true
 	export let pickableProperties: Object | undefined = undefined
+	export let extraLib: string = 'missing extraLib'
+	export let i: number | undefined = undefined
 
 	let inputCheck: { [id: string]: boolean } = {}
 	$: isValid = allTrue(inputCheck) ?? false
@@ -26,6 +28,8 @@
 					bind:argName
 					bind:inputCheck
 					bind:pickableProperties
+					bind:extraLib
+					bind:i
 				/>
 			{:else}
 				<ArgInput
