@@ -21,8 +21,8 @@ use crate::{
     db::DB,
     error::Error,
     jobs::{
-        add_completed_job, add_completed_job_error, postprocess_queued_job, pull, JobKind,
-        QueuedJob,
+        add_completed_job, add_completed_job_error, get_queued_job, postprocess_queued_job, pull,
+        JobKind, QueuedJob,
     },
     parser::{self, Typ},
     scripts::{ScriptHash, ScriptLang},
@@ -193,8 +193,8 @@ pub async fn run_worker(
                     )
                     .await;
 
-                    if job.parent_job.is_some() {
-                        let _ = update_flow_status_after_job_completion(
+                    if let Some(parent_job_id) = job.parent_job {
+                        let updated_flow = update_flow_status_after_job_completion(
                             db,
                             &job,
                             false,
@@ -202,6 +202,23 @@ pub async fn run_worker(
                             &metrics,
                         )
                         .await;
+                        if let Err(err) = updated_flow {
+                            if let Ok(mut tx) = db.begin().await {
+                                if let Ok(Some(parent_job)) =
+                                    get_queued_job(parent_job_id, &job.workspace_id, &mut tx).await
+                                {
+                                    let _ = add_completed_job_error(
+                                        db,
+                                        &parent_job,
+                                        format!("Unexpected error during flow job error handling:\n{err}")
+                                            ,
+                                        err,
+                                        &metrics,
+                                    )
+                                    .await;
+                                }
+                            }
+                        }
                     }
                     tracing::error!(job_id = %job.id, "Error handling job: {err}");
                 };
