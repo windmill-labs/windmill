@@ -977,7 +977,7 @@ paths:
                 items:
                   $ref: "#/components/schemas/ContextualVariable"
 
-  /oauth/login_callback/{client_name}:
+  /oauth/login/{client_name}/callback:
     post:
       security: []
       summary: login with oauth authorization flow
@@ -1016,7 +1016,7 @@ paths:
               schema:
                 type: string
 
-  /oauth/connect_slack_callback:
+  /oauth/connect/slack/callback:
     post:
       summary: connect slack callback
       operationId: connectSlackCallback
@@ -1045,7 +1045,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/SlackToken"
 
-  /oauth/connect_callback/{client_name}:
+  /oauth/connect/{client_name}/callback/:
     post:
       summary: connect callback
       operationId: connectCallback
@@ -1076,7 +1076,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/TokenResponse"
 
-  /w/{workspace}/oauth/create_account:
+  /w/{workspace}/oauth/accounts:
     post:
       summary: create OAuth account
       operationId: createAccount
@@ -1113,7 +1113,7 @@ paths:
               schema:
                 type: string
 
-  /w/{workspace}/oauth/refresh_token/{id}:
+  /w/{workspace}/oauth/tokens/{id}:
     post:
       summary: refresh token
       operationId: refreshToken
@@ -1197,7 +1197,7 @@ paths:
               schema:
                 type: string
 
-  /oauth/list_logins:
+  /oauth/logins:
     get:
       summary: list oauth logins
       operationId: listOAuthLogins
@@ -1213,7 +1213,7 @@ paths:
                 items:
                   type: string
 
-  /oauth/list_connects:
+  /oauth/connects:
     get:
       summary: list oauth connects
       operationId: listOAuthConnects
