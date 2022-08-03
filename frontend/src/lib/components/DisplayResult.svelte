@@ -6,7 +6,7 @@
 
 	export let result: any
 
-	let resultKind: 'json' | 'table-col' | 'table-row' | 'png' | 'file' | undefined =
+	let resultKind: 'json' | 'table-col' | 'table-row' | 'png' | 'file' | 'jpeg' | undefined =
 		inferResultKind(result)
 
 	function isArray(obj: any) {
@@ -45,6 +45,8 @@
 					return 'table-col'
 				} else if (keys.length == 1 && keys[0] == 'png') {
 					return 'png'
+				} else if (keys.length == 1 && keys[0] == 'jpeg') {
+					return 'jpeg'
 				} else if (keys.length == 1 && keys[0] == 'file') {
 					return 'file'
 				}
@@ -97,6 +99,14 @@
 				alt="png rendered"
 				class="w-auto h-full"
 				src="data:image/png;base64,{result.png}"
+			/>
+		</div>
+	{:else if resultKind == 'jpeg'}
+		<div class="h-full">
+			Result is an image: <img
+				alt="jpeg rendered"
+				class="w-auto h-full"
+				src="data:image/jpeg;base64,{result.jpeg}"
 			/>
 		</div>
 	{:else if resultKind == 'file'}
