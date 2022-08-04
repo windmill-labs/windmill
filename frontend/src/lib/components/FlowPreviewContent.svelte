@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Job, JobService, type Flow } from '$lib/gen'
+	import { Job, JobService } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { sendUserToast, truncateRev } from '$lib/utils'
 	import { faClose } from '@fortawesome/free-solid-svg-icons'
@@ -7,12 +7,13 @@
 	import { createEventDispatcher, onDestroy } from 'svelte'
 	import Icon from 'svelte-awesome'
 	import FlowJobResult from './FlowJobResult.svelte'
+	import { flowStore } from './flows/flowStore'
+	import { runFlowPreview } from './flows/utils'
 	import FlowStatusViewer from './FlowStatusViewer.svelte'
 	import SchemaForm from './SchemaForm.svelte'
 
 	const dispatch = createEventDispatcher()
 
-	export let flow: Flow
 	export let args: Record<string, any> = {}
 
 	let intervalId: NodeJS.Timer
@@ -25,15 +26,7 @@
 
 	export async function runPreview(args: Record<string, any>) {
 		intervalId && clearInterval(intervalId)
-
-		jobId = await JobService.runFlowPreview({
-			workspace: $workspaceStore ?? '',
-			requestBody: {
-				args,
-				value: flow.value,
-				path: flow.path
-			}
-		})
+		jobId = await runFlowPreview(args, $flowStore)
 		jobs = []
 		intervalId = setInterval(loadJob, 1000)
 		sendUserToast(`started preview ${truncateRev(jobId, 10)}`)
@@ -64,9 +57,9 @@
 				<Icon data={faClose} />
 			</Button>
 		</div>
-		<SchemaForm schema={flow.schema} bind:isValid bind:args />
-		<Button disabled={!isValid} class="blue-button" on:click={() => runPreview(args)} size="md"
-			>Preview
+		<SchemaForm schema={$flowStore.schema} bind:isValid bind:args />
+		<Button disabled={!isValid} class="blue-button" on:click={() => runPreview(args)} size="md">
+			Preview
 		</Button>
 	</div>
 	<div class="h-full overflow-y-auto mb-16">
