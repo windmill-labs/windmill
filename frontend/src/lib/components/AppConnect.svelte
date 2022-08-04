@@ -1,8 +1,13 @@
 <script lang="ts" context="module">
-	const apiTokenApps: Record<string, { img?: string; instructions: string }> = {
+	const apiTokenApps: Record<string, { img?: string; instructions: string; key?: string }> = {
 		airtable: {
 			img: 'airtable_connect.png',
 			instructions: 'Click on the top-right avatar -> Account -> Api'
+		},
+		discord_webhook: {
+			img: 'discord_webhook.png',
+			instructions: 'Server Settings -> Integration -> Webhooks',
+			key: 'webhook_url'
 		}
 	}
 </script>
@@ -28,6 +33,9 @@
 	let valueToken: TokenResponse
 	let connects: Record<string, { scopes: string[]; extra_params?: Record<string, string> }> = {}
 	let connectsManual: [string, { img?: string; instructions: string }][] = []
+	let key: string = 'token'
+
+	$: key = apiTokenApps[resource_type]?.key ?? 'token'
 
 	let scopes: string[] = []
 	let extra_params: [string, string][] = []
@@ -101,7 +109,7 @@
 			}
 
 			let account: number | undefined = undefined
-			if (valueToken.refresh_token != undefined && valueToken.expires_in != undefined) {
+			if (valueToken?.refresh_token != undefined && valueToken?.expires_in != undefined) {
 				account = Number(
 					await OauthService.createAccount({
 						workspace: $workspaceStore!,
@@ -125,12 +133,14 @@
 					account: account
 				}
 			})
+			const resourceValue = {}
+			resourceValue[key] = `$var:${path}`
 			await ResourceService.createResource({
 				workspace: $workspaceStore!,
 				requestBody: {
 					resource_type,
 					path,
-					value: { token: `$var:${path}` },
+					value: resourceValue,
 					description: `OAuth token for ${resource_type}`,
 					is_oauth: true
 				}
