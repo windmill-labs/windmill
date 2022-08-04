@@ -5,19 +5,18 @@
 	import Icon from 'svelte-awesome'
 	import { check } from 'svelte-awesome/icons'
 
-	import { CompletedJob, FlowStatusModule, JobService, QueuedJob } from '$lib/gen'
+	import { CompletedJob, FlowStatusModule, Job, JobService, QueuedJob } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import FlowJobResult from './FlowJobResult.svelte'
 	import JobStatus from './JobStatus.svelte'
 
 	export let job: QueuedJob | CompletedJob
-	export let jobs: (CompletedJob | CompletedJob[] | undefined)[] = []
+	export let jobs: (Job | Job[] | undefined)[] = []
 
 	let lastJobid: string | undefined
 
 	let forloop_selected = ''
 
-	let logs: { [key: number]: string } = {}
 	let pres: { [key: number]: HTMLElement } = {}
 
 	async function loadResults() {
@@ -27,13 +26,12 @@
 				let i = mods?.findIndex((x) => x.type == FlowStatusModule.type.IN_PROGRESS)
 				if (i != -1) {
 					let last = mods[i]
-					if (last?.type == FlowStatusModule.type.IN_PROGRESS) {
-						logs[i] =
-							(await JobService.getJob({ workspace: $workspaceStore ?? '', id: last.job ?? '' }))
-								.logs ?? ''
-						logs = logs
-						pres[i].scroll({ top: pres[i]?.scrollHeight, behavior: 'smooth' })
-					}
+					jobs[i] = await JobService.getJob({
+						workspace: $workspaceStore ?? '',
+						id: last.job ?? ''
+					})
+					jobs = jobs
+					pres[i].scroll({ top: pres[i]?.scrollHeight, behavior: 'smooth' })
 				}
 			}
 		}
@@ -61,6 +59,10 @@
 				jobs = jobs
 			}
 		})
+	}
+
+	function toJob(x: any): Job {
+		return x as Job
 	}
 
 	function toCompletedJob(x: any): CompletedJob {
@@ -99,6 +101,7 @@
 		{#each job?.raw_flow?.modules ?? [] as mod, i}
 			<li class="w-full">
 				<div class="relative pb-8 w-full">
+					{job.flow_status?.modules[i].type}
 					{#if i < (job?.raw_flow?.modules ?? []).length - 1}
 						<span
 							class="absolute top-4 left-4 -ml-px h-full w-0.5 bg-gray-200"
@@ -199,18 +202,18 @@
 									{/if}
 								{/each}
 							</div>
-						{:else}
+						{:else if toJob(jobs[i]).type == 'CompletedJob'}
 							<FlowJobResult job={toCompletedJob(jobs[i])} />
-						{/if}
-					{:else}
-						<div class="mx-20">
-							<pre
-								bind:this={pres[i]}
-								class="break-all p-4 relative h-full mx-2 bg-gray-50 text-xs max-h-40 overflow-y-auto border">{logs[
-									i
-								] ?? ''}
+						{:else if jobs[i]}
+							<div class="mx-20">
+								<pre
+									bind:this={pres[i]}
+									class="break-all p-4 relative h-full mx-2 bg-gray-50 text-xs max-h-40 overflow-y-auto border">{toJob(
+										jobs[i]
+									).logs ?? ''}
 							</pre>
-						</div>
+							</div>
+						{/if}
 					{/if}
 				</div>
 			</li>
