@@ -21,11 +21,15 @@
 		iconColor="text-blue-800"
 		on:click={() => dispatch('new', { language: RawScript.language.DENO })}
 	/>
+
 	<FlowScriptPicker
 		disabled={isTrigger}
 		label="New Python {isTrigger ? 'trigger ' : ''}script (3.10)"
 		icon={faCode}
 		iconColor="text-yellow-500"
 		on:click={() => dispatch('new', { language: RawScript.language.PYTHON3 })}
+		tooltip={isTrigger
+			? 'Python is not supported for trigger scripts yet but is supported for every other steps'
+			: undefined}
 	/>
 </div>
