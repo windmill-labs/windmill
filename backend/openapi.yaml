@@ -375,7 +375,6 @@ paths:
                 items:
                   $ref: "#/components/schemas/Workspace"
 
-
   /workspaces/exists:
     post:
       summary: exists workspace
@@ -1519,7 +1518,7 @@ paths:
                         - views
                         - votes
 
-  /flows/hub/list:
+  /flows/hub:
     get:
       summary: list all available hub flows
       operationId: listHubFlows
@@ -1561,7 +1560,7 @@ paths:
                         - approved
                         - votes
 
-  /flows/hub/get/{id}:
+  /flows/hub/{id}:
     get:
       summary: get hub flow by id
       operationId: getHubFlowById
@@ -1972,7 +1971,7 @@ paths:
             application/json:
               schema: {}
 
-  /w/{workspace}/flows/list:
+  /w/{workspace}/flows:
     get:
       summary: list all available flows
       operationId: listFlows
@@ -2012,42 +2011,6 @@ paths:
                 type: array
                 items:
                   $ref: "#/components/schemas/Flow"
-
-  /w/{workspace}/flows/get/{path}:
-    get:
-      summary: get flow by path
-      operationId: getFlowByPath
-      tags:
-        - flow
-      parameters:
-        - $ref: "#/components/parameters/WorkspaceId"
-        - $ref: "#/components/parameters/ScriptPath"
-      responses:
-        "200":
-          description: flow details
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Flow"
-
-  /w/{workspace}/flows/exists/{path}:
-    get:
-      summary: exists flow by path
-      operationId: existsFlowByPath
-      tags:
-        - flow
-      parameters:
-        - $ref: "#/components/parameters/WorkspaceId"
-        - $ref: "#/components/parameters/ScriptPath"
-      responses:
-        "200":
-          description: flow details
-          content:
-            application/json:
-              schema:
-                type: boolean
-
-  /w/{workspace}/flows/create:
     post:
       summary: create flow
       operationId: createFlow
@@ -2071,8 +2034,23 @@ paths:
               schema:
                 type: string
 
-  /w/{workspace}/flows/update/{path}:
-    post:
+  /w/{workspace}/flows/{path}:
+    get:
+      summary: get flow by path
+      operationId: getFlowByPath
+      tags:
+        - flow
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/ScriptPath"
+      responses:
+        "200":
+          description: flow details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Flow"
+    patch:
       summary: update flow
       operationId: updateFlow
       tags:
@@ -2095,8 +2073,6 @@ paths:
             text/plain:
               schema:
                 type: string
-
-  /w/{workspace}/flows/archive/{path}:
     post:
       summary: archive flow by path
       operationId: archiveFlowByPath
@@ -2112,6 +2088,23 @@ paths:
             text/plain:
               schema:
                 type: string
+
+  /w/{workspace}/flows/exists/{path}:
+    get:
+      summary: exists flow by path
+      operationId: existsFlowByPath
+      tags:
+        - flow
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/ScriptPath"
+      responses:
+        "200":
+          description: flow details
+          content:
+            application/json:
+              schema:
+                type: boolean
 
   /w/{workspace}/jobs/run/f/{path}:
     post:

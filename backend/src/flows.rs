@@ -32,18 +32,18 @@ use crate::{
 
 pub fn workspaced_service() -> Router {
     Router::new()
-        .route("/list", get(list_flows))
-        .route("/create", post(create_flow))
-        .route("/update/*path", post(update_flow))
-        .route("/archive/*path", post(archive_flow_by_path))
-        .route("/get/*path", get(get_flow_by_path))
+        .route("/", get(list_flows))
+        .route("/", post(create_flow))
+        .route("/p/*path", get(get_flow_by_path))
+        .route("/p/*path", patch(update_flow))
+        .route("/p/*path", post(archive_flow_by_path))
         .route("/exists/*path", get(exists_flow_by_path))
 }
 
 pub fn global_service() -> Router {
     Router::new()
-        .route("/hub/list", get(list_hub_flows))
-        .route("/hub/get/:id", get(get_hub_flow_by_id))
+        .route("/hub", get(list_hub_flows))
+        .route("/hub/:id", get(get_hub_flow_by_id))
 }
 
 #[derive(FromRow, Serialize)]
