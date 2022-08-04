@@ -52,6 +52,7 @@
 			script.description = template.description
 			script.content = template.content
 			script.schema = template.schema
+			script.language = template.language
 			sendUserToast('Code & arguments have been loaded from template.')
 		}
 	}
