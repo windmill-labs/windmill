@@ -12,6 +12,7 @@
 
 	export let job: QueuedJob | CompletedJob
 	export let jobs: (Job | Job[] | undefined)[] = []
+	export let fullyRetrieved = -1
 
 	let lastJobid: string | undefined
 
@@ -31,17 +32,18 @@
 						id: last.job ?? ''
 					})
 					jobs = jobs
-					pres[i].scroll({ top: pres[i]?.scrollHeight, behavior: 'smooth' })
+					pres[i]?.scroll({ top: pres[i]?.scrollHeight, behavior: 'smooth' })
 				}
 			}
 		}
 		if (job.id != lastJobid) {
 			lastJobid = job.id
 			jobs = []
+			fullyRetrieved = -1
 		}
 		job?.flow_status?.modules?.forEach(async (x, i) => {
 			if (
-				(i >= jobs.length && x.type == FlowStatusModule.type.SUCCESS) ||
+				(i > fullyRetrieved && x.type == FlowStatusModule.type.SUCCESS) ||
 				x.type == FlowStatusModule.type.FAILURE
 			) {
 				if (x.forloop_jobs) {
@@ -52,11 +54,12 @@
 							await JobService.getCompletedJob({ workspace: $workspaceStore!, id: j })
 						)
 					}
-					jobs.push(forloop_jobs)
+					jobs[i] = forloop_jobs
 				} else {
-					jobs.push(await JobService.getCompletedJob({ workspace: $workspaceStore!, id: x.job! }))
+					jobs[i] = await JobService.getCompletedJob({ workspace: $workspaceStore!, id: x.job! })
 				}
 				jobs = jobs
+				fullyRetrieved = i
 			}
 		})
 	}
@@ -100,8 +103,7 @@
 	<ul class="w-full">
 		{#each job?.raw_flow?.modules ?? [] as mod, i}
 			<li class="w-full">
-				<div class="relative pb-8 w-full">
-					{job.flow_status?.modules[i].type}
+				<div class="relative w-full">
 					{#if i < (job?.raw_flow?.modules ?? []).length - 1}
 						<span
 							class="absolute top-4 left-4 -ml-px h-full w-0.5 bg-gray-200"
@@ -205,14 +207,21 @@
 						{:else if toJob(jobs[i]).type == 'CompletedJob'}
 							<FlowJobResult job={toCompletedJob(jobs[i])} />
 						{:else if jobs[i]}
-							<div class="mx-20">
-								<pre
-									bind:this={pres[i]}
-									class="break-all p-4 relative h-full mx-2 bg-gray-50 text-xs max-h-40 overflow-y-auto border">{toJob(
-										jobs[i]
-									).logs ?? ''}
+							{#if toJob(jobs[i])?.raw_flow}
+								<div class="border-2">
+									<h2>Forloop current iteration</h2>
+									<svelte:self job={jobs[i]} />
+								</div>
+							{:else}
+								<div class="max-w-2xl mt-2 h-full">
+									<pre
+										bind:this={pres[i]}
+										class="break-all p-4 relative h-full mx-2 bg-gray-50 text-xs max-h-40 overflow-y-auto border">{toJob(
+											jobs[i]
+										).logs ?? ''}
 							</pre>
-							</div>
+								</div>
+							{/if}
 						{/if}
 					{/if}
 				</div>

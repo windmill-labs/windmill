@@ -164,7 +164,6 @@ export function isCodeInjection(expr: string | undefined): boolean {
 }
 
 export function getDefaultExpr(i: number, key: string = 'myfield', previousExpr?: string) {
-	console.log(key, previousExpr)
 	const expr = previousExpr ?? `previous_result.${key}`
 	return `import { previous_result, flow_input, step, variable, resource, params } from 'windmill@${i}'
 
@@ -178,7 +177,6 @@ export function getPickableProperties(
 	mode: FlowMode,
 	i: number
 ) {
-	console.log(i, previewResults)
 	const flowInputAsObject = schemaToObject(schema, args)
 	const flowInput =
 		mode === 'pull' && i >= 1
