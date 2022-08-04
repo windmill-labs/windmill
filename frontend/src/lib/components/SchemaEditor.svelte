@@ -144,7 +144,7 @@
 				modalProperty = Object.assign({}, DEFAULT_PROPERTY)
 				schemaModal.openModal()
 			}}
-			color="blue"
+			class="blue-button"
 		>
 			<Icon data={faPlus} class="mr-1" />
 			Add argument

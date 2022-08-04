@@ -182,7 +182,7 @@
 				<div slot="actions">
 					<div on:click={() => overlays[argName]?.focus('connect')}>
 						<Tooltip placement="bottom" content="Input connect">
-							<Button color="blue" size="sm" class="h-8">
+							<Button size="sm" class="blue-button h-8">
 								<Icon data={faChain} />
 							</Button>
 						</Tooltip>

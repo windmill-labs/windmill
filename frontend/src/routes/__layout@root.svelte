@@ -1,4 +1,9 @@
 <script lang="ts">
+	import { goto } from '$app/navigation'
+	import { OpenAPI } from '$lib/gen'
+	import { logout } from '$lib/logout'
+	import { superadmin, userStore, usersWorkspaceStore, workspaceStore } from '$lib/stores'
+	import { clickOutside } from '$lib/utils'
 	import { faDiscord, faGithub } from '@fortawesome/free-brands-svg-icons'
 	import {
 		faBookOpen,
@@ -21,11 +26,6 @@
 	import { onMount } from 'svelte'
 	import Icon from 'svelte-awesome'
 	import '../app.css'
-	import { OpenAPI } from '$lib/gen'
-	import { superadmin, userStore, usersWorkspaceStore, workspaceStore } from '$lib/stores'
-	import { clickOutside } from '$lib/utils'
-	import { logout } from '$lib/logout'
-	import { goto } from '$app/navigation'
 
 	OpenAPI.WITH_CREDENTIALS = true
 
@@ -342,9 +342,9 @@
 		</ul>
 	</nav>
 	<div
-		class="bg-white antialiased text-gray-900 pt-4 {isCollapsed
-			? 'pl-12'
-			: 'pl-44'} pr-8 flex h-full max-w-screen flex-col items-center"
+		class="bg-white antialiased text-gray-900 {isCollapsed
+			? 'pl-8'
+			: 'pl-36'} flex h-full max-w-screen flex-col items-center"
 	>
 		<slot />
 	</div>

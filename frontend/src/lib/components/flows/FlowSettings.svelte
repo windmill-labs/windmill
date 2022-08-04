@@ -4,7 +4,6 @@
 	import { Dropdown, DropdownItem } from 'flowbite-svelte'
 	import Icon from 'svelte-awesome'
 	import Editor from '../Editor.svelte'
-	import FlowPreview from '../FlowPreview.svelte'
 	import FlowViewer from '../FlowViewer.svelte'
 	import Modal from '../Modal.svelte'
 	import RadioButton from '../RadioButton.svelte'
@@ -129,31 +128,29 @@
 				rows="1"
 			/>
 		</label>
-	</div>
 
-	<div class="mx-6">
-		<RadioButton
-			options={[
-				[
-					{
-						title: 'UI or webhook triggered',
-						desc: 'Trigger this flow through the generated UI, a manual schedule or by calling the associated webhook'
-					},
-					'push'
-				],
-				[
-					{
-						title: 'Watching changes regularly',
-						desc: 'The first module of this flow is a trigger script whose purpose is to pull data from an external source and return all new items since last run. This flow is meant to be scheduled very regularly to reduce latency to react to new events. It will trigger the rest of the flow once per item. If no new items, the flow will be skipped.'
-					},
-					'pull'
-				]
-			]}
-			bind:value={$mode}
-		/>
-	</div>
-	{#if $mode == 'pull'}
-		<div class="p-4">
+		<div class="mt-4">
+			<RadioButton
+				options={[
+					[
+						{
+							title: 'UI or webhook triggered',
+							desc: 'Trigger this flow through the generated UI, a manual schedule or by calling the associated webhook'
+						},
+						'push'
+					],
+					[
+						{
+							title: 'Watching changes regularly',
+							desc: 'The first module of this flow is a trigger script whose purpose is to pull data from an external source and return all new items since last run. This flow is meant to be scheduled very regularly to reduce latency to react to new events. It will trigger the rest of the flow once per item. If no new items, the flow will be skipped.'
+						},
+						'pull'
+					]
+				]}
+				bind:value={$mode}
+			/>
+		</div>
+		{#if $mode == 'pull'}
 			<CollapseLink text="set primary schedule" open={true}>
 				<Tooltip>
 					The primary schedule of a flow is simply a schedule that has the same name as a flow. It
@@ -177,15 +174,6 @@
 				</div>
 				<SchemaForm schema={$flowStore.schema} bind:args={scheduleArgs} />
 			</CollapseLink>
-		</div>
-	{/if}
-
-	<div class="p-6">
-		<FlowPreview
-			mode={$mode}
-			flow={$flowStore}
-			i={$flowStore?.value.modules.length}
-			bind:args={scheduleArgs}
-		/>
+		{/if}
 	</div>
 </FlowBox>
