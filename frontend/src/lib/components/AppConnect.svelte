@@ -32,7 +32,7 @@
 	let value: string = ''
 	let valueToken: TokenResponse
 	let connects: Record<string, { scopes: string[]; extra_params?: Record<string, string> }> = {}
-	let connectsManual: [string, { img?: string; instructions: string }][] = []
+	let connectsManual: [string, { img?: string; instructions: string; key?: string }][] = []
 	let key: string = 'token'
 
 	$: key = apiTokenApps[resource_type]?.key ?? 'token'
@@ -173,7 +173,7 @@
 	<div slot="title">Connect an App</div>
 	<div slot="content">
 		{#if step == 1}
-			{#if resource_type && !connects[resource_type] && !connectsManual[resource_type]}
+			{#if resource_type && !connects[resource_type] && !connectsManual.find((x) => x[0] == resource_type)}
 				<div class="bg-red-100 border-l-4 border-red-600 text-orange-700 p-4" role="alert">
 					<p class="font-bold">No app integration for {resource_type}</p>
 					<p>
