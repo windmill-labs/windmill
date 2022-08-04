@@ -19,7 +19,7 @@
 		schemasStore,
 		type FlowMode
 	} from './flows/flowStore'
-	import { getPickableProperties } from './flows/utils'
+	import { getPickableProperties, jobsToResults } from './flows/utils'
 	import SchemaForm from './SchemaForm.svelte'
 	import Tooltip from './Tooltip.svelte'
 
@@ -42,16 +42,6 @@
 		schemaToTsType($flowStore?.schema),
 		i === 0 ? schemaToTsType($flowStore?.schema) : objectToTsType($previewResults[i])
 	)
-
-	function toResults(jobs: any) {
-		return jobs.map((job) => {
-			if (job.result) {
-				return job.result
-			} else if (Array.isArray(job)) {
-				return toResults(job)
-			}
-		})
-	}
 
 	const isTrigger = mode === 'pull' && i === 0
 </script>
@@ -157,7 +147,7 @@
 						{mode}
 						schemas={$schemasStore}
 						on:change={(e) => {
-							previewResults.set(toResults(e.detail))
+							previewResults.set(jobsToResults(e.detail))
 						}}
 					/>
 				</div>
