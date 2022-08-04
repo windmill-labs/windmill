@@ -24,14 +24,14 @@ use sqlx::{FromRow, Postgres, Transaction};
 
 pub fn workspaced_service() -> Router {
     Router::new()
-        .route("/list", get(list_groups))
-        .route("/listnames", get(list_group_names))
-        .route("/create", post(create_group))
-        .route("/get/:name", get(get_group))
-        .route("/update/:name", post(update_group))
-        .route("/delete/:name", delete(delete_group))
-        .route("/adduser/:name", post(add_user))
-        .route("/removeuser/:name", post(remove_user))
+        .route("/", get(list_groups))
+        .route("/", post(create_group))
+        .route("/names", get(list_group_names))
+        .route("/:name", get(get_group))
+        .route("/:name", post(update_group))
+        .route("/:name", delete(delete_group))
+        .route("/users/:name", post(add_user))
+        .route("/users/:name", delete(remove_user))
 }
 
 #[derive(FromRow, Serialize, Deserialize)]
