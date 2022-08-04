@@ -2626,7 +2626,7 @@ paths:
               schema:
                 type: string
 
-  /w/{workspace}/groups:
+  /w/{workspace}/groups/list:
     get:
       summary: list groups
       operationId: listGroups
@@ -2646,7 +2646,7 @@ paths:
                 items:
                   $ref: "#/components/schemas/Group"
 
-  /w/{workspace}/groups/names:
+  /w/{workspace}/groups/listnames:
     get:
       summary: list group names
       operationId: listGroupNames
@@ -2663,6 +2663,8 @@ paths:
                 type: array
                 items:
                   type: string
+
+  /w/{workspace}/groups/create:
     post:
       summary: create group
       operationId: createGroup
@@ -2692,22 +2694,7 @@ paths:
               schema:
                 type: string
 
-  /w/{workspace}/groups/{name}:
-    get:
-      summary: get group
-      operationId: getGroup
-      tags:
-        - group
-      parameters:
-        - $ref: "#/components/parameters/WorkspaceId"
-        - $ref: "#/components/parameters/Name"
-      responses:
-        "200":
-          description: group
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Group"
+  /w/{workspace}/groups/update/{name}:
     post:
       summary: update group
       operationId: updateGroup
@@ -2733,6 +2720,8 @@ paths:
             text/plain:
               schema:
                 type: string
+
+  /w/{workspace}/groups/delete/{name}:
     delete:
       summary: delete group
       operationId: deleteGroup
@@ -2749,10 +2738,24 @@ paths:
               schema:
                 type: string
 
+  /w/{workspace}/groups/get/{name}:
+    get:
+      summary: get group
+      operationId: getGroup
+      tags:
+        - group
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Name"
+      responses:
+        "200":
+          description: group
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Group"
 
-
-
-  /w/{workspace}/groups/users/{name}:
+  /w/{workspace}/groups/adduser/{name}:
     post:
       summary: add user to group
       operationId: addUserToGroup
@@ -2779,7 +2782,8 @@ paths:
               schema:
                 type: string
 
-    delete:
+  /w/{workspace}/groups/removeuser/{name}:
+    post:
       summary: remove user to group
       operationId: removeUserToGroup
       tags:
