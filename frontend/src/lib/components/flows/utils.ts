@@ -1,10 +1,20 @@
 import type { Schema } from '$lib/common'
-import type { Flow, FlowModule, FlowModuleValue, InputTransform, Job, RawScript } from '$lib/gen'
+import {
+	JobService,
+	type Flow,
+	type FlowModule,
+	type FlowModuleValue,
+	type InputTransform,
+	type Job,
+	type RawScript
+} from '$lib/gen'
 import { inferArgs } from '$lib/infer'
 import { loadSchema } from '$lib/scripts'
+import { workspaceStore } from '$lib/stores'
 import { emptySchema, getScriptByPath, schemaToObject } from '$lib/utils'
+import { get } from 'svelte/store'
 
-import type { FlowMode } from './flowStore'
+import { mode, type FlowMode } from './flowStore'
 
 export function flowToMode(flow: Flow | any, mode: FlowMode): Flow {
 	const newFlow: Flow = JSON.parse(JSON.stringify(flow))
@@ -215,6 +225,18 @@ export function jobsToResults(jobs: Job[]) {
 			return job.result
 		} else if (Array.isArray(job)) {
 			return jobsToResults(job)
+		}
+	})
+}
+
+export async function runFlowPreview(args: Record<string, any>, flow: Flow) {
+	const newFlow = flowToMode(flow, get(mode))
+	return await JobService.runFlowPreview({
+		workspace: get(workspaceStore) ?? '',
+		requestBody: {
+			args,
+			value: newFlow.value,
+			path: newFlow.path
 		}
 	})
 }
