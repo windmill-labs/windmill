@@ -64,7 +64,7 @@
 			</Button>
 		</div>
 		<SchemaForm schema={flow.schema} isValid={true} bind:args />
-		<Button on:click={() => runPreview(args)} size="md">Preview</Button>
+		<Button class="blue-button" on:click={() => runPreview(args)} size="md">Preview</Button>
 	</div>
 	<div class="h-full overflow-y-auto mb-16">
 		{#if job}

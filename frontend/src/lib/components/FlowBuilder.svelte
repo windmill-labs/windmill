@@ -206,7 +206,7 @@
 		size="lg"
 		pill
 		on:click={() => (previewOpen = !previewOpen)}
-		class={`fixed bottom-10 right-10 ${previewOpen ? 'hidden' : ''}`}
+		class={`blue-button fixed bottom-10 right-10 ${previewOpen ? 'hidden' : ''}`}
 	>
 		Preview flow
 		<Icon data={faPlay} class="ml-2" />
