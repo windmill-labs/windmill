@@ -41,7 +41,6 @@
 		| { type?: 'string' | 'number' | 'bytes'; contentEncoding?: 'base64' }
 		| undefined = undefined
 	export let displayHeader = true
-	export let numberAsString = false
 
 	let seeEditable: boolean = enum_ != undefined || pattern != undefined
 	const dispatch = createEventDispatcher()
@@ -188,7 +187,7 @@
 			</div>
 		</div>
 		<div class="flex space-x-1">
-			{#if inputCat == 'number' && !numberAsString}
+			{#if inputCat == 'number'}
 				<input
 					{disabled}
 					type="number"
@@ -303,7 +302,7 @@
 						? format.substring('resource-'.length)
 						: undefined}
 				/>
-			{:else if inputCat == 'string' || (inputCat == 'number' && numberAsString)}
+			{:else if inputCat == 'string'}
 				<textarea
 					on:focus={() => dispatch('focus')}
 					on:blur={() => dispatch('blur')}
