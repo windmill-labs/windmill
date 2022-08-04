@@ -1,0 +1,13 @@
+{
+  "resource_type": {
+    "id": 31,
+    "name": "discord_webhook",
+    "schema": "{\n\t\"$schema\": \"https://json-schema.org/draft/2020-12/schema\",\n\t\"properties\": {\n\t\t\"webhook_url\": {\n\t\t\t\"type\": \"string\",\n\t\t\t\"description\": \"The webhook url\"\n\t\t}\n\t},\n\t\"required\": [],\n\t\"type\": \"object\"\n}",
+    "approved": true,
+    "app": "discord",
+    "description": "Discord webhook url to send messages.\n\nSee: <https://support.discord.com/hc/en-us/articles/228383668-Intro-to-Webhooks>",
+    "created_by": "admin",
+    "created_at": "2022-08-04T15:04:16.865Z",
+    "comments": []
+  }
+}
