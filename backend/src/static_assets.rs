@@ -36,7 +36,7 @@ where
 }
 
 fn serve_path(path: String) -> Response<BoxBody> {
-    if path.starts_with("api/v1/") {
+    if path.starts_with("api/") {
         return Response::builder()
             .status(404)
             .body(body::boxed(body::Empty::new()))

@@ -17,7 +17,7 @@ externalDocs:
   url: https://docs.windmill.dev
 
 servers:
-  - url: /api/v1
+  - url: /api
 
 security:
   - bearerAuth: []
