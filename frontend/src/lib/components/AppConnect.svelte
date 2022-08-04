@@ -15,20 +15,23 @@
 
 	import { OauthService, ResourceService, VariableService, type TokenResponse } from '$lib/gen'
 
-	import { createEventDispatcher, onMount } from 'svelte'
+	import { createEventDispatcher } from 'svelte'
 	import Modal from './Modal.svelte'
 	import Icon from 'svelte-awesome'
 	import Path from './Path.svelte'
 	import Password from './Password.svelte'
 	import { sendUserToast, truncateRev } from '$lib/utils'
+	import { page } from '$app/stores'
 
 	let manual = false
 	let value: string = ''
 	let valueToken: TokenResponse
-	let connects: Record<string, string[]> = {}
+	let connects: Record<string, { scopes: string[]; extra_params?: Record<string, string> }> = {}
 	let connectsManual: [string, { img?: string; instructions: string }][] = []
 
 	let scopes: string[] = []
+	let extra_params: [string, string][] = []
+
 	let path: string
 
 	let modal: Modal
@@ -74,7 +77,12 @@
 		if (step < 3 && manual) {
 			step += 1
 		} else if (step == 1 && !manual) {
-			window.location.href = `/api/oauth/connect/${resource_type}?scopes=${scopes.join('+')}`
+			const url = new URL(`/api/oauth/connect/${resource_type}`, $page.url.origin)
+			url.searchParams.append('scopes', scopes.join('+'))
+			if (extra_params.length > 0) {
+				extra_params.forEach(([key, value]) => url.searchParams.append(key, value))
+			}
+			window.location.href = url.toString()
 		} else {
 			let exists = await VariableService.existsVariable({
 				workspace: $workspaceStore!,
@@ -173,7 +181,8 @@
 						on:click={() => {
 							manual = false
 							resource_type = key
-							scopes = values
+							scopes = values.scopes
+							extra_params = Object.entries(values.extra_params ?? {})
 							dispatch('click')
 						}}
 					>
@@ -200,6 +209,33 @@
 						scopes = scopes.concat('')
 					}}>Add item &nbsp;<Icon data={faPlus} class="mb-1" /></button
 				><span class="ml-2">{(scopes ?? []).length} item{(scopes ?? []).length > 1 ? 's' : ''}</span
+				>
+			{:else}
+				<p class="italic text-sm">Pick an OAuth app and customize the scopes here</p>
+			{/if}
+			<PageHeader title="Extra Params" primary={false} />
+			{#if !manual && resource_type != ''}
+				{#each extra_params as [k, v], i}
+					<div class="flex flex-row max-w-md">
+						<input type="text" bind:value={k} />
+						<input type="text" bind:value={v} />
+
+						<button
+							class="default-button-secondary mx-6"
+							on:click={() => {
+								extra_params = extra_params.filter((el) => el[0] != k)
+							}}><Icon data={faMinus} class="mb-1" /></button
+						>
+					</div>
+				{/each}
+				<button
+					class="default-button-secondary mt-1"
+					on:click={() => {
+						extra_params.push(['', ''])
+						extra_params = extra_params
+					}}>Add item &nbsp;<Icon data={faPlus} class="mb-1" /></button
+				><span class="ml-2"
+					>{(extra_params ?? []).length} item{(extra_params ?? []).length > 1 ? 's' : ''}</span
 				>
 			{:else}
 				<p class="italic text-sm">Pick an OAuth app and customize the scopes here</p>
