@@ -248,9 +248,9 @@
 					>{(extra_params ?? []).length} item{(extra_params ?? []).length > 1 ? 's' : ''}</span
 				>
 			{:else}
-				<p class="italic text-sm">Pick an OAuth app and customize the scopes here</p>
+				<p class="italic text-sm">Pick an OAuth app and customize the extra parameters here</p>
 			{/if}
-			<PageHeader title="API token apps" />
+			<PageHeader title="Non OAuth apps" />
 			<div class="grid sm:grid-cols-2 md:grid-cols-3 gap-x-2 gap-y-1 items-center mb-2">
 				{#each connectsManual as [key, instructions]}
 					<button
