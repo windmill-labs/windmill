@@ -1,10 +1,20 @@
 import type { Schema } from '$lib/common'
-import type { Flow, FlowModule, FlowModuleValue, InputTransform, RawScript } from '$lib/gen'
+import {
+	JobService,
+	type Flow,
+	type FlowModule,
+	type FlowModuleValue,
+	type InputTransform,
+	type Job,
+	type RawScript
+} from '$lib/gen'
 import { inferArgs } from '$lib/infer'
 import { loadSchema } from '$lib/scripts'
+import { workspaceStore } from '$lib/stores'
 import { emptySchema, getScriptByPath, schemaToObject } from '$lib/utils'
+import { get } from 'svelte/store'
 
-import type { FlowMode } from './flowStore'
+import { mode, type FlowMode } from './flowStore'
 
 export function flowToMode(flow: Flow | any, mode: FlowMode): Flow {
 	const newFlow: Flow = JSON.parse(JSON.stringify(flow))
@@ -168,19 +178,11 @@ export function getPickableProperties(
 	mode: FlowMode,
 	i: number
 ) {
+	console.log(i, previewResults)
 	const flowInputAsObject = schemaToObject(schema, args)
 	const flowInput =
 		mode === 'pull' && i >= 1
-			? Object.assign(
-					Object.assign(
-						{
-							_value: 'The current value of the iteration as an object',
-							_index: 'The current index of the iteration as a number'
-						},
-						flowInputAsObject
-					),
-					previewResults[0]
-			  )
+			? computeFlowInputPull(previewResults[0], flowInputAsObject)
 			: flowInputAsObject
 
 	let previous_result
@@ -192,7 +194,7 @@ export function getPickableProperties(
 		previous_result = previewResults[i - 1]
 	}
 
-	let step
+	let step: any[]
 	if (i >= 1 && mode == 'push') {
 		step = Object.values(previewResults).slice(0, i)
 	} else if (i >= 2 && mode == 'pull') {
@@ -208,3 +210,38 @@ export function getPickableProperties(
 
 	return pickableProperties
 }
+
+export function jobsToResults(jobs: Job[]) {
+	return jobs.map((job) => {
+		if ('result' in job) {
+			return job.result
+		} else if (Array.isArray(job)) {
+			return jobsToResults(job)
+		}
+	})
+}
+
+export async function runFlowPreview(args: Record<string, any>, flow: Flow) {
+	const newFlow = flowToMode(flow, get(mode))
+	return await JobService.runFlowPreview({
+		workspace: get(workspaceStore) ?? '',
+		requestBody: {
+			args,
+			value: newFlow.value,
+			path: newFlow.path
+		}
+	})
+}
+function computeFlowInputPull(previewResult: any | undefined, flowInputAsObject: any) {
+	const iteratorValues = (previewResult?.res1 && Array.isArray(previewResult.res1)) ?
+		{
+			_value: previewResult.res1[0],
+			_index: `The current index of the iteration as a number (here from 0 to ${previewResult.res1.length - 1})`
+		} : {
+			_value: 'The current value of the iteration as an object',
+			_index: 'The current index of the iteration as a number'
+		}
+	return Object.assign(Object.assign(flowInputAsObject, previewResult), iteratorValues)
+
+}
+

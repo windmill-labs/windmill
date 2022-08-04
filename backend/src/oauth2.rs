@@ -64,6 +64,7 @@ pub fn workspaced_service() -> Router {
 pub struct ClientWithScopes {
     client: OClient,
     scopes: Vec<String>,
+    extra_params: Option<HashMap<String, String>>,
 }
 
 pub type BasicClientsMap = HashMap<String, ClientWithScopes>;
@@ -73,6 +74,7 @@ pub struct OAuthConfig {
     auth_url: String,
     token_url: String,
     scopes: Option<Vec<String>>,
+    extra_params: Option<HashMap<String, String>>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -120,6 +122,7 @@ pub async fn build_oauth_clients(base_url: &str) -> anyhow::Result<AllClients> {
         .filter(|x| oauths.contains_key(&x.0))
         .map(|(k, v)| {
             let scopes = v.scopes.clone();
+            let extra_params = v.extra_params.clone();
             let named_client = build_basic_client(
                 k.clone(),
                 v,
@@ -129,7 +132,11 @@ pub async fn build_oauth_clients(base_url: &str) -> anyhow::Result<AllClients> {
             );
             (
                 named_client.0,
-                ClientWithScopes { client: named_client.1, scopes: scopes.unwrap_or(vec![]) },
+                ClientWithScopes {
+                    client: named_client.1,
+                    scopes: scopes.unwrap_or(vec![]),
+                    extra_params,
+                },
             )
         })
         .collect();
@@ -139,6 +146,8 @@ pub async fn build_oauth_clients(base_url: &str) -> anyhow::Result<AllClients> {
         .filter(|x| oauths.contains_key(&x.0))
         .map(|(k, v)| {
             let scopes = v.scopes.clone();
+            let extra_params = v.extra_params.clone();
+
             let named_client = build_basic_client(
                 k.clone(),
                 v,
@@ -148,7 +157,11 @@ pub async fn build_oauth_clients(base_url: &str) -> anyhow::Result<AllClients> {
             );
             (
                 named_client.0,
-                ClientWithScopes { client: named_client.1, scopes: scopes.unwrap_or(vec![]) },
+                ClientWithScopes {
+                    client: named_client.1,
+                    scopes: scopes.unwrap_or(vec![]),
+                    extra_params,
+                },
             )
         })
         .collect();
@@ -160,6 +173,7 @@ pub async fn build_oauth_clients(base_url: &str) -> anyhow::Result<AllClients> {
                 auth_url: "https://slack.com/oauth/authorize".to_string(),
                 token_url: "https://slack.com/api/oauth.access".to_string(),
                 scopes: None,
+                extra_params: None,
             },
             v.clone(),
             false,
@@ -178,18 +192,8 @@ pub fn build_basic_client(
     login: bool,
     base_url: &str,
 ) -> (String, OClient) {
-    let mut auth_url = Url::parse(&config.auth_url).expect("Invalid authorization endpoint URL");
+    let auth_url = Url::parse(&config.auth_url).expect("Invalid authorization endpoint URL");
     let token_url = Url::parse(&config.token_url).expect("Invalid token endpoint URL");
-
-    if ["gcal", "gdrive", "gsheets", "gcloud", "gmail"]
-        .into_iter()
-        .any(|x| x == name)
-    {
-        auth_url
-            .query_pairs_mut()
-            .append_pair("access_type", "offline")
-            .append_pair("prompt", "consent");
-    }
 
     let redirect_url = if login {
         format!("{base_url}/user/login_callback/{name}")
@@ -234,23 +238,24 @@ pub struct SlackBotToken {
     bot_access_token: String,
 }
 
-#[derive(Deserialize)]
-struct ConnectScopes {
-    scopes: Option<String>,
-}
 async fn connect(
     Path(client_name): Path<String>,
-    Query(ConnectScopes { scopes }): Query<ConnectScopes>,
+    Query(query): Query<HashMap<String, String>>,
     Extension(clients): Extension<Arc<AllClients>>,
     cookies: Cookies,
 ) -> error::Result<Redirect> {
+    let mut query = query.clone();
     let connects = &clients.connects;
-    oauth_redirect(
-        connects,
-        client_name,
-        cookies,
-        scopes.map(|x| x.split('+').map(|x| x.to_owned()).collect()),
-    )
+    let scopes = query
+        .get("scopes")
+        .map(|x| x.split('+').map(|x| x.to_owned()).collect());
+    query.remove("scopes");
+    let extra_params = if query.is_empty() {
+        None
+    } else {
+        Some(query.clone())
+    };
+    oauth_redirect(connects, client_name, cookies, scopes, extra_params)
 }
 
 #[derive(Deserialize)]
@@ -329,14 +334,27 @@ async fn list_logins(
     ))
 }
 
+#[derive(Serialize)]
+struct ScopesAndParams {
+    scopes: Vec<String>,
+    extra_params: Option<HashMap<String, String>>,
+}
 async fn list_connects(
     Extension(clients): Extension<Arc<AllClients>>,
-) -> error::JsonResult<HashMap<String, Vec<String>>> {
+) -> error::JsonResult<HashMap<String, ScopesAndParams>> {
     Ok(Json(
         (&clients.connects)
             .into_iter()
-            .map(|(k, v)| (k.to_owned(), v.scopes.clone()))
-            .collect::<HashMap<String, Vec<String>>>(),
+            .map(|(k, v)| {
+                (
+                    k.to_owned(),
+                    ScopesAndParams {
+                        scopes: v.scopes.clone(),
+                        extra_params: v.extra_params.clone(),
+                    },
+                )
+            })
+            .collect::<HashMap<String, ScopesAndParams>>(),
     ))
 }
 
@@ -403,7 +421,7 @@ async fn login(
     cookies: Cookies,
 ) -> error::Result<Redirect> {
     let clients = &clients.logins;
-    oauth_redirect(clients, client_name, cookies, None)
+    oauth_redirect(clients, client_name, cookies, None, None)
 }
 
 #[derive(Deserialize)]
@@ -895,6 +913,7 @@ fn oauth_redirect(
     client_name: String,
     cookies: Cookies,
     scopes: Option<Vec<String>>,
+    extra_params: Option<HashMap<String, String>>,
 ) -> error::Result<Redirect> {
     let client_w_scopes = clients
         .get(&client_name)
@@ -911,9 +930,25 @@ fn oauth_redirect(
         client.add_scope(scope);
     }
 
-    let url = client.authorize_url(&state);
+    let mut auth_url = client.authorize_url(&state);
+
+    if let Some(extra_params) = extra_params {
+        let mut query_string = auth_url.query_pairs_mut();
+        for (key, value) in extra_params {
+            query_string.append_pair(&key, &value);
+        }
+    }
+    // if ["gcal", "gdrive", "gsheets", "gcloud", "gmail"]
+    //     .into_iter()
+    //     .any(|x| x == name)
+    // {
+    //     auth_url
+    //         .query_pairs_mut()
+    //         .append_pair("access_type", "offline")
+    //         .append_pair("prompt", "consent");
+    // }
     set_cookie(&state, cookies);
-    Ok(Redirect::to(url.as_str()))
+    Ok(Redirect::to(auth_url.as_str()))
 }
 
 fn set_cookie(state: &State, cookies: Cookies) {

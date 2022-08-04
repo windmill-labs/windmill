@@ -49,7 +49,7 @@
 </script>
 
 <div class="w-full">
-	<div use:popperRef on:mouseleave={close}>
+	<div use:popperRef on:click={open} on:input={open} on:mouseleave={close}>
 		<slot />
 	</div>
 

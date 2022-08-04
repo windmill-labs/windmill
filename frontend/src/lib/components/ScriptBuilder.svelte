@@ -96,7 +96,7 @@
 <div class="flex flex-col h-screen max-w-screen-lg xl:-ml-20 xl:pl-4 w-full -mt-4 pt-4 md:mx-10 ">
 	<!-- Nav between steps-->
 	<div class="flex flex-col w-full">
-		<div class="justify-between flex flex-row drop-shadow-sm w-full">
+		<div class="justify-between flex flex-row drop-shadow-sm w-full mt-4">
 			<div class="wizard-nav flex flex-row w-full">
 				<button
 					class="{step === 1
@@ -279,7 +279,6 @@
 	/* .wizard-nav {
 		@apply w-1/2 sm:w-1/4;
 	} */
-
 	.wizard-nav button {
 		max-height: 30px;
 	}

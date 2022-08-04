@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { createEventDispatcher } from 'svelte'
 	import { getTypeAsString } from '../flows/utils'
+	import { computeKey } from './utils'
 	import WarningMessage from './WarningMessage.svelte'
 
 	export let json: Object
@@ -30,23 +31,8 @@
 
 	const dispatch = createEventDispatcher()
 
-	function computeKey(key: string) {
-		if (isArray) {
-			if (currentPath === 'step') {
-				return `${currentPath}(${key})?`
-			}
-			return `${currentPath}[${key}]`
-		} else {
-			if (currentPath) {
-				return `${currentPath}.${key}`
-			} else {
-				return key
-			}
-		}
-	}
-
 	function selectProp(key: string) {
-		dispatch('select', computeKey(key))
+		dispatch('select', computeKey(key, isArray, currentPath))
 	}
 </script>
 
@@ -68,7 +54,7 @@
 							json={json[key]}
 							level={level + 1}
 							isLast={index === keys.length - 1}
-							currentPath={computeKey(key)}
+							currentPath={computeKey(key, isArray, currentPath)}
 							{pureViewer}
 							on:select
 						/>

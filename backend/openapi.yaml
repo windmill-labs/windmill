@@ -1224,9 +1224,15 @@ paths:
             application/json:
               schema:
                 additionalProperties:
-                  type: array
-                  items:
-                    type: string
+                  type: object
+                  properties:
+                    extra_params:
+                      additionalProperties:
+                        type: string
+                    scopes:
+                      type: array
+                      items:
+                        type: string
 
   /w/{workspace}/resources/p/{path}:
     get:

@@ -71,6 +71,7 @@ export const isCopyFirstStepSchemaDisabled = derived(flowStore, (flow: Flow | un
 	if (flow) {
 		const modules = flow.value.modules
 		const [firstModule] = modules
+
 		return (
 			modules.length === 0 || (firstModule.value.type === 'script' && firstModule.value.path === '')
 		)

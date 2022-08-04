@@ -33,41 +33,54 @@
         "token_url": "https://oauth2.googleapis.com/token",
         "scopes": [
             "https://www.googleapis.com/auth/spreadsheets"
-        ]
+        ],
+        "extra_params": {
+            "access_type": "offline",
+            "consent": "prompt"
+        }
     },
     "gdrive": {
         "auth_url": "https://accounts.google.com/o/oauth2/v2/auth",
         "token_url": "https://oauth2.googleapis.com/token",
         "scopes": [
             "https://www.googleapis.com/auth/drive"
-        ]
+        ],
+        "extra_params": {
+            "access_type": "offline",
+            "consent": "prompt"
+        }
     },
     "gmail": {
         "auth_url": "https://accounts.google.com/o/oauth2/v2/auth",
         "token_url": "https://oauth2.googleapis.com/token",
         "scopes": [
             "https://mail.google.com/"
-        ]
+        ],
+        "extra_params": {
+            "access_type": "offline",
+            "consent": "prompt"
+        }
     },
     "gcal": {
         "auth_url": "https://accounts.google.com/o/oauth2/v2/auth",
         "token_url": "https://oauth2.googleapis.com/token",
         "scopes": [
             "https://www.googleapis.com/auth/calendar.events"
-        ]
+        ],
+        "extra_params": {
+            "access_type": "offline",
+            "consent": "prompt"
+        }
     },
     "gcloud": {
         "auth_url": "https://accounts.google.com/o/oauth2/v2/auth",
         "token_url": "https://oauth2.googleapis.com/token",
         "scopes": [
             "https://www.googleapis.com/auth/cloud-platform"
-        ]
-    },
-    "discord": {
-        "auth_url": "https://discordapp.com/api/oauth2/authorize",
-        "token_url": "https://discordapp.com/api/oauth2/token",
-        "scopes": [
-            "bot"
-        ]
+        ],
+        "extra_params": {
+            "access_type": "offline",
+            "consent": "prompt"
+        }
     }
 }

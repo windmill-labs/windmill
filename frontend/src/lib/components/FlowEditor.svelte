@@ -69,7 +69,7 @@
 		{/each}
 		<Button
 			disabled={pathIsEmpty($flowStore.path)}
-			color="blue"
+			class="blue-button"
 			on:click={() => {
 				addModule()
 				open = $flowStore?.value.modules.length - 1
