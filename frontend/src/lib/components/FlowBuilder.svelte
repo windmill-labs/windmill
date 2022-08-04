@@ -10,10 +10,13 @@
 		sendUserToast,
 		setQueryWithoutLoad
 	} from '$lib/utils'
-	import { Breadcrumb, BreadcrumbItem } from 'flowbite-svelte'
+	import { faPlay } from '@fortawesome/free-solid-svg-icons'
+	import { Breadcrumb, BreadcrumbItem, Button } from 'flowbite-svelte'
 	import { onMount } from 'svelte'
+	import Icon from 'svelte-awesome'
 	import { OFFSET } from './CronInput.svelte'
 	import FlowEditor from './FlowEditor.svelte'
+	import FlowPreviewContent from './FlowPreviewContent.svelte'
 	import { flowStore, mode } from './flows/flowStore'
 	import { flowToMode } from './flows/utils'
 
@@ -25,6 +28,8 @@
 	let scheduleArgs: Record<string, any>
 	let scheduleEnabled
 	let scheduleCron: string
+
+	let previewOpen = false
 
 	$: step = Number($page.url.searchParams.get('step')) || 1
 
@@ -127,69 +132,95 @@
 	})
 </script>
 
-<div class="flex flex-col max-w-screen-lg w-full mb-96 px-8">
-	<!-- Nav between steps-->
-	<div class="justify-between flex flex-row w-full">
-		<Breadcrumb>
-			<BreadcrumbItem>
-				<button on:click={() => changeStep(1)} class={step === 1 ? 'font-bold' : null}>
-					Flow Editor
-				</button>
-			</BreadcrumbItem>
-			<BreadcrumbItem>
-				<button on:click={() => changeStep(2)} class={step === 2 ? 'font-bold' : null}>
-					UI customisation
-				</button>
-			</BreadcrumbItem>
-		</Breadcrumb>
-		<div class="flex flex-row-reverse ml-2">
-			{#if step == 1}
-				<button
-					disabled={pathError != ''}
-					class="default-button px-6 max-h-8"
-					on:click={() => changeStep(2)}
-				>
-					Next
-				</button>
-				<button
-					disabled={pathError != ''}
-					class="default-button-secondary px-6 max-h-8 mr-2"
-					on:click={saveFlow}
-				>
-					Save
-				</button>
+<div class="flex flex-row w-full h-full justify-between">
+	<div class="flex flex-col max-w-screen-md mb-96 m-auto">
+		<div class="mx-4">
+			<!-- Nav between steps-->
+			<div class="justify-between flex flex-row w-full my-4">
+				<Breadcrumb>
+					<BreadcrumbItem>
+						<button on:click={() => changeStep(1)} class={step === 1 ? 'font-bold' : null}>
+							Flow Editor
+						</button>
+					</BreadcrumbItem>
+					<BreadcrumbItem>
+						<button on:click={() => changeStep(2)} class={step === 2 ? 'font-bold' : null}>
+							UI customisation
+						</button>
+					</BreadcrumbItem>
+				</Breadcrumb>
+				<div class="flex flex-row-reverse ml-2">
+					{#if step == 1}
+						<button
+							disabled={pathError != ''}
+							class="default-button px-6 max-h-8"
+							on:click={() => changeStep(2)}
+						>
+							Next
+						</button>
+						<button
+							disabled={pathError != ''}
+							class="default-button-secondary px-6 max-h-8 mr-2"
+							on:click={saveFlow}
+						>
+							Save
+						</button>
+					{:else}
+						<button class="default-button px-6 self-end" on:click={saveFlow}>Save</button>
+					{/if}
+				</div>
+			</div>
+			<div class="flex flex-row-reverse">
+				<span class="my-1 text-sm text-gray-500 italic">
+					{#if initialPath && initialPath != $flowStore?.path} {initialPath} &rightarrow; {/if}
+					{$flowStore?.path}
+				</span>
+			</div>
+
+			<!-- metadata -->
+
+			{#if $flowStore}
+				{#if step === 1}
+					<FlowEditor
+						bind:pathError
+						bind:initialPath
+						bind:scheduleEnabled
+						bind:scheduleCron
+						bind:scheduleArgs
+					/>
+				{:else if step === 2}
+					<ScriptSchema
+						synchronizedHeader={false}
+						bind:summary={$flowStore.summary}
+						bind:description={$flowStore.description}
+						bind:schema={$flowStore.schema}
+					/>
+				{/if}
 			{:else}
-				<button class="default-button px-6 self-end" on:click={saveFlow}>Save</button>
+				<p>Loading</p>
 			{/if}
 		</div>
 	</div>
-	<div class="flex flex-row-reverse">
-		<span class="my-1 text-sm text-gray-500 italic">
-			{#if initialPath && initialPath != $flowStore?.path} {initialPath} &rightarrow; {/if}
-			{$flowStore?.path}
-		</span>
+
+	<Button
+		size="lg"
+		pill
+		on:click={() => (previewOpen = !previewOpen)}
+		class={`fixed bottom-10 right-10 ${previewOpen ? 'hidden' : ''}`}
+	>
+		Preview flow
+		<Icon data={faPlay} class="ml-2" />
+	</Button>
+
+	<div class={`relative h-screen w-1/3 ${previewOpen ? '' : 'hidden'}`}>
+		<div class="absolute top-0 h-full">
+			<div class="fixed border-l-2 right-0 h-screen w-1/3">
+				<FlowPreviewContent
+					flow={$flowStore}
+					bind:args={scheduleArgs}
+					on:close={() => (previewOpen = !previewOpen)}
+				/>
+			</div>
+		</div>
 	</div>
-
-	<!-- metadata -->
-
-	{#if $flowStore}
-		{#if step === 1}
-			<FlowEditor
-				bind:pathError
-				bind:initialPath
-				bind:scheduleEnabled
-				bind:scheduleCron
-				bind:scheduleArgs
-			/>
-		{:else if step === 2}
-			<ScriptSchema
-				synchronizedHeader={false}
-				bind:summary={$flowStore.summary}
-				bind:description={$flowStore.description}
-				bind:schema={$flowStore.schema}
-			/>
-		{/if}
-	{:else}
-		<p>Loading</p>
-	{/if}
 </div>
