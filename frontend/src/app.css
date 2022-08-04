@@ -77,6 +77,11 @@ html {
 		@apply rounded-sm;
 	}
 
+	.blue-button {
+		@apply bg-blue-500 !important;
+		@apply hover:bg-blue-700 !important;
+	}
+
 	.default-button {
 		/*this styling does not impact the Dropdown component */
 		@apply bg-blue-500;

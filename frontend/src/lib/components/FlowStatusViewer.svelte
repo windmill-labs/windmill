@@ -1,14 +1,14 @@
 <script lang="ts">
-	import { faHourglassHalf, faSpinner, faTimes } from '@fortawesome/free-solid-svg-icons'
 	import { scriptPathToHref, truncateRev } from '$lib/utils'
+	import { faHourglassHalf, faSpinner, faTimes } from '@fortawesome/free-solid-svg-icons'
 
 	import Icon from 'svelte-awesome'
 	import { check } from 'svelte-awesome/icons'
 
 	import { CompletedJob, FlowStatusModule, JobService, QueuedJob } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
-	import JobStatus from './JobStatus.svelte'
 	import FlowJobResult from './FlowJobResult.svelte'
+	import JobStatus from './JobStatus.svelte'
 
 	export let job: QueuedJob | CompletedJob
 	export let jobs: (CompletedJob | CompletedJob[] | undefined)[] = []
@@ -74,29 +74,28 @@
 	$: $workspaceStore && job && loadResults()
 </script>
 
-<div class="flow-root w-full p-4">
-	<div class="flex flex-row-reverse">
+<div class="flow-root w-full p-6">
+	<div class="flex ">
 		{#if job}
 			<div class="flex-col">
-				<a href="/run/{job?.id}" class="font-medium text-blue-600"
-					>{truncateRev(job?.id ?? '', 10)}</a
-				>
-				<div>
-					<JobStatus {job} />
-				</div>
+				<a href="/run/{job?.id}" class="font-medium text-blue-600">
+					{truncateRev(job?.id ?? '', 10)}
+				</a>
 			</div>
 		{/if}
 	</div>
+	<JobStatus {job} />
 
 	<p class="text-gray-500 mb-6 w-full text-center">
 		Step
-		<span class="font-medium text-gray-900"
-			>{Math.min((job?.flow_status?.step ?? 0) + 1, job?.raw_flow?.modules.length ?? 0)}</span
-		>
+		<span class="font-medium text-gray-900">
+			{Math.min((job?.flow_status?.step ?? 0) + 1, job?.raw_flow?.modules.length ?? 0)}
+		</span>
 		out of <span class="font-medium text-gray-900">{job?.raw_flow?.modules.length}</span>
 		<span class="mt-4" />
 	</p>
-	<ul class="-mb-8 w-full">
+
+	<ul class="w-full">
 		{#each job?.raw_flow?.modules ?? [] as mod, i}
 			<li class="w-full">
 				<div class="relative pb-8 w-full">
@@ -162,17 +161,18 @@
 									{#if job.flow_status?.modules[i].forloop_jobs}
 										{#each job.flow_status?.modules[i].forloop_jobs ?? [] as job}
 											<div class="flex flex-col">
-												<a href="/run/{job}" class="font-medium text-blue-600"
-													>{truncateRev(job ?? '', 10)}</a
-												>
+												<a href="/run/{job}" class="font-medium text-blue-600">
+													{truncateRev(job ?? '', 10)}
+												</a>
 											</div>
 										{/each}
 									{:else if job.flow_status?.modules[i].job}
 										<a
 											href="/run/{job.flow_status?.modules[i].job}"
 											class="font-medium text-blue-600"
-											>{truncateRev(job.flow_status?.modules[i].job ?? '', 10)}</a
 										>
+											{truncateRev(job.flow_status?.modules[i].job ?? '', 10)}
+										</a>
 									{/if}
 								</div>
 							</div>
