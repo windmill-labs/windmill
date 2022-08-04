@@ -19,6 +19,7 @@
 	let job: Job | undefined
 	let jobs = []
 	let jobId: string
+	let isValid: boolean = false
 
 	$: dispatch('change', jobs)
 
@@ -63,8 +64,10 @@
 				<Icon data={faClose} />
 			</Button>
 		</div>
-		<SchemaForm schema={flow.schema} isValid={true} bind:args />
-		<Button class="blue-button" on:click={() => runPreview(args)} size="md">Preview</Button>
+		<SchemaForm schema={flow.schema} bind:isValid bind:args />
+		<Button disabled={!isValid} class="blue-button" on:click={() => runPreview(args)} size="md"
+			>Preview
+		</Button>
 	</div>
 	<div class="h-full overflow-y-auto mb-16">
 		{#if job}
