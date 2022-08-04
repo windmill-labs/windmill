@@ -1,5 +1,5 @@
 import type { Schema } from '$lib/common'
-import type { Flow, FlowModule, FlowModuleValue, InputTransform, RawScript } from '$lib/gen'
+import type { Flow, FlowModule, FlowModuleValue, InputTransform, Job, RawScript } from '$lib/gen'
 import { inferArgs } from '$lib/infer'
 import { loadSchema } from '$lib/scripts'
 import { emptySchema, getScriptByPath, schemaToObject } from '$lib/utils'
@@ -207,4 +207,14 @@ export function getPickableProperties(
 	}
 
 	return pickableProperties
+}
+
+export function jobsToResults(jobs: Job[]) {
+	return jobs.map((job) => {
+		if ('result' in job) {
+			return job.result
+		} else if (Array.isArray(job)) {
+			return jobsToResults(job)
+		}
+	})
 }
