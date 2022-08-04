@@ -13,20 +13,20 @@
 </script>
 
 <script lang="ts">
+	import { oauthStore, userStore, workspaceStore } from '$lib/stores'
+	import { faMinus, faPlus } from '@fortawesome/free-solid-svg-icons'
 	import IconedResourceType from './IconedResourceType.svelte'
 	import PageHeader from './PageHeader.svelte'
-	import { workspaceStore, userStore, oauthStore } from '$lib/stores'
-	import { faMinus, faPlus } from '@fortawesome/free-solid-svg-icons'
 
 	import { OauthService, ResourceService, VariableService, type TokenResponse } from '$lib/gen'
 
-	import { createEventDispatcher } from 'svelte'
-	import Modal from './Modal.svelte'
-	import Icon from 'svelte-awesome'
-	import Path from './Path.svelte'
-	import Password from './Password.svelte'
-	import { sendUserToast, truncateRev } from '$lib/utils'
 	import { page } from '$app/stores'
+	import { sendUserToast, truncateRev } from '$lib/utils'
+	import { createEventDispatcher } from 'svelte'
+	import Icon from 'svelte-awesome'
+	import Modal from './Modal.svelte'
+	import Password from './Password.svelte'
+	import Path from './Path.svelte'
 
 	let manual = false
 	let value: string = ''
@@ -50,12 +50,19 @@
 
 	let pathError = ''
 
-	export function open(rt?: string) {
+	export async function open(rt?: string) {
 		step = 1
 		value = ''
-		resource_type = ''
 		no_back = false
 		resource_type = rt ?? ''
+
+		await loadConnects()
+
+		const connect = connects[resource_type]
+		if (connect) {
+			scopes = connect.scopes
+			extra_params = Object.entries(connect.extra_params ?? {})
+		}
 		modal.openModal()
 	}
 
@@ -193,6 +200,7 @@
 							resource_type = key
 							scopes = values.scopes
 							extra_params = Object.entries(values.extra_params ?? {})
+
 							dispatch('click')
 						}}
 					>

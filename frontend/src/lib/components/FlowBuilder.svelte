@@ -214,7 +214,6 @@
 		<div class="absolute top-0 h-full">
 			<div class="fixed border-l-2 right-0 h-screen w-1/3">
 				<FlowPreviewContent
-					flow={$flowStore}
 					bind:args={scheduleArgs}
 					on:close={() => (previewOpen = !previewOpen)}
 					on:change={(e) => {

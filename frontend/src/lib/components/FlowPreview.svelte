@@ -1,6 +1,6 @@
 <script lang="ts">
 	import type { Schema } from '$lib/common'
-	import { type InputTransform, Job, JobService, type Flow } from '$lib/gen'
+	import { Job, JobService, type Flow } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { sendUserToast, truncateRev } from '$lib/utils'
 	import { faChevronDown, faChevronUp } from '@fortawesome/free-solid-svg-icons'
@@ -8,7 +8,7 @@
 	import Icon from 'svelte-awesome'
 	import FlowJobResult from './FlowJobResult.svelte'
 	import type { FlowMode } from './flows/flowStore'
-	import { flowToMode } from './flows/utils'
+	import { flowToMode, runFlowPreview } from './flows/utils'
 	import FlowStatusViewer from './FlowStatusViewer.svelte'
 	import RunForm from './RunForm.svelte'
 	import Tabs from './Tabs.svelte'
@@ -40,14 +40,8 @@
 		intervalId && clearInterval(intervalId)
 		let newFlow = flowToMode(flow, mode)
 		newFlow = tab == 'upto' ? truncateFlow(newFlow) : extractStep(newFlow)
-		jobId = await JobService.runFlowPreview({
-			workspace: $workspaceStore ?? '',
-			requestBody: {
-				args,
-				value: newFlow.value,
-				path: newFlow.path
-			}
-		})
+		jobId = await runFlowPreview(args, newFlow)
+
 		jobs = []
 		intervalId = setInterval(loadJob, 1000)
 		sendUserToast(`started preview ${truncateRev(jobId, 10)}`)
