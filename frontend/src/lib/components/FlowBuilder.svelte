@@ -7,6 +7,7 @@
 		encodeState,
 		formatCron,
 		loadHubScripts,
+		pathIsEmpty,
 		sendUserToast,
 		setQueryWithoutLoad
 	} from '$lib/utils'
@@ -201,12 +202,15 @@
 	</div>
 
 	<Button
+		disabled={pathIsEmpty($flowStore.path)}
 		size="lg"
 		pill
 		on:click={() => (previewOpen = !previewOpen)}
 		class={`blue-button fixed bottom-10 right-10 ${previewOpen ? 'hidden' : ''}`}
 	>
 		Preview flow
+		{pathIsEmpty($flowStore.path) ? '(pick a name first!)' : ''}
+
 		<Icon data={faPlay} class="ml-2" />
 	</Button>
 
