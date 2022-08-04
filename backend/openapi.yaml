@@ -307,7 +307,7 @@ paths:
               schema:
                 type: string
 
-  /workspaces/list:
+  /workspaces/:
     get:
       summary: list all workspaces visible to me
       operationId: listWorkspaces
@@ -322,6 +322,25 @@ paths:
                 type: array
                 items:
                   $ref: "#/components/schemas/Workspace"
+    post:
+      summary: create workspace
+      operationId: createWorkspace
+      tags:
+        - workspace
+      requestBody:
+        description: new token
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateWorkspace"
+      responses:
+        "201":
+          description: token created
+          content:
+            text/plain:
+              schema:
+                type: string
 
   /workspaces/users:
     get:
@@ -356,26 +375,6 @@ paths:
                 items:
                   $ref: "#/components/schemas/Workspace"
 
-  /workspaces/create:
-    post:
-      summary: create workspace
-      operationId: createWorkspace
-      tags:
-        - workspace
-      requestBody:
-        description: new token
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/CreateWorkspace"
-      responses:
-        "201":
-          description: token created
-          content:
-            text/plain:
-              schema:
-                type: string
 
   /workspaces/exists:
     post:
@@ -562,7 +561,7 @@ paths:
               schema:
                 type: string
 
-  /w/{workspace}/workspaces/invite_user:
+  /w/{workspace}/workspaces/users/invite:
     post:
       summary: invite user to workspace
       operationId: inviteUser
@@ -593,7 +592,7 @@ paths:
               schema:
                 type: string
 
-  /w/{workspace}/workspaces/delete_invite:
+  /w/{workspace}/workspaces/invites:
     post:
       summary: delete user invite
       operationId: delete invite
@@ -624,7 +623,7 @@ paths:
               schema:
                 type: string
 
-  /w/{workspace}/workspaces/delete:
+  /w/{workspace}/workspaces:
     delete:
       summary: delete workspace
       operationId: deleteWorkspace
@@ -680,7 +679,7 @@ paths:
                 items:
                   $ref: "#/components/schemas/GlobalUserInfo"
 
-  /w/{workspace}/workspaces/list_pending_invites:
+  /w/{workspace}/workspaces/invites/pending:
     get:
       summary: list pending invites for a workspace
       operationId: listPendingInvites
@@ -698,7 +697,7 @@ paths:
                 items:
                   $ref: "#/components/schemas/WorkspaceInvite"
 
-  /w/{workspace}/workspaces/get_settings:
+  /w/{workspace}/workspaces/settings:
     get:
       summary: get settings
       operationId: getSettings
