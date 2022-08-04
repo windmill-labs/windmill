@@ -2821,7 +2821,7 @@ paths:
                 items:
                   $ref: "#/components/schemas/WorkerPing"
 
-  /w/{workspace}/acls/get/{kind}/{path}:
+  /w/{workspace}/acls/{kind}/{path}:
     get:
       summary: get granular acls
       operationId: getGranularAcls
@@ -2846,7 +2846,6 @@ paths:
                 additionalProperties:
                   type: boolean
 
-  /w/{workspace}/acls/add/{kind}/{path}:
     post:
       summary: add granular acls
       operationId: addGranularAcls
@@ -2882,8 +2881,7 @@ paths:
               schema:
                 type: string
 
-  /w/{workspace}/acls/remove/{kind}/{path}:
-    post:
+    delete:
       summary: remove granular acls
       operationId: removeGranularAcls
       tags:

@@ -14,7 +14,7 @@ use crate::{
 };
 use axum::{
     extract::{Extension, Path},
-    routing::{get, post},
+    routing::{delete, get, post},
     Json, Router,
 };
 
@@ -22,9 +22,9 @@ use serde::{Deserialize, Serialize};
 
 pub fn workspaced_service() -> Router {
     Router::new()
-        .route("/get/*path", get(get_granular_acls))
-        .route("/add/*path", post(add_granular_acl))
-        .route("/remove/*path", post(remove_granular_acl))
+        .route("/*path", get(get_granular_acls))
+        .route("/*path", post(add_granular_acl))
+        .route("/*path", delete(remove_granular_acl))
 }
 
 #[derive(Serialize, Deserialize)]
