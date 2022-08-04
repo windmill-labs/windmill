@@ -82,15 +82,5 @@
             "access_type": "offline",
             "consent": "prompt"
         }
-    },
-    "discord": {
-        "auth_url": "https://discordapp.com/api/oauth2/authorize",
-        "token_url": "https://discordapp.com/api/oauth2/token",
-        "scopes": [
-            "bot"
-        ],
-        "extra_params": {
-            "permissions": "68608"
-        }
     }
 }
