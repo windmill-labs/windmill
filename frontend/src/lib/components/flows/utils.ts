@@ -178,19 +178,11 @@ export function getPickableProperties(
 	mode: FlowMode,
 	i: number
 ) {
+	console.log(i, previewResults)
 	const flowInputAsObject = schemaToObject(schema, args)
 	const flowInput =
 		mode === 'pull' && i >= 1
-			? Object.assign(
-					Object.assign(
-						{
-							_value: 'The current value of the iteration as an object',
-							_index: 'The current index of the iteration as a number'
-						},
-						flowInputAsObject
-					),
-					previewResults[0]
-			  )
+			? computeFlowInputPull(previewResults[0], flowInputAsObject)
 			: flowInputAsObject
 
 	let previous_result
@@ -202,7 +194,7 @@ export function getPickableProperties(
 		previous_result = previewResults[i - 1]
 	}
 
-	let step
+	let step: any[]
 	if (i >= 1 && mode == 'push') {
 		step = Object.values(previewResults).slice(0, i)
 	} else if (i >= 2 && mode == 'pull') {
@@ -240,3 +232,16 @@ export async function runFlowPreview(args: Record<string, any>, flow: Flow) {
 		}
 	})
 }
+function computeFlowInputPull(previewResult: any | undefined, flowInputAsObject: any) {
+	const iteratorValues = (previewResult?.res1 && Array.isArray(previewResult.res1)) ?
+		{
+			_value: previewResult.res1[0],
+			_index: `The current index of the iteration as a number (here from 0 to ${previewResult.res1.length - 1})`
+		} : {
+			_value: 'The current value of the iteration as an object',
+			_index: 'The current index of the iteration as a number'
+		}
+	return Object.assign(Object.assign(flowInputAsObject, previewResult), iteratorValues)
+
+}
+
