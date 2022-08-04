@@ -13,7 +13,7 @@ use sql_builder::prelude::*;
 
 use axum::{
     extract::{Extension, Host, Path, Query},
-    routing::{get, post},
+    routing::{get, patch, post},
     Json, Router,
 };
 use serde::{Deserialize, Serialize};
