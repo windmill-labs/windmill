@@ -7,6 +7,8 @@
 	import { createEventDispatcher, onDestroy } from 'svelte'
 	import Icon from 'svelte-awesome'
 	import FlowJobResult from './FlowJobResult.svelte'
+	import type { FlowMode } from './flows/flowStore'
+	import { flowToMode } from './flows/utils'
 	import FlowStatusViewer from './FlowStatusViewer.svelte'
 	import SchemaForm from './SchemaForm.svelte'
 
@@ -14,6 +16,7 @@
 
 	export let flow: Flow
 	export let args: Record<string, any> = {}
+	export let mode: FlowMode
 
 	let intervalId: NodeJS.Timer
 	let job: Job | undefined
@@ -26,12 +29,13 @@
 	export async function runPreview(args: Record<string, any>) {
 		intervalId && clearInterval(intervalId)
 
+		const newFlow = flowToMode(flow, mode)
 		jobId = await JobService.runFlowPreview({
 			workspace: $workspaceStore ?? '',
 			requestBody: {
 				args,
-				value: flow.value,
-				path: flow.path
+				value: newFlow.value,
+				path: newFlow.path
 			}
 		})
 		jobs = []
@@ -65,8 +69,8 @@
 			</Button>
 		</div>
 		<SchemaForm schema={flow.schema} bind:isValid bind:args />
-		<Button disabled={!isValid} class="blue-button" on:click={() => runPreview(args)} size="md"
-			>Preview
+		<Button disabled={!isValid} class="blue-button" on:click={() => runPreview(args)} size="md">
+			Preview
 		</Button>
 	</div>
 	<div class="h-full overflow-y-auto mb-16">

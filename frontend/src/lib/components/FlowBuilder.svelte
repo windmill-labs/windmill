@@ -215,6 +215,7 @@
 			<div class="fixed border-l-2 right-0 h-screen w-1/3">
 				<FlowPreviewContent
 					flow={$flowStore}
+					mode={$mode}
 					bind:args={scheduleArgs}
 					on:close={() => (previewOpen = !previewOpen)}
 					on:change={(e) => {
