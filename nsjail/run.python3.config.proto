@@ -103,6 +103,6 @@ mount {
 iface_no_lo: true
 
 envar: "PYTHONPATH=/tmp/dependencies"
-
+envar: "HOME=/tmp"
 
 
