@@ -19,23 +19,30 @@
 	export let scheduleEnabled = false
 	export let scheduleCron: string = '0 */5 * * *'
 
+	let scheduleLoaded = false
+
 	async function loadSchedule() {
-		const existsSchedule = await ScheduleService.existsSchedule({
-			workspace: $workspaceStore ?? '',
-			path: initialPath
-		})
-		if (existsSchedule) {
-			const schedule = await ScheduleService.getSchedule({
+		if (!scheduleLoaded) {
+			scheduleLoaded = true
+
+			const existsSchedule = await ScheduleService.existsSchedule({
 				workspace: $workspaceStore ?? '',
 				path: initialPath
 			})
-			scheduleEnabled = schedule.enabled!
-			scheduleCron = schedule.schedule
-			scheduleArgs = schedule.args ?? {}
+			if (existsSchedule) {
+				const schedule = await ScheduleService.getSchedule({
+					workspace: $workspaceStore ?? '',
+					path: initialPath
+				})
+
+				scheduleEnabled = schedule.enabled!
+				scheduleCron = schedule.schedule
+				scheduleArgs = schedule.args ?? {}
+			}
 		}
 	}
 
-	$: if ($workspaceStore && initialPath != '') {
+	$: if ($flowStore && $workspaceStore && initialPath != '') {
 		loadSchedule()
 	}
 
