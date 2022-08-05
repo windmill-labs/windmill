@@ -472,12 +472,16 @@ async fn push_next_flow_job(
                         }
                     };
                     let mut args = Map::new();
-                    args.insert("_iterator".to_string(), last_result.clone());
-                    args.insert(
-                        "_index".to_string(),
+                    let mut iteration_map = Map::new();
+                    iteration_map.insert(
+                        "index".to_string(),
                         serde_json::Value::Number(serde_json::Number::from(0)),
                     );
-                    args.insert("_value".to_string(), itered[0].clone());
+                    iteration_map.insert("value".to_string(), itered[0].clone());
+                    args.insert(
+                        "iteration".to_string(),
+                        serde_json::Value::Object(iteration_map),
+                    );
                     match itered {
                         serde_json::Value::Array(arr) => (Some(args), Some((0 as u8, arr, vec![]))),
                         a @ _ => Err(Error::BadRequest(format!(
@@ -493,13 +497,18 @@ async fn push_next_flow_job(
                 } if index.to_owned() + 1 < itered.len() as u8 => {
                     let mut args = args.clone();
                     let nindex = index.to_owned() + 1;
-                    args.insert(
-                        "_index".to_string(),
+                    let mut iteration_map = Map::new();
+                    iteration_map.insert(
+                        "index".to_string(),
                         serde_json::Value::Number(serde_json::Number::from(nindex.to_owned())),
                     );
-                    args.insert(
-                        "_value".to_string(),
+                    iteration_map.insert(
+                        "value".to_string(),
                         itered[nindex.to_owned() as usize].clone(),
+                    );
+                    args.insert(
+                        "iteration".to_string(),
+                        serde_json::Value::Object(iteration_map),
                     );
                     (
                         Some(args),

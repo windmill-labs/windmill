@@ -233,13 +233,15 @@ export async function runFlowPreview(args: Record<string, any>, flow: Flow) {
 function computeFlowInputPull(previewResult: any | undefined, flowInputAsObject: any) {
 	const iteratorValues = (previewResult && Array.isArray(previewResult)) ?
 		{
-			_iterator: previewResult,
-			_value: previewResult[0],
-			_index: `The current index of the iteration as a number (here from 0 to ${previewResult.length - 1})`
+			iter: {
+				value: previewResult[0],
+				index: `The current index of the iteration as a number (here from 0 to ${previewResult.length - 1})`
+			}
 		} : {
-			_iterator: 'All the values returned by the previous step',
-			_value: 'The current value of the iteration as an object',
-			_index: 'The current index of the iteration as a number'
+			iter: {
+				value: 'The current value of the iteration as an object',
+				index: 'The current index of the iteration as a number'
+			}
 		}
 	return Object.assign(Object.assign(flowInputAsObject, previewResult), iteratorValues)
 
