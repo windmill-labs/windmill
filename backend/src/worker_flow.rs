@@ -478,10 +478,7 @@ async fn push_next_flow_job(
                         serde_json::Value::Number(serde_json::Number::from(0)),
                     );
                     iteration_map.insert("value".to_string(), itered[0].clone());
-                    args.insert(
-                        "iteration".to_string(),
-                        serde_json::Value::Object(iteration_map),
-                    );
+                    args.insert("iter".to_string(), serde_json::Value::Object(iteration_map));
                     match itered {
                         serde_json::Value::Array(arr) => (Some(args), Some((0 as u8, arr, vec![]))),
                         a @ _ => Err(Error::BadRequest(format!(
@@ -506,10 +503,7 @@ async fn push_next_flow_job(
                         "value".to_string(),
                         itered[nindex.to_owned() as usize].clone(),
                     );
-                    args.insert(
-                        "iteration".to_string(),
-                        serde_json::Value::Object(iteration_map),
-                    );
+                    args.insert("iter".to_string(), serde_json::Value::Object(iteration_map));
                     (
                         Some(args),
                         Some((nindex, itered.clone(), forloop_jobs.clone())),
