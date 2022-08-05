@@ -86,6 +86,9 @@
     "basecamp": {
         "auth_url": "https://launchpad.37signals.com/authorization/new",
         "token_url": "https://launchpad.37signals.com/authorization/token",
-        "scopes": []
+        "scopes": [],
+        "extra_params": {
+            "type": "web_server"
+        }
     }
 }
