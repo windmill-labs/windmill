@@ -4,8 +4,8 @@ verify_ssl = true
 name = "pypi"
 
 [packages]
-wmill = ">=1.28.0"
-wmill_pg = ">=1.28.0"
+wmill = ">=1.28.1"
+wmill_pg = ">=1.28.1"
 requests = "*"
 sendgrid = "*"
 psycopg2-binary = "*"
