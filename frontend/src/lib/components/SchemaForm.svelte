@@ -16,6 +16,16 @@
 
 	let inputCheck: { [id: string]: boolean } = {}
 	$: isValid = allTrue(inputCheck) ?? false
+
+	function removeExtraKey() {
+		Object.keys(args).forEach((key) => {
+			if (!Object.keys(schema?.properties ?? {}).includes(key)) {
+				delete args[key]
+			}
+		})
+	}
+
+	$: Object.keys(schema?.properties ?? {}).length > 0 && removeExtraKey()
 </script>
 
 <div class="w-full">

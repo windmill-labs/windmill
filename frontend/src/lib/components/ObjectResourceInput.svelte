@@ -16,12 +16,6 @@
 	let path: string = ''
 	let args: Record<string, any> = {}
 
-	if (!isString(value) && value) {
-		args = value
-	}
-
-	valueToPath()
-
 	let schema: any | undefined = undefined
 	let isValid = true
 	let resourceTypeName: string = ''
@@ -38,15 +32,27 @@
 	}
 
 	function argToValue() {
-		if (option == 'resource') {
-			value = `$res:${path}`
-		} else {
-			value = args
-		}
+		value = args
 	}
+
+	function resourceToValue() {
+		value = `$res:${path}`
+	}
+
+	function isResource() {
+		return isString(value) && value.length >= '$res:'.length
+	}
+
 	function valueToPath() {
-		path =
-			isString(value) && value.length >= '$res:'.length ? value.substr('$res:'.length) : undefined
+		if (!isString(value) && value) {
+			args = value
+		}
+
+		if (isResource()) {
+			path = value.substr('$res:'.length)
+		} else if (value !== undefined && value !== '') {
+			option = 'raw'
+		}
 	}
 
 	$: value && valueToPath()
@@ -69,7 +75,7 @@
 				on:refresh={() => loadSchema(format)}
 				on:change={(e) => {
 					path = e.detail
-					argToValue()
+					resourceToValue()
 				}}
 				bind:value={path}
 				resourceType={format.split('-').length > 1

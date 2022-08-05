@@ -13,7 +13,7 @@
 	} from '$lib/utils'
 	import { faPlay } from '@fortawesome/free-solid-svg-icons'
 	import { Breadcrumb, BreadcrumbItem, Button } from 'flowbite-svelte'
-	import { onMount } from 'svelte'
+	import { onDestroy, onMount } from 'svelte'
 	import Icon from 'svelte-awesome'
 	import { OFFSET } from './CronInput.svelte'
 	import FlowEditor from './FlowEditor.svelte'
@@ -130,6 +130,11 @@
 	onMount(() => {
 		loadHubScripts()
 		clearPreviewResults()
+	})
+
+	onDestroy(() => {
+		//@ts-ignore
+		$flowStore = undefined
 	})
 </script>
 
