@@ -444,14 +444,14 @@ mod tests {
                         value: Box::new(FlowValue { modules: vec![], failure_module: None }),
                         skip_failures: true,
                     },
-                    stop_after_if_expr: Some("previous.res1.isEmpty()".to_string()),
+                    stop_after_if_expr: Some("previous.isEmpty()".to_string()),
                     skip_if_stopped: None,
                 },
             ],
             failure_module: Some(FlowModule {
                 input_transform: HashMap::new(),
                 value: FlowModuleValue::Flow { path: "test".to_string() },
-                stop_after_if_expr: Some("previous.res1.isEmpty()".to_string()),
+                stop_after_if_expr: Some("previous.isEmpty()".to_string()),
                 skip_if_stopped: None,
             }),
         };
