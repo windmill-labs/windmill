@@ -173,57 +173,56 @@
 
 <VariableEditor bind:this={variableEditor} on:create={variablePicker.openModal} />
 
-<div class="flex flex-row justify-end w-full  space-x-2">
-	<Button
-		size="xs"
-		color="blue"
-		outline
-		on:click={() => {
-			variablePicker.openModal()
-		}}
-	>
-		<Icon data={faSearch} scale={0.7} class="mr-2" />
-		Variable picker
-	</Button>
+<div class="flex flex-row w-full">
+	<div class="flex flex-row w-full space-x-2 whitespace-nowrap">
+		<Button
+			size="xs"
+			color="alternative"
+			on:click={() => {
+				variablePicker.openModal()
+			}}
+		>
+			<Icon data={faSearch} scale={0.7} class="mr-2" />
+			Variable picker
+		</Button>
 
-	<Button
-		size="xs"
-		color="blue"
-		outline
-		on:click={() => {
-			resourcePicker.openModal()
-		}}
-	>
-		<Icon data={faSearch} scale={0.7} class="mr-2" />
-		Resource picker
-	</Button>
+		<Button
+			size="xs"
+			color="alternative"
+			on:click={() => {
+				resourcePicker.openModal()
+			}}
+		>
+			<Icon data={faSearch} scale={0.7} class="mr-2" />
+			Resource picker
+		</Button>
 
-	<Button
-		size="xs"
-		color="blue"
-		outline
-		on:click={() => {
-			scriptPicker.openModal()
-		}}
-	>
-		<Icon data={faSearch} scale={0.7} class="mr-2" />
-		Script explorer
-	</Button>
-
-	<Button
-		size="xs"
-		color="blue"
-		outline
-		on:click={() => {
-			editor.reloadWebsocket()
-		}}
-	>
-		Reload assistants (status:&nbsp;
-		{#if lang == 'deno'}
-			<span class={websocketAlive.deno ? 'text-green-600' : 'text-red-600'}>Deno</span>
-		{:else if lang == 'python3'}
-			<span class={websocketAlive.pyright ? 'text-green-600' : 'text-red-600'}>Pyright</span>
-			<span class={websocketAlive.black ? 'text-green-600' : 'text-red-600'}>Black</span>
-		{/if})
-	</Button>
+		<Button
+			size="xs"
+			color="alternative"
+			on:click={() => {
+				scriptPicker.openModal()
+			}}
+		>
+			<Icon data={faSearch} scale={0.7} class="mr-2" />
+			Script explorer
+		</Button>
+	</div>
+	<div class="flex flex-row-reverse w-full">
+		<Button
+			size="xs"
+			color="alternative"
+			on:click={() => {
+				editor.reloadWebsocket()
+			}}
+		>
+			Reload assistants (status:&nbsp;
+			{#if lang == 'deno'}
+				<span class={websocketAlive.deno ? 'text-green-600' : 'text-red-600'}>Deno</span>
+			{:else if lang == 'python3'}
+				<span class={websocketAlive.pyright ? 'text-green-600' : 'text-red-600'}>Pyright</span>
+				<span class={websocketAlive.black ? 'text-green-600' : 'text-red-600'}>Black</span>
+			{/if})
+		</Button>
+	</div>
 </div>

@@ -7,6 +7,7 @@
 	import { DENO_INIT_CODE, DENO_INIT_CODE_TRIGGER, initialCode } from '$lib/script_helpers'
 	import { workspaceStore } from '$lib/stores'
 	import { emptySchema, encodeState, sendUserToast, setQueryWithoutLoad } from '$lib/utils'
+	import { Breadcrumb, BreadcrumbItem } from 'flowbite-svelte'
 	import { onDestroy } from 'svelte'
 	import SvelteMarkdown from 'svelte-markdown'
 	import Path from './Path.svelte'
@@ -98,32 +99,31 @@
 	<div class="flex flex-col w-full">
 		<div class="justify-between flex flex-row drop-shadow-sm w-full mt-4">
 			<div class="wizard-nav flex flex-row w-full">
-				<button
-					class="{step === 1
-						? 'default-button-disabled text-gray-700'
-						: 'default-button-secondary'} min-w-max ml-2"
-					on:click={() => {
-						changeStep(1)
-					}}>Step 1: Metadata</button
-				>
-				<button
-					disabled={pathError != ''}
-					class="{step === 2
-						? 'default-button-disabled text-gray-700'
-						: 'default-button-secondary'} min-w-max ml-2"
-					on:click={() => {
-						changeStep(2)
-					}}>Step 2: Code</button
-				>
-				<button
-					disabled={pathError != ''}
-					class="{step === 3
-						? 'default-button-disabled text-gray-700'
-						: 'default-button-secondary'} min-w-max ml-2"
-					on:click={() => {
-						changeStep(3)
-					}}>Step 3: UI customisation</button
-				>
+				<Breadcrumb>
+					<BreadcrumbItem>
+						<button on:click={() => changeStep(1)} class={step === 1 ? 'font-bold' : null}>
+							Metadata
+						</button>
+					</BreadcrumbItem>
+					<BreadcrumbItem>
+						<button
+							on:click={() => changeStep(2)}
+							class={step === 2 ? 'font-bold' : null}
+							disabled={pathError != ''}
+						>
+							Code
+						</button>
+					</BreadcrumbItem>
+					<BreadcrumbItem>
+						<button
+							on:click={() => changeStep(3)}
+							class={step === 3 ? 'font-bold' : null}
+							disabled={pathError != ''}
+						>
+							UI customisation
+						</button>
+					</BreadcrumbItem>
+				</Breadcrumb>
 			</div>
 			<div class="flex flex-row-reverse ml-2">
 				{#if step != 3}
