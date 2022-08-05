@@ -198,7 +198,7 @@ pub async fn run_worker(
                             db,
                             &job,
                             false,
-                            Some(m),
+                            serde_json::Value::Object(m),
                             &metrics,
                         )
                         .await;
@@ -277,11 +277,12 @@ async fn handle_queued_job(
 
     match job.job_kind {
         JobKind::FlowPreview | JobKind::Flow => {
-            let args = match &job.args {
-                Some(serde_json::Value::Object(m)) => Some(m.to_owned()),
-                _ => None,
-            };
-            handle_flow(&job, db, args).await?;
+            handle_flow(
+                &job,
+                db,
+                job.args.clone().unwrap_or_else(|| serde_json::Value::Null),
+            )
+            .await?;
         }
         _ => {
             let mut logs = "".to_string();
@@ -314,10 +315,9 @@ async fn handle_queued_job(
 
             match execution {
                 Ok(r) => {
-                    add_completed_job(db, &job, true, false, r.result.clone(), logs).await?;
+                    add_completed_job(db, &job, true, false, r.clone(), logs).await?;
                     if job.is_flow_step {
-                        update_flow_status_after_job_completion(db, &job, true, r.result, metrics)
-                            .await?;
+                        update_flow_status_after_job_completion(db, &job, true, r, metrics).await?;
                     }
                 }
                 Err(e) => {
@@ -328,7 +328,7 @@ async fn handle_queued_job(
                             db,
                             &job,
                             false,
-                            Some(output_map),
+                            serde_json::Value::Object(output_map),
                             metrics,
                         )
                         .await?;
@@ -348,10 +348,6 @@ async fn handle_queued_job(
         }
     }
     Ok(())
-}
-
-struct JobResult {
-    result: Option<Map<String, Value>>,
 }
 
 async fn write_file(dir: &str, path: &str, content: &str) -> Result<File, Error> {
@@ -405,7 +401,7 @@ async fn handle_job(
     base_url: &str,
     disable_nuser: bool,
     disable_nsjail: bool,
-) -> Result<JobResult, Error> {
+) -> Result<serde_json::Value, Error> {
     tracing::info!(
         worker = %worker_name,
         job_id = %job.id,
@@ -444,14 +440,14 @@ async fn handle_job(
     tokio::fs::remove_dir_all(job_dir).await?;
 
     if status.is_ok() && status.as_ref().unwrap().success() {
-        let result = serde_json::from_str::<Map<String, Value>>(last_line).map_err(|e| {
+        let result = serde_json::from_str::<serde_json::Value>(last_line).map_err(|e| {
             Error::ExecutionErr(format!(
                 "result {} is not parsable.\n err: {}",
                 last_line,
                 e.to_string()
             ))
         })?;
-        Ok(JobResult { result: Some(result) })
+        Ok(result)
     } else {
         let err = match status {
             Ok(_) => {
@@ -639,12 +635,6 @@ for k, v in kwargs.items():
         kwargs[k] = None
 {transforms}
 res = inner_script.main(**kwargs)
-if res is None:
-    res = {{}}
-if isinstance(res, tuple):
-    res = {{f"res{{i+1}}": v for i, v in enumerate(res)}}
-if not isinstance(res, dict):
-    res = {{ "res1": res }}
 res_json = json.dumps(res, separators=(',', ':'), default=str).replace('\n', '')
 print()
 print("result:")
@@ -748,14 +738,7 @@ const args = await Deno.readTextFile("args.json")
 
 async function run() {{
     let res: any = await main(...args);
-    if (res == undefined) {{
-        res = {{}}
-    }}
-    if (typeof res !== 'object' || Array.isArray(res)) {{
-        res = {{ res1: res }}
-    }}
-
-    const res_json = JSON.stringify(res);
+    const res_json = JSON.stringify(res ?? null);
     console.log();
     console.log("result:");
     console.log(res_json);

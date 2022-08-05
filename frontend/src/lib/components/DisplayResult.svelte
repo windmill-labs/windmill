@@ -9,17 +9,13 @@
 	let resultKind: 'json' | 'table-col' | 'table-row' | 'png' | 'file' | 'jpeg' | 'gif' | undefined =
 		inferResultKind(result)
 
-	function isArray(obj: any) {
-		return Object.prototype.toString.call(obj) === '[object Array]'
-	}
-
 	function isRectangularArray(obj: any) {
-		if (!isArray(obj) || obj.length == 0) {
+		if (!Array.isArray(obj) || obj.length == 0) {
 			return false
 		}
 		if (
 			!Object.values(obj)
-				.map(isArray)
+				.map(Array.isArray)
 				.reduce((a, b) => a && b)
 		) {
 			return false
@@ -39,9 +35,9 @@
 		if (result) {
 			try {
 				let keys = Object.keys(result)
-				if (keys.length == 1 && isRectangularArray(result[keys[0]])) {
+				if (isRectangularArray(result)) {
 					return 'table-row'
-				} else if (keys.map((k) => isArray(result[k])).reduce((a, b) => a && b)) {
+				} else if (keys.map((k) => Array.isArray(result[k])).reduce((a, b) => a && b)) {
 					return 'table-col'
 				} else if (keys.length == 1 && keys[0] == 'png') {
 					return 'png'
@@ -57,7 +53,7 @@
 </script>
 
 {#if result}
-	{#if Object.keys(result).length > 0}<div>
+	{#if typeof result == 'object' && Object.keys(result).length > 0}<div>
 			The result keys are: <b>{Object.keys(result).join(', ')}</b>
 		</div>
 	{/if}

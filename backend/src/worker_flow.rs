@@ -49,7 +49,7 @@ pub async fn update_flow_status_after_job_completion(
     db: &DB,
     job: &QueuedJob,
     success: bool,
-    result: Option<Map<String, Value>>,
+    result: serde_json::Value,
     metrics: &worker::Metrics,
 ) -> error::Result<()> {
     tracing::debug!("HANDLE FLOW: {job:?} {success} {result:?}");
@@ -167,9 +167,7 @@ pub async fn update_flow_status_after_job_completion(
                 .map_ok(|(v,)| v)
                 .try_collect::<Vec<serde_json::Value>>()
                 .await?;
-                let mut results_map = serde_json::Map::new();
-                results_map.insert("res1".to_string(), serde_json::json!(results));
-                Some(results_map)
+                serde_json::json!(results)
             }
             _ => result.clone(),
         };
@@ -252,11 +250,7 @@ async fn skip_loop_failures<'c>(
     .map_err(|e| Error::InternalErr(format!("error during retrieval of skip_loop_failures: {e}")))
 }
 
-async fn compute_stop_early(
-    expr: String,
-    result: Option<Map<String, Value>>,
-) -> error::Result<bool> {
-    let result = serde_json::Value::Object(result.clone().unwrap_or_else(|| Map::new()));
+async fn compute_stop_early(expr: String, result: serde_json::Value) -> error::Result<bool> {
     match eval_timeout(expr, [("result".to_string(), result)].into(), None, vec![]).await? {
         serde_json::Value::Bool(true) => Ok(true),
         serde_json::Value::Bool(false) => Ok(false),
@@ -311,7 +305,7 @@ pub async fn get_step_of_flow_status(db: &DB, id: Uuid) -> error::Result<i32> {
 #[instrument(level = "trace", skip_all)]
 async fn transform_input(
     flow_args: &Option<serde_json::Value>,
-    last_result: Option<Map<String, serde_json::Value>>,
+    last_result: serde_json::Value,
     input_transform: &HashMap<String, InputTransform>,
     workspace: &str,
     token: &str,
@@ -333,8 +327,7 @@ async fn transform_input(
         match val {
             InputTransform::Static { value: _ } => (),
             InputTransform::Javascript { expr } => {
-                let previous_result =
-                    serde_json::Value::Object(last_result.clone().unwrap_or_else(|| Map::new()));
+                let previous_result = last_result.clone();
                 let flow_input = flow_args.clone().unwrap_or_else(|| json!({}));
                 let v = eval_timeout(
                     expr.to_string(),
@@ -365,7 +358,7 @@ async fn transform_input(
 pub async fn handle_flow(
     flow_job: &QueuedJob,
     db: &sqlx::Pool<sqlx::Postgres>,
-    last_result: Option<Map<String, serde_json::Value>>,
+    last_result: serde_json::Value,
 ) -> anyhow::Result<()> {
     let value = flow_job
         .raw_flow
@@ -397,7 +390,7 @@ async fn push_next_flow_job(
     flow: FlowValue,
     schedule_path: Option<String>,
     db: &sqlx::Pool<sqlx::Postgres>,
-    last_result: Option<Map<String, serde_json::Value>>,
+    last_result: serde_json::Value,
 ) -> anyhow::Result<()> {
     let flow_status_json = flow_job.flow_status.as_ref().ok_or_else(|| {
         Error::InternalErr(format!("not found status for flow job {:?}", flow_job.id))
@@ -468,9 +461,7 @@ async fn push_next_flow_job(
                     let itered = match iterator {
                         InputTransform::Static { value } => value.clone(),
                         InputTransform::Javascript { expr } => {
-                            let result = serde_json::Value::Object(
-                                last_result.clone().unwrap_or_else(|| Map::new()),
-                            );
+                            let result = last_result.clone();
                             eval_timeout(
                                 expr.to_string(),
                                 [("result".to_string(), result)].into(),
@@ -480,9 +471,8 @@ async fn push_next_flow_job(
                             .await?
                         }
                     };
-
-                    let mut args = last_result.clone().unwrap_or_else(Map::new);
-
+                    let mut args = Map::new();
+                    args.insert("_iterator".to_string(), last_result.clone());
                     args.insert(
                         "_index".to_string(),
                         serde_json::Value::Number(serde_json::Number::from(0)),

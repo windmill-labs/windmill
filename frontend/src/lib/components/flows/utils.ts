@@ -36,7 +36,7 @@ export function flowToMode(flow: Flow | any, mode: FlowMode): Flow {
 		const oldModules = newFlow.value.modules.slice(1)
 
 		if (triggerModule) {
-			triggerModule.stop_after_if_expr = 'result.res1.length == 0'
+			triggerModule.stop_after_if_expr = 'result.length == 0'
 			triggerModule.skip_if_stopped = true
 		}
 
@@ -46,7 +46,7 @@ export function flowToMode(flow: Flow | any, mode: FlowMode): Flow {
 				input_transform: oldModules[0].input_transform,
 				value: {
 					type: 'forloopflow',
-					iterator: { type: 'javascript', expr: 'result.res1' },
+					iterator: { type: 'javascript', expr: 'result' },
 					value: {
 						modules: oldModules
 					},
@@ -231,10 +231,10 @@ export async function runFlowPreview(args: Record<string, any>, flow: Flow) {
 	})
 }
 function computeFlowInputPull(previewResult: any | undefined, flowInputAsObject: any) {
-	const iteratorValues = (previewResult?.res1 && Array.isArray(previewResult.res1)) ?
+	const iteratorValues = (previewResult && Array.isArray(previewResult)) ?
 		{
-			_value: previewResult.res1[0],
-			_index: `The current index of the iteration as a number (here from 0 to ${previewResult.res1.length - 1})`
+			_value: previewResult[0],
+			_index: `The current index of the iteration as a number (here from 0 to ${previewResult.length - 1})`
 		} : {
 			_value: 'The current value of the iteration as an object',
 			_index: 'The current index of the iteration as a number'

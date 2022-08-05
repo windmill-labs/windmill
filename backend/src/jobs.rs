@@ -1271,7 +1271,7 @@ pub async fn add_completed_job_error<E: ToString + std::fmt::Debug>(
         &queued_job,
         false,
         false,
-        Some(output_map.clone()),
+        serde_json::Value::Object(output_map.clone()),
         format!("\n{}\n{}", logs, e.to_string()),
     )
     .await?;
@@ -1284,10 +1284,9 @@ pub async fn add_completed_job(
     queued_job: &QueuedJob,
     success: bool,
     skipped: bool,
-    result: Option<Map<String, Value>>,
+    result: serde_json::Value,
     logs: String,
 ) -> Result<Uuid, Error> {
-    let result_json = result.map(serde_json::Value::Object);
     let job_id = queued_job.id.clone();
     let duration_ms = (chrono::Utc::now() - queued_job.started_at.unwrap_or(queued_job.created_at))
         .num_milliseconds() as i32;
@@ -1311,7 +1310,7 @@ pub async fn add_completed_job(
         queued_job.script_hash.map(|x| x.0),
         queued_job.script_path,
         queued_job.args,
-        result_json,
+        result,
         logs,
         queued_job.raw_code,
         queued_job.canceled,
