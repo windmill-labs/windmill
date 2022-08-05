@@ -17,3 +17,4 @@ jobs:
         uses: peter-evans/create-pull-request@v4
         with:
           title: sync hub items with community
+          commit-message: sync hub items with community
