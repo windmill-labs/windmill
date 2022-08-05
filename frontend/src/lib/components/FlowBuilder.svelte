@@ -118,6 +118,9 @@
 	}
 
 	async function changeStep(step: number) {
+		if (step === 2 && previewOpen) {
+			previewOpen = false
+		}
 		goto(`?step=${step}`)
 	}
 
@@ -139,7 +142,7 @@
 </script>
 
 <div class="flex flex-row w-full h-full justify-between">
-	<div class="flex flex-col max-w-screen-md mb-96 m-auto">
+	<div class={`flex flex-col mb-96 m-auto w-1/2`}>
 		<!-- Nav between steps-->
 		<div class="justify-between flex flex-row w-full my-4">
 			<Breadcrumb>
@@ -205,19 +208,6 @@
 
 					<Icon data={faPlay} class="ml-2" />
 				</Button>
-				<div class={`relative h-screen w-1/3 ${previewOpen ? '' : 'hidden'}`}>
-					<div class="absolute top-0 h-full">
-						<div class="fixed border-l-2 right-0 h-screen w-1/3">
-							<FlowPreviewContent
-								bind:args={scheduleArgs}
-								on:close={() => (previewOpen = !previewOpen)}
-								on:change={(e) => {
-									previewResults.set(jobsToResults(e.detail))
-								}}
-							/>
-						</div>
-					</div>
-				</div>
 			{:else if step === 2}
 				<ScriptSchema
 					synchronizedHeader={false}
@@ -229,5 +219,21 @@
 		{:else}
 			<p>Loading</p>
 		{/if}
+	</div>
+
+	<div class={`relative h-screen w-1/3 ${previewOpen ? '' : 'hidden'}`}>
+		<div class="absolute top-0 h-full">
+			{#if $flowStore && step === 1}
+				<div class="fixed border-l-2 right-0 h-screen w-1/3">
+					<FlowPreviewContent
+						bind:args={scheduleArgs}
+						on:close={() => (previewOpen = !previewOpen)}
+						on:change={(e) => {
+							previewResults.set(jobsToResults(e.detail))
+						}}
+					/>
+				</div>
+			{/if}
+		</div>
 	</div>
 </div>
