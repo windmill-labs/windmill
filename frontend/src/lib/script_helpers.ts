@@ -1,16 +1,13 @@
 export const PYTHON_INIT_CODE = `import os
 import wmill
 from datetime import datetime
-# Our webeditor includes a syntax, type checker through a language server running pyright
-# and the autoformatter Black in our servers. Use Cmd/Ctrl + S to autoformat the code.
-# Beware that the code is only saved when you click Save and not across reload.
-# You can however navigate to any steps safely.
+
 """
+Use Cmd/Ctrl + S to autoformat the code.
 The client is used to interact with windmill itself through its standard API.
-One can explore the methods available through autocompletion of \`client.XXX\`.
-Only the most common methods are included for ease of use. Request more as
-feedback if you feel you are missing important ones.
+One can explore the methods available through autocompletion of \`wmill.XXX\`.
 """
+
 def main(name: str = "Nicolas Bourbaki",
          age: int = 42,
          obj: dict = {"even": "dicts"},
