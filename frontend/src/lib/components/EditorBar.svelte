@@ -173,7 +173,7 @@
 
 <VariableEditor bind:this={variableEditor} on:create={variablePicker.openModal} />
 
-<div class="flex flex-row justify-end w-full  space-x-2">
+<div class="flex flex-row justify-start w-full  space-x-2">
 	<Button
 		size="xs"
 		color="blue"
