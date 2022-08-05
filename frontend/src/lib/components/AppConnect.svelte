@@ -8,6 +8,10 @@
 			img: 'discord_webhook.png',
 			instructions: 'Server Settings -> Integration -> Webhooks',
 			key: 'webhook_url'
+		},
+		toggl: {
+			img: 'toggl_connect.png',
+			instructions: 'Go to https://track.toggl.com/profile -> API Token'
 		}
 	}
 </script>
@@ -129,14 +133,15 @@
 					})
 				)
 			}
+			const description = `${manual ? 'Token' : 'OAuth token'} for ${resource_type}`
 			await VariableService.createVariable({
 				workspace: $workspaceStore!,
 				requestBody: {
 					path,
 					value,
 					is_secret: true,
-					description: `OAuth token for ${resource_type}`,
-					is_oauth: true,
+					description,
+					is_oauth: !manual,
 					account: account
 				}
 			})
@@ -148,8 +153,8 @@
 					resource_type,
 					path,
 					value: resourceValue,
-					description: `OAuth token for ${resource_type}`,
-					is_oauth: true
+					description,
+					is_oauth: !manual
 				}
 			})
 			dispatch('refresh')
