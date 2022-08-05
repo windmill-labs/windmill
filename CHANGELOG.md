@@ -1,6 +1,15 @@
 # Changelog
 
 
+## [1.28.1](https://github.com/windmill-labs/windmill/compare/v1.28.0...v1.28.1) (2022-08-05)
+
+
+### Bug Fixes
+
+* **frontend:** add toggl connect ([#341](https://github.com/windmill-labs/windmill/issues/341)) ([b94895f](https://github.com/windmill-labs/windmill/commit/b94895f24eb4ba1b67f499a98c6e6e8d9d006b14))
+* **frontend:** schedule args in flow ([#343](https://github.com/windmill-labs/windmill/issues/343)) ([350a25c](https://github.com/windmill-labs/windmill/commit/350a25c837b1367fa5568dd1de0196202d632bd0))
+* improve flow viewer with retrieving hub script ([80e28db](https://github.com/windmill-labs/windmill/commit/80e28dbba3e77154c0017bd8e74d144e6aae13fb))
+
 ## [1.28.0](https://github.com/windmill-labs/windmill/compare/v1.27.2...v1.28.0) (2022-08-04)
 
 
