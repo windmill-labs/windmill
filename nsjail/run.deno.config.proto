@@ -110,6 +110,7 @@ iface_no_lo: true
 
 envar: "DENO_DIR=/tmp/.cache/deno"
 envar: "NO_COLOR=true"
+envar: "HOME=/tmp"
 
 
 

@@ -20,4 +20,5 @@ yfinance = "*"
 pyowm = "*"
 pyairtable = "*"
 matplotlib = "*"
+nltk = "*"
 
