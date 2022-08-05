@@ -738,7 +738,7 @@ const args = await Deno.readTextFile("args.json")
 
 async function run() {{
     let res: any = await main(...args);
-    const res_json = JSON.stringify(res ?? null);
+    const res_json = JSON.stringify(res ?? null, (key, value) => typeof value === 'undefined' ? null : value);
     console.log();
     console.log("result:");
     console.log(res_json);
