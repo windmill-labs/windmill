@@ -11,6 +11,7 @@
 	import Tabs from './Tabs.svelte'
 	import SchemaViewer from './SchemaViewer.svelte'
 	import FieldHeader from './FieldHeader.svelte'
+	import InputTransformsViewer from './InputTransformsViewer.svelte'
 
 	export let flow: {
 		summary: string
@@ -118,9 +119,10 @@
 														}}
 														class="mb-2 underline text-black"
 													>
-														View code {open[i] ? '(-)' : '(+)'}</button
+														View code and inputs {open[i] ? '(-)' : '(+)'}</button
 													>
 													{#if open[i]}
+														<InputTransformsViewer inputTransforms={mod?.input_transform} />
 														<div class="w-full h-full">
 															<iframe
 																style="height: 400px;"
@@ -145,6 +147,8 @@
 
 											{#if open[i]}
 												<div transition:slide class="border border-black p-2 bg-gray-50 w-full">
+													<InputTransformsViewer inputTransforms={mod?.input_transform} />
+
 													<Highlight
 														language={mod?.value?.language == 'deno' ? typescript : python}
 														code={mod?.value?.content}

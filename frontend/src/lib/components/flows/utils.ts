@@ -24,6 +24,9 @@ export function flowToMode(flow: Flow | any, mode: FlowMode): Flow {
 			if (inp.type == 'javascript') {
 				//@ts-ignore
 				inp.value = undefined
+				inp.expr = inp.expr.split('\n')
+					.filter((x) => x != '' && !x.startsWith(`import { previous_result, flow_input, step, variable, resource, params } from 'windmill@`))
+					.join('\n')
 			} else {
 				//@ts-ignore
 				inp.expr = undefined
