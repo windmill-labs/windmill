@@ -46,7 +46,8 @@ export function flowToMode(flow: Flow | any, mode: FlowMode): Flow {
 		newFlow.value.modules = newFlow.value.modules.slice(0, 1)
 		if (oldModules.length > 0) {
 			newFlow.value.modules.push({
-				input_transform: oldModules[0].input_transform,
+				//TODO: once we allow arbitrary for loop, we will also allow arbitrary input transform here
+				input_transform: {},
 				value: {
 					type: 'forloopflow',
 					iterator: { type: 'javascript', expr: 'result' },

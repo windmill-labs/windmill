@@ -310,7 +310,7 @@ async fn transform_input(
     workspace: &str,
     token: &str,
     steps: Vec<String>,
-) -> anyhow::Result<Option<Map<String, serde_json::Value>>> {
+) -> anyhow::Result<Map<String, serde_json::Value>> {
     let mut mapped = serde_json::Map::new();
 
     for (key, val) in input_transform.into_iter() {
@@ -351,7 +351,7 @@ async fn transform_input(
         }
     }
 
-    Ok(Some(mapped))
+    Ok(mapped)
 }
 
 #[instrument(level = "trace", skip_all)]
@@ -455,7 +455,7 @@ async fn push_next_flow_job(
             module.value,
             status.modules[i]
         );
-        let (forloop_args, forloop_iterator) = match &module.value {
+        let (compute_input_transform, forloop_args, forloop_iterator) = match &module.value {
             FlowModuleValue::ForloopFlow { iterator, .. } => match &status.modules[i] {
                 FlowStatusModule::WaitingForPriorSteps { .. } => {
                     let itered = match iterator {
@@ -480,7 +480,9 @@ async fn push_next_flow_job(
                     iteration_map.insert("value".to_string(), itered[0].clone());
                     args.insert("iter".to_string(), serde_json::Value::Object(iteration_map));
                     match itered {
-                        serde_json::Value::Array(arr) => (Some(args), Some((0 as u8, arr, vec![]))),
+                        serde_json::Value::Array(arr) => {
+                            (true, Some(args), Some((0 as u8, arr, vec![])))
+                        }
                         a @ _ => Err(Error::BadRequest(format!(
                             "Expected an array value, found: {:?}",
                             a
@@ -505,6 +507,7 @@ async fn push_next_flow_job(
                     );
                     args.insert("iter".to_string(), serde_json::Value::Object(iteration_map));
                     (
+                        false,
                         Some(args),
                         Some((nindex, itered.clone(), forloop_jobs.clone())),
                     )
@@ -514,11 +517,33 @@ async fn push_next_flow_job(
                     a
                 )))?,
             },
-            _ => (None, None),
+            _ => (true, None, None),
         };
 
+        let mut args = if compute_input_transform {
+            let steps = status
+                .modules
+                .into_iter()
+                .map(|x| match x {
+                    FlowStatusModule::Success { job, forloop_jobs: _ } => job.to_string(),
+                    _ => "invalid step status".to_string(),
+                })
+                .collect();
+
+            transform_input(
+                &flow_job.args,
+                last_result.clone(),
+                &input_transform,
+                &flow_job.workspace_id,
+                &token,
+                steps,
+            )
+            .await?
+        } else {
+            Map::new()
+        };
         let args = if forloop_args.is_some() {
-            let mut args = forloop_args.unwrap();
+            args.extend(forloop_args.unwrap());
             if let Some(flow_args) = &flow_job.args {
                 match flow_args {
                     serde_json::Value::Object(obj) => {
@@ -534,35 +559,16 @@ async fn push_next_flow_job(
                     }
                 }
             }
-            Some(args)
+            args
         } else {
-            let steps = status
-                .modules
-                .into_iter()
-                .map(|x| match x {
-                    FlowStatusModule::Success { job, forloop_jobs: _ } => job.to_string(),
-                    _ => "invalid step status".to_string(),
-                })
-                .collect();
-
-            let transformed = transform_input(
-                &flow_job.args,
-                last_result.clone(),
-                &input_transform,
-                &flow_job.workspace_id,
-                &token,
-                steps,
-            )
-            .await?;
-
-            transformed
+            args
         };
 
         let (uuid, mut tx) = push(
             tx,
             &flow_job.workspace_id,
             job_payload,
-            args.clone(),
+            Some(args.clone()),
             &flow_job.created_by,
             flow_job.permissioned_as.to_owned(),
             None,
@@ -576,11 +582,7 @@ async fn push_next_flow_job(
             forloop_jobs.push(uuid.to_owned());
             serde_json::json!(FlowStatusModule::InProgress {
                 job: uuid,
-                iterator: Some(Iterator {
-                    index: index,
-                    itered: itered,
-                    args: args.unwrap_or_else(|| Map::new()),
-                }),
+                iterator: Some(Iterator { index: index, itered: itered, args: args }),
                 forloop_jobs: Some(forloop_jobs),
             })
         } else {
