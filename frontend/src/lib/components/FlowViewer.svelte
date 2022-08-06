@@ -12,6 +12,7 @@
 	import SchemaViewer from './SchemaViewer.svelte'
 	import FieldHeader from './FieldHeader.svelte'
 	import InputTransformsViewer from './InputTransformsViewer.svelte'
+	import SvelteMarkdown from 'svelte-markdown'
 
 	export let flow: {
 		summary: string
@@ -19,6 +20,7 @@
 		value: FlowValue
 		schema?: any
 	}
+	export let initialOpen: number | undefined = undefined
 
 	let flowFiltered = {
 		summary: flow.summary,
@@ -31,7 +33,9 @@
 
 	export let tab: 'ui' | 'json' | 'schema' = 'ui'
 	let open: { [id: number]: boolean } = {}
-	let hubCode: { [id: number]: string } = {}
+	if (initialOpen) {
+		open[initialOpen] = true
+	}
 
 	function toAny(x: unknown): any {
 		return x as any
@@ -52,7 +56,7 @@
 	<div class="flow-root w-full pb-4">
 		{#if !embedded}
 			<h2 class="mt-4">{flow.summary}</h2>
-			<h3 class="mt-4">{flow.description}</h3>
+			<SvelteMarkdown source={flow.description ?? ''} />
 
 			<p class="font-black text-lg w-full my-4">
 				<span>Inputs</span>
