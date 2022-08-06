@@ -58,6 +58,8 @@ components:
           type: string
         skip_if_stopped:
           type: boolean
+        summary:
+          type: string
       required:
         - input_transform
         - value
