@@ -157,7 +157,9 @@ pub fn parse_deno_signature(code: &str) -> error::Result<MainArgSignature> {
     let ast = parser
         .parse_module()
         .map_err(|e| {
-            error::Error::ExecutionErr(format!("impossible to parse module: {err_s}\n{e:?}"))
+            error::Error::ExecutionErr(format!(
+                "Error while parsing code, it is invalid typescript"
+            ))
         })?
         .body;
 
