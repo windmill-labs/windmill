@@ -40,9 +40,7 @@
 		intervalId && clearInterval(intervalId)
 
 		let newFlow: Flow =
-			tab == 'upto'
-				? truncateFlow(flowToMode(flow, mode))
-				: setInputTransformFromArgs(extractStep(flow), args)
+			tab == 'upto' ? truncateFlow(flow) : setInputTransformFromArgs(extractStep(flow), args)
 		jobId = await runFlowPreview(args, newFlow)
 
 		jobs = []
