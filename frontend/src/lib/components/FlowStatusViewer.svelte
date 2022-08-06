@@ -201,6 +201,9 @@
 									>
 									{#if forloop_selected == job.id}
 										<svelte:self {job} />
+										{#if `result` in job}
+											<FlowJobResult {job} />
+										{/if}
 									{/if}
 								{/each}
 							</div>
