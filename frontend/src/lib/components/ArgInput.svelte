@@ -71,14 +71,18 @@
 			evalValueToRaw()
 			validateInput(pattern, value)
 		}
-		if (defaultValue) {
-			let stringified = JSON.stringify(defaultValue, null, 4)
-			if (stringified.length > 50) {
-				minRows = 3
-			}
-			if (type != 'string') {
-				minRows = Math.max(minRows, Math.min(stringified.split(/\r\n|\r|\n/).length + 1, maxRows))
-			}
+	}
+
+	$: {
+		defaultValue && recomputeRowSize(JSON.stringify(defaultValue, null, 4))
+	}
+
+	function recomputeRowSize(str: string) {
+		if (str.length > 50) {
+			minRows = 3
+		}
+		if (type != 'string') {
+			minRows = Math.max(minRows, Math.min(str.split(/\r\n|\r|\n/).length + 1, maxRows))
 		}
 	}
 
@@ -263,6 +267,7 @@
 				<textarea
 					{disabled}
 					style="min-height: {minHeight}; max-height: {maxHeight}"
+					on:input={async () => recomputeRowSize(rawValue ?? '')}
 					class="col-span-10 {valid
 						? ''
 						: 'border border-red-700 border-opacity-30 focus:border-red-700 focus:border-opacity-30 bg-red-100'}"
@@ -313,7 +318,10 @@
 						: 'border border-red-700 border-opacity-30 focus:border-red-700 focus:border-opacity-30 bg-red-100'}"
 					placeholder={defaultValue ?? ''}
 					bind:value
-					on:input={() => dispatch('input', { rawValue: value, isRaw: false })}
+					on:input={async () => {
+						recomputeRowSize(value)
+						dispatch('input', { rawValue: value, isRaw: false })
+					}}
 				/>
 			{/if}
 			{#if !required && inputCat != 'resource-object'}
