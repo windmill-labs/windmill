@@ -48,8 +48,8 @@
 	})
 </script>
 
-<div class="flex flex-col space-y-4 h-screen bg-white ">
-	<div class="flex flex-col space-y-4 p-6 border-b-2">
+<div class="flex flex-col space-y-4 h-screen bg-white">
+	<div class="flex flex-col space-y-4 p-6 border-b-2 overflow-y-auto grow">
 		<div class="flex justify-between">
 			<h3 class="text-lg leading-6 font-bold text-gray-900">Flow Preview</h3>
 
@@ -58,11 +58,11 @@
 			</Button>
 		</div>
 		<SchemaForm schema={$flowStore.schema} bind:isValid bind:args />
-		<Button disabled={!isValid} class="blue-button" on:click={() => runPreview(args)} size="md">
-			Preview
-		</Button>
 	</div>
-	<div class="h-full overflow-y-auto mb-16">
+	<Button disabled={!isValid} class="blue-button  mx-4" on:click={() => runPreview(args)} size="md">
+		Preview
+	</Button>
+	<div class="h-full overflow-y-auto mb-16 grow">
 		{#if job}
 			<div class="w-full">
 				<FlowStatusViewer {job} bind:jobs />
