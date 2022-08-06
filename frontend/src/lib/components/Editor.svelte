@@ -367,9 +367,6 @@
 			minimap: {
 				enabled: false
 			},
-			scrollbar: {
-				alwaysConsumeMouseWheel: false
-			},
 			lightbulb: {
 				enabled: true
 			}
