@@ -630,9 +630,9 @@ inner_script = __import__("inner")
 
 with open("args.json") as f:
     kwargs = json.load(f, strict=False)
-for k, v in kwargs.items():
+for k, v in list(kwargs.items()):
     if v == '<function call>':
-        kwargs[k] = None
+        del kwargs[k]
 {transforms}
 res = inner_script.main(**kwargs)
 res_json = json.dumps(res, separators=(',', ':'), default=str).replace('\n', '')
