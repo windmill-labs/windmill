@@ -88,6 +88,7 @@ RUN wget https://www.python.org/ftp/python/${PYTHON_VERSION}/Python-${PYTHON_VER
     && make -j 4 && make install
 
 RUN /usr/local/bin/python3 -m pip install pip-tools
+RUN mkdir -p /nsjail_data/python && HOME=/nsjail_data/python /usr/local/bin/python3 -m nltk.downloader vader_lexicon
 
 COPY --from=builder /windmill/target/release/windmill ${APP}/windmill
 
