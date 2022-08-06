@@ -246,7 +246,7 @@ function computeFlowInputPull(previewResult: any | undefined, flowInputAsObject:
 				index: 'The current index of the iteration as a number'
 			}
 		}
-	return Object.assign(Object.assign(flowInputAsObject, previewResult), iteratorValues)
+	return Object.assign(flowInputAsObject, iteratorValues)
 
 }
 
