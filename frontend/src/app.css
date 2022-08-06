@@ -223,3 +223,7 @@ html {
 		@apply text-sm;
 	}
 }
+
+.inline-highlight pre code.hljs {
+	padding: 0;
+}
