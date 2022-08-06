@@ -81,6 +81,7 @@ pub struct FlowModule {
     pub value: FlowModuleValue,
     pub stop_after_if_expr: Option<String>,
     pub skip_if_stopped: Option<bool>,
+    pub summary: Option<String>,
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone)]
@@ -422,6 +423,7 @@ mod tests {
                     value: FlowModuleValue::Script { path: "test".to_string() },
                     stop_after_if_expr: None,
                     skip_if_stopped: Some(false),
+                    summary: None,
                 },
                 FlowModule {
                     input_transform: HashMap::new(),
@@ -432,6 +434,7 @@ mod tests {
                     }),
                     stop_after_if_expr: Some("foo = 'bar'".to_string()),
                     skip_if_stopped: None,
+                    summary: None,
                 },
                 FlowModule {
                     input_transform: [(
@@ -446,6 +449,7 @@ mod tests {
                     },
                     stop_after_if_expr: Some("previous.isEmpty()".to_string()),
                     skip_if_stopped: None,
+                    summary: None,
                 },
             ],
             failure_module: Some(FlowModule {
@@ -453,6 +457,7 @@ mod tests {
                 value: FlowModuleValue::Flow { path: "test".to_string() },
                 stop_after_if_expr: Some("previous.isEmpty()".to_string()),
                 skip_if_stopped: None,
+                summary: None,
             }),
         };
         println!("{}", serde_json::json!(fv).to_string());

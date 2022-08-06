@@ -108,6 +108,7 @@
 							</div>
 							<div class="min-w-0 flex-1 pt-1.5 flex justify-between space-x-4 w-full">
 								<div class="w-full">
+									<span class="text-black">{mod?.summary ?? ''}</span>
 									<p class="text-sm text-gray-500">
 										{#if mod?.value?.type == 'script'}
 											Script at path <a
