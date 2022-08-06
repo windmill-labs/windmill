@@ -35,11 +35,14 @@
 
 	$: dispatch('change', jobs)
 
-	export async function runPreview(args) {
+	export async function runPreview(args: any) {
 		viewPreview = true
 		intervalId && clearInterval(intervalId)
-		let newFlow = flowToMode(flow, mode)
-		newFlow = tab == 'upto' ? truncateFlow(newFlow) : extractStep(newFlow)
+
+		let newFlow: Flow =
+			tab == 'upto'
+				? truncateFlow(flowToMode(flow, mode))
+				: setInputTransformFromArgs(extractStep(flow), args)
 		jobId = await runFlowPreview(args, newFlow)
 
 		jobs = []
@@ -57,13 +60,19 @@
 		const localFlow = JSON.parse(JSON.stringify(flow))
 		localFlow.value.modules = flow.value.modules.slice(i, i + 1)
 		localFlow.schema = schemas[i]
-		stepArgs = {}
-		Object.entries(flow.value.modules[i].input_transform).forEach((x) => {
-			if (x[1].type == 'static') {
-				stepArgs[x[0]] = x[1].value
+		return localFlow
+	}
+
+	function setInputTransformFromArgs(flow: Flow, args: any) {
+		let input_transform = {}
+		Object.entries(args).forEach(([key, value]) => {
+			input_transform[key] = {
+				type: 'static',
+				value: value
 			}
 		})
-		return localFlow
+		flow.value.modules[0].input_transform = input_transform
+		return flow
 	}
 
 	async function loadJob() {
