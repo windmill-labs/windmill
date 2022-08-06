@@ -65,10 +65,11 @@
 			<ModuleStep bind:open bind:mod bind:args {i} mode={$mode} />
 			{#if i == 0 && $mode == 'pull'}
 				<div class="flex justify-center bg-white shadow p-2">
-					Starting from here, the flow for loop over items from the 1rst step's result right above
-					&nbsp; We will support arbitrary for-loops very soon (See <a
-						href="https://github.com/windmill-labs/windmill/issues/350">#350</a
-					>)
+					<p>
+						Starting from here, the flow for loop over items from the 1rst step's result right above
+						&nbsp; <br />We do not support any other kind of for-loop at the moment but we will very
+						soon (See <a href="https://github.com/windmill-labs/windmill/issues/350">#350</a>)
+					</p>
 					<Tooltip>
 						This flow being in 'Pull' mode, the rest of the flow will for loop over the list of
 						items returned by the trigger script right above. Retrieve the item value using
