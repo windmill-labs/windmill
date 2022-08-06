@@ -151,6 +151,8 @@ export async function loadSchemaFromModule(module: FlowModule): Promise<{
 	}
 }
 
+const returnStatementRegex = new RegExp(/\$\{(.*)\}/)
+
 export function isCodeInjection(expr: string | undefined): boolean {
 	if (!expr) {
 		return false
@@ -158,13 +160,7 @@ export function isCodeInjection(expr: string | undefined): boolean {
 	const lines = expr.split('\n')
 	const [returnStatement] = lines.reverse()
 
-	const returnStatementRegex = new RegExp(/\$\{(.*)\}/)
-	if (returnStatementRegex.test(returnStatement)) {
-		const [_, argName] = returnStatement.split(returnStatementRegex)
-
-		return Boolean(argName)
-	}
-	return false
+	return returnStatementRegex.test(returnStatement)
 }
 
 export function getDefaultExpr(i: number, key: string = 'myfield', previousExpr?: string) {
