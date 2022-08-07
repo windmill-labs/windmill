@@ -975,11 +975,8 @@ async fn handle_child(
                 Ok(r?)
             }
             _ = async move {
-                loop {
-                    if done2.load(Ordering::Relaxed) {
-                        break;
-                    }
-                    tokio::time::sleep(Duration::from_secs(2)).await;
+                while !done2.load(Ordering::Relaxed) {
+                    tokio::time::sleep(Duration::from_secs(1)).await;
                 }
             } => {
                 child.kill().await?;
