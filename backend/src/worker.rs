@@ -1002,7 +1002,16 @@ async fn handle_child(
                         tx.send(out).await
                     }
                 },
-                Ok(Some(err)) = stderr_reader.next_line() => tx.send(err).await,
+                Ok(Some(err)) = stderr_reader.next_line() => {
+                    if err.len() > MAX_LOG_SIZE as usize {
+                        tracing::info!("Line is too big");
+                        let _ = tx.send(format!("Line is too big")).await;
+                        done4.store(true, Ordering::Relaxed);
+                        break;
+                    } else {
+                        tx.send(err).await
+                    }
+                },
                 else => {
                     break
                 },
@@ -1034,10 +1043,18 @@ async fn handle_child(
     });
 
     let mut start = logs.chars().count();
+    let mut last_update = chrono::Utc::now().timestamp_millis();
 
     while !done.load(Ordering::Relaxed) {
+        let diff = 500 - (chrono::Utc::now().timestamp_millis() - last_update);
+        let sleeping_future = if diff > 0 as i64 {
+            tokio::time::sleep(Duration::from_millis(diff as u64))
+        } else {
+            //TODO make it just resolve immediately
+            tokio::time::sleep(Duration::from_millis(0))
+        };
         tokio::select! {
-            _ = tokio::time::sleep(Duration::from_millis(500)) => {
+            _ = sleeping_future => {
                 let end = logs.chars().count();
 
                 let to_send = logs.chars().skip(start).collect::<String>();
@@ -1077,8 +1094,10 @@ async fn handle_child(
                         tracing::error!("error setting canceled for id {}", id);
                     }
                 }
+                last_update = chrono::Utc::now().timestamp_millis();
             },
             nl = rx.recv() => {
+
                 if let Some(nl) = nl {
                     if logs.chars().count() > MAX_LOG_SIZE as usize{
                         tracing::info!("Too many logs lines: {}", job.id);
