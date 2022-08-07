@@ -211,7 +211,7 @@
 					/>
 				</div>
 			</OverlayPropertyPicker>
-			<DynamicInputHelpBox />
+			<DynamicInputHelpBox {i} />
 		{/if}
 	{:else}
 		<p>Not recognized arg type {arg.type}</p>
