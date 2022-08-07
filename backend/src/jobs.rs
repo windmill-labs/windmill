@@ -1049,8 +1049,8 @@ pub async fn push<'c>(
 
     if !premium_workspace && std::env::var("CLOUD_HOSTED").is_ok() {
         let rate_limiting_queue = sqlx::query_scalar!(
-            "SELECT COUNT(id) FROM queue WHERE created_by = $1 AND workspace_id = $2",
-            user,
+            "SELECT COUNT(id) FROM queue WHERE permissioned_as = $1 AND workspace_id = $2",
+            permissioned_as,
             workspace_id
         )
         .fetch_one(&mut tx)
@@ -1070,10 +1070,10 @@ pub async fn push<'c>(
             "
            SELECT SUM(duration_ms)
              FROM completed_job
-            WHERE created_by = $1
+            WHERE permissioned_as = $1
               AND created_at > NOW() - INTERVAL '1200 seconds'
               AND workspace_id = $2",
-            user,
+            permissioned_as,
             workspace_id
         )
         .fetch_one(&mut tx)
