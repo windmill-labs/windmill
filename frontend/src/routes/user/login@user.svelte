@@ -51,7 +51,7 @@
 		if ($workspaceStore) {
 			goto(rd ?? '/')
 		} else {
-			goto('/user/workspaces')
+			goto(`/user/workspaces${rd ? `?rd=${encodeURIComponent(rd)}` : ''}`)
 		}
 	}
 
