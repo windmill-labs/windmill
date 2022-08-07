@@ -124,6 +124,18 @@ and much more!
 - typescript runtime is deno
 - python runtime is python3
 
+## Sandboxing and workload isolation
+
+Windmill uses nsjail on top of the deno sandboxing. It is pretty secure. Do not
+take our word for it, take
+[fly.io's one](https://fly.io/blog/sandboxing-and-workload-isolation/)
+
+## Performance
+
+The performances are great, as long as you do not exceed the parrallelism of the
+workers, we are
+[faster than AWS Lambda for reference](https://docs.windmill.dev/docs/benchmark)
+
 ## Architecture
 
 <p align="center">
