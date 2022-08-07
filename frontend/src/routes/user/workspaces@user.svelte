@@ -22,6 +22,7 @@
 	let invites: WorkspaceInvite[] = []
 	let list_all_as_super_admin: boolean = false
 	let workspaces: { id: string; name: string; username: string }[] = []
+	const rd = $page.url.searchParams.get('rd')
 
 	async function loadInvites() {
 		try {
@@ -98,7 +99,7 @@
 					"
 				on:click={() => {
 					workspaceStore.set(workspace.id)
-					goto($page.url.searchParams.get('rd') ?? '/scripts')
+					goto(rd ?? '/scripts')
 				}}
 				><span class="font-mono">{workspace.id}</span> - {workspace.name} as
 				<span class="font-mono">{workspace.username}</span>
@@ -106,7 +107,11 @@
 		</label>
 	{/each}
 	<div class="flex flex-row-reverse  pt-4">
-		<a href="/user/create_workspace" class="primary-button">Create a new workspace &rightarrow; </a>
+		<a
+			href="/user/create_workspace{rd ? `?rd=${encodeURIComponent(rd)}` : ''}"
+			class="primary-button"
+			>Create a new workspace &rightarrow;
+		</a>
 	</div>
 	<h2 class="my-2">Invitations</h2>
 	<p class="text-xs mb-2 italic text-gray-500">Join a workspace</p>
@@ -140,7 +145,11 @@
 				{/if}
 			</span>
 			<span>
-				<a href="/user/accept_invite?workspace={encodeURIComponent(invite.workspace_id)}">
+				<a
+					href="/user/accept_invite?workspace={encodeURIComponent(invite.workspace_id)}{rd
+						? `&rd=${encodeURIComponent(rd)}`
+						: ''}"
+				>
 					accept
 				</a>
 

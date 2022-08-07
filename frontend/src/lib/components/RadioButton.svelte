@@ -15,7 +15,7 @@
 		{#each options as [label, val]}
 			<label
 				class:item-button-selected={val == value}
-				class="item-button text-center text-sm h-full p-2 grow"
+				class="item-button text-center text-sm h-full p-2 grow whitespace-nowrap"
 			>
 				<input
 					type="radio"
@@ -26,7 +26,9 @@
 					on:click={() => dispatch('change', val)}
 				/>
 				<p>
-					{#if typeof label !== 'string'}{label.title} <Tooltip>{label.desc}</Tooltip>
+					{#if typeof label !== 'string'}
+						{label.title}
+						<Tooltip>{label.desc}</Tooltip>
 					{:else}{label}{/if}
 				</p>
 			</label>

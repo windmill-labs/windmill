@@ -90,7 +90,7 @@
 </script>
 
 {#if arg != undefined}
-	<div class="flex justify-between items-center">
+	<div class="flex justify-between items-center mb-2">
 		<div class="flex items-center">
 			<FieldHeader
 				label={argName}

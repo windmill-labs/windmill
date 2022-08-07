@@ -17,7 +17,9 @@
 
 	onMount(async () => {
 		const rd = localStorage.getItem('rd')
-		localStorage.removeItem('rd')
+		if (rd) {
+			localStorage.removeItem('rd')
+		}
 		if (error) {
 			sendUserToast(`Error trying to login with ${clientName} ${error}`, true)
 			goto('/user/login')
@@ -31,11 +33,7 @@
 			}
 			if ($workspaceStore) {
 				$userStore = await getUserExt($workspaceStore)
-				if (rd) {
-					goto(rd)
-				} else {
-					goto('/')
-				}
+				goto(rd ?? '/')
 			} else {
 				if (rd) {
 					goto('/user/workspaces?rd=' + encodeURIComponent(rd))
