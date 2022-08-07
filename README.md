@@ -27,21 +27,22 @@
 
 **Hub**: <https://hub.windmill.dev>
 
+**Contributor's guide**: <https://docs.windmill.dev/docs/contributors_guide>
+
 You can show your support for the project by starring this repo.
 
 ---
 
-If you would like to run this in production self-hosted, or know someone that
-would, Windmill would gladly help you to achieve it and more. If interested,
-send an email to ruben@windmill.dev (founder and creator of Windmill).
+Windmill Labs offers commercial licenses and support to convert your existing
+automations and help you scale it in production. If interested, contact
+ruben@windmill.dev (founder of Windmill).
 
 ---
 
 # Windmill
 
 <p align="center">
-<b>Disclaimer: </b>Windmill is in <b>BETA</b>. It is secure to run in production but the API might change,
-especially concerning flows.
+<b>Disclaimer: </b>Windmill is in <b>BETA</b>. It is secure to run in production but we are still [improving the product fast](https://github.com/orgs/windmill-labs/projects/2).
 </p>
 
 ![Windmill Screenshot](./imgs/windmill.png)
@@ -64,18 +65,31 @@ Windmill is <b>fully open-sourced</b>:
    itself: ![Step 2](./imgs/arguments.png)
 
 3. Make it flow! You can chain your scripts or scripts made by the community
-   inside flow by piping output to input using "Dynamic" fields that are just
-   plain Javascript. You can also refer to external variables, output from any
-   steps or inputs of the flow itself. The flow parameters then generate
-   automatically an intuitive forms that can be triggered by anyone, like for
-   scripts. ![Step 3](./imgs/flow.png)
+   shared on [WindmillHub](https://hub.windmill.dev). There is tight integration
+   between Windmill and the hub to make it easy to build flows from a soon-to-be
+   exhaustive library of generic modules. In flows, one can pipe output to input
+   using "Dynamic" expressions that are just plain Javascript underneath. Flows
+   also allow for-loops, branching (coming soon). They are backed by an open
+   JSON spec we call [OpenFlow](https://docs.windmill.dev/docs/openflow)
+   ![Step 3](./imgs/flow.png)
+
+Both scripts and flows are not restricted to be triggered by the UI. They can be
+triggered by a schedule, watch for changes (using
+[internal states](https://docs.windmill.dev/docs/reference#internal-state)) or
+triggered through API with either an async or sync webhook. The latter kind of
+endpoints make Windmill akin to a self-hostable AWS Lambda. Windmill can be the
+central place to host, build and run all of your integrations, automations and
+internal apps. We include credentials management and OAuth integration, groups
+and much more!
 
 ## Layout
 
 - `backend/`: The whole Rust backend
 - `frontend`: The whole Svelte frontend
-- `community/`: Scripts and resource types created and curated by the community,
-  included in every workspace
+- `community/`: Scripts and resource types included in every workspace. It is
+  useful for Python scripts since the [WindmillHub](https://hub.windmill.dev)
+  only allow deno scripts and for sharing resource types that will be included
+  in every workspace.
 - `lsp/`: The lsp asssistant for the monaco editor
 - `nsjail/`: The nsjail configuration files for sandboxing of the scripts'
   execution
@@ -86,26 +100,27 @@ Windmill is <b>fully open-sourced</b>:
 
 ## Stack
 
-- postgres as the database
+- Postgres as the database
 - backend in Rust with the following highly-available and horizontally scalable
   architecture:
   - stateless API backend
-  - workers that pull jobs from a queue
+  - workers that pull jobs from a queue in Postgres (and later, Kafka or Redis.
+    Upvote [#173](#https://github.com/windmill-labs/windmill/issues/173) if
+    interested )
 - frontend in Svelte
-- scripts executions are sandboxed using google's nsjail
-- javascript runtime is deno_core rust library (which itself uses the rusty_v8
-  and hence V8 underneath)
+- scripts executions are sandboxed using google's
+  [nsjail](https://github.com/google/nsjail)
+- javascript runtime is the
+  [deno_core rust library](https://denolib.gitbook.io/guide/) (which itself uses
+  the [rusty_v8](https://github.com/denoland/rusty_v8) and hence V8 underneath)
 - typescript runtime is deno
 - python runtime is python3
 
-### Development stack
-
-- caddy is the reverse proxy used for local development, see frontend's
-  Caddyfile and CaddyfileRemote
-
 ## Architecture
 
-![Architecture](./imgs/architecture.svg)
+<p align="center">
+<img src="./imgs/architecture.svg">
+</p>
 
 ## How to self-host
 
