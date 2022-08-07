@@ -130,7 +130,7 @@
 	function initView(): void {
 		if (job && 'result' in job && job.result) {
 			viewTab = 'result'
-		} else {
+		} else if (viewTab == 'result') {
 			viewTab = 'logs'
 		}
 	}
