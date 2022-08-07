@@ -41,7 +41,7 @@ use ulid::Ulid;
 use uuid::Uuid;
 
 const MAX_NB_OF_JOBS_IN_Q_PER_USER: i64 = 10;
-const MAX_DURATION_LAST_1200: std::time::Duration = std::time::Duration::from_secs(400);
+const MAX_DURATION_LAST_1200: std::time::Duration = std::time::Duration::from_secs(900);
 
 pub fn workspaced_service() -> Router {
     Router::new()
