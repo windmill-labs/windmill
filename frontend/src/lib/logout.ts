@@ -14,15 +14,15 @@ export function logoutWithRedirect(rd?: string): void {
 	goto(`/user/login?${error}${rd ? 'rd=' + encodeURIComponent(rd) : ''}`)
 }
 
-export async function logout(logoutMessage?: string): Promise<void> {
+export async function logout(): Promise<void> {
 	try {
 		clearStores()
 		await UserService.logout()
 		clearCookies()
-		goto(`/user/login${logoutMessage ? '?error=' + encodeURIComponent(logoutMessage) : ''}`)
-		sendUserToast('you have been logged out')
 	} catch (error) {
-		goto('/user/login')
 		console.error(error)
+		clearCookies()
 	}
+	goto(`/user/login`)
+	sendUserToast('you have been logged out')
 }

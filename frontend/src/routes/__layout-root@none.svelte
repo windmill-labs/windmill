@@ -83,9 +83,9 @@
 				}
 
 				if (status == '401') {
-					if ($page.url.pathname != '/user/login') {
-						sendUserToast('Logged out after a request was unauthorized', true)
-						logout($page.url.pathname)
+					const pathName = $page.url.pathname
+					if (pathName != '/user/login') {
+						logoutWithRedirect(pathName + $page.url.search)
 					}
 				} else {
 					if (body) {
