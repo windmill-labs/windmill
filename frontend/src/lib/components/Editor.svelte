@@ -212,14 +212,33 @@
 				try {
 					const webSocket = new WebSocket(url)
 
-					webSocket.onopen = () => {
+					webSocket.onopen = async () => {
 						const socket = toSocket(webSocket)
 						const reader = new WebSocketMessageReader(socket)
 						const writer = new WebSocketMessageWriter(socket)
 						const languageClient = createLanguageClient({ reader, writer }, name, options)
 						websockets.push([languageClient, webSocket])
 
-						languageClient.start()
+						reader.onClose(async () => {
+							try {
+								console.log('CLOSE')
+								websocketAlive[name] = false
+								await languageClient.stop()
+							} catch (err) {
+								console.error(err)
+							}
+						})
+						socket.onClose((_code, _reason) => {
+							websocketAlive[name] = false
+						})
+
+						try {
+							await languageClient.start()
+						} catch (err) {
+							console.error(err)
+							throw new Error(err)
+						}
+
 						lastWsAttempt = new Date()
 						nbWsAttempt = 0
 						if (name == 'deno') {
@@ -234,17 +253,6 @@
 								}
 							})
 						}
-						reader.onClose(() => {
-							try {
-								console.log('CLOSE')
-								languageClient.stop()
-							} catch (err) {
-								console.error(err)
-							}
-						})
-						socket.onClose((_code, _reason) => {
-							websocketAlive[name] = false
-						})
 
 						websocketAlive[name] = true
 					}
