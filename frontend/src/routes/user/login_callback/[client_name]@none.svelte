@@ -16,6 +16,8 @@
 	let state = $page.url.searchParams.get('state') ?? undefined
 
 	onMount(async () => {
+		const rd = localStorage.getItem('rd')
+		localStorage.removeItem('rd')
 		if (error) {
 			sendUserToast(`Error trying to login with ${clientName} ${error}`, true)
 			goto('/user/login')
@@ -29,9 +31,17 @@
 			}
 			if ($workspaceStore) {
 				$userStore = await getUserExt($workspaceStore)
-				goto('/')
+				if (rd) {
+					goto(rd)
+				} else {
+					goto('/')
+				}
 			} else {
-				goto('/user/workspaces')
+				if (rd) {
+					goto('/user/workspaces?rd=' + encodeURIComponent(rd))
+				} else {
+					goto('/user/workspaces')
+				}
 			}
 		} else {
 			sendUserToast('Missing code or state as query params', true)
