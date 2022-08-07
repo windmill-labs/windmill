@@ -69,8 +69,10 @@ Windmill is <b>fully open-sourced</b>:
    between Windmill and the hub to make it easy to build flows from a soon-to-be
    exhaustive library of generic modules. In flows, one can pipe output to input
    using "Dynamic" expressions that are just plain Javascript underneath. Flows
-   also allow for-loops, branching (coming soon). They are backed by an open
-   JSON spec we call [OpenFlow](https://docs.windmill.dev/docs/openflow)
+   can contain for-loops, branching (coming soon). As such and coupled with
+   inputs being able to refer to any step's output, they are actual DAG rather
+   than just linear sequences. They are backed by an open JSON spec we call
+   [OpenFlow](https://docs.windmill.dev/docs/openflow)
    ![Step 3](./imgs/flow.png)
 
 Both scripts and flows are not restricted to be triggered by the UI. They can be
