@@ -505,6 +505,7 @@ async fn handle_nondep_job(
         .await?
         .ok_or_else(|| Error::InternalErr(format!("expected content and lock")))?
     };
+    let worker_name = worker_dir.split("/").last().unwrap_or("unknown");
     match language {
         None => {
             return Err(Error::ExecutionErr(
@@ -529,6 +530,11 @@ async fn handle_nondep_job(
             }
             let _ = write_file(job_dir, "requirements.txt", &requirements).await?;
 
+            tracing::info!(
+                worker_name = %worker_name,
+                job_id = %job.id,
+                "started setup python dependencies"
+            );
             let child = if !disable_nsjail {
                 Command::new("nsjail")
                     .current_dir(job_dir)
@@ -559,7 +565,12 @@ async fn handle_nondep_job(
 
             logs.push_str("\n--- PIP DEPENDENCIES INSTALL ---\n");
             *status = handle_child(job, db, logs, last_line, timeout, child).await;
-
+            tracing::info!(
+                worker_name = %worker_name,
+                job_id = %job.id,
+                is_ok = status.is_ok(),
+                "finished setup python dependencies"
+            );
             if status.is_ok() {
                 logs.push_str("\n\n--- PYTHON CODE EXECUTION ---\n");
 
@@ -659,6 +670,11 @@ print(res_json)
                         .insert("PYTHONPATH".to_string(), format!("{job_dir}/dependencies"));
                 }
 
+                tracing::info!(
+                    worker_name = %worker_name,
+                    job_id = %job.id,
+                    "started python code execution"
+                );
                 let child = if !disable_nuser {
                     Command::new("nsjail")
                         .current_dir(job_dir)
@@ -686,6 +702,12 @@ print(res_json)
                         .spawn()?
                 };
                 *status = handle_child(job, db, logs, last_line, timeout, child).await;
+                tracing::info!(
+                    worker_name = %worker_name,
+                    job_id = %job.id,
+                    is_ok = status.is_ok(),
+                    "finished python code execution"
+                );
             }
         }
         Some(ScriptLang::Deno) => {
@@ -766,6 +788,11 @@ run();
                 .await?;
             }
 
+            tracing::info!(
+                worker_name = %worker_name,
+                job_id = %job.id,
+                "started deno code execution"
+            );
             let child = if !disable_nsjail {
                 Command::new("nsjail")
                     .current_dir(job_dir)
@@ -802,6 +829,12 @@ run();
                     .spawn()?
             };
             *status = handle_child(job, db, logs, last_line, timeout, child).await;
+            tracing::info!(
+                worker_name = %worker_name,
+                job_id = %job.id,
+                is_ok = status.is_ok(),
+                "finished deno code execution"
+            );
         }
     }
     Ok(())
