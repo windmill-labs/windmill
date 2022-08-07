@@ -127,17 +127,19 @@
 														View code and inputs {open[i] ? '(-)' : '(+)'}</button
 													>
 													{#if open[i]}
-														<InputTransformsViewer inputTransforms={mod?.input_transform} />
-														<div class="w-full h-full">
-															<iframe
-																style="height: 400px;"
-																class="w-full h-full  text-sm"
-																title="embedded script from hub"
-																frameborder="0"
-																src="https://hub.windmill.dev/embed/script/{mod?.value?.path?.substring(
-																	4
-																)}"
-															/>
+														<div class="border border-black p-2 bg-gray-50  divide-y">
+															<InputTransformsViewer inputTransforms={mod?.input_transform} />
+															<div class="w-full h-full mt-6">
+																<iframe
+																	style="height: 400px;"
+																	class="w-full h-full  text-sm"
+																	title="embedded script from hub"
+																	frameborder="0"
+																	src="https://hub.windmill.dev/embed/script/{mod?.value?.path?.substring(
+																		4
+																	)}"
+																/>
+															</div>
 														</div>
 													{/if}
 												</div>
