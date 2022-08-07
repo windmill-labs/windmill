@@ -188,8 +188,12 @@
 										<SchemaEditorProperty {property} />
 									</td>
 									<td>{property.description}</td>
-									<td>{JSON.stringify(property.default) ?? ''}</td>
-									<td>{schema.required.includes(name) ? 'Required' : 'Optional'}</td>
+									<td>{property.default ? JSON.stringify(property.default) : ''}</td>
+									<td
+										>{#if schema.required.includes(name)}
+											<span class="text-red-600 font-bold text-lg">*</span>
+										{/if}</td
+									>
 									<td class="justify-end flex">
 										<Button
 											color="red"
