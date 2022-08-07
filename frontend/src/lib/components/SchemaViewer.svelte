@@ -63,7 +63,11 @@
 									>{property.format ?? ''}
 									{property.contentEncoding ? `(encoding: ${property.contentEncoding})` : ''}</td
 								>
-								<td>{schema.required.includes(name) ? 'required' : 'optional'}</td>
+								<td
+									>{#if schema.required.includes(name)}
+										<span class="text-red-600 font-bold text-lg">*</span>
+									{/if}</td
+								>
 							</tr>
 						{/each}
 					</tbody>
