@@ -99,7 +99,7 @@
 					<div class="mb-2 overflow-hidden">
 						<EditorBar {editor} {websocketAlive} lang={mod.value.language ?? 'deno'} />
 					</div>
-					<div>
+					<div on:mouseleave={() => loadSchema(i)}>
 						<Editor
 							bind:websocketAlive
 							bind:this={editor}

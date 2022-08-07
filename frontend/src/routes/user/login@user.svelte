@@ -83,6 +83,12 @@
 		}
 	}
 
+	function storeRedirect() {
+		if (rd) {
+			localStorage.setItem('rd', rd)
+		}
+	}
+
 	if (error) {
 		sendUserToast(error, true)
 	}
@@ -93,7 +99,7 @@
 	<CenteredModal>
 		<div class="justify-center text-center flex flex-col">
 			{#if logins.includes('github')}
-				<a rel="external" href="/api/oauth/login/github"
+				<a on:click={storeRedirect} rel="external" href="/api/oauth/login/github"
 					><button class="m-auto default-button bg-black mt-2 py-2 w-full text-gray-200"
 						>Github &nbsp;
 						<Icon class="text-white pb-1" data={faGithub} scale={1.4} />
@@ -101,7 +107,7 @@
 				>
 			{/if}
 			{#if logins.includes('gitlab')}
-				<a rel="external" href="/api/oauth/login/gitlab"
+				<a on:click={storeRedirect} rel="external" href="/api/oauth/login/gitlab"
 					><button
 						class="m-auto default-button bg-orange-400 mt-2 py-2 w-full text-black hover:bg-orange-600"
 						>Gitlab &nbsp;
@@ -110,7 +116,7 @@
 				>
 			{/if}
 			{#if logins.includes('google')}
-				<a rel="external" href="/api/oauth/login/google"
+				<a on:click={storeRedirect} rel="external" href="/api/oauth/login/google"
 					><button
 						class="m-auto default-button bg-gray-100 mt-2 py-2 w-full text-black hover:bg-blue-300"
 						>Google &nbsp;
