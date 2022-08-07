@@ -1216,38 +1216,35 @@ pub async fn push<'c>(
     .await
     .map_err(|e| Error::InternalErr(format!("Could not insert into queue {job_id}: {e}")))?;
 
-    let uuid_string = job_id.to_string();
-    let uuid_str = uuid_string.as_str();
-    let mut hm = HashMap::from([("uuid", uuid_str), ("permissioned_as", &permissioned_as)]);
     {
+        let uuid_string = job_id.to_string();
+        let uuid_str = uuid_string.as_str();
+        let mut hm = HashMap::from([("uuid", uuid_str), ("permissioned_as", &permissioned_as)]);
+
         let s: String;
-        let audit_o = match job_kind {
-            JobKind::Preview => Some((
-                "jobs.run.preview",
-                Some(format!("{}", script_path.unwrap_or_else(String::new))),
-            )),
+        let operation_name = match job_kind {
+            JobKind::Preview => "jobs.run.preview",
             JobKind::Script => {
                 s = ScriptHash(script_hash.unwrap()).to_string();
                 hm.insert("hash", s.as_str());
-                Some(("jobs.run.script", script_path))
+                "jobs.run.script"
             }
-            JobKind::Flow => Some(("jobs.run.flow", script_path)),
-            JobKind::FlowPreview => Some(("jobs.run.flow_preview", script_path)),
-            _ => None,
+            JobKind::Flow => "jobs.run.flow",
+            JobKind::FlowPreview => "jobs.run.flow_preview",
+            JobKind::Script_Hub => "jobs.run.script_hub",
+            JobKind::Dependencies => "jobs.run.dependencies",
         };
 
-        if let Some((operation_name, resource)) = audit_o {
-            audit_log(
-                &mut tx,
-                &user,
-                operation_name,
-                ActionKind::Execute,
-                workspace_id,
-                resource.as_ref().map(|x| x.as_str()),
-                Some(hm),
-            )
-            .await?;
-        }
+        audit_log(
+            &mut tx,
+            &user,
+            operation_name,
+            ActionKind::Execute,
+            workspace_id,
+            script_path.as_ref().map(|x| x.as_str()),
+            Some(hm),
+        )
+        .await?;
     }
     Ok((uuid, tx))
 }
