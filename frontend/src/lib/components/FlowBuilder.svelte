@@ -224,7 +224,7 @@
 	<div class={`relative h-screen w-1/3 ${previewOpen ? '' : 'hidden'}`}>
 		<div class="absolute top-0 h-full">
 			{#if $flowStore && step === 1}
-				<div class="fixed border-l-2 right-0 h-screen w-1/3">
+				<div class="fixed border-l-2 right-0 h-screen w-1/2 sm:w-1/3">
 					<FlowPreviewContent
 						bind:args={scheduleArgs}
 						on:close={() => (previewOpen = !previewOpen)}

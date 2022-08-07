@@ -23,7 +23,7 @@
 		sendUserToast(`Invitation to ${workspace_id} accepted as ${username}`)
 		usersWorkspaceStore.set(await WorkspaceService.listUserWorkspaces())
 		workspaceStore.set(workspace_id)
-		goto('/scripts')
+		goto($page.url.searchParams.get('rd') ?? '/scripts')
 	}
 
 	async function validateName(username: string): Promise<void> {

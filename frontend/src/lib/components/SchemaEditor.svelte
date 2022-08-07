@@ -138,7 +138,7 @@
 </script>
 
 <div class="flex flex-col">
-	<div class="flex justify-between">
+	<div class="flex justify-between gap-x-2">
 		<Button
 			on:click={() => {
 				modalProperty = Object.assign({}, DEFAULT_PROPERTY)

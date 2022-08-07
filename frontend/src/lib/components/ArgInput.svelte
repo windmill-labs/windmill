@@ -139,7 +139,7 @@
 	$: inputCat = computeInputCat(type, format, itemsType?.type, enum_, contentEncoding)
 </script>
 
-<div class="flex flex-col w-full">
+<div class="flex flex-col w-full mb-2">
 	<div>
 		{#if displayHeader}
 			<FieldHeader {label} {required} {type} {contentEncoding} {format} {itemsType} />
@@ -183,13 +183,18 @@
 		{/if}
 
 		<div class="grid grid-cols-2">
-			<div class="text-sm italic pb-1">
-				{description}
-			</div>
-			<div class="text-right text-xs {error === '' ? 'text-white' : 'font-bold text-red-600'}">
-				{error === '' ? '...' : error}
-			</div>
+			{#if description || error}
+				<div class="text-sm italic pb-1">
+					{description}
+				</div>
+				<div class="text-right text-xs {error === '' ? 'text-white' : 'font-bold text-red-600'}">
+					{error === '' ? '...' : error}
+				</div>
+			{:else}
+				<div class="mt-1" />
+			{/if}
 		</div>
+
 		<div class="flex space-x-1">
 			{#if inputCat == 'number'}
 				<input

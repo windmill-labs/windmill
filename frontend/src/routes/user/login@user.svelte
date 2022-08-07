@@ -49,11 +49,7 @@
 
 	function redirectUser() {
 		if ($workspaceStore) {
-			if (rd) {
-				goto(decodeURI(rd))
-			} else {
-				goto('/')
-			}
+			goto(rd ?? '/')
 		} else {
 			goto('/user/workspaces')
 		}

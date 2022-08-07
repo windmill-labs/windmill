@@ -9,6 +9,8 @@
 	import { usersWorkspaceStore, workspaceStore } from '$lib/stores'
 	import CenteredModal from '$lib/components/CenteredModal.svelte'
 
+	const rd = $page.url.searchParams.get('rd')
+
 	let id = ''
 	let name = ''
 	let username = ''
@@ -53,7 +55,7 @@
 		sendUserToast(`Successfully created workspace id: ${id}`)
 		usersWorkspaceStore.set(await WorkspaceService.listUserWorkspaces())
 		workspaceStore.set(id)
-		goto('/')
+		goto(rd ?? '/')
 	}
 
 	function handleKeyUp(event: KeyboardEvent) {

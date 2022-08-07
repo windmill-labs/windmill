@@ -58,8 +58,8 @@
 	$: value && valueToPath()
 </script>
 
-<div class="flex flex-row w-full gap-2">
-	<div class="shrink w-40">
+<div class="flex flex-row w-full flex-wrap gap-x-2">
+	<div class="shrink">
 		<RadioButton
 			options={[
 				[`Resource (${resourceTypeName})`, 'resource'],

@@ -166,12 +166,13 @@
 						right: 'enabled'
 					}}
 				/>
-				<div class="p-2 mt-2 rounded" class:bg-gray-300={!scheduleEnabled}>
+				<div class="p-2 my-2 rounded" class:bg-gray-300={!scheduleEnabled}>
 					{#if !scheduleEnabled}
 						<span class="font-black">No next scheduled run when disabled</span>
 					{/if}
 					<CronInput bind:schedule={scheduleCron} />
 				</div>
+
 				<SchemaForm schema={$flowStore.schema} bind:args={scheduleArgs} />
 			</CollapseLink>
 		{/if}
