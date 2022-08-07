@@ -226,4 +226,5 @@ html {
 
 .inline-highlight pre code.hljs {
 	padding: 0;
+	@apply text-xs;
 }
