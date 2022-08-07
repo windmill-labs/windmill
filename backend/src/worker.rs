@@ -405,6 +405,7 @@ async fn handle_job(
     tracing::info!(
         worker = %worker_name,
         job_id = %job.id,
+        workspace_id = %job.workspace_id,
         "handling job"
     );
 
@@ -533,6 +534,7 @@ async fn handle_nondep_job(
             tracing::info!(
                 worker_name = %worker_name,
                 job_id = %job.id,
+                workspace_id = %job.workspace_id,
                 "started setup python dependencies"
             );
             let child = if !disable_nsjail {
@@ -568,6 +570,7 @@ async fn handle_nondep_job(
             tracing::info!(
                 worker_name = %worker_name,
                 job_id = %job.id,
+                workspace_id = %job.workspace_id,
                 is_ok = status.is_ok(),
                 "finished setup python dependencies"
             );
@@ -673,6 +676,7 @@ print(res_json)
                 tracing::info!(
                     worker_name = %worker_name,
                     job_id = %job.id,
+                    workspace_id = %job.workspace_id,
                     "started python code execution"
                 );
                 let child = if !disable_nuser {
@@ -705,6 +709,7 @@ print(res_json)
                 tracing::info!(
                     worker_name = %worker_name,
                     job_id = %job.id,
+                    workspace_id = %job.workspace_id,
                     is_ok = status.is_ok(),
                     "finished python code execution"
                 );
@@ -791,6 +796,7 @@ run();
             tracing::info!(
                 worker_name = %worker_name,
                 job_id = %job.id,
+                workspace_id = %job.workspace_id,
                 "started deno code execution"
             );
             let child = if !disable_nsjail {
@@ -832,6 +838,7 @@ run();
             tracing::info!(
                 worker_name = %worker_name,
                 job_id = %job.id,
+                workspace_id = %job.workspace_id,
                 is_ok = status.is_ok(),
                 "finished deno code execution"
             );
