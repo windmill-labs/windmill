@@ -3,6 +3,8 @@
 	import Icon from 'svelte-awesome'
 	import { slide } from 'svelte/transition'
 
+	export let i: number = 1
+
 	$: opened = false
 </script>
 
@@ -27,29 +29,29 @@
 	>
 		<p class="font-bold">Dynamic arg help</p>
 		<p>
-			When a field is "dynamic", its value is computed dynamically as the evaluation of its
-			corresponding typescript snippet.
+			When a field is using the "Raw Javascript Editor", its value is computed dynamically as the
+			evaluation of its corresponding javascript snippet.
 		</p>
-		That snippet can be single line:
+		That snippet can be a single line:
 		<pre><code>last_result.myarg</code></pre>
-		or multiline:
+		or a multiline:
 		<pre><code
 				>let x = 5;
 x + 2</code
 			></pre>
 		<p>
-			If it is multiline, the last statement before the final expression<b
+			If it is multiline, the statement before the final expression <b
 				>MUST END WITH ; and a newline</b
 			>
 		</p>
 		The snippet can also be a string template:
-		<pre><code
-				>`Hello $&#123;params.name&#125;, all your base $&#123;previous_result.base_name&#125;
-belong to us`</code
-			></pre>
+		<code
+			>`Hello $&#123;params.name&#125;, all your base $&#123;previous_result.base_name&#125; belong
+			to us`</code
+		>
 		However, the last line must always be the final expression.
 		<p>
-			The snippet can use any typescript primitives, and the following flow specific objects and
+			The snippet can use any javascript primitives, and the following flow specific objects and
 			functions:
 		</p>
 		<ul class="ml-4">
@@ -70,5 +72,9 @@ belong to us`</code
 				<b>resource(path)</b>: the function returning the resource at a given path as an object
 			</li>
 		</ul>
+		<p>To re-enable editor assistance, import the helper functions types using:</p>
+		<code
+			>{`import { previous_result, flow_input, step, variable, resource, params } from 'windmill@${i}'`}</code
+		>
 	</div>
 {/if}
