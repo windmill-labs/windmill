@@ -134,7 +134,7 @@ take our word for it, take
 
 The performances are great, as long as you do not exceed the parrallelism of the
 workers, we are
-[faster than AWS Lambda for reference](https://docs.windmill.dev/docs/benchmark)
+[worse than AWS Lambda for small workloads but not by that much](https://docs.windmill.dev/docs/benchmark)
 
 ## Architecture
 
