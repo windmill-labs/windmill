@@ -1893,27 +1893,6 @@
       ]
     }
   },
-  "8dbab3cc7d25a38301c54756a26827a0957c4edb5e68b788c19d3e60b5f038ea": {
-    "query": "SELECT COUNT(id) FROM queue WHERE created_by = $1 AND workspace_id = $2",
-    "describe": {
-      "columns": [
-        {
-          "ordinal": 0,
-          "name": "count",
-          "type_info": "Int8"
-        }
-      ],
-      "parameters": {
-        "Left": [
-          "Text",
-          "Text"
-        ]
-      },
-      "nullable": [
-        null
-      ]
-    }
-  },
   "8ede6fb740b145b3a8320adb789500870c7a8ec807a7b156b9ff7a15791b78f8": {
     "query": "DELETE FROM usr WHERE workspace_id = $1 AND username = $2",
     "describe": {
@@ -2044,6 +2023,27 @@
         false,
         true,
         true
+      ]
+    }
+  },
+  "92ee6274b2287bc4d368bfdb47d6452df75bd265cdd891f55112df2795294dac": {
+    "query": "SELECT COUNT(id) FROM queue WHERE permissioned_as = $1 AND workspace_id = $2",
+    "describe": {
+      "columns": [
+        {
+          "ordinal": 0,
+          "name": "count",
+          "type_info": "Int8"
+        }
+      ],
+      "parameters": {
+        "Left": [
+          "Text",
+          "Text"
+        ]
+      },
+      "nullable": [
+        null
       ]
     }
   },
@@ -2795,27 +2795,6 @@
       ]
     }
   },
-  "d9beef36b05f9889794d0eb9bae309974abc85240305ca154de25a54bc7d60f9": {
-    "query": "\n           SELECT SUM(duration_ms)\n             FROM completed_job\n            WHERE created_by = $1\n              AND created_at > NOW() - INTERVAL '1200 seconds'\n              AND workspace_id = $2",
-    "describe": {
-      "columns": [
-        {
-          "ordinal": 0,
-          "name": "sum",
-          "type_info": "Int8"
-        }
-      ],
-      "parameters": {
-        "Left": [
-          "Text",
-          "Text"
-        ]
-      },
-      "nullable": [
-        null
-      ]
-    }
-  },
   "d9c8f6ec7bd10e533876526255c15e376ccb4f898b9c0ab8840b2930bda24fdc": {
     "query": "SELECT * FROM group_ WHERE name = $1 AND workspace_id = $2",
     "describe": {
@@ -2950,6 +2929,27 @@
           "ordinal": 0,
           "name": "exists",
           "type_info": "Bool"
+        }
+      ],
+      "parameters": {
+        "Left": [
+          "Text",
+          "Text"
+        ]
+      },
+      "nullable": [
+        null
+      ]
+    }
+  },
+  "e69142610bd94f6c65022cca5ccf7458b7c5bb77b3ed0278715222dd920d8644": {
+    "query": "\n           SELECT SUM(duration_ms)\n             FROM completed_job\n            WHERE permissioned_as = $1\n              AND created_at > NOW() - INTERVAL '1200 seconds'\n              AND workspace_id = $2",
+    "describe": {
+      "columns": [
+        {
+          "ordinal": 0,
+          "name": "sum",
+          "type_info": "Int8"
         }
       ],
       "parameters": {
