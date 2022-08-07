@@ -55,7 +55,7 @@ const NSJAIL_CONFIG_DOWNLOAD_CONTENT: &str = include_str!("../../nsjail/download
 const NSJAIL_CONFIG_RUN_PYTHON3_CONTENT: &str =
     include_str!("../../nsjail/run.python3.config.proto");
 const NSJAIL_CONFIG_RUN_DENO_CONTENT: &str = include_str!("../../nsjail/run.deno.config.proto");
-
+const MAX_LOG_SIZE: u32 = 50000;
 pub struct Metrics {
     pub jobs_failed: prometheus::IntCounter,
 }
@@ -964,7 +964,7 @@ async fn handle_child(
 
     let done2 = done.clone();
     let done3 = done.clone();
-
+    let done4 = done.clone();
     // Ensure the child process is spawned in the runtime so it can
     // make progress on its own while we await for any output.
     let handle = tokio::spawn(async move {
@@ -979,11 +979,11 @@ async fn handle_child(
                     if done2.load(Ordering::Relaxed) {
                         break;
                     }
-                    tokio::time::sleep(Duration::from_secs(5)).await;
+                    tokio::time::sleep(Duration::from_secs(2)).await;
                 }
             } => {
                 child.kill().await?;
-                return Err(Error::ExecutionErr("execution interrupted (likely timeout or cancel)".to_string()).into())
+                return Err(Error::ExecutionErr("execution interrupted".to_string()).into())
             }
         };
         r
@@ -993,10 +993,17 @@ async fn handle_child(
     let id = job.id;
 
     tokio::spawn(async move {
-        loop {
+        while !done4.load(Ordering::Relaxed) {
             let send = tokio::select! {
                 Ok(Some(out)) = reader.next_line() => {
-                    tx.send(out).await
+                    if out.len() > MAX_LOG_SIZE as usize {
+                        tracing::info!("Line is too big");
+                        let _ = tx.send(format!("Line is too big")).await;
+                        done4.store(true, Ordering::Relaxed);
+                        break;
+                    } else {
+                        tx.send(out).await
+                    }
                 },
                 Ok(Some(err)) = stderr_reader.next_line() => tx.send(err).await,
                 else => {
@@ -1031,7 +1038,7 @@ async fn handle_child(
 
     let mut start = logs.chars().count();
 
-    loop {
+    while !done.load(Ordering::Relaxed) {
         tokio::select! {
             _ = tokio::time::sleep(Duration::from_millis(500)) => {
                 let end = logs.chars().count();
@@ -1076,8 +1083,15 @@ async fn handle_child(
             },
             nl = rx.recv() => {
                 if let Some(nl) = nl {
+                    if logs.chars().count() > MAX_LOG_SIZE as usize{
+                        tracing::info!("Too many logs lines: {}", job.id);
+                        logs.push_str("Too many logs lines. Limit is 50000 chars. Killing job.");
+                        done.store(true, Ordering::Relaxed);
+                    }
+
                     logs.push('\n');
                     logs.push_str(&nl);
+
                     *last_line = nl;
                 } else {
                     let to_send = logs.chars().skip(start).collect::<String>();
