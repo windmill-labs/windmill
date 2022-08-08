@@ -15,16 +15,15 @@
 		createInlineScriptModule,
 		flowStore,
 		loadSchema,
+		mode,
 		pickScript,
-		schemasStore,
-		type FlowMode
+		schemasStore
 	} from './flows/flowStore'
 	import { getPickableProperties, jobsToResults } from './flows/utils'
 	import SchemaForm from './SchemaForm.svelte'
 	import Tooltip from './Tooltip.svelte'
 
 	export let open: number
-	export let mode: FlowMode
 	export let i: number
 	export let mod: FlowModule
 	export let args: Record<string, any> = {}
@@ -37,13 +36,13 @@
 
 	$: schema = $schemasStore[i]
 	$: shouldPick = 'path' in mod.value && mod.value.path === '' && !('language' in mod.value)
-	$: pickableProperties = getPickableProperties($flowStore?.schema, args, $previewResults, mode, i)
+	$: pickableProperties = getPickableProperties($flowStore?.schema, args, $previewResults, $mode, i)
 	$: extraLib = buildExtraLib(
 		schemaToTsType($flowStore?.schema),
 		i === 0 ? schemaToTsType($flowStore?.schema) : objectToTsType($previewResults[i])
 	)
 
-	const isTrigger = mode === 'pull' && i === 0
+	const isTrigger = $mode === 'pull' && i === 0
 </script>
 
 <button
@@ -92,7 +91,7 @@
 					<FlowInputs
 						{isTrigger}
 						on:pick={(e) => pickScript(e.detail.path, i)}
-						on:new={(e) => createInlineScriptModule(e.detail.language, i, mode)}
+						on:new={(e) => createInlineScriptModule(e.detail.language, i, $mode)}
 					/>
 				{/if}
 				{#if mod.value.type === 'rawscript'}
@@ -144,7 +143,6 @@
 						bind:args
 						flow={$flowStore}
 						{i}
-						{mode}
 						schemas={$schemasStore}
 						on:change={(e) => {
 							previewResults.set(jobsToResults(e.detail))

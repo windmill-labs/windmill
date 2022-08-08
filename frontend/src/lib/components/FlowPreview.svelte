@@ -7,8 +7,7 @@
 	import { createEventDispatcher, onDestroy } from 'svelte'
 	import Icon from 'svelte-awesome'
 	import FlowJobResult from './FlowJobResult.svelte'
-	import type { FlowMode } from './flows/flowStore'
-	import { flowToMode, runFlowPreview } from './flows/utils'
+	import { runFlowPreview } from './flows/utils'
 	import FlowStatusViewer from './FlowStatusViewer.svelte'
 	import RunForm from './RunForm.svelte'
 	import Tabs from './Tabs.svelte'
@@ -17,7 +16,6 @@
 	export let i: number
 	export let flow: Flow
 	export let schemas: Schema[] = []
-	export let mode: FlowMode
 
 	export let args: Record<string, any> = {}
 

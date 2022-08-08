@@ -27,6 +27,7 @@
 	let pathError = ''
 
 	let scheduleArgs: Record<string, any>
+	let previewArgs: Record<string, any>
 	let scheduleEnabled
 	let scheduleCron: string
 
@@ -195,6 +196,7 @@
 					bind:scheduleEnabled
 					bind:scheduleCron
 					bind:scheduleArgs
+					bind:previewArgs
 				/>
 				<Button
 					disabled={pathIsEmpty($flowStore.path)}
@@ -226,7 +228,7 @@
 			{#if $flowStore && step === 1}
 				<div class="fixed border-l-2 right-0 h-screen w-1/2 sm:w-1/3">
 					<FlowPreviewContent
-						bind:args={scheduleArgs}
+						bind:args={previewArgs}
 						on:close={() => (previewOpen = !previewOpen)}
 						on:change={(e) => {
 							previewResults.set(jobsToResults(e.detail))
