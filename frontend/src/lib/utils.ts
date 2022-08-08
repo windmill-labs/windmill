@@ -266,6 +266,9 @@ export function truncate(s: string, n: number, suffix: string = '...'): string {
 }
 
 export function truncateRev(s: string, n: number, prefix: string = '...'): string {
+	if (!s) {
+		return prefix
+	}
 	if (s.length <= n) {
 		return s
 	} else {
