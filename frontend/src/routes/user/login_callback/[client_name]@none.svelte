@@ -9,6 +9,7 @@
 	import { faSpinner } from '@fortawesome/free-solid-svg-icons'
 	import { userStore, workspaceStore } from '$lib/stores'
 	import { getUserExt } from '$lib/user'
+	import { logoutWithRedirect } from '$lib/logout'
 
 	let error = $page.url.searchParams.get('error')
 	let clientName = $page.params.client_name
@@ -22,12 +23,12 @@
 		}
 		if (error) {
 			sendUserToast(`Error trying to login with ${clientName} ${error}`, true)
-			goto('/user/login')
+			logoutWithRedirect(rd ?? undefined)
 		} else if (code && state && clientName) {
 			try {
 				await UserService.loginWithOauth({ requestBody: { code, state }, clientName })
 			} catch (e) {
-				goto('/user/login')
+				logoutWithRedirect(rd ?? undefined)
 				sendUserToast(e.body ?? e.message, true)
 				return
 			}
@@ -43,7 +44,7 @@
 			}
 		} else {
 			sendUserToast('Missing code or state as query params', true)
-			goto('/user/login')
+			logoutWithRedirect(rd ?? undefined)
 		}
 	})
 </script>
