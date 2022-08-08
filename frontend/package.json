@@ -16,7 +16,7 @@
 	},
 	"devDependencies": {
 		"@playwright/test": "^1.24.2",
-		"@sveltejs/adapter-static": "^1.0.0-next.37",
+		"@sveltejs/adapter-static": "^1.0.0-next.39",
 		"@sveltejs/kit": "next",
 		"@tailwindcss/forms": "^0.5.1",
 		"@tailwindcss/typography": "^0.5.4",
@@ -43,7 +43,7 @@
 		"svelte-awesome": "^3.0.0",
 		"svelte-check": "^2.8.0",
 		"svelte-heros": "^2.3.3",
-		"svelte-highlight": "^6.2.0",
+		"svelte-highlight": "^6.2.1",
 		"svelte-markdown": "^0.2.1",
 		"svelte-overlay": "^1.4.1",
 		"svelte-popperjs": "^1.2.11",
