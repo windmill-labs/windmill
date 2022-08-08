@@ -33,7 +33,7 @@
 		"flowbite-svelte": "^0.24.2",
 		"openapi-typescript-codegen": "^0.23.0",
 		"path-browserify": "^1.0.1",
-		"postcss": "^8.4.5",
+		"postcss": "^8.4.16",
 		"postcss-load-config": "^4.0.1",
 		"prettier": "^2.7.1",
 		"prettier-plugin-svelte": "^2.4.0",
