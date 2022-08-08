@@ -79,7 +79,7 @@
 		>
 			<TableCustom>
 				<tbody slot="body">
-					{#each asListOfList(Object.values(result)[0]) as row}
+					{#each asListOfList(result) as row}
 						<tr>
 							{#each row as v}
 								<td>{truncate(v, 200) ?? ''}</td>
