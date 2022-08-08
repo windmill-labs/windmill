@@ -68,9 +68,10 @@
 			{#if i == 0 && $mode == 'pull'}
 				<div class="flex justify-center bg-white shadow p-2">
 					<p>
-						Starting from here, the flow for loop over items from the 1rst step's result right above
-						&nbsp; <br />We do not support any other kind of for-loop at the moment but we will very
-						soon (See <a href="https://github.com/windmill-labs/windmill/issues/350">#350</a>)
+						Starting from here, the flow for loop over items from the 1st step's result right above.
+						&nbsp; <br />For-loops insertable at other points is not supported yet but coming soon
+						(See
+						<a href="https://github.com/windmill-labs/windmill/issues/350">#350</a>.)
 					</p>
 					<Tooltip>
 						This flow being in 'Pull' mode, the rest of the flow will for loop over the list of
