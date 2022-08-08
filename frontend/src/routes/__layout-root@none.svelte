@@ -74,11 +74,18 @@
 				if (monacoEditorUnhandledErrors.includes(message)) {
 					return
 				}
+				if (message == 'Client not running') {
+					sendUserToast(
+						'Unrecoverable error for the smart assistant. Refresh the page to get the full experience again (This issue is WIP and will get fixed)',
+						true
+					)
+					return
+				}
 
 				if (status == '401') {
-					if ($page.url.pathname != '/user/login') {
-						sendUserToast('Logged out after a request was unauthorized', true)
-						logout($page.url.pathname)
+					const pathName = $page.url.pathname
+					if (pathName != '/user/login') {
+						logoutWithRedirect(pathName + $page.url.search)
 					}
 				} else {
 					if (body) {

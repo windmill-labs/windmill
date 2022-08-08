@@ -5,10 +5,12 @@
 	export let property: SchemaProperty
 </script>
 
-<Badge color="blue">{property.type?.toUpperCase() ?? 'ANY'}</Badge>
-{#if property.format}
-	<Badge color="green">{property.format?.toUpperCase()}</Badge>
-{/if}
-{#if property.contentEncoding}
-	<Badge color="indigo">{property.contentEncoding?.toUpperCase()}</Badge>
-{/if}
+<div class="flex flex-row flex-wrap gap-1">
+	<Badge color="blue">{property.type?.toUpperCase() ?? 'ANY'}</Badge>
+	{#if property.format}
+		<Badge color="green">{property.format?.toUpperCase()}</Badge>
+	{/if}
+	{#if property.contentEncoding}
+		<Badge color="indigo">{property.contentEncoding?.toUpperCase()}</Badge>
+	{/if}
+</div>

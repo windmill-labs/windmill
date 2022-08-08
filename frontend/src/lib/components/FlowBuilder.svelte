@@ -13,7 +13,7 @@
 	} from '$lib/utils'
 	import { faPlay } from '@fortawesome/free-solid-svg-icons'
 	import { Breadcrumb, BreadcrumbItem, Button } from 'flowbite-svelte'
-	import { onMount } from 'svelte'
+	import { onDestroy, onMount } from 'svelte'
 	import Icon from 'svelte-awesome'
 	import { OFFSET } from './CronInput.svelte'
 	import FlowEditor from './FlowEditor.svelte'
@@ -27,6 +27,7 @@
 	let pathError = ''
 
 	let scheduleArgs: Record<string, any>
+	let previewArgs: Record<string, any>
 	let scheduleEnabled
 	let scheduleCron: string
 
@@ -118,6 +119,9 @@
 	}
 
 	async function changeStep(step: number) {
+		if (step === 2 && previewOpen) {
+			previewOpen = false
+		}
 		goto(`?step=${step}`)
 	}
 
@@ -131,10 +135,15 @@
 		loadHubScripts()
 		clearPreviewResults()
 	})
+
+	onDestroy(() => {
+		//@ts-ignore
+		$flowStore = undefined
+	})
 </script>
 
 <div class="flex flex-row w-full h-full justify-between">
-	<div class="flex flex-col max-w-screen-md mb-96 m-auto">
+	<div class={`flex flex-col mb-96 m-auto w-full sm:w-3/4 lg:w-2/3 xl:w-1/2`}>
 		<!-- Nav between steps-->
 		<div class="justify-between flex flex-row w-full my-4">
 			<Breadcrumb>
@@ -187,7 +196,20 @@
 					bind:scheduleEnabled
 					bind:scheduleCron
 					bind:scheduleArgs
+					bind:previewArgs
 				/>
+				<Button
+					disabled={pathIsEmpty($flowStore.path)}
+					size="lg"
+					pill
+					on:click={() => (previewOpen = !previewOpen)}
+					class={`blue-button fixed bottom-10 right-10 ${previewOpen ? 'hidden' : ''}`}
+				>
+					Preview flow
+					{pathIsEmpty($flowStore.path) ? '(pick a name first!)' : ''}
+
+					<Icon data={faPlay} class="ml-2" />
+				</Button>
 			{:else if step === 2}
 				<ScriptSchema
 					synchronizedHeader={false}
@@ -201,30 +223,19 @@
 		{/if}
 	</div>
 
-	<Button
-		disabled={pathIsEmpty($flowStore.path)}
-		size="lg"
-		pill
-		on:click={() => (previewOpen = !previewOpen)}
-		class={`blue-button fixed bottom-10 right-10 ${previewOpen ? 'hidden' : ''}`}
-	>
-		Preview flow
-		{pathIsEmpty($flowStore.path) ? '(pick a name first!)' : ''}
-
-		<Icon data={faPlay} class="ml-2" />
-	</Button>
-
 	<div class={`relative h-screen w-1/3 ${previewOpen ? '' : 'hidden'}`}>
 		<div class="absolute top-0 h-full">
-			<div class="fixed border-l-2 right-0 h-screen w-1/3">
-				<FlowPreviewContent
-					bind:args={scheduleArgs}
-					on:close={() => (previewOpen = !previewOpen)}
-					on:change={(e) => {
-						previewResults.set(jobsToResults(e.detail))
-					}}
-				/>
-			</div>
+			{#if $flowStore && step === 1}
+				<div class="fixed border-l-2 right-0 h-screen w-1/2 sm:w-1/3">
+					<FlowPreviewContent
+						bind:args={previewArgs}
+						on:close={() => (previewOpen = !previewOpen)}
+						on:change={(e) => {
+							previewResults.set(jobsToResults(e.detail))
+						}}
+					/>
+				</div>
+			{/if}
 		</div>
 	</div>
 </div>

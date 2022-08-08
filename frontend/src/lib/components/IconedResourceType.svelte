@@ -1,18 +1,19 @@
 <script lang="ts">
-	import Mysql from './icons/Mysql.svelte'
-	import Mail from './icons/Mail.svelte'
-	import DbIcon from './icons/DbIcon.svelte'
-	import PostgresIcon from './icons/PostgresIcon.svelte'
 	import { faGithub } from '@fortawesome/free-brands-svg-icons'
-	import Slack from './icons/Slack.svelte'
 	import Icon from 'svelte-awesome'
-	import GmailIcon from './icons/GmailIcon.svelte'
-	import GSheetsIcon from './icons/GSheetsIcon.svelte'
-	import GitlabIcon from './icons/GItlabIcon.svelte'
+	import AirtableIcon from './icons/AirtableIcon.svelte'
+	import DbIcon from './icons/DbIcon.svelte'
+	import GcalIcon from './icons/GcalIcon.svelte'
 	import GCloudIcon from './icons/GCloudIcon.svelte'
 	import GdriveIcon from './icons/GdriveIcon.svelte'
-	import GcalIcon from './icons/GcalIcon.svelte'
-	import AirtableIcon from './icons/AirtableIcon.svelte'
+	import GitlabIcon from './icons/GItlabIcon.svelte'
+	import GmailIcon from './icons/GmailIcon.svelte'
+	import GSheetsIcon from './icons/GSheetsIcon.svelte'
+	import Mail from './icons/Mail.svelte'
+	import Mysql from './icons/Mysql.svelte'
+	import PostgresIcon from './icons/PostgresIcon.svelte'
+	import Slack from './icons/Slack.svelte'
+	import TogglIcon from './icons/TogglIcon.svelte'
 
 	export let name: string
 	export let after: boolean = false
@@ -51,6 +52,8 @@
 		<GdriveIcon {height} {width} />
 	{:else if name === 'airtable'}
 		<AirtableIcon {height} {width} />
+	{:else if name === 'toggl'}
+		<TogglIcon {height} {width} />
 	{/if}
 	{#if after}
 		{name}

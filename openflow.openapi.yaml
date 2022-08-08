@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.27.2
+  version: 1.28.1
   title: OpenFlow Spec
   contact:
     name: Ruben Fiszel
@@ -58,6 +58,8 @@ components:
           type: string
         skip_if_stopped:
           type: boolean
+        summary:
+          type: string
       required:
         - input_transform
         - value

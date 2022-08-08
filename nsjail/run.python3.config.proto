@@ -59,6 +59,14 @@ mount {
 }
 
 mount {
+    src: "/nsjail_data/python/nltk_data"
+    dst: "/tmp/nltk_data"
+    is_bind: true
+    rw: false
+    mandatory: false
+}
+
+mount {
     src: "{JOB_DIR}/inner.py"
     dst: "/tmp/inner.py"
     is_bind: true
@@ -103,6 +111,6 @@ mount {
 iface_no_lo: true
 
 envar: "PYTHONPATH=/tmp/dependencies"
-
+envar: "HOME=/tmp"
 
 

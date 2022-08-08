@@ -41,7 +41,7 @@ use ulid::Ulid;
 use uuid::Uuid;
 
 const MAX_NB_OF_JOBS_IN_Q_PER_USER: i64 = 10;
-const MAX_DURATION_LAST_1200: std::time::Duration = std::time::Duration::from_secs(400);
+const MAX_DURATION_LAST_1200: std::time::Duration = std::time::Duration::from_secs(900);
 
 pub fn workspaced_service() -> Router {
     Router::new()
@@ -1055,8 +1055,8 @@ pub async fn push<'c>(
 
     if !premium_workspace && std::env::var("CLOUD_HOSTED").is_ok() {
         let rate_limiting_queue = sqlx::query_scalar!(
-            "SELECT COUNT(id) FROM queue WHERE created_by = $1 AND workspace_id = $2",
-            user,
+            "SELECT COUNT(id) FROM queue WHERE permissioned_as = $1 AND workspace_id = $2",
+            permissioned_as,
             workspace_id
         )
         .fetch_one(&mut tx)
@@ -1076,10 +1076,10 @@ pub async fn push<'c>(
             "
            SELECT SUM(duration_ms)
              FROM completed_job
-            WHERE created_by = $1
+            WHERE permissioned_as = $1
               AND created_at > NOW() - INTERVAL '1200 seconds'
               AND workspace_id = $2",
-            user,
+            permissioned_as,
             workspace_id
         )
         .fetch_one(&mut tx)
@@ -1222,38 +1222,35 @@ pub async fn push<'c>(
     .await
     .map_err(|e| Error::InternalErr(format!("Could not insert into queue {job_id}: {e}")))?;
 
-    let uuid_string = job_id.to_string();
-    let uuid_str = uuid_string.as_str();
-    let mut hm = HashMap::from([("uuid", uuid_str), ("permissioned_as", &permissioned_as)]);
     {
+        let uuid_string = job_id.to_string();
+        let uuid_str = uuid_string.as_str();
+        let mut hm = HashMap::from([("uuid", uuid_str), ("permissioned_as", &permissioned_as)]);
+
         let s: String;
-        let audit_o = match job_kind {
-            JobKind::Preview => Some((
-                "jobs.run.preview",
-                Some(format!("{}", script_path.unwrap_or_else(String::new))),
-            )),
+        let operation_name = match job_kind {
+            JobKind::Preview => "jobs.run.preview",
             JobKind::Script => {
                 s = ScriptHash(script_hash.unwrap()).to_string();
                 hm.insert("hash", s.as_str());
-                Some(("jobs.run.script", script_path))
+                "jobs.run.script"
             }
-            JobKind::Flow => Some(("jobs.run.flow", script_path)),
-            JobKind::FlowPreview => Some(("jobs.run.flow_preview", script_path)),
-            _ => None,
+            JobKind::Flow => "jobs.run.flow",
+            JobKind::FlowPreview => "jobs.run.flow_preview",
+            JobKind::Script_Hub => "jobs.run.script_hub",
+            JobKind::Dependencies => "jobs.run.dependencies",
         };
 
-        if let Some((operation_name, resource)) = audit_o {
-            audit_log(
-                &mut tx,
-                &user,
-                operation_name,
-                ActionKind::Execute,
-                workspace_id,
-                resource.as_ref().map(|x| x.as_str()),
-                Some(hm),
-            )
-            .await?;
-        }
+        audit_log(
+            &mut tx,
+            &user,
+            operation_name,
+            ActionKind::Execute,
+            workspace_id,
+            script_path.as_ref().map(|x| x.as_str()),
+            Some(hm),
+        )
+        .await?;
     }
     Ok((uuid, tx))
 }
@@ -1277,7 +1274,7 @@ pub async fn add_completed_job_error<E: ToString + std::fmt::Debug>(
         &queued_job,
         false,
         false,
-        Some(output_map.clone()),
+        serde_json::Value::Object(output_map.clone()),
         format!("\n{}\n{}", logs, e.to_string()),
     )
     .await?;
@@ -1290,10 +1287,9 @@ pub async fn add_completed_job(
     queued_job: &QueuedJob,
     success: bool,
     skipped: bool,
-    result: Option<Map<String, Value>>,
+    result: serde_json::Value,
     logs: String,
 ) -> Result<Uuid, Error> {
-    let result_json = result.map(serde_json::Value::Object);
     let job_id = queued_job.id.clone();
     let duration_ms = (chrono::Utc::now() - queued_job.started_at.unwrap_or(queued_job.created_at))
         .num_milliseconds() as i32;
@@ -1317,7 +1313,7 @@ pub async fn add_completed_job(
         queued_job.script_hash.map(|x| x.0),
         queued_job.script_path,
         queued_job.args,
-        result_json,
+        result,
         logs,
         queued_job.raw_code,
         queued_job.canceled,

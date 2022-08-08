@@ -24,6 +24,9 @@ export function flowToMode(flow: Flow | any, mode: FlowMode): Flow {
 			if (inp.type == 'javascript') {
 				//@ts-ignore
 				inp.value = undefined
+				inp.expr = inp.expr.split('\n')
+					.filter((x) => x != '' && !x.startsWith(`import { previous_result, flow_input, step, variable, resource, params } from 'windmill@`))
+					.join('\n')
 			} else {
 				//@ts-ignore
 				inp.expr = undefined
@@ -36,17 +39,18 @@ export function flowToMode(flow: Flow | any, mode: FlowMode): Flow {
 		const oldModules = newFlow.value.modules.slice(1)
 
 		if (triggerModule) {
-			triggerModule.stop_after_if_expr = 'result.res1.length == 0'
+			triggerModule.stop_after_if_expr = 'result.length == 0'
 			triggerModule.skip_if_stopped = true
 		}
 
 		newFlow.value.modules = newFlow.value.modules.slice(0, 1)
 		if (oldModules.length > 0) {
 			newFlow.value.modules.push({
-				input_transform: oldModules[0].input_transform,
+				//TODO: once we allow arbitrary for loop, we will also allow arbitrary input transform here
+				input_transform: {},
 				value: {
 					type: 'forloopflow',
-					iterator: { type: 'javascript', expr: 'result.res1' },
+					iterator: { type: 'javascript', expr: 'result' },
 					value: {
 						modules: oldModules
 					},
@@ -147,6 +151,8 @@ export async function loadSchemaFromModule(module: FlowModule): Promise<{
 	}
 }
 
+const returnStatementRegex = new RegExp(/\$\{(.*)\}/)
+
 export function isCodeInjection(expr: string | undefined): boolean {
 	if (!expr) {
 		return false
@@ -154,17 +160,10 @@ export function isCodeInjection(expr: string | undefined): boolean {
 	const lines = expr.split('\n')
 	const [returnStatement] = lines.reverse()
 
-	const returnStatementRegex = new RegExp(/\$\{(.*)\}/)
-	if (returnStatementRegex.test(returnStatement)) {
-		const [_, argName] = returnStatement.split(returnStatementRegex)
-
-		return Boolean(argName)
-	}
-	return false
+	return returnStatementRegex.test(returnStatement)
 }
 
 export function getDefaultExpr(i: number, key: string = 'myfield', previousExpr?: string) {
-	console.log(key, previousExpr)
 	const expr = previousExpr ?? `previous_result.${key}`
 	return `import { previous_result, flow_input, step, variable, resource, params } from 'windmill@${i}'
 
@@ -178,7 +177,6 @@ export function getPickableProperties(
 	mode: FlowMode,
 	i: number
 ) {
-	console.log(i, previewResults)
 	const flowInputAsObject = schemaToObject(schema, args)
 	const flowInput =
 		mode === 'pull' && i >= 1
@@ -233,15 +231,19 @@ export async function runFlowPreview(args: Record<string, any>, flow: Flow) {
 	})
 }
 function computeFlowInputPull(previewResult: any | undefined, flowInputAsObject: any) {
-	const iteratorValues = (previewResult?.res1 && Array.isArray(previewResult.res1)) ?
+	const iteratorValues = (previewResult && Array.isArray(previewResult)) ?
 		{
-			_value: previewResult.res1[0],
-			_index: `The current index of the iteration as a number (here from 0 to ${previewResult.res1.length - 1})`
+			iter: {
+				value: previewResult[0],
+				index: `The current index of the iteration as a number (here from 0 to ${previewResult.length - 1})`
+			}
 		} : {
-			_value: 'The current value of the iteration as an object',
-			_index: 'The current index of the iteration as a number'
+			iter: {
+				value: 'The current value of the iteration as an object',
+				index: 'The current index of the iteration as a number'
+			}
 		}
-	return Object.assign(Object.assign(flowInputAsObject, previewResult), iteratorValues)
+	return Object.assign(flowInputAsObject, iteratorValues)
 
 }
 

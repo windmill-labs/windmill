@@ -343,8 +343,8 @@
 	</nav>
 	<div
 		class="bg-white antialiased text-gray-900 {isCollapsed
-			? 'pl-8'
-			: 'pl-36'} flex h-full max-w-screen flex-col items-center"
+			? 'pl-10'
+			: 'pl-36 ml-2'} flex h-full max-w-screen flex-col items-center"
 	>
 		<slot />
 	</div>

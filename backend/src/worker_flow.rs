@@ -49,7 +49,7 @@ pub async fn update_flow_status_after_job_completion(
     db: &DB,
     job: &QueuedJob,
     success: bool,
-    result: Option<Map<String, Value>>,
+    result: serde_json::Value,
     metrics: &worker::Metrics,
 ) -> error::Result<()> {
     tracing::debug!("HANDLE FLOW: {job:?} {success} {result:?}");
@@ -167,9 +167,7 @@ pub async fn update_flow_status_after_job_completion(
                 .map_ok(|(v,)| v)
                 .try_collect::<Vec<serde_json::Value>>()
                 .await?;
-                let mut results_map = serde_json::Map::new();
-                results_map.insert("res1".to_string(), serde_json::json!(results));
-                Some(results_map)
+                serde_json::json!(results)
             }
             _ => result.clone(),
         };
@@ -252,11 +250,7 @@ async fn skip_loop_failures<'c>(
     .map_err(|e| Error::InternalErr(format!("error during retrieval of skip_loop_failures: {e}")))
 }
 
-async fn compute_stop_early(
-    expr: String,
-    result: Option<Map<String, Value>>,
-) -> error::Result<bool> {
-    let result = serde_json::Value::Object(result.clone().unwrap_or_else(|| Map::new()));
+async fn compute_stop_early(expr: String, result: serde_json::Value) -> error::Result<bool> {
     match eval_timeout(expr, [("result".to_string(), result)].into(), None, vec![]).await? {
         serde_json::Value::Bool(true) => Ok(true),
         serde_json::Value::Bool(false) => Ok(false),
@@ -311,12 +305,12 @@ pub async fn get_step_of_flow_status(db: &DB, id: Uuid) -> error::Result<i32> {
 #[instrument(level = "trace", skip_all)]
 async fn transform_input(
     flow_args: &Option<serde_json::Value>,
-    last_result: Option<Map<String, serde_json::Value>>,
+    last_result: serde_json::Value,
     input_transform: &HashMap<String, InputTransform>,
     workspace: &str,
     token: &str,
     steps: Vec<String>,
-) -> anyhow::Result<Option<Map<String, serde_json::Value>>> {
+) -> anyhow::Result<Map<String, serde_json::Value>> {
     let mut mapped = serde_json::Map::new();
 
     for (key, val) in input_transform.into_iter() {
@@ -333,8 +327,7 @@ async fn transform_input(
         match val {
             InputTransform::Static { value: _ } => (),
             InputTransform::Javascript { expr } => {
-                let previous_result =
-                    serde_json::Value::Object(last_result.clone().unwrap_or_else(|| Map::new()));
+                let previous_result = last_result.clone();
                 let flow_input = flow_args.clone().unwrap_or_else(|| json!({}));
                 let v = eval_timeout(
                     expr.to_string(),
@@ -358,14 +351,14 @@ async fn transform_input(
         }
     }
 
-    Ok(Some(mapped))
+    Ok(mapped)
 }
 
 #[instrument(level = "trace", skip_all)]
 pub async fn handle_flow(
     flow_job: &QueuedJob,
     db: &sqlx::Pool<sqlx::Postgres>,
-    last_result: Option<Map<String, serde_json::Value>>,
+    last_result: serde_json::Value,
 ) -> anyhow::Result<()> {
     let value = flow_job
         .raw_flow
@@ -397,7 +390,7 @@ async fn push_next_flow_job(
     flow: FlowValue,
     schedule_path: Option<String>,
     db: &sqlx::Pool<sqlx::Postgres>,
-    last_result: Option<Map<String, serde_json::Value>>,
+    last_result: serde_json::Value,
 ) -> anyhow::Result<()> {
     let flow_status_json = flow_job.flow_status.as_ref().ok_or_else(|| {
         Error::InternalErr(format!("not found status for flow job {:?}", flow_job.id))
@@ -462,15 +455,13 @@ async fn push_next_flow_job(
             module.value,
             status.modules[i]
         );
-        let (forloop_args, forloop_iterator) = match &module.value {
+        let (compute_input_transform, forloop_args, forloop_iterator) = match &module.value {
             FlowModuleValue::ForloopFlow { iterator, .. } => match &status.modules[i] {
                 FlowStatusModule::WaitingForPriorSteps { .. } => {
                     let itered = match iterator {
                         InputTransform::Static { value } => value.clone(),
                         InputTransform::Javascript { expr } => {
-                            let result = serde_json::Value::Object(
-                                last_result.clone().unwrap_or_else(|| Map::new()),
-                            );
+                            let result = last_result.clone();
                             eval_timeout(
                                 expr.to_string(),
                                 [("result".to_string(), result)].into(),
@@ -480,16 +471,18 @@ async fn push_next_flow_job(
                             .await?
                         }
                     };
-
-                    let mut args = last_result.clone().unwrap_or_else(Map::new);
-
-                    args.insert(
-                        "_index".to_string(),
+                    let mut args = Map::new();
+                    let mut iteration_map = Map::new();
+                    iteration_map.insert(
+                        "index".to_string(),
                         serde_json::Value::Number(serde_json::Number::from(0)),
                     );
-                    args.insert("_value".to_string(), itered[0].clone());
+                    iteration_map.insert("value".to_string(), itered[0].clone());
+                    args.insert("iter".to_string(), serde_json::Value::Object(iteration_map));
                     match itered {
-                        serde_json::Value::Array(arr) => (Some(args), Some((0 as u8, arr, vec![]))),
+                        serde_json::Value::Array(arr) => {
+                            (true, Some(args), Some((0 as u8, arr, vec![])))
+                        }
                         a @ _ => Err(Error::BadRequest(format!(
                             "Expected an array value, found: {:?}",
                             a
@@ -503,15 +496,18 @@ async fn push_next_flow_job(
                 } if index.to_owned() + 1 < itered.len() as u8 => {
                     let mut args = args.clone();
                     let nindex = index.to_owned() + 1;
-                    args.insert(
-                        "_index".to_string(),
+                    let mut iteration_map = Map::new();
+                    iteration_map.insert(
+                        "index".to_string(),
                         serde_json::Value::Number(serde_json::Number::from(nindex.to_owned())),
                     );
-                    args.insert(
-                        "_value".to_string(),
+                    iteration_map.insert(
+                        "value".to_string(),
                         itered[nindex.to_owned() as usize].clone(),
                     );
+                    args.insert("iter".to_string(), serde_json::Value::Object(iteration_map));
                     (
+                        false,
                         Some(args),
                         Some((nindex, itered.clone(), forloop_jobs.clone())),
                     )
@@ -521,11 +517,33 @@ async fn push_next_flow_job(
                     a
                 )))?,
             },
-            _ => (None, None),
+            _ => (true, None, None),
         };
 
+        let mut args = if compute_input_transform {
+            let steps = status
+                .modules
+                .into_iter()
+                .map(|x| match x {
+                    FlowStatusModule::Success { job, forloop_jobs: _ } => job.to_string(),
+                    _ => "invalid step status".to_string(),
+                })
+                .collect();
+
+            transform_input(
+                &flow_job.args,
+                last_result.clone(),
+                &input_transform,
+                &flow_job.workspace_id,
+                &token,
+                steps,
+            )
+            .await?
+        } else {
+            Map::new()
+        };
         let args = if forloop_args.is_some() {
-            let mut args = forloop_args.unwrap();
+            args.extend(forloop_args.unwrap());
             if let Some(flow_args) = &flow_job.args {
                 match flow_args {
                     serde_json::Value::Object(obj) => {
@@ -541,35 +559,16 @@ async fn push_next_flow_job(
                     }
                 }
             }
-            Some(args)
+            args
         } else {
-            let steps = status
-                .modules
-                .into_iter()
-                .map(|x| match x {
-                    FlowStatusModule::Success { job, forloop_jobs: _ } => job.to_string(),
-                    _ => "invalid step status".to_string(),
-                })
-                .collect();
-
-            let transformed = transform_input(
-                &flow_job.args,
-                last_result.clone(),
-                &input_transform,
-                &flow_job.workspace_id,
-                &token,
-                steps,
-            )
-            .await?;
-
-            transformed
+            args
         };
 
         let (uuid, mut tx) = push(
             tx,
             &flow_job.workspace_id,
             job_payload,
-            args.clone(),
+            Some(args.clone()),
             &flow_job.created_by,
             flow_job.permissioned_as.to_owned(),
             None,
@@ -583,11 +582,7 @@ async fn push_next_flow_job(
             forloop_jobs.push(uuid.to_owned());
             serde_json::json!(FlowStatusModule::InProgress {
                 job: uuid,
-                iterator: Some(Iterator {
-                    index: index,
-                    itered: itered,
-                    args: args.unwrap_or_else(|| Map::new()),
-                }),
+                iterator: Some(Iterator { index: index, itered: itered, args: args }),
                 forloop_jobs: Some(forloop_jobs),
             })
         } else {

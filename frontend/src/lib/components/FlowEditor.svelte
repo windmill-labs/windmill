@@ -18,29 +18,37 @@
 	export let scheduleArgs: Record<string, any> = {}
 	export let scheduleEnabled = false
 	export let scheduleCron: string = '0 */5 * * *'
+	export let previewArgs: Record<string, any> = {}
+
+	let scheduleLoaded = false
 
 	async function loadSchedule() {
-		const existsSchedule = await ScheduleService.existsSchedule({
-			workspace: $workspaceStore ?? '',
-			path: initialPath
-		})
-		if (existsSchedule) {
-			const schedule = await ScheduleService.getSchedule({
+		if (!scheduleLoaded) {
+			scheduleLoaded = true
+
+			const existsSchedule = await ScheduleService.existsSchedule({
 				workspace: $workspaceStore ?? '',
 				path: initialPath
 			})
-			scheduleEnabled = schedule.enabled!
-			scheduleCron = schedule.schedule
-			scheduleArgs = schedule.args ?? {}
+			if (existsSchedule) {
+				const schedule = await ScheduleService.getSchedule({
+					workspace: $workspaceStore ?? '',
+					path: initialPath
+				})
+
+				scheduleEnabled = schedule.enabled!
+				scheduleCron = schedule.schedule
+				scheduleArgs = schedule.args ?? {}
+				previewArgs = JSON.parse(JSON.stringify(scheduleArgs))
+			}
 		}
 	}
 
-	$: if ($workspaceStore && initialPath != '') {
+	$: if ($flowStore && $workspaceStore && initialPath != '') {
 		loadSchedule()
 	}
 
 	let open = 0
-	let args: Record<string, any> = {}
 </script>
 
 {#if $flowStore}
@@ -49,16 +57,22 @@
 			bind:pathError
 			bind:initialPath
 			bind:scheduleArgs
+			{previewArgs}
 			bind:scheduleCron
 			bind:scheduleEnabled
 			bind:open
 		/>
 		<FlowInput />
 		{#each $flowStore?.value.modules as mod, i}
-			<ModuleStep bind:open bind:mod bind:args {i} mode={$mode} />
+			<ModuleStep bind:open bind:mod bind:args={previewArgs} {i} />
 			{#if i == 0 && $mode == 'pull'}
 				<div class="flex justify-center bg-white shadow p-2">
-					Starting from here, the flow for loop over items from step 1's result above &nbsp;
+					<p>
+						Starting from here, the flow for loop over items from the 1st step's result right above.
+						&nbsp; <br />For-loops insertable at other points is not supported yet but coming soon
+						(See
+						<a href="https://github.com/windmill-labs/windmill/issues/350">#350</a>.)
+					</p>
 					<Tooltip>
 						This flow being in 'Pull' mode, the rest of the flow will for loop over the list of
 						items returned by the trigger script right above. Retrieve the item value using

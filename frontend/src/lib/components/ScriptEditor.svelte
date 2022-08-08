@@ -238,7 +238,13 @@
 			<div class="header">
 				<EditorBar {editor} {lang} {websocketAlive} />
 			</div>
-			<div class="flex-1 overflow-hidden border p-2 rounded">
+			<div
+				class="flex-1 overflow-hidden border p-2 rounded"
+				on:mouseleave={() => {
+					code = getEditor().getCode()
+					inferSchema()
+				}}
+			>
 				<Editor
 					{code}
 					bind:websocketAlive

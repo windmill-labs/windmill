@@ -305,9 +305,7 @@
 					<Tooltip
 						>Send a POST http request with a token as bearer token and the args respecting the
 						corresponding jsonschema as payload. To create a permanent token, go to your user
-						setting by clicking your username on the top-left. For more info about openapi, see <a
-							href="https://docs.windmill.dev/openapi/run-script-by-hash">openapi doc</a
-						></Tooltip
+						setting by clicking your username on the top-left.</Tooltip
 					>
 				</h3>
 
@@ -326,9 +324,7 @@
 					<Tooltip
 						>Send a POST http request with a token as bearer token and the args respecting the
 						corresponding jsonschema as payload. To create a permanent token, go to your user
-						setting by clicking your username on the top-left. For more info about openapi, see <a
-							href="https://docs.windmill.dev/openapi/run-script-by-hash">openapi doc</a
-						></Tooltip
+						setting by clicking your username on the top-left.</Tooltip
 					>
 				</h3>
 

@@ -55,7 +55,7 @@ const NSJAIL_CONFIG_DOWNLOAD_CONTENT: &str = include_str!("../../nsjail/download
 const NSJAIL_CONFIG_RUN_PYTHON3_CONTENT: &str =
     include_str!("../../nsjail/run.python3.config.proto");
 const NSJAIL_CONFIG_RUN_DENO_CONTENT: &str = include_str!("../../nsjail/run.deno.config.proto");
-
+const MAX_LOG_SIZE: u32 = 50000;
 pub struct Metrics {
     pub jobs_failed: prometheus::IntCounter,
 }
@@ -198,7 +198,7 @@ pub async fn run_worker(
                             db,
                             &job,
                             false,
-                            Some(m),
+                            serde_json::Value::Object(m),
                             &metrics,
                         )
                         .await;
@@ -277,11 +277,12 @@ async fn handle_queued_job(
 
     match job.job_kind {
         JobKind::FlowPreview | JobKind::Flow => {
-            let args = match &job.args {
-                Some(serde_json::Value::Object(m)) => Some(m.to_owned()),
-                _ => None,
-            };
-            handle_flow(&job, db, args).await?;
+            handle_flow(
+                &job,
+                db,
+                job.args.clone().unwrap_or_else(|| serde_json::Value::Null),
+            )
+            .await?;
         }
         _ => {
             let mut logs = "".to_string();
@@ -314,10 +315,9 @@ async fn handle_queued_job(
 
             match execution {
                 Ok(r) => {
-                    add_completed_job(db, &job, true, false, r.result.clone(), logs).await?;
+                    add_completed_job(db, &job, true, false, r.clone(), logs).await?;
                     if job.is_flow_step {
-                        update_flow_status_after_job_completion(db, &job, true, r.result, metrics)
-                            .await?;
+                        update_flow_status_after_job_completion(db, &job, true, r, metrics).await?;
                     }
                 }
                 Err(e) => {
@@ -328,7 +328,7 @@ async fn handle_queued_job(
                             db,
                             &job,
                             false,
-                            Some(output_map),
+                            serde_json::Value::Object(output_map),
                             metrics,
                         )
                         .await?;
@@ -348,10 +348,6 @@ async fn handle_queued_job(
         }
     }
     Ok(())
-}
-
-struct JobResult {
-    result: Option<Map<String, Value>>,
 }
 
 async fn write_file(dir: &str, path: &str, content: &str) -> Result<File, Error> {
@@ -405,10 +401,11 @@ async fn handle_job(
     base_url: &str,
     disable_nuser: bool,
     disable_nsjail: bool,
-) -> Result<JobResult, Error> {
+) -> Result<serde_json::Value, Error> {
     tracing::info!(
         worker = %worker_name,
         job_id = %job.id,
+        workspace_id = %job.workspace_id,
         "handling job"
     );
 
@@ -444,14 +441,14 @@ async fn handle_job(
     tokio::fs::remove_dir_all(job_dir).await?;
 
     if status.is_ok() && status.as_ref().unwrap().success() {
-        let result = serde_json::from_str::<Map<String, Value>>(last_line).map_err(|e| {
+        let result = serde_json::from_str::<serde_json::Value>(last_line).map_err(|e| {
             Error::ExecutionErr(format!(
                 "result {} is not parsable.\n err: {}",
                 last_line,
                 e.to_string()
             ))
         })?;
-        Ok(JobResult { result: Some(result) })
+        Ok(result)
     } else {
         let err = match status {
             Ok(_) => {
@@ -509,6 +506,7 @@ async fn handle_nondep_job(
         .await?
         .ok_or_else(|| Error::InternalErr(format!("expected content and lock")))?
     };
+    let worker_name = worker_dir.split("/").last().unwrap_or("unknown");
     match language {
         None => {
             return Err(Error::ExecutionErr(
@@ -533,6 +531,12 @@ async fn handle_nondep_job(
             }
             let _ = write_file(job_dir, "requirements.txt", &requirements).await?;
 
+            tracing::info!(
+                worker_name = %worker_name,
+                job_id = %job.id,
+                workspace_id = %job.workspace_id,
+                "started setup python dependencies"
+            );
             let child = if !disable_nsjail {
                 Command::new("nsjail")
                     .current_dir(job_dir)
@@ -563,7 +567,13 @@ async fn handle_nondep_job(
 
             logs.push_str("\n--- PIP DEPENDENCIES INSTALL ---\n");
             *status = handle_child(job, db, logs, last_line, timeout, child).await;
-
+            tracing::info!(
+                worker_name = %worker_name,
+                job_id = %job.id,
+                workspace_id = %job.workspace_id,
+                is_ok = status.is_ok(),
+                "finished setup python dependencies"
+            );
             if status.is_ok() {
                 logs.push_str("\n\n--- PYTHON CODE EXECUTION ---\n");
 
@@ -634,17 +644,11 @@ inner_script = __import__("inner")
 
 with open("args.json") as f:
     kwargs = json.load(f, strict=False)
-for k, v in kwargs.items():
+for k, v in list(kwargs.items()):
     if v == '<function call>':
-        kwargs[k] = None
+        del kwargs[k]
 {transforms}
 res = inner_script.main(**kwargs)
-if res is None:
-    res = {{}}
-if isinstance(res, tuple):
-    res = {{f"res{{i+1}}": v for i, v in enumerate(res)}}
-if not isinstance(res, dict):
-    res = {{ "res1": res }}
 res_json = json.dumps(res, separators=(',', ':'), default=str).replace('\n', '')
 print()
 print("result:")
@@ -669,6 +673,12 @@ print(res_json)
                         .insert("PYTHONPATH".to_string(), format!("{job_dir}/dependencies"));
                 }
 
+                tracing::info!(
+                    worker_name = %worker_name,
+                    job_id = %job.id,
+                    workspace_id = %job.workspace_id,
+                    "started python code execution"
+                );
                 let child = if !disable_nuser {
                     Command::new("nsjail")
                         .current_dir(job_dir)
@@ -696,6 +706,13 @@ print(res_json)
                         .spawn()?
                 };
                 *status = handle_child(job, db, logs, last_line, timeout, child).await;
+                tracing::info!(
+                    worker_name = %worker_name,
+                    job_id = %job.id,
+                    workspace_id = %job.workspace_id,
+                    is_ok = status.is_ok(),
+                    "finished python code execution"
+                );
             }
         }
         Some(ScriptLang::Deno) => {
@@ -748,14 +765,7 @@ const args = await Deno.readTextFile("args.json")
 
 async function run() {{
     let res: any = await main(...args);
-    if (res == undefined) {{
-        res = {{}}
-    }}
-    if (typeof res !== 'object' || Array.isArray(res)) {{
-        res = {{ res1: res }}
-    }}
-
-    const res_json = JSON.stringify(res);
+    const res_json = JSON.stringify(res ?? null, (key, value) => typeof value === 'undefined' ? null : value);
     console.log();
     console.log("result:");
     console.log(res_json);
@@ -783,6 +793,12 @@ run();
                 .await?;
             }
 
+            tracing::info!(
+                worker_name = %worker_name,
+                job_id = %job.id,
+                workspace_id = %job.workspace_id,
+                "started deno code execution"
+            );
             let child = if !disable_nsjail {
                 Command::new("nsjail")
                     .current_dir(job_dir)
@@ -819,6 +835,13 @@ run();
                     .spawn()?
             };
             *status = handle_child(job, db, logs, last_line, timeout, child).await;
+            tracing::info!(
+                worker_name = %worker_name,
+                job_id = %job.id,
+                workspace_id = %job.workspace_id,
+                is_ok = status.is_ok(),
+                "finished deno code execution"
+            );
         }
     }
     Ok(())
@@ -941,7 +964,7 @@ async fn handle_child(
 
     let done2 = done.clone();
     let done3 = done.clone();
-
+    let done4 = done.clone();
     // Ensure the child process is spawned in the runtime so it can
     // make progress on its own while we await for any output.
     let handle = tokio::spawn(async move {
@@ -952,15 +975,12 @@ async fn handle_child(
                 Ok(r?)
             }
             _ = async move {
-                loop {
-                    if done2.load(Ordering::Relaxed) {
-                        break;
-                    }
-                    tokio::time::sleep(Duration::from_secs(5)).await;
+                while !done2.load(Ordering::Relaxed) {
+                    tokio::time::sleep(Duration::from_secs(1)).await;
                 }
             } => {
                 child.kill().await?;
-                return Err(Error::ExecutionErr("execution interrupted (likely timeout or cancel)".to_string()).into())
+                return Err(Error::ExecutionErr("execution interrupted".to_string()).into())
             }
         };
         r
@@ -970,12 +990,28 @@ async fn handle_child(
     let id = job.id;
 
     tokio::spawn(async move {
-        loop {
+        while !done4.load(Ordering::Relaxed) {
             let send = tokio::select! {
                 Ok(Some(out)) = reader.next_line() => {
-                    tx.send(out).await
+                    if out.len() > MAX_LOG_SIZE as usize {
+                        tracing::info!("Line is too big");
+                        let _ = tx.send(format!("Line is too big")).await;
+                        done4.store(true, Ordering::Relaxed);
+                        break;
+                    } else {
+                        tx.send(out).await
+                    }
                 },
-                Ok(Some(err)) = stderr_reader.next_line() => tx.send(err).await,
+                Ok(Some(err)) = stderr_reader.next_line() => {
+                    if err.len() > MAX_LOG_SIZE as usize {
+                        tracing::info!("Line is too big");
+                        let _ = tx.send(format!("Line is too big")).await;
+                        done4.store(true, Ordering::Relaxed);
+                        break;
+                    } else {
+                        tx.send(err).await
+                    }
+                },
                 else => {
                     break
                 },
@@ -1007,10 +1043,18 @@ async fn handle_child(
     });
 
     let mut start = logs.chars().count();
+    let mut last_update = chrono::Utc::now().timestamp_millis();
 
-    loop {
+    while !done.load(Ordering::Relaxed) {
+        let diff = 500 - (chrono::Utc::now().timestamp_millis() - last_update);
+        let sleeping_future = if diff > 0 as i64 {
+            tokio::time::sleep(Duration::from_millis(diff as u64))
+        } else {
+            //TODO make it just resolve immediately
+            tokio::time::sleep(Duration::from_millis(0))
+        };
         tokio::select! {
-            _ = tokio::time::sleep(Duration::from_millis(500)) => {
+            _ = sleeping_future => {
                 let end = logs.chars().count();
 
                 let to_send = logs.chars().skip(start).collect::<String>();
@@ -1050,11 +1094,20 @@ async fn handle_child(
                         tracing::error!("error setting canceled for id {}", id);
                     }
                 }
+                last_update = chrono::Utc::now().timestamp_millis();
             },
             nl = rx.recv() => {
+
                 if let Some(nl) = nl {
+                    if logs.chars().count() > MAX_LOG_SIZE as usize{
+                        tracing::info!("Too many logs lines: {}", job.id);
+                        logs.push_str("Too many logs lines. Limit is 50000 chars. Killing job.");
+                        done.store(true, Ordering::Relaxed);
+                    }
+
                     logs.push('\n');
                     logs.push_str(&nl);
+
                     *last_line = nl;
                 } else {
                     let to_send = logs.chars().skip(start).collect::<String>();

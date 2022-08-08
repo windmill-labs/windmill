@@ -9,6 +9,7 @@
 	export let isLast = true
 	export let currentPath: string = ''
 	export let pureViewer = false
+	export let collapsed = level == 3 || Array.isArray(json)
 
 	const collapsedSymbol = '...'
 	let keys: string | any[]
@@ -22,8 +23,6 @@
 		openBracket = isArray ? '[' : '{'
 		closeBracket = isArray ? ']' : '}'
 	}
-
-	$: collapsed = level == 2
 
 	function collapse() {
 		collapsed = !collapsed

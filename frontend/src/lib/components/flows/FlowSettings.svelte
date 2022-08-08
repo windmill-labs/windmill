@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { sendUserToast } from '$lib/utils'
 	import { faFileExport, faFileImport, faGlobe } from '@fortawesome/free-solid-svg-icons'
-	import { Dropdown, DropdownItem } from 'flowbite-svelte'
+	import { Button, Dropdown, DropdownItem } from 'flowbite-svelte'
 	import Icon from 'svelte-awesome'
 	import Editor from '../Editor.svelte'
 	import FlowViewer from '../FlowViewer.svelte'
@@ -22,6 +22,7 @@
 	export let pathError = ''
 	export let initialPath: string = ''
 
+	export let previewArgs: Record<string, any> = {}
 	export let scheduleArgs: Record<string, any> = {}
 	export let scheduleEnabled = false
 	export let scheduleCron: string = '0 */5 * * *'
@@ -166,11 +167,20 @@
 						right: 'enabled'
 					}}
 				/>
-				<div class="p-2 mt-2 rounded" class:bg-gray-300={!scheduleEnabled}>
+				<div class="p-2 my-2 rounded" class:bg-gray-300={!scheduleEnabled}>
 					{#if !scheduleEnabled}
 						<span class="font-black">No next scheduled run when disabled</span>
 					{/if}
 					<CronInput bind:schedule={scheduleCron} />
+				</div>
+				<div class="flex flex-row-reverse">
+					<Button
+						color="alternative"
+						size="sm"
+						on:click={() => (scheduleArgs = JSON.parse(JSON.stringify(previewArgs)))}
+					>
+						Copy from preview arguments
+					</Button>
 				</div>
 				<SchemaForm schema={$flowStore.schema} bind:args={scheduleArgs} />
 			</CollapseLink>
