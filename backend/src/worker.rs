@@ -19,7 +19,7 @@ use std::{
 
 use crate::{
     db::DB,
-    error::Error,
+    error::{self, Error},
     jobs::{
         add_completed_job, add_completed_job_error, get_queued_job, postprocess_queued_job, pull,
         JobKind, QueuedJob,
@@ -358,34 +358,42 @@ async fn write_file(dir: &str, path: &str, content: &str) -> Result<File, Error>
 }
 
 #[async_recursion]
-async fn transform_json_value(token: &str, workspace: &str, base_url: &str, v: Value) -> Value {
+async fn transform_json_value(
+    token: &str,
+    workspace: &str,
+    base_url: &str,
+    v: Value,
+) -> error::Result<Value> {
     match v {
         Value::String(y) if y.starts_with("$var:") => {
             let path = y.strip_prefix("$var:").unwrap();
-            let v = crate::client::get_variable(workspace, path, token, base_url)
-                .await
-                .unwrap_or_else(|_| format!("error fetching variable {path}"));
-            Value::String(v)
+            let v = crate::client::get_variable(workspace, path, token, base_url).await?;
+            Ok(Value::String(v))
         }
         Value::String(y) if y.starts_with("$res:") => {
             let path = y.strip_prefix("$res:").unwrap();
             if path.split("/").count() < 2 {
-                return Value::String(format!("resource path: {path} is ill-defined"));
+                return Err(Error::InternalErr(
+                    format!("invalid resource path: {path}",),
+                ));
             }
             let v = crate::client::get_resource(workspace, path, token, base_url)
-                .await
-                .ok()
-                .flatten()
-                .unwrap_or_else(|| Value::String(format!("error fetching resource {path}")));
+                .await?
+                .ok_or_else(|| {
+                    error::Error::InternalErr(format!("resource path: {path} not found",))
+                })?;
             transform_json_value(token, workspace, base_url, v).await
         }
         Value::Object(mut m) => {
             for (a, b) in m.clone().into_iter() {
-                m.insert(a, transform_json_value(token, workspace, base_url, b).await);
+                m.insert(
+                    a,
+                    transform_json_value(token, workspace, base_url, b).await?,
+                );
             }
-            Value::Object(m)
+            Ok(Value::Object(m))
         }
-        a @ _ => a,
+        a @ _ => Ok(a),
     }
 }
 
@@ -625,7 +633,7 @@ async fn handle_nondep_job(
                 let args = if let Some(args) = &job.args {
                     Some(
                         transform_json_value(&token, &job.workspace_id, base_url, args.clone())
-                            .await,
+                            .await?,
                     )
                 } else {
                     None
@@ -746,7 +754,7 @@ print(res_json)
             .await?;
 
             let args = if let Some(args) = &job.args {
-                Some(transform_json_value(&token, &job.workspace_id, base_url, args.clone()).await)
+                Some(transform_json_value(&token, &job.workspace_id, base_url, args.clone()).await?)
             } else {
                 None
             };
