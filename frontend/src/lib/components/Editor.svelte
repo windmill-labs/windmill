@@ -43,7 +43,12 @@
 	import jsonWorker from 'monaco-editor/esm/vs/language/json/json.worker?worker'
 	import tsWorker from 'monaco-editor/esm/vs/language/typescript/ts.worker?worker'
 
-	import type { DocumentUri, MessageTransports, MonacoLanguageClient } from 'monaco-languageclient'
+	import type {
+		Disposable,
+		DocumentUri,
+		MessageTransports,
+		MonacoLanguageClient
+	} from 'monaco-languageclient'
 	import { createEventDispatcher, onDestroy, onMount } from 'svelte'
 	import { buildWorkerDefinition } from 'monaco-editor-workers'
 
@@ -152,6 +157,9 @@
 		}
 	}
 
+	let command: Disposable | undefined = undefined
+	let monacoServices: Disposable | undefined = undefined
+
 	export async function reloadWebsocket() {
 		await closeWebsockets()
 		if (lang == 'python' || deno) {
@@ -162,9 +170,10 @@
 			)
 			const vscode = await import('vscode')
 			const { RequestType } = await import('vscode-jsonrpc')
+			// install Monaco language client services
 			const { MonacoServices } = await import('monaco-languageclient')
 
-			MonacoServices.install()
+			monacoServices = MonacoServices.install()
 
 			function createLanguageClient(
 				transports: MessageTransports,
@@ -233,8 +242,10 @@
 						})
 
 						try {
+							console.log('started client')
 							await languageClient.start()
 						} catch (err) {
+							console.log('err at client')
 							console.error(err)
 							throw new Error(err)
 						}
@@ -242,16 +253,17 @@
 						lastWsAttempt = new Date()
 						nbWsAttempt = 0
 						if (name == 'deno') {
-							vscode.commands.getCommands().then((v) => {
-								if (!v.includes('deno.cache')) {
-									vscode.commands.registerCommand('deno.cache', (uris: DocumentUri[] = []) => {
-										languageClient.sendRequest(new RequestType('deno/cache'), {
-											referrer: { uri },
-											uris: uris.map((uri) => ({ uri }))
-										})
+							command && command.dispose()
+							command = undefined
+							command = vscode.commands.registerCommand(
+								'deno.cache',
+								(uris: DocumentUri[] = []) => {
+									languageClient.sendRequest(new RequestType('deno/cache'), {
+										referrer: { uri },
+										uris: uris.map((uri) => ({ uri }))
 									})
 								}
-							})
+							)
 						}
 
 						websocketAlive[name] = true
@@ -342,11 +354,18 @@
 	}
 
 	async function closeWebsockets() {
+		command && command.dispose()
+		command = undefined
+		monacoServices && monacoServices.dispose()
+		monacoServices = undefined
 		for (const x of websockets) {
 			try {
 				await x[0].stop()
 				x[1].close()
 			} catch (err) {
+				try {
+					x[1].close()
+				} catch (err) {}
 				console.log('error disposing websocket', err)
 			}
 		}
@@ -441,19 +460,15 @@
 		}
 
 		if (lang == 'python' || deno) {
-			// install Monaco language client services
-
 			reloadWebsocket()
 		}
 
 		return () => {
-			if (editor) {
-				try {
-					closeWebsockets()
-					editor.dispose()
-				} catch (err) {
-					console.log('error disposing editor', err)
-				}
+			try {
+				closeWebsockets()
+				editor && editor.dispose()
+			} catch (err) {
+				console.log('error disposing editor', err)
 			}
 		}
 	}
