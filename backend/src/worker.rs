@@ -55,7 +55,7 @@ const NSJAIL_CONFIG_DOWNLOAD_CONTENT: &str = include_str!("../../nsjail/download
 const NSJAIL_CONFIG_RUN_PYTHON3_CONTENT: &str =
     include_str!("../../nsjail/run.python3.config.proto");
 const NSJAIL_CONFIG_RUN_DENO_CONTENT: &str = include_str!("../../nsjail/run.deno.config.proto");
-const MAX_LOG_SIZE: u32 = 50000;
+const MAX_LOG_SIZE: u32 = 200000;
 pub struct Metrics {
     pub jobs_failed: prometheus::IntCounter,
 }
@@ -1109,7 +1109,7 @@ async fn handle_child(
                 if let Some(nl) = nl {
                     if logs.chars().count() > MAX_LOG_SIZE as usize{
                         tracing::info!("Too many logs lines: {}", job.id);
-                        logs.push_str("Too many logs lines. Limit is 50000 chars. Killing job.");
+                        logs.push_str("Too many logs lines. Limit is 200000 chars. Killing job.");
                         done.store(true, Ordering::Relaxed);
                     }
 
