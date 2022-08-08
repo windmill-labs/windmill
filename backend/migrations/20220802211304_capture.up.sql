@@ -2,6 +2,7 @@ CREATE TABLE capture (
     workspace_id  VARCHAR(50)   NOT NULL,
     path          VARCHAR(255)  NOT NULL,
     created_at    TIMESTAMPTZ   NOT NULL DEFAULT now(),
+    created_by    VARCHAR(50)   NOT NULL,
     payload       JSONB         NOT NULL DEFAULT 'null'::jsonb
                                 CHECK (length(payload::text) < 10 * 1024),
 

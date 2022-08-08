@@ -12,6 +12,8 @@ use crate::{
     utils::{not_found_if_none, StripPath},
 };
 
+const KEEP_LAST: i64 = 8;
+
 pub fn workspaced_service() -> Router {
     Router::new()
         .route("/*path", put(new_payload))
@@ -32,13 +34,36 @@ pub async fn new_payload(
     sqlx::query!(
         "
        INSERT INTO capture
-                   (workspace_id, path)
-            VALUES ($1, $2)
+                   (workspace_id, path, created_by)
+            VALUES ($1, $2, $3)
        ON CONFLICT (workspace_id, path)
      DO UPDATE SET created_at = now()
         ",
         &w_id,
         &path.to_path(),
+        &authed.username,
+    )
+    .execute(&mut tx)
+    .await?;
+
+    /* Retain only KEEP_LAST most recent captures by this user in this workspace. */
+    sqlx::query!(
+        "
+   DELETE FROM capture
+         WHERE workspace_id = $1
+           AND created_by = $2
+           AND created_at <=
+              ( SELECT created_at
+                  FROM capture
+                 WHERE workspace_id = $1
+                   AND created_by = $2
+              ORDER BY created_at DESC
+                OFFSET $3
+                 LIMIT 1 )
+        ",
+        &w_id,
+        &authed.username,
+        KEEP_LAST,
     )
     .execute(&mut tx)
     .await?;

@@ -157,6 +157,20 @@
     },
     "query": "INSERT INTO workspace_invite\n            (workspace_id, email, is_admin)\n            VALUES ($1, $2, $3)"
   },
+  "0a9a191273c735c41d56ea46a39ffca075a0550eada87df7162c5037164ad6bf": {
+    "describe": {
+      "columns": [],
+      "nullable": [],
+      "parameters": {
+        "Left": [
+          "Varchar",
+          "Varchar",
+          "Varchar"
+        ]
+      }
+    },
+    "query": "\n       INSERT INTO capture\n                   (workspace_id, path, created_by)\n            VALUES ($1, $2, $3)\n       ON CONFLICT (workspace_id, path)\n     DO UPDATE SET created_at = now()\n        "
+  },
   "0ae9160591ae00117d20a616cfe07e38f0c32953c7e881e916c389255190b72d": {
     "describe": {
       "columns": [],
@@ -1927,19 +1941,6 @@
     },
     "query": "DELETE FROM usr WHERE workspace_id = $1 AND username = $2"
   },
-  "8ef713c6b80c0fe05cf8e8f24d0a28e069c0d1e901b9831745cbd42b740f3d4a": {
-    "describe": {
-      "columns": [],
-      "nullable": [],
-      "parameters": {
-        "Left": [
-          "Varchar",
-          "Varchar"
-        ]
-      }
-    },
-    "query": "\n       INSERT INTO capture\n                   (workspace_id, path)\n            VALUES ($1, $2)\n       ON CONFLICT (workspace_id, path)\n     DO UPDATE SET created_at = now()\n        "
-  },
   "902961f15b8c7603dddf2933b5fc7cdd6e5af3545835763ccb29cdf3ac273ef0": {
     "describe": {
       "columns": [],
@@ -2913,6 +2914,20 @@
       }
     },
     "query": "SELECT EXISTS(SELECT 1 FROM workspace WHERE workspace.id = $1)"
+  },
+  "e02b99525cb1f8737acfec86809f59c8cff67bb1ec3926680fb691cc3573738a": {
+    "describe": {
+      "columns": [],
+      "nullable": [],
+      "parameters": {
+        "Left": [
+          "Text",
+          "Text",
+          "Int8"
+        ]
+      }
+    },
+    "query": "\n   DELETE FROM capture\n         WHERE workspace_id = $1\n           AND created_by = $2\n           AND created_at <=\n              ( SELECT created_at\n                  FROM capture\n                 WHERE workspace_id = $1\n                   AND created_by = $2\n              ORDER BY created_at DESC\n                OFFSET $3\n                 LIMIT 1 )\n        "
   },
   "e262f83b672a558092dc959b28a919f18e44b2a0d03b27b0ddba99896940c6d3": {
     "describe": {
