@@ -82,7 +82,7 @@
 					{#each asListOfList(result) as row}
 						<tr>
 							{#each row as v}
-								<td>{truncate(v, 200) ?? ''}</td>
+								<td>{truncate(JSON.stringify(v), 200) ?? ''}</td>
 							{/each}
 						</tr>
 					{/each}
