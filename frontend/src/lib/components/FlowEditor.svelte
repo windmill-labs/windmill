@@ -57,6 +57,7 @@
 			bind:pathError
 			bind:initialPath
 			bind:scheduleArgs
+			{previewArgs}
 			bind:scheduleCron
 			bind:scheduleEnabled
 			bind:open
