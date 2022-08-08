@@ -55,7 +55,7 @@
 {#if tab == 'ui'}
 	<div class="flow-root w-full pb-4">
 		{#if !embedded}
-			<h2 class="mt-4">{flow.summary}</h2>
+			<h2 class="my-4">{flow.summary}</h2>
 			<SvelteMarkdown source={flow.description ?? ''} />
 
 			<p class="font-black text-lg w-full my-4">
@@ -189,5 +189,6 @@
 		<Highlight language={json} code={JSON.stringify(flowFiltered, null, 4)} />
 	</div>
 {:else if tab == 'schema'}
+	<div class="my-4" />
 	<SchemaViewer schema={flow.schema} />
 {/if}
