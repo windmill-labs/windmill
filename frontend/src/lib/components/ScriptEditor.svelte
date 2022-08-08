@@ -162,7 +162,9 @@
 		await inferArgs(lang, editor.getCode(), schema)
 		schema = schema
 
-		isDefault.forEach((key) => (args[key] = schema.properties[key].default))
+		isDefault
+			.filter((key) => schema.properties[key] != undefined)
+			.forEach((key) => (args[key] = schema.properties[key].default))
 		for (const key of Object.keys(args)) {
 			if (schema.properties[key] == undefined) {
 				delete args[key]
