@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { goto } from '$app/navigation'
 	import { OpenAPI } from '$lib/gen'
 	import { logout } from '$lib/logout'
 	import { superadmin, userStore, usersWorkspaceStore, workspaceStore } from '$lib/stores'
@@ -56,11 +55,6 @@
 		isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent)
 		//Mobile
 		isCollapsed = isMobile
-		if (!document.cookie.includes('token')) {
-			goto('/user/login')
-		} else if (!$workspaceStore) {
-			goto('/user/workspaces')
-		}
 	})
 </script>
 
