@@ -18,6 +18,7 @@
 	export let scheduleArgs: Record<string, any> = {}
 	export let scheduleEnabled = false
 	export let scheduleCron: string = '0 */5 * * *'
+	export let previewArgs: Record<string, any> = {}
 
 	let scheduleLoaded = false
 
@@ -38,6 +39,7 @@
 				scheduleEnabled = schedule.enabled!
 				scheduleCron = schedule.schedule
 				scheduleArgs = schedule.args ?? {}
+				previewArgs = JSON.parse(JSON.stringify(scheduleArgs))
 			}
 		}
 	}
@@ -47,7 +49,6 @@
 	}
 
 	let open = 0
-	let args: Record<string, any> = {}
 </script>
 
 {#if $flowStore}
@@ -62,7 +63,7 @@
 		/>
 		<FlowInput />
 		{#each $flowStore?.value.modules as mod, i}
-			<ModuleStep bind:open bind:mod bind:args {i} mode={$mode} />
+			<ModuleStep bind:open bind:mod bind:args={previewArgs} {i} />
 			{#if i == 0 && $mode == 'pull'}
 				<div class="flex justify-center bg-white shadow p-2">
 					<p>
