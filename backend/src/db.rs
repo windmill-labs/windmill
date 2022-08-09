@@ -12,9 +12,9 @@ use std::time::Duration;
 
 pub type DB = Pool<Postgres>;
 
-pub async fn connect(database_url: &str) -> Result<DB, Error> {
+pub async fn connect(database_url: &str, max_connections: u32) -> Result<DB, Error> {
     PgPoolOptions::new()
-        .max_connections(100)
+        .max_connections(max_connections)
         .max_lifetime(Duration::from_secs(30 * 60)) // 30 mins
         .connect(database_url)
         .await
