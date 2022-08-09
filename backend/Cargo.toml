@@ -25,6 +25,7 @@ tracing = "^0"
 tracing-subscriber = { version = "^0", features = ["env-filter", "json"]}
 console-subscriber = "^0"
 prometheus = { version = "^0", default-features = false }
+phf = { version = "0.11", features = ["macros"] }
 
 rust-embed = "^6"
 mime_guess = "^2"
