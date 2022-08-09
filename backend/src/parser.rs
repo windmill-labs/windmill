@@ -661,7 +661,6 @@ pub fn parse_python_imports(code: &str) -> error::Result<Vec<String>> {
             .lines()
             .skip(pos + 1)
             .map_while(|x| re.captures(x).map(|x| x.get(1).unwrap().as_str()))
-            .map(replace_import)
             .collect();
         Ok(lines)
     } else {
@@ -677,7 +676,8 @@ pub fn parse_python_imports(code: &str) -> error::Result<Vec<String>> {
                     StatementType::Import { names } => Some(
                         names
                             .into_iter()
-                            .map(|x| x.symbol.split('.').next().unwrap_or("").to_string())
+                            .map(|x| x.symbol.split('.').next().unwrap_or(""))
+                            .map(replace_import)
                             .collect::<Vec<String>>(),
                     ),
                     StatementType::ImportFrom { level: _, module: Some(mod_), names: _ } => {
