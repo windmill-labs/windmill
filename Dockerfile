@@ -49,7 +49,7 @@ COPY ./backend/.cargo/ .cargo/
 
 RUN apt-get -y update \
     && apt-get install -y \
-    curl
+    curl lld
 
 ENV CARGO_INCREMENTAL=1
 
