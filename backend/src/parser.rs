@@ -643,11 +643,11 @@ static PYTHON_IMPORTS_REPLACEMENT: phf::Map<&'static str, &'static str> = phf_ma
     "psycopg2" => "psycopg2-binary"
 };
 
-fn replace_import(x: &str) -> String {
+fn replace_import(x: String) -> String {
     PYTHON_IMPORTS_REPLACEMENT
-        .get(x)
+        .get(&x)
         .map(|x| x.to_owned())
-        .unwrap_or(x)
+        .unwrap_or(&x)
         .to_string()
 }
 
@@ -660,7 +660,10 @@ pub fn parse_python_imports(code: &str) -> error::Result<Vec<String>> {
         let lines = code
             .lines()
             .skip(pos + 1)
-            .map_while(|x| re.captures(x).map(|x| x.get(1).unwrap().as_str()))
+            .map_while(|x| {
+                re.captures(x)
+                    .map(|x| x.get(1).unwrap().as_str().to_string())
+            })
             .collect();
         Ok(lines)
     } else {
@@ -676,14 +679,14 @@ pub fn parse_python_imports(code: &str) -> error::Result<Vec<String>> {
                     StatementType::Import { names } => Some(
                         names
                             .into_iter()
-                            .map(|x| x.symbol.split('.').next().unwrap_or(""))
+                            .map(|x| x.symbol.split('.').next().unwrap_or("").to_string())
                             .map(replace_import)
                             .collect::<Vec<String>>(),
                     ),
                     StatementType::ImportFrom { level: _, module: Some(mod_), names: _ } => {
                         let imprt = mod_.split('.').next().unwrap_or("").replace("_", "-");
 
-                        Some(vec![replace_import(&imprt)])
+                        Some(vec![replace_import(imprt)])
                     }
                     _ => None,
                 },
