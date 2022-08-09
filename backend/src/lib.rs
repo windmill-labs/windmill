@@ -6,6 +6,7 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
+use anyhow::Context;
 use argon2::Argon2;
 use axum::{handler::Handler, middleware::from_extractor, routing::get, Extension, Router};
 use db::DB;
@@ -62,6 +63,7 @@ const GIT_VERSION: &str = git_version!(args = ["--tag", "--always"], fallback = 
 pub const DEFAULT_NUM_WORKERS: usize = 3;
 pub const DEFAULT_TIMEOUT: i32 = 300;
 pub const DEFAULT_SLEEP_QUEUE: u64 = 50;
+pub const DEFAULT_MAX_CONNECTIONS: u32 = 100;
 
 pub async fn migrate_db(db: &DB) -> anyhow::Result<()> {
     let app_password = std::env::var("APP_USER_PASSWORD").unwrap_or_else(|_| "changeme".to_owned());
@@ -74,7 +76,13 @@ pub async fn migrate_db(db: &DB) -> anyhow::Result<()> {
 pub async fn connect_db() -> anyhow::Result<DB> {
     let database_url = std::env::var("DATABASE_URL")
         .map_err(|_| Error::BadConfig("DATABASE_URL env var is missing".to_string()))?;
-    Ok(db::connect(&database_url).await?)
+
+    let max_connections = match std::env::var("DATABASE_CONNECTIONS") {
+        Ok(n) => n.parse::<u32>().context("invalid DATABASE_CONNECTIONS")?,
+        Err(_) => DEFAULT_MAX_CONNECTIONS,
+    };
+
+    Ok(db::connect(&database_url, max_connections).await?)
 }
 
 pub async fn initialize_tracing() -> anyhow::Result<()> {
