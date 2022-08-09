@@ -4,14 +4,13 @@
   "schema": {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
-      "token": {
+      "apiKey": {
         "type": "string",
-        "description": ""
+        "description": "",
+        "default": "keyXXXXXXXXXXXXXX"
       }
     },
-    "required": [
-      "token"
-    ],
+    "required": [],
     "type": "object"
   },
   "description": "The airtable OAuth token"
