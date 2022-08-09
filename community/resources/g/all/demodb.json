@@ -2,12 +2,12 @@
   "workspace_id": "starter",
   "path": "g/all/demodb",
   "value": {
-    "host": "demodb.service.consul",
-    "port": "6543",
-    "user": "postgres",
+    "host": "postgres-demodb.node.consul",
+    "port": "5432",
+    "user": "myuser",
     "dbname": "demodb",
     "sslmode": "disable",
-    "password": "demodb"
+    "password": "password"
   },
   "description": "demodb",
   "resource_type": "postgresql",
