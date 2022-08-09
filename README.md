@@ -140,6 +140,8 @@ workers, we are
 
 <p align="center">
 <img src="./imgs/architecture.svg">
+<img src="./imgs/diagram.svg">
+
 </p>
 
 ## How to self-host
