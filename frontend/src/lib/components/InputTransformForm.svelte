@@ -208,6 +208,7 @@
 						class="few-lines-editor"
 						{extraLib}
 						extraLibPath="file:///node_modules/@types/windmill@{i}/index.d.ts"
+						shouldBindKey={false}
 					/>
 				</div>
 			</OverlayPropertyPicker>
