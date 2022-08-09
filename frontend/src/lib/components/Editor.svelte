@@ -43,6 +43,7 @@
 	import jsonWorker from 'monaco-editor/esm/vs/language/json/json.worker?worker'
 	import tsWorker from 'monaco-editor/esm/vs/language/typescript/ts.worker?worker'
 
+	import { buildWorkerDefinition } from 'monaco-editor-workers'
 	import type {
 		Disposable,
 		DocumentUri,
@@ -50,10 +51,9 @@
 		MonacoLanguageClient
 	} from 'monaco-languageclient'
 	import { createEventDispatcher, onDestroy, onMount } from 'svelte'
-	import { buildWorkerDefinition } from 'monaco-editor-workers'
 
-	import { StandaloneServices } from 'vscode/services'
 	import getMessageServiceOverride from 'vscode/service-override/messages'
+	import { StandaloneServices } from 'vscode/services'
 
 	StandaloneServices.initialize({
 		...getMessageServiceOverride(document.body)
@@ -72,6 +72,7 @@
 	export let websocketAlive = { pyright: false, black: false, deno: false }
 	export let extraLib: string = ''
 	export let extraLibPath: string = ''
+	export let shouldBindKey: boolean = true
 
 	let websockets: [MonacoLanguageClient, WebSocket][] = []
 	let websocketInterval: NodeJS.Timer | undefined
@@ -399,15 +400,17 @@
 			}
 		})
 
-		editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, function () {
-			format()
-		})
+		if (shouldBindKey) {
+			editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, function () {
+				format()
+			})
 
-		editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.Enter, function () {
-			if (cmdEnterAction) {
-				cmdEnterAction()
-			}
-		})
+			editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.Enter, function () {
+				if (cmdEnterAction) {
+					cmdEnterAction()
+				}
+			})
+		}
 
 		editor.onDidChangeModelContent((event) => {
 			code = getCode()
