@@ -48,7 +48,7 @@ ruben@windmill.dev (founder of Windmill).
 # Windmill
 
 <p align="center">
-<b>Disclaimer: </b>Windmill is in <b>BETA</b>. It is secure to run in production but we are still [improving the product fast](https://github.com/orgs/windmill-labs/projects/2).
+<b>Disclaimer: </b>Windmill is in <b>BETA</b>. It is secure to run in production but we are still <a href="https://github.com/orgs/windmill-labs/projects/2">improving the product fast<a/>.
 </p>
 
 ![Windmill Screenshot](./imgs/windmill.png)
