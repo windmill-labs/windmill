@@ -1425,8 +1425,10 @@ async fn delete_token(
         error::Error::BadRequest(format!("Only users with email can create tokens"))
     })?;
     let tokens_deleted: Vec<String> = sqlx::query_scalar(
-        "DELETE FROM token WHERE email = $1 AND
-     token LIKE concat($3, '%') RETURNING concat(substring(token for 10), '*****')",
+        "DELETE FROM token
+               WHERE email = $1
+                 AND token LIKE concat($2::text, '%')
+           RETURNING concat(substring(token for 10), '*****')",
     )
     .bind(&email)
     .bind(&token_prefix)
