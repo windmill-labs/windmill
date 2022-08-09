@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { truncate } from '$lib/utils'
+
 	import { createEventDispatcher } from 'svelte'
 	import { getTypeAsString } from '../flows/utils'
 	import { computeKey } from './utils'
@@ -43,9 +45,9 @@
 			{#each keys as key, index}
 				<li class={getTypeAsString(json[key]) !== 'object' ? 'hover:bg-sky-100 pt-1' : 'pt-1'}>
 					{#if !isArray}
-						<span class="key mr-1">{key}:</span>
+						<button on:click={() => selectProp(key)} class="key mr-1">{key}:</button>
 					{:else}
-						<span class="key mr-1">{index}:</span>
+						<button on:click={() => selectProp(key)} class="key mr-1">{index}:</button>
 					{/if}
 
 					{#if getTypeAsString(json[key]) === 'object'}
@@ -62,7 +64,7 @@
 							{#if json[key] === undefined}
 								<WarningMessage />
 							{:else}
-								<span> {JSON.stringify(json[key])}</span>
+								<span>{truncate(JSON.stringify(json[key]), 20)}</span>
 								{#if !pureViewer}
 									<button class="ml-2 default-button-secondary py-0"> Select </button>
 								{/if}
