@@ -40,7 +40,7 @@ You can show your support for the project by starring this repo.
 ---
 
 Windmill Labs offers commercial licenses and support to convert your existing
-automations and help you scale it in production. If interested, contact
+automation and help you scale it in production. If interested, contact
 ruben@windmill.dev (founder of Windmill).
 
 ---
@@ -86,7 +86,7 @@ triggered by a schedule, watch for changes (using
 [internal states](https://docs.windmill.dev/docs/reference#internal-state)) or
 triggered through API with either an async or sync webhook. The latter kind of
 endpoints make Windmill akin to a self-hostable AWS Lambda. Windmill can be the
-central place to host, build and run all of your integrations, automations and
+central place to host, build and run all of your integrations, automation and
 internal apps. We include credentials management and OAuth integration, groups
 and much more!
 
