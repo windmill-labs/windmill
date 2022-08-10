@@ -28,6 +28,7 @@ mod client;
 mod db;
 mod email;
 mod error;
+mod external_ip;
 mod flows;
 mod granular_acls;
 mod groups;
@@ -225,16 +226,10 @@ pub async fn run_workers(
 
     let mutex = Arc::new(Mutex::new(0));
 
-    let sources: external_ip::Sources = external_ip::get_http_sources();
-    let consensus = external_ip::ConsensusBuilder::new()
-        .add_sources(sources)
-        .build();
-
-    let ip = consensus
-        .get_consensus()
-        .await
-        .map(|x| x.to_string())
-        .unwrap_or_else(|| "Unretrievable ip".to_string());
+    let ip = external_ip::get_ip().await.unwrap_or_else(|e| {
+        tracing::warn!(error = e.to_string(), "failed to get external IP");
+        "unretrievable IP".to_string()
+    });
 
     let mut handles = Vec::new();
     for i in 1..(num_workers + 1) {
