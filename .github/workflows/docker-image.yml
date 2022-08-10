@@ -42,7 +42,6 @@ jobs:
           context: .
           push: true
           tags: |
-            ${{ env.LOCAL_REGISTRY }}/${{ env.IMAGE_NAME }}:latest
             ${{ steps.metalocal.outputs.tags }}
 
           labels: ${{ steps.metalocal.outputs.labels }}
@@ -76,12 +75,12 @@ jobs:
           context: .
           push: true
           tags: |
-            ${{ env.LOCAL_REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
             ${{ steps.metalocal.outputs.tags }}
             ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.metalocal.outputs.labels }}
-          cache-from: type=registry,ref=${{ env.LOCAL_REGISTRY }}/${{ env.IMAGE_NAME }}:buildcache
-          cache-to: type=registry,ref=${{ env.LOCAL_REGISTRY }}/${{ env.IMAGE_NAME }}:buildcache,mode=max
+          cache-from: type=registry,ref=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:buildcache
+          cache-to: type=registry,ref=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:buildcache,mode=max
   playwright:
     runs-on: [self-hosted, new]
     needs: [build]
