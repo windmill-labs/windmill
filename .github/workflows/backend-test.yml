@@ -13,7 +13,6 @@ on:
 jobs:
   cargo_test:
     runs-on: [self-hosted, new]
-    needs: [build]
     services:
       postgres:
         image: postgres
