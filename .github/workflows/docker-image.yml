@@ -120,7 +120,7 @@ jobs:
           POSTGRES_USER: admin
           POSTGRES_PASSWORD: changeme
         ports:
-          - 5432:5432
+          - 5434:5432
         options: >-
           --health-cmd pg_isready
           --health-interval 10s
@@ -132,4 +132,4 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - name: "cargo test"
         timeout-minutes: 2
-        run: cd backend && DATABASE_URL=postgres://admin:changeme@localhost:5432/windmill cargo test
+        run: cd backend && DATABASE_URL=postgres://admin:changeme@localhost:5434/windmill cargo test
