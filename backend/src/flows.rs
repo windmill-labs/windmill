@@ -77,6 +77,7 @@ pub struct FlowValue {
 
 #[derive(Deserialize, Serialize, Debug, Clone)]
 pub struct FlowModule {
+    #[serde(default)]
     pub input_transform: HashMap<String, InputTransform>,
     pub value: FlowModuleValue,
     pub stop_after_if_expr: Option<String>,

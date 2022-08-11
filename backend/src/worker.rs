@@ -125,6 +125,8 @@ pub async fn run_worker(
 
     let mut jobs_executed = 0;
     let mut rx = tx.subscribe();
+    drop(tx);
+
     loop {
         if last_ping.elapsed().as_secs() > NUM_SECS_ENV_CHECK {
             sqlx::query!(
@@ -1186,5 +1188,274 @@ pub async fn restart_zombie_jobs_periodically(
                     break;
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use sqlx::{postgres::PgListener, query_scalar};
+
+    use crate::{
+        db::DB,
+        flows::{FlowModule, FlowModuleValue, FlowValue, InputTransform},
+        jobs::{push, JobPayload, RawCode},
+        scripts::ScriptLang,
+    };
+
+    use super::*;
+
+    async fn initialize_tracing() {
+        use std::sync::atomic::Ordering::SeqCst;
+
+        // TODO a bit of a race condition here.
+        // Only one test calls tracing_init::initialize_tracing() (good) but it may not have
+        // finished & returned while other tests return from this function and start doing things.
+
+        static IS_INIT: AtomicBool = AtomicBool::new(false);
+
+        if IS_INIT
+            .compare_exchange(false, true, SeqCst, SeqCst)
+            .is_ok()
+        {
+            crate::tracing_init::initialize_tracing().await.unwrap();
+        }
+    }
+
+    /// it's important this is unique between tests as there is one prometheus registry and
+    /// run_worker shouldn't register the same metric with the same worker name more than once.
+    fn next_worker_name() -> String {
+        use std::sync::atomic::{AtomicUsize, Ordering::SeqCst};
+
+        static ID: AtomicUsize = AtomicUsize::new(0);
+
+        // n.b.: when tests are run with RUST_TEST_THREADS or --test-threads set to 1, the name
+        // will be "main"... The id provides uniqueness & thread_name gives context.
+        let id = ID.fetch_add(1, SeqCst);
+        let thread = std::thread::current();
+        let thread_name = thread.name().unwrap_or("no thread name");
+        format!("{id}/{thread_name}")
+    }
+
+    #[sqlx::test(fixtures("base"))]
+    async fn test_deno_flow(db: DB) {
+        initialize_tracing().await;
+
+        let numbers = "export function main() { return [1, 2, 3]; }";
+        let doubles = "export function main(n) { return n * 2; }";
+
+        let flow = FlowValue {
+            modules: vec![
+                FlowModule {
+                    value: FlowModuleValue::RawScript(RawCode {
+                        language: ScriptLang::Deno,
+                        content: numbers.to_string(),
+                        path: None,
+                    }),
+                    input_transform: Default::default(),
+                    stop_after_if_expr: Default::default(),
+                    skip_if_stopped: Default::default(),
+                    summary: Default::default(),
+                },
+                FlowModule {
+                    value: FlowModuleValue::ForloopFlow {
+                        iterator: InputTransform::Javascript { expr: "result".to_string() },
+                        skip_failures: false,
+                        value: FlowValue {
+                            modules: vec![FlowModule {
+                                value: FlowModuleValue::RawScript(RawCode {
+                                    language: ScriptLang::Deno,
+                                    content: doubles.to_string(),
+                                    path: None,
+                                }),
+                                input_transform: [(
+                                    "n".to_string(),
+                                    InputTransform::Javascript {
+                                        expr: "previous_result.iter.value".to_string(),
+                                    },
+                                )]
+                                .into(),
+                                stop_after_if_expr: Default::default(),
+                                skip_if_stopped: Default::default(),
+                                summary: Default::default(),
+                            }],
+                            failure_module: Default::default(),
+                        }
+                        .into(),
+                    },
+                    input_transform: Default::default(),
+                    stop_after_if_expr: Default::default(),
+                    skip_if_stopped: Default::default(),
+                    summary: Default::default(),
+                },
+            ],
+            failure_module: Default::default(),
+        };
+
+        let job = JobPayload::RawFlow { value: flow, path: None };
+
+        let result = run_job_in_new_worker_until_complete(&db, job).await;
+
+        assert_eq!(result, serde_json::json!([2, 4, 6]));
+    }
+
+    #[sqlx::test(fixtures("base"))]
+    async fn test_python_flow(db: DB) {
+        initialize_tracing().await;
+
+        let numbers = "def main(): return [1, 2, 3]";
+        let doubles = "def main(n): return n * 2";
+
+        let flow: FlowValue = serde_json::from_value(serde_json::json!( {
+            "input_transform": {},
+            "modules": [
+                {
+                    "value": {
+                        "type": "rawscript",
+                        "language": "python3",
+                        "content": numbers,
+                    },
+                },
+                {
+                    "value": {
+                        "type": "forloopflow",
+                        "iterator": { "type": "javascript", "expr": "result" },
+                        "skip_failures": false,
+                        "value": {
+                            "modules": [{
+                                "value": {
+                                    "type": "rawscript",
+                                    "language": "python3",
+                                    "content": doubles,
+                                },
+                                "input_transform": {
+                                    "n": {
+                                        "type": "javascript",
+                                        "expr": "previous_result.iter.value",
+                                    },
+                                },
+                            }],
+                        }
+                    },
+                },
+            ],
+        }))
+        .unwrap();
+
+        let result = run_job_in_new_worker_until_complete(
+            &db,
+            JobPayload::RawFlow { value: flow, path: None },
+        )
+        .await;
+
+        assert_eq!(result, serde_json::json!([2, 4, 6]));
+    }
+
+    #[sqlx::test(fixtures("base"))]
+    async fn test_python_job(db: DB) {
+        initialize_tracing().await;
+
+        let content = r#"
+def main():
+    return "hello world"
+        "#
+        .to_owned();
+
+        let job = JobPayload::Code(RawCode { content, path: None, language: ScriptLang::Python3 });
+
+        let result = run_job_in_new_worker_until_complete(&db, job).await;
+
+        assert_eq!(result, serde_json::json!("hello world"));
+    }
+
+    async fn run_job_in_new_worker_until_complete(db: &DB, job: JobPayload) -> serde_json::Value {
+        let (uuid, tx) = push(
+            db.begin().await.unwrap(),
+            "test-workspace",
+            job,
+            /* TODO None doesn't work for args for python because the setup transformer doesn't
+             * handle it  */
+            /* args */
+            Some(Default::default()),
+            /* user */ "test-user",
+            /* permissioned_as */ Default::default(),
+            /* scheduled_for_o */ None,
+            /* schedule_path */ None,
+            /* parent_job */ None,
+            /* is_flow_step */ false,
+        )
+        .await
+        .unwrap();
+
+        tx.commit().await.unwrap();
+
+        run_worker_until_complete(db, &uuid).await;
+
+        query_scalar("SELECT result FROM completed_job WHERE id = $1")
+            .bind(&uuid)
+            .fetch_one(db)
+            .await
+            .unwrap()
+    }
+
+    async fn run_worker_until_complete(db: &DB, wait_for: &uuid::Uuid) {
+        let mut listener = PgListener::connect_with(db).await.unwrap();
+        listener.listen("insert on completed_job").await.unwrap();
+
+        let (tx, _rx) = tokio::sync::broadcast::channel(1);
+        /* drop tx at the end of this block to close the channel and stop the worker */
+
+        let worker = {
+            let timeout = 4_000;
+            let worker_instance: &str = "test worker instance";
+            let worker_name: String = next_worker_name();
+            let i_worker: u64 = Default::default();
+            let num_workers: u64 = Default::default();
+            let _mutex: Arc<Mutex<i32>> = Default::default();
+            let ip: &str = Default::default();
+            let sleep_queue: u64 = Default::default();
+            let base_url: &str = Default::default();
+            let disable_nuser = false;
+            let disable_nsjail = false;
+
+            run_worker(
+                &db,
+                timeout,
+                worker_instance,
+                worker_name,
+                i_worker,
+                num_workers,
+                _mutex,
+                ip,
+                sleep_queue,
+                base_url,
+                disable_nuser,
+                disable_nsjail,
+                tx.clone(),
+            )
+        };
+
+        let worker = tokio::time::timeout(std::time::Duration::from_secs(19), worker);
+
+        tokio::pin!(worker);
+
+        while wait_for
+            != &tokio::select! {
+                biased;
+                notify = listener.recv() => notify,
+                res = &mut worker => if res.is_ok() {
+                    panic!("worker quit early")
+                } else {
+                    panic!("worker timed out")
+                },
+            }
+            .unwrap()
+            .payload()
+            .parse::<uuid::Uuid>()
+            .unwrap()
+        {}
+
+        /* ensure the worker quits before we return */
+        drop(tx);
+        worker.await.expect("worker timed out")
     }
 }
