@@ -7,7 +7,7 @@ use axum::{
     body::Bytes,
     extract::{Extension, FromRequest, Path, Query, RequestParts},
     response::Redirect,
-    routing::{get, post},
+    routing::{delete, get, post},
     Json, Router,
 };
 use chrono::{Duration, Utc};
@@ -38,27 +38,27 @@ use crate::{
 pub fn global_service() -> Router {
     Router::new()
         .route("/login/:client", get(login))
-        .route("/login_callback/:client", post(login_callback))
+        .route("/login/:client_name/callback", post(login_callback))
+        .route("/connect/slack", get(connect_slack))
+        .route("/connect/slack/callback", post(connect_slack_callback))
         .route("/connect/:client", get(connect))
-        .route("/connect_callback/:client", post(connect_callback))
-        .route("/connect_slack", get(connect_slack))
-        .route("/connect_slack_callback", post(connect_slack_callback))
+        .route("/connect/:client_name/callback", post(connect_callback))
         .route(
             "/slack_command",
             post(slack_command).route_layer(axum::middleware::from_extractor::<SlackSig>()),
         )
-        .route("/list_logins", get(list_logins))
-        .route("/list_connects", get(list_connects))
+        .route("/logins", get(list_logins))
+        .route("/connects", get(list_connects))
 }
 
 pub fn workspaced_service() -> Router {
     Router::new()
+        .route("/disconnect/slack", post(disconnect_slack))
         .route("/disconnect/:id", post(disconnect))
-        .route("/disconnect_slack", post(disconnect_slack))
         .route("/set_workspace_slack", post(set_workspace_slack))
-        .route("/create_account", post(create_account))
-        .route("/delete_account/:id", post(delete_account))
-        .route("/refresh_token/:id", post(refresh_token))
+        .route("/accounts", post(create_account))
+        .route("/accounts/:id", delete(delete_account))
+        .route("/tokens/:id", post(refresh_token))
 }
 
 pub struct ClientWithScopes {
@@ -476,7 +476,7 @@ pub async fn _refresh_token<'c>(
         + chrono::Duration::seconds(
             token
                 .expires_in
-                .ok_or_else(|| Error::InternalErr("expires_in exepcted and not found".to_string()))?
+                .ok_or_else(|| Error::InternalErr("expires_in expected and not found".to_string()))?
                 .try_into()
                 .unwrap(),
         );

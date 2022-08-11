@@ -34,12 +34,12 @@ use tokio_util::io::ReaderStream;
 
 pub fn workspaced_service() -> Router {
     Router::new()
-        .route("/list_pending_invites", get(list_pending_invites))
         .route("/update", post(edit_workspace))
-        .route("/delete", delete(delete_workspace))
-        .route("/invite_user", post(invite_user))
-        .route("/delete_invite", post(delete_invite))
-        .route("/get_settings", get(get_settings))
+        .route("/", delete(delete_workspace))
+        .route("/users/invite", post(invite_user))
+        .route("/invites", delete(delete_invite))
+        .route("/invites/pending", get(list_pending_invites))
+        .route("/settings", get(get_settings))
         .route("/edit_slack_command", post(edit_slack_command))
         .route("/tarball", get(tarball_workspace))
 }
@@ -47,9 +47,9 @@ pub fn workspaced_service() -> Router {
 pub fn global_service() -> Router {
     Router::new()
         .route("/list_as_superadmin", get(list_workspaces_as_super_admin))
-        .route("/list", get(list_workspaces))
+        .route("/", get(list_workspaces))
+        .route("/", post(create_workspace))
         .route("/users", get(user_workspaces))
-        .route("/create", post(create_workspace))
         .route("/exists", post(exists_workspace))
         .route("/exists_username", post(exists_username))
 }

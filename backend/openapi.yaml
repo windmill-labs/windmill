@@ -52,7 +52,7 @@ paths:
               schema:
                 type: string
 
-  /w/{workspace}/audit/get/{id}:
+  /w/{workspace}/audit/{id}:
     get:
       summary: get audit log (requires admin privilege)
       operationId: getAuditLog
@@ -152,36 +152,7 @@ paths:
               schema:
                 type: string
 
-  /w/{workspace}/users/update/{username}:
-    post:
-      summary: update user (require admin privilege)
-      operationId: updateUser
-      tags:
-        - user
-        - admin
-      parameters:
-        - $ref: "#/components/parameters/WorkspaceId"
-        - name: username
-          in: path
-          required: true
-          schema:
-            type: string
-      requestBody:
-        description: new user
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/EditWorkspaceUser"
-      responses:
-        "200":
-          description: edited user
-          content:
-            text/plain:
-              schema:
-                type: string
-
-  /users/setpassword:
+  /users/password:
     post:
       summary: set password
       operationId: setPassword
@@ -207,7 +178,7 @@ paths:
               schema:
                 type: string
 
-  /users/create:
+  /users:
     post:
       summary: create user
       operationId: createUserGlobally
@@ -273,7 +244,34 @@ paths:
               schema:
                 type: string
 
-  /w/{workspace}/users/delete/{username}:
+  /w/{workspace}/users/{username}:
+    post:
+      summary: update user (require admin privilege)
+      operationId: updateUser
+      tags:
+        - user
+        - admin
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: username
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        description: new user
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EditWorkspaceUser"
+      responses:
+        "200":
+          description: edited user
+          content:
+            text/plain:
+              schema:
+                type: string
     delete:
       summary: delete user (require admin privilege)
       operationId: deleteUser
@@ -309,7 +307,7 @@ paths:
               schema:
                 type: string
 
-  /workspaces/list:
+  /workspaces/:
     get:
       summary: list all workspaces visible to me
       operationId: listWorkspaces
@@ -324,6 +322,25 @@ paths:
                 type: array
                 items:
                   $ref: "#/components/schemas/Workspace"
+    post:
+      summary: create workspace
+      operationId: createWorkspace
+      tags:
+        - workspace
+      requestBody:
+        description: new token
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateWorkspace"
+      responses:
+        "201":
+          description: token created
+          content:
+            text/plain:
+              schema:
+                type: string
 
   /workspaces/users:
     get:
@@ -357,27 +374,6 @@ paths:
                 type: array
                 items:
                   $ref: "#/components/schemas/Workspace"
-
-  /workspaces/create:
-    post:
-      summary: create workspace
-      operationId: createWorkspace
-      tags:
-        - workspace
-      requestBody:
-        description: new token
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/CreateWorkspace"
-      responses:
-        "201":
-          description: token created
-          content:
-            text/plain:
-              schema:
-                type: string
 
   /workspaces/exists:
     post:
@@ -461,7 +457,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/GlobalUserInfo"
 
-  /users/list_invites:
+  /users/invites:
     get:
       summary: list all workspace invites
       operationId: listWorkspaceInvites
@@ -509,7 +505,7 @@ paths:
               schema:
                 type: string
 
-  /users/accept_invite:
+  /users/invites/accept:
     post:
       summary: accept invite to workspace
       operationId: acceptInvite
@@ -538,7 +534,7 @@ paths:
               schema:
                 type: string
 
-  /users/decline_invite:
+  /users/invites/decline:
     post:
       summary: decline invite to workspace
       operationId: declineInvite
@@ -564,7 +560,7 @@ paths:
               schema:
                 type: string
 
-  /w/{workspace}/workspaces/invite_user:
+  /w/{workspace}/workspaces/users/invite:
     post:
       summary: invite user to workspace
       operationId: inviteUser
@@ -595,7 +591,7 @@ paths:
               schema:
                 type: string
 
-  /w/{workspace}/workspaces/delete_invite:
+  /w/{workspace}/workspaces/invites:
     post:
       summary: delete user invite
       operationId: delete invite
@@ -626,7 +622,7 @@ paths:
               schema:
                 type: string
 
-  /w/{workspace}/workspaces/delete:
+  /w/{workspace}/workspaces:
     delete:
       summary: delete workspace
       operationId: deleteWorkspace
@@ -682,7 +678,7 @@ paths:
                 items:
                   $ref: "#/components/schemas/GlobalUserInfo"
 
-  /w/{workspace}/workspaces/list_pending_invites:
+  /w/{workspace}/workspaces/invites/pending:
     get:
       summary: list pending invites for a workspace
       operationId: listPendingInvites
@@ -700,7 +696,7 @@ paths:
                 items:
                   $ref: "#/components/schemas/WorkspaceInvite"
 
-  /w/{workspace}/workspaces/get_settings:
+  /w/{workspace}/workspaces/settings:
     get:
       summary: get settings
       operationId: getSettings
@@ -753,7 +749,7 @@ paths:
               schema:
                 type: string
 
-  /w/{workspace}/users/list:
+  /w/{workspace}/users:
     get:
       summary: list users
       operationId: listUsers
@@ -771,7 +767,7 @@ paths:
                 items:
                   $ref: "#/components/schemas/User"
 
-  /w/{workspace}/users/list_usernames:
+  /w/{workspace}/users/usernames:
     get:
       summary: list usernames
       operationId: listUsernames
@@ -789,7 +785,41 @@ paths:
                 items:
                   type: string
 
-  /users/tokens/create:
+  /users/tokens/{token_prefix}:
+    delete:
+      summary: delete token
+      operationId: deleteToken
+      tags:
+        - user
+      parameters:
+        - name: token_prefix
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: delete token
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /users/tokens:
+    get:
+      summary: list token
+      operationId: listTokens
+      tags:
+        - user
+      responses:
+        "200":
+          description: truncated token
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/TruncatedToken"
     post:
       summary: create token
       operationId: createToken
@@ -810,43 +840,23 @@ paths:
               schema:
                 type: string
 
-  /users/tokens/delete/{token_prefix}:
-    delete:
-      summary: delete token
-      operationId: deleteToken
-      tags:
-        - user
-      parameters:
-        - name: token_prefix
-          in: path
-          required: true
-          schema:
-            type: string
-      responses:
-        "200":
-          description: delete token
-          content:
-            text/plain:
-              schema:
-                type: string
-
-  /users/tokens/list:
+  /w/{workspace}/variables:
     get:
-      summary: list token
-      operationId: listTokens
+      summary: list variables
+      operationId: listVariable
       tags:
-        - user
+        - variable
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
       responses:
         "200":
-          description: truncated token
+          description: variable list
           content:
             application/json:
               schema:
                 type: array
                 items:
-                  $ref: "#/components/schemas/TruncatedToken"
-
-  /w/{workspace}/variables/create:
+                  $ref: "#/components/schemas/ListableVariable"
     post:
       summary: create variable
       operationId: createVariable
@@ -869,48 +879,7 @@ paths:
               schema:
                 type: string
 
-  /w/{workspace}/variables/delete/{path}:
-    delete:
-      summary: delete variable
-      operationId: deleteVariable
-      tags:
-        - variable
-      parameters:
-        - $ref: "#/components/parameters/WorkspaceId"
-        - $ref: "#/components/parameters/Path"
-      responses:
-        "200":
-          description: variable deleted
-          content:
-            text/plain:
-              schema:
-                type: string
-
-  /w/{workspace}/variables/update/{path}:
-    post:
-      summary: update variable
-      operationId: updateVariable
-      tags:
-        - variable
-      parameters:
-        - $ref: "#/components/parameters/WorkspaceId"
-        - $ref: "#/components/parameters/Path"
-      requestBody:
-        description: updated variable
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/EditVariable"
-      responses:
-        "200":
-          description: variable updated
-          content:
-            text/plain:
-              schema:
-                type: string
-
-  /w/{workspace}/variables/get/{path}:
+  /w/{workspace}/variables/p/{path}:
     get:
       summary: get variable
       operationId: getVariable
@@ -933,6 +902,43 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ListableVariable"
+    post:
+      summary: update variable
+      operationId: updateVariable
+      tags:
+        - variable
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+      requestBody:
+        description: updated variable
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EditVariable"
+      responses:
+        "200":
+          description: variable updated
+          content:
+            text/plain:
+              schema:
+                type: string
+    delete:
+      summary: delete variable
+      operationId: deleteVariable
+      tags:
+        - variable
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+      responses:
+        "200":
+          description: variable deleted
+          content:
+            text/plain:
+              schema:
+                type: string
 
   /w/{workspace}/variables/exists/{path}:
     get:
@@ -951,25 +957,7 @@ paths:
               schema:
                 type: boolean
 
-  /w/{workspace}/variables/list:
-    get:
-      summary: list variables
-      operationId: listVariable
-      tags:
-        - variable
-      parameters:
-        - $ref: "#/components/parameters/WorkspaceId"
-      responses:
-        "200":
-          description: variable list
-          content:
-            application/json:
-              schema:
-                type: array
-                items:
-                  $ref: "#/components/schemas/ListableVariable"
-
-  /w/{workspace}/variables/list_contextual:
+  /w/{workspace}/variables/contextual:
     get:
       summary: list contextual variables
       operationId: listContextualVariables
@@ -987,7 +975,7 @@ paths:
                 items:
                   $ref: "#/components/schemas/ContextualVariable"
 
-  /oauth/login_callback/{client_name}:
+  /oauth/login/{client_name}/callback:
     post:
       security: []
       summary: login with oauth authorization flow
@@ -1026,7 +1014,7 @@ paths:
               schema:
                 type: string
 
-  /oauth/connect_slack_callback:
+  /oauth/connect/slack/callback:
     post:
       summary: connect slack callback
       operationId: connectSlackCallback
@@ -1055,7 +1043,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/SlackToken"
 
-  /oauth/connect_callback/{client_name}:
+  /oauth/connect/{client_name}/callback/:
     post:
       summary: connect callback
       operationId: connectCallback
@@ -1086,7 +1074,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/TokenResponse"
 
-  /w/{workspace}/oauth/create_account:
+  /w/{workspace}/oauth/accounts:
     post:
       summary: create OAuth account
       operationId: createAccount
@@ -1123,7 +1111,7 @@ paths:
               schema:
                 type: string
 
-  /w/{workspace}/oauth/refresh_token/{id}:
+  /w/{workspace}/oauth/tokens/{id}:
     post:
       summary: refresh token
       operationId: refreshToken
@@ -1169,7 +1157,7 @@ paths:
               schema:
                 type: string
 
-  /w/{workspace}/oauth/disconnect_slack:
+  /w/{workspace}/oauth/disconnect/slack:
     post:
       summary: disconnect slack
       operationId: disconnectSlack
@@ -1207,7 +1195,7 @@ paths:
               schema:
                 type: string
 
-  /oauth/list_logins:
+  /oauth/logins:
     get:
       summary: list oauth logins
       operationId: listOAuthLogins
@@ -1223,7 +1211,7 @@ paths:
                 items:
                   type: string
 
-  /oauth/list_connects:
+  /oauth/connects:
     get:
       summary: list oauth connects
       operationId: listOAuthConnects
@@ -1246,30 +1234,22 @@ paths:
                       items:
                         type: string
 
-  /w/{workspace}/resources/create:
-    post:
-      summary: create resource
-      operationId: createResource
+  /w/{workspace}/resources/p/{path}:
+    get:
+      summary: get resource
+      operationId: getResource
       tags:
         - resource
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
-      requestBody:
-        description: new resource
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/CreateResource"
+        - $ref: "#/components/parameters/Path"
       responses:
-        "201":
-          description: resource created
+        "200":
+          description: resource deleted
           content:
-            text/plain:
+            application/json:
               schema:
-                type: string
-
-  /w/{workspace}/resources/delete/{path}:
+                $ref: "#/components/schemas/Resource"
     delete:
       summary: delete resource
       operationId: deleteResource
@@ -1285,8 +1265,6 @@ paths:
             text/plain:
               schema:
                 type: string
-
-  /w/{workspace}/resources/update/{path}:
     post:
       summary: update resource
       operationId: updateResource
@@ -1310,23 +1288,6 @@ paths:
               schema:
                 type: string
 
-  /w/{workspace}/resources/get/{path}:
-    get:
-      summary: get resource
-      operationId: getResource
-      tags:
-        - resource
-      parameters:
-        - $ref: "#/components/parameters/WorkspaceId"
-        - $ref: "#/components/parameters/Path"
-      responses:
-        "200":
-          description: resource deleted
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Resource"
-
   /w/{workspace}/resources/exists/{path}:
     get:
       summary: does resource exists
@@ -1344,7 +1305,7 @@ paths:
               schema:
                 type: boolean
 
-  /w/{workspace}/resources/list:
+  /w/{workspace}/resources:
     get:
       summary: list resources
       operationId: listResource
@@ -1368,31 +1329,44 @@ paths:
                 type: array
                 items:
                   $ref: "#/components/schemas/Resource"
-
-  /w/{workspace}/resources/type/create:
     post:
-      summary: create resource_type
-      operationId: createResourceType
+      summary: create resource
+      operationId: createResource
       tags:
         - resource
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
       requestBody:
-        description: new resource_type
+        description: new resource
         required: true
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/ResourceType"
+              $ref: "#/components/schemas/CreateResource"
       responses:
         "201":
-          description: resource_type created
+          description: resource created
           content:
             text/plain:
               schema:
                 type: string
 
-  /w/{workspace}/resources/type/delete/{path}:
+  /w/{workspace}/resources/type/{path}:
+    get:
+      summary: get resource_type
+      operationId: getResourceType
+      tags:
+        - resource
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+      responses:
+        "200":
+          description: resource_type deleted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ResourceType"
     delete:
       summary: delete resource_type
       operationId: deleteResourceType
@@ -1408,8 +1382,6 @@ paths:
             text/plain:
               schema:
                 type: string
-
-  /w/{workspace}/resources/type/update/{path}:
     post:
       summary: update resource_type
       operationId: updateResourceType
@@ -1433,23 +1405,6 @@ paths:
               schema:
                 type: string
 
-  /w/{workspace}/resources/type/get/{path}:
-    get:
-      summary: get resource_type
-      operationId: getResourceType
-      tags:
-        - resource
-      parameters:
-        - $ref: "#/components/parameters/WorkspaceId"
-        - $ref: "#/components/parameters/Path"
-      responses:
-        "200":
-          description: resource_type deleted
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ResourceType"
-
   /w/{workspace}/resources/type/exists/{path}:
     get:
       summary: does resource_type exists
@@ -1467,7 +1422,7 @@ paths:
               schema:
                 type: boolean
 
-  /w/{workspace}/resources/type/list:
+  /w/{workspace}/resources/type:
     get:
       summary: list resource_types
       operationId: listResourceType
@@ -1484,8 +1439,29 @@ paths:
                 type: array
                 items:
                   $ref: "#/components/schemas/ResourceType"
+    post:
+      summary: create resource_type
+      operationId: createResourceType
+      tags:
+        - resource
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        description: new resource_type
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ResourceType"
+      responses:
+        "201":
+          description: resource_type created
+          content:
+            text/plain:
+              schema:
+                type: string
 
-  /w/{workspace}/resources/type/listnames:
+  /w/{workspace}/resources/type/names:
     get:
       summary: list resource_types names
       operationId: listResourceTypeNames
@@ -1548,7 +1524,7 @@ paths:
                         - views
                         - votes
 
-  /flows/hub/list:
+  /flows/hub:
     get:
       summary: list all available hub flows
       operationId: listHubFlows
@@ -1590,7 +1566,7 @@ paths:
                         - approved
                         - votes
 
-  /flows/hub/get/{id}:
+  /flows/hub/{id}:
     get:
       summary: get hub flow by id
       operationId: getHubFlowById
@@ -1625,7 +1601,7 @@ paths:
               schema:
                 type: string
 
-  /w/{workspace}/scripts/list:
+  /w/{workspace}/scripts:
     get:
       summary: list all available scripts
       operationId: listScripts
@@ -1707,7 +1683,6 @@ paths:
                 items:
                   $ref: "#/components/schemas/Script"
 
-  /w/{workspace}/scripts/create:
     post:
       summary: create script
       operationId: createScript
@@ -1802,7 +1777,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/MainArgSignature"
 
-  /w/{workspace}/scripts/archive/p/{path}:
+  /w/{workspace}/scripts/p/archive/{path}:
     post:
       summary: archive script by path
       operationId: archiveScriptByPath
@@ -1819,41 +1794,7 @@ paths:
               schema:
                 type: string
 
-  /w/{workspace}/scripts/archive/h/{hash}:
-    post:
-      summary: archive script by hash
-      operationId: archiveScriptByHash
-      tags:
-        - script
-      parameters:
-        - $ref: "#/components/parameters/WorkspaceId"
-        - $ref: "#/components/parameters/ScriptHash"
-      responses:
-        "200":
-          description: script details
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Script"
-
-  /w/{workspace}/scripts/delete/h/{hash}:
-    post:
-      summary: delete script by hash (erase content but keep hash)
-      operationId: deleteScriptByHash
-      tags:
-        - script
-      parameters:
-        - $ref: "#/components/parameters/WorkspaceId"
-        - $ref: "#/components/parameters/ScriptHash"
-      responses:
-        "200":
-          description: script details
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Script"
-
-  /w/{workspace}/scripts/get/p/{path}:
+  /w/{workspace}/scripts/p/get/{path}:
     get:
       summary: get script by path
       operationId: getScriptByPath
@@ -1870,7 +1811,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/Script"
 
-  /w/{workspace}/scripts/exists/p/{path}:
+  /w/{workspace}/scripts/p/exists/{path}:
     get:
       summary: exists script by path
       operationId: existsScriptByPath
@@ -1887,7 +1828,24 @@ paths:
               schema:
                 type: boolean
 
-  /w/{workspace}/scripts/get/h/{hash}:
+  /w/{workspace}/scripts/h/{hash}/archive:
+    post:
+      summary: archive script by hash
+      operationId: archiveScriptByHash
+      tags:
+        - script
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/ScriptHash"
+      responses:
+        "200":
+          description: script details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Script"
+
+  /w/{workspace}/scripts/h/{hash}:
     get:
       summary: get script by hash
       operationId: getScriptByHash
@@ -1903,8 +1861,23 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Script"
+    delete:
+      summary: delete script by hash (erase content but keep hash)
+      operationId: deleteScriptByHash
+      tags:
+        - script
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/ScriptHash"
+      responses:
+        "200":
+          description: script details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Script"
 
-  /w/{workspace}/scripts/deployment_status/h/{hash}:
+  /w/{workspace}/scripts/h/{hash}/deployment-status:
     get:
       summary: get script deployment status
       operationId: getScriptDeploymentStatus
@@ -2004,7 +1977,7 @@ paths:
             application/json:
               schema: {}
 
-  /w/{workspace}/flows/list:
+  /w/{workspace}/flows:
     get:
       summary: list all available flows
       operationId: listFlows
@@ -2044,42 +2017,6 @@ paths:
                 type: array
                 items:
                   $ref: "#/components/schemas/Flow"
-
-  /w/{workspace}/flows/get/{path}:
-    get:
-      summary: get flow by path
-      operationId: getFlowByPath
-      tags:
-        - flow
-      parameters:
-        - $ref: "#/components/parameters/WorkspaceId"
-        - $ref: "#/components/parameters/ScriptPath"
-      responses:
-        "200":
-          description: flow details
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Flow"
-
-  /w/{workspace}/flows/exists/{path}:
-    get:
-      summary: exists flow by path
-      operationId: existsFlowByPath
-      tags:
-        - flow
-      parameters:
-        - $ref: "#/components/parameters/WorkspaceId"
-        - $ref: "#/components/parameters/ScriptPath"
-      responses:
-        "200":
-          description: flow details
-          content:
-            application/json:
-              schema:
-                type: boolean
-
-  /w/{workspace}/flows/create:
     post:
       summary: create flow
       operationId: createFlow
@@ -2103,8 +2040,23 @@ paths:
               schema:
                 type: string
 
-  /w/{workspace}/flows/update/{path}:
-    post:
+  /w/{workspace}/flows/{path}:
+    get:
+      summary: get flow by path
+      operationId: getFlowByPath
+      tags:
+        - flow
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/ScriptPath"
+      responses:
+        "200":
+          description: flow details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Flow"
+    patch:
       summary: update flow
       operationId: updateFlow
       tags:
@@ -2127,8 +2079,6 @@ paths:
             text/plain:
               schema:
                 type: string
-
-  /w/{workspace}/flows/archive/{path}:
     post:
       summary: archive flow by path
       operationId: archiveFlowByPath
@@ -2144,6 +2094,23 @@ paths:
             text/plain:
               schema:
                 type: string
+
+  /w/{workspace}/flows/exists/{path}:
+    get:
+      summary: exists flow by path
+      operationId: existsFlowByPath
+      tags:
+        - flow
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/ScriptPath"
+      responses:
+        "200":
+          description: flow details
+          content:
+            application/json:
+              schema:
+                type: boolean
 
   /w/{workspace}/jobs/run/f/{path}:
     post:
@@ -2250,7 +2217,7 @@ paths:
                 type: string
                 format: uuid
 
-  /w/{workspace}/jobs/run/preview_flow:
+  /w/{workspace}/jobs/run/preview/f:
     post:
       summary: run flow preview
       operationId: runFlowPreview
@@ -2275,7 +2242,7 @@ paths:
                 type: string
                 format: uuid
 
-  /w/{workspace}/jobs/queue/list:
+  /w/{workspace}/jobs/queue:
     get:
       summary: list all available queued jobs
       operationId: listQueue
@@ -2304,40 +2271,7 @@ paths:
                 items:
                   $ref: "#/components/schemas/QueuedJob"
 
-  /w/{workspace}/jobs/completed/list:
-    get:
-      summary: list all available completed jobs
-      operationId: listCompletedJobs
-      tags:
-        - job
-      parameters:
-        - $ref: "#/components/parameters/WorkspaceId"
-        - $ref: "#/components/parameters/OrderDesc"
-        - $ref: "#/components/parameters/CreatedBy"
-        - $ref: "#/components/parameters/ParentJob"
-        - $ref: "#/components/parameters/ScriptExactPath"
-        - $ref: "#/components/parameters/ScriptStartPath"
-        - $ref: "#/components/parameters/ScriptExactHash"
-        - $ref: "#/components/parameters/CreatedBefore"
-        - $ref: "#/components/parameters/CreatedAfter"
-        - $ref: "#/components/parameters/Success"
-        - $ref: "#/components/parameters/JobKinds"
-        - name: is_skipped
-          description: is the job skipped
-          in: query
-          schema:
-            type: boolean
-      responses:
-        "200":
-          description: All available completed jobs
-          content:
-            application/json:
-              schema:
-                type: array
-                items:
-                  $ref: "#/components/schemas/CompletedJob"
-
-  /w/{workspace}/jobs/list:
+  /w/{workspace}/jobs:
     get:
       summary: list all available jobs
       operationId: listJobs
@@ -2373,7 +2307,7 @@ paths:
                 items:
                   $ref: "#/components/schemas/Job"
 
-  /w/{workspace}/jobs/get/{id}:
+  /w/{workspace}/jobs/{id}:
     get:
       summary: get job
       operationId: getJob
@@ -2390,7 +2324,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/Job"
 
-  /w/{workspace}/jobs/getupdate/{id}:
+  /w/{workspace}/jobs/{id}/status:
     get:
       summary: get job updates
       operationId: getJobUpdates
@@ -2424,7 +2358,40 @@ paths:
                   new_logs:
                     type: string
 
-  /w/{workspace}/jobs/completed/get/{id}:
+  /w/{workspace}/jobs/completed:
+    get:
+      summary: list all available completed jobs
+      operationId: listCompletedJobs
+      tags:
+        - job
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/OrderDesc"
+        - $ref: "#/components/parameters/CreatedBy"
+        - $ref: "#/components/parameters/ParentJob"
+        - $ref: "#/components/parameters/ScriptExactPath"
+        - $ref: "#/components/parameters/ScriptStartPath"
+        - $ref: "#/components/parameters/ScriptExactHash"
+        - $ref: "#/components/parameters/CreatedBefore"
+        - $ref: "#/components/parameters/CreatedAfter"
+        - $ref: "#/components/parameters/Success"
+        - $ref: "#/components/parameters/JobKinds"
+        - name: is_skipped
+          description: is the job skipped
+          in: query
+          schema:
+            type: boolean
+      responses:
+        "200":
+          description: All available completed jobs
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/CompletedJob"
+
+  /w/{workspace}/jobs/completed/{id}:
     get:
       summary: get completed job
       operationId: getCompletedJob
@@ -2440,9 +2407,7 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/CompletedJob"
-
-  /w/{workspace}/jobs/completed/delete/{id}:
-    post:
+    delete:
       summary: delete completed job (erase content but keep run id)
       operationId: deleteCompletedJob
       tags:
@@ -2458,7 +2423,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/CompletedJob"
 
-  /w/{workspace}/jobs/queue/cancel/{id}:
+  /w/{workspace}/jobs/queue/{id}/cancel:
     post:
       summary: cancel queued job
       operationId: cancelQueuedJob
@@ -2517,54 +2482,7 @@ paths:
                   type: string
                   format: date-time
 
-  /w/{workspace}/schedules/create:
-    post:
-      summary: create schedule
-      operationId: createSchedule
-      tags:
-        - schedule
-      parameters:
-        - $ref: "#/components/parameters/WorkspaceId"
-      requestBody:
-        description: new schedule
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/NewSchedule"
-      responses:
-        "201":
-          description: schedule created
-          content:
-            text/plain:
-              schema:
-                type: string
-
-  /w/{workspace}/schedules/update/{path}:
-    post:
-      summary: update schedule
-      operationId: updateSchedule
-      tags:
-        - schedule
-      parameters:
-        - $ref: "#/components/parameters/WorkspaceId"
-        - $ref: "#/components/parameters/Path"
-      requestBody:
-        description: updated schedule
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/EditSchedule"
-      responses:
-        "200":
-          description: schedule updated
-          content:
-            text/plain:
-              schema:
-                type: string
-
-  /w/{workspace}/schedules/setenabled/{path}:
+  /w/{workspace}/schedules/p/enable/{path}:
     post:
       summary: set enabled schedule
       operationId: setScheduleEnabled
@@ -2594,7 +2512,44 @@ paths:
               schema:
                 type: string
 
-  /w/{workspace}/schedules/delete/{path}:
+  /w/{workspace}/schedules/p/{path}:
+    get:
+      summary: get schedule
+      operationId: getSchedule
+      tags:
+        - schedule
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+      responses:
+        "200":
+          description: schedule deleted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Schedule"
+    patch:
+      summary: update schedule
+      operationId: updateSchedule
+      tags:
+        - schedule
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+      requestBody:
+        description: updated schedule
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EditSchedule"
+      responses:
+        "200":
+          description: schedule updated
+          content:
+            text/plain:
+              schema:
+                type: string
     delete:
       summary: delete schedule
       operationId: deleteSchedule
@@ -2611,24 +2566,7 @@ paths:
               schema:
                 type: string
 
-  /w/{workspace}/schedules/get/{path}:
-    get:
-      summary: get schedule
-      operationId: getSchedule
-      tags:
-        - schedule
-      parameters:
-        - $ref: "#/components/parameters/WorkspaceId"
-        - $ref: "#/components/parameters/Path"
-      responses:
-        "200":
-          description: schedule deleted
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Schedule"
-
-  /w/{workspace}/schedules/exists/{path}:
+  /w/{workspace}/schedules/p/exists/{path}:
     get:
       summary: does schedule exists
       operationId: existsSchedule
@@ -2645,7 +2583,7 @@ paths:
               schema:
                 type: boolean
 
-  /w/{workspace}/schedules/list:
+  /w/{workspace}/schedules:
     get:
       summary: list schedules
       operationId: listSchedules
@@ -2664,8 +2602,29 @@ paths:
                 type: array
                 items:
                   $ref: "#/components/schemas/Schedule"
+    post:
+      summary: create schedule
+      operationId: createSchedule
+      tags:
+        - schedule
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        description: new schedule
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/NewSchedule"
+      responses:
+        "201":
+          description: schedule created
+          content:
+            text/plain:
+              schema:
+                type: string
 
-  /w/{workspace}/groups/list:
+  /w/{workspace}/groups:
     get:
       summary: list groups
       operationId: listGroups
@@ -2685,7 +2644,7 @@ paths:
                 items:
                   $ref: "#/components/schemas/Group"
 
-  /w/{workspace}/groups/listnames:
+  /w/{workspace}/groups/names:
     get:
       summary: list group names
       operationId: listGroupNames
@@ -2702,8 +2661,6 @@ paths:
                 type: array
                 items:
                   type: string
-
-  /w/{workspace}/groups/create:
     post:
       summary: create group
       operationId: createGroup
@@ -2733,7 +2690,22 @@ paths:
               schema:
                 type: string
 
-  /w/{workspace}/groups/update/{name}:
+  /w/{workspace}/groups/{name}:
+    get:
+      summary: get group
+      operationId: getGroup
+      tags:
+        - group
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Name"
+      responses:
+        "200":
+          description: group
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Group"
     post:
       summary: update group
       operationId: updateGroup
@@ -2759,8 +2731,6 @@ paths:
             text/plain:
               schema:
                 type: string
-
-  /w/{workspace}/groups/delete/{name}:
     delete:
       summary: delete group
       operationId: deleteGroup
@@ -2777,24 +2747,7 @@ paths:
               schema:
                 type: string
 
-  /w/{workspace}/groups/get/{name}:
-    get:
-      summary: get group
-      operationId: getGroup
-      tags:
-        - group
-      parameters:
-        - $ref: "#/components/parameters/WorkspaceId"
-        - $ref: "#/components/parameters/Name"
-      responses:
-        "200":
-          description: group
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Group"
-
-  /w/{workspace}/groups/adduser/{name}:
+  /w/{workspace}/groups/users/{name}:
     post:
       summary: add user to group
       operationId: addUserToGroup
@@ -2821,8 +2774,7 @@ paths:
               schema:
                 type: string
 
-  /w/{workspace}/groups/removeuser/{name}:
-    post:
+    delete:
       summary: remove user to group
       operationId: removeUserToGroup
       tags:
@@ -2867,7 +2819,7 @@ paths:
                 items:
                   $ref: "#/components/schemas/WorkerPing"
 
-  /w/{workspace}/acls/get/{kind}/{path}:
+  /w/{workspace}/acls/{kind}/{path}:
     get:
       summary: get granular acls
       operationId: getGranularAcls
@@ -2892,7 +2844,6 @@ paths:
                 additionalProperties:
                   type: boolean
 
-  /w/{workspace}/acls/add/{kind}/{path}:
     post:
       summary: add granular acls
       operationId: addGranularAcls
@@ -2928,8 +2879,7 @@ paths:
               schema:
                 type: string
 
-  /w/{workspace}/acls/remove/{kind}/{path}:
-    post:
+    delete:
       summary: remove granular acls
       operationId: removeGranularAcls
       tags:
@@ -2961,6 +2911,7 @@ paths:
             text/plain:
               schema:
                 type: string
+
 components:
   securitySchemes:
     bearerAuth:

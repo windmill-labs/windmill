@@ -29,7 +29,7 @@ use crate::{
 };
 use axum::{
     extract::{Extension, Path, Query},
-    routing::{get, post},
+    routing::{delete, get, post},
     Json, Router,
 };
 use hyper::StatusCode;
@@ -45,25 +45,31 @@ const MAX_DURATION_LAST_1200: std::time::Duration = std::time::Duration::from_se
 
 pub fn workspaced_service() -> Router {
     Router::new()
+        .route("/run/preview", post(run_preview_job))
+        .route("/run/preview/f", post(run_preview_flow_job))
         .route("/run/f/*script_path", post(run_flow_by_path))
         .route("/run/p/*script_path", post(run_job_by_path))
+        .route("/run/h/:hash", post(run_job_by_hash))
+        
+        .route("/queue", get(list_queue_jobs))
+        .route("/queue/:id/cancel", post(cancel_job))
+        
+        .route("/completed", get(list_completed_jobs))
+        .route("/completed/:id", get(get_completed_job))
+        .route("/completed/:id", delete(delete_completed_job))
+        
+        // FIXME: This route did not exist in the openapi.yaml file
+        // .route("/completed/get_result/:id", get(get_completed_job_result))
+        .route("/completed/:id/result", get(get_completed_job_result))
+        
+        .route("/", get(list_jobs))
+        .route("/:id", get(get_job))
+        .route("/:id/status", get(get_job_update))
         .route(
             "/run_wait_result/p/*script_path",
             post(run_wait_result_job_by_path),
         )
-        .route("/run/h/:hash", post(run_job_by_hash))
-        .route("/run/preview", post(run_preview_job))
-        .route("/run/preview_flow", post(run_preview_flow_job))
-        .route("/list", get(list_jobs))
-        .route("/queue/list", get(list_queue_jobs))
-        .route("/queue/cancel/:id", post(cancel_job))
-        .route("/completed/list", get(list_completed_jobs))
-        .route("/completed/get/:id", get(get_completed_job))
-        .route("/completed/get_result/:id", get(get_completed_job_result))
-        .route("/completed/delete/:id", post(delete_completed_job))
-        .route("/get/:id", get(get_job))
-        .route("/getupdate/:id", get(get_job_update))
-}
+    }
 
 #[derive(Debug, sqlx::FromRow, Serialize, Clone)]
 pub struct QueuedJob {

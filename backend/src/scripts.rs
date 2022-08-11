@@ -20,7 +20,7 @@ use crate::{
 };
 use axum::{
     extract::{Extension, Host, Path, Query},
-    routing::{get, post},
+    routing::{delete, get, post},
     Json, Router,
 };
 use hyper::StatusCode;
@@ -49,15 +49,19 @@ pub fn global_service() -> Router {
 
 pub fn workspaced_service() -> Router {
     Router::new()
-        .route("/list", get(list_scripts))
-        .route("/create", post(create_script))
-        .route("/archive/p/*path", post(archive_script_by_path))
-        .route("/get/p/*path", get(get_script_by_path))
-        .route("/exists/p/*path", get(exists_script_by_path))
-        .route("/archive/h/:hash", post(archive_script_by_hash))
-        .route("/delete/h/:hash", post(delete_script_by_hash))
-        .route("/get/h/:hash", get(get_script_by_hash))
-        .route("/deployment_status/h/:hash", get(get_deployment_status))
+        .route("/", get(list_scripts))
+        .route("/", post(create_script))
+        .route("/p/archive/*path", post(archive_script_by_path))
+        
+        // FIXME: Could be simplified by using GET /p/*path and 
+        // returning a 404 if the script doesn't exist. 
+        .route("/p/get/*path", get(get_script_by_path))
+        .route("/p/exists/*path", get(exists_script_by_path))
+        
+        .route("/h/:hash/archive", post(archive_script_by_hash))
+        .route("/h/:hash", get(get_script_by_hash))
+        .route("/h/:hash", delete(delete_script_by_hash))
+        .route("/h/:hash/deployment-status", get(get_deployment_status))
 }
 
 #[derive(sqlx::Type, Serialize, Deserialize, Debug, PartialEq, Clone, Hash)]

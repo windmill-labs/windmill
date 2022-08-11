@@ -25,20 +25,21 @@ use sqlx::FromRow;
 
 pub fn workspaced_service() -> Router {
     Router::new()
-        .route("/list", get(list_resources))
-        .route("/get/*path", get(get_resource))
+        .route("/", get(list_resources))
+        .route("/", post(create_resource))
         .route("/exists/*path", get(exists_resource))
         .route("/get_value/*path", get(get_resource_value))
-        .route("/update/*path", post(update_resource))
-        .route("/delete/*path", delete(delete_resource))
-        .route("/create", post(create_resource))
-        .route("/type/list", get(list_resource_types))
-        .route("/type/listnames", get(list_resource_types_names))
-        .route("/type/get/:name", get(get_resource_type))
+        .route("/p/*path", get(get_resource))
+        .route("/p/*path", post(update_resource))
+        .route("/p/*path", delete(delete_resource))
+        
+        .route("/type", get(list_resource_types))
+        .route("/type", post(create_resource_type))
+        .route("/type/names", get(list_resource_types_names))
         .route("/type/exists/:name", get(exists_resource_type))
-        .route("/type/update/:name", post(update_resource_type))
-        .route("/type/delete/:name", delete(delete_resource_type))
-        .route("/type/create", post(create_resource_type))
+        .route("/type/:name", get(get_resource_type))
+        .route("/type/:name", post(update_resource_type))
+        .route("/type/:name", delete(delete_resource_type))
 }
 
 #[derive(FromRow, Serialize, Deserialize)]

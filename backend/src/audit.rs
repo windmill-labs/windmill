@@ -29,7 +29,7 @@ use sqlx::{FromRow, Postgres, Transaction};
 pub fn workspaced_service() -> Router {
     Router::new()
         .route("/list", get(list_audit))
-        .route("/get/:id", get(get_audit))
+        .route("/:id", get(get_audit))
 }
 
 #[derive(sqlx::Type, Serialize, Deserialize, Debug)]
