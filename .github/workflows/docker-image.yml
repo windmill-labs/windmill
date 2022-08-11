@@ -128,7 +128,7 @@ jobs:
           --health-retries 5
     steps:
       - uses: actions/checkout@v3
-      - run: rustup toolchain install stable --profile minimal
+      - run: /root/.cargo/bin/rustup toolchain install stable --profile minimal
       - uses: Swatinem/rust-cache@v2
       - name: "cargo test"
         timeout-minutes: 2
