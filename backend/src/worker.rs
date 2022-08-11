@@ -1434,13 +1434,19 @@ def main():
             )
         };
 
+        let worker = tokio::time::timeout(std::time::Duration::from_secs(19), worker);
+
         tokio::pin!(worker);
 
         while wait_for
             != &tokio::select! {
                 biased;
-                notify = listener.recv() => dbg!(notify),
-                _ = &mut worker => panic!("worker quit early"),
+                notify = listener.recv() => notify,
+                res = &mut worker => if res.is_ok() {
+                    panic!("worker quit early")
+                } else {
+                    panic!("worker timed out")
+                },
             }
             .unwrap()
             .payload()
@@ -1450,6 +1456,6 @@ def main():
 
         /* ensure the worker quits before we return */
         drop(tx);
-        worker.await;
+        worker.await.expect("worker timed out")
     }
 }
