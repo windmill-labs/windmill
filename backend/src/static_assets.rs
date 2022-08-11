@@ -59,6 +59,10 @@ fn serve_path(path: String) -> Response<BoxBody> {
             }
             res.body(body).unwrap()
         }
+        None if path.as_str().starts_with("_app/") => Response::builder()
+            .status(404)
+            .body(body::boxed(body::Empty::new()))
+            .unwrap(),
         None => serve_path("200.html".to_owned()),
     }
 }
