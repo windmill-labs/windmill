@@ -8,7 +8,8 @@ on:
       - "backend/**"
   pull_request:
     types: [opened, synchronize, reopened]
-
+    paths:
+      - "backend/**"
 jobs:
   cargo_test:
     runs-on: [self-hosted, new]
