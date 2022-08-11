@@ -132,4 +132,4 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - name: "cargo test"
         timeout-minutes: 5
-        run: cd backend && DATABASE_URL=postgres://admin:changeme@localhost:5434/windmill /root/.cargo/bin/cargo test
+        run: cd backend && SQLX_OFFLINE=true DATABASE_URL=postgres://admin:changeme@localhost:5434/windmill /root/.cargo/bin/cargo test
