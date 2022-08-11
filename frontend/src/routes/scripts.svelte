@@ -223,7 +223,7 @@
 						My personal space ({`u/${$userStore?.username}`})
 					</h2>
 					<p class="italic text-xs text-gray-600 mb-4">
-						All scripts owned by you (and visible only to you if you do not explicitely share them)
+						All scripts owned by you (and visible only to you if you do not explicitly share them)
 					</p>
 				{:else if sectionTab == 'groups'}
 					<h2 class="">Groups that I am member of</h2>
