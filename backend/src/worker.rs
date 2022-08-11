@@ -1204,6 +1204,23 @@ mod tests {
 
     use super::*;
 
+    async fn initialize_tracing() {
+        use std::sync::atomic::Ordering::SeqCst;
+
+        // TODO a bit of a race condition here.
+        // Only one test calls tracing_init::initialize_tracing() (good) but it may not have
+        // finished & returned while other tests return from this function and start doing things.
+
+        static IS_INIT: AtomicBool = AtomicBool::new(false);
+
+        if IS_INIT
+            .compare_exchange(false, true, SeqCst, SeqCst)
+            .is_ok()
+        {
+            crate::tracing_init::initialize_tracing().await.unwrap();
+        }
+    }
+
     /// it's important this is unique between tests as there is one prometheus registry and
     /// run_worker shouldn't register the same metric with the same worker name more than once.
     fn next_worker_name() -> String {
@@ -1221,7 +1238,7 @@ mod tests {
 
     #[sqlx::test(fixtures("base"))]
     async fn test_deno_flow(db: DB) {
-        crate::tracing_init::initialize_tracing().await.unwrap();
+        initialize_tracing().await;
 
         let numbers = "export function main() { return [1, 2, 3]; }";
         let doubles = "export function main(n) { return n * 2; }";
@@ -1274,47 +1291,89 @@ mod tests {
             failure_module: Default::default(),
         };
 
-        let (uuid, tx) = push(
-            db.begin().await.unwrap(),
-            "test-workspace",
-            JobPayload::RawFlow { value: flow, path: None },
-            /* args */ None,
-            /* user */ "test-user",
-            /* permissioned_as */ Default::default(),
-            /* scheduled_for_o */ None,
-            /* schedule_path */ None,
-            /* parent_job */ None,
-            /* is_flow_step */ false,
-        )
-        .await
+        let job = JobPayload::RawFlow { value: flow, path: None };
+
+        let result = run_job_in_new_worker_until_complete(&db, job).await;
+
+        assert_eq!(result, serde_json::json!([2, 4, 6]));
+    }
+
+    #[sqlx::test(fixtures("base"))]
+    async fn test_python_flow(db: DB) {
+        initialize_tracing().await;
+
+        let numbers = "def main(): return [1, 2, 3]";
+        let doubles = "def main(n): return n * 2";
+
+        let flow: FlowValue = serde_json::from_value(serde_json::json!( {
+            "input_transform": {},
+            "modules": [
+                {
+                    "value": {
+                        "type": "rawscript",
+                        "language": "python3",
+                        "content": numbers,
+                    },
+                },
+                {
+                    "value": {
+                        "type": "forloopflow",
+                        "iterator": { "type": "javascript", "expr": "result" },
+                        "skip_failures": false,
+                        "value": {
+                            "modules": [{
+                                "value": {
+                                    "type": "rawscript",
+                                    "language": "python3",
+                                    "content": doubles,
+                                },
+                                "input_transform": {
+                                    "n": {
+                                        "type": "javascript",
+                                        "expr": "previous_result.iter.value",
+                                    },
+                                },
+                            }],
+                        }
+                    },
+                },
+            ],
+        }))
         .unwrap();
-        tx.commit().await.unwrap();
 
-        run_test_worker_for_job(&db, &uuid).await;
-
-        let result: serde_json::Value =
-            query_scalar("SELECT result FROM completed_job WHERE id = $1")
-                .bind(&uuid)
-                .fetch_one(&db)
-                .await
-                .unwrap();
+        let result = run_job_in_new_worker_until_complete(
+            &db,
+            JobPayload::RawFlow { value: flow, path: None },
+        )
+        .await;
 
         assert_eq!(result, serde_json::json!([2, 4, 6]));
     }
 
     #[sqlx::test(fixtures("base"))]
     async fn test_python_job(db: DB) {
+        initialize_tracing().await;
+
         let content = r#"
 def main():
     return "hello world"
         "#
         .to_owned();
 
+        let job = JobPayload::Code(RawCode { content, path: None, language: ScriptLang::Python3 });
+
+        let result = run_job_in_new_worker_until_complete(&db, job).await;
+
+        assert_eq!(result, serde_json::json!("hello world"));
+    }
+
+    async fn run_job_in_new_worker_until_complete(db: &DB, job: JobPayload) -> serde_json::Value {
         let (uuid, tx) = push(
             db.begin().await.unwrap(),
             "test-workspace",
-            JobPayload::Code(RawCode { content, path: None, language: ScriptLang::Python3 }),
-            /* TODO None doesn't work here, probably a bug in how python jobs are run */
+            job,
+            /* TODO None doesn't work for args for python because the setup transformer doesn't
+             * handle it  */
             /* args */
             Some(Default::default()),
             /* user */ "test-user",
@@ -1326,21 +1385,19 @@ def main():
         )
         .await
         .unwrap();
+
         tx.commit().await.unwrap();
 
-        run_test_worker_for_job(&db, &uuid).await;
+        run_worker_until_complete(db, &uuid).await;
 
-        let result: serde_json::Value =
-            query_scalar("SELECT result FROM completed_job WHERE id = $1")
-                .bind(&uuid)
-                .fetch_one(&db)
-                .await
-                .unwrap();
-
-        assert_eq!(result, serde_json::json!("hello world"));
+        query_scalar("SELECT result FROM completed_job WHERE id = $1")
+            .bind(&uuid)
+            .fetch_one(db)
+            .await
+            .unwrap()
     }
 
-    async fn run_test_worker_for_job(db: &DB, wait_for: &uuid::Uuid) {
+    async fn run_worker_until_complete(db: &DB, wait_for: &uuid::Uuid) {
         let mut listener = PgListener::connect_with(db).await.unwrap();
         listener.listen("insert on completed_job").await.unwrap();
 
