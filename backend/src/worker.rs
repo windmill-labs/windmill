@@ -72,7 +72,7 @@ pub async fn run_worker(
     base_url: &str,
     disable_nuser: bool,
     disable_nsjail: bool,
-    tx: tokio::sync::broadcast::Sender<()>,
+    mut rx: tokio::sync::broadcast::Receiver<()>,
 ) {
     let worker_dir = format!("{TMP_DIR}/{worker_name}");
     tracing::debug!(worker_dir = %worker_dir, worker_name = %worker_name, "Creating worker dir");
@@ -123,8 +123,6 @@ pub async fn run_worker(
     .expect("register prometheus metric");
 
     let mut jobs_executed = 0;
-    let mut rx = tx.subscribe();
-    drop(tx);
 
     loop {
         if last_ping.elapsed().as_secs() > NUM_SECS_ENV_CHECK {
@@ -1402,7 +1400,7 @@ def main():
         let mut listener = PgListener::connect_with(db).await.unwrap();
         listener.listen("insert on completed_job").await.unwrap();
 
-        let (tx, _rx) = tokio::sync::broadcast::channel(1);
+        let (tx, rx) = tokio::sync::broadcast::channel(1);
         /* drop tx at the end of this block to close the channel and stop the worker */
 
         let worker = {
@@ -1429,7 +1427,7 @@ def main():
                 base_url,
                 disable_nuser,
                 disable_nsjail,
-                tx.clone(),
+                rx,
             )
         };
 
