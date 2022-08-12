@@ -146,7 +146,7 @@ async fn create_schedule(
         ns.script_path,
         ns.is_flow,
         ns.args,
-        ns.enabled
+        ns.enabled.unwrap_or(false),
     )
     .fetch_one(&mut tx)
     .await
