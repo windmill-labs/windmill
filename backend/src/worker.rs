@@ -1415,7 +1415,7 @@ def main():
             let sleep_queue: u64 = Default::default();
             let base_url: &str = Default::default();
             let disable_nuser = false;
-            let disable_nsjail = false;
+            let disable_nsjail = true;
 
             run_worker(
                 &db,
