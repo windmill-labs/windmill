@@ -94,7 +94,8 @@
 					offset: OFFSET,
 					script_path,
 					is_flow,
-					args
+					args,
+					enabled: true
 				}
 			})
 			goto('/schedules')
