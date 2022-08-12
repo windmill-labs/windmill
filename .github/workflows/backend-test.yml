@@ -37,4 +37,4 @@ jobs:
       - run: psql postgres://admin:changeme@localhost:5434/windmill -c "CREATE ROLE app LOGIN PASSWORD 'changeme';"
       - name: "cargo test"
         timeout-minutes: 5
-        run: mkdir -p frontend/build && cd backend && SQLX_OFFLINE=true DATABASE_URL=postgres://admin:changeme@localhost:5434/windmill /root/.cargo/bin/cargo test
+        run: mkdir -p frontend/build && cd backend && DISABLE_NSJAIL=true SQLX_OFFLINE=true DATABASE_URL=postgres://admin:changeme@localhost:5434/windmill /root/.cargo/bin/cargo test
