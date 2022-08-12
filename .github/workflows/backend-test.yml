@@ -16,6 +16,7 @@ on:
 jobs:
   cargo_test:
     runs-on: [self-hosted, new]
+    container: ghcr.io/windmill-labs/windmill
     services:
       postgres:
         image: postgres
