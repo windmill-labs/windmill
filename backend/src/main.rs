@@ -14,7 +14,7 @@ use dotenv::dotenv;
 async fn main() -> anyhow::Result<()> {
     dotenv().ok();
 
-    windmill::initialize_tracing().await?;
+    windmill::initialize_tracing();
 
     let db = windmill::connect_db().await?;
 

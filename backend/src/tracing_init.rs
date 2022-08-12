@@ -58,7 +58,7 @@ fn filter_metadata(meta: &Metadata) -> bool {
     meta.target().starts_with("windmill")
 }
 
-pub async fn initialize_tracing() -> anyhow::Result<()> {
+pub fn initialize_tracing() {
     let tokio_console = std::env::var("TOKIO_CONSOLE")
         .map(|x| x == "true")
         .unwrap_or(false);
@@ -70,8 +70,8 @@ pub async fn initialize_tracing() -> anyhow::Result<()> {
 
     let nenv_filter = if tokio_console {
         env_filter
-            .add_directive("runtime=trace".parse()?)
-            .add_directive("tokio=trace".parse()?)
+            .add_directive("runtime=trace".parse().unwrap())
+            .add_directive("tokio=trace".parse().unwrap())
     } else {
         env_filter
     };
@@ -93,5 +93,4 @@ pub async fn initialize_tracing() -> anyhow::Result<()> {
             .with(compact_layer().with_filter(filter_fn(filter_metadata)))
             .init(),
     }
-    Ok(())
 }
