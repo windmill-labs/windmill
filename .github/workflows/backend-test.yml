@@ -35,6 +35,8 @@ jobs:
     steps:
       - uses: actions/checkout@v3
       - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: backend -> target
       - run: psql postgres://admin:changeme@postgres:5432/windmill -c "CREATE ROLE app LOGIN PASSWORD 'changeme';"
       - name: cargo test
         timeout-minutes: 5
