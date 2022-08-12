@@ -14,7 +14,6 @@ use futures::FutureExt;
 use git_version::git_version;
 use slack_http_verifier::SlackVerifier;
 use std::{net::SocketAddr, sync::Arc};
-use tokio::sync::Mutex;
 use tower::ServiceBuilder;
 use tower_cookies::CookieManagerLayer;
 use tower_http::trace::TraceLayer;
@@ -224,8 +223,6 @@ pub async fn run_workers(
 ) -> anyhow::Result<()> {
     let instance_name = rd_string(5);
 
-    let mutex = Arc::new(Mutex::new(0));
-
     let ip = external_ip::get_ip().await.unwrap_or_else(|e| {
         tracing::warn!(error = e.to_string(), "failed to get external IP");
         "unretrievable IP".to_string()
@@ -236,7 +233,6 @@ pub async fn run_workers(
         let db1 = db.clone();
         let instance_name = instance_name.clone();
         let worker_name = format!("dt-worker-{}-{}", &instance_name, rd_string(5));
-        let m1 = mutex.clone();
         let ip = ip.clone();
         let tx = tx.clone();
         let base_url = base_url.clone();
@@ -249,7 +245,6 @@ pub async fn run_workers(
                 worker_name,
                 i as u64,
                 num_workers as u64,
-                m1,
                 &ip,
                 sleep_queue,
                 &base_url,

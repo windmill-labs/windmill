@@ -39,7 +39,7 @@ use tokio::{
     fs::{DirBuilder, File},
     io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader},
     process::{Child, Command},
-    sync::{mpsc, Mutex},
+    sync::mpsc,
     time::Instant,
 };
 
@@ -67,7 +67,6 @@ pub async fn run_worker(
     worker_name: String,
     i_worker: u64,
     num_workers: u64,
-    _mutex: Arc<Mutex<i32>>,
     ip: &str,
     sleep_queue: u64,
     base_url: &str,
@@ -1412,7 +1411,6 @@ def main():
             let worker_name: String = next_worker_name();
             let i_worker: u64 = Default::default();
             let num_workers: u64 = Default::default();
-            let _mutex: Arc<Mutex<i32>> = Default::default();
             let ip: &str = Default::default();
             let sleep_queue: u64 = Default::default();
             let base_url: &str = Default::default();
@@ -1426,7 +1424,6 @@ def main():
                 worker_name,
                 i_worker,
                 num_workers,
-                _mutex,
                 ip,
                 sleep_queue,
                 base_url,
