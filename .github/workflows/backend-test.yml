@@ -35,6 +35,6 @@ jobs:
       - uses: actions/checkout@v3
       - uses: Swatinem/rust-cache@v2
       - run: psql postgres://admin:changeme@localhost:5434/windmill -c "CREATE ROLE app LOGIN PASSWORD 'changeme';"
-      - name: "cargo test"
+      - name: cargo test
         timeout-minutes: 5
         run: cd backend && DATABASE_URL=postgres://admin:changeme@localhost:5434/windmill cargo test
