@@ -21,7 +21,7 @@ jobs:
         image: postgres
         env:
           POSTGRES_DB: windmill
-          POSTGRES_USER: postgres
+          POSTGRES_USER: admin
           POSTGRES_PASSWORD: changeme
         ports:
           - 5434:5432
@@ -34,7 +34,7 @@ jobs:
       - uses: actions/checkout@v3
       - run: /root/.cargo/bin/rustup toolchain install stable --profile minimal
       - uses: Swatinem/rust-cache@v2
-      - run: psql postgres://postgres:changeme@localhost:5434/windmill -c "CREATE ROLE admin WITH BYPASSRLS LOGIN PASSWORD 'changeme';"
+      - run: psql postgres://admin:changeme@localhost:5434/windmill -c "CREATE ROLE app LOGIN PASSWORD 'changeme';"
       - name: "cargo test"
         timeout-minutes: 5
-        run: mkdir -p frontend/build && cd backend && SQLX_OFFLINE=true DATABASE_URL=postgres://postgres:changeme@localhost:5434/windmill /root/.cargo/bin/cargo test
+        run: mkdir -p frontend/build && cd backend && SQLX_OFFLINE=true DATABASE_URL=postgres://admin:changeme@localhost:5434/windmill /root/.cargo/bin/cargo test
