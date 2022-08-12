@@ -1205,20 +1205,10 @@ mod tests {
     use super::*;
 
     async fn initialize_tracing() {
-        use std::sync::atomic::Ordering::SeqCst;
+        use std::sync::Once;
 
-        // TODO a bit of a race condition here.
-        // Only one test calls tracing_init::initialize_tracing() (good) but it may not have
-        // finished & returned while other tests return from this function and start doing things.
-
-        static IS_INIT: AtomicBool = AtomicBool::new(false);
-
-        if IS_INIT
-            .compare_exchange(false, true, SeqCst, SeqCst)
-            .is_ok()
-        {
-            crate::tracing_init::initialize_tracing().await.unwrap();
-        }
+        static ONCE: Once = Once::new();
+        ONCE.call_once(|| crate::tracing_init::initialize_tracing());
     }
 
     /// it's important this is unique between tests as there is one prometheus registry and
