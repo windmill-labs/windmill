@@ -17,7 +17,6 @@
 	import SchemaForm from './../SchemaForm.svelte'
 	import Toggle from './../Toggle.svelte'
 	import Tooltip from './../Tooltip.svelte'
-	import FlowBoxHeader from './FlowBoxHeader.svelte'
 
 	export let pathError = ''
 	export let initialPath: string = ''
@@ -62,8 +61,8 @@
 	</div>
 </Modal>
 
-<FlowBox>
-	<FlowBoxHeader title="Flow Settings">
+<FlowBox title="Flow Settings">
+	<div slot="header">
 		<div class="flex flex-row-reverse">
 			<Dropdown class="w-fit" placement="bottom-end">
 				<button slot="trigger" class="text-gray-900 bg-white dark:text-white dark:bg-gray-800">
@@ -103,9 +102,9 @@
 				</DropdownItem>
 			</Dropdown>
 		</div>
-	</FlowBoxHeader>
+	</div>
 
-	<div class="p-6">
+	<div slot="content">
 		<Path
 			bind:error={pathError}
 			bind:path={$flowStore.path}

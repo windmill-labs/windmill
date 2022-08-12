@@ -3,14 +3,11 @@
 	import { flowStore } from './../flows/flowStore'
 	import CopyFirstStepSchema from './CopyFirstStepSchema.svelte'
 	import FlowBox from './FlowBox.svelte'
-	import FlowBoxHeader from './FlowBoxHeader.svelte'
 </script>
 
-<FlowBox>
-	<FlowBoxHeader title="Flow Inputs">
-		<CopyFirstStepSchema />
-	</FlowBoxHeader>
-	<div class="p-6 ">
+<FlowBox title="Flow Inputs">
+	<div slot="header"><CopyFirstStepSchema /></div>
+	<div slot="content">
 		<SchemaEditor
 			on:change={() => {
 				$flowStore = $flowStore

@@ -4,7 +4,7 @@
 </script>
 
 <Button
-	color="alternative"
+	color="light"
 	size="sm"
 	disabled={$isCopyFirstStepSchemaDisabled}
 	on:click={copyFirstStepSchema}

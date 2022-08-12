@@ -8,7 +8,7 @@
 	import python from 'svelte-highlight/languages/python'
 	import typescript from 'svelte-highlight/languages/typescript'
 	import Modal from '../Modal.svelte'
-	import FlowBoxHeader from './FlowBoxHeader.svelte'
+	import Tooltip from '../Tooltip.svelte'
 	import { createScriptFromInlineScript, fork, removeModule } from './flowStore'
 	import { scrollIntoView } from './utils'
 
@@ -16,6 +16,7 @@
 	export let i: number
 	export let shouldPick = false
 	export let mod: FlowModule
+	export let isTrigger: boolean
 
 	let modalViewer: Modal
 	let modalViewerContent = ''
@@ -38,54 +39,72 @@
 	}
 </script>
 
-<FlowBoxHeader>
-	<a
-		href="#module-{i}"
-		class="grow text-inherit"
-		on:click={() => (open = i)}
-		on:click|preventDefault={scrollTo}
-	>
-		<slot />
-	</a>
-
-	<div class="flex flex-row space-x-2">
-		{#if mod.value.type === 'script' && !shouldPick}
-			<Button
-				on:click={() => {
-					open = i
-					fork(i)
-				}}
-				size="sm"
-				color="alternative"
-			>
-				<Icon data={faCodeBranch} class="mr-2" />
-				Fork
-			</Button>
-			<Button size="sm" color="alternative" on:click={viewCode}>
-				<Icon data={faCode} class="mr-2" />
-				View code
-			</Button>
+<a
+	href="#module-{i}"
+	class="grow text-inherit"
+	on:click={() => (open = i)}
+	on:click|preventDefault={scrollTo}
+>
+	{#if isTrigger}
+		<h3 class="font-bold">
+			Trigger Script
+			<Tooltip>
+				When a flow is 'Pull', the first step is a trigger script. Trigger scripts are scripts that
+				must return a list which are the new items to be treated one by one by the rest of the flow,
+				usually the list of new items since last time the flow was run. One can retrieve the item in
+				the next step using `previous_result._value`. To easily compute the diff, windmill provides
+				some helpers under the form of `getInternalState` and `setInternalState`.
+			</Tooltip>
+		</h3>
+	{/if}
+	<h3 class="text-md font-bold text-gray-900">
+		{#if 'path' in mod.value && mod.value.path}
+			{mod.value.path}
+		{:else if 'language' in mod.value && mod.value.language}
+			Inline {mod.value.language}
+		{:else}
+			Select a script
 		{/if}
+	</h3>
+</a>
 
-		{#if mod.value.type === 'rawscript' && !shouldPick}
-			<Button size="sm" color="alternative" on:click={() => createScriptFromInlineScript(i)}>
-				<Icon data={faSave} class="mr-2" />
-				Save to workspace
-			</Button>
-		{/if}
+<div class="flex flex-row space-x-2">
+	{#if mod.value.type === 'script' && !shouldPick}
 		<Button
+			on:click={() => {
+				open = i
+				fork(i)
+			}}
 			size="sm"
 			color="alternative"
-			on:click={() => {
-				open = -1
-				removeModule(i)
-			}}
 		>
-			<Icon data={faTrashAlt} class="mr-2" />
-			Remove step
+			<Icon data={faCodeBranch} class="mr-2" />
+			Fork
 		</Button>
-	</div>
-</FlowBoxHeader>
+		<Button size="sm" color="alternative" on:click={viewCode}>
+			<Icon data={faCode} class="mr-2" />
+			View code
+		</Button>
+	{/if}
+
+	{#if mod.value.type === 'rawscript' && !shouldPick}
+		<Button size="sm" color="alternative" on:click={() => createScriptFromInlineScript(i)}>
+			<Icon data={faSave} class="mr-2" />
+			Save to workspace
+		</Button>
+	{/if}
+	<Button
+		size="sm"
+		color="alternative"
+		on:click={() => {
+			open = -1
+			removeModule(i)
+		}}
+	>
+		<Icon data={faTrashAlt} class="mr-2" />
+		Remove step
+	</Button>
+</div>
 
 <Modal bind:this={modalViewer}>
 	<div slot="title">Script {'path' in mod?.value ? mod?.value.path : ''}</div>
