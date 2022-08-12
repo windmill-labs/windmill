@@ -59,6 +59,8 @@ use crate::{
     utils::rd_string,
 };
 
+pub use crate::tracing_init::initialize_tracing;
+
 const GIT_VERSION: &str = git_version!(args = ["--tag", "--always"], fallback = "unknown-version");
 pub const DEFAULT_NUM_WORKERS: usize = 3;
 pub const DEFAULT_TIMEOUT: i32 = 300;
@@ -83,10 +85,6 @@ pub async fn connect_db() -> anyhow::Result<DB> {
     };
 
     Ok(db::connect(&database_url, max_connections).await?)
-}
-
-pub async fn initialize_tracing() -> anyhow::Result<()> {
-    tracing_init::initialize_tracing().await
 }
 
 struct BaseUrl(String);
