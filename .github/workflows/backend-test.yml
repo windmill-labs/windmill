@@ -16,7 +16,7 @@ on:
 jobs:
   cargo_test:
     runs-on: [self-hosted, new]
-    container: ghcr.io/windmill-labs/windmill
+    container: ghcr.io/windmill-labs/backend-tests
     services:
       postgres:
         image: postgres
@@ -33,9 +33,8 @@ jobs:
           --health-retries 5
     steps:
       - uses: actions/checkout@v3
-      - run: /root/.cargo/bin/rustup toolchain install stable --profile minimal
       - uses: Swatinem/rust-cache@v2
       - run: psql postgres://admin:changeme@localhost:5434/windmill -c "CREATE ROLE app LOGIN PASSWORD 'changeme';"
       - name: "cargo test"
         timeout-minutes: 5
-        run: mkdir -p frontend/build && cd backend && SQLX_OFFLINE=true DATABASE_URL=postgres://admin:changeme@localhost:5434/windmill /root/.cargo/bin/cargo test
+        run: cd backend && DATABASE_URL=postgres://admin:changeme@localhost:5434/windmill cargo test
