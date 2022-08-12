@@ -40,7 +40,7 @@ async fn main() -> anyhow::Result<()> {
     }
 
     let (tx, rx) = tokio::sync::broadcast::channel::<()>(3);
-    let shutdown_signal = windmill::shutdown_signal(tx.clone());
+    let shutdown_signal = windmill::shutdown_signal(tx);
 
     if server_mode || monitor_mode || num_workers > 0 {
         let addr = SocketAddr::from(([0, 0, 0, 0], 8000));
@@ -61,7 +61,7 @@ async fn main() -> anyhow::Result<()> {
                         server: "smtp.gmail.com".to_string(),
                         password: std::env::var("SMTP_PASSWORD").unwrap_or("NOPASS".to_string()),
                     },
-                    rx,
+                    rx.resubscribe(),
                 )
                 .await?;
             }
@@ -100,7 +100,7 @@ async fn main() -> anyhow::Result<()> {
                     base_url,
                     disable_nuser,
                     disable_nsjail,
-                    tx.clone(),
+                    rx.resubscribe(),
                 )
                 .await?;
             }
@@ -109,14 +109,14 @@ async fn main() -> anyhow::Result<()> {
 
         let monitor_f = async {
             if monitor_mode {
-                windmill::monitor_db(&db, timeout, tx.clone());
+                windmill::monitor_db(&db, timeout, rx.resubscribe());
             }
             Ok(()) as anyhow::Result<()>
         };
 
         let metrics_f = async {
             match metrics_addr {
-                Some(addr) => windmill::serve_metrics(addr, tx.subscribe())
+                Some(addr) => windmill::serve_metrics(addr, rx.resubscribe())
                     .await
                     .map_err(anyhow::Error::from),
                 None => Ok(()),

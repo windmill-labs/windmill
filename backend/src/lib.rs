@@ -200,14 +200,13 @@ pub async fn run_server(
     Ok(())
 }
 
-pub fn monitor_db(db: &DB, timeout: i32, tx: tokio::sync::broadcast::Sender<()>) {
+pub fn monitor_db(db: &DB, timeout: i32, rx: tokio::sync::broadcast::Receiver<()>) {
     let db1 = db.clone();
     let db2 = db.clone();
 
-    let rx1 = tx.subscribe();
-    let rx2 = tx.subscribe();
+    let rx2 = rx.resubscribe();
 
-    tokio::spawn(async move { worker::restart_zombie_jobs_periodically(&db1, timeout, rx1).await });
+    tokio::spawn(async move { worker::restart_zombie_jobs_periodically(&db1, timeout, rx).await });
     tokio::spawn(async move { users::delete_expired_items_perdiodically(&db2, rx2).await });
 }
 
@@ -220,7 +219,7 @@ pub async fn run_workers(
     base_url: String,
     disable_nuser: bool,
     disable_nsjail: bool,
-    tx: tokio::sync::broadcast::Sender<()>,
+    rx: tokio::sync::broadcast::Receiver<()>,
 ) -> anyhow::Result<()> {
     let instance_name = rd_string(5);
 
@@ -238,8 +237,8 @@ pub async fn run_workers(
         let worker_name = format!("dt-worker-{}-{}", &instance_name, rd_string(5));
         let m1 = mutex.clone();
         let ip = ip.clone();
-        let tx = tx.clone();
         let base_url = base_url.clone();
+        let rx = rx.resubscribe();
         handles.push(tokio::spawn(async move {
             tracing::info!(addr = %addr.to_string(), worker = %worker_name, "starting worker");
             worker::run_worker(
@@ -255,7 +254,7 @@ pub async fn run_workers(
                 &base_url,
                 disable_nuser,
                 disable_nsjail,
-                tx,
+                rx,
             )
             .await
         }));
