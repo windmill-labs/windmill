@@ -58,4 +58,5 @@ COPY --from=nsjail /nsjail/nsjail /bin/nsjail
 
 COPY --from=denoland/deno:latest /usr/bin/deno /usr/bin/deno
 
-
+RUN apt-get update \
+    && apt-get install -y postgresql-client
