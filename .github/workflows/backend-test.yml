@@ -18,7 +18,7 @@ jobs:
         image: postgres
         env:
           POSTGRES_DB: windmill
-          POSTGRES_USER: admin
+          POSTGRES_USER: postgres
           POSTGRES_PASSWORD: changeme
         ports:
           - 5434:5432
@@ -33,4 +33,4 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - name: "cargo test"
         timeout-minutes: 5
-        run: mkdir -p frontend/build && cd backend && SQLX_OFFLINE=true DATABASE_URL=postgres://admin:changeme@localhost:5434/windmill /root/.cargo/bin/cargo test
+        run: mkdir -p frontend/build && cd backend && SQLX_OFFLINE=true DATABASE_URL=postgres://postgres:changeme@localhost:5434/windmill /root/.cargo/bin/cargo test
