@@ -1285,8 +1285,7 @@ mod tests {
         assert_eq!(result, serde_json::json!([2, 4, 6]));
     }
 
-    // CI is broken atm, todo
-    // #[sqlx::test(fixtures("base"))]
+    #[sqlx::test(fixtures("base"))]
     async fn test_python_flow(db: DB) {
         initialize_tracing().await;
 
@@ -1338,8 +1337,7 @@ mod tests {
         assert_eq!(result, serde_json::json!([2, 4, 6]));
     }
 
-    // ci is broken atm, TODO
-    // #[sqlx::test(fixtures("base"))]
+    #[sqlx::test(fixtures("base"))]
     async fn test_python_job(db: DB) {
         initialize_tracing().await;
 
@@ -1403,7 +1401,7 @@ def main():
             let sleep_queue: u64 = Default::default();
             let base_url: &str = Default::default();
             let disable_nuser = false;
-            let disable_nsjail = true;
+            let disable_nsjail = false;
 
             run_worker(
                 &db,
