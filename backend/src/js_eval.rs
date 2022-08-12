@@ -294,10 +294,10 @@ multiline template`";
             ("params".to_string(), json!({"test": 2})),
             ("value".to_string(), json!({"test": 2})),
         ];
-        let code = r#"variable("test")"#;
+        let code = r#"params.test"#;
 
         let res = eval_timeout(code.to_string(), env, None, vec![]).await?;
-        assert_eq!(res, json!("test"));
+        assert_eq!(res, json!(2));
         Ok(())
     }
 }
