@@ -6,10 +6,13 @@ on:
       - "main"
     paths:
       - "backend/**"
+      - ".github/workflows/backend-test.yml"
   pull_request:
     types: [opened, synchronize, reopened]
     paths:
       - "backend/**"
+      - ".github/workflows/backend-test.yml"
+
 jobs:
   cargo_test:
     runs-on: [self-hosted, new]
