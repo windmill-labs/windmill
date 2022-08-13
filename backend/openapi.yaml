@@ -3631,7 +3631,6 @@ components:
                   - type: string
                     enum:
                       [
-                        "str",
                         "float",
                         "int",
                         "bool",
@@ -3646,13 +3645,25 @@ components:
                     properties:
                       resource:
                         type: string
+                        nullable: true
+
                     required:
                       - resource
+                  - type: object
+                    properties:
+                      str:
+                        type: array
+                        items:
+                          type: string
+                        nullable: true
+                    required:
+                      - str
                   - type: object
                     properties:
                       list:
                         type: string
                         enum: ["str", "float", "int", "email"]
+                        nullable: true
                     required:
                       - list
               has_default:

@@ -39,17 +39,21 @@ export async function inferArgs(
 }
 
 function argSigToJsonSchemaType(
-	t: string | { resource: string } | { list: string },
+	t: string | { resource: string | null } | { list: string | null } | { str: string[] | null },
 	s: SchemaProperty
 ): void {
+	for (const prop of Object.getOwnPropertyNames(s)) {
+		if (prop != "description") {
+			delete s[prop]
+		}
+	}
+
 	if (t === 'int') {
 		s.type = 'integer'
 	} else if (t === 'float') {
 		s.type = 'number'
 	} else if (t === 'bool') {
 		s.type = 'boolean'
-	} else if (t === 'str') {
-		s.type = 'string'
 	} else if (t === 'email') {
 		s.type = 'string'
 		s.format = 'email'
@@ -64,6 +68,11 @@ function argSigToJsonSchemaType(
 	} else if (t === 'datetime') {
 		s.type = 'string'
 		s.format = 'date-time'
+	} else if (typeof t !== 'string' && `str` in t) {
+		s.type = 'string'
+		if (t.str) {
+			s.enum = t.str
+		}
 	} else if (typeof t !== 'string' && `resource` in t) {
 		s.type = 'object'
 		s.format = `resource-${t.resource}`
