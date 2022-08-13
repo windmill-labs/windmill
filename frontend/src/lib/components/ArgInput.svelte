@@ -19,6 +19,8 @@
 	import ObjectTypeNarrowing from './ObjectTypeNarrowing.svelte'
 	import ResourcePicker from './ResourcePicker.svelte'
 	import StringTypeNarrowing from './StringTypeNarrowing.svelte'
+	import SchemaForm from './SchemaForm.svelte'
+	import type { Schema, SchemaProperty } from '$lib/common'
 
 	export let label: string = ''
 	export let value: any
@@ -41,6 +43,7 @@
 		| { type?: 'string' | 'number' | 'bytes'; contentEncoding?: 'base64' }
 		| undefined = undefined
 	export let displayHeader = true
+	export let properties: { [name: string]: SchemaProperty } | undefined = undefined
 
 	let seeEditable: boolean = enum_ != undefined || pattern != undefined
 	const dispatch = createEventDispatcher()
@@ -269,16 +272,25 @@
 			{:else if inputCat == 'resource-object'}
 				<ObjectResourceInput {format} bind:value />
 			{:else if inputCat == 'object'}
-				<textarea
-					{disabled}
-					style="min-height: {minHeight}; max-height: {maxHeight}"
-					on:input={async () => recomputeRowSize(rawValue ?? '')}
-					class="col-span-10 {valid
-						? ''
-						: 'border border-red-700 border-opacity-30 focus:border-red-700 focus:border-opacity-30 bg-red-100'}"
-					placeholder={defaultValue ? JSON.stringify(defaultValue, null, 4) : ''}
-					bind:value={rawValue}
-				/>
+				{#if properties}
+					<div class="p-4 pl-8 border rounded w-full">
+						<SchemaForm
+							schema={{ properties, $schema: '', required: [], type: 'object' }}
+							bind:args={value}
+						/>
+					</div>
+				{:else}
+					<textarea
+						{disabled}
+						style="min-height: {minHeight}; max-height: {maxHeight}"
+						on:input={async () => recomputeRowSize(rawValue ?? '')}
+						class="col-span-10 {valid
+							? ''
+							: 'border border-red-700 border-opacity-30 focus:border-red-700 focus:border-opacity-30 bg-red-100'}"
+						placeholder={defaultValue ? JSON.stringify(defaultValue, null, 4) : ''}
+						bind:value={rawValue}
+					/>
+				{/if}
 			{:else if inputCat == 'enum'}
 				<select {disabled} class="px-6" bind:value>
 					{#each enum_ ?? [] as e}

@@ -15,7 +15,7 @@ use serde_json::json;
 
 use crate::{
     error,
-    parser::{Arg, InnerTyp, MainArgSignature, Typ},
+    parser::{Arg, MainArgSignature, Typ},
 };
 
 use rustpython_parser::{
@@ -67,8 +67,8 @@ pub fn parse_python_signature(code: &str) -> error::Result<MainArgSignature> {
                                     "float" => Typ::Float,
                                     "int" => Typ::Int,
                                     "bool" => Typ::Bool,
-                                    "dict" => Typ::Dict,
-                                    "list" => Typ::List(InnerTyp::Str),
+                                    "dict" => Typ::Object(vec![]),
+                                    "list" => Typ::List(Box::new(Typ::Str(None))),
                                     "bytes" => Typ::Bytes,
                                     "datetime" => Typ::Datetime,
                                     "datetime.datetime" => Typ::Datetime,

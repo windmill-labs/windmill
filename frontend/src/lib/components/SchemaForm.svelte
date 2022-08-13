@@ -17,8 +17,12 @@
 	let inputCheck: { [id: string]: boolean } = {}
 	$: isValid = allTrue(inputCheck) ?? false
 
+	$: if (!args) {
+		args = {}
+	}
+
 	function removeExtraKey() {
-		Object.keys(args).forEach((key) => {
+		Object.keys(args ?? {}).forEach((key) => {
 			if (!Object.keys(schema?.properties ?? {}).includes(key)) {
 				delete args[key]
 			}
@@ -54,6 +58,7 @@
 					bind:enum_={schema.properties[argName].enum}
 					bind:format={schema.properties[argName].format}
 					contentEncoding={schema.properties[argName].contentEncoding}
+					properties={schema.properties[argName].properties}
 					bind:itemsType={schema.properties[argName].items}
 					{editableSchema}
 				/>
