@@ -14,8 +14,8 @@ use crate::{
 use swc_common::{sync::Lrc, FileName, SourceMap};
 use swc_ecma_ast::{
     AssignPat, BindingIdent, Decl, ExportDecl, FnDecl, Ident, ModuleDecl, ModuleItem, Pat, Str,
-    TsArrayType, TsEntityName, TsKeywordTypeKind, TsLit, TsLitType, TsType, TsTypeRef,
-    TsUnionOrIntersectionType, TsUnionType,
+    TsArrayType, TsEntityName, TsKeywordType, TsKeywordTypeKind, TsLit, TsLitType, TsOptionalType,
+    TsType, TsTypeRef, TsUnionOrIntersectionType, TsUnionType,
 };
 use swc_ecma_parser::{lexer::Lexer, Parser, StringInput, Syntax, TsConfig};
 
@@ -63,16 +63,21 @@ pub fn parse_deno_signature(code: &str) -> error::Result<MainArgSignature> {
                 .into_iter()
                 .map(|x| match x.pat {
                     Pat::Ident(ident) => {
-                        let (name, typ) = binding_ident_to_arg(&ident)?;
-                        Ok(Arg { name, typ, default: None, has_default: ident.id.optional })
+                        let (name, typ, nullable) = binding_ident_to_arg(&ident);
+                        Ok(Arg {
+                            name,
+                            typ,
+                            default: None,
+                            has_default: ident.id.optional || nullable,
+                        })
                     }
                     Pat::Assign(AssignPat { left, right, .. }) => {
-                        let (name, typ) =
+                        let (name, typ, _nullable) =
                             left.as_ident().map(binding_ident_to_arg).ok_or_else(|| {
                                 error::Error::ExecutionErr(format!(
                                     "Arg {left:?} has unexpected syntax"
                                 ))
-                            })??;
+                            })?;
                         Ok(Arg {
                             name,
                             typ,
@@ -99,96 +104,119 @@ pub fn parse_deno_signature(code: &str) -> error::Result<MainArgSignature> {
     }
 }
 
-fn binding_ident_to_arg(
-    BindingIdent { id, type_ann }: &BindingIdent,
-) -> anyhow::Result<(String, Typ)> {
-    Ok((
-        id.sym.to_string(),
-        type_ann
-            .as_ref()
-            .map(|x| {
-                println!("");
-                println!("{:?}", id.sym.to_string());
-                println!("{:?}", x);
-                match &*x.type_ann {
-                    TsType::TsKeywordType(t) => match t.kind {
-                        TsKeywordTypeKind::TsObjectKeyword => Typ::Dict,
-                        TsKeywordTypeKind::TsBooleanKeyword => Typ::Bool,
-                        TsKeywordTypeKind::TsBigIntKeyword => Typ::Int,
-                        TsKeywordTypeKind::TsNumberKeyword => Typ::Float,
-                        TsKeywordTypeKind::TsStringKeyword => Typ::Str(None),
-                        _ => Typ::Unknown,
+fn binding_ident_to_arg(BindingIdent { id, type_ann }: &BindingIdent) -> (String, Typ, bool) {
+    let (typ, nullable) = type_ann
+        .as_ref()
+        .map(|x| tstype_to_typ(&*x.type_ann))
+        .unwrap_or((Typ::Unknown, false));
+    (id.sym.to_string(), typ, nullable)
+}
+
+fn tstype_to_typ(ts_type: &TsType) -> (Typ, bool) {
+    //println!("{:?}", ts_type);
+    match ts_type {
+        TsType::TsKeywordType(t) => (
+            match t.kind {
+                TsKeywordTypeKind::TsObjectKeyword => Typ::Dict,
+                TsKeywordTypeKind::TsBooleanKeyword => Typ::Bool,
+                TsKeywordTypeKind::TsBigIntKeyword => Typ::Int,
+                TsKeywordTypeKind::TsNumberKeyword => Typ::Float,
+                TsKeywordTypeKind::TsStringKeyword => Typ::Str(None),
+                _ => Typ::Unknown,
+            },
+            false,
+        ),
+        // TODO: we can do better here and extract the inner type of array
+        TsType::TsArrayType(TsArrayType { elem_type, .. }) => {
+            (
+                match &**elem_type {
+                    TsType::TsTypeRef(TsTypeRef {
+                        type_name: TsEntityName::Ident(Ident { sym, .. }),
+                        ..
+                    }) => match sym.to_string().as_str() {
+                        "Base64" => Typ::List(InnerTyp::Bytes),
+                        "Email" => Typ::List(InnerTyp::Email),
+                        "bigint" => Typ::List(InnerTyp::Int),
+                        "number" => Typ::List(InnerTyp::Float),
+                        _ => Typ::List(InnerTyp::Str),
                     },
-                    // TODO: we can do better here and extract the inner type of array
-                    TsType::TsArrayType(TsArrayType { elem_type, .. }) => {
-                        match &**elem_type {
-                            TsType::TsTypeRef(TsTypeRef {
-                                type_name: TsEntityName::Ident(Ident { sym, .. }),
-                                ..
-                            }) => match sym.to_string().as_str() {
-                                "Base64" => Typ::List(InnerTyp::Bytes),
-                                "Email" => Typ::List(InnerTyp::Email),
-                                "bigint" => Typ::List(InnerTyp::Int),
-                                "number" => Typ::List(InnerTyp::Float),
-                                _ => Typ::List(InnerTyp::Str),
-                            },
-                            //TsType::TsKeywordType(())
-                            _ => Typ::List(InnerTyp::Str),
-                        }
+                    //TsType::TsKeywordType(())
+                    _ => Typ::List(InnerTyp::Str),
+                },
+                false,
+            )
+        }
+        TsType::TsLitType(TsLitType { lit: TsLit::Str(Str { value, .. }), .. }) => {
+            (Typ::Str(Some(vec![value.to_string()])), false)
+        }
+        TsType::TsOptionalType(TsOptionalType { type_ann, .. }) => {
+            (tstype_to_typ(type_ann).0, true)
+        }
+        TsType::TsUnionOrIntersectionType(TsUnionOrIntersectionType::TsUnionType(
+            TsUnionType { types, .. },
+        )) => {
+            if let Some(p) = if types.len() != 2 {
+                None
+            } else {
+                types.into_iter().position(|x| match **x {
+                    TsType::TsKeywordType(TsKeywordType { kind, .. }) => {
+                        kind == TsKeywordTypeKind::TsUndefinedKeyword
+                            || kind == TsKeywordTypeKind::TsNullKeyword
                     }
-                    TsType::TsLitType(TsLitType { lit: TsLit::Str(Str { value, .. }), .. }) => {
-                        Typ::Str(Some(vec![value.to_string()]))
-                    }
-                    TsType::TsUnionOrIntersectionType(TsUnionOrIntersectionType::TsUnionType(
-                        TsUnionType { types, .. },
-                    )) => {
-                        let literals = types
-                            .into_iter()
-                            .map(|x| match &**x {
-                                TsType::TsLitType(TsLitType {
-                                    lit: TsLit::Str(Str { value, .. }),
-                                    ..
-                                }) => Some(value.to_string()),
-                                _ => None,
-                            })
-                            .collect::<Vec<_>>();
-                        if literals.iter().find(|x| x.is_none()).is_some() {
-                            Typ::Unknown
-                        } else {
-                            Typ::Str(Some(literals.into_iter().filter_map(|x| x).collect()))
-                        }
-                    }
-                    TsType::TsTypeRef(TsTypeRef { type_name, type_params, .. }) => {
-                        let sym = match type_name {
-                            TsEntityName::Ident(Ident { sym, .. }) => sym,
-                            TsEntityName::TsQualifiedName(p) => &*p.right.sym,
-                        };
-                        match sym.to_string().as_str() {
-                            "Resource" => Typ::Resource(
-                                type_params
-                                    .as_ref()
-                                    .and_then(|x| {
-                                        x.params.get(0).and_then(|y| {
-                                            y.as_ts_lit_type().and_then(|z| {
-                                                z.lit
-                                                    .as_str()
-                                                    .map(|a| a.to_owned().value.to_string())
-                                            })
-                                        })
-                                    })
-                                    .unwrap_or_else(|| "unknown".to_string()),
-                            ),
-                            "Base64" => Typ::Bytes,
-                            "Email" => Typ::Email,
-                            "Sql" => Typ::Sql,
-                            _ => Typ::Unknown,
-                        }
-                    }
-                    _ => Typ::Unknown,
+                    _ => false,
+                })
+            } {
+                let other_p = if p == 0 { 1 } else { 0 };
+                (tstype_to_typ(&types[other_p]).0, true)
+            } else {
+                let literals = types
+                    .into_iter()
+                    .map(|x| match &**x {
+                        TsType::TsLitType(TsLitType {
+                            lit: TsLit::Str(Str { value, .. }), ..
+                        }) => Some(value.to_string()),
+                        _ => None,
+                    })
+                    .collect::<Vec<_>>();
+                if literals.iter().find(|x| x.is_none()).is_some() {
+                    (Typ::Unknown, false)
+                } else {
+                    (
+                        Typ::Str(Some(literals.into_iter().filter_map(|x| x).collect())),
+                        false,
+                    )
                 }
-            })
-            .unwrap_or(Typ::Unknown),
-    ))
+            }
+        }
+        TsType::TsTypeRef(TsTypeRef { type_name, type_params, .. }) => {
+            let sym = match type_name {
+                TsEntityName::Ident(Ident { sym, .. }) => sym,
+                TsEntityName::TsQualifiedName(p) => &*p.right.sym,
+            };
+            match sym.to_string().as_str() {
+                "Resource" => (
+                    Typ::Resource(
+                        type_params
+                            .as_ref()
+                            .and_then(|x| {
+                                x.params.get(0).and_then(|y| {
+                                    y.as_ts_lit_type().and_then(|z| {
+                                        z.lit.as_str().map(|a| a.to_owned().value.to_string())
+                                    })
+                                })
+                            })
+                            .unwrap_or_else(|| "unknown".to_string()),
+                    ),
+                    false,
+                ),
+                "Base64" => (Typ::Bytes, false),
+                "Email" => (Typ::Email, false),
+                "Sql" => (Typ::Sql, false),
+                _ => (Typ::Unknown, false),
+            }
+        }
+        _ => (Typ::Unknown, false),
+    }
 }
 
 #[cfg(test)]
@@ -203,7 +231,8 @@ mod tests {
 
 export function main(test1?: string, test2: string = \"burkina\",
     test3: wmill.Resource<'postgres'>, b64: Base64, ls: Base64[], 
-    email: Email, literal: \"test\", literal_union: \"test\" | \"test2\") {
+    email: Email, literal: \"test\", literal_union: \"test\" | \"test2\",
+    opt_type?: string | null, opt_type_union: string | null, opt_type_union_union2: string | undefined) {
     console.log(42)
 }
 
