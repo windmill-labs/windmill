@@ -39,16 +39,15 @@
 
 {#if keys.length > 0}
 	<span class:hidden={collapsed}>
-		{#if level != 0}<span class="cursor-pointer hover:bg-slate-200" on:click={collapse}>(-)</span
+		{#if level != 0}<span class="cursor-pointer hover:bg-slate-200 px-1 rounded" on:click={collapse}
+				>(-)</span
 			>{/if}
 		<ul class="w-full">
 			{#each keys as key, index}
-				<li class={getTypeAsString(json[key]) !== 'object' ? 'hover:bg-sky-100 pt-1' : 'pt-1'}>
-					{#if !isArray}
-						<button on:click={() => selectProp(key)} class="key mr-1">{key}:</button>
-					{:else}
-						<button on:click={() => selectProp(key)} class="key mr-1">{index}:</button>
-					{/if}
+				<li class="pt-1">
+					<button on:click={() => selectProp(key)} class="key rounded px-1 hover:bg-sky-100"
+						>{!isArray ? key : index}:</button
+					>
 
 					{#if getTypeAsString(json[key]) === 'object'}
 						<svelte:self
@@ -60,14 +59,14 @@
 							on:select
 						/>
 					{:else}
-						<button class="val {getTypeAsString(json[key])}" on:click={() => selectProp(key)}>
+						<button
+							class="val rounded px-1 hover:bg-sky-100 {getTypeAsString(json[key])}"
+							on:click={() => selectProp(key)}
+						>
 							{#if json[key] === undefined}
 								<WarningMessage />
 							{:else}
 								<span>{truncate(JSON.stringify(json[key]), 20)}</span>
-								{#if !pureViewer}
-									<button class="ml-2 default-button-secondary py-0"> Select </button>
-								{/if}
 							{/if}
 						</button>
 					{/if}
