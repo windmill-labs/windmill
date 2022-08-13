@@ -17,12 +17,9 @@ pub struct MainArgSignature {
 
 #[derive(Serialize, Clone)]
 #[serde(rename_all(serialize = "lowercase"))]
-pub enum InnerTyp {
-    Str,
-    Int,
-    Float,
-    Bytes,
-    Email,
+pub struct ObjectProperty {
+    pub key: String,
+    pub typ: Box<Typ>,
 }
 
 #[derive(Serialize, Clone)]
@@ -32,13 +29,13 @@ pub enum Typ {
     Int,
     Float,
     Bool,
-    Dict,
-    List(InnerTyp),
+    List(Box<Typ>),
     Bytes,
     Datetime,
     Resource(String),
     Email,
     Sql,
+    Object(Vec<ObjectProperty>),
     Unknown,
 }
 
