@@ -35,6 +35,8 @@ mod jobs;
 mod js_eval;
 mod oauth2;
 mod parser;
+mod parser_py;
+mod parser_ts;
 mod resources;
 mod schedule;
 mod scripts;
