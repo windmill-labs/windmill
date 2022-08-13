@@ -3646,7 +3646,6 @@ components:
                       resource:
                         type: string
                         nullable: true
-
                     required:
                       - resource
                   - type: object
@@ -3660,9 +3659,58 @@ components:
                       - str
                   - type: object
                     properties:
+                      object:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            key:
+                              type: string
+                            typ:
+                              oneOf:
+                                - type: string
+                                  enum:
+                                    [
+                                      "float",
+                                      "int",
+                                      "bool",
+                                      "email",
+                                      "unknown",
+                                      "bytes",
+                                      "dict",
+                                      "datetime",
+                                      "sql",
+                                    ]
+                                - type: object
+                                  properties:
+                                    str: {}
+                                  required: [str]
+                          required:
+                            - key
+                            - typ
+                    required:
+                      - object
+                  - type: object
+                    properties:
                       list:
-                        type: string
-                        enum: ["str", "float", "int", "email"]
+                        oneOf:
+                          - type: string
+                            enum:
+                              [
+                                "float",
+                                "int",
+                                "bool",
+                                "email",
+                                "unknown",
+                                "bytes",
+                                "dict",
+                                "datetime",
+                                "sql",
+                              ]
+                          - type: object
+                            properties:
+                              str: {}
+                            required: [str]
                         nullable: true
                     required:
                       - list

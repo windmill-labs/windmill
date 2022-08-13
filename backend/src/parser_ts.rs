@@ -8,14 +8,15 @@
 
 use crate::{
     error,
-    parser::{Arg, InnerTyp, MainArgSignature, Typ},
+    parser::{Arg, MainArgSignature, ObjectProperty, Typ},
 };
 
 use swc_common::{sync::Lrc, FileName, SourceMap};
 use swc_ecma_ast::{
-    AssignPat, BindingIdent, Decl, ExportDecl, FnDecl, Ident, ModuleDecl, ModuleItem, Pat, Str,
-    TsArrayType, TsEntityName, TsKeywordType, TsKeywordTypeKind, TsLit, TsLitType, TsOptionalType,
-    TsType, TsTypeRef, TsUnionOrIntersectionType, TsUnionType,
+    AssignPat, BindingIdent, Decl, ExportDecl, Expr, FnDecl, Ident, ModuleDecl, ModuleItem, Pat,
+    Str, TsArrayType, TsEntityName, TsKeywordType, TsKeywordTypeKind, TsLit, TsLitType,
+    TsOptionalType, TsPropertySignature, TsType, TsTypeElement, TsTypeLit, TsTypeRef,
+    TsUnionOrIntersectionType, TsUnionType,
 };
 use swc_ecma_parser::{lexer::Lexer, Parser, StringInput, Syntax, TsConfig};
 
@@ -113,11 +114,11 @@ fn binding_ident_to_arg(BindingIdent { id, type_ann }: &BindingIdent) -> (String
 }
 
 fn tstype_to_typ(ts_type: &TsType) -> (Typ, bool) {
-    //println!("{:?}", ts_type);
+    println!("{:?}", ts_type);
     match ts_type {
         TsType::TsKeywordType(t) => (
             match t.kind {
-                TsKeywordTypeKind::TsObjectKeyword => Typ::Dict,
+                TsKeywordTypeKind::TsObjectKeyword => Typ::Object(vec![]),
                 TsKeywordTypeKind::TsBooleanKeyword => Typ::Bool,
                 TsKeywordTypeKind::TsBigIntKeyword => Typ::Int,
                 TsKeywordTypeKind::TsNumberKeyword => Typ::Float,
@@ -126,25 +127,32 @@ fn tstype_to_typ(ts_type: &TsType) -> (Typ, bool) {
             },
             false,
         ),
+        TsType::TsTypeLit(TsTypeLit { members, .. }) => {
+            let properties = members
+                .into_iter()
+                .filter_map(|x| match x {
+                    TsTypeElement::TsPropertySignature(TsPropertySignature {
+                        key,
+                        type_ann,
+                        ..
+                    }) => match (*key.to_owned(), type_ann) {
+                        (Expr::Ident(Ident { sym, .. }), type_ann) => Some(ObjectProperty {
+                            key: sym.to_string(),
+                            typ: type_ann
+                                .as_ref()
+                                .map(|typ| Box::new(tstype_to_typ(&*typ.type_ann).0))
+                                .unwrap_or(Box::new(Typ::Unknown)),
+                        }),
+                        _ => None,
+                    },
+                    _ => None,
+                })
+                .collect();
+            (Typ::Object(properties), false)
+        }
         // TODO: we can do better here and extract the inner type of array
         TsType::TsArrayType(TsArrayType { elem_type, .. }) => {
-            (
-                match &**elem_type {
-                    TsType::TsTypeRef(TsTypeRef {
-                        type_name: TsEntityName::Ident(Ident { sym, .. }),
-                        ..
-                    }) => match sym.to_string().as_str() {
-                        "Base64" => Typ::List(InnerTyp::Bytes),
-                        "Email" => Typ::List(InnerTyp::Email),
-                        "bigint" => Typ::List(InnerTyp::Int),
-                        "number" => Typ::List(InnerTyp::Float),
-                        _ => Typ::List(InnerTyp::Str),
-                    },
-                    //TsType::TsKeywordType(())
-                    _ => Typ::List(InnerTyp::Str),
-                },
-                false,
-            )
+            (Typ::List(Box::new(tstype_to_typ(&**elem_type).0)), false)
         }
         TsType::TsLitType(TsLitType { lit: TsLit::Str(Str { value, .. }), .. }) => {
             (Typ::Str(Some(vec![value.to_string()])), false)
@@ -232,7 +240,8 @@ mod tests {
 export function main(test1?: string, test2: string = \"burkina\",
     test3: wmill.Resource<'postgres'>, b64: Base64, ls: Base64[], 
     email: Email, literal: \"test\", literal_union: \"test\" | \"test2\",
-    opt_type?: string | null, opt_type_union: string | null, opt_type_union_union2: string | undefined) {
+    opt_type?: string | null, opt_type_union: string | null, opt_type_union_union2: string | undefined,
+    min_object: {a: string, b: number}) {
     console.log(42)
 }
 

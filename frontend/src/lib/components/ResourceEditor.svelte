@@ -180,6 +180,7 @@
 								enum_={resourceSchema.properties[fieldName]?.enum}
 								contentEncoding={resourceSchema.properties[fieldName]?.contentEncoding}
 								itemsType={resourceSchema.properties[fieldName]?.items}
+								properties={resourceSchema.properties[fieldName]?.properties}
 								format={resourceSchema.properties[fieldName]?.format}
 							/>
 							<div class="pb-3 ml-2 relative">
