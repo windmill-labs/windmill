@@ -24,7 +24,8 @@ use crate::{
         add_completed_job, add_completed_job_error, get_queued_job, postprocess_queued_job, pull,
         JobKind, QueuedJob,
     },
-    parser::{self, Typ},
+    parser::Typ,
+    parser_py,
     scripts::{ScriptHash, ScriptLang},
     users::{create_token_for_owner, get_email_from_username},
     variables,
@@ -497,7 +498,7 @@ async fn handle_nondep_job(
             .map(|x| matches!(x, ScriptLang::Python3))
             .unwrap_or(false)
         {
-            Some(parser::parse_python_imports(&code)?.join("\n"))
+            Some(parser_py::parse_python_imports(&code)?.join("\n"))
         } else {
             None
         };
@@ -588,7 +589,7 @@ async fn handle_nondep_job(
 
                 let _ = write_file(job_dir, "inner.py", &inner_content).await?;
 
-                let sig = crate::parser::parse_python_signature(&inner_content)?;
+                let sig = crate::parser_py::parse_python_signature(&inner_content)?;
                 let transforms = sig
                     .args
                     .into_iter()
@@ -729,7 +730,7 @@ print(res_json)
 
             let _ = write_file(job_dir, "inner.ts", &inner_content).await?;
 
-            let sig = crate::parser::parse_deno_signature(&inner_content)?;
+            let sig = crate::parser_ts::parse_deno_signature(&inner_content)?;
             //             let transforms = sig.args.clone().into_iter().map(|x| match x.typ {
             //     Typ::Bytes => format!("if \"{}\" in kwargs and kwargs[\"{}\"] is not None:\n    kwargs[\"{}\"] = base64.b64decode(kwargs[\"{}\"])\n", x.name, x.name, x.name, x.name),
             //     Typ::Datetime => format!("if \"{}\" in kwargs and kwargs[\"{}\"] is not None:\n    kwargs[\"{}\"] = datetime.strptime(kwargs[\"{}\"], '%Y-%m-%dT%H:%M')\n", x.name, x.name, x.name, x.name),
