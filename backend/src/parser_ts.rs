@@ -114,7 +114,7 @@ fn binding_ident_to_arg(BindingIdent { id, type_ann }: &BindingIdent) -> (String
 }
 
 fn tstype_to_typ(ts_type: &TsType) -> (Typ, bool) {
-    println!("{:?}", ts_type);
+    //println!("{:?}", ts_type);
     match ts_type {
         TsType::TsKeywordType(t) => (
             match t.kind {
