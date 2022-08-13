@@ -1,6 +1,15 @@
 # Changelog
 
 
+## [1.30.0](https://github.com/windmill-labs/windmill/compare/v1.29.0...v1.30.0) (2022-08-13)
+
+
+### Features
+
+* add literal object type support ([#401](https://github.com/windmill-labs/windmill/issues/401)) ([845de82](https://github.com/windmill-labs/windmill/commit/845de8206214ed265aef895f0d13636e6e0e26ce))
+* support union type will null | undefined ([#400](https://github.com/windmill-labs/windmill/issues/400)) ([0384727](https://github.com/windmill-labs/windmill/commit/0384727a56347aa01a5fee06c82bd49eab2522fa))
+* support union types ([#398](https://github.com/windmill-labs/windmill/issues/398)) ([e68ea1b](https://github.com/windmill-labs/windmill/commit/e68ea1b8fc4f88e587121387ecac6858d04ebae2))
+
 ## [1.29.0](https://github.com/windmill-labs/windmill/compare/v1.28.1...v1.29.0) (2022-08-10)
 
 
