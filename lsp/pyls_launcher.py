@@ -76,10 +76,11 @@ class DenoLS(LanguageServerWebSocketHandler):
 
 
 if __name__ == "__main__":
+    port = int(os.environ.get("PORT", "3001"))
     app = web.Application([
         (r"/ws/pyright", PyrightLS),
         (r"/ws/black", DiagnosticLS),
         (r"/ws/deno", DenoLS),
     ])
-    app.listen(3001, address="0.0.0.0")
+    app.listen(port, address="0.0.0.0")
     ioloop.IOLoop.current().start()
