@@ -213,7 +213,7 @@ the following format:
 }
 ```
 
-and mount it at `/src/usr/app/oauth.json`.
+and mount it at `/usr/src/app/oauth.json`.
 
 For instance with github, it is enough to create a Github OAuth app with
 callback: `https://<yourinstance>/api/oauth/login_callback/github` and use for

@@ -21,12 +21,10 @@ BEGIN
         TO windmill_user;
 
         ALTER DEFAULT PRIVILEGES 
-            FOR ROLE windmill_user
             IN SCHEMA public
             GRANT ALL ON TABLES TO windmill_user;
 
         ALTER DEFAULT PRIVILEGES 
-            FOR ROLE windmill_user
             IN SCHEMA public
             GRANT ALL ON SEQUENCES TO windmill_user;
 
@@ -53,12 +51,10 @@ BEGIN
         TO windmill_admin;
 
         ALTER DEFAULT PRIVILEGES 
-            FOR ROLE windmill_admin
             IN SCHEMA public
             GRANT ALL ON TABLES TO windmill_admin;
 
         ALTER DEFAULT PRIVILEGES 
-            FOR ROLE windmill_admin
             IN SCHEMA public
             GRANT ALL ON SEQUENCES TO windmill_admin;
     END IF;
