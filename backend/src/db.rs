@@ -51,7 +51,7 @@ impl UserDB {
             "windmill_user"
         };
 
-        sqlx::query(&format!("SET LOCAL SESSION AUTHORIZATION {}", user))
+        sqlx::query(&format!("SET LOCAL ROLE {}", user))
             .execute(&mut tx)
             .await?;
 
