@@ -130,7 +130,7 @@
 						bind:error={pathError}
 						bind:path
 						{initialPath}
-						namePlaceholder="my/resource"
+						namePlaceholder="my_resource"
 						kind="resource"
 					>
 						<div slot="ownerToolkit">

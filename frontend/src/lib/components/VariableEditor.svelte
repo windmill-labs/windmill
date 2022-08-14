@@ -128,7 +128,7 @@
 					bind:error={pathError}
 					bind:path
 					{initialPath}
-					namePlaceholder="my/variable"
+					namePlaceholder="my_variable"
 					kind="variable"
 				/>
 			</div>
