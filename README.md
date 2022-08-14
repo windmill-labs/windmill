@@ -206,13 +206,19 @@ the following format:
 
 ```json
 {
-  "<client>":
+  "<client>": {
     "id": "<CLIENT_ID>",
     "secret": "<CLIENT_SECRET>"
+  }
 }
 ```
 
 and mount it at `/src/usr/app/oauth.json`.
+
+For instance with github, it is enough to create a Github OAuth app with
+callback: `https://<yourinstance>/api/oauth/login_callback/github` and use for
+`<client>`, `github` in the oauth.json mentionned before mounted at the correct
+path.
 
 You will also want to import all the approved resource types from
 [WindmillHub](https://hub.windmill.dev).
