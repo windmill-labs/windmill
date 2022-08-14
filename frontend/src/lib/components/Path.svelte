@@ -106,10 +106,10 @@
 
 	function validateName(meta: Meta): boolean {
 		if (meta.name == undefined || meta.name == '') {
-			error = 'choose a name'
+			error = 'Choose a name'
 			return false
 		} else if (!/^[\w-]+(\/[\w-]+)*$/.test(meta.name)) {
-			error = 'This name is not valid.'
+			error = 'This name is not valid'
 			return false
 		} else {
 			return true
@@ -177,6 +177,7 @@
 			<span class="text-gray-700 text-sm">Name<span class="text-red-600 text-sm">*</span></span>
 			<input
 				autofocus
+				autocomplete="off"
 				bind:value={meta.name}
 				placeholder={namePlaceholder}
 				class={error === ''

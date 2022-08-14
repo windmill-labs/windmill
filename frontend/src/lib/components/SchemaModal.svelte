@@ -86,17 +86,33 @@
 	$: if (property.selectedType == 'object' && resource_type) {
 		property.format = resource_type ? `$res:${resource_type}` : undefined
 	}
+
+	$: if (property.name == '') {
+		error = 'Name is required'
+	} else {
+		error = ''
+	}
 </script>
 
 <Modal bind:this={modal} on:close={clearModal}>
 	<div slot="title">Add an argument</div>
 	<div slot="content">
 		<div class="flex flex-col px-6 py-3 bg-gray-50">
-			<div class="text-purple-500 text-2xs grow">{error}</div>
-			<label class="mb-2 font-semibold text-gray-700"
+			<label class="font-semibold text-gray-700"
 				>Name<Required required={true} />
-				<input type="text" placeholder="Argument name" class="" bind:value={property.name} />
+				<input
+					autofocus
+					autocomplete="off"
+					type="text"
+					placeholder="name"
+					bind:value={property.name}
+					class={error === ''
+						? ''
+						: 'border border-red-700 bg-red-100 border-opacity-30 focus:border-red-700 focus:border-opacity-30 focus-visible:ring-red-700 focus-visible:ring-opacity-25 focus-visible:border-red-700'}
+				/>
 			</label>
+			<div class="mb-2 text-purple-500 text-2xs">{error}</div>
+
 			<label class="mb-2 font-semibold text-gray-700">
 				Description
 				<textarea
@@ -167,6 +183,7 @@
 	</div>
 
 	<button
+		disabled={!property.name || !property.selectedType || error != ''}
 		slot="submission"
 		class="px-4 py-2 text-white font-semibold bg-blue-500 rounded"
 		on:click={() => {
