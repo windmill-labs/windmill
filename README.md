@@ -224,8 +224,9 @@ welcome contributions!
 ### Resource types
 
 You will also want to import all the approved resource types from
-[WindmillHub](https://hub.windmill.dev). There is no automatic way to do that
-but it will be this will be made a one-command install with our coming CLI.
+[WindmillHub](https://hub.windmill.dev). There is no automatic way to do this
+automatically currently, but it will be possible using a command with the
+upcoming CLI tool.
 
 ## Run a local dev setup
 
