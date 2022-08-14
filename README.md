@@ -199,7 +199,7 @@ your current infrastructure to Windmill, support with tight SLA, audit logs
 export features, SSO, unlimited users creation, advanced permissioning features
 such as groups and the ability to create more than one workspace.
 
-### OAuth for self-hosting
+### OAuth for self-hosting (very optional)
 
 To get the same oauth integrations as Windmill Cloud, mount `oauth.json` with
 the following format:
@@ -215,13 +215,17 @@ the following format:
 
 and mount it at `/usr/src/app/oauth.json`.
 
-For instance with github, it is enough to create a Github OAuth app with
-callback: `https://<yourinstance>/api/oauth/login_callback/github` and use for
-`<client>`, `github` in the oauth.json mentionned before mounted at the correct
-path.
+[The list of all possible "connect an app" oauth clients](https://github.com/windmill-labs/windmill/blob/main/backend/oauth_connect.json)
+
+To add more "connect an app" OAuth clients to the Windmill project, read the
+[Contributor's guide](https://docs.windmill.dev/docs/contributors_guide). We
+welcome contributions!
+
+### Resource types
 
 You will also want to import all the approved resource types from
-[WindmillHub](https://hub.windmill.dev).
+[WindmillHub](https://hub.windmill.dev). There is no automatic way to do that
+but it will be this will be made a one-command install with our coming CLI.
 
 ## Run a local dev setup
 

@@ -49,7 +49,7 @@
 	<input on:keyup={handleKeyUp} placeholder="email" bind:value={email} />
 
 	<Switch class="ml-2" bind:checked={is_super_admin} horizontal={true} label={'admin: '} />
-	<input on:keyup={handleKeyUp} type="password" placeholder="" bind:value={password} />
+	<input on:keyup={handleKeyUp} type="password" placeholder="password" bind:value={password} />
 	<input on:keyup={handleKeyUp} placeholder="name" bind:value={name} />
 	<input on:keyup={handleKeyUp} placeholder="company" bind:value={company} />
 
