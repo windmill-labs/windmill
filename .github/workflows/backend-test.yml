@@ -38,4 +38,4 @@ jobs:
           workspaces: backend -> target
       - name: cargo test
         timeout-minutes: 5
-        run: mkdir frontend/build && cd backend && DATABASE_URL=postgres://admin:changeme@postgres:5432/windmill cargo test
+        run: mkdir frontend/build && cd backend && DATABASE_URL=postgres://postgres:changeme@postgres:5432/windmill cargo test
