@@ -9,8 +9,5 @@ CREATE TABLE workspace_key (
     PRIMARY KEY (workspace_id, kind)
 );
 
-GRANT SELECT ON workspace_key TO app;
-GRANT SELECT ON workspace_key TO admin;
-
 INSERT INTO workspace_key SELECT id as workspace_id, 'cloud' as kind, 'changeme' as key FROM workspace;
 
