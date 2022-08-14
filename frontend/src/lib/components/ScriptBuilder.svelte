@@ -164,7 +164,7 @@
 				bind:error={pathError}
 				bind:path={script.path}
 				{initialPath}
-				namePlaceholder="example/my/script"
+				namePlaceholder="my_script"
 				kind="script"
 			>
 				<div slot="ownerToolkit">
