@@ -132,6 +132,14 @@ Windmill uses nsjail on top of the deno sandboxing. It is production
 multi-tenant grade secure. Do not take our word for it, take
 [fly.io's one](https://fly.io/blog/sandboxing-and-workload-isolation/)
 
+## Security
+
+There is one encryption key per workspace to encrypt the credentials and secrets
+stored in Windmill's K/V store.
+
+In addition, we strongly recommend that you encrypt the whole Postgres database.
+That is what we do at <https://app.windmill.dev>.
+
 ## Performance
 
 The performances are great, as long as you do not exceed the parrallelism of the
