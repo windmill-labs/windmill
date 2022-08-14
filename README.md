@@ -219,6 +219,9 @@ You will also want to import all the approved resource types from
 
 ### only Frontend
 
+This will use the backend of <https://app.windmill.dev> but your own frontend
+with hot-code reloading.
+
 1. Install [caddy](https://caddyserver.com)
 2. Go to `frontend/`:
    1. `npm run install`, `npm run generate-backend-client` then `npm run dev`
@@ -227,17 +230,20 @@ You will also want to import all the approved resource types from
 
 ### Backend + Frontend
 
-1. Install [nsjail](https://github.com/google/nsjail) and have it accessible in
+1. Create a Postgres Database for Windmill and create an admin role inside your
+   Postgres setup.
+2. Install [nsjail](https://github.com/google/nsjail) and have it accessible in
    your PATH
-2. Install deno and python3, have the bins at `/usr/bin/deno` and
+3. Install deno and python3, have the bins at `/usr/bin/deno` and
    `/usr/local/bin/python3`
-3. Install [caddy](https://caddyserver.com)
-4. Install the [lld linker](https://lld.llvm.org/)
-5. Go to `backend/`: `cargo run`
-6. Go to `frontend/`:
+4. Install [caddy](https://caddyserver.com)
+5. Install the [lld linker](https://lld.llvm.org/)
+6. Go to `backend/`:
+   `DATABASE_URL=<DATABASE_URL_TO_YOUR_WINDMILL_DB> RUST_LOG=info cargo run`
+7. Go to `frontend/`:
    1. `npm run install`, `npm run generate-backend-client` then `npm run dev`
    2. In another shell `sudo caddy run --config Caddyfile`
-7. Et voilà, windmill should be available at `http://localhost/`
+8. Et voilà, windmill should be available at `http://localhost/`
 
 ## Contributors
 
