@@ -11,7 +11,6 @@ BEGIN
         LOCK TABLE pg_catalog.pg_roles;
 
         CREATE ROLE windmill_user;
-        GRANT windmill_user TO current_user;
 
         GRANT ALL
         ON ALL TABLES IN SCHEMA public 
@@ -42,7 +41,6 @@ BEGIN
         FROM   pg_catalog.pg_roles
         WHERE  rolname = 'windmill_admin') THEN
         CREATE ROLE windmill_admin WITH BYPASSRLS;
-        GRANT windmill_admin TO current_user;
 
         GRANT ALL
         ON ALL TABLES IN SCHEMA public 
