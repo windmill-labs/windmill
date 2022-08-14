@@ -35,6 +35,8 @@ Open-source and self-hostable alternative to Airplane, Pipedream, Superblocks an
 
 **Roadmap**: <https://github.com/orgs/windmill-labs/projects/2>
 
+**[Self-host instruction](#how-to-self-host)**
+
 You can show your support for the project by starring this repo.
 
 ---
@@ -126,8 +128,8 @@ and much more!
 
 ## Sandboxing and workload isolation
 
-Windmill uses nsjail on top of the deno sandboxing. It is pretty secure. Do not
-take our word for it, take
+Windmill uses nsjail on top of the deno sandboxing. It is production
+multi-tenant grade secure. Do not take our word for it, take
 [fly.io's one](https://fly.io/blog/sandboxing-and-workload-isolation/)
 
 ## Performance
@@ -139,8 +141,14 @@ workers, we are
 ## Architecture
 
 <p align="center">
-<img src="./imgs/architecture.svg">
+
+## Big-picture Architecture
+
 <img src="./imgs/diagram.svg">
+
+## Technical Architecture
+
+<img src="./imgs/architecture.svg">
 
 </p>
 
@@ -162,6 +170,23 @@ Detailed instructions for more complex deployments will come soon. For simpler
 docker based ones, the docker-compose.yml file contains all the necessary
 informations.
 
+### Commercial license
+
+To self-host Windmill, you must respect the terms of the AGPLv3 license which
+you do not need to worry about for personal uses. For business uses, you should
+be fine if you do not re-expose it in any way Windmill to your users and are
+comfortable with AGPLv3.
+
+To re-expose any Windmill parts to your users as a feature of your product, or
+to build a feature on top of Windmill, to comply with AGPLv3 your product must
+be AGPLv3 or you must get a commercial license. Contact us at
+<license@windmill.dev> if you have any doubts.
+
+In addition, a commercial license grants you a dedicated engineer to transition
+your current infrastructure to Windmill, support with tight SLA, audit logs
+export features, SSO, unlimited users creation, advanced permissioning features
+such as groups and the ability to create more than one workspace.
+
 ### OAuth for self-hosting
 
 To get the same oauth integrations as Windmill Cloud, mount `oauth.json` with
@@ -179,6 +204,30 @@ and mount it at `/src/usr/app/oauth.json`.
 
 You will also want to import all the approved resource types from
 [WindmillHub](https://hub.windmill.dev).
+
+## Run a local dev setup
+
+### only Frontend
+
+1. Install [caddy](https://caddyserver.com)
+2. Go to `frontend/`:
+   1. `npm run install`, then `npm run dev`
+   2. In another shell `sudo caddy run --config CaddyfileRemote`
+3. Et voilà, windmill should be available at `http://localhost/`
+
+### Backend + Frontend
+
+1. Install [nsjail](https://github.com/google/nsjail) and have it accessible in
+   your PATH
+2. Install deno and python3, have the bins at `/usr/bin/deno` and
+   `/usr/local/bin/python3`
+3. Install [caddy](https://caddyserver.com)
+4. Install the [lld linker](https://lld.llvm.org/)
+5. Go to `backend/`: `cargo run`
+6. Go to `frontend/`:
+   1. `npm run install`, then `npm run dev`
+   2. In another shell `sudo caddy run --config CaddyfileRemote`
+7. Et voilà, windmill should be available at `http://localhost/`
 
 ## Contributors
 
