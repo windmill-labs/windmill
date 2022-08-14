@@ -126,13 +126,15 @@ and much more!
 - typescript runtime is deno
 - python runtime is python3
 
-## Sandboxing and workload isolation
-
-Windmill uses nsjail on top of the deno sandboxing. It is production
-multi-tenant grade secure. Do not take our word for it, take
-[fly.io's one](https://fly.io/blog/sandboxing-and-workload-isolation/)
-
 ## Security
+
+### Sandboxing and workload isolation
+
+Windmill uses [nsjail](https://github.com/google/nsjail) on top of the deno
+sandboxing. It is production multi-tenant grade secure. Do not take our word for
+it, take [fly.io's one](https://fly.io/blog/sandboxing-and-workload-isolation/)
+
+### Secrets, credentials and sensitive values
 
 There is one encryption key per workspace to encrypt the credentials and secrets
 stored in Windmill's K/V store.
@@ -150,11 +152,11 @@ workers, we are
 
 <p align="center">
 
-## Big-picture Architecture
+### Big-picture Architecture
 
 <img src="./imgs/diagram.svg">
 
-## Technical Architecture
+### Technical Architecture
 
 <img src="./imgs/architecture.svg">
 
@@ -219,7 +221,7 @@ You will also want to import all the approved resource types from
 
 1. Install [caddy](https://caddyserver.com)
 2. Go to `frontend/`:
-   1. `npm run install`, then `npm run dev`
+   1. `npm run install`, `npm run generate-backend-client` then `npm run dev`
    2. In another shell `sudo caddy run --config CaddyfileRemote`
 3. Et voilà, windmill should be available at `http://localhost/`
 
@@ -233,8 +235,8 @@ You will also want to import all the approved resource types from
 4. Install the [lld linker](https://lld.llvm.org/)
 5. Go to `backend/`: `cargo run`
 6. Go to `frontend/`:
-   1. `npm run install`, then `npm run dev`
-   2. In another shell `sudo caddy run --config CaddyfileRemote`
+   1. `npm run install`, `npm run generate-backend-client` then `npm run dev`
+   2. In another shell `sudo caddy run --config Caddyfile`
 7. Et voilà, windmill should be available at `http://localhost/`
 
 ## Contributors
