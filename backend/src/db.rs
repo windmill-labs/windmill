@@ -30,19 +30,6 @@ pub async fn migrate(db: &DB) -> Result<(), Error> {
     Ok(())
 }
 
-pub async fn setup_app_user(db: &DB, password: &str) -> Result<(), Error> {
-    let mut tx = db.begin().await?;
-
-    sqlx::query(&format!("ALTER USER app WITH PASSWORD '{}'", password))
-        .execute(&mut tx)
-        .await?;
-    sqlx::query(&format!("ALTER USER admin WITH PASSWORD '{}'", password))
-        .execute(&mut tx)
-        .await?;
-    tx.commit().await?;
-
-    Ok(())
-}
 #[derive(Clone)]
 pub struct UserDB {
     db: DB,
@@ -58,7 +45,11 @@ impl UserDB {
         authed: &Authed,
     ) -> Result<Transaction<'static, Postgres>, sqlx::Error> {
         let mut tx = self.db.begin().await?;
-        let user = if authed.is_admin { "admin" } else { "app" };
+        let user = if authed.is_admin {
+            "windmill_admin"
+        } else {
+            "windmill_user"
+        };
 
         sqlx::query(&format!("SET LOCAL SESSION AUTHORIZATION {}", user))
             .execute(&mut tx)

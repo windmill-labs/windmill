@@ -7,7 +7,7 @@ services:
     restart: always
     volumes:
       - db_data:/var/lib/postgresql/data
-      - ./init-db.sql:/docker-entrypoint-initdb.d/create_tables.sql
+      # - ./init-db.sql:/docker-entrypoint-initdb.d/create_tables.sql
     ports:
       - 5432:5432
     environment:
@@ -26,14 +26,11 @@ services:
       - 80:8000
     environment:
       - DATABASE_URL=postgres://postgres:${DB_PASSWORD}@db/windmill?sslmode=disable
-      - APP_USER_PASSWORD=changeme
       - BASE_URL=http://localhost
       - BASE_INTERNAL_URL=http://localhost:8000
       - RUST_LOG=info
       - NUM_WORKERS=3
       - RUST_BACKTRACE=1
-      - GITHUB_OAUTH_CLIENT_ID=${GITHUB_OAUTH_CLIENT_ID}
-      - GITHUB_OAUTH_CLIENT_SECRET=${GITHUB_OAUTH_CLIENT_SECRET}
       - DISABLE_NUSER=false
 
     depends_on:

@@ -2,6 +2,68 @@
 create SCHEMA IF NOT exists extensions;
 create extension if not exists "uuid-ossp"      with schema extensions;
 
+DO
+$do$
+BEGIN
+    IF NOT EXISTS (
+        SELECT
+        FROM   pg_catalog.pg_roles
+        WHERE  rolname = 'windmill_user') THEN
+        CREATE ROLE windmill_user;
+
+        GRANT ALL
+        ON ALL TABLES IN SCHEMA public 
+        TO windmill_user;
+
+        GRANT ALL PRIVILEGES 
+        ON ALL SEQUENCES IN SCHEMA public 
+        TO windmill_user;
+
+        ALTER DEFAULT PRIVILEGES 
+            FOR ROLE windmill_user
+            IN SCHEMA public
+            GRANT ALL ON TABLES TO windmill_user;
+
+        ALTER DEFAULT PRIVILEGES 
+            FOR ROLE windmill_user
+            IN SCHEMA public
+            GRANT ALL ON SEQUENCES TO windmill_user;
+
+    END IF;
+END
+$do$;
+
+DO
+$do$
+BEGIN
+    IF NOT EXISTS (
+        SELECT
+        FROM   pg_catalog.pg_roles
+        WHERE  rolname = 'windmill_admin') THEN
+        CREATE ROLE windmill_admin WITH BYPASSRLS;
+
+        GRANT ALL
+        ON ALL TABLES IN SCHEMA public 
+        TO windmill_admin;
+
+        GRANT ALL PRIVILEGES 
+        ON ALL SEQUENCES IN SCHEMA public 
+        TO windmill_admin;
+
+        ALTER DEFAULT PRIVILEGES 
+            FOR ROLE windmill_admin
+            IN SCHEMA public
+            GRANT ALL ON TABLES TO windmill_admin;
+
+        ALTER DEFAULT PRIVILEGES 
+            FOR ROLE windmill_admin
+            IN SCHEMA public
+            GRANT ALL ON SEQUENCES TO windmill_admin;
+    END IF;
+END
+$do$;
+
+
 CREATE TABLE workspace (
     id VARCHAR(50) PRIMARY KEY,
     name VARCHAR(50) NOT NULL,
@@ -423,45 +485,15 @@ USING(audit.username = current_setting('session.user') or current_setting('sessi
 -- USING(current_setting('session.is_admin')::boolean);
 
 
-DO
-$do$
-BEGIN
-   IF NOT EXISTS (
-      SELECT FROM pg_catalog.pg_roles
-      WHERE  rolname = 'app') THEN
-
-      CREATE ROLE app LOGIN PASSWORD 'changeme';
-   END IF;
-END
-$do$;
-
-GRANT SELECT ON audit TO app;
-
-REVOKE ALL
-ON ALL TABLES IN SCHEMA public 
-FROM PUBLIC;
-
-GRANT ALL
-ON ALL TABLES IN SCHEMA public 
-TO admin;
-
-ALTER DEFAULT PRIVILEGES 
-    FOR ROLE admin
-    IN SCHEMA public
-    GRANT ALL ON TABLES TO admin;
-
-
 INSERT INTO usr_to_group
 SELECT workspace_id, 'all', username FROM (SELECT workspace_id, username from usr) as usernames
 ;
 
 DROP POLICY audit_log_see_own on audit;
-GRANT ALL ON audit TO app;
 CREATE POLICY see_own ON audit FOR ALL
 USING (audit.username = current_setting('session.user'));
 
 
-GRANT ALL ON queue TO app;
 ALTER TABLE queue ENABLE ROW LEVEL SECURITY;
 
 CREATE POLICY see_own ON queue FOR ALL
@@ -470,7 +502,6 @@ USING (SPLIT_PART(queue.permissioned_as, '/', 1) = 'u' AND SPLIT_PART(queue.perm
 CREATE POLICY see_member ON queue FOR ALL
 USING (SPLIT_PART(queue.permissioned_as, '/', 1) = 'g' AND SPLIT_PART(queue.permissioned_as, '/', 2) = any(regexp_split_to_array(current_setting('session.groups'), ',')::text[]));
 
-GRANT ALL ON completed_job TO app;
 ALTER TABLE completed_job ENABLE ROW LEVEL SECURITY;
 
 
@@ -482,16 +513,6 @@ USING (SPLIT_PART(completed_job.permissioned_as, '/', 1) = 'u' AND SPLIT_PART(co
 
 CREATE POLICY see_member ON completed_job FOR ALL
 USING (SPLIT_PART(completed_job.permissioned_as, '/', 1) = 'g' AND SPLIT_PART(completed_job.permissioned_as, '/', 2) = any(regexp_split_to_array(current_setting('session.groups'), ',')::text[]));
-
-GRANT SELECT ON pipenv to app;
-GRANT SELECT (email, username, is_admin, workspace_id) ON usr to app;
-
-GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public to app;
-GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public to admin;
-GRANT SELECT, INSERT ON resource_type to app;
-
-GRANT SELECT ON worker_ping to app;
-GRANT SELECT ON worker_ping to admin;
 
 CREATE POLICY schedule ON audit FOR INSERT
 WITH CHECK (audit.username LIKE 'schedule-%');
@@ -508,7 +529,6 @@ $do$
     EXECUTE FORMAT(
       $$
 
-        GRANT ALL ON %1$I TO app;
         ALTER TABLE %1$I ENABLE ROW LEVEL SECURITY;
 
         CREATE POLICY see_starter ON %1$I FOR SELECT
@@ -542,13 +562,11 @@ $do$
   END
 $do$;
 
-GRANT ALL ON group_ TO app;
 ALTER TABLE group_
 ADD COLUMN extra_perms JSONB NOT NULL DEFAULT '{}';
 
 CREATE INDEX group_extra_perms ON group_ USING GIN (extra_perms);
 
-GRANT ALL ON usr_to_group TO app;
 ALTER TABLE usr_to_group ENABLE ROW LEVEL SECURITY;
 
 CREATE POLICY see_extra_perms_user ON usr_to_group FOR ALL
@@ -562,14 +580,3 @@ WITH CHECK (exists(
     SELECT f.* FROM group_ g, jsonb_each_text(g.extra_perms) f 
     WHERE usr_to_group.group_ = g.name AND usr_to_group.workspace_id = g.workspace_id AND SPLIT_PART(key, '/', 1) = 'g' AND key = ANY(regexp_split_to_array(current_setting('session.pgroups'), ',')::text[])
     AND value::boolean));
-
-DO
-$do$
-BEGIN
-   IF NOT EXISTS (
-      SELECT FROM pg_catalog.pg_roles  -- SELECT list can be empty for this
-      WHERE  rolname = 'admin') THEN
-      CREATE ROLE admin WITH BYPASSRLS LOGIN PASSWORD 'changeme';
-   END IF;
-END
-$do$;
