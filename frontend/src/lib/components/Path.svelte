@@ -59,48 +59,48 @@
 	}
 
 	async function validate(meta: Meta, path: string, kind: PathKind) {
-		validateName(meta) && (await validatePath(path, kind))
+		error = ''
+		validateName(meta) && validatePath(path, kind)
 	}
 
 	let validateTimeout: NodeJS.Timeout | undefined = undefined
 
 	async function validatePath(path: string, kind: PathKind): Promise<void> {
-		if (initialPath != '' && initialPath != path) {
-			if (validateTimeout) {
-				clearTimeout(validateTimeout)
+		if (validateTimeout) {
+			clearTimeout(validateTimeout)
+		}
+		validateTimeout = setTimeout(async () => {
+			if ((path == '' || path != initialPath) && (await pathExists(path, kind))) {
+				error = 'path already used'
+			} else if (validateName(meta)) {
+				error = ''
 			}
-			validateTimeout = setTimeout(async () => {
-				if (
-					initialPath != '' &&
-					initialPath != path &&
-					((kind == 'flow' &&
-						(await FlowService.existsFlowByPath({ workspace: $workspaceStore!, path: path }))) ||
-						(kind == 'script' &&
-							(await ScriptService.existsScriptByPath({
-								workspace: $workspaceStore!,
-								path: path
-							}))) ||
-						(kind == 'resource' &&
-							(await ResourceService.existsResource({
-								workspace: $workspaceStore!,
-								path: path
-							}))) ||
-						(kind == 'variable' &&
-							(await VariableService.existsVariable({
-								workspace: $workspaceStore!,
-								path: path
-							}))) ||
-						(kind == 'schedule' &&
-							(await ScheduleService.existsSchedule({ workspace: $workspaceStore!, path: path }))))
-				) {
-					error = 'path already used'
-				} else if (validateName(meta)) {
-					error = ''
-				}
-				validateTimeout = undefined
-			}, 500)
+			validateTimeout = undefined
+		}, 500)
+	}
+
+	async function pathExists(path: string, kind: PathKind): Promise<boolean> {
+		if (kind == 'flow') {
+			return await FlowService.existsFlowByPath({ workspace: $workspaceStore!, path: path })
+		} else if (kind == 'script') {
+			return await ScriptService.existsScriptByPath({
+				workspace: $workspaceStore!,
+				path: path
+			})
+		} else if (kind == 'resource') {
+			return await ResourceService.existsResource({
+				workspace: $workspaceStore!,
+				path: path
+			})
+		} else if (kind == 'variable') {
+			return await VariableService.existsVariable({
+				workspace: $workspaceStore!,
+				path: path
+			})
+		} else if (kind == 'schedule') {
+			return await ScheduleService.existsSchedule({ workspace: $workspaceStore!, path: path })
 		} else {
-			error = ''
+			return false
 		}
 	}
 
