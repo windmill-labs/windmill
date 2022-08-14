@@ -267,12 +267,6 @@ CREATE TABLE password (
     company VARCHAR(30)
 );
 
--- CREATE TABLE invite_code (
---     code VARCHAR(20) PRIMARY KEY,
---     seats_left INTEGER NOT NULL DEFAULT 0,
---     seats_given INTEGER NOT NULL DEFAULT 1
--- );
-
 
 CREATE TABLE workspace_settings (
     workspace_id VARCHAR(50) PRIMARY KEY REFERENCES workspace(id),
@@ -338,17 +332,6 @@ CREATE TABLE variable (
     PRIMARY KEY (workspace_id, path),
     CONSTRAINT proper_id CHECK (path ~ '^[ug](\/[\w-]+){2,}$')
 );
-
--- CREATE TABLE oauth(
---     id VARCHAR(150) NOT NULL PRIMARY KEY,
---     owner VARCHAR(50),
---     workspace_id VARCHAR(50) NOT NULL REFERENCES workspace(id),
---     type VARCHAR(50) NOT NULL,
---     refresh_token VARCHAR(255), 
---     access_token VARCHAR(255) NOT NULL
--- );
-
--- CREATE INDEX index_oauth ON oauth (workspace_id, type, owner);
 
 CREATE TYPE ACTION_KIND AS ENUM ('create', 'update', 'delete', 'execute');
 
@@ -482,7 +465,6 @@ CREATE INDEX worker_ping_on_ping_at ON worker_ping (ping_at);
 ALTER TABLE audit ENABLE ROW LEVEL SECURITY;
 CREATE POLICY audit_log_see_own ON audit FOR SELECT
 USING(audit.username = current_setting('session.user') or current_setting('session.is_admin')::boolean);
--- USING(current_setting('session.is_admin')::boolean);
 
 
 INSERT INTO usr_to_group
