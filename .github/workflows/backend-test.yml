@@ -24,7 +24,6 @@ jobs:
         image: postgres
         env:
           POSTGRES_DB: windmill
-          POSTGRES_USER: admin
           POSTGRES_PASSWORD: changeme
 
         options: >-
