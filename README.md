@@ -164,6 +164,12 @@ workers, we are
 
 ## How to self-host
 
+We only provide docker-compose setup here. For more advanced setups, like
+compiling from source or using without a postgres super user, see
+[documentation](https://docs.windmill.dev/docs/how-tos/self_host)
+
+### Docker compose
+
 `docker compose up` with the following docker-compose is sufficient:
 <https://github.com/windmill-labs/windmill/blob/main/docker-compose.yml>
 
@@ -175,10 +181,6 @@ To disable nsjail altogether, set `DISABLE_NSJAIL=true`.
 The default super-admin user is: admin@windmill.dev / changeme
 
 From there, you can create other users (do not forget to change the password!)
-
-Detailed instructions for more complex deployments will come soon. For simpler
-docker based ones, the docker-compose.yml file contains all the necessary
-informations.
 
 ### Commercial license
 
