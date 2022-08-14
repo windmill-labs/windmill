@@ -70,10 +70,7 @@ pub const DEFAULT_SLEEP_QUEUE: u64 = 50;
 pub const DEFAULT_MAX_CONNECTIONS: u32 = 100;
 
 pub async fn migrate_db(db: &DB) -> anyhow::Result<()> {
-    let app_password = std::env::var("APP_USER_PASSWORD").unwrap_or_else(|_| "changeme".to_owned());
-
     db::migrate(db).await?;
-    db::setup_app_user(db, &app_password).await?;
     Ok(())
 }
 
