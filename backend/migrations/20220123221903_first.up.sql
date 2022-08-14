@@ -2,14 +2,18 @@
 create SCHEMA IF NOT exists extensions;
 create extension if not exists "uuid-ossp"      with schema extensions;
 
-LOCK TABLE pg_catalog.pg_roles;
 DO
 $do$
 BEGIN
-    IF NOT EXISTS (
+    IF EXISTS (
+        select usesuper from pg_user where usename = CURRENT_USER AND usesuper = 't') 
+    AND NOT EXISTS (
         SELECT
         FROM   pg_catalog.pg_roles
         WHERE  rolname = 'windmill_user') THEN
+
+        LOCK TABLE pg_catalog.pg_roles;
+
         CREATE ROLE windmill_user;
 
         GRANT ALL
@@ -37,7 +41,8 @@ $do$;
 DO
 $do$
 BEGIN
-    IF NOT EXISTS (
+    IF EXISTS (select usesuper from pg_user where usename = CURRENT_USER AND usesuper = 't')
+    AND NOT EXISTS (
         SELECT
         FROM   pg_catalog.pg_roles
         WHERE  rolname = 'windmill_admin') THEN
