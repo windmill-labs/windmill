@@ -2,6 +2,7 @@
 create SCHEMA IF NOT exists extensions;
 create extension if not exists "uuid-ossp"      with schema extensions;
 
+LOCK TABLE pg_catalog.pg_roles;
 DO
 $do$
 BEGIN
