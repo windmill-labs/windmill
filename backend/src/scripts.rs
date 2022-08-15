@@ -14,7 +14,7 @@ use crate::{
     audit::{audit_log, ActionKind},
     db::{UserDB, DB},
     error::{to_anyhow, Error, JsonResult, Result},
-    jobs, parser,
+    jobs, parser, parser_py, parser_ts,
     users::{owner_to_token_owner, truncate_token, Authed, Tokened},
     utils::{http_get_from_hub, list_elems_from_hub, require_admin, Pagination, StripPath},
 };
@@ -426,7 +426,7 @@ async fn create_script(
     .await?;
 
     let mut tx = if ns.lock.is_none() && ns.language == ScriptLang::Python3 {
-        let dependencies = parser::parse_python_imports(&ns.content)?;
+        let dependencies = parser_py::parse_python_imports(&ns.content)?;
         let (_, tx) = jobs::push(
             tx,
             &w_id,
@@ -713,13 +713,13 @@ async fn delete_script_by_hash(
 async fn parse_python_code_to_jsonschema(
     Json(code): Json<String>,
 ) -> JsonResult<parser::MainArgSignature> {
-    parser::parse_python_signature(&code).map(Json)
+    parser_py::parse_python_signature(&code).map(Json)
 }
 
 async fn parse_deno_code_to_jsonschema(
     Json(code): Json<String>,
 ) -> JsonResult<parser::MainArgSignature> {
-    parser::parse_deno_signature(&code).map(Json)
+    parser_ts::parse_deno_signature(&code).map(Json)
 }
 
 pub fn to_i64(s: &str) -> Result<i64> {

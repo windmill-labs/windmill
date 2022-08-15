@@ -170,6 +170,7 @@
 				bind:format={schema.properties[argName].format}
 				contentEncoding={schema.properties[argName].contentEncoding}
 				bind:itemsType={schema.properties[argName].items}
+				properties={schema.properties[argName].properties}
 				displayHeader={false}
 				bind:inputCat={inputCats[argName]}
 				on:input={(e) => {

@@ -35,6 +35,8 @@ mod jobs;
 mod js_eval;
 mod oauth2;
 mod parser;
+mod parser_py;
+mod parser_ts;
 mod resources;
 mod schedule;
 mod scripts;
@@ -68,10 +70,7 @@ pub const DEFAULT_SLEEP_QUEUE: u64 = 50;
 pub const DEFAULT_MAX_CONNECTIONS: u32 = 100;
 
 pub async fn migrate_db(db: &DB) -> anyhow::Result<()> {
-    let app_password = std::env::var("APP_USER_PASSWORD").unwrap_or_else(|_| "changeme".to_owned());
-
     db::migrate(db).await?;
-    db::setup_app_user(db, &app_password).await?;
     Ok(())
 }
 
@@ -88,7 +87,7 @@ pub async fn connect_db() -> anyhow::Result<DB> {
 }
 
 struct BaseUrl(String);
-
+struct IsSecure(bool);
 struct CloudHosted(bool);
 
 pub async fn run_server(
@@ -127,6 +126,9 @@ pub async fn run_server(
         .layer(Extension(Arc::new(BaseUrl(base_url.to_string()))))
         .layer(Extension(Arc::new(CloudHosted(
             std::env::var("CLOUD_HOSTED").is_ok(),
+        ))))
+        .layer(Extension(Arc::new(IsSecure(
+            base_url.starts_with("https://"),
         ))))
         .layer(Extension(http_client))
         .layer(CookieManagerLayer::new());

@@ -122,7 +122,7 @@
 				bind:error={pathError}
 				bind:path
 				{initialPath}
-				namePlaceholder={'my/schedule'}
+				namePlaceholder={'my_schedule'}
 				kind="schedule"
 			>
 				<div slot="ownerToolkit">

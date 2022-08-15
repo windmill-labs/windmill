@@ -24,7 +24,6 @@ jobs:
         image: postgres
         env:
           POSTGRES_DB: windmill
-          POSTGRES_USER: admin
           POSTGRES_PASSWORD: changeme
 
         options: >-
@@ -37,7 +36,6 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: backend -> target
-      - run: psql postgres://admin:changeme@postgres:5432/windmill -c "CREATE ROLE app LOGIN PASSWORD 'changeme';"
       - name: cargo test
         timeout-minutes: 5
-        run: mkdir frontend/build && cd backend && DATABASE_URL=postgres://admin:changeme@postgres:5432/windmill cargo test
+        run: mkdir frontend/build && cd backend && DATABASE_URL=postgres://postgres:changeme@postgres:5432/windmill cargo test

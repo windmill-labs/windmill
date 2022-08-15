@@ -24,7 +24,8 @@ use crate::{
         add_completed_job, add_completed_job_error, get_queued_job, postprocess_queued_job, pull,
         JobKind, QueuedJob,
     },
-    parser::{self, Typ},
+    parser::Typ,
+    parser_py,
     scripts::{ScriptHash, ScriptLang},
     users::{create_token_for_owner, get_email_from_username},
     variables,
@@ -72,6 +73,7 @@ pub async fn run_worker(
     base_url: &str,
     disable_nuser: bool,
     disable_nsjail: bool,
+
     mut rx: tokio::sync::broadcast::Receiver<()>,
 ) {
     let worker_dir = format!("{TMP_DIR}/{worker_name}");
@@ -124,6 +126,12 @@ pub async fn run_worker(
 
     let mut jobs_executed = 0;
 
+    let deno_path = std::env::var("DENO_PATH").unwrap_or_else(|_| "/usr/bin/deno".to_string());
+    let python_path =
+        std::env::var("PYTHON_PATH").unwrap_or_else(|_| "/usr/local/bin/python3".to_string());
+    let nsjail_path = std::env::var("NSJAIL_PATH").unwrap_or_else(|_| "nsjail".to_string());
+    let path_env = std::env::var("PATH").unwrap_or_else(|_| String::new());
+
     loop {
         if last_ping.elapsed().as_secs() > NUM_SECS_ENV_CHECK {
             sqlx::query!(
@@ -167,6 +175,10 @@ pub async fn run_worker(
                     disable_nuser,
                     disable_nsjail,
                     &metrics,
+                    &deno_path,
+                    &python_path,
+                    &nsjail_path,
+                    &path_env,
                 )
                 .await
                 .err()
@@ -270,6 +282,10 @@ async fn handle_queued_job(
     disable_nuser: bool,
     disable_nsjail: bool,
     metrics: &Metrics,
+    deno_path: &str,
+    python_path: &str,
+    nsjail_path: &str,
+    path_env: &str,
 ) -> crate::error::Result<()> {
     let job_id = job.id;
     let w_id = &job.workspace_id.clone();
@@ -309,6 +325,10 @@ async fn handle_queued_job(
                 base_url,
                 disable_nuser,
                 disable_nsjail,
+                deno_path,
+                python_path,
+                nsjail_path,
+                path_env,
             )
             .await;
 
@@ -408,6 +428,10 @@ async fn handle_job(
     base_url: &str,
     disable_nuser: bool,
     disable_nsjail: bool,
+    deno_path: &str,
+    python_path: &str,
+    nsjail_path: &str,
+    path_env: &str,
 ) -> Result<serde_json::Value, Error> {
     tracing::info!(
         worker = %worker_name,
@@ -442,6 +466,10 @@ async fn handle_job(
             last_line,
             timeout,
             base_url,
+            deno_path,
+            python_path,
+            nsjail_path,
+            path_env,
         )
         .await?;
     }
@@ -486,6 +514,10 @@ async fn handle_nondep_job(
     last_line: &mut String,
     timeout: i32,
     base_url: &str,
+    deno_path: &str,
+    python_path: &str,
+    nsjail_path: &str,
+    path_env: &str,
 ) -> Result<(), Error> {
     let (inner_content, requirements_o, language) = if matches!(job.job_kind, JobKind::Preview)
         || matches!(job.job_kind, JobKind::Script_Hub)
@@ -497,7 +529,7 @@ async fn handle_nondep_job(
             .map(|x| matches!(x, ScriptLang::Python3))
             .unwrap_or(false)
         {
-            Some(parser::parse_python_imports(&code)?.join("\n"))
+            Some(parser_py::parse_python_imports(&code)?.join("\n"))
         } else {
             None
         };
@@ -545,14 +577,14 @@ async fn handle_nondep_job(
                 "started setup python dependencies"
             );
             let child = if !disable_nsjail {
-                Command::new("nsjail")
+                Command::new(nsjail_path)
                     .current_dir(job_dir)
                     .args(vec!["--config", "download.config.proto"])
                     .stdout(Stdio::piped())
                     .stderr(Stdio::piped())
                     .spawn()?
             } else {
-                Command::new("/usr/local/bin/python3")
+                Command::new(python_path)
                     .current_dir(job_dir)
                     .args(vec![
                         "-m",
@@ -588,7 +620,7 @@ async fn handle_nondep_job(
 
                 let _ = write_file(job_dir, "inner.py", &inner_content).await?;
 
-                let sig = crate::parser::parse_python_signature(&inner_content)?;
+                let sig = crate::parser_py::parse_python_signature(&inner_content)?;
                 let transforms = sig
                     .args
                     .into_iter()
@@ -687,15 +719,16 @@ print(res_json)
                     "started python code execution"
                 );
                 let child = if !disable_nuser {
-                    Command::new("nsjail")
+                    Command::new(nsjail_path)
                         .current_dir(job_dir)
                         .env_clear()
                         .envs(reserved_variables)
+                        .env("PATH", path_env)
                         .args(vec![
                             "--config",
                             "run.config.proto",
                             "--",
-                            "/usr/local/bin/python3",
+                            python_path,
                             "-u",
                             "/tmp/main.py",
                         ])
@@ -703,10 +736,11 @@ print(res_json)
                         .stderr(Stdio::piped())
                         .spawn()?
                 } else {
-                    Command::new("/usr/local/bin/python3")
+                    Command::new(python_path)
                         .current_dir(job_dir)
                         .env_clear()
                         .envs(reserved_variables)
+                        .env("PATH", path_env)
                         .args(vec!["-u", "main.py"])
                         .stdout(Stdio::piped())
                         .stderr(Stdio::piped())
@@ -729,7 +763,7 @@ print(res_json)
 
             let _ = write_file(job_dir, "inner.ts", &inner_content).await?;
 
-            let sig = crate::parser::parse_deno_signature(&inner_content)?;
+            let sig = crate::parser_ts::parse_deno_signature(&inner_content)?;
             //             let transforms = sig.args.clone().into_iter().map(|x| match x.typ {
             //     Typ::Bytes => format!("if \"{}\" in kwargs and kwargs[\"{}\"] is not None:\n    kwargs[\"{}\"] = base64.b64decode(kwargs[\"{}\"])\n", x.name, x.name, x.name, x.name),
             //     Typ::Datetime => format!("if \"{}\" in kwargs and kwargs[\"{}\"] is not None:\n    kwargs[\"{}\"] = datetime.strptime(kwargs[\"{}\"], '%Y-%m-%dT%H:%M')\n", x.name, x.name, x.name, x.name),
@@ -807,15 +841,16 @@ run();
                 "started deno code execution"
             );
             let child = if !disable_nsjail {
-                Command::new("nsjail")
+                Command::new(nsjail_path)
                     .current_dir(job_dir)
                     .env_clear()
                     .envs(reserved_variables)
+                    .env("PATH", path_env)
                     .args(vec![
                         "--config",
                         "run.config.proto",
                         "--",
-                        "/usr/bin/deno",
+                        deno_path,
                         "run",
                         "--unstable",
                         "--v8-flags=--max-heap-size=2048",
@@ -826,10 +861,11 @@ run();
                     .stderr(Stdio::piped())
                     .spawn()?
             } else {
-                Command::new("/usr/bin/deno")
+                Command::new(deno_path)
                     .current_dir(job_dir)
                     .env_clear()
                     .envs(reserved_variables)
+                    .env("PATH", path_env)
                     .args(vec![
                         "run",
                         "--unstable",

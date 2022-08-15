@@ -39,31 +39,52 @@ export async function inferArgs(
 }
 
 function argSigToJsonSchemaType(
-	t: string | { resource: string } | { list: string },
+	t: string
+		| { resource: string | null }
+		| { list: string | { str: any } | null }
+		| { str: string[] | null }
+		| { object: { key: string, typ: any }[] },
 	s: SchemaProperty
 ): void {
+	for (const prop of Object.getOwnPropertyNames(s)) {
+		if (prop != "description") {
+			delete s[prop]
+		}
+	}
+
 	if (t === 'int') {
 		s.type = 'integer'
 	} else if (t === 'float') {
 		s.type = 'number'
 	} else if (t === 'bool') {
 		s.type = 'boolean'
-	} else if (t === 'str') {
-		s.type = 'string'
 	} else if (t === 'email') {
 		s.type = 'string'
 		s.format = 'email'
 	} else if (t === 'sql') {
 		s.type = 'string'
 		s.format = 'sql'
-	} else if (t === 'dict') {
-		s.type = 'object'
 	} else if (t === 'bytes') {
 		s.type = 'string'
 		s.contentEncoding = 'base64'
 	} else if (t === 'datetime') {
 		s.type = 'string'
 		s.format = 'date-time'
+	} else if (typeof t !== 'string' && `object` in t) {
+		s.type = 'object'
+		if (t.object) {
+			const properties = {}
+			for (const prop of t.object) {
+				properties[prop.key] = {}
+				argSigToJsonSchemaType(prop.typ, properties[prop.key])
+			}
+			s.properties = properties
+		}
+	} else if (typeof t !== 'string' && `str` in t) {
+		s.type = 'string'
+		if (t.str) {
+			s.enum = t.str
+		}
 	} else if (typeof t !== 'string' && `resource` in t) {
 		s.type = 'object'
 		s.format = `resource-${t.resource}`

@@ -336,8 +336,9 @@
 			</div>
 			<div>
 				<h3>
-					Previous versions of this hash <Tooltip
-						>When you edit a script, a new hash is created and old versions are archived</Tooltip
+					Previous versions of this script <Tooltip
+						>When you edit a script, a new hash is created and the hashes corresponding to the
+						previous versions of this script are archived</Tooltip
 					>
 				</h3>
 				<ul>

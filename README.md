@@ -35,6 +35,8 @@ Open-source and self-hostable alternative to Airplane, Pipedream, Superblocks an
 
 **Roadmap**: <https://github.com/orgs/windmill-labs/projects/2>
 
+**[Self-host instruction](#how-to-self-host)**
+
 You can show your support for the project by starring this repo.
 
 ---
@@ -124,11 +126,21 @@ and much more!
 - typescript runtime is deno
 - python runtime is python3
 
-## Sandboxing and workload isolation
+## Security
 
-Windmill uses nsjail on top of the deno sandboxing. It is pretty secure. Do not
-take our word for it, take
-[fly.io's one](https://fly.io/blog/sandboxing-and-workload-isolation/)
+### Sandboxing and workload isolation
+
+Windmill uses [nsjail](https://github.com/google/nsjail) on top of the deno
+sandboxing. It is production multi-tenant grade secure. Do not take our word for
+it, take [fly.io's one](https://fly.io/blog/sandboxing-and-workload-isolation/)
+
+### Secrets, credentials and sensitive values
+
+There is one encryption key per workspace to encrypt the credentials and secrets
+stored in Windmill's K/V store.
+
+In addition, we strongly recommend that you encrypt the whole Postgres database.
+That is what we do at <https://app.windmill.dev>.
 
 ## Performance
 
@@ -139,12 +151,24 @@ workers, we are
 ## Architecture
 
 <p align="center">
-<img src="./imgs/architecture.svg">
+
+### Big-picture Architecture
+
 <img src="./imgs/diagram.svg">
+
+### Technical Architecture
+
+<img src="./imgs/architecture.svg">
 
 </p>
 
 ## How to self-host
+
+We only provide docker-compose setup here. For more advanced setups, like
+compiling from source or using without a postgres super user, see
+[documentation](https://docs.windmill.dev/docs/how-tos/self_host)
+
+### Docker compose
 
 `docker compose up` with the following docker-compose is sufficient:
 <https://github.com/windmill-labs/windmill/blob/main/docker-compose.yml>
@@ -158,27 +182,81 @@ The default super-admin user is: admin@windmill.dev / changeme
 
 From there, you can create other users (do not forget to change the password!)
 
-Detailed instructions for more complex deployments will come soon. For simpler
-docker based ones, the docker-compose.yml file contains all the necessary
-informations.
+### Commercial license
 
-### OAuth for self-hosting
+To self-host Windmill, you must respect the terms of the AGPLv3 license which
+you do not need to worry about for personal uses. For business uses, you should
+be fine if you do not re-expose it in any way Windmill to your users and are
+comfortable with AGPLv3.
+
+To re-expose any Windmill parts to your users as a feature of your product, or
+to build a feature on top of Windmill, to comply with AGPLv3 your product must
+be AGPLv3 or you must get a commercial license. Contact us at
+<license@windmill.dev> if you have any doubts.
+
+In addition, a commercial license grants you a dedicated engineer to transition
+your current infrastructure to Windmill, support with tight SLA, audit logs
+export features, SSO, unlimited users creation, advanced permissioning features
+such as groups and the ability to create more than one workspace.
+
+### OAuth for self-hosting (very optional)
 
 To get the same oauth integrations as Windmill Cloud, mount `oauth.json` with
 the following format:
 
 ```json
 {
-  "<client>":
+  "<client>": {
     "id": "<CLIENT_ID>",
     "secret": "<CLIENT_SECRET>"
+  }
 }
 ```
 
-and mount it at `/src/usr/app/oauth.json`.
+and mount it at `/usr/src/app/oauth.json`.
+
+[The list of all possible "connect an app" oauth clients](https://github.com/windmill-labs/windmill/blob/main/backend/oauth_connect.json)
+
+To add more "connect an app" OAuth clients to the Windmill project, read the
+[Contributor's guide](https://docs.windmill.dev/docs/contributors_guide). We
+welcome contributions!
+
+### Resource types
 
 You will also want to import all the approved resource types from
-[WindmillHub](https://hub.windmill.dev).
+[WindmillHub](https://hub.windmill.dev). There is no automatic way to do this
+automatically currently, but it will be possible using a command with the
+upcoming CLI tool.
+
+## Run a local dev setup
+
+### only Frontend
+
+This will use the backend of <https://app.windmill.dev> but your own frontend
+with hot-code reloading.
+
+1. Install [caddy](https://caddyserver.com)
+2. Go to `frontend/`:
+   1. `npm run install`, `npm run generate-backend-client` then `npm run dev`
+   2. In another shell `sudo caddy run --config CaddyfileRemote`
+3. Et voilà, windmill should be available at `http://localhost/`
+
+### Backend + Frontend
+
+1. Create a Postgres Database for Windmill and create an admin role inside your
+   Postgres setup.
+2. Install [nsjail](https://github.com/google/nsjail) and have it accessible in
+   your PATH
+3. Install deno and python3, have the bins at `/usr/bin/deno` and
+   `/usr/local/bin/python3`
+4. Install [caddy](https://caddyserver.com)
+5. Install the [lld linker](https://lld.llvm.org/)
+6. Go to `backend/`:
+   `DATABASE_URL=<DATABASE_URL_TO_YOUR_WINDMILL_DB> RUST_LOG=info cargo run`
+7. Go to `frontend/`:
+   1. `npm run install`, `npm run generate-backend-client` then `npm run dev`
+   2. In another shell `sudo caddy run --config Caddyfile`
+8. Et voilà, windmill should be available at `http://localhost/`
 
 ## Contributors
 
