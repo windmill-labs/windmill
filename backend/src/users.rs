@@ -13,6 +13,7 @@ use crate::{
     db::{UserDB, DB},
     error::{self, Error, JsonResult, Result},
     utils::{require_admin, require_super_admin, Pagination},
+    IsSecure,
 };
 use argon2::{password_hash::SaltString, Argon2, PasswordHash, PasswordHasher, PasswordVerifier};
 use axum::{
@@ -1228,6 +1229,7 @@ async fn login(
     cookies: Cookies,
     Extension(db): Extension<DB>,
     Extension(argon2): Extension<Arc<Argon2<'_>>>,
+    Extension(is_secure): Extension<Arc<IsSecure>>,
     Json(Login { email, password }): Json<Login>,
 ) -> Result<String> {
     let mut tx = db.begin().await?;
@@ -1249,7 +1251,8 @@ async fn login(
         {
             Err(Error::BadRequest("Invalid login".to_string()))
         } else {
-            let token = create_session_token(&email, super_admin, &mut tx, cookies).await?;
+            let token =
+                create_session_token(&email, super_admin, &mut tx, cookies, is_secure.0).await?;
             tx.commit().await?;
             Ok(token)
         }
@@ -1263,6 +1266,7 @@ pub async fn create_session_token<'c>(
     super_admin: bool,
     tx: &mut sqlx::Transaction<'c, sqlx::Postgres>,
     cookies: Cookies,
+    is_secure: bool,
 ) -> Result<String> {
     let token = gen_token();
     sqlx::query!(
@@ -1278,7 +1282,7 @@ pub async fn create_session_token<'c>(
     .execute(tx)
     .await?;
     let mut cookie = Cookie::new(COOKIE_NAME, token.clone());
-    cookie.set_secure(true);
+    cookie.set_secure(is_secure);
     cookie.set_path(COOKIE_PATH);
     let mut expire: OffsetDateTime = time::OffsetDateTime::now_utc();
     expire += time::Duration::days(3);

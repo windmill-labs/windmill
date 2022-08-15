@@ -22,6 +22,7 @@ use sqlx::{Postgres, Transaction};
 use tokio::{fs::File, io::AsyncReadExt};
 use tower_cookies::{Cookie, Cookies};
 
+use crate::IsSecure;
 use crate::{
     audit::{audit_log, ActionKind},
     db::{UserDB, DB},
@@ -706,6 +707,7 @@ async fn login_callback(
     Extension(clients): Extension<Arc<AllClients>>,
     Extension(db): Extension<DB>,
     Extension(http_client): Extension<Client>,
+    Extension(is_secure): Extension<Arc<IsSecure>>,
 ) -> error::Result<String> {
     let client = (&clients
         .logins
@@ -731,7 +733,14 @@ async fn login_callback(
         if let Some((email, login_type, super_admin)) = login {
             let login_type = serde_json::json!(login_type);
             if login_type == client_name {
-                crate::users::create_session_token(&email, super_admin, &mut tx, cookies).await?;
+                crate::users::create_session_token(
+                    &email,
+                    super_admin,
+                    &mut tx,
+                    cookies,
+                    is_secure.0,
+                )
+                .await?;
             } else {
                 return Err(error::Error::BadRequest(format!(
                     "an user with the email associated to this login exists but with a different \
@@ -751,7 +760,8 @@ async fn login_callback(
             .bind(user.company)
             .execute(&mut tx)
             .await?;
-            crate::users::create_session_token(&email, false, &mut tx, cookies).await?;
+            crate::users::create_session_token(&email, false, &mut tx, cookies, is_secure.0)
+                .await?;
             audit_log(
                 &mut tx,
                 &email,
