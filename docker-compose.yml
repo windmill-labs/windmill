@@ -32,6 +32,9 @@ services:
       - NUM_WORKERS=3
       - RUST_BACKTRACE=1
       - DISABLE_NUSER=false
+      - DENO_PATH=/usr/bin/deno
+      - PYTHON_PATH=/usr/local/bin/python3
+      - NSJAIL_PATH=nsjail
 
     depends_on:
       db:
