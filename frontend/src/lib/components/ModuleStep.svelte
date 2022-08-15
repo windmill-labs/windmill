@@ -89,6 +89,7 @@
 				{#if shouldPick}
 					<FlowInputs
 						{isTrigger}
+						shouldDisableLoopCreation={indexes.length > 1}
 						on:pick={(e) => apply(pickScript, e.detail.path)}
 						on:new={(e) => apply(createInlineScriptModule, e.detail.language)}
 						on:loop={() => apply(createLoop, null)}

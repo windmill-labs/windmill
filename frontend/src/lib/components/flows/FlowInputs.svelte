@@ -8,6 +8,7 @@
 	import PickScript from './pickers/PickScript.svelte'
 
 	export let isTrigger: boolean
+	export let shouldDisableLoopCreation: boolean = false
 
 	const dispatch = createEventDispatcher()
 </script>
@@ -16,7 +17,8 @@
 	<PickScript {isTrigger} on:pick />
 	<PickHubScript {isTrigger} on:pick />
 	<FlowScriptPicker
-		label={`Create a for-loop here (coming soon)`}
+		label={`Create a for-loop here`}
+		disabled={shouldDisableLoopCreation}
 		icon={faRepeat}
 		iconColor="text-blue-500"
 		on:click={() => dispatch('loop')}

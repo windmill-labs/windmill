@@ -16,6 +16,8 @@ export async function loadFlowModuleSchema(flowModule: FlowModule): Promise<Flow
 	const { input_transform, schema } = await loadSchemaFromModule(flowModule)
 	flowModule.input_transform = input_transform
 
+	debugger
+
 	return { flowModule, schema }
 }
 

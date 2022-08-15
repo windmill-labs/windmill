@@ -13,16 +13,7 @@ export function initFlow(flow: Flow) {
 }
 
 export const isCopyFirstStepSchemaDisabled = derived(flowStore, (flow: Flow | undefined) => {
-	if (flow) {
-		const modules = flow.value.modules
-		const [firstModule] = modules
-
-		return (
-			modules.length === 0 || (firstModule.value.type === 'script' && firstModule.value.path === '')
-		)
-	} else {
-		return true
-	}
+	return false
 })
 
 export async function copyFirstStepSchema() {

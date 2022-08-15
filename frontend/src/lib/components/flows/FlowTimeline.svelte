@@ -154,7 +154,7 @@
 					<span class="relative">
 						<button
 							on:click={() => handleNewModule(index)}
-							class="flex absolute -top-10 -left-12 justify-center items-center bg-white border-2 border-gray-400 w-8 h-8 rounded-full ring-8 ring-white dark:ring-gray-900 dark:bg-${color}-900"
+							class="flex absolute -top-10 -left-12 justify-center items-center bg-white border-2 border-gray-200 w-8 h-8 rounded-full ring-8 ring-white dark:ring-gray-900 dark:bg-${color}-900"
 						>
 							<Icon class="text-gray-400" data={faPlus} />
 						</button>
@@ -186,21 +186,21 @@
 				</li>
 			{/if}
 			{#if flowModuleSchemas.length - 1 === index}
-				<div class="flex flex-col items-center my-8">
-					<Button class="blue-button" on:click={() => handleNewModule(flowModuleSchemas.length)}>
-						<Icon class="text-white mr-2" data={faPlus} />
-						Add step
-					</Button>
-				</div>
+				<button
+					on:click={() => handleNewModule(flowModuleSchemas.length)}
+					class="flex justify-center items-center bg-white border-2 border-gray-200 w-8 h-8 rounded-full ring-8 ring-white dark:ring-gray-900 dark:bg-${color}-900"
+				>
+					<Icon class="text-gray-400" data={faPlus} />
+				</button>
 			{/if}
 		{/each}
 		{#if flowModuleSchemas.length === 0}
-			<div class="flex flex-col items-center my-8">
-				<Button class="blue-button" on:click={() => handleNewModule(0)}>
-					<Icon class="text-white mr-2" data={faPlus} />
-					Add step
-				</Button>
-			</div>
+			<button
+				on:click={() => handleNewModule(0)}
+				class="flex  justify-center items-center bg-white border-2 border-gray-200 w-8 h-8 rounded-full ring-8 ring-white dark:ring-gray-900 dark:bg-${color}-900"
+			>
+				<Icon class="text-gray-400" data={faPlus} />
+			</button>
 		{/if}
 	</ol>
 </div>

@@ -29,7 +29,6 @@
 
 	let jsonSetter: Modal
 	let jsonViewer: Modal
-
 	let jsonValue: string = ''
 </script>
 
