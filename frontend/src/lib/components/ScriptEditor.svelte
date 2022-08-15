@@ -40,7 +40,7 @@
 
 	// Control Editor layout
 	export let viewPreview = true
-	export let previewTab: 'logs' | 'input' | 'output' | 'history' | 'last_save' = 'logs'
+	export let previewTab: 'logs' | 'input' | 'output' | 'history' | 'last_save' = 'input'
 
 	let websocketAlive = { pyright: false, black: false, deno: false }
 
