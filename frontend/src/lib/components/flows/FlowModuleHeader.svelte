@@ -11,13 +11,13 @@
 	import Modal from '../Modal.svelte'
 	import Tooltip from '../Tooltip.svelte'
 	import { removeStep } from './flowState'
+	import { stepOpened } from './stepOpenedStore'
 	import { scrollIntoView } from './utils'
 
 	export let indexes: number[]
 	export let shouldPick = false
 	export let mod: FlowModule
 	export let isTrigger: boolean
-	export let open: number
 
 	let modalViewer: Modal
 	let modalViewerContent = ''
@@ -42,7 +42,14 @@
 	const dispatch = createEventDispatcher()
 </script>
 
-<a href="#module-{indexes.join('-')}" class="grow text-inherit" on:click|preventDefault={scrollTo}>
+<a
+	href="#module-{indexes.join('-')}"
+	on:click={() => {
+		stepOpened.set(indexes.join('-'))
+	}}
+	class="grow text-inherit"
+	on:click|preventDefault={scrollTo}
+>
 	{#if isTrigger}
 		<h3 class="font-bold">
 			Trigger Script

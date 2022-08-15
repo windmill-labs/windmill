@@ -79,21 +79,6 @@ export function getTypeAsString(arg: any): string {
 	return typeof arg
 }
 
-export async function getFirstStepSchema(flow: Flow): Promise<Schema> {
-	const [firstModule] = flow.value.modules
-	if (firstModule.value.type === 'rawscript') {
-		const { language, content } = firstModule.value
-		if (language && content) {
-			const schema = emptySchema()
-			await inferArgs(language, content, schema)
-			return schema
-		}
-	} else if (firstModule.value.type == 'script') {
-		return await loadSchema(firstModule.value.path)
-	}
-	return emptySchema()
-}
-
 export async function createInlineScriptModuleFromPath(path: string): Promise<FlowModuleValue> {
 	const { content, language } = await getScriptByPath(path)
 
@@ -114,6 +99,7 @@ export function scrollIntoView(el: any) {
 		inline: 'nearest'
 	})
 }
+
 export async function loadSchemaFromModule(module: FlowModule): Promise<{
 	input_transform: Record<string, InputTransform>
 	schema: Schema

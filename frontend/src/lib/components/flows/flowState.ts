@@ -2,6 +2,7 @@ import type { Schema } from '$lib/common'
 import type { Flow, FlowModule } from '$lib/gen'
 import { writable } from 'svelte/store'
 import { emptyFlowModuleSchema, loadFlowModuleSchema } from './flowStateUtils'
+import { stepOpened } from './stepOpenedStore'
 
 export type FlowModuleSchema = {
 	flowModule: FlowModule
@@ -39,19 +40,22 @@ export async function flowModulesToFlowState(flowModules: FlowModule[]): Promise
 }
 
 export function flowStateToFlow(flowState: FlowState, flow: Flow): Flow {
-	flow.value.modules = flow.value.modules.map((module, index) => {
-		const correspondingModule = flowState[index].flowModule
-		if (correspondingModule.value.type === 'forloopflow') {
-			correspondingModule.value.value.modules = flowState[index].childFlowModules!.map(
-				(cfm) => cfm.flowModule
-			)
-			module = correspondingModule
-		} else {
-			module = flowState[index].flowModule
+	if (!flowState) {
+		return flow
+	}
+
+	const modules = flowState.map(({ flowModule, childFlowModules }, index) => {
+		const fmv = flowModule.value
+
+		if (fmv.type === 'forloopflow') {
+			fmv.value.modules = childFlowModules!.map((cfm) => cfm.flowModule)
+			flowModule.value = fmv
 		}
 
-		return module
+		return flowModule
 	})
+
+	flow.value.modules = modules
 	return flow
 }
 
@@ -76,6 +80,8 @@ export function addStep(stepIndexes: number[]) {
 
 		return flowState
 	})
+
+	stepOpened.set(stepIndexes.join('-'))
 }
 
 export function removeStep(stepIndexes: number[]) {

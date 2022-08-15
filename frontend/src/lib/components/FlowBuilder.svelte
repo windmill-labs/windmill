@@ -15,12 +15,18 @@
 	import { Breadcrumb, BreadcrumbItem, Button } from 'flowbite-svelte'
 	import { onDestroy, onMount } from 'svelte'
 	import Icon from 'svelte-awesome'
+	import { derived } from 'svelte/store'
 	import { OFFSET } from './CronInput.svelte'
 	import FlowEditor from './FlowEditor.svelte'
 	import FlowPreviewContent from './FlowPreviewContent.svelte'
 	import { flowStateStore, flowStateToFlow, type FlowState } from './flows/flowState'
 	import { flowStore, mode } from './flows/flowStore'
 	import { jobsToResults } from './flows/utils'
+
+	const s3 = derived([flowStateStore, flowStore], ([flowState, flow]) => ({
+		flowState,
+		flow
+	}))
 
 	import ScriptSchema from './ScriptSchema.svelte'
 
@@ -127,12 +133,16 @@
 		goto(`?step=${step}`)
 	}
 
-	flowStateStore.subscribe((flowState: FlowState) => {
-		if (flowState) {
-			const state = encodeState(flowStateToFlow(flowState, $flowStore))
+	/*
+	s3.subscribe(({ flowState, flow }) => {
+		if (flow && flowState) {
+			const state = encodeState(flowStateToFlow(flowState, flow))
+			console.log($page.url)
 			setQueryWithoutLoad($page.url, 'state', state)
+			console.log($page.url)
 		}
 	})
+	*/
 
 	onMount(() => {
 		loadHubScripts()

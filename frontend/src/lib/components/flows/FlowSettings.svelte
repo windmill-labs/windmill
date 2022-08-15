@@ -17,6 +17,7 @@
 	import SchemaForm from './../SchemaForm.svelte'
 	import Toggle from './../Toggle.svelte'
 	import Tooltip from './../Tooltip.svelte'
+	import { stepOpened } from './stepOpenedStore'
 
 	export let pathError = ''
 	export let initialPath: string = ''
@@ -25,7 +26,6 @@
 	export let scheduleArgs: Record<string, any> = {}
 	export let scheduleEnabled = false
 	export let scheduleCron: string = '0 */5 * * *'
-	export let open: number
 
 	let jsonSetter: Modal
 	let jsonViewer: Modal
@@ -44,7 +44,7 @@
 			on:click={() => {
 				Object.assign($flowStore, JSON.parse(jsonValue))
 				initFlow($flowStore)
-				open = -1
+				stepOpened.set(undefined)
 				sendUserToast('OpenFlow imported from JSON')
 				jsonSetter.closeModal()
 			}}

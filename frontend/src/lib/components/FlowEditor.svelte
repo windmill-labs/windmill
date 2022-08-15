@@ -2,12 +2,8 @@
 	import { ScheduleService } from '$lib/gen'
 
 	import { workspaceStore } from '$lib/stores'
-	import { pathIsEmpty } from '$lib/utils'
-	import { faPlus } from '@fortawesome/free-solid-svg-icons'
-	import { Button } from 'flowbite-svelte'
-	import Icon from 'svelte-awesome'
 	import FlowSettings from './flows/FlowSettings.svelte'
-	import { addStep, flowStateStore } from './flows/flowState'
+	import { flowStateStore } from './flows/flowState'
 	import { flowStore } from './flows/flowStore'
 	import FlowTimeline from './flows/FlowTimeline.svelte'
 
@@ -46,13 +42,11 @@
 	$: if ($flowStore && $workspaceStore && initialPath != '') {
 		loadSchedule()
 	}
-
-	let open = 0
 </script>
 
 {#if $flowStateStore}
 	<div class="flex space-y-8 flex-col items-center">
-		<FlowTimeline bind:args={previewArgs} bind:open bind:flowModuleSchemas={$flowStateStore}>
+		<FlowTimeline bind:args={previewArgs} bind:flowModuleSchemas={$flowStateStore}>
 			<div slot="settings">
 				<FlowSettings
 					bind:pathError
@@ -61,21 +55,9 @@
 					{previewArgs}
 					bind:scheduleCron
 					bind:scheduleEnabled
-					bind:open
 				/>
 			</div>
 		</FlowTimeline>
-
-		<Button
-			disabled={pathIsEmpty($flowStore.path)}
-			class="blue-button"
-			on:click={() => {
-				addStep([$flowStateStore?.length + 1])
-			}}
-		>
-			<Icon class="text-white mr-2" data={faPlus} />
-			Add step {pathIsEmpty($flowStore?.path) ? '(pick a name first!)' : ''}
-		</Button>
 	</div>
 {:else}
 	<h3>Loading flow</h3>

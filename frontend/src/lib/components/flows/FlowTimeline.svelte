@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { pathIsEmpty } from '$lib/utils'
+
 	import {
 		faFlag,
 		faFlagCheckered,
@@ -7,6 +9,7 @@
 		faRotate,
 		faSliders
 	} from '@fortawesome/free-solid-svg-icons'
+	import { Button } from 'flowbite-svelte'
 	import Icon from 'svelte-awesome'
 	import { Highlight } from 'svelte-highlight'
 	import typescript from 'svelte-highlight/languages/typescript'
@@ -17,7 +20,6 @@
 
 	// export let flow: Flow
 	export let args: Record<string, any> = {}
-	export let open: number
 	export let flowModuleSchemas: FlowState
 	export let parentIndex: number | undefined = undefined
 
@@ -74,6 +76,12 @@
 		{#each flowModuleSchemas as flowModuleSchema, index}
 			{#if flowModuleSchema.flowModule.value.type === 'forloopflow'}
 				<li class="ml-4 relative">
+					<button
+						on:click={() => handleNewModule(index)}
+						class="flex absolute -top-10 -left-8 justify-center items-center bg-white border-2 border-gray-400 w-8 h-8 rounded-full ring-8 ring-white dark:ring-gray-900 dark:bg-${color}-900"
+					>
+						<Icon class="text-gray-400" data={faPlus} />
+					</button>
 					<div
 						class="p-4 pl-12 mb-4 text-sm font-bold text-orange-700 bg-orange-100 rounded-lg dark:bg-orange-200 dark:text-orange-800"
 						role="alert"
@@ -112,7 +120,6 @@
 					</div>
 					<svelte:self
 						bind:args
-						bind:open
 						bind:flowModuleSchemas={flowModuleSchema.childFlowModules}
 						parentIndex={index}
 					/>
@@ -154,12 +161,11 @@
 						<span
 							class={`flex absolute top-4 -left-12 justify-center items-center w-8 h-8 bg-${color}-200  rounded-full ring-8 ring-white dark:ring-gray-900 dark:bg-${color}-900`}
 						>
-							<span class={`text-${color}-600 dark:text-${color}-400 font-bold text-center`}
-								>{index + 1}</span
-							>
+							<span class={`text-${color}-600 dark:text-${color}-400 font-bold text-center`}>
+								{index + 1}
+							</span>
 						</span>
 						<ModuleStep
-							bind:open
 							bind:mod={flowModuleSchema.flowModule}
 							bind:args
 							indexes={getIndexes(parentIndex, index)}
@@ -179,6 +185,22 @@
 					</span>
 				</li>
 			{/if}
+			{#if flowModuleSchemas.length - 1 === index}
+				<div class="flex flex-col items-center my-8">
+					<Button class="blue-button" on:click={() => handleNewModule(flowModuleSchemas.length)}>
+						<Icon class="text-white mr-2" data={faPlus} />
+						Add step
+					</Button>
+				</div>
+			{/if}
 		{/each}
+		{#if flowModuleSchemas.length === 0}
+			<div class="flex flex-col items-center my-8">
+				<Button class="blue-button" on:click={() => handleNewModule(0)}>
+					<Icon class="text-white mr-2" data={faPlus} />
+					Add step
+				</Button>
+			</div>
+		{/if}
 	</ol>
 </div>

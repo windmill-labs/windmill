@@ -1,7 +1,7 @@
 import { ScriptService, type Flow } from '$lib/gen'
 import { workspaceStore } from '$lib/stores'
 import { derived, get, writable } from 'svelte/store'
-import { getFirstStepSchema } from './utils'
+import { flowStateStore, type FlowState } from './flowState'
 
 export type FlowMode = 'push' | 'pull'
 
@@ -26,12 +26,11 @@ export const isCopyFirstStepSchemaDisabled = derived(flowStore, (flow: Flow | un
 })
 
 export async function copyFirstStepSchema() {
-	const flow = get(flowStore)
-
-	const flowSchema = await getFirstStepSchema(flow)
-
-	flowStore.update((flow: Flow) => {
-		flow.schema = flowSchema
+	const flowState = get(flowStateStore)
+	flowStore.update((flow) => {
+		if (flowState[0].schema) {
+			flow.schema = flowState[0].schema
+		}
 		return flow
 	})
 }
