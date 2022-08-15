@@ -553,7 +553,7 @@ async fn handle_nondep_job(
                     .stderr(Stdio::piped())
                     .spawn()?
             } else {
-                Command::new("/usr/local/bin/python3")
+                Command::new("python3")
                     .current_dir(job_dir)
                     .args(vec![
                         "-m",
@@ -704,7 +704,7 @@ print(res_json)
                         .stderr(Stdio::piped())
                         .spawn()?
                 } else {
-                    Command::new("/usr/local/bin/python3")
+                    Command::new("python3")
                         .current_dir(job_dir)
                         .env_clear()
                         .envs(reserved_variables)
@@ -827,7 +827,7 @@ run();
                     .stderr(Stdio::piped())
                     .spawn()?
             } else {
-                Command::new("/usr/bin/deno")
+                Command::new("deno")
                     .current_dir(job_dir)
                     .env_clear()
                     .envs(reserved_variables)
