@@ -130,6 +130,7 @@ pub async fn run_worker(
     let python_path =
         std::env::var("PYTHON_PATH").unwrap_or_else(|_| "/usr/local/bin/python3".to_string());
     let nsjail_path = std::env::var("NSJAIL_PATH").unwrap_or_else(|_| "nsjail".to_string());
+    let path_env = std::env::var("PATH").unwrap_or_else(|_| String::new());
 
     loop {
         if last_ping.elapsed().as_secs() > NUM_SECS_ENV_CHECK {
@@ -177,6 +178,7 @@ pub async fn run_worker(
                     &deno_path,
                     &python_path,
                     &nsjail_path,
+                    &path_env,
                 )
                 .await
                 .err()
@@ -283,6 +285,7 @@ async fn handle_queued_job(
     deno_path: &str,
     python_path: &str,
     nsjail_path: &str,
+    path_env: &str,
 ) -> crate::error::Result<()> {
     let job_id = job.id;
     let w_id = &job.workspace_id.clone();
@@ -325,6 +328,7 @@ async fn handle_queued_job(
                 deno_path,
                 python_path,
                 nsjail_path,
+                path_env,
             )
             .await;
 
@@ -427,6 +431,7 @@ async fn handle_job(
     deno_path: &str,
     python_path: &str,
     nsjail_path: &str,
+    path_env: &str,
 ) -> Result<serde_json::Value, Error> {
     tracing::info!(
         worker = %worker_name,
@@ -464,6 +469,7 @@ async fn handle_job(
             deno_path,
             python_path,
             nsjail_path,
+            path_env,
         )
         .await?;
     }
@@ -511,6 +517,7 @@ async fn handle_nondep_job(
     deno_path: &str,
     python_path: &str,
     nsjail_path: &str,
+    path_env: &str,
 ) -> Result<(), Error> {
     let (inner_content, requirements_o, language) = if matches!(job.job_kind, JobKind::Preview)
         || matches!(job.job_kind, JobKind::Script_Hub)
@@ -716,6 +723,7 @@ print(res_json)
                         .current_dir(job_dir)
                         .env_clear()
                         .envs(reserved_variables)
+                        .env("PATH", path_env)
                         .args(vec![
                             "--config",
                             "run.config.proto",
@@ -732,6 +740,7 @@ print(res_json)
                         .current_dir(job_dir)
                         .env_clear()
                         .envs(reserved_variables)
+                        .env("PATH", path_env)
                         .args(vec!["-u", "main.py"])
                         .stdout(Stdio::piped())
                         .stderr(Stdio::piped())
@@ -836,6 +845,7 @@ run();
                     .current_dir(job_dir)
                     .env_clear()
                     .envs(reserved_variables)
+                    .env("PATH", path_env)
                     .args(vec![
                         "--config",
                         "run.config.proto",
@@ -855,6 +865,7 @@ run();
                     .current_dir(job_dir)
                     .env_clear()
                     .envs(reserved_variables)
+                    .env("PATH", path_env)
                     .args(vec![
                         "run",
                         "--unstable",
