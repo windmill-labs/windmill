@@ -87,7 +87,7 @@ pub async fn connect_db() -> anyhow::Result<DB> {
 }
 
 struct BaseUrl(String);
-
+struct IsSecure(bool);
 struct CloudHosted(bool);
 
 pub async fn run_server(
@@ -126,6 +126,9 @@ pub async fn run_server(
         .layer(Extension(Arc::new(BaseUrl(base_url.to_string()))))
         .layer(Extension(Arc::new(CloudHosted(
             std::env::var("CLOUD_HOSTED").is_ok(),
+        ))))
+        .layer(Extension(Arc::new(IsSecure(
+            base_url.starts_with("https://"),
         ))))
         .layer(Extension(http_client))
         .layer(CookieManagerLayer::new());
