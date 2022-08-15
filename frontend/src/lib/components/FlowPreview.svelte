@@ -7,6 +7,7 @@
 	import { createEventDispatcher, onDestroy } from 'svelte'
 	import Icon from 'svelte-awesome'
 	import FlowJobResult from './FlowJobResult.svelte'
+	import { flowStateStore, flowStateToFlow } from './flows/flowState'
 	import { runFlowPreview } from './flows/utils'
 	import FlowStatusViewer from './FlowStatusViewer.svelte'
 	import RunForm from './RunForm.svelte'
@@ -36,6 +37,8 @@
 	export async function runPreview(args: any) {
 		viewPreview = true
 		intervalId && clearInterval(intervalId)
+
+		flow = flowStateToFlow($flowStateStore, flow)
 
 		let newFlow: Flow =
 			tab == 'upto' ? truncateFlow(flow) : setInputTransformFromArgs(extractStep(flow), args)

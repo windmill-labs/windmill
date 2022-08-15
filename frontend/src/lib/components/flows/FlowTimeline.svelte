@@ -1,6 +1,4 @@
 <script lang="ts">
-	import { pathIsEmpty } from '$lib/utils'
-
 	import {
 		faFlag,
 		faFlagCheckered,
@@ -9,7 +7,6 @@
 		faRotate,
 		faSliders
 	} from '@fortawesome/free-solid-svg-icons'
-	import { Button } from 'flowbite-svelte'
 	import Icon from 'svelte-awesome'
 	import { Highlight } from 'svelte-highlight'
 	import typescript from 'svelte-highlight/languages/typescript'
@@ -18,7 +15,6 @@
 	import { addStep, type FlowState } from './flowState'
 	import { flowStore } from './flowStore'
 
-	// export let flow: Flow
 	export let args: Record<string, any> = {}
 	export let flowModuleSchemas: FlowState
 	export let parentIndex: number | undefined = undefined
@@ -171,6 +167,7 @@
 							indexes={getIndexes(parentIndex, index)}
 							bind:schema={flowModuleSchema.schema}
 							bind:childFlowModules={flowModuleSchema.childFlowModules}
+							bind:previewResult={flowModuleSchema.previewResult}
 						/>
 						{#if $flowStore?.value.modules.length - 1 === index}
 							<span

@@ -4,11 +4,13 @@ import { writable } from 'svelte/store'
 import { emptyFlowModuleSchema, loadFlowModuleSchema } from './flowStateUtils'
 import { stepOpened } from './stepOpenedStore'
 
+type Result = any
+
 export type FlowModuleSchema = {
 	flowModule: FlowModule
 	schema: Schema
 	childFlowModules?: FlowModuleSchema[]
-	preview_result?: Object
+	previewResults: Array<any>
 }
 
 export type FlowState = FlowModuleSchema[]

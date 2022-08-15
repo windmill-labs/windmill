@@ -1,7 +1,5 @@
 <script lang="ts">
-	import { RawScript, type FlowModule } from '$lib/gen'
-	import { previewResults } from '$lib/stores'
-	import { buildExtraLib, objectToTsType, schemaToTsType } from '$lib/utils'
+	import { Job, RawScript, type Flow, type FlowModule } from '$lib/gen'
 	import { faChevronDown, faChevronUp } from '@fortawesome/free-solid-svg-icons'
 	import Icon from 'svelte-awesome'
 	import Editor from './Editor.svelte'
@@ -17,19 +15,21 @@
 		fork,
 		loadFlowModuleSchema,
 		pickScript,
-		createScriptFromInlineScript
+		createScriptFromInlineScript,
+		getPreviousStepPreviewResults
 	} from './flows/flowStateUtils'
-	import { getPickableProperties, jobsToResults } from './flows/utils'
+	import { jobsToResults } from './flows/utils'
 	import SchemaForm from './SchemaForm.svelte'
 	import type { Schema } from '$lib/common'
-	import type { FlowModuleSchema } from './flows/flowState'
+	import { flowStateStore, type FlowModuleSchema, type FlowState } from './flows/flowState'
 	import { stepOpened } from './flows/stepOpenedStore'
+	import { schemaToObject } from '$lib/utils'
 
 	export let indexes: number[]
 	export let mod: FlowModule
 	export let args: Record<string, any> = {}
 	export let schema: Schema
-
+	export let previewResults: Array<any>
 	export let childFlowModules: FlowModuleSchema[] | undefined
 
 	let editor: Editor
@@ -37,14 +37,37 @@
 	let pickableProperties: Object | undefined = undefined
 	let bigEditor = false
 
+	type PickableProperties = {
+		flow_input?: Object
+		previous_result?: Object
+		step?: Object[]
+	}
+
+	function getPickableProperties(flow: Flow, flowState: FlowState): PickableProperties {
+		const flowInputAsObject = schemaToObject(flow.schema, args)
+
+		const previousStepPreviewResults = getPreviousStepPreviewResults(flowState, indexes)
+
+		if (indexes.length > 1) {
+			flowInputAsObject['iter'] = {
+				value: 'The current value of the iteration as an object',
+				index: 'The current index of the iteration as a number'
+			}
+		}
+
+		const last = previousStepPreviewResults[previousStepPreviewResults.length - 1]
+		return {
+			flow_input: flowInputAsObject,
+			previous_result: last,
+			step: previousStepPreviewResults
+		}
+	}
+
 	const i = indexes[0]
 
 	$: shouldPick = 'path' in mod.value && mod.value.path === '' && !('language' in mod.value)
-	$: pickableProperties = getPickableProperties($flowStore?.schema, args, $previewResults, $mode, i)
-	$: extraLib = buildExtraLib(
-		schemaToTsType($flowStore?.schema),
-		i === 0 ? schemaToTsType($flowStore?.schema) : objectToTsType($previewResults[i])
-	)
+	$: pickableProperties = getPickableProperties($flowStore, $flowStateStore)
+	$: extraLib = ''
 
 	async function apply<T>(fn: (arg: T) => Promise<FlowModuleSchema>, arg: T) {
 		const flowModuleSchema = await fn(arg)
@@ -60,8 +83,29 @@
 		apply(loadFlowModuleSchema, flowModule)
 	}
 
+	function onPreview(jobs: Job[]): void {
+		const results = jobsToResults(jobs)
+
+		if (indexes.length > 0) {
+			flowStateStore.update((flowState) => {
+				const [parentIndex, childIndex] = indexes
+				const last = results[results.length - 1]
+
+				if (childIndex === 0) {
+					flowState[parentIndex].previewResults = [last]
+				} else {
+					flowState[parentIndex].previewResults.splice(childIndex, 0, last)
+				}
+
+				return flowState
+			})
+		}
+
+		previewResults = results
+	}
+
 	// isTrigger should depend on script.is_trigger
-	const isTrigger = $mode === 'pull' && i === 0
+	const isTrigger = $mode === 'pull' && indexes[0] === 0
 
 	$: opened = $stepOpened === indexes.join('-')
 </script>
@@ -146,9 +190,7 @@
 							flow={$flowStore}
 							{i}
 							{schema}
-							on:change={(e) => {
-								previewResults.set(jobsToResults(e.detail))
-							}}
+							on:change={(e) => onPreview(e.detail)}
 						/>
 					</div>
 				{/if}

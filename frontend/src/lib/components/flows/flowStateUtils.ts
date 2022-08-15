@@ -4,21 +4,19 @@ import { initialCode } from '$lib/script_helpers'
 import { userStore, workspaceStore } from '$lib/stores'
 import { emptyModule, emptySchema, getScriptByPath } from '$lib/utils'
 import { get } from 'svelte/store'
-import type { FlowModuleSchema } from './flowState'
+import type { FlowModuleSchema, FlowState } from './flowState'
 import { findNextAvailablePath, flowStore } from './flowStore'
 import { loadSchemaFromModule } from './utils'
 
 export function emptyFlowModuleSchema(): FlowModuleSchema {
-	return { flowModule: emptyModule(), schema: emptySchema() }
+	return { flowModule: emptyModule(), schema: emptySchema(), previewResults: [] }
 }
 
 export async function loadFlowModuleSchema(flowModule: FlowModule): Promise<FlowModuleSchema> {
 	const { input_transform, schema } = await loadSchemaFromModule(flowModule)
 	flowModule.input_transform = input_transform
 
-	debugger
-
-	return { flowModule, schema }
+	return { flowModule, schema, previewResults: [] }
 }
 
 export async function pickScript(path: string): Promise<FlowModuleSchema> {
@@ -62,7 +60,8 @@ export async function createLoop(): Promise<FlowModuleSchema> {
 		flowModule,
 		schema,
 		// By default we add a empty module to the loop
-		childFlowModules: [emptyFlowModuleSchema()]
+		childFlowModules: [emptyFlowModuleSchema()],
+		previewResults: []
 	}
 }
 
@@ -134,4 +133,29 @@ export async function createScriptFromInlineScript({
 	})
 
 	return pickScript(availablePath)
+}
+
+export function getPreviousStepPreviewResults(
+	flowState: FlowState,
+	stepIndexes: number[]
+): Array<any> {
+	const isInsideLoop = stepIndexes.length > 1
+
+	if (isInsideLoop) {
+		const [parentIndex, childIndex] = stepIndexes
+
+		if (childIndex === 0) {
+			return flowState[parentIndex - 1].previewResults
+		} else {
+			return flowState[parentIndex][childIndex - 1].previewResult
+		}
+	} else {
+		const [parentIndex] = stepIndexes
+
+		if (parentIndex === 0) {
+			return []
+		} else {
+			return flowState[parentIndex - 1].previewResults
+		}
+	}
 }
