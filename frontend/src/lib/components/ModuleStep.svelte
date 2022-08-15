@@ -10,29 +10,35 @@
 	import FlowBox from './flows/FlowBox.svelte'
 	import FlowInputs from './flows/FlowInputs.svelte'
 	import FlowModuleHeader from './flows/FlowModuleHeader.svelte'
+	import { flowStore, mode } from './flows/flowStore'
 	import {
 		createInlineScriptModule,
-		flowStore,
-		loadSchema,
-		mode,
+		createLoop,
+		fork,
+		loadFlowModuleSchema,
 		pickScript,
-		schemasStore
-	} from './flows/flowStore'
+		createScriptFromInlineScript
+	} from './flows/flowStateUtils'
 	import { getPickableProperties, jobsToResults } from './flows/utils'
 	import SchemaForm from './SchemaForm.svelte'
+	import type { Schema } from '$lib/common'
+	import type { FlowModuleSchema } from './flows/flowState'
 
 	export let open: number
-	export let i: number
+	export let indexes: number[]
 	export let mod: FlowModule
 	export let args: Record<string, any> = {}
+	export let schema: Schema
+
+	export let childFlowModules: FlowModuleSchema[] | undefined
 
 	let editor: Editor
 	let websocketAlive = { pyright: false, black: false, deno: false }
 	let pickableProperties: Object | undefined = undefined
-
 	let bigEditor = false
 
-	$: schema = $schemasStore[i]
+	const i = indexes[0]
+
 	$: shouldPick = 'path' in mod.value && mod.value.path === '' && !('language' in mod.value)
 	$: pickableProperties = getPickableProperties($flowStore?.schema, args, $previewResults, $mode, i)
 	$: extraLib = buildExtraLib(
@@ -40,77 +46,105 @@
 		i === 0 ? schemaToTsType($flowStore?.schema) : objectToTsType($previewResults[i])
 	)
 
+	async function apply<T>(fn: (arg: T) => Promise<FlowModuleSchema>, arg: T) {
+		const flowModuleSchema = await fn(arg)
+		mod = flowModuleSchema.flowModule
+		schema = flowModuleSchema.schema
+
+		if (flowModuleSchema.childFlowModules) {
+			childFlowModules = flowModuleSchema.childFlowModules
+		}
+	}
+
+	async function reload(fn: FlowModule) {
+		apply(loadFlowModuleSchema, fn)
+	}
+
 	// isTrigger should depend on script.is_trigger
+	const isTrigger = $mode === 'pull' && i === 0
 </script>
 
-<div id="module-{i}">
+<div id="module-{indexes.join('-')}">
 	<FlowBox>
 		<svelte:fragment slot="header">
-			<FlowModuleHeader bind:open {mod} {i} {shouldPick} isTrigger={false} />
+			<FlowModuleHeader
+				bind:open
+				{mod}
+				{indexes}
+				{shouldPick}
+				{isTrigger}
+				on:fork={() => apply(fork, mod)}
+				on:createScriptFromInlineScript={() =>
+					apply(createScriptFromInlineScript, {
+						flowModule: mod,
+						suffix: indexes.join('-'),
+						schema
+					})}
+			/>
 		</svelte:fragment>
 		<div slot="content">
-			{#if open == i}
-				{#if shouldPick}
-					<FlowInputs
-						on:pick={(e) => pickScript(e.detail.path, i)}
-						on:new={(e) => createInlineScriptModule(e.detail.language, i, $mode)}
+			{#if shouldPick}
+				<FlowInputs
+					{isTrigger}
+					on:pick={(e) => apply(pickScript, e.detail.path)}
+					on:new={(e) => apply(createInlineScriptModule, e.detail.language)}
+					on:loop={() => apply(createLoop, null)}
+				/>
+			{/if}
+			{#if mod.value.type === 'rawscript'}
+				<div class="mb-2 overflow-hidden">
+					<EditorBar {editor} {websocketAlive} lang={mod.value.language ?? 'deno'} />
+				</div>
+				<div on:mouseleave={() => reload(mod)}>
+					<Editor
+						bind:websocketAlive
+						bind:this={editor}
+						class="{bigEditor ? 'h-2/3' : 'h-80'} border p-2 rounded"
+						bind:code={mod.value.content}
+						deno={mod.value.language === RawScript.language.DENO}
+						automaticLayout={true}
+						on:blur={() => reload(mod)}
+						formatAction={() => reload(mod)}
 					/>
-				{/if}
-				{#if mod.value.type === 'rawscript'}
-					<div class="mb-2 overflow-hidden">
-						<EditorBar {editor} {websocketAlive} lang={mod.value.language ?? 'deno'} />
-					</div>
-					<div on:mouseleave={() => loadSchema(i)}>
-						<Editor
-							bind:websocketAlive
-							bind:this={editor}
-							class="{bigEditor ? 'h-2/3' : 'h-80'} border p-2 rounded"
-							bind:code={mod.value.content}
-							deno={mod.value.language === RawScript.language.DENO}
-							automaticLayout={true}
-							on:blur={() => loadSchema(i)}
-							formatAction={() => loadSchema(i)}
-						/>
-						<button
-							class="w-full text-center"
-							on:click={() => {
-								bigEditor = !bigEditor
-							}}><Icon data={bigEditor ? faChevronUp : faChevronDown} scale={1.0} /></button
-						>
-					</div>
-					<div class="mt-2 mb-8">
-						<p class="text-gray-500 italic">
-							Move the focus outside of the text editor to recompute the input schema or press
-							Ctrl/Cmd+S
-						</p>
-					</div>
-				{/if}
-				{#if !shouldPick}
-					<p class="text-lg font-bold text-gray-900 mb-2">Step inputs</p>
-					<SchemaForm
-						inputTransform={true}
-						{schema}
-						{extraLib}
-						{i}
-						bind:pickableProperties
-						bind:args={mod.input_transform}
-					/>
-				{/if}
+					<button
+						class="w-full text-center"
+						on:click={() => {
+							bigEditor = !bigEditor
+						}}><Icon data={bigEditor ? faChevronUp : faChevronDown} scale={1.0} /></button
+					>
+				</div>
+				<div class="mt-2 mb-8">
+					<p class="text-gray-500 italic">
+						Move the focus outside of the text editor to recompute the input schema or press
+						Ctrl/Cmd+S
+					</p>
+				</div>
+			{/if}
+			{#if !shouldPick}
+				<p class="text-lg font-bold text-gray-900 mb-2">Step inputs</p>
+				<SchemaForm
+					inputTransform={true}
+					{schema}
+					{extraLib}
+					{i}
+					bind:pickableProperties
+					bind:args={mod.input_transform}
+				/>
+			{/if}
 
-				{#if !shouldPick}
-					<div class="border-b border-gray-200" />
-					<div class="p-3">
-						<FlowPreview
-							bind:args
-							flow={$flowStore}
-							{i}
-							schemas={$schemasStore}
-							on:change={(e) => {
-								previewResults.set(jobsToResults(e.detail))
-							}}
-						/>
-					</div>
-				{/if}
+			{#if !shouldPick}
+				<div class="border-b border-gray-200" />
+				<div class="p-3">
+					<FlowPreview
+						bind:args
+						flow={$flowStore}
+						{i}
+						{schema}
+						on:change={(e) => {
+							previewResults.set(jobsToResults(e.detail))
+						}}
+					/>
+				</div>
 			{/if}
 		</div>
 	</FlowBox>

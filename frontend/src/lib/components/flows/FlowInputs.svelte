@@ -7,19 +7,19 @@
 	import PickHubScript from './pickers/PickHubScript.svelte'
 	import PickScript from './pickers/PickScript.svelte'
 
+	export let isTrigger: boolean
+
 	const dispatch = createEventDispatcher()
 </script>
 
 <div class="columns-2">
-	<PickScript isTrigger={false} on:pick />
-	<PickHubScript isTrigger={false} on:pick />
-	<PickScript isTrigger={true} on:pick />
-	<PickHubScript isTrigger={true} on:pick />
+	<PickScript {isTrigger} on:pick />
+	<PickHubScript {isTrigger} on:pick />
 	<FlowScriptPicker
 		label={`Create a for-loop here (coming soon)`}
-		disabled={true}
 		icon={faRepeat}
 		iconColor="text-blue-500"
+		on:click={() => dispatch('loop')}
 	/>
 
 	<FlowScriptPicker
@@ -30,14 +30,18 @@
 	/>
 
 	<FlowScriptPicker
-		label="New Python  script (3.10)"
+		disabled={isTrigger}
+		label="New Python {isTrigger ? 'trigger ' : ''}script (3.10)"
 		icon={faCode}
 		iconColor="text-green-500"
 		on:click={() => dispatch('new', { language: RawScript.language.PYTHON3 })}
+		tooltip={isTrigger
+			? 'Python is not supported for trigger scripts yet but is supported for every other steps'
+			: undefined}
 	/>
 
 	<FlowScriptPicker
-		label="New Typescript script (Deno)"
+		label="New Typescript {isTrigger ? 'trigger ' : ''}script (Deno)"
 		icon={faCode}
 		iconColor="text-blue-800"
 		on:click={() => dispatch('new', { language: RawScript.language.DENO })}

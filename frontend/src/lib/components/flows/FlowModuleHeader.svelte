@@ -3,20 +3,21 @@
 	import { getScriptByPath } from '$lib/utils'
 	import { faCode, faCodeBranch, faSave, faTrashAlt } from '@fortawesome/free-solid-svg-icons'
 	import { Button } from 'flowbite-svelte'
+	import { createEventDispatcher } from 'svelte'
 	import Icon from 'svelte-awesome'
 	import { Highlight } from 'svelte-highlight'
 	import python from 'svelte-highlight/languages/python'
 	import typescript from 'svelte-highlight/languages/typescript'
 	import Modal from '../Modal.svelte'
 	import Tooltip from '../Tooltip.svelte'
-	import { createScriptFromInlineScript, fork, removeModule } from './flowStore'
+	import { removeStep } from './flowState'
 	import { scrollIntoView } from './utils'
 
-	export let open: number
-	export let i: number
+	export let indexes: number[]
 	export let shouldPick = false
 	export let mod: FlowModule
 	export let isTrigger: boolean
+	export let open: number
 
 	let modalViewer: Modal
 	let modalViewerContent = ''
@@ -37,14 +38,11 @@
 		const el = document.querySelector(target.getAttribute('href'))
 		scrollIntoView(el)
 	}
+
+	const dispatch = createEventDispatcher()
 </script>
 
-<a
-	href="#module-{i}"
-	class="grow text-inherit"
-	on:click={() => (open = i)}
-	on:click|preventDefault={scrollTo}
->
+<a href="#module-{indexes.join('-')}" class="grow text-inherit" on:click|preventDefault={scrollTo}>
 	{#if isTrigger}
 		<h3 class="font-bold">
 			Trigger Script
@@ -70,14 +68,7 @@
 
 <div class="flex flex-row space-x-2">
 	{#if mod.value.type === 'script' && !shouldPick}
-		<Button
-			on:click={() => {
-				open = i
-				fork(i)
-			}}
-			size="sm"
-			color="alternative"
-		>
+		<Button size="sm" color="alternative" on:click={() => dispatch('fork')}>
 			<Icon data={faCodeBranch} class="mr-2" />
 			Fork
 		</Button>
@@ -88,7 +79,7 @@
 	{/if}
 
 	{#if mod.value.type === 'rawscript' && !shouldPick}
-		<Button size="sm" color="alternative" on:click={() => createScriptFromInlineScript(i)}>
+		<Button size="sm" color="alternative" on:click={() => dispatch('createScriptFromInlineScript')}>
 			<Icon data={faSave} class="mr-2" />
 			Save to workspace
 		</Button>
@@ -97,8 +88,7 @@
 		size="sm"
 		color="alternative"
 		on:click={() => {
-			open = -1
-			removeModule(i)
+			removeStep(indexes)
 		}}
 	>
 		<Icon data={faTrashAlt} class="mr-2" />

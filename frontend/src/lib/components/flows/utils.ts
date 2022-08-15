@@ -24,8 +24,15 @@ export function flowToMode(flow: Flow | any, mode: FlowMode): Flow {
 			if (inp.type == 'javascript') {
 				//@ts-ignore
 				inp.value = undefined
-				inp.expr = inp.expr.split('\n')
-					.filter((x) => x != '' && !x.startsWith(`import { previous_result, flow_input, step, variable, resource, params } from 'windmill@`))
+				inp.expr = inp.expr
+					.split('\n')
+					.filter(
+						(x) =>
+							x != '' &&
+							!x.startsWith(
+								`import { previous_result, flow_input, step, variable, resource, params } from 'windmill@`
+							)
+					)
 					.join('\n')
 			} else {
 				//@ts-ignore
@@ -231,19 +238,38 @@ export async function runFlowPreview(args: Record<string, any>, flow: Flow) {
 	})
 }
 function computeFlowInputPull(previewResult: any | undefined, flowInputAsObject: any) {
-	const iteratorValues = (previewResult && Array.isArray(previewResult)) ?
-		{
-			iter: {
-				value: previewResult[0],
-				index: `The current index of the iteration as a number (here from 0 to ${previewResult.length - 1})`
-			}
-		} : {
-			iter: {
-				value: 'The current value of the iteration as an object',
-				index: 'The current index of the iteration as a number'
-			}
-		}
+	const iteratorValues =
+		previewResult && Array.isArray(previewResult)
+			? {
+					iter: {
+						value: previewResult[0],
+						index: `The current index of the iteration as a number (here from 0 to ${
+							previewResult.length - 1
+						})`
+					}
+			  }
+			: {
+					iter: {
+						value: 'The current value of the iteration as an object',
+						index: 'The current index of the iteration as a number'
+					}
+			  }
 	return Object.assign(flowInputAsObject, iteratorValues)
-
 }
 
+export function codeToStaticTemplate(code?: string): string | undefined {
+	if (!code) return undefined
+
+	const lines = code
+		.split('\n')
+		.slice(1)
+		.filter((x) => x != '')
+
+	if (lines.length == 1) {
+		const line = lines[0].trim()
+		if (line[0] == '`' && line.charAt(line.length - 1) == '`') {
+			return line.slice(1, line.length - 1)
+		}
+	}
+	return undefined
+}

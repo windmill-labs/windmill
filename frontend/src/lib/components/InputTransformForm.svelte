@@ -9,8 +9,7 @@
 	import Editor from './Editor.svelte'
 	import FieldHeader from './FieldHeader.svelte'
 	import DynamicInputHelpBox from './flows/DynamicInputHelpBox.svelte'
-	import { codeToStaticTemplate } from './flows/flowStore'
-	import { getDefaultExpr, isCodeInjection } from './flows/utils'
+	import { codeToStaticTemplate, getDefaultExpr, isCodeInjection } from './flows/utils'
 	import OverlayPropertyPicker from './propertyPicker/OverlayPropertyPicker.svelte'
 	import Toggle from './Toggle.svelte'
 

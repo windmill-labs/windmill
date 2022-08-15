@@ -15,7 +15,7 @@
 	const dispatch = createEventDispatcher()
 	export let i: number
 	export let flow: Flow
-	export let schemas: Schema[] = []
+	export let schema: Schema
 
 	export let args: Record<string, any> = {}
 
@@ -55,7 +55,7 @@
 	function extractStep(flow: Flow): Flow {
 		const localFlow = JSON.parse(JSON.stringify(flow))
 		localFlow.value.modules = flow.value.modules.slice(i, i + 1)
-		localFlow.schema = schemas[i]
+		localFlow.schema = schema
 		return localFlow
 	}
 

@@ -1,6 +1,4 @@
 <script lang="ts">
-	import type { FlowModule } from '$lib/gen'
-
 	import {
 		faFlag,
 		faFlagCheckered,
@@ -14,16 +12,30 @@
 	import typescript from 'svelte-highlight/languages/typescript'
 	import ModuleStep from '../ModuleStep.svelte'
 	import FlowInput from './FlowInput.svelte'
-	import { addModule, flowStore } from './flowStore'
+	import { addStep, type FlowState } from './flowState'
+	import { flowStore } from './flowStore'
 
 	// export let flow: Flow
 	export let args: Record<string, any> = {}
 	export let open: number
-	export let modules: FlowModule[]
-	export let root: boolean = true
+	export let flowModuleSchemas: FlowState
+	export let parentIndex: number | undefined = undefined
+
+	const root = parentIndex === undefined
 
 	function handleNewModule(index: number) {
-		addModule(index)
+		addStep(getIndexes(parentIndex, index))
+	}
+
+	function getIndexes(parentIndex: number | undefined, childIndex: number) {
+		const indexes: number[] = []
+
+		if (parentIndex !== undefined && parentIndex >= 0) {
+			indexes.push(parentIndex)
+		}
+		indexes.push(childIndex)
+
+		return indexes
 	}
 
 	const color = root ? 'blue' : 'orange'
@@ -59,8 +71,8 @@
 				<FlowInput />
 			</li>
 		{/if}
-		{#each modules as module, index}
-			{#if module.value.type === 'forloopflow'}
+		{#each flowModuleSchemas as flowModuleSchema, index}
+			{#if flowModuleSchema.flowModule.value.type === 'forloopflow'}
 				<li class="ml-4 relative">
 					<div
 						class="p-4 pl-12 mb-4 text-sm font-bold text-orange-700 bg-orange-100 rounded-lg dark:bg-orange-200 dark:text-orange-800"
@@ -84,10 +96,13 @@
 							Inside a loop, the flow input has an "iter" property. It contains the value and the
 							index of the iteration.
 						</div>
-						{#if module.stop_after_if_expr}
-							<Highlight language={typescript} code={module.stop_after_if_expr} />
+						{#if flowModuleSchema.flowModule.stop_after_if_expr}
+							<Highlight
+								language={typescript}
+								code={flowModuleSchema.flowModule.stop_after_if_expr}
+							/>
 						{/if}
-						{#if module.skip_if_stopped}
+						{#if flowModuleSchema.flowModule.skip_if_stopped}
 							<span
 								class="bg-green-100 text-green-800 text-sm font-medium mr-2 px-2.5 py-0.5 rounded dark:bg-green-200 dark:text-green-900"
 							>
@@ -95,7 +110,12 @@
 							</span>
 						{/if}
 					</div>
-					<svelte:self bind:args bind:open modules={module.value.value.modules} root={false} />
+					<svelte:self
+						bind:args
+						bind:open
+						bind:flowModuleSchemas={flowModuleSchema.childFlowModules}
+						parentIndex={index}
+					/>
 					<span
 						class="flex absolute bottom-3 -left-8 justify-center items-center w-8 h-8 bg-orange-200 rounded-full ring-8 ring-white dark:ring-gray-900 dark:bg-orange-900"
 					>
@@ -138,7 +158,14 @@
 								>{index + 1}</span
 							>
 						</span>
-						<ModuleStep bind:open bind:mod={module} bind:args i={index} />
+						<ModuleStep
+							bind:open
+							bind:mod={flowModuleSchema.flowModule}
+							bind:args
+							indexes={getIndexes(parentIndex, index)}
+							bind:schema={flowModuleSchema.schema}
+							bind:childFlowModules={flowModuleSchema.childFlowModules}
+						/>
 						{#if $flowStore?.value.modules.length - 1 === index}
 							<span
 								class={`flex absolute bottom-0 -left-12 justify-center items-center w-8 h-8 bg-${color}-200 rounded-full ring-8 ring-white dark:ring-gray-900 dark:bg-${color}-900`}

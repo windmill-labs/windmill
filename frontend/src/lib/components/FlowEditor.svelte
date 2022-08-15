@@ -7,9 +7,9 @@
 	import { Button } from 'flowbite-svelte'
 	import Icon from 'svelte-awesome'
 	import FlowSettings from './flows/FlowSettings.svelte'
-	import { addModule, flowStore } from './flows/flowStore'
+	import { addStep, flowStateStore } from './flows/flowState'
+	import { flowStore } from './flows/flowStore'
 	import FlowTimeline from './flows/FlowTimeline.svelte'
-	import { flowToMode } from './flows/utils'
 
 	export let pathError = ''
 	export let initialPath: string = ''
@@ -50,13 +50,9 @@
 	let open = 0
 </script>
 
-{#if $flowStore}
+{#if $flowStateStore}
 	<div class="flex space-y-8 flex-col items-center">
-		<FlowTimeline
-			bind:args={previewArgs}
-			bind:open
-			modules={flowToMode($flowStore, 'pull').value.modules}
-		>
+		<FlowTimeline bind:args={previewArgs} bind:open bind:flowModuleSchemas={$flowStateStore}>
 			<div slot="settings">
 				<FlowSettings
 					bind:pathError
@@ -74,8 +70,7 @@
 			disabled={pathIsEmpty($flowStore.path)}
 			class="blue-button"
 			on:click={() => {
-				addModule()
-				open = $flowStore?.value.modules.length - 1
+				addStep([$flowStateStore?.length + 1])
 			}}
 		>
 			<Icon class="text-white mr-2" data={faPlus} />
