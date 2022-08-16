@@ -128,6 +128,7 @@
 		goto(`?step=${step}`)
 	}
 
+	/*
 	flowStateStore.subscribe((flowState: FlowState) => {
 		if (flowState) {
 			flowStore.update((flow: Flow) => {
@@ -145,10 +146,7 @@
 		}
 	})
 
-	stepOpened.subscribe((insertAt) => {
-		console.log({ insertAt })
-		setTimeout(() => scrollIntoView(document.querySelector(`#module-${insertAt}`)), 100)
-	})
+	*/
 
 	onMount(() => {
 		loadHubScripts()

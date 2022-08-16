@@ -28,11 +28,8 @@
 		flowModuleSchemas.splice(index, 0, emptyFlowModuleSchema())
 		flowModuleSchemas = flowModuleSchemas
 
-		/*
 		const indexes = getIndexes(parentIndex, index)
-
 		stepOpened.update(() => String(indexes.join('-')))
-		*/
 	}
 
 	function removeAtIndex(index: number): void {
@@ -164,7 +161,7 @@
 					</div>
 				</li>
 			{:else}
-				<li id="module-{index}" class="ml-8">
+				<li id="module-{String(getIndexes(parentIndex, index).join('-'))}" class="ml-8">
 					<span class="relative">
 						<button
 							on:click={() => insertAtIndex(index)}
