@@ -41,14 +41,7 @@
 	const dispatch = createEventDispatcher()
 </script>
 
-<a
-	href="#module-{indexes.join('-')}"
-	on:click={() => {
-		stepOpened.set(indexes.join('-'))
-	}}
-	class="grow text-inherit"
-	on:click|preventDefault={scrollTo}
->
+<a href="#module-{indexes.join('-')}" class="grow text-inherit" on:click|preventDefault={scrollTo}>
 	{#if isTrigger}
 		<h3 class="font-bold">
 			Trigger Script

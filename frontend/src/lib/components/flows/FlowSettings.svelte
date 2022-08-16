@@ -43,7 +43,7 @@
 			on:click={() => {
 				Object.assign($flowStore, JSON.parse(jsonValue))
 				initFlow($flowStore)
-				stepOpened.set(undefined)
+				stepOpened.update(() => undefined)
 				sendUserToast('OpenFlow imported from JSON')
 				jsonSetter.closeModal()
 			}}

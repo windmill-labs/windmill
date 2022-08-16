@@ -71,6 +71,7 @@
 
 	async function apply<T>(fn: (arg: T) => Promise<FlowModuleSchema>, arg: T) {
 		const flowModuleSchema = await fn(arg)
+
 		mod = flowModuleSchema.flowModule
 		schema = flowModuleSchema.schema
 
@@ -107,96 +108,101 @@
 	// isTrigger should depend on script.is_trigger
 	const isTrigger = $mode === 'pull' && indexes[0] === 0
 
-	$: opened = $stepOpened === indexes.join('-')
+	$: opened = $stepOpened === String(indexes.join('-'))
 </script>
 
-<div id="module-{indexes.join('-')}">
-	<FlowBox>
-		<svelte:fragment slot="header">
-			<FlowModuleHeader
-				{mod}
-				bind:indexes
-				{shouldPick}
-				{isTrigger}
-				on:delete
-				on:fork={() => apply(fork, mod)}
-				on:createScriptFromInlineScript={() =>
-					apply(createScriptFromInlineScript, {
-						flowModule: mod,
-						suffix: indexes.join('-'),
-						schema
-					})}
-			/>
-		</svelte:fragment>
+<FlowBox>
+	<svelte:fragment slot="header">
+		<FlowModuleHeader
+			{mod}
+			bind:indexes
+			{shouldPick}
+			{isTrigger}
+			on:delete
+			on:fork={() => apply(fork, mod)}
+			on:createScriptFromInlineScript={() => {
+				apply(createScriptFromInlineScript, {
+					flowModule: mod,
+					suffix: indexes.join('-'),
+					schema
+				})
+			}}
+		/>
+	</svelte:fragment>
 
-		<div slot="content">
-			{#if opened}
-				{#if shouldPick}
-					<FlowInputs
-						{isTrigger}
-						shouldDisableLoopCreation={indexes.length > 1 || indexes[0] == 0}
-						on:pick={(e) => apply(pickScript, e.detail.path)}
-						on:new={(e) =>
-							apply(createInlineScriptModule, { language: e.detail.language, isTrigger })}
-						on:loop={() => apply(createLoop, null)}
-					/>
-				{/if}
-				{#if mod.value.type === 'rawscript'}
-					<div class="mb-2 overflow-hidden">
-						<EditorBar {editor} {websocketAlive} lang={mod.value.language ?? 'deno'} />
-					</div>
-					<div on:mouseleave={() => reload(mod)}>
-						<Editor
-							bind:websocketAlive
-							bind:this={editor}
-							class="{bigEditor ? 'h-2/3' : 'h-80'} border p-2 rounded"
-							bind:code={mod.value.content}
-							deno={mod.value.language === RawScript.language.DENO}
-							automaticLayout={true}
-							on:blur={() => reload(mod)}
-							formatAction={() => reload(mod)}
-						/>
-						<button
-							class="w-full text-center"
-							on:click={() => {
-								bigEditor = !bigEditor
-							}}
-						>
-							<Icon data={bigEditor ? faChevronUp : faChevronDown} scale={1.0} />
-						</button>
-					</div>
-					<div class="mt-2 mb-8">
-						<p class="text-gray-500 italic">
-							Move the focus outside of the text editor to recompute the input schema or press
-							Ctrl/Cmd+S
-						</p>
-					</div>
-				{/if}
-				{#if !shouldPick}
-					<p class="text-lg font-bold text-gray-900 mb-2">Step inputs</p>
-					<SchemaForm
-						inputTransform={true}
-						{schema}
-						{extraLib}
-						{i}
-						bind:pickableProperties
-						bind:args={mod.input_transform}
-					/>
-				{/if}
-
-				{#if !shouldPick}
-					<div class="border-b border-gray-200" />
-					<div class="p-3">
-						<FlowPreview
-							bind:args
-							flow={$flowStore}
-							{i}
-							{schema}
-							on:change={(e) => onPreview(e.detail)}
-						/>
-					</div>
-				{/if}
+	<div slot="content">
+		{#if opened}
+			{#if shouldPick}
+				<FlowInputs
+					{isTrigger}
+					shouldDisableLoopCreation={indexes.length > 1 || indexes[0] == 0}
+					on:pick={(e) => apply(pickScript, e.detail.path)}
+					on:new={(e) =>
+						apply(createInlineScriptModule, { language: e.detail.language, isTrigger })}
+					on:loop={() => apply(createLoop, null)}
+				/>
 			{/if}
-		</div>
-	</FlowBox>
-</div>
+			{#if mod.value.type === 'rawscript'}
+				<div class="mb-2 overflow-hidden">
+					<EditorBar {editor} {websocketAlive} lang={mod.value.language ?? 'deno'} />
+				</div>
+				<div on:mouseleave={() => reload(mod)}>
+					<Editor
+						bind:websocketAlive
+						bind:this={editor}
+						class="{bigEditor ? 'h-2/3' : 'h-80'} border p-2 rounded"
+						bind:code={mod.value.content}
+						deno={mod.value.language === RawScript.language.DENO}
+						automaticLayout={true}
+						on:blur={() => reload(mod)}
+						formatAction={() => reload(mod)}
+					/>
+					<button
+						class="w-full text-center"
+						on:click={() => {
+							bigEditor = !bigEditor
+						}}
+					>
+						<Icon data={bigEditor ? faChevronUp : faChevronDown} scale={1.0} />
+					</button>
+				</div>
+				<div class="mt-2 mb-8">
+					<p class="text-gray-500 italic">
+						Move the focus outside of the text editor to recompute the input schema or press
+						Ctrl/Cmd+S
+					</p>
+				</div>
+			{/if}
+			{#if !shouldPick}
+				<p class="text-lg font-bold text-gray-900 mb-2">Step inputs</p>
+				<SchemaForm
+					inputTransform={true}
+					{schema}
+					{extraLib}
+					{i}
+					bind:pickableProperties
+					bind:args={mod.input_transform}
+				/>
+			{/if}
+
+			{#if !shouldPick}
+				<div class="border-b border-gray-200" />
+				<div class="p-3">
+					<FlowPreview
+						bind:args
+						flow={$flowStore}
+						{i}
+						{schema}
+						on:change={(e) => onPreview(e.detail)}
+					/>
+				</div>
+			{/if}
+		{:else}
+			<button
+				on:click={() => {
+					stepOpened.update(() => String(indexes.join('-')))
+				}}>test</button
+			>
+		{/if}
+	</div>
+</FlowBox>

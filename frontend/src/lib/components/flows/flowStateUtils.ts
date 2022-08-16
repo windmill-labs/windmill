@@ -62,10 +62,11 @@ export async function createLoop(): Promise<FlowModuleSchema> {
 		input_transform: {}
 	}
 
+	const { flowModule, schema } = await loadFlowModuleSchema(loopFlowModule)
+
 	return {
-		flowModule: loopFlowModule,
-		schema: emptySchema(),
-		// By default we add a empty module to the loop
+		flowModule,
+		schema,
 		childFlowModules: [emptyFlowModuleSchema()],
 		previewResults: []
 	}

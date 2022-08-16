@@ -3,6 +3,7 @@
 		faClose,
 		faFlag,
 		faFlagCheckered,
+		faJoint,
 		faPen,
 		faPlus,
 		faRotate,
@@ -15,7 +16,6 @@
 	import FlowInput from './FlowInput.svelte'
 	import { flowStateStore, type FlowState } from './flowState'
 	import { emptyFlowModuleSchema } from './flowStateUtils'
-	import { flowStore } from './flowStore'
 	import { stepOpened } from './stepOpenedStore'
 
 	export let args: Record<string, any> = {}
@@ -28,8 +28,11 @@
 		flowModuleSchemas.splice(index, 0, emptyFlowModuleSchema())
 		flowModuleSchemas = flowModuleSchemas
 
+		/*
 		const indexes = getIndexes(parentIndex, index)
-		stepOpened.set(indexes.join('-'))
+
+		stepOpened.update(() => String(indexes.join('-')))
+		*/
 	}
 
 	function removeAtIndex(index: number): void {
@@ -81,9 +84,9 @@
 				<FlowInput />
 			</li>
 		{/if}
-		{#each flowModuleSchemas as flowModuleSchema, index}
+		{#each flowModuleSchemas as flowModuleSchema, index (JSON.stringify(flowModuleSchema.flowModule))}
 			{#if flowModuleSchema.flowModule.value.type === 'forloopflow'}
-				<li class="ml-4 relative">
+				<li id="module-{index}" class="ml-4 relative">
 					<button
 						on:click={() => insertAtIndex(index)}
 						class="flex absolute -top-10 -left-8 justify-center items-center bg-white border-2 border-gray-400 w-8 h-8 rounded-full ring-8 ring-white dark:ring-gray-900 dark:bg-${color}-900"
@@ -161,7 +164,7 @@
 					</div>
 				</li>
 			{:else}
-				<li class="ml-8">
+				<li id="module-{index}" class="ml-8">
 					<span class="relative">
 						<button
 							on:click={() => insertAtIndex(index)}
@@ -213,7 +216,7 @@
 		{#if flowModuleSchemas.length === 0}
 			<button
 				on:click={() => insertAtIndex(0)}
-				class="flex  justify-center items-center bg-white border-2 border-gray-200 w-8 h-8 rounded-full ring-8 ring-white dark:ring-gray-900 dark:bg-${color}-900"
+				class="-ml-4 flex justify-center items-center bg-white border-2 border-gray-200 w-8 h-8 rounded-full ring-8 ring-white dark:ring-gray-900 dark:bg-${color}-900"
 			>
 				<Icon class="text-gray-400" data={faPlus} />
 			</button>

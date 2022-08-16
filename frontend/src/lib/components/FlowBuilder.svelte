@@ -20,7 +20,8 @@
 	import FlowPreviewContent from './FlowPreviewContent.svelte'
 	import { flowStateStore, flowStateToFlow, type FlowState } from './flows/flowState'
 	import { flowStore, mode } from './flows/flowStore'
-	import { jobsToResults } from './flows/utils'
+	import { stepOpened } from './flows/stepOpenedStore'
+	import { jobsToResults, scrollIntoView } from './flows/utils'
 
 	import ScriptSchema from './ScriptSchema.svelte'
 
@@ -128,11 +129,25 @@
 	}
 
 	flowStateStore.subscribe((flowState: FlowState) => {
-		flowStore.update((flow: Flow) => flowStateToFlow(flowState, flow))
+		if (flowState) {
+			flowStore.update((flow: Flow) => {
+				if (flow) {
+					return flowStateToFlow(flowState, flow)
+				}
+				return flow
+			})
+		}
 	})
 
 	flowStore.subscribe((flow: Flow) => {
-		setQueryWithoutLoad($page.url, 'state', encodeState(flow))
+		if (flow) {
+			setQueryWithoutLoad($page.url, 'state', encodeState(flow))
+		}
+	})
+
+	stepOpened.subscribe((insertAt) => {
+		console.log({ insertAt })
+		setTimeout(() => scrollIntoView(document.querySelector(`#module-${insertAt}`)), 100)
 	})
 
 	onMount(() => {
