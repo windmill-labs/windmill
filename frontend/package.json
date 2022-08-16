@@ -38,7 +38,7 @@
 		"prettier": "^2.7.1",
 		"prettier-plugin-svelte": "^2.4.0",
 		"simple-svelte-autocomplete": "^2.2.4",
-		"stylelint-config-recommended": "^8.0.0",
+		"stylelint-config-recommended": "^9.0.0",
 		"svelte": "^3.49.0",
 		"svelte-awesome": "^3.0.0",
 		"svelte-check": "^2.8.0",
