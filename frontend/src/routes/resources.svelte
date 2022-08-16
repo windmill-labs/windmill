@@ -26,7 +26,14 @@
 	import type { Schema } from '$lib/common'
 	import SchemaViewer from '$lib/components/SchemaViewer.svelte'
 	import Dropdown from '$lib/components/Dropdown.svelte'
-	import { faEdit, faPlus, faShare, faTrash, faCircle } from '@fortawesome/free-solid-svg-icons'
+	import {
+		faEdit,
+		faPlus,
+		faShare,
+		faTrash,
+		faCircle,
+		faChain
+	} from '@fortawesome/free-solid-svg-icons'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
 	import Icon from 'svelte-awesome'
 	import Required from '$lib/components/Required.svelte'
@@ -138,7 +145,7 @@
 				class="default-button"
 				on:click={() => {
 					appConnect.open()
-				}}>Connect an App</button
+				}}><Icon class="text-white mb-1" data={faChain} scale={0.9} /> &nbsp; Connect an API</button
 			>
 			<button
 				class="default-button"
