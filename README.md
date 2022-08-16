@@ -260,9 +260,12 @@ with hot-code reloading.
 
 ## Contributors
 
+
 <a href="https://github.com/windmill-labs/windmill/graphs/contributors">
-  <img src="https://contrib.rocks/image?repo=windmill-labs/windmill" />
+<img src="https://contrib.rocks/image?repo=windmill-labs/windmill" />
 </a>
+  
+[![Star History Chart](https://api.star-history.com/svg?repos=windmill-labs/windmill&type=Date)](https://star-history.com/#windmill-labs/windmill&Date)
 
 ## Copyright
 
