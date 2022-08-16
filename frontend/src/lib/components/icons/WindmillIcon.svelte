@@ -15,7 +15,6 @@
 	inkscape:export-filename="/home/rfiszel/Downloads/windmill.png"
 	inkscape:export-xdpi="31.02663"
 	inkscape:export-ydpi="31.02663"
-	inkscape:version="1.1.1 (3bf5ae0d25, 2021-09-20, custom)"
 	xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"
 	xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd"
 	xmlns:svg="http://www.w3.org/2000/svg"
