@@ -4,10 +4,9 @@ services:
 
   db:
     image: postgres:14
-    restart: always
+    restart: unless-stopped
     volumes:
       - db_data:/var/lib/postgresql/data
-      # - ./init-db.sql:/docker-entrypoint-initdb.d/create_tables.sql
     ports:
       - 5432:5432
     environment:
@@ -23,10 +22,10 @@ services:
     privileged: true
     restart: unless-stopped
     ports:
-      - 80:8000
+      - 8000:8000
     environment:
       - DATABASE_URL=postgres://postgres:${DB_PASSWORD}@db/windmill?sslmode=disable
-      - BASE_URL=http://localhost
+      - BASE_URL=http://${WM_BASE_URL}}
       - BASE_INTERNAL_URL=http://localhost:8000
       - RUST_LOG=info
       - NUM_WORKERS=3
@@ -35,10 +34,24 @@ services:
       - DENO_PATH=/usr/bin/deno
       - PYTHON_PATH=/usr/local/bin/python3
       - NSJAIL_PATH=nsjail
-
     depends_on:
       db:
         condition: service_healthy
-volumes:
+  lsp:
+    image: ghcr.io/windmill-labs/windmill-lsp:latest
+    restart: unless-stopped
+    ports:
+      - 3001:3001
+  caddy:
+    image: caddy:2.5.2-alpine
+    restart: unless-stopped
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile
+    ports:
+      - 80:80
+      - 443:443
+    environment:
+      - BASE_URL=${WM_BASE_URL}
 
+volumes:
   db_data: null
