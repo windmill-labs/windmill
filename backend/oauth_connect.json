@@ -90,5 +90,13 @@
         "extra_params": {
             "type": "web_server"
         }
+    },
+    "zendesk": {
+        "auth_url": "https://zendesk.com/oauth/authorizations/new",
+        "token_url": "https://zendesk.com/oauth/tokens/new",
+        "scopes": [
+            "read",
+            "write"
+        ]
     }
 }
