@@ -1,0 +1,22 @@
+{
+  "workspace_id": "starter",
+  "name": "mastodon",
+  "schema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+      "baseUrl": {
+        "type": "string",
+        "description": "The URL of the Mastodon instance, like \"https://mastodon.example\".",
+        "pattern": "^https?://.+[^/]$",
+        "default": ""
+      },
+      "accessToken": {
+        "type": "string",
+        "description": "An access token to act as a logged-in user. Leave this empty, if you want to perform unauthenticated requests."
+      }
+    },
+    "required": [],
+    "type": "object"
+  },
+  "description": "Mastodon offers decentralized micro blogging and is open-source."
+}

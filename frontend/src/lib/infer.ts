@@ -44,58 +44,63 @@ function argSigToJsonSchemaType(
 		| { list: string | { str: any } | null }
 		| { str: string[] | null }
 		| { object: { key: string, typ: any }[] },
-	s: SchemaProperty
+	oldS: SchemaProperty
 ): void {
-	for (const prop of Object.getOwnPropertyNames(s)) {
-		if (prop != "description") {
-			delete s[prop]
-		}
-	}
 
+
+	const newS: SchemaProperty = { type: '', description: '' }
 	if (t === 'int') {
-		s.type = 'integer'
+		newS.type = 'integer'
 	} else if (t === 'float') {
-		s.type = 'number'
+		newS.type = 'number'
 	} else if (t === 'bool') {
-		s.type = 'boolean'
+		newS.type = 'boolean'
 	} else if (t === 'email') {
-		s.type = 'string'
-		s.format = 'email'
+		newS.type = 'string'
+		newS.format = 'email'
 	} else if (t === 'sql') {
-		s.type = 'string'
-		s.format = 'sql'
+		newS.type = 'string'
+		newS.format = 'sql'
 	} else if (t === 'bytes') {
-		s.type = 'string'
-		s.contentEncoding = 'base64'
+		newS.type = 'string'
+		newS.contentEncoding = 'base64'
 	} else if (t === 'datetime') {
-		s.type = 'string'
-		s.format = 'date-time'
+		newS.type = 'string'
+		newS.format = 'date-time'
 	} else if (typeof t !== 'string' && `object` in t) {
-		s.type = 'object'
+		newS.type = 'object'
 		if (t.object) {
 			const properties = {}
 			for (const prop of t.object) {
 				properties[prop.key] = {}
 				argSigToJsonSchemaType(prop.typ, properties[prop.key])
 			}
-			s.properties = properties
+			newS.properties = properties
 		}
 	} else if (typeof t !== 'string' && `str` in t) {
-		s.type = 'string'
+		newS.type = 'string'
 		if (t.str) {
-			s.enum = t.str
+			newS.enum = t.str
 		}
 	} else if (typeof t !== 'string' && `resource` in t) {
-		s.type = 'object'
-		s.format = `resource-${t.resource}`
+		newS.type = 'object'
+		newS.format = `resource-${t.resource}`
 	} else if (typeof t !== 'string' && `list` in t) {
-		s.type = 'array'
+		newS.type = 'array'
 		if (t.list === 'int' || t.list === 'float') {
-			s.items = { type: 'number' }
+			newS.items = { type: 'number' }
 		} else if (t.list === 'bytes') {
-			s.items = { type: 'string', contentEncoding: 'base64' }
+			newS.items = { type: 'string', contentEncoding: 'base64' }
 		} else {
-			s.items = { type: 'string' }
+			newS.items = { type: 'string' }
 		}
 	}
+	if (oldS.type != newS.type) {
+		for (const prop of Object.getOwnPropertyNames(newS)) {
+			if (prop != "description") {
+				delete oldS[prop]
+			}
+		}
+	}
+	Object.assign(oldS, newS)
 }

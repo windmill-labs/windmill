@@ -1,5 +1,6 @@
 <script lang="ts">
 	import Fuse from 'fuse.js'
+	import IconedResourceType from './IconedResourceType.svelte'
 
 	import Modal from './Modal.svelte'
 
@@ -51,7 +52,11 @@
 						pickCallback(obj['path'], obj[extraField])
 					}}
 				>
-					<p class="text-sm font-semibold">
+					<p class="text-sm font-semibold flex flex-row">
+						{#if `app` in obj}
+							<IconedResourceType silent={true} name={obj['app']} />
+							<span class="mr-2" />
+						{/if}
 						<span class="mr-2">{obj[extraField]}</span><span class="font-normal whitespace-nowrap"
 							>{obj['path'] ?? ''}</span
 						>
