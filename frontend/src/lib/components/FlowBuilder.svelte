@@ -127,17 +127,13 @@
 		goto(`?step=${step}`)
 	}
 
-	/*
 	flowStateStore.subscribe((flowState: FlowState) => {
 		flowStore.update((flow: Flow) => flowStateToFlow(flowState, flow))
 	})
 
 	flowStore.subscribe((flow: Flow) => {
-		if (flow) {
-			setQueryWithoutLoad($page.url, 'state', encodeState(flow))
-		}
+		setQueryWithoutLoad($page.url, 'state', encodeState(flow))
 	})
-	*/
 
 	onMount(() => {
 		loadHubScripts()

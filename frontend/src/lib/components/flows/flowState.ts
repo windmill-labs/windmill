@@ -24,6 +24,9 @@ export const isCopyFirstStepSchemaDisabled = derived(
 	(flowState: FlowState | undefined) => {
 		if (flowState) {
 			const firstModule = flowState[0]
+			if (!firstModule) {
+				return true
+			}
 			const fmv = firstModule.flowModule.value
 			return flowState.length === 0 || (fmv.type === 'script' && fmv.path === '')
 		} else {

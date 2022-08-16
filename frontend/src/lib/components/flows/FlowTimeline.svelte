@@ -184,6 +184,9 @@
 							bind:childFlowModules={flowModuleSchema.childFlowModules}
 							bind:previewResults={flowModuleSchema.previewResults}
 							on:delete={() => removeAtIndex(index)}
+							previousStepPreviewResults={index === 0
+								? []
+								: flowModuleSchemas[index - 1].previewResults}
 						/>
 						{#if $flowStateStore.length - 1 === index}
 							<span

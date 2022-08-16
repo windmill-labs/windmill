@@ -62,11 +62,9 @@ export async function createLoop(): Promise<FlowModuleSchema> {
 		input_transform: {}
 	}
 
-	const { flowModule, schema } = await loadFlowModuleSchema(loopFlowModule)
-
 	return {
-		flowModule,
-		schema,
+		flowModule: loopFlowModule,
+		schema: emptySchema(),
 		// By default we add a empty module to the loop
 		childFlowModules: [emptyFlowModuleSchema()],
 		previewResults: []
@@ -141,31 +139,6 @@ export async function createScriptFromInlineScript({
 	})
 
 	return pickScript(availablePath)
-}
-
-export function getPreviousStepPreviewResults(
-	flowState: FlowState,
-	stepIndexes: number[]
-): Array<any> {
-	const isInsideLoop = stepIndexes.length > 1
-
-	if (isInsideLoop) {
-		const [parentIndex, childIndex] = stepIndexes
-
-		if (childIndex === 0) {
-			return flowState[parentIndex - 1].previewResults
-		} else {
-			return flowState[parentIndex][childIndex - 1].previewResult
-		}
-	} else {
-		const [parentIndex] = stepIndexes
-
-		if (parentIndex === 0) {
-			return []
-		} else {
-			return flowState[parentIndex - 1].previewResults
-		}
-	}
 }
 
 async function findNextAvailablePath(path: string): Promise<string> {

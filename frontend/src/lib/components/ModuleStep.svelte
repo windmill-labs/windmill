@@ -15,8 +15,7 @@
 		fork,
 		loadFlowModuleSchema,
 		pickScript,
-		createScriptFromInlineScript,
-		getPreviousStepPreviewResults
+		createScriptFromInlineScript
 	} from './flows/flowStateUtils'
 	import { jobsToResults } from './flows/utils'
 	import SchemaForm from './SchemaForm.svelte'
@@ -31,6 +30,7 @@
 	export let schema: Schema
 	export let previewResults: Array<any>
 	export let childFlowModules: FlowModuleSchema[] | undefined = undefined
+	export let previousStepPreviewResults: Array<any>
 
 	let editor: Editor
 	let websocketAlive = { pyright: false, black: false, deno: false }
@@ -43,10 +43,8 @@
 		step?: Object[]
 	}
 
-	function getPickableProperties(flow: Flow, flowState: FlowState): PickableProperties {
+	function getPickableProperties(flow: Flow): PickableProperties {
 		const flowInputAsObject = schemaToObject(flow.schema, args)
-
-		const previousStepPreviewResults = getPreviousStepPreviewResults(flowState, indexes)
 
 		if (indexes.length > 1) {
 			flowInputAsObject['iter'] = {
@@ -55,7 +53,9 @@
 			}
 		}
 
-		const last = previousStepPreviewResults[previousStepPreviewResults.length - 1]
+		const hasResults = previousStepPreviewResults.length > 0
+
+		const last = hasResults ? previousStepPreviewResults[previousStepPreviewResults.length - 1] : {}
 		return {
 			flow_input: flowInputAsObject,
 			previous_result: last,
@@ -66,7 +66,7 @@
 	const i = indexes[0]
 
 	$: shouldPick = 'path' in mod.value && mod.value.path === '' && !('language' in mod.value)
-	$: pickableProperties = getPickableProperties($flowStore, $flowStateStore)
+	$: pickableProperties = getPickableProperties($flowStore)
 	$: extraLib = ''
 
 	async function apply<T>(fn: (arg: T) => Promise<FlowModuleSchema>, arg: T) {
