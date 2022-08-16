@@ -948,15 +948,7 @@ fn oauth_redirect(
             query_string.append_pair(&key, &value);
         }
     }
-    // if ["gcal", "gdrive", "gsheets", "gcloud", "gmail"]
-    //     .into_iter()
-    //     .any(|x| x == name)
-    // {
-    //     auth_url
-    //         .query_pairs_mut()
-    //         .append_pair("access_type", "offline")
-    //         .append_pair("prompt", "consent");
-    // }
+
     set_cookie(&state, cookies);
     Ok(Redirect::to(auth_url.as_str()))
 }
