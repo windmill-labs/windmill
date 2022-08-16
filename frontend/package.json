@@ -44,7 +44,7 @@
 		"svelte-check": "^2.8.0",
 		"svelte-heros": "^2.3.3",
 		"svelte-highlight": "^6.2.1",
-		"svelte-markdown": "^0.2.1",
+		"svelte-markdown": "^0.2.3",
 		"svelte-overlay": "^1.4.1",
 		"svelte-popperjs": "^1.2.11",
 		"svelte-preprocess": "^4.9.8",
