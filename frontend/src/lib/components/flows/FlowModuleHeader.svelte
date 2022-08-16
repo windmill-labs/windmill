@@ -10,7 +10,6 @@
 	import typescript from 'svelte-highlight/languages/typescript'
 	import Modal from '../Modal.svelte'
 	import Tooltip from '../Tooltip.svelte'
-	import { removeStep } from './flowState'
 	import { stepOpened } from './stepOpenedStore'
 	import { scrollIntoView } from './utils'
 
@@ -95,7 +94,7 @@
 		size="sm"
 		color="alternative"
 		on:click={() => {
-			removeStep(indexes)
+			dispatch('delete')
 		}}
 	>
 		<Icon data={faTrashAlt} class="mr-2" />

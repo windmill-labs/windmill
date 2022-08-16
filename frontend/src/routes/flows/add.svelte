@@ -41,8 +41,8 @@
 			sendUserToast(`Flow has been loaded from hub flow id ${hubId}.`)
 		}
 		$mode = 'push'
-		initFlowState(flow)
 		initFlow(flow)
+		initFlowState(flow)
 	}
 
 	loadFlow()

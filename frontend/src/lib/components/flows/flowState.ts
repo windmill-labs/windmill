@@ -1,10 +1,7 @@
 import type { Schema } from '$lib/common'
 import type { Flow, FlowModule } from '$lib/gen'
 import { writable } from 'svelte/store'
-import { emptyFlowModuleSchema, loadFlowModuleSchema } from './flowStateUtils'
-import { stepOpened } from './stepOpenedStore'
-
-type Result = any
+import { loadFlowModuleSchema } from './flowStateUtils'
 
 export type FlowModuleSchema = {
 	flowModule: FlowModule
@@ -60,57 +57,4 @@ export function flowStateToFlow(flowState: FlowState, flow: Flow): Flow {
 
 	flow.value.modules = modules
 	return flow
-}
-
-export function addStep(stepIndexes: number[]) {
-	const isInsideLoop = stepIndexes.length > 1
-
-	flowStateStore.update((flowState: FlowState) => {
-		const [parentStepIndex, childStepIndex] = stepIndexes
-
-		const parentStep = flowState[parentStepIndex]
-
-		if (isInsideLoop && Array.isArray(parentStep.childFlowModules)) {
-			parentStep.childFlowModules.splice(childStepIndex, 0, emptyFlowModuleSchema())
-
-			flowState.splice(parentStepIndex, 1, {
-				...parentStep,
-				childFlowModules: parentStep.childFlowModules
-			})
-		} else {
-			flowState.splice(parentStepIndex, 0, emptyFlowModuleSchema())
-		}
-
-		return flowState
-	})
-
-	stepOpened.set(stepIndexes.join('-'))
-}
-
-export function removeStep(stepIndexes: number[]) {
-	const isInsideLoop = stepIndexes.length > 1
-
-	flowStateStore.update((flowState: FlowState) => {
-		const [parentStepIndex, childStepIndex] = stepIndexes
-
-		const parentStep = flowState[parentStepIndex]
-
-		if (
-			isInsideLoop &&
-			Array.isArray(parentStep.childFlowModules) &&
-			// When we remove the last element of the loop
-			// We can remove the loop
-			parentStep.childFlowModules.length > 1
-		) {
-			parentStep.childFlowModules.splice(childStepIndex, 1)
-			flowState.splice(parentStepIndex, 0, {
-				...parentStep,
-				childFlowModules: parentStep.childFlowModules
-			})
-		} else {
-			flowState.splice(parentStepIndex, 1)
-		}
-
-		return flowState
-	})
 }

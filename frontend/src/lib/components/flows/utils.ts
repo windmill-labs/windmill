@@ -79,21 +79,10 @@ export function getTypeAsString(arg: any): string {
 	return typeof arg
 }
 
-export async function createInlineScriptModuleFromPath(path: string): Promise<FlowModuleValue> {
-	const { content, language } = await getScriptByPath(path)
+export function scrollIntoView(element: any) {
+	if (!element) return
 
-	return {
-		type: 'rawscript',
-		language: language as RawScript.language,
-		content: content,
-		path
-	}
-}
-
-export function scrollIntoView(el: any) {
-	if (!el) return
-
-	el.scrollIntoView({
+	element.scrollIntoView({
 		behavior: 'smooth',
 		block: 'start',
 		inline: 'nearest'

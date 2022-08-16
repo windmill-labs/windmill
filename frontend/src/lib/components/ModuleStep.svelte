@@ -115,9 +115,10 @@
 		<svelte:fragment slot="header">
 			<FlowModuleHeader
 				{mod}
-				{indexes}
+				bind:indexes
 				{shouldPick}
 				{isTrigger}
+				on:delete
 				on:fork={() => apply(fork, mod)}
 				on:createScriptFromInlineScript={() =>
 					apply(createScriptFromInlineScript, {

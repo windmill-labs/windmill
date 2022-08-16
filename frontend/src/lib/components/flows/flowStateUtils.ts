@@ -9,7 +9,11 @@ import { findNextAvailablePath, flowStore } from './flowStore'
 import { loadSchemaFromModule } from './utils'
 
 export function emptyFlowModuleSchema(): FlowModuleSchema {
-	return { flowModule: emptyModule(), schema: emptySchema(), previewResults: [] }
+	return {
+		flowModule: emptyModule(),
+		schema: emptySchema(),
+		previewResults: []
+	}
 }
 
 export async function loadFlowModuleSchema(flowModule: FlowModule): Promise<FlowModuleSchema> {

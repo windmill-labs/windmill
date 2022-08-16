@@ -1,5 +1,6 @@
 <script lang="ts">
 	import {
+		faClose,
 		faFlag,
 		faFlagCheckered,
 		faPen,
@@ -14,8 +15,10 @@
 	import typescript from 'svelte-highlight/languages/typescript'
 	import ModuleStep from '../ModuleStep.svelte'
 	import FlowInput from './FlowInput.svelte'
-	import { addStep, removeStep, type FlowState } from './flowState'
+	import type { FlowState } from './flowState'
+	import { emptyFlowModuleSchema } from './flowStateUtils'
 	import { flowStore } from './flowStore'
+	import { stepOpened } from './stepOpenedStore'
 
 	export let args: Record<string, any> = {}
 	export let flowModuleSchemas: FlowState
@@ -23,8 +26,17 @@
 
 	const root = parentIndex === undefined
 
-	function handleNewModule(index: number) {
-		addStep(getIndexes(parentIndex, index))
+	function insertAtIndex(index: number) {
+		flowModuleSchemas.splice(index, 0, emptyFlowModuleSchema())
+		flowModuleSchemas = flowModuleSchemas
+
+		const indexes = getIndexes(parentIndex, index)
+		stepOpened.set(indexes.join('-'))
+	}
+
+	function removeAtIndex(index: number) {
+		flowModuleSchemas.splice(index, 1)
+		flowModuleSchemas = flowModuleSchemas
 	}
 
 	function getIndexes(parentIndex: number | undefined, childIndex: number) {
@@ -75,7 +87,7 @@
 			{#if flowModuleSchema.flowModule.value.type === 'forloopflow'}
 				<li class="ml-4 relative">
 					<button
-						on:click={() => handleNewModule(index)}
+						on:click={() => insertAtIndex(index)}
 						class="flex absolute -top-10 -left-8 justify-center items-center bg-white border-2 border-gray-400 w-8 h-8 rounded-full ring-8 ring-white dark:ring-gray-900 dark:bg-${color}-900"
 					>
 						<Icon class="text-gray-400" data={faPlus} />
@@ -85,6 +97,9 @@
 						role="alert"
 					>
 						For loop (Step {index + 1})
+						<button on:click={() => removeAtIndex(index)}>
+							<Icon class="text-gray-400" data={faClose} />
+						</button>
 					</div>
 					<span
 						class="flex absolute top-3 -left-8 justify-center items-center w-8 h-8 bg-orange-200 rounded-full ring-8 ring-white dark:ring-gray-900 dark:bg-orange-900"
@@ -151,7 +166,7 @@
 				<li class="ml-8">
 					<span class="relative">
 						<button
-							on:click={() => handleNewModule(index)}
+							on:click={() => insertAtIndex(index)}
 							class="flex absolute -top-10 -left-12 justify-center items-center bg-white border-2 border-gray-200 w-8 h-8 rounded-full ring-8 ring-white dark:ring-gray-900 dark:bg-${color}-900"
 						>
 							<Icon class="text-gray-400" data={faPlus} />
@@ -164,12 +179,13 @@
 							</span>
 						</span>
 						<ModuleStep
+							indexes={getIndexes(parentIndex, index)}
 							bind:mod={flowModuleSchema.flowModule}
 							bind:args
-							indexes={getIndexes(parentIndex, index)}
 							bind:schema={flowModuleSchema.schema}
 							bind:childFlowModules={flowModuleSchema.childFlowModules}
 							bind:previewResults={flowModuleSchema.previewResults}
+							on:delete={() => removeAtIndex(index)}
 						/>
 						{#if $flowStore?.value.modules.length - 1 === index}
 							<span
@@ -186,7 +202,7 @@
 			{/if}
 			{#if flowModuleSchemas.length - 1 === index}
 				<button
-					on:click={() => handleNewModule(flowModuleSchemas.length)}
+					on:click={() => insertAtIndex(flowModuleSchemas.length)}
 					class="flex justify-center items-center bg-white border-2 border-gray-200 w-8 h-8 rounded-full ring-8 ring-white dark:ring-gray-900 dark:bg-${color}-900"
 				>
 					<Icon class="text-gray-400" data={faPlus} />
@@ -195,7 +211,7 @@
 		{/each}
 		{#if flowModuleSchemas.length === 0}
 			<button
-				on:click={() => handleNewModule(0)}
+				on:click={() => insertAtIndex(0)}
 				class="flex  justify-center items-center bg-white border-2 border-gray-200 w-8 h-8 rounded-full ring-8 ring-white dark:ring-gray-900 dark:bg-${color}-900"
 			>
 				<Icon class="text-gray-400" data={faPlus} />

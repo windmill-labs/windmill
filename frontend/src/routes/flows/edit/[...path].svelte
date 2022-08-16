@@ -43,8 +43,9 @@
 						path: flow.path
 				  })
 		initialPath = flow.path
-		initFlowState(flow)
+
 		initFlow(flow)
+		initFlowState(flow)
 	}
 
 	$: {
