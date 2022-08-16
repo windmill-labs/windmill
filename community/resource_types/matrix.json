@@ -1,0 +1,25 @@
+{
+  "workspace_id": "starter",
+  "name": "matrix",
+  "schema": {
+    "type": "object",
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "required": [
+      "homeserverUrl"
+    ],
+    "properties": {
+      "accessToken": {
+        "type": "string",
+        "description": "An access token to act as a logged-in user. Leave this empty, if you want to perform unauthenticated requests.",
+        "default": ""
+      },
+      "homeserverUrl": {
+        "type": "string",
+        "default": "",
+        "pattern": "^https?://.+?[^/]$",
+        "description": "The homeserver URL"
+      }
+    }
+  },
+  "description": "Login credentials for a Matrix.org homeserver"
+}
