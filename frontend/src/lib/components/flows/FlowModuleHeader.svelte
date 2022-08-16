@@ -10,7 +10,6 @@
 	import typescript from 'svelte-highlight/languages/typescript'
 	import Modal from '../Modal.svelte'
 	import Tooltip from '../Tooltip.svelte'
-	import { stepOpened } from './stepOpenedStore'
 	import { scrollIntoView } from './utils'
 
 	export let indexes: number[]

@@ -20,8 +20,7 @@
 	import FlowPreviewContent from './FlowPreviewContent.svelte'
 	import { flowStateStore, flowStateToFlow, type FlowState } from './flows/flowState'
 	import { flowStore, mode } from './flows/flowStore'
-	import { stepOpened } from './flows/stepOpenedStore'
-	import { jobsToResults, scrollIntoView } from './flows/utils'
+	import { jobsToResults } from './flows/utils'
 
 	import ScriptSchema from './ScriptSchema.svelte'
 
@@ -128,7 +127,6 @@
 		goto(`?step=${step}`)
 	}
 
-	/*
 	flowStateStore.subscribe((flowState: FlowState) => {
 		if (flowState) {
 			flowStore.update((flow: Flow) => {
@@ -145,8 +143,6 @@
 			setQueryWithoutLoad($page.url, 'state', encodeState(flow))
 		}
 	})
-
-	*/
 
 	onMount(() => {
 		loadHubScripts()

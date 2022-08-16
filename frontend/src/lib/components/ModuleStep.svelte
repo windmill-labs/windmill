@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { Job, RawScript, type Flow, type FlowModule } from '$lib/gen'
-	import { faChevronDown, faChevronUp } from '@fortawesome/free-solid-svg-icons'
+	import { faArrowDown, faChevronDown, faChevronUp } from '@fortawesome/free-solid-svg-icons'
 	import Icon from 'svelte-awesome'
 	import Editor from './Editor.svelte'
 	import EditorBar from './EditorBar.svelte'
@@ -84,6 +84,11 @@
 		apply(loadFlowModuleSchema, flowModule)
 	}
 
+	async function applyCreateLoop() {
+		await apply(createLoop, null)
+		stepOpened.update(() => `${indexes[0]}-0`)
+	}
+
 	function onPreview(jobs: Job[]): void {
 		const results = jobsToResults(jobs)
 
@@ -139,7 +144,7 @@
 					on:pick={(e) => apply(pickScript, e.detail.path)}
 					on:new={(e) =>
 						apply(createInlineScriptModule, { language: e.detail.language, isTrigger })}
-					on:loop={() => apply(createLoop, null)}
+					on:loop={() => applyCreateLoop()}
 				/>
 			{/if}
 			{#if mod.value.type === 'rawscript'}
@@ -198,11 +203,15 @@
 				</div>
 			{/if}
 		{:else}
-			<button
-				on:click={() => {
-					stepOpened.update(() => String(indexes.join('-')))
-				}}>test</button
-			>
+			<div class="flex flex-col justify-center w-full">
+				<button
+					on:click={() => {
+						stepOpened.update(() => String(indexes.join('-')))
+					}}
+				>
+					<Icon data={faArrowDown} />
+				</button>
+			</div>
 		{/if}
 	</div>
 </FlowBox>
