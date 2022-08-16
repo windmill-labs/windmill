@@ -6,16 +6,14 @@
 		faPen,
 		faPlus,
 		faRotate,
-		faSliders,
-		faTrashAlt
+		faSliders
 	} from '@fortawesome/free-solid-svg-icons'
-	import { Button } from 'flowbite-svelte'
 	import Icon from 'svelte-awesome'
 	import { Highlight } from 'svelte-highlight'
 	import typescript from 'svelte-highlight/languages/typescript'
 	import ModuleStep from '../ModuleStep.svelte'
 	import FlowInput from './FlowInput.svelte'
-	import type { FlowState } from './flowState'
+	import { flowStateStore, type FlowState } from './flowState'
 	import { emptyFlowModuleSchema } from './flowStateUtils'
 	import { flowStore } from './flowStore'
 	import { stepOpened } from './stepOpenedStore'
@@ -26,7 +24,7 @@
 
 	const root = parentIndex === undefined
 
-	function insertAtIndex(index: number) {
+	function insertAtIndex(index: number): void {
 		flowModuleSchemas.splice(index, 0, emptyFlowModuleSchema())
 		flowModuleSchemas = flowModuleSchemas
 
@@ -34,15 +32,15 @@
 		stepOpened.set(indexes.join('-'))
 	}
 
-	function removeAtIndex(index: number) {
+	function removeAtIndex(index: number): void {
 		flowModuleSchemas.splice(index, 1)
 		flowModuleSchemas = flowModuleSchemas
 	}
 
-	function getIndexes(parentIndex: number | undefined, childIndex: number) {
+	function getIndexes(parentIndex: number | undefined, childIndex: number): number[] {
 		const indexes: number[] = []
 
-		if (parentIndex !== undefined && parentIndex >= 0) {
+		if (parentIndex !== undefined) {
 			indexes.push(parentIndex)
 		}
 		indexes.push(childIndex)
@@ -187,7 +185,7 @@
 							bind:previewResults={flowModuleSchema.previewResults}
 							on:delete={() => removeAtIndex(index)}
 						/>
-						{#if $flowStore?.value.modules.length - 1 === index}
+						{#if $flowStateStore.length - 1 === index}
 							<span
 								class={`flex absolute bottom-0 -left-12 justify-center items-center w-8 h-8 bg-${color}-200 rounded-full ring-8 ring-white dark:ring-gray-900 dark:bg-${color}-900`}
 							>
@@ -203,7 +201,7 @@
 			{#if flowModuleSchemas.length - 1 === index}
 				<button
 					on:click={() => insertAtIndex(flowModuleSchemas.length)}
-					class="flex justify-center items-center bg-white border-2 border-gray-200 w-8 h-8 rounded-full ring-8 ring-white dark:ring-gray-900 dark:bg-${color}-900"
+					class="-ml-4 flex relative justify-center items-center bg-white border-2 border-gray-200 w-8 h-8 rounded-full ring-8 ring-white dark:ring-gray-900 dark:bg-${color}-900"
 				>
 					<Icon class="text-gray-400" data={faPlus} />
 				</button>

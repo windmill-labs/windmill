@@ -1,17 +1,9 @@
 import type { Schema } from '$lib/common'
-import {
-	JobService,
-	type Flow,
-	type FlowModule,
-	type FlowModuleValue,
-	type InputTransform,
-	type Job,
-	type RawScript
-} from '$lib/gen'
+import { JobService, type Flow, type FlowModule, type InputTransform, type Job } from '$lib/gen'
 import { inferArgs } from '$lib/infer'
 import { loadSchema } from '$lib/scripts'
 import { workspaceStore } from '$lib/stores'
-import { emptySchema, getScriptByPath, schemaToObject } from '$lib/utils'
+import { emptySchema, schemaToObject } from '$lib/utils'
 import { get } from 'svelte/store'
 
 import { mode, type FlowMode } from './flowStore'

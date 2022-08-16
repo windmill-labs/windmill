@@ -34,8 +34,8 @@
 	}
 
 	function scrollTo({ target }) {
-		const el = document.querySelector(target.getAttribute('href'))
-		scrollIntoView(el)
+		const element = document.querySelector(target.getAttribute('href'))
+		scrollIntoView(element)
 	}
 
 	const dispatch = createEventDispatcher()

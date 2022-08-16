@@ -30,7 +30,7 @@
 	export let args: Record<string, any> = {}
 	export let schema: Schema
 	export let previewResults: Array<any>
-	export let childFlowModules: FlowModuleSchema[] | undefined
+	export let childFlowModules: FlowModuleSchema[] | undefined = undefined
 
 	let editor: Editor
 	let websocketAlive = { pyright: false, black: false, deno: false }
