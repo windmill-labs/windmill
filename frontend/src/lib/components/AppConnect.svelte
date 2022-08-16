@@ -170,6 +170,14 @@
 	}
 
 	const dispatch = createEventDispatcher()
+
+	$: isGoogleSignin =
+		step == 1 &&
+		(resource_type == 'google' ||
+			resource_type == 'gmail' ||
+			resource_type == 'gcal' ||
+			resource_type == 'gdrive' ||
+			resource_type == 'gsheets')
 </script>
 
 <Modal
@@ -182,20 +190,21 @@
 		loadResources()
 	}}
 >
-	<div slot="title">Connect an App</div>
+	<div slot="title">Connect an API</div>
 	<div slot="content">
 		{#if step == 1}
 			{#if resource_type && !connects[resource_type] && !connectsManual.find((x) => x[0] == resource_type)}
 				<div class="bg-red-100 border-l-4 border-red-600 text-orange-700 p-4" role="alert">
-					<p class="font-bold">No app integration for {resource_type}</p>
+					<p class="font-bold">No API integration for {resource_type}</p>
 					<p>
-						The resource type "{resource_type}" seems to not have an app integration. You can still
-						create this resource manually by closing this modal and pressing: "Add a resource". You
-						can also contribute to windmill and add it as an app integration if relevant.
+						The resource type "{resource_type}" seems to not have an OAuth API integration. You can
+						still create this resource manually by closing this modal and pressing: "Add a
+						resource". You can also contribute to windmill and add it as an API integration if
+						relevant.
 					</p>
 				</div>
 			{/if}
-			<PageHeader title="OAuth apps" />
+			<PageHeader title="OAuth APIs" />
 			<div class="grid sm:grid-cols-2 md:grid-cols-3 gap-x-2 gap-y-1 items-center mb-2">
 				{#each Object.entries(connects).sort((a, b) => a[0].localeCompare(b[0])) as [key, values]}
 					<button
@@ -234,7 +243,7 @@
 				><span class="ml-2">{(scopes ?? []).length} item{(scopes ?? []).length > 1 ? 's' : ''}</span
 				>
 			{:else}
-				<p class="italic text-sm">Pick an OAuth app and customize the scopes here</p>
+				<p class="italic text-sm">Pick an OAuth API and customize the scopes here</p>
 			{/if}
 			<PageHeader title="Extra Params" primary={false} />
 			{#if !manual && resource_type != ''}
@@ -261,9 +270,9 @@
 					>{(extra_params ?? []).length} item{(extra_params ?? []).length > 1 ? 's' : ''}</span
 				>
 			{:else}
-				<p class="italic text-sm">Pick an OAuth app and customize the extra parameters here</p>
+				<p class="italic text-sm">Pick an OAuth API and customize the extra parameters here</p>
 			{/if}
-			<PageHeader title="Non OAuth apps" />
+			<PageHeader title="Non OAuth APIs" />
 			<div class="grid sm:grid-cols-2 md:grid-cols-3 gap-x-2 gap-y-1 items-center mb-2">
 				{#each connectsManual as [key, instructions]}
 					<button
@@ -318,7 +327,7 @@
 					<span class="font-mono">`$var:${path}`</span>). You can refer to this resource anywhere
 					this token is required. A script can use the resource type
 					<span class="font-mono">{resource_type}</span> as a type parameter to restrict the kind of
-					tokens it accepts to this app.
+					tokens it accepts to this api.
 				</li>
 			</ul>
 		{/if}
@@ -328,13 +337,21 @@
 			<button class="default-button px-4 py-2 font-semibold" on:click={back}>Back</button>
 		{/if}
 		<button
-			class="default-button px-4 py-2 font-semibold"
+			class={isGoogleSignin ? '' : 'default-button px-4 py-2 font-semibold'}
 			class:default-button-disabled={(step == 1 && resource_type == '') ||
 				(step == 2 && value == '') ||
 				(step == 3 && pathError != '')}
 			on:click={next}
 		>
-			{step == 3 ? 'Connect' : 'Next'}
+			{#if isGoogleSignin}
+				<img src="/google_signin.png" alt="Google sign-in" />
+			{:else if step == 1 && !manual}
+				Connect
+			{:else if step == 3}
+				Add resource
+			{:else}
+				Next
+			{/if}
 		</button>
 	</div>
 </Modal>
