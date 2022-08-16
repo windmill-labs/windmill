@@ -272,7 +272,7 @@
 			{:else if inputCat == 'resource-object'}
 				<ObjectResourceInput {format} bind:value />
 			{:else if inputCat == 'object'}
-				{#if properties}
+				{#if properties && Object.keys(properties).length > 0}
 					<div class="p-4 pl-8 border rounded w-full">
 						<SchemaForm
 							schema={{ properties, $schema: '', required: [], type: 'object' }}
