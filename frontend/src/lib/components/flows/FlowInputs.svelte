@@ -14,8 +14,12 @@
 </script>
 
 <div class="columns-2">
-	<PickScript {isTrigger} on:pick />
-	<PickHubScript {isTrigger} on:pick />
+	<PickScript isTrigger={false} on:pick />
+	<PickHubScript isTrigger={false} on:pick />
+	{#if isTrigger}
+		<PickScript isTrigger={true} on:pick />
+		<PickHubScript isTrigger={true} on:pick />
+	{/if}
 	<FlowScriptPicker
 		label={`Create a for-loop here`}
 		disabled={shouldDisableLoopCreation}
@@ -32,18 +36,14 @@
 	/>
 
 	<FlowScriptPicker
-		disabled={isTrigger}
-		label="New Python {isTrigger ? 'trigger ' : ''}script (3.10)"
+		label="New Python script (3.10)"
 		icon={faCode}
 		iconColor="text-green-500"
 		on:click={() => dispatch('new', { language: RawScript.language.PYTHON3 })}
-		tooltip={isTrigger
-			? 'Python is not supported for trigger scripts yet but is supported for every other steps'
-			: undefined}
 	/>
 
 	<FlowScriptPicker
-		label="New Typescript {isTrigger ? 'trigger ' : ''}script (Deno)"
+		label="New Typescript script (Deno)"
 		icon={faCode}
 		iconColor="text-blue-800"
 		on:click={() => dispatch('new', { language: RawScript.language.DENO, isTrigger })}

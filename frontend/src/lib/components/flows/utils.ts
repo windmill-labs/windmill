@@ -6,9 +6,9 @@ import { workspaceStore } from '$lib/stores'
 import { emptySchema, schemaToObject } from '$lib/utils'
 import { get } from 'svelte/store'
 
-import { mode, type FlowMode } from './flowStore'
+import type { FlowMode } from './flowStore'
 
-export function flowToMode(flow: Flow | any, mode: FlowMode): Flow {
+export function cleanInputs(flow: Flow | any): Flow {
 	const newFlow: Flow = JSON.parse(JSON.stringify(flow))
 	newFlow.value.modules.forEach((mod) => {
 		Object.values(mod.input_transform).forEach((inp) => {
@@ -33,31 +33,6 @@ export function flowToMode(flow: Flow | any, mode: FlowMode): Flow {
 		})
 	})
 
-	if (mode == 'pull') {
-		const triggerModule = newFlow.value.modules[0]
-		const oldModules = newFlow.value.modules.slice(1)
-
-		if (triggerModule) {
-			triggerModule.stop_after_if_expr = 'result.length == 0'
-			triggerModule.skip_if_stopped = true
-		}
-
-		newFlow.value.modules = newFlow.value.modules.slice(0, 1)
-		if (oldModules.length > 0) {
-			newFlow.value.modules.push({
-				//TODO: once we allow arbitrary for loop, we will also allow arbitrary input transform here
-				input_transform: {},
-				value: {
-					type: 'forloopflow',
-					iterator: { type: 'javascript', expr: 'result' },
-					value: {
-						modules: oldModules
-					},
-					skip_failures: true
-				}
-			})
-		}
-	}
 	return newFlow
 }
 
@@ -194,7 +169,7 @@ export function jobsToResults(jobs: Job[]) {
 }
 
 export async function runFlowPreview(args: Record<string, any>, flow: Flow) {
-	const newFlow = flowToMode(flow, get(mode))
+	const newFlow = flow
 	return await JobService.runFlowPreview({
 		workspace: get(workspaceStore) ?? '',
 		requestBody: {
@@ -208,19 +183,18 @@ function computeFlowInputPull(previewResult: any | undefined, flowInputAsObject:
 	const iteratorValues =
 		previewResult && Array.isArray(previewResult)
 			? {
-					iter: {
-						value: previewResult[0],
-						index: `The current index of the iteration as a number (here from 0 to ${
-							previewResult.length - 1
+				iter: {
+					value: previewResult[0],
+					index: `The current index of the iteration as a number (here from 0 to ${previewResult.length - 1
 						})`
-					}
-			  }
+				}
+			}
 			: {
-					iter: {
-						value: 'The current value of the iteration as an object',
-						index: 'The current index of the iteration as a number'
-					}
-			  }
+				iter: {
+					value: 'The current value of the iteration as an object',
+					index: 'The current index of the iteration as a number'
+				}
+			}
 	return Object.assign(flowInputAsObject, iteratorValues)
 }
 

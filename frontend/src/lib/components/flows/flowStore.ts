@@ -4,7 +4,6 @@ import { flowStateStore } from './flowState'
 
 export type FlowMode = 'push' | 'pull'
 
-export const mode = writable<FlowMode>('push')
 export const flowStore = writable<Flow>(undefined)
 
 export function initFlow(flow: Flow) {

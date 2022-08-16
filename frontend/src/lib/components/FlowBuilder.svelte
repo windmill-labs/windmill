@@ -19,8 +19,8 @@
 	import FlowEditor from './FlowEditor.svelte'
 	import FlowPreviewContent from './FlowPreviewContent.svelte'
 	import { flowStateStore, flowStateToFlow, type FlowState } from './flows/flowState'
-	import { flowStore, mode } from './flows/flowStore'
-	import { jobsToResults } from './flows/utils'
+	import { flowStore } from './flows/flowStore'
+	import { cleanInputs, jobsToResults } from './flows/utils'
 
 	import ScriptSchema from './ScriptSchema.svelte'
 
@@ -29,7 +29,7 @@
 
 	let scheduleArgs: Record<string, any>
 	let previewArgs: Record<string, any>
-	let scheduleEnabled
+	let scheduleEnabled: boolean
 	let scheduleCron: string
 
 	let previewOpen = false
@@ -52,7 +52,7 @@
 	}
 
 	async function saveFlow(): Promise<void> {
-		const flow = flowStateToFlow($flowStateStore, $flowStore)
+		const flow = cleanInputs(flowStateToFlow($flowStateStore, $flowStore))
 
 		if (initialPath === '') {
 			await FlowService.createFlow({
@@ -65,7 +65,7 @@
 					schema: flow.schema
 				}
 			})
-			if ($mode == 'pull') {
+			if (scheduleEnabled) {
 				await createSchedule(flow.path)
 			}
 		} else {

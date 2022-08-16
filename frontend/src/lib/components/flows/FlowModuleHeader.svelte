@@ -15,7 +15,6 @@
 	export let indexes: number[]
 	export let shouldPick = false
 	export let mod: FlowModule
-	export let isTrigger: boolean
 
 	let modalViewer: Modal
 	let modalViewerContent = ''
@@ -41,18 +40,6 @@
 </script>
 
 <a href="#module-{indexes.join('-')}" class="grow text-inherit" on:click|preventDefault={scrollTo}>
-	{#if isTrigger}
-		<h3 class="font-bold">
-			Trigger Script
-			<Tooltip>
-				When a flow is 'Pull', the first step is a trigger script. Trigger scripts are scripts that
-				must return a list which are the new items to be treated one by one by the rest of the flow,
-				usually the list of new items since last time the flow was run. One can retrieve the item in
-				the next step using `previous_result._value`. To easily compute the diff, windmill provides
-				some helpers under the form of `getInternalState` and `setInternalState`.
-			</Tooltip>
-		</h3>
-	{/if}
 	<h3 class="text-md font-bold text-gray-900">
 		{#if 'path' in mod.value && mod.value.path}
 			{mod.value.path}

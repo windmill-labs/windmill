@@ -80,7 +80,7 @@
 				<FlowInput />
 			</li>
 		{/if}
-		{#each flowModuleSchemas as flowModuleSchema, index (`${JSON.stringify(flowModuleSchema.flowModule)}-${index}`)}
+		{#each flowModuleSchemas as flowModuleSchema, index (index)}
 			{#if flowModuleSchema.flowModule.value.type === 'forloopflow'}
 				<li id="module-{index}" class="ml-4 relative">
 					<button

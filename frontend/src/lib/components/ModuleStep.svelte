@@ -8,7 +8,7 @@
 	import FlowBox from './flows/FlowBox.svelte'
 	import FlowInputs from './flows/FlowInputs.svelte'
 	import FlowModuleHeader from './flows/FlowModuleHeader.svelte'
-	import { flowStore, mode } from './flows/flowStore'
+	import { flowStore } from './flows/flowStore'
 	import {
 		createInlineScriptModule,
 		createLoop,
@@ -111,7 +111,7 @@
 	}
 
 	// isTrigger should depend on script.is_trigger
-	const isTrigger = $mode === 'pull' && indexes[0] === 0
+	const isTrigger = indexes[0] === 0
 
 	$: opened = $stepOpened === String(indexes.join('-'))
 </script>
@@ -122,7 +122,6 @@
 			{mod}
 			bind:indexes
 			{shouldPick}
-			{isTrigger}
 			on:delete
 			on:fork={() => apply(fork, mod)}
 			on:createScriptFromInlineScript={() => {
