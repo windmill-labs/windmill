@@ -186,7 +186,7 @@
 								>
 								<div class="mb-1 -mt-1"><SharedBadge {canWrite} extraPerms={extra_perms} /></div>
 							</td>
-							<td class="px-2"><IconedResourceType name={resource_type} after={true} /></td>
+							<td class="px-2"><IconedResourceType name={resource_type} after={false} /></td>
 							<td><SvelteMarkdown source={description ?? ''} /></td>
 							<td>
 								{#if is_oauth}
