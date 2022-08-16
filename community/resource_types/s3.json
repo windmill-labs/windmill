@@ -33,11 +33,16 @@
       "secretKey": {
         "type": "string",
         "description": ""
+      },
+      "region": {
+        "type": "string",
+        "description": ""
       }
     },
     "required": [
       "endPoint",
-      "bucket"
+      "bucket",
+      "region"
     ],
     "type": "object"
   },
