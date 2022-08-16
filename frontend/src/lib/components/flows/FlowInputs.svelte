@@ -46,6 +46,6 @@
 		label="New Typescript {isTrigger ? 'trigger ' : ''}script (Deno)"
 		icon={faCode}
 		iconColor="text-blue-800"
-		on:click={() => dispatch('new', { language: RawScript.language.DENO })}
+		on:click={() => dispatch('new', { language: RawScript.language.DENO, isTrigger })}
 	/>
 </div>

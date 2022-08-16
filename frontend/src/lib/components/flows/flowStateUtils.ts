@@ -28,10 +28,14 @@ export async function pickScript(path: string): Promise<FlowModuleSchema> {
 	return await loadFlowModuleSchema(flowModule)
 }
 
-export async function createInlineScriptModule(
+export async function createInlineScriptModule({
+	language,
+	isTrigger = false
+}: {
 	language: RawScript.language
-): Promise<FlowModuleSchema> {
-	const code = initialCode(language, false)
+	isTrigger: boolean
+}): Promise<FlowModuleSchema> {
+	const code = initialCode(language, isTrigger)
 
 	const flowModule: FlowModule = {
 		value: { type: 'rawscript', content: code, language },

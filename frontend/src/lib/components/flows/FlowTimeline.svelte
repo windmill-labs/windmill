@@ -5,14 +5,16 @@
 		faPen,
 		faPlus,
 		faRotate,
-		faSliders
+		faSliders,
+		faTrashAlt
 	} from '@fortawesome/free-solid-svg-icons'
+	import { Button } from 'flowbite-svelte'
 	import Icon from 'svelte-awesome'
 	import { Highlight } from 'svelte-highlight'
 	import typescript from 'svelte-highlight/languages/typescript'
 	import ModuleStep from '../ModuleStep.svelte'
 	import FlowInput from './FlowInput.svelte'
-	import { addStep, type FlowState } from './flowState'
+	import { addStep, removeStep, type FlowState } from './flowState'
 	import { flowStore } from './flowStore'
 
 	export let args: Record<string, any> = {}
@@ -167,7 +169,7 @@
 							indexes={getIndexes(parentIndex, index)}
 							bind:schema={flowModuleSchema.schema}
 							bind:childFlowModules={flowModuleSchema.childFlowModules}
-							bind:previewResult={flowModuleSchema.previewResult}
+							bind:previewResults={flowModuleSchema.previewResults}
 						/>
 						{#if $flowStore?.value.modules.length - 1 === index}
 							<span
