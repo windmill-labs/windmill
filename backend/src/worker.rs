@@ -1390,6 +1390,60 @@ def main():
         assert_eq!(result, serde_json::json!("hello world"));
     }
 
+
+    #[sqlx::test(fixtures("base"))]
+    async fn test_empty_loop(db: DB) {
+        initialize_tracing().await;
+
+        let flow: FlowValue = serde_json::from_value(serde_json::json!({
+            "modules": [
+                {
+                    "value": {
+                        "type": "forloopflow",
+                        "iterator": { "type": "static", "value": [] },
+                        "value": {
+                            "modules": [
+                                {
+                                    "input_transform": {
+                                        "n": {
+                                            "type": "javascript",
+                                            "expr": "previous_result.iter.value",
+                                        },
+                                    },
+                                    "value": {
+                                        "type": "rawscript",
+                                        "language": "python3",
+                                        "content": "def main(n): return n",
+                                    },
+                                }
+                            ],
+                        }
+                    },
+                },
+                {
+                    "input_transform": {
+                        "items": {
+                            "type": "javascript",
+                            "expr": "previous_result",
+                        },
+                    },
+                    "value": {
+                        "type": "rawscript",
+                        "language": "python3",
+                        "content": "def main(items): return sum(items)",
+                    },
+                },
+            ],
+        }))
+        .unwrap();
+
+        let flow = JobPayload::RawFlow { value: flow, path: None };
+        let result = run_job_in_new_worker_until_complete(&db, flow).await;
+
+        assert_eq!(result, serde_json::json!(0));
+    }
+
+
     #[sqlx::test(fixtures("base"))]
     async fn test_step_after_loop(db: DB) {
         initialize_tracing().await;
