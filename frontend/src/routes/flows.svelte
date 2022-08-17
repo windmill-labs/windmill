@@ -200,12 +200,13 @@
 						All flows visible to you because they have been shared to you
 					</p>
 				{:else if sectionTab == 'hub'}
-					<h2 class="">Approved flows from the WindmillHub</h2>
-					<p class="italic text-xs text-gray-600 mb-8">
-						All approved Flow from the <a href="https://hub.windmill.dev">WindmillHub</a>. Approved
-						flows have been potentially contributed by the community but reviewed and selected
-						carefully by the Windmill team.
-					</p>
+					<h2 class="">
+						Approved flows from the WindmillHub <Tooltip>
+							All approved Flow from the <a href="https://hub.windmill.dev">WindmillHub</a>.
+							Approved flows have been potentially contributed by the community but reviewed and
+							selected carefully by the Windmill team.
+						</Tooltip>
+					</h2>
 					<input placeholder="Search hub flows" bind:value={hubFilter} class="search-bar mt-2" />
 					<div class="relative">
 						<TableCustom>
