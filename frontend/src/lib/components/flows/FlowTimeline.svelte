@@ -104,10 +104,15 @@
 							>
 						</span>
 						<span class="flex items-center space-x-2">
+							<!-- 		{#if flowModuleSchema.flowModule.value.iterator.type === 'javascript'}
+								<Highlight
+									language={typescript}
+									code={flowModuleSchema.flowModule.value.iterator.expr}
+								/>
+							{/if} -->
 							<Toggle size="small" bind:checked={flowModuleSchema.flowModule.value.skip_failures}>
 								Skip failures
 							</Toggle>
-
 							<Button size="xs" color="alternative" on:click={() => removeAtIndex(index)}>
 								<Icon data={faTrashAlt} class="mr-2" />
 								Remove loop
