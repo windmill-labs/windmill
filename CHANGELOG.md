@@ -1,6 +1,23 @@
 # Changelog
 
 
+## [1.31.0](https://github.com/windmill-labs/windmill/compare/v1.30.0...v1.31.0) (2022-08-17)
+
+
+### Features
+
+* allow to configure port via envar ([#407](https://github.com/windmill-labs/windmill/issues/407)) ([34be056](https://github.com/windmill-labs/windmill/commit/34be0564f89f942478c25e77fd77a515367a6afd))
+* db users: admin -> windmill_admin, app -> windmill_user ([#404](https://github.com/windmill-labs/windmill/issues/404)) ([1c40f01](https://github.com/windmill-labs/windmill/commit/1c40f01e5d8e3d854de4c30d9f5e4f731c220ce2))
+* **frontend:** Redesign of the Flow Editor + Arbitrary forloop ([127b0b4](https://github.com/windmill-labs/windmill/commit/127b0b4e5e6a96f91d7e8234cc52d887afb637b0))
+
+
+### Bug Fixes
+
+* **backend:** collecting result when for loop is not the last step [#422](https://github.com/windmill-labs/windmill/issues/422)  ([e606118](https://github.com/windmill-labs/windmill/commit/e6061189438fb3a7e630d2e390075fc3eded984c))
+* **self-hosting:** add lsp and caddy to docke-compose ([#432](https://github.com/windmill-labs/windmill/issues/432)) ([1004518](https://github.com/windmill-labs/windmill/commit/100451878c26d2fa324c6195838accae959a5310))
+* set secure only for https ([1275f5f](https://github.com/windmill-labs/windmill/commit/1275f5f7fb65e32a17d7d397d43d0b49ecd5cd0e))
+* users privileges ([2bdb617](https://github.com/windmill-labs/windmill/commit/2bdb617b1f80104bd3314656603dccb0021e05cb))
+
 ## [1.30.0](https://github.com/windmill-labs/windmill/compare/v1.29.0...v1.30.0) (2022-08-13)
 
 
