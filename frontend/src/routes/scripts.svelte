@@ -241,14 +241,15 @@
 						from a special workspace called 'starter' that only superadmin can change.
 					</p>
 				{:else if sectionTab == 'hub'}
-					<h2 class="">Approved scripts from the WindmillHub</h2>
-					<p class="italic text-xs text-gray-600 mb-8">
-						All approved Deno scripts from the <a href="https://hub.windmill.dev">WindmillHub</a>.
-						Approved scripts have been reviewed by the Windmill team and are safe to use in
-						production. The hub only offers Deno scripts because Hub scripts are meant to be solely
-						used as building blocks of flows and are much more efficient to execute than their
-						Python counterparts.
-					</p>
+					<h2 class="">
+						Approved scripts from the WindmillHub <Tooltip>
+							All approved Deno scripts from the <a href="https://hub.windmill.dev">WindmillHub</a>.
+							Approved scripts have been reviewed by the Windmill team and are safe to use in
+							production. The hub only offers Deno scripts because Hub scripts are meant to be
+							solely used as building blocks of flows and are much more efficient to execute than
+							their Python counterparts.
+						</Tooltip>
+					</h2>
 					<input placeholder="Search hub scripts" bind:value={hubFilter} class="search-bar mt-2" />
 					<div class="relative">
 						<TableCustom>
