@@ -94,7 +94,10 @@
 
 		flowStateStore.update((flowState: FlowState) => {
 			const expr = 'Array.isArray(result) && result.length == 0'
-			flowState[indexes[0] - 1].flowModule.stop_after_if_expr = expr
+			const [parentIndex] = indexes
+			if (parentIndex >= 1) {
+				flowState[parentIndex - 1].flowModule.stop_after_if_expr = expr
+			}
 
 			return flowState
 		})
