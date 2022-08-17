@@ -183,29 +183,29 @@
 		{#each tab == 'all' ? ['personal', 'groups', 'shared', 'hub'] : [tab] as sectionTab}
 			<div class="shadow p-4 my-2">
 				{#if sectionTab == 'personal'}
-					<h2 class="">
-						My personal space ({`u/${$userStore?.username}`})
+					<h2 class="mb-2">
+						Personal <span class="text-sm"
+							>({`u/${$userStore?.username}`}) <Tooltip>
+								All flows owned by you (and visible only to you if you do not explicitly share them)
+							</Tooltip></span
+						>
 					</h2>
-					<p class="italic text-xs text-gray-600 mb-4">
-						All flows owned by you (and visible only to you if you do not explicitly share them)
-					</p>
 				{:else if sectionTab == 'groups'}
-					<h2 class="">Groups that I am member of</h2>
-					<p class="italic text-xs text-gray-600">
-						All flows being owned by groups that you are member of
-					</p>
+					<h2 class="">
+						Groups <Tooltip>All flows being owned by groups that you are member of</Tooltip>
+					</h2>
 				{:else if sectionTab == 'shared'}
-					<h2 class="">Shared with me</h2>
-					<p class="italic text-xs text-gray-600">
-						All flows visible to you because they have been shared to you
-					</p>
+					<h2 class="">
+						Shared <Tooltip>All flows visible to you because they have been shared to you</Tooltip>
+					</h2>
 				{:else if sectionTab == 'hub'}
-					<h2 class="">Approved flows from the WindmillHub</h2>
-					<p class="italic text-xs text-gray-600 mb-8">
-						All approved Flow from the <a href="https://hub.windmill.dev">WindmillHub</a>. Approved
-						flows have been potentially contributed by the community but reviewed and selected
-						carefully by the Windmill team.
-					</p>
+					<h2 class="">
+						Approved flows from the WindmillHub <Tooltip>
+							All approved Flow from the <a href="https://hub.windmill.dev">WindmillHub</a>.
+							Approved flows have been potentially contributed by the community but reviewed and
+							selected carefully by the Windmill team.
+						</Tooltip>
+					</h2>
 					<input placeholder="Search hub flows" bind:value={hubFilter} class="search-bar mt-2" />
 					<div class="relative">
 						<TableCustom>
@@ -218,7 +218,11 @@
 								{#each filteredHubFlows ?? [] as { summary, apps, flow_id }}
 									<tr>
 										<td class="font-black">{apps.join(', ')}</td>
-										<td><button on:click={() => viewFlow(flow_id)}>{summary}</button></td>
+										<td
+											><button class="align-left" on:click={() => viewFlow(flow_id)}
+												>{summary}</button
+											></td
+										>
 										<td
 											><button class="text-blue-500" on:click={() => viewFlow(flow_id)}
 												>view flow</button
@@ -238,7 +242,7 @@
 				{#each groupedFlows.filter((x) => tabFromPath(x[0]) == sectionTab) as [section, flows]}
 					{#if sectionTab != 'personal'}
 						<h3 class="mt-2 mb-2">
-							owner: {section}
+							{section}
 							{#if section == 'g/all'}
 								<Tooltip
 									>'g/all' is the namespace for the group all. Every user is a member of all.
@@ -248,12 +252,10 @@
 							{/if}
 						</h3>
 					{/if}
-					{#if flows.length == 0}
-						<p class="text-xs text-gray-600 font-black">
-							No flows for this owner space yet. To create one, click on the top right button.
-						</p>
+					{#if flows.length == 0 && sectionTab == 'personal'}
+						<p class="text-xs text-gray-600 italic">No flows yet</p>
 					{:else}
-						<div class="grid md:grid-cols-2 gap-4 sm:grid-cols-1 2xl:grid-cols-3">
+						<div class="grid md:grid-cols-2 gap-4 sm:grid-cols-1 xl:grid-cols-3">
 							{#each flows as { summary, path, extra_perms, canWrite }}
 								<div
 									class="flex flex-col justify-between flow max-w-lg overflow-visible shadow-sm shadow-blue-100 border border-gray-200 bg-gray-50 py-2"
@@ -323,8 +325,8 @@
 													href="/flows/run/{path}"
 												>
 													<div class="inline-flex items-center justify-center">
-														<Icon data={faPlay} scale={0.5} />
-														<span class="pl-1">Run...</span>
+														<Icon data={faPlay} scale={0.6} />
+														<span class="pl-1">Run</span>
 													</div>
 												</a>
 											</div>

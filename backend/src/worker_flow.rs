@@ -147,12 +147,11 @@ pub async fn update_flow_status_after_job_completion(
             false
         };
 
-    let done = if !(success || skip_loop_failures) || last_step || stop_early {
-        let result = match new_status {
-            FlowStatusModule::Success { forloop_jobs: Some(jobs), .. } => {
-                use futures::TryStreamExt;
-                let results = sqlx::query_as(
-                    "
+    let result = match new_status {
+        FlowStatusModule::Success { forloop_jobs: Some(jobs), .. } => {
+            use futures::TryStreamExt;
+            let results = sqlx::query_as(
+                "
                   SELECT result
                     FROM completed_job
                    WHERE id = ANY($1)
@@ -160,17 +159,18 @@ pub async fn update_flow_status_after_job_completion(
                      AND success = true
                 ORDER BY args->>'_index'
                     ",
-                )
-                .bind(jobs.as_slice())
-                .bind(w_id)
-                .fetch(&mut tx)
-                .map_ok(|(v,)| v)
-                .try_collect::<Vec<serde_json::Value>>()
-                .await?;
-                serde_json::json!(results)
-            }
-            _ => result.clone(),
-        };
+            )
+            .bind(jobs.as_slice())
+            .bind(w_id)
+            .fetch(&mut tx)
+            .map_ok(|(v,)| v)
+            .try_collect::<Vec<serde_json::Value>>()
+            .await?;
+            serde_json::json!(results)
+        }
+        _ => result.clone(),
+    };
+    let done = if !(success || skip_loop_failures) || last_step || stop_early {
         tx.commit().await?;
 
         let logs = if stop_early {
