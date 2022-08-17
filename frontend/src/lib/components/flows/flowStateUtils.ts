@@ -56,7 +56,7 @@ export async function createLoop(): Promise<FlowModuleSchema> {
 			value: {
 				modules: []
 			},
-			iterator: { type: 'javascript', expr: 'result' },
+			iterator: { type: 'javascript', expr: 'Array.isArray(result) && result.length == 0' },
 			skip_failures: true
 		},
 		input_transform: {}
