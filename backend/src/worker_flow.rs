@@ -550,6 +550,24 @@ async fn push_next_flow_job(
                         push_next_flow_job(&new_job, flow, schedule_path, db, json!([])).await?,
                     );
                 } else {
+                    add_completed_job(
+                        db,
+                        &new_job,
+                        true,
+                        false,
+                        json!([]),
+                        "Forloop completed without iteration".to_string(),
+                    )
+                    .await?;
+                    postprocess_queued_job(
+                        false,
+                        new_job.schedule_path,
+                        new_job.script_path,
+                        &new_job.workspace_id,
+                        new_job.id,
+                        db,
+                    )
+                    .await?;
                     return Ok(());
                 }
             }
