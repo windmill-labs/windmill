@@ -22,7 +22,7 @@
 	import type { Schema } from '$lib/common'
 	import { flowStateStore, type FlowModuleSchema, type FlowState } from './flows/flowState'
 	import { stepOpened } from './flows/stepOpenedStore'
-	import { schemaToObject } from '$lib/utils'
+	import { buildExtraLib, objectToTsType, schemaToObject, schemaToTsType } from '$lib/utils'
 
 	export let indexes: number[]
 	export let mod: FlowModule
@@ -69,7 +69,10 @@
 
 	$: shouldPick = 'path' in mod.value && mod.value.path === '' && !('language' in mod.value)
 	$: pickableProperties = getPickableProperties($flowStore)
-	$: extraLib = ''
+	$: extraLib = buildExtraLib(
+		schemaToTsType($flowStore?.schema),
+		i === 0 ? schemaToTsType($flowStore?.schema) : objectToTsType(previousStepPreviewResults)
+	)
 
 	async function apply<T>(fn: (arg: T) => Promise<FlowModuleSchema>, arg: T) {
 		const flowModuleSchema = await fn(arg)
@@ -182,10 +185,10 @@
 			{#if !shouldPick}
 				<p class="text-lg font-bold text-gray-900 mb-2">Step inputs</p>
 				<SchemaForm
-					inputTransform={true}
 					{schema}
 					{extraLib}
-					{i}
+					inputTransform={true}
+					importPath={String(indexes.join('-'))}
 					bind:pickableProperties
 					bind:args={mod.input_transform}
 				/>

@@ -6,7 +6,6 @@ import { workspaceStore } from '$lib/stores'
 import { emptySchema, schemaToObject } from '$lib/utils'
 import { get } from 'svelte/store'
 
-
 export function cleanInputs(flow: Flow | any): Flow {
 	const newFlow: Flow = JSON.parse(JSON.stringify(flow))
 	newFlow.value.modules.forEach((mod) => {
@@ -111,9 +110,15 @@ export function isCodeInjection(expr: string | undefined): boolean {
 	return returnStatementRegex.test(returnStatement)
 }
 
-export function getDefaultExpr(i: number, key: string = 'myfield', previousExpr?: string) {
+export function getDefaultExpr(
+	importPath: string | undefined = undefined,
+	key: string = 'myfield',
+	previousExpr?: string
+) {
 	const expr = previousExpr ?? `previous_result.${key}`
-	return `import { previous_result, flow_input, step, variable, resource, params } from 'windmill@${i}'
+	return `import { previous_result, flow_input, step, variable, resource, params } from 'windmill${
+		importPath ? `@${importPath}` : ''
+	}'
 
 ${expr}`
 }
