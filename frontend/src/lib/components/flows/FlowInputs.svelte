@@ -35,7 +35,7 @@
 			iconColor="text-blue-800"
 			on:click={() =>
 				dispatch('pick', {
-					path: 'hub/postgresql/173/execute_query_and_return_results_postgresql'
+					path: 'hub/173/postgresql/execute_query_and_return_results_postgresql'
 				})}
 		/>
 
