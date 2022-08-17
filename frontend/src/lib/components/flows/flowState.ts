@@ -1,7 +1,7 @@
 import type { Schema } from '$lib/common'
 import type { Flow, FlowModule } from '$lib/gen'
 import { derived, writable } from 'svelte/store'
-import { loadFlowModuleSchema } from './flowStateUtils'
+import { emptyFlowModuleSchema, isEmptyFlowModule, loadFlowModuleSchema } from './flowStateUtils'
 
 export type FlowModuleSchema = {
 	flowModule: FlowModule
@@ -27,8 +27,8 @@ export const isCopyFirstStepSchemaDisabled = derived(
 			if (!firstModule) {
 				return true
 			}
-			const fmv = firstModule.flowModule.value
-			return flowState.length === 0 || (fmv.type === 'script' && fmv.path === '')
+			const fm = firstModule.flowModule
+			return flowState.length === 0 || isEmptyFlowModule(fm)
 		} else {
 			return true
 		}
@@ -50,6 +50,11 @@ export async function flowModulesToFlowState(flowModules: FlowModule[]): Promise
 					childFlowModules
 				}
 			}
+
+			if (isEmptyFlowModule(flowModule)) {
+				return emptyFlowModuleSchema()
+			}
+
 			return loadFlowModuleSchema(flowModule)
 		})
 	)

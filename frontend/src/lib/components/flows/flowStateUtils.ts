@@ -163,3 +163,7 @@ async function findNextAvailablePath(path: string): Promise<string> {
 		return path
 	}
 }
+
+export function isEmptyFlowModule(flowModule: FlowModule): boolean {
+	return flowModule.value.type === 'script' && flowModule.value.path === ''
+}

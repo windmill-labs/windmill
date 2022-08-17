@@ -7,45 +7,60 @@
 	import PickHubScript from './pickers/PickHubScript.svelte'
 	import PickScript from './pickers/PickScript.svelte'
 
-	export let isTrigger: boolean
 	export let shouldDisableLoopCreation: boolean = false
-
+	export let shouldDisableTriggerScripts: boolean = false
 	const dispatch = createEventDispatcher()
 </script>
 
-<div class="columns-2">
-	<PickScript isTrigger={false} on:pick />
-	<PickHubScript isTrigger={false} on:pick />
-	{#if isTrigger}
-		<PickScript isTrigger={true} on:pick />
-		<PickHubScript isTrigger={true} on:pick />
+<div class="space-y-4">
+	<div class="text-sm font-bold">Scripts</div>
+
+	<div class="grid sm:grid-col-2 lg:grid-cols-3 gap-4">
+		<PickScript on:pick />
+		<PickHubScript on:pick />
+
+		<FlowScriptPicker
+			label={`Create a for-loop here`}
+			disabled={shouldDisableLoopCreation}
+			icon={faRepeat}
+			iconColor="text-blue-500"
+			on:click={() => dispatch('loop')}
+		/>
+
+		<FlowScriptPicker
+			label={`New Postgres SQL query`}
+			icon={faCode}
+			iconColor="text-blue-800"
+			on:click={() => dispatch('pick', { path: 'hub/130/execute_custom_query_postgresql' })}
+		/>
+
+		<FlowScriptPicker
+			label="New Python script (3.10)"
+			icon={faCode}
+			iconColor="text-green-500"
+			on:click={() => dispatch('new', { language: RawScript.language.PYTHON3 })}
+		/>
+
+		<FlowScriptPicker
+			label="New Typescript script (Deno)"
+			icon={faCode}
+			iconColor="text-blue-800"
+			on:click={() => dispatch('new', { language: RawScript.language.DENO, isTrigger: false })}
+		/>
+	</div>
+
+	{#if !shouldDisableTriggerScripts}
+		<div class="text-sm font-bold">Trigger scripts</div>
+
+		<div class="grid sm:grid-col-1 md:grid-col-2 lg:grid-cols-3 gap-4">
+			<PickScript isTrigger={true} on:pick />
+			<PickHubScript isTrigger={true} on:pick />
+			<FlowScriptPicker
+				label="New Typescript script (Deno)"
+				icon={faCode}
+				iconColor="text-blue-800"
+				on:click={() => dispatch('new', { language: RawScript.language.DENO, isTrigger: true })}
+			/>
+		</div>
 	{/if}
-	<FlowScriptPicker
-		label={`Create a for-loop here`}
-		disabled={shouldDisableLoopCreation}
-		icon={faRepeat}
-		iconColor="text-blue-500"
-		on:click={() => dispatch('loop')}
-	/>
-
-	<FlowScriptPicker
-		label={`New Postgres SQL query`}
-		icon={faCode}
-		iconColor="text-blue-800"
-		on:click={() => dispatch('pick', { path: 'hub/130/execute_custom_query_postgresql' })}
-	/>
-
-	<FlowScriptPicker
-		label="New Python script (3.10)"
-		icon={faCode}
-		iconColor="text-green-500"
-		on:click={() => dispatch('new', { language: RawScript.language.PYTHON3 })}
-	/>
-
-	<FlowScriptPicker
-		label="New Typescript script (Deno)"
-		icon={faCode}
-		iconColor="text-blue-800"
-		on:click={() => dispatch('new', { language: RawScript.language.DENO, isTrigger })}
-	/>
 </div>

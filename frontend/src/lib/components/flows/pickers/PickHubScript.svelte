@@ -6,7 +6,7 @@
 	import { hubScripts } from '$lib/stores'
 	import { createEventDispatcher } from 'svelte'
 
-	export let isTrigger: boolean
+	export let isTrigger: boolean = false
 
 	type Item = { summary: String; path: String; version?: String }
 

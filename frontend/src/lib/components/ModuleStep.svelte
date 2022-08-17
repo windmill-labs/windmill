@@ -115,9 +115,6 @@
 		previewResults = results
 	}
 
-	// isTrigger should depend on script.is_trigger
-	const isTrigger = indexes[0] === 0
-
 	$: opened = $stepOpened === String(indexes.join('-'))
 </script>
 
@@ -143,11 +140,14 @@
 		{#if opened}
 			{#if shouldPick}
 				<FlowInputs
-					{isTrigger}
+					shouldDisableTriggerScripts={indexes.length > 1}
 					shouldDisableLoopCreation={indexes.length > 1 || indexes[0] == 0}
 					on:pick={(e) => apply(pickScript, e.detail.path)}
 					on:new={(e) =>
-						apply(createInlineScriptModule, { language: e.detail.language, isTrigger })}
+						apply(createInlineScriptModule, {
+							language: e.detail.language,
+							isTrigger: e.detail.isTrigger
+						})}
 					on:loop={() => applyCreateLoop()}
 				/>
 			{/if}
