@@ -307,7 +307,7 @@
 						bind:this={editor}
 						lang="sql"
 						bind:code={value}
-						class="two-lines-editor"
+						class="few-lines-editor"
 						on:change={async () => {
 							dispatch('input', { rawValue: value, isRaw: false })
 						}}
