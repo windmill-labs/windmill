@@ -538,6 +538,7 @@ async fn push_next_flow_job(
                 .await?;
                 tx.commit().await?;
                 if flow.modules.len() > i + 1 {
+                    //TODO: update step counter by 1
                     return Ok(
                         push_next_flow_job(flow_job, flow, schedule_path, db, json!([])).await?,
                     );
