@@ -183,22 +183,21 @@
 		{#each tab == 'all' ? ['personal', 'groups', 'shared', 'hub'] : [tab] as sectionTab}
 			<div class="shadow p-4 my-2">
 				{#if sectionTab == 'personal'}
-					<h2 class="">
-						Personal <span class="text-sm">({`u/${$userStore?.username}`})</span>
+					<h2 class="mb-2">
+						Personal <span class="text-sm"
+							>({`u/${$userStore?.username}`}) <Tooltip>
+								All flows owned by you (and visible only to you if you do not explicitly share them)
+							</Tooltip></span
+						>
 					</h2>
-					<p class="italic text-xs text-gray-600 mb-4">
-						All flows owned by you (and visible only to you if you do not explicitly share them)
-					</p>
 				{:else if sectionTab == 'groups'}
-					<h2 class="">Groups</h2>
-					<p class="italic text-xs text-gray-600">
-						All flows being owned by groups that you are member of
-					</p>
+					<h2 class="">
+						Groups <Tooltip>All flows being owned by groups that you are member of</Tooltip>
+					</h2>
 				{:else if sectionTab == 'shared'}
-					<h2 class="">Shared</h2>
-					<p class="italic text-xs text-gray-600">
-						All flows visible to you because they have been shared to you
-					</p>
+					<h2 class="">
+						Shared <Tooltip>All flows visible to you because they have been shared to you</Tooltip>
+					</h2>
 				{:else if sectionTab == 'hub'}
 					<h2 class="">
 						Approved flows from the WindmillHub <Tooltip>
@@ -219,7 +218,11 @@
 								{#each filteredHubFlows ?? [] as { summary, apps, flow_id }}
 									<tr>
 										<td class="font-black">{apps.join(', ')}</td>
-										<td><button on:click={() => viewFlow(flow_id)}>{summary}</button></td>
+										<td
+											><button class="align-left" on:click={() => viewFlow(flow_id)}
+												>{summary}</button
+											></td
+										>
 										<td
 											><button class="text-blue-500" on:click={() => viewFlow(flow_id)}
 												>view flow</button
@@ -252,7 +255,7 @@
 					{#if flows.length == 0 && sectionTab == 'personal'}
 						<p class="text-xs text-gray-600 italic">No flows yet</p>
 					{:else}
-						<div class="grid md:grid-cols-2 gap-4 sm:grid-cols-1 2xl:grid-cols-3">
+						<div class="grid md:grid-cols-2 gap-4 sm:grid-cols-1 xl:grid-cols-3">
 							{#each flows as { summary, path, extra_perms, canWrite }}
 								<div
 									class="flex flex-col justify-between flow max-w-lg overflow-visible shadow-sm shadow-blue-100 border border-gray-200 bg-gray-50 py-2"
