@@ -13,7 +13,9 @@
 </script>
 
 <div class="space-y-4">
-	<div class="text-sm font-bold">Scripts</div>
+	{#if !shouldDisableTriggerScripts}
+		<div class="text-sm font-bold">Scripts</div>
+	{/if}
 
 	<div class="grid sm:grid-col-2 lg:grid-cols-3 gap-4">
 		<PickScript on:pick />
@@ -33,7 +35,7 @@
 			iconColor="text-blue-800"
 			on:click={() =>
 				dispatch('pick', {
-					path: 'hub/postgresql/173/execute_query_and_return_results_postgresql'
+					path: 'hub/173/postgresql/execute_query_and_return_results_postgresql'
 				})}
 		/>
 
