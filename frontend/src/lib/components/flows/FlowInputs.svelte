@@ -31,7 +31,8 @@
 			label={`New Postgres SQL query`}
 			icon={faCode}
 			iconColor="text-blue-800"
-			on:click={() => dispatch('pick', { path: 'hub/130/execute_custom_query_postgresql' })}
+			on:click={() =>
+				dispatch('pick', { path: 'hub/130/postgresql/execute_custom_query_postgresql' })}
 		/>
 
 		<FlowScriptPicker
