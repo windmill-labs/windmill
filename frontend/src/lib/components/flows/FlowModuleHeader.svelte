@@ -40,7 +40,7 @@
 </script>
 
 <a href="#module-{indexes.join('-')}" class="grow text-inherit" on:click|preventDefault={scrollTo}>
-	<h3 class="text-md font-bold text-gray-900">
+	<h3 class="text-sm font-bold text-gray-900">
 		{#if 'path' in mod.value && mod.value.path}
 			{mod.value.path}
 		{:else if 'language' in mod.value && mod.value.language}
@@ -53,24 +53,24 @@
 
 <div class="flex flex-row space-x-2">
 	{#if mod.value.type === 'script' && !shouldPick}
-		<Button size="sm" color="alternative" on:click={() => dispatch('fork')}>
+		<Button size="xs" color="alternative" on:click={() => dispatch('fork')}>
 			<Icon data={faCodeBranch} class="mr-2" />
 			Fork
 		</Button>
-		<Button size="sm" color="alternative" on:click={viewCode}>
+		<Button size="xs" color="alternative" on:click={viewCode}>
 			<Icon data={faCode} class="mr-2" />
 			View code
 		</Button>
 	{/if}
 
 	{#if mod.value.type === 'rawscript' && !shouldPick}
-		<Button size="sm" color="alternative" on:click={() => dispatch('createScriptFromInlineScript')}>
+		<Button size="xs" color="alternative" on:click={() => dispatch('createScriptFromInlineScript')}>
 			<Icon data={faSave} class="mr-2" />
 			Save to workspace
 		</Button>
 	{/if}
 	<Button
-		size="sm"
+		size="xs"
 		color="alternative"
 		on:click={() => {
 			dispatch('delete')

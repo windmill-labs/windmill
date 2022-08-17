@@ -6,7 +6,9 @@
 </script>
 
 <FlowBox title="Flow Inputs">
-	<div slot="header"><CopyFirstStepSchema /></div>
+	<div slot="header">
+		<CopyFirstStepSchema />
+	</div>
 	<div slot="content">
 		<SchemaEditor
 			on:change={() => {

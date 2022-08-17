@@ -5,9 +5,10 @@
 		faInfoCircle,
 		faPen,
 		faPlus,
-		faSliders
+		faSliders,
+		faTrashAlt
 	} from '@fortawesome/free-solid-svg-icons'
-	import { Tooltip } from 'flowbite-svelte'
+	import { Button, Tooltip } from 'flowbite-svelte'
 	import Icon from 'svelte-awesome'
 	import { Highlight } from 'svelte-highlight'
 	import typescript from 'svelte-highlight/languages/typescript'
@@ -91,10 +92,10 @@
 						<Icon class="text-gray-400" data={faPlus} />
 					</button>
 					<div
-						class="p-4 ml-4 mb-16 flex justify-between text-sm font-bold text-orange-700 bg-orange-100 rounded-lg dark:bg-orange-200 dark:text-orange-800"
+						class="py-2 px-6 ml-4 mb-16 flex justify-between text-sm font-bold border border-gray-300 rounded-md shadow-md"
 						role="alert"
 					>
-						<span class="flex">
+						<span class="flex items-center z-50">
 							For loop
 							<Tooltip
 								content="Inside a loop, the flow input has an 'iter' property. It contains the value and the index of the iteration"
@@ -104,9 +105,11 @@
 								<Icon data={faInfoCircle} class="ml-2" /></Tooltip
 							>
 						</span>
-						<button on:click={() => removeAtIndex(index)}>
-							<Icon class="text-gray-400" data={faClose} />
-						</button>
+
+						<Button size="xs" color="alternative" on:click={() => removeAtIndex(index)}>
+							<Icon data={faTrashAlt} class="mr-2" />
+							Remove loop
+						</Button>
 					</div>
 					<span
 						class="flex absolute top-3 -left-8 justify-center items-center w-8 h-8 bg-orange-200 rounded-full ring-8 ring-white dark:ring-gray-900 dark:bg-orange-900"
@@ -147,7 +150,7 @@
 					</span>
 
 					<div
-						class="flex p-4 ml-4 mt-4 text-sm font-bold text-orange-700 bg-orange-100 rounded-lg dark:bg-orange-200 dark:text-orange-800"
+						class="flex px-6 py-4 ml-4 mt-4 text-sm font-bold border border-gray-300 rounded-md shadow-md z-50"
 						role="alert"
 					>
 						End of For Loop

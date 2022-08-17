@@ -6,7 +6,7 @@
 
 <Button
 	color="light"
-	size="sm"
+	size="xs"
 	disabled={$isCopyFirstStepSchemaDisabled}
 	on:click={copyFirstStepSchema}
 >
