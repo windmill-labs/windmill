@@ -13,7 +13,9 @@
 </script>
 
 <div class="space-y-4">
-	<div class="text-sm font-bold">Scripts</div>
+	{#if !shouldDisableTriggerScripts}
+		<div class="text-sm font-bold">Scripts</div>
+	{/if}
 
 	<div class="grid sm:grid-col-2 lg:grid-cols-3 gap-4">
 		<PickScript on:pick />
