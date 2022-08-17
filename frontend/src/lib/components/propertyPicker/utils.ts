@@ -53,15 +53,16 @@ const validJSExpressionRegex = new RegExp(
 export function computeKey(key: string, isArray: boolean, currentPath?: string) {
 	const isIdentifierValid = validJSExpressionRegex.test(key)
 	// When an identifier is not a valid JS expression, we must use the bracket notation
+	const oldKey = key
 	if (!isIdentifierValid) {
 		key = `["${key}"]`
 	}
 
 	if (isArray) {
 		if (currentPath === 'step') {
-			return `${currentPath}(${key})?`
+			return `step(${oldKey})`
 		}
-		return `${currentPath}[${key}]`
+		return `${currentPath}[${oldKey}]`
 	} else {
 		if (currentPath) {
 			// We add a dot only when the identifier is valid
