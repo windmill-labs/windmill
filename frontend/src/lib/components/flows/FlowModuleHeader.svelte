@@ -1,7 +1,14 @@
 <script lang="ts">
 	import type { FlowModule } from '$lib/gen'
 	import { getScriptByPath } from '$lib/utils'
-	import { faCode, faCodeBranch, faSave, faTrashAlt } from '@fortawesome/free-solid-svg-icons'
+	import {
+		faArrowDown,
+		faClose,
+		faCode,
+		faCodeBranch,
+		faSave,
+		faTrashAlt
+	} from '@fortawesome/free-solid-svg-icons'
 	import { Button } from 'flowbite-svelte'
 	import { createEventDispatcher } from 'svelte'
 	import Icon from 'svelte-awesome'
@@ -9,12 +16,13 @@
 	import python from 'svelte-highlight/languages/python'
 	import typescript from 'svelte-highlight/languages/typescript'
 	import Modal from '../Modal.svelte'
-	import Tooltip from '../Tooltip.svelte'
-	import { scrollIntoView } from './utils'
+	import { isEmptyFlowModule } from './flowStateUtils'
+	import { stepOpened } from './stepOpenedStore'
 
 	export let indexes: number[]
-	export let shouldPick = false
 	export let mod: FlowModule
+
+	$: shouldPick = isEmptyFlowModule(mod)
 
 	let modalViewer: Modal
 	let modalViewerContent = ''
@@ -31,15 +39,11 @@
 		}
 	}
 
-	function scrollTo({ target }) {
-		const element = document.querySelector(target.getAttribute('href'))
-		scrollIntoView(element)
-	}
-
 	const dispatch = createEventDispatcher()
+	$: opened = $stepOpened === String(indexes.join('-'))
 </script>
 
-<a href="#module-{indexes.join('-')}" class="grow text-inherit" on:click|preventDefault={scrollTo}>
+<div on:click={() => stepOpened.update(() => String(indexes.join('-')))}>
 	<h3 class="text-sm font-bold text-gray-900">
 		{#if 'path' in mod.value && mod.value.path}
 			{mod.value.path}
@@ -49,7 +53,7 @@
 			Select a script
 		{/if}
 	</h3>
-</a>
+</div>
 
 <div class="flex flex-row space-x-2">
 	{#if mod.value.type === 'script' && !shouldPick}
@@ -79,6 +83,19 @@
 		<Icon data={faTrashAlt} class="mr-2" />
 		Remove step
 	</Button>
+	{#if opened}
+		<Button size="xs" color="dark" on:click={() => stepOpened.update(() => undefined)}>
+			<Icon data={faClose} />
+		</Button>
+	{:else}
+		<Button
+			size="xs"
+			color="dark"
+			on:click={() => stepOpened.update(() => String(indexes.join('-')))}
+		>
+			<Icon data={faArrowDown} />
+		</Button>
+	{/if}
 </div>
 
 <Modal bind:this={modalViewer}>

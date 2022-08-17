@@ -47,10 +47,13 @@ export function getTypeAsString(arg: any): string {
 export function scrollIntoView(element: any) {
 	if (!element) return
 
-	element.scrollIntoView({
-		behavior: 'smooth',
-		block: 'start',
-		inline: 'nearest'
+	var headerOffset = 45
+	var elementPosition = element.getBoundingClientRect().top
+	var offsetPosition = elementPosition + window.pageYOffset - headerOffset
+
+	window.scrollTo({
+		top: offsetPosition,
+		behavior: 'smooth'
 	})
 }
 
@@ -121,8 +124,9 @@ export function getDefaultExpr(
 	previousExpr?: string
 ) {
 	const expr = previousExpr ?? `previous_result.${key}`
-	return `import { previous_result, flow_input, step, variable, resource, params } from 'windmill${importPath ? `@${importPath}` : ''
-		}'
+	return `import { previous_result, flow_input, step, variable, resource, params } from 'windmill${
+		importPath ? `@${importPath}` : ''
+	}'
 
 ${expr}`
 }
@@ -186,7 +190,6 @@ export async function runFlowPreview(args: Record<string, any>, flow: Flow) {
 		}
 	})
 }
-
 
 export function codeToStaticTemplate(code?: string): string | undefined {
 	if (!code) return undefined
