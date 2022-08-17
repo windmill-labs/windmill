@@ -10,11 +10,13 @@
 		<CopyFirstStepSchema />
 	</div>
 	<div slot="content">
-		<SchemaEditor
-			on:change={() => {
-				$flowStore = $flowStore
-			}}
-			schema={$flowStore.schema}
-		/>
+		<div class="p-6 border-t border-gray-300">
+			<SchemaEditor
+				on:change={() => {
+					$flowStore = $flowStore
+				}}
+				schema={$flowStore.schema}
+			/>
+		</div>
 	</div>
 </FlowBox>
