@@ -11,7 +11,7 @@
 	import JobStatus from './JobStatus.svelte'
 
 	export let job: QueuedJob | CompletedJob
-	export let jobs: (Job | Job[] | undefined)[] = []
+	export let jobs: (Job | { job: Job; jobs: Job[] } | undefined)[] = []
 	export let fullyRetrieved = -1
 
 	let lastJobid: string | undefined
@@ -46,6 +46,10 @@
 				(i > fullyRetrieved && x.type == FlowStatusModule.type.SUCCESS) ||
 				x.type == FlowStatusModule.type.FAILURE
 			) {
+				const completedJob = await JobService.getCompletedJob({
+					workspace: $workspaceStore!,
+					id: x.job!
+				})
 				if (x.forloop_jobs) {
 					const forloop_jobs: CompletedJob[] = []
 
@@ -54,9 +58,12 @@
 							await JobService.getCompletedJob({ workspace: $workspaceStore!, id: j })
 						)
 					}
-					jobs[i] = forloop_jobs
+					jobs[i] = {
+						jobs: forloop_jobs,
+						job: completedJob
+					}
 				} else {
-					jobs[i] = await JobService.getCompletedJob({ workspace: $workspaceStore!, id: x.job! })
+					jobs[i] = completedJob
 				}
 				jobs = jobs
 				fullyRetrieved = i
@@ -74,6 +81,10 @@
 
 	function toCompletedJobs(x: any): CompletedJob[] {
 		return x as CompletedJob[]
+	}
+
+	function toWithJobs(x: any): { jobs: Job[]; job: Job } {
+		return x as { jobs: Job[]; job: Job }
 	}
 
 	$: $workspaceStore && job && loadResults()
@@ -184,9 +195,16 @@
 						</div>
 					</div>
 					{#if jobs[i]}
-						{#if Array.isArray(jobs[i])}
+						{#if `jobs` in (jobs[i] ?? {})}
+							<div class="flex ">
+								<div class="flex-col">
+									<a href="/run/{toWithJobs(jobs[i]).job?.id}" class="font-medium text-blue-600">
+										{truncateRev(toWithJobs(jobs[i]).job.id, 10)}
+									</a>
+								</div>
+							</div>
 							<div class="flex flex-col mt-2 space-y-2 max-h-60 overflow-y-auto shadow-inner">
-								{#each toCompletedJobs(jobs[i]) as job, i}
+								{#each toCompletedJobs(toWithJobs(jobs[i] ?? {}).jobs) as job, i}
 									<button
 										class="underline text-blue-600 hover:text-blue-700"
 										class:text-red-600={!job.success}

@@ -6,7 +6,6 @@ import { workspaceStore } from '$lib/stores'
 import { emptySchema, schemaToObject } from '$lib/utils'
 import { get } from 'svelte/store'
 
-import type { FlowMode } from './flowStore'
 
 export function cleanInputs(flow: Flow | any): Flow {
 	const newFlow: Flow = JSON.parse(JSON.stringify(flow))
@@ -119,44 +118,43 @@ export function getDefaultExpr(i: number, key: string = 'myfield', previousExpr?
 ${expr}`
 }
 
-export function getPickableProperties(
-	schema: Schema,
-	args: Record<string, any>,
-	previewResults: Record<number, Object>,
-	mode: FlowMode,
-	i: number
-) {
-	const flowInputAsObject = schemaToObject(schema, args)
-	const flowInput =
-		mode === 'pull' && i >= 1
-			? computeFlowInputPull(previewResults[0], flowInputAsObject)
-			: flowInputAsObject
+// export function getPickableProperties(
+// 	schema: Schema,
+// 	args: Record<string, any>,
+// 	previewResults: Record<number, Object>,
+// 	i: number
+// ) {
+// 	const flowInputAsObject = schemaToObject(schema, args)
+// 	const flowInput =
+// 		mode === 'pull' && i >= 1
+// 			? computeFlowInputPull(previewResults[0], flowInputAsObject)
+// 			: flowInputAsObject
 
-	let previous_result
-	if (i === 0 || (i == 1 && mode == 'pull')) {
-		previous_result = flowInput
-	} else if (mode == 'pull') {
-		previous_result = previewResults[1] ? previewResults[1][i - 2] : undefined
-	} else {
-		previous_result = previewResults[i - 1]
-	}
+// 	let previous_result
+// 	if (i === 0 || (i == 1 && mode == 'pull')) {
+// 		previous_result = flowInput
+// 	} else if (mode == 'pull') {
+// 		previous_result = previewResults[1] ? previewResults[1][i - 2] : undefined
+// 	} else {
+// 		previous_result = previewResults[i - 1]
+// 	}
 
-	let step: any[]
-	if (i >= 1 && mode == 'push') {
-		step = Object.values(previewResults).slice(0, i)
-	} else if (i >= 2 && mode == 'pull') {
-		step = Object.values(previewResults[1] ?? {}).slice(0, i - 1)
-	} else {
-		step = []
-	}
-	const pickableProperties = {
-		flow_input: flowInput,
-		previous_result,
-		step
-	}
+// 	let step: any[]
+// 	if (i >= 1 && mode == 'push') {
+// 		step = Object.values(previewResults).slice(0, i)
+// 	} else if (i >= 2 && mode == 'pull') {
+// 		step = Object.values(previewResults[1] ?? {}).slice(0, i - 1)
+// 	} else {
+// 		step = []
+// 	}
+// 	const pickableProperties = {
+// 		flow_input: flowInput,
+// 		previous_result,
+// 		step
+// 	}
 
-	return pickableProperties
-}
+// 	return pickableProperties
+// }
 
 export function jobsToResults(jobs: Job[]) {
 	return jobs.map((job) => {
@@ -179,24 +177,23 @@ export async function runFlowPreview(args: Record<string, any>, flow: Flow) {
 		}
 	})
 }
-function computeFlowInputPull(previewResult: any | undefined, flowInputAsObject: any) {
-	const iteratorValues =
-		previewResult && Array.isArray(previewResult)
-			? {
-				iter: {
-					value: previewResult[0],
-					index: `The current index of the iteration as a number (here from 0 to ${previewResult.length - 1
-						})`
-				}
-			}
-			: {
-				iter: {
-					value: 'The current value of the iteration as an object',
-					index: 'The current index of the iteration as a number'
-				}
-			}
-	return Object.assign(flowInputAsObject, iteratorValues)
-}
+// function computeFlowInputPull(previewResult: any | undefined, flowInputAsObject: any) {
+// 	const iteratorValues =
+// 		previewResult && Array.isArray(previewResult)
+// 			? {
+// 				iter: {
+// 					value: previewResult[0],
+// 					index: `iterations\'s index (0 to ${previewResult.length - 1})`
+// 				}
+// 			}
+// 			: {
+// 				iter: {
+// 					value: 'iteration\'s object',
+// 					index: 'iterations\'s index'
+// 				}
+// 			}
+// 	return Object.assign(flowInputAsObject, iteratorValues)
+// }
 
 export function codeToStaticTemplate(code?: string): string | undefined {
 	if (!code) return undefined

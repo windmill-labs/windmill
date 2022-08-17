@@ -12,6 +12,7 @@
 	import { Highlight } from 'svelte-highlight'
 	import typescript from 'svelte-highlight/languages/typescript'
 	import ModuleStep from '../ModuleStep.svelte'
+	import ObjectViewer from '../propertyPicker/ObjectViewer.svelte'
 	import FlowInput from './FlowInput.svelte'
 	import type { FlowState } from './flowState'
 	import { emptyFlowModuleSchema } from './flowStateUtils'
@@ -209,6 +210,7 @@
 				</button>
 			{/if}
 		{/each}
+		<ObjectViewer json={flowModuleSchemas.map((x) => x.previewResults)} />
 		{#if flowModuleSchemas.length === 0}
 			<button
 				on:click={() => insertAtIndex(0)}

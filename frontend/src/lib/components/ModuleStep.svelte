@@ -48,8 +48,8 @@
 
 		if (indexes.length > 1) {
 			flowInputAsObject['iter'] = {
-				value: 'The current value of the iteration as an object',
-				index: 'The current index of the iteration as a number'
+				value: "iteration's value",
+				index: "iteration's index"
 			}
 		}
 
