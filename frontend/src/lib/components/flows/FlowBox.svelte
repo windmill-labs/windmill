@@ -4,13 +4,11 @@
 	let slots = $$props.$$slots
 </script>
 
-<div class="bg-white border border-gray-300 rounded-md shadow-md ">
+<div class="bg-white border border-gray-300 rounded-md">
 	<FlowBoxHeader {title}>
 		<slot name="header" />
 	</FlowBoxHeader>
 	{#if slots.content}
-		<div class="p-6 ">
-			<slot name="content" />
-		</div>
+		<slot name="content" />
 	{/if}
 </div>

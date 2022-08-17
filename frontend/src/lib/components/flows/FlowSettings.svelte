@@ -103,60 +103,63 @@
 	</div>
 
 	<div slot="content">
-		<Path
-			bind:error={pathError}
-			bind:path={$flowStore.path}
-			{initialPath}
-			namePlaceholder="my_flow"
-			kind="flow"
-		>
-			<div slot="ownerToolkit">
-				Flow permissions depend on their path. Select the group <span class="font-mono">all</span>
-				to share your flow, and <span class="font-mono">user</span> to keep it private.
-				<a href="https://docs.windmill.dev/docs/reference/namespaces">docs</a>
-			</div>
-		</Path>
+		<div class="p-6 border-t border-gray-300">
+			<Path
+				bind:error={pathError}
+				bind:path={$flowStore.path}
+				{initialPath}
+				namePlaceholder="my_flow"
+				kind="flow"
+			>
+				<div slot="ownerToolkit">
+					Flow permissions depend on their path. Select the group <span class="font-mono">all</span>
+					to share your flow, and <span class="font-mono">user</span> to keep it private.
+					<a href="https://docs.windmill.dev/docs/reference/namespaces">docs</a>
+				</div>
+			</Path>
 
-		<label class="block mt-4">
-			<span class="text-gray-700">Summary <Required required={false} /></span>
-			<textarea
-				bind:value={$flowStore.summary}
-				class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-300 focus:ring focus:ring-indigo-200 focus:ring-opacity-50"
-				placeholder="A very short summary of the flow displayed when the flow is listed"
-				rows="1"
-			/>
-		</label>
+			<label class="block mt-4">
+				<span class="text-gray-700">Summary <Required required={false} /></span>
+				<textarea
+					bind:value={$flowStore.summary}
+					class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-300 focus:ring focus:ring-indigo-200 focus:ring-opacity-50"
+					placeholder="A very short summary of the flow displayed when the flow is listed"
+					rows="1"
+				/>
+			</label>
 
-		<CollapseLink text="set primary schedule" open={true}>
-			<Tooltip>
-				The primary schedule of a flow is simply a schedule that has the same name as a flow. It can
-				be set and enabled directly within the flow editor. "Watching for new changes" flows are
-				meant to be watching regularly for new items in an external systems. The primary schedule
-				purpose is there to set the periodicity at which you want this watcher to operate.
-			</Tooltip>
-			<Toggle
-				bind:checked={scheduleEnabled}
-				options={{
-					left: 'disabled',
-					right: 'enabled'
-				}}
-			/>
-			<div class="p-2 my-2 rounded" class:bg-gray-300={!scheduleEnabled}>
-				{#if !scheduleEnabled}
-					<span class="font-black">No next scheduled run when disabled</span>
-				{/if}
-				<CronInput bind:schedule={scheduleCron} />
-			</div>
-			<div class="flex flex-row-reverse">
-				<Button
-					color="alternative"
-					size="sm"
-					on:click={() => (scheduleArgs = JSON.parse(JSON.stringify(previewArgs)))}
-				>
-					Copy from preview arguments
-				</Button>
-			</div>
-			<SchemaForm schema={$flowStore.schema} bind:args={scheduleArgs} />
-		</CollapseLink>
+			<CollapseLink text="set primary schedule" open={true}>
+				<Tooltip>
+					The primary schedule of a flow is simply a schedule that has the same name as a flow. It
+					can be set and enabled directly within the flow editor. "Watching for new changes" flows
+					are meant to be watching regularly for new items in an external systems. The primary
+					schedule purpose is there to set the periodicity at which you want this watcher to
+					operate.
+				</Tooltip>
+				<Toggle
+					bind:checked={scheduleEnabled}
+					options={{
+						left: 'disabled',
+						right: 'enabled'
+					}}
+				/>
+				<div class="p-2 my-2 rounded" class:bg-gray-300={!scheduleEnabled}>
+					{#if !scheduleEnabled}
+						<span class="font-black">No next scheduled run when disabled</span>
+					{/if}
+					<CronInput bind:schedule={scheduleCron} />
+				</div>
+				<div class="flex flex-row-reverse">
+					<Button
+						color="alternative"
+						size="sm"
+						on:click={() => (scheduleArgs = JSON.parse(JSON.stringify(previewArgs)))}
+					>
+						Copy from preview arguments
+					</Button>
+				</div>
+				<SchemaForm schema={$flowStore.schema} bind:args={scheduleArgs} />
+			</CollapseLink>
+		</div>
 	</div>
 </FlowBox>
