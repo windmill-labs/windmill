@@ -32,7 +32,9 @@
 			icon={faCode}
 			iconColor="text-blue-800"
 			on:click={() =>
-				dispatch('pick', { path: 'hub/130/postgresql/execute_custom_query_postgresql' })}
+				dispatch('pick', {
+					path: 'hub/postgresql/173/execute_query_and_return_results_postgresql'
+				})}
 		/>
 
 		<FlowScriptPicker
