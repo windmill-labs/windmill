@@ -65,8 +65,13 @@ export async function loadSchemaFromModule(module: FlowModule): Promise<{
 		if (mod.type === 'rawscript') {
 			schema = emptySchema()
 			await inferArgs(mod.language!, mod.content!, schema)
-		} else {
+		} else if (mod.path && mod.path != '') {
 			schema = await loadSchema(mod.path!)
+		} else {
+			return {
+				input_transform: {},
+				schema: emptySchema()
+			}
 		}
 
 		const keys = Object.keys(schema?.properties ?? {})
@@ -116,9 +121,8 @@ export function getDefaultExpr(
 	previousExpr?: string
 ) {
 	const expr = previousExpr ?? `previous_result.${key}`
-	return `import { previous_result, flow_input, step, variable, resource, params } from 'windmill${
-		importPath ? `@${importPath}` : ''
-	}'
+	return `import { previous_result, flow_input, step, variable, resource, params } from 'windmill${importPath ? `@${importPath}` : ''
+		}'
 
 ${expr}`
 }
@@ -182,23 +186,7 @@ export async function runFlowPreview(args: Record<string, any>, flow: Flow) {
 		}
 	})
 }
-// function computeFlowInputPull(previewResult: any | undefined, flowInputAsObject: any) {
-// 	const iteratorValues =
-// 		previewResult && Array.isArray(previewResult)
-// 			? {
-// 				iter: {
-// 					value: previewResult[0],
-// 					index: `iterations\'s index (0 to ${previewResult.length - 1})`
-// 				}
-// 			}
-// 			: {
-// 				iter: {
-// 					value: 'iteration\'s object',
-// 					index: 'iterations\'s index'
-// 				}
-// 			}
-// 	return Object.assign(flowInputAsObject, iteratorValues)
-// }
+
 
 export function codeToStaticTemplate(code?: string): string | undefined {
 	if (!code) return undefined
