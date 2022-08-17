@@ -3,7 +3,7 @@
 	import Icon from 'svelte-awesome'
 	import { slide } from 'svelte/transition'
 
-	export let i: number = 1
+	export let importPath: string | undefined = undefined
 
 	$: opened = false
 </script>
@@ -73,8 +73,10 @@ x + 2</code
 			</li>
 		</ul>
 		<p>To re-enable editor assistance, import the helper functions types using:</p>
-		<code
-			>{`import { previous_result, flow_input, step, variable, resource, params } from 'windmill@${i}'`}</code
-		>
+		<code>
+			{`import { previous_result, flow_input, step, variable, resource, params } from 'windmill${
+				importPath ? `@${importPath}` : ''
+			}'`}
+		</code>
 	</div>
 {/if}

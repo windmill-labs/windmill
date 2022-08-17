@@ -1,12 +1,10 @@
 /* eslint-disable @typescript-eslint/explicit-module-boundary-types */
 import { goto } from '$app/navigation'
-import { FlowService, ScriptService, type Flow, type User } from '$lib/gen'
+import { FlowService, ScriptService, type Flow, type FlowModule, type User } from '$lib/gen'
 import { toast } from '@zerodevx/svelte-toast'
 import { get } from 'svelte/store'
 import type { Schema } from './common'
 import { hubScripts, workspaceStore, type UserExt } from './stores'
-
-
 
 export function isToday(someDate: Date): boolean {
 	const today = new Date()
@@ -43,8 +41,9 @@ export function displayDate(dateString: string | undefined): string {
 	if (date.toString() === 'Invalid Date') {
 		return ''
 	} else {
-		return `${date.getFullYear()}/${date.getMonth() + 1
-			}/${date.getDate()} at ${date.toLocaleTimeString()}`
+		return `${date.getFullYear()}/${
+			date.getMonth() + 1
+		}/${date.getDate()} at ${date.toLocaleTimeString()}`
 	}
 }
 
@@ -128,6 +127,14 @@ export function emptySchema() {
 		type: 'object'
 	}
 }
+
+export function emptyModule(): FlowModule {
+	return {
+		value: { type: 'script', path: '' },
+		input_transform: {}
+	}
+}
+
 export function simpleSchema() {
 	return {
 		$schema: 'https://json-schema.org/draft/2020-12/schema',
@@ -401,9 +408,26 @@ export function objectToTsType(object: Object): string {
 	return `{ ${types} }`
 }
 
-export type InputCat = "string" | "number" | "boolean" | "list" | "resource-object" | "enum" | "date" | "base64" | "resource-string" | "object" | "sql"
+export type InputCat =
+	| 'string'
+	| 'number'
+	| 'boolean'
+	| 'list'
+	| 'resource-object'
+	| 'enum'
+	| 'date'
+	| 'base64'
+	| 'resource-string'
+	| 'object'
+	| 'sql'
 
-export function setInputCat(type: string | undefined, format: string | undefined, itemsType: string | undefined, enum_: any, contentEncoding: string | undefined): InputCat {
+export function setInputCat(
+	type: string | undefined,
+	format: string | undefined,
+	itemsType: string | undefined,
+	enum_: any,
+	contentEncoding: string | undefined
+): InputCat {
 	if (type === 'number' || type === 'integer') {
 		return 'number'
 	} else if (type === 'boolean') {
@@ -439,7 +463,7 @@ export function scriptPathToHref(path: string): string {
 
 export async function getScriptByPath(path: string): Promise<{
 	content: string
-	language: 'deno' | 'python3',
+	language: 'deno' | 'python3'
 }> {
 	if (path.startsWith('hub/')) {
 		const content = await ScriptService.getHubScriptContentByPath({ path })
@@ -459,23 +483,22 @@ export async function getScriptByPath(path: string): Promise<{
 	}
 }
 
-
-
 export async function loadHubScripts() {
 	const scripts = (await ScriptService.listHubScripts()).asks ?? []
-	const processed = scripts.map((x) => ({
-		path: `hub/${x.id}/${x.app}/${x.summary.toLowerCase().replaceAll(/\s+/g, '_')}`,
-		summary: `${x.summary} (${x.app}) ${x.views} uses`,
-		approved: x.approved,
-		is_trigger: x.is_trigger,
-		app: x.app,
-		views: x.views,
-		votes: x.votes,
-		ask_id: x.ask_id,
-	})).sort((a, b) => b.views - a.views)
+	const processed = scripts
+		.map((x) => ({
+			path: `hub/${x.id}/${x.summary.toLowerCase().replaceAll(/\s+/g, '_')}`,
+			summary: `${x.summary} (${x.app}) ${x.views} uses`,
+			approved: x.approved,
+			is_trigger: x.is_trigger,
+			app: x.app,
+			views: x.views,
+			votes: x.votes,
+			ask_id: x.ask_id
+		}))
+		.sort((a, b) => b.views - a.views)
 	hubScripts.set(processed)
 }
-
 
 export async function loadHubFlows() {
 	const flows = (await FlowService.listHubFlows()).flows ?? []
@@ -502,15 +525,16 @@ export function flowToHubUrl(flow: Flow): URL {
 		description: flow.description,
 		schema: flow.schema
 	}
-	url.searchParams.append(
-		'flow',
-		encodeState(openFlow)
-	)
+	url.searchParams.append('flow', encodeState(openFlow))
 	return url
 }
 
-
-export function scriptToHubUrl(content: string, summary: string, description: string, trigger: boolean): URL {
+export function scriptToHubUrl(
+	content: string,
+	summary: string,
+	description: string,
+	trigger: boolean
+): URL {
 	const url = new URL('https://hub.windmill.dev/scripts/add')
 
 	url.searchParams.append('content', content)

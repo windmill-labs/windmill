@@ -3,17 +3,16 @@
 	import { getScriptByPath } from '$lib/utils'
 	import { faCode, faCodeBranch, faSave, faTrashAlt } from '@fortawesome/free-solid-svg-icons'
 	import { Button } from 'flowbite-svelte'
+	import { createEventDispatcher } from 'svelte'
 	import Icon from 'svelte-awesome'
 	import { Highlight } from 'svelte-highlight'
 	import python from 'svelte-highlight/languages/python'
 	import typescript from 'svelte-highlight/languages/typescript'
 	import Modal from '../Modal.svelte'
-	import FlowBoxHeader from './FlowBoxHeader.svelte'
-	import { createScriptFromInlineScript, fork, removeModule } from './flowStore'
+	import Tooltip from '../Tooltip.svelte'
 	import { scrollIntoView } from './utils'
 
-	export let open: number
-	export let i: number
+	export let indexes: number[]
 	export let shouldPick = false
 	export let mod: FlowModule
 
@@ -33,59 +32,54 @@
 	}
 
 	function scrollTo({ target }) {
-		const el = document.querySelector(target.getAttribute('href'))
-		scrollIntoView(el)
+		const element = document.querySelector(target.getAttribute('href'))
+		scrollIntoView(element)
 	}
+
+	const dispatch = createEventDispatcher()
 </script>
 
-<FlowBoxHeader>
-	<a
-		href="#module-{i}"
-		class="grow text-inherit"
-		on:click={() => (open = i)}
-		on:click|preventDefault={scrollTo}
-	>
-		<slot />
-	</a>
-
-	<div class="flex flex-row space-x-2">
-		{#if mod.value.type === 'script' && !shouldPick}
-			<Button
-				on:click={() => {
-					open = i
-					fork(i)
-				}}
-				size="sm"
-				color="alternative"
-			>
-				<Icon data={faCodeBranch} class="mr-2" />
-				Fork
-			</Button>
-			<Button size="sm" color="alternative" on:click={viewCode}>
-				<Icon data={faCode} class="mr-2" />
-				View code
-			</Button>
+<a href="#module-{indexes.join('-')}" class="grow text-inherit" on:click|preventDefault={scrollTo}>
+	<h3 class="text-sm font-bold text-gray-900">
+		{#if 'path' in mod.value && mod.value.path}
+			{mod.value.path}
+		{:else if 'language' in mod.value && mod.value.language}
+			Inline {mod.value.language}
+		{:else}
+			Select a script
 		{/if}
+	</h3>
+</a>
 
-		{#if mod.value.type === 'rawscript' && !shouldPick}
-			<Button size="sm" color="alternative" on:click={() => createScriptFromInlineScript(i)}>
-				<Icon data={faSave} class="mr-2" />
-				Save to workspace
-			</Button>
-		{/if}
-		<Button
-			size="sm"
-			color="alternative"
-			on:click={() => {
-				open = -1
-				removeModule(i)
-			}}
-		>
-			<Icon data={faTrashAlt} class="mr-2" />
-			Remove step
+<div class="flex flex-row space-x-2">
+	{#if mod.value.type === 'script' && !shouldPick}
+		<Button size="xs" color="alternative" on:click={() => dispatch('fork')}>
+			<Icon data={faCodeBranch} class="mr-2" />
+			Fork
 		</Button>
-	</div>
-</FlowBoxHeader>
+		<Button size="xs" color="alternative" on:click={viewCode}>
+			<Icon data={faCode} class="mr-2" />
+			View code
+		</Button>
+	{/if}
+
+	{#if mod.value.type === 'rawscript' && !shouldPick}
+		<Button size="xs" color="alternative" on:click={() => dispatch('createScriptFromInlineScript')}>
+			<Icon data={faSave} class="mr-2" />
+			Save to workspace
+		</Button>
+	{/if}
+	<Button
+		size="xs"
+		color="alternative"
+		on:click={() => {
+			dispatch('delete')
+		}}
+	>
+		<Icon data={faTrashAlt} class="mr-2" />
+		Remove step
+	</Button>
+</div>
 
 <Modal bind:this={modalViewer}>
 	<div slot="title">Script {'path' in mod?.value ? mod?.value.path : ''}</div>

@@ -1,11 +1,12 @@
 <script lang="ts">
 	import { Button } from 'flowbite-svelte'
-	import { copyFirstStepSchema, isCopyFirstStepSchemaDisabled } from './flowStore'
+	import { isCopyFirstStepSchemaDisabled } from './flowState'
+	import { copyFirstStepSchema } from './flowStore'
 </script>
 
 <Button
-	color="alternative"
-	size="sm"
+	color="light"
+	size="xs"
 	disabled={$isCopyFirstStepSchemaDisabled}
 	on:click={copyFirstStepSchema}
 >

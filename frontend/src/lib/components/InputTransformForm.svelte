@@ -9,8 +9,7 @@
 	import Editor from './Editor.svelte'
 	import FieldHeader from './FieldHeader.svelte'
 	import DynamicInputHelpBox from './flows/DynamicInputHelpBox.svelte'
-	import { codeToStaticTemplate } from './flows/flowStore'
-	import { getDefaultExpr, isCodeInjection } from './flows/utils'
+	import { codeToStaticTemplate, getDefaultExpr, isCodeInjection } from './flows/utils'
 	import OverlayPropertyPicker from './propertyPicker/OverlayPropertyPicker.svelte'
 	import Toggle from './Toggle.svelte'
 
@@ -19,7 +18,7 @@
 	export let argName: string
 	export let extraLib: string = 'missing extraLib'
 	export let inputCheck: { [id: string]: boolean }
-	export let i: number | undefined = undefined
+	export let importPath: string | undefined = undefined
 	export let pickableProperties: Object | undefined = undefined
 
 	let overlays: { [id: string]: OverlayPropertyPicker } = {}
@@ -44,7 +43,7 @@
 		}
 
 		if (isCodeInjection(rawValue)) {
-			arg.expr = getDefaultExpr(i!, argName, `\`${rawValue}\``)
+			arg.expr = getDefaultExpr(importPath, argName, `\`${rawValue}\``)
 			arg.type = 'javascript'
 			propertyType = 'static'
 		} else {
@@ -76,7 +75,7 @@
 			arg.value = `\$\{${rawValue}}`
 			setPropertyType(arg.value)
 		} else {
-			arg.expr = getDefaultExpr(i ?? -1, undefined, rawValue)
+			arg.expr = getDefaultExpr(importPath, undefined, rawValue)
 			arg.type = 'javascript'
 			propertyType = 'javascript'
 		}
@@ -117,7 +116,7 @@
 				const staticTemplate = isStaticTemplate(inputCats[argName])
 				if (type === 'javascript') {
 					arg.expr = getDefaultExpr(
-						i ?? -1,
+						importPath,
 						argName,
 						staticTemplate ? `\`${arg.value ?? ''}\`` : arg.value
 					)
@@ -208,12 +207,12 @@
 						lang="javascript"
 						class="few-lines-editor"
 						{extraLib}
-						extraLibPath="file:///node_modules/@types/windmill@{i}/index.d.ts"
+						extraLibPath="file:///node_modules/@types/windmill@{importPath}/index.d.ts"
 						shouldBindKey={false}
 					/>
 				</div>
 			</OverlayPropertyPicker>
-			<DynamicInputHelpBox {i} />
+			<DynamicInputHelpBox {importPath} />
 		{/if}
 	{:else}
 		<p>Not recognized arg type {arg.type}</p>

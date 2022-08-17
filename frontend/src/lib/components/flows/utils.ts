@@ -1,22 +1,12 @@
 import type { Schema } from '$lib/common'
-import {
-	JobService,
-	type Flow,
-	type FlowModule,
-	type FlowModuleValue,
-	type InputTransform,
-	type Job,
-	type RawScript
-} from '$lib/gen'
+import { JobService, type Flow, type FlowModule, type InputTransform, type Job } from '$lib/gen'
 import { inferArgs } from '$lib/infer'
 import { loadSchema } from '$lib/scripts'
 import { workspaceStore } from '$lib/stores'
-import { emptySchema, getScriptByPath, schemaToObject } from '$lib/utils'
+import { emptySchema, schemaToObject } from '$lib/utils'
 import { get } from 'svelte/store'
 
-import { mode, type FlowMode } from './flowStore'
-
-export function flowToMode(flow: Flow | any, mode: FlowMode): Flow {
+export function cleanInputs(flow: Flow | any): Flow {
 	const newFlow: Flow = JSON.parse(JSON.stringify(flow))
 	newFlow.value.modules.forEach((mod) => {
 		Object.values(mod.input_transform).forEach((inp) => {
@@ -24,8 +14,15 @@ export function flowToMode(flow: Flow | any, mode: FlowMode): Flow {
 			if (inp.type == 'javascript') {
 				//@ts-ignore
 				inp.value = undefined
-				inp.expr = inp.expr.split('\n')
-					.filter((x) => x != '' && !x.startsWith(`import { previous_result, flow_input, step, variable, resource, params } from 'windmill@`))
+				inp.expr = inp.expr
+					.split('\n')
+					.filter(
+						(x) =>
+							x != '' &&
+							!x.startsWith(
+								`import { previous_result, flow_input, step, variable, resource, params } from 'windmill@`
+							)
+					)
 					.join('\n')
 			} else {
 				//@ts-ignore
@@ -34,31 +31,6 @@ export function flowToMode(flow: Flow | any, mode: FlowMode): Flow {
 		})
 	})
 
-	if (mode == 'pull') {
-		const triggerModule = newFlow.value.modules[0]
-		const oldModules = newFlow.value.modules.slice(1)
-
-		if (triggerModule) {
-			triggerModule.stop_after_if_expr = 'result.length == 0'
-			triggerModule.skip_if_stopped = true
-		}
-
-		newFlow.value.modules = newFlow.value.modules.slice(0, 1)
-		if (oldModules.length > 0) {
-			newFlow.value.modules.push({
-				//TODO: once we allow arbitrary for loop, we will also allow arbitrary input transform here
-				input_transform: {},
-				value: {
-					type: 'forloopflow',
-					iterator: { type: 'javascript', expr: 'result' },
-					value: {
-						modules: oldModules
-					},
-					skip_failures: true
-				}
-			})
-		}
-	}
 	return newFlow
 }
 
@@ -72,41 +44,16 @@ export function getTypeAsString(arg: any): string {
 	return typeof arg
 }
 
-export async function getFirstStepSchema(flow: Flow): Promise<Schema> {
-	const [firstModule] = flow.value.modules
-	if (firstModule.value.type === 'rawscript') {
-		const { language, content } = firstModule.value
-		if (language && content) {
-			const schema = emptySchema()
-			await inferArgs(language, content, schema)
-			return schema
-		}
-	} else if (firstModule.value.type == 'script') {
-		return await loadSchema(firstModule.value.path)
-	}
-	return emptySchema()
-}
+export function scrollIntoView(element: any) {
+	if (!element) return
 
-export async function createInlineScriptModuleFromPath(path: string): Promise<FlowModuleValue> {
-	const { content, language } = await getScriptByPath(path)
-
-	return {
-		type: 'rawscript',
-		language: language as RawScript.language,
-		content: content,
-		path
-	}
-}
-
-export function scrollIntoView(el: any) {
-	if (!el) return
-
-	el.scrollIntoView({
+	element.scrollIntoView({
 		behavior: 'smooth',
 		block: 'start',
 		inline: 'nearest'
 	})
 }
+
 export async function loadSchemaFromModule(module: FlowModule): Promise<{
 	input_transform: Record<string, InputTransform>
 	schema: Schema
@@ -163,51 +110,56 @@ export function isCodeInjection(expr: string | undefined): boolean {
 	return returnStatementRegex.test(returnStatement)
 }
 
-export function getDefaultExpr(i: number, key: string = 'myfield', previousExpr?: string) {
+export function getDefaultExpr(
+	importPath: string | undefined = undefined,
+	key: string = 'myfield',
+	previousExpr?: string
+) {
 	const expr = previousExpr ?? `previous_result.${key}`
-	return `import { previous_result, flow_input, step, variable, resource, params } from 'windmill@${i}'
+	return `import { previous_result, flow_input, step, variable, resource, params } from 'windmill${
+		importPath ? `@${importPath}` : ''
+	}'
 
 ${expr}`
 }
 
-export function getPickableProperties(
-	schema: Schema,
-	args: Record<string, any>,
-	previewResults: Record<number, Object>,
-	mode: FlowMode,
-	i: number
-) {
-	const flowInputAsObject = schemaToObject(schema, args)
-	const flowInput =
-		mode === 'pull' && i >= 1
-			? computeFlowInputPull(previewResults[0], flowInputAsObject)
-			: flowInputAsObject
+// export function getPickableProperties(
+// 	schema: Schema,
+// 	args: Record<string, any>,
+// 	previewResults: Record<number, Object>,
+// 	i: number
+// ) {
+// 	const flowInputAsObject = schemaToObject(schema, args)
+// 	const flowInput =
+// 		mode === 'pull' && i >= 1
+// 			? computeFlowInputPull(previewResults[0], flowInputAsObject)
+// 			: flowInputAsObject
 
-	let previous_result
-	if (i === 0 || (i == 1 && mode == 'pull')) {
-		previous_result = flowInput
-	} else if (mode == 'pull') {
-		previous_result = previewResults[1] ? previewResults[1][i - 2] : undefined
-	} else {
-		previous_result = previewResults[i - 1]
-	}
+// 	let previous_result
+// 	if (i === 0 || (i == 1 && mode == 'pull')) {
+// 		previous_result = flowInput
+// 	} else if (mode == 'pull') {
+// 		previous_result = previewResults[1] ? previewResults[1][i - 2] : undefined
+// 	} else {
+// 		previous_result = previewResults[i - 1]
+// 	}
 
-	let step: any[]
-	if (i >= 1 && mode == 'push') {
-		step = Object.values(previewResults).slice(0, i)
-	} else if (i >= 2 && mode == 'pull') {
-		step = Object.values(previewResults[1] ?? {}).slice(0, i - 1)
-	} else {
-		step = []
-	}
-	const pickableProperties = {
-		flow_input: flowInput,
-		previous_result,
-		step
-	}
+// 	let step: any[]
+// 	if (i >= 1 && mode == 'push') {
+// 		step = Object.values(previewResults).slice(0, i)
+// 	} else if (i >= 2 && mode == 'pull') {
+// 		step = Object.values(previewResults[1] ?? {}).slice(0, i - 1)
+// 	} else {
+// 		step = []
+// 	}
+// 	const pickableProperties = {
+// 		flow_input: flowInput,
+// 		previous_result,
+// 		step
+// 	}
 
-	return pickableProperties
-}
+// 	return pickableProperties
+// }
 
 export function jobsToResults(jobs: Job[]) {
 	return jobs.map((job) => {
@@ -220,7 +172,7 @@ export function jobsToResults(jobs: Job[]) {
 }
 
 export async function runFlowPreview(args: Record<string, any>, flow: Flow) {
-	const newFlow = flowToMode(flow, get(mode))
+	const newFlow = flow
 	return await JobService.runFlowPreview({
 		workspace: get(workspaceStore) ?? '',
 		requestBody: {
@@ -230,20 +182,37 @@ export async function runFlowPreview(args: Record<string, any>, flow: Flow) {
 		}
 	})
 }
-function computeFlowInputPull(previewResult: any | undefined, flowInputAsObject: any) {
-	const iteratorValues = (previewResult && Array.isArray(previewResult)) ?
-		{
-			iter: {
-				value: previewResult[0],
-				index: `The current index of the iteration as a number (here from 0 to ${previewResult.length - 1})`
-			}
-		} : {
-			iter: {
-				value: 'The current value of the iteration as an object',
-				index: 'The current index of the iteration as a number'
-			}
+// function computeFlowInputPull(previewResult: any | undefined, flowInputAsObject: any) {
+// 	const iteratorValues =
+// 		previewResult && Array.isArray(previewResult)
+// 			? {
+// 				iter: {
+// 					value: previewResult[0],
+// 					index: `iterations\'s index (0 to ${previewResult.length - 1})`
+// 				}
+// 			}
+// 			: {
+// 				iter: {
+// 					value: 'iteration\'s object',
+// 					index: 'iterations\'s index'
+// 				}
+// 			}
+// 	return Object.assign(flowInputAsObject, iteratorValues)
+// }
+
+export function codeToStaticTemplate(code?: string): string | undefined {
+	if (!code) return undefined
+
+	const lines = code
+		.split('\n')
+		.slice(1)
+		.filter((x) => x != '')
+
+	if (lines.length == 1) {
+		const line = lines[0].trim()
+		if (line[0] == '`' && line.charAt(line.length - 1) == '`') {
+			return line.slice(1, line.length - 1)
 		}
-	return Object.assign(flowInputAsObject, iteratorValues)
-
+	}
+	return undefined
 }
-

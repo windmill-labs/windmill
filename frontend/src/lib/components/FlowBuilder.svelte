@@ -18,8 +18,9 @@
 	import { OFFSET } from './CronInput.svelte'
 	import FlowEditor from './FlowEditor.svelte'
 	import FlowPreviewContent from './FlowPreviewContent.svelte'
-	import { flowStore, mode } from './flows/flowStore'
-	import { flowToMode, jobsToResults } from './flows/utils'
+	import { flowStateStore, flowStateToFlow, type FlowState } from './flows/flowState'
+	import { flowStore } from './flows/flowStore'
+	import { cleanInputs, jobsToResults } from './flows/utils'
 
 	import ScriptSchema from './ScriptSchema.svelte'
 
@@ -28,7 +29,7 @@
 
 	let scheduleArgs: Record<string, any>
 	let previewArgs: Record<string, any>
-	let scheduleEnabled
+	let scheduleEnabled: boolean
 	let scheduleCron: string
 
 	let previewOpen = false
@@ -49,8 +50,9 @@
 			}
 		})
 	}
+
 	async function saveFlow(): Promise<void> {
-		const flow = flowToMode($flowStore, $mode)
+		const flow = cleanInputs(flowStateToFlow($flowStateStore, $flowStore))
 
 		if (initialPath === '') {
 			await FlowService.createFlow({
@@ -63,7 +65,7 @@
 					schema: flow.schema
 				}
 			})
-			if ($mode == 'pull') {
+			if (scheduleEnabled) {
 				await createSchedule(flow.path)
 			}
 		} else {
@@ -125,9 +127,20 @@
 		goto(`?step=${step}`)
 	}
 
+	flowStateStore.subscribe((flowState: FlowState) => {
+		if (flowState) {
+			flowStore.update((flow: Flow) => {
+				if (flow) {
+					return flowStateToFlow(flowState, flow)
+				}
+				return flow
+			})
+		}
+	})
+
 	flowStore.subscribe((flow: Flow) => {
 		if (flow) {
-			setQueryWithoutLoad($page.url, 'state', encodeState(flowToMode(flow, $mode)))
+			setQueryWithoutLoad($page.url, 'state', encodeState(flow))
 		}
 	})
 
@@ -139,6 +152,9 @@
 	onDestroy(() => {
 		//@ts-ignore
 		$flowStore = undefined
+		//@ts-ignore
+
+		$flowStateStore = undefined
 	})
 </script>
 
@@ -190,7 +206,7 @@
 
 		<!-- metadata -->
 
-		{#if $flowStore}
+		{#if $flowStateStore}
 			{#if step === 1}
 				<FlowEditor
 					bind:pathError

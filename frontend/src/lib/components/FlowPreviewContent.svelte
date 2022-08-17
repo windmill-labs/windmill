@@ -8,7 +8,8 @@
 	import Icon from 'svelte-awesome'
 	import FlowJobResult from './FlowJobResult.svelte'
 	import { flowStore } from './flows/flowStore'
-	import { runFlowPreview } from './flows/utils'
+	import { flowStateStore } from './flows/flowState'
+	import { jobsToResults, runFlowPreview } from './flows/utils'
 	import FlowStatusViewer from './FlowStatusViewer.svelte'
 	import SchemaForm from './SchemaForm.svelte'
 
@@ -18,7 +19,7 @@
 
 	let intervalId: NodeJS.Timer
 	let job: Job | undefined
-	let jobs = []
+	let jobs: (Job | Job[])[] = []
 	let jobId: string
 	let isValid: boolean = false
 
@@ -30,6 +31,27 @@
 		jobs = []
 		intervalId = setInterval(loadJob, 1000)
 		sendUserToast(`started preview ${truncateRev(jobId, 10)}`)
+	}
+
+	$: {
+		const resultsSoFar: any[] = []
+		jobs.map((x, i) => {
+			if (Array.isArray(x)) {
+				const innerResults: any[] = []
+				x.forEach((y, j) => {
+					if (`result` in y) {
+						innerResults.push(y.result)
+						$flowStateStore[i].childFlowModules![j].previewResults = JSON.parse(
+							JSON.stringify(innerResults)
+						)
+					}
+				})
+				resultsSoFar.push(innerResults)
+			} else if (`result` in x) {
+				resultsSoFar.push(x.result)
+			}
+			$flowStateStore[i].previewResults = JSON.parse(JSON.stringify(resultsSoFar))
+		})
 	}
 
 	async function loadJob() {

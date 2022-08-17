@@ -12,7 +12,7 @@
 	export let isValid: boolean = true
 	export let pickableProperties: Object | undefined = undefined
 	export let extraLib: string = 'missing extraLib'
-	export let i: number | undefined = undefined
+	export let importPath: string | undefined = undefined
 
 	let inputCheck: { [id: string]: boolean } = {}
 	$: isValid = allTrue(inputCheck) ?? false
@@ -43,7 +43,7 @@
 					bind:inputCheck
 					bind:pickableProperties
 					bind:extraLib
-					bind:i
+					bind:importPath
 				/>
 			{:else}
 				<ArgInput

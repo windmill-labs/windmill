@@ -7,7 +7,7 @@
 	import { createEventDispatcher } from 'svelte'
 	import FlowScriptPicker from './FlowScriptPicker.svelte'
 
-	export let isTrigger: boolean
+	export let isTrigger: boolean = false
 
 	type Item = { summary: String; path: String; version?: String }
 
