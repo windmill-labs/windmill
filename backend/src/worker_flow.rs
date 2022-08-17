@@ -520,6 +520,33 @@ async fn push_next_flow_job(
             _ => (true, None, None),
         };
 
+        if let Some((_, vec, _)) = &forloop_iterator {
+            if vec.len() > 0 {
+                sqlx::query(&format!(
+                    "UPDATE queue
+            SET 
+                flow_status = jsonb_set(flow_status, '{{modules, {}}}', $1)
+            WHERE id = $2",
+                    i
+                ))
+                .bind(serde_json::json!(FlowStatusModule::Success {
+                    job: flow_job.id,
+                    forloop_jobs: Some(vec![])
+                }))
+                .bind(flow_job.id)
+                .execute(&mut tx)
+                .await?;
+                tx.commit().await?;
+                if flow.modules.len() > i + 1 {
+                    return Ok(
+                        push_next_flow_job(flow_job, flow, schedule_path, db, json!([])).await?,
+                    );
+                } else {
+                    return Ok(());
+                }
+            }
+        }
+
         let mut args = if compute_input_transform {
             let steps = status
                 .modules
