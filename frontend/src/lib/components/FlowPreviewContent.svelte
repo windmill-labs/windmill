@@ -9,7 +9,7 @@
 	import FlowJobResult from './FlowJobResult.svelte'
 	import { flowStore } from './flows/flowStore'
 	import { flowStateStore } from './flows/flowState'
-	import { runFlowPreview } from './flows/utils'
+	import { jobsToResults, runFlowPreview } from './flows/utils'
 	import FlowStatusViewer from './FlowStatusViewer.svelte'
 	import SchemaForm from './SchemaForm.svelte'
 
@@ -19,7 +19,7 @@
 
 	let intervalId: NodeJS.Timer
 	let job: Job | undefined
-	let jobs: (Job | { job: Job; jobs: Job[] })[] = []
+	let jobs: (Job | Job[])[] = []
 	let jobId: string
 	let isValid: boolean = false
 
@@ -34,16 +34,16 @@
 	}
 
 	$: jobs.map((x, i) => {
-		if (`jobs` in x) {
-			x.jobs.forEach((y, j) => {
+		if (Array.isArray(x)) {
+			$flowStateStore[i].previewResults = [[]]
+
+			x.forEach((y, j) => {
 				if (`result` in y) {
 					$flowStateStore[i].childFlowModules![j].previewResults = [y.result]
+					$flowStateStore[i].previewResults[0].push(y.result)
 				}
 			})
-			console.log(x.job)
-			if (`result` in x.job) {
-				$flowStateStore[i].previewResults = [x.job.result]
-			}
+			$flowStateStore[i].previewResults = $flowStateStore[i].previewResults
 		} else if (`result` in x) {
 			$flowStateStore[i].previewResults = [x.result]
 		}
