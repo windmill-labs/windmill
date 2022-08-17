@@ -104,8 +104,8 @@
 							>
 						</span>
 						<span class="flex items-center space-x-2">
-							<Toggle size="small" bind:checked={flowModuleSchema.flowModule.skip_if_stopped}>
-								Skip if stopped
+							<Toggle size="small" bind:checked={flowModuleSchema.flowModule.value.skip_failures}>
+								Skip failures
 							</Toggle>
 
 							<Button size="xs" color="alternative" on:click={() => removeAtIndex(index)}>
