@@ -140,8 +140,8 @@
 		{#if opened}
 			{#if shouldPick}
 				<FlowInputs
-					shouldDisableTriggerScripts={indexes.length > 1}
-					shouldDisableLoopCreation={indexes.length > 1 || indexes[0] == 0}
+					shouldDisableTriggerScripts={i != 0}
+					shouldDisableLoopCreation={indexes.length > 1 || i == 0}
 					on:pick={(e) => apply(pickScript, e.detail.path)}
 					on:new={(e) =>
 						apply(createInlineScriptModule, {
