@@ -54,7 +54,7 @@
 
 {#if result}
 	{#if typeof result == 'object' && Object.keys(result).length > 0}<div>
-			The result keys are: <b>{Object.keys(result).join(', ')}</b>
+			The result keys are: <b>{truncate(Object.keys(result).join(', '), 50)}</b>
 		</div>
 	{/if}
 	{#if resultKind == 'table-col'}
