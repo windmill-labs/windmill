@@ -1,7 +1,5 @@
 <script lang="ts">
 	import {
-		faClose,
-		faFlagCheckered,
 		faInfoCircle,
 		faPen,
 		faPlus,
@@ -129,14 +127,6 @@
 						bind:flowModuleSchemas={flowModuleSchema.childFlowModules}
 						parentIndex={index}
 					/>
-					<span
-						class="flex absolute bottom-3 -left-8 justify-center items-center w-8 h-8 bg-orange-200 rounded-full ring-8 ring-white dark:ring-gray-900 dark:bg-orange-900"
-					>
-						<Icon
-							class="text-orange-600 dark:text-orange-400 font-bold text-center"
-							data={faFlagCheckered}
-						/>
-					</span>
 
 					<div
 						class="flex px-6 py-4 ml-4 mt-4 text-sm font-bold border border-gray-300 rounded-md shadow-md z-50"
@@ -180,16 +170,6 @@
 								? []
 								: flowModuleSchemas[index - 1].previewResults}
 						/>
-						{#if flowModuleSchemas.length - 1 === index}
-							<span
-								class={`flex absolute bottom-0 -left-12 justify-center items-center w-8 h-8 bg-${color}-200 rounded-full ring-8 ring-white dark:ring-gray-900 dark:bg-${color}-900`}
-							>
-								<Icon
-									class={`text-${color}-600 dark:text-${color}-400 font-bold text-center`}
-									data={faFlagCheckered}
-								/>
-							</span>
-						{/if}
 					</span>
 				</li>
 			{/if}
