@@ -43,13 +43,17 @@
 		step?: Object[]
 	}
 
+	const i = indexes[0]
+
 	function getPickableProperties(flow: Flow): PickableProperties {
 		const flowInputAsObject = schemaToObject(flow.schema, args)
 
 		if (indexes.length > 1) {
+			const prev = $flowStateStore[i - 1].previewResults
+			const prevValues = prev[prev.length - 1]
 			flowInputAsObject['iter'] = {
-				value: "iteration's value",
-				index: "iteration's index"
+				value: prevValues?.[prevValues.length - 1] ?? "iteration's value",
+				index: `iteration's index (0 to ${prevValues ? prevValues.length - 1 : '..'})`
 			}
 		}
 
@@ -62,8 +66,6 @@
 			step: previousStepPreviewResults
 		}
 	}
-
-	const i = indexes[0]
 
 	$: shouldPick = 'path' in mod.value && mod.value.path === '' && !('language' in mod.value)
 	$: pickableProperties = getPickableProperties($flowStore)
