@@ -24,6 +24,7 @@
 	import { flowStateStore, type FlowModuleSchema, type FlowState } from './flows/flowState'
 	import { stepOpened } from './flows/stepOpenedStore'
 	import { buildExtraLib, objectToTsType, schemaToObject, schemaToTsType } from '$lib/utils'
+	import { rotateRight } from 'svelte-awesome/icons'
 
 	export let indexes: number[]
 	export let mod: FlowModule
@@ -38,29 +39,50 @@
 	let pickableProperties: Object | undefined = undefined
 	let bigEditor = false
 
+	const i = indexes[0]
+
 	type PickableProperties = {
 		flow_input?: Object
 		previous_result?: Object
 		step?: Object[]
 	}
 
-	const i = indexes[0]
+	function hasElements(arr: any) {
+		return Array.isArray(arr) && arr.length > 0
+	}
 
-	function getPickableProperties(flow: Flow): PickableProperties {
+	function getLast<T>(arr: T[]): T {
+		return arr[arr.length - 1]
+	}
+
+	function getPickableProperties(flow: Flow, flowState: FlowState): PickableProperties {
 		const flowInputAsObject = schemaToObject(flow.schema, args)
 
 		if (indexes.length > 1) {
-			const prev = $flowStateStore[i - 1].previewResults
-			const prevValues = prev[prev.length - 1]
+			const [parentIndex] = indexes
+
+			const stepBeforeLoop = flowState[parentIndex - 1]
+
 			flowInputAsObject['iter'] = {
-				value: prevValues?.[prevValues.length - 1] ?? "iteration's value",
-				index: `iteration's index (0 to ${prevValues ? prevValues.length - 1 : '..'})`
+				value: "iteration's value",
+				index: "iteration's index"
+			}
+
+			if (hasElements(stepBeforeLoop.previewResults)) {
+				const lastResults = getLast(stepBeforeLoop.previewResults)
+
+				if (hasElements(lastResults)) {
+					flowInputAsObject['iter'] = {
+						value: getLast(lastResults),
+						index: `iteration's index (0 to ${lastResults.length - 1})`
+					}
+				}
 			}
 		}
 
-		const hasResults = previousStepPreviewResults.length > 0
+		const hasResults = hasElements(previousStepPreviewResults)
+		const last = hasResults ? getLast(previousStepPreviewResults) : {}
 
-		const last = hasResults ? previousStepPreviewResults[previousStepPreviewResults.length - 1] : {}
 		return {
 			flow_input: flowInputAsObject,
 			previous_result: last,
@@ -69,7 +91,7 @@
 	}
 
 	$: shouldPick = isEmptyFlowModule(mod)
-	$: pickableProperties = getPickableProperties($flowStore)
+	$: pickableProperties = getPickableProperties($flowStore, $flowStateStore)
 	$: extraLib = buildExtraLib(
 		schemaToTsType($flowStore?.schema),
 		i === 0 ? schemaToTsType($flowStore?.schema) : objectToTsType(previousStepPreviewResults)

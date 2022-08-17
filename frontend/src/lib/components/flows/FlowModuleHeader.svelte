@@ -90,7 +90,7 @@
 	{:else}
 		<Button
 			size="xs"
-			color="dark"
+			color="light"
 			on:click={() => stepOpened.update(() => String(indexes.join('-')))}
 		>
 			<Icon data={faArrowDown} />
