@@ -90,7 +90,7 @@ pub async fn update_flow_status_after_job_completion(
         module_status @ FlowStatusModule::InProgress {
             iterator: Some(Iterator { index, itered, .. }),
             ..
-        } if (index.to_owned() as usize) < itered.len() - 1 && (success || skip_loop_failures) => {
+        } if (index.to_owned() as usize) + 1 < itered.len() && (success || skip_loop_failures) => {
             (old_status.step, module_status.clone())
         }
         module_status @ _ => {
@@ -384,6 +384,7 @@ pub async fn handle_flow(
     Ok(())
 }
 
+#[async_recursion]
 #[instrument(level = "trace", skip_all)]
 async fn push_next_flow_job(
     flow_job: &QueuedJob,
@@ -521,26 +522,32 @@ async fn push_next_flow_job(
         };
 
         if let Some((_, vec, _)) = &forloop_iterator {
-            if vec.len() > 0 {
-                sqlx::query(&format!(
+            if vec.len() == 0 {
+                let new_job = sqlx::query_as::<_, QueuedJob>(&format!(
                     "UPDATE queue
             SET 
-                flow_status = jsonb_set(flow_status, '{{modules, {}}}', $1)
-            WHERE id = $2",
+                flow_status = jsonb_set(jsonb_set(flow_status, '{{modules, {}}}', $1), \
+             '{{\"step\"}}', $2)
+            WHERE id = $3
+            RETURNING *",
                     i
                 ))
                 .bind(serde_json::json!(FlowStatusModule::Success {
                     job: flow_job.id,
                     forloop_jobs: Some(vec![])
                 }))
+                .bind(serde_json::json!(if flow.modules.len() > i + 1 {
+                    i + 1
+                } else {
+                    i
+                }))
                 .bind(flow_job.id)
-                .execute(&mut tx)
+                .fetch_one(&mut tx)
                 .await?;
                 tx.commit().await?;
                 if flow.modules.len() > i + 1 {
-                    //TODO: update step counter by 1
                     return Ok(
-                        push_next_flow_job(flow_job, flow, schedule_path, db, json!([])).await?,
+                        push_next_flow_job(&new_job, flow, schedule_path, db, json!([])).await?,
                     );
                 } else {
                     return Ok(());
