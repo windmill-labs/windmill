@@ -219,23 +219,23 @@
 			<div class="shadow p-4 my-2">
 				{#if sectionTab == 'personal'}
 					<h2 class="">
-						My personal space ({`u/${$userStore?.username}`})
+						Personal <span class="text-sm">({`u/${$userStore?.username}`})</span>
 					</h2>
 					<p class="italic text-xs text-gray-600 mb-4">
 						All scripts owned by you (and visible only to you if you do not explicitly share them)
 					</p>
 				{:else if sectionTab == 'groups'}
-					<h2 class="">Groups that I am member of</h2>
+					<h2 class="">Groups</h2>
 					<p class="italic text-xs text-gray-600">
 						All scripts being owned by groups that you are member of
 					</p>
 				{:else if sectionTab == 'shared'}
-					<h2 class="">Shared with me</h2>
+					<h2 class="">Shared</h2>
 					<p class="italic text-xs text-gray-600">
 						All scripts visible to you because they have been shared to you
 					</p>
 				{:else if sectionTab == 'examples'}
-					<h2 class="">Shared across all workspaces of this instance</h2>
+					<h2 class="">Public</h2>
 					<p class="italic text-xs text-gray-600 mb-8">
 						Template and examples shared across all workspaces of this instance. They are managed
 						from a special workspace called 'starter' that only superadmin can change.
@@ -281,7 +281,7 @@
 				{#each sectionTab == 'examples' ? communityScripts : groupedScripts.filter((x) => tabFromPath(x[0]) == sectionTab) as [section, scripts]}
 					{#if sectionTab != 'personal' && sectionTab != 'examples'}
 						<h3 class="mt-2 mb-2">
-							owner: {section}
+							{section}
 							{#if section == 'g/all'}
 								<Tooltip
 									>'g/all' is the namespace for the group all. Every user is a member of all.
@@ -291,10 +291,8 @@
 							{/if}
 						</h3>
 					{/if}
-					{#if scripts.length == 0}
-						<p class="text-xs text-gray-600 font-black">
-							No scripts for this owner space yet. To create one, click on the top right button.
-						</p>
+					{#if scripts.length == 0 && sectionTab == 'personal'}
+						<p class="text-xs text-gray-600 italic">No scripts yet</p>
 					{:else}
 						<div class="grid md:grid-cols-2 gap-4 sm:grid-cols-1 2xl:grid-cols-3">
 							{#each scripts as { summary, path, hash, language, extra_perms, canWrite, lock_error_logs, is_trigger }}
@@ -307,9 +305,9 @@
 												{!summary || summary.length == 0 ? path : summary}
 											</div>
 											<p class="text-gray-700 text-xs">
-												<a class="text-gray-700 text-xs" href="/scripts/get/{hash}"
-													>Path: {path}
-												</a><span class="commit-hash ml-3">{truncateHash(hash)}</span>
+												<a class="text-gray-700 text-xs" href="/scripts/get/{hash}">{path} </a><span
+													class="commit-hash ml-3">{truncateHash(hash)}</span
+												>
 											</p>
 										</div>
 									</a>
@@ -387,9 +385,9 @@
 													class="inline-flex items-center default-button bg-transparent hover:bg-blue-500 text-blue-700 font-normal hover:text-white py-0 px-1 border-blue-500 hover:border-transparent rounded"
 													href="/scripts/run/{hash}"
 												>
-													<div class="inline-flex items-center justify-center">
-														<Icon data={faPlay} scale={0.5} />
-														<span class="pl-1">Run...</span>
+													<div class="inline-flex items-center justify-between px-4">
+														<Icon data={faPlay} scale={0.6} />
+														<span class="pl-1">Run</span>
 													</div>
 												</a>
 											</div>
