@@ -8,7 +8,7 @@
 		faSliders,
 		faTrashAlt
 	} from '@fortawesome/free-solid-svg-icons'
-	import { Button, Tooltip } from 'flowbite-svelte'
+	import { Button, Toggle, Tooltip } from 'flowbite-svelte'
 	import Icon from 'svelte-awesome'
 	import { Highlight } from 'svelte-highlight'
 	import typescript from 'svelte-highlight/languages/typescript'
@@ -105,11 +105,16 @@
 								<Icon data={faInfoCircle} class="ml-2" /></Tooltip
 							>
 						</span>
+						<span class="flex items-center space-x-2">
+							<Toggle size="small" bind:checked={flowModuleSchema.flowModule.skip_if_stopped}>
+								Skip if stopped
+							</Toggle>
 
-						<Button size="xs" color="alternative" on:click={() => removeAtIndex(index)}>
-							<Icon data={faTrashAlt} class="mr-2" />
-							Remove loop
-						</Button>
+							<Button size="xs" color="alternative" on:click={() => removeAtIndex(index)}>
+								<Icon data={faTrashAlt} class="mr-2" />
+								Remove loop
+							</Button>
+						</span>
 					</div>
 					<span
 						class="flex absolute top-3 -left-8 justify-center items-center w-8 h-8 bg-orange-200 rounded-full ring-8 ring-white dark:ring-gray-900 dark:bg-orange-900"
@@ -118,23 +123,7 @@
 							{index + 1}
 						</span>
 					</span>
-					{#if flowModuleSchema.flowModule.stop_after_if_expr}
-						<div class="ml-12 mb-4 p-4">
-							<Highlight
-								language={typescript}
-								code={flowModuleSchema.flowModule.stop_after_if_expr}
-							/>
-						</div>
-					{/if}
-					{#if flowModuleSchema.flowModule.skip_if_stopped}
-						<div class="ml-12 mb-4 p-4">
-							<span
-								class="bg-green-100 text-green-800 text-sm font-medium mr-2 px-2.5 py-0.5 rounded dark:bg-green-200 dark:text-green-900"
-							>
-								Skip if stopped
-							</span>
-						</div>
-					{/if}
+
 					<svelte:self
 						bind:args
 						bind:flowModuleSchemas={flowModuleSchema.childFlowModules}
