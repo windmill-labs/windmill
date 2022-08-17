@@ -178,9 +178,9 @@
 <CenteredPage>
 	<PageHeader
 		title="Scripts"
-		tooltip="Scripts are the building blocks of windmill. A script can either be used standalone or as part of a Flow. 
-		When standalone, it has an auto-generated UI from its parameters whom you can access clicking on 'Run...'. L
-		ike everything in windmill, scripts have owners (users or groups) and can be shared to other users and other groups. It is enough to have
+		tooltip="A script can either be used standalone or as part of a Flow. 
+		When standalone, it has an auto-generated UI from its parameters whom you can access clicking on 'Run'.
+		Like everything in windmill, scripts have owners (users or groups) and can be shared to other users and other groups. It is enough to have
 		read-access on a script to be able to execute it. However, you will also need to have been
 		granted visibility on the resources and variables it uses, otherwise it will behave as if those
 		items did not exist at runtime of the script."
@@ -218,28 +218,30 @@
 		{#each tab == 'all' ? ['personal', 'groups', 'shared', 'examples', 'hub'] : [tab] as sectionTab}
 			<div class="shadow p-4 my-2">
 				{#if sectionTab == 'personal'}
-					<h2 class="">
-						Personal <span class="text-sm">({`u/${$userStore?.username}`})</span>
+					<h2 class="mb-2">
+						Personal <span class="text-sm"
+							>({`u/${$userStore?.username}`}) <Tooltip>
+								All scripts owned by you (and visible only to you if you do not explicitly share
+								them)
+							</Tooltip></span
+						>
 					</h2>
-					<p class="italic text-xs text-gray-600 mb-4">
-						All scripts owned by you (and visible only to you if you do not explicitly share them)
-					</p>
 				{:else if sectionTab == 'groups'}
-					<h2 class="">Groups</h2>
-					<p class="italic text-xs text-gray-600">
-						All scripts being owned by groups that you are member of
-					</p>
+					<h2 class="">
+						Groups <Tooltip>All scripts being owned by groups that you are member of</Tooltip>
+					</h2>
 				{:else if sectionTab == 'shared'}
-					<h2 class="">Shared</h2>
-					<p class="italic text-xs text-gray-600">
-						All scripts visible to you because they have been shared to you
-					</p>
+					<h2 class="">
+						Shared <Tooltip>All scripts visible to you because they have been shared to you</Tooltip
+						>
+					</h2>
 				{:else if sectionTab == 'examples'}
-					<h2 class="">Public</h2>
-					<p class="italic text-xs text-gray-600 mb-8">
-						Template and examples shared across all workspaces of this instance. They are managed
-						from a special workspace called 'starter' that only superadmin can change.
-					</p>
+					<h2 class="">
+						Public <Tooltip>
+							Template and examples shared across all workspaces of this instance. They are managed
+							from a special workspace called 'starter' that only superadmin can change.
+						</Tooltip>
+					</h2>
 				{:else if sectionTab == 'hub'}
 					<h2 class="">
 						Approved scripts from the WindmillHub <Tooltip>
@@ -295,7 +297,7 @@
 					{#if scripts.length == 0 && sectionTab == 'personal'}
 						<p class="text-xs text-gray-600 italic">No scripts yet</p>
 					{:else}
-						<div class="grid md:grid-cols-2 gap-4 sm:grid-cols-1 2xl:grid-cols-3">
+						<div class="grid md:grid-cols-2 gap-4 sm:grid-cols-1 xl:grid-cols-3">
 							{#each scripts as { summary, path, hash, language, extra_perms, canWrite, lock_error_logs, is_trigger }}
 								<div
 									class="flex flex-col justify-between script max-w-lg overflow-visible shadow-sm shadow-blue-100 border border-gray-200 bg-gray-50 py-2"
