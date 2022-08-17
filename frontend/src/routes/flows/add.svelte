@@ -10,7 +10,8 @@
 	import { page } from '$app/stores'
 
 	import FlowBuilder from '$lib/components/FlowBuilder.svelte'
-	import { initFlow, mode } from '$lib/components/flows/flowStore'
+	import { initFlowState } from '$lib/components/flows/flowState'
+	import { initFlow } from '$lib/components/flows/flowStore'
 	import { FlowService, type Flow } from '$lib/gen'
 	import { decodeState, emptySchema, sendUserToast } from '$lib/utils'
 
@@ -39,8 +40,8 @@
 			$page.url.searchParams.delete('hub')
 			sendUserToast(`Flow has been loaded from hub flow id ${hubId}.`)
 		}
-		$mode = 'push'
 		initFlow(flow)
+		initFlowState(flow)
 	}
 
 	loadFlow()

@@ -66,7 +66,7 @@
 							{#if json[key] === undefined}
 								<WarningMessage />
 							{:else}
-								<span>{truncate(JSON.stringify(json[key]), 20)}</span>
+								<span>{truncate(JSON.stringify(json[key]), 40)}</span>
 							{/if}
 						</button>
 					{/if}

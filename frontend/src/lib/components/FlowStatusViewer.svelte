@@ -46,6 +46,10 @@
 				(i > fullyRetrieved && x.type == FlowStatusModule.type.SUCCESS) ||
 				x.type == FlowStatusModule.type.FAILURE
 			) {
+				const completedJob = await JobService.getCompletedJob({
+					workspace: $workspaceStore!,
+					id: x.job!
+				})
 				if (x.forloop_jobs) {
 					const forloop_jobs: CompletedJob[] = []
 
@@ -56,7 +60,7 @@
 					}
 					jobs[i] = forloop_jobs
 				} else {
-					jobs[i] = await JobService.getCompletedJob({ workspace: $workspaceStore!, id: x.job! })
+					jobs[i] = completedJob
 				}
 				jobs = jobs
 				fullyRetrieved = i

@@ -7,6 +7,7 @@
 	import { createEventDispatcher, onDestroy } from 'svelte'
 	import Icon from 'svelte-awesome'
 	import FlowJobResult from './FlowJobResult.svelte'
+	import { flowStateStore, flowStateToFlow } from './flows/flowState'
 	import { runFlowPreview } from './flows/utils'
 	import FlowStatusViewer from './FlowStatusViewer.svelte'
 	import RunForm from './RunForm.svelte'
@@ -15,7 +16,7 @@
 	const dispatch = createEventDispatcher()
 	export let i: number
 	export let flow: Flow
-	export let schemas: Schema[] = []
+	export let schema: Schema
 
 	export let args: Record<string, any> = {}
 
@@ -37,6 +38,8 @@
 		viewPreview = true
 		intervalId && clearInterval(intervalId)
 
+		flow = flowStateToFlow($flowStateStore, flow)
+
 		let newFlow: Flow =
 			tab == 'upto' ? truncateFlow(flow) : setInputTransformFromArgs(extractStep(flow), args)
 		jobId = await runFlowPreview(args, newFlow)
@@ -55,7 +58,7 @@
 	function extractStep(flow: Flow): Flow {
 		const localFlow = JSON.parse(JSON.stringify(flow))
 		localFlow.value.modules = flow.value.modules.slice(i, i + 1)
-		localFlow.schema = schemas[i]
+		localFlow.schema = schema
 		return localFlow
 	}
 

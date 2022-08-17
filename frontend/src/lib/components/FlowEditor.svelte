@@ -2,15 +2,10 @@
 	import { ScheduleService } from '$lib/gen'
 
 	import { workspaceStore } from '$lib/stores'
-	import { pathIsEmpty } from '$lib/utils'
-	import { faPlus } from '@fortawesome/free-solid-svg-icons'
-	import { Button } from 'flowbite-svelte'
-	import Icon from 'svelte-awesome'
-	import FlowInput from './flows/FlowInput.svelte'
 	import FlowSettings from './flows/FlowSettings.svelte'
-	import { addModule, flowStore, mode } from './flows/flowStore'
-	import ModuleStep from './ModuleStep.svelte'
-	import Tooltip from './Tooltip.svelte'
+	import { flowStateStore } from './flows/flowState'
+	import { flowStore } from './flows/flowStore'
+	import FlowTimeline from './flows/FlowTimeline.svelte'
 
 	export let pathError = ''
 	export let initialPath: string = ''
@@ -47,61 +42,23 @@
 	$: if ($flowStore && $workspaceStore && initialPath != '') {
 		loadSchedule()
 	}
-
-	let open = 0
 </script>
 
-{#if $flowStore}
-	<div class="flex space-y-8 flex-col items-center line">
-		<FlowSettings
-			bind:pathError
-			bind:initialPath
-			bind:scheduleArgs
-			{previewArgs}
-			bind:scheduleCron
-			bind:scheduleEnabled
-			bind:open
-		/>
-		<FlowInput />
-		{#each $flowStore?.value.modules as mod, i}
-			<ModuleStep bind:open bind:mod bind:args={previewArgs} {i} />
-			{#if i == 0 && $mode == 'pull'}
-				<div class="flex justify-center bg-white shadow p-2">
-					<p>
-						Starting from here, the flow for loop over items from the 1st step's result right above.
-						&nbsp; <br />For-loops insertable at other points is not supported yet but coming soon
-						(See
-						<a href="https://github.com/windmill-labs/windmill/issues/350">#350</a>.)
-					</p>
-					<Tooltip>
-						This flow being in 'Pull' mode, the rest of the flow will for loop over the list of
-						items returned by the trigger script right above. Retrieve the item value using
-						`flow_input._value`
-					</Tooltip>
-				</div>
-			{/if}
-		{/each}
-		<Button
-			disabled={pathIsEmpty($flowStore.path)}
-			class="blue-button"
-			on:click={() => {
-				addModule()
-				open = $flowStore?.value.modules.length - 1
-			}}
-		>
-			<Icon class="text-white mr-2" data={faPlus} />
-			Add step {pathIsEmpty($flowStore?.path) ? '(pick a name first!)' : ''}
-		</Button>
+{#if $flowStateStore}
+	<div class="flex space-y-8 flex-col items-center">
+		<FlowTimeline bind:args={previewArgs} bind:flowModuleSchemas={$flowStateStore}>
+			<div slot="settings">
+				<FlowSettings
+					bind:pathError
+					bind:initialPath
+					bind:scheduleArgs
+					{previewArgs}
+					bind:scheduleCron
+					bind:scheduleEnabled
+				/>
+			</div>
+		</FlowTimeline>
 	</div>
 {:else}
 	<h3>Loading flow</h3>
 {/if}
-
-<style>
-	.line {
-		background-image: linear-gradient(#e5e7eb, #e5e7eb);
-		background-size: 2px 100%;
-		background-repeat: no-repeat;
-		background-position: center center;
-	}
-</style>
