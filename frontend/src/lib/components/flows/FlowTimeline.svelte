@@ -210,7 +210,6 @@
 				</button>
 			{/if}
 		{/each}
-		<ObjectViewer json={flowModuleSchemas.map((x) => x.previewResults)} />
 		{#if flowModuleSchemas.length === 0}
 			<button
 				on:click={() => insertAtIndex(0)}
