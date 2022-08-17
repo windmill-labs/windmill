@@ -33,21 +33,26 @@
 		sendUserToast(`started preview ${truncateRev(jobId, 10)}`)
 	}
 
-	$: jobs.map((x, i) => {
-		if (Array.isArray(x)) {
-			$flowStateStore[i].previewResults = [[]]
-
-			x.forEach((y, j) => {
-				if (`result` in y) {
-					$flowStateStore[i].childFlowModules![j].previewResults = [y.result]
-					$flowStateStore[i].previewResults[0].push(y.result)
-				}
-			})
-			$flowStateStore[i].previewResults = $flowStateStore[i].previewResults
-		} else if (`result` in x) {
-			$flowStateStore[i].previewResults = [x.result]
-		}
-	})
+	$: {
+		const resultsSoFar: any[] = []
+		jobs.map((x, i) => {
+			if (Array.isArray(x)) {
+				const innerResults: any[] = []
+				x.forEach((y, j) => {
+					if (`result` in y) {
+						innerResults.push(y.result)
+						$flowStateStore[i].childFlowModules![j].previewResults = JSON.parse(
+							JSON.stringify(innerResults)
+						)
+					}
+				})
+				resultsSoFar.push(innerResults)
+			} else if (`result` in x) {
+				resultsSoFar.push(x.result)
+			}
+			$flowStateStore[i].previewResults = JSON.parse(JSON.stringify(resultsSoFar))
+		})
+	}
 
 	async function loadJob() {
 		try {

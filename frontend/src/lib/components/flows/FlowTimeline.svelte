@@ -1,6 +1,4 @@
 <script lang="ts">
-	import { previewResults } from '$lib/stores'
-
 	import {
 		faClose,
 		faFlagCheckered,
@@ -188,9 +186,7 @@
 							on:delete={() => removeAtIndex(index)}
 							previousStepPreviewResults={index === 0
 								? []
-								: flowModuleSchemas
-										.map((x) => x.previewResults[x.previewResults.length - 1])
-										.splice(0, index)}
+								: flowModuleSchemas[index - 1].previewResults}
 						/>
 						{#if flowModuleSchemas.length - 1 === index}
 							<span
@@ -214,6 +210,7 @@
 				</button>
 			{/if}
 		{/each}
+		<ObjectViewer json={flowModuleSchemas.map((x) => x.previewResults)} />
 		{#if flowModuleSchemas.length === 0}
 			<button
 				on:click={() => insertAtIndex(0)}
