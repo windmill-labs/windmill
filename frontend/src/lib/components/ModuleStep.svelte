@@ -91,6 +91,14 @@
 
 	async function applyCreateLoop() {
 		await apply(createLoop, null)
+
+		flowStateStore.update((flowState: FlowState) => {
+			const expr = 'Array.isArray(result) && result.length == 0'
+			flowState[indexes[0] - 1].flowModule.stop_after_if_expr = expr
+
+			return flowState
+		})
+
 		stepOpened.update(() => `${indexes[0]}-0`)
 	}
 
