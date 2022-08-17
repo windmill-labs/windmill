@@ -68,7 +68,7 @@
 				index: "iteration's index"
 			}
 
-			if (hasElements(stepBeforeLoop.previewResults)) {
+			if (hasElements(stepBeforeLoop?.previewResults)) {
 				const lastResults = getLast(stepBeforeLoop.previewResults)
 
 				if (hasElements(lastResults)) {
