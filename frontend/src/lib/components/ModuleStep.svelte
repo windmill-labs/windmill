@@ -186,7 +186,6 @@
 							bind:code={mod.value.content}
 							deno={mod.value.language === RawScript.language.DENO}
 							automaticLayout={true}
-							on:blur={() => reload(mod)}
 							formatAction={() => reload(mod)}
 						/>
 						<button
