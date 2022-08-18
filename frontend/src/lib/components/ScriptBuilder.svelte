@@ -38,7 +38,7 @@
 	}
 
 	function initContent(lang: 'deno' | 'python3', is_trigger: boolean) {
-		script.content = initialCode(lang, is_trigger)
+		script.content = initialCode(lang, is_trigger, false)
 	}
 
 	async function editScript(): Promise<void> {
@@ -94,7 +94,9 @@
 	})
 </script>
 
-<div class="flex flex-col h-screen max-w-screen-lg xl:-ml-20 xl:pl-4 w-full -mt-4 pt-4 md:mx-10 ">
+<div
+	class="flex flex-col h-screen max-w-screen-lg xl:-ml-20 xl:pl-4 w-full -mt-4 pt-4 md:mx-10 pr-2"
+>
 	<!-- Nav between steps-->
 	<div class="flex flex-col w-full">
 		<div class="justify-between flex flex-row drop-shadow-sm w-full mt-4">
@@ -148,7 +150,12 @@
 				{/if}
 			</div>
 		</div>
-		<div class="flex flex-row-reverse">
+		<div class="flex flex-row justify-between gap-x-20">
+			<span class="my-1 text-xs text-gray-500">
+				<a target="_blank" href="https://github.com/windmill-labs/windmill-gh-action-deploy"
+					>sync from github instead</a
+				>
+			</span>
 			<span class="my-1 text-sm text-gray-500 italic">
 				{#if script.hash != ''} Editing from {script.hash} with path{/if}
 				{#if initialPath && initialPath != script.path} {initialPath} &rightarrow; {/if}
@@ -164,6 +171,7 @@
 				bind:error={pathError}
 				bind:path={script.path}
 				{initialPath}
+				on:enter={() => changeStep(2)}
 				namePlaceholder="my_script"
 				kind="script"
 			>

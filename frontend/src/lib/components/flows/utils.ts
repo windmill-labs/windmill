@@ -67,7 +67,7 @@ export async function loadSchemaFromModule(module: FlowModule): Promise<{
 		let schema: Schema
 		if (mod.type === 'rawscript') {
 			schema = emptySchema()
-			await inferArgs(mod.language!, mod.content!, schema)
+			await inferArgs(mod.language!, mod.content ?? '', schema)
 		} else if (mod.path && mod.path != '') {
 			schema = await loadSchema(mod.path!)
 		} else {
@@ -124,9 +124,8 @@ export function getDefaultExpr(
 	previousExpr?: string
 ) {
 	const expr = previousExpr ?? `previous_result.${key}`
-	return `import { previous_result, flow_input, step, variable, resource, params } from 'windmill${
-		importPath ? `@${importPath}` : ''
-	}'
+	return `import { previous_result, flow_input, step, variable, resource, params } from 'windmill${importPath ? `@${importPath}` : ''
+		}'
 
 ${expr}`
 }

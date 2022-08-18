@@ -54,6 +54,7 @@
 
 	import getMessageServiceOverride from 'vscode/service-override/messages'
 	import { StandaloneServices } from 'vscode/services'
+	import { DENO_INIT_CODE_CLEAR, PYTHON_INIT_CODE_CLEAR } from '$lib/script_helpers'
 
 	StandaloneServices.initialize({
 		...getMessageServiceOverride(document.body)
@@ -107,7 +108,7 @@
 	}
 
 	export function getCode(): string {
-		return editor?.getValue()
+		return editor?.getValue() ?? ''
 	}
 
 	export function insertAtCursor(code: string): void {
@@ -154,6 +155,18 @@
 			editor.getAction('editor.action.formatDocument').run()
 			if (formatAction) {
 				formatAction()
+			}
+		}
+	}
+
+	export async function clearContent() {
+		if (editor) {
+			if (lang == 'typescript') {
+				setCode(DENO_INIT_CODE_CLEAR)
+			} else if (lang == 'python') {
+				setCode(PYTHON_INIT_CODE_CLEAR)
+			} else {
+				setCode('')
 			}
 		}
 	}

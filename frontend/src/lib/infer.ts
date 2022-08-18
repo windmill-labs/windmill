@@ -7,6 +7,7 @@ export async function inferArgs(
 	schema: Schema
 ): Promise<void> {
 	let inferedSchema: MainArgSignature
+	if (code == '') { code = ' ' }
 	if (language == 'python3') {
 		inferedSchema = await ScriptService.pythonToJsonschema({
 			requestBody: code

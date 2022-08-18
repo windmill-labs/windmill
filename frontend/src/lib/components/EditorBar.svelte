@@ -208,21 +208,36 @@
 			Script explorer
 		</Button>
 	</div>
-	<div class="flex flex-row-reverse w-full">
+	<div class="flex flex-row-reverse gap-x-2 w-full">
 		<Button
 			size="xs"
+			class={!websocketAlive.pyright && !websocketAlive.deno && !websocketAlive.black
+				? 'bg-red-50'
+				: ''}
 			color="alternative"
 			on:click={() => {
 				editor.reloadWebsocket()
 			}}
 		>
-			Reload assistants (status:&nbsp;
+			Reload assistants
 			{#if lang == 'deno'}
-				<span class={websocketAlive.deno ? 'text-green-600' : 'text-red-600'}>Deno</span>
+				<span
+					>(<span class={websocketAlive.deno ? 'text-green-600' : 'text-red-700'}>Deno</span>)</span
+				>
 			{:else if lang == 'python3'}
-				<span class={websocketAlive.pyright ? 'text-green-600' : 'text-red-600'}>Pyright</span>
-				<span class={websocketAlive.black ? 'text-green-600' : 'text-red-600'}>Black</span>
-			{/if})
+				<span
+					>(<span class={websocketAlive.pyright ? 'text-green-600' : 'text-red-700'}>Pyright</span>
+					&nbsp;
+					<span class={websocketAlive.black ? 'text-green-600' : 'text-red-700'}>Black</span>)</span
+				>
+			{/if}
 		</Button>
+		<Button
+			size="xs"
+			color="alternative"
+			on:click={() => {
+				editor.clearContent()
+			}}>Reset content</Button
+		>
 	</div>
 </div>
