@@ -13,6 +13,7 @@
 	import FieldHeader from './FieldHeader.svelte'
 	import InputTransformsViewer from './InputTransformsViewer.svelte'
 	import SvelteMarkdown from 'svelte-markdown'
+	import IconedPath from './IconedPath.svelte'
 
 	export let flow: {
 		summary: string
@@ -114,8 +115,10 @@
 											Script at path <a
 												target="_blank"
 												href={scriptPathToHref(mod?.value?.path ?? '')}
-												class="font-medium text-gray-900">{mod?.value?.path}</a
+												class="font-medium text-gray-900"
 											>
+												<IconedPath path={mod?.value?.path ?? ''} />
+											</a>
 											{#if mod?.value?.path?.startsWith('hub/')}
 												<div>
 													<button

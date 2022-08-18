@@ -9,6 +9,7 @@
 	import { workspaceStore } from '$lib/stores'
 	import FlowJobResult from './FlowJobResult.svelte'
 	import JobStatus from './JobStatus.svelte'
+	import IconedPath from './IconedPath.svelte'
 
 	export let job: QueuedJob | CompletedJob
 	export let jobs: (Job | Job[] | undefined)[] = []
@@ -159,8 +160,10 @@
 										Script at path <a
 											target="_blank"
 											href={scriptPathToHref(mod.value.path ?? '')}
-											class="font-medium text-gray-900">{mod.value.path}</a
+											class="font-medium text-gray-900"
 										>
+											<IconedPath path={mod.value.path} />
+										</a>
 									{/if}
 								</p>
 							</div>
