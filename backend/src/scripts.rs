@@ -544,7 +544,10 @@ async fn raw_script_by_path(
     Extension(user_db): Extension<UserDB>,
     Path((w_id, path)): Path<(String, StripPath)>,
 ) -> Result<String> {
-    let path = path.to_path();
+    let path = path
+        .to_path()
+        .strip_suffix(".ts")
+        .ok_or_else(|| Error::BadRequest("Raw script path must end with .ts".to_string()))?;
     let mut tx = user_db.begin(&authed).await?;
 
     let content_o = sqlx::query_scalar!(
@@ -615,9 +618,12 @@ async fn get_script_by_hash(
 async fn raw_script_by_hash(
     authed: Authed,
     Extension(user_db): Extension<UserDB>,
-    Path((w_id, hash)): Path<(String, ScriptHash)>,
+    Path((w_id, hash_str)): Path<(String, String)>,
 ) -> Result<String> {
     let mut tx = user_db.begin(&authed).await?;
+    let hash = ScriptHash(to_i64(hash_str.strip_suffix(".ts").ok_or_else(|| {
+        Error::BadRequest("Raw script path must end with .ts".to_string())
+    })?)?);
     let r = get_script_by_hash_internal(&mut tx, &w_id, &hash).await?;
     tx.commit().await?;
 
