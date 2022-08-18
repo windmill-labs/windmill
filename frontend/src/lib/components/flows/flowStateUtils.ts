@@ -17,10 +17,15 @@ export function emptyFlowModuleSchema(): FlowModuleSchema {
 }
 
 export async function loadFlowModuleSchema(flowModule: FlowModule): Promise<FlowModuleSchema> {
-	const { input_transform, schema } = await loadSchemaFromModule(flowModule)
-	flowModule.input_transform = input_transform
+	try {
+		const { input_transform, schema } = await loadSchemaFromModule(flowModule)
 
-	return { flowModule, schema, previewResults: [] }
+		flowModule.input_transform = input_transform
+
+		return { flowModule, schema, previewResults: [] }
+	} catch (e) {
+		return { flowModule, schema: emptySchema(), previewResults: [] }
+	}
 }
 
 export async function pickScript(path: string): Promise<FlowModuleSchema> {
