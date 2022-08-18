@@ -39,7 +39,7 @@ export async function createInlineScriptModule({
 	language: RawScript.language
 	isTrigger: boolean
 }): Promise<FlowModuleSchema> {
-	const code = initialCode(language, isTrigger)
+	const code = initialCode(language, isTrigger, true)
 
 	const flowModule: FlowModule = {
 		value: { type: 'rawscript', content: code, language },

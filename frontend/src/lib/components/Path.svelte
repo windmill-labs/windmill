@@ -13,6 +13,7 @@
 	import Tooltip from './Tooltip.svelte'
 	import { userStore, workspaceStore } from '$lib/stores'
 	import { sleep } from '$lib/utils'
+	import { createEventDispatcher } from 'svelte'
 
 	type PathKind = 'resource' | 'script' | 'variable' | 'flow' | 'schedule'
 	export let meta: Meta = {
@@ -27,14 +28,27 @@
 
 	export let kind: PathKind
 
+	const dispatch = createEventDispatcher()
+
 	let groups: Group[] = []
 
-	$: {
-		path = [meta.ownerKind === 'group' ? 'g' : 'u', meta.owner, meta.name].join('/')
+	$: path = metaToPath(meta)
+
+	function metaToPath(meta: Meta): string {
+		return [meta.ownerKind === 'group' ? 'g' : 'u', meta.owner, meta.name].join('/')
 	}
 
 	export function getPath() {
 		return path
+	}
+
+	function handleKeyUp(event: KeyboardEvent) {
+		const key = event.key
+
+		if (key === 'Enter') {
+			event.preventDefault()
+			dispatch('enter')
+		}
 	}
 
 	export async function reset() {
@@ -45,7 +59,12 @@
 				await sleep(500)
 			}
 			meta.owner = $userStore!.username
-			meta.name = ''
+			meta.name = namePlaceholder
+			let i = 1
+			while (await pathExists(metaToPath(meta), kind)) {
+				meta.name = `${namePlaceholder}_${i}`
+				i += 1
+			}
 		} else {
 			meta = pathToMeta(path)
 		}
@@ -178,6 +197,7 @@
 			<input
 				autofocus
 				autocomplete="off"
+				on:keyup={handleKeyUp}
 				bind:value={meta.name}
 				placeholder={namePlaceholder}
 				class={error === ''

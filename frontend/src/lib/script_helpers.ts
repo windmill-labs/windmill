@@ -29,8 +29,7 @@ def main(name: str = "Nicolas Bourbaki",
     # the return value is then parsed and can be retrieved by other scripts conveniently
     return {"version": version, "splitted": name.split(), "user": user}
 `
-export const DENO_INIT_CODE = `
-// reload the smart assistant on the top right if it dies to get autocompletion and syntax highlighting
+export const DENO_INIT_CODE = `// reload the smart assistant on the top right if it dies to get autocompletion and syntax highlighting
 // (Ctrl+space to cache dependencies on imports hover).
 // to import most npm packages without deno.land, use esm:
 // import { toWords } from "https://esm.sh/number-to-words"
@@ -46,6 +45,19 @@ export async function main(
   // let x = await wmill.getVariable('u/user/foo')
   return { foo: a };
 }
+`
+
+export const DENO_INIT_CODE_CLEAR = `// import * as wmill from 'https://deno.land/x/windmill@v${__pkg__.version}/mod.ts'
+
+export async function main() {
+  return
+}
+`
+
+export const PYTHON_INIT_CODE_CLEAR = `#import wmill
+
+def main():
+  return
 `
 
 export const DENO_INIT_CODE_TRIGGER = `import * as wmill from 'https://deno.land/x/windmill@v${__pkg__.version}/mod.ts'
@@ -69,10 +81,10 @@ export async function main() {
 }
 `
 
-export function initialCode(language: 'deno' | 'python3', is_trigger: boolean): string {
+export function initialCode(language: 'deno' | 'python3', is_trigger: boolean, is_flow: boolean): string {
     return language === 'deno'
         ? is_trigger
             ? DENO_INIT_CODE_TRIGGER
-            : DENO_INIT_CODE
-        : PYTHON_INIT_CODE
+            : is_flow ? DENO_INIT_CODE_CLEAR : DENO_INIT_CODE
+        : is_flow ? PYTHON_INIT_CODE_CLEAR : PYTHON_INIT_CODE
 }
