@@ -1870,6 +1870,23 @@ paths:
               schema:
                 $ref: "#/components/schemas/Script"
 
+  /w/{workspace}/scripts/raw/p/{path}:
+    get:
+      summary: raw script by path
+      operationId: rawScriptByPath
+      tags:
+        - script
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/ScriptPath"
+      responses:
+        "200":
+          description: script content
+          content:
+            text/plain:
+              schema:
+                type: string
+
   /w/{workspace}/scripts/exists/p/{path}:
     get:
       summary: exists script by path
@@ -1903,6 +1920,23 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Script"
+
+  /w/{workspace}/scripts/raw/h/{path}:
+    get:
+      summary: raw script by hash
+      operationId: rawScriptByHash
+      tags:
+        - script
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/ScriptPath"
+      responses:
+        "200":
+          description: script content
+          content:
+            text/plain:
+              schema:
+                type: string
 
   /w/{workspace}/scripts/deployment_status/h/{hash}:
     get:
