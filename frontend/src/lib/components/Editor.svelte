@@ -143,15 +143,15 @@
 	}
 
 	export function setCode(ncode: string): void {
+		code = ncode
 		if (editor) {
-			return editor.setValue(ncode)
-		} else {
-			code = ncode
+			editor.setValue(ncode)
 		}
 	}
 
 	function format() {
 		if (editor) {
+			code = getCode()
 			editor.getAction('editor.action.formatDocument').run()
 			if (formatAction) {
 				formatAction()
@@ -425,8 +425,12 @@
 			})
 		}
 
+		let timeoutModel: NodeJS.Timeout | undefined = undefined
 		editor.onDidChangeModelContent((event) => {
-			code = getCode()
+			timeoutModel && clearTimeout(timeoutModel)
+			timeoutModel = setTimeout(() => {
+				code = getCode()
+			}, 500)
 			dispatch('change')
 		})
 
