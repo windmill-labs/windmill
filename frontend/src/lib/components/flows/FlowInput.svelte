@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { emptySchema } from '$lib/utils'
+
 	import SchemaEditor from '../SchemaEditor.svelte'
 	import { flowStore } from './../flows/flowStore'
 	import CopyFirstStepSchema from './CopyFirstStepSchema.svelte'
@@ -15,7 +17,7 @@
 				on:change={() => {
 					$flowStore = $flowStore
 				}}
-				schema={$flowStore.schema}
+				schema={$flowStore?.schema ?? emptySchema()}
 			/>
 		</div>
 	</div>

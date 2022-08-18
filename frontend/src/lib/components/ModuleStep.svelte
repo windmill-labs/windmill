@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { Job, RawScript, type Flow, type FlowModule } from '$lib/gen'
-	import { faArrowDown, faChevronDown, faChevronUp } from '@fortawesome/free-solid-svg-icons'
+	import { faChevronDown, faChevronUp } from '@fortawesome/free-solid-svg-icons'
 	import Icon from 'svelte-awesome'
 	import Editor from './Editor.svelte'
 	import EditorBar from './EditorBar.svelte'
@@ -24,7 +24,6 @@
 	import { flowStateStore, type FlowModuleSchema, type FlowState } from './flows/flowState'
 	import { stepOpened } from './flows/stepOpenedStore'
 	import { buildExtraLib, objectToTsType, schemaToObject, schemaToTsType } from '$lib/utils'
-	import { rotateRight } from 'svelte-awesome/icons'
 
 	export let indexes: number[]
 	export let mod: FlowModule
@@ -56,7 +55,7 @@
 	}
 
 	function getPickableProperties(flow: Flow, flowState: FlowState): PickableProperties {
-		const flowInputAsObject = schemaToObject(flow.schema, args)
+		const flowInputAsObject = schemaToObject(flow?.schema, args)
 
 		if (indexes.length > 1) {
 			const [parentIndex] = indexes
