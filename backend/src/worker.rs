@@ -698,7 +698,7 @@ print(res_json)
 
                 tx.commit().await?;
                 let mut reserved_variables = get_reserved_variables(job, token, db).await?;
-                if !disable_nuser {
+                if !disable_nsjail {
                     let _ = write_file(
                         job_dir,
                         "run.config.proto",
@@ -718,7 +718,7 @@ print(res_json)
                     workspace_id = %job.workspace_id,
                     "started python code execution"
                 );
-                let child = if !disable_nuser {
+                let child = if !disable_nsjail {
                     Command::new(nsjail_path)
                         .current_dir(job_dir)
                         .env_clear()
@@ -822,7 +822,7 @@ run();
             let mut reserved_variables = get_reserved_variables(job, token, db).await?;
             reserved_variables.insert("RUST_LOG".to_string(), "info".to_string());
 
-            if !disable_nuser {
+            if !disable_nsjail {
                 let _ = write_file(
                     job_dir,
                     "run.config.proto",

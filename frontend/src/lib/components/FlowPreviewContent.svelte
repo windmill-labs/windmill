@@ -41,9 +41,11 @@
 				x.forEach((y, j) => {
 					if (`result` in y) {
 						innerResults.push(y.result)
-						$flowStateStore[i].childFlowModules![j].previewResults = JSON.parse(
-							JSON.stringify(innerResults)
-						)
+						if ($flowStateStore[i].childFlowModules![j] != undefined) {
+							$flowStateStore[i].childFlowModules![j].previewResults = JSON.parse(
+								JSON.stringify(innerResults)
+							)
+						}
 					}
 				})
 				resultsSoFar.push(innerResults)
