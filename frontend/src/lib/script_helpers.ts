@@ -29,14 +29,19 @@ def main(name: str = "Nicolas Bourbaki",
     # the return value is then parsed and can be retrieved by other scripts conveniently
     return {"version": version, "splitted": name.split(), "user": user}
 `
-export const DENO_INIT_CODE = `// only do the following import if you require your script to interact with the windmill
-// for instance to get a variable or resource
+export const DENO_INIT_CODE = `
+// to import most npm packages without deno.land, use esm:
+// import { toWords } from "https://esm.sh/number-to-words"
 // import * as wmill from 'https://deno.land/x/windmill@v${__pkg__.version}/mod.ts'
 
-export async function main(x: string, y: string = 'default arg') {
-	// let x = await wmill.getVariable('u/user/foo');
-	// let y = await wmill.getResource('u/user/foo')
-	return { foo: x }
+export async function main(
+  a: number,
+  b: "my" | "enum",
+  c: { nested: "object" },
+  d: string = "default arg",
+) {
+  // let x = await wmill.getVariable('u/user/foo')
+  return { foo: a };
 }
 `
 
