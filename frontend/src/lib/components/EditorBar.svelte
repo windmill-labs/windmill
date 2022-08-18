@@ -97,7 +97,7 @@
 			if (lang == 'deno') {
 				if (!editor.getCode().includes('import * as wmill from')) {
 					editor.insertAtBeginning(
-						`import * as wmill from 'https://deno.land/x/windmill@v${__pkg__.version}/index.ts'\n`
+						`import * as wmill from 'https://deno.land/x/windmill@v${__pkg__.version}/mod.ts'\n`
 					)
 				}
 				editor.insertAtCursor(`(await wmill.getVariable('${path}'))`)
@@ -136,7 +136,7 @@
 		if (lang == 'deno') {
 			if (!editor.getCode().includes('import * as wmill from')) {
 				editor.insertAtBeginning(
-					`import * as wmill from 'https://deno.land/x/windmill@v${__pkg__.version}/index.ts'\n`
+					`import * as wmill from 'https://deno.land/x/windmill@v${__pkg__.version}/mod.ts'\n`
 				)
 			}
 			editor.insertAtCursor(`(await wmill.getResource('${path}'))`)
