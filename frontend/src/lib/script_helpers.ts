@@ -41,6 +41,7 @@ export async function main(
   b: "my" | "enum",
   c: { nested: "object" },
   d: string = "default arg",
+  //e: wmill.Base64
 ) {
   // let x = await wmill.getVariable('u/user/foo')
   return { foo: a };
