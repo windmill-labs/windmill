@@ -41,9 +41,8 @@ export function displayDate(dateString: string | undefined): string {
 	if (date.toString() === 'Invalid Date') {
 		return ''
 	} else {
-		return `${date.getFullYear()}/${
-			date.getMonth() + 1
-		}/${date.getDate()} at ${date.toLocaleTimeString()}`
+		return `${date.getFullYear()}/${date.getMonth() + 1
+			}/${date.getDate()} at ${date.toLocaleTimeString()}`
 	}
 }
 
@@ -487,7 +486,7 @@ export async function loadHubScripts() {
 	const scripts = (await ScriptService.listHubScripts()).asks ?? []
 	const processed = scripts
 		.map((x) => ({
-			path: `hub/${x.id}/${x.summary.toLowerCase().replaceAll(/\s+/g, '_')}`,
+			path: `hub/${x.id}/${x.app}/${x.summary.toLowerCase().replaceAll(/\s+/g, '_')}`,
 			summary: `${x.summary} (${x.app}) ${x.views} uses`,
 			approved: x.approved,
 			is_trigger: x.is_trigger,

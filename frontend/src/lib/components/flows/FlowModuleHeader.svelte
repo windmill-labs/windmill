@@ -15,6 +15,7 @@
 	import { Highlight } from 'svelte-highlight'
 	import python from 'svelte-highlight/languages/python'
 	import typescript from 'svelte-highlight/languages/typescript'
+	import IconedPath from '../IconedPath.svelte'
 	import IconedResourceType from '../IconedResourceType.svelte'
 	import Modal from '../Modal.svelte'
 	import { isEmptyFlowModule } from './flowStateUtils'
@@ -47,12 +48,7 @@
 <div on:click={() => stepOpened.update(() => String(indexes.join('-')))}>
 	<h3 class="text-sm font-bold text-gray-900">
 		{#if 'path' in mod.value && mod.value.path}
-			{#if mod.value.path.startsWith('hub/')}
-				<IconedResourceType name={mod.value.path.split('/')[2]} silent={true} />&nbsp;{mod.value
-					.path}
-			{:else}
-				{mod.value.path}
-			{/if}
+			<IconedPath path={mod.value.path} />
 		{:else if 'language' in mod.value && mod.value.language}
 			Inline {mod.value.language}
 		{:else}
