@@ -1,6 +1,6 @@
 <script lang="ts">
 	import type { FlowModule } from '$lib/gen'
-	import { getScriptByPath } from '$lib/utils'
+	import { getScriptByPath, valueToTsType } from '$lib/utils'
 	import {
 		faArrowDown,
 		faClose,
@@ -15,6 +15,7 @@
 	import { Highlight } from 'svelte-highlight'
 	import python from 'svelte-highlight/languages/python'
 	import typescript from 'svelte-highlight/languages/typescript'
+	import IconedResourceType from '../IconedResourceType.svelte'
 	import Modal from '../Modal.svelte'
 	import { isEmptyFlowModule } from './flowStateUtils'
 	import { stepOpened } from './stepOpenedStore'
@@ -46,7 +47,12 @@
 <div on:click={() => stepOpened.update(() => String(indexes.join('-')))}>
 	<h3 class="text-sm font-bold text-gray-900">
 		{#if 'path' in mod.value && mod.value.path}
-			{mod.value.path}
+			{#if mod.value.path.startsWith('hub/')}
+				<IconedResourceType name={mod.value.path.split('/')[2]} silent={true} />&nbsp;{mod.value
+					.path}
+			{:else}
+				{mod.value.path}
+			{/if}
 		{:else if 'language' in mod.value && mod.value.language}
 			Inline {mod.value.language}
 		{:else}
