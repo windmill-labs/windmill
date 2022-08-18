@@ -93,6 +93,15 @@ pub struct QueuedJob {
     pub language: Option<ScriptLang>,
 }
 
+impl QueuedJob {
+    pub fn script_path(&self) -> &str {
+        self.script_path
+            .as_ref()
+            .map(String::as_str)
+            .unwrap_or("NO_FLOW_PATH")
+    }
+}
+
 #[derive(Debug, sqlx::FromRow, Serialize)]
 struct CompletedJob {
     workspace_id: String,
