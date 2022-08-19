@@ -98,47 +98,60 @@ pub async fn update_flow_status_after_job_completion(
         .await?
         .unwrap_or(false);
 
-    let (step_counter, new_status) = match &old_status.modules[old_status.step as usize] {
-        module_status @ FlowStatusModule::InProgress {
-            iterator: Some(Iterator { index, itered, .. }),
-            ..
-        } if *index + 1 < itered.len() && (success || skip_loop_failures) => {
-            (old_status.step, module_status.clone())
+    let module = usize::try_from(old_status.step)
+        .ok()
+        .and_then(|i| old_status.modules.get(i))
+        .unwrap_or(&old_status.failure_module);
+
+    let (step_counter, new_status) = match module {
+        FlowStatusModule::InProgress { iterator: Some(Iterator { index, itered, .. }), .. }
+            if *index + 1 < itered.len() && (success || skip_loop_failures) =>
+        {
+            (old_status.step, module.clone())
         }
-        module_status => {
-            let forloop_jobs = match module_status {
-                FlowStatusModule::InProgress { forloop_jobs: Some(jobs), .. } => Some(jobs.clone()),
+        _ => {
+            let forloop_jobs = match module {
+                FlowStatusModule::InProgress { forloop_jobs, .. } => forloop_jobs.clone(),
                 _ => None,
             };
-            let new_status = if success || (forloop_jobs.is_some() && skip_loop_failures) {
-                FlowStatusModule::Success { job: job.id, forloop_jobs }
+            if success || (forloop_jobs.is_some() && skip_loop_failures) {
+                (
+                    old_status.step + 1,
+                    FlowStatusModule::Success { job: job.id, forloop_jobs },
+                )
             } else {
-                FlowStatusModule::Failure { job: job.id, forloop_jobs }
-            };
-            (old_status.step + 1, new_status)
+                (
+                    old_status.step,
+                    FlowStatusModule::Failure { job: job.id, forloop_jobs },
+                )
+            }
         }
     };
 
-    let last_step = step_counter as usize == old_status.modules.len();
+    let is_last_step = usize::try_from(step_counter)
+        .map(|i| !(..old_status.modules.len()).contains(&i))
+        .unwrap_or(true);
 
     tracing::debug!(
-        "old status: {:#?}\n{:#?}\n{last_step}",
+        "old status: {:#?}\n{:#?}\n{is_last_step}",
         old_status,
         new_status
     );
 
-    let prev_step = old_status.step;
     let (stop_early_expr, skip_if_stop_early) =
-        sqlx::query_as::<_, (Option<String>, Option<bool>)>(&format!(
-            "UPDATE queue
-            SET 
-                flow_status = jsonb_set(jsonb_set(flow_status, '{{modules, {prev_step}}}', $1), \
-             '{{\"step\"}}', $2)
-            WHERE id = $3
-            RETURNING 
-                (raw_flow->'modules'->{prev_step}->>'stop_after_if_expr'), 
-                (raw_flow->'modules'->{prev_step}->>'skip_if_stopped')::bool",
-        ))
+        sqlx::query_as::<_, (Option<String>, Option<bool>)>(
+            "
+            UPDATE queue
+               SET flow_status = JSONB_SET(
+                                 JSONB_SET(flow_status, ARRAY['modules', $1::TEXT], $2),
+                                                        ARRAY['step'], $3)
+             WHERE id = $4
+            RETURNING
+                (raw_flow->'modules'->$1->>'stop_after_if_expr'),
+                (raw_flow->'modules'->$1->>'skip_if_stopped')::bool
+            ",
+        )
+        .bind(old_status.step)
         .bind(serde_json::json!(new_status))
         .bind(serde_json::json!(step_counter))
         .bind(flow)
@@ -181,9 +194,18 @@ pub async fn update_flow_status_after_job_completion(
         }
         _ => result.clone(),
     };
-    let done = if !(success || skip_loop_failures) || last_step || stop_early {
-        tx.commit().await?;
 
+    let should_continue_flow = match success {
+        _ if stop_early => false,
+        true => !is_last_step,
+        false if skip_loop_failures => !is_last_step,
+        false if has_failure_module(flow, &mut tx).await? => true,
+        false => false,
+    };
+
+    tx.commit().await?;
+
+    let done = if !should_continue_flow {
         let logs = if stop_early {
             "Flow job stopped early".to_string()
         } else {
@@ -201,8 +223,6 @@ pub async fn update_flow_status_after_job_completion(
         .await?;
         true
     } else {
-        tx.commit().await?;
-
         match handle_flow(&flow_job, db, result.clone()).await {
             Err(err) => {
                 let _ = add_completed_job_error(
@@ -261,6 +281,23 @@ async fn skip_loop_failures<'c>(
     .map_err(|e| Error::InternalErr(format!("error during retrieval of skip_loop_failures: {e}")))
 }
 
+async fn has_failure_module<'c>(
+    flow: Uuid,
+    tx: &mut sqlx::Transaction<'c, sqlx::Postgres>,
+) -> Result<bool, Error> {
+    sqlx::query_scalar(
+        "
+    SELECT raw_flow->'failure_module' != 'null'::jsonb
+      FROM queue
+     WHERE id = $1
+        ",
+    )
+    .bind(flow)
+    .fetch_one(tx)
+    .await
+    .map_err(|e| Error::InternalErr(format!("error during retrieval of has_failure_module: {e}")))
+}
+
 async fn compute_stop_early(expr: String, result: serde_json::Value) -> error::Result<bool> {
     match eval_timeout(expr, [("result".to_string(), result)].into(), None, vec![]).await? {
         serde_json::Value::Bool(true) => Ok(true),
@@ -313,20 +350,20 @@ pub async fn get_step_of_flow_status(db: &DB, id: Uuid) -> error::Result<i32> {
 async fn transform_input(
     flow_args: &Option<serde_json::Value>,
     last_result: serde_json::Value,
-    input_transform: &HashMap<String, InputTransform>,
+    input_transforms: &HashMap<String, InputTransform>,
     workspace: &str,
     token: &str,
     steps: Vec<String>,
 ) -> anyhow::Result<Map<String, serde_json::Value>> {
     let mut mapped = serde_json::Map::new();
 
-    for (key, val) in input_transform.into_iter() {
+    for (key, val) in input_transforms.into_iter() {
         if let InputTransform::Static { value } = val {
             mapped.insert(key.to_string(), value.to_owned());
         }
     }
 
-    for (key, val) in input_transform.into_iter() {
+    for (key, val) in input_transforms.into_iter() {
         match val {
             InputTransform::Static { value: _ } => (),
             InputTransform::Javascript { expr } => {
@@ -400,15 +437,17 @@ async fn push_next_flow_job(
         serde_json::from_value::<FlowStatus>(flow_job.flow_status.clone().unwrap_or_default())
             .with_context(|| format!("parse flow status {}", flow_job.id))?;
 
-    let i = usize::try_from(status.step)
+    /* `mut` because reassigned on FlowStatusModule::Failure when failure_module is Some */
+
+    let mut i = usize::try_from(status.step)
         .with_context(|| format!("invalid module index {}", status.step))?;
 
-    let module: &FlowModule = flow
+    let mut module: &FlowModule = flow
         .modules
         .get(i)
         .with_context(|| format!("no module at index {}", status.step))?;
 
-    let status_module: FlowStatusModule = status
+    let mut status_module: FlowStatusModule = status
         .modules
         .get(i)
         .cloned()
@@ -420,7 +459,23 @@ async fn push_next_flow_job(
         status_module
     );
 
-    /* Don't evaluate `module.input_transform` after iteration has begun.  Instead, args are
+    if matches!(&status_module, FlowStatusModule::Success { .. }) {
+        anyhow::bail!("no job for {status_module:?}")
+    } else if matches!(&status_module, FlowStatusModule::Failure { .. }) {
+        /* To run to the failure module, call push_next_flow_job with the current step on
+         * FlowStatusModule::Failure.  This must update the step index to the end so that no
+         * subsequent steps are run after the failure module. */
+        i = flow.modules.len();
+        module = flow
+            .failure_module
+            .as_ref()
+            /* If this fails, it's a update_flow_status_in_progress shouldn't have called
+             * handle_flow to get here. */
+            .context("missing failure module")?;
+        status_module = status.failure_module.clone();
+    };
+
+    /* Don't evaluate `module.input_transforms` after iteration has begun.  Instead, args are
      * carried through the Iterator by the InProgress variant. */
 
     #[rustfmt::skip]
@@ -452,7 +507,7 @@ async fn push_next_flow_job(
         transform_input(
             &flow_job.args,
             last_result.clone(),
-            &module.input_transform,
+            &module.input_transforms,
             &flow_job.workspace_id,
             &token,
             steps,
@@ -494,7 +549,7 @@ async fn push_next_flow_job(
                     UPDATE queue
                        SET flow_status = JSONB_SET(
                                          JSONB_SET(flow_status, ARRAY['modules', $1::TEXT], $2),
-                                                                '{ step }', $3)
+                                                                ARRAY['step'], $3)
                      WHERE id = $4
                  RETURNING *
                     "#,
@@ -551,7 +606,7 @@ async fn push_next_flow_job(
                     .with_context(|| format!("could not iterate index {index} of {itered:?}"))?;
 
                 args.extend(iterator_args);
-                args.insert("iter".to_string(), json!({ "index": 0, "value": next }));
+                args.insert("iter".to_string(), json!({ "index": index, "value": next }));
 
                 Some(NextLoopStatus { index, itered, forloop_jobs })
             }
@@ -631,12 +686,17 @@ async fn push_next_flow_job(
         };
 
     sqlx::query(
-        "UPDATE queue
-            SET flow_status = jsonb_set(flow_status, ARRAY['modules', $1::TEXT], $2)
-          WHERE id = $3",
+        "
+        UPDATE queue
+           SET flow_status = JSONB_SET(
+                             JSONB_SET(flow_status, ARRAY['modules', $1::TEXT], $2),
+                                                    ARRAY['step'], $3)
+         WHERE id = $4
+          ",
     )
     .bind(status.step)
     .bind(json!(new_status))
+    .bind(json!(i))
     .bind(flow_job.id)
     .execute(&mut tx)
     .await?;
