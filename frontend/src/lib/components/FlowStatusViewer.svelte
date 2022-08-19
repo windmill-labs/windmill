@@ -10,7 +10,7 @@
 	import FlowJobResult from './FlowJobResult.svelte'
 	import JobStatus from './JobStatus.svelte'
 	import IconedPath from './IconedPath.svelte'
-	import { createEventDispatcher, onMount } from 'svelte'
+	import { createEventDispatcher } from 'svelte'
 	const dispatch = createEventDispatcher()
 
 	export let job: QueuedJob | CompletedJob
@@ -21,7 +21,8 @@
 	let pres: { [key: number]: HTMLElement } = {}
 
 	$: jobs = [] as Array<any>
-	$: jobs && dispatch('jobsLoaded', jobs)
+	$: jobs.length > 0 && dispatch('jobsLoaded', jobs)
+	$: $workspaceStore && job && loadResults()
 
 	async function loadResults() {
 		if (!('success' in job)) {
@@ -82,10 +83,6 @@
 	function toCompletedJobs(x: any): CompletedJob[] {
 		return x as CompletedJob[]
 	}
-
-	onMount(() => {
-		$workspaceStore && job && loadResults()
-	})
 </script>
 
 <div class="flow-root w-full p-6">
@@ -98,6 +95,7 @@
 			</div>
 		{/if}
 	</div>
+
 	<JobStatus {job} />
 
 	<p class="text-gray-500 mb-6 w-full text-center">
