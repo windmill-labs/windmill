@@ -850,6 +850,7 @@ run();
                     .envs(reserved_variables)
                     .env("PATH", path_env)
                     .env("DENO_AUTH_TOKENS", deno_auth_tokens)
+                    .env("BASE_INTERNAL_URL", base_url)
                     .args(vec![
                         "--config",
                         "run.config.proto",
@@ -871,6 +872,7 @@ run();
                     .envs(reserved_variables)
                     .env("PATH", path_env)
                     .env("DENO_AUTH_TOKENS", deno_auth_tokens)
+                    .env("BASE_INTERNAL_URL", base_url)
                     .args(vec![
                         "run",
                         "--unstable",
