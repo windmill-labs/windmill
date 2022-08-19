@@ -243,6 +243,8 @@ with hot-code reloading.
 
 ### Backend + Frontend
 
+See the [./frontend/README_DEV.md](./frontend/README_DEV.md) file for all running options.
+
 1. Create a Postgres Database for Windmill and create an admin role inside your
    Postgres setup.
 2. Install [nsjail](https://github.com/google/nsjail) and have it accessible in
