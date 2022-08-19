@@ -7,13 +7,11 @@
 	import { createEventDispatcher, onDestroy } from 'svelte'
 	import Icon from 'svelte-awesome'
 	import FlowJobResult from './FlowJobResult.svelte'
+	import { flowStateStore, flowStateToFlow } from './flows/flowState'
 	import { flowStore } from './flows/flowStore'
-	import { flowStateStore } from './flows/flowState'
-	import { jobsToResults, runFlowPreview } from './flows/utils'
+	import { runFlowPreview } from './flows/utils'
 	import FlowStatusViewer from './FlowStatusViewer.svelte'
 	import SchemaForm from './SchemaForm.svelte'
-
-	const dispatch = createEventDispatcher()
 
 	export let args: Record<string, any> = {}
 
@@ -23,11 +21,13 @@
 	let jobId: string
 	let isValid: boolean = false
 
-	$: dispatch('change', jobs)
+	const dispatch = createEventDispatcher()
 
 	export async function runPreview(args: Record<string, any>) {
 		intervalId && clearInterval(intervalId)
-		jobId = await runFlowPreview(args, $flowStore)
+		const newFlow = flowStateToFlow($flowStateStore, $flowStore)
+
+		jobId = await runFlowPreview(args, newFlow)
 		jobs = []
 		intervalId = setInterval(loadJob, 1000)
 		sendUserToast(`started preview ${truncateRev(jobId, 10)}`)
@@ -42,7 +42,7 @@
 					if (`result` in y) {
 						innerResults.push(y.result)
 						if ($flowStateStore[i].childFlowModules![j] != undefined) {
-							$flowStateStore[i].childFlowModules![j].previewResults = JSON.parse(
+							$flowStateStore[i].childFlowModules![j].previewResult = JSON.parse(
 								JSON.stringify(innerResults)
 							)
 						}
@@ -52,7 +52,7 @@
 			} else if (`result` in x) {
 				resultsSoFar.push(x.result)
 			}
-			$flowStateStore[i].previewResults = JSON.parse(JSON.stringify(resultsSoFar))
+			$flowStateStore[i].previewResult = JSON.parse(JSON.stringify(resultsSoFar))
 		})
 	}
 

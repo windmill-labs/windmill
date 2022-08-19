@@ -8,10 +8,7 @@
 	} from '@fortawesome/free-solid-svg-icons'
 	import { Button, Toggle, Tooltip } from 'flowbite-svelte'
 	import Icon from 'svelte-awesome'
-	import { Highlight } from 'svelte-highlight'
-	import typescript from 'svelte-highlight/languages/typescript'
 	import ModuleStep from '../ModuleStep.svelte'
-	import ObjectViewer from '../propertyPicker/ObjectViewer.svelte'
 	import FlowInput from './FlowInput.svelte'
 	import type { FlowState } from './flowState'
 	import { emptyFlowModuleSchema } from './flowStateUtils'
@@ -104,12 +101,6 @@
 							>
 						</span>
 						<span class="flex items-center space-x-2">
-							<!-- 		{#if flowModuleSchema.flowModule.value.iterator.type === 'javascript'}
-								<Highlight
-									language={typescript}
-									code={flowModuleSchema.flowModule.value.iterator.expr}
-								/>
-							{/if} -->
 							<Toggle size="small" bind:checked={flowModuleSchema.flowModule.value.skip_failures}>
 								Skip failures
 							</Toggle>
@@ -169,11 +160,8 @@
 							bind:args
 							bind:schema={flowModuleSchema.schema}
 							bind:childFlowModules={flowModuleSchema.childFlowModules}
-							bind:previewResults={flowModuleSchema.previewResults}
+							bind:previewResult={flowModuleSchema.previewResult}
 							on:delete={() => removeAtIndex(index)}
-							previousStepPreviewResults={index === 0
-								? []
-								: flowModuleSchemas[index - 1].previewResults}
 						/>
 					</span>
 				</li>

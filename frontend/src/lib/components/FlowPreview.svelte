@@ -32,7 +32,7 @@
 	let jobs = []
 	let jobId: string
 
-	$: dispatch('change', jobs)
+	$: dispatch('change', { jobs, config: tab })
 
 	export async function runPreview(args: any) {
 		viewPreview = true
