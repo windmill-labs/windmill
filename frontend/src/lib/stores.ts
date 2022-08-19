@@ -24,12 +24,12 @@ export const usersWorkspaceStore = writable<UserWorkspaceList | undefined>(undef
 export const superadmin = writable<String | false | undefined>(undefined)
 export const hubScripts = writable<
 	| Array<{
-		path: string
-		summary: string
-		approved: boolean
-		is_trigger: boolean,
-		app: string
-	}>
+			path: string
+			summary: string
+			approved: boolean
+			is_trigger: boolean
+			app: string
+	  }>
 	| undefined
 >(undefined)
 
@@ -51,10 +51,3 @@ export function clearStores(): void {
 	usersWorkspaceStore.set(undefined)
 	superadmin.set(undefined)
 }
-
-export const previewResults = writable<Record<number, Object>>({})
-
-export function clearPreviewResults() {
-	previewResults.set({})
-}
-

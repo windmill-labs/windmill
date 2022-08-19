@@ -4,7 +4,7 @@
 	let slots = $$props.$$slots
 </script>
 
-<div class="bg-white border border-gray-300 rounded-md">
+<div class="bg-white border border-gray-300 rounded-md shadow-md">
 	<FlowBoxHeader {title}>
 		<slot name="header" />
 	</FlowBoxHeader>

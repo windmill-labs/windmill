@@ -1,8 +1,8 @@
 <script lang="ts">
 	import { goto } from '$app/navigation'
 	import { page } from '$app/stores'
-	import { FlowService, ScheduleService, type Flow } from '$lib/gen'
-	import { clearPreviewResults, previewResults, workspaceStore } from '$lib/stores'
+	import { FlowService, Job, ScheduleService, type Flow } from '$lib/gen'
+	import { workspaceStore } from '$lib/stores'
 	import {
 		encodeState,
 		formatCron,
@@ -20,7 +20,7 @@
 	import FlowPreviewContent from './FlowPreviewContent.svelte'
 	import { flowStateStore, flowStateToFlow, type FlowState } from './flows/flowState'
 	import { flowStore } from './flows/flowStore'
-	import { cleanInputs, jobsToResults } from './flows/utils'
+	import { cleanInputs } from './flows/utils'
 
 	import ScriptSchema from './ScriptSchema.svelte'
 
@@ -146,14 +146,12 @@
 
 	onMount(() => {
 		loadHubScripts()
-		clearPreviewResults()
 	})
 
 	onDestroy(() => {
 		//@ts-ignore
 		$flowStore = undefined
 		//@ts-ignore
-
 		$flowStateStore = undefined
 	})
 </script>
@@ -248,9 +246,6 @@
 					<FlowPreviewContent
 						bind:args={previewArgs}
 						on:close={() => (previewOpen = !previewOpen)}
-						on:change={(e) => {
-							previewResults.set(jobsToResults(e.detail))
-						}}
 					/>
 				</div>
 			{/if}

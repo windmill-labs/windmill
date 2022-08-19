@@ -55,7 +55,6 @@
 
 	let intervalId: NodeJS.Timer
 	let job: Job | undefined
-	let jobs = []
 	let error: Error | undefined
 	const iconScale = 1
 	let syncIteration: number = 0
@@ -331,7 +330,7 @@
 			{#if job?.job_kind == 'flow' || job?.job_kind == 'flowpreview'}
 				<div class="mt-10" />
 				<div class="max-w-lg">
-					<FlowStatusViewer {job} bind:jobs />
+					<FlowStatusViewer {job} />
 				</div>
 			{/if}
 		</div>
