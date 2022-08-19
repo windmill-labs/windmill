@@ -9,6 +9,8 @@ services:
       - db_data:/var/lib/postgresql/data
     ports:
       - 5432:5432
+      # NOTE: if port 5432 are already in use locally, we'll also bind another port
+      - 5433:5432
     environment:
       POSTGRES_PASSWORD: ${DB_PASSWORD}
       POSTGRES_DB: windmill
