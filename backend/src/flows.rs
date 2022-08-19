@@ -78,14 +78,15 @@ pub struct FlowValue {
 #[derive(Deserialize, Serialize, Debug, Clone)]
 pub struct FlowModule {
     #[serde(default)]
-    pub input_transform: HashMap<String, InputTransform>,
+    #[serde(alias = "input_transform")]
+    pub input_transforms: HashMap<String, InputTransform>,
     pub value: FlowModuleValue,
     pub stop_after_if_expr: Option<String>,
     pub skip_if_stopped: Option<bool>,
     pub summary: Option<String>,
 }
 
-#[derive(Deserialize, Serialize, Debug, Clone)]
+#[derive(Deserialize, Serialize, Debug, Clone, PartialEq)]
 #[serde(
     tag = "type",
     rename_all(serialize = "lowercase", deserialize = "lowercase")
@@ -420,14 +421,14 @@ mod tests {
         let fv = FlowValue {
             modules: vec![
                 FlowModule {
-                    input_transform: hm,
+                    input_transforms: hm,
                     value: FlowModuleValue::Script { path: "test".to_string() },
                     stop_after_if_expr: None,
                     skip_if_stopped: Some(false),
                     summary: None,
                 },
                 FlowModule {
-                    input_transform: HashMap::new(),
+                    input_transforms: HashMap::new(),
                     value: FlowModuleValue::RawScript(RawCode {
                         content: "test".to_string(),
                         language: crate::scripts::ScriptLang::Deno,
@@ -438,7 +439,7 @@ mod tests {
                     summary: None,
                 },
                 FlowModule {
-                    input_transform: [(
+                    input_transforms: [(
                         "iterand".to_string(),
                         InputTransform::Static { value: serde_json::json!(vec![1, 2, 3]) },
                     )]
@@ -454,7 +455,7 @@ mod tests {
                 },
             ],
             failure_module: Some(FlowModule {
-                input_transform: HashMap::new(),
+                input_transforms: HashMap::new(),
                 value: FlowModuleValue::Flow { path: "test".to_string() },
                 stop_after_if_expr: Some("previous.isEmpty()".to_string()),
                 skip_if_stopped: None,
@@ -463,5 +464,30 @@ mod tests {
         };
         println!("{}", serde_json::json!(fv).to_string());
         Ok(())
+    }
+
+    #[test]
+    fn test_back_compat() {
+        /* renamed input_transform -> input_transforms but should deserialize old name */
+        let s = r#"
+        {
+            "value": {
+                "type": "rawscript",
+                "content": "def main(n): return",
+                "language": "python3"
+            },
+            "input_transform": {
+                "n": {
+                    "expr": "flow_input.iter.value",
+                    "type": "javascript"
+                }
+            }
+        }
+        "#;
+        let module: FlowModule = serde_json::from_str(s).unwrap();
+        assert_eq!(
+            module.input_transforms["n"],
+            InputTransform::Javascript { expr: "flow_input.iter.value".to_string() }
+        );
     }
 }

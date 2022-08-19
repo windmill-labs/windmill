@@ -1252,7 +1252,7 @@ mod tests {
         use std::sync::Once;
 
         static ONCE: Once = Once::new();
-        ONCE.call_once(|| crate::tracing_init::initialize_tracing());
+        ONCE.call_once(crate::tracing_init::initialize_tracing);
     }
 
     /// it's important this is unique between tests as there is one prometheus registry and
@@ -1285,7 +1285,7 @@ mod tests {
                         content: numbers.to_string(),
                         path: None,
                     }),
-                    input_transform: Default::default(),
+                    input_transforms: Default::default(),
                     stop_after_if_expr: Default::default(),
                     skip_if_stopped: Default::default(),
                     summary: Default::default(),
@@ -1301,7 +1301,7 @@ mod tests {
                                     content: doubles.to_string(),
                                     path: None,
                                 }),
-                                input_transform: [(
+                                input_transforms: [(
                                     "n".to_string(),
                                     InputTransform::Javascript {
                                         expr: "previous_result.iter.value".to_string(),
@@ -1316,7 +1316,7 @@ mod tests {
                         }
                         .into(),
                     },
-                    input_transform: Default::default(),
+                    input_transforms: Default::default(),
                     stop_after_if_expr: Default::default(),
                     skip_if_stopped: Default::default(),
                     summary: Default::default(),
@@ -1515,7 +1515,7 @@ def main():
                                         "type": "rawscript",
                                         "language": "python3",
                                         "content": "def main(n): return n",
-                                    },
+                                    } ,
                                 }
                             ],
                         }
@@ -1542,6 +1542,87 @@ def main():
         let result = run_job_in_new_worker_until_complete(&db, flow).await;
 
         assert_eq!(result, serde_json::json!(9));
+    }
+
+    #[sqlx::test(fixtures("base"))]
+    async fn test_failure_module(db: DB) {
+        initialize_tracing().await;
+
+        let flow: FlowValue = serde_json::from_value(serde_json::json!({
+            "modules": [{
+                "input_transform": {
+                    "l": { "type": "javascript", "expr": "[]", },
+                    "n": { "type": "javascript", "expr": "flow_input.n", },
+                },
+                "value": {
+                    "type": "rawscript",
+                    "language": "deno",
+                    "content": "export function main(n, l) { if (n == 0) throw l; return { l: [...l, 0] } }",
+                },
+            }, {
+                "input_transform": {
+                    "l": { "type": "javascript", "expr": "previous_result.l", },
+                    "n": { "type": "javascript", "expr": "flow_input.n", },
+                },
+                "value": {
+                    "type": "rawscript",
+                    "language": "deno",
+                    "content": "export function main(n, l) { if (n == 1) throw l; return { l: [...l, 1] } }",
+                },
+            }, {
+                "input_transform": {
+                    "l": { "type": "javascript", "expr": "previous_result.l", },
+                    "n": { "type": "javascript", "expr": "flow_input.n", },
+                },
+                "value": {
+                    "type": "rawscript",
+                    "language": "deno",
+                    "content": "export function main(n, l) { if (n == 2) throw l; return { l: [...l, 2] } }",
+                },
+            }],
+            "failure_module": {
+                "input_transform": { "error": { "type": "javascript", "expr": "previous_result", } },
+                "value": {
+                    "type": "rawscript",
+                    "language": "deno",
+                    "content": "export function main(error) { return { 'from failure module': error } }",
+                }
+            },
+        }))
+        .unwrap();
+
+        let result = RunJob::from(JobPayload::RawFlow { value: flow.clone(), path: None })
+            .arg("n", json!(0))
+            .wait_until_complete(&db)
+            .await;
+        assert!(result["from failure module"]["error"]
+            .as_str()
+            .unwrap()
+            .contains("Uncaught (in promise) []"));
+
+        let result = RunJob::from(JobPayload::RawFlow { value: flow.clone(), path: None })
+            .arg("n", json!(1))
+            .wait_until_complete(&db)
+            .await;
+        assert!(result["from failure module"]["error"]
+            .as_str()
+            .unwrap()
+            .contains("Uncaught (in promise) [ 0 ]"));
+
+        let result = RunJob::from(JobPayload::RawFlow { value: flow.clone(), path: None })
+            .arg("n", json!(2))
+            .wait_until_complete(&db)
+            .await;
+        assert!(result["from failure module"]["error"]
+            .as_str()
+            .unwrap()
+            .contains("Uncaught (in promise) [ 0, 1 ]"));
+
+        let result = RunJob::from(JobPayload::RawFlow { value: flow.clone(), path: None })
+            .arg("n", json!(3))
+            .wait_until_complete(&db)
+            .await;
+        assert_eq!(json!({ "l": [0, 1, 2] }), result);
     }
 
     #[sqlx::test(fixtures("base"))]
