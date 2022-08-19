@@ -724,6 +724,7 @@ print(res_json)
                         .env_clear()
                         .envs(reserved_variables)
                         .env("PATH", path_env)
+                        .env("BASE_INTERNAL_URL", base_url)
                         .args(vec![
                             "--config",
                             "run.config.proto",
@@ -741,6 +742,7 @@ print(res_json)
                         .env_clear()
                         .envs(reserved_variables)
                         .env("PATH", path_env)
+                        .env("BASE_INTERNAL_URL", base_url)
                         .args(vec!["-u", "main.py"])
                         .stdout(Stdio::piped())
                         .stderr(Stdio::piped())
