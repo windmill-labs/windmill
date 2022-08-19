@@ -200,7 +200,7 @@ export function getStepPropPicker(
 	args: Record<string, any>
 ): StepPropPicker {
 	const isInsideLoop: boolean = indexes.length > 1
-	const [parentIndex, childIndex] = indexes
+	const [parentIndex] = indexes
 
 	const flowInput = schemaToObject(flowInputSchema, args)
 	const results = getPreviousResults(flowState, parentIndex)
@@ -224,17 +224,7 @@ export function getStepPropPicker(
 			}
 		}
 
-		/*
-		const forLoopResults = getPreviousResults(flowState[parentIndex]?.childFlowModules, childIndex)
-		const forLoopLastResult =
-			forLoopResults.length > 0 ? forLoopResults[forLoopResults.length - 1] : undefined
-		*/
-
-		const extraLib = buildExtraLib(
-			objectToTsType(forLoopFlowInput),
-			//objectToTsType(forLoopLastResult)
-			undefined
-		)
+		const extraLib = buildExtraLib(objectToTsType(forLoopFlowInput), undefined)
 
 		return {
 			extraLib,
@@ -292,8 +282,6 @@ export function mapJobResultsToFlowState(
 		})
 	} else {
 		const result = jobsToResults(jobs)
-
-		console.log(result, configIndex)
 
 		flowStateStore.update((flowState: FlowState) => {
 			if (!Array.isArray(flowState)) {
