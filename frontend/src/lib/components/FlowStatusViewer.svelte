@@ -21,7 +21,7 @@
 	let pres: { [key: number]: HTMLElement } = {}
 
 	$: jobs = [] as Array<any>
-	$: jobs.length > 0 && dispatch('jobsLoaded', jobs)
+	$: jobs && dispatch('jobsLoaded', jobs)
 	$: $workspaceStore && job && loadResults()
 
 	async function loadResults() {
