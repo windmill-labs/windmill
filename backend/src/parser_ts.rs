@@ -11,7 +11,7 @@ use crate::{
     parser::{Arg, MainArgSignature, ObjectProperty, Typ},
 };
 
-use swc_common::{sync::Lrc, FileName, SourceMap};
+use swc_common::{sync::Lrc, FileName, SourceMap, SourceMapper, Spanned};
 use swc_ecma_ast::{
     AssignPat, BindingIdent, Decl, ExportDecl, Expr, FnDecl, Ident, ModuleDecl, ModuleItem, Pat,
     Str, TsArrayType, TsEntityName, TsKeywordType, TsKeywordTypeKind, TsLit, TsLitType,
@@ -76,7 +76,9 @@ pub fn parse_deno_signature(code: &str) -> error::Result<MainArgSignature> {
                         let (name, typ, _nullable) =
                             left.as_ident().map(binding_ident_to_arg).ok_or_else(|| {
                                 error::Error::ExecutionErr(format!(
-                                    "Arg {left:?} has unexpected syntax"
+                                    "parameter syntax unsupported: `{}`",
+                                    cm.span_to_snippet(left.span())
+                                        .unwrap_or_else(|_| cm.span_to_string(left.span()))
                                 ))
                             })?;
                         Ok(Arg {
@@ -92,7 +94,9 @@ pub fn parse_deno_signature(code: &str) -> error::Result<MainArgSignature> {
                         })
                     }
                     _ => Err(error::Error::ExecutionErr(format!(
-                        "Arg {x:?} has unexpected syntax"
+                        "parameter syntax unsupported: `{}`",
+                        cm.span_to_snippet(x.span())
+                            .unwrap_or_else(|_| cm.span_to_string(x.span()))
                     ))),
                 })
                 .collect::<Result<Vec<Arg>, error::Error>>()?,
