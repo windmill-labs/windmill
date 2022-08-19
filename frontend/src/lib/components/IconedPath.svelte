@@ -10,5 +10,5 @@
 		<span>{path}</span>
 	</span>
 {:else}
-	path
+	{path}
 {/if}

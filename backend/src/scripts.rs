@@ -53,10 +53,12 @@ pub fn workspaced_service() -> Router {
         .route("/create", post(create_script))
         .route("/archive/p/*path", post(archive_script_by_path))
         .route("/get/p/*path", get(get_script_by_path))
+        .route("/raw/p/*path", get(raw_script_by_path))
         .route("/exists/p/*path", get(exists_script_by_path))
         .route("/archive/h/:hash", post(archive_script_by_hash))
         .route("/delete/h/:hash", post(delete_script_by_hash))
         .route("/get/h/:hash", get(get_script_by_hash))
+        .route("/raw/h/:hash", get(raw_script_by_hash))
         .route("/deployment_status/h/:hash", get(get_deployment_status))
 }
 
@@ -537,6 +539,32 @@ async fn get_script_by_path(
     Ok(Json(script))
 }
 
+async fn raw_script_by_path(
+    authed: Authed,
+    Extension(user_db): Extension<UserDB>,
+    Path((w_id, path)): Path<(String, StripPath)>,
+) -> Result<String> {
+    let path = path
+        .to_path()
+        .strip_suffix(".ts")
+        .ok_or_else(|| Error::BadRequest("Raw script path must end with .ts".to_string()))?;
+    let mut tx = user_db.begin(&authed).await?;
+
+    let content_o = sqlx::query_scalar!(
+        "SELECT content FROM script WHERE path = $1 AND (workspace_id = $2 OR workspace_id = 'starter') \
+         AND
+         created_at = (SELECT max(created_at) FROM script WHERE path = $1 AND archived = false AND \
+         (workspace_id = $2 OR workspace_id = 'starter'))",
+         path, w_id
+    )
+    .fetch_optional(&mut tx)
+    .await?;
+    tx.commit().await?;
+
+    let content = crate::utils::not_found_if_none(content_o, "Script", path)?;
+    Ok(content)
+}
+
 async fn exists_script_by_path(
     Extension(db): Extension<DB>,
     Path((w_id, path)): Path<(String, StripPath)>,
@@ -585,6 +613,21 @@ async fn get_script_by_hash(
     tx.commit().await?;
 
     Ok(Json(r))
+}
+
+async fn raw_script_by_hash(
+    authed: Authed,
+    Extension(user_db): Extension<UserDB>,
+    Path((w_id, hash_str)): Path<(String, String)>,
+) -> Result<String> {
+    let mut tx = user_db.begin(&authed).await?;
+    let hash = ScriptHash(to_i64(hash_str.strip_suffix(".ts").ok_or_else(|| {
+        Error::BadRequest("Raw script path must end with .ts".to_string())
+    })?)?);
+    let r = get_script_by_hash_internal(&mut tx, &w_id, &hash).await?;
+    tx.commit().await?;
+
+    Ok(r.content)
 }
 
 #[derive(FromRow, Serialize)]

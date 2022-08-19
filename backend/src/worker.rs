@@ -724,6 +724,7 @@ print(res_json)
                         .env_clear()
                         .envs(reserved_variables)
                         .env("PATH", path_env)
+                        .env("BASE_INTERNAL_URL", base_url)
                         .args(vec![
                             "--config",
                             "run.config.proto",
@@ -741,6 +742,7 @@ print(res_json)
                         .env_clear()
                         .envs(reserved_variables)
                         .env("PATH", path_env)
+                        .env("BASE_INTERNAL_URL", base_url)
                         .args(vec!["-u", "main.py"])
                         .stdout(Stdio::piped())
                         .stderr(Stdio::piped())
@@ -819,7 +821,7 @@ run();
 
             tx.commit().await?;
 
-            let mut reserved_variables = get_reserved_variables(job, token, db).await?;
+            let mut reserved_variables = get_reserved_variables(job, token.clone(), db).await?;
             reserved_variables.insert("RUST_LOG".to_string(), "info".to_string());
 
             if !disable_nsjail {
@@ -840,12 +842,17 @@ run();
                 workspace_id = %job.workspace_id,
                 "started deno code execution"
             );
+            let hostname = base_url.split("://").last().unwrap_or("localhost");
+            let deno_auth_tokens = format!("{token}@{hostname}");
+
             let child = if !disable_nsjail {
                 Command::new(nsjail_path)
                     .current_dir(job_dir)
                     .env_clear()
                     .envs(reserved_variables)
                     .env("PATH", path_env)
+                    .env("DENO_AUTH_TOKENS", deno_auth_tokens)
+                    .env("BASE_INTERNAL_URL", base_url)
                     .args(vec![
                         "--config",
                         "run.config.proto",
@@ -866,6 +873,8 @@ run();
                     .env_clear()
                     .envs(reserved_variables)
                     .env("PATH", path_env)
+                    .env("DENO_AUTH_TOKENS", deno_auth_tokens)
+                    .env("BASE_INTERNAL_URL", base_url)
                     .args(vec![
                         "run",
                         "--unstable",
