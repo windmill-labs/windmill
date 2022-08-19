@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use crate::{
     db::DB,
     error::{self, Error},
-    flows::{FlowModuleValue, FlowValue, InputTransform},
+    flows::{FlowModule, FlowModuleValue, FlowValue, InputTransform},
     jobs::{
         add_completed_job, add_completed_job_error, get_queued_job, postprocess_queued_job, push,
         script_path_to_payload, JobPayload, QueuedJob,
@@ -12,7 +12,9 @@ use crate::{
     users::create_token_for_owner,
     worker,
 };
+use anyhow::Context;
 use async_recursion::async_recursion;
+use futures::TryStreamExt;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
 use tracing::instrument;
@@ -27,7 +29,7 @@ pub struct FlowStatus {
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Iterator {
-    pub index: u8,
+    pub index: usize,
     pub itered: Vec<Value>,
     pub args: Map<String, Value>,
 }
@@ -41,6 +43,16 @@ pub enum FlowStatusModule {
     InProgress { job: Uuid, iterator: Option<Iterator>, forloop_jobs: Option<Vec<Uuid>> },
     Success { job: Uuid, forloop_jobs: Option<Vec<Uuid>> },
     Failure { job: Uuid, forloop_jobs: Option<Vec<Uuid>> },
+}
+
+impl FlowStatus {
+    pub fn new(f: &FlowValue) -> Self {
+        Self {
+            step: 0,
+            modules: vec![FlowStatusModule::WaitingForPriorSteps; f.modules.len()],
+            failure_module: FlowStatusModule::WaitingForPriorSteps,
+        }
+    }
 }
 
 #[async_recursion]
@@ -90,10 +102,10 @@ pub async fn update_flow_status_after_job_completion(
         module_status @ FlowStatusModule::InProgress {
             iterator: Some(Iterator { index, itered, .. }),
             ..
-        } if (index.to_owned() as usize) + 1 < itered.len() && (success || skip_loop_failures) => {
+        } if *index + 1 < itered.len() && (success || skip_loop_failures) => {
             (old_status.step, module_status.clone())
         }
-        module_status @ _ => {
+        module_status => {
             let forloop_jobs = match module_status {
                 FlowStatusModule::InProgress { forloop_jobs: Some(jobs), .. } => Some(jobs.clone()),
                 _ => None,
@@ -149,7 +161,6 @@ pub async fn update_flow_status_after_job_completion(
 
     let result = match new_status {
         FlowStatusModule::Success { forloop_jobs: Some(jobs), .. } => {
-            use futures::TryStreamExt;
             let results = sqlx::query_as(
                 "
                   SELECT result
@@ -164,9 +175,9 @@ pub async fn update_flow_status_after_job_completion(
             .bind(w_id)
             .fetch(&mut tx)
             .map_ok(|(v,)| v)
-            .try_collect::<Vec<serde_json::Value>>()
+            .try_collect::<Vec<Value>>()
             .await?;
-            serde_json::json!(results)
+            json!(results)
         }
         _ => result.clone(),
     };
@@ -261,11 +272,7 @@ async fn compute_stop_early(expr: String, result: serde_json::Value) -> error::R
 }
 
 pub fn init_flow_status(f: &FlowValue) -> FlowStatus {
-    FlowStatus {
-        step: 0,
-        modules: vec![FlowStatusModule::WaitingForPriorSteps; f.modules.len()],
-        failure_module: FlowStatusModule::WaitingForPriorSteps,
-    }
+    FlowStatus::new(f)
 }
 
 pub async fn update_flow_status_in_progress(
@@ -314,13 +321,9 @@ async fn transform_input(
     let mut mapped = serde_json::Map::new();
 
     for (key, val) in input_transform.into_iter() {
-        match val {
-            InputTransform::Static { value } => {
-                mapped.insert(key.to_string(), value.to_owned());
-                ()
-            }
-            _ => (),
-        };
+        if let InputTransform::Static { value } = val {
+            mapped.insert(key.to_string(), value.to_owned());
+        }
     }
 
     for (key, val) in input_transform.into_iter() {
@@ -393,50 +396,46 @@ async fn push_next_flow_job(
     db: &sqlx::Pool<sqlx::Postgres>,
     last_result: serde_json::Value,
 ) -> anyhow::Result<()> {
-    let flow_status_json = flow_job.flow_status.as_ref().ok_or_else(|| {
-        Error::InternalErr(format!("not found status for flow job {:?}", flow_job.id))
-    })?;
-    let status = serde_json::from_value::<FlowStatus>(flow_status_json.to_owned())?;
-    let i = status.step as usize;
+    let status: FlowStatus =
+        serde_json::from_value::<FlowStatus>(flow_job.flow_status.clone().unwrap_or_default())
+            .with_context(|| format!("parse flow status {}", flow_job.id))?;
 
-    if flow.modules.len() > i {
-        let module = &flow.modules[i];
-        let mut tx = db.begin().await?;
-        let job_payload = match &module.value {
-            FlowModuleValue::Script { path: script_path } => {
-                script_path_to_payload(script_path, &mut tx, &flow_job.workspace_id).await?
-            }
-            FlowModuleValue::RawScript(raw_code) => {
-                let mut raw_code = raw_code.clone();
-                if raw_code.path.is_none() {
-                    raw_code.path = Some(format!(
-                        "{}/{i}",
-                        flow_job
-                            .script_path
-                            .as_ref()
-                            .unwrap_or(&"NO_FLOW_PATH".to_owned())
-                    ));
-                }
-                JobPayload::Code(raw_code)
-            }
-            FlowModuleValue::ForloopFlow { value, .. } => JobPayload::RawFlow {
-                value: *(*value).to_owned(),
-                path: Some(format!(
-                    "{}/{i}",
-                    flow_job
-                        .script_path
-                        .as_ref()
-                        .unwrap_or(&"NO_FLOW_PATH".to_owned())
-                )),
-            },
-            a @ _ => {
-                tracing::info!("Unrecognized module values {:?}", a);
-                Err(Error::BadRequest(format!(
-                    "Unrecognized module values {:?}",
-                    a
-                )))?
-            }
-        };
+    let i = usize::try_from(status.step)
+        .with_context(|| format!("invalid module index {}", status.step))?;
+
+    let module: &FlowModule = flow
+        .modules
+        .get(i)
+        .with_context(|| format!("no module at index {}", status.step))?;
+
+    let status_module: FlowStatusModule = status
+        .modules
+        .get(i)
+        .cloned()
+        .with_context(|| format!("no status at index {}", status.step))?;
+
+    tracing::debug!(
+        "PUSH: module: {:#?}, status: {:#?}",
+        module.value,
+        status_module
+    );
+
+    /* Don't evaluate `module.input_transform` after iteration has begun.  Instead, args are
+     * carried through the Iterator by the InProgress variant. */
+
+    #[rustfmt::skip]
+    let compute_input_transform = !(   matches!(&module.value, FlowModuleValue::ForloopFlow { .. })
+                                    && matches!(&status_module, FlowStatusModule::InProgress { .. }));
+
+    let mut args = if compute_input_transform {
+        let steps = status
+            .modules
+            .iter()
+            .map(|x| match x {
+                FlowStatusModule::Success { job, .. } => job.to_string(),
+                _ => "invalid step status".to_string(),
+            })
+            .collect();
 
         let token = create_token_for_owner(
             &db,
@@ -449,211 +448,233 @@ async fn push_next_flow_job(
             &flow_job.created_by,
         )
         .await?;
-        let input_transform = module.input_transform.clone();
 
-        tracing::debug!(
-            "PUSH: module: {:#?}, status: {:#?}",
-            module.value,
-            status.modules[i]
-        );
-        let (compute_input_transform, forloop_args, forloop_iterator) = match &module.value {
-            FlowModuleValue::ForloopFlow { iterator, .. } => match &status.modules[i] {
-                FlowStatusModule::WaitingForPriorSteps { .. } => {
-                    let itered = match iterator {
-                        InputTransform::Static { value } => value.clone(),
-                        InputTransform::Javascript { expr } => {
-                            let result = last_result.clone();
-                            eval_timeout(
-                                expr.to_string(),
-                                [("result".to_string(), result)].into(),
-                                None,
-                                vec![],
-                            )
-                            .await?
-                        }
-                    };
-                    let mut args = Map::new();
-                    let mut iteration_map = Map::new();
-                    iteration_map.insert(
-                        "index".to_string(),
-                        serde_json::Value::Number(serde_json::Number::from(0)),
-                    );
-                    iteration_map.insert("value".to_string(), itered[0].clone());
-                    args.insert("iter".to_string(), serde_json::Value::Object(iteration_map));
-                    match itered {
-                        serde_json::Value::Array(arr) => {
-                            (true, Some(args), Some((0 as u8, arr, vec![])))
-                        }
-                        a @ _ => Err(Error::BadRequest(format!(
-                            "Expected an array value, found: {:?}",
-                            a
-                        )))?,
-                    }
-                }
-                FlowStatusModule::InProgress {
-                    iterator: Some(Iterator { index, itered, args }),
-                    forloop_jobs: Some(forloop_jobs),
-                    ..
-                } if index.to_owned() + 1 < itered.len() as u8 => {
-                    let mut args = args.clone();
-                    let nindex = index.to_owned() + 1;
-                    let mut iteration_map = Map::new();
-                    iteration_map.insert(
-                        "index".to_string(),
-                        serde_json::Value::Number(serde_json::Number::from(nindex.to_owned())),
-                    );
-                    iteration_map.insert(
-                        "value".to_string(),
-                        itered[nindex.to_owned() as usize].clone(),
-                    );
-                    args.insert("iter".to_string(), serde_json::Value::Object(iteration_map));
-                    (
-                        false,
-                        Some(args),
-                        Some((nindex, itered.clone(), forloop_jobs.clone())),
-                    )
-                }
-                a @ _ => Err(Error::BadRequest(format!(
-                    "Unrecognized module status for ForloopFlow {:?}",
-                    a
-                )))?,
-            },
-            _ => (true, None, None),
-        };
-
-        if let Some((_, vec, _)) = &forloop_iterator {
-            if vec.len() == 0 {
-                let new_job = sqlx::query_as::<_, QueuedJob>(&format!(
-                    "UPDATE queue
-            SET 
-                flow_status = jsonb_set(jsonb_set(flow_status, '{{modules, {}}}', $1), \
-             '{{\"step\"}}', $2)
-            WHERE id = $3
-            RETURNING *",
-                    i
-                ))
-                .bind(serde_json::json!(FlowStatusModule::Success {
-                    job: flow_job.id,
-                    forloop_jobs: Some(vec![])
-                }))
-                .bind(serde_json::json!(if flow.modules.len() > i + 1 {
-                    i + 1
-                } else {
-                    i
-                }))
-                .bind(flow_job.id)
-                .fetch_one(&mut tx)
-                .await?;
-                tx.commit().await?;
-                if flow.modules.len() > i + 1 {
-                    return Ok(
-                        push_next_flow_job(&new_job, flow, schedule_path, db, json!([])).await?,
-                    );
-                } else {
-                    add_completed_job(
-                        db,
-                        &new_job,
-                        true,
-                        false,
-                        json!([]),
-                        "Forloop completed without iteration".to_string(),
-                    )
-                    .await?;
-                    postprocess_queued_job(
-                        false,
-                        new_job.schedule_path,
-                        new_job.script_path,
-                        &new_job.workspace_id,
-                        new_job.id,
-                        db,
-                    )
-                    .await?;
-                    return Ok(());
-                }
-            }
-        }
-
-        let mut args = if compute_input_transform {
-            let steps = status
-                .modules
-                .into_iter()
-                .map(|x| match x {
-                    FlowStatusModule::Success { job, forloop_jobs: _ } => job.to_string(),
-                    _ => "invalid step status".to_string(),
-                })
-                .collect();
-
-            transform_input(
-                &flow_job.args,
-                last_result.clone(),
-                &input_transform,
-                &flow_job.workspace_id,
-                &token,
-                steps,
-            )
-            .await?
-        } else {
-            Map::new()
-        };
-        let args = if forloop_args.is_some() {
-            args.extend(forloop_args.unwrap());
-            if let Some(flow_args) = &flow_job.args {
-                match flow_args {
-                    serde_json::Value::Object(obj) => {
-                        for (k, v) in obj {
-                            args.insert(k.to_string(), v.clone());
-                        }
-                    }
-                    _ => {
-                        (Err(Error::BadRequest(format!(
-                            "Expected an object value, found: {:?}",
-                            flow_args
-                        ))))?
-                    }
-                }
-            }
-            args
-        } else {
-            args
-        };
-
-        let (uuid, mut tx) = push(
-            tx,
+        transform_input(
+            &flow_job.args,
+            last_result.clone(),
+            &module.input_transform,
             &flow_job.workspace_id,
-            job_payload,
-            Some(args.clone()),
-            &flow_job.created_by,
-            flow_job.permissioned_as.to_owned(),
-            None,
-            schedule_path,
-            Some(flow_job.id),
-            true,
+            &token,
+            steps,
         )
-        .await?;
+        .await?
+    } else {
+        Map::new()
+    };
 
-        let new_status = if let Some((index, itered, mut forloop_jobs)) = forloop_iterator {
-            forloop_jobs.push(uuid.to_owned());
-            serde_json::json!(FlowStatusModule::InProgress {
-                job: uuid,
-                iterator: Some(Iterator { index: index, itered: itered, args: args }),
+    /* forloop modules are expected set `iter: { value: Value, index: usize }` as job arguments */
+
+    let next_loop_status: Option<NextLoopStatus> = if let FlowModuleValue::ForloopFlow {
+        iterator,
+        ..
+    } = &module.value
+    {
+        match status_module {
+            FlowStatusModule::WaitingForPriorSteps => {
+                /* Iterator is an InputTransform, evaluate it into an array. */
+                let itered = iterator
+                    .clone()
+                    .evaluate_with(|| vec![("result".to_string(), last_result.clone())])
+                    .await?
+                    .into_array()
+                    .map_err(|not_array| {
+                        Error::BadRequest(format!("Expected an array value, found: {not_array}"))
+                    })?;
+
+                let first = if let Some(first) = itered.first() {
+                    first
+                } else {
+                    /* Nothing to iterate, complete immediately and bail. */
+                    let next_step = i
+                        .checked_add(1)
+                        .filter(|i| (..flow.modules.len()).contains(i));
+
+                    let new_job = sqlx::query_as::<_, QueuedJob>(
+                        r#"
+                    UPDATE queue
+                       SET flow_status = JSONB_SET(
+                                         JSONB_SET(flow_status, ARRAY['modules', $1::TEXT], $2),
+                                                                '{ step }', $3)
+                     WHERE id = $4
+                 RETURNING *
+                    "#,
+                    )
+                    .bind(status.step)
+                    .bind(json!(FlowStatusModule::Success {
+                        job: flow_job.id,
+                        forloop_jobs: Some(vec![])
+                    }))
+                    .bind(json!(next_step.unwrap_or(i)))
+                    .bind(flow_job.id)
+                    .fetch_one(db)
+                    .await?;
+
+                    return if next_step.is_some() {
+                        push_next_flow_job(&new_job, flow, schedule_path, db, json!([])).await
+                    } else {
+                        let success = true;
+                        let skipped = false;
+                        let logs = "Forloop completed without iteration".to_string();
+                        let _uuid =
+                            add_completed_job(db, &new_job, success, skipped, json!([]), logs)
+                                .await?;
+                        postprocess_queued_job(
+                            false,
+                            new_job.schedule_path,
+                            new_job.script_path,
+                            &new_job.workspace_id,
+                            new_job.id,
+                            db,
+                        )
+                        .await?;
+                        Ok(())
+                    };
+                };
+
+                args.insert("iter".to_string(), json!({ "index": 0, "value": first }));
+
+                Some(NextLoopStatus { index: 0, itered, forloop_jobs: vec![] })
+            }
+
+            FlowStatusModule::InProgress {
+                iterator: Some(Iterator { itered, index, args: iterator_args }),
                 forloop_jobs: Some(forloop_jobs),
-            })
+                ..
+            } => {
+                let (index, next) = index
+                    .checked_add(1)
+                    .and_then(|i| itered.get(i).map(|next| (i, next)))
+                    /* we shouldn't get here because update_flow_status_after_job_completion
+                     * should leave this state if there iteration is complete, but also it should
+                     * be reasonable to just enter a completed state instead of failing, similar to
+                     * iterating an empty list above */
+                    .with_context(|| format!("could not iterate index {index} of {itered:?}"))?;
+
+                args.extend(iterator_args);
+                args.insert("iter".to_string(), json!({ "index": 0, "value": next }));
+
+                Some(NextLoopStatus { index, itered, forloop_jobs })
+            }
+
+            _ => Err(Error::BadRequest(format!(
+                "Unrecognized module status for ForloopFlow {status_module:?}"
+            )))?,
+        }
+    } else {
+        None
+    };
+
+    if matches!(&module.value, FlowModuleValue::ForloopFlow { .. }) {
+        if let Some(value) = &flow_job.args {
+            value
+                .as_object()
+                .ok_or_else(|| {
+                    Error::BadRequest(format!("Expected an object value, found: {value:?}"))
+                })
+                .map(|map| args.extend(map.clone()))?;
+        }
+    }
+
+    /* Finally, push the job into the queue */
+
+    let mut tx = db.begin().await?;
+
+    let job_payload = match &module.value {
+        FlowModuleValue::Script { path: script_path } => {
+            script_path_to_payload(script_path, &mut tx, &flow_job.workspace_id).await?
+        }
+        FlowModuleValue::RawScript(raw_code) => {
+            let mut raw_code = raw_code.clone();
+            if raw_code.path.is_none() {
+                raw_code.path = Some(format!("{}/{}", flow_job.script_path(), status.step));
+            }
+            JobPayload::Code(raw_code)
+        }
+        FlowModuleValue::ForloopFlow { value, .. } => JobPayload::RawFlow {
+            value: (**value).clone(),
+            path: Some(format!("{}/{}", flow_job.script_path(), status.step)),
+        },
+        a @ FlowModuleValue::Flow { .. } => {
+            tracing::info!("Unrecognized module values {:?}", a);
+            Err(Error::BadRequest(format!(
+                "Unrecognized module values {:?}",
+                a
+            )))?
+        }
+    };
+
+    let (uuid, mut tx) = push(
+        tx,
+        &flow_job.workspace_id,
+        job_payload,
+        Some(args.clone()),
+        &flow_job.created_by,
+        flow_job.permissioned_as.to_owned(),
+        None,
+        schedule_path,
+        Some(flow_job.id),
+        true,
+    )
+    .await?;
+
+    let new_status =
+        if let Some(NextLoopStatus { index, itered, mut forloop_jobs }) = next_loop_status {
+            forloop_jobs.push(uuid);
+
+            FlowStatusModule::InProgress {
+                job: uuid,
+                iterator: Some(Iterator { index, itered, args }),
+                forloop_jobs: Some(forloop_jobs),
+            }
         } else {
-            serde_json::json!(FlowStatusModule::WaitingForExecutor { job: uuid })
+            FlowStatusModule::WaitingForExecutor { job: uuid }
         };
 
-        sqlx::query(&format!(
-            "UPDATE queue
-            SET 
-                flow_status = jsonb_set(flow_status, '{{modules, {}}}', $1)
-            WHERE id = $2",
-            i
-        ))
-        .bind(new_status)
-        .bind(flow_job.id)
-        .execute(&mut tx)
-        .await?;
-        tx.commit().await?;
+    sqlx::query(
+        "UPDATE queue
+            SET flow_status = jsonb_set(flow_status, ARRAY['modules', $1::TEXT], $2)
+          WHERE id = $3",
+    )
+    .bind(status.step)
+    .bind(json!(new_status))
+    .bind(flow_job.id)
+    .execute(&mut tx)
+    .await?;
+
+    tx.commit().await?;
+
+    return Ok(());
+
+    /// Some state about the current/last forloop FlowStatusModule used to initialized the next
+    /// iteration's FlowStatusModule after pushing a job
+    struct NextLoopStatus {
+        index: usize,
+        itered: Vec<Value>,
+        forloop_jobs: Vec<Uuid>,
     }
-    Ok(())
+}
+
+impl InputTransform {
+    async fn evaluate_with<F>(self, vars: F) -> anyhow::Result<Value>
+    where
+        F: FnOnce() -> Vec<(String, Value)>,
+    {
+        match self {
+            InputTransform::Static { value } => Ok(value),
+            InputTransform::Javascript { expr } => eval_timeout(expr, vars(), None, vec![]).await,
+        }
+    }
+}
+
+trait IntoArray: Sized {
+    fn into_array(self) -> Result<Vec<Value>, Self>;
+}
+
+impl IntoArray for Value {
+    fn into_array(self) -> Result<Vec<Value>, Self> {
+        match self {
+            Value::Array(array) => Ok(array),
+            not_array => Err(not_array),
+        }
+    }
 }
