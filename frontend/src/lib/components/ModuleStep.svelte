@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Job, RawScript, type Flow, type FlowModule } from '$lib/gen'
+	import { RawScript, type FlowModule } from '$lib/gen'
 	import { faChevronDown, faChevronUp } from '@fortawesome/free-solid-svg-icons'
 	import Icon from 'svelte-awesome'
 	import Editor from './Editor.svelte'
@@ -16,85 +16,28 @@
 		loadFlowModuleSchema,
 		pickScript,
 		createScriptFromInlineScript,
-		isEmptyFlowModule
+		isEmptyFlowModule,
+		getStepPropPicker
 	} from './flows/flowStateUtils'
-	import { jobsToResults } from './flows/utils'
 	import SchemaForm from './SchemaForm.svelte'
 	import type { Schema } from '$lib/common'
-	import { flowStateStore, type FlowModuleSchema, type FlowState } from './flows/flowState'
+	import { flowStateStore, type FlowModuleSchema } from './flows/flowState'
 	import { stepOpened } from './flows/stepOpenedStore'
-	import { buildExtraLib, objectToTsType, schemaToObject, schemaToTsType } from '$lib/utils'
 
 	export let indexes: number[]
 	export let mod: FlowModule
 	export let args: Record<string, any> = {}
 	export let schema: Schema
-	export let previewResults: Array<any>
 	export let childFlowModules: FlowModuleSchema[] | undefined = undefined
-	export let previousStepPreviewResults: Array<any>
 
 	let editor: Editor
 	let websocketAlive = { pyright: false, black: false, deno: false }
-	let pickableProperties: Object | undefined = undefined
 	let bigEditor = false
 
 	const i = indexes[0]
 
-	type PickableProperties = {
-		flow_input?: Object
-		previous_result?: Object
-		step?: Object[]
-	}
-
-	function hasElements(arr: any) {
-		return Array.isArray(arr) && arr.length > 0
-	}
-
-	function getLast<T>(arr: T[]): T {
-		return arr[arr.length - 1]
-	}
-
-	function getPickableProperties(flow: Flow, flowState: FlowState): PickableProperties {
-		const flowInputAsObject = schemaToObject(flow?.schema, args)
-
-		if (indexes.length > 1) {
-			const [parentIndex] = indexes
-
-			const stepBeforeLoop = flowState[parentIndex - 1]
-
-			flowInputAsObject['iter'] = {
-				value: "iteration's value",
-				index: "iteration's index"
-			}
-
-			if (hasElements(stepBeforeLoop?.previewResults)) {
-				const lastResults = getLast(stepBeforeLoop.previewResults)
-
-				if (hasElements(lastResults)) {
-					flowInputAsObject['iter'] = {
-						value: getLast(lastResults),
-						index: `iteration's index (0 to ${lastResults.length - 1})`
-					}
-				}
-			}
-		}
-
-		const hasResults = hasElements(previousStepPreviewResults)
-		const last = hasResults ? getLast(previousStepPreviewResults) : {}
-
-		return {
-			flow_input: flowInputAsObject,
-			previous_result: last,
-			step: previousStepPreviewResults
-		}
-	}
-
 	$: shouldPick = isEmptyFlowModule(mod)
-	$: pickableProperties = getPickableProperties($flowStore, $flowStateStore)
-	$: extraLib = buildExtraLib(
-		schemaToTsType($flowStore?.schema),
-		i === 0 ? schemaToTsType($flowStore?.schema) : objectToTsType(previousStepPreviewResults)
-	)
+	$: stepPropPicker = getStepPropPicker(indexes, $flowStore.schema, $flowStateStore, args)
 
 	async function apply<T>(fn: (arg: T) => Promise<FlowModuleSchema>, arg: T) {
 		const flowModuleSchema = await fn(arg)
@@ -114,27 +57,6 @@
 	async function applyCreateLoop() {
 		await apply(createLoop, null)
 		stepOpened.update(() => `${indexes[0]}-0`)
-	}
-
-	function onPreview(jobs: Job[]): void {
-		const results = jobsToResults(jobs)
-
-		if (indexes.length > 0) {
-			flowStateStore.update((flowState) => {
-				const [parentIndex, childIndex] = indexes
-				const last = results[results.length - 1]
-
-				if (childIndex === 0) {
-					flowState[parentIndex].previewResults = [last]
-				} else {
-					flowState[parentIndex].previewResults.splice(childIndex, 0, last)
-				}
-
-				return flowState
-			})
-		}
-
-		previewResults = results
 	}
 
 	$: opened = $stepOpened === String(indexes.join('-'))
@@ -207,24 +129,18 @@
 					<p class="text-lg font-bold text-gray-900 mb-2">Step inputs</p>
 					<SchemaForm
 						{schema}
-						{extraLib}
 						inputTransform={true}
 						importPath={String(indexes.join('-'))}
-						bind:pickableProperties
+						bind:pickableProperties={stepPropPicker.pickableProperties}
 						bind:args={mod.input_transform}
+						bind:extraLib={stepPropPicker.extraLib}
 					/>
 				{/if}
 
 				{#if !shouldPick}
 					<div class="border-b border-gray-200" />
 					<div class="p-3">
-						<FlowPreview
-							bind:args
-							flow={$flowStore}
-							{i}
-							{schema}
-							on:change={(e) => onPreview(e.detail)}
-						/>
+						<FlowPreview bind:args flow={$flowStore} {i} {schema} />
 					</div>
 				{/if}
 			</div>

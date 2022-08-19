@@ -124,49 +124,12 @@ export function getDefaultExpr(
 	previousExpr?: string
 ) {
 	const expr = previousExpr ?? `previous_result.${key}`
-	return `import { previous_result, flow_input, step, variable, resource, params } from 'windmill${importPath ? `@${importPath}` : ''
-		}'
+	return `import { previous_result, flow_input, step, variable, resource, params } from 'windmill${
+		importPath ? `@${importPath}` : ''
+	}'
 
 ${expr}`
 }
-
-// export function getPickableProperties(
-// 	schema: Schema,
-// 	args: Record<string, any>,
-// 	previewResults: Record<number, Object>,
-// 	i: number
-// ) {
-// 	const flowInputAsObject = schemaToObject(schema, args)
-// 	const flowInput =
-// 		mode === 'pull' && i >= 1
-// 			? computeFlowInputPull(previewResults[0], flowInputAsObject)
-// 			: flowInputAsObject
-
-// 	let previous_result
-// 	if (i === 0 || (i == 1 && mode == 'pull')) {
-// 		previous_result = flowInput
-// 	} else if (mode == 'pull') {
-// 		previous_result = previewResults[1] ? previewResults[1][i - 2] : undefined
-// 	} else {
-// 		previous_result = previewResults[i - 1]
-// 	}
-
-// 	let step: any[]
-// 	if (i >= 1 && mode == 'push') {
-// 		step = Object.values(previewResults).slice(0, i)
-// 	} else if (i >= 2 && mode == 'pull') {
-// 		step = Object.values(previewResults[1] ?? {}).slice(0, i - 1)
-// 	} else {
-// 		step = []
-// 	}
-// 	const pickableProperties = {
-// 		flow_input: flowInput,
-// 		previous_result,
-// 		step
-// 	}
-
-// 	return pickableProperties
-// }
 
 export function jobsToResults(jobs: Job[]) {
 	return jobs.map((job) => {

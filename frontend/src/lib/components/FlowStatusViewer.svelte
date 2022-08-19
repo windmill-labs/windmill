@@ -10,16 +10,19 @@
 	import FlowJobResult from './FlowJobResult.svelte'
 	import JobStatus from './JobStatus.svelte'
 	import IconedPath from './IconedPath.svelte'
+	import { createEventDispatcher } from 'svelte'
+	const dispatch = createEventDispatcher()
 
 	export let job: QueuedJob | CompletedJob
-	export let jobs: (Job | Job[] | undefined)[] = []
 	export let fullyRetrieved = -1
 
 	let lastJobid: string | undefined
-
 	let forloop_selected = ''
-
 	let pres: { [key: number]: HTMLElement } = {}
+
+	$: jobs = [] as Array<any>
+	$: jobs && dispatch('jobsLoaded', jobs)
+	$: $workspaceStore && job && loadResults()
 
 	async function loadResults() {
 		if (!('success' in job)) {
@@ -80,8 +83,6 @@
 	function toCompletedJobs(x: any): CompletedJob[] {
 		return x as CompletedJob[]
 	}
-
-	$: $workspaceStore && job && loadResults()
 </script>
 
 <div class="flow-root w-full p-6">
@@ -94,6 +95,7 @@
 			</div>
 		{/if}
 	</div>
+
 	<JobStatus {job} />
 
 	<p class="text-gray-500 mb-6 w-full text-center">

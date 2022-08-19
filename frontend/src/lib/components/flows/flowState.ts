@@ -7,7 +7,7 @@ export type FlowModuleSchema = {
 	flowModule: FlowModule
 	schema: Schema
 	childFlowModules?: FlowModuleSchema[]
-	previewResults: Array<any>
+	previewResult?: any
 }
 
 export type FlowState = FlowModuleSchema[]
