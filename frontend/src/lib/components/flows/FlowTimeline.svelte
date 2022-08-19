@@ -160,7 +160,6 @@
 							bind:args
 							bind:schema={flowModuleSchema.schema}
 							bind:childFlowModules={flowModuleSchema.childFlowModules}
-							bind:previewResult={flowModuleSchema.previewResult}
 							on:delete={() => removeAtIndex(index)}
 						/>
 					</span>

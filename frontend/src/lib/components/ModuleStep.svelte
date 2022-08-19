@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Job, RawScript, type Flow, type FlowModule } from '$lib/gen'
+	import { RawScript, type FlowModule } from '$lib/gen'
 	import { faChevronDown, faChevronUp } from '@fortawesome/free-solid-svg-icons'
 	import Icon from 'svelte-awesome'
 	import Editor from './Editor.svelte'
@@ -19,19 +19,16 @@
 		isEmptyFlowModule,
 		getStepPropPicker
 	} from './flows/flowStateUtils'
-	import { jobsToResults } from './flows/utils'
 	import SchemaForm from './SchemaForm.svelte'
 	import type { Schema } from '$lib/common'
-	import { flowStateStore, type FlowModuleSchema, type FlowState } from './flows/flowState'
+	import { flowStateStore, type FlowModuleSchema } from './flows/flowState'
 	import { stepOpened } from './flows/stepOpenedStore'
-	import { connectdevelop } from 'svelte-awesome/icons'
 
 	export let indexes: number[]
 	export let mod: FlowModule
 	export let args: Record<string, any> = {}
 	export let schema: Schema
 	export let childFlowModules: FlowModuleSchema[] | undefined = undefined
-	export let previewResult: any
 
 	let editor: Editor
 	let websocketAlive = { pyright: false, black: false, deno: false }
@@ -60,23 +57,6 @@
 	async function applyCreateLoop() {
 		await apply(createLoop, null)
 		stepOpened.update(() => `${indexes[0]}-0`)
-	}
-
-	function onPreview(jobs: Job[], config: 'upto' | 'justthis'): void {
-		/*
-		if (config === 'justthis') {
-			const [result] = jobsToResults(jobs)
-			previewResult = result
-		} else {
-			const result = jobsToResults(jobs)
-			flowStateStore.update((flowState: FlowState) => {
-				return flowState.map((flowModuleSchema: FlowModuleSchema, index) => {
-					flowModuleSchema.previewResult = result[index]
-					return flowModuleSchema
-				})
-			})
-		}
-		*/
 	}
 
 	$: opened = $stepOpened === String(indexes.join('-'))
@@ -160,13 +140,7 @@
 				{#if !shouldPick}
 					<div class="border-b border-gray-200" />
 					<div class="p-3">
-						<FlowPreview
-							bind:args
-							flow={$flowStore}
-							{i}
-							{schema}
-							on:change={(e) => onPreview(e.detail.jobs, e.detail.config)}
-						/>
+						<FlowPreview bind:args flow={$flowStore} {i} {schema} />
 					</div>
 				{/if}
 			</div>

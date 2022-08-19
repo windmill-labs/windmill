@@ -1,5 +1,5 @@
 import type { Schema } from '$lib/common'
-import { ScriptService, type Flow, type FlowModule, type RawScript } from '$lib/gen'
+import { CompletedJob, ScriptService, type Flow, type FlowModule, type RawScript } from '$lib/gen'
 import { initialCode } from '$lib/script_helpers'
 import { userStore, workspaceStore } from '$lib/stores'
 import {
@@ -12,9 +12,9 @@ import {
 	schemaToTsType
 } from '$lib/utils'
 import { get } from 'svelte/store'
-import type { FlowModuleSchema, FlowState } from './flowState'
+import { flowStateStore, type FlowModuleSchema, type FlowState } from './flowState'
 import { flowStore } from './flowStore'
-import { loadSchemaFromModule } from './utils'
+import { jobsToResults, loadSchemaFromModule } from './utils'
 
 export function emptyFlowModuleSchema(): FlowModuleSchema {
 	return {
@@ -224,21 +224,24 @@ export function getStepPropPicker(
 			}
 		}
 
+		/*
 		const forLoopResults = getPreviousResults(flowState[parentIndex]?.childFlowModules, childIndex)
 		const forLoopLastResult =
 			forLoopResults.length > 0 ? forLoopResults[forLoopResults.length - 1] : undefined
+		*/
 
 		const extraLib = buildExtraLib(
 			objectToTsType(forLoopFlowInput),
-			objectToTsType(forLoopLastResult)
+			//objectToTsType(forLoopLastResult)
+			undefined
 		)
 
 		return {
 			extraLib,
 			pickableProperties: {
 				flow_input: forLoopFlowInput,
-				step: forLoopResults,
-				previous_result: forLoopLastResult
+				step: [],
+				previous_result: {}
 			}
 		}
 	} else {
@@ -263,7 +266,8 @@ function getPreviousResults(
 		return []
 	}
 
-	return extractPreviewResults(flowModuleSchemas.splice(0, target))
+	const results = extractPreviewResults(flowModuleSchemas)
+	return results.splice(0, target)
 }
 
 function extractPreviewResults(flowModuleSchemas: FlowModuleSchema[]) {
@@ -276,4 +280,38 @@ function extractPreviewResults(flowModuleSchemas: FlowModuleSchema[]) {
 			return fms.previewResult
 		}
 	})
+}
+
+export function mapJobResultsToFlowState(
+	jobs: CompletedJob[],
+	config: 'upto' | 'justthis',
+	configIndex: number
+): void {
+	if (!Array.isArray(jobs) || jobs.length === 0) {
+		return
+	}
+
+	if (config === 'justthis') {
+		const [result] = jobsToResults(jobs)
+
+		flowStateStore.update((flowState: FlowState) => {
+			flowState[configIndex] = result
+			return flowState
+		})
+	} else {
+		const result = jobsToResults(jobs)
+		flowStateStore.update((flowState: FlowState) => {
+			if (!Array.isArray(flowState)) {
+				return flowState
+			}
+
+			return flowState.map((flowModuleSchema: FlowModuleSchema, index) => {
+				if (index <= configIndex) {
+					flowModuleSchema.previewResult = result[index]
+				}
+
+				return flowModuleSchema
+			})
+		})
+	}
 }

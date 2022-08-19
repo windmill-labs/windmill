@@ -4,16 +4,16 @@
 	import { workspaceStore } from '$lib/stores'
 	import { sendUserToast, truncateRev } from '$lib/utils'
 	import { faChevronDown, faChevronUp } from '@fortawesome/free-solid-svg-icons'
-	import { createEventDispatcher, onDestroy } from 'svelte'
+	import { onDestroy } from 'svelte'
 	import Icon from 'svelte-awesome'
 	import FlowJobResult from './FlowJobResult.svelte'
 	import { flowStateStore, flowStateToFlow } from './flows/flowState'
+	import { mapJobResultsToFlowState } from './flows/flowStateUtils'
 	import { runFlowPreview } from './flows/utils'
 	import FlowStatusViewer from './FlowStatusViewer.svelte'
 	import RunForm from './RunForm.svelte'
 	import Tabs from './Tabs.svelte'
 
-	const dispatch = createEventDispatcher()
 	export let i: number
 	export let flow: Flow
 	export let schema: Schema
@@ -29,10 +29,7 @@
 	let uptoText =
 		i >= flow.value.modules.length - 1 ? 'Preview whole flow' : 'Preview up to this step'
 	let job: Job | undefined
-	let jobs = []
 	let jobId: string
-
-	$: dispatch('change', { jobs, config: tab })
 
 	export async function runPreview(args: any) {
 		viewPreview = true
@@ -44,7 +41,6 @@
 			tab == 'upto' ? truncateFlow(flow) : setInputTransformFromArgs(extractStep(flow), args)
 		jobId = await runFlowPreview(args, newFlow)
 
-		jobs = []
 		intervalId = setInterval(loadJob, 1000)
 		sendUserToast(`started preview ${truncateRev(jobId, 10)}`)
 	}
@@ -138,7 +134,7 @@
 
 	{#if job}
 		<div class="w-full flex justify-center">
-			<FlowStatusViewer {job} bind:jobs />
+			<FlowStatusViewer {job} on:jobsLoaded={(e) => mapJobResultsToFlowState(e.detail, tab, i)} />
 		</div>
 		{#if `result` in job}
 			<FlowJobResult {job} />
