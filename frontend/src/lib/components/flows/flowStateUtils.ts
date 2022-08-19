@@ -271,15 +271,7 @@ function getPreviousResults(
 }
 
 function extractPreviewResults(flowModuleSchemas: FlowModuleSchema[]) {
-	return flowModuleSchemas.map((fms) => {
-		if (fms.flowModule.value.type === 'forloopflow') {
-			const { childFlowModules } = fms
-
-			return Array.isArray(childFlowModules) ? childFlowModules.map((c) => c.previewResult) : []
-		} else {
-			return fms.previewResult
-		}
-	})
+	return flowModuleSchemas.map((fms) => fms.previewResult)
 }
 
 export function mapJobResultsToFlowState(
@@ -300,6 +292,9 @@ export function mapJobResultsToFlowState(
 		})
 	} else {
 		const result = jobsToResults(jobs)
+
+		console.log(result, configIndex)
+
 		flowStateStore.update((flowState: FlowState) => {
 			if (!Array.isArray(flowState)) {
 				return flowState

@@ -69,7 +69,7 @@
 			<div class="w-full">
 				<FlowStatusViewer
 					{job}
-					on:jobsLoaded={(e) => mapJobResultsToFlowState(e.detail, 'upto', steps)}
+					on:jobsLoaded={(e) => mapJobResultsToFlowState(e.detail, 'upto', steps - 1)}
 				/>
 			</div>
 			{#if `result` in job}
