@@ -1237,6 +1237,8 @@ pub async fn restart_zombie_jobs_periodically(
 mod tests {
     use sqlx::{postgres::PgListener, query_scalar};
 
+    use serde_json::json;
+
     use crate::{
         db::DB,
         flows::{FlowModule, FlowModuleValue, FlowValue, InputTransform},
@@ -1542,34 +1544,104 @@ def main():
         assert_eq!(result, serde_json::json!(9));
     }
 
-    async fn run_job_in_new_worker_until_complete(db: &DB, job: JobPayload) -> serde_json::Value {
-        let (uuid, tx) = push(
-            db.begin().await.unwrap(),
-            "test-workspace",
-            job,
-            /* TODO None doesn't work for args for python because the setup transformer doesn't
-             * handle it  */
-            /* args */
-            Some(Default::default()),
-            /* user */ "test-user",
-            /* permissioned_as */ Default::default(),
-            /* scheduled_for_o */ None,
-            /* schedule_path */ None,
-            /* parent_job */ None,
-            /* is_flow_step */ false,
-        )
-        .await
+    #[sqlx::test(fixtures("base"))]
+    async fn test_iteration(db: DB) {
+        initialize_tracing().await;
+
+        let flow: FlowValue = serde_json::from_value(serde_json::json!({
+            "modules": [{
+                "value": {
+                    "type": "forloopflow",
+                    "iterator": { "type": "javascript", "expr": "result.items" },
+                    "skip_failures": false,
+                    "value": {
+                        "modules": [{
+                            "input_transform": {
+                                "n": {
+                                    "type": "javascript",
+                                    "expr": "previous_result.iter.value",
+                                },
+                            },
+                            "value": {
+                                "type": "rawscript",
+                                "language": "python3",
+                                "content": "def main(n):\n    if 1 < n:\n        raise StopIteration(n)",
+                            },
+                        }],
+                    }
+                },
+            }],
+        }))
         .unwrap();
 
-        tx.commit().await.unwrap();
+        let result = RunJob::from(JobPayload::RawFlow { value: flow.clone(), path: None })
+            .arg("items", json!([]))
+            .wait_until_complete(&db)
+            .await;
+        assert_eq!(result, serde_json::json!([]));
 
-        run_worker_until_complete(db, &uuid).await;
-
-        query_scalar("SELECT result FROM completed_job WHERE id = $1")
-            .bind(&uuid)
-            .fetch_one(db)
-            .await
+        /* Don't actually test that this does 257 jobs or that will take forever. */
+        let result = RunJob::from(JobPayload::RawFlow { value: flow.clone(), path: None })
+            .arg("items", json!((0..257).collect::<Vec<_>>()))
+            .wait_until_complete(&db)
+            .await;
+        assert!(matches!(result, Value::Object(_)));
+        assert!(result["error"]
+            .as_str()
             .unwrap()
+            .contains("StopIteration: 2"));
+    }
+
+    struct RunJob {
+        payload: JobPayload,
+        args: Map<String, serde_json::Value>,
+    }
+
+    impl From<JobPayload> for RunJob {
+        fn from(payload: JobPayload) -> Self {
+            Self { payload, args: Default::default() }
+        }
+    }
+
+    impl RunJob {
+        fn arg<S: Into<String>>(mut self, k: S, v: serde_json::Value) -> Self {
+            self.args.insert(k.into(), v);
+            self
+        }
+
+        /// push the job, spawn a worker, wait until the job is in completed_job
+        async fn wait_until_complete(self, db: &DB) -> serde_json::Value {
+            let RunJob { payload, args } = self;
+
+            let (uuid, tx) = push(
+                db.begin().await.unwrap(),
+                "test-workspace",
+                payload,
+                Some(args),
+                /* user */ "test-user",
+                /* permissioned_as */ Default::default(),
+                /* scheduled_for_o */ None,
+                /* schedule_path */ None,
+                /* parent_job */ None,
+                /* is_flow_step */ false,
+            )
+            .await
+            .unwrap();
+
+            tx.commit().await.unwrap();
+
+            run_worker_until_complete(db, &uuid).await;
+
+            query_scalar("SELECT result FROM completed_job WHERE id = $1")
+                .bind(&uuid)
+                .fetch_one(db)
+                .await
+                .unwrap()
+        }
+    }
+
+    async fn run_job_in_new_worker_until_complete(db: &DB, job: JobPayload) -> serde_json::Value {
+        RunJob::from(job).wait_until_complete(db).await
     }
 
     async fn run_worker_until_complete(db: &DB, wait_for: &uuid::Uuid) {
