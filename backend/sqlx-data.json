@@ -854,6 +854,18 @@
       ]
     }
   },
+  "3fabb3857c9cf2d057814b54ee54a95d01b6a7d9e89bea239b832a9d70f0044b": {
+    "query": "DELETE FROM queue WHERE schedule_path = $1 AND running = false",
+    "describe": {
+      "columns": [],
+      "parameters": {
+        "Left": [
+          "Text"
+        ]
+      },
+      "nullable": []
+    }
+  },
   "453501fbd61efd26647baf9b6ef702ce0bc2e920914e9f08fe5f2a5f4ab03f02": {
     "query": "SELECT substr(logs, $1) as logs FROM completed_job WHERE workspace_id = $2 AND id = $3",
     "describe": {
@@ -2160,18 +2172,6 @@
           "Varchar",
           "Varchar",
           "Varchar"
-        ]
-      },
-      "nullable": []
-    }
-  },
-  "a1d46b44718a63d6ce5a9054d493dadbffb205500dc8fb55e9816bcdb613e0d5": {
-    "query": "DELETE FROM queue WHERE schedule_path = $1",
-    "describe": {
-      "columns": [],
-      "parameters": {
-        "Left": [
-          "Text"
         ]
       },
       "nullable": []

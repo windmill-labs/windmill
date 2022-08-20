@@ -12,6 +12,7 @@ use axum::{handler::Handler, middleware::from_extractor, routing::get, Extension
 use db::DB;
 use futures::FutureExt;
 use git_version::git_version;
+use rand::Rng;
 use slack_http_verifier::SlackVerifier;
 use std::{net::SocketAddr, sync::Arc};
 use tower::ServiceBuilder;
@@ -228,6 +229,8 @@ pub async fn run_workers(
     });
 
     let mut handles = Vec::new();
+    let mut rng = rand::thread_rng();
+
     for i in 1..(num_workers + 1) {
         let db1 = db.clone();
         let instance_name = instance_name.clone();
@@ -253,6 +256,11 @@ pub async fn run_workers(
             )
             .await
         }));
+        //avoid having all the workers start at the same time
+        tokio::time::sleep(std::time::Duration::from_millis(
+            rng.gen_range(0..sleep_queue * num_workers as u64),
+        ))
+        .await;
     }
     futures::future::try_join_all(handles).await?;
     Ok(())

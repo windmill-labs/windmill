@@ -218,9 +218,12 @@ pub struct EditSchedule {
 }
 
 async fn clear_schedule<'c>(db: &mut Transaction<'c, Postgres>, path: &str) -> Result<()> {
-    sqlx::query!("DELETE FROM queue WHERE schedule_path = $1", path)
-        .execute(db)
-        .await?;
+    sqlx::query!(
+        "DELETE FROM queue WHERE schedule_path = $1 AND running = false",
+        path
+    )
+    .execute(db)
+    .await?;
     Ok(())
 }
 
