@@ -166,7 +166,7 @@ pub async fn update_flow_status_after_job_completion(
         .ok_or_else(|| Error::InternalErr(format!("requiring flow to be in the queue")))?;
 
     let stop_early = success
-        && if let Some(expr) = stop_early_expr {
+        && if let Some(expr) = stop_early_expr.clone() {
             compute_stop_early(expr, result.clone()).await?
         } else {
             false
@@ -197,6 +197,7 @@ pub async fn update_flow_status_after_job_completion(
 
     let should_continue_flow = match success {
         _ if stop_early => false,
+        _ if flow_job.canceled => false,
         true => !is_last_step,
         false if skip_loop_failures => !is_last_step,
         false if has_failure_module(flow, &mut tx).await? => true,
@@ -206,8 +207,11 @@ pub async fn update_flow_status_after_job_completion(
     tx.commit().await?;
 
     let done = if !should_continue_flow {
-        let logs = if stop_early {
-            "Flow job stopped early".to_string()
+        let logs = if flow_job.canceled {
+            "Flow job canceled".to_string()
+        } else if stop_early {
+            let stop_early_expr = stop_early_expr.unwrap();
+            format!("Flow job stopped early based on the stop_early_expr predicate: {stop_early_expr} returning true")
         } else {
             "Flow job completed".to_string()
         };
