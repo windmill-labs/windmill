@@ -25,11 +25,12 @@
 		Object.keys(args ?? {}).forEach((key) => {
 			if (!Object.keys(schema?.properties ?? {}).includes(key)) {
 				delete args[key]
+				delete inputCheck[key]
 			}
 		})
 	}
 
-	$: Object.keys(schema?.properties ?? {}).length > 0 && removeExtraKey()
+	$: schema?.properties && removeExtraKey()
 </script>
 
 <div class="w-full">
