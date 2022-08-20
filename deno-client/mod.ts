@@ -7,9 +7,9 @@ export {
     UserApi, WorkspaceApi
 } from './windmill-api/index.ts'
 
+export type Sql = string
 export type Email = string
 export type Base64 = string
-export type Sql = string
 export type Resource<S extends string> = any
 
 /**
