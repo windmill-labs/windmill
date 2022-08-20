@@ -1314,9 +1314,11 @@ mod tests {
 
         let job = JobPayload::RawFlow { value: flow, path: None };
 
-        let result = run_job_in_new_worker_until_complete(&db, job).await;
-
-        assert_eq!(result, serde_json::json!([2, 4, 6]));
+        for i in 0..50 {
+            println!("deno flow iteration: {}", i);
+            let result = run_job_in_new_worker_until_complete(&db, job.clone()).await;
+            assert_eq!(result, serde_json::json!([2, 4, 6]), "iteration: {}", i);
+        }
     }
 
     #[sqlx::test(fixtures("base"))]
@@ -1362,13 +1364,16 @@ mod tests {
         }))
         .unwrap();
 
-        let result = run_job_in_new_worker_until_complete(
-            &db,
-            JobPayload::RawFlow { value: flow, path: None },
-        )
-        .await;
+        for i in 0..15 {
+            println!("python flow iteration: {}", i);
+            let result = run_job_in_new_worker_until_complete(
+                &db,
+                JobPayload::RawFlow { value: flow.clone(), path: None },
+            )
+            .await;
 
-        assert_eq!(result, serde_json::json!([2, 4, 6]));
+            assert_eq!(result, serde_json::json!([2, 4, 6]), "iteration: {i}");
+        }
     }
 
     #[sqlx::test(fixtures("base"))]

@@ -181,7 +181,7 @@ pub async fn update_flow_status_after_job_completion(
                    WHERE id = ANY($1)
                      AND workspace_id = $2
                      AND success = true
-                ORDER BY args->>'_index'
+                ORDER BY args->'iter'->'index'
                     ",
             )
             .bind(jobs.as_slice())
