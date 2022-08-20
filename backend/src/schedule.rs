@@ -14,7 +14,7 @@ use crate::{
     error::{self, Error, JsonResult, Result},
     jobs::{self, push, JobPayload},
     users::Authed,
-    utils::{get_owner_from_path, Pagination, StripPath},
+    utils::{get_owner_from_path, now_from_db, Pagination, StripPath},
 };
 use axum::{
     extract::{Extension, Path, Query},
@@ -76,8 +76,9 @@ pub async fn push_scheduled_job<'c>(
         .map_err(|e| error::Error::BadRequest(e.to_string()))?;
 
     let offset = Duration::minutes(schedule.offset_.into());
+    let now = now_from_db(&mut tx).await?;
     let next = sched
-        .after(&(chrono::Utc::now() - offset + Duration::seconds(1)))
+        .after(&(now - offset + Duration::seconds(1)))
         .next()
         .expect("a schedule should have a next event")
         + offset;

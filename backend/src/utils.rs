@@ -83,6 +83,15 @@ pub fn paginate(pagination: Pagination) -> (usize, usize) {
     (per_page, offset)
 }
 
+pub async fn now_from_db<'c>(
+    db: &mut Transaction<'c, Postgres>,
+) -> Result<chrono::DateTime<chrono::Utc>> {
+    Ok(sqlx::query_scalar!("SELECT now()")
+        .fetch_one(db)
+        .await?
+        .unwrap())
+}
+
 pub fn not_found_if_none<T, U: AsRef<str>>(opt: Option<T>, kind: &str, name: U) -> Result<T> {
     if let Some(o) = opt {
         Ok(o)

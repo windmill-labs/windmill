@@ -229,14 +229,13 @@ async fn create_flow(
 
     sqlx::query!(
         "INSERT INTO flow (workspace_id, path, summary, description, value, edited_by, edited_at, \
-         schema) VALUES ($1, $2, $3, $4, $5, $6, $7, $8::text::json)",
+         schema) VALUES ($1, $2, $3, $4, $5, $6, now(), $7::text::json)",
         w_id,
         nf.path,
         nf.summary,
         nf.description,
         nf.value,
         &authed.username,
-        &chrono::Utc::now(),
         nf.schema.and_then(|x| serde_json::to_string(&x.0).ok()),
     )
     .execute(&mut tx)
@@ -299,13 +298,12 @@ async fn update_flow(
     let schema = nf.schema.map(|x| x.0);
     let flow = sqlx::query_scalar!(
         "UPDATE flow SET path = $1, summary = $2, description = $3, value = $4, edited_by = $5, \
-         edited_at = $6, schema = $7 WHERE path = $8 AND workspace_id = $9 RETURNING path",
+         edited_at = now(), schema = $6 WHERE path = $7 AND workspace_id = $8 RETURNING path",
         nf.path,
         nf.summary,
         nf.description,
         nf.value,
         &authed.username,
-        &chrono::Utc::now(),
         schema,
         flow_path,
         w_id,

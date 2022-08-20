@@ -10,7 +10,6 @@ use axum::{
     routing::{get, post},
     Json, Router,
 };
-use chrono::{Duration, Utc};
 use hyper::StatusCode;
 use itertools::Itertools;
 
@@ -22,6 +21,7 @@ use sqlx::{Postgres, Transaction};
 use tokio::{fs::File, io::AsyncReadExt};
 use tower_cookies::{Cookie, Cookies};
 
+use crate::utils::now_from_db;
 use crate::IsSecure;
 use crate::{
     audit::{audit_log, ActionKind},
@@ -274,14 +274,13 @@ async fn create_account(
 ) -> error::Result<String> {
     let mut tx = user_db.begin(&authed).await?;
 
-    let expires_at = chrono::Utc::now() + Duration::seconds(payload.expires_in);
     let id = sqlx::query_scalar!(
         "INSERT INTO account (workspace_id, client, owner, expires_at, refresh_token) VALUES ($1, \
-         $2, $3, $4, $5) RETURNING id",
+         $2, $3, now() + ($4 || ' seconds')::interval, $5) RETURNING id",
         w_id,
         payload.client,
         payload.owner,
-        expires_at,
+        payload.expires_in.to_string(),
         payload.refresh_token
     )
     .fetch_one(&mut tx)
@@ -473,7 +472,7 @@ pub async fn _refresh_token<'c>(
         .execute::<TokenResponse>()
         .await
         .map_err(to_anyhow)?;
-    let expires_at = Utc::now()
+    let expires_at = now_from_db(&mut tx).await?
         + chrono::Duration::seconds(
             token
                 .expires_in
