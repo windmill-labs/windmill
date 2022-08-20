@@ -496,10 +496,8 @@ async fn push_next_flow_job(
             &db,
             &flow_job.workspace_id,
             &flow_job.permissioned_as,
-            crate::users::NewToken {
-                label: Some("transform-input".to_string()),
-                expiration: Some(chrono::Utc::now() + chrono::Duration::seconds(10)),
-            },
+            "transform-input",
+            10,
             &flow_job.created_by,
         )
         .await?;

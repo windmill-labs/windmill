@@ -96,10 +96,9 @@ impl AuthCache {
             a @ Some(_) => a,
             None => {
                 let user_o = sqlx::query_as::<_, (Option<String>, Option<String>, bool)>(
-                    "UPDATE token SET last_used_at = $1 WHERE token = $2 AND (expiration > NOW() \
+                    "UPDATE token SET last_used_at = now() WHERE token = $1 AND (expiration > NOW() \
                      OR expiration IS NULL) RETURNING owner, email, super_admin",
                 )
-                .bind(chrono::Utc::now())
                 .bind(token)
                 .fetch_optional(&self.db)
                 .await
@@ -1272,11 +1271,11 @@ pub async fn create_session_token<'c>(
     sqlx::query!(
         "INSERT INTO token
             (token, email, label, expiration, super_admin)
-            VALUES ($1, $2, $3, $4, $5)",
+            VALUES ($1, $2, $3, now() + ($4 || ' hours')::interval, $5)",
         token,
         email,
         "session",
-        chrono::Utc::now() + chrono::Duration::hours(TTL_TOKEN_DB_H as i64),
+        TTL_TOKEN_DB_H.to_string(),
         super_admin
     )
     .execute(tx)
@@ -1305,7 +1304,8 @@ pub async fn create_token_for_owner(
     db: &DB,
     w_id: &str,
     owner: &str,
-    NewToken { label, expiration }: NewToken,
+    label: &str,
+    expires_in: i32,
     username: &str,
 ) -> Result<String> {
     use rand::prelude::*;
@@ -1324,18 +1324,18 @@ pub async fn create_token_for_owner(
         .await?
         .unwrap_or(false);
 
-    sqlx::query!(
+    let expiration = sqlx::query_scalar!(
         "INSERT INTO token
             (workspace_id, token, owner, label, expiration, super_admin)
-            VALUES ($1, $2, $3, $4, $5, $6)",
+            VALUES ($1, $2, $3, $4, now() + ($5 || ' seconds')::interval, $6) RETURNING expiration",
         &w_id,
         token,
         owner,
         label,
-        expiration,
+        expires_in.to_string(),
         is_super_admin
     )
-    .execute(&mut tx)
+    .fetch_one(&mut tx)
     .await?;
     audit_log(
         &mut tx,
@@ -1346,7 +1346,7 @@ pub async fn create_token_for_owner(
         Some(&truncate_token(&token)),
         Some(
             [
-                label.as_ref().map(|label| ("label", &label[..])),
+                Some(("label", label)),
                 expiration
                     .map(|x| x.to_string())
                     .as_ref()
@@ -1494,10 +1494,9 @@ pub async fn delete_expired_items_perdiodically(
 ) -> () {
     loop {
         let tokens_deleted_r: std::result::Result<Vec<String>, _> = sqlx::query_scalar(
-            "DELETE FROM token WHERE expiration <= $1
+            "DELETE FROM token WHERE expiration <= now()
         RETURNING concat(substring(token for 10), '*****')",
         )
-        .bind(chrono::Utc::now())
         .fetch_all(db)
         .await;
 
@@ -1507,10 +1506,9 @@ pub async fn delete_expired_items_perdiodically(
         }
 
         let magic_links_deleted_r: std::result::Result<Vec<String>, _> = sqlx::query_scalar(
-            "DELETE FROM magic_link WHERE expiration <= $1
+            "DELETE FROM magic_link WHERE expiration <= now()
         RETURNING concat(substring(token for 10), '*****')",
         )
-        .bind(chrono::Utc::now())
         .fetch_all(db)
         .await;
 

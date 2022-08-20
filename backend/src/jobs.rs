@@ -7,7 +7,6 @@
  */
 
 use axum::extract::Host;
-use chrono::Duration;
 
 use sql_builder::prelude::*;
 use sqlx::{query_scalar, Postgres, Transaction};
@@ -23,7 +22,7 @@ use crate::{
     schedule::get_schedule_opt,
     scripts::{get_hub_script_by_path, ScriptHash, ScriptLang},
     users::{owner_to_token_owner, Authed},
-    utils::{require_admin, Pagination, StripPath},
+    utils::{require_admin, Pagination, StripPath, now_from_db},
     worker,
     worker_flow::init_flow_status,
 };
@@ -140,11 +139,18 @@ pub struct RunJobQuery {
 }
 
 impl RunJobQuery {
-    fn get_scheduled_for(self) -> Option<chrono::DateTime<chrono::Utc>> {
-        self.scheduled_for.or_else(|| {
-            self.scheduled_in_secs
-                .map(|s| chrono::Utc::now() + Duration::seconds(s))
-        })
+    async fn get_scheduled_for<'c>(
+        self,
+        db: &mut Transaction<'c, Postgres>,
+    ) -> error::Result<Option<chrono::DateTime<chrono::Utc>>> {
+        if let Some(scheduled_for) = self.scheduled_for {
+            Ok(Some(scheduled_for))
+        } else if let Some(scheduled_in_secs) = self.scheduled_in_secs {
+            let now = now_from_db(db).await?;
+            Ok(Some(now + chrono::Duration::seconds(scheduled_in_secs)))
+        } else {
+            Ok(None)
+        }
     }
 }
 
@@ -156,7 +162,8 @@ pub async fn run_flow_by_path(
     Query(run_query): Query<RunJobQuery>,
 ) -> error::Result<(StatusCode, String)> {
     let flow_path = flow_path.to_path();
-    let tx = user_db.begin(&authed).await?;
+    let mut tx = user_db.begin(&authed).await?;
+    let scheduled_for = run_query.get_scheduled_for(&mut tx).await?;
     let (uuid, tx) = push(
         tx,
         &w_id,
@@ -164,7 +171,7 @@ pub async fn run_flow_by_path(
         args,
         &authed.username,
         owner_to_token_owner(&authed.username, false),
-        run_query.get_scheduled_for(),
+        scheduled_for,
         None,
         run_query.parent_job,
         false,
@@ -184,6 +191,8 @@ pub async fn run_job_by_path(
     let script_path = script_path.to_path();
     let mut tx = user_db.begin(&authed).await?;
     let job_payload = script_path_to_payload(script_path, &mut tx, &w_id).await?;
+    let scheduled_for = run_query.get_scheduled_for(&mut tx).await?;
+
     let (uuid, tx) = push(
         tx,
         &w_id,
@@ -191,7 +200,7 @@ pub async fn run_job_by_path(
         args,
         &authed.username,
         owner_to_token_owner(&authed.username, false),
-        run_query.get_scheduled_for(),
+        scheduled_for,
         None,
         run_query.parent_job,
         false,
@@ -211,6 +220,8 @@ pub async fn run_wait_result_job_by_path(
     let script_path = script_path.to_path();
     let mut tx = user_db.clone().begin(&authed).await?;
     let job_payload = script_path_to_payload(script_path, &mut tx, &w_id).await?;
+        let scheduled_for = run_query.get_scheduled_for(&mut tx).await?;
+
     let (uuid, tx) = push(
         tx,
         &w_id,
@@ -218,7 +229,7 @@ pub async fn run_wait_result_job_by_path(
         args,
         &authed.username,
         owner_to_token_owner(&authed.username, false),
-        run_query.get_scheduled_for(),
+        scheduled_for,
         None,
         run_query.parent_job,
         false,
@@ -299,6 +310,8 @@ pub async fn run_job_by_hash(
     let hash = script_hash.0;
     let mut tx = user_db.begin(&authed).await?;
     let path = get_path_for_hash(&mut tx, &w_id, hash).await?;
+    let scheduled_for = run_query.get_scheduled_for(&mut tx).await?;
+
     let (uuid, tx) = push(
         tx,
         &w_id,
@@ -306,7 +319,7 @@ pub async fn run_job_by_hash(
         args,
         &authed.username,
         owner_to_token_owner(&authed.username, false),
-        run_query.get_scheduled_for(),
+        scheduled_for,
         None,
         run_query.parent_job,
         false,
@@ -344,7 +357,9 @@ async fn run_preview_job(
     Json(preview): Json<Preview>,
     Query(sch_query): Query<RunJobQuery>,
 ) -> error::Result<(StatusCode, String)> {
-    let tx = user_db.begin(&authed).await?;
+    let mut tx = user_db.begin(&authed).await?;
+    let scheduled_for = sch_query.get_scheduled_for(&mut tx).await?;
+
     let (uuid, tx) = push(
         tx,
         &w_id,
@@ -356,7 +371,7 @@ async fn run_preview_job(
         preview.args,
         &authed.username,
         owner_to_token_owner(&authed.username, false),
-        sch_query.get_scheduled_for(),
+        scheduled_for,
         None,
         None,
         false,
@@ -373,7 +388,8 @@ async fn run_preview_flow_job(
     Json(raw_flow): Json<PreviewFlow>,
     Query(sch_query): Query<RunJobQuery>,
 ) -> error::Result<(StatusCode, String)> {
-    let tx = user_db.begin(&authed).await?;
+    let mut tx = user_db.begin(&authed).await?;
+    let scheduled_for = sch_query.get_scheduled_for(&mut tx).await?;
     let (uuid, tx) = push(
         tx,
         &w_id,
@@ -381,7 +397,7 @@ async fn run_preview_flow_job(
         raw_flow.args,
         &authed.username,
         owner_to_token_owner(&authed.username, false),
-        sch_query.get_scheduled_for(),
+        scheduled_for,
         None,
         None,
         false,
@@ -1294,24 +1310,21 @@ pub async fn add_completed_job(
     logs: String,
 ) -> Result<Uuid, Error> {
     let job_id = queued_job.id.clone();
-    let duration_ms = (chrono::Utc::now() - queued_job.started_at.unwrap_or(queued_job.created_at))
-        .num_milliseconds() as i32;
-    let _ = sqlx::query!(
+    sqlx::query!(
         "INSERT INTO completed_job as cj
             (workspace_id, id, parent_job, created_by, created_at, duration_ms, success, \
             script_hash, script_path, args, result, logs, \
             raw_code, canceled, canceled_by, canceled_reason, job_kind, schedule_path, \
             permissioned_as, flow_status, raw_flow, is_flow_step, is_skipped)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, \
+            VALUES ($1, $2, $3, $4, $5, EXTRACT(milliseconds FROM (now() - $6)), $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, \
                     $18, $19, $20, $21, $22, $23)
-         ON CONFLICT (id) DO UPDATE SET success = $7, result = $11, logs = concat(cj.logs, $12)
-         RETURNING id",
+         ON CONFLICT (id) DO UPDATE SET success = $7, result = $11, logs = concat(cj.logs, $12)",
         queued_job.workspace_id,
         queued_job.id,
         queued_job.parent_job,
         queued_job.created_by,
         queued_job.created_at,
-        duration_ms,
+        queued_job.started_at,        
         success,
         queued_job.script_hash.map(|x| x.0),
         queued_job.script_path,
@@ -1330,7 +1343,7 @@ pub async fn add_completed_job(
         queued_job.is_flow_step,
         skipped
     )
-    .fetch_one(db)
+    .execute(db)
     .await
     .map_err(|e| Error::InternalErr(format!("Could not add completed job {job_id}: {e}")))?;
     tracing::debug!("Added completed job {}", queued_job.id);
@@ -1380,23 +1393,19 @@ pub async fn schedule_again_if_scheduled(
 }
 
 pub async fn pull(db: &DB) -> Result<Option<QueuedJob>, crate::Error> {
-    let now = chrono::Utc::now();
-
     let job: Option<QueuedJob> = sqlx::query_as::<_, QueuedJob>(
         "UPDATE queue
-            SET running = true, started_at = $1
+            SET running = true, started_at = now()
             WHERE id IN (
                 SELECT id
                 FROM queue
-                WHERE running = false AND scheduled_for <= $2
+                WHERE running = false AND scheduled_for <= now()
                 ORDER BY scheduled_for
                 FOR UPDATE SKIP LOCKED
                 LIMIT 1
             )
             RETURNING *",
     )
-    .bind(now)
-    .bind(now)
     .fetch_optional(db)
     .await?;
 

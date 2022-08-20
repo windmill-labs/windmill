@@ -135,8 +135,7 @@ pub async fn run_worker(
     loop {
         if last_ping.elapsed().as_secs() > NUM_SECS_ENV_CHECK {
             sqlx::query!(
-                "UPDATE worker_ping SET ping_at = $1, jobs_executed = $2 WHERE worker = $3",
-                chrono::Utc::now(),
+                "UPDATE worker_ping SET ping_at = now(), jobs_executed = $1 WHERE worker = $2",
                 jobs_executed,
                 &worker_name
             )
@@ -651,12 +650,8 @@ async fn handle_nondep_job(
                     &db,
                     &job.workspace_id,
                     &job.permissioned_as,
-                    crate::users::NewToken {
-                        label: Some("ephemeral-script".to_string()),
-                        expiration: Some(
-                            chrono::Utc::now() + chrono::Duration::seconds((timeout * 2).into()),
-                        ),
-                    },
+                    "ephemeral-script",
+                    timeout * 2,
                     &job.created_by,
                 )
                 .await?;
@@ -778,12 +773,8 @@ print(res_json)
                 &db,
                 &job.workspace_id,
                 &job.permissioned_as,
-                crate::users::NewToken {
-                    label: Some("ephemeral-script".to_string()),
-                    expiration: Some(
-                        chrono::Utc::now() + chrono::Duration::seconds((timeout * 2).into()),
-                    ),
-                },
+                "ephemeral-script",
+                timeout * 2,
                 &job.created_by,
             )
             .await?;
@@ -1078,13 +1069,9 @@ async fn handle_child(
 
     tokio::spawn(async move {
         while !&done3.load(Ordering::Relaxed) {
-            let q = sqlx::query!(
-                "UPDATE queue SET last_ping = $1 WHERE id = $2",
-                chrono::Utc::now(),
-                id
-            )
-            .execute(&db2)
-            .await;
+            let q = sqlx::query!("UPDATE queue SET last_ping = now() WHERE id = $1", id)
+                .execute(&db2)
+                .await;
 
             if q.is_err() {
                 tracing::error!("error setting last ping for id {}", id);
@@ -1211,8 +1198,8 @@ pub async fn restart_zombie_jobs_periodically(
 ) {
     loop {
         let restarted = sqlx::query!(
-            "UPDATE queue SET running = false WHERE last_ping < $1 and running = true RETURNING id, workspace_id",
-            chrono::Utc::now() - chrono::Duration::seconds(timeout as i64 * 5)
+            "UPDATE queue SET running = false WHERE last_ping < now() + ($1 || ' seconds')::interval and running = true RETURNING id, workspace_id",
+            (timeout * 5).to_string(),
         )
         .fetch_all(db)
         .await
