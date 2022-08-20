@@ -1233,6 +1233,7 @@ mod tests {
         flows::{FlowModule, FlowModuleValue, FlowValue, InputTransform},
         jobs::{push, JobPayload, RawCode},
         scripts::ScriptLang,
+        DEFAULT_SLEEP_QUEUE,
     };
 
     use super::*;
@@ -1752,7 +1753,7 @@ def main():
             let i_worker: u64 = Default::default();
             let num_workers: u64 = 2;
             let ip: &str = Default::default();
-            let sleep_queue: u64 = Default::default();
+            let sleep_queue: u64 = DEFAULT_SLEEP_QUEUE / num_workers;
             let base_url: &str = Default::default();
             let disable_nuser = false;
             let disable_nsjail = false;
