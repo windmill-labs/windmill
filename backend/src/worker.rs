@@ -1750,7 +1750,7 @@ def main():
             let worker_instance: &str = "test worker instance";
             let worker_name: String = next_worker_name();
             let i_worker: u64 = Default::default();
-            let num_workers: u64 = Default::default();
+            let num_workers: u64 = 2;
             let ip: &str = Default::default();
             let sleep_queue: u64 = Default::default();
             let base_url: &str = Default::default();

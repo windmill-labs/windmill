@@ -1312,11 +1312,11 @@ pub async fn add_completed_job(
     let job_id = queued_job.id.clone();
     sqlx::query!(
         "INSERT INTO completed_job as cj
-            (workspace_id, id, parent_job, created_by, created_at, duration_ms, success, \
+            (workspace_id, id, parent_job, created_by, created_at, started_at, duration_ms, success, \
             script_hash, script_path, args, result, logs, \
             raw_code, canceled, canceled_by, canceled_reason, job_kind, schedule_path, \
             permissioned_as, flow_status, raw_flow, is_flow_step, is_skipped)
-            VALUES ($1, $2, $3, $4, $5, EXTRACT(milliseconds FROM (now() - $6)), $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, \
+            VALUES ($1, $2, $3, $4, $5, $6, EXTRACT(milliseconds FROM (now() - $6)), $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, \
                     $18, $19, $20, $21, $22, $23)
          ON CONFLICT (id) DO UPDATE SET success = $7, result = $11, logs = concat(cj.logs, $12)",
         queued_job.workspace_id,
