@@ -1,5 +1,30 @@
 {
   "db": "PostgreSQL",
+  "02cf26c6e81ce21fa84fdc2a431663aa2db7efea3596d7eec984dd707b8ad010": {
+    "query": "INSERT INTO token\n            (workspace_id, token, owner, label, expiration, super_admin)\n            VALUES ($1, $2, $3, $4, now() + ($5 || ' seconds')::interval, $6) RETURNING expiration",
+    "describe": {
+      "columns": [
+        {
+          "ordinal": 0,
+          "name": "expiration",
+          "type_info": "Timestamptz"
+        }
+      ],
+      "parameters": {
+        "Left": [
+          "Varchar",
+          "Varchar",
+          "Varchar",
+          "Varchar",
+          "Text",
+          "Bool"
+        ]
+      },
+      "nullable": [
+        true
+      ]
+    }
+  },
   "0355b53b1d45955ca56b2829372ce9c656d7f0ad7b8d0709161047f0d8cdc4f4": {
     "query": "DELETE FROM queue WHERE workspace_id = $1 AND id = $2 RETURNING 1",
     "describe": {
@@ -18,32 +43,6 @@
       },
       "nullable": [
         null
-      ]
-    }
-  },
-  "04207ceb4e5e520e3a759ed0b0b513c6fc9afda4f0e34a8fbbfce227e984e053": {
-    "query": "UPDATE queue SET running = false WHERE last_ping < $1 and running = true RETURNING id, workspace_id",
-    "describe": {
-      "columns": [
-        {
-          "ordinal": 0,
-          "name": "id",
-          "type_info": "Uuid"
-        },
-        {
-          "ordinal": 1,
-          "name": "workspace_id",
-          "type_info": "Varchar"
-        }
-      ],
-      "parameters": {
-        "Left": [
-          "Timestamptz"
-        ]
-      },
-      "nullable": [
-        false,
-        false
       ]
     }
   },
@@ -86,6 +85,31 @@
       "nullable": [
         true
       ]
+    }
+  },
+  "062859f1d0e5cfba3115f4241115753b86a4ad239708851c998ff5620ebca5b8": {
+    "query": "UPDATE queue SET last_ping = now() WHERE id = $1",
+    "describe": {
+      "columns": [],
+      "parameters": {
+        "Left": [
+          "Uuid"
+        ]
+      },
+      "nullable": []
+    }
+  },
+  "07551a32c49da8c0693dd39c6a63b5b2a596ccc0e52e8918160604a5e133dd32": {
+    "query": "UPDATE worker_ping SET ping_at = now(), jobs_executed = $1 WHERE worker = $2",
+    "describe": {
+      "columns": [],
+      "parameters": {
+        "Left": [
+          "Int4",
+          "Text"
+        ]
+      },
+      "nullable": []
     }
   },
   "0784bb86a503f02b9ef247a2b83a82ddfa49632552b223a9f4536a449b0a1eb8": {
@@ -602,6 +626,24 @@
       ]
     }
   },
+  "2685d46490744f3f98718ca79a9a8f7c14628e09483b90831d151f99f561a983": {
+    "query": "SELECT now()",
+    "describe": {
+      "columns": [
+        {
+          "ordinal": 0,
+          "name": "now",
+          "type_info": "Timestamptz"
+        }
+      ],
+      "parameters": {
+        "Left": []
+      },
+      "nullable": [
+        null
+      ]
+    }
+  },
   "27eb5f99dc9289670673fb999ba9e67abccba212b506c30ba47e6c4fef6d53c4": {
     "query": "INSERT INTO resource\n            (workspace_id, path, value, description, resource_type, is_oauth)\n            VALUES ($1, $2, $3, $4, $5, $6)",
     "describe": {
@@ -868,18 +910,30 @@
       ]
     }
   },
-  "4e0c8cd36dfa71d0d7b79cba4289177770ccfbccc83f82477229a74e9c95bb2e": {
-    "query": "UPDATE worker_ping SET ping_at = $1, jobs_executed = $2 WHERE worker = $3",
+  "4b11072143dc520fe59eb4100982a1cf1a529c79083bdd57ec84ed30b699d426": {
+    "query": "UPDATE queue SET running = false WHERE last_ping < now() + ($1 || ' seconds')::interval and running = true RETURNING id, workspace_id",
     "describe": {
-      "columns": [],
+      "columns": [
+        {
+          "ordinal": 0,
+          "name": "id",
+          "type_info": "Uuid"
+        },
+        {
+          "ordinal": 1,
+          "name": "workspace_id",
+          "type_info": "Varchar"
+        }
+      ],
       "parameters": {
         "Left": [
-          "Timestamptz",
-          "Int4",
           "Text"
         ]
       },
-      "nullable": []
+      "nullable": [
+        false,
+        false
+      ]
     }
   },
   "4e8ff055a80cc2e6b7fd6653c0c8e9a0e4b223a4bdeab0cf43dc79ce10f635b9": {
@@ -1015,6 +1069,24 @@
       "nullable": [
         false
       ]
+    }
+  },
+  "512390fc288b9f61bf5bb80ade168b17f09a6a52068a67edcf3f1f268bd53372": {
+    "query": "INSERT INTO flow (workspace_id, path, summary, description, value, edited_by, edited_at, schema) VALUES ($1, $2, $3, $4, $5, $6, now(), $7::text::json)",
+    "describe": {
+      "columns": [],
+      "parameters": {
+        "Left": [
+          "Varchar",
+          "Varchar",
+          "Text",
+          "Text",
+          "Jsonb",
+          "Varchar",
+          "Text"
+        ]
+      },
+      "nullable": []
     }
   },
   "514c5feb8a29a2a6b577553d8577a46bcbb196c62d046a0568c573ce96ff3c43": {
@@ -1324,34 +1396,6 @@
       ]
     }
   },
-  "6f1ff39324639d0dced3731df5732a9d4ae3dbed660ca088de6471bd3b448a12": {
-    "query": "UPDATE flow SET path = $1, summary = $2, description = $3, value = $4, edited_by = $5, edited_at = $6, schema = $7 WHERE path = $8 AND workspace_id = $9 RETURNING path",
-    "describe": {
-      "columns": [
-        {
-          "ordinal": 0,
-          "name": "path",
-          "type_info": "Varchar"
-        }
-      ],
-      "parameters": {
-        "Left": [
-          "Varchar",
-          "Text",
-          "Text",
-          "Jsonb",
-          "Varchar",
-          "Timestamptz",
-          "Json",
-          "Text",
-          "Text"
-        ]
-      },
-      "nullable": [
-        false
-      ]
-    }
-  },
   "6fc2cfae9df83eb24ea33e4c9567740100f4dd2285afc3ef474fc70041b0567b": {
     "query": "SELECT * FROM worker_ping ORDER BY ping_at desc LIMIT $1 OFFSET $2",
     "describe": {
@@ -1480,23 +1524,6 @@
       ]
     }
   },
-  "76941665bf3591c15eda9d3b3d6e0f15a2aff9b7baf2c9c71e9a542e4c0bf8dd": {
-    "query": "INSERT INTO token\n            (workspace_id, token, owner, label, expiration, super_admin)\n            VALUES ($1, $2, $3, $4, $5, $6)",
-    "describe": {
-      "columns": [],
-      "parameters": {
-        "Left": [
-          "Varchar",
-          "Varchar",
-          "Varchar",
-          "Varchar",
-          "Timestamptz",
-          "Bool"
-        ]
-      },
-      "nullable": []
-    }
-  },
   "77ba7207c8f5fd7156542cfd9943aa9a9fa87a652131c261f5020bab9ba6b5a3": {
     "query": "SELECT email, login_type::text, verified, super_admin, name, company from password LIMIT $1 OFFSET $2",
     "describe": {
@@ -1606,6 +1633,33 @@
       ]
     }
   },
+  "80325b938c9cd736f0f386343e5e36c3834521ae8e004e19c408a689dc1adcf1": {
+    "query": "UPDATE flow SET path = $1, summary = $2, description = $3, value = $4, edited_by = $5, edited_at = now(), schema = $6 WHERE path = $7 AND workspace_id = $8 RETURNING path",
+    "describe": {
+      "columns": [
+        {
+          "ordinal": 0,
+          "name": "path",
+          "type_info": "Varchar"
+        }
+      ],
+      "parameters": {
+        "Left": [
+          "Varchar",
+          "Text",
+          "Text",
+          "Jsonb",
+          "Varchar",
+          "Json",
+          "Text",
+          "Text"
+        ]
+      },
+      "nullable": [
+        false
+      ]
+    }
+  },
   "808ff76fdb74482d5d3201417c8a2470e2867cb08b9a46d244653eb366d8ee5e": {
     "query": "INSERT INTO group_ (workspace_id, name, summary, extra_perms) VALUES ($1, $2, $3, $4)",
     "describe": {
@@ -1665,25 +1719,6 @@
         "Left": [
           "Text",
           "Text",
-          "Text"
-        ]
-      },
-      "nullable": []
-    }
-  },
-  "858906ef1a5da30956823b56d28389146af50bfe206355abf921e7258d75510a": {
-    "query": "INSERT INTO flow (workspace_id, path, summary, description, value, edited_by, edited_at, schema) VALUES ($1, $2, $3, $4, $5, $6, $7, $8::text::json)",
-    "describe": {
-      "columns": [],
-      "parameters": {
-        "Left": [
-          "Varchar",
-          "Varchar",
-          "Text",
-          "Text",
-          "Jsonb",
-          "Varchar",
-          "Timestamptz",
           "Text"
         ]
       },
@@ -2283,6 +2318,22 @@
       "nullable": []
     }
   },
+  "b05c5f62ef4aa21d33369130cced0e9d7d128727eb58a9be7ae69cbb16bcbb27": {
+    "query": "INSERT INTO token\n            (token, email, label, expiration, super_admin)\n            VALUES ($1, $2, $3, now() + ($4 || ' hours')::interval, $5)",
+    "describe": {
+      "columns": [],
+      "parameters": {
+        "Left": [
+          "Varchar",
+          "Varchar",
+          "Varchar",
+          "Text",
+          "Bool"
+        ]
+      },
+      "nullable": []
+    }
+  },
   "b20977e70ebac7ccbaec5a2a1e940301dd331a5f9a4be67a27cfbff8619ac8f0": {
     "query": "INSERT INTO usr\n            (workspace_id, email, username, is_admin)\n            VALUES ($1, $2, $3, true)",
     "describe": {
@@ -2636,86 +2687,6 @@
       "nullable": []
     }
   },
-  "ce828d41f9184dcb4457b25ebf9a8e8e86e4da5aa37b2b2b413d56d766deeb0c": {
-    "query": "INSERT INTO completed_job as cj\n            (workspace_id, id, parent_job, created_by, created_at, duration_ms, success, script_hash, script_path, args, result, logs, raw_code, canceled, canceled_by, canceled_reason, job_kind, schedule_path, permissioned_as, flow_status, raw_flow, is_flow_step, is_skipped)\n            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23)\n         ON CONFLICT (id) DO UPDATE SET success = $7, result = $11, logs = concat(cj.logs, $12)\n         RETURNING id",
-    "describe": {
-      "columns": [
-        {
-          "ordinal": 0,
-          "name": "id",
-          "type_info": "Uuid"
-        }
-      ],
-      "parameters": {
-        "Left": [
-          "Varchar",
-          "Uuid",
-          "Uuid",
-          "Varchar",
-          "Timestamptz",
-          "Int4",
-          "Bool",
-          "Int8",
-          "Varchar",
-          "Jsonb",
-          "Jsonb",
-          "Text",
-          "Text",
-          "Bool",
-          "Varchar",
-          "Text",
-          {
-            "Custom": {
-              "name": "job_kind",
-              "kind": {
-                "Enum": [
-                  "script",
-                  "preview",
-                  "flow",
-                  "dependencies",
-                  "flowpreview",
-                  "script_hub"
-                ]
-              }
-            }
-          },
-          "Varchar",
-          "Varchar",
-          "Jsonb",
-          "Jsonb",
-          "Bool",
-          "Bool"
-        ]
-      },
-      "nullable": [
-        false
-      ]
-    }
-  },
-  "d1513cfa13037cbfe076d184cc698b896add2daba02b8add600f643249b95ad2": {
-    "query": "INSERT INTO account (workspace_id, client, owner, expires_at, refresh_token) VALUES ($1, $2, $3, $4, $5) RETURNING id",
-    "describe": {
-      "columns": [
-        {
-          "ordinal": 0,
-          "name": "id",
-          "type_info": "Int4"
-        }
-      ],
-      "parameters": {
-        "Left": [
-          "Varchar",
-          "Varchar",
-          "Varchar",
-          "Timestamptz",
-          "Varchar"
-        ]
-      },
-      "nullable": [
-        false
-      ]
-    }
-  },
   "d2dcf69b20488d610599c309862722f805049e479035be6a416d05d73528a8e1": {
     "query": "INSERT INTO group_\n            (workspace_id, name, summary)\n            VALUES ($1, $2, $3) ON CONFLICT DO NOTHING",
     "describe": {
@@ -2984,19 +2955,6 @@
       ]
     }
   },
-  "e94abd39ec51b7e0c48c190d47ed766fd4f401187c3b60b3e599426c95232f7f": {
-    "query": "UPDATE queue SET last_ping = $1 WHERE id = $2",
-    "describe": {
-      "columns": [],
-      "parameters": {
-        "Left": [
-          "Timestamptz",
-          "Uuid"
-        ]
-      },
-      "nullable": []
-    }
-  },
   "ee99cb974fb35d2d92fa96cecb53b8ad3a729ac710f362dc55a576613b66f9be": {
     "query": "SELECT EXISTS(SELECT 1 FROM schedule WHERE path = $1 AND workspace_id = $2)",
     "describe": {
@@ -3232,6 +3190,54 @@
       "nullable": []
     }
   },
+  "f9ecef1be461715bfe2d35c29721174c3a206455e150d33f344ed294ac314415": {
+    "query": "INSERT INTO completed_job as cj\n            (workspace_id, id, parent_job, created_by, created_at, duration_ms, success, script_hash, script_path, args, result, logs, raw_code, canceled, canceled_by, canceled_reason, job_kind, schedule_path, permissioned_as, flow_status, raw_flow, is_flow_step, is_skipped)\n            VALUES ($1, $2, $3, $4, $5, EXTRACT(milliseconds FROM (now() - $6)), $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23)\n         ON CONFLICT (id) DO UPDATE SET success = $7, result = $11, logs = concat(cj.logs, $12)",
+    "describe": {
+      "columns": [],
+      "parameters": {
+        "Left": [
+          "Varchar",
+          "Uuid",
+          "Uuid",
+          "Varchar",
+          "Timestamptz",
+          "Timestamptz",
+          "Bool",
+          "Int8",
+          "Varchar",
+          "Jsonb",
+          "Jsonb",
+          "Text",
+          "Text",
+          "Bool",
+          "Varchar",
+          "Text",
+          {
+            "Custom": {
+              "name": "job_kind",
+              "kind": {
+                "Enum": [
+                  "script",
+                  "preview",
+                  "flow",
+                  "dependencies",
+                  "flowpreview",
+                  "script_hub"
+                ]
+              }
+            }
+          },
+          "Varchar",
+          "Varchar",
+          "Jsonb",
+          "Jsonb",
+          "Bool",
+          "Bool"
+        ]
+      },
+      "nullable": []
+    }
+  },
   "fa258894bd90ea6586669e5810c5c6bcb42d5e1e68fab27fb185d06962b6454a": {
     "query": "SELECT * FROM resource WHERE workspace_id = $1",
     "describe": {
@@ -3284,6 +3290,30 @@
         true,
         false,
         false,
+        false
+      ]
+    }
+  },
+  "fa567c205929f41799a64aefac97c4504c7993b22478530e9345b9bc117e92e9": {
+    "query": "INSERT INTO account (workspace_id, client, owner, expires_at, refresh_token) VALUES ($1, $2, $3, now() + ($4 || ' seconds')::interval, $5) RETURNING id",
+    "describe": {
+      "columns": [
+        {
+          "ordinal": 0,
+          "name": "id",
+          "type_info": "Int4"
+        }
+      ],
+      "parameters": {
+        "Left": [
+          "Varchar",
+          "Varchar",
+          "Varchar",
+          "Text",
+          "Varchar"
+        ]
+      },
+      "nullable": [
         false
       ]
     }
