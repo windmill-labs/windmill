@@ -10,7 +10,6 @@
 	import { page } from '$app/stores'
 
 	import FlowBuilder from '$lib/components/FlowBuilder.svelte'
-	import { initFlowState } from '$lib/components/flows/flowState'
 	import { initFlow } from '$lib/components/flows/flowStore'
 	import { FlowService, type Flow } from '$lib/gen'
 	import { decodeState, emptySchema, sendUserToast } from '$lib/utils'
@@ -41,7 +40,6 @@
 			sendUserToast(`Flow has been loaded from hub flow id ${hubId}.`)
 		}
 		initFlow(flow)
-		initFlowState(flow)
 	}
 
 	loadFlow()

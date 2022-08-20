@@ -33,7 +33,6 @@
 	let initialPath: string = ''
 
 	initFlow(flow)
-	initFlowState(flow)
 
 	async function loadFlow(): Promise<void> {
 		flow =
@@ -46,7 +45,6 @@
 		initialPath = flow.path
 
 		initFlow(flow)
-		initFlowState(flow)
 	}
 
 	$: {
