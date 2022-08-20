@@ -375,7 +375,8 @@
 						{:else if job && job.schedule_path}
 							<Icon class="text-gray-700" data={faCalendar} scale={SMALL_ICON_SCALE} />
 							<span class="mx-2"
-								>Triggered by the schedule: <a href={`/schedule/add?edit=${job.schedule_path}`}
+								>Triggered by the schedule: <a
+									href={`/schedule/add?edit=${job.schedule_path}&isFlow=${job.job_kind == 'flow'}`}
 									>{job.schedule_path}</a
 								></span
 							>
