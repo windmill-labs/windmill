@@ -1037,7 +1037,7 @@ struct PreviewFlow {
     args: Option<Map<String, Value>>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum JobPayload {
     ScriptHub { path: String },
     ScriptHash { hash: ScriptHash, path: String },
