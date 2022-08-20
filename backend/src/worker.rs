@@ -555,64 +555,66 @@ async fn handle_nondep_job(
             let requirements =
                 requirements_o.ok_or_else(|| Error::InternalErr(format!("lockfile missing")))?;
 
-            if !disable_nsjail {
-                let _ = write_file(
-                    job_dir,
-                    "download.config.proto",
-                    &NSJAIL_CONFIG_DOWNLOAD_CONTENT
-                        .replace("{JOB_DIR}", job_dir)
-                        .replace("{WORKER_DIR}", &worker_dir)
-                        .replace("{CACHE_DIR}", PIP_CACHE_DIR)
-                        .replace("{CLONE_NEWUSER}", &(!disable_nuser).to_string()),
-                )
-                .await?;
+            if requirements.len() > 0 {
+                if !disable_nsjail {
+                    let _ = write_file(
+                        job_dir,
+                        "download.config.proto",
+                        &NSJAIL_CONFIG_DOWNLOAD_CONTENT
+                            .replace("{JOB_DIR}", job_dir)
+                            .replace("{WORKER_DIR}", &worker_dir)
+                            .replace("{CACHE_DIR}", PIP_CACHE_DIR)
+                            .replace("{CLONE_NEWUSER}", &(!disable_nuser).to_string()),
+                    )
+                    .await?;
+                }
+                let _ = write_file(job_dir, "requirements.txt", &requirements).await?;
+
+                tracing::info!(
+                    worker_name = %worker_name,
+                    job_id = %job.id,
+                    workspace_id = %job.workspace_id,
+                    "started setup python dependencies"
+                );
+                let child = if !disable_nsjail {
+                    Command::new(nsjail_path)
+                        .current_dir(job_dir)
+                        .args(vec!["--config", "download.config.proto"])
+                        .stdout(Stdio::piped())
+                        .stderr(Stdio::piped())
+                        .spawn()?
+                } else {
+                    Command::new(python_path)
+                        .current_dir(job_dir)
+                        .args(vec![
+                            "-m",
+                            "pip",
+                            "install",
+                            "--no-color",
+                            "--isolated",
+                            "--no-warn-conflicts",
+                            "--disable-pip-version-check",
+                            "-t",
+                            "./dependencies",
+                            "-r",
+                            "./requirements.txt",
+                        ])
+                        .stdout(Stdio::piped())
+                        .stderr(Stdio::piped())
+                        .spawn()?
+                };
+
+                logs.push_str("\n--- PIP DEPENDENCIES INSTALL ---\n");
+                *status = handle_child(job, db, logs, last_line, timeout, child).await;
+                tracing::info!(
+                    worker_name = %worker_name,
+                    job_id = %job.id,
+                    workspace_id = %job.workspace_id,
+                    is_ok = status.is_ok(),
+                    "finished setup python dependencies"
+                );
             }
-            let _ = write_file(job_dir, "requirements.txt", &requirements).await?;
-
-            tracing::info!(
-                worker_name = %worker_name,
-                job_id = %job.id,
-                workspace_id = %job.workspace_id,
-                "started setup python dependencies"
-            );
-            let child = if !disable_nsjail {
-                Command::new(nsjail_path)
-                    .current_dir(job_dir)
-                    .args(vec!["--config", "download.config.proto"])
-                    .stdout(Stdio::piped())
-                    .stderr(Stdio::piped())
-                    .spawn()?
-            } else {
-                Command::new(python_path)
-                    .current_dir(job_dir)
-                    .args(vec![
-                        "-m",
-                        "pip",
-                        "install",
-                        "--no-color",
-                        "--isolated",
-                        "--no-warn-conflicts",
-                        "--disable-pip-version-check",
-                        "-t",
-                        "./dependencies",
-                        "-r",
-                        "./requirements.txt",
-                    ])
-                    .stdout(Stdio::piped())
-                    .stderr(Stdio::piped())
-                    .spawn()?
-            };
-
-            logs.push_str("\n--- PIP DEPENDENCIES INSTALL ---\n");
-            *status = handle_child(job, db, logs, last_line, timeout, child).await;
-            tracing::info!(
-                worker_name = %worker_name,
-                job_id = %job.id,
-                workspace_id = %job.workspace_id,
-                is_ok = status.is_ok(),
-                "finished setup python dependencies"
-            );
-            if status.is_ok() {
+            if requirements.len() == 0 || status.is_ok() {
                 logs.push_str("\n\n--- PYTHON CODE EXECUTION ---\n");
 
                 set_logs(logs, job.id, db).await;
@@ -1364,7 +1366,7 @@ mod tests {
         }))
         .unwrap();
 
-        for i in 0..15 {
+        for i in 0..50 {
             println!("python flow iteration: {}", i);
             let result = run_job_in_new_worker_until_complete(
                 &db,
@@ -1391,6 +1393,25 @@ def main():
         let result = run_job_in_new_worker_until_complete(&db, job).await;
 
         assert_eq!(result, serde_json::json!("hello world"));
+    }
+
+    #[sqlx::test(fixtures("base"))]
+    async fn test_python_job_with_imports(db: DB) {
+        initialize_tracing().await;
+
+        let content = r#"
+import wmill
+
+def main():
+    return wmill.get_workspace()
+        "#
+        .to_owned();
+
+        let job = JobPayload::Code(RawCode { content, path: None, language: ScriptLang::Python3 });
+
+        let result = run_job_in_new_worker_until_complete(&db, job).await;
+
+        assert_eq!(result, serde_json::json!("test-workspace"));
     }
 
     #[sqlx::test(fixtures("base"))]
