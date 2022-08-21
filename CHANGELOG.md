@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [1.33.0](https://github.com/windmill-labs/windmill/compare/v1.32.0...v1.33.0) (2022-08-21)
+
+
+### Features
+
+* PostgreSQL parametrized statement handled as typescript template ([1aa28c5](https://github.com/windmill-labs/windmill/commit/1aa28c55990b27901c698eea6812a51eaafc97bb))
+
 ## [1.32.0](https://github.com/windmill-labs/windmill/compare/v1.31.0...v1.32.0) (2022-08-21)
 
 
