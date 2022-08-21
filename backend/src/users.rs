@@ -224,12 +224,24 @@ async fn extract_token<B: Send>(req: &mut RequestParts<B>) -> Option<String> {
         .and_then(|value| value.to_str().ok())
         .and_then(|s| s.strip_prefix("Bearer "));
 
-    match auth_header {
+    let from_cookie = match auth_header {
         Some(x) => Some(x.to_owned()),
         None => Extension::<Cookies>::from_request(req)
             .await
             .ok()
             .and_then(|cookies| cookies.get(COOKIE_NAME).map(|c| c.value().to_owned())),
+    };
+
+    #[derive(Deserialize)]
+    struct Token {
+        token: Option<String>,
+    }
+    match from_cookie {
+        Some(token) => Some(token),
+        None => Query::<Token>::from_request(req)
+            .await
+            .ok()
+            .and_then(|token| token.token.clone()),
     }
 }
 
