@@ -576,6 +576,7 @@ async fn handle_nondep_job(
                     workspace_id = %job.workspace_id,
                     "started setup python dependencies"
                 );
+
                 let child = if !disable_nsjail {
                     Command::new(nsjail_path)
                         .current_dir(job_dir)
@@ -745,6 +746,7 @@ print(res_json)
                         .stderr(Stdio::piped())
                         .spawn()?
                 };
+
                 *status = handle_child(job, db, logs, last_line, timeout, child).await;
                 tracing::info!(
                     worker_name = %worker_name,
@@ -1376,6 +1378,69 @@ mod tests {
             .await;
 
             assert_eq!(result, serde_json::json!([2, 4, 6]), "iteration: {i}");
+        }
+    }
+
+    #[sqlx::test(fixtures("base"))]
+    async fn test_python_flow_2(db: DB) {
+        initialize_tracing().await;
+
+        let flow: FlowValue = serde_json::from_value(serde_json::json!({
+        "modules": [
+            {
+                "value": {
+                    "type": "rawscript",
+                    "content": "import os\nimport wmill\nfrom datetime import datetime\n\nimport re\nimport requests\nfrom datetime import datetime\nfrom html import unescape\n\n\ndef extract(html):\n    r = r\"<img class=\\\"[^\\\"]+ img-comic\\\"(([^>]*alt=\\\"(?P<alt>[^\\\"]+)\\\")|([^>]*src=\\\"(?P<url>[^\\\"]+)\\\"))+[^>]*>\"\n    match = re.search(r, html)\n    if match:\n        return {'url': match.group(\"url\"), 'desc': unescape(match.group(\"alt\"))}\n    return None\n\n\ndef fetch(date=None):\n    if date is None:\n        date = datetime.now()\n    url = f\"https://dilbert.com/strip/{date:%Y-%m-%d}\"\n    return requests.get(url, allow_redirects=False).text\n\n\ndef get_today_comic(date=None):\n    return extract(fetch(date))\n\n\n# Our webeditor includes a syntax, type checker through a language server running pyright\n# and the autoformatter Black in our servers. Use Cmd/Ctrl + S to autoformat the code.\n# Beware that the code is only saved when you click Save and not across reload.\n# You can however navigate to any steps safely.\n\"\"\"\nThe client is used to interact with windmill itself through its standard API.\nOne can explore the methods available through autocompletion of `client.XXX`.\nOnly the most common methods are included for ease of use. Request more as\nfeedback if you feel you are missing important ones.\n\"\"\"\n\n\ndef main(\n    date: str = None\n):\n    dateToFetch = datetime.strptime(date, '%Y-%m-%d') if (date is not None and len(date)>0) else datetime.now()\n    print(f\"Fetchind Dilber from {dateToFetch}\")\n    # retrieve variables, including secrets by querying the windmill platform.\n    # secret fetching is audited by windmill.\n    # secret = wmill.get_variable(\"g/all/pretty_secret\")\n    return get_today_comic(dateToFetch)\n",
+                    "language": "python3"
+                },
+                "input_transform": {
+                    "date": {
+                        "expr": "undefined",
+                        "type": "javascript"
+                    }
+                }
+            },
+            {
+                "value": {
+                    "type": "rawscript",
+                    "content": "\nimport requests\n\n\ndef main(bot_token: str, chat_id: str, url: str, caption: str = \"\"):\n    return requests.get(\n        f\"https://api.telegram.org/bot{bot_token}/sendPhoto\",\n        params={\"chat_id\": chat_id, \"photo\": url, \"caption\": caption},\n    ).url\n",
+                    "language": "python3"
+                },
+                "input_transform": {
+                    "url": {
+                        "type": "static",
+                        "value": null
+                    },
+                    "caption": {
+                        "type": "static",
+                        "value": ""
+                    },
+                    "chat_id": {
+                        "type": "static",
+                        "value": null
+                    },
+                    "bot_token": {
+                        "type": "static",
+                        "value": null
+                    }
+                }
+            }
+        ]
+})).unwrap();
+
+        for i in 0..10 {
+            println!("python flow iteration: {}", i);
+            let result = run_job_in_new_worker_until_complete(
+                &db,
+                JobPayload::RawFlow { value: flow.clone(), path: None },
+            )
+            .await;
+
+            assert_eq!(
+                result,
+                serde_json::json!("https://api.telegram.org/botNone/sendPhoto?caption="),
+                "iteration: {i}"
+            );
         }
     }
 

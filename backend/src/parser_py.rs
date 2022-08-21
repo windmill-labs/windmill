@@ -23,8 +23,50 @@ use rustpython_parser::{
     parser,
 };
 
+fn filter_non_main(code: &str) -> String {
+    const DEF_MAIN: &str = "def main(";
+
+    let mut filtered_code = String::new();
+    let mut code_iter = code.split("\n");
+    let mut remaining: String = String::new();
+    while let Some(line) = code_iter.next() {
+        if line.starts_with(DEF_MAIN) {
+            filtered_code += DEF_MAIN;
+            remaining += line.strip_prefix(DEF_MAIN).unwrap();
+            remaining += &code_iter.join("\n");
+            break;
+        }
+    }
+    if filtered_code.is_empty() {
+        return String::new();
+    }
+    let mut chars = remaining.chars();
+    let mut open_parens = 1;
+
+    while let Some(c) = chars.next() {
+        if c == '(' {
+            open_parens += 1;
+        } else if c == ')' {
+            open_parens -= 1;
+        }
+        filtered_code.push(c);
+        if open_parens == 0 {
+            break;
+        }
+    }
+
+    filtered_code.push_str(": return");
+    return filtered_code;
+}
+
 pub fn parse_python_signature(code: &str) -> error::Result<MainArgSignature> {
-    let ast = parser::parse_program(code)
+    let filtered_code = filter_non_main(code);
+    if filtered_code.is_empty() {
+        return Err(error::Error::BadRequest(
+            "No main function found".to_string(),
+        ));
+    }
+    let ast = parser::parse_program(&filtered_code)
         .map_err(|e| error::Error::ExecutionErr(format!("Error parsing code: {}", e.to_string())))?
         .statements;
     let param = ast.into_iter().find_map(|x| match x {
@@ -163,11 +205,16 @@ pub fn parse_python_imports(code: &str) -> error::Result<Vec<String>> {
             .collect();
         Ok(lines)
     } else {
+        let code = &code
+            .split("\n")
+            .filter(|x| x.starts_with("import ") || x.starts_with("from "))
+            .join("\n");
         let ast = parser::parse_program(code)
             .map_err(|e| {
                 error::Error::ExecutionErr(format!("Error parsing code: {}", e.to_string()))
             })?
             .statements;
+
         let imports = ast
             .into_iter()
             .filter_map(|x| match x {
@@ -191,6 +238,7 @@ pub fn parse_python_imports(code: &str) -> error::Result<Vec<String>> {
             .filter(|x| !STDIMPORTS.contains(&x.as_str()))
             .unique()
             .collect();
+
         Ok(imports)
     }
 }
@@ -198,12 +246,10 @@ pub fn parse_python_imports(code: &str) -> error::Result<Vec<String>> {
 #[cfg(test)]
 mod tests {
 
-    // Note this useful idiom: importing names from outer (for mod tests) scope.
     use super::*;
 
     #[test]
     fn test_parse_python_sig() -> anyhow::Result<()> {
-        //let code = "print(2 + 3, fd=sys.stderr)";
         let code = "
 
 import os
@@ -215,7 +261,124 @@ def main(test1: str, name: datetime.datetime = datetime.now(), byte: bytes = byt
 	return {\"len\": len(name), \"splitted\": name.split() }
 
 ";
-        println!("{}", serde_json::to_string(&parse_python_signature(code)?)?);
+        //println!("{}", serde_json::to_string()?);
+        assert_eq!(
+            parse_python_signature(code)?,
+            MainArgSignature {
+                star_args: false,
+                star_kwargs: false,
+                args: vec![
+                    Arg {
+                        name: "test1".to_string(),
+                        typ: Typ::Str(None),
+                        default: None,
+                        has_default: false
+                    },
+                    Arg {
+                        name: "name".to_string(),
+                        typ: Typ::Unknown,
+                        default: Some(json!("<function call>")),
+                        has_default: true
+                    },
+                    Arg {
+                        name: "byte".to_string(),
+                        typ: Typ::Bytes,
+                        default: Some(json!("<function call>")),
+                        has_default: true
+                    }
+                ]
+            }
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_parse_python_sig_2() -> anyhow::Result<()> {
+        let code = "
+
+import os
+
+def main(test1: str,
+    name: datetime.datetime = datetime.now(),
+    byte: bytes = bytes(1)):
+
+	print(f\"Hello World and a warm welcome especially to {name}\")
+	print(\"The env variable at `all/pretty_secret`: \", os.environ.get(\"ALL_PRETTY_SECRET\"))
+	return {\"len\": len(name), \"splitted\": name.split() }
+
+";
+        //println!("{}", serde_json::to_string()?);
+        assert_eq!(
+            parse_python_signature(code)?,
+            MainArgSignature {
+                star_args: false,
+                star_kwargs: false,
+                args: vec![
+                    Arg {
+                        name: "test1".to_string(),
+                        typ: Typ::Str(None),
+                        default: None,
+                        has_default: false
+                    },
+                    Arg {
+                        name: "name".to_string(),
+                        typ: Typ::Unknown,
+                        default: Some(json!("<function call>")),
+                        has_default: true
+                    },
+                    Arg {
+                        name: "byte".to_string(),
+                        typ: Typ::Bytes,
+                        default: Some(json!("<function call>")),
+                        has_default: true
+                    }
+                ]
+            }
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_parse_python_sig_3() -> anyhow::Result<()> {
+        let code = "
+
+import os
+
+def main(test1: str,
+    name: datetime.datetime = datetime.now(),
+    byte: bytes = bytes(1)): return
+
+";
+        //println!("{}", serde_json::to_string()?);
+        assert_eq!(
+            parse_python_signature(code)?,
+            MainArgSignature {
+                star_args: false,
+                star_kwargs: false,
+                args: vec![
+                    Arg {
+                        name: "test1".to_string(),
+                        typ: Typ::Str(None),
+                        default: None,
+                        has_default: false
+                    },
+                    Arg {
+                        name: "name".to_string(),
+                        typ: Typ::Unknown,
+                        default: Some(json!("<function call>")),
+                        has_default: true
+                    },
+                    Arg {
+                        name: "byte".to_string(),
+                        typ: Typ::Bytes,
+                        default: Some(json!("<function call>")),
+                        has_default: true
+                    }
+                ]
+            }
+        );
 
         Ok(())
     }
