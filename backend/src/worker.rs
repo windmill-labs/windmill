@@ -647,8 +647,6 @@ async fn handle_nondep_job(
                     .collect::<Vec<String>>()
                     .join("");
 
-                let tx = db.begin().await?;
-
                 let token = create_token_for_owner(
                     &db,
                     &job.workspace_id,
@@ -694,7 +692,6 @@ print(res_json)
                 );
                 write_file(job_dir, "main.py", &wrapper_content).await?;
 
-                tx.commit().await?;
                 let mut reserved_variables = get_reserved_variables(job, token, db).await?;
                 if !disable_nsjail {
                     let _ = write_file(
@@ -771,8 +768,6 @@ print(res_json)
             //     _ => "".to_string()
             // }).collect::<Vec<String>>().join("");
 
-            let tx = db.begin().await?;
-
             let token = create_token_for_owner(
                 &db,
                 &job.workspace_id,
@@ -813,8 +808,6 @@ run();
 "#,
             );
             write_file(job_dir, "main.ts", &wrapper_content).await?;
-
-            tx.commit().await?;
 
             let mut reserved_variables = get_reserved_variables(job, token.clone(), db).await?;
             reserved_variables.insert("RUST_LOG".to_string(), "info".to_string());
@@ -1386,47 +1379,18 @@ mod tests {
         initialize_tracing().await;
 
         let flow: FlowValue = serde_json::from_value(serde_json::json!({
-        "modules": [
-            {
-                "value": {
-                    "type": "rawscript",
-                    "content": "import os\nimport wmill\nfrom datetime import datetime\n\nimport re\nimport requests\nfrom datetime import datetime\nfrom html import unescape\n\n\ndef extract(html):\n    r = r\"<img class=\\\"[^\\\"]+ img-comic\\\"(([^>]*alt=\\\"(?P<alt>[^\\\"]+)\\\")|([^>]*src=\\\"(?P<url>[^\\\"]+)\\\"))+[^>]*>\"\n    match = re.search(r, html)\n    if match:\n        return {'url': match.group(\"url\"), 'desc': unescape(match.group(\"alt\"))}\n    return None\n\n\ndef fetch(date=None):\n    if date is None:\n        date = datetime.now()\n    url = f\"https://dilbert.com/strip/{date:%Y-%m-%d}\"\n    return requests.get(url, allow_redirects=False).text\n\n\ndef get_today_comic(date=None):\n    return extract(fetch(date))\n\n\n# Our webeditor includes a syntax, type checker through a language server running pyright\n# and the autoformatter Black in our servers. Use Cmd/Ctrl + S to autoformat the code.\n# Beware that the code is only saved when you click Save and not across reload.\n# You can however navigate to any steps safely.\n\"\"\"\nThe client is used to interact with windmill itself through its standard API.\nOne can explore the methods available through autocompletion of `client.XXX`.\nOnly the most common methods are included for ease of use. Request more as\nfeedback if you feel you are missing important ones.\n\"\"\"\n\n\ndef main(\n    date: str = None\n):\n    dateToFetch = datetime.strptime(date, '%Y-%m-%d') if (date is not None and len(date)>0) else datetime.now()\n    print(f\"Fetchind Dilber from {dateToFetch}\")\n    # retrieve variables, including secrets by querying the windmill platform.\n    # secret fetching is audited by windmill.\n    # secret = wmill.get_variable(\"g/all/pretty_secret\")\n    return get_today_comic(dateToFetch)\n",
-                    "language": "python3"
-                },
-                "input_transform": {
-                    "date": {
-                        "expr": "undefined",
-                        "type": "javascript"
+                "modules": [
+                    {
+                        "value": {
+                            "type": "rawscript",
+                            "content": "import wmill\ndef main():  return \"Hello\"",
+                            "language": "python3"
+                        },
+                        "input_transform": {}
                     }
-                }
-            },
-            {
-                "value": {
-                    "type": "rawscript",
-                    "content": "\nimport requests\n\n\ndef main(bot_token: str, chat_id: str, url: str, caption: str = \"\"):\n    return requests.get(\n        f\"https://api.telegram.org/bot{bot_token}/sendPhoto\",\n        params={\"chat_id\": chat_id, \"photo\": url, \"caption\": caption},\n    ).url\n",
-                    "language": "python3"
-                },
-                "input_transform": {
-                    "url": {
-                        "type": "static",
-                        "value": null
-                    },
-                    "caption": {
-                        "type": "static",
-                        "value": ""
-                    },
-                    "chat_id": {
-                        "type": "static",
-                        "value": null
-                    },
-                    "bot_token": {
-                        "type": "static",
-                        "value": null
-                    }
-                }
-            }
-        ]
-})).unwrap();
+                ]
+        }))
+        .unwrap();
 
         for i in 0..10 {
             println!("python flow iteration: {}", i);
@@ -1436,11 +1400,7 @@ mod tests {
             )
             .await;
 
-            assert_eq!(
-                result,
-                serde_json::json!("https://api.telegram.org/botNone/sendPhoto?caption="),
-                "iteration: {i}"
-            );
+            assert_eq!(result, serde_json::json!("Hello"), "iteration: {i}");
         }
     }
 
