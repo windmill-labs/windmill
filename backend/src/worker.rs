@@ -762,11 +762,6 @@ print(res_json)
             let _ = write_file(job_dir, "inner.ts", &inner_content).await?;
 
             let sig = crate::parser_ts::parse_deno_signature(&inner_content)?;
-            //             let transforms = sig.args.clone().into_iter().map(|x| match x.typ {
-            //     Typ::Bytes => format!("if \"{}\" in kwargs and kwargs[\"{}\"] is not None:\n    kwargs[\"{}\"] = base64.b64decode(kwargs[\"{}\"])\n", x.name, x.name, x.name, x.name),
-            //     Typ::Datetime => format!("if \"{}\" in kwargs and kwargs[\"{}\"] is not None:\n    kwargs[\"{}\"] = datetime.strptime(kwargs[\"{}\"], '%Y-%m-%dT%H:%M')\n", x.name, x.name, x.name, x.name),
-            //     _ => "".to_string()
-            // }).collect::<Vec<String>>().join("");
 
             let token = create_token_for_owner(
                 &db,
