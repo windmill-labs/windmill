@@ -44,12 +44,14 @@ export function pgClient(
  * ```
  */
 export function pgSql(
-    db: Resource<"postgresql">
+    db: Resource<"postgresql">,
+    asObjects = false
 ) {
     return async function queryObject(
         query: TemplateStringsArray,
         ...args: unknown[]
     ) {
-        return await pgClient(db).queryObject(query, ...args)
+        const client = pgClient(db)
+        return asObjects ? await client.queryObject(query, ...args) : await client.queryArray(query, ...args)
     }
 }
