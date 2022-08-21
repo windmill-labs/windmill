@@ -8,15 +8,17 @@
 
 use crate::{
     error,
+    js_eval::eval_sync,
     parser::{Arg, MainArgSignature, ObjectProperty, Typ},
 };
 
+use serde_json::Value;
 use swc_common::{sync::Lrc, FileName, SourceMap, SourceMapper, Spanned};
 use swc_ecma_ast::{
-    AssignPat, BindingIdent, Decl, ExportDecl, Expr, FnDecl, Ident, ModuleDecl, ModuleItem, Pat,
-    Str, TsArrayType, TsEntityName, TsKeywordType, TsKeywordTypeKind, TsLit, TsLitType,
-    TsOptionalType, TsPropertySignature, TsType, TsTypeElement, TsTypeLit, TsTypeRef,
-    TsUnionOrIntersectionType, TsUnionType,
+    ArrayLit, AssignPat, BigInt, BindingIdent, Bool, Decl, ExportDecl, Expr, FnDecl, Ident, Lit,
+    ModuleDecl, ModuleItem, Number, ObjectLit, Pat, Str, TsArrayType, TsEntityName, TsKeywordType,
+    TsKeywordTypeKind, TsLit, TsLitType, TsOptionalType, TsPropertySignature, TsType,
+    TsTypeElement, TsTypeLit, TsTypeRef, TsUnionOrIntersectionType, TsUnionType,
 };
 use swc_ecma_parser::{lexer::Lexer, Parser, StringInput, Syntax, TsConfig};
 
@@ -73,7 +75,7 @@ pub fn parse_deno_signature(code: &str) -> error::Result<MainArgSignature> {
                         })
                     }
                     Pat::Assign(AssignPat { left, right, .. }) => {
-                        let (name, typ, _nullable) =
+                        let (name, mut typ, _nullable) =
                             left.as_ident().map(binding_ident_to_arg).ok_or_else(|| {
                                 error::Error::ExecutionErr(format!(
                                     "parameter syntax unsupported: `{}`",
@@ -81,17 +83,30 @@ pub fn parse_deno_signature(code: &str) -> error::Result<MainArgSignature> {
                                         .unwrap_or_else(|_| cm.span_to_string(left.span()))
                                 ))
                             })?;
-                        Ok(Arg {
-                            name,
-                            typ,
-                            default: serde_json::to_value(right)
-                                .map_err(|e| error::Error::ExecutionErr(e.to_string()))?
-                                .as_object()
-                                .and_then(|x| x.get("value").to_owned())
-                                .cloned(),
 
-                            has_default: true,
-                        })
+                        let span = match *right {
+                            Expr::Lit(Lit::Str(Str { span, .. })) => Some(span),
+                            Expr::Lit(Lit::Num(Number { span, .. })) => Some(span),
+                            Expr::Lit(Lit::BigInt(BigInt { span, .. })) => Some(span),
+                            Expr::Lit(Lit::Bool(Bool { span, .. })) => Some(span),
+                            Expr::Object(ObjectLit { span, .. }) => Some(span),
+                            Expr::Array(ArrayLit { span, .. }) => Some(span),
+                            _ => None,
+                        };
+                        let expr = span
+                            .and_then(|x| cm.span_to_snippet(x).ok())
+                            .map(|x| serde_json::from_str(&x).map_err(|_| x));
+
+                        let default = match expr.clone() {
+                            Some(Ok(x)) => Some(x),
+                            Some(Err(x)) => eval_sync(&x).ok(),
+                            None => None,
+                        };
+
+                        if typ == Typ::Unknown && default.is_some() {
+                            typ = json_to_typ(default.as_ref().unwrap());
+                        }
+                        Ok(Arg { name, typ, default, has_default: true })
                     }
                     _ => Err(error::Error::ExecutionErr(format!(
                         "parameter syntax unsupported: `{}`",
@@ -115,6 +130,22 @@ fn binding_ident_to_arg(BindingIdent { id, type_ann }: &BindingIdent) -> (String
         .map(|x| tstype_to_typ(&*x.type_ann))
         .unwrap_or((Typ::Unknown, false));
     (id.sym.to_string(), typ, nullable)
+}
+
+fn json_to_typ(js: &Value) -> Typ {
+    match js {
+        Value::String(_) => Typ::Str(None),
+        Value::Number(n) if n.is_i64() => Typ::Int,
+        Value::Number(_) => Typ::Float,
+        Value::Bool(_) => Typ::Bool,
+        Value::Object(o) => Typ::Object(
+            o.iter()
+                .map(|(k, v)| ObjectProperty { key: k.to_string(), typ: Box::new(json_to_typ(v)) })
+                .collect(),
+        ),
+        Value::Array(a) => Typ::List(Box::new(a.first().map(json_to_typ).unwrap_or(Typ::Unknown))),
+        _ => Typ::Unknown,
+    }
 }
 
 fn tstype_to_typ(ts_type: &TsType) -> (Typ, bool) {
@@ -234,13 +265,14 @@ fn tstype_to_typ(ts_type: &TsType) -> (Typ, bool) {
 #[cfg(test)]
 mod tests {
 
+    use serde_json::json;
+
     // Note this useful idiom: importing names from outer (for mod tests) scope.
     use super::*;
 
     #[test]
     fn test_parse_deno_sig() -> anyhow::Result<()> {
         let code = "
-
 export function main(test1?: string, test2: string = \"burkina\",
     test3: wmill.Resource<'postgres'>, b64: Base64, ls: Base64[], 
     email: Email, literal: \"test\", literal_union: \"test\" | \"test2\",
@@ -248,9 +280,155 @@ export function main(test1?: string, test2: string = \"burkina\",
     min_object: {a: string, b: number}) {
     console.log(42)
 }
-
 ";
-        println!("{}", serde_json::to_string(&parse_deno_signature(code)?)?);
+        assert_eq!(
+            parse_deno_signature(code)?,
+            MainArgSignature {
+                star_args: false,
+                star_kwargs: false,
+                args: vec![
+                    Arg {
+                        name: "test1".to_string(),
+                        typ: Typ::Str(None),
+                        default: None,
+                        has_default: true
+                    },
+                    Arg {
+                        name: "test2".to_string(),
+                        typ: Typ::Str(None),
+                        default: Some(json!("burkina")),
+                        has_default: true
+                    },
+                    Arg {
+                        name: "test3".to_string(),
+                        typ: Typ::Resource("postgres".to_string()),
+                        default: None,
+                        has_default: false
+                    },
+                    Arg {
+                        name: "b64".to_string(),
+                        typ: Typ::Bytes,
+                        default: None,
+                        has_default: false
+                    },
+                    Arg {
+                        name: "ls".to_string(),
+                        typ: Typ::List(Box::new(Typ::Bytes)),
+                        default: None,
+                        has_default: false
+                    },
+                    Arg {
+                        name: "email".to_string(),
+                        typ: Typ::Email,
+                        default: None,
+                        has_default: false
+                    },
+                    Arg {
+                        name: "literal".to_string(),
+                        typ: Typ::Str(Some(vec!["test".to_string()])),
+                        default: None,
+                        has_default: false
+                    },
+                    Arg {
+                        name: "literal_union".to_string(),
+                        typ: Typ::Str(Some(vec!["test".to_string(), "test2".to_string()])),
+                        default: None,
+                        has_default: false
+                    },
+                    Arg {
+                        name: "opt_type".to_string(),
+                        typ: Typ::Str(None),
+                        default: None,
+                        has_default: true
+                    },
+                    Arg {
+                        name: "opt_type_union".to_string(),
+                        typ: Typ::Str(None),
+                        default: None,
+                        has_default: true
+                    },
+                    Arg {
+                        name: "opt_type_union_union2".to_string(),
+                        typ: Typ::Str(None),
+                        default: None,
+                        has_default: true
+                    },
+                    Arg {
+                        name: "min_object".to_string(),
+                        typ: Typ::Object(vec![
+                            ObjectProperty { key: "a".to_string(), typ: Box::new(Typ::Str(None)) },
+                            ObjectProperty { key: "b".to_string(), typ: Box::new(Typ::Float) }
+                        ]),
+                        default: None,
+                        has_default: false
+                    }
+                ]
+            }
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_parse_deno_sig_implicit_types() -> anyhow::Result<()> {
+        let code = "
+export function main(test2 = \"burkina\",
+    bool = true,
+    float = 4.2,
+    int = 42,
+    ls = [\"test\"],
+    min_object = {a: \"test\", b: 42}) {
+    console.log(42)
+}
+";
+        assert_eq!(
+            parse_deno_signature(code)?,
+            MainArgSignature {
+                star_args: false,
+                star_kwargs: false,
+                args: vec![
+                    Arg {
+                        name: "test2".to_string(),
+                        typ: Typ::Str(None),
+                        default: Some(json!("burkina")),
+                        has_default: true
+                    },
+                    Arg {
+                        name: "bool".to_string(),
+                        typ: Typ::Bool,
+                        default: Some(json!(true)),
+                        has_default: true
+                    },
+                    Arg {
+                        name: "float".to_string(),
+                        typ: Typ::Float,
+                        default: Some(json!(4.2)),
+                        has_default: true
+                    },
+                    Arg {
+                        name: "int".to_string(),
+                        typ: Typ::Int,
+                        default: Some(json!(42)),
+                        has_default: true
+                    },
+                    Arg {
+                        name: "ls".to_string(),
+                        typ: Typ::List(Box::new(Typ::Str(None))),
+                        default: Some(json!(["test"])),
+                        has_default: true
+                    },
+                    Arg {
+                        name: "min_object".to_string(),
+                        typ: Typ::Object(vec![
+                            ObjectProperty { key: "a".to_string(), typ: Box::new(Typ::Str(None)) },
+                            ObjectProperty { key: "b".to_string(), typ: Box::new(Typ::Int) }
+                        ]),
+                        default: Some(json!({"a": "test", "b": 42})),
+                        has_default: true
+                    }
+                ]
+            }
+        );
 
         Ok(())
     }
