@@ -33,7 +33,7 @@ export const DENO_INIT_CODE = `// reload the smart assistant on the top right if
 // (Ctrl+space to cache dependencies on imports hover).
 // to import most npm packages without deno.land, use esm:
 // import { toWords } from "https://esm.sh/number-to-words"
-// import * as wmill from 'https://deno.land/x/windmill@v${__pkg__.version}/mod.ts'
+// import * as wmill from "https://deno.land/x/windmill@v${__pkg__.version}/mod.ts"
 
 export async function main(
   a: number,
@@ -47,7 +47,7 @@ export async function main(
 }
 `
 
-export const DENO_INIT_CODE_CLEAR = `// import * as wmill from 'https://deno.land/x/windmill@v${__pkg__.version}/mod.ts'
+export const DENO_INIT_CODE_CLEAR = `// import * as wmill from "https://deno.land/x/windmill@v${__pkg__.version}/mod.ts"
 
 export async function main() {
   return
@@ -60,7 +60,24 @@ def main():
   return
 `
 
-export const DENO_INIT_CODE_TRIGGER = `import * as wmill from 'https://deno.land/x/windmill@v${__pkg__.version}/mod.ts'
+export const POSTGRES_INIT_CODE = `import {
+  pgSql,
+  type Resource,
+} from "https://deno.land/x/windmill@v${__pkg__.version}/mod.ts";
+
+//PG parametrized statement. No SQL injection is possible.
+export async function main(
+  db: Resource<"postgresql"> = "$res:g/all/demodb",
+  key: string,
+  value: string,
+) {
+  const query = await pgSql(
+    db,
+  )\`INSERT INTO demo VALUES (\${key}, \${value}) RETURNING *\`;
+  return query.rows;
+}`
+
+export const DENO_INIT_CODE_TRIGGER = `import * as wmill from "https://deno.land/x/windmill@v${__pkg__.version}/mod.ts"
 
 export async function main() {
 
@@ -81,10 +98,22 @@ export async function main() {
 }
 `
 
-export function initialCode(language: 'deno' | 'python3', is_trigger: boolean, is_flow: boolean): string {
-    return language === 'deno'
-        ? is_trigger
-            ? DENO_INIT_CODE_TRIGGER
-            : is_flow ? DENO_INIT_CODE_CLEAR : DENO_INIT_CODE
-        : is_flow ? PYTHON_INIT_CODE_CLEAR : PYTHON_INIT_CODE
+export function initialCode(language: 'deno' | 'python3', type: 'trigger' | 'flow' | 'pgsql' | undefined): string {
+  if (language === 'deno') {
+    if (type === 'trigger') {
+      return DENO_INIT_CODE_TRIGGER
+    } else if (type === 'flow') {
+      return DENO_INIT_CODE_CLEAR
+    } else if (type === 'pgsql') {
+      return POSTGRES_INIT_CODE
+    } else {
+      return DENO_INIT_CODE
+    }
+  } else {
+    if (type === 'flow') {
+      return PYTHON_INIT_CODE_CLEAR
+    } else {
+      return PYTHON_INIT_CODE
+    }
+  }
 }

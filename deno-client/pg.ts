@@ -50,6 +50,6 @@ export function pgSql(
         query: TemplateStringsArray,
         ...args: unknown[]
     ) {
-        return await pgClient(db).queryObject(query, args)
+        return await pgClient(db).queryObject(query, ...args)
     }
 }

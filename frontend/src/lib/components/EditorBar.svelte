@@ -220,17 +220,15 @@
 			}}
 		>
 			Reload assistants
-			{#if lang == 'deno'}
-				<span
-					>(<span class={websocketAlive.deno ? 'text-green-600' : 'text-red-700'}>Deno</span>)</span
-				>
-			{:else if lang == 'python3'}
-				<span
-					>(<span class={websocketAlive.pyright ? 'text-green-600' : 'text-red-700'}>Pyright</span>
+			<span class="ml-1">
+				{#if lang == 'deno'}
+					(<span class={websocketAlive.deno ? 'text-green-600' : 'text-red-700'}>Deno</span>)
+				{:else if lang == 'python3'}
+					(<span class={websocketAlive.pyright ? 'text-green-600' : 'text-red-700'}>Pyright</span>
 					&nbsp;
-					<span class={websocketAlive.black ? 'text-green-600' : 'text-red-700'}>Black</span>)</span
-				>
-			{/if}
+					<span class={websocketAlive.black ? 'text-green-600' : 'text-red-700'}>Black</span>)
+				{/if}
+			</span>
 		</Button>
 		<Button
 			size="xs"

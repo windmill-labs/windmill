@@ -62,7 +62,10 @@
 	$: opened = $stepOpened === String(indexes.join('-'))
 </script>
 
-<FlowBox bind:opened>
+<FlowBox
+	headerClickable={true}
+	on:clickheader={() => ($stepOpened = !opened ? String(indexes.join('-')) : undefined)}
+>
 	<svelte:fragment slot="header">
 		<FlowModuleHeader
 			bind:mod
@@ -90,7 +93,7 @@
 						on:new={(e) =>
 							apply(createInlineScriptModule, {
 								language: e.detail.language,
-								isTrigger: e.detail.isTrigger
+								type: e.detail.type
 							})}
 						on:loop={() => applyCreateLoop()}
 					/>

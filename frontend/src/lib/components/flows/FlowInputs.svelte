@@ -30,27 +30,24 @@
 		/>
 
 		<FlowScriptPicker
-			label={`New Postgres SQL query`}
+			label={`New PostgreSQL query`}
 			icon={faCode}
 			iconColor="text-blue-800"
-			on:click={() =>
-				dispatch('pick', {
-					path: 'hub/173/postgresql/execute_query_and_return_results_postgresql'
-				})}
+			on:click={() => dispatch('new', { language: RawScript.language.DENO, type: 'pgsql' })}
 		/>
 
 		<FlowScriptPicker
 			label="New Python script (3.10)"
 			icon={faCode}
 			iconColor="text-green-500"
-			on:click={() => dispatch('new', { language: RawScript.language.PYTHON3 })}
+			on:click={() => dispatch('new', { language: RawScript.language.PYTHON3, type: 'flow' })}
 		/>
 
 		<FlowScriptPicker
 			label="New Typescript script (Deno)"
 			icon={faCode}
 			iconColor="text-blue-800"
-			on:click={() => dispatch('new', { language: RawScript.language.DENO, isTrigger: false })}
+			on:click={() => dispatch('new', { language: RawScript.language.DENO, type: 'flow' })}
 		/>
 	</div>
 
@@ -64,7 +61,7 @@
 				label="New Typescript script (Deno)"
 				icon={faCode}
 				iconColor="text-blue-800"
-				on:click={() => dispatch('new', { language: RawScript.language.DENO, isTrigger: true })}
+				on:click={() => dispatch('new', { language: RawScript.language.DENO, type: 'trigger' })}
 			/>
 		</div>
 	{/if}
