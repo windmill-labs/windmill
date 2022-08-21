@@ -1190,7 +1190,7 @@ pub async fn restart_zombie_jobs_periodically(
 ) {
     loop {
         let restarted = sqlx::query!(
-            "UPDATE queue SET running = false WHERE last_ping < now() + ($1 || ' seconds')::interval and running = true RETURNING id, workspace_id",
+            "UPDATE queue SET running = false WHERE last_ping < now() - ($1 || ' seconds')::interval and running = true RETURNING id, workspace_id, last_ping",
             (timeout * 5).to_string(),
         )
         .fetch_all(db)
@@ -1199,7 +1199,12 @@ pub async fn restart_zombie_jobs_periodically(
         .unwrap_or_else(|| vec![]);
 
         for r in restarted {
-            tracing::info!("restarted zombie job {} {}", r.id, r.workspace_id);
+            tracing::info!(
+                "restarted zombie job {} {} {}",
+                r.id,
+                r.workspace_id,
+                r.last_ping
+            );
         }
 
         tokio::select! {
