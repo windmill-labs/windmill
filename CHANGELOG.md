@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [1.34.0](https://github.com/windmill-labs/windmill/compare/v1.33.0...v1.34.0) (2022-08-21)
+
+
+### Features
+
+* implicit types infered from default parameters ([b9dfbfa](https://github.com/windmill-labs/windmill/commit/b9dfbfa2d8d86f0313d4f8b1829c27a1b1c1c380))
+
 ## [1.33.0](https://github.com/windmill-labs/windmill/compare/v1.32.0...v1.33.0) (2022-08-21)
 
 
