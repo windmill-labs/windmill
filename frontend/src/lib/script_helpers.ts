@@ -38,8 +38,8 @@ export const DENO_INIT_CODE = `// reload the smart assistant on the top right if
 export async function main(
   a: number,
   b: "my" | "enum",
-  c: { nested: "object" },
-  d: string = "default arg",
+  d = "inferred type string from default arg",
+  c = { nested: "object" },
   //e: wmill.Base64
 ) {
   // let x = await wmill.getVariable('u/user/foo')

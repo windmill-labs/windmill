@@ -303,34 +303,40 @@
 				<h3 class="whitespace-nowrap mt-2">
 					Webhook to run this script and get job's uuid as response
 					<Tooltip
-						>Send a POST http request with a token as bearer token and the args respecting the
-						corresponding jsonschema as payload. To create a permanent token, go to your user
-						setting by clicking your username on the top-left.</Tooltip
+						>Send a POST http request with a token as bearer token (or pass it as query arg 'token')
+						and the args respecting the corresponding jsonschema as payload. To create a permanent
+						token, go to your user setting by clicking your username on the top-left.</Tooltip
 					>
 				</h3>
 
 				<pre><code
-						>By hash: <a href="/api/w/{$workspaceStore}/jobs/run/h/{script?.hash}"
-							>/api/w/{$workspaceStore}/jobs/run/h/{script?.hash}</a
+						>By hash: <a
+							href="//{$page.url
+								.hostname}/api/w/{$workspaceStore}/api/w/{$workspaceStore}/jobs/run/h/{script?.hash}"
+							>{$page.url
+								.hostname}/api/w/{$workspaceStore}/api/w/{$workspaceStore}/jobs/run/h/{script?.hash}</a
 						></code
 					></pre>
 				<pre><code
-						>By path: <a href="/api/w/{$workspaceStore}/jobs/run/p/{script?.path}"
-							>/api/w/{$workspaceStore}/jobs/run/p/{script?.path}</a
+						>By path: <a
+							href="//{$page.url.hostname}/api/w/{$workspaceStore}/jobs/run/p/{script?.path}"
+							>{$page.url.hostname}/api/w/{$workspaceStore}/jobs/run/p/{script?.path}</a
 						></code
 					></pre>
 				<h3 class="whitespace-nowrap mt-2">
 					Endpoint to run this script and get job's result as response
 					<Tooltip
-						>Send a POST http request with a token as bearer token and the args respecting the
-						corresponding jsonschema as payload. To create a permanent token, go to your user
-						setting by clicking your username on the top-left.</Tooltip
+						>Send a POST http request with a token as bearer token (or pass it as query arg 'token')
+						and the args respecting the corresponding jsonschema as payload. To create a permanent
+						token, go to your user setting by clicking your username on the top-left.</Tooltip
 					>
 				</h3>
 
 				<pre><code
-						><a href="/api/w/{$workspaceStore}/jobs/run_wait_result/p/{script?.path}"
-							>/api/w/{$workspaceStore}/jobs/run_wait_result/p/{script?.path}</a
+						><a
+							href="//{$page.url
+								.hostname}/api/w/{$workspaceStore}/jobs/run_wait_result/p/{script?.path}"
+							>{$page.url.hostname}/api/w/{$workspaceStore}/jobs/run_wait_result/p/{script?.path}</a
 						></code
 					></pre>
 			</div>
