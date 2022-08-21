@@ -7,6 +7,8 @@ export {
     UserApi, WorkspaceApi
 } from './windmill-api/index.ts'
 
+export { pgSql, pgClient } from './pg.ts'
+
 export type Sql = string
 export type Email = string
 export type Base64 = string
