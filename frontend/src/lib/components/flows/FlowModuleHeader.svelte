@@ -45,7 +45,7 @@
 	$: opened = $stepOpened === String(indexes.join('-'))
 </script>
 
-<div on:click={() => stepOpened.update(() => String(indexes.join('-')))}>
+<div>
 	<h3 class="text-sm font-bold text-gray-900">
 		{#if 'path' in mod.value && mod.value.path}
 			<IconedPath path={mod.value.path} />
@@ -57,7 +57,7 @@
 	</h3>
 </div>
 
-<div class="flex flex-row space-x-2">
+<div class="flex flex-row space-x-2" on:click|stopPropagation={() => undefined}>
 	{#if mod.value.type === 'script' && !shouldPick}
 		<Button size="xs" color="alternative" on:click={() => dispatch('fork')}>
 			<Icon data={faCodeBranch} class="mr-2" />

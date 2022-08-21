@@ -345,6 +345,7 @@
 
 			websocketInterval && clearInterval(websocketInterval)
 			websocketInterval = setInterval(() => {
+				console.log('websocketInterval')
 				if (document.visibilityState == 'visible') {
 					if (
 						!lastWsAttempt ||
@@ -436,6 +437,16 @@
 
 		editor.onDidFocusEditorText(() => {
 			dispatch('focus')
+			if (deno || lang == 'typescript') {
+				if (
+					!websocketAlive.black &&
+					!websocketAlive.deno &&
+					!websocketAlive.pyright &&
+					!websocketInterval
+				) {
+					reloadWebsocket()
+				}
+			}
 		})
 
 		editor.onDidBlurEditorText(() => {
