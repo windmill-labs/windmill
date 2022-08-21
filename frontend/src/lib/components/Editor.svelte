@@ -345,11 +345,16 @@
 
 			websocketInterval && clearInterval(websocketInterval)
 			websocketInterval = setInterval(() => {
-				console.log('websocketInterval')
+				console.log(
+					websocketInterval,
+					document.visibilityState,
+					new Date().getTime() - lastWsAttempt.getTime(),
+					nbWsAttempt
+				)
 				if (document.visibilityState == 'visible') {
 					if (
 						!lastWsAttempt ||
-						(lastWsAttempt.getTime() - new Date().getTime() > 60000 && nbWsAttempt < 2)
+						(new Date().getTime() - lastWsAttempt.getTime() > 60000 && nbWsAttempt < 2)
 					) {
 						if (!websocketAlive.black && !websocketAlive.deno && !websocketAlive.pyright) {
 							console.log('reconnecting to language servers')
