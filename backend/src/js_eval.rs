@@ -116,6 +116,25 @@ fn add_closing_bracket(s: &str) -> String {
     s
 }
 
+pub fn eval_sync(code: &str) -> Result<serde_json::Value, String> {
+    let mut context = JsRuntime::new(RuntimeOptions::default());
+    let code = format!("let x = {}; x", code);
+    let res = context.execute_script("<anon>", &code);
+    match res {
+        Ok(global) => {
+            let scope = &mut context.handle_scope();
+            let local = v8::Local::new(scope, global);
+            let deserialized_value = serde_v8::from_v8::<serde_json::Value>(scope, local);
+
+            match deserialized_value {
+                Ok(value) => Ok(value),
+                Err(err) => Err(format!("Cannot deserialize value: {:?}", err)),
+            }
+        }
+        Err(err) => Err(format!("Evaling error: {:?}", err)),
+    }
+}
+
 const SPLIT_PAT: &str = ";\n";
 async fn eval(
     context: &mut JsRuntime,
