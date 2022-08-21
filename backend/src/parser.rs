@@ -8,21 +8,21 @@
 
 use serde::Serialize;
 
-#[derive(Serialize)]
+#[derive(Serialize, Debug, PartialEq)]
 pub struct MainArgSignature {
     pub star_args: bool,
     pub star_kwargs: bool,
     pub args: Vec<Arg>,
 }
 
-#[derive(Serialize, Clone)]
+#[derive(Serialize, Clone, Debug, PartialEq)]
 #[serde(rename_all(serialize = "lowercase"))]
 pub struct ObjectProperty {
     pub key: String,
     pub typ: Box<Typ>,
 }
 
-#[derive(Serialize, Clone)]
+#[derive(Serialize, Clone, Debug, PartialEq)]
 #[serde(rename_all(serialize = "lowercase"))]
 pub enum Typ {
     Str(Option<Vec<String>>),
@@ -39,7 +39,7 @@ pub enum Typ {
     Unknown,
 }
 
-#[derive(Serialize, Clone)]
+#[derive(Serialize, Clone, Debug, PartialEq)]
 pub struct Arg {
     pub name: String,
     pub typ: Typ,
