@@ -63,6 +63,7 @@ use crate::{
 };
 
 pub use crate::tracing_init::initialize_tracing;
+pub use crate::worker::WorkerConfig;
 
 const GIT_VERSION: &str = git_version!(args = ["--tag", "--always"], fallback = "unknown-version");
 pub const DEFAULT_NUM_WORKERS: usize = 3;
@@ -216,9 +217,7 @@ pub async fn run_workers(
     timeout: i32,
     num_workers: i32,
     sleep_queue: u64,
-    base_url: String,
-    disable_nuser: bool,
-    disable_nsjail: bool,
+    worker_config: WorkerConfig,
     rx: tokio::sync::broadcast::Receiver<()>,
 ) -> anyhow::Result<()> {
     let instance_name = rd_string(5);
@@ -236,8 +235,8 @@ pub async fn run_workers(
         let instance_name = instance_name.clone();
         let worker_name = format!("dt-worker-{}-{}", &instance_name, rd_string(5));
         let ip = ip.clone();
-        let base_url = base_url.clone();
         let rx = rx.resubscribe();
+        let worker_config = worker_config.clone();
         handles.push(tokio::spawn(async move {
             tracing::info!(addr = %addr.to_string(), worker = %worker_name, "starting worker");
             worker::run_worker(
@@ -249,9 +248,7 @@ pub async fn run_workers(
                 num_workers as u64,
                 &ip,
                 sleep_queue,
-                &base_url,
-                disable_nuser,
-                disable_nsjail,
+                worker_config,
                 rx,
             )
             .await
