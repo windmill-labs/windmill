@@ -223,7 +223,7 @@
 												>{summary}</button
 											></td
 										>
-										<td
+										<td class="whitespace-nowrap"
 											><button class="text-blue-500" on:click={() => viewFlow(flow_id)}
 												>view flow</button
 											>
@@ -231,7 +231,7 @@
 											<a target="_blank" href={`https://hub.windmill.dev/flows/${flow_id}`}
 												>hub's page
 											</a>
-											| <a href={`/flows/add?hub=${flow_id}`}>fork</a>
+											| <a class="font-bold" href={`/flows/add?hub=${flow_id}`}>fork</a>
 										</td>
 									</tr>
 								{/each}
