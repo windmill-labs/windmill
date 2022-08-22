@@ -3422,9 +3422,9 @@ dependencies = [
 
 [[package]]
 name = "swc_common"
-version = "0.27.8"
+version = "0.27.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6950d061940150c048956c9c90bb729283d94750696b6fddbcbfaedcb245196e"
+checksum = "97e51645bfec1301012bef2f6f6b33482ba22b0f4034501a62ac248890bd107e"
 dependencies = [
  "ahash",
  "ast_node",
