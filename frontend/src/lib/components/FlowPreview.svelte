@@ -136,8 +136,5 @@
 		<div class="w-full flex justify-center">
 			<FlowStatusViewer {job} on:jobsLoaded={(e) => mapJobResultsToFlowState(e.detail, tab, i)} />
 		</div>
-		{#if `result` in job}
-			<FlowJobResult {job} />
-		{/if}
 	{/if}
 {/if}

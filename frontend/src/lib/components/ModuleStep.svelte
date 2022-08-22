@@ -139,7 +139,7 @@
 
 				{#if !shouldPick}
 					<div class="border-b border-gray-200" />
-					<div class="p-3">
+					<div class="pt-2">
 						<FlowPreview bind:args flow={$flowStore} {i} {schema} />
 					</div>
 				{/if}
