@@ -63,6 +63,14 @@
       "created_at": "2022-08-19T18:09:21Z",
       "repoId": 488804911,
       "pullRequestNo": 453
+    },
+    {
+      "name": "LucasLemanowicz",
+      "id": 361348,
+      "comment_id": 1223046964,
+      "created_at": "2022-08-22T21:07:29Z",
+      "repoId": 488804911,
+      "pullRequestNo": 472
     }
   ]
 }
