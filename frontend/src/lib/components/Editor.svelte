@@ -1,36 +1,27 @@
 <script lang="ts" context="module">
 	import * as monaco from 'monaco-editor'
-	import { language as sql } from 'monaco-editor/esm/vs/basic-languages/sql/sql'
-	monaco.languages.register({
-		id: 'python',
-		extensions: ['.py'],
-		aliases: ['python'],
-		mimetypes: ['application/text']
+
+	monaco.languages.typescript.javascriptDefaults.setCompilerOptions({
+		target: monaco.languages.typescript.ScriptTarget.Latest,
+		allowNonTsExtensions: true,
+		noLib: true
+	})
+	monaco.languages.typescript.typescriptDefaults.setCompilerOptions({
+		target: monaco.languages.typescript.ScriptTarget.Latest,
+		allowNonTsExtensions: true,
+		noLib: true
+	})
+	monaco.languages.typescript.typescriptDefaults.setDiagnosticsOptions({
+		noSemanticValidation: true,
+		noSuggestionDiagnostics: true,
+		noSyntaxValidation: true
 	})
 
-	monaco.languages.register({
-		id: 'sql',
-		extensions: ['.sql'],
-		aliases: ['SQL'],
-		mimetypes: ['application/text']
-	})
-
-	monaco.languages.registerInlineCompletionsProvider('sql', {
-		provideInlineCompletions: (a, b, c, d) => {
-			const w = a.getWordUntilPosition(b).word.toLowerCase()
-			return {
-				items:
-					w.length > 0
-						? ['SELECT', 'FROM', 'WHILE', 'AND', 'OR', 'DELETE', 'UPDATE', 'SET', 'WHEN', 'LIMIT']
-								.concat(sql.keywords)
-								.filter((x) => x.toLowerCase().startsWith(w))
-								.map((x) => ({
-									text: x + ' '
-								}))
-						: []
-			}
-		},
-		freeInlineCompletions: () => {}
+	monaco.languages.json.jsonDefaults.setDiagnosticsOptions({
+		validate: true,
+		allowComments: false,
+		schemas: [],
+		enableSchemaRequest: true
 	})
 </script>
 
@@ -458,41 +449,13 @@
 			dispatch('blur')
 		})
 
-		if (lang == 'sql') {
-			monaco.languages.register
-		} else if (lang == 'json') {
-			monaco.languages.json.jsonDefaults.setDiagnosticsOptions({
-				validate: true,
-				allowComments: false,
-				schemas: [],
-				enableSchemaRequest: true
-			})
-		} else if (lang == 'javascript' || lang == 'typescript') {
-			monaco.languages.typescript.javascriptDefaults.setCompilerOptions({
-				target: monaco.languages.typescript.ScriptTarget.Latest,
-				allowNonTsExtensions: true,
-				noLib: true
-			})
-			if (lang == 'typescript') {
-				monaco.languages.typescript.typescriptDefaults.setCompilerOptions({
-					target: monaco.languages.typescript.ScriptTarget.Latest,
-					allowNonTsExtensions: true,
-					noLib: true
-				})
-				if (deno) {
-					monaco.languages.typescript.typescriptDefaults.setDiagnosticsOptions({
-						noSemanticValidation: true,
-						noSuggestionDiagnostics: true,
-						noSyntaxValidation: true
-					})
+		if (lang == 'javascript' && extraLib != '' && extraLibPath != '') {
+			monaco.languages.typescript.javascriptDefaults.setExtraLibs([
+				{
+					content: extraLib,
+					filePath: extraLibPath
 				}
-			}
-
-			if (lang == 'javascript') {
-				if (extraLib != '' && extraLibPath != '') {
-					monaco.languages.typescript.javascriptDefaults.addExtraLib(extraLib, extraLibPath)
-				}
-			}
+			])
 		}
 
 		if (lang == 'python' || deno) {
