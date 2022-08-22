@@ -61,6 +61,13 @@ pub struct Metrics {
     pub jobs_failed: prometheus::IntCounter,
 }
 
+#[derive(Clone)]
+pub struct WorkerConfig {
+    pub base_internal_url: String,
+    pub base_url: String,
+    pub disable_nuser: bool,
+    pub disable_nsjail: bool,
+}
 pub async fn run_worker(
     db: &DB,
     timeout: i32,
@@ -70,10 +77,7 @@ pub async fn run_worker(
     num_workers: u64,
     ip: &str,
     sleep_queue: u64,
-    base_url: &str,
-    disable_nuser: bool,
-    disable_nsjail: bool,
-
+    worker_config: WorkerConfig,
     mut rx: tokio::sync::broadcast::Receiver<()>,
 ) {
     let worker_dir = format!("{TMP_DIR}/{worker_name}");
@@ -131,6 +135,7 @@ pub async fn run_worker(
         std::env::var("PYTHON_PATH").unwrap_or_else(|_| "/usr/local/bin/python3".to_string());
     let nsjail_path = std::env::var("NSJAIL_PATH").unwrap_or_else(|_| "nsjail".to_string());
     let path_env = std::env::var("PATH").unwrap_or_else(|_| String::new());
+    let envs = Envs { deno_path, python_path, nsjail_path, path_env };
 
     loop {
         if last_ping.elapsed().as_secs() > NUM_SECS_ENV_CHECK {
@@ -170,14 +175,9 @@ pub async fn run_worker(
                     timeout,
                     &worker_name,
                     &worker_dir,
-                    base_url,
-                    disable_nuser,
-                    disable_nsjail,
+                    worker_config.clone(),
                     &metrics,
-                    &deno_path,
-                    &python_path,
-                    &nsjail_path,
-                    &path_env,
+                    &envs,
                 )
                 .await
                 .err()
@@ -271,20 +271,21 @@ async fn insert_initial_ping(worker_instance: &str, worker_name: &str, ip: &str,
     .expect("insert worker_ping initial value");
 }
 
+struct Envs {
+    deno_path: String,
+    python_path: String,
+    nsjail_path: String,
+    path_env: String,
+}
 async fn handle_queued_job(
     job: QueuedJob,
     db: &sqlx::Pool<sqlx::Postgres>,
     timeout: i32,
     worker_name: &str,
     worker_dir: &str,
-    base_url: &str,
-    disable_nuser: bool,
-    disable_nsjail: bool,
+    worker_config: WorkerConfig,
     metrics: &Metrics,
-    deno_path: &str,
-    python_path: &str,
-    nsjail_path: &str,
-    path_env: &str,
+    envs: &Envs,
 ) -> crate::error::Result<()> {
     let job_id = job.id;
     let w_id = &job.workspace_id.clone();
@@ -321,13 +322,8 @@ async fn handle_queued_job(
                 worker_dir,
                 &mut logs,
                 &mut last_line,
-                base_url,
-                disable_nuser,
-                disable_nsjail,
-                deno_path,
-                python_path,
-                nsjail_path,
-                path_env,
+                worker_config,
+                envs,
             )
             .await;
 
@@ -424,13 +420,8 @@ async fn handle_job(
     worker_dir: &str,
     logs: &mut String,
     last_line: &mut String,
-    base_url: &str,
-    disable_nuser: bool,
-    disable_nsjail: bool,
-    deno_path: &str,
-    python_path: &str,
-    nsjail_path: &str,
-    path_env: &str,
+    worker_config: WorkerConfig,
+    Envs { deno_path, python_path, nsjail_path, path_env }: &Envs,
 ) -> Result<serde_json::Value, Error> {
     tracing::info!(
         worker = %worker_name,
@@ -458,13 +449,11 @@ async fn handle_job(
             db,
             &job_dir,
             worker_dir,
-            disable_nuser,
-            disable_nsjail,
+            worker_config,
             logs,
             &mut status,
             last_line,
             timeout,
-            base_url,
             deno_path,
             python_path,
             nsjail_path,
@@ -506,13 +495,11 @@ async fn handle_nondep_job(
     db: &sqlx::Pool<sqlx::Postgres>,
     job_dir: &String,
     worker_dir: &str,
-    disable_nuser: bool,
-    disable_nsjail: bool,
+    WorkerConfig { base_internal_url, base_url, disable_nuser, disable_nsjail }: WorkerConfig,
     logs: &mut String,
     status: &mut Result<ExitStatus, Error>,
     last_line: &mut String,
     timeout: i32,
-    base_url: &str,
     deno_path: &str,
     python_path: &str,
     nsjail_path: &str,
@@ -659,8 +646,13 @@ async fn handle_nondep_job(
 
                 let args = if let Some(args) = &job.args {
                     Some(
-                        transform_json_value(&token, &job.workspace_id, base_url, args.clone())
-                            .await?,
+                        transform_json_value(
+                            &token,
+                            &job.workspace_id,
+                            &base_internal_url,
+                            args.clone(),
+                        )
+                        .await?,
                     )
                 } else {
                     None
@@ -719,7 +711,7 @@ print(res_json)
                         .env_clear()
                         .envs(reserved_variables)
                         .env("PATH", path_env)
-                        .env("BASE_INTERNAL_URL", base_url)
+                        .env("BASE_INTERNAL_URL", base_internal_url)
                         .args(vec![
                             "--config",
                             "run.config.proto",
@@ -737,7 +729,7 @@ print(res_json)
                         .env_clear()
                         .envs(reserved_variables)
                         .env("PATH", path_env)
-                        .env("BASE_INTERNAL_URL", base_url)
+                        .env("BASE_INTERNAL_URL", base_internal_url)
                         .args(vec!["-u", "main.py"])
                         .stdout(Stdio::piped())
                         .stderr(Stdio::piped())
@@ -774,7 +766,15 @@ print(res_json)
             .await?;
 
             let args = if let Some(args) = &job.args {
-                Some(transform_json_value(&token, &job.workspace_id, base_url, args.clone()).await?)
+                Some(
+                    transform_json_value(
+                        &token,
+                        &job.workspace_id,
+                        &base_internal_url,
+                        args.clone(),
+                    )
+                    .await?,
+                )
             } else {
                 None
             };
@@ -825,8 +825,9 @@ run();
                 workspace_id = %job.workspace_id,
                 "started deno code execution"
             );
-            let hostname = base_url.split("://").last().unwrap_or("localhost");
-            let deno_auth_tokens = format!("{token}@{hostname}");
+            let hostname_base = base_url.split("://").last().unwrap_or("localhost");
+            let hostname_internal = base_internal_url.split("://").last().unwrap_or("localhost");
+            let deno_auth_tokens = format!("{token}@{hostname_base};{token}@{hostname_internal}");
 
             let child = if !disable_nsjail {
                 Command::new(nsjail_path)
@@ -835,7 +836,7 @@ run();
                     .envs(reserved_variables)
                     .env("PATH", path_env)
                     .env("DENO_AUTH_TOKENS", deno_auth_tokens)
-                    .env("BASE_INTERNAL_URL", base_url)
+                    .env("BASE_INTERNAL_URL", base_internal_url)
                     .args(vec![
                         "--config",
                         "run.config.proto",
@@ -857,7 +858,7 @@ run();
                     .envs(reserved_variables)
                     .env("PATH", path_env)
                     .env("DENO_AUTH_TOKENS", deno_auth_tokens)
-                    .env("BASE_INTERNAL_URL", base_url)
+                    .env("BASE_INTERNAL_URL", base_internal_url)
                     .args(vec![
                         "run",
                         "--unstable",
@@ -1779,9 +1780,12 @@ def main():
             let num_workers: u64 = 2;
             let ip: &str = Default::default();
             let sleep_queue: u64 = DEFAULT_SLEEP_QUEUE / num_workers;
-            let base_url: &str = Default::default();
-            let disable_nuser = false;
-            let disable_nsjail = false;
+            let worker_config = WorkerConfig {
+                base_internal_url: String::new(),
+                base_url: String::new(),
+                disable_nuser: false,
+                disable_nsjail: false,
+            };
 
             run_worker(
                 &db,
@@ -1792,9 +1796,7 @@ def main():
                 num_workers,
                 ip,
                 sleep_queue,
-                base_url,
-                disable_nuser,
-                disable_nsjail,
+                worker_config,
                 rx,
             )
         };

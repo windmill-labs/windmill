@@ -9,6 +9,7 @@
 use std::net::SocketAddr;
 
 use dotenv::dotenv;
+use windmill::WorkerConfig;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -42,6 +43,11 @@ async fn main() -> anyhow::Result<()> {
     let (tx, rx) = tokio::sync::broadcast::channel::<()>(3);
     let shutdown_signal = windmill::shutdown_signal(tx);
 
+    let base_internal_url = std::env::var("BASE_INTERNAL_URL")
+        .unwrap_or_else(|_| "http://missing-base-url".to_string());
+
+    let base_url = std::env::var("BASE_URL").unwrap_or_else(|_| "http://localhost".to_string());
+
     if server_mode || monitor_mode || num_workers > 0 {
         let addr = SocketAddr::from(([0, 0, 0, 0], 8000));
 
@@ -50,12 +56,13 @@ async fn main() -> anyhow::Result<()> {
             .and_then(|x| x.parse::<i32>().ok())
             .unwrap_or(windmill::DEFAULT_TIMEOUT);
 
+        let base_url_2 = base_url.clone();
         let server_f = async {
             if server_mode {
                 windmill::run_server(
                     db.clone(),
                     addr,
-                    &std::env::var("BASE_URL").unwrap_or("http://localhost".to_string()),
+                    &base_url_2,
                     windmill::EmailSender {
                         from: "bot@windmill.dev".to_string(),
                         server: "smtp.gmail.com".to_string(),
@@ -67,9 +74,6 @@ async fn main() -> anyhow::Result<()> {
             }
             Ok(()) as anyhow::Result<()>
         };
-
-        let base_url = std::env::var("BASE_INTERNAL_URL")
-            .unwrap_or_else(|_| "http://missing-base-url".to_string());
 
         let workers_f = async {
             if num_workers > 0 {
@@ -97,9 +101,7 @@ async fn main() -> anyhow::Result<()> {
                     timeout,
                     num_workers,
                     sleep_queue,
-                    base_url,
-                    disable_nuser,
-                    disable_nsjail,
+                    WorkerConfig { disable_nsjail, disable_nuser, base_internal_url, base_url },
                     rx.resubscribe(),
                 )
                 .await?;
