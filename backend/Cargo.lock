@@ -70,9 +70,9 @@ dependencies = [
 
 [[package]]
 name = "anyhow"
-version = "1.0.61"
+version = "1.0.62"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "508b352bb5c066aac251f6daf6b36eccd03e8a88e8081cd44959ea277a3af9a8"
+checksum = "1485d4d2cc45e7b201ee3767015c96faa5904387c9d87c6efdd0fb511f12d305"
 
 [[package]]
 name = "argon2"
@@ -3449,9 +3449,9 @@ dependencies = [
 
 [[package]]
 name = "swc_ecma_ast"
-version = "0.90.7"
+version = "0.90.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8265c7abbdf36fa17da7c276bf6dd933b0837e00655dc7452b7b23068e7de688"
+checksum = "68bfa2b3a48acf8da3756a1683732ec414a87a6c1073968c5e1fe87f869394c3"
 dependencies = [
  "bitflags",
  "is-macro",
@@ -3466,9 +3466,9 @@ dependencies = [
 
 [[package]]
 name = "swc_ecma_parser"
-version = "0.117.4"
+version = "0.118.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b8a8ef64367f4f84c49599c94426254fcc2a4bfbc446c422b6208ee685f72f1b"
+checksum = "99fe54d8da755f649c81337de073f393eb852d9194a19dfbeebaada772265730"
 dependencies = [
  "either",
  "enum_kind",
