@@ -46,12 +46,12 @@ export async function pickScript(path: string): Promise<FlowModuleSchema> {
 
 export async function createInlineScriptModule({
 	language,
-	isTrigger = false
+	type
 }: {
 	language: RawScript.language
-	isTrigger: boolean
+	type: 'trigger' | 'flow' | 'pgsql'
 }): Promise<FlowModuleSchema> {
-	const code = initialCode(language, isTrigger, true)
+	const code = initialCode(language, type)
 
 	const flowModule: FlowModule = {
 		value: { type: 'rawscript', content: code, language },

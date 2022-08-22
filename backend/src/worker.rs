@@ -61,6 +61,13 @@ pub struct Metrics {
     pub jobs_failed: prometheus::IntCounter,
 }
 
+#[derive(Clone)]
+pub struct WorkerConfig {
+    pub base_internal_url: String,
+    pub base_url: String,
+    pub disable_nuser: bool,
+    pub disable_nsjail: bool,
+}
 pub async fn run_worker(
     db: &DB,
     timeout: i32,
@@ -70,10 +77,7 @@ pub async fn run_worker(
     num_workers: u64,
     ip: &str,
     sleep_queue: u64,
-    base_url: &str,
-    disable_nuser: bool,
-    disable_nsjail: bool,
-
+    worker_config: WorkerConfig,
     mut rx: tokio::sync::broadcast::Receiver<()>,
 ) {
     let worker_dir = format!("{TMP_DIR}/{worker_name}");
@@ -131,6 +135,7 @@ pub async fn run_worker(
         std::env::var("PYTHON_PATH").unwrap_or_else(|_| "/usr/local/bin/python3".to_string());
     let nsjail_path = std::env::var("NSJAIL_PATH").unwrap_or_else(|_| "nsjail".to_string());
     let path_env = std::env::var("PATH").unwrap_or_else(|_| String::new());
+    let envs = Envs { deno_path, python_path, nsjail_path, path_env };
 
     loop {
         if last_ping.elapsed().as_secs() > NUM_SECS_ENV_CHECK {
@@ -170,14 +175,9 @@ pub async fn run_worker(
                     timeout,
                     &worker_name,
                     &worker_dir,
-                    base_url,
-                    disable_nuser,
-                    disable_nsjail,
+                    worker_config.clone(),
                     &metrics,
-                    &deno_path,
-                    &python_path,
-                    &nsjail_path,
-                    &path_env,
+                    &envs,
                 )
                 .await
                 .err()
@@ -271,20 +271,21 @@ async fn insert_initial_ping(worker_instance: &str, worker_name: &str, ip: &str,
     .expect("insert worker_ping initial value");
 }
 
+struct Envs {
+    deno_path: String,
+    python_path: String,
+    nsjail_path: String,
+    path_env: String,
+}
 async fn handle_queued_job(
     job: QueuedJob,
     db: &sqlx::Pool<sqlx::Postgres>,
     timeout: i32,
     worker_name: &str,
     worker_dir: &str,
-    base_url: &str,
-    disable_nuser: bool,
-    disable_nsjail: bool,
+    worker_config: WorkerConfig,
     metrics: &Metrics,
-    deno_path: &str,
-    python_path: &str,
-    nsjail_path: &str,
-    path_env: &str,
+    envs: &Envs,
 ) -> crate::error::Result<()> {
     let job_id = job.id;
     let w_id = &job.workspace_id.clone();
@@ -321,13 +322,8 @@ async fn handle_queued_job(
                 worker_dir,
                 &mut logs,
                 &mut last_line,
-                base_url,
-                disable_nuser,
-                disable_nsjail,
-                deno_path,
-                python_path,
-                nsjail_path,
-                path_env,
+                worker_config,
+                envs,
             )
             .await;
 
@@ -424,13 +420,8 @@ async fn handle_job(
     worker_dir: &str,
     logs: &mut String,
     last_line: &mut String,
-    base_url: &str,
-    disable_nuser: bool,
-    disable_nsjail: bool,
-    deno_path: &str,
-    python_path: &str,
-    nsjail_path: &str,
-    path_env: &str,
+    worker_config: WorkerConfig,
+    Envs { deno_path, python_path, nsjail_path, path_env }: &Envs,
 ) -> Result<serde_json::Value, Error> {
     tracing::info!(
         worker = %worker_name,
@@ -458,13 +449,11 @@ async fn handle_job(
             db,
             &job_dir,
             worker_dir,
-            disable_nuser,
-            disable_nsjail,
+            worker_config,
             logs,
             &mut status,
             last_line,
             timeout,
-            base_url,
             deno_path,
             python_path,
             nsjail_path,
@@ -506,13 +495,11 @@ async fn handle_nondep_job(
     db: &sqlx::Pool<sqlx::Postgres>,
     job_dir: &String,
     worker_dir: &str,
-    disable_nuser: bool,
-    disable_nsjail: bool,
+    WorkerConfig { base_internal_url, base_url, disable_nuser, disable_nsjail }: WorkerConfig,
     logs: &mut String,
     status: &mut Result<ExitStatus, Error>,
     last_line: &mut String,
     timeout: i32,
-    base_url: &str,
     deno_path: &str,
     python_path: &str,
     nsjail_path: &str,
@@ -647,8 +634,6 @@ async fn handle_nondep_job(
                     .collect::<Vec<String>>()
                     .join("");
 
-                let tx = db.begin().await?;
-
                 let token = create_token_for_owner(
                     &db,
                     &job.workspace_id,
@@ -661,8 +646,13 @@ async fn handle_nondep_job(
 
                 let args = if let Some(args) = &job.args {
                     Some(
-                        transform_json_value(&token, &job.workspace_id, base_url, args.clone())
-                            .await?,
+                        transform_json_value(
+                            &token,
+                            &job.workspace_id,
+                            &base_internal_url,
+                            args.clone(),
+                        )
+                        .await?,
                     )
                 } else {
                     None
@@ -694,7 +684,6 @@ print(res_json)
                 );
                 write_file(job_dir, "main.py", &wrapper_content).await?;
 
-                tx.commit().await?;
                 let mut reserved_variables = get_reserved_variables(job, token, db).await?;
                 if !disable_nsjail {
                     let _ = write_file(
@@ -722,7 +711,7 @@ print(res_json)
                         .env_clear()
                         .envs(reserved_variables)
                         .env("PATH", path_env)
-                        .env("BASE_INTERNAL_URL", base_url)
+                        .env("BASE_INTERNAL_URL", base_internal_url)
                         .args(vec![
                             "--config",
                             "run.config.proto",
@@ -740,7 +729,7 @@ print(res_json)
                         .env_clear()
                         .envs(reserved_variables)
                         .env("PATH", path_env)
-                        .env("BASE_INTERNAL_URL", base_url)
+                        .env("BASE_INTERNAL_URL", base_internal_url)
                         .args(vec!["-u", "main.py"])
                         .stdout(Stdio::piped())
                         .stderr(Stdio::piped())
@@ -765,13 +754,6 @@ print(res_json)
             let _ = write_file(job_dir, "inner.ts", &inner_content).await?;
 
             let sig = crate::parser_ts::parse_deno_signature(&inner_content)?;
-            //             let transforms = sig.args.clone().into_iter().map(|x| match x.typ {
-            //     Typ::Bytes => format!("if \"{}\" in kwargs and kwargs[\"{}\"] is not None:\n    kwargs[\"{}\"] = base64.b64decode(kwargs[\"{}\"])\n", x.name, x.name, x.name, x.name),
-            //     Typ::Datetime => format!("if \"{}\" in kwargs and kwargs[\"{}\"] is not None:\n    kwargs[\"{}\"] = datetime.strptime(kwargs[\"{}\"], '%Y-%m-%dT%H:%M')\n", x.name, x.name, x.name, x.name),
-            //     _ => "".to_string()
-            // }).collect::<Vec<String>>().join("");
-
-            let tx = db.begin().await?;
 
             let token = create_token_for_owner(
                 &db,
@@ -784,7 +766,15 @@ print(res_json)
             .await?;
 
             let args = if let Some(args) = &job.args {
-                Some(transform_json_value(&token, &job.workspace_id, base_url, args.clone()).await?)
+                Some(
+                    transform_json_value(
+                        &token,
+                        &job.workspace_id,
+                        &base_internal_url,
+                        args.clone(),
+                    )
+                    .await?,
+                )
             } else {
                 None
             };
@@ -814,8 +804,6 @@ run();
             );
             write_file(job_dir, "main.ts", &wrapper_content).await?;
 
-            tx.commit().await?;
-
             let mut reserved_variables = get_reserved_variables(job, token.clone(), db).await?;
             reserved_variables.insert("RUST_LOG".to_string(), "info".to_string());
 
@@ -837,8 +825,9 @@ run();
                 workspace_id = %job.workspace_id,
                 "started deno code execution"
             );
-            let hostname = base_url.split("://").last().unwrap_or("localhost");
-            let deno_auth_tokens = format!("{token}@{hostname}");
+            let hostname_base = base_url.split("://").last().unwrap_or("localhost");
+            let hostname_internal = base_internal_url.split("://").last().unwrap_or("localhost");
+            let deno_auth_tokens = format!("{token}@{hostname_base};{token}@{hostname_internal}");
 
             let child = if !disable_nsjail {
                 Command::new(nsjail_path)
@@ -847,7 +836,7 @@ run();
                     .envs(reserved_variables)
                     .env("PATH", path_env)
                     .env("DENO_AUTH_TOKENS", deno_auth_tokens)
-                    .env("BASE_INTERNAL_URL", base_url)
+                    .env("BASE_INTERNAL_URL", base_internal_url)
                     .args(vec![
                         "--config",
                         "run.config.proto",
@@ -869,7 +858,7 @@ run();
                     .envs(reserved_variables)
                     .env("PATH", path_env)
                     .env("DENO_AUTH_TOKENS", deno_auth_tokens)
-                    .env("BASE_INTERNAL_URL", base_url)
+                    .env("BASE_INTERNAL_URL", base_internal_url)
                     .args(vec![
                         "run",
                         "--unstable",
@@ -1202,7 +1191,7 @@ pub async fn restart_zombie_jobs_periodically(
 ) {
     loop {
         let restarted = sqlx::query!(
-            "UPDATE queue SET running = false WHERE last_ping < now() + ($1 || ' seconds')::interval and running = true RETURNING id, workspace_id",
+            "UPDATE queue SET running = false WHERE last_ping < now() - ($1 || ' seconds')::interval and running = true RETURNING id, workspace_id, last_ping",
             (timeout * 5).to_string(),
         )
         .fetch_all(db)
@@ -1211,7 +1200,12 @@ pub async fn restart_zombie_jobs_periodically(
         .unwrap_or_else(|| vec![]);
 
         for r in restarted {
-            tracing::info!("restarted zombie job {} {}", r.id, r.workspace_id);
+            tracing::info!(
+                "restarted zombie job {} {} {}",
+                r.id,
+                r.workspace_id,
+                r.last_ping
+            );
         }
 
         tokio::select! {
@@ -1386,47 +1380,18 @@ mod tests {
         initialize_tracing().await;
 
         let flow: FlowValue = serde_json::from_value(serde_json::json!({
-        "modules": [
-            {
-                "value": {
-                    "type": "rawscript",
-                    "content": "import os\nimport wmill\nfrom datetime import datetime\n\nimport re\nimport requests\nfrom datetime import datetime\nfrom html import unescape\n\n\ndef extract(html):\n    r = r\"<img class=\\\"[^\\\"]+ img-comic\\\"(([^>]*alt=\\\"(?P<alt>[^\\\"]+)\\\")|([^>]*src=\\\"(?P<url>[^\\\"]+)\\\"))+[^>]*>\"\n    match = re.search(r, html)\n    if match:\n        return {'url': match.group(\"url\"), 'desc': unescape(match.group(\"alt\"))}\n    return None\n\n\ndef fetch(date=None):\n    if date is None:\n        date = datetime.now()\n    url = f\"https://dilbert.com/strip/{date:%Y-%m-%d}\"\n    return requests.get(url, allow_redirects=False).text\n\n\ndef get_today_comic(date=None):\n    return extract(fetch(date))\n\n\n# Our webeditor includes a syntax, type checker through a language server running pyright\n# and the autoformatter Black in our servers. Use Cmd/Ctrl + S to autoformat the code.\n# Beware that the code is only saved when you click Save and not across reload.\n# You can however navigate to any steps safely.\n\"\"\"\nThe client is used to interact with windmill itself through its standard API.\nOne can explore the methods available through autocompletion of `client.XXX`.\nOnly the most common methods are included for ease of use. Request more as\nfeedback if you feel you are missing important ones.\n\"\"\"\n\n\ndef main(\n    date: str = None\n):\n    dateToFetch = datetime.strptime(date, '%Y-%m-%d') if (date is not None and len(date)>0) else datetime.now()\n    print(f\"Fetchind Dilber from {dateToFetch}\")\n    # retrieve variables, including secrets by querying the windmill platform.\n    # secret fetching is audited by windmill.\n    # secret = wmill.get_variable(\"g/all/pretty_secret\")\n    return get_today_comic(dateToFetch)\n",
-                    "language": "python3"
-                },
-                "input_transform": {
-                    "date": {
-                        "expr": "undefined",
-                        "type": "javascript"
+                "modules": [
+                    {
+                        "value": {
+                            "type": "rawscript",
+                            "content": "import wmill\ndef main():  return \"Hello\"",
+                            "language": "python3"
+                        },
+                        "input_transform": {}
                     }
-                }
-            },
-            {
-                "value": {
-                    "type": "rawscript",
-                    "content": "\nimport requests\n\n\ndef main(bot_token: str, chat_id: str, url: str, caption: str = \"\"):\n    return requests.get(\n        f\"https://api.telegram.org/bot{bot_token}/sendPhoto\",\n        params={\"chat_id\": chat_id, \"photo\": url, \"caption\": caption},\n    ).url\n",
-                    "language": "python3"
-                },
-                "input_transform": {
-                    "url": {
-                        "type": "static",
-                        "value": null
-                    },
-                    "caption": {
-                        "type": "static",
-                        "value": ""
-                    },
-                    "chat_id": {
-                        "type": "static",
-                        "value": null
-                    },
-                    "bot_token": {
-                        "type": "static",
-                        "value": null
-                    }
-                }
-            }
-        ]
-})).unwrap();
+                ]
+        }))
+        .unwrap();
 
         for i in 0..10 {
             println!("python flow iteration: {}", i);
@@ -1436,11 +1401,7 @@ mod tests {
             )
             .await;
 
-            assert_eq!(
-                result,
-                serde_json::json!("https://api.telegram.org/botNone/sendPhoto?caption="),
-                "iteration: {i}"
-            );
+            assert_eq!(result, serde_json::json!("Hello"), "iteration: {i}");
         }
     }
 
@@ -1819,9 +1780,12 @@ def main():
             let num_workers: u64 = 2;
             let ip: &str = Default::default();
             let sleep_queue: u64 = DEFAULT_SLEEP_QUEUE / num_workers;
-            let base_url: &str = Default::default();
-            let disable_nuser = false;
-            let disable_nsjail = false;
+            let worker_config = WorkerConfig {
+                base_internal_url: String::new(),
+                base_url: String::new(),
+                disable_nuser: false,
+                disable_nsjail: false,
+            };
 
             run_worker(
                 &db,
@@ -1832,9 +1796,7 @@ def main():
                 num_workers,
                 ip,
                 sleep_queue,
-                base_url,
-                disable_nuser,
-                disable_nsjail,
+                worker_config,
                 rx,
             )
         };

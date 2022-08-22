@@ -922,32 +922,6 @@
       ]
     }
   },
-  "4b11072143dc520fe59eb4100982a1cf1a529c79083bdd57ec84ed30b699d426": {
-    "query": "UPDATE queue SET running = false WHERE last_ping < now() + ($1 || ' seconds')::interval and running = true RETURNING id, workspace_id",
-    "describe": {
-      "columns": [
-        {
-          "ordinal": 0,
-          "name": "id",
-          "type_info": "Uuid"
-        },
-        {
-          "ordinal": 1,
-          "name": "workspace_id",
-          "type_info": "Varchar"
-        }
-      ],
-      "parameters": {
-        "Left": [
-          "Text"
-        ]
-      },
-      "nullable": [
-        false,
-        false
-      ]
-    }
-  },
   "4e8ff055a80cc2e6b7fd6653c0c8e9a0e4b223a4bdeab0cf43dc79ce10f635b9": {
     "query": "INSERT INTO workspace\n            (id, name, owner, domain)\n            VALUES ($1, $2, $3, $4)",
     "describe": {
@@ -2704,6 +2678,38 @@
         ]
       },
       "nullable": [
+        false
+      ]
+    }
+  },
+  "c78b52b350193135d2b9fcf04d3113f7504cc61f6414f809d8a9c51a16f20d35": {
+    "query": "UPDATE queue SET running = false WHERE last_ping < now() - ($1 || ' seconds')::interval and running = true RETURNING id, workspace_id, last_ping",
+    "describe": {
+      "columns": [
+        {
+          "ordinal": 0,
+          "name": "id",
+          "type_info": "Uuid"
+        },
+        {
+          "ordinal": 1,
+          "name": "workspace_id",
+          "type_info": "Varchar"
+        },
+        {
+          "ordinal": 2,
+          "name": "last_ping",
+          "type_info": "Timestamptz"
+        }
+      ],
+      "parameters": {
+        "Left": [
+          "Text"
+        ]
+      },
+      "nullable": [
+        false,
+        false,
         false
       ]
     }

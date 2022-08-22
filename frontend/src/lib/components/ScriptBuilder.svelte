@@ -4,7 +4,12 @@
 	import { goto } from '$app/navigation'
 	import { page } from '$app/stores'
 	import { inferArgs } from '$lib/infer'
-	import { DENO_INIT_CODE, DENO_INIT_CODE_TRIGGER, initialCode } from '$lib/script_helpers'
+	import {
+		DENO_INIT_CODE,
+		DENO_INIT_CODE_TRIGGER,
+		initialCode,
+		POSTGRES_INIT_CODE
+	} from '$lib/script_helpers'
 	import { workspaceStore } from '$lib/stores'
 	import { emptySchema, encodeState, sendUserToast, setQueryWithoutLoad } from '$lib/utils'
 	import { Breadcrumb, BreadcrumbItem } from 'flowbite-svelte'
@@ -22,6 +27,7 @@
 
 	export let script: Script
 	export let initialPath: string = ''
+	export let template: 'pgsql' | undefined = undefined
 
 	let pathError = ''
 
@@ -34,11 +40,14 @@
 	}
 
 	if (script.content == '') {
-		initContent(script.language, script.is_trigger)
+		initContent(script.language, template)
 	}
 
-	function initContent(lang: 'deno' | 'python3', is_trigger: boolean) {
-		script.content = initialCode(lang, is_trigger, false)
+	function initContent(language: 'deno' | 'python3', template: 'pgsql' | undefined) {
+		script.content = initialCode(
+			language,
+			template == 'pgsql' ? 'pgsql' : script.is_trigger ? 'trigger' : undefined
+		)
 	}
 
 	async function editScript(): Promise<void> {
@@ -136,17 +145,25 @@
 							changeStep(step + 1)
 						}}>Next</button
 					>
-					{#if step == 2}
-						<button
-							class="default-button-secondary px-6 max-h-8 mr-2"
-							on:click={async () => {
-								await inferSchema()
-								editScript()
-							}}>Save (commit)</button
-						>
-					{/if}
 				{:else}
-					<button class="default-button px-6 self-end" on:click={editScript}>Save (commit)</button>
+					<button class="default-button px-6 self-end" on:click={editScript}>Save</button>
+				{/if}
+				{#if step > 1}
+					<button
+						class="default-button-secondary px-6 max-h-8 mr-2"
+						on:click={async () => {
+							changeStep(step - 1)
+						}}>Back</button
+					>
+				{/if}
+				{#if step == 2}
+					<button
+						class="default-button-secondary px-6 max-h-8 mr-2"
+						on:click={async () => {
+							await inferSchema()
+							editScript()
+						}}>Save (commit)</button
+					>
 				{/if}
 			</div>
 		</div>
@@ -183,7 +200,7 @@
 					<a href="https://docs.windmill.dev/docs/reference/namespaces">docs</a>
 				</div>
 			</Path>
-			<h3 class="text-gray-700 pb-1 border-b">Language</h3>
+			<h3 class="text-gray-700 border-b">Language</h3>
 			<div class="max-w-md">
 				<RadioButton
 					label="Language"
@@ -191,10 +208,26 @@
 						['Typescript (Deno)', 'deno'],
 						['Python 3.10', 'python3']
 					]}
-					on:change={(e) => initContent(e.detail, script.is_trigger)}
+					on:change={(e) => initContent(e.detail, template)}
 					bind:value={script.language}
 				/>
 			</div>
+			{#if script.language == 'deno'}
+				<h4 class="text-gray-700  border-b">Template</h4>
+
+				<div class="max-w-md">
+					<RadioButton
+						label="Template"
+						options={[
+							['None', undefined],
+							['PostgreSQL', 'pgsql']
+						]}
+						on:change={(e) => initContent(script.language, e.detail)}
+						bind:value={template}
+					/>
+				</div>
+			{/if}
+
 			<h3 class="text-gray-700 pb-1 border-b">Metadata</h3>
 
 			<label class="block ">
@@ -247,8 +280,12 @@
 					type="checkbox"
 					bind:checked={script.is_trigger}
 					on:change={() => {
-						if (script.content == DENO_INIT_CODE || script.content == DENO_INIT_CODE_TRIGGER) {
-							initContent(script.language, script.is_trigger)
+						if (
+							script.content == DENO_INIT_CODE ||
+							script.content == DENO_INIT_CODE_TRIGGER ||
+							script.content == POSTGRES_INIT_CODE
+						) {
+							initContent(script.language, template)
 						}
 					}}
 				/>

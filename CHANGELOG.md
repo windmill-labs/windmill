@@ -1,6 +1,46 @@
 # Changelog
 
 
+## [1.34.0](https://github.com/windmill-labs/windmill/compare/v1.33.0...v1.34.0) (2022-08-21)
+
+
+### Features
+
+* implicit types infered from default parameters ([b9dfbfa](https://github.com/windmill-labs/windmill/commit/b9dfbfa2d8d86f0313d4f8b1829c27a1b1c1c380))
+
+## [1.33.0](https://github.com/windmill-labs/windmill/compare/v1.32.0...v1.33.0) (2022-08-21)
+
+
+### Features
+
+* PostgreSQL parametrized statement handled as typescript template ([1aa28c5](https://github.com/windmill-labs/windmill/commit/1aa28c55990b27901c698eea6812a51eaafc97bb))
+
+## [1.32.0](https://github.com/windmill-labs/windmill/compare/v1.31.0...v1.32.0) (2022-08-21)
+
+
+### Features
+
+* **backend:** failure_module ([#452](https://github.com/windmill-labs/windmill/issues/452)) ([32d067f](https://github.com/windmill-labs/windmill/commit/32d067f8c078fd7940c2c4bab8dbb01de876503e))
+* **frontend:** Open/Close UI ([#445](https://github.com/windmill-labs/windmill/issues/445)) ([7e4aac9](https://github.com/windmill-labs/windmill/commit/7e4aac997175bf2ba479021742e5aa8abab4ff41))
+* private imports ([a5343fa](https://github.com/windmill-labs/windmill/commit/a5343fa959a237120fc22d6a3c06da3b29a3f990))
+* rely on PG time rather than worker time ([0057266](https://github.com/windmill-labs/windmill/commit/00572668f16183f7508b9966213cbcc9c106da51))
+
+
+### Bug Fixes
+
+* **backend:** clear_schedule only clear non running jobs ([0cd814c](https://github.com/windmill-labs/windmill/commit/0cd814cfec3ab088f7646b6b9f6970e48961e710))
+* **backend:** fixes forloop with 257 items only iterates once ([#446](https://github.com/windmill-labs/windmill/issues/446)) ([bae8573](https://github.com/windmill-labs/windmill/commit/bae85732ff7c70796c2defcd0430d64dedeb36f7))
+* **backend:** started_at info for completed_job is no more completed_at ([77a6851](https://github.com/windmill-labs/windmill/commit/77a685144ddc65c8e5205688ce7e411a14f7915b))
+* cancel a flow now does the expected behavior ([c0e9cd0](https://github.com/windmill-labs/windmill/commit/c0e9cd05641d28336cc26eee5167a397149d61f2))
+* **deno-client:** pg module now supports prepared statements ([5900a03](https://github.com/windmill-labs/windmill/commit/5900a03c045861732bbf6f7bff1280f3c94b86ce))
+* **deno-client:** wrap the deno-postgres client and not the query statement ([68aaf32](https://github.com/windmill-labs/windmill/commit/68aaf3267ce183e366696ebadc644580976ed7ce))
+* **frontend:** Fix loops pickable properties ([#441](https://github.com/windmill-labs/windmill/issues/441)) ([0681472](https://github.com/windmill-labs/windmill/commit/068147251c831d3ab8564ccb909ad72ef2e32e74))
+* **frontend:** input checks refresh when schema change ([15f7cad](https://github.com/windmill-labs/windmill/commit/15f7cadc3d179993b70e1f7584d532528aaabb52))
+* **frontend:** link to schedule in runs discriminate isFlows ([7d76e69](https://github.com/windmill-labs/windmill/commit/7d76e69be9753cc572ce7c085d0191a31471d9e9))
+* **frontend:** simplify flow preview  logic([#450](https://github.com/windmill-labs/windmill/issues/450)) ([bc5a568](https://github.com/windmill-labs/windmill/commit/bc5a5688ce9c351ad745be225c11a977c1ad2afb))
+* handle 0 length for-loops in the backend ([#440](https://github.com/windmill-labs/windmill/issues/440)) ([561e13e](https://github.com/windmill-labs/windmill/commit/561e13e51ee7ffcf20bc524c22d756ea582d546e))
+* restart zombie jobs was restarting all jobs ([da77d04](https://github.com/windmill-labs/windmill/commit/da77d040942c01b0011e76546dddd6aaa7786b8f))
+
 ## [1.31.0](https://github.com/windmill-labs/windmill/compare/v1.30.0...v1.31.0) (2022-08-17)
 
 
