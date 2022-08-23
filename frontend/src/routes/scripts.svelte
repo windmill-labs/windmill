@@ -265,7 +265,7 @@
 									<tr>
 										<td class="font-black">{app}</td>
 										<td><button on:click={() => viewCode(path)}>{summary}</button></td>
-										<td
+										<td class="whitespace-nowrap"
 											><button class="text-blue-500" on:click={() => viewCode(path)}
 												>view code</button
 											>
@@ -273,7 +273,10 @@
 											<a target="_blank" href={`https://hub.windmill.dev/scripts/${app}/${ask_id}`}
 												>hub's page</a
 											>
-											| <a href={`/scripts/add?hub=${encodeURIComponent(path)}`}>fork</a>
+											|
+											<a class="font-bold" href={`/scripts/add?hub=${encodeURIComponent(path)}`}
+												>fork</a
+											>
 										</td>
 									</tr>
 								{/each}

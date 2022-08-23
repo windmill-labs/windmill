@@ -15,7 +15,8 @@
 		forLater,
 		setQuery,
 		truncateHash,
-		msToSec
+		msToSec,
+		truncateRev
 	} from '$lib/utils'
 	import Icon from 'svelte-awesome'
 	import { check } from 'svelte-awesome/icons'
@@ -53,8 +54,7 @@
 			: false
 
 	let showOlderJobs = true
-	// The API returns 30 jobs per page. We use it to display a next page button or not.
-	const jobsPerPage = 30
+	const jobsPerPage = 100
 
 	let jobKindsCat: string | undefined = $page.url.searchParams.get('job_kinds') ?? 'runs'
 
@@ -87,7 +87,8 @@
 			scriptPathExact: path === '' ? undefined : path,
 			jobKinds,
 			success,
-			isSkipped
+			isSkipped,
+			isFlowStep: jobKindsCat != 'all' ? false : undefined
 		})
 	}
 
@@ -205,8 +206,8 @@ the bearer token they use has less privilege."
 			{#if jobs}
 				{#each jobs as job}
 					<div class="border rounded">
-						<div class="grid grid-cols-2">
-							<div class="flex-col py-2">
+						<div class="grid grid-cols-2 w-full">
+							<div class="flex-col py-2 grow">
 								<div class="flex flex-row text-sm">
 									{#if job === undefined}
 										No job found
@@ -259,7 +260,7 @@ the bearer token they use has less privilege."
 											{/if}
 										</div>
 
-										<h3 class="break-all text-center align-middle py-2">
+										<h3 class="break-all  py-2">
 											{#if job.script_path}
 												<a class="pr-3" href="/run/{job.id}">{job.script_path} </a>
 											{:else if 'job_kind' in job && job.job_kind == 'preview'}
@@ -285,90 +286,100 @@ the bearer token they use has less privilege."
 									{/if}
 								</div>
 								<div>
-									<span class="pl-14 italic text-gray-500 text-2xs">Run {job.id}</span>
+									<span
+										class="pl-14 italic text-gray-500 text-2xs  whitespace-nowrap overflow-hidden"
+										>Run {job.id}</span
+									>
 								</div>
 							</div>
-							<div
-								class="px-14 md:pl-40 py-6  text-gray-500 text-xs text-left place-self-start flex flex-col gap-1"
-							>
-								<div>
-									<Icon class="text-gray-700" data={faClock} scale={SMALL_ICON_SCALE} /><span
-										class="mx-2"
-									>
-										Created {displayDaysAgo(job.created_at ?? '')}</span
-									>
-								</div>
-								{#if 'started_at' in job && job.started_at}
+							<div class="bg-white grid grid-cols-2 py-4 gap-x-2">
+								<div class="w-full text-gray-500 text-xs text-left flex flex-col gap-1 mx-4">
 									<div>
-										<Icon class="text-gray-700" data={faClock} scale={SMALL_ICON_SCALE} /><span
-											class="mx-2"
-										>
-											Started {displayDaysAgo(job.started_at ?? '')}</span
-										>
-									</div>
-								{/if}
-								{#if job && 'duration_ms' in job && job.duration_ms != undefined}
-									<div>
-										<Icon
-											class="text-gray-700"
-											data={faHourglassHalf}
-											scale={SMALL_ICON_SCALE}
-										/><span class="mx-2"> Ran in {msToSec(job.duration_ms)}s</span>
-									</div>
-								{/if}
-								<div>
-									{#if job && job.parent_job}
-										{#if job.is_flow_step}
-											<Icon class="text-gray-700" data={faWind} scale={SMALL_ICON_SCALE} /><span
-												class="mx-2"
-											>
-												Step of flow <a href={`/run/${job.parent_job}`}>{job.parent_job}</a></span
-											>
-										{:else}
-											<Icon class="text-gray-700" data={faRobot} scale={SMALL_ICON_SCALE} /><span
-												class="mx-2"
-											>
-												Triggered by parent <a href={`/run/${job.parent_job}`}>{job.parent_job}</a
-												></span
-											>
-										{/if}
-									{:else if job && job.schedule_path}
-										<Icon class="text-gray-700" data={faCalendar} scale={SMALL_ICON_SCALE} />
-										<span class="mx-2"
-											>Triggered by the schedule: <a
-												href={`/schedule/add?edit=${job.schedule_path}&isFlow=${
-													job.job_kind == 'flow'
-												}`}>{job.schedule_path}</a
-											></span
-										>
-									{:else}
 										<Icon class="text-gray-700" data={faUser} scale={SMALL_ICON_SCALE} /><span
 											class="mx-2"
 										>
 											By {job.created_by}</span
 										>
-									{/if}
-								</div>
-								{#if 'scheduled_for' in job && !job.running && job.scheduled_for && forLater(job.scheduled_for)}
-									<div>
-										<Icon class="text-gray-700" data={faCalendar} scale={SMALL_ICON_SCALE} /><span
-											class="mx-2"
-										>
-											<span class="bg-blue-200 text-gray-700 text-xs rounded px-1 ">Scheduled</span>
-											for {displayDate(job.scheduled_for ?? '')}
-										</span>
 									</div>
-								{:else if 'scheduled_for' in job && !job.running}
+									{#if job && 'duration_ms' in job && job.duration_ms != undefined}
+										<div>
+											<Icon
+												class="text-gray-700"
+												data={faHourglassHalf}
+												scale={SMALL_ICON_SCALE}
+											/><span class="mx-2"> Ran in {msToSec(job.duration_ms)}s</span>
+										</div>
+									{/if}
+									<div>
+										{#if job && job.parent_job}
+											{#if job.is_flow_step}
+												<Icon class="text-gray-700" data={faWind} scale={SMALL_ICON_SCALE} /><span
+													class="mx-2"
+												>
+													Step of flow <a href={`/run/${job.parent_job}`}
+														>{truncateRev(job.parent_job, 6)}</a
+													></span
+												>
+											{:else}
+												<Icon class="text-gray-700" data={faRobot} scale={SMALL_ICON_SCALE} /><span
+													class="mx-2"
+												>
+													Triggered by parent <a href={`/run/${job.parent_job}`}>{job.parent_job}</a
+													></span
+												>
+											{/if}
+										{:else if job && job.schedule_path}
+											<Icon class="text-gray-700" data={faCalendar} scale={SMALL_ICON_SCALE} />
+											<span class="mx-2"
+												>Triggered by the schedule: <a
+													href={`/schedule/add?edit=${job.schedule_path}&isFlow=${
+														job.job_kind == 'flow'
+													}`}>{job.schedule_path}</a
+												></span
+											>
+										{/if}
+									</div>
+								</div>
+								<div class="text-gray-500 text-xs text-left place-self-start flex flex-col gap-1">
 									<div>
 										<Icon class="text-gray-700" data={faClock} scale={SMALL_ICON_SCALE} /><span
 											class="mx-2"
 										>
-											<span class="bg-blue-200 text-gray-700 text-xs rounded px-1 "
-												>Waiting for an executor</span
-											>
-										</span>
+											Created {displayDaysAgo(job.created_at ?? '')}</span
+										>
 									</div>
-								{/if}
+									{#if 'started_at' in job && job.started_at}
+										<div>
+											<Icon class="text-gray-700" data={faClock} scale={SMALL_ICON_SCALE} /><span
+												class="mx-2"
+											>
+												Started {displayDaysAgo(job.started_at ?? '')}</span
+											>
+										</div>
+									{/if}
+									{#if 'scheduled_for' in job && !job.running && job.scheduled_for && forLater(job.scheduled_for)}
+										<div>
+											<Icon class="text-gray-700" data={faCalendar} scale={SMALL_ICON_SCALE} /><span
+												class="mx-2"
+											>
+												<span class="bg-blue-200 text-gray-700 text-xs rounded px-1 "
+													>Scheduled</span
+												>
+												for {displayDate(job.scheduled_for ?? '')}
+											</span>
+										</div>
+									{:else if 'scheduled_for' in job && !job.running}
+										<div>
+											<Icon class="text-gray-700" data={faClock} scale={SMALL_ICON_SCALE} /><span
+												class="mx-2"
+											>
+												<span class="bg-blue-200 text-gray-700 text-xs rounded px-1 "
+													>Waiting for an executor</span
+												>
+											</span>
+										</div>
+									{/if}
+								</div>
 							</div>
 						</div>
 					</div>

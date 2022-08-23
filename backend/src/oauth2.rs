@@ -767,8 +767,8 @@ async fn login_callback(
                 "oauth.signup",
                 ActionKind::Create,
                 "global",
-                Some("github"),
-                None,
+                Some(&email),
+                Some([("method", &client_name[..])].into()),
             )
             .await?;
             let demo_exists =
