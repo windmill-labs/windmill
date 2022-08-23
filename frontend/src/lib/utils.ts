@@ -6,6 +6,14 @@ import { get } from 'svelte/store'
 import type { Schema } from './common'
 import { hubScripts, workspaceStore, type UserExt } from './stores'
 
+export function validateUsername(username: string): string {
+	if (username != '' && !/^\w+$/.test(username)) {
+		return 'username can only contain letters and numbers'
+	} else {
+		return ''
+	}
+}
+
 export function isToday(someDate: Date): boolean {
 	const today = new Date()
 	return (
@@ -32,7 +40,12 @@ export function displayDaysAgo(dateString: string): string {
 	} else if (isToday(date)) {
 		return `today at ${date.toLocaleTimeString()}`
 	} else {
-		return `${daysAgo(date) + 1} days ago`
+		let dAgo = daysAgo(date)
+		if (dAgo == 0) {
+			return `yday at ${date.toLocaleTimeString()}`
+		} else {
+			return `${dAgo + 1} days ago`
+		}
 	}
 }
 
@@ -41,9 +54,8 @@ export function displayDate(dateString: string | undefined): string {
 	if (date.toString() === 'Invalid Date') {
 		return ''
 	} else {
-		return `${date.getFullYear()}/${
-			date.getMonth() + 1
-		}/${date.getDate()} at ${date.toLocaleTimeString()}`
+		return `${date.getFullYear()}/${date.getMonth() + 1
+			}/${date.getDate()} at ${date.toLocaleTimeString()}`
 	}
 }
 

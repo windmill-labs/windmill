@@ -579,6 +579,7 @@ pub struct ListCompletedQuery {
     pub order_desc: Option<bool>,
     pub job_kinds: Option<String>,
     pub is_skipped: Option<bool>,
+    pub is_flow_step: Option<bool>,
 }
 fn list_completed_jobs_query(
     w_id: &str,
@@ -621,6 +622,9 @@ fn list_completed_jobs_query(
     }
     if let Some(sk) = &lq.is_skipped {
         sqlb.and_where_eq("is_skipped", sk);
+    }
+        if let Some(fs) = &lq.is_flow_step {
+        sqlb.and_where_eq("is_flow_step", fs);
     }
     if let Some(jk) = &lq.job_kinds {
         sqlb.and_where_in(

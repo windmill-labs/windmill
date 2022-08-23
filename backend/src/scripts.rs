@@ -525,8 +525,7 @@ async fn get_script_by_path(
 
     let script_o = sqlx::query_as::<_, Script>(
         "SELECT * FROM script WHERE path = $1 AND (workspace_id = $2 OR workspace_id = 'starter') \
-         AND
-         created_at = (SELECT max(created_at) FROM script WHERE path = $1 AND archived = false AND \
+         AND created_at = (SELECT max(created_at) FROM script WHERE path = $1 AND \
          (workspace_id = $2 OR workspace_id = 'starter'))",
     )
     .bind(path)
