@@ -380,14 +380,15 @@
 									>{job.schedule_path}</a
 								></span
 							>
-						{:else}
+						{/if}
+						<div>
 							<Icon class="text-gray-700" data={faUser} scale={SMALL_ICON_SCALE} /><span
 								class="mx-2"
 							>
 								By {job.created_by}
 								{#if job.permissioned_as != `u/${job.created_by}`}but permissioned as {job.permissioned_as}{/if}
 							</span>
-						{/if}
+						</div>
 					</div>
 					<div class="text-gray-700 text-2xs pt-2">
 						run id: <a href={`/run/${job.id}`}>{job.id}</a>
