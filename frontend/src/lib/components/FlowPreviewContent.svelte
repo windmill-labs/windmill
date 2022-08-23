@@ -90,7 +90,7 @@
 	{/if}
 
 	<div class="h-full overflow-y-auto mb-16 grow">
-		{#if job}
+		{#if job?.id}
 			<FlowStatusViewer
 				jobId={job.id}
 				on:jobsLoaded={(e) => mapJobResultsToFlowState(e.detail, 'upto', steps - 1)}
