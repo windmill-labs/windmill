@@ -87,7 +87,8 @@
 			scriptPathExact: path === '' ? undefined : path,
 			jobKinds,
 			success,
-			isSkipped
+			isSkipped,
+			isFlowStep: jobKindsCat != 'all' ? false : undefined
 		})
 	}
 
