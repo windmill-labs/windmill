@@ -111,7 +111,7 @@
 		/>
 	{/if}
 
-	{#if job}
+	{#if jobId}
 		<div class="w-full flex justify-center">
 			<FlowStatusViewer
 				{jobId}
