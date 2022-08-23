@@ -35,8 +35,8 @@
 				innerJobs: [],
 				loopJobs: []
 			}
+			loadJobInProgress()
 		}
-		loadJobInProgress()
 	}
 
 	let lastJobid = jobId
