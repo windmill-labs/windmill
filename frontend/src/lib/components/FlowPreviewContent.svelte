@@ -23,6 +23,7 @@
 
 	export async function runPreview(args: Record<string, any>) {
 		jobId = await runFlowPreview(args, newFlow)
+
 		intervalState = 'running'
 	}
 
