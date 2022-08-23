@@ -16,6 +16,7 @@
 	import { onDestroy, onMount } from 'svelte'
 	import Icon from 'svelte-awesome'
 	import { OFFSET } from './CronInput.svelte'
+	import Drawer from './Drawer.svelte'
 	import FlowEditor from './FlowEditor.svelte'
 	import FlowPreviewContent from './FlowPreviewContent.svelte'
 	import { flowStateStore, flowStateToFlow, type FlowState } from './flows/flowState'
@@ -27,12 +28,12 @@
 	export let initialPath: string = ''
 	let pathError = ''
 
+	let previewOpen = false
+
 	let scheduleArgs: Record<string, any>
 	let previewArgs: Record<string, any>
 	let scheduleEnabled: boolean
 	let scheduleCron: string
-
-	let previewOpen = false
 
 	$: step = Number($page.url.searchParams.get('step')) || 1
 
@@ -121,9 +122,6 @@
 	}
 
 	async function changeStep(step: number) {
-		if (step === 2 && previewOpen) {
-			previewOpen = false
-		}
 		goto(`?step=${step}`)
 	}
 
@@ -157,9 +155,7 @@
 </script>
 
 <div class="flex flex-row w-full h-full justify-between">
-	<div
-		class={`flex flex-col mb-96 m-auto w-full sm:w-3/4 lg:w-2/3	${previewOpen ? 'xl:w-1/2' : ''}`}
-	>
+	<div class={`flex flex-col mb-96 m-auto w-full sm:w-3/4 lg:w-2/3`}>
 		<!-- Nav between steps-->
 		<div class="justify-between flex flex-row w-full my-4">
 			<Breadcrumb>
@@ -244,17 +240,8 @@
 			<p>Loading</p>
 		{/if}
 	</div>
-
-	<div class={`relative h-screen w-1/3 ${previewOpen ? '' : 'hidden'}`}>
-		<div class="absolute top-0 h-full">
-			{#if $flowStore && step === 1}
-				<div class="fixed border-l-2 right-0 h-screen w-1/2 sm:w-1/3">
-					<FlowPreviewContent
-						bind:args={previewArgs}
-						on:close={() => (previewOpen = !previewOpen)}
-					/>
-				</div>
-			{/if}
-		</div>
-	</div>
 </div>
+
+<Drawer bind:open={previewOpen} size="800px">
+	<FlowPreviewContent bind:args={previewArgs} on:close={() => (previewOpen = !previewOpen)} />
+</Drawer>
