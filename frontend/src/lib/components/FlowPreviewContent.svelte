@@ -27,7 +27,12 @@
 	const dispatch = createEventDispatcher()
 
 	export async function runPreview(args: Record<string, any>) {
-		job = undefined
+		job?.type == 'QueuedJob' &&
+			(await JobService.cancelQueuedJob({
+				workspace: $workspaceStore!,
+				id: job.id,
+				requestBody: {}
+			}))
 		intervalId && clearInterval(intervalId)
 
 		jobId = await runFlowPreview(args, newFlow)
