@@ -17,7 +17,7 @@
 	let inputCheck: { [id: string]: boolean } = {}
 	$: isValid = allTrue(inputCheck) ?? false
 
-	$: if (!args) {
+	$: if (args == undefined) {
 		args = {}
 	}
 
