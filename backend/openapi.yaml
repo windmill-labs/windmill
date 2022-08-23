@@ -2361,6 +2361,11 @@ paths:
           in: query
           schema:
             type: boolean
+        - name: is_flow_step
+          description: is the job a flow step
+          in: query
+          schema:
+            type: boolean
       responses:
         "200":
           description: All available completed jobs
@@ -2389,6 +2394,11 @@ paths:
         - $ref: "#/components/parameters/JobKinds"
         - name: is_skipped
           description: is the job skipped
+          in: query
+          schema:
+            type: boolean
+        - name: is_flow_step
+          description: is the job a flow step
           in: query
           schema:
             type: boolean
