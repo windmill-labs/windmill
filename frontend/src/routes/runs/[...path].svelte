@@ -206,7 +206,7 @@ the bearer token they use has less privilege."
 			{#if jobs}
 				{#each jobs as job}
 					<div class="border rounded">
-						<div class="flex flex-row">
+						<div class="grid grid-cols-2 w-full">
 							<div class="flex-col py-2 grow">
 								<div class="flex flex-row text-sm">
 									{#if job === undefined}
@@ -292,50 +292,8 @@ the bearer token they use has less privilege."
 									>
 								</div>
 							</div>
-							<div class="flex flex-row-reverse py-4 max-w-xs w-xs mr-8 place-self-end">
-								<div
-									class="shrink text-gray-500 text-xs text-left place-self-start flex flex-col gap-1"
-								>
-									<div>
-										<Icon class="text-gray-700" data={faClock} scale={SMALL_ICON_SCALE} /><span
-											class="mx-2"
-										>
-											Created {displayDaysAgo(job.created_at ?? '')}</span
-										>
-									</div>
-									{#if 'started_at' in job && job.started_at}
-										<div>
-											<Icon class="text-gray-700" data={faClock} scale={SMALL_ICON_SCALE} /><span
-												class="mx-2"
-											>
-												Started {displayDaysAgo(job.started_at ?? '')}</span
-											>
-										</div>
-									{/if}
-									{#if 'scheduled_for' in job && !job.running && job.scheduled_for && forLater(job.scheduled_for)}
-										<div>
-											<Icon class="text-gray-700" data={faCalendar} scale={SMALL_ICON_SCALE} /><span
-												class="mx-2"
-											>
-												<span class="bg-blue-200 text-gray-700 text-xs rounded px-1 "
-													>Scheduled</span
-												>
-												for {displayDate(job.scheduled_for ?? '')}
-											</span>
-										</div>
-									{:else if 'scheduled_for' in job && !job.running}
-										<div>
-											<Icon class="text-gray-700" data={faClock} scale={SMALL_ICON_SCALE} /><span
-												class="mx-2"
-											>
-												<span class="bg-blue-200 text-gray-700 text-xs rounded px-1 "
-													>Waiting for an executor</span
-												>
-											</span>
-										</div>
-									{/if}
-								</div>
-								<div class="grow w-full text-gray-500 text-xs text-left flex flex-col gap-1 mx-4">
+							<div class="bg-white grid grid-cols-2 py-4 gap-x-2">
+								<div class="w-full text-gray-500 text-xs text-left flex flex-col gap-1 mx-4">
 									<div>
 										<Icon class="text-gray-700" data={faUser} scale={SMALL_ICON_SCALE} /><span
 											class="mx-2"
@@ -381,6 +339,46 @@ the bearer token they use has less privilege."
 											>
 										{/if}
 									</div>
+								</div>
+								<div class="text-gray-500 text-xs text-left place-self-start flex flex-col gap-1">
+									<div>
+										<Icon class="text-gray-700" data={faClock} scale={SMALL_ICON_SCALE} /><span
+											class="mx-2"
+										>
+											Created {displayDaysAgo(job.created_at ?? '')}</span
+										>
+									</div>
+									{#if 'started_at' in job && job.started_at}
+										<div>
+											<Icon class="text-gray-700" data={faClock} scale={SMALL_ICON_SCALE} /><span
+												class="mx-2"
+											>
+												Started {displayDaysAgo(job.started_at ?? '')}</span
+											>
+										</div>
+									{/if}
+									{#if 'scheduled_for' in job && !job.running && job.scheduled_for && forLater(job.scheduled_for)}
+										<div>
+											<Icon class="text-gray-700" data={faCalendar} scale={SMALL_ICON_SCALE} /><span
+												class="mx-2"
+											>
+												<span class="bg-blue-200 text-gray-700 text-xs rounded px-1 "
+													>Scheduled</span
+												>
+												for {displayDate(job.scheduled_for ?? '')}
+											</span>
+										</div>
+									{:else if 'scheduled_for' in job && !job.running}
+										<div>
+											<Icon class="text-gray-700" data={faClock} scale={SMALL_ICON_SCALE} /><span
+												class="mx-2"
+											>
+												<span class="bg-blue-200 text-gray-700 text-xs rounded px-1 "
+													>Waiting for an executor</span
+												>
+											</span>
+										</div>
+									{/if}
 								</div>
 							</div>
 						</div>
