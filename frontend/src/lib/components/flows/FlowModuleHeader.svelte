@@ -45,14 +45,19 @@
 	$: opened = $stepOpened === String(indexes.join('-'))
 </script>
 
-<div>
-	<h3 class="text-sm font-bold text-gray-900">
-		{#if 'path' in mod.value && mod.value.path}
-			<IconedPath path={mod.value.path} />
-		{:else if 'language' in mod.value && mod.value.language}
-			Inline {mod.value.language}
-		{:else}
-			Select a script
+<div on:click|stopPropagation={() => undefined}>
+	<h3 class="text-sm font-bold text-gray-900 flex flex-col">
+		<span class="text-xs shrink">
+			{#if 'path' in mod.value && mod.value.path}
+				<IconedPath path={mod.value.path} />
+			{:else if 'language' in mod.value && mod.value.language}
+				Inline {mod.value.language}
+			{:else}
+				Select a script
+			{/if}
+		</span>
+		{#if ('path' in mod.value && mod.value.path) || ('language' in mod.value && mod.value.language)}
+			<input class="overflow-x-auto" type="text" bind:value={mod.summary} placeholder="Summary" />
 		{/if}
 	</h3>
 </div>
