@@ -2,6 +2,7 @@
 	import { ScheduleService } from '$lib/gen'
 
 	import { workspaceStore } from '$lib/stores'
+
 	import FlowSettings from './flows/FlowSettings.svelte'
 	import { flowStateStore } from './flows/flowState'
 	import { flowStore } from './flows/flowStore'

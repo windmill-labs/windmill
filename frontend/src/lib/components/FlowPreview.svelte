@@ -1,12 +1,11 @@
 <script lang="ts">
 	import type { Schema } from '$lib/common'
-	import { Job, JobService, type Flow } from '$lib/gen'
+	import type { Job, JobService, Flow } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { sendUserToast, truncateRev } from '$lib/utils'
 	import { faChevronDown, faChevronUp } from '@fortawesome/free-solid-svg-icons'
 	import { onDestroy } from 'svelte'
 	import Icon from 'svelte-awesome'
-	import FlowJobResult from './FlowJobResult.svelte'
 	import { flowStateStore, flowStateToFlow } from './flows/flowState'
 	import { mapJobResultsToFlowState } from './flows/flowStateUtils'
 	import { runFlowPreview } from './flows/utils'
@@ -24,7 +23,6 @@
 
 	let tab: 'upto' | 'justthis' = 'upto'
 	let viewPreview = false
-	let intervalId: NodeJS.Timer
 
 	let uptoText =
 		i >= flow.value.modules.length - 1 ? 'Preview whole flow' : 'Preview up to this step'
@@ -33,15 +31,12 @@
 
 	export async function runPreview(args: any) {
 		viewPreview = true
-		intervalId && clearInterval(intervalId)
-
 		flow = flowStateToFlow($flowStateStore, flow)
 
 		let newFlow: Flow =
 			tab == 'upto' ? truncateFlow(flow) : setInputTransformFromArgs(extractStep(flow), args)
 		jobId = await runFlowPreview(args, newFlow)
 
-		intervalId = setInterval(loadJob, 1000)
 		sendUserToast(`started preview ${truncateRev(jobId, 10)}`)
 	}
 
@@ -69,22 +64,6 @@
 		flow.value.modules[0].input_transform = input_transform
 		return flow
 	}
-
-	async function loadJob() {
-		try {
-			job = await JobService.getJob({ workspace: $workspaceStore!, id: jobId })
-			if (job?.type == 'CompletedJob') {
-				//only CompletedJob has success property
-				clearInterval(intervalId)
-			}
-		} catch (err) {
-			sendUserToast(err, true)
-		}
-	}
-
-	onDestroy(() => {
-		intervalId && clearInterval(intervalId)
-	})
 </script>
 
 <button
@@ -134,10 +113,11 @@
 
 	{#if job}
 		<div class="w-full flex justify-center">
-			<FlowStatusViewer {job} on:jobsLoaded={(e) => mapJobResultsToFlowState(e.detail, tab, i)} />
+			<FlowStatusViewer
+				{jobId}
+				on:jobsLoaded={(e) => mapJobResultsToFlowState(e.detail, tab, i)}
+				root={true}
+			/>
 		</div>
-		{#if `result` in job}
-			<FlowJobResult {job} />
-		{/if}
 	{/if}
 {/if}

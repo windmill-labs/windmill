@@ -22,7 +22,7 @@
 {#if job && 'success' in job && job.success}
 	<Badge large color="green">
 		<Icon data={faCheck} scale={SMALL_ICON_SCALE} class="mr-2" />
-		Succeeded {job.is_skipped ? '(Skipped)' : ''}
+		Success {job.is_skipped ? '(Skipped)' : ''}
 	</Badge>
 
 	<Badge large>
