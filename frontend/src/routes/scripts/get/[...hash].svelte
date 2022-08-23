@@ -27,7 +27,8 @@
 		faCalendar,
 		faShare,
 		faSpinner,
-		faGlobe
+		faGlobe,
+		faCodeFork
 	} from '@fortawesome/free-solid-svg-icons'
 	import Highlight from 'svelte-highlight'
 	import typescript from 'svelte-highlight/languages/typescript'
@@ -226,6 +227,15 @@
 							<div class="inline-flex items-center justify-center">
 								<Icon class="text-blue-500" data={faEdit} scale={0.5} />
 								<span class="pl-1">Edit</span>
+							</div>
+						</a>
+						<a
+							class="inline-flex items-center default-button bg-transparent hover:bg-blue-500 text-blue-700 font-normal hover:text-white py-0 px-1 border-blue-500 hover:border-transparent rounded"
+							href="/scripts/add?template={script.path}"
+						>
+							<div class="inline-flex items-center justify-center">
+								<Icon class="text-blue-500" data={faCodeFork} scale={0.5} />
+								<span class="pl-1">Use as template/Fork</span>
 							</div>
 						</a>
 					</div>
