@@ -312,9 +312,9 @@
 				<pre><code
 						>By hash: <a
 							href="//{$page.url
-								.hostname}/api/w/{$workspaceStore}/api/w/{$workspaceStore}/jobs/run/h/{script?.hash}"
+								.hostname}/api/w/{$workspaceStore}/jobs/run/h/{script?.hash}"
 							>{$page.url
-								.hostname}/api/w/{$workspaceStore}/api/w/{$workspaceStore}/jobs/run/h/{script?.hash}</a
+								.hostname}/api/w/{$workspaceStore}/jobs/run/h/{script?.hash}</a
 						></code
 					></pre>
 				<pre><code
