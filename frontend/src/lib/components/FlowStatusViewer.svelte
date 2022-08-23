@@ -58,7 +58,7 @@
 				return isReady
 			})
 		} else {
-			loadJobInProgress()
+			setTimeout(() => loadJobInProgress(), 500)
 		}
 	}
 
@@ -86,7 +86,9 @@
 		{#if `result` in job}
 			<FlowJobResult {job} />
 		{:else}
-			<pre>{job.logs}</pre>
+			<div class="text-xs p-4 bg-gray-50 overflow-auto max-h-80 border">
+				<pre class="w-full">{job.logs}</pre>
+			</div>
 		{/if}
 
 		{#if Array.isArray(forloopJobIds) && forloopJobIds?.length > 0 && Array.isArray(loopJobs)}
@@ -130,13 +132,15 @@
 						<span class="font-medium text-gray-900">{job?.raw_flow?.modules.length}</span>
 					</p>
 
-					<li class="w-full border p-6 space-y-2">
-						<svelte:self
-							jobId={module.job}
-							bind:jobResult={innerJobs[i]}
-							forloopJobIds={module.forloop_jobs}
-						/>
-					</li>
+					{#if module.type === 'InProgress'}
+						<li class="w-full border p-6 space-y-2">
+							<svelte:self
+								jobId={module.job}
+								bind:jobResult={innerJobs[i]}
+								forloopJobIds={module.forloop_jobs}
+							/>
+						</li>
+					{/if}
 				{/each}
 			</ul>
 		{/if}
