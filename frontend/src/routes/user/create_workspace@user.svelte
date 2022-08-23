@@ -2,7 +2,7 @@
 	import { goto } from '$app/navigation'
 
 	import { UserService, WorkspaceService } from '$lib/gen'
-	import { sendUserToast } from '$lib/utils'
+	import { sendUserToast, validateUsername } from '$lib/utils'
 	import { logoutWithRedirect } from '$lib/logout'
 
 	import { page } from '$app/stores'
@@ -22,7 +22,7 @@
 	$: id = name.toLowerCase().replace(/\s/gi, '-')
 
 	$: validateName(id)
-	$: validateUsername(username)
+	$: errorUser = validateUsername(username)
 
 	async function validateName(id: string): Promise<void> {
 		let exists = await WorkspaceService.existsWorkspace({ requestBody: { id } })
@@ -32,14 +32,6 @@
 			errorId = 'id can only contain letters, numbers and dashes and must not finish by a dash'
 		} else {
 			errorId = ''
-		}
-	}
-
-	async function validateUsername(username: string): Promise<void> {
-		if (username != '' && !/^\w+$/.test(username)) {
-			errorUser = 'username can only contain letters and numbers'
-		} else {
-			errorUser = ''
 		}
 	}
 
@@ -113,7 +105,7 @@
 	<label class="block pb-2">
 		<span class="text-gray-700">your username in that workspace:</span>
 		{#if errorUser}
-			<span class="text-red-500 text-xs">{errorId}</span>
+			<span class="text-red-500 text-xs">{errorUser}</span>
 		{/if}
 		<input bind:value={username} on:keyup={handleKeyUp} class="default-input" />
 	</label>
