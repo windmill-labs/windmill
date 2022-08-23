@@ -1,4 +1,7 @@
 <script lang="ts">
+	import { JobService } from '$lib/gen'
+	import { workspaceStore } from '$lib/stores'
+
 	import { faClose, faPlay } from '@fortawesome/free-solid-svg-icons'
 	import { Button } from 'flowbite-svelte'
 	import { createEventDispatcher, onDestroy } from 'svelte'
@@ -52,8 +55,16 @@
 		<Button
 			disabled={!isValid}
 			color="red"
-			on:click={() => {
+			on:click={async () => {
 				intervalState = 'canceled'
+				try {
+					jobId &&
+						(await JobService.cancelQueuedJob({
+							workspace: $workspaceStore ?? '',
+							id: jobId,
+							requestBody: {}
+						}))
+				} catch {}
 				jobId = undefined
 			}}
 			size="md"
