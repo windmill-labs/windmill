@@ -26,7 +26,6 @@
 
 	let uptoText =
 		i >= flow.value.modules.length - 1 ? 'Preview whole flow' : 'Preview up to this step'
-	let job: Job | undefined
 	let jobId: string
 
 	export async function runPreview(args: any) {

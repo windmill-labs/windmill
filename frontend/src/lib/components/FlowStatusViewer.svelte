@@ -85,6 +85,8 @@
 		<FlowPreviewStatus {job} />
 		{#if `result` in job}
 			<FlowJobResult {job} />
+		{:else}
+			<pre>{job.logs}</pre>
 		{/if}
 
 		{#if Array.isArray(forloopJobIds) && forloopJobIds?.length > 0 && Array.isArray(loopJobs)}
