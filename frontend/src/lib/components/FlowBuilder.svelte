@@ -242,6 +242,8 @@
 	</div>
 </div>
 
-<Drawer bind:open={previewOpen} size="800px">
-	<FlowPreviewContent bind:args={previewArgs} on:close={() => (previewOpen = !previewOpen)} />
-</Drawer>
+{#if $flowStateStore && $flowStore}
+	<Drawer bind:open={previewOpen} size="800px">
+		<FlowPreviewContent bind:args={previewArgs} on:close={() => (previewOpen = !previewOpen)} />
+	</Drawer>
+{/if}

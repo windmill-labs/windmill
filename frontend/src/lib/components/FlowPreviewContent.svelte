@@ -11,7 +11,6 @@
 	import { flowStore } from './flows/flowStore'
 	import { runFlowPreview } from './flows/utils'
 	import FlowStatusViewer from './FlowStatusViewer.svelte'
-	import ProgressBar from './ProgressBar.svelte'
 	import SchemaForm from './SchemaForm.svelte'
 
 	export let args: Record<string, any> = {}
@@ -23,7 +22,7 @@
 	let intervalState: 'idle' | 'canceled' | 'done' | 'running' = 'idle'
 
 	$: newFlow = flowStateToFlow($flowStateStore, $flowStore)
-	$: steps = newFlow.value.modules.length
+	$: steps = newFlow?.value.modules.length ?? 0
 
 	const dispatch = createEventDispatcher()
 
