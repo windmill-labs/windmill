@@ -65,10 +65,6 @@
 
 {#if job}
 	<div class="flow-root w-full space-y-4">
-		{#if root && !('result' in job)}
-			<ProgressBar i={1} steps={4} />
-		{/if}
-
 		<h3 class="text-md leading-6 font-bold text-gray-900 border-b pb-2">Preview results</h3>
 		<FlowPreviewStatus {job} />
 		{#if `result` in job}

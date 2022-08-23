@@ -67,7 +67,7 @@
 			<Icon data={faClose} />
 		</Button>
 	</div>
-	<div class="max-h-48 overflow-y-auto">
+	<div class="max-h-80 overflow-y-auto">
 		<SchemaForm schema={$flowStore.schema} bind:isValid bind:args />
 	</div>
 	{#if intervalState === 'running'}

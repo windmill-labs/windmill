@@ -317,21 +317,6 @@ export function mapJobResultsToFlowState(
 					flowModuleSchema.previewResult = results[index]
 				}
 
-				/*
-				if (Array.isArray(jobs.innerJobs)) {
-					const { loopJobs } = jobs.innerJobs[index]
-					if (Array.isArray(loopJobs)) {
-						const newChildFlowModules = flowModuleSchema.childFlowModules?.map((cfm, j) => {
-							const job = loopJobs[j].job as CompletedJob
-							cfm.previewResult = job.result
-							return cfm
-						})
-						flowModuleSchema.childFlowModules = newChildFlowModules
-						return flowModuleSchema
-					}
-				}
-				*/
-
 				return flowModuleSchema
 			})
 		})
