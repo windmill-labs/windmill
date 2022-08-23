@@ -106,16 +106,14 @@ export async function loadSchemaFromModule(module: FlowModule): Promise<{
 	}
 }
 
-const returnStatementRegex = new RegExp(/\$\{(.*)\}/)
+const dynamicTemplateRegex = new RegExp(/\$\{(.*)\}/)
 
 export function isCodeInjection(expr: string | undefined): boolean {
 	if (!expr) {
 		return false
 	}
-	const lines = expr.split('\n')
-	const [returnStatement] = lines.reverse()
 
-	return returnStatementRegex.test(returnStatement)
+	return dynamicTemplateRegex.test(expr)
 }
 
 export function getDefaultExpr(
@@ -124,9 +122,8 @@ export function getDefaultExpr(
 	previousExpr?: string
 ) {
 	const expr = previousExpr ?? `previous_result.${key}`
-	return `import { previous_result, flow_input, step, variable, resource, params } from 'windmill${
-		importPath ? `@${importPath}` : ''
-	}'
+	return `import { previous_result, flow_input, step, variable, resource, params } from 'windmill${importPath ? `@${importPath}` : ''
+		}'
 
 ${expr}`
 }
