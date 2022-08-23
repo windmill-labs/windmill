@@ -30,10 +30,10 @@
 
 	let previewOpen = false
 
-	let scheduleArgs: Record<string, any>
-	let previewArgs: Record<string, any>
-	let scheduleEnabled: boolean
-	let scheduleCron: string
+	let scheduleArgs: Record<string, any> = {}
+	let previewArgs: Record<string, any> = {}
+	let scheduleEnabled: boolean = false
+	let scheduleCron: string = ''
 
 	$: step = Number($page.url.searchParams.get('step')) || 1
 
