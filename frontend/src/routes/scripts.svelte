@@ -331,7 +331,7 @@
 													>Deployment error</Badge
 												>{/if}
 										</div>
-										<div class="flex flex-row-reverse w-full place">
+										<div class="flex flex-row-reverse w-full place space-x-1">
 											<div>
 												<Dropdown
 													dropdownItems={[
@@ -387,6 +387,31 @@
 													]}
 												/>
 											</div>
+											{#if canWrite}
+												<div>
+													<a
+														class="inline-flex items-center default-button bg-transparent hover:bg-blue-500 text-blue-700 font-normal hover:text-white py-0 px-1 border-blue-500 hover:border-transparent rounded"
+														href="/scripts/edit/{hash}?step=2"
+													>
+														<div class="inline-flex items-center justify-center px-4">
+															<Icon data={faEdit} scale={0.6} />
+															<span class="pl-1">Edit</span>
+														</div>
+													</a>
+												</div>
+											{:else}
+												<div>
+													<a
+														class="inline-flex items-center default-button bg-transparent hover:bg-blue-500 text-blue-700 font-normal hover:text-white py-0 px-1 border-blue-500 hover:border-transparent rounded"
+														href="/scripts/add?template={path}"
+													>
+														<div class="inline-flex items-center justify-center px-4">
+															<Icon data={faCodeFork} scale={0.6} />
+															<span class="pl-1">Fork</span>
+														</div>
+													</a>
+												</div>
+											{/if}
 											<div>
 												<a
 													class="inline-flex items-center default-button bg-transparent hover:bg-blue-500 text-blue-700 font-normal hover:text-white py-0 px-1 border-blue-500 hover:border-transparent rounded"
