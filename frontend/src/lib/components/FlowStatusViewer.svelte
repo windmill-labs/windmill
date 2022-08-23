@@ -27,6 +27,22 @@
 	let forloop_selected = ''
 	let isReadyIndex = $arePreviewsReady.push(false)
 
+	function shouldReset() {
+		if (jobId != lastJobid) {
+			lastJobid = jobId
+			jobResult = {
+				job: undefined,
+				innerJobs: [],
+				loopJobs: []
+			}
+			loadJobInProgress()
+		}
+	}
+
+	let lastJobid = jobId
+
+	$: jobId && shouldReset()
+
 	async function loadJobInProgress() {
 		const job = await JobService.getJob({
 			workspace: $workspaceStore ?? '',
@@ -124,5 +140,5 @@
 		{/if}
 	</div>
 {:else}
-	Loading
+	No script selected
 {/if}
