@@ -81,7 +81,10 @@
 		{#if jobId}
 			<FlowStatusViewer
 				{jobId}
-				on:jobsLoaded={(e) => mapJobResultsToFlowState(e.detail, 'upto', steps - 1)}
+				on:jobsLoaded={(e) => {
+					intervalState = 'done'
+					mapJobResultsToFlowState(e.detail, 'upto', steps - 1)
+				}}
 				root={true}
 			/>
 		{/if}
