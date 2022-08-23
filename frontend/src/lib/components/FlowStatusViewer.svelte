@@ -85,7 +85,7 @@
 		<FlowPreviewStatus {job} />
 		{#if `result` in job}
 			<FlowJobResult {job} />
-		{:else}
+		{:else if job.logs}
 			<div class="text-xs p-4 bg-gray-50 overflow-auto max-h-80 border">
 				<pre class="w-full">{job.logs}</pre>
 			</div>
@@ -132,7 +132,7 @@
 						<span class="font-medium text-gray-900">{job?.raw_flow?.modules.length}</span>
 					</p>
 
-					{#if module.type === 'InProgress'}
+					{#if ['InProgress', 'Success', 'Error'].includes(module.type)}
 						<li class="w-full border p-6 space-y-2">
 							<svelte:self
 								jobId={module.job}
