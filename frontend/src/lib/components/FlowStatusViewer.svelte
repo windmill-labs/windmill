@@ -115,7 +115,7 @@
 					<svelte:self jobId={loopJobId} bind:jobResult={loopJobs[j]} />
 				</div>
 			{/each}
-		{:else if hasModules && 'result' in job && Array.isArray(innerJobs)}
+		{:else if hasModules && Array.isArray(innerJobs)}
 			<ul class="w-full">
 				<h3 class="text-md leading-6 font-bold text-gray-900 border-b mb-4 py-2">
 					Detailed results
