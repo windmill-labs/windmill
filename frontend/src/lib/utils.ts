@@ -6,6 +6,14 @@ import { get } from 'svelte/store'
 import type { Schema } from './common'
 import { hubScripts, workspaceStore, type UserExt } from './stores'
 
+export function validateUsername(username: string): string {
+	if (username != '' && !/^\w+$/.test(username)) {
+		return 'username can only contain letters and numbers'
+	} else {
+		return ''
+	}
+}
+
 export function isToday(someDate: Date): boolean {
 	const today = new Date()
 	return (

@@ -2,7 +2,7 @@
 	import { goto } from '$app/navigation'
 
 	import { UserService, WorkspaceService } from '$lib/gen'
-	import { sendUserToast } from '$lib/utils'
+	import { sendUserToast, validateUsername } from '$lib/utils'
 	import { page } from '$app/stores'
 	import { usersWorkspaceStore, workspaceStore } from '$lib/stores'
 	import CenteredModal from '$lib/components/CenteredModal.svelte'
@@ -29,8 +29,8 @@
 	async function validateName(username: string): Promise<void> {
 		try {
 			await WorkspaceService.existsUsername({ requestBody: { id: workspace_id, username } })
-			errorUsername = ''
-		} catch {
+			errorUsername = validateUsername(username)
+		} catch (error) {
 			errorUsername = 'username already exists'
 		}
 	}
