@@ -81,10 +81,9 @@
 	}
 
 	function recomputeRowSize(str: string) {
-		if (str.length > 50) {
-			minRows = 3
-		}
-		if (type != 'string') {
+		if (type == 'string') {
+			minRows = str.split('\n').length
+		} else if (type != 'string') {
 			minRows = Math.max(minRows, Math.min(str.split(/\r\n|\r|\n/).length + 1, maxRows))
 		}
 	}
