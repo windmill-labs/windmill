@@ -1,5 +1,12 @@
 import type { Schema } from '$lib/common'
-import { CompletedJob, ScriptService, type Flow, type FlowModule, type RawScript } from '$lib/gen'
+import {
+	CompletedJob,
+	Job,
+	ScriptService,
+	type Flow,
+	type FlowModule,
+	type RawScript
+} from '$lib/gen'
 import { initialCode } from '$lib/script_helpers'
 import { userStore, workspaceStore } from '$lib/stores'
 import {
@@ -15,7 +22,6 @@ import { get } from 'svelte/store'
 import { flowStateStore, type FlowModuleSchema, type FlowState } from './flowState'
 import { flowStore } from './flowStore'
 import { jobsToResults, loadSchemaFromModule } from './utils'
-
 export function emptyFlowModuleSchema(): FlowModuleSchema {
 	return {
 		flowModule: emptyModule(),
@@ -264,24 +270,42 @@ function extractPreviewResults(flowModuleSchemas: FlowModuleSchema[]) {
 	return flowModuleSchemas.map((fms) => fms.previewResult)
 }
 
+export type JobResult = {
+	job?: Job
+	innerJobs?: JobResult[]
+	loopJobs?: JobResult[]
+}
+
 export function mapJobResultsToFlowState(
-	jobs: CompletedJob[],
+	jobs: JobResult,
 	config: 'upto' | 'justthis',
 	configIndex: number
 ): void {
-	if (!Array.isArray(jobs) || jobs.length === 0) {
+	if (!Array.isArray(jobs.innerJobs) || jobs.innerJobs.length === 0) {
 		return
 	}
 
 	if (config === 'justthis') {
-		const [result] = jobsToResults(jobs)
+		const job = jobs.job as CompletedJob
 
 		flowStateStore.update((flowState: FlowState) => {
-			flowState[configIndex] = result
+			flowState[configIndex] = job.result
 			return flowState
 		})
 	} else {
-		const result = jobsToResults(jobs)
+		const results = jobs.innerJobs.map(({ job, loopJobs }) => {
+			if (Array.isArray(loopJobs) && loopJobs.length > 0) {
+				return loopJobs.map(({ job }) => {
+					if (job && 'result' in job) {
+						return job.result
+					}
+				})
+			} else {
+				if (job && 'result' in job) {
+					return job.result
+				}
+			}
+		})
 
 		flowStateStore.update((flowState: FlowState) => {
 			if (!Array.isArray(flowState)) {
@@ -290,8 +314,23 @@ export function mapJobResultsToFlowState(
 
 			return flowState.map((flowModuleSchema: FlowModuleSchema, index) => {
 				if (index <= configIndex) {
-					flowModuleSchema.previewResult = result[index]
+					flowModuleSchema.previewResult = results[index]
 				}
+
+				/*
+				if (Array.isArray(jobs.innerJobs)) {
+					const { loopJobs } = jobs.innerJobs[index]
+					if (Array.isArray(loopJobs)) {
+						const newChildFlowModules = flowModuleSchema.childFlowModules?.map((cfm, j) => {
+							const job = loopJobs[j].job as CompletedJob
+							cfm.previewResult = job.result
+							return cfm
+						})
+						flowModuleSchema.childFlowModules = newChildFlowModules
+						return flowModuleSchema
+					}
+				}
+				*/
 
 				return flowModuleSchema
 			})

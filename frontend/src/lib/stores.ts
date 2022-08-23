@@ -51,3 +51,5 @@ export function clearStores(): void {
 	usersWorkspaceStore.set(undefined)
 	superadmin.set(undefined)
 }
+
+export const arePreviewsReady = writable<boolean[]>([])

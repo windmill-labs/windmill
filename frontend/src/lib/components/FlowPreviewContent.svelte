@@ -11,6 +11,7 @@
 	import { flowStore } from './flows/flowStore'
 	import { runFlowPreview } from './flows/utils'
 	import FlowStatusViewer from './FlowStatusViewer.svelte'
+	import ProgressBar from './ProgressBar.svelte'
 	import SchemaForm from './SchemaForm.svelte'
 
 	export let args: Record<string, any> = {}
@@ -27,6 +28,7 @@
 	const dispatch = createEventDispatcher()
 
 	export async function runPreview(args: Record<string, any>) {
+		job = undefined
 		intervalId && clearInterval(intervalId)
 
 		jobId = await runFlowPreview(args, newFlow)
@@ -88,8 +90,9 @@
 	<div class="h-full overflow-y-auto mb-16 grow">
 		{#if job}
 			<FlowStatusViewer
-				{job}
+				jobId={job.id}
 				on:jobsLoaded={(e) => mapJobResultsToFlowState(e.detail, 'upto', steps - 1)}
+				root={true}
 			/>
 		{/if}
 	</div>
