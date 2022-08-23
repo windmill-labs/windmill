@@ -12,10 +12,13 @@
 	import FlowBuilder from '$lib/components/FlowBuilder.svelte'
 	import { initFlow } from '$lib/components/flows/flowStore'
 	import { FlowService, type Flow } from '$lib/gen'
+	import { workspaceStore } from '$lib/stores'
 	import { decodeState, emptySchema, sendUserToast } from '$lib/utils'
 
 	const initialState = $page.url.searchParams.get('state')
 	const hubId = $page.url.searchParams.get('hub')
+
+	const templatePath = $page.url.searchParams.get('template')
 
 	async function loadFlow() {
 		let flow: Flow =
@@ -32,7 +35,16 @@
 						schema: emptySchema()
 				  }
 
-		if (hubId) {
+		if (templatePath) {
+			const template = await FlowService.getFlowByPath({
+				workspace: $workspaceStore!,
+				path: templatePath
+			})
+			Object.assign(flow, template)
+			flow = flow
+			$page.url.searchParams.delete('template')
+			sendUserToast('Code & arguments have been loaded from template.')
+		} else if (hubId) {
 			const hub = (await FlowService.getHubFlowById({ id: Number(hubId) })).flow
 			Object.assign(flow, hub)
 			flow = flow
