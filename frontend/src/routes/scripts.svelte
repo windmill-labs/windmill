@@ -10,6 +10,7 @@
 	import {
 		faArchive,
 		faCalendarAlt,
+		faCodeFork,
 		faEdit,
 		faEye,
 		faList,
@@ -353,7 +354,7 @@
 														},
 														{
 															displayName: 'Use as template',
-															icon: faEdit,
+															icon: faCodeFork,
 															href: `/scripts/add?template=${path}`
 														},
 														{
