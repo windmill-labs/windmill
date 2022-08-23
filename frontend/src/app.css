@@ -3,6 +3,10 @@
 @tailwind components;
 @tailwind utilities;
 
+html {
+	overflow-y: auto;
+}
+
 @layer base {
 	h1 {
 		@apply text-2xl;
