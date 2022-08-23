@@ -1,7 +1,4 @@
 <script lang="ts">
-	import { Job, JobService } from '$lib/gen'
-	import { workspaceStore } from '$lib/stores'
-	import { sendUserToast, truncateRev } from '$lib/utils'
 	import { faClose, faPlay } from '@fortawesome/free-solid-svg-icons'
 	import { Button } from 'flowbite-svelte'
 	import { createEventDispatcher, onDestroy } from 'svelte'
@@ -15,9 +12,7 @@
 
 	export let args: Record<string, any> = {}
 
-	let intervalId: NodeJS.Timer
-	let job: Job | undefined
-	let jobId: string
+	let jobId: string | undefined = undefined
 	let isValid: boolean = false
 	let intervalState: 'idle' | 'canceled' | 'done' | 'running' = 'idle'
 
@@ -27,33 +22,11 @@
 	const dispatch = createEventDispatcher()
 
 	export async function runPreview(args: Record<string, any>) {
-		job?.type == 'QueuedJob' &&
-			(await JobService.cancelQueuedJob({
-				workspace: $workspaceStore!,
-				id: job.id,
-				requestBody: {}
-			}))
-		intervalId && clearInterval(intervalId)
-
 		jobId = await runFlowPreview(args, newFlow)
-		intervalId = setInterval(loadJob, 1000)
 		intervalState = 'running'
-		sendUserToast(`started preview ${truncateRev(jobId, 10)}`)
-	}
-	async function loadJob() {
-		try {
-			job = await JobService.getJob({ workspace: $workspaceStore!, id: jobId })
-			if (job?.type == 'CompletedJob') {
-				clearInterval(intervalId)
-				intervalState = 'done'
-			}
-		} catch (err) {
-			sendUserToast(err, true)
-		}
 	}
 
 	onDestroy(() => {
-		intervalId && clearInterval(intervalId)
 		intervalState = 'done'
 	})
 </script>
@@ -79,9 +52,8 @@
 			disabled={!isValid}
 			color="red"
 			on:click={() => {
-				clearInterval(intervalId)
 				intervalState = 'canceled'
-				job = undefined
+				jobId = undefined
 			}}
 			size="md"
 		>
@@ -94,9 +66,9 @@
 	{/if}
 
 	<div class="h-full overflow-y-auto mb-16 grow">
-		{#if job?.id}
+		{#if jobId}
 			<FlowStatusViewer
-				jobId={job.id}
+				{jobId}
 				on:jobsLoaded={(e) => mapJobResultsToFlowState(e.detail, 'upto', steps - 1)}
 				root={true}
 			/>
