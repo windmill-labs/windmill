@@ -14,6 +14,7 @@
 		faCrown,
 		faCubes,
 		faEye,
+		faHome,
 		faPlay,
 		faRobot,
 		faScroll,
@@ -213,6 +214,12 @@
 		</ul>
 		<div class="grow h-full" />
 		<ul class="flex flex-col {isCollapsed ? 'items-center' : 'px-6'} ">
+			<li>
+				<a href="/" class="menu-link text-sm font-medium items-center ">
+					<Icon class="text-white" data={faHome} scale={0.9} />
+					<span class=" pl-2 {isCollapsed ? 'hidden' : ''}">Home</span>
+				</a>
+			</li>
 			<li>
 				<a href="/scripts" class="menu-link text-sm font-medium items-center ">
 					<Icon class="text-white" data={faScroll} scale={0.9} />
