@@ -2,11 +2,7 @@
 	import { goto } from '$app/navigation'
 </script>
 
-<div
-	id="alert-additional-content-5"
-	class="p-4 border border-gray-300 rounded-lg bg-gray-50 "
-	role="alert"
->
+<div class="p-4 border border-gray-300 rounded-md bg-gray-50 ">
 	<div class="flex items-center">
 		<h3 class="inline-flex items-center text-lg font-medium text-gray-700 ">
 			<svg
@@ -28,9 +24,9 @@
 		</h3>
 	</div>
 	<div class="mt-2 mb-4 text-sm text-gray-700 ">
-		Create a new script or find inspiration on the Hub
+		Create a new script or find inspiration on the Hub!
 	</div>
-	<div class="flex space-x-2">
+	<div class="inline-flex space-x-2 flex-wrap">
 		<button
 			on:click={() => goto('scripts/add')}
 			type="button"
@@ -50,6 +46,26 @@
 				/></svg
 			>
 			Create script
+		</button>
+		<button
+			on:click={() => goto('https://docs.windmill.dev/docs/getting_started/scripts')}
+			type="button"
+			class="inline-flex items-center text-white bg-blue-600 hover:bg-blue-800 focus:ring-4 focus:outline-none focus:ring-blue-300 font-medium rounded-lg text-xs px-3 py-1.5 text-center"
+		>
+			<svg
+				class="w-4 h-4 mr-2"
+				fill="none"
+				stroke="currentColor"
+				viewBox="0 0 24 24"
+				xmlns="http://www.w3.org/2000/svg"
+				><path
+					stroke-linecap="round"
+					stroke-linejoin="round"
+					stroke-width="2"
+					d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
+				/>
+			</svg>
+			Script documentation
 		</button>
 		<button
 			on:click={() => goto('https://hub.windmill.dev/')}

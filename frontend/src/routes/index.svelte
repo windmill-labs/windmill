@@ -15,15 +15,13 @@
 	async function loadScripts() {
 		scripts = await ScriptService.listScripts({
 			workspace: $workspaceStore!,
-			perPage: 3,
-			createdBy: $userStore?.username ?? ''
+			perPage: 3
 		})
 	}
 	async function loadFlows() {
 		flows = await FlowService.listFlows({
 			workspace: $workspaceStore!,
-			perPage: 3,
-			createdBy: $userStore?.username ?? ''
+			perPage: 3
 		})
 	}
 
@@ -38,7 +36,7 @@
 </script>
 
 <CenteredPage>
-	<div class="space-y-12 mx-2 my-16">
+	<div class="space-y-12 mx-8 my-16">
 		<h1 class="text-xl font-extrabold tracking-tight leading-none text-gray-900 md:text-3xl">
 			Welcome to Windmill!
 		</h1>
@@ -59,7 +57,7 @@
 				{/each}
 				<a
 					href="/scripts"
-					class="text-sm font-medium text-gray-700 hover:underline inline-flex items-center"
+					class="text-sm font-extrabold text-gray-700 hover:underline inline-flex items-center"
 				>
 					All scripts
 					<svg
@@ -95,7 +93,7 @@
 				{/each}
 				<a
 					href="/flows"
-					class="text-sm font-medium text-gray-700 hover:underline inline-flex items-center"
+					class="text-sm font-extrabold text-gray-700 hover:underline inline-flex items-center"
 				>
 					All flows
 					<svg

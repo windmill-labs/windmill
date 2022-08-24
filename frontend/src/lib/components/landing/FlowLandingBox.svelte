@@ -5,7 +5,9 @@
 	export let flow: Flow
 </script>
 
-<div class="border p-4 rounded-md shadow-sm space-y-2 hover:shadow-md relative">
+<div
+	class="border p-4 rounded-sm shadow-sm space-y-2 hover:border-blue-600 flex flex-col justify-between"
+>
 	<div class="font-bold">{flow.summary}</div>
 
 	<div class="inline-flex justify-between w-full h-16">
@@ -13,7 +15,7 @@
 	</div>
 
 	<div
-		class="inline-flex space-x-2 space-x-reverse flex-row-reverse w-full absolute bottom-4 right-4"
+		class="inline-flex space-x-2 space-x-reverse flex-row-reverse w-full bottom-4 right-4 flex-wrap"
 	>
 		<button
 			on:click={() => goto(`/flows/edit/${flow.path}?step=2`)}

@@ -2,11 +2,7 @@
 	import { goto } from '$app/navigation'
 </script>
 
-<div
-	id="alert-additional-content-5"
-	class="p-4 border border-gray-300 rounded-lg bg-gray-50 dark:border-gray-600 dark:bg-gray-700"
-	role="alert"
->
+<div class="p-4 border border-gray-300 rounded-md bg-gray-50 dark:border-gray-600 dark:bg-gray-700">
 	<div class="flex items-center">
 		<h3 class="inline-flex items-center text-lg font-medium text-gray-700 ">
 			<svg

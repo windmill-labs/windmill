@@ -7,7 +7,9 @@
 	export let script: Script
 </script>
 
-<div class="border p-4 rounded-md shadow-sm space-y-2 hover:shadow-md">
+<div
+	class="border p-4 rounded-sm shadow-sm space-y-2 hover:border-blue-600 flex flex-col justify-between"
+>
 	<div class="font-bold">{script.summary}</div>
 
 	<div class="inline-flex justify-between w-full">
