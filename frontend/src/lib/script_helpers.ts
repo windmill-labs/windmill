@@ -65,7 +65,7 @@ export const POSTGRES_INIT_CODE = `import {
   type Resource,
 } from "https://deno.land/x/windmill@v${__pkg__.version}/mod.ts";
 
-//PG parametrized statement. No SQL injection is possible.
+//PG parameterized statement. No SQL injection is possible.
 export async function main(
   db: Resource<"postgresql"> = "$res:g/all/demodb",
   key: string,
