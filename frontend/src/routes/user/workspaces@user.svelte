@@ -99,7 +99,7 @@
 					"
 				on:click={() => {
 					workspaceStore.set(workspace.id)
-					goto(rd ?? '/scripts')
+					goto(rd ?? '/')
 				}}
 				><span class="font-mono">{workspace.id}</span> - {workspace.name} as
 				<span class="font-mono">{workspace.username}</span>
