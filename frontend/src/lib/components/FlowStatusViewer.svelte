@@ -1,17 +1,14 @@
 <script lang="ts">
-	import { scriptPathToHref } from '$lib/utils'
-
-	import { Job, JobService } from '$lib/gen'
+	import { JobService } from '$lib/gen'
 	import { arePreviewsReady, workspaceStore } from '$lib/stores'
 	import FlowJobResult from './FlowJobResult.svelte'
-	import IconedPath from './IconedPath.svelte'
 	import FlowPreviewStatus from './preview/FlowPreviewStatus.svelte'
 	import { Button } from 'flowbite-svelte'
 	import Icon from 'svelte-awesome'
 	import { faChevronDown, faChevronUp } from '@fortawesome/free-solid-svg-icons'
-	import ProgressBar from './ProgressBar.svelte'
 	import { createEventDispatcher } from 'svelte'
 	import type { JobResult } from './flows/flowStateUtils'
+	import { onMount } from 'svelte'
 	const dispatch = createEventDispatcher()
 
 	export let jobId: string
@@ -25,7 +22,7 @@
 	}
 
 	let forloop_selected = ''
-	let isReadyIndex = $arePreviewsReady.push(false)
+	let isReadyIndex: number | undefined = undefined
 
 	function shouldReset() {
 		if (jobId != lastJobid) {
@@ -39,11 +36,15 @@
 		}
 	}
 
-	let lastJobid = jobId
+	let lastJobid = ''
 
 	$: jobId && shouldReset()
 
 	async function loadJobInProgress() {
+		if (!isReadyIndex) {
+			isReadyIndex = $arePreviewsReady.push(false)
+		}
+
 		const job = await JobService.getJob({
 			workspace: $workspaceStore ?? '',
 			id: jobId ?? ''
@@ -52,34 +53,36 @@
 		jobResult.job = job
 		jobResult = jobResult
 
-		if (job.type === 'CompletedJob') {
+		if (job?.type === 'CompletedJob') {
 			arePreviewsReady.update((isReady: boolean[]) => {
-				isReady[isReadyIndex - 1] = true
-				return isReady
+				if (isReadyIndex && isReady[isReadyIndex - 1] === false) {
+					isReady[isReadyIndex - 1] = true
+				}
+
+				if (root && isReady.every(Boolean)) {
+					dispatch('jobsLoaded', jobResult)
+					return []
+				} else {
+					return isReady
+				}
 			})
 		} else {
 			setTimeout(() => loadJobInProgress(), 500)
 		}
 	}
 
-	$: {
-		if (root) {
-			if ($arePreviewsReady.every(Boolean) && !(hasModules && $arePreviewsReady.length === 1)) {
-				arePreviewsReady.update(() => [])
-
-				dispatch('jobsLoaded', jobResult)
-			}
-		}
-	}
-
 	$: job = jobResult.job
 	$: innerJobs = jobResult.innerJobs
 	$: loopJobs = jobResult.loopJobs
+
 	$: hasModules = job && Array.isArray(job?.raw_flow?.modules) && job?.raw_flow?.modules.length! > 1
-	$: loadJobInProgress()
+
+	onMount(() => {
+		loadJobInProgress()
+	})
 </script>
 
-{#if job}
+{#if job?.logs}
 	<div class="flow-root w-full space-y-4">
 		<h3 class="text-md leading-6 font-bold text-gray-900 border-b pb-2">Preview results</h3>
 		<FlowPreviewStatus {job} />
