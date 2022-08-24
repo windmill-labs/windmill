@@ -220,7 +220,7 @@
 									<tr>
 										<td class="font-black">{apps.join(', ')}</td>
 										<td
-											><button class="align-left" on:click={() => viewFlow(flow_id)}
+											><button class="text-left" on:click={() => viewFlow(flow_id)}
 												>{summary}</button
 											></td
 										>
