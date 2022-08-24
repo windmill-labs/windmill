@@ -1,14 +1,15 @@
 <script lang="ts">
 	import { JobService } from '$lib/gen'
-	import { arePreviewsReady, workspaceStore } from '$lib/stores'
+	import { workspaceStore } from '$lib/stores'
 	import FlowJobResult from './FlowJobResult.svelte'
 	import FlowPreviewStatus from './preview/FlowPreviewStatus.svelte'
 	import { Button } from 'flowbite-svelte'
 	import Icon from 'svelte-awesome'
 	import { faChevronDown, faChevronUp } from '@fortawesome/free-solid-svg-icons'
-	import { createEventDispatcher } from 'svelte'
+	import { createEventDispatcher, SvelteComponentTyped } from 'svelte'
 	import type { JobResult } from './flows/flowStateUtils'
 	import { onMount } from 'svelte'
+	import { afterUpdate } from 'svelte'
 	const dispatch = createEventDispatcher()
 
 	export let jobId: string
@@ -22,29 +23,20 @@
 	}
 
 	let forloop_selected = ''
-	let isReadyIndex: number | undefined = undefined
 
-	function shouldReset() {
-		if (jobId != lastJobid) {
-			lastJobid = jobId
-			jobResult = {
-				job: undefined,
-				innerJobs: [],
-				loopJobs: []
-			}
-			loadJobInProgress()
+	function reset() {
+		lastJobid = jobId
+		jobResult = {
+			job: undefined,
+			innerJobs: [],
+			loopJobs: []
 		}
+		loadJobInProgress()
 	}
 
-	let lastJobid = ''
-
-	$: jobId && shouldReset()
+	let lastJobid = jobId
 
 	async function loadJobInProgress() {
-		if (!isReadyIndex) {
-			isReadyIndex = $arePreviewsReady.push(false)
-		}
-
 		const job = await JobService.getJob({
 			workspace: $workspaceStore ?? '',
 			id: jobId ?? ''
@@ -53,20 +45,7 @@
 		jobResult.job = job
 		jobResult = jobResult
 
-		if (job?.type === 'CompletedJob') {
-			arePreviewsReady.update((isReady: boolean[]) => {
-				if (isReadyIndex && isReady[isReadyIndex - 1] === false) {
-					isReady[isReadyIndex - 1] = true
-				}
-
-				if (root && isReady.every(Boolean)) {
-					dispatch('jobsLoaded', jobResult)
-					return []
-				} else {
-					return isReady
-				}
-			})
-		} else {
+		if (job?.type !== 'CompletedJob') {
 			setTimeout(() => loadJobInProgress(), 500)
 		}
 	}
@@ -80,9 +59,19 @@
 	onMount(() => {
 		loadJobInProgress()
 	})
+
+	afterUpdate(() => {
+		if (jobId !== lastJobid && root) {
+			reset()
+		}
+
+		if (root && job?.type === 'CompletedJob' && job.id === lastJobid) {
+			dispatch('jobsLoaded', jobResult)
+		}
+	})
 </script>
 
-{#if job?.logs}
+{#if job}
 	<div class="flow-root w-full space-y-4">
 		<h3 class="text-md leading-6 font-bold text-gray-900 border-b pb-2">Preview results</h3>
 		<FlowPreviewStatus {job} />
