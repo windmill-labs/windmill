@@ -265,7 +265,10 @@
 								{#each filteredHub ?? [] as { path, summary, app, ask_id }}
 									<tr>
 										<td class="font-black">{app}</td>
-										<td><button on:click={() => viewCode(path)}>{summary}</button></td>
+										<td
+											><button class="text-left" on:click={() => viewCode(path)}>{summary}</button
+											></td
+										>
 										<td class="whitespace-nowrap"
 											><button class="text-blue-500" on:click={() => viewCode(path)}
 												>view code</button
