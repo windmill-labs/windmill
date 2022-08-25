@@ -1319,9 +1319,9 @@ pub async fn add_completed_job(
             (workspace_id, id, parent_job, created_by, created_at, started_at, duration_ms, success, \
             script_hash, script_path, args, result, logs, \
             raw_code, canceled, canceled_by, canceled_reason, job_kind, schedule_path, \
-            permissioned_as, flow_status, raw_flow, is_flow_step, is_skipped)
+            permissioned_as, flow_status, raw_flow, is_flow_step, is_skipped, language)
             VALUES ($1, $2, $3, $4, $5, $6, EXTRACT(milliseconds FROM (now() - $6)), $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, \
-                    $18, $19, $20, $21, $22, $23)
+                    $18, $19, $20, $21, $22, $23, $24)
          ON CONFLICT (id) DO UPDATE SET success = $7, result = $11, logs = concat(cj.logs, $12)",
         queued_job.workspace_id,
         queued_job.id,
@@ -1345,7 +1345,8 @@ pub async fn add_completed_job(
         queued_job.flow_status,
         queued_job.raw_flow,
         queued_job.is_flow_step,
-        skipped
+        skipped,
+        queued_job.language: ScriptLang,
     )
     .execute(db)
     .await
