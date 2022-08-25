@@ -26,11 +26,11 @@
 	<div class="mt-2 mb-4 text-sm text-gray-700 ">
 		Create a new script or find inspiration on the Hub!
 	</div>
-	<div class="inline-flex space-x-2 flex-wrap">
+	<div class="inline-flex flex-wrap gap-y-2">
 		<button
 			on:click={() => goto('scripts/add')}
 			type="button"
-			class="inline-flex items-center text-white bg-gray-700 hover:bg-gray-800 focus:ring-4 focus:outline-none focus:ring-gray-300 font-medium rounded-lg text-xs px-3 py-1.5 text-center"
+			class="mr-2 inline-flex items-center text-white bg-gray-700 hover:bg-gray-800 focus:ring-4 focus:outline-none focus:ring-gray-300 font-medium rounded-lg text-xs px-3 py-1.5 text-center"
 		>
 			<svg
 				class="w-4 h-4 mr-2"
@@ -50,7 +50,7 @@
 		<button
 			on:click={() => goto('https://docs.windmill.dev/docs/getting_started/scripts')}
 			type="button"
-			class="inline-flex items-center text-white bg-blue-600 hover:bg-blue-800 focus:ring-4 focus:outline-none focus:ring-blue-300 font-medium rounded-lg text-xs px-3 py-1.5 text-center"
+			class="mr-2 inline-flex items-center text-white bg-blue-600 hover:bg-blue-800 focus:ring-4 focus:outline-none focus:ring-blue-300 font-medium rounded-lg text-xs px-3 py-1.5 text-center"
 		>
 			<svg
 				class="w-4 h-4 mr-2"
