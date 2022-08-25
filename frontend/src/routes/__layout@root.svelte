@@ -1,27 +1,25 @@
 <script lang="ts">
+	import MenuLink from '$lib/components/sidebar/MenuLink.svelte'
 	import { OpenAPI } from '$lib/gen'
 	import { logout } from '$lib/logout'
 	import { superadmin, userStore, usersWorkspaceStore, workspaceStore } from '$lib/stores'
-	import { clickOutside } from '$lib/utils'
+	import { classNames, clickOutside } from '$lib/utils'
 	import { faDiscord, faGithub } from '@fortawesome/free-brands-svg-icons'
 	import {
 		faBookOpen,
 		faCalendar,
-		faChevronDown,
-		faChevronLeft,
-		faChevronRight,
-		faCog,
+		faCode,
 		faCrown,
+		faCog,
 		faCubes,
 		faEye,
-		faHome,
+		faHomeAlt,
 		faPlay,
 		faRobot,
-		faScroll,
-		faUser,
 		faUsersCog,
 		faWallet,
-		faWind
+		faWind,
+		faArrowLeft
 	} from '@fortawesome/free-solid-svg-icons'
 	import { onMount } from 'svelte'
 	import Icon from 'svelte-awesome'
@@ -57,305 +55,186 @@
 		//Mobile
 		isCollapsed = isMobile
 	})
+
+	const mainMenuLinks = [
+		{ label: 'Home', href: '/', icon: faHomeAlt },
+		{ label: 'Scripts', href: '/scripts', icon: faCode },
+		{ label: 'Flows', href: '/flows', icon: faWind },
+		{ label: 'Runs', href: '/runs', icon: faPlay },
+		{ label: 'Schedules', href: '/schedules', icon: faCalendar },
+		{ label: 'Variables', href: '/variables', icon: faWallet },
+		{ label: 'Resources', href: '/resources', icon: faCubes }
+	]
+
+	const secondaryMenuLinks = [
+		{ label: 'Workers', href: '/workers', icon: faRobot },
+		{ label: 'Groups', href: '/groups', icon: faUsersCog },
+		{ label: 'Audit Logs', href: '/audit_logs', icon: faEye }
+	]
+
+	const thirdMenuLinks = [
+		{ label: 'Documentation', href: 'https://docs.windmill.dev/docs/intro/', icon: faBookOpen },
+		{ label: 'Feedback', href: 'https://discord.gg/V7PM2YHsPB', icon: faDiscord },
+		{
+			label: 'Issues',
+			href: 'https://github.com/windmill-labs/windmill/issues/new',
+			icon: faGithub
+		}
+	]
+
+	const selectedIndex = 1
 </script>
 
-<div bind:clientWidth={viewportWidth} class="h-full max-w-screen">
-	<nav
-		use:clickOutside
-		on:click_outside={handleClickOutside}
-		class="flex flex-col fixed h-screen {isCollapsed
-			? 'w-8'
-			: 'w-36'} bg-blue-500 rounded-sm text-white z-10"
-	>
-		<div class="shrink">
-			<button
-				class="w-full flex flex-row-reverse transform hover:translate-x-1 transition-transform ease-in duration-200"
-				on:click={() => {
-					isCollapsed = !isCollapsed
-				}}
-			>
-				<div class="pt-1 pr-3">
-					<Icon data={isCollapsed ? faChevronRight : faChevronLeft} scale={0.9} />
-				</div>
-			</button>
-		</div>
-		<ul class="flex flex-col {isCollapsed ? 'items-center' : 'px-6'}  bg-transparent pb-1">
-			<li class="z-20 font-medium items-center bg-transparent">
-				<div
-					class="flex justify-center"
-					use:clickOutside
-					on:click_outside={handleClickOutsideWorkspacePicker}
-				>
-					<button
-						type="button"
-						class="flex text-sm focus:outline-none bg-transparent"
-						id="user-menu-button"
-						aria-expanded="false"
-						aria-haspopup="true"
-					>
-						<span class="sr-only">Open user menu</span>
-						<div
-							class="flex flex-row items-center w-full justify-content"
-							on:click={() => {
-								workspacePickerOpen = true
-							}}
-						>
-							<span class:hidden={isCollapsed} class="pr-2 font-mono text-xs flex"
-								>{$workspaceStore ?? '_______'}
-								<Icon class="text-white float-right mt-1 pl-1" data={faChevronDown} scale={0.6} />
-							</span>
-							<span class:hidden={!isCollapsed}>W</span>
-						</div>
-					</button>
-					<div
-						class="absolute {isCollapsed
-							? 'left-4'
-							: 'left-20'} -top-2 mt-2 w-52 rounded-md shadow-lg py-1 bg-white ring-1 ring-black ring-opacity-5 focus:outline-none {workspacePickerOpen
-							? 'visible'
-							: 'invisible'} z-40"
-						role="menu"
-						tabindex="-1"
-					>
-						{#each $usersWorkspaceStore?.workspaces ?? [] as workspace}
-							<button
-								on:click={() => {
-									workspaceStore.set(workspace.id)
-									workspacePickerOpen = false
-								}}
-								class="block px-4 py-2 text-xs text-gray-500 "
-								role="menuitem"
-								tabindex="-1"
-								id="user-menu-item-2"
-							>
-								<span class="text-gray-300 font-mono pr-1 text-xs">{workspace.id}</span
-								>{workspace.name}
-							</button>
-						{/each}
-						<a
-							href="/user/create_workspace"
-							class="block px-4 py-2  text-blue-600 text-left text-xs "
-							role="menuitem"
-							tabindex="-1"
-							id="user-menu-item-2"
-						>
-							<span class="text-gray-300 font-mono pr-1">+</span>Create new workspace</a
-						>
-						<a
-							href="/user/workspaces"
-							class="block px-4 py-2  text-blue-600 text-left text-xs "
-							role="menuitem"
-							tabindex="-1"
-							id="user-menu-item-2"
-							on:click={() => {
-								localStorage.removeItem('workspace')
-							}}
-						>
-							See all workspaces & invites</a
-						>
-					</div>
-				</div>
-			</li>
-		</ul>
-		<ul class="flex flex-col max-h-12 mt-2 {isCollapsed ? 'items-center' : 'px-6 '}   ">
-			<li class="relative z-30 font-medium">
-				<div
-					class="flex justify-center"
-					use:clickOutside
-					on:click_outside={handleClickOutsideMenu}
-					on:click={openMenu}
-				>
-					<button
-						type="button"
-						class="flex text-sm rounded-full focus:outline-none"
-						id="user-menu-button"
-						aria-expanded="false"
-						aria-haspopup="true"
-					>
-						<span class="sr-only">Open user menu</span>
-						<div class="mx-auto">
-							<span class:hidden={isCollapsed} class="px-2 font-mono text-xs whitespace-nowrap">
-								<Icon class="text-white" data={faUser} scale={0.6} />
-								{$userStore?.username ?? ($superadmin ? $superadmin : '___')}
-								{#if $userStore?.is_admin}
-									<Icon class="text-white" data={faCrown} scale={0.6} />
-								{/if}
-								<Icon class="inline text-white mt-1 ml-1" data={faChevronDown} scale={0.6} />
-							</span>
-						</div>
-					</button>
-					<div
-						class="absolute {isCollapsed
-							? 'left-4'
-							: 'left-20'} -top-5 mt-2 w-48 rounded-md shadow-lg py-1 bg-white ring-1 ring-black ring-opacity-5 focus:outline-none {menuOpen
-							? 'visible'
-							: 'invisible'}"
-						role="menu"
-						tabindex="-1"
-					>
-						<span class="block px-4 py-2 text-sm text-gray-500">{$usersWorkspaceStore?.email}</span>
-						<a
-							href="/user/settings"
-							class="block px-4 py-2 text-sm text-gray-700"
-							role="menuitem"
-							tabindex="-1"
-							id="user-menu-item-1">User settings</a
-						>
-						<button
-							on:click={() => logout()}
-							class="block px-4 py-2 text-sm text-gray-700"
-							role="menuitem"
-							tabindex="-1"
-							id="user-menu-item-2">Sign out</button
-						>
-					</div>
-				</div>
-			</li>
-			<div class="border-t border-gray-300 border-opacity-30 my-2" />
-		</ul>
-		<div class="grow h-full" />
-		<ul class="flex flex-col {isCollapsed ? 'items-center' : 'px-6'} ">
-			<li>
-				<a href="/" class="menu-link text-sm font-medium items-center ">
-					<Icon class="text-white" data={faHome} scale={0.9} />
-					<span class=" pl-2 {isCollapsed ? 'hidden' : ''}">Home</span>
-				</a>
-			</li>
-			<li>
-				<a href="/scripts" class="menu-link text-sm font-medium items-center ">
-					<Icon class="text-white" data={faScroll} scale={0.9} />
-					<span class=" pl-2 {isCollapsed ? 'hidden' : ''}">Scripts</span>
-				</a>
-			</li>
-			<li>
-				<a href="/flows" class="menu-link text-sm font-medium items-center">
-					<Icon class="text-white" data={faWind} scale={0.9} />
-					<span class="pl-2 {isCollapsed ? 'hidden' : ''}">Flows</span>
-				</a>
-			</li>
-			<li>
-				<a href="/runs" class="menu-link text-sm font-medium items-center">
-					<Icon class="text-white" data={faPlay} scale={0.8} />
-					<span class=" pl-2 {isCollapsed ? 'hidden' : ''}">Runs</span>
-				</a>
-			</li>
-			<li>
-				<a href="/schedules" class="menu-link text-sm font-medium items-center">
-					<Icon class="text-white" data={faCalendar} scale={0.9} />
-					<span class=" pl-2 {isCollapsed ? 'hidden' : ''}">Schedules</span>
-				</a>
-			</li>
-			<li>
-				<a href="/variables" class="menu-link text-sm font-medium items-center">
-					<Icon class="text-white" data={faWallet} scale={0.9} />
-					<span class=" pl-2 {isCollapsed ? 'hidden' : ''}">Variables</span>
-				</a>
-			</li>
-			<li>
-				<a href="/resources" class="menu-link text-sm font-medium items-center">
-					<Icon class="text-white" data={faCubes} scale={0.9} />
-					<span class=" pl-2 {isCollapsed ? 'hidden' : ''}">Resources</span>
-				</a>
-			</li>
-		</ul>
+<div>
+	<div class={classNames('relative z-40 md:hidden')} role="dialog" aria-modal="true">
+		<div
+			class={classNames(
+				'fixed inset-0 bg-gray-600 bg-opacity-75 transition-opacity ease-linear duration-300',
+				menuOpen ? 'opacity-100' : 'opacity-0'
+			)}
+		/>
 
-		<div class="grow h-full" />
-		<ul class="flex flex-col bg-blue {isCollapsed ? 'items-center' : 'px-6'} ">
-			<div class="border-t border-gray-300 border-opacity-30" />
-			{#if $superadmin}
-				<li>
-					<a href="/workers" class="menu-link text-sm font-medium items-center">
-						<Icon class="text-white" data={faRobot} scale={0.9} />
-						<span class=" pl-2 {isCollapsed ? 'hidden' : ''}">Workers</span>
-					</a>
-				</li>
-			{/if}
-			<li>
-				<a href="/groups" class="menu-link text-sm font-medium items-center">
-					<Icon class="text-white" data={faUsersCog} scale={0.9} />
-					<span class="pl-2 t {isCollapsed ? 'hidden' : ''}">Groups</span>
-				</a>
-			</li>
-			<li>
-				<a href="/audit_logs" class="menu-link text-sm font-medium items-center">
-					<Icon class="text-white" data={faEye} scale={0.9} />
-					<span class=" pl-2 {isCollapsed ? 'hidden' : ''}">Audit logs</span>
-				</a>
-			</li>
-			{#if $userStore?.is_admin}
-				<li>
-					<a href="/workspace_settings" class="menu-link text-sm font-medium items-center pb-2">
-						<Icon class="text-white" data={faCog} scale={0.9} />
-						<span class=" pl-2 {isCollapsed ? 'hidden' : ''}">Workspace</span>
-					</a>
-				</li>
-			{/if}
-			<div class="border-t border-gray-300 border-opacity-30" />
-		</ul>
-		<div class="grow h-full" />
-		<ul class="flex flex-col {isCollapsed ? 'items-center' : 'px-6'} block">
-			<li class="">
-				<a
-					href="https://github.com/windmill-labs/windmill/issues/new"
-					class="menu-link text-sm font-medium items-center"
-					target="_blank"
+		<div class="fixed inset-0 flex z-40">
+			<div
+				class={classNames(
+					'relative flex-1 flex flex-col max-w-xs w-full bg-white transition ease-in-out duration-300 transform',
+					menuOpen ? 'translate-x-0' : '-translate-x-full'
+				)}
+			>
+				<div
+					class={classNames(
+						'absolute top-0 right-0 -mr-12 pt-2 ease-in-out duration-300',
+						menuOpen ? 'opacity-100' : 'opacity-0'
+					)}
 				>
-					<Icon class="text-white" data={faGithub} scale={0.9} />
-					<span class="pl-2 {isCollapsed ? 'hidden' : ''}">Issue?</span>
-				</a>
-			</li>
-			<li class="">
-				<a
-					href="https://discord.gg/V7PM2YHsPB"
-					class="menu-link text-sm font-medium items-center"
-					target="_blank"
-				>
-					<Icon class="text-white" data={faDiscord} scale={0.9} />
-					<span class="pl-2 {isCollapsed ? 'hidden' : ''}">Feedback</span>
-				</a>
-			</li>
-			<li class="">
-				<a
-					href="https://docs.windmill.dev/docs/intro"
-					class="menu-link text-sm font-medium items-center"
-					target="_blank"
-				>
-					<Icon class="text-white" data={faBookOpen} scale={0.9} />
-					<span class="pl-2 {isCollapsed ? 'hidden' : ''}">Docs</span>
-				</a>
-			</li>
-			<li class="">
+					<button
+						type="button"
+						on:click={() => {
+							menuOpen = !menuOpen
+						}}
+						class="ml-1 flex items-center justify-center h-10 w-10 rounded-full focus:outline-none focus:ring-2 focus:ring-inset focus:ring-white"
+					>
+						<span class="sr-only">Close sidebar</span>
+						<!-- Heroicon name: outline/x -->
+						<svg
+							class="h-6 w-6 text-white"
+							xmlns="http://www.w3.org/2000/svg"
+							fill="none"
+							viewBox="0 0 24 24"
+							stroke-width="2"
+							stroke="currentColor"
+							aria-hidden="true"
+						>
+							<path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+						</svg>
+					</button>
+				</div>
+
+				<div class="flex-1 h-0 pt-5 pb-4 overflow-y-auto">
+					<div class="flex-shrink-0 flex items-center px-4">
+						<img
+							class="h-8 w-auto"
+							src="https://docs.windmill.dev/img/windmill.svg"
+							alt="Windmill"
+						/>
+					</div>
+					<nav class="mt-5 px-2 space-y-2">
+						{#each mainMenuLinks as menuLink, index}
+							<MenuLink {...menuLink} {isCollapsed} />
+						{/each}
+						<div class="border-b" />
+						{#each secondaryMenuLinks as menuLink, index}
+							<MenuLink {...menuLink} {isCollapsed} />
+						{/each}
+						<div class="border-b" />
+						{#each thirdMenuLinks as menuLink, index}
+							<MenuLink {...menuLink} {isCollapsed} />
+						{/each}
+					</nav>
+				</div>
+			</div>
+		</div>
+	</div>
+
+	<!-- Static sidebar for desktop -->
+	<div
+		class={classNames(
+			'hidden md:flex md:flex-col md:fixed md:inset-y-0 transition-all ease-in-out duration-200',
+			isCollapsed ? 'md:w-12' : 'md:w-64'
+		)}
+	>
+		<div class="flex-1 flex flex-col min-h-0 border-r border-gray-200 bg-white">
+			<div class="flex-1 flex flex-col pt-5 pb-4 overflow-y-auto overflow-x-hidden">
+				<div class="flex items-center flex-shrink-0 px-4 justify-between">
+					<img class="h-8 w-auto" src="https://docs.windmill.dev/img/windmill.svg" alt="Windmill" />
+				</div>
+
+				<nav class="mt-5 flex-1 px-2 bg-white space-y-2">
+					{#each mainMenuLinks as menuLink, index}
+						<MenuLink {...menuLink} {isCollapsed} />
+					{/each}
+					<div class="border-b" />
+					{#each secondaryMenuLinks as menuLink, index}
+						<MenuLink {...menuLink} {isCollapsed} />
+					{/each}
+					<div class="border-b" />
+					{#each thirdMenuLinks as menuLink, index}
+						<MenuLink {...menuLink} {isCollapsed} />
+					{/each}
+				</nav>
+			</div>
+
+			<div class="flex-shrink-0 flex border-t border-gray-200 p-4">
 				<button
-					class="h-12 flex flex-row text-sm font-medium min-w-full px-5 items-center transform hover:translate-x-1 transition-transform ease-in duration-200"
 					on:click={() => {
 						isCollapsed = !isCollapsed
 					}}
 				>
-					<div class="w-full -ml-4">
-						<div class="flex flex-row justify-between w-full">
-							<div class="px-3 {isCollapsed ? 'hidden' : ''}">Windmill</div>
-							<div class="ml-4">
-								<Icon data={isCollapsed ? faChevronRight : faChevronLeft} scale={0.9} />
-							</div>
-						</div>
-					</div>
+					<Icon
+						data={faArrowLeft}
+						class={classNames(
+							'flex-shrink-0 h-4 w-4 transition-all ease-in-out duration-200',
+							isCollapsed ? 'rotate-180' : 'rotate-0'
+						)}
+					/>
 				</button>
-			</li>
-		</ul>
-	</nav>
+			</div>
+		</div>
+	</div>
 	<div
-		class="bg-white antialiased text-gray-900 {isCollapsed
-			? 'pl-10'
-			: 'pl-36 ml-2'} flex h-full max-w-screen flex-col items-center"
+		class={classNames(
+			'flex flex-col flex-1 transition-all ease-in-out duration-200',
+			isCollapsed ? 'md:pl-12' : 'md:pl-64'
+		)}
 	>
-		<slot />
+		<main>
+			<div class="p-2 border-b flex justify-between flex-row-reverse">
+				<div>asopd</div>
+				<div class="md:hidden">
+					<button
+						type="button"
+						on:click={() => {
+							menuOpen = false
+						}}
+						class="-ml-0.5 -mt-0.5 h-12 w-12 inline-flex items-center justify-center rounded-md text-gray-500 hover:text-gray-900 focus:outline-none focus:ring-2 focus:ring-inset focus:ring-indigo-500"
+					>
+						<span class="sr-only">Open sidebar</span>
+						<!-- Heroicon name: outline/menu -->
+						<svg
+							class="h-6 w-6"
+							xmlns="http://www.w3.org/2000/svg"
+							fill="none"
+							viewBox="0 0 24 24"
+							stroke-width="2"
+							stroke="currentColor"
+							aria-hidden="true"
+						>
+							<path stroke-linecap="round" stroke-linejoin="round" d="M4 6h16M4 12h16M4 18h16" />
+						</svg>
+					</button>
+				</div>
+			</div>
+			<slot />
+		</main>
 	</div>
 </div>
-
-<style>
-	:global[menu] {
-		@apply text-white;
-	}
-	.menu-link {
-		@apply flex flex-row h-10 transform hover:translate-x-1 transition-transform ease-in duration-200 text-gray-200 hover:text-white;
-	}
-</style>

@@ -42,11 +42,11 @@
 		}
 	}
 
-	const ressources = []
+	const resources = []
 </script>
 
 <CenteredPage>
-	<div class="space-y-12 mx-8 my-16">
+	<div class="space-y-12">
 		<h1 class="text-xl font-extrabold tracking-tight leading-none text-gray-900 md:text-3xl">
 			Welcome to Windmill!
 		</h1>
@@ -127,11 +127,11 @@
 				class="mb-4 text-lg font-extrabold tracking-tight leading-none text-gray-900 md:text-2xl border-b py-2 "
 			>
 				<span class="text-transparent bg-clip-text bg-gradient-to-r to-blue-500 from-blue-600">
-					Ressources
+					Resources
 				</span>
 			</h2>
 
-			{#if ressources.length === 0}
+			{#if resources.length === 0}
 				<RessourceGettingStarted />
 			{/if}
 		</div>

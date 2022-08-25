@@ -154,8 +154,8 @@
 	})
 </script>
 
-<div class="flex flex-row w-full h-full justify-between">
-	<div class={`flex flex-col mb-96 m-auto w-full sm:w-3/4 lg:w-2/3`}>
+<div class="flex flex-row w-full h-full justify-between ">
+	<div class={`flex flex-col mb-96 m-auto w-full`}>
 		<!-- Nav between steps-->
 		<div class="justify-between flex flex-row w-full my-4">
 			<Breadcrumb>
