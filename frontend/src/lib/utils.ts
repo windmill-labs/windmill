@@ -54,8 +54,9 @@ export function displayDate(dateString: string | undefined): string {
 	if (date.toString() === 'Invalid Date') {
 		return ''
 	} else {
-		return `${date.getFullYear()}/${date.getMonth() + 1
-			}/${date.getDate()} at ${date.toLocaleTimeString()}`
+		return `${date.getFullYear()}/${
+			date.getMonth() + 1
+		}/${date.getDate()} at ${date.toLocaleTimeString()}`
 	}
 }
 
@@ -555,4 +556,8 @@ export function scriptToHubUrl(
 	url.searchParams.append('trigger', trigger.toString())
 
 	return url
+}
+
+export function classNames(...classes: string[]): string {
+	return classes.filter(Boolean).join(' ')
 }
