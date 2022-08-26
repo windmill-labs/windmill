@@ -13,6 +13,7 @@
 	import { workspaceStore } from '$lib/stores'
 	import ScriptBuilder from '$lib/components/ScriptBuilder.svelte'
 	import { decodeState } from '$lib/utils'
+	import CenteredPage from '$lib/components/CenteredPage.svelte'
 
 	const initialState = $page.url.searchParams.get('state')
 	let scriptLoadedFromUrl = initialState != undefined ? decodeState(initialState) : undefined
@@ -40,5 +41,7 @@
 </script>
 
 {#if script}
-	<ScriptBuilder {initialPath} {script} />
+	<CenteredPage>
+		<ScriptBuilder {initialPath} {script} />
+	</CenteredPage>
 {/if}

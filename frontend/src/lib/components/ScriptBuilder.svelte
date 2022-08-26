@@ -103,9 +103,7 @@
 	})
 </script>
 
-<div
-	class="flex flex-col h-screen max-w-screen-lg xl:-ml-20 xl:pl-4 w-full -mt-4 pt-4 md:mx-10 pr-2"
->
+<div class="flex flex-col h-screen ">
 	<!-- Nav between steps-->
 	<div class="flex flex-col w-full">
 		<div class="justify-between flex flex-row drop-shadow-sm w-full mt-4">

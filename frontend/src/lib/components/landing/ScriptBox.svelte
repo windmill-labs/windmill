@@ -8,9 +8,10 @@
 </script>
 
 <div
-	class="border p-4 rounded-sm shadow-sm space-y-2 hover:border-blue-600 flex flex-col justify-between"
+	class="border p-4 rounded-sm shadow-sm space-y-2 hover:border-blue-600 flex flex-col justify-between cursor-pointer"
+	on:click={() => goto(`/scripts/get/${script.hash}`)}
 >
-	<div class="font-bold">{script.summary}</div>
+	<div class="font-bold">{script.summary || script.path}</div>
 
 	<div class="inline-flex justify-between w-full">
 		<div class="text-xs">{script.path}</div>
@@ -31,7 +32,7 @@
 	</div>
 	<div class="inline-flex space-x-2 space-x-reverse flex-row-reverse w-full">
 		<button
-			on:click={() => goto(`/scripts/edit/${script.hash}?step=2`)}
+			on:click|stopPropagation={() => goto(`/scripts/edit/${script.hash}?step=2`)}
 			type="button"
 			class="inline-flex items-center text-gray-700 bg-transparent border border-gray-700 hover:bg-gray-800 hover:text-white focus:ring-4 focus:outline-none focus:ring-gray-300 font-medium rounded-lg text-xs px-3 py-1.5 text-center"
 			data-dismiss-target="#alert-additional-content-5"
@@ -54,7 +55,7 @@
 		</button>
 
 		<button
-			on:click={() => goto(`/scripts/run/${script.hash}`)}
+			on:click|stopPropagation={() => goto(`/scripts/run/${script.hash}`)}
 			type="button"
 			class="inline-flex items-center text-gray-700 bg-transparent border border-gray-700 hover:bg-gray-800 hover:text-white focus:ring-4 focus:outline-none focus:ring-gray-300 font-medium rounded-lg text-xs px-3 py-1.5 text-center"
 			data-dismiss-target="#alert-additional-content-5"
