@@ -25,21 +25,12 @@ components:
           type: string
         description:
           type: string
-        value:
-          $ref: "#/components/schemas/FlowValue"
-        schema:
-          type: object
-      required:
-        - summary
-        - value
-
-    FlowValue:
-      type: object
-      properties:
         modules:
           type: array
           items:
             $ref: "#/components/schemas/FlowModule"
+        schema:
+          type: object
         failure_module:
           $ref: "#/components/schemas/FlowModule"
       required:
@@ -48,16 +39,21 @@ components:
     FlowModule:
       type: object
       properties:
-        input_transform:
+        input_transforms:
           type: object
           additionalProperties:
             $ref: "#/components/schemas/InputTransform"
         value:
           $ref: "#/components/schemas/FlowModuleValue"
-        stop_after_if_expr:
-          type: string
-        skip_if_stopped:
-          type: boolean
+        stop_after_if:
+          type: object
+          properties:
+            is_status_skipped:
+              type: boolean
+            expr:
+              type: string
+          required:
+            - expr
         summary:
           type: string
       required:
@@ -160,8 +156,10 @@ components:
     ForloopFlow:
       type: object
       properties:
-        value:
-          $ref: "#/components/schemas/FlowValue"
+        modules:
+          type: array
+          items:
+            $ref: "#/components/schemas/FlowModule"
         iterator:
           $ref: "#/components/schemas/InputTransform"
         skip_failures:
@@ -171,7 +169,7 @@ components:
           enum:
             - forloopflow
       required:
-        - value
+        - modules
         - iterator
         - skip_failures
         - type

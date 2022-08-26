@@ -3325,7 +3325,7 @@ components:
         flow_status:
           $ref: "../openflow.openapi.yaml#/components/schemas/FlowStatus"
         raw_flow:
-          $ref: "../openflow.openapi.yaml#/components/schemas/FlowValue"
+          $ref: "../openflow.openapi.yaml#/components/schemas/OpenFlow"
         is_flow_step:
           type: boolean
         language:
@@ -3403,7 +3403,7 @@ components:
         flow_status:
           $ref: "../openflow.openapi.yaml#/components/schemas/FlowStatus"
         raw_flow:
-          $ref: "../openflow.openapi.yaml#/components/schemas/FlowValue"
+          $ref: "../openflow.openapi.yaml#/components/schemas/OpenFlow"
         is_flow_step:
           type: boolean
         language:
@@ -4120,7 +4120,7 @@ components:
       type: object
       properties:
         value:
-          $ref: "../openflow.openapi.yaml#/components/schemas/FlowValue"
+          $ref: "../openflow.openapi.yaml#/components/schemas/OpenFlow"
         path:
           type: string
         args:
