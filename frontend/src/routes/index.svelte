@@ -46,10 +46,10 @@
 </script>
 
 <CenteredPage>
+	<h1 class="text-xl font-extrabold tracking-tight leading-none text-gray-900 md:text-3xl">
+		Welcome to Windmill!
+	</h1>
 	<div class="space-y-12">
-		<h1 class="text-xl font-extrabold tracking-tight leading-none text-gray-900 md:text-3xl">
-			Welcome to Windmill!
-		</h1>
 		<div>
 			<h2
 				class="mb-4 text-lg font-extrabold tracking-tight leading-none text-gray-900 md:text-2xl border-b py-2"

@@ -13,7 +13,11 @@
 	let isSelected = false
 
 	navigating.subscribe(() => {
-		isSelected = window.location.pathname.includes(href)
+		if (href === '/') {
+			isSelected = window.location.pathname === href
+		} else {
+			isSelected = window.location.pathname.includes(href)
+		}
 	})
 </script>
 
@@ -23,6 +27,7 @@
 		'group flex items-center px-2 py-2 text-sm font-medium rounded-md h-8',
 		isSelected ? 'bg-blue-100 text-blue-900' : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
 	)}
+	target={href.includes('http') ? '_blank' : null}
 >
 	<Icon
 		data={icon}
