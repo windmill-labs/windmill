@@ -51,7 +51,9 @@
 	}
 
 	async function loadUsers() {
-		usernames = await UserService.listUsernames({ workspace: $workspaceStore! })
+		usernames = $userStore?.is_admin
+			? await UserService.listUsernames({ workspace: $workspaceStore! })
+			: [$userStore?.username ?? '']
 	}
 
 	async function gotoUsername(username: string | undefined): Promise<void> {
