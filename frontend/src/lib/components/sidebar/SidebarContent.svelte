@@ -10,10 +10,12 @@
 		faRobot,
 		faUsersCog,
 		faWallet,
-		faWind
+		faWind,
+		faCog
 	} from '@fortawesome/free-solid-svg-icons'
 	import { faDiscord, faGithub } from '@fortawesome/free-brands-svg-icons'
 	import MenuLink from './MenuLink.svelte'
+	import { userStore } from '$lib/stores'
 
 	const mainMenuLinks = [
 		{ label: 'Home', href: '/', icon: faHomeAlt },
@@ -25,10 +27,16 @@
 		{ label: 'Resources', href: '/resources', icon: faCubes }
 	]
 
-	const secondaryMenuLinks = [
+	$: secondaryMenuLinks = [
 		{ label: 'Workers', href: '/workers', icon: faRobot },
 		{ label: 'Groups', href: '/groups', icon: faUsersCog },
-		{ label: 'Audit Logs', href: '/audit_logs', icon: faEye }
+		{ label: 'Audit Logs', href: '/audit_logs', icon: faEye },
+		{
+			label: 'Workspace',
+			href: '/workspace_settings',
+			icon: faCog,
+			disabled: !$userStore?.is_admin
+		}
 	]
 
 	const thirdMenuLinks = [
@@ -44,30 +52,17 @@
 	export let isCollapsed: boolean = false
 </script>
 
-<div class="flex-1 flex flex-col pt-5 pb-4 overflow-y-auto overflow-x-hidden">
-	<div class="flex items-center flex-shrink-0 px-4 font-extrabold text-white">
-		{#if isCollapsed}
-			W
-		{:else}
-			Windmill
-		{/if}
-	</div>
-
-	<nav class="mt-5 flex-1 px-2 space-y-8">
+<div class="flex-1 flex flex-col py-4 overflow-y-auto overflow-x-hidden">
+	<nav class="h-full flex justify-between flex-col px-2">
 		<div class="space-y-2">
 			{#each mainMenuLinks as menuLink}
 				<MenuLink {...menuLink} {isCollapsed} />
 			{/each}
-		</div>
-
-		<div class="border-b border-gray-300" />
-
-		<div class="space-y-2">
+			<div class="h-8" />
 			{#each secondaryMenuLinks as menuLink}
 				<MenuLink {...menuLink} {isCollapsed} />
 			{/each}
 		</div>
-		<div class="border-b border-gray-300" />
 
 		<div class="space-y-2">
 			{#each thirdMenuLinks as menuLink}

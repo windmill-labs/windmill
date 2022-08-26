@@ -1,15 +1,18 @@
-<script>
+<script lang="ts">
 	import { logout } from '$lib/logout'
 
 	import { userStore, usersWorkspaceStore, superadmin } from '$lib/stores'
-	import { faCrown } from '@fortawesome/free-solid-svg-icons'
+	import { classNames } from '$lib/utils'
+	import { faCog, faCrown, faUser } from '@fortawesome/free-solid-svg-icons'
 
 	import { onMount } from 'svelte'
 	import Icon from 'svelte-awesome'
 	import { scale } from 'svelte/transition'
 
 	let show = false
-	let menu = null
+	let menu: HTMLDivElement
+
+	export let isCollapsed: boolean = false
 
 	const handleOutsideClick = (event) => {
 		if (show && !menu.contains(event.target)) {
@@ -36,32 +39,33 @@
 
 <div class="relative" bind:this={menu}>
 	<div>
-		<button on:click={() => (show = !show)} class="menu focus:outline-none focus:shadow-solid">
-			<div class="flex items-center">
-				<span class="inline-block h-8 w-8 rounded-full overflow-hidden bg-gray-100">
-					<svg class="h-full w-full text-gray-300" fill="currentColor" viewBox="0 0 24 24">
-						<path
-							d="M24 20.993V24H0v-2.996A14.977 14.977 0 0112.004 15c4.904 0 9.26 2.354 11.996 5.993zM16.002 8.999a4 4 0 11-8 0 4 4 0 018 0z"
-						/>
-					</svg>
+		<button
+			type="button"
+			class={classNames(
+				'group w-full flex items-center text-white hover:bg-gray-50 hover:text-gray-900  focus:outline-none  px-2 py-2 text-sm font-medium rounded-md h-8 '
+			)}
+			on:click={() => (show = !show)}
+		>
+			<Icon
+				data={faUser}
+				class={classNames('flex-shrink-0 h-4 w-4', isCollapsed ? '-mr-1' : 'mr-2')}
+			/>
+
+			{#if !isCollapsed}
+				<span class={classNames('whitespace-pre ')}>
+					{$userStore?.username ?? ($superadmin ? $superadmin : '___')}
+					{#if $userStore?.is_admin}
+						<Icon data={faCrown} scale={0.6} />
+					{/if}
 				</span>
-				<div class="ml-3">
-					<p class="text-sm font-medium text-gray-700 group-hover:text-gray-900">
-						{$userStore?.username ?? ($superadmin ? $superadmin : '___')}
-						{#if $userStore?.is_admin}
-							<Icon data={faCrown} scale={0.6} />
-						{/if}
-					</p>
-					<p class="text-xs font-medium text-gray-500 group-hover:text-gray-700">View profile</p>
-				</div>
-			</div>
+			{/if}
 		</button>
 
 		{#if show}
 			<div
 				in:scale={{ duration: 100, start: 0.95 }}
 				out:scale={{ duration: 75, start: 0.95 }}
-				class="z-50 origin-top-right absolute right-0 mt-2 w-56 rounded-md shadow-lg bg-white ring-1 ring-black ring-opacity-5 divide-y divide-gray-100 focus:outline-none"
+				class="z-50 origin-top-left absolute  left-0 mt-2 w-56 rounded-md shadow-lg bg-white ring-1 ring-black ring-opacity-5 divide-y divide-gray-100 focus:outline-none"
 				role="menu"
 				tabindex="-1"
 			>

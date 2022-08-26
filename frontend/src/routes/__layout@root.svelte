@@ -72,7 +72,16 @@
 						</svg>
 					</button>
 				</div>
-				<div class="bg-blue-500 h-full"><SidebarContent {isCollapsed} /></div>
+				<div class="bg-blue-500 h-full">
+					<div class="flex items-center flex-shrink-0 p-4 font-extrabold text-white">Windmill</div>
+
+					<div class="px-2 py-4 space-y-2 border-y border-blue-400 ">
+						<WorkspaceMenu />
+						<UserMenu />
+					</div>
+
+					<SidebarContent {isCollapsed} />
+				</div>
 			</div>
 		</div>
 	</div>
@@ -80,13 +89,25 @@
 	<div
 		class={classNames(
 			'hidden md:flex md:flex-col md:fixed md:inset-y-0 transition-all ease-in-out duration-200 ',
-			isCollapsed ? 'md:w-12' : 'md:w-64'
+			isCollapsed ? 'md:w-12' : 'md:w-48'
 		)}
 	>
 		<div class="flex-1 flex flex-col min-h-0 shadow-lg bg-blue-500">
+			<div class="flex items-center flex-shrink-0 p-4 font-extrabold text-white">
+				{#if isCollapsed}
+					W
+				{:else}
+					Windmill
+				{/if}
+			</div>
+
+			<div class="px-2 py-4 space-y-2 border-y border-blue-400 ">
+				<WorkspaceMenu {isCollapsed} />
+				<UserMenu {isCollapsed} />
+			</div>
 			<SidebarContent {isCollapsed} />
 
-			<div class="flex-shrink-0 flex p-4">
+			<div class="flex-shrink-0 flex p-4 border-t border-blue-400">
 				<button
 					on:click={() => {
 						isCollapsed = !isCollapsed
@@ -106,42 +127,36 @@
 	<div
 		class={classNames(
 			'flex flex-col flex-1 transition-all ease-in-out duration-200',
-			isCollapsed ? 'md:pl-12' : 'md:pl-64'
+			isCollapsed ? 'md:pl-12' : 'md:pl-48'
 		)}
 	>
 		<main>
 			<div class="border-b w-full">
 				<div
-					class="py-2 px-2 sm:px-4 md:px-8 flex justify-between flex-row-reverse items-center shadow-sm max-w-6xl mx-auto"
+					class="py-2 px-2 sm:px-4 md:px-8 flex justify-between items-center shadow-sm max-w-6xl mx-auto md:hidden"
 				>
-					<div class="inline-flex space-x-4 items-center">
-						<WorkspaceMenu />
-						<UserMenu />
-					</div>
-					<div class="md:hidden">
-						<button
-							type="button"
-							on:click={() => {
-								menuOpen = true
-							}}
-							class="h-8 w-8 inline-flex items-center justify-center rounded-md text-gray-500 hover:text-gray-900 focus:outline-none focus:ring-2 focus:ring-inset focus:ring-indigo-500"
+					<button
+						type="button"
+						on:click={() => {
+							menuOpen = true
+						}}
+						class="h-8 w-8 inline-flex items-center justify-center rounded-md text-gray-500 hover:text-gray-900 focus:outline-none focus:ring-2 focus:ring-inset focus:ring-indigo-500"
+					>
+						<svg
+							class="h-6 w-6"
+							xmlns="http://www.w3.org/2000/svg"
+							fill="none"
+							viewBox="0 0 24 24"
+							stroke-width="2"
+							stroke="currentColor"
+							aria-hidden="true"
 						>
-							<svg
-								class="h-6 w-6"
-								xmlns="http://www.w3.org/2000/svg"
-								fill="none"
-								viewBox="0 0 24 24"
-								stroke-width="2"
-								stroke="currentColor"
-								aria-hidden="true"
-							>
-								<path stroke-linecap="round" stroke-linejoin="round" d="M4 6h16M4 12h16M4 18h16" />
-							</svg>
-						</button>
-					</div>
+							<path stroke-linecap="round" stroke-linejoin="round" d="M4 6h16M4 12h16M4 18h16" />
+						</svg>
+					</button>
 				</div>
+				<slot />
 			</div>
-			<slot />
 		</main>
 	</div>
 </div>
