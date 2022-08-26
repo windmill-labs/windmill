@@ -63,8 +63,6 @@
 				out:scale={{ duration: 75, start: 0.95 }}
 				class="z-50 origin-top-right absolute right-0 mt-2 w-56 rounded-md shadow-lg bg-white ring-1 ring-black ring-opacity-5 divide-y divide-gray-100 focus:outline-none"
 				role="menu"
-				aria-orientation="vertical"
-				aria-labelledby="menu-button"
 				tabindex="-1"
 			>
 				<div class="px-4 py-3" role="none">
@@ -79,8 +77,9 @@
 						class="text-gray-700 block px-4 py-2 text-sm hover:bg-gray-100 hover:text-gray-900"
 						role="menuitem"
 						tabindex="-1"
-						id="menu-item-0">Account settings</a
 					>
+						Account settings
+					</a>
 				</div>
 				<div class="py-1" role="none">
 					<button
@@ -88,7 +87,6 @@
 						class="text-gray-700 block w-full text-left px-4 py-2 text-sm hover:bg-gray-100 hover:text-gray-900"
 						role="menuitem"
 						tabindex="-1"
-						id="menu-item-3"
 						on:click={() => logout()}
 					>
 						Sign out

@@ -25,7 +25,7 @@
 	{href}
 	class={classNames(
 		'group flex items-center px-2 py-2 text-sm font-medium rounded-md h-8',
-		isSelected ? 'bg-blue-100 text-blue-900' : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
+		isSelected ? 'bg-gray-50 text-gray-900' : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
 	)}
 	target={href.includes('http') ? '_blank' : null}
 >
@@ -33,12 +33,19 @@
 		data={icon}
 		class={classNames(
 			' flex-shrink-0 h-4 w-4',
-			isSelected ? 'text-blue-500' : 'text-gray-400 group-hover:text-gray-500',
+			isSelected ? ' text-gray-700' : 'text-white group-hover:text-gray-500',
 			isCollapsed ? '-mr-1' : 'mr-3'
 		)}
 	/>
 
 	{#if !isCollapsed}
-		<span class="whitespace-pre"> {label}</span>
+		<span
+			class={classNames(
+				'whitespace-pre text-white',
+				isSelected ? ' text-gray-700 font-bold' : 'text-white group-hover:text-gray-500'
+			)}
+		>
+			{label}
+		</span>
 	{/if}
 </a>

@@ -11,7 +11,7 @@
 	class="border p-4 rounded-sm shadow-sm space-y-2 hover:border-blue-600 flex flex-col justify-between cursor-pointer"
 	on:click={() => goto(`/scripts/get/${script.hash}`)}
 >
-	<div class="font-bold">{script.summary}</div>
+	<div class="font-bold">{script.summary || script.path}</div>
 
 	<div class="inline-flex justify-between w-full">
 		<div class="text-xs">{script.path}</div>
