@@ -1,0 +1,16 @@
+{
+  "workspace_id": "starter",
+  "name": "stripe",
+  "schema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+      "token": {
+        "type": "string",
+        "description": ""
+      }
+    },
+    "required": [],
+    "type": "object"
+  },
+  "description": "Stripe api key"
+}
