@@ -1272,39 +1272,32 @@ mod tests {
                         path: None,
                     }),
                     input_transforms: Default::default(),
-                    stop_after_if_expr: Default::default(),
-                    skip_if_stopped: Default::default(),
+                    stop_after_if: Default::default(),
                     summary: Default::default(),
                 },
                 FlowModule {
                     value: FlowModuleValue::ForloopFlow {
                         iterator: InputTransform::Javascript { expr: "result".to_string() },
                         skip_failures: false,
-                        value: FlowValue {
-                            modules: vec![FlowModule {
-                                value: FlowModuleValue::RawScript(RawCode {
-                                    language: ScriptLang::Deno,
-                                    content: doubles.to_string(),
-                                    path: None,
-                                }),
-                                input_transforms: [(
-                                    "n".to_string(),
-                                    InputTransform::Javascript {
-                                        expr: "previous_result.iter.value".to_string(),
-                                    },
-                                )]
-                                .into(),
-                                stop_after_if_expr: Default::default(),
-                                skip_if_stopped: Default::default(),
-                                summary: Default::default(),
-                            }],
-                            failure_module: Default::default(),
-                        }
-                        .into(),
+                        modules: Box::new(vec![FlowModule {
+                            value: FlowModuleValue::RawScript(RawCode {
+                                language: ScriptLang::Deno,
+                                content: doubles.to_string(),
+                                path: None,
+                            }),
+                            input_transforms: [(
+                                "n".to_string(),
+                                InputTransform::Javascript {
+                                    expr: "previous_result.iter.value".to_string(),
+                                },
+                            )]
+                            .into(),
+                            stop_after_if: Default::default(),
+                            summary: Default::default(),
+                        }]),
                     },
                     input_transforms: Default::default(),
-                    stop_after_if_expr: Default::default(),
-                    skip_if_stopped: Default::default(),
+                    stop_after_if: Default::default(),
                     summary: Default::default(),
                 },
             ],
