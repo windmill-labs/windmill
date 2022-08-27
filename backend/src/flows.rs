@@ -7,6 +7,7 @@
  */
 
 use std::collections::HashMap;
+use std::time::Duration;
 
 use reqwest::Client;
 use sql_builder::prelude::*;
@@ -25,6 +26,7 @@ use crate::{
     db::{UserDB, DB},
     error::{self, to_anyhow, Error, JsonResult, Result},
     jobs::RawCode,
+    more_serde::{default_true, is_default},
     scripts::Schema,
     users::Authed,
     utils::{http_get_from_hub, list_elems_from_hub, Pagination, StripPath},
@@ -69,10 +71,66 @@ pub struct NewFlow {
     pub schema: Option<Schema>,
 }
 
-#[derive(Deserialize, Serialize, Debug, Clone)]
+#[derive(Deserialize, Serialize, Debug, Clone, Default)]
 pub struct FlowValue {
     pub modules: Vec<FlowModule>,
+    #[serde(default)]
+    #[serde(skip_serializing_if = "is_default")]
+    pub retry: Retry,
+    #[serde(default)]
     pub failure_module: Option<FlowModule>,
+}
+
+#[derive(Deserialize, Serialize, Debug, Clone, Default, PartialEq)]
+#[serde(default)]
+pub struct Retry {
+    constant: ConstantDelay,
+    exponential: ExponentialDelay,
+}
+
+impl Retry {
+    /// Takes the number of previous retries and returns the interval until the next retry if any.
+    ///
+    /// May return [`Duration::ZERO`] to retry immediately.
+    pub fn duration(&self, previous_attempts: u16) -> Option<Duration> {
+        let Self { constant, exponential } = self;
+
+        if previous_attempts < constant.attempts {
+            Some(Duration::from_secs(constant.seconds as u64))
+        } else if previous_attempts - constant.attempts < exponential.attempts {
+            let exp = previous_attempts.saturating_add(1) as u32;
+            let secs = exponential.multiplier * exponential.seconds.saturating_pow(exp);
+            Some(Duration::from_secs(secs as u64))
+        } else {
+            None
+        }
+    }
+
+    pub fn has_attempts(&self) -> bool {
+        self.constant.attempts != 0 || self.exponential.attempts != 0
+    }
+}
+
+#[derive(Deserialize, Serialize, Debug, Clone, Default, PartialEq)]
+#[serde(default)]
+pub struct ConstantDelay {
+    pub attempts: u16,
+    pub seconds: u16,
+}
+
+/// multiplier * seconds ^ failures
+#[derive(Deserialize, Serialize, Debug, Clone, PartialEq)]
+#[serde(default)]
+pub struct ExponentialDelay {
+    pub attempts: u16,
+    pub multiplier: u16,
+    pub seconds: u16,
+}
+
+impl Default for ExponentialDelay {
+    fn default() -> Self {
+        Self { attempts: 0, multiplier: 1, seconds: 0 }
+    }
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone)]
@@ -115,10 +173,6 @@ pub enum FlowModuleValue {
         path: String,
     },
     RawScript(RawCode),
-}
-
-fn default_true() -> bool {
-    true
 }
 
 #[derive(Deserialize)]
@@ -409,17 +463,18 @@ mod tests {
     // Note this useful idiom: importing names from outer (for mod tests) scope.
     use super::*;
 
+    const SECOND: Duration = Duration::from_secs(1);
+
     #[test]
-    fn test_serialize() -> anyhow::Result<()> {
-        let mut hm = HashMap::new();
-        hm.insert(
-            "test".to_owned(),
-            InputTransform::Static { value: serde_json::json!("test2") },
-        );
+    fn flowmodule_serde() {
         let fv = FlowValue {
             modules: vec![
                 FlowModule {
-                    input_transforms: hm,
+                    input_transforms: [(
+                        "test".to_string(),
+                        InputTransform::Static { value: serde_json::json!("test2") },
+                    )]
+                    .into(),
                     value: FlowModuleValue::Script { path: "test".to_string() },
                     stop_after_if_expr: None,
                     skip_if_stopped: Some(false),
@@ -444,7 +499,7 @@ mod tests {
                     .into(),
                     value: FlowModuleValue::ForloopFlow {
                         iterator: InputTransform::Static { value: serde_json::json!([1, 2, 3]) },
-                        value: Box::new(FlowValue { modules: vec![], failure_module: None }),
+                        value: Box::new(FlowValue::default()),
                         skip_failures: true,
                     },
                     stop_after_if_expr: Some("previous.isEmpty()".to_string()),
@@ -459,9 +514,81 @@ mod tests {
                 skip_if_stopped: None,
                 summary: None,
             }),
+            retry: Default::default(),
         };
-        println!("{}", serde_json::json!(fv).to_string());
-        Ok(())
+        let expect = serde_json::json!({
+          "modules": [
+            {
+              "input_transforms": {
+                "test": {
+                  "type": "static",
+                  "value": "test2"
+                }
+              },
+              "value": {
+                "type": "script",
+                "path": "test"
+              },
+              "stop_after_if_expr": null,
+              "skip_if_stopped": false,
+              "summary": null
+            },
+            {
+              "input_transforms": {},
+              "value": {
+                "type": "rawscript",
+                "content": "test",
+                "path": null,
+                "language": "deno"
+              },
+              "stop_after_if_expr": "foo = 'bar'",
+              "skip_if_stopped": null,
+              "summary": null
+            },
+            {
+              "input_transforms": {
+                "iterand": {
+                  "type": "static",
+                  "value": [
+                    1,
+                    2,
+                    3
+                  ]
+                }
+              },
+              "value": {
+                "type": "forloopflow",
+                "iterator": {
+                  "type": "static",
+                  "value": [
+                    1,
+                    2,
+                    3
+                  ]
+                },
+                "value": {
+                  "modules": [],
+                  "failure_module": null
+                },
+                "skip_failures": true
+              },
+              "stop_after_if_expr": "previous.isEmpty()",
+              "skip_if_stopped": null,
+              "summary": null
+            }
+          ],
+          "failure_module": {
+            "input_transforms": {},
+            "value": {
+              "type": "flow",
+              "path": "test"
+            },
+            "stop_after_if_expr": "previous.isEmpty()",
+            "skip_if_stopped": null,
+            "summary": null
+          }
+        });
+        assert_eq!(dbg!(serde_json::json!(fv)), expect);
     }
 
     #[test]
@@ -486,6 +613,84 @@ mod tests {
         assert_eq!(
             module.input_transforms["n"],
             InputTransform::Javascript { expr: "flow_input.iter.value".to_string() }
+        );
+    }
+
+    #[test]
+    fn retry_serde() {
+        assert_eq!(Retry::default(), serde_json::from_str(r#"{}"#).unwrap());
+
+        assert_eq!(
+            Retry::default(),
+            serde_json::from_str(
+                r#"
+                {
+                  "constant": {
+                    "seconds": 0
+                  },
+                  "exponential": {
+                    "multiplier": 1,
+                    "seconds": 0
+                  }
+                }
+                "#
+            )
+            .unwrap()
+        );
+
+        assert_eq!(
+            Retry {
+                constant: Default::default(),
+                exponential: ExponentialDelay { attempts: 0, multiplier: 1, seconds: 123 }
+            },
+            serde_json::from_str(
+                r#"
+                {
+                  "constant": {},
+                  "exponential": { "seconds": 123 }
+                }
+                "#
+            )
+            .unwrap()
+        );
+    }
+
+    #[test]
+    fn retry_exponential() {
+        let retry = Retry {
+            constant: ConstantDelay::default(),
+            exponential: ExponentialDelay { attempts: 3, multiplier: 4, seconds: 3 },
+        };
+        assert_eq!(
+            vec![
+                Some(12 * SECOND),
+                Some(36 * SECOND),
+                Some(108 * SECOND),
+                None
+            ],
+            (0..4)
+                .map(|previous_attempts| retry.duration(previous_attempts))
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn retry_both() {
+        let retry = Retry {
+            constant: ConstantDelay { attempts: 2, seconds: 4 },
+            exponential: ExponentialDelay { attempts: 2, multiplier: 1, seconds: 3 },
+        };
+        assert_eq!(
+            vec![
+                Some(4 * SECOND),
+                Some(4 * SECOND),
+                Some(27 * SECOND),
+                Some(81 * SECOND),
+                None,
+            ],
+            (0..5)
+                .map(|previous_attempts| retry.duration(previous_attempts))
+                .collect::<Vec<_>>()
         );
     }
 }
