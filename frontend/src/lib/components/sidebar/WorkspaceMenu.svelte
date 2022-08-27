@@ -1,13 +1,7 @@
 <script lang="ts">
 	import { workspaceStore, usersWorkspaceStore } from '$lib/stores'
 	import { classNames } from '$lib/utils'
-	import {
-		faBuilding,
-		faCog,
-		faFolder,
-		faFolderOpen,
-		faFolderTree
-	} from '@fortawesome/free-solid-svg-icons'
+	import { faBuilding } from '@fortawesome/free-solid-svg-icons'
 
 	import { onMount } from 'svelte'
 	import Icon from 'svelte-awesome'

@@ -131,7 +131,7 @@
 													>
 													{#if open[i]}
 														<div class="border border-black p-2 bg-gray-50  divide-y">
-															<InputTransformsViewer inputTransforms={mod?.input_transform} />
+															<InputTransformsViewer inputTransforms={mod?.input_transforms} />
 															<div class="w-full h-full mt-6">
 																<iframe
 																	style="height: 400px;"
@@ -157,7 +157,7 @@
 
 											{#if open[i]}
 												<div transition:slide class="border border-black p-2 bg-gray-50 w-full">
-													<InputTransformsViewer inputTransforms={mod?.input_transform} />
+													<InputTransformsViewer inputTransforms={mod?.input_transforms} />
 
 													<Highlight
 														language={mod?.value?.language == 'deno' ? typescript : python}

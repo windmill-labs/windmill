@@ -1,10 +1,8 @@
 <script lang="ts">
 	import type { Schema } from '$lib/common'
-	import type { Job, JobService, Flow } from '$lib/gen'
-	import { workspaceStore } from '$lib/stores'
+	import type { Flow } from '$lib/gen'
 	import { sendUserToast, truncateRev } from '$lib/utils'
 	import { faChevronDown, faChevronUp } from '@fortawesome/free-solid-svg-icons'
-	import { onDestroy } from 'svelte'
 	import Icon from 'svelte-awesome'
 	import { flowStateStore, flowStateToFlow } from './flows/flowState'
 	import { mapJobResultsToFlowState } from './flows/flowStateUtils'
@@ -53,14 +51,14 @@
 	}
 
 	function setInputTransformFromArgs(flow: Flow, args: any) {
-		let input_transform = {}
+		let input_transforms = {}
 		Object.entries(args).forEach(([key, value]) => {
-			input_transform[key] = {
+			input_transforms[key] = {
 				type: 'static',
 				value: value
 			}
 		})
-		flow.value.modules[0].input_transform = input_transform
+		flow.value.modules[0].input_transforms = input_transforms
 		return flow
 	}
 </script>

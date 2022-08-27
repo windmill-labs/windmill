@@ -3,7 +3,7 @@
 
 	import { userStore, usersWorkspaceStore, superadmin } from '$lib/stores'
 	import { classNames } from '$lib/utils'
-	import { faCog, faCrown, faUser } from '@fortawesome/free-solid-svg-icons'
+	import { faCrown, faUser } from '@fortawesome/free-solid-svg-icons'
 
 	import { onMount } from 'svelte'
 	import Icon from 'svelte-awesome'

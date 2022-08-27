@@ -20,7 +20,7 @@
 	import ResourcePicker from './ResourcePicker.svelte'
 	import StringTypeNarrowing from './StringTypeNarrowing.svelte'
 	import SchemaForm from './SchemaForm.svelte'
-	import type { Schema, SchemaProperty } from '$lib/common'
+	import type { SchemaProperty } from '$lib/common'
 
 	export let label: string = ''
 	export let value: any
