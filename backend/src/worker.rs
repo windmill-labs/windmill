@@ -1335,21 +1335,19 @@ mod tests {
                         "type": "forloopflow",
                         "iterator": { "type": "javascript", "expr": "result" },
                         "skip_failures": false,
-                        "value": {
-                            "modules": [{
-                                "value": {
-                                    "type": "rawscript",
-                                    "language": "python3",
-                                    "content": doubles,
+                        "modules": [{
+                            "value": {
+                                "type": "rawscript",
+                                "language": "python3",
+                                "content": doubles,
+                            },
+                            "input_transform": {
+                                "n": {
+                                    "type": "javascript",
+                                    "expr": "previous_result.iter.value",
                                 },
-                                "input_transform": {
-                                    "n": {
-                                        "type": "javascript",
-                                        "expr": "previous_result.iter.value",
-                                    },
-                                },
-                            }],
-                        }
+                            },
+                        }],
                     },
                 },
             ],
@@ -1444,23 +1442,21 @@ def main():
                     "value": {
                         "type": "forloopflow",
                         "iterator": { "type": "static", "value": [] },
-                        "value": {
-                            "modules": [
-                                {
-                                    "input_transform": {
-                                        "n": {
-                                            "type": "javascript",
-                                            "expr": "previous_result.iter.value",
-                                        },
+                        "modules": [
+                            {
+                                "input_transform": {
+                                    "n": {
+                                        "type": "javascript",
+                                        "expr": "previous_result.iter.value",
                                     },
-                                    "value": {
-                                        "type": "rawscript",
-                                        "language": "python3",
-                                        "content": "def main(n): return n",
-                                    },
-                                }
-                            ],
-                        }
+                                },
+                                "value": {
+                                    "type": "rawscript",
+                                    "language": "python3",
+                                    "content": "def main(n): return n",
+                                },
+                            }
+                        ],
                     },
                 },
                 {
@@ -1496,23 +1492,21 @@ def main():
                     "value": {
                         "type": "forloopflow",
                         "iterator": { "type": "static", "value": [] },
-                        "value": {
-                            "modules": [
-                                {
-                                    "input_transform": {
-                                        "n": {
-                                            "type": "javascript",
-                                            "expr": "previous_result.iter.value",
-                                        },
+                        "modules": [
+                            {
+                                "input_transform": {
+                                    "n": {
+                                        "type": "javascript",
+                                        "expr": "previous_result.iter.value",
                                     },
-                                    "value": {
-                                        "type": "rawscript",
-                                        "language": "python3",
-                                        "content": "def main(n): return n",
-                                    },
-                                }
-                            ],
-                        }
+                                },
+                                "value": {
+                                    "type": "rawscript",
+                                    "language": "python3",
+                                    "content": "def main(n): return n",
+                                },
+                            }
+                        ],
                     },
                 },
             ],
@@ -1535,23 +1529,21 @@ def main():
                     "value": {
                         "type": "forloopflow",
                         "iterator": { "type": "static", "value": [2,3,4] },
-                        "value": {
-                            "modules": [
-                                {
-                                    "input_transform": {
-                                        "n": {
-                                            "type": "javascript",
-                                            "expr": "previous_result.iter.value",
-                                        },
+                        "modules": [
+                            {
+                                "input_transform": {
+                                    "n": {
+                                        "type": "javascript",
+                                        "expr": "previous_result.iter.value",
                                     },
-                                    "value": {
-                                        "type": "rawscript",
-                                        "language": "python3",
-                                        "content": "def main(n): return n",
-                                    } ,
-                                }
-                            ],
-                        }
+                                },
+                                "value": {
+                                    "type": "rawscript",
+                                    "language": "python3",
+                                    "content": "def main(n): return n",
+                                } ,
+                            }
+                        ],
                     },
                 },
                 {
@@ -1668,21 +1660,19 @@ def main():
                     "type": "forloopflow",
                     "iterator": { "type": "javascript", "expr": "result.items" },
                     "skip_failures": false,
-                    "value": {
-                        "modules": [{
-                            "input_transform": {
-                                "n": {
-                                    "type": "javascript",
-                                    "expr": "previous_result.iter.value",
-                                },
+                    "modules": [{
+                        "input_transform": {
+                            "n": {
+                                "type": "javascript",
+                                "expr": "previous_result.iter.value",
                             },
-                            "value": {
-                                "type": "rawscript",
-                                "language": "python3",
-                                "content": "def main(n):\n    if 1 < n:\n        raise StopIteration(n)",
-                            },
-                        }],
-                    }
+                        },
+                        "value": {
+                            "type": "rawscript",
+                            "language": "python3",
+                            "content": "def main(n):\n    if 1 < n:\n        raise StopIteration(n)",
+                        },
+                    }],
                 },
             }],
         }))
