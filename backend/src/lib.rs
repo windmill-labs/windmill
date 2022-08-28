@@ -28,6 +28,7 @@ mod db;
 mod email;
 mod error;
 mod external_ip;
+mod endpoints;
 mod flows;
 mod granular_acls;
 mod groups;
@@ -156,7 +157,8 @@ pub async fn run_server(
                         .nest("/audit", audit::workspaced_service())
                         .nest("/acls", granular_acls::workspaced_service())
                         .nest("/workspaces", workspaces::workspaced_service())
-                        .nest("/flows", flows::workspaced_service()),
+                        .nest("/flows", flows::workspaced_service())
+                        .nest("/endpoints", endpoints::workspaced_service()),
                 )
                 .nest("/workspaces", workspaces::global_service())
                 .nest(

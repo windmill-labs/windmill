@@ -51,6 +51,10 @@ pub fn workspaced_service() -> Router {
             "/run_wait_result/p/*script_path",
             post(run_wait_result_job_by_path),
         )
+        .route(
+            "/endpoint/p/*script_path",
+            post(endpoint_by_path),
+        )
         .route("/run/h/:hash", post(run_job_by_hash))
         .route("/run/preview", post(run_preview_job))
         .route("/run/preview_flow", post(run_preview_flow_job))
@@ -251,6 +255,87 @@ pub async fn run_wait_result_job_by_path(
     } else {
         Err(Error::ExecutionErr("timeout after 20s".to_string()))
     }
+}
+
+pub async fn endpoint_by_path(
+    authed: Authed,
+    Extension(user_db): Extension<UserDB>,
+    Path(path): Path<String>,
+    axum::Json(args): axum::Json<Option<Map<String, Value>>>,
+    Query(run_query): Query<RunJobQuery>,
+) -> error::JsonResult<serde_json::Value> {
+    let mut tx = user_db.clone().begin(&authed).await?;
+    if let Some((w_id, tmp)) = path.split_once("/") {
+        if let Some((endpoint_path_part, remaining)) = tmp.to_string().split_once("/") {
+            let script_path = get_target_script_for_prefix(&mut tx, w_id, endpoint_path_part).await?;
+            let job_payload = script_path_to_payload(&script_path, &mut tx, &w_id.to_string()).await?;
+            let (uuid, tx) = push(
+                tx,
+                &w_id,
+                job_payload,
+                args,
+                &authed.username,
+                owner_to_token_owner(&authed.username, false),
+                run_query.get_scheduled_for(),
+                None,
+                run_query.parent_job,
+                false,
+            )
+                .await?;
+            tx.commit().await?;
+
+            //wait 5 secs top
+            let mut result = None;
+            for i in 0..48 {
+                let mut tx = user_db.clone().begin(&authed).await?;
+
+                result = sqlx::query_scalar!(
+            "SELECT result FROM completed_job WHERE id = $1 AND workspace_id = $2",
+            uuid,
+            &w_id
+        )
+                    .fetch_optional(&mut tx)
+                    .await?
+                    .flatten();
+
+                if result.is_some() {
+                    break;
+                }
+                let delay = if i < 10 { 100 } else { 500 };
+                tokio::time::sleep(core::time::Duration::from_millis(delay)).await;
+            }
+            if let Some(result) = result {
+                Ok(Json(result))
+            } else {
+                Err(Error::ExecutionErr("timeout after 20s".to_string()))
+            }
+        } else {
+            Err(Error::ExecutionErr("prefix no match".to_string()))
+        }
+    } else {
+        Err(Error::ExecutionErr("workspace ID no match".to_string()))
+    }
+}
+
+async fn get_target_script_for_prefix<'c>(
+    db: &mut Transaction<'c, Postgres>,
+    w_id: &str,
+    path_prefix: &str,
+) -> error::Result<String> {
+    let target_script = sqlx::query_scalar!(
+        "select target_script from endpoint where path_prefix = $1 AND (workspace_id = $2 OR workspace_id = \
+         'starter')",
+        path_prefix,
+        w_id
+    )
+        .fetch_one(db)
+        .await
+        .map_err(|e| {
+            Error::InternalErr(format!(
+                "querying getting path for path_prefix {path_prefix} in {w_id}: {e}"
+            ))
+        })?;
+    Ok(target_script)
 }
 
 pub async fn script_path_to_payload<'c>(
@@ -738,7 +823,7 @@ async fn cancel_job(
             )),
             Some(Job::QueuedJob(job)) if job.schedule_path.is_some() => {
                 error::Error::BadRequest(format!(
-                    "queued job id {} exists but has been created by a scheduler 
+                    "queued job id {} exists but has been created by a scheduler
                 and can only be only canceled by disabling the parent scheduler",
                     id
                 ))
@@ -1199,7 +1284,7 @@ pub async fn push<'c>(
     let flow_status = raw_flow.as_ref().map(init_flow_status);
     let uuid = sqlx::query_scalar!(
         "INSERT INTO queue
-            (workspace_id, id, parent_job, created_by, permissioned_as, scheduled_for, 
+            (workspace_id, id, parent_job, created_by, permissioned_as, scheduled_for,
                 script_hash, script_path, raw_code, args, job_kind, schedule_path, raw_flow, \
          flow_status, is_flow_step, language)
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16) \
