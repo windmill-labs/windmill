@@ -1718,7 +1718,7 @@ def main():
                 const buf = new Uint8Array([0]);
                 const sock = await Deno.connect({ port });
                 await sock.write(new Uint8Array([index]));
-                if (1 != await sock.read(buf)) throw "read";
+                if (await sock.read(buf) != 1) throw "read";
                 return buf[0];
             }
             "#;
