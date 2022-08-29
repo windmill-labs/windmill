@@ -21,7 +21,7 @@
 		"@tailwindcss/forms": "^0.5.1",
 		"@tailwindcss/typography": "^0.5.4",
 		"@types/vscode": "~1.70.0",
-		"@typescript-eslint/eslint-plugin": "^5.34.0",
+		"@typescript-eslint/eslint-plugin": "^5.35.1",
 		"@typescript-eslint/parser": "^5.35.1",
 		"@zerodevx/svelte-toast": "^0.7.2",
 		"autoprefixer": "^10.4.8",
