@@ -41,7 +41,7 @@
 		"stylelint-config-recommended": "^9.0.0",
 		"svelte": "^3.49.0",
 		"svelte-awesome": "^3.0.0",
-		"svelte-check": "^2.8.1",
+		"svelte-check": "^2.9.0",
 		"svelte-heros": "^2.3.5",
 		"svelte-highlight": "^6.2.1",
 		"svelte-markdown": "^0.2.3",
