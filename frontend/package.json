@@ -42,7 +42,7 @@
 		"svelte": "^3.49.0",
 		"svelte-awesome": "^3.0.0",
 		"svelte-check": "^2.8.1",
-		"svelte-heros": "^2.3.3",
+		"svelte-heros": "^2.3.5",
 		"svelte-highlight": "^6.2.1",
 		"svelte-markdown": "^0.2.3",
 		"svelte-overlay": "^1.4.1",
@@ -62,7 +62,7 @@
 		"highlight.js": "^11.5.1",
 		"monaco-editor": "^0.34.0",
 		"monaco-editor-workers": "^0.34.1",
-		"monaco-languageclient": "3.0.0",
+		"monaco-languageclient": "3.0.1",
 		"vscode-ws-jsonrpc": "^1.0.2"
 	}
 }
