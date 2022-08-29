@@ -12,13 +12,13 @@
 
 	export let placement: Placement = 'bottom-start'
 
-	const handleOutsideClick = (event) => {
+	function handleOutsideClick(event) {
 		if (show && !menu.contains(event.target)) {
 			show = false
 		}
 	}
 
-	const handleEscape = (event) => {
+	function handleEscape(event) {
 		if (show && event.key === 'Escape') {
 			show = false
 		}

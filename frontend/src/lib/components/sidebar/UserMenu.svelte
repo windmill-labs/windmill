@@ -6,34 +6,33 @@
 	import { faCrown, faUser } from '@fortawesome/free-solid-svg-icons'
 
 	import Icon from 'svelte-awesome'
-	import Menu from '../common/Menu.svelte'
+	import Menu from '../common/menu/Menu.svelte'
 
 	export let isCollapsed: boolean = false
 </script>
 
 <Menu placement="bottom-start">
-	<svelte:fragment slot="trigger">
-		<button
-			type="button"
-			class={classNames(
-				'group w-full flex items-center text-white hover:bg-gray-50 hover:text-gray-900  focus:outline-none  px-2 py-2 text-sm font-medium rounded-md h-8 '
-			)}
-		>
-			<Icon
-				data={faUser}
-				class={classNames('flex-shrink-0 h-4 w-4', isCollapsed ? '-mr-1' : 'mr-2')}
-			/>
+	<button
+		slot="trigger"
+		type="button"
+		class={classNames(
+			'group w-full flex items-center text-white hover:bg-gray-50 hover:text-gray-900  focus:outline-none  px-2 py-2 text-sm font-medium rounded-md h-8 '
+		)}
+	>
+		<Icon
+			data={faUser}
+			class={classNames('flex-shrink-0 h-4 w-4', isCollapsed ? '-mr-1' : 'mr-2')}
+		/>
 
-			{#if !isCollapsed}
-				<span class={classNames('whitespace-pre ')}>
-					{$userStore?.username ?? ($superadmin ? $superadmin : '___')}
-					{#if $userStore?.is_admin}
-						<Icon data={faCrown} scale={0.6} />
-					{/if}
-				</span>
-			{/if}
-		</button>
-	</svelte:fragment>
+		{#if !isCollapsed}
+			<span class={classNames('whitespace-pre ')}>
+				{$userStore?.username ?? ($superadmin ? $superadmin : '___')}
+				{#if $userStore?.is_admin}
+					<Icon data={faCrown} scale={0.6} />
+				{/if}
+			</span>
+		{/if}
+	</button>
 
 	<div class="divide-y divide-gray-100">
 		<div class="px-4 py-3" role="none">
