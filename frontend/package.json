@@ -15,7 +15,7 @@
 		"test": "playwright test --config=tests-out/playwright.config.js"
 	},
 	"devDependencies": {
-		"@playwright/test": "^1.25.0",
+		"@playwright/test": "^1.25.1",
 		"@sveltejs/adapter-static": "^1.0.0-next.39",
 		"@sveltejs/kit": "next",
 		"@tailwindcss/forms": "^0.5.1",
@@ -41,7 +41,7 @@
 		"stylelint-config-recommended": "^9.0.0",
 		"svelte": "^3.49.0",
 		"svelte-awesome": "^3.0.0",
-		"svelte-check": "^2.8.1",
+		"svelte-check": "^2.9.0",
 		"svelte-heros": "^2.3.5",
 		"svelte-highlight": "^6.2.1",
 		"svelte-markdown": "^0.2.3",
