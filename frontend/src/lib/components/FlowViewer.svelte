@@ -8,9 +8,9 @@
 
 	import type { FlowValue } from '$lib/gen'
 	import { slide } from 'svelte/transition'
-	import Tabs from './tabs/Tabs.svelte'
-	import Tab from './tabs/Tab.svelte'
-	import TabContent from './tabs/TabContent.svelte'
+	import Tabs from './common/tabs/Tabs.svelte'
+	import Tab from './common/tabs/Tab.svelte'
+	import TabContent from './common/tabs/TabContent.svelte'
 
 	import SchemaViewer from './SchemaViewer.svelte'
 	import FieldHeader from './FieldHeader.svelte'

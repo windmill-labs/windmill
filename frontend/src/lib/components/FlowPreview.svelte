@@ -9,9 +9,9 @@
 	import { runFlowPreview } from './flows/utils'
 	import FlowStatusViewer from './FlowStatusViewer.svelte'
 	import RunForm from './RunForm.svelte'
-	import Tab from './tabs/Tab.svelte'
-	import TabContent from './tabs/TabContent.svelte'
-	import Tabs from './tabs/Tabs.svelte'
+	import Tab from './common/tabs/Tab.svelte'
+	import TabContent from './common/tabs/TabContent.svelte'
+	import Tabs from './common/tabs/Tabs.svelte'
 
 	export let i: number
 	export let flow: Flow
