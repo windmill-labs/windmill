@@ -4,25 +4,24 @@
 	import DisplayResult from './DisplayResult.svelte'
 	import Tabs from './tabs/Tabs.svelte'
 	import Tab from './tabs/Tab.svelte'
-	import TabPanel from './tabs/TabPanel.svelte'
+	import TabContent from './tabs/TabContent.svelte'
 
-	let value = 0
 	export let job: CompletedJob | undefined
 </script>
 
 {#if job}
-	<div>
-		<Tabs>
-			<Tab bind:value index={0}>Results</Tab>
-			<Tab bind:value index={1}>Logs</Tab>
-		</Tabs>
-		<TabPanel bind:value index={0} class="border p-2 h-36 overflow-y-scroll">
-			<DisplayResult result={job.result} />
-		</TabPanel>
-		<TabPanel bind:value index={1} class="border p-2 h-36 overflow-y-scroll">
-			<div class="text-xs p-4 bg-gray-50 overflow-auto max-h-80 border">
-				<pre class="w-full">{job.logs}</pre>
-			</div>
-		</TabPanel>
-	</div>
+	<Tabs selected="results">
+		<Tab value="results">Results</Tab>
+		<Tab value="logs">Logs</Tab>
+		<svelte:fragment slot="content">
+			<TabContent value="results" class="border p-2 h-36 overflow-y-scroll">
+				<DisplayResult result={job.result} />
+			</TabContent>
+			<TabContent value="logs" class="border p-2 h-36 overflow-y-scroll">
+				<div class="text-xs p-4 bg-gray-50 overflow-auto max-h-80 border">
+					<pre class="w-full">{job.logs}</pre>
+				</div>
+			</TabContent>
+		</svelte:fragment>
+	</Tabs>
 {/if}

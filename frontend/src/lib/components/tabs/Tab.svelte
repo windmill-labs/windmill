@@ -1,13 +1,20 @@
 <script lang="ts">
-	export let value: number
-	export let index: number
+	import { classNames } from '$lib/utils'
+	import { getContext } from 'svelte'
+
+	export let value: string
+
+	const { selected, update } = getContext('Tabs')
 </script>
 
 <div
-	class={value === index
-		? 'border-b-2 border-gray-900 text-gray-900 py-1 px-2 cursor-pointer font-bold text-sm'
-		: 'py-1 px-2 cursor-pointer	font-medium  text-sm'}
-	on:click={() => (value = index)}
+	class={classNames(
+		value === $selected
+			? 'border-b-2 border-gray-900 text-gray-900 text-sm font-semibold '
+			: 'font-medium  text-sm hover:border-b-2 hover:border-gray-300',
+		' py-1 px-4 cursor-pointer transition-all block'
+	)}
+	on:click={() => update(value)}
 >
 	<slot />
 </div>
