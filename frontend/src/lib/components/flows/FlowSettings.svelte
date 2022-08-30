@@ -1,8 +1,10 @@
 <script lang="ts">
 	import { sendUserToast } from '$lib/utils'
 	import { faFileExport, faFileImport, faGlobe } from '@fortawesome/free-solid-svg-icons'
-	import { Button, Dropdown, DropdownItem } from 'flowbite-svelte'
+	import { Button } from 'flowbite-svelte'
 	import Icon from 'svelte-awesome'
+	import Menu from '../common/menu/Menu.svelte'
+	import MenuItem from '../common/menu/MenuItem.svelte'
 	import Editor from '../Editor.svelte'
 	import FlowViewer from '../FlowViewer.svelte'
 	import Modal from '../Modal.svelte'
@@ -62,43 +64,45 @@
 <FlowBox title="Flow Settings">
 	<div slot="header">
 		<div class="flex flex-row-reverse">
-			<Dropdown class="w-fit" placement="bottom-end">
+			<Menu placement="bottom-end">
 				<button slot="trigger" class="text-gray-900 bg-white dark:text-white dark:bg-gray-800">
 					...
 				</button>
-				<DropdownItem
-					on:click={() => {
-						jsonSetter.openModal()
-					}}
-				>
-					<Icon data={faFileImport} scale={0.6} class="inline mr-2" />
-					Import from a JSON OpenFlow
-				</DropdownItem>
-				<DropdownItem
-					on:click={() => {
-						jsonViewer.openModal()
-					}}
-				>
-					<Icon data={faFileExport} scale={0.6} class="inline mr-2" />
-					Export to a JSON OpenFlow
-				</DropdownItem>
-				<DropdownItem
-					on:click={() => {
-						const url = new URL('https://hub.windmill.dev/flows/add')
-						const openFlow = {
-							value: $flowStore.value,
-							summary: $flowStore.summary,
-							description: $flowStore.description,
-							schema: $flowStore.schema
-						}
-						url.searchParams.append('flow', btoa(JSON.stringify(openFlow)))
-						window.open(url, '_blank')?.focus()
-					}}
-				>
-					<Icon data={faGlobe} scale={0.6} class="inline mr-2" />
-					Publish to Hub
-				</DropdownItem>
-			</Dropdown>
+				<div class="divide-y divide-gray-200">
+					<MenuItem
+						on:click={() => {
+							jsonSetter.openModal()
+						}}
+					>
+						<Icon data={faFileImport} scale={0.6} class="inline mr-2" />
+						Import from a JSON OpenFlow
+					</MenuItem>
+					<MenuItem
+						on:click={() => {
+							jsonViewer.openModal()
+						}}
+					>
+						<Icon data={faFileExport} scale={0.6} class="inline mr-2" />
+						Export to a JSON OpenFlow
+					</MenuItem>
+					<MenuItem
+						on:click={() => {
+							const url = new URL('https://hub.windmill.dev/flows/add')
+							const openFlow = {
+								value: $flowStore.value,
+								summary: $flowStore.summary,
+								description: $flowStore.description,
+								schema: $flowStore.schema
+							}
+							url.searchParams.append('flow', btoa(JSON.stringify(openFlow)))
+							window.open(url, '_blank')?.focus()
+						}}
+					>
+						<Icon data={faGlobe} scale={0.6} class="inline mr-2" />
+						Publish to Hub
+					</MenuItem>
+				</div>
+			</Menu>
 		</div>
 	</div>
 
