@@ -124,6 +124,13 @@ impl Serialize for ScriptHashes {
     }
 }
 
+#[derive(sqlx::Type, Serialize, Deserialize, Debug)]
+#[sqlx(type_name = "SCRIPT_KIND", rename_all = "lowercase")]
+pub enum ScriptKind {
+    Trigger,
+    Failure,
+}
+
 #[derive(FromRow, Serialize)]
 pub struct Script {
     pub workspace_id: String,
@@ -143,7 +150,7 @@ pub struct Script {
     pub lock: Option<String>,
     pub lock_error_logs: Option<String>,
     pub language: ScriptLang,
-    pub is_trigger: bool,
+    pub kind: Option<ScriptKind>,
 }
 
 #[derive(Serialize, Deserialize, sqlx::Type, Debug)]
