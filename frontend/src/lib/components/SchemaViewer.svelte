@@ -10,8 +10,6 @@
 	import Tabs from './common/tabs/Tabs.svelte'
 
 	export let schema: Schema | undefined = emptySchema()
-
-	let viewJsonSchema = false
 </script>
 
 <div class="w-full">
