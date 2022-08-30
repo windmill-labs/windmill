@@ -40,7 +40,7 @@
 
 	const placementsClasses = {
 		'bottom-start': 'origin-top-left left-0',
-		'bottom-end': 'origin-top-left right-0',
+		'bottom-end': 'origin-top-right right-0',
 		'top-start': 'origin-bottom-left left-0 bottom-0',
 		'top-end': 'origin-bottom-right right-0 bottom-0'
 	}
