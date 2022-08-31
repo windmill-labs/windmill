@@ -2,14 +2,7 @@
 	import { ResourceService, ScriptService, VariableService } from '$lib/gen'
 	import { getScriptByPath, loadHubScripts, sendUserToast } from '$lib/utils'
 
-	import {
-		faCode,
-		faCube,
-		faFile,
-		faRotate,
-		faRotateLeft,
-		faSearch
-	} from '@fortawesome/free-solid-svg-icons'
+	import { faCode, faCube, faFile, faRotate, faRotateLeft } from '@fortawesome/free-solid-svg-icons'
 	import Icon from 'svelte-awesome'
 
 	import { hubScripts, workspaceStore } from '$lib/stores'
@@ -176,10 +169,9 @@
 </ItemPicker>
 
 <ResourceEditor bind:this={resourceEditor} on:refresh={resourcePicker.openModal} />
-
 <VariableEditor bind:this={variableEditor} on:create={variablePicker.openModal} />
 
-<div class="flex divide-x-2 items-center">
+<div class="flex divide-x items-center">
 	<div>
 		<button
 			type="button"
@@ -231,7 +223,7 @@
 	<div>
 		<button
 			type="button"
-			class=" mx-1 bg-white rounded-md items-center flex hover:bg-gray-100 font-medium text-xs p-2"
+			class="ml-1 bg-white rounded-md items-center flex hover:bg-gray-100 font-medium text-xs p-2"
 			on:click={() => {
 				editor.reloadWebsocket()
 			}}

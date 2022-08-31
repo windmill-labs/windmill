@@ -24,7 +24,6 @@
 
 	let editor: ScriptEditor
 	let scriptSchema: ScriptSchema
-	$: step = Number($page.url.searchParams.get('step')) || 1
 
 	export let script: Script
 	export let initialPath: string = ''
@@ -33,7 +32,7 @@
 	let pathError = ''
 
 	$: setQueryWithoutLoad($page.url, 'state', encodeState(script))
-
+	$: step = Number($page.url.searchParams.get('step')) || 1
 	$: {
 		if (script.language == 'python3') {
 			script.is_trigger = false
@@ -142,8 +141,10 @@
 						class="default-button px-6 max-h-8"
 						on:click={() => {
 							changeStep(step + 1)
-						}}>Next</button
+						}}
 					>
+						Next
+					</button>
 				{:else}
 					<button class="default-button px-6 self-end" on:click={editScript}>Save</button>
 				{/if}
@@ -152,8 +153,10 @@
 						class="default-button-secondary px-6 max-h-8 mr-2"
 						on:click={async () => {
 							changeStep(step - 1)
-						}}>Back</button
+						}}
 					>
+						Back
+					</button>
 				{/if}
 				{#if step == 2}
 					<button
@@ -161,8 +164,10 @@
 						on:click={async () => {
 							await inferSchema()
 							editScript()
-						}}>Save (commit)</button
+						}}
 					>
+						Save (commit)
+					</button>
 				{/if}
 			</div>
 		</div>
@@ -171,7 +176,7 @@
 	<!-- metadata -->
 	{#if step === 1}
 		<CenteredPage>
-			<div class="grid grid-cols-1 gap-6 max-w-7xl">
+			<div class="space-y-6">
 				<Path
 					bind:error={pathError}
 					bind:path={script.path}
@@ -181,9 +186,8 @@
 					kind="script"
 				>
 					<div slot="ownerToolkit">
-						Script permissions depend on their path. Select the group <span class="font-mono"
-							>all</span
-						>
+						Script permissions depend on their path. Select the group
+						<span class="font-mono"> all </span>
 						to share your script, and <span class="font-mono">user</span> to keep it private.
 						<a href="https://docs.windmill.dev/docs/reference/namespaces">docs</a>
 					</div>
@@ -253,8 +257,8 @@
 							placeholder="A description to help users understand what this script does and how to use it."
 							rows="3"
 						/>
-					</span></label
-				>
+					</span>
+				</label>
 
 				<label class="block">
 					<span class="text-gray-700 mr-2">Save as template</span>

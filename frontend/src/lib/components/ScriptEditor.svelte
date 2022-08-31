@@ -3,26 +3,13 @@
 	import { CompletedJob, Job, JobService } from '$lib/gen'
 	import { userStore, workspaceStore } from '$lib/stores'
 	import { emptySchema } from '$lib/utils'
-	import {
-		faArrowPointer,
-		faCheck,
-		faCode,
-		faCube,
-		faExclamationTriangle,
-		faFile,
-		faMagnifyingGlass,
-		faPlay,
-		faRotate,
-		faRotateLeft,
-		faTableCellsLarge
-	} from '@fortawesome/free-solid-svg-icons'
+	import { faCheck, faExclamationTriangle, faPlay } from '@fortawesome/free-solid-svg-icons'
 	import { onDestroy, onMount } from 'svelte'
 	import Icon from 'svelte-awesome'
 	import Editor from './Editor.svelte'
 
 	import { inferArgs } from '$lib/infer'
 
-	// @ts-ignore
 	import type { Preview } from '$lib/gen/models/Preview'
 
 	import SchemaForm from './SchemaForm.svelte'
@@ -199,7 +186,7 @@
 	})
 </script>
 
-<div class="border-b shadow-sm p-1 px-4">
+<div class="border-b shadow-sm p-1 pr-4">
 	<div class="flex justify-between">
 		<EditorBar {editor} {lang} {websocketAlive} />
 
@@ -280,15 +267,16 @@
 										</p>
 										<p class="mt-4">
 											{#if isValid}
-												<Icon data={faCheck} class="text-green-600 mr-1" scale={0.6} /> The current preview
-												input matches requirements defined in arguments
+												<Icon data={faCheck} class="text-green-600 mr-1" scale={0.6} />
+												The current preview input matches requirements defined in arguments
 											{:else}
 												<Icon
 													data={faExclamationTriangle}
 													class="text-yellow-500 mr-1"
 													scale={0.6}
 												/>
-												The current preview input doesn't match requirements defined in arguments{/if}
+												The current preview input doesn't match requirements defined in arguments
+											{/if}
 										</p>
 									</div>
 									<SchemaForm {schema} bind:args bind:isValid />
