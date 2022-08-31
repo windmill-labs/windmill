@@ -28,6 +28,16 @@ export function initFlow(flow: Flow) {
 			modVal.input_transforms = modVal.input_transform
 			modVal.input_transform = undefined
 		}
+		if (modVal.stop_after_if_expr) {
+			modVal.stop_after_if = modVal.stop_after_if ?? {};
+			modVal.stop_after_if.expr = modVal.stop_after_if_expr;
+			delete modVal.stop_after_if_expr;
+		}
+		if (modVal.skip_if_stopped) {
+			modVal.stop_after_if = modVal.stop_after_if ?? {};
+			modVal.stop_after_if.skip_if_stopped = modVal.skip_if_stopped;
+			delete modVal.skip_if_stopped;
+		}
 	}
 }
 
