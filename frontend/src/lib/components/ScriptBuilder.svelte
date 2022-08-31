@@ -20,6 +20,7 @@
 	import Required from './Required.svelte'
 	import ScriptEditor from './ScriptEditor.svelte'
 	import ScriptSchema from './ScriptSchema.svelte'
+	import CenteredPage from './CenteredPage.svelte'
 
 	let editor: ScriptEditor
 	let scriptSchema: ScriptSchema
@@ -103,10 +104,10 @@
 	})
 </script>
 
-<div class="flex flex-col h-screen ">
+<div class="flex flex-col h-screen">
 	<!-- Nav between steps-->
-	<div class="flex flex-col w-full">
-		<div class="justify-between flex flex-row drop-shadow-sm w-full mt-4">
+	<div class="flex flex-col w-full px-4 py-2 border-b shadow-sm">
+		<div class="justify-between flex flex-row drop-shadow-sm w-full">
 			<div class="wizard-nav flex flex-row w-full">
 				<Breadcrumb>
 					<BreadcrumbItem>
@@ -165,92 +166,62 @@
 				{/if}
 			</div>
 		</div>
-		<div class="flex flex-row justify-between gap-x-20">
-			<span class="my-1 text-xs text-gray-500">
-				<a target="_blank" href="https://github.com/windmill-labs/windmill-gh-action-deploy"
-					>sync from github instead</a
-				>
-			</span>
-			<span class="my-1 text-sm text-gray-500 italic">
-				{#if script.hash != ''} Editing from {script.hash} with path{/if}
-				{#if initialPath && initialPath != script.path} {initialPath} &rightarrow; {/if}
-				{script.path}
-			</span>
-		</div>
 	</div>
 
 	<!-- metadata -->
 	{#if step === 1}
-		<div class="grid grid-cols-1 gap-6 max-w-7xl">
-			<Path
-				bind:error={pathError}
-				bind:path={script.path}
-				{initialPath}
-				on:enter={() => changeStep(2)}
-				namePlaceholder="my_script"
-				kind="script"
-			>
-				<div slot="ownerToolkit">
-					Script permissions depend on their path. Select the group <span class="font-mono"
-						>all</span
-					>
-					to share your script, and <span class="font-mono">user</span> to keep it private.
-					<a href="https://docs.windmill.dev/docs/reference/namespaces">docs</a>
-				</div>
-			</Path>
-			<h3 class="text-gray-700 border-b">Language</h3>
-			<div class="max-w-md">
-				<RadioButton
-					label="Language"
-					options={[
-						['Typescript (Deno)', 'deno'],
-						['Python 3.10', 'python3']
-					]}
-					on:change={(e) => initContent(e.detail, template)}
-					bind:value={script.language}
-				/>
-			</div>
-			{#if script.language == 'deno'}
-				<h4 class="text-gray-700  border-b">Template</h4>
-
+		<CenteredPage>
+			<div class="grid grid-cols-1 gap-6 max-w-7xl">
+				<Path
+					bind:error={pathError}
+					bind:path={script.path}
+					{initialPath}
+					on:enter={() => changeStep(2)}
+					namePlaceholder="my_script"
+					kind="script"
+				>
+					<div slot="ownerToolkit">
+						Script permissions depend on their path. Select the group <span class="font-mono"
+							>all</span
+						>
+						to share your script, and <span class="font-mono">user</span> to keep it private.
+						<a href="https://docs.windmill.dev/docs/reference/namespaces">docs</a>
+					</div>
+				</Path>
+				<h3 class="text-gray-700 border-b">Language</h3>
 				<div class="max-w-md">
 					<RadioButton
-						label="Template"
+						label="Language"
 						options={[
-							['None', undefined],
-							['PostgreSQL', 'pgsql']
+							['Typescript (Deno)', 'deno'],
+							['Python 3.10', 'python3']
 						]}
-						on:change={(e) => initContent(script.language, e.detail)}
-						bind:value={template}
+						on:change={(e) => initContent(e.detail, template)}
+						bind:value={script.language}
 					/>
 				</div>
-			{/if}
+				{#if script.language == 'deno'}
+					<h4 class="text-gray-700  border-b">Template</h4>
 
-			<h3 class="text-gray-700 pb-1 border-b">Metadata</h3>
+					<div class="max-w-md">
+						<RadioButton
+							label="Template"
+							options={[
+								['None', undefined],
+								['PostgreSQL', 'pgsql']
+							]}
+							on:change={(e) => initContent(script.language, e.detail)}
+							bind:value={template}
+						/>
+					</div>
+				{/if}
 
-			<label class="block ">
-				<span class="text-gray-700">Summary <Required required={false} /></span>
-				<textarea
-					bind:value={script.summary}
-					class="
-					mt-1
-					block
-					w-full
-					rounded-md
-					border-gray-300
-					shadow-sm
-					focus:border-indigo-300 focus:ring focus:ring-indigo-200 focus:ring-opacity-50
-					"
-					placeholder="A very short summary of the script displayed when the script is listed"
-					rows="1"
-				/>
-			</label>
-			<label class="block" for="inp">
-				<span class="text-gray-700"
-					>Description<Required required={false} detail="accept markdown formatting" />
+				<h3 class="text-gray-700 pb-1 border-b">Metadata</h3>
+
+				<label class="block ">
+					<span class="text-gray-700">Summary <Required required={false} /></span>
 					<textarea
-						id="inp"
-						bind:value={script.description}
+						bind:value={script.summary}
 						class="
 					mt-1
 					block
@@ -260,61 +231,81 @@
 					shadow-sm
 					focus:border-indigo-300 focus:ring focus:ring-indigo-200 focus:ring-opacity-50
 					"
-						placeholder="A description to help users understand what this script does and how to use it."
-						rows="3"
+						placeholder="A very short summary of the script displayed when the script is listed"
+						rows="1"
 					/>
-				</span></label
-			>
-
-			<label class="block">
-				<span class="text-gray-700 mr-2">Save as template</span>
-				<input type="checkbox" bind:checked={script.is_template} />
-			</label>
-
-			<label class="block">
-				<span class="text-gray-700 mr-2">Save as trigger script</span>
-				<input
-					disabled={script.language == 'python3'}
-					type="checkbox"
-					bind:checked={script.is_trigger}
-					on:change={() => {
-						if (
-							script.content == DENO_INIT_CODE ||
-							script.content == DENO_INIT_CODE_TRIGGER ||
-							script.content == POSTGRES_INIT_CODE
-						) {
-							initContent(script.language, template)
-						}
-					}}
-				/>
-			</label>
-
-			<div>
-				<h3 class="text-gray-700 ">Description rendered</h3>
-				<div
-					class="prose mt-5 text-xs shadow-inner shadow-blue p-4 overflow-auto"
-					style="max-height: 200px;"
+				</label>
+				<label class="block" for="inp">
+					<span class="text-gray-700"
+						>Description<Required required={false} detail="accept markdown formatting" />
+						<textarea
+							id="inp"
+							bind:value={script.description}
+							class="
+					mt-1
+					block
+					w-full
+					rounded-md
+					border-gray-300
+					shadow-sm
+					focus:border-indigo-300 focus:ring focus:ring-indigo-200 focus:ring-opacity-50
+					"
+							placeholder="A description to help users understand what this script does and how to use it."
+							rows="3"
+						/>
+					</span></label
 				>
-					<SvelteMarkdown source={script.description ?? ''} />
+
+				<label class="block">
+					<span class="text-gray-700 mr-2">Save as template</span>
+					<input type="checkbox" bind:checked={script.is_template} />
+				</label>
+
+				<label class="block">
+					<span class="text-gray-700 mr-2">Save as trigger script</span>
+					<input
+						disabled={script.language == 'python3'}
+						type="checkbox"
+						bind:checked={script.is_trigger}
+						on:change={() => {
+							if (
+								script.content == DENO_INIT_CODE ||
+								script.content == DENO_INIT_CODE_TRIGGER ||
+								script.content == POSTGRES_INIT_CODE
+							) {
+								initContent(script.language, template)
+							}
+						}}
+					/>
+				</label>
+
+				<div>
+					<h3 class="text-gray-700 ">Description rendered</h3>
+					<div
+						class="prose mt-5 text-xs shadow-inner shadow-blue p-4 overflow-auto"
+						style="max-height: 200px;"
+					>
+						<SvelteMarkdown source={script.description ?? ''} />
+					</div>
 				</div>
 			</div>
-		</div>
+		</CenteredPage>
 	{:else if step === 2}
-		<div class="flex-1 overflow-auto">
-			<ScriptEditor
-				bind:this={editor}
-				bind:schema={script.schema}
-				path={script.path}
-				bind:code={script.content}
-				lang={script.language}
-			/>
-		</div>
-	{:else if step === 3}
-		<ScriptSchema
-			bind:summary={script.summary}
-			bind:description={script.description}
+		<ScriptEditor
+			bind:this={editor}
 			bind:schema={script.schema}
+			path={script.path}
+			bind:code={script.content}
+			lang={script.language}
 		/>
+	{:else if step === 3}
+		<CenteredPage>
+			<ScriptSchema
+				bind:summary={script.summary}
+				bind:description={script.description}
+				bind:schema={script.schema}
+			/>
+		</CenteredPage>
 	{/if}
 </div>
 

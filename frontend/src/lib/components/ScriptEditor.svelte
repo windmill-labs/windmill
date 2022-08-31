@@ -2,34 +2,35 @@
 	import type { Schema } from '$lib/common'
 	import { CompletedJob, Job, JobService } from '$lib/gen'
 	import { userStore, workspaceStore } from '$lib/stores'
-	import { displayDate, emptySchema } from '$lib/utils'
+	import { emptySchema } from '$lib/utils'
 	import {
+		faArrowPointer,
 		faCheck,
-		faChevronDown,
-		faChevronUp,
+		faCode,
+		faCube,
 		faExclamationTriangle,
-		faSpinner,
-		faTimes
+		faFile,
+		faMagnifyingGlass,
+		faPlay,
+		faRotate,
+		faRotateLeft,
+		faTableCellsLarge
 	} from '@fortawesome/free-solid-svg-icons'
 	import { onDestroy, onMount } from 'svelte'
 	import Icon from 'svelte-awesome'
-	import { check } from 'svelte-awesome/icons'
-	import { fade } from 'svelte/transition'
 	import Editor from './Editor.svelte'
-	import Modal from './Modal.svelte'
-	import TableCustom from './TableCustom.svelte'
-	import Tooltip from './Tooltip.svelte'
 
 	import { inferArgs } from '$lib/infer'
 
 	// @ts-ignore
 	import type { Preview } from '$lib/gen/models/Preview'
-	import { Highlight } from 'svelte-highlight'
-	import { json, python, typescript } from 'svelte-highlight/languages'
-	import { HSplitPane, VSplitPane } from 'svelte-split-pane'
-	import DisplayResult from './DisplayResult.svelte'
-	import EditorBar from './EditorBar.svelte'
+
 	import SchemaForm from './SchemaForm.svelte'
+	import LogPanel from './script_editor/LogPanel.svelte'
+	import HSplitPane from './common/split_panel/HSplitPane.svelte'
+	import VSplitPane from './common/split_panel/VSplitPane.svelte'
+	import { faGithub } from '@fortawesome/free-brands-svg-icons'
+	import EditorBar from './EditorBar.svelte'
 
 	// Exported
 	export let schema: Schema = emptySchema()
@@ -38,15 +39,7 @@
 	export let path: string | undefined
 	export let lang: Preview.language
 
-	// Control Editor layout
-	export let viewPreview = true
-	export let previewTab: 'logs' | 'input' | 'output' | 'history' | 'last_save' = 'input'
-
 	let websocketAlive = { pyright: false, black: false, deno: false }
-
-	let modalViewerTitle: string = ''
-	let modalViewerContent: any
-	let modalViewerMode: 'logs' | 'result' | 'code' = 'logs'
 
 	// Internal state
 	let editor: Editor
@@ -60,13 +53,10 @@
 	let previewIntervalId: NodeJS.Timer
 	let previewJob: Job | undefined
 	let pastPreviews: CompletedJob[] = []
-
-	let modalViewer: Modal
+	let lastSave: string | null
 
 	let syncIteration: number = 0
 	let ITERATIONS_BEFORE_SLOW_REFRESH = 100
-
-	let lastSave: string | null
 
 	$: lastSave = localStorage.getItem(path ?? 'last_save')
 
@@ -186,6 +176,7 @@
 	}
 
 	let syncCode: NodeJS.Timer
+
 	onMount(() => {
 		syncCode = setInterval(() => {
 			const newCode = editor?.getCode()
@@ -194,6 +185,7 @@
 			}
 		}, 3000)
 	})
+
 	onDestroy(() => {
 		if (editor) {
 			code = editor.getCode()
@@ -207,324 +199,117 @@
 	})
 </script>
 
-<Modal bind:this={modalViewer}>
-	<div slot="title">{modalViewerTitle}</div>
-	<div slot="content">
-		{#if modalViewerMode === 'result'}
-			<Highlight language={json} code={JSON.stringify(modalViewerContent, null, 4)} />
-		{:else if modalViewerMode === 'logs'}
-			<pre class="overflow-x-auto break-all relative h-full m-2 text-xs bg-white shadow-inner">
-				{modalViewerContent}
-			</pre>
-		{:else if modalViewerMode === 'code'}
-			{#if lang == 'python3'}
-				<Highlight language={python} code={modalViewerContent} />
-			{:else if lang == 'deno'}
-				<Highlight language={typescript} code={modalViewerContent} />
-			{/if}
-		{/if}
-	</div></Modal
->
+<div class="border-b shadow-sm p-1 px-4">
+	<div class="flex justify-between">
+		<EditorBar {editor} {lang} {websocketAlive} />
 
-<HSplitPane
-	leftPaneSize="60%"
-	rightPaneSize="40%"
-	minLeftPaneSize="50px"
-	minRightPaneSize="50px"
-	updateCallback={() => {
-		if (!viewPreview) {
-			viewPreview = true
-		}
-	}}
->
-	<left slot="left">
-		<div class="flex flex-col h-full">
-			<div class="header">
-				<EditorBar {editor} {lang} {websocketAlive} />
+		<div class="flex divide-x">
+			<div>
+				<a
+					target="_blank"
+					href="https://github.com/windmill-labs/windmill-gh-action-deploy"
+					class="text-gray-800 mx-1 bg-white rounded-md items-center flex border-gray-300  hover:bg-gray-100 font-medium text-xs p-2"
+				>
+					<Icon data={faGithub} class="h-4 w-4 mr-2" />
+
+					Sync from Github
+				</a>
 			</div>
-			<div
-				class="flex-1 overflow-hidden border p-2 rounded"
-				on:mouseleave={() => {
-					code = getEditor().getCode()
-					inferSchema()
-				}}
-			>
-				<Editor
-					{code}
-					bind:websocketAlive
-					bind:this={editor}
-					cmdEnterAction={() => {
+
+			<div>
+				<button
+					type="button"
+					on:click|stopPropagation={() => {
 						runPreview()
-						viewPreview = true
 					}}
-					formatAction={async () => {
-						code = getEditor().getCode()
-						await inferSchema()
-						localStorage.setItem(path ?? 'last_save', code)
-						lastSave = code
-					}}
-					on:blur={() => {
+					class="text-white ml-1 bg-blue-500 rounded-md items-center flex border-gray-300 focus:outline-none hover:bg-blue-700 font-medium  text-xs p-2"
+				>
+					<Icon data={faPlay} class="h-4 w-4 mr-2" />
+					Run preview
+				</button>
+			</div>
+		</div>
+	</div>
+</div>
+<div class="flex-1 overflow-auto">
+	<HSplitPane leftPaneSize="60%" rightPaneSize="40%" minLeftPaneSize="50px" minRightPaneSize="50px">
+		<left slot="left">
+			<div class="h-full">
+				<div
+					class="p-2 h-full"
+					on:mouseleave={() => {
 						code = getEditor().getCode()
 						inferSchema()
 					}}
-					class="h-full"
-					deno={lang == 'deno'}
-					automaticLayout={true}
-				/>
-			</div>
-		</div>
-	</left>
-	<right slot="right" class="flex flex-col h-full">
-		<VSplitPane
-			topPanelSize={viewPreview ? '75%' : '90%'}
-			downPanelSize={viewPreview ? '25%' : '10%'}
-		>
-			<div class="header">
-				<div
-					class="flex flex-row w-full cursor-pointer h-full"
-					on:click={() => {
-						viewPreview = !viewPreview
-					}}
 				>
-					<div class="flex flex-row flex-wrap items-baseline">
-						<div class="font-base py-0 mr-6 hidden md:block">
-							Preview <Tooltip
-								><span class="font-normal"
-									>Test your script by running a preview, passing inputs as if you were a user</span
-								></Tooltip
-							>
-							<span style="min-width: 15px; display: inline-block;">
-								{#if previewIsLoading}
-									<span transition:fade>
-										<Icon class="animate-spin" data={faSpinner} scale={0.8} />
-									</span>
-								{/if}
-							</span>
-						</div>
-						<button
-							class="font-semibold  my-0 py-0 h-full {previewTab === 'input'
-								? 'underline drop-shadow-md'
-								: ''}"
-							on:click|stopPropagation={() => {
-								previewTab = 'input'
-								viewPreview = true
-								inferSchema()
-							}}
-						>
-							Inputs
-						</button>
-						<button
-							class="font-semibold my-0 py-0 h-full ml-3 {previewTab === 'logs' ? 'underline' : ''}"
-							on:click|stopPropagation={() => {
-								previewTab = 'logs'
-								viewPreview = true
-							}}
-						>
-							Logs
-						</button>
-						<button
-							class="font-semibold my-0 py-0 h-full ml-3 {previewTab === 'output'
-								? 'underline'
-								: ''}"
-							on:click|stopPropagation={() => {
-								previewTab = 'output'
-								viewPreview = true
-							}}
-						>
-							Result
-						</button>
-						<button
-							class="font-semibold my-0 py-0 h-full ml-3 {previewTab === 'history'
-								? 'underline'
-								: ''}"
-							on:click|stopPropagation={() => {
-								if (pastPreviews.length == 0) {
-									loadPastPreviews()
-								}
-								previewTab = 'history'
-								viewPreview = true
-							}}
-						>
-							History
-						</button>
-						<button
-							class="font-semibold my-0 py-0 h-full ml-3 {previewTab === 'last_save'
-								? 'underline'
-								: ''}"
-							on:click|stopPropagation={() => {
-								previewTab = 'last_save'
-								viewPreview = true
-							}}
-						>
-							Local save
-						</button>
-					</div>
-					<div class="flex flex-row-reverse grow">
-						<button
-							class="mb-1 ml-2"
-							on:click|stopPropagation={() => {
-								viewPreview = !viewPreview
-							}}
-							><Icon data={viewPreview ? faChevronDown : faChevronUp} scale={0.7} />
-						</button>
-						<button
-							class="default-button py-px text-xs mx-2 align-middle max-h-8"
-							on:click|stopPropagation={() => {
-								runPreview()
-								viewPreview = true
-								previewTab = 'logs'
-							}}
-							>Run preview
-						</button>
-						<div class="text-xs text-gray-700 min-w-max hidden md:block mx-2">
-							Shortcuts: <Tooltip>
-								Cmd/Ctrl+S: autoformat code and overwrite local save <br />
-								Cmd/Ctrl+Enter: run preview</Tooltip
-							>
-						</div>
-					</div>
+					<Editor
+						{code}
+						bind:websocketAlive
+						bind:this={editor}
+						cmdEnterAction={() => {
+							runPreview()
+						}}
+						formatAction={async () => {
+							code = getEditor().getCode()
+							await inferSchema()
+							localStorage.setItem(path ?? 'last_save', code)
+							lastSave = code
+						}}
+						on:blur={() => {
+							code = getEditor().getCode()
+							inferSchema()
+						}}
+						class="flex flex-1 h-full"
+						deno={lang == 'deno'}
+						automaticLayout={true}
+					/>
 				</div>
 			</div>
-			<div bind:this={div} class="preview flex-1 p-3">
-				{#if previewTab === 'logs'}
-					<pre
-						class="break-all relative h-full mx-2">{#if previewJob && previewJob.logs}{previewJob.logs}
-						{:else if previewIsLoading}Starting preview ...
-						{:else}No preview is available yet{/if}
-			</pre>
-				{:else if previewTab === 'input'}
-					<div class="break-all relative h-full font-sans -mt-2">
-						<div class="items-baseline text-xs text-gray-700 px-2 ml-8 italic hidden md:block">
-							<p>
-								Move the focus outside of the text editor to recompute the input schema from main
-								signature or press Ctrl/Cmd+S
-							</p>
-							<p class="">
-								{#if isValid}
-									<Icon data={faCheck} class="text-green-600 mr-1" scale={0.6} /> The current preview
-									input matches requirements defined in arguments
-								{:else}
-									<Icon data={faExclamationTriangle} class="text-yellow-500 mr-1" scale={0.6} />The
-									current preview input doesn't match requirements defined in arguments{/if}
-							</p>
+		</left>
+		<right slot="right">
+			<div class="h-full">
+				<VSplitPane topPanelSize="50%" downPanelSize="50%">
+					<top slot="top">
+						<div class="h-full overflow-auto">
+							<div class="p-4 ">
+								<div class="break-all relative font-sans">
+									<div class="items-baseline text-xs text-gray-700 italic hidden md:block">
+										<p>
+											Move the focus outside of the text editor to recompute the input schema from
+											main signature or press Ctrl/Cmd+S
+										</p>
+										<p class="mt-4">
+											{#if isValid}
+												<Icon data={faCheck} class="text-green-600 mr-1" scale={0.6} /> The current preview
+												input matches requirements defined in arguments
+											{:else}
+												<Icon
+													data={faExclamationTriangle}
+													class="text-yellow-500 mr-1"
+													scale={0.6}
+												/>
+												The current preview input doesn't match requirements defined in arguments{/if}
+										</p>
+									</div>
+									<SchemaForm {schema} bind:args bind:isValid />
+								</div>
+							</div>
 						</div>
-						<div class="sm:px-8">
-							<SchemaForm {schema} bind:args bind:isValid />
+					</top>
+					<down slot="down">
+						<div class="pt-1 h-full overflow-auto">
+							<LogPanel
+								{path}
+								{lang}
+								{previewJob}
+								{pastPreviews}
+								{previewIsLoading}
+								bind:lastSave
+							/>
 						</div>
-					</div>
-				{:else if previewTab === 'output'}
-					<pre class="overflow-x-auto break-all relative h-full">
-				{#if previewJob && 'result' in previewJob && previewJob.result}
-							<DisplayResult result={previewJob.result} />
-						{:else if previewIsLoading}
-							Running...
-						{:else}
-							No output is available yet
-						{/if}
-			</pre>
-				{:else if previewTab === 'last_save'}
-					<div class="m-4">
-						{#if lastSave}
-							<a
-								href="#last_save"
-								class="text-xs"
-								on:click={() => {
-									modalViewerContent = lastSave
-									modalViewerMode = 'code'
-									modalViewer.openModal()
-								}}>View last local save for path {path}</a
-							>
-						{:else}No local save{/if}
-					</div>
-				{:else if previewTab === 'history'}
-					<TableCustom>
-						<tr slot="header-row">
-							<th class="text-xs">id</th>
-							<th class="text-xs">created at</th>
-							<th class="text-xs">success</th>
-							<th class="text-xs">result</th>
-							<th class="text-xs">code</th>
-							<th class="text-xs">logs</th>
-						</tr>
-						<tbody slot="body">
-							{#each pastPreviews as { id, created_at, success, result }}
-								<tr class="">
-									<td class="text-xs">
-										<a class="pr-3" href="/run/{id}" target="_blank">{id.substring(30)}</a>
-									</td>
-									<td class="text-xs">{displayDate(created_at)}</td>
-									<td class="text-xs">
-										{#if success}
-											<Icon class="text-green-600" data={check} scale={0.6} />
-										{:else}
-											<Icon class="text-red-700" data={faTimes} scale={0.6} />
-										{/if}
-									</td>
-									<td class="text-xs">
-										<a
-											href="#result"
-											class="text-xs"
-											on:click={() => {
-												modalViewerContent = result
-												modalViewerMode = 'result'
-												modalViewer.openModal()
-											}}
-											>{JSON.stringify(result).substring(0, 30)}...
-										</a>
-									</td>
-									<td class="text-xs"
-										><a
-											href="#code"
-											class="text-xs"
-											on:click={async () => {
-												modalViewerContent = (
-													await JobService.getCompletedJob({
-														workspace: $workspaceStore ?? 'NO_W',
-														id
-													})
-												).raw_code
-												modalViewerMode = 'code'
-												modalViewer.openModal()
-											}}
-											>View code
-										</a></td
-									>
-									<td
-										><a
-											href="#logs"
-											class="text-xs"
-											on:click={async () => {
-												modalViewerContent = (
-													await JobService.getCompletedJob({
-														workspace: $workspaceStore ?? 'NO_W',
-														id
-													})
-												).logs
-												modalViewerMode = 'logs'
-												modalViewer.openModal()
-											}}
-											>View logs
-										</a></td
-									>
-								</tr>
-							{/each}
-						</tbody>
-					</TableCustom>
-				{/if}
+					</down>
+				</VSplitPane>
 			</div>
-		</VSplitPane>
-	</right>
-</HSplitPane>
-
-<style>
-	.header {
-		@apply py-2;
-	}
-
-	.preview {
-		@apply border;
-		@apply overflow-auto;
-		@apply bg-white border-l border-r;
-		@apply text-xs font-mono;
-	}
-</style>
+		</right>
+	</HSplitPane>
+</div>

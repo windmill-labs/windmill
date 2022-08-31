@@ -2,11 +2,17 @@
 	import { ResourceService, ScriptService, VariableService } from '$lib/gen'
 	import { getScriptByPath, loadHubScripts, sendUserToast } from '$lib/utils'
 
-	import { faSearch } from '@fortawesome/free-solid-svg-icons'
+	import {
+		faCode,
+		faCube,
+		faFile,
+		faRotate,
+		faRotateLeft,
+		faSearch
+	} from '@fortawesome/free-solid-svg-icons'
 	import Icon from 'svelte-awesome'
 
 	import { hubScripts, workspaceStore } from '$lib/stores'
-	import { Button } from 'flowbite-svelte'
 	import { Highlight } from 'svelte-highlight'
 	import { python, typescript } from 'svelte-highlight/languages'
 	import type Editor from './Editor.svelte'
@@ -173,52 +179,65 @@
 
 <VariableEditor bind:this={variableEditor} on:create={variablePicker.openModal} />
 
-<div class="flex flex-row w-full">
-	<div class="flex flex-row w-full space-x-2 whitespace-nowrap">
-		<Button
-			size="xs"
-			color="alternative"
+<div class="flex divide-x-2 items-center">
+	<div>
+		<button
+			type="button"
+			class="mr-1 bg-white rounded-md items-center flex hover:bg-gray-100 font-medium text-xs p-2"
 			on:click={() => {
 				variablePicker.openModal()
 			}}
 		>
-			<Icon data={faSearch} scale={0.7} class="mr-2" />
-			Variable picker
-		</Button>
-
-		<Button
-			size="xs"
-			color="alternative"
+			<Icon data={faFile} class="h-4 w-4 mr-2" />
+			Insert variable
+		</button>
+	</div>
+	<div>
+		<button
+			type="button"
+			class="mx-1 bg-white rounded-md items-center flex hover:bg-gray-100 font-medium text-xs p-2"
 			on:click={() => {
 				resourcePicker.openModal()
 			}}
 		>
-			<Icon data={faSearch} scale={0.7} class="mr-2" />
-			Resource picker
-		</Button>
-
-		<Button
-			size="xs"
-			color="alternative"
+			<Icon data={faCube} class="h-4 w-4 mr-2" />
+			Insert resource
+		</button>
+	</div>
+	<div>
+		<button
+			type="button"
+			class="mx-1 bg-white rounded-md items-center flex hover:bg-gray-100 font-medium  text-xs p-2"
+			on:click={() => {
+				editor.clearContent()
+			}}
+		>
+			<Icon data={faRotateLeft} class="h-4 w-4 mr-2" />
+			Reset content
+		</button>
+	</div>
+	<div>
+		<button
+			type="button"
+			class="mx-1  bg-white rounded-md items-center flex hover:bg-gray-100 font-medium  text-xs p-2"
 			on:click={() => {
 				scriptPicker.openModal()
 			}}
 		>
-			<Icon data={faSearch} scale={0.7} class="mr-2" />
-			Script explorer
-		</Button>
+			<Icon data={faCode} class="h-4 w-4 mr-2" />
+			Search script
+		</button>
 	</div>
-	<div class="flex flex-row-reverse gap-x-2 w-full">
-		<Button
-			size="xs"
-			class={!websocketAlive.pyright && !websocketAlive.deno && !websocketAlive.black
-				? 'bg-red-50'
-				: ''}
-			color="alternative"
+	<div>
+		<button
+			type="button"
+			class=" mx-1 bg-white rounded-md items-center flex hover:bg-gray-100 font-medium text-xs p-2"
 			on:click={() => {
 				editor.reloadWebsocket()
 			}}
 		>
+			<Icon data={faRotate} class="h-4 w-4 mr-2" />
+
 			Reload assistants
 			<span class="ml-1">
 				{#if lang == 'deno'}
@@ -229,13 +248,6 @@
 					<span class={websocketAlive.black ? 'text-green-600' : 'text-red-700'}>Black</span>)
 				{/if}
 			</span>
-		</Button>
-		<Button
-			size="xs"
-			color="alternative"
-			on:click={() => {
-				editor.clearContent()
-			}}>Reset content</Button
-		>
+		</button>
 	</div>
 </div>

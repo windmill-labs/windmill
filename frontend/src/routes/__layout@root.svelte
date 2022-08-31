@@ -93,7 +93,7 @@
 
 		<div
 			class={classNames(
-				'hidden md:flex md:flex-col md:fixed md:inset-y-0 transition-all ease-in-out duration-200 ',
+				'hidden md:flex md:flex-col md:fixed md:inset-y-0 transition-all ease-in-out duration-200 shadow-md',
 				isCollapsed ? 'md:w-12' : 'md:w-48'
 			)}
 		>
@@ -136,7 +136,7 @@
 			)}
 		>
 			<main>
-				<div class="border-b w-full">
+				<div class="w-full">
 					<div
 						class="py-2 px-2 sm:px-4 md:px-8 flex justify-between items-center shadow-sm max-w-6xl mx-auto md:hidden"
 					>
