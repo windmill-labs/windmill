@@ -48,7 +48,7 @@
 		{#if drawerContent?.mode === 'json'}
 			<Highlight language={json} code={JSON.stringify(drawerContent.content, null, 4)} />
 		{:else if drawerContent?.mode === 'plain'}
-			<pre class="overflow-x-auto break-all relative h-full m-2 text-xs bg-white shadow-inner">
+			<pre class="overflow-x-auto break-all relative h-full m-2 text-xs bg-white shadow-inner p-2">
 				{drawerContent?.content}
 			</pre>
 		{:else if drawerContent?.mode === 'deno'}
@@ -68,7 +68,7 @@
 	<svelte:fragment slot="content">
 		<div class="px-4">
 			<TabContent value="logs">
-				<pre class=" whitespace-pre-wrap break-all relative h-full bg-gray-50 text-xs p-2">
+				<pre class="whitespace-pre-wrap break-all relative h-full bg-gray-50 text-xs p-2">
           {#if previewJob && previewJob.logs}
 						{previewJob.logs}
 					{:else if previewIsLoading}

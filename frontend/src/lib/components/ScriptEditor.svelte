@@ -2,8 +2,13 @@
 	import type { Schema } from '$lib/common'
 	import { CompletedJob, Job, JobService } from '$lib/gen'
 	import { userStore, workspaceStore } from '$lib/stores'
-	import { emptySchema } from '$lib/utils'
-	import { faCheck, faExclamationTriangle, faPlay } from '@fortawesome/free-solid-svg-icons'
+	import { classNames, emptySchema } from '$lib/utils'
+	import {
+		faCheck,
+		faExclamationTriangle,
+		faPlay,
+		faRotateRight
+	} from '@fortawesome/free-solid-svg-icons'
 	import { onDestroy, onMount } from 'svelte'
 	import Icon from 'svelte-awesome'
 	import Editor from './Editor.svelte'
@@ -14,14 +19,12 @@
 
 	import SchemaForm from './SchemaForm.svelte'
 	import LogPanel from './script_editor/LogPanel.svelte'
-	import HSplitPane from './common/split_panel/HSplitPane.svelte'
-	import VSplitPane from './common/split_panel/VSplitPane.svelte'
+	import { HSplitPane, VSplitPane } from 'svelte-split-pane'
 	import { faGithub } from '@fortawesome/free-brands-svg-icons'
 	import EditorBar from './EditorBar.svelte'
 
 	// Exported
 	export let schema: Schema = emptySchema()
-
 	export let code: string
 	export let path: string | undefined
 	export let lang: Preview.language
@@ -198,7 +201,6 @@
 					class="text-gray-800 mx-1 bg-white rounded-md items-center flex border-gray-300  hover:bg-gray-100 font-medium text-xs p-2"
 				>
 					<Icon data={faGithub} class="h-4 w-4 mr-2" />
-
 					Sync from Github
 				</a>
 			</div>
@@ -206,13 +208,16 @@
 			<div>
 				<button
 					type="button"
-					on:click|stopPropagation={() => {
-						runPreview()
-					}}
-					class="text-white ml-1 bg-blue-500 rounded-md items-center flex border-gray-300 focus:outline-none hover:bg-blue-700 font-medium  text-xs p-2"
+					on:click|stopPropagation={() => runPreview()}
+					disabled={previewIsLoading}
+					class="text-white ml-1 w-28 bg-blue-500 hover:bg-blue-700 rounded-md flex justify-center items-center  focus:outline-none font-medium text-xs p-2"
 				>
-					<Icon data={faPlay} class="h-4 w-4 mr-2" />
-					Run preview
+					<Icon
+						data={previewIsLoading ? faRotateRight : faPlay}
+						class={classNames('h-4 w-4 mr-2', previewIsLoading ? 'animate-spin' : 'animate-none')}
+					/>
+
+					{previewIsLoading ? 'Running' : 'Run preview'}
 				</button>
 			</div>
 		</div>
@@ -258,7 +263,7 @@
 				<VSplitPane topPanelSize="50%" downPanelSize="50%">
 					<top slot="top">
 						<div class="h-full overflow-auto">
-							<div class="p-4 ">
+							<div class="p-4">
 								<div class="break-all relative font-sans">
 									<div class="items-baseline text-xs text-gray-700 italic hidden md:block">
 										<p>

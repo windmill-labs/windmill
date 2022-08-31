@@ -196,18 +196,7 @@
 			Insert resource
 		</button>
 	</div>
-	<div>
-		<button
-			type="button"
-			class="mx-1 bg-white rounded-md items-center flex hover:bg-gray-100 font-medium  text-xs p-2"
-			on:click={() => {
-				editor.clearContent()
-			}}
-		>
-			<Icon data={faRotateLeft} class="h-4 w-4 mr-2" />
-			Reset content
-		</button>
-	</div>
+
 	<div>
 		<button
 			type="button"
@@ -218,6 +207,19 @@
 		>
 			<Icon data={faCode} class="h-4 w-4 mr-2" />
 			Search script
+		</button>
+	</div>
+
+	<div>
+		<button
+			type="button"
+			class="mx-1 bg-white rounded-md items-center flex hover:bg-gray-100 font-medium  text-xs p-2"
+			on:click={() => {
+				editor.clearContent()
+			}}
+		>
+			<Icon data={faRotateLeft} class="h-4 w-4 mr-2" />
+			Reset content
 		</button>
 	</div>
 	<div>

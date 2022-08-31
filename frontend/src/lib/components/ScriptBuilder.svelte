@@ -107,7 +107,7 @@
 	<!-- Nav between steps-->
 	<div class="flex flex-col w-full px-4 py-2 border-b shadow-sm">
 		<div class="justify-between flex flex-row drop-shadow-sm w-full">
-			<div class="wizard-nav flex flex-row w-full">
+			<div class="flex flex-row w-full">
 				<Breadcrumb>
 					<BreadcrumbItem>
 						<button on:click={() => changeStep(1)} class={step === 1 ? 'font-bold' : null}>
@@ -312,12 +312,3 @@
 		</CenteredPage>
 	{/if}
 </div>
-
-<style>
-	/* .wizard-nav {
-		@apply w-1/2 sm:w-1/4;
-	} */
-	.wizard-nav button {
-		max-height: 30px;
-	}
-</style>
