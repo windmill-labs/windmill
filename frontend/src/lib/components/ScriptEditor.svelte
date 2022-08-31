@@ -168,6 +168,7 @@
 	let syncCode: NodeJS.Timer
 
 	onMount(() => {
+		inferSchema()
 		syncCode = setInterval(() => {
 			const newCode = editor?.getCode()
 			if (newCode && code != newCode) {
