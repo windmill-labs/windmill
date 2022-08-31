@@ -9,7 +9,9 @@
 	import { runFlowPreview } from './flows/utils'
 	import FlowStatusViewer from './FlowStatusViewer.svelte'
 	import RunForm from './RunForm.svelte'
-	import Tabs from './Tabs.svelte'
+	import Tab from './common/tabs/Tab.svelte'
+	import TabContent from './common/tabs/TabContent.svelte'
+	import Tabs from './common/tabs/Tabs.svelte'
 
 	export let i: number
 	export let flow: Flow
@@ -79,33 +81,34 @@
 
 {#if viewPreview}
 	{#if i != flow.value.modules.length}
-		<Tabs
-			tabs={[
-				['upto', uptoText],
-				['justthis', 'preview just this step']
-			]}
-			bind:tab
-		/>
-	{/if}
-	<div class="my-2" />
-	{#if tab == 'upto'}
-		<RunForm
-			runnable={truncateFlow(flow)}
-			runAction={(_, args) => runPreview(args)}
-			schedulable={false}
-			buttonText={uptoText}
-			detailed={false}
-			bind:args
-		/>
-	{:else}
-		<RunForm
-			runnable={extractStep(flow)}
-			runAction={(_, args) => runPreview(args)}
-			schedulable={false}
-			buttonText="Preview just this step"
-			detailed={false}
-			args={stepArgs}
-		/>
+		<div class="mt-2">
+			<Tabs bind:selected={tab}>
+				<Tab value="upto">{uptoText}</Tab>
+				<Tab value="justthis">Preview just this step</Tab>
+				<svelte:fragment slot="content">
+					<TabContent value="upto">
+						<RunForm
+							runnable={truncateFlow(flow)}
+							runAction={(_, args) => runPreview(args)}
+							schedulable={false}
+							buttonText={uptoText}
+							detailed={false}
+							bind:args
+						/>
+					</TabContent>
+					<TabContent value="justthis">
+						<RunForm
+							runnable={extractStep(flow)}
+							runAction={(_, args) => runPreview(args)}
+							schedulable={false}
+							buttonText="Preview just this step"
+							detailed={false}
+							args={stepArgs}
+						/>
+					</TabContent>
+				</svelte:fragment>
+			</Tabs>
+		</div>
 	{/if}
 
 	{#if jobId}

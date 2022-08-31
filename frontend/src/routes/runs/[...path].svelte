@@ -168,7 +168,7 @@ the bearer token they use has less privilege."
 				<option value={undefined}>Show flow jobs regardless of being skipped or not</option>
 			</select>
 		</div>
-		<div class="xl:max-w-screen-lg">
+		<div>
 			<Tabs
 				tabs={[
 					['all', 'all'],
