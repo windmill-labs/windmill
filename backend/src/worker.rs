@@ -1314,6 +1314,50 @@ mod tests {
     }
 
     #[sqlx::test(fixtures("base"))]
+    async fn test_stop_after_if(db: DB) {
+        initialize_tracing().await;
+
+        let flow: FlowValue = serde_json::from_value(serde_json::json!({
+            "modules": [
+                {
+                    "input_transforms": { "n": { "type": "javascript", "expr": "flow_input.n" } },
+                    "value": {
+                        "type": "rawscript",
+                        "language": "python3",
+                        "content": "def main(n): return n",
+                    },
+                    "stop_after_if": {
+                        "expr": "result < 0",
+                        "skip_if_stopped": false,
+                    },
+                },
+                {
+                    "input_transforms": { "n": { "type": "javascript", "expr": "previous_result" } },
+                    "value": {
+                        "type": "rawscript",
+                        "language": "python3",
+                        "content": "def main(n): return f'last step saw {n}'",
+                    },
+                },
+            ],
+        }))
+        .unwrap();
+        let job = JobPayload::RawFlow { value: flow, path: None };
+
+        let result = RunJob::from(job.clone())
+            .arg("n", json!(123))
+            .wait_until_complete(&db)
+            .await;
+        assert_eq!(json!("last step saw 123"), result);
+
+        let result = RunJob::from(job.clone())
+            .arg("n", json!(-123))
+            .wait_until_complete(&db)
+            .await;
+        assert_eq!(json!(-123), result);
+    }
+
+    #[sqlx::test(fixtures("base"))]
     async fn test_python_flow(db: DB) {
         initialize_tracing().await;
 
