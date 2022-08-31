@@ -1279,7 +1279,7 @@ mod tests {
                     value: FlowModuleValue::ForloopFlow {
                         iterator: InputTransform::Javascript { expr: "result".to_string() },
                         skip_failures: false,
-                        modules: Box::new(vec![FlowModule {
+                        modules: vec![FlowModule {
                             value: FlowModuleValue::RawScript(RawCode {
                                 language: ScriptLang::Deno,
                                 content: doubles.to_string(),
@@ -1294,7 +1294,7 @@ mod tests {
                             .into(),
                             stop_after_if: Default::default(),
                             summary: Default::default(),
-                        }]),
+                        }],
                     },
                     input_transforms: Default::default(),
                     stop_after_if: Default::default(),

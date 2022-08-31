@@ -649,7 +649,7 @@ async fn push_next_flow_job(
         }
         FlowModuleValue::ForloopFlow { modules, .. } => JobPayload::RawFlow {
             value: FlowValue {
-                modules: (**modules).clone(),
+                modules: (*modules).clone(),
                 failure_module: flow.failure_module.clone(),
             },
             path: Some(format!("{}/{}", flow_job.script_path(), status.step)),

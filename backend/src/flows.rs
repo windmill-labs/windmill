@@ -111,7 +111,7 @@ pub enum FlowModuleValue {
     },
     ForloopFlow {
         iterator: InputTransform,
-        modules: Box<Vec<FlowModule>>,
+        modules: Vec<FlowModule>,
         #[serde(default = "default_true")]
         skip_failures: bool,
     },
@@ -449,7 +449,7 @@ mod tests {
                     .into(),
                     value: FlowModuleValue::ForloopFlow {
                         iterator: InputTransform::Static { value: serde_json::json!([1, 2, 3]) },
-                        modules: Box::new(vec![]),
+                        modules: vec![],
                         skip_failures: true,
                     },
                     stop_after_if: Some(StopAfterIf {
