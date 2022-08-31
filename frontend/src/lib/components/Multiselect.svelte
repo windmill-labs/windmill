@@ -82,7 +82,7 @@
 		}
 	}
 
-	function handleBlur(e) {
+	function handleBlur() {
 		optionsVisibility(false)
 	}
 
