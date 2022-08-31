@@ -1,6 +1,6 @@
 <script lang="ts">
 	import type { FlowModule } from '$lib/gen'
-	import { getScriptByPath, valueToTsType } from '$lib/utils'
+	import { getScriptByPath } from '$lib/utils'
 	import {
 		faArrowDown,
 		faClose,
@@ -16,7 +16,6 @@
 	import python from 'svelte-highlight/languages/python'
 	import typescript from 'svelte-highlight/languages/typescript'
 	import IconedPath from '../IconedPath.svelte'
-	import IconedResourceType from '../IconedResourceType.svelte'
 	import Modal from '../Modal.svelte'
 	import { isEmptyFlowModule } from './flowStateUtils'
 	import { stepOpened } from './stepOpenedStore'
