@@ -1,10 +1,11 @@
 <script lang="ts">
 	import { classNames } from '$lib/utils'
 	import { getContext } from 'svelte'
+	import type { TabsContext } from './Tabs.svelte'
 
 	export let value: string
 
-	const { selected, update } = getContext('Tabs')
+	const { selected, update } = getContext<TabsContext>('Tabs')
 </script>
 
 <div

@@ -1,12 +1,19 @@
+<script context="module" lang="ts">
+	export type TabsContext = {
+		selected: Writable<string>
+		update: (value: string) => void
+	}
+</script>
+
 <script lang="ts">
 	import { setContext } from 'svelte'
-	import { writable } from 'svelte/store'
+	import { writable, type Writable } from 'svelte/store'
 
 	export let selected: string
 
 	const selectedContent = writable(selected)
 
-	setContext('Tabs', {
+	setContext<TabsContext>('Tabs', {
 		selected: selectedContent,
 		update: (value: string) => {
 			selectedContent.set(value)
