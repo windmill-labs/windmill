@@ -77,6 +77,4 @@
 	}
 </script>
 
-<CenteredPage>
-	<ScriptBuilder {script} />
-</CenteredPage>
+<ScriptBuilder {script} />
