@@ -8,13 +8,13 @@ export const flowStore = writable<Flow>(undefined)
 
 export function initFlow(flow: Flow) {
 	for (const mod of flow.value.modules) {
-		migrateInitTransform(mod)
+		migrateFlowModule(mod)
 		let val = mod.value
 		if (val.type == 'forloopflow') {
 			let flowVal = val as ForloopFlow & { value?: { modules?: FlowModule[] } }
 			if (flowVal.value && flowVal.value.modules) {
 				flowVal.modules = flowVal.value.modules
-				flowVal.modules.forEach(migrateInitTransform)
+				flowVal.modules.forEach(migrateFlowModule)
 				flowVal.value = undefined
 			}
 		}
@@ -22,7 +22,7 @@ export function initFlow(flow: Flow) {
 	flowStore.set(flow)
 	initFlowState(flow)
 
-	function migrateInitTransform(mod: FlowModule) {
+	function migrateFlowModule(mod: FlowModule) {
 		let modVal = mod as FlowModule & { input_transform?: Record<string, InputTransform>} 
 		if (modVal.input_transform) {
 			modVal.input_transforms = modVal.input_transform
