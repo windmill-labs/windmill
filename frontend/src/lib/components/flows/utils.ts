@@ -3,13 +3,13 @@ import { JobService, type Flow, type FlowModule, type InputTransform, type Job }
 import { inferArgs } from '$lib/infer'
 import { loadSchema } from '$lib/scripts'
 import { workspaceStore } from '$lib/stores'
-import { emptySchema, schemaToObject } from '$lib/utils'
+import { emptySchema } from '$lib/utils'
 import { get } from 'svelte/store'
 
 export function cleanInputs(flow: Flow | any): Flow {
 	const newFlow: Flow = JSON.parse(JSON.stringify(flow))
 	newFlow.value.modules.forEach((mod) => {
-		Object.values(mod.input_transform).forEach((inp) => {
+		Object.values(mod.input_transforms).forEach((inp) => {
 			// for now we use the value for dynamic expression when done in the static editor so we have to resort to this
 			if (inp.type == 'javascript') {
 				//@ts-ignore
@@ -58,7 +58,7 @@ export function scrollIntoView(element: any) {
 }
 
 export async function loadSchemaFromModule(module: FlowModule): Promise<{
-	input_transform: Record<string, InputTransform>
+	input_transforms: Record<string, InputTransform>
 	schema: Schema
 }> {
 	const mod = module.value
@@ -72,20 +72,20 @@ export async function loadSchemaFromModule(module: FlowModule): Promise<{
 			schema = await loadSchema(mod.path!)
 		} else {
 			return {
-				input_transform: {},
+				input_transforms: {},
 				schema: emptySchema()
 			}
 		}
 
 		const keys = Object.keys(schema?.properties ?? {})
 
-		let input_transform = module.input_transform
+		let input_transforms = module.input_transforms
 
 		if (
-			JSON.stringify(keys.sort()) !== JSON.stringify(Object.keys(module.input_transform).sort())
+			JSON.stringify(keys.sort()) !== JSON.stringify(Object.keys(module.input_transforms).sort())
 		) {
-			input_transform = keys.reduce((accu, key) => {
-				let nv = module.input_transform[key] ?? {
+			input_transforms = keys.reduce((accu, key) => {
+				let nv = module.input_transforms[key] ?? {
 					type: 'static',
 					value: undefined
 				}
@@ -95,13 +95,13 @@ export async function loadSchemaFromModule(module: FlowModule): Promise<{
 		}
 
 		return {
-			input_transform: input_transform,
+			input_transforms: input_transforms,
 			schema: schema ?? emptySchema()
 		}
 	}
 
 	return {
-		input_transform: {},
+		input_transforms: {},
 		schema: emptySchema()
 	}
 }

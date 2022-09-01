@@ -53,14 +53,14 @@
 	}
 
 	function setInputTransformFromArgs(flow: Flow, args: any) {
-		let input_transform = {}
+		let input_transforms = {}
 		Object.entries(args).forEach(([key, value]) => {
-			input_transform[key] = {
+			input_transforms[key] = {
 				type: 'static',
 				value: value
 			}
 		})
-		flow.value.modules[0].input_transform = input_transform
+		flow.value.modules[0].input_transforms = input_transforms
 		return flow
 	}
 </script>

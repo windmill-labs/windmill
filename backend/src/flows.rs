@@ -74,6 +74,11 @@ pub struct FlowValue {
     pub modules: Vec<FlowModule>,
     pub failure_module: Option<FlowModule>,
 }
+#[derive(Deserialize, Serialize, Debug, Clone)]
+pub struct StopAfterIf {
+    pub expr: String,
+    pub skip_if_stopped: bool,
+}
 
 #[derive(Deserialize, Serialize, Debug, Clone)]
 pub struct FlowModule {
@@ -81,8 +86,7 @@ pub struct FlowModule {
     #[serde(alias = "input_transform")]
     pub input_transforms: HashMap<String, InputTransform>,
     pub value: FlowModuleValue,
-    pub stop_after_if_expr: Option<String>,
-    pub skip_if_stopped: Option<bool>,
+    pub stop_after_if: Option<StopAfterIf>,
     pub summary: Option<String>,
 }
 
@@ -107,7 +111,7 @@ pub enum FlowModuleValue {
     },
     ForloopFlow {
         iterator: InputTransform,
-        value: Box<FlowValue>,
+        modules: Vec<FlowModule>,
         #[serde(default = "default_true")]
         skip_failures: bool,
     },
@@ -421,8 +425,7 @@ mod tests {
                 FlowModule {
                     input_transforms: hm,
                     value: FlowModuleValue::Script { path: "test".to_string() },
-                    stop_after_if_expr: None,
-                    skip_if_stopped: Some(false),
+                    stop_after_if: None,
                     summary: None,
                 },
                 FlowModule {
@@ -432,8 +435,10 @@ mod tests {
                         language: crate::scripts::ScriptLang::Deno,
                         path: None,
                     }),
-                    stop_after_if_expr: Some("foo = 'bar'".to_string()),
-                    skip_if_stopped: None,
+                    stop_after_if: Some(StopAfterIf {
+                        expr: "foo = 'bar'".to_string(),
+                        skip_if_stopped: false,
+                    }),
                     summary: None,
                 },
                 FlowModule {
@@ -444,19 +449,23 @@ mod tests {
                     .into(),
                     value: FlowModuleValue::ForloopFlow {
                         iterator: InputTransform::Static { value: serde_json::json!([1, 2, 3]) },
-                        value: Box::new(FlowValue { modules: vec![], failure_module: None }),
+                        modules: vec![],
                         skip_failures: true,
                     },
-                    stop_after_if_expr: Some("previous.isEmpty()".to_string()),
-                    skip_if_stopped: None,
+                    stop_after_if: Some(StopAfterIf {
+                        expr: "previous.isEmpty()".to_string(),
+                        skip_if_stopped: false,
+                    }),
                     summary: None,
                 },
             ],
             failure_module: Some(FlowModule {
                 input_transforms: HashMap::new(),
                 value: FlowModuleValue::Flow { path: "test".to_string() },
-                stop_after_if_expr: Some("previous.isEmpty()".to_string()),
-                skip_if_stopped: None,
+                stop_after_if: Some(StopAfterIf {
+                    expr: "previous.isEmpty()".to_string(),
+                    skip_if_stopped: false,
+                }),
                 summary: None,
             }),
         };
