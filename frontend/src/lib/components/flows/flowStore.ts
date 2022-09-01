@@ -23,19 +23,14 @@ export function initFlow(flow: Flow) {
 	initFlowState(flow)
 
 	function migrateFlowModule(mod: FlowModule) {
-		let modVal = mod as FlowModule & { input_transform?: Record<string, InputTransform>} 
+		let modVal = mod as FlowModule & { input_transform?: Record<string, InputTransform>, stop_after_if_expr?: string, skip_if_stopped?: boolean} 
 		if (modVal.input_transform) {
 			modVal.input_transforms = modVal.input_transform
-			modVal.input_transform = undefined
+			delete modVal.input_transform
 		}
 		if (modVal.stop_after_if_expr) {
-			modVal.stop_after_if = modVal.stop_after_if ?? {};
-			modVal.stop_after_if.expr = modVal.stop_after_if_expr;
+			modVal.stop_after_if = { expr: modVal.stop_after_if_expr, skipped_if_stopped: modVal.skip_if_stopped}
 			delete modVal.stop_after_if_expr;
-		}
-		if (modVal.skip_if_stopped) {
-			modVal.stop_after_if = modVal.stop_after_if ?? {};
-			modVal.stop_after_if.skip_if_stopped = modVal.skip_if_stopped;
 			delete modVal.skip_if_stopped;
 		}
 	}
