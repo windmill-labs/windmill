@@ -1,6 +1,33 @@
 # Changelog
 
 
+## [1.35.0](https://github.com/windmill-labs/windmill/compare/v1.34.0...v1.35.0) (2022-09-02)
+
+
+### Features
+
+* clean openflow spec v1 ([#491](https://github.com/windmill-labs/windmill/issues/491)) ([cf7209b](https://github.com/windmill-labs/windmill/commit/cf7209bdb92bc4f029224640ccdc5213e2c3cb98))
+* **frontend:** Add runs to landing page + fix responsive issues ([#487](https://github.com/windmill-labs/windmill/issues/487)) ([9b8f263](https://github.com/windmill-labs/windmill/commit/9b8f263319599b00d7af6350127dabceaccad37e))
+* **frontend:** App landing page ([#486](https://github.com/windmill-labs/windmill/issues/486)) ([5954789](https://github.com/windmill-labs/windmill/commit/5954789abb2749488bf0055e98d2b77d0b885056))
+* **frontend:** Menu + Tab components ([#517](https://github.com/windmill-labs/windmill/issues/517)) ([6bb80b8](https://github.com/windmill-labs/windmill/commit/6bb80b803d0fa43d40d9add30c12ec5d11cd8230))
+* **frontend:** Script editor ([#518](https://github.com/windmill-labs/windmill/issues/518)) ([a2265f7](https://github.com/windmill-labs/windmill/commit/a2265f7f41bb82be7e98c216ad5b73ced29959b2))
+* pass bearerToken as queryArg ([3527716](https://github.com/windmill-labs/windmill/commit/35277160a6a5ff400e3a91a98fe97978a6007146))
+
+
+### Bug Fixes
+
+* **front:** Display all the logs ([#478](https://github.com/windmill-labs/windmill/issues/478)) ([ab994e6](https://github.com/windmill-labs/windmill/commit/ab994e6d42e3bd24307f4c536862f86e966995db))
+* **front:** Display all the logs ([#479](https://github.com/windmill-labs/windmill/issues/479)) ([8a585c0](https://github.com/windmill-labs/windmill/commit/8a585c084a9c2bf49c39db848075e62a047f4a81))
+* **frontend:** Make sure the schema is infered when the component is mounted ([#520](https://github.com/windmill-labs/windmill/issues/520)) ([0deb31e](https://github.com/windmill-labs/windmill/commit/0deb31e6b6c6b72e73f97654bbdcd40f1a708878))
+* **front:** Fix display ([#481](https://github.com/windmill-labs/windmill/issues/481)) ([538dc8f](https://github.com/windmill-labs/windmill/commit/538dc8f4c2aa4b58f0e26ba3d62744bfd77e188a))
+* **front:** Fix inline preview ([#476](https://github.com/windmill-labs/windmill/issues/476)) ([cbe9676](https://github.com/windmill-labs/windmill/commit/cbe9676a1f8682b9b22337b54b42b03eff0e313d))
+* **front:** Fix not found error + add timeout ([d8bb9dc](https://github.com/windmill-labs/windmill/commit/d8bb9dccffabe63836abe512041804ea827290e4))
+* **front:** Fix not found error + add timeout ([#480](https://github.com/windmill-labs/windmill/issues/480)) ([96e42dd](https://github.com/windmill-labs/windmill/commit/96e42dd0fd1b69e48c356dc67dd5b73625a9d0b5))
+* **front:** Fix scroll ([#475](https://github.com/windmill-labs/windmill/issues/475)) ([34dd4be](https://github.com/windmill-labs/windmill/commit/34dd4bef12a7094adc4c9163dd02f74ac02c3f17))
+* **front:** Set run button state to done when all jobs are loaded ([#482](https://github.com/windmill-labs/windmill/issues/482)) ([4c1cb1d](https://github.com/windmill-labs/windmill/commit/4c1cb1d379819ec3c571e8e5ca6b4a6df7c399e4))
+* **front:** Simplfiy how the job's results are read ([#483](https://github.com/windmill-labs/windmill/issues/483)) ([0ec77f2](https://github.com/windmill-labs/windmill/commit/0ec77f2e6f469c1daefa16b24dfeaec1b45a8389))
+* remove duplicate path ([#473](https://github.com/windmill-labs/windmill/issues/473)) ([bd98cad](https://github.com/windmill-labs/windmill/commit/bd98cad5c708eb0bed16c666c538275984863e12))
+
 ## [1.34.0](https://github.com/windmill-labs/windmill/compare/v1.33.0...v1.34.0) (2022-08-21)
 
 
