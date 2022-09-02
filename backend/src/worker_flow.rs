@@ -22,6 +22,9 @@ use serde_json::{json, Map, Value};
 use tracing::instrument;
 use uuid::Uuid;
 
+const MAX_RETRY_ATTEMPTS: u16 = 1000;
+const MAX_RETRY_INTERVAL: Duration = /* six hours */ Duration::from_secs(6 * 60 * 60);
+
 #[derive(Serialize, Deserialize, Debug)]
 pub struct FlowStatus {
     pub step: i32,
@@ -347,13 +350,10 @@ async fn has_failure_module<'c>(
 }
 
 fn next_retry(retry: &Retry, status: &RetryStatus) -> Option<(u16, Duration)> {
-    const MAX_FAILURES: u16 = 1000;
-    const HOURS: Duration = Duration::from_secs(60 * 60);
-
-    (status.fail_count < MAX_FAILURES)
+    (status.fail_count <= MAX_RETRY_ATTEMPTS)
         .then(|| &retry)
-        .and_then(|retry| retry.duration(status.fail_count))
-        .map(|d| (status.fail_count + 1, std::cmp::min(d, 6 * HOURS)))
+        .and_then(|retry| retry.interval(status.fail_count))
+        .map(|d| (status.fail_count + 1, std::cmp::min(d, MAX_RETRY_INTERVAL)))
 }
 
 async fn compute_stop_early(expr: String, result: serde_json::Value) -> error::Result<bool> {
@@ -469,6 +469,19 @@ pub async fn handle_flow(
         Err(Error::BadRequest(format!(
             "A flow needs at least one module to run"
         )))?;
+    }
+
+    if flow.retry.max_attempts() > MAX_RETRY_ATTEMPTS {
+        Err(Error::BadRequest(format!(
+            "retry attempts exceeds the maximum of {MAX_RETRY_ATTEMPTS}"
+        )))?
+    }
+
+    if matches!(flow.retry.max_interval(), Some(interval) if interval > MAX_RETRY_INTERVAL) {
+        let max = MAX_RETRY_INTERVAL.as_secs();
+        Err(Error::BadRequest(format!(
+            "retry interval exceeds the maximum of {max} seconds"
+        )))?
     }
 
     push_next_flow_job(

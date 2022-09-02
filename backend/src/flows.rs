@@ -80,6 +80,7 @@ pub struct FlowValue {
     #[serde(default)]
     pub failure_module: Option<FlowModule>,
 }
+
 #[derive(Deserialize, Serialize, Debug, Clone)]
 pub struct StopAfterIf {
     pub expr: String,
@@ -97,7 +98,7 @@ impl Retry {
     /// Takes the number of previous retries and returns the interval until the next retry if any.
     ///
     /// May return [`Duration::ZERO`] to retry immediately.
-    pub fn duration(&self, previous_attempts: u16) -> Option<Duration> {
+    pub fn interval(&self, previous_attempts: u16) -> Option<Duration> {
         let Self { constant, exponential } = self;
 
         if previous_attempts < constant.attempts {
@@ -113,6 +114,18 @@ impl Retry {
 
     pub fn has_attempts(&self) -> bool {
         self.constant.attempts != 0 || self.exponential.attempts != 0
+    }
+
+    pub fn max_attempts(&self) -> u16 {
+        self.constant
+            .attempts
+            .saturating_add(self.exponential.attempts)
+    }
+
+    pub fn max_interval(&self) -> Option<Duration> {
+        self.max_attempts()
+            .checked_sub(1)
+            .and_then(|p| self.interval(p))
     }
 }
 
@@ -680,9 +693,11 @@ mod tests {
                 None
             ],
             (0..4)
-                .map(|previous_attempts| retry.duration(previous_attempts))
+                .map(|previous_attempts| retry.interval(previous_attempts))
                 .collect::<Vec<_>>()
         );
+
+        assert_eq!(Some(108 * SECOND), retry.max_interval());
     }
 
     #[test]
@@ -700,8 +715,10 @@ mod tests {
                 None,
             ],
             (0..5)
-                .map(|previous_attempts| retry.duration(previous_attempts))
+                .map(|previous_attempts| retry.interval(previous_attempts))
                 .collect::<Vec<_>>()
         );
+
+        assert_eq!(Some(81 * SECOND), retry.max_interval());
     }
 }

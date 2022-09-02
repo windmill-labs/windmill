@@ -1955,6 +1955,25 @@ def main(error, port):
                 })
             );
         }
+
+        #[sqlx::test(fixtures("base"))]
+        async fn bad_values_max(db: DB) {
+            let value = serde_json::from_value(json!({
+                "modules": [{
+                    "value": { "type": "rawscript", "language": "python3", "content": "asdf" },
+                }],
+                "retry": { "exponential": { "attempts": 50, "seconds": 60 } },
+            }))
+            .unwrap();
+
+            let result = RunJob::from(JobPayload::RawFlow { value, path: None })
+                .wait_until_complete(&db)
+                .await;
+            assert_eq!(
+                result,
+                json!({"error": "Bad request: retry interval exceeds the maximum of 21600 seconds"})
+            )
+        }
     }
 
     #[sqlx::test(fixtures("base"))]
