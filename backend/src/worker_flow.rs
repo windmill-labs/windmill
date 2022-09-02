@@ -232,15 +232,11 @@ pub async fn update_flow_status_after_job_completion(
         false
             if next_retry(
                 &flow_job
-                    .raw_flow
-                    .as_ref()
-                    .and_then(|v| serde_json::from_value::<FlowValue>(v.clone()).ok())
+                    .parse_raw_flow()
                     .map(|module| module.retry)
                     .unwrap_or_default(),
                 &flow_job
-                    .flow_status
-                    .as_ref()
-                    .and_then(|v| serde_json::from_value::<FlowStatus>(v.clone()).ok())
+                    .parse_flow_status()
                     .map(|status| status.retry)
                     .unwrap_or_default(),
             )
