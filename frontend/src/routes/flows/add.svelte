@@ -8,6 +8,7 @@
 
 <script lang="ts">
 	import { page } from '$app/stores'
+	import CenteredPage from '$lib/components/CenteredPage.svelte'
 
 	import FlowBuilder from '$lib/components/FlowBuilder.svelte'
 	import { initFlow } from '$lib/components/flows/flowStore'
@@ -57,4 +58,6 @@
 	loadFlow()
 </script>
 
-<FlowBuilder />
+<CenteredPage>
+	<FlowBuilder />
+</CenteredPage>

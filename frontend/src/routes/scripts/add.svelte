@@ -14,6 +14,7 @@
 	import ScriptBuilder from '$lib/components/ScriptBuilder.svelte'
 	import type { Schema } from '$lib/common'
 	import { decodeState, emptySchema, getScriptByPath, sendUserToast } from '$lib/utils'
+	import CenteredPage from '$lib/components/CenteredPage.svelte'
 
 	// Default
 	let schema: Schema = emptySchema()

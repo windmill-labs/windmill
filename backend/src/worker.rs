@@ -1269,39 +1269,32 @@ mod tests {
                         path: None,
                     }),
                     input_transforms: Default::default(),
-                    stop_after_if_expr: Default::default(),
-                    skip_if_stopped: Default::default(),
+                    stop_after_if: Default::default(),
                     summary: Default::default(),
                 },
                 FlowModule {
                     value: FlowModuleValue::ForloopFlow {
                         iterator: InputTransform::Javascript { expr: "result".to_string() },
                         skip_failures: false,
-                        value: FlowValue {
-                            modules: vec![FlowModule {
-                                value: FlowModuleValue::RawScript(RawCode {
-                                    language: ScriptLang::Deno,
-                                    content: doubles.to_string(),
-                                    path: None,
-                                }),
-                                input_transforms: [(
-                                    "n".to_string(),
-                                    InputTransform::Javascript {
-                                        expr: "previous_result.iter.value".to_string(),
-                                    },
-                                )]
-                                .into(),
-                                stop_after_if_expr: Default::default(),
-                                skip_if_stopped: Default::default(),
-                                summary: Default::default(),
-                            }],
-                            ..Default::default()
-                        }
-                        .into(),
+                        modules: vec![FlowModule {
+                            value: FlowModuleValue::RawScript(RawCode {
+                                language: ScriptLang::Deno,
+                                content: doubles.to_string(),
+                                path: None,
+                            }),
+                            input_transforms: [(
+                                "n".to_string(),
+                                InputTransform::Javascript {
+                                    expr: "previous_result.iter.value".to_string(),
+                                },
+                            )]
+                            .into(),
+                            stop_after_if: Default::default(),
+                            summary: Default::default(),
+                        }],
                     },
                     input_transforms: Default::default(),
-                    stop_after_if_expr: Default::default(),
-                    skip_if_stopped: Default::default(),
+                    stop_after_if: Default::default(),
                     summary: Default::default(),
                 },
             ],
@@ -1315,6 +1308,50 @@ mod tests {
             let result = run_job_in_new_worker_until_complete(&db, job.clone()).await;
             assert_eq!(result, serde_json::json!([2, 4, 6]), "iteration: {}", i);
         }
+    }
+
+    #[sqlx::test(fixtures("base"))]
+    async fn test_stop_after_if(db: DB) {
+        initialize_tracing().await;
+
+        let flow: FlowValue = serde_json::from_value(serde_json::json!({
+            "modules": [
+                {
+                    "input_transforms": { "n": { "type": "javascript", "expr": "flow_input.n" } },
+                    "value": {
+                        "type": "rawscript",
+                        "language": "python3",
+                        "content": "def main(n): return n",
+                    },
+                    "stop_after_if": {
+                        "expr": "result < 0",
+                        "skip_if_stopped": false,
+                    },
+                },
+                {
+                    "input_transforms": { "n": { "type": "javascript", "expr": "previous_result" } },
+                    "value": {
+                        "type": "rawscript",
+                        "language": "python3",
+                        "content": "def main(n): return f'last step saw {n}'",
+                    },
+                },
+            ],
+        }))
+        .unwrap();
+        let job = JobPayload::RawFlow { value: flow, path: None };
+
+        let result = RunJob::from(job.clone())
+            .arg("n", json!(123))
+            .wait_until_complete(&db)
+            .await;
+        assert_eq!(json!("last step saw 123"), result);
+
+        let result = RunJob::from(job.clone())
+            .arg("n", json!(-123))
+            .wait_until_complete(&db)
+            .await;
+        assert_eq!(json!(-123), result);
     }
 
     #[sqlx::test(fixtures("base"))]
@@ -1339,21 +1376,19 @@ mod tests {
                         "type": "forloopflow",
                         "iterator": { "type": "javascript", "expr": "result" },
                         "skip_failures": false,
-                        "value": {
-                            "modules": [{
-                                "value": {
-                                    "type": "rawscript",
-                                    "language": "python3",
-                                    "content": doubles,
+                        "modules": [{
+                            "value": {
+                                "type": "rawscript",
+                                "language": "python3",
+                                "content": doubles,
+                            },
+                            "input_transform": {
+                                "n": {
+                                    "type": "javascript",
+                                    "expr": "previous_result.iter.value",
                                 },
-                                "input_transform": {
-                                    "n": {
-                                        "type": "javascript",
-                                        "expr": "previous_result.iter.value",
-                                    },
-                                },
-                            }],
-                        }
+                            },
+                        }],
                     },
                 },
             ],
@@ -1448,23 +1483,21 @@ def main():
                     "value": {
                         "type": "forloopflow",
                         "iterator": { "type": "static", "value": [] },
-                        "value": {
-                            "modules": [
-                                {
-                                    "input_transform": {
-                                        "n": {
-                                            "type": "javascript",
-                                            "expr": "previous_result.iter.value",
-                                        },
+                        "modules": [
+                            {
+                                "input_transform": {
+                                    "n": {
+                                        "type": "javascript",
+                                        "expr": "previous_result.iter.value",
                                     },
-                                    "value": {
-                                        "type": "rawscript",
-                                        "language": "python3",
-                                        "content": "def main(n): return n",
-                                    },
-                                }
-                            ],
-                        }
+                                },
+                                "value": {
+                                    "type": "rawscript",
+                                    "language": "python3",
+                                    "content": "def main(n): return n",
+                                },
+                            }
+                        ],
                     },
                 },
                 {
@@ -1500,23 +1533,21 @@ def main():
                     "value": {
                         "type": "forloopflow",
                         "iterator": { "type": "static", "value": [] },
-                        "value": {
-                            "modules": [
-                                {
-                                    "input_transform": {
-                                        "n": {
-                                            "type": "javascript",
-                                            "expr": "previous_result.iter.value",
-                                        },
+                        "modules": [
+                            {
+                                "input_transform": {
+                                    "n": {
+                                        "type": "javascript",
+                                        "expr": "previous_result.iter.value",
                                     },
-                                    "value": {
-                                        "type": "rawscript",
-                                        "language": "python3",
-                                        "content": "def main(n): return n",
-                                    },
-                                }
-                            ],
-                        }
+                                },
+                                "value": {
+                                    "type": "rawscript",
+                                    "language": "python3",
+                                    "content": "def main(n): return n",
+                                },
+                            }
+                        ],
                     },
                 },
             ],
@@ -1539,23 +1570,21 @@ def main():
                     "value": {
                         "type": "forloopflow",
                         "iterator": { "type": "static", "value": [2,3,4] },
-                        "value": {
-                            "modules": [
-                                {
-                                    "input_transform": {
-                                        "n": {
-                                            "type": "javascript",
-                                            "expr": "previous_result.iter.value",
-                                        },
+                        "modules": [
+                            {
+                                "input_transform": {
+                                    "n": {
+                                        "type": "javascript",
+                                        "expr": "previous_result.iter.value",
                                     },
-                                    "value": {
-                                        "type": "rawscript",
-                                        "language": "python3",
-                                        "content": "def main(n): return n",
-                                    } ,
-                                }
-                            ],
-                        }
+                                },
+                                "value": {
+                                    "type": "rawscript",
+                                    "language": "python3",
+                                    "content": "def main(n): return n",
+                                } ,
+                            }
+                        ],
                     },
                 },
                 {
@@ -1736,19 +1765,17 @@ def main(last, port):
                         "type": "forloopflow",
                         "iterator": { "type": "javascript", "expr": "result.items" },
                         "skip_failures": false,
-                        "value": {
-                            "modules": [{
-                                "input_transform": {
-                                    "index": { "type": "javascript", "expr": "previous_result.iter.index" },
-                                    "port": { "type": "javascript", "expr": "flow_input.port" },
-                                },
-                                "value": {
-                                    "type": "rawscript",
-                                    "language": "deno",
-                                    "content": inner,
-                                },
-                            }],
-                        }
+                        "modules": [{
+                            "input_transform": {
+                                "index": { "type": "javascript", "expr": "previous_result.iter.index" },
+                                "port": { "type": "javascript", "expr": "flow_input.port" },
+                            },
+                            "value": {
+                                "type": "rawscript",
+                                "language": "deno",
+                                "content": inner,
+                            },
+                        }]
                     }
                 }, {
                     "input_transform": {
@@ -1940,21 +1967,19 @@ def main(error, port):
                     "type": "forloopflow",
                     "iterator": { "type": "javascript", "expr": "result.items" },
                     "skip_failures": false,
-                    "value": {
-                        "modules": [{
-                            "input_transform": {
-                                "n": {
-                                    "type": "javascript",
-                                    "expr": "previous_result.iter.value",
-                                },
+                    "modules": [{
+                        "input_transform": {
+                            "n": {
+                                "type": "javascript",
+                                "expr": "previous_result.iter.value",
                             },
-                            "value": {
-                                "type": "rawscript",
-                                "language": "python3",
-                                "content": "def main(n):\n    if 1 < n:\n        raise StopIteration(n)",
-                            },
-                        }],
-                    }
+                        },
+                        "value": {
+                            "type": "rawscript",
+                            "language": "python3",
+                            "content": "def main(n):\n    if 1 < n:\n        raise StopIteration(n)",
+                        },
+                    }],
                 },
             }],
         }))

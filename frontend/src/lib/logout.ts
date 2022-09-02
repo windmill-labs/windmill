@@ -12,7 +12,7 @@ export function logoutWithRedirect(rd?: string): void {
 			? `error=${encodeURIComponent('You have been logged out because your session has expired.')}&`
 			: ''
 		clearCookies()
-		goto(`/user/login?${error}${rd ? 'rd=' + encodeURIComponent(rd) : ''}`)
+		goto(`/user/login?${error}${rd ? 'rd=' + encodeURIComponent(rd) : ''}`, { replaceState: true })
 	}
 }
 

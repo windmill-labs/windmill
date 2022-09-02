@@ -14,7 +14,7 @@
 	import { workspaceStore } from '$lib/stores'
 	import { decodeState, emptySchema } from '$lib/utils'
 	import { initFlow } from '$lib/components/flows/flowStore'
-	import { initFlowState } from '$lib/components/flows/flowState'
+	import CenteredPage from '$lib/components/CenteredPage.svelte'
 
 	const initialState = $page.url.searchParams.get('state')
 	let flowLoadedFromUrl = initialState != undefined ? decodeState(initialState) : undefined
@@ -54,4 +54,6 @@
 	}
 </script>
 
-<FlowBuilder {initialPath} />
+<CenteredPage>
+	<FlowBuilder {initialPath} />
+</CenteredPage>

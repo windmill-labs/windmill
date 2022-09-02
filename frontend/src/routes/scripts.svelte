@@ -149,7 +149,7 @@
 		sendUserToast(`Successfully archived script ${path}`)
 	}
 
-	async function viewCode(path) {
+	async function viewCode(path: string) {
 		codeViewerContent = (await getScriptByPath(path)).content
 		codeViewerPath = path
 		codeViewer.openModal()

@@ -161,8 +161,8 @@ pub async fn update_flow_status_after_job_completion(
                                                         ARRAY['step'], $3)
              WHERE id = $4
             RETURNING
-                (raw_flow->'modules'->$1->>'stop_after_if_expr'),
-                (raw_flow->'modules'->$1->>'skip_if_stopped')::bool
+                (raw_flow->'modules'->$1->'stop_after_if'->>'expr'),
+                (raw_flow->'modules'->$1->'stop_after_if'->>'skip_if_stopped')::bool
             ",
         )
         .bind(old_status.step)
@@ -783,8 +783,12 @@ async fn push_next_flow_job(
             }
             JobPayload::Code(raw_code)
         }
-        FlowModuleValue::ForloopFlow { value, .. } => JobPayload::RawFlow {
-            value: (**value).clone(),
+        FlowModuleValue::ForloopFlow { modules, .. } => JobPayload::RawFlow {
+            value: FlowValue {
+                modules: (*modules).clone(),
+                failure_module: flow.failure_module.clone(),
+                retry: Default::default(),
+            },
             path: Some(format!("{}/{}", flow_job.script_path(), status.step)),
         },
         a @ FlowModuleValue::Flow { .. } => {

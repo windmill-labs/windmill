@@ -80,6 +80,11 @@ pub struct FlowValue {
     #[serde(default)]
     pub failure_module: Option<FlowModule>,
 }
+#[derive(Deserialize, Serialize, Debug, Clone)]
+pub struct StopAfterIf {
+    pub expr: String,
+    pub skip_if_stopped: bool,
+}
 
 #[derive(Deserialize, Serialize, Debug, Clone, Default, PartialEq)]
 #[serde(default)]
@@ -139,8 +144,7 @@ pub struct FlowModule {
     #[serde(alias = "input_transform")]
     pub input_transforms: HashMap<String, InputTransform>,
     pub value: FlowModuleValue,
-    pub stop_after_if_expr: Option<String>,
-    pub skip_if_stopped: Option<bool>,
+    pub stop_after_if: Option<StopAfterIf>,
     pub summary: Option<String>,
 }
 
@@ -165,7 +169,7 @@ pub enum FlowModuleValue {
     },
     ForloopFlow {
         iterator: InputTransform,
-        value: Box<FlowValue>,
+        modules: Vec<FlowModule>,
         #[serde(default = "default_true")]
         skip_failures: bool,
     },
@@ -476,8 +480,7 @@ mod tests {
                     )]
                     .into(),
                     value: FlowModuleValue::Script { path: "test".to_string() },
-                    stop_after_if_expr: None,
-                    skip_if_stopped: Some(false),
+                    stop_after_if: None,
                     summary: None,
                 },
                 FlowModule {
@@ -487,8 +490,10 @@ mod tests {
                         language: crate::scripts::ScriptLang::Deno,
                         path: None,
                     }),
-                    stop_after_if_expr: Some("foo = 'bar'".to_string()),
-                    skip_if_stopped: None,
+                    stop_after_if: Some(StopAfterIf {
+                        expr: "foo = 'bar'".to_string(),
+                        skip_if_stopped: false,
+                    }),
                     summary: None,
                 },
                 FlowModule {
@@ -499,19 +504,23 @@ mod tests {
                     .into(),
                     value: FlowModuleValue::ForloopFlow {
                         iterator: InputTransform::Static { value: serde_json::json!([1, 2, 3]) },
-                        value: Box::new(FlowValue::default()),
+                        modules: vec![],
                         skip_failures: true,
                     },
-                    stop_after_if_expr: Some("previous.isEmpty()".to_string()),
-                    skip_if_stopped: None,
+                    stop_after_if: Some(StopAfterIf {
+                        expr: "previous.isEmpty()".to_string(),
+                        skip_if_stopped: false,
+                    }),
                     summary: None,
                 },
             ],
             failure_module: Some(FlowModule {
                 input_transforms: HashMap::new(),
                 value: FlowModuleValue::Flow { path: "test".to_string() },
-                stop_after_if_expr: Some("previous.isEmpty()".to_string()),
-                skip_if_stopped: None,
+                stop_after_if: Some(StopAfterIf {
+                    expr: "previous.isEmpty()".to_string(),
+                    skip_if_stopped: false,
+                }),
                 summary: None,
             }),
             retry: Default::default(),
@@ -529,8 +538,7 @@ mod tests {
                 "type": "script",
                 "path": "test"
               },
-              "stop_after_if_expr": null,
-              "skip_if_stopped": false,
+              "stop_after_if": null,
               "summary": null
             },
             {
@@ -541,8 +549,10 @@ mod tests {
                 "path": null,
                 "language": "deno"
               },
-              "stop_after_if_expr": "foo = 'bar'",
-              "skip_if_stopped": null,
+              "stop_after_if": {
+                  "expr": "foo = 'bar'",
+                  "skip_if_stopped": false
+              },
               "summary": null
             },
             {
@@ -566,14 +576,13 @@ mod tests {
                     3
                   ]
                 },
-                "value": {
-                  "modules": [],
-                  "failure_module": null
-                },
-                "skip_failures": true
+                "skip_failures": true,
+                "modules": []
               },
-              "stop_after_if_expr": "previous.isEmpty()",
-              "skip_if_stopped": null,
+              "stop_after_if": {
+                  "expr": "previous.isEmpty()",
+                  "skip_if_stopped": false,
+              },
               "summary": null
             }
           ],
@@ -583,12 +592,14 @@ mod tests {
               "type": "flow",
               "path": "test"
             },
-            "stop_after_if_expr": "previous.isEmpty()",
-            "skip_if_stopped": null,
+            "stop_after_if": {
+                "expr": "previous.isEmpty()",
+                "skip_if_stopped": false
+            },
             "summary": null
           }
         });
-        assert_eq!(dbg!(serde_json::json!(fv)), expect);
+        assert_eq!(dbg!(serde_json::json!(fv)), dbg!(expect));
     }
 
     #[test]

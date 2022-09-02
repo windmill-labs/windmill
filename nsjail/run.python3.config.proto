@@ -97,6 +97,13 @@ mount {
 }
 
 mount {
+    src: "/etc/pki"
+    dst: "/etc/pki"
+    is_bind: true
+    mandatory: false
+}
+
+mount {
     src: "/etc/resolv.conf"
     dst: "/etc/resolv.conf"
 	is_bind: true

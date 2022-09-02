@@ -143,7 +143,7 @@ export function emptySchema() {
 export function emptyModule(): FlowModule {
 	return {
 		value: { type: 'script', path: '' },
-		input_transform: {}
+		input_transforms: {}
 	}
 }
 
@@ -555,4 +555,8 @@ export function scriptToHubUrl(
 	url.searchParams.append('trigger', trigger.toString())
 
 	return url
+}
+
+export function classNames(...classes: string[]): string {
+	return classes.filter(Boolean).join(' ')
 }
