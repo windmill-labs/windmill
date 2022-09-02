@@ -57,7 +57,7 @@ components:
         stop_after_if:
           type: object
           properties:
-            skipped_if_stopped:
+            skip_if_stopped:
               type: boolean
             expr:
               type: string
