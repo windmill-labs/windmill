@@ -49,6 +49,13 @@ pub enum Error {
     Anyhow(#[from] anyhow::Error),
 }
 
+impl Error {
+    /// https://docs.rs/anyhow/1/anyhow/struct.Error.html#display-representations
+    pub fn alt(&self) -> String {
+        format!("{:#}", self)
+    }
+}
+
 pub fn to_anyhow<T: 'static + std::error::Error + Send + Sync>(e: T) -> anyhow::Error {
     From::from(e)
 }

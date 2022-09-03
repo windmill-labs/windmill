@@ -24,7 +24,7 @@ use crate::{
     users::{owner_to_token_owner, Authed},
     utils::{require_admin, Pagination, StripPath, now_from_db},
     worker,
-    worker_flow::init_flow_status,
+    worker_flow::{init_flow_status, FlowStatus},
 };
 use axum::{
     extract::{Extension, Path, Query},
@@ -98,6 +98,18 @@ impl QueuedJob {
             .as_ref()
             .map(String::as_str)
             .unwrap_or("NO_FLOW_PATH")
+    }
+
+    pub fn parse_raw_flow(&self) -> Option<FlowValue> {
+        self.raw_flow
+            .as_ref()
+            .and_then(|v| serde_json::from_value::<FlowValue>(v.clone()).ok())
+    }
+
+    pub fn parse_flow_status(&self) -> Option<FlowStatus> {
+        self.flow_status
+            .as_ref()
+            .and_then(|v| serde_json::from_value::<FlowStatus>(v.clone()).ok())
     }
 }
 
