@@ -5,10 +5,10 @@
 	import { Button } from 'flowbite-svelte'
 	import { createEventDispatcher } from 'svelte'
 	import Icon from 'svelte-awesome'
-	import Editor from './Editor.svelte'
 	import SchemaEditorProperty from './SchemaEditorProperty.svelte'
 	import type { ModalSchemaProperty } from './SchemaModal.svelte'
 	import SchemaModal, { DEFAULT_PROPERTY, schemaToModal } from './SchemaModal.svelte'
+	import SimpleEditor from './SimpleEditor.svelte'
 	import TableCustom from './TableCustom.svelte'
 	import Toggle from './Toggle.svelte'
 	import Tooltip from './Tooltip.svelte'
@@ -220,7 +220,7 @@
 			</div>
 		{:else}
 			<div class="border rounded mt-4 p-2">
-				<Editor
+				<SimpleEditor
 					on:change={() => {
 						try {
 							schema = JSON.parse(schemaString)

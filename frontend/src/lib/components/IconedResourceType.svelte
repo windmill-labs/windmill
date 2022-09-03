@@ -44,7 +44,7 @@
 	{:else if name === 'slack'}
 		<Slack {height} {width} />
 	{:else if name === 'github'}
-		<Icon data={GithubIcon} scale={1.4} />
+		<GithubIcon />
 	{:else if name === 'gmail'}
 		<GmailIcon {height} {width} />
 	{:else if name === 'gsheets'}
