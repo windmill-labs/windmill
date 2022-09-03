@@ -1,14 +1,16 @@
 use std::collections::HashMap;
+use std::time::Duration;
 
 use crate::{
     db::DB,
     error::{self, Error},
-    flows::{FlowModule, FlowModuleValue, FlowValue, InputTransform},
+    flows::{FlowModule, FlowModuleValue, FlowValue, InputTransform, Retry},
     jobs::{
         add_completed_job, add_completed_job_error, get_queued_job, postprocess_queued_job, push,
         script_path_to_payload, JobPayload, QueuedJob,
     },
     js_eval::{eval_timeout, EvalCreds},
+    more_serde::is_default,
     users::create_token_for_owner,
     worker,
 };
@@ -20,11 +22,24 @@ use serde_json::{json, Map, Value};
 use tracing::instrument;
 use uuid::Uuid;
 
+const MAX_RETRY_ATTEMPTS: u16 = 1000;
+const MAX_RETRY_INTERVAL: Duration = /* six hours */ Duration::from_secs(6 * 60 * 60);
+
 #[derive(Serialize, Deserialize, Debug)]
 pub struct FlowStatus {
     pub step: i32,
     pub modules: Vec<FlowStatusModule>,
     pub failure_module: FlowStatusModule,
+    #[serde(default)]
+    #[serde(skip_serializing_if = "is_default")]
+    pub retry: RetryStatus,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, Default, PartialEq)]
+#[serde(default)]
+pub struct RetryStatus {
+    pub fail_count: u16,
+    pub previous_result: Option<Value>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -51,6 +66,7 @@ impl FlowStatus {
             step: 0,
             modules: vec![FlowStatusModule::WaitingForPriorSteps; f.modules.len()],
             failure_module: FlowStatusModule::WaitingForPriorSteps,
+            retry: RetryStatus { fail_count: 0, previous_result: None },
         }
     }
 }
@@ -128,6 +144,7 @@ pub async fn update_flow_status_after_job_completion(
         }
     };
 
+    /* is_last_step is true when the step_counter (the next step index) is an invalid index */
     let is_last_step = usize::try_from(step_counter)
         .map(|i| !(..old_status.modules.len()).contains(&i))
         .unwrap_or(true);
@@ -161,10 +178,6 @@ pub async fn update_flow_status_after_job_completion(
 
     tracing::debug!("UPDATE: {:?}", new_status);
 
-    let flow_job = get_queued_job(flow, w_id, &mut tx)
-        .await?
-        .ok_or_else(|| Error::InternalErr(format!("requiring flow to be in the queue")))?;
-
     let stop_early = success
         && if let Some(expr) = stop_early_expr.clone() {
             compute_stop_early(expr, result.clone()).await?
@@ -172,7 +185,7 @@ pub async fn update_flow_status_after_job_completion(
             false
         };
 
-    let result = match new_status {
+    let result = match &new_status {
         FlowStatusModule::Success { forloop_jobs: Some(jobs), .. } => {
             let results = sqlx::query_as(
                 "
@@ -192,14 +205,48 @@ pub async fn update_flow_status_after_job_completion(
             .await?;
             json!(results)
         }
-        _ => result.clone(),
+        _ => result,
     };
+
+    if matches!(&new_status, FlowStatusModule::Success { .. }) {
+        sqlx::query(
+            "
+            UPDATE queue
+               SET flow_status = flow_status - 'retry'
+             WHERE id = $1
+             RETURNING flow_status
+            ",
+        )
+        .bind(flow)
+        .execute(&mut tx)
+        .await
+        .context("remove flow status retry")?;
+    }
+
+    let flow_job = get_queued_job(flow, w_id, &mut tx)
+        .await?
+        .ok_or_else(|| Error::InternalErr(format!("requiring flow to be in the queue")))?;
 
     let should_continue_flow = match success {
         _ if stop_early => false,
         _ if flow_job.canceled => false,
         true => !is_last_step,
         false if skip_loop_failures => !is_last_step,
+        false
+            if next_retry(
+                &flow_job
+                    .parse_raw_flow()
+                    .map(|module| module.retry)
+                    .unwrap_or_default(),
+                &flow_job
+                    .parse_flow_status()
+                    .map(|status| status.retry)
+                    .unwrap_or_default(),
+            )
+            .is_some() =>
+        {
+            true
+        }
         false if has_failure_module(flow, &mut tx).await? => true,
         false => false,
     };
@@ -300,6 +347,13 @@ async fn has_failure_module<'c>(
     .fetch_one(tx)
     .await
     .map_err(|e| Error::InternalErr(format!("error during retrieval of has_failure_module: {e}")))
+}
+
+fn next_retry(retry: &Retry, status: &RetryStatus) -> Option<(u16, Duration)> {
+    (status.fail_count <= MAX_RETRY_ATTEMPTS)
+        .then(|| &retry)
+        .and_then(|retry| retry.interval(status.fail_count))
+        .map(|d| (status.fail_count + 1, std::cmp::min(d, MAX_RETRY_INTERVAL)))
 }
 
 async fn compute_stop_early(expr: String, result: serde_json::Value) -> error::Result<bool> {
@@ -417,6 +471,19 @@ pub async fn handle_flow(
         )))?;
     }
 
+    if flow.retry.max_attempts() > MAX_RETRY_ATTEMPTS {
+        Err(Error::BadRequest(format!(
+            "retry attempts exceeds the maximum of {MAX_RETRY_ATTEMPTS}"
+        )))?
+    }
+
+    if matches!(flow.retry.max_interval(), Some(interval) if interval > MAX_RETRY_INTERVAL) {
+        let max = MAX_RETRY_INTERVAL.as_secs();
+        Err(Error::BadRequest(format!(
+            "retry interval exceeds the maximum of {max} seconds"
+        )))?
+    }
+
     push_next_flow_job(
         flow_job,
         flow,
@@ -435,7 +502,7 @@ async fn push_next_flow_job(
     flow: FlowValue,
     schedule_path: Option<String>,
     db: &sqlx::Pool<sqlx::Postgres>,
-    last_result: serde_json::Value,
+    mut last_result: serde_json::Value,
 ) -> anyhow::Result<()> {
     let status: FlowStatus =
         serde_json::from_value::<FlowStatus>(flow_job.flow_status.clone().unwrap_or_default())
@@ -449,13 +516,14 @@ async fn push_next_flow_job(
     let mut module: &FlowModule = flow
         .modules
         .get(i)
+        .or_else(|| flow.failure_module.as_ref())
         .with_context(|| format!("no module at index {}", status.step))?;
 
     let mut status_module: FlowStatusModule = status
         .modules
         .get(i)
         .cloned()
-        .with_context(|| format!("no status at index {}", status.step))?;
+        .unwrap_or_else(|| status.failure_module.clone());
 
     tracing::debug!(
         "PUSH: module: {:#?}, status: {:#?}",
@@ -463,21 +531,98 @@ async fn push_next_flow_job(
         status_module
     );
 
-    if matches!(&status_module, FlowStatusModule::Success { .. }) {
-        anyhow::bail!("no job for {status_module:?}")
-    } else if matches!(&status_module, FlowStatusModule::Failure { .. }) {
-        /* To run to the failure module, call push_next_flow_job with the current step on
-         * FlowStatusModule::Failure.  This must update the step index to the end so that no
-         * subsequent steps are run after the failure module. */
-        i = flow.modules.len();
-        module = flow
-            .failure_module
-            .as_ref()
-            /* If this fails, it's a update_flow_status_in_progress shouldn't have called
-             * handle_flow to get here. */
-            .context("missing failure module")?;
-        status_module = status.failure_module.clone();
-    };
+    let mut scheduled_for_o = None;
+
+    if matches!(&status_module, FlowStatusModule::Failure { .. }) {
+        if let Some((fail_count, retry_in)) = next_retry(&flow.retry, &status.retry) {
+            tracing::debug!(
+                retry_in_seconds = retry_in.as_secs(),
+                fail_count = fail_count,
+                "retrying"
+            );
+
+            scheduled_for_o = Some(from_now(retry_in));
+
+            sqlx::query(
+                "
+                UPDATE queue
+                   SET flow_status = JSONB_SET(flow_status, ARRAY['retry'], $1)
+                 WHERE id = $2
+                ",
+            )
+            .bind(json!(RetryStatus { fail_count, ..status.retry.clone() }))
+            .bind(flow_job.id)
+            .execute(db)
+            .await
+            .context("update flow retry")?;
+
+            /* it might be better to retry the job using the previous args instead of determining
+             * them again from the last result, but that seemed to not play well with the forloop
+             * logic and I couldn't figure out why. */
+            if let Some(v) = status.retry.previous_result {
+                last_result = v;
+            }
+            status_module = FlowStatusModule::WaitingForPriorSteps;
+
+        /* Start the failure module ... */
+        } else {
+            /* push_next_flow_job is called with the current step on FlowStatusModule::Failure.
+             * This must update the step index to the end so that no subsequent steps are run after
+             * the failure module.
+             *
+             * The failure module may also run again if it fails and the retry feature is used.
+             * In that case, `i` will index past `flow.modules`.  The above should handle that and
+             * re-run the failure module. */
+            i = flow.modules.len();
+            module = flow
+                .failure_module
+                .as_ref()
+                /* If this fails, it's a update_flow_status_after_job_completion shouldn't have called
+                 * handle_flow to get here. */
+                .context("missing failure module")?;
+            status_module = status.failure_module.clone();
+
+            /* (retry feature) save the previous_result the first time this step is run */
+            if flow.retry.has_attempts() {
+                sqlx::query(
+                    "
+                UPDATE queue
+                   SET flow_status = JSONB_SET(flow_status, ARRAY['retry'], $1)
+                 WHERE id = $2
+                ",
+                )
+                .bind(json!(RetryStatus {
+                    previous_result: Some(last_result.clone()),
+                    fail_count: 0,
+                }))
+                .bind(flow_job.id)
+                .execute(db)
+                .await
+                .context("update flow retry")?;
+            };
+        }
+
+    /* (retry feature) save the previous_result the first time this step is run */
+    } else if matches!(&status_module, FlowStatusModule::WaitingForPriorSteps)
+        && flow.retry.has_attempts()
+        && status.retry.fail_count == 0
+    {
+        sqlx::query(
+            "
+            UPDATE queue
+               SET flow_status = JSONB_SET(flow_status, ARRAY['retry'], $1)
+             WHERE id = $2
+            ",
+        )
+        .bind(json!(RetryStatus {
+            previous_result: Some(last_result.clone()),
+            fail_count: 0,
+        }))
+        .bind(flow_job.id)
+        .execute(db)
+        .await
+        .context("update flow retry")?;
+    }
 
     /* Don't evaluate `module.input_transforms` after iteration has begun.  Instead, args are
      * carried through the Iterator by the InProgress variant. */
@@ -554,7 +699,7 @@ async fn push_next_flow_job(
                                                                 ARRAY['step'], $3)
                      WHERE id = $4
                  RETURNING *
-                    "#,
+                        "#,
                     )
                     .bind(status.step)
                     .bind(json!(FlowStatusModule::Success {
@@ -651,6 +796,7 @@ async fn push_next_flow_job(
             value: FlowValue {
                 modules: (*modules).clone(),
                 failure_module: flow.failure_module.clone(),
+                retry: Default::default(),
             },
             path: Some(format!("{}/{}", flow_job.script_path(), status.step)),
         },
@@ -670,7 +816,7 @@ async fn push_next_flow_job(
         Some(args.clone()),
         &flow_job.created_by,
         flow_job.permissioned_as.to_owned(),
-        None,
+        scheduled_for_o,
         schedule_path,
         Some(flow_job.id),
         true,
@@ -742,4 +888,13 @@ impl IntoArray for Value {
             not_array => Err(not_array),
         }
     }
+}
+
+fn from_now(duration: Duration) -> chrono::DateTime<chrono::Utc> {
+    // "This function errors when original duration is larger than
+    // the maximum value supported for this type."
+    chrono::Duration::from_std(duration)
+        .ok()
+        .and_then(|d| chrono::Utc::now().checked_add_signed(d))
+        .unwrap_or(chrono::DateTime::<chrono::Utc>::MAX_UTC)
 }

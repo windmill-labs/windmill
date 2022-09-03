@@ -34,6 +34,7 @@ mod granular_acls;
 mod groups;
 mod jobs;
 mod js_eval;
+mod more_serde;
 mod oauth2;
 mod parser;
 mod parser_py;
