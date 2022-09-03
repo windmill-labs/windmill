@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { faGithub } from '@fortawesome/free-brands-svg-icons'
 	import Icon from 'svelte-awesome'
 	import AirtableIcon from './icons/AirtableIcon.svelte'
 	import DbIcon from './icons/DbIcon.svelte'
@@ -7,6 +6,7 @@
 	import GcalIcon from './icons/GcalIcon.svelte'
 	import GCloudIcon from './icons/GCloudIcon.svelte'
 	import GdriveIcon from './icons/GdriveIcon.svelte'
+	import GithubIcon from './icons/GithubIcon.svelte'
 	import GitlabIcon from './icons/GItlabIcon.svelte'
 	import GmailIcon from './icons/GmailIcon.svelte'
 	import GSheetsIcon from './icons/GSheetsIcon.svelte'
@@ -44,7 +44,7 @@
 	{:else if name === 'slack'}
 		<Slack {height} {width} />
 	{:else if name === 'github'}
-		<Icon data={faGithub} scale={1.4} />
+		<GithubIcon />
 	{:else if name === 'gmail'}
 		<GmailIcon {height} {width} />
 	{:else if name === 'gsheets'}

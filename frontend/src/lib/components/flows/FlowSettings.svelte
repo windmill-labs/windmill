@@ -5,9 +5,9 @@
 	import Icon from 'svelte-awesome'
 	import Menu from '../common/menu/Menu.svelte'
 	import MenuItem from '../common/menu/MenuItem.svelte'
-	import Editor from '../Editor.svelte'
 	import FlowViewer from '../FlowViewer.svelte'
 	import Modal from '../Modal.svelte'
+	import SimpleEditor from '../SimpleEditor.svelte'
 	import CollapseLink from './../CollapseLink.svelte'
 	import CronInput from './../CronInput.svelte'
 	import FlowBox from './../flows/FlowBox.svelte'
@@ -36,7 +36,7 @@
 <Modal bind:this={jsonSetter}>
 	<div slot="title">Import JSON</div>
 	<div slot="content" class="h-full">
-		<Editor bind:code={jsonValue} lang={'json'} class="h-full" />
+		<SimpleEditor bind:code={jsonValue} lang="json" class="h-full" />
 	</div>
 	<div slot="submission">
 		<button

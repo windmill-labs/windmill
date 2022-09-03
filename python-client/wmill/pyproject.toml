@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "wmill"
-version = "1.34.0"
+version = "1.35.0"
 description = "A client library for accessing Windmill server wrapping the Windmill client API"
 license = "Apache-2.0"
 homepage = "https://windmill.dev"
@@ -16,7 +16,7 @@ include = ["wmill/py.typed"]
 
 [tool.poetry.dependencies]
 python = "^3.7"
-windmill-api = "^1.34.0"
+windmill-api = "^1.35.0"
 
 [build-system]
 requires = ["poetry>=1.0.2", "poetry-dynamic-versioning"]

@@ -29,7 +29,7 @@ export function initFlow(flow: Flow) {
 			delete modVal.input_transform
 		}
 		if (modVal.stop_after_if_expr) {
-			modVal.stop_after_if = { expr: modVal.stop_after_if_expr, skipped_if_stopped: modVal.skip_if_stopped}
+			modVal.stop_after_if = { expr: modVal.stop_after_if_expr, skip_if_stopped: modVal.skip_if_stopped}
 			delete modVal.stop_after_if_expr;
 			delete modVal.skip_if_stopped;
 		}
