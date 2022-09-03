@@ -42,6 +42,25 @@ components:
             $ref: "#/components/schemas/FlowModule"
         failure_module:
           $ref: "#/components/schemas/FlowModule"
+        retry:
+          type: object
+          properties:
+            constant:
+              type: object
+              properties:
+                attempts:
+                  type: integer
+                seconds:
+                  type: integer
+            exponential:
+              type: object
+              properties:
+                attempts:
+                  type: integer
+                multiplier:
+                  type: integer
+                seconds:
+                  type: integer
       required:
         - modules
 
@@ -194,6 +213,11 @@ components:
             $ref: "#/components/schemas/FlowStatusModule"
         failure_module:
           $ref: "#/components/schemas/FlowStatusModule"
+        retry:
+          type: object
+          properties:
+            fail_count:
+              type: integer
       required:
         - step
         - modules
