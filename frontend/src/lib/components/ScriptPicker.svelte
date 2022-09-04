@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { ScriptService, FlowService } from '$lib/gen'
+	import { ScriptService, FlowService, Script } from '$lib/gen'
 
 	import Icon from 'svelte-awesome'
 	import { faSearch } from '@fortawesome/free-solid-svg-icons'
@@ -18,7 +18,7 @@
 	export let allowFlow = false
 	export let allowHub = false
 	export let itemKind: 'hub' | 'script' | 'flow' = allowHub ? 'hub' : 'script'
-	export let isTrigger: boolean | undefined = undefined
+	export let kind: Script.kind = Script.kind.SCRIPT
 
 	let items: { summary: String; path: String; version?: String }[] = []
 	let itemPicker: ItemPicker
@@ -35,7 +35,7 @@
 		if (itemKind == 'flow') {
 			items = await FlowService.listFlows({ workspace: $workspaceStore! })
 		} else if (itemKind == 'script') {
-			items = await ScriptService.listScripts({ workspace: $workspaceStore!, isTrigger })
+			items = await ScriptService.listScripts({ workspace: $workspaceStore!, kind })
 		} else {
 			items = $hubScripts ?? []
 		}

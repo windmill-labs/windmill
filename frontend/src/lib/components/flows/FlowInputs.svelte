@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { RawScript } from '$lib/gen'
+	import { RawScript, Script } from '$lib/gen'
 
 	import { faCode, faRepeat } from '@fortawesome/free-solid-svg-icons'
 	import { createEventDispatcher } from 'svelte'
@@ -18,8 +18,8 @@
 	{/if}
 
 	<div class="grid sm:grid-col-2 lg:grid-cols-3 gap-4">
-		<PickScript on:pick />
-		<PickHubScript on:pick />
+		<PickScript kind={Script.kind.SCRIPT} on:pick />
+		<PickHubScript kind={Script.kind.SCRIPT} on:pick />
 
 		<FlowScriptPicker
 			label={`Create a for-loop here`}
@@ -55,8 +55,8 @@
 		<div class="text-sm font-bold">Trigger scripts</div>
 
 		<div class="grid sm:grid-col-1 md:grid-col-2 lg:grid-cols-3 gap-4">
-			<PickScript isTrigger={true} on:pick />
-			<PickHubScript isTrigger={true} on:pick />
+			<PickScript kind={Script.kind.TRIGGER} on:pick />
+			<PickHubScript kind={Script.kind.TRIGGER} on:pick />
 			<FlowScriptPicker
 				label="New Typescript script (Deno)"
 				icon={faCode}

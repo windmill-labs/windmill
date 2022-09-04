@@ -1,3 +1,5 @@
+import type { Script } from "./gen"
+
 export const PYTHON_INIT_CODE = `import os
 import wmill
 from datetime import datetime
@@ -98,19 +100,34 @@ export async function main() {
 }
 `
 
-export function initialCode(language: 'deno' | 'python3', type: 'trigger' | 'flow' | 'pgsql' | undefined): string {
+const ALL_INITIAL_CODE = [PYTHON_INIT_CODE, DENO_INIT_CODE, POSTGRES_INIT_CODE, DENO_INIT_CODE_TRIGGER, DENO_INIT_CODE_CLEAR, PYTHON_INIT_CODE_CLEAR]
+
+export function isInitialCode(content: string): boolean {
+  for (const code of ALL_INITIAL_CODE) {
+    if (content === code) {
+      return true
+    }
+  }
+  return false
+}
+
+export function initialCode(language: 'deno' | 'python3', type: Script.kind, subtype: 'pgsql' | 'flow' | 'script'): string {
   if (language === 'deno') {
     if (type === 'trigger') {
       return DENO_INIT_CODE_TRIGGER
-    } else if (type === 'flow') {
-      return DENO_INIT_CODE_CLEAR
-    } else if (type === 'pgsql') {
-      return POSTGRES_INIT_CODE
+    } else if (type === 'script') {
+      if (subtype === 'flow') {
+        return DENO_INIT_CODE_CLEAR
+      } else if (subtype === 'pgsql') {
+        return POSTGRES_INIT_CODE
+      } else {
+        return DENO_INIT_CODE
+      }
     } else {
       return DENO_INIT_CODE
     }
   } else {
-    if (type === 'flow') {
+    if (subtype === 'script') {
       return PYTHON_INIT_CODE_CLEAR
     } else {
       return PYTHON_INIT_CODE

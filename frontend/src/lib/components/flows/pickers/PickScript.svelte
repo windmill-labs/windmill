@@ -7,23 +7,16 @@
 	import { createEventDispatcher } from 'svelte'
 	import FlowScriptPicker from './FlowScriptPicker.svelte'
 
-	export let isTrigger: boolean = false
+	export let kind: string
 
 	type Item = { summary: String; path: String; version?: String }
 
-	let items: Item[] = []
 	let itemPicker: ItemPicker
 
 	const dispatch = createEventDispatcher()
 
-	async function loadItems(): Promise<void> {
-		items = await ScriptService.listScripts({ workspace: $workspaceStore!, isTrigger })
-	}
-
-	$: {
-		if ($workspaceStore) {
-			loadItems()
-		}
+	async function loadItems(): Promise<Item[]> {
+		return await ScriptService.listScripts({ workspace: $workspaceStore!, kind })
 	}
 </script>
 
@@ -34,13 +27,11 @@
 	}}
 	itemName={'Script'}
 	extraField="summary"
-	loadItems={async () => {
-		return items
-	}}
+	{loadItems}
 />
 
 <FlowScriptPicker
-	label={`Pick a ${isTrigger ? 'trigger ' : ''}script from your workspace`}
+	label={`Pick a ${kind == 'script' ? '' : kind} script from your workspace`}
 	icon={faUserGroup}
 	iconColor="text-blue-500"
 	on:click={() => itemPicker.openModal()}

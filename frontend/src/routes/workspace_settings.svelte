@@ -8,7 +8,13 @@
 
 <script lang="ts">
 	import Fuse from 'fuse.js'
-	import { UserService, type WorkspaceInvite, WorkspaceService, OauthService } from '$lib/gen'
+	import {
+		UserService,
+		type WorkspaceInvite,
+		WorkspaceService,
+		OauthService,
+		Script
+	} from '$lib/gen'
 	import type { User } from '$lib/gen'
 	import { sendUserToast, msToSec } from '$lib/utils'
 	import PageHeader from '$lib/components/PageHeader.svelte'
@@ -216,7 +222,7 @@
 			</button>
 		{/if}
 		<h3 class="mt-5 text-gray-700">Select a script to run on /windmill command:</h3>
-		<ScriptPicker isTrigger={false} bind:scriptPath on:select={editSlackCommand} />
+		<ScriptPicker kind={Script.kind.SCRIPT} bind:scriptPath on:select={editSlackCommand} />
 
 		<p class="text-sm text-gray-700 italic mt-3">
 			A script run from slack /windmill command is run as group 'slack' and hence every variables or

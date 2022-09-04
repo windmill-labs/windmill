@@ -1,15 +1,10 @@
 <script lang="ts">
-	import { ScriptService, type Script } from '$lib/gen'
+	import { Script, ScriptService } from '$lib/gen'
 
 	import { goto } from '$app/navigation'
 	import { page } from '$app/stores'
 	import { inferArgs } from '$lib/infer'
-	import {
-		DENO_INIT_CODE,
-		DENO_INIT_CODE_TRIGGER,
-		initialCode,
-		POSTGRES_INIT_CODE
-	} from '$lib/script_helpers'
+	import { initialCode, isInitialCode } from '$lib/script_helpers'
 	import { workspaceStore } from '$lib/stores'
 	import { emptySchema, encodeState, sendUserToast, setQueryWithoutLoad } from '$lib/utils'
 	import { Breadcrumb, BreadcrumbItem } from 'flowbite-svelte'
@@ -21,33 +16,30 @@
 	import ScriptEditor from './ScriptEditor.svelte'
 	import ScriptSchema from './ScriptSchema.svelte'
 	import CenteredPage from './CenteredPage.svelte'
+	import Tooltip from './Tooltip.svelte'
 
 	let editor: ScriptEditor
 	let scriptSchema: ScriptSchema
 
 	export let script: Script
 	export let initialPath: string = ''
-	export let template: 'pgsql' | undefined = undefined
+	export let template: 'pgsql' | 'script' = 'script'
 
 	let pathError = ''
 
 	$: setQueryWithoutLoad($page.url, 'state', encodeState(script))
 	$: step = Number($page.url.searchParams.get('step')) || 1
-	$: {
-		if (script.language == 'python3') {
-			script.is_trigger = false
-		}
-	}
 
 	if (script.content == '') {
-		initContent(script.language, template)
+		initContent(script.language, script.kind, template)
 	}
 
-	function initContent(language: 'deno' | 'python3', template: 'pgsql' | undefined) {
-		script.content = initialCode(
-			language,
-			template == 'pgsql' ? 'pgsql' : script.is_trigger ? 'trigger' : undefined
-		)
+	function initContent(
+		language: 'deno' | 'python3',
+		kind: Script.kind,
+		template: 'pgsql' | 'script'
+	) {
+		script.content = initialCode(language, kind, template)
 	}
 
 	async function editScript(): Promise<void> {
@@ -63,7 +55,7 @@
 					schema: script.schema,
 					is_template: script.is_template,
 					language: script.language,
-					is_trigger: script.is_trigger
+					kind: script.kind
 				}
 			})
 			sendUserToast(`Success! New script version created with hash ${newHash}`)
@@ -200,27 +192,76 @@
 							['Typescript (Deno)', 'deno'],
 							['Python 3.10', 'python3']
 						]}
-						on:change={(e) => initContent(e.detail, template)}
+						on:change={(e) => initContent(e.detail, script.kind, template)}
 						bind:value={script.language}
 					/>
 				</div>
+				<h4 class="text-gray-700  border-b">
+					Script Kind <Tooltip
+						>In most cases, you will want the General Script. <br />
+						Trigger are meant to be used as the first module of flows to trigger them based on watching
+						new events externally. <br />
+						Failure scripts are used to handle unrecoverable errors of flows and for handling errors
+						at the workspace level. <br />
+						Command scripts are used when the workspace is associated with a slack workspace to be triggered
+						on command.</Tooltip
+					>
+				</h4>
+
 				{#if script.language == 'deno'}
-					<h4 class="text-gray-700  border-b">Template</h4>
+					<div class="max-w-lg">
+						<RadioButton
+							label="Script Type"
+							options={[
+								['General Script', Script.kind.SCRIPT],
+								['Trigger Script', Script.kind.TRIGGER]
+								// ['Failure Handler', Script.kind.FAILURE],
+								// ['Command Handler', Script.kind.COMMAND]
+							]}
+							on:change={(e) => {
+								if (isInitialCode(script.content)) {
+									template = 'script'
+									initContent(script.language, e.detail, template)
+								}
+							}}
+							bind:value={script.kind}
+						/>
+					</div>
+				{:else}
+					<div class="max-w-lg">
+						<RadioButton
+							label="Script Type"
+							options={[['General Script', Script.kind.SCRIPT]]}
+							on:change={(e) => {
+								if (isInitialCode(script.content)) {
+									template = 'script'
+									initContent(script.language, e.detail, template)
+								}
+							}}
+							bind:value={script.kind}
+						/>
+					</div>
+				{/if}
+
+				{#if script.language == 'deno' && script.kind == Script.kind.SCRIPT}
+					<h4 class="text-gray-700  border-b">
+						Script Template <Tooltip
+							>A template is a pre-filled script corresponding to a more specialized use-case</Tooltip
+						>
+					</h4>
 
 					<div class="max-w-md">
 						<RadioButton
 							label="Template"
 							options={[
-								['None', undefined],
-								['PostgreSQL', 'pgsql']
+								['Standard', 'script'],
+								['PostgreSQL Prepared Statement', 'pgsql']
 							]}
-							on:change={(e) => initContent(script.language, e.detail)}
+							on:change={(e) => initContent(script.language, script.kind, e.detail)}
 							bind:value={template}
 						/>
 					</div>
 				{/if}
-
-				<h3 class="text-gray-700 pb-1 border-b">Metadata</h3>
 
 				<label class="block ">
 					<span class="text-gray-700">Summary <Required required={false} /></span>
@@ -261,26 +302,12 @@
 				</label>
 
 				<label class="block">
-					<span class="text-gray-700 mr-2">Save as template</span>
+					<span class="text-gray-700 mr-2"
+						>Save as workspace template <Tooltip
+							>Enable your teammates to use this script as a template to write new scripts.</Tooltip
+						>
+					</span>
 					<input type="checkbox" bind:checked={script.is_template} />
-				</label>
-
-				<label class="block">
-					<span class="text-gray-700 mr-2">Save as trigger script</span>
-					<input
-						disabled={script.language == 'python3'}
-						type="checkbox"
-						bind:checked={script.is_trigger}
-						on:change={() => {
-							if (
-								script.content == DENO_INIT_CODE ||
-								script.content == DENO_INIT_CODE_TRIGGER ||
-								script.content == POSTGRES_INIT_CODE
-							) {
-								initContent(script.language, template)
-							}
-						}}
-					/>
 				</label>
 
 				<div>

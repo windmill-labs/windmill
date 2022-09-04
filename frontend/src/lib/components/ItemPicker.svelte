@@ -36,7 +36,7 @@
 </script>
 
 <Modal bind:this={modal} z="z-30">
-	<div slot="title">search a {itemName}</div>
+	<div slot="title">Search a {itemName}</div>
 	<div slot="content">
 		<div class="w-12/12 pb-4">
 			<input placeholder="Search {itemName}" bind:value={itemsFilter} class="search-item" />
@@ -57,7 +57,7 @@
 							<IconedResourceType silent={true} name={obj['app']} />
 							<span class="mr-2" />
 						{/if}
-						<span class="mr-2">{obj[extraField]}</span><span class="font-normal whitespace-nowrap"
+						<span class="mr-2">{obj[extraField]}</span><span class="font-normal break-all"
 							>{obj['path'] ?? ''}</span
 						>
 					</p>
