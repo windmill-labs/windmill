@@ -1275,6 +1275,7 @@ mod tests {
                     input_transforms: Default::default(),
                     stop_after_if: Default::default(),
                     summary: Default::default(),
+                    suspend: Default::default(),
                 },
                 FlowModule {
                     value: FlowModuleValue::ForloopFlow {
@@ -1295,11 +1296,13 @@ mod tests {
                             .into(),
                             stop_after_if: Default::default(),
                             summary: Default::default(),
+                            suspend: Default::default(),
                         }],
                     },
                     input_transforms: Default::default(),
                     stop_after_if: Default::default(),
                     summary: Default::default(),
+                    suspend: Default::default(),
                 },
             ],
             ..Default::default()
@@ -1693,6 +1696,112 @@ def main():
             .wait_until_complete(&db)
             .await;
         assert_eq!(json!({ "l": [0, 1, 2] }), result);
+    }
+
+    mod suspend_resume {
+        use super::*;
+
+        /// test helper provides some external state to help steps fail at specific points
+        struct Server {
+            addr: std::net::SocketAddr,
+            tx: tokio::sync::oneshot::Sender<()>,
+            task: tokio::task::JoinHandle<hyper::Result<()>>,
+        }
+
+        impl Server {
+            async fn start(db: DB) -> Self {
+                let (tx, rx) = tokio::sync::oneshot::channel::<()>();
+
+                let sock = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+
+                let addr = sock.local_addr().unwrap();
+
+                let router = axum::Router::new()
+                    .route(
+                        "/w/:workspace/jobs/resume/:id",
+                        axum::routing::post(crate::jobs::resume_job),
+                    )
+                    .layer(axum::extract::Extension(db));
+
+                let serve = axum::Server::from_tcp(sock.into_std().unwrap())
+                    .unwrap()
+                    .serve(router.into_make_service())
+                    .with_graceful_shutdown(async { drop(rx.await) });
+
+                let task = tokio::task::spawn(serve);
+
+                return Self { addr, tx, task };
+            }
+
+            async fn close(self) -> hyper::Result<()> {
+                let Self { task, tx, .. } = self;
+                drop(tx);
+                task.await.unwrap()
+            }
+        }
+
+        #[sqlx::test(fixtures("base"))]
+        async fn test(db: DB) {
+            initialize_tracing().await;
+
+            let server = Server::start(db.clone()).await;
+
+            let flow: FlowValue = serde_json::from_value(serde_json::json!({
+                "modules": [{
+                    "input_transform": {
+                        "n": { "type": "javascript", "expr": "flow_input.n", },
+                        "port": { "type": "javascript", "expr": "flow_input.port", },
+                    },
+                    "value": {
+                        "type": "rawscript",
+                        "language": "deno",
+                        "content": "\
+                            export async function main(n, port) {\
+                                const job = Deno.env.get('WM_JOB_ID');
+                                const r = await fetch(
+                                    `http://localhost:${port}/w/test-workspace/jobs/resume/${job}`,\
+                                    {\
+                                        method: 'POST',\
+                                        body: JSON.stringify('foobar'),\
+                                        headers: { 'content-type': 'application/json' }\
+                                    }\
+                                );\
+                                console.log(r);
+                                return n + 1;\
+                            }",
+                    },
+                    "suspend": 1,
+                }, {
+                    "input_transform": {
+                        "n": { "type": "javascript", "expr": "previous_result", },
+                        "resume": { "type": "javascript", "expr": "resume", },
+                    },
+                    "value": {
+                        "type": "rawscript",
+                        "language": "deno",
+                        "content": "export function main(n, resume) { return [resume, n + 1] }",
+                    },
+                }],
+            }))
+            .unwrap();
+
+            let result = RunJob::from(JobPayload::RawFlow { value: flow.clone(), path: None })
+                .arg("n", json!(0))
+                .arg("port", json!(server.addr.port()))
+                .wait_until_complete(&db)
+                .await;
+
+            server.close().await.unwrap();
+
+            assert_eq!(json!(["foobar", 2]), result);
+            assert_eq!(
+                0,
+                sqlx::query_scalar::<_, i64>("SELECT count(*) FROM resume_job")
+                    .fetch_one(&db)
+                    .await
+                    .unwrap()
+            );
+        }
     }
 
     mod retry {

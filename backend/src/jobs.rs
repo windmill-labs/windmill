@@ -64,6 +64,10 @@ pub fn workspaced_service() -> Router {
         .route("/getupdate/:id", get(get_job_update))
 }
 
+pub fn global_service() -> Router {
+    Router::new().route("/resume/:id", post(resume_job))
+}
+
 #[derive(Debug, sqlx::FromRow, Serialize, Clone)]
 pub struct QueuedJob {
     pub workspace_id: String,
@@ -917,6 +921,31 @@ pub async fn get_queued_job<'c>(
     Ok(r)
 }
 
+pub async fn resume_job(
+    /* unauthed */
+    Extension(db): Extension<DB>,
+    Path((_, id)): Path<(String, Uuid)>,
+    Json(value): Json<serde_json::Value>,
+    ) -> error::Result<StatusCode>
+{
+    let mut tx = db.begin().await?;
+
+    sqlx::query!(
+        r#"
+        INSERT INTO resume_job
+                    (id, job, flow, value)
+             VALUES ($1, $2, (SELECT parent_job FROM queue WHERE id = $2), $3);
+        "#,
+        Uuid::from(Ulid::new()),
+        id,
+        value,
+    ).execute(&mut tx).await?;
+
+    tx.commit().await?;
+
+    Ok(StatusCode::CREATED)
+}
+
 #[derive(Serialize)]
 #[serde(tag = "type")]
 enum Job {
@@ -1416,7 +1445,12 @@ pub async fn pull(db: &DB) -> Result<Option<QueuedJob>, crate::Error> {
             WHERE id IN (
                 SELECT id
                 FROM queue
-                WHERE running = false AND scheduled_for <= now()
+                WHERE running = false
+                  AND scheduled_for <= now()
+                  AND (   suspend = ( SELECT count(*)
+                                        FROM resume_job r
+                                       WHERE queue.id = r.job )
+                       OR suspend_until <= now())
                 ORDER BY scheduled_for
                 FOR UPDATE SKIP LOCKED
                 LIMIT 1

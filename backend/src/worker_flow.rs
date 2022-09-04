@@ -22,8 +22,11 @@ use serde_json::{json, Map, Value};
 use tracing::instrument;
 use uuid::Uuid;
 
+const MINUTES: Duration = Duration::from_secs(60);
+const HOURS: Duration = MINUTES.saturating_mul(60);
+
 const MAX_RETRY_ATTEMPTS: u16 = 1000;
-const MAX_RETRY_INTERVAL: Duration = /* six hours */ Duration::from_secs(6 * 60 * 60);
+const MAX_RETRY_INTERVAL: Duration = HOURS.saturating_mul(6);
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct FlowStatus {
@@ -53,7 +56,7 @@ pub struct Iterator {
 #[serde(tag = "type")]
 pub enum FlowStatusModule {
     WaitingForPriorSteps,
-    WaitingForEvent { event: String },
+    WaitingForEvents { count: u16, previous_result: Value },
     WaitingForExecutor { job: Uuid },
     InProgress { job: Uuid, iterator: Option<Iterator>, forloop_jobs: Option<Vec<Uuid>> },
     Success { job: Uuid, forloop_jobs: Option<Vec<Uuid>> },
@@ -404,6 +407,7 @@ pub async fn get_step_of_flow_status(db: &DB, id: Uuid) -> error::Result<i32> {
     Ok(r)
 }
 
+/// resumes should be in order of timestamp ascending, so that more recent are at the end
 #[instrument(level = "trace", skip_all)]
 async fn transform_input(
     flow_args: &Option<serde_json::Value>,
@@ -412,6 +416,7 @@ async fn transform_input(
     workspace: &str,
     token: &str,
     steps: Vec<String>,
+    resumes: &[Value],
 ) -> anyhow::Result<Map<String, serde_json::Value>> {
     let mut mapped = serde_json::Map::new();
 
@@ -433,6 +438,11 @@ async fn transform_input(
                         ("params".to_string(), serde_json::json!(mapped)),
                         ("previous_result".to_string(), previous_result),
                         ("flow_input".to_string(), flow_input),
+                        (
+                            "resume".to_string(),
+                            resumes.last().map(|v| json!(v)).unwrap_or_default(),
+                        ),
+                        ("resumes".to_string(), resumes.clone().into()),
                     ],
                     Some(EvalCreds { workspace: workspace.to_string(), token: token.to_string() }),
                     steps.clone(),
@@ -532,6 +542,50 @@ async fn push_next_flow_job(
     );
 
     let mut scheduled_for_o = None;
+
+    let mut resume_messages: Vec<Value> = vec![];
+
+    /* (suspend / resume), when starting a module, if previous module has a
+     * non-zero `suspend` value, collect `resume_job`s for the previous module job.
+     *
+     * If there aren't enough, try again later. */
+    if matches!(&status_module, FlowStatusModule::WaitingForPriorSteps) {
+        if let Some((count, last)) = needs_resume(&flow, &status) {
+            resume_messages = sqlx::query_scalar!(
+                "SELECT value FROM resume_job WHERE job = $1 ORDER BY created_at ASC",
+                last
+            )
+            .fetch_all(db)
+            .await?;
+            if resume_messages.len() >= count as usize {
+                /* yay! */
+                if let FlowStatusModule::WaitingForEvents { previous_result, .. } = &status_module {
+                    last_result = previous_result.clone();
+                }
+            } else {
+                /* TODO check if we're already waiting and if we have timed out?  */
+                sqlx::query(
+                    "
+                    UPDATE queue
+                       SET flow_status = JSONB_SET(flow_status, ARRAY['modules', flow_status->>'step'::text], $1)
+                         , suspend = $2
+                         , suspend_until = now() + $3
+                     WHERE id = $4
+                    ",
+                )
+                .bind(json!(FlowStatusModule::WaitingForEvents {
+                    count,
+                    previous_result: last_result,
+                }))
+                .bind(count as i32)
+                .bind(30 * MINUTES)
+                .bind(flow_job.id)
+                .execute(db)
+                .await?;
+                return Ok(());
+            }
+        }
+    }
 
     if matches!(&status_module, FlowStatusModule::Failure { .. }) {
         if let Some((fail_count, retry_in)) = next_retry(&flow.retry, &status.retry) {
@@ -658,6 +712,7 @@ async fn push_next_flow_job(
             &flow_job.workspace_id,
             &token,
             steps,
+            resume_messages.as_slice(),
         )
         .await?
     } else {
@@ -897,4 +952,22 @@ fn from_now(duration: Duration) -> chrono::DateTime<chrono::Utc> {
         .ok()
         .and_then(|d| chrono::Utc::now().checked_add_signed(d))
         .unwrap_or(chrono::DateTime::<chrono::Utc>::MAX_UTC)
+}
+
+/// returns previous module non-zero suspend count and job
+fn needs_resume(flow: &FlowValue, status: &FlowStatus) -> Option<(u16, Uuid)> {
+    let prev = usize::try_from(status.step)
+        .ok()
+        .and_then(|s| s.checked_sub(1))?;
+
+    let suspend = flow.modules.get(prev)?.suspend;
+    if suspend == 0 {
+        return None;
+    }
+
+    if let &FlowStatusModule::Success { job, .. } = status.modules.get(prev)? {
+        Some((suspend, job))
+    } else {
+        None
+    }
 }
