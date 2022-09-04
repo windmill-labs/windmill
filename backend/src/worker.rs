@@ -596,7 +596,8 @@ async fn handle_nondep_job(
                     job_id = %job.id,
                     workspace_id = %job.workspace_id,
                     is_ok = status.is_ok(),
-                    "finished setup python dependencies"
+                    "finished setting up python dependencies {}",
+                    job.id
                 );
             }
             if requirements.len() == 0 || status.is_ok() {
@@ -700,7 +701,8 @@ print(res_json)
                     worker_name = %worker_name,
                     job_id = %job.id,
                     workspace_id = %job.workspace_id,
-                    "started python code execution"
+                    "started python code execution {}",
+                    job.id
                 );
                 let child = if !disable_nsjail {
                     Command::new(nsjail_path)
@@ -739,7 +741,8 @@ print(res_json)
                     job_id = %job.id,
                     workspace_id = %job.workspace_id,
                     is_ok = status.is_ok(),
-                    "finished python code execution"
+                    "finished python code execution {}",
+                    job.id
                 );
             }
         }
@@ -820,7 +823,8 @@ run();
                 worker_name = %worker_name,
                 job_id = %job.id,
                 workspace_id = %job.workspace_id,
-                "started deno code execution"
+                "started deno code execution {}",
+                job.id
             );
             let hostname_base = base_url.split("://").last().unwrap_or("localhost");
             let hostname_internal = base_internal_url.split("://").last().unwrap_or("localhost");
@@ -873,7 +877,8 @@ run();
                 job_id = %job.id,
                 workspace_id = %job.workspace_id,
                 is_ok = status.is_ok(),
-                "finished deno code execution"
+                "finished deno code execution {}",
+                job.id
             );
         }
     }
