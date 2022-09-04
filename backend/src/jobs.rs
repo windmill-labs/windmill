@@ -1412,7 +1412,7 @@ pub async fn schedule_again_if_scheduled(
 pub async fn pull(db: &DB) -> Result<Option<QueuedJob>, crate::Error> {
     let job: Option<QueuedJob> = sqlx::query_as::<_, QueuedJob>(
         "UPDATE queue
-            SET running = true, started_at = now()
+            SET running = true, started_at = now(), last_ping = now()
             WHERE id IN (
                 SELECT id
                 FROM queue
