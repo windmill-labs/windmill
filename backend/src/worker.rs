@@ -1073,6 +1073,7 @@ async fn handle_child(
 
     let mut start = logs.chars().count();
     let mut last_update = chrono::Utc::now().timestamp_millis();
+    let initial_start = chrono::Utc::now();
 
     while !done.load(Ordering::Relaxed) {
         let diff = 500 - (chrono::Utc::now().timestamp_millis() - last_update);
@@ -1104,10 +1105,7 @@ async fn handle_child(
                     done.store(true, Ordering::Relaxed);
                 }
 
-                let has_timeout = job
-                    .started_at
-                    .map(|sa| (chrono::Utc::now() - sa).num_seconds() > timeout as i64)
-                    .unwrap_or(false);
+                let has_timeout = (chrono::Utc::now() - initial_start).num_seconds() > timeout as i64;
 
                 if has_timeout {
                     let q = sqlx::query(&format!(
