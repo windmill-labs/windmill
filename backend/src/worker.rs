@@ -168,7 +168,7 @@ pub async fn run_worker(
                 let metrics =
                     Metrics { jobs_failed: jobs_failed.with_label_values(label_values.as_slice()) };
 
-                tracing::info!(worker = %worker_name, id = %job.id, "Fetched job");
+                tracing::info!(worker = %worker_name, id = %job.id, "fetched job {}", job.id);
 
                 if let Some(err) = handle_queued_job(
                     job.clone(),
@@ -424,7 +424,8 @@ async fn handle_job(
         worker = %worker_name,
         job_id = %job.id,
         workspace_id = %job.workspace_id,
-        "handling job"
+        "handling job {}",
+        job.id
     );
 
     logs.push_str(&format!("job {} on worker {}\n", &job.id, &worker_name));
