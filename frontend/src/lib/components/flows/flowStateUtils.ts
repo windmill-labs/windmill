@@ -31,9 +31,9 @@ export function emptyFlowModuleSchema(): FlowModuleSchema {
 
 export async function loadFlowModuleSchema(flowModule: FlowModule): Promise<FlowModuleSchema> {
 	try {
-		const { input_transform, schema } = await loadSchemaFromModule(flowModule)
+		const { input_transforms, schema } = await loadSchemaFromModule(flowModule)
 
-		flowModule.input_transform = input_transform
+		flowModule.input_transforms = input_transforms
 
 		return { flowModule, schema }
 	} catch (e) {
@@ -44,7 +44,7 @@ export async function loadFlowModuleSchema(flowModule: FlowModule): Promise<Flow
 export async function pickScript(path: string): Promise<FlowModuleSchema> {
 	const flowModule: FlowModule = {
 		value: { type: 'script', path },
-		input_transform: {}
+		input_transforms: {}
 	}
 
 	return await loadFlowModuleSchema(flowModule)
@@ -61,7 +61,7 @@ export async function createInlineScriptModule({
 
 	const flowModule: FlowModule = {
 		value: { type: 'rawscript', content: code, language },
-		input_transform: {}
+		input_transforms: {}
 	}
 
 	return await loadFlowModuleSchema(flowModule)
@@ -71,13 +71,11 @@ export async function createLoop(): Promise<FlowModuleSchema> {
 	const loopFlowModule: FlowModule = {
 		value: {
 			type: 'forloopflow',
-			value: {
-				modules: []
-			},
+			modules: [],
 			iterator: { type: 'javascript', expr: 'result' },
 			skip_failures: true
 		},
-		input_transform: {}
+		input_transforms: {}
 	}
 
 	const { flowModule, schema } = await loadFlowModuleSchema(loopFlowModule)
@@ -109,7 +107,7 @@ export async function createInlineScriptModuleFromPath(path: string): Promise<Fl
 			content: content,
 			path
 		},
-		input_transform: {}
+		input_transforms: {}
 	}
 }
 

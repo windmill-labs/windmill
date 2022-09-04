@@ -1,11 +1,6 @@
 <script lang="ts" context="module">
 	import * as monaco from 'monaco-editor'
 
-	monaco.languages.typescript.javascriptDefaults.setCompilerOptions({
-		target: monaco.languages.typescript.ScriptTarget.Latest,
-		allowNonTsExtensions: true,
-		noLib: true
-	})
 	monaco.languages.typescript.typescriptDefaults.setCompilerOptions({
 		target: monaco.languages.typescript.ScriptTarget.Latest,
 		allowNonTsExtensions: true,
@@ -16,13 +11,6 @@
 		noSuggestionDiagnostics: true,
 		noSyntaxValidation: true
 	})
-
-	monaco.languages.json.jsonDefaults.setDiagnosticsOptions({
-		validate: true,
-		allowComments: false,
-		schemas: [],
-		enableSchemaRequest: true
-	})
 </script>
 
 <script lang="ts">
@@ -31,7 +19,6 @@
 	import { sendUserToast } from '$lib/utils'
 
 	import editorWorker from 'monaco-editor/esm/vs/editor/editor.worker?worker'
-	import jsonWorker from 'monaco-editor/esm/vs/language/json/json.worker?worker'
 	import tsWorker from 'monaco-editor/esm/vs/language/typescript/ts.worker?worker'
 
 	import { buildWorkerDefinition } from 'monaco-editor-workers'
@@ -46,6 +33,12 @@
 	import getMessageServiceOverride from 'vscode/service-override/messages'
 	import { StandaloneServices } from 'vscode/services'
 	import { DENO_INIT_CODE_CLEAR, PYTHON_INIT_CODE_CLEAR } from '$lib/script_helpers'
+	import {
+		createHash as randomHash,
+		editorConfig,
+		langToExt,
+		updateOptions
+	} from '$lib/editorUtils'
 
 	StandaloneServices.initialize({
 		...getMessageServiceOverride(document.body)
@@ -57,13 +50,11 @@
 	export let deno = false
 	export let lang = deno ? 'typescript' : 'python'
 	export let code: string = ''
-	export let hash: string = (Math.random() + 1).toString(36).substring(2)
+	export let hash: string = randomHash()
 	export let cmdEnterAction: (() => void) | undefined = undefined
 	export let formatAction: (() => void) | undefined = undefined
 	export let automaticLayout = true
 	export let websocketAlive = { pyright: false, black: false, deno: false }
-	export let extraLib: string = ''
-	export let extraLibPath: string = ''
 	export let shouldBindKey: boolean = true
 
 	let websockets: [MonacoLanguageClient, WebSocket][] = []
@@ -86,9 +77,7 @@
 			// @ts-ignore
 			self.MonacoEnvironment = {
 				getWorker: function (_moduleId: any, label: string) {
-					if (label === 'json') {
-						return new jsonWorker()
-					} else if (label === 'typescript' || label === 'javascript') {
+					if (label === 'typescript' || label === 'javascript') {
 						return new tsWorker()
 					} else {
 						return new editorWorker()
@@ -105,23 +94,6 @@
 	export function insertAtCursor(code: string): void {
 		if (editor) {
 			editor.trigger('keyboard', 'type', { text: code })
-		}
-	}
-
-	function langToExt(lang: string): string {
-		switch (lang) {
-			case 'typescript':
-				return 'ts'
-			case 'python':
-				return 'py'
-			case 'javascript':
-				return 'js'
-			case 'json':
-				return 'json'
-			case 'sql':
-				return 'sql'
-			default:
-				return 'unknown'
 		}
 	}
 
@@ -387,28 +359,11 @@
 	async function loadMonaco() {
 		const model = monaco.editor.createModel(code, lang, monaco.Uri.parse(uri))
 
-		model.updateOptions({ tabSize: 2, insertSpaces: true })
-		editor = monaco.editor.create(divEl as HTMLDivElement, {
-			model: model,
-			value: code,
-			language: lang,
-			automaticLayout,
-			readOnly: false,
-			fixedOverflowWidgets: true,
-			autoDetectHighContrast: true,
-			//lineNumbers: 'off',
-			//lineDecorationsWidth: 0,
-			lineNumbersMinChars: 4,
-			lineNumbers: (ln) => '<span class="pr-4 text-gray-400">' + ln + '</span>',
-			folding: false,
-			scrollBeyondLastLine: false,
-			minimap: {
-				enabled: false
-			},
-			lightbulb: {
-				enabled: true
-			}
-		})
+		model.updateOptions(updateOptions)
+		editor = monaco.editor.create(
+			divEl as HTMLDivElement,
+			editorConfig(model, code, lang, automaticLayout)
+		)
 
 		if (shouldBindKey) {
 			editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, function () {
@@ -449,15 +404,6 @@
 			dispatch('blur')
 		})
 
-		if (lang == 'javascript' && extraLib != '' && extraLibPath != '') {
-			monaco.languages.typescript.javascriptDefaults.setExtraLibs([
-				{
-					content: extraLib,
-					filePath: extraLibPath
-				}
-			])
-		}
-
 		if (lang == 'python' || deno) {
 			reloadWebsocket()
 		}
@@ -495,20 +441,5 @@
 		@apply px-0;
 		/* stylelint-disable-next-line unit-allowed-list */
 		height: 80vh;
-	}
-
-	.small-editor {
-		/* stylelint-disable-next-line unit-allowed-list */
-		height: 26vh;
-	}
-
-	.few-lines-editor {
-		/* stylelint-disable-next-line unit-allowed-list */
-		height: 80px;
-	}
-
-	.two-lines-editor {
-		/* stylelint-disable-next-line unit-allowed-list */
-		height: 40px;
 	}
 </style>

@@ -24,7 +24,7 @@ use crate::{
     users::{owner_to_token_owner, Authed},
     utils::{require_admin, Pagination, StripPath, now_from_db},
     worker,
-    worker_flow::init_flow_status,
+    worker_flow::{init_flow_status, FlowStatus},
 };
 use axum::{
     extract::{Extension, Path, Query},
@@ -98,6 +98,18 @@ impl QueuedJob {
             .as_ref()
             .map(String::as_str)
             .unwrap_or("NO_FLOW_PATH")
+    }
+
+    pub fn parse_raw_flow(&self) -> Option<FlowValue> {
+        self.raw_flow
+            .as_ref()
+            .and_then(|v| serde_json::from_value::<FlowValue>(v.clone()).ok())
+    }
+
+    pub fn parse_flow_status(&self) -> Option<FlowStatus> {
+        self.flow_status
+            .as_ref()
+            .and_then(|v| serde_json::from_value::<FlowStatus>(v.clone()).ok())
     }
 }
 
@@ -1400,7 +1412,7 @@ pub async fn schedule_again_if_scheduled(
 pub async fn pull(db: &DB) -> Result<Option<QueuedJob>, crate::Error> {
     let job: Option<QueuedJob> = sqlx::query_as::<_, QueuedJob>(
         "UPDATE queue
-            SET running = true, started_at = now()
+            SET running = true, started_at = now(), last_ping = now()
             WHERE id IN (
                 SELECT id
                 FROM queue

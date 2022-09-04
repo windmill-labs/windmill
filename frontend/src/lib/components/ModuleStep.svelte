@@ -135,7 +135,7 @@
 						inputTransform={true}
 						importPath={String(indexes.join('-'))}
 						bind:pickableProperties={stepPropPicker.pickableProperties}
-						bind:args={mod.input_transform}
+						bind:args={mod.input_transforms}
 						bind:extraLib={stepPropPicker.extraLib}
 					/>
 				{/if}

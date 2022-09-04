@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.34.0
+  version: 1.35.0
   title: OpenFlow Spec
   contact:
     name: Ruben Fiszel
@@ -42,26 +42,50 @@ components:
             $ref: "#/components/schemas/FlowModule"
         failure_module:
           $ref: "#/components/schemas/FlowModule"
+        retry:
+          type: object
+          properties:
+            constant:
+              type: object
+              properties:
+                attempts:
+                  type: integer
+                seconds:
+                  type: integer
+            exponential:
+              type: object
+              properties:
+                attempts:
+                  type: integer
+                multiplier:
+                  type: integer
+                seconds:
+                  type: integer
       required:
         - modules
 
     FlowModule:
       type: object
       properties:
-        input_transform:
+        input_transforms:
           type: object
           additionalProperties:
             $ref: "#/components/schemas/InputTransform"
         value:
           $ref: "#/components/schemas/FlowModuleValue"
-        stop_after_if_expr:
-          type: string
-        skip_if_stopped:
-          type: boolean
+        stop_after_if:
+          type: object
+          properties:
+            skip_if_stopped:
+              type: boolean
+            expr:
+              type: string
+          required:
+            - expr
         summary:
           type: string
       required:
-        - input_transform
+        - input_transforms
         - value
 
     InputTransform:
@@ -160,8 +184,10 @@ components:
     ForloopFlow:
       type: object
       properties:
-        value:
-          $ref: "#/components/schemas/FlowValue"
+        modules:
+          type: array
+          items:
+            $ref: "#/components/schemas/FlowModule"
         iterator:
           $ref: "#/components/schemas/InputTransform"
         skip_failures:
@@ -171,7 +197,7 @@ components:
           enum:
             - forloopflow
       required:
-        - value
+        - modules
         - iterator
         - skip_failures
         - type
@@ -187,6 +213,11 @@ components:
             $ref: "#/components/schemas/FlowStatusModule"
         failure_module:
           $ref: "#/components/schemas/FlowStatusModule"
+        retry:
+          type: object
+          properties:
+            fail_count:
+              type: integer
       required:
         - step
         - modules

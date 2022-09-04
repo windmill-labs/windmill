@@ -81,10 +81,8 @@
 			<tbody slot="body">
 				{#each schedules as { path, edited_by, edited_at, schedule, offset_, enabled, script_path, is_flow, extra_perms, canWrite }}
 					<tr class={enabled ? '' : 'bg-gray-100'}>
-						<td
-							><a href="/schedule/add?edit={path}&isFlow={is_flow}" style="cursor: pointer;"
-								>{path}</a
-							>
+						<td class="max-w-sm"
+							><a class="break-all" href="/schedule/add?edit={path}&isFlow={is_flow}">{path}</a>
 							<SharedBadge {canWrite} extraPerms={extra_perms} />
 						</td>
 						<td class="whitespace-nowrap"

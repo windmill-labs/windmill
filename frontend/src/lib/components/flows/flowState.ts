@@ -41,7 +41,7 @@ export async function flowModulesToFlowState(flowModules: FlowModule[]): Promise
 			const value = flowModule.value
 			if (value.type === 'forloopflow') {
 				const childFlowModules = await Promise.all(
-					value.value.modules.map(async (module) => loadFlowModuleSchema(module))
+					value.modules.map(async (module) => loadFlowModuleSchema(module))
 				)
 				const loopFlowModule = await loadFlowModuleSchema(flowModule)
 
@@ -69,7 +69,7 @@ export function flowStateToFlow(flowState: FlowState, flow: Flow): Flow {
 		const fmv = flowModule.value
 
 		if (fmv.type === 'forloopflow' && childFlowModules && Array.isArray(childFlowModules)) {
-			fmv.value.modules = childFlowModules.map((cfm) => cfm.flowModule)
+			fmv.modules = childFlowModules.map((cfm) => cfm.flowModule)
 			flowModule.value = fmv
 		}
 

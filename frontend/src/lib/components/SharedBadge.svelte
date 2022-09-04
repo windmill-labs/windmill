@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { userStore } from '$lib/stores'
-	import { faPeopleGroup, faShare } from '@fortawesome/free-solid-svg-icons'
+	import { faPeopleGroup } from '@fortawesome/free-solid-svg-icons'
 	import Icon from 'svelte-awesome'
 
 	import Badge from './Badge.svelte'

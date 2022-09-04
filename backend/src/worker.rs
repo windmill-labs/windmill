@@ -68,6 +68,7 @@ pub struct WorkerConfig {
     pub disable_nuser: bool,
     pub disable_nsjail: bool,
 }
+
 pub async fn run_worker(
     db: &DB,
     timeout: i32,
@@ -167,7 +168,7 @@ pub async fn run_worker(
                 let metrics =
                     Metrics { jobs_failed: jobs_failed.with_label_values(label_values.as_slice()) };
 
-                tracing::info!(worker = %worker_name, id = %job.id, "Fetched job");
+                tracing::info!(worker = %worker_name, id = %job.id, "fetched job {}", job.id);
 
                 if let Some(err) = handle_queued_job(
                     job.clone(),
@@ -240,7 +241,7 @@ pub async fn run_worker(
                             }
                         }
                     }
-                    tracing::error!(job_id = %job.id, "Error handling job: {err}");
+                    tracing::error!(job_id = %job.id, err = err.alt(), "error handling job");
                 };
             }
             Ok(None) => (),
@@ -292,12 +293,8 @@ async fn handle_queued_job(
 
     match job.job_kind {
         JobKind::FlowPreview | JobKind::Flow => {
-            handle_flow(
-                &job,
-                db,
-                job.args.clone().unwrap_or_else(|| serde_json::Value::Null),
-            )
-            .await?;
+            let args = job.args.clone().unwrap_or(Value::Null);
+            handle_flow(&job, db, args).await?;
         }
         _ => {
             let mut logs = "".to_string();
@@ -427,7 +424,8 @@ async fn handle_job(
         worker = %worker_name,
         job_id = %job.id,
         workspace_id = %job.workspace_id,
-        "handling job"
+        "handling job {}",
+        job.id
     );
 
     logs.push_str(&format!("job {} on worker {}\n", &job.id, &worker_name));
@@ -599,7 +597,8 @@ async fn handle_nondep_job(
                     job_id = %job.id,
                     workspace_id = %job.workspace_id,
                     is_ok = status.is_ok(),
-                    "finished setup python dependencies"
+                    "finished setting up python dependencies {}",
+                    job.id
                 );
             }
             if requirements.len() == 0 || status.is_ok() {
@@ -703,7 +702,8 @@ print(res_json)
                     worker_name = %worker_name,
                     job_id = %job.id,
                     workspace_id = %job.workspace_id,
-                    "started python code execution"
+                    "started python code execution {}",
+                    job.id
                 );
                 let child = if !disable_nsjail {
                     Command::new(nsjail_path)
@@ -742,7 +742,8 @@ print(res_json)
                     job_id = %job.id,
                     workspace_id = %job.workspace_id,
                     is_ok = status.is_ok(),
-                    "finished python code execution"
+                    "finished python code execution {}",
+                    job.id
                 );
             }
         }
@@ -823,7 +824,8 @@ run();
                 worker_name = %worker_name,
                 job_id = %job.id,
                 workspace_id = %job.workspace_id,
-                "started deno code execution"
+                "started deno code execution {}",
+                job.id
             );
             let hostname_base = base_url.split("://").last().unwrap_or("localhost");
             let hostname_internal = base_internal_url.split("://").last().unwrap_or("localhost");
@@ -876,7 +878,8 @@ run();
                 job_id = %job.id,
                 workspace_id = %job.workspace_id,
                 is_ok = status.is_ok(),
-                "finished deno code execution"
+                "finished deno code execution {}",
+                job.id
             );
         }
     }
@@ -1076,6 +1079,7 @@ async fn handle_child(
 
     let mut start = logs.chars().count();
     let mut last_update = chrono::Utc::now().timestamp_millis();
+    let initial_start = chrono::Utc::now();
 
     while !done.load(Ordering::Relaxed) {
         let diff = 500 - (chrono::Utc::now().timestamp_millis() - last_update);
@@ -1107,10 +1111,7 @@ async fn handle_child(
                     done.store(true, Ordering::Relaxed);
                 }
 
-                let has_timeout = job
-                    .started_at
-                    .map(|sa| (chrono::Utc::now() - sa).num_seconds() > timeout as i64)
-                    .unwrap_or(false);
+                let has_timeout = (chrono::Utc::now() - initial_start).num_seconds() > timeout as i64;
 
                 if has_timeout {
                     let q = sqlx::query(&format!(
@@ -1272,43 +1273,36 @@ mod tests {
                         path: None,
                     }),
                     input_transforms: Default::default(),
-                    stop_after_if_expr: Default::default(),
-                    skip_if_stopped: Default::default(),
+                    stop_after_if: Default::default(),
                     summary: Default::default(),
                 },
                 FlowModule {
                     value: FlowModuleValue::ForloopFlow {
                         iterator: InputTransform::Javascript { expr: "result".to_string() },
                         skip_failures: false,
-                        value: FlowValue {
-                            modules: vec![FlowModule {
-                                value: FlowModuleValue::RawScript(RawCode {
-                                    language: ScriptLang::Deno,
-                                    content: doubles.to_string(),
-                                    path: None,
-                                }),
-                                input_transforms: [(
-                                    "n".to_string(),
-                                    InputTransform::Javascript {
-                                        expr: "previous_result.iter.value".to_string(),
-                                    },
-                                )]
-                                .into(),
-                                stop_after_if_expr: Default::default(),
-                                skip_if_stopped: Default::default(),
-                                summary: Default::default(),
-                            }],
-                            failure_module: Default::default(),
-                        }
-                        .into(),
+                        modules: vec![FlowModule {
+                            value: FlowModuleValue::RawScript(RawCode {
+                                language: ScriptLang::Deno,
+                                content: doubles.to_string(),
+                                path: None,
+                            }),
+                            input_transforms: [(
+                                "n".to_string(),
+                                InputTransform::Javascript {
+                                    expr: "previous_result.iter.value".to_string(),
+                                },
+                            )]
+                            .into(),
+                            stop_after_if: Default::default(),
+                            summary: Default::default(),
+                        }],
                     },
                     input_transforms: Default::default(),
-                    stop_after_if_expr: Default::default(),
-                    skip_if_stopped: Default::default(),
+                    stop_after_if: Default::default(),
                     summary: Default::default(),
                 },
             ],
-            failure_module: Default::default(),
+            ..Default::default()
         };
 
         let job = JobPayload::RawFlow { value: flow, path: None };
@@ -1318,6 +1312,50 @@ mod tests {
             let result = run_job_in_new_worker_until_complete(&db, job.clone()).await;
             assert_eq!(result, serde_json::json!([2, 4, 6]), "iteration: {}", i);
         }
+    }
+
+    #[sqlx::test(fixtures("base"))]
+    async fn test_stop_after_if(db: DB) {
+        initialize_tracing().await;
+
+        let flow: FlowValue = serde_json::from_value(serde_json::json!({
+            "modules": [
+                {
+                    "input_transforms": { "n": { "type": "javascript", "expr": "flow_input.n" } },
+                    "value": {
+                        "type": "rawscript",
+                        "language": "python3",
+                        "content": "def main(n): return n",
+                    },
+                    "stop_after_if": {
+                        "expr": "result < 0",
+                        "skip_if_stopped": false,
+                    },
+                },
+                {
+                    "input_transforms": { "n": { "type": "javascript", "expr": "previous_result" } },
+                    "value": {
+                        "type": "rawscript",
+                        "language": "python3",
+                        "content": "def main(n): return f'last step saw {n}'",
+                    },
+                },
+            ],
+        }))
+        .unwrap();
+        let job = JobPayload::RawFlow { value: flow, path: None };
+
+        let result = RunJob::from(job.clone())
+            .arg("n", json!(123))
+            .wait_until_complete(&db)
+            .await;
+        assert_eq!(json!("last step saw 123"), result);
+
+        let result = RunJob::from(job.clone())
+            .arg("n", json!(-123))
+            .wait_until_complete(&db)
+            .await;
+        assert_eq!(json!(-123), result);
     }
 
     #[sqlx::test(fixtures("base"))]
@@ -1342,21 +1380,19 @@ mod tests {
                         "type": "forloopflow",
                         "iterator": { "type": "javascript", "expr": "result" },
                         "skip_failures": false,
-                        "value": {
-                            "modules": [{
-                                "value": {
-                                    "type": "rawscript",
-                                    "language": "python3",
-                                    "content": doubles,
+                        "modules": [{
+                            "value": {
+                                "type": "rawscript",
+                                "language": "python3",
+                                "content": doubles,
+                            },
+                            "input_transform": {
+                                "n": {
+                                    "type": "javascript",
+                                    "expr": "previous_result.iter.value",
                                 },
-                                "input_transform": {
-                                    "n": {
-                                        "type": "javascript",
-                                        "expr": "previous_result.iter.value",
-                                    },
-                                },
-                            }],
-                        }
+                            },
+                        }],
                     },
                 },
             ],
@@ -1451,23 +1487,21 @@ def main():
                     "value": {
                         "type": "forloopflow",
                         "iterator": { "type": "static", "value": [] },
-                        "value": {
-                            "modules": [
-                                {
-                                    "input_transform": {
-                                        "n": {
-                                            "type": "javascript",
-                                            "expr": "previous_result.iter.value",
-                                        },
+                        "modules": [
+                            {
+                                "input_transform": {
+                                    "n": {
+                                        "type": "javascript",
+                                        "expr": "previous_result.iter.value",
                                     },
-                                    "value": {
-                                        "type": "rawscript",
-                                        "language": "python3",
-                                        "content": "def main(n): return n",
-                                    },
-                                }
-                            ],
-                        }
+                                },
+                                "value": {
+                                    "type": "rawscript",
+                                    "language": "python3",
+                                    "content": "def main(n): return n",
+                                },
+                            }
+                        ],
                     },
                 },
                 {
@@ -1503,23 +1537,21 @@ def main():
                     "value": {
                         "type": "forloopflow",
                         "iterator": { "type": "static", "value": [] },
-                        "value": {
-                            "modules": [
-                                {
-                                    "input_transform": {
-                                        "n": {
-                                            "type": "javascript",
-                                            "expr": "previous_result.iter.value",
-                                        },
+                        "modules": [
+                            {
+                                "input_transform": {
+                                    "n": {
+                                        "type": "javascript",
+                                        "expr": "previous_result.iter.value",
                                     },
-                                    "value": {
-                                        "type": "rawscript",
-                                        "language": "python3",
-                                        "content": "def main(n): return n",
-                                    },
-                                }
-                            ],
-                        }
+                                },
+                                "value": {
+                                    "type": "rawscript",
+                                    "language": "python3",
+                                    "content": "def main(n): return n",
+                                },
+                            }
+                        ],
                     },
                 },
             ],
@@ -1542,23 +1574,21 @@ def main():
                     "value": {
                         "type": "forloopflow",
                         "iterator": { "type": "static", "value": [2,3,4] },
-                        "value": {
-                            "modules": [
-                                {
-                                    "input_transform": {
-                                        "n": {
-                                            "type": "javascript",
-                                            "expr": "previous_result.iter.value",
-                                        },
+                        "modules": [
+                            {
+                                "input_transform": {
+                                    "n": {
+                                        "type": "javascript",
+                                        "expr": "previous_result.iter.value",
                                     },
-                                    "value": {
-                                        "type": "rawscript",
-                                        "language": "python3",
-                                        "content": "def main(n): return n",
-                                    } ,
-                                }
-                            ],
-                        }
+                                },
+                                "value": {
+                                    "type": "rawscript",
+                                    "language": "python3",
+                                    "content": "def main(n): return n",
+                                } ,
+                            }
+                        ],
                     },
                 },
                 {
@@ -1665,6 +1695,291 @@ def main():
         assert_eq!(json!({ "l": [0, 1, 2] }), result);
     }
 
+    mod retry {
+        use super::*;
+
+        /// test helper provides some external state to help steps fail at specific points
+        struct Server {
+            addr: std::net::SocketAddr,
+            tx: tokio::sync::oneshot::Sender<()>,
+            task: tokio::task::JoinHandle<Vec<u8>>,
+        }
+
+        impl Server {
+            async fn start(responses: Vec<Option<u8>>) -> Self {
+                use tokio::net::TcpListener;
+
+                let (tx, rx) = tokio::sync::oneshot::channel::<()>();
+                let sock = TcpListener::bind("127.0.0.1:0").await.unwrap();
+                let addr = sock.local_addr().unwrap();
+
+                let task = tokio::task::spawn(async move {
+                    tokio::pin!(rx);
+                    let mut results = vec![];
+
+                    for next in responses {
+                        let (mut peer, _) = tokio::select! {
+                            _ = &mut rx => break,
+                            r = sock.accept() => r,
+                        }
+                        .unwrap();
+
+                        let n = peer.read_u8().await.unwrap();
+                        results.push(n);
+
+                        if let Some(next) = next {
+                            peer.write_u8(next).await.unwrap();
+                        }
+                    }
+
+                    results
+                });
+
+                return Self { addr, tx, task };
+            }
+
+            async fn close(self) -> Vec<u8> {
+                let Self { task, tx, .. } = self;
+                drop(tx);
+                task.await.unwrap()
+            }
+        }
+
+        fn flow() -> FlowValue {
+            let inner = r#"
+            export async function main(index, port) {
+                const buf = new Uint8Array([0]);
+                const sock = await Deno.connect({ port });
+                await sock.write(new Uint8Array([index]));
+                if (await sock.read(buf) != 1) throw "read";
+                return buf[0];
+            }
+            "#;
+
+            let last = r#"
+def main(last, port):
+    with __import__("socket").create_connection((None, port)) as sock:
+        sock.send(b'\xff')
+        return last + [sock.recv(1)[0]]
+            "#;
+
+            serde_json::from_value(serde_json::json!({
+                "modules": [{
+                    "value": {
+                        "type": "forloopflow",
+                        "iterator": { "type": "javascript", "expr": "result.items" },
+                        "skip_failures": false,
+                        "modules": [{
+                            "input_transform": {
+                                "index": { "type": "javascript", "expr": "previous_result.iter.index" },
+                                "port": { "type": "javascript", "expr": "flow_input.port" },
+                            },
+                            "value": {
+                                "type": "rawscript",
+                                "language": "deno",
+                                "content": inner,
+                            },
+                        }]
+                    }
+                }, {
+                    "input_transform": {
+                        "last": { "type": "javascript", "expr": "previous_result" },
+                        "port": { "type": "javascript", "expr": "flow_input.port" },
+                    },
+                    "value": {
+                        "type": "rawscript",
+                        "language": "python3",
+                        "content": last,
+                    },
+                }],
+                "retry": { "constant": { "attempts": 2, "seconds": 0 } },
+            })).unwrap()
+        }
+
+        #[sqlx::test(fixtures("base"))]
+        async fn test_pass(db: DB) {
+            initialize_tracing().await;
+
+            /* fails twice in the loop, then once on the last step
+             * retry attempts is measured per-step, so it _retries_ at most two times on each step,
+             * which means it may run the step three times in total */
+
+            let (attempts, responses) = [
+                /* pass fail */
+                (0, Some(99)),
+                (1, None),
+                /* pass pass fail */
+                (0, Some(99)),
+                (1, Some(99)),
+                (2, None),
+                /* pass pass pass */
+                (0, Some(3)),
+                (1, Some(5)),
+                (2, Some(7)),
+                /* fail the last step once */
+                (0xff, None),
+                (0xff, Some(9)),
+            ]
+            .into_iter()
+            .unzip::<_, _, Vec<_>, Vec<_>>();
+            let server = Server::start(responses).await;
+            let result = RunJob::from(JobPayload::RawFlow { value: flow(), path: None })
+                .arg("items", json!(["unused", "unused", "unused"]))
+                .arg("port", json!(server.addr.port()))
+                .wait_until_complete(&db)
+                .await;
+
+            assert_eq!(server.close().await, attempts);
+            assert_eq!(json!([3, 5, 7, 9]), result);
+        }
+
+        #[sqlx::test(fixtures("base"))]
+        async fn test_fail_step_zero(db: DB) {
+            initialize_tracing().await;
+
+            /* attempt and fail the first step three times and stop */
+            let (attempts, responses) = [
+                /* pass fail x3 */
+                (0, Some(99)),
+                (1, None),
+                (0, Some(99)),
+                (1, None),
+                (0, Some(99)),
+                (1, None),
+            ]
+            .into_iter()
+            .unzip::<_, _, Vec<_>, Vec<_>>();
+            let server = Server::start(responses).await;
+            let result = RunJob::from(JobPayload::RawFlow { value: flow(), path: None })
+                .arg("items", json!(["unused", "unused", "unused"]))
+                .arg("port", json!(server.addr.port()))
+                .wait_until_complete(&db)
+                .await;
+
+            assert_eq!(server.close().await, attempts);
+            assert!(result["error"]
+                .as_str()
+                .unwrap()
+                .contains(r#"Uncaught (in promise) "read""#));
+        }
+
+        #[sqlx::test(fixtures("base"))]
+        async fn test_fail_step_one(db: DB) {
+            initialize_tracing().await;
+
+            /* attempt and fail the first step three times and stop */
+            let (attempts, responses) = [
+                /* fail once, then pass */
+                (0, None),
+                (0, Some(1)),
+                (1, Some(2)),
+                (2, Some(3)),
+                /* fail three times */
+                (0xff, None),
+                (0xff, None),
+                (0xff, None),
+            ]
+            .into_iter()
+            .unzip::<_, _, Vec<_>, Vec<_>>();
+            let server = Server::start(responses).await;
+            let result = RunJob::from(JobPayload::RawFlow { value: flow(), path: None })
+                .arg("items", json!(["unused", "unused", "unused"]))
+                .arg("port", json!(server.addr.port()))
+                .wait_until_complete(&db)
+                .await;
+
+            assert_eq!(server.close().await, attempts);
+            assert!(result["error"]
+                .as_str()
+                .unwrap()
+                .contains("index out of range"));
+        }
+
+        #[sqlx::test(fixtures("base"))]
+        async fn test_with_failure_module(db: DB) {
+            let value = serde_json::from_value(json!({
+                "modules": [{
+                    "input_transform": { "port": { "type": "javascript", "expr": "flow_input.port" } },
+                    "value": {
+                        "type": "rawscript",
+                        "language": "python3",
+                        "content": r#"
+def main(port):
+    with __import__("socket").create_connection((None, port)) as sock:
+        sock.send(b'\x00')
+        return sock.recv(1)[0]"#,
+                    },
+                }],
+                "failure_module": {
+                    "input_transform": { "error": { "type": "javascript", "expr": "previous_result", },
+                                         "port": { "type": "javascript", "expr": "flow_input.port" } },
+                    "value": {
+                        "type": "rawscript",
+                        "language": "python3",
+                        "content": r#"
+def main(error, port):
+    with __import__("socket").create_connection((None, port)) as sock:
+        sock.send(b'\xff')
+        return { "recv": sock.recv(1)[0], "from failure module": error }"#,
+                    }
+                },
+                "retry": { "constant": { "attempts": 1, "seconds": 0 } },
+            }))
+            .unwrap();
+
+            let (attempts, responses) = [
+                /* fail the first step twice */
+                (0x00, None),
+                (0x00, None),
+                /* and the failure module once */
+                (0xff, None),
+                (0xff, Some(42)),
+            ]
+            .into_iter()
+            .unzip::<_, _, Vec<_>, Vec<_>>();
+            let server = Server::start(responses).await;
+            let result = RunJob::from(JobPayload::RawFlow { value, path: None })
+                .arg("port", json!(server.addr.port()))
+                .wait_until_complete(&db)
+                .await;
+
+            assert_eq!(server.close().await, attempts);
+            assert_eq!(
+                result,
+                json!({
+                    "recv": 42,
+                    "from failure module": {
+                        "error": "\
+                            Error during execution of the script\nlast 5 logs lines:\n  \
+                            File \"/tmp/main.py\", line 14, in <module>\n    \
+                            res = inner_script.main(**kwargs)\n  \
+                            File \"/tmp/inner.py\", line 5, in main\n    \
+                            return sock.recv(1)[0]\nIndexError: index out of range"
+                    }
+                })
+            );
+        }
+
+        #[sqlx::test(fixtures("base"))]
+        async fn bad_values_max(db: DB) {
+            let value = serde_json::from_value(json!({
+                "modules": [{
+                    "value": { "type": "rawscript", "language": "python3", "content": "asdf" },
+                }],
+                "retry": { "exponential": { "attempts": 50, "seconds": 60 } },
+            }))
+            .unwrap();
+
+            let result = RunJob::from(JobPayload::RawFlow { value, path: None })
+                .wait_until_complete(&db)
+                .await;
+            assert_eq!(
+                result,
+                json!({"error": "Bad request: retry interval exceeds the maximum of 21600 seconds"})
+            )
+        }
+    }
+
     #[sqlx::test(fixtures("base"))]
     async fn test_iteration(db: DB) {
         initialize_tracing().await;
@@ -1675,21 +1990,19 @@ def main():
                     "type": "forloopflow",
                     "iterator": { "type": "javascript", "expr": "result.items" },
                     "skip_failures": false,
-                    "value": {
-                        "modules": [{
-                            "input_transform": {
-                                "n": {
-                                    "type": "javascript",
-                                    "expr": "previous_result.iter.value",
-                                },
+                    "modules": [{
+                        "input_transform": {
+                            "n": {
+                                "type": "javascript",
+                                "expr": "previous_result.iter.value",
                             },
-                            "value": {
-                                "type": "rawscript",
-                                "language": "python3",
-                                "content": "def main(n):\n    if 1 < n:\n        raise StopIteration(n)",
-                            },
-                        }],
-                    }
+                        },
+                        "value": {
+                            "type": "rawscript",
+                            "language": "python3",
+                            "content": "def main(n):\n    if 1 < n:\n        raise StopIteration(n)",
+                        },
+                    }],
                 },
             }],
         }))

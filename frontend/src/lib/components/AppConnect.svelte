@@ -247,7 +247,7 @@
 			{/if}
 			<PageHeader title="Extra Params" primary={false} />
 			{#if !manual && resource_type != ''}
-				{#each extra_params as [k, v], i}
+				{#each extra_params as [k, v]}
 					<div class="flex flex-row max-w-md">
 						<input type="text" bind:value={k} />
 						<input type="text" bind:value={v} />

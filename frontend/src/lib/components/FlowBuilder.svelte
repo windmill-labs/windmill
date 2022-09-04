@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { goto } from '$app/navigation'
 	import { page } from '$app/stores'
-	import { FlowService, Job, ScheduleService, type Flow } from '$lib/gen'
+	import { FlowService, ScheduleService, type Flow } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import {
 		encodeState,
@@ -16,7 +16,7 @@
 	import { onDestroy, onMount } from 'svelte'
 	import Icon from 'svelte-awesome'
 	import { OFFSET } from './CronInput.svelte'
-	import Drawer from './Drawer.svelte'
+	import Drawer from './common/drawer/Drawer.svelte'
 	import FlowEditor from './FlowEditor.svelte'
 	import FlowPreviewContent from './FlowPreviewContent.svelte'
 	import { flowStateStore, flowStateToFlow, type FlowState } from './flows/flowState'

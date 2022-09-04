@@ -6,11 +6,11 @@
 	import { Button, Tooltip } from 'flowbite-svelte'
 	import Icon from 'svelte-awesome'
 	import ArgInput from './ArgInput.svelte'
-	import Editor from './Editor.svelte'
 	import FieldHeader from './FieldHeader.svelte'
 	import DynamicInputHelpBox from './flows/DynamicInputHelpBox.svelte'
 	import { codeToStaticTemplate, getDefaultExpr, isCodeInjection } from './flows/utils'
 	import OverlayPropertyPicker from './propertyPicker/OverlayPropertyPicker.svelte'
+	import SimpleEditor from './SimpleEditor.svelte'
 	import Toggle from './Toggle.svelte'
 
 	export let schema: Schema
@@ -22,7 +22,7 @@
 	export let pickableProperties: Object | undefined = undefined
 
 	let overlays: { [id: string]: OverlayPropertyPicker } = {}
-	let monacos: { [id: string]: Editor } = {}
+	let monacos: { [id: string]: SimpleEditor } = {}
 
 	let inputCats: { [id: string]: InputCat } = {}
 	let propertyType = getPropertyType(arg)
@@ -200,7 +200,7 @@
 				}}
 			>
 				<div class="border rounded p-2 mt-2 border-gray-300">
-					<Editor
+					<SimpleEditor
 						bind:this={monacos[argName]}
 						on:focus={() => focusProp(argName, true)}
 						bind:code={arg.expr}

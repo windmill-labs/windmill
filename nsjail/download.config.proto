@@ -51,6 +51,13 @@ mount {
 }
 
 mount {
+    src: "/etc/pki"
+    dst: "/etc/pki"
+    is_bind: true
+    mandatory: false
+}
+
+mount {
     src: "/etc/ca-certificates"
     dst: "/etc/ca-certificates"
 	is_bind: true

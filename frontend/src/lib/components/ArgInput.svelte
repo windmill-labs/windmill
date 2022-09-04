@@ -13,14 +13,14 @@
 	import { Button, Tooltip } from 'flowbite-svelte'
 	import { createEventDispatcher } from 'svelte'
 	import Icon from 'svelte-awesome'
-	import Editor from './Editor.svelte'
 	import FieldHeader from './FieldHeader.svelte'
 	import ObjectResourceInput from './ObjectResourceInput.svelte'
 	import ObjectTypeNarrowing from './ObjectTypeNarrowing.svelte'
 	import ResourcePicker from './ResourcePicker.svelte'
 	import StringTypeNarrowing from './StringTypeNarrowing.svelte'
 	import SchemaForm from './SchemaForm.svelte'
-	import type { Schema, SchemaProperty } from '$lib/common'
+	import type { SchemaProperty } from '$lib/common'
+	import SimpleEditor from './SimpleEditor.svelte'
 
 	export let label: string = ''
 	export let value: any
@@ -55,7 +55,7 @@
 
 	let error: string = ''
 
-	export let editor: Editor | undefined = undefined
+	export let editor: SimpleEditor | undefined = undefined
 
 	let rawValue: string | undefined = undefined
 
@@ -300,7 +300,7 @@
 				<input class="inline-block" type="datetime-local" bind:value />
 			{:else if inputCat == 'sql'}
 				<div class="border rounded mb-4 w-full border-gray-700">
-					<Editor
+					<SimpleEditor
 						on:focus={() => dispatch('focus')}
 						on:blur={() => dispatch('blur')}
 						bind:this={editor}
