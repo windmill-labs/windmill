@@ -111,14 +111,14 @@ export function isInitialCode(content: string): boolean {
   return false
 }
 
-export function initialCode(language: 'deno' | 'python3', type: Script.kind, subtype: 'pgsql' | 'flow' | 'script'): string {
+export function initialCode(language: 'deno' | 'python3', kind: Script.kind, subkind: 'pgsql' | 'flow' | 'script' | undefined): string {
   if (language === 'deno') {
-    if (type === 'trigger') {
+    if (kind === 'trigger') {
       return DENO_INIT_CODE_TRIGGER
-    } else if (type === 'script') {
-      if (subtype === 'flow') {
+    } else if (kind === 'script') {
+      if (subkind === 'flow') {
         return DENO_INIT_CODE_CLEAR
-      } else if (subtype === 'pgsql') {
+      } else if (subkind === 'pgsql') {
         return POSTGRES_INIT_CODE
       } else {
         return DENO_INIT_CODE
@@ -127,7 +127,7 @@ export function initialCode(language: 'deno' | 'python3', type: Script.kind, sub
       return DENO_INIT_CODE
     }
   } else {
-    if (subtype === 'script') {
+    if (subkind === 'script') {
       return PYTHON_INIT_CODE_CLEAR
     } else {
       return PYTHON_INIT_CODE

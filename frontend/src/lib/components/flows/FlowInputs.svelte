@@ -33,21 +33,24 @@
 			label={`New PostgreSQL query`}
 			icon={faCode}
 			iconColor="text-blue-800"
-			on:click={() => dispatch('new', { language: RawScript.language.DENO, type: 'pgsql' })}
+			on:click={() =>
+				dispatch('new', { language: RawScript.language.DENO, kind: 'script', subkind: 'pgsql' })}
 		/>
 
 		<FlowScriptPicker
 			label="New Python script (3.10)"
 			icon={faCode}
 			iconColor="text-green-500"
-			on:click={() => dispatch('new', { language: RawScript.language.PYTHON3, type: 'flow' })}
+			on:click={() =>
+				dispatch('new', { language: RawScript.language.PYTHON3, kind: 'script', subkind: 'flow' })}
 		/>
 
 		<FlowScriptPicker
 			label="New Typescript script (Deno)"
 			icon={faCode}
 			iconColor="text-blue-800"
-			on:click={() => dispatch('new', { language: RawScript.language.DENO, type: 'flow' })}
+			on:click={() =>
+				dispatch('new', { language: RawScript.language.DENO, kind: 'script', subkind: 'flow' })}
 		/>
 	</div>
 
