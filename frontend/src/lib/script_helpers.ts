@@ -127,7 +127,7 @@ export function initialCode(language: 'deno' | 'python3', kind: Script.kind, sub
       return DENO_INIT_CODE
     }
   } else {
-    if (subkind === 'script') {
+    if (subkind === 'flow') {
       return PYTHON_INIT_CODE_CLEAR
     } else {
       return PYTHON_INIT_CODE
