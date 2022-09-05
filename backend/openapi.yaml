@@ -1532,8 +1532,9 @@ paths:
                           type: string
                         approved:
                           type: boolean
-                        is_trigger:
-                          type: boolean
+                        kind:
+                          type: string
+                          enum: [script, failure, trigger, command]
                         votes:
                           type: number
                         views:
@@ -1544,7 +1545,7 @@ paths:
                         - summary
                         - app
                         - approved
-                        - is_trigger
+                        - kind
                         - views
                         - votes
 
@@ -1688,15 +1689,13 @@ paths:
           in: query
           schema:
             type: boolean
-        - name: is_trigger
+        - name: kind
           description: |
             (default regardless)
-            if true show only the trigger scripts
-            if false show only the non trigger scripts
-            if not defined, show all regardless of if the script is a trigger script
+            script kind
           in: query
           schema:
-            type: boolean
+            type: string
       responses:
         "200":
           description: All available scripts
@@ -1744,8 +1743,9 @@ paths:
                 language:
                   type: string
                   enum: [python3, deno]
-                is_trigger:
-                  type: boolean
+                kind:
+                  type: string
+                  enum: [script, failure, trigger, command]
               required:
                 - path
                 - summary
@@ -3241,8 +3241,9 @@ components:
         language:
           type: string
           enum: [python3, deno]
-        is_trigger:
-          type: boolean
+        kind:
+          type: string
+          enum: [script, failure, trigger, command]
       required:
         - hash
         - path
@@ -3255,7 +3256,7 @@ components:
         - is_template
         - extra_perms
         - language
-        - is_trigger
+        - kind
 
     ScriptArgs:
       type: object

@@ -53,7 +53,6 @@
 		class="w-96 text-left"
 	>
 		<slot />
-		<div id="arrow" data-popper-arrow />
 	</div>
 {/if}
 
