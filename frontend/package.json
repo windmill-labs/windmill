@@ -29,7 +29,7 @@
 		"eslint": "^8.23.0",
 		"eslint-config-prettier": "^8.3.0",
 		"eslint-plugin-svelte3": "^4.0.0",
-		"flowbite": "^1.5.1",
+		"flowbite": "^1.5.3",
 		"flowbite-svelte": "^0.26.11",
 		"openapi-typescript-codegen": "^0.23.0",
 		"path-browserify": "^1.0.1",
