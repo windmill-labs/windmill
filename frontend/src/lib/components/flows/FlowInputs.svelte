@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { RawScript } from '$lib/gen'
+	import { RawScript, Script } from '$lib/gen'
 
 	import { faCode, faRepeat } from '@fortawesome/free-solid-svg-icons'
 	import { createEventDispatcher } from 'svelte'
@@ -18,8 +18,8 @@
 	{/if}
 
 	<div class="grid sm:grid-col-2 lg:grid-cols-3 gap-4">
-		<PickScript on:pick />
-		<PickHubScript on:pick />
+		<PickScript kind={Script.kind.SCRIPT} on:pick />
+		<PickHubScript kind={Script.kind.SCRIPT} on:pick />
 
 		<FlowScriptPicker
 			label={`Create a for-loop here`}
@@ -33,21 +33,24 @@
 			label={`New PostgreSQL query`}
 			icon={faCode}
 			iconColor="text-blue-800"
-			on:click={() => dispatch('new', { language: RawScript.language.DENO, type: 'pgsql' })}
+			on:click={() =>
+				dispatch('new', { language: RawScript.language.DENO, kind: 'script', subkind: 'pgsql' })}
 		/>
 
 		<FlowScriptPicker
 			label="New Python script (3.10)"
 			icon={faCode}
 			iconColor="text-green-500"
-			on:click={() => dispatch('new', { language: RawScript.language.PYTHON3, type: 'flow' })}
+			on:click={() =>
+				dispatch('new', { language: RawScript.language.PYTHON3, kind: 'script', subkind: 'flow' })}
 		/>
 
 		<FlowScriptPicker
 			label="New Typescript script (Deno)"
 			icon={faCode}
 			iconColor="text-blue-800"
-			on:click={() => dispatch('new', { language: RawScript.language.DENO, type: 'flow' })}
+			on:click={() =>
+				dispatch('new', { language: RawScript.language.DENO, kind: 'script', subkind: 'flow' })}
 		/>
 	</div>
 
@@ -55,13 +58,13 @@
 		<div class="text-sm font-bold">Trigger scripts</div>
 
 		<div class="grid sm:grid-col-1 md:grid-col-2 lg:grid-cols-3 gap-4">
-			<PickScript isTrigger={true} on:pick />
-			<PickHubScript isTrigger={true} on:pick />
+			<PickScript kind={Script.kind.TRIGGER} on:pick />
+			<PickHubScript kind={Script.kind.TRIGGER} on:pick />
 			<FlowScriptPicker
 				label="New Typescript script (Deno)"
 				icon={faCode}
 				iconColor="text-blue-800"
-				on:click={() => dispatch('new', { language: RawScript.language.DENO, type: 'trigger' })}
+				on:click={() => dispatch('new', { language: RawScript.language.DENO, kind: 'trigger' })}
 			/>
 		</div>
 	{/if}

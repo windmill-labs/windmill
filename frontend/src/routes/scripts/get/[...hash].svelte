@@ -134,9 +134,9 @@
 					>Template</span
 				>
 			{/if}
-			{#if script?.is_trigger}
+			{#if script && script.kind != 'script'}
 				<span class="mx-2 bg-blue-500 rounded-md bg-opacity-25 text-sm font-normal px-1 py-px"
-					>Trigger</span
+					>{script.kind}</span
 				>
 			{/if}
 			<SharedBadge canWrite={can_write} extraPerms={script?.extra_perms ?? {}} />
@@ -197,7 +197,7 @@
 							script.content,
 							script.summary,
 							script.description ?? '',
-							script.is_trigger
+							script.kind
 						).toString()}
 					>
 						<div class="inline-flex items-center justify-center">

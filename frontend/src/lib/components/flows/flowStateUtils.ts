@@ -2,6 +2,7 @@ import type { Schema } from '$lib/common'
 import {
 	CompletedJob,
 	Job,
+	Script,
 	ScriptService,
 	type Flow,
 	type FlowModule,
@@ -52,12 +53,14 @@ export async function pickScript(path: string): Promise<FlowModuleSchema> {
 
 export async function createInlineScriptModule({
 	language,
-	type
+	kind,
+	subkind
 }: {
 	language: RawScript.language
-	type: 'trigger' | 'flow' | 'pgsql'
+	kind: Script.kind,
+	subkind: 'pgsql' | 'flow'
 }): Promise<FlowModuleSchema> {
-	const code = initialCode(language, type)
+	const code = initialCode(language, kind, subkind)
 
 	const flowModule: FlowModule = {
 		value: { type: 'rawscript', content: code, language },

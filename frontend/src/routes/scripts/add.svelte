@@ -14,7 +14,6 @@
 	import ScriptBuilder from '$lib/components/ScriptBuilder.svelte'
 	import type { Schema } from '$lib/common'
 	import { decodeState, emptySchema, getScriptByPath, sendUserToast } from '$lib/utils'
-	import CenteredPage from '$lib/components/CenteredPage.svelte'
 
 	// Default
 	let schema: Schema = emptySchema()
@@ -40,7 +39,7 @@
 					is_template: false,
 					extra_perms: {},
 					language: 'deno',
-					is_trigger: false
+					kind: Script.kind.SCRIPT
 			  }
 
 	async function loadTemplate(): Promise<void> {
