@@ -3420,9 +3420,9 @@ checksum = "6bdef32e8150c2a081110b42772ffe7d7c9032b606bc226c8260fd97e0976601"
 
 [[package]]
 name = "swc_atoms"
-version = "0.4.8"
+version = "0.4.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "454bf2d73485f6c4af9c91e70ce4fd4f17e9294d37b9f2037a3c4c2fe54b598d"
+checksum = "8fb43a79c8affc20f5d52b7db093399585ce87674427adc60843dbc8ec242608"
 dependencies = [
  "once_cell",
  "rustc-hash",
@@ -3460,9 +3460,9 @@ dependencies = [
 
 [[package]]
 name = "swc_ecma_ast"
-version = "0.90.15"
+version = "0.90.16"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "571989e199094be58d107e032c0b868f7b04a59a238e0a31bc9df8faf537dcd3"
+checksum = "cbe26d2bc1a5b795b231a483bb8d070329bc8ba865d28dfa566cb1cf96e5d560"
 dependencies = [
  "bitflags",
  "is-macro",
