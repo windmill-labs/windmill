@@ -20,7 +20,7 @@
 		"@sveltejs/kit": "next",
 		"@tailwindcss/forms": "^0.5.1",
 		"@tailwindcss/typography": "^0.5.7",
-		"@types/vscode": "~1.70.0",
+		"@types/vscode": "~1.71.0",
 		"@typescript-eslint/eslint-plugin": "^5.36.2",
 		"@typescript-eslint/parser": "^5.35.1",
 		"@zerodevx/svelte-toast": "^0.7.2",
