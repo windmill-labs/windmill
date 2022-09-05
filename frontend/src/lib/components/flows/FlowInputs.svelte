@@ -64,7 +64,7 @@
 				label="New Typescript script (Deno)"
 				icon={faCode}
 				iconColor="text-blue-800"
-				on:click={() => dispatch('new', { language: RawScript.language.DENO, type: 'trigger' })}
+				on:click={() => dispatch('new', { language: RawScript.language.DENO, kind: 'trigger' })}
 			/>
 		</div>
 	{/if}
