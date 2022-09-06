@@ -58,6 +58,4 @@
 	loadFlow()
 </script>
 
-<CenteredPage>
-	<FlowBuilder />
-</CenteredPage>
+<FlowBuilder />

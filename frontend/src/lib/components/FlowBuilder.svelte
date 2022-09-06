@@ -17,7 +17,7 @@
 	import Icon from 'svelte-awesome'
 	import { OFFSET } from './CronInput.svelte'
 	import Drawer from './common/drawer/Drawer.svelte'
-	import FlowEditor from './FlowEditor.svelte'
+	import FlowEditor from './flows_neo/FlowEditor.svelte'
 	import FlowPreviewContent from './FlowPreviewContent.svelte'
 	import { flowStateStore, flowStateToFlow, type FlowState } from './flows/flowState'
 	import { flowStore } from './flows/flowStore'
@@ -155,7 +155,7 @@
 </script>
 
 <div class="flex flex-row w-full h-full justify-between ">
-	<div class={`flex flex-col mb-96 m-auto w-full`}>
+	<div class={`flex flex-col h-screen m-auto w-full`}>
 		<!-- Nav between steps-->
 		<div class="justify-between flex flex-row w-full my-4">
 			<Breadcrumb>
@@ -208,26 +208,7 @@
 
 		{#if $flowStateStore}
 			{#if step === 1}
-				<FlowEditor
-					bind:pathError
-					bind:initialPath
-					bind:scheduleEnabled
-					bind:scheduleCron
-					bind:scheduleArgs
-					bind:previewArgs
-				/>
-				<Button
-					disabled={pathIsEmpty($flowStore.path)}
-					size="lg"
-					pill
-					on:click={() => (previewOpen = !previewOpen)}
-					class={`blue-button fixed bottom-10 right-10 ${previewOpen ? 'hidden' : ''}`}
-				>
-					Preview flow
-					{pathIsEmpty($flowStore.path) ? '(pick a name first!)' : ''}
-
-					<Icon data={faPlay} class="ml-2" />
-				</Button>
+				<FlowEditor bind:path={initialPath} />
 			{:else if step === 2}
 				<ScriptSchema
 					synchronizedHeader={false}

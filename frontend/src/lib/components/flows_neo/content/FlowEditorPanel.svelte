@@ -1,0 +1,13 @@
+<script lang="ts">
+	import { getContext } from 'svelte'
+
+	import type { FlowEditorContext } from '../types'
+	import FlowModule from './FlowModule.svelte'
+	import FlowSettings from './FlowSettings.svelte'
+
+	const { selectedId } = getContext<FlowEditorContext>('FlowEditorContext')
+</script>
+
+{#if selectedId === 'settings'}
+	<FlowSettings />
+{/if}
