@@ -3,11 +3,9 @@
 	export let title: string
 </script>
 
-<div class="bg-white">
+<div class="bg-red flex flex-1 h-full flex-col w-full">
 	<FlowCardHeader {title}>
 		<slot name="header" />
 	</FlowCardHeader>
-	<div class="p-4">
-		<slot />
-	</div>
+	<slot />
 </div>

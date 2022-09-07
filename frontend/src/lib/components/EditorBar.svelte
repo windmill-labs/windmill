@@ -171,7 +171,7 @@
 <ResourceEditor bind:this={resourceEditor} on:refresh={resourcePicker.openModal} />
 <VariableEditor bind:this={variableEditor} on:create={variablePicker.openModal} />
 
-<div class="flex divide-x items-center">
+<div class="flex divide-x items-center overflow-x-auto">
 	<div>
 		<button
 			type="button"

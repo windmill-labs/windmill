@@ -154,73 +154,65 @@
 	})
 </script>
 
-<div class="flex flex-row w-full h-full justify-between ">
-	<div class={`flex flex-col h-screen m-auto w-full`}>
-		<!-- Nav between steps-->
-		<div class="justify-between flex flex-row w-full my-4">
-			<Breadcrumb>
-				<BreadcrumbItem>
-					<button on:click={() => changeStep(1)} class={step === 1 ? 'font-bold' : null}>
-						Flow Editor
-					</button>
-				</BreadcrumbItem>
-				<BreadcrumbItem>
-					<button on:click={() => changeStep(2)} class={step === 2 ? 'font-bold' : null}>
-						UI customisation
-					</button>
-				</BreadcrumbItem>
-			</Breadcrumb>
-			<div class="flex flex-row-reverse ml-2">
-				{#if step == 1}
-					<button
-						disabled={pathError != ''}
-						class="default-button px-6 max-h-8"
-						on:click={() => changeStep(2)}
-					>
-						Next
-					</button>
-					<button
-						disabled={pathError != ''}
-						class="default-button-secondary px-6 max-h-8 mr-2"
-						on:click={saveFlow}
-					>
-						Save
-					</button>
-				{:else}
-					<button class="default-button px-6 self-end" on:click={saveFlow}>Save</button>
-					<button
-						class="default-button-secondary px-6 max-h-8 mr-2"
-						on:click={async () => {
-							changeStep(1)
-						}}>Back</button
-					>
-				{/if}
-			</div>
-		</div>
-		<div class="flex flex-row-reverse">
-			<span class="my-1 text-sm text-gray-500 italic">
-				{#if initialPath && initialPath != $flowStore?.path} {initialPath} &rightarrow; {/if}
-				{$flowStore?.path}
-			</span>
-		</div>
-
-		<!-- metadata -->
-
-		{#if $flowStateStore}
-			{#if step === 1}
-				<FlowEditor bind:path={initialPath} />
-			{:else if step === 2}
-				<ScriptSchema
-					synchronizedHeader={false}
-					bind:summary={$flowStore.summary}
-					bind:description={$flowStore.description}
-					bind:schema={$flowStore.schema}
-				/>
+<div class="flex flex-col flex-1 h-full">
+	<!-- Nav between steps-->
+	<div class="justify-between flex flex-row w-full my-4">
+		<Breadcrumb>
+			<BreadcrumbItem>
+				<button on:click={() => changeStep(1)} class={step === 1 ? 'font-bold' : null}>
+					Flow Editor
+				</button>
+			</BreadcrumbItem>
+			<BreadcrumbItem>
+				<button on:click={() => changeStep(2)} class={step === 2 ? 'font-bold' : null}>
+					UI customisation
+				</button>
+			</BreadcrumbItem>
+		</Breadcrumb>
+		<div class="flex flex-row-reverse ml-2">
+			{#if step == 1}
+				<button
+					disabled={pathError != ''}
+					class="default-button px-6 max-h-8"
+					on:click={() => changeStep(2)}
+				>
+					Next
+				</button>
+				<button
+					disabled={pathError != ''}
+					class="default-button-secondary px-6 max-h-8 mr-2"
+					on:click={saveFlow}
+				>
+					Save
+				</button>
+			{:else}
+				<button class="default-button px-6 self-end" on:click={saveFlow}>Save</button>
+				<button
+					class="default-button-secondary px-6 max-h-8 mr-2"
+					on:click={async () => {
+						changeStep(1)
+					}}>Back</button
+				>
 			{/if}
-		{:else}
-			<p>Loading</p>
-		{/if}
+		</div>
 	</div>
+
+	<!-- metadata -->
+
+	{#if $flowStateStore}
+		{#if step === 1}
+			<FlowEditor bind:path={initialPath} />
+		{:else if step === 2}
+			<ScriptSchema
+				synchronizedHeader={false}
+				bind:summary={$flowStore.summary}
+				bind:description={$flowStore.description}
+				bind:schema={$flowStore.schema}
+			/>
+		{/if}
+	{:else}
+		<p>Loading</p>
+	{/if}
 </div>
 
 {#if $flowStateStore && $flowStore}

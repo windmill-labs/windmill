@@ -8,7 +8,7 @@
 	 */
 </script>
 
-<div class="flex items-center justify-between flex-wrap p-4 border-b">
+<div class="flex items-center justify-between flex-wrap py-2 px-4 border-b">
 	<span class="text-sm">{title}</span>
 	<slot />
 </div>

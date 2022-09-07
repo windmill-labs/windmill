@@ -11,7 +11,7 @@
 	import type { FlowEditorContext } from './types'
 	import FlowEditorPanel from './content/FlowEditorPanel.svelte'
 
-	const selectedIdStore = writable<string>('settings')
+	const selectedIdStore = writable<string>('0')
 	const scheduleStore = writable<Schedule>(undefined)
 
 	// Props
@@ -37,15 +37,11 @@
 </script>
 
 <FlowEditorHeader />
-<div class="flex-1">
-	<HSplitPane leftPaneSize="30%" rightPaneSize="70%" minLeftPaneSize="50px" minRightPaneSize="50px">
-		<left slot="left">
-			<div class="bg-gray-100 h-full">MINI MAP</div>
-		</left>
-		<right slot="right">
-			<div class="h-full">
-				<FlowEditorPanel />
-			</div>
-		</right>
-	</HSplitPane>
-</div>
+<HSplitPane leftPaneSize="50%" rightPaneSize="50%" minLeftPaneSize="20%" minRightPaneSize="20%">
+	<left slot="left">
+		<div class="bg-gray-100 h-full">MINI MAP</div>
+	</left>
+	<right slot="right">
+		<FlowEditorPanel />
+	</right>
+</HSplitPane>
