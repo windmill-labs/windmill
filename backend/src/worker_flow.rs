@@ -56,7 +56,7 @@ pub struct Iterator {
 #[serde(tag = "type")]
 pub enum FlowStatusModule {
     WaitingForPriorSteps,
-    WaitingForEvents { count: u16, previous_result: Value },
+    WaitingForEvents { count: u16, job: Uuid },
     WaitingForExecutor { job: Uuid },
     InProgress { job: Uuid, iterator: Option<Iterator>, forloop_jobs: Option<Vec<Uuid>> },
     Success { job: Uuid, forloop_jobs: Option<Vec<Uuid>> },
@@ -71,6 +71,12 @@ impl FlowStatus {
             failure_module: FlowStatusModule::WaitingForPriorSteps,
             retry: RetryStatus { fail_count: 0, previous_result: None },
         }
+    }
+
+    /// current module status ... excluding failure_module
+    pub fn current_step(&self) -> Option<&FlowStatusModule> {
+        let i = usize::try_from(self.step).ok()?;
+        self.modules.get(i)
     }
 }
 
@@ -237,14 +243,8 @@ pub async fn update_flow_status_after_job_completion(
         false if skip_loop_failures => !is_last_step,
         false
             if next_retry(
-                &flow_job
-                    .parse_raw_flow()
-                    .map(|module| module.retry)
-                    .unwrap_or_default(),
-                &flow_job
-                    .parse_flow_status()
-                    .map(|status| status.retry)
-                    .unwrap_or_default(),
+                &flow_job.parse_raw_flow_retry().unwrap_or_default(),
+                &flow_job.parse_flow_status_retry().unwrap_or_default(),
             )
             .is_some() =>
         {
@@ -549,7 +549,10 @@ async fn push_next_flow_job(
      * non-zero `suspend` value, collect `resume_job`s for the previous module job.
      *
      * If there aren't enough, try again later. */
-    if matches!(&status_module, FlowStatusModule::WaitingForPriorSteps) {
+    if matches!(
+        &status_module,
+        FlowStatusModule::WaitingForPriorSteps | FlowStatusModule::WaitingForEvents { .. }
+    ) {
         if let Some((count, last)) = needs_resume(&flow, &status) {
             resume_messages = sqlx::query_scalar!(
                 "SELECT value FROM resume_job WHERE job = $1 ORDER BY created_at ASC",
@@ -557,10 +560,15 @@ async fn push_next_flow_job(
             )
             .fetch_all(db)
             .await?;
+
             if resume_messages.len() >= count as usize {
                 /* yay! */
-                if let FlowStatusModule::WaitingForEvents { previous_result, .. } = &status_module {
-                    last_result = previous_result.clone();
+                if let FlowStatusModule::WaitingForEvents { .. } = &status_module {
+                    last_result =
+                        sqlx::query_scalar!("SELECT result FROM completed_job WHERE id = $1", last)
+                            .fetch_one(db)
+                            .await?
+                            .context("previous job result")?;
                 }
             } else {
                 /* TODO check if we're already waiting and if we have timed out?  */
@@ -573,10 +581,7 @@ async fn push_next_flow_job(
                      WHERE id = $4
                     ",
                 )
-                .bind(json!(FlowStatusModule::WaitingForEvents {
-                    count,
-                    previous_result: last_result,
-                }))
+                .bind(json!(FlowStatusModule::WaitingForEvents { count, job: last }))
                 .bind(count as i32)
                 .bind(30 * MINUTES)
                 .bind(flow_job.id)
@@ -929,6 +934,28 @@ impl InputTransform {
             InputTransform::Static { value } => Ok(value),
             InputTransform::Javascript { expr } => eval_timeout(expr, vars(), None, vec![]).await,
         }
+    }
+}
+
+impl QueuedJob {
+    pub fn parse_raw_flow(&self) -> Option<FlowValue> {
+        self.raw_flow
+            .as_ref()
+            .and_then(|v| serde_json::from_value::<FlowValue>(v.clone()).ok())
+    }
+
+    pub fn parse_raw_flow_retry(&self) -> Option<Retry> {
+        self.parse_raw_flow().map(|module| module.retry)
+    }
+
+    pub fn parse_flow_status(&self) -> Option<FlowStatus> {
+        self.flow_status
+            .as_ref()
+            .and_then(|v| serde_json::from_value::<FlowStatus>(v.clone()).ok())
+    }
+
+    pub fn parse_flow_status_retry(&self) -> Option<RetryStatus> {
+        self.parse_flow_status().map(|status| status.retry)
     }
 }
 

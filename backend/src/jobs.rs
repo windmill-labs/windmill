@@ -8,6 +8,7 @@
 
 use axum::extract::Host;
 
+use anyhow::Context;
 use sql_builder::prelude::*;
 use sqlx::{query_scalar, Postgres, Transaction};
 use std::collections::HashMap;
@@ -22,9 +23,9 @@ use crate::{
     schedule::get_schedule_opt,
     scripts::{get_hub_script_by_path, ScriptHash, ScriptLang},
     users::{owner_to_token_owner, Authed},
-    utils::{require_admin, Pagination, StripPath, now_from_db},
+    utils::{now_from_db, require_admin, Pagination, StripPath},
     worker,
-    worker_flow::{init_flow_status, FlowStatus},
+    worker_flow::{init_flow_status, FlowStatus, FlowStatusModule},
 };
 use axum::{
     extract::{Extension, Path, Query},
@@ -102,18 +103,6 @@ impl QueuedJob {
             .as_ref()
             .map(String::as_str)
             .unwrap_or("NO_FLOW_PATH")
-    }
-
-    pub fn parse_raw_flow(&self) -> Option<FlowValue> {
-        self.raw_flow
-            .as_ref()
-            .and_then(|v| serde_json::from_value::<FlowValue>(v.clone()).ok())
-    }
-
-    pub fn parse_flow_status(&self) -> Option<FlowStatus> {
-        self.flow_status
-            .as_ref()
-            .and_then(|v| serde_json::from_value::<FlowStatus>(v.clone()).ok())
     }
 }
 
@@ -236,7 +225,7 @@ pub async fn run_wait_result_job_by_path(
     let script_path = script_path.to_path();
     let mut tx = user_db.clone().begin(&authed).await?;
     let job_payload = script_path_to_payload(script_path, &mut tx, &w_id).await?;
-        let scheduled_for = run_query.get_scheduled_for(&mut tx).await?;
+    let scheduled_for = run_query.get_scheduled_for(&mut tx).await?;
 
     let (uuid, tx) = push(
         tx,
@@ -639,7 +628,7 @@ fn list_completed_jobs_query(
     if let Some(sk) = &lq.is_skipped {
         sqlb.and_where_eq("is_skipped", sk);
     }
-        if let Some(fs) = &lq.is_flow_step {
+    if let Some(fs) = &lq.is_flow_step {
         sqlb.and_where_eq("is_flow_step", fs);
     }
     if let Some(jk) = &lq.job_kinds {
@@ -924,22 +913,58 @@ pub async fn get_queued_job<'c>(
 pub async fn resume_job(
     /* unauthed */
     Extension(db): Extension<DB>,
-    Path((_, id)): Path<(String, Uuid)>,
+    Path((_, to_resume)): Path<(String, Uuid)>,
     Json(value): Json<serde_json::Value>,
-    ) -> error::Result<StatusCode>
-{
+) -> error::Result<StatusCode> {
     let mut tx = db.begin().await?;
 
-    sqlx::query!(
+    let flow = sqlx::query!(
         r#"
-        INSERT INTO resume_job
-                    (id, job, flow, value)
-             VALUES ($1, $2, (SELECT parent_job FROM queue WHERE id = $2), $3);
+        WITH flow AS
+            ( SELECT id, flow_status, suspend
+                FROM queue
+               WHERE id = (SELECT parent_job FROM queue WHERE id = $2)
+          FOR UPDATE )
+
+           , resume AS
+         ( INSERT INTO resume_job
+                     (id, job, flow, value)
+              SELECT $1, $2, flow.id, $3
+                FROM flow )
+
+        SELECT * FROM flow
         "#,
         Uuid::from(Ulid::new()),
-        id,
+        to_resume,
         value,
-    ).execute(&mut tx).await?;
+    )
+    .fetch_one(&mut tx)
+    .await?;
+
+    /* If the flow is currently waiting to be resumed (`FlowStatusModule::WaitingForEvents`)
+     * the suspend column must be set to the number of resume messages waited on.
+     *
+     * The flow's queue row is locked in this transaction because to avoid race conditions around
+     * the suspend column.
+     * That is, a job needs one event but it hasn't arrived, a worker counts zero events before
+     * entering WaitingForEvents.  Then this message arrives but the job isn't in WaitingForEvents
+     * yet so the suspend counter isn't updated.  Then the job enters WaitingForEvents expecting
+     * one event to arrive based on the count that is no longer correct. */
+    if let Some(suspend) = flow.suspend.checked_sub(1) {
+        let status =
+            serde_json::from_value::<FlowStatus>(flow.flow_status.context("no flow status")?)
+                .context("deserialize flow status")?;
+        if matches!(status.current_step(), Some(FlowStatusModule::WaitingForEvents { job, .. }) if job == &to_resume)
+        {
+            sqlx::query!(
+                "UPDATE queue SET suspend = $1 WHERE id = $2",
+                suspend,
+                flow.id,
+            )
+            .execute(&mut tx)
+            .await?;
+        }
+    }
 
     tx.commit().await?;
 
@@ -1356,20 +1381,41 @@ pub async fn add_completed_job(
 ) -> Result<Uuid, Error> {
     let job_id = queued_job.id.clone();
     sqlx::query!(
-        "INSERT INTO completed_job as cj
-            (workspace_id, id, parent_job, created_by, created_at, started_at, duration_ms, success, \
-            script_hash, script_path, args, result, logs, \
-            raw_code, canceled, canceled_by, canceled_reason, job_kind, schedule_path, \
-            permissioned_as, flow_status, raw_flow, is_flow_step, is_skipped, language)
-            VALUES ($1, $2, $3, $4, $5, $6, EXTRACT(milliseconds FROM (now() - $6)), $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, \
-                    $18, $19, $20, $21, $22, $23, $24)
+        "INSERT INTO completed_job AS cj
+                   ( workspace_id
+                   , id
+                   , parent_job
+                   , created_by
+                   , created_at
+                   , started_at
+                   , duration_ms
+                   , success
+                   , script_hash
+                   , script_path
+                   , args
+                   , result
+                   , logs
+                   , raw_code
+                   , canceled
+                   , canceled_by
+                   , canceled_reason
+                   , job_kind
+                   , schedule_path
+                   , permissioned_as
+                   , flow_status
+                   , raw_flow
+                   , is_flow_step
+                   , is_skipped
+                   , language )
+            VALUES ($1, $2, $3, $4, $5, $6, EXTRACT(milliseconds FROM (now() - $6)), $7, $8, $9,\
+                    $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24)
          ON CONFLICT (id) DO UPDATE SET success = $7, result = $11, logs = concat(cj.logs, $12)",
         queued_job.workspace_id,
         queued_job.id,
         queued_job.parent_job,
         queued_job.created_by,
         queued_job.created_at,
-        queued_job.started_at,        
+        queued_job.started_at,
         success,
         queued_job.script_hash.map(|x| x.0),
         queued_job.script_path,

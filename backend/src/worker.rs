@@ -1221,9 +1221,9 @@ pub async fn restart_zombie_jobs_periodically(
 
 #[cfg(test)]
 mod tests {
-    use sqlx::{postgres::PgListener, query_scalar};
-
     use serde_json::json;
+    use sqlx::{postgres::PgListener, query_scalar};
+    use uuid::Uuid;
 
     use crate::{
         db::DB,
@@ -1701,14 +1701,13 @@ def main():
     mod suspend_resume {
         use super::*;
 
-        /// test helper provides some external state to help steps fail at specific points
-        struct Server {
+        struct ApiServer {
             addr: std::net::SocketAddr,
             tx: tokio::sync::oneshot::Sender<()>,
             task: tokio::task::JoinHandle<hyper::Result<()>>,
         }
 
-        impl Server {
+        impl ApiServer {
             async fn start(db: DB) -> Self {
                 let (tx, rx) = tokio::sync::oneshot::channel::<()>();
 
@@ -1740,13 +1739,8 @@ def main():
             }
         }
 
-        #[sqlx::test(fixtures("base"))]
-        async fn test(db: DB) {
-            initialize_tracing().await;
-
-            let server = Server::start(db.clone()).await;
-
-            let flow: FlowValue = serde_json::from_value(serde_json::json!({
+        fn flow() -> FlowValue {
+            serde_json::from_value(serde_json::json!({
                 "modules": [{
                     "input_transform": {
                         "n": { "type": "javascript", "expr": "flow_input.n", },
@@ -1762,7 +1756,7 @@ def main():
                                     `http://localhost:${port}/w/test-workspace/jobs/resume/${job}`,\
                                     {\
                                         method: 'POST',\
-                                        body: JSON.stringify('foobar'),\
+                                        body: JSON.stringify('from job'),\
                                         headers: { 'content-type': 'application/json' }\
                                     }\
                                 );\
@@ -1775,25 +1769,89 @@ def main():
                     "input_transform": {
                         "n": { "type": "javascript", "expr": "previous_result", },
                         "resume": { "type": "javascript", "expr": "resume", },
+                        "resumes": { "type": "javascript", "expr": "resumes", },
                     },
                     "value": {
                         "type": "rawscript",
                         "language": "deno",
-                        "content": "export function main(n, resume) { return [resume, n + 1] }",
+                        "content": "export function main(n, resume, resumes) { return { n: n + 1, resume, resumes } }"
+                    },
+                    "suspend": 1,
+                }, {
+                    "input_transform": {
+                        "last": { "type": "javascript", "expr": "previous_result", },
+                        "resume": { "type": "javascript", "expr": "resume", },
+                        "resumes": { "type": "javascript", "expr": "resumes", },
+                    },
+                    "value": {
+                        "type": "rawscript",
+                        "language": "deno",
+                        "content": "export function main(last, resume, resumes) { return { last, resume, resumes } }"
                     },
                 }],
             }))
-            .unwrap();
+            .unwrap()
+        }
 
-            let result = RunJob::from(JobPayload::RawFlow { value: flow.clone(), path: None })
-                .arg("n", json!(0))
-                .arg("port", json!(server.addr.port()))
-                .wait_until_complete(&db)
+        #[sqlx::test(fixtures("base"))]
+        async fn test(db: DB) {
+            use futures::{future::ready, StreamExt};
+
+            initialize_tracing().await;
+
+            let server = ApiServer::start(db.clone()).await;
+            let port = server.addr.port();
+
+            let flow = RunJob::from(JobPayload::RawFlow { value: flow(), path: None })
+                .arg("n", json!(1))
+                .arg("port", json!(port))
+                .push(&db)
                 .await;
+
+            let mut completed = completed_jobs(&db).await;
+
+            in_test_worker(&db, async move {
+                let _first = completed.next().await.unwrap();
+
+                /* the first job resumes itself */
+
+                let second = completed.next().await.unwrap();
+
+                reqwest::Client::new()
+                    .post(format!(
+                        "http://localhost:{port}/w/test-workspace/jobs/resume/{second}"
+                    ))
+                    .json(&json!("from test"))
+                    .send()
+                    .await
+                    .unwrap();
+
+                completed
+                    .filter(|j| ready(j == &flow))
+                    .next()
+                    .await
+                    .unwrap();
+            })
+            .await;
 
             server.close().await.unwrap();
 
-            assert_eq!(json!(["foobar", 2]), result);
+            let result = completed_job_result(flow, &db).await;
+
+            assert_eq!(
+                json!({
+                    "last": {
+                        "resume": "from job",
+                        "resumes": ["from job"],
+                        "n": 3,
+                    },
+                    "resume": "from test",
+                    "resumes": ["from test"],
+                }),
+                result
+            );
+
+            // ensure resumes are cleaned up through CASCADE when the flow is finished
             assert_eq!(
                 0,
                 sqlx::query_scalar::<_, i64>("SELECT count(*) FROM resume_job")
@@ -2152,8 +2210,7 @@ def main(error, port):
             self
         }
 
-        /// push the job, spawn a worker, wait until the job is in completed_job
-        async fn wait_until_complete(self, db: &DB) -> serde_json::Value {
+        async fn push(self, db: &DB) -> Uuid {
             let RunJob { payload, args } = self;
 
             let (uuid, tx) = push(
@@ -2173,8 +2230,13 @@ def main(error, port):
 
             tx.commit().await.unwrap();
 
-            run_worker_until_complete(db, &uuid).await;
+            uuid
+        }
 
+        /// push the job, spawn a worker, wait until the job is in completed_job
+        async fn wait_until_complete(self, db: &DB) -> serde_json::Value {
+            let uuid = self.push(db).await;
+            run_worker_until_complete(db, &uuid).await;
             query_scalar("SELECT result FROM completed_job WHERE id = $1")
                 .bind(&uuid)
                 .fetch_one(db)
@@ -2191,24 +2253,86 @@ def main(error, port):
         let mut listener = PgListener::connect_with(db).await.unwrap();
         listener.listen("insert on completed_job").await.unwrap();
 
-        let (tx, rx) = tokio::sync::broadcast::channel(1);
         /* drop tx at the end of this block to close the channel and stop the worker */
+        let (tx, worker) = spawn_test_worker(db);
+        let worker = tokio::time::timeout(std::time::Duration::from_secs(19), worker);
+        tokio::pin!(worker);
 
-        let worker = {
-            let timeout = 4_000;
-            let worker_instance: &str = "test worker instance";
-            let worker_name: String = next_worker_name();
-            let i_worker: u64 = Default::default();
-            let num_workers: u64 = 2;
-            let ip: &str = Default::default();
-            let sleep_queue: u64 = DEFAULT_SLEEP_QUEUE / num_workers;
-            let worker_config = WorkerConfig {
-                base_internal_url: String::new(),
-                base_url: String::new(),
-                disable_nuser: false,
-                disable_nsjail: false,
-            };
+        while wait_for
+            != &tokio::select! {
+                biased;
+                notify = listener.recv() => notify,
+                res = &mut worker => match
+                    res.expect("worker timed out")
+                       .expect("worker panicked") {
+                    _ => panic!("worker quit early"),
+                },
+            }
+            .unwrap()
+            .payload()
+            .parse::<uuid::Uuid>()
+            .unwrap()
+        {}
 
+        /* ensure the worker quits before we return */
+        drop(tx);
+        worker
+            .await
+            .expect("worker timed out")
+            .expect("worker panicked")
+    }
+
+    async fn in_test_worker<Fut: std::future::Future>(
+        db: &DB,
+        inner: Fut,
+    ) -> <Fut as std::future::Future>::Output {
+        let (quit, worker) = spawn_test_worker(db);
+        let worker = tokio::time::timeout(std::time::Duration::from_secs(19), worker);
+        tokio::pin!(worker);
+
+        let res = tokio::select! {
+            biased;
+            res = inner => res,
+            res = &mut worker => match
+                res.expect("worker timed out")
+                   .expect("worker panicked") {
+                _ => panic!("worker quit early"),
+            },
+        };
+
+        /* ensure the worker quits before we return */
+        drop(quit);
+
+        let _: () = worker
+            .await
+            .expect("worker timed out")
+            .expect("worker panicked");
+
+        res
+    }
+
+    fn spawn_test_worker(
+        db: &DB,
+    ) -> (
+        tokio::sync::broadcast::Sender<()>,
+        tokio::task::JoinHandle<()>,
+    ) {
+        let (tx, rx) = tokio::sync::broadcast::channel(1);
+        let db = db.to_owned();
+        let timeout = 4_000;
+        let worker_instance: &str = "test worker instance";
+        let worker_name: String = next_worker_name();
+        let i_worker: u64 = Default::default();
+        let num_workers: u64 = 2;
+        let ip: &str = Default::default();
+        let sleep_queue: u64 = DEFAULT_SLEEP_QUEUE / num_workers;
+        let worker_config = WorkerConfig {
+            base_internal_url: String::new(),
+            base_url: String::new(),
+            disable_nuser: false,
+            disable_nsjail: false,
+        };
+        let future = async move {
             run_worker(
                 &db,
                 timeout,
@@ -2221,30 +2345,39 @@ def main(error, port):
                 worker_config,
                 rx,
             )
+            .await
         };
 
-        let worker = tokio::time::timeout(std::time::Duration::from_secs(19), worker);
+        (tx, tokio::task::spawn(future))
+    }
 
-        tokio::pin!(worker);
+    use futures::Stream;
 
-        while wait_for
-            != &tokio::select! {
-                biased;
-                notify = listener.recv() => notify,
-                res = &mut worker => if res.is_ok() {
-                    panic!("worker quit early")
-                } else {
-                    panic!("worker timed out")
-                },
-            }
+    async fn completed_jobs(db: &DB) -> impl Stream<Item = Uuid> + Unpin {
+        let mut listener = PgListener::connect_with(db).await.unwrap();
+        listener.listen("insert on completed_job").await.unwrap();
+
+        Box::pin(futures::stream::unfold(
+            listener,
+            |mut listener| async move {
+                let job = listener
+                    .try_recv()
+                    .await
+                    .unwrap()
+                    .expect("lost database connection")
+                    .payload()
+                    .parse::<Uuid>()
+                    .expect("invalid uuid");
+                Some((job, listener))
+            },
+        ))
+    }
+
+    async fn completed_job_result(uuid: Uuid, db: &DB) -> Value {
+        query_scalar("SELECT result FROM completed_job WHERE id = $1")
+            .bind(uuid)
+            .fetch_one(db)
+            .await
             .unwrap()
-            .payload()
-            .parse::<uuid::Uuid>()
-            .unwrap()
-        {}
-
-        /* ensure the worker quits before we return */
-        drop(tx);
-        worker.await.expect("worker timed out")
     }
 }

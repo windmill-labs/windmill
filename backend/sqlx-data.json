@@ -494,6 +494,19 @@
     },
     "query": "UPDATE queue SET logs = $1 WHERE id = $2"
   },
+  "1f93b533fa6fee0db4340445da3fac8e6773bc1db1f88cd60fd3c1e8c9781eb0": {
+    "describe": {
+      "columns": [],
+      "nullable": [],
+      "parameters": {
+        "Left": [
+          "Int4",
+          "Uuid"
+        ]
+      }
+    },
+    "query": "UPDATE queue SET suspend = $1 WHERE id = $2"
+  },
   "21cd7cbab7799baf5c381427d9b373c0bb144715eddfe54e3b01f6049d7966a2": {
     "describe": {
       "columns": [
@@ -1711,6 +1724,65 @@
     },
     "query": "UPDATE group_ SET summary = $1 WHERE name = $2 AND workspace_id = $3"
   },
+  "850e97afdf07f7d2bbfe33b0aaecceef6d7c736b91aaaaf60d764bd070250cba": {
+    "describe": {
+      "columns": [],
+      "nullable": [],
+      "parameters": {
+        "Left": [
+          "Varchar",
+          "Uuid",
+          "Uuid",
+          "Varchar",
+          "Timestamptz",
+          "Timestamptz",
+          "Bool",
+          "Int8",
+          "Varchar",
+          "Jsonb",
+          "Jsonb",
+          "Text",
+          "Text",
+          "Bool",
+          "Varchar",
+          "Text",
+          {
+            "Custom": {
+              "kind": {
+                "Enum": [
+                  "script",
+                  "preview",
+                  "flow",
+                  "dependencies",
+                  "flowpreview",
+                  "script_hub"
+                ]
+              },
+              "name": "job_kind"
+            }
+          },
+          "Varchar",
+          "Varchar",
+          "Jsonb",
+          "Jsonb",
+          "Bool",
+          "Bool",
+          {
+            "Custom": {
+              "kind": {
+                "Enum": [
+                  "python3",
+                  "deno"
+                ]
+              },
+              "name": "script_lang"
+            }
+          }
+        ]
+      }
+    },
+    "query": "INSERT INTO completed_job AS cj\n                   ( workspace_id\n                   , id\n                   , parent_job\n                   , created_by\n                   , created_at\n                   , started_at\n                   , duration_ms\n                   , success\n                   , script_hash\n                   , script_path\n                   , args\n                   , result\n                   , logs\n                   , raw_code\n                   , canceled\n                   , canceled_by\n                   , canceled_reason\n                   , job_kind\n                   , schedule_path\n                   , permissioned_as\n                   , flow_status\n                   , raw_flow\n                   , is_flow_step\n                   , is_skipped\n                   , language )\n            VALUES ($1, $2, $3, $4, $5, $6, EXTRACT(milliseconds FROM (now() - $6)), $7, $8, $9,$10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24)\n         ON CONFLICT (id) DO UPDATE SET success = $7, result = $11, logs = concat(cj.logs, $12)"
+  },
   "88a3f58a1a315200fdd2e4bb8638246ee21818f8aaaf56f6e9d7ddce1490d886": {
     "describe": {
       "columns": [
@@ -2308,6 +2380,40 @@
     },
     "query": "INSERT INTO token\n            (token, email, label, expiration, super_admin)\n            VALUES ($1, $2, $3, now() + ($4 || ' hours')::interval, $5)"
   },
+  "b0c8e94dd647a32b382bf5d168ddcb06cc3077a05c3428da28e934ece5f17fff": {
+    "describe": {
+      "columns": [
+        {
+          "name": "id",
+          "ordinal": 0,
+          "type_info": "Uuid"
+        },
+        {
+          "name": "flow_status",
+          "ordinal": 1,
+          "type_info": "Jsonb"
+        },
+        {
+          "name": "suspend",
+          "ordinal": 2,
+          "type_info": "Int4"
+        }
+      ],
+      "nullable": [
+        false,
+        true,
+        false
+      ],
+      "parameters": {
+        "Left": [
+          "Uuid",
+          "Uuid",
+          "Jsonb"
+        ]
+      }
+    },
+    "query": "\n        WITH flow AS\n            ( SELECT id, flow_status, suspend\n                FROM queue\n               WHERE id = (SELECT parent_job FROM queue WHERE id = $2)\n          FOR UPDATE )\n\n           , resume AS\n         ( INSERT INTO resume_job\n                     (id, job, flow, value)\n              SELECT $1, $2, flow.id, $3\n                FROM flow )\n\n        SELECT * FROM flow\n        "
+  },
   "b20977e70ebac7ccbaec5a2a1e940301dd331a5f9a4be67a27cfbff8619ac8f0": {
     "describe": {
       "columns": [],
@@ -2464,65 +2570,6 @@
     },
     "query": "SELECT (flow_status->'step')::integer FROM queue WHERE id = $1"
   },
-  "b8a0f0cc7bb87300ebffe77d8fc2b08d336b0f36659fc4a83e579461fca72d65": {
-    "describe": {
-      "columns": [],
-      "nullable": [],
-      "parameters": {
-        "Left": [
-          "Varchar",
-          "Uuid",
-          "Uuid",
-          "Varchar",
-          "Timestamptz",
-          "Timestamptz",
-          "Bool",
-          "Int8",
-          "Varchar",
-          "Jsonb",
-          "Jsonb",
-          "Text",
-          "Text",
-          "Bool",
-          "Varchar",
-          "Text",
-          {
-            "Custom": {
-              "kind": {
-                "Enum": [
-                  "script",
-                  "preview",
-                  "flow",
-                  "dependencies",
-                  "flowpreview",
-                  "script_hub"
-                ]
-              },
-              "name": "job_kind"
-            }
-          },
-          "Varchar",
-          "Varchar",
-          "Jsonb",
-          "Jsonb",
-          "Bool",
-          "Bool",
-          {
-            "Custom": {
-              "kind": {
-                "Enum": [
-                  "python3",
-                  "deno"
-                ]
-              },
-              "name": "script_lang"
-            }
-          }
-        ]
-      }
-    },
-    "query": "INSERT INTO completed_job as cj\n            (workspace_id, id, parent_job, created_by, created_at, started_at, duration_ms, success, script_hash, script_path, args, result, logs, raw_code, canceled, canceled_by, canceled_reason, job_kind, schedule_path, permissioned_as, flow_status, raw_flow, is_flow_step, is_skipped, language)\n            VALUES ($1, $2, $3, $4, $5, $6, EXTRACT(milliseconds FROM (now() - $6)), $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24)\n         ON CONFLICT (id) DO UPDATE SET success = $7, result = $11, logs = concat(cj.logs, $12)"
-  },
   "bb56e61c7cfb09c0a28fb3226dfe91704c70d9fe15eda18e6889adfd7496f80b": {
     "describe": {
       "columns": [
@@ -2650,6 +2697,26 @@
       }
     },
     "query": "UPDATE schedule SET enabled = $1 WHERE path = $2 AND workspace_id = $3 RETURNING *"
+  },
+  "c2849e67b9fea0dc46e6d7000f5a0c9dab89ae80a183d9255f8fdb356b4bc61c": {
+    "describe": {
+      "columns": [
+        {
+          "name": "result",
+          "ordinal": 0,
+          "type_info": "Jsonb"
+        }
+      ],
+      "nullable": [
+        true
+      ],
+      "parameters": {
+        "Left": [
+          "Uuid"
+        ]
+      }
+    },
+    "query": "SELECT result FROM completed_job WHERE id = $1"
   },
   "c2d6cb56c1dea4498e2aab9ea9301dbbaa127602a38f57f5add4108fdc209b1a": {
     "describe": {
@@ -3395,19 +3462,5 @@
       }
     },
     "query": "UPDATE variable SET value = $1 WHERE workspace_id = $2 AND path = $3"
-  },
-  "ff3f24759474ae4d6bbdc08f8e7a2889c275122ab2a3f692dd2df6e74a0d0a86": {
-    "describe": {
-      "columns": [],
-      "nullable": [],
-      "parameters": {
-        "Left": [
-          "Uuid",
-          "Uuid",
-          "Jsonb"
-        ]
-      }
-    },
-    "query": "\n        INSERT INTO resume_job\n                    (id, job, flow, value)\n             VALUES ($1, $2, (SELECT parent_job FROM queue WHERE id = $2), $3);\n        "
   }
 }
