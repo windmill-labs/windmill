@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { Pane, Splitpanes } from 'svelte-splitpanes'
+
 	import type { Schema } from '$lib/common'
 	import Tab from '$lib/components/common/tabs/Tab.svelte'
 	import TabContent from '$lib/components/common/tabs/TabContent.svelte'
@@ -24,7 +26,6 @@
 	import { RawScript, type FlowModule } from '$lib/gen'
 	import FlowCard from '../common/FlowCard.svelte'
 	import FlowModuleHeader from './FlowModuleHeader.svelte'
-	import { VSplitPane } from 'svelte-split-pane'
 
 	export let indexes: string
 	export let flowModule: FlowModule
@@ -65,82 +66,94 @@
 	}
 </script>
 
-<FlowCard title="TODO title">
-	<svelte:fragment slot="header">
-		<FlowModuleHeader
-			bind:module={flowModule}
-			on:delete
-			on:fork={() => apply(fork, flowModule)}
-			on:createScriptFromInlineScript={() => {
-				apply(createScriptFromInlineScript, {
-					flowModule: flowModule,
-					suffix: indexes,
-					schema
-				})
-			}}
-		/>
-	</svelte:fragment>
+<div class="flex flex-col h-full ">
+	<FlowCard title="Title">
+		<svelte:fragment slot="header">
+			<div class="flex-shrink-0">
+				<FlowModuleHeader
+					bind:module={flowModule}
+					on:delete
+					on:fork={() => apply(fork, flowModule)}
+					on:createScriptFromInlineScript={() => {
+						apply(createScriptFromInlineScript, {
+							flowModule: flowModule,
+							suffix: indexes,
+							schema
+						})
+					}}
+				/>
+			</div>
+		</svelte:fragment>
 
-	{#if shouldPick}
-		<FlowInputs
-			shouldDisableTriggerScripts={i != 0}
-			shouldDisableLoopCreation={indexes.length > 1 || i == 0}
-			on:loop={() => applyCreateLoop()}
-			on:pick={(e) => apply(pickScript, e.detail.path)}
-			on:new={(e) =>
-				apply(createInlineScriptModule, {
-					language: e.detail.language,
-					kind: e.detail.kind,
-					subkind: e.detail.subkind
-				})}
-		/>
-	{:else}
-		{#if flowModule.value.type === 'rawscript'}
-			<div class="border-b p-2">
-				<EditorBar {editor} {websocketAlive} lang={flowModule.value.language ?? 'deno'} />
+		{#if shouldPick}
+			<FlowInputs
+				shouldDisableTriggerScripts={i != 0}
+				shouldDisableLoopCreation={indexes.length > 1 || i == 0}
+				on:loop={() => applyCreateLoop()}
+				on:pick={(e) => apply(pickScript, e.detail.path)}
+				on:new={(e) =>
+					apply(createInlineScriptModule, {
+						language: e.detail.language,
+						kind: e.detail.kind,
+						subkind: e.detail.subkind
+					})}
+			/>
+		{:else}
+			<div class="overflow-hidden flex-grow">
+				<Splitpanes horizontal={true}>
+					<Pane minSize={40}>
+						{#if flowModule.value.type === 'rawscript'}
+							<div on:mouseleave={() => reload(flowModule)} class="h-full overflow-auto">
+								<Editor
+									bind:websocketAlive
+									bind:this={editor}
+									class="h-full"
+									bind:code={flowModule.value.content}
+									deno={flowModule.value.language === RawScript.language.DENO}
+									automaticLayout={true}
+									formatAction={() => reload(flowModule)}
+								/>
+							</div>
+						{/if}
+					</Pane>
+					<Pane minSize={40}>
+						<div class="h-full overflow-auto bg-white">
+							<Tabs selected="preview">
+								<Tab value="inputs">Inputs</Tab>
+								<Tab value="preview">Preview</Tab>
+								<Tab value="settings">Settings</Tab>
+
+								<svelte:fragment slot="content">
+									<div class="p-4 overflow-hidden">
+										<TabContent value="inputs">
+											<div class="w-full">
+												<div
+													class="bg-gray-50 border  shadow-blue-100 shadow-inner rounded border-gray-300 p-6"
+												>
+													<SchemaForm
+														{schema}
+														inputTransform={true}
+														importPath={indexes}
+														bind:pickableProperties={stepPropPicker.pickableProperties}
+														bind:args={flowModule.input_transforms}
+														bind:extraLib={stepPropPicker.extraLib}
+													/>
+												</div>
+											</div>
+										</TabContent>
+										<TabContent value="preview">
+											<FlowPreview flow={$flowStore} {i} {schema} />
+										</TabContent>
+										<TabContent value="preview">
+											<span />
+										</TabContent>
+									</div>
+								</svelte:fragment>
+							</Tabs>
+						</div>
+					</Pane>
+				</Splitpanes>
 			</div>
 		{/if}
-		<VSplitPane topPanelSize="50%" downPanelSize="50%">
-			<top slot="top">
-				{#if flowModule.value.type === 'rawscript'}
-					<div on:mouseleave={() => reload(flowModule)} class="h-full">
-						<Editor
-							bind:websocketAlive
-							bind:this={editor}
-							class="h-full"
-							bind:code={flowModule.value.content}
-							deno={flowModule.value.language === RawScript.language.DENO}
-							automaticLayout={true}
-							formatAction={() => reload(flowModule)}
-						/>
-					</div>
-				{/if}
-			</top>
-
-			<down slot="down" class="flex flex-col h-full overflow-auto">
-				<div class="h-1">
-					<Tabs selected="preview">
-						<Tab value="inputs">Inputs</Tab>
-						<Tab value="preview">Preview</Tab>
-
-						<svelte:fragment slot="content">
-							<TabContent value="inputs">
-								<SchemaForm
-									{schema}
-									inputTransform={true}
-									importPath={indexes}
-									bind:pickableProperties={stepPropPicker.pickableProperties}
-									bind:args={flowModule.input_transforms}
-									bind:extraLib={stepPropPicker.extraLib}
-								/>
-							</TabContent>
-							<TabContent value="preview">
-								<FlowPreview flow={$flowStore} {i} {schema} />
-							</TabContent>
-						</svelte:fragment>
-					</Tabs>
-				</div>
-			</down>
-		</VSplitPane>
-	{/if}
-</FlowCard>
+	</FlowCard>
+</div>

@@ -1,6 +1,7 @@
 <!-- Flow Editor: Top level component -->
 <script lang="ts">
 	import { HSplitPane } from 'svelte-split-pane'
+	import { Pane, Splitpanes } from 'svelte-splitpanes'
 
 	import { workspaceStore } from '$lib/stores'
 	import { setContext } from 'svelte'
@@ -10,8 +11,10 @@
 
 	import type { FlowEditorContext } from './types'
 	import FlowEditorPanel from './content/FlowEditorPanel.svelte'
+	import { flowStateStore } from '../flows/flowState'
+	import FlowModuleSchemaMap from './map/FlowModuleSchemaMap.svelte'
 
-	const selectedIdStore = writable<string>('0')
+	const selectedIdStore = writable<string>('settings')
 	const scheduleStore = writable<Schedule>(undefined)
 
 	// Props
@@ -22,8 +25,8 @@
 	}
 
 	setContext<FlowEditorContext>('FlowEditorContext', {
-		selectedId: $selectedIdStore,
-		schedule: $scheduleStore,
+		selectedId: selectedIdStore,
+		schedule: scheduleStore,
 		select,
 		path
 	})
@@ -37,11 +40,18 @@
 </script>
 
 <FlowEditorHeader />
-<HSplitPane leftPaneSize="50%" rightPaneSize="50%" minLeftPaneSize="20%" minRightPaneSize="20%">
-	<left slot="left">
-		<div class="bg-gray-100 h-full">MINI MAP</div>
-	</left>
-	<right slot="right">
-		<FlowEditorPanel />
-	</right>
-</HSplitPane>
+
+<div class="h-full overflow-hidden">
+	<Splitpanes>
+		<Pane minSize={20}>
+			<div class="h-full overflow-auto p-4 ">
+				<FlowModuleSchemaMap bind:flowModuleSchemas={$flowStateStore} />
+			</div>
+		</Pane>
+		<Pane minSize={40}>
+			<div class="h-full overflow-auto bg-white ">
+				<FlowEditorPanel />
+			</div>
+		</Pane>
+	</Splitpanes>
+</div>

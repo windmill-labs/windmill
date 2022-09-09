@@ -1,8 +1,9 @@
+import type { Writable } from 'svelte/store'
 import type { Schedule } from './scheduleUtils'
 
 export type FlowEditorContext = {
-	selectedId: string
+	selectedId: Writable<string>
 	select: (id: string) => void
-	schedule: Schedule
+	schedule: Writable<Schedule>
 	path: string
 }

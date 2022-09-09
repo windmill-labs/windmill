@@ -8,8 +8,8 @@
 	const { selectedId } = getContext<FlowEditorContext>('FlowEditorContext')
 </script>
 
-{#if selectedId === 'settings'}
+{#if $selectedId === 'settings'}
 	<FlowSettings />
 {:else}
-	<FlowModuleWrapper {selectedId} />
+	<FlowModuleWrapper />
 {/if}
