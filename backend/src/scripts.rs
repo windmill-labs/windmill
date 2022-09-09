@@ -68,6 +68,7 @@ pub fn workspaced_service() -> Router {
 pub enum ScriptLang {
     Deno,
     Python3,
+    Go,
 }
 
 impl ScriptLang {
@@ -75,6 +76,7 @@ impl ScriptLang {
         match self {
             ScriptLang::Deno => "deno",
             ScriptLang::Python3 => "python3",
+            ScriptLang::Go => "go",
         }
     }
 }

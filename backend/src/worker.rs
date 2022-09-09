@@ -16,6 +16,7 @@ use std::{
     },
     time::Duration,
 };
+use uuid::Uuid;
 
 use crate::{
     db::DB,
@@ -51,10 +52,14 @@ const PIP_CACHE_DIR: &str = "/tmp/windmill/cache/pip";
 const DENO_CACHE_DIR: &str = "/tmp/windmill/cache/deno";
 const NUM_SECS_ENV_CHECK: u64 = 15;
 
-const INCLUDE_DEPS_SH_CONTENT: &str = include_str!("../../nsjail/download_deps.sh");
-const NSJAIL_CONFIG_DOWNLOAD_CONTENT: &str = include_str!("../../nsjail/download.config.proto");
+const INCLUDE_DEPS_PY_SH_CONTENT: &str = include_str!("../../nsjail/download_deps.py.sh");
+const NSJAIL_CONFIG_DOWNLOAD_PY_CONTENT: &str =
+    include_str!("../../nsjail/download.py.config.proto");
 const NSJAIL_CONFIG_RUN_PYTHON3_CONTENT: &str =
     include_str!("../../nsjail/run.python3.config.proto");
+
+const NSJAIL_CONFIG_RUN_GO_CONTENT: &str = include_str!("../../nsjail/run.go.config.proto");
+
 const NSJAIL_CONFIG_RUN_DENO_CONTENT: &str = include_str!("../../nsjail/run.deno.config.proto");
 const MAX_LOG_SIZE: u32 = 200000;
 pub struct Metrics {
@@ -92,7 +97,12 @@ pub async fn run_worker(
             .expect("could not create initial worker dir");
     }
 
-    let _ = write_file(&worker_dir, "download_deps.sh", INCLUDE_DEPS_SH_CONTENT).await;
+    let _ = write_file(
+        &worker_dir,
+        "download_deps.py.sh",
+        INCLUDE_DEPS_PY_SH_CONTENT,
+    )
+    .await;
 
     let mut last_ping = Instant::now() - Duration::from_secs(NUM_SECS_ENV_CHECK + 1);
 
@@ -132,11 +142,12 @@ pub async fn run_worker(
     let mut jobs_executed = 0;
 
     let deno_path = std::env::var("DENO_PATH").unwrap_or_else(|_| "/usr/bin/deno".to_string());
+    let go_path = std::env::var("GO_PATH").unwrap_or_else(|_| "/usr/bin/go".to_string());
     let python_path =
         std::env::var("PYTHON_PATH").unwrap_or_else(|_| "/usr/local/bin/python3".to_string());
     let nsjail_path = std::env::var("NSJAIL_PATH").unwrap_or_else(|_| "nsjail".to_string());
     let path_env = std::env::var("PATH").unwrap_or_else(|_| String::new());
-    let envs = Envs { deno_path, python_path, nsjail_path, path_env };
+    let envs = Envs { deno_path, go_path, python_path, nsjail_path, path_env };
 
     loop {
         if last_ping.elapsed().as_secs() > NUM_SECS_ENV_CHECK {
@@ -274,6 +285,7 @@ async fn insert_initial_ping(worker_instance: &str, worker_name: &str, ip: &str,
 
 struct Envs {
     deno_path: String,
+    go_path: String,
     python_path: String,
     nsjail_path: String,
     path_env: String,
@@ -418,7 +430,7 @@ async fn handle_job(
     logs: &mut String,
     last_line: &mut String,
     worker_config: WorkerConfig,
-    Envs { deno_path, python_path, nsjail_path, path_env }: &Envs,
+    Envs { deno_path, go_path, python_path, nsjail_path, path_env }: &Envs,
 ) -> Result<serde_json::Value, Error> {
     tracing::info!(
         worker = %worker_name,
@@ -453,6 +465,7 @@ async fn handle_job(
             last_line,
             timeout,
             deno_path,
+            go_path,
             python_path,
             nsjail_path,
             path_env,
@@ -499,6 +512,7 @@ async fn handle_nondep_job(
     last_line: &mut String,
     timeout: i32,
     deno_path: &str,
+    go_path: &str,
     python_path: &str,
     nsjail_path: &str,
     path_env: &str,
@@ -545,7 +559,7 @@ async fn handle_nondep_job(
                     let _ = write_file(
                         job_dir,
                         "download.config.proto",
-                        &NSJAIL_CONFIG_DOWNLOAD_CONTENT
+                        &NSJAIL_CONFIG_DOWNLOAD_PY_CONTENT
                             .replace("{JOB_DIR}", job_dir)
                             .replace("{WORKER_DIR}", &worker_dir)
                             .replace("{CACHE_DIR}", PIP_CACHE_DIR)
@@ -591,7 +605,7 @@ async fn handle_nondep_job(
                 };
 
                 logs.push_str("\n--- PIP DEPENDENCIES INSTALL ---\n");
-                *status = handle_child(job, db, logs, last_line, timeout, child).await;
+                *status = handle_child(&job.id, db, logs, last_line, timeout, child).await;
                 tracing::info!(
                     worker_name = %worker_name,
                     job_id = %job.id,
@@ -736,7 +750,7 @@ print(res_json)
                         .spawn()?
                 };
 
-                *status = handle_child(job, db, logs, last_line, timeout, child).await;
+                *status = handle_child(&job.id, db, logs, last_line, timeout, child).await;
                 tracing::info!(
                     worker_name = %worker_name,
                     job_id = %job.id,
@@ -812,7 +826,7 @@ run();
                 let _ = write_file(
                     job_dir,
                     "run.config.proto",
-                    &NSJAIL_CONFIG_RUN_DENO_CONTENT
+                    &NSJAIL_CONFIG_RUN_GO_CONTENT
                         .replace("{JOB_DIR}", job_dir)
                         .replace("{CACHE_DIR}", DENO_CACHE_DIR)
                         .replace("{CLONE_NEWUSER}", &(!disable_nuser).to_string()),
@@ -872,13 +886,157 @@ run();
                     .stderr(Stdio::piped())
                     .spawn()?
             };
-            *status = handle_child(job, db, logs, last_line, timeout, child).await;
+            *status = handle_child(&job.id, db, logs, last_line, timeout, child).await;
             tracing::info!(
                 worker_name = %worker_name,
                 job_id = %job.id,
                 workspace_id = %job.workspace_id,
                 is_ok = status.is_ok(),
                 "finished deno code execution {}",
+                job.id
+            );
+        }
+        Some(ScriptLang::Go) => {
+            logs.push_str("\n\n--- GO CODE EXECUTION ---\n");
+
+            set_logs(logs, job.id, db).await;
+
+            let prepended_content = format!("package inner\n\n{inner_content}");
+            let _ = write_file(job_dir, "inner.go", &prepended_content).await?;
+
+            let sig = crate::parser_go::parse_go_sig(&prepended_content)?;
+
+            let token = create_token_for_owner(
+                &db,
+                &job.workspace_id,
+                &job.permissioned_as,
+                "ephemeral-script",
+                timeout * 2,
+                &job.created_by,
+            )
+            .await?;
+
+            let args = if let Some(args) = &job.args {
+                Some(
+                    transform_json_value(
+                        &token,
+                        &job.workspace_id,
+                        &base_internal_url,
+                        args.clone(),
+                    )
+                    .await?,
+                )
+            } else {
+                None
+            };
+            let ser_args =
+                serde_json::to_string(&args).map_err(|e| Error::ExecutionErr(e.to_string()))?;
+            write_file(job_dir, "args.json", &ser_args).await?;
+
+            let spread = sig
+                .args
+                .into_iter()
+                .map(|x| format!("json_arg[\"{}\"]", x.name))
+                .join(", ");
+            let wrapper_content: String = format!(
+                r#"
+package main
+
+import (
+    "encoding/json"
+    "fmt"
+    "os"
+)
+
+func main() {{
+    dat, err := os.ReadFile("args.json")
+    if err != nil {{
+        fmt.Println(err)
+        os.Exit(1)
+    }}
+
+    var json_arg map[string]interface{{}}
+
+    json.Unmarshal(dat, &result)
+
+    if err := json.Unmarshal(byt, &json_arg); err != nil {{
+        fmt.Println(err)
+        os.Exit(1)
+    }}
+
+    res_json, err := inner.main({spread})
+    if err != nil {{
+        fmt.Println(err)
+        os.Exit(1)
+    }}
+    fmt.Println()
+    fmt.Println("result:")
+    fmt.Println(string(res_json))
+}}
+
+"#,
+            );
+            write_file(job_dir, "main.ts", &wrapper_content).await?;
+
+            let mut reserved_variables = get_reserved_variables(job, token.clone(), db).await?;
+            reserved_variables.insert("RUST_LOG".to_string(), "info".to_string());
+
+            if !disable_nsjail {
+                let _ = write_file(
+                    job_dir,
+                    "run.config.proto",
+                    &NSJAIL_CONFIG_RUN_DENO_CONTENT
+                        .replace("{JOB_DIR}", job_dir)
+                        .replace("{CACHE_DIR}", DENO_CACHE_DIR)
+                        .replace("{CLONE_NEWUSER}", &(!disable_nuser).to_string()),
+                )
+                .await?;
+            }
+
+            tracing::info!(
+                worker_name = %worker_name,
+                job_id = %job.id,
+                workspace_id = %job.workspace_id,
+                "started deno code execution {}",
+                job.id
+            );
+
+            let child = if !disable_nsjail {
+                Command::new(nsjail_path)
+                    .current_dir(job_dir)
+                    .env_clear()
+                    .envs(reserved_variables)
+                    .env("PATH", path_env)
+                    .env("BASE_INTERNAL_URL", base_internal_url)
+                    .args(vec![
+                        "--config",
+                        "run.config.proto",
+                        "--",
+                        go_path,
+                        "mod/main.go",
+                    ])
+                    .stdout(Stdio::piped())
+                    .stderr(Stdio::piped())
+                    .spawn()?
+            } else {
+                Command::new(deno_path)
+                    .current_dir(job_dir)
+                    .env_clear()
+                    .envs(reserved_variables)
+                    .env("PATH", path_env)
+                    .env("BASE_INTERNAL_URL", base_internal_url)
+                    .args(vec!["run", "mod/main.go"])
+                    .stdout(Stdio::piped())
+                    .stderr(Stdio::piped())
+                    .spawn()?
+            };
+            *status = handle_child(&job.id, db, logs, last_line, timeout, child).await;
+            tracing::info!(
+                worker_name = %worker_name,
+                job_id = %job.id,
+                workspace_id = %job.workspace_id,
+                is_ok = status.is_ok(),
+                "finished go code execution {}",
                 job.id
             );
         }
@@ -895,54 +1053,121 @@ async fn handle_dependency_job(
     last_line: &mut String,
     timeout: i32,
 ) -> Result<(), Error> {
-    let requirements = job
-        .raw_code
-        .as_ref()
-        .ok_or_else(|| Error::ExecutionErr("missing requirements".to_string()))?;
-    logs.push_str(&format!("content of requirements:\n{}\n", &requirements));
+    let content = match job.language {
+        Some(ScriptLang::Python3) => {
+            let requirements = job
+                .raw_code
+                .as_ref()
+                .ok_or_else(|| Error::ExecutionErr("missing requirements".to_string()))?;
+            logs.push_str(&format!("content of requirements:\n{}\n", &requirements));
+            let file = "requirements.in";
+            write_file(job_dir, file, &requirements).await?;
+            let child = Command::new("pip-compile")
+                .current_dir(job_dir)
+                .args(vec!["-q", "--no-header", file])
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped())
+                .spawn()?;
+            *status = handle_child(&job.id, db, logs, last_line, timeout, child).await;
+            if status.is_ok() && status.as_ref().unwrap().success() {
+                let path_lock = format!("{}/requirements.txt", job_dir);
+                let mut file = File::open(path_lock).await?;
+
+                let mut req_content = "".to_string();
+                file.read_to_string(&mut req_content).await?;
+                Ok(req_content
+                    .lines()
+                    .filter(|x| !x.trim_start().starts_with('#'))
+                    .map(|x| x.to_string())
+                    .collect::<Vec<String>>()
+                    .join("\n"))
+            } else {
+                Err("Lock file generation failed".to_string())
+            }
+        }
+        Some(ScriptLang::Go) => {
+            let requirements = job
+                .raw_code
+                .as_ref()
+                .ok_or_else(|| Error::ExecutionErr("missing requirements".to_string()))?;
+            install_go_dependencies(
+                &job.id,
+                &requirements,
+                logs,
+                job_dir,
+                status,
+                db,
+                last_line,
+                timeout,
+            )
+            .await?
+        }
+        _ => Err("Language incompatible with dep job".to_string()),
+    };
+
+    match content {
+        Ok(content) => {
+            let as_json = json!(content);
+
+            *last_line =
+                format!(r#"{{ "success": "Successful lock file generation", "lock": {as_json} }}"#);
+
+            sqlx::query!(
+                "UPDATE script SET lock = $1 WHERE hash = $2 AND workspace_id = $3",
+                &content,
+                &job.script_hash.unwrap_or(ScriptHash(0)).0,
+                &job.workspace_id
+            )
+            .execute(db)
+            .await?;
+        }
+        Err(error) => {
+            sqlx::query!(
+                "UPDATE script SET lock_error_logs = $1 WHERE hash = $2 AND workspace_id = $3",
+                &format!("{logs}\n{error}"),
+                &job.script_hash.unwrap_or(ScriptHash(0)).0,
+                &job.workspace_id
+            )
+            .execute(db)
+            .await?;
+        }
+    }
+    Ok(())
+}
+
+async fn install_go_dependencies(
+    job_id: &Uuid,
+    code: &str,
+    logs: &mut String,
+    job_dir: &String,
+    status: &mut Result<ExitStatus, Error>,
+    db: &sqlx::Pool<sqlx::Postgres>,
+    last_line: &mut String,
+    timeout: i32,
+) -> Result<Result<String, String>, Error> {
     let file = "requirements.in";
-    write_file(job_dir, file, &requirements).await?;
-    let child = Command::new("pip-compile")
+    write_file(job_dir, file, &code).await?;
+    let child = Command::new("go")
         .current_dir(job_dir)
-        .args(vec!["-q", "--no-header", file])
+        .args(vec!["init", "mod", "mymod"])
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()?;
-    *status = handle_child(job, db, logs, last_line, timeout, child).await;
+    *status = handle_child(job_id, db, logs, last_line, timeout, child).await;
     Ok(if status.is_ok() && status.as_ref().unwrap().success() {
         let path_lock = format!("{}/requirements.txt", job_dir);
         let mut file = File::open(path_lock).await?;
 
-        let mut content = "".to_string();
-        file.read_to_string(&mut content).await?;
-        content = content
+        let mut req_content = "".to_string();
+        file.read_to_string(&mut req_content).await?;
+        Ok(req_content
             .lines()
             .filter(|x| !x.trim_start().starts_with('#'))
             .map(|x| x.to_string())
             .collect::<Vec<String>>()
-            .join("\n");
-        let as_json = json!(content);
-
-        *last_line =
-            format!(r#"{{ "success": "Successful lock file generation", "lock": {as_json} }}"#);
-
-        sqlx::query!(
-            "UPDATE script SET lock = $1 WHERE hash = $2 AND workspace_id = $3",
-            &content,
-            &job.script_hash.unwrap_or(ScriptHash(0)).0,
-            &job.workspace_id
-        )
-        .execute(db)
-        .await?;
+            .join("\n"))
     } else {
-        sqlx::query!(
-            "UPDATE script SET lock_error_logs = $1 WHERE hash = $2 AND workspace_id = $3",
-            &logs.clone(),
-            &job.script_hash.unwrap_or(ScriptHash(0)).0,
-            &job.workspace_id
-        )
-        .execute(db)
-        .await?;
+        Err("Lock file generation failed".to_string())
     })
 }
 
@@ -979,13 +1204,14 @@ async fn get_reserved_variables(
 }
 
 async fn handle_child(
-    job: &QueuedJob,
+    job_id: &Uuid,
     db: &DB,
     logs: &mut String,
     last_line: &mut String,
     timeout: i32,
     mut child: Child,
 ) -> crate::error::Result<ExitStatus> {
+    let job_id = job_id.clone();
     let stderr = child
         .stderr
         .take()
@@ -1026,7 +1252,6 @@ async fn handle_child(
     });
 
     let (tx, mut rx) = mpsc::channel::<String>(100);
-    let id = job.id;
 
     tokio::spawn(async move {
         while !done4.load(Ordering::Relaxed) {
@@ -1065,12 +1290,12 @@ async fn handle_child(
 
     tokio::spawn(async move {
         while !&done3.load(Ordering::Relaxed) {
-            let q = sqlx::query!("UPDATE queue SET last_ping = now() WHERE id = $1", id)
+            let q = sqlx::query!("UPDATE queue SET last_ping = now() WHERE id = $1", job_id)
                 .execute(&db2)
                 .await;
 
             if q.is_err() {
-                tracing::error!("error setting last ping for id {}", id);
+                tracing::error!("error setting last ping for id {}", job_id);
             }
 
             tokio::time::sleep(Duration::from_secs(5)).await;
@@ -1096,18 +1321,18 @@ async fn handle_child(
                 let to_send = logs.chars().skip(start).collect::<String>();
 
                 if start != end {
-                    concat_logs(&to_send, id, db).await;
+                    concat_logs(&to_send, &job_id, db).await;
                     start = end;
                 }
 
-                let canceled = sqlx::query_scalar!("SELECT canceled FROM queue WHERE id = $1", id)
+                let canceled = sqlx::query_scalar!("SELECT canceled FROM queue WHERE id = $1", job_id)
                     .fetch_one(db)
                     .await
-                    .map_err(|e| tracing::error!("error getting canceled for id {}: {e}", id))
+                    .map_err(|e| tracing::error!("error getting canceled for id {}: {e}", job_id))
                     .unwrap_or(false);
 
                 if canceled {
-                    tracing::info!("killed after cancel: {}", job.id);
+                    tracing::info!("killed after cancel: {}", job_id);
                     done.store(true, Ordering::Relaxed);
                 }
 
@@ -1119,12 +1344,12 @@ async fn handle_child(
                             canceled_reason = 'duration > {}' WHERE id = $1",
                         timeout
                     ))
-                    .bind(id)
+                    .bind(job_id)
                     .execute(db)
                     .await;
 
                     if q.is_err() {
-                        tracing::error!("error setting canceled for id {}", id);
+                        tracing::error!("error setting canceled for id {}", job_id);
                     }
                 }
                 last_update = chrono::Utc::now().timestamp_millis();
@@ -1133,7 +1358,7 @@ async fn handle_child(
 
                 if let Some(nl) = nl {
                     if logs.chars().count() > MAX_LOG_SIZE as usize{
-                        tracing::info!("Too many logs lines: {}", job.id);
+                        tracing::info!("Too many logs lines: {}", job_id);
                         logs.push_str("Too many logs lines. Limit is 200000 chars. Killing job.");
                         done.store(true, Ordering::Relaxed);
                     }
@@ -1144,7 +1369,7 @@ async fn handle_child(
                     *last_line = nl;
                 } else {
                     let to_send = logs.chars().skip(start).collect::<String>();
-                    concat_logs(&to_send, id, db).await;
+                    concat_logs(&to_send, &job_id, db).await;
                     break;
                 }
             },
@@ -1171,7 +1396,7 @@ async fn set_logs(logs: &str, id: uuid::Uuid, db: &DB) {
     };
 }
 
-async fn concat_logs(logs: &str, id: uuid::Uuid, db: &DB) {
+async fn concat_logs(logs: &str, id: &Uuid, db: &DB) {
     if sqlx::query!(
         "UPDATE queue SET logs = concat(logs, $1::text) WHERE id = $2",
         logs.to_owned(),
