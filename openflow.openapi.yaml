@@ -84,6 +84,8 @@ components:
             - expr
         summary:
           type: string
+        suspend:
+          type: integer
       required:
         - input_transforms
         - value
@@ -238,8 +240,8 @@ components:
         job:
           type: string
           format: uuid
-        event:
-          type: string
+        count:
+          type: integer
         iterator:
           type: object
           properties:
