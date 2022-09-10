@@ -27,7 +27,8 @@ use crate::{
     worker_flow::{init_flow_status, FlowStatus, FlowStatusModule},
 };
 use axum::{
-    extract::{Extension, Path, Query},
+    extract::{Extension, FromRequest, Path, Query},
+    response::{IntoResponse, Response},
     routing::{get, post},
     Json, Router,
 };
@@ -65,7 +66,9 @@ pub fn workspaced_service() -> Router {
 }
 
 pub fn global_service() -> Router {
-    Router::new().route("/resume/:id", post(resume_job))
+    Router::new()
+        .route("/resume/:id", get(resume_job))
+        .route("/resume/:id", post(resume_job))
 }
 
 #[derive(Debug, sqlx::FromRow, Serialize, Clone)]
@@ -913,7 +916,7 @@ pub async fn resume_job(
     /* unauthed */
     Extension(db): Extension<DB>,
     Path((_, to_resume)): Path<(String, Uuid)>,
-    Json(value): Json<serde_json::Value>,
+    QueryOrBody(value): QueryOrBody<serde_json::Value>,
 ) -> error::Result<StatusCode> {
     let mut tx = db.begin().await?;
 
@@ -1534,4 +1537,72 @@ pub async fn delete_job(db: &DB, w_id: &str, job_id: Uuid) -> Result<(), crate::
         == 1;
     tracing::debug!("Job {job_id} deletion was achieved with success: {job_removed}");
     Ok(())
+}
+
+pub struct QueryString<D>(pub D);
+
+#[axum::async_trait]
+impl<D, B> FromRequest<B> for QueryString<D>
+where
+    D: serde::de::DeserializeOwned,
+    B: Send,
+{
+    type Rejection = (StatusCode, String);
+
+    async fn from_request(
+        req: &mut axum::extract::RequestParts<B>,
+    ) -> Result<Self, Self::Rejection> {
+        let qs = req.uri().query().unwrap_or_default();
+        serde_urlencoded::from_str::<D>(qs)
+            .map(QueryString)
+            .map_err(|err| {
+                (
+                    StatusCode::BAD_REQUEST,
+                    format!("Failed to parse query string: {}", err.to_string()),
+                )
+            })
+    }
+}
+
+pub struct QueryOrBody<D>(pub D);
+
+#[axum::async_trait]
+impl<D, B> FromRequest<B> for QueryOrBody<D>
+where
+    D: serde::de::DeserializeOwned,
+    B: Send + axum::body::HttpBody,
+    <B as axum::body::HttpBody>::Data: Send,
+    <B as axum::body::HttpBody>::Error: Into<axum::BoxError>,
+{
+    type Rejection = QueryOrBodyRejection;
+
+    async fn from_request(
+        req: &mut axum::extract::RequestParts<B>,
+    ) -> Result<Self, Self::Rejection> {
+        if req.method() == axum::http::Method::GET {
+            QueryString::from_request(req)
+                .await
+                .map(|QueryString(v)| QueryOrBody(v))
+                .map_err(QueryOrBodyRejection::Query)
+        } else {
+            Json::from_request(req)
+                .await
+                .map(|Json(v)| QueryOrBody(v))
+                .map_err(QueryOrBodyRejection::Body)
+        }
+    }
+}
+
+pub enum QueryOrBodyRejection {
+    Query((StatusCode, String)),
+    Body(axum::extract::rejection::JsonRejection),
+}
+
+impl IntoResponse for QueryOrBodyRejection {
+    fn into_response(self) -> Response<axum::body::BoxBody> {
+        match self {
+            QueryOrBodyRejection::Query(inner) => inner.into_response(),
+            QueryOrBodyRejection::Body(inner) => inner.into_response(),
+        }
+    }
 }
