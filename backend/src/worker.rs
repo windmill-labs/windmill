@@ -1795,7 +1795,7 @@ def main():
 
         #[sqlx::test(fixtures("base"))]
         async fn test(db: DB) {
-            use futures::{future::ready, StreamExt};
+            use futures::StreamExt;
 
             initialize_tracing().await;
 
@@ -1808,13 +1808,30 @@ def main():
                 .push(&db)
                 .await;
 
-            let mut completed = completed_jobs(&db).await;
+            let mut completed = listen_for_completed_jobs(&db).await;
+            let mut queue = listen_for_queue(&db).await;
+            let db_ = db.clone();
 
             in_test_worker(&db, async move {
+                let db = db_;
+
+                /* The first job resumes itself. */
                 let _first = completed.next().await.unwrap();
 
-                /* the first job resumes itself */
+                /* Wait until the flow suspends ... */
+                loop {
+                    queue.by_ref().find(&flow).await.unwrap();
+                    if query_scalar("SELECT suspend > 0 FROM queue WHERE id = $1")
+                        .bind(flow)
+                        .fetch_one(&db)
+                        .await
+                        .unwrap()
+                    {
+                        break;
+                    }
+                }
 
+                /* ... and send a request resume it. */
                 let second = completed.next().await.unwrap();
 
                 reqwest::Client::new()
@@ -1824,13 +1841,11 @@ def main():
                     .json(&json!("from test"))
                     .send()
                     .await
+                    .unwrap()
+                    .error_for_status()
                     .unwrap();
 
-                completed
-                    .filter(|j| ready(j == &flow))
-                    .next()
-                    .await
-                    .unwrap();
+                completed.find(&flow).await.unwrap();
             })
             .await;
 
@@ -2282,6 +2297,9 @@ def main(error, port):
             .expect("worker panicked")
     }
 
+    /// Start a worker with a timeout and run a future, until the worker quits or we time out.
+    ///
+    /// Cleans up the worker before resolving.
     async fn in_test_worker<Fut: std::future::Future>(
         db: &DB,
         inner: Fut,
@@ -2353,14 +2371,25 @@ def main(error, port):
 
     use futures::Stream;
 
-    async fn completed_jobs(db: &DB) -> impl Stream<Item = Uuid> + Unpin {
+    async fn listen_for_completed_jobs(db: &DB) -> impl Stream<Item = Uuid> + Unpin {
+        listen_for_uuid_on(db, "insert on completed_job").await
+    }
+
+    async fn listen_for_queue(db: &DB) -> impl Stream<Item = Uuid> + Unpin {
+        listen_for_uuid_on(db, "queue").await
+    }
+
+    async fn listen_for_uuid_on(
+        db: &DB,
+        channel: &'static str,
+    ) -> impl Stream<Item = Uuid> + Unpin {
         let mut listener = PgListener::connect_with(db).await.unwrap();
-        listener.listen("insert on completed_job").await.unwrap();
+        listener.listen(channel).await.unwrap();
 
         Box::pin(futures::stream::unfold(
             listener,
             |mut listener| async move {
-                let job = listener
+                let uuid = listener
                     .try_recv()
                     .await
                     .unwrap()
@@ -2368,7 +2397,7 @@ def main(error, port):
                     .payload()
                     .parse::<Uuid>()
                     .expect("invalid uuid");
-                Some((job, listener))
+                Some((uuid, listener))
             },
         ))
     }
@@ -2380,4 +2409,18 @@ def main(error, port):
             .await
             .unwrap()
     }
+
+    #[axum::async_trait(?Send)]
+    trait StreamFind: futures::Stream + Unpin + Sized {
+        async fn find(self, item: &Self::Item) -> Option<Self::Item>
+        where
+            for<'l> &'l Self::Item: std::cmp::PartialEq,
+        {
+            use futures::{future::ready, StreamExt};
+
+            self.filter(|i| ready(i == item)).next().await
+        }
+    }
+
+    impl<T: futures::Stream + Unpin + Sized> StreamFind for T {}
 }

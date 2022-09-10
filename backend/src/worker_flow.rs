@@ -554,24 +554,43 @@ async fn push_next_flow_job(
         FlowStatusModule::WaitingForPriorSteps | FlowStatusModule::WaitingForEvents { .. }
     ) {
         if let Some((count, last)) = needs_resume(&flow, &status) {
+            let mut tx = db.begin().await?;
+
+            /* Lock this row to prevent the suspend column getting out out of sync
+             * if a resume message arrives after we fetch and count them here.
+             *
+             * This only works because jobs::resume_job does the same thing. */
+            sqlx::query_scalar!(
+                "SELECT null FROM queue WHERE id = $1 FOR UPDATE",
+                flow_job.id
+            )
+            .fetch_one(&mut tx)
+            .await
+            .context("lock flow in queue")?;
+
             resume_messages = sqlx::query_scalar!(
                 "SELECT value FROM resume_job WHERE job = $1 ORDER BY created_at ASC",
                 last
             )
-            .fetch_all(db)
+            .fetch_all(&mut tx)
             .await?;
 
             if resume_messages.len() >= count as usize {
-                /* yay! */
+                /* If we are woken up after suspending, last_result will be the flow args, but we
+                 * should use the result from the last job */
                 if let FlowStatusModule::WaitingForEvents { .. } = &status_module {
                     last_result =
                         sqlx::query_scalar!("SELECT result FROM completed_job WHERE id = $1", last)
-                            .fetch_one(db)
+                            .fetch_one(&mut tx)
                             .await?
                             .context("previous job result")?;
                 }
-            } else {
-                /* TODO check if we're already waiting and if we have timed out?  */
+
+                /* continue on and run this job! */
+                tx.commit().await?;
+
+            /* not enough messages to do this job, "park"/suspend until there are */
+            } else if matches!(&status_module, FlowStatusModule::WaitingForPriorSteps) {
                 sqlx::query(
                     "
                     UPDATE queue
@@ -585,8 +604,31 @@ async fn push_next_flow_job(
                 .bind(count as i32)
                 .bind(30 * MINUTES)
                 .bind(flow_job.id)
-                .execute(db)
+                .execute(&mut tx)
                 .await?;
+
+                tx.commit().await?;
+                return Ok(());
+
+            /* we're WaitingForEvents already and we don't have enough messages; we timed out */
+            } else {
+                tx.commit().await?;
+
+                let success = false;
+                let skipped = false;
+                let logs = "Timed out waiting to be resumed".to_string();
+                let _uuid =
+                    add_completed_job(db, &flow_job, success, skipped, json!([]), logs).await?;
+                postprocess_queued_job(
+                    false,
+                    flow_job.schedule_path.clone(),
+                    flow_job.script_path.clone(),
+                    &flow_job.workspace_id,
+                    flow_job.id,
+                    db,
+                )
+                .await?;
+
                 return Ok(());
             }
         }

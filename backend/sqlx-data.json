@@ -1845,6 +1845,40 @@
     },
     "query": "SELECT 1 FROM script WHERE hash = $1 AND workspace_id = $2"
   },
+  "89b4d28c9f79f16f19f10cb297d437207ea456fe38e5eab67fb034f6b93e3e13": {
+    "describe": {
+      "columns": [
+        {
+          "name": "id",
+          "ordinal": 0,
+          "type_info": "Uuid"
+        },
+        {
+          "name": "flow_status",
+          "ordinal": 1,
+          "type_info": "Jsonb"
+        },
+        {
+          "name": "suspend",
+          "ordinal": 2,
+          "type_info": "Int4"
+        }
+      ],
+      "nullable": [
+        false,
+        true,
+        false
+      ],
+      "parameters": {
+        "Left": [
+          "Uuid",
+          "Uuid",
+          "Jsonb"
+        ]
+      }
+    },
+    "query": "\n        WITH flow AS\n            ( SELECT id, flow_status, suspend\n                FROM queue\n               WHERE id = ( SELECT parent_job FROM queue WHERE id = $2\n                            UNION\n                            SELECT parent_job from completed_job WHERE id = $2 )\n          FOR UPDATE )\n\n           , resume AS\n         ( INSERT INTO resume_job\n                     (id, job, flow, value)\n              SELECT $1, $2, flow.id, $3\n                FROM flow )\n\n        SELECT * FROM flow\n        "
+  },
   "8ad6a17eecce77f61236e0585ba89b99a32e07ad37b97662007db35acb59d139": {
     "describe": {
       "columns": [
@@ -2380,40 +2414,6 @@
     },
     "query": "INSERT INTO token\n            (token, email, label, expiration, super_admin)\n            VALUES ($1, $2, $3, now() + ($4 || ' hours')::interval, $5)"
   },
-  "b0c8e94dd647a32b382bf5d168ddcb06cc3077a05c3428da28e934ece5f17fff": {
-    "describe": {
-      "columns": [
-        {
-          "name": "id",
-          "ordinal": 0,
-          "type_info": "Uuid"
-        },
-        {
-          "name": "flow_status",
-          "ordinal": 1,
-          "type_info": "Jsonb"
-        },
-        {
-          "name": "suspend",
-          "ordinal": 2,
-          "type_info": "Int4"
-        }
-      ],
-      "nullable": [
-        false,
-        true,
-        false
-      ],
-      "parameters": {
-        "Left": [
-          "Uuid",
-          "Uuid",
-          "Jsonb"
-        ]
-      }
-    },
-    "query": "\n        WITH flow AS\n            ( SELECT id, flow_status, suspend\n                FROM queue\n               WHERE id = (SELECT parent_job FROM queue WHERE id = $2)\n          FOR UPDATE )\n\n           , resume AS\n         ( INSERT INTO resume_job\n                     (id, job, flow, value)\n              SELECT $1, $2, flow.id, $3\n                FROM flow )\n\n        SELECT * FROM flow\n        "
-  },
   "b20977e70ebac7ccbaec5a2a1e940301dd331a5f9a4be67a27cfbff8619ac8f0": {
     "describe": {
       "columns": [],
@@ -2590,6 +2590,26 @@
       }
     },
     "query": "DELETE FROM account WHERE workspace_id = $1 AND id = $2 RETURNING id"
+  },
+  "bc01d5ca0138527b796a373f76404b8b6e4c6d711d0f6a557f929d831b8cfd3e": {
+    "describe": {
+      "columns": [
+        {
+          "name": "?column?",
+          "ordinal": 0,
+          "type_info": "Text"
+        }
+      ],
+      "nullable": [
+        null
+      ],
+      "parameters": {
+        "Left": [
+          "Uuid"
+        ]
+      }
+    },
+    "query": "SELECT null FROM queue WHERE id = $1 FOR UPDATE"
   },
   "bf1d8e043338867e1da1ed236ff6c85a566d5fd58d4b0d5c3a10454513811ba3": {
     "describe": {

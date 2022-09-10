@@ -17,8 +17,7 @@ use tracing::instrument;
 use crate::{
     audit::{audit_log, ActionKind},
     db::{UserDB, DB},
-    error,
-    error::{to_anyhow, Error},
+    error::{self, to_anyhow, Error, OrElseNotFound},
     flows::FlowValue,
     schedule::get_schedule_opt,
     scripts::{get_hub_script_by_path, ScriptHash, ScriptLang},
@@ -923,7 +922,9 @@ pub async fn resume_job(
         WITH flow AS
             ( SELECT id, flow_status, suspend
                 FROM queue
-               WHERE id = (SELECT parent_job FROM queue WHERE id = $2)
+               WHERE id = ( SELECT parent_job FROM queue WHERE id = $2
+                            UNION
+                            SELECT parent_job from completed_job WHERE id = $2 )
           FOR UPDATE )
 
            , resume AS
@@ -938,8 +939,9 @@ pub async fn resume_job(
         to_resume,
         value,
     )
-    .fetch_one(&mut tx)
-    .await?;
+    .fetch_optional(&mut tx)
+    .await?
+    .or_else_not_found(to_resume)?;
 
     /* If the flow is currently waiting to be resumed (`FlowStatusModule::WaitingForEvents`)
      * the suspend column must be set to the number of resume messages waited on.
@@ -1485,18 +1487,27 @@ pub async fn schedule_again_if_scheduled(
 }
 
 pub async fn pull(db: &DB) -> Result<Option<QueuedJob>, crate::Error> {
+    /* Jobs can be started if they:
+     * - haven't been started before,
+     *   running = false
+     * - are flows with a step that needed resume,
+     *   suspend_until is non-null
+     *   and suspend = 0 when the resume messages are received
+     *   or suspend_until <= now() if it has timed out */
     let job: Option<QueuedJob> = sqlx::query_as::<_, QueuedJob>(
         "UPDATE queue
-            SET running = true, started_at = now(), last_ping = now()
+            SET running = true
+              , started_at = coalesce(started_at, now())
+              , last_ping = now()
+              , suspend_until = null
             WHERE id IN (
                 SELECT id
                 FROM queue
-                WHERE running = false
-                  AND scheduled_for <= now()
-                  AND (   suspend = ( SELECT count(*)
-                                        FROM resume_job r
-                                       WHERE queue.id = r.job )
-                       OR suspend_until <= now())
+                WHERE (    running = false
+                       AND scheduled_for <= now())
+                   OR (suspend_until IS NOT NULL
+                       AND (   suspend <= 0
+                            OR suspend_until <= now()))
                 ORDER BY scheduled_for
                 FOR UPDATE SKIP LOCKED
                 LIMIT 1
