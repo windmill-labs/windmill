@@ -93,7 +93,8 @@
 						on:new={(e) =>
 							apply(createInlineScriptModule, {
 								language: e.detail.language,
-								type: e.detail.type
+								kind: e.detail.kind,
+								subkind: e.detail.subkind
 							})}
 						on:loop={() => applyCreateLoop()}
 					/>

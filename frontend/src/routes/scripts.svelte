@@ -305,7 +305,7 @@
 						<p class="text-xs text-gray-600 italic">No scripts yet</p>
 					{:else}
 						<div class="grid md:grid-cols-2 gap-4 sm:grid-cols-1 xl:grid-cols-3">
-							{#each scripts as { summary, path, hash, language, extra_perms, canWrite, lock_error_logs, is_trigger }}
+							{#each scripts as { summary, path, hash, language, extra_perms, canWrite, lock_error_logs, kind }}
 								<div
 									class="flex flex-col justify-between script max-w-lg overflow-visible shadow-sm shadow-blue-100 border border-gray-200 bg-gray-50 py-2"
 								>
@@ -325,8 +325,8 @@
 										<div class="mr-3 w-full">
 											<SharedBadge {canWrite} extraPerms={extra_perms} />
 											<Badge twBgColor="bg-blue-200">{language}</Badge>
-											{#if is_trigger}
-												<Badge twBgColor="bg-blue-300">{is_trigger}</Badge>
+											{#if kind != 'script'}
+												<Badge twBgColor="bg-blue-300">{kind}</Badge>
 											{/if}
 											{#if lock_error_logs}<Badge
 													twBgColor="bg-red-200"

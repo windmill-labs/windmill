@@ -24,9 +24,9 @@
 		<span class="bg-blue-100 text-blue-800 text-xs font-semibold  px-2.5 py-0.5 rounded ">
 			{String(script.language).toUpperCase()}
 		</span>
-		{#if script.is_trigger}
+		{#if script.kind != 'script'}
 			<span class="bg-red-100 text-red-800 text-xs font-semibold px-2.5 py-0.5 rounded">
-				TRIGGER
+				{script.kind}
 			</span>
 		{/if}
 	</div>

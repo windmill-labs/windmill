@@ -124,6 +124,15 @@ impl Serialize for ScriptHashes {
     }
 }
 
+#[derive(sqlx::Type, Serialize, Deserialize, Debug, Hash)]
+#[sqlx(type_name = "SCRIPT_KIND", rename_all = "lowercase")]
+#[serde(rename_all = "lowercase")]
+pub enum ScriptKind {
+    Trigger,
+    Failure,
+    Script,
+}
+
 #[derive(FromRow, Serialize)]
 pub struct Script {
     pub workspace_id: String,
@@ -143,7 +152,7 @@ pub struct Script {
     pub lock: Option<String>,
     pub lock_error_logs: Option<String>,
     pub language: ScriptLang,
-    pub is_trigger: bool,
+    pub kind: ScriptKind,
 }
 
 #[derive(Serialize, Deserialize, sqlx::Type, Debug)]
@@ -170,7 +179,7 @@ pub struct NewScript {
     pub is_template: Option<bool>,
     pub lock: Option<Vec<String>>,
     pub language: ScriptLang,
-    pub is_trigger: Option<bool>,
+    pub kind: Option<ScriptKind>,
 }
 
 #[derive(Deserialize)]
@@ -185,7 +194,7 @@ pub struct ListScriptQuery {
     pub order_by: Option<String>,
     pub order_desc: Option<bool>,
     pub is_template: Option<bool>,
-    pub is_trigger: Option<bool>,
+    pub kind: Option<String>,
 }
 
 async fn list_scripts(
@@ -216,7 +225,7 @@ async fn list_scripts(
             "null as lock",
             "CASE WHEN lock_error_logs IS NOT NULL THEN 'error' ELSE null END as lock_error_logs",
             "language",
-            "is_trigger",
+            "kind",
         ])
         .order_by("created_at", lq.order_desc.unwrap_or(true))
         .and_where("workspace_id = ? OR workspace_id = 'starter'".bind(&w_id))
@@ -254,8 +263,8 @@ async fn list_scripts(
     if let Some(it) = &lq.is_template {
         sqlb.and_where_eq("is_template", it);
     }
-    if let Some(it) = &lq.is_trigger {
-        sqlb.and_where_eq("is_trigger", it);
+    if let Some(k) = &lq.kind {
+        sqlb.and_where_eq("kind", "?".bind(&k.to_lowercase()));
     }
 
     let sql = sqlb.sql().map_err(|e| Error::InternalErr(e.to_string()))?;
@@ -407,7 +416,7 @@ async fn create_script(
     //::text::json is to ensure we use serde_json with preserve order
     sqlx::query!(
         "INSERT INTO script (workspace_id, hash, path, parent_hashes, summary, description, \
-         content, created_by, schema, is_template, extra_perms, lock, language, is_trigger) \
+         content, created_by, schema, is_template, extra_perms, lock, language, kind) \
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::text::json, $10, $11, $12, $13, $14)",
         &w_id,
         &hash.0,
@@ -422,7 +431,7 @@ async fn create_script(
         extra_perms,
         lock,
         ns.language: ScriptLang,
-        ns.is_trigger.unwrap_or(false),
+        ns.kind.unwrap_or(ScriptKind::Script): ScriptKind,
     )
     .execute(&mut tx)
     .await?;

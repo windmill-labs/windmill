@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/explicit-module-boundary-types */
 import { goto } from '$app/navigation'
-import { FlowService, ScriptService, type Flow, type FlowModule, type User } from '$lib/gen'
+import { FlowService, Script, ScriptService, type Flow, type FlowModule, type User } from '$lib/gen'
 import { toast } from '@zerodevx/svelte-toast'
 import { get } from 'svelte/store'
 import type { Schema } from './common'
@@ -502,7 +502,7 @@ export async function loadHubScripts() {
 			path: `hub/${x.id}/${x.app}/${x.summary.toLowerCase().replaceAll(/\s+/g, '_')}`,
 			summary: `${x.summary} (${x.app}) ${x.views} uses`,
 			approved: x.approved,
-			is_trigger: x.is_trigger,
+			kind: x.kind,
 			app: x.app,
 			views: x.views,
 			votes: x.votes,
@@ -545,14 +545,14 @@ export function scriptToHubUrl(
 	content: string,
 	summary: string,
 	description: string,
-	trigger: boolean
+	kind: Script.kind
 ): URL {
 	const url = new URL('https://hub.windmill.dev/scripts/add')
 
 	url.searchParams.append('content', content)
 	url.searchParams.append('summary', summary)
 	url.searchParams.append('description', description)
-	url.searchParams.append('trigger', trigger.toString())
+	url.searchParams.append('kind', kind)
 
 	return url
 }

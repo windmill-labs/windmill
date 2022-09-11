@@ -1228,6 +1228,53 @@
     },
     "query": "DELETE FROM group_ WHERE name = $1 AND workspace_id = $2"
   },
+  "5fee34ce48f01bb55707227548ea4d1e77ba75abfae412a902b1d8d6a1963725": {
+    "describe": {
+      "columns": [],
+      "nullable": [],
+      "parameters": {
+        "Left": [
+          "Varchar",
+          "Int8",
+          "Varchar",
+          "Int8Array",
+          "Text",
+          "Text",
+          "Text",
+          "Varchar",
+          "Text",
+          "Bool",
+          "Jsonb",
+          "Text",
+          {
+            "Custom": {
+              "kind": {
+                "Enum": [
+                  "python3",
+                  "deno"
+                ]
+              },
+              "name": "script_lang"
+            }
+          },
+          {
+            "Custom": {
+              "kind": {
+                "Enum": [
+                  "script",
+                  "trigger",
+                  "failure",
+                  "command"
+                ]
+              },
+              "name": "script_kind"
+            }
+          }
+        ]
+      }
+    },
+    "query": "INSERT INTO script (workspace_id, hash, path, parent_hashes, summary, description, content, created_by, schema, is_template, extra_perms, lock, language, kind) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::text::json, $10, $11, $12, $13, $14)"
+  },
   "6199e8be5cb13db71108e555ea20f0b76dc38476670f9fc0667b057d2766d42e": {
     "describe": {
       "columns": [
@@ -2473,41 +2520,6 @@
       }
     },
     "query": "SELECT * from workspace_invite WHERE workspace_id = $1"
-  },
-  "b49868120aa48f9163ffb0262804c0528723c858d20d7e556750fe712e3d5123": {
-    "describe": {
-      "columns": [],
-      "nullable": [],
-      "parameters": {
-        "Left": [
-          "Varchar",
-          "Int8",
-          "Varchar",
-          "Int8Array",
-          "Text",
-          "Text",
-          "Text",
-          "Varchar",
-          "Text",
-          "Bool",
-          "Jsonb",
-          "Text",
-          {
-            "Custom": {
-              "kind": {
-                "Enum": [
-                  "python3",
-                  "deno"
-                ]
-              },
-              "name": "script_lang"
-            }
-          },
-          "Bool"
-        ]
-      }
-    },
-    "query": "INSERT INTO script (workspace_id, hash, path, parent_hashes, summary, description, content, created_by, schema, is_template, extra_perms, lock, language, is_trigger) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::text::json, $10, $11, $12, $13, $14)"
   },
   "b51fc5e5407728b7c9403c8837a918ac32a99c82e9ee92aa0b24bd7935f4adc4": {
     "describe": {
