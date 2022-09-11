@@ -347,6 +347,13 @@
 							>{$page.url.hostname}/api/w/{$workspaceStore}/jobs/run_wait_result/p/{script?.path}</a
 						></code
 					></pre>
+				<pre><code
+						><a
+							href="//{$page.url
+								.hostname}/api/w/{$workspaceStore}/jobs/run_wait_result/h/{script?.hash}"
+							>{$page.url.hostname}/api/w/{$workspaceStore}/jobs/run_wait_result/h/{script?.hash}</a
+						></code
+					></pre>
 			</div>
 			<div>
 				<h3>
