@@ -37,9 +37,9 @@
 				goto(rd ?? '/')
 			} else {
 				if (rd) {
-					goto('/user/workspaces?rd=' + encodeURIComponent(rd))
+					goto('/user/workspaces?rd=' + encodeURIComponent(rd), { replaceState: true })
 				} else {
-					goto('/user/workspaces')
+					goto('/user/workspaces', { replaceState: true })
 				}
 			}
 		} else {
