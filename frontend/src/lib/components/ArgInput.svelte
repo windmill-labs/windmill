@@ -108,7 +108,7 @@
 	}
 
 	function validateInput(pattern: string | undefined, v: any): void {
-		if (required && (v == undefined || v == null)) {
+		if (required && (v == undefined || v == null || (type === 'string' && v === ''))) {
 			error = 'This field is required'
 			valid = false
 		} else {
@@ -170,7 +170,7 @@
 							{:else if type == 'array'}
 								<select bind:value={itemsType}>
 									<option value={undefined}>No specific item type</option>
-									<option value={{ type: 'string' }}> Items are strings</option>
+									<option value={{ type: 'string' }}>Items are strings</option>
 									<option value={{ type: 'number' }}>Items are numbers</option>
 									<option value={{ type: 'string', contentEncoding: 'base64' }}
 										>Items are bytes</option
