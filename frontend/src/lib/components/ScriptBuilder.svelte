@@ -35,7 +35,7 @@
 	}
 
 	function initContent(
-		language: 'deno' | 'python3',
+		language: 'deno' | 'python3' | 'go',
 		kind: Script.kind,
 		template: 'pgsql' | 'script'
 	) {
@@ -190,7 +190,8 @@
 						label="Language"
 						options={[
 							['Typescript (Deno)', 'deno'],
-							['Python 3.10', 'python3']
+							['Python 3.10', 'python3'],
+							['Go', 'go']
 						]}
 						on:change={(e) => initContent(e.detail, script.kind, template)}
 						bind:value={script.language}

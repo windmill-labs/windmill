@@ -475,7 +475,7 @@ export function scriptPathToHref(path: string): string {
 
 export async function getScriptByPath(path: string): Promise<{
 	content: string
-	language: 'deno' | 'python3'
+	language: 'deno' | 'python3' | 'go'
 }> {
 	if (path.startsWith('hub/')) {
 		const content = await ScriptService.getHubScriptContentByPath({ path })
@@ -559,4 +559,15 @@ export function scriptToHubUrl(
 
 export function classNames(...classes: string[]): string {
 	return classes.filter(Boolean).join(' ')
+}
+
+
+export function scriptLangToEditorLang(lang: Script.language): 'typescript' | 'python' | 'go' {
+	if (lang == 'deno') {
+		return 'typescript'
+	} else if (lang == 'python3') {
+		return 'python'
+	} else {
+		return lang
+	}
 }

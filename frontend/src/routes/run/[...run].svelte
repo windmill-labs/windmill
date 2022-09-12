@@ -49,6 +49,8 @@
 	import JobStatus from '$lib/components/JobStatus.svelte'
 	import TableCustom from '$lib/components/TableCustom.svelte'
 	import ArgInfo from '$lib/components/ArgInfo.svelte'
+	import HighlightCode from '$lib/components/HighlightCode.svelte'
+	import { language } from '$lib/sql'
 
 	let workspace_id_query: string | undefined = $page.url.searchParams.get('workspace') ?? undefined
 	let workspace_id: string | undefined
@@ -438,11 +440,7 @@
 					{:else}Loading...{/if}
 				{:else if viewTab == 'code'}
 					{#if job && 'raw_code' in job && job.raw_code}
-						{#if job.language == 'python3'}
-							<Highlight language={python} code={job.raw_code} />
-						{:else if job.language == 'deno'}
-							<Highlight language={typescript} code={job.raw_code} />
-						{/if}
+						<HighlightCode language={job.language} code={job.raw_code} />
 					{:else if job}No code is available
 					{:else}Loading...{/if}
 				{:else if job && 'result' in job && job.result}<DisplayResult result={job.result} />

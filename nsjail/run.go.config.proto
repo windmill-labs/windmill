@@ -10,7 +10,7 @@ rlimit_cpu: 1000
 rlimit_fsize: 1024
 rlimit_nofile: 64
 
-cwd: "/tmp"
+cwd: "/tmp/go"
 
 clone_newnet: false
 clone_newuser: {CLONE_NEWUSER}
@@ -59,28 +59,30 @@ mount {
 }
 
 mount {
-    src: "{JOB_DIR}/inner.go"
-    dst: "/tmp/mod/inner.go"
+    src: "{JOB_DIR}/go.sum"
+    dst: "/tmp/go/go.sum"
     is_bind: true
 }
 
 mount {
-    src: "{JOB_DIR}/main.go"
-    dst: "/tmp/mod/main.go"
+    src: "{JOB_DIR}/go.mod"
+    dst: "/tmp/go/go.mod"
+    is_bind: true
+}
+
+
+mount {
+    src: "{JOB_DIR}/mymod"
+    dst: "/tmp/go/mymod"
     is_bind: true
 }
 
 mount {
     src: "{JOB_DIR}/args.json"
-    dst: "/tmp/args.json"
+    dst: "/tmp/go/args.json"
     is_bind: true
 }
 
-mount {
-    src: "{JOB_DIR}/dependencies"
-    dst: "/tmp/dependencies"
-    is_bind: true
-}
 
 mount {
     src: "/etc/ssl"
@@ -109,7 +111,15 @@ mount {
 
 iface_no_lo: true
 
-envar: "GOPATH=/tmp/dependencies"
-envar: "HOME=/tmp"
+mount {
+    src: "{CACHE_DIR}"
+    dst: "/tmp/.cache/go"
+    is_bind: true
+    rw: true
+    mandatory: false
+}
+
+envar: "GOPATH=/tmp/.cache/go"
+envar: "HOME=/tmp/go"
 
 
