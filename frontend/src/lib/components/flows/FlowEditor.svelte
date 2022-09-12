@@ -1,7 +1,6 @@
 <!-- Flow Editor: Top level component -->
 <script lang="ts">
-	import { Pane, Splitpanes } from 'svelte-splitpanes'
-	import { HSplitPane, VSplitPane } from 'svelte-split-pane'
+	import { HSplitPane } from 'svelte-split-pane'
 
 	import { workspaceStore } from '$lib/stores'
 	import { setContext } from 'svelte'
@@ -11,7 +10,7 @@
 
 	import type { FlowEditorContext } from './types'
 	import FlowEditorPanel from './content/FlowEditorPanel.svelte'
-	import { flowStateStore } from '../flows/flowState'
+	import { flowStateStore } from './flowState'
 	import FlowModuleSchemaMap from './map/FlowModuleSchemaMap.svelte'
 
 	const selectedIdStore = writable<string>('settings')

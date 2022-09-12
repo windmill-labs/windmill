@@ -1,8 +1,7 @@
 <script lang="ts">
-	import { isCopyFirstStepSchemaDisabled } from '$lib/components/flows/flowState'
-	import { copyFirstStepSchema } from '$lib/components/flows/flowStore'
-
 	import { Button } from 'flowbite-svelte'
+	import { isCopyFirstStepSchemaDisabled } from '../flowState'
+	import { copyFirstStepSchema } from '../flowStore'
 </script>
 
 <Button

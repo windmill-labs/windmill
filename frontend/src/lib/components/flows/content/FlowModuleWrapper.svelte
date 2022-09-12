@@ -1,6 +1,6 @@
 <script lang="ts">
-	import { flowStateStore } from '$lib/components/flows/flowState'
 	import { getContext } from 'svelte'
+	import { flowStateStore } from '../flowState'
 	import type { FlowEditorContext } from '../types'
 	import FlowModule from './FlowModule.svelte'
 

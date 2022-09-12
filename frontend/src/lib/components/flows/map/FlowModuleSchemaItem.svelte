@@ -1,6 +1,5 @@
 <script lang="ts">
 	import { classNames } from '$lib/utils'
-	import { createEventDispatcher } from 'svelte'
 
 	export let color: 'blue' | 'orange' = 'blue'
 	export let isFirst: boolean = false

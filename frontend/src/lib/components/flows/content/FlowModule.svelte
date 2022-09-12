@@ -9,7 +9,6 @@
 	import EditorBar from '$lib/components/EditorBar.svelte'
 	import FlowPreview from '$lib/components/FlowPreview.svelte'
 	import FlowInputs from './FlowInputs.svelte'
-	import { flowStateStore, type FlowModuleSchema } from '$lib/components/flows/flowState'
 	import {
 		createInlineScriptModule,
 		createLoop,
@@ -26,6 +25,7 @@
 	import { RawScript, type FlowModule } from '$lib/gen'
 	import FlowCard from '../common/FlowCard.svelte'
 	import FlowModuleHeader from './FlowModuleHeader.svelte'
+	import { flowStateStore, type FlowModuleSchema } from '../flowState'
 
 	export let indexes: string
 	export let flowModule: FlowModule

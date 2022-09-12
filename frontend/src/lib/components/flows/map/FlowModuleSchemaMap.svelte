@@ -1,5 +1,4 @@
 <script lang="ts">
-	import type { FlowModuleSchema } from '$lib/components/flows/flowState'
 	import type { FlowEditorContext } from '../types'
 	import { getContext } from 'svelte'
 	import FlowModuleSchemaItem from './FlowModuleSchemaItem.svelte'
@@ -17,6 +16,7 @@
 	} from '@fortawesome/free-solid-svg-icons'
 	import { emptyFlowModuleSchema } from '$lib/components/flows/flowStateUtils'
 	import { classNames } from '$lib/utils'
+	import type { FlowModuleSchema } from '../flowState'
 
 	export let flowModuleSchemas: FlowModuleSchema[]
 	export let prefix: string | undefined = undefined

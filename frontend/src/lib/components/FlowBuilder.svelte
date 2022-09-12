@@ -15,7 +15,7 @@
 	import { onDestroy, onMount } from 'svelte'
 	import { OFFSET } from './CronInput.svelte'
 	import Drawer from './common/drawer/Drawer.svelte'
-	import FlowEditor from './flows_neo/FlowEditor.svelte'
+	import FlowEditor from './flows/FlowEditor.svelte'
 	import FlowPreviewContent from './FlowPreviewContent.svelte'
 	import { flowStateStore, flowStateToFlow, type FlowState } from './flows/flowState'
 	import { flowStore } from './flows/flowStore'
