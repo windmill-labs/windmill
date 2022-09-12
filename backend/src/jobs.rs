@@ -33,7 +33,7 @@ use axum::{
     Json, Router,
 };
 use hyper::StatusCode;
-use serde::{Deserialize, Serialize};
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use serde_json::{Map, Value};
 use sql_builder::SqlBuilder;
 
@@ -1539,70 +1539,44 @@ pub async fn delete_job(db: &DB, w_id: &str, job_id: Uuid) -> Result<(), crate::
     Ok(())
 }
 
-pub struct QueryString<D>(pub D);
-
-#[axum::async_trait]
-impl<D, B> FromRequest<B> for QueryString<D>
-where
-    D: serde::de::DeserializeOwned,
-    B: Send,
-{
-    type Rejection = (StatusCode, String);
-
-    async fn from_request(
-        req: &mut axum::extract::RequestParts<B>,
-    ) -> Result<Self, Self::Rejection> {
-        let qs = req.uri().query().unwrap_or_default();
-        serde_urlencoded::from_str::<D>(qs)
-            .map(QueryString)
-            .map_err(|err| {
-                (
-                    StatusCode::BAD_REQUEST,
-                    format!("Failed to parse query string: {}", err.to_string()),
-                )
-            })
-    }
-}
-
 pub struct QueryOrBody<D>(pub D);
 
 #[axum::async_trait]
 impl<D, B> FromRequest<B> for QueryOrBody<D>
 where
-    D: serde::de::DeserializeOwned,
+    D: DeserializeOwned,
     B: Send + axum::body::HttpBody,
     <B as axum::body::HttpBody>::Data: Send,
     <B as axum::body::HttpBody>::Error: Into<axum::BoxError>,
 {
-    type Rejection = QueryOrBodyRejection;
+    type Rejection = Response;
 
     async fn from_request(
         req: &mut axum::extract::RequestParts<B>,
     ) -> Result<Self, Self::Rejection> {
-        if req.method() == axum::http::Method::GET {
-            QueryString::from_request(req)
+        return if req.method() == axum::http::Method::GET {
+            let Query(InPayload { payload }) = Query::from_request(req)
                 .await
-                .map(|QueryString(v)| QueryOrBody(v))
-                .map_err(QueryOrBodyRejection::Query)
+                .map_err(IntoResponse::into_response)?;
+            decode_payload(payload)
+                .map(QueryOrBody)
+                .map_err(|err| (StatusCode::BAD_REQUEST, format!("{err:#?}")))
+                .map_err(IntoResponse::into_response)
         } else {
             Json::from_request(req)
                 .await
                 .map(|Json(v)| QueryOrBody(v))
-                .map_err(QueryOrBodyRejection::Body)
+                .map_err(IntoResponse::into_response)
+        };
+
+        #[derive(Deserialize)]
+        struct InPayload {
+            payload: String,
         }
-    }
-}
 
-pub enum QueryOrBodyRejection {
-    Query((StatusCode, String)),
-    Body(axum::extract::rejection::JsonRejection),
-}
-
-impl IntoResponse for QueryOrBodyRejection {
-    fn into_response(self) -> Response<axum::body::BoxBody> {
-        match self {
-            QueryOrBodyRejection::Query(inner) => inner.into_response(),
-            QueryOrBodyRejection::Body(inner) => inner.into_response(),
+        fn decode_payload<D: DeserializeOwned, T: AsRef<[u8]>>(t: T) -> anyhow::Result<D> {
+            let vec = base64::decode_config(&t, base64::URL_SAFE).context("invalid base64")?;
+            serde_json::from_slice(vec.as_slice()).context("invalid json")
         }
     }
 }

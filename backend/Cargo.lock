@@ -4446,6 +4446,7 @@ dependencies = [
  "async-oauth2",
  "async-recursion",
  "axum",
+ "base64 0.11.0",
  "chrono",
  "console-subscriber",
  "cron",

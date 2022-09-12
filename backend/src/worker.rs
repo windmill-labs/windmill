@@ -1718,6 +1718,10 @@ def main():
                 let router = axum::Router::new()
                     .route(
                         "/w/:workspace/jobs/resume/:id",
+                        axum::routing::get(crate::jobs::resume_job),
+                    )
+                    .route(
+                        "/w/:workspace/jobs/resume/:id",
                         axum::routing::post(crate::jobs::resume_job),
                     )
                     .layer(axum::extract::Extension(db));
@@ -1834,12 +1838,9 @@ def main():
                 /* ... and send a request resume it. */
                 let second = completed.next().await.unwrap();
 
-                reqwest::Client::new()
-                    .post(format!(
-                        "http://localhost:{port}/w/test-workspace/jobs/resume/{second}"
+                reqwest::get(format!(
+                        "http://localhost:{port}/w/test-workspace/jobs/resume/{second}?payload=ImZyb20gdGVzdCIK"
                     ))
-                    .json(&json!("from test"))
-                    .send()
                     .await
                     .unwrap()
                     .error_for_status()
