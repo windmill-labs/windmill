@@ -1,12 +1,18 @@
+<script lang="ts">
+	import { classNames } from '$lib/utils'
+	import { getContext } from 'svelte'
+	import type { FlowEditorContext } from '../types'
+
+	const { schedule } = getContext<FlowEditorContext>('FlowEditorContext')
+</script>
+
 <div class="flex space-x-1">
 	<span
-		class="bg-green-100 text-green-800 text-sm font-medium mr-2 px-2.5 py-0.5 rounded dark:bg-green-200 dark:text-green-900"
+		class={classNames(
+			' text-sm font-medium mr-2 px-2.5 py-0.5 rounded ',
+			$schedule?.enabled ? 'bg-sky-100 text-sky-800' : 'bg-gray-100 text-gray-800'
+		)}
 	>
-		Green
-	</span>
-	<span
-		class="bg-yellow-100 text-yellow-800 text-sm font-medium mr-2 px-2.5 py-0.5 rounded dark:bg-yellow-200 dark:text-yellow-900"
-	>
-		Yellow
+		{$schedule?.enabled ? `Schedule: ${$schedule?.cron}` : 'Schedules disabled'}
 	</span>
 </div>

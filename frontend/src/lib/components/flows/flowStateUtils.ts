@@ -57,7 +57,7 @@ export async function createInlineScriptModule({
 	subkind
 }: {
 	language: RawScript.language
-	kind: Script.kind,
+	kind: Script.kind
 	subkind: 'pgsql' | 'flow'
 }): Promise<FlowModuleSchema> {
 	const code = initialCode(language, kind, subkind)
@@ -210,7 +210,7 @@ export function getStepPropPicker(
 	const [parentIndex] = indexes
 
 	const flowInput = schemaToObject(flowInputSchema, args)
-	const results = getPreviousResults(flowState, parentIndex)
+	const results = getPreviousResults(flowState.modules, parentIndex)
 	const lastResult = results.length > 0 ? results[results.length - 1] : undefined
 
 	if (isInsideLoop) {
@@ -313,13 +313,18 @@ export function mapJobResultsToFlowState(
 				return flowState
 			}
 
-			return flowState.map((flowModuleSchema: FlowModuleSchema, index) => {
+			const modules = flowState.modules.map((flowModuleSchema: FlowModuleSchema, index) => {
 				if (index <= configIndex) {
 					flowModuleSchema.previewResult = results[index]
 				}
 
 				return flowModuleSchema
 			})
+
+			return {
+				modules,
+				failureModule: flowState.failureModule
+			}
 		})
 	}
 }

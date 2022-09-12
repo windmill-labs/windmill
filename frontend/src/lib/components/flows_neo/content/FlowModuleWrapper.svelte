@@ -13,15 +13,36 @@
 	$: [parentIndex, childIndex] = selectedIdToIndexes($selectedId)
 </script>
 
-{#if childIndex}
-	<span>should handle child</span>
-{:else if $flowStateStore[parentIndex]}
-	<FlowModule
-		indexes={$selectedId}
-		args={{}}
-		bind:flowModule={$flowStateStore[parentIndex].flowModule}
-		bind:schema={$flowStateStore[parentIndex].schema}
-		bind:childFlowModules={$flowStateStore[parentIndex].childFlowModules}
-		on:delete={() => {}}
-	/>
+{#if $flowStateStore.modules[parentIndex] && $flowStateStore.modules[parentIndex].childFlowModules !== undefined}
+	{#each $flowStateStore.modules[parentIndex].childFlowModules ?? [] as fa, index}
+		{#if index === childIndex}
+			<FlowModule
+				indexes={$selectedId}
+				args={{}}
+				bind:flowModule={fa.flowModule}
+				bind:schema={fa.schema}
+				bind:childFlowModules={fa.childFlowModules}
+				on:delete={() => {
+					$flowStateStore.modules[parentIndex].childFlowModules?.splice(index, 1)
+					$flowStateStore = $flowStateStore
+				}}
+			/>
+		{/if}
+	{/each}
+{:else}
+	{#each $flowStateStore.modules ?? [] as fa, index}
+		{#if index === parentIndex}
+			<FlowModule
+				indexes={$selectedId}
+				args={{}}
+				bind:flowModule={fa.flowModule}
+				bind:schema={fa.schema}
+				bind:childFlowModules={fa.childFlowModules}
+				on:delete={() => {
+					$flowStateStore.modules.splice(index, 1)
+					$flowStateStore = $flowStateStore
+				}}
+			/>
+		{/if}
+	{/each}
 {/if}

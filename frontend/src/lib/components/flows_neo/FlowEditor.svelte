@@ -1,6 +1,5 @@
 <!-- Flow Editor: Top level component -->
 <script lang="ts">
-	import { HSplitPane } from 'svelte-split-pane'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 
 	import { workspaceStore } from '$lib/stores'
@@ -31,11 +30,19 @@
 		path
 	})
 
-	// Load the schedule given the path
 	$: {
-		loadFlowSchedule(path, $workspaceStore).then((schedule) => {
-			scheduleStore.set(schedule)
-		})
+		loadFlowSchedule(path, $workspaceStore)
+			.then((schedule) => {
+				scheduleStore.set(schedule)
+			})
+			.catch(() => {
+				scheduleStore.set({
+					cron: '0 */5 * * *',
+					args: {},
+					enabled: false,
+					previewArgs: {}
+				})
+			})
 	}
 </script>
 
@@ -43,12 +50,12 @@
 
 <div class="h-full overflow-hidden">
 	<Splitpanes>
-		<Pane minSize={20}>
+		<Pane minSize={20} size={20}>
 			<div class="h-full overflow-auto p-4 ">
-				<FlowModuleSchemaMap bind:flowModuleSchemas={$flowStateStore} />
+				<FlowModuleSchemaMap bind:flowModuleSchemas={$flowStateStore.modules} />
 			</div>
 		</Pane>
-		<Pane minSize={40}>
+		<Pane minSize={40} size={60}>
 			<div class="h-full overflow-auto bg-white ">
 				<FlowEditorPanel />
 			</div>

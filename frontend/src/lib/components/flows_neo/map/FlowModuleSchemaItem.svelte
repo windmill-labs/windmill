@@ -1,17 +1,18 @@
 <script lang="ts">
 	import { classNames } from '$lib/utils'
+	import { createEventDispatcher } from 'svelte'
 
 	export let color: 'blue' | 'orange' = 'blue'
 	export let isFirst: boolean = false
 	export let isLast: boolean = false
+	export let hasLine: boolean = true
+	export let selected: boolean = false
 
 	const margin = isLast ? '' : isFirst ? 'mb-2' : 'my-2'
 </script>
 
 <div class="flex" on:click>
-	<div
-		class={classNames('flex  items-center line mr-2 w-8', isLast ? 'flex-col-reverse' : 'flex-col')}
-	>
+	<div class={classNames('flex  items-center mr-2 w-8 justify-center', hasLine ? 'line' : '')}>
 		<div
 			class={classNames(
 				'flex items-center justify-center w-6 h-6 border rounded-full text-xs font-bold',
@@ -22,7 +23,13 @@
 			<slot name="icon" />
 		</div>
 	</div>
-	<div class={classNames('border w-full rounded-md p-2 bg-white text-sm', margin)}>
+	<div
+		class={classNames(
+			'border w-full rounded-md p-2 bg-white text-sm cursor-pointer ',
+			margin,
+			selected ? 'outline outline-offset-1 outline-2  outline-slate-900' : ''
+		)}
+	>
 		<slot name="content" />
 	</div>
 </div>

@@ -10,13 +10,24 @@ export type FlowModuleSchema = {
 	previewResult?: any
 }
 
-export type FlowState = FlowModuleSchema[]
+export type FlowState = {
+	modules: FlowModuleSchema[]
+	failureModule: FlowModuleSchema
+}
 
 export const flowStateStore = writable<FlowState>(undefined)
 
 export async function initFlowState(flow: Flow) {
-	const flowState = await flowModulesToFlowState(flow.value.modules)
-	flowStateStore.set(flowState)
+	const modules = await mapFlowModules(flow.value.modules)
+
+	const failureModule = flow.value.failure_module
+		? await mapFlowModule(flow.value.failure_module)
+		: emptyFlowModuleSchema()
+
+	flowStateStore.set({
+		modules,
+		failureModule
+	})
 }
 
 export const isCopyFirstStepSchemaDisabled = derived(
@@ -28,36 +39,36 @@ export const isCopyFirstStepSchemaDisabled = derived(
 				return true
 			}
 			const fm = firstModule.flowModule
-			return flowState.length === 0 || isEmptyFlowModule(fm)
+			return flowState.modules.length === 0 || isEmptyFlowModule(fm)
 		} else {
 			return true
 		}
 	}
 )
 
-export async function flowModulesToFlowState(flowModules: FlowModule[]): Promise<FlowState> {
-	return Promise.all(
-		flowModules.map(async (flowModule: FlowModule) => {
-			const value = flowModule.value
-			if (value.type === 'forloopflow') {
-				const childFlowModules = await Promise.all(
-					value.modules.map(async (module) => loadFlowModuleSchema(module))
-				)
-				const loopFlowModule = await loadFlowModuleSchema(flowModule)
+async function mapFlowModule(flowModule: FlowModule) {
+	const value = flowModule.value
+	if (value.type === 'forloopflow') {
+		const childFlowModules = await Promise.all(
+			value.modules.map(async (module) => loadFlowModuleSchema(module))
+		)
+		const loopFlowModule = await loadFlowModuleSchema(flowModule)
 
-				return {
-					...loopFlowModule,
-					childFlowModules
-				}
-			}
+		return {
+			...loopFlowModule,
+			childFlowModules
+		}
+	}
 
-			if (isEmptyFlowModule(flowModule)) {
-				return emptyFlowModuleSchema()
-			}
+	if (isEmptyFlowModule(flowModule)) {
+		return emptyFlowModuleSchema()
+	}
 
-			return loadFlowModuleSchema(flowModule)
-		})
-	)
+	return loadFlowModuleSchema(flowModule)
+}
+
+export async function mapFlowModules(flowModules: FlowModule[]): Promise<FlowModuleSchema[]> {
+	return Promise.all(flowModules.map(async (flowModule: FlowModule) => mapFlowModule(flowModule)))
 }
 
 export function flowStateToFlow(flowState: FlowState, flow: Flow): Flow {
@@ -65,7 +76,7 @@ export function flowStateToFlow(flowState: FlowState, flow: Flow): Flow {
 		return flow
 	}
 
-	const modules = flowState.map(({ flowModule, childFlowModules }) => {
+	const modules = flowState.modules.map(({ flowModule, childFlowModules }) => {
 		const fmv = flowModule.value
 
 		if (fmv.type === 'forloopflow' && childFlowModules && Array.isArray(childFlowModules)) {

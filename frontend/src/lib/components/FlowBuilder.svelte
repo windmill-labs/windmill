@@ -11,10 +11,8 @@
 		sendUserToast,
 		setQueryWithoutLoad
 	} from '$lib/utils'
-	import { faPlay } from '@fortawesome/free-solid-svg-icons'
-	import { Breadcrumb, BreadcrumbItem, Button } from 'flowbite-svelte'
+	import { Breadcrumb, BreadcrumbItem } from 'flowbite-svelte'
 	import { onDestroy, onMount } from 'svelte'
-	import Icon from 'svelte-awesome'
 	import { OFFSET } from './CronInput.svelte'
 	import Drawer from './common/drawer/Drawer.svelte'
 	import FlowEditor from './flows_neo/FlowEditor.svelte'
@@ -191,8 +189,10 @@
 					class="default-button-secondary px-6 max-h-8 mr-2"
 					on:click={async () => {
 						changeStep(1)
-					}}>Back</button
+					}}
 				>
+					Back
+				</button>
 			{/if}
 		</div>
 	</div>

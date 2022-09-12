@@ -67,7 +67,7 @@
 </script>
 
 <div class="flex flex-col h-full ">
-	<FlowCard title="Title">
+	<FlowCard title={indexes}>
 		<svelte:fragment slot="header">
 			<div class="flex-shrink-0">
 				<FlowModuleHeader
@@ -84,7 +84,6 @@
 				/>
 			</div>
 		</svelte:fragment>
-
 		{#if shouldPick}
 			<FlowInputs
 				shouldDisableTriggerScripts={i != 0}
@@ -99,10 +98,16 @@
 					})}
 			/>
 		{:else}
+			{#if flowModule.value.type === 'rawscript'}
+				<div class="flex-shrink-0 border-b p-1">
+					<EditorBar {editor} lang={flowModule.value['language'] ?? 'deno'} {websocketAlive} />
+				</div>
+			{/if}
+
 			<div class="overflow-hidden flex-grow">
 				<Splitpanes horizontal={true}>
-					<Pane minSize={40}>
-						{#if flowModule.value.type === 'rawscript'}
+					{#if flowModule.value.type === 'rawscript'}
+						<Pane minSize={20} size={60}>
 							<div on:mouseleave={() => reload(flowModule)} class="h-full overflow-auto">
 								<Editor
 									bind:websocketAlive
@@ -114,11 +119,11 @@
 									formatAction={() => reload(flowModule)}
 								/>
 							</div>
-						{/if}
-					</Pane>
-					<Pane minSize={40}>
+						</Pane>
+					{/if}
+					<Pane minSize={20} size={40}>
 						<div class="h-full overflow-auto bg-white">
-							<Tabs selected="preview">
+							<Tabs selected="inputs">
 								<Tab value="inputs">Inputs</Tab>
 								<Tab value="preview">Preview</Tab>
 								<Tab value="settings">Settings</Tab>
@@ -126,19 +131,15 @@
 								<svelte:fragment slot="content">
 									<div class="p-4 overflow-hidden">
 										<TabContent value="inputs">
-											<div class="w-full">
-												<div
-													class="bg-gray-50 border  shadow-blue-100 shadow-inner rounded border-gray-300 p-6"
-												>
-													<SchemaForm
-														{schema}
-														inputTransform={true}
-														importPath={indexes}
-														bind:pickableProperties={stepPropPicker.pickableProperties}
-														bind:args={flowModule.input_transforms}
-														bind:extraLib={stepPropPicker.extraLib}
-													/>
-												</div>
+											<div class="w-2/3">
+												<SchemaForm
+													{schema}
+													inputTransform={true}
+													importPath={indexes}
+													bind:pickableProperties={stepPropPicker.pickableProperties}
+													bind:args={flowModule.input_transforms}
+													bind:extraLib={stepPropPicker.extraLib}
+												/>
 											</div>
 										</TabContent>
 										<TabContent value="preview">
