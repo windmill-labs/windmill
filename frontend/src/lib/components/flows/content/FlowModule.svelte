@@ -112,7 +112,7 @@
 								<Editor
 									bind:websocketAlive
 									bind:this={editor}
-									class="h-full"
+									class="h-full px-2"
 									bind:code={flowModule.value.content}
 									deno={flowModule.value.language === RawScript.language.DENO}
 									automaticLayout={true}

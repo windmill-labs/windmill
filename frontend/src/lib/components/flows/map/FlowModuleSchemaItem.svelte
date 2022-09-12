@@ -1,13 +1,18 @@
 <script lang="ts">
 	import { classNames } from '$lib/utils'
+	import { faClose, faCross, faTrash, faTrashAlt } from '@fortawesome/free-solid-svg-icons'
+	import { createEventDispatcher } from 'svelte'
+	import Icon from 'svelte-awesome'
 
 	export let color: 'blue' | 'orange' = 'blue'
 	export let isFirst: boolean = false
 	export let isLast: boolean = false
 	export let hasLine: boolean = true
 	export let selected: boolean = false
+	export let deletable: boolean = false
 
 	const margin = isLast ? '' : isFirst ? 'mb-2' : 'my-2'
+	const dispatch = createEventDispatcher()
 </script>
 
 <div class="flex" on:click>
@@ -24,12 +29,21 @@
 	</div>
 	<div
 		class={classNames(
-			'border w-full rounded-md p-2 bg-white text-sm cursor-pointer ',
+			'border w-full rounded-md p-2 bg-white text-sm cursor-pointer flex justify-between items-center',
 			margin,
 			selected ? 'outline outline-offset-1 outline-2  outline-slate-900' : ''
 		)}
 	>
 		<slot name="content" />
+		{#if deletable}
+			<button
+				type="button"
+				on:click={() => dispatch('delete')}
+				class="text-gray-900 bg-white border border-gray-300 focus:outline-none hover:bg-gray-100 focus:ring-4 focus:ring-gray-200 font-medium rounded-md text-xs px-2 py-1"
+			>
+				<Icon data={faTrashAlt} scale={0.8} />
+			</button>
+		{/if}
 	</div>
 </div>
 

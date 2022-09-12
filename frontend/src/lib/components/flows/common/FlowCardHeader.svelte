@@ -10,16 +10,14 @@
 	class="flex items-center justify-between flex-wrap py-2 px-4 border-b bg-gray-50 shadow-sm h-12"
 >
 	{#if flowModule}
-		<span class="text-sm font-bold text-gray-900 flex flex-col">
-			<span class="text-xs shrink">
-				{#if 'path' in flowModule.value && flowModule.value.path}
-					<IconedPath path={flowModule.value.path} />
-				{:else if 'language' in flowModule.value && flowModule.value.language}
-					Inline {flowModule.value.language}
-				{:else}
-					Select a script
-				{/if}
-			</span>
+		<span class="text-xs font-bold text-gray-900 flex flex-col shrink">
+			{#if 'path' in flowModule.value && flowModule.value.path}
+				<IconedPath path={flowModule.value.path} />
+			{:else if 'language' in flowModule.value && flowModule.value.language}
+				Inline {flowModule.value.language}
+			{:else}
+				Select a script
+			{/if}
 		</span>
 	{/if}
 	{#if title}

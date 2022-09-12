@@ -11,6 +11,8 @@
 		faPen,
 		faPenAlt,
 		faPenRuler,
+		faPlug,
+		faPlus,
 		faSliders,
 		faToggleOff
 	} from '@fortawesome/free-solid-svg-icons'
@@ -21,13 +23,19 @@
 	export let flowModuleSchemas: FlowModuleSchema[]
 	export let prefix: string | undefined = undefined
 
+	const { select, selectedId } = getContext<FlowEditorContext>('FlowEditorContext')
+
 	function insertAtIndex(index: number): void {
 		flowModuleSchemas.splice(index, 0, emptyFlowModuleSchema())
 
 		flowModuleSchemas = flowModuleSchemas
+		select([prefix, String(index)].filter(Boolean).join('-'))
 	}
 
-	const { select, selectedId } = getContext<FlowEditorContext>('FlowEditorContext')
+	function removeAtIndex(index: number): void {
+		flowModuleSchemas.splice(index, 1)
+		flowModuleSchemas = flowModuleSchemas
+	}
 </script>
 
 <ul class="w-full">
@@ -76,9 +84,16 @@
 	{/if}
 
 	{#each flowModuleSchemas as flowModuleSchema, index (index)}
+		<button
+			on:click={() => insertAtIndex(index)}
+			type="button"
+			class="text-gray-900 m-0.5 my-1 bg-white border border-gray-300 focus:outline-none hover:bg-gray-100 focus:ring-4 focus:ring-gray-200 font-medium rounded-full text-sm w-6 h-6 flex items-center justify-center"
+		>
+			<Icon data={faPlus} scale={0.8} />
+		</button>
 		{#if flowModuleSchema.flowModule.value.type === 'forloopflow'}
 			<li>
-				<FlowModuleSchemaItem isFirst={true}>
+				<FlowModuleSchemaItem isFirst deletable on:delete={() => removeAtIndex(index)}>
 					<div slot="icon">
 						<span>{index}</span>
 					</div>
@@ -98,7 +113,7 @@
 					</div>
 				</div>
 
-				<FlowModuleSchemaItem isLast={true} color="orange">
+				<FlowModuleSchemaItem isLast color="orange">
 					<div slot="icon">
 						<Icon data={faFlagCheckered} scale={0.9} />
 					</div>
@@ -109,22 +124,14 @@
 			</li>
 		{:else}
 			<li>
-				<button on:click={() => insertAtIndex(index)}>
-					<div
-						class={classNames(
-							'flex items-center justify-center w-6 h-6 border rounded-full text-xs font-bold m-1',
-							'bg-gray-50 text-gray-500'
-						)}
-					>
-						+
-					</div>
-				</button>
 				<FlowModuleSchemaItem
 					on:click={() => select([prefix, String(index)].filter(Boolean).join('-'))}
 					color={prefix ? 'orange' : 'blue'}
 					isFirst={index === 0}
 					isLast={index === flowModuleSchemas.length - 1}
 					selected={$selectedId === [prefix, String(index)].filter(Boolean).join('-')}
+					deletable
+					on:delete={() => removeAtIndex(index)}
 				>
 					<div slot="icon">
 						<span>{index}</span>
@@ -142,15 +149,13 @@
 			</li>
 		{/if}
 	{/each}
-	<button on:click={() => insertAtIndex(flowModuleSchemas.length)}>
-		<div
-			class={classNames(
-				'flex items-center justify-center w-6 h-6 border rounded-full text-xs font-bold m-1',
-				'bg-gray-50 text-gray-500'
-			)}
-		>
-			+
-		</div>
+
+	<button
+		on:click={() => insertAtIndex(flowModuleSchemas.length)}
+		type="button"
+		class="text-gray-900 bg-white border m-0.5 mt-1 border-gray-300 focus:outline-none hover:bg-gray-100 focus:ring-4 focus:ring-gray-200 font-medium rounded-full text-sm w-6 h-6 flex items-center justify-center"
+	>
+		<Icon data={faPlus} scale={0.8} />
 	</button>
 </ul>
 
