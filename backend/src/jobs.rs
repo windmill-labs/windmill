@@ -1058,7 +1058,7 @@ pub enum JobPayload {
     ScriptHub { path: String },
     ScriptHash { hash: ScriptHash, path: String },
     Code(RawCode),
-    Dependencies { hash: ScriptHash, dependencies: Vec<String> },
+    Dependencies { hash: ScriptHash, dependencies: String, language: ScriptLang },
     Flow(String),
     RawFlow { value: FlowValue, path: Option<String> },
 }
@@ -1198,13 +1198,13 @@ pub async fn push<'c>(
             None,
             Some(language),
         ),
-        JobPayload::Dependencies { hash, dependencies } => (
+        JobPayload::Dependencies { hash, dependencies, language } => (
             Some(hash.0),
             None,
-            Some(dependencies.join("\n")),
+            Some(dependencies),
             JobKind::Dependencies,
             None,
-            Some(ScriptLang::Python3),
+            Some(language),
         ),
         JobPayload::RawFlow { value, path } => {
             (None, path, None, JobKind::FlowPreview, Some(value), None)

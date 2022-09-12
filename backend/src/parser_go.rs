@@ -12,7 +12,7 @@ use std::fmt;
 
 pub fn parse_go_sig(code: &str) -> crate::error::Result<MainArgSignature> {
     let filtered_code = filter_non_main(code);
-    let file = parse_file("inner.go", &filtered_code).map_err(to_anyhow)?;
+    let file = parse_file("main.go", &filtered_code).map_err(to_anyhow)?;
     if let Some(Decl::FuncDecl(func)) = file.decls.first() {
         let args = func
             .type_
@@ -20,16 +20,18 @@ pub fn parse_go_sig(code: &str) -> crate::error::Result<MainArgSignature> {
             .list
             .iter()
             .map(|param| {
+                let (otyp, typ) = match &param.type_ {
+                    Some(typ) => parse_go_typ(typ),
+                    None => (None, Typ::Unknown),
+                };
                 Arg {
                     name: param
                         .names
                         .as_ref()
                         .and_then(|x| x.first().map(|y| y.name.to_string()))
                         .unwrap_or_else(|| "".to_string()),
-                    typ: match &param.type_ {
-                        Some(typ) => parse_go_typ(typ),
-                        None => Typ::Unknown,
-                    },
+                    otyp,
+                    typ,
                     default: None,
                     has_default: false,
                 }
@@ -43,16 +45,25 @@ pub fn parse_go_sig(code: &str) -> crate::error::Result<MainArgSignature> {
     }
 }
 
-fn parse_go_typ(typ: &parser_go_ast::Expr) -> Typ {
+fn parse_go_typ(typ: &parser_go_ast::Expr) -> (Option<String>, Typ) {
     match typ {
-        Expr::Ident(Ident { name, .. }) => match *name {
-            "int" => Typ::Int,
-            "string" => Typ::Str(None),
-            "bool" => Typ::Bool,
-            _ => Typ::Unknown,
-        },
-        Expr::ArrayType(array_type) => Typ::List(Box::new(parse_go_typ(&*array_type.elt))),
-        _ => Typ::Unknown,
+        Expr::Ident(Ident { name, .. }) => (
+            Some((*name).to_string()),
+            match *name {
+                "int" => Typ::Int,
+                "string" => Typ::Str(None),
+                "bool" => Typ::Bool,
+                _ => Typ::Unknown,
+            },
+        ),
+        Expr::ArrayType(array_type) => {
+            let (inner_otyp, inner_typ) = parse_go_typ(&*array_type.elt);
+            (
+                inner_otyp.map(|x| format!("[]{x}")),
+                Typ::List(Box::new(inner_typ)),
+            )
+        }
+        _ => (None, Typ::Unknown),
     }
 }
 
@@ -83,20 +94,29 @@ func main(x int, y string, z bool, l []string) {
                 star_args: false,
                 star_kwargs: false,
                 args: vec![
-                    Arg { name: "x".to_string(), typ: Typ::Int, has_default: false, default: None },
                     Arg {
+                        otyp: Some("int".to_string()),
+                        name: "x".to_string(),
+                        typ: Typ::Int,
+                        has_default: false,
+                        default: None
+                    },
+                    Arg {
+                        otyp: Some("string".to_string()),
                         name: "y".to_string(),
                         typ: Typ::Str(None),
                         default: None,
                         has_default: false
                     },
                     Arg {
+                        otyp: Some("bool".to_string()),
                         name: "z".to_string(),
                         typ: Typ::Bool,
                         default: None,
                         has_default: false
                     },
                     Arg {
+                        otyp: Some("[]string".to_string()),
                         name: "l".to_string(),
                         typ: Typ::List(Box::new(Typ::Str(None))),
                         default: None,

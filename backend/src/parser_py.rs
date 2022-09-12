@@ -101,6 +101,7 @@ pub fn parse_python_signature(code: &str) -> error::Result<MainArgSignature> {
                         None
                     };
                     Arg {
+                        otyp: None,
                         name: x.arg,
                         typ: x.annotation.map_or(Typ::Unknown, |e| match *e {
                             Located { location: _, node: ExpressionType::Identifier { name } } => {
@@ -269,18 +270,21 @@ def main(test1: str, name: datetime.datetime = datetime.now(), byte: bytes = byt
                 star_kwargs: false,
                 args: vec![
                     Arg {
+                        otyp: None,
                         name: "test1".to_string(),
                         typ: Typ::Str(None),
                         default: None,
                         has_default: false
                     },
                     Arg {
+                        otyp: None,
                         name: "name".to_string(),
                         typ: Typ::Unknown,
                         default: Some(json!("<function call>")),
                         has_default: true
                     },
                     Arg {
+                        otyp: None,
                         name: "byte".to_string(),
                         typ: Typ::Bytes,
                         default: Some(json!("<function call>")),
@@ -316,18 +320,21 @@ def main(test1: str,
                 star_kwargs: false,
                 args: vec![
                     Arg {
+                        otyp: None,
                         name: "test1".to_string(),
                         typ: Typ::Str(None),
                         default: None,
                         has_default: false
                     },
                     Arg {
+                        otyp: None,
                         name: "name".to_string(),
                         typ: Typ::Unknown,
                         default: Some(json!("<function call>")),
                         has_default: true
                     },
                     Arg {
+                        otyp: None,
                         name: "byte".to_string(),
                         typ: Typ::Bytes,
                         default: Some(json!("<function call>")),
@@ -359,18 +366,21 @@ def main(test1: str,
                 star_kwargs: false,
                 args: vec![
                     Arg {
+                        otyp: None,
                         name: "test1".to_string(),
                         typ: Typ::Str(None),
                         default: None,
                         has_default: false
                     },
                     Arg {
+                        otyp: None,
                         name: "name".to_string(),
                         typ: Typ::Unknown,
                         default: Some(json!("<function call>")),
                         has_default: true
                     },
                     Arg {
+                        otyp: None,
                         name: "byte".to_string(),
                         typ: Typ::Bytes,
                         default: Some(json!("<function call>")),
