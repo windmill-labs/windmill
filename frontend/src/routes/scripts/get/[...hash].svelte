@@ -281,7 +281,7 @@
 				<div class="bg-orange-100 border-l-4 border-orange-500 text-orange-700 p-4" role="alert">
 					<p class="font-bold">Not HEAD</p>
 					<p>
-						This hash is not HEAD (latest non archived verson at this path) :
+						This hash is not HEAD (latest non-archived version at this path) :
 						<a href="/scripts/get/{topHash}">Go to the HEAD of this path</a>
 					</p>
 				</div>
@@ -345,6 +345,13 @@
 							href="//{$page.url
 								.hostname}/api/w/{$workspaceStore}/jobs/run_wait_result/p/{script?.path}"
 							>{$page.url.hostname}/api/w/{$workspaceStore}/jobs/run_wait_result/p/{script?.path}</a
+						></code
+					></pre>
+				<pre><code
+						><a
+							href="//{$page.url
+								.hostname}/api/w/{$workspaceStore}/jobs/run_wait_result/h/{script?.hash}"
+							>{$page.url.hostname}/api/w/{$workspaceStore}/jobs/run_wait_result/h/{script?.hash}</a
 						></code
 					></pre>
 			</div>
