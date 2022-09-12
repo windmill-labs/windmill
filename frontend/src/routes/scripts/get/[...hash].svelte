@@ -30,9 +30,6 @@
 		faGlobe,
 		faCodeFork
 	} from '@fortawesome/free-solid-svg-icons'
-	import Highlight from 'svelte-highlight'
-	import typescript from 'svelte-highlight/languages/typescript'
-	import python from 'svelte-highlight/languages/python'
 
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import ShareModal from '$lib/components/ShareModal.svelte'
@@ -44,7 +41,6 @@
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
 	import { onDestroy } from 'svelte'
 	import HighlightCode from '$lib/components/HighlightCode.svelte'
-	import { language } from '$lib/sql'
 
 	let script: Script | undefined
 	let topHash: string | undefined

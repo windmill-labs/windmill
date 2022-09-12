@@ -40,9 +40,6 @@
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import DisplayResult from '$lib/components/DisplayResult.svelte'
 
-	import Highlight from 'svelte-highlight'
-	import typescript from 'svelte-highlight/languages/typescript'
-	import python from 'svelte-highlight/languages/python'
 	import { userStore, workspaceStore } from '$lib/stores'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
 	import FlowStatusViewer from '$lib/components/FlowStatusViewer.svelte'
@@ -50,7 +47,6 @@
 	import TableCustom from '$lib/components/TableCustom.svelte'
 	import ArgInfo from '$lib/components/ArgInfo.svelte'
 	import HighlightCode from '$lib/components/HighlightCode.svelte'
-	import { language } from '$lib/sql'
 
 	let workspace_id_query: string | undefined = $page.url.searchParams.get('workspace') ?? undefined
 	let workspace_id: string | undefined

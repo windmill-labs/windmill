@@ -13,7 +13,7 @@
 	import TableCustom from '../TableCustom.svelte'
 	import Drawer from '../common/drawer/Drawer.svelte'
 	import { Highlight } from 'svelte-highlight'
-	import { json, python, typescript } from 'svelte-highlight/languages'
+	import { json } from 'svelte-highlight/languages'
 	import DrawerContent from '../common/drawer/DrawerContent.svelte'
 	import HighlightCode from '../HighlightCode.svelte'
 
