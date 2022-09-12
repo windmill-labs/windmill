@@ -2,10 +2,10 @@
 	import { getContext } from 'svelte'
 
 	import type { FlowEditorContext } from '../types'
-	import FlowFailuresRetries from './FlowFailuresRetries.svelte'
 	import FlowModuleWrapper from './FlowModuleWrapper.svelte'
 	import FlowSchedules from './FlowSchedules.svelte'
 	import FlowSettings from './FlowSettings.svelte'
+	import FlowInput from './FlowInput.svelte'
 
 	const { selectedId } = getContext<FlowEditorContext>('FlowEditorContext')
 </script>
@@ -14,8 +14,8 @@
 	<FlowSettings />
 {:else if $selectedId === 'schedules'}
 	<FlowSchedules />
-{:else if $selectedId === 'failures_retries'}
-	<FlowFailuresRetries />
+{:else if $selectedId === 'inputs'}
+	<FlowInput />
 {:else}
 	<FlowModuleWrapper />
 {/if}

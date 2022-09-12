@@ -34,7 +34,7 @@ export const isCopyFirstStepSchemaDisabled = derived(
 	flowStateStore,
 	(flowState: FlowState | undefined) => {
 		if (flowState) {
-			const firstModule = flowState[0]
+			const firstModule = flowState.modules[0]
 			if (!firstModule) {
 				return true
 			}

@@ -4,7 +4,17 @@
 	import { getContext } from 'svelte'
 	import FlowModuleSchemaItem from './FlowModuleSchemaItem.svelte'
 	import Icon from 'svelte-awesome'
-	import { faFlagCheckered } from '@fortawesome/free-solid-svg-icons'
+	import {
+		faClock,
+		faFire,
+		faFlagCheckered,
+		faHourglass,
+		faPen,
+		faPenAlt,
+		faPenRuler,
+		faSliders,
+		faToggleOff
+	} from '@fortawesome/free-solid-svg-icons'
 	import { emptyFlowModuleSchema } from '$lib/components/flows/flowStateUtils'
 	import { classNames } from '$lib/utils'
 
@@ -29,25 +39,13 @@
 			selected={$selectedId === 'settings'}
 		>
 			<div slot="icon">
-				<span>s</span>
+				<Icon data={faSliders} scale={0.8} />
 			</div>
 			<div slot="content">
 				<span>Settings</span>
 			</div>
 		</FlowModuleSchemaItem>
-		<FlowModuleSchemaItem
-			hasLine={false}
-			on:click={() => select('failures_retries')}
-			isFirst
-			selected={$selectedId === 'failures_retries'}
-		>
-			<div slot="icon">
-				<span>s</span>
-			</div>
-			<div slot="content">
-				<span>Failures and retries</span>
-			</div>
-		</FlowModuleSchemaItem>
+
 		<FlowModuleSchemaItem
 			hasLine={false}
 			on:click={() => select('schedules')}
@@ -55,14 +53,28 @@
 			selected={$selectedId === 'schedules'}
 		>
 			<div slot="icon">
-				<span>s</span>
+				<Icon data={faHourglass} scale={0.8} />
 			</div>
 			<div slot="content">
 				<span>Schedules</span>
 			</div>
 		</FlowModuleSchemaItem>
 		<div class="border-dashed border-b border-gray-400 mb-2" />
+		<FlowModuleSchemaItem
+			hasLine={true}
+			on:click={() => select('inputs')}
+			isFirst
+			selected={$selectedId === 'inputs'}
+		>
+			<div slot="icon">
+				<Icon data={faPen} scale={0.8} />
+			</div>
+			<div slot="content">
+				<span>Inputs</span>
+			</div>
+		</FlowModuleSchemaItem>
 	{/if}
+
 	{#each flowModuleSchemas as flowModuleSchema, index (index)}
 		{#if flowModuleSchema.flowModule.value.type === 'forloopflow'}
 			<li>
@@ -97,6 +109,16 @@
 			</li>
 		{:else}
 			<li>
+				<button on:click={() => insertAtIndex(index)}>
+					<div
+						class={classNames(
+							'flex items-center justify-center w-6 h-6 border rounded-full text-xs font-bold m-1',
+							'bg-gray-50 text-gray-500'
+						)}
+					>
+						+
+					</div>
+				</button>
 				<FlowModuleSchemaItem
 					on:click={() => select([prefix, String(index)].filter(Boolean).join('-'))}
 					color={prefix ? 'orange' : 'blue'}
@@ -108,32 +130,28 @@
 						<span>{index}</span>
 					</div>
 					<div slot="content">
-						<span>{index + 1}</span>
+						<span
+							>{flowModuleSchema.flowModule.value.path ||
+								flowModuleSchema.flowModule.summary ||
+								(flowModuleSchema.flowModule.value.type === 'rawscript'
+									? `Inline ${flowModuleSchema.flowModule.value.language}`
+									: 'Select a script')}</span
+						>
 					</div>
 				</FlowModuleSchemaItem>
-				<button on:click={() => insertAtIndex(index + 1)}>
-					<div
-						class={classNames(
-							'flex items-center justify-center w-6 h-6 border rounded-full text-xs font-bold',
-							'bg-slate-300 text-slate-600'
-						)}
-					>
-						+
-					</div>
-				</button>
 			</li>
 		{/if}
 	{/each}
-	{#if flowModuleSchemas.length === 0}
-		<button on:click={() => insertAtIndex(0)}>
-			<div
-				class={classNames(
-					'flex items-center justify-center w-6 h-6 border rounded-full text-xs font-bold',
-					'bg-slate-300 text-slate-600'
-				)}
-			/>
-		</button>
-	{/if}
+	<button on:click={() => insertAtIndex(flowModuleSchemas.length)}>
+		<div
+			class={classNames(
+				'flex items-center justify-center w-6 h-6 border rounded-full text-xs font-bold m-1',
+				'bg-gray-50 text-gray-500'
+			)}
+		>
+			+
+		</div>
+	</button>
 </ul>
 
 <style>

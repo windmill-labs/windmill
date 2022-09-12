@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Pane, Splitpanes } from 'svelte-splitpanes'
+	import { VSplitPane } from 'svelte-split-pane'
 
 	import type { Schema } from '$lib/common'
 	import Tab from '$lib/components/common/tabs/Tab.svelte'
@@ -8,7 +8,7 @@
 	import Editor from '$lib/components/Editor.svelte'
 	import EditorBar from '$lib/components/EditorBar.svelte'
 	import FlowPreview from '$lib/components/FlowPreview.svelte'
-	import FlowInputs from '$lib/components/flows/FlowInputs.svelte'
+	import FlowInputs from './FlowInputs.svelte'
 	import { flowStateStore, type FlowModuleSchema } from '$lib/components/flows/flowState'
 	import {
 		createInlineScriptModule,
@@ -67,7 +67,7 @@
 </script>
 
 <div class="flex flex-col h-full ">
-	<FlowCard title={indexes}>
+	<FlowCard {flowModule}>
 		<svelte:fragment slot="header">
 			<div class="flex-shrink-0">
 				<FlowModuleHeader
@@ -105,9 +105,9 @@
 			{/if}
 
 			<div class="overflow-hidden flex-grow">
-				<Splitpanes horizontal={true}>
-					{#if flowModule.value.type === 'rawscript'}
-						<Pane minSize={20} size={60}>
+				<VSplitPane topPanelSize="50%" downPanelSize="50%">
+					<top slot="top">
+						{#if flowModule.value.type === 'rawscript'}
 							<div on:mouseleave={() => reload(flowModule)} class="h-full overflow-auto">
 								<Editor
 									bind:websocketAlive
@@ -119,9 +119,10 @@
 									formatAction={() => reload(flowModule)}
 								/>
 							</div>
-						</Pane>
-					{/if}
-					<Pane minSize={20} size={40}>
+						{/if}
+					</top>
+
+					<down slot="down">
 						<div class="h-full overflow-auto bg-white">
 							<Tabs selected="inputs">
 								<Tab value="inputs">Inputs</Tab>
@@ -145,15 +146,23 @@
 										<TabContent value="preview">
 											<FlowPreview flow={$flowStore} {i} {schema} />
 										</TabContent>
-										<TabContent value="preview">
-											<span />
+										<TabContent value="settings">
+											{#if ('path' in flowModule.value && flowModule.value.path) || ('language' in flowModule.value && flowModule.value.language)}
+												<input
+													on:click|stopPropagation={() => undefined}
+													class="overflow-x-auto"
+													type="text"
+													bind:value={flowModule.summary}
+													placeholder="Summary"
+												/>
+											{/if}
 										</TabContent>
 									</div>
 								</svelte:fragment>
 							</Tabs>
 						</div>
-					</Pane>
-				</Splitpanes>
+					</down>
+				</VSplitPane>
 			</div>
 		{/if}
 	</FlowCard>

@@ -1,6 +1,7 @@
 <!-- Flow Editor: Top level component -->
 <script lang="ts">
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
+	import { HSplitPane, VSplitPane } from 'svelte-split-pane'
 
 	import { workspaceStore } from '$lib/stores'
 	import { setContext } from 'svelte'
@@ -49,16 +50,16 @@
 <FlowEditorHeader />
 
 <div class="h-full overflow-hidden">
-	<Splitpanes>
-		<Pane minSize={20} size={20}>
+	<HSplitPane leftPaneSize="40%" rightPaneSize="60%" minLeftPaneSize="20%" minRightPaneSize="20%">
+		<left slot="left" class="h-full">
 			<div class="h-full overflow-auto p-4 ">
 				<FlowModuleSchemaMap bind:flowModuleSchemas={$flowStateStore.modules} />
 			</div>
-		</Pane>
-		<Pane minSize={40} size={60}>
+		</left>
+		<right slot="right" class="h-full">
 			<div class="h-full overflow-auto bg-white ">
 				<FlowEditorPanel />
 			</div>
-		</Pane>
-	</Splitpanes>
+		</right>
+	</HSplitPane>
 </div>
