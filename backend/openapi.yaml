@@ -2530,6 +2530,68 @@ paths:
               schema:
                 type: string
 
+  /w/{workspace}/jobs/resume/{id}:
+    get:
+      summary: resume a job for a suspended flow
+      operationId: resumeSuspendedJob
+      tags:
+        - job
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/JobId"
+        - name: payload
+          in: query
+          schema:
+            type: object
+      responses:
+        "201"
+    post:
+      summary: resume a job for a suspended flow
+      operationId: resumeSuspendedJob
+      tags:
+        - job
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/JobId"
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "201"
+
+  /w/{workspace}/jobs/cancel/{id}:
+    get:
+      summary: cancel a job for a suspended flow
+      operationId: cancelSuspendedJob
+      tags:
+        - job
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/JobId"
+        - name: payload
+          in: query
+          schema:
+            type: object
+      responses:
+        "201"
+    post:
+      summary: cancel a job for a suspended flow
+      operationId: cancelSuspendedJob
+      tags:
+        - job
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/JobId"
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "201"
+
   /schedules/preview:
     post:
       summary: preview schedule
