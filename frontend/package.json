@@ -26,7 +26,7 @@
 		"@zerodevx/svelte-toast": "^0.7.2",
 		"autoprefixer": "^10.4.8",
 		"cssnano": "^5.1.13",
-		"eslint": "^8.23.0",
+		"eslint": "^8.23.1",
 		"eslint-config-prettier": "^8.3.0",
 		"eslint-plugin-svelte3": "^4.0.0",
 		"flowbite": "^1.5.3",
@@ -61,7 +61,7 @@
 		"fuse.js": "^6.4.6",
 		"highlight.js": "^11.5.1",
 		"monaco-editor": "^0.34.0",
-		"monaco-editor-workers": "^0.34.1",
+		"monaco-editor-workers": "^0.34.2",
 		"monaco-languageclient": "3.0.1",
 		"vscode-ws-jsonrpc": "^1.0.2"
 	}
