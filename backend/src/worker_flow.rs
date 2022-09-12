@@ -568,14 +568,21 @@ async fn push_next_flow_job(
             .await
             .context("lock flow in queue")?;
 
-            resume_messages = sqlx::query_scalar!(
-                "SELECT value FROM resume_job WHERE job = $1 ORDER BY created_at ASC",
+            let resumes = sqlx::query!(
+                "SELECT value, is_cancel FROM resume_job WHERE job = $1 ORDER BY created_at ASC",
                 last
             )
             .fetch_all(&mut tx)
             .await?;
 
-            if resume_messages.len() >= count as usize {
+            let is_cancelled = resumes
+                .iter()
+                .find(|r| r.is_cancel)
+                .map(|r| r.value.clone());
+
+            resume_messages.extend(resumes.into_iter().map(|r| r.value));
+
+            if is_cancelled.is_none() && resume_messages.len() >= count as usize {
                 /* If we are woken up after suspending, last_result will be the flow args, but we
                  * should use the result from the last job */
                 if let FlowStatusModule::WaitingForEvents { .. } = &status_module {
@@ -590,7 +597,9 @@ async fn push_next_flow_job(
                 tx.commit().await?;
 
             /* not enough messages to do this job, "park"/suspend until there are */
-            } else if matches!(&status_module, FlowStatusModule::WaitingForPriorSteps) {
+            } else if is_cancelled.is_none()
+                && matches!(&status_module, FlowStatusModule::WaitingForPriorSteps)
+            {
                 sqlx::query(
                     "
                     UPDATE queue
@@ -610,15 +619,21 @@ async fn push_next_flow_job(
                 tx.commit().await?;
                 return Ok(());
 
-            /* we're WaitingForEvents already and we don't have enough messages; we timed out */
+            /* cancelled or we're WaitingForEvents but we don't have enough messages (timed out) */
             } else {
                 tx.commit().await?;
 
                 let success = false;
                 let skipped = false;
-                let logs = "Timed out waiting to be resumed".to_string();
+                let logs = if is_cancelled.is_some() {
+                    "Cancelled while waiting to be resumed"
+                } else {
+                    "Timed out waiting to be resumed"
+                }
+                .to_string();
+                let result = is_cancelled.unwrap_or(json!({ "error": logs }));
                 let _uuid =
-                    add_completed_job(db, &flow_job, success, skipped, json!([]), logs).await?;
+                    add_completed_job(db, &flow_job, success, skipped, result, logs).await?;
                 postprocess_queued_job(
                     false,
                     flow_job.schedule_path.clone(),

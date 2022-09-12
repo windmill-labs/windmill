@@ -67,8 +67,10 @@ pub fn workspaced_service() -> Router {
 
 pub fn global_service() -> Router {
     Router::new()
-        .route("/resume/:id", get(resume_job))
-        .route("/resume/:id", post(resume_job))
+        .route("/resume/:id", get(resume_suspended_job))
+        .route("/resume/:id", post(resume_suspended_job))
+        .route("/cancel/:id", get(cancel_suspended_job))
+        .route("/cancel/:id", post(cancel_suspended_job))
 }
 
 #[derive(Debug, sqlx::FromRow, Serialize, Clone)]
@@ -912,39 +914,74 @@ pub async fn get_queued_job<'c>(
     Ok(r)
 }
 
-pub async fn resume_job(
+pub async fn resume_suspended_job(
     /* unauthed */
     Extension(db): Extension<DB>,
-    Path((_, to_resume)): Path<(String, Uuid)>,
+    Path((_, job)): Path<(String, Uuid)>,
     QueryOrBody(value): QueryOrBody<serde_json::Value>,
 ) -> error::Result<StatusCode> {
+    NewResumeJob { job, value, is_cancel: false }
+        .insert(&db)
+        .await?;
+    Ok(StatusCode::CREATED)
+}
+
+pub async fn cancel_suspended_job(
+    /* unauthed */
+    Extension(db): Extension<DB>,
+    Path((_, job)): Path<(String, Uuid)>,
+    QueryOrBody(value): QueryOrBody<serde_json::Value>,
+) -> error::Result<StatusCode> {
+    NewResumeJob { job, value, is_cancel: true }
+        .insert(&db)
+        .await?;
+    Ok(StatusCode::CREATED)
+}
+
+struct NewResumeJob {
+    pub job: Uuid,
+    pub value: Value,
+    pub is_cancel: bool,
+}
+
+impl NewResumeJob {
+    async fn insert(self, db: &DB) -> error::Result<()> {
+        insert_resume_job(db, self).await
+    }
+}
+
+async fn insert_resume_job(db: &DB, new: NewResumeJob) -> error::Result<()> {
     let mut tx = db.begin().await?;
 
     let flow = sqlx::query!(
         r#"
-        WITH flow AS
-            ( SELECT id, flow_status, suspend
-                FROM queue
-               WHERE id = ( SELECT parent_job FROM queue WHERE id = $2
-                            UNION
-                            SELECT parent_job from completed_job WHERE id = $2 )
-          FOR UPDATE )
-
-           , resume AS
-         ( INSERT INTO resume_job
-                     (id, job, flow, value)
-              SELECT $1, $2, flow.id, $3
-                FROM flow )
-
-        SELECT * FROM flow
+        SELECT id, flow_status, suspend
+          FROM queue
+         WHERE id = ( SELECT parent_job FROM queue WHERE id = $1
+                      UNION
+                      SELECT parent_job from completed_job WHERE id = $1 )
+           FOR UPDATE
         "#,
-        Uuid::from(Ulid::new()),
-        to_resume,
-        value,
+        new.job,
     )
     .fetch_optional(&mut tx)
     .await?
-    .or_else_not_found(to_resume)?;
+    .or_else_not_found(new.job)?;
+
+    sqlx::query!(
+        r#"
+        INSERT INTO resume_job
+                    (id, job, flow, value, is_cancel)
+             VALUES ($1, $2, $3, $4, $5)
+        "#,
+        Uuid::from(Ulid::new()),
+        new.job,
+        flow.id,
+        new.value,
+        new.is_cancel,
+    )
+    .execute(&mut tx)
+    .await?;
 
     /* If the flow is currently waiting to be resumed (`FlowStatusModule::WaitingForEvents`)
      * the suspend column must be set to the number of resume messages waited on.
@@ -955,15 +992,15 @@ pub async fn resume_job(
      * entering WaitingForEvents.  Then this message arrives but the job isn't in WaitingForEvents
      * yet so the suspend counter isn't updated.  Then the job enters WaitingForEvents expecting
      * one event to arrive based on the count that is no longer correct. */
-    if let Some(suspend) = flow.suspend.checked_sub(1) {
+    if let Some(suspend) = (0 < flow.suspend).then(|| flow.suspend - 1) {
         let status =
             serde_json::from_value::<FlowStatus>(flow.flow_status.context("no flow status")?)
                 .context("deserialize flow status")?;
-        if matches!(status.current_step(), Some(FlowStatusModule::WaitingForEvents { job, .. }) if job == &to_resume)
+        if matches!(status.current_step(), Some(FlowStatusModule::WaitingForEvents { job, .. }) if job == &new.job)
         {
             sqlx::query!(
                 "UPDATE queue SET suspend = $1 WHERE id = $2",
-                suspend,
+                if new.is_cancel { 0 } else { suspend },
                 flow.id,
             )
             .execute(&mut tx)
@@ -972,8 +1009,7 @@ pub async fn resume_job(
     }
 
     tx.commit().await?;
-
-    Ok(StatusCode::CREATED)
+    Ok(())
 }
 
 #[derive(Serialize)]
