@@ -56,7 +56,7 @@
 	},
 	"type": "module",
 	"dependencies": {
-		"@fortawesome/free-brands-svg-icons": "^6.1.2",
+		"@fortawesome/free-brands-svg-icons": "^6.2.0",
 		"@fortawesome/free-solid-svg-icons": "^6.1.2",
 		"fuse.js": "^6.4.6",
 		"highlight.js": "^11.5.1",
