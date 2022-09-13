@@ -12,8 +12,8 @@
 
 {#if $selectedId === 'settings'}
 	<FlowSettings />
-{:else if $selectedId === 'schedules'}
-	<FlowSchedules />
+{:else if $selectedId === 'settings-schedule'}
+	<FlowSettings defaultTab="schedule" />
 {:else if $selectedId === 'inputs'}
 	<FlowInput />
 {:else}

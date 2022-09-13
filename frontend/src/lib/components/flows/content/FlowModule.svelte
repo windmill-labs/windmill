@@ -105,7 +105,10 @@
 			{/if}
 
 			<div class="overflow-hidden flex-grow">
-				<VSplitPane topPanelSize="50%" downPanelSize="50%">
+				<VSplitPane
+					topPanelSize={flowModule.value.type === 'rawscript' ? '50%' : '0%'}
+					downPanelSize={flowModule.value.type === 'rawscript' ? '50%' : '100%'}
+				>
 					<top slot="top">
 						{#if flowModule.value.type === 'rawscript'}
 							<div on:mouseleave={() => reload(flowModule)} class="h-full overflow-auto">

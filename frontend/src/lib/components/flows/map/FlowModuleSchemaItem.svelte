@@ -11,7 +11,7 @@
 	export let selected: boolean = false
 	export let deletable: boolean = false
 
-	const margin = isLast ? '' : isFirst ? 'mb-2' : 'my-2'
+	const margin = isLast ? '' : isFirst ? 'mb-0.5' : 'my-0.5'
 	const dispatch = createEventDispatcher()
 </script>
 
@@ -20,7 +20,7 @@
 		<div
 			class={classNames(
 				'flex items-center justify-center w-6 h-6 border rounded-full text-xs font-bold',
-				color === 'blue' ? 'bg-blue-300 text-blue-600' : 'bg-orange-300 text-orange-600',
+				color === 'blue' ? 'bg-blue-100 text-blue-400' : 'bg-orange-100 text-orange-400',
 				margin
 			)}
 		>
@@ -29,7 +29,7 @@
 	</div>
 	<div
 		class={classNames(
-			'border w-full rounded-md p-2 bg-white text-sm cursor-pointer flex justify-between items-center',
+			'border w-full rounded-md p-2 bg-white text-sm cursor-pointer flex justify-between items-center space-x-2',
 			margin,
 			selected ? 'outline outline-offset-1 outline-2  outline-slate-900' : ''
 		)}

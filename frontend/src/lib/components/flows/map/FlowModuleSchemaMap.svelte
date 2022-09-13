@@ -40,38 +40,21 @@
 
 <ul class="w-full">
 	{#if prefix === undefined}
-		<FlowModuleSchemaItem
-			hasLine={false}
+		<div
 			on:click={() => select('settings')}
-			isFirst
-			selected={$selectedId === 'settings'}
+			class={classNames(
+				'border w-full rounded-md p-2 bg-white text-sm cursor-pointer flex items-center mb-4',
+				$selectedId === 'settings' ? 'outline outline-offset-1 outline-2  outline-slate-900' : ''
+			)}
 		>
-			<div slot="icon">
-				<Icon data={faSliders} scale={0.8} />
-			</div>
-			<div slot="content">
-				<span>Settings</span>
-			</div>
-		</FlowModuleSchemaItem>
+			<Icon data={faSliders} class="mr-2" />
+			<span class="font-bold">Settings</span>
+		</div>
 
 		<FlowModuleSchemaItem
-			hasLine={false}
-			on:click={() => select('schedules')}
-			isFirst
-			selected={$selectedId === 'schedules'}
-		>
-			<div slot="icon">
-				<Icon data={faHourglass} scale={0.8} />
-			</div>
-			<div slot="content">
-				<span>Schedules</span>
-			</div>
-		</FlowModuleSchemaItem>
-		<div class="border-dashed border-b border-gray-400 mb-2" />
-		<FlowModuleSchemaItem
-			hasLine={true}
 			on:click={() => select('inputs')}
 			isFirst
+			hasLine
 			selected={$selectedId === 'inputs'}
 		>
 			<div slot="icon">
@@ -87,7 +70,7 @@
 		<button
 			on:click={() => insertAtIndex(index)}
 			type="button"
-			class="text-gray-900 m-0.5 my-1 bg-white border border-gray-300 focus:outline-none hover:bg-gray-100 focus:ring-4 focus:ring-gray-200 font-medium rounded-full text-sm w-6 h-6 flex items-center justify-center"
+			class="text-gray-900 m-0.5 my-0.5 bg-white border border-gray-300 focus:outline-none hover:bg-gray-100 focus:ring-4 focus:ring-gray-200 font-medium rounded-full text-sm w-6 h-6 flex items-center justify-center"
 		>
 			<Icon data={faPlus} scale={0.8} />
 		</button>
@@ -136,14 +119,15 @@
 					<div slot="icon">
 						<span>{index}</span>
 					</div>
-					<div slot="content">
-						<span
-							>{flowModuleSchema.flowModule.value.path ||
+					<div slot="content" class="w-full">
+						<input
+							bind:value={flowModuleSchema.flowModule.summary}
+							placeholder={flowModuleSchema.flowModule.value.path ||
 								flowModuleSchema.flowModule.summary ||
 								(flowModuleSchema.flowModule.value.type === 'rawscript'
 									? `Inline ${flowModuleSchema.flowModule.value.language}`
-									: 'Select a script')}</span
-						>
+									: 'Select a script')}
+						/>
 					</div>
 				</FlowModuleSchemaItem>
 			</li>
@@ -153,7 +137,7 @@
 	<button
 		on:click={() => insertAtIndex(flowModuleSchemas.length)}
 		type="button"
-		class="text-gray-900 bg-white border m-0.5 mt-1 border-gray-300 focus:outline-none hover:bg-gray-100 focus:ring-4 focus:ring-gray-200 font-medium rounded-full text-sm w-6 h-6 flex items-center justify-center"
+		class="text-gray-900 bg-white border m-0.5 border-gray-300 focus:outline-none hover:bg-gray-100 focus:ring-4 focus:ring-gray-200 font-medium rounded-full text-sm w-6 h-6 flex items-center justify-center"
 	>
 		<Icon data={faPlus} scale={0.8} />
 	</button>

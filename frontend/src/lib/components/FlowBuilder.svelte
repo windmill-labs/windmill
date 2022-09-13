@@ -26,8 +26,6 @@
 	export let initialPath: string = ''
 	let pathError = ''
 
-	let previewOpen = false
-
 	let scheduleArgs: Record<string, any> = {}
 	let previewArgs: Record<string, any> = {}
 	let scheduleEnabled: boolean = false
@@ -214,9 +212,3 @@
 		<p>Loading</p>
 	{/if}
 </div>
-
-{#if $flowStateStore && $flowStore}
-	<Drawer bind:open={previewOpen} size="800px">
-		<FlowPreviewContent bind:args={previewArgs} on:close={() => (previewOpen = !previewOpen)} />
-	</Drawer>
-{/if}
