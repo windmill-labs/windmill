@@ -30,9 +30,6 @@
 		faGlobe,
 		faCodeFork
 	} from '@fortawesome/free-solid-svg-icons'
-	import Highlight from 'svelte-highlight'
-	import typescript from 'svelte-highlight/languages/typescript'
-	import python from 'svelte-highlight/languages/python'
 
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import ShareModal from '$lib/components/ShareModal.svelte'
@@ -43,6 +40,7 @@
 	import Dropdown from '$lib/components/Dropdown.svelte'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
 	import { onDestroy } from 'svelte'
+	import HighlightCode from '$lib/components/HighlightCode.svelte'
 
 	let script: Script | undefined
 	let topHash: string | undefined
@@ -384,11 +382,7 @@
 			</div>
 			<div>
 				<h3 class="text-gray-700 pb-1 mb-3 border-b">Code</h3>
-				{#if script.language == 'python3'}
-					<Highlight language={python} code={script.content} />
-				{:else if script.language == 'deno'}
-					<Highlight language={typescript} code={script.content} />
-				{/if}
+				<HighlightCode language={script.language} code={script.content} />
 			</div>
 			<div>
 				<h3 class="text-gray-700 pb-1 mb-3 border-b">Dependencies lock file</h3>

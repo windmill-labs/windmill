@@ -89,11 +89,15 @@ async fn main() -> anyhow::Result<()> {
                     .ok()
                     .and_then(|x| x.parse::<bool>().ok())
                     .unwrap_or(false);
+                let keep_job_dir = std::env::var("KEEP_JOB_DIR")
+                    .ok()
+                    .and_then(|x| x.parse::<bool>().ok())
+                    .unwrap_or(false);
 
                 tracing::info!(
                     "DISABLE_NSJAIL: {disable_nsjail}, DISABLE_NUSER: {disable_nuser}, BASE_URL: \
                      {base_url}, SLEEP_QUEUE: {sleep_queue}, NUM_WORKERS: {num_workers}, TIMEOUT: \
-                     {timeout}"
+                     {timeout}, KEEP_JOB_DIR: {keep_job_dir}"
                 );
                 windmill::run_workers(
                     db.clone(),
@@ -101,7 +105,13 @@ async fn main() -> anyhow::Result<()> {
                     timeout,
                     num_workers,
                     sleep_queue,
-                    WorkerConfig { disable_nsjail, disable_nuser, base_internal_url, base_url },
+                    WorkerConfig {
+                        disable_nsjail,
+                        disable_nuser,
+                        base_internal_url,
+                        base_url,
+                        keep_job_dir,
+                    },
                     rx.resubscribe(),
                 )
                 .await?;

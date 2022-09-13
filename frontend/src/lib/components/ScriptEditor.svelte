@@ -2,7 +2,7 @@
 	import type { Schema } from '$lib/common'
 	import { CompletedJob, Job, JobService } from '$lib/gen'
 	import { userStore, workspaceStore } from '$lib/stores'
-	import { classNames, emptySchema } from '$lib/utils'
+	import { classNames, emptySchema, scriptLangToEditorLang } from '$lib/utils'
 	import {
 		faCheck,
 		faExclamationTriangle,
@@ -253,7 +253,7 @@
 							inferSchema()
 						}}
 						class="flex flex-1 h-full"
-						deno={lang == 'deno'}
+						lang={scriptLangToEditorLang(lang)}
 						automaticLayout={true}
 					/>
 				</div>

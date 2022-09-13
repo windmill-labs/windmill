@@ -12,9 +12,7 @@
 	import { Button } from 'flowbite-svelte'
 	import { createEventDispatcher } from 'svelte'
 	import Icon from 'svelte-awesome'
-	import { Highlight } from 'svelte-highlight'
-	import python from 'svelte-highlight/languages/python'
-	import typescript from 'svelte-highlight/languages/typescript'
+	import HighlightCode from '../HighlightCode.svelte'
 	import IconedPath from '../IconedPath.svelte'
 	import Modal from '../Modal.svelte'
 	import { isEmptyFlowModule } from './flowStateUtils'
@@ -27,7 +25,7 @@
 
 	let modalViewer: Modal
 	let modalViewerContent = ''
-	let modalViewerLanguage: 'deno' | 'python3' = 'deno'
+	let modalViewerLanguage: 'deno' | 'python3' | 'go' = 'deno'
 
 	async function viewCode() {
 		if (mod.value.type == 'script') {
@@ -113,10 +111,6 @@
 <Modal bind:this={modalViewer}>
 	<div slot="title">Script {'path' in mod?.value ? mod?.value.path : ''}</div>
 	<div slot="content">
-		{#if modalViewerLanguage === 'python3'}
-			<Highlight language={python} code={modalViewerContent} />
-		{:else if modalViewerLanguage === 'deno'}
-			<Highlight language={typescript} code={modalViewerContent} />
-		{/if}
+		<HighlightCode language={modalViewerLanguage} code={modalViewerContent} />
 	</div>
 </Modal>

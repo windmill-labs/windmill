@@ -84,11 +84,6 @@ mount {
     options: "size=500000000"
 }
 
-mount {
-    src: "{JOB_DIR}/download.config.proto"
-    dst: "/user/download.config.proto"
-    is_bind: true
-}
 
 mount {
     src: "{JOB_DIR}/requirements.txt"
@@ -105,7 +100,7 @@ mount {
 
 
 mount {
-    src: "{WORKER_DIR}/download_deps.sh"
+    src: "{WORKER_DIR}/download_deps.py.sh"
     dst: "/download_deps.sh"
     is_bind: true
 }
