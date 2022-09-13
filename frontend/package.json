@@ -63,6 +63,6 @@
 		"monaco-editor": "^0.34.0",
 		"monaco-editor-workers": "^0.34.2",
 		"monaco-languageclient": "3.0.1",
-		"vscode-ws-jsonrpc": "^1.0.2"
+		"vscode-ws-jsonrpc": "^2.0.0"
 	}
 }
