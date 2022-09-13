@@ -24,7 +24,7 @@
 		"@typescript-eslint/eslint-plugin": "^5.37.0",
 		"@typescript-eslint/parser": "^5.36.2",
 		"@zerodevx/svelte-toast": "^0.7.2",
-		"autoprefixer": "^10.4.8",
+		"autoprefixer": "^10.4.9",
 		"cssnano": "^5.1.13",
 		"eslint": "^8.23.1",
 		"eslint-config-prettier": "^8.3.0",
@@ -63,6 +63,6 @@
 		"monaco-editor": "^0.34.0",
 		"monaco-editor-workers": "^0.34.2",
 		"monaco-languageclient": "3.0.1",
-		"vscode-ws-jsonrpc": "^1.0.2"
+		"vscode-ws-jsonrpc": "^2.0.0"
 	}
 }
