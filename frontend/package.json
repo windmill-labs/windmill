@@ -30,7 +30,7 @@
 		"eslint-config-prettier": "^8.3.0",
 		"eslint-plugin-svelte3": "^4.0.0",
 		"flowbite": "^1.5.3",
-		"flowbite-svelte": "^0.26.11",
+		"flowbite-svelte": "^0.26.18",
 		"openapi-typescript-codegen": "^0.23.0",
 		"path-browserify": "^1.0.1",
 		"postcss": "^8.4.16",
@@ -62,7 +62,7 @@
 		"highlight.js": "^11.5.1",
 		"monaco-editor": "^0.34.0",
 		"monaco-editor-workers": "^0.34.2",
-		"monaco-languageclient": "3.0.1",
+		"monaco-languageclient": "4.0.0",
 		"vscode-ws-jsonrpc": "^2.0.0"
 	}
 }
