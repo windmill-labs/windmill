@@ -1807,6 +1807,32 @@ mod tests {
     }
 
     #[sqlx::test(fixtures("base"))]
+    async fn test_go_job(db: DB) {
+        initialize_tracing().await;
+
+        let content = r#"
+import "fmt"
+
+func main(derp string) (string, error) {
+	fmt.Println("Hello, 世界")
+	return fmt.Sprintf("hello %s", derp), nil
+}
+        "#
+        .to_owned();
+
+        let result = RunJob::from(JobPayload::Code(RawCode {
+            content,
+            path: None,
+            language: ScriptLang::Go,
+        }))
+        .arg("derp", json!("world"))
+        .wait_until_complete(&db)
+        .await;
+
+        assert_eq!(result, serde_json::json!("hello world"));
+    }
+
+    #[sqlx::test(fixtures("base"))]
     async fn test_python_job(db: DB) {
         initialize_tracing().await;
 
