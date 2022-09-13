@@ -86,12 +86,19 @@
 			</div>
 
 			<h3 class="text-lg leading-6 font-bold text-gray-900">
-				Flow preview - {previewMode === 'upTo'
+				Test preview - {previewMode === 'upTo'
 					? `up to step ${$selectedId.split('-').join(',')}`
 					: ' whole flow'}
 			</h3>
 		</div>
-		<Button color="alternative" on:click={() => dispatch('close')}>
+		<Button
+			color="alternative"
+			on:click={() => {
+				jobId = undefined
+				intervalState = 'idle'
+				dispatch('close')
+			}}
+		>
 			<Icon data={faClose} />
 		</Button>
 	</div>

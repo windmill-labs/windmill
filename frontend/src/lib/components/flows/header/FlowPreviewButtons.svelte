@@ -1,40 +1,43 @@
 <script lang="ts">
 	import Drawer from '$lib/components/common/drawer/Drawer.svelte'
 	import FlowPreviewContent from '$lib/components/FlowPreviewContent.svelte'
+	import { faPlay } from '@fortawesome/free-solid-svg-icons'
 
 	import { getContext } from 'svelte'
+	import Icon from 'svelte-awesome'
 	import type { FlowEditorContext } from '../types'
 	const { selectedId } = getContext<FlowEditorContext>('FlowEditorContext')
 	let previewOpen = false
 	let previewMode: 'upTo' | 'whole' = 'whole'
 
-	$: upToDisabled = ['settings', 'inputs', 'schedules'].includes($selectedId)
+	$: upToDisabled = ['settings', 'settings-schedule', 'inputs', 'schedules'].includes($selectedId)
 </script>
 
-<span class=" inline-flex  items-center">
-	<span class="text-md mr-2">Preview:</span>
+<span class="space-x-2 flex h-8">
 	<button
+		type="button"
 		disabled={upToDisabled}
 		on:click={() => {
 			previewMode = 'upTo'
 
 			previewOpen = !previewOpen
 		}}
-		type="button"
-		class="relative inline-flex items-center rounded-l-md border border-gray-300 bg-white px-2 py-1 text-sm font-medium text-gray-700 hover:bg-gray-50 focus:z-10 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+		class="flex items-center text-gray-900 bg-white border border-gray-300 focus:outline-none hover:bg-gray-100 focus:ring-4 focus:ring-gray-200 font-medium rounded-lg text-sm px-4 py-2"
 	>
-		Up to this step
+		Test up to this step
+		<Icon data={faPlay} class="ml-2" scale={0.8} />
 	</button>
 
 	<button
+		type="button"
 		on:click={() => {
 			previewMode = 'whole'
 			previewOpen = !previewOpen
 		}}
-		type="button"
-		class="relative -ml-px inline-flex items-center rounded-r-md border border-gray-300 bg-white px-2 py-1 text-sm font-medium text-gray-700 hover:bg-gray-50 focus:z-10 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+		class="flex items-center  text-white bg-blue-500 hover:bg-blue-700 focus:ring-4 focus:ring-blue-300 font-medium rounded-lg text-sm px-4 py-1 focus:outline-none "
 	>
-		Flow
+		Test flow
+		<Icon data={faPlay} class="ml-2" scale={0.8} />
 	</button>
 </span>
 

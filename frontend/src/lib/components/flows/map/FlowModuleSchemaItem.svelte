@@ -16,7 +16,7 @@
 </script>
 
 <div class="flex" on:click>
-	<div class={classNames('flex  items-center mr-2 w-8 justify-center', hasLine ? 'line' : '')}>
+	<div class={classNames('flex items-center mr-2 w-8 justify-center', hasLine ? 'line' : '')}>
 		<div
 			class={classNames(
 				'flex items-center justify-center w-6 h-6 border rounded-full text-xs font-bold',

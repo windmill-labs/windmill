@@ -47,6 +47,4 @@
 			</TabContent>
 		</svelte:fragment>
 	</Tabs>
-
-	<div class="p-4" />
 </FlowCard>
