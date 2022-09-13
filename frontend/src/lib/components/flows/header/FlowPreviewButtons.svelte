@@ -6,32 +6,38 @@
 	import type { FlowEditorContext } from '../types'
 	const { selectedId } = getContext<FlowEditorContext>('FlowEditorContext')
 	let previewOpen = false
+	let previewMode: 'upTo' | 'whole' = 'whole'
 
 	$: upToDisabled = ['settings', 'inputs', 'schedules'].includes($selectedId)
 </script>
 
-<div class="flex space-x-2">
+<span class=" inline-flex  items-center">
+	<span class="text-md mr-2">Preview:</span>
 	<button
 		disabled={upToDisabled}
 		on:click={() => {
+			previewMode = 'upTo'
+
 			previewOpen = !previewOpen
 		}}
 		type="button"
-		class="py-2 px-3 text-xs font-medium text-center text-white bg-blue-700 rounded-lg hover:bg-blue-800 focus:ring-4 focus:outline-none focus:ring-blue-300 dark:bg-blue-600 dark:hover:bg-blue-700 dark:focus:ring-blue-800"
+		class="relative inline-flex items-center rounded-l-md border border-gray-300 bg-white px-2 py-1 text-sm font-medium text-gray-700 hover:bg-gray-50 focus:z-10 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
 	>
 		Up to this step
 	</button>
+
 	<button
-		type="button"
 		on:click={() => {
+			previewMode = 'whole'
 			previewOpen = !previewOpen
 		}}
-		class="py-2 px-3 text-xs font-medium text-center text-white bg-blue-700 rounded-lg hover:bg-blue-800 focus:ring-4 focus:outline-none focus:ring-blue-300 dark:bg-blue-600 dark:hover:bg-blue-700 dark:focus:ring-blue-800"
+		type="button"
+		class="relative -ml-px inline-flex items-center rounded-r-md border border-gray-300 bg-white px-2 py-1 text-sm font-medium text-gray-700 hover:bg-gray-50 focus:z-10 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
 	>
-		Preview whole
+		Flow
 	</button>
-</div>
+</span>
 
 <Drawer bind:open={previewOpen} size="800px">
-	<FlowPreviewContent args={{}} on:close={() => (previewOpen = !previewOpen)} />
+	<FlowPreviewContent bind:previewMode on:close={() => (previewOpen = !previewOpen)} />
 </Drawer>
