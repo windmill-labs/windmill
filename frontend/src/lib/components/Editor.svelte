@@ -47,8 +47,7 @@
 	let divEl: HTMLDivElement | null = null
 	let editor: monaco.editor.IStandaloneCodeEditor
 
-	export let deno = false
-	export let lang = deno ? 'typescript' : 'python'
+	export let lang: 'typescript' | 'python' | 'go'
 	export let code: string = ''
 	export let hash: string = randomHash()
 	export let cmdEnterAction: (() => void) | undefined = undefined
@@ -139,201 +138,190 @@
 
 	export async function reloadWebsocket() {
 		await closeWebsockets()
-		if (lang == 'python' || deno) {
-			const { MonacoLanguageClient } = await import('monaco-languageclient')
-			const { CloseAction, ErrorAction } = await import('vscode-languageclient')
-			const { toSocket, WebSocketMessageReader, WebSocketMessageWriter } = await import(
-				'vscode-ws-jsonrpc'
-			)
-			const vscode = await import('vscode')
-			const { RequestType } = await import('vscode-jsonrpc')
-			// install Monaco language client services
-			const { MonacoServices } = await import('monaco-languageclient')
+		const { MonacoLanguageClient } = await import('monaco-languageclient')
+		const { CloseAction, ErrorAction } = await import('vscode-languageclient')
+		const { toSocket, WebSocketMessageReader, WebSocketMessageWriter } = await import(
+			'vscode-ws-jsonrpc'
+		)
+		const vscode = await import('vscode')
+		const { RequestType } = await import('vscode-jsonrpc')
+		// install Monaco language client services
+		const { MonacoServices } = await import('monaco-languageclient')
 
-			monacoServices = MonacoServices.install()
+		monacoServices = MonacoServices.install()
 
-			function createLanguageClient(
-				transports: MessageTransports,
-				name: string,
-				initializationOptions?: any
-			) {
-				const client = new MonacoLanguageClient({
-					name: name,
-					clientOptions: {
-						documentSelector: deno ? ['typescript'] : ['python'],
-						errorHandler: {
-							error: () => ({ action: ErrorAction.Continue }),
-							closed: () => ({
-								action: CloseAction.Restart
-							})
-						},
-						markdown: {
-							isTrusted: true
-						},
-
-						// workspaceFolder: { uri: Uri.parse(`/tmp/${name}`), name: 'tmp', index: 0 },
-						initializationOptions,
-						middleware: {
-							workspace: {
-								configuration: (params, token, configuration) => {
-									return [
-										{
-											enable: true
-										}
-									]
-								}
-							}
-						}
-					},
-					connectionProvider: {
-						get: () => {
-							return Promise.resolve(transports)
-						}
-					}
-				})
-				return client
-			}
-
-			async function connectToLanguageServer(url: string, name: string, options?: any) {
-				try {
-					const webSocket = new WebSocket(url)
-
-					webSocket.onopen = async () => {
-						const socket = toSocket(webSocket)
-						const reader = new WebSocketMessageReader(socket)
-						const writer = new WebSocketMessageWriter(socket)
-						const languageClient = createLanguageClient({ reader, writer }, name, options)
-						websockets.push([languageClient, webSocket])
-
-						reader.onClose(async () => {
-							try {
-								console.log('CLOSE')
-								websocketAlive[name] = false
-								await languageClient.stop()
-							} catch (err) {
-								console.error(err)
-							}
+		function createLanguageClient(
+			transports: MessageTransports,
+			name: string,
+			initializationOptions?: any
+		) {
+			const client = new MonacoLanguageClient({
+				name: name,
+				clientOptions: {
+					documentSelector: [lang],
+					errorHandler: {
+						error: () => ({ action: ErrorAction.Continue }),
+						closed: () => ({
+							action: CloseAction.Restart
 						})
-						socket.onClose((_code, _reason) => {
-							websocketAlive[name] = false
-						})
-
-						try {
-							console.log('started client')
-							await languageClient.start()
-						} catch (err) {
-							console.log('err at client')
-							console.error(err)
-							throw new Error(err)
-						}
-
-						lastWsAttempt = new Date()
-						nbWsAttempt = 0
-						if (name == 'deno') {
-							command && command.dispose()
-							command = undefined
-							command = vscode.commands.registerCommand(
-								'deno.cache',
-								(uris: DocumentUri[] = []) => {
-									languageClient.sendRequest(new RequestType('deno/cache'), {
-										referrer: { uri },
-										uris: uris.map((uri) => ({ uri }))
-									})
-								}
-							)
-						}
-
-						websocketAlive[name] = true
-					}
-				} catch (err) {
-					console.error(`connection to ${name} language server failed`)
-				}
-			}
-
-			if (deno) {
-				await connectToLanguageServer(`wss://${$page.url.host}/ws/deno`, 'deno', {
-					certificateStores: null,
-					enablePaths: [],
-					config: null,
-					importMap: null,
-					internalDebug: false,
-					lint: false,
-					path: null,
-					tlsCertificate: null,
-					unsafelyIgnoreCertificateErrors: null,
-					unstable: true,
-					enable: true,
-					cache: null,
-					codeLens: {
-						implementations: true,
-						references: true
 					},
-					suggest: {
-						autoImports: true,
-						completeFunctionCalls: false,
-						names: true,
-						paths: true,
-						imports: {
-							autoDiscover: true,
-							hosts: {
-								'https://deno.land': true
+					markdown: {
+						isTrusted: true
+					},
+
+					// workspaceFolder: { uri: Uri.parse(`/tmp/${name}`), name: 'tmp', index: 0 },
+					initializationOptions,
+					middleware: {
+						workspace: {
+							configuration: (params, token, configuration) => {
+								return [
+									{
+										enable: true
+									}
+								]
 							}
 						}
 					}
-				})
-			} else {
-				await connectToLanguageServer(`wss://${$page.url.host}/ws/pyright`, 'pyright', {
-					executionEnvironments: [
-						{
-							root: '/tmp/pyright',
-							pythonVersion: '3.7',
-							pythonPlatform: 'platform',
-							extraPaths: []
-						}
-					]
-				})
-
-				connectToLanguageServer(`wss://${$page.url.host}/ws/black`, 'black', {
-					formatters: {
-						black: {
-							command: 'black',
-							args: ['--quiet', '-']
-						}
-					},
-					formatFiletypes: {
-						python: 'black'
-					}
-				})
-			}
-
-			websocketInterval && clearInterval(websocketInterval)
-			websocketInterval = setInterval(() => {
-				console.log(
-					websocketInterval,
-					document.visibilityState,
-					new Date().getTime() - lastWsAttempt.getTime(),
-					nbWsAttempt
-				)
-				if (document.visibilityState == 'visible') {
-					if (
-						!lastWsAttempt ||
-						(new Date().getTime() - lastWsAttempt.getTime() > 60000 && nbWsAttempt < 2)
-					) {
-						if (!websocketAlive.black && !websocketAlive.deno && !websocketAlive.pyright) {
-							console.log('reconnecting to language servers')
-							lastWsAttempt = new Date()
-							nbWsAttempt++
-							reloadWebsocket()
-						} else {
-							if (nbWsAttempt >= 2) {
-								sendUserToast('Giving up on establishing smart assistant connection', true)
-								clearInterval(websocketInterval)
-							}
-						}
+				},
+				connectionProvider: {
+					get: () => {
+						return Promise.resolve(transports)
 					}
 				}
-			}, 5000)
+			})
+			return client
 		}
+
+		async function connectToLanguageServer(url: string, name: string, options?: any) {
+			try {
+				const webSocket = new WebSocket(url)
+
+				webSocket.onopen = async () => {
+					const socket = toSocket(webSocket)
+					const reader = new WebSocketMessageReader(socket)
+					const writer = new WebSocketMessageWriter(socket)
+					const languageClient = createLanguageClient({ reader, writer }, name, options)
+					websockets.push([languageClient, webSocket])
+
+					reader.onClose(async () => {
+						try {
+							console.log('CLOSE')
+							websocketAlive[name] = false
+							await languageClient.stop()
+						} catch (err) {
+							console.error(err)
+						}
+					})
+					socket.onClose((_code, _reason) => {
+						websocketAlive[name] = false
+					})
+
+					try {
+						console.log('started client')
+						await languageClient.start()
+					} catch (err) {
+						console.log('err at client')
+						console.error(err)
+						throw new Error(err)
+					}
+
+					lastWsAttempt = new Date()
+					nbWsAttempt = 0
+					if (name == 'deno') {
+						command && command.dispose()
+						command = undefined
+						command = vscode.commands.registerCommand('deno.cache', (uris: DocumentUri[] = []) => {
+							languageClient.sendRequest(new RequestType('deno/cache'), {
+								referrer: { uri },
+								uris: uris.map((uri) => ({ uri }))
+							})
+						})
+					}
+
+					websocketAlive[name] = true
+				}
+			} catch (err) {
+				console.error(`connection to ${name} language server failed`)
+			}
+		}
+
+		if (lang == 'typescript') {
+			await connectToLanguageServer(`wss://${$page.url.host}/ws/deno`, 'deno', {
+				certificateStores: null,
+				enablePaths: [],
+				config: null,
+				importMap: null,
+				internalDebug: false,
+				lint: false,
+				path: null,
+				tlsCertificate: null,
+				unsafelyIgnoreCertificateErrors: null,
+				unstable: true,
+				enable: true,
+				cache: null,
+				codeLens: {
+					implementations: true,
+					references: true
+				},
+				suggest: {
+					autoImports: true,
+					completeFunctionCalls: false,
+					names: true,
+					paths: true,
+					imports: {
+						autoDiscover: true,
+						hosts: {
+							'https://deno.land': true
+						}
+					}
+				}
+			})
+		} else if (lang === 'python') {
+			await connectToLanguageServer(`wss://${$page.url.host}/ws/pyright`, 'pyright', {
+				executionEnvironments: [
+					{
+						root: '/tmp/pyright',
+						pythonVersion: '3.7',
+						pythonPlatform: 'platform',
+						extraPaths: []
+					}
+				]
+			})
+
+			connectToLanguageServer(`wss://${$page.url.host}/ws/black`, 'black', {
+				formatters: {
+					black: {
+						command: 'black',
+						args: ['--quiet', '-']
+					}
+				},
+				formatFiletypes: {
+					python: 'black'
+				}
+			})
+		}
+
+		websocketInterval && clearInterval(websocketInterval)
+		websocketInterval = setInterval(() => {
+			if (document.visibilityState == 'visible') {
+				if (
+					!lastWsAttempt ||
+					(new Date().getTime() - lastWsAttempt.getTime() > 60000 && nbWsAttempt < 2)
+				) {
+					if (!websocketAlive.black && !websocketAlive.deno && !websocketAlive.pyright) {
+						console.log('reconnecting to language servers')
+						lastWsAttempt = new Date()
+						nbWsAttempt++
+						reloadWebsocket()
+					} else {
+						if (nbWsAttempt >= 2) {
+							sendUserToast('Giving up on establishing smart assistant connection', true)
+							clearInterval(websocketInterval)
+						}
+					}
+				}
+			}
+		}, 5000)
 	}
 
 	async function closeWebsockets() {
@@ -388,15 +376,13 @@
 
 		editor.onDidFocusEditorText(() => {
 			dispatch('focus')
-			if (deno || lang == 'typescript') {
-				if (
-					!websocketAlive.black &&
-					!websocketAlive.deno &&
-					!websocketAlive.pyright &&
-					!websocketInterval
-				) {
-					reloadWebsocket()
-				}
+			if (
+				!websocketAlive.black &&
+				!websocketAlive.deno &&
+				!websocketAlive.pyright &&
+				!websocketInterval
+			) {
+				reloadWebsocket()
 			}
 		})
 
@@ -404,9 +390,7 @@
 			dispatch('blur')
 		})
 
-		if (lang == 'python' || deno) {
-			reloadWebsocket()
-		}
+		reloadWebsocket()
 
 		return () => {
 			try {

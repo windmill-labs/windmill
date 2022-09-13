@@ -75,7 +75,7 @@ export async function createLoop(): Promise<FlowModuleSchema> {
 		value: {
 			type: 'forloopflow',
 			modules: [],
-			iterator: { type: 'javascript', expr: 'result' },
+			iterator: { type: 'javascript', expr: 'previous_result' },
 			skip_failures: true
 		},
 		input_transforms: {}

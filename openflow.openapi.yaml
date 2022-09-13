@@ -149,6 +149,7 @@ components:
           enum:
             - deno
             - python3
+            - go
         path:
           type: string
         type:

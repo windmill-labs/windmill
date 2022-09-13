@@ -675,8 +675,8 @@ async fn push_next_flow_job(
             /* it might be better to retry the job using the previous args instead of determining
              * them again from the last result, but that seemed to not play well with the forloop
              * logic and I couldn't figure out why. */
-            if let Some(v) = status.retry.previous_result {
-                last_result = v;
+            if let Some(v) = &status.retry.previous_result {
+                last_result = v.clone();
             }
             status_module = FlowStatusModule::WaitingForPriorSteps;
 
@@ -747,33 +747,17 @@ async fn push_next_flow_job(
     let compute_input_transform = !(   matches!(&module.value, FlowModuleValue::ForloopFlow { .. })
                                     && matches!(&status_module, FlowStatusModule::InProgress { .. }));
 
+    let mut transform_context: Option<(String, Vec<String>)> = None;
     let mut args = if compute_input_transform {
-        let steps = status
-            .modules
-            .iter()
-            .map(|x| match x {
-                FlowStatusModule::Success { job, .. } => job.to_string(),
-                _ => "invalid step status".to_string(),
-            })
-            .collect();
-
-        let token = create_token_for_owner(
-            &db,
-            &flow_job.workspace_id,
-            &flow_job.permissioned_as,
-            "transform-input",
-            10,
-            &flow_job.created_by,
-        )
-        .await?;
-
+        transform_context = Some(get_transform_context(&db, &flow_job, &status).await?);
+        let (token, steps) = transform_context.as_ref().unwrap();
         transform_input(
             &flow_job.args,
             last_result.clone(),
             &module.input_transforms,
             &flow_job.workspace_id,
             &token,
-            steps,
+            steps.to_vec(),
             resume_messages.as_slice(),
         )
         .await?
@@ -790,10 +774,25 @@ async fn push_next_flow_job(
     {
         match status_module {
             FlowStatusModule::WaitingForPriorSteps => {
+                let (token, steps) = if let Some(x) = transform_context {
+                    x
+                } else {
+                    get_transform_context(&db, &flow_job, &status).await?
+                };
                 /* Iterator is an InputTransform, evaluate it into an array. */
                 let itered = iterator
                     .clone()
-                    .evaluate_with(|| vec![("result".to_string(), last_result.clone())])
+                    .evaluate_with(
+                        || {
+                            vec![
+                                ("result".to_string(), last_result.clone()),
+                                ("previous_result".to_string(), last_result.clone()),
+                            ]
+                        },
+                        token,
+                        flow_job.workspace_id.clone(),
+                        steps,
+                    )
                     .await?
                     .into_array()
                     .map_err(|not_array| {
@@ -982,14 +981,48 @@ async fn push_next_flow_job(
     }
 }
 
+async fn get_transform_context(
+    db: &DB,
+    flow_job: &QueuedJob,
+    status: &FlowStatus,
+) -> error::Result<(String, Vec<String>)> {
+    let new_token = create_token_for_owner(
+        db,
+        &flow_job.workspace_id,
+        &flow_job.permissioned_as,
+        "transform-input",
+        10,
+        &flow_job.created_by,
+    )
+    .await?;
+    let new_steps = status
+        .modules
+        .iter()
+        .map(|x| match x {
+            FlowStatusModule::Success { job, .. } => job.to_string(),
+            _ => "invalid step status".to_string(),
+        })
+        .collect();
+
+    Ok((new_token, new_steps))
+}
+
 impl InputTransform {
-    async fn evaluate_with<F>(self, vars: F) -> anyhow::Result<Value>
+    async fn evaluate_with<F>(
+        self,
+        vars: F,
+        token: String,
+        workspace: String,
+        steps: Vec<String>,
+    ) -> anyhow::Result<Value>
     where
         F: FnOnce() -> Vec<(String, Value)>,
     {
         match self {
             InputTransform::Static { value } => Ok(value),
-            InputTransform::Javascript { expr } => eval_timeout(expr, vars(), None, vec![]).await,
+            InputTransform::Javascript { expr } => {
+                eval_timeout(expr, vars(), Some(EvalCreds { workspace, token }), steps).await
+            }
         }
     }
 }

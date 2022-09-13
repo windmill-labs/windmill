@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { RawScript, type FlowModule } from '$lib/gen'
+	import type { FlowModule } from '$lib/gen'
 	import { faChevronDown, faChevronUp } from '@fortawesome/free-solid-svg-icons'
 	import Icon from 'svelte-awesome'
 	import Editor from './Editor.svelte'
@@ -23,6 +23,7 @@
 	import type { Schema } from '$lib/common'
 	import { flowStateStore, type FlowModuleSchema } from './flows/flowState'
 	import { stepOpened } from './flows/stepOpenedStore'
+	import { scriptLangToEditorLang } from '$lib/utils'
 
 	export let indexes: number[]
 	export let mod: FlowModule
@@ -109,7 +110,7 @@
 							bind:this={editor}
 							class="{bigEditor ? 'h-2/3' : 'h-80'} border p-2 rounded"
 							bind:code={mod.value.content}
-							deno={mod.value.language === RawScript.language.DENO}
+							lang={scriptLangToEditorLang(mod.value.language)}
 							automaticLayout={true}
 							formatAction={() => reload(mod)}
 						/>
