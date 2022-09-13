@@ -13,8 +13,7 @@ RUN apt-get -y update \
     libnl-route-3-dev=3.4.* \
     make=4.2.* \
     pkg-config=0.29-6 \
-    protobuf-compiler=3.6.* \
-    golang-go
+    protobuf-compiler=3.6.*
 
 RUN git clone -b master --single-branch https://github.com/google/nsjail.git . \
     && git checkout dccf911fd2659e7b08ce9507c25b2b38ec2c5800
@@ -34,14 +33,16 @@ ENV SQLX_OFFLINE=true
 COPY ./nsjail /nsjail
 
 RUN mkdir -p /frontend/build
-
 RUN apt-get update \
     && apt-get install -y ca-certificates tzdata libpq5 \
     make build-essential libssl-dev zlib1g-dev libbz2-dev libreadline-dev \
     libsqlite3-dev wget curl llvm libncurses5-dev libncursesw5-dev xz-utils tk-dev libxml2-dev \
     libxmlsec1-dev libffi-dev liblzma-dev mecab-ipadic-utf8 libgdbm-dev libc6-dev git libprotobuf-dev=3.6.* libnl-route-3-dev=3.4.* \
-    libv8-dev tesseract-ocr \
+    libv8-dev tesseract-ocr golang-go \
     && rm -rf /var/lib/apt/lists/*
+
+RUN wget https://golang.org/dl/go1.19.1.linux-amd64.tar.gz && tar -C /usr/local -xzf go1.19.1.linux-amd64.tar.gz
+ENV PATH="${PATH}:/usr/local/go/bin"
 
 ENV TZ=Etc/UTC
 
