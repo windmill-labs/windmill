@@ -2724,50 +2724,14 @@ def main(error, port):
         /// push the job, spawn a worker, wait until the job is in completed_job
         async fn run_until_complete(self, db: &DB) -> serde_json::Value {
             let uuid = self.push(db).await;
-            run_worker_until_complete(db, &uuid).await;
-            query_scalar("SELECT result FROM completed_job WHERE id = $1")
-                .bind(&uuid)
-                .fetch_one(db)
-                .await
-                .unwrap()
+            let listener = listen_for_completed_jobs(db).await;
+            in_test_worker(db, listener.find(&uuid)).await;
+            completed_job_result(uuid, db).await
         }
     }
 
     async fn run_job_in_new_worker_until_complete(db: &DB, job: JobPayload) -> serde_json::Value {
         RunJob::from(job).run_until_complete(db).await
-    }
-
-    async fn run_worker_until_complete(db: &DB, wait_for: &uuid::Uuid) {
-        let mut listener = PgListener::connect_with(db).await.unwrap();
-        listener.listen("insert on completed_job").await.unwrap();
-
-        /* drop tx at the end of this block to close the channel and stop the worker */
-        let (tx, worker) = spawn_test_worker(db);
-        let worker = tokio::time::timeout(std::time::Duration::from_secs(19), worker);
-        tokio::pin!(worker);
-
-        while wait_for
-            != &tokio::select! {
-                biased;
-                notify = listener.recv() => notify,
-                res = &mut worker => match
-                    res.expect("worker timed out")
-                       .expect("worker panicked") {
-                    _ => panic!("worker quit early"),
-                },
-            }
-            .unwrap()
-            .payload()
-            .parse::<uuid::Uuid>()
-            .unwrap()
-        {}
-
-        /* ensure the worker quits before we return */
-        drop(tx);
-        worker
-            .await
-            .expect("worker timed out")
-            .expect("worker panicked")
     }
 
     /// Start a worker with a timeout and run a future, until the worker quits or we time out.
