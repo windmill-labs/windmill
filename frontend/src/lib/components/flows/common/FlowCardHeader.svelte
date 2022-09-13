@@ -4,6 +4,12 @@
 
 	export let flowModule: FlowModule | undefined = undefined
 	export let title: string | undefined = undefined
+
+	$: flowModuleTitle =
+		flowModule?.summary ||
+		(flowModule?.value.type === 'rawscript'
+			? `Inline ${flowModule?.value.language}`
+			: 'Select a script')
 </script>
 
 <div
@@ -14,9 +20,7 @@
 			{#if 'path' in flowModule.value && flowModule.value.path}
 				<IconedPath path={flowModule.value.path} />
 			{:else if 'language' in flowModule.value && flowModule.value.language}
-				Inline {flowModule.value.language}
-			{:else}
-				Select a script
+				{flowModuleTitle}
 			{/if}
 		</span>
 	{/if}

@@ -44,7 +44,9 @@
 			on:click={() => select('settings')}
 			class={classNames(
 				'border w-full rounded-md p-2 bg-white text-sm cursor-pointer flex items-center mb-4',
-				$selectedId === 'settings' ? 'outline outline-offset-1 outline-2  outline-slate-900' : ''
+				$selectedId.includes('settings')
+					? 'outline outline-offset-1 outline-2  outline-slate-900'
+					: ''
 			)}
 		>
 			<Icon data={faSliders} class="mr-2" />
@@ -122,8 +124,7 @@
 					<div slot="content" class="w-full">
 						<input
 							bind:value={flowModuleSchema.flowModule.summary}
-							placeholder={flowModuleSchema.flowModule.value.path ||
-								flowModuleSchema.flowModule.summary ||
+							placeholder={flowModuleSchema.flowModule.summary ||
 								(flowModuleSchema.flowModule.value.type === 'rawscript'
 									? `Inline ${flowModuleSchema.flowModule.value.language}`
 									: 'Select a script')}
