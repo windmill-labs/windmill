@@ -62,6 +62,7 @@ mount {
     src: "{JOB_DIR}/go.sum"
     dst: "/tmp/go/go.sum"
     is_bind: true
+    mandatory: false
 }
 
 mount {
