@@ -62,7 +62,7 @@
 		"highlight.js": "^11.5.1",
 		"monaco-editor": "^0.34.0",
 		"monaco-editor-workers": "^0.34.2",
-		"monaco-languageclient": "3.0.1",
+		"monaco-languageclient": "4.0.0",
 		"vscode-ws-jsonrpc": "^2.0.0"
 	}
 }
