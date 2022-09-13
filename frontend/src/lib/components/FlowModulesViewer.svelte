@@ -1,15 +1,12 @@
 <script lang="ts">
 	import { scriptPathToHref } from '$lib/utils'
 
-	import Highlight from 'svelte-highlight'
-	import python from 'svelte-highlight/languages/python'
-	import typescript from 'svelte-highlight/languages/typescript'
-
 	import { slide } from 'svelte/transition'
 
 	import InputTransformsViewer from './InputTransformsViewer.svelte'
 	import IconedPath from './IconedPath.svelte'
 	import type { FlowModule } from '$lib/gen'
+	import HighlightCode from './HighlightCode.svelte'
 
 	export let modules: FlowModule[]
 
@@ -82,8 +79,8 @@
 									{#if open[i]}
 										<div transition:slide class="border border-black p-2 bg-gray-50 w-full">
 											<InputTransformsViewer inputTransforms={mod?.input_transforms} />
-											<Highlight
-												language={mod?.value?.language == 'deno' ? typescript : python}
+											<HighlightCode
+												language={mod?.value?.language ?? 'deno'}
 												code={mod?.value?.content}
 											/>
 										</div>

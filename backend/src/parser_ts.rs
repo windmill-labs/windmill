@@ -68,6 +68,7 @@ pub fn parse_deno_signature(code: &str) -> error::Result<MainArgSignature> {
                     Pat::Ident(ident) => {
                         let (name, typ, nullable) = binding_ident_to_arg(&ident);
                         Ok(Arg {
+                            otyp: None,
                             name,
                             typ,
                             default: None,
@@ -106,7 +107,7 @@ pub fn parse_deno_signature(code: &str) -> error::Result<MainArgSignature> {
                         if typ == Typ::Unknown && default.is_some() {
                             typ = json_to_typ(default.as_ref().unwrap());
                         }
-                        Ok(Arg { name, typ, default, has_default: true })
+                        Ok(Arg { otyp: None, name, typ, default, has_default: true })
                     }
                     _ => Err(error::Error::ExecutionErr(format!(
                         "parameter syntax unsupported: `{}`",
@@ -288,72 +289,84 @@ export function main(test1?: string, test2: string = \"burkina\",
                 star_kwargs: false,
                 args: vec![
                     Arg {
+                        otyp: None,
                         name: "test1".to_string(),
                         typ: Typ::Str(None),
                         default: None,
                         has_default: true
                     },
                     Arg {
+                        otyp: None,
                         name: "test2".to_string(),
                         typ: Typ::Str(None),
                         default: Some(json!("burkina")),
                         has_default: true
                     },
                     Arg {
+                        otyp: None,
                         name: "test3".to_string(),
                         typ: Typ::Resource("postgres".to_string()),
                         default: None,
                         has_default: false
                     },
                     Arg {
+                        otyp: None,
                         name: "b64".to_string(),
                         typ: Typ::Bytes,
                         default: None,
                         has_default: false
                     },
                     Arg {
+                        otyp: None,
                         name: "ls".to_string(),
                         typ: Typ::List(Box::new(Typ::Bytes)),
                         default: None,
                         has_default: false
                     },
                     Arg {
+                        otyp: None,
                         name: "email".to_string(),
                         typ: Typ::Email,
                         default: None,
                         has_default: false
                     },
                     Arg {
+                        otyp: None,
                         name: "literal".to_string(),
                         typ: Typ::Str(Some(vec!["test".to_string()])),
                         default: None,
                         has_default: false
                     },
                     Arg {
+                        otyp: None,
                         name: "literal_union".to_string(),
                         typ: Typ::Str(Some(vec!["test".to_string(), "test2".to_string()])),
                         default: None,
                         has_default: false
                     },
                     Arg {
+                        otyp: None,
                         name: "opt_type".to_string(),
                         typ: Typ::Str(None),
                         default: None,
                         has_default: true
                     },
                     Arg {
+                        otyp: None,
                         name: "opt_type_union".to_string(),
                         typ: Typ::Str(None),
                         default: None,
                         has_default: true
                     },
                     Arg {
+                        otyp: None,
                         name: "opt_type_union_union2".to_string(),
                         typ: Typ::Str(None),
                         default: None,
                         has_default: true
                     },
                     Arg {
+                        otyp: None,
                         name: "min_object".to_string(),
                         typ: Typ::Object(vec![
                             ObjectProperty { key: "a".to_string(), typ: Box::new(Typ::Str(None)) },
@@ -388,36 +401,42 @@ export function main(test2 = \"burkina\",
                 star_kwargs: false,
                 args: vec![
                     Arg {
+                        otyp: None,
                         name: "test2".to_string(),
                         typ: Typ::Str(None),
                         default: Some(json!("burkina")),
                         has_default: true
                     },
                     Arg {
+                        otyp: None,
                         name: "bool".to_string(),
                         typ: Typ::Bool,
                         default: Some(json!(true)),
                         has_default: true
                     },
                     Arg {
+                        otyp: None,
                         name: "float".to_string(),
                         typ: Typ::Float,
                         default: Some(json!(4.2)),
                         has_default: true
                     },
                     Arg {
+                        otyp: None,
                         name: "int".to_string(),
                         typ: Typ::Int,
                         default: Some(json!(42)),
                         has_default: true
                     },
                     Arg {
+                        otyp: None,
                         name: "ls".to_string(),
                         typ: Typ::List(Box::new(Typ::Str(None))),
                         default: Some(json!(["test"])),
                         has_default: true
                     },
                     Arg {
+                        otyp: None,
                         name: "min_object".to_string(),
                         typ: Typ::Object(vec![
                             ObjectProperty { key: "a".to_string(), typ: Box::new(Typ::Str(None)) },
