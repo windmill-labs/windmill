@@ -180,7 +180,7 @@
 
 <div class="flex flex-col flex-1 h-full">
 	<!-- Nav between steps-->
-	<div class="justify-between flex flex-row w-full my-4 px-4">
+	<div class="justify-between flex flex-row w-full my-2 px-4">
 		<Breadcrumb>
 			<BreadcrumbItem>
 				<button on:click={() => changeStep(1)} class={step === 1 ? 'font-bold' : null}>

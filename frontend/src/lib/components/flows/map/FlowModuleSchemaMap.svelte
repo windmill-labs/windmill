@@ -66,7 +66,12 @@
 		</button>
 		{#if flowModuleSchema.flowModule.value.type === 'forloopflow'}
 			<li>
-				<FlowModuleSchemaItem deletable on:delete={() => removeAtIndex(index)}>
+				<FlowModuleSchemaItem
+					deletable
+					on:delete={() => removeAtIndex(index)}
+					on:click={() => select(['loop', String(index)].join('-'))}
+					selected={$selectedId === ['loop', String(index)].join('-')}
+				>
 					<div slot="icon">
 						<span>{index}</span>
 					</div>

@@ -136,7 +136,7 @@
 								<div class="h-full pb-16 overflow-y-scroll bg-white">
 									<div class="p-4 overflow-hidden">
 										<TabContent value="inputs">
-											<div class="w-2/3">
+											<div class="w-11/12">
 												<SchemaForm
 													{schema}
 													inputTransform={true}
