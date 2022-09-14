@@ -79,6 +79,10 @@ RUN apt-get update \
     libv8-dev tesseract-ocr \
     && rm -rf /var/lib/apt/lists/*
 
+RUN wget https://golang.org/dl/go1.19.1.linux-amd64.tar.gz && tar -C /usr/local -xzf go1.19.1.linux-amd64.tar.gz
+ENV PATH="${PATH}:/usr/local/go/bin"
+ENV GO_PATH=/usr/local/go/bin/go
+
 ENV TZ=Etc/UTC
 
 ENV PYTHON_VERSION 3.10.4

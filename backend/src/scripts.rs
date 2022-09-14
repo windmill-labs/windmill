@@ -14,7 +14,7 @@ use crate::{
     audit::{audit_log, ActionKind},
     db::{UserDB, DB},
     error::{to_anyhow, Error, JsonResult, Result},
-    jobs, parser, parser_py, parser_ts,
+    jobs, parser, parser_go, parser_py, parser_ts,
     users::{owner_to_token_owner, truncate_token, Authed, Tokened},
     utils::{http_get_from_hub, list_elems_from_hub, require_admin, Pagination, StripPath},
 };
@@ -43,6 +43,7 @@ pub fn global_service() -> Router {
             post(parse_python_code_to_jsonschema),
         )
         .route("/deno/tojsonschema", post(parse_deno_code_to_jsonschema))
+        .route("/go/tojsonschema", post(parse_go_code_to_jsonschema))
         .route("/hub/list", get(list_hub_scripts))
         .route("/hub/get/*path", get(get_hub_script_by_path))
 }
@@ -68,6 +69,7 @@ pub fn workspaced_service() -> Router {
 pub enum ScriptLang {
     Deno,
     Python3,
+    Go,
 }
 
 impl ScriptLang {
@@ -75,6 +77,7 @@ impl ScriptLang {
         match self {
             ScriptLang::Deno => "deno",
             ScriptLang::Python3 => "python3",
+            ScriptLang::Go => "go",
         }
     }
 }
@@ -436,12 +439,15 @@ async fn create_script(
     .execute(&mut tx)
     .await?;
 
-    let mut tx = if ns.lock.is_none() && ns.language == ScriptLang::Python3 {
-        let dependencies = parser_py::parse_python_imports(&ns.content)?;
+    let mut tx = if ns.lock.is_none() && ns.language != ScriptLang::Deno {
+        let dependencies = match ns.language {
+            ScriptLang::Python3 => parser_py::parse_python_imports(&ns.content)?.join("\n"),
+            _ => ns.content,
+        };
         let (_, tx) = jobs::push(
             tx,
             &w_id,
-            jobs::JobPayload::Dependencies { hash, dependencies },
+            jobs::JobPayload::Dependencies { hash, dependencies, language: ns.language },
             None,
             &authed.username,
             owner_to_token_owner(&authed.username, false),
@@ -771,6 +777,11 @@ async fn parse_deno_code_to_jsonschema(
     Json(code): Json<String>,
 ) -> JsonResult<parser::MainArgSignature> {
     parser_ts::parse_deno_signature(&code).map(Json)
+}
+async fn parse_go_code_to_jsonschema(
+    Json(code): Json<String>,
+) -> JsonResult<parser::MainArgSignature> {
+    parser_go::parse_go_sig(&code).map(Json)
 }
 
 pub fn to_i64(s: &str) -> Result<i64> {

@@ -52,6 +52,14 @@
 			on:click={() =>
 				dispatch('new', { language: RawScript.language.DENO, kind: 'script', subkind: 'flow' })}
 		/>
+
+		<FlowScriptPicker
+			label="New Go script"
+			icon={faCode}
+			iconColor="text-blue-700"
+			on:click={() =>
+				dispatch('new', { language: RawScript.language.GO, kind: 'script', subkind: 'flow' })}
+		/>
 	</div>
 
 	{#if !shouldDisableTriggerScripts}

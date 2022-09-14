@@ -1,23 +1,14 @@
 <script lang="ts">
 	import { isEmptyFlowModule } from '$lib/components/flows/flowStateUtils'
+	import HighlightCode from '$lib/components/HighlightCode.svelte'
 	import Modal from '$lib/components/Modal.svelte'
 
 	import type { FlowModule } from '$lib/gen'
 	import { getScriptByPath } from '$lib/utils'
-	import {
-		faArrowDown,
-		faClose,
-		faCode,
-		faCodeBranch,
-		faSave,
-		faTrashAlt
-	} from '@fortawesome/free-solid-svg-icons'
+	import { faCode, faCodeBranch, faSave, faTrashAlt } from '@fortawesome/free-solid-svg-icons'
 	import { Button } from 'flowbite-svelte'
 	import { createEventDispatcher } from 'svelte'
 	import Icon from 'svelte-awesome'
-	import { Highlight } from 'svelte-highlight'
-	import python from 'svelte-highlight/languages/python'
-	import typescript from 'svelte-highlight/languages/typescript'
 
 	export let module: FlowModule
 
@@ -25,7 +16,7 @@
 
 	let modalViewer: Modal
 	let modalViewerContent = ''
-	let modalViewerLanguage: 'deno' | 'python3' = 'deno'
+	let modalViewerLanguage: 'deno' | 'python3' | 'go' = 'deno'
 
 	async function viewCode() {
 		if (module.value.type == 'script') {
@@ -74,10 +65,6 @@
 <Modal bind:this={modalViewer}>
 	<div slot="title">Script {'path' in module?.value ? module?.value.path : ''}</div>
 	<div slot="content">
-		{#if modalViewerLanguage === 'python3'}
-			<Highlight language={python} code={modalViewerContent} />
-		{:else if modalViewerLanguage === 'deno'}
-			<Highlight language={typescript} code={modalViewerContent} />
-		{/if}
+		<HighlightCode language={modalViewerLanguage} code={modalViewerContent} />
 	</div>
 </Modal>

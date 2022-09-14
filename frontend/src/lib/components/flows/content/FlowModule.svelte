@@ -26,6 +26,7 @@
 	import FlowCard from '../common/FlowCard.svelte'
 	import FlowModuleHeader from './FlowModuleHeader.svelte'
 	import { flowStateStore, type FlowModuleSchema } from '../flowState'
+	import { scriptLangToEditorLang } from '$lib/utils'
 
 	export let indexes: string
 	export let flowModule: FlowModule
@@ -118,6 +119,7 @@
 									class="h-full px-2"
 									bind:code={flowModule.value.content}
 									deno={flowModule.value.language === RawScript.language.DENO}
+									lang={scriptLangToEditorLang(flowModule.value.language)}
 									automaticLayout={true}
 									formatAction={() => reload(flowModule)}
 								/>
