@@ -159,6 +159,9 @@ pub struct FlowModule {
     pub value: FlowModuleValue,
     pub stop_after_if: Option<StopAfterIf>,
     pub summary: Option<String>,
+    #[serde(default)]
+    #[serde(skip_serializing_if = "is_default")]
+    pub suspend: u16,
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone, PartialEq)]
@@ -495,6 +498,7 @@ mod tests {
                     value: FlowModuleValue::Script { path: "test".to_string() },
                     stop_after_if: None,
                     summary: None,
+                    suspend: Default::default(),
                 },
                 FlowModule {
                     input_transforms: HashMap::new(),
@@ -508,6 +512,7 @@ mod tests {
                         skip_if_stopped: false,
                     }),
                     summary: None,
+                    suspend: Default::default(),
                 },
                 FlowModule {
                     input_transforms: [(
@@ -525,6 +530,7 @@ mod tests {
                         skip_if_stopped: false,
                     }),
                     summary: None,
+                    suspend: Default::default(),
                 },
             ],
             failure_module: Some(FlowModule {
@@ -535,6 +541,7 @@ mod tests {
                     skip_if_stopped: false,
                 }),
                 summary: None,
+                suspend: Default::default(),
             }),
             retry: Default::default(),
         };

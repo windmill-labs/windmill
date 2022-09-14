@@ -176,6 +176,7 @@ pub async fn run_server(
                 .nest("/schedules", schedule::global_service())
                 .route_layer(from_extractor::<users::Authed>())
                 .route_layer(from_extractor::<users::Tokened>())
+                .nest("/w/:workspace_id/jobs", jobs::global_service())
                 .nest(
                     "/auth",
                     users::make_unauthed_service().layer(Extension(argon2)),
