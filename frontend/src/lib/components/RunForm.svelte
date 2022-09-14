@@ -69,9 +69,7 @@
 		{#if !runnable.schema.properties || Object.keys(runnable.schema.properties).length === 0}
 			<div class="text-sm p-4">No arguments</div>
 		{:else}
-			<div class="bg-gray-50 border  shadow-blue-100 shadow-inner rounded border-gray-300 p-6">
-				<SchemaForm schema={runnable.schema} bind:isValid bind:args />
-			</div>
+			<SchemaForm schema={runnable.schema} bind:isValid bind:args />
 		{/if}
 	{:else}
 		<div class="text-sm">No schema</div>

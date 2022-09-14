@@ -1,18 +1,18 @@
 <script lang="ts">
+	import { flowStore } from '$lib/components/flows/flowStore'
+	import SchemaEditor from '$lib/components/SchemaEditor.svelte'
 	import { emptySchema } from '$lib/utils'
+	import FlowCard from '../common/FlowCard.svelte'
 
-	import SchemaEditor from '../SchemaEditor.svelte'
-	import { flowStore } from './../flows/flowStore'
 	import CopyFirstStepSchema from './CopyFirstStepSchema.svelte'
-	import FlowBox from './FlowBox.svelte'
 </script>
 
-<FlowBox title="Flow Inputs">
+<FlowCard title="Flow Inputs">
 	<div slot="header">
 		<CopyFirstStepSchema />
 	</div>
-	<div slot="content">
-		<div class="p-6 border-t border-gray-300">
+	<div>
+		<div class="p-6">
 			<SchemaEditor
 				on:change={() => {
 					$flowStore = $flowStore
@@ -21,4 +21,4 @@
 			/>
 		</div>
 	</div>
-</FlowBox>
+</FlowCard>
