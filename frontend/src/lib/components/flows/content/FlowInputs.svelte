@@ -3,16 +3,16 @@
 
 	import { faCode, faRepeat } from '@fortawesome/free-solid-svg-icons'
 	import { createEventDispatcher } from 'svelte'
-	import FlowScriptPicker from './pickers/FlowScriptPicker.svelte'
-	import PickHubScript from './pickers/PickHubScript.svelte'
-	import PickScript from './pickers/PickScript.svelte'
+	import FlowScriptPicker from '../pickers/FlowScriptPicker.svelte'
+	import PickHubScript from '../pickers/PickHubScript.svelte'
+	import PickScript from '../pickers/PickScript.svelte'
 
 	export let shouldDisableLoopCreation: boolean = false
 	export let shouldDisableTriggerScripts: boolean = false
 	const dispatch = createEventDispatcher()
 </script>
 
-<div class="space-y-4">
+<div class="space-y-4 p-4">
 	{#if !shouldDisableTriggerScripts}
 		<div class="text-sm font-bold">Scripts</div>
 	{/if}

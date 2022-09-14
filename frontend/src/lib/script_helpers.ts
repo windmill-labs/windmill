@@ -63,15 +63,15 @@ func main(x string) (interface{}, error) {
 
 export const DENO_INIT_CODE_CLEAR = `// import * as wmill from "https://deno.land/x/windmill@v${__pkg__.version}/mod.ts"
 
-export async function main() {
-  return
+export async function main(x: string) {
+  return x
 }
 `
 
 export const PYTHON_INIT_CODE_CLEAR = `#import wmill
 
-def main():
-  return
+def main(x: str):
+  return x
 `
 
 export const POSTGRES_INIT_CODE = `import {

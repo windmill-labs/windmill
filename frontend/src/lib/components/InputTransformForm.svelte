@@ -7,7 +7,7 @@
 	import Icon from 'svelte-awesome'
 	import ArgInput from './ArgInput.svelte'
 	import FieldHeader from './FieldHeader.svelte'
-	import DynamicInputHelpBox from './flows/DynamicInputHelpBox.svelte'
+	import DynamicInputHelpBox from './flows/content/DynamicInputHelpBox.svelte'
 	import { codeToStaticTemplate, getDefaultExpr, isCodeInjection } from './flows/utils'
 	import OverlayPropertyPicker from './propertyPicker/OverlayPropertyPicker.svelte'
 	import SimpleEditor from './SimpleEditor.svelte'
