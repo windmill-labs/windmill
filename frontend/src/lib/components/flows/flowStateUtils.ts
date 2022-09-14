@@ -280,7 +280,8 @@ export type JobResult = {
 export function mapJobResultsToFlowState(
 	jobs: JobResult,
 	config: 'upto' | 'justthis',
-	configIndex: number
+	i: number,
+	j: number | undefined
 ): void {
 	if (!Array.isArray(jobs.innerJobs) || jobs.innerJobs.length === 0) {
 		return
@@ -290,7 +291,11 @@ export function mapJobResultsToFlowState(
 		const job = jobs.job as CompletedJob
 
 		flowStateStore.update((flowState: FlowState) => {
-			flowState[configIndex] = job.result
+			if (j) {
+				flowState[i].childFlowModules[j].previewResult = job.result
+			} else {
+				flowState[i].previewResult = job.result
+			}
 			return flowState
 		})
 	} else {
@@ -314,7 +319,7 @@ export function mapJobResultsToFlowState(
 			}
 
 			const modules = flowState.modules.map((flowModuleSchema: FlowModuleSchema, index) => {
-				if (index <= configIndex) {
+				if (index <= i) {
 					flowModuleSchema.previewResult = results[index]
 				}
 

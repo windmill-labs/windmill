@@ -148,7 +148,7 @@
 											</div>
 										</TabContent>
 										<TabContent value="preview">
-											<FlowPreview flow={$flowStore} {i} {schema} />
+											<FlowPreview flow={$flowStore} {indexes} {schema} />
 										</TabContent>
 										<TabContent value="settings">
 											{#if ('path' in flowModule.value && flowModule.value.path) || ('language' in flowModule.value && flowModule.value.language)}

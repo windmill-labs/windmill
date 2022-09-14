@@ -9,9 +9,11 @@
 	import FlowStatusViewer from './FlowStatusViewer.svelte'
 	import RunForm from './RunForm.svelte'
 
-	export let i: number
+	export let indexes: string
 	export let flow: Flow
 	export let schema: Schema
+
+	const [i, j] = indexes.split('-').map(Number)
 
 	let stepArgs: Record<string, any> = {}
 	let jobId: string
@@ -25,15 +27,16 @@
 		sendUserToast(`started preview ${truncateRev(jobId, 10)}`)
 	}
 
-	function truncateFlow(flow: Flow): Flow {
-		const localFlow = JSON.parse(JSON.stringify(flow))
-		localFlow.value.modules = flow.value.modules.slice(0, i + 1)
-		return localFlow
-	}
-
 	function extractStep(flow: Flow): Flow {
 		const localFlow = JSON.parse(JSON.stringify(flow))
-		localFlow.value.modules = flow.value.modules.slice(i, i + 1)
+		const mod = flow.value.modules[i].value
+		console.log(mod, j)
+		if (j != undefined && mod.type === 'forloopflow') {
+			localFlow.value.modules = mod.modules.slice(j, j + 1)
+		} else {
+			localFlow.value.modules = flow.value.modules.slice(i, i + 1)
+		}
+		console.log(localFlow)
 		localFlow.schema = schema
 		return localFlow
 	}
@@ -64,7 +67,7 @@
 	<div class="w-full flex justify-center">
 		<FlowStatusViewer
 			{jobId}
-			on:jobsLoaded={(e) => mapJobResultsToFlowState(e.detail, 'justthis', i)}
+			on:jobsLoaded={(e) => mapJobResultsToFlowState(e.detail, 'justthis', i, j)}
 			root={true}
 		/>
 	</div>
