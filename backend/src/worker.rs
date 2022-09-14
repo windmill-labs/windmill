@@ -1586,9 +1586,10 @@ pub async fn restart_zombie_jobs_periodically(
 
 #[cfg(test)]
 mod tests {
-    use sqlx::{postgres::PgListener, query_scalar};
-
+    use futures::Stream;
     use serde_json::json;
+    use sqlx::{postgres::PgListener, query_scalar};
+    use uuid::Uuid;
 
     use crate::{
         db::DB,
@@ -1609,6 +1610,8 @@ mod tests {
 
     /// it's important this is unique between tests as there is one prometheus registry and
     /// run_worker shouldn't register the same metric with the same worker name more than once.
+    ///
+    /// this must fit in varchar(50)
     fn next_worker_name() -> String {
         use std::sync::atomic::{AtomicUsize, Ordering::SeqCst};
 
@@ -1618,7 +1621,15 @@ mod tests {
         // will be "main"... The id provides uniqueness & thread_name gives context.
         let id = ID.fetch_add(1, SeqCst);
         let thread = std::thread::current();
-        let thread_name = thread.name().unwrap_or("no thread name");
+        let thread_name = thread
+            .name()
+            .map(|s| {
+                s.len()
+                    .checked_sub(39)
+                    .and_then(|start| s.get(start..))
+                    .unwrap_or(s)
+            })
+            .unwrap_or("no thread name");
         format!("{id}/{thread_name}")
     }
 
@@ -1640,6 +1651,7 @@ mod tests {
                     input_transforms: Default::default(),
                     stop_after_if: Default::default(),
                     summary: Default::default(),
+                    suspend: Default::default(),
                 },
                 FlowModule {
                     value: FlowModuleValue::ForloopFlow {
@@ -1660,11 +1672,13 @@ mod tests {
                             .into(),
                             stop_after_if: Default::default(),
                             summary: Default::default(),
+                            suspend: Default::default(),
                         }],
                     },
                     input_transforms: Default::default(),
                     stop_after_if: Default::default(),
                     summary: Default::default(),
+                    suspend: Default::default(),
                 },
             ],
             ..Default::default()
@@ -1712,13 +1726,13 @@ mod tests {
 
         let result = RunJob::from(job.clone())
             .arg("n", json!(123))
-            .wait_until_complete(&db)
+            .run_until_complete(&db)
             .await;
         assert_eq!(json!("last step saw 123"), result);
 
         let result = RunJob::from(job.clone())
             .arg("n", json!(-123))
-            .wait_until_complete(&db)
+            .run_until_complete(&db)
             .await;
         assert_eq!(json!(-123), result);
     }
@@ -1826,7 +1840,7 @@ func main(derp string) (string, error) {
             language: ScriptLang::Go,
         }))
         .arg("derp", json!("world"))
-        .wait_until_complete(&db)
+        .run_until_complete(&db)
         .await;
 
         assert_eq!(result, serde_json::json!("hello world"));
@@ -2054,7 +2068,7 @@ def main():
 
         let result = RunJob::from(JobPayload::RawFlow { value: flow.clone(), path: None })
             .arg("n", json!(0))
-            .wait_until_complete(&db)
+            .run_until_complete(&db)
             .await;
         assert!(result["from failure module"]["error"]
             .as_str()
@@ -2063,7 +2077,7 @@ def main():
 
         let result = RunJob::from(JobPayload::RawFlow { value: flow.clone(), path: None })
             .arg("n", json!(1))
-            .wait_until_complete(&db)
+            .run_until_complete(&db)
             .await;
         assert!(result["from failure module"]["error"]
             .as_str()
@@ -2072,7 +2086,7 @@ def main():
 
         let result = RunJob::from(JobPayload::RawFlow { value: flow.clone(), path: None })
             .arg("n", json!(2))
-            .wait_until_complete(&db)
+            .run_until_complete(&db)
             .await;
         assert!(result["from failure module"]["error"]
             .as_str()
@@ -2081,9 +2095,259 @@ def main():
 
         let result = RunJob::from(JobPayload::RawFlow { value: flow.clone(), path: None })
             .arg("n", json!(3))
-            .wait_until_complete(&db)
+            .run_until_complete(&db)
             .await;
         assert_eq!(json!({ "l": [0, 1, 2] }), result);
+    }
+
+    mod suspend_resume {
+        use super::*;
+
+        use futures::{Stream, StreamExt};
+
+        struct ApiServer {
+            addr: std::net::SocketAddr,
+            tx: tokio::sync::oneshot::Sender<()>,
+            task: tokio::task::JoinHandle<hyper::Result<()>>,
+        }
+
+        impl ApiServer {
+            async fn start(db: DB) -> Self {
+                let (tx, rx) = tokio::sync::oneshot::channel::<()>();
+
+                let sock = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+
+                let addr = sock.local_addr().unwrap();
+
+                use crate::jobs::{cancel_suspended_job, resume_suspended_job};
+                use axum::routing::{get, post};
+
+                let router = axum::Router::new()
+                    .route("/w/:workspace/jobs/resume/:id", get(resume_suspended_job))
+                    .route("/w/:workspace/jobs/resume/:id", post(resume_suspended_job))
+                    .route("/w/:workspace/jobs/cancel/:id", get(cancel_suspended_job))
+                    .route("/w/:workspace/jobs/cancel/:id", post(cancel_suspended_job))
+                    .layer(axum::extract::Extension(db));
+
+                let serve = axum::Server::from_tcp(sock.into_std().unwrap())
+                    .unwrap()
+                    .serve(router.into_make_service())
+                    .with_graceful_shutdown(async { drop(rx.await) });
+
+                let task = tokio::task::spawn(serve);
+
+                return Self { addr, tx, task };
+            }
+
+            async fn close(self) -> hyper::Result<()> {
+                let Self { task, tx, .. } = self;
+                drop(tx);
+                task.await.unwrap()
+            }
+        }
+
+        async fn wait_until_flow_suspends(
+            flow: Uuid,
+            mut queue: impl Stream<Item = Uuid> + Unpin,
+            db: &DB,
+        ) {
+            loop {
+                queue.by_ref().find(&flow).await.unwrap();
+                if query_scalar("SELECT suspend > 0 FROM queue WHERE id = $1")
+                    .bind(flow)
+                    .fetch_one(db)
+                    .await
+                    .unwrap()
+                {
+                    break;
+                }
+            }
+        }
+
+        fn flow() -> FlowValue {
+            serde_json::from_value(serde_json::json!({
+                "modules": [{
+                    "input_transform": {
+                        "n": { "type": "javascript", "expr": "flow_input.n", },
+                        "port": { "type": "javascript", "expr": "flow_input.port", },
+                        "op": { "type": "javascript", "expr": "flow_input.op ?? 'resume'", },
+                    },
+                    "value": {
+                        "type": "rawscript",
+                        "language": "deno",
+                        "content": "\
+                            export async function main(n, port, op) {\
+                                const job = Deno.env.get('WM_JOB_ID');
+                                const r = await fetch(
+                                    `http://localhost:${port}/w/test-workspace/jobs/${op}/${job}`,\
+                                    {\
+                                        method: 'POST',\
+                                        body: JSON.stringify('from job'),\
+                                        headers: { 'content-type': 'application/json' }\
+                                    }\
+                                );\
+                                console.log(r);
+                                return n + 1;\
+                            }",
+                    },
+                    "suspend": 1,
+                }, {
+                    "input_transform": {
+                        "n": { "type": "javascript", "expr": "previous_result", },
+                        "resume": { "type": "javascript", "expr": "resume", },
+                        "resumes": { "type": "javascript", "expr": "resumes", },
+                    },
+                    "value": {
+                        "type": "rawscript",
+                        "language": "deno",
+                        "content": "export function main(n, resume, resumes) { return { n: n + 1, resume, resumes } }"
+                    },
+                    "suspend": 1,
+                }, {
+                    "input_transform": {
+                        "last": { "type": "javascript", "expr": "previous_result", },
+                        "resume": { "type": "javascript", "expr": "resume", },
+                        "resumes": { "type": "javascript", "expr": "resumes", },
+                    },
+                    "value": {
+                        "type": "rawscript",
+                        "language": "deno",
+                        "content": "export function main(last, resume, resumes) { return { last, resume, resumes } }"
+                    },
+                }],
+            }))
+            .unwrap()
+        }
+
+        #[sqlx::test(fixtures("base"))]
+        async fn test(db: DB) {
+            initialize_tracing().await;
+
+            let server = ApiServer::start(db.clone()).await;
+            let port = server.addr.port();
+
+            let flow = RunJob::from(JobPayload::RawFlow { value: flow(), path: None })
+                .arg("n", json!(1))
+                .arg("port", json!(port))
+                .push(&db)
+                .await;
+
+            let mut completed = listen_for_completed_jobs(&db).await;
+            let queue = listen_for_queue(&db).await;
+            let db_ = db.clone();
+
+            in_test_worker(&db, async move {
+                let db = db_;
+
+                wait_until_flow_suspends(flow, queue, &db).await;
+                /* The first job resumes itself. */
+                let _first = completed.next().await.unwrap();
+                /* ... and send a request resume it. */
+                let second = completed.next().await.unwrap();
+
+                /* ImZyb20gdGVzdCIK = base64 "from test" */
+                reqwest::get(format!(
+                        "http://localhost:{port}/w/test-workspace/jobs/resume/{second}?payload=ImZyb20gdGVzdCIK"
+                    ))
+                    .await
+                    .unwrap()
+                    .error_for_status()
+                    .unwrap();
+
+                completed.find(&flow).await.unwrap();
+            })
+            .await;
+
+            server.close().await.unwrap();
+
+            let result = completed_job_result(flow, &db).await;
+
+            assert_eq!(
+                json!({
+                    "last": {
+                        "resume": "from job",
+                        "resumes": ["from job"],
+                        "n": 3,
+                    },
+                    "resume": "from test",
+                    "resumes": ["from test"],
+                }),
+                result
+            );
+
+            // ensure resumes are cleaned up through CASCADE when the flow is finished
+            assert_eq!(
+                0,
+                query_scalar::<_, i64>("SELECT count(*) FROM resume_job")
+                    .fetch_one(&db)
+                    .await
+                    .unwrap()
+            );
+        }
+
+        #[sqlx::test(fixtures("base"))]
+        async fn cancel_from_job(db: DB) {
+            initialize_tracing().await;
+
+            let server = ApiServer::start(db.clone()).await;
+            let port = server.addr.port();
+
+            let result = RunJob::from(JobPayload::RawFlow { value: flow(), path: None })
+                .arg("n", json!(1))
+                .arg("op", json!("cancel"))
+                .arg("port", json!(port))
+                .run_until_complete(&db)
+                .await;
+
+            server.close().await.unwrap();
+
+            assert_eq!(json!("from job"), result);
+        }
+
+        #[sqlx::test(fixtures("base"))]
+        async fn cancel_after_suspend(db: DB) {
+            initialize_tracing().await;
+
+            let server = ApiServer::start(db.clone()).await;
+            let port = server.addr.port();
+
+            let flow = RunJob::from(JobPayload::RawFlow { value: flow(), path: None })
+                .arg("n", json!(1))
+                .arg("port", json!(port))
+                .push(&db)
+                .await;
+
+            let mut completed = listen_for_completed_jobs(&db).await;
+            let queue = listen_for_queue(&db).await;
+            let db_ = db.clone();
+
+            in_test_worker(&db, async move {
+                let db = db_;
+
+                wait_until_flow_suspends(flow, queue, &db).await;
+                /* The first job resumes itself. */
+                let _first = completed.next().await.unwrap();
+                /* ... and send a request resume it. */
+                let second = completed.next().await.unwrap();
+
+                reqwest::get(format!(
+                        "http://localhost:{port}/w/test-workspace/jobs/cancel/{second}?payload=ImZyb20gdGVzdCIK"
+                    ))
+                    .await
+                    .unwrap()
+                    .error_for_status()
+                    .unwrap();
+
+                completed.find(&flow).await.unwrap();
+            })
+            .await;
+
+            server.close().await.unwrap();
+
+            let result = completed_job_result(flow, &db).await;
+
+            assert_eq!(json!("from test"), result);
+        }
     }
 
     mod retry {
@@ -2217,7 +2481,7 @@ def main(last, port):
             let result = RunJob::from(JobPayload::RawFlow { value: flow(), path: None })
                 .arg("items", json!(["unused", "unused", "unused"]))
                 .arg("port", json!(server.addr.port()))
-                .wait_until_complete(&db)
+                .run_until_complete(&db)
                 .await;
 
             assert_eq!(server.close().await, attempts);
@@ -2244,7 +2508,7 @@ def main(last, port):
             let result = RunJob::from(JobPayload::RawFlow { value: flow(), path: None })
                 .arg("items", json!(["unused", "unused", "unused"]))
                 .arg("port", json!(server.addr.port()))
-                .wait_until_complete(&db)
+                .run_until_complete(&db)
                 .await;
 
             assert_eq!(server.close().await, attempts);
@@ -2276,7 +2540,7 @@ def main(last, port):
             let result = RunJob::from(JobPayload::RawFlow { value: flow(), path: None })
                 .arg("items", json!(["unused", "unused", "unused"]))
                 .arg("port", json!(server.addr.port()))
-                .wait_until_complete(&db)
+                .run_until_complete(&db)
                 .await;
 
             assert_eq!(server.close().await, attempts);
@@ -2331,7 +2595,7 @@ def main(error, port):
             let server = Server::start(responses).await;
             let result = RunJob::from(JobPayload::RawFlow { value, path: None })
                 .arg("port", json!(server.addr.port()))
-                .wait_until_complete(&db)
+                .run_until_complete(&db)
                 .await;
 
             assert_eq!(server.close().await, attempts);
@@ -2362,7 +2626,7 @@ def main(error, port):
             .unwrap();
 
             let result = RunJob::from(JobPayload::RawFlow { value, path: None })
-                .wait_until_complete(&db)
+                .run_until_complete(&db)
                 .await;
             assert_eq!(
                 result,
@@ -2401,14 +2665,14 @@ def main(error, port):
 
         let result = RunJob::from(JobPayload::RawFlow { value: flow.clone(), path: None })
             .arg("items", json!([]))
-            .wait_until_complete(&db)
+            .run_until_complete(&db)
             .await;
         assert_eq!(result, serde_json::json!([]));
 
         /* Don't actually test that this does 257 jobs or that will take forever. */
         let result = RunJob::from(JobPayload::RawFlow { value: flow.clone(), path: None })
             .arg("items", json!((0..257).collect::<Vec<_>>()))
-            .wait_until_complete(&db)
+            .run_until_complete(&db)
             .await;
         assert!(matches!(result, Value::Object(_)));
         assert!(result["error"]
@@ -2434,8 +2698,7 @@ def main(error, port):
             self
         }
 
-        /// push the job, spawn a worker, wait until the job is in completed_job
-        async fn wait_until_complete(self, db: &DB) -> serde_json::Value {
+        async fn push(self, db: &DB) -> Uuid {
             let RunJob { payload, args } = self;
 
             let (uuid, tx) = push(
@@ -2455,43 +2718,77 @@ def main(error, port):
 
             tx.commit().await.unwrap();
 
-            run_worker_until_complete(db, &uuid).await;
+            uuid
+        }
 
-            query_scalar("SELECT result FROM completed_job WHERE id = $1")
-                .bind(&uuid)
-                .fetch_one(db)
-                .await
-                .unwrap()
+        /// push the job, spawn a worker, wait until the job is in completed_job
+        async fn run_until_complete(self, db: &DB) -> serde_json::Value {
+            let uuid = self.push(db).await;
+            let listener = listen_for_completed_jobs(db).await;
+            in_test_worker(db, listener.find(&uuid)).await;
+            completed_job_result(uuid, db).await
         }
     }
 
     async fn run_job_in_new_worker_until_complete(db: &DB, job: JobPayload) -> serde_json::Value {
-        RunJob::from(job).wait_until_complete(db).await
+        RunJob::from(job).run_until_complete(db).await
     }
 
-    async fn run_worker_until_complete(db: &DB, wait_for: &uuid::Uuid) {
-        let mut listener = PgListener::connect_with(db).await.unwrap();
-        listener.listen("insert on completed_job").await.unwrap();
+    /// Start a worker with a timeout and run a future, until the worker quits or we time out.
+    ///
+    /// Cleans up the worker before resolving.
+    async fn in_test_worker<Fut: std::future::Future>(
+        db: &DB,
+        inner: Fut,
+    ) -> <Fut as std::future::Future>::Output {
+        let (quit, worker) = spawn_test_worker(db);
+        let worker = tokio::time::timeout(std::time::Duration::from_secs(19), worker);
+        tokio::pin!(worker);
 
+        let res = tokio::select! {
+            biased;
+            res = inner => res,
+            res = &mut worker => match
+                res.expect("worker timed out")
+                   .expect("worker panicked") {
+                _ => panic!("worker quit early"),
+            },
+        };
+
+        /* ensure the worker quits before we return */
+        drop(quit);
+
+        let _: () = worker
+            .await
+            .expect("worker timed out")
+            .expect("worker panicked");
+
+        res
+    }
+
+    fn spawn_test_worker(
+        db: &DB,
+    ) -> (
+        tokio::sync::broadcast::Sender<()>,
+        tokio::task::JoinHandle<()>,
+    ) {
         let (tx, rx) = tokio::sync::broadcast::channel(1);
-        /* drop tx at the end of this block to close the channel and stop the worker */
-
-        let worker = {
-            let timeout = 4_000;
-            let worker_instance: &str = "test worker instance";
-            let worker_name: String = next_worker_name();
-            let i_worker: u64 = Default::default();
-            let num_workers: u64 = 2;
-            let ip: &str = Default::default();
-            let sleep_queue: u64 = DEFAULT_SLEEP_QUEUE / num_workers;
-            let worker_config = WorkerConfig {
-                base_internal_url: String::new(),
-                base_url: String::new(),
-                disable_nuser: false,
-                disable_nsjail: false,
-                keep_job_dir: false,
-            };
-
+        let db = db.to_owned();
+        let timeout = 4_000;
+        let worker_instance: &str = "test worker instance";
+        let worker_name: String = next_worker_name();
+        let i_worker: u64 = Default::default();
+        let num_workers: u64 = 2;
+        let ip: &str = Default::default();
+        let sleep_queue: u64 = DEFAULT_SLEEP_QUEUE / num_workers;
+        let worker_config = WorkerConfig {
+            base_internal_url: String::new(),
+            base_url: String::new(),
+            disable_nuser: false,
+            disable_nsjail: false,
+            keep_job_dir: false,
+        };
+        let future = async move {
             run_worker(
                 &db,
                 timeout,
@@ -2504,30 +2801,62 @@ def main(error, port):
                 worker_config,
                 rx,
             )
+            .await
         };
 
-        let worker = tokio::time::timeout(std::time::Duration::from_secs(19), worker);
-
-        tokio::pin!(worker);
-
-        while wait_for
-            != &tokio::select! {
-                biased;
-                notify = listener.recv() => notify,
-                res = &mut worker => if res.is_ok() {
-                    panic!("worker quit early")
-                } else {
-                    panic!("worker timed out")
-                },
-            }
-            .unwrap()
-            .payload()
-            .parse::<uuid::Uuid>()
-            .unwrap()
-        {}
-
-        /* ensure the worker quits before we return */
-        drop(tx);
-        worker.await.expect("worker timed out")
+        (tx, tokio::task::spawn(future))
     }
+
+    async fn listen_for_completed_jobs(db: &DB) -> impl Stream<Item = Uuid> + Unpin {
+        listen_for_uuid_on(db, "insert on completed_job").await
+    }
+
+    async fn listen_for_queue(db: &DB) -> impl Stream<Item = Uuid> + Unpin {
+        listen_for_uuid_on(db, "queue").await
+    }
+
+    async fn listen_for_uuid_on(
+        db: &DB,
+        channel: &'static str,
+    ) -> impl Stream<Item = Uuid> + Unpin {
+        let mut listener = PgListener::connect_with(db).await.unwrap();
+        listener.listen(channel).await.unwrap();
+
+        Box::pin(futures::stream::unfold(
+            listener,
+            |mut listener| async move {
+                let uuid = listener
+                    .try_recv()
+                    .await
+                    .unwrap()
+                    .expect("lost database connection")
+                    .payload()
+                    .parse::<Uuid>()
+                    .expect("invalid uuid");
+                Some((uuid, listener))
+            },
+        ))
+    }
+
+    async fn completed_job_result(uuid: Uuid, db: &DB) -> Value {
+        query_scalar("SELECT result FROM completed_job WHERE id = $1")
+            .bind(uuid)
+            .fetch_one(db)
+            .await
+            .unwrap()
+    }
+
+    #[axum::async_trait(?Send)]
+    trait StreamFind: futures::Stream + Unpin + Sized {
+        async fn find(self, item: &Self::Item) -> Option<Self::Item>
+        where
+            for<'l> &'l Self::Item: std::cmp::PartialEq,
+        {
+            use futures::{future::ready, StreamExt};
+
+            self.filter(|i| ready(i == item)).next().await
+        }
+    }
+
+    impl<T: futures::Stream + Unpin + Sized> StreamFind for T {}
 }
