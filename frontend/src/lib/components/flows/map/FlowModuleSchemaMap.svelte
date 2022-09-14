@@ -3,19 +3,7 @@
 	import { getContext } from 'svelte'
 	import FlowModuleSchemaItem from './FlowModuleSchemaItem.svelte'
 	import Icon from 'svelte-awesome'
-	import {
-		faClock,
-		faFire,
-		faFlagCheckered,
-		faHourglass,
-		faPen,
-		faPenAlt,
-		faPenRuler,
-		faPlug,
-		faPlus,
-		faSliders,
-		faToggleOff
-	} from '@fortawesome/free-solid-svg-icons'
+	import { faFlagCheckered, faPen, faPlus, faSliders } from '@fortawesome/free-solid-svg-icons'
 	import { emptyFlowModuleSchema } from '$lib/components/flows/flowStateUtils'
 	import { classNames } from '$lib/utils'
 	import type { FlowModuleSchema } from '../flowState'
