@@ -16,10 +16,16 @@
 </script>
 
 <div class="flex" on:click>
-	<div class={classNames('flex items-center mr-2 w-8 justify-center', hasLine ? 'line' : '')}>
+	<div
+		class={classNames(
+			'flex  mr-2 w-8 ',
+			hasLine ? 'line' : '',
+			isFirst ? 'justify-center items-start' : 'justify-center items-center'
+		)}
+	>
 		<div
 			class={classNames(
-				'flex items-center justify-center w-6 h-6 border rounded-full text-xs font-bold',
+				'flex justify-center items-center w-6 h-6 border rounded-full text-xs font-bold',
 				color === 'blue' ? 'bg-blue-100 text-blue-400' : 'bg-orange-100 text-orange-400',
 				margin
 			)}
@@ -29,9 +35,9 @@
 	</div>
 	<div
 		class={classNames(
-			'border w-full rounded-md p-2 bg-white text-sm cursor-pointer flex justify-between items-center space-x-2',
+			'border w-full rounded-sm p-2 bg-white text-sm cursor-pointer flex justify-between items-center space-x-2',
 			margin,
-			selected ? 'outline outline-offset-1 outline-2  outline-slate-900' : ''
+			selected ? 'outline outline-offset-1 outline-2  outline-gray-600' : ''
 		)}
 	>
 		<slot name="content" />
@@ -39,7 +45,7 @@
 			<button
 				type="button"
 				on:click={() => dispatch('delete')}
-				class="text-gray-900 bg-white border border-gray-300 focus:outline-none hover:bg-gray-100 focus:ring-4 focus:ring-gray-200 font-medium rounded-md text-xs px-2 py-1"
+				class="text-gray-900 bg-white border border-gray-300 focus:outline-none hover:bg-gray-100 focus:ring-4 focus:ring-gray-200 font-medium rounded-sm text-xs px-2 py-1"
 			>
 				<Icon data={faTrashAlt} scale={0.8} />
 			</button>

@@ -8,13 +8,19 @@
 	import { getContext } from 'svelte'
 	import type { FlowEditorContext } from '../types'
 
-	const { schedule, select } = getContext<FlowEditorContext>('FlowEditorContext')
+	const { select } = getContext<FlowEditorContext>('FlowEditorContext')
 </script>
 
 <div class="flex justify-between items-center border-y p-2 px-4">
-	<div id="flow_title">
-		{$flowStore.path}
-		<button on:click={() => select('settings')}><Icon data={faPen} /></button>
+	<div id="flow_title" class="flex justify-between items-center">
+		<button on:click={() => select('settings')}>
+			<span class="font-mono text-sm "> {$flowStore.path}</span>
+			<Icon
+				data={faPen}
+				scale={0.8}
+				class="text-gray-500 ml-2 flex justify-center items-center mb-0.5"
+			/>
+		</button>
 	</div>
 	<FlowStatus />
 	<FlowPreviewButtons />

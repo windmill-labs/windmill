@@ -80,8 +80,8 @@
 
 <div class="flex divide-y flex-col space-y-2 h-screen bg-white p-6 w-full">
 	<div class="flex justify-between">
-		<div class="flex flex-row justify-center items-center">
-			<div class="flex justify-center p-2 w-8 h-8 bg-blue-200 rounded-lg mr-2">
+		<div class="flex flex-row justify-center items-center ">
+			<div class="flex justify-center p-2 w-8 h-8 bg-blue-200 rounded-lg mr-2 ">
 				<Icon data={faPlay} scale={1} class="text-blue-500" />
 			</div>
 
@@ -102,8 +102,10 @@
 			<Icon data={faClose} />
 		</Button>
 	</div>
-	<div class="max-h-80 overflow-y-auto">
-		<SchemaForm schema={$flowStore.schema} bind:isValid bind:args />
+	<div class="pb-4">
+		<div class="mt-4">
+			<SchemaForm schema={$flowStore.schema} bind:isValid bind:args />
+		</div>
 	</div>
 	{#if intervalState === 'running'}
 		<Button

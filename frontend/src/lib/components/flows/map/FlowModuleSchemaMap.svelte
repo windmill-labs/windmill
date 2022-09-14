@@ -11,7 +11,7 @@
 	export let flowModuleSchemas: FlowModuleSchema[]
 	export let prefix: string | undefined = undefined
 
-	const { select, selectedId } = getContext<FlowEditorContext>('FlowEditorContext')
+	const { select, selectedId, path } = getContext<FlowEditorContext>('FlowEditorContext')
 
 	function insertAtIndex(index: number): void {
 		flowModuleSchemas.splice(index, 0, emptyFlowModuleSchema())
@@ -66,12 +66,12 @@
 		</button>
 		{#if flowModuleSchema.flowModule.value.type === 'forloopflow'}
 			<li>
-				<FlowModuleSchemaItem isFirst deletable on:delete={() => removeAtIndex(index)}>
+				<FlowModuleSchemaItem deletable on:delete={() => removeAtIndex(index)}>
 					<div slot="icon">
 						<span>{index}</span>
 					</div>
 					<div slot="content">
-						<span>Loop</span>
+						<span>For loop</span>
 					</div>
 				</FlowModuleSchemaItem>
 
@@ -86,14 +86,9 @@
 					</div>
 				</div>
 
-				<FlowModuleSchemaItem isLast color="orange">
-					<div slot="icon">
-						<Icon data={faFlagCheckered} scale={0.9} />
-					</div>
-					<div slot="content">
-						<span>End of loop</span>
-					</div>
-				</FlowModuleSchemaItem>
+				<div class="italic text-xs pl-10 text-gray-600">
+					The loop's result is the list of every iteration's result.
+				</div>
 			</li>
 		{:else}
 			<li>
@@ -113,6 +108,7 @@
 						<input
 							bind:value={flowModuleSchema.flowModule.summary}
 							placeholder={flowModuleSchema.flowModule.summary ||
+								flowModuleSchema.flowModule.value.path ||
 								(flowModuleSchema.flowModule.value.type === 'rawscript'
 									? `Inline ${flowModuleSchema.flowModule.value.language}`
 									: 'Select a script')}

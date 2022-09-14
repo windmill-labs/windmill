@@ -128,13 +128,12 @@
 					</top>
 
 					<down slot="down">
-						<div class="h-full overflow-auto bg-white">
-							<Tabs selected="inputs">
-								<Tab value="inputs">Inputs</Tab>
-								<Tab value="preview">Preview</Tab>
-								<Tab value="settings">Settings</Tab>
+						<Tabs selected="inputs">
+							<Tab value="inputs">Inputs</Tab>
+							<Tab value="preview">Preview</Tab>
 
-								<svelte:fragment slot="content">
+							<svelte:fragment slot="content">
+								<div class="h-full pb-16 overflow-y-scroll bg-white">
 									<div class="p-4 overflow-hidden">
 										<TabContent value="inputs">
 											<div class="w-2/3">
@@ -163,9 +162,9 @@
 											{/if}
 										</TabContent>
 									</div>
-								</svelte:fragment>
-							</Tabs>
-						</div>
+								</div>
+							</svelte:fragment>
+						</Tabs>
 					</down>
 				</VSplitPane>
 			</div>
