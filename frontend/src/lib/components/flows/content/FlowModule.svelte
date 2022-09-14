@@ -130,7 +130,7 @@
 					<down slot="down">
 						<Tabs selected="inputs">
 							<Tab value="inputs">Inputs</Tab>
-							<Tab value="preview">Preview</Tab>
+							<Tab value="preview">Test</Tab>
 
 							<svelte:fragment slot="content">
 								<div class="h-full pb-16 overflow-y-scroll bg-white">

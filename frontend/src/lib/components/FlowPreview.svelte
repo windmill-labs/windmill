@@ -14,14 +14,12 @@
 	export let schema: Schema
 
 	let stepArgs: Record<string, any> = {}
-	let tab: 'upto' | 'justthis' = 'upto'
 	let jobId: string
 
 	export async function runPreview(args: any) {
 		flow = flowStateToFlow($flowStateStore, flow)
 
-		let newFlow: Flow =
-			tab == 'upto' ? truncateFlow(flow) : setInputTransformFromArgs(extractStep(flow), args)
+		let newFlow: Flow = setInputTransformFromArgs(extractStep(flow), args)
 		jobId = await runFlowPreview(args, newFlow)
 
 		sendUserToast(`started preview ${truncateRev(jobId, 10)}`)
@@ -53,22 +51,20 @@
 	}
 </script>
 
-{#if i != flow.value.modules.length}
-	<RunForm
-		runnable={extractStep(flow)}
-		runAction={(_, args) => runPreview(args)}
-		schedulable={false}
-		buttonText="Preview just this step"
-		detailed={false}
-		args={stepArgs}
-	/>
-{/if}
+<RunForm
+	runnable={extractStep(flow)}
+	runAction={(_, args) => runPreview(args)}
+	schedulable={false}
+	buttonText="Test just this step"
+	detailed={false}
+	args={stepArgs}
+/>
 
 {#if jobId}
 	<div class="w-full flex justify-center">
 		<FlowStatusViewer
 			{jobId}
-			on:jobsLoaded={(e) => mapJobResultsToFlowState(e.detail, tab, i)}
+			on:jobsLoaded={(e) => mapJobResultsToFlowState(e.detail, 'justthis', i)}
 			root={true}
 		/>
 	</div>
