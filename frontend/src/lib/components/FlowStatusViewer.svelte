@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { JobService } from '$lib/gen'
+	import { FlowStatusModule, JobService } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import FlowJobResult from './FlowJobResult.svelte'
 	import FlowPreviewStatus from './preview/FlowPreviewStatus.svelte'
@@ -104,22 +104,24 @@
 					Detailed results
 				</h3>
 
-				{#each jobResult.job?.flow_status?.modules ?? [] as module, i}
+				{#each jobResult.job?.flow_status?.modules ?? [] as mod, i}
 					<p class="text-gray-500 mb-6 w-full ">
 						Step
 						<span class="font-medium text-gray-900"> {i + 1} </span> out of
 						<span class="font-medium text-gray-900">{jobResult.job?.raw_flow?.modules.length}</span>
 					</p>
 
-					{#if ['InProgress', 'Success', 'Error'].includes(module.type)}
-						<li class="w-full border p-6 space-y-2">
+					<li class="w-full border p-6 space-y-2">
+						{#if [FlowStatusModule.type.IN_PROGRESS, FlowStatusModule.type.SUCCESS, FlowStatusModule.type.FAILURE].includes(mod.type)}
 							<svelte:self
-								jobId={module.job}
+								jobId={mod.job}
 								bind:jobResult={jobResult.innerJobs[i]}
-								forloopJobIds={module.forloop_jobs}
+								forloopJobIds={mod.forloop_jobs}
 							/>
-						</li>
-					{/if}
+						{:else}
+							<span>{mod.type}</span>
+						{/if}
+					</li>
 				{/each}
 			</ul>
 		{/if}
