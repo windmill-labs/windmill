@@ -78,3 +78,13 @@ impl IntoResponse for Error {
             .unwrap()
     }
 }
+
+pub trait OrElseNotFound<T> {
+    fn or_else_not_found(self, s: impl ToString) -> Result<T>;
+}
+
+impl<T> OrElseNotFound<T> for Option<T> {
+    fn or_else_not_found(self, s: impl ToString) -> Result<T> {
+        self.ok_or_else(|| Error::NotFound(s.to_string()))
+    }
+}
