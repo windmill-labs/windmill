@@ -7,6 +7,7 @@
 
 	import { getContext } from 'svelte'
 	import type { FlowEditorContext } from '../types'
+	import FlowMenu from './FlowMenu.svelte'
 
 	const { select } = getContext<FlowEditorContext>('FlowEditorContext')
 </script>
@@ -23,5 +24,6 @@
 		</button>
 	</div>
 	<FlowStatus />
+	<FlowMenu />
 	<FlowPreviewButtons />
 </div>

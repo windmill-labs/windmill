@@ -226,3 +226,8 @@ html {
 	padding: 0;
 	@apply text-xs;
 }
+
+/* svelte-split-pane separator class override */
+.separator {
+	background-color: #ddd !important;
+}
