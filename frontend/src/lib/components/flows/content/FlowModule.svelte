@@ -30,6 +30,7 @@
 	import { getContext } from 'svelte'
 	import type { FlowEditorContext } from '../types'
 	import Toggle from '$lib/components/Toggle.svelte'
+	import FlowModuleAdvancedSettings from './FlowModuleAdvancedSettings.svelte'
 
 	export let indexes: string
 	export let flowModule: FlowModule
@@ -183,40 +184,7 @@
 											{/if}
 										</TabContent>
 										<TabContent value="advanced">
-											<div class="flex flex-col">
-												{#if flowModule.stop_after_if}
-													<button
-														class="flex items-center  text-white bg-blue-500 hover:bg-blue-700 focus:ring-4 focus:ring-blue-300 font-medium rounded-lg text-sm px-4 py-1 focus:outline-none "
-														on:click={() => {
-															flowModule.stop_after_if = undefined
-														}}
-													>
-														Disable</button
-													>
-													<span>skip_if_stopped</span>
-
-													<Toggle
-														bind:checked={flowModule.stop_after_if.skip_if_stopped}
-														options={{
-															right: 'Skip if stopped'
-														}}
-													/>
-													<span>stop_after_if expr</span>
-													<input bind:value={flowModule.stop_after_if.expr} />
-												{:else}
-													<button
-														class="flex items-center  text-white bg-blue-500 hover:bg-blue-700 focus:ring-4 focus:ring-blue-300 font-medium rounded-lg text-sm px-4 py-1 focus:outline-none "
-														on:click={() => {
-															flowModule.stop_after_if = {
-																skip_if_stopped: false,
-																expr: 'false'
-															}
-														}}
-													>
-														Enable stop expression
-													</button>
-												{/if}
-											</div>
+											<FlowModuleAdvancedSettings bind:flowModule />
 										</TabContent>
 									</div>
 								</div>
