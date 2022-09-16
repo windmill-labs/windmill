@@ -22,7 +22,8 @@ import {
 import { get } from 'svelte/store'
 import { flowStateStore, type FlowModuleSchema, type FlowState } from './flowState'
 import { flowStore } from './flowStore'
-import { jobsToResults, loadSchemaFromModule } from './utils'
+import { loadSchemaFromModule } from './utils'
+
 export function emptyFlowModuleSchema(): FlowModuleSchema {
 	return {
 		flowModule: emptyModule(),

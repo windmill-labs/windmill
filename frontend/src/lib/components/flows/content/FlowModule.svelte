@@ -27,6 +27,10 @@
 	import FlowModuleHeader from './FlowModuleHeader.svelte'
 	import { flowStateStore, type FlowModuleSchema } from '../flowState'
 	import { scriptLangToEditorLang } from '$lib/utils'
+	import { getContext } from 'svelte'
+	import type { FlowEditorContext } from '../types'
+	import Toggle from '$lib/components/Toggle.svelte'
+	import FlowModuleAdvancedSettings from './FlowModuleAdvancedSettings.svelte'
 
 	export let indexes: string
 	export let flowModule: FlowModule
@@ -34,7 +38,7 @@
 	export let schema: Schema
 	export let childFlowModules: FlowModuleSchema[] | undefined = undefined
 
-	const [i] = indexes.split('-').map(Number)
+	const [parentIndex] = indexes.split('-').map(Number)
 
 	let editor: Editor
 	let websocketAlive = { pyright: false, black: false, deno: false }
@@ -65,6 +69,8 @@
 	async function applyCreateLoop() {
 		await apply(createLoop, null)
 	}
+
+	const { selectedId, select } = getContext<FlowEditorContext>('FlowEditorContext')
 </script>
 
 <div class="flex flex-col h-full ">
@@ -87,9 +93,13 @@
 		</svelte:fragment>
 		{#if shouldPick}
 			<FlowInputs
-				shouldDisableTriggerScripts={i != 0}
-				shouldDisableLoopCreation={indexes.length > 1 || i == 0}
-				on:loop={() => applyCreateLoop()}
+				shouldDisableTriggerScripts={parentIndex != 0}
+				shouldDisableLoopCreation={indexes.length > 1 || parentIndex == 0}
+				on:loop={() => {
+					applyCreateLoop()
+
+					select(['loop', $selectedId].join('-'))
+				}}
 				on:pick={(e) => apply(pickScript, e.detail.path)}
 				on:new={(e) =>
 					apply(createInlineScriptModule, {
@@ -131,6 +141,7 @@
 						<Tabs selected="inputs">
 							<Tab value="inputs">Inputs</Tab>
 							<Tab value="preview">Test</Tab>
+							<Tab value="advanced">Advanced</Tab>
 
 							<svelte:fragment slot="content">
 								<div class="h-full pb-16 overflow-y-scroll bg-white">
@@ -160,6 +171,10 @@
 													placeholder="Summary"
 												/>
 											{/if}
+										</TabContent>
+
+										<TabContent value="advanced">
+											<FlowModuleAdvancedSettings bind:flowModule />
 										</TabContent>
 									</div>
 								</div>
