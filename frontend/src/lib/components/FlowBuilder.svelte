@@ -18,6 +18,7 @@
 	import FlowEditor from './flows/FlowEditor.svelte'
 	import { flowStateStore, flowStateToFlow, type FlowState } from './flows/flowState'
 	import { flowStore } from './flows/flowStore'
+	import FlowImportExportMenu from './flows/header/FlowImportExportMenu.svelte'
 	import { loadFlowSchedule, type Schedule } from './flows/scheduleUtils'
 	import type { FlowEditorContext } from './flows/types'
 	import { cleanInputs } from './flows/utils'
@@ -193,7 +194,7 @@
 				</button>
 			</BreadcrumbItem>
 		</Breadcrumb>
-		<div class="flex flex-row-reverse ml-2">
+		<div class="flex flex-row-reverse ml-2 space-x-reverse space-x-2">
 			{#if step == 1}
 				<button
 					disabled={pathError != ''}
@@ -204,15 +205,16 @@
 				</button>
 				<button
 					disabled={pathError != ''}
-					class="default-button-secondary px-6 max-h-8 mr-2"
+					class="default-button-secondary px-6 max-h-8"
 					on:click={saveFlow}
 				>
 					Save
 				</button>
+				<FlowImportExportMenu />
 			{:else}
 				<button class="default-button px-6 self-end" on:click={saveFlow}>Save</button>
 				<button
-					class="default-button-secondary px-6 max-h-8 mr-2"
+					class="default-button-secondary px-6 max-h-8"
 					on:click={async () => {
 						changeStep(1)
 					}}

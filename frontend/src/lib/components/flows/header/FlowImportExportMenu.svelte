@@ -7,7 +7,15 @@
 	import FlowViewer from '$lib/components/FlowViewer.svelte'
 	import SimpleEditor from '$lib/components/SimpleEditor.svelte'
 	import { sendUserToast } from '$lib/utils'
-	import { faFileExport, faFileImport, faGlobe } from '@fortawesome/free-solid-svg-icons'
+	import { faCloudscale } from '@fortawesome/free-brands-svg-icons'
+	import {
+		faCloud,
+		faCloudUpload,
+		faFileExport,
+		faFileImport,
+		faGlobe,
+		faUpload
+	} from '@fortawesome/free-solid-svg-icons'
 	import Icon from 'svelte-awesome'
 	import { flowStore, initFlow } from '../flowStore'
 	import { cleanInputs } from '../utils'
@@ -26,8 +34,11 @@
 </script>
 
 <Menu placement="bottom-end">
-	<button slot="trigger" class="text-gray-900 bg-white dark:text-white dark:bg-gray-800">
-		...
+	<button
+		slot="trigger"
+		class="flex items-center text-gray-900 h-8 bg-white border border-gray-300 focus:outline-none hover:bg-gray-100 focus:ring-4 focus:ring-gray-200 font-medium rounded-lg text-sm px-4 py-2"
+	>
+		Import/Export flow
 	</button>
 	<div class="divide-y divide-gray-200">
 		<MenuItem on:click={() => jsonSetterDrawer.toggleDrawer()}>
