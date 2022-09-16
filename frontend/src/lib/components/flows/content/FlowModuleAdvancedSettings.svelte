@@ -8,10 +8,29 @@
 	export let flowModule: FlowModule
 </script>
 
-<div class="font-bold text-sm mb-2">Suspend</div>
 <div class="space-y-4 ">
-	<input bind:value={flowModule.suspend} type="number" min="0" placeholder="0" />
+	{#if flowModule.suspend}
+		<button
+			class="flex items-center  text-white bg-blue-500 hover:bg-blue-700 focus:ring-4 focus:ring-blue-300 font-medium rounded-lg text-sm px-4 py-1 focus:outline-none "
+			on:click={() => {
+				flowModule.suspend = undefined
+			}}
+		>
+			Disable suspend
+		</button>
+		<div class="font-bold text-sm">Suspend</div>
 
+		<input bind:value={flowModule.suspend} type="number" min="1" placeholder="0" />
+	{:else}
+		<button
+			class="flex items-center  text-white bg-blue-500 hover:bg-blue-700 focus:ring-4 focus:ring-blue-300 font-medium rounded-lg text-sm px-4 py-1 focus:outline-none "
+			on:click={() => {
+				flowModule.suspend = 1
+			}}
+		>
+			Enable suspend
+		</button>
+	{/if}
 	{#if flowModule.stop_after_if}
 		<button
 			class="flex items-center  text-white bg-blue-500 hover:bg-blue-700 focus:ring-4 focus:ring-blue-300 font-medium rounded-lg text-sm px-4 py-1 focus:outline-none "

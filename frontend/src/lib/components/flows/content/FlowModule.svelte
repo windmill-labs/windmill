@@ -172,17 +172,7 @@
 												/>
 											{/if}
 										</TabContent>
-										<TabContent value="settings">
-											{#if ('path' in flowModule.value && flowModule.value.path) || ('language' in flowModule.value && flowModule.value.language)}
-												<input
-													on:click|stopPropagation={() => undefined}
-													class="overflow-x-auto"
-													type="text"
-													bind:value={flowModule.summary}
-													placeholder="Summary"
-												/>
-											{/if}
-										</TabContent>
+
 										<TabContent value="advanced">
 											<FlowModuleAdvancedSettings bind:flowModule />
 										</TabContent>
