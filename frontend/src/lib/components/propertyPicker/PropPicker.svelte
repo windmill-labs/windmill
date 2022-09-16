@@ -11,9 +11,7 @@
 		search === EMPTY_STRING ? pickableProperties : keepByKey(pickableProperties, search)
 </script>
 
-<div
-	class="relative p-3  bg-white rounded-lg border border-gray-200 shadow-md max-h-max overflow-y-scroll"
->
+<div>
 	<div class="overflow-y-auto max-h-96">
 		<input
 			type="text"
