@@ -224,7 +224,7 @@
 			{:else if inputCat == 'list'}
 				<div>
 					<div>
-						{#each value ?? [] as v}
+						{#each value ?? [] as v, i}
 							<div class="flex flex-row max-w-md mt-1">
 								{#if itemsType?.type == 'number'}
 									<input type="number" bind:value={v} />
@@ -232,7 +232,7 @@
 									<input
 										type="file"
 										class="my-6"
-										on:change={(x) => fileChanged(x, (val) => (v = val))}
+										on:change={(x) => fileChanged(x, (val) => (value[i] = val))}
 										multiple={false}
 									/>
 								{:else}
@@ -344,7 +344,7 @@
 				/>
 			{/if}
 			{#if !required && inputCat != 'resource-object'}
-				<Tooltip placement="bottom" content="Reset to default value">
+				<!-- <Tooltip placement="bottom" content="Reset to default value">
 					<Button
 						on:click={() => (value = undefined)}
 						{disabled}
@@ -354,7 +354,7 @@
 					>
 						<Icon data={faArrowRotateLeft} />
 					</Button>
-				</Tooltip>
+				</Tooltip> -->
 			{/if}
 			<slot name="actions" />
 		</div>
