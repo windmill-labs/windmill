@@ -19,6 +19,7 @@
 			<FlowModule
 				indexes={$selectedId}
 				args={{}}
+				previewResult={fa.previewResult}
 				bind:flowModule={fa.flowModule}
 				bind:schema={fa.schema}
 				bind:childFlowModules={fa.childFlowModules}
@@ -36,6 +37,7 @@
 				indexes={$selectedId}
 				args={{}}
 				bind:flowModule={fa.flowModule}
+				bind:previewResult={fa.previewResult}
 				bind:schema={fa.schema}
 				bind:childFlowModules={fa.childFlowModules}
 				on:delete={() => {

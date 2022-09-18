@@ -28,12 +28,15 @@
 	import { flowStateStore, type FlowModuleSchema } from '../flowState'
 	import { scriptLangToEditorLang } from '$lib/utils'
 	import PropPicker from '$lib/components/propertyPicker/PropPicker.svelte'
+	import PropPickerWrapper from '../propPicker/PropPickerWrapper.svelte'
 
 	export let indexes: string
 	export let flowModule: FlowModule
 	export let args: Record<string, any> = {}
 	export let schema: Schema
 	export let childFlowModules: FlowModuleSchema[] | undefined = undefined
+
+	export let previewResult: any
 
 	const [i] = indexes.split('-').map(Number)
 
@@ -136,24 +139,16 @@
 							<svelte:fragment slot="content">
 								<div class="h-full pb-16 overflow-auto bg-white">
 									<div class="p-4 overflow-hidden ">
-										<TabContent value="inputs">
-											<div class="w-full">
-												<div class="grid grid-cols-2 gap-2">
-													<div>
-														<SchemaForm
-															{schema}
-															inputTransform={true}
-															importPath={indexes}
-															bind:pickableProperties={stepPropPicker.pickableProperties}
-															bind:args={flowModule.input_transforms}
-															bind:extraLib={stepPropPicker.extraLib}
-														/>
-													</div>
-													<div class="pl-2  border-l-4">
-														<PropPicker pickableProperties={{ a: 10 }} />
-													</div>
-												</div>
-											</div>
+										<TabContent value="inputs" class="h-80">
+											<PropPickerWrapper pickableProperties={stepPropPicker.pickableProperties}>
+												<SchemaForm
+													{schema}
+													inputTransform={true}
+													importPath={indexes}
+													bind:args={flowModule.input_transforms}
+													bind:extraLib={stepPropPicker.extraLib}
+												/>
+											</PropPickerWrapper>
 										</TabContent>
 										<TabContent value="preview">
 											<FlowPreview flow={$flowStore} {indexes} {schema} />
