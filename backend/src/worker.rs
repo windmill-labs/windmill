@@ -258,7 +258,7 @@ pub async fn run_worker(
                             }
                         }
                     }
-                    tracing::error!(job_id = %job.id, err = err.alt(), "error handling job");
+                    tracing::error!(job_id = %job.id, err = err.alt(), "error handling job: {} {} {}", job.id, job.workspace_id, job.created_by);
                 };
             }
             Ok(None) => (),
