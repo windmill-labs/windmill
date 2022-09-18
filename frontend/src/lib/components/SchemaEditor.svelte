@@ -65,7 +65,9 @@
 		} else {
 			schema.properties[modalProperty.name] = modalToSchema(modalProperty)
 			if (modalProperty.required) {
-				schema.required = [...schema.required, modalProperty.name]
+				if (!schema.required.includes(modalProperty.name)) {
+					schema.required.push(modalProperty.name)
+				}
 			} else if (schema.required.includes(modalProperty.name)) {
 				const index = schema.required.indexOf(modalProperty.name, 0)
 				if (index > -1) {
