@@ -1,0 +1,62 @@
+name: Bug report
+description: Create a report to help us improve.
+title: 'bug:'
+labels: 'bug'
+assignees: 'rubenfiszel'
+body:
+  - type: textarea
+    id: description
+    attributes:
+      label: Describe the bug
+      description: A clear and concise description of what the bug is.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction-steps
+    attributes:
+      label: To reproduce
+      description: Steps to reproduce the behavior
+      value: |
+        1. Go to '...'
+        2. Click on '....'
+        3. Scroll down to '....'
+        4. See error
+    validations:
+      required: true
+  - type: textarea
+    id: expected-behaviour
+    attributes:
+      label: Expected behavior
+      placeholder: A clear and concise description of what you expected to happen.
+    validations:
+      required: true
+  - type: textarea
+    id: screenshots
+    attributes:
+      label: Screenshots
+      placeholder: If applicable, add screenshots to help explain your problem.
+    validations:
+      required: false
+  - type: input
+    id: browser
+    attributes:
+      label: Browser information
+      description: Which browser are you using? Which version? 
+      placeholder: e.g. Chromium Version 92.0.4515.131
+    validations:
+      required: false
+  - type: input
+    id: version
+    attributes:
+      label: Application version
+      description: 'Go on the left menu -> <user> -> User Settings and copy the printed version in "Running windmill version (backend): XXX".'
+      placeholder: e.g.  windmill version (backend) v1.35.0-63-ga85302c
+    validations:
+      required: false
+  - type: textarea
+    id: additional-context
+    attributes:
+      label: Additional Context
+      description: Add any other context about the problem here.
+    validations:
+      required: false
