@@ -20,18 +20,25 @@
 			focused.set(value)
 		}
 	})
+
+	function insert() {}
 </script>
 
 <div class="h-full overflow-hidden">
 	<HSplitPane leftPaneSize="50%" rightPaneSize="50%" minLeftPaneSize="20%" minRightPaneSize="20%">
-		<left slot="left" class="h-full mr-4">
-			<div class="p-4">
+		<left slot="left" class="h-full">
+			<div class="p-4 h-full overflow-y-auto">
 				<slot />
 			</div>
 		</left>
 		<right slot="right" class="h-full">
-			<div class="p-4">
-				<PropPicker {pickableProperties} />
+			<div class="p-4 h-full overflow-y-auto">
+				<PropPicker
+					{pickableProperties}
+					on:select={() => {
+						debugger
+					}}
+				/>
 			</div>
 		</right>
 	</HSplitPane>

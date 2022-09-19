@@ -102,7 +102,7 @@
 			<Icon data={faClose} />
 		</Button>
 	</div>
-	<div class="pb-4">
+	<div class="pb-4 h-full max-h-1/2 overflow-auto">
 		<div class="mt-4">
 			<SchemaForm schema={$flowStore.schema} bind:isValid bind:args />
 		</div>
@@ -142,6 +142,7 @@
 					const [parentIndex] = $selectedId.split('-')
 					const configIndex =
 						previewMode === 'upTo' ? Number(parentIndex) : $flowStateStore.modules.length
+
 					mapJobResultsToFlowState(e.detail, 'upto', configIndex, undefined)
 				}}
 				root={true}

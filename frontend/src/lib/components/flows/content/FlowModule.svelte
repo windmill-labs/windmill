@@ -27,8 +27,10 @@
 	import FlowModuleHeader from './FlowModuleHeader.svelte'
 	import { flowStateStore, type FlowModuleSchema } from '../flowState'
 	import { scriptLangToEditorLang } from '$lib/utils'
-	import PropPicker from '$lib/components/propertyPicker/PropPicker.svelte'
 	import PropPickerWrapper from '../propPicker/PropPickerWrapper.svelte'
+	import { getContext } from 'svelte'
+	import type { FlowEditorContext } from '../types'
+	import FlowModuleAdvancedSettings from './FlowModuleAdvancedSettings.svelte'
 
 	export let indexes: string
 	export let flowModule: FlowModule
@@ -36,9 +38,7 @@
 	export let schema: Schema
 	export let childFlowModules: FlowModuleSchema[] | undefined = undefined
 
-	export let previewResult: any
-
-	const [i] = indexes.split('-').map(Number)
+	const [parentIndex] = indexes.split('-').map(Number)
 
 	let editor: Editor
 	let websocketAlive = { pyright: false, black: false, deno: false }
@@ -69,6 +69,8 @@
 	async function applyCreateLoop() {
 		await apply(createLoop, null)
 	}
+
+	const { selectedId, select } = getContext<FlowEditorContext>('FlowEditorContext')
 </script>
 
 <div class="flex flex-col h-full ">
@@ -91,9 +93,13 @@
 		</svelte:fragment>
 		{#if shouldPick}
 			<FlowInputs
-				shouldDisableTriggerScripts={i != 0}
-				shouldDisableLoopCreation={indexes.length > 1 || i == 0}
-				on:loop={() => applyCreateLoop()}
+				shouldDisableTriggerScripts={parentIndex != 0}
+				shouldDisableLoopCreation={indexes.length > 1 || parentIndex == 0}
+				on:loop={() => {
+					applyCreateLoop()
+
+					select(['loop', $selectedId].join('-'))
+				}}
 				on:pick={(e) => apply(pickScript, e.detail.path)}
 				on:new={(e) =>
 					apply(createInlineScriptModule, {
@@ -135,36 +141,43 @@
 						<Tabs selected="inputs">
 							<Tab value="inputs">Inputs</Tab>
 							<Tab value="preview">Test</Tab>
+							<Tab value="advanced">Advanced</Tab>
 
 							<svelte:fragment slot="content">
-								<div class="h-full pb-16 overflow-auto bg-white">
-									<div class="p-4 overflow-hidden ">
-										<TabContent value="inputs" class="h-80">
-											<PropPickerWrapper pickableProperties={stepPropPicker.pickableProperties}>
-												<SchemaForm
-													{schema}
-													inputTransform={true}
-													importPath={indexes}
-													bind:args={flowModule.input_transforms}
-													bind:extraLib={stepPropPicker.extraLib}
-												/>
-											</PropPickerWrapper>
-										</TabContent>
-										<TabContent value="preview">
+								<div class="h-full overflow-auto bg-white">
+									<TabContent value="inputs" class="flex flex-col flex-1 h-full">
+										<PropPickerWrapper bind:pickableProperties={stepPropPicker.pickableProperties}>
+											<SchemaForm
+												{schema}
+												inputTransform={true}
+												importPath={indexes}
+												bind:args={flowModule.input_transforms}
+												bind:extraLib={stepPropPicker.extraLib}
+											/>
+										</PropPickerWrapper>
+									</TabContent>
+									<TabContent value="preview">
+										<div class="p-4">
 											<FlowPreview flow={$flowStore} {indexes} {schema} />
-										</TabContent>
-										<TabContent value="settings">
-											{#if ('path' in flowModule.value && flowModule.value.path) || ('language' in flowModule.value && flowModule.value.language)}
-												<input
-													on:click|stopPropagation={() => undefined}
-													class="overflow-x-auto"
-													type="text"
-													bind:value={flowModule.summary}
-													placeholder="Summary"
-												/>
-											{/if}
-										</TabContent>
-									</div>
+										</div>
+									</TabContent>
+									<TabContent value="settings">
+										{#if ('path' in flowModule.value && flowModule.value.path) || ('language' in flowModule.value && flowModule.value.language)}
+											<input
+												on:click|stopPropagation={() => undefined}
+												class="overflow-x-auto"
+												type="text"
+												bind:value={flowModule.summary}
+												placeholder="Summary"
+											/>
+										{/if}
+									</TabContent>
+
+									<TabContent value="advanced">
+										<div class="p-4">
+											<FlowModuleAdvancedSettings bind:flowModule />
+										</div>
+									</TabContent>
 								</div>
 							</svelte:fragment>
 						</Tabs>

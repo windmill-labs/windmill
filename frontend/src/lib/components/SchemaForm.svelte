@@ -71,7 +71,9 @@
 					contentEncoding={schema.properties[argName].contentEncoding}
 					properties={schema.properties[argName].properties}
 					bind:itemsType={schema.properties[argName].items}
-					on:focus={() => focus && focus(argName)}
+					on:focus={() => {
+						focus && focus(argName)
+					}}
 					{editableSchema}
 				/>
 			{/if}

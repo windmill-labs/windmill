@@ -22,7 +22,8 @@ import {
 import { get } from 'svelte/store'
 import { flowStateStore, type FlowModuleSchema, type FlowState } from './flowState'
 import { flowStore } from './flowStore'
-import { jobsToResults, loadSchemaFromModule } from './utils'
+import { loadSchemaFromModule } from './utils'
+
 export function emptyFlowModuleSchema(): FlowModuleSchema {
 	return {
 		flowModule: emptyModule(),
@@ -291,11 +292,16 @@ export function mapJobResultsToFlowState(
 		const job = jobs.job as CompletedJob
 
 		flowStateStore.update((flowState: FlowState) => {
-			if (j) {
-				flowState[i].childFlowModules[j].previewResult = job.result
-			} else {
-				flowState[i].previewResult = job.result
+			if (flowState.modules) {
+				const childFlowModules = flowState.modules[i].childFlowModules
+				if (j && childFlowModules) {
+					childFlowModules[j].previewResult = job.result
+					flowState.modules[i].childFlowModules = childFlowModules
+				} else {
+					flowState.modules[i].previewResult = job.result
+				}
 			}
+
 			return flowState
 		})
 	} else {
@@ -314,7 +320,7 @@ export function mapJobResultsToFlowState(
 		})
 
 		flowStateStore.update((flowState: FlowState) => {
-			if (!Array.isArray(flowState)) {
+			if (!Array.isArray(flowState.modules)) {
 				return flowState
 			}
 
