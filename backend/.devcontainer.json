@@ -1,0 +1,27 @@
+// For format details, see https://aka.ms/devcontainer.json. For config options, see the README at:
+// https://github.com/microsoft/vscode-dev-containers/tree/v0.245.2/containers/docker-existing-docker-compose
+// If you want to run as a non-root user in the container, see .devcontainer/docker-compose.yml.
+{
+	"name": "Backend Container",
+	"dockerComposeFile": [
+		"../docker-compose.yml",
+		"../.devcontainer/docker-compose.yml"
+	],
+	"customizations": {
+		"vscode": {
+			"extensions": [
+				"rust-lang.rust-analyzer",
+				"yzhang.markdown-all-in-one"
+			]
+		}
+	},
+	"service": "windmill",
+	"workspaceFolder": "/workspace",
+	// Use 'forwardPorts' to make a list of ports inside the container available locally.
+	"forwardPorts": [
+		8000
+	],
+	// "postCreateCommand": "sudo apt-get update && sudo apt-get install -y lld python3 && cargo install sqlx-cli --no-default-features --features native-tls,postgres && (cd backend && sqlx migrate run) && cargo install deno --locked && rustup toolchain install nightly-2022-05-23 -c rust-src -c rustc-dev -c llvm-tools-preview",
+	"postCreateCommand": "cd backend && sqlx migrate run",
+	"remoteUser": "vscode"
+}
