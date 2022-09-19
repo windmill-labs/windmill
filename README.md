@@ -237,7 +237,7 @@ with hot-code reloading.
 
 1. Install [caddy](https://caddyserver.com)
 2. Go to `frontend/`:
-   1. `npm run install`, `npm run generate-backend-client` then `npm run dev`
+   1. `npm install`, `npm run generate-backend-client` then `npm run dev`
    2. In another shell `sudo caddy run --config CaddyfileRemote`
 3. Et voilà, windmill should be available at `http://localhost/`
 
@@ -248,17 +248,20 @@ running options.
 
 1. Create a Postgres Database for Windmill and create an admin role inside your
    Postgres setup.
+   The easiest way to get a working postgres is running `cargo install sqlx-cli && sqlx migrate run`.
+   This will also avoid compile time issue with sqlx's `query!` macro
 2. Install [nsjail](https://github.com/google/nsjail) and have it accessible in
    your PATH
 3. Install deno and python3, have the bins at `/usr/bin/deno` and
    `/usr/local/bin/python3`
 4. Install [caddy](https://caddyserver.com)
 5. Install the [lld linker](https://lld.llvm.org/)
-6. Go to `backend/`:
+6. Go to `frontend/`:
+   1. `npm install`, `npm run generate-backend-client` then `npm run dev`
+   2. In another shell `npm run build` otherwise the backend will not find the `frontend/build` folder and will crash
+   3. In another shell `sudo caddy run --config Caddyfile`
+7. Go to `backend/`:
    `DATABASE_URL=<DATABASE_URL_TO_YOUR_WINDMILL_DB> RUST_LOG=info cargo run`
-7. Go to `frontend/`:
-   1. `npm run install`, `npm run generate-backend-client` then `npm run dev`
-   2. In another shell `sudo caddy run --config Caddyfile`
 8. Et voilà, windmill should be available at `http://localhost/`
 
 ## Contributors
