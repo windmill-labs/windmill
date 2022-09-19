@@ -67,13 +67,10 @@
 	<svelte:fragment slot="content">
 		<div class="px-4">
 			<TabContent value="logs">
-				<pre class="whitespace-pre-wrap break-all relative h-full bg-gray-50 text-xs p-2">
-          {#if previewJob && previewJob.logs}
-						{previewJob.logs}
-					{:else if previewIsLoading}
-						Starting preview ...
-					{:else}
-						No preview is available yet
+				<pre
+					class="whitespace-pre-wrap break-all relative h-full bg-gray-50 text-xs p-2">{#if previewJob && previewJob.logs}{previewJob.logs}
+					{:else if previewIsLoading}Starting preview ...
+					{:else}No preview is available yet
 					{/if}
         </pre>
 			</TabContent>
