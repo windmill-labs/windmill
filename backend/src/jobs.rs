@@ -8,6 +8,7 @@
 
 use axum::extract::Host;
 
+use anyhow::Context;
 use sql_builder::prelude::*;
 use sqlx::{query_scalar, Postgres, Transaction};
 use std::collections::HashMap;
@@ -16,23 +17,23 @@ use tracing::instrument;
 use crate::{
     audit::{audit_log, ActionKind},
     db::{UserDB, DB},
-    error,
-    error::{to_anyhow, Error},
+    error::{self, to_anyhow, Error, OrElseNotFound},
     flows::FlowValue,
     schedule::get_schedule_opt,
     scripts::{get_hub_script_by_path, ScriptHash, ScriptLang},
     users::{owner_to_token_owner, Authed},
-    utils::{require_admin, Pagination, StripPath, now_from_db},
+    utils::{now_from_db, require_admin, Pagination, StripPath},
     worker,
-    worker_flow::{init_flow_status, FlowStatus},
+    worker_flow::{init_flow_status, FlowStatus, FlowStatusModule},
 };
 use axum::{
-    extract::{Extension, Path, Query},
+    extract::{Extension, FromRequest, Path, Query},
+    response::{IntoResponse, Response},
     routing::{get, post},
     Json, Router,
 };
 use hyper::StatusCode;
-use serde::{Deserialize, Serialize};
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use serde_json::{Map, Value};
 use sql_builder::SqlBuilder;
 
@@ -66,6 +67,14 @@ pub fn workspaced_service() -> Router {
         .route("/completed/delete/:id", post(delete_completed_job))
         .route("/get/:id", get(get_job))
         .route("/getupdate/:id", get(get_job_update))
+}
+
+pub fn global_service() -> Router {
+    Router::new()
+        .route("/resume/:id", get(resume_suspended_job))
+        .route("/resume/:id", post(resume_suspended_job))
+        .route("/cancel/:id", get(cancel_suspended_job))
+        .route("/cancel/:id", post(cancel_suspended_job))
 }
 
 #[derive(Debug, sqlx::FromRow, Serialize, Clone)]
@@ -102,18 +111,6 @@ impl QueuedJob {
             .as_ref()
             .map(String::as_str)
             .unwrap_or("NO_FLOW_PATH")
-    }
-
-    pub fn parse_raw_flow(&self) -> Option<FlowValue> {
-        self.raw_flow
-            .as_ref()
-            .and_then(|v| serde_json::from_value::<FlowValue>(v.clone()).ok())
-    }
-
-    pub fn parse_flow_status(&self) -> Option<FlowStatus> {
-        self.flow_status
-            .as_ref()
-            .and_then(|v| serde_json::from_value::<FlowStatus>(v.clone()).ok())
     }
 }
 
@@ -268,7 +265,7 @@ pub async fn run_wait_result_job_by_path(
     let script_path = script_path.to_path();
     let mut tx = user_db.clone().begin(&authed).await?;
     let job_payload = script_path_to_payload(script_path, &mut tx, &w_id).await?;
-        let scheduled_for = run_query.get_scheduled_for(&mut tx).await?;
+    let scheduled_for = run_query.get_scheduled_for(&mut tx).await?;
 
     let (uuid, tx) = push(
         tx,
@@ -677,7 +674,7 @@ fn list_completed_jobs_query(
     if let Some(sk) = &lq.is_skipped {
         sqlb.and_where_eq("is_skipped", sk);
     }
-        if let Some(fs) = &lq.is_flow_step {
+    if let Some(fs) = &lq.is_flow_step {
         sqlb.and_where_eq("is_flow_step", fs);
     }
     if let Some(jk) = &lq.job_kinds {
@@ -959,6 +956,104 @@ pub async fn get_queued_job<'c>(
     Ok(r)
 }
 
+pub async fn resume_suspended_job(
+    /* unauthed */
+    Extension(db): Extension<DB>,
+    Path((_, job)): Path<(String, Uuid)>,
+    QueryOrBody(value): QueryOrBody<serde_json::Value>,
+) -> error::Result<StatusCode> {
+    NewResumeJob { job, value, is_cancel: false }
+        .insert(&db)
+        .await?;
+    Ok(StatusCode::CREATED)
+}
+
+pub async fn cancel_suspended_job(
+    /* unauthed */
+    Extension(db): Extension<DB>,
+    Path((_, job)): Path<(String, Uuid)>,
+    QueryOrBody(value): QueryOrBody<serde_json::Value>,
+) -> error::Result<StatusCode> {
+    NewResumeJob { job, value, is_cancel: true }
+        .insert(&db)
+        .await?;
+    Ok(StatusCode::CREATED)
+}
+
+struct NewResumeJob {
+    pub job: Uuid,
+    pub value: Value,
+    pub is_cancel: bool,
+}
+
+impl NewResumeJob {
+    async fn insert(self, db: &DB) -> error::Result<()> {
+        insert_resume_job(db, self).await
+    }
+}
+
+async fn insert_resume_job(db: &DB, new: NewResumeJob) -> error::Result<()> {
+    let mut tx = db.begin().await?;
+
+    let flow = sqlx::query!(
+        r#"
+        SELECT id, flow_status, suspend
+          FROM queue
+         WHERE id = ( SELECT parent_job FROM queue WHERE id = $1
+                      UNION
+                      SELECT parent_job from completed_job WHERE id = $1 )
+           FOR UPDATE
+        "#,
+        new.job,
+    )
+    .fetch_optional(&mut tx)
+    .await?
+    .or_else_not_found(new.job)?;
+
+    sqlx::query!(
+        r#"
+        INSERT INTO resume_job
+                    (id, job, flow, value, is_cancel)
+             VALUES ($1, $2, $3, $4, $5)
+        "#,
+        Uuid::from(Ulid::new()),
+        new.job,
+        flow.id,
+        new.value,
+        new.is_cancel,
+    )
+    .execute(&mut tx)
+    .await?;
+
+    /* If the flow is currently waiting to be resumed (`FlowStatusModule::WaitingForEvents`)
+     * the suspend column must be set to the number of resume messages waited on.
+     *
+     * The flow's queue row is locked in this transaction because to avoid race conditions around
+     * the suspend column.
+     * That is, a job needs one event but it hasn't arrived, a worker counts zero events before
+     * entering WaitingForEvents.  Then this message arrives but the job isn't in WaitingForEvents
+     * yet so the suspend counter isn't updated.  Then the job enters WaitingForEvents expecting
+     * one event to arrive based on the count that is no longer correct. */
+    if let Some(suspend) = (0 < flow.suspend).then(|| flow.suspend - 1) {
+        let status =
+            serde_json::from_value::<FlowStatus>(flow.flow_status.context("no flow status")?)
+                .context("deserialize flow status")?;
+        if matches!(status.current_step(), Some(FlowStatusModule::WaitingForEvents { job, .. }) if job == &new.job)
+        {
+            sqlx::query!(
+                "UPDATE queue SET suspend = $1 WHERE id = $2",
+                if new.is_cancel { 0 } else { suspend },
+                flow.id,
+            )
+            .execute(&mut tx)
+            .await?;
+        }
+    }
+
+    tx.commit().await?;
+    Ok(())
+}
+
 #[derive(Serialize)]
 #[serde(tag = "type")]
 enum Job {
@@ -1100,7 +1195,7 @@ pub enum JobPayload {
     ScriptHub { path: String },
     ScriptHash { hash: ScriptHash, path: String },
     Code(RawCode),
-    Dependencies { hash: ScriptHash, dependencies: Vec<String> },
+    Dependencies { hash: ScriptHash, dependencies: String, language: ScriptLang },
     Flow(String),
     RawFlow { value: FlowValue, path: Option<String> },
 }
@@ -1240,13 +1335,13 @@ pub async fn push<'c>(
             None,
             Some(language),
         ),
-        JobPayload::Dependencies { hash, dependencies } => (
+        JobPayload::Dependencies { hash, dependencies, language } => (
             Some(hash.0),
             None,
-            Some(dependencies.join("\n")),
+            Some(dependencies),
             JobKind::Dependencies,
             None,
-            Some(ScriptLang::Python3),
+            Some(language),
         ),
         JobPayload::RawFlow { value, path } => {
             (None, path, None, JobKind::FlowPreview, Some(value), None)
@@ -1369,20 +1464,41 @@ pub async fn add_completed_job(
 ) -> Result<Uuid, Error> {
     let job_id = queued_job.id.clone();
     sqlx::query!(
-        "INSERT INTO completed_job as cj
-            (workspace_id, id, parent_job, created_by, created_at, started_at, duration_ms, success, \
-            script_hash, script_path, args, result, logs, \
-            raw_code, canceled, canceled_by, canceled_reason, job_kind, schedule_path, \
-            permissioned_as, flow_status, raw_flow, is_flow_step, is_skipped, language)
-            VALUES ($1, $2, $3, $4, $5, $6, EXTRACT(milliseconds FROM (now() - $6)), $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, \
-                    $18, $19, $20, $21, $22, $23, $24)
+        "INSERT INTO completed_job AS cj
+                   ( workspace_id
+                   , id
+                   , parent_job
+                   , created_by
+                   , created_at
+                   , started_at
+                   , duration_ms
+                   , success
+                   , script_hash
+                   , script_path
+                   , args
+                   , result
+                   , logs
+                   , raw_code
+                   , canceled
+                   , canceled_by
+                   , canceled_reason
+                   , job_kind
+                   , schedule_path
+                   , permissioned_as
+                   , flow_status
+                   , raw_flow
+                   , is_flow_step
+                   , is_skipped
+                   , language )
+            VALUES ($1, $2, $3, $4, $5, $6, EXTRACT(milliseconds FROM (now() - $6)), $7, $8, $9,\
+                    $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24)
          ON CONFLICT (id) DO UPDATE SET success = $7, result = $11, logs = concat(cj.logs, $12)",
         queued_job.workspace_id,
         queued_job.id,
         queued_job.parent_job,
         queued_job.created_by,
         queued_job.created_at,
-        queued_job.started_at,        
+        queued_job.started_at,
         success,
         queued_job.script_hash.map(|x| x.0),
         queued_job.script_path,
@@ -1452,13 +1568,27 @@ pub async fn schedule_again_if_scheduled(
 }
 
 pub async fn pull(db: &DB) -> Result<Option<QueuedJob>, crate::Error> {
+    /* Jobs can be started if they:
+     * - haven't been started before,
+     *   running = false
+     * - are flows with a step that needed resume,
+     *   suspend_until is non-null
+     *   and suspend = 0 when the resume messages are received
+     *   or suspend_until <= now() if it has timed out */
     let job: Option<QueuedJob> = sqlx::query_as::<_, QueuedJob>(
         "UPDATE queue
-            SET running = true, started_at = now(), last_ping = now()
+            SET running = true
+              , started_at = coalesce(started_at, now())
+              , last_ping = now()
+              , suspend_until = null
             WHERE id IN (
                 SELECT id
                 FROM queue
-                WHERE running = false AND scheduled_for <= now()
+                WHERE (    running = false
+                       AND scheduled_for <= now())
+                   OR (suspend_until IS NOT NULL
+                       AND (   suspend <= 0
+                            OR suspend_until <= now()))
                 ORDER BY scheduled_for
                 FOR UPDATE SKIP LOCKED
                 LIMIT 1
@@ -1485,4 +1615,46 @@ pub async fn delete_job(db: &DB, w_id: &str, job_id: Uuid) -> Result<(), crate::
         == 1;
     tracing::debug!("Job {job_id} deletion was achieved with success: {job_removed}");
     Ok(())
+}
+
+pub struct QueryOrBody<D>(pub D);
+
+#[axum::async_trait]
+impl<D, B> FromRequest<B> for QueryOrBody<D>
+where
+    D: DeserializeOwned,
+    B: Send + axum::body::HttpBody,
+    <B as axum::body::HttpBody>::Data: Send,
+    <B as axum::body::HttpBody>::Error: Into<axum::BoxError>,
+{
+    type Rejection = Response;
+
+    async fn from_request(
+        req: &mut axum::extract::RequestParts<B>,
+    ) -> Result<Self, Self::Rejection> {
+        return if req.method() == axum::http::Method::GET {
+            let Query(InPayload { payload }) = Query::from_request(req)
+                .await
+                .map_err(IntoResponse::into_response)?;
+            decode_payload(payload)
+                .map(QueryOrBody)
+                .map_err(|err| (StatusCode::BAD_REQUEST, format!("{err:#?}")))
+                .map_err(IntoResponse::into_response)
+        } else {
+            Json::from_request(req)
+                .await
+                .map(|Json(v)| QueryOrBody(v))
+                .map_err(IntoResponse::into_response)
+        };
+
+        #[derive(Deserialize)]
+        struct InPayload {
+            payload: String,
+        }
+
+        fn decode_payload<D: DeserializeOwned, T: AsRef<[u8]>>(t: T) -> anyhow::Result<D> {
+            let vec = base64::decode_config(&t, base64::URL_SAFE).context("invalid base64")?;
+            serde_json::from_slice(vec.as_slice()).context("invalid json")
+        }
+    }
 }

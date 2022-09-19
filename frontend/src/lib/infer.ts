@@ -2,7 +2,7 @@ import { ScriptService, type MainArgSignature } from '$lib/gen'
 import type { Schema, SchemaProperty } from './common.js'
 
 export async function inferArgs(
-	language: 'python3' | 'deno',
+	language: 'python3' | 'deno' | 'go',
 	code: string,
 	schema: Schema
 ): Promise<void> {
@@ -14,6 +14,10 @@ export async function inferArgs(
 		})
 	} else if (language == 'deno') {
 		inferedSchema = await ScriptService.denoToJsonschema({
+			requestBody: code
+		})
+	} else if (language == 'go') {
+		inferedSchema = await ScriptService.goToJsonschema({
 			requestBody: code
 		})
 	} else {
@@ -33,7 +37,7 @@ export async function inferArgs(
 		argSigToJsonSchemaType(arg.typ, schema.properties[arg.name])
 		schema.properties[arg.name].default = arg.default
 
-		if (!arg.has_default) {
+		if (!arg.has_default && !schema.required.includes(arg.name)) {
 			schema.required.push(arg.name)
 		}
 	}

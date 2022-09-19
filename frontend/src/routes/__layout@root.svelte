@@ -136,7 +136,7 @@
 			)}
 		>
 			<main>
-				<div class="w-full">
+				<div class="w-full h-screen">
 					<div
 						class="py-2 px-2 sm:px-4 md:px-8 flex justify-between items-center shadow-sm max-w-6xl mx-auto md:hidden"
 					>

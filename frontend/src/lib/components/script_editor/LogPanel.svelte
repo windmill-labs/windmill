@@ -13,8 +13,9 @@
 	import TableCustom from '../TableCustom.svelte'
 	import Drawer from '../common/drawer/Drawer.svelte'
 	import { Highlight } from 'svelte-highlight'
-	import { json, python, typescript } from 'svelte-highlight/languages'
+	import { json } from 'svelte-highlight/languages'
 	import DrawerContent from '../common/drawer/DrawerContent.svelte'
+	import HighlightCode from '../HighlightCode.svelte'
 
 	export let path: string | undefined
 	export let lang: Preview.language
@@ -51,10 +52,8 @@
 			<pre class="overflow-x-auto break-all relative h-full m-2 text-xs bg-white shadow-inner p-2">
 				{drawerContent?.content}
 			</pre>
-		{:else if drawerContent?.mode === 'deno'}
-			<Highlight language={typescript} code={drawerContent?.content} />
-		{:else if drawerContent?.mode === 'python3'}
-			<Highlight language={python} code={drawerContent?.content} />
+		{:else if drawerContent?.mode === 'deno' || drawerContent?.mode === 'python3' || drawerContent?.mode === 'go'}}
+			<HighlightCode language={drawerContent?.mode} code={drawerContent?.content} />
 		{/if}
 	</DrawerContent>
 </Drawer>
@@ -68,13 +67,10 @@
 	<svelte:fragment slot="content">
 		<div class="px-4">
 			<TabContent value="logs">
-				<pre class="whitespace-pre-wrap break-all relative h-full bg-gray-50 text-xs p-2">
-          {#if previewJob && previewJob.logs}
-						{previewJob.logs}
-					{:else if previewIsLoading}
-						Starting preview ...
-					{:else}
-						No preview is available yet
+				<pre
+					class="whitespace-pre-wrap break-all relative h-full bg-gray-50 text-xs p-2">{#if previewJob && previewJob.logs}{previewJob.logs}
+					{:else if previewIsLoading}Starting preview ...
+					{:else}No preview is available yet
 					{/if}
         </pre>
 			</TabContent>

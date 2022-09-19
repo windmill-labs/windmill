@@ -14,7 +14,7 @@
 	import ResourceEditor from './ResourceEditor.svelte'
 	import VariableEditor from './VariableEditor.svelte'
 
-	export let lang: 'python3' | 'deno'
+	export let lang: 'python3' | 'deno' | 'go'
 	export let editor: Editor
 	export let websocketAlive: { pyright: boolean; black: boolean; deno: boolean }
 
@@ -25,7 +25,7 @@
 	let resourceEditor: ResourceEditor
 
 	let codeViewer: Modal
-	let codeLang: 'python3' | 'deno' = 'deno'
+	let codeLang: 'python3' | 'deno' | 'go' = 'deno'
 	let codeContent: string = ''
 
 	async function loadVariables() {
@@ -85,7 +85,7 @@
 		if (!path) {
 			if (lang == 'deno') {
 				editor.insertAtCursor(`Deno.env.get('${name}')`)
-			} else {
+			} else if (lang == 'python3') {
 				if (!editor.getCode().includes('import os')) {
 					editor.insertAtBeginning('import os\n')
 				}
@@ -100,7 +100,7 @@
 					)
 				}
 				editor.insertAtCursor(`(await wmill.getVariable('${path}'))`)
-			} else {
+			} else if (lang == 'python3') {
 				if (!editor.getCode().includes('import wmill')) {
 					editor.insertAtBeginning('import wmill\n')
 				}
@@ -139,7 +139,7 @@
 				)
 			}
 			editor.insertAtCursor(`(await wmill.getResource('${path}'))`)
-		} else {
+		} else if (lang == 'python3') {
 			if (!editor.getCode().includes('import wmill')) {
 				editor.insertAtBeginning('import wmill\n')
 			}
@@ -171,7 +171,7 @@
 <ResourceEditor bind:this={resourceEditor} on:refresh={resourcePicker.openModal} />
 <VariableEditor bind:this={variableEditor} on:create={variablePicker.openModal} />
 
-<div class="flex divide-x items-center">
+<div class="flex divide-x items-center overflow-x-auto">
 	<div>
 		<button
 			type="button"

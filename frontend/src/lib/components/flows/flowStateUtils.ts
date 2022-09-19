@@ -22,7 +22,8 @@ import {
 import { get } from 'svelte/store'
 import { flowStateStore, type FlowModuleSchema, type FlowState } from './flowState'
 import { flowStore } from './flowStore'
-import { jobsToResults, loadSchemaFromModule } from './utils'
+import { loadSchemaFromModule } from './utils'
+
 export function emptyFlowModuleSchema(): FlowModuleSchema {
 	return {
 		flowModule: emptyModule(),
@@ -57,7 +58,7 @@ export async function createInlineScriptModule({
 	subkind
 }: {
 	language: RawScript.language
-	kind: Script.kind,
+	kind: Script.kind
 	subkind: 'pgsql' | 'flow'
 }): Promise<FlowModuleSchema> {
 	const code = initialCode(language, kind, subkind)
@@ -75,7 +76,7 @@ export async function createLoop(): Promise<FlowModuleSchema> {
 		value: {
 			type: 'forloopflow',
 			modules: [],
-			iterator: { type: 'javascript', expr: 'result' },
+			iterator: { type: 'javascript', expr: 'previous_result' },
 			skip_failures: true
 		},
 		input_transforms: {}
@@ -210,7 +211,7 @@ export function getStepPropPicker(
 	const [parentIndex] = indexes
 
 	const flowInput = schemaToObject(flowInputSchema, args)
-	const results = getPreviousResults(flowState, parentIndex)
+	const results = getPreviousResults(flowState.modules, parentIndex)
 	const lastResult = results.length > 0 ? results[results.length - 1] : undefined
 
 	if (isInsideLoop) {
@@ -280,7 +281,8 @@ export type JobResult = {
 export function mapJobResultsToFlowState(
 	jobs: JobResult,
 	config: 'upto' | 'justthis',
-	configIndex: number
+	i: number,
+	j: number | undefined
 ): void {
 	if (!Array.isArray(jobs.innerJobs) || jobs.innerJobs.length === 0) {
 		return
@@ -290,7 +292,11 @@ export function mapJobResultsToFlowState(
 		const job = jobs.job as CompletedJob
 
 		flowStateStore.update((flowState: FlowState) => {
-			flowState[configIndex] = job.result
+			if (j) {
+				flowState[i].childFlowModules[j].previewResult = job.result
+			} else {
+				flowState[i].previewResult = job.result
+			}
 			return flowState
 		})
 	} else {
@@ -313,13 +319,18 @@ export function mapJobResultsToFlowState(
 				return flowState
 			}
 
-			return flowState.map((flowModuleSchema: FlowModuleSchema, index) => {
-				if (index <= configIndex) {
+			const modules = flowState.modules.map((flowModuleSchema: FlowModuleSchema, index) => {
+				if (index <= i) {
 					flowModuleSchema.previewResult = results[index]
 				}
 
 				return flowModuleSchema
 			})
+
+			return {
+				modules,
+				failureModule: flowState.failureModule
+			}
 		})
 	}
 }

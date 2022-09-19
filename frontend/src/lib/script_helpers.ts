@@ -49,17 +49,29 @@ export async function main(
 }
 `
 
+export const GO_INIT_CODE = `import (
+	"fmt"
+	"rsc.io/quote"
+)
+
+func main(x string) (interface{}, error) {
+	fmt.Println("Hello, World")
+	fmt.Println(quote.Opt())
+  return x, nil
+}
+`
+
 export const DENO_INIT_CODE_CLEAR = `// import * as wmill from "https://deno.land/x/windmill@v${__pkg__.version}/mod.ts"
 
-export async function main() {
-  return
+export async function main(x: string) {
+  return x
 }
 `
 
 export const PYTHON_INIT_CODE_CLEAR = `#import wmill
 
-def main():
-  return
+def main(x: str):
+  return x
 `
 
 export const POSTGRES_INIT_CODE = `import {
@@ -111,7 +123,7 @@ export function isInitialCode(content: string): boolean {
   return false
 }
 
-export function initialCode(language: 'deno' | 'python3', kind: Script.kind, subkind: 'pgsql' | 'flow' | 'script' | undefined): string {
+export function initialCode(language: 'deno' | 'python3' | 'go', kind: Script.kind, subkind: 'pgsql' | 'flow' | 'script' | undefined): string {
   if (language === 'deno') {
     if (kind === 'trigger') {
       return DENO_INIT_CODE_TRIGGER
@@ -126,11 +138,13 @@ export function initialCode(language: 'deno' | 'python3', kind: Script.kind, sub
     } else {
       return DENO_INIT_CODE
     }
-  } else {
+  } else if (language === 'python3') {
     if (subkind === 'flow') {
       return PYTHON_INIT_CODE_CLEAR
     } else {
       return PYTHON_INIT_CODE
     }
+  } else {
+    return GO_INIT_CODE
   }
 }

@@ -16,6 +16,7 @@ use std::{
     },
     time::Duration,
 };
+use uuid::Uuid;
 
 use crate::{
     db::DB,
@@ -49,14 +50,20 @@ use async_recursion::async_recursion;
 const TMP_DIR: &str = "/tmp/windmill";
 const PIP_CACHE_DIR: &str = "/tmp/windmill/cache/pip";
 const DENO_CACHE_DIR: &str = "/tmp/windmill/cache/deno";
+const GO_CACHE_DIR: &str = "/tmp/windmill/cache/go";
 const NUM_SECS_ENV_CHECK: u64 = 15;
 
-const INCLUDE_DEPS_SH_CONTENT: &str = include_str!("../../nsjail/download_deps.sh");
-const NSJAIL_CONFIG_DOWNLOAD_CONTENT: &str = include_str!("../../nsjail/download.config.proto");
+const INCLUDE_DEPS_PY_SH_CONTENT: &str = include_str!("../../nsjail/download_deps.py.sh");
+const NSJAIL_CONFIG_DOWNLOAD_PY_CONTENT: &str =
+    include_str!("../../nsjail/download.py.config.proto");
 const NSJAIL_CONFIG_RUN_PYTHON3_CONTENT: &str =
     include_str!("../../nsjail/run.python3.config.proto");
+
+const NSJAIL_CONFIG_RUN_GO_CONTENT: &str = include_str!("../../nsjail/run.go.config.proto");
+
 const NSJAIL_CONFIG_RUN_DENO_CONTENT: &str = include_str!("../../nsjail/run.deno.config.proto");
 const MAX_LOG_SIZE: u32 = 200000;
+const GO_REQ_SPLITTER: &str = "//go.sum";
 pub struct Metrics {
     pub jobs_failed: prometheus::IntCounter,
 }
@@ -67,6 +74,7 @@ pub struct WorkerConfig {
     pub base_url: String,
     pub disable_nuser: bool,
     pub disable_nsjail: bool,
+    pub keep_job_dir: bool,
 }
 
 pub async fn run_worker(
@@ -84,7 +92,7 @@ pub async fn run_worker(
     let worker_dir = format!("{TMP_DIR}/{worker_name}");
     tracing::debug!(worker_dir = %worker_dir, worker_name = %worker_name, "Creating worker dir");
 
-    for x in [&worker_dir, PIP_CACHE_DIR, DENO_CACHE_DIR] {
+    for x in [&worker_dir, PIP_CACHE_DIR, DENO_CACHE_DIR, GO_CACHE_DIR] {
         DirBuilder::new()
             .recursive(true)
             .create(x)
@@ -92,7 +100,12 @@ pub async fn run_worker(
             .expect("could not create initial worker dir");
     }
 
-    let _ = write_file(&worker_dir, "download_deps.sh", INCLUDE_DEPS_SH_CONTENT).await;
+    let _ = write_file(
+        &worker_dir,
+        "download_deps.py.sh",
+        INCLUDE_DEPS_PY_SH_CONTENT,
+    )
+    .await;
 
     let mut last_ping = Instant::now() - Duration::from_secs(NUM_SECS_ENV_CHECK + 1);
 
@@ -132,11 +145,15 @@ pub async fn run_worker(
     let mut jobs_executed = 0;
 
     let deno_path = std::env::var("DENO_PATH").unwrap_or_else(|_| "/usr/bin/deno".to_string());
+    let go_path = std::env::var("GO_PATH").unwrap_or_else(|_| "/usr/bin/go".to_string());
     let python_path =
         std::env::var("PYTHON_PATH").unwrap_or_else(|_| "/usr/local/bin/python3".to_string());
     let nsjail_path = std::env::var("NSJAIL_PATH").unwrap_or_else(|_| "nsjail".to_string());
     let path_env = std::env::var("PATH").unwrap_or_else(|_| String::new());
-    let envs = Envs { deno_path, python_path, nsjail_path, path_env };
+    let gopath_env = std::env::var("GOPATH").unwrap_or_else(|_| String::new());
+    let home_env = std::env::var("HOME").unwrap_or_else(|_| String::new());
+    let envs =
+        Envs { deno_path, go_path, python_path, nsjail_path, path_env, gopath_env, home_env };
 
     loop {
         if last_ping.elapsed().as_secs() > NUM_SECS_ENV_CHECK {
@@ -176,7 +193,7 @@ pub async fn run_worker(
                     timeout,
                     &worker_name,
                     &worker_dir,
-                    worker_config.clone(),
+                    &worker_config,
                     &metrics,
                     &envs,
                 )
@@ -241,7 +258,7 @@ pub async fn run_worker(
                             }
                         }
                     }
-                    tracing::error!(job_id = %job.id, err = err.alt(), "error handling job");
+                    tracing::error!(job_id = %job.id, err = err.alt(), "error handling job: {} {} {}", job.id, job.workspace_id, job.created_by);
                 };
             }
             Ok(None) => (),
@@ -274,9 +291,12 @@ async fn insert_initial_ping(worker_instance: &str, worker_name: &str, ip: &str,
 
 struct Envs {
     deno_path: String,
+    go_path: String,
     python_path: String,
     nsjail_path: String,
     path_env: String,
+    gopath_env: String,
+    home_env: String,
 }
 async fn handle_queued_job(
     job: QueuedJob,
@@ -284,7 +304,7 @@ async fn handle_queued_job(
     timeout: i32,
     worker_name: &str,
     worker_dir: &str,
-    worker_config: WorkerConfig,
+    worker_config: &WorkerConfig,
     metrics: &Metrics,
     envs: &Envs,
 ) -> crate::error::Result<()> {
@@ -417,8 +437,8 @@ async fn handle_job(
     worker_dir: &str,
     logs: &mut String,
     last_line: &mut String,
-    worker_config: WorkerConfig,
-    Envs { deno_path, python_path, nsjail_path, path_env }: &Envs,
+    worker_config: &WorkerConfig,
+    envs: &Envs,
 ) -> Result<serde_json::Value, Error> {
     tracing::info!(
         worker = %worker_name,
@@ -430,36 +450,46 @@ async fn handle_job(
 
     logs.push_str(&format!("job {} on worker {}\n", &job.id, &worker_name));
     let job_dir = format!("{worker_dir}/{}", job.id);
+
     DirBuilder::new()
-        .recursive(true)
-        .create(&format!("{job_dir}/dependencies"))
+        .create(&job_dir)
         .await
-        .expect("could not create initial job dir");
+        .expect("could not create job dir");
 
     let mut status: Result<ExitStatus, Error> =
         Err(Error::InternalErr("job not started".to_string()));
 
     if matches!(job.job_kind, JobKind::Dependencies) {
-        handle_dependency_job(job, logs, &job_dir, &mut status, db, last_line, timeout).await?;
+        handle_dependency_job(
+            job,
+            logs,
+            &job_dir,
+            &mut status,
+            db,
+            last_line,
+            timeout,
+            &envs.go_path,
+        )
+        .await?;
     } else {
-        handle_nondep_job(
+        handle_code_execution_job(
             job,
             db,
             &job_dir,
             worker_dir,
-            worker_config,
             logs,
             &mut status,
             last_line,
             timeout,
-            deno_path,
-            python_path,
-            nsjail_path,
-            path_env,
+            worker_config,
+            envs,
         )
         .await?;
     }
-    tokio::fs::remove_dir_all(job_dir).await?;
+
+    if !worker_config.keep_job_dir {
+        tokio::fs::remove_dir_all(job_dir).await?;
+    }
 
     if status.is_ok() && status.as_ref().unwrap().success() {
         let result = serde_json::from_str::<serde_json::Value>(last_line).map_err(|e| {
@@ -488,34 +518,25 @@ async fn handle_job(
     }
 }
 
-async fn handle_nondep_job(
+async fn handle_code_execution_job(
     job: &QueuedJob,
     db: &sqlx::Pool<sqlx::Postgres>,
     job_dir: &String,
     worker_dir: &str,
-    WorkerConfig { base_internal_url, base_url, disable_nuser, disable_nsjail }: WorkerConfig,
     logs: &mut String,
     status: &mut Result<ExitStatus, Error>,
     last_line: &mut String,
     timeout: i32,
-    deno_path: &str,
-    python_path: &str,
-    nsjail_path: &str,
-    path_env: &str,
+    worker_config: &WorkerConfig,
+    envs: &Envs,
 ) -> Result<(), Error> {
     let (inner_content, requirements_o, language) = if matches!(job.job_kind, JobKind::Preview)
         || matches!(job.job_kind, JobKind::Script_Hub)
     {
         let code = (job.raw_code.as_ref().unwrap_or(&"no raw code".to_owned())).to_owned();
-        let reqs = if job
-            .language
-            .as_ref()
-            .map(|x| matches!(x, ScriptLang::Python3))
-            .unwrap_or(false)
-        {
-            Some(parser_py::parse_python_imports(&code)?.join("\n"))
-        } else {
-            None
+        let reqs = match job.language {
+            Some(ScriptLang::Python3) => Some(parser_py::parse_python_imports(&code)?.join("\n")),
+            _ => None,
         };
         (code, reqs, job.language.to_owned())
     } else {
@@ -530,6 +551,21 @@ async fn handle_nondep_job(
         .ok_or_else(|| Error::InternalErr(format!("expected content and lock")))?
     };
     let worker_name = worker_dir.split("/").last().unwrap_or("unknown");
+    let lang_str = job
+        .language
+        .as_ref()
+        .map(|x| format!("{x:?}"))
+        .unwrap_or_else(|| "NO_LANG".to_string());
+
+    tracing::info!(
+        worker_name = %worker_name,
+        job_id = %job.id,
+        workspace_id = %job.workspace_id,
+        is_ok = status.is_ok(),
+        "started {} job {}",
+        &lang_str,
+        job.id
+    );
     match language {
         None => {
             return Err(Error::ExecutionErr(
@@ -537,131 +573,492 @@ async fn handle_nondep_job(
             ))?;
         }
         Some(ScriptLang::Python3) => {
-            let requirements =
-                requirements_o.ok_or_else(|| Error::InternalErr(format!("lockfile missing")))?;
+            handle_python_job(
+                worker_config,
+                envs,
+                requirements_o,
+                job_dir,
+                worker_dir,
+                worker_name,
+                job,
+                logs,
+                status,
+                db,
+                last_line,
+                timeout,
+                &inner_content,
+            )
+            .await?
+        }
+        Some(ScriptLang::Deno) => {
+            handle_deno_job(
+                worker_config,
+                envs,
+                logs,
+                job,
+                db,
+                job_dir,
+                &inner_content,
+                timeout,
+                status,
+                last_line,
+            )
+            .await?;
+        }
+        Some(ScriptLang::Go) => {
+            handle_go_job(
+                worker_config,
+                envs,
+                logs,
+                job,
+                db,
+                &inner_content,
+                timeout,
+                job_dir,
+                requirements_o,
+                status,
+                last_line,
+            )
+            .await?
+        }
+    }
+    tracing::info!(
+        worker_name = %worker_name,
+        job_id = %job.id,
+        workspace_id = %job.workspace_id,
+        is_ok = status.is_ok(),
+        "finished {} job {}",
+        &lang_str,
+        job.id
+    );
+    Ok(())
+}
 
-            if requirements.len() > 0 {
-                if !disable_nsjail {
-                    let _ = write_file(
-                        job_dir,
-                        "download.config.proto",
-                        &NSJAIL_CONFIG_DOWNLOAD_CONTENT
-                            .replace("{JOB_DIR}", job_dir)
-                            .replace("{WORKER_DIR}", &worker_dir)
-                            .replace("{CACHE_DIR}", PIP_CACHE_DIR)
-                            .replace("{CLONE_NEWUSER}", &(!disable_nuser).to_string()),
-                    )
-                    .await?;
-                }
-                let _ = write_file(job_dir, "requirements.txt", &requirements).await?;
+async fn handle_go_job(
+    WorkerConfig { base_internal_url, disable_nuser, disable_nsjail, .. }: &WorkerConfig,
+    Envs { nsjail_path, go_path, path_env, gopath_env, home_env, .. }: &Envs,
+    logs: &mut String,
+    job: &QueuedJob,
+    db: &sqlx::Pool<sqlx::Postgres>,
+    inner_content: &str,
+    timeout: i32,
+    job_dir: &String,
+    requirements_o: Option<String>,
+    status: &mut Result<ExitStatus, Error>,
+    last_line: &mut String,
+) -> Result<(), Error> {
+    //go does not like executing modules at temp root
+    let job_dir = &format!("{job_dir}/go");
+    if let Some(requirements) = requirements_o {
+        gen_go_mymod(inner_content, job_dir).await?;
+        let (md, sum) = requirements
+            .split_once(GO_REQ_SPLITTER)
+            .ok_or(Error::ExecutionErr(
+                "Invalid requirement file, missing splitter".to_string(),
+            ))?;
+        write_file(job_dir, "go.mod", md).await?;
+        write_file(job_dir, "go.sum", sum).await?;
+    } else {
+        logs.push_str("\n\n--- GO DEPENDENCIES SETUP---\n");
+        set_logs(logs, job.id, db).await;
 
-                tracing::info!(
-                    worker_name = %worker_name,
-                    job_id = %job.id,
-                    workspace_id = %job.workspace_id,
-                    "started setup python dependencies"
-                );
+        install_go_dependencies(
+            &job.id,
+            inner_content,
+            logs,
+            job_dir,
+            status,
+            db,
+            last_line,
+            timeout,
+            go_path,
+            true,
+        )
+        .await?;
+    }
 
-                let child = if !disable_nsjail {
-                    Command::new(nsjail_path)
-                        .current_dir(job_dir)
-                        .args(vec!["--config", "download.config.proto"])
-                        .stdout(Stdio::piped())
-                        .stderr(Stdio::piped())
-                        .spawn()?
-                } else {
-                    Command::new(python_path)
-                        .current_dir(job_dir)
-                        .args(vec![
-                            "-m",
-                            "pip",
-                            "install",
-                            "--no-color",
-                            "--isolated",
-                            "--no-warn-conflicts",
-                            "--disable-pip-version-check",
-                            "-t",
-                            "./dependencies",
-                            "-r",
-                            "./requirements.txt",
-                        ])
-                        .stdout(Stdio::piped())
-                        .stderr(Stdio::piped())
-                        .spawn()?
-                };
+    logs.push_str("\n\n--- GO CODE EXECUTION ---\n");
+    set_logs(logs, job.id, db).await;
 
-                logs.push_str("\n--- PIP DEPENDENCIES INSTALL ---\n");
-                *status = handle_child(job, db, logs, last_line, timeout, child).await;
-                tracing::info!(
-                    worker_name = %worker_name,
-                    job_id = %job.id,
-                    workspace_id = %job.workspace_id,
-                    is_ok = status.is_ok(),
-                    "finished setting up python dependencies {}",
-                    job.id
-                );
-            }
-            if requirements.len() == 0 || status.is_ok() {
-                logs.push_str("\n\n--- PYTHON CODE EXECUTION ---\n");
+    let sig = crate::parser_go::parse_go_sig(&inner_content)?;
+    let token = create_token_for_owner(
+        &db,
+        &job.workspace_id,
+        &job.permissioned_as,
+        "ephemeral-script",
+        timeout * 2,
+        &job.created_by,
+    )
+    .await?;
+    let args = if let Some(args) = &job.args {
+        Some(
+            transform_json_value(&token, &job.workspace_id, &base_internal_url, args.clone())
+                .await?,
+        )
+    } else {
+        None
+    };
+    let ser_args = serde_json::to_string(&args).map_err(|e| Error::ExecutionErr(e.to_string()))?;
+    write_file(job_dir, "args.json", &ser_args).await?;
+    let spread = sig
+        .args
+        .into_iter()
+        .map(|x| {
+            format!(
+                "json_arg[\"{}\"].({})",
+                x.name,
+                x.otyp.unwrap_or_else(|| "interface{}".to_string())
+            )
+        })
+        .join(", ");
 
-                set_logs(logs, job.id, db).await;
+    let inner_content = inner_content.replace("func main(", "func inner_main(");
+    let wrapper_content: String = format!(
+        r#"
+package main
 
-                let _ = write_file(job_dir, "inner.py", &inner_content).await?;
+import (
+    "encoding/json"
+    "os"
+)
 
-                let sig = crate::parser_py::parse_python_signature(&inner_content)?;
-                let transforms = sig
-                    .args
-                    .into_iter()
-                    .map(|x| match x.typ {
-                        Typ::Bytes => {
-                            format!(
-                                "if \"{}\" in kwargs and kwargs[\"{}\"] is not None:\n    \
+{inner_content}
+
+func main() {{
+    dat, err := os.ReadFile("args.json")
+    if err != nil {{
+        fmt.Println(err)
+        os.Exit(1)
+    }}
+
+    var json_arg map[string]interface{{}}
+
+    if err := json.Unmarshal(dat, &json_arg); err != nil {{
+        fmt.Println(err)
+        os.Exit(1)
+    }}
+
+    res, err := inner_main({spread})
+    if err != nil {{
+        fmt.Println(err)
+        os.Exit(1)
+    }}
+    res_json, err := json.Marshal(res)
+    if err != nil {{
+        fmt.Println(err)
+        os.Exit(1)
+    }}
+    fmt.Println()
+    fmt.Println("result:")
+    fmt.Println(string(res_json))
+}}
+
+"#,
+    );
+    write_file(job_dir, "mymod/main.go", &wrapper_content).await?;
+    let mut reserved_variables = get_reserved_variables(job, token.clone(), db).await?;
+    reserved_variables.insert("RUST_LOG".to_string(), "info".to_string());
+
+    let child = if !disable_nsjail {
+        let _ = write_file(
+            job_dir,
+            "run.config.proto",
+            &NSJAIL_CONFIG_RUN_GO_CONTENT
+                .replace("{JOB_DIR}", job_dir)
+                .replace("{CACHE_DIR}", GO_CACHE_DIR)
+                .replace("{CLONE_NEWUSER}", &(!disable_nuser).to_string()),
+        )
+        .await?;
+
+        Command::new(nsjail_path)
+            .current_dir(job_dir)
+            .env_clear()
+            .envs(reserved_variables)
+            .env("PATH", path_env)
+            .env("BASE_INTERNAL_URL", base_internal_url)
+            .args(vec![
+                "--config",
+                "run.config.proto",
+                "--",
+                go_path,
+                "run",
+                "mymod/main.go",
+            ])
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()?
+    } else {
+        Command::new(go_path)
+            .current_dir(job_dir)
+            .env_clear()
+            .envs(reserved_variables)
+            .env("PATH", path_env)
+            .env("BASE_INTERNAL_URL", base_internal_url)
+            .env("GOPATH", gopath_env)
+            .env("HOME", home_env)
+            .args(vec!["run", "mymod/main.go"])
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()?
+    };
+    *status = handle_child(&job.id, db, logs, last_line, timeout, child).await;
+    Ok(())
+}
+
+async fn handle_deno_job(
+    WorkerConfig { base_internal_url, base_url, disable_nuser, disable_nsjail, .. }: &WorkerConfig,
+    Envs { nsjail_path, deno_path, path_env, .. }: &Envs,
+    logs: &mut String,
+    job: &QueuedJob,
+    db: &sqlx::Pool<sqlx::Postgres>,
+    job_dir: &String,
+    inner_content: &String,
+    timeout: i32,
+    status: &mut Result<ExitStatus, Error>,
+    last_line: &mut String,
+) -> Result<(), Error> {
+    logs.push_str("\n\n--- DENO CODE EXECUTION ---\n");
+    set_logs(logs, job.id, db).await;
+    let _ = write_file(job_dir, "inner.ts", inner_content).await?;
+    let sig = crate::parser_ts::parse_deno_signature(inner_content)?;
+    let token = create_token_for_owner(
+        &db,
+        &job.workspace_id,
+        &job.permissioned_as,
+        "ephemeral-script",
+        timeout * 2,
+        &job.created_by,
+    )
+    .await?;
+    let args = if let Some(args) = &job.args {
+        Some(
+            transform_json_value(&token, &job.workspace_id, &base_internal_url, args.clone())
+                .await?,
+        )
+    } else {
+        None
+    };
+    let ser_args = serde_json::to_string(&args).map_err(|e| Error::ExecutionErr(e.to_string()))?;
+    write_file(job_dir, "args.json", &ser_args).await?;
+    let spread = sig.args.into_iter().map(|x| x.name).join(",");
+    let wrapper_content: String = format!(
+        r#"
+import {{ main }} from "./inner.ts";
+
+const args = await Deno.readTextFile("args.json")
+    .then(JSON.parse)
+    .then(({{ {spread} }}) => [ {spread} ])
+
+async function run() {{
+    let res: any = await main(...args);
+    const res_json = JSON.stringify(res ?? null, (key, value) => typeof value === 'undefined' ? null : value);
+    console.log();
+    console.log("result:");
+    console.log(res_json);
+    Deno.exit(0);
+}}
+run();
+"#,
+    );
+    write_file(job_dir, "main.ts", &wrapper_content).await?;
+    let mut reserved_variables = get_reserved_variables(job, token.clone(), db).await?;
+    reserved_variables.insert("RUST_LOG".to_string(), "info".to_string());
+
+    let hostname_base = base_url.split("://").last().unwrap_or("localhost");
+    let hostname_internal = base_internal_url.split("://").last().unwrap_or("localhost");
+    let deno_auth_tokens = format!("{token}@{hostname_base};{token}@{hostname_internal}");
+    let child = if !disable_nsjail {
+        let _ = write_file(
+            job_dir,
+            "run.config.proto",
+            &NSJAIL_CONFIG_RUN_DENO_CONTENT
+                .replace("{JOB_DIR}", job_dir)
+                .replace("{CACHE_DIR}", DENO_CACHE_DIR)
+                .replace("{CLONE_NEWUSER}", &(!disable_nuser).to_string()),
+        )
+        .await?;
+        Command::new(nsjail_path)
+            .current_dir(job_dir)
+            .env_clear()
+            .envs(reserved_variables)
+            .env("PATH", path_env)
+            .env("DENO_AUTH_TOKENS", deno_auth_tokens)
+            .env("BASE_INTERNAL_URL", base_internal_url)
+            .args(vec![
+                "--config",
+                "run.config.proto",
+                "--",
+                deno_path,
+                "run",
+                "--unstable",
+                "--v8-flags=--max-heap-size=2048",
+                "-A",
+                "/tmp/main.ts",
+            ])
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()?
+    } else {
+        Command::new(deno_path)
+            .current_dir(job_dir)
+            .env_clear()
+            .envs(reserved_variables)
+            .env("PATH", path_env)
+            .env("DENO_AUTH_TOKENS", deno_auth_tokens)
+            .env("BASE_INTERNAL_URL", base_internal_url)
+            .args(vec![
+                "run",
+                "--unstable",
+                "--v8-flags=--max-heap-size=2048",
+                "-A",
+                "main.ts",
+            ])
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()?
+    };
+    *status = handle_child(&job.id, db, logs, last_line, timeout, child).await;
+
+    Ok(())
+}
+
+async fn handle_python_job(
+    WorkerConfig { base_internal_url, disable_nuser, disable_nsjail, .. }: &WorkerConfig,
+    Envs { nsjail_path, python_path, path_env, .. }: &Envs,
+    requirements_o: Option<String>,
+    job_dir: &String,
+    worker_dir: &str,
+    worker_name: &str,
+    job: &QueuedJob,
+    logs: &mut String,
+    status: &mut Result<ExitStatus, Error>,
+    db: &sqlx::Pool<sqlx::Postgres>,
+    last_line: &mut String,
+    timeout: i32,
+    inner_content: &String,
+) -> Result<(), Error> {
+    let requirements =
+        requirements_o.ok_or_else(|| Error::InternalErr(format!("lockfile missing")))?;
+
+    create_dependencies_dir(job_dir).await;
+
+    if requirements.len() > 0 {
+        if !disable_nsjail {
+            let _ = write_file(
+                job_dir,
+                "download.config.proto",
+                &NSJAIL_CONFIG_DOWNLOAD_PY_CONTENT
+                    .replace("{JOB_DIR}", job_dir)
+                    .replace("{WORKER_DIR}", &worker_dir)
+                    .replace("{CACHE_DIR}", PIP_CACHE_DIR)
+                    .replace("{CLONE_NEWUSER}", &(!disable_nuser).to_string()),
+            )
+            .await?;
+        }
+        let _ = write_file(job_dir, "requirements.txt", &requirements).await?;
+
+        tracing::info!(
+            worker_name = %worker_name,
+            job_id = %job.id,
+            workspace_id = %job.workspace_id,
+            "started setup python dependencies"
+        );
+
+        let child = if !disable_nsjail {
+            Command::new(nsjail_path)
+                .current_dir(job_dir)
+                .args(vec!["--config", "download.config.proto"])
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped())
+                .spawn()?
+        } else {
+            Command::new(python_path)
+                .current_dir(job_dir)
+                .args(vec![
+                    "-m",
+                    "pip",
+                    "install",
+                    "--no-color",
+                    "--isolated",
+                    "--no-warn-conflicts",
+                    "--disable-pip-version-check",
+                    "-t",
+                    "./dependencies",
+                    "-r",
+                    "./requirements.txt",
+                ])
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped())
+                .spawn()?
+        };
+
+        logs.push_str("\n--- PIP DEPENDENCIES INSTALL ---\n");
+        *status = handle_child(&job.id, db, logs, last_line, timeout, child).await;
+        tracing::info!(
+            worker_name = %worker_name,
+            job_id = %job.id,
+            workspace_id = %job.workspace_id,
+            is_ok = status.is_ok(),
+            "finished setting up python dependencies {}",
+            job.id
+        );
+    }
+    if requirements.len() == 0 || status.is_ok() {
+        logs.push_str("\n\n--- PYTHON CODE EXECUTION ---\n");
+
+        set_logs(logs, job.id, db).await;
+
+        let _ = write_file(job_dir, "inner.py", inner_content).await?;
+
+        let sig = crate::parser_py::parse_python_signature(inner_content)?;
+        let transforms = sig
+            .args
+            .into_iter()
+            .map(|x| match x.typ {
+                Typ::Bytes => {
+                    format!(
+                        "if \"{}\" in kwargs and kwargs[\"{}\"] is not None:\n    \
                                      kwargs[\"{}\"] = base64.b64decode(kwargs[\"{}\"])\n",
-                                x.name, x.name, x.name, x.name
-                            )
-                        }
-                        Typ::Datetime => {
-                            format!(
-                                "if \"{}\" in kwargs and kwargs[\"{}\"] is not None:\n    \
+                        x.name, x.name, x.name, x.name
+                    )
+                }
+                Typ::Datetime => {
+                    format!(
+                        "if \"{}\" in kwargs and kwargs[\"{}\"] is not None:\n    \
                                      kwargs[\"{}\"] = datetime.strptime(kwargs[\"{}\"], \
                                      '%Y-%m-%dT%H:%M')\n",
-                                x.name, x.name, x.name, x.name
-                            )
-                        }
-                        _ => "".to_string(),
-                    })
-                    .collect::<Vec<String>>()
-                    .join("");
-
-                let token = create_token_for_owner(
-                    &db,
-                    &job.workspace_id,
-                    &job.permissioned_as,
-                    "ephemeral-script",
-                    timeout * 2,
-                    &job.created_by,
-                )
-                .await?;
-
-                let args = if let Some(args) = &job.args {
-                    Some(
-                        transform_json_value(
-                            &token,
-                            &job.workspace_id,
-                            &base_internal_url,
-                            args.clone(),
-                        )
-                        .await?,
+                        x.name, x.name, x.name, x.name
                     )
-                } else {
-                    None
-                };
-                let ser_args =
-                    serde_json::to_string(&args).map_err(|e| Error::ExecutionErr(e.to_string()))?;
-                write_file(job_dir, "args.json", &ser_args).await?;
+                }
+                _ => "".to_string(),
+            })
+            .collect::<Vec<String>>()
+            .join("");
 
-                let wrapper_content: String = format!(
-                    r#"
+        let token = create_token_for_owner(
+            &db,
+            &job.workspace_id,
+            &job.permissioned_as,
+            "ephemeral-script",
+            timeout * 2,
+            &job.created_by,
+        )
+        .await?;
+
+        let args = if let Some(args) = &job.args {
+            Some(
+                transform_json_value(&token, &job.workspace_id, &base_internal_url, args.clone())
+                    .await?,
+            )
+        } else {
+            None
+        };
+        let ser_args =
+            serde_json::to_string(&args).map_err(|e| Error::ExecutionErr(e.to_string()))?;
+        write_file(job_dir, "args.json", &ser_args).await?;
+
+        let wrapper_content: String = format!(
+            r#"
 import json
 import base64
 from datetime import datetime
@@ -680,270 +1077,238 @@ print()
 print("result:")
 print(res_json)
 "#,
-                );
-                write_file(job_dir, "main.py", &wrapper_content).await?;
+        );
+        write_file(job_dir, "main.py", &wrapper_content).await?;
 
-                let mut reserved_variables = get_reserved_variables(job, token, db).await?;
-                if !disable_nsjail {
-                    let _ = write_file(
-                        job_dir,
-                        "run.config.proto",
-                        &NSJAIL_CONFIG_RUN_PYTHON3_CONTENT
-                            .replace("{JOB_DIR}", job_dir)
-                            .replace("{CLONE_NEWUSER}", &(!disable_nuser).to_string()),
-                    )
-                    .await?;
-                } else {
-                    reserved_variables
-                        .insert("PYTHONPATH".to_string(), format!("{job_dir}/dependencies"));
-                }
-
-                tracing::info!(
-                    worker_name = %worker_name,
-                    job_id = %job.id,
-                    workspace_id = %job.workspace_id,
-                    "started python code execution {}",
-                    job.id
-                );
-                let child = if !disable_nsjail {
-                    Command::new(nsjail_path)
-                        .current_dir(job_dir)
-                        .env_clear()
-                        .envs(reserved_variables)
-                        .env("PATH", path_env)
-                        .env("BASE_INTERNAL_URL", base_internal_url)
-                        .args(vec![
-                            "--config",
-                            "run.config.proto",
-                            "--",
-                            python_path,
-                            "-u",
-                            "/tmp/main.py",
-                        ])
-                        .stdout(Stdio::piped())
-                        .stderr(Stdio::piped())
-                        .spawn()?
-                } else {
-                    Command::new(python_path)
-                        .current_dir(job_dir)
-                        .env_clear()
-                        .envs(reserved_variables)
-                        .env("PATH", path_env)
-                        .env("BASE_INTERNAL_URL", base_internal_url)
-                        .args(vec!["-u", "main.py"])
-                        .stdout(Stdio::piped())
-                        .stderr(Stdio::piped())
-                        .spawn()?
-                };
-
-                *status = handle_child(job, db, logs, last_line, timeout, child).await;
-                tracing::info!(
-                    worker_name = %worker_name,
-                    job_id = %job.id,
-                    workspace_id = %job.workspace_id,
-                    is_ok = status.is_ok(),
-                    "finished python code execution {}",
-                    job.id
-                );
-            }
-        }
-        Some(ScriptLang::Deno) => {
-            logs.push_str("\n\n--- DENO CODE EXECUTION ---\n");
-
-            set_logs(logs, job.id, db).await;
-
-            let _ = write_file(job_dir, "inner.ts", &inner_content).await?;
-
-            let sig = crate::parser_ts::parse_deno_signature(&inner_content)?;
-
-            let token = create_token_for_owner(
-                &db,
-                &job.workspace_id,
-                &job.permissioned_as,
-                "ephemeral-script",
-                timeout * 2,
-                &job.created_by,
+        let mut reserved_variables = get_reserved_variables(job, token, db).await?;
+        if !disable_nsjail {
+            let _ = write_file(
+                job_dir,
+                "run.config.proto",
+                &NSJAIL_CONFIG_RUN_PYTHON3_CONTENT
+                    .replace("{JOB_DIR}", job_dir)
+                    .replace("{CLONE_NEWUSER}", &(!disable_nuser).to_string()),
             )
             .await?;
-
-            let args = if let Some(args) = &job.args {
-                Some(
-                    transform_json_value(
-                        &token,
-                        &job.workspace_id,
-                        &base_internal_url,
-                        args.clone(),
-                    )
-                    .await?,
-                )
-            } else {
-                None
-            };
-            let ser_args =
-                serde_json::to_string(&args).map_err(|e| Error::ExecutionErr(e.to_string()))?;
-            write_file(job_dir, "args.json", &ser_args).await?;
-
-            let spread = sig.args.into_iter().map(|x| x.name).join(",");
-            let wrapper_content: String = format!(
-                r#"
-import {{ main }} from "./inner.ts";
-
-const args = await Deno.readTextFile("args.json")
-    .then(JSON.parse)
-    .then(({{ {spread} }}) => [ {spread} ])
-
-async function run() {{
-    let res: any = await main(...args);
-    const res_json = JSON.stringify(res ?? null, (key, value) => typeof value === 'undefined' ? null : value);
-    console.log();
-    console.log("result:");
-    console.log(res_json);
-    Deno.exit(0);
-}}
-run();
-"#,
-            );
-            write_file(job_dir, "main.ts", &wrapper_content).await?;
-
-            let mut reserved_variables = get_reserved_variables(job, token.clone(), db).await?;
-            reserved_variables.insert("RUST_LOG".to_string(), "info".to_string());
-
-            if !disable_nsjail {
-                let _ = write_file(
-                    job_dir,
-                    "run.config.proto",
-                    &NSJAIL_CONFIG_RUN_DENO_CONTENT
-                        .replace("{JOB_DIR}", job_dir)
-                        .replace("{CACHE_DIR}", DENO_CACHE_DIR)
-                        .replace("{CLONE_NEWUSER}", &(!disable_nuser).to_string()),
-                )
-                .await?;
-            }
-
-            tracing::info!(
-                worker_name = %worker_name,
-                job_id = %job.id,
-                workspace_id = %job.workspace_id,
-                "started deno code execution {}",
-                job.id
-            );
-            let hostname_base = base_url.split("://").last().unwrap_or("localhost");
-            let hostname_internal = base_internal_url.split("://").last().unwrap_or("localhost");
-            let deno_auth_tokens = format!("{token}@{hostname_base};{token}@{hostname_internal}");
-
-            let child = if !disable_nsjail {
-                Command::new(nsjail_path)
-                    .current_dir(job_dir)
-                    .env_clear()
-                    .envs(reserved_variables)
-                    .env("PATH", path_env)
-                    .env("DENO_AUTH_TOKENS", deno_auth_tokens)
-                    .env("BASE_INTERNAL_URL", base_internal_url)
-                    .args(vec![
-                        "--config",
-                        "run.config.proto",
-                        "--",
-                        deno_path,
-                        "run",
-                        "--unstable",
-                        "--v8-flags=--max-heap-size=2048",
-                        "-A",
-                        "/tmp/main.ts",
-                    ])
-                    .stdout(Stdio::piped())
-                    .stderr(Stdio::piped())
-                    .spawn()?
-            } else {
-                Command::new(deno_path)
-                    .current_dir(job_dir)
-                    .env_clear()
-                    .envs(reserved_variables)
-                    .env("PATH", path_env)
-                    .env("DENO_AUTH_TOKENS", deno_auth_tokens)
-                    .env("BASE_INTERNAL_URL", base_internal_url)
-                    .args(vec![
-                        "run",
-                        "--unstable",
-                        "--v8-flags=--max-heap-size=2048",
-                        "-A",
-                        "main.ts",
-                    ])
-                    .stdout(Stdio::piped())
-                    .stderr(Stdio::piped())
-                    .spawn()?
-            };
-            *status = handle_child(job, db, logs, last_line, timeout, child).await;
-            tracing::info!(
-                worker_name = %worker_name,
-                job_id = %job.id,
-                workspace_id = %job.workspace_id,
-                is_ok = status.is_ok(),
-                "finished deno code execution {}",
-                job.id
-            );
+        } else {
+            reserved_variables.insert("PYTHONPATH".to_string(), format!("{job_dir}/dependencies"));
         }
+
+        tracing::info!(
+            worker_name = %worker_name,
+            job_id = %job.id,
+            workspace_id = %job.workspace_id,
+            "started python code execution {}",
+            job.id
+        );
+        let child = if !disable_nsjail {
+            Command::new(nsjail_path)
+                .current_dir(job_dir)
+                .env_clear()
+                .envs(reserved_variables)
+                .env("PATH", path_env)
+                .env("BASE_INTERNAL_URL", base_internal_url)
+                .args(vec![
+                    "--config",
+                    "run.config.proto",
+                    "--",
+                    python_path,
+                    "-u",
+                    "/tmp/main.py",
+                ])
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped())
+                .spawn()?
+        } else {
+            Command::new(python_path)
+                .current_dir(job_dir)
+                .env_clear()
+                .envs(reserved_variables)
+                .env("PATH", path_env)
+                .env("BASE_INTERNAL_URL", base_internal_url)
+                .args(vec!["-u", "main.py"])
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped())
+                .spawn()?
+        };
+
+        *status = handle_child(&job.id, db, logs, last_line, timeout, child).await;
     }
     Ok(())
+}
+
+async fn create_dependencies_dir(job_dir: &str) {
+    DirBuilder::new()
+        .recursive(true)
+        .create(&format!("{job_dir}/dependencies"))
+        .await
+        .expect("could not create dependencies dir");
 }
 
 async fn handle_dependency_job(
     job: &QueuedJob,
     logs: &mut String,
     job_dir: &String,
+    status: &mut error::Result<ExitStatus>,
+    db: &sqlx::Pool<sqlx::Postgres>,
+    last_line: &mut String,
+    timeout: i32,
+    go_path: &str,
+) -> error::Result<()> {
+    let content = match job.language {
+        Some(ScriptLang::Python3) => {
+            create_dependencies_dir(job_dir).await;
+
+            let requirements = job
+                .raw_code
+                .as_ref()
+                .ok_or_else(|| Error::ExecutionErr("missing requirements".to_string()))?;
+            logs.push_str(&format!("content of requirements:\n{}\n", &requirements));
+            let file = "requirements.in";
+            write_file(job_dir, file, &requirements).await?;
+            let child = Command::new("pip-compile")
+                .current_dir(job_dir)
+                .args(vec!["-q", "--no-header", file])
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped())
+                .spawn()?;
+            *status = handle_child(&job.id, db, logs, last_line, timeout, child).await;
+            if status.is_ok() && status.as_ref().unwrap().success() {
+                let path_lock = format!("{job_dir}/requirements.txt");
+                let mut file = File::open(path_lock).await?;
+
+                let mut req_content = "".to_string();
+                file.read_to_string(&mut req_content).await?;
+                Ok(req_content
+                    .lines()
+                    .filter(|x| !x.trim_start().starts_with('#'))
+                    .map(|x| x.to_string())
+                    .collect::<Vec<String>>()
+                    .join("\n"))
+            } else {
+                Err(format!("Lock file generation failed: {status:?}"))
+            }
+        }
+        Some(ScriptLang::Go) => {
+            let requirements = job
+                .raw_code
+                .as_ref()
+                .ok_or_else(|| Error::ExecutionErr("missing requirements".to_string()))?;
+            install_go_dependencies(
+                &job.id,
+                &requirements,
+                logs,
+                job_dir,
+                status,
+                db,
+                last_line,
+                timeout,
+                go_path,
+                false,
+            )
+            .await
+            .map_err(|e| e.to_string())
+        }
+        _ => Err("Language incompatible with dep job".to_string()),
+    };
+
+    match content {
+        Ok(content) => {
+            let as_json = json!(content);
+
+            *last_line =
+                format!(r#"{{ "success": "Successful lock file generation", "lock": {as_json} }}"#);
+
+            sqlx::query!(
+                "UPDATE script SET lock = $1 WHERE hash = $2 AND workspace_id = $3",
+                &content,
+                &job.script_hash.unwrap_or(ScriptHash(0)).0,
+                &job.workspace_id
+            )
+            .execute(db)
+            .await?;
+        }
+        Err(error) => {
+            sqlx::query!(
+                "UPDATE script SET lock_error_logs = $1 WHERE hash = $2 AND workspace_id = $3",
+                &format!("{logs}\n{error}"),
+                &job.script_hash.unwrap_or(ScriptHash(0)).0,
+                &job.workspace_id
+            )
+            .execute(db)
+            .await?;
+        }
+    }
+    Ok(())
+}
+
+async fn install_go_dependencies(
+    job_id: &Uuid,
+    code: &str,
+    logs: &mut String,
+    job_dir: &String,
     status: &mut Result<ExitStatus, Error>,
     db: &sqlx::Pool<sqlx::Postgres>,
     last_line: &mut String,
     timeout: i32,
-) -> Result<(), Error> {
-    let requirements = job
-        .raw_code
-        .as_ref()
-        .ok_or_else(|| Error::ExecutionErr("missing requirements".to_string()))?;
-    logs.push_str(&format!("content of requirements:\n{}\n", &requirements));
-    let file = "requirements.in";
-    write_file(job_dir, file, &requirements).await?;
-    let child = Command::new("pip-compile")
+    go_path: &str,
+    preview: bool,
+) -> error::Result<String> {
+    gen_go_mymod(code, job_dir).await?;
+    let child = Command::new("go")
         .current_dir(job_dir)
-        .args(vec!["-q", "--no-header", file])
+        .args(vec!["mod", "init", "mymod"])
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()?;
-    *status = handle_child(job, db, logs, last_line, timeout, child).await;
-    Ok(if status.is_ok() && status.as_ref().unwrap().success() {
-        let path_lock = format!("{}/requirements.txt", job_dir);
-        let mut file = File::open(path_lock).await?;
+    *status = handle_child(job_id, db, logs, last_line, timeout, child).await;
+    if status.is_ok() {
+        let child = Command::new(go_path)
+            .current_dir(job_dir)
+            .args(vec!["mod", "tidy"])
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()?;
+        *status = handle_child(job_id, db, logs, last_line, timeout, child).await;
+    }
+    if status.is_ok() && status.as_ref().unwrap().success() {
+        if preview {
+            Ok(String::new())
+        } else {
+            let mut req_content = "".to_string();
 
-        let mut content = "".to_string();
-        file.read_to_string(&mut content).await?;
-        content = content
-            .lines()
-            .filter(|x| !x.trim_start().starts_with('#'))
-            .map(|x| x.to_string())
-            .collect::<Vec<String>>()
-            .join("\n");
-        let as_json = json!(content);
+            let mut file = File::open(format!("{job_dir}/go.mod")).await?;
+            file.read_to_string(&mut req_content).await?;
 
-        *last_line =
-            format!(r#"{{ "success": "Successful lock file generation", "lock": {as_json} }}"#);
+            req_content.push_str(&format!("\n{GO_REQ_SPLITTER}\n"));
 
-        sqlx::query!(
-            "UPDATE script SET lock = $1 WHERE hash = $2 AND workspace_id = $3",
-            &content,
-            &job.script_hash.unwrap_or(ScriptHash(0)).0,
-            &job.workspace_id
-        )
-        .execute(db)
-        .await?;
+            let mut file = File::open(format!("{job_dir}/go.sum")).await?;
+            file.read_to_string(&mut req_content).await?;
+
+            Ok(req_content)
+        }
     } else {
-        sqlx::query!(
-            "UPDATE script SET lock_error_logs = $1 WHERE hash = $2 AND workspace_id = $3",
-            &logs.clone(),
-            &job.script_hash.unwrap_or(ScriptHash(0)).0,
-            &job.workspace_id
-        )
-        .execute(db)
-        .await?;
-    })
+        tracing::info!("go mod error");
+
+        Err(error::Error::ExecutionErr(format!(
+            "Lock file generation failed. Status: {status:?}",
+        )))
+    }
+}
+
+async fn gen_go_mymod(code: &str, job_dir: &String) -> error::Result<()> {
+    let code = &format!("package main\n\n{code}");
+
+    let mymod_dir = format!("{job_dir}/mymod");
+    DirBuilder::new()
+        .recursive(true)
+        .create(&mymod_dir)
+        .await
+        .expect("could not create go's mymod dir");
+
+    write_file(&mymod_dir, "main.go", &code).await?;
+
+    Ok(())
 }
 
 async fn get_reserved_variables(
@@ -979,13 +1344,14 @@ async fn get_reserved_variables(
 }
 
 async fn handle_child(
-    job: &QueuedJob,
+    job_id: &Uuid,
     db: &DB,
     logs: &mut String,
     last_line: &mut String,
     timeout: i32,
     mut child: Child,
 ) -> crate::error::Result<ExitStatus> {
+    let job_id = job_id.clone();
     let stderr = child
         .stderr
         .take()
@@ -1026,7 +1392,6 @@ async fn handle_child(
     });
 
     let (tx, mut rx) = mpsc::channel::<String>(100);
-    let id = job.id;
 
     tokio::spawn(async move {
         while !done4.load(Ordering::Relaxed) {
@@ -1065,12 +1430,12 @@ async fn handle_child(
 
     tokio::spawn(async move {
         while !&done3.load(Ordering::Relaxed) {
-            let q = sqlx::query!("UPDATE queue SET last_ping = now() WHERE id = $1", id)
+            let q = sqlx::query!("UPDATE queue SET last_ping = now() WHERE id = $1", job_id)
                 .execute(&db2)
                 .await;
 
             if q.is_err() {
-                tracing::error!("error setting last ping for id {}", id);
+                tracing::error!("error setting last ping for id {}", job_id);
             }
 
             tokio::time::sleep(Duration::from_secs(5)).await;
@@ -1096,18 +1461,18 @@ async fn handle_child(
                 let to_send = logs.chars().skip(start).collect::<String>();
 
                 if start != end {
-                    concat_logs(&to_send, id, db).await;
+                    concat_logs(&to_send, &job_id, db).await;
                     start = end;
                 }
 
-                let canceled = sqlx::query_scalar!("SELECT canceled FROM queue WHERE id = $1", id)
+                let canceled = sqlx::query_scalar!("SELECT canceled FROM queue WHERE id = $1", job_id)
                     .fetch_one(db)
                     .await
-                    .map_err(|e| tracing::error!("error getting canceled for id {}: {e}", id))
+                    .map_err(|e| tracing::error!("error getting canceled for id {}: {e}", job_id))
                     .unwrap_or(false);
 
                 if canceled {
-                    tracing::info!("killed after cancel: {}", job.id);
+                    tracing::info!("killed after cancel: {}", job_id);
                     done.store(true, Ordering::Relaxed);
                 }
 
@@ -1119,12 +1484,12 @@ async fn handle_child(
                             canceled_reason = 'duration > {}' WHERE id = $1",
                         timeout
                     ))
-                    .bind(id)
+                    .bind(job_id)
                     .execute(db)
                     .await;
 
                     if q.is_err() {
-                        tracing::error!("error setting canceled for id {}", id);
+                        tracing::error!("error setting canceled for id {}", job_id);
                     }
                 }
                 last_update = chrono::Utc::now().timestamp_millis();
@@ -1133,7 +1498,7 @@ async fn handle_child(
 
                 if let Some(nl) = nl {
                     if logs.chars().count() > MAX_LOG_SIZE as usize{
-                        tracing::info!("Too many logs lines: {}", job.id);
+                        tracing::info!("Too many logs lines: {}", job_id);
                         logs.push_str("Too many logs lines. Limit is 200000 chars. Killing job.");
                         done.store(true, Ordering::Relaxed);
                     }
@@ -1144,7 +1509,7 @@ async fn handle_child(
                     *last_line = nl;
                 } else {
                     let to_send = logs.chars().skip(start).collect::<String>();
-                    concat_logs(&to_send, id, db).await;
+                    concat_logs(&to_send, &job_id, db).await;
                     break;
                 }
             },
@@ -1171,7 +1536,7 @@ async fn set_logs(logs: &str, id: uuid::Uuid, db: &DB) {
     };
 }
 
-async fn concat_logs(logs: &str, id: uuid::Uuid, db: &DB) {
+async fn concat_logs(logs: &str, id: &Uuid, db: &DB) {
     if sqlx::query!(
         "UPDATE queue SET logs = concat(logs, $1::text) WHERE id = $2",
         logs.to_owned(),
@@ -1221,9 +1586,10 @@ pub async fn restart_zombie_jobs_periodically(
 
 #[cfg(test)]
 mod tests {
-    use sqlx::{postgres::PgListener, query_scalar};
-
+    use futures::Stream;
     use serde_json::json;
+    use sqlx::{postgres::PgListener, query_scalar};
+    use uuid::Uuid;
 
     use crate::{
         db::DB,
@@ -1244,6 +1610,8 @@ mod tests {
 
     /// it's important this is unique between tests as there is one prometheus registry and
     /// run_worker shouldn't register the same metric with the same worker name more than once.
+    ///
+    /// this must fit in varchar(50)
     fn next_worker_name() -> String {
         use std::sync::atomic::{AtomicUsize, Ordering::SeqCst};
 
@@ -1253,7 +1621,15 @@ mod tests {
         // will be "main"... The id provides uniqueness & thread_name gives context.
         let id = ID.fetch_add(1, SeqCst);
         let thread = std::thread::current();
-        let thread_name = thread.name().unwrap_or("no thread name");
+        let thread_name = thread
+            .name()
+            .map(|s| {
+                s.len()
+                    .checked_sub(39)
+                    .and_then(|start| s.get(start..))
+                    .unwrap_or(s)
+            })
+            .unwrap_or("no thread name");
         format!("{id}/{thread_name}")
     }
 
@@ -1275,6 +1651,7 @@ mod tests {
                     input_transforms: Default::default(),
                     stop_after_if: Default::default(),
                     summary: Default::default(),
+                    suspend: Default::default(),
                 },
                 FlowModule {
                     value: FlowModuleValue::ForloopFlow {
@@ -1295,11 +1672,13 @@ mod tests {
                             .into(),
                             stop_after_if: Default::default(),
                             summary: Default::default(),
+                            suspend: Default::default(),
                         }],
                     },
                     input_transforms: Default::default(),
                     stop_after_if: Default::default(),
                     summary: Default::default(),
+                    suspend: Default::default(),
                 },
             ],
             ..Default::default()
@@ -1347,13 +1726,13 @@ mod tests {
 
         let result = RunJob::from(job.clone())
             .arg("n", json!(123))
-            .wait_until_complete(&db)
+            .run_until_complete(&db)
             .await;
         assert_eq!(json!("last step saw 123"), result);
 
         let result = RunJob::from(job.clone())
             .arg("n", json!(-123))
-            .wait_until_complete(&db)
+            .run_until_complete(&db)
             .await;
         assert_eq!(json!(-123), result);
     }
@@ -1439,6 +1818,32 @@ mod tests {
 
             assert_eq!(result, serde_json::json!("Hello"), "iteration: {i}");
         }
+    }
+
+    #[sqlx::test(fixtures("base"))]
+    async fn test_go_job(db: DB) {
+        initialize_tracing().await;
+
+        let content = r#"
+import "fmt"
+
+func main(derp string) (string, error) {
+	fmt.Println("Hello, 世界")
+	return fmt.Sprintf("hello %s", derp), nil
+}
+        "#
+        .to_owned();
+
+        let result = RunJob::from(JobPayload::Code(RawCode {
+            content,
+            path: None,
+            language: ScriptLang::Go,
+        }))
+        .arg("derp", json!("world"))
+        .run_until_complete(&db)
+        .await;
+
+        assert_eq!(result, serde_json::json!("hello world"));
     }
 
     #[sqlx::test(fixtures("base"))]
@@ -1663,7 +2068,7 @@ def main():
 
         let result = RunJob::from(JobPayload::RawFlow { value: flow.clone(), path: None })
             .arg("n", json!(0))
-            .wait_until_complete(&db)
+            .run_until_complete(&db)
             .await;
         assert!(result["from failure module"]["error"]
             .as_str()
@@ -1672,7 +2077,7 @@ def main():
 
         let result = RunJob::from(JobPayload::RawFlow { value: flow.clone(), path: None })
             .arg("n", json!(1))
-            .wait_until_complete(&db)
+            .run_until_complete(&db)
             .await;
         assert!(result["from failure module"]["error"]
             .as_str()
@@ -1681,7 +2086,7 @@ def main():
 
         let result = RunJob::from(JobPayload::RawFlow { value: flow.clone(), path: None })
             .arg("n", json!(2))
-            .wait_until_complete(&db)
+            .run_until_complete(&db)
             .await;
         assert!(result["from failure module"]["error"]
             .as_str()
@@ -1690,9 +2095,259 @@ def main():
 
         let result = RunJob::from(JobPayload::RawFlow { value: flow.clone(), path: None })
             .arg("n", json!(3))
-            .wait_until_complete(&db)
+            .run_until_complete(&db)
             .await;
         assert_eq!(json!({ "l": [0, 1, 2] }), result);
+    }
+
+    mod suspend_resume {
+        use super::*;
+
+        use futures::{Stream, StreamExt};
+
+        struct ApiServer {
+            addr: std::net::SocketAddr,
+            tx: tokio::sync::oneshot::Sender<()>,
+            task: tokio::task::JoinHandle<hyper::Result<()>>,
+        }
+
+        impl ApiServer {
+            async fn start(db: DB) -> Self {
+                let (tx, rx) = tokio::sync::oneshot::channel::<()>();
+
+                let sock = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+
+                let addr = sock.local_addr().unwrap();
+
+                use crate::jobs::{cancel_suspended_job, resume_suspended_job};
+                use axum::routing::{get, post};
+
+                let router = axum::Router::new()
+                    .route("/w/:workspace/jobs/resume/:id", get(resume_suspended_job))
+                    .route("/w/:workspace/jobs/resume/:id", post(resume_suspended_job))
+                    .route("/w/:workspace/jobs/cancel/:id", get(cancel_suspended_job))
+                    .route("/w/:workspace/jobs/cancel/:id", post(cancel_suspended_job))
+                    .layer(axum::extract::Extension(db));
+
+                let serve = axum::Server::from_tcp(sock.into_std().unwrap())
+                    .unwrap()
+                    .serve(router.into_make_service())
+                    .with_graceful_shutdown(async { drop(rx.await) });
+
+                let task = tokio::task::spawn(serve);
+
+                return Self { addr, tx, task };
+            }
+
+            async fn close(self) -> hyper::Result<()> {
+                let Self { task, tx, .. } = self;
+                drop(tx);
+                task.await.unwrap()
+            }
+        }
+
+        async fn wait_until_flow_suspends(
+            flow: Uuid,
+            mut queue: impl Stream<Item = Uuid> + Unpin,
+            db: &DB,
+        ) {
+            loop {
+                queue.by_ref().find(&flow).await.unwrap();
+                if query_scalar("SELECT suspend > 0 FROM queue WHERE id = $1")
+                    .bind(flow)
+                    .fetch_one(db)
+                    .await
+                    .unwrap()
+                {
+                    break;
+                }
+            }
+        }
+
+        fn flow() -> FlowValue {
+            serde_json::from_value(serde_json::json!({
+                "modules": [{
+                    "input_transform": {
+                        "n": { "type": "javascript", "expr": "flow_input.n", },
+                        "port": { "type": "javascript", "expr": "flow_input.port", },
+                        "op": { "type": "javascript", "expr": "flow_input.op ?? 'resume'", },
+                    },
+                    "value": {
+                        "type": "rawscript",
+                        "language": "deno",
+                        "content": "\
+                            export async function main(n, port, op) {\
+                                const job = Deno.env.get('WM_JOB_ID');
+                                const r = await fetch(
+                                    `http://localhost:${port}/w/test-workspace/jobs/${op}/${job}`,\
+                                    {\
+                                        method: 'POST',\
+                                        body: JSON.stringify('from job'),\
+                                        headers: { 'content-type': 'application/json' }\
+                                    }\
+                                );\
+                                console.log(r);
+                                return n + 1;\
+                            }",
+                    },
+                    "suspend": 1,
+                }, {
+                    "input_transform": {
+                        "n": { "type": "javascript", "expr": "previous_result", },
+                        "resume": { "type": "javascript", "expr": "resume", },
+                        "resumes": { "type": "javascript", "expr": "resumes", },
+                    },
+                    "value": {
+                        "type": "rawscript",
+                        "language": "deno",
+                        "content": "export function main(n, resume, resumes) { return { n: n + 1, resume, resumes } }"
+                    },
+                    "suspend": 1,
+                }, {
+                    "input_transform": {
+                        "last": { "type": "javascript", "expr": "previous_result", },
+                        "resume": { "type": "javascript", "expr": "resume", },
+                        "resumes": { "type": "javascript", "expr": "resumes", },
+                    },
+                    "value": {
+                        "type": "rawscript",
+                        "language": "deno",
+                        "content": "export function main(last, resume, resumes) { return { last, resume, resumes } }"
+                    },
+                }],
+            }))
+            .unwrap()
+        }
+
+        #[sqlx::test(fixtures("base"))]
+        async fn test(db: DB) {
+            initialize_tracing().await;
+
+            let server = ApiServer::start(db.clone()).await;
+            let port = server.addr.port();
+
+            let flow = RunJob::from(JobPayload::RawFlow { value: flow(), path: None })
+                .arg("n", json!(1))
+                .arg("port", json!(port))
+                .push(&db)
+                .await;
+
+            let mut completed = listen_for_completed_jobs(&db).await;
+            let queue = listen_for_queue(&db).await;
+            let db_ = db.clone();
+
+            in_test_worker(&db, async move {
+                let db = db_;
+
+                wait_until_flow_suspends(flow, queue, &db).await;
+                /* The first job resumes itself. */
+                let _first = completed.next().await.unwrap();
+                /* ... and send a request resume it. */
+                let second = completed.next().await.unwrap();
+
+                /* ImZyb20gdGVzdCIK = base64 "from test" */
+                reqwest::get(format!(
+                        "http://localhost:{port}/w/test-workspace/jobs/resume/{second}?payload=ImZyb20gdGVzdCIK"
+                    ))
+                    .await
+                    .unwrap()
+                    .error_for_status()
+                    .unwrap();
+
+                completed.find(&flow).await.unwrap();
+            })
+            .await;
+
+            server.close().await.unwrap();
+
+            let result = completed_job_result(flow, &db).await;
+
+            assert_eq!(
+                json!({
+                    "last": {
+                        "resume": "from job",
+                        "resumes": ["from job"],
+                        "n": 3,
+                    },
+                    "resume": "from test",
+                    "resumes": ["from test"],
+                }),
+                result
+            );
+
+            // ensure resumes are cleaned up through CASCADE when the flow is finished
+            assert_eq!(
+                0,
+                query_scalar::<_, i64>("SELECT count(*) FROM resume_job")
+                    .fetch_one(&db)
+                    .await
+                    .unwrap()
+            );
+        }
+
+        #[sqlx::test(fixtures("base"))]
+        async fn cancel_from_job(db: DB) {
+            initialize_tracing().await;
+
+            let server = ApiServer::start(db.clone()).await;
+            let port = server.addr.port();
+
+            let result = RunJob::from(JobPayload::RawFlow { value: flow(), path: None })
+                .arg("n", json!(1))
+                .arg("op", json!("cancel"))
+                .arg("port", json!(port))
+                .run_until_complete(&db)
+                .await;
+
+            server.close().await.unwrap();
+
+            assert_eq!(json!("from job"), result);
+        }
+
+        #[sqlx::test(fixtures("base"))]
+        async fn cancel_after_suspend(db: DB) {
+            initialize_tracing().await;
+
+            let server = ApiServer::start(db.clone()).await;
+            let port = server.addr.port();
+
+            let flow = RunJob::from(JobPayload::RawFlow { value: flow(), path: None })
+                .arg("n", json!(1))
+                .arg("port", json!(port))
+                .push(&db)
+                .await;
+
+            let mut completed = listen_for_completed_jobs(&db).await;
+            let queue = listen_for_queue(&db).await;
+            let db_ = db.clone();
+
+            in_test_worker(&db, async move {
+                let db = db_;
+
+                wait_until_flow_suspends(flow, queue, &db).await;
+                /* The first job resumes itself. */
+                let _first = completed.next().await.unwrap();
+                /* ... and send a request resume it. */
+                let second = completed.next().await.unwrap();
+
+                reqwest::get(format!(
+                        "http://localhost:{port}/w/test-workspace/jobs/cancel/{second}?payload=ImZyb20gdGVzdCIK"
+                    ))
+                    .await
+                    .unwrap()
+                    .error_for_status()
+                    .unwrap();
+
+                completed.find(&flow).await.unwrap();
+            })
+            .await;
+
+            server.close().await.unwrap();
+
+            let result = completed_job_result(flow, &db).await;
+
+            assert_eq!(json!("from test"), result);
+        }
     }
 
     mod retry {
@@ -1826,7 +2481,7 @@ def main(last, port):
             let result = RunJob::from(JobPayload::RawFlow { value: flow(), path: None })
                 .arg("items", json!(["unused", "unused", "unused"]))
                 .arg("port", json!(server.addr.port()))
-                .wait_until_complete(&db)
+                .run_until_complete(&db)
                 .await;
 
             assert_eq!(server.close().await, attempts);
@@ -1853,7 +2508,7 @@ def main(last, port):
             let result = RunJob::from(JobPayload::RawFlow { value: flow(), path: None })
                 .arg("items", json!(["unused", "unused", "unused"]))
                 .arg("port", json!(server.addr.port()))
-                .wait_until_complete(&db)
+                .run_until_complete(&db)
                 .await;
 
             assert_eq!(server.close().await, attempts);
@@ -1885,7 +2540,7 @@ def main(last, port):
             let result = RunJob::from(JobPayload::RawFlow { value: flow(), path: None })
                 .arg("items", json!(["unused", "unused", "unused"]))
                 .arg("port", json!(server.addr.port()))
-                .wait_until_complete(&db)
+                .run_until_complete(&db)
                 .await;
 
             assert_eq!(server.close().await, attempts);
@@ -1940,7 +2595,7 @@ def main(error, port):
             let server = Server::start(responses).await;
             let result = RunJob::from(JobPayload::RawFlow { value, path: None })
                 .arg("port", json!(server.addr.port()))
-                .wait_until_complete(&db)
+                .run_until_complete(&db)
                 .await;
 
             assert_eq!(server.close().await, attempts);
@@ -1971,7 +2626,7 @@ def main(error, port):
             .unwrap();
 
             let result = RunJob::from(JobPayload::RawFlow { value, path: None })
-                .wait_until_complete(&db)
+                .run_until_complete(&db)
                 .await;
             assert_eq!(
                 result,
@@ -2010,14 +2665,14 @@ def main(error, port):
 
         let result = RunJob::from(JobPayload::RawFlow { value: flow.clone(), path: None })
             .arg("items", json!([]))
-            .wait_until_complete(&db)
+            .run_until_complete(&db)
             .await;
         assert_eq!(result, serde_json::json!([]));
 
         /* Don't actually test that this does 257 jobs or that will take forever. */
         let result = RunJob::from(JobPayload::RawFlow { value: flow.clone(), path: None })
             .arg("items", json!((0..257).collect::<Vec<_>>()))
-            .wait_until_complete(&db)
+            .run_until_complete(&db)
             .await;
         assert!(matches!(result, Value::Object(_)));
         assert!(result["error"]
@@ -2043,8 +2698,7 @@ def main(error, port):
             self
         }
 
-        /// push the job, spawn a worker, wait until the job is in completed_job
-        async fn wait_until_complete(self, db: &DB) -> serde_json::Value {
+        async fn push(self, db: &DB) -> Uuid {
             let RunJob { payload, args } = self;
 
             let (uuid, tx) = push(
@@ -2064,42 +2718,77 @@ def main(error, port):
 
             tx.commit().await.unwrap();
 
-            run_worker_until_complete(db, &uuid).await;
+            uuid
+        }
 
-            query_scalar("SELECT result FROM completed_job WHERE id = $1")
-                .bind(&uuid)
-                .fetch_one(db)
-                .await
-                .unwrap()
+        /// push the job, spawn a worker, wait until the job is in completed_job
+        async fn run_until_complete(self, db: &DB) -> serde_json::Value {
+            let uuid = self.push(db).await;
+            let listener = listen_for_completed_jobs(db).await;
+            in_test_worker(db, listener.find(&uuid)).await;
+            completed_job_result(uuid, db).await
         }
     }
 
     async fn run_job_in_new_worker_until_complete(db: &DB, job: JobPayload) -> serde_json::Value {
-        RunJob::from(job).wait_until_complete(db).await
+        RunJob::from(job).run_until_complete(db).await
     }
 
-    async fn run_worker_until_complete(db: &DB, wait_for: &uuid::Uuid) {
-        let mut listener = PgListener::connect_with(db).await.unwrap();
-        listener.listen("insert on completed_job").await.unwrap();
+    /// Start a worker with a timeout and run a future, until the worker quits or we time out.
+    ///
+    /// Cleans up the worker before resolving.
+    async fn in_test_worker<Fut: std::future::Future>(
+        db: &DB,
+        inner: Fut,
+    ) -> <Fut as std::future::Future>::Output {
+        let (quit, worker) = spawn_test_worker(db);
+        let worker = tokio::time::timeout(std::time::Duration::from_secs(19), worker);
+        tokio::pin!(worker);
 
+        let res = tokio::select! {
+            biased;
+            res = inner => res,
+            res = &mut worker => match
+                res.expect("worker timed out")
+                   .expect("worker panicked") {
+                _ => panic!("worker quit early"),
+            },
+        };
+
+        /* ensure the worker quits before we return */
+        drop(quit);
+
+        let _: () = worker
+            .await
+            .expect("worker timed out")
+            .expect("worker panicked");
+
+        res
+    }
+
+    fn spawn_test_worker(
+        db: &DB,
+    ) -> (
+        tokio::sync::broadcast::Sender<()>,
+        tokio::task::JoinHandle<()>,
+    ) {
         let (tx, rx) = tokio::sync::broadcast::channel(1);
-        /* drop tx at the end of this block to close the channel and stop the worker */
-
-        let worker = {
-            let timeout = 4_000;
-            let worker_instance: &str = "test worker instance";
-            let worker_name: String = next_worker_name();
-            let i_worker: u64 = Default::default();
-            let num_workers: u64 = 2;
-            let ip: &str = Default::default();
-            let sleep_queue: u64 = DEFAULT_SLEEP_QUEUE / num_workers;
-            let worker_config = WorkerConfig {
-                base_internal_url: String::new(),
-                base_url: String::new(),
-                disable_nuser: false,
-                disable_nsjail: false,
-            };
-
+        let db = db.to_owned();
+        let timeout = 4_000;
+        let worker_instance: &str = "test worker instance";
+        let worker_name: String = next_worker_name();
+        let i_worker: u64 = Default::default();
+        let num_workers: u64 = 2;
+        let ip: &str = Default::default();
+        let sleep_queue: u64 = DEFAULT_SLEEP_QUEUE / num_workers;
+        let worker_config = WorkerConfig {
+            base_internal_url: String::new(),
+            base_url: String::new(),
+            disable_nuser: false,
+            disable_nsjail: false,
+            keep_job_dir: false,
+        };
+        let future = async move {
             run_worker(
                 &db,
                 timeout,
@@ -2112,30 +2801,62 @@ def main(error, port):
                 worker_config,
                 rx,
             )
+            .await
         };
 
-        let worker = tokio::time::timeout(std::time::Duration::from_secs(19), worker);
-
-        tokio::pin!(worker);
-
-        while wait_for
-            != &tokio::select! {
-                biased;
-                notify = listener.recv() => notify,
-                res = &mut worker => if res.is_ok() {
-                    panic!("worker quit early")
-                } else {
-                    panic!("worker timed out")
-                },
-            }
-            .unwrap()
-            .payload()
-            .parse::<uuid::Uuid>()
-            .unwrap()
-        {}
-
-        /* ensure the worker quits before we return */
-        drop(tx);
-        worker.await.expect("worker timed out")
+        (tx, tokio::task::spawn(future))
     }
+
+    async fn listen_for_completed_jobs(db: &DB) -> impl Stream<Item = Uuid> + Unpin {
+        listen_for_uuid_on(db, "insert on completed_job").await
+    }
+
+    async fn listen_for_queue(db: &DB) -> impl Stream<Item = Uuid> + Unpin {
+        listen_for_uuid_on(db, "queue").await
+    }
+
+    async fn listen_for_uuid_on(
+        db: &DB,
+        channel: &'static str,
+    ) -> impl Stream<Item = Uuid> + Unpin {
+        let mut listener = PgListener::connect_with(db).await.unwrap();
+        listener.listen(channel).await.unwrap();
+
+        Box::pin(futures::stream::unfold(
+            listener,
+            |mut listener| async move {
+                let uuid = listener
+                    .try_recv()
+                    .await
+                    .unwrap()
+                    .expect("lost database connection")
+                    .payload()
+                    .parse::<Uuid>()
+                    .expect("invalid uuid");
+                Some((uuid, listener))
+            },
+        ))
+    }
+
+    async fn completed_job_result(uuid: Uuid, db: &DB) -> Value {
+        query_scalar("SELECT result FROM completed_job WHERE id = $1")
+            .bind(uuid)
+            .fetch_one(db)
+            .await
+            .unwrap()
+    }
+
+    #[axum::async_trait(?Send)]
+    trait StreamFind: futures::Stream + Unpin + Sized {
+        async fn find(self, item: &Self::Item) -> Option<Self::Item>
+        where
+            for<'l> &'l Self::Item: std::cmp::PartialEq,
+        {
+            use futures::{future::ready, StreamExt};
+
+            self.filter(|i| ready(i == item)).next().await
+        }
+    }
+
+    impl<T: futures::Stream + Unpin + Sized> StreamFind for T {}
 }

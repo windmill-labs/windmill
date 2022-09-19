@@ -22,8 +22,11 @@ use serde_json::{json, Map, Value};
 use tracing::instrument;
 use uuid::Uuid;
 
+const MINUTES: Duration = Duration::from_secs(60);
+const HOURS: Duration = MINUTES.saturating_mul(60);
+
 const MAX_RETRY_ATTEMPTS: u16 = 1000;
-const MAX_RETRY_INTERVAL: Duration = /* six hours */ Duration::from_secs(6 * 60 * 60);
+const MAX_RETRY_INTERVAL: Duration = HOURS.saturating_mul(6);
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct FlowStatus {
@@ -53,7 +56,7 @@ pub struct Iterator {
 #[serde(tag = "type")]
 pub enum FlowStatusModule {
     WaitingForPriorSteps,
-    WaitingForEvent { event: String },
+    WaitingForEvents { count: u16, job: Uuid },
     WaitingForExecutor { job: Uuid },
     InProgress { job: Uuid, iterator: Option<Iterator>, forloop_jobs: Option<Vec<Uuid>> },
     Success { job: Uuid, forloop_jobs: Option<Vec<Uuid>> },
@@ -68,6 +71,12 @@ impl FlowStatus {
             failure_module: FlowStatusModule::WaitingForPriorSteps,
             retry: RetryStatus { fail_count: 0, previous_result: None },
         }
+    }
+
+    /// current module status ... excluding failure_module
+    pub fn current_step(&self) -> Option<&FlowStatusModule> {
+        let i = usize::try_from(self.step).ok()?;
+        self.modules.get(i)
     }
 }
 
@@ -234,14 +243,8 @@ pub async fn update_flow_status_after_job_completion(
         false if skip_loop_failures => !is_last_step,
         false
             if next_retry(
-                &flow_job
-                    .parse_raw_flow()
-                    .map(|module| module.retry)
-                    .unwrap_or_default(),
-                &flow_job
-                    .parse_flow_status()
-                    .map(|status| status.retry)
-                    .unwrap_or_default(),
+                &flow_job.parse_raw_flow_retry().unwrap_or_default(),
+                &flow_job.parse_flow_status_retry().unwrap_or_default(),
             )
             .is_some() =>
         {
@@ -404,6 +407,7 @@ pub async fn get_step_of_flow_status(db: &DB, id: Uuid) -> error::Result<i32> {
     Ok(r)
 }
 
+/// resumes should be in order of timestamp ascending, so that more recent are at the end
 #[instrument(level = "trace", skip_all)]
 async fn transform_input(
     flow_args: &Option<serde_json::Value>,
@@ -412,6 +416,7 @@ async fn transform_input(
     workspace: &str,
     token: &str,
     steps: Vec<String>,
+    resumes: &[Value],
 ) -> anyhow::Result<Map<String, serde_json::Value>> {
     let mut mapped = serde_json::Map::new();
 
@@ -433,6 +438,11 @@ async fn transform_input(
                         ("params".to_string(), serde_json::json!(mapped)),
                         ("previous_result".to_string(), previous_result),
                         ("flow_input".to_string(), flow_input),
+                        (
+                            "resume".to_string(),
+                            resumes.last().map(|v| json!(v)).unwrap_or_default(),
+                        ),
+                        ("resumes".to_string(), resumes.clone().into()),
                     ],
                     Some(EvalCreds { workspace: workspace.to_string(), token: token.to_string() }),
                     steps.clone(),
@@ -533,6 +543,112 @@ async fn push_next_flow_job(
 
     let mut scheduled_for_o = None;
 
+    let mut resume_messages: Vec<Value> = vec![];
+
+    /* (suspend / resume), when starting a module, if previous module has a
+     * non-zero `suspend` value, collect `resume_job`s for the previous module job.
+     *
+     * If there aren't enough, try again later. */
+    if matches!(
+        &status_module,
+        FlowStatusModule::WaitingForPriorSteps | FlowStatusModule::WaitingForEvents { .. }
+    ) {
+        if let Some((count, last)) = needs_resume(&flow, &status) {
+            let mut tx = db.begin().await?;
+
+            /* Lock this row to prevent the suspend column getting out out of sync
+             * if a resume message arrives after we fetch and count them here.
+             *
+             * This only works because jobs::resume_job does the same thing. */
+            sqlx::query_scalar!(
+                "SELECT null FROM queue WHERE id = $1 FOR UPDATE",
+                flow_job.id
+            )
+            .fetch_one(&mut tx)
+            .await
+            .context("lock flow in queue")?;
+
+            let resumes = sqlx::query!(
+                "SELECT value, is_cancel FROM resume_job WHERE job = $1 ORDER BY created_at ASC",
+                last
+            )
+            .fetch_all(&mut tx)
+            .await?;
+
+            let is_cancelled = resumes
+                .iter()
+                .find(|r| r.is_cancel)
+                .map(|r| r.value.clone());
+
+            resume_messages.extend(resumes.into_iter().map(|r| r.value));
+
+            if is_cancelled.is_none() && resume_messages.len() >= count as usize {
+                /* If we are woken up after suspending, last_result will be the flow args, but we
+                 * should use the result from the last job */
+                if let FlowStatusModule::WaitingForEvents { .. } = &status_module {
+                    last_result =
+                        sqlx::query_scalar!("SELECT result FROM completed_job WHERE id = $1", last)
+                            .fetch_one(&mut tx)
+                            .await?
+                            .context("previous job result")?;
+                }
+
+                /* continue on and run this job! */
+                tx.commit().await?;
+
+            /* not enough messages to do this job, "park"/suspend until there are */
+            } else if is_cancelled.is_none()
+                && matches!(&status_module, FlowStatusModule::WaitingForPriorSteps)
+            {
+                sqlx::query(
+                    "
+                    UPDATE queue
+                       SET flow_status = JSONB_SET(flow_status, ARRAY['modules', flow_status->>'step'::text], $1)
+                         , suspend = $2
+                         , suspend_until = now() + $3
+                     WHERE id = $4
+                    ",
+                )
+                .bind(json!(FlowStatusModule::WaitingForEvents { count, job: last }))
+                .bind(count as i32)
+                .bind(30 * MINUTES)
+                .bind(flow_job.id)
+                .execute(&mut tx)
+                .await?;
+
+                tx.commit().await?;
+                return Ok(());
+
+            /* cancelled or we're WaitingForEvents but we don't have enough messages (timed out) */
+            } else {
+                tx.commit().await?;
+
+                let success = false;
+                let skipped = false;
+                let logs = if is_cancelled.is_some() {
+                    "Cancelled while waiting to be resumed"
+                } else {
+                    "Timed out waiting to be resumed"
+                }
+                .to_string();
+                let result = is_cancelled.unwrap_or(json!({ "error": logs }));
+                let _uuid =
+                    add_completed_job(db, &flow_job, success, skipped, result, logs).await?;
+                postprocess_queued_job(
+                    false,
+                    flow_job.schedule_path.clone(),
+                    flow_job.script_path.clone(),
+                    &flow_job.workspace_id,
+                    flow_job.id,
+                    db,
+                )
+                .await?;
+
+                return Ok(());
+            }
+        }
+    }
+
     if matches!(&status_module, FlowStatusModule::Failure { .. }) {
         if let Some((fail_count, retry_in)) = next_retry(&flow.retry, &status.retry) {
             tracing::debug!(
@@ -559,8 +675,8 @@ async fn push_next_flow_job(
             /* it might be better to retry the job using the previous args instead of determining
              * them again from the last result, but that seemed to not play well with the forloop
              * logic and I couldn't figure out why. */
-            if let Some(v) = status.retry.previous_result {
-                last_result = v;
+            if let Some(v) = &status.retry.previous_result {
+                last_result = v.clone();
             }
             status_module = FlowStatusModule::WaitingForPriorSteps;
 
@@ -631,33 +747,18 @@ async fn push_next_flow_job(
     let compute_input_transform = !(   matches!(&module.value, FlowModuleValue::ForloopFlow { .. })
                                     && matches!(&status_module, FlowStatusModule::InProgress { .. }));
 
+    let mut transform_context: Option<(String, Vec<String>)> = None;
     let mut args = if compute_input_transform {
-        let steps = status
-            .modules
-            .iter()
-            .map(|x| match x {
-                FlowStatusModule::Success { job, .. } => job.to_string(),
-                _ => "invalid step status".to_string(),
-            })
-            .collect();
-
-        let token = create_token_for_owner(
-            &db,
-            &flow_job.workspace_id,
-            &flow_job.permissioned_as,
-            "transform-input",
-            10,
-            &flow_job.created_by,
-        )
-        .await?;
-
+        transform_context = Some(get_transform_context(&db, &flow_job, &status).await?);
+        let (token, steps) = transform_context.as_ref().unwrap();
         transform_input(
             &flow_job.args,
             last_result.clone(),
             &module.input_transforms,
             &flow_job.workspace_id,
             &token,
-            steps,
+            steps.to_vec(),
+            resume_messages.as_slice(),
         )
         .await?
     } else {
@@ -673,10 +774,25 @@ async fn push_next_flow_job(
     {
         match status_module {
             FlowStatusModule::WaitingForPriorSteps => {
+                let (token, steps) = if let Some(x) = transform_context {
+                    x
+                } else {
+                    get_transform_context(&db, &flow_job, &status).await?
+                };
                 /* Iterator is an InputTransform, evaluate it into an array. */
                 let itered = iterator
                     .clone()
-                    .evaluate_with(|| vec![("result".to_string(), last_result.clone())])
+                    .evaluate_with(
+                        || {
+                            vec![
+                                ("result".to_string(), last_result.clone()),
+                                ("previous_result".to_string(), last_result.clone()),
+                            ]
+                        },
+                        token,
+                        flow_job.workspace_id.clone(),
+                        steps,
+                    )
                     .await?
                     .into_array()
                     .map_err(|not_array| {
@@ -865,15 +981,71 @@ async fn push_next_flow_job(
     }
 }
 
+async fn get_transform_context(
+    db: &DB,
+    flow_job: &QueuedJob,
+    status: &FlowStatus,
+) -> error::Result<(String, Vec<String>)> {
+    let new_token = create_token_for_owner(
+        db,
+        &flow_job.workspace_id,
+        &flow_job.permissioned_as,
+        "transform-input",
+        10,
+        &flow_job.created_by,
+    )
+    .await?;
+    let new_steps = status
+        .modules
+        .iter()
+        .map(|x| match x {
+            FlowStatusModule::Success { job, .. } => job.to_string(),
+            _ => "invalid step status".to_string(),
+        })
+        .collect();
+
+    Ok((new_token, new_steps))
+}
+
 impl InputTransform {
-    async fn evaluate_with<F>(self, vars: F) -> anyhow::Result<Value>
+    async fn evaluate_with<F>(
+        self,
+        vars: F,
+        token: String,
+        workspace: String,
+        steps: Vec<String>,
+    ) -> anyhow::Result<Value>
     where
         F: FnOnce() -> Vec<(String, Value)>,
     {
         match self {
             InputTransform::Static { value } => Ok(value),
-            InputTransform::Javascript { expr } => eval_timeout(expr, vars(), None, vec![]).await,
+            InputTransform::Javascript { expr } => {
+                eval_timeout(expr, vars(), Some(EvalCreds { workspace, token }), steps).await
+            }
         }
+    }
+}
+
+impl QueuedJob {
+    pub fn parse_raw_flow(&self) -> Option<FlowValue> {
+        self.raw_flow
+            .as_ref()
+            .and_then(|v| serde_json::from_value::<FlowValue>(v.clone()).ok())
+    }
+
+    pub fn parse_raw_flow_retry(&self) -> Option<Retry> {
+        self.parse_raw_flow().map(|module| module.retry)
+    }
+
+    pub fn parse_flow_status(&self) -> Option<FlowStatus> {
+        self.flow_status
+            .as_ref()
+            .and_then(|v| serde_json::from_value::<FlowStatus>(v.clone()).ok())
+    }
+
+    pub fn parse_flow_status_retry(&self) -> Option<RetryStatus> {
+        self.parse_flow_status().map(|status| status.retry)
     }
 }
 
@@ -897,4 +1069,22 @@ fn from_now(duration: Duration) -> chrono::DateTime<chrono::Utc> {
         .ok()
         .and_then(|d| chrono::Utc::now().checked_add_signed(d))
         .unwrap_or(chrono::DateTime::<chrono::Utc>::MAX_UTC)
+}
+
+/// returns previous module non-zero suspend count and job
+fn needs_resume(flow: &FlowValue, status: &FlowStatus) -> Option<(u16, Uuid)> {
+    let prev = usize::try_from(status.step)
+        .ok()
+        .and_then(|s| s.checked_sub(1))?;
+
+    let suspend = flow.modules.get(prev)?.suspend;
+    if suspend == 0 {
+        return None;
+    }
+
+    if let &FlowStatusModule::Success { job, .. } = status.modules.get(prev)? {
+        Some((suspend, job))
+    } else {
+        None
+    }
 }

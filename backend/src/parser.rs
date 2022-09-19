@@ -42,6 +42,7 @@ pub enum Typ {
 #[derive(Serialize, Clone, Debug, PartialEq)]
 pub struct Arg {
     pub name: String,
+    pub otyp: Option<String>,
     pub typ: Typ,
     pub default: Option<serde_json::Value>,
     pub has_default: bool,

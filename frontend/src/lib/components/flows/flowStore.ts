@@ -23,15 +23,22 @@ export function initFlow(flow: Flow) {
 	initFlowState(flow)
 
 	function migrateFlowModule(mod: FlowModule) {
-		let modVal = mod as FlowModule & { input_transform?: Record<string, InputTransform>, stop_after_if_expr?: string, skip_if_stopped?: boolean} 
+		let modVal = mod as FlowModule & {
+			input_transform?: Record<string, InputTransform>
+			stop_after_if_expr?: string
+			skip_if_stopped?: boolean
+		}
 		if (modVal.input_transform) {
 			modVal.input_transforms = modVal.input_transform
 			delete modVal.input_transform
 		}
 		if (modVal.stop_after_if_expr) {
-			modVal.stop_after_if = { expr: modVal.stop_after_if_expr, skip_if_stopped: modVal.skip_if_stopped}
-			delete modVal.stop_after_if_expr;
-			delete modVal.skip_if_stopped;
+			modVal.stop_after_if = {
+				expr: modVal.stop_after_if_expr,
+				skip_if_stopped: modVal.skip_if_stopped
+			}
+			delete modVal.stop_after_if_expr
+			delete modVal.skip_if_stopped
 		}
 	}
 }
@@ -39,8 +46,8 @@ export function initFlow(flow: Flow) {
 export async function copyFirstStepSchema() {
 	const flowState = get(flowStateStore)
 	flowStore.update((flow) => {
-		if (flowState[0].schema) {
-			flow.schema = flowState[0].schema
+		if (flowState.modules[0].schema) {
+			flow.schema = flowState.modules[0].schema
 		}
 		return flow
 	})

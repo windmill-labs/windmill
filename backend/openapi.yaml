@@ -1742,7 +1742,7 @@ paths:
                     type: string
                 language:
                   type: string
-                  enum: [python3, deno]
+                  enum: [python3, deno, go]
                 kind:
                   type: string
                   enum: [script, failure, trigger, command]
@@ -1789,6 +1789,27 @@ paths:
         - script
       requestBody:
         description: deno code with the main function
+        required: true
+        content:
+          application/json:
+            schema:
+              type: string
+      responses:
+        "200":
+          description: parsed args
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MainArgSignature"
+
+  /scripts/go/tojsonschema:
+    post:
+      summary: inspect go code to infer jsonschema of arguments
+      operationId: goToJsonschema
+      tags:
+        - script
+      requestBody:
+        description: go code with the main function
         required: true
         content:
           application/json:
@@ -2530,6 +2551,68 @@ paths:
               schema:
                 type: string
 
+  /w/{workspace}/jobs/resume/{id}:
+    get:
+      summary: resume a job for a suspended flow
+      operationId: resumeSuspendedJob
+      tags:
+        - job
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/JobId"
+        - name: payload
+          in: query
+          schema:
+            type: object
+      responses:
+        "201"
+    post:
+      summary: resume a job for a suspended flow
+      operationId: resumeSuspendedJob
+      tags:
+        - job
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/JobId"
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "201"
+
+  /w/{workspace}/jobs/cancel/{id}:
+    get:
+      summary: cancel a job for a suspended flow
+      operationId: cancelSuspendedJob
+      tags:
+        - job
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/JobId"
+        - name: payload
+          in: query
+          schema:
+            type: object
+      responses:
+        "201"
+    post:
+      summary: cancel a job for a suspended flow
+      operationId: cancelSuspendedJob
+      tags:
+        - job
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/JobId"
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "201"
+
   /schedules/preview:
     post:
       summary: preview schedule
@@ -3240,7 +3323,7 @@ components:
           type: string
         language:
           type: string
-          enum: [python3, deno]
+          enum: [python3, deno, go]
         kind:
           type: string
           enum: [script, failure, trigger, command]
@@ -3331,7 +3414,7 @@ components:
           type: boolean
         language:
           type: string
-          enum: [python3, deno]
+          enum: [python3, deno, go]
       required:
         - id
         - running
@@ -3409,7 +3492,7 @@ components:
           type: boolean
         language:
           type: string
-          enum: [python3, deno]
+          enum: [python3, deno, go]
         is_skipped:
           type: boolean
       required:
@@ -3781,7 +3864,7 @@ components:
           $ref: "#/components/schemas/ScriptArgs"
         language:
           type: string
-          enum: [python3, deno]
+          enum: [python3, deno, go]
 
       required:
         - content

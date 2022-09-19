@@ -7,6 +7,10 @@
 	export let placement = 'right'
 	export let size = '600px'
 
+	export function toggleDrawer() {
+		open = !open
+	}
+
 	let mounted = false
 	const dispatch = createEventDispatcher()
 
