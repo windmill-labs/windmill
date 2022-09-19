@@ -11,6 +11,9 @@
 	import { codeToStaticTemplate, getDefaultExpr, isCodeInjection } from './flows/utils'
 	import SimpleEditor from './SimpleEditor.svelte'
 	import Toggle from './Toggle.svelte'
+	import { Button, Tooltip } from 'flowbite-svelte'
+	import Icon from 'svelte-awesome'
+	import { faChain } from '@fortawesome/free-solid-svg-icons'
 
 	export let schema: Schema
 	export let arg: InputTransform | any
@@ -160,7 +163,23 @@
 					setPropertyType(e.detail.rawValue)
 				}
 			}}
-		/>
+		>
+			<div slot="actions">
+				<div
+					on:click={() => {
+						focusProp(argName, 'connect', (path) => {
+							connectProperty(argName, path)
+						})
+					}}
+				>
+					<Tooltip placement="bottom" content="Input connect">
+						<Button size="sm" class="blue-button h-8">
+							<Icon data={faChain} />
+						</Button>
+					</Tooltip>
+				</div>
+			</div>
+		</ArgInput>
 	{:else if checked}
 		{#if arg.expr != undefined}
 			<div class="border rounded p-2 mt-2 border-gray-300">
