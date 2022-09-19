@@ -74,7 +74,7 @@
 
 	$: checked = propertyType == 'javascript'
 
-	const { focus } = getContext<PropPickerWrapperContext>('PropPickerWrapper')
+	const { focusProp } = getContext<PropPickerWrapperContext>('PropPickerWrapper')
 </script>
 
 {#if arg != undefined}
@@ -127,7 +127,18 @@
 
 	{#if propertyType === undefined || !checked}
 		<ArgInput
-			on:focus={() => focus && focus(argName)}
+			on:focus={() => {
+				focusProp(argName, 'append', (path) => {
+					const toAppend = `\$\{${path}}`
+					arg.value = `${arg.value ?? ''}${toAppend}`
+					if (monacos[argName]) {
+						monacos[argName].setCode(arg.value)
+					}
+					if (isStaticTemplate(inputCats[argName])) {
+						setPropertyType(arg.value)
+					}
+				})
+			}}
 			label={argName}
 			bind:editor={monacos[argName]}
 			bind:description={schema.properties[argName].description}
@@ -155,7 +166,11 @@
 			<div class="border rounded p-2 mt-2 border-gray-300">
 				<SimpleEditor
 					bind:this={monacos[argName]}
-					on:focus={() => focus && focus(argName)}
+					on:focus={() => {
+						focusProp(argName, 'insert', (path) => {
+							monacos[argName].insertAtCursor(path)
+						})
+					}}
 					bind:code={arg.expr}
 					lang="javascript"
 					class="few-lines-editor"

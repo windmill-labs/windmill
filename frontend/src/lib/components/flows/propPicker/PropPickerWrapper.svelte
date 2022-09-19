@@ -1,7 +1,18 @@
 <script context="module" lang="ts">
+	type InsertionMode = 'append' | 'connect' | 'insert'
+
+	type SelectCallback = (path: string) => void
+
+	type PropPickerConfig = {
+		insertionMode: InsertionMode
+		propName: string
+		onSelect: SelectCallback
+	}
+
 	export type PropPickerWrapperContext = {
-		focused: Writable<string | undefined>
-		focus: (value: string | undefined) => void
+		propPickerConfig: Writable<PropPickerConfig | undefined>
+		focusProp: (propName: string, insertionMode: InsertionMode, onSelect: SelectCallback) => void
+		clearFocus: () => void
 	}
 </script>
 
@@ -12,16 +23,22 @@
 	import { writable, type Writable } from 'svelte/store'
 
 	export let pickableProperties: Object = {}
-	const focused = writable<string | undefined>(undefined)
+
+	const propPickerConfig = writable<PropPickerConfig | undefined>(undefined)
 
 	setContext<PropPickerWrapperContext>('PropPickerWrapper', {
-		focused,
-		focus: (value: string | undefined) => {
-			focused.set(value)
+		propPickerConfig,
+		focusProp: (propName, insertionMode, onSelect) => {
+			propPickerConfig.set({
+				propName,
+				insertionMode,
+				onSelect
+			})
+		},
+		clearFocus: () => {
+			propPickerConfig.set(undefined)
 		}
 	})
-
-	function insert() {}
 </script>
 
 <div class="h-full overflow-hidden">
@@ -35,8 +52,9 @@
 			<div class="p-4 h-full overflow-y-auto">
 				<PropPicker
 					{pickableProperties}
-					on:select={() => {
-						debugger
+					on:select={({ detail }) => {
+						$propPickerConfig?.onSelect(detail)
+						propPickerConfig.set(undefined)
 					}}
 				/>
 			</div>

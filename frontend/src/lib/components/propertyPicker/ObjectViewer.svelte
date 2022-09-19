@@ -39,15 +39,19 @@
 
 {#if keys.length > 0}
 	<span class:hidden={collapsed}>
-		{#if level != 0}<span class="cursor-pointer hover:bg-slate-200 px-1 rounded" on:click={collapse}
-				>(-)</span
-			>{/if}
+		{#if level != 0}<span
+				class="cursor-pointer hover:bg-slate-200 px-1 rounded"
+				on:click={collapse}
+			>
+				(- )
+			</span>
+		{/if}
 		<ul class="w-full">
 			{#each keys as key, index}
 				<li class="pt-1">
-					<button on:click={() => selectProp(key)} class="key rounded px-1 hover:bg-sky-100"
-						>{!isArray ? key : index}:</button
-					>
+					<button on:click={() => selectProp(key)} class="key rounded px-1 hover:bg-sky-100">
+						{!isArray ? key : index}:
+					</button>
 
 					{#if getTypeAsString(json[key]) === 'object'}
 						<svelte:self
