@@ -1371,7 +1371,7 @@ async fn handle_child(
     let output = child_joined_output_stream(&mut child);
     let job_id = job_id.clone();
 
-    /* the cancellation future is polled on by `wait` while
+    /* the cancellation future is polled on by `wait_on_child` while
      * waiting for the child to exit normally */
     let cancel_db = db.clone();
     let cancel_check = async move {
@@ -1383,7 +1383,7 @@ async fn handle_child(
                 .await
                 .map(|v| Some(true) == v)
                 .unwrap_or_else(|err| {
-                    tracing::error!(%job_id, %err, "error checking cancelation");
+                    tracing::error!(%job_id, %err, "error checking cancelation for job {job_id}: {err}");
                     false
                 })
             {
@@ -1393,9 +1393,9 @@ async fn handle_child(
     };
 
     /* a future that completes when the child process exits */
-    let wait_db = db.clone();
-    let wait = async move {
-        let db = wait_db;
+    let wait_on_child_db = db.clone();
+    let wait_on_child = async move {
+        let db = wait_on_child_db;
 
         let timed_out = tokio::select! {
             biased;
@@ -1421,7 +1421,7 @@ async fn handle_child(
                 .execute(&db)
                 .await
                 {
-                    tracing::error!(%job_id, %err, "error setting cancelation reason");
+                    tracing::error!(%job_id, %err, "error setting cancelation reason for job {job_id}: {err}");
                 }
             }
         };
@@ -1442,8 +1442,7 @@ async fn handle_child(
         while let Some(line) = output.by_ref().next().await {
             /* after receiving a line, continue until some delay has passed
              * _and_ the previous database write is complete */
-            let until_write = write.clone();
-            let until = sleep(write_logs_delay).then(|()| until_write);
+            let until = futures::future::join(sleep(write_logs_delay), write.clone());
             let mut read_lines = ready(line)
                 .into_stream()
                 .chain(output.by_ref())
@@ -1467,10 +1466,10 @@ async fn handle_child(
                         *last_line = line;
 
                         if log_remaining == 0 {
-                            tracing::info!(%job_id, "Too many logs lines");
+                            tracing::info!(%job_id, "Too many logs lines for job {job_id}");
                             let _ = set_too_many_logs.send(true);
                             joined.push_str(&format!(
-                                "Too many logs lines. Limit is {MAX_LOG_SIZE} chars. Killing job."
+                                "Job logs or result reached character limit of {MAX_LOG_SIZE}; killing job."
                             ));
                         }
                     }
@@ -1496,7 +1495,7 @@ async fn handle_child(
             write = Some(append_logs(job_id, joined, db).shared()).into();
 
             if let Err(err) = result {
-                tracing::error!(%job_id, %err, "error reading output");
+                tracing::error!(%job_id, %err, "error reading output for job {job_id}: {err}");
                 break;
             }
         }
@@ -1514,16 +1513,16 @@ async fn handle_child(
                     .execute(&db)
                     .await
             {
-                tracing::error!(%job_id, %err, "error setting last ping");
+                tracing::error!(%job_id, %err, "error setting last ping for job {job_id}: {err}");
             }
         });
 
-    let wait = tokio::select! {
-        (wait, _) = futures::future::join(wait, lines) => wait,
+    let wait_result = tokio::select! {
+        (w, _) = futures::future::join(wait_on_child, lines) => w,
         _ = ping.collect::<()>() => unreachable!("job ping stopped"),
     };
 
-    match wait {
+    match wait_result {
         Ok(Some(status)) => Ok(status),
         Ok(None) => Err(Error::ExecutionErr("job process killed".to_string())),
         Err(err) => Err(Error::ExecutionErr(format!("job process io error: {err}"))),
@@ -1574,13 +1573,13 @@ fn append_with_limit(dst: &mut String, src: &str, limit: &mut usize) {
         dst.push_str(&src);
         *limit -= src_len;
     } else {
-        let until = src
+        let byte_pos = src
             .char_indices()
             .skip(*limit)
             .next()
-            .map(|(until, _)| until)
+            .map(|(byte_pos, _)| byte_pos)
             .unwrap_or(0);
-        dst.push_str(&src[0..until]);
+        dst.push_str(&src[0..byte_pos]);
         *limit = 0;
     }
 }
@@ -1595,7 +1594,7 @@ async fn set_logs(logs: &str, id: uuid::Uuid, db: &DB) {
     .await
     .is_err()
     {
-        tracing::error!("error updating logs for id {}", id)
+        tracing::error!(%id, "error updating logs for id {id}")
     };
 }
 
@@ -1613,7 +1612,7 @@ async fn append_logs(job_id: uuid::Uuid, logs: impl AsRef<str>, db: impl Borrow<
     .execute(db.borrow())
     .await
     {
-        tracing::error!(%job_id, %err, "error updating logs");
+        tracing::error!(%job_id, %err, "error updating logs for job {job_id}: {err}");
     }
 }
 
