@@ -10,7 +10,7 @@ use itertools::Itertools;
 use std::{
     borrow::Borrow,
     collections::HashMap,
-    io,
+    io, panic,
     process::{ExitStatus, Stdio},
     time::Duration,
 };
@@ -44,9 +44,8 @@ use tokio::{
 };
 
 use futures::{
-    future::{ready, OptionFuture},
-    stream::repeat,
-    FutureExt, StreamExt,
+    future::{self, ready, FutureExt},
+    stream::{self, repeat, StreamExt},
 };
 
 use async_recursion::async_recursion;
@@ -1427,7 +1426,7 @@ async fn handle_child(
         };
 
         /* send SIGKILL and reap child process */
-        let (_, kill) = futures::future::join(set_reason, child.kill()).await;
+        let (_, kill) = future::join(set_reason, child.kill()).await;
         kill.map(|()| None)
     };
 
@@ -1437,16 +1436,20 @@ async fn handle_child(
         let mut log_remaining = (MAX_LOG_SIZE as usize).saturating_sub(logs.chars().count());
         let mut result = io::Result::Ok(());
         let mut output = output;
-        let mut write: OptionFuture<_> = None.into();
+        /* write_is_done resolves the task is done, same as write, but does not contain the Result
+         * of the task, and is useful if we just want to know that the task completed */
+        let (mut do_write, mut write_result) = tokio::spawn(ready(())).remote_handle();
 
         while let Some(line) = output.by_ref().next().await {
-            /* after receiving a line, continue until some delay has passed
-             * _and_ the previous database write is complete */
-            let until = futures::future::join(sleep(write_logs_delay), write.clone());
+            /* This is ugly, I'm really sorry */
+            let do_write_ = do_write.shared();
+
             let mut read_lines = ready(line)
                 .into_stream()
                 .chain(output.by_ref())
-                .take_until(until)
+                /* after receiving a line, continue until some delay has passed
+                 * _and_ the previous database write is complete */
+                .take_until(future::join(sleep(write_logs_delay), do_write_.clone()))
                 .boxed();
 
             /* Read up until an error is encountered,
@@ -1484,15 +1487,22 @@ async fn handle_child(
 
             /* Ensure the last flush completed before starting a new one.
              *
-             * We want append_logs() to run concurrently while reading output from the
-             * job process.  take_until() should only stop reading logs once either:
-             * - `write` has resovled
-             * - we get eof or a read error
-             * In the former case, this should not pause.
-             * In the latter case, we are no longer reading the output so waiting on the
-             * database query to complete in this critical path is fine. */
-            write.clone().await;
-            write = Some(append_logs(job_id, joined, db).shared()).into();
+             * This shouldn't pause since `take_until()` reads lines until `do_write`
+             * resolves. We only stop reading lines before `take_until()` resolves if we reach
+             * EOF or a read error.  In those cases, waiting on a database query to complete is
+             * fine because we're done. */
+
+            if let Some(Ok(p)) = do_write_
+                .then(|()| write_result)
+                .await
+                .err()
+                .map(|err| err.try_into_panic())
+            {
+                panic::resume_unwind(p);
+            }
+
+            (do_write, write_result) =
+                tokio::spawn(append_logs(job_id, joined, db.clone())).remote_handle();
 
             if let Err(err) = result {
                 tracing::error!(%job_id, %err, "error reading output for job {job_id}: {err}");
@@ -1500,7 +1510,14 @@ async fn handle_child(
             }
         }
 
-        write.await;
+        if let Some(Ok(p)) = do_write
+            .then(|()| write_result)
+            .await
+            .err()
+            .map(|err| err.try_into_panic())
+        {
+            panic::resume_unwind(p);
+        }
     };
 
     /* a stream updating "queue"."last_ping" at an interval */
@@ -1518,7 +1535,7 @@ async fn handle_child(
         });
 
     let wait_result = tokio::select! {
-        (w, _) = futures::future::join(wait_on_child, lines) => w,
+        (w, _) = future::join(wait_on_child, lines) => w,
         _ = ping.collect::<()>() => unreachable!("job ping stopped"),
     };
 
@@ -1534,7 +1551,7 @@ async fn handle_child(
 /// builds a stream joining both stdout and stderr each read line by line
 fn child_joined_output_stream(
     child: &mut Child,
-) -> impl futures::stream::FusedStream<Item = io::Result<String>> {
+) -> impl stream::FusedStream<Item = io::Result<String>> {
     let stderr = child
         .stderr
         .take()
@@ -1547,13 +1564,13 @@ fn child_joined_output_stream(
 
     let stdout = BufReader::new(stdout).lines();
     let stderr = BufReader::new(stderr).lines();
-    futures::stream::select(lines_to_stream(stderr), lines_to_stream(stdout))
+    stream::select(lines_to_stream(stderr), lines_to_stream(stdout))
 }
 
 fn lines_to_stream<R: tokio::io::AsyncBufRead + Unpin>(
     mut lines: tokio::io::Lines<R>,
 ) -> impl futures::Stream<Item = io::Result<String>> {
-    futures::stream::poll_fn(move |cx| {
+    stream::poll_fn(move |cx| {
         std::pin::Pin::new(&mut lines)
             .poll_next_line(cx)
             .map(|result| result.transpose())
@@ -2888,20 +2905,17 @@ def main(error, port):
         let mut listener = PgListener::connect_with(db).await.unwrap();
         listener.listen(channel).await.unwrap();
 
-        Box::pin(futures::stream::unfold(
-            listener,
-            |mut listener| async move {
-                let uuid = listener
-                    .try_recv()
-                    .await
-                    .unwrap()
-                    .expect("lost database connection")
-                    .payload()
-                    .parse::<Uuid>()
-                    .expect("invalid uuid");
-                Some((uuid, listener))
-            },
-        ))
+        Box::pin(stream::unfold(listener, |mut listener| async move {
+            let uuid = listener
+                .try_recv()
+                .await
+                .unwrap()
+                .expect("lost database connection")
+                .payload()
+                .parse::<Uuid>()
+                .expect("invalid uuid");
+            Some((uuid, listener))
+        }))
     }
 
     async fn completed_job_result(uuid: Uuid, db: &DB) -> Value {
