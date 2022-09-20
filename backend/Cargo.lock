@@ -70,9 +70,9 @@ dependencies = [
 
 [[package]]
 name = "anyhow"
-version = "1.0.64"
+version = "1.0.65"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b9a8f622bcf6ff3df478e9deba3e03e4e04b300f8e6a139e192c05fa3490afc7"
+checksum = "98161a4e3e2184da77bb14f02184cdd111e83bbbcc9979dfee3c44b9a85f5602"
 
 [[package]]
 name = "argon2"
@@ -1614,9 +1614,9 @@ dependencies = [
 
 [[package]]
 name = "itertools"
-version = "0.10.3"
+version = "0.10.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a9a9d19fa1e79b6215ff29b9d6880b706147f16e9b1dbb1e4e5947b5b02bc5e3"
+checksum = "d8bf247779e67a9082a4790b45e71ac7cfd1321331a5c856a74a9faebdab78d0"
 dependencies = [
  "either",
 ]
@@ -2421,7 +2421,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7345d5f0e08c0536d7ac7229952590239e77abf0a0100a1b1d890add6ea96364"
 dependencies = [
  "anyhow",
- "itertools 0.10.3",
+ "itertools 0.10.4",
  "proc-macro2",
  "quote",
  "syn",
@@ -3209,7 +3209,7 @@ version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f87e292b4291f154971a43c3774364e2cbcaec599d3f5bf6fa9d122885dbc38a"
 dependencies = [
- "itertools 0.10.3",
+ "itertools 0.10.4",
  "nom",
  "unicode_categories",
 ]
@@ -3427,9 +3427,9 @@ checksum = "6bdef32e8150c2a081110b42772ffe7d7c9032b606bc226c8260fd97e0976601"
 
 [[package]]
 name = "swc_atoms"
-version = "0.4.14"
+version = "0.4.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1106fb9b9fde9bd37b9e36ecc05bc1fa9f8ace6f425391ff2ec1141e041e8bd2"
+checksum = "7f18e15aaf62701ebc4aabf01746571c2ab54b91c94b81de23e435d6fb2e2567"
 dependencies = [
  "once_cell",
  "rustc-hash",
@@ -3441,9 +3441,9 @@ dependencies = [
 
 [[package]]
 name = "swc_common"
-version = "0.28.7"
+version = "0.28.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "44e620ded71d80237149d26699daaebf69c14051e5de8104e3a41bd6f1ec3407"
+checksum = "54a4f584c7b203c555c2ef23ede09ae38456305cd28989bf5f807b93316cbc57"
 dependencies = [
  "ahash",
  "ast_node",
@@ -3468,9 +3468,9 @@ dependencies = [
 
 [[package]]
 name = "swc_ecma_ast"
-version = "0.91.3"
+version = "0.91.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "645ede33220fe9c3c35c8c7aa419d23fd4ae4a7e4834c020ba8101b3b32c71ed"
+checksum = "7df6d5ece8b32be2c4501b11d917a449d4e15a0cef935f61bd3583f277443914"
 dependencies = [
  "bitflags",
  "is-macro",
@@ -3485,9 +3485,9 @@ dependencies = [
 
 [[package]]
 name = "swc_ecma_parser"
-version = "0.119.7"
+version = "0.119.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4b51311bd720103dce417b275d58032d6794e039efbf2a39c4d4b1d4b2d06dbb"
+checksum = "f99872d1038049cb57d89ba8e4cb74b63ff95a0caa573dd31d684cae90c180f0"
 dependencies = [
  "either",
  "enum_kind",
@@ -3594,18 +3594,18 @@ dependencies = [
 
 [[package]]
 name = "thiserror"
-version = "1.0.34"
+version = "1.0.35"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8c1b05ca9d106ba7d2e31a9dab4a64e7be2cce415321966ea3132c49a656e252"
+checksum = "c53f98874615aea268107765aa1ed8f6116782501d18e53d08b471733bea6c85"
 dependencies = [
  "thiserror-impl",
 ]
 
 [[package]]
 name = "thiserror-impl"
-version = "1.0.34"
+version = "1.0.35"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e8f2591983642de85c921015f3f070c665a197ed69e417af436115e3a1407487"
+checksum = "f8b463991b4eab2d801e724172285ec4195c650e8ec79b149e6c2a8e6dd3f783"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -4481,7 +4481,7 @@ dependencies = [
  "headers",
  "hex",
  "hyper 0.14.20",
- "itertools 0.10.3",
+ "itertools 0.10.4",
  "json-pointer",
  "lettre",
  "magic-crypt",

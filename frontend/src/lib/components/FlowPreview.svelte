@@ -13,7 +13,7 @@
 	export let flow: Flow
 	export let schema: Schema
 
-	const [i, j] = indexes.split('-').map(Number)
+	const [i, j] = indexes.split('-').filter(Boolean).map(Number)
 
 	let stepArgs: Record<string, any> = {}
 	let jobId: string

@@ -10,7 +10,13 @@
 	let previewOpen = false
 	let previewMode: 'upTo' | 'whole' = 'whole'
 
-	$: upToDisabled = ['settings', 'settings-schedule', 'inputs', 'schedules'].includes($selectedId)
+	$: upToDisabled = [
+		'settings',
+		'settings-schedule',
+		'settings-retries',
+		'inputs',
+		'schedules'
+	].includes($selectedId)
 </script>
 
 <span class="space-x-2 flex h-8">

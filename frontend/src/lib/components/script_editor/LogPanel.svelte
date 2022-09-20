@@ -65,7 +65,7 @@
 	<Tab value="last_save"><span class="text-xs">Last save</span></Tab>
 
 	<svelte:fragment slot="content">
-		<div class="px-4">
+		<div class="p-4">
 			<TabContent value="logs">
 				<pre
 					class="whitespace-pre-wrap break-all relative h-full bg-gray-50 text-xs p-2">{#if previewJob && previewJob.logs}{previewJob.logs}

@@ -11,18 +11,16 @@
 	import { flowStore } from './flows/flowStore'
 	import type { FlowEditorContext } from './flows/types'
 	import { runFlowPreview } from './flows/utils'
-	import FlowStatusViewer from './FlowStatusViewer.svelte'
 	import SchemaForm from './SchemaForm.svelte'
 
+	import FlowStatusViewer from '../components/FlowStatusViewer.svelte'
 	export let previewMode: 'upTo' | 'whole'
-
-	let args: Record<string, any> = {}
 
 	let jobId: string | undefined = undefined
 	let isValid: boolean = false
 	let intervalState: 'idle' | 'canceled' | 'done' | 'running' = 'idle'
 
-	const { selectedId } = getContext<FlowEditorContext>('FlowEditorContext')
+	const { selectedId, previewArgs } = getContext<FlowEditorContext>('FlowEditorContext')
 
 	function extractFlow(previewMode: 'upTo' | 'whole') {
 		if (previewMode === 'whole') {
@@ -104,7 +102,7 @@
 	</div>
 	<div class="pb-4 h-full max-h-1/2 overflow-auto">
 		<div class="mt-4">
-			<SchemaForm schema={$flowStore.schema} bind:isValid bind:args />
+			<SchemaForm schema={$flowStore.schema} bind:isValid bind:args={$previewArgs} />
 		</div>
 	</div>
 	{#if intervalState === 'running'}
@@ -128,7 +126,12 @@
 			Cancel
 		</Button>
 	{:else}
-		<Button disabled={!isValid} class="blue-button" on:click={() => runPreview(args)} size="md">
+		<Button
+			disabled={!isValid}
+			class="blue-button"
+			on:click={() => runPreview($previewArgs)}
+			size="md"
+		>
 			{`Run${intervalState === 'done' ? ' again' : ''}`}
 		</Button>
 	{/if}
@@ -140,9 +143,11 @@
 				on:jobsLoaded={(e) => {
 					intervalState = 'done'
 					const [parentIndex] = $selectedId.split('-')
-					const configIndex =
-						previewMode === 'upTo' ? Number(parentIndex) : $flowStateStore.modules.length
-					mapJobResultsToFlowState(e.detail, 'upto', configIndex, undefined)
+
+					const upToIndex =
+						previewMode === 'upTo' ? Number(parentIndex) + 1 : $flowStateStore.modules.length
+
+					mapJobResultsToFlowState(e.detail, 'upto', upToIndex, undefined)
 				}}
 				root={true}
 			/>

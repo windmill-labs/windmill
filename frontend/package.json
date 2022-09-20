@@ -16,7 +16,7 @@
 	},
 	"devDependencies": {
 		"@playwright/test": "^1.25.2",
-		"@sveltejs/adapter-static": "^1.0.0-next.42",
+		"@sveltejs/adapter-static": "^1.0.0-next.43",
 		"@sveltejs/kit": "next",
 		"@tailwindcss/forms": "^0.5.3",
 		"@tailwindcss/typography": "^0.5.7",
