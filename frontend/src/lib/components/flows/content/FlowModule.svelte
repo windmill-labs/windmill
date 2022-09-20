@@ -118,6 +118,8 @@
 				<VSplitPane
 					topPanelSize={flowModule.value.type === 'rawscript' ? '50%' : '0%'}
 					downPanelSize={flowModule.value.type === 'rawscript' ? '50%' : '100%'}
+					minTopPaneSize="20%"
+					minDownPaneSize="20%"
 				>
 					<top slot="top">
 						{#if flowModule.value.type === 'rawscript'}
@@ -136,14 +138,14 @@
 						{/if}
 					</top>
 
-					<down slot="down">
+					<down slot="down" class="flex flex-col flex-1 h-full">
 						<Tabs selected="inputs">
 							<Tab value="inputs">Inputs</Tab>
-							<Tab value="preview">Test</Tab>
+							<Tab value="test">Test</Tab>
 							<Tab value="advanced">Advanced</Tab>
 
 							<svelte:fragment slot="content">
-								<div class="h-full overflow-auto bg-white">
+								<div class="overflow-hidden bg-white" style="height:calc(100% - 32px);">
 									<TabContent value="inputs" class="flex flex-col flex-1 h-full">
 										<PropPickerWrapper bind:pickableProperties={stepPropPicker.pickableProperties}>
 											<SchemaForm
@@ -155,25 +157,14 @@
 											/>
 										</PropPickerWrapper>
 									</TabContent>
-									<TabContent value="preview">
-										<div class="p-4">
+									<TabContent value="test" class="flex flex-col flex-1 h-full">
+										<div class="p-4 overflow-y-auto">
 											<FlowPreview flow={$flowStore} {indexes} {schema} />
 										</div>
 									</TabContent>
-									<TabContent value="settings">
-										{#if ('path' in flowModule.value && flowModule.value.path) || ('language' in flowModule.value && flowModule.value.language)}
-											<input
-												on:click|stopPropagation={() => undefined}
-												class="overflow-x-auto"
-												type="text"
-												bind:value={flowModule.summary}
-												placeholder="Summary"
-											/>
-										{/if}
-									</TabContent>
 
-									<TabContent value="advanced">
-										<div class="p-4">
+									<TabContent value="advanced" class="flex flex-col flex-1 h-full">
+										<div class="p-4 overflow-y-auto">
 											<FlowModuleAdvancedSettings bind:flowModule />
 										</div>
 									</TabContent>

@@ -18,7 +18,7 @@
 		search === EMPTY_STRING ? pickableProperties : keepByKey(pickableProperties, search)
 </script>
 
-<div class="h-full space-y-2 flex flex-col">
+<div class="px-4 pt-4">
 	<div class="flex justify-between items-center h-8">
 		<span class="font-bold text-sm">Context</span>
 		<div class="flex space-x-2 items-center">
@@ -43,13 +43,13 @@
 			{/if}
 		</div>
 	</div>
-	<div class="overflow-y-auto max-h-96">
-		<input
-			type="text"
-			bind:value={search}
-			class="bg-gray-50 border border-gray-300 text-gray-900 text-sm rounded-lg block p-2 mb-2"
-			placeholder="Search prop..."
-		/>
-		<ObjectViewer json={propsFiltered} on:select />
-	</div>
+	<input
+		type="text"
+		bind:value={search}
+		class="bg-gray-50 border border-gray-300 text-gray-900 text-sm rounded-lg block p-2 mb-2"
+		placeholder="Search prop..."
+	/>
+</div>
+<div class="overflow-y-auto mb-8">
+	<ObjectViewer json={propsFiltered} on:select />
 </div>

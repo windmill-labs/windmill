@@ -41,23 +41,21 @@
 	})
 </script>
 
-<div class="h-full overflow-hidden">
-	<HSplitPane leftPaneSize="50%" rightPaneSize="50%" minLeftPaneSize="20%" minRightPaneSize="20%">
-		<left slot="left" class="h-full">
-			<div class="p-4 h-full overflow-y-auto">
-				<slot />
-			</div>
-		</left>
-		<right slot="right" class="h-full">
-			<div class="p-4 h-full overflow-y-auto">
-				<PropPicker
-					{pickableProperties}
-					on:select={({ detail }) => {
-						$propPickerConfig?.onSelect(detail)
-						propPickerConfig.set(undefined)
-					}}
-				/>
-			</div>
-		</right>
-	</HSplitPane>
-</div>
+<HSplitPane leftPaneSize="50%" rightPaneSize="50%" minLeftPaneSize="20%" minRightPaneSize="20%">
+	<left slot="left" class="relative">
+		<div class=" overflow-auto h-full p-4">
+			<slot />
+		</div>
+	</left>
+	<right slot="right">
+		<div class="overflow-auto h-full">
+			<PropPicker
+				{pickableProperties}
+				on:select={({ detail }) => {
+					$propPickerConfig?.onSelect(detail)
+					propPickerConfig.set(undefined)
+				}}
+			/>
+		</div>
+	</right>
+</HSplitPane>
