@@ -19,14 +19,14 @@
 </script>
 
 <div class="h-full space-y-2 flex flex-col">
-	<div class="flex justify-between items-center">
+	<div class="flex justify-between items-center h-8">
 		<span class="font-bold text-sm">Context</span>
 		<div class="flex space-x-2 items-center">
 			{#if $propPickerConfig}
 				<span
 					class="flex items-center bg-yellow-100 text-yellow-800 text-xs font-semibold px-2 py-1 rounded dark:bg-green-200 dark:text-green-900"
 				>
-					{`Input name: ${$propPickerConfig?.propName}`}
+					{`Selected input: ${$propPickerConfig?.propName}`}
 				</span>
 				<span
 					class="flex items-center bg-green-100 text-green-800 text-xs font-semibold px-2 py-1 rounded dark:bg-green-200 dark:text-green-900"
@@ -38,7 +38,7 @@
 					on:click={() => clearFocus()}
 				>
 					<Icon data={faClose} class="mr-2" scale={0.8} />
-					Clear
+					Deselect
 				</button>
 			{/if}
 		</div>
