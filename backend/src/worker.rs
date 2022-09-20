@@ -8,12 +8,10 @@
 
 use itertools::Itertools;
 use std::{
+    borrow::Borrow,
     collections::HashMap,
+    io,
     process::{ExitStatus, Stdio},
-    sync::{
-        atomic::{AtomicBool, Ordering},
-        Arc,
-    },
     time::Duration,
 };
 use uuid::Uuid;
@@ -41,8 +39,14 @@ use tokio::{
     fs::{DirBuilder, File},
     io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader},
     process::{Child, Command},
-    sync::mpsc,
-    time::Instant,
+    sync::watch,
+    time::{sleep, Instant},
+};
+
+use futures::{
+    future::{ready, OptionFuture},
+    stream::repeat,
+    FutureExt, StreamExt,
 };
 
 use async_recursion::async_recursion;
@@ -1343,6 +1347,12 @@ async fn get_reserved_variables(
         .collect())
 }
 
+/// - wait until child exits and return with exit status
+/// - read lines from stdout and stderr and append them to the "queue"."logs"
+///   quitting early if output exceedes MAX_LOG_SIZE characters (not bytes)
+/// - update the `last_line` and `logs` strings with the program output
+/// - update "queue"."last_ping" every five seconds
+/// - kill process if we exceed timeout or "queue"."canceled" is set
 async fn handle_child(
     job_id: &Uuid,
     db: &DB,
@@ -1351,7 +1361,181 @@ async fn handle_child(
     timeout: i32,
     mut child: Child,
 ) -> crate::error::Result<ExitStatus> {
+    let timeout = Duration::from_secs(u64::try_from(timeout).expect("invalid timeout"));
+    let ping_interval = Duration::from_secs(5);
+    let cancel_check_interval = Duration::from_millis(500);
+    let write_logs_delay = Duration::from_millis(500);
+
+    let (set_too_many_logs, mut too_many_logs) = watch::channel::<bool>(false);
+
+    let output = child_joined_output_stream(&mut child);
     let job_id = job_id.clone();
+
+    /* the cancellation future is polled on by `wait` while
+     * waiting for the child to exit normally */
+    let cancel_db = db.clone();
+    let cancel_check = async move {
+        let db = cancel_db;
+        let mut interval = repeat(cancel_check_interval).then(sleep).boxed();
+        while let Some(()) = interval.next().await {
+            if sqlx::query_scalar!("SELECT canceled FROM queue WHERE id = $1", job_id)
+                .fetch_optional(&db)
+                .await
+                .map(|v| Some(true) == v)
+                .unwrap_or_else(|err| {
+                    tracing::error!(%job_id, %err, "error checking cancelation");
+                    false
+                })
+            {
+                break;
+            }
+        }
+    };
+
+    /* a future that completes when the child process exits */
+    let wait_db = db.clone();
+    let wait = async move {
+        let db = wait_db;
+
+        let timed_out = tokio::select! {
+            biased;
+            result = child.wait() => return result.map(Some),
+            _ = too_many_logs.changed() => false,
+            _ = cancel_check => false,
+            _ = sleep(timeout) => true,
+        };
+
+        let set_reason = async {
+            if timed_out {
+                if let Err(err) = sqlx::query(
+                    r#"
+                       UPDATE queue
+                          SET canceled = true
+                            , canceled_by = 'timeout',
+                            , canceled_reason = $1
+                        WHERE id = $2
+                    r"#,
+                )
+                .bind(format!("duration > {}", timeout.as_secs()))
+                .bind(job_id)
+                .execute(&db)
+                .await
+                {
+                    tracing::error!(%job_id, %err, "error setting cancelation reason");
+                }
+            }
+        };
+
+        /* send SIGKILL and reap child process */
+        let (_, kill) = futures::future::join(set_reason, child.kill()).await;
+        kill.map(|()| None)
+    };
+
+    /* a future that reads output from the child and appends to the database */
+    let lines = async move {
+        /* log_remaining is zero when output limit was reached */
+        let mut log_remaining = (MAX_LOG_SIZE as usize).saturating_sub(logs.chars().count());
+        let mut result = io::Result::Ok(());
+        let mut output = output;
+        let mut write: OptionFuture<_> = None.into();
+
+        while let Some(line) = output.by_ref().next().await {
+            /* after receiving a line, continue until some delay has passed
+             * _and_ the previous database write is complete */
+            let until_write = write.clone();
+            let until = sleep(write_logs_delay).then(|()| until_write);
+            let mut read_lines = ready(line)
+                .into_stream()
+                .chain(output.by_ref())
+                .take_until(until)
+                .boxed();
+
+            /* Read up until an error is encountered,
+             * handle log lines first and then the error...
+             *
+             * (This looks a bit nicer using try_for_each but the side-effects/capturing
+             * in FnMut closure seems impractical, _maybe_ a futures::Sink would work but
+             * I know next to nothing about that.) */
+            let mut joined = String::new();
+
+            while let Some(line) = read_lines.next().await {
+                match line {
+                    Ok(_) if log_remaining == 0 => (),
+                    Ok(line) => {
+                        append_with_limit(&mut joined, &line, &mut log_remaining);
+
+                        *last_line = line;
+
+                        if log_remaining == 0 {
+                            tracing::info!(%job_id, "Too many logs lines");
+                            let _ = set_too_many_logs.send(true);
+                            joined.push_str(&format!(
+                                "Too many logs lines. Limit is {MAX_LOG_SIZE} chars. Killing job."
+                            ));
+                        }
+                    }
+                    Err(err) => {
+                        result = Err(err);
+                        break;
+                    }
+                }
+            }
+
+            logs.push_str(&joined);
+
+            /* Ensure the last flush completed before starting a new one.
+             *
+             * We want append_logs() to run concurrently while reading output from the
+             * job process.  take_until() should only stop reading logs once either:
+             * - `write` has resovled
+             * - we get eof or a read error
+             * In the former case, this should not pause.
+             * In the latter case, we are no longer reading the output so waiting on the
+             * database query to complete in this critical path is fine. */
+            write.clone().await;
+            write = Some(append_logs(job_id, joined, db).shared()).into();
+
+            if let Err(err) = result {
+                tracing::error!(%job_id, %err, "error reading output");
+                break;
+            }
+        }
+
+        write.await;
+    };
+
+    /* a stream updating "queue"."last_ping" at an interval */
+    let ping = repeat(ping_interval)
+        .then(sleep)
+        .map(|()| db.clone())
+        .then(move |db| async move {
+            if let Err(err) =
+                sqlx::query!("UPDATE queue SET last_ping = now() WHERE id = $1", job_id)
+                    .execute(&db)
+                    .await
+            {
+                tracing::error!(%job_id, %err, "error setting last ping");
+            }
+        });
+
+    let wait = tokio::select! {
+        (wait, _) = futures::future::join(wait, lines) => wait,
+        _ = ping.collect::<()>() => unreachable!("job ping stopped"),
+    };
+
+    match wait {
+        Ok(Some(status)) => Ok(status),
+        Ok(None) => Err(Error::ExecutionErr("job process killed".to_string())),
+        Err(err) => Err(Error::ExecutionErr(format!("job process io error: {err}"))),
+    }
+}
+
+/// takes stdout and stderr from Child, panics if either are not present
+///
+/// builds a stream joining both stdout and stderr each read line by line
+fn child_joined_output_stream(
+    child: &mut Child,
+) -> impl futures::stream::FusedStream<Item = io::Result<String>> {
     let stderr = child
         .stderr
         .take()
@@ -1362,164 +1546,43 @@ async fn handle_child(
         .take()
         .expect("child did not have a handle to stdout");
 
-    let mut reader = BufReader::new(stdout).lines();
-    let mut stderr_reader = BufReader::new(stderr).lines();
+    let stdout = BufReader::new(stdout).lines();
+    let stderr = BufReader::new(stderr).lines();
+    futures::stream::select(lines_to_stream(stderr), lines_to_stream(stdout))
+}
 
-    let done = Arc::new(AtomicBool::new(false));
+fn lines_to_stream<R: tokio::io::AsyncBufRead + Unpin>(
+    mut lines: tokio::io::Lines<R>,
+) -> impl futures::Stream<Item = io::Result<String>> {
+    futures::stream::poll_fn(move |cx| {
+        std::pin::Pin::new(&mut lines)
+            .poll_next_line(cx)
+            .map(|result| result.transpose())
+    })
+}
 
-    let done2 = done.clone();
-    let done3 = done.clone();
-    let done4 = done.clone();
-    // Ensure the child process is spawned in the runtime so it can
-    // make progress on its own while we await for any output.
-    let handle = tokio::spawn(async move {
-        let inner_done = done2.clone();
-        let r: Result<ExitStatus, anyhow::Error> = tokio::select! {
-            r = child.wait() => {
-                inner_done.store(true, Ordering::Relaxed);
-                Ok(r?)
-            }
-            _ = async move {
-                while !done2.load(Ordering::Relaxed) {
-                    tokio::time::sleep(Duration::from_secs(1)).await;
-                }
-            } => {
-                child.kill().await?;
-                return Err(Error::ExecutionErr("execution interrupted".to_string()).into())
-            }
-        };
-        r
-    });
-
-    let (tx, mut rx) = mpsc::channel::<String>(100);
-
-    tokio::spawn(async move {
-        while !done4.load(Ordering::Relaxed) {
-            let send = tokio::select! {
-                Ok(Some(out)) = reader.next_line() => {
-                    if out.len() > MAX_LOG_SIZE as usize {
-                        tracing::info!("Line is too big");
-                        let _ = tx.send(format!("Line is too big")).await;
-                        done4.store(true, Ordering::Relaxed);
-                        break;
-                    } else {
-                        tx.send(out).await
-                    }
-                },
-                Ok(Some(err)) = stderr_reader.next_line() => {
-                    if err.len() > MAX_LOG_SIZE as usize {
-                        tracing::info!("Line is too big");
-                        let _ = tx.send(format!("Line is too big")).await;
-                        done4.store(true, Ordering::Relaxed);
-                        break;
-                    } else {
-                        tx.send(err).await
-                    }
-                },
-                else => {
-                    break
-                },
-            };
-            if send.err().is_some() {
-                tracing::error!("error sending log line");
-            };
-        }
-    });
-
-    let db2 = db.clone();
-
-    tokio::spawn(async move {
-        while !&done3.load(Ordering::Relaxed) {
-            let q = sqlx::query!("UPDATE queue SET last_ping = now() WHERE id = $1", job_id)
-                .execute(&db2)
-                .await;
-
-            if q.is_err() {
-                tracing::error!("error setting last ping for id {}", job_id);
-            }
-
-            tokio::time::sleep(Duration::from_secs(5)).await;
-        }
-    });
-
-    let mut start = logs.chars().count();
-    let mut last_update = chrono::Utc::now().timestamp_millis();
-    let initial_start = chrono::Utc::now();
-
-    while !done.load(Ordering::Relaxed) {
-        let diff = 500 - (chrono::Utc::now().timestamp_millis() - last_update);
-        let sleeping_future = if diff > 0 as i64 {
-            tokio::time::sleep(Duration::from_millis(diff as u64))
-        } else {
-            //TODO make it just resolve immediately
-            tokio::time::sleep(Duration::from_millis(0))
-        };
-        tokio::select! {
-            _ = sleeping_future => {
-                let end = logs.chars().count();
-
-                let to_send = logs.chars().skip(start).collect::<String>();
-
-                if start != end {
-                    concat_logs(&to_send, &job_id, db).await;
-                    start = end;
-                }
-
-                let canceled = sqlx::query_scalar!("SELECT canceled FROM queue WHERE id = $1", job_id)
-                    .fetch_one(db)
-                    .await
-                    .map_err(|e| tracing::error!("error getting canceled for id {}: {e}", job_id))
-                    .unwrap_or(false);
-
-                if canceled {
-                    tracing::info!("killed after cancel: {}", job_id);
-                    done.store(true, Ordering::Relaxed);
-                }
-
-                let has_timeout = (chrono::Utc::now() - initial_start).num_seconds() > timeout as i64;
-
-                if has_timeout {
-                    let q = sqlx::query(&format!(
-                        "UPDATE queue SET canceled = true, canceled_by = 'timeout', \
-                            canceled_reason = 'duration > {}' WHERE id = $1",
-                        timeout
-                    ))
-                    .bind(job_id)
-                    .execute(db)
-                    .await;
-
-                    if q.is_err() {
-                        tracing::error!("error setting canceled for id {}", job_id);
-                    }
-                }
-                last_update = chrono::Utc::now().timestamp_millis();
-            },
-            nl = rx.recv() => {
-
-                if let Some(nl) = nl {
-                    if logs.chars().count() > MAX_LOG_SIZE as usize{
-                        tracing::info!("Too many logs lines: {}", job_id);
-                        logs.push_str("Too many logs lines. Limit is 200000 chars. Killing job.");
-                        done.store(true, Ordering::Relaxed);
-                    }
-
-                    logs.push('\n');
-                    logs.push_str(&nl);
-
-                    *last_line = nl;
-                } else {
-                    let to_send = logs.chars().skip(start).collect::<String>();
-                    concat_logs(&to_send, &job_id, db).await;
-                    break;
-                }
-            },
-        }
+// as a detail, `BufReader::lines()` removes \n and \r\n from the strings it yields,
+// so this pushes \n to thd destination string in each call
+fn append_with_limit(dst: &mut String, src: &str, limit: &mut usize) {
+    if *limit > 0 {
+        dst.push('\n');
     }
+    *limit -= 1;
 
-    let status = handle
-        .await
-        .map_err(|e| Error::ExecutionErr(e.to_string()))??;
-    Ok(status)
+    let src_len = src.chars().count();
+    if src_len <= *limit {
+        dst.push_str(&src);
+        *limit -= src_len;
+    } else {
+        let until = src
+            .char_indices()
+            .skip(*limit)
+            .next()
+            .map(|(until, _)| until)
+            .unwrap_or(0);
+        dst.push_str(&src[0..until]);
+        *limit = 0;
+    }
 }
 
 async fn set_logs(logs: &str, id: uuid::Uuid, db: &DB) {
@@ -1536,18 +1599,22 @@ async fn set_logs(logs: &str, id: uuid::Uuid, db: &DB) {
     };
 }
 
-async fn concat_logs(logs: &str, id: &Uuid, db: &DB) {
-    if sqlx::query!(
+/* TODO retry this? */
+async fn append_logs(job_id: uuid::Uuid, logs: impl AsRef<str>, db: impl Borrow<DB>) {
+    if logs.as_ref().is_empty() {
+        return;
+    }
+
+    if let Err(err) = sqlx::query!(
         "UPDATE queue SET logs = concat(logs, $1::text) WHERE id = $2",
-        logs.to_owned(),
-        id
+        logs.as_ref(),
+        job_id,
     )
-    .execute(db)
+    .execute(db.borrow())
     .await
-    .is_err()
     {
-        tracing::error!("error updating logs for id {}", id)
-    };
+        tracing::error!(%job_id, %err, "error updating logs");
+    }
 }
 
 pub async fn restart_zombie_jobs_periodically(
