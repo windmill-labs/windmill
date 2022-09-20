@@ -40,12 +40,12 @@ use tokio::{
     io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader},
     process::{Child, Command},
     sync::watch,
-    time::{sleep, Instant},
+    time::{interval, sleep, Instant, MissedTickBehavior},
 };
 
 use futures::{
     future::{self, ready, FutureExt},
-    stream::{self, repeat, StreamExt},
+    stream::{self, StreamExt},
 };
 
 use async_recursion::async_recursion;
@@ -1372,11 +1372,11 @@ async fn handle_child(
 
     /* the cancellation future is polled on by `wait_on_child` while
      * waiting for the child to exit normally */
-    let cancel_db = db.clone();
-    let cancel_check = async move {
-        let db = cancel_db;
-        let mut interval = repeat(cancel_check_interval).then(sleep).boxed();
-        while let Some(()) = interval.next().await {
+    let cancel_check = async {
+        let db = db.clone();
+
+        let mut interval = interval_skipping_missed(cancel_check_interval).boxed();
+        while let Some(_) = interval.next().await {
             if sqlx::query_scalar!("SELECT canceled FROM queue WHERE id = $1", job_id)
                 .fetch_optional(&db)
                 .await
@@ -1392,9 +1392,8 @@ async fn handle_child(
     };
 
     /* a future that completes when the child process exits */
-    let wait_on_child_db = db.clone();
-    let wait_on_child = async move {
-        let db = wait_on_child_db;
+    let wait_on_child = async {
+        let db = db.clone();
 
         let timed_out = tokio::select! {
             biased;
@@ -1431,6 +1430,7 @@ async fn handle_child(
     };
 
     /* a future that reads output from the child and appends to the database */
+    /* this whole section is kind of a mess and could use some love */
     let lines = async move {
         /* log_remaining is zero when output limit was reached */
         let mut log_remaining = (MAX_LOG_SIZE as usize).saturating_sub(logs.chars().count());
@@ -1441,11 +1441,9 @@ async fn handle_child(
         let (mut do_write, mut write_result) = tokio::spawn(ready(())).remote_handle();
 
         while let Some(line) = output.by_ref().next().await {
-            /* This is ugly, I'm really sorry */
             let do_write_ = do_write.shared();
 
-            let mut read_lines = ready(line)
-                .into_stream()
+            let mut read_lines = stream::once(async { line })
                 .chain(output.by_ref())
                 /* after receiving a line, continue until some delay has passed
                  * _and_ the previous database write is complete */
@@ -1474,6 +1472,8 @@ async fn handle_child(
                             joined.push_str(&format!(
                                 "Job logs or result reached character limit of {MAX_LOG_SIZE}; killing job."
                             ));
+                            /* stop reading and drop our streams fairly quickly */
+                            break;
                         }
                     }
                     Err(err) => {
@@ -1508,7 +1508,14 @@ async fn handle_child(
                 tracing::error!(%job_id, %err, "error reading output for job {job_id}: {err}");
                 break;
             }
+
+            if *set_too_many_logs.borrow() {
+                break;
+            }
         }
+
+        /* drop our end of the pipe */
+        drop(output);
 
         if let Some(Ok(p)) = do_write
             .then(|()| write_result)
@@ -1521,9 +1528,9 @@ async fn handle_child(
     };
 
     /* a stream updating "queue"."last_ping" at an interval */
-    let ping = repeat(ping_interval)
-        .then(sleep)
-        .map(|()| db.clone())
+
+    let ping = interval_skipping_missed(ping_interval)
+        .map(|_| db.clone())
         .then(move |db| async move {
             if let Err(err) =
                 sqlx::query!("UPDATE queue SET last_ping = now() WHERE id = $1", job_id)
@@ -1540,10 +1547,19 @@ async fn handle_child(
     };
 
     match wait_result {
+        _ if *too_many_logs.borrow() => Err(Error::ExecutionErr(
+            "logs or result reached limit".to_string(),
+        )),
         Ok(Some(status)) => Ok(status),
         Ok(None) => Err(Error::ExecutionErr("job process killed".to_string())),
         Err(err) => Err(Error::ExecutionErr(format!("job process io error: {err}"))),
     }
+}
+
+fn interval_skipping_missed(period: Duration) -> impl futures::Stream<Item = Instant> {
+    let mut interval = interval(period);
+    interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
+    stream::poll_fn(move |cx| interval.poll_tick(cx).map(Some))
 }
 
 /// takes stdout and stderr from Child, panics if either are not present
