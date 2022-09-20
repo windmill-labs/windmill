@@ -34,7 +34,6 @@
 
 	export let indexes: string
 	export let flowModule: FlowModule
-	export let args: Record<string, any> = {}
 	export let schema: Schema
 	export let childFlowModules: FlowModuleSchema[] | undefined = undefined
 
@@ -47,8 +46,7 @@
 	$: stepPropPicker = getStepPropPicker(
 		indexes.split('-').map(Number),
 		$flowStore.schema,
-		$flowStateStore,
-		args
+		$flowStateStore
 	)
 
 	async function apply<T>(fn: (arg: T) => Promise<FlowModuleSchema>, arg: T) {
@@ -97,7 +95,6 @@
 				shouldDisableLoopCreation={indexes.length > 1 || parentIndex == 0}
 				on:loop={() => {
 					applyCreateLoop()
-
 					select(['loop', $selectedId].join('-'))
 				}}
 				on:pick={(e) => apply(pickScript, e.detail.path)}

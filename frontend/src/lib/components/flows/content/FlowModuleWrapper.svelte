@@ -16,10 +16,9 @@
 {#if $flowStateStore.modules[parentIndex] && $flowStateStore.modules[parentIndex].childFlowModules !== undefined}
 	{#each $flowStateStore.modules[parentIndex].childFlowModules ?? [] as fa, index}
 		{#if index === childIndex}
+			{JSON.stringify(fa.previewResult)}
 			<FlowModule
 				indexes={$selectedId}
-				args={{}}
-				previewResult={fa.previewResult}
 				bind:flowModule={fa.flowModule}
 				bind:schema={fa.schema}
 				bind:childFlowModules={fa.childFlowModules}
@@ -33,11 +32,11 @@
 {:else}
 	{#each $flowStateStore.modules ?? [] as fa, index}
 		{#if index === parentIndex}
+			{JSON.stringify(fa.previewResult)}
+
 			<FlowModule
 				indexes={$selectedId}
-				args={{}}
 				bind:flowModule={fa.flowModule}
-				bind:previewResult={fa.previewResult}
 				bind:schema={fa.schema}
 				bind:childFlowModules={fa.childFlowModules}
 				on:delete={() => {

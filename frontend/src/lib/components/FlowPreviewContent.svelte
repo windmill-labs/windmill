@@ -11,9 +11,9 @@
 	import { flowStore } from './flows/flowStore'
 	import type { FlowEditorContext } from './flows/types'
 	import { runFlowPreview } from './flows/utils'
-	import FlowStatusViewer from './FlowStatusViewer.svelte'
 	import SchemaForm from './SchemaForm.svelte'
 
+	import FlowStatusViewer from '../components/FlowStatusViewer.svelte'
 	export let previewMode: 'upTo' | 'whole'
 
 	let args: Record<string, any> = {}
@@ -140,10 +140,11 @@
 				on:jobsLoaded={(e) => {
 					intervalState = 'done'
 					const [parentIndex] = $selectedId.split('-')
-					const configIndex =
+
+					const upToIndex =
 						previewMode === 'upTo' ? Number(parentIndex) + 1 : $flowStateStore.modules.length
 
-					mapJobResultsToFlowState(e.detail, 'upto', configIndex, undefined)
+					mapJobResultsToFlowState(e.detail, 'upto', upToIndex, undefined)
 				}}
 				root={true}
 			/>

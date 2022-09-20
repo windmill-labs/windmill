@@ -54,8 +54,9 @@ export function displayDate(dateString: string | undefined): string {
 	if (date.toString() === 'Invalid Date') {
 		return ''
 	} else {
-		return `${date.getFullYear()}/${date.getMonth() + 1
-			}/${date.getDate()} at ${date.toLocaleTimeString()}`
+		return `${date.getFullYear()}/${
+			date.getMonth() + 1
+		}/${date.getDate()} at ${date.toLocaleTimeString()}`
 	}
 }
 
@@ -381,7 +382,7 @@ export function schemaToTsType(schema: Schema): string {
 	return `{ ${types} }`
 }
 
-export function schemaToObject(schema: Schema, args: Record<string, any>): Object {
+export function schemaToObject(schema: Schema): Object {
 	const object = {}
 
 	if (!schema) {
@@ -390,7 +391,7 @@ export function schemaToObject(schema: Schema, args: Record<string, any>): Objec
 	const propKeys = Object.keys(schema.properties)
 
 	propKeys.forEach((key: string) => {
-		object[key] = args[key] ?? null
+		object[key] = schema.properties[key].type ?? null
 	})
 
 	return object
@@ -560,7 +561,6 @@ export function scriptToHubUrl(
 export function classNames(...classes: string[]): string {
 	return classes.filter(Boolean).join(' ')
 }
-
 
 export function scriptLangToEditorLang(lang: Script.language): 'typescript' | 'python' | 'go' {
 	if (lang == 'deno') {

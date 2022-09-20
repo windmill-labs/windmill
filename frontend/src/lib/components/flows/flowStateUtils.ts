@@ -1,13 +1,5 @@
 import type { Schema } from '$lib/common'
-import {
-	CompletedJob,
-	Job,
-	Script,
-	ScriptService,
-	type Flow,
-	type FlowModule,
-	type RawScript
-} from '$lib/gen'
+import { CompletedJob, Job, Script, ScriptService, type FlowModule, type RawScript } from '$lib/gen'
 import { initialCode } from '$lib/script_helpers'
 import { userStore, workspaceStore } from '$lib/stores'
 import {
@@ -204,14 +196,14 @@ type StepPropPicker = {
 export function getStepPropPicker(
 	indexes: number[],
 	flowInputSchema: Schema,
-	flowState: FlowState,
-	args: Record<string, any>
+	flowState: FlowState
 ): StepPropPicker {
 	const isInsideLoop: boolean = indexes.length > 1
-	const [parentIndex] = indexes
+	const [parentIndex, childIndex] = indexes
 
-	const flowInput = schemaToObject(flowInputSchema, args)
+	const flowInput = schemaToObject(flowInputSchema)
 	const results = getPreviousResults(flowState.modules, parentIndex)
+
 	const lastResult = results.length > 0 ? results[results.length - 1] : undefined
 
 	if (isInsideLoop) {
