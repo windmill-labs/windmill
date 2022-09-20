@@ -26,6 +26,10 @@
 
 	const propPickerConfig = writable<PropPickerConfig | undefined>(undefined)
 
+	$: if (pickableProperties) {
+		console.log('pickableProperties', pickableProperties)
+	}
+
 	setContext<PropPickerWrapperContext>('PropPickerWrapper', {
 		propPickerConfig,
 		focusProp: (propName, insertionMode, onSelect) => {

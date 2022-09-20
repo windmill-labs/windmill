@@ -141,7 +141,7 @@
 					intervalState = 'done'
 					const [parentIndex] = $selectedId.split('-')
 					const configIndex =
-						previewMode === 'upTo' ? Number(parentIndex) : $flowStateStore.modules.length
+						previewMode === 'upTo' ? Number(parentIndex) + 1 : $flowStateStore.modules.length
 
 					mapJobResultsToFlowState(e.detail, 'upto', configIndex, undefined)
 				}}

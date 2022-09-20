@@ -281,30 +281,30 @@ export type JobResult = {
 export function mapJobResultsToFlowState(
 	jobs: JobResult,
 	config: 'upto' | 'justthis',
-	i: number,
+	parentIndex: number,
 	j: number | undefined
 ): void {
-	if (!Array.isArray(jobs.innerJobs) || jobs.innerJobs.length === 0) {
-		return
-	}
-
 	if (config === 'justthis') {
 		const job = jobs.job as CompletedJob
 
 		flowStateStore.update((flowState: FlowState) => {
 			if (flowState.modules) {
-				const childFlowModules = flowState.modules[i].childFlowModules
+				const childFlowModules = flowState.modules[parentIndex].childFlowModules
 				if (j && childFlowModules) {
 					childFlowModules[j].previewResult = job.result
-					flowState.modules[i].childFlowModules = childFlowModules
+					flowState.modules[parentIndex].childFlowModules = childFlowModules
 				} else {
-					flowState.modules[i].previewResult = job.result
+					flowState.modules[parentIndex].previewResult = job.result
 				}
 			}
 
 			return flowState
 		})
 	} else {
+		if (!Array.isArray(jobs.innerJobs) || jobs.innerJobs.length === 0) {
+			return
+		}
+
 		const results = jobs.innerJobs.map(({ job, loopJobs }) => {
 			if (Array.isArray(loopJobs) && loopJobs.length > 0) {
 				return loopJobs.map(({ job }) => {
@@ -324,8 +324,8 @@ export function mapJobResultsToFlowState(
 				return flowState
 			}
 
-			const modules = flowState.modules.map((flowModuleSchema: FlowModuleSchema, index) => {
-				if (index <= i) {
+			const modules = flowState.modules.map((flowModuleSchema: FlowModuleSchema, index: number) => {
+				if (index <= parentIndex) {
 					flowModuleSchema.previewResult = results[index]
 				}
 
