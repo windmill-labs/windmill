@@ -10,6 +10,7 @@
 	import FlowCard from '../common/FlowCard.svelte'
 	import type { FlowEditorContext } from '../types'
 	import FlowSchedules from './FlowSchedules.svelte'
+	import FlowRetries from './FlowRetries.svelte'
 
 	const { path } = getContext<FlowEditorContext>('FlowEditorContext')
 
@@ -20,6 +21,8 @@
 	<Tabs selected={defaultTab}>
 		<Tab value="configuration">Configuration</Tab>
 		<Tab value="schedule">Schedule</Tab>
+		<Tab value="retries">Retries</Tab>
+
 		<svelte:fragment slot="content">
 			<TabContent value="configuration" class="px-4">
 				<Path bind:path={$flowStore.path} initialPath={path} namePlaceholder="my_flow" kind="flow">
@@ -44,6 +47,9 @@
 			</TabContent>
 			<TabContent value="schedule" class="px-4">
 				<FlowSchedules />
+			</TabContent>
+			<TabContent value="retries" class="px-4">
+				<FlowRetries />
 			</TabContent>
 		</svelte:fragment>
 	</Tabs>
