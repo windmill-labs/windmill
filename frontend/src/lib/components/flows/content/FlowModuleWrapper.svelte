@@ -17,6 +17,7 @@
 	{#each $flowStateStore.modules[parentIndex].childFlowModules ?? [] as fa, index}
 		{#if index === childIndex}
 			<FlowModule
+				args={{}}
 				indexes={$selectedId}
 				bind:flowModule={fa.flowModule}
 				bind:schema={fa.schema}
@@ -32,6 +33,7 @@
 	{#each $flowStateStore.modules ?? [] as fa, index}
 		{#if index === parentIndex}
 			<FlowModule
+				args={{}}
 				indexes={$selectedId}
 				bind:flowModule={fa.flowModule}
 				bind:schema={fa.schema}

@@ -196,12 +196,13 @@ type StepPropPicker = {
 export function getStepPropPicker(
 	indexes: number[],
 	flowInputSchema: Schema,
-	flowState: FlowState
+	flowState: FlowState,
+	args: Record<string, any>
 ): StepPropPicker {
 	const isInsideLoop: boolean = indexes.length > 1
 	const [parentIndex, childIndex] = indexes
 
-	const flowInput = schemaToObject(flowInputSchema)
+	const flowInput = schemaToObject(flowInputSchema, args)
 	const results = getPreviousResults(flowState.modules, parentIndex)
 
 	const lastResult = results.length > 0 ? results[results.length - 1] : undefined

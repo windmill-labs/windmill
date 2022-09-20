@@ -34,6 +34,7 @@
 
 	export let indexes: string
 	export let flowModule: FlowModule
+	export let args: Record<string, any> = {}
 	export let schema: Schema
 	export let childFlowModules: FlowModuleSchema[] | undefined = undefined
 
@@ -46,7 +47,8 @@
 	$: stepPropPicker = getStepPropPicker(
 		indexes.split('-').map(Number),
 		$flowStore.schema,
-		$flowStateStore
+		$flowStateStore,
+		args
 	)
 
 	async function apply<T>(fn: (arg: T) => Promise<FlowModuleSchema>, arg: T) {
