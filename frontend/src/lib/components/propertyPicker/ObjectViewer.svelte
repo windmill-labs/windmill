@@ -43,7 +43,7 @@
 				class="cursor-pointer hover:bg-slate-200 px-1 rounded"
 				on:click={collapse}
 			>
-				(- )
+				(-)
 			</span>
 		{/if}
 		<ul class="w-full">
@@ -94,6 +94,7 @@
 		padding-left: 1rem;
 		border-left: 1px dotted lightgray;
 		@apply text-black;
+		@apply text-sm;
 	}
 
 	.val {
