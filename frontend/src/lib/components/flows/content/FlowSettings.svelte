@@ -21,7 +21,7 @@
 		<Tab value="configuration">Configuration</Tab>
 		<Tab value="schedule">Schedule</Tab>
 		<svelte:fragment slot="content">
-			<TabContent value="configuration" class="px-4">
+			<TabContent value="configuration" class="p-4">
 				<Path bind:path={$flowStore.path} initialPath={path} namePlaceholder="my_flow" kind="flow">
 					<div slot="ownerToolkit">
 						Flow permissions depend on their path. Select the group <span class="font-mono"
@@ -42,7 +42,7 @@
 					/>
 				</label>
 			</TabContent>
-			<TabContent value="schedule" class="px-4">
+			<TabContent value="schedule" class="p-4">
 				<FlowSchedules />
 			</TabContent>
 		</svelte:fragment>

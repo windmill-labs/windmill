@@ -127,5 +127,5 @@
 		{/if}
 	</div>
 {:else}
-	No script selected
+	Job starting...
 {/if}

@@ -27,9 +27,9 @@
 	import FlowModuleHeader from './FlowModuleHeader.svelte'
 	import { flowStateStore, type FlowModuleSchema } from '../flowState'
 	import { scriptLangToEditorLang } from '$lib/utils'
+	import PropPickerWrapper from '../propPicker/PropPickerWrapper.svelte'
 	import { getContext } from 'svelte'
 	import type { FlowEditorContext } from '../types'
-	import Toggle from '$lib/components/Toggle.svelte'
 	import FlowModuleAdvancedSettings from './FlowModuleAdvancedSettings.svelte'
 
 	export let indexes: string
@@ -97,7 +97,6 @@
 				shouldDisableLoopCreation={indexes.length > 1 || parentIndex == 0}
 				on:loop={() => {
 					applyCreateLoop()
-
 					select(['loop', $selectedId].join('-'))
 				}}
 				on:pick={(e) => apply(pickScript, e.detail.path)}
@@ -119,6 +118,8 @@
 				<VSplitPane
 					topPanelSize={flowModule.value.type === 'rawscript' ? '50%' : '0%'}
 					downPanelSize={flowModule.value.type === 'rawscript' ? '50%' : '100%'}
+					minTopPaneSize="20%"
+					minDownPaneSize="20%"
 				>
 					<top slot="top">
 						{#if flowModule.value.type === 'rawscript'}
@@ -137,46 +138,36 @@
 						{/if}
 					</top>
 
-					<down slot="down">
+					<down slot="down" class="flex flex-col flex-1 h-full">
 						<Tabs selected="inputs">
 							<Tab value="inputs">Inputs</Tab>
-							<Tab value="preview">Test</Tab>
+							<Tab value="test">Test</Tab>
 							<Tab value="advanced">Advanced</Tab>
 
 							<svelte:fragment slot="content">
-								<div class="h-full pb-16 overflow-y-scroll bg-white">
-									<div class="p-4 overflow-hidden">
-										<TabContent value="inputs">
-											<div class="w-11/12">
-												<SchemaForm
-													{schema}
-													inputTransform={true}
-													importPath={indexes}
-													bind:pickableProperties={stepPropPicker.pickableProperties}
-													bind:args={flowModule.input_transforms}
-													bind:extraLib={stepPropPicker.extraLib}
-												/>
-											</div>
-										</TabContent>
-										<TabContent value="preview">
+								<div class="overflow-hidden bg-white" style="height:calc(100% - 32px);">
+									<TabContent value="inputs" class="flex flex-col flex-1 h-full">
+										<PropPickerWrapper bind:pickableProperties={stepPropPicker.pickableProperties}>
+											<SchemaForm
+												{schema}
+												inputTransform={true}
+												importPath={indexes}
+												bind:args={flowModule.input_transforms}
+												bind:extraLib={stepPropPicker.extraLib}
+											/>
+										</PropPickerWrapper>
+									</TabContent>
+									<TabContent value="test" class="flex flex-col flex-1 h-full">
+										<div class="p-4 overflow-y-auto">
 											<FlowPreview flow={$flowStore} {indexes} {schema} />
-										</TabContent>
-										<TabContent value="settings">
-											{#if ('path' in flowModule.value && flowModule.value.path) || ('language' in flowModule.value && flowModule.value.language)}
-												<input
-													on:click|stopPropagation={() => undefined}
-													class="overflow-x-auto"
-													type="text"
-													bind:value={flowModule.summary}
-													placeholder="Summary"
-												/>
-											{/if}
-										</TabContent>
+										</div>
+									</TabContent>
 
-										<TabContent value="advanced">
+									<TabContent value="advanced" class="flex flex-col flex-1 h-full">
+										<div class="p-4 overflow-y-auto">
 											<FlowModuleAdvancedSettings bind:flowModule />
-										</TabContent>
-									</div>
+										</div>
+									</TabContent>
 								</div>
 							</svelte:fragment>
 						</Tabs>

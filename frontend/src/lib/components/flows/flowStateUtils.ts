@@ -1,13 +1,5 @@
 import type { Schema } from '$lib/common'
-import {
-	CompletedJob,
-	Job,
-	Script,
-	ScriptService,
-	type Flow,
-	type FlowModule,
-	type RawScript
-} from '$lib/gen'
+import { CompletedJob, Job, Script, ScriptService, type FlowModule, type RawScript } from '$lib/gen'
 import { initialCode } from '$lib/script_helpers'
 import { userStore, workspaceStore } from '$lib/stores'
 import {
@@ -208,10 +200,11 @@ export function getStepPropPicker(
 	args: Record<string, any>
 ): StepPropPicker {
 	const isInsideLoop: boolean = indexes.length > 1
-	const [parentIndex] = indexes
+	const [parentIndex, childIndex] = indexes
 
 	const flowInput = schemaToObject(flowInputSchema, args)
 	const results = getPreviousResults(flowState.modules, parentIndex)
+
 	const lastResult = results.length > 0 ? results[results.length - 1] : undefined
 
 	if (isInsideLoop) {
@@ -281,25 +274,30 @@ export type JobResult = {
 export function mapJobResultsToFlowState(
 	jobs: JobResult,
 	config: 'upto' | 'justthis',
-	i: number,
+	parentIndex: number,
 	j: number | undefined
 ): void {
-	if (!Array.isArray(jobs.innerJobs) || jobs.innerJobs.length === 0) {
-		return
-	}
-
 	if (config === 'justthis') {
 		const job = jobs.job as CompletedJob
 
 		flowStateStore.update((flowState: FlowState) => {
-			if (j) {
-				flowState[i].childFlowModules[j].previewResult = job.result
-			} else {
-				flowState[i].previewResult = job.result
+			if (flowState.modules) {
+				const childFlowModules = flowState.modules[parentIndex].childFlowModules
+				if (j && childFlowModules) {
+					childFlowModules[j].previewResult = job.result
+					flowState.modules[parentIndex].childFlowModules = childFlowModules
+				} else {
+					flowState.modules[parentIndex].previewResult = job.result
+				}
 			}
+
 			return flowState
 		})
 	} else {
+		if (!Array.isArray(jobs.innerJobs) || jobs.innerJobs.length === 0) {
+			return
+		}
+
 		const results = jobs.innerJobs.map(({ job, loopJobs }) => {
 			if (Array.isArray(loopJobs) && loopJobs.length > 0) {
 				return loopJobs.map(({ job }) => {
@@ -315,12 +313,12 @@ export function mapJobResultsToFlowState(
 		})
 
 		flowStateStore.update((flowState: FlowState) => {
-			if (!Array.isArray(flowState)) {
+			if (!Array.isArray(flowState.modules)) {
 				return flowState
 			}
 
-			const modules = flowState.modules.map((flowModuleSchema: FlowModuleSchema, index) => {
-				if (index <= i) {
+			const modules = flowState.modules.map((flowModuleSchema: FlowModuleSchema, index: number) => {
+				if (index <= parentIndex) {
 					flowModuleSchema.previewResult = results[index]
 				}
 

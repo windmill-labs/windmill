@@ -2,16 +2,18 @@
 	import type { Schema } from '$lib/common'
 	import type { InputTransform } from '$lib/gen'
 	import type { InputCat } from '$lib/utils'
-	import { faChain } from '@fortawesome/free-solid-svg-icons'
-	import { Button, Tooltip } from 'flowbite-svelte'
-	import Icon from 'svelte-awesome'
+	import { getContext } from 'svelte'
+
 	import ArgInput from './ArgInput.svelte'
 	import FieldHeader from './FieldHeader.svelte'
 	import DynamicInputHelpBox from './flows/content/DynamicInputHelpBox.svelte'
+	import type { PropPickerWrapperContext } from './flows/propPicker/PropPickerWrapper.svelte'
 	import { codeToStaticTemplate, getDefaultExpr, isCodeInjection } from './flows/utils'
-	import OverlayPropertyPicker from './propertyPicker/OverlayPropertyPicker.svelte'
 	import SimpleEditor from './SimpleEditor.svelte'
 	import Toggle from './Toggle.svelte'
+	import { Button, Tooltip } from 'flowbite-svelte'
+	import Icon from 'svelte-awesome'
+	import { faChain } from '@fortawesome/free-solid-svg-icons'
 
 	export let schema: Schema
 	export let arg: InputTransform | any
@@ -19,9 +21,7 @@
 	export let extraLib: string = 'missing extraLib'
 	export let inputCheck: { [id: string]: boolean }
 	export let importPath: string | undefined = undefined
-	export let pickableProperties: Object | undefined = undefined
 
-	let overlays: { [id: string]: OverlayPropertyPicker } = {}
 	let monacos: { [id: string]: SimpleEditor } = {}
 
 	let inputCats: { [id: string]: InputCat } = {}
@@ -60,16 +60,6 @@
 		return inputCat === 'string' || inputCat === 'sql'
 	}
 
-	function focusProp(argName: string, monacoEditor: boolean = false) {
-		Object.keys(overlays).forEach((k) => {
-			if (k == argName && (isStaticTemplate(inputCats[argName]) || monacoEditor)) {
-				overlays[k].focus()
-			} else {
-				overlays[k].unfocus()
-			}
-		})
-	}
-
 	function connectProperty(argName: string, rawValue: string) {
 		if (isStaticTemplate(inputCats[argName])) {
 			arg.value = `\$\{${rawValue}}`
@@ -86,6 +76,8 @@
 	}
 
 	$: checked = propertyType == 'javascript'
+
+	const { focusProp } = getContext<PropPickerWrapperContext>('PropPickerWrapper')
 </script>
 
 {#if arg != undefined}
@@ -137,14 +129,10 @@
 	<div class="max-w-xs" />
 
 	{#if propertyType === undefined || !checked}
-		<OverlayPropertyPicker
-			{pickableProperties}
-			bind:this={overlays[argName]}
-			on:select={({ detail }) => {
-				if (detail.pickerVariation === 'connect') {
-					connectProperty(argName, detail.propPath)
-				} else {
-					const toAppend = `\$\{${detail.propPath}}`
+		<ArgInput
+			on:focus={() => {
+				focusProp(argName, 'append', (path) => {
+					const toAppend = `\$\{${path}}`
 					arg.value = `${arg.value ?? ''}${toAppend}`
 					if (monacos[argName]) {
 						monacos[argName].setCode(arg.value)
@@ -152,66 +140,64 @@
 					if (isStaticTemplate(inputCats[argName])) {
 						setPropertyType(arg.value)
 					}
+				})
+			}}
+			label={argName}
+			bind:editor={monacos[argName]}
+			bind:description={schema.properties[argName].description}
+			bind:value={arg.value}
+			type={schema.properties[argName].type}
+			required={schema.required.includes(argName)}
+			bind:pattern={schema.properties[argName].pattern}
+			bind:valid={inputCheck[argName]}
+			defaultValue={schema.properties[argName].default}
+			bind:enum_={schema.properties[argName].enum}
+			bind:format={schema.properties[argName].format}
+			contentEncoding={schema.properties[argName].contentEncoding}
+			bind:itemsType={schema.properties[argName].items}
+			properties={schema.properties[argName].properties}
+			displayHeader={false}
+			bind:inputCat={inputCats[argName]}
+			on:input={(e) => {
+				if (isStaticTemplate(inputCats[argName])) {
+					setPropertyType(e.detail.rawValue)
 				}
 			}}
 		>
-			<ArgInput
-				on:focus={() => focusProp(argName)}
-				label={argName}
-				bind:editor={monacos[argName]}
-				bind:description={schema.properties[argName].description}
-				bind:value={arg.value}
-				type={schema.properties[argName].type}
-				required={schema.required.includes(argName)}
-				bind:pattern={schema.properties[argName].pattern}
-				bind:valid={inputCheck[argName]}
-				defaultValue={schema.properties[argName].default}
-				bind:enum_={schema.properties[argName].enum}
-				bind:format={schema.properties[argName].format}
-				contentEncoding={schema.properties[argName].contentEncoding}
-				bind:itemsType={schema.properties[argName].items}
-				properties={schema.properties[argName].properties}
-				displayHeader={false}
-				bind:inputCat={inputCats[argName]}
-				on:input={(e) => {
-					if (isStaticTemplate(inputCats[argName])) {
-						setPropertyType(e.detail.rawValue)
-					}
-				}}
-			>
-				<div slot="actions">
-					<div on:click={() => overlays[argName]?.focus('connect')}>
-						<Tooltip placement="bottom" content="Input connect">
-							<Button size="sm" class="blue-button h-8">
-								<Icon data={faChain} />
-							</Button>
-						</Tooltip>
-					</div>
+			<div slot="actions">
+				<div
+					on:click={() => {
+						focusProp(argName, 'connect', (path) => {
+							connectProperty(argName, path)
+						})
+					}}
+				>
+					<Tooltip placement="bottom" content="Input connect">
+						<Button size="sm" class="blue-button h-8">
+							<Icon data={faChain} />
+						</Button>
+					</Tooltip>
 				</div>
-			</ArgInput>
-		</OverlayPropertyPicker>
+			</div>
+		</ArgInput>
 	{:else if checked}
 		{#if arg.expr != undefined}
-			<OverlayPropertyPicker
-				bind:this={overlays[argName]}
-				{pickableProperties}
-				on:select={(event) => {
-					monacos[argName].insertAtCursor(event.detail.propPath)
-				}}
-			>
-				<div class="border rounded p-2 mt-2 border-gray-300">
-					<SimpleEditor
-						bind:this={monacos[argName]}
-						on:focus={() => focusProp(argName, true)}
-						bind:code={arg.expr}
-						lang="javascript"
-						class="few-lines-editor"
-						{extraLib}
-						extraLibPath="file:///node_modules/@types/windmill@{importPath}/index.d.ts"
-						shouldBindKey={false}
-					/>
-				</div>
-			</OverlayPropertyPicker>
+			<div class="border rounded p-2 mt-2 border-gray-300">
+				<SimpleEditor
+					bind:this={monacos[argName]}
+					on:focus={() => {
+						focusProp(argName, 'insert', (path) => {
+							monacos[argName].insertAtCursor(path)
+						})
+					}}
+					bind:code={arg.expr}
+					lang="javascript"
+					class="few-lines-editor"
+					{extraLib}
+					extraLibPath="file:///node_modules/@types/windmill@{importPath}/index.d.ts"
+					shouldBindKey={false}
+				/>
+			</div>
 			<DynamicInputHelpBox {importPath} />
 		{/if}
 	{:else}
