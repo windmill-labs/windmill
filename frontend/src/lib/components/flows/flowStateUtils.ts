@@ -231,8 +231,8 @@ export function getStepPropPicker(
 			extraLib,
 			pickableProperties: {
 				flow_input: forLoopFlowInput,
+				previous_result: {},
 				step: [],
-				previous_result: {}
 			}
 		}
 	} else {
@@ -242,8 +242,8 @@ export function getStepPropPicker(
 			extraLib,
 			pickableProperties: {
 				flow_input: flowInput,
+				previous_result: lastResult,
 				step: results,
-				previous_result: lastResult
 			}
 		}
 	}

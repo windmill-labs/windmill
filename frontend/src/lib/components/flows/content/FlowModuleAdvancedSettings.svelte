@@ -6,67 +6,65 @@
 	import type { FlowModule } from '$lib/gen'
 
 	export let flowModule: FlowModule
+
+	$: isSuspendEnabled = Boolean(flowModule.suspend)
+	$: isStopAfterIfEnabled = Boolean(flowModule.stop_after_if)
 </script>
 
-<div class="space-y-4 ">
-	{#if flowModule.suspend}
-		<button
-			class="flex items-center  text-white bg-blue-500 hover:bg-blue-700 focus:ring-4 focus:ring-blue-300 font-medium rounded-lg text-sm px-4 py-1 focus:outline-none "
-			on:click={() => {
+<div class="flex flex-col items-start space-y-2">
+	<Toggle
+		checked={isSuspendEnabled}
+		on:change={() => {
+			if (isSuspendEnabled && flowModule.suspend != undefined) {
 				flowModule.suspend = undefined
-			}}
-		>
-			Disable suspend
-		</button>
-		<div class="font-bold text-sm">Suspend</div>
-
-		<input bind:value={flowModule.suspend} type="number" min="1" placeholder="0" />
-	{:else}
-		<button
-			class="flex items-center  text-white bg-blue-500 hover:bg-blue-700 focus:ring-4 focus:ring-blue-300 font-medium rounded-lg text-sm px-4 py-1 focus:outline-none "
-			on:click={() => {
+			} else {
 				flowModule.suspend = 1
-			}}
-		>
-			Enable suspend
-		</button>
-	{/if}
-	{#if flowModule.stop_after_if}
-		<button
-			class="flex items-center  text-white bg-blue-500 hover:bg-blue-700 focus:ring-4 focus:ring-blue-300 font-medium rounded-lg text-sm px-4 py-1 focus:outline-none "
-			on:click={() => {
-				flowModule.stop_after_if = undefined
-			}}
-		>
-			Disable stop expression
-		</button>
-		<div class="flex flex-col">
-			<div class="font-bold text-sm mb-2">Stop condition expression</div>
+			}
+		}}
+		options={{
+			right: 'Suspend flow execution until events received enabled'
+		}}
+	/>
+	<span class="text-xs font-bold">Number of events to wait for</span>
 
-			<SimpleEditor
-				lang="javascript"
-				bind:code={flowModule.stop_after_if.expr}
-				class="few-lines-editor border"
-			/>
-			<Toggle
-				bind:checked={flowModule.stop_after_if.skip_if_stopped}
-				options={{
-					right: 'Should skip if stopped'
-				}}
-				on:change
-			/>
-		</div>
+	{#if flowModule.suspend}
+		<input bind:value={flowModule.suspend} type="number" min="1" placeholder="1" />
 	{:else}
-		<button
-			class="flex items-center  text-white bg-blue-500 hover:bg-blue-700 focus:ring-4 focus:ring-blue-300 font-medium rounded-lg text-sm px-4 py-1 focus:outline-none "
-			on:click={() => {
+		<input type="number" disabled />
+	{/if}
+
+	<Toggle
+		checked={isStopAfterIfEnabled}
+		on:change={() => {
+			if (isStopAfterIfEnabled && flowModule.stop_after_if) {
+				flowModule.stop_after_if = undefined
+			} else {
 				flowModule.stop_after_if = {
-					skip_if_stopped: false,
-					expr: 'result == undefined'
+					expr: 'result == undefined',
+					skip_if_stopped: false
 				}
-			}}
-		>
-			Enable stop expression
-		</button>
+			}
+		}}
+		options={{
+			right: 'Early stop if condition met enabled'
+		}}
+	/>
+
+	{#if flowModule.stop_after_if}
+		<span class="text-xs font-bold">Stop condition expression</span>
+
+		<SimpleEditor
+			lang="javascript"
+			bind:code={flowModule.stop_after_if.expr}
+			class="few-lines-editor border w-full"
+		/>
+		<span class="text-xs font-bold">Should skip if stopped</span>
+
+		<input type="checkbox" bind:checked={flowModule.stop_after_if.skip_if_stopped} />
+	{:else}
+		<span class="text-xs font-bold">Stop condition expression</span>
+		<textarea disabled rows="3" />
+		<span class="text-xs font-bold">Should skip if stopped</span>
+		<input type="checkbox" disabled />
 	{/if}
 </div>
