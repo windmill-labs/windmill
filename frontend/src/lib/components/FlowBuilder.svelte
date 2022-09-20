@@ -140,6 +140,7 @@
 
 	const selectedIdStore = writable<string>('settings')
 	const scheduleStore = writable<Schedule>(undefined)
+	const previewArgsStore = writable<Record<string, any>>(undefined)
 
 	function select(selectedId: string) {
 		selectedIdStore.set(selectedId)
@@ -149,7 +150,8 @@
 		selectedId: selectedIdStore,
 		schedule: scheduleStore,
 		select,
-		path: initialPath
+		path: initialPath,
+		previewArgs: previewArgsStore
 	})
 
 	$: {

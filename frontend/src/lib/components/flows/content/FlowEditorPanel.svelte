@@ -3,7 +3,6 @@
 
 	import type { FlowEditorContext } from '../types'
 	import FlowModuleWrapper from './FlowModuleWrapper.svelte'
-	import FlowSchedules from './FlowSchedules.svelte'
 	import FlowSettings from './FlowSettings.svelte'
 	import FlowInput from './FlowInput.svelte'
 	import FlowLoop from './FlowLoop.svelte'
