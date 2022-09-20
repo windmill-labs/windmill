@@ -2,9 +2,7 @@
 	import type { Schema } from '$lib/common'
 	import type { InputTransform } from '$lib/gen'
 	import { allTrue } from '$lib/utils'
-	import { getContext, hasContext } from 'svelte'
 	import ArgInput from './ArgInput.svelte'
-	import type { PropPickerWrapperContext } from './flows/propPicker/PropPickerWrapper.svelte'
 	import InputTransformForm from './InputTransformForm.svelte'
 
 	export let inputTransform = false
@@ -32,16 +30,6 @@
 	}
 
 	$: schema?.properties && removeExtraKey()
-
-	function getFocusFunction() {
-		if (hasContext('PropPickerWrapper')) {
-			const { focus } = getContext<PropPickerWrapperContext>('PropPickerWrapper')
-			return focus
-		}
-		return (value: string | undefined) => {}
-	}
-
-	const focus = getFocusFunction()
 </script>
 
 <div class="w-full">
@@ -71,9 +59,6 @@
 					contentEncoding={schema.properties[argName].contentEncoding}
 					properties={schema.properties[argName].properties}
 					bind:itemsType={schema.properties[argName].items}
-					on:focus={() => {
-						focus && focus(argName)
-					}}
 					{editableSchema}
 				/>
 			{/if}
