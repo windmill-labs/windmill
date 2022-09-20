@@ -16,7 +16,6 @@
 {#if $flowStateStore.modules[parentIndex] && $flowStateStore.modules[parentIndex].childFlowModules !== undefined}
 	{#each $flowStateStore.modules[parentIndex].childFlowModules ?? [] as fa, index}
 		{#if index === childIndex}
-			{JSON.stringify(fa.previewResult)}
 			<FlowModule
 				indexes={$selectedId}
 				bind:flowModule={fa.flowModule}
@@ -32,8 +31,6 @@
 {:else}
 	{#each $flowStateStore.modules ?? [] as fa, index}
 		{#if index === parentIndex}
-			{JSON.stringify(fa.previewResult)}
-
 			<FlowModule
 				indexes={$selectedId}
 				bind:flowModule={fa.flowModule}
