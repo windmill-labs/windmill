@@ -16,7 +16,7 @@
 	import CenteredPage from './CenteredPage.svelte'
 	import { OFFSET } from './CronInput.svelte'
 	import FlowEditor from './flows/FlowEditor.svelte'
-	import { flowStateStore, flowStateToFlow, type FlowState } from './flows/flowState'
+	import { flowStateStore, type FlowState } from './flows/flowState'
 	import { flowStore } from './flows/flowStore'
 	import FlowImportExportMenu from './flows/header/FlowImportExportMenu.svelte'
 	import { loadFlowSchedule, type Schedule } from './flows/scheduleUtils'
@@ -48,7 +48,7 @@
 	}
 
 	async function saveFlow(): Promise<void> {
-		const flow = cleanInputs(flowStateToFlow($flowStateStore, $flowStore))
+		const flow = cleanInputs($flowStore)
 		const { cron, args, enabled } = $scheduleStore
 
 		if (initialPath === '') {
@@ -120,17 +120,6 @@
 	async function changeStep(step: number) {
 		goto(`?step=${step}`)
 	}
-
-	flowStateStore.subscribe((flowState: FlowState) => {
-		if (flowState) {
-			flowStore.update((flow: Flow) => {
-				if (flow) {
-					return flowStateToFlow(flowState, flow)
-				}
-				return flow
-			})
-		}
-	})
 
 	flowStore.subscribe((flow: Flow) => {
 		if (flow) {

@@ -6,6 +6,7 @@
 	import Toggle from '$lib/components/Toggle.svelte'
 
 	import SimpleEditor from '$lib/components/SimpleEditor.svelte'
+	import { flowStore } from '../flowStore'
 
 	const { selectedId } = getContext<FlowEditorContext>('FlowEditorContext')
 
@@ -15,17 +16,17 @@
 <FlowCard title="For loop">
 	<div>
 		<div class="p-6 flex flex-col">
-			{#if $flowStateStore.modules[index].flowModule.value.type === 'forloopflow'}
+			{#if $flowStore.value.modules[index].value.type === 'forloopflow'}
 				<span class="mb-2 text-sm font-bold">Iterator expression</span>
 				<SimpleEditor
 					lang="javascript"
-					bind:code={$flowStateStore.modules[index].flowModule.value.iterator.expr}
+					bind:code={$flowStore.value.modules[index].value.iterator.expr}
 					class="few-lines-editor"
 				/>
 				<span class="mb-2 text-sm font-bold">Skip failures</span>
 
 				<Toggle
-					bind:checked={$flowStateStore.modules[index].flowModule.value.skip_failures}
+					bind:checked={$flowStore.value.modules[index].value.skip_failures}
 					options={{
 						right: 'Skip failures'
 					}}

@@ -1,13 +1,13 @@
 <script lang="ts">
 	import { Button } from 'flowbite-svelte'
-	import { isCopyFirstStepSchemaDisabled } from '../flowState'
-	import { copyFirstStepSchema } from '../flowStore'
+	import { isEmptyFlowModule } from '../flowStateUtils'
+	import { copyFirstStepSchema, flowStore } from '../flowStore'
 </script>
 
 <Button
 	color="light"
 	size="xs"
-	disabled={$isCopyFirstStepSchemaDisabled}
+	disabled={$flowStore.value.modules.length === 0 || isEmptyFlowModule($flowStore.value.modules[0])}
 	on:click={copyFirstStepSchema}
 >
 	Copy from first step schema

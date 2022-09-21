@@ -200,6 +200,7 @@
 		<div class="flex space-x-1">
 			{#if inputCat == 'number'}
 				<input
+					on:focus
 					{disabled}
 					type="number"
 					class={valid
