@@ -141,7 +141,9 @@
 						<Tabs selected="inputs">
 							<Tab value="inputs">Inputs</Tab>
 							<Tab value="test">Test</Tab>
-							<Tab value="advanced">Advanced</Tab>
+							{#if !$selectedId.includes('failure')}
+								<Tab value="advanced">Advanced</Tab>
+							{/if}
 
 							<svelte:fragment slot="content">
 								<div class="overflow-hidden bg-white" style="height:calc(100% - 32px);">

@@ -7,8 +7,9 @@
 	import { getScriptByPath } from '$lib/utils'
 	import { faCode, faCodeBranch, faSave, faTrashAlt } from '@fortawesome/free-solid-svg-icons'
 	import { Button } from 'flowbite-svelte'
-	import { createEventDispatcher } from 'svelte'
+	import { createEventDispatcher, getContext } from 'svelte'
 	import Icon from 'svelte-awesome'
+	import type { FlowEditorContext } from '../types'
 
 	export let module: FlowModule
 
@@ -30,6 +31,7 @@
 	}
 
 	const dispatch = createEventDispatcher()
+	const { selectedId } = getContext<FlowEditorContext>('FlowEditorContext')
 </script>
 
 <div class="flex flex-row space-x-2" on:click|stopPropagation={() => undefined}>
@@ -58,7 +60,7 @@
 		}}
 	>
 		<Icon data={faTrashAlt} class="mr-2" />
-		Remove step
+		{$selectedId.includes('failure') ? 'Delete failure module' : 'Remove step'}
 	</Button>
 </div>
 

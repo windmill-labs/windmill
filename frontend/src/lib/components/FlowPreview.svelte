@@ -34,16 +34,16 @@
 		if ($selectedId.includes('failure')) {
 			localFlow.value.modules = [flow.value.failure_module]
 			return localFlow
-		}
-
-		const mod = flow.value.modules[i].value
-		if (j != undefined && mod.type === 'forloopflow') {
-			localFlow.value.modules = mod.modules.slice(j, j + 1)
 		} else {
-			localFlow.value.modules = flow.value.modules.slice(i, i + 1)
+			const mod = flow.value.modules[i].value
+			if (j != undefined && mod.type === 'forloopflow') {
+				localFlow.value.modules = mod.modules.slice(j, j + 1)
+			} else {
+				localFlow.value.modules = flow.value.modules.slice(i, i + 1)
+			}
+			localFlow.schema = schema
+			return localFlow
 		}
-		localFlow.schema = schema
-		return localFlow
 	}
 
 	function setInputTransformFromArgs(flow: Flow, args: any) {
