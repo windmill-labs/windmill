@@ -98,33 +98,46 @@
 				</span>
 			{/if}
 		</div>
-		<Toggle
-			bind:checked
-			options={{
-				right: 'Raw Javascript Editor'
-			}}
-			on:change={(e) => {
-				const type = e.detail ? 'javascript' : 'static'
-				const staticTemplate = isStaticTemplate(inputCats[argName])
-				if (type === 'javascript') {
-					arg.expr = getDefaultExpr(
-						importPath,
-						argName,
-						staticTemplate ? `\`${arg.value ?? ''}\`` : arg.value
-					)
+		<div class="flex flex-row space-x-2 items-center">
+			<Toggle
+				bind:checked
+				options={{
+					right: 'Raw Javascript Editor'
+				}}
+				on:change={(e) => {
+					const type = e.detail ? 'javascript' : 'static'
+					const staticTemplate = isStaticTemplate(inputCats[argName])
+					if (type === 'javascript') {
+						arg.expr = getDefaultExpr(
+							importPath,
+							argName,
+							staticTemplate ? `\`${arg.value ?? ''}\`` : arg.value
+						)
 
-					arg.value = undefined
-					propertyType = 'javascript'
-				} else {
-					arg.value = staticTemplate ? codeToStaticTemplate(arg.expr) : undefined
+						arg.value = undefined
+						propertyType = 'javascript'
+					} else {
+						arg.value = staticTemplate ? codeToStaticTemplate(arg.expr) : undefined
 
-					arg.expr = undefined
-					propertyType = 'static'
-				}
+						arg.expr = undefined
+						propertyType = 'static'
+					}
 
-				arg.type = type
-			}}
-		/>
+					arg.type = type
+				}}
+			/>
+			<div
+				on:click={() => {
+					focusProp(argName, 'connect', (path) => {
+						connectProperty(argName, path)
+					})
+				}}
+			>
+				<Button size="sm" class="blue-button">
+					<Icon data={faChain} />
+				</Button>
+			</div>
+		</div>
 	</div>
 	<div class="max-w-xs" />
 
@@ -163,23 +176,7 @@
 					setPropertyType(e.detail.rawValue)
 				}
 			}}
-		>
-			<div slot="actions">
-				<div
-					on:click={() => {
-						focusProp(argName, 'connect', (path) => {
-							connectProperty(argName, path)
-						})
-					}}
-				>
-					<Tooltip placement="bottom" content="Input connect">
-						<Button size="sm" class="blue-button h-8">
-							<Icon data={faChain} />
-						</Button>
-					</Tooltip>
-				</div>
-			</div>
-		</ArgInput>
+		/>
 	{:else if checked}
 		{#if arg.expr != undefined}
 			<div class="border rounded p-2 mt-2 border-gray-300">
@@ -199,6 +196,7 @@
 				/>
 			</div>
 			<DynamicInputHelpBox {importPath} />
+			<div class="mb-2" />
 		{/if}
 	{:else}
 		<p>Not recognized arg type {arg.type}</p>
