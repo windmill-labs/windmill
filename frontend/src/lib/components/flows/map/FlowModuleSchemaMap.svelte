@@ -108,7 +108,6 @@
 				<FlowModuleSchemaItem
 					on:click={() => select([prefix, String(index)].filter(Boolean).join('-'))}
 					color={prefix ? 'orange' : 'blue'}
-					isFirst={index === 0}
 					isLast={index === modules.length - 1}
 					selected={$selectedId === [prefix, String(index)].filter(Boolean).join('-')}
 					deletable
