@@ -4,7 +4,6 @@ import { initialCode } from '$lib/script_helpers'
 import { userStore, workspaceStore } from '$lib/stores'
 import {
 	buildExtraLib,
-	emptyModule,
 	emptySchema,
 	getScriptByPath,
 	objectToTsType,
@@ -12,37 +11,35 @@ import {
 	schemaToTsType
 } from '$lib/utils'
 import { get } from 'svelte/store'
-import type ObjectViewer from '../propertyPicker/ObjectViewer.svelte'
-import { flowStateStore, type FlowModuleSchema, type FlowState } from './flowState'
+import { flowStateStore, type FlowModuleState, type FlowState } from './flowState'
 import { flowStore } from './flowStore'
 import { loadSchemaFromModule } from './utils'
 
-export function emptyFlowModuleSchema(): FlowModuleSchema {
+export function emptyFlowModuleSchema(): FlowModuleState {
 	return {
-		flowModule: emptyModule(),
 		schema: emptySchema()
 	}
 }
 
-export async function loadFlowModuleSchema(flowModule: FlowModule): Promise<FlowModuleSchema> {
+export async function loadFlowModuleSchema(flowModule: FlowModule): Promise<FlowModuleState> {
 	try {
 		const { input_transforms, schema } = await loadSchemaFromModule(flowModule)
 
 		flowModule.input_transforms = input_transforms
 
-		return { flowModule, schema }
+		return { schema, previewResult: NEVER_TESTED_THIS_FAR }
 	} catch (e) {
-		return { flowModule, schema: emptySchema() }
+		return { schema: emptySchema(), previewResult: NEVER_TESTED_THIS_FAR }
 	}
 }
 
-export async function pickScript(path: string): Promise<FlowModuleSchema> {
+export async function pickScript(path: string): Promise<[FlowModule, FlowModuleState]> {
 	const flowModule: FlowModule = {
 		value: { type: 'script', path },
 		input_transforms: {}
 	}
 
-	return await loadFlowModuleSchema(flowModule)
+	return [flowModule, await loadFlowModuleSchema(flowModule)]
 }
 
 export async function createInlineScriptModule({
@@ -53,7 +50,7 @@ export async function createInlineScriptModule({
 	language: RawScript.language
 	kind: Script.kind
 	subkind: 'pgsql' | 'flow'
-}): Promise<FlowModuleSchema> {
+}): Promise<[FlowModule, FlowModuleState]> {
 	const code = initialCode(language, kind, subkind)
 
 	const flowModule: FlowModule = {
@@ -61,10 +58,10 @@ export async function createInlineScriptModule({
 		input_transforms: {}
 	}
 
-	return await loadFlowModuleSchema(flowModule)
+	return [flowModule, await loadFlowModuleSchema(flowModule)]
 }
 
-export async function createLoop(): Promise<FlowModuleSchema> {
+export async function createLoop(): Promise<[FlowModule, FlowModuleState]> {
 	const loopFlowModule: FlowModule = {
 		value: {
 			type: 'forloopflow',
@@ -75,23 +72,21 @@ export async function createLoop(): Promise<FlowModuleSchema> {
 		input_transforms: {}
 	}
 
-	const { flowModule, schema } = await loadFlowModuleSchema(loopFlowModule)
-
-	return {
-		flowModule,
+	const { schema } = await loadFlowModuleSchema(loopFlowModule)
+	return [loopFlowModule, {
 		schema,
 		childFlowModules: [emptyFlowModuleSchema()],
-		previewResult: undefined
-	}
+		previewResult: NEVER_TESTED_THIS_FAR
+	}]
 }
 
-export async function fork(flowModule: FlowModule): Promise<FlowModuleSchema> {
+export async function fork(flowModule: FlowModule): Promise<[FlowModule, FlowModuleState]> {
 	if (flowModule.value.type !== 'script') {
 		throw new Error('Can only fork a script module')
 	}
 	const fm = await createInlineScriptModuleFromPath(flowModule.value.path ?? '')
 
-	return await loadFlowModuleSchema(fm)
+	return [fm, await loadFlowModuleSchema(fm)]
 }
 
 export async function createInlineScriptModuleFromPath(path: string): Promise<FlowModule> {
@@ -116,7 +111,7 @@ export async function createScriptFromInlineScript({
 	flowModule: FlowModule
 	suffix: string
 	schema: Schema
-}): Promise<FlowModuleSchema> {
+}): Promise<[FlowModule, FlowModuleState]> {
 	const flow = get(flowStore)
 	const user = get(userStore)
 
@@ -229,14 +224,19 @@ export function getStepPropPicker(
 			}
 		}
 
-		const extraLib = buildExtraLib(objectToTsType(forLoopFlowInput), undefined)
+		const innerResults = getPreviousResults(flowState.modules[parentIndex].childFlowModules, childIndex)
+
+		const innerLastResult = childIndex == 0 ? forLoopFlowInput : (
+			innerResults.length > 0 ? innerResults[innerResults.length - 1] : NEVER_TESTED_THIS_FAR)
+
+		const extraLib = buildExtraLib(objectToTsType(forLoopFlowInput), objectToTsType(innerLastResult))
 
 		return {
 			extraLib,
 			pickableProperties: {
 				flow_input: forLoopFlowInput,
-				previous_result: {},
-				step: [],
+				previous_result: innerLastResult,
+				step: innerResults,
 			}
 		}
 	} else {
@@ -254,7 +254,7 @@ export function getStepPropPicker(
 }
 
 function getPreviousResults(
-	flowModuleSchemas: FlowModuleSchema[] | undefined,
+	flowModuleSchemas: FlowModuleState[] | undefined,
 	target: number
 ): Result[] {
 	if (!Array.isArray(flowModuleSchemas) || target < 1) {
@@ -265,7 +265,7 @@ function getPreviousResults(
 	return results.splice(0, target)
 }
 
-function extractPreviewResults(flowModuleSchemas: FlowModuleSchema[]) {
+function extractPreviewResults(flowModuleSchemas: FlowModuleState[]) {
 	return flowModuleSchemas.map((fms) => fms.previewResult)
 }
 
@@ -321,12 +321,12 @@ export function mapJobResultsToFlowState(
 				return flowState
 			}
 
-			const modules = flowState.modules.map((flowModuleSchema: FlowModuleSchema, index: number) => {
+			const modules = flowState.modules.map((flowModuleState: FlowModuleState, index: number) => {
 				if (index <= parentIndex) {
-					flowModuleSchema.previewResult = results[index]
+					flowModuleState.previewResult = results[index]
 				}
 
-				return flowModuleSchema
+				return flowModuleState
 			})
 
 			return {

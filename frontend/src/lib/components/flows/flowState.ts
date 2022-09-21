@@ -3,16 +3,15 @@ import type { Flow, FlowModule } from '$lib/gen'
 import { derived, writable } from 'svelte/store'
 import { emptyFlowModuleSchema, isEmptyFlowModule, loadFlowModuleSchema } from './flowStateUtils'
 
-export type FlowModuleSchema = {
-	flowModule: FlowModule
+export type FlowModuleState = {
 	schema: Schema
-	childFlowModules?: FlowModuleSchema[]
+	childFlowModules?: FlowModuleState[]
 	previewResult?: any
 }
 
 export type FlowState = {
-	modules: FlowModuleSchema[]
-	failureModule: FlowModuleSchema
+	modules: FlowModuleState[]
+	failureModule: FlowModuleState
 }
 
 export const flowStateStore = writable<FlowState>(undefined)
@@ -30,21 +29,7 @@ export async function initFlowState(flow: Flow) {
 	})
 }
 
-export const isCopyFirstStepSchemaDisabled = derived(
-	flowStateStore,
-	(flowState: FlowState | undefined) => {
-		if (flowState) {
-			const firstModule = flowState.modules[0]
-			if (!firstModule) {
-				return true
-			}
-			const fm = firstModule.flowModule
-			return flowState.modules.length === 0 || isEmptyFlowModule(fm)
-		} else {
-			return true
-		}
-	}
-)
+
 
 async function mapFlowModule(flowModule: FlowModule) {
 	const value = flowModule.value
@@ -67,26 +52,6 @@ async function mapFlowModule(flowModule: FlowModule) {
 	return loadFlowModuleSchema(flowModule)
 }
 
-export async function mapFlowModules(flowModules: FlowModule[]): Promise<FlowModuleSchema[]> {
+export async function mapFlowModules(flowModules: FlowModule[]): Promise<FlowModuleState[]> {
 	return Promise.all(flowModules.map(async (flowModule: FlowModule) => mapFlowModule(flowModule)))
-}
-
-export function flowStateToFlow(flowState: FlowState, flow: Flow): Flow {
-	if (!flowState || !flow) {
-		return flow
-	}
-
-	const modules = flowState.modules.map(({ flowModule, childFlowModules }) => {
-		const fmv = flowModule.value
-
-		if (fmv.type === 'forloopflow' && childFlowModules && Array.isArray(childFlowModules)) {
-			fmv.modules = childFlowModules.map((cfm) => cfm.flowModule)
-			flowModule.value = fmv
-		}
-
-		return flowModule
-	})
-
-	flow.value.modules = modules
-	return flow
 }
