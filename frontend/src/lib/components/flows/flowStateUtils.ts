@@ -194,7 +194,7 @@ type StepPropPicker = {
 	extraLib: string
 }
 
-export const NEVER_TESTED_THIS_FAR = "never tested this far"
+export const NEVER_TESTED_THIS_FAR = 'never tested this far'
 
 export function getStepPropPicker(
 	indexes: number[],
@@ -208,8 +208,12 @@ export function getStepPropPicker(
 	const flowInput = schemaToObject(flowInputSchema, args)
 	const results = getPreviousResults(flowState.modules, parentIndex)
 
-	const lastResult = parentIndex == 0 ? flowInput : (
-		results.length > 0 ? results[results.length - 1] : NEVER_TESTED_THIS_FAR)
+	const lastResult =
+		parentIndex == 0
+			? flowInput
+			: results.length > 0
+			? results[results.length - 1]
+			: NEVER_TESTED_THIS_FAR
 
 	if (isInsideLoop) {
 		const forLoopFlowInput = {
@@ -236,7 +240,7 @@ export function getStepPropPicker(
 			pickableProperties: {
 				flow_input: forLoopFlowInput,
 				previous_result: {},
-				step: [],
+				step: []
 			}
 		}
 	} else {
@@ -247,7 +251,7 @@ export function getStepPropPicker(
 			pickableProperties: {
 				flow_input: flowInput,
 				previous_result: lastResult,
-				step: results,
+				step: results
 			}
 		}
 	}

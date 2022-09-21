@@ -3,7 +3,14 @@
 	import { getContext } from 'svelte'
 	import FlowModuleSchemaItem from './FlowModuleSchemaItem.svelte'
 	import Icon from 'svelte-awesome'
-	import { faFlagCheckered, faPen, faPlus, faSliders } from '@fortawesome/free-solid-svg-icons'
+	import {
+		faBug,
+		faFlagCheckered,
+		faPen,
+		faPlus,
+		faSliders,
+		faSquareRootVariable
+	} from '@fortawesome/free-solid-svg-icons'
 	import { emptyFlowModuleSchema } from '$lib/components/flows/flowStateUtils'
 	import { classNames } from '$lib/utils'
 	import type { FlowModuleSchema } from '../flowState'
@@ -131,6 +138,20 @@
 	>
 		<Icon data={faPlus} scale={0.8} />
 	</button>
+	{#if prefix === undefined}
+		<div
+			on:click={() => select('failure-module')}
+			class={classNames(
+				'border w-full rounded-md p-2 bg-white text-sm cursor-pointer flex items-center mt-4',
+				$selectedId.includes('failure-module')
+					? 'outline outline-offset-1 outline-2  outline-slate-900'
+					: ''
+			)}
+		>
+			<Icon data={faBug} class="mr-2" />
+			<span class="font-bold">Failure module</span>
+		</div>
+	{/if}
 </ul>
 
 <style>
