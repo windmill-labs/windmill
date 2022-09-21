@@ -28,7 +28,7 @@
 	let propertyType = getPropertyType(arg)
 
 	function getPropertyType(arg: InputTransform | any): 'static' | 'javascript' {
-		let type: 'static' | 'javascript' = arg.type
+		let type: 'static' | 'javascript' = arg?.type ?? 'static'
 		if (type == 'javascript') {
 			if (codeToStaticTemplate(arg.expr)) {
 				type = 'static'

@@ -3,33 +3,33 @@
 	import { getContext } from 'svelte'
 	import FlowModuleSchemaItem from './FlowModuleSchemaItem.svelte'
 	import Icon from 'svelte-awesome'
-	import {
-		faBug,
-		faFlagCheckered,
-		faPen,
-		faPlus,
-		faSliders,
-		faSquareRootVariable
-	} from '@fortawesome/free-solid-svg-icons'
+	import { faBug, faPen, faPlus, faSliders } from '@fortawesome/free-solid-svg-icons'
 	import { emptyFlowModuleSchema } from '$lib/components/flows/flowStateUtils'
-	import { classNames } from '$lib/utils'
-	import type { FlowModuleSchema } from '../flowState'
+	import { classNames, emptyModule } from '$lib/utils'
+	import type { FlowModuleState } from '../flowState'
+	import type { FlowModule } from '$lib/gen'
 
-	export let flowModuleSchemas: FlowModuleSchema[]
 	export let prefix: string | undefined = undefined
+	export let modules: FlowModule[]
+	export let moduleStates: FlowModuleState[]
 
-	const { select, selectedId, path } = getContext<FlowEditorContext>('FlowEditorContext')
+	const { select, selectedId } = getContext<FlowEditorContext>('FlowEditorContext')
 
 	function insertAtIndex(index: number): void {
-		flowModuleSchemas.splice(index, 0, emptyFlowModuleSchema())
-
-		flowModuleSchemas = flowModuleSchemas
+		moduleStates.splice(index, 0, emptyFlowModuleSchema())
+		modules.splice(index, 0, emptyModule())
+		moduleStates = moduleStates
+		modules = modules
 		select([prefix, String(index)].filter(Boolean).join('-'))
 	}
 
 	function removeAtIndex(index: number): void {
-		flowModuleSchemas.splice(index, 1)
-		flowModuleSchemas = flowModuleSchemas
+		select('settings')
+
+		modules.splice(index, 1)
+		moduleStates.splice(index, 1)
+		moduleStates = moduleStates
+		modules = modules
 	}
 </script>
 
@@ -63,7 +63,7 @@
 		</FlowModuleSchemaItem>
 	{/if}
 
-	{#each flowModuleSchemas as flowModuleSchema, index (index)}
+	{#each modules as mod, index (index)}
 		<button
 			on:click={() => insertAtIndex(index)}
 			type="button"
@@ -71,7 +71,7 @@
 		>
 			<Icon data={faPlus} scale={0.8} />
 		</button>
-		{#if flowModuleSchema.flowModule.value.type === 'forloopflow'}
+		{#if mod.value.type === 'forloopflow'}
 			<li>
 				<FlowModuleSchemaItem
 					deletable
@@ -80,7 +80,7 @@
 					selected={$selectedId === ['loop', String(index)].join('-')}
 				>
 					<div slot="icon">
-						<span>{index}</span>
+						<span>{index + 1}</span>
 					</div>
 					<div slot="content">
 						<span>For loop</span>
@@ -93,7 +93,8 @@
 					<div class="w-full mb-2">
 						<svelte:self
 							prefix={String(index)}
-							flowModuleSchemas={flowModuleSchema.childFlowModules}
+							moduleStates={moduleStates[index].childFlowModules}
+							modules={mod.value.modules}
 						/>
 					</div>
 				</div>
@@ -107,22 +108,21 @@
 				<FlowModuleSchemaItem
 					on:click={() => select([prefix, String(index)].filter(Boolean).join('-'))}
 					color={prefix ? 'orange' : 'blue'}
-					isFirst={index === 0}
-					isLast={index === flowModuleSchemas.length - 1}
+					isLast={index === modules.length - 1}
 					selected={$selectedId === [prefix, String(index)].filter(Boolean).join('-')}
 					deletable
 					on:delete={() => removeAtIndex(index)}
 				>
 					<div slot="icon">
-						<span>{index}</span>
+						<span>{index + 1}</span>
 					</div>
 					<div slot="content" class="w-full">
 						<input
-							bind:value={flowModuleSchema.flowModule.summary}
-							placeholder={flowModuleSchema.flowModule.summary ||
-								flowModuleSchema.flowModule.value.path ||
-								(flowModuleSchema.flowModule.value.type === 'rawscript'
-									? `Inline ${flowModuleSchema.flowModule.value.language}`
+							bind:value={mod.summary}
+							placeholder={mod.summary ||
+								mod.value.path ||
+								(mod.value.type === 'rawscript'
+									? `Inline ${mod.value.language}`
 									: 'Select a script')}
 						/>
 					</div>
@@ -132,7 +132,7 @@
 	{/each}
 
 	<button
-		on:click={() => insertAtIndex(flowModuleSchemas.length)}
+		on:click={() => insertAtIndex(modules.length)}
 		type="button"
 		class="text-gray-900 bg-white border m-0.5 border-gray-300 focus:outline-none hover:bg-gray-100 focus:ring-4 focus:ring-gray-200 font-medium rounded-full text-sm w-6 h-6 flex items-center justify-center"
 	>
@@ -140,10 +140,10 @@
 	</button>
 	{#if prefix === undefined}
 		<div
-			on:click={() => select('failure-module')}
+			on:click={() => select('failure')}
 			class={classNames(
 				'border w-full rounded-md p-2 bg-white text-sm cursor-pointer flex items-center mt-4',
-				$selectedId.includes('failure-module')
+				$selectedId.includes('failure')
 					? 'outline outline-offset-1 outline-2  outline-slate-900'
 					: ''
 			)}

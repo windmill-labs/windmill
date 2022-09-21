@@ -11,18 +11,20 @@
 	const { selectedId } = getContext<FlowEditorContext>('FlowEditorContext')
 </script>
 
-{#if $selectedId === 'settings'}
-	<FlowSettings />
-{:else if $selectedId === 'settings-schedule'}
-	<FlowSettings defaultTab="schedule" />
-{:else if $selectedId === 'settings-retries'}
-	<FlowSettings defaultTab="retries" />
-{:else if $selectedId.includes('loop')}
-	<FlowLoop />
-{:else if $selectedId === 'inputs'}
-	<FlowInput />
-{:else if $selectedId === 'failure-module'}
-	<FlowFailureModule />
-{:else}
-	<FlowModuleWrapper />
-{/if}
+{#key $selectedId}
+	{#if $selectedId === 'settings'}
+		<FlowSettings />
+	{:else if $selectedId === 'settings-schedule'}
+		<FlowSettings defaultTab="schedule" />
+	{:else if $selectedId === 'settings-retries'}
+		<FlowSettings defaultTab="retries" />
+	{:else if $selectedId.includes('loop')}
+		<FlowLoop />
+	{:else if $selectedId === 'inputs'}
+		<FlowInput />
+	{:else if $selectedId === 'failure'}
+		<FlowFailureModule />
+	{:else}
+		<FlowModuleWrapper />
+	{/if}
+{/key}

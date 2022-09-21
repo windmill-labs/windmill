@@ -2,26 +2,27 @@
 	import type { Schema } from '$lib/common'
 	import type { Flow } from '$lib/gen'
 	import { sendUserToast, truncateRev } from '$lib/utils'
+	import { getContext } from 'svelte'
 
-	import { flowStateStore, flowStateToFlow } from './flows/flowState'
 	import { mapJobResultsToFlowState } from './flows/flowStateUtils'
+	import { flowStore } from './flows/flowStore'
+	import type { FlowEditorContext } from './flows/types'
 	import { runFlowPreview } from './flows/utils'
 	import FlowStatusViewer from './FlowStatusViewer.svelte'
 	import RunForm from './RunForm.svelte'
 
 	export let indexes: string
-	export let flow: Flow
 	export let schema: Schema
 
 	const [i, j] = indexes.split('-').filter(Boolean).map(Number)
+
+	const { selectedId } = getContext<FlowEditorContext>('FlowEditorContext')
 
 	let stepArgs: Record<string, any> = {}
 	let jobId: string
 
 	export async function runPreview(args: any) {
-		flow = flowStateToFlow($flowStateStore, flow)
-
-		let newFlow: Flow = setInputTransformFromArgs(extractStep(flow), args)
+		let newFlow: Flow = setInputTransformFromArgs(extractStep($flowStore), args)
 		jobId = await runFlowPreview(args, newFlow)
 
 		sendUserToast(`started preview ${truncateRev(jobId, 10)}`)
@@ -29,14 +30,18 @@
 
 	function extractStep(flow: Flow): Flow {
 		const localFlow = JSON.parse(JSON.stringify(flow))
+
+		if ($selectedId.includes('failure')) {
+			localFlow.value.modules = [flow.value.failure_module]
+			return localFlow
+		}
+
 		const mod = flow.value.modules[i].value
-		console.log(mod, j)
 		if (j != undefined && mod.type === 'forloopflow') {
 			localFlow.value.modules = mod.modules.slice(j, j + 1)
 		} else {
 			localFlow.value.modules = flow.value.modules.slice(i, i + 1)
 		}
-		console.log(localFlow)
 		localFlow.schema = schema
 		return localFlow
 	}
@@ -55,7 +60,7 @@
 </script>
 
 <RunForm
-	runnable={extractStep(flow)}
+	runnable={extractStep($flowStore)}
 	runAction={(_, args) => runPreview(args)}
 	schedulable={false}
 	buttonText="Test just this step"
@@ -68,7 +73,6 @@
 		<FlowStatusViewer
 			{jobId}
 			on:jobsLoaded={(e) => mapJobResultsToFlowState(e.detail, 'justthis', i, j)}
-			root={true}
 		/>
 	</div>
 {/if}

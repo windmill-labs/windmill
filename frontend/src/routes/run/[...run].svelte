@@ -328,7 +328,7 @@
 			{#if job?.job_kind == 'flow' || job?.job_kind == 'flowpreview'}
 				<div class="mt-10" />
 				<div class="max-w-lg">
-					<FlowStatusViewer jobId={job.id} root={true} />
+					<FlowStatusViewer jobId={job.id} />
 				</div>
 			{/if}
 		</div>
