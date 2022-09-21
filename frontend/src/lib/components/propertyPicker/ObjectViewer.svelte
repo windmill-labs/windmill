@@ -2,6 +2,7 @@
 	import { truncate } from '$lib/utils'
 
 	import { createEventDispatcher } from 'svelte'
+	import { NEVER_TESTED_THIS_FAR } from '../flows/flowStateUtils'
 	import { getTypeAsString } from '../flows/utils'
 	import { computeKey } from './utils'
 	import WarningMessage from './WarningMessage.svelte'
@@ -67,8 +68,10 @@
 							class="val rounded px-1 hover:bg-sky-100 {getTypeAsString(json[key])}"
 							on:click={() => selectProp(key)}
 						>
-							{#if json[key] === undefined}
+							{#if json[key] === NEVER_TESTED_THIS_FAR}
 								<WarningMessage />
+							{:else if json[key] == undefined}
+								<span>undefined</span>
 							{:else}
 								<span>{truncate(JSON.stringify(json[key]), 40)}</span>
 							{/if}

@@ -148,6 +148,7 @@
 								<div class="overflow-hidden bg-white" style="height:calc(100% - 32px);">
 									<TabContent value="inputs" class="flex flex-col flex-1 h-full">
 										<PropPickerWrapper bind:pickableProperties={stepPropPicker.pickableProperties}>
+											<!-- <pre class="text-xs">{JSON.stringify($flowStateStore, null, 4)}</pre> -->
 											<SchemaForm
 												{schema}
 												inputTransform={true}

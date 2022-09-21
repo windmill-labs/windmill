@@ -40,11 +40,6 @@
 		}
 	}
 
-	$: hasModules =
-		jobResult.job &&
-		Array.isArray(jobResult.job?.raw_flow?.modules) &&
-		jobResult.job?.raw_flow?.modules.length! > 1
-
 	function updateJobId() {
 		if (jobId !== jobResult.job?.id) {
 			loadJobInProgress()
@@ -60,7 +55,7 @@
 
 {#if jobResult.job}
 	<div class="flow-root w-full space-y-4">
-		<h3 class="text-md leading-6 font-bold text-gray-900 border-b pb-2">Preview results</h3>
+		<h3 class="text-md leading-6 font-bold text-gray-900 border-b pb-2">Flow result</h3>
 		<FlowPreviewStatus job={jobResult.job} />
 		{#if `result` in jobResult.job}
 			<FlowJobResult job={jobResult.job} />
@@ -98,7 +93,7 @@
 					<svelte:self jobId={loopJobId} bind:jobResult={jobResult.loopJobs[j]} />
 				</div>
 			{/each}
-		{:else if hasModules && Array.isArray(jobResult.innerJobs)}
+		{:else if Array.isArray(jobResult.innerJobs)}
 			<ul class="w-full">
 				<h3 class="text-md leading-6 font-bold text-gray-900 border-b mb-4 py-2">
 					Detailed results
