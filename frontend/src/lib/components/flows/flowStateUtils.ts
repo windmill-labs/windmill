@@ -12,6 +12,7 @@ import {
 	schemaToTsType
 } from '$lib/utils'
 import { get } from 'svelte/store'
+import type ObjectViewer from '../propertyPicker/ObjectViewer.svelte'
 import { flowStateStore, type FlowModuleSchema, type FlowState } from './flowState'
 import { flowStore } from './flowStore'
 import { loadSchemaFromModule } from './utils'
@@ -193,6 +194,8 @@ type StepPropPicker = {
 	extraLib: string
 }
 
+export const NEVER_TESTED_THIS_FAR = "never tested this far"
+
 export function getStepPropPicker(
 	indexes: number[],
 	flowInputSchema: Schema,
@@ -205,7 +208,8 @@ export function getStepPropPicker(
 	const flowInput = schemaToObject(flowInputSchema, args)
 	const results = getPreviousResults(flowState.modules, parentIndex)
 
-	const lastResult = results.length > 0 ? results[results.length - 1] : undefined
+	const lastResult = parentIndex == 0 ? flowInput : (
+		results.length > 0 ? results[results.length - 1] : NEVER_TESTED_THIS_FAR)
 
 	if (isInsideLoop) {
 		const forLoopFlowInput = {
