@@ -1,7 +1,6 @@
 <script lang="ts">
 	import { VSplitPane } from 'svelte-split-pane'
 
-	import type { Schema } from '$lib/common'
 	import Tab from '$lib/components/common/tabs/Tab.svelte'
 	import TabContent from '$lib/components/common/tabs/TabContent.svelte'
 	import Tabs from '$lib/components/common/tabs/Tabs.svelte'
@@ -32,19 +31,20 @@
 	import type { FlowEditorContext } from '../types'
 	import FlowModuleAdvancedSettings from './FlowModuleAdvancedSettings.svelte'
 
-	export let indexes: string
+	const { selectedId, select } = getContext<FlowEditorContext>('FlowEditorContext')
+
 	export let flowModule: FlowModule
 	export let args: Record<string, any> = {}
 	export let flowModuleState: FlowModuleState
 
-	const [parentIndex] = indexes.split('-').map(Number)
+	$: [parentIndex, childIndex] = $selectedId.split('-').map(Number)
 
 	let editor: Editor
 	let websocketAlive = { pyright: false, black: false, deno: false }
 
 	$: shouldPick = isEmptyFlowModule(flowModule)
 	$: stepPropPicker = getStepPropPicker(
-		indexes.split('-').map(Number),
+		$selectedId.split('-').map(Number),
 		$flowStore.schema,
 		$flowStateStore,
 		args
@@ -66,10 +66,8 @@
 	}
 
 	async function applyCreateLoop() {
-		await apply(createLoop, parentIndex)
+		await apply(createLoop, null)
 	}
-
-	const { selectedId, select } = getContext<FlowEditorContext>('FlowEditorContext')
 </script>
 
 <div class="flex flex-col h-full ">
@@ -83,7 +81,7 @@
 					on:createScriptFromInlineScript={() => {
 						apply(createScriptFromInlineScript, {
 							flowModule: flowModule,
-							suffix: indexes,
+							suffix: $selectedId,
 							schema: flowModuleState.schema
 						})
 					}}
@@ -93,7 +91,7 @@
 		{#if shouldPick}
 			<FlowInputs
 				shouldDisableTriggerScripts={parentIndex != 0}
-				shouldDisableLoopCreation={indexes.length > 1 || parentIndex == 0}
+				shouldDisableLoopCreation={childIndex !== undefined || parentIndex === 0}
 				on:loop={() => {
 					applyCreateLoop()
 					select(['loop', $selectedId].join('-'))
@@ -151,7 +149,7 @@
 											<SchemaForm
 												schema={flowModuleState.schema}
 												inputTransform={true}
-												importPath={indexes}
+												importPath={$selectedId}
 												bind:args={flowModule.input_transforms}
 												bind:extraLib={stepPropPicker.extraLib}
 											/>
@@ -159,7 +157,7 @@
 									</TabContent>
 									<TabContent value="test" class="flex flex-col flex-1 h-full">
 										<div class="p-4 overflow-y-auto">
-											<FlowPreview {indexes} schema={flowModuleState.schema} />
+											<FlowPreview indexes={$selectedId} schema={flowModuleState.schema} />
 										</div>
 									</TabContent>
 

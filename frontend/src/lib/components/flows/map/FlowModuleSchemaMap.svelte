@@ -13,7 +13,7 @@
 	export let modules: FlowModule[]
 	export let moduleStates: FlowModuleState[]
 
-	const { select, selectedId, path } = getContext<FlowEditorContext>('FlowEditorContext')
+	const { select, selectedId } = getContext<FlowEditorContext>('FlowEditorContext')
 
 	function insertAtIndex(index: number): void {
 		moduleStates.splice(index, 0, emptyFlowModuleSchema())
@@ -24,6 +24,8 @@
 	}
 
 	function removeAtIndex(index: number): void {
+		select('settings')
+
 		modules.splice(index, 1)
 		moduleStates.splice(index, 1)
 		moduleStates = moduleStates

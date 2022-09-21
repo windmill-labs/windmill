@@ -5,7 +5,7 @@
 	import type { FlowEditorContext } from '../types'
 	import FlowModule from './FlowModule.svelte'
 
-	const { selectedId, previewArgs } = getContext<FlowEditorContext>('FlowEditorContext')
+	const { selectedId, previewArgs, select } = getContext<FlowEditorContext>('FlowEditorContext')
 
 	function selectedIdToIndexes(selectedId: string): number[] {
 		return selectedId.split('-').map(Number)
@@ -15,12 +15,11 @@
 </script>
 
 {#if childIndex != undefined}
-	{#each [$flowStore.value.modules[parentIndex].value] as mod}
+	{#each [$flowStore.value.modules[parentIndex].value] as mod, index (index)}
 		{#each [$flowStateStore.modules[parentIndex].childFlowModules] as state}
 			{#if mod.type == 'forloopflow' && state != undefined}
 				<FlowModule
 					args={$previewArgs}
-					indexes={$selectedId}
 					bind:flowModule={mod.modules[childIndex]}
 					bind:flowModuleState={state[childIndex]}
 					on:delete={() => {
@@ -41,10 +40,10 @@
 {:else}
 	<FlowModule
 		args={$previewArgs}
-		indexes={$selectedId}
 		bind:flowModule={$flowStore.value.modules[parentIndex]}
 		bind:flowModuleState={$flowStateStore.modules[parentIndex]}
 		on:delete={() => {
+			select('settings')
 			$flowStateStore.modules.splice(parentIndex, 1)
 			$flowStateStore = $flowStateStore
 			$flowStore.value.modules.splice(parentIndex, 1)

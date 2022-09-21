@@ -14,7 +14,6 @@
 	import SchemaForm from './SchemaForm.svelte'
 
 	import FlowStatusViewer from '../components/FlowStatusViewer.svelte'
-	import { logout } from '$lib/logout'
 	export let previewMode: 'upTo' | 'whole'
 
 	let jobId: string | undefined = undefined
