@@ -1,12 +1,12 @@
 <script lang="ts">
-	import { JobService } from '$lib/gen'
+	import { JobService, type Flow } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 
 	import { faClose, faPlay } from '@fortawesome/free-solid-svg-icons'
 	import { Button } from 'flowbite-svelte'
 	import { createEventDispatcher, getContext, onDestroy } from 'svelte'
 	import Icon from 'svelte-awesome'
-	import { flowStateStore, flowStateToFlow, type FlowModuleSchema } from './flows/flowState'
+	import { flowStateStore } from './flows/flowState'
 	import { mapJobResultsToFlowState } from './flows/flowStateUtils'
 	import { flowStore } from './flows/flowStore'
 	import type { FlowEditorContext } from './flows/types'
@@ -14,6 +14,7 @@
 	import SchemaForm from './SchemaForm.svelte'
 
 	import FlowStatusViewer from '../components/FlowStatusViewer.svelte'
+	import { logout } from '$lib/logout'
 	export let previewMode: 'upTo' | 'whole'
 
 	let jobId: string | undefined = undefined
@@ -22,43 +23,25 @@
 
 	const { selectedId, previewArgs } = getContext<FlowEditorContext>('FlowEditorContext')
 
-	function extractFlow(previewMode: 'upTo' | 'whole') {
+	function extractFlow(previewMode: 'upTo' | 'whole'): Flow {
 		if (previewMode === 'whole') {
-			return flowStateToFlow($flowStateStore, $flowStore)
+			return $flowStore
 		} else {
 			const [parentIndex, childIndex] = $selectedId.split('-')
 
-			if (childIndex === undefined) {
-				const modules = $flowStateStore.modules.slice(0, Number(parentIndex) + 1)
-				const flowState = {
-					modules: modules,
-					failureModule: $flowStateStore.failureModule
+			const modules = $flowStore.value.modules.slice(0, Number(parentIndex) + 1)
+			const flow = JSON.parse(JSON.stringify($flowStore))
+			flow.value.modules = modules
+
+			if (childIndex != undefined) {
+				const lastModule = modules[modules.length - 1].value
+				if (lastModule.type === 'forloopflow') {
+					lastModule.modules = lastModule.modules.slice(0, Number(childIndex) + 1)
+				} else {
+					throw Error('Excepted forloopflow module')
 				}
-				return flowStateToFlow(flowState, $flowStore)
-			} else {
-				const modules = $flowStateStore.modules.slice(0, Number(parentIndex) + 1)
-				const flowModuleSchemas: FlowModuleSchema[] = JSON.parse(JSON.stringify(modules))
-
-				const flowModuleSchema = flowModuleSchemas[modules.length - 1]
-
-				flowModuleSchemas[modules.length - 1] = {
-					...flowModuleSchemas[modules.length - 1],
-					childFlowModules: flowModuleSchema.childFlowModules!.slice(0, Number(childIndex) + 1)
-				}
-
-				if (flowModuleSchema.flowModule.value.type === 'forloopflow') {
-					flowModuleSchema.flowModule.value.modules =
-						flowModuleSchema.flowModule.value.modules.slice(0, Number(childIndex) + 1)
-
-					flowModuleSchemas[modules.length - 1].flowModule = flowModuleSchema.flowModule
-				}
-
-				const flowState = {
-					modules: flowModuleSchemas,
-					failureModule: $flowStateStore.failureModule
-				}
-				return flowStateToFlow(flowState, $flowStore)
 			}
+			return flow
 		}
 	}
 
@@ -143,13 +126,10 @@
 				on:jobsLoaded={(e) => {
 					intervalState = 'done'
 					const [parentIndex] = $selectedId.split('-')
-
 					const upToIndex =
 						previewMode === 'upTo' ? Number(parentIndex) + 1 : $flowStateStore.modules.length
-
 					mapJobResultsToFlowState(e.detail, 'upto', upToIndex, undefined)
 				}}
-				root={true}
 			/>
 		{/if}
 	</div>

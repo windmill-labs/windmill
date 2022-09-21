@@ -13,7 +13,6 @@
 	const dispatch = createEventDispatcher()
 
 	export let jobId: string
-	export let root: boolean = false
 	export let forloopJobIds: string[] | undefined = undefined
 	export let jobResult: JobResult = {
 		job: undefined,
@@ -35,10 +34,13 @@
 
 		if (job?.type !== 'CompletedJob') {
 			timeout = setTimeout(() => loadJobInProgress(), 500)
-		} else if (root) {
-			dispatch('jobsLoaded', jobResult)
 		}
 	}
+
+	$: jobResult &&
+		jobResult.job?.type === 'CompletedJob' &&
+		jobResult.job.flow_status?.modules.length == jobResult.innerJobs?.length &&
+		dispatch('jobsLoaded', jobResult)
 
 	function updateJobId() {
 		if (jobId !== jobResult.job?.id) {
@@ -112,6 +114,9 @@
 								jobId={mod.job}
 								bind:jobResult={jobResult.innerJobs[i]}
 								forloopJobIds={mod.forloop_jobs}
+								on:jobsLoaded={(e) => {
+									jobResult = jobResult
+								}}
 							/>
 						{:else}
 							<span>{mod.type}</span>

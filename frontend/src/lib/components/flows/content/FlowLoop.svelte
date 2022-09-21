@@ -15,7 +15,7 @@
 <FlowCard title="For loop">
 	<div>
 		<div class="p-6 flex flex-col">
-			{#if $flowStateStore.modules[index].flowModule.value.type === 'forloopflow'}
+			{#if $flowStateStore.modules[index]?.flowModule?.value?.type === 'forloopflow'}
 				<span class="mb-2 text-sm font-bold">Iterator expression</span>
 				<SimpleEditor
 					lang="javascript"

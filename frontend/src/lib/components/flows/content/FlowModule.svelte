@@ -22,10 +22,10 @@
 	import { flowStore } from '$lib/components/flows/flowStore'
 	import SchemaForm from '$lib/components/SchemaForm.svelte'
 
-	import { RawScript, type FlowModule } from '$lib/gen'
+	import { RawScript, type Flow, type FlowModule } from '$lib/gen'
 	import FlowCard from '../common/FlowCard.svelte'
 	import FlowModuleHeader from './FlowModuleHeader.svelte'
-	import { flowStateStore, type FlowModuleSchema } from '../flowState'
+	import { flowStateStore, type FlowModuleState } from '../flowState'
 	import { scriptLangToEditorLang } from '$lib/utils'
 	import PropPickerWrapper from '../propPicker/PropPickerWrapper.svelte'
 	import { getContext } from 'svelte'
@@ -35,8 +35,7 @@
 	export let indexes: string
 	export let flowModule: FlowModule
 	export let args: Record<string, any> = {}
-	export let schema: Schema
-	export let childFlowModules: FlowModuleSchema[] | undefined = undefined
+	export let flowModuleState: FlowModuleState
 
 	const [parentIndex] = indexes.split('-').map(Number)
 
@@ -51,23 +50,23 @@
 		args
 	)
 
-	async function apply<T>(fn: (arg: T) => Promise<FlowModuleSchema>, arg: T) {
-		const flowModuleSchema = await fn(arg)
+	async function apply<T>(fn: (arg: T) => Promise<[FlowModule, FlowModuleState]>, arg: T) {
+		const [module, moduleState] = await fn(arg)
 
-		flowModule = flowModuleSchema.flowModule
-		schema = flowModuleSchema.schema
+		flowModule = module
+		flowModuleState = moduleState
+	}
 
-		if (flowModuleSchema.childFlowModules) {
-			childFlowModules = flowModuleSchema.childFlowModules
-		}
+	async function applyState<T>(fn: (arg: T) => Promise<FlowModuleState>, arg: T) {
+		flowModuleState = await fn(arg)
 	}
 
 	async function reload(flowModule: FlowModule) {
-		apply(loadFlowModuleSchema, flowModule)
+		applyState(loadFlowModuleSchema, flowModule)
 	}
 
 	async function applyCreateLoop() {
-		await apply(createLoop, null)
+		await apply(createLoop, parentIndex)
 	}
 
 	const { selectedId, select } = getContext<FlowEditorContext>('FlowEditorContext')
@@ -85,7 +84,7 @@
 						apply(createScriptFromInlineScript, {
 							flowModule: flowModule,
 							suffix: indexes,
-							schema
+							schema: flowModuleState.schema
 						})
 					}}
 				/>
@@ -150,7 +149,7 @@
 										<PropPickerWrapper bind:pickableProperties={stepPropPicker.pickableProperties}>
 											<!-- <pre class="text-xs">{JSON.stringify($flowStateStore, null, 4)}</pre> -->
 											<SchemaForm
-												{schema}
+												schema={flowModuleState.schema}
 												inputTransform={true}
 												importPath={indexes}
 												bind:args={flowModule.input_transforms}
@@ -160,7 +159,7 @@
 									</TabContent>
 									<TabContent value="test" class="flex flex-col flex-1 h-full">
 										<div class="p-4 overflow-y-auto">
-											<FlowPreview flow={$flowStore} {indexes} {schema} />
+											<FlowPreview {indexes} schema={flowModuleState.schema} />
 										</div>
 									</TabContent>
 
