@@ -1,4 +1,6 @@
 <script lang="ts">
+	import Button from '$lib/components/common/button/Button.svelte'
+
 	import Drawer from '$lib/components/common/drawer/Drawer.svelte'
 	import FlowPreviewContent from '$lib/components/FlowPreviewContent.svelte'
 	import { faPlay } from '@fortawesome/free-solid-svg-icons'
@@ -20,31 +22,31 @@
 </script>
 
 <span class="space-x-2 flex h-8">
-	<button
-		type="button"
+	<Button
+		size="sm"
 		disabled={upToDisabled}
+		color="light"
+		variant="border"
 		on:click={() => {
 			previewMode = 'upTo'
 
 			previewOpen = !previewOpen
 		}}
-		class="flex items-center text-gray-900 bg-white border border-gray-300 focus:outline-none hover:bg-gray-100 focus:ring-4 focus:ring-gray-200 font-medium rounded-lg text-sm px-4 py-2"
 	>
 		Test up to this step
 		<Icon data={faPlay} class="ml-2" scale={0.8} />
-	</button>
+	</Button>
 
-	<button
-		type="button"
+	<Button
 		on:click={() => {
 			previewMode = 'whole'
 			previewOpen = !previewOpen
 		}}
-		class="flex items-center  text-white bg-blue-500 hover:bg-blue-700 focus:ring-4 focus:ring-blue-300 font-medium rounded-lg text-sm px-4 py-1 focus:outline-none "
+		size="sm"
 	>
 		Test flow
 		<Icon data={faPlay} class="ml-2" scale={0.8} />
-	</button>
+	</Button>
 </span>
 
 <Drawer bind:open={previewOpen} size="800px">

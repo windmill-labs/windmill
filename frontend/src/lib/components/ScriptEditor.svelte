@@ -22,6 +22,7 @@
 	import { HSplitPane, VSplitPane } from 'svelte-split-pane'
 	import { faGithub } from '@fortawesome/free-brands-svg-icons'
 	import EditorBar from './EditorBar.svelte'
+	import Button from './common/button/Button.svelte'
 
 	// Exported
 	export let schema: Schema = emptySchema()
@@ -196,30 +197,33 @@
 
 		<div class="flex divide-x">
 			<div>
-				<a
+				<Button
 					target="_blank"
 					href="https://github.com/windmill-labs/windmill-gh-action-deploy"
-					class="text-gray-800 mx-1 bg-white rounded-md items-center flex border-gray-300  hover:bg-gray-100 font-medium text-xs p-2"
+					color="light"
+					size="xs"
+					btnClasses="mr-1"
+					startIcon={{
+						icon: faGithub
+					}}
 				>
-					<Icon data={faGithub} class="h-4 w-4 mr-2" />
 					Sync from Github
-				</a>
+				</Button>
 			</div>
 
 			<div>
-				<button
-					type="button"
-					on:click|stopPropagation={() => runPreview()}
+				<Button
+					on:click={() => runPreview()}
 					disabled={previewIsLoading}
-					class="text-white ml-1 w-28 bg-blue-500 hover:bg-blue-700 rounded-md flex justify-center items-center  focus:outline-none font-medium text-xs p-2"
+					btnClasses="w-32 ml-1"
+					size="xs"
+					startIcon={{
+						icon: previewIsLoading ? faRotateRight : faPlay,
+						classes: classNames(previewIsLoading ? 'animate-spin' : 'animate-none')
+					}}
 				>
-					<Icon
-						data={previewIsLoading ? faRotateRight : faPlay}
-						class={classNames('h-4 w-4 mr-2', previewIsLoading ? 'animate-spin' : 'animate-none')}
-					/>
-
 					{previewIsLoading ? 'Running' : 'Run preview'}
-				</button>
+				</Button>
 			</div>
 		</div>
 	</div>
