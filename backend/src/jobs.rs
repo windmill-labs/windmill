@@ -1575,30 +1575,43 @@ pub async fn pull(db: &DB) -> Result<Option<QueuedJob>, crate::Error> {
      *   suspend_until is non-null
      *   and suspend = 0 when the resume messages are received
      *   or suspend_until <= now() if it has timed out */
-    let job: Option<QueuedJob> = sqlx::query_as::<_, QueuedJob>(
-        "UPDATE queue
-            SET running = true
-              , started_at = coalesce(started_at, now())
-              , last_ping = now()
-              , suspend_until = null
-            WHERE id IN (
-                SELECT id
-                FROM queue
-                WHERE (    running = false
-                       AND scheduled_for <= now())
-                   OR (suspend_until IS NOT NULL
-                       AND (   suspend <= 0
-                            OR suspend_until <= now()))
-                ORDER BY scheduled_for
-                FOR UPDATE SKIP LOCKED
-                LIMIT 1
-            )
-            RETURNING *",
+    let mut tx = db.begin().await?;
+    let id: Uuid = match sqlx::query_scalar(
+        r#"
+        SELECT id
+        FROM queue
+        WHERE (    running = false
+               AND scheduled_for <= now())
+           OR (suspend_until IS NOT NULL
+               AND (   suspend <= 0
+                    OR suspend_until <= now()))
+        ORDER BY scheduled_for
+        FOR UPDATE SKIP LOCKED
+        LIMIT 1
+        "#,
     )
-    .fetch_optional(db)
+    .fetch_optional(&mut tx)
+    .await?
+    {
+        None => return Ok(None),
+        Some(id) => id,
+    };
+    let job: QueuedJob = sqlx::query_as(
+        r#"
+        UPDATE queue
+           SET running = true
+             , started_at = coalesce(started_at, now())
+             , last_ping = now()
+             , suspend_until = null
+           WHERE id = $1
+           RETURNING *
+        "#,
+    )
+    .bind(id)
+    .fetch_one(&mut tx)
     .await?;
-
-    Ok(job)
+    tx.commit().await?;
+    Ok(Some(job))
 }
 
 #[instrument(level = "trace", skip_all)]
