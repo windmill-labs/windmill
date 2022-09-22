@@ -60,7 +60,7 @@
 		}}
 	>
 		<Icon data={faTrashAlt} class="mr-2" />
-		{$selectedId.includes('failure') ? 'Delete failure module' : 'Remove step'}
+		{$selectedId.includes('failure') ? 'Delete error handler' : 'Remove step'}
 	</Button>
 </div>
 
