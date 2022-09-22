@@ -47,10 +47,8 @@
 	}
 </script>
 
-{#if kind == 'read' || kind == 'write'}
-	<Badge icon={{ data: faPeopleGroup }} color="blue">
-		{#if kind === 'read'}
-			read
-		{/if}
+{#if kind === 'read' || kind === 'write'}
+	<Badge icon={{ data: faPeopleGroup }} capitalize color="blue">
+		{kind}
 	</Badge>
 {/if}
