@@ -120,6 +120,7 @@ pub async fn run_server(
         .build()
         .map_err(to_anyhow)?;
     let middleware_stack = ServiceBuilder::new()
+        .concurrency_limit(32)
         .layer(
             TraceLayer::new_for_http()
                 .on_response(MyOnResponse {})
