@@ -1,9 +1,8 @@
 <script lang="ts">
 	import { userStore } from '$lib/stores'
 	import { faPeopleGroup } from '@fortawesome/free-solid-svg-icons'
-	import Icon from 'svelte-awesome'
+	import Badge from './common/badge/Badge.svelte'
 
-	import Badge from './Badge.svelte'
 	export let extraPerms: Record<string, boolean> = {}
 	export let canWrite: boolean
 
@@ -49,14 +48,9 @@
 </script>
 
 {#if kind == 'read' || kind == 'write'}
-	<span class="mr-1 align-center">
-		{#if kind == 'read'}
-			<Badge tooltip={reason}>
-				<Icon data={faPeopleGroup} scale={0.7} />
-				read</Badge
-			>
-		{:else if kind == 'write'}
-			<Badge tooltip={reason}><Icon data={faPeopleGroup} scale={0.7} /></Badge>
+	<Badge icon={faPeopleGroup} color="blue">
+		{#if kind === 'read'}
+			read
 		{/if}
-	</span>
+	</Badge>
 {/if}
