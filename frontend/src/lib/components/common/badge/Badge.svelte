@@ -1,9 +1,8 @@
 <script lang="ts">
 	import { classNames } from '$lib/utils'
-	import type { IconDefinition } from '@fortawesome/free-solid-svg-icons'
 	import { CloseButton } from 'flowbite-svelte'
 	import Icon from 'svelte-awesome'
-	import { type BadgeColor, ColorModifier } from './model'
+	import { type BadgeColor, type BadgeIconProps, ColorModifier } from './model'
 
 	export let color: BadgeColor = 'gray'
 	export let large = false
@@ -12,10 +11,13 @@
 	export let index = false
 	export let dismissable = false
 	export let baseClass = 'text-center -mb-0.5'
-	export let icon: IconDefinition | undefined = undefined
-	export let iconPosition: 'left' | 'right' = 'left'
-	export let iconScale = 0.7
+	export let icon: BadgeIconProps | undefined = undefined
 
+	let defaulIconProps: BadgeIconProps = {
+		data: undefined,
+		position: 'left',
+		scale: 0.7
+	}
 	let hidden = false
 	const colors: Record<BadgeColor, string> = {
 		gray: 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300',
@@ -59,6 +61,7 @@
 			: '',
 		$$props.class
 	)
+	$: iconProps = icon ? { ...defaulIconProps, ...icon } : { data: undefined }
 	const handleHide = () => (hidden = !hidden)
 </script>
 
@@ -70,12 +73,12 @@
 		class={badgeClass}
 		class:hidden
 	>
-		{#if icon && iconPosition === 'left'}
-			<Icon data={icon} scale={iconScale} />
+		{#if iconProps.data && iconProps.position === 'left'}
+			<Icon {...iconProps} />
 		{/if}
 		<slot />
-		{#if icon && iconPosition === 'right'}
-			<Icon data={icon} scale={iconScale} />
+		{#if iconProps.data && iconProps.position === 'right'}
+			<Icon {...iconProps} />
 		{/if}
 		{#if dismissable}
 			<CloseButton

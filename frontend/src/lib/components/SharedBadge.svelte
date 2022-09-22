@@ -48,7 +48,7 @@
 </script>
 
 {#if kind == 'read' || kind == 'write'}
-	<Badge icon={faPeopleGroup} color="blue">
+	<Badge icon={{ data: faPeopleGroup }} color="blue">
 		{#if kind === 'read'}
 			read
 		{/if}
