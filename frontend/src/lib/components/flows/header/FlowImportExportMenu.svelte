@@ -49,22 +49,6 @@
 			<Icon data={faFileExport} scale={0.6} class="inline mr-2" />
 			Export to a JSON OpenFlow
 		</MenuItem>
-		<MenuItem
-			on:click={() => {
-				const url = new URL('https://hub.windmill.dev/flows/add')
-				const openFlow = {
-					value: $flowStore.value,
-					summary: $flowStore.summary,
-					description: $flowStore.description,
-					schema: $flowStore.schema
-				}
-				url.searchParams.append('flow', btoa(JSON.stringify(openFlow)))
-				window.open(url, '_blank')?.focus()
-			}}
-		>
-			<Icon data={faGlobe} scale={0.6} class="inline mr-2" />
-			Publish to Hub
-		</MenuItem>
 	</div>
 </Menu>
 

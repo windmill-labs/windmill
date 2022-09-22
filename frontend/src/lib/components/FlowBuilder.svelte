@@ -10,8 +10,10 @@
 		sendUserToast,
 		setQueryWithoutLoad
 	} from '$lib/utils'
+	import { faGlobe } from '@fortawesome/free-solid-svg-icons'
 	import { Breadcrumb, BreadcrumbItem } from 'flowbite-svelte'
 	import { onDestroy, onMount, setContext } from 'svelte'
+	import Icon from 'svelte-awesome'
 	import { writable } from 'svelte/store'
 	import CenteredPage from './CenteredPage.svelte'
 	import { OFFSET } from './CronInput.svelte'
@@ -202,6 +204,24 @@
 					Save
 				</button>
 				<FlowImportExportMenu />
+
+				<button
+					class="text-gray-900 bg-white border border-gray-300 focus:outline-none hover:bg-gray-100 focus:ring-4 focus:ring-gray-200 font-medium rounded-lg text-sm px-5 py-2.5 mr-2 mb-2 dark:bg-gray-800 dark:text-white dark:border-gray-600 dark:hover:bg-gray-700 dark:hover:border-gray-600 dark:focus:ring-gray-700"
+					on:click={() => {
+						const url = new URL('https://hub.windmill.dev/flows/add')
+						const openFlow = {
+							value: $flowStore.value,
+							summary: $flowStore.summary,
+							description: $flowStore.description,
+							schema: $flowStore.schema
+						}
+						url.searchParams.append('flow', btoa(JSON.stringify(openFlow)))
+						window.open(url, '_blank')?.focus()
+					}}
+				>
+					<Icon data={faGlobe} scale={0.8} class="inline mr-2" />
+					Publish to Hub
+				</button>
 			{:else}
 				<button class="default-button px-6 self-end" on:click={saveFlow}>Save</button>
 				<button
