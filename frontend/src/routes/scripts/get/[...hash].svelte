@@ -335,12 +335,14 @@
 												<li class="flex justify-between items-center mt-2">
 													<a
 														href={'//' + url}
-														class="whitespace-nowrap text-clip overflow-hidden mr-1"
+														class="whitespace-nowrap text-ellipsis overflow-hidden mr-1"
 													>
 														{url}
 													</a>
 													<div class="flex">
-														<Badge color="dark-gray">{type}</Badge>
+														<Badge color="dark-gray" capitalize>
+															{type}
+														</Badge>
 														<button
 															on:click|preventDefault={() => copyToClipboard(url)}
 															class="flex items-center bg-blue-600 text-white rounded-md px-2 ml-2"

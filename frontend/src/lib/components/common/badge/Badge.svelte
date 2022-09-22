@@ -11,6 +11,7 @@
 	export let index = false
 	export let dismissable = false
 	export let baseClass = 'text-center -mb-0.5'
+	export let capitalize = false
 	export let icon: BadgeIconProps | undefined = undefined
 
 	let defaulIconProps: BadgeIconProps = {
@@ -54,10 +55,10 @@
 		colors[color],
 		href &&
 			(color.startsWith(ColorModifier) ? hovers[color.replace(ColorModifier, '')] : hovers[color]),
-		rounded ? 'rounded-full p-1' : 'rounded px-2.5 py-0.5',
+		rounded ? 'rounded-full px-2 py-1' : 'rounded px-2.5 py-0.5',
 		index
-			? 'absolute font-bold border-2 border-white dark:border-gray-900' +
-					(large ? 'w-7 h-7 -top-3 -right-3' : 'w-6 h-6 -top-2 -right-2')
+			? 'absolute flex justify-center items-center font-bold overflow-hidden border-2 border-white dark:border-gray-900 ' +
+					(large ? 'w-7 h-7 -top-3.5 -right-3.5' : 'w-6 h-6 -top-3 -right-3')
 			: '',
 		$$props.class
 	)
@@ -72,6 +73,7 @@
 		{...$$restProps}
 		class={badgeClass}
 		class:hidden
+		class:capitalize
 	>
 		{#if iconProps.data && iconProps.position === 'left'}
 			<Icon {...iconProps} />
