@@ -11,3 +11,4 @@ export { default as ToggleButton } from './toggleButton/ToggleButton.svelte'
 export { default as ToggleButtonGroup } from './toggleButton/ToggleButtonGroup.svelte'
 
 export * from './badge/model'
+export * from './button/model'
