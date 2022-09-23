@@ -571,3 +571,16 @@ export function scriptLangToEditorLang(lang: Script.language): 'typescript' | 'p
 		return lang
 	}
 }
+
+export async function copyToClipboard(value: string, sendToast = true): Promise<boolean> {
+	let success = false
+	if (navigator?.clipboard) {
+		success = await navigator.clipboard
+			.writeText(value)
+			.then(() => true)
+			.catch(() => false)
+	}
+	sendToast &&
+		sendUserToast(success ? 'Copied to clipboard!' : "Couldn't copy to clipboard", !success)
+	return success
+}

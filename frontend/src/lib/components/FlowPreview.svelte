@@ -3,6 +3,7 @@
 	import type { Flow } from '$lib/gen'
 	import { sendUserToast, truncateRev } from '$lib/utils'
 	import { getContext } from 'svelte'
+	import { HSplitPane } from 'svelte-split-pane'
 
 	import { mapJobResultsToFlowState } from './flows/flowStateUtils'
 	import { flowStore } from './flows/flowStore'
@@ -59,20 +60,29 @@
 	}
 </script>
 
-<RunForm
-	runnable={extractStep($flowStore)}
-	runAction={(_, args) => runPreview(args)}
-	schedulable={false}
-	buttonText="Test just this step"
-	detailed={false}
-	args={stepArgs}
-/>
-
-{#if jobId}
-	<div class="w-full flex justify-center">
-		<FlowStatusViewer
-			{jobId}
-			on:jobsLoaded={(e) => mapJobResultsToFlowState(e.detail, 'justthis', i, j)}
-		/>
-	</div>
-{/if}
+<HSplitPane leftPaneSize="50%" rightPaneSize="50%" minLeftPaneSize="20%" minRightPaneSize="20%">
+	<left slot="left" class="relative">
+		<div class="overflow-auto h-full p-4">
+			<RunForm
+				runnable={extractStep($flowStore)}
+				runAction={(_, args) => runPreview(args)}
+				schedulable={false}
+				buttonText="Test just this step"
+				detailed={false}
+				args={stepArgs}
+			/>
+		</div>
+	</left>
+	<right slot="right">
+		<div class="overflow-auto h-full p-4">
+			{#if jobId}
+				<FlowStatusViewer
+					{jobId}
+					on:jobsLoaded={(e) => mapJobResultsToFlowState(e.detail, 'justthis', i, j)}
+				/>
+			{:else}
+				<span class="text-sm">No results yet</span>
+			{/if}
+		</div>
+	</right>
+</HSplitPane>
