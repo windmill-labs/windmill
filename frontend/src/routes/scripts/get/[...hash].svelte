@@ -43,10 +43,7 @@
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
 	import { onDestroy } from 'svelte'
 	import HighlightCode from '$lib/components/HighlightCode.svelte'
-	import Badge from '$lib/components/common/badge/Badge.svelte'
-	import Tabs from '$lib/components/common/tabs/Tabs.svelte'
-	import Tab from '$lib/components/common/tabs/Tab.svelte'
-	import TabContent from '$lib/components/common/tabs/TabContent.svelte'
+	import { Badge, Tabs, Tab, TabContent, Button } from '$lib/components/common'
 
 	let script: Script | undefined
 	let topHash: string | undefined
@@ -172,60 +169,60 @@
 
 		{#if script}
 			<div class="flex items-start flex-wrap gap-1">
-				<a
-					class="inline-flex items-center default-button bg-transparent hover:bg-blue-500 text-blue-700 font-normal hover:text-white py-0 px-1 border-blue-500 hover:border-transparent rounded"
-					href="/scripts/run/{script.hash}"
+				<Button
+					href={`/scripts/run/${script.hash}`}
+					variant="border"
+					color="blue"
+					size="xs"
+					startIcon={{ icon: faPlay }}
 				>
-					<div class="inline-flex items-center justify-center">
-						<Icon class="text-blue-500" data={faPlay} scale={0.5} />
-						<span class="pl-1">Run</span>
-					</div>
-				</a>
-				<a
-					class="inline-flex items-center default-button bg-transparent hover:bg-blue-500 text-blue-700 font-normal hover:text-white py-0 px-1 border-blue-500 hover:border-transparent rounded"
-					href="/scripts/edit/{script.hash}?step=2"
-					class:disabled={!can_write}
+					Run
+				</Button>
+				<Button
+					href={`/scripts/edit/${script.hash}?step=2`}
+					variant="border"
+					color="blue"
+					size="xs"
+					startIcon={{ icon: faEdit }}
+					disabled={!can_write}
 				>
-					<div class="inline-flex items-center justify-center">
-						<Icon class="text-blue-500" data={faEdit} scale={0.5} />
-						<span class="pl-1">Edit</span>
-					</div>
-				</a>
+					Edit
+				</Button>
 				{#if !topHash}
-					<a
-						class="inline-flex items-center default-button bg-transparent hover:bg-blue-500 text-blue-700 font-normal hover:text-white py-0 px-1 border-blue-500 hover:border-transparent rounded"
-						href="/scripts/add?template={script.path}"
+					<Button
+						href={`/scripts/add?template=${script.path}`}
+						variant="border"
+						color="blue"
+						size="xs"
+						startIcon={{ icon: faCodeFork }}
 					>
-						<div class="inline-flex items-center justify-center">
-							<Icon class="text-blue-500" data={faCodeFork} scale={0.5} />
-							<span class="pl-1">Use as template/Fork</span>
-						</div>
-					</a>
+						Use as template/Fork
+					</Button>
 				{/if}
-				<a
-					class="inline-flex items-center default-button bg-transparent hover:bg-blue-500 text-blue-700 font-normal hover:text-white py-0 px-1 border-blue-500 hover:border-transparent rounded"
-					href="/runs/{script.path}"
+				<Button
+					href={`/runs/${script.path}`}
+					variant="border"
+					color="blue"
+					size="xs"
+					startIcon={{ icon: faList }}
 				>
-					<div class="inline-flex items-center justify-center">
-						<Icon class="text-blue-500" data={faList} scale={0.5} />
-						<span class="pl-1">View runs</span>
-					</div>
-				</a>
-				<a
+					View runs
+				</Button>
+				<Button
 					target="_blank"
-					class="inline-flex items-center default-button bg-transparent hover:bg-blue-500 text-blue-700 font-normal hover:text-white py-0 px-1 border-blue-500 hover:border-transparent rounded"
 					href={scriptToHubUrl(
 						script.content,
 						script.summary,
 						script.description ?? '',
 						script.kind
 					).toString()}
+					variant="border"
+					color="blue"
+					size="xs"
+					startIcon={{ icon: faGlobe }}
 				>
-					<div class="inline-flex items-center justify-center">
-						<Icon class="text-blue-500" data={faGlobe} scale={0.5} />
-						<span class="pl-1">Publish to Hub</span>
-					</div>
-				</a>
+					Publish to Hub
+				</Button>
 				<Dropdown
 					dropdownItems={[
 						{
@@ -343,13 +340,15 @@
 														<Badge color="dark-gray" capitalize>
 															{type}
 														</Badge>
-														<button
-															on:click|preventDefault={() => copyToClipboard(url)}
-															class="flex items-center bg-blue-600 text-white rounded-md px-2 ml-2"
+														<Button
+															on:click={() => copyToClipboard(url)}
+															color="blue"
+															size="sm"
+															startIcon={{ icon: faClipboard }}
+															btnClasses="ml-2"
 														>
-															<Icon data={faClipboard} />
-															<span class="ml-1">Copy</span>
-														</button>
+															Copy
+														</Button>
 													</div>
 												</li>
 											{/each}
