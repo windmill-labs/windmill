@@ -3,16 +3,13 @@
 	import { getContext } from 'svelte'
 	import FlowModuleSchemaItem from './FlowModuleSchemaItem.svelte'
 	import Icon from 'svelte-awesome'
-	import { faBug, faPen, faPlus, faSliders } from '@fortawesome/free-solid-svg-icons'
-	import {
-		emptyFlowModuleSchema,
-		NEVER_TESTED_THIS_FAR
-	} from '$lib/components/flows/flowStateUtils'
-	import { classNames, emptyModule, emptySchema } from '$lib/utils'
-	import { flowStateStore, type FlowModuleState } from '../flowState'
+	import { faPen, faPlus, faSliders } from '@fortawesome/free-solid-svg-icons'
+	import { emptyFlowModuleSchema } from '$lib/components/flows/flowStateUtils'
+	import { classNames, emptyModule } from '$lib/utils'
+	import type { FlowModuleState } from '../flowState'
 	import type { FlowModule } from '$lib/gen'
-	import Toggle from '$lib/components/Toggle.svelte'
-	import { flowStore } from '../flowStore'
+
+	import FlowErrorHandlerItem from './FlowErrorHandlerItem.svelte'
 
 	export let prefix: string | undefined = undefined
 	export let modules: FlowModule[]
@@ -146,41 +143,7 @@
 		</button>
 	</ul>
 	{#if prefix === undefined}
-		<div
-			on:click={() => {
-				if ($flowStore.value.failure_module) {
-					select('failure')
-				}
-			}}
-			class={classNames(
-				'border rounded-md p-2 bg-white text-sm cursor-pointer mt-4 flex flex-between  items-center',
-				$selectedId.includes('failure')
-					? 'outline outline-offset-1 outline-2  outline-slate-900'
-					: ''
-			)}
-		>
-			<div class="w-full">
-				<Icon data={faBug} class="mr-2" />
-				<span class="font-bold">Error handler</span>
-			</div>
-			<Toggle
-				checked={Boolean($flowStore.value.failure_module)}
-				on:change={() => {
-					if ($flowStore.value.failure_module) {
-						$flowStore.value.failure_module = undefined
-						select('settings')
-					} else {
-						$flowStateStore.failureModule = {
-							schema: emptySchema(),
-							previewResult: NEVER_TESTED_THIS_FAR,
-							childFlowModules: []
-						}
-						$flowStore.value.failure_module = emptyModule()
-						select('failure')
-					}
-				}}
-			/>
-		</div>
+		<FlowErrorHandlerItem />
 	{/if}
 </div>
 
