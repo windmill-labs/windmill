@@ -23,6 +23,8 @@
 	let forloop_selected = ''
 	let timeout: NodeJS.Timeout
 
+	$: innerModules = jobResult.job?.flow_status?.modules ?? []
+
 	async function loadJobInProgress() {
 		const job = await JobService.getJob({
 			workspace: $workspaceStore ?? '',
@@ -57,7 +59,9 @@
 
 {#if jobResult.job}
 	<div class="flow-root w-full space-y-4">
-		<h3 class="text-md leading-6 font-bold text-gray-900 border-b pb-2">Flow result</h3>
+		{#if innerModules.length > 0}
+			<h3 class="text-md leading-6 font-bold text-gray-900 border-b pb-2">Flow result</h3>
+		{/if}
 		<FlowPreviewStatus job={jobResult.job} />
 		{#if `result` in jobResult.job}
 			<FlowJobResult job={jobResult.job} />
@@ -95,17 +99,22 @@
 					<svelte:self jobId={loopJobId} bind:jobResult={jobResult.loopJobs[j]} />
 				</div>
 			{/each}
-		{:else if Array.isArray(jobResult.innerJobs)}
+		{:else if innerModules.length > 0}
 			<ul class="w-full">
 				<h3 class="text-md leading-6 font-bold text-gray-900 border-b mb-4 py-2">
-					Detailed results
+					Step-by-step results
 				</h3>
 
-				{#each jobResult.job?.flow_status?.modules ?? [] as mod, i}
-					<p class="text-gray-500 mb-6 w-full ">
+				{#each innerModules as mod, i}
+					<p class="text-gray-500 mb-2 w-full ">
 						Step
 						<span class="font-medium text-gray-900"> {i + 1} </span> out of
 						<span class="font-medium text-gray-900">{jobResult.job?.raw_flow?.modules.length}</span>
+						{#if jobResult.job.raw_flow?.modules[i]?.summary}
+							: <span class="font-medium text-gray-900"
+								>{jobResult.job.raw_flow?.modules[i]?.summary ?? ''}</span
+							>
+						{/if}
 					</p>
 
 					<li class="w-full border p-6 space-y-2">
@@ -127,5 +136,5 @@
 		{/if}
 	</div>
 {:else}
-	Job starting...
+	Job loading...
 {/if}

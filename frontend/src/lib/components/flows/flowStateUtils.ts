@@ -288,7 +288,7 @@ function extractPreviewResults(flowModuleSchemas: FlowModuleState[]) {
 
 export type JobResult = {
 	job?: Job
-	innerJobs?: JobResult[]
+	innerJobs: JobResult[]
 	loopJobs?: JobResult[]
 }
 
@@ -315,7 +315,7 @@ export function mapJobResultsToFlowState(
 			return flowState
 		})
 	} else {
-		if (!Array.isArray(jobs.innerJobs) || jobs.innerJobs.length === 0) {
+		if (jobs.innerJobs.length === 0) {
 			return
 		}
 

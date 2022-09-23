@@ -14,10 +14,12 @@
 	<HSplitPane leftPaneSize="25%" rightPaneSize="75%" minLeftPaneSize="20%" minRightPaneSize="20%">
 		<left slot="left" class="h-full ">
 			<div class="h-full overflow-auto p-4 bg-gray-50">
-				<FlowModuleSchemaMap
-					bind:modules={$flowStore.value.modules}
-					bind:moduleStates={$flowStateStore.modules}
-				/>
+				{#if $flowStore.value.modules && $flowStateStore.modules}
+					<FlowModuleSchemaMap
+						bind:modules={$flowStore.value.modules}
+						bind:moduleStates={$flowStateStore.modules}
+					/>
+				{/if}
 			</div>
 		</left>
 		<right slot="right" class="h-full">

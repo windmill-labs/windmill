@@ -94,11 +94,13 @@
 						<div class="line mr-2 w-8" />
 
 						<div class="w-full mb-2">
-							<svelte:self
-								prefix={String(index)}
-								moduleStates={moduleStates[index].childFlowModules}
-								modules={mod.value.modules}
-							/>
+							{#if moduleStates[index]?.childFlowModules}
+								<svelte:self
+									prefix={String(index)}
+									moduleStates={moduleStates[index].childFlowModules}
+									modules={mod.value.modules}
+								/>
+							{/if}
 						</div>
 					</div>
 
@@ -146,10 +148,3 @@
 		<FlowErrorHandlerItem />
 	{/if}
 </div>
-
-<style>
-	.line {
-		background: repeating-linear-gradient(to bottom, transparent 0 4px, #bbb 4px 8px) 50%/1px 100%
-			no-repeat;
-	}
-</style>
