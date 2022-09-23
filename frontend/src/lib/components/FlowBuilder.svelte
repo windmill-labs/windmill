@@ -10,10 +10,13 @@
 		sendUserToast,
 		setQueryWithoutLoad
 	} from '$lib/utils'
+	import { faGlobe } from '@fortawesome/free-solid-svg-icons'
 	import { Breadcrumb, BreadcrumbItem } from 'flowbite-svelte'
 	import { onDestroy, onMount, setContext } from 'svelte'
+	import Icon from 'svelte-awesome'
 	import { writable } from 'svelte/store'
 	import CenteredPage from './CenteredPage.svelte'
+	import Button from './common/button/Button.svelte'
 	import { OFFSET } from './CronInput.svelte'
 	import FlowEditor from './flows/FlowEditor.svelte'
 	import { flowStateStore } from './flows/flowState'
@@ -187,21 +190,44 @@
 		</Breadcrumb>
 		<div class="flex flex-row-reverse ml-2 space-x-reverse space-x-2">
 			{#if step == 1}
-				<button
+				<Button
 					disabled={pathError != ''}
-					class="default-button px-6 max-h-8"
+					btnClasses="h-8"
+					color="blue"
+					size="xs"
 					on:click={() => changeStep(2)}
 				>
 					Next
-				</button>
-				<button
+				</Button>
+				<Button
 					disabled={pathError != ''}
-					class="default-button-secondary px-6 max-h-8"
-					on:click={saveFlow}
+					btnClasses="h-8"
+					color="blue"
+					size="xs"
+					on:click={saveFlow}>Save</Button
 				>
-					Save
-				</button>
 				<FlowImportExportMenu />
+
+				<Button
+					color="light"
+					size="xs"
+					variant="border"
+					btnClasses="h-8"
+					on:click={() => {
+						const url = new URL('https://hub.windmill.dev/flows/add')
+						const openFlow = {
+							value: $flowStore.value,
+							summary: $flowStore.summary,
+							description: $flowStore.description,
+							schema: $flowStore.schema
+						}
+						url.searchParams.append('flow', btoa(JSON.stringify(openFlow)))
+						window.open(url, '_blank')?.focus()
+					}}
+				>
+					<Icon data={faGlobe} scale={0.8} class="inline mr-2" />
+					Publish to Hub
+				</Button>
 			{:else}
 				<button class="default-button px-6 self-end" on:click={saveFlow}>Save</button>
 				<button
