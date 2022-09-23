@@ -16,7 +16,7 @@
 	import CenteredPage from './CenteredPage.svelte'
 	import { OFFSET } from './CronInput.svelte'
 	import FlowEditor from './flows/FlowEditor.svelte'
-	import { flowStateStore, type FlowState } from './flows/flowState'
+	import { flowStateStore } from './flows/flowState'
 	import { flowStore } from './flows/flowStore'
 	import FlowImportExportMenu from './flows/header/FlowImportExportMenu.svelte'
 	import { loadFlowSchedule, type Schedule } from './flows/scheduleUtils'
