@@ -91,11 +91,13 @@
 					<div class="line mr-2 w-8" />
 
 					<div class="w-full mb-2">
-						<svelte:self
-							prefix={String(index)}
-							moduleStates={moduleStates[index].childFlowModules}
-							modules={mod.value.modules}
-						/>
+						{#if moduleStates[index]?.childFlowModules}
+							<svelte:self
+								prefix={String(index)}
+								moduleStates={moduleStates[index].childFlowModules}
+								modules={mod.value.modules}
+							/>
+						{/if}
 					</div>
 				</div>
 
