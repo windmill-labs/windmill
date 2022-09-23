@@ -16,6 +16,7 @@
 	import Icon from 'svelte-awesome'
 	import { writable } from 'svelte/store'
 	import CenteredPage from './CenteredPage.svelte'
+	import Button from './common/button/Button.svelte'
 	import { OFFSET } from './CronInput.svelte'
 	import FlowEditor from './flows/FlowEditor.svelte'
 	import { flowStateStore } from './flows/flowState'
@@ -189,24 +190,29 @@
 		</Breadcrumb>
 		<div class="flex flex-row-reverse ml-2 space-x-reverse space-x-2">
 			{#if step == 1}
-				<button
+				<Button
 					disabled={pathError != ''}
-					class="default-button px-6 max-h-8"
+					btnClasses="h-8"
+					color="blue"
+					size="xs"
 					on:click={() => changeStep(2)}
 				>
 					Next
-				</button>
-				<button
+				</Button>
+				<Button
 					disabled={pathError != ''}
-					class="default-button-secondary px-6 max-h-8"
-					on:click={saveFlow}
+					btnClasses="h-8"
+					color="blue"
+					size="xs"
+					on:click={saveFlow}>Save</Button
 				>
-					Save
-				</button>
 				<FlowImportExportMenu />
 
-				<button
-					class="text-gray-900 bg-white border border-gray-300 focus:outline-none hover:bg-gray-100 focus:ring-4 focus:ring-gray-200 font-medium rounded-lg text-sm px-5 py-2.5 mr-2 mb-2 dark:bg-gray-800 dark:text-white dark:border-gray-600 dark:hover:bg-gray-700 dark:hover:border-gray-600 dark:focus:ring-gray-700"
+				<Button
+					color="light"
+					size="xs"
+					variant="border"
+					btnClasses="h-8"
 					on:click={() => {
 						const url = new URL('https://hub.windmill.dev/flows/add')
 						const openFlow = {
@@ -221,7 +227,7 @@
 				>
 					<Icon data={faGlobe} scale={0.8} class="inline mr-2" />
 					Publish to Hub
-				</button>
+				</Button>
 			{:else}
 				<button class="default-button px-6 self-end" on:click={saveFlow}>Save</button>
 				<button
