@@ -396,54 +396,56 @@
 		</div>
 	</div>
 
-	<!-- Logs and outputs-->
-	<div class="mr-2 sm:mr-0 mt-12">
-		<div class="flex flex-col sm:flex-row text-base">
-			<button
-				class=" py-1 px-6 block border-gray-200 hover:bg-gray-50  {viewTab != 'result'
-					? 'text-gray-500'
-					: 'text-gray-700 font-semibold  '}"
-				on:click={() => (viewTab = 'result')}
-			>
-				Result <Tooltip
-					>What is returned by the <span class="font-mono">main</span> function of the script. Dictionary
-					of columns are rendered as a table</Tooltip
-				>
-			</button>
-			<button
-				class="py-1 px-6 block border-gray-200 hover:bg-gray-50  {viewTab != 'logs'
-					? 'text-gray-500'
-					: 'text-gray-700 font-semibold  '}"
-				on:click={() => (viewTab = 'logs')}
-			>
-				Logs
-			</button>
-			{#if job && 'raw_code' in job && job.raw_code}
+	{#if job?.job_kind != 'flow' && job?.job_kind != 'flowpreview'}
+		<!-- Logs and outputs-->
+		<div class="mr-2 sm:mr-0 mt-12">
+			<div class="flex flex-col sm:flex-row text-base">
 				<button
-					class="py-1 px-6 block border-gray-200 hover:bg-gray-50  {viewTab != 'code'
+					class=" py-1 px-6 block border-gray-200 hover:bg-gray-50  {viewTab != 'result'
 						? 'text-gray-500'
 						: 'text-gray-700 font-semibold  '}"
-					on:click={() => (viewTab = 'code')}
+					on:click={() => (viewTab = 'result')}
 				>
-					{job.job_kind == 'dependencies' ? 'Input Dependencies' : 'Code previewed'}
+					Result <Tooltip
+						>What is returned by the <span class="font-mono">main</span> function of the script. Dictionary
+						of columns are rendered as a table</Tooltip
+					>
 				</button>
-			{/if}
-		</div>
-		<div class="flex flex-row border rounded-md p-3">
-			<pre
-				class="text-xs overflow-auto max-h-96 w-full p-3">{#if viewTab == 'logs'}{#if job && 'logs' in job && job.logs}{job.logs}
-					{:else if job}No logs are available yet
-					{:else}Loading...{/if}
-				{:else if viewTab == 'code'}
-					{#if job && 'raw_code' in job && job.raw_code}
-						<HighlightCode language={job.language} code={job.raw_code} />
-					{:else if job}No code is available
-					{:else}Loading...{/if}
-				{:else if job && 'result' in job && job.result}<DisplayResult result={job.result} />
-				{:else if job}No output is available yet
-				{:else}Loading...
+				<button
+					class="py-1 px-6 block border-gray-200 hover:bg-gray-50  {viewTab != 'logs'
+						? 'text-gray-500'
+						: 'text-gray-700 font-semibold  '}"
+					on:click={() => (viewTab = 'logs')}
+				>
+					Logs
+				</button>
+				{#if job && 'raw_code' in job && job.raw_code}
+					<button
+						class="py-1 px-6 block border-gray-200 hover:bg-gray-50  {viewTab != 'code'
+							? 'text-gray-500'
+							: 'text-gray-700 font-semibold  '}"
+						on:click={() => (viewTab = 'code')}
+					>
+						{job.job_kind == 'dependencies' ? 'Input Dependencies' : 'Code previewed'}
+					</button>
 				{/if}
+			</div>
+			<div class="flex flex-row border rounded-md p-3">
+				<pre
+					class="text-xs overflow-auto max-h-96 w-full p-3">{#if viewTab == 'logs'}{#if job && 'logs' in job && job.logs}{job.logs}
+						{:else if job}No logs are available yet
+						{:else}Loading...{/if}
+					{:else if viewTab == 'code'}
+						{#if job && 'raw_code' in job && job.raw_code}
+							<HighlightCode language={job.language} code={job.raw_code} />
+						{:else if job}No code is available
+						{:else}Loading...{/if}
+					{:else if job && 'result' in job && job.result}<DisplayResult result={job.result} />
+					{:else if job}No output is available yet
+					{:else}Loading...
+					{/if}
 			</pre>
+			</div>
 		</div>
-	</div>
+	{/if}
 </CenteredPage>
