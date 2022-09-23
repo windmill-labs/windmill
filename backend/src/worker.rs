@@ -1430,14 +1430,13 @@ async fn handle_child(
     };
 
     /* a future that reads output from the child and appends to the database */
-    /* this whole section is kind of a mess and could use some love */
     let lines = async move {
         /* log_remaining is zero when output limit was reached */
         let mut log_remaining = (MAX_LOG_SIZE as usize).saturating_sub(logs.chars().count());
         let mut result = io::Result::Ok(());
         let mut output = output;
-        /* write_is_done resolves the task is done, same as write, but does not contain the Result
-         * of the task, and is useful if we just want to know that the task completed */
+        /* `do_write` resolves the task, but does not contain the Result.
+         * It's useful to know if the task completed. */
         let (mut do_write, mut write_result) = tokio::spawn(ready(())).remote_handle();
 
         while let Some(line) = output.by_ref().next().await {
@@ -1451,11 +1450,7 @@ async fn handle_child(
                 .boxed();
 
             /* Read up until an error is encountered,
-             * handle log lines first and then the error...
-             *
-             * (This looks a bit nicer using try_for_each but the side-effects/capturing
-             * in FnMut closure seems impractical, _maybe_ a futures::Sink would work but
-             * I know next to nothing about that.) */
+             * handle log lines first and then the error... */
             let mut joined = String::new();
 
             while let Some(line) = read_lines.next().await {
@@ -1543,6 +1538,7 @@ async fn handle_child(
 
     let wait_result = tokio::select! {
         (w, _) = future::join(wait_on_child, lines) => w,
+        /* ping should repeat forever without stopping */
         _ = ping.collect::<()>() => unreachable!("job ping stopped"),
     };
 
