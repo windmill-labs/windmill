@@ -34,6 +34,7 @@
 
 	// Internal state
 	let editor: Editor
+	let logPanel: LogPanel
 
 	// Preview args input
 	let args: Record<string, any> = {}
@@ -53,6 +54,13 @@
 
 	export function getEditor(): Editor {
 		return editor
+	}
+
+	function onKeyDown(event: KeyboardEvent) {
+		if ((event.ctrlKey || event.metaKey) && event.key == 'Enter') {
+			event.preventDefault()
+			runPreview()
+		}
 	}
 
 	let div: HTMLElement | null = null
@@ -86,6 +94,7 @@
 			previewIntervalId = setInterval(() => {
 				syncer(previewId)
 			}, 500)
+			logPanel?.setFocusToLogs()
 			//TODO fetch preview, every x time, until it's completed
 		} catch (err) {
 			previewIsLoading = false
@@ -191,6 +200,8 @@
 	})
 </script>
 
+<svelte:window on:keydown={onKeyDown} />
+
 <div class="border-b shadow-sm p-1 pr-4">
 	<div class="flex justify-between">
 		<EditorBar {editor} {lang} {websocketAlive} />
@@ -215,14 +226,14 @@
 				<Button
 					on:click={() => runPreview()}
 					disabled={previewIsLoading}
-					btnClasses="w-32 ml-1"
+					btnClasses="w-50 ml-1"
 					size="xs"
 					startIcon={{
 						icon: previewIsLoading ? faRotateRight : faPlay,
 						classes: classNames(previewIsLoading ? 'animate-spin' : 'animate-none')
 					}}
 				>
-					{previewIsLoading ? 'Running' : 'Run preview'}
+					{previewIsLoading ? 'Running' : 'Run preview (Ctrl+Enter)'}
 				</Button>
 			</div>
 		</div>
@@ -297,6 +308,7 @@
 					<down slot="down">
 						<div class="pt-1 h-full overflow-auto">
 							<LogPanel
+								bind:this={logPanel}
 								{path}
 								{lang}
 								{previewJob}
