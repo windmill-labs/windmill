@@ -11,6 +11,8 @@
 
 	export let selected: string
 
+	$: selected && updateSelected()
+
 	const selectedContent = writable(selected)
 
 	setContext<TabsContext>('Tabs', {
@@ -20,6 +22,10 @@
 			selected = value
 		}
 	})
+
+	function updateSelected() {
+		selectedContent.set(selected)
+	}
 </script>
 
 <div class="border-b border-gray-200 flex flex-row">
