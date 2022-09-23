@@ -13,6 +13,7 @@
 	import Modal from './Modal.svelte'
 	import ResourceEditor from './ResourceEditor.svelte'
 	import VariableEditor from './VariableEditor.svelte'
+	import Button from './common/button/Button.svelte'
 
 	export let lang: 'python3' | 'deno' | 'go'
 	export let editor: Editor
@@ -171,65 +172,40 @@
 <ResourceEditor bind:this={resourceEditor} on:refresh={resourcePicker.openModal} />
 <VariableEditor bind:this={variableEditor} on:create={variablePicker.openModal} />
 
-<div class="flex divide-x items-center overflow-x-auto">
+<div class="flex divide-x items-center">
 	<div>
-		<button
-			type="button"
-			class="mr-1 bg-white rounded-md items-center flex hover:bg-gray-100 font-medium text-xs p-2"
-			on:click={() => {
-				variablePicker.openModal()
-			}}
+		<Button
+			color="light"
+			btnClasses="mr-1"
+			on:click={variablePicker.openModal}
+			size="xs"
+			startIcon={{ icon: faFile }}
 		>
-			<Icon data={faFile} class="h-4 w-4 mr-2" />
 			Insert variable
-		</button>
+		</Button>
 	</div>
 	<div>
-		<button
-			type="button"
-			class="mx-1 bg-white rounded-md items-center flex hover:bg-gray-100 font-medium text-xs p-2"
-			on:click={() => {
-				resourcePicker.openModal()
-			}}
-		>
-			<Icon data={faCube} class="h-4 w-4 mr-2" />
+		<Button btnClasses="mx-1" size="xs" color="light" on:click={resourcePicker.openModal}>
+			<Icon data={faCube} class="mr-2" />
 			Insert resource
-		</button>
+		</Button>
 	</div>
 
 	<div>
-		<button
-			type="button"
-			class="mx-1  bg-white rounded-md items-center flex hover:bg-gray-100 font-medium  text-xs p-2"
-			on:click={() => {
-				scriptPicker.openModal()
-			}}
-		>
-			<Icon data={faCode} class="h-4 w-4 mr-2" />
+		<Button btnClasses="mx-1" size="xs" color="light" on:click={scriptPicker.openModal}>
+			<Icon data={faCode} class="mr-2" />
 			Search script
-		</button>
+		</Button>
 	</div>
 
 	<div>
-		<button
-			type="button"
-			class="mx-1 bg-white rounded-md items-center flex hover:bg-gray-100 font-medium  text-xs p-2"
-			on:click={() => {
-				editor.clearContent()
-			}}
-		>
-			<Icon data={faRotateLeft} class="h-4 w-4 mr-2" />
+		<Button btnClasses="mx-1" size="xs" color="light" on:click={editor.clearContent}>
+			<Icon data={faRotateLeft} class="mr-2" />
 			Reset content
-		</button>
+		</Button>
 	</div>
 	<div>
-		<button
-			type="button"
-			class="ml-1 bg-white rounded-md items-center flex hover:bg-gray-100 font-medium text-xs p-2"
-			on:click={() => {
-				editor.reloadWebsocket()
-			}}
-		>
+		<Button btnClasses="ml-1" size="xs" color="light" on:click={editor.reloadWebsocket}>
 			<Icon data={faRotate} class="h-4 w-4 mr-2" />
 
 			Reload assistants
@@ -242,6 +218,6 @@
 					<span class={websocketAlive.black ? 'text-green-600' : 'text-red-700'}>Black</span>)
 				{/if}
 			</span>
-		</button>
+		</Button>
 	</div>
 </div>
