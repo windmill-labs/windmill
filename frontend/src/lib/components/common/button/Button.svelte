@@ -3,7 +3,7 @@
 	import Icon from 'svelte-awesome'
 
 	export let size: 'xs' | 'sm' | 'md' | 'lg' | 'xl' = 'md'
-	export let color: 'blue' | 'dark' | 'light' = 'blue'
+	export let color: 'blue' | 'dark' | 'light' | 'red' = 'blue'
 	export let variant: 'contained' | 'border' = 'contained'
 	export let btnClasses: string = ''
 	export let disabled: boolean = false
@@ -17,6 +17,8 @@
 		switch (color) {
 			case 'blue':
 				return 'bg-blue-500 hover:bg-blue-700 focus:ring-blue-300 text-white '
+			case 'red':
+				return 'bg-red-500 hover:bg-red-700 focus:ring-red-300 text-white '
 			case 'light':
 				return 'text-gray-800 bg-white hover:bg-gray-100 focus:ring-gray-300'
 			default:

@@ -19,8 +19,7 @@
 	let jobId: string
 
 	export async function runPreview(args: any) {
-		let newFlow: Flow = setInputTransformFromArgs(extractStep($flowStore), args)
-		jobId = await runFlowPreview(args, newFlow)
+		//let newFlow: Flow = (jobId = await runFlowPreview(args, newFlow))
 
 		sendUserToast(`started preview ${truncateRev(jobId, 10)}`)
 	}
@@ -35,18 +34,6 @@
 		}
 		localFlow.schema = schema
 		return localFlow
-	}
-
-	function setInputTransformFromArgs(flow: Flow, args: any) {
-		let input_transforms = {}
-		Object.entries(args).forEach(([key, value]) => {
-			input_transforms[key] = {
-				type: 'static',
-				value: value
-			}
-		})
-		flow.value.modules[0].input_transforms = input_transforms
-		return flow
 	}
 </script>
 
