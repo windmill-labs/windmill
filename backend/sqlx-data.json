@@ -2542,29 +2542,6 @@
     },
     "query": "SELECT * from workspace_invite WHERE workspace_id = $1"
   },
-  "b546ee85fb214887ffcf81614518cf5dc3a566e1042df8f3c9ae227c3f3d9bf2": {
-    "describe": {
-      "columns": [
-        {
-          "name": "id",
-          "ordinal": 0,
-          "type_info": "Uuid"
-        }
-      ],
-      "nullable": [
-        false
-      ],
-      "parameters": {
-        "Left": [
-          "Varchar",
-          "Text",
-          "Uuid",
-          "Text"
-        ]
-      }
-    },
-    "query": "UPDATE queue SET canceled = true, canceled_by = $1, canceled_reason = $2 WHERE id = $3 AND schedule_path IS NULL AND workspace_id = $4 RETURNING id"
-  },
   "b7dd791cd69748ef51b7520f505c0c8bb1b4014a273476eddfecf1ab658a18b4": {
     "describe": {
       "columns": [
