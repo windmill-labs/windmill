@@ -2,7 +2,7 @@
 	import type { Schema } from '$lib/common'
 	import { CompletedJob, Job, JobService } from '$lib/gen'
 	import { userStore, workspaceStore } from '$lib/stores'
-	import { classNames, emptySchema, scriptLangToEditorLang } from '$lib/utils'
+	import { emptySchema, scriptLangToEditorLang } from '$lib/utils'
 	import {
 		faCheck,
 		faExclamationTriangle,

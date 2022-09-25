@@ -1,48 +1,47 @@
 <script lang="ts">
 	import type { Schema } from '$lib/common'
-	import type { Flow } from '$lib/gen'
-	import { sendUserToast, truncateRev } from '$lib/utils'
-	import { HSplitPane } from 'svelte-split-pane'
+	import type { FlowModule, Job } from '$lib/gen'
+	import { getScriptByPath, sendUserToast, truncateRev } from '$lib/utils'
 
-	import { mapJobResultsToFlowState } from './flows/flowStateUtils'
-	import { flowStore } from './flows/flowStore'
-	import { runFlowPreview } from './flows/utils'
-	import FlowStatusViewer from './FlowStatusViewer.svelte'
+	import { HSplitPane, VSplitPane } from 'svelte-split-pane'
+
 	import RunForm from './RunForm.svelte'
+	import TestJobLoader from './TestJobLoader.svelte'
+	import LogViewer from './LogViewer.svelte'
+	import DisplayResult from './DisplayResult.svelte'
 
-	export let indexes: string
+	let testJobLoader: TestJobLoader
+
+	// Test
+	let testIsLoading = false
+	let testJob: Job | undefined
+
+	export let mod: FlowModule
 	export let schema: Schema
 
-	const [i, j] = indexes.split('-').filter(Boolean).map(Number)
-
 	let stepArgs: Record<string, any> = {}
-	let jobId: string
 
-	export async function runPreview(args: any) {
-		//let newFlow: Flow = (jobId = await runFlowPreview(args, newFlow))
-
-		sendUserToast(`started preview ${truncateRev(jobId, 10)}`)
-	}
-
-	function extractStep(flow: Flow): Flow {
-		const localFlow = JSON.parse(JSON.stringify(flow))
-		const mod = flow.value.modules[i].value
-		if (j != undefined && mod.type === 'forloopflow') {
-			localFlow.value.modules = mod.modules.slice(j, j + 1)
+	export async function runTest(args: any) {
+		const val = mod.value
+		if (val.type == 'rawscript') {
+			await testJobLoader?.runPreview(val.path, val.content, val.language, args)
+		} else if (val.type == 'script') {
+			const script = await getScriptByPath(val.path)
+			await testJobLoader?.runPreview(val.path, script.content, script.language, args)
 		} else {
-			localFlow.value.modules = flow.value.modules.slice(i, i + 1)
+			throw Error('not testable module type')
 		}
-		localFlow.schema = schema
-		return localFlow
+		sendUserToast(`started test ${truncateRev(testJob?.id ?? '', 10)}`)
 	}
 </script>
 
+<TestJobLoader bind:this={testJobLoader} bind:isLoading={testIsLoading} bind:job={testJob} />
 <HSplitPane leftPaneSize="50%" rightPaneSize="50%" minLeftPaneSize="20%" minRightPaneSize="20%">
 	<left slot="left" class="relative">
 		<div class="overflow-auto h-full p-4">
 			<RunForm
-				runnable={extractStep($flowStore)}
-				runAction={(_, args) => runPreview(args)}
+				runnable={{ summary: mod.summary ?? '', schema, description: '' }}
+				runAction={(_, args) => runTest(args)}
 				schedulable={false}
 				buttonText="Test just this step"
 				detailed={false}
@@ -52,14 +51,21 @@
 	</left>
 	<right slot="right">
 		<div class="overflow-auto h-full p-4">
-			{#if jobId}
-				<FlowStatusViewer
-					{jobId}
-					on:jobsLoaded={(e) => mapJobResultsToFlowState(e.detail, 'justthis', i, j)}
-				/>
-			{:else}
-				<span class="text-sm">No results yet</span>
-			{/if}
+			<VSplitPane topPanelSize="50%" downPanelSize="50%">
+				<top slot="top">
+					<LogViewer content={testJob?.logs} isLoading={testIsLoading} />
+				</top>
+				<down slot="down">
+					<pre
+						class="overflow-x-auto break-all relative h-full p-2 text-sm">{#if testJob && 'result' in testJob && testJob.result}<DisplayResult
+								result={testJob.result}
+							/>
+						{:else if testIsLoading}Waiting for Result...
+						{:else}Test to see result here
+						{/if}
+        </pre>
+				</down>
+			</VSplitPane>
 		</div>
 	</right>
 </HSplitPane>

@@ -20,7 +20,7 @@
 	export async function runPreview(
 		path: string | undefined,
 		code: string,
-		lang: Preview.language,
+		lang: 'deno' | 'go' | 'python3',
 		args: Record<string, any>
 	): Promise<void> {
 		try {
@@ -42,7 +42,7 @@
 					path,
 					content: code,
 					args,
-					language: lang
+					language: lang as Preview.language
 				}
 			})
 			watchJob(testId)
@@ -107,7 +107,7 @@
 			loadTestJob(id)
 			if (intervalId) {
 				clearInterval(intervalId)
-				intervalId = setInterval(() => loadTestJob(id), 5000)
+				intervalId = setInterval(() => loadTestJob(id), 2000)
 			}
 		} else {
 			syncIteration++

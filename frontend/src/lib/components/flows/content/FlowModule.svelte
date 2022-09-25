@@ -156,7 +156,7 @@
 										</PropPickerWrapper>
 									</TabContent>
 									<TabContent value="test" class="flex flex-col flex-1 h-full">
-										<FlowPreview indexes={$selectedId} schema={flowModuleState.schema} />
+										<FlowPreview mod={flowModule} schema={flowModuleState.schema} />
 									</TabContent>
 
 									<TabContent value="advanced" class="flex flex-col flex-1 h-full">
