@@ -8,12 +8,17 @@
 <script lang="ts">
 	import { setContext } from 'svelte'
 	import { writable, type Writable } from 'svelte/store'
+	import { createEventDispatcher } from 'svelte'
+
+	const dispatch = createEventDispatcher()
 
 	export let selected: string
 
 	$: selected && updateSelected()
 
 	const selectedContent = writable(selected)
+
+	$: $selectedContent && dispatch('selected', $selectedContent)
 
 	setContext<TabsContext>('Tabs', {
 		selected: selectedContent,

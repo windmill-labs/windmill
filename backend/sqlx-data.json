@@ -3163,6 +3163,29 @@
     },
     "query": "\n           SELECT SUM(duration_ms)\n             FROM completed_job\n            WHERE permissioned_as = $1\n              AND created_at > NOW() - INTERVAL '1200 seconds'\n              AND workspace_id = $2"
   },
+  "e7051b21ffd80de0cb0644a71c89c9f63abed6b446d1e232adbb6931efad6d6d": {
+    "describe": {
+      "columns": [
+        {
+          "name": "id",
+          "ordinal": 0,
+          "type_info": "Uuid"
+        }
+      ],
+      "nullable": [
+        false
+      ],
+      "parameters": {
+        "Left": [
+          "Varchar",
+          "Text",
+          "Uuid",
+          "Text"
+        ]
+      }
+    },
+    "query": "UPDATE queue SET canceled = true, canceled_by = $1, canceled_reason = $2 WHERE id = $3 AND workspace_id = $4 RETURNING id"
+  },
   "ee99cb974fb35d2d92fa96cecb53b8ad3a729ac710f362dc55a576613b66f9be": {
     "describe": {
       "columns": [
