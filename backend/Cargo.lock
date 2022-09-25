@@ -3484,6 +3484,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "swc_ecma_ast"
+version = "0.92.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a4a9098a9ac7003fb26ffb3ebe8bcac76576339a81fc2b6fe3fda327cdb4a20a"
+dependencies = [
+ "bitflags",
+ "is-macro",
+ "num-bigint 0.4.3",
+ "scoped-tls",
+ "serde",
+ "string_enum",
+ "swc_atoms",
+ "swc_common",
+ "unicode-id",
+]
+
+[[package]]
 name = "swc_ecma_parser"
 version = "0.119.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3497,7 +3514,7 @@ dependencies = [
  "smallvec",
  "swc_atoms",
  "swc_common",
- "swc_ecma_ast",
+ "swc_ecma_ast 0.91.8",
  "tracing",
  "typed-arena",
 ]
@@ -4502,7 +4519,7 @@ dependencies = [
  "sql-builder",
  "sqlx",
  "swc_common",
- "swc_ecma_ast",
+ "swc_ecma_ast 0.92.0",
  "swc_ecma_parser",
  "tempfile",
  "thiserror",
