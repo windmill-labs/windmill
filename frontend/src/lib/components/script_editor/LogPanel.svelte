@@ -17,6 +17,7 @@
 	import DrawerContent from '../common/drawer/DrawerContent.svelte'
 	import HighlightCode from '../HighlightCode.svelte'
 	import { VSplitPane } from 'svelte-split-pane'
+	import LogViewer from '../LogViewer.svelte'
 
 	export let path: string | undefined
 	export let lang: Preview.language
@@ -69,23 +70,18 @@
 	<Tab value="last_save"><span class="text-xs">Last save</span></Tab>
 
 	<svelte:fragment slot="content">
-		<TabContent value="logs" class="h-full w-full">
+		<TabContent value="logs" class="h-full w-full relative">
 			<VSplitPane topPanelSize="50%" downPanelSize="50%">
 				<top slot="top">
-					<pre
-						class="whitespace-pre-wrap break-all relative h-full bg-gray-50 text-xs w-full h-full p-2">{#if previewJob && previewJob.logs}{previewJob.logs}
-						{:else if previewIsLoading}Running...
-						{:else}No preview is available yet
-						{/if}
-        </pre>
+					<LogViewer content={previewJob?.logs} isLoading={previewIsLoading} />
 				</top>
 				<down slot="down">
 					<pre
 						class="overflow-x-auto break-all relative h-full p-2 text-sm">{#if previewJob && 'result' in previewJob && previewJob.result}<DisplayResult
 								result={previewJob.result}
 							/>
-						{:else if previewIsLoading}Running...
-						{:else}No result is available yet
+						{:else if previewIsLoading}Waiting for Result...
+						{:else}Test to see result here
 						{/if}
         </pre>
 				</down>

@@ -2,14 +2,13 @@
 	import type { Schema } from '$lib/common'
 	import { CompletedJob, Job, JobService } from '$lib/gen'
 	import { userStore, workspaceStore } from '$lib/stores'
-	import { classNames, emptySchema, scriptLangToEditorLang } from '$lib/utils'
+	import { emptySchema, scriptLangToEditorLang } from '$lib/utils'
 	import {
 		faCheck,
 		faExclamationTriangle,
 		faPlay,
 		faRotateRight
 	} from '@fortawesome/free-solid-svg-icons'
-	import { onDestroy, onMount } from 'svelte'
 	import Icon from 'svelte-awesome'
 	import Editor from './Editor.svelte'
 
@@ -23,6 +22,7 @@
 	import { faGithub } from '@fortawesome/free-brands-svg-icons'
 	import EditorBar from './EditorBar.svelte'
 	import Button from './common/button/Button.svelte'
+	import TestJobLoader from './TestJobLoader.svelte'
 
 	// Exported
 	export let schema: Schema = emptySchema()
@@ -34,21 +34,18 @@
 
 	// Internal state
 	let editor: Editor
-	let logPanel: LogPanel
 
-	// Preview args input
+	let testJobLoader: TestJobLoader
+
+	// Test args input
 	let args: Record<string, any> = {}
 	let isValid: boolean = true
 
-	// Preview
-	let previewIsLoading = false
-	let previewIntervalId: NodeJS.Timer
-	let previewJob: Job | undefined
+	// Test
+	let testIsLoading = false
+	let testJob: Job | undefined
 	let pastPreviews: CompletedJob[] = []
 	let lastSave: string | null
-
-	let syncIteration: number = 0
-	let ITERATIONS_BEFORE_SLOW_REFRESH = 100
 
 	$: lastSave = localStorage.getItem(path ?? 'last_save')
 
@@ -59,87 +56,21 @@
 	function onKeyDown(event: KeyboardEvent) {
 		if ((event.ctrlKey || event.metaKey) && event.key == 'Enter') {
 			event.preventDefault()
-			runPreview()
+			runTest()
 		}
 	}
 
-	let div: HTMLElement | null = null
-
-	export async function runPreview(): Promise<void> {
-		try {
-			if (previewIntervalId) {
-				clearInterval(previewIntervalId)
-			}
-			if (previewIsLoading && previewJob) {
-				JobService.cancelQueuedJob({
-					workspace: $workspaceStore!,
-					id: previewJob.id,
-					requestBody: {}
-				})
-			}
-			previewIsLoading = true
-
-			const previewId = await JobService.runScriptPreview({
-				workspace: $workspaceStore!,
-				requestBody: {
-					path,
-					content: editor.getCode(),
-					args: args,
-					language: lang
-				}
-			})
-			previewJob = undefined
-			loadPreviewJob(previewId)
-			syncIteration = 0
-			previewIntervalId = setInterval(() => {
-				syncer(previewId)
-			}, 500)
-			logPanel?.setFocusToLogs()
-			//TODO fetch preview, every x time, until it's completed
-		} catch (err) {
-			previewIsLoading = false
-			throw err
-		}
+	function runTest() {
+		testJobLoader.runPreview(path, editor.getCode(), lang, args)
 	}
 
-	async function loadPastPreviews(): Promise<void> {
+	async function loadPastTests(): Promise<void> {
 		pastPreviews = await JobService.listCompletedJobs({
 			workspace: $workspaceStore!,
 			jobKinds: 'preview',
 			createdBy: $userStore?.username,
 			scriptPathExact: path
 		})
-	}
-
-	async function loadPreviewJob(id: string): Promise<void> {
-		try {
-			if (previewJob && `running` in previewJob) {
-				let previewJobUpdates = await JobService.getJobUpdates({
-					workspace: $workspaceStore!,
-					id,
-					running: previewJob.running,
-					logOffset: previewJob.logs?.length ?? 0
-				})
-
-				if (previewJobUpdates.new_logs) {
-					previewJob.logs = (previewJob.logs ?? '').concat(previewJobUpdates.new_logs)
-				}
-				if ((previewJobUpdates.running ?? false) || (previewJobUpdates.completed ?? false)) {
-					previewJob = await JobService.getJob({ workspace: $workspaceStore!, id })
-				}
-			} else {
-				previewJob = await JobService.getJob({ workspace: $workspaceStore!, id })
-			}
-			if (previewJob?.type === 'CompletedJob') {
-				//only CompletedJob has success property
-				clearInterval(previewIntervalId)
-				previewIsLoading = false
-				loadPastPreviews()
-			}
-			div?.scroll({ top: div?.scrollHeight, behavior: 'smooth' })
-		} catch (err) {
-			console.error(err)
-		}
 	}
 
 	async function inferSchema() {
@@ -161,44 +92,14 @@
 			}
 		}
 	}
-
-	function syncer(id: string): void {
-		if (syncIteration > ITERATIONS_BEFORE_SLOW_REFRESH) {
-			loadPreviewJob(id)
-			if (previewIntervalId) {
-				clearInterval(previewIntervalId)
-				previewIntervalId = setInterval(() => loadPreviewJob(id), 5000)
-			}
-		} else {
-			syncIteration++
-			loadPreviewJob(id)
-		}
-	}
-
-	let syncCode: NodeJS.Timer
-
-	onMount(() => {
-		inferSchema()
-		syncCode = setInterval(() => {
-			const newCode = editor?.getCode()
-			if (newCode && code != newCode) {
-				code = editor.getCode()
-			}
-		}, 3000)
-	})
-
-	onDestroy(() => {
-		if (editor) {
-			code = editor.getCode()
-		}
-		if (previewIntervalId) {
-			clearInterval(previewIntervalId)
-		}
-		if (syncCode) {
-			clearInterval(syncCode)
-		}
-	})
 </script>
+
+<TestJobLoader
+	on:done={loadPastTests}
+	bind:this={testJobLoader}
+	bind:isLoading={testIsLoading}
+	bind:job={testJob}
+/>
 
 <svelte:window on:keydown={onKeyDown} />
 
@@ -221,21 +122,6 @@
 					Sync from Github
 				</Button>
 			</div>
-
-			<div>
-				<Button
-					on:click={() => runPreview()}
-					disabled={previewIsLoading}
-					btnClasses="w-50 ml-1"
-					size="xs"
-					startIcon={{
-						icon: previewIsLoading ? faRotateRight : faPlay,
-						classes: classNames(previewIsLoading ? 'animate-spin' : 'animate-none')
-					}}
-				>
-					{previewIsLoading ? 'Running' : 'Run preview (Ctrl+Enter)'}
-				</Button>
-			</div>
 		</div>
 	</div>
 </div>
@@ -251,11 +137,11 @@
 					}}
 				>
 					<Editor
-						{code}
+						bind:code
 						bind:websocketAlive
 						bind:this={editor}
 						cmdEnterAction={() => {
-							runPreview()
+							runTest()
 						}}
 						formatAction={async () => {
 							code = getEditor().getCode()
@@ -306,14 +192,41 @@
 						</div>
 					</top>
 					<down slot="down">
-						<div class="pt-1 h-full overflow-auto">
+						<div class="h-full overflow-hidden">
+							<div class="px-2 py-1">
+								{#if testIsLoading}
+									<Button
+										on:click={testJobLoader?.cancelJob}
+										btnClasses="w-full"
+										color="red"
+										size="xs"
+										startIcon={{
+											icon: faRotateRight,
+											classes: 'animate-spin'
+										}}
+									>
+										'Cancel'
+									</Button>
+								{:else}
+									<Button
+										on:click={runTest}
+										btnClasses="w-full"
+										size="xs"
+										startIcon={{
+											icon: faPlay,
+											classes: 'animate-none'
+										}}
+									>
+										{testIsLoading ? 'Running' : 'Test (Ctrl+Enter)'}
+									</Button>
+								{/if}
+							</div>
 							<LogPanel
-								bind:this={logPanel}
 								{path}
 								{lang}
-								{previewJob}
+								previewJob={testJob}
 								{pastPreviews}
-								{previewIsLoading}
+								previewIsLoading={testIsLoading}
 								bind:lastSave
 							/>
 						</div>
