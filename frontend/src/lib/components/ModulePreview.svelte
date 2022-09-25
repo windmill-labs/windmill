@@ -10,6 +10,8 @@
 	import LogViewer from './LogViewer.svelte'
 	import DisplayResult from './DisplayResult.svelte'
 	import { mapJobResultsToFlowState } from './flows/flowStateUtils'
+	import Button from './common/button/Button.svelte'
+	import { faRotateRight } from '@fortawesome/free-solid-svg-icons'
 
 	let testJobLoader: TestJobLoader
 
@@ -59,10 +61,24 @@
 				detailed={false}
 				args={stepArgs}
 			/>
+			{#if testIsLoading}
+				<Button
+					on:click={testJobLoader?.cancelJob}
+					btnClasses="w-full"
+					color="red"
+					size="xs"
+					startIcon={{
+						icon: faRotateRight,
+						classes: 'animate-spin'
+					}}
+				>
+					'Cancel'
+				</Button>
+			{/if}
 		</div>
 	</left>
 	<right slot="right">
-		<div class="overflow-auto h-full p-4">
+		<div class="overflow-auto h-full">
 			<VSplitPane topPanelSize="50%" downPanelSize="50%">
 				<top slot="top">
 					<LogViewer content={testJob?.logs} isLoading={testIsLoading} />

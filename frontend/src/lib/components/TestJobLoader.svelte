@@ -45,7 +45,7 @@
 					language: lang as Preview.language
 				}
 			})
-			watchJob(testId)
+			await watchJob(testId)
 		} catch (err) {
 			isLoading = false
 			throw err
@@ -65,7 +65,7 @@
 		console.log('watch jobs')
 
 		job = undefined
-		loadTestJob(testId)
+		await loadTestJob(testId)
 		syncIteration = 0
 		intervalId = setInterval(() => {
 			syncer(testId)
