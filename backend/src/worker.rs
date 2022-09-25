@@ -1652,8 +1652,9 @@ pub async fn restart_zombie_jobs_periodically(
 ) {
     loop {
         let restarted = sqlx::query!(
-            "UPDATE queue SET running = false WHERE last_ping < now() - ($1 || ' seconds')::interval and running = true RETURNING id, workspace_id, last_ping",
+            "UPDATE queue SET running = false WHERE last_ping < now() - ($1 || ' seconds')::interval AND running = true AND job_kind != $2 RETURNING id, workspace_id, last_ping",
             (timeout * 5).to_string(),
+            JobKind::Flow: JobKind,
         )
         .fetch_all(db)
         .await
