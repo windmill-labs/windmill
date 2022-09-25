@@ -798,6 +798,7 @@ async fn cancel_job(
             None,
         )
         .await?;
+        tx.commit().await?;
         Ok(id.to_string())
     } else {
         let (job_o, tx) = get_job_by_id(tx, &w_id, id).await?;
