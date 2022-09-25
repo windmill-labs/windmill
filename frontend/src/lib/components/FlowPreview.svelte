@@ -9,6 +9,7 @@
 	import TestJobLoader from './TestJobLoader.svelte'
 	import LogViewer from './LogViewer.svelte'
 	import DisplayResult from './DisplayResult.svelte'
+	import { mapJobResultsToFlowState } from './flows/flowStateUtils'
 
 	let testJobLoader: TestJobLoader
 
@@ -33,9 +34,20 @@
 		}
 		sendUserToast(`started test ${truncateRev(testJob?.id ?? '', 10)}`)
 	}
+
+	function jobDone() {
+		if (testJob && !testJob.canceled && testJob.type == 'CompletedJob') {
+			//mapJobResultsToFlowState(testJob.result, 'justthis', 0, 0)
+		}
+	}
 </script>
 
-<TestJobLoader bind:this={testJobLoader} bind:isLoading={testIsLoading} bind:job={testJob} />
+<TestJobLoader
+	on:done={jobDone}
+	bind:this={testJobLoader}
+	bind:isLoading={testIsLoading}
+	bind:job={testJob}
+/>
 <HSplitPane leftPaneSize="50%" rightPaneSize="50%" minLeftPaneSize="20%" minRightPaneSize="20%">
 	<left slot="left" class="relative">
 		<div class="overflow-auto h-full p-4">
