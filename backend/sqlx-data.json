@@ -633,7 +633,8 @@
               "kind": {
                 "Enum": [
                   "python3",
-                  "deno"
+                  "deno",
+                  "go"
                 ]
               },
               "name": "script_lang"
@@ -771,7 +772,8 @@
               "kind": {
                 "Enum": [
                   "python3",
-                  "deno"
+                  "deno",
+                  "go"
                 ]
               },
               "name": "script_lang"
@@ -1325,7 +1327,8 @@
               "kind": {
                 "Enum": [
                   "python3",
-                  "deno"
+                  "deno",
+                  "go"
                 ]
               },
               "name": "script_lang"
@@ -1621,29 +1624,6 @@
     },
     "query": "DELETE FROM workspace_invite WHERE workspace_id = $1 AND email = $2 RETURNING is_admin"
   },
-  "765d7a0562fec2a76355856df1b69a4536af25f0b5589b5d3828a75713d0331d": {
-    "describe": {
-      "columns": [
-        {
-          "name": "id",
-          "ordinal": 0,
-          "type_info": "Uuid"
-        }
-      ],
-      "nullable": [
-        false
-      ],
-      "parameters": {
-        "Left": [
-          "Varchar",
-          "Text",
-          "Uuid",
-          "Text"
-        ]
-      }
-    },
-    "query": "UPDATE queue SET canceled = true, canceled_by = $1, canceled_reason = $2 WHERE id = $3 AND schedule_path IS NULL AND workspace_id = $4RETURNING id"
-  },
   "77ba7207c8f5fd7156542cfd9943aa9a9fa87a652131c261f5020bab9ba6b5a3": {
     "describe": {
       "columns": [
@@ -1893,7 +1873,8 @@
               "kind": {
                 "Enum": [
                   "python3",
-                  "deno"
+                  "deno",
+                  "go"
                 ]
               },
               "name": "script_lang"
@@ -3158,6 +3139,29 @@
       }
     },
     "query": "\n           SELECT SUM(duration_ms)\n             FROM completed_job\n            WHERE permissioned_as = $1\n              AND created_at > NOW() - INTERVAL '1200 seconds'\n              AND workspace_id = $2"
+  },
+  "e7051b21ffd80de0cb0644a71c89c9f63abed6b446d1e232adbb6931efad6d6d": {
+    "describe": {
+      "columns": [
+        {
+          "name": "id",
+          "ordinal": 0,
+          "type_info": "Uuid"
+        }
+      ],
+      "nullable": [
+        false
+      ],
+      "parameters": {
+        "Left": [
+          "Varchar",
+          "Text",
+          "Uuid",
+          "Text"
+        ]
+      }
+    },
+    "query": "UPDATE queue SET canceled = true, canceled_by = $1, canceled_reason = $2 WHERE id = $3 AND workspace_id = $4 RETURNING id"
   },
   "ee99cb974fb35d2d92fa96cecb53b8ad3a729ac710f362dc55a576613b66f9be": {
     "describe": {
