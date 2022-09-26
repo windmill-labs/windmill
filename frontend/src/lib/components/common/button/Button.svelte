@@ -3,7 +3,7 @@
 	import Icon from 'svelte-awesome'
 	import type { Button } from './model'
 
-  export let size: Button.Size = 'md'
+	export let size: Button.Size = 'md'
 	export let color: Button.Color = 'blue'
 	export let variant: Button.Variant = 'contained'
 	export let btnClasses: string = ''
@@ -14,12 +14,17 @@
 	export let startIcon: { icon: any; classes?: string } | undefined = undefined
 	export let endIcon: { icon: any; classes?: string } | undefined = undefined
 
-  // Order of classes: border, border modifier, bg, bg modifier, text, text modifier, everything else
+	// Order of classes: border, border modifier, bg, bg modifier, text, text modifier, everything else
 	const colorVariants: Record<Button.Color, Record<Button.Variant, string>> = {
 		blue: {
 			border:
 				'border-blue-500 hover:border-blue-700 bg-white hover:bg-blue-100 text-blue-500 hover:text-blue-700 focus:ring-blue-300',
 			contained: 'bg-blue-500 hover:bg-blue-700 text-white focus:ring-blue-300'
+		},
+		red: {
+			border:
+				'border-red-500 hover:border-red-700 bg-white hover:bg-red-100 text-red-500 hover:text-red-700 focus:ring-red-300',
+			contained: 'bg-red-500 hover:bg-red-700 text-white focus:ring-red-300'
 		},
 		dark: {
 			border:
