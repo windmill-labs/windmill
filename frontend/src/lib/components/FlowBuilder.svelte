@@ -182,29 +182,16 @@
 		</Breadcrumb>
 		<div class="flex flex-row-reverse ml-2 space-x-reverse space-x-2">
 			{#if step == 1}
-				<Button
-					disabled={pathError != ''}
-					btnClasses="h-8"
-					color="blue"
-					size="xs"
-					on:click={() => changeStep(2)}
-				>
+				<Button disabled={pathError != ''} color="blue" size="sm" on:click={() => changeStep(2)}>
 					Next
 				</Button>
-				<Button
-					disabled={pathError != ''}
-					btnClasses="h-8"
-					color="blue"
-					size="xs"
-					on:click={saveFlow}>Save</Button
-				>
+				<Button disabled={pathError != ''} color="blue" size="sm" on:click={saveFlow}>Save</Button>
 				<FlowImportExportMenu />
 
 				<Button
 					color="light"
-					size="xs"
+					size="sm"
 					variant="border"
-					btnClasses="h-8"
 					on:click={() => {
 						const url = new URL('https://hub.windmill.dev/flows/add')
 						const openFlow = {

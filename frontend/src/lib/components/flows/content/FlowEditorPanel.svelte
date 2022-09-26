@@ -6,6 +6,7 @@
 	import FlowSettings from './FlowSettings.svelte'
 	import FlowInput from './FlowInput.svelte'
 	import FlowLoop from './FlowLoop.svelte'
+	import FlowFailureModule from './FlowFailureModule.svelte'
 
 	const { selectedId } = getContext<FlowEditorContext>('FlowEditorContext')
 </script>
@@ -21,6 +22,8 @@
 		<FlowLoop />
 	{:else if $selectedId === 'inputs'}
 		<FlowInput />
+	{:else if $selectedId === 'failure'}
+		<FlowFailureModule />
 	{:else}
 		<FlowModuleWrapper />
 	{/if}

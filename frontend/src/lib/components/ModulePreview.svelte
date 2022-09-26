@@ -85,7 +85,7 @@
 					on:click={testJobLoader?.cancelJob}
 					btnClasses="w-full"
 					color="red"
-					size="xs"
+					size="sm"
 					startIcon={{
 						icon: faRotateRight,
 						classes: 'animate-spin'
