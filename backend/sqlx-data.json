@@ -384,6 +384,53 @@
     },
     "query": "SELECT * FROM workspace LIMIT $1 OFFSET $2"
   },
+  "12d3b30b0f5f5bd9601565de5bdeadc3d99a946d2d91cf2bcba84bd161726d51": {
+    "describe": {
+      "columns": [
+        {
+          "name": "id",
+          "ordinal": 0,
+          "type_info": "Uuid"
+        },
+        {
+          "name": "workspace_id",
+          "ordinal": 1,
+          "type_info": "Varchar"
+        },
+        {
+          "name": "last_ping",
+          "ordinal": 2,
+          "type_info": "Timestamptz"
+        }
+      ],
+      "nullable": [
+        false,
+        false,
+        false
+      ],
+      "parameters": {
+        "Left": [
+          "Text",
+          {
+            "Custom": {
+              "kind": {
+                "Enum": [
+                  "script",
+                  "preview",
+                  "flow",
+                  "dependencies",
+                  "flowpreview",
+                  "script_hub"
+                ]
+              },
+              "name": "job_kind"
+            }
+          }
+        ]
+      }
+    },
+    "query": "UPDATE queue SET running = false WHERE last_ping < now() - ($1 || ' seconds')::interval AND running = true AND job_kind != $2 RETURNING id, workspace_id, last_ping"
+  },
   "13a10a404e892d6975d4913424880a75bfb2c6dfb5134c270c7c7225acb05db4": {
     "describe": {
       "columns": [
@@ -2812,38 +2859,6 @@
       }
     },
     "query": "SELECT username from usr WHERE workspace_id = $1"
-  },
-  "c78b52b350193135d2b9fcf04d3113f7504cc61f6414f809d8a9c51a16f20d35": {
-    "describe": {
-      "columns": [
-        {
-          "name": "id",
-          "ordinal": 0,
-          "type_info": "Uuid"
-        },
-        {
-          "name": "workspace_id",
-          "ordinal": 1,
-          "type_info": "Varchar"
-        },
-        {
-          "name": "last_ping",
-          "ordinal": 2,
-          "type_info": "Timestamptz"
-        }
-      ],
-      "nullable": [
-        false,
-        false,
-        false
-      ],
-      "parameters": {
-        "Left": [
-          "Text"
-        ]
-      }
-    },
-    "query": "UPDATE queue SET running = false WHERE last_ping < now() - ($1 || ' seconds')::interval and running = true RETURNING id, workspace_id, last_ping"
   },
   "cac594031a21b4806de9c4616317d3541522ef9712a83ecff7bd8b5f6e870748": {
     "describe": {
