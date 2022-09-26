@@ -6,7 +6,7 @@
 	import Tabs from '$lib/components/common/tabs/Tabs.svelte'
 	import Editor from '$lib/components/Editor.svelte'
 	import EditorBar from '$lib/components/EditorBar.svelte'
-	import FlowPreview from '$lib/components/FlowPreview.svelte'
+	import ModulePreview from '$lib/components/ModulePreview.svelte'
 	import FlowInputs from './FlowInputs.svelte'
 	import {
 		createInlineScriptModule,
@@ -160,7 +160,7 @@
 										</PropPickerWrapper>
 									</TabContent>
 									<TabContent value="test" class="flex flex-col flex-1 h-full">
-										<FlowPreview indexes={$selectedId} schema={flowModuleState.schema} />
+										<ModulePreview mod={flowModule} schema={flowModuleState.schema} />
 									</TabContent>
 
 									<TabContent value="advanced" class="flex flex-col flex-1 h-full">

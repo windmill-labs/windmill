@@ -9,8 +9,9 @@
 	import SvelteMarkdown from 'svelte-markdown'
 	import SchemaForm from './SchemaForm.svelte'
 	import Tooltip from './Tooltip.svelte'
+	import type { Schema } from '$lib/common'
 
-	export let runnable: Script | Flow | undefined
+	export let runnable: { summary?: string; schema?: Schema; description?: string } | undefined
 	export let runAction: (scheduledForStr: string | undefined, args: Record<string, any>) => void
 	export let buttonText = 'Run'
 	export let schedulable = true

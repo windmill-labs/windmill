@@ -61,7 +61,7 @@ swc_ecma_ast = "^0"
 base64  = "^0"
 unicode-general-category = "^0"
 
-sqlx = { version = "^0", features = ["macros", "offline", "migrate", "uuid", "json", "chrono", "postgres", "runtime-tokio-rustls"]}
+sqlx = { version = "^0", features = ["offline", "macros", "migrate", "uuid", "json", "chrono", "postgres", "runtime-tokio-rustls"]}
 dotenv = "^0"
 ulid = { version = "^1", features = ["uuid"] }
 futures = "^0"

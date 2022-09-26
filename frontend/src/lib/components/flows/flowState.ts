@@ -1,7 +1,7 @@
 import type { Schema } from '$lib/common'
 import type { Flow, FlowModule } from '$lib/gen'
-import { derived, writable } from 'svelte/store'
-import { emptyFlowModuleSchema, isEmptyFlowModule, loadFlowModuleSchema } from './flowStateUtils'
+import { writable } from 'svelte/store'
+import { emptyFlowModuleState, isEmptyFlowModule, loadFlowModuleSchema } from './flowStateUtils'
 
 export type FlowModuleState = {
 	schema: Schema
@@ -14,14 +14,14 @@ export type FlowState = {
 	failureModule: FlowModuleState
 }
 
-export const flowStateStore = writable<FlowState>(undefined)
+export const flowStateStore = writable<FlowState>({ modules: [], failureModule: emptyFlowModuleState() })
 
 export async function initFlowState(flow: Flow) {
 	const modules = await mapFlowModules(flow.value.modules)
 
 	const failureModule = flow.value.failure_module
 		? await mapFlowModule(flow.value.failure_module)
-		: emptyFlowModuleSchema()
+		: emptyFlowModuleState()
 
 	flowStateStore.set({
 		modules,
@@ -46,7 +46,7 @@ async function mapFlowModule(flowModule: FlowModule) {
 	}
 
 	if (isEmptyFlowModule(flowModule)) {
-		return emptyFlowModuleSchema()
+		return emptyFlowModuleState()
 	}
 
 	return loadFlowModuleSchema(flowModule)

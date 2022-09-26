@@ -15,7 +15,7 @@ import { flowStateStore, type FlowModuleState, type FlowState } from './flowStat
 import { flowStore } from './flowStore'
 import { loadSchemaFromModule } from './utils'
 
-export function emptyFlowModuleSchema(): FlowModuleState {
+export function emptyFlowModuleState(): FlowModuleState {
 	return {
 		schema: emptySchema()
 	}
@@ -77,7 +77,7 @@ export async function createLoop(): Promise<[FlowModule, FlowModuleState]> {
 		loopFlowModule,
 		{
 			schema,
-			childFlowModules: [emptyFlowModuleSchema()],
+			childFlowModules: [emptyFlowModuleState()],
 			previewResult: NEVER_TESTED_THIS_FAR
 		}
 	]

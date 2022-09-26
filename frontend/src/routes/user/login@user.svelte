@@ -144,7 +144,6 @@
 				<label class="block ">
 					<span class="text-gray-700">password</span>
 					<input
-						py-8
 						type="password"
 						on:keyup={handleKeyUp}
 						bind:value={password}

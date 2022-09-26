@@ -4,7 +4,7 @@
 	import FlowModuleSchemaItem from './FlowModuleSchemaItem.svelte'
 	import Icon from 'svelte-awesome'
 	import { faPen, faPlus, faSliders } from '@fortawesome/free-solid-svg-icons'
-	import { emptyFlowModuleSchema } from '$lib/components/flows/flowStateUtils'
+	import { emptyFlowModuleState } from '$lib/components/flows/flowStateUtils'
 	import { classNames, emptyModule } from '$lib/utils'
 	import type { FlowModuleState } from '../flowState'
 	import type { FlowModule } from '$lib/gen'
@@ -18,7 +18,7 @@
 	const { select, selectedId } = getContext<FlowEditorContext>('FlowEditorContext')
 
 	function insertAtIndex(index: number): void {
-		moduleStates.splice(index, 0, emptyFlowModuleSchema())
+		moduleStates.splice(index, 0, emptyFlowModuleState())
 		modules.splice(index, 0, emptyModule())
 		moduleStates = moduleStates
 		modules = modules
