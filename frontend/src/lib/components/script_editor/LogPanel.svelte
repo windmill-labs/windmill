@@ -16,6 +16,8 @@
 	import { json } from 'svelte-highlight/languages'
 	import DrawerContent from '../common/drawer/DrawerContent.svelte'
 	import HighlightCode from '../HighlightCode.svelte'
+	import { VSplitPane } from 'svelte-split-pane'
+	import LogViewer from '../LogViewer.svelte'
 
 	export let path: string | undefined
 	export let lang: Preview.language
@@ -33,6 +35,10 @@
 	let selectedTab = 'logs'
 	let drawerOpen: boolean = false
 	let drawerContent: DrawerContent | undefined = undefined
+
+	export function setFocusToLogs() {
+		selectedTab = 'logs'
+	}
 
 	function openDrawer(newContent: DrawerContent) {
 		drawerContent = newContent
@@ -52,129 +58,117 @@
 			<pre class="overflow-x-auto break-all relative h-full m-2 text-xs bg-white shadow-inner p-2">
 				{drawerContent?.content}
 			</pre>
-		{:else if drawerContent?.mode === 'deno' || drawerContent?.mode === 'python3' || drawerContent?.mode === 'go'}}
+		{:else if drawerContent?.mode === 'deno' || drawerContent?.mode === 'python3' || drawerContent?.mode === 'go'}
 			<HighlightCode language={drawerContent?.mode} code={drawerContent?.content} />
 		{/if}
 	</DrawerContent>
 </Drawer>
 
 <Tabs bind:selected={selectedTab}>
-	<Tab value="logs"><span class="text-xs">Logs</span></Tab>
-	<Tab value="results"><span class="text-xs">Results</span></Tab>
+	<Tab value="logs"><span class="text-xs">Logs/Result</span></Tab>
 	<Tab value="history"><span class="text-xs">History</span></Tab>
 	<Tab value="last_save"><span class="text-xs">Last save</span></Tab>
 
 	<svelte:fragment slot="content">
-		<div class="p-4">
-			<TabContent value="logs">
-				<pre
-					class="whitespace-pre-wrap break-all relative h-full bg-gray-50 text-xs p-2">{#if previewJob && previewJob.logs}{previewJob.logs}
-					{:else if previewIsLoading}Starting preview ...
-					{:else}No preview is available yet
-					{/if}
+		<TabContent value="logs" class="h-full w-full relative">
+			<VSplitPane topPanelSize="50%" downPanelSize="50%">
+				<top slot="top">
+					<LogViewer content={previewJob?.logs} isLoading={previewIsLoading} />
+				</top>
+				<down slot="down">
+					<pre
+						class="overflow-x-auto break-all relative h-full p-2 text-sm">{#if previewJob && 'result' in previewJob && previewJob.result}<DisplayResult
+								result={previewJob.result}
+							/>
+						{:else if previewIsLoading}Waiting for Result...
+						{:else}Test to see result here
+						{/if}
         </pre>
-			</TabContent>
-			<TabContent value="results">
-				<pre class="overflow-x-auto break-all relative h-full">
-          {#if previewJob && 'result' in previewJob && previewJob.result}
-						<DisplayResult result={previewJob.result} />
-					{:else if previewIsLoading}
-						Running...
-					{:else}
-						No output is available yet
-					{/if}
-        </pre>
-			</TabContent>
-			<TabContent value="history">
-				<TableCustom>
-					<tr slot="header-row">
-						<th class="text-xs">Id</th>
-						<th class="text-xs">Created at</th>
-						<th class="text-xs">Success</th>
-						<th class="text-xs">Result</th>
-						<th class="text-xs">Code</th>
-						<th class="text-xs">Logs</th>
-					</tr>
-					<tbody slot="body">
-						{#each pastPreviews as { id, created_at, success, result }}
-							<tr class="">
-								<td class="text-xs">
-									<a class="pr-3" href="/run/{id}" target="_blank">{id.substring(30)}</a>
-								</td>
-								<td class="text-xs">{displayDate(created_at)}</td>
-								<td class="text-xs">
-									{#if success}
-										<Icon class="text-green-600" data={check} scale={0.6} />
-									{:else}
-										<Icon class="text-red-700" data={faTimes} scale={0.6} />
-									{/if}
-								</td>
-								<td class="text-xs">
-									<a
-										href="#result"
-										class="text-xs"
-										on:click={() => {
-											openDrawer({ mode: 'json', content: result, title: 'Result' })
-										}}
-									>
-										{JSON.stringify(result).substring(0, 30)}...
-									</a>
-								</td>
-								<td class="text-xs">
-									<a
-										href="#code"
-										class="text-xs"
-										on:click={async () => {
-											const code = (
-												await JobService.getCompletedJob({
-													workspace: $workspaceStore ?? 'NO_W',
-													id
-												})
-											).raw_code
+				</down>
+			</VSplitPane>
+		</TabContent>
+		<TabContent value="history" class="p-2">
+			<TableCustom>
+				<tr slot="header-row">
+					<th class="text-xs">Id</th>
+					<th class="text-xs">Created at</th>
+					<th class="text-xs">Success</th>
+					<th class="text-xs">Result</th>
+					<th class="text-xs">Code</th>
+					<th class="text-xs">Logs</th>
+				</tr>
+				<tbody slot="body">
+					{#each pastPreviews as { id, created_at, success, result }}
+						<tr class="">
+							<td class="text-xs">
+								<a class="pr-3" href="/run/{id}" target="_blank">{id.substring(30)}</a>
+							</td>
+							<td class="text-xs">{displayDate(created_at)}</td>
+							<td class="text-xs">
+								{#if success}
+									<Icon class="text-green-600" data={check} scale={0.6} />
+								{:else}
+									<Icon class="text-red-700" data={faTimes} scale={0.6} />
+								{/if}
+							</td>
+							<td class="text-xs">
+								<a
+									href="#result"
+									class="text-xs"
+									on:click={() => {
+										openDrawer({ mode: 'json', content: result, title: 'Result' })
+									}}
+								>
+									{JSON.stringify(result).substring(0, 30)}...
+								</a>
+							</td>
+							<td class="text-xs">
+								<a
+									href="#code"
+									class="text-xs"
+									on:click={async () => {
+										const code = (
+											await JobService.getCompletedJob({
+												workspace: $workspaceStore ?? 'NO_W',
+												id
+											})
+										).raw_code
 
-											openDrawer({ mode: lang, content: String(code), title: `Code ${lang}` })
-										}}
-									>
-										View code
-									</a>
-								</td>
-								<td>
-									<a
-										href="#logs"
-										class="text-xs"
-										on:click={async () => {
-											const logs = (
-												await JobService.getCompletedJob({
-													workspace: $workspaceStore ?? 'NO_W',
-													id
-												})
-											).logs
-											openDrawer({ mode: 'plain', content: String(logs), title: `Code ${lang}` })
-										}}
-									>
-										View logs
-									</a>
-								</td>
-							</tr>
-						{/each}
-					</tbody>
-				</TableCustom>
-			</TabContent>
-			<TabContent value="last_save">
-				{#if lastSave}
-					<a
-						href="#last_save"
-						class="text-xs"
-						on:click={() => {
-							openDrawer({ mode: lang, content: String(lastSave), title: `Code ${lang}` })
-						}}
-					>
-						View last local save for path {path}
-					</a>
-				{:else}
-					No local save
-				{/if}
-			</TabContent>
-		</div>
+										openDrawer({ mode: lang, content: String(code), title: `Code ${lang}` })
+									}}
+								>
+									View code
+								</a>
+							</td>
+							<td>
+								<a
+									href="#logs"
+									class="text-xs"
+									on:click={async () => {
+										const logs = (
+											await JobService.getCompletedJob({
+												workspace: $workspaceStore ?? 'NO_W',
+												id
+											})
+										).logs
+										openDrawer({ mode: 'plain', content: String(logs), title: `Code ${lang}` })
+									}}
+								>
+									View logs
+								</a>
+							</td>
+						</tr>
+					{/each}
+				</tbody>
+			</TableCustom>
+		</TabContent>
+		<TabContent value="last_save" class="p-2">
+			{#if lastSave}
+				<h2>last local save for path {path}</h2>
+				<HighlightCode language={lang} code={lastSave} />
+			{:else}
+				No local save
+			{/if}
+		</TabContent>
 	</svelte:fragment>
 </Tabs>

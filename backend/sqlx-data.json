@@ -384,6 +384,53 @@
     },
     "query": "SELECT * FROM workspace LIMIT $1 OFFSET $2"
   },
+  "12d3b30b0f5f5bd9601565de5bdeadc3d99a946d2d91cf2bcba84bd161726d51": {
+    "describe": {
+      "columns": [
+        {
+          "name": "id",
+          "ordinal": 0,
+          "type_info": "Uuid"
+        },
+        {
+          "name": "workspace_id",
+          "ordinal": 1,
+          "type_info": "Varchar"
+        },
+        {
+          "name": "last_ping",
+          "ordinal": 2,
+          "type_info": "Timestamptz"
+        }
+      ],
+      "nullable": [
+        false,
+        false,
+        false
+      ],
+      "parameters": {
+        "Left": [
+          "Text",
+          {
+            "Custom": {
+              "kind": {
+                "Enum": [
+                  "script",
+                  "preview",
+                  "flow",
+                  "dependencies",
+                  "flowpreview",
+                  "script_hub"
+                ]
+              },
+              "name": "job_kind"
+            }
+          }
+        ]
+      }
+    },
+    "query": "UPDATE queue SET running = false WHERE last_ping < now() - ($1 || ' seconds')::interval AND running = true AND job_kind != $2 RETURNING id, workspace_id, last_ping"
+  },
   "13a10a404e892d6975d4913424880a75bfb2c6dfb5134c270c7c7225acb05db4": {
     "describe": {
       "columns": [
@@ -633,7 +680,8 @@
               "kind": {
                 "Enum": [
                   "python3",
-                  "deno"
+                  "deno",
+                  "go"
                 ]
               },
               "name": "script_lang"
@@ -771,7 +819,8 @@
               "kind": {
                 "Enum": [
                   "python3",
-                  "deno"
+                  "deno",
+                  "go"
                 ]
               },
               "name": "script_lang"
@@ -1325,7 +1374,8 @@
               "kind": {
                 "Enum": [
                   "python3",
-                  "deno"
+                  "deno",
+                  "go"
                 ]
               },
               "name": "script_lang"
@@ -1621,29 +1671,6 @@
     },
     "query": "DELETE FROM workspace_invite WHERE workspace_id = $1 AND email = $2 RETURNING is_admin"
   },
-  "765d7a0562fec2a76355856df1b69a4536af25f0b5589b5d3828a75713d0331d": {
-    "describe": {
-      "columns": [
-        {
-          "name": "id",
-          "ordinal": 0,
-          "type_info": "Uuid"
-        }
-      ],
-      "nullable": [
-        false
-      ],
-      "parameters": {
-        "Left": [
-          "Varchar",
-          "Text",
-          "Uuid",
-          "Text"
-        ]
-      }
-    },
-    "query": "UPDATE queue SET canceled = true, canceled_by = $1, canceled_reason = $2 WHERE id = $3 AND schedule_path IS NULL AND workspace_id = $4RETURNING id"
-  },
   "77ba7207c8f5fd7156542cfd9943aa9a9fa87a652131c261f5020bab9ba6b5a3": {
     "describe": {
       "columns": [
@@ -1893,7 +1920,8 @@
               "kind": {
                 "Enum": [
                   "python3",
-                  "deno"
+                  "deno",
+                  "go"
                 ]
               },
               "name": "script_lang"
@@ -2832,38 +2860,6 @@
     },
     "query": "SELECT username from usr WHERE workspace_id = $1"
   },
-  "c78b52b350193135d2b9fcf04d3113f7504cc61f6414f809d8a9c51a16f20d35": {
-    "describe": {
-      "columns": [
-        {
-          "name": "id",
-          "ordinal": 0,
-          "type_info": "Uuid"
-        },
-        {
-          "name": "workspace_id",
-          "ordinal": 1,
-          "type_info": "Varchar"
-        },
-        {
-          "name": "last_ping",
-          "ordinal": 2,
-          "type_info": "Timestamptz"
-        }
-      ],
-      "nullable": [
-        false,
-        false,
-        false
-      ],
-      "parameters": {
-        "Left": [
-          "Text"
-        ]
-      }
-    },
-    "query": "UPDATE queue SET running = false WHERE last_ping < now() - ($1 || ' seconds')::interval and running = true RETURNING id, workspace_id, last_ping"
-  },
   "cac594031a21b4806de9c4616317d3541522ef9712a83ecff7bd8b5f6e870748": {
     "describe": {
       "columns": [],
@@ -3158,6 +3154,29 @@
       }
     },
     "query": "\n           SELECT SUM(duration_ms)\n             FROM completed_job\n            WHERE permissioned_as = $1\n              AND created_at > NOW() - INTERVAL '1200 seconds'\n              AND workspace_id = $2"
+  },
+  "e7051b21ffd80de0cb0644a71c89c9f63abed6b446d1e232adbb6931efad6d6d": {
+    "describe": {
+      "columns": [
+        {
+          "name": "id",
+          "ordinal": 0,
+          "type_info": "Uuid"
+        }
+      ],
+      "nullable": [
+        false
+      ],
+      "parameters": {
+        "Left": [
+          "Varchar",
+          "Text",
+          "Uuid",
+          "Text"
+        ]
+      }
+    },
+    "query": "UPDATE queue SET canceled = true, canceled_by = $1, canceled_reason = $2 WHERE id = $3 AND workspace_id = $4 RETURNING id"
   },
   "ee99cb974fb35d2d92fa96cecb53b8ad3a729ac710f362dc55a576613b66f9be": {
     "describe": {

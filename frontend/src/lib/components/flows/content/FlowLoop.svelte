@@ -1,7 +1,6 @@
 <script lang="ts">
 	import { getContext } from 'svelte'
 	import FlowCard from '../common/FlowCard.svelte'
-	import { flowStateStore } from '../flowState'
 	import type { FlowEditorContext } from '../types'
 	import Toggle from '$lib/components/Toggle.svelte'
 

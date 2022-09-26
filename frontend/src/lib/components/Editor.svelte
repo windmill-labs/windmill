@@ -40,9 +40,13 @@
 		updateOptions
 	} from '$lib/editorUtils'
 
-	StandaloneServices.initialize({
-		...getMessageServiceOverride(document.body)
-	})
+	try {
+		StandaloneServices.initialize({
+			...getMessageServiceOverride(document.body)
+		})
+	} catch (e) {
+		console.error(e)
+	}
 
 	let divEl: HTMLDivElement | null = null
 	let editor: monaco.editor.IStandaloneCodeEditor
@@ -230,12 +234,19 @@
 					if (name == 'deno') {
 						command && command.dispose()
 						command = undefined
-						command = vscode.commands.registerCommand('deno.cache', (uris: DocumentUri[] = []) => {
-							languageClient.sendRequest(new RequestType('deno/cache'), {
-								referrer: { uri },
-								uris: uris.map((uri) => ({ uri }))
-							})
-						})
+						try {
+							command = vscode.commands.registerCommand(
+								'deno.cache',
+								(uris: DocumentUri[] = []) => {
+									languageClient.sendRequest(new RequestType('deno/cache'), {
+										referrer: { uri },
+										uris: uris.map((uri) => ({ uri }))
+									})
+								}
+							)
+						} catch (err) {
+							console.error(err)
+						}
 					}
 
 					websocketAlive[name] = true

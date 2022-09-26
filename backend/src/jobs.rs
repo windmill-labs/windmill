@@ -778,7 +778,7 @@ async fn cancel_job(
 
     let job_option = sqlx::query_scalar!(
         "UPDATE queue SET canceled = true, canceled_by = $1, canceled_reason = $2 WHERE id = $3 \
-         AND schedule_path IS NULL AND workspace_id = $4RETURNING id",
+         AND workspace_id = $4 RETURNING id",
         &authed.username,
         reason,
         id,
@@ -791,13 +791,14 @@ async fn cancel_job(
         audit_log(
             &mut tx,
             &authed.username,
-            "jobs.delete",
+            "jobs.cancel",
             ActionKind::Delete,
             &w_id,
             Some(&id.to_string()),
             None,
         )
         .await?;
+        tx.commit().await?;
         Ok(id.to_string())
     } else {
         let (job_o, tx) = get_job_by_id(tx, &w_id, id).await?;
@@ -807,13 +808,6 @@ async fn cancel_job(
                 "queued job id {} exists but is already completed and cannot be canceled",
                 id
             )),
-            Some(Job::QueuedJob(job)) if job.schedule_path.is_some() => {
-                error::Error::BadRequest(format!(
-                    "queued job id {} exists but has been created by a scheduler 
-                and can only be only canceled by disabling the parent scheduler",
-                    id
-                ))
-            }
             _ => error::Error::NotFound(format!("queued job id {} does not exist", id)),
         };
         Err(err)

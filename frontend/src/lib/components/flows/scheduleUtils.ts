@@ -4,7 +4,6 @@ export type Schedule = {
 	args: Record<string, any>
 	cron: string
 	enabled: boolean
-	previewArgs: Record<string, any>
 }
 
 // Load the schedule of a flow given its path and the workspace
@@ -27,6 +26,5 @@ export async function loadFlowSchedule(path: string, workspace: string = ''): Pr
 		enabled: schedule.enabled,
 		cron: schedule.schedule,
 		args: schedule.args ?? {},
-		previewArgs: JSON.parse(JSON.stringify(schedule.args))
 	}
 }

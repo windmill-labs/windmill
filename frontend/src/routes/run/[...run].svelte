@@ -9,7 +9,6 @@
 <script lang="ts">
 	import { page } from '$app/stores'
 	import { JobService, Job } from '$lib/gen'
-	import { onDestroy } from 'svelte'
 	import {
 		canWrite,
 		displayDaysAgo,
@@ -47,23 +46,27 @@
 	import TableCustom from '$lib/components/TableCustom.svelte'
 	import ArgInfo from '$lib/components/ArgInfo.svelte'
 	import HighlightCode from '$lib/components/HighlightCode.svelte'
+	import TestJobLoader from '$lib/components/TestJobLoader.svelte'
+	import LogViewer from '$lib/components/LogViewer.svelte'
 
 	let workspace_id_query: string | undefined = $page.url.searchParams.get('workspace') ?? undefined
 	let workspace_id: string | undefined
 
-	let intervalId: NodeJS.Timer
 	let job: Job | undefined
-	let error: Error | undefined
 	const iconScale = 1
-	let syncIteration: number = 0
-	const iterationsBeforeSlowRefresh = 100
+
 	let viewTab: 'result' | 'logs' | 'code' = 'result'
+
+	// Test
+	let testIsLoading = false
+
+	let testJobLoader: TestJobLoader
 
 	const SMALL_ICON_SCALE = 0.7
 
 	async function deleteCompletedJob(id: string): Promise<void> {
 		await JobService.deleteCompletedJob({ workspace: workspace_id!, id })
-		loadLogs()
+		getLogs()
 	}
 
 	async function cancelJob(id: string) {
@@ -72,54 +75,6 @@
 			sendUserToast(`job ${id} canceled`)
 		} catch (err) {
 			sendUserToast('could not cancel job', true)
-		}
-	}
-
-	async function checkCompleted(): Promise<void> {
-		if (job?.type === 'CompletedJob') {
-			//only CompletedJob has success property
-			clearInterval(intervalId)
-		}
-	}
-
-	async function loadLogs(): Promise<void> {
-		try {
-			let jobId = $page.params.run
-			if (job && `running` in job && job.job_kind != 'flow' && job.job_kind != 'flowpreview') {
-				let jobUpdates = await JobService.getJobUpdates({
-					workspace: workspace_id!,
-					id: jobId,
-					running: job.running,
-					logOffset: job.logs?.length ?? 0
-				})
-				if (jobUpdates.new_logs) {
-					job.logs = (job.logs ?? '').concat(jobUpdates.new_logs)
-				}
-				if ((jobUpdates.running ?? false) || (jobUpdates.completed ?? false)) {
-					job = await JobService.getJob({ workspace: workspace_id!, id: jobId })
-				}
-			} else {
-				job = await JobService.getJob({ workspace: workspace_id!, id: jobId })
-			}
-
-			checkCompleted()
-			initView()
-		} catch (err) {
-			error = err
-			console.error(error)
-		}
-	}
-
-	function syncer(): void {
-		if (syncIteration > iterationsBeforeSlowRefresh) {
-			loadLogs()
-			if (intervalId) {
-				clearInterval(intervalId)
-				intervalId = setInterval(loadLogs, 5000)
-			}
-		} else {
-			syncIteration++
-			loadLogs()
 		}
 	}
 
@@ -132,18 +87,25 @@
 		}
 	}
 
-	$: {
-		if ($workspaceStore && $page.params.run) {
-			workspace_id = workspace_id_query ?? $workspaceStore
-			intervalId && clearInterval(intervalId)
-			intervalId = setInterval(syncer, 500)
-		}
+	async function getLogs() {
+		await testJobLoader?.watchJob($page.params.run)
+		initView()
 	}
 
-	onDestroy(() => {
-		intervalId && clearInterval(intervalId)
-	})
+	$: {
+		if ($workspaceStore && $page.params.run && testJobLoader) {
+			workspace_id = workspace_id_query ?? $workspaceStore
+			getLogs()
+		}
+	}
 </script>
+
+<TestJobLoader
+	on:done={() => (viewTab = 'result')}
+	bind:this={testJobLoader}
+	bind:isLoading={testIsLoading}
+	bind:job
+/>
 
 <CenteredPage>
 	<div class="flex flex-row justify-between">
@@ -246,7 +208,7 @@
 			{#if job?.job_kind == 'script'}
 				{#if canWrite(job?.script_path ?? '', {}, $userStore)}
 					<a
-						href="/scripts/edit/{job?.script_hash}"
+						href="/scripts/edit/{job?.script_hash}?step=2"
 						class="default-button-secondary py-1 text-sm px-2"
 						><Icon data={faEdit} scale={0.6} /><span class="px-1">Edit</span></a
 					>
@@ -396,44 +358,45 @@
 		</div>
 	</div>
 
-	<!-- Logs and outputs-->
-	<div class="mr-2 sm:mr-0 mt-12">
-		<div class="flex flex-col sm:flex-row text-base">
-			<button
-				class=" py-1 px-6 block border-gray-200 hover:bg-gray-50  {viewTab != 'result'
-					? 'text-gray-500'
-					: 'text-gray-700 font-semibold  '}"
-				on:click={() => (viewTab = 'result')}
-			>
-				Result <Tooltip
-					>What is returned by the <span class="font-mono">main</span> function of the script. Dictionary
-					of columns are rendered as a table</Tooltip
-				>
-			</button>
-			<button
-				class="py-1 px-6 block border-gray-200 hover:bg-gray-50  {viewTab != 'logs'
-					? 'text-gray-500'
-					: 'text-gray-700 font-semibold  '}"
-				on:click={() => (viewTab = 'logs')}
-			>
-				Logs
-			</button>
-			{#if job && 'raw_code' in job && job.raw_code}
+	{#if job?.job_kind != 'flow' && job?.job_kind != 'flowpreview'}
+		<!-- Logs and outputs-->
+		<div class="mr-2 sm:mr-0 mt-12">
+			<div class="flex flex-col sm:flex-row text-base">
 				<button
-					class="py-1 px-6 block border-gray-200 hover:bg-gray-50  {viewTab != 'code'
+					class=" py-1 px-6 block border-gray-200 hover:bg-gray-50  {viewTab != 'result'
 						? 'text-gray-500'
 						: 'text-gray-700 font-semibold  '}"
-					on:click={() => (viewTab = 'code')}
+					on:click={() => (viewTab = 'result')}
 				>
-					{job.job_kind == 'dependencies' ? 'Input Dependencies' : 'Code previewed'}
+					Result <Tooltip
+						>What is returned by the <span class="font-mono">main</span> function of the script. Dictionary
+						of columns are rendered as a table</Tooltip
+					>
 				</button>
-			{/if}
-		</div>
-		<div class="flex flex-row border rounded-md p-3">
-			<pre
-				class="text-xs overflow-auto max-h-96 w-full p-3">{#if viewTab == 'logs'}{#if job && 'logs' in job && job.logs}{job.logs}
-					{:else if job}No logs are available yet
-					{:else}Loading...{/if}
+				<button
+					class="py-1 px-6 block border-gray-200 hover:bg-gray-50  {viewTab != 'logs'
+						? 'text-gray-500'
+						: 'text-gray-700 font-semibold  '}"
+					on:click={() => (viewTab = 'logs')}
+				>
+					Logs
+				</button>
+				{#if job && 'raw_code' in job && job.raw_code}
+					<button
+						class="py-1 px-6 block border-gray-200 hover:bg-gray-50  {viewTab != 'code'
+							? 'text-gray-500'
+							: 'text-gray-700 font-semibold  '}"
+						on:click={() => (viewTab = 'code')}
+					>
+						{job.job_kind == 'dependencies' ? 'Input Dependencies' : 'Code previewed'}
+					</button>
+				{/if}
+			</div>
+			<div class="flex flex-row border rounded-md p-3 max-h-1/2 overflow-auto">
+				{#if viewTab == 'logs'}
+					<div class="w-full">
+						<LogViewer isLoading={!(job && 'logs' in job && job.logs)} content={job?.logs} />
+					</div>
 				{:else if viewTab == 'code'}
 					{#if job && 'raw_code' in job && job.raw_code}
 						<HighlightCode language={job.language} code={job.raw_code} />
@@ -443,7 +406,7 @@
 				{:else if job}No output is available yet
 				{:else}Loading...
 				{/if}
-			</pre>
+			</div>
 		</div>
-	</div>
+	{/if}
 </CenteredPage>

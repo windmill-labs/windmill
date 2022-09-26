@@ -15,7 +15,7 @@ import { flowStateStore, type FlowModuleState, type FlowState } from './flowStat
 import { flowStore } from './flowStore'
 import { loadSchemaFromModule } from './utils'
 
-export function emptyFlowModuleSchema(): FlowModuleState {
+export function emptyFlowModuleState(): FlowModuleState {
 	return {
 		schema: emptySchema()
 	}
@@ -75,7 +75,7 @@ export async function createLoop(): Promise<[FlowModule, FlowModuleState]> {
 	const { schema } = await loadFlowModuleSchema(loopFlowModule)
 	return [loopFlowModule, {
 		schema,
-		childFlowModules: [emptyFlowModuleSchema()],
+		childFlowModules: [emptyFlowModuleState()],
 		previewResult: NEVER_TESTED_THIS_FAR
 	}]
 }
@@ -271,7 +271,7 @@ function extractPreviewResults(flowModuleSchemas: FlowModuleState[]) {
 
 export type JobResult = {
 	job?: Job
-	innerJobs?: JobResult[]
+	innerJobs: JobResult[]
 	loopJobs?: JobResult[]
 }
 
@@ -298,7 +298,7 @@ export function mapJobResultsToFlowState(
 			return flowState
 		})
 	} else {
-		if (!Array.isArray(jobs.innerJobs) || jobs.innerJobs.length === 0) {
+		if (jobs.innerJobs.length === 0) {
 			return
 		}
 
