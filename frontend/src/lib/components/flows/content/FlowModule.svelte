@@ -53,12 +53,20 @@
 	async function apply<T>(fn: (arg: T) => Promise<[FlowModule, FlowModuleState]>, arg: T) {
 		const [module, moduleState] = await fn(arg)
 
-		flowModule = module
-		flowModuleState = moduleState
+		if (
+			JSON.stringify(flowModule) != JSON.stringify(module) ||
+			JSON.stringify(flowModuleState) != JSON.stringify(moduleState)
+		) {
+			flowModule = module
+			flowModuleState = moduleState
+		}
 	}
 
 	async function applyState<T>(fn: (arg: T) => Promise<FlowModuleState>, arg: T) {
-		flowModuleState = await fn(arg)
+		const newState = await fn(arg)
+		if (JSON.stringify(flowModuleState) != JSON.stringify(newState)) {
+			flowModuleState = newState
+		}
 	}
 
 	async function reload(flowModule: FlowModule) {
@@ -156,7 +164,11 @@
 										</PropPickerWrapper>
 									</TabContent>
 									<TabContent value="test" class="flex flex-col flex-1 h-full">
-										<ModulePreview mod={flowModule} schema={flowModuleState.schema} />
+										<ModulePreview
+											mod={flowModule}
+											schema={flowModuleState.schema}
+											indices={[parentIndex, childIndex]}
+										/>
 									</TabContent>
 
 									<TabContent value="advanced" class="flex flex-col flex-1 h-full">

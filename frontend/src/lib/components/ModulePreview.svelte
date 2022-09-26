@@ -12,6 +12,7 @@
 	import { mapJobResultsToFlowState } from './flows/flowStateUtils'
 	import Button from './common/button/Button.svelte'
 	import { faRotateRight } from '@fortawesome/free-solid-svg-icons'
+	import { flowStateStore } from './flows/flowState'
 
 	let testJobLoader: TestJobLoader
 
@@ -21,6 +22,7 @@
 
 	export let mod: FlowModule
 	export let schema: Schema
+	export let indices: [number, number | undefined]
 
 	let stepArgs: Record<string, any> = {}
 
@@ -38,8 +40,25 @@
 	}
 
 	function jobDone() {
-		if (testJob && !testJob.canceled && testJob.type == 'CompletedJob') {
-			//mapJobResultsToFlowState(testJob.result, 'justthis', 0, 0)
+		if (testJob && !testJob.canceled && testJob.type == 'CompletedJob' && `result` in testJob) {
+			const result = testJob.result
+			console.log(result, indices)
+			const pMod = $flowStateStore.modules[indices[0]]
+			if (pMod) {
+				if (indices[1] != undefined && pMod.childFlowModules) {
+					const cMod = pMod.childFlowModules[indices[1]]
+					if (cMod) {
+						cMod.previewResult = result
+					}
+				} else {
+					console.log('setting preview result', result)
+					pMod.previewResult = result
+				}
+				$flowStateStore.modules[indices[0]] = pMod
+				$flowStateStore = $flowStateStore
+				console.log(1, pMod, $flowStateStore)
+			}
+			console.log(2, $flowStateStore)
 		}
 	}
 </script>

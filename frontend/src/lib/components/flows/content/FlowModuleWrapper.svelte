@@ -37,7 +37,7 @@
 			{/if}
 		{/each}
 	{/each}
-{:else}
+{:else if $flowStore.value.modules[parentIndex]}
 	<FlowModule
 		args={$previewArgs}
 		bind:flowModule={$flowStore.value.modules[parentIndex]}
