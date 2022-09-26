@@ -18,7 +18,6 @@
 		scriptToHubUrl,
 		copyToClipboard
 	} from '$lib/utils'
-	import Icon from 'svelte-awesome'
 	import {
 		faPlay,
 		faEdit,
@@ -43,13 +42,14 @@
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
 	import { onDestroy } from 'svelte'
 	import HighlightCode from '$lib/components/HighlightCode.svelte'
-	import { Badge, Tabs, Tab, TabContent, Button } from '$lib/components/common'
+	import { Badge, Tabs, Tab, TabContent, Button, ActionRow } from '$lib/components/common'
 
 	let script: Script | undefined
 	let topHash: string | undefined
 	let can_write = false
 	let deploymentInProgress = false
 	let intervalId: NodeJS.Timer
+	let scrollY: number
 
 	let shareModal: ShareModal
 
@@ -128,6 +128,111 @@
 	})
 </script>
 
+<svelte:window bind:scrollY />
+
+{#if script}
+	<ActionRow class={'sticky top-0 ' + (scrollY >= 30 ? 'border-b' : '')}>
+		<svelte:fragment slot="left">
+			<Button
+				href={`/scripts/run/${script.hash}`}
+				variant="contained"
+				color="blue"
+				size="md"
+				startIcon={{ icon: faPlay }}
+			>
+				Run
+			</Button>
+			<Button
+				href={`/scripts/edit/${script.hash}?step=2`}
+				variant="contained"
+				color="blue"
+				size="md"
+				startIcon={{ icon: faEdit }}
+				disabled={!can_write}
+			>
+				Edit
+			</Button>
+			{#if !topHash}
+				<Button
+					href={`/scripts/add?template=${script.path}`}
+					variant="contained"
+					color="blue"
+					size="md"
+					startIcon={{ icon: faCodeFork }}
+				>
+					Use as template/Fork
+				</Button>
+			{/if}
+		</svelte:fragment>
+		<svelte:fragment slot="right">
+			<Button
+				href={`/runs/${script.path}`}
+				variant="border"
+				color="blue"
+				size="md"
+				startIcon={{ icon: faList }}
+			>
+				View runs
+			</Button>
+			<Button
+				target="_blank"
+				href={scriptToHubUrl(
+					script.content,
+					script.summary,
+					script.description ?? '',
+					script.kind
+				).toString()}
+				variant="border"
+				color="blue"
+				size="md"
+				startIcon={{ icon: faGlobe }}
+			>
+				Publish to Hub
+			</Button>
+			<Dropdown
+				dropdownItems={[
+					{
+						displayName: 'Use as template',
+						icon: faEdit,
+						href: `/scripts/add?template=${script.path}`
+					},
+					{
+						displayName: 'Share',
+						icon: faShare,
+						action: () => {
+							shareModal.openModal()
+						},
+						disabled: !can_write
+					},
+					{
+						displayName: 'Schedule',
+						icon: faCalendar,
+						href: `/schedule/add?path=${script.path}`
+					},
+					{
+						displayName: 'Archive',
+						icon: faArchive,
+						type: 'delete',
+						action: () => {
+							script?.hash && archiveScript(script.hash)
+						},
+						disabled: script.archived || !can_write
+					},
+					{
+						displayName: 'Delete',
+						icon: faTrash,
+						type: 'delete',
+						action: () => {
+							script?.hash && deleteScript(script.hash)
+						},
+						disabled: script.deleted || !($userStore?.is_admin ?? false)
+					}
+				]}
+			/>
+		</svelte:fragment>
+	</ActionRow>
+{/if}
+
 <CenteredPage>
 	<div class="flex flex-row flex-wrap justify-between gap-4">
 		<div>
@@ -166,115 +271,16 @@
 				</span>
 			</p>
 		</div>
-
-		{#if script}
-			<div class="flex items-start flex-wrap gap-1">
-				<Button
-					href={`/scripts/run/${script.hash}`}
-					variant="border"
-					color="blue"
-					size="xs"
-					startIcon={{ icon: faPlay }}
-				>
-					Run
-				</Button>
-				<Button
-					href={`/scripts/edit/${script.hash}?step=2`}
-					variant="border"
-					color="blue"
-					size="xs"
-					startIcon={{ icon: faEdit }}
-					disabled={!can_write}
-				>
-					Edit
-				</Button>
-				{#if !topHash}
-					<Button
-						href={`/scripts/add?template=${script.path}`}
-						variant="border"
-						color="blue"
-						size="xs"
-						startIcon={{ icon: faCodeFork }}
-					>
-						Use as template/Fork
-					</Button>
-				{/if}
-				<Button
-					href={`/runs/${script.path}`}
-					variant="border"
-					color="blue"
-					size="xs"
-					startIcon={{ icon: faList }}
-				>
-					View runs
-				</Button>
-				<Button
-					target="_blank"
-					href={scriptToHubUrl(
-						script.content,
-						script.summary,
-						script.description ?? '',
-						script.kind
-					).toString()}
-					variant="border"
-					color="blue"
-					size="xs"
-					startIcon={{ icon: faGlobe }}
-				>
-					Publish to Hub
-				</Button>
-				<Dropdown
-					dropdownItems={[
-						{
-							displayName: 'Use as template',
-							icon: faEdit,
-							href: `/scripts/add?template=${script.path}`
-						},
-						{
-							displayName: 'Share',
-							icon: faShare,
-							action: () => {
-								shareModal.openModal()
-							},
-							disabled: !can_write
-						},
-						{
-							displayName: 'Schedule',
-							icon: faCalendar,
-							href: `/schedule/add?path=${script.path}`
-						},
-						{
-							displayName: 'Archive',
-							icon: faArchive,
-							type: 'delete',
-							action: () => {
-								script?.hash && archiveScript(script.hash)
-							},
-							disabled: script.archived || !can_write
-						},
-						{
-							displayName: 'Delete',
-							icon: faTrash,
-							type: 'delete',
-							action: () => {
-								script?.hash && deleteScript(script.hash)
-							},
-							disabled: script.deleted || !($userStore?.is_admin ?? false)
-						}
-					]}
-				/>
-			</div>
-		{/if}
 	</div>
 
 	<ShareModal bind:this={shareModal} kind="script" path={script?.path ?? ''} />
 
-	<div class="flex flex-col gap-8 max-w-7xl pb-2">
+	<div class="flex flex-col gap-8 max-w-7xl pt-8 pb-2">
 		{#if script === undefined}
 			<p>loading</p>
 		{:else}
 			<div>
-				<h2 class="font-bold mt-8 mb-2">{script.summary}</h2>
+				<h2 class="font-bold mb-2">{script.summary}</h2>
 				<div class="prose">
 					<SvelteMarkdown source={defaultIfEmptyString(script.description, 'No description')} />
 				</div>

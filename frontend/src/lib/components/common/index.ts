@@ -1,3 +1,4 @@
+export { default as ActionRow } from './actionRow/ActionRow.svelte'
 export { default as Badge } from './badge/Badge.svelte'
 export { default as Button } from './button/Button.svelte'
 export { default as Drawer } from './drawer/Drawer.svelte'
