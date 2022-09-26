@@ -179,33 +179,58 @@
 			btnClasses="mr-1"
 			on:click={variablePicker.openModal}
 			size="xs"
+			spacingSize="md"
 			startIcon={{ icon: faFile }}
 		>
 			Insert variable
 		</Button>
 	</div>
 	<div>
-		<Button btnClasses="mx-1" size="xs" color="light" on:click={resourcePicker.openModal}>
+		<Button
+			btnClasses="mx-1"
+			size="xs"
+			spacingSize="md"
+			color="light"
+			on:click={resourcePicker.openModal}
+		>
 			<Icon data={faCube} class="mr-2" />
 			Insert resource
 		</Button>
 	</div>
 
 	<div>
-		<Button btnClasses="mx-1" size="xs" color="light" on:click={scriptPicker.openModal}>
+		<Button
+			btnClasses="mx-1"
+			size="xs"
+			spacingSize="md"
+			color="light"
+			on:click={scriptPicker.openModal}
+		>
 			<Icon data={faCode} class="mr-2" />
 			Search script
 		</Button>
 	</div>
 
 	<div>
-		<Button btnClasses="mx-1" size="xs" color="light" on:click={editor.clearContent}>
+		<Button
+			btnClasses="mx-1"
+			size="xs"
+			spacingSize="md"
+			color="light"
+			on:click={editor.clearContent}
+		>
 			<Icon data={faRotateLeft} class="mr-2" />
 			Reset content
 		</Button>
 	</div>
 	<div>
-		<Button btnClasses="ml-1" size="xs" color="light" on:click={editor.reloadWebsocket}>
+		<Button
+			btnClasses="ml-1"
+			size="xs"
+			spacingSize="md"
+			color="light"
+			on:click={editor.reloadWebsocket}
+		>
 			<Icon data={faRotate} class="h-4 w-4 mr-2" />
 
 			Reload assistants

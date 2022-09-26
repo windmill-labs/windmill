@@ -137,7 +137,7 @@
 				href={`/scripts/run/${script.hash}`}
 				variant="contained"
 				color="blue"
-				size="md"
+				size="sm"
 				startIcon={{ icon: faPlay }}
 			>
 				Run
@@ -146,7 +146,7 @@
 				href={`/scripts/edit/${script.hash}?step=2`}
 				variant="contained"
 				color="blue"
-				size="md"
+				size="sm"
 				startIcon={{ icon: faEdit }}
 				disabled={!can_write}
 			>
@@ -157,7 +157,7 @@
 					href={`/scripts/add?template=${script.path}`}
 					variant="contained"
 					color="blue"
-					size="md"
+					size="sm"
 					startIcon={{ icon: faCodeFork }}
 				>
 					Use as template/Fork
@@ -169,7 +169,7 @@
 				href={`/runs/${script.path}`}
 				variant="border"
 				color="blue"
-				size="md"
+				size="sm"
 				startIcon={{ icon: faList }}
 			>
 				View runs
@@ -184,7 +184,7 @@
 				).toString()}
 				variant="border"
 				color="blue"
-				size="md"
+				size="sm"
 				startIcon={{ icon: faGlobe }}
 			>
 				Publish to Hub
