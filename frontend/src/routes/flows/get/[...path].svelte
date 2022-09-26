@@ -38,6 +38,7 @@
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
 	import FlowViewer from '$lib/components/FlowViewer.svelte'
 	import ObjectViewer from '$lib/components/propertyPicker/ObjectViewer.svelte'
+	import { Button, ActionRow } from '$lib/components/common'
 
 	let flow: Flow | undefined
 	let schedule: Schedule | undefined
@@ -45,6 +46,7 @@
 
 	let path = $page.params.path
 	let shareModal: ShareModal
+	let scrollY: number
 
 	$: {
 		if ($workspaceStore && $userStore) {
@@ -88,105 +90,101 @@
 	}
 </script>
 
+<svelte:window bind:scrollY />
+
+{#if flow}
+	<ActionRow applyPageWidth class={'sticky top-0 ' + (scrollY >= 30 ? 'border-b' : '')}>
+		<svelte:fragment slot="left">
+			<Button
+				href="/flows/run/{path}"
+				variant="contained"
+				color="blue"
+				size="md"
+				startIcon={{ icon: faPlay }}
+			>
+				Run
+			</Button>
+			<Button
+				href="/flows/edit/{path}"
+				variant="contained"
+				color="blue"
+				size="md"
+				startIcon={{ icon: faEdit }}
+				disabled={!can_write}
+			>
+				Edit
+			</Button>
+			<Button
+				href="/flows/add?template={flow.path}"
+				variant="contained"
+				color="blue"
+				size="md"
+				startIcon={{ icon: faCodeFork }}
+			>
+				Use as template/Fork
+			</Button>
+		</svelte:fragment>
+		<svelte:fragment slot="right">
+			<Button
+				href="/runs/{flow.path}"
+				variant="border"
+				color="blue"
+				size="md"
+				startIcon={{ icon: faList }}
+			>
+				View runs
+			</Button>
+			<Button
+				target="_blank"
+				href={flowToHubUrl(flow).toString()}
+				variant="border"
+				color="blue"
+				size="md"
+				startIcon={{ icon: faGlobe }}
+			>
+				Publish to Hub
+			</Button>
+			<Dropdown
+				dropdownItems={[
+					{
+						displayName: 'Use as template',
+						icon: faEdit,
+						href: `/flows/add?template=${flow.path}`
+					},
+					{
+						displayName: 'Share',
+						icon: faShare,
+						action: () => {
+							shareModal.openModal()
+						},
+						disabled: !can_write
+					},
+					{
+						displayName: 'Schedule',
+						icon: faCalendar,
+						href: `/schedule/add?path=${flow.path}&isFlow=true`
+					},
+					{
+						displayName: 'Archive',
+						icon: faArchive,
+						type: 'delete',
+						action: () => {
+							flow?.path && archiveFlow()
+						},
+						disabled: flow.archived || !can_write
+					}
+				]}
+			/>
+		</svelte:fragment>
+	</ActionRow>
+{/if}
+
 <CenteredPage>
-	<div class="flex flex-row justify-between">
-		<h1>
-			<a href="/flows/get/{path}">{flow?.path ?? 'Loading...'}</a>
+	<h1>
+		<a href="/flows/get/{path}">{flow?.path ?? 'Loading...'}</a>
 
-			<SharedBadge canWrite={can_write} extraPerms={flow?.extra_perms ?? {}} />
-		</h1>
-
-		{#if flow}
-			<div class="flex flex-row-reverse px-6">
-				<Dropdown
-					dropdownItems={[
-						{
-							displayName: 'Use as template',
-							icon: faEdit,
-							href: `/flows/add?template=${flow.path}`
-						},
-						{
-							displayName: 'Share',
-							icon: faShare,
-							action: () => {
-								shareModal.openModal()
-							},
-							disabled: !can_write
-						},
-						{
-							displayName: 'Schedule',
-							icon: faCalendar,
-							href: `/schedule/add?path=${flow.path}&isFlow=true`
-						},
-						{
-							displayName: 'Archive',
-							icon: faArchive,
-							type: 'delete',
-							action: () => {
-								flow?.path && archiveFlow()
-							},
-							disabled: flow.archived || !can_write
-						}
-					]}
-				/>
-				<div class="px-1">
-					<a
-						target="_blank"
-						class="inline-flex items-center default-button bg-transparent hover:bg-blue-500 text-blue-700 font-normal hover:text-white py-0 px-1 border-blue-500 hover:border-transparent rounded"
-						href={flowToHubUrl(flow).toString()}
-					>
-						<div class="inline-flex items-center justify-center">
-							<Icon class="text-blue-500" data={faGlobe} scale={0.5} />
-							<span class="pl-1">Publish to Hub</span>
-						</div>
-					</a>
-				</div>
-				<div class="px-1">
-					<a
-						class="inline-flex items-center default-button bg-transparent hover:bg-blue-500 text-blue-700 font-normal hover:text-white py-0 px-1 border-blue-500 hover:border-transparent rounded"
-						href="/runs/{flow.path}"
-					>
-						<div class="inline-flex items-center justify-center">
-							<Icon class="text-blue-500" data={faList} scale={0.5} />
-							<span class="pl-1">View runs</span>
-						</div>
-					</a>
-				</div>
-				<div class="px-1">
-					<a
-						class="inline-flex items-center default-button bg-transparent hover:bg-blue-500 text-blue-700 font-normal hover:text-white py-0 px-1 border-blue-500 hover:border-transparent rounded"
-						href="/flows/edit/{path}"
-						class:disabled={!can_write}
-					>
-						<div class="inline-flex items-center justify-center">
-							<Icon class="text-blue-500" data={faEdit} scale={0.5} />
-							<span class="pl-1">Edit</span>
-						</div>
-					</a>
-					<a
-						class="inline-flex items-center default-button bg-transparent hover:bg-blue-500 text-blue-700 font-normal hover:text-white py-0 px-1 border-blue-500 hover:border-transparent rounded"
-						href="/flows/add?template={flow.path}"
-					>
-						<div class="inline-flex items-center justify-center">
-							<Icon class="text-blue-500" data={faCodeFork} scale={0.5} />
-							<span class="pl-1">Use as template/Fork</span>
-						</div>
-					</a>
-				</div>
-				<div class="px-1">
-					<a
-						class="inline-flex items-center default-button bg-transparent hover:bg-blue-500 text-blue-700 font-normal hover:text-white py-0 px-1 border-blue-500 hover:border-transparent rounded"
-						href="/flows/run/{path}"
-					>
-						<div class="inline-flex items-center justify-center">
-							<Icon class="text-blue-500" data={faPlay} scale={0.5} />
-							<span class="pl-1">Run</span>
-						</div>
-					</a>
-				</div>
-			</div>
-		{/if}
-	</div>
+		<SharedBadge canWrite={can_write} extraPerms={flow?.extra_perms ?? {}} />
+	</h1>
 
 	<ShareModal bind:this={shareModal} kind="flow" path={flow?.path ?? ''} />
 
