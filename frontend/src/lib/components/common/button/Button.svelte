@@ -4,6 +4,7 @@
 	import type { Button } from './model'
 
 	export let size: Button.Size = 'md'
+	export let spacingSize: Button.Size = size
 	export let color: Button.Color = 'blue'
 	export let variant: Button.Variant = 'contained'
 	export let btnClasses: string = ''
@@ -33,19 +34,26 @@
 		},
 		light: {
 			border:
-				'border-gray-700 hover:border-gray-800 bg-white hover:bg-gray-100 text-gray-700 hover:text-gray-800 focus:ring-gray-300',
+				'border bg-white hover:bg-gray-100 text-gray-700 hover:text-gray-800 focus:ring-gray-300',
 			contained: 'bg-white hover:bg-gray-100 text-gray-700 focus:ring-gray-300'
 		}
 	}
 
-	const sizeClass: Record<Button.Size, string> = {
-		xs: 'text-xs px-2.5 py-1',
-		sm: 'text-sm px-2.5 py-1',
-		md: 'text-md px-3 py-1',
-		lg: 'text-lg px-4 py-2',
-		xl: 'text-xl px-5 py-2'
+	const fontSizeClasses: Record<Button.Size, string> = {
+		xs: 'text-xs',
+		sm: 'text-sm',
+		md: 'text-md',
+		lg: 'text-lg',
+		xl: 'text-xl'
 	}
 
+	const spacingClasses: Record<Button.Size, string> = {
+		xs: 'px-2.5 py-1',
+		sm: 'px-2.5 py-1',
+		md: 'px-4 py-2',
+		lg: 'px-4 py-2',
+		xl: 'px-4 py-2'
+	}
 	const iconScale: Record<Button.Size, number> = {
 		xs: 0.7,
 		sm: 0.8,
@@ -54,11 +62,12 @@
 		xl: 1.2
 	}
 
-	const buttonProps = {
+	$: buttonProps = {
 		class: classNames(
 			colorVariants[color][variant],
 			variant === 'border' ? 'border' : '',
-			sizeClass[size],
+			fontSizeClasses[size],
+			spacingClasses[spacingSize],
 			'focus:ring-4 font-medium',
 			'rounded-md',
 			'flex justify-center items-center text-center',
