@@ -73,11 +73,14 @@ export async function createLoop(): Promise<[FlowModule, FlowModuleState]> {
 	}
 
 	const { schema } = await loadFlowModuleSchema(loopFlowModule)
-	return [loopFlowModule, {
-		schema,
-		childFlowModules: [emptyFlowModuleState()],
-		previewResult: NEVER_TESTED_THIS_FAR
-	}]
+	return [
+		loopFlowModule,
+		{
+			schema,
+			childFlowModules: [emptyFlowModuleState()],
+			previewResult: NEVER_TESTED_THIS_FAR
+		}
+	]
 }
 
 export async function fork(flowModule: FlowModule): Promise<[FlowModule, FlowModuleState]> {
@@ -189,7 +192,7 @@ type StepPropPicker = {
 	extraLib: string
 }
 
-export const NEVER_TESTED_THIS_FAR = "never tested this far"
+export const NEVER_TESTED_THIS_FAR = 'never tested this far'
 
 export function getStepPropPicker(
 	indexes: number[],
@@ -203,8 +206,12 @@ export function getStepPropPicker(
 	const flowInput = schemaToObject(flowInputSchema, args)
 	const results = getPreviousResults(flowState.modules, parentIndex)
 
-	const lastResult = parentIndex == 0 ? flowInput : (
-		results.length > 0 ? results[results.length - 1] : NEVER_TESTED_THIS_FAR)
+	const lastResult =
+		parentIndex == 0
+			? flowInput
+			: results.length > 0
+			? results[results.length - 1]
+			: NEVER_TESTED_THIS_FAR
 
 	if (isInsideLoop) {
 		const forLoopFlowInput = {
@@ -224,19 +231,29 @@ export function getStepPropPicker(
 			}
 		}
 
-		const innerResults = getPreviousResults(flowState.modules[parentIndex].childFlowModules, childIndex)
+		const innerResults = getPreviousResults(
+			flowState.modules[parentIndex].childFlowModules,
+			childIndex
+		)
 
-		const innerLastResult = childIndex == 0 ? forLoopFlowInput : (
-			innerResults.length > 0 ? innerResults[innerResults.length - 1] : NEVER_TESTED_THIS_FAR)
+		const innerLastResult =
+			childIndex == 0
+				? forLoopFlowInput
+				: innerResults.length > 0
+				? innerResults[innerResults.length - 1]
+				: NEVER_TESTED_THIS_FAR
 
-		const extraLib = buildExtraLib(objectToTsType(forLoopFlowInput), objectToTsType(innerLastResult))
+		const extraLib = buildExtraLib(
+			objectToTsType(forLoopFlowInput),
+			objectToTsType(innerLastResult)
+		)
 
 		return {
 			extraLib,
 			pickableProperties: {
 				flow_input: forLoopFlowInput,
 				previous_result: innerLastResult,
-				step: innerResults,
+				step: innerResults
 			}
 		}
 	} else {
@@ -247,7 +264,7 @@ export function getStepPropPicker(
 			pickableProperties: {
 				flow_input: flowInput,
 				previous_result: lastResult,
-				step: results,
+				step: results
 			}
 		}
 	}
