@@ -146,7 +146,7 @@
 															class="w-full h-full  text-sm"
 															title="embedded script from hub"
 															frameborder="0"
-															src="https://hub.windmill.dev/embed/script/{mod?.value?.path?.substring(
+															src="https://hub.windmill.dev/embed/script/{failureModule?.value?.path?.substring(
 																4
 															)}"
 														/>
@@ -174,11 +174,6 @@
 											/>
 										</div>
 									{/if}
-								{:else if failureModule?.value?.type == 'flow'}
-									Flow at path {failureModule?.value?.path}
-								{:else if failureModule?.value?.type == 'forloopflow'}
-									For loop over all the elements of the list returned as a result of step {i}:
-									<svelte:self modules={failureModule.value.modules} />
 								{/if}
 							</p>
 						</div>
