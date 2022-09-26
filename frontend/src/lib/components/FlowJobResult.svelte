@@ -5,6 +5,7 @@
 	import Tabs from './common/tabs/Tabs.svelte'
 	import Tab from './common/tabs/Tab.svelte'
 	import TabContent from './common/tabs/TabContent.svelte'
+	import LogViewer from './LogViewer.svelte'
 
 	export let job: CompletedJob | undefined
 </script>
@@ -14,13 +15,11 @@
 		<Tab value="results">Results</Tab>
 		<Tab value="logs">Logs</Tab>
 		<svelte:fragment slot="content">
-			<TabContent value="results" class="border p-2 h-36 overflow-y-scroll">
+			<TabContent value="results" class="border p-2 h-36 overflow-auto">
 				<DisplayResult result={job.result} />
 			</TabContent>
-			<TabContent value="logs" class="border p-2 h-36 overflow-y-scroll">
-				<div class="text-xs p-4 bg-gray-50 overflow-auto max-h-80 border">
-					<pre class="w-full">{job.logs}</pre>
-				</div>
+			<TabContent value="logs" class="border h-36 overflow-auto">
+				<LogViewer content={job.logs ?? ''} isLoading={false} />
 			</TabContent>
 		</svelte:fragment>
 	</Tabs>
