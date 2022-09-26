@@ -74,7 +74,10 @@
 				{:else}
 					<div class="text-gray-700 text-xs italic mb-4">No inputs</div>
 				{/if}
-				<FlowModulesViewer modules={flow?.value?.modules} />
+				<FlowModulesViewer
+					modules={flow?.value?.modules}
+					failureModule={flow?.value?.failure_module}
+				/>
 			</div>
 		</TabContent>
 		<TabContent value="json">
@@ -84,7 +87,8 @@
 						await navigator.clipboard.writeText(JSON.stringify(flowFiltered, null, 4))
 					}}
 					class="absolute default-secondary-button-v2 bg-white/30 right-0 my-2 ml-4"
-					>copy content</button
+				>
+					copy content</button
 				>
 				<Highlight language={json} code={JSON.stringify(flowFiltered, null, 4)} />
 			</div>
