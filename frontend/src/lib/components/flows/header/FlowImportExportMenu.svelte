@@ -54,6 +54,8 @@
 </Drawer>
 <Drawer bind:this={jsonViewerDrawer} size="800px">
 	<DrawerContent title="See JSON" on:close={() => jsonViewerDrawer.toggleDrawer()}>
-		<FlowViewer flow={cleanInputs($flowStore)} tab="json" />
+		{#if $flowStore}
+			<FlowViewer flow={cleanInputs($flowStore)} tab="json" />
+		{/if}
 	</DrawerContent>
 </Drawer>

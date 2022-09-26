@@ -12,6 +12,7 @@
 	} from '$lib/utils'
 	import { faGlobe } from '@fortawesome/free-solid-svg-icons'
 	import { Breadcrumb, BreadcrumbItem } from 'flowbite-svelte'
+	import Schedules from 'src/routes/schedules.svelte'
 	import { onDestroy, onMount, setContext } from 'svelte'
 	import Icon from 'svelte-awesome'
 	import { writable } from 'svelte/store'
@@ -131,8 +132,8 @@
 	})
 
 	const selectedIdStore = writable<string>('settings')
-	const scheduleStore = writable<Schedule>(undefined)
-	const previewArgsStore = writable<Record<string, any>>(undefined)
+	const scheduleStore = writable<Schedule>({ args: {}, cron: '', enabled: false })
+	const previewArgsStore = writable<Record<string, any>>({})
 
 	function select(selectedId: string) {
 		selectedIdStore.set(selectedId)
@@ -155,8 +156,7 @@
 				scheduleStore.set({
 					cron: '0 */5 * * *',
 					args: {},
-					enabled: false,
-					previewArgs: {}
+					enabled: false
 				})
 			})
 	}
