@@ -107,13 +107,22 @@
 
 				{#each innerModules as mod, i}
 					<p class="text-gray-500 mb-2 w-full ">
-						Step
-						<span class="font-medium text-gray-900"> {i + 1} </span> out of
-						<span class="font-medium text-gray-900">{jobResult.job?.raw_flow?.modules.length}</span>
-						{#if jobResult.job.raw_flow?.modules[i]?.summary}
-							: <span class="font-medium text-gray-900"
-								>{jobResult.job.raw_flow?.modules[i]?.summary ?? ''}</span
+						{#if jobResult.job?.raw_flow?.modules && i < jobResult.job?.raw_flow?.modules.length}
+							Step
+							<span class="font-medium text-gray-900">
+								{i + 1}
+							</span>
+							out of
+							<span class="font-medium text-gray-900"
+								>{jobResult.job?.raw_flow?.modules.length}</span
 							>
+							{#if jobResult.job.raw_flow?.modules[i]?.summary}
+								: <span class="font-medium text-gray-900"
+									>{jobResult.job.raw_flow?.modules[i]?.summary ?? ''}</span
+								>
+							{/if}
+						{:else}
+							<span class="font-medium text-gray-900"> Failure module </span>
 						{/if}
 					</p>
 
