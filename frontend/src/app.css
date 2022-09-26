@@ -3,60 +3,13 @@
 @tailwind components;
 @tailwind utilities;
 
-html {
-	overflow-y: auto;
-}
-
 @layer base {
-	h1 {
-		@apply text-2xl;
-		@apply sm:pb-4 font-semibold;
-	}
-
-	h2 {
-		@apply text-xl;
-		@apply text-gray-700;
-	}
-
-	a {
-		@apply text-blue-500;
-	}
-	
 	.flex pre code.hljs {
 		@apply text-sm;
 	}
 
-	#table-custom th {
-		@apply py-3.5 text-left text-sm font-semibold text-gray-900 capitalize;
-	}
-
-	#table-custom td {
-		@apply py-4 text-sm text-gray-700;
-	}
-
-	#table-custom tbody {
-		@apply divide-y divide-gray-200;
-	}
-
 	.dropdown {
 		@apply rounded-sm;
-	}
-
-	input[type='text'],
-	textarea,
-	select {
-		@apply text-sm;
-	}
-
-	.text-2xs {
-		font-size: 0.7rem;
-	}
-
-	.commit-hash {
-		@apply text-2xs;
-		@apply text-gray-500;
-		@apply bg-gray-200;
-		@apply font-mono;
 	}
 
 	.item-button {
@@ -166,10 +119,6 @@ html {
 		@apply bg-gray-100 
 	}
 
-	.input-error {
-		@apply border-red-500 !important;
-	}
-
 	input[disabled],
 	input:disabled,
 	textarea[disabled],
@@ -204,30 +153,9 @@ html {
 		@apply min-w-max;
 		@apply text-sm;
 	}
-
-	input,
-	input[type='date'],
-	input[type='text'],
-	input[type='number'],
-	input[type='datetime-local'],
-	select,
-	textarea,
-	textarea[type='text'] {
-		@apply block;
-		@apply w-full py-1 px-2;
-		@apply border rounded-md border-gray-300;
-		@apply shadow-sm;
-		@apply focus:ring focus:ring-indigo-100 focus:ring-opacity-50;
-		@apply text-sm;
-	}
 }
 
 .inline-highlight pre code.hljs {
 	padding: 0;
 	@apply text-xs;
-}
-
-/* svelte-split-pane separator class override */
-.separator {
-	background-color: #ddd !important;
 }

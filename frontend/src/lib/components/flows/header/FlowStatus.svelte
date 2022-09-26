@@ -21,7 +21,7 @@
 	<span
 		class={classNames(
 			' text-sm font-medium mr-2 px-2.5 py-0.5 rounded cursor-pointer flex items-center',
-			$schedule?.enabled ? 'bg-sky-100 text-sky-800' : 'bg-gray-100 text-gray-800'
+			$schedule?.enabled ? 'bg-blue-100 text-blue-800' : 'bg-gray-100 text-gray-800'
 		)}
 		on:click={() => select('settings-schedule')}
 	>
@@ -32,7 +32,7 @@
 	<span
 		class={classNames(
 			' text-sm font-medium mr-2 px-2.5 py-0.5 rounded cursor-pointer flex items-center',
-			retriesEnabled ? 'bg-sky-100 text-sky-800' : 'bg-gray-100 text-gray-800'
+			retriesEnabled ? 'bg-blue-100 text-blue-800' : 'bg-gray-100 text-gray-800'
 		)}
 		on:click={() => select('settings-retries')}
 	>

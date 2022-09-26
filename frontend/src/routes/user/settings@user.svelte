@@ -77,7 +77,7 @@
 	<h2 class="border-b">User info</h2>
 	<div class="">
 		{#if passwordError}
-			<div class="text-purple-500 text-2xs grow">{passwordError}</div>
+			<div class="text-red-600 text-2xs grow">{passwordError}</div>
 		{/if}
 		<div class="flex flex-col gap-2 w-full ">
 			<div class="mt-4">

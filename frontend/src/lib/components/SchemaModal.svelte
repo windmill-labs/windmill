@@ -111,7 +111,7 @@
 						: 'border border-red-700 bg-red-100 border-opacity-30 focus:border-red-700 focus:border-opacity-30 focus-visible:ring-red-700 focus-visible:ring-opacity-25 focus-visible:border-red-700'}
 				/>
 			</label>
-			<div class="mb-2 text-purple-500 text-2xs">{error}</div>
+			<div class="mb-2 text-red-600 text-2xs">{error}</div>
 
 			<label class="mb-2 font-semibold text-gray-700">
 				Description

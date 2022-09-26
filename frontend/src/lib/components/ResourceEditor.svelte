@@ -124,7 +124,7 @@
 		{#if step === 1}
 			<div class="flex flex-col gap-3	px-6 py-3 bg-gray-50 text-gray-700">
 				<div>
-					<span class="text-purple-500 text-2xs grow">{error ?? ''}</span>
+					<span class="text-red-600 text-2xs grow">{error ?? ''}</span>
 					<span class="mb-1 font-semibold text-gray-700">Path</span>
 					<Path
 						bind:error={pathError}
