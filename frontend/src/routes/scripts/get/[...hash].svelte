@@ -131,7 +131,7 @@
 <svelte:window bind:scrollY />
 
 {#if script}
-	<ActionRow class={'sticky top-0 ' + (scrollY >= 30 ? 'border-b' : '')}>
+	<ActionRow applyPageWidth class={'sticky top-0 ' + (scrollY >= 30 ? 'border-b' : '')}>
 		<svelte:fragment slot="left">
 			<Button
 				href={`/scripts/run/${script.hash}`}
