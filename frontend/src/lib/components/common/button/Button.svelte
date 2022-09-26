@@ -1,6 +1,5 @@
 <script lang="ts">
 	import { classNames } from '$lib/utils'
-	import { createEventDispatcher } from 'svelte'
 	import Icon from 'svelte-awesome'
 	import type { Button } from './model'
 
@@ -14,8 +13,6 @@
 
 	export let startIcon: { icon: any; classes?: string } | undefined = undefined
 	export let endIcon: { icon: any; classes?: string } | undefined = undefined
-
-	const dispatch = createEventDispatcher()
 
 	// Order of classes: border, border modifier, bg, bg modifier, text, text modifier, everything else
 	const colorVariants: Record<Button.Color, Record<Button.Variant, string>> = {
@@ -65,18 +62,10 @@
 		),
 		disabled
 	}
-
-	const onClick = () => dispatch('click')
 </script>
 
 {#if href}
-	<a
-		{href}
-		{target}
-		tabindex={disabled ? -1 : 0}
-		on:click|stopPropagation={onClick}
-		{...buttonProps}
-	>
+	<a {href} {target} tabindex={disabled ? -1 : 0} on:click|stopPropagation {...buttonProps}>
 		{#if startIcon}
 			<Icon
 				data={startIcon.icon}
@@ -94,7 +83,7 @@
 		{/if}
 	</a>
 {:else}
-	<button type="button" on:click|stopPropagation={onClick} {...buttonProps}>
+	<button type="button" on:click|stopPropagation {...buttonProps}>
 		{#if startIcon}
 			<Icon
 				data={startIcon.icon}
