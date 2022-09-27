@@ -91,7 +91,7 @@
 			} else {
 				job = await JobService.getJob({ workspace: $workspaceStore!, id })
 			}
-			if (job?.type === 'CompletedJob') {
+			if (job?.type === 'CompletedJob' && isLoading) {
 				//only CompletedJob has success property
 				dispatch('done', job)
 				clearInterval(intervalId)
@@ -103,21 +103,15 @@
 	}
 
 	function syncer(id: string): void {
-		if (syncIteration > ITERATIONS_BEFORE_SLOW_REFRESH) {
-			loadTestJob(id)
-			if (intervalId) {
-				clearInterval(intervalId)
-				intervalId = setInterval(() => loadTestJob(id), 2000)
-			}
-		} else {
-			syncIteration++
-			loadTestJob(id)
+		if (syncIteration == ITERATIONS_BEFORE_SLOW_REFRESH) {
+			intervalId && clearInterval(intervalId)
+			intervalId = setInterval(() => syncer(id), 2000)
 		}
+		syncIteration++
+		loadTestJob(id)
 	}
 
 	onDestroy(() => {
-		if (intervalId) {
-			clearInterval(intervalId)
-		}
+		intervalId && clearInterval(intervalId)
 	})
 </script>

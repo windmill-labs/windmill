@@ -12,7 +12,7 @@
 	} from '$lib/utils'
 	import { faGlobe } from '@fortawesome/free-solid-svg-icons'
 	import { Breadcrumb, BreadcrumbItem } from 'flowbite-svelte'
-	import { onDestroy, onMount, setContext } from 'svelte'
+	import { onMount, setContext } from 'svelte'
 	import Icon from 'svelte-awesome'
 	import { writable } from 'svelte/store'
 	import CenteredPage from './CenteredPage.svelte'
@@ -162,13 +162,6 @@
 
 	onMount(() => {
 		loadHubScripts()
-	})
-
-	onDestroy(() => {
-		//@ts-ignore
-		$flowStore = undefined
-		//@ts-ignore
-		$flowStateStore = undefined
 	})
 </script>
 
