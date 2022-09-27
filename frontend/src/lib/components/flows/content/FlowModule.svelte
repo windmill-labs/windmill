@@ -15,7 +15,6 @@
 		fork,
 		getStepPropPicker,
 		isEmptyFlowModule,
-		loadFlowModuleSchema,
 		pickScript
 	} from '$lib/components/flows/flowStateUtils'
 	import { flowStore } from '$lib/components/flows/flowStore'
@@ -30,25 +29,36 @@
 	import { getContext } from 'svelte'
 	import type { FlowEditorContext } from '../types'
 	import FlowModuleAdvancedSettings from './FlowModuleAdvancedSettings.svelte'
+	import { loadSchemaFromModule } from '../utils'
 
 	const { selectedId, select } = getContext<FlowEditorContext>('FlowEditorContext')
 
 	export let flowModule: FlowModule
-	export let args: Record<string, any> = {}
+	export let previewArgs: Record<string, any> = {}
 	export let flowModuleState: FlowModuleState
 
 	$: [parentIndex, childIndex] = $selectedId.split('-').map(Number)
 
 	let editor: Editor
+	let modulePreview: ModulePreview
 	let websocketAlive = { pyright: false, black: false, deno: false }
+	let selected = 'inputs'
 
 	$: shouldPick = isEmptyFlowModule(flowModule)
 	$: stepPropPicker = getStepPropPicker(
 		$selectedId.split('-').map(Number),
 		$flowStore.schema,
 		$flowStateStore,
-		args
+		previewArgs
 	)
+
+	function onKeyDown(event: KeyboardEvent) {
+		if ((event.ctrlKey || event.metaKey) && event.key == 'Enter') {
+			event.preventDefault()
+			selected = 'test'
+			modulePreview?.runTestWithStepArgs()
+		}
+	}
 
 	async function apply<T>(fn: (arg: T) => Promise<[FlowModule, FlowModuleState]>, arg: T) {
 		const [module, moduleState] = await fn(arg)
@@ -62,21 +72,19 @@
 		}
 	}
 
-	async function applyState<T>(fn: (arg: T) => Promise<FlowModuleState>, arg: T) {
-		const newState = await fn(arg)
-		if (JSON.stringify(flowModuleState) != JSON.stringify(newState)) {
-			flowModuleState = newState
-		}
-	}
-
 	async function reload(flowModule: FlowModule) {
-		applyState(loadFlowModuleSchema, flowModule)
+		const { input_transforms, schema } = await loadSchemaFromModule(flowModule)
+
+		flowModuleState.schema = schema
+		flowModule.input_transforms = input_transforms
 	}
 
 	async function applyCreateLoop() {
 		await apply(createLoop, null)
 	}
 </script>
+
+<svelte:window on:keydown={onKeyDown} />
 
 <div class="flex flex-col h-full ">
 	<FlowCard {flowModule}>
@@ -139,6 +147,10 @@
 									deno={flowModule.value.language === RawScript.language.DENO}
 									lang={scriptLangToEditorLang(flowModule.value.language)}
 									automaticLayout={true}
+									cmdEnterAction={() => {
+										selected = 'test'
+										modulePreview?.runTestWithStepArgs()
+									}}
 									formatAction={() => reload(flowModule)}
 								/>
 							</div>
@@ -146,7 +158,7 @@
 					</top>
 
 					<down slot="down" class="flex flex-col flex-1 h-full">
-						<Tabs selected="inputs">
+						<Tabs bind:selected>
 							<Tab value="inputs">Inputs</Tab>
 							<Tab value="test">Test</Tab>
 							{#if !$selectedId.includes('failure')}
@@ -167,8 +179,9 @@
 											/>
 										</PropPickerWrapper>
 									</TabContent>
-									<TabContent value="test" class="flex flex-col flex-1 h-full">
+									<TabContent value="test" class="flex flex-col flex-1 h-full" alwaysMounted={true}>
 										<ModulePreview
+											bind:this={modulePreview}
 											mod={flowModule}
 											schema={flowModuleState.schema}
 											indices={[parentIndex, childIndex]}

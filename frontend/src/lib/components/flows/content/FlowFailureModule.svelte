@@ -12,7 +12,7 @@
 
 {#if $flowStore.value.failure_module}
 	<FlowModule
-		args={previewArgs}
+		previewArgs={previewArgs}
 		bind:flowModule={$flowStore.value.failure_module}
 		bind:flowModuleState={$flowStateStore.failureModule}
 		on:delete={() => {

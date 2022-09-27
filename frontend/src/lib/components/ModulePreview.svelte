@@ -26,6 +26,10 @@
 
 	let stepArgs: Record<string, any> = {}
 
+	export function runTestWithStepArgs() {
+		runTest(stepArgs)
+	}
+
 	export async function runTest(args: any) {
 		const val = mod.value
 		if (val.type == 'rawscript') {
@@ -42,7 +46,6 @@
 	function jobDone() {
 		if (testJob && !testJob.canceled && testJob.type == 'CompletedJob' && `result` in testJob) {
 			const result = testJob.result
-			console.log(result, indices)
 			const pMod = $flowStateStore.modules[indices[0]]
 			if (pMod) {
 				if (indices[1] != undefined && pMod.childFlowModules) {
@@ -51,14 +54,10 @@
 						cMod.previewResult = result
 					}
 				} else {
-					console.log('setting preview result', result)
 					pMod.previewResult = result
 				}
 				$flowStateStore.modules[indices[0]] = pMod
-				$flowStateStore = $flowStateStore
-				console.log(1, pMod, $flowStateStore)
 			}
-			console.log(2, $flowStateStore)
 		}
 	}
 </script>
@@ -76,9 +75,9 @@
 				runnable={{ summary: mod.summary ?? '', schema, description: '' }}
 				runAction={(_, args) => runTest(args)}
 				schedulable={false}
-				buttonText="Test just this step"
+				buttonText="Test just this step (Ctrl+Enter)"
 				detailed={false}
-				args={stepArgs}
+				bind:args={stepArgs}
 			/>
 			{#if testIsLoading}
 				<Button

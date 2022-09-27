@@ -200,11 +200,12 @@ export function getStepPropPicker(
 	flowState: FlowState,
 	args: Record<string, any>
 ): StepPropPicker {
-	const isInsideLoop: boolean = indexes.length > 1
 	const [parentIndex, childIndex] = indexes
+	const isInsideLoop: boolean = childIndex !== undefined
 
 	const flowInput = schemaToObject(flowInputSchema, args)
 	const results = getPreviousResults(flowState.modules, parentIndex)
+
 
 	const lastResult =
 		parentIndex == 0
@@ -214,7 +215,7 @@ export function getStepPropPicker(
 				: NEVER_TESTED_THIS_FAR
 
 	if (isInsideLoop) {
-		const forLoopFlowInput = {
+		let forLoopFlowInput = {
 			...flowInput,
 			iter: {
 				value: "Iteration's value",
@@ -222,13 +223,8 @@ export function getStepPropPicker(
 			}
 		}
 
-		if (Array.isArray(lastResult) && lastResult.length > 0) {
-			const last = lastResult[lastResult.length - 1]
-
-			forLoopFlowInput.iter = {
-				value: last,
-				index: `Iteration's index (0 to ${lastResult.length - 1})`
-			}
+		if (flowState.modules[parentIndex]?.previewArgs) {
+			forLoopFlowInput = flowState.modules[parentIndex]?.previewArgs
 		}
 
 		const innerResults = getPreviousResults(
@@ -292,25 +288,24 @@ export type JobResult = {
 	loopJobs?: JobResult[]
 }
 
+function getResult(job: Job | undefined): Result | undefined {
+	if (job && 'result' in job) {
+		return job.result
+	}
+}
+
 export function mapJobResultsToFlowState(
 	jobs: JobResult,
+	upto: number
 ): void {
 
-	if (jobs.innerJobs.length === 0) {
-		return
-	}
-
 	const results = jobs.innerJobs.map(({ job, loopJobs }) => {
-		if (loopJobs) {
-			return loopJobs.map(({ job }) => {
-				if (job && 'result' in job) {
-					return job.result
-				}
-			})
+		if (loopJobs && loopJobs.length > 0) {
+			return [job?.args, loopJobs.map(({ job }) => {
+				return getResult(job)
+			})]
 		} else {
-			if (job && 'result' in job) {
-				return job.result
-			}
+			return [job?.args, getResult(job)]
 		}
 	})
 
@@ -318,9 +313,14 @@ export function mapJobResultsToFlowState(
 
 	const old = get(flowStateStore)
 	const modules = old.modules.map((flowModuleState: FlowModuleState, index: number) => {
-		if (results[index]) {
-			if (results[index] != NEVER_TESTED_THIS_FAR || flowModuleState.previewResult == undefined) {
-				flowModuleState.previewResult = results[index]
+		if (results[index] && index <= upto) {
+			if (results[index][1] != NEVER_TESTED_THIS_FAR || flowModuleState.previewResult == undefined) {
+				flowModuleState.previewArgs = results[index][0]
+				flowModuleState.previewResult = results[index][1]
+				flowModuleState.childFlowModules?.map((innerMod, j) => {
+					const lastLoopJob = jobs.innerJobs[index].loopJobs?.length ?? 0
+					innerMod.previewResult = getResult(jobs.innerJobs[index].loopJobs?.[lastLoopJob - 1]?.innerJobs?.[j]?.job)
+				})
 			}
 		}
 
