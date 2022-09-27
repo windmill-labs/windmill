@@ -1,4 +1,5 @@
 <script lang="ts">
+	import Button from '$lib/components/common/button/Button.svelte'
 	import { isEmptyFlowModule } from '$lib/components/flows/flowStateUtils'
 	import HighlightCode from '$lib/components/HighlightCode.svelte'
 	import Modal from '$lib/components/Modal.svelte'
@@ -6,7 +7,6 @@
 	import type { FlowModule } from '$lib/gen'
 	import { getScriptByPath } from '$lib/utils'
 	import { faCode, faCodeBranch, faSave, faTrashAlt } from '@fortawesome/free-solid-svg-icons'
-	import { Button } from 'flowbite-svelte'
 	import { createEventDispatcher, getContext } from 'svelte'
 	import Icon from 'svelte-awesome'
 	import type { FlowEditorContext } from '../types'
@@ -36,25 +36,31 @@
 
 <div class="flex flex-row space-x-2" on:click|stopPropagation={() => undefined}>
 	{#if module.value.type === 'script' && !shouldPick}
-		<Button size="xs" color="alternative" on:click={() => dispatch('fork')}>
+		<Button size="xs" color="light" variant="border" on:click={() => dispatch('fork')}>
 			<Icon data={faCodeBranch} class="mr-2" />
 			Fork
 		</Button>
-		<Button size="xs" color="alternative" on:click={viewCode}>
+		<Button size="xs" color="light" variant="border" on:click={viewCode}>
 			<Icon data={faCode} class="mr-2" />
 			View code
 		</Button>
 	{/if}
 
 	{#if module.value.type === 'rawscript' && !shouldPick}
-		<Button size="xs" color="alternative" on:click={() => dispatch('createScriptFromInlineScript')}>
+		<Button
+			size="xs"
+			color="light"
+			variant="border"
+			on:click={() => dispatch('createScriptFromInlineScript')}
+		>
 			<Icon data={faSave} class="mr-2" />
 			Save to workspace
 		</Button>
 	{/if}
 	<Button
 		size="xs"
-		color="alternative"
+		color="light"
+		variant="border"
 		on:click={() => {
 			dispatch('delete')
 		}}

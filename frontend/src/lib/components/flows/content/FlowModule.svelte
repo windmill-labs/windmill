@@ -87,7 +87,7 @@
 <svelte:window on:keydown={onKeyDown} />
 
 <div class="flex flex-col h-full ">
-	<FlowCard {flowModule}>
+	<FlowCard bind:flowModule>
 		<svelte:fragment slot="header">
 			<div class="flex-shrink-0">
 				<FlowModuleHeader
