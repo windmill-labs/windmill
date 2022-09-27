@@ -30,6 +30,7 @@
 	import type { FlowEditorContext } from '../types'
 	import FlowModuleAdvancedSettings from './FlowModuleAdvancedSettings.svelte'
 	import { loadSchemaFromModule } from '../utils'
+	import FlowModuleScript from './FlowModuleScript.svelte'
 
 	const { selectedId, select } = getContext<FlowEditorContext>('FlowEditorContext')
 
@@ -133,8 +134,8 @@
 				<VSplitPane
 					topPanelSize={flowModule.value.type === 'rawscript' ? '50%' : '0%'}
 					downPanelSize={flowModule.value.type === 'rawscript' ? '50%' : '100%'}
-					minTopPaneSize={flowModule.value.type === 'rawscript' ? '20%' : '0%'}
-					minDownPaneSize={flowModule.value.type === 'rawscript' ? '20%' : '100%'}
+					minTopPaneSize="20%"
+					minDownPaneSize="20%"
 				>
 					<top slot="top">
 						{#if flowModule.value.type === 'rawscript'}
@@ -154,6 +155,8 @@
 									formatAction={() => reload(flowModule)}
 								/>
 							</div>
+						{:else if flowModule.value.type === 'script'}
+							<FlowModuleScript {flowModule} />
 						{/if}
 					</top>
 
