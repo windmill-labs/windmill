@@ -9,7 +9,6 @@
 	<div class="flex items-center">
 		<h3 class="inline-flex items-center text-lg font-medium text-gray-700 ">
 			<HatIcon class="w-6 h-6 mr-2" />
-
 			Getting started
 		</h3>
 	</div>
