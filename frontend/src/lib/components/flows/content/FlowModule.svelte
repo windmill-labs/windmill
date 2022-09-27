@@ -30,7 +30,6 @@
 	import type { FlowEditorContext } from '../types'
 	import FlowModuleAdvancedSettings from './FlowModuleAdvancedSettings.svelte'
 	import { loadSchemaFromModule } from '../utils'
-	import { firefox } from 'svelte-awesome/icons'
 
 	const { selectedId, select } = getContext<FlowEditorContext>('FlowEditorContext')
 
