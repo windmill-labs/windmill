@@ -29,6 +29,17 @@
 	let codeLang: 'python3' | 'deno' | 'go' = 'deno'
 	let codeContent: string = ''
 
+	function addEditorActions() {
+		editor.addAction('insert-variable', 'Windmill: Insert variable', () => {
+			variablePicker.openModal()
+		})
+		editor.addAction('insert-resource', 'Windmill: Insert resource', () => {
+			resourcePicker.openModal()
+		})
+	}
+
+	$: editor && addEditorActions()
+
 	async function loadVariables() {
 		let r: { name: string; path?: string; description?: string }[] = []
 		const variables = (
