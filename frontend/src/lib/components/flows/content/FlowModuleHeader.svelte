@@ -1,4 +1,5 @@
 <script lang="ts">
+	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
 	import { isEmptyFlowModule } from '$lib/components/flows/flowStateUtils'
 	import HighlightCode from '$lib/components/HighlightCode.svelte'
 	import Modal from '$lib/components/Modal.svelte'
@@ -12,6 +13,8 @@
 	import type { FlowEditorContext } from '../types'
 
 	export let module: FlowModule
+
+	let confirmationModalOpen = false
 
 	$: shouldPick = isEmptyFlowModule(module)
 
@@ -56,13 +59,25 @@
 		size="xs"
 		color="alternative"
 		on:click={() => {
-			dispatch('delete')
+			confirmationModalOpen = true
 		}}
 	>
 		<Icon data={faTrashAlt} class="mr-2" />
 		{$selectedId.includes('failure') ? 'Delete error handler' : 'Remove step'}
 	</Button>
 </div>
+
+<ConfirmationModal
+	open={confirmationModalOpen}
+	title="Remove step"
+	description="Are you sure you want to remove this step?"
+	confirmationText="Remove"
+	on:canceled={() => (confirmationModalOpen = false)}
+	on:confirmed={() => {
+		confirmationModalOpen = false
+		dispatch('delete')
+	}}
+/>
 
 <Modal bind:this={modalViewer}>
 	<div slot="title">Script {'path' in module?.value ? module?.value.path : ''}</div>
