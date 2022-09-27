@@ -1,5 +1,7 @@
 <script>
 	import { goto } from '$app/navigation'
+	import { faExternalLink, faFile, faPlus } from '@fortawesome/free-solid-svg-icons'
+	import Button from '../common/button/Button.svelte'
 </script>
 
 <div class="p-4 border border-gray-300 rounded-md bg-gray-50 ">
@@ -26,68 +28,33 @@
 	<div class="mt-2 mb-4 text-sm text-gray-700 ">
 		Create a new script or find inspiration on the Hub!
 	</div>
-	<div class="inline-flex flex-wrap gap-y-2">
-		<button
+	<div class="inline-flex flex-wrap gap-y-2 ">
+		<Button
 			on:click={() => goto('scripts/add')}
-			type="button"
-			class="mr-2 inline-flex items-center text-white bg-gray-700 hover:bg-gray-800 focus:ring-4 focus:outline-none focus:ring-gray-300 font-medium rounded-lg text-xs px-3 py-1.5 text-center"
+			color="dark"
+			size="xs"
+			btnClasses="mr-2"
+			startIcon={{ icon: faPlus }}
 		>
-			<svg
-				class="w-4 h-4 mr-2"
-				fill="none"
-				stroke="currentColor"
-				viewBox="0 0 24 24"
-				xmlns="http://www.w3.org/2000/svg"
-				><path
-					stroke-linecap="round"
-					stroke-linejoin="round"
-					stroke-width="2"
-					d="M12 6v6m0 0v6m0-6h6m-6 0H6"
-				/></svg
-			>
 			Create script
-		</button>
-		<button
+		</Button>
+		<Button
 			on:click={() => goto('https://docs.windmill.dev/docs/getting_started/scripts')}
-			type="button"
-			class="mr-2 inline-flex items-center text-white bg-blue-600 hover:bg-blue-800 focus:ring-4 focus:outline-none focus:ring-blue-300 font-medium rounded-lg text-xs px-3 py-1.5 text-center"
+			color="blue"
+			size="xs"
+			btnClasses="mr-2"
+			startIcon={{ icon: faFile }}
 		>
-			<svg
-				class="w-4 h-4 mr-2"
-				fill="none"
-				stroke="currentColor"
-				viewBox="0 0 24 24"
-				xmlns="http://www.w3.org/2000/svg"
-				><path
-					stroke-linecap="round"
-					stroke-linejoin="round"
-					stroke-width="2"
-					d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
-				/>
-			</svg>
 			Script documentation
-		</button>
-		<button
+		</Button>
+		<Button
 			on:click={() => goto('https://hub.windmill.dev/')}
-			type="button"
-			class="inline-flex items-center text-gray-700 bg-transparent border border-gray-700 hover:bg-gray-800 hover:text-white focus:ring-4 focus:outline-none focus:ring-gray-300 font-medium rounded-lg text-xs px-3 py-1.5 text-center"
-			data-dismiss-target="#alert-additional-content-5"
-			aria-label="Close"
+			color="light"
+			variant="border"
+			size="xs"
+			startIcon={{ icon: faExternalLink }}
 		>
-			<svg
-				class="w-4 h-4 mr-2"
-				fill="none"
-				stroke="currentColor"
-				viewBox="0 0 24 24"
-				xmlns="http://www.w3.org/2000/svg"
-				><path
-					stroke-linecap="round"
-					stroke-linejoin="round"
-					stroke-width="2"
-					d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"
-				/>
-			</svg>
 			Explore community scripts on WindmillHub
-		</button>
+		</Button>
 	</div>
 </div>
