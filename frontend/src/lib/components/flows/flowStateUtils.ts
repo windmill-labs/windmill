@@ -73,11 +73,14 @@ export async function createLoop(): Promise<[FlowModule, FlowModuleState]> {
 	}
 
 	const { schema } = await loadFlowModuleSchema(loopFlowModule)
-	return [loopFlowModule, {
-		schema,
-		childFlowModules: [emptyFlowModuleState()],
-		previewResult: NEVER_TESTED_THIS_FAR
-	}]
+	return [
+		loopFlowModule,
+		{
+			schema,
+			childFlowModules: [emptyFlowModuleState()],
+			previewResult: NEVER_TESTED_THIS_FAR
+		}
+	]
 }
 
 export async function fork(flowModule: FlowModule): Promise<[FlowModule, FlowModuleState]> {
@@ -189,7 +192,7 @@ type StepPropPicker = {
 	extraLib: string
 }
 
-export const NEVER_TESTED_THIS_FAR = "never tested this far"
+export const NEVER_TESTED_THIS_FAR = 'never tested this far'
 
 export function getStepPropPicker(
 	indexes: number[],
@@ -197,17 +200,22 @@ export function getStepPropPicker(
 	flowState: FlowState,
 	args: Record<string, any>
 ): StepPropPicker {
-	const isInsideLoop: boolean = indexes.length > 1
 	const [parentIndex, childIndex] = indexes
+	const isInsideLoop: boolean = childIndex !== undefined
 
 	const flowInput = schemaToObject(flowInputSchema, args)
 	const results = getPreviousResults(flowState.modules, parentIndex)
 
-	const lastResult = parentIndex == 0 ? flowInput : (
-		results.length > 0 ? results[results.length - 1] : NEVER_TESTED_THIS_FAR)
+
+	const lastResult =
+		parentIndex == 0
+			? flowInput
+			: results.length > 0
+				? results[results.length - 1]
+				: NEVER_TESTED_THIS_FAR
 
 	if (isInsideLoop) {
-		const forLoopFlowInput = {
+		let forLoopFlowInput = {
 			...flowInput,
 			iter: {
 				value: "Iteration's value",
@@ -215,28 +223,33 @@ export function getStepPropPicker(
 			}
 		}
 
-		if (Array.isArray(lastResult) && lastResult.length > 0) {
-			const last = lastResult[lastResult.length - 1]
-
-			forLoopFlowInput.iter = {
-				value: last,
-				index: `Iteration's index (0 to ${lastResult.length - 1})`
-			}
+		if (flowState.modules[parentIndex]?.previewArgs) {
+			forLoopFlowInput = flowState.modules[parentIndex]?.previewArgs
 		}
 
-		const innerResults = getPreviousResults(flowState.modules[parentIndex].childFlowModules, childIndex)
+		const innerResults = getPreviousResults(
+			flowState.modules[parentIndex].childFlowModules,
+			childIndex
+		)
 
-		const innerLastResult = childIndex == 0 ? forLoopFlowInput : (
-			innerResults.length > 0 ? innerResults[innerResults.length - 1] : NEVER_TESTED_THIS_FAR)
+		const innerLastResult =
+			childIndex == 0
+				? forLoopFlowInput
+				: innerResults.length > 0
+					? innerResults[innerResults.length - 1]
+					: NEVER_TESTED_THIS_FAR
 
-		const extraLib = buildExtraLib(objectToTsType(forLoopFlowInput), objectToTsType(innerLastResult))
+		const extraLib = buildExtraLib(
+			objectToTsType(forLoopFlowInput),
+			objectToTsType(innerLastResult)
+		)
 
 		return {
 			extraLib,
 			pickableProperties: {
 				flow_input: forLoopFlowInput,
 				previous_result: innerLastResult,
-				step: innerResults,
+				step: innerResults
 			}
 		}
 	} else {
@@ -247,7 +260,7 @@ export function getStepPropPicker(
 			pickableProperties: {
 				flow_input: flowInput,
 				previous_result: lastResult,
-				step: results,
+				step: results
 			}
 		}
 	}
@@ -275,64 +288,48 @@ export type JobResult = {
 	loopJobs?: JobResult[]
 }
 
-export function mapJobResultsToFlowState(
-	jobs: JobResult,
-	config: 'upto' | 'justthis',
-	parentIndex: number,
-	j: number | undefined
-): void {
-	if (config === 'justthis') {
-		const job = jobs.job as CompletedJob
-
-		flowStateStore.update((flowState: FlowState) => {
-			if (flowState.modules) {
-				const childFlowModules = flowState.modules[parentIndex].childFlowModules
-				if (j && childFlowModules) {
-					childFlowModules[j].previewResult = job.result
-					flowState.modules[parentIndex].childFlowModules = childFlowModules
-				} else {
-					flowState.modules[parentIndex].previewResult = job.result
-				}
-			}
-
-			return flowState
-		})
-	} else {
-		if (jobs.innerJobs.length === 0) {
-			return
-		}
-
-		const results = jobs.innerJobs.map(({ job, loopJobs }) => {
-			if (Array.isArray(loopJobs) && loopJobs.length > 0) {
-				return loopJobs.map(({ job }) => {
-					if (job && 'result' in job) {
-						return job.result
-					}
-				})
-			} else {
-				if (job && 'result' in job) {
-					return job.result
-				}
-			}
-		})
-
-		flowStateStore.update((flowState: FlowState) => {
-			if (!Array.isArray(flowState.modules)) {
-				return flowState
-			}
-
-			const modules = flowState.modules.map((flowModuleState: FlowModuleState, index: number) => {
-				if (index <= parentIndex) {
-					flowModuleState.previewResult = results[index]
-				}
-
-				return flowModuleState
-			})
-
-			return {
-				modules,
-				failureModule: flowState.failureModule
-			}
-		})
+function getResult(job: Job | undefined): Result | undefined {
+	if (job && 'result' in job) {
+		return job.result
 	}
 }
+
+export function mapJobResultsToFlowState(
+	jobs: JobResult,
+	upto: number
+): void {
+
+	const results = jobs.innerJobs.map(({ job, loopJobs }) => {
+		if (loopJobs && loopJobs.length > 0) {
+			return [job?.args, loopJobs.map(({ job }) => {
+				return getResult(job)
+			})]
+		} else {
+			return [job?.args, getResult(job)]
+		}
+	})
+
+
+
+	const old = get(flowStateStore)
+	const modules = old.modules.map((flowModuleState: FlowModuleState, index: number) => {
+		if (results[index] && index <= upto) {
+			if (results[index][1] != NEVER_TESTED_THIS_FAR || flowModuleState.previewResult == undefined) {
+				flowModuleState.previewArgs = results[index][0]
+				flowModuleState.previewResult = results[index][1]
+				flowModuleState.childFlowModules?.map((innerMod, j) => {
+					const lastLoopJob = jobs.innerJobs[index].loopJobs?.length ?? 0
+					innerMod.previewResult = getResult(jobs.innerJobs[index].loopJobs?.[lastLoopJob - 1]?.innerJobs?.[j]?.job)
+				})
+			}
+		}
+
+		return flowModuleState
+	})
+
+	flowStateStore.set({
+		modules,
+		failureModule: old.failureModule
+	})
+}
+

@@ -12,7 +12,7 @@
 	} from '$lib/utils'
 	import { faGlobe } from '@fortawesome/free-solid-svg-icons'
 	import { Breadcrumb, BreadcrumbItem } from 'flowbite-svelte'
-	import { onDestroy, onMount, setContext } from 'svelte'
+	import { onMount, setContext } from 'svelte'
 	import Icon from 'svelte-awesome'
 	import { writable } from 'svelte/store'
 	import CenteredPage from './CenteredPage.svelte'
@@ -163,13 +163,6 @@
 	onMount(() => {
 		loadHubScripts()
 	})
-
-	onDestroy(() => {
-		//@ts-ignore
-		$flowStore = undefined
-		//@ts-ignore
-		$flowStateStore = undefined
-	})
 </script>
 
 <div class="flex flex-col flex-1 h-full">
@@ -189,29 +182,16 @@
 		</Breadcrumb>
 		<div class="flex flex-row-reverse ml-2 space-x-reverse space-x-2">
 			{#if step == 1}
-				<Button
-					disabled={pathError != ''}
-					btnClasses="h-8"
-					color="blue"
-					size="xs"
-					on:click={() => changeStep(2)}
-				>
+				<Button disabled={pathError != ''} color="blue" size="sm" on:click={() => changeStep(2)}>
 					Next
 				</Button>
-				<Button
-					disabled={pathError != ''}
-					btnClasses="h-8"
-					color="blue"
-					size="xs"
-					on:click={saveFlow}>Save</Button
-				>
+				<Button disabled={pathError != ''} color="blue" size="sm" on:click={saveFlow}>Save</Button>
 				<FlowImportExportMenu />
 
 				<Button
 					color="light"
-					size="xs"
+					size="sm"
 					variant="border"
-					btnClasses="h-8"
 					on:click={() => {
 						const url = new URL('https://hub.windmill.dev/flows/add')
 						const openFlow = {

@@ -1,81 +1,117 @@
 <script lang="ts">
 	import { classNames } from '$lib/utils'
 	import Icon from 'svelte-awesome'
+	import type { Button } from './model'
 
-	export let size: 'xs' | 'sm' | 'md' | 'lg' | 'xl' = 'md'
-	export let color: 'blue' | 'dark' | 'light' | 'red' = 'blue'
-	export let variant: 'contained' | 'border' = 'contained'
+	export let size: Button.Size = 'md'
+	export let spacingSize: Button.Size = size
+	export let color: Button.Color = 'blue'
+	export let variant: Button.Variant = 'contained'
 	export let btnClasses: string = ''
 	export let disabled: boolean = false
 	export let href: string | undefined = undefined
-	export let target: '_self' | '_blank' = '_self'
+	export let target: Button.Target = '_self'
 
 	export let startIcon: { icon: any; classes?: string } | undefined = undefined
 	export let endIcon: { icon: any; classes?: string } | undefined = undefined
 
-	function getColorClasses() {
-		switch (color) {
-			case 'blue':
-				return 'bg-blue-500 hover:bg-blue-700 focus:ring-blue-300 text-white '
-			case 'red':
-				return 'bg-red-500 hover:bg-red-700 focus:ring-red-300 text-white '
-			case 'light':
-				return 'text-gray-800 bg-white hover:bg-gray-100 focus:ring-gray-300'
-			default:
-				return ''
+	// Order of classes: border, border modifier, bg, bg modifier, text, text modifier, everything else
+	const colorVariants: Record<Button.Color, Record<Button.Variant, string>> = {
+		blue: {
+			border:
+				'border-blue-500 hover:border-blue-700 bg-white hover:bg-blue-100 text-blue-500 hover:text-blue-700 focus:ring-blue-300',
+			contained: 'bg-blue-500 hover:bg-blue-700 text-white focus:ring-blue-300'
+		},
+		red: {
+			border:
+				'border-red-500 hover:border-red-700 bg-white hover:bg-red-100 text-red-500 hover:text-red-700 focus:ring-red-300',
+			contained: 'bg-red-500 hover:bg-red-700 text-white focus:ring-red-300'
+		},
+		dark: {
+			border:
+				'border-gray-800 hover:border-gray-900 bg-white hover:bg-gray-200 text-gray-800 hover:text-gray-900 focus:ring-gray-300',
+			contained: 'bg-gray-700 hover:bg-gray-900 text-white focus:ring-gray-300'
+		},
+		light: {
+			border:
+				'border bg-white hover:bg-gray-100 text-gray-700 hover:text-gray-800 focus:ring-gray-300',
+			contained: 'bg-white hover:bg-gray-100 text-gray-700 focus:ring-gray-300'
 		}
 	}
 
-	function getSizeClasses() {
-		switch (size) {
-			case 'xs':
-				return 'text-xs'
-			case 'sm':
-				return 'text-sm'
-			case 'md':
-				return 'text-md'
-			case 'lg':
-				return 'text-lg'
-			case 'xl':
-				return 'text-xl'
-			default:
-				return ''
-		}
+	const fontSizeClasses: Record<Button.Size, string> = {
+		xs: 'text-xs',
+		sm: 'text-sm',
+		md: 'text-md',
+		lg: 'text-lg',
+		xl: 'text-xl'
 	}
 
-	const buttonProps = {
+	const spacingClasses: Record<Button.Size, string> = {
+		xs: 'px-2.5 py-1',
+		sm: 'px-2.5 py-1',
+		md: 'px-4 py-2',
+		lg: 'px-4 py-2',
+		xl: 'px-4 py-2'
+	}
+	const iconScale: Record<Button.Size, number> = {
+		xs: 0.7,
+		sm: 0.8,
+		md: 1,
+		lg: 1.1,
+		xl: 1.2
+	}
+
+	$: buttonProps = {
 		class: classNames(
-			getColorClasses(),
-			getSizeClasses(),
-			'focus:ring-4 font-medium',
-			'px-4 py-2',
-			'rounded-md',
-			'flex justify-center items-center',
+			colorVariants[color][variant],
 			variant === 'border' ? 'border' : '',
-			btnClasses
+			fontSizeClasses[size],
+			spacingClasses[spacingSize],
+			'focus:ring-4 font-medium',
+			'rounded-md',
+			'flex justify-center items-center text-center',
+			btnClasses,
+			disabled ? 'pointer-events-none cursor-default filter grayscale' : ''
 		),
 		disabled
 	}
 </script>
 
 {#if href}
-	<a {href} {target} on:click|stopPropagation {...buttonProps}>
+	<a {href} {target} tabindex={disabled ? -1 : 0} on:click|stopPropagation {...buttonProps}>
 		{#if startIcon}
-			<Icon data={startIcon.icon} class={classNames('mr-2', startIcon.classes)} />
+			<Icon
+				data={startIcon.icon}
+				class={classNames('mr-2', startIcon.classes)}
+				scale={iconScale[size]}
+			/>
 		{/if}
 		<slot />
 		{#if endIcon}
-			<Icon data={endIcon.icon} class={classNames('ml-2', endIcon.classes)} />
+			<Icon
+				data={endIcon.icon}
+				class={classNames('ml-2', endIcon.classes)}
+				scale={iconScale[size]}
+			/>
 		{/if}
 	</a>
 {:else}
 	<button type="button" on:click|stopPropagation {...buttonProps}>
 		{#if startIcon}
-			<Icon data={startIcon.icon} class={classNames('mr-2', startIcon.classes)} />
+			<Icon
+				data={startIcon.icon}
+				class={classNames('mr-2', startIcon.classes)}
+				scale={iconScale[size]}
+			/>
 		{/if}
 		<slot />
 		{#if endIcon}
-			<Icon data={endIcon.icon} class={classNames('ml-2', endIcon.classes)} />
+			<Icon
+				data={endIcon.icon}
+				class={classNames('ml-2', endIcon.classes)}
+				scale={iconScale[size]}
+			/>
 		{/if}
 	</button>
 {/if}

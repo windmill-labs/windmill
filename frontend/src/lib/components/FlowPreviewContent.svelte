@@ -127,7 +127,7 @@
 					const [parentIndex] = $selectedId.split('-')
 					const upToIndex =
 						previewMode === 'upTo' ? Number(parentIndex) + 1 : $flowStateStore.modules.length
-					mapJobResultsToFlowState(e.detail, 'upto', upToIndex, undefined)
+					mapJobResultsToFlowState(e.detail, upToIndex)
 				}}
 			/>
 		{/if}

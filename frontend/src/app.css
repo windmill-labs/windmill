@@ -58,19 +58,6 @@
 		@apply text-sm;
 	}
 
-	.default-input {
-		@apply block;
-		@apply w-full;
-		@apply py-1;
-		@apply px-2;
-		@apply mt-1;
-		@apply rounded-md;
-		@apply border;
-		@apply border-gray-300;
-		@apply shadow-sm;
-		@apply text-sm;
-	}
-
 	.default-primary-button-v2 {
 		@apply text-white;
 		@apply bg-blue-500;

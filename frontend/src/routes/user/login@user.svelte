@@ -139,7 +139,7 @@
 				</p>
 				<label class="block pb-2">
 					<span class="text-gray-700">email</span>
-					<input bind:value={email} class="default-input" id="email" />
+					<input bind:value={email} class="mt-1" id="email" />
 				</label>
 				<label class="block ">
 					<span class="text-gray-700">password</span>
@@ -147,7 +147,7 @@
 						type="password"
 						on:keyup={handleKeyUp}
 						bind:value={password}
-						class="default-input"
+						class="mt-1"
 						id="password"
 					/>
 				</label>
