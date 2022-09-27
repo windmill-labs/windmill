@@ -136,16 +136,14 @@ const config = {
 				'a': {
 					color: theme('colors.blue.500')
 				},
-				'input,textarea,select': {
+				'input,input[type="text"],input[type="email"],input[type="url"],input[type="password"],input[type="number"],input[type="date"],input[type="datetime-local"],input[type="month"],input[type="search"],input[type="tel"],input[type="time"],input[type="week"],[multiple],textarea,select': {
 					display: 'block',
 					fontSize: theme('fontSize.sm'),
 					width: '100%',
 					padding: `${theme('spacing.1')} ${theme('spacing.2')}`,
 					border: `1px solid ${theme('colors.gray.300')}`,
 					borderRadius: theme('borderRadius.md'),
-					'--tw-shadow': '0 1px 2px 0 rgb(0 0 0 / 0.05)',
-					'--tw-shadow-colored': '0 1px 2px 0 var(--tw-shadow-color)',
-					boxShadow: 'var(--tw-ring-offset-shadow, 0 0 #0000), var(--tw-ring-shadow, 0 0 #0000), var(--tw-shadow)',
+					boxShadow: theme('boxShadow.sm'),
 					'&:focus': {
 						'--tw-ring-color': theme('colors.indigo.100'),
 						'--tw-ring-offset-shadow': 'var(--tw-ring-inset) 0 0 0 var(--tw-ring-offset-width) var(--tw-ring-offset-color)',
@@ -183,7 +181,13 @@ const config = {
 				},
 				'.input-error': {
 					borderColor: `${theme('colors.red.500')} !important`
-				}
+				},
+				'.box': {
+					borderWidth: '1px',
+					borderRadius: theme('borderRadius.sm'),
+					boxShadow: theme('boxShadow.sm'),
+					padding: theme('spacing.4')
+				},
 			});
 			addUtilities({
 				'.separator': {

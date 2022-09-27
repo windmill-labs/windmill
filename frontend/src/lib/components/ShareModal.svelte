@@ -8,6 +8,7 @@
 	import { createEventDispatcher } from 'svelte'
 	import AutoComplete from 'simple-svelte-autocomplete'
 	import { workspaceStore } from '$lib/stores'
+	import { Button } from './common'
 
 	const dispatch = createEventDispatcher()
 
@@ -133,8 +134,8 @@
 						<td>{owner}</td>
 						<td>{write}</td>
 						<td
-							><button class="default-button-secondary" on:click={() => deleteAcl(owner)}
-								>Delete</button
+							><Button variant="border" color="blue" size="sm" on:click={() => deleteAcl(owner)}
+								>Delete</Button
 							></td
 						>
 					</tr>

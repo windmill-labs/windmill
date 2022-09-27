@@ -2,8 +2,8 @@
 	import { JobService, type Flow } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 
-	import { faClose, faPlay } from '@fortawesome/free-solid-svg-icons'
-	import { Button } from 'flowbite-svelte'
+	import { faClose, faPlay, faRefresh } from '@fortawesome/free-solid-svg-icons'
+	import { Button } from './common'
 	import { createEventDispatcher, getContext, onDestroy } from 'svelte'
 	import Icon from 'svelte-awesome'
 	import { flowStateStore } from './flows/flowState'
@@ -72,7 +72,10 @@
 			</h3>
 		</div>
 		<Button
-			color="alternative"
+			variant="border"
+			size="lg"
+			color="dark"
+			btnClasses="!p-0 !w-8 !h-8"
 			on:click={() => {
 				jobId = undefined
 				intervalState = 'idle'
@@ -109,10 +112,13 @@
 		</Button>
 	{:else}
 		<Button
+			variant="contained"
+			endIcon={{ icon: intervalState === 'done' ? faRefresh : faPlay }}
+			size="lg"
+			color="blue"
+			btnClasses="w-full"
 			disabled={!isValid}
-			class="blue-button"
 			on:click={() => runPreview($previewArgs)}
-			size="md"
 		>
 			{`Run${intervalState === 'done' ? ' again' : ''}`}
 		</Button>

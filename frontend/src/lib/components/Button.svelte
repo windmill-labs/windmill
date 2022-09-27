@@ -58,6 +58,16 @@
 </button>
 
 <style>
+	.default-button-secondary {
+		@apply items-center py-1 px-2;
+		@apply rounded bg-transparent text-blue-500 border border-blue-500 font-normal;
+		@apply hover:bg-transparent hover:border-blue-700 hover:text-blue-700;
+		@apply border rounded;
+		@apply w-min;
+		@apply min-w-max;
+		@apply text-sm;
+	}
+
 	.delete,
 	.archive {
 		@apply bg-transparent hover:bg-red-600;

@@ -31,6 +31,7 @@
 	import Modal from './Modal.svelte'
 	import Password from './Password.svelte'
 	import Path from './Path.svelte'
+	import { Button } from './common'
 
 	let manual = false
 	let value: string = ''
@@ -227,21 +228,33 @@
 				{#each scopes as v}
 					<div class="flex flex-row max-w-md">
 						<input type="text" bind:value={v} />
-						<button
-							class="default-button-secondary mx-6"
+						<Button
+							variant="border"
+							color="blue"
+							size="sm"
+							btnClasses="mx-6"
 							on:click={() => {
 								scopes = scopes.filter((el) => el != v)
-							}}><Icon data={faMinus} class="mb-1" /></button
+							}}
 						>
+							<Icon data={faMinus} />
+						</Button>
 					</div>
 				{/each}
-				<button
-					class="default-button-secondary mt-1"
+				<Button
+					variant="border"
+					color="blue"
+					size="sm"
+					btnClasses="mt-1"
 					on:click={() => {
 						scopes = scopes.concat('')
-					}}>Add item &nbsp;<Icon data={faPlus} class="mb-1" /></button
-				><span class="ml-2">{(scopes ?? []).length} item{(scopes ?? []).length > 1 ? 's' : ''}</span
+					}}
 				>
+					Add item &nbsp;<Icon data={faPlus} />
+				</Button>
+				<span class="ml-2">
+					{(scopes ?? []).length} item{(scopes ?? []).length > 1 ? 's' : ''}
+				</span>
 			{:else}
 				<p class="italic text-sm">Pick an OAuth API and customize the scopes here</p>
 			{/if}
@@ -252,20 +265,28 @@
 						<input type="text" bind:value={k} />
 						<input type="text" bind:value={v} />
 
-						<button
-							class="default-button-secondary mx-6"
+						<Button
+							variant="border"
+							color="blue"
+							size="sm"
+							btnClasses="mx-6"
 							on:click={() => {
 								extra_params = extra_params.filter((el) => el[0] != k)
-							}}><Icon data={faMinus} class="mb-1" /></button
+							}}
 						>
+							<Icon data={faMinus} />
+						</Button>
 					</div>
 				{/each}
-				<button
-					class="default-button-secondary mt-1"
+				<Button
+					variant="border"
+					color="blue"
+					size="sm"
+					btnClasses="mx-6"
 					on:click={() => {
 						extra_params.push(['', ''])
 						extra_params = extra_params
-					}}>Add item &nbsp;<Icon data={faPlus} class="mb-1" /></button
+					}}>Add item &nbsp;<Icon data={faPlus} /></Button
 				><span class="ml-2"
 					>{(extra_params ?? []).length} item{(extra_params ?? []).length > 1 ? 's' : ''}</span
 				>
@@ -355,9 +376,3 @@
 		</button>
 	</div>
 </Modal>
-
-<style>
-	.selected:hover {
-		@apply border border-gray-400 rounded-md border-opacity-50;
-	}
-</style>

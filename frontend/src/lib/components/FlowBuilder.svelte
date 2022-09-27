@@ -209,14 +209,17 @@
 				</Button>
 			{:else}
 				<button class="default-button px-6 self-end" on:click={saveFlow}>Save</button>
-				<button
-					class="default-button-secondary px-6 max-h-8"
+				<Button
+					variant="border"
+					color="blue"
+					size="sm"
+					btnClasses="px-6 max-h-8"
 					on:click={async () => {
 						changeStep(1)
 					}}
 				>
 					Back
-				</button>
+				</Button>
 			{/if}
 		</div>
 	</div>

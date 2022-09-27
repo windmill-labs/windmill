@@ -1,6 +1,7 @@
 <script lang="ts">
 	import RadioButton from './RadioButton.svelte'
 	import ResourceTypePicker from './ResourceTypePicker.svelte'
+	import { Button } from './common'
 
 	export let pattern: string | undefined
 	export let enum_: string[] | undefined
@@ -55,11 +56,14 @@
 				placeholder="^(\\([0-9]{3}\\))?[0-9]{3}-[0-9]{4}$"
 				bind:value={patternStr}
 			/>
-			<button
-				class="default-button-secondary mx-2 mb-1"
+			<Button
+				variant="border"
+				color="blue"
+				size="sm"
+				btnClasses="mx-2 mb-1"
 				on:click={() => {
 					patternStr = ''
-				}}>clear</button
+				}}>clear</Button
 			>
 		</div>
 	</label>
@@ -90,11 +94,14 @@
 					enum_ = enum_.concat('')
 				}}>+</button
 			>
-			<button
-				class="default-button-secondary ml-2"
+			<Button
+				variant="border"
+				color="blue"
+				size="sm"
+				btnClasses="ml-2"
 				on:click={() => {
 					enum_ = undefined
-				}}>clear</button
+				}}>clear</Button
 			>
 		</div>
 	</label>

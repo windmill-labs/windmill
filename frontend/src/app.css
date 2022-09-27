@@ -4,14 +4,6 @@
 @tailwind utilities;
 
 @layer base {
-	.flex pre code.hljs {
-		@apply text-sm;
-	}
-
-	.dropdown {
-		@apply rounded-sm;
-	}
-
 	.item-button {
 		@apply cursor-pointer;
 		@apply py-1;
@@ -26,11 +18,6 @@
 		@apply border border-blue-500;
 		@apply bg-blue-50;
 		@apply rounded-sm;
-	}
-
-	.blue-button {
-		@apply bg-blue-500 !important;
-		@apply hover:bg-blue-700 !important;
 	}
 
 	.default-button {
@@ -58,54 +45,6 @@
 		@apply text-sm;
 	}
 
-	.default-primary-button-v2 {
-		@apply text-white;
-		@apply bg-blue-500;
-		@apply border;
-		@apply border-blue-200;
-		@apply font-medium;
-		@apply rounded-lg;
-		@apply text-sm;
-		@apply px-5;
-		@apply py-2.5; 
-		@apply text-center; 
-		@apply inline-flex;
-		@apply items-center;
-	}
-
-	.default-primary-button-v2:focus {
-		@apply ring-4; 
-		@apply outline-none;
-		@apply bg-blue-800;
-	}
-	.default-primary-button-v2:hover {
-		@apply bg-blue-800 
-	}
-
-	.default-secondary-button-v2 {
-		@apply text-gray-900;
-		@apply bg-white;
-		@apply border;
-		@apply border-gray-200;
-		@apply font-medium;
-		@apply rounded-lg;
-		@apply text-sm;
-		@apply px-5;
-		@apply py-2.5; 
-		@apply text-center; 
-		@apply inline-flex;
-		@apply items-center;
-	}
-
-	.default-secondary-button-v2:focus {
-		@apply ring-4; 
-		@apply outline-none;
-		@apply ring-gray-100;
-	}
-	.default-secondary-button-v2:hover {
-		@apply bg-gray-100 
-	}
-
 	input[disabled],
 	input:disabled,
 	textarea[disabled],
@@ -130,19 +69,4 @@
 		/*this styling does not impact the Dropdown component */
 		@apply text-gray-500 !important;
 	}
-
-	.default-button-secondary {
-		@apply items-center py-1 px-2;
-		@apply rounded bg-transparent text-blue-500 border border-blue-500 font-normal;
-		@apply hover:bg-transparent hover:border-blue-700 hover:text-blue-700;
-		@apply border rounded;
-		@apply w-min;
-		@apply min-w-max;
-		@apply text-sm;
-	}
-}
-
-.inline-highlight pre code.hljs {
-	padding: 0;
-	@apply text-xs;
 }

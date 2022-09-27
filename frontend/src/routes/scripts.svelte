@@ -43,6 +43,7 @@
 	import TableCustom from '$lib/components/TableCustom.svelte'
 	import { Highlight } from 'svelte-highlight'
 	import { typescript } from 'svelte-highlight/languages/typescript'
+	import { Button } from '$lib/components/common'
 
 	type Tab = 'all' | 'personal' | 'groups' | 'shared' | 'examples' | 'hub'
 	type Section = [string, ScriptW[]]
@@ -187,12 +188,15 @@
 		items did not exist at runtime of the script."
 	>
 		<div class="flex flex-row">
-			<button
-				class="default-button-secondary border-none"
+			<Button
+				variant="border"
+				color="blue"
+				size="sm"
+				btnClasses="border-none"
 				on:click={() => {
 					templateModal.openModal()
 				}}
-				><Icon class="text-blue-500 mb-1" data={faPlus} scale={0.9} /> New script from template</button
+				><Icon class="text-blue-500 mb-1" data={faPlus} scale={0.9} /> New script from template</Button
 			>
 			<a class="default-button" href="/scripts/add"
 				><Icon class="text-white mb-1" data={faPlus} scale={0.9} /> &nbsp; New script</a

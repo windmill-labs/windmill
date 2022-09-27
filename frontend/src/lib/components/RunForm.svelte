@@ -10,6 +10,7 @@
 	import SchemaForm from './SchemaForm.svelte'
 	import Tooltip from './Tooltip.svelte'
 	import type { Schema } from '$lib/common'
+	import { Button } from './common'
 
 	export let runnable: { summary?: string; schema?: Schema; description?: string } | undefined
 	export let runAction: (scheduledForStr: string | undefined, args: Record<string, any>) => void
@@ -91,14 +92,17 @@
 							min={getToday().toISOString().slice(0, 16)}
 						/>
 					</div>
-					<button
-						class="default-button-secondary mx-2 mb-1"
+					<Button
+						variant="border"
+						color="blue"
+						size="sm"
+						btnClasses="mx-2 mb-1"
 						on:click={() => {
 							scheduledForStr = undefined
 						}}
 					>
 						Clear
-					</button>
+					</Button>
 				</div>
 			</div>
 		</div>

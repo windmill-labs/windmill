@@ -17,6 +17,7 @@
 	import ScriptSchema from './ScriptSchema.svelte'
 	import CenteredPage from './CenteredPage.svelte'
 	import Tooltip from './Tooltip.svelte'
+	import { Button } from './common'
 
 	let editor: ScriptEditor
 	let scriptSchema: ScriptSchema
@@ -141,25 +142,31 @@
 					<button class="default-button px-6 self-end" on:click={editScript}>Save</button>
 				{/if}
 				{#if step > 1}
-					<button
-						class="default-button-secondary px-6 max-h-8 mr-2"
+					<Button
+						variant="border"
+						color="blue"
+						size="sm"
+						btnClasses="px-6 max-h-8 mr-2"
 						on:click={async () => {
 							changeStep(step - 1)
 						}}
 					>
 						Back
-					</button>
+					</Button>
 				{/if}
 				{#if step == 2}
-					<button
-						class="default-button-secondary px-6 max-h-8 mr-2"
+					<Button
+						variant="border"
+						color="blue"
+						size="sm"
+						btnClasses="px-6 max-h-8 mr-2"
 						on:click={async () => {
 							await inferSchema()
 							editScript()
 						}}
 					>
 						Save (commit)
-					</button>
+					</Button>
 				{/if}
 			</div>
 		</div>

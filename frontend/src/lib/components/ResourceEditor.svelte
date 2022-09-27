@@ -10,6 +10,7 @@
 	import ItemPicker from './ItemPicker.svelte'
 	import VariableEditor from './VariableEditor.svelte'
 	import Required from './Required.svelte'
+	import { Button } from './common'
 
 	import { workspaceStore } from '$lib/stores'
 	import ResourceTypePicker from './ResourceTypePicker.svelte'
@@ -184,12 +185,15 @@
 								format={resourceSchema.properties[fieldName]?.format}
 							/>
 							<div class="pb-3 ml-2 relative">
-								<button
-									class="default-button-secondary min-w-min items-center leading-4 py-0"
+								<Button
+									variant="border"
+									color="blue"
+									size="sm"
+									btnClasses="min-w-min items-center leading-4 py-0"
 									on:click={() => {
 										pickForField = fieldName
 										itemPicker.openModal()
-									}}>insert variable</button
+									}}>insert variable</Button
 								>
 							</div>
 						</div>
@@ -213,14 +217,17 @@
 				Next
 			</button>
 		{:else}
-			<button
-				class="default-button-secondary px-4 py-2 font-semibold"
+			<Button
+				variant="border"
+				color="blue"
+				size="sm"
+				btnClasses="px-4 py-2 font-semibold"
 				on:click={() => {
 					step = 1
 				}}
 			>
 				Back
-			</button>
+			</Button>
 			<button
 				disabled={!isValid}
 				class="default-button px-4 py-2 font-semibold"
@@ -257,15 +264,16 @@
 		slot="submission"
 		class="flex flex-row-reverse w-full p-5 bg-white border-t border-gray-200 rounded-bl-lg rounded-br-lg"
 	>
-		<button
-			class="default-button-secondary"
-			type="button"
+		<Button
+			variant="border"
+			color="blue"
+			size="sm"
 			on:click={() => {
 				variableEditor.initNew()
 			}}
 		>
 			Create a new variable
-		</button>
+		</Button>
 		<div class="text-xs mr-2 align-middle">
 			The variable you were looking for does not exist yet?
 		</div>
