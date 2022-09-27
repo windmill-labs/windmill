@@ -48,8 +48,8 @@
 	}
 
 	const spacingClasses: Record<Button.Size, string> = {
-		xs: 'px-2.5 py-1',
-		sm: 'px-2.5 py-1',
+		xs: 'px-3 py-1.5',
+		sm: 'px-3 py-1.5',
 		md: 'px-4 py-2',
 		lg: 'px-4 py-2',
 		xl: 'px-4 py-2'

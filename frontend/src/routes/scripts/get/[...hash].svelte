@@ -135,18 +135,16 @@
 		<svelte:fragment slot="left">
 			<Button
 				href={`/scripts/run/${script.hash}`}
-				variant="contained"
 				color="blue"
-				size="sm"
+				size="xs"
 				startIcon={{ icon: faPlay }}
 			>
 				Run
 			</Button>
 			<Button
 				href={`/scripts/edit/${script.hash}?step=2`}
-				variant="contained"
 				color="blue"
-				size="sm"
+				size="xs"
 				startIcon={{ icon: faEdit }}
 				disabled={!can_write}
 			>
@@ -155,9 +153,8 @@
 			{#if !topHash}
 				<Button
 					href={`/scripts/add?template=${script.path}`}
-					variant="contained"
 					color="blue"
-					size="sm"
+					size="xs"
 					startIcon={{ icon: faCodeFork }}
 				>
 					Use as template/Fork
@@ -169,7 +166,7 @@
 				href={`/runs/${script.path}`}
 				variant="border"
 				color="blue"
-				size="sm"
+				size="xs"
 				startIcon={{ icon: faList }}
 			>
 				View runs
@@ -184,7 +181,7 @@
 				).toString()}
 				variant="border"
 				color="blue"
-				size="sm"
+				size="xs"
 				startIcon={{ icon: faGlobe }}
 			>
 				Publish to Hub
@@ -349,7 +346,7 @@
 														<Button
 															on:click={() => copyToClipboard(url)}
 															color="blue"
-															size="sm"
+															size="xs"
 															startIcon={{ icon: faClipboard }}
 															btnClasses="ml-2"
 														>
