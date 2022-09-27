@@ -132,7 +132,7 @@ export async function createScriptFromInlineScript({
 
 	const path = `${flow.path}/${suffix}`
 	const forkedDescription = wasForked ? `as a fork of ${originalScriptPath}` : ''
-	const description = `This script was edited in place of flow ${flow.path} ${forkedDescription} by ${user?.username}}.`
+	const description = `This script was edited in place of flow ${flow.path} ${forkedDescription} by ${user?.username}.`
 
 	const availablePath = await findNextAvailablePath(path)
 
@@ -206,13 +206,12 @@ export function getStepPropPicker(
 	const flowInput = schemaToObject(flowInputSchema, args)
 	const results = getPreviousResults(flowState.modules, parentIndex)
 
-
 	const lastResult =
 		parentIndex == 0
 			? flowInput
 			: results.length > 0
-				? results[results.length - 1]
-				: NEVER_TESTED_THIS_FAR
+			? results[results.length - 1]
+			: NEVER_TESTED_THIS_FAR
 
 	if (isInsideLoop) {
 		let forLoopFlowInput = {
@@ -236,8 +235,8 @@ export function getStepPropPicker(
 			childIndex == 0
 				? forLoopFlowInput
 				: innerResults.length > 0
-					? innerResults[innerResults.length - 1]
-					: NEVER_TESTED_THIS_FAR
+				? innerResults[innerResults.length - 1]
+				: NEVER_TESTED_THIS_FAR
 
 		const extraLib = buildExtraLib(
 			objectToTsType(forLoopFlowInput),
@@ -294,32 +293,34 @@ function getResult(job: Job | undefined): Result | undefined {
 	}
 }
 
-export function mapJobResultsToFlowState(
-	jobs: JobResult,
-	upto: number
-): void {
-
+export function mapJobResultsToFlowState(jobs: JobResult, upto: number): void {
 	const results = jobs.innerJobs.map(({ job, loopJobs }) => {
 		if (loopJobs && loopJobs.length > 0) {
-			return [job?.args, loopJobs.map(({ job }) => {
-				return getResult(job)
-			})]
+			return [
+				job?.args,
+				loopJobs.map(({ job }) => {
+					return getResult(job)
+				})
+			]
 		} else {
 			return [job?.args, getResult(job)]
 		}
 	})
 
-
-
 	const old = get(flowStateStore)
 	const modules = old.modules.map((flowModuleState: FlowModuleState, index: number) => {
 		if (results[index] && index <= upto) {
-			if (results[index][1] != NEVER_TESTED_THIS_FAR || flowModuleState.previewResult == undefined) {
+			if (
+				results[index][1] != NEVER_TESTED_THIS_FAR ||
+				flowModuleState.previewResult == undefined
+			) {
 				flowModuleState.previewArgs = results[index][0]
 				flowModuleState.previewResult = results[index][1]
 				flowModuleState.childFlowModules?.map((innerMod, j) => {
 					const lastLoopJob = jobs.innerJobs[index].loopJobs?.length ?? 0
-					innerMod.previewResult = getResult(jobs.innerJobs[index].loopJobs?.[lastLoopJob - 1]?.innerJobs?.[j]?.job)
+					innerMod.previewResult = getResult(
+						jobs.innerJobs[index].loopJobs?.[lastLoopJob - 1]?.innerJobs?.[j]?.job
+					)
 				})
 			}
 		}
@@ -332,4 +333,3 @@ export function mapJobResultsToFlowState(
 		failureModule: old.failureModule
 	})
 }
-
