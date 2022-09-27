@@ -29,6 +29,17 @@
 	let codeLang: 'python3' | 'deno' | 'go' = 'deno'
 	let codeContent: string = ''
 
+	function addEditorActions() {
+		editor.addAction('insert-variable', 'Windmill: Insert variable', () => {
+			variablePicker.openModal()
+		})
+		editor.addAction('insert-resource', 'Windmill: Insert resource', () => {
+			resourcePicker.openModal()
+		})
+	}
+
+	$: editor && addEditorActions()
+
 	async function loadVariables() {
 		let r: { name: string; path?: string; description?: string }[] = []
 		const variables = (
@@ -173,7 +184,7 @@
 <VariableEditor bind:this={variableEditor} on:create={variablePicker.openModal} />
 
 <div class="flex divide-x items-center">
-	<div id="insert-variable">
+	<div>
 		<Button
 			color="light"
 			btnClasses="mr-1"
@@ -185,7 +196,7 @@
 			Insert variable
 		</Button>
 	</div>
-	<div id="insert-resource">
+	<div>
 		<Button
 			btnClasses="mx-1"
 			size="xs"

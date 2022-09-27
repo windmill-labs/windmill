@@ -44,23 +44,6 @@
 	let websocketAlive = { pyright: false, black: false, deno: false }
 	let selected = 'inputs'
 
-	$: if (editor) {
-		editor.addAction('insert-variable', 'Windmill: Insert variable', (ed) => {
-			const content = document.getElementById('insert-variable')
-			if (content) {
-				const buttons = content.getElementsByTagName('button')
-				buttons[0].click()
-			}
-		})
-		editor.addAction('insert-resource', 'Windmill: Insert resource', (ed) => {
-			const content = document.getElementById('insert-resource')
-			if (content) {
-				const buttons = content.getElementsByTagName('button')
-				buttons[0].click()
-			}
-		})
-	}
-
 	$: shouldPick = isEmptyFlowModule(flowModule)
 	$: stepPropPicker = getStepPropPicker(
 		$selectedId.split('-').map(Number),
