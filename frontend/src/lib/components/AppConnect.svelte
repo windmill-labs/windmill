@@ -179,6 +179,10 @@
 			resource_type == 'gcal' ||
 			resource_type == 'gdrive' ||
 			resource_type == 'gsheets')
+	$: disabled =
+		(step == 1 && resource_type == '') ||
+		(step == 2 && value == '') ||
+		(step == 3 && pathError != '')
 </script>
 
 <Modal
@@ -208,8 +212,10 @@
 			<PageHeader title="OAuth APIs" />
 			<div class="grid sm:grid-cols-2 md:grid-cols-3 gap-x-2 gap-y-1 items-center mb-2">
 				{#each Object.entries(connects).sort((a, b) => a[0].localeCompare(b[0])) as [key, values]}
-					<button
-						class="px-4 h-8 {key == resource_type ? 'item-button-selected' : 'item-button'}"
+					<Button
+						variant="border"
+						color={key === resource_type ? 'blue' : 'dark'}
+						btnClasses={key === resource_type ? '!border-2 !bg-blue-50/75' : 'm-[1px]'}
 						on:click={() => {
 							manual = false
 							resource_type = key
@@ -220,18 +226,18 @@
 						}}
 					>
 						<IconedResourceType name={key} after={true} />
-					</button>
+					</Button>
 				{/each}
 			</div>
-			<PageHeader title="scopes" primary={false} />
+			<PageHeader title="Scopes" primary={false} />
 			{#if !manual && resource_type != ''}
 				{#each scopes as v}
-					<div class="flex flex-row max-w-md">
+					<div class="flex flex-row max-w-md mb-2">
 						<input type="text" bind:value={v} />
 						<Button
 							variant="border"
-							color="blue"
-							size="sm"
+							color="red"
+							size="xs"
 							btnClasses="mx-6"
 							on:click={() => {
 								scopes = scopes.filter((el) => el != v)
@@ -241,34 +247,36 @@
 						</Button>
 					</div>
 				{/each}
-				<Button
-					variant="border"
-					color="blue"
-					size="sm"
-					btnClasses="mt-1"
-					on:click={() => {
-						scopes = scopes.concat('')
-					}}
-				>
-					Add item &nbsp;<Icon data={faPlus} />
-				</Button>
-				<span class="ml-2">
-					{(scopes ?? []).length} item{(scopes ?? []).length > 1 ? 's' : ''}
-				</span>
+				<div class="flex items-center mt-1">
+					<Button
+						variant="border"
+						color="blue"
+						size="sm"
+						endIcon={{ icon: faPlus }}
+						on:click={() => {
+							scopes = scopes.concat('')
+						}}
+					>
+						Add item
+					</Button>
+					<span class="ml-2 text-sm text-gray-500">
+						({(scopes ?? []).length} item{(scopes ?? []).length > 1 ? 's' : ''})
+					</span>
+				</div>
 			{:else}
 				<p class="italic text-sm">Pick an OAuth API and customize the scopes here</p>
 			{/if}
 			<PageHeader title="Extra Params" primary={false} />
 			{#if !manual && resource_type != ''}
 				{#each extra_params as [k, v]}
-					<div class="flex flex-row max-w-md">
-						<input type="text" bind:value={k} />
+					<div class="flex flex-row max-w-md mb-2">
+						<input type="text" bind:value={k} class="mr-2" />
 						<input type="text" bind:value={v} />
 
 						<Button
 							variant="border"
-							color="blue"
-							size="sm"
+							color="red"
+							size="xs"
 							btnClasses="mx-6"
 							on:click={() => {
 								extra_params = extra_params.filter((el) => el[0] != k)
@@ -278,26 +286,33 @@
 						</Button>
 					</div>
 				{/each}
-				<Button
-					variant="border"
-					color="blue"
-					size="sm"
-					btnClasses="mx-6"
-					on:click={() => {
-						extra_params.push(['', ''])
-						extra_params = extra_params
-					}}>Add item &nbsp;<Icon data={faPlus} /></Button
-				><span class="ml-2"
-					>{(extra_params ?? []).length} item{(extra_params ?? []).length > 1 ? 's' : ''}</span
-				>
+				<div class="flex items-center mt-1">
+					<Button
+						variant="border"
+						color="blue"
+						size="sm"
+						endIcon={{ icon: faPlus }}
+						on:click={() => {
+							extra_params.push(['', ''])
+							extra_params = extra_params
+						}}
+					>
+						Add item
+					</Button>
+					<span class="ml-2 text-sm text-gray-500">
+						({(extra_params ?? []).length} item{(extra_params ?? []).length > 1 ? 's' : ''})
+					</span>
+				</div>
 			{:else}
 				<p class="italic text-sm">Pick an OAuth API and customize the extra parameters here</p>
 			{/if}
 			<PageHeader title="Non OAuth APIs" />
 			<div class="grid sm:grid-cols-2 md:grid-cols-3 gap-x-2 gap-y-1 items-center mb-2">
 				{#each connectsManual as [key, instructions]}
-					<button
-						class="px-4 h-8 {key == resource_type ? 'item-button-selected' : 'item-button'}"
+					<Button
+						variant="border"
+						color={key === resource_type ? 'blue' : 'dark'}
+						btnClasses={key === resource_type ? '!border-2 !bg-blue-50/75' : 'm-[1px]'}
 						on:click={() => {
 							manual = true
 							resource_type = key
@@ -305,7 +320,7 @@
 						}}
 					>
 						<IconedResourceType name={key} after={true} />
-					</button>
+					</Button>
 				{/each}
 			</div>
 		{:else if step == 2}
@@ -353,26 +368,24 @@
 			</ul>
 		{/if}
 	</div>
-	<div slot="submission">
+	<div slot="submission" class="flex items-center gap-4">
 		{#if step > 1 && !no_back}
-			<button class="default-button px-4 py-2 font-semibold" on:click={back}>Back</button>
+			<Button variant="border" on:click={back}>Back</Button>
 		{/if}
-		<button
-			class={isGoogleSignin ? '' : 'default-button px-4 py-2 font-semibold'}
-			class:default-button-disabled={(step == 1 && resource_type == '') ||
-				(step == 2 && value == '') ||
-				(step == 3 && pathError != '')}
-			on:click={next}
-		>
-			{#if isGoogleSignin}
-				<img src="/google_signin.png" alt="Google sign-in" />
-			{:else if step == 1 && !manual}
-				Connect
-			{:else if step == 3}
-				Add resource
-			{:else}
-				Next
-			{/if}
-		</button>
+		{#if isGoogleSignin}
+			<button {disabled} class:default-button-disabled={disabled} on:click={next}>
+				<img class="h-10 w-auto" src="/google_signin.png" alt="Google sign-in" />
+			</button>
+		{:else}
+			<Button {disabled} on:click={next}>
+				{#if step == 1 && !manual}
+					Connect
+				{:else if step == 3}
+					Add resource
+				{:else}
+					Next
+				{/if}
+			</Button>
+		{/if}
 	</div>
 </Modal>

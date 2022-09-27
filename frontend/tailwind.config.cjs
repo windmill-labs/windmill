@@ -9,6 +9,7 @@ const config = {
 
 	theme: {
 		colors: {
+			current: 'currentcolor',
 			transparent: 'transparent',
 			white: '#ffffff',
 			gray: {

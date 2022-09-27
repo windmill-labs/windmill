@@ -76,42 +76,29 @@
 		),
 		disabled
 	}
+
+	$: startIconClass = classNames('mr-2', startIcon?.classes)
+	$: endIconClass = classNames('ml-2', endIcon?.classes)
 </script>
 
 {#if href}
 	<a {href} {target} tabindex={disabled ? -1 : 0} on:click|stopPropagation {...buttonProps}>
 		{#if startIcon}
-			<Icon
-				data={startIcon.icon}
-				class={classNames('mr-2', startIcon.classes)}
-				scale={iconScale[size]}
-			/>
+			<Icon data={startIcon.icon} class={startIconClass} scale={iconScale[size]} />
 		{/if}
 		<slot />
 		{#if endIcon}
-			<Icon
-				data={endIcon.icon}
-				class={classNames('ml-2', endIcon.classes)}
-				scale={iconScale[size]}
-			/>
+			<Icon data={endIcon.icon} class={endIconClass} scale={iconScale[size]} />
 		{/if}
 	</a>
 {:else}
 	<button type="button" on:click|stopPropagation {...buttonProps}>
 		{#if startIcon}
-			<Icon
-				data={startIcon.icon}
-				class={classNames('mr-2', startIcon.classes)}
-				scale={iconScale[size]}
-			/>
+			<Icon data={startIcon.icon} class={startIconClass} scale={iconScale[size]} />
 		{/if}
 		<slot />
 		{#if endIcon}
-			<Icon
-				data={endIcon.icon}
-				class={classNames('ml-2', endIcon.classes)}
-				scale={iconScale[size]}
-			/>
+			<Icon data={endIcon.icon} class={endIconClass} scale={iconScale[size]} />
 		{/if}
 	</button>
 {/if}

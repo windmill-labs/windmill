@@ -214,13 +214,6 @@
 			{/if}
 			{#if job?.job_kind == 'script'}
 				{#if canWrite(job?.script_path ?? '', {}, $userStore)}
-					<!-- <a
-						href="/scripts/edit/{job?.script_hash}?step=2"
-						class="default-button-secondary py-1 text-sm px-2"
-					>
-						<Icon data={faEdit} scale={0.6} />
-						<span class="px-1">Edit</span>
-					</a> -->
 					<Button
 						href="/scripts/edit/{job?.script_hash}?step=2"
 						variant="border"
@@ -231,9 +224,6 @@
 						Edit
 					</Button>
 				{/if}
-				<!-- <a href="/scripts/get/{job?.script_hash}" class="default-button-secondary py-1 text-sm px-2"
-					><Icon data={faScroll} scale={0.6} /><span class="px-1">View script</span></a
-				> -->
 				<Button
 					href="/scripts/get/{job?.script_hash}"
 					variant="border"
@@ -243,9 +233,6 @@
 				>
 					View script
 				</Button>
-				<!-- <a href="/runs/{job?.script_path}" class="default-button-secondary py-1 text-sm px-2"
-					><Icon data={faList} scale={0.6} /><span class="px-1">View runs</span></a
-				> -->
 				<Button
 					href="/runs/{job?.script_path}"
 					variant="border"
@@ -255,13 +242,6 @@
 				>
 					View runs
 				</Button>
-				<!-- <a
-					href="/scripts/run/{job?.script_hash}{job?.args
-						? `?args=${encodeURIComponent(encodeState(job?.args))}`
-						: ''}"
-					class="default-button-secondary py-1 text-sm px-2"
-					><Icon class="text-yellow-400" data={faBolt} scale={0.6} label="Run again" /><span
-						class="px-1">Run again</span></a> -->
 				<Button
 					href="/scripts/run/{job?.script_hash}{job?.args
 						? `?args=${encodeURIComponent(encodeState(job?.args))}`
@@ -275,10 +255,6 @@
 				</Button>
 			{:else if job?.job_kind == 'flow'}
 				{#if canWrite(job?.script_path ?? '', {}, $userStore)}
-					<!-- <a
-						href="/flows/edit/{job?.script_path}"
-						class="default-button-secondary py-1 text-sm px-2"
-						><Icon data={faEdit} scale={0.6} /><span class="px-1">Edit</span></a> -->
 					<Button
 						href="/flows/edit/{job?.script_path}"
 						variant="border"
@@ -289,8 +265,6 @@
 						Edit
 					</Button>
 				{/if}
-				<!-- <a href="/flows/get/{job?.script_path}" class="default-button-secondary py-1 text-sm px-2"
-					><Icon data={faScroll} scale={0.6} /><span class="px-1">View flow</span></a> -->
 				<Button
 					href="/flows/get/{job?.script_path}"
 					variant="border"
@@ -300,10 +274,6 @@
 				>
 					View flow
 				</Button>
-				<!-- <a
-					href="/runs/{job?.script_path}?jobKind=flow"
-					class="default-button-secondary py-1 text-sm px-2"
-					><Icon data={faList} scale={0.6} /><span class="px-1">View runs</span></a> -->
 				<Button
 					href="/runs/{job?.script_path}?jobKind=flow"
 					variant="border"
@@ -313,13 +283,6 @@
 				>
 					View runs
 				</Button>
-				<!-- <a
-					href="/flows/run/{job?.script_path}{job?.args
-						? `?args=${encodeURIComponent(encodeState(job?.args))}`
-						: ''}"
-					class="default-button-secondary py-1 text-sm px-2"
-					><Icon class="text-yellow-400" data={faBolt} scale={0.6} label="Run again" /><span
-						class="px-1">Run again</span></a> -->
 				<Button
 					href="/flows/run/{job?.script_path}{job?.args
 						? `?args=${encodeURIComponent(encodeState(job?.args))}`
