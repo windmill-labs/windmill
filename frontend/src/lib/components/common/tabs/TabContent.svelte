@@ -3,13 +3,15 @@
 	import type { TabsContext } from './Tabs.svelte'
 
 	export let value: string
+	export let alwaysMounted: boolean = false
+
 	let clazz: string = ''
 	export { clazz as class }
 	const { selected } = getContext<TabsContext>('Tabs')
 </script>
 
-{#if value === $selected}
-	<div class={clazz}>
+{#if value === $selected || alwaysMounted}
+	<div class={`${clazz} ${value === $selected ? 'visible' : 'hidden'}`}>
 		<slot />
 	</div>
 {/if}

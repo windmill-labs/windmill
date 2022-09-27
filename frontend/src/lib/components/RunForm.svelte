@@ -103,30 +103,43 @@
 			</div>
 		</div>
 	{/if}
-	<div class="flex justify-between mt-2 md:mt-6 mb-6">
-		<button
-			type="submit"
-			class="mr-6 text-sm underline text-gray-700 inline-flex  items-center"
-			on:click={() => {
-				viewOptions = !viewOptions
-			}}
-		>
-			{#if schedulable}
+	{#if schedulable}
+		<div class="flex justify-between mt-2 md:mt-6 mb-6">
+			<button
+				type="submit"
+				class="mr-6 text-sm underline text-gray-700 inline-flex  items-center"
+				on:click={() => {
+					viewOptions = !viewOptions
+				}}
+			>
 				<div>
 					Schedule to run later
 					<Icon data={viewOptions ? faChevronUp : faChevronDown} scale={0.5} />
 				</div>
-			{/if}
-		</button>
+			</button>
+			<button
+				type="submit"
+				disabled={!isValid}
+				class="{isValid ? 'default-button' : 'default-button-disabled'} w-min px-6"
+				on:click={() => {
+					runAction(scheduledForStr, args)
+				}}
+			>
+				{scheduledForStr ? 'Schedule run to a later time' : buttonText}
+			</button>
+		</div>
+	{:else}
 		<button
 			type="submit"
 			disabled={!isValid}
-			class="{isValid ? 'default-button' : 'default-button-disabled'} w-min px-6"
+			class="{isValid
+				? 'default-button'
+				: 'default-button-disabled'} w-full rounded rounded-md px-6 mb-4"
 			on:click={() => {
-				runAction(scheduledForStr, args)
+				runAction(undefined, args)
 			}}
 		>
-			{scheduledForStr ? 'Schedule run to a later time' : buttonText}
+			{buttonText}
 		</button>
-	</div>
+	{/if}
 </div>
