@@ -9,7 +9,6 @@
 	import TestJobLoader from './TestJobLoader.svelte'
 	import LogViewer from './LogViewer.svelte'
 	import DisplayResult from './DisplayResult.svelte'
-	import { mapJobResultsToFlowState } from './flows/flowStateUtils'
 	import Button from './common/button/Button.svelte'
 	import { faRotateRight } from '@fortawesome/free-solid-svg-icons'
 	import { flowStateStore } from './flows/flowState'
