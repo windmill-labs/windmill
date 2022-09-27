@@ -8,20 +8,20 @@
 		class={'w-full flex flex-wrap justify-between items-center gap-4 ' +
 			(applyPageWidth ? classes : '')}
 	>
-		{#if $$slots.left}
-			<div class="flex flex-wrap items-center gap-2">
+		<div class="flex flex-wrap items-center gap-2">
+			{#if $$slots.left}
 				<slot name="left" />
-			</div>
-		{/if}
-		{#if $$slots.middle}
-			<div class="flex flex-wrap items-center gap-2">
+			{/if}
+		</div>
+		<div class="flex flex-wrap items-center gap-2">
+			{#if $$slots.middle}
 				<slot name="middle" />
-			</div>
-		{/if}
-		{#if $$slots.right}
-			<div class="flex flex-wrap items-center gap-2">
+			{/if}
+		</div>
+		<div class="flex flex-wrap items-center gap-2">
+			{#if $$slots.right}
 				<slot name="right" />
-			</div>
-		{/if}
+			{/if}
+		</div>
 	</div>
 </div>
