@@ -133,8 +133,8 @@
 				<VSplitPane
 					topPanelSize={flowModule.value.type === 'rawscript' ? '50%' : '0%'}
 					downPanelSize={flowModule.value.type === 'rawscript' ? '50%' : '100%'}
-					minTopPaneSize="20%"
-					minDownPaneSize="20%"
+					minTopPaneSize={flowModule.value.type === 'rawscript' ? '20%' : '0%'}
+					minDownPaneSize={flowModule.value.type === 'rawscript' ? '20%' : '100%'}
 				>
 					<top slot="top">
 						{#if flowModule.value.type === 'rawscript'}
