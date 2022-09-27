@@ -6,6 +6,7 @@ import { emptyFlowModuleState, isEmptyFlowModule, loadFlowModuleSchema } from '.
 export type FlowModuleState = {
 	schema: Schema
 	childFlowModules?: FlowModuleState[]
+	previewArgs?: any
 	previewResult?: any
 }
 

@@ -9,9 +9,9 @@
 	import TestJobLoader from './TestJobLoader.svelte'
 	import LogViewer from './LogViewer.svelte'
 	import DisplayResult from './DisplayResult.svelte'
-	import { mapJobResultsToFlowState } from './flows/flowStateUtils'
 	import Button from './common/button/Button.svelte'
 	import { faRotateRight } from '@fortawesome/free-solid-svg-icons'
+	import { flowStateStore } from './flows/flowState'
 
 	let testJobLoader: TestJobLoader
 
@@ -21,8 +21,13 @@
 
 	export let mod: FlowModule
 	export let schema: Schema
+	export let indices: [number, number | undefined]
 
 	let stepArgs: Record<string, any> = {}
+
+	export function runTestWithStepArgs() {
+		runTest(stepArgs)
+	}
 
 	export async function runTest(args: any) {
 		const val = mod.value
@@ -38,8 +43,20 @@
 	}
 
 	function jobDone() {
-		if (testJob && !testJob.canceled && testJob.type == 'CompletedJob') {
-			//mapJobResultsToFlowState(testJob.result, 'justthis', 0, 0)
+		if (testJob && !testJob.canceled && testJob.type == 'CompletedJob' && `result` in testJob) {
+			const result = testJob.result
+			const pMod = $flowStateStore.modules[indices[0]]
+			if (pMod) {
+				if (indices[1] != undefined && pMod.childFlowModules) {
+					const cMod = pMod.childFlowModules[indices[1]]
+					if (cMod) {
+						cMod.previewResult = result
+					}
+				} else {
+					pMod.previewResult = result
+				}
+				$flowStateStore.modules[indices[0]] = pMod
+			}
 		}
 	}
 </script>
@@ -57,9 +74,9 @@
 				runnable={{ summary: mod.summary ?? '', schema, description: '' }}
 				runAction={(_, args) => runTest(args)}
 				schedulable={false}
-				buttonText="Test just this step"
+				buttonText="Test just this step (Ctrl+Enter)"
 				detailed={false}
-				args={stepArgs}
+				bind:args={stepArgs}
 			/>
 			{#if testIsLoading}
 				<Button

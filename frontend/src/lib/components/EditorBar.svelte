@@ -173,7 +173,7 @@
 <VariableEditor bind:this={variableEditor} on:create={variablePicker.openModal} />
 
 <div class="flex divide-x items-center">
-	<div>
+	<div id="insert-variable">
 		<Button
 			color="light"
 			btnClasses="mr-1"
@@ -185,7 +185,7 @@
 			Insert variable
 		</Button>
 	</div>
-	<div>
+	<div id="insert-resource">
 		<Button
 			btnClasses="mx-1"
 			size="xs"

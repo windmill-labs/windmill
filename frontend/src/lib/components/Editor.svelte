@@ -424,7 +424,6 @@
 			label,
 			keybindings,
 			contextMenuGroupId: 'navigation',
-			contextMenuOrder: 1.5,
 
 			run: function (editor: monaco.editor.IStandaloneCodeEditor) {
 				callback(editor)
