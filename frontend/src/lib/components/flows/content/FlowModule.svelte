@@ -40,6 +40,13 @@
 	$: [parentIndex, childIndex] = $selectedId.split('-').map(Number)
 
 	let editor: Editor
+
+	$: if (editor) {
+		editor.addAction('asio', 'as', (ed) => {
+			console.log(ed)
+		})
+	}
+
 	let websocketAlive = { pyright: false, black: false, deno: false }
 
 	$: shouldPick = isEmptyFlowModule(flowModule)

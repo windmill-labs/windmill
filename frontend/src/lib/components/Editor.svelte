@@ -413,6 +413,25 @@
 		}
 	}
 
+	export function addAction(
+		id: string,
+		label: string,
+		callback: (editor: monaco.editor.IStandaloneCodeEditor) => void,
+		keybindings: number[] = []
+	) {
+		editor.addAction({
+			id,
+			label,
+			keybindings,
+			contextMenuGroupId: 'navigation',
+			contextMenuOrder: 1.5,
+
+			run: function (editor: monaco.editor.IStandaloneCodeEditor) {
+				callback(editor)
+			}
+		})
+	}
+
 	onMount(() => {
 		if (browser) {
 			loadMonaco().then((x) => (disposeMethod = x))
