@@ -38,6 +38,7 @@
 	import FlowModuleAdvancedSettings from './FlowModuleAdvancedSettings.svelte'
 	import { loadSchemaFromModule } from '../utils'
 	import { writable, type Writable } from 'svelte/store'
+	import FlowModuleScript from './FlowModuleScript.svelte'
 
 	const { selectedId, select } = getContext<FlowEditorContext>('FlowEditorContext')
 
@@ -173,6 +174,8 @@
 									formatAction={() => reload(flowModule)}
 								/>
 							</div>
+						{:else if flowModule.value.type === 'script'}
+							<FlowModuleScript {flowModule} />
 						{/if}
 					</top>
 

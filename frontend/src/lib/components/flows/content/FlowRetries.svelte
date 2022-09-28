@@ -44,12 +44,12 @@
 	{#if $flowStore.value.retry?.constant}
 		<span class="text-xs font-bold">Attempts</span>
 		<input bind:value={$flowStore.value.retry.constant.attempts} type="number" />
-		<span class="text-xs font-bold">Seconds</span>
+		<span class="text-xs font-bold">Delay (seconds)</span>
 		<input bind:value={$flowStore.value.retry.constant.seconds} type="number" />
 	{:else}
 		<span class="text-xs font-bold">Attempts</span>
 		<input type="number" disabled />
-		<span class="text-xs font-bold">Seconds</span>
+		<span class="text-xs font-bold">Delay (seconds)</span>
 		<input type="number" disabled />
 	{/if}
 
@@ -71,14 +71,14 @@
 		<input bind:value={$flowStore.value.retry.exponential.attempts} type="number" />
 		<span class="text-xs font-bold">Mulitplier</span>
 		<input bind:value={$flowStore.value.retry.exponential.multiplier} type="number" />
-		<span class="text-xs font-bold">Seconds</span>
+		<span class="text-xs font-bold">Initial delay (seconds)</span>
 		<input bind:value={$flowStore.value.retry.exponential.seconds} type="number" />
 	{:else}
 		<span class="text-xs font-bold">Attempts</span>
 		<input type="number" disabled />
 		<span class="text-xs font-bold">Mulitplier</span>
 		<input type="number" disabled />
-		<span class="text-xs font-bold">Seconds</span>
+		<span class="text-xs font-bold">Initial delay (seconds)</span>
 		<input type="number" disabled />
 	{/if}
 </div>
