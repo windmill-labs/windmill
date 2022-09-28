@@ -157,7 +157,7 @@ const config = {
 						backgroundColor: theme('colors.gray.100') + ' !important'
 					}
 				},
-				'button:disabled,button[disabled],a.disabled': {
+				'button:disabled,button[disabled=true],a:disabled,a[disabled=true]': {
 					pointerEvents: 'none',
 					cursor: 'default',
 					filter: 'grayscale(1)'
@@ -220,6 +220,11 @@ const config = {
 					overflow: 'hidden',
 					whiteSpace: 'nowrap',
 					textOverflow: 'ellipsis',
+				},
+				'.disabled': {
+					pointerEvents: 'none',
+					cursor: 'default',
+					filter: 'grayscale(1)'
 				},
 				'.scrollbar-hidden': {
 					'-ms-overflow-style': 'none',
