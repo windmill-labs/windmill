@@ -11,7 +11,7 @@
 <FlowEditorHeader />
 
 <div class="h-full overflow-hidden">
-	<HSplitPane leftPaneSize="25%" rightPaneSize="75%" minLeftPaneSize="20%" minRightPaneSize="20%">
+	<HSplitPane leftPaneSize="25%" rightPaneSize="75%" minLeftPaneSize="20%" minRightPaneSize="40%">
 		<left slot="left" class="h-full ">
 			<div class="h-full overflow-auto p-4 bg-gray-50">
 				{#if $flowStore.value.modules && $flowStateStore.modules}
