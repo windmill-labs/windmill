@@ -44,7 +44,7 @@
 		{#if deletable}
 			<button
 				type="button"
-				on:click={() => dispatch('delete')}
+				on:click={(event) => dispatch('delete', { event })}
 				class="text-gray-900 bg-white border border-gray-300 focus:outline-none hover:bg-gray-100 focus:ring-4 focus:ring-gray-200 font-medium rounded-sm text-xs px-2 py-1"
 			>
 				<Icon data={faTrashAlt} scale={0.8} />

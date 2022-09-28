@@ -49,7 +49,7 @@
 	</div>
 
 	{#if $flowStore.value.failure_module}
-		<input
+		<textarea
 			bind:value={$flowStore.value.failure_module.summary}
 			placeholder="Error handler summary"
 		/>
