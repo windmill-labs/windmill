@@ -1,14 +1,16 @@
 <script lang="ts">
+	import Badge from './common/badge/Badge.svelte'
 	import IconedResourceType from './IconedResourceType.svelte'
 
 	export let path: string
 </script>
 
-{#if path.startsWith('hub/')}
-	<span class="inline-flex flex-row gap-x-2 items-center">
+<div class="flex space-x-2 items-center">
+	{#if path.startsWith('hub/')}
 		<IconedResourceType name={path.split('/')[2]} silent={true} />
 		<span>{path}</span>
-	</span>
-{:else}
-	{path}
-{/if}
+	{:else}
+		<Badge color="blue">Workspace</Badge>
+		<span>{path}</span>
+	{/if}
+</div>

@@ -1,3 +1,10 @@
+<script context="module" lang="ts">
+	export type FlowModuleWidthContext = {
+		width: Writable<number>
+		threshold: number
+	}
+</script>
+
 <script lang="ts">
 	import { VSplitPane } from 'svelte-split-pane'
 
@@ -26,10 +33,11 @@
 	import { flowStateStore, type FlowModuleState } from '../flowState'
 	import { scriptLangToEditorLang } from '$lib/utils'
 	import PropPickerWrapper from '../propPicker/PropPickerWrapper.svelte'
-	import { getContext } from 'svelte'
+	import { getContext, setContext } from 'svelte'
 	import type { FlowEditorContext } from '../types'
 	import FlowModuleAdvancedSettings from './FlowModuleAdvancedSettings.svelte'
 	import { loadSchemaFromModule } from '../utils'
+	import { writable, type Writable } from 'svelte/store'
 
 	const { selectedId, select } = getContext<FlowEditorContext>('FlowEditorContext')
 
@@ -82,27 +90,33 @@
 	async function applyCreateLoop() {
 		await apply(createLoop, null)
 	}
+
+	export const FLOW_MODULE_WIDTH_THRESHOLD = 768
+	const width = writable<number>(0)
+
+	setContext<FlowModuleWidthContext>('FlowModuleWidth', {
+		width,
+		threshold: FLOW_MODULE_WIDTH_THRESHOLD
+	})
 </script>
 
 <svelte:window on:keydown={onKeyDown} />
 
-<div class="flex flex-col h-full ">
+<div class="flex flex-col h-full" bind:clientWidth={$width}>
 	<FlowCard bind:flowModule>
 		<svelte:fragment slot="header">
-			<div class="flex-shrink-0">
-				<FlowModuleHeader
-					bind:module={flowModule}
-					on:delete
-					on:fork={() => apply(fork, flowModule)}
-					on:createScriptFromInlineScript={() => {
-						apply(createScriptFromInlineScript, {
-							flowModule: flowModule,
-							suffix: $selectedId,
-							schema: flowModuleState.schema
-						})
-					}}
-				/>
-			</div>
+			<FlowModuleHeader
+				bind:module={flowModule}
+				on:delete
+				on:fork={() => apply(fork, flowModule)}
+				on:createScriptFromInlineScript={() => {
+					apply(createScriptFromInlineScript, {
+						flowModule: flowModule,
+						suffix: $selectedId,
+						schema: flowModuleState.schema
+					})
+				}}
+			/>
 		</svelte:fragment>
 		{#if shouldPick}
 			<FlowInputs
@@ -125,7 +139,12 @@
 		{:else}
 			{#if flowModule.value.type === 'rawscript'}
 				<div class="flex-shrink-0 border-b p-1">
-					<EditorBar {editor} lang={flowModule.value['language'] ?? 'deno'} {websocketAlive} />
+					<EditorBar
+						{editor}
+						lang={flowModule.value['language'] ?? 'deno'}
+						{websocketAlive}
+						iconOnly={$width < FLOW_MODULE_WIDTH_THRESHOLD}
+					/>
 				</div>
 			{/if}
 

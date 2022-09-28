@@ -43,7 +43,7 @@
 
 <HSplitPane leftPaneSize="50%" rightPaneSize="50%" minLeftPaneSize="20%" minRightPaneSize="20%">
 	<left slot="left" class="relative">
-		<div class=" overflow-auto h-full p-4">
+		<div class="overflow-auto h-full p-4">
 			<slot />
 		</div>
 	</left>

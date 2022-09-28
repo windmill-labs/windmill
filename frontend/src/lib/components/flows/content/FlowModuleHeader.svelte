@@ -8,8 +8,8 @@
 	import { getScriptByPath } from '$lib/utils'
 	import { faCode, faCodeBranch, faSave, faTrashAlt } from '@fortawesome/free-solid-svg-icons'
 	import { createEventDispatcher, getContext } from 'svelte'
-	import Icon from 'svelte-awesome'
 	import type { FlowEditorContext } from '../types'
+	import type { FlowModuleWidthContext } from './FlowModule.svelte'
 
 	export let module: FlowModule
 
@@ -32,16 +32,30 @@
 
 	const dispatch = createEventDispatcher()
 	const { selectedId } = getContext<FlowEditorContext>('FlowEditorContext')
+	const { width, threshold } = getContext<FlowModuleWidthContext>('FlowModuleWidth')
+	$: iconOnly = $width < threshold
 </script>
 
-<div class="flex flex-row space-x-2" on:click|stopPropagation={() => undefined}>
+<div class="flex flex-row space-x-2">
 	{#if module.value.type === 'script' && !shouldPick}
-		<Button size="xs" color="light" variant="border" on:click={() => dispatch('fork')}>
-			<Icon data={faCodeBranch} class="mr-2" />
+		<Button
+			size="xs"
+			color="light"
+			variant="border"
+			on:click={() => dispatch('fork')}
+			startIcon={{ icon: faCodeBranch }}
+			{iconOnly}
+		>
 			Fork
 		</Button>
-		<Button size="xs" color="light" variant="border" on:click={viewCode}>
-			<Icon data={faCode} class="mr-2" />
+		<Button
+			size="xs"
+			color="light"
+			variant="border"
+			on:click={viewCode}
+			startIcon={{ icon: faCode }}
+			{iconOnly}
+		>
 			View code
 		</Button>
 	{/if}
@@ -51,9 +65,10 @@
 			size="xs"
 			color="light"
 			variant="border"
+			startIcon={{ icon: faSave }}
 			on:click={() => dispatch('createScriptFromInlineScript')}
+			{iconOnly}
 		>
-			<Icon data={faSave} class="mr-2" />
 			Save to workspace
 		</Button>
 	{/if}
@@ -61,11 +76,10 @@
 		size="xs"
 		color="light"
 		variant="border"
-		on:click={() => {
-			dispatch('delete')
-		}}
+		on:click={() => dispatch('delete')}
+		startIcon={{ icon: faTrashAlt }}
+		{iconOnly}
 	>
-		<Icon data={faTrashAlt} class="mr-2" />
 		{$selectedId.includes('failure') ? 'Delete error handler' : 'Remove step'}
 	</Button>
 </div>

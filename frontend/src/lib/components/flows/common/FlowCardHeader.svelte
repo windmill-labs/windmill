@@ -18,7 +18,7 @@
 </script>
 
 <div
-	class="flex items-center justify-between flex-wrap py-2 px-4 border-b bg-gray-50 shadow-sm h-12"
+	class="flex items-center justify-between py-2 px-4 border-b bg-gray-50 shadow-sm space-x-2 h-12 flex-nowrap"
 >
 	{#if flowModule}
 		<span class="text-sm">
@@ -26,10 +26,9 @@
 				{#if shouldPick}
 					<span class="font-bold text-xs">Select a script</span>
 				{:else if flowModule?.value.type === 'rawscript'}
-					<Badge color={languageColors[flowModule?.value.language] ?? 'gray'} large capitalize>
+					<Badge color={languageColors[flowModule?.value.language] ?? 'gray'} capitalize>
 						{flowModule?.value.language}
 					</Badge>
-
 					<input
 						bind:value={flowModule.summary}
 						placeholder={`Inline ${flowModule?.value.language}`}
