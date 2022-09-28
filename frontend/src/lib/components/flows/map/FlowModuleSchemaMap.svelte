@@ -159,6 +159,9 @@
 
 <RemoveStepConfirmationModal
 	bind:open={confirmationModalOpen}
+	on:canceled={() => {
+		indexToRemove = undefined
+	}}
 	on:confirmed={() => {
 		if (indexToRemove !== undefined) {
 			removeAtIndex(indexToRemove)
