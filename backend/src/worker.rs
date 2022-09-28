@@ -1224,7 +1224,7 @@ async fn handle_dependency_job(
                 args.extend(["--index-url", url]);
             }
             if let Some(host) = pip_trusted_host {
-                args.extend(["--trusted_host", host]);
+                args.extend(["--trusted-host", host]);
             }
             let child = Command::new("pip-compile")
                 .current_dir(job_dir)
