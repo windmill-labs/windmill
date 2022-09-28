@@ -29,19 +29,10 @@
 					<Badge color={languageColors[flowModule?.value.language] ?? 'gray'} capitalize>
 						{flowModule?.value.language}
 					</Badge>
-					<input
-						bind:value={flowModule.summary}
-						placeholder={`Inline ${flowModule?.value.language}`}
-					/>
+					<input bind:value={flowModule.summary} placeholder={'Summary'} />
 				{:else if flowModule?.value.type === 'script' && 'path' in flowModule.value && flowModule.value.path}
 					<IconedPath path={flowModule.value.path} />
-					<input
-						bind:value={flowModule.summary}
-						placeholder={flowModule.value.path.startsWith('hub/')
-							? 'Hub script'
-							: 'Workspace script'}
-						class="ml-2"
-					/>
+					<input bind:value={flowModule.summary} placeholder="Summary" class="ml-2" />
 				{/if}
 			</div>
 		</span>
