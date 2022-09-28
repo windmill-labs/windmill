@@ -108,7 +108,7 @@
 	}
 
 	function validateInput(pattern: string | undefined, v: any): void {
-		if (required && (v == undefined || v == null)) {
+		if (required && (v == undefined || v == null || v === '')) {
 			error = 'This field is required'
 			valid = false
 		} else {
@@ -132,8 +132,11 @@
 	}
 
 	$: {
-		if (value == undefined) {
+		if (value == undefined || value == null) {
 			value = defaultValue
+			if ((defaultValue === undefined || defaultValue === null) && inputCat === 'string') {
+				value = ''
+			}
 		}
 	}
 
@@ -181,21 +184,14 @@
 					</div>
 				{/if}
 			</div>
-			<span class="text-2xs">Preview:</span>
+			<span class="text-2xs">Input preview:</span>
 		{/if}
 
-		<div class="grid grid-cols-2">
-			{#if description || error}
-				<div class="text-sm italic pb-1">
-					{description}
-				</div>
-				<div class="text-right text-xs {error === '' ? 'text-white' : 'font-bold text-red-600'}">
-					{error === '' ? '...' : error}
-				</div>
-			{:else}
-				<div class="mt-1" />
-			{/if}
-		</div>
+		{#if description}
+			<div class="text-sm italic pb-1">
+				{description}
+			</div>
+		{/if}
 
 		<div class="flex space-x-1">
 			{#if inputCat == 'number'}
@@ -358,6 +354,9 @@
 				</Tooltip> -->
 			{/if}
 			<slot name="actions" />
+		</div>
+		<div class="text-right text-xs {error === '' ? 'text-white' : 'font-bold text-red-600'}">
+			{error === '' ? '...' : error}
 		</div>
 	</div>
 </div>
