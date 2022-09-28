@@ -6,7 +6,7 @@
 	export let flowModule: FlowModule | undefined = undefined
 </script>
 
-<FlowCardHeader {title} {flowModule}>
+<FlowCardHeader {title} bind:flowModule>
 	<slot name="header" />
 </FlowCardHeader>
 <slot />

@@ -18,6 +18,7 @@
 	export let lang: 'python3' | 'deno' | 'go'
 	export let editor: Editor
 	export let websocketAlive: { pyright: boolean; black: boolean; deno: boolean }
+	export let iconOnly: boolean = false
 
 	let variablePicker: ItemPicker
 	let resourcePicker: ItemPicker
@@ -192,6 +193,7 @@
 			size="xs"
 			spacingSize="md"
 			startIcon={{ icon: faFile }}
+			{iconOnly}
 		>
 			Insert variable
 		</Button>
@@ -203,8 +205,9 @@
 			spacingSize="md"
 			color="light"
 			on:click={resourcePicker.openModal}
+			{iconOnly}
+			startIcon={{ icon: faCube }}
 		>
-			<Icon data={faCube} class="mr-2" />
 			Insert resource
 		</Button>
 	</div>
@@ -216,8 +219,9 @@
 			spacingSize="md"
 			color="light"
 			on:click={scriptPicker.openModal}
+			{iconOnly}
+			startIcon={{ icon: faCode }}
 		>
-			<Icon data={faCode} class="mr-2" />
 			Search script
 		</Button>
 	</div>
@@ -229,8 +233,9 @@
 			spacingSize="md"
 			color="light"
 			on:click={editor.clearContent}
+			{iconOnly}
+			startIcon={{ icon: faRotateLeft }}
 		>
-			<Icon data={faRotateLeft} class="mr-2" />
 			Reset content
 		</Button>
 	</div>
@@ -241,16 +246,14 @@
 			spacingSize="md"
 			color="light"
 			on:click={editor.reloadWebsocket}
+			startIcon={{ icon: faRotate }}
 		>
-			<Icon data={faRotate} class="h-4 w-4 mr-2" />
-
 			Reload assistants
 			<span class="ml-1">
 				{#if lang == 'deno'}
 					(<span class={websocketAlive.deno ? 'text-green-600' : 'text-red-700'}>Deno</span>)
 				{:else if lang == 'python3'}
 					(<span class={websocketAlive.pyright ? 'text-green-600' : 'text-red-700'}>Pyright</span>
-					&nbsp;
 					<span class={websocketAlive.black ? 'text-green-600' : 'text-red-700'}>Black</span>)
 				{/if}
 			</span>

@@ -130,15 +130,14 @@
 						<div slot="icon">
 							<span>{index + 1}</span>
 						</div>
-						<div slot="content" class="w-full">
-							<input
-								bind:value={mod.summary}
-								placeholder={mod.summary ||
+						<div slot="content" class="w-full truncate block">
+							<span
+								>{mod.summary ||
 									mod.value.path ||
 									(mod.value.type === 'rawscript'
 										? `Inline ${mod.value.language}`
-										: 'Select a script')}
-							/>
+										: 'Select a script')}</span
+							>
 						</div>
 					</FlowModuleSchemaItem>
 				</li>
@@ -160,6 +159,9 @@
 
 <RemoveStepConfirmationModal
 	bind:open={confirmationModalOpen}
+	on:canceled={() => {
+		indexToRemove = undefined
+	}}
 	on:confirmed={() => {
 		if (indexToRemove !== undefined) {
 			removeAtIndex(indexToRemove)
