@@ -2,30 +2,3 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
-
-@layer base {
-	input[disabled],
-	input:disabled,
-	textarea[disabled],
-	textarea:disabled {
-		@apply bg-gray-100 !important;
-	}
-
-	button:disabled,
-	button[disabled],
-	a.disabled {
-		/*this styling does not impact the Dropdown component */
-		@apply bg-gray-100 !important;
-		@apply text-gray-500 !important;
-		@apply border-none !important;
-		cursor: not-allowed !important;
-		pointer-events: none !important;
-	}
-
-	button:disabled svg,
-	button[disabled] svg,
-	a.disabled svg {
-		/*this styling does not impact the Dropdown component */
-		@apply text-gray-500 !important;
-	}
-}

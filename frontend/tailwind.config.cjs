@@ -139,7 +139,7 @@ const config = {
 				'a': {
 					color: theme('colors.blue.500')
 				},
-				'input,input[type="text"],input[type="email"],input[type="url"],input[type="password"],input[type="number"],input[type="date"],input[type="datetime-local"],input[type="month"],input[type="search"],input[type="tel"],input[type="time"],input[type="week"],[multiple],textarea,select': {
+				'input,input[type="text"],input[type="email"],input[type="url"],input[type="password"],input[type="number"],input[type="date"],input[type="datetime-local"],input[type="month"],input[type="search"],input[type="tel"],input[type="time"],input[type="week"],textarea,select': {
 					display: 'block',
 					fontSize: theme('fontSize.sm'),
 					width: '100%',
@@ -152,7 +152,15 @@ const config = {
 						'--tw-ring-offset-shadow': 'var(--tw-ring-inset) 0 0 0 var(--tw-ring-offset-width) var(--tw-ring-offset-color)',
 						'--tw-ring-shadow': 'var(--tw-ring-inset) 0 0 0 calc(3px + var(--tw-ring-offset-width)) var(--tw-ring-color)',
 						boxShadow: 'var(--tw-ring-offset-shadow), var(--tw-ring-shadow), var(--tw-shadow, 0 0 #0000)'
+					},
+					'&:disabled,[disabled]': {
+						backgroundColor: theme('colors.gray.100') + ' !important'
 					}
+				},
+				'button:disabled,button[disabled],a.disabled': {
+					pointerEvents: 'none',
+					cursor: 'default',
+					filter: 'grayscale(1)'
 				}
 			});
 			addComponents({
