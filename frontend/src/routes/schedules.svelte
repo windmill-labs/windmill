@@ -62,7 +62,7 @@
 </script>
 
 <CenteredPage>
-	<PageHeader title="Schedule">
+	<PageHeader title="Schedules">
 		<button class="default-button" on:click={() => goto('/schedule/add')}
 			><Icon class="text-white mb-1" data={faPlus} scale={0.9} /> &nbsp; New schedule</button
 		>
