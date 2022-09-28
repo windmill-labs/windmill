@@ -1,5 +1,4 @@
 <script lang="ts">
-	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
 	import { isEmptyFlowModule } from '$lib/components/flows/flowStateUtils'
 
 	import type { FlowModule } from '$lib/gen'
@@ -8,6 +7,7 @@
 	import { createEventDispatcher, getContext } from 'svelte'
 	import Icon from 'svelte-awesome'
 	import type { FlowEditorContext } from '../types'
+	import RemoveStepConfirmationModal from './RemoveStepConfirmationModal.svelte'
 
 	export let module: FlowModule
 
@@ -45,17 +45,12 @@
 	</Button>
 </div>
 
-<ConfirmationModal
-	open={confirmationModalOpen}
-	title="Remove step"
-	description="Are you sure you want to remove this step?"
-	confirmationText="Remove"
-	on:canceled={() => {
-		confirmationModalOpen = false
-	}}
+<RemoveStepConfirmationModal
+	bind:open={confirmationModalOpen}
 	on:confirmed={() => {
-		select('settings')
 		dispatch('delete')
-		confirmationModalOpen = false
+		setTimeout(() => {
+			select('settings')
+		})
 	}}
 />
