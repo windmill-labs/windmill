@@ -23,6 +23,7 @@
 	import EditorBar from './EditorBar.svelte'
 	import Button from './common/button/Button.svelte'
 	import TestJobLoader from './TestJobLoader.svelte'
+	import { onMount } from 'svelte'
 
 	// Exported
 	export let schema: Schema = emptySchema()
@@ -49,10 +50,6 @@
 
 	$: lastSave = localStorage.getItem(path ?? 'last_save')
 
-	export function getEditor(): Editor {
-		return editor
-	}
-
 	function onKeyDown(event: KeyboardEvent) {
 		if ((event.ctrlKey || event.metaKey) && event.key == 'Enter') {
 			event.preventDefault()
@@ -61,7 +58,7 @@
 	}
 
 	function runTest() {
-		testJobLoader.runPreview(path, editor.getCode(), lang, args)
+		testJobLoader.runPreview(path, code, lang, args)
 	}
 
 	async function loadPastTests(): Promise<void> {
@@ -80,7 +77,7 @@
 				isDefault.push(k)
 			}
 		})
-		await inferArgs(lang, editor.getCode(), schema)
+		await inferArgs(lang, code, schema)
 		schema = schema
 
 		isDefault
@@ -92,6 +89,10 @@
 			}
 		}
 	}
+
+	onMount(() => {
+		inferSchema()
+	})
 </script>
 
 <TestJobLoader
@@ -132,7 +133,6 @@
 				<div
 					class="p-2 h-full"
 					on:mouseleave={() => {
-						code = getEditor().getCode()
 						inferSchema()
 					}}
 				>
@@ -144,14 +144,9 @@
 							runTest()
 						}}
 						formatAction={async () => {
-							code = getEditor().getCode()
 							await inferSchema()
 							localStorage.setItem(path ?? 'last_save', code)
 							lastSave = code
-						}}
-						on:blur={() => {
-							code = getEditor().getCode()
-							inferSchema()
 						}}
 						class="flex flex-1 h-full"
 						lang={scriptLangToEditorLang(lang)}
