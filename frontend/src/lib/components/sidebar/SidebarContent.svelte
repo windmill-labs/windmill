@@ -28,7 +28,6 @@
 	]
 
 	$: secondaryMenuLinks = [
-		{ label: 'Workers', href: '/workers', icon: faRobot },
 		{ label: 'Groups', href: '/groups', icon: faUsersCog },
 		{ label: 'Audit Logs', href: '/audit_logs', icon: faEye },
 		{
@@ -36,7 +35,8 @@
 			href: '/workspace_settings',
 			icon: faCog,
 			disabled: !$userStore?.is_admin
-		}
+		},
+		{ label: 'Workers', href: '/workers', icon: faRobot }
 	]
 
 	const thirdMenuLinks = [

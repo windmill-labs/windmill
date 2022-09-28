@@ -99,7 +99,7 @@
 				href="/flows/run/{path}"
 				variant="contained"
 				color="blue"
-				size="sm"
+				size="xs"
 				startIcon={{ icon: faPlay }}
 			>
 				Run
@@ -108,7 +108,7 @@
 				href="/flows/edit/{path}"
 				variant="contained"
 				color="blue"
-				size="sm"
+				size="xs"
 				startIcon={{ icon: faEdit }}
 				disabled={!can_write}
 			>
@@ -118,7 +118,7 @@
 				href="/flows/add?template={flow.path}"
 				variant="contained"
 				color="blue"
-				size="sm"
+				size="xs"
 				startIcon={{ icon: faCodeFork }}
 			>
 				Use as template/Fork
@@ -129,7 +129,7 @@
 				href="/runs/{flow.path}"
 				variant="border"
 				color="blue"
-				size="sm"
+				size="xs"
 				startIcon={{ icon: faList }}
 			>
 				View runs
@@ -139,7 +139,7 @@
 				href={flowToHubUrl(flow).toString()}
 				variant="border"
 				color="blue"
-				size="sm"
+				size="xs"
 				startIcon={{ icon: faGlobe }}
 			>
 				Publish to Hub
