@@ -1,7 +1,7 @@
 #/bin/sh
 
-INDEX_URL_ARG=$([ -z "$INDEX_URL" ] && echo ""|| echo "-i $INDEX_URL" )
-EXTRA_INDEX_URL_ARG=$([ -z "$EXTRA_INDEX_URL" ] && echo ""|| echo "-i $EXTRA_INDEX_URL" )
+INDEX_URL_ARG=$([ -z "$INDEX_URL" ] && echo ""|| echo "--index-url $INDEX_URL" )
+EXTRA_INDEX_URL_ARG=$([ -z "$EXTRA_INDEX_URL" ] && echo ""|| echo "--extra-index-url $EXTRA_INDEX_URL" )
 TRUSTED_HOST_ARG=$([ -z "$TRUSTED_HOST" ] &&  echo "" || echo "--trusted-host $TRUSTED_HOST")
 
 mkdir -p /tmp/dependencies
