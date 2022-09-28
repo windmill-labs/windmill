@@ -996,7 +996,7 @@ async fn handle_python_job(
             vars.push(("EXTRA_INDEX_URL", url));
         }
         if let Some(url) = pip_index_url {
-            vars.push(("EXTRA_INDEX_URL", url));
+            vars.push(("INDEX_URL", url));
         }
         if let Some(host) = pip_trusted_host {
             vars.push(("TRUSTED_HOST", host));
