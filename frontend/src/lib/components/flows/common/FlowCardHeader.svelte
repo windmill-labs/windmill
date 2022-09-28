@@ -21,7 +21,7 @@
 	class="flex items-center justify-between py-2 px-4 border-b bg-gray-50 shadow-sm space-x-2 h-12 flex-nowrap"
 >
 	{#if flowModule}
-		<span class="text-sm">
+		<span class="text-sm w-full">
 			<div class="flex items-center space-x-2">
 				{#if shouldPick}
 					<span class="font-bold text-xs">Select a script</span>
