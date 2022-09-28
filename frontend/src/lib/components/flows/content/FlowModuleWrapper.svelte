@@ -43,7 +43,6 @@
 		bind:flowModule={$flowStore.value.modules[parentIndex]}
 		bind:flowModuleState={$flowStateStore.modules[parentIndex]}
 		on:delete={() => {
-			select('settings')
 			$flowStateStore.modules.splice(parentIndex, 1)
 			$flowStateStore = $flowStateStore
 			$flowStore.value.modules.splice(parentIndex, 1)

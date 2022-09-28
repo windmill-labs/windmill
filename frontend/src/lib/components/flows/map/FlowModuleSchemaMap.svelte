@@ -4,12 +4,13 @@
 	import FlowModuleSchemaItem from './FlowModuleSchemaItem.svelte'
 	import Icon from 'svelte-awesome'
 	import { faPen, faPlus, faSliders } from '@fortawesome/free-solid-svg-icons'
-	import { emptyFlowModuleState } from '$lib/components/flows/flowStateUtils'
+	import { emptyFlowModuleState, isEmptyFlowModule } from '$lib/components/flows/flowStateUtils'
 	import { classNames, emptyModule } from '$lib/utils'
 	import type { FlowModuleState } from '../flowState'
 	import type { FlowModule } from '$lib/gen'
 
 	import FlowErrorHandlerItem from './FlowErrorHandlerItem.svelte'
+	import RemoveStepConfirmationModal from '../content/RemoveStepConfirmationModal.svelte'
 
 	export let prefix: string | undefined = undefined
 	export let modules: FlowModule[]
@@ -33,6 +34,8 @@
 		moduleStates = moduleStates
 		modules = modules
 	}
+	let indexToRemove: number | undefined = undefined
+	$: confirmationModalOpen = indexToRemove !== undefined
 </script>
 
 <div class="flex flex-col justify-between h-full">
@@ -116,7 +119,13 @@
 						isLast={index === modules.length - 1}
 						selected={$selectedId === [prefix, String(index)].filter(Boolean).join('-')}
 						deletable
-						on:delete={() => removeAtIndex(index)}
+						on:delete={(event) => {
+							if (event.detail.event.shiftKey || isEmptyFlowModule(mod)) {
+								removeAtIndex(index)
+							} else {
+								indexToRemove = index
+							}
+						}}
 					>
 						<div slot="icon">
 							<span>{index + 1}</span>
@@ -148,3 +157,13 @@
 		<FlowErrorHandlerItem />
 	{/if}
 </div>
+
+<RemoveStepConfirmationModal
+	bind:open={confirmationModalOpen}
+	on:confirmed={() => {
+		if (indexToRemove !== undefined) {
+			removeAtIndex(indexToRemove)
+			indexToRemove = undefined
+		}
+	}}
+/>

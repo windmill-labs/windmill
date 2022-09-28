@@ -7,13 +7,16 @@
 	import { createEventDispatcher, getContext } from 'svelte'
 	import Icon from 'svelte-awesome'
 	import type { FlowEditorContext } from '../types'
+	import RemoveStepConfirmationModal from './RemoveStepConfirmationModal.svelte'
 
 	export let module: FlowModule
+
+	let confirmationModalOpen = false
 
 	$: shouldPick = isEmptyFlowModule(module)
 
 	const dispatch = createEventDispatcher()
-	const { selectedId } = getContext<FlowEditorContext>('FlowEditorContext')
+	const { selectedId, select } = getContext<FlowEditorContext>('FlowEditorContext')
 </script>
 
 <div class="flex flex-row space-x-2" on:click|stopPropagation={() => undefined}>
@@ -33,11 +36,26 @@
 	<Button
 		size="xs"
 		color="alternative"
-		on:click={() => {
-			dispatch('delete')
+		on:click={(event) => {
+			if (event.shiftKey || shouldPick) {
+				dispatch('delete')
+				select('settings')
+			} else {
+				confirmationModalOpen = true
+			}
 		}}
 	>
 		<Icon data={faTrashAlt} class="mr-2" />
 		{$selectedId.includes('failure') ? 'Delete error handler' : 'Remove step'}
 	</Button>
 </div>
+
+<RemoveStepConfirmationModal
+	bind:open={confirmationModalOpen}
+	on:confirmed={() => {
+		dispatch('delete')
+		setTimeout(() => {
+			select('settings')
+		})
+	}}
+/>
