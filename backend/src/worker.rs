@@ -1031,7 +1031,7 @@ async fn handle_python_job(
                 args.extend(["--index-url", url]);
             }
             if let Some(host) = pip_trusted_host {
-                args.extend(["--trusted_host", host]);
+                args.extend(["--trusted-host", host]);
             }
             Command::new(python_path)
                 .current_dir(job_dir)

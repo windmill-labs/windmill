@@ -4,6 +4,10 @@ INDEX_URL_ARG=$([ -z "$INDEX_URL" ] && echo ""|| echo "--index-url $INDEX_URL" )
 EXTRA_INDEX_URL_ARG=$([ -z "$EXTRA_INDEX_URL" ] && echo ""|| echo "--extra-index-url $EXTRA_INDEX_URL" )
 TRUSTED_HOST_ARG=$([ -z "$TRUSTED_HOST" ] &&  echo "" || echo "--trusted-host $TRUSTED_HOST")
 
+echo $INDEX_URL_ARG
+echo $EXTRA_INDEX_URL_ARG
+echo $TRUSTED_HOST_ARG
+
 mkdir -p /tmp/dependencies
 touch /tmp/dependencies/_windmill
 /usr/local/bin/python3 -m pip install --cache-dir /tmp/.cache/pip -t /tmp/dependencies -r /user/requirements.txt\
