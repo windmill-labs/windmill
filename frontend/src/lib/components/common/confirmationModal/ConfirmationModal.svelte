@@ -7,7 +7,6 @@
 	import Button from '../button/Button.svelte'
 
 	export let title: string
-	export let description: string
 	export let confirmationText: string
 
 	export let open: boolean = false
@@ -25,7 +24,7 @@
 		/>
 
 		<div class="fixed inset-0 z-10 overflow-y-auto">
-			<div class="flex min-h-full items-end justify-center p-4 text-center sm:items-center sm:p-0">
+			<div class="flex min-h-full items-center justify-center p-4">
 				<div
 					class={classNames(
 						'relative transform overflow-hidden rounded-lg bg-white px-4 pt-5 pb-4 text-left shadow-xl transition-all sm:my-8 sm:w-full sm:max-w-lg sm:p-6',
@@ -34,20 +33,16 @@
 							: 'ease-in duration-200 opacity-0 translate-y-4 sm:translate-y-0 sm:scale-95'
 					)}
 				>
-					<div class="sm:flex sm:items-start">
-						<div
-							class="mx-auto flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-full bg-red-100 sm:mx-0 sm:h-10 sm:w-10"
-						>
+					<div class="flex">
+						<div class="flex h-12 w-12 items-center justify-center rounded-full bg-red-100">
 							<Icon data={faWarning} class="text-red-500" />
 						</div>
-						<div class="mt-3 text-center sm:mt-0 sm:ml-4 sm:text-left">
-							<h3 class="text-lg font-medium leading-6 text-gray-900" id="modal-title">
+						<div class="ml-4 text-left flex-1">
+							<h3 class="text-lg font-medium text-gray-900">
 								{title}
 							</h3>
-							<div class="mt-2">
-								<p class="text-sm text-gray-500">
-									{description}
-								</p>
+							<div class="mt-2 text-sm text-gray-500">
+								<slot />
 							</div>
 						</div>
 					</div>

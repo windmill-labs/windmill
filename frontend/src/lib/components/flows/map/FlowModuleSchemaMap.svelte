@@ -4,7 +4,7 @@
 	import FlowModuleSchemaItem from './FlowModuleSchemaItem.svelte'
 	import Icon from 'svelte-awesome'
 	import { faPen, faPlus, faSliders } from '@fortawesome/free-solid-svg-icons'
-	import { emptyFlowModuleState } from '$lib/components/flows/flowStateUtils'
+	import { emptyFlowModuleState, isEmptyFlowModule } from '$lib/components/flows/flowStateUtils'
 	import { classNames, emptyModule } from '$lib/utils'
 	import type { FlowModuleState } from '../flowState'
 	import type { FlowModule } from '$lib/gen'
@@ -119,8 +119,12 @@
 						isLast={index === modules.length - 1}
 						selected={$selectedId === [prefix, String(index)].filter(Boolean).join('-')}
 						deletable
-						on:delete={() => {
-							indexToRemove = index
+						on:delete={(event) => {
+							if (event.detail.event.shiftKey || isEmptyFlowModule(mod)) {
+								removeAtIndex(index)
+							} else {
+								indexToRemove = index
+							}
 						}}
 					>
 						<div slot="icon">

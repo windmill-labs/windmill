@@ -36,8 +36,13 @@
 	<Button
 		size="xs"
 		color="alternative"
-		on:click={() => {
-			confirmationModalOpen = true
+		on:click={(event) => {
+			if (event.shiftKey || shouldPick) {
+				dispatch('delete')
+				select('settings')
+			} else {
+				confirmationModalOpen = true
+			}
 		}}
 	>
 		<Icon data={faTrashAlt} class="mr-2" />
