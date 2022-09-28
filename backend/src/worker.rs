@@ -155,8 +155,21 @@ pub async fn run_worker(
     let path_env = std::env::var("PATH").unwrap_or_else(|_| String::new());
     let gopath_env = std::env::var("GOPATH").unwrap_or_else(|_| String::new());
     let home_env = std::env::var("HOME").unwrap_or_else(|_| String::new());
-    let envs =
-        Envs { deno_path, go_path, python_path, nsjail_path, path_env, gopath_env, home_env };
+    let pip_index_url = std::env::var("PIP_INDEX_URL").ok();
+    let pip_extra_index_url = std::env::var("PIP_EXTRA_INDEX_URL").ok();
+    let pip_trusted_host = std::env::var("PIP_TRUSTED_HOST").ok();
+    let envs = Envs {
+        deno_path,
+        go_path,
+        python_path,
+        nsjail_path,
+        path_env,
+        gopath_env,
+        home_env,
+        pip_index_url,
+        pip_extra_index_url,
+        pip_trusted_host,
+    };
 
     loop {
         if last_ping.elapsed().as_secs() > NUM_SECS_ENV_CHECK {
@@ -300,6 +313,9 @@ struct Envs {
     path_env: String,
     gopath_env: String,
     home_env: String,
+    pip_index_url: Option<String>,
+    pip_extra_index_url: Option<String>,
+    pip_trusted_host: Option<String>,
 }
 async fn handle_queued_job(
     job: QueuedJob,
@@ -471,7 +487,7 @@ async fn handle_job(
             db,
             last_line,
             timeout,
-            &envs.go_path,
+            &envs,
         )
         .await?;
     } else {
@@ -927,7 +943,15 @@ run();
 
 async fn handle_python_job(
     WorkerConfig { base_internal_url, disable_nuser, disable_nsjail, .. }: &WorkerConfig,
-    Envs { nsjail_path, python_path, path_env, .. }: &Envs,
+    Envs {
+        nsjail_path,
+        python_path,
+        path_env,
+        pip_extra_index_url,
+        pip_index_url,
+        pip_trusted_host,
+        ..
+    }: &Envs,
     requirements_o: Option<String>,
     job_dir: &String,
     worker_dir: &str,
@@ -967,29 +991,52 @@ async fn handle_python_job(
             "started setup python dependencies"
         );
 
+        let mut vars = vec![];
+        if let Some(url) = pip_extra_index_url {
+            vars.push(("EXTRA_INDEX_URL", url));
+        }
+        if let Some(url) = pip_index_url {
+            vars.push(("EXTRA_INDEX_URL", url));
+        }
+        if let Some(host) = pip_trusted_host {
+            vars.push(("TRUSTED_HOST", host));
+        }
         let child = if !disable_nsjail {
             Command::new(nsjail_path)
                 .current_dir(job_dir)
+                .env_clear()
+                .envs(vars)
                 .args(vec!["--config", "download.config.proto"])
                 .stdout(Stdio::piped())
                 .stderr(Stdio::piped())
                 .spawn()?
         } else {
+            let mut args = vec![
+                "-m",
+                "pip",
+                "install",
+                "--no-color",
+                "--isolated",
+                "--no-warn-conflicts",
+                "--disable-pip-version-check",
+                "-t",
+                "./dependencies",
+                "-r",
+                "./requirements.txt",
+            ];
+            if let Some(url) = pip_extra_index_url {
+                args.extend(["--extra-index-url", url]);
+            }
+            if let Some(url) = pip_index_url {
+                args.extend(["--index-url", url]);
+            }
+            if let Some(host) = pip_trusted_host {
+                args.extend(["--trusted_host", host]);
+            }
             Command::new(python_path)
                 .current_dir(job_dir)
-                .args(vec![
-                    "-m",
-                    "pip",
-                    "install",
-                    "--no-color",
-                    "--isolated",
-                    "--no-warn-conflicts",
-                    "--disable-pip-version-check",
-                    "-t",
-                    "./dependencies",
-                    "-r",
-                    "./requirements.txt",
-                ])
+                .env_clear()
+                .args(args)
                 .stdout(Stdio::piped())
                 .stderr(Stdio::piped())
                 .spawn()?
@@ -1156,7 +1203,7 @@ async fn handle_dependency_job(
     db: &sqlx::Pool<sqlx::Postgres>,
     last_line: &mut String,
     timeout: i32,
-    go_path: &str,
+    Envs { go_path, pip_extra_index_url, pip_index_url, pip_trusted_host, .. }: &Envs,
 ) -> error::Result<()> {
     let content = match job.language {
         Some(ScriptLang::Python3) => {
@@ -1169,9 +1216,19 @@ async fn handle_dependency_job(
             logs.push_str(&format!("content of requirements:\n{}\n", &requirements));
             let file = "requirements.in";
             write_file(job_dir, file, &requirements).await?;
+            let mut args = vec!["-q", "--no-header", file];
+            if let Some(url) = pip_extra_index_url {
+                args.extend(["--extra-index-url", url]);
+            }
+            if let Some(url) = pip_index_url {
+                args.extend(["--index-url", url]);
+            }
+            if let Some(host) = pip_trusted_host {
+                args.extend(["--trusted_host", host]);
+            }
             let child = Command::new("pip-compile")
                 .current_dir(job_dir)
-                .args(vec!["-q", "--no-header", file])
+                .args(args)
                 .stdout(Stdio::piped())
                 .stderr(Stdio::piped())
                 .spawn()?;
