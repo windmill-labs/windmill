@@ -117,10 +117,9 @@
 				<span class="text-sm text-gray-700">Editor</span>
 				<input class="block mt-4" type="checkbox" bind:checked={write} />
 			</label>
-			<button
-				class="text-xs default-button max-h-6 place-self-end ml-2"
-				on:click={() => addAcl(newOwner, write)}>Add permission</button
-			>
+			<Button size="sm" btnClasses="ml-2" on:click={() => addAcl(newOwner, write)}>
+				Add permission
+			</Button>
 		</div>
 		<TableCustom>
 			<tr slot="header-row">

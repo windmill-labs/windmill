@@ -55,7 +55,7 @@
 		xl: 'px-4 py-2'
 	}
 	const iconScale: Record<Button.Size, number> = {
-		xs: 0.7,
+		xs: 0.6,
 		sm: 0.8,
 		md: 1,
 		lg: 1.1,
@@ -77,12 +77,20 @@
 		disabled
 	}
 
-	$: startIconClass = classNames('mr-2', startIcon?.classes)
-	$: endIconClass = classNames('ml-2', endIcon?.classes)
+	$: isSmall = size === 'xs' || size === 'sm'
+	$: startIconClass = classNames(isSmall ? 'mr-1' : 'mr-2', startIcon?.classes)
+	$: endIconClass = classNames(isSmall ? 'ml-1' : 'ml-2', endIcon?.classes)
 </script>
 
 {#if href}
-	<a {href} {target} tabindex={disabled ? -1 : 0} on:click|stopPropagation {...buttonProps}>
+	<a
+		{href}
+		{target}
+		tabindex={disabled ? -1 : 0}
+		on:click|stopPropagation
+		{...buttonProps}
+		{...$$restProps}
+	>
 		{#if startIcon}
 			<Icon data={startIcon.icon} class={startIconClass} scale={iconScale[size]} />
 		{/if}
@@ -92,7 +100,7 @@
 		{/if}
 	</a>
 {:else}
-	<button type="button" on:click|stopPropagation {...buttonProps}>
+	<button type="button" on:click|stopPropagation {...buttonProps} {...$$restProps}>
 		{#if startIcon}
 			<Icon data={startIcon.icon} class={startIconClass} scale={iconScale[size]} />
 		{/if}

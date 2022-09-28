@@ -25,7 +25,9 @@
 </script>
 
 <button
-	class="{$$props.class} inline-flex items-center default-button rounded bg-transparent text-blue-500 border border-blue-500 font-normal hover:bg-transparent hover:border-blue-700 hover:text-blue-700 w-min min-w-max text-sm {getCategoryClasses()}"
+	class="{$$props.class} inline-flex items-center bg-blue-500 hover:bg-blue-700 text-white 
+	font-bold py-1 px-2 border rounded border-blue-500 hover:border-blue-700 w-min min-w-max 
+	text-sm {getCategoryClasses()}"
 	on:click
 	{disabled}
 >

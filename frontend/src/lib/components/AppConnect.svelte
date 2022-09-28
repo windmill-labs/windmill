@@ -373,7 +373,7 @@
 			<Button variant="border" on:click={back}>Back</Button>
 		{/if}
 		{#if isGoogleSignin}
-			<button {disabled} class:default-button-disabled={disabled} on:click={next}>
+			<button {disabled} on:click={next}>
 				<img class="h-10 w-auto" src="/google_signin.png" alt="Google sign-in" />
 			</button>
 		{:else}

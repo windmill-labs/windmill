@@ -208,15 +208,15 @@
 					Publish to Hub
 				</Button>
 			{:else}
-				<button class="default-button px-6 self-end" on:click={saveFlow}>Save</button>
+				<Button variant="contained" color="blue" size="sm" btnClasses="!px-6" on:click={saveFlow}>
+					Next
+				</Button>
 				<Button
 					variant="border"
 					color="blue"
 					size="sm"
-					btnClasses="px-6 max-h-8"
-					on:click={async () => {
-						changeStep(1)
-					}}
+					btnClasses="!px-6"
+					on:click={() => changeStep(step - 1)}
 				>
 					Back
 				</Button>

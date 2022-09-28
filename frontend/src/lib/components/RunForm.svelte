@@ -38,7 +38,7 @@
 	let scheduledForStr: string | undefined
 </script>
 
-<div class="max-w-5xl">
+<div class="max-w-6xl">
 	{#if detailed}
 		<div class="grid grid-cols-3 gap-2">
 			<div>
@@ -109,41 +109,29 @@
 	{/if}
 	{#if schedulable}
 		<div class="flex justify-between mt-2 md:mt-6 mb-6">
-			<button
-				type="submit"
-				class="mr-6 text-sm underline text-gray-700 inline-flex  items-center"
-				on:click={() => {
-					viewOptions = !viewOptions
-				}}
+			<Button
+				color="light"
+				size="sm"
+				endIcon={{ icon: viewOptions ? faChevronUp : faChevronDown }}
+				on:click={() => (viewOptions = !viewOptions)}
 			>
-				<div>
-					Schedule to run later
-					<Icon data={viewOptions ? faChevronUp : faChevronDown} scale={0.5} />
-				</div>
-			</button>
-			<button
-				type="submit"
+				Schedule to run later
+			</Button>
+			<Button
+				btnClasses="!px-6 !py-1"
 				disabled={!isValid}
-				class="{isValid ? 'default-button' : 'default-button-disabled'} w-min px-6"
-				on:click={() => {
-					runAction(scheduledForStr, args)
-				}}
+				on:click={() => runAction(scheduledForStr, args)}
 			>
 				{scheduledForStr ? 'Schedule run to a later time' : buttonText}
-			</button>
+			</Button>
 		</div>
 	{:else}
-		<button
-			type="submit"
+		<Button
+			btnClasses="!px-6 !py-1"
 			disabled={!isValid}
-			class="{isValid
-				? 'default-button'
-				: 'default-button-disabled'} w-full rounded rounded-md px-6 mb-4"
-			on:click={() => {
-				runAction(undefined, args)
-			}}
+			on:click={() => runAction(undefined, args)}
 		>
 			{buttonText}
-		</button>
+		</Button>
 	{/if}
 </div>

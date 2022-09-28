@@ -30,6 +30,15 @@
 		kind == 'resource' ? (resource != undefined ? `resource-${resource}` : 'resource') : undefined
 	$: pattern = patternStr == '' ? undefined : patternStr
 	$: contentEncoding = kind == 'base64' ? 'base64' : undefined
+
+	const add = () => (enum_ = enum_ ? enum_.concat('') : [''])
+
+	const remove = (item: string) => {
+		enum_ = (enum_ || []).filter((el) => el !== item)
+		if (enum_.length == 0) {
+			enum_ = undefined
+		}
+	}
 </script>
 
 <RadioButton
@@ -68,41 +77,19 @@
 		</div>
 	</label>
 {:else if kind == 'enum'}
-	<label for="input" class="mb-2 text-gray-700 text-xs"
-		>Enums
-		{#each enum_ ?? [] as e}
+	<label for="input" class="mb-2 text-gray-700 text-xs">
+		Enums
+		{#each enum_ || [] as e}
 			<div class="flex flex-row max-w-md">
 				<input id="input" type="text" bind:value={e} />
-				<button
-					class="default-button mx-6"
-					on:click={() => {
-						enum_ = (enum_ ?? []).filter((el) => el != e)
-						if (enum_.length == 0) {
-							enum_ = undefined
-						}
-					}}>-</button
-				>
+				<Button size="sm" btnClasses="ml-6" on:click={() => remove(e)}>-</Button>
 			</div>
 		{/each}
 		<div class="flex flex-row my-1">
-			<button
-				class="default-button"
-				on:click={() => {
-					if (enum_ == undefined) {
-						enum_ = []
-					}
-					enum_ = enum_.concat('')
-				}}>+</button
-			>
-			<Button
-				variant="border"
-				color="blue"
-				size="sm"
-				btnClasses="ml-2"
-				on:click={() => {
-					enum_ = undefined
-				}}>clear</Button
-			>
+			<Button size="sm" on:click={add}>+</Button>
+			<Button variant="border" size="sm" btnClasses="ml-2" on:click={() => (enum_ = undefined)}>
+				Clear
+			</Button>
 		</div>
 	</label>
 {:else if kind == 'resource'}

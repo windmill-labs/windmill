@@ -22,6 +22,7 @@
 	import { faEdit, faPlus, faShare } from '@fortawesome/free-solid-svg-icons'
 	import { Alert } from 'flowbite-svelte'
 	import Icon from 'svelte-awesome'
+	import { Button } from '$lib/components/common'
 
 	type GroupW = Group & { canWrite: boolean }
 
@@ -74,14 +75,12 @@
 			<input
 				class="mr-2"
 				on:keyup={handleKeyUp}
-				placeholder="new group name"
+				placeholder="New group name"
 				bind:value={newGroupName}
 			/>
-			<button
-				class={newGroupName ? 'default-button' : 'default-button-disabled'}
-				on:click={addGroup}
-				><Icon class="text-white mb-1" data={faPlus} scale={0.9} /> &nbsp; New group</button
-			>
+			<Button size="sm" startIcon={{ icon: faPlus }} disabled={!newGroupName} on:click={addGroup}>
+				New&nbsp;group
+			</Button>
 		</div>
 	</PageHeader>
 

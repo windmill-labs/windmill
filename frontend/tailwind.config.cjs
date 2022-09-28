@@ -6,7 +6,9 @@ const config = {
 		'./src/**/*.{html,js,svelte,ts}',
 		"./node_modules/flowbite-svelte/**/*.{html,js,svelte,ts}",
 	],
-
+	safelist: [
+		'inline-highlight'
+	],
 	theme: {
 		colors: {
 			current: 'currentcolor',
@@ -189,6 +191,13 @@ const config = {
 					boxShadow: theme('boxShadow.sm'),
 					padding: theme('spacing.4')
 				},
+				'.inline-highlight': {
+					'& pre code.hljs': {
+						padding: '0px',
+						fontSize: theme('fontSize.xs'),
+						lineHeight: theme('lineHeight.4')
+					}
+				}
 			});
 			addUtilities({
 				'.separator': {

@@ -108,6 +108,8 @@
 		}
 	}
 
+	const resourceAction = () => (resourceToEdit ? editResource() : createResource())
+
 	let inputCheck: { [id: string]: boolean } = {}
 
 	$: isValid = allTrue(inputCheck) ?? false
@@ -204,10 +206,9 @@
 			</div>
 		{/if}
 	</div>
-	<span slot="submission">
+	<span slot="submission" class="flex gap-4">
 		{#if step === 1}
-			<button
-				class="default-button px-4 py-2 font-semibold"
+			<Button
 				on:click={async () => {
 					await loadResourceType()
 					step = 2
@@ -215,32 +216,10 @@
 				disabled={selectedResourceType == undefined || pathError != ''}
 			>
 				Next
-			</button>
-		{:else}
-			<Button
-				variant="border"
-				color="blue"
-				size="sm"
-				btnClasses="px-4 py-2 font-semibold"
-				on:click={() => {
-					step = 1
-				}}
-			>
-				Back
 			</Button>
-			<button
-				disabled={!isValid}
-				class="default-button px-4 py-2 font-semibold"
-				on:click={() => {
-					if (resourceToEdit) {
-						editResource()
-					} else {
-						createResource()
-					}
-				}}
-			>
-				Save
-			</button>
+		{:else}
+			<Button variant="border" on:click={() => (step = 1)}>Back</Button>
+			<Button on:click={resourceAction} disabled={!isValid}>Save</Button>
 		{/if}
 	</span>
 </Modal>

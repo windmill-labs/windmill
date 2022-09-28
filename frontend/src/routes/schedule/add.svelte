@@ -10,10 +10,9 @@
 	import { page } from '$app/stores'
 	import { sendUserToast, formatCron } from '$lib/utils'
 	import { ScriptService, Script, ScheduleService, type Flow, FlowService } from '$lib/gen'
-
 	import PageHeader from '$lib/components/PageHeader.svelte'
 	import Path from '$lib/components/Path.svelte'
-
+	import { Button } from '$lib/components/common'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import { goto } from '$app/navigation'
 	import { workspaceStore } from '$lib/stores'
@@ -167,14 +166,9 @@
 		<CronInput bind:schedule bind:validCRON />
 		<div class="flex flex-row-reverse mt-2 ">
 			<div>
-				<button
-					type="submit"
-					disabled={!allowSchedule || pathError != ''}
-					class="default-button w-min px-6"
-					on:click={scheduleScript}
-				>
+				<Button disabled={!allowSchedule || pathError != ''} on:click={scheduleScript}>
 					{edit ? 'Save' : 'Schedule'}
-				</button>
+				</Button>
 			</div>
 		</div>
 	</div>

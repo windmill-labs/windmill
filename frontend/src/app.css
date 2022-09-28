@@ -4,31 +4,6 @@
 @tailwind utilities;
 
 @layer base {
-	.default-button {
-		/*this styling does not impact the Dropdown component */
-		@apply bg-blue-500;
-		@apply hover:bg-blue-700;
-		@apply text-white;
-		@apply font-bold;
-		@apply py-1 px-2;
-		@apply border rounded;
-		@apply w-min;
-		@apply min-w-max;
-		@apply text-sm;
-	}
-
-	.default-button-disabled {
-		/*this styling does not impact the Dropdown component */
-		@apply bg-gray-100;
-		@apply text-gray-300;
-		@apply font-bold;
-		@apply py-1 px-2;
-		@apply border rounded;
-		@apply w-min;
-		@apply min-w-max;
-		@apply text-sm;
-	}
-
 	input[disabled],
 	input:disabled,
 	textarea[disabled],

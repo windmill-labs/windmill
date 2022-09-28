@@ -1,13 +1,12 @@
 <script lang="ts">
 	import { goto } from '$app/navigation'
-
 	import { UserService, WorkspaceService } from '$lib/gen'
 	import { sendUserToast, validateUsername } from '$lib/utils'
 	import { logoutWithRedirect } from '$lib/logout'
-
 	import { page } from '$app/stores'
 	import { usersWorkspaceStore, workspaceStore } from '$lib/stores'
 	import CenteredModal from '$lib/components/CenteredModal.svelte'
+	import { Button } from '$lib/components/common'
 
 	const rd = $page.url.searchParams.get('rd')
 
@@ -111,13 +110,11 @@
 	</label>
 	<div class="flex flex-row justify-between pt-4">
 		<a href="/user/workspaces">&leftarrow; Back to workspaces</a>
-		<button
+		<Button
 			disabled={errorId != '' || errorUser != '' || !name || !username || !id}
-			class="default-button"
-			type="button"
 			on:click={createWorkspace}
 		>
 			Create workspace
-		</button>
+		</Button>
 	</div>
 </CenteredModal>
