@@ -1,27 +1,40 @@
 <script lang="ts">
+	import type { BadgeColor } from '$lib/components/common'
+	import Badge from '$lib/components/common/badge/Badge.svelte'
 	import IconedPath from '$lib/components/IconedPath.svelte'
-	import type { FlowModule } from '$lib/gen'
+	import { RawScript, type FlowModule } from '$lib/gen'
+	import { isEmptyFlowModule } from '../flowStateUtils'
 
 	export let flowModule: FlowModule | undefined = undefined
 	export let title: string | undefined = undefined
 
-	$: flowModuleTitle =
-		flowModule?.summary ||
-		(flowModule?.value.type === 'rawscript'
-			? `Inline ${flowModule?.value.language}`
-			: 'Select a script')
+	$: shouldPick = flowModule && isEmptyFlowModule(flowModule)
+
+	const languageColors: Record<RawScript.language, BadgeColor> = {
+		[RawScript.language.GO]: 'dark-indigo',
+		[RawScript.language.DENO]: 'dark-blue',
+		[RawScript.language.PYTHON3]: 'dark-green'
+	}
 </script>
 
 <div
-	class="flex items-center justify-between flex-wrap py-2 px-4 border-b bg-gray-50 shadow-sm h-12"
+	class="flex items-center justify-between py-2 px-4 border-b bg-gray-50 shadow-sm space-x-2 h-12 flex-nowrap"
 >
 	{#if flowModule}
-		<span class="text-xs font-bold text-gray-900 flex flex-col shrink">
-			{#if 'path' in flowModule.value && flowModule.value.path}
-				<IconedPath path={flowModule.value.path} />
-			{:else if 'language' in flowModule.value && flowModule.value.language}
-				{flowModuleTitle}
-			{/if}
+		<span class="text-sm w-full">
+			<div class="flex items-center space-x-2">
+				{#if shouldPick}
+					<span class="font-bold text-xs">Select a script</span>
+				{:else if flowModule?.value.type === 'rawscript'}
+					<Badge color={languageColors[flowModule?.value.language] ?? 'gray'} capitalize>
+						{flowModule?.value.language}
+					</Badge>
+					<input bind:value={flowModule.summary} placeholder={'Summary'} />
+				{:else if flowModule?.value.type === 'script' && 'path' in flowModule.value && flowModule.value.path}
+					<IconedPath path={flowModule.value.path} />
+					<input bind:value={flowModule.summary} placeholder="Summary" class="ml-2" />
+				{/if}
+			</div>
 		</span>
 	{/if}
 	{#if title}

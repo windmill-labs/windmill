@@ -10,7 +10,8 @@
 	export let btnClasses: string = ''
 	export let disabled: boolean = false
 	export let href: string | undefined = undefined
-	export let target: ButtonType.Target = '_self'
+  export let target: Button.Target = '_self'
+	export let iconOnly: boolean = false
 
 	export let startIcon: ButtonType.Icon | undefined = undefined
 	export let endIcon: ButtonType.Icon | undefined = undefined
@@ -47,7 +48,7 @@
 			ButtonType.SpacingClasses[spacingSize],
 			'focus:ring-4 font-medium',
 			'rounded-md',
-			'flex justify-center items-center text-center',
+			'flex justify-center items-center text-center whitespace-nowrap',
 			btnClasses,
 			disabled ? 'pointer-events-none cursor-default filter grayscale' : ''
 		),
@@ -68,15 +69,17 @@
 	{#if startIcon}
 		<Icon
 			data={startIcon.icon}
-			class={classNames('mr-2', startIcon.classes)}
+			class={classNames(iconOnly ? undefined : 'mr-2', startIcon.classes)}
 			scale={ButtonType.IconScale[size]}
 		/>
 	{/if}
-	<slot />
+  {#if !iconOnly}
+    <slot />
+  {/if}
 	{#if endIcon}
 		<Icon
 			data={endIcon.icon}
-			class={classNames('ml-2', endIcon.classes)}
+			class={classNames(iconOnly ? undefined : 'ml-2', endIcon.classes)}
 			scale={ButtonType.IconScale[size]}
 		/>
 	{/if}
