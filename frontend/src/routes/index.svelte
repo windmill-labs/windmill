@@ -8,6 +8,7 @@
 	import ScriptGettingStarted from '$lib/components/landing/ScriptGettingStarted.svelte'
 	import { FlowService, Job, JobService, Script, ScriptService, type Flow } from '$lib/gen'
 	import { userStore, workspaceStore } from '$lib/stores'
+	import { ButtonPopup } from '$lib/components/common'
 
 	let scripts: Script[] = []
 	let flows: Flow[] = []
@@ -46,6 +47,96 @@
 </script>
 
 <CenteredPage>
+	<div class="flex flex-wrap gap-4 p-10">
+		<ButtonPopup>
+			<svelte:fragment slot="main">Default</svelte:fragment>
+			<ul class="bg-gray-100 rounded-sm p-4 border">
+				<li><button>One</button></li>
+				<li><button>Two</button></li>
+				<li><button>Three</button></li>
+			</ul>
+		</ButtonPopup>
+		<ButtonPopup>
+			<ul class="bg-gray-100 rounded-sm p-4 border">
+				<li><button>One</button></li>
+				<li><button>Two</button></li>
+				<li><button>Three</button></li>
+			</ul>
+		</ButtonPopup>
+		<ButtonPopup size="xs">
+			<svelte:fragment slot="main">Extra small</svelte:fragment>
+			<ul class="bg-gray-100 rounded-sm p-4 border">
+				<li><button>One</button></li>
+				<li><button>Two</button></li>
+				<li><button>Three</button></li>
+			</ul>
+		</ButtonPopup>
+
+		<ButtonPopup size="sm" color="light">
+			<svelte:fragment slot="main">Light</svelte:fragment>
+			<ul class="bg-gray-100 rounded-sm p-4 border">
+				<li><button>One</button></li>
+				<li><button>Two</button></li>
+				<li><button>Three</button></li>
+			</ul>
+		</ButtonPopup>
+		<ButtonPopup size="sm" color="light" variant="border">
+			<svelte:fragment slot="main">Light border</svelte:fragment>
+			<ul class="bg-gray-100 rounded-sm p-4 border">
+				<li><button>One</button></li>
+				<li><button>Two</button></li>
+				<li><button>Three</button></li>
+			</ul>
+		</ButtonPopup>
+
+		<ButtonPopup size="sm" color="dark">
+			<svelte:fragment slot="main">Dark</svelte:fragment>
+			<ul class="bg-gray-100 rounded-sm p-4 border">
+				<li>One</li>
+				<li>Two</li>
+				<li>Three</li>
+			</ul>
+		</ButtonPopup>
+		<ButtonPopup size="sm" color="dark" variant="border">
+			<svelte:fragment slot="main">Dark border</svelte:fragment>
+			<ul class="bg-gray-100 rounded-sm p-4 border">
+				<li>One</li>
+				<li>Two</li>
+				<li>Three</li>
+			</ul>
+		</ButtonPopup>
+
+		<ButtonPopup size="sm" color="red">
+			<svelte:fragment slot="main">Red</svelte:fragment>
+			<ul class="bg-gray-100 rounded-sm p-4 border">
+				<li>One</li>
+				<li>Two</li>
+				<li>Three</li>
+			</ul>
+		</ButtonPopup>
+		<ButtonPopup size="sm" color="red" variant="border">
+			<svelte:fragment slot="main">Red border</svelte:fragment>
+			<ul class="bg-gray-100 rounded-sm p-4 border">
+				<li>One</li>
+				<li>Two</li>
+				<li>Three</li>
+			</ul>
+		</ButtonPopup>
+		<ButtonPopup size="sm" color="red">
+			<ul class="bg-gray-100 rounded-sm p-4 border">
+				<li>One</li>
+				<li>Two</li>
+				<li>Three</li>
+			</ul>
+		</ButtonPopup>
+		<ButtonPopup size="sm" color="red" variant="border">
+			<ul class="bg-gray-100 rounded-sm p-4 border">
+				<li>One</li>
+				<li>Two</li>
+				<li>Three</li>
+			</ul>
+		</ButtonPopup>
+	</div>
 	<h1 class="text-xl font-extrabold tracking-tight leading-none text-gray-900 md:text-3xl">Home</h1>
 	<div class="space-y-12">
 		<div>
