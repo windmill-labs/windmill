@@ -81,7 +81,7 @@
 								result={previewJob.result}
 							/>
 						{:else if previewIsLoading}Waiting for Result...
-						{:else}Test to see result here
+						{:else}Test to see the result here
 						{/if}
         </pre>
 				</down>
