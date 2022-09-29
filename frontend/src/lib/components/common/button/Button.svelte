@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { goto } from '$app/navigation'
 	import { classNames } from '$lib/utils'
 	import Icon from 'svelte-awesome'
 	import type { Button } from './model'
@@ -80,7 +81,13 @@
 </script>
 
 {#if href}
-	<a {href} {target} tabindex={disabled ? -1 : 0} on:click|stopPropagation {...buttonProps}>
+	<button
+		type="button"
+		on:click|stopPropagation={() => goto(href ?? '#')}
+		{target}
+		tabindex={disabled ? -1 : 0}
+		{...buttonProps}
+	>
 		{#if startIcon}
 			<Icon
 				data={startIcon.icon}
@@ -98,7 +105,7 @@
 				scale={iconScale[size]}
 			/>
 		{/if}
-	</a>
+	</button>
 {:else}
 	<button type="button" on:click|stopPropagation {...buttonProps}>
 		{#if startIcon}
