@@ -20,7 +20,7 @@
 	let element: HTMLElement
 	let focusableElements: HTMLElement[]
 
-	const getFocusableElements = () => {
+	function getFocusableElements() {
 		let elements: HTMLElement[] = []
 
 		element
@@ -34,11 +34,11 @@
 		)
 	}
 
-	const removeTabTargeting = () => {
+	function removeTabTargeting() {
 		focusableElements.forEach((el) => (el.tabIndex = -1))
 	}
 
-	const keyDown = (event: KeyboardEvent & { currentTarget: EventTarget & Window }) => {
+	function keyDown(event: KeyboardEvent & { currentTarget: EventTarget & Window }) {
 		if (
 			!isOpen ||
 			!focusableElements?.length ||

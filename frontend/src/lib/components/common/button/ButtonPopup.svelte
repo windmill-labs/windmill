@@ -21,7 +21,7 @@
 		isFocused: Popup['isFocused']
 
 	const toggle = () => !isOpen && open()
-	const conditionalClose = () => {
+	function conditionalClose() {
 		setTimeout(() => {
 			if (!isFocused) close()
 		}, 0)
