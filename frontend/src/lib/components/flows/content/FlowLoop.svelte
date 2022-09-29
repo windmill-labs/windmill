@@ -3,8 +3,8 @@
 	import FlowCard from '../common/FlowCard.svelte'
 	import type { FlowEditorContext } from '../types'
 	import Toggle from '$lib/components/Toggle.svelte'
-
 	import SimpleEditor from '$lib/components/SimpleEditor.svelte'
+	import Tooltip from '$lib/components/Tooltip.svelte'
 	import { flowStore } from '../flowStore'
 
 	const { selectedId } = getContext<FlowEditorContext>('FlowEditorContext')
@@ -16,7 +16,13 @@
 	<div>
 		<div class="p-6 flex flex-col">
 			{#if $flowStore.value.modules[index].value.type === 'forloopflow'}
-				<span class="mb-2 text-sm font-bold">Iterator expression</span>
+				<span class="mb-2 text-sm font-bold"
+					>Iterator expression
+					<Tooltip>
+						List to iterate over. For more information see the
+						<a href="https://docs.windmill.dev/docs/getting_started/flows#for-loops">docs.</a>
+					</Tooltip>
+				</span>
 				<SimpleEditor
 					lang="javascript"
 					bind:code={$flowStore.value.modules[index].value.iterator.expr}
