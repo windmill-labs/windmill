@@ -51,8 +51,6 @@
 
 	$: lastSave = localStorage.getItem(path ?? 'last_save')
 
-	$: lastSave && console.log(lastSave)
-
 	function onKeyDown(event: KeyboardEvent) {
 		if ((event.ctrlKey || event.metaKey) && event.key == 'Enter') {
 			event.preventDefault()

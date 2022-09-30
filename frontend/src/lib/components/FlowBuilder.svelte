@@ -17,6 +17,7 @@
 	import { writable } from 'svelte/store'
 	import CenteredPage from './CenteredPage.svelte'
 	import Button from './common/button/Button.svelte'
+	import UnsavedConfirmationModal from './common/confirmationModal/UnsavedConfirmationModal.svelte'
 	import { OFFSET } from './CronInput.svelte'
 	import FlowEditor from './flows/FlowEditor.svelte'
 	import { flowStateStore } from './flows/flowState'
@@ -164,6 +165,8 @@
 		loadHubScripts()
 	})
 </script>
+
+<UnsavedConfirmationModal />
 
 <div class="flex flex-col flex-1 h-full">
 	<!-- Nav between steps-->
