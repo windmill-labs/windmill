@@ -19,7 +19,7 @@
 		class="inline-flex space-x-2 space-x-reverse flex-row-reverse w-full bottom-4 right-4 flex-wrap"
 	>
 		<button
-			on:click|stopPropagation={() => goto(`/flows/edit/${flow.path}?step=2`)}
+			on:click|stopPropagation={() => goto(`/flows/edit/${flow.path}`)}
 			type="button"
 			class="inline-flex items-center text-gray-700 bg-transparent border border-gray-700 hover:bg-gray-800 hover:text-white focus:ring-4 focus:outline-none focus:ring-gray-300 font-medium rounded-lg text-xs px-3 py-1.5 text-center"
 			data-dismiss-target="#alert-additional-content-5"

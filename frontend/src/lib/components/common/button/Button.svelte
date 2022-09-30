@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { goto } from '$app/navigation'
 	import { classNames } from '$lib/utils'
 	import Icon from 'svelte-awesome'
 	import type { Button } from './model'
@@ -11,6 +12,7 @@
 	export let disabled: boolean = false
 	export let href: string | undefined = undefined
 	export let target: Button.Target = '_self'
+	export let iconOnly: boolean = false
 
 	export let startIcon: { icon: any; classes?: string } | undefined = undefined
 	export let endIcon: { icon: any; classes?: string } | undefined = undefined
@@ -70,7 +72,7 @@
 			spacingClasses[spacingSize],
 			'focus:ring-4 font-medium',
 			'rounded-md',
-			'flex justify-center items-center text-center',
+			'flex justify-center items-center text-center whitespace-nowrap',
 			btnClasses,
 			disabled ? 'pointer-events-none cursor-default filter grayscale' : ''
 		),
@@ -83,30 +85,49 @@
 </script>
 
 {#if href}
-	<a
-		{href}
+	<button
+		type="button"
+		on:click|stopPropagation={() => goto(href ?? '#')}
 		{target}
 		tabindex={disabled ? -1 : 0}
-		on:click|stopPropagation
 		{...buttonProps}
-		{...$$restProps}
 	>
 		{#if startIcon}
-			<Icon data={startIcon.icon} class={startIconClass} scale={iconScale[size]} />
+			<Icon
+				data={startIcon.icon}
+				class={classNames(iconOnly ? undefined : 'mr-2', startIcon.classes)}
+				scale={iconScale[size]}
+			/>
 		{/if}
-		<slot />
+		{#if !iconOnly}
+			<slot />
+		{/if}
 		{#if endIcon}
-			<Icon data={endIcon.icon} class={endIconClass} scale={iconScale[size]} />
+			<Icon
+				data={endIcon.icon}
+				class={classNames(iconOnly ? undefined : 'ml-2', endIcon.classes)}
+				scale={iconScale[size]}
+			/>
 		{/if}
-	</a>
+	</button>
 {:else}
 	<button type="button" on:click|stopPropagation {...buttonProps} {...$$restProps}>
 		{#if startIcon}
-			<Icon data={startIcon.icon} class={startIconClass} scale={iconScale[size]} />
+			<Icon
+				data={startIcon.icon}
+				class={classNames(iconOnly ? undefined : 'mr-2', startIcon.classes)}
+				scale={iconScale[size]}
+			/>
 		{/if}
-		<slot />
+		{#if !iconOnly}
+			<slot />
+		{/if}
 		{#if endIcon}
-			<Icon data={endIcon.icon} class={endIconClass} scale={iconScale[size]} />
+			<Icon
+				data={endIcon.icon}
+				class={classNames(iconOnly ? undefined : 'ml-2', endIcon.classes)}
+				scale={iconScale[size]}
+			/>
 		{/if}
 	</button>
 {/if}

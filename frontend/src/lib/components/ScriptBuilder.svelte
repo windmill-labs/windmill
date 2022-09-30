@@ -6,9 +6,8 @@
 	import { inferArgs } from '$lib/infer'
 	import { initialCode, isInitialCode } from '$lib/script_helpers'
 	import { workspaceStore } from '$lib/stores'
-	import { emptySchema, encodeState, sendUserToast, setQueryWithoutLoad } from '$lib/utils'
+	import { encodeState, sendUserToast, setQueryWithoutLoad } from '$lib/utils'
 	import { Breadcrumb, BreadcrumbItem } from 'flowbite-svelte'
-	import { onDestroy } from 'svelte'
 	import SvelteMarkdown from 'svelte-markdown'
 	import Path from './Path.svelte'
 	import RadioButton from './RadioButton.svelte'
@@ -18,9 +17,6 @@
 	import CenteredPage from './CenteredPage.svelte'
 	import Tooltip from './Tooltip.svelte'
 	import { Button } from './common'
-
-	let editor: ScriptEditor
-	let scriptSchema: ScriptSchema
 
 	export let script: Script
 	export let initialPath: string = ''
@@ -45,6 +41,9 @@
 
 	async function editScript(): Promise<void> {
 		try {
+			if (!script.schema) {
+				await inferArgs(script.language, script.content, script.schema)
+			}
 			const newHash = await ScriptService.createScript({
 				workspace: $workspaceStore!,
 				requestBody: {
@@ -66,34 +65,12 @@
 		}
 	}
 
-	export function setCode(script: Script) {
-		editor?.getEditor().setCode(script.content)
-
-		if (scriptSchema) {
-			if (script.schema) {
-				scriptSchema.setSchema(script.schema)
-			} else {
-				scriptSchema.setSchema(emptySchema())
-			}
-		}
-	}
-
-	async function inferSchema() {
-		await inferArgs(script.language, script.content, script.schema)
-	}
-
 	async function changeStep(step: number) {
-		if (step == 3) {
-			script.content = editor?.getEditor().getCode() ?? script.content
-			await inferSchema()
-			script.schema = script.schema
+		if (step > 1) {
+			await inferArgs(script.language, script.content, script.schema)
 		}
 		goto(`?step=${step}`)
 	}
-
-	onDestroy(() => {
-		editor?.$destroy()
-	})
 </script>
 
 <div class="flex flex-col h-screen">
@@ -155,7 +132,6 @@
 						size="sm"
 						btnClasses="mr-2"
 						on:click={async () => {
-							await inferSchema()
 							editScript()
 						}}
 					>
@@ -325,7 +301,6 @@
 		</CenteredPage>
 	{:else if step === 2}
 		<ScriptEditor
-			bind:this={editor}
 			bind:schema={script.schema}
 			path={script.path}
 			bind:code={script.content}

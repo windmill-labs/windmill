@@ -33,14 +33,16 @@
 	on:click={() => {
 		if ($flowStore.value.failure_module) {
 			select('failure')
+		} else {
+			onToggle()
 		}
 	}}
 	class={classNames(
-		'border rounded-md p-2 bg-white text-sm cursor-pointer mt-4 flex flex-col',
+		'border rounded-md p-2 bg-white text-sm cursor-pointer mt-4 flex flex-col overflow-x-hidden',
 		$selectedId.includes('failure') ? 'outline outline-offset-1 outline-2 outline-slate-900' : ''
 	)}
 >
-	<div class=" flex justify-between items-center">
+	<div class=" flex justify-between items-center flex-wrap">
 		<div>
 			<Icon data={faBug} class="mr-2" />
 			<span class="font-bold">Error handler</span>
@@ -48,10 +50,12 @@
 		<Toggle checked={Boolean($flowStore.value.failure_module)} on:change={onToggle} />
 	</div>
 
-	{#if $flowStore.value.failure_module}
-		<textarea
-			bind:value={$flowStore.value.failure_module.summary}
-			placeholder="Error handler summary"
-		/>
-	{/if}
+	<div class="w-full truncate block">
+		<span
+			>{$flowStore.value.failure_module?.summary ||
+				($flowStore.value.failure_module?.value.type === 'rawscript'
+					? `Inline ${$flowStore.value.failure_module?.value.language}`
+					: 'Select a script')}</span
+		>
+	</div>
 </div>

@@ -11,10 +11,10 @@
 	const { select } = getContext<FlowEditorContext>('FlowEditorContext')
 </script>
 
-<div class="flex justify-between items-center border-y p-2 px-4">
+<div class="flex justify-between items-center border-y p-2 px-4 space-x-2">
 	<div id="flow_title" class="flex justify-between items-center">
 		<button on:click={() => select('settings')}>
-			<span class="font-mono text-sm "> {$flowStore.path}</span>
+			<span class="font-mono text-sm"> {$flowStore.path}</span>
 			<Icon
 				data={faPen}
 				scale={0.8}

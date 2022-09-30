@@ -1,8 +1,8 @@
 <script lang="ts">
+	import Button from '$lib/components/common/button/Button.svelte'
 	import { classNames } from '$lib/utils'
 	import { faTrashAlt } from '@fortawesome/free-solid-svg-icons'
 	import { createEventDispatcher } from 'svelte'
-	import Icon from 'svelte-awesome'
 
 	export let color: 'blue' | 'orange' = 'blue'
 	export let isFirst: boolean = false
@@ -35,20 +35,21 @@
 	</div>
 	<div
 		class={classNames(
-			'border w-full rounded-sm p-2 bg-white text-sm cursor-pointer flex justify-between items-center space-x-2',
+			'border w-full rounded-sm p-2 bg-white text-sm cursor-pointer flex justify-between items-center space-x-2 overflow-hidden',
 			margin,
 			selected ? 'outline outline-offset-1 outline-2  outline-gray-600' : ''
 		)}
 	>
 		<slot name="content" />
 		{#if deletable}
-			<button
-				type="button"
+			<Button
 				on:click={(event) => dispatch('delete', { event })}
-				class="text-gray-900 bg-white border border-gray-300 focus:outline-none hover:bg-gray-100 focus:ring-4 focus:ring-gray-200 font-medium rounded-sm text-xs px-2 py-1"
-			>
-				<Icon data={faTrashAlt} scale={0.8} />
-			</button>
+				startIcon={{ icon: faTrashAlt }}
+				iconOnly={true}
+				color="light"
+				variant="border"
+				size="xs"
+			/>
 		{/if}
 	</div>
 </div>

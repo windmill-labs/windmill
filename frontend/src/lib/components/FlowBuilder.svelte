@@ -10,7 +10,7 @@
 		sendUserToast,
 		setQueryWithoutLoad
 	} from '$lib/utils'
-	import { faGlobe } from '@fortawesome/free-solid-svg-icons'
+	import { faGlobe, faPen } from '@fortawesome/free-solid-svg-icons'
 	import { Breadcrumb, BreadcrumbItem } from 'flowbite-svelte'
 	import { onMount, setContext } from 'svelte'
 	import Icon from 'svelte-awesome'
@@ -167,7 +167,7 @@
 
 <div class="flex flex-col flex-1 h-full">
 	<!-- Nav between steps-->
-	<div class="justify-between flex flex-row w-full my-2 px-4">
+	<div class="justify-between flex flex-row w-full my-2 px-4 space-x-4 h-10">
 		<Breadcrumb>
 			<BreadcrumbItem>
 				<button on:click={() => changeStep(1)} class={step === 1 ? 'font-bold' : null}>
@@ -180,6 +180,22 @@
 				</button>
 			</BreadcrumbItem>
 		</Breadcrumb>
+		<div class="shrink h-full">
+			<button
+				class="flex flex-row items-center w-full h-full"
+				on:click={() => {
+					select('settings')
+					document.getElementById('flow-summary')?.focus()
+				}}
+			>
+				<div class="overflow-x-auto flex items-center h-full text-sm text-left font-semibold">
+					<div>{$flowStore.summary ?? ''}</div>
+				</div>
+				<div>
+					<Icon data={faPen} scale={0.8} class="text-gray-500 ml-1" />
+				</div>
+			</button>
+		</div>
 		<div class="flex flex-row-reverse ml-2 space-x-reverse space-x-2">
 			{#if step == 1}
 				<Button disabled={pathError != ''} color="blue" size="sm" on:click={() => changeStep(2)}>
