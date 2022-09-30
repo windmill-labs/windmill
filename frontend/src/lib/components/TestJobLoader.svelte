@@ -65,14 +65,17 @@
 		console.log('watch jobs')
 
 		job = undefined
-		await loadTestJob(testId)
 		syncIteration = 0
-		intervalId = setInterval(() => {
-			syncer(testId)
-		}, 500)
+		const isCompleted = await loadTestJob(testId)
+		if (!isCompleted) {
+			intervalId = setInterval(() => {
+				syncer(testId)
+			}, 500)
+		}
 	}
 
-	async function loadTestJob(id: string): Promise<void> {
+	async function loadTestJob(id: string): Promise<boolean> {
+		let isCompleted = false
 		try {
 			if (job && `running` in job) {
 				let previewJobUpdates = await JobService.getJobUpdates({
@@ -93,6 +96,7 @@
 			}
 			if (job?.type === 'CompletedJob') {
 				//only CompletedJob has success property
+				isCompleted = true
 				clearInterval(intervalId)
 				if (isLoading) {
 					dispatch('done', job)
@@ -102,6 +106,7 @@
 		} catch (err) {
 			console.error(err)
 		}
+		return isCompleted
 	}
 
 	function syncer(id: string): void {
