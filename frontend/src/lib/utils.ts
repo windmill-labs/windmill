@@ -123,7 +123,7 @@ export interface DropdownItem {
 	// If a DropdownItem has no action and no href, it will be created as a text line
 	displayName: string
 	eventName?: string //the event to send when clicking this item
-	action?: (() => Promise<void>) | (() => void)
+	action?: ((event?: MouseEvent) => Promise<void>) | ((event?: MouseEvent) => void)
 	href?: string
 	separatorTop?: boolean
 	separatorBottom?: boolean

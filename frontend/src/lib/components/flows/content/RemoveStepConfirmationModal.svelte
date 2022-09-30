@@ -26,7 +26,7 @@
 		<Alert type="info" title="Bypass confirmation">
 			<div>
 				You can press
-				<Badge color="dark-gray">SHIFT</Badge>
+				<kbd color="dark-gray">SHIFT</kbd>
 				while removing a step to bypass confirmation.
 			</div>
 		</Alert>
