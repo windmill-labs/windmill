@@ -83,7 +83,7 @@
 	}}
 	outerClasses="shadow-lg rounded"
 >
-	<ul class="bg-white rounded-t border py-2 max-h-40 overflow-auto">
+	<ul class="bg-white rounded-t border pt-1 pb-2 max-h-40 overflow-auto">
 		<slot />
 	</ul>
 </Popup>
