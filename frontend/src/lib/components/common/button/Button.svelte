@@ -10,9 +10,8 @@
 	export let btnClasses: string = ''
 	export let disabled: boolean = false
 	export let href: string | undefined = undefined
-  export let target: Button.Target = '_self'
+	export let target: ButtonType.Target = '_self'
 	export let iconOnly: boolean = false
-
 	export let startIcon: ButtonType.Icon | undefined = undefined
 	export let endIcon: ButtonType.Icon | undefined = undefined
 
@@ -20,23 +19,23 @@
 	const colorVariants: Record<ButtonType.Color, Record<ButtonType.Variant, string>> = {
 		blue: {
 			border:
-				'border-blue-500 hover:border-blue-700 bg-white hover:bg-blue-100 text-blue-500 hover:text-blue-700 focus:ring-blue-300',
-			contained: 'bg-blue-500 hover:bg-blue-700 text-white focus:ring-blue-300'
+				'border-blue-500 hover:border-blue-700 focus:border-blue-700 bg-white hover:bg-blue-100 focus:bg-blue-100 text-blue-500 hover:text-blue-700 focus:text-blue-700 focus:ring-blue-300',
+			contained: 'bg-blue-500 hover:bg-blue-700 focus:bg-blue-700 text-white focus:ring-blue-300'
 		},
 		red: {
 			border:
-				'border-red-500 hover:border-red-700 bg-white hover:bg-red-100 text-red-500 hover:text-red-700 focus:ring-red-300',
-			contained: 'bg-red-500 hover:bg-red-700 text-white focus:ring-red-300'
+				'border-red-500 hover:border-red-700 focus:border-red-700 bg-white hover:bg-red-100 focus:bg-red-100 text-red-500 hover:text-red-700 focus:text-red-700 focus:ring-red-300',
+			contained: 'bg-red-500 hover:bg-red-700 focus:bg-red-700 text-white focus:ring-red-300'
 		},
 		dark: {
 			border:
-				'border-gray-800 hover:border-gray-900 bg-white hover:bg-gray-200 text-gray-800 hover:text-gray-900 focus:ring-gray-300',
-			contained: 'bg-gray-700 hover:bg-gray-900 text-white focus:ring-gray-300'
+				'border-gray-800 hover:border-gray-900 focus:border-gray-900 bg-white hover:bg-gray-200 focus:bg-gray-200 text-gray-800 hover:text-gray-900 focus:text-gray-900 focus:ring-gray-300',
+			contained: 'bg-gray-700 hover:bg-gray-900 focus:bg-gray-900 text-white focus:ring-gray-300'
 		},
 		light: {
 			border:
-				'border bg-white hover:bg-gray-100 text-gray-700 hover:text-gray-800 focus:ring-gray-300',
-			contained: 'bg-white hover:bg-gray-100 text-gray-700 focus:ring-gray-300'
+				'border bg-white hover:bg-gray-100 focus:bg-gray-100 text-gray-700 hover:text-gray-800 focus:text-gray-800 focus:ring-gray-300',
+			contained: 'bg-white hover:bg-gray-100 focus:bg-gray-100 text-gray-700 focus:ring-gray-300'
 		}
 	}
 
@@ -73,9 +72,9 @@
 			scale={ButtonType.IconScale[size]}
 		/>
 	{/if}
-  {#if !iconOnly}
-    <slot />
-  {/if}
+	{#if !iconOnly}
+		<slot />
+	{/if}
 	{#if endIcon}
 		<Icon
 			data={endIcon.icon}

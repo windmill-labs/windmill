@@ -11,6 +11,8 @@
 	export let isOpen = false
 	export let isFocused = false
 	export let disableInstruction = false
+	export let innerClasses = ''
+	export let outerClasses = ''
 
 	export const ref = popperRef
 	export const toggle = () => (isOpen ? close() : open())
@@ -83,19 +85,21 @@
 		use:popperContent={options}
 		use:clickOutside
 		on:click_outside={close}
-		class={$$props.class}
+		class={outerClasses}
 	>
+		<div class={innerClasses}>
+			<slot />
+		</div>
 		{#if !disableInstruction && focusableElements?.length}
 			<div
 				class="flex justify-center items-center font-semibold 
-				text-xs text-gray-600 p-1 rounded-t bg-gray-50"
+				text-xs text-gray-700 p-1 border-x border-b rounded-b bg-gray-100"
 			>
 				Use
-				<Kbd class="!px-1 !py-0 !rounded-sm">↑</Kbd>
+				<Kbd class="!bg-gray-200 !border-gray-300 !px-1 !py-0 !rounded-sm">↑</Kbd>
 				and
-				<Kbd class="!px-1 !py-0 !rounded-sm">↓</Kbd>
+				<Kbd class="!bg-gray-200 !border-gray-300 !px-1 !py-0 !rounded-sm">↓</Kbd>
 			</div>
 		{/if}
-		<slot />
 	</div>
 {/if}

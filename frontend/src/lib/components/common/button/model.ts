@@ -31,4 +31,13 @@ export namespace ButtonType {
 		lg: 1.1,
 		xl: 1.2
 	} as const
+
+	// ButtonPopup types
+
+	export const ItemContextKey = 'popupItemProps' as const
+
+	export interface ItemProps {
+		size: Size
+		color: Color
+	}
 }

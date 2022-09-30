@@ -8,7 +8,6 @@
 	import ScriptGettingStarted from '$lib/components/landing/ScriptGettingStarted.svelte'
 	import { FlowService, Job, JobService, Script, ScriptService, type Flow } from '$lib/gen'
 	import { userStore, workspaceStore } from '$lib/stores'
-	import { ButtonPopup } from '$lib/components/common'
 
 	let scripts: Script[] = []
 	let flows: Flow[] = []

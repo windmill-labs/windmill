@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { faChevronDown } from '@fortawesome/free-solid-svg-icons'
+	import { setContext } from 'svelte'
 	import Icon from 'svelte-awesome'
 	import { Button, ButtonType, Popup } from '..'
 
@@ -13,6 +14,8 @@
 	export let target: ButtonType.Target = '_self'
 	export let startIcon: ButtonType.Icon | undefined = undefined
 	export let endIcon: ButtonType.Icon | undefined = undefined
+
+	setContext<ButtonType.ItemProps>(ButtonType.ItemContextKey, { size, color })
 
 	let ref: Popup['ref'],
 		open: Popup['open'],
@@ -78,6 +81,9 @@
 		strategy: 'absolute',
 		modifiers: [{ name: 'offset', options: { offset: [0, 0] } }]
 	}}
+	outerClasses="shadow-lg rounded"
 >
-	<slot />
+	<ul class="bg-white rounded-t border py-2 max-h-40 overflow-auto">
+		<slot />
+	</ul>
 </Popup>
