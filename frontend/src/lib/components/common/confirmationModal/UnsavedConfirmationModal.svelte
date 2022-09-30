@@ -8,7 +8,11 @@
 	$: open = Boolean(navigationState)
 
 	beforeNavigate((newNavigationState) => {
-		if (!navigationState && $dirtyStore) {
+		if (
+			!navigationState &&
+			$dirtyStore &&
+			newNavigationState.to?.pathname !== newNavigationState.from.pathname
+		) {
 			navigationState = newNavigationState
 			newNavigationState.cancel()
 		}
@@ -33,6 +37,8 @@
 		if (navigationState?.to) {
 			goto(navigationState.to)
 		}
+		$dirtyStore = false
+		navigationState = undefined
 	}}
 >
 	<div class="flex flex-col w-full space-y-4">
