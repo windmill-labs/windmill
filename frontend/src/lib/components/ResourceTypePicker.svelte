@@ -19,7 +19,7 @@
 
 	const dispatch = createEventDispatcher()
 
-	const onClick = (resource: string | undefined) => {
+	function onClick(resource: string | undefined) {
 		value = resource
 		dispatch('click')
 	}

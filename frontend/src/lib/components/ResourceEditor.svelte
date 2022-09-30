@@ -108,7 +108,9 @@
 		}
 	}
 
-	const resourceAction = () => (resourceToEdit ? editResource() : createResource())
+	function resourceAction() {
+		return resourceToEdit ? editResource() : createResource()
+	}
 
 	let inputCheck: { [id: string]: boolean } = {}
 

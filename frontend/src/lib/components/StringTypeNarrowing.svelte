@@ -31,9 +31,11 @@
 	$: pattern = patternStr == '' ? undefined : patternStr
 	$: contentEncoding = kind == 'base64' ? 'base64' : undefined
 
-	const add = () => (enum_ = enum_ ? enum_.concat('') : [''])
+	function add() {
+		enum_ = enum_ ? enum_.concat('') : ['']
+	}
 
-	const remove = (item: string) => {
+	function remove(item: string) {
 		enum_ = (enum_ || []).filter((el) => el !== item)
 		if (enum_.length == 0) {
 			enum_ = undefined
