@@ -1,13 +1,7 @@
 <script lang="ts">
 	import { slide } from 'svelte/transition'
 
-	import {
-		faArrowRotateLeft,
-		faChevronDown,
-		faChevronUp,
-		faMinus,
-		faPlus
-	} from '@fortawesome/free-solid-svg-icons'
+	import { faChevronDown, faChevronUp, faMinus, faPlus } from '@fortawesome/free-solid-svg-icons'
 
 	import { setInputCat as computeInputCat, type InputCat } from '$lib/utils'
 	import { Button, Tooltip } from 'flowbite-svelte'
@@ -21,6 +15,7 @@
 	import SchemaForm from './SchemaForm.svelte'
 	import type { SchemaProperty } from '$lib/common'
 	import SimpleEditor from './SimpleEditor.svelte'
+	import { stylus } from 'svelte-highlight/languages'
 
 	export let label: string = ''
 	export let value: any
@@ -54,6 +49,8 @@
 	$: validateInput(pattern, value)
 
 	let error: string = ''
+
+	let el: HTMLElement | undefined = undefined
 
 	export let editor: SimpleEditor | undefined = undefined
 
@@ -277,9 +274,16 @@
 					</div>
 				{:else}
 					<textarea
+						bind:this={el}
+						on:focus
 						{disabled}
 						style="min-height: {minHeight}; max-height: {maxHeight}"
-						on:input={async () => recomputeRowSize(rawValue ?? '')}
+						on:input={(e) => {
+							if (el) {
+								el.style.height = '5px'
+								el.style.height = el.scrollHeight + 'px'
+							}
+						}}
 						class="col-span-10 {valid
 							? ''
 							: 'border border-red-700 border-opacity-30 focus:border-red-700 focus:border-opacity-30 bg-red-100'}"
@@ -325,17 +329,21 @@
 				/>
 			{:else if inputCat == 'string'}
 				<textarea
+					bind:this={el}
 					on:focus={() => dispatch('focus')}
 					on:blur={() => dispatch('blur')}
 					{disabled}
-					style="height: {minHeight}; max-height: {maxHeight}"
+					style="min-height: {minHeight}; max-height: {maxHeight}"
 					class="col-span-10 {valid
 						? ''
 						: 'border border-red-700 border-opacity-30 focus:border-red-700 focus:border-opacity-30 bg-red-100'}"
 					placeholder={defaultValue ?? ''}
 					bind:value
 					on:input={async () => {
-						recomputeRowSize(value)
+						if (el) {
+							el.style.height = '5px'
+							el.style.height = el.scrollHeight + 'px'
+						}
 						dispatch('input', { rawValue: value, isRaw: false })
 					}}
 				/>
