@@ -12,11 +12,12 @@
 
 {#if $flowStore.value.failure_module}
 	<FlowModule
-		previewArgs={previewArgs}
+		{previewArgs}
 		bind:flowModule={$flowStore.value.failure_module}
 		bind:flowModuleState={$flowStateStore.failureModule}
 		on:delete={() => {
 			$flowStore.value.failure_module = undefined
 		}}
+		failureModule={true}
 	/>
 {/if}
