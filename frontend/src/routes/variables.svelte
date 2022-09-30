@@ -200,13 +200,13 @@
 	title="Remove variable"
 	confirmationText="Remove"
 	on:canceled={() => {
-		open = false
+		deleteConfirmedCallback = undefined
 	}}
 	on:confirmed={() => {
-		open = false
 		if (deleteConfirmedCallback) {
 			deleteConfirmedCallback()
 		}
+		deleteConfirmedCallback = undefined
 	}}
 >
 	<div class="flex flex-col w-full space-y-4">
