@@ -41,6 +41,7 @@
 	import { page } from '$app/stores'
 
 	import { onMount } from 'svelte'
+	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
 
 	type ResourceW = Resource & { canWrite: boolean }
 	type ResourceTypeW = ResourceType & { canWrite: boolean }
@@ -61,6 +62,8 @@
 
 	let shareModal: ShareModal
 	let appConnect: AppConnect
+	let deleteConfirmedCallback: (() => void) | undefined = undefined
+	$: open = Boolean(deleteConfirmedCallback)
 
 	async function loadResources(): Promise<void> {
 		resources = (await ResourceService.listResource({ workspace: $workspaceStore! })).map((x) => {
@@ -223,7 +226,9 @@
 											icon: faTrash,
 											type: 'delete',
 											action: () => {
-												deleteResource(path, is_oauth)
+												deleteConfirmedCallback = () => {
+													deleteResource(path, is_oauth)
+												}
 											}
 										}
 									]}
@@ -348,5 +353,24 @@
 				Save
 			</button>
 		{/if}
-	</div></Modal
+	</div>
+</Modal>
+
+<ConfirmationModal
+	{open}
+	title="Remove resource"
+	confirmationText="Remove"
+	on:canceled={() => {
+		open = false
+	}}
+	on:confirmed={() => {
+		open = false
+		if (deleteConfirmedCallback) {
+			deleteConfirmedCallback()
+		}
+	}}
 >
+	<div class="flex flex-col w-full space-y-4">
+		<span>Are you sure you want to remove this resource?</span>
+	</div>
+</ConfirmationModal>

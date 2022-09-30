@@ -21,6 +21,7 @@
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
 	import Icon from 'svelte-awesome'
 	import { faPlus, faCircle } from '@fortawesome/free-solid-svg-icons'
+	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
 
 	type ListableVariableW = ListableVariable & { canWrite: boolean }
 
@@ -29,6 +30,9 @@
 
 	let shareModal: ShareModal
 	let variableEditor: VariableEditor
+
+	let deleteConfirmedCallback: (() => void) | undefined = undefined
+	$: open = Boolean(deleteConfirmedCallback)
 
 	// If relative, the dropdown is positioned relative to its button
 	async function loadVariables(): Promise<void> {
@@ -119,7 +123,11 @@
 									},
 									{
 										displayName: 'Delete',
-										action: () => deleteVariable(path, account),
+										action: () => {
+											deleteConfirmedCallback = () => {
+												deleteVariable(path, account)
+											}
+										},
 										disabled: !canWrite
 									},
 									{
@@ -182,5 +190,21 @@
 	/>
 </CenteredPage>
 
-<style>
-</style>
+<ConfirmationModal
+	{open}
+	title="Remove variable"
+	confirmationText="Remove"
+	on:canceled={() => {
+		open = false
+	}}
+	on:confirmed={() => {
+		open = false
+		if (deleteConfirmedCallback) {
+			deleteConfirmedCallback()
+		}
+	}}
+>
+	<div class="flex flex-col w-full space-y-4">
+		<span>Are you sure you want to remove this variable?</span>
+	</div>
+</ConfirmationModal>
