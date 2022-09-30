@@ -21,6 +21,9 @@
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
 	import Icon from 'svelte-awesome'
 	import { faPlus, faCircle } from '@fortawesome/free-solid-svg-icons'
+	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
+	import Alert from '$lib/components/common/alert/Alert.svelte'
+	import Badge from '$lib/components/common/badge/Badge.svelte'
 
 	type ListableVariableW = ListableVariable & { canWrite: boolean }
 
@@ -29,6 +32,9 @@
 
 	let shareModal: ShareModal
 	let variableEditor: VariableEditor
+
+	let deleteConfirmedCallback: (() => void) | undefined = undefined
+	$: open = Boolean(deleteConfirmedCallback)
 
 	// If relative, the dropdown is positioned relative to its button
 	async function loadVariables(): Promise<void> {
@@ -119,7 +125,16 @@
 									},
 									{
 										displayName: 'Delete',
-										action: () => deleteVariable(path, account),
+
+										action: (event) => {
+											if (event?.shiftKey) {
+												deleteVariable(path, account)
+											} else {
+												deleteConfirmedCallback = () => {
+													deleteVariable(path, account)
+												}
+											}
+										},
 										disabled: !canWrite
 									},
 									{
@@ -182,5 +197,28 @@
 	/>
 </CenteredPage>
 
-<style>
-</style>
+<ConfirmationModal
+	{open}
+	title="Remove variable"
+	confirmationText="Remove"
+	on:canceled={() => {
+		deleteConfirmedCallback = undefined
+	}}
+	on:confirmed={() => {
+		if (deleteConfirmedCallback) {
+			deleteConfirmedCallback()
+		}
+		deleteConfirmedCallback = undefined
+	}}
+>
+	<div class="flex flex-col w-full space-y-4">
+		<span>Are you sure you want to remove this variable?</span>
+		<Alert type="info" title="Bypass confirmation">
+			<div>
+				You can press
+				<Badge color="dark-gray">SHIFT</Badge>
+				while removing a variable to bypass confirmation.
+			</div>
+		</Alert>
+	</div>
+</ConfirmationModal>
