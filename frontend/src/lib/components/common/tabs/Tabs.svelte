@@ -33,7 +33,7 @@
 	}
 </script>
 
-<div class="border-b border-gray-200 flex flex-row">
+<div class="border-b border-gray-200 flex flex-row px-2 space-x-4 mt-1">
 	<slot />
 </div>
 <slot name="content" />

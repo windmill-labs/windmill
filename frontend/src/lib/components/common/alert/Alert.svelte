@@ -21,35 +21,44 @@
 
 	const classes: Record<AlertType, Record<string, string>> = {
 		info: {
-			bgClass: 'bg-blue-50',
+			bgClass: 'bg-blue-50 border border-blue-500',
 			iconClass: 'text-blue-500',
 			titleClass: 'text-blue-800',
-			descriptionClass: 'text-blue-700'
+			descriptionClass: 'text-blue-700',
+			iconBorderClass: 'border-blue-100'
 		},
 		warning: {
-			bgClass: 'bg-yellow-50',
+			bgClass: 'bg-yellow-50 border border-yellow-500',
 			iconClass: 'text-yellow-500',
 			titleClass: 'text-yellow-800',
-			descriptionClass: 'text-yellow-700'
+			descriptionClass: 'text-yellow-700',
+			iconBorderClass: 'border-yellow-100'
 		},
 		error: {
-			bgClass: 'bg-red-50',
+			bgClass: 'bg-red-50 border border-red-500',
 			iconClass: 'text-red-500',
 			titleClass: 'text-red-800',
-			descriptionClass: 'text-red-700'
+			descriptionClass: 'text-red-700',
+			iconBorderClass: 'border-red-100'
 		},
 		success: {
-			bgClass: 'bg-green-50',
+			bgClass: 'bg-green-50 border border-green-500',
 			iconClass: 'text-green-500',
 			titleClass: 'text-green-800',
-			descriptionClass: 'text-green-700'
+			descriptionClass: 'text-green-700',
+			iconBorderClass: 'border-green-100'
 		}
 	}
 </script>
 
-<div class={classNames('rounded-md p-4', classes[type].bgClass)}>
+<div class={classNames('rounded-md p-4 w-full', classes[type].bgClass)}>
 	<div class="flex">
-		<div class="flex h-8 w-8 items-center justify-center rounded-full">
+		<div
+			class={classNames(
+				'flex h-8 w-8 items-center justify-center rounded-full bg-white border',
+				classes[type].iconBorderClass
+			)}
+		>
 			<Icon data={icons[type]} class={classes[type].iconClass} />
 		</div>
 

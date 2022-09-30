@@ -11,9 +11,9 @@
 <div
 	class={classNames(
 		value === $selected
-			? 'border-b-2 border-gray-900 text-gray-900 text-sm'
-			: 'text-sm hover:border-b-2 hover:border-gray-300',
-		' py-1 px-4 cursor-pointer transition-all ease-linear  font-medium'
+			? 'border-b-2 border-blue-700 text-blue-700 text-sm '
+			: 'text-sm hover:border-b-2 hover:border-gray-300 text-gray-800',
+		' py-2 px-2 cursor-pointer transition-all ease-linear font-medium'
 	)}
 	on:click={() => update(value)}
 >

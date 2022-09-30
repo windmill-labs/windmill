@@ -97,9 +97,10 @@
 <Modal bind:this={modal} on:close={clearModal}>
 	<div slot="title">Add an argument</div>
 	<div slot="content">
-		<div class="flex flex-col px-6 py-3 bg-gray-50">
+		<div class="flex flex-col bg-gray-50">
 			<label class="font-semibold text-gray-700"
 				>Name<Required required={true} />
+				<!-- svelte-ignore a11y-autofocus -->
 				<input
 					autofocus
 					autocomplete="off"

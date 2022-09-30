@@ -49,7 +49,7 @@
 			<TabContent value="schedule" class="p-4">
 				<FlowSchedules />
 			</TabContent>
-			<TabContent value="retries" class="px-4">
+			<TabContent value="retries" class="p-4">
 				<FlowRetries />
 			</TabContent>
 		</svelte:fragment>

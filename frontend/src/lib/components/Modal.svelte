@@ -70,11 +70,7 @@
 				</div>
 				<div class="flex flex-col bg-white border-gray-200 p-2">
 					<div class="flex flex-row justify-between p-2 ">
-						<button
-							on:click={() => {
-								closeModal()
-							}}
-						>
+						<button on:click={closeModal}>
 							<svg
 								class="w-6 h-6"
 								fill="none"

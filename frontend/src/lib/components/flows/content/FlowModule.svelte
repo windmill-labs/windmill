@@ -162,7 +162,7 @@
 								<Editor
 									bind:websocketAlive
 									bind:this={editor}
-									class="h-full px-2"
+									class="h-full px-2 mt-4"
 									bind:code={flowModule.value.content}
 									deno={flowModule.value.language === RawScript.language.DENO}
 									lang={scriptLangToEditorLang(flowModule.value.language)}

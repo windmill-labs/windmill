@@ -18,10 +18,10 @@
 </script>
 
 <div
-	class="flex items-center justify-between py-2 px-4 border-b bg-gray-50 shadow-sm space-x-2 h-12 flex-nowrap"
+	class="flex items-center justify-between py-2 px-4 border-b bg-gray-50 space-x-2 h-12 flex-nowrap"
 >
 	{#if flowModule}
-		<span class="text-sm w-full">
+		<span class="text-md w-full">
 			<div class="flex items-center space-x-2">
 				{#if shouldPick}
 					<span class="font-bold text-xs">Select a script</span>
@@ -38,7 +38,7 @@
 		</span>
 	{/if}
 	{#if title}
-		<span class="text-xs font-bold text-gray-900 flex flex-col">{title}</span>
+		<span class="text-sm text-gray-800 font-bold">{title}</span>
 	{/if}
 	<slot />
 </div>
