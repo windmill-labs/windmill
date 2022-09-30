@@ -225,9 +225,13 @@
 											disabled: !canWrite,
 											icon: faTrash,
 											type: 'delete',
-											action: () => {
-												deleteConfirmedCallback = () => {
+											action: (event) => {
+												if (event?.shiftKey) {
 													deleteResource(path, is_oauth)
+												} else {
+													deleteConfirmedCallback = () => {
+														deleteResource(path, is_oauth)
+													}
 												}
 											}
 										}

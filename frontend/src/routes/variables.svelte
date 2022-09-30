@@ -123,9 +123,14 @@
 									},
 									{
 										displayName: 'Delete',
-										action: () => {
-											deleteConfirmedCallback = () => {
+
+										action: (event) => {
+											if (event?.shiftKey) {
 												deleteVariable(path, account)
+											} else {
+												deleteConfirmedCallback = () => {
+													deleteVariable(path, account)
+												}
 											}
 										},
 										disabled: !canWrite
