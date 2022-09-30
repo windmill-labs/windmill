@@ -105,7 +105,6 @@
 
 <svelte:window on:keydown={onKeyDown} />
 
-<UnsavedConfirmationModal />
 <div class="border-b shadow-sm p-1 pr-4">
 	<div class="flex justify-between">
 		<EditorBar {editor} {lang} {websocketAlive} />

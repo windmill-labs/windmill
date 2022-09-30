@@ -16,6 +16,7 @@
 	import ScriptSchema from './ScriptSchema.svelte'
 	import CenteredPage from './CenteredPage.svelte'
 	import Tooltip from './Tooltip.svelte'
+	import UnsavedConfirmationModal from './common/confirmationModal/UnsavedConfirmationModal.svelte'
 
 	export let script: Script
 	export let initialPath: string = ''
@@ -72,6 +73,7 @@
 	}
 </script>
 
+<UnsavedConfirmationModal />
 <div class="flex flex-col h-screen">
 	<!-- Nav between steps-->
 	<div class="flex flex-col w-full px-4 py-2 border-b shadow-sm">

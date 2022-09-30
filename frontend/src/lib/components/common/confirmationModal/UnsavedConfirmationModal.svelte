@@ -1,18 +1,21 @@
 <script lang="ts">
 	import ConfirmationModal from './ConfirmationModal.svelte'
 	import { beforeNavigate, goto } from '$app/navigation'
-
-	export let dirty: boolean = false
+	import { onDestroy } from 'svelte/internal'
+	import { dirtyStore } from './dirtyStore'
 
 	let navigationState: { from: URL; to: URL | null; cancel: () => void } | undefined = undefined
 	$: open = Boolean(navigationState)
 
 	beforeNavigate((newNavigationState) => {
-		if (!navigationState && dirty) {
+		if (!navigationState && $dirtyStore) {
 			navigationState = newNavigationState
-
 			newNavigationState.cancel()
 		}
+	})
+
+	onDestroy(() => {
+		$dirtyStore = false
 	})
 </script>
 
