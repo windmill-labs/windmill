@@ -24,6 +24,7 @@
 	import Button from './common/button/Button.svelte'
 	import TestJobLoader from './TestJobLoader.svelte'
 	import { onMount } from 'svelte'
+	import UnsavedConfirmationModal from './common/confirmationModal/UnsavedConfirmationModal.svelte'
 
 	// Exported
 	export let schema: Schema = emptySchema()
@@ -49,6 +50,8 @@
 	let lastSave: string | null
 
 	$: lastSave = localStorage.getItem(path ?? 'last_save')
+
+	$: lastSave && console.log(lastSave)
 
 	function onKeyDown(event: KeyboardEvent) {
 		if ((event.ctrlKey || event.metaKey) && event.key == 'Enter') {
@@ -104,6 +107,7 @@
 
 <svelte:window on:keydown={onKeyDown} />
 
+<UnsavedConfirmationModal />
 <div class="border-b shadow-sm p-1 pr-4">
 	<div class="flex justify-between">
 		<EditorBar {editor} {lang} {websocketAlive} />
