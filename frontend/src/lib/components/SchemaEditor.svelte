@@ -140,7 +140,16 @@
 
 <div class="flex flex-col">
 	<div class="flex justify-between gap-x-2">
-		<Button variant="contained" color="blue" size="md" startIcon={{ icon: faPlus }}>
+		<Button
+			variant="contained"
+			color="blue"
+			size="md"
+			startIcon={{ icon: faPlus }}
+			on:click={() => {
+				modalProperty = Object.assign({}, DEFAULT_PROPERTY)
+				schemaModal.openModal()
+			}}
+		>
 			Add argument
 		</Button>
 

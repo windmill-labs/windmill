@@ -109,7 +109,7 @@
 />
 
 <CenteredPage>
-	<div class="flex flex-row justify-between">
+	<div class="flex flex-row flex-wrap justify-between items-center gap-4 pb-4">
 		<h1>
 			<div>
 				{#if job}
@@ -173,7 +173,7 @@
 				{/if}
 			</div>
 		</h1>
-		<div>
+		<div class="flex flex-wrap gap-2">
 			{#if job && 'deleted' in job && !job?.deleted && ($userStore?.is_admin ?? false)}
 				<Button
 					variant="border"
