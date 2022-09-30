@@ -46,7 +46,7 @@
 </script>
 
 <li class="mt-1">
-	<Button {...buttonProps}>
+	<Button {...buttonProps} on:click>
 		<slot />
 	</Button>
 </li>
