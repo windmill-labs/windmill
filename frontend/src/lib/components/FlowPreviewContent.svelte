@@ -3,7 +3,6 @@
 	import { workspaceStore } from '$lib/stores'
 
 	import { faClose, faPlay } from '@fortawesome/free-solid-svg-icons'
-	import { Button } from 'flowbite-svelte'
 	import { createEventDispatcher, getContext, onDestroy } from 'svelte'
 	import Icon from 'svelte-awesome'
 	import { flowStateStore } from './flows/flowState'
@@ -14,6 +13,7 @@
 	import SchemaForm from './SchemaForm.svelte'
 
 	import FlowStatusViewer from '../components/FlowStatusViewer.svelte'
+	import { Button } from './common'
 	export let previewMode: 'upTo' | 'whole'
 
 	let jobId: string | undefined = undefined
@@ -72,7 +72,7 @@
 			</h3>
 		</div>
 		<Button
-			color="alternative"
+			color="light"
 			on:click={() => {
 				jobId = undefined
 				intervalState = 'idle'
@@ -82,41 +82,46 @@
 			<Icon data={faClose} />
 		</Button>
 	</div>
-	<div class="pb-4 h-full max-h-1/2 overflow-auto">
-		<div class="mt-4">
-			<SchemaForm schema={$flowStore.schema} bind:isValid bind:args={$previewArgs} />
-		</div>
+	<div class="grow pb-8 max-h-1/2 overflow-auto">
+		<SchemaForm
+			class="h-full pt-4"
+			schema={$flowStore.schema}
+			bind:isValid
+			bind:args={$previewArgs}
+		/>
 	</div>
-	{#if intervalState === 'running'}
-		<Button
-			disabled={!isValid}
-			color="red"
-			on:click={async () => {
-				intervalState = 'canceled'
-				try {
-					jobId &&
-						(await JobService.cancelQueuedJob({
-							workspace: $workspaceStore ?? '',
-							id: jobId,
-							requestBody: {}
-						}))
-				} catch {}
-				jobId = undefined
-			}}
-			size="md"
-		>
-			Cancel
-		</Button>
-	{:else}
-		<Button
-			disabled={!isValid}
-			class="blue-button"
-			on:click={() => runPreview($previewArgs)}
-			size="md"
-		>
-			{`Run${intervalState === 'done' ? ' again' : ''}`}
-		</Button>
-	{/if}
+	<div class="w-full pt-1">
+		{#if intervalState === 'running'}
+			<Button
+				disabled={!isValid}
+				color="red"
+				btnClasses="w-full"
+				on:click={async () => {
+					intervalState = 'canceled'
+					try {
+						jobId &&
+							(await JobService.cancelQueuedJob({
+								workspace: $workspaceStore ?? '',
+								id: jobId,
+								requestBody: {}
+							}))
+					} catch {}
+				}}
+				size="md"
+			>
+				Cancel
+			</Button>
+		{:else}
+			<Button
+				disabled={!isValid}
+				btnClasses="w-full"
+				on:click={() => runPreview($previewArgs)}
+				size="md"
+			>
+				{`Run${intervalState === 'done' ? ' again' : ''}`}
+			</Button>
+		{/if}
+	</div>
 
 	<div class="h-full overflow-y-auto mb-16 grow">
 		{#if jobId}
