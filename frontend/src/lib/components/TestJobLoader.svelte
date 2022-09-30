@@ -91,11 +91,13 @@
 			} else {
 				job = await JobService.getJob({ workspace: $workspaceStore!, id })
 			}
-			if (job?.type === 'CompletedJob' && isLoading) {
+			if (job?.type === 'CompletedJob') {
 				//only CompletedJob has success property
-				dispatch('done', job)
 				clearInterval(intervalId)
-				isLoading = false
+				if (isLoading) {
+					dispatch('done', job)
+					isLoading = false
+				}
 			}
 		} catch (err) {
 			console.error(err)
