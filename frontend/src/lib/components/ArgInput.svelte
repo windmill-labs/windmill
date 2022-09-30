@@ -4,7 +4,6 @@
 	import { faChevronDown, faChevronUp, faMinus, faPlus } from '@fortawesome/free-solid-svg-icons'
 
 	import { setInputCat as computeInputCat, type InputCat } from '$lib/utils'
-	import { Button, Tooltip } from 'flowbite-svelte'
 	import { createEventDispatcher } from 'svelte'
 	import Icon from 'svelte-awesome'
 	import FieldHeader from './FieldHeader.svelte'
@@ -15,7 +14,6 @@
 	import SchemaForm from './SchemaForm.svelte'
 	import type { SchemaProperty } from '$lib/common'
 	import SimpleEditor from './SimpleEditor.svelte'
-	import { stylus } from 'svelte-highlight/languages'
 
 	export let label: string = ''
 	export let value: any
@@ -43,7 +41,6 @@
 	let seeEditable: boolean = enum_ != undefined || pattern != undefined
 	const dispatch = createEventDispatcher()
 
-	$: minHeight = `${1 + minRows * 1.2}em`
 	$: maxHeight = maxRows ? `${1 + maxRows * 1.2}em` : `auto`
 
 	$: validateInput(pattern, value)
@@ -277,7 +274,7 @@
 						bind:this={el}
 						on:focus
 						{disabled}
-						style="min-height: {minHeight}; max-height: {maxHeight}"
+						style="max-height: {maxHeight}"
 						on:input={(e) => {
 							if (el) {
 								el.style.height = '5px'
@@ -333,7 +330,7 @@
 					on:focus={() => dispatch('focus')}
 					on:blur={() => dispatch('blur')}
 					{disabled}
-					style="min-height: {minHeight}; max-height: {maxHeight}"
+					style="height: 30px; max-height: {maxHeight}"
 					class="col-span-10 {valid
 						? ''
 						: 'border border-red-700 border-opacity-30 focus:border-red-700 focus:border-opacity-30 bg-red-100'}"
@@ -341,7 +338,7 @@
 					bind:value
 					on:input={async () => {
 						if (el) {
-							el.style.height = '5px'
+							el.style.height = '30px'
 							el.style.height = el.scrollHeight + 'px'
 						}
 						dispatch('input', { rawValue: value, isRaw: false })
