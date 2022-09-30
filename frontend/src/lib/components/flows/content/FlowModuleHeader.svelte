@@ -54,8 +54,8 @@
 		variant="border"
 		startIcon={{ icon: faTrashAlt }}
 		{iconOnly}
-		on:click={(event) => {
-			if (event.shiftKey || shouldPick) {
+		on:click={({ detail }) => {
+			if (detail.shiftKey || shouldPick) {
 				dispatch('delete')
 				select('settings')
 			} else {

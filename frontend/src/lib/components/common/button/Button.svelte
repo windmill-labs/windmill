@@ -60,9 +60,9 @@
 		tabindex: disabled ? -1 : 0
 	}
 
-	function onClick() {
-		dispatch('click')
-		if(href) goto(href)
+	function onClick(event: MouseEvent) {
+		dispatch('click', event)
+		if (href) goto(href)
 	}
 </script>
 
