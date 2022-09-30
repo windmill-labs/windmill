@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { createEventDispatcher } from 'svelte'
+	import { goto } from '$app/navigation'
 	import { classNames } from '$lib/utils'
 	import Icon from 'svelte-awesome'
 	import { ButtonType } from './model'
@@ -15,6 +17,7 @@
 	export let startIcon: ButtonType.Icon | undefined = undefined
 	export let endIcon: ButtonType.Icon | undefined = undefined
 
+	const dispatch = createEventDispatcher()
 	// Order of classes: border, border modifier, bg, bg modifier, text, text modifier, everything else
 	const colorVariants: Record<ButtonType.Color, Record<ButtonType.Variant, string>> = {
 		blue: {
@@ -56,11 +59,16 @@
 		target,
 		tabindex: disabled ? -1 : 0
 	}
+
+	function onClick() {
+		dispatch('click')
+		if(href) goto(href)
+	}
 </script>
 
 <svelte:element
 	this={href ? 'a' : 'button'}
-	on:click|stopPropagation
+	on:click|stopPropagation={onClick}
 	on:focus
 	on:blur
 	{...buttonProps}

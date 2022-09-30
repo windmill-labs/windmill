@@ -107,7 +107,7 @@
 						{:else if testIsLoading}
 							Waiting for Result...
 						{:else}
-							Test to see result here
+							Test to see the result here
 						{/if}
         	</pre>
 				</down>

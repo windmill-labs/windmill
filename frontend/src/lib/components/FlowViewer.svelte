@@ -20,7 +20,7 @@
 	}
 	export let initialOpen: number | undefined = undefined
 
-	let flowFiltered = {
+	$: flowFiltered = {
 		summary: flow.summary,
 		description: flow.description,
 		value: flow.value,
