@@ -61,6 +61,20 @@ func main(x string) (interface{}, error) {
 }
 `
 
+export const GO_FAILURE_MODULE_CODE = `import (
+	"fmt"
+  "os"
+)
+
+// connect the error parameter to 'previous_result.error'
+
+func main(error string) (interface{}, error) {
+	fmt.Println(error)
+	fmt.Println("job", os.Getenv("WM_JOB_ID"))
+  return x, nil
+}
+`
+
 export const DENO_INIT_CODE_CLEAR = `// import * as wmill from "https://deno.land/x/windmill@v${__pkg__.version}/mod.ts"
 
 export async function main(x: string) {
@@ -68,10 +82,32 @@ export async function main(x: string) {
 }
 `
 
+export const DENO_FAILURE_MODULE_CODE = `
+// connect the error parameter to 'previous_result.error'
+
+export async function main(error: string) {
+  const job = Deno.env.get("WM_JOB_ID")
+  console.log("error", error)
+  console.log("job", job)
+  return { error, job }
+}
+`
+
 export const PYTHON_INIT_CODE_CLEAR = `#import wmill
 
 def main(x: str):
   return x
+`
+
+export const PYTHON_FAILURE_MODULE_CODE = `import os
+
+# connect the error parameter to 'previous_result.error'
+
+def main(error: str):
+  job = os.environ.get("WM_JOB_ID")
+  print("error", error)
+  print("job", job)
+  return error, job
 `
 
 export const POSTGRES_INIT_CODE = `import {
@@ -123,14 +159,17 @@ export function isInitialCode(content: string): boolean {
   return false
 }
 
-export function initialCode(language: 'deno' | 'python3' | 'go', kind: Script.kind, subkind: 'pgsql' | 'flow' | 'script' | undefined): string {
+export function initialCode(language: 'deno' | 'python3' | 'go', kind: Script.kind, subkind: 'pgsql' | 'flow' | 'script' | 'failure' | undefined): string {
   if (language === 'deno') {
     if (kind === 'trigger') {
       return DENO_INIT_CODE_TRIGGER
     } else if (kind === 'script') {
       if (subkind === 'flow') {
         return DENO_INIT_CODE_CLEAR
-      } else if (subkind === 'pgsql') {
+      } else if (subkind === 'failure') {
+        return DENO_FAILURE_MODULE_CODE
+      }
+      else if (subkind === 'pgsql') {
         return POSTGRES_INIT_CODE
       } else {
         return DENO_INIT_CODE
@@ -141,10 +180,16 @@ export function initialCode(language: 'deno' | 'python3' | 'go', kind: Script.ki
   } else if (language === 'python3') {
     if (subkind === 'flow') {
       return PYTHON_INIT_CODE_CLEAR
+    } else if (subkind === 'failure') {
+      return PYTHON_FAILURE_MODULE_CODE
     } else {
       return PYTHON_INIT_CODE
     }
   } else {
-    return GO_INIT_CODE
+    if (subkind === 'failure') {
+      return GO_FAILURE_MODULE_CODE
+    } else {
+      return GO_INIT_CODE
+    }
   }
 }

@@ -102,7 +102,7 @@
 				</top>
 				<down slot="down">
 					<pre
-						class="overflow-x-auto break-all relative h-full p-2 text-sm">{#if testJob && 'result' in testJob && testJob.result}<DisplayResult
+						class="overflow-x-auto break-all relative h-full p-2 text-sm">{#if testJob && 'result' in testJob && testJob.result != undefined}<DisplayResult
 								result={testJob.result}
 							/>
 						{:else if testIsLoading}Waiting for Result...

@@ -1,6 +1,6 @@
 import type { Schema } from '$lib/common'
 import { CompletedJob, Job, Script, ScriptService, type FlowModule, type RawScript } from '$lib/gen'
-import { initialCode } from '$lib/script_helpers'
+import { DENO_FAILURE_MODULE_CODE, initialCode } from '$lib/script_helpers'
 import { userStore, workspaceStore } from '$lib/stores'
 import {
 	buildExtraLib,
@@ -49,7 +49,7 @@ export async function createInlineScriptModule({
 }: {
 	language: RawScript.language
 	kind: Script.kind
-	subkind: 'pgsql' | 'flow'
+	subkind: 'pgsql' | 'flow',
 }): Promise<[FlowModule, FlowModuleState]> {
 	const code = initialCode(language, kind, subkind)
 
@@ -184,7 +184,7 @@ type Result = any
 type PickableProperties = {
 	flow_input?: Object
 	previous_result: Result | undefined
-	step: Result[]
+	step?: Result[]
 }
 
 type StepPropPicker = {
@@ -210,8 +210,8 @@ export function getStepPropPicker(
 		parentIndex == 0
 			? flowInput
 			: results.length > 0
-			? results[results.length - 1]
-			: NEVER_TESTED_THIS_FAR
+				? results[results.length - 1]
+				: NEVER_TESTED_THIS_FAR
 
 	if (isInsideLoop) {
 		let forLoopFlowInput = {
@@ -235,8 +235,8 @@ export function getStepPropPicker(
 			childIndex == 0
 				? forLoopFlowInput
 				: innerResults.length > 0
-				? innerResults[innerResults.length - 1]
-				: NEVER_TESTED_THIS_FAR
+					? innerResults[innerResults.length - 1]
+					: NEVER_TESTED_THIS_FAR
 
 		const extraLib = buildExtraLib(
 			objectToTsType(forLoopFlowInput),
