@@ -180,17 +180,20 @@
 				</button>
 			</BreadcrumbItem>
 		</Breadcrumb>
-		<div class="overflow-x-scroll shrink h-full">
+		<div class="shrink h-full">
 			<button
-				class="flex flex-row items-center h-full"
+				class="flex flex-row items-center w-full h-full"
 				on:click={() => {
 					select('settings')
 					document.getElementById('flow-summary')?.focus()
 				}}
 			>
-				<div class="text-left font-semibold items-center">{$flowStore.summary ?? ''}</div>
-
-				<Icon data={faPen} scale={1.0} class="text-gray-500 ml-2" />
+				<div class="overflow-x-auto flex items-center h-full text-sm text-left font-semibold">
+					<div>{$flowStore.summary ?? ''}</div>
+				</div>
+				<div>
+					<Icon data={faPen} scale={0.8} class="text-gray-500 ml-1" />
+				</div>
 			</button>
 		</div>
 		<div class="flex flex-row-reverse ml-2 space-x-reverse space-x-2">
