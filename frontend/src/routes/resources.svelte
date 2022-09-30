@@ -42,6 +42,8 @@
 
 	import { onMount } from 'svelte'
 	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
+	import Alert from '$lib/components/common/alert/Alert.svelte'
+	import Badge from '$lib/components/common/badge/Badge.svelte'
 
 	type ResourceW = Resource & { canWrite: boolean }
 	type ResourceTypeW = ResourceType & { canWrite: boolean }
@@ -376,5 +378,12 @@
 >
 	<div class="flex flex-col w-full space-y-4">
 		<span>Are you sure you want to remove this resource?</span>
+		<Alert type="info" title="Bypass confirmation">
+			<div>
+				You can press
+				<Badge color="dark-gray">SHIFT</Badge>
+				while removing a resource to bypass confirmation.
+			</div>
+		</Alert>
 	</div>
 </ConfirmationModal>
