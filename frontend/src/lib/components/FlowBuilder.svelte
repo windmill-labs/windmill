@@ -142,7 +142,6 @@
 		selectedId: selectedIdStore,
 		schedule: scheduleStore,
 		select,
-		path: initialPath,
 		previewArgs: previewArgsStore
 	})
 
@@ -241,7 +240,7 @@
 
 	{#if $flowStateStore}
 		{#if step === 1}
-			<FlowEditor />
+			<FlowEditor {initialPath} />
 		{:else if step === 2}
 			<CenteredPage>
 				<ScriptSchema
