@@ -6,13 +6,11 @@
 	import { flowStore } from '$lib/components/flows/flowStore'
 	import Path from '$lib/components/Path.svelte'
 	import Required from '$lib/components/Required.svelte'
-	import { getContext } from 'svelte'
 	import FlowCard from '../common/FlowCard.svelte'
-	import type { FlowEditorContext } from '../types'
 	import FlowSchedules from './FlowSchedules.svelte'
 	import FlowRetries from './FlowRetries.svelte'
 
-	const { path } = getContext<FlowEditorContext>('FlowEditorContext')
+	export let initialPath: string
 
 	export let defaultTab = 'configuration'
 </script>
@@ -25,7 +23,7 @@
 
 		<svelte:fragment slot="content">
 			<TabContent value="configuration" class="p-4">
-				<Path bind:path={$flowStore.path} initialPath={path} namePlaceholder="my_flow" kind="flow">
+				<Path bind:path={$flowStore.path} {initialPath} namePlaceholder="my_flow" kind="flow">
 					<div slot="ownerToolkit">
 						Flow permissions depend on their path. Select the group <span class="font-mono"
 							>all</span
