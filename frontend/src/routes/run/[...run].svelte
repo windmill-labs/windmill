@@ -108,7 +108,7 @@
 />
 
 <CenteredPage>
-	<div class="flex flex-row justify-between">
+	<div class="flex flex-row flex-wrap justify-between">
 		<h1>
 			<div>
 				{#if job}
@@ -369,8 +369,11 @@
 					on:click={() => (viewTab = 'result')}
 				>
 					Result <Tooltip
-						>What is returned by the <span class="font-mono">main</span> function of the script. Dictionary
-						of columns are rendered as a table</Tooltip
+						>What is returned by the <span class="font-mono">main</span> function of the script,
+						stringified to JSON. Then for some specific cases, like having "png", "jpeg" or "file"
+						as sole key, they are displayed more richly. See
+						<a href="https://docs.windmill.dev/docs/reference#rich-display-rendering">here</a> for more
+						details.</Tooltip
 					>
 				</button>
 				<button
