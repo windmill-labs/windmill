@@ -87,9 +87,10 @@ pub fn get_reserved_variables(
     job_id: &str,
     permissioned_as: &str,
     path: Option<String>,
+    flow_id: Option<String>,
     flow_path: Option<String>,
     schedule_path: Option<String>,
-) -> [ContextualVariable; 9] {
+) -> [ContextualVariable; 10] {
     [
         ContextualVariable {
             name: "WM_WORKSPACE".to_string(),
@@ -124,6 +125,11 @@ pub fn get_reserved_variables(
             description: "Path of the script or flow being run if any".to_string(),
         },
         ContextualVariable {
+            name: "WM_FLOW_JOB_ID".to_string(),
+            value: flow_id.unwrap_or_else(|| "".to_string()),
+            description: "Job id of the encapsulating flow if the job is a flow step".to_string(),
+        },
+        ContextualVariable {
             name: "WM_FLOW_PATH".to_string(),
             value: flow_path.unwrap_or_else(|| "".to_string()),
             description: "Path of the encapsulating flow if the job is a flow step".to_string(),
@@ -156,6 +162,7 @@ async fn list_contextual_variables(
             "017e0ad5-f499-73b6-5488-92a61c5196dd",
             format!("u/{username}").as_str(),
             Some("u/user/script_path".to_string()),
+            Some("017e0ad5-f499-73b6-5488-92a61c5196dd".to_string()),
             Some("u/user/encapsulating_flow_path".to_string()),
             Some("u/user/triggering_flow_path".to_string()),
         )
