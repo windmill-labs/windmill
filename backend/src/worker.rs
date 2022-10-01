@@ -1357,7 +1357,7 @@ async fn install_go_dependencies(
 }
 
 async fn gen_go_mymod(code: &str, job_dir: &String) -> error::Result<()> {
-    let code = &format!("package inner\n\n{code}").replace("func main(", "func Inner_main(");
+    let code = &format!("package inner; {code}").replace("func main(", "func Inner_main(");
 
     let mymod_dir = format!("{job_dir}/inner");
     DirBuilder::new()
