@@ -45,6 +45,7 @@
 	export let flowModule: FlowModule
 	export let previewArgs: Record<string, any> = {}
 	export let flowModuleState: FlowModuleState
+	export let failureModule: boolean
 
 	$: [parentIndex, childIndex] = $selectedId.split('-').map(Number)
 
@@ -54,12 +55,14 @@
 	let selected = 'inputs'
 
 	$: shouldPick = isEmptyFlowModule(flowModule)
-	$: stepPropPicker = getStepPropPicker(
-		$selectedId.split('-').map(Number),
-		$flowStore.schema,
-		$flowStateStore,
-		previewArgs
-	)
+	$: stepPropPicker = failureModule
+		? { pickableProperties: { previous_result: { error: 'the error message' } }, extraLib: '' }
+		: getStepPropPicker(
+				$selectedId.split('-').map(Number),
+				$flowStore.schema,
+				$flowStateStore,
+				previewArgs
+		  )
 
 	function onKeyDown(event: KeyboardEvent) {
 		if ((event.ctrlKey || event.metaKey) && event.key == 'Enter') {
@@ -136,6 +139,7 @@
 						kind: e.detail.kind,
 						subkind: e.detail.subkind
 					})}
+				{failureModule}
 			/>
 		{:else}
 			{#if flowModule.value.type === 'rawscript'}

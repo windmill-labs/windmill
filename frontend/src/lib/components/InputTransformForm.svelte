@@ -69,10 +69,6 @@
 			arg.type = 'javascript'
 			propertyType = 'javascript'
 		}
-
-		if (monacos[argName]) {
-			monacos[argName].setCode(arg.value)
-		}
 	}
 
 	$: checked = propertyType == 'javascript'
@@ -144,16 +140,20 @@
 	{#if propertyType === undefined || !checked}
 		<ArgInput
 			on:focus={() => {
-				focusProp(argName, 'append', (path) => {
-					const toAppend = `\$\{${path}}`
-					arg.value = `${arg.value ?? ''}${toAppend}`
-					if (monacos[argName]) {
-						monacos[argName].setCode(arg.value)
-					}
-					if (isStaticTemplate(inputCats[argName])) {
+				if (isStaticTemplate(inputCats[argName])) {
+					focusProp(argName, 'append', (path) => {
+						const toAppend = `\$\{${path}}`
+						arg.value = `${arg.value ?? ''}${toAppend}`
 						setPropertyType(arg.value)
-					}
-				})
+					})
+				} else {
+					focusProp(argName, 'insert', (path) => {
+						console.log('path', path)
+						arg.expr = path
+						arg.type = 'javascript'
+						propertyType = 'javascript'
+					})
+				}
 			}}
 			label={argName}
 			bind:editor={monacos[argName]}

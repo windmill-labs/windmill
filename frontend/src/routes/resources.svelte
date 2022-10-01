@@ -41,6 +41,9 @@
 	import { page } from '$app/stores'
 
 	import { onMount } from 'svelte'
+	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
+	import Alert from '$lib/components/common/alert/Alert.svelte'
+	import Badge from '$lib/components/common/badge/Badge.svelte'
 
 	type ResourceW = Resource & { canWrite: boolean }
 	type ResourceTypeW = ResourceType & { canWrite: boolean }
@@ -61,6 +64,8 @@
 
 	let shareModal: ShareModal
 	let appConnect: AppConnect
+	let deleteConfirmedCallback: (() => void) | undefined = undefined
+	$: open = Boolean(deleteConfirmedCallback)
 
 	async function loadResources(): Promise<void> {
 		resources = (await ResourceService.listResource({ workspace: $workspaceStore! })).map((x) => {
@@ -222,8 +227,14 @@
 											disabled: !canWrite,
 											icon: faTrash,
 											type: 'delete',
-											action: () => {
-												deleteResource(path, is_oauth)
+											action: (event) => {
+												if (event?.shiftKey) {
+													deleteResource(path, is_oauth)
+												} else {
+													deleteConfirmedCallback = () => {
+														deleteResource(path, is_oauth)
+													}
+												}
 											}
 										}
 									]}
@@ -348,5 +359,31 @@
 				Save
 			</button>
 		{/if}
-	</div></Modal
+	</div>
+</Modal>
+
+<ConfirmationModal
+	{open}
+	title="Remove resource"
+	confirmationText="Remove"
+	on:canceled={() => {
+		deleteConfirmedCallback = undefined
+	}}
+	on:confirmed={() => {
+		if (deleteConfirmedCallback) {
+			deleteConfirmedCallback()
+		}
+		deleteConfirmedCallback = undefined
+	}}
 >
+	<div class="flex flex-col w-full space-y-4">
+		<span>Are you sure you want to remove this resource?</span>
+		<Alert type="info" title="Bypass confirmation">
+			<div>
+				You can press
+				<Badge color="dark-gray">SHIFT</Badge>
+				while removing a resource to bypass confirmation.
+			</div>
+		</Alert>
+	</div>
+</ConfirmationModal>

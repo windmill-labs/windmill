@@ -65,14 +65,18 @@
 		console.log('watch jobs')
 
 		job = undefined
-		await loadTestJob(testId)
 		syncIteration = 0
-		intervalId = setInterval(() => {
-			syncer(testId)
-		}, 500)
+		const isCompleted = await loadTestJob(testId)
+		if (!isCompleted) {
+			isLoading = true
+			intervalId = setInterval(() => {
+				syncer(testId)
+			}, 500)
+		}
 	}
 
-	async function loadTestJob(id: string): Promise<void> {
+	async function loadTestJob(id: string): Promise<boolean> {
+		let isCompleted = false
 		try {
 			if (job && `running` in job) {
 				let previewJobUpdates = await JobService.getJobUpdates({
@@ -91,15 +95,19 @@
 			} else {
 				job = await JobService.getJob({ workspace: $workspaceStore!, id })
 			}
-			if (job?.type === 'CompletedJob' && isLoading) {
+			if (job?.type === 'CompletedJob') {
 				//only CompletedJob has success property
-				dispatch('done', job)
+				isCompleted = true
 				clearInterval(intervalId)
-				isLoading = false
+				if (isLoading) {
+					dispatch('done', job)
+					isLoading = false
+				}
 			}
 		} catch (err) {
 			console.error(err)
 		}
+		return isCompleted
 	}
 
 	function syncer(id: string): void {
