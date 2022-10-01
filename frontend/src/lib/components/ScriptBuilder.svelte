@@ -17,6 +17,7 @@
 	import CenteredPage from './CenteredPage.svelte'
 	import Tooltip from './Tooltip.svelte'
 	import UnsavedConfirmationModal from './common/confirmationModal/UnsavedConfirmationModal.svelte'
+	import { dirtyStore } from './common/confirmationModal/dirtyStore'
 
 	export let script: Script
 	export let initialPath: string = ''
@@ -41,6 +42,7 @@
 
 	async function editScript(): Promise<void> {
 		try {
+			$dirtyStore = false
 			if (!script.schema) {
 				await inferArgs(script.language, script.content, script.schema)
 			}
