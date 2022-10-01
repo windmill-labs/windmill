@@ -68,6 +68,7 @@
 		syncIteration = 0
 		const isCompleted = await loadTestJob(testId)
 		if (!isCompleted) {
+			isLoading = true
 			intervalId = setInterval(() => {
 				syncer(testId)
 			}, 500)
