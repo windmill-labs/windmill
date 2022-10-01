@@ -1394,6 +1394,7 @@ async fn get_reserved_variables(
         &job.id.to_string(),
         &job.permissioned_as,
         job.script_path.clone(),
+        job.parent_job.map(|x| x.to_string()),
         flow_path,
         job.schedule_path.clone(),
     );
