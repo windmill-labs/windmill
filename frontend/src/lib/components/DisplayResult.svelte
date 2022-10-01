@@ -6,8 +6,18 @@
 
 	export let result: any
 
-	let resultKind: 'json' | 'table-col' | 'table-row' | 'png' | 'file' | 'jpeg' | 'gif' | undefined =
-		inferResultKind(result)
+	let resultKind:
+		| 'json'
+		| 'table-col'
+		| 'table-row'
+		| 'png'
+		| 'file'
+		| 'jpeg'
+		| 'gif'
+		| 'error'
+		| undefined = inferResultKind(result)
+
+	let forceJson = false
 
 	function isRectangularArray(obj: any) {
 		if (!Array.isArray(obj) || obj.length == 0) {
@@ -45,6 +55,8 @@
 					return 'jpeg'
 				} else if (keys.length == 1 && keys[0] == 'file') {
 					return 'file'
+				} else if (keys.length == 1 && keys[0] == 'error') {
+					return 'error'
 				}
 			} catch (err) {}
 		}
@@ -52,13 +64,17 @@
 	}
 </script>
 
-<div>
+<div class="inline-highlight">
 	{#if result}
-		{#if typeof result == 'object' && Object.keys(result).length > 0}
-			<div>
-				The result keys are: <b>{truncate(Object.keys(result).join(', '), 50)}</b>
-			</div>{/if}{#if resultKind == 'table-col'}
-			<div class="grid grid-flow-col-dense border border-gray-200 rounded-md ">
+		{#if resultKind && resultKind != 'json'}
+			<div class="mb-2 text-gray-500 text-sm bg-gray-50/20">
+				as JSON <input type="checkbox" bind:checked={forceJson} /></div
+			>{/if}{#if typeof result == 'object' && Object.keys(result).length > 0}<div
+				class="mb-2 text-gray-700"
+				>The result keys are: <b>{truncate(Object.keys(result).join(', '), 50)}</b></div
+			>{/if}{#if !forceJson && resultKind == 'table-col'}<div
+				class="grid grid-flow-col-dense border border-gray-200 rounded-md "
+			>
 				{#each Object.keys(result) as col}
 					<div class="flex flex-col max-h-40 min-w-full overflow-auto">
 						<div
@@ -76,7 +92,7 @@
 					</div>
 				{/each}
 			</div>
-		{:else if resultKind == 'table-row'}<div
+		{:else if !forceJson && resultKind == 'table-row'}<div
 				class="grid grid-flow-col-dense border border-gray-200 rounded-md "
 			>
 				<TableCustom>
@@ -91,36 +107,30 @@
 					</tbody>
 				</TableCustom>
 			</div>
-		{:else if resultKind == 'png'}
-			<div class="h-full">
-				Result is an image: <img
-					alt="png rendered"
-					class="w-auto h-full"
-					src="data:image/png;base64,{result.png}"
-				/>
+		{:else if !forceJson && resultKind == 'png'}
+			<div class="h-full"
+				><img alt="png rendered" class="w-auto h-full" src="data:image/png;base64,{result.png}" />
 			</div>
-		{:else if resultKind == 'jpeg'}
-			<div class="h-full">
-				Result is an image: <img
+		{:else if !forceJson && resultKind == 'jpeg'}
+			<div class="h-full"
+				><img
 					alt="jpeg rendered"
 					class="w-auto h-full"
 					src="data:image/jpeg;base64,{result.jpeg}"
 				/>
 			</div>
-		{:else if resultKind == 'gif'}
-			<div class="h-full">
-				Result is an image: <img
-					alt="gif rendered"
-					class="w-auto h-full"
-					src="data:image/gif;base64,{result.gif}"
-				/>
+		{:else if !forceJson && resultKind == 'gif'}
+			<div class="h-full"
+				><img alt="gif rendered" class="w-auto h-full" src="data:image/gif;base64,{result.gif}" />
 			</div>
-		{:else if resultKind == 'file'}
-			<div>
-				Result is a file: <a
-					download="windmill.file"
-					href="data:application/octet-stream;base64,{result.file}">Download</a
+		{:else if !forceJson && resultKind == 'file'}
+			<div
+				><a download="windmill.file" href="data:application/octet-stream;base64,{result.file}"
+					>Download</a
 				>
+			</div>
+		{:else if !forceJson && resultKind == 'error'}<div
+				><p class="text-sm text-red-500">{result.error}</p>
 			</div>
 		{:else}<Highlight
 				language={json}
