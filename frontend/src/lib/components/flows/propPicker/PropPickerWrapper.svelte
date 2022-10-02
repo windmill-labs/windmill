@@ -18,7 +18,7 @@
 
 <script lang="ts">
 	import PropPicker from '$lib/components/propertyPicker/PropPicker.svelte'
-	import { setContext } from 'svelte'
+	import { setContext, getContext } from 'svelte'
 	import { HSplitPane } from 'svelte-split-pane'
 	import { writable, type Writable } from 'svelte/store'
 

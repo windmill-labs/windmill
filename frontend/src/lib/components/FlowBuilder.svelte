@@ -1,7 +1,13 @@
 <script lang="ts">
 	import { goto } from '$app/navigation'
 	import { page } from '$app/stores'
-	import { FlowService, ScheduleService, type Flow } from '$lib/gen'
+	import {
+		FlowService,
+		ResourceService,
+		ScheduleService,
+		VariableService,
+		type Flow
+	} from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import {
 		encodeState,
@@ -12,7 +18,7 @@
 	} from '$lib/utils'
 	import { faGlobe, faPen } from '@fortawesome/free-solid-svg-icons'
 	import { Breadcrumb, BreadcrumbItem } from 'flowbite-svelte'
-	import { onMount, setContext } from 'svelte'
+	import { setContext } from 'svelte'
 	import Icon from 'svelte-awesome'
 	import { writable } from 'svelte/store'
 	import CenteredPage from './CenteredPage.svelte'
@@ -133,7 +139,8 @@
 	const selectedIdStore = writable<string>('settings')
 	const scheduleStore = writable<Schedule>({ args: {}, cron: '', enabled: false })
 	const previewArgsStore = writable<Record<string, any>>({})
-	const reservedVariablesStore = writable<Record<string, string>>({})
+	const variablesStore = writable<Record<string, string>>({})
+	const resourcesStore = writable<Record<string, string>>({})
 
 	function select(selectedId: string) {
 		selectedIdStore.set(selectedId)
@@ -144,7 +151,8 @@
 		schedule: scheduleStore,
 		select,
 		previewArgs: previewArgsStore,
-		reservedVariables: reservedVariablesStore
+		variables: variablesStore,
+		resources: resourcesStore
 	})
 
 	async function loadSchedule() {

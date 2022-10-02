@@ -1,13 +1,23 @@
 <script lang="ts">
+	import { ResourceService, VariableService } from '$lib/gen'
+	import { workspaceStore } from '$lib/stores'
 	import { faClose } from '@fortawesome/free-solid-svg-icons'
 	import { getContext } from 'svelte'
 	import Icon from 'svelte-awesome'
+	import { Button } from '../common'
 	import type { PropPickerWrapperContext } from '../flows/propPicker/PropPickerWrapper.svelte'
+	import { createEventDispatcher } from 'svelte'
 
 	import ObjectViewer from './ObjectViewer.svelte'
 	import { keepByKey } from './utils'
 
 	export let pickableProperties: Object = {}
+	let variables: Record<string, string> = {}
+	let resources: Record<string, any> = {}
+	let displayVariable = false
+	let displayResources = false
+
+	const dispatch = createEventDispatcher()
 
 	const EMPTY_STRING = ''
 	let search = ''
@@ -16,6 +26,26 @@
 
 	$: propsFiltered =
 		search === EMPTY_STRING ? pickableProperties : keepByKey(pickableProperties, search)
+
+	async function loadVariables() {
+		variables = Object.fromEntries(
+			(
+				await VariableService.listVariable({
+					workspace: $workspaceStore ?? ''
+				})
+			).map((variable) => [variable.path, variable.is_secret ? '***' : variable.value ?? ''])
+		)
+	}
+
+	async function loadResources() {
+		resources = Object.fromEntries(
+			(
+				await ResourceService.listResource({
+					workspace: $workspaceStore ?? ''
+				})
+			).map((resource) => [resource.path, resource.description ?? ''])
+		)
+	}
 </script>
 
 <div class="px-2 pt-2">
@@ -51,5 +81,57 @@
 	</div>
 	<div class="overflow-y-auto mb-2">
 		<ObjectViewer json={propsFiltered} on:select />
+	</div>
+	<span class="font-bold text-sm">Variables </span>
+	<div class="overflow-y-auto mb-2">
+		{#if displayVariable}
+			<Button
+				color="light"
+				size="xs"
+				on:click={() => {
+					displayVariable = false
+				}}>(-)</Button
+			>
+			<ObjectViewer
+				rawKey={true}
+				json={variables}
+				on:select={(e) => dispatch('select', `variable('${e.detail}')`)}
+			/>
+		{:else}
+			<Button
+				color="light"
+				size="xs"
+				on:click={async () => {
+					await loadVariables()
+					displayVariable = true
+				}}>{'{...}'}</Button
+			>
+		{/if}
+	</div>
+	<span class="font-bold text-sm">Resources</span>
+	<div class="overflow-y-auto mb-2">
+		{#if displayResources}
+			<Button
+				color="light"
+				size="xs"
+				on:click={() => {
+					displayResources = false
+				}}>(-)</Button
+			>
+			<ObjectViewer
+				rawKey={true}
+				json={resources}
+				on:select={(e) => dispatch('select', `resource('${e.detail}')`)}
+			/>
+		{:else}
+			<Button
+				color="light"
+				size="xs"
+				on:click={async () => {
+					await loadResources()
+					displayResources = true
+				}}>{'{...}'}</Button
+			>
+		{/if}
 	</div>
 </div>

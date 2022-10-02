@@ -6,5 +6,4 @@ export type FlowEditorContext = {
 	select: (id: string) => void
 	schedule: Writable<Schedule>
 	previewArgs: Writable<Record<string, any>>,
-	reservedVariables: Writable<Record<string, string>>
 }
