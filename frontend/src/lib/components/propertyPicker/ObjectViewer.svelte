@@ -13,6 +13,7 @@
 	export let currentPath: string = ''
 	export let pureViewer = false
 	export let collapsed = level == 3 || Array.isArray(json)
+	export let rawKey = false
 
 	const collapsedSymbol = '...'
 	let keys: string | any[]
@@ -34,7 +35,7 @@
 	const dispatch = createEventDispatcher()
 
 	function selectProp(key: string) {
-		dispatch('select', computeKey(key, isArray, currentPath))
+		dispatch('select', rawKey ? key : computeKey(key, isArray, currentPath))
 	}
 </script>
 
