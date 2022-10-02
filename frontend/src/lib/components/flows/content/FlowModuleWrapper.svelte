@@ -20,7 +20,6 @@
 			{#if mod.type == 'forloopflow' && state != undefined}
 				<FlowModule
 					failureModule={false}
-					previewArgs={$previewArgs}
 					bind:flowModule={mod.modules[childIndex]}
 					bind:flowModuleState={state[childIndex]}
 					on:delete={() => {
@@ -41,7 +40,6 @@
 {:else if $flowStore.value.modules[parentIndex]}
 	<FlowModule
 		failureModule={false}
-		previewArgs={$previewArgs}
 		bind:flowModule={$flowStore.value.modules[parentIndex]}
 		bind:flowModuleState={$flowStateStore.modules[parentIndex]}
 		on:delete={() => {
