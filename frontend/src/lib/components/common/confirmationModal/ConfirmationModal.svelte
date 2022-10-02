@@ -5,6 +5,7 @@
 	import Icon from 'svelte-awesome'
 	import { fade } from 'svelte/transition'
 	import Button from '../button/Button.svelte'
+	import Badge from '../badge/Badge.svelte'
 
 	export let title: string
 	export let confirmationText: string
@@ -12,7 +13,22 @@
 	export let open: boolean = false
 
 	const dispatch = createEventDispatcher()
+
+	function onKeyDown(event: KeyboardEvent) {
+		if (open) {
+			switch (event.key) {
+				case 'Enter':
+					dispatch('confirmed')
+					break
+				case 'Escape':
+					dispatch('canceled')
+					break
+			}
+		}
+	}
 </script>
+
+<svelte:window on:keydown={onKeyDown} />
 
 {#if open}
 	<div transition:fade={{ duration: 100 }} class={'relative  z-50'} role="dialog">
@@ -48,9 +64,11 @@
 					</div>
 					<div class="flex items-center space-x-2 flex-row-reverse space-x-reverse mt-4">
 						<Button on:click={() => dispatch('confirmed')} color="red" size="sm">
-							{confirmationText}
+							<span>{confirmationText} <Badge>Enter</Badge></span>
 						</Button>
-						<Button on:click={() => dispatch('canceled')} color="light" size="sm">Cancel</Button>
+						<Button on:click={() => dispatch('canceled')} color="light" size="sm">
+							<span>Cancel <Badge color="dark-gray">Escape</Badge></span>
+						</Button>
 					</div>
 				</div>
 			</div>
