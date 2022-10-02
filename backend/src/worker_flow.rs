@@ -432,18 +432,20 @@ async fn transform_input(
             InputTransform::Javascript { expr } => {
                 let previous_result = last_result.clone();
                 let flow_input = flow_args.clone().unwrap_or_else(|| json!({}));
+                let context = vec![
+                    ("params".to_string(), serde_json::json!(mapped)),
+                    ("previous_result".to_string(), previous_result),
+                    ("flow_input".to_string(), flow_input),
+                    (
+                        "resume".to_string(),
+                        resumes.last().map(|v| json!(v)).unwrap_or_default(),
+                    ),
+                    ("resumes".to_string(), resumes.clone().into()),
+                ];
+
                 let v = eval_timeout(
                     expr.to_string(),
-                    vec![
-                        ("params".to_string(), serde_json::json!(mapped)),
-                        ("previous_result".to_string(), previous_result),
-                        ("flow_input".to_string(), flow_input),
-                        (
-                            "resume".to_string(),
-                            resumes.last().map(|v| json!(v)).unwrap_or_default(),
-                        ),
-                        ("resumes".to_string(), resumes.clone().into()),
-                    ],
+                    context,
                     Some(EvalCreds { workspace: workspace.to_string(), token: token.to_string() }),
                     steps.clone(),
                 )

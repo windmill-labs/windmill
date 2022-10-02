@@ -133,6 +133,7 @@
 	const selectedIdStore = writable<string>('settings')
 	const scheduleStore = writable<Schedule>({ args: {}, cron: '', enabled: false })
 	const previewArgsStore = writable<Record<string, any>>({})
+	const reservedVariablesStore = writable<Record<string, string>>({})
 
 	function select(selectedId: string) {
 		selectedIdStore.set(selectedId)
@@ -142,10 +143,11 @@
 		selectedId: selectedIdStore,
 		schedule: scheduleStore,
 		select,
-		previewArgs: previewArgsStore
+		previewArgs: previewArgsStore,
+		reservedVariables: reservedVariablesStore
 	})
 
-	$: {
+	async function loadSchedule() {
 		loadFlowSchedule(initialPath, $workspaceStore)
 			.then((schedule: Schedule) => {
 				scheduleStore.set(schedule)
@@ -159,9 +161,9 @@
 			})
 	}
 
-	onMount(() => {
-		loadHubScripts()
-	})
+	$: initialPath && $workspaceStore && loadSchedule()
+
+	loadHubScripts()
 </script>
 
 <div class="flex flex-col flex-1 h-full">
