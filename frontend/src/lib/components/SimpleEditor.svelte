@@ -90,6 +90,7 @@
 			editor.getAction('editor.action.formatDocument').run()
 			if (formatAction) {
 				formatAction()
+				code = getCode()
 			}
 		}
 	}
@@ -111,6 +112,7 @@
 
 			editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.Enter, function () {
 				if (cmdEnterAction) {
+					code = getCode()
 					cmdEnterAction()
 				}
 			})
@@ -130,6 +132,7 @@
 		})
 
 		editor.onDidBlurEditorText(() => {
+			code = getCode()
 			dispatch('blur')
 		})
 
