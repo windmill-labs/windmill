@@ -956,6 +956,7 @@ pub async fn resume_suspended_job(
     Path((_, job)): Path<(String, Uuid)>,
     QueryOrBody(value): QueryOrBody<serde_json::Value>,
 ) -> error::Result<StatusCode> {
+    let value = value.unwrap_or(serde_json::Value::Null);
     NewResumeJob { job, value, is_cancel: false }
         .insert(&db)
         .await?;
@@ -968,6 +969,7 @@ pub async fn cancel_suspended_job(
     Path((_, job)): Path<(String, Uuid)>,
     QueryOrBody(value): QueryOrBody<serde_json::Value>,
 ) -> error::Result<StatusCode> {
+    let value = value.unwrap_or(serde_json::Value::Null);
     NewResumeJob { job, value, is_cancel: true }
         .insert(&db)
         .await?;
@@ -1611,7 +1613,7 @@ pub async fn delete_job(db: &DB, w_id: &str, job_id: Uuid) -> Result<(), crate::
     Ok(())
 }
 
-pub struct QueryOrBody<D>(pub D);
+pub struct QueryOrBody<D>(pub Option<D>);
 
 #[axum::async_trait]
 impl<D, B> FromRequest<B> for QueryOrBody<D>
@@ -1630,20 +1632,24 @@ where
             let Query(InPayload { payload }) = Query::from_request(req)
                 .await
                 .map_err(IntoResponse::into_response)?;
-            decode_payload(payload)
-                .map(QueryOrBody)
-                .map_err(|err| (StatusCode::BAD_REQUEST, format!("{err:#?}")))
-                .map_err(IntoResponse::into_response)
+            payload
+                .map(|p| {
+                    decode_payload(p)
+                        .map(QueryOrBody)
+                        .map_err(|err| (StatusCode::BAD_REQUEST, format!("{err:#?}")))
+                        .map_err(IntoResponse::into_response)
+                })
+                .unwrap_or(Ok(QueryOrBody(None)))
         } else {
             Json::from_request(req)
                 .await
-                .map(|Json(v)| QueryOrBody(v))
+                .map(|Json(v)| QueryOrBody(Some(v)))
                 .map_err(IntoResponse::into_response)
         };
 
         #[derive(Deserialize)]
         struct InPayload {
-            payload: String,
+            payload: Option<String>,
         }
 
         fn decode_payload<D: DeserializeOwned, T: AsRef<[u8]>>(t: T) -> anyhow::Result<D> {
