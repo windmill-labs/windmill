@@ -130,7 +130,7 @@
 				>
 			</div>
 		{:else if !forceJson && resultKind == 'error'}<div
-				><p class="text-sm text-red-500">{result.error}</p>
+				><pre class="text-sm text-red-500">{result.error}</pre>
 			</div>
 		{:else}<Highlight
 				language={json}
