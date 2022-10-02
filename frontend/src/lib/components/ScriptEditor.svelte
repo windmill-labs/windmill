@@ -158,7 +158,7 @@
 		</left>
 		<right slot="right">
 			<div class="h-full">
-				<VSplitPane topPanelSize="50%" downPanelSize="50%">
+				<VSplitPane topPanelSize="30%" downPanelSize="70%">
 					<top slot="top">
 						<div class="h-full overflow-auto">
 							<div class="p-4">

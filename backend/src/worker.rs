@@ -731,7 +731,6 @@ async fn handle_go_job(
         })
         .join(", ");
 
-    let inner_content = inner_content.replace("func main(", "func inner_main(");
     let wrapper_content: String = format!(
         r#"
 package main
@@ -739,9 +738,9 @@ package main
 import (
     "encoding/json"
     "os"
+    "fmt"
+    "mymod/inner"
 )
-
-{inner_content}
 
 func main() {{
     dat, err := os.ReadFile("args.json")
@@ -757,7 +756,7 @@ func main() {{
         os.Exit(1)
     }}
 
-    res, err := inner_main({spread})
+    res, err := inner.Inner_main({spread})
     if err != nil {{
         fmt.Println(err)
         os.Exit(1)
@@ -774,7 +773,7 @@ func main() {{
 
 "#,
     );
-    write_file(job_dir, "mymod/main.go", &wrapper_content).await?;
+    write_file(job_dir, "main.go", &wrapper_content).await?;
     let mut reserved_variables = get_reserved_variables(job, token.clone(), db).await?;
     reserved_variables.insert("RUST_LOG".to_string(), "info".to_string());
 
@@ -801,7 +800,7 @@ func main() {{
                 "--",
                 go_path,
                 "run",
-                "mymod/main.go",
+                "main.go",
             ])
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
@@ -815,7 +814,7 @@ func main() {{
             .env("BASE_INTERNAL_URL", base_internal_url)
             .env("GOPATH", gopath_env)
             .env("HOME", home_env)
-            .args(vec!["run", "mymod/main.go"])
+            .args(vec!["run", "main.go"])
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .spawn()?
@@ -1321,6 +1320,7 @@ async fn install_go_dependencies(
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()?;
+
     *status = handle_child(job_id, db, logs, last_line, timeout, child).await;
     if status.is_ok() {
         let child = Command::new(go_path)
@@ -1357,16 +1357,16 @@ async fn install_go_dependencies(
 }
 
 async fn gen_go_mymod(code: &str, job_dir: &String) -> error::Result<()> {
-    let code = &format!("package main\n\n{code}");
+    let code = &format!("package inner; {code}").replace("func main(", "func Inner_main(");
 
-    let mymod_dir = format!("{job_dir}/mymod");
+    let mymod_dir = format!("{job_dir}/inner");
     DirBuilder::new()
         .recursive(true)
         .create(&mymod_dir)
         .await
         .expect("could not create go's mymod dir");
 
-    write_file(&mymod_dir, "main.go", &code).await?;
+    write_file(&mymod_dir, "inner_main.go", &code).await?;
 
     Ok(())
 }

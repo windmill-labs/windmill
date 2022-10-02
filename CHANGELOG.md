@@ -1,6 +1,62 @@
 # Changelog
 
 
+## [1.36.0](https://github.com/windmill-labs/windmill/compare/v1.35.0...v1.36.0) (2022-10-02)
+
+
+### Features
+
+* add iterator expression tooltip ([#638](https://github.com/windmill-labs/windmill/issues/638)) ([a494975](https://github.com/windmill-labs/windmill/commit/a494975e69da983aba795432da668644e13dc809))
+* add private registries pip ([#636](https://github.com/windmill-labs/windmill/issues/636)) ([ae3f86d](https://github.com/windmill-labs/windmill/commit/ae3f86db112407f7684209463e1201ccc3d2349d))
+* **backend:** add WM_FLOW_JOB_ID ([d863b1e](https://github.com/windmill-labs/windmill/commit/d863b1ed909dfd3006a62085de957f4385e6e0a4))
+* **backend:** flow suspend resume ([#522](https://github.com/windmill-labs/windmill/issues/522)) ([126dd24](https://github.com/windmill-labs/windmill/commit/126dd24c710e3f5d261e6a3bb9e29d476e9d51eb))
+* **dev:** setup devcontainer ([#549](https://github.com/windmill-labs/windmill/issues/549)) ([b78f2d1](https://github.com/windmill-labs/windmill/commit/b78f2d1a91968e840e8fd75562b49f9d2a5ba1b6))
+* **front:** Add a confirmation modal ([#634](https://github.com/windmill-labs/windmill/issues/634)) ([876dc60](https://github.com/windmill-labs/windmill/commit/876dc6061007c751ce7facf2e31c6d74c54a9e31))
+* **front:** Confirmation modal when deleting a resource or a variable ([#648](https://github.com/windmill-labs/windmill/issues/648)) ([bbaba14](https://github.com/windmill-labs/windmill/commit/bbaba142ac1e49028d509103ecd42626d9a25477))
+* **frontend:** Add a split panel in the test tab ([#619](https://github.com/windmill-labs/windmill/issues/619)) ([5146c37](https://github.com/windmill-labs/windmill/commit/5146c37baf9be6406acd6efc0d00fcda48a8d082))
+* **frontend:** Add contextual actions to insert variables or resources ([#629](https://github.com/windmill-labs/windmill/issues/629)) ([13cfed6](https://github.com/windmill-labs/windmill/commit/13cfed6d895d6e3595bdfd89f54bf80da780c01f))
+* **frontend:** Add support for failure modules ([#612](https://github.com/windmill-labs/windmill/issues/612)) ([025d31f](https://github.com/windmill-labs/windmill/commit/025d31f843bbf80f38e0540f16b245bff555464b))
+* **frontend:** Add support for retries for flows ([#607](https://github.com/windmill-labs/windmill/issues/607)) ([0f33c26](https://github.com/windmill-labs/windmill/commit/0f33c26d54d23571d9d6bfab525be8145c221823))
+* **frontend:** Badge component and script page ([#617](https://github.com/windmill-labs/windmill/issues/617)) ([f4c8636](https://github.com/windmill-labs/windmill/commit/f4c8636209ecf4d26e2b107393160313990d9cbb))
+* **frontend:** Button component ([#616](https://github.com/windmill-labs/windmill/issues/616)) ([e8e4199](https://github.com/windmill-labs/windmill/commit/e8e4199c5ced73fc4532c48d1c68200e0efd4f1f))
+* **frontend:** Extract publish to hub button ([#620](https://github.com/windmill-labs/windmill/issues/620)) ([2d02558](https://github.com/windmill-labs/windmill/commit/2d0255824c23fb61936cd50ff5ea1d6c852aeabb))
+* **frontend:** Flow UX entire rework ([#552](https://github.com/windmill-labs/windmill/issues/552)) ([9fa4d01](https://github.com/windmill-labs/windmill/commit/9fa4d01e3b506e4ac2497f1b6897927204e05e95))
+* **frontend:** Landing rework ([#630](https://github.com/windmill-labs/windmill/issues/630)) ([941fe71](https://github.com/windmill-labs/windmill/commit/941fe7146e53434ab2b5e89bbdafa6a1dccb22fc))
+* **frontend:** merge logs and result tab in script editor ([#622](https://github.com/windmill-labs/windmill/issues/622)) ([bcb1136](https://github.com/windmill-labs/windmill/commit/bcb113682f5ef68475875706aef63af83a3f3f70))
+* **frontend:** Prop picker panel ([#605](https://github.com/windmill-labs/windmill/issues/605)) ([9ef6663](https://github.com/windmill-labs/windmill/commit/9ef6663dc528ab5b0e7bc54e5eafb3249080248a))
+* **frontend:** rich renderer improvements ([2e101a0](https://github.com/windmill-labs/windmill/commit/2e101a0c3b1d3c25e33a7aed27fccf9f56ab60c2))
+* **frontend:** Script page action row ([#626](https://github.com/windmill-labs/windmill/issues/626)) ([b10b1cc](https://github.com/windmill-labs/windmill/commit/b10b1cc90a8ebc94b55138467e72007f585f8e89))
+* **front:** Rework how summaries are edited in the flow editor ([#632](https://github.com/windmill-labs/windmill/issues/632)) ([b0ac674](https://github.com/windmill-labs/windmill/commit/b0ac674f46303068a7c45a2fb3cd811f499e2fbd))
+* implement go support ([#571](https://github.com/windmill-labs/windmill/issues/571)) ([39918a9](https://github.com/windmill-labs/windmill/commit/39918a9bb149dcf64e26018622a2a4214aa9faf1))
+* is_trigger is just a type tag, soon to include failure and command ([#523](https://github.com/windmill-labs/windmill/issues/523)) ([e9abcff](https://github.com/windmill-labs/windmill/commit/e9abcffdd1e4087069dda3550ec29d8efbfda772))
+* **job:** run job by hash ([#551](https://github.com/windmill-labs/windmill/issues/551)) ([6f09405](https://github.com/windmill-labs/windmill/commit/6f09405c2daabca8418389d99582ef602f00ab72))
+
+
+### Bug Fixes
+
+* **backend:** allow for now payload on resume GET ([6fe5b8d](https://github.com/windmill-labs/windmill/commit/6fe5b8d6b7f674b0ff70dbc828f89f26a7f91335))
+* change string default input behavior for input arg ([5406a70](https://github.com/windmill-labs/windmill/commit/5406a704079dce286c3c797bef3acb3d7a073b6c))
+* **frontend:** do only one request if job is completed [related to [#649](https://github.com/windmill-labs/windmill/issues/649)] ([#651](https://github.com/windmill-labs/windmill/issues/651)) ([6b6f1b4](https://github.com/windmill-labs/windmill/commit/6b6f1b407fff38959ec5d93254b547ec99b8f9f9))
+* **frontend:** don't loop for completed jobs [[#649](https://github.com/windmill-labs/windmill/issues/649)] ([#650](https://github.com/windmill-labs/windmill/issues/650)) ([9592c92](https://github.com/windmill-labs/windmill/commit/9592c92f70ce9b94e141031c663ccb0cf01ef7d7))
+* **frontend:** Fix buttons spacings ([#627](https://github.com/windmill-labs/windmill/issues/627)) ([d2e5168](https://github.com/windmill-labs/windmill/commit/d2e516822277948005fb5fd6596c7b9b9119ec7a))
+* **frontend:** Fix flow preview inputs display to avoid hiding results ([#581](https://github.com/windmill-labs/windmill/issues/581)) ([e2924d5](https://github.com/windmill-labs/windmill/commit/e2924d581e595906cc0cda5e86c0782289dbfe23))
+* **frontend:** Hide the editor panel when we are editing a PathScript ([#631](https://github.com/windmill-labs/windmill/issues/631)) ([deb0b47](https://github.com/windmill-labs/windmill/commit/deb0b47a5f0f7b450b65ebd7003a2bdf9f81c798))
+* **frontend:** increase the default size of the log and result panel for the script editor ([08edcb2](https://github.com/windmill-labs/windmill/commit/08edcb24cac2fb0a0f09f16e26943b0d8eb69c2c))
+* **frontend:** loading flows with for loops + flowStatusViewer treat single jobs properly ([40160c0](https://github.com/windmill-labs/windmill/commit/40160c03f17d0f8a8e56dfaa4ef2d73315718418))
+* **frontend:** rework the error handler script picker ([eee7067](https://github.com/windmill-labs/windmill/commit/eee7067074e8560c2fd883e574e314b4fd87c637))
+* **frontend:** Support of suspend & stop expression + restore import/export menu ([#580](https://github.com/windmill-labs/windmill/issues/580)) ([a85302c](https://github.com/windmill-labs/windmill/commit/a85302c1c37eba9c8eb3de9cab18826dc60228cb))
+* **frontend:** variable editor now acceps including 3000 chars + show length ([b9518d7](https://github.com/windmill-labs/windmill/commit/b9518d748e127e67e83aa3bdc962e8b2a36860a8))
+* **frontend:** various small fixes ([e8e2efd](https://github.com/windmill-labs/windmill/commit/e8e2efd9bc0f4b3c3237020f0c2ef96d7918cfa2))
+* **frontend:** various small fixes ([cb5db64](https://github.com/windmill-labs/windmill/commit/cb5db64320d76f0284a2e03c05bc887ad0063af4))
+* **frontend:** various small fixes ([d394edf](https://github.com/windmill-labs/windmill/commit/d394edf44f2aeffd2468afa8f24e00bae3e17a7c))
+* **frontend:** workers as the last menu link ([c0a55bf](https://github.com/windmill-labs/windmill/commit/c0a55bfdd4e287d0b736ea2a6c19b6ccfba19fa1))
+* **front:** Fix wording issues ([#633](https://github.com/windmill-labs/windmill/issues/633)) ([77ef514](https://github.com/windmill-labs/windmill/commit/77ef514029841eb967376b6472c78d33a2cca55c))
+* **go:** inner_main is in a separate file rather than wrapped ([eabd835](https://github.com/windmill-labs/windmill/commit/eabd83580758121149b629285d8f4cb228c9a7ea))
+* **go:** make lines align with appended code ([945a750](https://github.com/windmill-labs/windmill/commit/945a750c6b4a2d8d01793ba50e67a4a666041c96))
+* iterator input transform is made more generic ([#524](https://github.com/windmill-labs/windmill/issues/524)) ([110a25f](https://github.com/windmill-labs/windmill/commit/110a25f6f860f83bfcf32121fc80488bc6c05d60))
+* last ping is set when the job is started avoiding erronous restart ([1bc1217](https://github.com/windmill-labs/windmill/commit/1bc12179c7a8c3f56016716e45320ceaf2e338e6))
+* prop picker values correspond to test values ([#628](https://github.com/windmill-labs/windmill/issues/628)) ([4e791b0](https://github.com/windmill-labs/windmill/commit/4e791b039d4f8752af8d40870a6922306be03207))
+
 ## [1.35.0](https://github.com/windmill-labs/windmill/compare/v1.34.0...v1.35.0) (2022-09-02)
 
 

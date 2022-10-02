@@ -21,7 +21,7 @@ html {
 	a {
 		@apply text-blue-500;
 	}
-	
+
 	.flex pre code.hljs {
 		@apply text-sm;
 	}
@@ -127,19 +127,19 @@ html {
 		@apply rounded-lg;
 		@apply text-sm;
 		@apply px-5;
-		@apply py-2.5; 
-		@apply text-center; 
+		@apply py-2.5;
+		@apply text-center;
 		@apply inline-flex;
 		@apply items-center;
 	}
 
 	.default-primary-button-v2:focus {
-		@apply ring-4; 
+		@apply ring-4;
 		@apply outline-none;
 		@apply bg-blue-800;
 	}
 	.default-primary-button-v2:hover {
-		@apply bg-blue-800 
+		@apply bg-blue-800;
 	}
 
 	.default-secondary-button-v2 {
@@ -151,19 +151,19 @@ html {
 		@apply rounded-lg;
 		@apply text-sm;
 		@apply px-5;
-		@apply py-2.5; 
-		@apply text-center; 
+		@apply py-2.5;
+		@apply text-center;
 		@apply inline-flex;
 		@apply items-center;
 	}
 
 	.default-secondary-button-v2:focus {
-		@apply ring-4; 
+		@apply ring-4;
 		@apply outline-none;
 		@apply ring-gray-100;
 	}
 	.default-secondary-button-v2:hover {
-		@apply bg-gray-100 
+		@apply bg-gray-100;
 	}
 
 	.input-error {
@@ -224,7 +224,7 @@ html {
 
 .inline-highlight pre code.hljs {
 	padding: 0;
-	@apply text-xs;
+	@apply text-xs whitespace-pre-wrap;
 }
 
 /* svelte-split-pane separator class override */

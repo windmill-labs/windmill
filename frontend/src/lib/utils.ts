@@ -43,8 +43,10 @@ export function displayDaysAgo(dateString: string): string {
 		let dAgo = daysAgo(date)
 		if (dAgo == 0) {
 			return `yday at ${date.toLocaleTimeString()}`
+		} else if (dAgo > 7) {
+			return `${dAgo + 1} days ago at ${date.toLocaleTimeString()}`
 		} else {
-			return `${dAgo + 1} days ago`
+			return displayDate(dateString)
 		}
 	}
 }
@@ -54,9 +56,8 @@ export function displayDate(dateString: string | undefined): string {
 	if (date.toString() === 'Invalid Date') {
 		return ''
 	} else {
-		return `${date.getFullYear()}/${
-			date.getMonth() + 1
-		}/${date.getDate()} at ${date.toLocaleTimeString()}`
+		return `${date.getFullYear()}/${date.getMonth() + 1
+			}/${date.getDate()} at ${date.toLocaleTimeString()}`
 	}
 }
 
