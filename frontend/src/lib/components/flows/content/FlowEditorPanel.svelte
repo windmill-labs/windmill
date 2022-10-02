@@ -8,6 +8,8 @@
 	import FlowLoop from './FlowLoop.svelte'
 	import FlowFailureModule from './FlowFailureModule.svelte'
 
+	export let previewArgs: Record<string, any> = {}
+
 	export let initialPath: string
 
 	const { selectedId } = getContext<FlowEditorContext>('FlowEditorContext')
@@ -21,7 +23,7 @@
 	{:else if $selectedId === 'settings-retries'}
 		<FlowSettings {initialPath} defaultTab="retries" />
 	{:else if $selectedId.includes('loop')}
-		<FlowLoop />
+		<FlowLoop {previewArgs} />
 	{:else if $selectedId === 'inputs'}
 		<FlowInput />
 	{:else if $selectedId === 'failure'}

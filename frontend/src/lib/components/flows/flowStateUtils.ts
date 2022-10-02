@@ -206,6 +206,7 @@ export function getStepPropPicker(
 	const flowInput = schemaToObject(flowInputSchema, args)
 	const results = getPreviousResults(flowState.modules, parentIndex)
 
+	console.log(parentIndex)
 	const lastResult =
 		parentIndex == 0
 			? flowInput

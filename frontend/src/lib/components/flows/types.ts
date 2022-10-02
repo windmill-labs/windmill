@@ -4,6 +4,6 @@ import type { Schedule } from './scheduleUtils'
 export type FlowEditorContext = {
 	selectedId: Writable<string>
 	select: (id: string) => void
-	schedule: Writable<Schedule>
+	schedule: Writable<Schedule>,
 	previewArgs: Writable<Record<string, any>>,
 }

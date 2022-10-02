@@ -40,10 +40,9 @@
 	import { writable, type Writable } from 'svelte/store'
 	import FlowModuleScript from './FlowModuleScript.svelte'
 
-	const { selectedId, select } = getContext<FlowEditorContext>('FlowEditorContext')
+	const { selectedId, select, previewArgs } = getContext<FlowEditorContext>('FlowEditorContext')
 
 	export let flowModule: FlowModule
-	export let previewArgs: Record<string, any> = {}
 	export let flowModuleState: FlowModuleState
 	export let failureModule: boolean
 
@@ -61,7 +60,7 @@
 				$selectedId.split('-').map(Number),
 				$flowStore.schema,
 				$flowStateStore,
-				previewArgs
+				$previewArgs
 		  )
 
 	function onKeyDown(event: KeyboardEvent) {
@@ -194,7 +193,7 @@
 							<svelte:fragment slot="content">
 								<div class="overflow-hidden bg-white" style="height:calc(100% - 32px);">
 									<TabContent value="inputs" class="flex flex-col flex-1 h-full">
-										<PropPickerWrapper bind:pickableProperties={stepPropPicker.pickableProperties}>
+										<PropPickerWrapper pickableProperties={stepPropPicker.pickableProperties}>
 											<!-- <pre class="text-xs">{JSON.stringify($flowStateStore, null, 4)}</pre> -->
 											<SchemaForm
 												schema={flowModuleState.schema}

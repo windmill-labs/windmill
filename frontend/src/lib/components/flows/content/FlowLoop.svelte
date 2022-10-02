@@ -6,10 +6,22 @@
 	import SimpleEditor from '$lib/components/SimpleEditor.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import { flowStore } from '../flowStore'
+	import { getStepPropPicker } from '../flowStateUtils'
+	import { flowStateStore } from '../flowState'
+	import PropPickerWrapper from '../propPicker/PropPickerWrapper.svelte'
 
-	const { selectedId } = getContext<FlowEditorContext>('FlowEditorContext')
+	const { selectedId, previewArgs } = getContext<FlowEditorContext>('FlowEditorContext')
 
-	const [prefix, index] = $selectedId.split('-')
+	let editor: SimpleEditor | undefined = undefined
+
+	$: index = $selectedId.split('-')[1]
+
+	$: pickableProperties = getStepPropPicker(
+		[Number(index)],
+		$flowStore.schema,
+		$flowStateStore,
+		$previewArgs
+	).pickableProperties
 </script>
 
 <FlowCard title="For loop">
@@ -23,11 +35,22 @@
 						<a href="https://docs.windmill.dev/docs/getting_started/flows#for-loops">docs.</a>
 					</Tooltip>
 				</span>
-				<SimpleEditor
-					lang="javascript"
-					bind:code={$flowStore.value.modules[index].value.iterator.expr}
-					class="few-lines-editor"
-				/>
+
+				<PropPickerWrapper
+					{pickableProperties}
+					on:select={({ detail }) => {
+						console.log(detail)
+						console.log('test')
+						editor?.insertAtCursor(detail)
+					}}
+				>
+					<SimpleEditor
+						bind:this={editor}
+						lang="javascript"
+						bind:code={$flowStore.value.modules[index].value.iterator.expr}
+						class="small-editor"
+					/>
+				</PropPickerWrapper>
 				<span class="mb-2 text-sm font-bold">Skip failures</span>
 
 				<Toggle
