@@ -47,9 +47,9 @@
 		variant="contained"
 		color="blue"
 		size="sm"
-		btnClasses="!ml-4 !w-40"
+		btnClasses="!ml-4"
 		on:click={inviteUser}
-		disabled={email == undefined}
+		disabled={email === undefined}
 	>
 		Invite
 	</Button>

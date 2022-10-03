@@ -203,7 +203,8 @@ const config = {
 					'& pre code.hljs': {
 						padding: '0px',
 						fontSize: theme('fontSize.xs'),
-						lineHeight: theme('lineHeight.4')
+						lineHeight: theme('lineHeight.4'),
+						whiteSpace: 'pre-wrap'
 					}
 				}
 			});

@@ -41,9 +41,8 @@
 
 {#if keys.length > 0}
 	<span class:hidden={collapsed}>
-		{#if level != 0}<span class="cursor-pointer hover:bg-gray-200 px-1 rounded" on:click={collapse}>
-				(-)
-			</span>
+		{#if level != 0}
+			<span class="cursor-pointer hover:bg-gray-200 px-1 rounded" on:click={collapse}> (-) </span>
 		{/if}
 		<ul class="w-full">
 			{#each keys as key, index}

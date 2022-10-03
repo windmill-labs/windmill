@@ -177,39 +177,31 @@
 			{#if job && 'deleted' in job && !job?.deleted && ($userStore?.is_admin ?? false)}
 				<Button
 					variant="border"
-					color="blue"
+					color="red"
 					size="sm"
-					btnClasses="bg-transparent hover:bg-red-500 text-red-700 border-red-500 hover:text-white hover:border-transparent py-1"
+					startIcon={{ icon: faTrash }}
 					on:click={() => {
 						if (job?.id) {
 							deleteCompletedJob(job?.id)
 						}
 					}}
 				>
-					<div class="text-red-500 hover:text-white text-sm">
-						<Icon class="" data={faTrash} scale={0.5} />
-						<span class="pl-1">Delete</span>
-					</div>
+					Delete
 				</Button>
 			{/if}
 			{#if job && 'running' in job && job.running}
 				<Button
 					variant="border"
-					color="blue"
+					color="red"
 					size="sm"
-					btnClasses=" bg-transparent hover:bg-red-500 text-red-700 border-red-500 hover:text-white hover:border-transparent"
+					startIcon={{ icon: faTimesCircle }}
 					on:click|once={() => {
 						if (job?.id) {
 							cancelJob(job?.id)
 						}
 					}}
 				>
-					<div
-						class="inline-flex items-center justify-center text-red-500 hover:text-white text-sm"
-					>
-						<Icon class="" data={faTimesCircle} scale={0.5} />
-						<span class="pl-1">Cancel</span>
-					</div>
+					Cancel
 				</Button>
 			{/if}
 			{#if job?.job_kind == 'script'}

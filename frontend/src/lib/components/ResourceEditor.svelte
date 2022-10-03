@@ -188,7 +188,7 @@
 								properties={resourceSchema.properties[fieldName]?.properties}
 								format={resourceSchema.properties[fieldName]?.format}
 							/>
-							<div class="pb-3 ml-2 relative">
+							<div class="pb-6 ml-2 relative">
 								<Button
 									variant="border"
 									color="blue"
@@ -197,7 +197,7 @@
 									on:click={() => {
 										pickForField = fieldName
 										itemPicker.openModal()
-									}}>insert variable</Button
+									}}>Insert variable</Button
 								>
 							</div>
 						</div>

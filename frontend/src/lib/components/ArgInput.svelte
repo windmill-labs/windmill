@@ -232,7 +232,7 @@
 								{/if}
 								<Button
 									variant="border"
-									color="blue"
+									color="red"
 									size="sm"
 									btnClasses="mx-6"
 									on:click={() => {
