@@ -17,7 +17,6 @@
 
 	let editor: SimpleEditor | undefined = undefined
 
-	$: isSuspendEnabled = Boolean(flowModule.suspend)
 	$: isStopAfterIfEnabled = Boolean(flowModule.stop_after_if)
 	let pickableProperties: Object = {}
 
@@ -44,27 +43,6 @@
 
 <div class="flex flex-col items-start space-y-2">
 	<Toggle
-		checked={isSuspendEnabled}
-		on:change={() => {
-			if (isSuspendEnabled && flowModule.suspend != undefined) {
-				flowModule.suspend = undefined
-			} else {
-				flowModule.suspend = 1
-			}
-		}}
-		options={{
-			right: 'Suspend flow execution until events received enabled'
-		}}
-	/>
-	<span class="text-xs font-bold">Number of events to wait for</span>
-
-	{#if flowModule.suspend}
-		<input bind:value={flowModule.suspend} type="number" min="1" placeholder="1" />
-	{:else}
-		<input type="number" disabled />
-	{/if}
-
-	<Toggle
 		checked={isStopAfterIfEnabled}
 		on:change={() => {
 			if (isStopAfterIfEnabled && flowModule.stop_after_if) {
@@ -77,7 +55,7 @@
 			}
 		}}
 		options={{
-			right: 'Early stop if condition met enabled'
+			right: 'Early stop if condition met'
 		}}
 	/>
 
