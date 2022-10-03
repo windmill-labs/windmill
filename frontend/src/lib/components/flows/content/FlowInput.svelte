@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { flowStore } from '$lib/components/flows/flowStore'
 	import SchemaEditor from '$lib/components/SchemaEditor.svelte'
+	import SchemaForm from '$lib/components/SchemaForm.svelte'
 	import { emptySchema } from '$lib/utils'
 	import FlowCard from '../common/FlowCard.svelte'
 
@@ -17,8 +18,11 @@
 				on:change={() => {
 					$flowStore = $flowStore
 				}}
-				schema={$flowStore?.schema ?? emptySchema()}
+				bind:schema={$flowStore.schema}
 			/>
 		</div>
+	</div>
+	<div class="p-6">
+		<SchemaForm bind:schema={$flowStore.schema} editableSchema={true} />
 	</div>
 </FlowCard>
