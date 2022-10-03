@@ -8,6 +8,7 @@
 
 <script lang="ts">
 	import { page } from '$app/stores'
+	import { dirtyStore } from '$lib/components/common/confirmationModal/dirtyStore'
 
 	import FlowBuilder from '$lib/components/FlowBuilder.svelte'
 	import { initFlow } from '$lib/components/flows/flowStore'
@@ -55,6 +56,8 @@
 	}
 
 	loadFlow()
+
+	$dirtyStore = true
 </script>
 
 <FlowBuilder />
