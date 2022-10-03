@@ -15,11 +15,9 @@
 		faEye,
 		faList,
 		faPlay,
-		faPlus,
 		faShare
 	} from '@fortawesome/free-solid-svg-icons'
 	import Fuse from 'fuse.js'
-	import Icon from 'svelte-awesome'
 	import type { Script } from '$lib/gen'
 	import { ScriptService } from '$lib/gen'
 	import { superadmin, userStore, workspaceStore, hubScripts } from '$lib/stores'
@@ -44,6 +42,7 @@
 	import { Highlight } from 'svelte-highlight'
 	import { typescript } from 'svelte-highlight/languages/typescript'
 	import { Button } from '$lib/components/common'
+	import CreateActions from '$lib/components/scripts/CreateActions.svelte'
 
 	type Tab = 'all' | 'personal' | 'groups' | 'shared' | 'examples' | 'hub'
 	type Section = [string, ScriptW[]]
@@ -55,7 +54,6 @@
 	let groupedScripts: Section[] = []
 	let communityScripts: Section[] = []
 
-	let templateModal: Modal
 	let templateScripts: Script[] = []
 	let templateFilter = ''
 	let filteredTemplates: Script[] | undefined
@@ -108,14 +106,6 @@
 			defaults
 		)
 		communityScripts = [['examples', filteredScripts.filter((x) => x.tab == 'examples')]]
-	}
-
-	async function loadTemplateScripts(): Promise<void> {
-		templateScripts = await ScriptService.listScripts({
-			workspace: $workspaceStore!,
-			isTemplate: true
-		})
-		templateFuse.setCollection(templateScripts)
 	}
 
 	function tabFromPath(path: string) {
@@ -187,19 +177,7 @@
 		granted visibility on the resources and variables it uses, otherwise it will behave as if those
 		items did not exist at runtime of the script."
 	>
-		<div class="flex flex-row gap-2">
-			<Button
-				variant="border"
-				size="sm"
-				startIcon={{ icon: faPlus }}
-				on:click={() => {
-					templateModal.openModal()
-				}}
-			>
-				New script from template
-			</Button>
-			<Button size="sm" startIcon={{ icon: faPlus }} href="/scripts/add">New script</Button>
-		</div>
+		<CreateActions />
 	</PageHeader>
 
 	<Tabs
@@ -445,7 +423,7 @@
 	}}
 />
 
-<Modal
+<!-- <Modal
 	bind:this={templateModal}
 	on:open={() => {
 		loadTemplateScripts()
@@ -478,8 +456,7 @@
 			{/if}
 		</div>
 	</div>
-</Modal>
-
+</Modal> -->
 <style>
 	.selected:hover {
 		@apply border border-gray-500 rounded-md border-opacity-50;

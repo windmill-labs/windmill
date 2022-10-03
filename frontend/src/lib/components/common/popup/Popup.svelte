@@ -42,6 +42,14 @@
 
 	function keyDown(event: KeyboardEvent & { currentTarget: EventTarget & Window }) {
 		if (
+			event.key === 'Shift' ||
+			event.key === 'Control' ||
+			event.key === 'Command' ||
+			event.key === 'Alt'
+		) {
+			return
+		}
+		if (
 			!isOpen ||
 			!focusableElements?.length ||
 			(event.key !== 'ArrowUp' && event.key !== 'ArrowDown')

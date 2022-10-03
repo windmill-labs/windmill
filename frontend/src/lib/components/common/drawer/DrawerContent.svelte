@@ -7,7 +7,7 @@
 	const dispatch = createEventDispatcher()
 </script>
 
-<div class="divide-y h-screen">
+<div class="flex flex-col divide-y h-screen">
 	<div class="flex justify-between items-center py-2 px-4">
 		<span class="text-sm font-bold">{title}</span>
 		<button on:click={() => dispatch('close')}>

@@ -42,29 +42,6 @@
 		}
 	}
 
-	const fontSizeClasses: Record<Button.Size, string> = {
-		xs: 'text-xs',
-		sm: 'text-sm',
-		md: 'text-md',
-		lg: 'text-lg',
-		xl: 'text-xl'
-	}
-
-	const spacingClasses: Record<Button.Size, string> = {
-		xs: 'px-3 py-1.5',
-		sm: 'px-3 py-1.5',
-		md: 'px-4 py-2',
-		lg: 'px-4 py-2',
-		xl: 'px-4 py-2'
-	}
-	const iconScale: Record<Button.Size, number> = {
-		xs: 0.6,
-		sm: 0.8,
-		md: 1,
-		lg: 1.1,
-		xl: 1.2
-	}
-
 	$: buttonProps = {
 		class: classNames(
 			colorVariants[color][variant],
@@ -89,8 +66,11 @@
 	}
 
 	$: isSmall = size === 'xs' || size === 'sm'
-	$: startIconClass = classNames(isSmall ? 'mr-1' : 'mr-2', startIcon?.classes)
-	$: endIconClass = classNames(isSmall ? 'ml-1' : 'ml-2', endIcon?.classes)
+	$: startIconClass = classNames(
+		iconOnly ? undefined : isSmall ? 'mr-1' : 'mr-2',
+		startIcon?.classes
+	)
+	$: endIconClass = classNames(iconOnly ? undefined : isSmall ? 'ml-1' : 'ml-2', endIcon?.classes)
 </script>
 
 <svelte:element
@@ -101,20 +81,12 @@
 	{...buttonProps}
 >
 	{#if startIcon}
-		<Icon
-			data={startIcon.icon}
-			class={classNames(iconOnly ? undefined : 'mr-2', startIcon.classes)}
-			scale={ButtonType.IconScale[size]}
-		/>
+		<Icon data={startIcon.icon} class={startIconClass} scale={ButtonType.IconScale[size]} />
 	{/if}
 	{#if !iconOnly}
 		<slot />
 	{/if}
 	{#if endIcon}
-		<Icon
-			data={endIcon.icon}
-			class={classNames(iconOnly ? undefined : 'ml-2', endIcon.classes)}
-			scale={ButtonType.IconScale[size]}
-		/>
+		<Icon data={endIcon.icon} class={endIconClass} scale={ButtonType.IconScale[size]} />
 	{/if}
 </svelte:element>

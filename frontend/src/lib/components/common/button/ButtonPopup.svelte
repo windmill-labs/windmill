@@ -48,6 +48,7 @@
 			{startIcon}
 			{endIcon}
 			btnClasses="!rounded-r-none !border-r-0 {mainClasses}"
+			on:click
 		>
 			<slot name="main" />
 		</Button>
