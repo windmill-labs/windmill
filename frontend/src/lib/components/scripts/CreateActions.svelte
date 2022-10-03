@@ -60,13 +60,11 @@
 
 <!-- Buttons -->
 <div class="flex flex-row gap-2">
-	<ButtonPopup
-		variant="border"
-		size="sm"
-		startIcon={{ icon: faPlus }}
-		on:click={() => drawers.hub?.openModal()}
-	>
-		<svelte:fragment slot="main">Import script from WindmillHub</svelte:fragment>
+	<ButtonPopup size="sm" startIcon={{ icon: faPlus }} href="/scripts/add">
+		<svelte:fragment slot="main">New script</svelte:fragment>
+		<ButtonPopupItem on:click={() => drawers.hub?.openModal()}>
+			Import script from WindmillHub
+		</ButtonPopupItem>
 		<ButtonPopupItem on:click={() => drawers.template?.toggleDrawer()}>
 			Import script from template
 		</ButtonPopupItem>
@@ -74,7 +72,6 @@
 			Import script from raw JSON
 		</ButtonPopupItem>
 	</ButtonPopup>
-	<Button size="sm" startIcon={{ icon: faPlus }} href="/scripts/add">New script</Button>
 </div>
 
 <!-- Initially hidden elements in a drawer -->
