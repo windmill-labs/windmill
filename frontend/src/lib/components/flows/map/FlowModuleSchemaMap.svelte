@@ -88,8 +88,8 @@
 						<div slot="icon">
 							<span>{index + 1}</span>
 						</div>
-						<div slot="content">
-							<span>For loop</span>
+						<div slot="content" class="truncate block w-full">
+							<span>{mod.summary || 'For loop'}</span>
 						</div>
 					</FlowModuleSchemaItem>
 
