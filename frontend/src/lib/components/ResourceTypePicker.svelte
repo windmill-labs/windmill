@@ -4,6 +4,7 @@
 	import { ResourceService } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import IconedResourceType from './IconedResourceType.svelte'
+	import { Button } from './common'
 
 	let resources: string[] = []
 
@@ -18,48 +19,39 @@
 
 	const dispatch = createEventDispatcher()
 
-	$: {
-		if ($workspaceStore) {
-			loadResources()
-		}
+	function onClick(resource: string | undefined) {
+		value = resource
+		dispatch('click')
+	}
+
+	$: if ($workspaceStore) {
+		loadResources()
 	}
 </script>
 
 <div class="grid sm:grid-cols-2 md:grid-cols-3 gap-x-2 gap-y-1 items-center mb-2">
 	{#if nonePickable}
-		<button
-			class="px-4 h-8 text-center {undefined == value
-				? 'item-button-selected'
-				: notPickable
-				? 'item-button-disabled'
-				: 'item-button'}"
-			on:click={() => {
-				value = undefined
-				dispatch('click')
-			}}
+		{@const isPicked = value === undefined}
+		<Button
+			variant="border"
+			color={isPicked ? 'blue' : 'dark'}
+			btnClasses={isPicked ? '!border-2 !bg-blue-50/75' : 'm-[1px]'}
+			disabled={notPickable}
+			on:click={() => onClick(undefined)}
 		>
 			None
-		</button>
+		</Button>
 	{/if}
 	{#each resources as r}
-		<button
-			class="px-4 h-8 text-center {r == value
-				? 'item-button-selected'
-				: notPickable
-				? 'item-button-disabled'
-				: 'item-button'}"
-			on:click={() => {
-				value = r
-				dispatch('click')
-			}}
+		{@const isPicked = value === r}
+		<Button
+			variant="border"
+			color={isPicked ? 'blue' : 'dark'}
+			btnClasses={isPicked ? '!border-2 !bg-blue-50/75' : 'm-[1px]'}
+			disabled={notPickable}
+			on:click={() => onClick(r)}
 		>
 			<IconedResourceType name={r} after={true} />
-		</button>
+		</Button>
 	{/each}
 </div>
-
-<style>
-	.selected:hover {
-		@apply border border-gray-400 rounded-md border-opacity-50;
-	}
-</style>

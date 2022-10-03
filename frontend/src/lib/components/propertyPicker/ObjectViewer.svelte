@@ -41,17 +41,13 @@
 
 {#if keys.length > 0}
 	<span class:hidden={collapsed}>
-		{#if level != 0}<span
-				class="cursor-pointer hover:bg-slate-200 px-1 rounded"
-				on:click={collapse}
-			>
-				(-)
-			</span>
+		{#if level != 0}
+			<span class="cursor-pointer hover:bg-gray-200 px-1 rounded" on:click={collapse}> (-) </span>
 		{/if}
 		<ul class="w-full">
 			{#each keys as key, index}
 				<li class="pt-1">
-					<button on:click={() => selectProp(key)} class="key rounded px-1 hover:bg-sky-100">
+					<button on:click={() => selectProp(key)} class="key rounded px-1 hover:bg-blue-100">
 						{!isArray ? key : index}:
 					</button>
 
@@ -66,7 +62,7 @@
 						/>
 					{:else}
 						<button
-							class="val rounded px-1 hover:bg-sky-100 {getTypeAsString(json[key])}"
+							class="val rounded px-1 hover:bg-blue-100 {getTypeAsString(json[key])}"
 							on:click={() => selectProp(key)}
 						>
 							{#if json[key] === NEVER_TESTED_THIS_FAR}
@@ -82,7 +78,7 @@
 			{/each}
 		</ul>
 	</span>
-	<span class="cursor-pointer hover:bg-slate-200" class:hidden={!collapsed} on:click={collapse}>
+	<span class="cursor-pointer hover:bg-gray-200" class:hidden={!collapsed} on:click={collapse}>
 		{openBracket}{collapsedSymbol}{closeBracket}
 	</span>
 	{#if !isLast && collapsed}
@@ -111,12 +107,12 @@
 		@apply text-red-500;
 	}
 	.val.string {
-		@apply text-lime-600;
+		@apply text-green-600;
 	}
 	.val.number {
 		@apply text-orange-600;
 	}
 	.val.boolean {
-		@apply text-cyan-600;
+		@apply text-blue-600;
 	}
 </style>

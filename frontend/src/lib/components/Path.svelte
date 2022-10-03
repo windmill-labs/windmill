@@ -208,7 +208,7 @@
 	</div>
 	<div class="pt-0 text-xs px-1 flex flex-col-reverse sm:grid sm:grid-cols-4 sm:gap-4 w-full">
 		<div class="col-span-2"><span class="font-mono">{path}</span></div>
-		<div class="text-purple-500 text-2xs col-span-2">{error}</div>
+		<div class="text-red-600 text-2xs col-span-2">{error}</div>
 	</div>
 </div>
 

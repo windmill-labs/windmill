@@ -1,8 +1,8 @@
 <script lang="ts">
 	import { JobService, type Flow } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
-
-	import { faClose, faPlay } from '@fortawesome/free-solid-svg-icons'
+	import { faClose, faPlay, faRefresh } from '@fortawesome/free-solid-svg-icons'
+	import { Button } from './common'
 	import { createEventDispatcher, getContext, onDestroy } from 'svelte'
 	import Icon from 'svelte-awesome'
 	import { flowStateStore } from './flows/flowState'
@@ -11,9 +11,8 @@
 	import type { FlowEditorContext } from './flows/types'
 	import { runFlowPreview } from './flows/utils'
 	import SchemaForm from './SchemaForm.svelte'
-
 	import FlowStatusViewer from '../components/FlowStatusViewer.svelte'
-	import { Button } from './common'
+
 	export let previewMode: 'upTo' | 'whole'
 
 	let jobId: string | undefined = undefined
@@ -72,7 +71,10 @@
 			</h3>
 		</div>
 		<Button
-			color="light"
+			variant="border"
+			size="lg"
+			color="dark"
+			btnClasses="!p-0 !w-8 !h-8"
 			on:click={() => {
 				jobId = undefined
 				intervalState = 'idle'
@@ -90,38 +92,39 @@
 			bind:args={$previewArgs}
 		/>
 	</div>
-	<div class="w-full pt-1">
-		{#if intervalState === 'running'}
-			<Button
-				disabled={!isValid}
-				color="red"
-				btnClasses="w-full"
-				on:click={async () => {
-					intervalState = 'canceled'
-					try {
-						jobId &&
-							(await JobService.cancelQueuedJob({
-								workspace: $workspaceStore ?? '',
-								id: jobId,
-								requestBody: {}
-							}))
-					} catch {}
-				}}
-				size="md"
-			>
-				Cancel
-			</Button>
-		{:else}
-			<Button
-				disabled={!isValid}
-				btnClasses="w-full"
-				on:click={() => runPreview($previewArgs)}
-				size="md"
-			>
-				{`Run${intervalState === 'done' ? ' again' : ''}`}
-			</Button>
-		{/if}
-	</div>
+	{#if intervalState === 'running'}
+		<Button
+			disabled={!isValid}
+			color="red"
+			on:click={async () => {
+				intervalState = 'canceled'
+				try {
+					jobId &&
+						(await JobService.cancelQueuedJob({
+							workspace: $workspaceStore ?? '',
+							id: jobId,
+							requestBody: {}
+						}))
+				} catch {}
+				jobId = undefined
+			}}
+			size="md"
+		>
+			Cancel
+		</Button>
+	{:else}
+		<Button
+			variant="contained"
+			endIcon={{ icon: intervalState === 'done' ? faRefresh : faPlay }}
+			size="lg"
+			color="blue"
+			btnClasses="w-full"
+			disabled={!isValid}
+			on:click={() => runPreview($previewArgs)}
+		>
+			{`Run${intervalState === 'done' ? ' again' : ''}`}
+		</Button>
+	{/if}
 
 	<div class="h-full overflow-y-auto mb-16 grow">
 		{#if jobId}

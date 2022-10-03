@@ -21,6 +21,7 @@
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
 	import Icon from 'svelte-awesome'
 	import { faPlus, faCircle } from '@fortawesome/free-solid-svg-icons'
+	import { Button } from '$lib/components/common'
 	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
 	import Alert from '$lib/components/common/alert/Alert.svelte'
 	import Badge from '$lib/components/common/badge/Badge.svelte'
@@ -70,14 +71,9 @@
 
 <CenteredPage>
 	<PageHeader title="Variables">
-		<button
-			class="default-button"
-			on:click={() => {
-				variableEditor.initNew()
-			}}
-		>
-			<Icon class="text-white mb-1" data={faPlus} scale={0.9} /> &nbsp; New variable</button
-		>
+		<Button size="sm" startIcon={{ icon: faPlus }} on:click={() => variableEditor.initNew()}>
+			New&nbsp;variable
+		</Button>
 	</PageHeader>
 
 	<VariableEditor bind:this={variableEditor} on:create={loadVariables} />

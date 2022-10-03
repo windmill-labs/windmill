@@ -9,6 +9,7 @@
 	import { sendUserToast } from '$lib/utils'
 	import { faFileExport, faFileImport, faGlobe } from '@fortawesome/free-solid-svg-icons'
 	import Icon from 'svelte-awesome'
+	import { Button } from '../../common'
 	import { flowStore, initFlow } from '../flowStore'
 	import { cleanInputs } from '../utils'
 
@@ -46,9 +47,7 @@
 
 <Drawer bind:this={jsonSetterDrawer} size="800px">
 	<DrawerContent title="Import JSON" on:close={() => jsonSetterDrawer.toggleDrawer()}>
-		<button class="default-button px-4 py-2 font-semibold" on:click={() => importJson()}>
-			Import
-		</button>
+		<Button size="sm" on:click={importJson}>Import</Button>
 		<SimpleEditor bind:code={pendingJson} lang="json" class="h-full" />
 	</DrawerContent>
 </Drawer>

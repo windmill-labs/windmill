@@ -35,7 +35,7 @@
 	}
 </script>
 
-<div class="text-purple-500 text-2xs grow">{cronError}</div>
+<div class="text-red-600 text-2xs grow">{cronError}</div>
 <div class="flex flex-row items-end max-w-5xl">
 	<label class="text-xs min-w-max mr-2 self-center" for="cron-schedule">CRON expression</label>
 	<input

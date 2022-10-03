@@ -1,15 +1,13 @@
 <script lang="ts">
 	import { sendUserToast } from '$lib/utils'
 	import Switch from './Switch.svelte'
-
 	import type Modal from './Modal.svelte'
 	import { createEventDispatcher } from 'svelte'
 	import { workspaceStore } from '$lib/stores'
 	import { WorkspaceService } from '$lib/gen'
+	import { Button } from './common'
 
 	const dispatch = createEventDispatcher()
-
-	let valid = true
 
 	let modal: Modal
 
@@ -45,14 +43,14 @@
 	<input on:keyup={handleKeyUp} placeholder="email" bind:value={email} />
 
 	<Switch class="ml-2" bind:checked={is_admin} horizontal={true} label={'admin: '} />
-	<button
-		class="ml-4 w-40 {valid ? 'default-button' : 'default-button-disabled'}"
-		type="button"
-		on:click={() => {
-			inviteUser()
-		}}
-		disabled={email == undefined}
+	<Button
+		variant="contained"
+		color="blue"
+		size="sm"
+		btnClasses="!ml-4"
+		on:click={inviteUser}
+		disabled={email === undefined}
 	>
 		Invite
-	</button>
+	</Button>
 </div>

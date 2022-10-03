@@ -28,6 +28,7 @@
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
 	import Icon from 'svelte-awesome'
 	import Toggle from '$lib/components/Toggle.svelte'
+	import { Button } from '$lib/components/common'
 
 	type ScheduleW = Schedule & { canWrite: boolean }
 
@@ -62,10 +63,8 @@
 </script>
 
 <CenteredPage>
-	<PageHeader title="Schedules">
-		<button class="default-button" on:click={() => goto('/schedule/add')}
-			><Icon class="text-white mb-1" data={faPlus} scale={0.9} /> &nbsp; New schedule</button
-		>
+  <PageHeader title="Schedule">
+		<Button size="sm" startIcon={{ icon: faPlus }} href="/schedule/add">New&nbsp;schedule</Button>
 	</PageHeader>
 	<div class="relative mt-10">
 		<TableCustom>

@@ -36,6 +36,7 @@
 	import TableCustom from '$lib/components/TableCustom.svelte'
 	import Modal from '$lib/components/Modal.svelte'
 	import FlowViewer from '$lib/components/FlowViewer.svelte'
+	import { Button } from '../lib/components/common'
 
 	type Tab = 'all' | 'personal' | 'groups' | 'shared' | 'hub'
 	type Section = [string, FlowW[]]
@@ -160,9 +161,7 @@
 <CenteredPage>
 	<PageHeader title="Flows" tooltip="Flows can compose and chain scripts together">
 		<div class="flex flex-row">
-			<a class="default-button" href="/flows/add"
-				><Icon class="text-white mb-1" data={faPlus} scale={0.9} /> &nbsp; New flow</a
-			>
+			<Button href="/flows/add" size="sm" startIcon={{ icon: faPlus }}>New flow</Button>
 		</div>
 	</PageHeader>
 
@@ -259,7 +258,9 @@
 						<div class="grid md:grid-cols-2 gap-4 sm:grid-cols-1 xl:grid-cols-3">
 							{#each flows as { summary, path, extra_perms, canWrite }}
 								<div
-									class="flex flex-col justify-between flow max-w-lg overflow-visible shadow-sm shadow-blue-100 border border-gray-200 bg-gray-50 py-2"
+									class="flex flex-col justify-between max-w-lg overflow-visible 
+									shadow-sm shadow-blue-100 border border-gray-200 
+									hover:border hover:border-gray-600 hover:border-opacity-60 bg-gray-50 py-2"
 								>
 									<a href="/flows/get/{path}">
 										<div class="px-6 overflow-auto ">
@@ -327,40 +328,37 @@
 											</div>
 											{#if canWrite}
 												<div>
-													<a
-														class="inline-flex items-center default-button bg-transparent hover:bg-blue-500 text-blue-700 font-normal hover:text-white py-0 px-1 border-blue-500 hover:border-transparent rounded"
+													<Button
+														variant="border"
+														size="xs"
 														href="/flows/edit/{path}"
+														endIcon={{ icon: faEdit }}
 													>
-														<div class="inline-flex items-center justify-center px-4">
-															<Icon data={faEdit} scale={0.6} />
-															<span class="pl-1">Edit</span>
-														</div>
-													</a>
+														Edit
+													</Button>
 												</div>
 											{:else}
 												<div>
-													<a
-														class="inline-flex items-center default-button bg-transparent hover:bg-blue-500 text-blue-700 font-normal hover:text-white py-0 px-1 border-blue-500 hover:border-transparent rounded"
+													<Button
+														variant="border"
+														size="xs"
 														href="/flows/add?template={path}"
+														endIcon={{ icon: faCodeFork }}
 													>
-														<div class="inline-flex items-center justify-center px-4">
-															<Icon data={faCodeFork} scale={0.6} />
-															<span class="pl-1">Fork</span>
-														</div>
-													</a>
+														Fork
+													</Button>
 												</div>
 											{/if}
 
 											<div>
-												<a
-													class="inline-flex items-center default-button bg-transparent hover:bg-blue-500 text-blue-700 font-normal hover:text-white py-0 px-1 border-blue-500 hover:border-transparent rounded"
+												<Button
+													variant="border"
+													size="xs"
 													href="/flows/run/{path}"
+													endIcon={{ icon: faPlay }}
 												>
-													<div class="inline-flex items-center justify-center px-4">
-														<Icon data={faPlay} scale={0.6} />
-														<span class="pl-1">Run</span>
-													</div>
-												</a>
+													Run
+												</Button>
 											</div>
 										</div>
 									</div>
@@ -381,13 +379,3 @@
 		loadFlows()
 	}}
 />
-
-<style>
-	.selected:hover {
-		@apply border border-gray-500 rounded-md border-opacity-50;
-	}
-
-	.flow:hover {
-		@apply border border-gray-600 border-opacity-60;
-	}
-</style>

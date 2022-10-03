@@ -31,7 +31,6 @@
 		faCodeFork,
 		faClipboard
 	} from '@fortawesome/free-solid-svg-icons'
-
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import ShareModal from '$lib/components/ShareModal.svelte'
 	import { userStore, workspaceStore } from '$lib/stores'
@@ -322,7 +321,7 @@
 			<div class="flex flex-col lg:flex-row gap-4">
 				<div class="lg:w-1/2">
 					<h3 class="text-lg mb-1 font-bold text-gray-600">Webhooks</h3>
-					<div class="border rounded-sm shadow-sm p-4">
+					<div class="box">
 						<Tabs selected="uuid">
 							<Tab value="uuid">UUID</Tab>
 							<Tab value="result">Result</Tab>
@@ -364,7 +363,7 @@
 				</div>
 				<div class="lg:w-1/2">
 					<h3 class="text-lg mb-1 font-bold text-gray-600">Versions</h3>
-					<div class="border rounded-sm shadow-sm p-4">
+					<div class="box">
 						<h4 class="font-bold text-gray-500">Current</h4>
 						<div class="mt-1">
 							{script?.hash}

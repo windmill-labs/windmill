@@ -26,8 +26,8 @@
 		},
 		red: {
 			border:
-				'border-red-500 hover:border-red-700 bg-white hover:bg-red-100 text-red-500 hover:text-red-700 focus:ring-red-300',
-			contained: 'bg-red-500 hover:bg-red-700 text-white focus:ring-red-300'
+				'border-red-600 hover:border-red-700 bg-white hover:bg-red-100 text-red-600 hover:text-red-700 focus:ring-red-300',
+			contained: 'bg-red-600 hover:bg-red-700 text-white focus:ring-red-300'
 		},
 		dark: {
 			border:
@@ -57,7 +57,7 @@
 		xl: 'px-4 py-2'
 	}
 	const iconScale: Record<Button.Size, number> = {
-		xs: 0.7,
+		xs: 0.6,
 		sm: 0.8,
 		md: 1,
 		lg: 1.1,
@@ -78,6 +78,10 @@
 		),
 		disabled
 	}
+
+	$: isSmall = size === 'xs' || size === 'sm'
+	$: startIconClass = classNames(isSmall ? 'mr-1' : 'mr-2', startIcon?.classes)
+	$: endIconClass = classNames(isSmall ? 'ml-1' : 'ml-2', endIcon?.classes)
 </script>
 
 {#if href}
@@ -107,7 +111,7 @@
 		{/if}
 	</button>
 {:else}
-	<button type="button" on:click|stopPropagation {...buttonProps}>
+	<button type="button" on:click|stopPropagation {...buttonProps} {...$$restProps}>
 		{#if startIcon}
 			<Icon
 				data={startIcon.icon}

@@ -48,6 +48,7 @@
 	import HighlightCode from '$lib/components/HighlightCode.svelte'
 	import TestJobLoader from '$lib/components/TestJobLoader.svelte'
 	import LogViewer from '$lib/components/LogViewer.svelte'
+	import { Button } from '$lib/components/common'
 
 	let workspace_id_query: string | undefined = $page.url.searchParams.get('workspace') ?? undefined
 	let workspace_id: string | undefined
@@ -108,7 +109,7 @@
 />
 
 <CenteredPage>
-	<div class="flex flex-row flex-wrap justify-between">
+	<div class="flex flex-row flex-wrap justify-between items-center gap-4 pb-4">
 		<h1>
 			<div>
 				{#if job}
@@ -172,87 +173,119 @@
 				{/if}
 			</div>
 		</h1>
-		<div>
+		<div class="flex flex-wrap gap-2">
 			{#if job && 'deleted' in job && !job?.deleted && ($userStore?.is_admin ?? false)}
-				<button
-					class="default-button-secondary bg-transparent hover:bg-red-500 text-red-700 border-red-500 hover:text-white hover:border-transparent py-1"
+				<Button
+					variant="border"
+					color="red"
+					size="sm"
+					startIcon={{ icon: faTrash }}
 					on:click={() => {
 						if (job?.id) {
 							deleteCompletedJob(job?.id)
 						}
 					}}
 				>
-					<div class="text-red-500 hover:text-white text-sm">
-						<Icon class="" data={faTrash} scale={0.5} />
-						<span class="pl-1">Delete</span>
-					</div>
-				</button>
+					Delete
+				</Button>
 			{/if}
 			{#if job && 'running' in job && job.running}
-				<button
-					class="default-button-secondary  bg-transparent hover:bg-red-500 text-red-700 border-red-500 hover:text-white hover:border-transparent"
+				<Button
+					variant="border"
+					color="red"
+					size="sm"
+					startIcon={{ icon: faTimesCircle }}
 					on:click|once={() => {
 						if (job?.id) {
 							cancelJob(job?.id)
 						}
 					}}
 				>
-					<div
-						class="inline-flex items-center justify-center text-red-500 hover:text-white text-sm"
-					>
-						<Icon class="" data={faTimesCircle} scale={0.5} />
-						<span class="pl-1">Cancel</span>
-					</div>
-				</button>
+					Cancel
+				</Button>
 			{/if}
 			{#if job?.job_kind == 'script'}
 				{#if canWrite(job?.script_path ?? '', {}, $userStore)}
-					<a
+					<Button
 						href="/scripts/edit/{job?.script_hash}?step=2"
-						class="default-button-secondary py-1 text-sm px-2"
-						><Icon data={faEdit} scale={0.6} /><span class="px-1">Edit</span></a
+						variant="border"
+						color="blue"
+						size="sm"
+						startIcon={{ icon: faEdit }}
 					>
+						Edit
+					</Button>
 				{/if}
-				<a href="/scripts/get/{job?.script_hash}" class="default-button-secondary py-1 text-sm px-2"
-					><Icon data={faScroll} scale={0.6} /><span class="px-1">View script</span></a
+				<Button
+					href="/scripts/get/{job?.script_hash}"
+					variant="border"
+					color="blue"
+					size="sm"
+					startIcon={{ icon: faScroll }}
 				>
-				<a href="/runs/{job?.script_path}" class="default-button-secondary py-1 text-sm px-2"
-					><Icon data={faList} scale={0.6} /><span class="px-1">View runs</span></a
+					View script
+				</Button>
+				<Button
+					href="/runs/{job?.script_path}"
+					variant="border"
+					color="blue"
+					size="sm"
+					startIcon={{ icon: faList }}
 				>
-				<a
+					View runs
+				</Button>
+				<Button
 					href="/scripts/run/{job?.script_hash}{job?.args
 						? `?args=${encodeURIComponent(encodeState(job?.args))}`
 						: ''}"
-					class="default-button-secondary py-1 text-sm px-2"
-					><Icon class="text-yellow-400" data={faBolt} scale={0.6} label="Run again" /><span
-						class="px-1">Run again</span
-					></a
+					variant="border"
+					color="blue"
+					size="sm"
+					startIcon={{ icon: faBolt }}
 				>
+					Run again
+				</Button>
 			{:else if job?.job_kind == 'flow'}
 				{#if canWrite(job?.script_path ?? '', {}, $userStore)}
-					<a
+					<Button
 						href="/flows/edit/{job?.script_path}"
-						class="default-button-secondary py-1 text-sm px-2"
-						><Icon data={faEdit} scale={0.6} /><span class="px-1">Edit</span></a
+						variant="border"
+						color="blue"
+						size="sm"
+						startIcon={{ icon: faEdit }}
 					>
+						Edit
+					</Button>
 				{/if}
-				<a href="/flows/get/{job?.script_path}" class="default-button-secondary py-1 text-sm px-2"
-					><Icon data={faScroll} scale={0.6} /><span class="px-1">View flow</span></a
+				<Button
+					href="/flows/get/{job?.script_path}"
+					variant="border"
+					color="blue"
+					size="sm"
+					startIcon={{ icon: faScroll }}
 				>
-				<a
+					View flow
+				</Button>
+				<Button
 					href="/runs/{job?.script_path}?jobKind=flow"
-					class="default-button-secondary py-1 text-sm px-2"
-					><Icon data={faList} scale={0.6} /><span class="px-1">View runs</span></a
+					variant="border"
+					color="blue"
+					size="sm"
+					startIcon={{ icon: faList }}
 				>
-				<a
+					View runs
+				</Button>
+				<Button
 					href="/flows/run/{job?.script_path}{job?.args
 						? `?args=${encodeURIComponent(encodeState(job?.args))}`
 						: ''}"
-					class="default-button-secondary py-1 text-sm px-2"
-					><Icon class="text-yellow-400" data={faBolt} scale={0.6} label="Run again" /><span
-						class="px-1">Run again</span
-					></a
+					variant="border"
+					color="blue"
+					size="sm"
+					startIcon={{ icon: faBolt }}
 				>
+					Run again
+				</Button>
 			{/if}
 		</div>
 	</div>

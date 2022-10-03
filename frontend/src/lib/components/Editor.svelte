@@ -442,10 +442,6 @@
 	})
 </script>
 
-<!-- <button class="default-button px-6 max-h-8" type="button" on:click={format}>
-	Format (CtrlCmd + S)
-</button> -->
-
 <div bind:this={divEl} class={$$props.class} />
 
 <style>
