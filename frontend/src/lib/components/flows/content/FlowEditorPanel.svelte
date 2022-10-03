@@ -8,16 +8,18 @@
 	import FlowLoop from './FlowLoop.svelte'
 	import FlowFailureModule from './FlowFailureModule.svelte'
 
+	export let initialPath: string
+
 	const { selectedId } = getContext<FlowEditorContext>('FlowEditorContext')
 </script>
 
 {#key $selectedId}
 	{#if $selectedId === 'settings'}
-		<FlowSettings />
+		<FlowSettings {initialPath} />
 	{:else if $selectedId === 'settings-schedule'}
-		<FlowSettings defaultTab="schedule" />
+		<FlowSettings {initialPath} defaultTab="schedule" />
 	{:else if $selectedId === 'settings-retries'}
-		<FlowSettings defaultTab="retries" />
+		<FlowSettings {initialPath} defaultTab="retries" />
 	{:else if $selectedId.includes('loop')}
 		<FlowLoop />
 	{:else if $selectedId === 'inputs'}

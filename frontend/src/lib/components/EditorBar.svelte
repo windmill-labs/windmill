@@ -2,8 +2,15 @@
 	import { ResourceService, ScriptService, VariableService } from '$lib/gen'
 	import { getScriptByPath, loadHubScripts, sendUserToast } from '$lib/utils'
 
-	import { faCode, faCube, faFile, faRotate, faRotateLeft } from '@fortawesome/free-solid-svg-icons'
-	import Icon from 'svelte-awesome'
+	import {
+		faCode,
+		faCube,
+		faDollarSign,
+		faFile,
+		faRotate,
+		faRotateLeft,
+		faWallet
+	} from '@fortawesome/free-solid-svg-icons'
 
 	import { hubScripts, workspaceStore } from '$lib/stores'
 	import { Highlight } from 'svelte-highlight'
@@ -20,6 +27,7 @@
 	export let websocketAlive: { pyright: boolean; black: boolean; deno: boolean }
 	export let iconOnly: boolean = false
 
+	let contextualVariablePicker: ItemPicker
 	let variablePicker: ItemPicker
 	let resourcePicker: ItemPicker
 	let scriptPicker: ItemPicker
@@ -42,18 +50,15 @@
 	$: editor && addEditorActions()
 
 	async function loadVariables() {
-		let r: { name: string; path?: string; description?: string }[] = []
-		const variables = (
-			await VariableService.listVariable({ workspace: $workspaceStore ?? 'NO_W' })
-		).map((x) => {
+		return (await VariableService.listVariable({ workspace: $workspaceStore ?? '' })).map((x) => {
 			return { name: x.path, ...x }
 		})
+	}
 
-		const rvariables = await VariableService.listContextualVariables({
+	async function loadContextualVariables() {
+		return await VariableService.listContextualVariables({
 			workspace: $workspaceStore ?? 'NO_W'
 		})
-		r = r.concat(variables).concat(rvariables)
-		return r
 	}
 
 	async function loadScripts(): Promise<{ path: string; summary?: string }[]> {
@@ -93,34 +98,40 @@
 >
 
 <ItemPicker
+	bind:this={contextualVariablePicker}
+	pickCallback={(path, name) => {
+		if (lang == 'deno') {
+			editor.insertAtCursor(`Deno.env.get('${name}')`)
+		} else if (lang == 'python3') {
+			if (!editor.getCode().includes('import os')) {
+				editor.insertAtBeginning('import os\n')
+			}
+			editor.insertAtCursor(`os.environ.get("${name}")`)
+		}
+		sendUserToast(`${name} inserted at cursor`)
+	}}
+	itemName="Contextual Variable"
+	extraField="name"
+	loadItems={loadContextualVariables}
+/>
+
+<ItemPicker
 	bind:this={variablePicker}
 	pickCallback={(path, name) => {
-		if (!path) {
-			if (lang == 'deno') {
-				editor.insertAtCursor(`Deno.env.get('${name}')`)
-			} else if (lang == 'python3') {
-				if (!editor.getCode().includes('import os')) {
-					editor.insertAtBeginning('import os\n')
-				}
-				editor.insertAtCursor(`os.environ.get("${name}")`)
+		if (lang == 'deno') {
+			if (!editor.getCode().includes('import * as wmill from')) {
+				editor.insertAtBeginning(
+					`import * as wmill from 'https://deno.land/x/windmill@v${__pkg__.version}/mod.ts'\n`
+				)
 			}
-			sendUserToast(`${name} inserted at cursor`)
-		} else {
-			if (lang == 'deno') {
-				if (!editor.getCode().includes('import * as wmill from')) {
-					editor.insertAtBeginning(
-						`import * as wmill from 'https://deno.land/x/windmill@v${__pkg__.version}/mod.ts'\n`
-					)
-				}
-				editor.insertAtCursor(`(await wmill.getVariable('${path}'))`)
-			} else if (lang == 'python3') {
-				if (!editor.getCode().includes('import wmill')) {
-					editor.insertAtBeginning('import wmill\n')
-				}
-				editor.insertAtCursor(`wmill.get_variable("${path}")`)
+			editor.insertAtCursor(`(await wmill.getVariable('${path}'))`)
+		} else if (lang == 'python3') {
+			if (!editor.getCode().includes('import wmill')) {
+				editor.insertAtBeginning('import wmill\n')
 			}
-			sendUserToast(`${name} inserted at cursor`)
+			editor.insertAtCursor(`wmill.get_variable("${path}")`)
 		}
+		sendUserToast(`${name} inserted at cursor`)
 	}}
 	itemName="Variable"
 	extraField="name"
@@ -130,15 +141,16 @@
 		<div class="text-xs mr-2 align-middle">
 			The variable you were looking for does not exist yet?
 		</div>
-		<button
-			class="default-button-secondary"
-			type="button"
+		<Button
+			variant="border"
+			color="blue"
+			size="sm"
 			on:click={() => {
 				variableEditor.initNew()
 			}}
 		>
 			Create a new variable
-		</button>
+		</Button>
 	</div>
 </ItemPicker>
 
@@ -169,22 +181,36 @@
 		<div class="text-xs mr-2 align-middle">
 			The resource you were looking for does not exist yet?
 		</div>
-		<button
-			class="default-button-secondary"
-			type="button"
+		<Button
+			variant="border"
+			color="blue"
+			size="sm"
 			on:click={() => {
 				resourceEditor.initNew()
 			}}
 		>
 			Create a new resource
-		</button>
+		</Button>
 	</div>
 </ItemPicker>
 
 <ResourceEditor bind:this={resourceEditor} on:refresh={resourcePicker.openModal} />
 <VariableEditor bind:this={variableEditor} on:create={variablePicker.openModal} />
 
-<div class="flex divide-x items-center">
+<div class="flex divide-x items-center overflow-hidden w-full">
+	<div>
+		<Button
+			color="light"
+			btnClasses="mr-1"
+			on:click={contextualVariablePicker.openModal}
+			size="xs"
+			spacingSize="md"
+			startIcon={{ icon: faDollarSign }}
+			{iconOnly}
+		>
+			+Contextual Variable
+		</Button>
+	</div>
 	<div>
 		<Button
 			color="light"
@@ -192,10 +218,10 @@
 			on:click={variablePicker.openModal}
 			size="xs"
 			spacingSize="md"
-			startIcon={{ icon: faFile }}
+			startIcon={{ icon: faWallet }}
 			{iconOnly}
 		>
-			Insert variable
+			+Variable
 		</Button>
 	</div>
 	<div>
@@ -208,7 +234,7 @@
 			{iconOnly}
 			startIcon={{ icon: faCube }}
 		>
-			Insert resource
+			+Resource
 		</Button>
 	</div>
 
@@ -222,7 +248,7 @@
 			{iconOnly}
 			startIcon={{ icon: faCode }}
 		>
-			Search script
+			View Script
 		</Button>
 	</div>
 

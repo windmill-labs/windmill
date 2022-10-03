@@ -9,6 +9,7 @@
 	import { workspaceStore } from '$lib/stores'
 	import Required from './Required.svelte'
 	import Tooltip from './Tooltip.svelte'
+	import { Button } from './common'
 
 	const dispatch = createEventDispatcher()
 
@@ -60,7 +61,7 @@
 
 	const MAX_VARIABLE_LENGTH = 3000
 
-	$: valid = variable.value.length < MAX_VARIABLE_LENGTH
+	$: valid = variable.value.length <= MAX_VARIABLE_LENGTH
 
 	async function createVariable(): Promise<void> {
 		await VariableService.createVariable({
@@ -116,7 +117,8 @@
 	<div slot="content">
 		<div class="text-gray-700 text-2xs mb-6">
 			Variables have a globally unique name represented by their path. When passed to scripts, <pre
-				class="inline text-red-700 bg-gray-50 rounded round-sm">/</pre>
+				class="inline text-red-700 bg-gray-50 rounded round-sm">/</pre
+			>
 			are converted to
 			<pre class="inline text-red-700 bg-gray-50 rounded round-sm">_</pre>
 		</div>
@@ -154,12 +156,12 @@
 					<Password
 						bind:password={variable.value}
 						placeholder={'******** (only fill to update value)'}
-						label={'variable (max 3000 characters)'}
+						label={`Secret value (${variable.value.length}/3000 characters)`}
 					/>
 				</div>
 			{:else}
 				<div>
-					<span>Variable (max 3000 characters)</span>
+					<span>Variable value ({variable.value.length}/3000 characters)</span>
 					<AutosizedTextarea bind:value={variable.value} minRows={5} />
 				</div>
 			{/if}
@@ -171,23 +173,11 @@
 		</div>
 	</div>
 
-	<button
-		slot="submission"
-		class={valid ? 'default-button' : 'default-button-disabled'}
-		type="button"
-		on:click={() => {
-			if (edit) {
-				updateVariable()
-			} else {
-				createVariable()
-			}
-		}}
+	<Button
+		size="sm"
+		on:click={() => (edit ? updateVariable() : createVariable())}
 		disabled={!valid || pathError != ''}
 	>
-		{#if edit}
-			Save
-		{:else}
-			Add a variable
-		{/if}
-	</button>
+		{edit ? 'Save' : 'Add a variable'}
+	</Button>
 </Modal>

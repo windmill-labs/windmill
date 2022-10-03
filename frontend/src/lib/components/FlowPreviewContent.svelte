@@ -1,9 +1,8 @@
 <script lang="ts">
 	import { JobService, type Flow } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
-
-	import { faClose, faPlay } from '@fortawesome/free-solid-svg-icons'
-	import { Button } from 'flowbite-svelte'
+	import { faClose, faPlay, faRefresh } from '@fortawesome/free-solid-svg-icons'
+	import { Button } from './common'
 	import { createEventDispatcher, getContext, onDestroy } from 'svelte'
 	import Icon from 'svelte-awesome'
 	import { flowStateStore } from './flows/flowState'
@@ -12,8 +11,8 @@
 	import type { FlowEditorContext } from './flows/types'
 	import { runFlowPreview } from './flows/utils'
 	import SchemaForm from './SchemaForm.svelte'
-
 	import FlowStatusViewer from '../components/FlowStatusViewer.svelte'
+
 	export let previewMode: 'upTo' | 'whole'
 
 	let jobId: string | undefined = undefined
@@ -72,7 +71,10 @@
 			</h3>
 		</div>
 		<Button
-			color="alternative"
+			variant="border"
+			size="lg"
+			color="dark"
+			btnClasses="!p-0 !w-8 !h-8"
 			on:click={() => {
 				jobId = undefined
 				intervalState = 'idle'
@@ -82,10 +84,13 @@
 			<Icon data={faClose} />
 		</Button>
 	</div>
-	<div class="pb-4 h-full max-h-1/2 overflow-auto">
-		<div class="mt-4">
-			<SchemaForm schema={$flowStore.schema} bind:isValid bind:args={$previewArgs} />
-		</div>
+	<div class="grow pb-8 max-h-1/2 overflow-auto">
+		<SchemaForm
+			class="h-full pt-4"
+			schema={$flowStore.schema}
+			bind:isValid
+			bind:args={$previewArgs}
+		/>
 	</div>
 	{#if intervalState === 'running'}
 		<Button
@@ -109,10 +114,13 @@
 		</Button>
 	{:else}
 		<Button
+			variant="contained"
+			endIcon={{ icon: intervalState === 'done' ? faRefresh : faPlay }}
+			size="lg"
+			color="blue"
+			btnClasses="w-full"
 			disabled={!isValid}
-			class="blue-button"
 			on:click={() => runPreview($previewArgs)}
-			size="md"
 		>
 			{`Run${intervalState === 'done' ? ' again' : ''}`}
 		</Button>

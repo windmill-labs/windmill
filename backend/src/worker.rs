@@ -654,7 +654,7 @@ async fn handle_code_execution_job(
 }
 
 async fn handle_go_job(
-    WorkerConfig { base_internal_url, disable_nuser, disable_nsjail, .. }: &WorkerConfig,
+    WorkerConfig { base_internal_url, disable_nuser, disable_nsjail, base_url, .. }: &WorkerConfig,
     Envs { nsjail_path, go_path, path_env, gopath_env, home_env, .. }: &Envs,
     logs: &mut String,
     job: &QueuedJob,
@@ -731,7 +731,6 @@ async fn handle_go_job(
         })
         .join(", ");
 
-    let inner_content = inner_content.replace("func main(", "func inner_main(");
     let wrapper_content: String = format!(
         r#"
 package main
@@ -739,9 +738,9 @@ package main
 import (
     "encoding/json"
     "os"
+    "fmt"
+    "mymod/inner"
 )
-
-{inner_content}
 
 func main() {{
     dat, err := os.ReadFile("args.json")
@@ -757,7 +756,7 @@ func main() {{
         os.Exit(1)
     }}
 
-    res, err := inner_main({spread})
+    res, err := inner.Inner_main({spread})
     if err != nil {{
         fmt.Println(err)
         os.Exit(1)
@@ -774,8 +773,8 @@ func main() {{
 
 "#,
     );
-    write_file(job_dir, "mymod/main.go", &wrapper_content).await?;
-    let mut reserved_variables = get_reserved_variables(job, token.clone(), db).await?;
+    write_file(job_dir, "main.go", &wrapper_content).await?;
+    let mut reserved_variables = get_reserved_variables(job, &token, &base_url, db).await?;
     reserved_variables.insert("RUST_LOG".to_string(), "info".to_string());
 
     let child = if !disable_nsjail {
@@ -801,7 +800,7 @@ func main() {{
                 "--",
                 go_path,
                 "run",
-                "mymod/main.go",
+                "main.go",
             ])
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
@@ -815,7 +814,7 @@ func main() {{
             .env("BASE_INTERNAL_URL", base_internal_url)
             .env("GOPATH", gopath_env)
             .env("HOME", home_env)
-            .args(vec!["run", "mymod/main.go"])
+            .args(vec!["run", "main.go"])
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .spawn()?
@@ -880,7 +879,7 @@ run();
 "#,
     );
     write_file(job_dir, "main.ts", &wrapper_content).await?;
-    let mut reserved_variables = get_reserved_variables(job, token.clone(), db).await?;
+    let mut reserved_variables = get_reserved_variables(job, &token, &base_url, db).await?;
     reserved_variables.insert("RUST_LOG".to_string(), "info".to_string());
 
     let hostname_base = base_url.split("://").last().unwrap_or("localhost");
@@ -942,7 +941,7 @@ run();
 }
 
 async fn handle_python_job(
-    WorkerConfig { base_internal_url, disable_nuser, disable_nsjail, .. }: &WorkerConfig,
+    WorkerConfig { base_internal_url, base_url, disable_nuser, disable_nsjail, .. }: &WorkerConfig,
     Envs {
         nsjail_path,
         python_path,
@@ -1130,7 +1129,7 @@ print(res_json)
         );
         write_file(job_dir, "main.py", &wrapper_content).await?;
 
-        let mut reserved_variables = get_reserved_variables(job, token, db).await?;
+        let mut reserved_variables = get_reserved_variables(job, &token, &base_url, db).await?;
         if !disable_nsjail {
             let _ = write_file(
                 job_dir,
@@ -1321,6 +1320,7 @@ async fn install_go_dependencies(
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()?;
+
     *status = handle_child(job_id, db, logs, last_line, timeout, child).await;
     if status.is_ok() {
         let child = Command::new(go_path)
@@ -1357,23 +1357,24 @@ async fn install_go_dependencies(
 }
 
 async fn gen_go_mymod(code: &str, job_dir: &String) -> error::Result<()> {
-    let code = &format!("package main\n\n{code}");
+    let code = &format!("package inner; {code}").replace("func main(", "func Inner_main(");
 
-    let mymod_dir = format!("{job_dir}/mymod");
+    let mymod_dir = format!("{job_dir}/inner");
     DirBuilder::new()
         .recursive(true)
         .create(&mymod_dir)
         .await
         .expect("could not create go's mymod dir");
 
-    write_file(&mymod_dir, "main.go", &code).await?;
+    write_file(&mymod_dir, "inner_main.go", &code).await?;
 
     Ok(())
 }
 
 async fn get_reserved_variables(
     job: &QueuedJob,
-    token: String,
+    token: &str,
+    base_url: &str,
     db: &sqlx::Pool<sqlx::Postgres>,
 ) -> Result<HashMap<String, String>, Error> {
     let flow_path = if let Some(uuid) = job.parent_job {
@@ -1386,14 +1387,16 @@ async fn get_reserved_variables(
     };
     let variables = variables::get_reserved_variables(
         &job.workspace_id,
-        &token,
+        token,
         &get_email_from_username(&job.created_by, db)
             .await?
             .unwrap_or_else(|| "nosuitable@email.xyz".to_string()),
         &job.created_by,
         &job.id.to_string(),
         &job.permissioned_as,
+        base_url,
         job.script_path.clone(),
+        job.parent_job.map(|x| x.to_string()),
         flow_path,
         job.schedule_path.clone(),
     );

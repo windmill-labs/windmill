@@ -71,10 +71,16 @@ mount {
     is_bind: true
 }
 
+mount {
+    src: "{JOB_DIR}/main.go"
+    dst: "/tmp/go/main.go"
+    is_bind: true
+    mandatory: false
+}
 
 mount {
-    src: "{JOB_DIR}/mymod"
-    dst: "/tmp/go/mymod"
+    src: "{JOB_DIR}/inner/inner_main.go"
+    dst: "/tmp/go/inner/inner_main.go"
     is_bind: true
 }
 

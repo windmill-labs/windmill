@@ -1,16 +1,10 @@
 <script lang="ts">
 	import { slide } from 'svelte/transition'
 
-	import {
-		faArrowRotateLeft,
-		faChevronDown,
-		faChevronUp,
-		faMinus,
-		faPlus
-	} from '@fortawesome/free-solid-svg-icons'
+	import { faChevronDown, faChevronUp, faMinus, faPlus } from '@fortawesome/free-solid-svg-icons'
 
 	import { setInputCat as computeInputCat, type InputCat } from '$lib/utils'
-	import { Button, Tooltip } from 'flowbite-svelte'
+	import { Button } from './common'
 	import { createEventDispatcher } from 'svelte'
 	import Icon from 'svelte-awesome'
 	import FieldHeader from './FieldHeader.svelte'
@@ -48,12 +42,13 @@
 	let seeEditable: boolean = enum_ != undefined || pattern != undefined
 	const dispatch = createEventDispatcher()
 
-	$: minHeight = `${1 + minRows * 1.2}em`
 	$: maxHeight = maxRows ? `${1 + maxRows * 1.2}em` : `auto`
 
 	$: validateInput(pattern, value)
 
 	let error: string = ''
+
+	let el: HTMLElement | undefined = undefined
 
 	export let editor: SimpleEditor | undefined = undefined
 
@@ -235,8 +230,11 @@
 								{:else}
 									<input type="text" bind:value={v} />
 								{/if}
-								<button
-									class="default-button-secondary mx-6"
+								<Button
+									variant="border"
+									color="red"
+									size="sm"
+									btnClasses="mx-6"
 									on:click={() => {
 										value = value.filter((el) => el != v)
 										if (value.length == 0) {
@@ -244,13 +242,16 @@
 										}
 									}}
 								>
-									<Icon data={faMinus} class="mb-1" />
-								</button>
+									<Icon data={faMinus} />
+								</Button>
 							</div>
 						{/each}
 					</div>
-					<button
-						class="default-button-secondary mt-1"
+					<Button
+						variant="border"
+						color="blue"
+						size="sm"
+						btnClasses="mt-1"
 						on:click={() => {
 							if (value == undefined) {
 								value = []
@@ -260,7 +261,7 @@
 					>
 						<Icon data={faPlus} class="mr-2" />
 						Add item
-					</button>
+					</Button>
 					<span class="ml-2">
 						{(value ?? []).length} item{(value ?? []).length > 1 ? 's' : ''}
 					</span>
@@ -277,9 +278,16 @@
 					</div>
 				{:else}
 					<textarea
+						bind:this={el}
+						on:focus
 						{disabled}
-						style="min-height: {minHeight}; max-height: {maxHeight}"
-						on:input={async () => recomputeRowSize(rawValue ?? '')}
+						style="max-height: {maxHeight}"
+						on:input={(e) => {
+							if (el) {
+								el.style.height = '5px'
+								el.style.height = el.scrollHeight + 'px'
+							}
+						}}
 						class="col-span-10 {valid
 							? ''
 							: 'border border-red-700 border-opacity-30 focus:border-red-700 focus:border-opacity-30 bg-red-100'}"
@@ -325,17 +333,21 @@
 				/>
 			{:else if inputCat == 'string'}
 				<textarea
+					bind:this={el}
 					on:focus={() => dispatch('focus')}
 					on:blur={() => dispatch('blur')}
 					{disabled}
-					style="height: {minHeight}; max-height: {maxHeight}"
+					style="height: 30px; max-height: {maxHeight}"
 					class="col-span-10 {valid
 						? ''
 						: 'border border-red-700 border-opacity-30 focus:border-red-700 focus:border-opacity-30 bg-red-100'}"
 					placeholder={defaultValue ?? ''}
 					bind:value
 					on:input={async () => {
-						recomputeRowSize(value)
+						if (el) {
+							el.style.height = '30px'
+							el.style.height = el.scrollHeight + 'px'
+						}
 						dispatch('input', { rawValue: value, isRaw: false })
 					}}
 				/>

@@ -43,6 +43,7 @@
 	import TableCustom from '$lib/components/TableCustom.svelte'
 	import { Highlight } from 'svelte-highlight'
 	import { typescript } from 'svelte-highlight/languages/typescript'
+	import { Button } from '$lib/components/common'
 
 	type Tab = 'all' | 'personal' | 'groups' | 'shared' | 'examples' | 'hub'
 	type Section = [string, ScriptW[]]
@@ -186,17 +187,18 @@
 		granted visibility on the resources and variables it uses, otherwise it will behave as if those
 		items did not exist at runtime of the script."
 	>
-		<div class="flex flex-row">
-			<button
-				class="default-button-secondary border-none"
+		<div class="flex flex-row gap-2">
+			<Button
+				variant="border"
+				size="sm"
+				startIcon={{ icon: faPlus }}
 				on:click={() => {
 					templateModal.openModal()
 				}}
-				><Icon class="text-blue-500 mb-1" data={faPlus} scale={0.9} /> New script from template</button
 			>
-			<a class="default-button" href="/scripts/add"
-				><Icon class="text-white mb-1" data={faPlus} scale={0.9} /> &nbsp; New script</a
-			>
+				New script from template
+			</Button>
+			<Button size="sm" startIcon={{ icon: faPlus }} href="/scripts/add">New script</Button>
 		</div>
 	</PageHeader>
 
@@ -392,39 +394,36 @@
 											</div>
 											{#if canWrite}
 												<div>
-													<a
-														class="inline-flex items-center default-button bg-transparent hover:bg-blue-500 text-blue-700 font-normal hover:text-white py-0 px-1 border-blue-500 hover:border-transparent rounded"
+													<Button
+														variant="border"
+														size="xs"
+														startIcon={{ icon: faEdit }}
 														href="/scripts/edit/{hash}?step=2"
 													>
-														<div class="inline-flex items-center justify-center px-4">
-															<Icon data={faEdit} scale={0.6} />
-															<span class="pl-1">Edit</span>
-														</div>
-													</a>
+														Edit
+													</Button>
 												</div>
 											{:else}
 												<div>
-													<a
-														class="inline-flex items-center default-button bg-transparent hover:bg-blue-500 text-blue-700 font-normal hover:text-white py-0 px-1 border-blue-500 hover:border-transparent rounded"
+													<Button
+														variant="border"
+														size="xs"
+														startIcon={{ icon: faCodeFork }}
 														href="/scripts/add?template={path}"
 													>
-														<div class="inline-flex items-center justify-center px-4">
-															<Icon data={faCodeFork} scale={0.6} />
-															<span class="pl-1">Fork</span>
-														</div>
-													</a>
+														Fork
+													</Button>
 												</div>
 											{/if}
 											<div>
-												<a
-													class="inline-flex items-center default-button bg-transparent hover:bg-blue-500 text-blue-700 font-normal hover:text-white py-0 px-1 border-blue-500 hover:border-transparent rounded"
+												<Button
+													variant="border"
+													size="xs"
+													startIcon={{ icon: faPlay }}
 													href="/scripts/run/{hash}"
 												>
-													<div class="inline-flex items-center justify-between px-4">
-														<Icon data={faPlay} scale={0.6} />
-														<span class="pl-1">Run</span>
-													</div>
-												</a>
+													Run
+												</Button>
 											</div>
 										</div>
 									</div>

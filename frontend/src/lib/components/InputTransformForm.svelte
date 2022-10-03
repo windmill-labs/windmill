@@ -11,7 +11,7 @@
 	import { codeToStaticTemplate, getDefaultExpr, isCodeInjection } from './flows/utils'
 	import SimpleEditor from './SimpleEditor.svelte'
 	import Toggle from './Toggle.svelte'
-	import { Button, Tooltip } from 'flowbite-svelte'
+	import { Button } from './common'
 	import Icon from 'svelte-awesome'
 	import { faChain } from '@fortawesome/free-solid-svg-icons'
 
@@ -68,10 +68,6 @@
 			arg.expr = getDefaultExpr(importPath, undefined, rawValue)
 			arg.type = 'javascript'
 			propertyType = 'javascript'
-		}
-
-		if (monacos[argName]) {
-			monacos[argName].setCode(arg.value)
 		}
 	}
 
@@ -133,7 +129,7 @@
 					})
 				}}
 			>
-				<Button size="sm" class="blue-button">
+				<Button variant="contained" color="blue" size="md">
 					<Icon data={faChain} />
 				</Button>
 			</div>
@@ -144,16 +140,20 @@
 	{#if propertyType === undefined || !checked}
 		<ArgInput
 			on:focus={() => {
-				focusProp(argName, 'append', (path) => {
-					const toAppend = `\$\{${path}}`
-					arg.value = `${arg.value ?? ''}${toAppend}`
-					if (monacos[argName]) {
-						monacos[argName].setCode(arg.value)
-					}
-					if (isStaticTemplate(inputCats[argName])) {
+				if (isStaticTemplate(inputCats[argName])) {
+					focusProp(argName, 'append', (path) => {
+						const toAppend = `\$\{${path}}`
+						arg.value = `${arg.value ?? ''}${toAppend}`
 						setPropertyType(arg.value)
-					}
-				})
+					})
+				} else {
+					focusProp(argName, 'insert', (path) => {
+						console.log('path', path)
+						arg.expr = path
+						arg.type = 'javascript'
+						propertyType = 'javascript'
+					})
+				}
 			}}
 			label={argName}
 			bind:editor={monacos[argName]}

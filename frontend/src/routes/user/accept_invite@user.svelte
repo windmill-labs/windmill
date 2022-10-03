@@ -64,7 +64,7 @@
 		<input
 			on:keyup={handleKey}
 			bind:value={username}
-			class="default-input"
+			class="mt-1"
 			class:input-error={errorUsername != ''}
 		/>
 	</label>

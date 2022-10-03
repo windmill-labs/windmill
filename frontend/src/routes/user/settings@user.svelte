@@ -8,6 +8,7 @@
 	import { faPlus } from '@fortawesome/free-solid-svg-icons'
 	import TableCustom from '$lib/components/TableCustom.svelte'
 	import CenteredModal from '$lib/components/CenteredModal.svelte'
+	import { Button } from '$lib/components/common'
 
 	let newPassword: string | undefined
 	let passwordError: string | undefined
@@ -77,7 +78,7 @@
 	<h2 class="border-b">User info</h2>
 	<div class="">
 		{#if passwordError}
-			<div class="text-purple-500 text-2xs grow">{passwordError}</div>
+			<div class="text-red-600 text-2xs grow">{passwordError}</div>
 		{/if}
 		<div class="flex flex-col gap-2 w-full ">
 			<div class="mt-4">
@@ -104,7 +105,7 @@
 							text-sm
 							"
 						/>
-						<button on:click={() => setPassword()} class="mt-4 default-button">Set password</button>
+						<Button size="sm" btnClasses="mt-4" on:click={setPassword}>Set password</Button>
 					</label>
 				{:else if login_type == 'github'}
 					<span>Authentified through Github OAuth2. Cannot set a password.</span>
@@ -115,21 +116,24 @@
 
 	<div class="grid grid-cols-2 pt-24 pb-1">
 		<h2 class="py-0 my-0 border-b">Tokens</h2>
-		<div class="text-right py-0 my-0 border-b">
-			<button
+		<div class="flex justify-end border-b pb-1">
+			<Button
+				size="xs"
+				startIcon={{ icon: faPlus }}
+				btnClasses={displayCreateToken ? 'hidden' : ''}
 				on:click={() => {
 					displayCreateToken = !displayCreateToken
 					newToken = undefined
 					newTokenExpiration = undefined
 					newTokenLabel = undefined
 				}}
-				class="default-button py-0 {displayCreateToken ? 'hidden' : ''}"
-				><Icon class="text-white mb-1" data={faPlus} scale={0.9} /> &nbsp; Create token</button
 			>
+				Create token
+			</Button>
 		</div>
 	</div>
 	<div class="text-2xs text-gray-500 italic pb-6">
-		Authentify to the windmill API with access tokens.
+		Authentify to the Windmill API with access tokens.
 	</div>
 
 	<div>
@@ -176,9 +180,11 @@
 							getToday().getDate()}
 					/>
 				</div>
-				<label class="block md:w-1/2">Label (optional)<input bind:value={newTokenLabel} /></label>
-				<div class="flex flex-col-reverse">
-					<button class="default-button" on:click={createToken}>Submit</button>
+				<label class="flex flex-col justify-end md:w-1/2"
+					>Label (optional)<input bind:value={newTokenLabel} /></label
+				>
+				<div class="flex items-end">
+					<Button size="sm" btnClasses="!mt-2" on:click={createToken}>Submit</Button>
 				</div>
 			</div>
 		</div>

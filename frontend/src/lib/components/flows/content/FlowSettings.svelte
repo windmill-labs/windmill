@@ -6,26 +6,25 @@
 	import { flowStore } from '$lib/components/flows/flowStore'
 	import Path from '$lib/components/Path.svelte'
 	import Required from '$lib/components/Required.svelte'
-	import { getContext } from 'svelte'
 	import FlowCard from '../common/FlowCard.svelte'
-	import type { FlowEditorContext } from '../types'
 	import FlowSchedules from './FlowSchedules.svelte'
 	import FlowRetries from './FlowRetries.svelte'
+	import SvelteMarkdown from 'svelte-markdown'
 
-	const { path } = getContext<FlowEditorContext>('FlowEditorContext')
+	export let initialPath: string
 
-	export let defaultTab = 'configuration'
+	export let defaultTab = 'metadata'
 </script>
 
 <FlowCard title="Settings">
 	<Tabs selected={defaultTab}>
-		<Tab value="configuration">Configuration</Tab>
+		<Tab value="metadata">Metadata</Tab>
 		<Tab value="schedule">Schedule</Tab>
 		<Tab value="retries">Retries</Tab>
 
 		<svelte:fragment slot="content">
-			<TabContent value="configuration" class="p-4">
-				<Path bind:path={$flowStore.path} initialPath={path} namePlaceholder="my_flow" kind="flow">
+			<TabContent value="metadata" class="p-4">
+				<Path bind:path={$flowStore.path} {initialPath} namePlaceholder="my_flow" kind="flow">
 					<div slot="ownerToolkit">
 						Flow permissions depend on their path. Select the group <span class="font-mono"
 							>all</span
@@ -35,7 +34,7 @@
 					</div>
 				</Path>
 
-				<label class="block mt-4">
+				<label class="block my-4">
 					<span class="text-gray-700">Summary <Required required={false} /></span>
 					<textarea
 						bind:value={$flowStore.summary}
@@ -45,6 +44,37 @@
 						id="flow-summary"
 					/>
 				</label>
+
+				<label class="block my-4" for="inp">
+					<span class="text-gray-700"
+						>Description<Required required={false} detail="accept markdown formatting" />
+						<textarea
+							id="inp"
+							bind:value={$flowStore.description}
+							class="
+					mt-1
+					block
+					w-full
+					rounded-md
+					border-gray-300
+					shadow-sm
+					focus:border-indigo-300 focus:ring focus:ring-indigo-200 focus:ring-opacity-50
+					"
+							placeholder="A description to help users understand what this script does and how to use it."
+							rows="3"
+						/>
+					</span>
+				</label>
+
+				<div>
+					<h3 class="text-gray-700 ">Description rendered</h3>
+					<div
+						class="prose mt-5 text-xs shadow-inner shadow-blue p-4 overflow-auto"
+						style="max-height: 200px;"
+					>
+						<SvelteMarkdown source={$flowStore.description ?? ''} />
+					</div>
+				</div>
 			</TabContent>
 			<TabContent value="schedule" class="p-4">
 				<FlowSchedules />

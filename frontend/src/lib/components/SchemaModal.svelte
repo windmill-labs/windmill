@@ -50,6 +50,7 @@
 	import StringTypeNarrowing from './StringTypeNarrowing.svelte'
 	import Required from './Required.svelte'
 	import ObjectTypeNarrowing from './ObjectTypeNarrowing.svelte'
+	import { Button } from './common'
 
 	export let property: ModalSchemaProperty = DEFAULT_PROPERTY
 	export let error = ''
@@ -111,7 +112,7 @@
 						: 'border border-red-700 bg-red-100 border-opacity-30 focus:border-red-700 focus:border-opacity-30 focus-visible:ring-red-700 focus-visible:ring-opacity-25 focus-visible:border-red-700'}
 				/>
 			</label>
-			<div class="mb-2 text-purple-500 text-2xs">{error}</div>
+			<div class="mb-2 text-red-600 text-2xs">{error}</div>
 
 			<label class="mb-2 font-semibold text-gray-700">
 				Description
@@ -126,22 +127,32 @@
 			<h3 class="font-semibold text-gray-700">Type<Required required={true} /></h3>
 			<div class="grid sm:grid-cols-3 md:grid-cols-4 gap-x-2 gap-y-1 items-center mb-2 w-full">
 				{#each ARG_TYPES as argType}
-					<button
-						class={argType == property.selectedType ? 'item-button-selected' : 'item-button'}
+					{@const isSelected = argType == property.selectedType}
+					<Button
+						variant="border"
+						color={isSelected ? 'blue' : 'dark'}
+						btnClasses={isSelected ? '!border-2 !bg-blue-50/75' : 'm-[1px]'}
 						on:click={() => {
 							property.selectedType = argType
 							property.format = undefined
 							property.contentEncoding = undefined
 							property.enum_ = undefined
 							property.pattern = undefined
-						}}>{argType}</button
+						}}
 					>
+						{argType}
+					</Button>
 				{/each}
-				<button
-					class={!property.selectedType ? 'item-button-selected' : 'item-button'}
+				<Button
+					variant="border"
+					color={!property.selectedType ? 'blue' : 'dark'}
+					btnClasses={!property.selectedType ? '!border-2 !bg-blue-50/75' : 'm-[1px]'}
 					on:click={() => {
 						property.selectedType = undefined
-					}}>any</button
+					}}
+				>
+					Any
+				</Button>
 				>
 			</div>
 			<Switch

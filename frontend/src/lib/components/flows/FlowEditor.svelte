@@ -6,6 +6,8 @@
 	import FlowModuleSchemaMap from './map/FlowModuleSchemaMap.svelte'
 	import { flowStore } from './flowStore'
 	import { flowStateStore } from './flowState'
+
+	export let initialPath: string
 </script>
 
 <FlowEditorHeader />
@@ -24,7 +26,7 @@
 		</left>
 		<right slot="right" class="h-full">
 			<div class="h-full overflow-auto bg-white ">
-				<FlowEditorPanel />
+				<FlowEditorPanel {initialPath} />
 			</div>
 		</right>
 	</HSplitPane>

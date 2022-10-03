@@ -27,8 +27,8 @@
 		},
 		red: {
 			border:
-				'border-red-500 hover:border-red-700 focus:border-red-700 bg-white hover:bg-red-100 focus:bg-red-100 text-red-500 hover:text-red-700 focus:text-red-700 focus:ring-red-300',
-			contained: 'bg-red-500 hover:bg-red-700 focus:bg-red-700 text-white focus:ring-red-300'
+				'border-red-600 hover:border-red-700 bg-white hover:bg-red-100 text-red-600 hover:text-red-700 focus:ring-red-300',
+			contained: 'bg-red-600 hover:bg-red-700 text-white focus:ring-red-300'
 		},
 		dark: {
 			border:
@@ -40,6 +40,29 @@
 				'border bg-white hover:bg-gray-100 focus:bg-gray-100 text-gray-700 hover:text-gray-800 focus:text-gray-800 focus:ring-gray-300',
 			contained: 'bg-white hover:bg-gray-100 focus:bg-gray-100 text-gray-700 focus:ring-gray-300'
 		}
+	}
+
+	const fontSizeClasses: Record<Button.Size, string> = {
+		xs: 'text-xs',
+		sm: 'text-sm',
+		md: 'text-md',
+		lg: 'text-lg',
+		xl: 'text-xl'
+	}
+
+	const spacingClasses: Record<Button.Size, string> = {
+		xs: 'px-3 py-1.5',
+		sm: 'px-3 py-1.5',
+		md: 'px-4 py-2',
+		lg: 'px-4 py-2',
+		xl: 'px-4 py-2'
+	}
+	const iconScale: Record<Button.Size, number> = {
+		xs: 0.6,
+		sm: 0.8,
+		md: 1,
+		lg: 1.1,
+		xl: 1.2
 	}
 
 	$: buttonProps = {
@@ -64,6 +87,10 @@
 		dispatch('click', event)
 		if (href) goto(href)
 	}
+
+	$: isSmall = size === 'xs' || size === 'sm'
+	$: startIconClass = classNames(isSmall ? 'mr-1' : 'mr-2', startIcon?.classes)
+	$: endIconClass = classNames(isSmall ? 'ml-1' : 'ml-2', endIcon?.classes)
 </script>
 
 <svelte:element
