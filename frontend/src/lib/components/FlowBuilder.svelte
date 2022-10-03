@@ -16,6 +16,8 @@
 	import { writable } from 'svelte/store'
 	import CenteredPage from './CenteredPage.svelte'
 	import Button from './common/button/Button.svelte'
+	import { dirtyStore } from './common/confirmationModal/dirtyStore'
+	import UnsavedConfirmationModal from './common/confirmationModal/UnsavedConfirmationModal.svelte'
 	import { OFFSET } from './CronInput.svelte'
 	import FlowEditor from './flows/FlowEditor.svelte'
 	import { flowStateStore } from './flows/flowState'
@@ -48,6 +50,7 @@
 	async function saveFlow(): Promise<void> {
 		const flow = cleanInputs($flowStore)
 		const { cron, args, enabled } = $scheduleStore
+		$dirtyStore = false
 
 		if (initialPath === '') {
 			await FlowService.createFlow({
@@ -154,6 +157,8 @@
 
 	loadHubScripts()
 </script>
+
+<UnsavedConfirmationModal />
 
 <div class="flex flex-col flex-1 h-full">
 	<!-- Nav between steps-->
