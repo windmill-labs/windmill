@@ -227,7 +227,7 @@ export function getStepPropPicker(
 		}
 
 		const innerResults = getPreviousResults(
-			flowState.modules[parentIndex].childFlowModules,
+			flowState.modules[parentIndex]?.childFlowModules,
 			childIndex
 		)
 

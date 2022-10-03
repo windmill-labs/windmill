@@ -11,7 +11,7 @@
 	import { codeToStaticTemplate, getDefaultExpr, isCodeInjection } from './flows/utils'
 	import SimpleEditor from './SimpleEditor.svelte'
 	import Toggle from './Toggle.svelte'
-	import { Button, Tooltip } from 'flowbite-svelte'
+	import { Button } from 'flowbite-svelte'
 	import Icon from 'svelte-awesome'
 	import { faChain } from '@fortawesome/free-solid-svg-icons'
 

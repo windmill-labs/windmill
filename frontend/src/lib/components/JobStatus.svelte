@@ -41,7 +41,8 @@
 {:else if job && 'running' in job && job.running}
 	<Badge large color="yellow">
 		<Icon data={faCircle} scale={SMALL_ICON_SCALE} class="mr-2" />
-		Running
+		Running {#if job.flow_status}({job.flow_status?.step ?? ''} of {job.raw_flow?.modules?.length ??
+				'?'}){/if}
 	</Badge>
 {:else if job && 'running' in job && 'scheduled_for' in job && job.scheduled_for && forLater(job.scheduled_for)}
 	<Badge>
