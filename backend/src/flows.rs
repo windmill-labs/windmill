@@ -162,6 +162,8 @@ pub struct FlowModule {
     #[serde(default)]
     #[serde(skip_serializing_if = "is_default")]
     pub suspend: u16,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub retry: Option<Retry>,
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone, PartialEq)]
@@ -499,6 +501,7 @@ mod tests {
                     stop_after_if: None,
                     summary: None,
                     suspend: Default::default(),
+                    retry: None,
                 },
                 FlowModule {
                     input_transforms: HashMap::new(),
@@ -513,6 +516,7 @@ mod tests {
                     }),
                     summary: None,
                     suspend: Default::default(),
+                    retry: None,
                 },
                 FlowModule {
                     input_transforms: [(
@@ -531,6 +535,7 @@ mod tests {
                     }),
                     summary: None,
                     suspend: Default::default(),
+                    retry: None,
                 },
             ],
             failure_module: Some(FlowModule {
@@ -542,6 +547,7 @@ mod tests {
                 }),
                 summary: None,
                 suspend: Default::default(),
+                retry: None,
             }),
             retry: Default::default(),
         };
