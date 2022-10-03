@@ -48,6 +48,7 @@
 							lang="javascript"
 							bind:code={$flowStore.value.modules[index].value.iterator.expr}
 							class="small-editor"
+							shouldBindKey={false}
 						/>
 					</PropPickerWrapper>
 				</div>

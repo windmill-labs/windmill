@@ -158,6 +158,16 @@
 <div class="flex flex-col flex-1 h-full">
 	<!-- Nav between steps-->
 	<div class="justify-between flex flex-row w-full my-2 px-4 space-x-4 h-10">
+		<div id="flow_title" class="flex justify-between items-center">
+			<button class="flex flex-row items-center w-full h-full" on:click={() => select('settings')}>
+				<span class="font-mono text-sm"> {$flowStore.path}</span>
+				<Icon
+					data={faPen}
+					scale={0.8}
+					class="text-gray-500 ml-2 flex justify-center items-center mb-0.5"
+				/>
+			</button>
+		</div>
 		<div class="shrink h-full">
 			<button
 				class="flex flex-row items-center w-full h-full"
