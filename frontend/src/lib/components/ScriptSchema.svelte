@@ -14,7 +14,6 @@
 	export let schema: Schema
 	export let summary: string
 	export let description: string | undefined
-	export let synchronizedHeader = true
 
 	export function setSchema(newSchema: Schema) {
 		schema = newSchema
@@ -53,16 +52,14 @@
 						</div>
 					</div>
 				</div>
-				{#if synchronizedHeader}
-					<div class="bg-blue-100 border-l-4 border-blue-600 text-blue-700 p-4 m-4" role="alert">
-						<p class="font-bold">Synchronized with main signature</p>
-						<p>
-							Argument names, being required or not, and default values are derived from the main
-							signature of step 2 and cannot be edited directly. Change the main signature to edit
-							them.
-						</p>
-					</div>
-				{/if}
+				<div class="bg-blue-100 border-l-4 border-blue-600 text-blue-700 p-4 m-4" role="alert">
+					<p class="font-bold">Synchronized with main signature</p>
+					<p>
+						Argument names, being required or not, and default values are derived from the main
+						signature of step 2 and cannot be edited directly. Change the main signature to edit
+						them.
+					</p>
+				</div>
 				<SchemaForm {schema} editableSchema={true} />
 			</TabContent>
 			<TabContent value="jsonschema">

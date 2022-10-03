@@ -1,13 +1,7 @@
 <script lang="ts">
 	import { goto } from '$app/navigation'
 	import { page } from '$app/stores'
-	import {
-		FlowService,
-		ResourceService,
-		ScheduleService,
-		VariableService,
-		type Flow
-	} from '$lib/gen'
+	import { FlowService, ScheduleService, type Flow } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import {
 		encodeState,
@@ -17,7 +11,6 @@
 		setQueryWithoutLoad
 	} from '$lib/utils'
 	import { faGlobe, faPen } from '@fortawesome/free-solid-svg-icons'
-	import { Breadcrumb, BreadcrumbItem } from 'flowbite-svelte'
 	import { setContext } from 'svelte'
 	import Icon from 'svelte-awesome'
 	import { writable } from 'svelte/store'
@@ -32,12 +25,8 @@
 	import type { FlowEditorContext } from './flows/types'
 	import { cleanInputs } from './flows/utils'
 
-	import ScriptSchema from './ScriptSchema.svelte'
-
 	export let initialPath: string = ''
 	let pathError = ''
-
-	$: step = Number($page.url.searchParams.get('step')) || 1
 
 	async function createSchedule(path: string) {
 		const { cron, args, enabled } = $scheduleStore
@@ -126,10 +115,6 @@
 		goto(`/flows/get/${$flowStore.path}`)
 	}
 
-	async function changeStep(step: number) {
-		goto(`?step=${step}`)
-	}
-
 	flowStore.subscribe((flow: Flow) => {
 		if (flow) {
 			setQueryWithoutLoad($page.url, 'state', encodeState(flow))
@@ -173,18 +158,6 @@
 <div class="flex flex-col flex-1 h-full">
 	<!-- Nav between steps-->
 	<div class="justify-between flex flex-row w-full my-2 px-4 space-x-4 h-10">
-		<Breadcrumb>
-			<BreadcrumbItem>
-				<button on:click={() => changeStep(1)} class={step === 1 ? 'font-bold' : null}>
-					Flow Editor
-				</button>
-			</BreadcrumbItem>
-			<BreadcrumbItem>
-				<button on:click={() => changeStep(2)} class={step === 2 ? 'font-bold' : null}>
-					UI customisation
-				</button>
-			</BreadcrumbItem>
-		</Breadcrumb>
 		<div class="shrink h-full">
 			<button
 				class="flex flex-row items-center w-full h-full"
@@ -202,61 +175,35 @@
 			</button>
 		</div>
 		<div class="flex flex-row-reverse ml-2 space-x-reverse space-x-2">
-			{#if step == 1}
-				<Button disabled={pathError != ''} color="blue" size="sm" on:click={() => changeStep(2)}>
-					Next
-				</Button>
-				<Button disabled={pathError != ''} color="blue" size="sm" on:click={saveFlow}>Save</Button>
-				<FlowImportExportMenu />
+			<Button disabled={pathError != ''} color="blue" size="sm" on:click={saveFlow}>Save</Button>
+			<FlowImportExportMenu />
 
-				<Button
-					color="light"
-					size="sm"
-					variant="border"
-					on:click={() => {
-						const url = new URL('https://hub.windmill.dev/flows/add')
-						const openFlow = {
-							value: $flowStore.value,
-							summary: $flowStore.summary,
-							description: $flowStore.description,
-							schema: $flowStore.schema
-						}
-						url.searchParams.append('flow', btoa(JSON.stringify(openFlow)))
-						window.open(url, '_blank')?.focus()
-					}}
-				>
-					<Icon data={faGlobe} scale={0.8} class="inline mr-2" />
-					Publish to Hub
-				</Button>
-			{:else}
-				<button class="default-button px-6 self-end" on:click={saveFlow}>Save</button>
-				<button
-					class="default-button-secondary px-6 max-h-8"
-					on:click={async () => {
-						changeStep(1)
-					}}
-				>
-					Back
-				</button>
-			{/if}
+			<Button
+				color="light"
+				size="sm"
+				variant="border"
+				on:click={() => {
+					const url = new URL('https://hub.windmill.dev/flows/add')
+					const openFlow = {
+						value: $flowStore.value,
+						summary: $flowStore.summary,
+						description: $flowStore.description,
+						schema: $flowStore.schema
+					}
+					url.searchParams.append('flow', btoa(JSON.stringify(openFlow)))
+					window.open(url, '_blank')?.focus()
+				}}
+			>
+				<Icon data={faGlobe} scale={0.8} class="inline mr-2" />
+				Publish to Hub
+			</Button>
 		</div>
 	</div>
 
 	<!-- metadata -->
 
 	{#if $flowStateStore}
-		{#if step === 1}
-			<FlowEditor {initialPath} />
-		{:else if step === 2}
-			<CenteredPage>
-				<ScriptSchema
-					synchronizedHeader={false}
-					bind:summary={$flowStore.summary}
-					bind:description={$flowStore.description}
-					bind:schema={$flowStore.schema}
-				/>
-			</CenteredPage>
-		{/if}
+		<FlowEditor {initialPath} />
 	{:else}
 		<CenteredPage>Loading...</CenteredPage>
 	{/if}
