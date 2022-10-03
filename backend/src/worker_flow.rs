@@ -123,8 +123,8 @@ pub async fn update_flow_status_after_job_completion(
         .await?
         .unwrap_or(false);
 
-    let module = usize::try_from(old_status.step)
-        .ok()
+    let module_index = usize::try_from(old_status.step).ok();
+    let module = module_index
         .and_then(|i| old_status.modules.get(i))
         .unwrap_or(&old_status.failure_module);
 
@@ -243,7 +243,9 @@ pub async fn update_flow_status_after_job_completion(
         false if skip_loop_failures => !is_last_step,
         false
             if next_retry(
-                &flow_job.parse_raw_flow_retry().unwrap_or_default(),
+                &flow_job
+                    .parse_raw_flow_retry(module_index)
+                    .unwrap_or_default(),
                 &flow_job.parse_flow_status_retry().unwrap_or_default(),
             )
             .is_some() =>
@@ -652,7 +654,8 @@ async fn push_next_flow_job(
     }
 
     if matches!(&status_module, FlowStatusModule::Failure { .. }) {
-        if let Some((fail_count, retry_in)) = next_retry(&flow.retry, &status.retry) {
+        let retry = module.retry.as_ref().unwrap_or(&flow.retry);
+        if let Some((fail_count, retry_in)) = next_retry(retry, &status.retry) {
             tracing::debug!(
                 retry_in_seconds = retry_in.as_secs(),
                 fail_count = fail_count,
@@ -701,7 +704,8 @@ async fn push_next_flow_job(
             status_module = status.failure_module.clone();
 
             /* (retry feature) save the previous_result the first time this step is run */
-            if flow.retry.has_attempts() {
+            let retry = module.retry.as_ref().unwrap_or(&flow.retry);
+            if retry.has_attempts() {
                 sqlx::query(
                     "
                 UPDATE queue
@@ -722,7 +726,7 @@ async fn push_next_flow_job(
 
     /* (retry feature) save the previous_result the first time this step is run */
     } else if matches!(&status_module, FlowStatusModule::WaitingForPriorSteps)
-        && flow.retry.has_attempts()
+        && module.retry.as_ref().unwrap_or(&flow.retry).has_attempts()
         && status.retry.fail_count == 0
     {
         sqlx::query(
@@ -1036,8 +1040,12 @@ impl QueuedJob {
             .and_then(|v| serde_json::from_value::<FlowValue>(v.clone()).ok())
     }
 
-    pub fn parse_raw_flow_retry(&self) -> Option<Retry> {
-        self.parse_raw_flow().map(|module| module.retry)
+    pub fn parse_raw_flow_retry(&self, mod_index: Option<usize>) -> Option<Retry> {
+        self.parse_raw_flow().and_then(|module| {
+            mod_index
+                .and_then(|i| module.modules.get(i).map(|m| m.retry.clone()))
+                .unwrap_or(Some(module.retry))
+        })
     }
 
     pub fn parse_flow_status(&self) -> Option<FlowStatus> {

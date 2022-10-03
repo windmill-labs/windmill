@@ -1808,6 +1808,7 @@ mod tests {
                     stop_after_if: Default::default(),
                     summary: Default::default(),
                     suspend: Default::default(),
+                    retry: None,
                 },
                 FlowModule {
                     value: FlowModuleValue::ForloopFlow {
@@ -1829,12 +1830,14 @@ mod tests {
                             stop_after_if: Default::default(),
                             summary: Default::default(),
                             suspend: Default::default(),
+                            retry: None,
                         }],
                     },
                     input_transforms: Default::default(),
                     stop_after_if: Default::default(),
                     summary: Default::default(),
                     suspend: Default::default(),
+                    retry: None,
                 },
             ],
             ..Default::default()
