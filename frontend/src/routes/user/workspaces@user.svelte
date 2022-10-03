@@ -18,6 +18,7 @@
 	import Switch from '$lib/components/Switch.svelte'
 	import { faCrown, faUserCog } from '@fortawesome/free-solid-svg-icons'
 	import Icon from 'svelte-awesome'
+	import { Button } from '$lib/components/common'
 
 	let invites: WorkspaceInvite[] = []
 	let list_all_as_super_admin: boolean = false
@@ -177,13 +178,15 @@
 		<a class="mr-10" href="/user/settings">
 			<Icon data={faUserCog} class="mr-1" scale={1} />User settings</a
 		>
-		<button
-			class="default-button-secondary"
+		<Button
+			variant="border"
+			color="blue"
+			size="sm"
 			on:click={async () => {
 				logout()
 			}}
 		>
 			logout
-		</button>
+		</Button>
 	</div>
 </CenteredModal>

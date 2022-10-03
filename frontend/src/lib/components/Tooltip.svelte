@@ -58,6 +58,6 @@
 
 <style>
 	#tooltip {
-		@apply z-50 text-base font-normal text-gray-300 bg-zinc-800 p-4 rounded-xl whitespace-normal;
+		@apply z-50 text-base font-normal text-gray-300 bg-gray-800 p-4 rounded-xl whitespace-normal;
 	}
 </style>

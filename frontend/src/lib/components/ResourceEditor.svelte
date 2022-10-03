@@ -10,6 +10,7 @@
 	import ItemPicker from './ItemPicker.svelte'
 	import VariableEditor from './VariableEditor.svelte'
 	import Required from './Required.svelte'
+	import { Button } from './common'
 
 	import { workspaceStore } from '$lib/stores'
 	import ResourceTypePicker from './ResourceTypePicker.svelte'
@@ -107,6 +108,10 @@
 		}
 	}
 
+	function resourceAction() {
+		return resourceToEdit ? editResource() : createResource()
+	}
+
 	let inputCheck: { [id: string]: boolean } = {}
 
 	$: isValid = allTrue(inputCheck) ?? false
@@ -124,7 +129,7 @@
 		{#if step === 1}
 			<div class="flex flex-col gap-3	px-6 py-3 bg-gray-50 text-gray-700">
 				<div>
-					<span class="text-purple-500 text-2xs grow">{error ?? ''}</span>
+					<span class="text-red-600 text-2xs grow">{error ?? ''}</span>
 					<span class="mb-1 font-semibold text-gray-700">Path</span>
 					<Path
 						bind:error={pathError}
@@ -183,13 +188,16 @@
 								properties={resourceSchema.properties[fieldName]?.properties}
 								format={resourceSchema.properties[fieldName]?.format}
 							/>
-							<div class="pb-3 ml-2 relative">
-								<button
-									class="default-button-secondary min-w-min items-center leading-4 py-0"
+							<div class="pb-6 ml-2 relative">
+								<Button
+									variant="border"
+									color="blue"
+									size="sm"
+									btnClasses="min-w-min items-center leading-4 py-0"
 									on:click={() => {
 										pickForField = fieldName
 										itemPicker.openModal()
-									}}>insert variable</button
+									}}>Insert variable</Button
 								>
 							</div>
 						</div>
@@ -200,10 +208,9 @@
 			</div>
 		{/if}
 	</div>
-	<span slot="submission">
+	<span slot="submission" class="flex gap-4">
 		{#if step === 1}
-			<button
-				class="default-button px-4 py-2 font-semibold"
+			<Button
 				on:click={async () => {
 					await loadResourceType()
 					step = 2
@@ -211,29 +218,10 @@
 				disabled={selectedResourceType == undefined || pathError != ''}
 			>
 				Next
-			</button>
+			</Button>
 		{:else}
-			<button
-				class="default-button-secondary px-4 py-2 font-semibold"
-				on:click={() => {
-					step = 1
-				}}
-			>
-				Back
-			</button>
-			<button
-				disabled={!isValid}
-				class="default-button px-4 py-2 font-semibold"
-				on:click={() => {
-					if (resourceToEdit) {
-						editResource()
-					} else {
-						createResource()
-					}
-				}}
-			>
-				Save
-			</button>
+			<Button variant="border" on:click={() => (step = 1)}>Back</Button>
+			<Button on:click={resourceAction} disabled={!isValid}>Save</Button>
 		{/if}
 	</span>
 </Modal>
@@ -257,15 +245,16 @@
 		slot="submission"
 		class="flex flex-row-reverse w-full p-5 bg-white border-t border-gray-200 rounded-bl-lg rounded-br-lg"
 	>
-		<button
-			class="default-button-secondary"
-			type="button"
+		<Button
+			variant="border"
+			color="blue"
+			size="sm"
 			on:click={() => {
 				variableEditor.initNew()
 			}}
 		>
 			Create a new variable
-		</button>
+		</Button>
 		<div class="text-xs mr-2 align-middle">
 			The variable you were looking for does not exist yet?
 		</div>

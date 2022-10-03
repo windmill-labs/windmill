@@ -4,6 +4,7 @@
 	import { faChevronDown, faChevronUp, faMinus, faPlus } from '@fortawesome/free-solid-svg-icons'
 
 	import { setInputCat as computeInputCat, type InputCat } from '$lib/utils'
+	import { Button } from './common'
 	import { createEventDispatcher } from 'svelte'
 	import Icon from 'svelte-awesome'
 	import FieldHeader from './FieldHeader.svelte'
@@ -229,8 +230,11 @@
 								{:else}
 									<input type="text" bind:value={v} />
 								{/if}
-								<button
-									class="default-button-secondary mx-6"
+								<Button
+									variant="border"
+									color="red"
+									size="sm"
+									btnClasses="mx-6"
 									on:click={() => {
 										value = value.filter((el) => el != v)
 										if (value.length == 0) {
@@ -238,13 +242,16 @@
 										}
 									}}
 								>
-									<Icon data={faMinus} class="mb-1" />
-								</button>
+									<Icon data={faMinus} />
+								</Button>
 							</div>
 						{/each}
 					</div>
-					<button
-						class="default-button-secondary mt-1"
+					<Button
+						variant="border"
+						color="blue"
+						size="sm"
+						btnClasses="mt-1"
 						on:click={() => {
 							if (value == undefined) {
 								value = []
@@ -254,7 +261,7 @@
 					>
 						<Icon data={faPlus} class="mr-2" />
 						Add item
-					</button>
+					</Button>
 					<span class="ml-2">
 						{(value ?? []).length} item{(value ?? []).length > 1 ? 's' : ''}
 					</span>

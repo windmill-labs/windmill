@@ -9,6 +9,7 @@
 	import { workspaceStore } from '$lib/stores'
 	import Required from './Required.svelte'
 	import Tooltip from './Tooltip.svelte'
+	import { Button } from './common'
 
 	const dispatch = createEventDispatcher()
 
@@ -172,23 +173,11 @@
 		</div>
 	</div>
 
-	<button
-		slot="submission"
-		class={valid ? 'default-button' : 'default-button-disabled'}
-		type="button"
-		on:click={() => {
-			if (edit) {
-				updateVariable()
-			} else {
-				createVariable()
-			}
-		}}
+	<Button
+		size="sm"
+		on:click={() => (edit ? updateVariable() : createVariable())}
 		disabled={!valid || pathError != ''}
 	>
-		{#if edit}
-			Save
-		{:else}
-			Add a variable
-		{/if}
-	</button>
+		{edit ? 'Save' : 'Add a variable'}
+	</Button>
 </Modal>

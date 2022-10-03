@@ -14,8 +14,9 @@
 	<div class="flex flex-row flex-wrap gap-2 items-center mb-2 w-full">
 		{#each options as [label, val]}
 			<label
-				class:item-button-selected={val == value}
-				class="item-button text-center text-sm h-full p-2 grow whitespace-nowrap"
+				class="text-center text-sm border border-gray-300 h-full rounded-sm cursor-pointer p-2 
+				grow whitespace-nowrap hover:border-gray-600 hover:bg-gray-100
+				{val === value ? '!bg-blue-50 !border-blue-500' : ''}"
 			>
 				<input
 					type="radio"

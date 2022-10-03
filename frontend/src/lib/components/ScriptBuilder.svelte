@@ -18,6 +18,7 @@
 	import Tooltip from './Tooltip.svelte'
 	import UnsavedConfirmationModal from './common/confirmationModal/UnsavedConfirmationModal.svelte'
 	import { dirtyStore } from './common/confirmationModal/dirtyStore'
+	import { Button } from './common'
 
 	export let script: Script
 	export let initialPath: string = ''
@@ -109,37 +110,37 @@
 			</div>
 			<div class="flex flex-row-reverse ml-2">
 				{#if step != 3}
-					<button
-						disabled={step == 1 && pathError != ''}
-						class="default-button px-6 max-h-8"
-						on:click={() => {
-							changeStep(step + 1)
-						}}
+					<Button
+						size="sm"
+						disabled={step === 1 && pathError !== ''}
+						on:click={() => changeStep(step + 1)}
 					>
 						Next
-					</button>
+					</Button>
 				{:else}
-					<button class="default-button px-6 self-end" on:click={editScript}>Save</button>
+					<Button size="sm" on:click={editScript}>Save</Button>
 				{/if}
 				{#if step > 1}
-					<button
-						class="default-button-secondary px-6 max-h-8 mr-2"
-						on:click={async () => {
-							changeStep(step - 1)
-						}}
+					<Button
+						variant="border"
+						size="sm"
+						btnClasses="mr-2"
+						on:click={() => changeStep(step - 1)}
 					>
 						Back
-					</button>
+					</Button>
 				{/if}
 				{#if step == 2}
-					<button
-						class="default-button-secondary px-6 max-h-8 mr-2"
+					<Button
+						variant="border"
+						size="sm"
+						btnClasses="mr-2"
 						on:click={async () => {
 							editScript()
 						}}
 					>
 						Save (commit)
-					</button>
+					</Button>
 				{/if}
 			</div>
 		</div>

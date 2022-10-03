@@ -12,7 +12,6 @@
 	import type { Resource, ResourceType } from '$lib/gen'
 	import PageHeader from '$lib/components/PageHeader.svelte'
 	import ResourceEditor from '$lib/components/ResourceEditor.svelte'
-	import Button from '$lib/components/Button.svelte'
 	import TableCustom from '$lib/components/TableCustom.svelte'
 	import Modal from '$lib/components/Modal.svelte'
 	import Highlight from 'svelte-highlight'
@@ -39,8 +38,8 @@
 	import Required from '$lib/components/Required.svelte'
 	import AppConnect from '$lib/components/AppConnect.svelte'
 	import { page } from '$app/stores'
-
 	import { onMount } from 'svelte'
+	import { Button } from '$lib/components/common'
 	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
 	import Alert from '$lib/components/common/alert/Alert.svelte'
 	import Badge from '$lib/components/common/badge/Badge.svelte'
@@ -125,6 +124,15 @@
 		}
 	}
 
+	const startNewType = () => {
+		resourceViewerTitle = `Create resource type`
+		newResourceTypeName = 'my_resource_type'
+		newResourceTypeSchema = emptySchema()
+		newResourceTypeDescription = 'my description'
+		typeModalMode = 'create'
+		resourceViewer.openModal()
+	}
+
 	$: {
 		if ($workspaceStore && $userStore) {
 			loadResources()
@@ -146,18 +154,12 @@
 <CenteredPage>
 	<PageHeader title="Resources">
 		<div class="flex flex-row space-x-4">
-			<button
-				class="default-button"
-				on:click={() => {
-					appConnect.open()
-				}}><Icon class="text-white mb-1" data={faChain} scale={0.9} /> &nbsp; Connect an API</button
-			>
-			<button
-				class="default-button"
-				on:click={() => {
-					resourceEditor?.initNew()
-				}}><Icon class="text-white mb-1" data={faPlus} scale={0.9} /> &nbsp; Add a resource</button
-			>
+			<Button size="sm" startIcon={{ icon: faChain }} on:click={() => appConnect.open()}>
+				Connect an API
+			</Button>
+			<Button size="sm" startIcon={{ icon: faPlus }} on:click={() => resourceEditor?.initNew()}>
+				Add a resource
+			</Button>
 		</div>
 	</PageHeader>
 
@@ -253,18 +255,7 @@
 	</div>
 	<div class="py-10" />
 	<PageHeader title="Resources types" primary={false}>
-		<button
-			class="default-button"
-			on:click={() => {
-				resourceViewerTitle = `Create resource type`
-
-				newResourceTypeName = 'my_resource_type'
-				newResourceTypeSchema = emptySchema()
-				newResourceTypeDescription = 'my description'
-				typeModalMode = 'create'
-				resourceViewer.openModal()
-			}}><Icon class="text-white mb-1" data={faPlus} scale={0.9} /> &nbsp; Add a type</button
-		>
+		<Button size="sm" startIcon={{ icon: faPlus }} on:click={startNewType}>Add a type</Button>
 	</PageHeader>
 
 	<TableCustom>
@@ -292,13 +283,14 @@
 						<td>
 							{#if canWrite}
 								<Button
-									category="delete"
-									class="mx-2"
-									on:click={() => {
-										handleDeleteResourceType(name)
-									}}
-									disabled={!($userStore?.is_admin ?? false)}
-								/>
+									size="sm"
+									color="red"
+									startIcon={{ icon: faTrash }}
+									on:click={() => handleDeleteResourceType(name)}
+									disabled={!($userStore?.is_admin || false)}
+								>
+									Delete
+								</Button>
 							{/if}
 						</td>
 					</tr>
@@ -343,8 +335,6 @@
 				><h3 class="mt-4 font-semibold text-gray-700">Description</h3>
 				<input type="text" bind:value={newResourceTypeDescription} /></label
 			>
-			<!-- svelte-ignore a11y-label-has-associated-control -->
-			<!-- <label>Schema <AutosizedTextarea minRows={10} bind:value={newResourceTypeSchema} /></label> -->
 			<h3 class="mt-4 mb-2 font-semibold text-gray-700">Schema</h3>
 			<SchemaEditor bind:schema={newResourceTypeSchema} />
 		{:else if typeModalMode === 'view'}
@@ -355,9 +345,7 @@
 	</div>
 	<div slot="submission">
 		{#if typeModalMode === 'create'}
-			<button class="default-button px-4 py-2 font-semibold" on:click={addResourceType}>
-				Save
-			</button>
+			<Button on:click={addResourceType}>Save</Button>
 		{/if}
 	</div>
 </Modal>
