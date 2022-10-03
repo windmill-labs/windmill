@@ -366,11 +366,13 @@
 
 		if (shouldBindKey) {
 			editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, function () {
+				code = getCode()
 				format()
 			})
 
 			editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.Enter, function () {
 				if (cmdEnterAction) {
+					code = getCode()
 					cmdEnterAction()
 				}
 			})

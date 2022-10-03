@@ -36,21 +36,21 @@
 					</Tooltip>
 				</span>
 
-				<PropPickerWrapper
-					{pickableProperties}
-					on:select={({ detail }) => {
-						console.log(detail)
-						console.log('test')
-						editor?.insertAtCursor(detail)
-					}}
-				>
-					<SimpleEditor
-						bind:this={editor}
-						lang="javascript"
-						bind:code={$flowStore.value.modules[index].value.iterator.expr}
-						class="small-editor"
-					/>
-				</PropPickerWrapper>
+				<div class="border w-full">
+					<PropPickerWrapper
+						{pickableProperties}
+						on:select={({ detail }) => {
+							editor?.insertAtCursor(detail)
+						}}
+					>
+						<SimpleEditor
+							bind:this={editor}
+							lang="javascript"
+							bind:code={$flowStore.value.modules[index].value.iterator.expr}
+							class="small-editor"
+						/>
+					</PropPickerWrapper>
+				</div>
 				<span class="mb-2 text-sm font-bold">Skip failures</span>
 
 				<Toggle

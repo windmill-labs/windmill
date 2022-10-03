@@ -206,7 +206,6 @@ export function getStepPropPicker(
 	const flowInput = schemaToObject(flowInputSchema, args)
 	const results = getPreviousResults(flowState.modules, parentIndex)
 
-	console.log(parentIndex)
 	const lastResult =
 		parentIndex == 0
 			? flowInput
@@ -228,7 +227,7 @@ export function getStepPropPicker(
 		}
 
 		const innerResults = getPreviousResults(
-			flowState.modules[parentIndex].childFlowModules,
+			flowState.modules[parentIndex]?.childFlowModules,
 			childIndex
 		)
 
