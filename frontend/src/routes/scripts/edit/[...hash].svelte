@@ -31,6 +31,7 @@
 						hash: $page.params.hash
 				  })
 		initialPath = script!.path
+		$dirtyStore = false
 	}
 
 	$: {
@@ -38,7 +39,6 @@
 			loadScript()
 		}
 	}
-	$dirtyStore = false
 
 </script>
 

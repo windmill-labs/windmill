@@ -45,6 +45,7 @@
 		initialPath = flow.path
 
 		initFlow(flow)
+		$dirtyStore = false
 	}
 
 	$: {
@@ -53,7 +54,6 @@
 		}
 	}
 
-	$dirtyStore = false
 
 </script>
 
