@@ -222,7 +222,7 @@
 										</div>
 									</TabContent>
 
-									<TabContent value="suspended" class="flex flex-col flex-1 h-full">
+									<TabContent value="suspend" class="flex flex-col flex-1 h-full">
 										<div class="p-4 overflow-y-auto">
 											<FlowModuleSuspend bind:flowModule />
 										</div>

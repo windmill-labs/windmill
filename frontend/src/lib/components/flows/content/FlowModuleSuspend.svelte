@@ -21,10 +21,12 @@
 		right: 'Suspend flow execution until events received'
 	}}
 />
-<span class="text-xs font-bold">Number of events to wait for</span>
+<div>
+	<span class="text-xs font-bold">Number of events to wait for</span>
 
-{#if flowModule.suspend}
-	<input bind:value={flowModule.suspend} type="number" min="1" placeholder="1" />
-{:else}
-	<input type="number" disabled />
-{/if}
+	{#if flowModule.suspend}
+		<input bind:value={flowModule.suspend} type="number" min="1" placeholder="1" />
+	{:else}
+		<input type="number" disabled />
+	{/if}
+</div>
