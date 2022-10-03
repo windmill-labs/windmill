@@ -38,7 +38,7 @@
 	export let automaticLayout = true
 	export let extraLib: string = ''
 	export let extraLibPath: string = ''
-	export let shouldBindKey: boolean = true
+	export let shouldBindKey: boolean = false
 
 	const dispatch = createEventDispatcher()
 
