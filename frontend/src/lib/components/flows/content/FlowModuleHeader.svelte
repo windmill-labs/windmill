@@ -3,9 +3,11 @@
 	import { isEmptyFlowModule } from '$lib/components/flows/flowStateUtils'
 
 	import type { FlowModule } from '$lib/gen'
+	import { classNames } from '$lib/utils'
 
-	import { faCodeBranch, faSave, faTrashAlt } from '@fortawesome/free-solid-svg-icons'
+	import { faCodeBranch, faSave, faStop, faTrashAlt } from '@fortawesome/free-solid-svg-icons'
 	import { createEventDispatcher, getContext } from 'svelte'
+	import Icon from 'svelte-awesome'
 	import type { FlowEditorContext } from '../types'
 	import type { FlowModuleWidthContext } from './FlowModule.svelte'
 	import RemoveStepConfirmationModal from './RemoveStepConfirmationModal.svelte'
@@ -23,6 +25,18 @@
 </script>
 
 <div class="flex flex-row space-x-2">
+	<span
+		class={classNames(
+			'whitespace-nowrap text-sm font-medium mr-2 px-2.5 py-0.5 rounded cursor-pointer flex items-center',
+			module.stop_after_if
+				? 'bg-sky-100 text-sky-800 hover:bg-sky-200'
+				: 'bg-gray-100 text-gray-800 hover:bg-gray-200'
+		)}
+		on:click={() => dispatch('toggleStopAfterIf')}
+	>
+		<Icon data={faStop} class="mr-2" scale={0.8} />
+		{module.stop_after_if ? `Early stop` : 'Early stop'}
+	</span>
 	{#if module.value.type === 'script' && !shouldPick}
 		<Button
 			size="xs"

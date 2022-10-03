@@ -7,8 +7,8 @@
 	export let code: string = ''
 	export let language: 'python3' | 'deno' | 'go' | undefined
 
-	function getLang() {
-		switch (language) {
+	function getLang(lang: string | undefined) {
+		switch (lang) {
 			case 'python3':
 				return python
 			case 'deno':
@@ -19,6 +19,8 @@
 				return python
 		}
 	}
+
+	$: lang = getLang(language)
 </script>
 
-<Highlight language={getLang()} {code} />
+<Highlight language={lang} {code} />
