@@ -141,15 +141,16 @@
 		<div class="text-xs mr-2 align-middle">
 			The variable you were looking for does not exist yet?
 		</div>
-		<button
-			class="default-button-secondary"
-			type="button"
+		<Button
+			variant="border"
+			color="blue"
+			size="sm"
 			on:click={() => {
 				variableEditor.initNew()
 			}}
 		>
 			Create a new variable
-		</button>
+		</Button>
 	</div>
 </ItemPicker>
 
@@ -180,15 +181,16 @@
 		<div class="text-xs mr-2 align-middle">
 			The resource you were looking for does not exist yet?
 		</div>
-		<button
-			class="default-button-secondary"
-			type="button"
+		<Button
+			variant="border"
+			color="blue"
+			size="sm"
 			on:click={() => {
 				resourceEditor.initNew()
 			}}
 		>
 			Create a new resource
-		</button>
+		</Button>
 	</div>
 </ItemPicker>
 

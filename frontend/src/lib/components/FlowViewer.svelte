@@ -1,16 +1,14 @@
 <script lang="ts">
 	import Highlight from 'svelte-highlight'
 	import json from 'svelte-highlight/languages/json'
-
+	import { faClipboard } from '@fortawesome/free-solid-svg-icons'
 	import type { FlowValue } from '$lib/gen'
-	import Tabs from './common/tabs/Tabs.svelte'
-	import Tab from './common/tabs/Tab.svelte'
-	import TabContent from './common/tabs/TabContent.svelte'
-
+	import { Tab, Tabs, TabContent, Button } from './common'
 	import SchemaViewer from './SchemaViewer.svelte'
 	import FieldHeader from './FieldHeader.svelte'
 	import SvelteMarkdown from 'svelte-markdown'
 	import FlowModulesViewer from './FlowModulesViewer.svelte'
+	import { copyToClipboard } from '../utils'
 
 	export let flow: {
 		summary: string
@@ -82,14 +80,16 @@
 		</TabContent>
 		<TabContent value="json">
 			<div class="relative">
-				<button
-					on:click={async () => {
-						await navigator.clipboard.writeText(JSON.stringify(flowFiltered, null, 4))
-					}}
-					class="absolute default-secondary-button-v2 bg-white/30 right-0 my-2 ml-4"
+				<Button
+					on:click={() => copyToClipboard(JSON.stringify(flowFiltered, null, 4))}
+					color="dark"
+					variant="border"
+					size="sm"
+					startIcon={{ icon: faClipboard }}
+					btnClasses="absolute top-2 right-2"
 				>
-					copy content</button
-				>
+					Copy content
+				</Button>
 				<Highlight language={json} code={JSON.stringify(flowFiltered, null, 4)} />
 			</div>
 		</TabContent>

@@ -1,14 +1,12 @@
 <script lang="ts">
 	import { sendUserToast } from '$lib/utils'
 	import Switch from './Switch.svelte'
-
 	import type Modal from './Modal.svelte'
 	import { createEventDispatcher } from 'svelte'
 	import { UserService } from '$lib/gen'
+	import { Button } from './common'
 
 	const dispatch = createEventDispatcher()
-
-	let valid = true
 
 	let modal: Modal
 
@@ -53,14 +51,14 @@
 	<input on:keyup={handleKeyUp} placeholder="name" bind:value={name} />
 	<input on:keyup={handleKeyUp} placeholder="company" bind:value={company} />
 
-	<button
-		class="ml-4 w-40 {valid ? 'default-button' : 'default-button-disabled'}"
-		type="button"
-		on:click={() => {
-			addUser()
-		}}
+	<Button
+		variant="contained"
+		color="blue"
+		size="sm"
+		btnClasses="!ml-4 !w-40"
+		on:click={addUser}
 		disabled={email == undefined || password == undefined}
 	>
 		Add
-	</button>
+	</Button>
 </div>

@@ -7,19 +7,28 @@
 		faShare,
 		faTrash
 	} from '@fortawesome/free-solid-svg-icons'
-	import { createEventDispatcher } from 'svelte'
 	import Icon from 'svelte-awesome'
 
 	export let category: 'delete' | 'list' | 'run' | 'add' | 'edit' | 'archive' | 'share'
 	export let disabled: boolean = false
-	const dispatch = createEventDispatcher()
+
+	const colors = {
+		red: 'bg-transparent hover:bg-red-600 text-red-600 font-normal hover:text-white border-red-600 hover:border-transparent rounded',
+		blue: 'hover:bg-blue-500 hover:text-white'
+	}
+
+	const getCategoryClasses = () => {
+		if (category === 'delete' || category === 'archive') return colors.red
+		else if (category === 'edit' || category === 'list' || category === 'share') return colors.blue
+		return ''
+	}
 </script>
 
 <button
-	class="{$$props.class} inline-flex items-center default-button py-0 px-1 {category} default-button-secondary"
-	on:click={() => {
-		dispatch('click')
-	}}
+	class="{$$props.class} inline-flex items-center bg-blue-500 hover:bg-blue-700 text-white 
+	font-bold py-1 px-2 border rounded border-blue-500 hover:border-blue-700 w-min min-w-max 
+	text-sm {getCategoryClasses()}"
+	on:click
 	{disabled}
 >
 	<div class="inline-flex items-center justify-center">
@@ -56,19 +65,3 @@
 		{/if}
 	</div>
 </button>
-
-<style>
-	.delete,
-	.archive {
-		@apply bg-transparent hover:bg-red-600;
-		@apply text-red-600 font-normal hover:text-white;
-		@apply border-red-600 hover:border-transparent rounded;
-	}
-
-	.edit,
-	.play,
-	.list,
-	.share {
-		@apply hover:bg-blue-500 hover:text-white;
-	}
-</style>

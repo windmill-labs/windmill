@@ -1,12 +1,12 @@
 <script lang="ts">
 	import { userStore, workspaceStore } from '$lib/stores'
-
 	import Modal from './Modal.svelte'
 	import { type Group, GroupService, UserService } from '$lib/gen'
 	import AutoComplete from 'simple-svelte-autocomplete'
 	import PageHeader from './PageHeader.svelte'
 	import TableCustom from './TableCustom.svelte'
 	import { canWrite } from '$lib/utils'
+	import { Button } from './common'
 
 	let name = ''
 	let modal: Modal
@@ -62,7 +62,15 @@
 			{#if can_write}
 				<div>
 					<AutoComplete items={usernames} bind:selectedItem={username} />
-					<button class="default-button ml-4" on:click={addToGroup}>Add member</button>
+					<Button
+						variant="contained"
+						color="blue"
+						size="sm"
+						btnClasses="!ml-4"
+						on:click={addToGroup}
+					>
+						Add member
+					</Button>
 				</div>
 			{/if}
 		</PageHeader>

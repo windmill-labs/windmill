@@ -8,6 +8,7 @@
 	import { createEventDispatcher } from 'svelte'
 	import AutoComplete from 'simple-svelte-autocomplete'
 	import { workspaceStore } from '$lib/stores'
+	import { Button } from './common'
 
 	const dispatch = createEventDispatcher()
 
@@ -116,10 +117,9 @@
 				<span class="text-sm text-gray-700">Editor</span>
 				<input class="block mt-4" type="checkbox" bind:checked={write} />
 			</label>
-			<button
-				class="text-xs default-button max-h-6 place-self-end ml-2"
-				on:click={() => addAcl(newOwner, write)}>Add permission</button
-			>
+			<Button size="sm" btnClasses="ml-2" on:click={() => addAcl(newOwner, write)}>
+				Add permission
+			</Button>
 		</div>
 		<TableCustom>
 			<tr slot="header-row">
@@ -133,8 +133,8 @@
 						<td>{owner}</td>
 						<td>{write}</td>
 						<td
-							><button class="default-button-secondary" on:click={() => deleteAcl(owner)}
-								>Delete</button
+							><Button variant="border" color="blue" size="sm" on:click={() => deleteAcl(owner)}
+								>Delete</Button
 							></td
 						>
 					</tr>

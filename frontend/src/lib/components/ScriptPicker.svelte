@@ -13,6 +13,7 @@
 
 	import { getScriptByPath } from '$lib/utils'
 	import RadioButton from './RadioButton.svelte'
+	import { Button } from './common'
 
 	export let scriptPath: string | undefined = undefined
 	export let allowFlow = false
@@ -62,27 +63,37 @@
 	}}
 />
 
-<div class="flex flex-row items-center space-x-5">
-	<div class="w-80">
+<div class="flex flex-row flex-wrap items-center gap-4">
+	<div class="w-80 -mb-2">
 		{#if options.length > 1}
 			<RadioButton bind:value={itemKind} {options} />
 		{/if}
 	</div>
 
-	<input type="text" value={scriptPath ?? 'No path chosen yet'} disabled />
-	<button class="default-button text-gray-100" on:click={() => itemPicker.openModal()}
-		>Pick a {itemKind} path<Icon class="mx-4" data={faSearch} /></button
-	>
-	{#if scriptPath != undefined && scriptPath != ''}
-		<button
-			class="text-xs text-blue-500"
+	<div class="flex items-center grow gap-4">
+		<input type="text" value={scriptPath ?? 'No path chosen yet'} disabled />
+		<Button
+			size="sm"
+			endIcon={{ icon: faSearch }}
+			btnClasses="mx-auto whitespace-nowrap"
+			on:click={() => itemPicker.openModal()}
+		>
+			Pick a {itemKind} path
+		</Button>
+	</div>
+	{#if scriptPath !== undefined && scriptPath !== ''}
+		<Button
+			color="light"
+			size="xs"
 			on:click={async () => {
 				const { language, content } = await getScriptByPath(scriptPath ?? '')
 				code = content
 				lang = language
 				modalViewer.openModal()
-			}}>show code</button
+			}}
 		>
+			Show code
+		</Button>
 	{/if}
 </div>
 

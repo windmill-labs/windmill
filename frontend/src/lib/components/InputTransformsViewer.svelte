@@ -13,7 +13,7 @@
 			<span class="font-black text-gray-700">{key}</span>: {#if val.type == 'static'}<ObjectViewer
 					json={val.value}
 				/>{:else}
-				<span class="inline-highlight">
+				<span class="text-xs">
 					<Highlight offsetTop={0} language={typescript} code={val.expr} />
 				</span>
 			{/if}
