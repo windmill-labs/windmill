@@ -364,18 +364,6 @@
 			editorConfig(model, code, lang, automaticLayout)
 		)
 
-		if (shouldBindKey) {
-			editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, function () {
-				format()
-			})
-
-			editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.Enter, function () {
-				if (cmdEnterAction) {
-					cmdEnterAction()
-				}
-			})
-		}
-
 		let timeoutModel: NodeJS.Timeout | undefined = undefined
 		editor.onDidChangeModelContent((event) => {
 			timeoutModel && clearTimeout(timeoutModel)
@@ -387,6 +375,17 @@
 
 		editor.onDidFocusEditorText(() => {
 			dispatch('focus')
+
+			editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, function () {
+				code = getCode()
+				shouldBindKey && format && format()
+			})
+
+			editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.Enter, function () {
+				code = getCode()
+				shouldBindKey && cmdEnterAction && cmdEnterAction()
+			})
+
 			if (
 				!websocketAlive.black &&
 				!websocketAlive.deno &&

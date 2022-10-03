@@ -114,7 +114,7 @@
 			</div>
 		</div>
 		<div class="bg-white grid grid-cols-2 gap-x-2 col-span-2">
-			<div class="w-full text-gray-500 text-xs text-left flex flex-col gap-1 mx-4">
+			<div class="w-full text-gray-500 text-xs text-left flex flex-col gap-1 mx-4 overflow-hidden">
 				<div>
 					<Icon class="text-gray-700" data={faUser} scale={SMALL_ICON_SCALE} /><span class="mx-2">
 						By {job.created_by}</span

@@ -1,7 +1,6 @@
 <script lang="ts">
 	import { JobService, type Flow } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
-
 	import { faClose, faPlay, faRefresh } from '@fortawesome/free-solid-svg-icons'
 	import { Button } from './common'
 	import { createEventDispatcher, getContext, onDestroy } from 'svelte'
@@ -14,6 +13,7 @@
 	import SchemaForm from './SchemaForm.svelte'
 
 	import FlowStatusViewer from '../components/FlowStatusViewer.svelte'
+	import { Button } from './common'
 	export let previewMode: 'upTo' | 'whole'
 
 	let jobId: string | undefined = undefined
@@ -85,10 +85,45 @@
 			<Icon data={faClose} />
 		</Button>
 	</div>
-	<div class="pb-4 h-full max-h-1/2 overflow-auto">
-		<div class="mt-4">
-			<SchemaForm schema={$flowStore.schema} bind:isValid bind:args={$previewArgs} />
-		</div>
+	<div class="grow pb-8 max-h-1/2 overflow-auto">
+		<SchemaForm
+			class="h-full pt-4"
+			schema={$flowStore.schema}
+			bind:isValid
+			bind:args={$previewArgs}
+		/>
+	</div>
+	<div class="w-full pt-1">
+		{#if intervalState === 'running'}
+			<Button
+				disabled={!isValid}
+				color="red"
+				btnClasses="w-full"
+				on:click={async () => {
+					intervalState = 'canceled'
+					try {
+						jobId &&
+							(await JobService.cancelQueuedJob({
+								workspace: $workspaceStore ?? '',
+								id: jobId,
+								requestBody: {}
+							}))
+					} catch {}
+				}}
+				size="md"
+			>
+				Cancel
+			</Button>
+		{:else}
+			<Button
+				disabled={!isValid}
+				btnClasses="w-full"
+				on:click={() => runPreview($previewArgs)}
+				size="md"
+			>
+				{`Run${intervalState === 'done' ? ' again' : ''}`}
+			</Button>
+		{/if}
 	</div>
 	{#if intervalState === 'running'}
 		<Button

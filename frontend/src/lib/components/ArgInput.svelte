@@ -42,12 +42,13 @@
 	let seeEditable: boolean = enum_ != undefined || pattern != undefined
 	const dispatch = createEventDispatcher()
 
-	$: minHeight = `${1 + minRows * 1.2}em`
 	$: maxHeight = maxRows ? `${1 + maxRows * 1.2}em` : `auto`
 
 	$: validateInput(pattern, value)
 
 	let error: string = ''
+
+	let el: HTMLElement | undefined = undefined
 
 	export let editor: SimpleEditor | undefined = undefined
 
@@ -277,9 +278,16 @@
 					</div>
 				{:else}
 					<textarea
+						bind:this={el}
+						on:focus
 						{disabled}
-						style="min-height: {minHeight}; max-height: {maxHeight}"
-						on:input={async () => recomputeRowSize(rawValue ?? '')}
+						style="max-height: {maxHeight}"
+						on:input={(e) => {
+							if (el) {
+								el.style.height = '5px'
+								el.style.height = el.scrollHeight + 'px'
+							}
+						}}
 						class="col-span-10 {valid
 							? ''
 							: 'border border-red-700 border-opacity-30 focus:border-red-700 focus:border-opacity-30 bg-red-100'}"
@@ -325,17 +333,21 @@
 				/>
 			{:else if inputCat == 'string'}
 				<textarea
+					bind:this={el}
 					on:focus={() => dispatch('focus')}
 					on:blur={() => dispatch('blur')}
 					{disabled}
-					style="height: {minHeight}; max-height: {maxHeight}"
+					style="height: 30px; max-height: {maxHeight}"
 					class="col-span-10 {valid
 						? ''
 						: 'border border-red-700 border-opacity-30 focus:border-red-700 focus:border-opacity-30 bg-red-100'}"
 					placeholder={defaultValue ?? ''}
 					bind:value
 					on:input={async () => {
-						recomputeRowSize(value)
+						if (el) {
+							el.style.height = '30px'
+							el.style.height = el.scrollHeight + 'px'
+						}
 						dispatch('input', { rawValue: value, isRaw: false })
 					}}
 				/>

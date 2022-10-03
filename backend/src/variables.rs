@@ -15,6 +15,7 @@ use crate::{
     oauth2::{AllClients, _refresh_token},
     users::Authed,
     utils::StripPath,
+    BaseUrl,
 };
 use axum::{
     extract::{Extension, Path, Query},
@@ -86,10 +87,12 @@ pub fn get_reserved_variables(
     username: &str,
     job_id: &str,
     permissioned_as: &str,
+    base_url: &str,
     path: Option<String>,
+    flow_id: Option<String>,
     flow_path: Option<String>,
     schedule_path: Option<String>,
-) -> [ContextualVariable; 9] {
+) -> [ContextualVariable; 11] {
     [
         ContextualVariable {
             name: "WM_WORKSPACE".to_string(),
@@ -114,6 +117,11 @@ pub fn get_reserved_variables(
             description: "Username of the user that executed the current script".to_string(),
         },
         ContextualVariable {
+            name: "WM_BASE_URL".to_string(),
+            value: base_url.to_string(),
+            description: "base url of this instance".to_string(),
+        },
+        ContextualVariable {
             name: "WM_JOB_ID".to_string(),
             value: job_id.to_string(),
             description: "Job id of the current script".to_string(),
@@ -122,6 +130,11 @@ pub fn get_reserved_variables(
             name: "WM_JOB_PATH".to_string(),
             value: path.unwrap_or_else(|| "".to_string()),
             description: "Path of the script or flow being run if any".to_string(),
+        },
+        ContextualVariable {
+            name: "WM_FLOW_JOB_ID".to_string(),
+            value: flow_id.unwrap_or_else(|| "".to_string()),
+            description: "Job id of the encapsulating flow if the job is a flow step".to_string(),
         },
         ContextualVariable {
             name: "WM_FLOW_PATH".to_string(),
@@ -145,6 +158,7 @@ pub fn get_reserved_variables(
 
 async fn list_contextual_variables(
     Path(w_id): Path<String>,
+    Extension(base_url): Extension<Arc<BaseUrl>>,
     Authed { username, email, .. }: Authed,
 ) -> JsonResult<Vec<ContextualVariable>> {
     Ok(Json(
@@ -155,7 +169,9 @@ async fn list_contextual_variables(
             &username,
             "017e0ad5-f499-73b6-5488-92a61c5196dd",
             format!("u/{username}").as_str(),
+            &base_url.0,
             Some("u/user/script_path".to_string()),
+            Some("017e0ad5-f499-73b6-5488-92a61c5196dd".to_string()),
             Some("u/user/encapsulating_flow_path".to_string()),
             Some("u/user/triggering_flow_path".to_string()),
         )

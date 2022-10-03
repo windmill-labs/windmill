@@ -27,7 +27,7 @@
 	import { flowStore } from '$lib/components/flows/flowStore'
 	import SchemaForm from '$lib/components/SchemaForm.svelte'
 
-	import { RawScript, type Flow, type FlowModule } from '$lib/gen'
+	import { RawScript, type FlowModule } from '$lib/gen'
 	import FlowCard from '../common/FlowCard.svelte'
 	import FlowModuleHeader from './FlowModuleHeader.svelte'
 	import { flowStateStore, type FlowModuleState } from '../flowState'
@@ -35,16 +35,17 @@
 	import PropPickerWrapper from '../propPicker/PropPickerWrapper.svelte'
 	import { getContext, setContext } from 'svelte'
 	import type { FlowEditorContext } from '../types'
-	import FlowModuleAdvancedSettings from './FlowModuleAdvancedSettings.svelte'
 	import { loadSchemaFromModule } from '../utils'
 	import { writable, type Writable } from 'svelte/store'
 	import FlowModuleScript from './FlowModuleScript.svelte'
+	import FlowModuleEarlyStop from './FlowModuleEarlyStop.svelte'
+	import FlowModuleSuspend from './FlowModuleSuspend.svelte'
 
-	const { selectedId, select } = getContext<FlowEditorContext>('FlowEditorContext')
+	const { selectedId, select, previewArgs } = getContext<FlowEditorContext>('FlowEditorContext')
 
 	export let flowModule: FlowModule
-	export let previewArgs: Record<string, any> = {}
 	export let flowModuleState: FlowModuleState
+	export let failureModule: boolean
 
 	$: [parentIndex, childIndex] = $selectedId.split('-').map(Number)
 
@@ -54,12 +55,14 @@
 	let selected = 'inputs'
 
 	$: shouldPick = isEmptyFlowModule(flowModule)
-	$: stepPropPicker = getStepPropPicker(
-		$selectedId.split('-').map(Number),
-		$flowStore.schema,
-		$flowStateStore,
-		previewArgs
-	)
+	$: stepPropPicker = failureModule
+		? { pickableProperties: { previous_result: { error: 'the error message' } }, extraLib: '' }
+		: getStepPropPicker(
+				$selectedId.split('-').map(Number),
+				$flowStore.schema,
+				$flowStateStore,
+				$previewArgs
+		  )
 
 	function onKeyDown(event: KeyboardEvent) {
 		if ((event.ctrlKey || event.metaKey) && event.key == 'Enter') {
@@ -109,6 +112,7 @@
 			<FlowModuleHeader
 				bind:module={flowModule}
 				on:delete
+				on:toggleStopAfterIf={() => (selected = 'early-stop')}
 				on:fork={() => apply(fork, flowModule)}
 				on:createScriptFromInlineScript={() => {
 					apply(createScriptFromInlineScript, {
@@ -136,6 +140,7 @@
 						kind: e.detail.kind,
 						subkind: e.detail.subkind
 					})}
+				{failureModule}
 			/>
 		{:else}
 			{#if flowModule.value.type === 'rawscript'}
@@ -184,13 +189,14 @@
 							<Tab value="inputs">Inputs</Tab>
 							<Tab value="test">Test</Tab>
 							{#if !$selectedId.includes('failure')}
-								<Tab value="advanced">Advanced</Tab>
+								<Tab value="early-stop">Early Stop</Tab>
+								<Tab value="suspend">Suspend</Tab>
 							{/if}
 
 							<svelte:fragment slot="content">
 								<div class="overflow-hidden bg-white" style="height:calc(100% - 32px);">
 									<TabContent value="inputs" class="flex flex-col flex-1 h-full">
-										<PropPickerWrapper bind:pickableProperties={stepPropPicker.pickableProperties}>
+										<PropPickerWrapper pickableProperties={stepPropPicker.pickableProperties}>
 											<!-- <pre class="text-xs">{JSON.stringify($flowStateStore, null, 4)}</pre> -->
 											<SchemaForm
 												schema={flowModuleState.schema}
@@ -210,9 +216,15 @@
 										/>
 									</TabContent>
 
-									<TabContent value="advanced" class="flex flex-col flex-1 h-full">
+									<TabContent value="early-stop" class="flex flex-col flex-1 h-full">
 										<div class="p-4 overflow-y-auto">
-											<FlowModuleAdvancedSettings bind:flowModule />
+											<FlowModuleEarlyStop bind:flowModule />
+										</div>
+									</TabContent>
+
+									<TabContent value="suspend" class="flex flex-col flex-1 h-full">
+										<div class="p-4 overflow-y-auto">
+											<FlowModuleSuspend bind:flowModule />
 										</div>
 									</TabContent>
 								</div>

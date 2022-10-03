@@ -12,6 +12,8 @@
 	export let isValid: boolean = true
 	export let extraLib: string = 'missing extraLib'
 	export let importPath: string | undefined = undefined
+	let clazz: string = ''
+	export { clazz as class }
 
 	let inputCheck: { [id: string]: boolean } = {}
 	$: isValid = allTrue(inputCheck) ?? false
@@ -32,7 +34,7 @@
 	$: schema?.properties && removeExtraKey()
 </script>
 
-<div class="w-full">
+<div class="w-full {clazz}">
 	{#if Object.keys(schema?.properties ?? {}).length > 0}
 		{#each Object.keys(schema?.properties ?? {}) as argName}
 			{#if inputTransform}

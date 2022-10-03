@@ -18,13 +18,14 @@
 
 <script lang="ts">
 	import PropPicker from '$lib/components/propertyPicker/PropPicker.svelte'
-	import { setContext } from 'svelte'
+	import { createEventDispatcher, setContext } from 'svelte'
 	import { HSplitPane } from 'svelte-split-pane'
 	import { writable, type Writable } from 'svelte/store'
 
 	export let pickableProperties: Object = {}
 
 	const propPickerConfig = writable<PropPickerConfig | undefined>(undefined)
+	const dispatch = createEventDispatcher()
 
 	setContext<PropPickerWrapperContext>('PropPickerWrapper', {
 		propPickerConfig,
@@ -52,6 +53,7 @@
 			<PropPicker
 				{pickableProperties}
 				on:select={({ detail }) => {
+					dispatch('select', detail)
 					$propPickerConfig?.onSelect(detail)
 					propPickerConfig.set(undefined)
 				}}

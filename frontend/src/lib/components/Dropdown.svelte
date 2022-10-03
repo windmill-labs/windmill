@@ -57,10 +57,10 @@
 			{#each dropdownItems as item, i}
 				{#if item.action}
 					<button
-						on:click={() => {
+						on:click={(event) => {
 							if (!item.disabled) {
 								open = false
-								item.action && item.action()
+								item.action && item.action(event)
 								dispatch('click', { item: item?.eventName })
 							}
 						}}

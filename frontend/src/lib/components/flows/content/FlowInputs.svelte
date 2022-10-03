@@ -9,6 +9,8 @@
 
 	export let shouldDisableLoopCreation: boolean = false
 	export let shouldDisableTriggerScripts: boolean = false
+	export let failureModule: boolean
+
 	const dispatch = createEventDispatcher()
 </script>
 
@@ -18,8 +20,8 @@
 	{/if}
 
 	<div class="grid sm:grid-col-2 lg:grid-cols-3 gap-4">
-		<PickScript kind={Script.kind.SCRIPT} on:pick />
-		<PickHubScript kind={Script.kind.SCRIPT} on:pick />
+		<PickScript kind={failureModule ? Script.kind.FAILURE : Script.kind.SCRIPT} on:pick />
+		<PickHubScript kind={failureModule ? Script.kind.FAILURE : Script.kind.SCRIPT} on:pick />
 
 		<FlowScriptPicker
 			label={`Create a for-loop here`}
@@ -29,20 +31,26 @@
 			on:click={() => dispatch('loop')}
 		/>
 
-		<FlowScriptPicker
-			label={`New PostgreSQL query`}
-			icon={faCode}
-			iconColor="text-blue-800"
-			on:click={() =>
-				dispatch('new', { language: RawScript.language.DENO, kind: 'script', subkind: 'pgsql' })}
-		/>
+		{#if !failureModule}
+			<FlowScriptPicker
+				label={`New PostgreSQL query`}
+				icon={faCode}
+				iconColor="text-blue-800"
+				on:click={() =>
+					dispatch('new', { language: RawScript.language.DENO, kind: 'script', subkind: 'pgsql' })}
+			/>
+		{/if}
 
 		<FlowScriptPicker
 			label="New Python script (3.10)"
 			icon={faCode}
 			iconColor="text-green-500"
 			on:click={() =>
-				dispatch('new', { language: RawScript.language.PYTHON3, kind: 'script', subkind: 'flow' })}
+				dispatch('new', {
+					language: RawScript.language.PYTHON3,
+					kind: 'script',
+					subkind: failureModule ? 'failure' : 'flow'
+				})}
 		/>
 
 		<FlowScriptPicker
@@ -50,7 +58,11 @@
 			icon={faCode}
 			iconColor="text-blue-800"
 			on:click={() =>
-				dispatch('new', { language: RawScript.language.DENO, kind: 'script', subkind: 'flow' })}
+				dispatch('new', {
+					language: RawScript.language.DENO,
+					kind: 'script',
+					subkind: failureModule ? 'failure' : 'flow'
+				})}
 		/>
 
 		<FlowScriptPicker
@@ -58,7 +70,11 @@
 			icon={faCode}
 			iconColor="text-blue-700"
 			on:click={() =>
-				dispatch('new', { language: RawScript.language.GO, kind: 'script', subkind: 'flow' })}
+				dispatch('new', {
+					language: RawScript.language.GO,
+					kind: 'script',
+					subkind: failureModule ? 'failure' : 'flow'
+				})}
 		/>
 	</div>
 
