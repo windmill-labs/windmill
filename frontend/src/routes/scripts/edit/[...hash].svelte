@@ -13,6 +13,7 @@
 	import { workspaceStore } from '$lib/stores'
 	import ScriptBuilder from '$lib/components/ScriptBuilder.svelte'
 	import { decodeState } from '$lib/utils'
+	import { dirtyStore } from '$lib/components/common/confirmationModal/dirtyStore'
 
 	const initialState = $page.url.searchParams.get('state')
 	let scriptLoadedFromUrl = initialState != undefined ? decodeState(initialState) : undefined
@@ -37,6 +38,8 @@
 			loadScript()
 		}
 	}
+	$dirtyStore = false
+
 </script>
 
 {#if script}
