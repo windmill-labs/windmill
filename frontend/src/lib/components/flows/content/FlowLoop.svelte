@@ -25,6 +25,9 @@
 </script>
 
 <FlowCard title="For loop">
+	<div slot="header" class="grow">
+		<input bind:value={$flowStore.value.modules[index].summary} placeholder={'Summary'} />
+	</div>
 	<div>
 		<div class="p-6 flex flex-col">
 			{#if $flowStore.value.modules[index].value.type === 'forloopflow'}
@@ -52,7 +55,7 @@
 						/>
 					</PropPickerWrapper>
 				</div>
-				<span class="mb-2 text-sm font-bold">Skip failures</span>
+				<span class="my-2 text-sm font-bold">Skip failures</span>
 
 				<Toggle
 					bind:checked={$flowStore.value.modules[index].value.skip_failures}

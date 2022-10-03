@@ -43,26 +43,30 @@ components:
         failure_module:
           $ref: "#/components/schemas/FlowModule"
         retry:
-          type: object
-          properties:
-            constant:
-              type: object
-              properties:
-                attempts:
-                  type: integer
-                seconds:
-                  type: integer
-            exponential:
-              type: object
-              properties:
-                attempts:
-                  type: integer
-                multiplier:
-                  type: integer
-                seconds:
-                  type: integer
+          $ref: "#/components/schemas/Retry"
+
       required:
         - modules
+
+    Retry:
+      type: object
+      properties:
+        constant:
+          type: object
+          properties:
+            attempts:
+              type: integer
+            seconds:
+              type: integer
+        exponential:
+          type: object
+          properties:
+            attempts:
+              type: integer
+            multiplier:
+              type: integer
+            seconds:
+              type: integer
 
     FlowModule:
       type: object
@@ -86,6 +90,8 @@ components:
           type: string
         suspend:
           type: integer
+        retry:
+          $ref: "#/components/schemas/Retry"
       required:
         - input_transforms
         - value

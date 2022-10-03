@@ -12,6 +12,7 @@ export function editorConfig(model: any, code: string, lang: string, automaticLa
         //lineNumbers: 'off',
         //lineDecorationsWidth: 0,
         lineNumbersMinChars: 4,
+        scrollbar: { alwaysConsumeMouseWheel: false },
         lineNumbers: (ln) => '<span class="pr-4 text-gray-400">' + ln + '</span>',
         folding: false,
         scrollBeyondLastLine: false,
