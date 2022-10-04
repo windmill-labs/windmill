@@ -23,7 +23,7 @@
 	let forloop_selected = ''
 	let timeout: NodeJS.Timeout
 
-	$: innerModules = jobResult.job?.flow_status?.modules ?? []
+	$: innerModules = jobResult?.job?.flow_status?.modules ?? []
 
 	async function loadJobInProgress() {
 		const job = await JobService.getJob({
@@ -39,10 +39,7 @@
 		}
 	}
 
-	$: jobResult &&
-		jobResult.job?.type === 'CompletedJob' &&
-		jobResult.job.flow_status?.modules.length == jobResult.innerJobs?.length &&
-		dispatch('jobsLoaded', jobResult)
+	$: jobResult && jobResult.job?.type === 'CompletedJob' && dispatch('jobsLoaded', jobResult)
 
 	function updateJobId() {
 		if (jobId !== jobResult.job?.id) {
