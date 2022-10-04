@@ -17,7 +17,7 @@
 
 	let jobId: string | undefined = undefined
 	let isValid: boolean = false
-	let intervalState: 'idle' | 'canceled' | 'done' | 'running' = 'idle'
+	let isRunning: boolean = false
 
 	const { selectedId, previewArgs } = getContext<FlowEditorContext>('FlowEditorContext')
 
@@ -49,14 +49,26 @@
 	export async function runPreview(args: Record<string, any>) {
 		const newFlow = extractFlow(previewMode)
 		jobId = await runFlowPreview(args, newFlow)
-
-		intervalState = 'running'
+		isRunning = true
 	}
 
-	onDestroy(() => {
-		intervalState = 'done'
-	})
+	function onKeyDown(event: KeyboardEvent) {
+		switch (event.key) {
+			case 'Enter':
+				if (event.ctrlKey) {
+					event.preventDefault()
+					runPreview($previewArgs)
+				}
+				break
+
+			case 'Escape':
+				dispatch('close')
+				break
+		}
+	}
 </script>
+
+<svelte:window on:keydown={onKeyDown} />
 
 <div class="flex divide-y flex-col space-y-2 h-screen bg-white p-6 w-full">
 	<div class="flex justify-between">
@@ -77,8 +89,6 @@
 			color="dark"
 			btnClasses="!p-0 !w-8 !h-8"
 			on:click={() => {
-				jobId = undefined
-				intervalState = 'idle'
 				dispatch('close')
 			}}
 		>
@@ -93,12 +103,12 @@
 			bind:args={$previewArgs}
 		/>
 	</div>
-	{#if intervalState === 'running'}
+	{#if isRunning}
 		<Button
 			disabled={!isValid}
 			color="red"
 			on:click={async () => {
-				intervalState = 'canceled'
+				isRunning = false
 				try {
 					jobId &&
 						(await JobService.cancelQueuedJob({
@@ -116,14 +126,14 @@
 	{:else}
 		<Button
 			variant="contained"
-			endIcon={{ icon: intervalState === 'done' ? faRefresh : faPlay }}
+			endIcon={{ icon: isRunning ? faRefresh : faPlay }}
 			size="lg"
 			color="blue"
 			btnClasses="w-full"
 			disabled={!isValid}
 			on:click={() => runPreview($previewArgs)}
 		>
-			{`Run${intervalState === 'done' ? ' again' : ''}`}
+			Test flow (Ctrl/Cmd + Enter)
 		</Button>
 	{/if}
 
@@ -132,7 +142,7 @@
 			<FlowStatusViewer
 				{jobId}
 				on:jobsLoaded={(e) => {
-					intervalState = 'done'
+					isRunning = false
 					const parentIndex = selectedIdToIndexes($selectedId)[0]
 					const upToIndex =
 						previewMode === 'upTo' ? Number(parentIndex) + 1 : $flowStateStore.modules.length
