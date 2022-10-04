@@ -16,6 +16,7 @@
 	export let iconOnly: boolean = false
 	export let startIcon: ButtonType.Icon | undefined = undefined
 	export let endIcon: ButtonType.Icon | undefined = undefined
+	export let element: ButtonType.Element | undefined = undefined
 
 	const dispatch = createEventDispatcher()
 	// Order of classes: border, border modifier, bg, bg modifier, text, text modifier, everything else
@@ -75,6 +76,7 @@
 
 <svelte:element
 	this={href ? 'a' : 'button'}
+	bind:this={element}
 	on:click|stopPropagation={onClick}
 	on:focus
 	on:blur

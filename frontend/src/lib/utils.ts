@@ -99,11 +99,10 @@ export function validatePassword(password: string): boolean {
 	return re.test(password)
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-export function clickOutside(node: any): any {
-	const handleClick = (event: Event) => {
-		if (node && !node.contains(event.target) && !event.defaultPrevented) {
-			node.dispatchEvent(new CustomEvent('click_outside', node))
+export function clickOutside(node: Node): { destroy(): void } {
+	const handleClick = (event: MouseEvent) => {
+		if (node && !node.contains(<HTMLElement>event.target) && !event.defaultPrevented) {
+			node.dispatchEvent(new CustomEvent<MouseEvent>('click_outside', { detail: event }))
 		}
 	}
 

@@ -3,6 +3,7 @@ export namespace ButtonType {
 	export type Color = 'blue' | 'red' | 'dark' | 'light'
 	export type Variant = 'contained' | 'border'
 	export type Target = '_self' | '_blank'
+	export type Element = HTMLButtonElement | HTMLAnchorElement
 	export interface Icon {
 		icon: any
 		classes?: string
