@@ -21,23 +21,11 @@
 	].includes($selectedId)
 </script>
 
-<span class="space-x-2 flex h-8">
+<span
+	class="flex flex-row-reverse justify-between flex-wrap gap-2  w-full py-2 px-4 bg-white border-b border-t"
+>
 	<Button
-		size="sm"
-		disabled={upToDisabled}
-		color="light"
-		variant="border"
-		on:click={() => {
-			previewMode = 'upTo'
-
-			previewOpen = !previewOpen
-		}}
-	>
-		Test up to this step
-		<Icon data={faPlay} class="ml-2" scale={0.8} />
-	</Button>
-
-	<Button
+		btnClasses="grow"
 		on:click={() => {
 			previewMode = 'whole'
 			previewOpen = !previewOpen
@@ -47,6 +35,26 @@
 		Test flow
 		<Icon data={faPlay} class="ml-2" scale={0.8} />
 	</Button>
+	{#if !upToDisabled}
+		<Button
+			btnClasses="grow"
+			size="sm"
+			disabled={upToDisabled}
+			color="light"
+			variant="border"
+			on:click={() => {
+				previewMode = 'upTo'
+
+				previewOpen = !previewOpen
+			}}
+		>
+			Test up to step {$selectedId
+				.split('-')
+				.map((x) => (Number.isNaN(Number(x)) ? x : Number(x) + 1))
+				.join(' ')}
+			<Icon data={faPlay} class="ml-2" scale={0.8} />
+		</Button>
+	{/if}
 </span>
 
 <Drawer bind:open={previewOpen} size="800px">

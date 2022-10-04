@@ -5,7 +5,15 @@
 	import type { FlowModule } from '$lib/gen'
 	import { classNames } from '$lib/utils'
 
-	import { faCodeBranch, faSave, faStop, faTrashAlt } from '@fortawesome/free-solid-svg-icons'
+	import {
+		faArrowRotateBack,
+		faArrowRotateForward,
+		faBed,
+		faCodeBranch,
+		faSave,
+		faStop,
+		faTrashAlt
+	} from '@fortawesome/free-solid-svg-icons'
 	import { createEventDispatcher, getContext } from 'svelte'
 	import Icon from 'svelte-awesome'
 	import type { FlowEditorContext } from '../types'
@@ -22,33 +30,30 @@
 	const { selectedId, select } = getContext<FlowEditorContext>('FlowEditorContext')
 	const { width, threshold } = getContext<FlowModuleWidthContext>('FlowModuleWidth')
 	$: iconOnly = $width < threshold
+	$: moduleRetry = module.retry?.constant || module.retry?.exponential
 </script>
 
 <div class="flex flex-row space-x-2">
-	<span
-		class={classNames(
-			'whitespace-nowrap text-sm font-medium mr-2 px-2.5 py-0.5 rounded cursor-pointer flex items-center',
-			module.stop_after_if
-				? 'bg-sky-100 text-sky-800 hover:bg-sky-200'
-				: 'bg-gray-100 text-gray-800 hover:bg-gray-200'
-		)}
-		on:click={() => dispatch('toggleStopAfterIf')}
-	>
-		<Icon data={faStop} class="mr-2" scale={0.8} />
-		{module.stop_after_if ? `Early stop o` : 'Early stop x'}
-	</span>
-	<span
-		class={classNames(
-			'whitespace-nowrap text-sm font-medium mr-2 px-2.5 py-0.5 rounded cursor-pointer flex items-center',
-			module.stop_after_if
-				? 'bg-sky-100 text-sky-800 hover:bg-sky-200'
-				: 'bg-gray-100 text-gray-800 hover:bg-gray-200'
-		)}
-		on:click={() => dispatch('toggleRetry')}
-	>
-		<Icon data={faStop} class="mr-2" scale={0.8} />
-		{module.retry ? `Retry o` : 'Retry x'}
-	</span>
+	{#if !shouldPick}
+		<span
+			class={classNames('badge', module.stop_after_if ? 'badge-on' : 'badge-off')}
+			on:click={() => dispatch('toggleStopAfterIf')}
+		>
+			<Icon data={faStop} scale={0.8} />
+		</span>
+		<span
+			class={classNames('badge', moduleRetry ? 'badge-on' : 'badge-off')}
+			on:click={() => dispatch('toggleRetry')}
+		>
+			<Icon data={faArrowRotateForward} scale={0.8} />
+		</span>
+		<span
+			class={classNames('badge', Boolean(module.suspend) ? 'badge-on' : 'badge-off')}
+			on:click={() => dispatch('toggleSuspend')}
+		>
+			<Icon data={faBed} scale={0.8} />
+		</span>
+	{/if}
 	{#if module.value.type === 'script' && !shouldPick}
 		<Button
 			size="xs"
@@ -102,3 +107,17 @@
 		})
 	}}
 />
+
+<style>
+	.badge {
+		@apply whitespace-nowrap text-sm font-medium border px-2.5 py-0.5 rounded cursor-pointer flex items-center;
+	}
+
+	.badge-on {
+		@apply bg-blue-100 text-blue-800 hover:bg-blue-200;
+	}
+
+	.badge-off {
+		@apply bg-gray-100 text-gray-800 hover:bg-gray-200;
+	}
+</style>

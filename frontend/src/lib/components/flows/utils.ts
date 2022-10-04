@@ -46,7 +46,12 @@ export function getTypeAsString(arg: any): string {
 
 
 export function selectedIdToIndexes(selectedId: string): number[] {
-	return selectedId.split('-').map(Number)
+	const splitted = selectedId.split('-')
+	if (splitted[0] == 'loop') {
+		return [Number(splitted[1])]
+	} else {
+		return splitted.map(Number)
+	}
 }
 export function selectedIdToModule(selectedId: string, flow: Flow): FlowModule {
 	const [p, c] = selectedIdToIndexes(selectedId)

@@ -25,13 +25,14 @@
 		if (previewMode === 'whole') {
 			return $flowStore
 		} else {
-			const [parentIndex, childIndex] = selectedIdToIndexes($selectedId)
+			let [parentIndex, childIndex] = selectedIdToIndexes($selectedId)
 
-			const modules = $flowStore.value.modules.slice(0, Number(parentIndex) + 1)
 			const flow = JSON.parse(JSON.stringify($flowStore))
+			const modules = flow.value.modules.slice(0, Number(parentIndex) + 1)
 			flow.value.modules = modules
 
 			if (childIndex != undefined) {
+				console.log(modules)
 				const lastModule = modules[modules.length - 1].value
 				if (lastModule.type === 'forloopflow') {
 					lastModule.modules = lastModule.modules.slice(0, Number(childIndex) + 1)

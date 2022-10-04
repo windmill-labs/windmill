@@ -3,7 +3,7 @@
 	import { getContext } from 'svelte'
 	import FlowModuleSchemaItem from './FlowModuleSchemaItem.svelte'
 	import Icon from 'svelte-awesome'
-	import { faPen, faPlus, faSliders } from '@fortawesome/free-solid-svg-icons'
+	import { faCalendarAlt, faPen, faPlus, faSliders } from '@fortawesome/free-solid-svg-icons'
 	import { emptyFlowModuleState, isEmptyFlowModule } from '$lib/components/flows/flowStateUtils'
 	import { classNames, emptyModule } from '$lib/utils'
 	import type { FlowModuleState } from '../flowState'
@@ -16,7 +16,7 @@
 	export let modules: FlowModule[]
 	export let moduleStates: FlowModuleState[]
 
-	const { select, selectedId } = getContext<FlowEditorContext>('FlowEditorContext')
+	const { select, selectedId, schedule } = getContext<FlowEditorContext>('FlowEditorContext')
 
 	function insertAtIndex(index: number): void {
 		moduleStates.splice(index, 0, emptyFlowModuleState())
@@ -51,7 +51,15 @@
 				)}
 			>
 				<Icon data={faSliders} class="mr-2" />
-				<span class="font-bold">Settings</span>
+				<span class="font-bold flex flex-row justify-between w-full flex-wrap gap-2"
+					>Settings <span
+						class={classNames('badge', $schedule?.enabled ? 'badge-on' : 'badge-off')}
+						on:click|stopPropagation={() => select('settings-schedule')}
+					>
+						{$schedule.cron}
+						<Icon class={$schedule.cron ? 'ml-2' : ''} data={faCalendarAlt} scale={0.8} />
+					</span></span
+				>
 			</div>
 
 			<FlowModuleSchemaItem
@@ -63,7 +71,7 @@
 				<div slot="icon">
 					<Icon data={faPen} scale={0.8} />
 				</div>
-				<div slot="content">
+				<div slot="content" class="flex flex-row">
 					<span>Inputs</span>
 				</div>
 			</FlowModuleSchemaItem>
@@ -84,6 +92,9 @@
 						on:delete={() => removeAtIndex(index)}
 						on:click={() => select(['loop', String(index)].join('-'))}
 						selected={$selectedId === ['loop', String(index)].join('-')}
+						retry={mod.retry?.constant != undefined || mod.retry?.exponential != undefined}
+						earlyStop={mod.stop_after_if != undefined}
+						suspend={Boolean(mod.suspend)}
 					>
 						<div slot="icon">
 							<span>{index + 1}</span>
@@ -126,6 +137,9 @@
 								indexToRemove = index
 							}
 						}}
+						retry={mod.retry?.constant != undefined || mod.retry?.exponential != undefined}
+						earlyStop={mod.stop_after_if != undefined}
+						suspend={Boolean(mod.suspend)}
 					>
 						<div slot="icon">
 							<span>{index + 1}</span>
@@ -169,3 +183,17 @@
 		}
 	}}
 />
+
+<style>
+	.badge {
+		@apply whitespace-nowrap text-sm font-medium border px-2.5 py-0.5 rounded cursor-pointer flex items-center;
+	}
+
+	.badge-on {
+		@apply bg-blue-100 text-blue-800 hover:bg-blue-200;
+	}
+
+	.badge-off {
+		@apply bg-gray-100 text-gray-800 hover:bg-gray-200;
+	}
+</style>

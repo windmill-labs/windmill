@@ -4,7 +4,6 @@
 	import type { TruncatedToken, NewToken } from '$lib/gen'
 	import { UserService, SettingsService } from '$lib/gen'
 	import { displayDate, sendUserToast, getToday } from '$lib/utils'
-	import Icon from 'svelte-awesome'
 	import { faPlus } from '@fortawesome/free-solid-svg-icons'
 	import TableCustom from '$lib/components/TableCustom.svelte'
 	import CenteredModal from '$lib/components/CenteredModal.svelte'

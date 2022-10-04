@@ -21,7 +21,6 @@
 	import { userStore, workspaceStore } from '$lib/stores'
 	import { faEdit, faPlus, faShare } from '@fortawesome/free-solid-svg-icons'
 	import { Alert } from 'flowbite-svelte'
-	import Icon from 'svelte-awesome'
 	import { Button } from '$lib/components/common'
 
 	type GroupW = Group & { canWrite: boolean }

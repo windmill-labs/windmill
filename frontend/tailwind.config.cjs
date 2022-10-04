@@ -198,7 +198,7 @@ const config = {
 					borderRadius: theme('borderRadius.sm'),
 					boxShadow: theme('boxShadow.sm'),
 					padding: theme('spacing.4')
-				},
+				},				
 				'.inline-highlight': {
 					'& pre code.hljs': {
 						padding: '0px',

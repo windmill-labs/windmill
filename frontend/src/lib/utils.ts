@@ -498,26 +498,34 @@ export async function getScriptByPath(path: string): Promise<{
 }
 
 export async function loadHubScripts() {
-	const scripts = (await ScriptService.listHubScripts()).asks ?? []
-	const processed = scripts
-		.map((x) => ({
-			path: `hub/${x.id}/${x.app}/${x.summary.toLowerCase().replaceAll(/\s+/g, '_')}`,
-			summary: `${x.summary} (${x.app}) ${x.views} uses`,
-			approved: x.approved,
-			kind: x.kind,
-			app: x.app,
-			views: x.views,
-			votes: x.votes,
-			ask_id: x.ask_id
-		}))
-		.sort((a, b) => b.views - a.views)
-	hubScripts.set(processed)
+	try {
+		const scripts = (await ScriptService.listHubScripts()).asks ?? []
+		const processed = scripts
+			.map((x) => ({
+				path: `hub/${x.id}/${x.app}/${x.summary.toLowerCase().replaceAll(/\s+/g, '_')}`,
+				summary: `${x.summary} (${x.app}) ${x.views} uses`,
+				approved: x.approved,
+				kind: x.kind,
+				app: x.app,
+				views: x.views,
+				votes: x.votes,
+				ask_id: x.ask_id
+			}))
+			.sort((a, b) => b.views - a.views)
+		hubScripts.set(processed)
+	} catch {
+		console.error('Hub is not available')
+	}
 }
 
 export async function loadHubFlows() {
-	const flows = (await FlowService.listHubFlows()).flows ?? []
-	const processed = flows.sort((a, b) => b.votes - a.votes)
-	return processed
+	try {
+		const flows = (await FlowService.listHubFlows()).flows ?? []
+		const processed = flows.sort((a, b) => b.votes - a.votes)
+		return processed
+	} catch {
+		console.error('Hub is not available')
+	}
 }
 
 export function formatCron(inp: string): string {

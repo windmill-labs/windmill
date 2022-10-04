@@ -197,73 +197,75 @@
 <ResourceEditor bind:this={resourceEditor} on:refresh={resourcePicker.openModal} />
 <VariableEditor bind:this={variableEditor} on:create={variablePicker.openModal} />
 
-<div class="flex divide-x items-center overflow-hidden w-full">
-	<div>
-		<Button
-			color="light"
-			btnClasses="mr-1"
-			on:click={contextualVariablePicker.openModal}
-			size="xs"
-			spacingSize="md"
-			startIcon={{ icon: faDollarSign }}
-			{iconOnly}
-		>
-			+Contextual Variable
-		</Button>
-	</div>
-	<div>
-		<Button
-			color="light"
-			btnClasses="mr-1"
-			on:click={variablePicker.openModal}
-			size="xs"
-			spacingSize="md"
-			startIcon={{ icon: faWallet }}
-			{iconOnly}
-		>
-			+Variable
-		</Button>
-	</div>
-	<div>
-		<Button
-			btnClasses="mx-1"
-			size="xs"
-			spacingSize="md"
-			color="light"
-			on:click={resourcePicker.openModal}
-			{iconOnly}
-			startIcon={{ icon: faCube }}
-		>
-			+Resource
-		</Button>
-	</div>
+<div class="flex flex-row justify-between items-center overflow-hidden w-full">
+	<div class="flex flex-row divide-x items-center">
+		<div>
+			<Button
+				color="light"
+				btnClasses="mr-1"
+				on:click={contextualVariablePicker.openModal}
+				size="xs"
+				spacingSize="md"
+				startIcon={{ icon: faDollarSign }}
+				{iconOnly}
+			>
+				+Contextual Variable
+			</Button>
+		</div>
+		<div>
+			<Button
+				color="light"
+				btnClasses="mr-1"
+				on:click={variablePicker.openModal}
+				size="xs"
+				spacingSize="md"
+				startIcon={{ icon: faWallet }}
+				{iconOnly}
+			>
+				+Variable
+			</Button>
+		</div>
+		<div>
+			<Button
+				btnClasses="mx-1"
+				size="xs"
+				spacingSize="md"
+				color="light"
+				on:click={resourcePicker.openModal}
+				{iconOnly}
+				startIcon={{ icon: faCube }}
+			>
+				+Resource
+			</Button>
+		</div>
 
-	<div>
-		<Button
-			btnClasses="mx-1"
-			size="xs"
-			spacingSize="md"
-			color="light"
-			on:click={scriptPicker.openModal}
-			{iconOnly}
-			startIcon={{ icon: faCode }}
-		>
-			View Script
-		</Button>
-	</div>
+		<div>
+			<Button
+				btnClasses="mx-1"
+				size="xs"
+				spacingSize="md"
+				color="light"
+				on:click={scriptPicker.openModal}
+				{iconOnly}
+				startIcon={{ icon: faCode }}
+			>
+				View Script
+			</Button>
+		</div>
 
-	<div>
-		<Button
-			btnClasses="mx-1"
-			size="xs"
-			spacingSize="md"
-			color="light"
-			on:click={editor.clearContent}
-			{iconOnly}
-			startIcon={{ icon: faRotateLeft }}
-		>
-			Reset content
-		</Button>
+		<div>
+			<Button
+				btnClasses="mx-1"
+				size="xs"
+				spacingSize="md"
+				color="light"
+				on:click={editor.clearContent}
+				{iconOnly}
+				startIcon={{ icon: faRotateLeft }}
+			>
+				Reset content
+			</Button>
+		</div>
 	</div>
 	<div>
 		<Button
@@ -274,7 +276,9 @@
 			on:click={editor.reloadWebsocket}
 			startIcon={{ icon: faRotate }}
 		>
-			Reload assistants
+			{#if !iconOnly}
+				Reload assistants
+			{/if}
 			<span class="ml-1">
 				{#if lang == 'deno'}
 					(<span class={websocketAlive.deno ? 'text-green-600' : 'text-red-700'}>Deno</span>)

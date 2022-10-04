@@ -5,8 +5,8 @@
 	import FlowModuleWrapper from './FlowModuleWrapper.svelte'
 	import FlowSettings from './FlowSettings.svelte'
 	import FlowInput from './FlowInput.svelte'
-	import FlowLoop from './FlowLoop.svelte'
 	import FlowFailureModule from './FlowFailureModule.svelte'
+	import FlowLoopWrapper from './FlowLoopWrapper.svelte'
 
 	export let initialPath: string
 
@@ -18,10 +18,8 @@
 		<FlowSettings {initialPath} />
 	{:else if $selectedId === 'settings-schedule'}
 		<FlowSettings {initialPath} defaultTab="schedule" />
-	{:else if $selectedId === 'settings-retries'}
-		<FlowSettings {initialPath} defaultTab="retries" />
 	{:else if $selectedId.includes('loop')}
-		<FlowLoop />
+		<FlowLoopWrapper />
 	{:else if $selectedId === 'inputs'}
 		<FlowInput />
 	{:else if $selectedId === 'failure'}

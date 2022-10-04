@@ -11,7 +11,6 @@
 	import { page } from '$app/stores'
 	import { faGithub, faGitlab, faGoogle } from '@fortawesome/free-brands-svg-icons'
 	import { onMount } from 'svelte'
-	import Icon from 'svelte-awesome'
 	import { slide } from 'svelte/transition'
 	import { OauthService, UserService, WorkspaceService } from '$lib/gen'
 	import { clearStores, usersWorkspaceStore, workspaceStore, userStore } from '$lib/stores'
