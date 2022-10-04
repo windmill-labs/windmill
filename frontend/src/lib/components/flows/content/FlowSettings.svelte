@@ -8,7 +8,6 @@
 	import Required from '$lib/components/Required.svelte'
 	import FlowCard from '../common/FlowCard.svelte'
 	import FlowSchedules from './FlowSchedules.svelte'
-	import FlowRetries from './FlowRetries.svelte'
 	import SvelteMarkdown from 'svelte-markdown'
 
 	export let initialPath: string
@@ -20,7 +19,6 @@
 	<Tabs selected={defaultTab}>
 		<Tab value="metadata">Metadata</Tab>
 		<Tab value="schedule">Schedule</Tab>
-		<Tab value="retries">Retries</Tab>
 
 		<svelte:fragment slot="content">
 			<TabContent value="metadata" class="p-4">
@@ -78,9 +76,6 @@
 			</TabContent>
 			<TabContent value="schedule" class="p-4">
 				<FlowSchedules />
-			</TabContent>
-			<TabContent value="retries" class="px-4">
-				<FlowRetries />
 			</TabContent>
 		</svelte:fragment>
 	</Tabs>

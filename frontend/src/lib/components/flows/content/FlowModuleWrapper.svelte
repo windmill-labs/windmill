@@ -3,13 +3,10 @@
 	import { flowStateStore } from '../flowState'
 	import { flowStore } from '../flowStore'
 	import type { FlowEditorContext } from '../types'
+	import { selectedIdToIndexes } from '../utils'
 	import FlowModule from './FlowModule.svelte'
 
-	const { selectedId, previewArgs, select } = getContext<FlowEditorContext>('FlowEditorContext')
-
-	function selectedIdToIndexes(selectedId: string): number[] {
-		return selectedId.split('-').map(Number)
-	}
+	const { selectedId } = getContext<FlowEditorContext>('FlowEditorContext')
 
 	$: [parentIndex, childIndex] = selectedIdToIndexes($selectedId)
 </script>
