@@ -12,7 +12,6 @@
 	import type { Flow } from '$lib/gen'
 
 	import { sendUserToast, groupBy, canWrite, loadHubFlows } from '$lib/utils'
-	import Icon from 'svelte-awesome'
 	import {
 		faArchive,
 		faCalendarAlt,
@@ -44,7 +43,7 @@
 	let flows: FlowW[] = []
 	let filteredFlows: FlowW[]
 
-	let hubFlows: any[] = []
+	let hubFlows: any[] | undefined = undefined
 	let filteredHubFlows: any[]
 
 	let flowFilter = ''
@@ -71,7 +70,7 @@
 		flowFilter.length > 0 ? flowFuse.search(flowFilter).map((value) => value.item) : flows
 
 	$: filteredHubFlows =
-		hubFilter.length > 0 ? flowHubFuse.search(hubFilter).map((value) => value.item) : hubFlows
+		hubFilter.length > 0 ? flowHubFuse.search(hubFilter).map((value) => value.item) : hubFlows ?? []
 
 	let flowViewer: Modal
 	let flowViewerFlow: OpenFlow | undefined
@@ -208,35 +207,41 @@
 					</h2>
 					<input placeholder="Search hub flows" bind:value={hubFilter} class="search-bar mt-2" />
 					<div class="relative">
-						<TableCustom>
-							<tr slot="header-row">
-								<th>Apps</th>
-								<th>Summary</th>
-								<th />
-							</tr>
-							<tbody slot="body">
-								{#each filteredHubFlows ?? [] as { summary, apps, flow_id }}
-									<tr>
-										<td class="font-black">{apps.join(', ')}</td>
-										<td
-											><button class="text-left" on:click={() => viewFlow(flow_id)}
-												>{summary}</button
-											></td
-										>
-										<td class="whitespace-nowrap"
-											><button class="text-blue-500" on:click={() => viewFlow(flow_id)}
-												>view flow</button
+						{#if hubFlows != undefined}
+							<TableCustom>
+								<tr slot="header-row">
+									<th>Apps</th>
+									<th>Summary</th>
+									<th />
+								</tr>
+								<tbody slot="body">
+									{#each filteredHubFlows ?? [] as { summary, apps, flow_id }}
+										<tr>
+											<td class="font-black">{apps.join(', ')}</td>
+											<td
+												><button class="text-left" on:click={() => viewFlow(flow_id)}
+													>{summary}</button
+												></td
 											>
-											|
-											<a target="_blank" href={`https://hub.windmill.dev/flows/${flow_id}`}
-												>hub's page
-											</a>
-											| <a class="font-bold" href={`/flows/add?hub=${flow_id}`}>fork</a>
-										</td>
-									</tr>
-								{/each}
-							</tbody>
-						</TableCustom>
+											<td class="whitespace-nowrap"
+												><button class="text-blue-500" on:click={() => viewFlow(flow_id)}
+													>view flow</button
+												>
+												|
+												<a target="_blank" href={`https://hub.windmill.dev/flows/${flow_id}`}
+													>hub's page
+												</a>
+												| <a class="font-bold" href={`/flows/add?hub=${flow_id}`}>fork</a>
+											</td>
+										</tr>
+									{/each}
+								</tbody>
+							</TableCustom>
+						{:else}<span class="mt-2 text-sm text-red-400"
+								>Hub not reachable. If your environment is air gapped, contact sales@windmill.dev to
+								setup a local mirror.</span
+							>
+						{/if}
 					</div>
 				{/if}
 				{#each groupedFlows.filter((x) => tabFromPath(x[0]) == sectionTab) as [section, flows]}

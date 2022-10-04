@@ -24,6 +24,7 @@
 	import Button from './common/button/Button.svelte'
 	import TestJobLoader from './TestJobLoader.svelte'
 	import { onMount } from 'svelte'
+	import UnsavedConfirmationModal from './common/confirmationModal/UnsavedConfirmationModal.svelte'
 
 	// Exported
 	export let schema: Schema = emptySchema()

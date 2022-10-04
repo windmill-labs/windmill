@@ -1,10 +1,12 @@
 <script lang="ts">
 	import Toggle from '$lib/components/Toggle.svelte'
-	import { flowStore } from '../flowStore'
+	import type { FlowModule } from '$lib/gen'
+
+	export let flowModule: FlowModule
 
 	function setConstantRetries() {
-		$flowStore.value.retry = {
-			...$flowStore.value.retry,
+		flowModule.retry = {
+			...flowModule.retry,
 			constant: {
 				attempts: 0,
 				seconds: 0
@@ -13,8 +15,8 @@
 	}
 
 	function setExpoentialRetries() {
-		$flowStore.value.retry = {
-			...$flowStore.value.retry,
+		flowModule.retry = {
+			...flowModule.retry,
 			exponential: {
 				attempts: 0,
 				multiplier: 1,
@@ -23,16 +25,16 @@
 		}
 	}
 
-	$: isConstantRetryEnabled = Boolean($flowStore.value.retry?.constant)
-	$: isExponentialRetryEnabled = Boolean($flowStore.value.retry?.exponential)
+	$: isConstantRetryEnabled = Boolean(flowModule.retry?.constant)
+	$: isExponentialRetryEnabled = Boolean(flowModule.retry?.exponential)
 </script>
 
 <div class="flex flex-col items-start space-y-1">
 	<Toggle
 		checked={isConstantRetryEnabled}
 		on:change={() => {
-			if (isConstantRetryEnabled && $flowStore.value.retry?.constant) {
-				$flowStore.value.retry.constant = undefined
+			if (isConstantRetryEnabled && flowModule.retry?.constant) {
+				flowModule.retry.constant = undefined
 			} else {
 				setConstantRetries()
 			}
@@ -41,11 +43,11 @@
 			right: 'Constant retry enabled'
 		}}
 	/>
-	{#if $flowStore.value.retry?.constant}
+	{#if flowModule.retry?.constant}
 		<span class="text-xs font-bold">Attempts</span>
-		<input bind:value={$flowStore.value.retry.constant.attempts} type="number" />
+		<input bind:value={flowModule.retry.constant.attempts} type="number" />
 		<span class="text-xs font-bold">Delay (seconds)</span>
-		<input bind:value={$flowStore.value.retry.constant.seconds} type="number" />
+		<input bind:value={flowModule.retry.constant.seconds} type="number" />
 	{:else}
 		<span class="text-xs font-bold">Attempts</span>
 		<input type="number" disabled />
@@ -56,8 +58,8 @@
 	<Toggle
 		checked={isExponentialRetryEnabled}
 		on:change={() => {
-			if (isExponentialRetryEnabled && $flowStore.value.retry?.exponential) {
-				$flowStore.value.retry.exponential = undefined
+			if (isExponentialRetryEnabled && flowModule.retry?.exponential) {
+				flowModule.retry.exponential = undefined
 			} else {
 				setExpoentialRetries()
 			}
@@ -66,13 +68,13 @@
 			right: 'Exponential retry enabled'
 		}}
 	/>
-	{#if $flowStore.value.retry?.exponential}
+	{#if flowModule.retry?.exponential}
 		<span class="text-xs font-bold">Attempts</span>
-		<input bind:value={$flowStore.value.retry.exponential.attempts} type="number" />
+		<input bind:value={flowModule.retry.exponential.attempts} type="number" />
 		<span class="text-xs font-bold">Mulitplier</span>
-		<input bind:value={$flowStore.value.retry.exponential.multiplier} type="number" />
+		<input bind:value={flowModule.retry.exponential.multiplier} type="number" />
 		<span class="text-xs font-bold">Initial delay (seconds)</span>
-		<input bind:value={$flowStore.value.retry.exponential.seconds} type="number" />
+		<input bind:value={flowModule.retry.exponential.seconds} type="number" />
 	{:else}
 		<span class="text-xs font-bold">Attempts</span>
 		<input type="number" disabled />

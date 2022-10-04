@@ -1808,6 +1808,7 @@ mod tests {
                     stop_after_if: Default::default(),
                     summary: Default::default(),
                     suspend: Default::default(),
+                    retry: None,
                 },
                 FlowModule {
                     value: FlowModuleValue::ForloopFlow {
@@ -1829,12 +1830,14 @@ mod tests {
                             stop_after_if: Default::default(),
                             summary: Default::default(),
                             suspend: Default::default(),
+                            retry: None,
                         }],
                     },
                     input_transforms: Default::default(),
                     stop_after_if: Default::default(),
                     summary: Default::default(),
                     suspend: Default::default(),
+                    retry: None,
                 },
             ],
             ..Default::default()
@@ -2556,24 +2559,28 @@ def main():
             }
         }
 
-        fn flow() -> FlowValue {
-            let inner = r#"
-            export async function main(index, port) {
-                const buf = new Uint8Array([0]);
-                const sock = await Deno.connect({ port });
-                await sock.write(new Uint8Array([index]));
-                if (await sock.read(buf) != 1) throw "read";
-                return buf[0];
-            }
-            "#;
+        fn inner_step() -> &'static str {
+            r#"
+export async function main(index, port) {
+    const buf = new Uint8Array([0]);
+    const sock = await Deno.connect({ port });
+    await sock.write(new Uint8Array([index]));
+    if (await sock.read(buf) != 1) throw "read";
+    return buf[0];
+}
+            "#
+        }
 
-            let last = r#"
+        fn last_step() -> &'static str {
+            r#"
 def main(last, port):
     with __import__("socket").create_connection((None, port)) as sock:
         sock.send(b'\xff')
         return last + [sock.recv(1)[0]]
-            "#;
+"#
+        }
 
+        fn flow_forloop_retry() -> FlowValue {
             serde_json::from_value(serde_json::json!({
                 "modules": [{
                     "value": {
@@ -2588,10 +2595,11 @@ def main(last, port):
                             "value": {
                                 "type": "rawscript",
                                 "language": "deno",
-                                "content": inner,
+                                "content": inner_step(),
                             },
-                        }]
-                    }
+                        }],
+                    },
+                    "retry": { "constant": { "attempts": 2, "seconds": 0 } },
                 }, {
                     "input_transform": {
                         "last": { "type": "javascript", "expr": "previous_result" },
@@ -2600,10 +2608,10 @@ def main(last, port):
                     "value": {
                         "type": "rawscript",
                         "language": "python3",
-                        "content": last,
+                        "content": last_step(),
                     },
+                    "retry": { "constant": { "attempts": 2, "seconds": 0 } },
                 }],
-                "retry": { "constant": { "attempts": 2, "seconds": 0 } },
             })).unwrap()
         }
 
@@ -2634,11 +2642,12 @@ def main(last, port):
             .into_iter()
             .unzip::<_, _, Vec<_>, Vec<_>>();
             let server = Server::start(responses).await;
-            let result = RunJob::from(JobPayload::RawFlow { value: flow(), path: None })
-                .arg("items", json!(["unused", "unused", "unused"]))
-                .arg("port", json!(server.addr.port()))
-                .run_until_complete(&db)
-                .await;
+            let result =
+                RunJob::from(JobPayload::RawFlow { value: flow_forloop_retry(), path: None })
+                    .arg("items", json!(["unused", "unused", "unused"]))
+                    .arg("port", json!(server.addr.port()))
+                    .run_until_complete(&db)
+                    .await;
 
             assert_eq!(server.close().await, attempts);
             assert_eq!(json!([3, 5, 7, 9]), result);
@@ -2661,11 +2670,12 @@ def main(last, port):
             .into_iter()
             .unzip::<_, _, Vec<_>, Vec<_>>();
             let server = Server::start(responses).await;
-            let result = RunJob::from(JobPayload::RawFlow { value: flow(), path: None })
-                .arg("items", json!(["unused", "unused", "unused"]))
-                .arg("port", json!(server.addr.port()))
-                .run_until_complete(&db)
-                .await;
+            let result =
+                RunJob::from(JobPayload::RawFlow { value: flow_forloop_retry(), path: None })
+                    .arg("items", json!(["unused", "unused", "unused"]))
+                    .arg("port", json!(server.addr.port()))
+                    .run_until_complete(&db)
+                    .await;
 
             assert_eq!(server.close().await, attempts);
             assert!(result["error"]
@@ -2693,11 +2703,12 @@ def main(last, port):
             .into_iter()
             .unzip::<_, _, Vec<_>, Vec<_>>();
             let server = Server::start(responses).await;
-            let result = RunJob::from(JobPayload::RawFlow { value: flow(), path: None })
-                .arg("items", json!(["unused", "unused", "unused"]))
-                .arg("port", json!(server.addr.port()))
-                .run_until_complete(&db)
-                .await;
+            let result =
+                RunJob::from(JobPayload::RawFlow { value: flow_forloop_retry(), path: None })
+                    .arg("items", json!(["unused", "unused", "unused"]))
+                    .arg("port", json!(server.addr.port()))
+                    .run_until_complete(&db)
+                    .await;
 
             assert_eq!(server.close().await, attempts);
             assert!(result["error"]
@@ -2720,6 +2731,7 @@ def main(port):
         sock.send(b'\x00')
         return sock.recv(1)[0]"#,
                     },
+                    "retry": { "constant": { "attempts": 1, "seconds": 0 } },
                 }],
                 "failure_module": {
                     "input_transform": { "error": { "type": "javascript", "expr": "previous_result", },
@@ -2732,12 +2744,11 @@ def main(error, port):
     with __import__("socket").create_connection((None, port)) as sock:
         sock.send(b'\xff')
         return { "recv": sock.recv(1)[0], "from failure module": error }"#,
-                    }
+                    },
+                    "retry": { "constant": { "attempts": 1, "seconds": 0 } },
                 },
-                "retry": { "constant": { "attempts": 1, "seconds": 0 } },
             }))
             .unwrap();
-
             let (attempts, responses) = [
                 /* fail the first step twice */
                 (0x00, None),
@@ -2776,8 +2787,8 @@ def main(error, port):
             let value = serde_json::from_value(json!({
                 "modules": [{
                     "value": { "type": "rawscript", "language": "python3", "content": "asdf" },
+                    "retry": { "exponential": { "attempts": 50, "seconds": 60 } },
                 }],
-                "retry": { "exponential": { "attempts": 50, "seconds": 60 } },
             }))
             .unwrap();
 

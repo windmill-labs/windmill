@@ -14,6 +14,7 @@
 	import ScriptBuilder from '$lib/components/ScriptBuilder.svelte'
 	import type { Schema } from '$lib/common'
 	import { decodeState, emptySchema, getScriptByPath, sendUserToast } from '$lib/utils'
+	import { dirtyStore } from '$lib/components/common/confirmationModal/dirtyStore'
 
 	// Default
 	let schema: Schema = emptySchema()
@@ -74,6 +75,7 @@
 			loadTemplate()
 		}
 	}
+	$dirtyStore = true
 </script>
 
 <ScriptBuilder {script} />

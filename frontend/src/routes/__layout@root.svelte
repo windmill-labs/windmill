@@ -11,19 +11,21 @@
 	import '../app.css'
 	import { userStore } from '$lib/stores'
 	import CenteredModal from '$lib/components/CenteredModal.svelte'
+	import { beforeNavigate } from '$app/navigation'
 
 	OpenAPI.WITH_CREDENTIALS = true
 
 	let menuOpen = false
 	let isCollapsed = false
 
+	beforeNavigate((newNavigationState) => {
+		menuOpen = false
+	})
+
 	let innerWidth = window.innerWidth
 
-	function disableCollapse() {
-		isCollapsed = false
-	}
-
-	$: innerWidth < 768 && disableCollapse()
+	$: innerWidth < 1248 && innerWidth > 768 && (isCollapsed = true)
+	$: (innerWidth >= 1248 || innerWidth < 768) && (isCollapsed = false)
 </script>
 
 <svelte:window bind:innerWidth />

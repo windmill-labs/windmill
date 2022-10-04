@@ -38,7 +38,7 @@
 		</span>
 	{/if}
 	{#if title}
-		<span class="text-xs font-bold text-gray-900 flex flex-col">{title}</span>
+		<div class="text-sm font-bold text-gray-900">{title}</div>
 	{/if}
 	<slot />
 </div>

@@ -35,11 +35,12 @@
 	import PropPickerWrapper from '../propPicker/PropPickerWrapper.svelte'
 	import { getContext, setContext } from 'svelte'
 	import type { FlowEditorContext } from '../types'
-	import { loadSchemaFromModule } from '../utils'
+	import { loadSchemaFromModule, selectedIdToIndexes } from '../utils'
 	import { writable, type Writable } from 'svelte/store'
 	import FlowModuleScript from './FlowModuleScript.svelte'
 	import FlowModuleEarlyStop from './FlowModuleEarlyStop.svelte'
 	import FlowModuleSuspend from './FlowModuleSuspend.svelte'
+	import FlowRetries from './FlowRetries.svelte'
 
 	const { selectedId, select, previewArgs } = getContext<FlowEditorContext>('FlowEditorContext')
 
@@ -47,7 +48,7 @@
 	export let flowModuleState: FlowModuleState
 	export let failureModule: boolean
 
-	$: [parentIndex, childIndex] = $selectedId.split('-').map(Number)
+	$: [parentIndex, childIndex] = selectedIdToIndexes($selectedId)
 
 	let editor: Editor
 	let modulePreview: ModulePreview
@@ -57,12 +58,7 @@
 	$: shouldPick = isEmptyFlowModule(flowModule)
 	$: stepPropPicker = failureModule
 		? { pickableProperties: { previous_result: { error: 'the error message' } }, extraLib: '' }
-		: getStepPropPicker(
-				$selectedId.split('-').map(Number),
-				$flowStore.schema,
-				$flowStateStore,
-				$previewArgs
-		  )
+		: getStepPropPicker([parentIndex, childIndex], $flowStore.schema, $flowStateStore, $previewArgs)
 
 	function onKeyDown(event: KeyboardEvent) {
 		if ((event.ctrlKey || event.metaKey) && event.key == 'Enter') {
@@ -112,6 +108,7 @@
 			<FlowModuleHeader
 				bind:module={flowModule}
 				on:delete
+				on:toggleRetry={() => (selected = 'retries')}
 				on:toggleStopAfterIf={() => (selected = 'early-stop')}
 				on:fork={() => apply(fork, flowModule)}
 				on:createScriptFromInlineScript={() => {
@@ -188,6 +185,7 @@
 						<Tabs bind:selected>
 							<Tab value="inputs">Inputs</Tab>
 							<Tab value="test">Test</Tab>
+							<Tab value="retries">Retries</Tab>
 							{#if !$selectedId.includes('failure')}
 								<Tab value="early-stop">Early Stop</Tab>
 								<Tab value="suspend">Suspend</Tab>
@@ -214,6 +212,12 @@
 											schema={flowModuleState.schema}
 											indices={[parentIndex, childIndex]}
 										/>
+									</TabContent>
+
+									<TabContent value="retries" class="flex flex-col flex-1 h-full">
+										<div class="p-4 overflow-y-auto">
+											<FlowRetries bind:flowModule />
+										</div>
 									</TabContent>
 
 									<TabContent value="early-stop" class="flex flex-col flex-1 h-full">

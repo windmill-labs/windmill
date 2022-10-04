@@ -27,6 +27,7 @@
 	loadItems={async () => {
 		return items
 	}}
+	noItemMessage="Hub not reachable. If your environment is air gapped, contact sales@windmill.dev to setup a local mirror."
 />
 
 <FlowScriptPicker

@@ -127,7 +127,7 @@
 		</div>
 	{:else}
 		<Button
-			btnClasses="!px-6 !py-1"
+			btnClasses="!px-6 !py-1 w-full"
 			disabled={!isValid}
 			on:click={() => runAction(undefined, args)}
 		>

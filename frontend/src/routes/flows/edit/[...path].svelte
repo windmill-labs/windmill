@@ -14,6 +14,7 @@
 	import { workspaceStore } from '$lib/stores'
 	import { decodeState, emptySchema } from '$lib/utils'
 	import { initFlow } from '$lib/components/flows/flowStore'
+	import { dirtyStore } from '$lib/components/common/confirmationModal/dirtyStore'
 
 	const initialState = $page.url.searchParams.get('state')
 	let flowLoadedFromUrl = initialState != undefined ? decodeState(initialState) : undefined
@@ -44,6 +45,7 @@
 		initialPath = flow.path
 
 		initFlow(flow)
+		$dirtyStore = false
 	}
 
 	$: {
@@ -51,6 +53,8 @@
 			loadFlow()
 		}
 	}
+
+
 </script>
 
 <FlowBuilder {initialPath} />

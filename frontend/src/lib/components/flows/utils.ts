@@ -45,6 +45,25 @@ export function getTypeAsString(arg: any): string {
 }
 
 
+export function selectedIdToIndexes(selectedId: string): number[] {
+	const splitted = selectedId.split('-')
+	if (splitted[0] == 'loop') {
+		return [Number(splitted[1])]
+	} else {
+		return splitted.map(Number)
+	}
+}
+export function selectedIdToModule(selectedId: string, flow: Flow): FlowModule {
+	const [p, c] = selectedIdToIndexes(selectedId)
+	const pm = flow.value.modules[p]
+	if (c && pm.value.type == 'forloopflow') {
+		return pm.value.modules[c]
+	} else {
+		return pm
+	}
+}
+
+
 export async function loadSchemaFromModule(module: FlowModule): Promise<{
 	input_transforms: Record<string, InputTransform>
 	schema: Schema
