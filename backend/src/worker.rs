@@ -362,7 +362,6 @@ async fn handle_queued_job(
                 envs,
             )
             .await;
-            println!("{logs:#?} {execution:?}");
 
             match execution {
                 Ok(r) => {

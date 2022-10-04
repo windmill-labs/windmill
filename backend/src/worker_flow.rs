@@ -255,12 +255,6 @@ pub async fn update_flow_status_after_job_completion(
         false if has_failure_module(flow, &mut tx).await? => true,
         false => false,
     };
-    println!(
-        "{success:#?} {:#?} {:#?} {should_continue_flow} {module_index:#?}",
-        &flow_job.parse_raw_flow_retry(module_index),
-        &flow_job.parse_flow_status_retry().unwrap_or_default()
-    );
-
     tx.commit().await?;
 
     let done = if !should_continue_flow {
