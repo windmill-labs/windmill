@@ -257,37 +257,44 @@
 					</h2>
 					<input placeholder="Search hub scripts" bind:value={hubFilter} class="search-bar mt-2" />
 					<div class="relative">
-						<TableCustom>
-							<tr slot="header-row">
-								<th>App</th>
-								<th>Summary</th>
-								<th />
-							</tr>
-							<tbody slot="body">
-								{#each filteredHub ?? [] as { path, summary, app, ask_id }}
-									<tr>
-										<td class="font-black">{app}</td>
-										<td
-											><button class="text-left" on:click={() => viewCode(path)}>{summary}</button
-											></td
-										>
-										<td class="whitespace-nowrap"
-											><button class="text-blue-500" on:click={() => viewCode(path)}
-												>view code</button
+						{#if $hubScripts != undefined}
+							<TableCustom>
+								<tr slot="header-row">
+									<th>App</th>
+									<th>Summary</th>
+									<th />
+								</tr>
+								<tbody slot="body">
+									{#each filteredHub ?? [] as { path, summary, app, ask_id }}
+										<tr>
+											<td class="font-black">{app}</td>
+											<td
+												><button class="text-left" on:click={() => viewCode(path)}>{summary}</button
+												></td
 											>
-											|
-											<a target="_blank" href={`https://hub.windmill.dev/scripts/${app}/${ask_id}`}
-												>hub's page</a
-											>
-											|
-											<a class="font-bold" href={`/scripts/add?hub=${encodeURIComponent(path)}`}
-												>fork</a
-											>
-										</td>
-									</tr>
-								{/each}
-							</tbody>
-						</TableCustom>
+											<td class="whitespace-nowrap"
+												><button class="text-blue-500" on:click={() => viewCode(path)}
+													>view code</button
+												>
+												|
+												<a
+													target="_blank"
+													href={`https://hub.windmill.dev/scripts/${app}/${ask_id}`}>hub's page</a
+												>
+												|
+												<a class="font-bold" href={`/scripts/add?hub=${encodeURIComponent(path)}`}
+													>fork</a
+												>
+											</td>
+										</tr>
+									{/each}
+								</tbody>
+							</TableCustom>
+						{:else}<span class="mt-2 text-sm text-red-400"
+								>Hub not reachable. If your environment is air gapped, contact sales@windmill.dev to
+								setup a local mirror.</span
+							>
+						{/if}
 					</div>
 				{/if}
 				{#each sectionTab == 'examples' ? communityScripts : groupedScripts.filter((x) => tabFromPath(x[0]) == sectionTab) as [section, scripts]}

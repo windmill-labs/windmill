@@ -13,6 +13,7 @@
 	export let href: string | undefined = undefined
 	export let target: Button.Target = '_self'
 	export let iconOnly: boolean = false
+	export let id: string = ''
 
 	export let startIcon: { icon: any; classes?: string } | undefined = undefined
 	export let endIcon: { icon: any; classes?: string } | undefined = undefined
@@ -80,12 +81,11 @@
 	}
 
 	$: isSmall = size === 'xs' || size === 'sm'
-	$: startIconClass = classNames(isSmall ? 'mr-1' : 'mr-2', startIcon?.classes)
-	$: endIconClass = classNames(isSmall ? 'ml-1' : 'ml-2', endIcon?.classes)
 </script>
 
 {#if href}
 	<button
+		{id}
 		type="button"
 		on:click|stopPropagation={() => goto(href ?? '#')}
 		{target}
@@ -111,7 +111,7 @@
 		{/if}
 	</button>
 {:else}
-	<button type="button" on:click|stopPropagation {...buttonProps} {...$$restProps}>
+	<button {id} type="button" on:click|stopPropagation {...buttonProps} {...$$restProps}>
 		{#if startIcon}
 			<Icon
 				data={startIcon.icon}

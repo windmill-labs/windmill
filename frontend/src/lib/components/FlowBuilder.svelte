@@ -182,7 +182,11 @@
 				}}
 			>
 				<div class="overflow-x-auto flex items-center h-full text-sm text-left font-semibold">
-					<div>{$flowStore.summary ?? ''}</div>
+					<div
+						>{$flowStore.summary == '' || !$flowStore.summary
+							? 'No summary'
+							: $flowStore.summary}</div
+					>
 				</div>
 				<div>
 					<Icon data={faPen} scale={0.8} class="text-gray-500 ml-1" />

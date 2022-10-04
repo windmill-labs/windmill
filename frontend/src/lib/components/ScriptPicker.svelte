@@ -1,7 +1,6 @@
 <script lang="ts">
 	import { ScriptService, FlowService, Script } from '$lib/gen'
 
-	import Icon from 'svelte-awesome'
 	import { faSearch } from '@fortawesome/free-solid-svg-icons'
 	import { hubScripts, workspaceStore } from '$lib/stores'
 	import { createEventDispatcher } from 'svelte'

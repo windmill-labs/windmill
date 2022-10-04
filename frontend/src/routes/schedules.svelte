@@ -26,7 +26,6 @@
 	} from '@fortawesome/free-solid-svg-icons'
 	import { userStore, workspaceStore } from '$lib/stores'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
-	import Icon from 'svelte-awesome'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import { Button } from '$lib/components/common'
 
@@ -63,7 +62,7 @@
 </script>
 
 <CenteredPage>
-  <PageHeader title="Schedule">
+	<PageHeader title="Schedule">
 		<Button size="sm" startIcon={{ icon: faPlus }} href="/schedule/add">New&nbsp;schedule</Button>
 	</PageHeader>
 	<div class="relative mt-10">

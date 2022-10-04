@@ -11,8 +11,8 @@
 
 	type Item = { summary: String; path: String; version?: String }
 
-	let items: Item[]
-	$: items = $hubScripts?.filter((x) => x.kind == kind) ?? []
+	let items: Item[] | undefined
+	$: items = $hubScripts?.filter((x) => x.kind == kind)
 	let itemPicker: ItemPicker
 
 	const dispatch = createEventDispatcher()
@@ -28,6 +28,7 @@
 	loadItems={async () => {
 		return items
 	}}
+	noItemMessage="Hub not reachable. If your environment is air gapped, contact sales@windmill.dev to setup a local mirror."
 />
 
 <FlowScriptPicker
