@@ -42,8 +42,6 @@ components:
             $ref: "#/components/schemas/FlowModule"
         failure_module:
           $ref: "#/components/schemas/FlowModule"
-        retry:
-          $ref: "#/components/schemas/Retry"
 
       required:
         - modules

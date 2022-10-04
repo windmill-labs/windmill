@@ -255,6 +255,11 @@ pub async fn update_flow_status_after_job_completion(
         false if has_failure_module(flow, &mut tx).await? => true,
         false => false,
     };
+    println!(
+        "{success:#?} {:#?} {:#?} {should_continue_flow} {module_index:#?}",
+        &flow_job.parse_raw_flow_retry(module_index),
+        &flow_job.parse_flow_status_retry().unwrap_or_default()
+    );
 
     tx.commit().await?;
 
@@ -485,17 +490,21 @@ pub async fn handle_flow(
         )))?;
     }
 
-    if flow.retry.max_attempts() > MAX_RETRY_ATTEMPTS {
-        Err(Error::BadRequest(format!(
-            "retry attempts exceeds the maximum of {MAX_RETRY_ATTEMPTS}"
-        )))?
-    }
+    for module in flow.modules.iter() {
+        if let Some(retry) = &module.retry {
+            if retry.max_attempts() > MAX_RETRY_ATTEMPTS {
+                Err(Error::BadRequest(format!(
+                    "retry attempts exceeds the maximum of {MAX_RETRY_ATTEMPTS}"
+                )))?
+            }
 
-    if matches!(flow.retry.max_interval(), Some(interval) if interval > MAX_RETRY_INTERVAL) {
-        let max = MAX_RETRY_INTERVAL.as_secs();
-        Err(Error::BadRequest(format!(
-            "retry interval exceeds the maximum of {max} seconds"
-        )))?
+            if matches!(retry.max_interval(), Some(interval) if interval > MAX_RETRY_INTERVAL) {
+                let max = MAX_RETRY_INTERVAL.as_secs();
+                Err(Error::BadRequest(format!(
+                    "retry interval exceeds the maximum of {max} seconds"
+                )))?
+            }
+        }
     }
 
     push_next_flow_job(
@@ -654,7 +663,7 @@ async fn push_next_flow_job(
     }
 
     if matches!(&status_module, FlowStatusModule::Failure { .. }) {
-        let retry = module.retry.as_ref().unwrap_or(&flow.retry);
+        let retry = &module.retry.clone().unwrap_or_default();
         if let Some((fail_count, retry_in)) = next_retry(retry, &status.retry) {
             tracing::debug!(
                 retry_in_seconds = retry_in.as_secs(),
@@ -704,7 +713,7 @@ async fn push_next_flow_job(
             status_module = status.failure_module.clone();
 
             /* (retry feature) save the previous_result the first time this step is run */
-            let retry = module.retry.as_ref().unwrap_or(&flow.retry);
+            let retry = &module.retry.clone().unwrap_or_default();
             if retry.has_attempts() {
                 sqlx::query(
                     "
@@ -726,7 +735,11 @@ async fn push_next_flow_job(
 
     /* (retry feature) save the previous_result the first time this step is run */
     } else if matches!(&status_module, FlowStatusModule::WaitingForPriorSteps)
-        && module.retry.as_ref().unwrap_or(&flow.retry).has_attempts()
+        && module
+            .retry
+            .as_ref()
+            .map(|x| x.has_attempts())
+            .unwrap_or(false)
         && status.retry.fail_count == 0
     {
         sqlx::query(
@@ -918,7 +931,6 @@ async fn push_next_flow_job(
             value: FlowValue {
                 modules: (*modules).clone(),
                 failure_module: flow.failure_module.clone(),
-                retry: Default::default(),
             },
             path: Some(format!("{}/{}", flow_job.script_path(), status.step)),
         },
@@ -1042,9 +1054,13 @@ impl QueuedJob {
 
     pub fn parse_raw_flow_retry(&self, mod_index: Option<usize>) -> Option<Retry> {
         self.parse_raw_flow().and_then(|module| {
-            mod_index
-                .and_then(|i| module.modules.get(i).map(|m| m.retry.clone()))
-                .unwrap_or(Some(module.retry))
+            mod_index.and_then(|i| {
+                module
+                    .modules
+                    .get(i)
+                    .or(module.failure_module.as_ref())
+                    .and_then(|m| m.retry.clone())
+            })
         })
     }
 
