@@ -1,13 +1,20 @@
 <script lang="ts">
 	export let applyPageWidth = false
-	let classes = 'max-w-6xl mx-auto px-4 sm:px-6 md:px-8'
+	export let stickToTop = false
+
+	$: wide = applyPageWidth ? 'max-w-6xl mx-auto px-4 sm:px-6 md:px-8 ' : ''
+
+	let scrollY: number
 </script>
 
-<div class={'bg-white py-3 ' + $$props.class}>
-	<div
-		class={'w-full flex flex-wrap justify-between items-center gap-4 ' +
-			(applyPageWidth ? classes : '')}
-	>
+<svelte:window bind:scrollY />
+
+<div
+	class={'bg-white py-3 ' +
+		(stickToTop ? 'sticky top-0 ' + (scrollY >= 30 ? 'border-b ' : '') : '') +
+		$$props.class}
+>
+	<div class={'w-full flex flex-wrap justify-between items-center gap-4 ' + wide}>
 		<div class="flex flex-wrap items-center gap-2">
 			{#if $$slots.left}
 				<slot name="left" />
