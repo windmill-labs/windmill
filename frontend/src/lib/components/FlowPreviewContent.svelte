@@ -9,7 +9,7 @@
 	import { mapJobResultsToFlowState } from './flows/flowStateUtils'
 	import { flowStore } from './flows/flowStore'
 	import type { FlowEditorContext } from './flows/types'
-	import { runFlowPreview } from './flows/utils'
+	import { runFlowPreview, selectedIdToIndexes } from './flows/utils'
 	import SchemaForm from './SchemaForm.svelte'
 	import FlowStatusViewer from '../components/FlowStatusViewer.svelte'
 
@@ -25,7 +25,7 @@
 		if (previewMode === 'whole') {
 			return $flowStore
 		} else {
-			const [parentIndex, childIndex] = $selectedId.split('-')
+			const [parentIndex, childIndex] = selectedIdToIndexes($selectedId)
 
 			const modules = $flowStore.value.modules.slice(0, Number(parentIndex) + 1)
 			const flow = JSON.parse(JSON.stringify($flowStore))
@@ -132,7 +132,7 @@
 				{jobId}
 				on:jobsLoaded={(e) => {
 					intervalState = 'done'
-					const [parentIndex] = $selectedId.split('-')
+					const parentIndex = selectedIdToIndexes($selectedId)[0]
 					const upToIndex =
 						previewMode === 'upTo' ? Number(parentIndex) + 1 : $flowStateStore.modules.length
 					mapJobResultsToFlowState(e.detail, upToIndex)

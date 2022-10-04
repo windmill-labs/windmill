@@ -35,7 +35,19 @@
 		on:click={() => dispatch('toggleStopAfterIf')}
 	>
 		<Icon data={faStop} class="mr-2" scale={0.8} />
-		{module.stop_after_if ? `Early stop` : 'Early stop'}
+		{module.stop_after_if ? `Early stop o` : 'Early stop x'}
+	</span>
+	<span
+		class={classNames(
+			'whitespace-nowrap text-sm font-medium mr-2 px-2.5 py-0.5 rounded cursor-pointer flex items-center',
+			module.stop_after_if
+				? 'bg-sky-100 text-sky-800 hover:bg-sky-200'
+				: 'bg-gray-100 text-gray-800 hover:bg-gray-200'
+		)}
+		on:click={() => dispatch('toggleRetry')}
+	>
+		<Icon data={faStop} class="mr-2" scale={0.8} />
+		{module.retry ? `Retry o` : 'Retry x'}
 	</span>
 	{#if module.value.type === 'script' && !shouldPick}
 		<Button

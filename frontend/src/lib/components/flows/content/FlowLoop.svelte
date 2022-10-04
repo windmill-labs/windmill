@@ -9,12 +9,16 @@
 	import { getStepPropPicker } from '../flowStateUtils'
 	import { flowStateStore } from '../flowState'
 	import PropPickerWrapper from '../propPicker/PropPickerWrapper.svelte'
+	import { selectedIdToIndexes, selectedIdToModule } from '../utils'
+	import { Button } from '$lib/components/common'
 
 	const { selectedId, previewArgs } = getContext<FlowEditorContext>('FlowEditorContext')
 
+	$: mod = selectedIdToModule($selectedId, $flowStore)
+
 	let editor: SimpleEditor | undefined = undefined
 
-	$: index = $selectedId.split('-')[1]
+	$: index = selectedIdToIndexes($selectedId)[1]
 
 	$: pickableProperties = getStepPropPicker(
 		[Number(index)],
@@ -26,11 +30,11 @@
 
 <FlowCard title="For loop">
 	<div slot="header" class="grow">
-		<input bind:value={$flowStore.value.modules[index].summary} placeholder={'Summary'} />
+		<input bind:value={mod.summary} placeholder={'Summary'} />
 	</div>
 	<div>
 		<div class="p-6 flex flex-col">
-			{#if $flowStore.value.modules[index].value.type === 'forloopflow'}
+			{#if mod.value.type === 'forloopflow'}
 				<span class="mb-2 text-sm font-bold"
 					>Iterator expression
 					<Tooltip>
@@ -39,26 +43,35 @@
 					</Tooltip>
 				</span>
 
-				<div class="border w-full">
-					<PropPickerWrapper
-						{pickableProperties}
-						on:select={({ detail }) => {
-							editor?.insertAtCursor(detail)
+				{#if mod.value.iterator.type == 'javascript'}
+					<div class="border w-full">
+						<PropPickerWrapper
+							{pickableProperties}
+							on:select={({ detail }) => {
+								editor?.insertAtCursor(detail)
+							}}
+						>
+							<SimpleEditor
+								bind:this={editor}
+								lang="javascript"
+								bind:code={mod.value.iterator.expr}
+								class="small-editor"
+								shouldBindKey={false}
+							/>
+						</PropPickerWrapper>
+					</div>
+				{:else}
+					<Button
+						on:click={() => {
+							if (mod.value.type === 'forloopflow') mod.value.iterator.type = 'javascript'
 						}}
-					>
-						<SimpleEditor
-							bind:this={editor}
-							lang="javascript"
-							bind:code={$flowStore.value.modules[index].value.iterator.expr}
-							class="small-editor"
-							shouldBindKey={false}
-						/>
-					</PropPickerWrapper>
-				</div>
+					/>
+				{/if}
+
 				<span class="my-2 text-sm font-bold">Skip failures</span>
 
 				<Toggle
-					bind:checked={$flowStore.value.modules[index].value.skip_failures}
+					bind:checked={mod.value.skip_failures}
 					options={{
 						right: 'Skip failures'
 					}}

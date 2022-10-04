@@ -13,8 +13,6 @@
 	import type { FlowEditorContext } from '../types'
 
 	const { schedule, select } = getContext<FlowEditorContext>('FlowEditorContext')
-
-	$: retriesEnabled = $flowStore.value.retry?.constant || $flowStore.value.retry?.exponential
 </script>
 
 <div class="flex space-x-1">
@@ -30,17 +28,5 @@
 		<Icon data={faCalendarAlt} class="mr-2" scale={0.8} />
 
 		{$schedule?.enabled ? `Schedule: ${$schedule?.cron}` : 'Schedule disabled'}
-	</span>
-	<span
-		class={classNames(
-			' text-sm font-medium mr-2 px-2.5 py-0.5 rounded cursor-pointer flex items-center',
-			retriesEnabled
-				? 'bg-sky-100 text-sky-800 hover:bg-sky-200'
-				: 'bg-gray-100 text-gray-800 hover:bg-gray-200'
-		)}
-		on:click={() => select('settings-retries')}
-	>
-		<Icon data={faArrowRotateForward} class="mr-2" scale={0.8} />
-		{retriesEnabled ? `Retries enabled` : 'Retries disabled'}
 	</span>
 </div>

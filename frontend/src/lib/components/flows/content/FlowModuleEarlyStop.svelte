@@ -10,6 +10,7 @@
 	import { flowStateStore } from '../flowState'
 	import type { FlowEditorContext } from '../types'
 	import { getContext } from 'svelte'
+	import { selectedIdToIndexes } from '../utils'
 
 	const { selectedId, previewArgs } = getContext<FlowEditorContext>('FlowEditorContext')
 
@@ -21,7 +22,7 @@
 	let pickableProperties: Object = {}
 
 	$: {
-		let indices = $selectedId.split('-').map(Number)
+		let indices = selectedIdToIndexes($selectedId)
 		if (indices[1]) {
 			indices[1] += 1
 		} else {
