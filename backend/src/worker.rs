@@ -234,6 +234,13 @@ pub async fn run_worker(
                     .await
                     .expect("could not create job dir");
 
+                if job.job_kind == JobKind::Flow || job.job_kind == JobKind::FlowPreview {
+                    DirBuilder::new()
+                        .create(&format!("{job_dir}/shared"))
+                        .await
+                        .expect("could not create shared dir");
+                }
+
                 if let Some(err) = handle_queued_job(
                     job.clone(),
                     db,
@@ -376,13 +383,6 @@ async fn handle_queued_job(
     match job.job_kind {
         JobKind::FlowPreview | JobKind::Flow => {
             let args = job.args.clone().unwrap_or(Value::Null);
-            if job.same_worker {
-                DirBuilder::new()
-                    .recursive(true)
-                    .create(&format!("{job_dir}/shared"))
-                    .await
-                    .expect("could not create shared dir");
-            }
             handle_flow(&job, db, args, same_worker_tx).await?;
         }
         _ => {
@@ -640,7 +640,7 @@ async fn handle_code_execution_job(
     );
 
     let shared_mount = if job.same_worker {
-        let r = format!(
+        format!(
             r#"
 mount {{
     src: "{worker_dir}/{}/shared"
@@ -652,9 +652,7 @@ mount {{
             job.parent_job.ok_or(Error::ExecutionErr(
                 "no parent job, required for same worker job".to_string()
             ))?,
-        );
-        println!("{r}, {worker_dir}, {worker_name}");
-        r
+        )
     } else {
         "".to_string()
     };
@@ -1973,7 +1971,12 @@ mod tests {
         initialize_tracing().await;
 
         let write_file = r#"export async function main(loop: boolean, i: number) {  
-            await Deno.writeTextFile("/shared/file.txt", "Hello World!" + loop + i);
+            await Deno.writeTextFile("/shared/file.txt", `${loop} ${i}`);
+        }"#
+        .to_string();
+
+        let read_file = r#"export async function main() {  
+            return await Deno.readTextFile("/shared/file.txt");
         }"#
         .to_string();
 
@@ -2002,33 +2005,44 @@ mod tests {
                     value: FlowModuleValue::ForloopFlow {
                         iterator: InputTransform::Static { value: json!([1, 2, 3]) },
                         skip_failures: false,
-                        modules: vec![FlowModule {
-                            value: FlowModuleValue::RawScript(RawCode {
-                                language: ScriptLang::Deno,
-                                content: r#"export async function main(loop: boolean, i: number) {
-                                    await Deno.readFile("/shared/file.txt");
-                                }"#
-                                .to_string(),
-                                path: None,
-                            }),
-                            input_transforms: [
-                                (
-                                    "i".to_string(),
-                                    InputTransform::Javascript {
-                                        expr: "previous_result.iter.value".to_string(),
-                                    },
-                                ),
-                                (
-                                    "loop".to_string(),
-                                    InputTransform::Static { value: json!(true) },
-                                ),
-                            ]
-                            .into(),
-                            stop_after_if: Default::default(),
-                            summary: Default::default(),
-                            suspend: Default::default(),
-                            retry: None,
-                        }],
+                        modules: vec![
+                            FlowModule {
+                                value: FlowModuleValue::RawScript(RawCode {
+                                    language: ScriptLang::Deno,
+                                    content: write_file,
+                                    path: None,
+                                }),
+                                input_transforms: [
+                                    (
+                                        "i".to_string(),
+                                        InputTransform::Javascript {
+                                            expr: "previous_result.iter.value".to_string(),
+                                        },
+                                    ),
+                                    (
+                                        "loop".to_string(),
+                                        InputTransform::Static { value: json!(true) },
+                                    ),
+                                ]
+                                .into(),
+                                stop_after_if: Default::default(),
+                                summary: Default::default(),
+                                suspend: Default::default(),
+                                retry: None,
+                            },
+                            FlowModule {
+                                value: FlowModuleValue::RawScript(RawCode {
+                                    language: ScriptLang::Deno,
+                                    content: read_file.clone(),
+                                    path: None,
+                                }),
+                                input_transforms: [].into(),
+                                stop_after_if: Default::default(),
+                                summary: Default::default(),
+                                suspend: Default::default(),
+                                retry: None,
+                            },
+                        ],
                     },
                     input_transforms: Default::default(),
                     stop_after_if: Default::default(),
@@ -2039,13 +2053,17 @@ mod tests {
                 FlowModule {
                     value: FlowModuleValue::RawScript(RawCode {
                         language: ScriptLang::Deno,
-                        content: r#"export async function main() {  
-                            await Deno.readFile("/shared/file.txt");
+                        content: r#"export async function main(loops: string[]) {
+                            return await Deno.readTextFile("/shared/file.txt") + ","+ loops;
                         }"#
                         .to_string(),
                         path: None,
                     }),
-                    input_transforms: [].into(),
+                    input_transforms: [(
+                        "loops".to_string(),
+                        InputTransform::Javascript { expr: "previous_result".to_string() },
+                    )]
+                    .into(),
                     stop_after_if: Default::default(),
                     summary: Default::default(),
                     suspend: Default::default(),
@@ -2059,7 +2077,7 @@ mod tests {
         let job = JobPayload::RawFlow { value: flow, path: None };
 
         let result = run_job_in_new_worker_until_complete(&db, job.clone()).await;
-        assert_eq!(result, serde_json::json!([2, 4, 6]));
+        assert_eq!(result, serde_json::json!("false 1,true 1,true 2,true 3"));
     }
 
     #[sqlx::test(fixtures("base"))]
@@ -3159,7 +3177,10 @@ def main(error, port):
             base_url: String::new(),
             disable_nuser: false,
             disable_nsjail: false,
-            keep_job_dir: false,
+            keep_job_dir: std::env::var("KEEP_JOB_DIR")
+                .ok()
+                .and_then(|x| x.parse::<bool>().ok())
+                .unwrap_or(false),
         };
         let future = async move {
             run_worker(

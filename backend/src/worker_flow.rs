@@ -26,8 +26,8 @@ use uuid::Uuid;
 const MINUTES: Duration = Duration::from_secs(60);
 const HOURS: Duration = MINUTES.saturating_mul(60);
 
-const MAX_RETRY_ATTEMPTS: u16 = 1000;
-const MAX_RETRY_INTERVAL: Duration = HOURS.saturating_mul(6);
+pub const MAX_RETRY_ATTEMPTS: u16 = 1000;
+pub const MAX_RETRY_INTERVAL: Duration = HOURS.saturating_mul(6);
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct FlowStatus {
@@ -488,29 +488,6 @@ pub async fn handle_flow(
         .ok_or_else(|| Error::InternalErr(format!("requiring a raw flow value")))?
         .to_owned();
     let flow = serde_json::from_value::<FlowValue>(value.to_owned())?;
-
-    if flow.modules.len() == 0 {
-        Err(Error::BadRequest(format!(
-            "A flow needs at least one module to run"
-        )))?;
-    }
-
-    for module in flow.modules.iter() {
-        if let Some(retry) = &module.retry {
-            if retry.max_attempts() > MAX_RETRY_ATTEMPTS {
-                Err(Error::BadRequest(format!(
-                    "retry attempts exceeds the maximum of {MAX_RETRY_ATTEMPTS}"
-                )))?
-            }
-
-            if matches!(retry.max_interval(), Some(interval) if interval > MAX_RETRY_INTERVAL) {
-                let max = MAX_RETRY_INTERVAL.as_secs();
-                Err(Error::BadRequest(format!(
-                    "retry interval exceeds the maximum of {max} seconds"
-                )))?
-            }
-        }
-    }
 
     push_next_flow_job(flow_job, flow, db, last_result, same_worker_tx).await?;
     Ok(())

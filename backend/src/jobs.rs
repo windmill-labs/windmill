@@ -24,7 +24,9 @@ use crate::{
     users::{owner_to_token_owner, Authed},
     utils::{now_from_db, require_admin, Pagination, StripPath},
     worker,
-    worker_flow::{init_flow_status, FlowStatus, FlowStatusModule},
+    worker_flow::{
+        init_flow_status, FlowStatus, FlowStatusModule, MAX_RETRY_ATTEMPTS, MAX_RETRY_INTERVAL,
+    },
 };
 use axum::{
     extract::{Extension, FromRequest, Path, Query},
@@ -1370,6 +1372,31 @@ pub async fn push<'c>(
             (None, Some(flow), None, JobKind::Flow, Some(value), None)
         }
     };
+
+    if let Some(flow) = raw_flow.as_ref() {
+        if flow.modules.len() == 0 {
+            Err(Error::BadRequest(format!(
+                "A flow needs at least one module to run"
+            )))?;
+        }
+
+        for module in flow.modules.iter() {
+            if let Some(retry) = &module.retry {
+                if retry.max_attempts() > MAX_RETRY_ATTEMPTS {
+                    Err(Error::BadRequest(format!(
+                        "retry attempts exceeds the maximum of {MAX_RETRY_ATTEMPTS}"
+                    )))?
+                }
+
+                if matches!(retry.max_interval(), Some(interval) if interval > MAX_RETRY_INTERVAL) {
+                    let max = MAX_RETRY_INTERVAL.as_secs();
+                    Err(Error::BadRequest(format!(
+                        "retry interval exceeds the maximum of {max} seconds"
+                    )))?
+                }
+            }
+        }
+    }
 
     let flow_status = raw_flow.as_ref().map(init_flow_status);
     let is_running = same_worker;
