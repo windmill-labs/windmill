@@ -20,7 +20,7 @@
 	import Icon from 'svelte-awesome'
 	import { check } from 'svelte-awesome/icons'
 	import {
-		faBolt,
+		faRefresh,
 		faCircle,
 		faTimes,
 		faTrash,
@@ -38,7 +38,6 @@
 	} from '@fortawesome/free-solid-svg-icons'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import DisplayResult from '$lib/components/DisplayResult.svelte'
-
 	import { userStore, workspaceStore } from '$lib/stores'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
 	import FlowStatusViewer from '$lib/components/FlowStatusViewer.svelte'
@@ -48,7 +47,7 @@
 	import HighlightCode from '$lib/components/HighlightCode.svelte'
 	import TestJobLoader from '$lib/components/TestJobLoader.svelte'
 	import LogViewer from '$lib/components/LogViewer.svelte'
-	import { Button } from '$lib/components/common'
+	import { Button, ActionRow } from '$lib/components/common'
 
 	let workspace_id_query: string | undefined = $page.url.searchParams.get('workspace') ?? undefined
 	let workspace_id: string | undefined
@@ -108,6 +107,73 @@
 	bind:job
 />
 
+{#if job?.job_kind === 'script' || job?.job_kind === 'flow'}
+	<ActionRow applyPageWidth stickToTop>
+		<svelte:fragment slot="left">
+			{@const stem = `/${job?.job_kind}s`}
+			{@const isScript = job?.job_kind === 'script'}
+			{@const route = isScript ? job?.script_hash : job?.script_path}
+			{@const runHref = `${stem}/run/${route}${
+				job?.args ? '?args=' + encodeURIComponent(encodeState(job?.args)) : ''
+			}`}
+			{@const editHref = `${stem}/edit/${route}${isScript ? '?step=2' : ''}`}
+			{@const isRunning = job && 'running' in job && job.running}
+			{#if isRunning}
+				<Button
+					color="red"
+					size="xs"
+					startIcon={{ icon: faTimesCircle }}
+					on:click|once={() => {
+						if (job?.id) {
+							cancelJob(job?.id)
+						}
+					}}
+				>
+					Cancel
+				</Button>
+			{/if}
+			<Button
+				href={runHref}
+				disabled={isRunning}
+				color="blue"
+				size="xs"
+				startIcon={{ icon: faRefresh }}>Run again</Button
+			>
+			{#if canWrite(job?.script_path ?? '', {}, $userStore)}
+				<Button href={editHref} color="blue" size="xs" startIcon={{ icon: faEdit }}>Edit</Button>
+			{/if}
+		</svelte:fragment>
+		<svelte:fragment slot="right">
+			{@const stem = `/${job?.job_kind}s`}
+			{@const isScript = job?.job_kind === 'script'}
+			{@const runsHref = `/runs/${job?.script_path}${!isScript ? '?jobKind=flow' : ''}`}
+			{@const viewHref = `${stem}/get/${isScript ? job?.script_hash : job?.script_path}`}
+			{#if job && 'deleted' in job && !job?.deleted && ($userStore?.is_admin ?? false)}
+				<Button
+					variant="border"
+					color="red"
+					size="xs"
+					startIcon={{ icon: faTrash }}
+					on:click={() => job?.id && deleteCompletedJob(job.id)}
+				>
+					Delete
+				</Button>
+			{/if}
+			<Button href={runsHref} variant="border" color="blue" size="xs" startIcon={{ icon: faList }}>
+				View runs
+			</Button>
+			<Button
+				href={viewHref}
+				variant="border"
+				color="blue"
+				size="xs"
+				startIcon={{ icon: faScroll }}
+			>
+				View {job?.job_kind}
+			</Button>
+		</svelte:fragment>
+	</ActionRow>
+{/if}
 <CenteredPage>
 	<div class="flex flex-row flex-wrap justify-between items-center gap-4 pb-4">
 		<h1>
@@ -173,121 +239,6 @@
 				{/if}
 			</div>
 		</h1>
-		<div class="flex flex-wrap gap-2">
-			{#if job && 'deleted' in job && !job?.deleted && ($userStore?.is_admin ?? false)}
-				<Button
-					variant="border"
-					color="red"
-					size="sm"
-					startIcon={{ icon: faTrash }}
-					on:click={() => {
-						if (job?.id) {
-							deleteCompletedJob(job?.id)
-						}
-					}}
-				>
-					Delete
-				</Button>
-			{/if}
-			{#if job && 'running' in job && job.running}
-				<Button
-					variant="border"
-					color="red"
-					size="sm"
-					startIcon={{ icon: faTimesCircle }}
-					on:click|once={() => {
-						if (job?.id) {
-							cancelJob(job?.id)
-						}
-					}}
-				>
-					Cancel
-				</Button>
-			{/if}
-			{#if job?.job_kind == 'script'}
-				{#if canWrite(job?.script_path ?? '', {}, $userStore)}
-					<Button
-						href="/scripts/edit/{job?.script_hash}?step=2"
-						variant="border"
-						color="blue"
-						size="sm"
-						startIcon={{ icon: faEdit }}
-					>
-						Edit
-					</Button>
-				{/if}
-				<Button
-					href="/scripts/get/{job?.script_hash}"
-					variant="border"
-					color="blue"
-					size="sm"
-					startIcon={{ icon: faScroll }}
-				>
-					View script
-				</Button>
-				<Button
-					href="/runs/{job?.script_path}"
-					variant="border"
-					color="blue"
-					size="sm"
-					startIcon={{ icon: faList }}
-				>
-					View runs
-				</Button>
-				<Button
-					href="/scripts/run/{job?.script_hash}{job?.args
-						? `?args=${encodeURIComponent(encodeState(job?.args))}`
-						: ''}"
-					variant="border"
-					color="blue"
-					size="sm"
-					startIcon={{ icon: faBolt }}
-				>
-					Run again
-				</Button>
-			{:else if job?.job_kind == 'flow'}
-				{#if canWrite(job?.script_path ?? '', {}, $userStore)}
-					<Button
-						href="/flows/edit/{job?.script_path}"
-						variant="border"
-						color="blue"
-						size="sm"
-						startIcon={{ icon: faEdit }}
-					>
-						Edit
-					</Button>
-				{/if}
-				<Button
-					href="/flows/get/{job?.script_path}"
-					variant="border"
-					color="blue"
-					size="sm"
-					startIcon={{ icon: faScroll }}
-				>
-					View flow
-				</Button>
-				<Button
-					href="/runs/{job?.script_path}?jobKind=flow"
-					variant="border"
-					color="blue"
-					size="sm"
-					startIcon={{ icon: faList }}
-				>
-					View runs
-				</Button>
-				<Button
-					href="/flows/run/{job?.script_path}{job?.args
-						? `?args=${encodeURIComponent(encodeState(job?.args))}`
-						: ''}"
-					variant="border"
-					color="blue"
-					size="sm"
-					startIcon={{ icon: faBolt }}
-				>
-					Run again
-				</Button>
-			{/if}
-		</div>
 	</div>
 	{#if job && 'deleted' in job && job?.deleted}
 		<div class="bg-red-100 border-l-4 border-red-600 text-orange-700 p-4" role="alert">

@@ -46,7 +46,6 @@
 
 	let path = $page.params.path
 	let shareModal: ShareModal
-	let scrollY: number
 
 	$: {
 		if ($workspaceStore && $userStore) {
@@ -90,10 +89,8 @@
 	}
 </script>
 
-<svelte:window bind:scrollY />
-
 {#if flow}
-	<ActionRow applyPageWidth class={'sticky top-0 ' + (scrollY >= 30 ? 'border-b' : '')}>
+	<ActionRow applyPageWidth stickToTop>
 		<svelte:fragment slot="left">
 			<Button
 				href="/flows/run/{path}"
@@ -241,11 +238,13 @@
 					corresponding jsonschema as payload. To create a permanent token, go to your user setting
 					by clicking your username on the top-left.</Tooltip
 				>
-				<pre><code
+				<pre
+					><code
 						><a href="/api/w/{$workspaceStore}/jobs/run/f/{flow?.path}"
 							>/api/w/{$workspaceStore}/jobs/run/f/{flow?.path}</a
 						></code
-					></pre>
+					></pre
+				>
 			</div>
 			<div>
 				<h2 class="text-gray-700 pb-1 mb-3 border-b">Flow</h2>
