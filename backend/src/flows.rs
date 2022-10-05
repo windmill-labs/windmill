@@ -76,6 +76,9 @@ pub struct FlowValue {
     pub modules: Vec<FlowModule>,
     #[serde(default)]
     pub failure_module: Option<FlowModule>,
+    #[serde(default)]
+    #[serde(skip_serializing_if = "is_default")]
+    pub same_worker: bool,
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone)]
