@@ -384,53 +384,6 @@
     },
     "query": "SELECT * FROM workspace LIMIT $1 OFFSET $2"
   },
-  "12d3b30b0f5f5bd9601565de5bdeadc3d99a946d2d91cf2bcba84bd161726d51": {
-    "describe": {
-      "columns": [
-        {
-          "name": "id",
-          "ordinal": 0,
-          "type_info": "Uuid"
-        },
-        {
-          "name": "workspace_id",
-          "ordinal": 1,
-          "type_info": "Varchar"
-        },
-        {
-          "name": "last_ping",
-          "ordinal": 2,
-          "type_info": "Timestamptz"
-        }
-      ],
-      "nullable": [
-        false,
-        false,
-        false
-      ],
-      "parameters": {
-        "Left": [
-          "Text",
-          {
-            "Custom": {
-              "kind": {
-                "Enum": [
-                  "script",
-                  "preview",
-                  "flow",
-                  "dependencies",
-                  "flowpreview",
-                  "script_hub"
-                ]
-              },
-              "name": "job_kind"
-            }
-          }
-        ]
-      }
-    },
-    "query": "UPDATE queue SET running = false WHERE last_ping < now() - ($1 || ' seconds')::interval AND running = true AND job_kind != $2 RETURNING id, workspace_id, last_ping"
-  },
   "13a10a404e892d6975d4913424880a75bfb2c6dfb5134c270c7c7225acb05db4": {
     "describe": {
       "columns": [
@@ -631,66 +584,6 @@
       }
     },
     "query": "SELECT canceled FROM queue WHERE id = $1"
-  },
-  "2420cb110a116dfbc6b8658a6d2d35db60c6aadd157488cb72eb9116ae7e9f54": {
-    "describe": {
-      "columns": [
-        {
-          "name": "id",
-          "ordinal": 0,
-          "type_info": "Uuid"
-        }
-      ],
-      "nullable": [
-        false
-      ],
-      "parameters": {
-        "Left": [
-          "Varchar",
-          "Uuid",
-          "Uuid",
-          "Varchar",
-          "Varchar",
-          "Timestamptz",
-          "Int8",
-          "Varchar",
-          "Text",
-          "Jsonb",
-          {
-            "Custom": {
-              "kind": {
-                "Enum": [
-                  "script",
-                  "preview",
-                  "flow",
-                  "dependencies",
-                  "flowpreview",
-                  "script_hub"
-                ]
-              },
-              "name": "job_kind"
-            }
-          },
-          "Varchar",
-          "Jsonb",
-          "Jsonb",
-          "Bool",
-          {
-            "Custom": {
-              "kind": {
-                "Enum": [
-                  "python3",
-                  "deno",
-                  "go"
-                ]
-              },
-              "name": "script_lang"
-            }
-          }
-        ]
-      }
-    },
-    "query": "INSERT INTO queue\n            (workspace_id, id, parent_job, created_by, permissioned_as, scheduled_for, \n                script_hash, script_path, raw_code, args, job_kind, schedule_path, raw_flow, flow_status, is_flow_step, language)\n            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16) RETURNING id"
   },
   "255aafff962738317f3227ae4eb871830d89b4c12c73d8dbabe6836da124e54d": {
     "describe": {
@@ -1649,6 +1542,68 @@
       }
     },
     "query": "SELECT EXISTS(SELECT 1 FROM usr WHERE workspace_id = $1 AND username = $2)"
+  },
+  "752a9a95a4fbf741b0013923bfb5efff4db5ccfa8d9e6d5f821fc230fe790cc4": {
+    "describe": {
+      "columns": [
+        {
+          "name": "id",
+          "ordinal": 0,
+          "type_info": "Uuid"
+        }
+      ],
+      "nullable": [
+        false
+      ],
+      "parameters": {
+        "Left": [
+          "Varchar",
+          "Uuid",
+          "Bool",
+          "Uuid",
+          "Varchar",
+          "Varchar",
+          "Timestamptz",
+          "Int8",
+          "Varchar",
+          "Text",
+          "Jsonb",
+          {
+            "Custom": {
+              "kind": {
+                "Enum": [
+                  "script",
+                  "preview",
+                  "flow",
+                  "dependencies",
+                  "flowpreview",
+                  "script_hub"
+                ]
+              },
+              "name": "job_kind"
+            }
+          },
+          "Varchar",
+          "Jsonb",
+          "Jsonb",
+          "Bool",
+          {
+            "Custom": {
+              "kind": {
+                "Enum": [
+                  "python3",
+                  "deno",
+                  "go"
+                ]
+              },
+              "name": "script_lang"
+            }
+          },
+          "Bool"
+        ]
+      }
+    },
+    "query": "INSERT INTO queue\n            (workspace_id, id, running, parent_job, created_by, permissioned_as, scheduled_for, \n                script_hash, script_path, raw_code, args, job_kind, schedule_path, raw_flow, flow_status, is_flow_step, language, started_at, same_worker)\n            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, CASE WHEN $3 THEN now() END, $18) RETURNING id"
   },
   "765c18d77412cbb4474f4074d583b9b44681f3b9f58754662ac07a3a3470a3c5": {
     "describe": {
@@ -2886,6 +2841,53 @@
       }
     },
     "query": "INSERT INTO group_\n            VALUES ($1, 'all', 'The group that always contains all users of this workspace')"
+  },
+  "cc34f0298cfdaffe892a286e6b4390c287d33298e3342ccd1e10d48a9c3cc5c0": {
+    "describe": {
+      "columns": [
+        {
+          "name": "id",
+          "ordinal": 0,
+          "type_info": "Uuid"
+        },
+        {
+          "name": "workspace_id",
+          "ordinal": 1,
+          "type_info": "Varchar"
+        },
+        {
+          "name": "last_ping",
+          "ordinal": 2,
+          "type_info": "Timestamptz"
+        }
+      ],
+      "nullable": [
+        false,
+        false,
+        false
+      ],
+      "parameters": {
+        "Left": [
+          "Text",
+          {
+            "Custom": {
+              "kind": {
+                "Enum": [
+                  "script",
+                  "preview",
+                  "flow",
+                  "dependencies",
+                  "flowpreview",
+                  "script_hub"
+                ]
+              },
+              "name": "job_kind"
+            }
+          }
+        ]
+      }
+    },
+    "query": "UPDATE queue SET running = false WHERE last_ping < now() - ($1 || ' seconds')::interval AND running = true AND job_kind != $2 AND same_worker = false RETURNING id, workspace_id, last_ping"
   },
   "d2dcf69b20488d610599c309862722f805049e479035be6a416d05d73528a8e1": {
     "describe": {
