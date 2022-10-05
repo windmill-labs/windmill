@@ -172,12 +172,13 @@
 			</div>
 		</div>
 	</div>
-
-	<Button
-		size="sm"
-		on:click={() => (edit ? updateVariable() : createVariable())}
-		disabled={!valid || pathError != ''}
-	>
-		{edit ? 'Save' : 'Add a variable'}
-	</Button>
+	<div slot="submission">
+		<Button
+			size="sm"
+			on:click={() => (edit ? updateVariable() : createVariable())}
+			disabled={!valid || pathError != ''}
+		>
+			{edit ? 'Save' : 'Add a variable'}
+		</Button>
+	</div>
 </Modal>
