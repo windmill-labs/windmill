@@ -19,6 +19,7 @@ use async_recursion::async_recursion;
 use futures::TryStreamExt;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
+use tokio::sync::mpsc::Sender;
 use tracing::instrument;
 use uuid::Uuid;
 
@@ -87,7 +88,9 @@ pub async fn update_flow_status_after_job_completion(
     job: &QueuedJob,
     success: bool,
     result: serde_json::Value,
-    metrics: &worker::Metrics,
+    metrics: Option<worker::Metrics>,
+    unrecoverable: bool,
+    same_worker_tx: Sender<Uuid>,
 ) -> error::Result<()> {
     tracing::debug!("HANDLE FLOW: {job:?} {success} {result:?}");
 
@@ -240,6 +243,7 @@ pub async fn update_flow_status_after_job_completion(
         _ if stop_early => false,
         _ if flow_job.canceled => false,
         true => !is_last_step,
+        false if unrecoverable => false,
         false if skip_loop_failures => !is_last_step,
         false
             if next_retry(
@@ -278,14 +282,14 @@ pub async fn update_flow_status_after_job_completion(
         .await?;
         true
     } else {
-        match handle_flow(&flow_job, db, result.clone()).await {
+        match handle_flow(&flow_job, db, result.clone(), same_worker_tx.clone()).await {
             Err(err) => {
                 let _ = add_completed_job_error(
                     db,
                     &flow_job,
                     "Unexpected error during flow chaining:\n".to_string(),
                     err,
-                    metrics,
+                    metrics.clone(),
                 )
                 .await;
                 true
@@ -307,7 +311,13 @@ pub async fn update_flow_status_after_job_completion(
 
         if flow_job.parent_job.is_some() {
             return Ok(update_flow_status_after_job_completion(
-                db, &flow_job, success, result, metrics,
+                db,
+                &flow_job,
+                success,
+                result,
+                metrics,
+                false,
+                same_worker_tx.clone(),
             )
             .await?);
         }
@@ -470,6 +480,7 @@ pub async fn handle_flow(
     flow_job: &QueuedJob,
     db: &sqlx::Pool<sqlx::Postgres>,
     last_result: serde_json::Value,
+    same_worker_tx: Sender<Uuid>,
 ) -> anyhow::Result<()> {
     let value = flow_job
         .raw_flow
@@ -501,14 +512,7 @@ pub async fn handle_flow(
         }
     }
 
-    push_next_flow_job(
-        flow_job,
-        flow,
-        flow_job.schedule_path.clone(),
-        db,
-        last_result,
-    )
-    .await?;
+    push_next_flow_job(flow_job, flow, db, last_result, same_worker_tx).await?;
     Ok(())
 }
 
@@ -517,9 +521,9 @@ pub async fn handle_flow(
 async fn push_next_flow_job(
     flow_job: &QueuedJob,
     flow: FlowValue,
-    schedule_path: Option<String>,
     db: &sqlx::Pool<sqlx::Postgres>,
     mut last_result: serde_json::Value,
+    same_worker_tx: Sender<Uuid>,
 ) -> anyhow::Result<()> {
     let status: FlowStatus =
         serde_json::from_value::<FlowStatus>(flow_job.flow_status.clone().unwrap_or_default())
@@ -841,7 +845,7 @@ async fn push_next_flow_job(
                     .await?;
 
                     return if next_step.is_some() {
-                        push_next_flow_job(&new_job, flow, schedule_path, db, json!([])).await
+                        push_next_flow_job(&new_job, flow, db, json!([]), same_worker_tx).await
                     } else {
                         let success = true;
                         let skipped = false;
@@ -925,6 +929,7 @@ async fn push_next_flow_job(
             value: FlowValue {
                 modules: (*modules).clone(),
                 failure_module: flow.failure_module.clone(),
+                same_worker: flow.same_worker,
             },
             path: Some(format!("{}/{}", flow_job.script_path(), status.step)),
         },
@@ -937,6 +942,8 @@ async fn push_next_flow_job(
         }
     };
 
+    let continue_on_same_worker =
+        flow.same_worker && !matches!(job_payload, JobPayload::RawFlow { .. });
     let (uuid, mut tx) = push(
         tx,
         &flow_job.workspace_id,
@@ -945,9 +952,10 @@ async fn push_next_flow_job(
         &flow_job.created_by,
         flow_job.permissioned_as.to_owned(),
         scheduled_for_o,
-        schedule_path,
+        flow_job.schedule_path.clone(),
         Some(flow_job.id),
         true,
+        continue_on_same_worker,
     )
     .await?;
 
@@ -982,6 +990,9 @@ async fn push_next_flow_job(
 
     tx.commit().await?;
 
+    if continue_on_same_worker {
+        same_worker_tx.send(uuid).await?;
+    }
     return Ok(());
 
     /// Some state about the current/last forloop FlowStatusModule used to initialized the next

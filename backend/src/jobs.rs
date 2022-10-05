@@ -103,6 +103,7 @@ pub struct QueuedJob {
     pub raw_flow: Option<serde_json::Value>,
     pub is_flow_step: bool,
     pub language: Option<ScriptLang>,
+    pub same_worker: bool,
 }
 
 impl QueuedJob {
@@ -188,6 +189,7 @@ pub async fn run_flow_by_path(
         None,
         run_query.parent_job,
         false,
+        false,
     )
     .await?;
     tx.commit().await?;
@@ -216,6 +218,7 @@ pub async fn run_job_by_path(
         scheduled_for,
         None,
         run_query.parent_job,
+        false,
         false,
     )
     .await?;
@@ -278,6 +281,7 @@ pub async fn run_wait_result_job_by_path(
         None,
         run_query.parent_job,
         false,
+        false,
     )
     .await?;
     tx.commit().await?;
@@ -307,6 +311,7 @@ pub async fn run_wait_result_job_by_hash(
         scheduled_for,
         None,
         run_query.parent_job,
+        false,
         false,
     )
     .await?;
@@ -374,6 +379,7 @@ pub async fn run_job_by_hash(
         None,
         run_query.parent_job,
         false,
+        false,
     )
     .await?;
     tx.commit().await?;
@@ -426,6 +432,7 @@ async fn run_preview_job(
         None,
         None,
         false,
+        false,
     )
     .await?;
     tx.commit().await?;
@@ -451,6 +458,7 @@ async fn run_preview_flow_job(
         scheduled_for,
         None,
         None,
+        false,
         false,
     )
     .await?;
@@ -1154,6 +1162,7 @@ impl From<UnifiedJob> for Job {
                 raw_flow: None,
                 is_flow_step: uj.is_flow_step,
                 language: uj.language,
+                same_worker: false,
             }),
             t => panic!("job type {} not valid", t),
         }
@@ -1208,6 +1217,7 @@ pub async fn push<'c>(
     schedule_path: Option<String>,
     parent_job: Option<Uuid>,
     is_flow_step: bool,
+    same_worker: bool,
 ) -> Result<(Uuid, Transaction<'c, Postgres>), Error> {
     let scheduled_for = scheduled_for_o.unwrap_or_else(chrono::Utc::now);
     let args_json = args.map(serde_json::Value::Object);
@@ -1362,15 +1372,17 @@ pub async fn push<'c>(
     };
 
     let flow_status = raw_flow.as_ref().map(init_flow_status);
+    let is_running = same_worker;
     let uuid = sqlx::query_scalar!(
         "INSERT INTO queue
-            (workspace_id, id, parent_job, created_by, permissioned_as, scheduled_for, 
+            (workspace_id, id, running, parent_job, created_by, permissioned_as, scheduled_for, 
                 script_hash, script_path, raw_code, args, job_kind, schedule_path, raw_flow, \
-         flow_status, is_flow_step, language)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16) \
+         flow_status, is_flow_step, language, started_at, same_worker)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, CASE WHEN $3 THEN now() END, $18) \
          RETURNING id",
         workspace_id,
         job_id,
+        is_running,
         parent_job,
         user,
         permissioned_as,
@@ -1384,7 +1396,8 @@ pub async fn push<'c>(
         raw_flow.map(|f| serde_json::json!(f)),
         flow_status.map(|f| serde_json::json!(f)),
         is_flow_step,
-        language: ScriptLang
+        language: ScriptLang,
+        same_worker
     )
     .fetch_one(&mut tx)
     .await
@@ -1429,9 +1442,9 @@ pub async fn add_completed_job_error<E: ToString + std::fmt::Debug>(
     queued_job: &QueuedJob,
     logs: String,
     e: E,
-    metrics: &worker::Metrics,
+    metrics: Option<worker::Metrics>,
 ) -> Result<(Uuid, Map<String, Value>), Error> {
-    metrics.jobs_failed.inc();
+    metrics.map(|m| m.jobs_failed.inc());
     let mut output_map = serde_json::Map::new();
     output_map.insert(
         "error".to_string(),

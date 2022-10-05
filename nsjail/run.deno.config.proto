@@ -112,6 +112,7 @@ mount {
     mandatory: false
 }
 
+{SHARED_MOUNT}
 
 iface_no_lo: true
 

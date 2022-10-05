@@ -119,6 +119,7 @@ pub async fn push_scheduled_job<'c>(
         Some(schedule.path),
         None,
         false,
+        false,
     )
     .await?;
     Ok(tx)

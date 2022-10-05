@@ -549,6 +549,7 @@ mod tests {
                 suspend: Default::default(),
                 retry: None,
             }),
+            same_worker: false,
         };
         let expect = serde_json::json!({
           "modules": [
