@@ -1561,20 +1561,28 @@ async fn handle_child(
         }
     };
 
+    #[derive(PartialEq, Debug)]
+    enum KillReason {
+        TooManyLogs,
+        Timeout,
+        Cancelled,
+    }
     /* a future that completes when the child process exits */
     let wait_on_child = async {
         let db = db.clone();
 
-        let timed_out = tokio::select! {
+        let kill_reason = tokio::select! {
             biased;
             result = child.wait() => return result.map(Some),
-            _ = too_many_logs.changed() => false,
-            _ = cancel_check => false,
-            _ = sleep(timeout) => true,
+            _ = too_many_logs.changed() => KillReason::TooManyLogs,
+            _ = cancel_check => KillReason::Cancelled,
+            _ = sleep(timeout) => KillReason::Timeout,
         };
 
+        tracing::info!(%job_id,  "killing job {job_id} because {kill_reason:#?}");
+
         let set_reason = async {
-            if timed_out {
+            if kill_reason == KillReason::Timeout {
                 if let Err(err) = sqlx::query(
                     r#"
                        UPDATE queue
