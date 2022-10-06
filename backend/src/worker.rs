@@ -36,7 +36,7 @@ use crate::{
 use serde_json::{json, Map, Value};
 
 use tokio::{
-    fs::{DirBuilder, File},
+    fs::{symlink, DirBuilder, File},
     io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader},
     process::{Child, Command},
     sync::{
@@ -238,10 +238,17 @@ pub async fn run_worker(
                 let is_flow = job.job_kind == JobKind::Flow || job.job_kind == JobKind::FlowPreview;
 
                 if is_flow && same_worker {
-                    DirBuilder::new()
-                        .create(&format!("{job_dir}/shared"))
-                        .await
-                        .expect("could not create shared dir");
+                    let target = &format!("{job_dir}/shared");
+                    if let Some(parent_flow) = job.parent_job {
+                        symlink(&format!("{worker_dir}/{parent_flow}/shared"), target)
+                            .await
+                            .expect("could not create symlink");
+                    } else {
+                        DirBuilder::new()
+                            .create(target)
+                            .await
+                            .expect("could not create shared dir");
+                    }
                 }
 
                 if let Some(err) = handle_queued_job(
@@ -1995,13 +2002,8 @@ mod tests {
     async fn test_deno_flow_same_worker(db: DB) {
         initialize_tracing().await;
 
-        let write_file = r#"export async function main(loop: boolean, i: number) {  
-            await Deno.writeTextFile("/shared/file.txt", `${loop} ${i}`);
-        }"#
-        .to_string();
-
-        let read_file = r#"export async function main() {  
-            return await Deno.readTextFile("/shared/file.txt");
+        let write_file = r#"export async function main(loop: boolean, i: number, path: string) {  
+            await Deno.writeTextFile(`/shared/${path}`, `${loop} ${i}`);
         }"#
         .to_string();
 
@@ -2019,6 +2021,10 @@ mod tests {
                             InputTransform::Static { value: json!(false) },
                         ),
                         ("i".to_string(), InputTransform::Static { value: json!(1) }),
+                        (
+                            "path".to_string(),
+                            InputTransform::Static { value: json!("outer.txt") },
+                        ),
                     ]
                     .into(),
                     stop_after_if: Default::default(),
@@ -2048,6 +2054,10 @@ mod tests {
                                         "loop".to_string(),
                                         InputTransform::Static { value: json!(true) },
                                     ),
+                                    (
+                                        "path".to_string(),
+                                        InputTransform::Static { value: json!("inner.txt") },
+                                    ),
                                 ]
                                 .into(),
                                 stop_after_if: Default::default(),
@@ -2058,10 +2068,20 @@ mod tests {
                             FlowModule {
                                 value: FlowModuleValue::RawScript(RawCode {
                                     language: ScriptLang::Deno,
-                                    content: read_file.clone(),
+                                    content: r#"export async function main(path: string, path2: string) {  
+                                        return await Deno.readTextFile(`/shared/${path}`) + "," + await Deno.readTextFile(`/shared/${path2}`);
+                                    }"#
+                                    .to_string(),
                                     path: None,
                                 }),
-                                input_transforms: [].into(),
+                                input_transforms: [(
+                                    "path".to_string(),
+                                    InputTransform::Static { value: json!("inner.txt") },
+                                ), (
+                                    "path2".to_string(),
+                                    InputTransform::Static { value: json!("outer.txt") },
+                                )]
+                                .into(),
                                 stop_after_if: Default::default(),
                                 summary: Default::default(),
                                 suspend: Default::default(),
@@ -2078,16 +2098,26 @@ mod tests {
                 FlowModule {
                     value: FlowModuleValue::RawScript(RawCode {
                         language: ScriptLang::Deno,
-                        content: r#"export async function main(loops: string[]) {
-                            return await Deno.readTextFile("/shared/file.txt") + ","+ loops;
+                        content: r#"export async function main(path: string, loops: string[], path2: string) {
+                            return await Deno.readTextFile(`/shared/${path}`) + "," + loops + "," + await Deno.readTextFile(`/shared/${path2}`);
                         }"#
                         .to_string(),
                         path: None,
                     }),
-                    input_transforms: [(
-                        "loops".to_string(),
-                        InputTransform::Javascript { expr: "previous_result".to_string() },
-                    )]
+                    input_transforms: [
+                        (
+                            "loops".to_string(),
+                            InputTransform::Javascript { expr: "previous_result".to_string() },
+                        ),
+                        (
+                            "path".to_string(),
+                            InputTransform::Static { value: json!("outer.txt") },
+                        ),
+                        (
+                            "path2".to_string(),
+                            InputTransform::Static { value: json!("inner.txt") },
+                        ),
+                    ]
                     .into(),
                     stop_after_if: Default::default(),
                     summary: Default::default(),
@@ -2102,7 +2132,10 @@ mod tests {
         let job = JobPayload::RawFlow { value: flow, path: None };
 
         let result = run_job_in_new_worker_until_complete(&db, job.clone()).await;
-        assert_eq!(result, serde_json::json!("false 1,true 1,true 2,true 3"));
+        assert_eq!(
+            result,
+            serde_json::json!("false 1,true 1,false 1,true 2,false 1,true 3,false 1,true 3")
+        );
     }
 
     #[sqlx::test(fixtures("base"))]
