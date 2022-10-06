@@ -455,6 +455,7 @@ async fn create_script(
             None,
             None,
             false,
+            false,
         )
         .await?;
         tx

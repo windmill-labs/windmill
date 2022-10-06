@@ -39,7 +39,10 @@ use tokio::{
     fs::{DirBuilder, File},
     io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader},
     process::{Child, Command},
-    sync::watch,
+    sync::{
+        mpsc::{self, Sender},
+        watch,
+    },
     time::{interval, sleep, Instant, MissedTickBehavior},
 };
 
@@ -67,6 +70,8 @@ const NSJAIL_CONFIG_RUN_GO_CONTENT: &str = include_str!("../../nsjail/run.go.con
 const NSJAIL_CONFIG_RUN_DENO_CONTENT: &str = include_str!("../../nsjail/run.deno.config.proto");
 const MAX_LOG_SIZE: u32 = 200000;
 const GO_REQ_SPLITTER: &str = "//go.sum";
+
+#[derive(Clone)]
 pub struct Metrics {
     pub jobs_failed: prometheus::IntCounter,
 }
@@ -171,6 +176,8 @@ pub async fn run_worker(
         pip_trusted_host,
     };
 
+    let (same_worker_tx, mut same_worker_rx) = mpsc::channel::<Uuid>(5);
+
     loop {
         if last_ping.elapsed().as_secs() > NUM_SECS_ENV_CHECK {
             sqlx::query!(
@@ -185,7 +192,24 @@ pub async fn run_worker(
             last_ping = Instant::now();
         }
 
-        match pull(db).await {
+        let next_job = tokio::select! {
+            biased;
+            _ = rx.recv() => {
+                 println!("received killpill for worker {}", i_worker);
+                 break;
+            },
+            Some(job_id) = same_worker_rx.recv() => {
+                sqlx::query_as::<_, QueuedJob>("SELECT * FROM queue WHERE id = $1")
+                .bind(job_id)
+                .fetch_optional(db)
+                .await
+                .map_err(|_| Error::InternalErr("Impossible to fetch same_worker job".to_string()))
+            },
+            job = pull(&db) =>
+                job,
+        };
+
+        match next_job {
             Ok(Some(job)) => {
                 let label_values = [
                     &job.workspace_id,
@@ -203,94 +227,133 @@ pub async fn run_worker(
 
                 tracing::info!(worker = %worker_name, id = %job.id, "fetched job {}", job.id);
 
+                let job_dir = format!("{worker_dir}/{}", job.id);
+
+                DirBuilder::new()
+                    .create(&job_dir)
+                    .await
+                    .expect("could not create job dir");
+
+                let same_worker = job.same_worker;
+                let is_flow = job.job_kind == JobKind::Flow || job.job_kind == JobKind::FlowPreview;
+
+                if is_flow && same_worker {
+                    DirBuilder::new()
+                        .create(&format!("{job_dir}/shared"))
+                        .await
+                        .expect("could not create shared dir");
+                }
+
                 if let Some(err) = handle_queued_job(
                     job.clone(),
                     db,
                     timeout,
                     &worker_name,
                     &worker_dir,
+                    &job_dir,
                     &worker_config,
-                    &metrics,
+                    metrics.clone(),
                     &envs,
+                    same_worker_tx.clone(),
                 )
                 .await
                 .err()
                 {
-                    let m = add_completed_job_error(
+                    handle_job_error(
                         db,
-                        &job,
-                        "Unexpected error during job execution:\n".to_string(),
-                        &err,
-                        &metrics,
-                    )
-                    .await
-                    .map(|(_, m)| m)
-                    .unwrap_or_else(|_| Map::new());
-
-                    let _ = postprocess_queued_job(
-                        job.is_flow_step,
-                        job.schedule_path.clone(),
-                        job.script_path.clone(),
-                        &job.workspace_id,
-                        job.id,
-                        db,
+                        job,
+                        err,
+                        Some(metrics),
+                        false,
+                        same_worker_tx.clone(),
+                        &worker_dir,
+                        !worker_config.keep_job_dir,
                     )
                     .await;
-
-                    if let Some(parent_job_id) = job.parent_job {
-                        let updated_flow = update_flow_status_after_job_completion(
-                            db,
-                            &job,
-                            false,
-                            serde_json::Value::Object(m),
-                            &metrics,
-                        )
-                        .await;
-                        if let Err(err) = updated_flow {
-                            if let Ok(mut tx) = db.begin().await {
-                                if let Ok(Some(parent_job)) =
-                                    get_queued_job(parent_job_id, &job.workspace_id, &mut tx).await
-                                {
-                                    let _ = add_completed_job_error(
-                                        db,
-                                        &parent_job,
-                                        format!("Unexpected error during flow job error handling:\n{err}")
-                                            ,
-                                        err,
-                                        &metrics,
-                                    )
-                                    .await;
-
-                                    let _ = postprocess_queued_job(
-                                        parent_job.is_flow_step,
-                                        parent_job.schedule_path.clone(),
-                                        parent_job.script_path.clone(),
-                                        &job.workspace_id,
-                                        parent_job.id,
-                                        db,
-                                    )
-                                    .await;
-                                }
-                            }
-                        }
-                    }
-                    tracing::error!(job_id = %job.id, err = err.alt(), "error handling job: {} {} {}", job.id, job.workspace_id, job.created_by);
                 };
+
+                if !worker_config.keep_job_dir && !(is_flow && same_worker) {
+                    let _ = tokio::fs::remove_dir_all(job_dir).await;
+                }
             }
-            Ok(None) => (),
+            Ok(None) => tokio::time::sleep(Duration::from_millis(sleep_queue * num_workers)).await,
             Err(err) => {
                 tracing::error!(worker = %worker_name, "run_worker: pulling jobs: {}", err);
             }
         };
+    }
+}
 
-        tokio::select! {
-            _ = tokio::time::sleep(Duration::from_millis(sleep_queue * num_workers))    => (),
-            _ = rx.recv() => {
-                 println!("received killpill for worker {}", i_worker);
-                 break;
+async fn handle_job_error(
+    db: &DB,
+    job: QueuedJob,
+    err: Error,
+    metrics: Option<Metrics>,
+    unrecoverable: bool,
+    same_worker_tx: Sender<Uuid>,
+    worker_dir: &str,
+    keep_job_dir: bool,
+) {
+    let m = add_completed_job_error(
+        db,
+        &job,
+        "Unexpected error during job execution:\n".to_string(),
+        &err,
+        metrics.clone(),
+    )
+    .await
+    .map(|(_, m)| m)
+    .unwrap_or_else(|_| Map::new());
+    let _ = postprocess_queued_job(
+        job.is_flow_step,
+        job.schedule_path.clone(),
+        job.script_path.clone(),
+        &job.workspace_id,
+        job.id,
+        db,
+    )
+    .await;
+    if let Some(parent_job_id) = job.parent_job {
+        let updated_flow = update_flow_status_after_job_completion(
+            db,
+            &job,
+            false,
+            serde_json::Value::Object(m),
+            metrics.clone(),
+            unrecoverable,
+            same_worker_tx,
+            worker_dir,
+            keep_job_dir,
+        )
+        .await;
+        if let Err(err) = updated_flow {
+            if let Ok(mut tx) = db.begin().await {
+                if let Ok(Some(parent_job)) =
+                    get_queued_job(parent_job_id, &job.workspace_id, &mut tx).await
+                {
+                    let _ = add_completed_job_error(
+                        db,
+                        &parent_job,
+                        format!("Unexpected error during flow job error handling:\n{err}"),
+                        err,
+                        metrics,
+                    )
+                    .await;
+
+                    let _ = postprocess_queued_job(
+                        parent_job.is_flow_step,
+                        parent_job.schedule_path.clone(),
+                        parent_job.script_path.clone(),
+                        &job.workspace_id,
+                        parent_job.id,
+                        db,
+                    )
+                    .await;
+                }
             }
         }
     }
+    tracing::error!(job_id = %job.id, err = err.alt(), "error handling job: {} {} {}", job.id, job.workspace_id, job.created_by);
 }
 
 async fn insert_initial_ping(worker_instance: &str, worker_name: &str, ip: &str, db: &DB) {
@@ -317,15 +380,18 @@ struct Envs {
     pip_extra_index_url: Option<String>,
     pip_trusted_host: Option<String>,
 }
+
 async fn handle_queued_job(
     job: QueuedJob,
     db: &sqlx::Pool<sqlx::Postgres>,
     timeout: i32,
     worker_name: &str,
     worker_dir: &str,
+    job_dir: &str,
     worker_config: &WorkerConfig,
-    metrics: &Metrics,
+    metrics: Metrics,
     envs: &Envs,
+    same_worker_tx: Sender<Uuid>,
 ) -> crate::error::Result<()> {
     let job_id = job.id;
     let w_id = &job.workspace_id.clone();
@@ -333,7 +399,7 @@ async fn handle_queued_job(
     match job.job_kind {
         JobKind::FlowPreview | JobKind::Flow => {
             let args = job.args.clone().unwrap_or(Value::Null);
-            handle_flow(&job, db, args).await?;
+            handle_flow(&job, db, args, same_worker_tx).await?;
         }
         _ => {
             let mut logs = "".to_string();
@@ -352,10 +418,11 @@ async fn handle_queued_job(
 
             let execution = handle_job(
                 &job,
+                &job_dir,
                 db,
                 timeout,
                 worker_name,
-                worker_dir,
+                worker_dir.clone(),
                 &mut logs,
                 &mut last_line,
                 worker_config,
@@ -367,19 +434,34 @@ async fn handle_queued_job(
                 Ok(r) => {
                     add_completed_job(db, &job, true, false, r.clone(), logs).await?;
                     if job.is_flow_step {
-                        update_flow_status_after_job_completion(db, &job, true, r, metrics).await?;
+                        update_flow_status_after_job_completion(
+                            db,
+                            &job,
+                            true,
+                            r,
+                            Some(metrics.clone()),
+                            false,
+                            same_worker_tx.clone(),
+                            worker_dir,
+                            worker_config.keep_job_dir,
+                        )
+                        .await?;
                     }
                 }
                 Err(e) => {
                     let (_, output_map) =
-                        add_completed_job_error(db, &job, logs, e, &metrics).await?;
+                        add_completed_job_error(db, &job, logs, e, Some(metrics.clone())).await?;
                     if job.is_flow_step {
                         update_flow_status_after_job_completion(
                             db,
                             &job,
                             false,
                             serde_json::Value::Object(output_map),
-                            metrics,
+                            Some(metrics),
+                            false,
+                            same_worker_tx,
+                            worker_dir,
+                            worker_config.keep_job_dir,
                         )
                         .await?;
                     }
@@ -450,6 +532,7 @@ async fn transform_json_value(
 #[allow(clippy::too_many_arguments)]
 async fn handle_job(
     job: &QueuedJob,
+    job_dir: &str,
     db: &DB,
     timeout: i32,
     worker_name: &str,
@@ -468,12 +551,6 @@ async fn handle_job(
     );
 
     logs.push_str(&format!("job {} on worker {}\n", &job.id, &worker_name));
-    let job_dir = format!("{worker_dir}/{}", job.id);
-
-    DirBuilder::new()
-        .create(&job_dir)
-        .await
-        .expect("could not create job dir");
 
     let mut status: Result<ExitStatus, Error> =
         Err(Error::InternalErr("job not started".to_string()));
@@ -482,7 +559,7 @@ async fn handle_job(
         handle_dependency_job(
             job,
             logs,
-            &job_dir,
+            job_dir,
             &mut status,
             db,
             last_line,
@@ -494,7 +571,7 @@ async fn handle_job(
         handle_code_execution_job(
             job,
             db,
-            &job_dir,
+            job_dir,
             worker_dir,
             logs,
             &mut status,
@@ -504,10 +581,6 @@ async fn handle_job(
             envs,
         )
         .await?;
-    }
-
-    if !worker_config.keep_job_dir {
-        tokio::fs::remove_dir_all(job_dir).await?;
     }
 
     if status.is_ok() && status.as_ref().unwrap().success() {
@@ -523,9 +596,9 @@ async fn handle_job(
         let err = match status {
             Ok(_) => {
                 let s = format!(
-                    "Error during execution of the script\nlast 5 logs lines:\n{}",
+                    "Error during execution of the script\nlast 10 logs lines:\n{}",
                     logs.lines()
-                        .skip(logs.lines().count().max(5) - 5)
+                        .skip(logs.lines().count().max(10) - 10)
                         .join("\n")
                 );
                 logs.push_str("\n\n--- ERROR ---\n");
@@ -540,7 +613,7 @@ async fn handle_job(
 async fn handle_code_execution_job(
     job: &QueuedJob,
     db: &sqlx::Pool<sqlx::Postgres>,
-    job_dir: &String,
+    job_dir: &str,
     worker_dir: &str,
     logs: &mut String,
     status: &mut Result<ExitStatus, Error>,
@@ -585,6 +658,24 @@ async fn handle_code_execution_job(
         &lang_str,
         job.id
     );
+
+    let shared_mount = if job.same_worker {
+        format!(
+            r#"
+mount {{
+    src: "{worker_dir}/{}/shared"
+    dst: "/shared"
+    is_bind: true
+    rw: true
+}}
+        "#,
+            job.parent_job.ok_or(Error::ExecutionErr(
+                "no parent job, required for same worker job".to_string()
+            ))?,
+        )
+    } else {
+        "".to_string()
+    };
     match language {
         None => {
             return Err(Error::ExecutionErr(
@@ -606,6 +697,7 @@ async fn handle_code_execution_job(
                 last_line,
                 timeout,
                 &inner_content,
+                &shared_mount,
             )
             .await?
         }
@@ -621,6 +713,7 @@ async fn handle_code_execution_job(
                 timeout,
                 status,
                 last_line,
+                &shared_mount,
             )
             .await?;
         }
@@ -637,6 +730,7 @@ async fn handle_code_execution_job(
                 requirements_o,
                 status,
                 last_line,
+                &shared_mount,
             )
             .await?
         }
@@ -661,10 +755,11 @@ async fn handle_go_job(
     db: &sqlx::Pool<sqlx::Postgres>,
     inner_content: &str,
     timeout: i32,
-    job_dir: &String,
+    job_dir: &str,
     requirements_o: Option<String>,
     status: &mut Result<ExitStatus, Error>,
     last_line: &mut String,
+    shared_mount: &str,
 ) -> Result<(), Error> {
     //go does not like executing modules at temp root
     let job_dir = &format!("{job_dir}/go");
@@ -784,7 +879,8 @@ func main() {{
             &NSJAIL_CONFIG_RUN_GO_CONTENT
                 .replace("{JOB_DIR}", job_dir)
                 .replace("{CACHE_DIR}", GO_CACHE_DIR)
-                .replace("{CLONE_NEWUSER}", &(!disable_nuser).to_string()),
+                .replace("{CLONE_NEWUSER}", &(!disable_nuser).to_string())
+                .replace("{SHARED_MOUNT}", shared_mount),
         )
         .await?;
 
@@ -829,11 +925,12 @@ async fn handle_deno_job(
     logs: &mut String,
     job: &QueuedJob,
     db: &sqlx::Pool<sqlx::Postgres>,
-    job_dir: &String,
+    job_dir: &str,
     inner_content: &String,
     timeout: i32,
     status: &mut Result<ExitStatus, Error>,
     last_line: &mut String,
+    shared_mount: &str,
 ) -> Result<(), Error> {
     logs.push_str("\n\n--- DENO CODE EXECUTION ---\n");
     set_logs(logs, job.id, db).await;
@@ -892,7 +989,8 @@ run();
             &NSJAIL_CONFIG_RUN_DENO_CONTENT
                 .replace("{JOB_DIR}", job_dir)
                 .replace("{CACHE_DIR}", DENO_CACHE_DIR)
-                .replace("{CLONE_NEWUSER}", &(!disable_nuser).to_string()),
+                .replace("{CLONE_NEWUSER}", &(!disable_nuser).to_string())
+                .replace("{SHARED_MOUNT}", shared_mount),
         )
         .await?;
         Command::new(nsjail_path)
@@ -952,7 +1050,7 @@ async fn handle_python_job(
         ..
     }: &Envs,
     requirements_o: Option<String>,
-    job_dir: &String,
+    job_dir: &str,
     worker_dir: &str,
     worker_name: &str,
     job: &QueuedJob,
@@ -962,6 +1060,7 @@ async fn handle_python_job(
     last_line: &mut String,
     timeout: i32,
     inner_content: &String,
+    shared_mount: &str,
 ) -> Result<(), Error> {
     let requirements =
         requirements_o.ok_or_else(|| Error::InternalErr(format!("lockfile missing")))?;
@@ -1136,7 +1235,8 @@ print(res_json)
                 "run.config.proto",
                 &NSJAIL_CONFIG_RUN_PYTHON3_CONTENT
                     .replace("{JOB_DIR}", job_dir)
-                    .replace("{CLONE_NEWUSER}", &(!disable_nuser).to_string()),
+                    .replace("{CLONE_NEWUSER}", &(!disable_nuser).to_string())
+                    .replace("{SHARED_MOUNT}", shared_mount),
             )
             .await?;
         } else {
@@ -1197,7 +1297,7 @@ async fn create_dependencies_dir(job_dir: &str) {
 async fn handle_dependency_job(
     job: &QueuedJob,
     logs: &mut String,
-    job_dir: &String,
+    job_dir: &str,
     status: &mut error::Result<ExitStatus>,
     db: &sqlx::Pool<sqlx::Postgres>,
     last_line: &mut String,
@@ -1305,7 +1405,7 @@ async fn install_go_dependencies(
     job_id: &Uuid,
     code: &str,
     logs: &mut String,
-    job_dir: &String,
+    job_dir: &str,
     status: &mut Result<ExitStatus, Error>,
     db: &sqlx::Pool<sqlx::Postgres>,
     last_line: &mut String,
@@ -1356,7 +1456,7 @@ async fn install_go_dependencies(
     }
 }
 
-async fn gen_go_mymod(code: &str, job_dir: &String) -> error::Result<()> {
+async fn gen_go_mymod(code: &str, job_dir: &str) -> error::Result<()> {
     let code = &format!("package inner; {code}").replace("func main(", "func Inner_main(");
 
     let mymod_dir = format!("{job_dir}/inner");
@@ -1705,14 +1805,14 @@ async fn append_logs(job_id: uuid::Uuid, logs: impl AsRef<str>, db: impl Borrow<
     }
 }
 
-pub async fn restart_zombie_jobs_periodically(
+pub async fn handle_zombie_jobs_periodically(
     db: &DB,
     timeout: i32,
     mut rx: tokio::sync::broadcast::Receiver<()>,
 ) {
     loop {
         let restarted = sqlx::query!(
-            "UPDATE queue SET running = false WHERE last_ping < now() - ($1 || ' seconds')::interval AND running = true AND job_kind != $2 RETURNING id, workspace_id, last_ping",
+            "UPDATE queue SET running = false WHERE last_ping < now() - ($1 || ' seconds')::interval AND running = true AND job_kind != $2 AND same_worker = false RETURNING id, workspace_id, last_ping",
             (timeout * 5).to_string(),
             JobKind::Flow: JobKind,
         )
@@ -1728,6 +1828,39 @@ pub async fn restart_zombie_jobs_periodically(
                 r.workspace_id,
                 r.last_ping
             );
+        }
+
+        let timeouts = sqlx::query_as::<_, QueuedJob>(
+            "SELECT * FROM queue WHERE last_ping < now() - ($1 || ' seconds')::interval AND running = true AND job_kind != $2 AND same_worker = true",
+        )
+        .bind((timeout * 5).to_string())
+        .bind(JobKind::Flow)
+        .fetch_all(db)
+        .await
+        .ok()
+        .unwrap_or_else(|| vec![]);
+
+        for job in timeouts {
+            tracing::info!(
+                "timedouts zombie same_worker job {} {}",
+                job.id,
+                job.workspace_id,
+            );
+
+            // since the job is unrecoverable, the same worker queue should never be sent anything
+            let (same_worker_tx_never_used, _same_worker_rx_never_used) = mpsc::channel::<Uuid>(1);
+
+            let _ = handle_job_error(
+                db,
+                job,
+                error::Error::ExecutionErr("Same worker job timed out".to_string()),
+                None,
+                true,
+                same_worker_tx_never_used,
+                "",
+                true,
+            )
+            .await;
         }
 
         tokio::select! {
@@ -1796,51 +1929,54 @@ mod tests {
         let numbers = "export function main() { return [1, 2, 3]; }";
         let doubles = "export function main(n) { return n * 2; }";
 
-        let flow = FlowValue {
-            modules: vec![
-                FlowModule {
-                    value: FlowModuleValue::RawScript(RawCode {
-                        language: ScriptLang::Deno,
-                        content: numbers.to_string(),
-                        path: None,
-                    }),
-                    input_transforms: Default::default(),
-                    stop_after_if: Default::default(),
-                    summary: Default::default(),
-                    suspend: Default::default(),
-                    retry: None,
-                },
-                FlowModule {
-                    value: FlowModuleValue::ForloopFlow {
-                        iterator: InputTransform::Javascript { expr: "result".to_string() },
-                        skip_failures: false,
-                        modules: vec![FlowModule {
-                            value: FlowModuleValue::RawScript(RawCode {
-                                language: ScriptLang::Deno,
-                                content: doubles.to_string(),
-                                path: None,
-                            }),
-                            input_transforms: [(
-                                "n".to_string(),
-                                InputTransform::Javascript {
-                                    expr: "previous_result.iter.value".to_string(),
-                                },
-                            )]
-                            .into(),
-                            stop_after_if: Default::default(),
-                            summary: Default::default(),
-                            suspend: Default::default(),
-                            retry: None,
-                        }],
+        let flow = {
+            FlowValue {
+                modules: vec![
+                    FlowModule {
+                        value: FlowModuleValue::RawScript(RawCode {
+                            language: ScriptLang::Deno,
+                            content: numbers.to_string(),
+                            path: None,
+                        }),
+                        input_transforms: Default::default(),
+                        stop_after_if: Default::default(),
+                        summary: Default::default(),
+                        suspend: Default::default(),
+                        retry: None,
                     },
-                    input_transforms: Default::default(),
-                    stop_after_if: Default::default(),
-                    summary: Default::default(),
-                    suspend: Default::default(),
-                    retry: None,
-                },
-            ],
-            ..Default::default()
+                    FlowModule {
+                        value: FlowModuleValue::ForloopFlow {
+                            iterator: InputTransform::Javascript { expr: "result".to_string() },
+                            skip_failures: false,
+                            modules: vec![FlowModule {
+                                value: FlowModuleValue::RawScript(RawCode {
+                                    language: ScriptLang::Deno,
+                                    content: doubles.to_string(),
+                                    path: None,
+                                }),
+                                input_transforms: [(
+                                    "n".to_string(),
+                                    InputTransform::Javascript {
+                                        expr: "previous_result.iter.value".to_string(),
+                                    },
+                                )]
+                                .into(),
+                                stop_after_if: Default::default(),
+                                summary: Default::default(),
+                                suspend: Default::default(),
+                                retry: None,
+                            }],
+                        },
+                        input_transforms: Default::default(),
+                        stop_after_if: Default::default(),
+                        summary: Default::default(),
+                        suspend: Default::default(),
+                        retry: None,
+                    },
+                ],
+                same_worker: false,
+                ..Default::default()
+            }
         };
 
         let job = JobPayload::RawFlow { value: flow, path: None };
@@ -1850,6 +1986,120 @@ mod tests {
             let result = run_job_in_new_worker_until_complete(&db, job.clone()).await;
             assert_eq!(result, serde_json::json!([2, 4, 6]), "iteration: {}", i);
         }
+    }
+
+    #[sqlx::test(fixtures("base"))]
+    async fn test_deno_flow_same_worker(db: DB) {
+        initialize_tracing().await;
+
+        let write_file = r#"export async function main(loop: boolean, i: number) {  
+            await Deno.writeTextFile("/shared/file.txt", `${loop} ${i}`);
+        }"#
+        .to_string();
+
+        let read_file = r#"export async function main() {  
+            return await Deno.readTextFile("/shared/file.txt");
+        }"#
+        .to_string();
+
+        let flow = FlowValue {
+            modules: vec![
+                FlowModule {
+                    value: FlowModuleValue::RawScript(RawCode {
+                        language: ScriptLang::Deno,
+                        content: write_file.clone(),
+                        path: None,
+                    }),
+                    input_transforms: [
+                        (
+                            "loop".to_string(),
+                            InputTransform::Static { value: json!(false) },
+                        ),
+                        ("i".to_string(), InputTransform::Static { value: json!(1) }),
+                    ]
+                    .into(),
+                    stop_after_if: Default::default(),
+                    summary: Default::default(),
+                    suspend: Default::default(),
+                    retry: None,
+                },
+                FlowModule {
+                    value: FlowModuleValue::ForloopFlow {
+                        iterator: InputTransform::Static { value: json!([1, 2, 3]) },
+                        skip_failures: false,
+                        modules: vec![
+                            FlowModule {
+                                value: FlowModuleValue::RawScript(RawCode {
+                                    language: ScriptLang::Deno,
+                                    content: write_file,
+                                    path: None,
+                                }),
+                                input_transforms: [
+                                    (
+                                        "i".to_string(),
+                                        InputTransform::Javascript {
+                                            expr: "previous_result.iter.value".to_string(),
+                                        },
+                                    ),
+                                    (
+                                        "loop".to_string(),
+                                        InputTransform::Static { value: json!(true) },
+                                    ),
+                                ]
+                                .into(),
+                                stop_after_if: Default::default(),
+                                summary: Default::default(),
+                                suspend: Default::default(),
+                                retry: None,
+                            },
+                            FlowModule {
+                                value: FlowModuleValue::RawScript(RawCode {
+                                    language: ScriptLang::Deno,
+                                    content: read_file.clone(),
+                                    path: None,
+                                }),
+                                input_transforms: [].into(),
+                                stop_after_if: Default::default(),
+                                summary: Default::default(),
+                                suspend: Default::default(),
+                                retry: None,
+                            },
+                        ],
+                    },
+                    input_transforms: Default::default(),
+                    stop_after_if: Default::default(),
+                    summary: Default::default(),
+                    suspend: Default::default(),
+                    retry: None,
+                },
+                FlowModule {
+                    value: FlowModuleValue::RawScript(RawCode {
+                        language: ScriptLang::Deno,
+                        content: r#"export async function main(loops: string[]) {
+                            return await Deno.readTextFile("/shared/file.txt") + ","+ loops;
+                        }"#
+                        .to_string(),
+                        path: None,
+                    }),
+                    input_transforms: [(
+                        "loops".to_string(),
+                        InputTransform::Javascript { expr: "previous_result".to_string() },
+                    )]
+                    .into(),
+                    stop_after_if: Default::default(),
+                    summary: Default::default(),
+                    suspend: Default::default(),
+                    retry: None,
+                },
+            ],
+            same_worker: true,
+            ..Default::default()
+        };
+
+        let job = JobPayload::RawFlow { value: flow, path: None };
+
+        let result = run_job_in_new_worker_until_complete(&db, job.clone()).await;
+        assert_eq!(result, serde_json::json!("false 1,true 1,true 2,true 3"));
     }
 
     #[sqlx::test(fixtures("base"))]
@@ -2771,34 +3021,10 @@ def main(error, port):
                 json!({
                     "recv": 42,
                     "from failure module": {
-                        "error": "\
-                            Error during execution of the script\nlast 5 logs lines:\n  \
-                            File \"/tmp/main.py\", line 14, in <module>\n    \
-                            res = inner_script.main(**kwargs)\n  \
-                            File \"/tmp/inner.py\", line 5, in main\n    \
-                            return sock.recv(1)[0]\nIndexError: index out of range"
+                        "error": "Error during execution of the script\nlast 10 logs lines:\n\n\n--- PYTHON CODE EXECUTION ---\n\nTraceback (most recent call last):\n  File \"/tmp/main.py\", line 14, in <module>\n    res = inner_script.main(**kwargs)\n  File \"/tmp/inner.py\", line 5, in main\n    return sock.recv(1)[0]\nIndexError: index out of range",
                     }
                 })
             );
-        }
-
-        #[sqlx::test(fixtures("base"))]
-        async fn bad_values_max(db: DB) {
-            let value = serde_json::from_value(json!({
-                "modules": [{
-                    "value": { "type": "rawscript", "language": "python3", "content": "asdf" },
-                    "retry": { "exponential": { "attempts": 50, "seconds": 60 } },
-                }],
-            }))
-            .unwrap();
-
-            let result = RunJob::from(JobPayload::RawFlow { value, path: None })
-                .run_until_complete(&db)
-                .await;
-            assert_eq!(
-                result,
-                json!({"error": "Bad request: retry interval exceeds the maximum of 21600 seconds"})
-            )
         }
     }
 
@@ -2879,6 +3105,7 @@ def main(error, port):
                 /* schedule_path */ None,
                 /* parent_job */ None,
                 /* is_flow_step */ false,
+                /* running */ false,
             )
             .await
             .unwrap();
@@ -2953,7 +3180,10 @@ def main(error, port):
             base_url: String::new(),
             disable_nuser: false,
             disable_nsjail: false,
-            keep_job_dir: false,
+            keep_job_dir: std::env::var("KEEP_JOB_DIR")
+                .ok()
+                .and_then(|x| x.parse::<bool>().ok())
+                .unwrap_or(false),
         };
         let future = async move {
             run_worker(
