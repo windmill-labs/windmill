@@ -212,7 +212,7 @@ pub fn monitor_db(db: &DB, timeout: i32, rx: tokio::sync::broadcast::Receiver<()
 
     let rx2 = rx.resubscribe();
 
-    tokio::spawn(async move { worker::restart_zombie_jobs_periodically(&db1, timeout, rx).await });
+    tokio::spawn(async move { worker::handle_zombie_jobs_periodically(&db1, timeout, rx).await });
     tokio::spawn(async move { users::delete_expired_items_perdiodically(&db2, rx2).await });
 }
 

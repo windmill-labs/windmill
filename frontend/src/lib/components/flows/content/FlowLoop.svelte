@@ -39,15 +39,15 @@
 	).pickableProperties
 </script>
 
-<FlowCard title="For loop">
-	<div slot="header" class="grow">
-		<input bind:value={mod.summary} placeholder={'Summary'} />
-	</div>
-	<div>
+<div class="h-full flex flex-col">
+	<FlowCard title="For loop">
+		<div slot="header" class="grow">
+			<input bind:value={mod.summary} placeholder={'Summary'} />
+		</div>
 		<div class="overflow-hidden flex-grow">
-			<VSplitPane topPanelSize="50%" downPanelSize="40%" minTopPaneSize="20%" minDownPaneSize="20%">
-				<top slot="top">
-					<div class="p-6 flex flex-col">
+			<VSplitPane topPanelSize="60%" downPanelSize="40%" minTopPaneSize="20%" minDownPaneSize="20%">
+				<top slot="top" class="h-full">
+					<div class="p-6 flex flex-col h-full overflow-clip">
 						{#if mod.value.type === 'forloopflow'}
 							<span class="mb-2 text-sm font-bold"
 								>Iterator expression
@@ -179,6 +179,6 @@
 					</Tabs>
 				</down>
 			</VSplitPane>
-		</div>
-	</div>
-</FlowCard>
+		</div></FlowCard
+	>
+</div>

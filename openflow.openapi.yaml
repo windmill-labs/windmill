@@ -42,6 +42,8 @@ components:
             $ref: "#/components/schemas/FlowModule"
         failure_module:
           $ref: "#/components/schemas/FlowModule"
+        same_worker:
+          type: boolean
 
       required:
         - modules
