@@ -76,6 +76,9 @@ pub struct FlowValue {
     pub modules: Vec<FlowModule>,
     #[serde(default)]
     pub failure_module: Option<FlowModule>,
+    #[serde(default)]
+    #[serde(skip_serializing_if = "is_default")]
+    pub same_worker: bool,
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone)]
@@ -546,6 +549,7 @@ mod tests {
                 suspend: Default::default(),
                 retry: None,
             }),
+            same_worker: false,
         };
         let expect = serde_json::json!({
           "modules": [

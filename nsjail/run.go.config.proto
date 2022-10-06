@@ -126,6 +126,8 @@ mount {
     mandatory: false
 }
 
+{SHARED_MOUNT}
+
 envar: "GOPATH=/tmp/.cache/go"
 envar: "HOME=/tmp/go"
 
