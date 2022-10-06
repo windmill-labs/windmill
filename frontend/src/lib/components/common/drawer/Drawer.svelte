@@ -31,6 +31,8 @@
 		open = !open
 	}
 
+	$: open ? dispatch('open') : dispatch('close')
+
 	onMount(() => {
 		mounted = true
 		scrollLock(open)
