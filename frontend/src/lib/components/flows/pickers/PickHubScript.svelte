@@ -6,13 +6,12 @@
 	import { hubScripts } from '$lib/stores'
 	import { createEventDispatcher } from 'svelte'
 	import { Script } from '$lib/gen'
+	import type { HubItem } from './model'
 
 	export let kind: Script.kind
 
-	type Item = { summary: String; path: String; version?: String }
-
-	let items: Item[] | undefined
-	$: items = $hubScripts?.filter((x) => x.kind == kind)
+	let items: HubItem[]
+	$: items = $hubScripts?.filter((x) => x.kind == kind) ?? []
 	let itemPicker: ItemPicker
 
 	const dispatch = createEventDispatcher()
