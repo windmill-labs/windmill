@@ -9,6 +9,7 @@
 	import FlowCard from '../common/FlowCard.svelte'
 	import FlowSchedules from './FlowSchedules.svelte'
 	import SvelteMarkdown from 'svelte-markdown'
+	import { Toggle } from 'flowbite-svelte'
 
 	export let initialPath: string
 
@@ -19,6 +20,7 @@
 	<Tabs selected={defaultTab}>
 		<Tab value="metadata">Metadata</Tab>
 		<Tab value="schedule">Schedule</Tab>
+		<Tab value="same-worker">Same Worker</Tab>
 
 		<svelte:fragment slot="content">
 			<TabContent value="metadata" class="p-4">
@@ -76,6 +78,17 @@
 			</TabContent>
 			<TabContent value="schedule" class="p-4">
 				<FlowSchedules />
+			</TabContent>
+
+			<TabContent value="same-worker" class="p-4">
+				<span class="my-2 text-sm font-bold">Same Worker</span>
+
+				<Toggle
+					bind:checked={$flowStore.value.same_worker}
+					options={{
+						right: 'Same Worker'
+					}}
+				/>
 			</TabContent>
 		</svelte:fragment>
 	</Tabs>
