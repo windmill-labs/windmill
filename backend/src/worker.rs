@@ -486,6 +486,7 @@ async fn write_file(dir: &str, path: &str, content: &str) -> Result<File, Error>
     let path = format!("{}/{}", dir, path);
     let mut file = File::create(&path).await?;
     file.write_all(content.as_bytes()).await?;
+    file.flush().await?;
     Ok(file)
 }
 
@@ -890,6 +891,7 @@ func main() {{
             .envs(reserved_variables)
             .env("PATH", path_env)
             .env("BASE_INTERNAL_URL", base_internal_url)
+            .env("GOMEMLIMIT", "2000MiB")
             .args(vec![
                 "--config",
                 "run.config.proto",
@@ -1425,6 +1427,7 @@ async fn install_go_dependencies(
     if status.is_ok() {
         let child = Command::new(go_path)
             .current_dir(job_dir)
+            .env("GOMEMLIMIT", "2000MiB")
             .args(vec!["mod", "tidy"])
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
