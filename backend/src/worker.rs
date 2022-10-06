@@ -1573,13 +1573,11 @@ async fn handle_child(
 
         let kill_reason = tokio::select! {
             biased;
-            result = child.wait() => return result.map(Some),
+            result = child.wait() => return result.map(Ok),
             _ = too_many_logs.changed() => KillReason::TooManyLogs,
             _ = cancel_check => KillReason::Cancelled,
             _ = sleep(timeout) => KillReason::Timeout,
         };
-
-        tracing::info!(%job_id,  "killing job {job_id} because {kill_reason:#?}");
 
         let set_reason = async {
             if kill_reason == KillReason::Timeout {
@@ -1604,7 +1602,7 @@ async fn handle_child(
 
         /* send SIGKILL and reap child process */
         let (_, kill) = future::join(set_reason, child.kill()).await;
-        kill.map(|()| None)
+        kill.map(|()| Err(kill_reason))
     };
 
     /* a future that reads output from the child and appends to the database */
@@ -1724,8 +1722,10 @@ async fn handle_child(
         _ if *too_many_logs.borrow() => Err(Error::ExecutionErr(
             "logs or result reached limit".to_string(),
         )),
-        Ok(Some(status)) => Ok(status),
-        Ok(None) => Err(Error::ExecutionErr("job process killed".to_string())),
+        Ok(Ok(status)) => Ok(status),
+        Ok(Err(kill_reason)) => Err(Error::ExecutionErr(format!(
+            "job process killed because {kill_reason:#?}"
+        ))),
         Err(err) => Err(Error::ExecutionErr(format!("job process io error: {err}"))),
     }
 }
