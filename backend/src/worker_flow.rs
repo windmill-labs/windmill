@@ -91,6 +91,8 @@ pub async fn update_flow_status_after_job_completion(
     metrics: Option<worker::Metrics>,
     unrecoverable: bool,
     same_worker_tx: Sender<Uuid>,
+    worker_dir: &str,
+    keep_job_dir: bool,
 ) -> error::Result<()> {
     tracing::debug!("HANDLE FLOW: {job:?} {success} {result:?}");
 
@@ -309,6 +311,10 @@ pub async fn update_flow_status_after_job_completion(
         )
         .await?;
 
+        if flow_job.same_worker && !keep_job_dir {
+            let _ = tokio::fs::remove_dir_all(format!("{worker_dir}/{}", flow_job.id)).await;
+        }
+
         if flow_job.parent_job.is_some() {
             return Ok(update_flow_status_after_job_completion(
                 db,
@@ -318,6 +324,8 @@ pub async fn update_flow_status_after_job_completion(
                 metrics,
                 false,
                 same_worker_tx.clone(),
+                worker_dir,
+                keep_job_dir,
             )
             .await?);
         }

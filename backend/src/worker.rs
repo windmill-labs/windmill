@@ -234,7 +234,10 @@ pub async fn run_worker(
                     .await
                     .expect("could not create job dir");
 
-                if job.job_kind == JobKind::Flow || job.job_kind == JobKind::FlowPreview {
+                let same_worker = job.same_worker;
+                let is_flow = job.job_kind == JobKind::Flow || job.job_kind == JobKind::FlowPreview;
+
+                if is_flow && same_worker {
                     DirBuilder::new()
                         .create(&format!("{job_dir}/shared"))
                         .await
@@ -256,11 +259,20 @@ pub async fn run_worker(
                 .await
                 .err()
                 {
-                    handle_job_error(db, job, err, Some(metrics), false, same_worker_tx.clone())
-                        .await;
+                    handle_job_error(
+                        db,
+                        job,
+                        err,
+                        Some(metrics),
+                        false,
+                        same_worker_tx.clone(),
+                        &worker_dir,
+                        !worker_config.keep_job_dir,
+                    )
+                    .await;
                 };
 
-                if !worker_config.keep_job_dir {
+                if !worker_config.keep_job_dir && !(is_flow && same_worker) {
                     let _ = tokio::fs::remove_dir_all(job_dir).await;
                 }
             }
@@ -279,6 +291,8 @@ async fn handle_job_error(
     metrics: Option<Metrics>,
     unrecoverable: bool,
     same_worker_tx: Sender<Uuid>,
+    worker_dir: &str,
+    keep_job_dir: bool,
 ) {
     let m = add_completed_job_error(
         db,
@@ -308,6 +322,8 @@ async fn handle_job_error(
             metrics.clone(),
             unrecoverable,
             same_worker_tx,
+            worker_dir,
+            keep_job_dir,
         )
         .await;
         if let Err(err) = updated_flow {
@@ -406,7 +422,7 @@ async fn handle_queued_job(
                 db,
                 timeout,
                 worker_name,
-                worker_dir,
+                worker_dir.clone(),
                 &mut logs,
                 &mut last_line,
                 worker_config,
@@ -426,6 +442,8 @@ async fn handle_queued_job(
                             Some(metrics.clone()),
                             false,
                             same_worker_tx.clone(),
+                            worker_dir,
+                            worker_config.keep_job_dir,
                         )
                         .await?;
                     }
@@ -442,6 +460,8 @@ async fn handle_queued_job(
                             Some(metrics),
                             false,
                             same_worker_tx,
+                            worker_dir,
+                            worker_config.keep_job_dir,
                         )
                         .await?;
                     }
@@ -1837,6 +1857,8 @@ pub async fn handle_zombie_jobs_periodically(
                 None,
                 true,
                 same_worker_tx_never_used,
+                "",
+                true,
             )
             .await;
         }

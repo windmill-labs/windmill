@@ -1219,7 +1219,7 @@ pub async fn push<'c>(
     schedule_path: Option<String>,
     parent_job: Option<Uuid>,
     is_flow_step: bool,
-    same_worker: bool,
+    mut same_worker: bool,
 ) -> Result<(Uuid, Transaction<'c, Postgres>), Error> {
     let scheduled_for = scheduled_for_o.unwrap_or_else(chrono::Utc::now);
     let args_json = args.map(serde_json::Value::Object);
@@ -1373,7 +1373,10 @@ pub async fn push<'c>(
         }
     };
 
+    let mut is_running = same_worker;
     if let Some(flow) = raw_flow.as_ref() {
+        is_running = false;
+        same_worker = same_worker || flow.same_worker;
         if flow.modules.len() == 0 {
             Err(Error::BadRequest(format!(
                 "A flow needs at least one module to run"
@@ -1399,7 +1402,6 @@ pub async fn push<'c>(
     }
 
     let flow_status = raw_flow.as_ref().map(init_flow_status);
-    let is_running = same_worker;
     let uuid = sqlx::query_scalar!(
         "INSERT INTO queue
             (workspace_id, id, running, parent_job, created_by, permissioned_as, scheduled_for, 
