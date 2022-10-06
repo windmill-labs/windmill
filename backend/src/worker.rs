@@ -1574,7 +1574,7 @@ async fn handle_child(
         let kill_reason = tokio::select! {
             biased;
             result = child.wait() => return result.map(Ok),
-            _ = too_many_logs.changed() => KillReason::TooManyLogs,
+            Ok(()) = too_many_logs.changed() => KillReason::TooManyLogs,
             _ = cancel_check => KillReason::Cancelled,
             _ = sleep(timeout) => KillReason::Timeout,
         };
