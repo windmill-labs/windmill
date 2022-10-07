@@ -148,7 +148,6 @@
 					})
 				} else {
 					focusProp(argName, 'insert', (path) => {
-						console.log('path', path)
 						arg.expr = path
 						arg.type = 'javascript'
 						propertyType = 'javascript'

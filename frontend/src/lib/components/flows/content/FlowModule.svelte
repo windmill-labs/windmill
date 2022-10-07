@@ -85,6 +85,7 @@
 
 		flowModuleState.schema = schema
 		flowModule.input_transforms = input_transforms
+		$flowStore = $flowStore
 	}
 
 	async function applyCreateLoop() {

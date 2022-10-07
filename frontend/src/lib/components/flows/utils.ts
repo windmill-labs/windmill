@@ -110,6 +110,7 @@ export async function loadSchemaFromModule(module: FlowModule): Promise<{
 				accu[key] = nv
 				return accu
 			}, {})
+
 		}
 
 		return {

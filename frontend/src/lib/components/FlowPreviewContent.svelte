@@ -32,7 +32,6 @@
 			flow.value.modules = modules
 
 			if (childIndex != undefined) {
-				console.log(modules)
 				const lastModule = modules[modules.length - 1].value
 				if (lastModule.type === 'forloopflow') {
 					lastModule.modules = lastModule.modules.slice(0, Number(childIndex) + 1)
