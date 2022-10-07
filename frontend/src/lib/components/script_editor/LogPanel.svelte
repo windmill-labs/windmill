@@ -76,11 +76,11 @@
 					<LogViewer content={previewJob?.logs} isLoading={previewIsLoading} />
 				</top>
 				<down slot="down">
-					<pre
-						class="overflow-x-auto break-all relative h-full p-2 text-sm">{#if previewJob && 'result' in previewJob && previewJob.result}<DisplayResult
+					<pre class="overflow-x-auto break-all relative h-full p-2 text-sm"
+						>{#if previewJob != undefined && 'result' in previewJob && previewJob.result != undefined}<DisplayResult
 								result={previewJob.result}
 							/>
-						{:else if previewIsLoading}Waiting for Result...
+						{:else if previewIsLoading}Waiting for result...
 						{:else}Test to see the result here
 						{/if}
         </pre>

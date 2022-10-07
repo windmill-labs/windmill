@@ -80,7 +80,7 @@
 
 	// If we get results, focus on that tab. Else, focus on logs
 	function initView(): void {
-		if (job && 'result' in job && job.result) {
+		if (job && 'result' in job && job.result != undefined) {
 			viewTab = 'result'
 		} else if (viewTab == 'result') {
 			viewTab = 'logs'
@@ -389,7 +389,9 @@
 						<HighlightCode language={job.language} code={job.raw_code} />
 					{:else if job}No code is available
 					{:else}Loading...{/if}
-				{:else if job && 'result' in job && job.result}<DisplayResult result={job.result} />
+				{:else if job != undefined && 'result' in job && job.result != undefined}<DisplayResult
+						result={job.result}
+					/>
 				{:else if job}No output is available yet
 				{:else}Loading...
 				{/if}

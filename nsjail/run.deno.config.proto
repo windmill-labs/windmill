@@ -80,6 +80,13 @@ mount {
 }
 
 mount {
+    src: "{JOB_DIR}/result.json"
+    dst: "/tmp/result.json"
+    is_bind: true
+    rw: true
+}
+
+mount {
     src: "/etc/ssl"
     dst: "/etc/ssl"
 	is_bind: true
