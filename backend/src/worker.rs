@@ -1452,8 +1452,9 @@ async fn install_go_dependencies(
 
             req_content.push_str(&format!("\n{GO_REQ_SPLITTER}\n"));
 
-            let mut file = File::open(format!("{job_dir}/go.sum")).await?;
-            file.read_to_string(&mut req_content).await?;
+            if let Ok(mut file) = File::open(format!("{job_dir}/go.sum")).await {
+                file.read_to_string(&mut req_content).await?;
+            }
 
             Ok(req_content)
         }
