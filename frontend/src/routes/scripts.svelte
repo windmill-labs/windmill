@@ -36,13 +36,14 @@
 	import PageHeader from '$lib/components/PageHeader.svelte'
 	import SharedBadge from '$lib/components/SharedBadge.svelte'
 	import ShareModal from '$lib/components/ShareModal.svelte'
-	import Tabs from '$lib/components/Tabs.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import TableCustom from '$lib/components/TableCustom.svelte'
 	import { Highlight } from 'svelte-highlight'
 	import { typescript } from 'svelte-highlight/languages/typescript'
 	import { Button } from '$lib/components/common'
 	import CreateActions from '$lib/components/scripts/CreateActions.svelte'
+	import Tabs from '$lib/components/common/tabs/Tabs.svelte'
+	import Tab from '$lib/components/common/tabs/Tab.svelte'
 
 	type Tab = 'all' | 'personal' | 'groups' | 'shared' | 'examples' | 'hub'
 	type Section = [string, ScriptW[]]
@@ -154,18 +155,19 @@
 	loadHubScriptsWFuse()
 
 	$: {
-		if ($workspaceStore && ($userStore || $superadmin)) {
+		if ($workspaceStore && ($userStore || $superadmin) && tab) {
 			loadScripts()
 		}
 	}
+
 </script>
 
 <Modal bind:this={codeViewer}>
 	<div slot="title">{codeViewerPath}</div>
 	<div slot="content">
 		<Highlight language={typescript} code={codeViewerContent} />
-	</div></Modal
->
+	</div>
+</Modal>
 
 <CenteredPage>
 	<PageHeader
@@ -180,21 +182,19 @@
 		<CreateActions />
 	</PageHeader>
 
-	<Tabs
-		tabs={[
-			['all', 'all'],
-			['hub', 'hub'],
-			['personal', `personal space (${$userStore?.username})`],
-			['groups', 'groups'],
-			['shared', 'shared'],
-			['examples', 'examples']
-		]}
-		bind:tab
-		on:update={loadScripts}
-	/>
+	<Tabs bind:selected={tab} >
+		<Tab value="all">All</Tab>
+		<Tab value="hub">Hub</Tab>
+		<Tab value="personal">{`Personal space (${$userStore?.username})`}</Tab>
+		<Tab value="groups">Groups</Tab>
+		<Tab value="shared">Shared</Tab>
+		<Tab value="examples">Examples</Tab>
+	</Tabs>
+	
 	{#if tab != 'hub'}
 		<input placeholder="Search scripts" bind:value={scriptFilter} class="search-bar mt-2" />
 	{/if}
+	
 	<div class="grid grid-cols-1 divide-y">
 		{#each tab == 'all' ? ['personal', 'groups', 'shared', 'examples', 'hub'] : [tab] as sectionTab}
 			<div class="shadow p-4 my-2">
