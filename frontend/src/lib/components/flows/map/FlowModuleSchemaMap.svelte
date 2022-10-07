@@ -51,7 +51,7 @@
 				)}
 			>
 				<Icon data={faSliders} class="mr-2" />
-				<span class="font-bold flex flex-row justify-between w-full flex-wrap gap-2"
+				<span class="font-bold flex flex-row justify-between w-full flex-wrap gap-2 items-center"
 					>Settings <span
 						class={classNames('badge', $schedule?.enabled ? 'badge-on' : 'badge-off')}
 						on:click|stopPropagation={() => select('settings-schedule')}
