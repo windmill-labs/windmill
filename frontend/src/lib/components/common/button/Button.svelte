@@ -64,7 +64,10 @@
 
 	function onClick(event: MouseEvent) {
 		dispatch('click', event)
-		if (href) goto(href)
+		if (href) {
+			event.preventDefault()
+			goto(href)
+		}
 	}
 
 	$: isSmall = size === 'xs' || size === 'sm'

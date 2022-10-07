@@ -65,7 +65,7 @@
 </script>
 
 <div class="inline-highlight">
-	{#if result}
+	{#if result != undefined}
 		{#if resultKind && resultKind != 'json'}
 			<div class="mb-2 text-gray-500 text-sm bg-gray-50/20">
 				as JSON <input type="checkbox" bind:checked={forceJson} /></div
