@@ -177,6 +177,17 @@ pub enum InputTransform {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct DefaultModules {
+    pub modules: Vec<FlowModule>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct BranchModules {
+    pub expr: String,
+    pub modules: Vec<FlowModule>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(
     tag = "type",
     rename_all(serialize = "lowercase", deserialize = "lowercase")
@@ -190,6 +201,10 @@ pub enum FlowModuleValue {
         modules: Vec<FlowModule>,
         #[serde(default = "default_true")]
         skip_failures: bool,
+    },
+    Branches {
+        branches: Vec<BranchModules>,
+        default: DefaultModules,
     },
     Flow {
         path: String,

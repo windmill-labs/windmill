@@ -136,6 +136,7 @@ components:
         - $ref: "#/components/schemas/RawScript"
         - $ref: "#/components/schemas/PathScript"
         - $ref: "#/components/schemas/ForloopFlow"
+        - $ref: "#/components/schemas/Branches"
         - $ref: "#/components/schemas/PathFlow"
       discriminator:
         propertyName: type
@@ -143,6 +144,7 @@ components:
           rawscript: "#/components/schemas/RawScript"
           script: "#/components/schemas/PathScript"
           forloopflow: "#/components/schemas/ForloopFlow"
+          branches: "#/components/schemas/Branches"
           flow: "#/components/schemas/PathFlow"
 
     RawScript:
@@ -210,6 +212,36 @@ components:
         - iterator
         - skip_failures
         - type
+
+    Branches:
+      type: object
+      properties:
+        branches:
+          type: array
+          items:
+            type: object
+            properties:
+              expr:
+                type: string
+              modules:
+                type: array
+                items:
+                  $ref: "#/components/schemas/FlowModule"
+            required:
+              - modules
+              - expr
+              
+        default:
+          type: object
+          properties: 
+            modules:
+              type: array
+              items:
+                $ref: "#/components/schemas/FlowModule"
+          required: [modules]
+      required:
+        - branches
+        - default
 
     FlowStatus:
       type: object

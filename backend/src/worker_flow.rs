@@ -57,11 +57,42 @@ pub struct Iterator {
 #[serde(tag = "type")]
 pub enum FlowStatusModule {
     WaitingForPriorSteps,
-    WaitingForEvents { count: u16, job: Uuid },
-    WaitingForExecutor { job: Uuid },
-    InProgress { job: Uuid, iterator: Option<Iterator>, forloop_jobs: Option<Vec<Uuid>> },
-    Success { job: Uuid, forloop_jobs: Option<Vec<Uuid>> },
-    Failure { job: Uuid, forloop_jobs: Option<Vec<Uuid>> },
+    WaitingForEvents {
+        count: u16,
+        job: Uuid,
+    },
+    WaitingForExecutor {
+        job: Uuid,
+    },
+    InProgress {
+        job: Uuid,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        iterator: Option<Iterator>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        forloop_jobs: Option<Vec<Uuid>>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        branch_job: Option<Uuid>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        branch: Option<u8>,
+    },
+    Success {
+        job: Uuid,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        forloop_jobs: Option<Vec<Uuid>>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        branch_job: Option<Uuid>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        branch: Option<u8>,
+    },
+    Failure {
+        job: Uuid,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        forloop_jobs: Option<Vec<Uuid>>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        branch_job: Option<Uuid>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        branch: Option<u8>,
+    },
 }
 
 impl FlowStatus {
@@ -147,12 +178,22 @@ pub async fn update_flow_status_after_job_completion(
             if success || (forloop_jobs.is_some() && skip_loop_failures) {
                 (
                     old_status.step + 1,
-                    FlowStatusModule::Success { job: job.id, forloop_jobs },
+                    FlowStatusModule::Success {
+                        job: job.id,
+                        forloop_jobs,
+                        branch_job: None,
+                        branch: None,
+                    },
                 )
             } else {
                 (
                     old_status.step,
-                    FlowStatusModule::Failure { job: job.id, forloop_jobs },
+                    FlowStatusModule::Failure {
+                        job: job.id,
+                        forloop_jobs,
+                        branch_job: None,
+                        branch: None,
+                    },
                 )
             }
         }
@@ -822,7 +863,9 @@ async fn push_next_flow_job(
                     .bind(status.step)
                     .bind(json!(FlowStatusModule::Success {
                         job: flow_job.id,
-                        forloop_jobs: Some(vec![])
+                        forloop_jobs: Some(vec![]),
+                        branch_job: None,
+                        branch: None,
                     }))
                     .bind(json!(next_step.unwrap_or(i)))
                     .bind(flow_job.id)
@@ -918,6 +961,7 @@ async fn push_next_flow_job(
             },
             path: Some(format!("{}/{}", flow_job.script_path(), status.step)),
         },
+        FlowModuleValue::Branches { .. } => todo!(),
         a @ FlowModuleValue::Flow { .. } => {
             tracing::info!("Unrecognized module values {:?}", a);
             Err(Error::BadRequest(format!(
@@ -952,6 +996,8 @@ async fn push_next_flow_job(
                 job: uuid,
                 iterator: Some(Iterator { index, itered, args }),
                 forloop_jobs: Some(forloop_jobs),
+                branch_job: None,
+                branch: None,
             }
         } else {
             FlowStatusModule::WaitingForExecutor { job: uuid }
