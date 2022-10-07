@@ -42,7 +42,7 @@
 					bind:arg={args[argName]}
 					bind:schema
 					bind:argName
-					bind:inputCheck
+					bind:inputCheck={inputCheck[argName]}
 					bind:extraLib
 					bind:importPath
 				/>

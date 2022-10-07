@@ -188,7 +188,7 @@
 							<Tab value="retries">Retries</Tab>
 							{#if !$selectedId.includes('failure')}
 								<Tab value="early-stop">Early Stop</Tab>
-								<Tab value="suspend">Suspend</Tab>
+								<Tab value="suspend">Sleep/Suspend</Tab>
 							{/if}
 
 							<svelte:fragment slot="content">

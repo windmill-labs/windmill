@@ -12,6 +12,7 @@
 	import { keepByKey } from './utils'
 
 	export let pickableProperties: Object = {}
+	export let displayContext = true
 	let variables: Record<string, string> = {}
 	let resources: Record<string, any> = {}
 	let displayVariable = false
@@ -82,56 +83,58 @@
 	<div class="overflow-y-auto mb-2">
 		<ObjectViewer json={propsFiltered} on:select />
 	</div>
-	<span class="font-bold text-sm">Variables </span>
-	<div class="overflow-y-auto mb-2">
-		{#if displayVariable}
-			<Button
-				color="light"
-				size="xs"
-				on:click={() => {
-					displayVariable = false
-				}}>(-)</Button
-			>
-			<ObjectViewer
-				rawKey={true}
-				json={variables}
-				on:select={(e) => dispatch('select', `variable('${e.detail}')`)}
-			/>
-		{:else}
-			<Button
-				color="light"
-				size="xs"
-				on:click={async () => {
-					await loadVariables()
-					displayVariable = true
-				}}>{'{...}'}</Button
-			>
-		{/if}
-	</div>
-	<span class="font-bold text-sm">Resources</span>
-	<div class="overflow-y-auto mb-2">
-		{#if displayResources}
-			<Button
-				color="light"
-				size="xs"
-				on:click={() => {
-					displayResources = false
-				}}>(-)</Button
-			>
-			<ObjectViewer
-				rawKey={true}
-				json={resources}
-				on:select={(e) => dispatch('select', `resource('${e.detail}')`)}
-			/>
-		{:else}
-			<Button
-				color="light"
-				size="xs"
-				on:click={async () => {
-					await loadResources()
-					displayResources = true
-				}}>{'{...}'}</Button
-			>
-		{/if}
-	</div>
+	{#if displayContext}
+		<span class="font-bold text-sm">Variables </span>
+		<div class="overflow-y-auto mb-2">
+			{#if displayVariable}
+				<Button
+					color="light"
+					size="xs"
+					on:click={() => {
+						displayVariable = false
+					}}>(-)</Button
+				>
+				<ObjectViewer
+					rawKey={true}
+					json={variables}
+					on:select={(e) => dispatch('select', `variable('${e.detail}')`)}
+				/>
+			{:else}
+				<Button
+					color="light"
+					size="xs"
+					on:click={async () => {
+						await loadVariables()
+						displayVariable = true
+					}}>{'{...}'}</Button
+				>
+			{/if}
+		</div>
+		<span class="font-bold text-sm">Resources</span>
+		<div class="overflow-y-auto mb-2">
+			{#if displayResources}
+				<Button
+					color="light"
+					size="xs"
+					on:click={() => {
+						displayResources = false
+					}}>(-)</Button
+				>
+				<ObjectViewer
+					rawKey={true}
+					json={resources}
+					on:select={(e) => dispatch('select', `resource('${e.detail}')`)}
+				/>
+			{:else}
+				<Button
+					color="light"
+					size="xs"
+					on:click={async () => {
+						await loadResources()
+						displayResources = true
+					}}>{'{...}'}</Button
+				>
+			{/if}
+		</div>
+	{/if}
 </div>
