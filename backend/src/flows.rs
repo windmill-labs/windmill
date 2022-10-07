@@ -164,6 +164,7 @@ pub struct FlowModule {
     pub suspend: u16,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub retry: Option<Retry>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub sleep: Option<InputTransform>,
 }
 
