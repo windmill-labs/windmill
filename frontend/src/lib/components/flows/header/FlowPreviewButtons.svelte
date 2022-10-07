@@ -17,7 +17,8 @@
 		'settings-schedule',
 		'settings-retries',
 		'inputs',
-		'schedules'
+		'schedules',
+		'failure'
 	].includes($selectedId)
 </script>
 
