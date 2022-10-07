@@ -959,9 +959,25 @@ async fn push_next_flow_job(
                 failure_module: flow.failure_module.clone(),
                 same_worker: flow.same_worker,
             },
-            path: Some(format!("{}/{}", flow_job.script_path(), status.step)),
+            path: Some(format!("{}/loop-{}", flow_job.script_path(), status.step)),
         },
-        FlowModuleValue::Branches { .. } => todo!(),
+        FlowModuleValue::Branches { branches, default, .. } => JobPayload::RawFlow {
+            for b in branches.iter() {
+                if eval_timeout().await?.as_bool() {
+                    break
+                }
+            };
+            value: FlowValue {
+                modules: (*default.modules).clone(),
+                failure_module: flow.failure_module.clone(),
+                same_worker: flow.same_worker,
+            },
+            path: Some(format!(
+                "{}/branches-{}-{}",
+                flow_job.script_path(),
+                status.step
+            )),
+        },
         a @ FlowModuleValue::Flow { .. } => {
             tracing::info!("Unrecognized module values {:?}", a);
             Err(Error::BadRequest(format!(
