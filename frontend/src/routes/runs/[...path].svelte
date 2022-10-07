@@ -16,7 +16,8 @@
 	import PageHeader from '$lib/components/PageHeader.svelte'
 	import { workspaceStore } from '$lib/stores'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
-	import Tabs from '$lib/components/Tabs.svelte'
+	import Tabs from '$lib/components/common/tabs/Tabs.svelte'
+	import Tab from '$lib/components/common/tabs/Tab.svelte'
 	import JobDetail from '$lib/components/jobs/JobDetail.svelte'
 
 	let jobs: Job[] | undefined
@@ -37,7 +38,7 @@
 	let showOlderJobs = true
 	const jobsPerPage = 100
 
-	let jobKindsCat: string | undefined = $page.url.searchParams.get('job_kinds') ?? 'runs'
+	let jobKindsCat: string = $page.url.searchParams.get('job_kinds') ?? 'runs'
 
 	$: jobKinds = computeJobKinds(jobKindsCat)
 
@@ -129,6 +130,12 @@
 		}
 	}
 
+	async function syncCatWithURL() {
+		await setQuery($page.url, 'job_kinds', jobKindsCat)
+	}
+
+	$: jobKindsCat && syncCatWithURL()
+
 	onDestroy(() => {
 		if (intervalId) {
 			clearInterval(intervalId)
@@ -169,19 +176,14 @@ the bearer token they use has less privilege."
 			</select>
 		</div>
 		<div>
-			<Tabs
-				tabs={[
-					['all', 'all'],
-					['runs', 'runs'],
-					['previews', 'previews'],
-					['dependencies', 'dependencies']
-				]}
-				dflt={1}
-				bind:tab={jobKindsCat}
-				on:update={async (tab) => {
-					await setQuery($page.url, 'job_kinds', tab.detail)
-				}}
-			/>
+			<div class="my-2">
+				<Tabs bind:selected={jobKindsCat}>
+					<Tab value="all">All</Tab>
+					<Tab value="runs">Runs</Tab>
+					<Tab value="previews">Previews</Tab>
+					<Tab value="dependencies">Dependencies</Tab>
+				</Tabs>
+			</div>
 			{#if jobs}
 				<div class="space-y-2">
 					{#each jobs as job}
