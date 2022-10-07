@@ -86,6 +86,8 @@ components:
               type: string
           required:
             - expr
+        sleep:
+          $ref: "#/components/schemas/InputTransform"
         summary:
           type: string
         suspend:

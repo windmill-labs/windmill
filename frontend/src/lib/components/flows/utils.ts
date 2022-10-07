@@ -5,6 +5,7 @@ import { loadSchema } from '$lib/scripts'
 import { workspaceStore } from '$lib/stores'
 import { emptySchema } from '$lib/utils'
 import { get } from 'svelte/store'
+import type { FlowModuleState, FlowState } from './flowState'
 
 export function cleanInputs(flow: Flow | any): Flow {
 	const newFlow: Flow = JSON.parse(JSON.stringify(flow))
@@ -63,6 +64,16 @@ export function selectedIdToModule(selectedId: string, flow: Flow): FlowModule {
 	}
 }
 
+export function selectedIdToModuleState(selectedId: string, flow: FlowState): FlowModuleState {
+	const [p, c] = selectedIdToIndexes(selectedId)
+	const pm = flow.modules[p]
+	if (c && pm.childFlowModules) {
+		return pm.childFlowModules[c]
+	} else {
+		return pm
+	}
+}
+
 
 export async function loadSchemaFromModule(module: FlowModule): Promise<{
 	input_transforms: Record<string, InputTransform>
@@ -99,6 +110,7 @@ export async function loadSchemaFromModule(module: FlowModule): Promise<{
 				accu[key] = nv
 				return accu
 			}, {})
+
 		}
 
 		return {
