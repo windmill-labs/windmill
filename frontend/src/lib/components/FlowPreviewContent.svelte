@@ -6,7 +6,7 @@
 	import { createEventDispatcher, getContext, onDestroy } from 'svelte'
 	import Icon from 'svelte-awesome'
 	import { flowStateStore } from './flows/flowState'
-	import { mapJobResultsToFlowState } from './flows/flowStateUtils'
+	import { mapJobResultsToFlowState, type JobResult } from './flows/flowStateUtils'
 	import { flowStore } from './flows/flowStore'
 	import type { FlowEditorContext } from './flows/types'
 	import { runFlowPreview, selectedIdToIndexes } from './flows/utils'
@@ -64,6 +64,17 @@
 				dispatch('close')
 				break
 		}
+	}
+
+	function onJobsLoaded(jobResult: JobResult) {
+		if (jobResult.job?.type === 'CompletedJob') {
+			isRunning = false
+		}
+		const upToIndex =
+			previewMode === 'upTo'
+				? selectedIdToIndexes($selectedId)[0] + 1
+				: $flowStateStore.modules.length
+		mapJobResultsToFlowState(jobResult, upToIndex)
 	}
 </script>
 
@@ -138,16 +149,7 @@
 
 	<div class="h-full overflow-y-auto mb-16 grow">
 		{#if jobId}
-			<FlowStatusViewer
-				{jobId}
-				on:jobsLoaded={(e) => {
-					isRunning = false
-					const parentIndex = selectedIdToIndexes($selectedId)[0]
-					const upToIndex =
-						previewMode === 'upTo' ? Number(parentIndex) + 1 : $flowStateStore.modules.length
-					mapJobResultsToFlowState(e.detail, upToIndex)
-				}}
-			/>
+			<FlowStatusViewer {jobId} on:jobsLoaded={(e) => onJobsLoaded(e.detail)} />
 		{/if}
 	</div>
 </div>

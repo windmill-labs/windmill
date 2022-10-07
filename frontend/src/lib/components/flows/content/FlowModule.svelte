@@ -197,6 +197,10 @@
 									<TabContent value="inputs" class="flex flex-col flex-1 h-full">
 										<PropPickerWrapper pickableProperties={stepPropPicker.pickableProperties}>
 											<!-- <pre class="text-xs">{JSON.stringify($flowStateStore, null, 4)}</pre> -->
+											<p class="items-baseline text-xs text-gray-700 italic hidden md:block mb-2">
+												Move the focus outside of the text editor to recompute the inputs or press
+												Ctrl/Cmd+S
+											</p>
 											<SchemaForm
 												schema={flowModuleState.schema}
 												inputTransform={true}

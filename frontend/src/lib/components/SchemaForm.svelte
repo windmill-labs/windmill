@@ -66,6 +66,6 @@
 			{/if}
 		{/each}
 	{:else}
-		<p class="italic text-sm">No settable input</p>
+		<p class="italic text-sm">No inputs</p>
 	{/if}
 </div>
