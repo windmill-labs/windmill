@@ -183,6 +183,8 @@ pub struct DefaultModules {
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct BranchModules {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub summary: Option<String>,
     pub expr: String,
     pub modules: Vec<FlowModule>,
 }

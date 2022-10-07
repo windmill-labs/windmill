@@ -221,6 +221,8 @@ components:
           items:
             type: object
             properties:
+              summary:
+                type: string
               expr:
                 type: string
               modules:
@@ -230,7 +232,7 @@ components:
             required:
               - modules
               - expr
-              
+
         default:
           type: object
           properties: 
