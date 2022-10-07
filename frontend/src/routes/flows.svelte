@@ -31,11 +31,12 @@
 	import SharedBadge from '$lib/components/SharedBadge.svelte'
 	import { superadmin, userStore, workspaceStore } from '$lib/stores'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
-	import Tabs from '$lib/components/Tabs.svelte'
 	import TableCustom from '$lib/components/TableCustom.svelte'
 	import Modal from '$lib/components/Modal.svelte'
 	import FlowViewer from '$lib/components/FlowViewer.svelte'
 	import { Button } from '../lib/components/common'
+	import Tabs from '$lib/components/common/tabs/Tabs.svelte'
+	import Tab from '$lib/components/common/tabs/Tab.svelte'
 
 	type Tab = 'all' | 'personal' | 'groups' | 'shared' | 'hub'
 	type Section = [string, FlowW[]]
@@ -164,17 +165,14 @@
 		</div>
 	</PageHeader>
 
-	<Tabs
-		tabs={[
-			['all', 'all'],
-			['hub', 'hub'],
-			['personal', `personal space (${$userStore?.username})`],
-			['groups', 'groups'],
-			['shared', 'shared']
-		]}
-		bind:tab
-		on:update={loadFlows}
-	/>
+	<Tabs bind:selected={tab}>
+		<Tab value="all">All</Tab>
+		<Tab value="hub">Hub</Tab>
+		<Tab value="personal">{`Personal space (${$userStore?.username})`}</Tab>
+		<Tab value="groups">Groups</Tab>
+		<Tab value="shared">Shared</Tab>
+	</Tabs>
+
 	{#if tab != 'hub'}
 		<input placeholder="Search flows" bind:value={flowFilter} class="search-bar mt-2" />
 	{/if}
