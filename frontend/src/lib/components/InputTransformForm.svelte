@@ -19,12 +19,12 @@
 	export let arg: InputTransform | any
 	export let argName: string
 	export let extraLib: string = 'missing extraLib'
-	export let inputCheck: { [id: string]: boolean }
+	export let inputCheck: boolean = true
 	export let importPath: string | undefined = undefined
 
-	let monacos: { [id: string]: SimpleEditor } = {}
+	export let monaco: SimpleEditor | undefined = undefined
 
-	let inputCats: { [id: string]: InputCat } = {}
+	let inputCat: InputCat = 'object'
 	let propertyType = getPropertyType(arg)
 
 	function getPropertyType(arg: InputTransform | any): 'static' | 'javascript' {
@@ -60,8 +60,8 @@
 		return inputCat === 'string' || inputCat === 'sql'
 	}
 
-	function connectProperty(argName: string, rawValue: string) {
-		if (isStaticTemplate(inputCats[argName])) {
+	function connectProperty(rawValue: string) {
+		if (isStaticTemplate(inputCat)) {
 			arg.value = `\$\{${rawValue}}`
 			setPropertyType(arg.value)
 		} else {
@@ -102,7 +102,7 @@
 				}}
 				on:change={(e) => {
 					const type = e.detail ? 'javascript' : 'static'
-					const staticTemplate = isStaticTemplate(inputCats[argName])
+					const staticTemplate = isStaticTemplate(inputCat)
 					if (type === 'javascript') {
 						arg.expr = getDefaultExpr(
 							importPath,
@@ -125,7 +125,7 @@
 			<div
 				on:click={() => {
 					focusProp(argName, 'connect', (path) => {
-						connectProperty(argName, path)
+						connectProperty(path)
 					})
 				}}
 			>
@@ -140,7 +140,7 @@
 	{#if propertyType === undefined || !checked}
 		<ArgInput
 			on:focus={() => {
-				if (isStaticTemplate(inputCats[argName])) {
+				if (isStaticTemplate(inputCat)) {
 					focusProp(argName, 'append', (path) => {
 						const toAppend = `\$\{${path}}`
 						arg.value = `${arg.value ?? ''}${toAppend}`
@@ -148,7 +148,6 @@
 					})
 				} else {
 					focusProp(argName, 'insert', (path) => {
-						console.log('path', path)
 						arg.expr = path
 						arg.type = 'javascript'
 						propertyType = 'javascript'
@@ -156,13 +155,13 @@
 				}
 			}}
 			label={argName}
-			bind:editor={monacos[argName]}
+			bind:editor={monaco}
 			bind:description={schema.properties[argName].description}
 			bind:value={arg.value}
 			type={schema.properties[argName].type}
 			required={schema.required.includes(argName)}
 			bind:pattern={schema.properties[argName].pattern}
-			bind:valid={inputCheck[argName]}
+			bind:valid={inputCheck}
 			defaultValue={schema.properties[argName].default}
 			bind:enum_={schema.properties[argName].enum}
 			bind:format={schema.properties[argName].format}
@@ -170,9 +169,9 @@
 			bind:itemsType={schema.properties[argName].items}
 			properties={schema.properties[argName].properties}
 			displayHeader={false}
-			bind:inputCat={inputCats[argName]}
+			bind:inputCat
 			on:input={(e) => {
-				if (isStaticTemplate(inputCats[argName])) {
+				if (isStaticTemplate(inputCat)) {
 					setPropertyType(e.detail.rawValue)
 				}
 			}}
@@ -181,10 +180,10 @@
 		{#if arg.expr != undefined}
 			<div class="border rounded p-2 mt-2 border-gray-300">
 				<SimpleEditor
-					bind:this={monacos[argName]}
+					bind:this={monaco}
 					on:focus={() => {
 						focusProp(argName, 'insert', (path) => {
-							monacos[argName].insertAtCursor(path)
+							monaco?.insertAtCursor(path)
 						})
 					}}
 					bind:code={arg.expr}

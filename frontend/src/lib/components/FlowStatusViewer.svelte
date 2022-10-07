@@ -47,7 +47,7 @@
 		}
 	}
 
-	$: jobResult && jobResult.job?.type === 'CompletedJob' && dispatch('jobsLoaded', jobResult)
+	$: jobResult && dispatch('jobsLoaded', jobResult)
 
 	function updateJobId() {
 		if (jobId !== jobResult?.job?.id) {
@@ -101,7 +101,13 @@
 					/>
 				</Button>
 				<div class="border p-6" class:hidden={forloop_selected != loopJobId}>
-					<svelte:self jobId={loopJobId} bind:jobResult={jobResult.loopJobs[j]} />
+					<svelte:self
+						jobId={loopJobId}
+						bind:jobResult={jobResult.loopJobs[j]}
+						on:jobsLoaded={(e) => {
+							jobResult = jobResult
+						}}
+					/>
 				</div>
 			{/each}
 		{:else if innerModules.length > 0}

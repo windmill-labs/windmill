@@ -1961,6 +1961,7 @@ mod tests {
                         summary: Default::default(),
                         suspend: Default::default(),
                         retry: None,
+                        sleep: None,
                     },
                     FlowModule {
                         value: FlowModuleValue::ForloopFlow {
@@ -1983,6 +1984,7 @@ mod tests {
                                 summary: Default::default(),
                                 suspend: Default::default(),
                                 retry: None,
+                                sleep: None,
                             }],
                         },
                         input_transforms: Default::default(),
@@ -1990,6 +1992,7 @@ mod tests {
                         summary: Default::default(),
                         suspend: Default::default(),
                         retry: None,
+                        sleep: None,
                     },
                 ],
                 same_worker: false,
@@ -2039,6 +2042,7 @@ mod tests {
                     summary: Default::default(),
                     suspend: Default::default(),
                     retry: None,
+                    sleep: None,
                 },
                 FlowModule {
                     value: FlowModuleValue::ForloopFlow {
@@ -2072,6 +2076,7 @@ mod tests {
                                 summary: Default::default(),
                                 suspend: Default::default(),
                                 retry: None,
+                                sleep: None,
                             },
                             FlowModule {
                                 value: FlowModuleValue::RawScript(RawCode {
@@ -2094,6 +2099,7 @@ mod tests {
                                 summary: Default::default(),
                                 suspend: Default::default(),
                                 retry: None,
+                                sleep: None,
                             },
                         ],
                     },
@@ -2102,6 +2108,8 @@ mod tests {
                     summary: Default::default(),
                     suspend: Default::default(),
                     retry: None,
+                    sleep: None,
+
                 },
                 FlowModule {
                     value: FlowModuleValue::RawScript(RawCode {
@@ -2131,6 +2139,7 @@ mod tests {
                     summary: Default::default(),
                     suspend: Default::default(),
                     retry: None,
+                    sleep: None,
                 },
             ],
             same_worker: true,

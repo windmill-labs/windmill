@@ -23,6 +23,7 @@
 	import { writable, type Writable } from 'svelte/store'
 
 	export let pickableProperties: Object = {}
+	export let displayContext = true
 
 	const propPickerConfig = writable<PropPickerConfig | undefined>(undefined)
 	const dispatch = createEventDispatcher()
@@ -51,6 +52,7 @@
 	<right slot="right">
 		<div class="overflow-auto h-full">
 			<PropPicker
+				{displayContext}
 				{pickableProperties}
 				on:select={({ detail }) => {
 					dispatch('select', detail)

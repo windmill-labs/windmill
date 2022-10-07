@@ -153,7 +153,7 @@
 					<Tabs bind:selected>
 						<Tab value="retries">Retries</Tab>
 						<Tab value="early-stop">Early Stop</Tab>
-						<Tab value="suspend">Suspend</Tab>
+						<Tab value="suspend">Sleep/Suspend</Tab>
 
 						<svelte:fragment slot="content">
 							<div class="overflow-hidden bg-white" style="height:calc(100% - 32px);">
