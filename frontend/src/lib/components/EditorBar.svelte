@@ -6,21 +6,19 @@
 		faCode,
 		faCube,
 		faDollarSign,
-		faFile,
 		faRotate,
 		faRotateLeft,
 		faWallet
 	} from '@fortawesome/free-solid-svg-icons'
 
 	import { hubScripts, workspaceStore } from '$lib/stores'
-	import { Highlight } from 'svelte-highlight'
-	import { python, typescript } from 'svelte-highlight/languages'
 	import type Editor from './Editor.svelte'
 	import ItemPicker from './ItemPicker.svelte'
 	import Modal from './Modal.svelte'
 	import ResourceEditor from './ResourceEditor.svelte'
 	import VariableEditor from './VariableEditor.svelte'
 	import Button from './common/button/Button.svelte'
+	import HighlightCode from './HighlightCode.svelte'
 
 	export let lang: 'python3' | 'deno' | 'go'
 	export let editor: Editor
@@ -89,11 +87,7 @@
 <Modal bind:this={codeViewer}>
 	<div slot="title">Code</div>
 	<div slot="content">
-		{#if codeLang == 'python3'}
-			<Highlight language={python} code={codeContent} />
-		{:else if codeLang == 'deno'}
-			<Highlight language={typescript} code={codeContent} />
-		{/if}
+		<HighlightCode language={codeLang} code={codeContent} />
 	</div></Modal
 >
 
