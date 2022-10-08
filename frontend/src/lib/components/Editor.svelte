@@ -58,7 +58,7 @@
 	export let cmdEnterAction: (() => void) | undefined = undefined
 	export let formatAction: (() => void) | undefined = undefined
 	export let automaticLayout = true
-	export let websocketAlive = { pyright: false, black: false, deno: false }
+	export let websocketAlive = { pyright: false, black: false, deno: false, go: false }
 	export let shouldBindKey: boolean = true
 
 	let websockets: [MonacoLanguageClient, WebSocket][] = []
@@ -68,7 +68,7 @@
 	let disposeMethod: () => void | undefined
 	const dispatch = createEventDispatcher()
 
-	const uri = `file:///${hash}.${langToExt(lang)}`
+	const uri = `file:///tmp/monaco/${hash}.${langToExt(lang)}`
 
 	if (browser) {
 		if (dev) {
@@ -311,6 +311,10 @@
 					python: 'black'
 				}
 			})
+		} else if (lang === 'go') {
+			connectToLanguageServer(`wss://${$page.url.host}/ws/go`, 'go', {
+				'build.allowImplicitNetworkAccess': true
+			})
 		}
 
 		websocketInterval && clearInterval(websocketInterval)
@@ -320,7 +324,12 @@
 					!lastWsAttempt ||
 					(new Date().getTime() - lastWsAttempt.getTime() > 60000 && nbWsAttempt < 2)
 				) {
-					if (!websocketAlive.black && !websocketAlive.deno && !websocketAlive.pyright) {
+					if (
+						!websocketAlive.black &&
+						!websocketAlive.deno &&
+						!websocketAlive.pyright &&
+						!websocketAlive.go
+					) {
 						console.log('reconnecting to language servers')
 						lastWsAttempt = new Date()
 						nbWsAttempt++
@@ -393,6 +402,7 @@
 				!websocketAlive.black &&
 				!websocketAlive.deno &&
 				!websocketAlive.pyright &&
+				!websocketAlive.go &&
 				!websocketInterval
 			) {
 				reloadWebsocket()
