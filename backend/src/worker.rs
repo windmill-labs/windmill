@@ -474,10 +474,7 @@ async fn handle_queued_job(
                                 .split("CODE EXECUTION ---")
                                 .last()
                                 .unwrap_or(&logs);
-                            format!(
-                                "Error during execution of the script:\nrelevant last 10 logs lines:\n{}",
-                                log_lines
-                            )
+                            format!("Error during execution of the script:\n{}", log_lines)
                         }
                         err @ _ => format!("error before termination: {err:#?}"),
                     };
@@ -3006,7 +3003,7 @@ def main(error, port):
                 json!({
                     "recv": 42,
                     "from failure module": {
-                        "error": "Error during execution of the script:\nrelevant last 10 logs lines:\n\nTraceback (most recent call last):\n  File \"/tmp/main.py\", line 14, in <module>\n    res = inner_script.main(**kwargs)\n  File \"/tmp/inner.py\", line 5, in main\n    return sock.recv(1)[0]\nIndexError: index out of range",
+                        "error": "Error during execution of the script:\n\nTraceback (most recent call last):\n  File \"/tmp/main.py\", line 14, in <module>\n    res = inner_script.main(**kwargs)\n  File \"/tmp/inner.py\", line 5, in main\n    return sock.recv(1)[0]\nIndexError: index out of range",
                     }
                 })
             );
