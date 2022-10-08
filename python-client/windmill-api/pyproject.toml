@@ -1,0 +1,40 @@
+[tool.poetry]
+name = "windmill-api"
+version = "1.36.0"
+description = "A client library for accessing Windmill server API"
+license = "Apache-2.0"
+
+authors = ["Ruben Fiszel <ruben@windmill.dev>"]
+
+readme = "README.md"
+packages = [
+    {include = "windmill_api"},
+]
+include = ["CHANGELOG.md", "windmill_api/py.typed"]
+
+[tool.poetry.dependencies]
+python = "^3.7"
+httpx = ">=0.15.4,<0.23.0"
+attrs = ">=21.3.0"
+python-dateutil = "^2.8.0"
+
+[build-system]
+requires = ["poetry-core>=1.0.0"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.black]
+line-length = 120
+target_version = ['py37', 'py38', 'py39']
+exclude = '''
+(
+  /(
+    | \.git
+    | \.venv
+    | \.mypy_cache
+  )/
+)
+'''
+
+[tool.isort]
+line_length = 120
+profile = "black"

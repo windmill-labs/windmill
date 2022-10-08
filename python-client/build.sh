@@ -3,7 +3,7 @@ set -e
 
 #TODO: remove once openapi-python-client supports recursive values
 cp ../openflow.openapi.yaml ../openflow.openapi.yaml.tmp
-sed -z 's/    ForloopFlow:\n      type: object\n      properties:\n        value:\n          $ref: "#\/components\/schemas\/FlowValue"/    ForloopFlow:\n      type: object\n      properties:/' ../openflow.openapi.yaml > ../openflow.openapi.yaml.new
+sed -z 's/    ForloopFlow:\n      type: object\n      properties:\n        modules:\n          type: array\n          items:\n            $ref: "#\/components\/schemas\/FlowModule"/    ForloopFlow:\n      type: object\n      properties:/' ../openflow.openapi.yaml > ../openflow.openapi.yaml.new
 mv ../openflow.openapi.yaml.new ../openflow.openapi.yaml
 cp  ../backend/openapi.yaml openapi.yaml
 
