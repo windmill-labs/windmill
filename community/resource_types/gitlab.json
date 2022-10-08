@@ -4,9 +4,15 @@
   "schema": {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
+      "baseUrl": {
+        "type": "string",
+        "description": "",
+        "default": "https://gitlab.com"
+      },
       "token": {
         "type": "string",
-        "description": ""
+        "description": "",
+        "default": ""
       }
     },
     "required": [
@@ -14,5 +20,5 @@
     ],
     "type": "object"
   },
-  "description": "GitLab OAuth credentials"
+  "description": ""
 }
