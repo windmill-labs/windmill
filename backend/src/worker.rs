@@ -463,11 +463,20 @@ async fn handle_queued_job(
                 Err(e) => {
                     let error_message = match e {
                         Error::ExitStatus(_) => {
+                            let last_10_log_lines = logs
+                                .lines()
+                                .skip(logs.lines().count().max(10) - 10)
+                                .join("\n")
+                                .to_string()
+                                .replace("\n\n", "\n");
+
+                            let log_lines = last_10_log_lines
+                                .split("CODE EXECUTION ---")
+                                .last()
+                                .unwrap_or(&logs);
                             format!(
-                                "Error during execution of the script:\nlast 10 logs lines:\n{}",
-                                logs.lines()
-                                    .skip(logs.lines().count().max(10) - 10)
-                                    .join("\n")
+                                "Error during execution of the script:\nrelevant last 10 logs lines:\n{}",
+                                log_lines
                             )
                         }
                         err @ _ => format!("error before termination: {err:#?}"),
@@ -712,7 +721,7 @@ async fn handle_go_job(
         write_file(job_dir, "go.mod", md).await?;
         write_file(job_dir, "go.sum", sum).await?;
     } else {
-        logs.push_str("\n\n--- GO DEPENDENCIES SETUP---\n");
+        logs.push_str("\n\n--- GO DEPENDENCIES SETUP ---\n");
         set_logs(logs, job.id, db).await;
 
         install_go_dependencies(
@@ -2997,7 +3006,7 @@ def main(error, port):
                 json!({
                     "recv": 42,
                     "from failure module": {
-                        "error": "Error during execution of the script:\nlast 10 logs lines:\n\n\n--- PYTHON CODE EXECUTION ---\n\nTraceback (most recent call last):\n  File \"/tmp/main.py\", line 14, in <module>\n    res = inner_script.main(**kwargs)\n  File \"/tmp/inner.py\", line 5, in main\n    return sock.recv(1)[0]\nIndexError: index out of range",
+                        "error": "Error during execution of the script:\nrelevant last 10 logs lines:\n\nTraceback (most recent call last):\n  File \"/tmp/main.py\", line 14, in <module>\n    res = inner_script.main(**kwargs)\n  File \"/tmp/inner.py\", line 5, in main\n    return sock.recv(1)[0]\nIndexError: index out of range",
                     }
                 })
             );
