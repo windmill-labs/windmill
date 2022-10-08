@@ -63,9 +63,10 @@
 	}
 
 	function onClick(event: MouseEvent) {
-		if (!href) {
-			event.preventDefault()
-			dispatch('click', event)
+		event.preventDefault()
+		dispatch('click', event)
+		if (href) {
+			goto(href)
 		}
 	}
 

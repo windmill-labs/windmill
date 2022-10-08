@@ -1485,7 +1485,7 @@ pub async fn add_completed_job_error<E: ToString + std::fmt::Debug>(
         false,
         false,
         serde_json::Value::Object(output_map.clone()),
-        format!("\n{}\n{}", logs, e.to_string()),
+        logs,
     )
     .await?;
     Ok((a, output_map))

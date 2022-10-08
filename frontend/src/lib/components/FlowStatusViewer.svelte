@@ -31,18 +31,26 @@
 			id: jobId ?? ''
 		})
 
-		jobResult.job = job
-		jobResult = jobResult
+		if (jobResult) {
+			jobResult.job = job
+			jobResult = jobResult
+		} else {
+			jobResult = {
+				job: job,
+				innerJobs: [],
+				loopJobs: []
+			}
+		}
 
 		if (job?.type !== 'CompletedJob') {
 			timeout = setTimeout(() => loadJobInProgress(), 500)
 		}
 	}
 
-	$: jobResult && jobResult.job?.type === 'CompletedJob' && dispatch('jobsLoaded', jobResult)
+	$: jobResult && dispatch('jobsLoaded', jobResult)
 
 	function updateJobId() {
-		if (jobId !== jobResult.job?.id) {
+		if (jobId !== jobResult?.job?.id) {
 			loadJobInProgress()
 		}
 	}
@@ -54,7 +62,7 @@
 	})
 </script>
 
-{#if jobResult.job}
+{#if jobResult?.job}
 	<div class="flow-root w-full space-y-4">
 		{#if innerModules.length > 0}
 			<h3 class="text-md leading-6 font-bold text-gray-900 border-b pb-2">Flow result</h3>
@@ -93,7 +101,13 @@
 					/>
 				</Button>
 				<div class="border p-6" class:hidden={forloop_selected != loopJobId}>
-					<svelte:self jobId={loopJobId} bind:jobResult={jobResult.loopJobs[j]} />
+					<svelte:self
+						jobId={loopJobId}
+						bind:jobResult={jobResult.loopJobs[j]}
+						on:jobsLoaded={(e) => {
+							jobResult = jobResult
+						}}
+					/>
 				</div>
 			{/each}
 		{:else if innerModules.length > 0}

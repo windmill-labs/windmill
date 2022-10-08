@@ -8,23 +8,23 @@
 
 <div class="flex flex-col sm:flex-row justify-between mt-4 mb-2">
 	{#if primary}
-		<h1>
-			{title}
+		<span class="text-xl font-bold flex items-center space-x-2">
+			<span class="mr-0.5">{title}</span>
 			{#if tooltip}
 				<Tooltip>{tooltip}</Tooltip>
 			{/if}
-		</h1>
-	{:else}
-		<h2>
-			{title}
+		</span>
+		{:else}
+		<span class="text-lg font-semibold flex items-center space-x-2">
+			<span class="mr-0.5">{title}</span>
 			{#if tooltip}
 				<Tooltip>{tooltip}</Tooltip>
 			{/if}
-		</h2>
+		</span>
 	{/if}
 
 	{#if $$slots.default}
-		<div class="my-2 sm:ml-4">
+		<div class="my-2">
 			<slot />
 		</div>
 	{/if}

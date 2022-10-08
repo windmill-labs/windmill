@@ -24,9 +24,7 @@
 		args: Record<string, any>
 	): Promise<void> {
 		try {
-			if (intervalId) {
-				clearInterval(intervalId)
-			}
+			intervalId && clearInterval(intervalId)
 			if (isLoading && job) {
 				JobService.cancelQueuedJob({
 					workspace: $workspaceStore!,
@@ -63,7 +61,7 @@
 
 	export async function watchJob(testId: string) {
 		console.log('watch jobs')
-
+		intervalId && clearInterval(intervalId)
 		job = undefined
 		syncIteration = 0
 		const isCompleted = await loadTestJob(testId)

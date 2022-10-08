@@ -49,7 +49,9 @@ export async function main(
 }
 `
 
-export const GO_INIT_CODE = `import (
+export const GO_INIT_CODE = `package inner
+
+import (
 	"fmt"
 	"rsc.io/quote"
 )
@@ -61,7 +63,9 @@ func main(x string) (interface{}, error) {
 }
 `
 
-export const GO_FAILURE_MODULE_CODE = `import (
+export const GO_FAILURE_MODULE_CODE = `package inner
+
+import (
 	"fmt"
   "os"
 )

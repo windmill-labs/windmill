@@ -85,6 +85,7 @@
 
 		flowModuleState.schema = schema
 		flowModule.input_transforms = input_transforms
+		$flowStore = $flowStore
 	}
 
 	async function applyCreateLoop() {
@@ -108,6 +109,7 @@
 			<FlowModuleHeader
 				bind:module={flowModule}
 				on:delete
+				on:toggleSuspend={() => (selected = 'suspend')}
 				on:toggleRetry={() => (selected = 'retries')}
 				on:toggleStopAfterIf={() => (selected = 'early-stop')}
 				on:fork={() => apply(fork, flowModule)}
@@ -188,7 +190,7 @@
 							<Tab value="retries">Retries</Tab>
 							{#if !$selectedId.includes('failure')}
 								<Tab value="early-stop">Early Stop</Tab>
-								<Tab value="suspend">Suspend</Tab>
+								<Tab value="suspend">Sleep/Suspend</Tab>
 							{/if}
 
 							<svelte:fragment slot="content">
@@ -196,6 +198,10 @@
 									<TabContent value="inputs" class="flex flex-col flex-1 h-full">
 										<PropPickerWrapper pickableProperties={stepPropPicker.pickableProperties}>
 											<!-- <pre class="text-xs">{JSON.stringify($flowStateStore, null, 4)}</pre> -->
+											<p class="items-baseline text-xs text-gray-700 italic hidden md:block mb-2">
+												Move the focus outside of the text editor to recompute the inputs or press
+												Ctrl/Cmd+S
+											</p>
 											<SchemaForm
 												schema={flowModuleState.schema}
 												inputTransform={true}

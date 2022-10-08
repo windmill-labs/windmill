@@ -2565,7 +2565,13 @@ paths:
           schema:
             type: object
       responses:
-        "201"
+        "201":
+          description: job resumed
+          content:
+            text/plain:
+              schema:
+                type: string
+
     post:
       summary: resume a job for a suspended flow
       operationId: resumeSuspendedJob
@@ -2580,7 +2586,12 @@ paths:
             schema:
               type: object
       responses:
-        "201"
+        "201":
+          description: job resumed
+          content:
+            text/plain:
+              schema:
+                type: string
 
   /w/{workspace}/jobs/cancel/{id}:
     get:
@@ -2596,7 +2607,13 @@ paths:
           schema:
             type: object
       responses:
-        "201"
+        "201":
+          description: job resumed
+          content:
+            text/plain:
+              schema:
+                type: string
+
     post:
       summary: cancel a job for a suspended flow
       operationId: cancelSuspendedJob
@@ -2611,7 +2628,13 @@ paths:
             schema:
               type: object
       responses:
-        "201"
+        "201":
+          description: job resumed
+          content:
+            text/plain:
+              schema:
+                type: string
+
 
   /schedules/preview:
     post:
