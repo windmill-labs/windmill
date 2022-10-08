@@ -18,6 +18,7 @@ use crate::{
         JobKind, QueuedJob,
     },
     parser::Typ,
+    parser_go::otyp_to_string,
     parser_py,
     scripts::{ScriptHash, ScriptLang},
     users::{create_token_for_owner, get_email_from_username},
@@ -737,7 +738,6 @@ async fn handle_go_job(
     logs.push_str("\n\n--- GO CODE EXECUTION ---\n");
     set_logs(logs, job.id, db).await;
 
-    let sig = crate::parser_go::parse_go_sig(&inner_content)?;
     let token = create_token_for_owner(
         &db,
         &job.workspace_id,
@@ -748,22 +748,11 @@ async fn handle_go_job(
     )
     .await?;
     create_args_and_out_file(job, &token, base_internal_url, job_dir).await?;
+    {
+        let sig = crate::parser_go::parse_go_sig(&inner_content)?;
+        drop(inner_content);
 
-    let spread = sig
-        .args
-        .into_iter()
-        .map(|x| {
-            format!(
-                "json_arg[\"{}\"].({})",
-                x.name,
-                x.otyp.unwrap_or_else(|| "interface{}".to_string())
-            )
-        })
-        .join(", ");
-
-    let wrapper_content: String = format!(
-        r#"
-package main
+        const WRAPPER_CONTENT: &str = r#"package main
 
 import (
     "encoding/json"
@@ -773,20 +762,21 @@ import (
 )
 
 func main() {{
+
     dat, err := os.ReadFile("args.json")
     if err != nil {{
         fmt.Println(err)
         os.Exit(1)
     }}
 
-    var json_arg map[string]interface{{}}
+    var req inner.Req
 
-    if err := json.Unmarshal(dat, &json_arg); err != nil {{
+    if err := json.Unmarshal(dat, &req); err != nil {{
         fmt.Println(err)
         os.Exit(1)
     }}
 
-    res, err := inner.Inner_main({spread})
+    res, err := inner.Run(req)
     if err != nil {{
         fmt.Println(err)
         os.Exit(1)
@@ -806,11 +796,44 @@ func main() {{
         fmt.Println(err)
         os.Exit(1)
     }}
+}}"#;
+
+        write_file(job_dir, "main.go", WRAPPER_CONTENT).await?;
+
+        {
+            let spread = &sig
+                .args
+                .clone()
+                .into_iter()
+                .map(|x| format!("req.{}", capitalize(&x.name)))
+                .join(", ");
+            let req_body = &sig
+                .args
+                .into_iter()
+                .map(|x| {
+                    format!(
+                        "{} {} `json:\"{}\"`",
+                        capitalize(&x.name),
+                        otyp_to_string(x.otyp),
+                        x.name
+                    )
+                })
+                .join("\n");
+            let runner_content: String = format!(
+                r#"package inner
+type Req struct {{
+    {req_body}
+}}
+
+func Run(req Req) (interface{{}}, error){{
+    return main({spread})
 }}
 
 "#,
-    );
-    write_file(job_dir, "main.go", &wrapper_content).await?;
+            );
+            write_file(&format!("{job_dir}/inner"), "runner.go", &runner_content).await?;
+        }
+    }
     let mut reserved_variables = get_reserved_variables(job, &token, &base_url, db).await?;
     reserved_variables.insert("RUST_LOG".to_string(), "info".to_string());
 
@@ -860,6 +883,14 @@ func main() {{
     };
     handle_child(&job.id, db, logs, timeout, child).await?;
     read_result(job_dir).await
+}
+
+fn capitalize(s: &str) -> String {
+    let mut c = s.chars();
+    match c.next() {
+        None => String::new(),
+        Some(f) => f.to_uppercase().collect::<String>() + c.as_str(),
+    }
 }
 
 async fn handle_deno_job(
@@ -1389,7 +1420,6 @@ async fn gen_go_mymod(code: &str, job_dir: &str) -> error::Result<()> {
     } else {
         format!("package inner; {code}")
     };
-    let code = code.replace("func main(", "func Inner_main(");
 
     let mymod_dir = format!("{job_dir}/inner");
     DirBuilder::new()

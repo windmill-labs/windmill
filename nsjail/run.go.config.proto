@@ -85,6 +85,12 @@ mount {
 }
 
 mount {
+    src: "{JOB_DIR}/inner/runner.go"
+    dst: "/tmp/go/inner/runner.go"
+    is_bind: true
+}
+
+mount {
     src: "{JOB_DIR}/args.json"
     dst: "/tmp/go/args.json"
     is_bind: true
