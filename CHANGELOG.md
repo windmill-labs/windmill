@@ -1,6 +1,43 @@
 # Changelog
 
 
+## [1.37.0](https://github.com/windmill-labs/windmill/compare/v1.36.0...v1.37.0) (2022-10-08)
+
+
+### Features
+
+* add go LSP ([#699](https://github.com/windmill-labs/windmill/issues/699)) ([6cb3fbc](https://github.com/windmill-labs/windmill/commit/6cb3fbc8b71f5c30aa860d60be4b327a3f658d54))
+* **backend:** add WM_BASE_URL ([612f727](https://github.com/windmill-labs/windmill/commit/612f7272a9cf19ed8b738da90b0234a349b32354))
+* **backend:** separate properly logs from result ([6ebedfc](https://github.com/windmill-labs/windmill/commit/6ebedfc5fb8637919b2e409d14f4f06bde83fc58))
+* **frontend:** Add action bar to run details ([#684](https://github.com/windmill-labs/windmill/issues/684)) ([4e472f5](https://github.com/windmill-labs/windmill/commit/4e472f5a3950d4dc5959c1c6ec21345b4d6e4a7d))
+* **frontend:** add input transforms for flow loop ([b1b418a](https://github.com/windmill-labs/windmill/commit/b1b418a36265f91cad4072dc66a8edfec6994465))
+* **frontend:** add prop picker to iterator ([0c25d80](https://github.com/windmill-labs/windmill/commit/0c25d80578449458d5a481f206f8b6fdb675c04e))
+* **frontend:** add prop picker to iterator ([ee15bd9](https://github.com/windmill-labs/windmill/commit/ee15bd9a9df9047105e5e86ca9f6c7f489782efd))
+* **frontend:** add variables and resources to the prop picker ([84a6441](https://github.com/windmill-labs/windmill/commit/84a6441b9a9b8fc753006b71cde6595d76e5e2b6))
+* **frontend:** Button with popup ([#639](https://github.com/windmill-labs/windmill/issues/639)) ([fcb1c39](https://github.com/windmill-labs/windmill/commit/fcb1c39d96792e60b30e64fcd4b425df74494b13))
+* **frontend:** Discard changes confirmation modal ([#653](https://github.com/windmill-labs/windmill/issues/653)) ([0e23d2d](https://github.com/windmill-labs/windmill/commit/0e23d2d60479e1b2d5654cdb7cdf8dd3b345052b))
+* **frontend:** prop picker for stop condition ([e772f03](https://github.com/windmill-labs/windmill/commit/e772f0377e1c85baf3657a3cbe4e5bc423bb210c))
+* **frontend:** remove step 2 for flows ([ad0ffb5](https://github.com/windmill-labs/windmill/commit/ad0ffb5eb60b3d6a119209c048123a027fb969ae))
+* implement same_worker openflow attribute for running flow all in one go + sharing folder `/shared` ([#689](https://github.com/windmill-labs/windmill/issues/689)) ([f4caa4f](https://github.com/windmill-labs/windmill/commit/f4caa4ffa666de68538d7fa218e4c25315307501))
+* individual retry + flow UX refactor ([c207745](https://github.com/windmill-labs/windmill/commit/c207745fa7031c6106ef7796879252ef508f552a))
+* sleep for arbitrary number of seconds statically or with a javascript expression ([#691](https://github.com/windmill-labs/windmill/issues/691)) ([a084366](https://github.com/windmill-labs/windmill/commit/a08436622b1a6460fab71ee2c6acc42c0e96fd29))
+
+
+### Bug Fixes
+
+* add step to running badge in flow viewer ([895fe10](https://github.com/windmill-labs/windmill/commit/895fe106f8f1995acbdb48e24ac2c6592c7c7e12))
+* **backend:** go lock dependency with no requirements ([22c4a3b](https://github.com/windmill-labs/windmill/commit/22c4a3b37574b7dfab7dde0420dd40235acec350))
+* **backend:** same_worker uses the same folder even within loops ([2c5b32b](https://github.com/windmill-labs/windmill/commit/2c5b32bdb796e40b8f6ddcdb1b8b6479a5d188b5))
+* change command behavior for monacos ([0a67d3f](https://github.com/windmill-labs/windmill/commit/0a67d3fb87c7270b6bbf6cd065e4ccc5a7db9dcc))
+* **frontend:** Align Settings button + add missing suspend shortcut ([#694](https://github.com/windmill-labs/windmill/issues/694)) ([b59d1f8](https://github.com/windmill-labs/windmill/commit/b59d1f8717bbbd45a910204c1756bc229bd51f58))
+* **frontend:** clear interval on job run ([065dcc9](https://github.com/windmill-labs/windmill/commit/065dcc9196e9bb59e8fd1fe1a31c91003083cf1b))
+* **frontend:** Remove legacy tabs ([#695](https://github.com/windmill-labs/windmill/issues/695)) ([e424b6b](https://github.com/windmill-labs/windmill/commit/e424b6b9b9229588478cb8a580334a7191269d29))
+* **frontend:** split early stop + fix highlight code ([5d46496](https://github.com/windmill-labs/windmill/commit/5d464963429700b87399e9d46cdb540a131a7352))
+* **frontend:** split early stop + fix highlight code ([e8f2d38](https://github.com/windmill-labs/windmill/commit/e8f2d38f471d5b2daf704352ee9ae10989a2da29))
+* get info about kill reason ([8accb59](https://github.com/windmill-labs/windmill/commit/8accb59a8c82e1eb8e038d38c8c8831dfe865791))
+* get info about kill reason ([b31e72a](https://github.com/windmill-labs/windmill/commit/b31e72a620d00390e1373b618fe2aae4f81e9d00))
+* only display error handler span if toggled on ([ce0a410](https://github.com/windmill-labs/windmill/commit/ce0a4108236e06036d06e18ece0a227f4471d9b3))
+
 ## [1.36.0](https://github.com/windmill-labs/windmill/compare/v1.35.0...v1.36.0) (2022-10-02)
 
 
