@@ -3,8 +3,8 @@
 use itertools::Itertools;
 
 use crate::error::to_anyhow;
-use crate::parser::{Arg, MainArgSignature, Typ};
-use crate::parser_go_ast::{self, Ident};
+use crate::parser::{Arg, MainArgSignature, ObjectProperty, Typ};
+use crate::parser_go_ast::{self, FieldList, Ident, StructType};
 use crate::parser_go_ast::{Decl, Expr};
 use crate::parser_go_scanner;
 use crate::parser_go_token::{Position, Token};
@@ -20,21 +20,8 @@ pub fn parse_go_sig(code: &str) -> crate::error::Result<MainArgSignature> {
             .list
             .iter()
             .map(|param| {
-                let (otyp, typ) = match &param.type_ {
-                    Some(typ) => parse_go_typ(typ),
-                    None => (None, Typ::Unknown),
-                };
-                Arg {
-                    name: param
-                        .names
-                        .as_ref()
-                        .and_then(|x| x.first().map(|y| y.name.to_string()))
-                        .unwrap_or_else(|| "".to_string()),
-                    otyp,
-                    typ,
-                    default: None,
-                    has_default: false,
-                }
+                let (otyp, typ) = get_type(param);
+                Arg { name: get_name(param), otyp, typ, default: None, has_default: false }
             })
             .collect_vec();
         Ok(MainArgSignature { star_args: false, star_kwargs: false, args })
@@ -43,6 +30,23 @@ pub fn parse_go_sig(code: &str) -> crate::error::Result<MainArgSignature> {
             "no main function found".to_string(),
         ))
     }
+}
+
+fn get_type(param: &parser_go_ast::Field) -> (Option<String>, Typ) {
+    let (otyp, typ) = &param
+        .type_
+        .as_ref()
+        .map(|typ| parse_go_typ(typ))
+        .unwrap_or_else(|| (None, Typ::Unknown));
+    (otyp.clone(), typ.clone())
+}
+
+fn get_name(param: &parser_go_ast::Field) -> String {
+    param
+        .names
+        .as_ref()
+        .and_then(|x| x.first().map(|y| y.name.to_string()))
+        .unwrap_or_else(|| "".to_string())
 }
 
 fn parse_go_typ(typ: &parser_go_ast::Expr) -> (Option<String>, Typ) {
@@ -63,14 +67,47 @@ fn parse_go_typ(typ: &parser_go_ast::Expr) -> (Option<String>, Typ) {
                 Typ::List(Box::new(inner_typ)),
             )
         }
+        Expr::StructType(StructType { fields: Some(FieldList { list, .. }), .. }) => {
+            let (otyps, typs): (Vec<String>, Vec<ObjectProperty>) = list
+                .iter()
+                .map(|field| {
+                    let json_tag = field
+                        .tag
+                        .as_ref()
+                        .and_then(|x| x.value.strip_prefix("`json:\""))
+                        .and_then(|x| x.strip_suffix("\"`"))
+                        .and_then(|x| x.split(',').last().map(|x| x.to_string()));
+                    let (otyp, typ) = get_type(field);
+                    let name = get_name(field);
+                    let key = json_tag.unwrap_or_else(|| name.to_string());
+                    (
+                        format!("{name} {} `json:\"{key}\"`", otyp_to_string(otyp)),
+                        ObjectProperty { key, typ: Box::new(typ) },
+                    )
+                })
+                .collect::<Vec<_>>()
+                .into_iter()
+                .unzip();
+            (
+                Some(format!(
+                    "struct {{ {} }}",
+                    otyps.iter().join("; ").to_string()
+                )),
+                Typ::Object(typs),
+            )
+        }
         _ => (None, Typ::Unknown),
     }
+}
+
+pub fn otyp_to_string(otyp: Option<String>) -> String {
+    otyp.unwrap_or_else(|| "interface{}".to_string())
 }
 
 #[cfg(test)]
 mod tests {
 
-    use crate::parser::{Arg, MainArgSignature, Typ};
+    use crate::parser::{Arg, MainArgSignature, ObjectProperty, Typ};
 
     use super::*;
 
@@ -82,7 +119,7 @@ package main
 
 import "fmt"
 
-func main(x int, y string, z bool, l []string) {
+func main(x int, y string, z bool, l []string, o struct { Name string `json:"name"` }) {
     fmt.Println("hello world")
 }    
 
@@ -119,6 +156,16 @@ func main(x int, y string, z bool, l []string) {
                         otyp: Some("[]string".to_string()),
                         name: "l".to_string(),
                         typ: Typ::List(Box::new(Typ::Str(None))),
+                        default: None,
+                        has_default: false
+                    },
+                    Arg {
+                        otyp: Some("struct { Name string `json:\"name\"` }".to_string()),
+                        name: "o".to_string(),
+                        typ: Typ::Object(vec![ObjectProperty {
+                            key: "name".to_string(),
+                            typ: Box::new(Typ::Str(None))
+                        },]),
                         default: None,
                         has_default: false
                     },
