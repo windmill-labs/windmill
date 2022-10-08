@@ -6,17 +6,19 @@
     "properties": {
       "baseUrl": {
         "type": "string",
-        "description": "The URL of the Mastodon instance, like \"https://mastodon.example\".",
-        "pattern": "^https?://.+[^/]$",
+        "description": "The URL of the Mastodon instance, like \"https://mastodon.example.com\".",
         "default": ""
       },
-      "accessToken": {
+      "token": {
         "type": "string",
-        "description": "An access token to act as a logged-in user. Leave this empty, if you want to perform unauthenticated requests."
+        "description": "An access token to act as a logged-in user. Leave this empty, if you want to perform unauthenticated requests.",
+        "default": ""
       }
     },
-    "required": [],
+    "required": [
+      "baseUrl"
+    ],
     "type": "object"
   },
-  "description": "Mastodon offers decentralized micro blogging and is open-source."
+  "description": ""
 }
