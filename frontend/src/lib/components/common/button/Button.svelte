@@ -3,6 +3,7 @@
 	import { classNames } from '$lib/utils'
 	import Icon from 'svelte-awesome'
 	import { ButtonType } from './model'
+	import { goto } from '$app/navigation'
 
 	export let size: ButtonType.Size = 'md'
 	export let spacingSize: ButtonType.Size = size
