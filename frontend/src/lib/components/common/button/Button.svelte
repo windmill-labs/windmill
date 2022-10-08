@@ -1,6 +1,5 @@
 <script lang="ts">
 	import { createEventDispatcher } from 'svelte'
-	import { goto } from '$app/navigation'
 	import { classNames } from '$lib/utils'
 	import Icon from 'svelte-awesome'
 	import { ButtonType } from './model'
@@ -45,6 +44,7 @@
 	}
 
 	$: buttonProps = {
+		id,
 		class: classNames(
 			colorVariants[color][variant],
 			variant === 'border' ? 'border' : '',
@@ -63,9 +63,9 @@
 	}
 
 	function onClick(event: MouseEvent) {
+		event.preventDefault()
 		dispatch('click', event)
 		if (href) {
-			event.preventDefault()
 			goto(href)
 		}
 	}
