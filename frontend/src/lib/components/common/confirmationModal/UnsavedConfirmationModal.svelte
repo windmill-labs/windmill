@@ -11,7 +11,8 @@
 		if (
 			!navigationState &&
 			$dirtyStore &&
-			newNavigationState.to?.pathname !== newNavigationState.from.pathname
+			newNavigationState.to &&
+			newNavigationState.to.pathname !== newNavigationState.from.pathname
 		) {
 			navigationState = newNavigationState
 			newNavigationState.cancel()

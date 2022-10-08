@@ -566,6 +566,42 @@ async fn push_next_flow_job(
         .or_else(|| flow.failure_module.as_ref())
         .with_context(|| format!("no module at index {}", status.step))?;
 
+    // calculate sleep if any
+    let mut scheduled_for_o = {
+        let sleep_input_transform = i
+            .checked_sub(1)
+            .and_then(|i| flow.modules.get(i))
+            .and_then(|m| m.sleep.clone());
+
+        if let Some(it) = sleep_input_transform {
+            let json_value = match it {
+                InputTransform::Static { value } => value,
+                InputTransform::Javascript { expr } => eval_timeout(
+                    expr.to_string(),
+                    [("result".to_string(), last_result.clone())].into(),
+                    None,
+                    vec![],
+                )
+                .await
+                .map_err(|e| {
+                    Error::ExecutionErr(format!(
+                        "Error during isolated evaluation of expression `{expr}`:\n{e}"
+                    ))
+                })?,
+            };
+            match json_value {
+                serde_json::Value::Number(n) => {
+                    n.as_u64().map(|x| from_now(Duration::from_secs(x)))
+                }
+                _ => Err(Error::ExecutionErr(format!(
+                    "Expected an array value, found: {json_value}"
+                )))?,
+            }
+        } else {
+            None
+        }
+    };
+
     let mut status_module: FlowStatusModule = status
         .modules
         .get(i)
@@ -577,8 +613,6 @@ async fn push_next_flow_job(
         module.value,
         status_module
     );
-
-    let mut scheduled_for_o = None;
 
     let mut resume_messages: Vec<Value> = vec![];
 
@@ -839,7 +873,7 @@ async fn push_next_flow_job(
                     .await?
                     .into_array()
                     .map_err(|not_array| {
-                        Error::BadRequest(format!("Expected an array value, found: {not_array}"))
+                        Error::ExecutionErr(format!("Expected an array value, found: {not_array}"))
                     })?;
 
                 let first = if let Some(first) = itered.first() {

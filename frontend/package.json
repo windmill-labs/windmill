@@ -1,6 +1,6 @@
 {
 	"name": "windmill",
-	"version": "1.36.0",
+	"version": "1.37.0",
 	"scripts": {
 		"dev": "vite dev",
 		"build": "vite build",
@@ -15,18 +15,18 @@
 		"test": "playwright test --config=tests-out/playwright.config.js"
 	},
 	"devDependencies": {
-		"@playwright/test": "^1.26.1",
+		"@playwright/test": "^1.27.0",
 		"@sveltejs/adapter-static": "^1.0.0-next.44",
 		"@sveltejs/kit": "next",
 		"@tailwindcss/forms": "^0.5.3",
 		"@tailwindcss/typography": "^0.5.7",
-		"@types/vscode": "~1.71.0",
+		"@types/vscode": "~1.72.0",
 		"@typescript-eslint/eslint-plugin": "^5.37.0",
 		"@typescript-eslint/parser": "^5.39.0",
 		"@zerodevx/svelte-toast": "^0.7.2",
 		"autoprefixer": "^10.4.12",
 		"cssnano": "^5.1.13",
-		"eslint": "^8.24.0",
+		"eslint": "^8.25.0",
 		"eslint-config-prettier": "^8.3.0",
 		"eslint-plugin-svelte3": "^4.0.0",
 		"flowbite": "^1.5.3",

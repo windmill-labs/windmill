@@ -24,7 +24,6 @@
 	import Button from './common/button/Button.svelte'
 	import TestJobLoader from './TestJobLoader.svelte'
 	import { onMount } from 'svelte'
-	import UnsavedConfirmationModal from './common/confirmationModal/UnsavedConfirmationModal.svelte'
 
 	// Exported
 	export let schema: Schema = emptySchema()
@@ -32,7 +31,7 @@
 	export let path: string | undefined
 	export let lang: Preview.language
 
-	let websocketAlive = { pyright: false, black: false, deno: false }
+	let websocketAlive = { pyright: false, black: false, deno: false, go: false }
 
 	// Internal state
 	let editor: Editor
@@ -167,19 +166,6 @@
 										<p>
 											Move the focus outside of the text editor to recompute the input schema from
 											main signature or press Ctrl/Cmd+S
-										</p>
-										<p class="mt-4">
-											{#if isValid}
-												<Icon data={faCheck} class="text-green-600 mr-1" scale={0.6} />
-												The current preview input matches requirements defined in arguments
-											{:else}
-												<Icon
-													data={faExclamationTriangle}
-													class="text-yellow-500 mr-1"
-													scale={0.6}
-												/>
-												The current preview input doesn't match requirements defined in arguments
-											{/if}
 										</p>
 									</div>
 									<SchemaForm {schema} bind:args bind:isValid />

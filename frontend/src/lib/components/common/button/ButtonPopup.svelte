@@ -47,6 +47,7 @@
 			bind:element={ref}
 			{...commonProps}
 			btnClasses="{$$slots.main ? '!rounded-l-none' : ''} {toggleClasses}"
+			on:click={() => {}}
 		>
 			<slot name="toggle">
 				<!-- Invisible, but needed to match the height of the 'main' button -->
