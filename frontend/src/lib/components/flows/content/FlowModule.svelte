@@ -52,7 +52,7 @@
 
 	let editor: Editor
 	let modulePreview: ModulePreview
-	let websocketAlive = { pyright: false, black: false, deno: false }
+	let websocketAlive = { pyright: false, black: false, deno: false, go: false }
 	let selected = 'inputs'
 
 	$: shouldPick = isEmptyFlowModule(flowModule)
