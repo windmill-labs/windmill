@@ -32,7 +32,7 @@
 	export let path: string | undefined
 	export let lang: Preview.language
 
-	let websocketAlive = { pyright: false, black: false, deno: false }
+	let websocketAlive = { pyright: false, black: false, deno: false, go: false }
 
 	// Internal state
 	let editor: Editor
