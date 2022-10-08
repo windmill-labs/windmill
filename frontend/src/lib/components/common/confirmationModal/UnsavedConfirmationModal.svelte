@@ -8,7 +8,6 @@
 	$: open = Boolean(navigationState)
 
 	beforeNavigate((newNavigationState) => {
-		console.log(newNavigationState)
 		if (
 			!navigationState &&
 			$dirtyStore &&
