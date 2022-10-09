@@ -1,6 +1,6 @@
 import type { Schema } from '$lib/common'
-import { CompletedJob, Job, Script, ScriptService, type FlowModule, type RawScript } from '$lib/gen'
-import { DENO_FAILURE_MODULE_CODE, initialCode } from '$lib/script_helpers'
+import { Job, Script, ScriptService, type FlowModule, type RawScript } from '$lib/gen'
+import { initialCode } from '$lib/script_helpers'
 import { userStore, workspaceStore } from '$lib/stores'
 import {
 	buildExtraLib,

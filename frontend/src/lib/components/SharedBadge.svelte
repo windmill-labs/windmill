@@ -2,6 +2,7 @@
 	import { userStore } from '$lib/stores'
 	import { faPeopleGroup } from '@fortawesome/free-solid-svg-icons'
 	import Badge from './common/badge/Badge.svelte'
+	import Tooltip from './Tooltip.svelte'
 
 	export let extraPerms: Record<string, boolean> = {}
 	export let canWrite: boolean
@@ -50,5 +51,6 @@
 {#if kind === 'read' || kind === 'write'}
 	<Badge icon={{ data: faPeopleGroup }} capitalize color="blue">
 		{kind}
+		<Tooltip>{reason}</Tooltip>
 	</Badge>
 {/if}

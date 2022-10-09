@@ -138,14 +138,14 @@ components:
         - $ref: "#/components/schemas/RawScript"
         - $ref: "#/components/schemas/PathScript"
         - $ref: "#/components/schemas/ForloopFlow"
-        - $ref: "#/components/schemas/PathFlow"
+        - $ref: "#/components/schemas/Branches"
       discriminator:
         propertyName: type
         mapping:
           rawscript: "#/components/schemas/RawScript"
           script: "#/components/schemas/PathScript"
           forloopflow: "#/components/schemas/ForloopFlow"
-          flow: "#/components/schemas/PathFlow"
+          branches: "#/components/schemas/Branches"
 
     RawScript:
       type: object
@@ -180,18 +180,6 @@ components:
         - type
         - path
 
-    PathFlow:
-      type: object
-      properties:
-        path:
-          type: string
-        type:
-          type: string
-          enum:
-            - flow
-      required:
-        - type
-
     ForloopFlow:
       type: object
       properties:
@@ -211,6 +199,42 @@ components:
         - modules
         - iterator
         - skip_failures
+        - type
+
+    Branches:
+      type: object
+      properties:
+        branches:
+          type: array
+          items:
+            type: object
+            properties:
+              summary:
+                type: string
+              expr:
+                type: string
+              modules:
+                type: array
+                items:
+                  $ref: "#/components/schemas/FlowModule"
+            required:
+              - modules
+              - expr
+        default:
+          type: object
+          properties: 
+            modules:
+              type: array
+              items:
+                $ref: "#/components/schemas/FlowModule"
+          required: [modules]
+        type:
+          type: string
+          enum:
+            - forloopflow
+      required:
+        - branches
+        - default
         - type
 
     FlowStatus:

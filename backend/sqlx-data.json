@@ -2651,6 +2651,20 @@
     },
     "query": "DELETE FROM resource WHERE path = $1 AND workspace_id = $2"
   },
+  "c110717810a30b3b5b1b9179401f82ae30d96105335dcd2bc7b20e45019d2325": {
+    "describe": {
+      "columns": [],
+      "nullable": [],
+      "parameters": {
+        "Left": [
+          "Jsonb",
+          "Jsonb",
+          "Uuid"
+        ]
+      }
+    },
+    "query": "\n                UPDATE queue\n                   SET flow_status = JSONB_SET(flow_status, ARRAY['modules'], $1),\n                       raw_flow = JSONB_SET(raw_flow, ARRAY['modules'], $2)\n                 WHERE id = $3\n                  "
+  },
   "c213427a32e8903fff649a3e7aa8392d2215665ed04f5a8f2178861e9dba298a": {
     "describe": {
       "columns": [

@@ -7,7 +7,7 @@
 	import FlowViewer from '$lib/components/FlowViewer.svelte'
 	import SimpleEditor from '$lib/components/SimpleEditor.svelte'
 	import { sendUserToast } from '$lib/utils'
-	import { faFileExport, faFileImport, faGlobe } from '@fortawesome/free-solid-svg-icons'
+	import { faFileExport, faFileImport } from '@fortawesome/free-solid-svg-icons'
 	import Icon from 'svelte-awesome'
 	import { Button } from '../../common'
 	import { flowStore, initFlow } from '../flowStore'

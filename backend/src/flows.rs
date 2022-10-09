@@ -179,6 +179,14 @@ pub enum InputTransform {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct BranchModules {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub summary: Option<String>,
+    pub expr: String,
+    pub modules: Vec<FlowModule>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(
     tag = "type",
     rename_all(serialize = "lowercase", deserialize = "lowercase")
@@ -193,8 +201,9 @@ pub enum FlowModuleValue {
         #[serde(default = "default_true")]
         skip_failures: bool,
     },
-    Flow {
-        path: String,
+    Branches {
+        branches: Vec<BranchModules>,
+        default: Vec<FlowModule>,
     },
     RawScript(RawCode),
 }
@@ -545,7 +554,7 @@ mod tests {
             ],
             failure_module: Some(FlowModule {
                 input_transforms: HashMap::new(),
-                value: FlowModuleValue::Flow { path: "test".to_string() },
+                value: FlowModuleValue::Script { path: "test".to_string() },
                 stop_after_if: Some(StopAfterIf {
                     expr: "previous.isEmpty()".to_string(),
                     skip_if_stopped: false,
@@ -621,7 +630,7 @@ mod tests {
           "failure_module": {
             "input_transforms": {},
             "value": {
-              "type": "flow",
+              "type": "script",
               "path": "test"
             },
             "stop_after_if": {

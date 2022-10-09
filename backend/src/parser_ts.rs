@@ -119,7 +119,7 @@ pub fn parse_deno_signature(code: &str) -> error::Result<MainArgSignature> {
         })
     } else {
         Err(error::Error::ExecutionErr(
-            "main function was not findable (expected to find 'export main function(...)'"
+            "main function was not findable (expected to find 'export function main(...)'"
                 .to_string(),
         ))
     }
