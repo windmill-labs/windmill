@@ -3,13 +3,7 @@
 	import { CompletedJob, Job, JobService } from '$lib/gen'
 	import { userStore, workspaceStore } from '$lib/stores'
 	import { emptySchema, scriptLangToEditorLang } from '$lib/utils'
-	import {
-		faCheck,
-		faExclamationTriangle,
-		faPlay,
-		faRotateRight
-	} from '@fortawesome/free-solid-svg-icons'
-	import Icon from 'svelte-awesome'
+	import { faPlay, faRotateRight } from '@fortawesome/free-solid-svg-icons'
 	import Editor from './Editor.svelte'
 
 	import { inferArgs } from '$lib/infer'

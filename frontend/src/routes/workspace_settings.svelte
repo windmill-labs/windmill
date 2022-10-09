@@ -20,7 +20,6 @@
 	import PageHeader from '$lib/components/PageHeader.svelte'
 	import { userStore, usersWorkspaceStore, workspaceStore, oauthStore } from '$lib/stores'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
-	import Icon from 'svelte-awesome'
 	import { faSlack } from '@fortawesome/free-brands-svg-icons'
 	import TableCustom from '$lib/components/TableCustom.svelte'
 	import { goto } from '$app/navigation'

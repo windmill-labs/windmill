@@ -89,8 +89,6 @@
 											/>
 										</div>
 									{/if}
-								{:else if mod?.value?.type == 'flow'}
-									Flow at path {mod?.value?.path}
 								{:else if mod?.value?.type == 'forloopflow'}
 									For loop over all the elements of the list returned as a result of step {i}:
 									<svelte:self modules={mod.value.modules} />

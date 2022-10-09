@@ -220,7 +220,6 @@ components:
             required:
               - modules
               - expr
-
         default:
           type: object
           properties: 
@@ -229,9 +228,14 @@ components:
               items:
                 $ref: "#/components/schemas/FlowModule"
           required: [modules]
+        type:
+          type: string
+          enum:
+            - forloopflow
       required:
         - branches
         - default
+        - type
 
     FlowStatus:
       type: object

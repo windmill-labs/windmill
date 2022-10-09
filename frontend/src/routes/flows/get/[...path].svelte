@@ -16,7 +16,6 @@
 		defaultIfEmptyString,
 		flowToHubUrl
 	} from '$lib/utils'
-	import Icon from 'svelte-awesome'
 	import {
 		faPlay,
 		faEdit,
