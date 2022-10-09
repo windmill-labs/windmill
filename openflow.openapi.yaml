@@ -139,7 +139,6 @@ components:
         - $ref: "#/components/schemas/PathScript"
         - $ref: "#/components/schemas/ForloopFlow"
         - $ref: "#/components/schemas/Branches"
-        - $ref: "#/components/schemas/PathFlow"
       discriminator:
         propertyName: type
         mapping:
@@ -147,7 +146,6 @@ components:
           script: "#/components/schemas/PathScript"
           forloopflow: "#/components/schemas/ForloopFlow"
           branches: "#/components/schemas/Branches"
-          flow: "#/components/schemas/PathFlow"
 
     RawScript:
       type: object
@@ -181,18 +179,6 @@ components:
       required:
         - type
         - path
-
-    PathFlow:
-      type: object
-      properties:
-        path:
-          type: string
-        type:
-          type: string
-          enum:
-            - flow
-      required:
-        - type
 
     ForloopFlow:
       type: object

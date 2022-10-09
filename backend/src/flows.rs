@@ -210,9 +210,6 @@ pub enum FlowModuleValue {
         branches: Vec<BranchModules>,
         default: DefaultModules,
     },
-    Flow {
-        path: String,
-    },
     RawScript(RawCode),
 }
 
@@ -562,7 +559,7 @@ mod tests {
             ],
             failure_module: Some(FlowModule {
                 input_transforms: HashMap::new(),
-                value: FlowModuleValue::Flow { path: "test".to_string() },
+                value: FlowModuleValue::Script { path: "test".to_string() },
                 stop_after_if: Some(StopAfterIf {
                     expr: "previous.isEmpty()".to_string(),
                     skip_if_stopped: false,
@@ -638,7 +635,7 @@ mod tests {
           "failure_module": {
             "input_transforms": {},
             "value": {
-              "type": "flow",
+              "type": "script",
               "path": "test"
             },
             "stop_after_if": {
