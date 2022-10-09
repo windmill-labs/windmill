@@ -1,5 +1,5 @@
 <p align="center">
-  <a href="https://app.windmill.dev"><img src="./imgs/windmill.svg" alt="windmill.dev"></a>
+  <a href="https://app.windmill.dev"><img src="./imgs/windmill-banner.png" alt="windmill.dev"></a>
 </p>
 <p align="center">
     <em>.</em>
