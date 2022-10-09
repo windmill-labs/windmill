@@ -1,11 +1,9 @@
 <script lang="ts">
 	import { page } from '$app/stores'
-	import type { Flow, Script } from '$lib/gen'
 	import { decodeState, getToday } from '$lib/utils'
 	import { slide } from 'svelte/transition'
 
 	import { faChevronDown, faChevronUp } from '@fortawesome/free-solid-svg-icons'
-	import Icon from 'svelte-awesome'
 	import SvelteMarkdown from 'svelte-markdown'
 	import SchemaForm from './SchemaForm.svelte'
 	import Tooltip from './Tooltip.svelte'

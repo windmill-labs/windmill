@@ -1,6 +1,5 @@
 <script lang="ts">
 	import Alert from '$lib/components/common/alert/Alert.svelte'
-	import Badge from '$lib/components/common/badge/Badge.svelte'
 	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
 	import { createEventDispatcher } from 'svelte'
 
