@@ -125,7 +125,7 @@ pub async fn update_flow_status_after_job_completion(
     worker_dir: &str,
     keep_job_dir: bool,
 ) -> error::Result<()> {
-    tracing::debug!("HANDLE FLOW: {job:?} {success} {result:?}");
+    tracing::debug!("UPDATE FLOW STATUS: {job:?} {success} {result:?}");
 
     let mut tx = db.begin().await?;
 
@@ -194,12 +194,6 @@ pub async fn update_flow_status_after_job_completion(
         .map(|i| !(..old_status.modules.len()).contains(&i))
         .unwrap_or(true);
 
-    tracing::debug!(
-        "old status: {:#?}\n{:#?}\n{is_last_step}",
-        old_status,
-        new_status
-    );
-
     let (stop_early_expr, skip_if_stop_early) =
         sqlx::query_as::<_, (Option<String>, Option<bool>)>(
             "
@@ -220,8 +214,6 @@ pub async fn update_flow_status_after_job_completion(
         .fetch_one(&mut tx)
         .await
         .map_err(|e| Error::InternalErr(format!("retrieval of stop_early_expr from state: {e}")))?;
-
-    tracing::debug!("UPDATE: {:?}", new_status);
 
     let stop_early = success
         && if let Some(expr) = stop_early_expr.clone() {
@@ -543,6 +535,7 @@ pub async fn handle_flow(
         serde_json::from_value::<FlowStatus>(flow_job.flow_status.clone().unwrap_or_default())
             .with_context(|| format!("parse flow status {}", flow_job.id))?;
 
+    tracing::debug!("handle_flow: {:#?} {:#?}", status, flow);
     push_next_flow_job(flow_job, status, flow, db, last_result, same_worker_tx).await?;
     Ok(())
 }
@@ -610,7 +603,7 @@ async fn push_next_flow_job(
         .unwrap_or_else(|| status.failure_module.clone());
 
     tracing::debug!(
-        "PUSH: module: {:#?}, status: {:#?}",
+        "push_next_flow_job: module: {:#?}, status: {:#?}",
         module.value,
         status_module
     );
@@ -860,36 +853,32 @@ async fn push_next_flow_job(
         NextFlowTransform::Continue(job_payload, next_state) => (job_payload, next_state),
         NextFlowTransform::BranchChosen(branch, modules) => {
             let added_flow_statuses = vec![FlowStatusModule::WaitingForPriorSteps; modules.len()];
+
+            let index = (status.step + 1) as usize;
+            status.modules.splice(index..index, added_flow_statuses);
+            flow.modules.splice(index..index, modules);
+
             let mut tx = db.begin().await?;
-
-            let index = status.step as usize;
-            status.modules = status
-                .modules
-                .splice(index..index, added_flow_statuses)
-                .collect();
-            flow.modules = flow.modules.splice(index..index, modules).collect();
-
-            sqlx::query(
+            sqlx::query!(
                 "
                 UPDATE queue
                    SET flow_status = JSONB_SET(flow_status, ARRAY['modules'], $1),
-                       raw_flow = JSONB_SET(raw_flow, ARRAY['value', 'modules'], $2)
+                       raw_flow = JSONB_SET(raw_flow, ARRAY['modules'], $2)
                  WHERE id = $3
                   ",
+                json!(status.modules),
+                json!(flow.modules),
+                flow_job.id
             )
-            .bind(json!(status.modules))
-            .bind(json!(flow.modules))
-            .bind(flow_job.id)
             .execute(&mut tx)
             .await?;
-
-            tx.commit().await?;
 
             return jump_to_next_step(
                 status.step,
                 i,
-                flow_job,
-                flow.clone(),
+                &flow_job.id,
+                flow,
+                tx,
                 &db,
                 FlowStatusModule::Success {
                     job: flow_job.id,
@@ -902,11 +891,14 @@ async fn push_next_flow_job(
             .await;
         }
         NextFlowTransform::EmptyIterator => {
+            let tx = db.begin().await?;
+
             return jump_to_next_step(
                 status.step,
                 i,
-                flow_job,
+                &flow_job.id,
                 flow.clone(),
+                tx,
                 &db,
                 FlowStatusModule::Success {
                     job: flow_job.id,
@@ -979,11 +971,12 @@ async fn push_next_flow_job(
     return Ok(());
 }
 
-async fn jump_to_next_step(
+async fn jump_to_next_step<'c>(
     status_step: i32,
     i: usize,
-    flow_job: &QueuedJob,
+    job_id: &Uuid,
     flow: FlowValue,
+    mut tx: sqlx::Transaction<'c, sqlx::Postgres>,
     db: &DB,
     status_module: FlowStatusModule,
     last_result: serde_json::Value,
@@ -1006,14 +999,18 @@ async fn jump_to_next_step(
     .bind(status_step)
     .bind(json!(status_module))
     .bind(json!(next_step.unwrap_or(i)))
-    .bind(flow_job.id)
-    .fetch_one(db)
+    .bind(job_id)
+    .fetch_one(&mut tx)
     .await?;
+
+    tx.commit().await?;
 
     let new_status = new_job.parse_flow_status().ok_or_else(|| {
         Error::ExecutionErr("Impossible to parse new status after jump".to_string())
     })?;
+
     if next_step.is_some() {
+        tracing::debug!("Jumping to next step with flow {flow:#?}");
         return push_next_flow_job(&new_job, new_status, flow, db, last_result, same_worker_tx)
             .await;
     } else {
@@ -1058,7 +1055,7 @@ enum NextFlowTransform {
     BranchChosen(BranchChosen, Vec<FlowModule>),
 }
 
-async fn compute_next_flow_transform<'c>(
+async fn compute_next_flow_transform(
     flow_job: &QueuedJob,
     flow: &FlowValue,
     transform_context: Option<(String, Vec<String>)>,
