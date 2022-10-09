@@ -55,9 +55,6 @@
 	let groupedScripts: Section[] = []
 	let communityScripts: Section[] = []
 
-	let templateScripts: Script[] = []
-	let templateFilter = ''
-	let filteredTemplates: Script[] | undefined
 	let tab: Tab = 'all'
 
 	let shareModal: ShareModal
@@ -67,8 +64,6 @@
 		keys: ['description', 'path', 'content', 'hash', 'summary']
 	}
 	const fuse: Fuse<ScriptW> = new Fuse(scripts, fuseOptions)
-
-	const templateFuse: Fuse<Script> = new Fuse(templateScripts, fuseOptions)
 
 	const hubScriptsFuse: Fuse<any> = new Fuse($hubScripts ?? [], {
 		includeScore: false,
@@ -86,11 +81,6 @@
 		hubFilter.length > 0
 			? hubScriptsFuse.search(hubFilter).map((value) => value.item)
 			: $hubScripts ?? []
-
-	$: filteredTemplates =
-		templateFilter.length > 0
-			? templateFuse.search(templateFilter).map((value) => value.item)
-			: templateScripts
 
 	$: {
 		let defaults: string[] = []
@@ -159,7 +149,6 @@
 			loadScripts()
 		}
 	}
-
 </script>
 
 <Modal bind:this={codeViewer}>
@@ -182,7 +171,7 @@
 		<CreateActions />
 	</PageHeader>
 
-	<Tabs bind:selected={tab} >
+	<Tabs bind:selected={tab}>
 		<Tab value="all">All</Tab>
 		<Tab value="hub">Hub</Tab>
 		<Tab value="personal">{`Personal space (${$userStore?.username})`}</Tab>
@@ -190,11 +179,11 @@
 		<Tab value="shared">Shared</Tab>
 		<Tab value="examples">Examples</Tab>
 	</Tabs>
-	
+
 	{#if tab != 'hub'}
 		<input placeholder="Search scripts" bind:value={scriptFilter} class="search-bar mt-2" />
 	{/if}
-	
+
 	<div class="grid grid-cols-1 divide-y">
 		{#each tab == 'all' ? ['personal', 'groups', 'shared', 'examples', 'hub'] : [tab] as sectionTab}
 			<div class="shadow p-4 my-2">
@@ -430,40 +419,6 @@
 	}}
 />
 
-<!-- <Modal
-	bind:this={templateModal}
-	on:open={() => {
-		loadTemplateScripts()
-	}}
->
-	<div slot="title">Pick a template</div>
-	<div slot="content">
-		<div class="w-12/12 pb-4">
-			<input placeholder="Search templates" bind:value={templateFilter} class="search-bar" />
-		</div>
-		<div class="flex flex-col mb-2 md:mb-6">
-			{#if filteredTemplates && filteredTemplates.length > 0}
-				{#each filteredTemplates as { summary, path, hash }}
-					<a
-						class="p-1 flex flex-row items-baseline gap-2 selected text-gray-700"
-						href="/scripts/add?template={path}"
-					>
-						{#if summary}
-							<p class="text-sm font-semibold">{summary}</p>
-						{/if}
-
-						<p class="text-sm">{path}</p>
-						<p class="text-gray-400 text-xs text-right grow">
-							Last version: {hash}
-						</p>
-					</a>
-				{/each}
-			{:else}
-				<p class="text-sm text-gray-700">No templates</p>
-			{/if}
-		</div>
-	</div>
-</Modal> -->
 <style>
 	.selected:hover {
 		@apply border border-gray-500 rounded-md border-opacity-50;

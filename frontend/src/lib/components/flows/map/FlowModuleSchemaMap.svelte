@@ -147,7 +147,7 @@
 						<div slot="content" class="w-full truncate block">
 							<span
 								>{mod.summary ||
-									mod.value.path ||
+									(`path` in mod.value ? mod.value.path : undefined) ||
 									(mod.value.type === 'rawscript'
 										? `Inline ${mod.value.language}`
 										: 'Select a script')}</span
