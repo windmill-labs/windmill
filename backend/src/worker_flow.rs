@@ -539,7 +539,11 @@ pub async fn handle_flow(
         .to_owned();
     let flow = serde_json::from_value::<FlowValue>(value.to_owned())?;
 
-    push_next_flow_job(flow_job, flow, db, last_result, same_worker_tx).await?;
+    let status: FlowStatus =
+        serde_json::from_value::<FlowStatus>(flow_job.flow_status.clone().unwrap_or_default())
+            .with_context(|| format!("parse flow status {}", flow_job.id))?;
+
+    push_next_flow_job(flow_job, status, flow, db, last_result, same_worker_tx).await?;
     Ok(())
 }
 
@@ -547,17 +551,13 @@ pub async fn handle_flow(
 #[instrument(level = "trace", skip_all)]
 async fn push_next_flow_job(
     flow_job: &QueuedJob,
-    flow: FlowValue,
+    mut status: FlowStatus,
+    mut flow: FlowValue,
     db: &sqlx::Pool<sqlx::Postgres>,
     mut last_result: serde_json::Value,
     same_worker_tx: Sender<Uuid>,
 ) -> anyhow::Result<()> {
-    let status: FlowStatus =
-        serde_json::from_value::<FlowStatus>(flow_job.flow_status.clone().unwrap_or_default())
-            .with_context(|| format!("parse flow status {}", flow_job.id))?;
-
     /* `mut` because reassigned on FlowStatusModule::Failure when failure_module is Some */
-
     let mut i = usize::try_from(status.step)
         .with_context(|| format!("invalid module index {}", status.step))?;
 
@@ -859,20 +859,26 @@ async fn push_next_flow_job(
     let (job_payload, next_status) = match next_flow_transform {
         NextFlowTransform::Continue(job_payload, next_state) => (job_payload, next_state),
         NextFlowTransform::BranchChosen(branch, modules) => {
-            let new_flow_statuses = vec![FlowStatusModule::WaitingForPriorSteps; modules.len()];
+            let added_flow_statuses = vec![FlowStatusModule::WaitingForPriorSteps; modules.len()];
             let mut tx = db.begin().await?;
+
+            let index = status.step as usize;
+            status.modules = status
+                .modules
+                .splice(index..index, added_flow_statuses)
+                .collect();
+            flow.modules = flow.modules.splice(index..index, modules).collect();
 
             sqlx::query(
                 "
                 UPDATE queue
-                   SET flow_status = JSONB_SET(flow_status, ARRAY['modules'], flow_status->modules[:$1] || $2 || flow_status->modules[$1:]),
-                       raw_flow = JSONB_SET(raw_flow, ARRAY['value', 'modules'], raw_flow->values->modules[:$1] || $2 || raw_flow->values->modules[:$1]->modules[$1:])
-                 WHERE id = $4
+                   SET flow_status = JSONB_SET(flow_status, ARRAY['modules'], $1),
+                       raw_flow = JSONB_SET(raw_flow, ARRAY['value', 'modules'], $2)
+                 WHERE id = $3
                   ",
             )
-            .bind(status.step)
-            .bind(json!(new_flow_statuses))
-            .bind(json!(modules))
+            .bind(json!(status.modules))
+            .bind(json!(flow.modules))
             .bind(flow_job.id)
             .execute(&mut tx)
             .await?;
@@ -991,7 +997,7 @@ async fn jump_to_next_step(
         r#"
                 UPDATE queue
                     SET flow_status = JSONB_SET(
-                                        JSONB_SET(flow_status, ARRAY['modules', $1::TEXT], $2),
+                                      JSONB_SET(flow_status, ARRAY['modules', $1::TEXT], $2),
                                                                ARRAY['step'], $3)
                     WHERE id = $4
                 RETURNING *
@@ -1004,8 +1010,12 @@ async fn jump_to_next_step(
     .fetch_one(db)
     .await?;
 
+    let new_status = new_job.parse_flow_status().ok_or_else(|| {
+        Error::ExecutionErr("Impossible to parse new status after jump".to_string())
+    })?;
     if next_step.is_some() {
-        return push_next_flow_job(&new_job, flow, db, last_result, same_worker_tx).await;
+        return push_next_flow_job(&new_job, new_status, flow, db, last_result, same_worker_tx)
+            .await;
     } else {
         let success = true;
         let skipped = false;
