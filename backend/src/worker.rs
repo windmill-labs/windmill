@@ -2440,6 +2440,77 @@ def main():
         assert_eq!(result, serde_json::json!(9));
     }
 
+    fn module_add_item_to_list(i: i32) -> serde_json::Value {
+        json!({
+            "input_transform": {
+                "array": {
+                    "type": "javascript",
+                    "expr": "previous_result",
+                },
+                "i": {
+                    "type": "static",
+                    "value": json!(i),
+                }
+            },
+            "value": {
+                "type": "rawscript",
+                "language": "deno",
+                "content": "export function main(array, i){ array.push(i); return array}",
+            }
+        })
+    }
+
+    #[sqlx::test(fixtures("base"))]
+    async fn test_branches(db: DB) {
+        initialize_tracing().await;
+
+        let flow: FlowValue = serde_json::from_value(json!({
+            "modules": [
+                {
+                    "value": {
+                        "type": "rawscript",
+                        "language": "deno",
+                        "content": "export function main(){ return [] }",
+                    }
+                },
+                module_add_item_to_list(1),
+                {
+                    "value": {
+                        "branches": [
+                            {
+                                "expr": "false",
+                                "modules": []
+                            },
+                            {
+                                "expr": "previous_result == [-1]",
+                                "modules": [                {
+                                    "value": {
+                                        "branches": [
+                                            {
+                                                "expr": "false",
+                                                "modules": []
+                                            }],
+                                        "default": [module_add_item_to_list(2)],
+                                        "type": "branches",
+                                    }
+                                }]
+                            },
+                        ],
+                        "default": [module_add_item_to_list(-1)],
+                        "type": "branches",
+                    }
+                },
+                module_add_item_to_list(3),
+            ],
+        }))
+        .unwrap();
+
+        let flow = JobPayload::RawFlow { value: flow, path: None };
+        let result = run_job_in_new_worker_until_complete(&db, flow).await;
+
+        assert_eq!(result, serde_json::json!([1, 2, 3]));
+    }
+
     #[sqlx::test(fixtures("base"))]
     async fn test_failure_module(db: DB) {
         initialize_tracing().await;

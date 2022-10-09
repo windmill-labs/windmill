@@ -179,11 +179,6 @@ pub enum InputTransform {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct DefaultModules {
-    pub modules: Vec<FlowModule>,
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct BranchModules {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub summary: Option<String>,
@@ -208,7 +203,7 @@ pub enum FlowModuleValue {
     },
     Branches {
         branches: Vec<BranchModules>,
-        default: DefaultModules,
+        default: Vec<FlowModule>,
     },
     RawScript(RawCode),
 }
