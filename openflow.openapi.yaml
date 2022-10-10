@@ -253,6 +253,11 @@ components:
           properties:
             fail_count:
               type: integer
+            failed_jobs:
+              type: array
+              items:
+                type: string
+                format: uuid
       required:
         - step
         - modules
