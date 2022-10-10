@@ -199,13 +199,11 @@ const config = {
 					boxShadow: theme('boxShadow.sm'),
 					padding: theme('spacing.4')
 				},				
-				'.inline-highlight': {
-					'& pre code.hljs': {
-						padding: '0px',
-						fontSize: theme('fontSize.xs'),
-						lineHeight: theme('lineHeight.4'),
-						whiteSpace: 'pre-wrap'
-					}
+				'pre code.hljs': {
+					padding: '0px',
+					fontSize: theme('fontSize.xs'),
+					lineHeight: theme('lineHeight.4'),
+					whiteSpace: 'pre-wrap'
 				}
 			});
 			addUtilities({
