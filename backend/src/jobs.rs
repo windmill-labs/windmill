@@ -23,6 +23,7 @@ use crate::{
     scripts::{get_hub_script_by_path, ScriptHash, ScriptLang},
     users::{owner_to_token_owner, Authed},
     utils::{now_from_db, require_admin, Pagination, StripPath},
+    variables::get_workspace_key,
     worker,
     worker_flow::{
         init_flow_status, FlowStatus, FlowStatusModule, MAX_RETRY_ATTEMPTS, MAX_RETRY_INTERVAL,
@@ -996,6 +997,25 @@ impl NewResumeJob {
     async fn insert(self, db: &DB) -> error::Result<()> {
         insert_resume_job(db, self).await
     }
+}
+
+async fn create_job_signature_api(
+    authed: Authed,
+    Extension(user_db): Extension<UserDB>,
+    Path((w_id, job_id)): Path<(String, Uuid)>,
+) -> error::Result<String> {
+    create_job_signature(&mut user_db.begin(&authed).await?, &w_id, job_id).await
+}
+
+async fn create_job_signature<'c>(
+    tx: &mut Transaction<'c, Postgres>,
+    w_id: &str,
+    job_id: Uuid,
+) -> error::Result<String> {
+    let key = get_workspace_key(w_id, tx).await?;
+    hmac::digest(&key, job_id.to_string().as_bytes())
+        .map_err(|e| error::Error::InternalError(e.to_string()))
+    Ok("".to_string())
 }
 
 async fn insert_resume_job(db: &DB, new: NewResumeJob) -> error::Result<()> {

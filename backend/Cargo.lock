@@ -4471,6 +4471,7 @@ dependencies = [
  "git-version",
  "headers",
  "hex",
+ "hmac 0.7.1",
  "hyper 0.14.20",
  "itertools 0.10.5",
  "json-pointer",
