@@ -18,7 +18,8 @@
 
 {#if loading}
 	<div
-		in:fade={{ duration: 200, delay }}
+		in:fade={{ duration: 1000, delay }}
+		out:fade={{ duration: 100 }}
 		bind:this={wrapper}
 		use:skeleton={true}
 		class="flex flex-col overflow-hidden {overlay
