@@ -39,10 +39,8 @@
 	import AppConnect from '$lib/components/AppConnect.svelte'
 	import { page } from '$app/stores'
 	import { onMount } from 'svelte'
-	import { Button } from '$lib/components/common'
+	import { Button, Alert, Badge, Skeleton } from '$lib/components/common'
 	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
-	import Alert from '$lib/components/common/alert/Alert.svelte'
-	import Badge from '$lib/components/common/badge/Badge.svelte'
 
 	type ResourceW = Resource & { canWrite: boolean }
 	type ResourceTypeW = ResourceType & { canWrite: boolean }
@@ -52,18 +50,19 @@
 	let resourceViewer: Modal
 	let resourceViewerTitle: string = ''
 	let resourceViewerSchema: Schema = emptySchema()
-
 	let typeModalMode: 'view' | 'view-type' | 'create' = 'view'
-
 	let newResourceTypeName: string
 	let newResourceTypeSchema: Schema
 	let newResourceTypeDescription: string
-
 	let resourceEditor: ResourceEditor | undefined
-
 	let shareModal: ShareModal
 	let appConnect: AppConnect
 	let deleteConfirmedCallback: (() => void) | undefined = undefined
+	let loading = {
+		resources: true,
+		types: true
+	}
+
 	$: open = Boolean(deleteConfirmedCallback)
 
 	async function loadResources(): Promise<void> {
@@ -74,6 +73,7 @@
 				...x
 			}
 		})
+		loading.resources = false
 	}
 
 	async function loadResourceTypes(): Promise<void> {
@@ -85,6 +85,7 @@
 				}
 			}
 		)
+		loading.types = false
 	}
 
 	async function deleteResource(path: string, is_oauth: boolean): Promise<void> {
@@ -164,144 +165,158 @@
 	</PageHeader>
 
 	<div class="relative">
-		<TableCustom>
-			<tr slot="header-row">
-				<th>path</th>
-				<th>resource_type</th>
-				<th>description</th>
-				<th>OAuth</th>
-				<th />
-			</tr>
-			<tbody slot="body">
-				{#if resources}
-					{#each resources as { path, description, resource_type, extra_perms, canWrite, is_oauth }}
-						<tr>
-							<td class="my-12"
-								><a
-									href="#{path}"
-									on:click={async () => {
-										resourceViewerTitle = `Resource ${path}`
-										resourceViewerSchema = (
-											await ResourceService.getResource({
-												workspace: $workspaceStore ?? 'no_workspace',
-												path
-											})
-										).value
-										typeModalMode = 'view'
-										resourceViewer.openModal()
-									}}>{path}</a
-								>
-								<div class="mb-1 -mt-1"><SharedBadge {canWrite} extraPerms={extra_perms} /></div>
-							</td>
-							<td class="px-2"><IconedResourceType name={resource_type} after={false} /></td>
-							<td><SvelteMarkdown source={description ?? ''} /></td>
-							<td>
-								{#if is_oauth}
-									<Icon
-										class="text-green-600"
-										data={faCircle}
-										scale={0.7}
-										label="Resource is tied to an OAuth app"
-									/>
-								{/if}
-							</td>
-							<td>
-								<Dropdown
-									dropdownItems={[
-										{
-											displayName: 'Share',
-											icon: faShare,
-											disabled: !canWrite,
-											action: () => {
-												shareModal.openModal(path)
-											}
-										},
-										{
-											displayName: 'Edit',
-											icon: faEdit,
-											disabled: !canWrite,
-											action: () => {
-												resourceEditor?.initEdit(path)
-											}
-										},
-										{
-											displayName: 'Delete',
-											disabled: !canWrite,
-											icon: faTrash,
-											type: 'delete',
-											action: (event) => {
-												if (event?.shiftKey) {
-													deleteResource(path, is_oauth)
-												} else {
-													deleteConfirmedCallback = () => {
+		{#if loading.resources}
+			<Skeleton layout={[0.5, [2], 1]} />
+			{#each new Array(6) as _}
+				<Skeleton layout={[[4], 0.7]} />
+			{/each}
+		{:else}
+			<TableCustom>
+				<tr slot="header-row">
+					<th>path</th>
+					<th>resource_type</th>
+					<th>description</th>
+					<th>OAuth</th>
+					<th />
+				</tr>
+				<tbody slot="body">
+					{#if resources}
+						{#each resources as { path, description, resource_type, extra_perms, canWrite, is_oauth }}
+							<tr>
+								<td class="my-12"
+									><a
+										href="#{path}"
+										on:click={async () => {
+											resourceViewerTitle = `Resource ${path}`
+											resourceViewerSchema = (
+												await ResourceService.getResource({
+													workspace: $workspaceStore ?? 'no_workspace',
+													path
+												})
+											).value
+											typeModalMode = 'view'
+											resourceViewer.openModal()
+										}}>{path}</a
+									>
+									<div class="mb-1 -mt-1"><SharedBadge {canWrite} extraPerms={extra_perms} /></div>
+								</td>
+								<td class="px-2"><IconedResourceType name={resource_type} after={false} /></td>
+								<td><SvelteMarkdown source={description ?? ''} /></td>
+								<td>
+									{#if is_oauth}
+										<Icon
+											class="text-green-600"
+											data={faCircle}
+											scale={0.7}
+											label="Resource is tied to an OAuth app"
+										/>
+									{/if}
+								</td>
+								<td>
+									<Dropdown
+										dropdownItems={[
+											{
+												displayName: 'Share',
+												icon: faShare,
+												disabled: !canWrite,
+												action: () => {
+													shareModal.openModal(path)
+												}
+											},
+											{
+												displayName: 'Edit',
+												icon: faEdit,
+												disabled: !canWrite,
+												action: () => {
+													resourceEditor?.initEdit(path)
+												}
+											},
+											{
+												displayName: 'Delete',
+												disabled: !canWrite,
+												icon: faTrash,
+												type: 'delete',
+												action: (event) => {
+													if (event?.shiftKey) {
 														deleteResource(path, is_oauth)
+													} else {
+														deleteConfirmedCallback = () => {
+															deleteResource(path, is_oauth)
+														}
 													}
 												}
 											}
-										}
-									]}
-									relative={false}
-								/>
-							</td>
-						</tr>
-					{/each}
-				{:else if resources}
-					<tr> No resources to display</tr>
-				{:else}
-					<tr>Loading...</tr>
-				{/if}
-			</tbody>
-		</TableCustom>
+										]}
+										relative={false}
+									/>
+								</td>
+							</tr>
+						{/each}
+					{:else if resources}
+						<tr> No resources to display</tr>
+					{:else}
+						<tr>Loading...</tr>
+					{/if}
+				</tbody>
+			</TableCustom>
+		{/if}
 	</div>
 	<div class="py-10" />
 	<PageHeader title="Resources types" primary={false}>
 		<Button size="sm" startIcon={{ icon: faPlus }} on:click={startNewType}>Add a type</Button>
 	</PageHeader>
 
-	<TableCustom>
-		<tr slot="header-row">
-			<th>name</th>
-			<th>description</th>
-			<th />
-		</tr>
-		<tbody slot="body">
-			{#if resourceTypes}
-				{#each resourceTypes as { name, description, schema, canWrite }}
-					<tr>
-						<td class="pr-4"
-							><a
-								href="#{name}"
-								on:click={() => {
-									resourceViewerTitle = `Resource type ${name}`
-									resourceViewerSchema = schema
-									typeModalMode = 'view-type'
-									resourceViewer.openModal()
-								}}><span class="text-gray-700"><IconedResourceType {name} /></span></a
-							></td
-						>
-						<td><SvelteMarkdown source={description ?? ''} /></td>
-						<td>
-							{#if canWrite}
-								<Button
-									size="sm"
-									color="red"
-									startIcon={{ icon: faTrash }}
-									on:click={() => handleDeleteResourceType(name)}
-									disabled={!($userStore?.is_admin || false)}
-								>
-									Delete
-								</Button>
-							{/if}
-						</td>
-					</tr>
-				{/each}
-			{:else if resources}
-				<tr> No resources types to display</tr>
-			{:else}
-				<tr>Loading...</tr>
-			{/if}
-		</tbody>
-	</TableCustom>
+	{#if loading.types}
+		<Skeleton layout={[0.5, [2], 1]} />
+		{#each new Array(6) as _}
+			<Skeleton layout={[[4], 0.7]} />
+		{/each}
+	{:else}
+		<TableCustom>
+			<tr slot="header-row">
+				<th>name</th>
+				<th>description</th>
+				<th />
+			</tr>
+			<tbody slot="body">
+				{#if resourceTypes}
+					{#each resourceTypes as { name, description, schema, canWrite }}
+						<tr>
+							<td class="pr-4"
+								><a
+									href="#{name}"
+									on:click={() => {
+										resourceViewerTitle = `Resource type ${name}`
+										resourceViewerSchema = schema
+										typeModalMode = 'view-type'
+										resourceViewer.openModal()
+									}}><span class="text-gray-700"><IconedResourceType {name} /></span></a
+								></td
+							>
+							<td><SvelteMarkdown source={description ?? ''} /></td>
+							<td>
+								{#if canWrite}
+									<Button
+										size="sm"
+										color="red"
+										startIcon={{ icon: faTrash }}
+										on:click={() => handleDeleteResourceType(name)}
+										disabled={!($userStore?.is_admin || false)}
+									>
+										Delete
+									</Button>
+								{/if}
+							</td>
+						</tr>
+					{/each}
+				{:else if resources}
+					<tr> No resources types to display</tr>
+				{:else}
+					<tr>Loading...</tr>
+				{/if}
+			</tbody>
+		</TableCustom>
+	{/if}
 </CenteredPage>
 
 <AppConnect bind:this={appConnect} on:refresh={loadResources} />

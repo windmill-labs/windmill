@@ -1,4 +1,5 @@
 export { default as ActionRow } from './actionRow/ActionRow.svelte'
+export { default as Alert } from './alert/Alert.svelte'
 export { default as Badge } from './badge/Badge.svelte'
 export { default as Button } from './button/Button.svelte'
 export { default as ButtonPopup } from './button/ButtonPopup.svelte'
@@ -16,6 +17,7 @@ export { default as Tabs } from './tabs/Tabs.svelte'
 export { default as ToggleButton } from './toggleButton/ToggleButton.svelte'
 export { default as ToggleButtonGroup } from './toggleButton/ToggleButtonGroup.svelte'
 
+export * from './alert/model'
 export * from './badge/model'
 export * from './button/model'
 export * from './skeleton/model'

@@ -37,7 +37,7 @@
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
 	import FlowViewer from '$lib/components/FlowViewer.svelte'
 	import ObjectViewer from '$lib/components/propertyPicker/ObjectViewer.svelte'
-	import { Button, ActionRow } from '$lib/components/common'
+	import { Button, ActionRow, Skeleton } from '$lib/components/common'
 
 	let flow: Flow | undefined
 	let schedule: Schedule | undefined
@@ -88,6 +88,11 @@
 	}
 </script>
 
+<Skeleton
+	class="!max-w-6xl !px-4 sm:!px-6 md:!px-8"
+	loading={!flow}
+	layout={[0.75, [2, 0, 2], 2.25, [{ h: 1.5, w: 40 }], 0.2, [{ h: 1, w: 30 }]]}
+/>
 {#if flow}
 	<ActionRow applyPageWidth stickToTop>
 		<svelte:fragment slot="left">
@@ -176,18 +181,21 @@
 {/if}
 
 <CenteredPage>
-	<h1>
-		<a href="/flows/get/{path}">{flow?.path ?? 'Loading...'}</a>
-
-		<SharedBadge canWrite={can_write} extraPerms={flow?.extra_perms ?? {}} />
-	</h1>
+	{#if flow}
+		<h1>
+			<a href="/flows/get/{path}">{flow?.path}</a>
+			<SharedBadge canWrite={can_write} extraPerms={flow?.extra_perms ?? {}} />
+		</h1>
+	{/if}
 
 	<ShareModal bind:this={shareModal} kind="flow" path={flow?.path ?? ''} />
 
 	<div class="grid grid-cols-1 gap-6 max-w-7xl pb-6">
-		{#if flow === undefined}
-			<p>loading</p>
-		{:else}
+		<Skeleton
+			loading={!flow}
+			layout={[[{ h: 1.5, w: 40 }], 1, [4], 2.25, [{ h: 1.5, w: 30 }], 1, [10]]}
+		/>
+		{#if flow}
 			<p class="text-sm">Edited {displayDaysAgo(flow.edited_at ?? '')} by {flow.edited_by}</p>
 			<h2>{flow.summary}</h2>
 

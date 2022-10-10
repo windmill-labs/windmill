@@ -34,27 +34,24 @@
 	import TableCustom from '$lib/components/TableCustom.svelte'
 	import Modal from '$lib/components/Modal.svelte'
 	import FlowViewer from '$lib/components/FlowViewer.svelte'
-	import { Button } from '../lib/components/common'
-	import Tabs from '$lib/components/common/tabs/Tabs.svelte'
-	import Tab from '$lib/components/common/tabs/Tab.svelte'
+	import { Button, Tabs, Tab, Skeleton } from '../lib/components/common'
 
 	type Tab = 'all' | 'personal' | 'groups' | 'shared' | 'hub'
 	type Section = [string, FlowW[]]
 	type FlowW = Flow & { canWrite: boolean; tab: Tab }
 	let flows: FlowW[] = []
 	let filteredFlows: FlowW[]
-
 	let hubFlows: any[] | undefined = undefined
 	let filteredHubFlows: any[]
-
 	let flowFilter = ''
 	let groupedFlows: Section[] = []
-
 	let hubFilter = ''
-
 	let tab: Tab = 'all'
-
 	let shareModal: ShareModal
+	let loading = {
+		general: true,
+		hub: true
+	}
 
 	const flowFuseOptions = {
 		includeScore: false,
@@ -116,11 +113,13 @@
 			}
 		)
 		flows = tab == 'all' ? allFlows : allFlows.filter((x) => x.tab == tab)
+		loading.general = false
 		flowFuse.setCollection(flows)
 	}
 
 	async function loadHubFlowsWFuse(): Promise<void> {
 		hubFlows = await loadHubFlows()
+		loading.hub = false
 		flowFuse.setCollection(flows)
 	}
 
@@ -205,7 +204,12 @@
 					</h2>
 					<input placeholder="Search hub flows" bind:value={hubFilter} class="search-bar mt-2" />
 					<div class="relative">
-						{#if hubFlows != undefined}
+						{#if loading.hub}
+							<Skeleton
+								loading={loading.hub}
+								layout={[0.4, [3], 0.4, [3], 0.4, [3], 0.4, [3], 0.4, [3], 0.4, [3], 0.4, [3]]}
+							/>
+						{:else if hubFlows != undefined}
 							<TableCustom>
 								<tr slot="header-row">
 									<th>Apps</th>
@@ -235,10 +239,11 @@
 									{/each}
 								</tbody>
 							</TableCustom>
-						{:else}<span class="mt-2 text-sm text-red-400"
-								>Hub not reachable. If your environment is air gapped, contact sales@windmill.dev to
-								setup a local mirror.</span
-							>
+						{:else}
+							<span class="mt-2 text-sm text-red-400">
+								Hub not reachable. If your environment is air gapped, contact sales@windmill.dev to
+								setup a local mirror.
+							</span>
 						{/if}
 					</div>
 				{/if}
@@ -255,7 +260,13 @@
 							{/if}
 						</h3>
 					{/if}
-					{#if flows.length == 0 && sectionTab == 'personal'}
+					{#if loading.general}
+						<div class="grid gap-4 sm:grid-cols-1 md:grid-cols-2 xl:grid-cols-3">
+							{#each new Array(3) as _}
+								<Skeleton layout={[[7.6]]} />
+							{/each}
+						</div>
+					{:else if flows.length == 0 && sectionTab == 'personal'}
 						<p class="text-xs text-gray-600 italic">No flows yet</p>
 					{:else}
 						<div class="grid md:grid-cols-2 gap-4 sm:grid-cols-1 xl:grid-cols-3">
