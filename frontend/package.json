@@ -36,7 +36,7 @@
 		"postcss": "^8.4.17",
 		"postcss-load-config": "^4.0.1",
 		"prettier": "^2.7.1",
-		"prettier-plugin-svelte": "^2.7.1",
+		"prettier-plugin-svelte": "^2.8.0",
 		"simple-svelte-autocomplete": "^2.2.4",
 		"stylelint-config-recommended": "^9.0.0",
 		"svelte": "^3.51.0",
