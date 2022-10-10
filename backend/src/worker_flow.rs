@@ -54,9 +54,13 @@ pub struct Iterator {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(
+    tag = "type",
+    rename_all(serialize = "lowercase", deserialize = "lowercase")
+)]
 pub enum BranchChosen {
     Default,
-    Branch(usize),
+    Branch { branch: usize },
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -535,7 +539,7 @@ pub async fn handle_flow(
         serde_json::from_value::<FlowStatus>(flow_job.flow_status.clone().unwrap_or_default())
             .with_context(|| format!("parse flow status {}", flow_job.id))?;
 
-    tracing::debug!("handle_flow: {:#?} {:#?}", status, flow);
+    tracing::debug!("handle_flow: {:#?}", flow_job);
     push_next_flow_job(flow_job, status, flow, db, last_result, same_worker_tx).await?;
     Ok(())
 }
@@ -1195,7 +1199,7 @@ async fn compute_next_flow_transform(
                             compute_bool_from_expr(b.expr.to_string(), last_result.clone()).await?;
 
                         if pred {
-                            branch_chosen = BranchChosen::Branch(i);
+                            branch_chosen = BranchChosen::Branch { branch: i };
                             break;
                         }
                     }
@@ -1206,7 +1210,7 @@ async fn compute_next_flow_transform(
                 )))?,
             };
 
-            let modules = if let BranchChosen::Branch(index) = branch {
+            let modules = if let BranchChosen::Branch { branch: index } = branch {
                 &branches[index].modules
             } else {
                 &default

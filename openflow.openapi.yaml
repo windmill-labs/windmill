@@ -288,4 +288,13 @@ components:
           type: array
           items:
             type: string
+        branch_chosen:
+          type: object
+          properties:
+            type:
+              type: string
+              enum: [branch, default]
+            branch:
+              type: integer
+            
       required: [type]
