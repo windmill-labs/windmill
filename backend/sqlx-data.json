@@ -3415,6 +3415,18 @@
     },
     "query": "SELECT workspace.* FROM workspace, usr WHERE usr.workspace_id = workspace.id AND usr.email = $1 AND deleted = false"
   },
+  "f9136bc01bdb7d0e644efff25b7cc8035194df0452bc8b2005fe1fa44de19db4": {
+    "describe": {
+      "columns": [],
+      "nullable": [],
+      "parameters": {
+        "Left": [
+          "Uuid"
+        ]
+      }
+    },
+    "query": "DELETE FROM resume_job WHERE job = $1"
+  },
   "f98046a2ee4ac10d9e507c033391dfb0c704dcd513d8b1e5564def4e85f9e80b": {
     "describe": {
       "columns": [],
