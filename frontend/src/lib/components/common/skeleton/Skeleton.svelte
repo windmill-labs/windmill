@@ -14,7 +14,6 @@
 	<div class="relative flex justify-center">
 		<div
 			in:fade={{ duration: 1000, delay }}
-			out:fade={{ duration: 100 }}
 			use:skeleton={true}
 			class="flex grow flex-col overflow-hidden {overlay
 				? 'absolute w-full h-full z-[1000]'
