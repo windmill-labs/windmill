@@ -129,6 +129,7 @@
 
 <Skeleton
 	loading={!script}
+	class="!px-4 sm:!px-6 md:!px-8 !max-w-6xl"
 	layout={[
 		0.75,
 		[2, 0, 2],
