@@ -253,6 +253,11 @@ components:
           properties:
             fail_count:
               type: integer
+            failed_jobs:
+              type: array
+              items:
+                type: string
+                format: uuid
       required:
         - step
         - modules
@@ -288,4 +293,13 @@ components:
           type: array
           items:
             type: string
+        branch_chosen:
+          type: object
+          properties:
+            type:
+              type: string
+              enum: [branch, default]
+            branch:
+              type: integer
+            
       required: [type]

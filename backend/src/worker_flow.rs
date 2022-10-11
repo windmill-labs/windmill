@@ -44,6 +44,7 @@ pub struct FlowStatus {
 pub struct RetryStatus {
     pub fail_count: u16,
     pub previous_result: Option<Value>,
+    pub failed_jobs: Vec<Uuid>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -54,9 +55,13 @@ pub struct Iterator {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(
+    tag = "type",
+    rename_all(serialize = "lowercase", deserialize = "lowercase")
+)]
 pub enum BranchChosen {
     Default,
-    Branch(usize),
+    Branch { branch: usize },
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -101,7 +106,7 @@ impl FlowStatus {
             step: 0,
             modules: vec![FlowStatusModule::WaitingForPriorSteps; f.modules.len()],
             failure_module: FlowStatusModule::WaitingForPriorSteps,
-            retry: RetryStatus { fail_count: 0, previous_result: None },
+            retry: RetryStatus { fail_count: 0, previous_result: None, failed_jobs: vec![] },
         }
     }
 
@@ -535,7 +540,7 @@ pub async fn handle_flow(
         serde_json::from_value::<FlowStatus>(flow_job.flow_status.clone().unwrap_or_default())
             .with_context(|| format!("parse flow status {}", flow_job.id))?;
 
-    tracing::debug!("handle_flow: {:#?} {:#?}", status, flow);
+    tracing::debug!("handle_flow: {:#?}", flow_job);
     push_next_flow_job(flow_job, status, flow, db, last_result, same_worker_tx).await?;
     Ok(())
 }
@@ -658,6 +663,10 @@ async fn push_next_flow_job(
                             .context("previous job result")?;
                 }
 
+                sqlx::query!("DELETE FROM resume_job WHERE job = $1", last)
+                    .execute(&mut tx)
+                    .await?;
+
                 /* continue on and run this job! */
                 tx.commit().await?;
 
@@ -675,7 +684,7 @@ async fn push_next_flow_job(
                     ",
                 )
                 .bind(json!(FlowStatusModule::WaitingForEvents { count, job: last }))
-                .bind(count as i32)
+                .bind((count - resume_messages.len() as u16) as i32)
                 .bind(30 * MINUTES)
                 .bind(flow_job.id)
                 .execute(&mut tx)
@@ -714,59 +723,18 @@ async fn push_next_flow_job(
         }
     }
 
-    if matches!(&status_module, FlowStatusModule::Failure { .. }) {
-        let retry = &module.retry.clone().unwrap_or_default();
-        if let Some((fail_count, retry_in)) = next_retry(retry, &status.retry) {
-            tracing::debug!(
-                retry_in_seconds = retry_in.as_secs(),
-                fail_count = fail_count,
-                "retrying"
-            );
-
-            scheduled_for_o = Some(from_now(retry_in));
-
-            sqlx::query(
-                "
-                UPDATE queue
-                   SET flow_status = JSONB_SET(flow_status, ARRAY['retry'], $1)
-                 WHERE id = $2
-                ",
-            )
-            .bind(json!(RetryStatus { fail_count, ..status.retry.clone() }))
-            .bind(flow_job.id)
-            .execute(db)
-            .await
-            .context("update flow retry")?;
-
-            /* it might be better to retry the job using the previous args instead of determining
-             * them again from the last result, but that seemed to not play well with the forloop
-             * logic and I couldn't figure out why. */
-            if let Some(v) = &status.retry.previous_result {
-                last_result = v.clone();
-            }
-            status_module = FlowStatusModule::WaitingForPriorSteps;
-
-        /* Start the failure module ... */
-        } else {
-            /* push_next_flow_job is called with the current step on FlowStatusModule::Failure.
-             * This must update the step index to the end so that no subsequent steps are run after
-             * the failure module.
-             *
-             * The failure module may also run again if it fails and the retry feature is used.
-             * In that case, `i` will index past `flow.modules`.  The above should handle that and
-             * re-run the failure module. */
-            i = flow.modules.len();
-            module = flow
-                .failure_module
-                .as_ref()
-                /* If this fails, it's a update_flow_status_after_job_completion shouldn't have called
-                 * handle_flow to get here. */
-                .context("missing failure module")?;
-            status_module = status.failure_module.clone();
-
-            /* (retry feature) save the previous_result the first time this step is run */
+    match &status_module {
+        FlowStatusModule::Failure { job, .. } => {
             let retry = &module.retry.clone().unwrap_or_default();
-            if retry.has_attempts() {
+            if let Some((fail_count, retry_in)) = next_retry(retry, &status.retry) {
+                tracing::debug!(
+                    retry_in_seconds = retry_in.as_secs(),
+                    fail_count = fail_count,
+                    "retrying"
+                );
+
+                scheduled_for_o = Some(from_now(retry_in));
+                status.retry.failed_jobs.push(job.clone());
                 sqlx::query(
                     "
                 UPDATE queue
@@ -774,41 +742,88 @@ async fn push_next_flow_job(
                  WHERE id = $2
                 ",
                 )
-                .bind(json!(RetryStatus {
-                    previous_result: Some(last_result.clone()),
-                    fail_count: 0,
-                }))
+                .bind(json!(RetryStatus { fail_count, ..status.retry.clone() }))
                 .bind(flow_job.id)
                 .execute(db)
                 .await
                 .context("update flow retry")?;
-            };
-        }
 
-    /* (retry feature) save the previous_result the first time this step is run */
-    } else if matches!(&status_module, FlowStatusModule::WaitingForPriorSteps)
-        && module
-            .retry
-            .as_ref()
-            .map(|x| x.has_attempts())
-            .unwrap_or(false)
-        && status.retry.fail_count == 0
-    {
-        sqlx::query(
-            "
+                /* it might be better to retry the job using the previous args instead of determining
+                 * them again from the last result, but that seemed to not play well with the forloop
+                 * logic and I couldn't figure out why. */
+                if let Some(v) = &status.retry.previous_result {
+                    last_result = v.clone();
+                }
+                status_module = FlowStatusModule::WaitingForPriorSteps;
+
+            /* Start the failure module ... */
+            } else {
+                /* push_next_flow_job is called with the current step on FlowStatusModule::Failure.
+                 * This must update the step index to the end so that no subsequent steps are run after
+                 * the failure module.
+                 *
+                 * The failure module may also run again if it fails and the retry feature is used.
+                 * In that case, `i` will index past `flow.modules`.  The above should handle that and
+                 * re-run the failure module. */
+                i = flow.modules.len();
+                module = flow
+                    .failure_module
+                    .as_ref()
+                    /* If this fails, it's a update_flow_status_after_job_completion shouldn't have called
+                     * handle_flow to get here. */
+                    .context("missing failure module")?;
+                status_module = status.failure_module.clone();
+
+                /* (retry feature) save the previous_result the first time this step is run */
+                let retry = &module.retry.clone().unwrap_or_default();
+                if retry.has_attempts() {
+                    sqlx::query(
+                        "
+                UPDATE queue
+                   SET flow_status = JSONB_SET(flow_status, ARRAY['retry'], $1)
+                 WHERE id = $2
+                ",
+                    )
+                    .bind(json!(RetryStatus {
+                        previous_result: Some(last_result.clone()),
+                        fail_count: 0,
+                        failed_jobs: vec![],
+                    }))
+                    .bind(flow_job.id)
+                    .execute(db)
+                    .await
+                    .context("update flow retry")?;
+                };
+            }
+
+            /* (retry feature) save the previous_result the first time this step is run */
+        }
+        FlowStatusModule::WaitingForPriorSteps
+            if module
+                .retry
+                .as_ref()
+                .map(|x| x.has_attempts())
+                .unwrap_or(false)
+                && status.retry.fail_count == 0 =>
+        {
+            sqlx::query(
+                "
             UPDATE queue
                SET flow_status = JSONB_SET(flow_status, ARRAY['retry'], $1)
              WHERE id = $2
             ",
-        )
-        .bind(json!(RetryStatus {
-            previous_result: Some(last_result.clone()),
-            fail_count: 0,
-        }))
-        .bind(flow_job.id)
-        .execute(db)
-        .await
-        .context("update flow retry")?;
+            )
+            .bind(json!(RetryStatus {
+                previous_result: Some(last_result.clone()),
+                fail_count: 0,
+                failed_jobs: vec![],
+            }))
+            .bind(flow_job.id)
+            .execute(db)
+            .await
+            .context("update flow retry")?;
+        }
+        _ => (),
     }
 
     /* Don't evaluate `module.input_transforms` after iteration has begun.  Instead, args are
@@ -1195,7 +1210,7 @@ async fn compute_next_flow_transform(
                             compute_bool_from_expr(b.expr.to_string(), last_result.clone()).await?;
 
                         if pred {
-                            branch_chosen = BranchChosen::Branch(i);
+                            branch_chosen = BranchChosen::Branch { branch: i };
                             break;
                         }
                     }
@@ -1206,7 +1221,7 @@ async fn compute_next_flow_transform(
                 )))?,
             };
 
-            let modules = if let BranchChosen::Branch(index) = branch {
+            let modules = if let BranchChosen::Branch { branch: index } = branch {
                 &branches[index].modules
             } else {
                 &default
