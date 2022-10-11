@@ -55,7 +55,7 @@
 </script>
 
 <CenteredPage>
-	<h1 class="text-xl font-extrabold tracking-tight leading-none text-gray-900 md:text-3xl">Home</h1>
+	<h1 class="text-xl tracking-tight leading-none text-gray-900 md:text-3xl">Home</h1>
 	<div class="space-y-12">
 		<div>
 			<h2

@@ -90,6 +90,10 @@ const config = {
 				900: '#312e81',
 			}
 		},
+		fontFamily: {
+			// add double quotes if there is space in font name
+			main: ['Inter', 'sans-serif'],
+		},
 		extend: {
 			maxHeight: {
 				'1/2': '50vh',
@@ -126,15 +130,34 @@ const config = {
 		plugin(({ addBase, addComponents, addUtilities, theme }) => {
 			addBase({
 				'html': {
-					overflowY: 'auto'
+					overflowY: 'auto',
+					fontFamily: theme('fontFamily.main'),
+					fontSize: theme('fontSize.base'),
+					fontWeight: theme('fontWeight.medium'),
+					color: theme('colors.gray.900')
 				},
 				'h1': {
+					fontSize: theme('fontSize.3xl'),
+					fontWeight: theme('fontWeight.extrabold'),
+					color: theme('colors.gray.800')
+				},
+				'h2': {
 					fontSize: theme('fontSize.2xl'),
-					color: theme('colors.gray.700')
+					fontWeight: theme('fontWeight.extrabold'),
+					color: theme('colors.blue.600')
 				},
-				'h1': {
+				'h3': {
 					fontSize: theme('fontSize.xl'),
-					color: theme('colors.blue.500')
+					fontWeight: theme('fontWeight.extrabold'),
+					color: theme('colors.gray.600')
+				},
+				'h4': {
+					fontSize: theme('fontSize.lg'),
+					fontWeight: theme('fontWeight.semibold'),
+					color: theme('colors.gray.600')
+				},
+				'button, a': {
+					fontWeight: theme('fontWeight.semibold'),
 				},
 				'a': {
 					color: theme('colors.blue.500')
