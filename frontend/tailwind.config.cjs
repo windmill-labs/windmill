@@ -206,6 +206,11 @@ const config = {
 						lineHeight: theme('lineHeight.4'),
 						whiteSpace: 'pre-wrap'
 					}
+				},
+				'.animate-skeleton': {
+					animation: theme('animation.pulse'),
+					backgroundColor: theme('colors.blue.200'),
+					borderRadius: theme('borderRadius.DEFAULT'),
 				}
 			});
 			addUtilities({
