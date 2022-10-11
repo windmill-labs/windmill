@@ -2623,46 +2623,42 @@ def main():
     }
 
     mod suspend_resume {
+
+        use crate::jobs::get_job_by_id;
+
         use super::*;
 
         use futures::{Stream, StreamExt};
 
         struct ApiServer {
             addr: std::net::SocketAddr,
-            tx: tokio::sync::oneshot::Sender<()>,
-            task: tokio::task::JoinHandle<hyper::Result<()>>,
+            tx: tokio::sync::broadcast::Sender<()>,
+            task: tokio::task::JoinHandle<anyhow::Result<()>>,
         }
 
         impl ApiServer {
             async fn start(db: DB) -> Self {
-                let (tx, rx) = tokio::sync::oneshot::channel::<()>();
+                let (tx, rx) = tokio::sync::broadcast::channel::<()>(1);
 
                 let sock = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
 
                 let addr = sock.local_addr().unwrap();
+                drop(sock);
 
-                use crate::jobs::{cancel_suspended_job, resume_suspended_job};
-                use axum::routing::{get, post};
-
-                let router = axum::Router::new()
-                    .route("/w/:workspace/jobs/resume/:id", get(resume_suspended_job))
-                    .route("/w/:workspace/jobs/resume/:id", post(resume_suspended_job))
-                    .route("/w/:workspace/jobs/cancel/:id", get(cancel_suspended_job))
-                    .route("/w/:workspace/jobs/cancel/:id", post(cancel_suspended_job))
-                    .layer(axum::extract::Extension(db));
-
-                let serve = axum::Server::from_tcp(sock.into_std().unwrap())
-                    .unwrap()
-                    .serve(router.into_make_service())
-                    .with_graceful_shutdown(async { drop(rx.await) });
-
-                let task = tokio::task::spawn(serve);
+                let task = tokio::task::spawn({
+                    crate::run_server(
+                        db.clone(),
+                        addr,
+                        format!("http://localhost:{}", addr.port()),
+                        rx,
+                    )
+                });
 
                 return Self { addr, tx, task };
             }
 
-            async fn close(self) -> hyper::Result<()> {
-                let Self { task, tx, .. } = self;
+            async fn close(self) -> anyhow::Result<()> {
+                let Self { tx, task, .. } = self;
                 drop(tx);
                 task.await.unwrap()
             }
@@ -2686,6 +2682,16 @@ def main():
             }
         }
 
+        async fn print_job(id: Uuid, db: &DB) -> Result<(), anyhow::Error> {
+            tracing::info!(
+                "{:#?}",
+                get_job_by_id(db.begin().await?, "test-workspace", id)
+                    .await?
+                    .0
+            );
+            Ok(())
+        }
+
         fn flow() -> FlowValue {
             serde_json::from_value(serde_json::json!({
                 "modules": [{
@@ -2700,19 +2706,32 @@ def main():
                         "content": "\
                             export async function main(n, port, op) {\
                                 const job = Deno.env.get('WM_JOB_ID');
+                                const token = Deno.env.get('WM_TOKEN');
                                 const r = await fetch(
-                                    `http://localhost:${port}/w/test-workspace/jobs/${op}/${job}`,\
+                                    `http://localhost:${port}/api/w/test-workspace/jobs/job_signature/${job}/0?token=${token}`,\
+                                    {\
+                                        method: 'GET',\
+                                        headers: { 'Authorization': `Bearer ${token}` }\
+                                    }\
+                                );\
+                                console.log(r);\
+                                const secret = await r.text();\
+                                console.log('Secret: ' + secret + ' ' + job + ' ' + token);\
+                                const r2 = await fetch(
+                                    `http://localhost:${port}/api/w/test-workspace/jobs/${op}/${job}/0/${secret}`,\
                                     {\
                                         method: 'POST',\
                                         body: JSON.stringify('from job'),\
                                         headers: { 'content-type': 'application/json' }\
                                     }\
                                 );\
-                                console.log(r);
+                                console.log(await r2.text());\
                                 return n + 1;\
                             }",
                     },
-                    "suspend": 1,
+                    "suspend": {
+                        "required_events": 1
+                    },
                 }, {
                     "input_transform": {
                         "n": { "type": "javascript", "expr": "previous_result", },
@@ -2724,7 +2743,9 @@ def main():
                         "language": "deno",
                         "content": "export function main(n, resume, resumes) { return { n: n + 1, resume, resumes } }"
                     },
-                    "suspend": 1,
+                    "suspend": {
+                        "required_events": 1
+                    },
                 }, {
                     "input_transform": {
                         "last": { "type": "javascript", "expr": "previous_result", },
@@ -2762,19 +2783,34 @@ def main():
                 let db = db_;
 
                 wait_until_flow_suspends(flow, queue, &db).await;
+                // print_job(flow, &db).await;
                 /* The first job resumes itself. */
                 let _first = completed.next().await.unwrap();
+                // print_job(_first, &db).await;
+
                 /* ... and send a request resume it. */
                 let second = completed.next().await.unwrap();
+                // print_job(second, &db).await;
+
+                let token = create_token_for_owner(&db, "test-workspace", "u/test-user", "", 100, "").await.unwrap();
+                let secret = reqwest::get(format!(
+                    "http://localhost:{port}/api/w/test-workspace/jobs/job_signature/{second}/0?token={token}"
+                ))
+                .await
+                .unwrap()
+                .error_for_status()
+                .unwrap()
+                .text().await.unwrap();
+                println!("{}", secret);
 
                 /* ImZyb20gdGVzdCIK = base64 "from test" */
                 reqwest::get(format!(
-                        "http://localhost:{port}/w/test-workspace/jobs/resume/{second}?payload=ImZyb20gdGVzdCIK"
-                    ))
-                    .await
-                    .unwrap()
-                    .error_for_status()
-                    .unwrap();
+                    "http://localhost:{port}/api/w/test-workspace/jobs/resume/{second}/0/{secret}?payload=ImZyb20gdGVzdCIK"
+                ))
+                .await
+                .unwrap()
+                .error_for_status()
+                .unwrap();
 
                 completed.find(&flow).await.unwrap();
             })
@@ -2852,13 +2888,25 @@ def main():
                 /* ... and send a request resume it. */
                 let second = completed.next().await.unwrap();
 
+                let token = create_token_for_owner(&db, "test-workspace", "u/test-user", "", 100, "").await.unwrap();
+                let secret = reqwest::get(format!(
+                    "http://localhost:{port}/api/w/test-workspace/jobs/job_signature/{second}/0?token={token}"
+                ))
+                .await
+                .unwrap()
+                .error_for_status()
+                .unwrap()
+                .text().await.unwrap();
+                println!("{}", secret);
+
+                /* ImZyb20gdGVzdCIK = base64 "from test" */
                 reqwest::get(format!(
-                        "http://localhost:{port}/w/test-workspace/jobs/cancel/{second}?payload=ImZyb20gdGVzdCIK"
-                    ))
-                    .await
-                    .unwrap()
-                    .error_for_status()
-                    .unwrap();
+                    "http://localhost:{port}/api/w/test-workspace/jobs/cancel/{second}/0/{secret}?payload=ImZyb20gdGVzdCIK"
+                ))
+                .await
+                .unwrap()
+                .error_for_status()
+                .unwrap();
 
                 completed.find(&flow).await.unwrap();
             })
@@ -3213,7 +3261,7 @@ def main(error, port):
                 payload,
                 Some(args),
                 /* user */ "test-user",
-                /* permissioned_as */ Default::default(),
+                /* permissioned_as */ "u/admin".to_string(),
                 /* scheduled_for_o */ None,
                 /* schedule_path */ None,
                 /* parent_job */ None,

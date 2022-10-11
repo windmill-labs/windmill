@@ -152,6 +152,14 @@ impl Default for ExponentialDelay {
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone)]
+pub struct Suspend {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub required_events: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub timeout: Option<u32>,
+}
+
+#[derive(Deserialize, Serialize, Debug, Clone)]
 pub struct FlowModule {
     #[serde(default)]
     #[serde(alias = "input_transform")]
@@ -159,9 +167,8 @@ pub struct FlowModule {
     pub value: FlowModuleValue,
     pub stop_after_if: Option<StopAfterIf>,
     pub summary: Option<String>,
-    #[serde(default)]
-    #[serde(skip_serializing_if = "is_default")]
-    pub suspend: u16,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub suspend: Option<Suspend>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub retry: Option<Retry>,
     #[serde(skip_serializing_if = "Option::is_none")]

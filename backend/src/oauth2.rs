@@ -16,7 +16,6 @@ use itertools::Itertools;
 use oauth2::{Client as OClient, *};
 use reqwest::Client;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
-use slack_http_verifier::SlackVerifier;
 use sqlx::{Postgres, Transaction};
 use tokio::{fs::File, io::AsyncReadExt};
 use tower_cookies::{Cookie, Cookies};
@@ -35,6 +34,13 @@ use crate::{
     workspaces::WorkspaceSettings,
     BaseUrl,
 };
+
+use std::str;
+
+use hmac::{Hmac, Mac};
+use sha2::Sha256;
+
+pub type HmacSha256 = Hmac<Sha256>;
 
 pub fn global_service() -> Router {
     Router::new()
@@ -958,4 +964,29 @@ fn set_cookie(state: &State, cookies: Cookies) {
     let mut cookie = Cookie::new("csrf", csrf);
     cookie.set_path("/");
     cookies.add(cookie);
+}
+
+#[derive(Clone, Debug)]
+pub struct SlackVerifier {
+    mac: HmacSha256,
+}
+
+impl SlackVerifier {
+    pub fn new<S: AsRef<[u8]>>(secret: S) -> anyhow::Result<SlackVerifier> {
+        HmacSha256::new_from_slice(secret.as_ref())
+            .map(|mac| SlackVerifier { mac })
+            .map_err(|_| anyhow::anyhow!("invalid secret"))
+    }
+
+    pub fn verify(&self, ts: &str, body: &str, exp_sig: &str) -> anyhow::Result<()> {
+        let basestring = format!("v0:{}:{}", ts, body);
+        let mut mac = self.mac.clone();
+
+        mac.update(basestring.as_bytes());
+        let sig = format!("v0={}", hex::encode(mac.finalize().into_bytes()));
+        if sig != exp_sig {
+            Err(anyhow::anyhow!("signature mismatch"))?;
+        }
+        Ok(())
+    }
 }

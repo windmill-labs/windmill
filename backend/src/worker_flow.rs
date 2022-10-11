@@ -4,7 +4,7 @@ use std::time::Duration;
 use crate::{
     db::DB,
     error::{self, Error},
-    flows::{FlowModule, FlowModuleValue, FlowValue, InputTransform, Retry},
+    flows::{FlowModule, FlowModuleValue, FlowValue, InputTransform, Retry, Suspend},
     jobs::{
         add_completed_job, add_completed_job_error, get_queued_job, postprocess_queued_job, push,
         script_path_to_payload, JobPayload, QueuedJob,
@@ -623,7 +623,7 @@ async fn push_next_flow_job(
         &status_module,
         FlowStatusModule::WaitingForPriorSteps | FlowStatusModule::WaitingForEvents { .. }
     ) {
-        if let Some((count, last)) = needs_resume(&flow, &status) {
+        if let Some((suspend, last)) = needs_resume(&flow, &status) {
             let mut tx = db.begin().await?;
 
             /* Lock this row to prevent the suspend column getting out out of sync
@@ -652,7 +652,8 @@ async fn push_next_flow_job(
 
             resume_messages.extend(resumes.into_iter().map(|r| r.value));
 
-            if is_cancelled.is_none() && resume_messages.len() >= count as usize {
+            let required_events = suspend.required_events.unwrap() as u16;
+            if is_cancelled.is_none() && resume_messages.len() >= required_events as usize {
                 /* If we are woken up after suspending, last_result will be the flow args, but we
                  * should use the result from the last job */
                 if let FlowStatusModule::WaitingForEvents { .. } = &status_module {
@@ -662,10 +663,6 @@ async fn push_next_flow_job(
                             .await?
                             .context("previous job result")?;
                 }
-
-                sqlx::query!("DELETE FROM resume_job WHERE job = $1", last)
-                    .execute(&mut tx)
-                    .await?;
 
                 /* continue on and run this job! */
                 tx.commit().await?;
@@ -683,9 +680,9 @@ async fn push_next_flow_job(
                      WHERE id = $4
                     ",
                 )
-                .bind(json!(FlowStatusModule::WaitingForEvents { count, job: last }))
-                .bind((count - resume_messages.len() as u16) as i32)
-                .bind(30 * MINUTES)
+                .bind(json!(FlowStatusModule::WaitingForEvents { count: required_events, job: last }))
+                .bind((required_events - resume_messages.len() as u16) as i32)
+                .bind(suspend.timeout.map(|t| Duration::from_secs(t.into())).unwrap_or_else(|| 30 * MINUTES))
                 .bind(flow_job.id)
                 .execute(&mut tx)
                 .await?;
@@ -1333,18 +1330,23 @@ fn from_now(duration: Duration) -> chrono::DateTime<chrono::Utc> {
 }
 
 /// returns previous module non-zero suspend count and job
-fn needs_resume(flow: &FlowValue, status: &FlowStatus) -> Option<(u16, Uuid)> {
+fn needs_resume(flow: &FlowValue, status: &FlowStatus) -> Option<(Suspend, Uuid)> {
     let prev = usize::try_from(status.step)
         .ok()
         .and_then(|s| s.checked_sub(1))?;
 
-    let suspend = flow.modules.get(prev)?.suspend;
-    if suspend == 0 {
+    let suspend = flow.modules.get(prev)?.suspend.clone();
+    if suspend
+        .as_ref()
+        .and_then(|s| s.required_events)
+        .unwrap_or(0)
+        == 0
+    {
         return None;
     }
 
     if let &FlowStatusModule::Success { job, .. } = status.modules.get(prev)? {
-        Some((suspend, job))
+        Some((suspend.unwrap(), job))
     } else {
         None
     }
