@@ -467,7 +467,7 @@ pub async fn get_workspace_key<'c>(
     )
     .fetch_one(db)
     .await
-    .map_err(|e| Error::InternalErr(format!("fetching crypt key: {e}")))?;
+    .map_err(|e| Error::InternalErr(format!("fetching workspace key: {e}")))?;
     Ok(key)
 }
 

@@ -45,7 +45,6 @@ url = "^2"
 async-oauth2 = "^0"
 reqwest = { version = "^0", features = ["json"] }
 time = "^0"
-slack-http-verifier = "^0"
 serde_urlencoded = "^0"
 tokio-tar = "^0"
 tempfile = "^3"
@@ -61,6 +60,7 @@ swc_ecma_ast = "^0"
 base64  = "^0"
 unicode-general-category = "^0"
 hmac = "^0"
+sha2 = "^0"
 
 sqlx = { version = "^0", features = ["offline", "macros", "migrate", "uuid", "json", "chrono", "postgres", "runtime-tokio-rustls"]}
 dotenv = "^0"
