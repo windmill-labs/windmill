@@ -7,7 +7,7 @@
  */
 
 use itertools::Itertools;
-use std::{borrow::Borrow, collections::HashMap, io, panic, process::Stdio, time::Duration};
+use std::{borrow::Borrow, collections::HashMap, io, panic, process::Stdio, time::Duration, path::PathBuf};
 use uuid::Uuid;
 
 use crate::{
@@ -31,7 +31,7 @@ use crate::{
 use serde_json::{json, Map, Value};
 
 use tokio::{
-    fs::{symlink, DirBuilder, File},
+    fs::{symlink, DirBuilder, File, create_dir_all},
     io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader},
     process::{Child, Command},
     sync::{
@@ -1045,6 +1045,8 @@ async fn handle_python_job(
 
     create_dependencies_dir(job_dir).await;
 
+    let mut additional_python_path: Option<String> = None;
+
     if requirements.len() > 0 {
         if !disable_nsjail {
             let _ = write_file(
@@ -1058,7 +1060,14 @@ async fn handle_python_job(
             )
             .await?;
         }
+
+        let heavy_deps = ["numpy==", "pandas=="];
+        let separator = " \\\n"; // "aiofiles==0.7.0 \"
+        let heavy: Vec<&str> = requirements.split(separator).filter(|d| heavy_deps.contains(d)).collect(); // todo: regex ^ instead of contains()
+
         let _ = write_file(job_dir, "requirements.txt", &requirements).await?;
+
+        let additional_python_path = handle_python_heavy_reqs(python_path, heavy).await?;
 
         tracing::info!(
             worker_name = %worker_name,
@@ -1197,13 +1206,28 @@ with open("result.json", 'w') as f:
 
     let mut reserved_variables = get_reserved_variables(job, &token, &base_url, db).await?;
     if !disable_nsjail {
+        let mut vars = vec![];
+        let mut shared_deps = "".to_owned();
+        if let Some(pp) = additional_python_path {
+            vars.push(("PYTHONPATH", pp));
+            shared_deps = format!( // todo: cover many paths in PYTHONPATH
+            r#"
+mount {{
+    src: "{python_path}"
+    dst: "{python_path}"
+    is_bind: true
+    rw: false
+}}
+        "#)
+        }
         let _ = write_file(
             job_dir,
             "run.config.proto",
             &NSJAIL_CONFIG_RUN_PYTHON3_CONTENT
                 .replace("{JOB_DIR}", job_dir)
                 .replace("{CLONE_NEWUSER}", &(!disable_nuser).to_string())
-                .replace("{SHARED_MOUNT}", shared_mount),
+                .replace("{SHARED_MOUNT}", shared_mount)
+                .replace("{SHARED_DEPENDENCIES}", shared_deps.as_str()),
         )
         .await?;
     } else {
@@ -1848,6 +1872,43 @@ pub async fn handle_zombie_jobs_periodically(
             }
         }
     }
+}
+
+async fn handle_python_heavy_reqs(python_path: &String, heavy_requirements: Vec<&str>) -> error::Result<Option<String>> {
+    let path = PathBuf::from("/opt");
+    if let Some(req) = heavy_requirements.first() { // todo: handle many reqs
+        let venv_p = path.join(req);
+        create_dir_all(&venv_p).await?;
+        let venv_p = venv_p.as_os_str().to_str().unwrap();
+
+        let mut child = Command::new(python_path)
+            .env_clear()
+            .args(vec![
+                "-m",
+                "venv",
+                &venv_p,
+            ])
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()?;
+        child.wait().await?;
+
+        let p = path.join("bin").join("python");
+        let mut child = Command::new(p.as_os_str().to_str().unwrap())
+            .env_clear()
+            .args(vec![
+                "-m",
+                "pip",
+                "install",
+                &req,
+            ])
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()?;
+        child.wait().await?;
+        return Ok(Some(venv_p.to_owned()));
+    }
+    Ok(None)
 }
 
 #[cfg(test)]
