@@ -68,7 +68,7 @@
 			<ScriptGettingStarted />
 
 			<div class="mt-6 mb-2 text-md font-bold text-gray-900 ">Latest scripts:</div>
-			<Skeleton loading={loading.scripts} layout={[1, [12.25, 12.25, 12.25]]} />
+			<Skeleton loading={loading.scripts} layout={[0.5, [12.25, 12.25, 12.25]]} />
 			<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 my-4">
 				{#each scripts as script}
 					<ScriptBox {script} />
