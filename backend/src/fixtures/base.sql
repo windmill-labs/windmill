@@ -5,6 +5,14 @@ INSERT INTO workspace
             (id,               name,             owner,       domain)
      VALUES ('test-workspace', 'test-workspace', 'test-user', null);
 
+INSERT INTO usr(workspace_id, email, username, is_admin, role) VALUES
+	('test-workspace', 'test@windmill.dev', 'test-user', true, 'Admin');
+
+INSERT INTO workspace_key(workspace_id, kind, key) VALUES
+	('test-workspace', 'cloud', 'test-key');
+
+GRANT ALL PRIVILEGES ON TABLE workspace_key TO windmill_admin;
+GRANT ALL PRIVILEGES ON TABLE workspace_key TO windmill_user;
 
 CREATE FUNCTION "notify_insert_on_completed_job" ()
 RETURNS TRIGGER AS $$

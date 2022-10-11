@@ -59,18 +59,7 @@ async fn main() -> anyhow::Result<()> {
         let base_url_2 = base_url.clone();
         let server_f = async {
             if server_mode {
-                windmill::run_server(
-                    db.clone(),
-                    addr,
-                    &base_url_2,
-                    windmill::EmailSender {
-                        from: "bot@windmill.dev".to_string(),
-                        server: "smtp.gmail.com".to_string(),
-                        password: std::env::var("SMTP_PASSWORD").unwrap_or("NOPASS".to_string()),
-                    },
-                    rx.resubscribe(),
-                )
-                .await?;
+                windmill::run_server(db.clone(), addr, base_url_2, rx.resubscribe()).await?;
             }
             Ok(()) as anyhow::Result<()>
         };

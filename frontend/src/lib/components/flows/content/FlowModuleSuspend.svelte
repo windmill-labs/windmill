@@ -37,7 +37,10 @@
 		if (isSuspendEnabled && flowModule.suspend != undefined) {
 			flowModule.suspend = undefined
 		} else {
-			flowModule.suspend = 1
+			flowModule.suspend = {
+				required_events: 1,
+				timeout: 1800
+			}
 		}
 	}}
 	options={{
@@ -48,7 +51,15 @@
 	<span class="text-xs font-bold">Number of events to wait for</span>
 
 	{#if flowModule.suspend}
-		<input bind:value={flowModule.suspend} type="number" min="1" placeholder="1" />
+		<input bind:value={flowModule.suspend.required_events} type="number" min="1" placeholder="1" />
+	{:else}
+		<input type="number" disabled />
+	{/if}
+
+	<span class="text-xs font-bold">Timeout (in seconds)</span>
+
+	{#if flowModule.suspend}
+		<input bind:value={flowModule.suspend.timeout} type="number" min="1" placeholder="1800" />
 	{:else}
 		<input type="number" disabled />
 	{/if}
