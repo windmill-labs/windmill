@@ -8,22 +8,30 @@
 	import ScriptGettingStarted from '$lib/components/landing/ScriptGettingStarted.svelte'
 	import { FlowService, Job, JobService, Script, ScriptService, type Flow } from '$lib/gen'
 	import { userStore, workspaceStore } from '$lib/stores'
+	import { Skeleton } from '$lib/components/common'
 
 	let scripts: Script[] = []
 	let flows: Flow[] = []
 	let jobs: Job[] = []
+	let loading = {
+		scripts: true,
+		flows: true,
+		jobs: true
+	}
 
 	async function loadScripts() {
 		scripts = await ScriptService.listScripts({
 			workspace: $workspaceStore!,
 			perPage: 3
 		})
+		loading.scripts = false
 	}
 	async function loadFlows() {
 		flows = await FlowService.listFlows({
 			workspace: $workspaceStore!,
 			perPage: 3
 		})
+		loading.flows = false
 	}
 
 	async function loadJobs() {
@@ -32,6 +40,7 @@
 			success: true,
 			createdBy: $userStore?.username
 		})
+		loading.jobs = false
 	}
 
 	$: {
@@ -59,6 +68,7 @@
 			<ScriptGettingStarted />
 
 			<div class="mt-6 mb-2 text-md font-bold text-gray-900 ">Latest scripts:</div>
+			<Skeleton loading={loading.scripts} layout={[0.5, [12.25, 12.25, 12.25]]} />
 			<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 my-4">
 				{#each scripts as script}
 					<ScriptBox {script} />
@@ -95,6 +105,7 @@
 			<FlowGettingStarted />
 			<div class="mt-6 mb-2 text-md font-bold text-gray-900 ">Latest flows:</div>
 
+			<Skeleton loading={loading.flows} layout={[1, [13.5, 13.5, 13.5]]} />
 			<div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 my-4">
 				{#each flows as flow}
 					<FlowLandingBox {flow} />
@@ -143,6 +154,7 @@
 			</h2>
 
 			<div class="grid grid-cols-1 gap-4 my-4">
+				<Skeleton loading={loading.jobs} layout={[[6], 1, [6], 1, [6]]} />
 				{#each jobs.splice(0, 3) as job}
 					<JobDetail {job} />
 				{/each}

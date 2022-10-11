@@ -19,6 +19,7 @@
 	import Tabs from '$lib/components/common/tabs/Tabs.svelte'
 	import Tab from '$lib/components/common/tabs/Tab.svelte'
 	import JobDetail from '$lib/components/jobs/JobDetail.svelte'
+	import { Skeleton } from '$lib/components/common'
 
 	let jobs: Job[] | undefined
 	let error: Error | undefined
@@ -184,14 +185,13 @@ the bearer token they use has less privilege."
 					<Tab value="dependencies">Dependencies</Tab>
 				</Tabs>
 			</div>
+			<Skeleton loading={!jobs} layout={[[6], 1, [6], 1, [6], 1, [6], 1, [6]]} />
 			{#if jobs}
 				<div class="space-y-2">
 					{#each jobs as job}
 						<JobDetail {job} />
 					{/each}
 				</div>
-			{:else if !jobs}
-				<div class="text-gray-700">Loading...</div>
 			{/if}
 		</div>
 		{#if error}

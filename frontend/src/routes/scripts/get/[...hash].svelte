@@ -42,6 +42,7 @@
 	import { onDestroy } from 'svelte'
 	import HighlightCode from '$lib/components/HighlightCode.svelte'
 	import { Badge, Tabs, Tab, TabContent, Button, ActionRow } from '$lib/components/common'
+	import Skeleton from '../../../lib/components/common/skeleton/Skeleton.svelte'
 
 	let script: Script | undefined
 	let topHash: string | undefined
@@ -51,6 +52,7 @@
 
 	let shareModal: ShareModal
 
+	$: loading = !script
 	$: if ($workspaceStore) {
 		loadScript($page.params.hash)
 	}
@@ -126,6 +128,7 @@
 	})
 </script>
 
+<Skeleton {loading} class="!px-4 sm:!px-6 md:!px-8 !max-w-6xl" layout={[0.75, [2, 0, 2], 1]} />
 {#if script}
 	<ActionRow applyPageWidth stickToTop>
 		<svelte:fragment slot="left">
@@ -225,53 +228,54 @@
 		</svelte:fragment>
 	</ActionRow>
 {/if}
-
 <CenteredPage>
-	<div class="flex flex-row flex-wrap justify-between gap-4">
-		<div>
-			<div class="flex items-center flex-wrap mb-2">
-				<h1 class="font-bold text-blue-500 break-all !p-0 mr-2">
-					{script?.path ?? 'Loading...'}
-				</h1>
-				<div class="flex items-center gap-2">
-					<Badge color="dark-gray">
-						{truncateHash(script?.hash ?? '')}
-					</Badge>
-					{#if script?.is_template}
-						<Badge color="blue">Template</Badge>
-					{/if}
-					{#if script && script.kind !== 'script'}
-						<Badge color="blue">
-							{script?.kind}
+	<Skeleton {loading} layout={[[{ h: 1.5, w: 40 }], 1, [{ h: 1, w: 30 }]]} />
+	{#if script}
+		<div class="flex flex-row flex-wrap justify-between gap-4">
+			<div>
+				<div class="flex items-center flex-wrap mb-2">
+					<h1 class="font-bold text-blue-500 break-all !p-0 mr-2">
+						{script?.path ?? 'Loading...'}
+					</h1>
+					<div class="flex items-center gap-2">
+						<Badge color="dark-gray">
+							{truncateHash(script?.hash ?? '')}
 						</Badge>
-					{/if}
-					{#if deploymentInProgress}
-						<Badge
-							color="yellow"
-							icon={{ data: faSpinner, position: 'right', class: 'animate-spin' }}
-						>
-							Deployment in progress
-						</Badge>
-					{/if}
+						{#if script?.is_template}
+							<Badge color="blue">Template</Badge>
+						{/if}
+						{#if script && script.kind !== 'script'}
+							<Badge color="blue">
+								{script?.kind}
+							</Badge>
+						{/if}
+						{#if deploymentInProgress}
+							<Badge
+								color="yellow"
+								icon={{ data: faSpinner, position: 'right', class: 'animate-spin' }}
+							>
+								Deployment in progress
+							</Badge>
+						{/if}
+					</div>
 				</div>
+				<p class="mb-2">
+					<SharedBadge canWrite={can_write} extraPerms={script?.extra_perms ?? {}} />
+					<span class="text-sm text-gray-500">
+						{#if script}
+							Edited {displayDaysAgo(script.created_at || '')} by {script.created_by || 'unknown'}
+						{/if}
+					</span>
+				</p>
 			</div>
-			<p class="mb-2">
-				<SharedBadge canWrite={can_write} extraPerms={script?.extra_perms ?? {}} />
-				<span class="text-sm text-gray-500">
-					{#if script}
-						Edited {displayDaysAgo(script.created_at || '')} by {script.created_by || 'unknown'}
-					{/if}
-				</span>
-			</p>
 		</div>
-	</div>
+	{/if}
 
 	<ShareModal bind:this={shareModal} kind="script" path={script?.path ?? ''} />
 
 	<div class="flex flex-col gap-8 max-w-7xl pt-8 pb-2">
-		{#if script === undefined}
-			<p>loading</p>
-		{:else}
+		<Skeleton {loading} layout={[[3], 1]} />
+		{#if script}
 			<div>
 				<h2 class="font-bold mb-2">{script.summary}</h2>
 				<div class="prose">
@@ -314,10 +318,13 @@
 					{/if}
 				</div>
 			{/if}
+		{/if}
 
-			<div class="flex flex-col lg:flex-row gap-4">
-				<div class="lg:w-1/2">
-					<h3 class="text-lg mb-1 font-bold text-gray-600">Webhooks</h3>
+		<div class="flex flex-col lg:flex-row gap-4">
+			<div class="lg:w-1/2">
+				<h3 class="text-lg mb-1 font-bold text-gray-600">Webhooks</h3>
+				<Skeleton {loading} layout={[[8.5]]} />
+				{#if script}
 					<div class="box">
 						<Tabs selected="uuid">
 							<Tab value="uuid">UUID</Tab>
@@ -357,9 +364,12 @@
 							</svelte:fragment>
 						</Tabs>
 					</div>
-				</div>
-				<div class="lg:w-1/2">
-					<h3 class="text-lg mb-1 font-bold text-gray-600">Versions</h3>
+				{/if}
+			</div>
+			<div class="lg:w-1/2">
+				<h3 class="text-lg mb-1 font-bold text-gray-600">Versions</h3>
+				<Skeleton {loading} layout={[[8.5]]} />
+				{#if script}
 					<div class="box">
 						<h4 class="font-bold text-gray-500">Current</h4>
 						<div class="mt-1">
@@ -378,32 +388,41 @@
 							<p class="text-sm text-gray-500">There are no previous versions</p>
 						{/if}
 					</div>
-				</div>
+				{/if}
 			</div>
-			<div>
-				<h3 class="text-lg mb-1 font-bold text-gray-600">
-					Arguments JSON schema
-					<Tooltip>
-						The jsonschema defines the constraints that the payload must respect to be compatible
-						with the input parameters of this script. The UI form is generated automatically from
-						the script jsonschema. See
-						<a href="https://json-schema.org/"> jsonschema documentation </a>
-					</Tooltip>
-				</h3>
+		</div>
+		<div>
+			<h3 class="text-lg mb-1 font-bold text-gray-600">
+				Arguments JSON schema
+				<Tooltip>
+					The jsonschema defines the constraints that the payload must respect to be compatible with
+					the input parameters of this script. The UI form is generated automatically from the
+					script jsonschema. See
+					<a href="https://json-schema.org/"> jsonschema documentation </a>
+				</Tooltip>
+			</h3>
+			<Skeleton {loading} layout={[[15]]} />
+			{#if script}
 				<SchemaViewer schema={script.schema} />
-			</div>
-			<div>
-				<h3 class="text-lg mb-1 font-bold text-gray-600">Code</h3>
+			{/if}
+		</div>
+		<div>
+			<h3 class="text-lg mb-1 font-bold text-gray-600">Code</h3>
+			<Skeleton {loading} layout={[[20]]} />
+			{#if script}
 				<HighlightCode language={script.language} code={script.content} />
-			</div>
-			<div>
-				<h3 class="text-lg mb-1 font-bold text-gray-600">Dependencies lock file</h3>
+			{/if}
+		</div>
+		<div>
+			<h3 class="text-lg mb-1 font-bold text-gray-600">Dependencies lock file</h3>
+			<Skeleton {loading} layout={[[5]]} />
+			{#if script}
 				{#if script?.lock}
 					<pre class="text-xs">{script.lock}</pre>
 				{:else}
 					<p class="text-sm text-gray-500">There is no lock file for this script</p>
 				{/if}
-			</div>
-		{/if}
+			{/if}
+		</div>
 	</div>
 </CenteredPage>

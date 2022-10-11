@@ -47,7 +47,7 @@
 	import HighlightCode from '$lib/components/HighlightCode.svelte'
 	import TestJobLoader from '$lib/components/TestJobLoader.svelte'
 	import LogViewer from '$lib/components/LogViewer.svelte'
-	import { Button, ActionRow } from '$lib/components/common'
+	import { Button, ActionRow, Skeleton } from '$lib/components/common'
 
 	let workspace_id_query: string | undefined = $page.url.searchParams.get('workspace') ?? undefined
 	let workspace_id: string | undefined
@@ -80,7 +80,7 @@
 
 	// If we get results, focus on that tab. Else, focus on logs
 	function initView(): void {
-		if (job && 'result' in job && job.result != undefined) {
+		if (job && 'result' in job && job.result !== undefined) {
 			viewTab = 'result'
 		} else if (viewTab == 'result') {
 			viewTab = 'logs'
@@ -107,6 +107,11 @@
 	bind:job
 />
 
+<Skeleton
+	class="!max-w-6xl !px-4 sm:!px-6 md:!px-8"
+	loading={!job}
+	layout={[0.75, [2, 0, 2], 2.25, [{ h: 1.5, w: 40 }]]}
+/>
 {#if job?.job_kind === 'script' || job?.job_kind === 'flow'}
 	<ActionRow applyPageWidth stickToTop>
 		<svelte:fragment slot="left">
@@ -233,9 +238,8 @@
 						>
 					{:else if job && 'job_kind' in job}<span
 							class="bg-blue-200 text-gray-700 text-xs rounded px-1 mx-3">{job.job_kind}</span
-						>{/if}
-				{:else}
-					<Icon class="text-gray-200" data={faCircle} scale={iconScale} /> Loading...
+						>
+					{/if}
 				{/if}
 			</div>
 		</h1>
@@ -266,7 +270,14 @@
 					{:else if job}
 						<tr>No arguments</tr>
 					{:else}
-						<tr>Loading</tr>
+						<tr>
+							<td>
+								<Skeleton layout={[[3], 0.5, [3]]} />
+							</td>
+							<td>
+								<Skeleton layout={[[3], 0.5, [3]]} />
+							</td>
+						</tr>
 					{/if}
 				</tbody>
 			</TableCustom>
@@ -279,12 +290,13 @@
 			{/if}
 		</div>
 		<div>
-			<div
-				class="rounded-md p-3 bg-gray-50 shadow-sm sm:text-sm md:text-base"
-				style="min-height: 150px;"
-			>
-				<JobStatus {job} />
-				{#if job}
+			<Skeleton loading={!job} layout={[[9.5]]} />
+			{#if job}
+				<div
+					class="rounded-md p-3 bg-gray-50 shadow-sm sm:text-sm md:text-base"
+					style="min-height: 150px;"
+				>
+					<JobStatus {job} />
 					<div>
 						<Icon class="text-gray-700" data={faClock} scale={SMALL_ICON_SCALE} /><span
 							class="mx-2"
@@ -330,24 +342,24 @@
 								class="mx-2"
 							>
 								By {job.created_by}
-								{#if job.permissioned_as != `u/${job.created_by}`}but permissioned as {job.permissioned_as}{/if}
+								{#if job.permissioned_as !== `u/${job.created_by}`}but permissioned as {job.permissioned_as}{/if}
 							</span>
 						</div>
 					</div>
 					<div class="text-gray-700 text-2xs pt-2">
 						run id: <a href={`/run/${job.id}`}>{job.id}</a>
 					</div>
-				{/if}
-			</div>
+				</div>
+			{/if}
 		</div>
 	</div>
 
-	{#if job?.job_kind != 'flow' && job?.job_kind != 'flowpreview'}
+	{#if job?.job_kind !== 'flow' && job?.job_kind !== 'flowpreview'}
 		<!-- Logs and outputs-->
 		<div class="mr-2 sm:mr-0 mt-12">
 			<div class="flex flex-col sm:flex-row text-base">
 				<button
-					class=" py-1 px-6 block border-gray-200 hover:bg-gray-50  {viewTab != 'result'
+					class=" py-1 px-6 block border-gray-200 hover:bg-gray-50  {viewTab !== 'result'
 						? 'text-gray-500'
 						: 'text-gray-700 font-semibold  '}"
 					on:click={() => (viewTab = 'result')}
@@ -361,7 +373,7 @@
 					>
 				</button>
 				<button
-					class="py-1 px-6 block border-gray-200 hover:bg-gray-50  {viewTab != 'logs'
+					class="py-1 px-6 block border-gray-200 hover:bg-gray-50  {viewTab !== 'logs'
 						? 'text-gray-500'
 						: 'text-gray-700 font-semibold  '}"
 					on:click={() => (viewTab = 'logs')}
@@ -370,7 +382,7 @@
 				</button>
 				{#if job && 'raw_code' in job && job.raw_code}
 					<button
-						class="py-1 px-6 block border-gray-200 hover:bg-gray-50  {viewTab != 'code'
+						class="py-1 px-6 block border-gray-200 hover:bg-gray-50  {viewTab !== 'code'
 							? 'text-gray-500'
 							: 'text-gray-700 font-semibold  '}"
 						on:click={() => (viewTab = 'code')}
@@ -379,23 +391,28 @@
 					</button>
 				{/if}
 			</div>
-			<div class="flex flex-row border rounded-md p-3 max-h-1/2 overflow-auto">
-				{#if viewTab == 'logs'}
-					<div class="w-full">
-						<LogViewer isLoading={!(job && 'logs' in job && job.logs)} content={job?.logs} />
-					</div>
-				{:else if viewTab == 'code'}
-					{#if job && 'raw_code' in job && job.raw_code}
-						<HighlightCode language={job.language} code={job.raw_code} />
-					{:else if job}No code is available
-					{:else}Loading...{/if}
-				{:else if job != undefined && 'result' in job && job.result != undefined}<DisplayResult
-						result={job.result}
-					/>
-				{:else if job}No output is available yet
-				{:else}Loading...
-				{/if}
-			</div>
+			<Skeleton loading={!job} layout={[[5]]} />
+			{#if job}
+				<div class="flex flex-row border rounded-md p-3 max-h-1/2 overflow-auto">
+					{#if viewTab == 'logs'}
+						<div class="w-full">
+							<LogViewer isLoading={!(job && 'logs' in job && job.logs)} content={job?.logs} />
+						</div>
+					{:else if viewTab == 'code'}
+						{#if job && 'raw_code' in job && job.raw_code}
+							<HighlightCode language={job.language} code={job.raw_code} />
+						{:else if job}
+							No code is available
+						{:else}
+							<Skeleton layout={[[5]]} />
+						{/if}
+					{:else if job !== undefined && 'result' in job && job.result !== undefined}
+						<DisplayResult result={job.result} />
+					{:else if job}
+						No output is available yet
+					{/if}
+				</div>
+			{/if}
 		</div>
 	{/if}
 </CenteredPage>

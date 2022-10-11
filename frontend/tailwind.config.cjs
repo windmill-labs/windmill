@@ -198,13 +198,18 @@ const config = {
 					borderRadius: theme('borderRadius.sm'),
 					boxShadow: theme('boxShadow.sm'),
 					padding: theme('spacing.4')
-				},				
+				},
 				'pre code.hljs': {
 					padding: '0px',
 					fontSize: theme('fontSize.xs'),
 					lineHeight: theme('lineHeight.4'),
 					whiteSpace: 'pre-wrap'
-				}
+				},
+				'.animate-skeleton': {
+					animation: theme('animation.pulse'),
+					backgroundColor: theme('colors.blue.200'),
+					borderRadius: theme('borderRadius.DEFAULT'),
+        }
 			});
 			addUtilities({
 				'.separator': {
