@@ -664,10 +664,6 @@ async fn push_next_flow_job(
                             .context("previous job result")?;
                 }
 
-                sqlx::query!("DELETE FROM resume_job WHERE job = $1", last)
-                    .execute(&mut tx)
-                    .await?;
-
                 /* continue on and run this job! */
                 tx.commit().await?;
 

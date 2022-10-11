@@ -51,6 +51,8 @@
 {#if kind === 'read' || kind === 'write'}
 	<Badge icon={{ data: faPeopleGroup }} capitalize color="blue">
 		{kind}
-		<Tooltip>{reason}</Tooltip>
+		{#if reason}
+			<Tooltip>{reason}</Tooltip>
+		{/if}
 	</Badge>
 {/if}

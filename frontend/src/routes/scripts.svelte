@@ -29,7 +29,6 @@
 		sendUserToast,
 		truncateHash
 	} from '$lib/utils'
-	import Badge from '$lib/components/Badge.svelte'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
 	import Dropdown from '$lib/components/Dropdown.svelte'
 	import Modal from '$lib/components/Modal.svelte'
@@ -40,10 +39,8 @@
 	import TableCustom from '$lib/components/TableCustom.svelte'
 	import { Highlight } from 'svelte-highlight'
 	import { typescript } from 'svelte-highlight/languages/typescript'
-	import { Button } from '$lib/components/common'
+	import { Button, Tabs, Tab, Badge, Skeleton } from '$lib/components/common'
 	import CreateActions from '$lib/components/scripts/CreateActions.svelte'
-	import Tabs from '$lib/components/common/tabs/Tabs.svelte'
-	import Tab from '$lib/components/common/tabs/Tab.svelte'
 
 	type Tab = 'all' | 'personal' | 'groups' | 'shared' | 'examples' | 'hub'
 	type Section = [string, ScriptW[]]
@@ -54,6 +51,7 @@
 	let hubFilter = ''
 	let groupedScripts: Section[] = []
 	let communityScripts: Section[] = []
+	let loading = true
 
 	let tab: Tab = 'all'
 
@@ -122,6 +120,7 @@
 			}
 		})
 		scripts = tab == 'all' ? allScripts : allScripts.filter((x) => x.tab == tab)
+		loading = false
 		fuse.setCollection(scripts)
 	}
 
@@ -257,10 +256,11 @@
 									{/each}
 								</tbody>
 							</TableCustom>
-						{:else}<span class="mt-2 text-sm text-red-400"
-								>Hub not reachable. If your environment is air gapped, contact sales@windmill.dev to
-								setup a local mirror.</span
-							>
+						{:else}
+							<span class="mt-2 text-sm text-red-400">
+								Hub not reachable. If your environment is air gapped, contact sales@windmill.dev to
+								setup a local mirror.
+							</span>
 						{/if}
 					</div>
 				{/if}
@@ -277,128 +277,130 @@
 							{/if}
 						</h3>
 					{/if}
-					{#if scripts.length == 0 && sectionTab == 'personal'}
+					{#if loading}
+						<div class="grid gap-4 sm:grid-cols-1 md:grid-cols-2 xl:grid-cols-3">
+							{#each new Array(3) as _}
+								<Skeleton layout={[[8.5]]} />
+							{/each}
+						</div>
+					{:else if scripts.length == 0 && sectionTab == 'personal'}
 						<p class="text-xs text-gray-600 italic">No scripts yet</p>
 					{:else}
 						<div class="grid md:grid-cols-2 gap-4 sm:grid-cols-1 xl:grid-cols-3">
 							{#each scripts as { summary, path, hash, language, extra_perms, canWrite, lock_error_logs, kind }}
 								<div
-									class="flex flex-col justify-between script max-w-lg overflow-visible shadow-sm shadow-blue-100 border border-gray-200 bg-gray-50 py-2"
+									class="flex flex-col justify-between gap-2 max-w-lg overflow-visible shadow-sm shadow-blue-100 
+									border border-gray-200 bg-gray-50 py-2 hover:border-gray-600 hover:border-opacity-60"
 								>
-									<a href="/scripts/get/{hash}">
-										<div class="px-6 overflow-auto ">
+									<div class="flex flex-col gap-1">
+										<a href="/scripts/get/{hash}" class="px-6">
 											<div class="font-semibold text-gray-700">
 												{!summary || summary.length == 0 ? path : summary}
 											</div>
 											<p class="text-gray-700 text-xs">
-												<a class="text-gray-700 text-xs" href="/scripts/get/{hash}">{path} </a><span
-													class="commit-hash ml-3">{truncateHash(hash)}</span
-												>
+												{path}
+												<Badge color="gray" baseClass="text-xs">{truncateHash(hash)}</Badge>
 											</p>
-										</div>
-									</a>
-									<div class="flex flex-row pl-6 pr-2 mt-2">
-										<div class="mr-3 w-full">
+										</a>
+										<div class="flex flex-wrap items-center gap-2 mt-1 px-6">
 											<SharedBadge {canWrite} extraPerms={extra_perms} />
-											<Badge twBgColor="bg-blue-200">{language}</Badge>
+											<Badge color="blue" capitalize>{language}</Badge>
 											{#if kind != 'script'}
-												<Badge twBgColor="bg-blue-300">{kind}</Badge>
+												<Badge color="blue" capitalize>{kind}</Badge>
 											{/if}
-											{#if lock_error_logs}<Badge
-													twBgColor="bg-red-200"
-													tooltip="The script was not deployed due to an error during deployment. See more details about the error on the script page."
-													>Deployment error</Badge
-												>{/if}
+											{#if lock_error_logs}
+												<Badge color="red">Deployment error</Badge>
+											{/if}
 										</div>
-										<div class="flex flex-row-reverse w-full place space-x-1">
-											<div>
-												<Dropdown
-													dropdownItems={[
-														{
-															displayName: 'View script',
-															icon: faEye,
-															href: `/scripts/get/${hash}`
+									</div>
+									<div class="flex flex-row-reverse items-end w-full gap-2 pr-2 mt-2">
+										<div>
+											<Dropdown
+												dropdownItems={[
+													{
+														displayName: 'View script',
+														icon: faEye,
+														href: `/scripts/get/${hash}`
+													},
+													{
+														displayName: 'Edit',
+														icon: faEdit,
+														href: `/scripts/edit/${hash}`,
+														disabled: !canWrite
+													},
+													{
+														displayName: 'Edit code',
+														icon: faEdit,
+														href: `/scripts/edit/${hash}?step=2`,
+														disabled: !canWrite
+													},
+													{
+														displayName: 'Use as template',
+														icon: faCodeFork,
+														href: `/scripts/add?template=${path}`
+													},
+													{
+														displayName: 'View runs',
+														icon: faList,
+														href: `/runs/${path}`
+													},
+													{
+														displayName: 'Schedule',
+														icon: faCalendarAlt,
+														href: `/schedule/add?path=${path}`
+													},
+													{
+														displayName: 'Share',
+														icon: faShare,
+														action: () => {
+															shareModal.openModal(path)
 														},
-														{
-															displayName: 'Edit',
-															icon: faEdit,
-															href: `/scripts/edit/${hash}`,
-															disabled: !canWrite
+														disabled: !canWrite
+													},
+													{
+														displayName: 'Archive',
+														icon: faArchive,
+														action: () => {
+															path ? archiveScript(path) : null
 														},
-														{
-															displayName: 'Edit code',
-															icon: faEdit,
-															href: `/scripts/edit/${hash}?step=2`,
-															disabled: !canWrite
-														},
-														{
-															displayName: 'Use as template',
-															icon: faCodeFork,
-															href: `/scripts/add?template=${path}`
-														},
-														{
-															displayName: 'View runs',
-															icon: faList,
-															href: `/runs/${path}`
-														},
-														{
-															displayName: 'Schedule',
-															icon: faCalendarAlt,
-															href: `/schedule/add?path=${path}`
-														},
-														{
-															displayName: 'Share',
-															icon: faShare,
-															action: () => {
-																shareModal.openModal(path)
-															},
-															disabled: !canWrite
-														},
-														{
-															displayName: 'Archive',
-															icon: faArchive,
-															action: () => {
-																path ? archiveScript(path) : null
-															},
-															type: 'delete',
-															disabled: !canWrite
-														}
-													]}
-												/>
-											</div>
-											{#if canWrite}
-												<div>
-													<Button
-														variant="border"
-														size="xs"
-														startIcon={{ icon: faEdit }}
-														href="/scripts/edit/{hash}?step=2"
-													>
-														Edit
-													</Button>
-												</div>
-											{:else}
-												<div>
-													<Button
-														variant="border"
-														size="xs"
-														startIcon={{ icon: faCodeFork }}
-														href="/scripts/add?template={path}"
-													>
-														Fork
-													</Button>
-												</div>
-											{/if}
+														type: 'delete',
+														disabled: !canWrite
+													}
+												]}
+											/>
+										</div>
+										{#if canWrite}
 											<div>
 												<Button
 													variant="border"
 													size="xs"
-													startIcon={{ icon: faPlay }}
-													href="/scripts/run/{hash}"
+													startIcon={{ icon: faEdit }}
+													href="/scripts/edit/{hash}?step=2"
 												>
-													Run
+													Edit
 												</Button>
 											</div>
+										{:else}
+											<div>
+												<Button
+													variant="border"
+													size="xs"
+													startIcon={{ icon: faCodeFork }}
+													href="/scripts/add?template={path}"
+												>
+													Fork
+												</Button>
+											</div>
+										{/if}
+										<div>
+											<Button
+												variant="border"
+												size="xs"
+												startIcon={{ icon: faPlay }}
+												href="/scripts/run/{hash}"
+											>
+												Run
+											</Button>
 										</div>
 									</div>
 								</div>
@@ -418,13 +420,3 @@
 		loadScripts()
 	}}
 />
-
-<style>
-	.selected:hover {
-		@apply border border-gray-500 rounded-md border-opacity-50;
-	}
-
-	.script:hover {
-		@apply border border-gray-600 border-opacity-60;
-	}
-</style>
