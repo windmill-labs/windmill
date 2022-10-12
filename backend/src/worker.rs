@@ -49,6 +49,7 @@ use futures::{
 use async_recursion::async_recursion;
 
 const TMP_DIR: &str = "/tmp/windmill";
+const PIP_SUPERCACHE_DIR: &str = "/tmp/windmill/cache/pip_permanent";
 const PIP_CACHE_DIR: &str = "/tmp/windmill/cache/pip";
 const DENO_CACHE_DIR: &str = "/tmp/windmill/cache/deno";
 const GO_CACHE_DIR: &str = "/tmp/windmill/cache/go";
@@ -95,7 +96,13 @@ pub async fn run_worker(
     let worker_dir = format!("{TMP_DIR}/{worker_name}");
     tracing::debug!(worker_dir = %worker_dir, worker_name = %worker_name, "Creating worker dir");
 
-    for x in [&worker_dir, PIP_CACHE_DIR, DENO_CACHE_DIR, GO_CACHE_DIR] {
+    for x in [
+        &worker_dir,
+        PIP_SUPERCACHE_DIR,
+        PIP_CACHE_DIR,
+        DENO_CACHE_DIR,
+        GO_CACHE_DIR,
+    ] {
         DirBuilder::new()
             .recursive(true)
             .create(x)
@@ -1105,7 +1112,8 @@ async fn handle_python_job(
         }
 
         additional_python_paths =
-            handle_python_heavy_reqs(python_path, heavy, vars.clone()).await?;
+            handle_python_heavy_reqs(python_path, heavy, vars.clone(), job, logs, db, timeout)
+                .await?;
 
         tracing::info!(
             worker_name = %worker_name,
@@ -1235,7 +1243,7 @@ with open("result.json", 'w') as f:
     let mut reserved_variables = get_reserved_variables(job, &token, &base_url, db).await?;
     let additional_python_paths_folders = additional_python_paths
         .iter()
-        .map(|x| format!(":/opt/{x}/lib/python{python_version}/site-packages"))
+        .map(|x| format!(":{PIP_SUPERCACHE_DIR}/{x}/lib/python{python_version}/site-packages"))
         .join("");
     if !disable_nsjail {
         let shared_deps = additional_python_paths
@@ -1919,42 +1927,50 @@ async fn handle_python_heavy_reqs(
     python_path: &String,
     heavy_requirements: Vec<&str>,
     vars: Vec<(&str, &String)>,
+    job: &QueuedJob,
+    logs: &mut String,
+    db: &sqlx::Pool<sqlx::Postgres>,
+    timeout: i32,
 ) -> error::Result<Vec<String>> {
-    const OPT_PATH: &'static str = "/opt";
     let mut req_paths: Vec<String> = vec![];
     for req in heavy_requirements {
         // todo: handle many reqs
-        let venv_p = format!("{}/{}", OPT_PATH, req);
+        let venv_p = format!("{PIP_SUPERCACHE_DIR}/{req}");
         if metadata(&venv_p).await.is_ok() {
             tracing::info!("already exists: {:?}", &venv_p);
             req_paths.push(venv_p);
             continue;
         }
 
-        let mut child = Command::new(python_path)
-            .current_dir("/opt")
+        logs.push_str("\n--- PIP SUPERCACHE INSTALL ---\n");
+        logs.push_str(&format!("\nthe heavy dependency {req} is being installed for the first time.\nIt will take a bit longer but further execution will be much faster!"));
+
+        logs.push_str("venv creation\n");
+
+        let child = Command::new(python_path)
+            .current_dir(PIP_SUPERCACHE_DIR)
             .env_clear()
             .args(vec![
                 "-c",
-                &format!("'import venv; venv.create(\"./{req}\")'"),
+                &format!("import venv; venv.create(\"./{req}\");"),
             ])
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .spawn()?;
-        child.wait().await?;
 
-        println!("installing ...");
-        let mut child = Command::new(python_path)
-            .current_dir(format!("/opt/{}", &req))
+        handle_child(&job.id, db, logs, timeout, child).await?;
+
+        logs.push_str("pip install\n");
+
+        let child = Command::new(python_path)
+            .current_dir(format!("{PIP_SUPERCACHE_DIR}/{}", &req))
             .env_clear()
             .envs(vars.clone())
             .args(vec!["-m", "pip", "install", &req])
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .spawn()?;
-        println!("spawned ...");
-        child.wait().await?;
-        println!("awaited");
+        handle_child(&job.id, db, logs, timeout, child).await?;
 
         req_paths.push(venv_p);
     }
@@ -2404,7 +2420,7 @@ import numpy as np
 
 def main():
     a = np.arange(15).reshape(3, 5)
-    return a.len()
+    return len(a)
         "#
         .to_owned();
 
@@ -2412,7 +2428,7 @@ def main():
 
         let result = run_job_in_new_worker_until_complete(&db, job).await;
 
-        assert_eq!(result, serde_json::json!("hello world"));
+        assert_eq!(result, serde_json::json!(3));
     }
 
     #[sqlx::test(fixtures("base"))]
