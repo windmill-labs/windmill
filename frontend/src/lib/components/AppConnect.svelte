@@ -20,10 +20,7 @@
 	import { oauthStore, userStore, workspaceStore } from '$lib/stores'
 	import { faMinus, faPlus } from '@fortawesome/free-solid-svg-icons'
 	import IconedResourceType from './IconedResourceType.svelte'
-	import PageHeader from './PageHeader.svelte'
-
 	import { OauthService, ResourceService, VariableService, type TokenResponse } from '$lib/gen'
-
 	import { page } from '$app/stores'
 	import { sendUserToast, truncateRev } from '$lib/utils'
 	import { createEventDispatcher } from 'svelte'
@@ -209,7 +206,7 @@
 					</p>
 				</div>
 			{/if}
-			<PageHeader title="OAuth APIs" />
+			<div class="mb-1 font-semibold text-gray-700">OAuth APIs</div>
 			<div class="grid sm:grid-cols-2 md:grid-cols-3 gap-x-2 gap-y-1 items-center mb-2">
 				{#each Object.entries(connects).sort((a, b) => a[0].localeCompare(b[0])) as [key, values]}
 					<Button
@@ -229,7 +226,7 @@
 					</Button>
 				{/each}
 			</div>
-			<PageHeader title="Scopes" primary={false} />
+			<div class="mb-1 font-semibold text-gray-700 mt-6 mt-6">Scopes</div>
 			{#if !manual && resource_type != ''}
 				{#each scopes as v}
 					<div class="flex flex-row max-w-md mb-2">
@@ -266,7 +263,7 @@
 			{:else}
 				<p class="italic text-sm">Pick an OAuth API and customize the scopes here</p>
 			{/if}
-			<PageHeader title="Extra Params" primary={false} />
+			<div class="mb-1 font-semibold text-gray-700 mt-6">Extra params</div>
 			{#if !manual && resource_type != ''}
 				{#each extra_params as [k, v]}
 					<div class="flex flex-row max-w-md mb-2">
@@ -306,7 +303,7 @@
 			{:else}
 				<p class="italic text-sm">Pick an OAuth API and customize the extra parameters here</p>
 			{/if}
-			<PageHeader title="Non OAuth APIs" />
+			<div class="mb-1 font-semibold text-gray-700 mt-6">Non OAuth APIs</div>
 			<div class="grid sm:grid-cols-2 md:grid-cols-3 gap-x-2 gap-y-1 items-center mb-2">
 				{#each connectsManual as [key, instructions]}
 					<Button
@@ -325,7 +322,7 @@
 			</div>
 		{:else if step == 2}
 			{#if manual}
-				<PageHeader title="Instructions" />
+				<div class="mb-1 font-semibold text-gray-700 mt-6">Instructions</div>
 				<div>
 					{apiTokenApps[resource_type].instructions}
 				</div>

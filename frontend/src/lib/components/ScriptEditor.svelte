@@ -15,9 +15,9 @@
 	import { HSplitPane, VSplitPane } from 'svelte-split-pane'
 	import { faGithub } from '@fortawesome/free-brands-svg-icons'
 	import EditorBar from './EditorBar.svelte'
-	import Button from './common/button/Button.svelte'
 	import TestJobLoader from './TestJobLoader.svelte'
 	import { onMount } from 'svelte'
+	import { Button, Kbd } from './common'
 
 	// Exported
 	export let schema: Schema = emptySchema()
@@ -156,12 +156,10 @@
 						<div class="h-full overflow-auto">
 							<div class="p-4">
 								<div class="break-all relative font-sans">
-									<div class="items-baseline text-xs text-gray-700 italic hidden md:block">
-										<p>
-											Move the focus outside of the text editor to recompute the input schema from
-											main signature or press Ctrl/Cmd+S
-										</p>
-									</div>
+									<p class="items-baseline text-xs text-gray-600 hidden md:block mb-3">
+										To recompute the input schema press <Kbd class="">Ctrl/Cmd</Kbd> + <Kbd>S</Kbd> or
+										move the focus outside of the text editor
+									</p>
 									<SchemaForm {schema} bind:args bind:isValid />
 								</div>
 							</div>

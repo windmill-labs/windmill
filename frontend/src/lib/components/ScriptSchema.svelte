@@ -21,37 +21,36 @@
 </script>
 
 <div class="w-full">
-	<PageHeader title="UI customisation" />
+	<h1 class="mb-4">UI customisation</h1>
 
 	<Tabs selected="ui">
 		<Tab value="ui">UI</Tab>
 		<Tab value="jsonschema">JSON Schema</Tab>
 		<svelte:fragment slot="content">
 			<TabContent value="ui">
-				<div class="grid grid-cols-3 gap-2">
-					<div>
-						<h2 class="mb-1">Summary</h2>
-						<div class="mb-2 md:mb-3 text-sm">
-							<textarea bind:value={summary} placeholder="Edit summary" />
-							<div class="prose text-sm">
-								{summary != '' ? summary : 'No summary'}
-							</div>
-						</div>
-					</div>
-					<div class="col-span-2">
-						<h2 class="mb-1">Description</h2>
-						<div class="mb-2 md:mb-6">
-							<div class="prose text-sm">
-								<textarea bind:value={description} placeholder="Edit description" />
-								<div class="prose text-sm">
-									<SvelteMarkdown
-										source={description && description != '' ? description : 'No description'}
-									/>
+				<h2 class="border-b pb-1 mt-6">Display</h2>
+				<div class="grid grid-cols-3 gap-2 mt-4">
+					<label>
+						<div class="text-gray-700 text-sm">Summary</div>
+						<textarea bind:value={summary} placeholder="Edit summary" class="text-sm" />
+					</label>
+					<label class="col-span-2">
+						<div class="text-gray-700 text-sm">Description</div>
+						<textarea bind:value={description} placeholder="Edit description" class="text-sm" />
+						<div class="mt-1 px-2">
+							{#if description}
+								<div
+									class="prose !max-w-full !max-h-48 text-xs shadow-inner shadow-blue overflow-auto mt-1"
+								>
+									<SvelteMarkdown source={description} />
 								</div>
-							</div>
+							{:else}
+								<div class="text-xs text-gray-500"> Enter a description to see the preview </div>
+							{/if}
 						</div>
-					</div>
+					</label>
 				</div>
+				<h2 class="border-b pb-1 mt-6">Arguments</h2>
 				<div class="bg-blue-100 border-l-4 border-blue-600 text-blue-700 p-4 m-4" role="alert">
 					<p class="font-bold">Synchronized with main signature</p>
 					<p>

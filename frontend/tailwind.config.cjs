@@ -176,7 +176,7 @@ const config = {
 				},
 				'h3': {
 					fontSize: '20px',
-					fontWeight: theme('fontWeight.extrabold'),
+					fontWeight: theme('fontWeight.bold'),
 					lineHeight: '1.2',
 					color: theme('colors.gray.600'),
 					[`@media (min-width: ${theme('screens.fhd')})`]: {

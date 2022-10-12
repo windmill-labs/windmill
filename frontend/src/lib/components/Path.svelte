@@ -14,6 +14,7 @@
 	import { userStore, workspaceStore } from '$lib/stores'
 	import { sleep } from '$lib/utils'
 	import { createEventDispatcher } from 'svelte'
+	import Required from './Required.svelte'
 
 	type PathKind = 'resource' | 'script' | 'variable' | 'flow' | 'schedule'
 	export let meta: Meta = {
@@ -175,7 +176,7 @@
 		</label>
 		{#if meta.ownerKind === 'user'}
 			<label class="block">
-				<span class="text-sm text-gray-700">Owner</span>
+				<span class="text-gray-700 text-sm">Owner</span>
 				<input
 					bind:value={meta.owner}
 					placeholder={$userStore?.username ?? ''}
@@ -184,7 +185,7 @@
 			</label>
 		{:else}
 			<label class="block">
-				<span class="text-sm text-gray-700">Owner</span>
+				<span class="text-gray-700 text-sm">Owner</span>
 				<select bind:value={meta.owner}>
 					{#each groups as g}
 						<option>{g.name}</option>
@@ -193,7 +194,10 @@
 			</label>
 		{/if}
 		<label class="block col-span-2">
-			<span class="text-gray-700 text-sm">Name<span class="text-red-600 text-sm">*</span></span>
+			<span class="text-gray-700 text-sm">
+				Name
+				<Required required={true} />
+			</span>
 			<input
 				autofocus
 				autocomplete="off"

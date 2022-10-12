@@ -334,8 +334,8 @@
 	<div slot="title">{resourceViewerTitle}</div>
 	<div slot="content">
 		{#if typeModalMode === 'create'}
-			<label for="inp"
-				><h3 class="font-semibold text-gray-700">Name<Required required={true} /></h3>
+			<label for="inp">
+				<div class="font-semibold text-gray-700">Name<Required required={true} /></div>
 				<div>
 					<span
 						class="border border-gray-700 rounded p-1 -mr-4 text-sm bg-gray-200 inline-block w-8"
@@ -346,11 +346,11 @@
 					</div>
 				</div>
 			</label>
-			<label
-				><h3 class="mt-4 font-semibold text-gray-700">Description</h3>
+			<label>
+				<div class="mt-4 font-semibold text-gray-700">Description</div>
 				<input type="text" bind:value={newResourceTypeDescription} /></label
 			>
-			<h3 class="mt-4 mb-2 font-semibold text-gray-700">Schema</h3>
+			<div class="mt-4 mb-2 font-semibold text-gray-700">Schema</div>
 			<SchemaEditor bind:schema={newResourceTypeSchema} />
 		{:else if typeModalMode === 'view'}
 			<Highlight language={json} code={JSON.stringify(resourceViewerSchema, null, 4)} />

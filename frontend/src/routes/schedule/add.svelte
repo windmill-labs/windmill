@@ -111,11 +111,11 @@
 </script>
 
 <CenteredPage>
-	<PageHeader title={edit ? 'Edit schedule ' + path : 'New schedule'} />
+	<h1 class="mb-4">{edit ? 'Edit schedule ' + path : 'New schedule'}</h1>
 
 	<div>
 		{#if !edit}
-			<h2>Save schedule as</h2>
+			<h2 class="border-b pb-1 mt-8 mb-2">Save schedule as</h2>
 
 			<Path
 				bind:error={pathError}
@@ -134,7 +134,7 @@
 			>
 		{/if}
 
-		<h2 class="my-2 md:mt-6">Script</h2>
+		<h2 class="border-b pb-1 mt-8 mb-2">Script</h2>
 		<p class="text-xs mb-1 text-gray-600">
 			Pick a script or flow to be triggered by the schedule<Required required={true} />
 		</p>
@@ -145,7 +145,7 @@
 			bind:scriptPath={script_path}
 		/>
 		<div class="max-w-5xl {edit ? '' : 'mt-2 md:mt-6'}">
-			<h2>Arguments</h2>
+			<h2 class="border-b pb-1 mt-8 mb-2">Arguments</h2>
 			{#if runnable}
 				{#if runnable?.schema && runnable.schema.properties && Object.keys(runnable.schema.properties).length > 0}
 					<SchemaForm schema={runnable.schema} bind:isValid bind:args />
@@ -160,8 +160,9 @@
 				</div>
 			{/if}
 		</div>
-		<h2 class="mt-2 md:mt-6">
-			Schedule<Tooltip>Schedules use CRON syntax. Seconds are mandatory.</Tooltip>
+		<h2 class="border-b pb-1 mt-8 mb-2">
+			<span class="mr-1">Schedule</span>
+			<Tooltip>Schedules use CRON syntax. Seconds are mandatory.</Tooltip>
 		</h2>
 		<CronInput bind:schedule bind:validCRON />
 		<div class="flex flex-row-reverse mt-2 ">

@@ -124,7 +124,7 @@
 					bind:value={property.description}
 				/>
 			</label>
-			<h3 class="font-semibold text-gray-700">Type<Required required={true} /></h3>
+			<div class="font-semibold text-gray-700">Type<Required required={true} /></div>
 			<div class="grid sm:grid-cols-3 md:grid-cols-4 gap-x-2 gap-y-1 items-center mb-2 w-full">
 				{#each ARG_TYPES as argType}
 					{@const isSelected = argType == property.selectedType}
@@ -158,7 +158,7 @@
 			<Switch
 				label={'Required'}
 				textFormat={'text-md font-semibold text-gray-700'}
-				class="my-2"
+				class="my-2 !justify-start"
 				bind:checked={property.required}
 			/>
 			<ArgInput
@@ -168,7 +168,7 @@
 				pattern={property.pattern}
 			/>
 			{#if property.selectedType !== 'boolean'}
-				<h2 class="mb-2 mt-4">Advanced</h2>
+				<div class="font-semibold text-gray-700 mb-2 mt-4">Advanced</div>
 
 				{#if property.selectedType == 'string'}
 					<StringTypeNarrowing
