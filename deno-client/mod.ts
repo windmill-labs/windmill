@@ -135,3 +135,7 @@ export async function databaseUrlFromResource(path: string): Promise<string> {
     return `postgresql://${resource.user}:${resource.password}@${resource.host}:${resource.port}/${resource.dbname}?sslmode=${resource.sslmode}`
 }
 
+
+export function genNounceAndHmac() {
+
+}
