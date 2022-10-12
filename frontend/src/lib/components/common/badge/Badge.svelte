@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { classNames } from '$lib/utils'
-	import { CloseButton } from 'flowbite-svelte'
+	import { faClose } from '@fortawesome/free-solid-svg-icons'
 	import Icon from 'svelte-awesome'
 	import { type BadgeColor, type BadgeIconProps, ColorModifier } from './model'
 
@@ -19,6 +19,7 @@
 		position: 'left',
 		scale: 0.7
 	}
+
 	let hidden = false
 	const colors: Record<BadgeColor, string> = {
 		gray: 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300',
@@ -77,12 +78,7 @@
 			<Icon {...iconProps} />
 		{/if}
 		{#if dismissable}
-			<CloseButton
-				{color}
-				on:click={handleHide}
-				size={large ? 'sm' : 'xs'}
-				class="ml-1.5 -mr-1.5"
-			/>
+			<Icon data={faClose} on:click={handleHide} class={classNames('mx-0.5')} />
 		{/if}
 	</svelte:element>
 </span>
