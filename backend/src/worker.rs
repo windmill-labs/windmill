@@ -68,7 +68,7 @@ const DEFAULT_HEAVY_DEPS: [&str; 18] = [
     "rfc3986",
     "six",
     "sniffio",
-    "windmill-api",
+    "windmill_api",
     "wmill",
     "psycopg2-binary",
     "matplotlib",
@@ -1989,23 +1989,7 @@ async fn handle_python_heavy_reqs(
         logs.push_str("\n--- PIP SUPERCACHE INSTALL ---\n");
         logs.push_str(&format!("\nthe heavy dependency {req} is being installed for the first time.\nIt will take a bit longer but further execution will be much faster!"));
 
-        logs.push_str("venv creation\n");
-
-        let child = Command::new(python_path)
-            .current_dir(PIP_SUPERCACHE_DIR)
-            .env_clear()
-            .args(vec![
-                "-c",
-                &format!("import venv; venv.create(\"./{req}\");"),
-            ])
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()?;
-
-        handle_child(&job.id, db, logs, timeout, child).await?;
-
         logs.push_str("pip install\n");
-
         let child = Command::new(python_path)
             .env_clear()
             .envs(vars.clone())
