@@ -54,7 +54,7 @@ const PIP_CACHE_DIR: &str = "/tmp/windmill/cache/pip";
 const DENO_CACHE_DIR: &str = "/tmp/windmill/cache/deno";
 const GO_CACHE_DIR: &str = "/tmp/windmill/cache/go";
 const NUM_SECS_ENV_CHECK: u64 = 15;
-const DEFAULT_HEAVY_DEPS: [&str; 16] = [
+const DEFAULT_HEAVY_DEPS: [&str; 18] = [
     "numpy",
     "pandas",
     "anyio",
@@ -71,6 +71,8 @@ const DEFAULT_HEAVY_DEPS: [&str; 16] = [
     "windmill-api",
     "wmill",
     "psycopg2-binary",
+    "matplotlib",
+    "seaborn",
 ];
 
 const INCLUDE_DEPS_PY_SH_CONTENT: &str = include_str!("../../nsjail/download_deps.py.sh");
@@ -179,7 +181,6 @@ pub async fn run_worker(
     let python_heavy_deps = std::env::var("PYTHON_HEAVY_DEPS")
         .map(|x| x.split(',').map(|x| x.to_string()).collect::<Vec<_>>())
         .unwrap_or_else(|_| vec![]);
-    let python_version = std::env::var("PYTHON_VERSION").unwrap_or_else(|_| "3.10".to_string());
     let nsjail_path = std::env::var("NSJAIL_PATH").unwrap_or_else(|_| "nsjail".to_string());
     let path_env = std::env::var("PATH").unwrap_or_else(|_| String::new());
     let gopath_env = std::env::var("GOPATH").unwrap_or_else(|_| String::new());
@@ -191,7 +192,6 @@ pub async fn run_worker(
         deno_path,
         go_path,
         python_path,
-        python_version,
         python_heavy_deps,
         nsjail_path,
         path_env,
@@ -413,7 +413,6 @@ struct Envs {
     deno_path: String,
     go_path: String,
     python_path: String,
-    python_version: String,
     python_heavy_deps: Vec<String>,
     nsjail_path: String,
     path_env: String,
@@ -1061,7 +1060,6 @@ async fn handle_python_job(
         nsjail_path,
         python_path,
         python_heavy_deps,
-        python_version,
         path_env,
         pip_extra_index_url,
         pip_index_url,
@@ -1278,7 +1276,7 @@ with open("result.json", 'w') as f:
     let mut reserved_variables = get_reserved_variables(job, &token, &base_url, db).await?;
     let additional_python_paths_folders = additional_python_paths
         .iter()
-        .map(|x| format!(":{PIP_SUPERCACHE_DIR}/{x}/lib/python{python_version}/site-packages"))
+        .map(|x| format!(":{x}"))
         .join("");
     if !disable_nsjail {
         let shared_deps = additional_python_paths
@@ -2009,10 +2007,22 @@ async fn handle_python_heavy_reqs(
         logs.push_str("pip install\n");
 
         let child = Command::new(python_path)
-            .current_dir(format!("{PIP_SUPERCACHE_DIR}/{}", &req))
             .env_clear()
             .envs(vars.clone())
-            .args(vec!["-m", "pip", "install", &req])
+            .args(vec![
+                "-m",
+                "pip",
+                "install",
+                &req,
+                "-I",
+                "--no-deps",
+                "--no-color",
+                "--isolated",
+                "--no-warn-conflicts",
+                "--disable-pip-version-check",
+                "-t",
+                venv_p.as_str(),
+            ])
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .spawn()?;
