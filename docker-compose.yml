@@ -20,7 +20,7 @@ services:
       timeout: 5s
       retries: 5
   windmill:
-    build: .
+    image: ghcr.io/windmill-labs/windmill:main
     privileged: true
     restart: unless-stopped
     ports:
