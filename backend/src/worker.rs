@@ -1093,7 +1093,7 @@ async fn handle_python_job(
             .split("\n")
             .partition(|d| heavy_deps.iter().any(|hd| d.starts_with(hd)));
 
-        let _ = write_file(job_dir, "requirements.txt", &regular.join("\n")).await?;
+        let _ = write_file(job_dir, "requirements.txt", &requirements).await?;
 
         let mut vars = vec![];
         if let Some(url) = pip_extra_index_url {
