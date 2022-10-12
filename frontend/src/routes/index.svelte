@@ -55,7 +55,7 @@
 </script>
 
 <CenteredPage>
-	<h1>Home</h1>
+	<h1 class="font-black">Home</h1>
 	<div class="space-y-12">
 		<div>
 			<h2 class="border-b mb-4 py-2">

@@ -138,6 +138,7 @@ const config = {
 					overflowY: 'auto',
 					fontFamily: theme('fontFamily.main'),
 					fontSize: theme('fontSize.base'),
+					fontWeight: theme('fontWeight.normal'),
 					color: theme('colors.gray.900'),
 					[`@media (min-width: ${theme('screens.qhd')})`]: {
 						fontSize: theme('fontSize.lg'),
