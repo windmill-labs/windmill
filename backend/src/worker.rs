@@ -1065,8 +1065,6 @@ async fn handle_python_job(
 
     let mut additional_python_paths: Vec<String> = vec![];
 
-    println!("{:?}", requirements);
-
     if requirements.len() > 0 {
         if !disable_nsjail {
             let _ = write_file(
@@ -1092,7 +1090,6 @@ async fn handle_python_job(
         let (heavy, regular): (Vec<&str>, Vec<&str>) = requirements
             .split(separator)
             .partition(|d| heavy_deps.contains(&d.to_string())); // todo: regex ^ instead of contains()
-        println!("{:?}", heavy);
 
         let _ = write_file(job_dir, "requirements.txt", &regular.join(separator)).await?;
 
@@ -1109,7 +1106,6 @@ async fn handle_python_job(
 
         additional_python_paths =
             handle_python_heavy_reqs(python_path, heavy, vars.clone()).await?;
-        println!("{:?}", additional_python_paths);
 
         tracing::info!(
             worker_name = %worker_name,
@@ -1242,7 +1238,6 @@ with open("result.json", 'w') as f:
         .map(|x| format!(":/opt/{x}/lib/python{python_version}/site-packages"))
         .join("");
     if !disable_nsjail {
-        println!("{:?}", additional_python_paths);
         let shared_deps = additional_python_paths
             .into_iter()
             .map(|pp| {
@@ -1926,7 +1921,6 @@ async fn handle_python_heavy_reqs(
     vars: Vec<(&str, &String)>,
 ) -> error::Result<Vec<String>> {
     const OPT_PATH: &'static str = "/opt";
-    println!("{:?}", heavy_requirements);
     let mut req_paths: Vec<String> = vec![];
     for req in heavy_requirements {
         // todo: handle many reqs
@@ -1942,7 +1936,7 @@ async fn handle_python_heavy_reqs(
             .env_clear()
             .args(vec![
                 "-c",
-                &format!("'import venv; venv.create(\"{req}\")'"),
+                &format!("'import venv; venv.create(\"./{req}\")'"),
             ])
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
