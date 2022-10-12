@@ -7,7 +7,7 @@
  */
 
 use itertools::Itertools;
-use std::{borrow::Borrow, collections::HashMap, io, panic, process::Stdio, time::Duration, path::PathBuf};
+use std::{borrow::Borrow, collections::HashMap, io, panic, process::Stdio, time::Duration};
 use uuid::Uuid;
 
 use crate::{
@@ -31,7 +31,7 @@ use crate::{
 use serde_json::{json, Map, Value};
 
 use tokio::{
-    fs::{symlink, DirBuilder, File, create_dir_all},
+    fs::{metadata, symlink, DirBuilder, File},
     io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader},
     process::{Child, Command},
     sync::{
@@ -235,9 +235,17 @@ pub async fn run_worker(
                 if is_flow && same_worker {
                     let target = &format!("{job_dir}/shared");
                     if let Some(parent_flow) = job.parent_job {
-                        symlink(&format!("{worker_dir}/{parent_flow}/shared"), target)
+                        let parent_shared_dir = format!("{worker_dir}/{parent_flow}/shared");
+                        if metadata(&parent_shared_dir).await.is_err() {
+                            DirBuilder::new()
+                                .recursive(true)
+                                .create(&parent_shared_dir)
+                                .await
+                                .expect("could not create parent shared dir");
+                        }
+                        symlink(&parent_shared_dir, target)
                             .await
-                            .expect("could not create symlink");
+                            .expect("could not symlink target");
                     } else {
                         DirBuilder::new()
                             .create(target)
@@ -1045,7 +1053,7 @@ async fn handle_python_job(
 
     create_dependencies_dir(job_dir).await;
 
-    let mut additional_python_path: Option<String> = None;
+    let mut additional_python_paths: Vec<String> = vec![];
 
     println!("{:?}", requirements);
 
@@ -1065,20 +1073,12 @@ async fn handle_python_job(
 
         let heavy_deps = ["numpy", "numpy==", "pandas=="];
         let separator = "\n"; // "aiofiles==0.7.0"
-        let (heavy, regular): (Vec<&str>, Vec<&str>) = requirements.split(separator).partition(|d| heavy_deps.contains(d)); // todo: regex ^ instead of contains()
+        let (heavy, regular): (Vec<&str>, Vec<&str>) = requirements
+            .split(separator)
+            .partition(|d| heavy_deps.contains(d)); // todo: regex ^ instead of contains()
         println!("{:?}", heavy);
 
         let _ = write_file(job_dir, "requirements.txt", &regular.join(separator)).await?;
-
-        additional_python_path = handle_python_heavy_reqs(python_path, heavy).await?;
-        println!("{:?}", additional_python_path);
-
-        tracing::info!(
-            worker_name = %worker_name,
-            job_id = %job.id,
-            workspace_id = %job.workspace_id,
-            "started setup python dependencies"
-        );
 
         let mut vars = vec![];
         if let Some(url) = pip_extra_index_url {
@@ -1090,6 +1090,18 @@ async fn handle_python_job(
         if let Some(host) = pip_trusted_host {
             vars.push(("TRUSTED_HOST", host));
         }
+
+        additional_python_paths =
+            handle_python_heavy_reqs(python_path, heavy, vars.clone()).await?;
+        println!("{:?}", additional_python_paths);
+
+        tracing::info!(
+            worker_name = %worker_name,
+            job_id = %job.id,
+            workspace_id = %job.workspace_id,
+            "started setup python dependencies"
+        );
+
         let child = if !disable_nsjail {
             Command::new(nsjail_path)
                 .current_dir(job_dir)
@@ -1209,22 +1221,27 @@ with open("result.json", 'w') as f:
     write_file(job_dir, "main.py", &wrapper_content).await?;
 
     let mut reserved_variables = get_reserved_variables(job, &token, &base_url, db).await?;
+    let additional_python_paths_folders = additional_python_paths
+        .iter()
+        .map(|x| format!(":/opt/{x}/lib/python3.10/site-packages"))
+        .join("");
     if !disable_nsjail {
-        let mut shared_deps = "".to_owned();
-        println!("{:?}", additional_python_path);
-        if let Some(pp) = additional_python_path {
-            println!("{:?}", &pp);
-            // reserved_variables.insert("PYTHONPATH".to_owned(), pp.clone());
-            shared_deps = format!( // todo: cover many paths in PYTHONPATH
-            r#"
+        println!("{:?}", additional_python_paths);
+        let shared_deps = additional_python_paths
+            .into_iter()
+            .map(|pp| {
+                format!(
+                    r#"
 mount {{
     src: "{pp}"
     dst: "{pp}"
     is_bind: true
     rw: false
 }}
-        "#)
-        }
+        "#
+                )
+            })
+            .join("\n");
         let _ = write_file(
             job_dir,
             "run.config.proto",
@@ -1232,11 +1249,18 @@ mount {{
                 .replace("{JOB_DIR}", job_dir)
                 .replace("{CLONE_NEWUSER}", &(!disable_nuser).to_string())
                 .replace("{SHARED_MOUNT}", shared_mount)
-                .replace("{SHARED_DEPENDENCIES}", shared_deps.as_str()),
+                .replace("{SHARED_DEPENDENCIES}", shared_deps.as_str())
+                .replace(
+                    "{ADDITIONAL_PYTHON_PATHS}",
+                    additional_python_paths_folders.as_str(),
+                ),
         )
         .await?;
     } else {
-        reserved_variables.insert("PYTHONPATH".to_string(), format!("{job_dir}/dependencies;/opt"));
+        reserved_variables.insert(
+            "PYTHONPATH".to_string(),
+            format!("{job_dir}/dependencies{additional_python_paths_folders}"),
+        );
     }
 
     tracing::info!(
@@ -1880,42 +1904,41 @@ pub async fn handle_zombie_jobs_periodically(
     }
 }
 
-async fn handle_python_heavy_reqs(python_path: &String, heavy_requirements: Vec<&str>) -> error::Result<Option<String>> {
-    let path = PathBuf::from("/opt");
+async fn handle_python_heavy_reqs(
+    python_path: &String,
+    heavy_requirements: Vec<&str>,
+    vars: Vec<(&str, &String)>,
+) -> error::Result<Vec<String>> {
+    const OPT_PATH: &'static str = "/opt";
     println!("{:?}", heavy_requirements);
-    if let Some(req) = heavy_requirements.first() { // todo: handle many reqs
-        let venv_p = path.join(req);
-        if venv_p.exists() {
+    let mut req_paths: Vec<String> = vec![];
+    for req in heavy_requirements {
+        // todo: handle many reqs
+        let venv_p = format!("{}/{}", OPT_PATH, req);
+        if metadata(&venv_p).await.is_ok() {
             tracing::info!("already exists: {:?}", &venv_p);
-            return Ok(Some(venv_p.as_os_str().to_str().unwrap().to_owned()));
+            req_paths.push(venv_p);
+            continue;
         }
 
-        println!("venv ...");
         let mut child = Command::new(python_path)
             .current_dir("/opt")
             .env_clear()
             .args(vec![
-                "-m",
-                "venv",
-                &req,
+                "-c",
+                &format!("'import venv; venv.create(\"{req}\")'"),
             ])
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .spawn()?;
-        println!("spawned ...");
         child.wait().await?;
-        println!("awaited");
 
         println!("installing ...");
         let mut child = Command::new(python_path)
             .current_dir(format!("/opt/{}", &req))
             .env_clear()
-            .args(vec![
-                "-m",
-                "pip",
-                "install",
-                &req,
-            ])
+            .envs(vars.clone())
+            .args(vec!["-m", "pip", "install", &req])
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .spawn()?;
@@ -1923,10 +1946,9 @@ async fn handle_python_heavy_reqs(python_path: &String, heavy_requirements: Vec<
         child.wait().await?;
         println!("awaited");
 
-        return Ok(Some(venv_p.as_os_str().to_str().unwrap().to_owned())); // this is void for some
-                                                                          // reason
+        req_paths.push(venv_p);
     }
-    Ok(None)
+    Ok(req_paths)
 }
 
 #[cfg(test)]
@@ -2702,46 +2724,42 @@ def main():
     }
 
     mod suspend_resume {
+
+        use crate::jobs::get_job_by_id;
+
         use super::*;
 
         use futures::{Stream, StreamExt};
 
         struct ApiServer {
             addr: std::net::SocketAddr,
-            tx: tokio::sync::oneshot::Sender<()>,
-            task: tokio::task::JoinHandle<hyper::Result<()>>,
+            tx: tokio::sync::broadcast::Sender<()>,
+            task: tokio::task::JoinHandle<anyhow::Result<()>>,
         }
 
         impl ApiServer {
             async fn start(db: DB) -> Self {
-                let (tx, rx) = tokio::sync::oneshot::channel::<()>();
+                let (tx, rx) = tokio::sync::broadcast::channel::<()>(1);
 
                 let sock = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
 
                 let addr = sock.local_addr().unwrap();
+                drop(sock);
 
-                use crate::jobs::{cancel_suspended_job, resume_suspended_job};
-                use axum::routing::{get, post};
-
-                let router = axum::Router::new()
-                    .route("/w/:workspace/jobs/resume/:id", get(resume_suspended_job))
-                    .route("/w/:workspace/jobs/resume/:id", post(resume_suspended_job))
-                    .route("/w/:workspace/jobs/cancel/:id", get(cancel_suspended_job))
-                    .route("/w/:workspace/jobs/cancel/:id", post(cancel_suspended_job))
-                    .layer(axum::extract::Extension(db));
-
-                let serve = axum::Server::from_tcp(sock.into_std().unwrap())
-                    .unwrap()
-                    .serve(router.into_make_service())
-                    .with_graceful_shutdown(async { drop(rx.await) });
-
-                let task = tokio::task::spawn(serve);
+                let task = tokio::task::spawn({
+                    crate::run_server(
+                        db.clone(),
+                        addr,
+                        format!("http://localhost:{}", addr.port()),
+                        rx,
+                    )
+                });
 
                 return Self { addr, tx, task };
             }
 
-            async fn close(self) -> hyper::Result<()> {
-                let Self { task, tx, .. } = self;
+            async fn close(self) -> anyhow::Result<()> {
+                let Self { tx, task, .. } = self;
                 drop(tx);
                 task.await.unwrap()
             }
@@ -2765,6 +2783,16 @@ def main():
             }
         }
 
+        async fn print_job(id: Uuid, db: &DB) -> Result<(), anyhow::Error> {
+            tracing::info!(
+                "{:#?}",
+                get_job_by_id(db.begin().await?, "test-workspace", id)
+                    .await?
+                    .0
+            );
+            Ok(())
+        }
+
         fn flow() -> FlowValue {
             serde_json::from_value(serde_json::json!({
                 "modules": [{
@@ -2779,19 +2807,32 @@ def main():
                         "content": "\
                             export async function main(n, port, op) {\
                                 const job = Deno.env.get('WM_JOB_ID');
+                                const token = Deno.env.get('WM_TOKEN');
                                 const r = await fetch(
-                                    `http://localhost:${port}/w/test-workspace/jobs/${op}/${job}`,\
+                                    `http://localhost:${port}/api/w/test-workspace/jobs/job_signature/${job}/0?token=${token}`,\
+                                    {\
+                                        method: 'GET',\
+                                        headers: { 'Authorization': `Bearer ${token}` }\
+                                    }\
+                                );\
+                                console.log(r);\
+                                const secret = await r.text();\
+                                console.log('Secret: ' + secret + ' ' + job + ' ' + token);\
+                                const r2 = await fetch(
+                                    `http://localhost:${port}/api/w/test-workspace/jobs/${op}/${job}/0/${secret}`,\
                                     {\
                                         method: 'POST',\
                                         body: JSON.stringify('from job'),\
                                         headers: { 'content-type': 'application/json' }\
                                     }\
                                 );\
-                                console.log(r);
+                                console.log(await r2.text());\
                                 return n + 1;\
                             }",
                     },
-                    "suspend": 1,
+                    "suspend": {
+                        "required_events": 1
+                    },
                 }, {
                     "input_transform": {
                         "n": { "type": "javascript", "expr": "previous_result", },
@@ -2803,7 +2844,9 @@ def main():
                         "language": "deno",
                         "content": "export function main(n, resume, resumes) { return { n: n + 1, resume, resumes } }"
                     },
-                    "suspend": 1,
+                    "suspend": {
+                        "required_events": 1
+                    },
                 }, {
                     "input_transform": {
                         "last": { "type": "javascript", "expr": "previous_result", },
@@ -2841,19 +2884,34 @@ def main():
                 let db = db_;
 
                 wait_until_flow_suspends(flow, queue, &db).await;
+                // print_job(flow, &db).await;
                 /* The first job resumes itself. */
                 let _first = completed.next().await.unwrap();
+                // print_job(_first, &db).await;
+
                 /* ... and send a request resume it. */
                 let second = completed.next().await.unwrap();
+                // print_job(second, &db).await;
+
+                let token = create_token_for_owner(&db, "test-workspace", "u/test-user", "", 100, "").await.unwrap();
+                let secret = reqwest::get(format!(
+                    "http://localhost:{port}/api/w/test-workspace/jobs/job_signature/{second}/0?token={token}"
+                ))
+                .await
+                .unwrap()
+                .error_for_status()
+                .unwrap()
+                .text().await.unwrap();
+                println!("{}", secret);
 
                 /* ImZyb20gdGVzdCIK = base64 "from test" */
                 reqwest::get(format!(
-                        "http://localhost:{port}/w/test-workspace/jobs/resume/{second}?payload=ImZyb20gdGVzdCIK"
-                    ))
-                    .await
-                    .unwrap()
-                    .error_for_status()
-                    .unwrap();
+                    "http://localhost:{port}/api/w/test-workspace/jobs/resume/{second}/0/{secret}?payload=ImZyb20gdGVzdCIK"
+                ))
+                .await
+                .unwrap()
+                .error_for_status()
+                .unwrap();
 
                 completed.find(&flow).await.unwrap();
             })
@@ -2931,13 +2989,25 @@ def main():
                 /* ... and send a request resume it. */
                 let second = completed.next().await.unwrap();
 
+                let token = create_token_for_owner(&db, "test-workspace", "u/test-user", "", 100, "").await.unwrap();
+                let secret = reqwest::get(format!(
+                    "http://localhost:{port}/api/w/test-workspace/jobs/job_signature/{second}/0?token={token}"
+                ))
+                .await
+                .unwrap()
+                .error_for_status()
+                .unwrap()
+                .text().await.unwrap();
+                println!("{}", secret);
+
+                /* ImZyb20gdGVzdCIK = base64 "from test" */
                 reqwest::get(format!(
-                        "http://localhost:{port}/w/test-workspace/jobs/cancel/{second}?payload=ImZyb20gdGVzdCIK"
-                    ))
-                    .await
-                    .unwrap()
-                    .error_for_status()
-                    .unwrap();
+                    "http://localhost:{port}/api/w/test-workspace/jobs/cancel/{second}/0/{secret}?payload=ImZyb20gdGVzdCIK"
+                ))
+                .await
+                .unwrap()
+                .error_for_status()
+                .unwrap();
 
                 completed.find(&flow).await.unwrap();
             })
@@ -3292,7 +3362,7 @@ def main(error, port):
                 payload,
                 Some(args),
                 /* user */ "test-user",
-                /* permissioned_as */ Default::default(),
+                /* permissioned_as */ "u/admin".to_string(),
                 /* scheduled_for_o */ None,
                 /* schedule_path */ None,
                 /* parent_job */ None,

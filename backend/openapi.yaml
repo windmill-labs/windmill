@@ -2551,7 +2551,7 @@ paths:
               schema:
                 type: string
 
-  /w/{workspace}/jobs/resume/{id}:
+  /w/{workspace}/jobs/resume/{job_id}/{resume_id}/{signature}:
     get:
       summary: resume a job for a suspended flow
       operationId: resumeSuspendedJob
@@ -2560,6 +2560,16 @@ paths:
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
         - $ref: "#/components/parameters/JobId"
+        - name: resume_id
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: signature
+          in: path
+          required: true
+          schema:
+            type: string
         - name: payload
           in: query
           schema:
@@ -2593,7 +2603,7 @@ paths:
               schema:
                 type: string
 
-  /w/{workspace}/jobs/cancel/{id}:
+  /w/{workspace}/jobs/cancel/{job_id}/{resume_id}/{signature}:
     get:
       summary: cancel a job for a suspended flow
       operationId: cancelSuspendedJob
@@ -2602,6 +2612,16 @@ paths:
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
         - $ref: "#/components/parameters/JobId"
+        - name: resume_id
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: signature
+          in: path
+          required: true
+          schema:
+            type: string
         - name: payload
           in: query
           schema:

@@ -91,7 +91,12 @@ components:
         summary:
           type: string
         suspend:
-          type: integer
+          type: object
+          properties:
+            required_events:
+              type: integer
+            timeout:
+              type: integer
         retry:
           $ref: "#/components/schemas/Retry"
       required:

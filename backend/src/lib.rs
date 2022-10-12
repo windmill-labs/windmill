@@ -12,7 +12,6 @@ use axum::{handler::Handler, middleware::from_extractor, routing::get, Extension
 use db::DB;
 use futures::FutureExt;
 use git_version::git_version;
-use slack_http_verifier::SlackVerifier;
 use std::{net::SocketAddr, sync::Arc};
 use tower::ServiceBuilder;
 use tower_cookies::CookieManagerLayer;
@@ -25,7 +24,6 @@ extern crate dotenv;
 mod audit;
 mod client;
 mod db;
-mod email;
 mod error;
 mod external_ip;
 mod flows;
@@ -57,11 +55,10 @@ mod workspaces;
 
 use error::Error;
 
-pub use crate::email::EmailSender;
 use crate::{
     db::UserDB,
     error::to_anyhow,
-    oauth2::build_oauth_clients,
+    oauth2::{build_oauth_clients, SlackVerifier},
     tracing_init::{MyMakeSpan, MyOnResponse},
     utils::rd_string,
 };
@@ -99,16 +96,14 @@ struct CloudHosted(bool);
 pub async fn run_server(
     db: DB,
     addr: SocketAddr,
-    base_url: &str,
-    es: EmailSender,
+    base_url: String,
     mut rx: tokio::sync::broadcast::Receiver<()>,
 ) -> anyhow::Result<()> {
     let user_db = UserDB::new(db.clone());
 
     let auth_cache = Arc::new(users::AuthCache::new(db.clone()));
     let argon2 = Arc::new(Argon2::default());
-    let email_sender = Arc::new(es);
-    let basic_clients = Arc::new(build_oauth_clients(base_url).await?);
+    let basic_clients = Arc::new(build_oauth_clients(&base_url).await?);
     let slack_verifier = Arc::new(
         std::env::var("SLACK_SIGNING_SECRET")
             .ok()
@@ -150,9 +145,7 @@ pub async fn run_server(
                         .nest("/jobs", jobs::workspaced_service())
                         .nest(
                             "/users",
-                            users::workspaced_service()
-                                .layer(Extension(argon2.clone()))
-                                .layer(Extension(email_sender)),
+                            users::workspaced_service().layer(Extension(argon2.clone())),
                         )
                         .nest("/variables", variables::workspaced_service())
                         .nest("/oauth", oauth2::workspaced_service())
