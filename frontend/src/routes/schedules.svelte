@@ -63,7 +63,7 @@
 </script>
 
 <CenteredPage>
-	<PageHeader title="Schedule">
+	<PageHeader title="Schedules">
 		<Button size="sm" startIcon={{ icon: faPlus }} href="/schedule/add">New&nbsp;schedule</Button>
 	</PageHeader>
 	<div class="relative mt-10">

@@ -119,7 +119,12 @@ const config = {
 			},
 			fontSize: {
 				'2xs': '0.7rem'
-			}
+			},
+			screens: {
+				'fhd': '1900px',
+				'qhd': '2500px',
+				'4k': '3800px',
+			},
 		}
 	},
 
@@ -133,30 +138,84 @@ const config = {
 					overflowY: 'auto',
 					fontFamily: theme('fontFamily.main'),
 					fontSize: theme('fontSize.base'),
-					fontWeight: theme('fontWeight.medium'),
-					color: theme('colors.gray.900')
+					color: theme('colors.gray.900'),
+					[`@media (min-width: ${theme('screens.qhd')})`]: {
+						fontSize: theme('fontSize.lg'),
+					},
 				},
 				'h1': {
-					fontSize: theme('fontSize.3xl'),
+					fontSize: '24px',
 					fontWeight: theme('fontWeight.extrabold'),
-					color: theme('colors.gray.800')
+					lineHeight: '1.05',
+					color: theme('colors.gray.800'),
+					[`@media (min-width: ${theme('screens.lg')})`]: {
+						fontSize: '26px',
+					},
+					[`@media (min-width: ${theme('screens.fhd')})`]: {
+						fontSize: '29px',
+					},
+					[`@media (min-width: ${theme('screens.qhd')})`]: {
+						fontSize: '34px',
+					},
 				},
 				'h2': {
-					fontSize: theme('fontSize.2xl'),
+					fontSize: '22px',
 					fontWeight: theme('fontWeight.extrabold'),
-					color: theme('colors.blue.600')
+					lineHeight: '1.1',
+					color: theme('colors.gray.700'),
+					[`@media (min-width: ${theme('screens.lg')})`]: {
+						fontSize: '24px',
+					},
+					[`@media (min-width: ${theme('screens.fhd')})`]: {
+						fontSize: '26px',
+					},
+					[`@media (min-width: ${theme('screens.qhd')})`]: {
+						fontSize: '30px',
+					},
 				},
 				'h3': {
-					fontSize: theme('fontSize.xl'),
+					fontSize: '20px',
 					fontWeight: theme('fontWeight.extrabold'),
-					color: theme('colors.gray.600')
+					lineHeight: '1.2',
+					color: theme('colors.gray.600'),
+					[`@media (min-width: ${theme('screens.fhd')})`]: {
+						fontSize: '23px',
+					},
+					[`@media (min-width: ${theme('screens.qhd')})`]: {
+						fontSize: '27px',
+					},
 				},
 				'h4': {
-					fontSize: theme('fontSize.lg'),
+					fontSize: '18px',
 					fontWeight: theme('fontWeight.semibold'),
-					color: theme('colors.gray.600')
+					lineHeight: '1.3',
+					color: theme('colors.gray.600'),
+					[`@media (min-width: ${theme('screens.fhd')})`]: {
+						fontSize: '20px',
+					},
+					[`@media (min-width: ${theme('screens.qhd')})`]: {
+						fontSize: '23px',
+					},
 				},
-				'button, a': {
+				'h5': {
+					fontSize: '16px',
+					fontWeight: theme('fontWeight.semibold'),
+					lineHeight: '1.5',
+					color: theme('colors.gray.600'),
+					[`@media (min-width: ${theme('screens.qhd')})`]: {
+						fontSize: '18px',
+					},
+				},
+				'h6': {
+					fontSize: '16px',
+					fontWeight: theme('fontWeight.medium'),
+					lineHeight: '1.5',
+					color: theme('colors.gray.600'),
+					[`@media (min-width: ${theme('screens.qhd')})`]: {
+						fontSize: '18px',
+					},
+				},
+				'button': {
 					fontWeight: theme('fontWeight.semibold'),
 				},
 				'a': {
@@ -232,7 +291,12 @@ const config = {
 					animation: theme('animation.pulse'),
 					backgroundColor: theme('colors.blue.200'),
 					borderRadius: theme('borderRadius.DEFAULT'),
-        }
+        },
+				'.text-blue-gradient': {
+					color: 'transparent',
+					backgroundClip: 'text',
+					backgroundImage: `linear-gradient(to right, ${theme('colors.blue.600')}, ${theme('colors.blue.500')})`
+				}
 			});
 			addUtilities({
 				'.separator': {

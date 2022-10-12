@@ -7,7 +7,7 @@
 
 <div class="p-4 border border-gray-300 rounded-md bg-gray-50 ">
 	<div class="flex items-center">
-		<h3 class="inline-flex items-center">
+		<h3 class="inline-flex items-center font-semibold">
 			<HatIcon class="w-6 h-6 mr-2" />
 			Getting started
 		</h3>
