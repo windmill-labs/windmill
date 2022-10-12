@@ -1,4 +1,4 @@
-import { ResourceApi, VariableApi, ServerConfiguration } from './windmill-api/index.ts'
+import { ResourceApi, VariableApi, ServerConfiguration, JobApi } from './windmill-api/index.ts'
 import { createConfiguration, type Configuration as Configuration } from './windmill-api/configuration.ts'
 
 export {
@@ -14,11 +14,12 @@ export type Email = string
 export type Base64 = string
 export type Resource<S extends string> = any
 
+type Conf = Configuration & { workspace_id: string }
 /**
  * Create a client configuration from env variables
  * @returns client configuration
  */
-export function createConf(): Configuration & { workspace_id: string } {
+export function createConf(): Conf {
     const token = Deno.env.get("WM_TOKEN") ?? 'no_token'
     const base_url = Deno.env.get("BASE_INTERNAL_URL") ?? 'http://localhost:8000'
     return {
@@ -136,6 +137,7 @@ export async function databaseUrlFromResource(path: string): Promise<string> {
 }
 
 
-export function genNounceAndHmac() {
-
+export function genNounceAndHmac(conf: Conf, jobId: string) {
+    const nounce = Math.ceil(Math.random() * Number.MAX_SAFE_INTEGER);
+    return { nounce, signature: new JobApi(conf).createJobSignature(conf.workspace_id, jobId, nounce) }
 }
