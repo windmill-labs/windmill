@@ -1108,72 +1108,76 @@ async fn handle_python_job(
 
         if heavy.len() > 0 {
             logs.push_str(&format!(
-                "heavy deps detected, using supercache for: {heavy:?}"
+                "\nheavy deps detected, using supercache for: {heavy:?}"
             ));
             additional_python_paths =
                 handle_python_heavy_reqs(python_path, heavy, vars.clone(), job, logs, db, timeout)
                     .await?;
         }
 
-        tracing::info!(
-            worker_name = %worker_name,
-            job_id = %job.id,
-            workspace_id = %job.workspace_id,
-            "started setup python dependencies"
-        );
+        if regular.len() > 0 {
+            tracing::info!(
+                worker_name = %worker_name,
+                job_id = %job.id,
+                workspace_id = %job.workspace_id,
+                "started setup python dependencies"
+            );
 
-        let child = if !disable_nsjail {
-            Command::new(nsjail_path)
-                .current_dir(job_dir)
-                .env_clear()
-                .envs(vars)
-                .args(vec!["--config", "download.config.proto"])
-                .stdout(Stdio::piped())
-                .stderr(Stdio::piped())
-                .spawn()?
+            let child = if !disable_nsjail {
+                Command::new(nsjail_path)
+                    .current_dir(job_dir)
+                    .env_clear()
+                    .envs(vars)
+                    .args(vec!["--config", "download.config.proto"])
+                    .stdout(Stdio::piped())
+                    .stderr(Stdio::piped())
+                    .spawn()?
+            } else {
+                let mut args = vec![
+                    "-m",
+                    "pip",
+                    "install",
+                    "--no-color",
+                    "--isolated",
+                    "--no-warn-conflicts",
+                    "--disable-pip-version-check",
+                    "-t",
+                    "./dependencies",
+                    "-r",
+                    "./requirements.txt",
+                ];
+                if let Some(url) = pip_extra_index_url {
+                    args.extend(["--extra-index-url", url]);
+                }
+                if let Some(url) = pip_index_url {
+                    args.extend(["--index-url", url]);
+                }
+                if let Some(host) = pip_trusted_host {
+                    args.extend(["--trusted-host", host]);
+                }
+                Command::new(python_path)
+                    .current_dir(job_dir)
+                    .env_clear()
+                    .args(args)
+                    .stdout(Stdio::piped())
+                    .stderr(Stdio::piped())
+                    .spawn()?
+            };
+
+            logs.push_str("\n--- PIP DEPENDENCIES INSTALL ---\n");
+            let child = handle_child(&job.id, db, logs, timeout, child).await;
+            tracing::info!(
+                worker_name = %worker_name,
+                job_id = %job.id,
+                workspace_id = %job.workspace_id,
+                is_ok = child.is_ok(),
+                "finished setting up python dependencies {}",
+                job.id
+            );
+            child?;
         } else {
-            let mut args = vec![
-                "-m",
-                "pip",
-                "install",
-                "--no-color",
-                "--isolated",
-                "--no-warn-conflicts",
-                "--disable-pip-version-check",
-                "-t",
-                "./dependencies",
-                "-r",
-                "./requirements.txt",
-            ];
-            if let Some(url) = pip_extra_index_url {
-                args.extend(["--extra-index-url", url]);
-            }
-            if let Some(url) = pip_index_url {
-                args.extend(["--index-url", url]);
-            }
-            if let Some(host) = pip_trusted_host {
-                args.extend(["--trusted-host", host]);
-            }
-            Command::new(python_path)
-                .current_dir(job_dir)
-                .env_clear()
-                .args(args)
-                .stdout(Stdio::piped())
-                .stderr(Stdio::piped())
-                .spawn()?
+            logs.push_str("\nskipping pip install since not needed");
         };
-
-        logs.push_str("\n--- PIP DEPENDENCIES INSTALL ---\n");
-        let child = handle_child(&job.id, db, logs, timeout, child).await;
-        tracing::info!(
-            worker_name = %worker_name,
-            job_id = %job.id,
-            workspace_id = %job.workspace_id,
-            is_ok = child.is_ok(),
-            "finished setting up python dependencies {}",
-            job.id
-        );
-        child?;
     }
     logs.push_str("\n\n--- PYTHON CODE EXECUTION ---\n");
 
