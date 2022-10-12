@@ -1399,9 +1399,8 @@ pub async fn push<'c>(
         }
     };
 
-    let mut is_running = same_worker;
+    let is_running = same_worker;
     if let Some(flow) = raw_flow.as_ref() {
-        is_running = false;
         same_worker = same_worker || flow.same_worker;
         if flow.modules.len() == 0 {
             Err(Error::BadRequest(format!(

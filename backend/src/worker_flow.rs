@@ -925,7 +925,7 @@ async fn push_next_flow_job(
     };
 
     let continue_on_same_worker =
-        flow.same_worker && !matches!(job_payload, JobPayload::RawFlow { .. });
+        flow.same_worker && module.suspend.is_none() && module.sleep.is_none();
 
     /* Finally, push the job into the queue */
     let tx = db.begin().await?;
