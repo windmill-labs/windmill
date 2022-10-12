@@ -151,6 +151,10 @@ pub async fn run_worker(
     let go_path = std::env::var("GO_PATH").unwrap_or_else(|_| "/usr/bin/go".to_string());
     let python_path =
         std::env::var("PYTHON_PATH").unwrap_or_else(|_| "/usr/local/bin/python3".to_string());
+    let python_heavy_deps = std::env::var("PYTHON_HEAVY_DEPS")
+        .map(|x| x.split(',').map(|x| x.to_string()).collect::<Vec<_>>())
+        .unwrap_or_else(|_| vec![]);
+    let python_version = std::env::var("PYTHON_VERSION").unwrap_or_else(|_| "3.10".to_string());
     let nsjail_path = std::env::var("NSJAIL_PATH").unwrap_or_else(|_| "nsjail".to_string());
     let path_env = std::env::var("PATH").unwrap_or_else(|_| String::new());
     let gopath_env = std::env::var("GOPATH").unwrap_or_else(|_| String::new());
@@ -162,6 +166,8 @@ pub async fn run_worker(
         deno_path,
         go_path,
         python_path,
+        python_version,
+        python_heavy_deps,
         nsjail_path,
         path_env,
         gopath_env,
@@ -382,6 +388,8 @@ struct Envs {
     deno_path: String,
     go_path: String,
     python_path: String,
+    python_version: String,
+    python_heavy_deps: Vec<String>,
     nsjail_path: String,
     path_env: String,
     gopath_env: String,
@@ -1031,6 +1039,8 @@ async fn handle_python_job(
     Envs {
         nsjail_path,
         python_path,
+        python_heavy_deps,
+        python_version,
         path_env,
         pip_extra_index_url,
         pip_index_url,
@@ -1071,11 +1081,17 @@ async fn handle_python_job(
             .await?;
         }
 
-        let heavy_deps = ["numpy", "numpy==", "pandas=="];
+        let mut heavy_deps_v = vec!["numpy", "pandas"];
+        heavy_deps_v.extend(python_heavy_deps.into_iter().map(|s| s.as_str()));
+        let heavy_deps = heavy_deps_v
+            .into_iter()
+            .map(|s| [s.to_string(), format!("{s}==")])
+            .flatten()
+            .collect::<Vec<String>>();
         let separator = "\n"; // "aiofiles==0.7.0"
         let (heavy, regular): (Vec<&str>, Vec<&str>) = requirements
             .split(separator)
-            .partition(|d| heavy_deps.contains(d)); // todo: regex ^ instead of contains()
+            .partition(|d| heavy_deps.contains(&d.to_string())); // todo: regex ^ instead of contains()
         println!("{:?}", heavy);
 
         let _ = write_file(job_dir, "requirements.txt", &regular.join(separator)).await?;
@@ -1223,7 +1239,7 @@ with open("result.json", 'w') as f:
     let mut reserved_variables = get_reserved_variables(job, &token, &base_url, db).await?;
     let additional_python_paths_folders = additional_python_paths
         .iter()
-        .map(|x| format!(":/opt/{x}/lib/python3.10/site-packages"))
+        .map(|x| format!(":/opt/{x}/lib/python{python_version}/site-packages"))
         .join("");
     if !disable_nsjail {
         println!("{:?}", additional_python_paths);
