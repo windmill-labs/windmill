@@ -1086,22 +1086,12 @@ async fn handle_python_job(
             .await?;
         }
 
-        let mut heavy_deps_v = vec!["numpy", "pandas"];
-        heavy_deps_v.extend(python_heavy_deps.into_iter().map(|s| s.as_str()));
-        let heavy_deps = heavy_deps_v
-            .into_iter()
-            .map(|s| [s.to_string(), format!("{s}==")])
-            .flatten()
-            .collect::<Vec<String>>();
+        let mut heavy_deps = vec!["numpy".to_string(), "pandas".to_string()];
+        heavy_deps.extend(python_heavy_deps.into_iter().map(|s| s.to_string()));
+
         let (heavy, regular): (Vec<&str>, Vec<&str>) = requirements
             .split("\n")
-            .partition(|d| heavy_deps.contains(&d.to_string())); // todo: regex ^ instead of contains()
-
-        if heavy.len() > 0 {
-            logs.push_str(&format!(
-                "heavy deps detected, using supercache for: {heavy:?}"
-            ));
-        }
+            .partition(|d| heavy_deps.iter().any(|hd| d.starts_with(hd)));
 
         let _ = write_file(job_dir, "requirements.txt", &regular.join("\n")).await?;
 
@@ -1116,9 +1106,14 @@ async fn handle_python_job(
             vars.push(("TRUSTED_HOST", host));
         }
 
-        additional_python_paths =
-            handle_python_heavy_reqs(python_path, heavy, vars.clone(), job, logs, db, timeout)
-                .await?;
+        if heavy.len() > 0 {
+            logs.push_str(&format!(
+                "heavy deps detected, using supercache for: {heavy:?}"
+            ));
+            additional_python_paths =
+                handle_python_heavy_reqs(python_path, heavy, vars.clone(), job, logs, db, timeout)
+                    .await?;
+        }
 
         tracing::info!(
             worker_name = %worker_name,
