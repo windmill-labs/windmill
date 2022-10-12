@@ -171,8 +171,9 @@
 									deno={flowModule.value.language === RawScript.language.DENO}
 									lang={scriptLangToEditorLang(flowModule.value.language)}
 									automaticLayout={true}
-									cmdEnterAction={() => {
+									cmdEnterAction={async () => {
 										selected = 'test'
+										await reload(flowModule)
 										modulePreview?.runTestWithStepArgs()
 									}}
 									formatAction={() => reload(flowModule)}
