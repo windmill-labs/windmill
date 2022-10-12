@@ -1093,12 +1093,17 @@ async fn handle_python_job(
             .map(|s| [s.to_string(), format!("{s}==")])
             .flatten()
             .collect::<Vec<String>>();
-        let separator = "\n"; // "aiofiles==0.7.0"
         let (heavy, regular): (Vec<&str>, Vec<&str>) = requirements
-            .split(separator)
+            .split("\n")
             .partition(|d| heavy_deps.contains(&d.to_string())); // todo: regex ^ instead of contains()
 
-        let _ = write_file(job_dir, "requirements.txt", &regular.join(separator)).await?;
+        if heavy.len() > 0 {
+            logs.push_str(&format!(
+                "heavy deps detected, using supercache for: {heavy:?}"
+            ));
+        }
+
+        let _ = write_file(job_dir, "requirements.txt", &regular.join("\n")).await?;
 
         let mut vars = vec![];
         if let Some(url) = pip_extra_index_url {
