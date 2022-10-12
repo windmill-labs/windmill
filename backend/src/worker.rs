@@ -31,7 +31,7 @@ use crate::{
 use serde_json::{json, Map, Value};
 
 use tokio::{
-    fs::{symlink, DirBuilder, File},
+    fs::{metadata, symlink, DirBuilder, File},
     io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader},
     process::{Child, Command},
     sync::{
@@ -235,9 +235,17 @@ pub async fn run_worker(
                 if is_flow && same_worker {
                     let target = &format!("{job_dir}/shared");
                     if let Some(parent_flow) = job.parent_job {
-                        symlink(&format!("{worker_dir}/{parent_flow}/shared"), target)
+                        let parent_shared_dir = format!("{worker_dir}/{parent_flow}/shared");
+                        if metadata(&parent_shared_dir).await.is_err() {
+                            DirBuilder::new()
+                                .recursive(true)
+                                .create(&parent_shared_dir)
+                                .await
+                                .expect("could not create parent shared dir");
+                        }
+                        symlink(&parent_shared_dir, target)
                             .await
-                            .expect("could not create symlink");
+                            .expect("could not symlink target");
                     } else {
                         DirBuilder::new()
                             .create(target)
