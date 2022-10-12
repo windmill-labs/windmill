@@ -2402,6 +2402,26 @@ def main():
     }
 
     #[sqlx::test(fixtures("base"))]
+    async fn test_python_job_heavy_dep(db: DB) {
+        initialize_tracing().await;
+
+        let content = r#"
+import numpy as np
+
+def main():
+    a = np.arange(15).reshape(3, 5)
+    return a.len()
+        "#
+        .to_owned();
+
+        let job = JobPayload::Code(RawCode { content, path: None, language: ScriptLang::Python3 });
+
+        let result = run_job_in_new_worker_until_complete(&db, job).await;
+
+        assert_eq!(result, serde_json::json!("hello world"));
+    }
+
+    #[sqlx::test(fixtures("base"))]
     async fn test_python_job_with_imports(db: DB) {
         initialize_tracing().await;
 
