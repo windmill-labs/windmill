@@ -1047,6 +1047,8 @@ async fn handle_python_job(
 
     let mut additional_python_path: Option<String> = None;
 
+    println!("{:?}", requirements);
+
     if requirements.len() > 0 {
         if !disable_nsjail {
             let _ = write_file(
@@ -1061,13 +1063,15 @@ async fn handle_python_job(
             .await?;
         }
 
-        let heavy_deps = ["numpy==", "pandas=="];
-        let separator = " \\\n"; // "aiofiles==0.7.0 \"
-        let heavy: Vec<&str> = requirements.split(separator).filter(|d| heavy_deps.contains(d)).collect(); // todo: regex ^ instead of contains()
+        let heavy_deps = ["numpy", "numpy==", "pandas=="];
+        let separator = "\n"; // "aiofiles==0.7.0"
+        let (heavy, regular): (Vec<&str>, Vec<&str>) = requirements.split(separator).partition(|d| heavy_deps.contains(d)); // todo: regex ^ instead of contains()
+        println!("{:?}", heavy);
 
-        let _ = write_file(job_dir, "requirements.txt", &requirements).await?;
+        let _ = write_file(job_dir, "requirements.txt", &regular.join(separator)).await?;
 
-        let additional_python_path = handle_python_heavy_reqs(python_path, heavy).await?;
+        additional_python_path = handle_python_heavy_reqs(python_path, heavy).await?;
+        println!("{:?}", additional_python_path);
 
         tracing::info!(
             worker_name = %worker_name,
@@ -1206,15 +1210,16 @@ with open("result.json", 'w') as f:
 
     let mut reserved_variables = get_reserved_variables(job, &token, &base_url, db).await?;
     if !disable_nsjail {
-        let mut vars = vec![];
         let mut shared_deps = "".to_owned();
+        println!("{:?}", additional_python_path);
         if let Some(pp) = additional_python_path {
-            vars.push(("PYTHONPATH", pp));
+            println!("{:?}", &pp);
+            // reserved_variables.insert("PYTHONPATH".to_owned(), pp.clone());
             shared_deps = format!( // todo: cover many paths in PYTHONPATH
             r#"
 mount {{
-    src: "{python_path}"
-    dst: "{python_path}"
+    src: "{pp}"
+    dst: "{pp}"
     is_bind: true
     rw: false
 }}
@@ -1231,7 +1236,7 @@ mount {{
         )
         .await?;
     } else {
-        reserved_variables.insert("PYTHONPATH".to_string(), format!("{job_dir}/dependencies"));
+        reserved_variables.insert("PYTHONPATH".to_string(), format!("{job_dir}/dependencies;/opt"));
     }
 
     tracing::info!(
@@ -1245,6 +1250,7 @@ mount {{
         Command::new(nsjail_path)
             .current_dir(job_dir)
             .env_clear()
+            // inject PYTHONPATH here - for some reason I had to do it in nsjail conf
             .envs(reserved_variables)
             .env("PATH", path_env)
             .env("BASE_INTERNAL_URL", base_internal_url)
@@ -1876,25 +1882,33 @@ pub async fn handle_zombie_jobs_periodically(
 
 async fn handle_python_heavy_reqs(python_path: &String, heavy_requirements: Vec<&str>) -> error::Result<Option<String>> {
     let path = PathBuf::from("/opt");
+    println!("{:?}", heavy_requirements);
     if let Some(req) = heavy_requirements.first() { // todo: handle many reqs
         let venv_p = path.join(req);
-        create_dir_all(&venv_p).await?;
-        let venv_p = venv_p.as_os_str().to_str().unwrap();
+        if venv_p.exists() {
+            tracing::info!("already exists: {:?}", &venv_p);
+            return Ok(Some(venv_p.as_os_str().to_str().unwrap().to_owned()));
+        }
 
+        println!("venv ...");
         let mut child = Command::new(python_path)
+            .current_dir("/opt")
             .env_clear()
             .args(vec![
                 "-m",
                 "venv",
-                &venv_p,
+                &req,
             ])
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .spawn()?;
+        println!("spawned ...");
         child.wait().await?;
+        println!("awaited");
 
-        let p = path.join("bin").join("python");
-        let mut child = Command::new(p.as_os_str().to_str().unwrap())
+        println!("installing ...");
+        let mut child = Command::new(python_path)
+            .current_dir(format!("/opt/{}", &req))
             .env_clear()
             .args(vec![
                 "-m",
@@ -1905,8 +1919,12 @@ async fn handle_python_heavy_reqs(python_path: &String, heavy_requirements: Vec<
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .spawn()?;
+        println!("spawned ...");
         child.wait().await?;
-        return Ok(Some(venv_p.to_owned()));
+        println!("awaited");
+
+        return Ok(Some(venv_p.as_os_str().to_str().unwrap().to_owned())); // this is void for some
+                                                                          // reason
     }
     Ok(None)
 }

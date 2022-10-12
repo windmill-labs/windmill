@@ -129,7 +129,7 @@ mount {
 
 iface_no_lo: true
 
-envar: "PYTHONPATH=/tmp/dependencies"
+envar: "PYTHONPATH=/tmp/dependencies:/opt/numpy/lib/python3.10/site-packages"
 envar: "HOME=/tmp"
 
 
