@@ -71,7 +71,9 @@
 				isDefault.push(k)
 			}
 		})
+
 		await inferArgs(lang, code, schema)
+
 		schema = schema
 
 		isDefault

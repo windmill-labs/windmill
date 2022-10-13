@@ -4,7 +4,7 @@ import { inferArgs } from '$lib/infer'
 import { loadSchema } from '$lib/scripts'
 import { workspaceStore } from '$lib/stores'
 import { emptySchema } from '$lib/utils'
-import { get } from 'svelte/store'
+import { get, writable } from 'svelte/store'
 import type { FlowModuleState, FlowState } from './flowState'
 
 export function cleanInputs(flow: Flow | any): Flow {
@@ -74,11 +74,13 @@ export function selectedIdToModuleState(selectedId: string, flow: FlowState): Fl
 	}
 }
 
+const loadSchemaLastRun = writable<[string | undefined, Schema]>(undefined)
 
 export async function loadSchemaFromModule(module: FlowModule): Promise<{
 	input_transforms: Record<string, InputTransform>
 	schema: Schema
 }> {
+
 	const mod = module.value
 
 	if (mod.type == 'rawscript' || mod.type === 'script') {
