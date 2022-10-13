@@ -5,8 +5,6 @@ import { Command } from "https://deno.land/x/cliffy@v0.25.2/command/mod.ts";
 import { sleep } from "https://deno.land/x/sleep@v1.2.1/mod.ts";
 import * as windmill from "https://deno.land/x/windmill@v1.37.0/mod.ts";
 import * as api from "https://deno.land/x/windmill@v1.37.0/windmill-api/index.ts";
-import { InfluxDB, Point, HttpError } from "npm:@influxdata/influxdb-client";
-import { BucketsAPI, OrgsAPI } from "npm:@influxdata/influxdb-client-apis";
 
 async function login(
   config: api.Configuration,
@@ -58,13 +56,6 @@ await new Command()
   .option("-m --metrics <metrics:string>", "The url to scrape metrics from.", {
     default: "http://localhost:8001/metrics",
   })
-  .option("--influx-host <influx_host:string>", "The influx url to write to.")
-  .option("--influx-token <influx_token:string>", "The influx token to use.")
-  .option("--influx-org <influx_org:string>", "The influx org to write to.")
-  .option(
-    "--influx-bucket <influx_bucket:string>",
-    "The influx bucket to write to. Everything in the bucket will be deleted!!"
-  )
   .option(
     "--export-json <export_json:string>",
     "If set, exports will be into a JSON file."
@@ -84,10 +75,6 @@ await new Command()
       token,
       workspace,
       metrics,
-      influxHost,
-      influxToken,
-      influxOrg,
-      influxBucket,
       exportJson,
       exports,
     }) => {
@@ -107,45 +94,6 @@ await new Command()
         exports.forEach((e) => {
           export_map.set(e, new Map());
         });
-      }
-
-      let writeApi: any;
-      if (influxHost && influxToken && influxOrg && influxBucket) {
-        const influxDB = new InfluxDB({
-          url: influxHost,
-          token: influxToken,
-        });
-        console.log("influxDB enabled");
-
-        const orgsAPI = new OrgsAPI(influxDB);
-        const organizations = await orgsAPI.getOrgs({ org: influxOrg });
-        if (!organizations?.orgs?.length) {
-          console.error(`No organization named "${influxOrg}" found!`);
-          return;
-        }
-        const orgID = organizations.orgs[0].id;
-
-        const bucketsAPI = new BucketsAPI(influxDB);
-        try {
-          const buckets = await bucketsAPI.getBuckets({
-            orgID,
-            name: influxBucket,
-          });
-          const bucketID = buckets?.buckets?.[0]?.id;
-          if (bucketID) {
-            await bucketsAPI.deleteBucketsID({ bucketID });
-          }
-        } catch (e) {
-          if (e instanceof HttpError && e.statusCode == 404) {
-            // OK, bucket not found
-          } else {
-            throw e;
-          }
-        }
-
-        await bucketsAPI.postBuckets({ body: { orgID, name: influxBucket } });
-
-        writeApi = influxDB.getWriteApi(influxOrg, influxBucket);
       }
 
       metrics_worker.onmessage = (evt) => {
@@ -183,27 +131,6 @@ await new Command()
             });
           }
           export_map.set(data.name, c);
-        }
-
-        if (writeApi) {
-          if (data.type == "COUNTER" || data.type == "GAUGE") {
-            data.metrics.forEach((p) => {
-              let point = new Point(data.name);
-              new Map(Object.entries(p.labels)).forEach((v, l) => {
-                point = point.tag(l, v);
-              });
-              point = point.floatField("value", p.value);
-              writeApi.writePoint(point);
-            });
-          } else if (data.type == "HISTOGRAM") {
-            data.metrics.forEach((p) => {
-              let point = new Point(data.name);
-              new Map(Object.entries(p.buckets)).forEach((v, k) => {
-                point = point.floatField(k, v);
-              });
-              writeApi.writePoint(point);
-            });
-          }
         }
       };
 
