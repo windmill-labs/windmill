@@ -3,7 +3,13 @@
 	import { getContext } from 'svelte'
 	import FlowModuleSchemaItem from './FlowModuleSchemaItem.svelte'
 	import Icon from 'svelte-awesome'
-	import { faCalendarAlt, faPen, faPlus, faSliders } from '@fortawesome/free-solid-svg-icons'
+	import {
+		faCalendarAlt,
+		faCodeBranch,
+		faPen,
+		faPlus,
+		faSliders
+	} from '@fortawesome/free-solid-svg-icons'
 	import {
 		emptyFlowModuleState,
 		isEmptyFlowModule,
@@ -45,8 +51,6 @@
 		)
 		moduleStates = moduleStates
 
-		debugger
-
 		const module = modules[index]
 
 		if (module.value.type === 'branches') {
@@ -61,6 +65,7 @@
 		}
 
 		modules[index] = module
+		modules
 	}
 
 	function removeAtIndex(index: number): void {
@@ -75,7 +80,7 @@
 	$: confirmationModalOpen = indexToRemove !== undefined
 </script>
 
-<div class="flex flex-col justify-between h-full">
+<div class="flex flex-col justify-between">
 	<ul class="w-full">
 		{#if prefix === undefined}
 			<div
@@ -193,23 +198,53 @@
 								>
 									Add branch
 								</Button>
-								{#each moduleStates[index]?.childFlowModules ?? [] as moduleState, moduleStateIndex}
-									{#if moduleState.childFlowModules && moduleStateIndex === 0}
-										<span>Default branch</span>
+								{#each moduleStates[index]?.childFlowModules ?? [] as branchState, branchIndex}
+									{#if branchState.childFlowModules && branchIndex === 0}
+										<div
+											on:click={() => select(`branch-${index}-${branchIndex}`)}
+											class={classNames(
+												'border w-full rounded-md p-2 bg-white text-sm cursor-pointer flex items-center mb-4',
+												$selectedId === `branch-${index}-${branchIndex}`
+													? 'outline outline-offset-1 outline-2  outline-slate-900'
+													: ''
+											)}
+										>
+											<Icon data={faCodeBranch} class="mr-2" />
+											<span
+												class="font-bold flex flex-row justify-between w-full flex-wrap gap-2 items-center"
+											>
+												Default branch
+											</span>
+										</div>
 										<svelte:self
 											prefix={String(index)}
-											suffix={String(moduleStateIndex)}
-											moduleStates={moduleState.childFlowModules}
+											suffix={String(branchIndex)}
+											moduleStates={branchState.childFlowModules}
 											modules={mod.value.default.modules}
 										/>
-									{:else if moduleState.childFlowModules && moduleStateIndex > 0}
-										<span>Branch {moduleStateIndex}</span>
+									{:else if branchState.childFlowModules && branchIndex > 0}
+										<div
+											on:click={() => select(`branch-${index}-${branchIndex}`)}
+											class={classNames(
+												'border w-full rounded-md p-2 bg-white text-sm cursor-pointer flex items-center mb-4',
+												$selectedId === `branch-${index}-${branchIndex}`
+													? 'outline outline-offset-1 outline-2  outline-slate-900'
+													: ''
+											)}
+										>
+											<Icon data={faCodeBranch} class="mr-2" />
+											<span
+												class="font-bold flex flex-row justify-between w-full flex-wrap gap-2 items-center"
+											>
+												Branch {branchIndex}
+											</span>
+										</div>
 
 										<svelte:self
 											prefix={String(index)}
-											suffix={String(moduleStateIndex)}
-											moduleStates={moduleState.childFlowModules}
-											modules={mod.value.branches[moduleStateIndex - 1].modules}
+											suffix={String(branchIndex)}
+											moduleStates={branchState.childFlowModules}
+											modules={mod.value.branches[branchIndex - 1].modules}
 										/>
 									{/if}
 								{/each}

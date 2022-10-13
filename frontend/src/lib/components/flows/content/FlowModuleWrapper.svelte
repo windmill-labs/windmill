@@ -9,8 +9,6 @@
 	const { selectedId } = getContext<FlowEditorContext>('FlowEditorContext')
 
 	$: [parentIndex, childIndex, branchIndex] = selectedIdToIndexes($selectedId)
-
-	$: console.log({ parentIndex, childIndex, branchIndex })
 </script>
 
 {#if childIndex != undefined}
@@ -42,15 +40,16 @@
 						}}
 					/>
 				{:else if state[0].childFlowModules && branchIndex > 0}
-					{JSON.stringify(state[0].childFlowModules[childIndex])}
-					<FlowModule
-						failureModule={false}
-						bind:flowModule={mod.branches[branchIndex].modules[childIndex]}
-						bind:flowModuleState={state[0].childFlowModules[childIndex]}
-						on:delete={() => {
-							//Todo
-						}}
-					/>
+					{#if state[branchIndex]}
+						<FlowModule
+							failureModule={false}
+							bind:flowModule={mod.branches[branchIndex].modules[childIndex]}
+							bind:flowModuleState={state[branchIndex].childFlowModules[childIndex]}
+							on:delete={() => {
+								//Todo
+							}}
+						/>
+					{/if}
 				{/if}
 			{:else}
 				<span>Incorrect state</span>
