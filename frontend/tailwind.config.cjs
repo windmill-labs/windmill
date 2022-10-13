@@ -286,7 +286,7 @@ const config = {
 				},
 				'.animate-skeleton': {
 					animation: theme('animation.pulse'),
-					backgroundColor: theme('colors.blue.200'),
+					backgroundColor: theme('colors.blue.100'),
 					borderRadius: theme('borderRadius.DEFAULT'),
         },
 				'.text-blue-gradient': {
