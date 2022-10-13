@@ -34,7 +34,7 @@ while (true) {
           metrics: [{ buckets: Map<string, number> }];
         }
     )
-  ] = parsePrometheusTextFormat(text);
+  ] = parsePrometheusTextFormat(text); /*
   const map: Map<string, string> = new Map();
   // TODO: optimize this
   // This "simply" unpacks measurements into the common name_{labels} form and puts them into a map (with their value as value)
@@ -62,8 +62,10 @@ while (true) {
         });
       });
     }
+  });*/
+  prometheusValues.forEach((x) => {
+    self.postMessage(x);
   });
-  self.postMessage(map);
 
   const timeTaken = Date.now() - start;
   await sleep((100 - timeTaken) / 1000);
