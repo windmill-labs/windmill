@@ -5,7 +5,6 @@ import { Command } from "https://deno.land/x/cliffy@v0.25.2/command/mod.ts";
 import { sleep } from "https://deno.land/x/sleep@v1.2.1/mod.ts";
 import * as windmill from "https://deno.land/x/windmill@v1.37.0/mod.ts";
 import * as api from "https://deno.land/x/windmill@v1.37.0/windmill-api/index.ts";
-import { writeCSVObjects } from "https://deno.land/x/csv@v0.7.5/mod.ts";
 import { serve } from "https://deno.land/std@0.159.0/http/server.ts";
 
 async function login(
@@ -58,13 +57,6 @@ await new Command()
   .option("-m --metrics <metrics:string>", "The url to scrape metrics from", {
     default: "http://localhost:8001/metrics",
   })
-  .option(
-    "-o --metrics-file <metrics_file:string>",
-    "The csv file to write metrics results to.",
-    {
-      default: "./output.csv",
-    }
-  )
   .arguments("[domain]")
   .action(
     async ({
@@ -76,7 +68,6 @@ await new Command()
       token,
       workspace,
       metrics,
-      metricsFile,
     }) => {
       const metrics_worker = new Worker(
         new URL("./scraper.ts", import.meta.url).href,
@@ -84,10 +75,9 @@ await new Command()
           type: "module",
         }
       );
-      const metrics_data: Map<string, string>[] = [];
       metrics_worker.onmessage = (evt) => {
         const data = evt.data as Map<string, string>;
-        metrics_data.push(data);
+        // metrics_data.push(data);
       };
 
       metrics_worker.postMessage(metrics);
@@ -159,25 +149,6 @@ await new Command()
 
       sleep(0.2);
       metrics_worker.terminate();
-
-      console.log(
-        "collected " + metrics_data.length + " samples. writing csv file..."
-      );
-
-      const header = metrics_data
-        .flatMap((x) => Array.from(x.keys()))
-        .filter((v, i, a) => a.indexOf(v) == i);
-      const f = await Deno.open(metricsFile, {
-        write: true,
-        create: true,
-        truncate: true,
-      });
-      await writeCSVObjects(
-        f,
-        metrics_data.map((x) => Object.fromEntries(x)),
-        { header }
-      );
-      f.close();
     }
   )
   .parse();
