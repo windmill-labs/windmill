@@ -81,7 +81,7 @@
 </script>
 
 <div class="flex flex-col justify-between">
-	<ul class="w-full">
+	<ul class="w-full mb-2">
 		{#if prefix === undefined}
 			<div
 				on:click={() => select('settings')}
@@ -193,7 +193,7 @@
 									btnClasses="my-2"
 									size="xs"
 									color="dark"
-									startIcon={{ icon: faPlus }}
+									startIcon={{ icon: faCodeBranch }}
 									on:click={() => addBranch(index)}
 								>
 									Add branch
@@ -216,12 +216,14 @@
 												Default branch
 											</span>
 										</div>
-										<svelte:self
-											prefix={String(index)}
-											suffix={String(branchIndex)}
-											moduleStates={branchState.childFlowModules}
-											modules={mod.value.default.modules}
-										/>
+										{#if $selectedId.split('-')[2] === '0'}
+											<svelte:self
+												prefix={String(index)}
+												suffix={String(branchIndex)}
+												moduleStates={branchState.childFlowModules}
+												modules={mod.value.default}
+											/>
+										{/if}
 									{:else if branchState.childFlowModules && branchIndex > 0}
 										<div
 											on:click={() => select(`branch-${index}-${branchIndex}`)}
@@ -240,12 +242,14 @@
 											</span>
 										</div>
 
-										<svelte:self
-											prefix={String(index)}
-											suffix={String(branchIndex)}
-											moduleStates={branchState.childFlowModules}
-											modules={mod.value.branches[branchIndex - 1].modules}
-										/>
+										{#if $selectedId.split('-')[2] === String(branchIndex)}
+											<svelte:self
+												prefix={String(index)}
+												suffix={String(branchIndex)}
+												moduleStates={branchState.childFlowModules}
+												modules={mod.value.branches[branchIndex - 1].modules}
+											/>
+										{/if}
 									{/if}
 								{/each}
 							{/if}

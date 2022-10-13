@@ -88,9 +88,7 @@ export async function createBranches(): Promise<[FlowModule, FlowModuleState]> {
 		value: {
 			type: 'branches',
 			branches: [],
-			default: {
-				modules: []
-			}
+			default: []
 		},
 		input_transforms: {}
 	}

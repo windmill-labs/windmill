@@ -51,7 +51,7 @@ async function mapFlowModule(flowModule: FlowModule) {
 
 	if (value.type === 'branches') {
 		const defaultBranchFlowModules = await Promise.all(
-			value.default.modules.map(async (module) => loadFlowModuleSchema(module))
+			value.default.map(async (module) => loadFlowModuleSchema(module))
 		)
 
 		const branchesFlowModules = await Promise.all(
