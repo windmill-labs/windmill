@@ -28,20 +28,22 @@
 	</button>
 
 	<div class="divide-y divide-gray-100" role="none">
-		{#each $usersWorkspaceStore?.workspaces ?? [] as workspace}
-			<button
-				on:click={() => {
-					workspaceStore.set(workspace.id)
-					close()
-				}}
-				class="block px-4 py-2 text-xs text-gray-500 "
-				role="menuitem"
-				tabindex="-1"
-			>
-				<span class="text-gray-300 font-mono pr-1 text-xs">{workspace.id}</span>
-				{workspace.name}
-			</button>
-		{/each}
+		<table class="w-full">
+			{#each $usersWorkspaceStore?.workspaces ?? [] as workspace}
+				<tr
+					class="text-xs cursor-pointer"
+					on:click={() => {
+						workspaceStore.set(workspace.id)
+						close()
+					}}
+				>
+					<td class="text-gray-300 font-mono pl-4 pr-1 py-2 text-xs whitespace-nowrap"
+						>{workspace.id}</td
+					>
+					<td class="text-gray-500 pr-4 py-2 w-full">{workspace.name}</td>
+				</tr>
+			{/each}
+		</table>
 		<div class="py-1" role="none">
 			<a
 				href="/user/create_workspace"

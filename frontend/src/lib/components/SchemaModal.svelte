@@ -98,62 +98,67 @@
 <Modal bind:this={modal} on:close={clearModal}>
 	<div slot="title">Add an argument</div>
 	<div slot="content">
-		<div class="flex flex-col px-6 py-3 bg-gray-50">
-			<label class="font-semibold text-gray-700"
-				>Name<Required required={true} />
-				<input
-					autofocus
-					autocomplete="off"
-					type="text"
-					placeholder="name"
-					bind:value={property.name}
-					class={error === ''
-						? ''
-						: 'border border-red-700 bg-red-100 border-opacity-30 focus:border-red-700 focus:border-opacity-30 focus-visible:ring-red-700 focus-visible:ring-opacity-25 focus-visible:border-red-700'}
-				/>
-			</label>
-			<div class="mb-2 text-red-600 text-2xs">{error}</div>
+		<div class="flex flex-col gap-6">
+			<div>
+				<label class="block">
+					<div class="mb-1 font-semibold text-gray-700">
+						Name
+						<Required required={true} />
+					</div>
+					<input
+						autofocus
+						autocomplete="off"
+						type="text"
+						placeholder="Enter a name"
+						bind:value={property.name}
+						class={error === ''
+							? ''
+							: 'border border-red-700 bg-red-100 border-opacity-30 focus:border-red-700 focus:border-opacity-30 focus-visible:ring-red-700 focus-visible:ring-opacity-25 focus-visible:border-red-700'}
+					/>
+				</label>
+				<div class="text-red-600 text-2xs">{error}</div>
+			</div>
 
-			<label class="mb-2 font-semibold text-gray-700">
-				Description
-				<textarea
-					class="mb-1"
-					type="text"
-					placeholder="Type message..."
-					rows="3"
-					bind:value={property.description}
-				/>
+			<label class="block">
+				<div class="mb-1 font-semibold text-gray-700">
+					Description
+					<Required required={false} />
+				</div>
+				<textarea placeholder="Enter a description" rows="3" bind:value={property.description} />
 			</label>
-			<div class="font-semibold text-gray-700">Type<Required required={true} /></div>
-			<div class="grid sm:grid-cols-3 md:grid-cols-4 gap-x-2 gap-y-1 items-center mb-2 w-full">
-				{#each ARG_TYPES as argType}
-					{@const isSelected = argType == property.selectedType}
+			<div>
+				<div class="mb-1 font-semibold text-gray-700">Type<Required required={true} /></div>
+				<div class="grid sm:grid-cols-3 md:grid-cols-4 gap-x-2 gap-y-1 items-center mb-2 w-full">
+					{#each ARG_TYPES as argType}
+						{@const isSelected = argType == property.selectedType}
+						<Button
+							size="sm"
+							variant="border"
+							color={isSelected ? 'blue' : 'dark'}
+							btnClasses={isSelected ? '!border-2 !bg-blue-50/75' : 'm-[1px]'}
+							on:click={() => {
+								property.selectedType = argType
+								property.format = undefined
+								property.contentEncoding = undefined
+								property.enum_ = undefined
+								property.pattern = undefined
+							}}
+						>
+							{argType}
+						</Button>
+					{/each}
 					<Button
+						size="sm"
 						variant="border"
-						color={isSelected ? 'blue' : 'dark'}
-						btnClasses={isSelected ? '!border-2 !bg-blue-50/75' : 'm-[1px]'}
+						color={!property.selectedType ? 'blue' : 'dark'}
+						btnClasses={!property.selectedType ? '!border-2 !bg-blue-50/75' : 'm-[1px]'}
 						on:click={() => {
-							property.selectedType = argType
-							property.format = undefined
-							property.contentEncoding = undefined
-							property.enum_ = undefined
-							property.pattern = undefined
+							property.selectedType = undefined
 						}}
 					>
-						{argType}
+						any
 					</Button>
-				{/each}
-				<Button
-					variant="border"
-					color={!property.selectedType ? 'blue' : 'dark'}
-					btnClasses={!property.selectedType ? '!border-2 !bg-blue-50/75' : 'm-[1px]'}
-					on:click={() => {
-						property.selectedType = undefined
-					}}
-				>
-					Any
-				</Button>
-				>
+				</div>
 			</div>
 			<Switch
 				label={'Required'}
@@ -168,27 +173,28 @@
 				pattern={property.pattern}
 			/>
 			{#if property.selectedType !== 'boolean'}
-				<div class="font-semibold text-gray-700 mb-2 mt-4">Advanced</div>
-
-				{#if property.selectedType == 'string'}
-					<StringTypeNarrowing
-						bind:format={property.format}
-						bind:pattern={property.pattern}
-						bind:enum_={property.enum_}
-						bind:contentEncoding={property.contentEncoding}
-					/>
-				{:else if property.selectedType == 'array'}
-					<select bind:value={property.items}>
-						<option value={undefined}>No specific item type</option>
-						<option value={{ type: 'string' }}> Items are strings</option>
-						<option value={{ type: 'number' }}>Items are numbers</option>
-					</select>
-				{:else if property.selectedType == 'object'}
-					<h3 class="mb-2 font-bold mt-4">Resource type</h3>
-					<ObjectTypeNarrowing bind:format={property.format} />
-				{:else}
-					<p>No advanced configuration for this type</p>
-				{/if}
+				<div>
+					<div class="font-semibold text-gray-700 mb-1">Advanced</div>
+					{#if property.selectedType == 'string'}
+						<StringTypeNarrowing
+							bind:format={property.format}
+							bind:pattern={property.pattern}
+							bind:enum_={property.enum_}
+							bind:contentEncoding={property.contentEncoding}
+						/>
+					{:else if property.selectedType == 'array'}
+						<select bind:value={property.items}>
+							<option value={undefined}>No specific item type</option>
+							<option value={{ type: 'string' }}> Items are strings</option>
+							<option value={{ type: 'number' }}>Items are numbers</option>
+						</select>
+					{:else if property.selectedType == 'object'}
+						<h3 class="mb-2 font-bold mt-4">Resource type</h3>
+						<ObjectTypeNarrowing bind:format={property.format} />
+					{:else}
+						<p>No advanced configuration for this type</p>
+					{/if}
+				</div>
 			{/if}
 		</div>
 	</div>

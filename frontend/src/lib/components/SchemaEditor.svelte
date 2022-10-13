@@ -143,7 +143,7 @@
 		<Button
 			variant="contained"
 			color="blue"
-			size="md"
+			size="sm"
 			startIcon={{ icon: faPlus }}
 			on:click={() => {
 				modalProperty = Object.assign({}, DEFAULT_PROPERTY)
