@@ -2,6 +2,8 @@
 /// <reference lib="deno.window" />
 
 import { Command } from "https://deno.land/x/cliffy@v0.25.2/command/mod.ts";
+import { number } from "https://deno.land/x/cliffy@v0.25.2/flags/types/number.ts";
+import { validateFlags } from "https://deno.land/x/cliffy@v0.25.2/flags/validate_flags.ts";
 import { sleep } from "https://deno.land/x/sleep@v1.2.1/mod.ts";
 import * as windmill from "https://deno.land/x/windmill@v1.37.0/mod.ts";
 import * as api from "https://deno.land/x/windmill@v1.37.0/windmill-api/index.ts";
@@ -65,6 +67,14 @@ await new Command()
     "--influx-bucket <influx_bucket:string>",
     "The influx bucket to write to. Everything in the bucket will be deleted!!"
   )
+  .option(
+    "--export-json <export_json:string>",
+    "If set, exports will be into a JSON file."
+  )
+  .option(
+    "--exports [exports...:string]",
+    "Mark metrics (without label) to export."
+  )
   .arguments("[domain]")
   .action(
     async ({
@@ -80,6 +90,8 @@ await new Command()
       influxToken,
       influxOrg,
       influxBucket,
+      exportJson,
+      exports,
     }) => {
       const metrics_worker = new Worker(
         new URL("./scraper.ts", import.meta.url).href,
@@ -87,6 +99,17 @@ await new Command()
           type: "module",
         }
       );
+
+      const export_map: Map<
+        string,
+        Map<string, { val: number; samples: number }>
+      > = new Map();
+      // exports is true | string[] | undefined. the first condition checks that it's not undefined, the second condition checks it's the array
+      if (exports && exports !== true) {
+        exports.forEach((e) => {
+          export_map.set(e, new Map());
+        });
+      }
 
       let writeApi: any;
       if (influxHost && influxToken && influxOrg && influxBucket) {
@@ -115,7 +138,6 @@ await new Command()
             name: influxBucket,
           });
           if (buckets && buckets.buckets && buckets.buckets.length) {
-            console.log(buckets.buckets);
             const bucketID = buckets.buckets[0].id;
             await bucketsAPI.deleteBucketsID({ bucketID });
           }
@@ -130,22 +152,46 @@ await new Command()
         await bucketsAPI.postBuckets({ body: { orgID, name: influxBucket } });
 
         writeApi = influxDB.getWriteApi(influxOrg, influxBucket);
+      }
 
-        metrics_worker.onmessage = (evt) => {
-          const data = evt.data as {
-            name: string;
-            help: string;
-          } & (
-            | {
-                type: "COUNTER" | "GAUGE";
-                metrics: [{ value: string; labels: { [key: string]: string } }];
-              }
-            | {
-                type: "HISTOGRAM";
-                metrics: [{ buckets: { [key: string]: number } }];
-              }
-          );
+      metrics_worker.onmessage = (evt) => {
+        const data = evt.data as {
+          name: string;
+          help: string;
+        } & (
+          | {
+              type: "COUNTER" | "GAUGE";
+              metrics: [{ value: string; labels: { [key: string]: string } }];
+            }
+          | {
+              type: "HISTOGRAM";
+              metrics: [{ buckets: { [key: string]: number } }];
+            }
+        );
 
+        if (export_map.has(data.name)) {
+          const c = export_map.get(data.name)!;
+          if (data.type == "COUNTER" || data.type == "GAUGE") {
+            const c2 = c.get("value") ?? { val: 0, samples: 0 };
+            data.metrics.forEach((e) => {
+              c2.val += Number(e.value);
+              c2.samples++;
+            });
+            c.set("value", c2);
+          } else if (data.type == "HISTOGRAM") {
+            data.metrics.forEach((e) => {
+              new Map(Object.entries(e.buckets)).forEach((v, b) => {
+                const c2 = c.get(b) ?? { val: 0, samples: 0 };
+                c2.val += Number(v);
+                c2.samples++;
+                c.set(b, c2);
+              });
+            });
+          }
+          export_map.set(data.name, c);
+        }
+
+        if (writeApi) {
           if (data.type == "COUNTER" || data.type == "GAUGE") {
             data.metrics.forEach((p) => {
               let point = new Point(data.name);
@@ -164,8 +210,8 @@ await new Command()
               writeApi.writePoint(point);
             });
           }
-        };
-      }
+        }
+      };
 
       metrics_worker.postMessage(metrics);
 
@@ -241,6 +287,32 @@ await new Command()
       if (writeApi) {
         await writeApi.close();
       }
+      if (exportJson) {
+        console.log("exporting to json");
+        const final_map: Map<string, number | Map<string, number>> = new Map();
+        export_map.forEach((v, k) => {
+          if (v.size === 1) {
+            const v2 = v.get("value")!;
+            final_map.set(k, v2.val / v2.samples);
+          } else {
+            const m: Map<string, number> = new Map();
+            v.forEach((v2, k2) => {
+              const mean = v2.val / v2.samples;
+              m.set(k2, mean);
+            });
+            final_map.set(k, m);
+          }
+        });
+        const json = JSON.stringify(final_map, (_k, v) => {
+          if (v instanceof Map) {
+            return Object.fromEntries(v);
+          }
+          return v;
+        });
+        console.log(json);
+        await Deno.writeTextFile(exportJson, json);
+      }
+
       console.log("done");
     }
   )
