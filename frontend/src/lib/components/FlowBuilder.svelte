@@ -128,10 +128,6 @@
 	const scheduleStore = writable<Schedule>({ args: {}, cron: '', enabled: false })
 	const previewArgsStore = writable<Record<string, any>>({})
 
-	selectedIdStore.subscribe((s) => {
-		console.log({ selectedId: s })
-	})
-
 	function select(selectedId: string) {
 		selectedIdStore.set(selectedId)
 	}
