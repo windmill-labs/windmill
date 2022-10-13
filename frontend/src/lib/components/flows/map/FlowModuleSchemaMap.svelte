@@ -8,7 +8,8 @@
 		faCodeBranch,
 		faPen,
 		faPlus,
-		faSliders
+		faSliders,
+		faTrashAlt
 	} from '@fortawesome/free-solid-svg-icons'
 	import {
 		emptyFlowModuleState,
@@ -22,6 +23,7 @@
 	import FlowErrorHandlerItem from './FlowErrorHandlerItem.svelte'
 	import RemoveStepConfirmationModal from '../content/RemoveStepConfirmationModal.svelte'
 	import Button from '$lib/components/common/button/Button.svelte'
+	import { slide } from 'svelte/transition'
 
 	export let prefix: string | undefined = undefined
 	export let suffix: string | undefined = undefined
@@ -49,7 +51,6 @@
 				previewResult: NEVER_TESTED_THIS_FAR
 			}
 		)
-		moduleStates = moduleStates
 
 		const module = modules[index]
 
@@ -65,7 +66,25 @@
 		}
 
 		modules[index] = module
-		modules
+
+		moduleStates = moduleStates
+		modules = modules
+	}
+
+	function deleteBranch(index: number, branchIndex: number) {
+		select('settings')
+
+		moduleStates[index].childFlowModules?.splice(branchIndex - 1, 1)
+
+		const module = modules[index]
+
+		if (module.value.type === 'branches') {
+			module.value.branches.splice(branchIndex - 1, 1)
+		}
+
+		modules[index] = module
+		moduleStates = moduleStates
+		modules = modules
 	}
 
 	function removeAtIndex(index: number): void {
@@ -81,7 +100,7 @@
 </script>
 
 <div class="flex flex-col justify-between">
-	<ul class="w-full mb-2">
+	<ul class="w-full">
 		{#if prefix === undefined}
 			<div
 				on:click={() => select('settings')}
@@ -93,7 +112,9 @@
 				)}
 			>
 				<Icon data={faSliders} class="mr-2" />
-				<span class="font-bold flex flex-row justify-between w-full flex-wrap gap-2 items-center">
+				<span
+					class="text-xs font-bold flex flex-row justify-between w-full flex-wrap gap-2 items-center"
+				>
 					Settings
 					<span
 						class={classNames('badge', $schedule?.enabled ? 'badge-on' : 'badge-off')}
@@ -114,9 +135,7 @@
 				<div slot="icon">
 					<Icon data={faPen} scale={0.8} />
 				</div>
-				<div slot="content" class="flex flex-row">
-					<span>Inputs</span>
-				</div>
+				<div slot="content" class="flex flex-row text-xs ">Inputs</div>
 			</FlowModuleSchemaItem>
 		{/if}
 
@@ -148,9 +167,9 @@
 					</FlowModuleSchemaItem>
 
 					<div class="flex text-xs">
-						<div class="line mr-2 w-8" />
+						<div class="line mr-2" />
 
-						<div class="w-full mb-2">
+						<div class="w-full my-2">
 							{#if moduleStates[index]?.childFlowModules}
 								<svelte:self
 									prefix={String(index)}
@@ -159,10 +178,6 @@
 								/>
 							{/if}
 						</div>
-					</div>
-
-					<div class="italic text-xs pl-10 text-gray-600">
-						The loop's result is the list of every iteration's result.
 					</div>
 				</li>
 			{:else if mod.value.type === 'branches'}
@@ -179,18 +194,17 @@
 						<div slot="icon">
 							<span>{index + 1}</span>
 						</div>
-						<div slot="content" class="truncate block w-full">
+						<div slot="content" class="truncate block w-full text-xs">
 							<span>{mod.summary || 'Branches'}</span>
 						</div>
 					</FlowModuleSchemaItem>
 
 					<div class="flex text-xs">
-						<div class="line mr-2 w-8" />
-
-						<div class="w-full mb-2">
+						<div
+							class="w-full space-y-2 flex flex-col border p-2 bg-gray-500 bg-opacity-10 rounded-sm my-2"
+						>
 							{#if moduleStates[index]?.childFlowModules !== undefined}
 								<Button
-									btnClasses="my-2"
 									size="xs"
 									color="dark"
 									startIcon={{ icon: faCodeBranch }}
@@ -211,18 +225,20 @@
 										>
 											<Icon data={faCodeBranch} class="mr-2" />
 											<span
-												class="font-bold flex flex-row justify-between w-full flex-wrap gap-2 items-center"
+												class="text-xs flex flex-row justify-between w-full flex-wrap gap-2 items-center"
 											>
 												Default branch
 											</span>
 										</div>
 										{#if $selectedId.split('-')[2] === '0'}
-											<svelte:self
-												prefix={String(index)}
-												suffix={String(branchIndex)}
-												moduleStates={branchState.childFlowModules}
-												modules={mod.value.default}
-											/>
+											<div transition:slide>
+												<svelte:self
+													prefix={String(index)}
+													suffix={String(branchIndex)}
+													moduleStates={branchState.childFlowModules}
+													modules={mod.value.default}
+												/>
+											</div>
 										{/if}
 									{:else if branchState.childFlowModules && branchIndex > 0}
 										<div
@@ -236,19 +252,29 @@
 										>
 											<Icon data={faCodeBranch} class="mr-2" />
 											<span
-												class="font-bold flex flex-row justify-between w-full flex-wrap gap-2 items-center"
+												class="text-xs flex flex-row justify-between w-full flex-wrap gap-2 items-center"
 											>
 												Branch {branchIndex}
+												<Button
+													iconOnly
+													size="xs"
+													startIcon={{ icon: faTrashAlt }}
+													color="light"
+													variant="border"
+													on:click={() => deleteBranch(index, branchIndex)}
+												/>
 											</span>
 										</div>
 
 										{#if $selectedId.split('-')[2] === String(branchIndex)}
-											<svelte:self
-												prefix={String(index)}
-												suffix={String(branchIndex)}
-												moduleStates={branchState.childFlowModules}
-												modules={mod.value.branches[branchIndex - 1].modules}
-											/>
+											<div transition:slide>
+												<svelte:self
+													prefix={String(index)}
+													suffix={String(branchIndex)}
+													moduleStates={branchState.childFlowModules}
+													modules={mod.value.branches[branchIndex - 1].modules}
+												/>
+											</div>
 										{/if}
 									{/if}
 								{/each}
@@ -260,7 +286,7 @@
 				<li>
 					<FlowModuleSchemaItem
 						on:click={() => select([prefix, String(index), suffix].filter(Boolean).join('-'))}
-						color={prefix ? 'orange' : 'blue'}
+						color={suffix ? 'indigo' : prefix ? 'orange' : 'blue'}
 						isLast={index === modules.length - 1}
 						selected={$selectedId === [prefix, String(index), suffix].filter(Boolean).join('-')}
 						deletable
@@ -278,7 +304,7 @@
 						<div slot="icon">
 							<span>{index + 1}</span>
 						</div>
-						<div slot="content" class="w-full truncate block">
+						<div slot="content" class="w-full truncate block text-xs">
 							<span>
 								{mod.summary ||
 									(`path` in mod.value ? mod.value.path : undefined) ||
@@ -329,5 +355,11 @@
 
 	.badge-off {
 		@apply bg-gray-100 text-gray-800 hover:bg-gray-200;
+	}
+
+	.line {
+		background: repeating-linear-gradient(to bottom, transparent 0 4px, #bbb 4px 8px) 50%/1px 100%
+			no-repeat;
+		width: 2rem;
 	}
 </style>

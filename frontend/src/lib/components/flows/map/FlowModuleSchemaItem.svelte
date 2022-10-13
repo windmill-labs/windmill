@@ -5,7 +5,7 @@
 	import { createEventDispatcher } from 'svelte'
 	import Icon from 'svelte-awesome'
 
-	export let color: 'blue' | 'orange' = 'blue'
+	export let color: 'blue' | 'orange' | 'indigo' = 'blue'
 	export let isFirst: boolean = false
 	export let isLast: boolean = false
 	export let hasLine: boolean = true
@@ -22,7 +22,7 @@
 <div class="flex" on:click>
 	<div
 		class={classNames(
-			'flex  mr-2 w-8 ',
+			'flex mr-2 ',
 			hasLine ? 'line' : '',
 			isFirst ? 'justify-center items-start' : 'justify-center items-center'
 		)}
@@ -30,7 +30,11 @@
 		<div
 			class={classNames(
 				'flex justify-center items-center w-6 h-6 border rounded-full text-xs font-bold',
-				color === 'blue' ? 'bg-blue-100 text-blue-400' : 'bg-orange-100 text-orange-400',
+				color === 'blue'
+					? 'bg-blue-100 text-blue-400'
+					: color === 'orange'
+					? 'bg-orange-100 text-orange-400'
+					: 'bg-teal-200 text-teal-400',
 				margin
 			)}
 		>
@@ -80,5 +84,6 @@
 	.line {
 		background: repeating-linear-gradient(to bottom, transparent 0 4px, #bbb 4px 8px) 50%/1px 100%
 			no-repeat;
+		width: 2rem;
 	}
 </style>

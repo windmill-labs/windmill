@@ -8,6 +8,7 @@
 	import FlowFailureModule from './FlowFailureModule.svelte'
 	import FlowLoopWrapper from './FlowLoopWrapper.svelte'
 	import FlowBranchesWrapper from './FlowBranchesWrapper.svelte'
+	import FlowDefaultBranchWrapper from './FlowDefaultBranchWrapper.svelte'
 
 	export let initialPath: string
 
@@ -24,7 +25,7 @@
 	{:else if $selectedId.includes('branches')}
 		<FlowBranchesWrapper />
 	{:else if $selectedId.includes('branch')}
-		TODO
+		<FlowDefaultBranchWrapper />
 	{:else if $selectedId === 'inputs'}
 		<FlowInput />
 	{:else if $selectedId === 'failure'}
