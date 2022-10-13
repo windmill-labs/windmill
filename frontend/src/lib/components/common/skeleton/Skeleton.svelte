@@ -6,13 +6,12 @@
 	export let layout: SkeletonLayout
 	export let loading = true
 	export let overlay = false
-	export let delay = 200
 </script>
 
 {#if loading}
 	<div class="relative flex justify-center">
 		<div
-			in:fade={{ duration: 1000, delay }}
+			in:fade={{ duration: 1000 }}
 			class="flex grow flex-col overflow-hidden {overlay
 				? 'absolute w-full h-full z-[1000]'
 				: ''} {$$props.class}"
