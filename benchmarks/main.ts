@@ -2,8 +2,7 @@
 /// <reference lib="deno.window" />
 
 import { Command } from "https://deno.land/x/cliffy@v0.25.2/command/mod.ts";
-import { number } from "https://deno.land/x/cliffy@v0.25.2/flags/types/number.ts";
-import { validateFlags } from "https://deno.land/x/cliffy@v0.25.2/flags/validate_flags.ts";
+import { string } from "https://deno.land/x/cliffy@v0.25.2/flags/types/string.ts";
 import { sleep } from "https://deno.land/x/sleep@v1.2.1/mod.ts";
 import * as windmill from "https://deno.land/x/windmill@v1.37.0/mod.ts";
 import * as api from "https://deno.land/x/windmill@v1.37.0/windmill-api/index.ts";
@@ -105,7 +104,7 @@ await new Command()
         Map<string, { val: number; samples: number }>
       > = new Map();
       // exports is true | string[] | undefined. the first condition checks that it's not undefined, the second condition checks it's the array
-      if (exports && exports !== true) {
+      if (Array.isArray(exports)) {
         exports.forEach((e) => {
           export_map.set(e, new Map());
         });
@@ -161,11 +160,11 @@ await new Command()
         } & (
           | {
               type: "COUNTER" | "GAUGE";
-              metrics: [{ value: string; labels: { [key: string]: string } }];
+              metrics: [{ value: string; labels: Record<string, string> }];
             }
           | {
               type: "HISTOGRAM";
-              metrics: [{ buckets: { [key: string]: number } }];
+              metrics: [{ buckets: Record<string, number> }];
             }
         );
 

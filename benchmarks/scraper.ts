@@ -24,11 +24,11 @@ while (true) {
     } & (
       | {
           type: "COUNTER" | "GAUGE";
-          metrics: [{ value: string; labels: { [key: string]: string } }];
+          metrics: [{ value: string; labels: Record<string, string> }];
         }
       | {
           type: "HISTOGRAM";
-          metrics: [{ buckets: { [key: string]: number } }];
+          metrics: [{ buckets: Record<string, number> }];
         }
     )
   ] = parsePrometheusTextFormat(text);
