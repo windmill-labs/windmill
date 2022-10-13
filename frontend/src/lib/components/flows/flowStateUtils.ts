@@ -49,7 +49,7 @@ export async function createInlineScriptModule({
 }: {
 	language: RawScript.language
 	kind: Script.kind
-	subkind: 'pgsql' | 'flow',
+	subkind: 'pgsql' | 'flow'
 }): Promise<[FlowModule, FlowModuleState]> {
 	const code = initialCode(language, kind, subkind)
 
@@ -78,6 +78,37 @@ export async function createLoop(): Promise<[FlowModule, FlowModuleState]> {
 		{
 			schema,
 			childFlowModules: [emptyFlowModuleState()],
+			previewResult: NEVER_TESTED_THIS_FAR
+		}
+	]
+}
+
+export async function createBranches(): Promise<[FlowModule, FlowModuleState]> {
+	const branchesFlowModules: FlowModule = {
+		value: {
+			type: 'branches',
+			branches: [],
+			default: {
+				modules: []
+			}
+		},
+		input_transforms: {}
+	}
+
+	const { schema } = await loadFlowModuleSchema(branchesFlowModules)
+
+	return [
+		branchesFlowModules,
+		{
+			schema,
+			// First one is always the default branch
+			childFlowModules: [
+				{
+					schema: emptySchema(),
+					childFlowModules: [emptyFlowModuleState()],
+					previewResult: NEVER_TESTED_THIS_FAR
+				}
+			],
 			previewResult: NEVER_TESTED_THIS_FAR
 		}
 	]
@@ -210,8 +241,8 @@ export function getStepPropPicker(
 		parentIndex == 0
 			? flowInput
 			: results.length > 0
-				? results[results.length - 1]
-				: NEVER_TESTED_THIS_FAR
+			? results[results.length - 1]
+			: NEVER_TESTED_THIS_FAR
 
 	if (isInsideLoop) {
 		let forLoopFlowInput = {
@@ -235,8 +266,8 @@ export function getStepPropPicker(
 			childIndex == 0
 				? forLoopFlowInput
 				: innerResults.length > 0
-					? innerResults[innerResults.length - 1]
-					: NEVER_TESTED_THIS_FAR
+				? innerResults[innerResults.length - 1]
+				: NEVER_TESTED_THIS_FAR
 
 		const extraLib = buildExtraLib(
 			objectToTsType(forLoopFlowInput),
@@ -327,7 +358,6 @@ export function mapJobResultsToFlowState(jobs: JobResult, upto: number): void {
 
 		return flowModuleState
 	})
-
 
 	flowStateStore.set({
 		modules,

@@ -4,7 +4,15 @@ import { flowStateStore, initFlowState } from './flowState'
 
 export type FlowMode = 'push' | 'pull'
 
-export const flowStore = writable<Flow>({ summary: "", value: { modules: [] }, path: "", edited_at: "", edited_by: "", archived: false, extra_perms: {} })
+export const flowStore = writable<Flow>({
+	summary: '',
+	value: { modules: [] },
+	path: '',
+	edited_at: '',
+	edited_by: '',
+	archived: false,
+	extra_perms: {}
+})
 
 export function initFlow(flow: Flow) {
 	for (const mod of flow.value.modules) {

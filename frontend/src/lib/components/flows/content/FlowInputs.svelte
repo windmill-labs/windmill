@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { RawScript, Script } from '$lib/gen'
 
-	import { faCode, faRepeat } from '@fortawesome/free-solid-svg-icons'
+	import { faCode, faCodeBranch, faRepeat } from '@fortawesome/free-solid-svg-icons'
 	import { createEventDispatcher } from 'svelte'
 	import FlowScriptPicker from '../pickers/FlowScriptPicker.svelte'
 	import PickHubScript from '../pickers/PickHubScript.svelte'
@@ -29,6 +29,12 @@
 			icon={faRepeat}
 			iconColor="text-blue-500"
 			on:click={() => dispatch('loop')}
+		/>
+		<FlowScriptPicker
+			label={`Create branches`}
+			icon={faCodeBranch}
+			iconColor="text-blue-500"
+			on:click={() => dispatch('branches')}
 		/>
 
 		{#if !failureModule}

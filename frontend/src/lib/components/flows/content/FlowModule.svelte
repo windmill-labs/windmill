@@ -20,6 +20,7 @@
 		createLoop,
 		createScriptFromInlineScript,
 		fork,
+		createBranches,
 		getStepPropPicker,
 		isEmptyFlowModule,
 		pickScript
@@ -92,6 +93,10 @@
 		await apply(createLoop, null)
 	}
 
+	async function applyCreateBranches() {
+		await apply(createBranches, null)
+	}
+
 	export const FLOW_MODULE_WIDTH_THRESHOLD = 768
 	const width = writable<number>(0)
 
@@ -131,6 +136,10 @@
 				on:loop={() => {
 					applyCreateLoop()
 					select(['loop', $selectedId].join('-'))
+				}}
+				on:branches={() => {
+					applyCreateBranches()
+					select(['branches', $selectedId].join('-'))
 				}}
 				on:pick={(e) => apply(pickScript, e.detail.path)}
 				on:new={(e) =>

@@ -40,18 +40,18 @@
 	<div class="relative w-full">
 		<div class="absolute text-sm right-14 -bottom-3 flex flex-row gap-1"
 			>{#if retry}
-				<div class="bg-white rounded border text-gray-600 px-1"
-					><Icon scale={0.8} data={faRepeat} /></div
-				>
+				<div class="bg-white rounded border text-gray-600 px-1">
+					<Icon scale={0.8} data={faRepeat} />
+				</div>
 			{/if}{#if earlyStop}
-				<div class="bg-white rounded border text-gray-600 px-1"
-					><Icon scale={0.8} data={faStop} /></div
-				>
+				<div class="bg-white rounded border text-gray-600 px-1">
+					<Icon scale={0.8} data={faStop} />
+				</div>
 			{/if}
 			{#if suspend}
-				<div class="bg-white rounded border text-gray-600 px-1"
-					><Icon scale={0.8} data={faBed} /></div
-				>
+				<div class="bg-white rounded border text-gray-600 px-1">
+					<Icon scale={0.8} data={faBed} />
+				</div>
 			{/if}</div
 		>
 		<div

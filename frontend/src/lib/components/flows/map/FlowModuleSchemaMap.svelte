@@ -4,15 +4,22 @@
 	import FlowModuleSchemaItem from './FlowModuleSchemaItem.svelte'
 	import Icon from 'svelte-awesome'
 	import { faCalendarAlt, faPen, faPlus, faSliders } from '@fortawesome/free-solid-svg-icons'
-	import { emptyFlowModuleState, isEmptyFlowModule } from '$lib/components/flows/flowStateUtils'
-	import { classNames, emptyModule } from '$lib/utils'
+	import {
+		emptyFlowModuleState,
+		isEmptyFlowModule,
+		NEVER_TESTED_THIS_FAR
+	} from '$lib/components/flows/flowStateUtils'
+	import { classNames, emptyModule, emptySchema } from '$lib/utils'
 	import type { FlowModuleState } from '../flowState'
 	import type { FlowModule } from '$lib/gen'
 
 	import FlowErrorHandlerItem from './FlowErrorHandlerItem.svelte'
 	import RemoveStepConfirmationModal from '../content/RemoveStepConfirmationModal.svelte'
+	import Button from '$lib/components/common/button/Button.svelte'
 
 	export let prefix: string | undefined = undefined
+	export let suffix: string | undefined = undefined
+
 	export let modules: FlowModule[]
 	export let moduleStates: FlowModuleState[]
 
@@ -23,7 +30,37 @@
 		modules.splice(index, 0, emptyModule())
 		moduleStates = moduleStates
 		modules = modules
-		select([prefix, String(index)].filter(Boolean).join('-'))
+		select([prefix, String(index), suffix].filter(Boolean).join('-'))
+	}
+
+	function addBranch(index: number) {
+		moduleStates[index].childFlowModules?.splice(
+			moduleStates[index].childFlowModules?.length || 0,
+			0,
+			{
+				schema: emptySchema(),
+				childFlowModules: [emptyFlowModuleState()],
+				previewResult: NEVER_TESTED_THIS_FAR
+			}
+		)
+		moduleStates = moduleStates
+
+		debugger
+
+		const module = modules[index]
+
+		if (module.value.type === 'branches') {
+			module.value.branches = [
+				...module.value.branches,
+				{
+					summary: '',
+					expr: '',
+					modules: [emptyModule()]
+				}
+			]
+		}
+
+		modules[index] = module
 	}
 
 	function removeAtIndex(index: number): void {
@@ -51,15 +88,16 @@
 				)}
 			>
 				<Icon data={faSliders} class="mr-2" />
-				<span class="font-bold flex flex-row justify-between w-full flex-wrap gap-2 items-center"
-					>Settings <span
+				<span class="font-bold flex flex-row justify-between w-full flex-wrap gap-2 items-center">
+					Settings
+					<span
 						class={classNames('badge', $schedule?.enabled ? 'badge-on' : 'badge-off')}
 						on:click|stopPropagation={() => select('settings-schedule')}
 					>
 						{$schedule.cron}
 						<Icon class={$schedule.cron ? 'ml-2' : ''} data={faCalendarAlt} scale={0.8} />
-					</span></span
-				>
+					</span>
+				</span>
 			</div>
 
 			<FlowModuleSchemaItem
@@ -122,13 +160,70 @@
 						The loop's result is the list of every iteration's result.
 					</div>
 				</li>
+			{:else if mod.value.type === 'branches'}
+				<li>
+					<FlowModuleSchemaItem
+						deletable
+						on:delete={() => removeAtIndex(index)}
+						on:click={() => select(['branches', String(index)].join('-'))}
+						selected={$selectedId === ['branches', String(index)].filter(Boolean).join('-')}
+						retry={mod.retry?.constant != undefined || mod.retry?.exponential != undefined}
+						earlyStop={mod.stop_after_if != undefined}
+						suspend={Boolean(mod.suspend)}
+					>
+						<div slot="icon">
+							<span>{index + 1}</span>
+						</div>
+						<div slot="content" class="truncate block w-full">
+							<span>{mod.summary || 'Branches'}</span>
+						</div>
+					</FlowModuleSchemaItem>
+
+					<div class="flex text-xs">
+						<div class="line mr-2 w-8" />
+
+						<div class="w-full mb-2">
+							{#if moduleStates[index]?.childFlowModules !== undefined}
+								<Button
+									btnClasses="my-2"
+									size="xs"
+									color="dark"
+									startIcon={{ icon: faPlus }}
+									on:click={() => addBranch(index)}
+								>
+									Add branch
+								</Button>
+								{#each moduleStates[index]?.childFlowModules ?? [] as moduleState, moduleStateIndex}
+									{#if moduleState.childFlowModules && moduleStateIndex === 0}
+										<span>Default branch</span>
+										<svelte:self
+											prefix={String(index)}
+											suffix={String(moduleStateIndex)}
+											moduleStates={moduleState.childFlowModules}
+											modules={mod.value.default.modules}
+										/>
+									{:else if moduleState.childFlowModules && moduleStateIndex > 0}
+										<span>Branch {moduleStateIndex}</span>
+
+										<svelte:self
+											prefix={String(index)}
+											suffix={String(moduleStateIndex)}
+											moduleStates={moduleState.childFlowModules}
+											modules={mod.value.branches[moduleStateIndex - 1].modules}
+										/>
+									{/if}
+								{/each}
+							{/if}
+						</div>
+					</div>
+				</li>
 			{:else}
 				<li>
 					<FlowModuleSchemaItem
-						on:click={() => select([prefix, String(index)].filter(Boolean).join('-'))}
+						on:click={() => select([prefix, String(index), suffix].filter(Boolean).join('-'))}
 						color={prefix ? 'orange' : 'blue'}
 						isLast={index === modules.length - 1}
-						selected={$selectedId === [prefix, String(index)].filter(Boolean).join('-')}
+						selected={$selectedId === [prefix, String(index), suffix].filter(Boolean).join('-')}
 						deletable
 						on:delete={(event) => {
 							if (event.detail.event.shiftKey || isEmptyFlowModule(mod)) {
@@ -145,13 +240,13 @@
 							<span>{index + 1}</span>
 						</div>
 						<div slot="content" class="w-full truncate block">
-							<span
-								>{mod.summary ||
+							<span>
+								{mod.summary ||
 									(`path` in mod.value ? mod.value.path : undefined) ||
 									(mod.value.type === 'rawscript'
 										? `Inline ${mod.value.language}`
-										: 'Select a script')}</span
-							>
+										: 'Select a script')}
+							</span>
 						</div>
 					</FlowModuleSchemaItem>
 				</li>

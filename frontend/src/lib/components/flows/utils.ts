@@ -45,10 +45,9 @@ export function getTypeAsString(arg: any): string {
 	return typeof arg
 }
 
-
 export function selectedIdToIndexes(selectedId: string): number[] {
 	const splitted = selectedId.split('-')
-	if (splitted[0] == 'loop') {
+	if (['loop', 'branches'].includes(splitted[0])) {
 		return [Number(splitted[1])]
 	} else {
 		return splitted.map(Number)
@@ -73,7 +72,6 @@ export function selectedIdToModuleState(selectedId: string, flow: FlowState): Fl
 		return pm
 	}
 }
-
 
 export async function loadSchemaFromModule(module: FlowModule): Promise<{
 	input_transforms: Record<string, InputTransform>
@@ -110,7 +108,6 @@ export async function loadSchemaFromModule(module: FlowModule): Promise<{
 				accu[key] = nv
 				return accu
 			}, {})
-
 		}
 
 		return {
@@ -141,8 +138,9 @@ export function getDefaultExpr(
 	previousExpr?: string
 ) {
 	const expr = previousExpr ?? `previous_result.${key}`
-	return `import { previous_result, flow_input, step, variable, resource, params } from 'windmill${importPath ? `@${importPath}` : ''
-		}'
+	return `import { previous_result, flow_input, step, variable, resource, params } from 'windmill${
+		importPath ? `@${importPath}` : ''
+	}'
 
 ${expr}`
 }

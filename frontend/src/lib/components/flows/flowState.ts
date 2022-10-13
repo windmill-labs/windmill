@@ -1,5 +1,6 @@
 import type { Schema } from '$lib/common'
 import type { Flow, FlowModule } from '$lib/gen'
+import { c } from 'svelte-highlight/languages'
 import { writable } from 'svelte/store'
 import { emptyFlowModuleState, isEmptyFlowModule, loadFlowModuleSchema } from './flowStateUtils'
 
@@ -15,7 +16,10 @@ export type FlowState = {
 	failureModule: FlowModuleState
 }
 
-export const flowStateStore = writable<FlowState>({ modules: [], failureModule: emptyFlowModuleState() })
+export const flowStateStore = writable<FlowState>({
+	modules: [],
+	failureModule: emptyFlowModuleState()
+})
 
 export async function initFlowState(flow: Flow) {
 	const modules = await mapFlowModules(flow.value.modules)
@@ -30,19 +34,47 @@ export async function initFlowState(flow: Flow) {
 	})
 }
 
-
-
 async function mapFlowModule(flowModule: FlowModule) {
 	const value = flowModule.value
 	if (value.type === 'forloopflow') {
 		const childFlowModules = await Promise.all(
 			value.modules.map(async (module) => loadFlowModuleSchema(module))
 		)
+
 		const loopFlowModule = await loadFlowModuleSchema(flowModule)
 
 		return {
 			...loopFlowModule,
 			childFlowModules
+		}
+	}
+
+	if (value.type === 'branches') {
+		const defaultBranchFlowModules = await Promise.all(
+			value.default.modules.map(async (module) => loadFlowModuleSchema(module))
+		)
+
+		const branchesFlowModules = await Promise.all(
+			value.branches.map(
+				async (branch) =>
+					await Promise.all(branch.modules.map(async (module) => loadFlowModuleSchema(module)))
+			)
+		)
+
+		const branchesFlowModule = await loadFlowModuleSchema(flowModule)
+
+		return {
+			...branchesFlowModule,
+			childFlowModules: [
+				{
+					childFlowModules: defaultBranchFlowModules,
+					schema: branchesFlowModule.schema
+				},
+				...branchesFlowModules.map((modules) => ({
+					schema: branchesFlowModule.schema,
+					childFlowModules: modules
+				}))
+			]
 		}
 	}
 
