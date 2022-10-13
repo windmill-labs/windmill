@@ -260,7 +260,7 @@ await new Command()
         workspace_id: config.workspace_id,
       };
 
-      const workers: Worker[] = new Array(jobs);
+      let workers: Worker[] = new Array(jobs);
       for (let i = 0; i < jobs; i++) {
         workers[i] = new Worker(new URL("./worker.ts", import.meta.url).href, {
           type: "module",
@@ -268,20 +268,26 @@ await new Command()
       }
 
       workers.forEach((worker, i) => {
-        worker.addEventListener("message", (message) => {
-          console.log("from_worker: ", message);
-        });
-
         worker.postMessage({ ...shared_config, i: i });
       });
 
       await sleep(seconds);
 
       workers.forEach((worker) => {
-        worker.terminate();
+        const l = (_ev: MessageEvent<any>) => {
+          worker.removeEventListener("message", l);
+          workers = workers.filter((w) => w != worker);
+          worker.terminate();
+        };
+        worker.addEventListener("message", l);
+        worker.postMessage("stop");
       });
 
-      sleep(0.2);
+      console.log("waiting for shutdown");
+      while (workers.length > 0) {
+        await sleep(0.1);
+      }
+
       metrics_worker.terminate();
 
       if (writeApi) {
