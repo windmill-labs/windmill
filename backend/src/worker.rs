@@ -68,7 +68,7 @@ const DEFAULT_HEAVY_DEPS: [&str; 18] = [
     "rfc3986",
     "six",
     "sniffio",
-    "windmill_api",
+    "windmill-api",
     "wmill",
     "psycopg2-binary",
     "matplotlib",
