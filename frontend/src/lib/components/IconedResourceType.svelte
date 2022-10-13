@@ -28,7 +28,7 @@
 	export let width = '24px'
 </script>
 
-<div class="flex flex-row gap-2 justify-center -pl-2 whitespace-nowrap">
+<div class="flex flex-row gap-2 justify-center items-center break-all whitespace-normal -pl-2">
 	{#if !silent && !after}
 		{name}
 	{/if}
@@ -44,7 +44,7 @@
 	{:else if name === 'slack'}
 		<Slack {height} {width} />
 	{:else if name === 'github'}
-		<GithubIcon />
+		<GithubIcon {height} {width} />
 	{:else if name === 'gmail'}
 		<GmailIcon {height} {width} />
 	{:else if name === 'gsheets'}

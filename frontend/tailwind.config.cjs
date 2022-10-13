@@ -7,7 +7,7 @@ const config = {
 		"./node_modules/flowbite-svelte/**/*.{html,js,svelte,ts}",
 	],
 	safelist: [
-		'inline-highlight'
+		'hljs'
 	],
 	theme: {
 		colors: {
@@ -90,6 +90,11 @@ const config = {
 				900: '#312e81',
 			}
 		},
+		fontFamily: {
+			// add double quotes if there is space in font name
+			main: ['Inter', 'sans-serif'],
+			mono: ['ui-monospace', 'SFMono-Regular', 'Menlo', 'Monaco', 'Consolas', '"Liberation Mono"', '"Courier New"', 'monospace']
+		},
 		extend: {
 			maxHeight: {
 				'1/2': '50vh',
@@ -115,7 +120,12 @@ const config = {
 			},
 			fontSize: {
 				'2xs': '0.7rem'
-			}
+			},
+			screens: {
+				'fhd': '1900px',
+				'qhd': '2500px',
+				'4k': '3800px',
+			},
 		}
 	},
 
@@ -126,15 +136,83 @@ const config = {
 		plugin(({ addBase, addComponents, addUtilities, theme }) => {
 			addBase({
 				'html': {
-					overflowY: 'auto'
+					overflowY: 'auto',
+					fontFamily: theme('fontFamily.main'),
+					fontSize: theme('fontSize.base'),
+					fontWeight: theme('fontWeight.normal'),
+					color: theme('colors.gray.900'),
+					[`@media (min-width: ${theme('screens.qhd')})`]: {
+						fontSize: theme('fontSize.lg'),
+					},
 				},
 				'h1': {
-					fontSize: theme('fontSize.2xl'),
-					color: theme('colors.gray.700')
+					fontSize: '24px',
+					fontWeight: theme('fontWeight.extrabold'),
+					lineHeight: '1.05',
+					color: theme('colors.gray.800'),
+					[`@media (min-width: ${theme('screens.lg')})`]: {
+						fontSize: '26px',
+					},
+					[`@media (min-width: ${theme('screens.fhd')})`]: {
+						fontSize: '29px',
+					},
+					[`@media (min-width: ${theme('screens.qhd')})`]: {
+						fontSize: '34px',
+					},
 				},
-				'h1': {
-					fontSize: theme('fontSize.xl'),
-					color: theme('colors.blue.500')
+				'h2': {
+					fontSize: '20px',
+					fontWeight: theme('fontWeight.extrabold'),
+					lineHeight: '1.1',
+					color: theme('colors.gray.700'),
+					[`@media (min-width: ${theme('screens.fhd')})`]: {
+						fontSize: '22px',
+					},
+					[`@media (min-width: ${theme('screens.qhd')})`]: {
+						fontSize: '25px',
+					},
+				},
+				'h3': {
+					fontSize: '18px',
+					fontWeight: theme('fontWeight.bold'),
+					lineHeight: '1.2',
+					color: theme('colors.gray.600'),
+					[`@media (min-width: ${theme('screens.fhd')})`]: {
+						fontSize: '20px',
+					},
+					[`@media (min-width: ${theme('screens.qhd')})`]: {
+						fontSize: '22px',
+					},
+				},
+				'h4': {
+					fontSize: '18px',
+					fontWeight: theme('fontWeight.semibold'),
+					lineHeight: '1.3',
+					color: theme('colors.gray.600'),
+					[`@media (min-width: ${theme('screens.qhd')})`]: {
+						fontSize: '20px',
+					},
+				},
+				'h5': {
+					fontSize: '16px',
+					fontWeight: theme('fontWeight.semibold'),
+					lineHeight: '1.5',
+					color: theme('colors.gray.600'),
+					[`@media (min-width: ${theme('screens.qhd')})`]: {
+						fontSize: '18px',
+					},
+				},
+				'h6': {
+					fontSize: '16px',
+					fontWeight: theme('fontWeight.medium'),
+					lineHeight: '1.5',
+					color: theme('colors.gray.600'),
+					[`@media (min-width: ${theme('screens.qhd')})`]: {
+						fontSize: '18px',
+					},
+				},
+				'button': {
+					fontWeight: theme('fontWeight.semibold'),
 				},
 				'a': {
 					color: theme('colors.blue.500')
@@ -161,7 +239,14 @@ const config = {
 					pointerEvents: 'none',
 					cursor: 'default',
 					filter: 'grayscale(1)'
-				}
+				},
+				'pre code.hljs': {
+					padding: '0px !important',
+					fontFamily: theme('fontFamily.mono'),
+					fontSize: theme('fontSize.sm') + ' !important',
+					lineHeight: theme('lineHeight.4') + ' !important',
+					whiteSpace: 'pre-wrap'
+				},
 			});
 			addComponents({
 				'#table-custom': {
@@ -199,17 +284,16 @@ const config = {
 					boxShadow: theme('boxShadow.sm'),
 					padding: theme('spacing.4')
 				},
-				'pre code.hljs': {
-					padding: '0px',
-					fontSize: theme('fontSize.xs'),
-					lineHeight: theme('lineHeight.4'),
-					whiteSpace: 'pre-wrap'
-				},
 				'.animate-skeleton': {
 					animation: theme('animation.pulse'),
 					backgroundColor: theme('colors.blue.200'),
 					borderRadius: theme('borderRadius.DEFAULT'),
-        }
+        },
+				'.text-blue-gradient': {
+					color: 'transparent',
+					backgroundClip: 'text',
+					backgroundImage: `linear-gradient(to right, ${theme('colors.blue.600')}, ${theme('colors.blue.500')})`
+				}
 			});
 			addUtilities({
 				'.separator': {

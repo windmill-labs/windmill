@@ -33,6 +33,7 @@
 	{#if nonePickable}
 		{@const isPicked = value === undefined}
 		<Button
+			size="sm"
 			variant="border"
 			color={isPicked ? 'blue' : 'dark'}
 			btnClasses={isPicked ? '!border-2 !bg-blue-50/75' : 'm-[1px]'}
@@ -45,13 +46,14 @@
 	{#each resources as r}
 		{@const isPicked = value === r}
 		<Button
+			size="sm"
 			variant="border"
 			color={isPicked ? 'blue' : 'dark'}
 			btnClasses={isPicked ? '!border-2 !bg-blue-50/75' : 'm-[1px]'}
 			disabled={notPickable}
 			on:click={() => onClick(r)}
 		>
-			<IconedResourceType name={r} after={true} />
+			<IconedResourceType name={r} after={true} width="20px" height="20px" />
 		</Button>
 	{/each}
 </div>

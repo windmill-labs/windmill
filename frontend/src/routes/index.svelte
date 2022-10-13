@@ -55,15 +55,11 @@
 </script>
 
 <CenteredPage>
-	<h1 class="text-xl font-extrabold tracking-tight leading-none text-gray-900 md:text-3xl">Home</h1>
+	<h1 class="flex items-center min-h-[48px] font-black my-4">Home</h1>
 	<div class="space-y-12">
 		<div>
-			<h2
-				class="mb-4 text-lg font-extrabold tracking-tight leading-none text-gray-900 md:text-2xl border-b py-2"
-			>
-				<span class="text-transparent bg-clip-text bg-gradient-to-r to-blue-500 from-blue-600">
-					Scripts
-				</span>
+			<h2 class="border-b mb-4 py-2">
+				<span class="text-blue-gradient">Scripts</span>
 			</h2>
 			<ScriptGettingStarted />
 
@@ -95,12 +91,8 @@
 			</div>
 		</div>
 		<div>
-			<h2
-				class="mb-4 text-lg font-extrabold tracking-tight leading-none text-gray-900 md:text-2xl border-b py-2 "
-			>
-				<span class="text-transparent bg-clip-text bg-gradient-to-r to-blue-500 from-blue-600">
-					Flows
-				</span>
+			<h2 class="border-b mb-4 py-2">
+				<span class="text-blue-gradient">Flows</span>
 			</h2>
 			<FlowGettingStarted />
 			<div class="mt-6 mb-2 text-md font-bold text-gray-900 ">Latest flows:</div>
@@ -132,12 +124,8 @@
 			</div>
 		</div>
 		<div>
-			<h2
-				class="mb-4 text-lg font-extrabold tracking-tight leading-none text-gray-900 md:text-2xl border-b py-2 "
-			>
-				<span class="text-transparent bg-clip-text bg-gradient-to-r to-blue-500 from-blue-600">
-					Resources
-				</span>
+			<h2 class="border-b mb-4 py-2">
+				<span class="text-blue-gradient">Resources</span>
 			</h2>
 
 			{#if resources.length === 0}
@@ -145,12 +133,8 @@
 			{/if}
 		</div>
 		<div>
-			<h2
-				class="mb-4 text-lg font-extrabold tracking-tight leading-none text-gray-900 md:text-2xl border-b py-2 "
-			>
-				<span class="text-transparent bg-clip-text bg-gradient-to-r to-blue-500 from-blue-600">
-					Runs
-				</span>
+			<h2 class="border-b mb-4 py-2">
+				<span class="text-blue-gradient">Runs</span>
 			</h2>
 
 			<div class="grid grid-cols-1 gap-4 my-4">

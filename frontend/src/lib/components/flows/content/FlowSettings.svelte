@@ -35,7 +35,7 @@
 				</Path>
 
 				<label class="block my-4">
-					<span class="text-gray-700">Summary <Required required={false} /></span>
+					<span class="text-gray-700 text-sm">Summary <Required required={false} /></span>
 					<textarea
 						bind:value={$flowStore.summary}
 						class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-300 focus:ring focus:ring-indigo-200 focus:ring-opacity-50"
@@ -46,20 +46,14 @@
 				</label>
 
 				<label class="block my-4" for="inp">
-					<span class="text-gray-700"
-						>Description<Required required={false} detail="accept markdown formatting" />
+					<span class="text-gray-700 text-sm">
+						Description
+						<Required required={false} detail="markdown" />
 						<textarea
 							id="inp"
 							bind:value={$flowStore.description}
-							class="
-					mt-1
-					block
-					w-full
-					rounded-md
-					border-gray-300
-					shadow-sm
-					focus:border-indigo-300 focus:ring focus:ring-indigo-200 focus:ring-opacity-50
-					"
+							class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-300 
+							focus:ring focus:ring-indigo-200 focus:ring-opacity-50"
 							placeholder="A description to help users understand what this script does and how to use it."
 							rows="3"
 						/>
@@ -67,13 +61,14 @@
 				</label>
 
 				<div>
-					<h3 class="text-gray-700 ">Description rendered</h3>
-					<div
-						class="prose mt-5 text-xs shadow-inner shadow-blue p-4 overflow-auto"
-						style="max-height: 200px;"
-					>
-						<SvelteMarkdown source={$flowStore.description ?? ''} />
-					</div>
+					<div class="font-bold pb-1 mt-4">Description preview</div>
+					{#if $flowStore.description}
+						<div class="prose max-h-48 mt-5 text-xs shadow-inner shadow-blue p-4 overflow-auto">
+							<SvelteMarkdown source={$flowStore.description} />
+						</div>
+					{:else}
+						<div class="text-sm text-gray-500"> Enter a description to see the preview </div>
+					{/if}
 				</div>
 			</TabContent>
 			<TabContent value="schedule" class="p-4">
