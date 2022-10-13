@@ -2,7 +2,6 @@
 /// <reference lib="deno.window" />
 
 import { Command } from "https://deno.land/x/cliffy@v0.25.2/command/mod.ts";
-import { string } from "https://deno.land/x/cliffy@v0.25.2/flags/types/string.ts";
 import { sleep } from "https://deno.land/x/sleep@v1.2.1/mod.ts";
 import * as windmill from "https://deno.land/x/windmill@v1.37.0/mod.ts";
 import * as api from "https://deno.land/x/windmill@v1.37.0/windmill-api/index.ts";
@@ -120,11 +119,7 @@ await new Command()
 
         const orgsAPI = new OrgsAPI(influxDB);
         const organizations = await orgsAPI.getOrgs({ org: influxOrg });
-        if (
-          !organizations ||
-          !organizations.orgs ||
-          !organizations.orgs.length
-        ) {
+        if (!organizations?.orgs?.length) {
           console.error(`No organization named "${influxOrg}" found!`);
           return;
         }
@@ -136,8 +131,8 @@ await new Command()
             orgID,
             name: influxBucket,
           });
-          if (buckets && buckets.buckets && buckets.buckets.length) {
-            const bucketID = buckets.buckets[0].id;
+          const bucketID = buckets?.buckets?.[0]?.id;
+          if (bucketID) {
             await bucketsAPI.deleteBucketsID({ bucketID });
           }
         } catch (e) {
