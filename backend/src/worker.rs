@@ -31,7 +31,7 @@ use crate::{
 use serde_json::{json, Map, Value};
 
 use tokio::{
-    fs::{symlink, DirBuilder, File},
+    fs::{metadata, symlink, DirBuilder, File},
     io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader},
     process::{Child, Command},
     sync::{
@@ -49,10 +49,31 @@ use futures::{
 use async_recursion::async_recursion;
 
 const TMP_DIR: &str = "/tmp/windmill";
+const PIP_SUPERCACHE_DIR: &str = "/tmp/windmill/cache/pip_permanent";
 const PIP_CACHE_DIR: &str = "/tmp/windmill/cache/pip";
 const DENO_CACHE_DIR: &str = "/tmp/windmill/cache/deno";
 const GO_CACHE_DIR: &str = "/tmp/windmill/cache/go";
 const NUM_SECS_ENV_CHECK: u64 = 15;
+const DEFAULT_HEAVY_DEPS: [&str; 18] = [
+    "numpy",
+    "pandas",
+    "anyio",
+    "attrs",
+    "certifi",
+    "h11",
+    "httpcore",
+    "httpx",
+    "idna",
+    "python-dateutil",
+    "rfc3986",
+    "six",
+    "sniffio",
+    "windmill-api",
+    "wmill",
+    "psycopg2-binary",
+    "matplotlib",
+    "seaborn",
+];
 
 const INCLUDE_DEPS_PY_SH_CONTENT: &str = include_str!("../../nsjail/download_deps.py.sh");
 const NSJAIL_CONFIG_DOWNLOAD_PY_CONTENT: &str =
@@ -95,7 +116,13 @@ pub async fn run_worker(
     let worker_dir = format!("{TMP_DIR}/{worker_name}");
     tracing::debug!(worker_dir = %worker_dir, worker_name = %worker_name, "Creating worker dir");
 
-    for x in [&worker_dir, PIP_CACHE_DIR, DENO_CACHE_DIR, GO_CACHE_DIR] {
+    for x in [
+        &worker_dir,
+        PIP_SUPERCACHE_DIR,
+        PIP_CACHE_DIR,
+        DENO_CACHE_DIR,
+        GO_CACHE_DIR,
+    ] {
         DirBuilder::new()
             .recursive(true)
             .create(x)
@@ -151,6 +178,9 @@ pub async fn run_worker(
     let go_path = std::env::var("GO_PATH").unwrap_or_else(|_| "/usr/bin/go".to_string());
     let python_path =
         std::env::var("PYTHON_PATH").unwrap_or_else(|_| "/usr/local/bin/python3".to_string());
+    let python_heavy_deps = std::env::var("PYTHON_HEAVY_DEPS")
+        .map(|x| x.split(',').map(|x| x.to_string()).collect::<Vec<_>>())
+        .unwrap_or_else(|_| vec![]);
     let nsjail_path = std::env::var("NSJAIL_PATH").unwrap_or_else(|_| "nsjail".to_string());
     let path_env = std::env::var("PATH").unwrap_or_else(|_| String::new());
     let gopath_env = std::env::var("GOPATH").unwrap_or_else(|_| String::new());
@@ -162,6 +192,7 @@ pub async fn run_worker(
         deno_path,
         go_path,
         python_path,
+        python_heavy_deps,
         nsjail_path,
         path_env,
         gopath_env,
@@ -235,9 +266,17 @@ pub async fn run_worker(
                 if is_flow && same_worker {
                     let target = &format!("{job_dir}/shared");
                     if let Some(parent_flow) = job.parent_job {
-                        symlink(&format!("{worker_dir}/{parent_flow}/shared"), target)
+                        let parent_shared_dir = format!("{worker_dir}/{parent_flow}/shared");
+                        if metadata(&parent_shared_dir).await.is_err() {
+                            DirBuilder::new()
+                                .recursive(true)
+                                .create(&parent_shared_dir)
+                                .await
+                                .expect("could not create parent shared dir");
+                        }
+                        symlink(&parent_shared_dir, target)
                             .await
-                            .expect("could not create symlink");
+                            .expect("could not symlink target");
                     } else {
                         DirBuilder::new()
                             .create(target)
@@ -374,6 +413,7 @@ struct Envs {
     deno_path: String,
     go_path: String,
     python_path: String,
+    python_heavy_deps: Vec<String>,
     nsjail_path: String,
     path_env: String,
     gopath_env: String,
@@ -581,11 +621,7 @@ async fn handle_code_execution_job(
         || matches!(job.job_kind, JobKind::Script_Hub)
     {
         let code = (job.raw_code.as_ref().unwrap_or(&"no raw code".to_owned())).to_owned();
-        let reqs = match job.language {
-            Some(ScriptLang::Python3) => Some(parser_py::parse_python_imports(&code)?.join("\n")),
-            _ => None,
-        };
-        (code, reqs, job.language.to_owned())
+        (code, None, job.language.to_owned())
     } else {
         sqlx::query_as::<_, (String, Option<String>, Option<ScriptLang>)>(
             "SELECT content, lock, language FROM script WHERE hash = $1 AND (workspace_id = $2 OR \
@@ -1020,9 +1056,10 @@ async fn create_args_and_out_file(
 
 async fn handle_python_job(
     WorkerConfig { base_internal_url, base_url, disable_nuser, disable_nsjail, .. }: &WorkerConfig,
-    Envs {
+    envs @ Envs {
         nsjail_path,
         python_path,
+        python_heavy_deps,
         path_env,
         pip_extra_index_url,
         pip_index_url,
@@ -1040,10 +1077,25 @@ async fn handle_python_job(
     inner_content: &String,
     shared_mount: &str,
 ) -> error::Result<serde_json::Value> {
-    let requirements =
-        requirements_o.ok_or_else(|| Error::InternalErr(format!("lockfile missing")))?;
-
     create_dependencies_dir(job_dir).await;
+
+    let mut additional_python_paths: Vec<String> = vec![];
+
+    let requirements = match requirements_o {
+        Some(r) => r,
+        None => {
+            let requirements = parser_py::parse_python_imports(&inner_content)?.join("\n");
+            if requirements.is_empty() {
+                "".to_string()
+            } else {
+                pip_compile(job, &requirements, logs, job_dir, envs, db, timeout)
+                    .await?
+                    .map_err(|e| {
+                        Error::ExecutionErr(format!("pip compile failed: {}", e.to_string()))
+                    })?
+            }
+        }
+    };
 
     if requirements.len() > 0 {
         if !disable_nsjail {
@@ -1058,14 +1110,18 @@ async fn handle_python_job(
             )
             .await?;
         }
-        let _ = write_file(job_dir, "requirements.txt", &requirements).await?;
 
-        tracing::info!(
-            worker_name = %worker_name,
-            job_id = %job.id,
-            workspace_id = %job.workspace_id,
-            "started setup python dependencies"
-        );
+        let mut heavy_deps = DEFAULT_HEAVY_DEPS
+            .iter()
+            .map(|s| s.to_string())
+            .collect::<Vec<String>>();
+        heavy_deps.extend(python_heavy_deps.into_iter().map(|s| s.to_string()));
+
+        let (heavy, regular): (Vec<&str>, Vec<&str>) = requirements
+            .split("\n")
+            .partition(|d| heavy_deps.iter().any(|hd| d.starts_with(hd)));
+
+        let _ = write_file(job_dir, "requirements.txt", &regular.join("\n")).await?;
 
         let mut vars = vec![];
         if let Some(url) = pip_extra_index_url {
@@ -1077,58 +1133,80 @@ async fn handle_python_job(
         if let Some(host) = pip_trusted_host {
             vars.push(("TRUSTED_HOST", host));
         }
-        let child = if !disable_nsjail {
-            Command::new(nsjail_path)
-                .current_dir(job_dir)
-                .env_clear()
-                .envs(vars)
-                .args(vec!["--config", "download.config.proto"])
-                .stdout(Stdio::piped())
-                .stderr(Stdio::piped())
-                .spawn()?
-        } else {
-            let mut args = vec![
-                "-m",
-                "pip",
-                "install",
-                "--no-color",
-                "--isolated",
-                "--no-warn-conflicts",
-                "--disable-pip-version-check",
-                "-t",
-                "./dependencies",
-                "-r",
-                "./requirements.txt",
-            ];
-            if let Some(url) = pip_extra_index_url {
-                args.extend(["--extra-index-url", url]);
-            }
-            if let Some(url) = pip_index_url {
-                args.extend(["--index-url", url]);
-            }
-            if let Some(host) = pip_trusted_host {
-                args.extend(["--trusted-host", host]);
-            }
-            Command::new(python_path)
-                .current_dir(job_dir)
-                .env_clear()
-                .args(args)
-                .stdout(Stdio::piped())
-                .stderr(Stdio::piped())
-                .spawn()?
-        };
 
-        logs.push_str("\n--- PIP DEPENDENCIES INSTALL ---\n");
-        let child = handle_child(&job.id, db, logs, timeout, child).await;
-        tracing::info!(
-            worker_name = %worker_name,
-            job_id = %job.id,
-            workspace_id = %job.workspace_id,
-            is_ok = child.is_ok(),
-            "finished setting up python dependencies {}",
-            job.id
-        );
-        child?;
+        if heavy.len() > 0 {
+            logs.push_str(&format!(
+                "\nheavy deps detected, using supercache for: {heavy:?}"
+            ));
+            additional_python_paths =
+                handle_python_heavy_reqs(python_path, heavy, vars.clone(), job, logs, db, timeout)
+                    .await?;
+        }
+
+        if regular.len() > 0 {
+            tracing::info!(
+                worker_name = %worker_name,
+                job_id = %job.id,
+                workspace_id = %job.workspace_id,
+                "started setup python dependencies"
+            );
+
+            let child = if !disable_nsjail {
+                Command::new(nsjail_path)
+                    .current_dir(job_dir)
+                    .env_clear()
+                    .envs(vars)
+                    .args(vec!["--config", "download.config.proto"])
+                    .stdout(Stdio::piped())
+                    .stderr(Stdio::piped())
+                    .spawn()?
+            } else {
+                let mut args = vec![
+                    "-m",
+                    "pip",
+                    "install",
+                    "--no-deps",
+                    "--no-color",
+                    "--isolated",
+                    "--no-warn-conflicts",
+                    "--disable-pip-version-check",
+                    "-t",
+                    "./dependencies",
+                    "-r",
+                    "./requirements.txt",
+                ];
+                if let Some(url) = pip_extra_index_url {
+                    args.extend(["--extra-index-url", url]);
+                }
+                if let Some(url) = pip_index_url {
+                    args.extend(["--index-url", url]);
+                }
+                if let Some(host) = pip_trusted_host {
+                    args.extend(["--trusted-host", host]);
+                }
+                Command::new(python_path)
+                    .current_dir(job_dir)
+                    .env_clear()
+                    .args(args)
+                    .stdout(Stdio::piped())
+                    .stderr(Stdio::piped())
+                    .spawn()?
+            };
+
+            logs.push_str("\n--- PIP DEPENDENCIES INSTALL ---\n");
+            let child = handle_child(&job.id, db, logs, timeout, child).await;
+            tracing::info!(
+                worker_name = %worker_name,
+                job_id = %job.id,
+                workspace_id = %job.workspace_id,
+                is_ok = child.is_ok(),
+                "finished setting up python dependencies {}",
+                job.id
+            );
+            child?;
+        } else {
+            logs.push_str("\nskipping pip install since not needed");
+        };
     }
     logs.push_str("\n\n--- PYTHON CODE EXECUTION ---\n");
 
@@ -1196,18 +1274,45 @@ with open("result.json", 'w') as f:
     write_file(job_dir, "main.py", &wrapper_content).await?;
 
     let mut reserved_variables = get_reserved_variables(job, &token, &base_url, db).await?;
+    let additional_python_paths_folders = additional_python_paths
+        .iter()
+        .map(|x| format!(":{x}"))
+        .join("");
     if !disable_nsjail {
+        let shared_deps = additional_python_paths
+            .into_iter()
+            .map(|pp| {
+                format!(
+                    r#"
+mount {{
+    src: "{pp}"
+    dst: "{pp}"
+    is_bind: true
+    rw: false
+}}
+        "#
+                )
+            })
+            .join("\n");
         let _ = write_file(
             job_dir,
             "run.config.proto",
             &NSJAIL_CONFIG_RUN_PYTHON3_CONTENT
                 .replace("{JOB_DIR}", job_dir)
                 .replace("{CLONE_NEWUSER}", &(!disable_nuser).to_string())
-                .replace("{SHARED_MOUNT}", shared_mount),
+                .replace("{SHARED_MOUNT}", shared_mount)
+                .replace("{SHARED_DEPENDENCIES}", shared_deps.as_str())
+                .replace(
+                    "{ADDITIONAL_PYTHON_PATHS}",
+                    additional_python_paths_folders.as_str(),
+                ),
         )
         .await?;
     } else {
-        reserved_variables.insert("PYTHONPATH".to_string(), format!("{job_dir}/dependencies"));
+        reserved_variables.insert(
+            "PYTHONPATH".to_string(),
+            format!("{job_dir}/dependencies{additional_python_paths_folders}"),
+        );
     }
 
     tracing::info!(
@@ -1221,6 +1326,7 @@ with open("result.json", 'w') as f:
         Command::new(nsjail_path)
             .current_dir(job_dir)
             .env_clear()
+            // inject PYTHONPATH here - for some reason I had to do it in nsjail conf
             .envs(reserved_variables)
             .env("PATH", path_env)
             .env("BASE_INTERNAL_URL", base_internal_url)
@@ -1274,49 +1380,17 @@ async fn handle_dependency_job(
     job_dir: &str,
     db: &sqlx::Pool<sqlx::Postgres>,
     timeout: i32,
-    Envs { go_path, pip_extra_index_url, pip_index_url, pip_trusted_host, .. }: &Envs,
+    envs: &Envs,
 ) -> error::Result<serde_json::Value> {
     let content = match job.language {
         Some(ScriptLang::Python3) => {
             create_dependencies_dir(job_dir).await;
-
-            let requirements = job
+            let requirements = &job
                 .raw_code
                 .as_ref()
-                .ok_or_else(|| Error::ExecutionErr("missing requirements".to_string()))?;
-            logs.push_str(&format!("content of requirements:\n{}\n", &requirements));
-            let file = "requirements.in";
-            write_file(job_dir, file, &requirements).await?;
-            let mut args = vec!["-q", "--no-header", file];
-            if let Some(url) = pip_extra_index_url {
-                args.extend(["--extra-index-url", url]);
-            }
-            if let Some(url) = pip_index_url {
-                args.extend(["--index-url", url]);
-            }
-            if let Some(host) = pip_trusted_host {
-                args.extend(["--trusted-host", host]);
-            }
-            let child = Command::new("pip-compile")
-                .current_dir(job_dir)
-                .args(args)
-                .stdout(Stdio::piped())
-                .stderr(Stdio::piped())
-                .spawn()?;
-            handle_child(&job.id, db, logs, timeout, child)
-                .await
-                .map_err(|e| Error::ExecutionErr(format!("Lock file generation failed: {e:?}")))?;
-            let path_lock = format!("{job_dir}/requirements.txt");
-            let mut file = File::open(path_lock).await?;
-
-            let mut req_content = "".to_string();
-            file.read_to_string(&mut req_content).await?;
-            Ok(req_content
-                .lines()
-                .filter(|x| !x.trim_start().starts_with('#'))
-                .map(|x| x.to_string())
-                .collect::<Vec<String>>()
-                .join("\n"))
+                .ok_or_else(|| Error::ExecutionErr("missing requirements".to_string()))?
+                .clone();
+            pip_compile(job, requirements, logs, job_dir, envs, db, timeout).await?
         }
         Some(ScriptLang::Go) => {
             let requirements = job
@@ -1330,7 +1404,7 @@ async fn handle_dependency_job(
                 job_dir,
                 db,
                 timeout,
-                go_path,
+                &envs.go_path,
                 false,
             )
             .await
@@ -1363,6 +1437,49 @@ async fn handle_dependency_job(
             Err(Error::ExecutionErr(format!("Error locking file: {error}")))?
         }
     }
+}
+
+async fn pip_compile(
+    job: &QueuedJob,
+    requirements: &str,
+    logs: &mut String,
+    job_dir: &str,
+    Envs { pip_extra_index_url, pip_index_url, pip_trusted_host, .. }: &Envs,
+    db: &DB,
+    timeout: i32,
+) -> Result<Result<String, String>, Error> {
+    logs.push_str(&format!("content of requirements:\n{}\n", requirements));
+    let file = "requirements.in";
+    write_file(job_dir, file, &requirements).await?;
+    let mut args = vec!["-q", "--no-header", file];
+    if let Some(url) = pip_extra_index_url {
+        args.extend(["--extra-index-url", url]);
+    }
+    if let Some(url) = pip_index_url {
+        args.extend(["--index-url", url]);
+    }
+    if let Some(host) = pip_trusted_host {
+        args.extend(["--trusted-host", host]);
+    }
+    let child = Command::new("pip-compile")
+        .current_dir(job_dir)
+        .args(args)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()?;
+    handle_child(&job.id, db, logs, timeout, child)
+        .await
+        .map_err(|e| Error::ExecutionErr(format!("Lock file generation failed: {e:?}")))?;
+    let path_lock = format!("{job_dir}/requirements.txt");
+    let mut file = File::open(path_lock).await?;
+    let mut req_content = "".to_string();
+    file.read_to_string(&mut req_content).await?;
+    Ok(Ok(req_content
+        .lines()
+        .filter(|x| !x.trim_start().starts_with('#'))
+        .map(|x| x.to_string())
+        .collect::<Vec<String>>()
+        .join("\n")))
 }
 
 async fn install_go_dependencies(
@@ -1850,6 +1967,56 @@ pub async fn handle_zombie_jobs_periodically(
     }
 }
 
+async fn handle_python_heavy_reqs(
+    python_path: &String,
+    heavy_requirements: Vec<&str>,
+    vars: Vec<(&str, &String)>,
+    job: &QueuedJob,
+    logs: &mut String,
+    db: &sqlx::Pool<sqlx::Postgres>,
+    timeout: i32,
+) -> error::Result<Vec<String>> {
+    let mut req_paths: Vec<String> = vec![];
+    for req in heavy_requirements {
+        // todo: handle many reqs
+        let venv_p = format!("{PIP_SUPERCACHE_DIR}/{req}");
+        if metadata(&venv_p).await.is_ok() {
+            tracing::info!("already exists: {:?}", &venv_p);
+            req_paths.push(venv_p);
+            continue;
+        }
+
+        logs.push_str("\n--- PIP SUPERCACHE INSTALL ---\n");
+        logs.push_str(&format!("\nthe heavy dependency {req} is being installed for the first time.\nIt will take a bit longer but further execution will be much faster!"));
+
+        logs.push_str("pip install\n");
+        let child = Command::new(python_path)
+            .env_clear()
+            .envs(vars.clone())
+            .args(vec![
+                "-m",
+                "pip",
+                "install",
+                &req,
+                "-I",
+                "--no-deps",
+                "--no-color",
+                "--isolated",
+                "--no-warn-conflicts",
+                "--disable-pip-version-check",
+                "-t",
+                venv_p.as_str(),
+            ])
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()?;
+        handle_child(&job.id, db, logs, timeout, child).await?;
+
+        req_paths.push(venv_p);
+    }
+    Ok(req_paths)
+}
+
 #[cfg(test)]
 mod tests {
     use futures::Stream;
@@ -2282,6 +2449,26 @@ def main():
         let result = run_job_in_new_worker_until_complete(&db, job).await;
 
         assert_eq!(result, serde_json::json!("hello world"));
+    }
+
+    #[sqlx::test(fixtures("base"))]
+    async fn test_python_job_heavy_dep(db: DB) {
+        initialize_tracing().await;
+
+        let content = r#"
+import numpy as np
+
+def main():
+    a = np.arange(15).reshape(3, 5)
+    return len(a)
+        "#
+        .to_owned();
+
+        let job = JobPayload::Code(RawCode { content, path: None, language: ScriptLang::Python3 });
+
+        let result = run_job_in_new_worker_until_complete(&db, job).await;
+
+        assert_eq!(result, serde_json::json!(3));
     }
 
     #[sqlx::test(fixtures("base"))]

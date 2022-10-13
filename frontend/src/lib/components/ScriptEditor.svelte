@@ -71,7 +71,9 @@
 				isDefault.push(k)
 			}
 		})
+
 		await inferArgs(lang, code, schema)
+
 		schema = schema
 
 		isDefault
@@ -134,7 +136,8 @@
 						bind:code
 						bind:websocketAlive
 						bind:this={editor}
-						cmdEnterAction={() => {
+						cmdEnterAction={async () => {
+							await inferSchema()
 							runTest()
 						}}
 						formatAction={async () => {

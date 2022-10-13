@@ -1,27 +1,37 @@
 import { ScriptService, type MainArgSignature } from '$lib/gen'
+import { get, writable } from 'svelte/store'
 import type { Schema, SchemaProperty } from './common.js'
+
+const loadSchemaLastRun = writable<[string | undefined, MainArgSignature | undefined]>(undefined)
+
 
 export async function inferArgs(
 	language: 'python3' | 'deno' | 'go',
 	code: string,
 	schema: Schema
 ): Promise<void> {
+	let lastRun = get(loadSchemaLastRun)
 	let inferedSchema: MainArgSignature
-	if (code == '') { code = ' ' }
-	if (language == 'python3') {
-		inferedSchema = await ScriptService.pythonToJsonschema({
-			requestBody: code
-		})
-	} else if (language == 'deno') {
-		inferedSchema = await ScriptService.denoToJsonschema({
-			requestBody: code
-		})
-	} else if (language == 'go') {
-		inferedSchema = await ScriptService.goToJsonschema({
-			requestBody: code
-		})
+	if (lastRun && code == lastRun[0] && lastRun[1]) {
+		inferedSchema = lastRun[1]
 	} else {
-		return
+		if (code == '') { code = ' ' }
+		if (language == 'python3') {
+			inferedSchema = await ScriptService.pythonToJsonschema({
+				requestBody: code
+			})
+		} else if (language == 'deno') {
+			inferedSchema = await ScriptService.denoToJsonschema({
+				requestBody: code
+			})
+		} else if (language == 'go') {
+			inferedSchema = await ScriptService.goToJsonschema({
+				requestBody: code
+			})
+		} else {
+			return
+		}
+		loadSchemaLastRun.set([code, inferedSchema])
 	}
 
 	schema.required = []
