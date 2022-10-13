@@ -43,8 +43,8 @@
 					{#if state[branchIndex]}
 						<FlowModule
 							failureModule={false}
-							bind:flowModule={mod.branches[branchIndex].modules[childIndex]}
-							bind:flowModuleState={state[branchIndex].childFlowModules[childIndex]}
+							bind:flowModule={mod.branches[branchIndex - 1].modules[childIndex]}
+							bind:flowModuleState={state[branchIndex - 1].childFlowModules[childIndex]}
 							on:delete={() => {
 								//Todo
 							}}
