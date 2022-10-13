@@ -54,10 +54,10 @@
 		<p>No workers seems to be available</p>
 	{/if}
 	{#each groupedWorkers as [section, workers]}
-		<h2 class="my-5">
+		<div class="mt-6">
 			Instance: {section} | IP:
 			<Badge large color="gray">{workers[0].ip}</Badge>
-		</h2>
+		</div>
 
 		<TableCustom>
 			<tr slot="header-row">

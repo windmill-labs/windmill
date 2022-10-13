@@ -143,7 +143,7 @@
 			/>
 		{:else}
 			{#if flowModule.value.type === 'rawscript'}
-				<div class="flex-shrink-0 border-b p-1">
+				<div class="flex-shrink-0 border-b-2 shadow-sm p-1 mb-1">
 					<EditorBar
 						{editor}
 						lang={flowModule.value['language'] ?? 'deno'}

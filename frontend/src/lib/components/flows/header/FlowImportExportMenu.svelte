@@ -29,7 +29,8 @@
 <Menu placement="bottom-end">
 	<button
 		slot="trigger"
-		class="flex items-center text-sm border focus:outline-none focus:ring-4 font-medium rounded-md text-gray-800 bg-white hover:bg-gray-100 focus:ring-gray-300 px-4 py-2"
+		class="flex items-center text-sm border focus:outline-none focus:ring-4 rounded-md 
+		text-gray-800 bg-white hover:bg-gray-100 focus:ring-gray-300 px-4 py-2"
 	>
 		Import/Export
 	</button>

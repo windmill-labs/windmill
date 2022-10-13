@@ -94,6 +94,7 @@
 					border-gray-300
 					shadow-sm
 					text-sm
+					font-normal
 					mt-1
 					hover:ring-1
 					hover:ring-indigo-300
@@ -123,7 +124,6 @@
 	{#each invites as invite}
 		<div
 			class="
-					block
 					w-full
 					mx-auto
 					py-1
@@ -151,7 +151,7 @@
 						? `&rd=${encodeURIComponent(rd)}`
 						: ''}"
 				>
-					accept
+					Accept
 				</a>
 
 				<button
@@ -164,7 +164,7 @@
 						loadInvites()
 					}}
 				>
-					decline
+					Decline
 				</button>
 			</span>
 		</div>
@@ -186,7 +186,7 @@
 				logout()
 			}}
 		>
-			logout
+			Logout
 		</Button>
 	</div>
 </CenteredModal>

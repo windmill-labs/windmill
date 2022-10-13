@@ -196,7 +196,7 @@
 		<div>
 			<Button
 				color="light"
-				btnClasses="mr-1"
+				btnClasses="mr-1 !font-medium"
 				on:click={contextualVariablePicker.openModal}
 				size="xs"
 				spacingSize="md"
@@ -209,7 +209,7 @@
 		<div>
 			<Button
 				color="light"
-				btnClasses="mr-1"
+				btnClasses="mr-1 !font-medium"
 				on:click={variablePicker.openModal}
 				size="xs"
 				spacingSize="md"
@@ -221,7 +221,7 @@
 		</div>
 		<div>
 			<Button
-				btnClasses="mx-1"
+				btnClasses="mx-1 !font-medium"
 				size="xs"
 				spacingSize="md"
 				color="light"
@@ -235,7 +235,7 @@
 
 		<div>
 			<Button
-				btnClasses="mx-1"
+				btnClasses="mx-1 !font-medium"
 				size="xs"
 				spacingSize="md"
 				color="light"
@@ -249,7 +249,7 @@
 
 		<div>
 			<Button
-				btnClasses="mx-1"
+				btnClasses="mx-1 !font-medium"
 				size="xs"
 				spacingSize="md"
 				color="light"
@@ -263,7 +263,7 @@
 	</div>
 	<div>
 		<Button
-			btnClasses="ml-1"
+			btnClasses="ml-1 !font-medium"
 			size="xs"
 			spacingSize="md"
 			color="light"
