@@ -115,14 +115,6 @@
 	</div>
 
 	<div slot="content">
-		<div class="text-gray-700 text-2xs mb-6">
-			Variables have a globally unique name represented by their path. When passed to scripts, <pre
-				class="inline text-red-700 bg-gray-200 rounded round-sm p-1">/</pre
-			>
-			are converted to
-			<pre class="inline text-red-700 bg-gray-200 rounded round-sm p-1">_</pre>
-		</div>
-
 		<div class="flex flex-col gap-6">
 			<div>
 				<div>
