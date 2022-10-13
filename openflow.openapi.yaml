@@ -226,13 +226,9 @@ components:
               - modules
               - expr
         default:
-          type: object
-          properties: 
-            modules:
-              type: array
-              items:
-                $ref: "#/components/schemas/FlowModule"
-          required: [modules]
+          type: array
+          items:
+            $ref: "#/components/schemas/FlowModule"
         type:
           type: string
           enum:
@@ -306,5 +302,5 @@ components:
               enum: [branch, default]
             branch:
               type: integer
-            
+
       required: [type]
