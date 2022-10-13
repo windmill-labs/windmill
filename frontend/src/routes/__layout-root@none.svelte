@@ -27,7 +27,8 @@
 		'Connection is disposed.',
 		'Connection got disposed.',
 		'Stopping the server timed out',
-		'Canceled'
+		'Canceled',
+		'Missing service editorService'
 	]
 
 	async function loadUser() {
