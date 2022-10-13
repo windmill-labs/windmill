@@ -95,6 +95,14 @@
       "created_at": "2022-09-30T20:46:37Z",
       "repoId": 488804911,
       "pullRequestNo": 650
+    },
+    {
+      "name": "HurricanKai",
+      "id": 22711887,
+      "comment_id": 1277743243,
+      "created_at": "2022-10-13T14:52:55Z",
+      "repoId": 488804911,
+      "pullRequestNo": 731
     }
   ]
 }
