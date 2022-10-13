@@ -12,7 +12,7 @@ export async function inferArgs(
 ): Promise<void> {
 	let lastRun = get(loadSchemaLastRun)
 	let inferedSchema: MainArgSignature
-	if (code == lastRun[0] && lastRun[1]) {
+	if (lastRun && code == lastRun[0] && lastRun[1]) {
 		inferedSchema = lastRun[1]
 	} else {
 		if (code == '') { code = ' ' }
