@@ -141,3 +141,10 @@ export function genNounceAndHmac(conf: Conf, jobId: string) {
     const nounce = Math.ceil(Math.random() * Number.MAX_SAFE_INTEGER);
     return { nounce, signature: new JobApi(conf).createJobSignature(conf.workspace_id, jobId, nounce) }
 }
+
+export function getApprovalEndpoints() {
+    const conf = createConf()
+    const approvalApi = new ApprovalApi(conf)
+    const approval = approvalApi.getApproval(conf.workspace_id)
+    return { approve: approval.approve, reject: approval.reject }
+}
