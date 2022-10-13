@@ -334,24 +334,28 @@
 	<div slot="title">{resourceViewerTitle}</div>
 	<div slot="content">
 		{#if typeModalMode === 'create'}
-			<label for="inp"
-				><h3 class="font-semibold text-gray-700">Name<Required required={true} /></h3>
-				<div>
-					<span
-						class="border border-gray-700 rounded p-1 -mr-4 text-sm bg-gray-200 inline-block w-8"
-						>c_</span
-					>
-					<div class="inline-block">
-						<input id="inp" type="text" bind:value={newResourceTypeName} />
+			<div class="flex flex-col gap-6">
+				<label for="inp">
+					<div class="mb-1 font-semibold text-gray-700">Name<Required required={true} /></div>
+					<div>
+						<span
+							class="border border-gray-700 rounded p-1 -mr-4 text-sm bg-gray-200 inline-block w-8"
+							>c_</span
+						>
+						<div class="inline-block">
+							<input id="inp" type="text" bind:value={newResourceTypeName} />
+						</div>
 					</div>
+				</label>
+				<label>
+					<div class="mb-1 font-semibold text-gray-700">Description</div>
+					<input type="text" bind:value={newResourceTypeDescription} /></label
+				>
+				<div>
+					<div class="mb-1 font-semibold text-gray-700">Schema</div>
+					<SchemaEditor bind:schema={newResourceTypeSchema} />
 				</div>
-			</label>
-			<label
-				><h3 class="mt-4 font-semibold text-gray-700">Description</h3>
-				<input type="text" bind:value={newResourceTypeDescription} /></label
-			>
-			<h3 class="mt-4 mb-2 font-semibold text-gray-700">Schema</h3>
-			<SchemaEditor bind:schema={newResourceTypeSchema} />
+			</div>
 		{:else if typeModalMode === 'view'}
 			<Highlight language={json} code={JSON.stringify(resourceViewerSchema, null, 4)} />
 		{:else if typeModalMode === 'view-type'}

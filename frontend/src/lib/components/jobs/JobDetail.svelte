@@ -82,7 +82,7 @@
 						{/if}
 					</div>
 
-					<h3 class="break-all  py-2">
+					<div class="break-all py-2">
 						{#if job.script_path}
 							<a class="pr-3" href="/run/{job.id}">{job.script_path} </a>
 						{:else if 'job_kind' in job && job.job_kind == 'preview'}
@@ -104,7 +104,7 @@
 								><a href="/run/{job.parent_job}">step of flow</a></span
 							>
 						{/if}
-					</h3>
+					</div>
 				{/if}
 			</div>
 			<div>

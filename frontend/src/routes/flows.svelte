@@ -179,23 +179,24 @@
 		{#each tab == 'all' ? ['personal', 'groups', 'shared', 'hub'] : [tab] as sectionTab}
 			<div class="shadow p-4 my-2">
 				{#if sectionTab == 'personal'}
-					<h2 class="mb-2">
-						Personal <span class="text-sm"
-							>({`u/${$userStore?.username}`}) <Tooltip>
+					<h2>
+						<span class="text-lg xl:text-xl">Personal</span>
+						<span class="text-sm">
+							({`u/${$userStore?.username}`}) <Tooltip>
 								All flows owned by you (and visible only to you if you do not explicitly share them)
 							</Tooltip></span
 						>
 					</h2>
 				{:else if sectionTab == 'groups'}
-					<h2 class="">
+					<h2 class="text-lg xl:text-xl">
 						Groups <Tooltip>All flows being owned by groups that you are member of</Tooltip>
 					</h2>
 				{:else if sectionTab == 'shared'}
-					<h2 class="">
+					<h2 class="text-lg xl:text-xl">
 						Shared <Tooltip>All flows visible to you because they have been shared to you</Tooltip>
 					</h2>
 				{:else if sectionTab == 'hub'}
-					<h2 class="">
+					<h2 class="text-lg xl:text-xl">
 						Approved flows from the WindmillHub <Tooltip>
 							All approved Flow from the <a href="https://hub.windmill.dev">WindmillHub</a>.
 							Approved flows have been potentially contributed by the community but reviewed and
@@ -203,7 +204,7 @@
 						</Tooltip>
 					</h2>
 					<input placeholder="Search hub flows" bind:value={hubFilter} class="search-bar mt-2" />
-					<div class="relative">
+					<div class="relative mt-2">
 						{#if loading.hub}
 							<Skeleton
 								loading={loading.hub}
@@ -249,7 +250,7 @@
 				{/if}
 				{#each groupedFlows.filter((x) => tabFromPath(x[0]) == sectionTab) as [section, flows]}
 					{#if sectionTab != 'personal'}
-						<h3 class="mt-2 mb-2">
+						<div class="font-bold text-gray-700 mt-2 mb-2">
 							{section}
 							{#if section == 'g/all'}
 								<Tooltip
@@ -258,18 +259,18 @@
 									are private user namespaces.</Tooltip
 								>
 							{/if}
-						</h3>
+						</div>
 					{/if}
 					{#if loading.general}
-						<div class="grid gap-4 sm:grid-cols-1 md:grid-cols-2 xl:grid-cols-3">
+						<div class="grid gap-4 sm:grid-cols-1 md:grid-cols-2 xl:grid-cols-3 mt-2">
 							{#each new Array(3) as _}
 								<Skeleton layout={[[7.6]]} />
 							{/each}
 						</div>
 					{:else if flows.length == 0 && sectionTab == 'personal'}
-						<p class="text-xs text-gray-600 italic">No flows yet</p>
+						<p class="text-xs text-gray-600 italic mt-2">No flows yet</p>
 					{:else}
-						<div class="grid md:grid-cols-2 gap-4 sm:grid-cols-1 xl:grid-cols-3">
+						<div class="grid md:grid-cols-2 gap-4 sm:grid-cols-1 xl:grid-cols-3 mt-2">
 							{#each flows as { summary, path, extra_perms, canWrite }}
 								<div
 									class="flex flex-col justify-between max-w-lg overflow-visible 

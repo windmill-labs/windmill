@@ -187,32 +187,33 @@
 		{#each tab == 'all' ? ['personal', 'groups', 'shared', 'examples', 'hub'] : [tab] as sectionTab}
 			<div class="shadow p-4 my-2">
 				{#if sectionTab == 'personal'}
-					<h2 class="mb-2">
-						Personal <span class="text-sm"
-							>({`u/${$userStore?.username}`}) <Tooltip>
+					<h2>
+						<span class="text-lg xl:text-xl">Personal</span>
+						<span class="text-sm">
+							({`u/${$userStore?.username}`}) <Tooltip>
 								All scripts owned by you (and visible only to you if you do not explicitly share
 								them)
-							</Tooltip></span
-						>
+							</Tooltip>
+						</span>
 					</h2>
 				{:else if sectionTab == 'groups'}
-					<h2 class="">
+					<h2 class="text-lg xl:text-xl">
 						Groups <Tooltip>All scripts being owned by groups that you are member of</Tooltip>
 					</h2>
 				{:else if sectionTab == 'shared'}
-					<h2 class="">
+					<h2 class="text-lg xl:text-xl">
 						Shared <Tooltip>All scripts visible to you because they have been shared to you</Tooltip
 						>
 					</h2>
 				{:else if sectionTab == 'examples'}
-					<h2 class="">
+					<h2 class="text-lg xl:text-xl">
 						Public <Tooltip>
 							Template and examples shared across all workspaces of this instance. They are managed
 							from a special workspace called 'starter' that only superadmin can change.
 						</Tooltip>
 					</h2>
 				{:else if sectionTab == 'hub'}
-					<h2 class="">
+					<h2 class="text-lg xl:text-xl">
 						Approved scripts from the WindmillHub <Tooltip>
 							All approved Deno scripts from the <a href="https://hub.windmill.dev">WindmillHub</a>.
 							Approved scripts have been reviewed by the Windmill team and are safe to use in
@@ -266,7 +267,7 @@
 				{/if}
 				{#each sectionTab == 'examples' ? communityScripts : groupedScripts.filter((x) => tabFromPath(x[0]) == sectionTab) as [section, scripts]}
 					{#if sectionTab != 'personal' && sectionTab != 'examples'}
-						<h3 class="mt-2 mb-2">
+						<div class="font-bold text-gray-700 mt-2 mb-2">
 							{section}
 							{#if section == 'g/all'}
 								<Tooltip
@@ -275,18 +276,18 @@
 									are private user namespaces.</Tooltip
 								>
 							{/if}
-						</h3>
+						</div>
 					{/if}
 					{#if loading}
-						<div class="grid gap-4 sm:grid-cols-1 md:grid-cols-2 xl:grid-cols-3">
+						<div class="grid gap-4 sm:grid-cols-1 md:grid-cols-2 xl:grid-cols-3 mt-2">
 							{#each new Array(3) as _}
 								<Skeleton layout={[[8.5]]} />
 							{/each}
 						</div>
 					{:else if scripts.length == 0 && sectionTab == 'personal'}
-						<p class="text-xs text-gray-600 italic">No scripts yet</p>
+						<p class="text-xs text-gray-600 italic mt-2">No scripts yet</p>
 					{:else}
-						<div class="grid md:grid-cols-2 gap-4 sm:grid-cols-1 xl:grid-cols-3">
+						<div class="grid md:grid-cols-2 gap-4 sm:grid-cols-1 xl:grid-cols-3 mt-2">
 							{#each scripts as { summary, path, hash, language, extra_perms, canWrite, lock_error_logs, kind }}
 								<div
 									class="flex flex-col justify-between gap-2 max-w-lg overflow-visible shadow-sm shadow-blue-100 

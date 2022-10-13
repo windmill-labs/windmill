@@ -150,6 +150,8 @@
 	{#if step === 1}
 		<CenteredPage>
 			<div class="space-y-6">
+				<h1 class="mb-4">New script</h1>
+				<h2 class="border-b pb-1 mt-4">General</h2>
 				<Path
 					bind:error={pathError}
 					bind:path={script.path}
@@ -165,7 +167,7 @@
 						<a href="https://docs.windmill.dev/docs/reference/namespaces">docs</a>
 					</div>
 				</Path>
-				<h3 class="text-gray-700 border-b">Language</h3>
+				<h2 class="border-b pb-1 mt-4">Language</h2>
 				<div class="max-w-md">
 					<RadioButton
 						label="Language"
@@ -178,7 +180,7 @@
 						bind:value={script.language}
 					/>
 				</div>
-				<h4 class="text-gray-700  border-b">
+				<h2 class="border-b pb-1 mt-4">
 					Script Kind <Tooltip
 						>In most cases, you will want the General Script. <br />
 						Trigger are meant to be used as the first module of flows to trigger them based on watching
@@ -188,7 +190,7 @@
 						Command scripts are used when the workspace is associated with a slack workspace to be triggered
 						on command.</Tooltip
 					>
-				</h4>
+				</h2>
 
 				{#if script.language == 'deno'}
 					<div class="max-w-lg">
@@ -226,11 +228,11 @@
 				{/if}
 
 				{#if script.language == 'deno' && script.kind == Script.kind.SCRIPT}
-					<h4 class="text-gray-700  border-b">
+					<h2 class="border-b pb-1 mt-4">
 						Script Template <Tooltip
 							>A template is a pre-filled script corresponding to a more specialized use-case</Tooltip
 						>
-					</h4>
+					</h2>
 
 					<div class="max-w-md">
 						<RadioButton
@@ -245,44 +247,6 @@
 					</div>
 				{/if}
 
-				<label class="block ">
-					<span class="text-gray-700">Summary <Required required={false} /></span>
-					<textarea
-						bind:value={script.summary}
-						class="
-					mt-1
-					block
-					w-full
-					rounded-md
-					border-gray-300
-					shadow-sm
-					focus:border-indigo-300 focus:ring focus:ring-indigo-200 focus:ring-opacity-50
-					"
-						placeholder="A very short summary of the script displayed when the script is listed"
-						rows="1"
-					/>
-				</label>
-				<label class="block" for="inp">
-					<span class="text-gray-700"
-						>Description<Required required={false} detail="accept markdown formatting" />
-						<textarea
-							id="inp"
-							bind:value={script.description}
-							class="
-					mt-1
-					block
-					w-full
-					rounded-md
-					border-gray-300
-					shadow-sm
-					focus:border-indigo-300 focus:ring focus:ring-indigo-200 focus:ring-opacity-50
-					"
-							placeholder="A description to help users understand what this script does and how to use it."
-							rows="3"
-						/>
-					</span>
-				</label>
-
 				<label class="block">
 					<span class="text-gray-700 mr-2"
 						>Save as workspace template <Tooltip
@@ -292,14 +256,39 @@
 					<input type="checkbox" bind:checked={script.is_template} />
 				</label>
 
+				<label class="block ">
+					<span class="text-gray-700 text-sm">Summary <Required required={false} /></span>
+					<textarea
+						bind:value={script.summary}
+						class="block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-300 
+						focus:ring focus:ring-indigo-200 focus:ring-opacity-50"
+						placeholder="A very short summary of the script displayed when the script is listed"
+						rows="1"
+					/>
+				</label>
+				<label class="block" for="inp">
+					<span class="text-gray-700 text-sm">
+						Description<Required required={false} detail="markdown" />
+						<textarea
+							id="inp"
+							bind:value={script.description}
+							class="block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-300 
+							focus:ring focus:ring-indigo-200 focus:ring-opacity-50"
+							placeholder="A description to help users understand what this script does and how to use it."
+							rows="3"
+						/>
+					</span>
+				</label>
+
 				<div>
-					<h3 class="text-gray-700 ">Description rendered</h3>
-					<div
-						class="prose mt-5 text-xs shadow-inner shadow-blue p-4 overflow-auto"
-						style="max-height: 200px;"
-					>
-						<SvelteMarkdown source={script.description ?? ''} />
-					</div>
+					<div class="font-bold pb-1 mt-4">Description preview</div>
+					{#if script.description}
+						<div class="prose max-h-48 mt-5 text-xs shadow-inner shadow-blue p-4 overflow-auto">
+							<SvelteMarkdown source={script.description} />
+						</div>
+					{:else}
+						<div class="text-sm text-gray-500"> Enter a description to see the preview </div>
+					{/if}
 				</div>
 			</div>
 		</CenteredPage>

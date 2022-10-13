@@ -47,7 +47,10 @@
 		<ul class="w-full">
 			{#each keys as key, index}
 				<li class="pt-1">
-					<button on:click={() => selectProp(key)} class="key rounded px-1 hover:bg-blue-100">
+					<button
+						on:click={() => selectProp(key)}
+						class="key font-normal rounded px-1 hover:bg-blue-100"
+					>
 						{!isArray ? key : index}:
 					</button>
 

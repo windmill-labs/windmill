@@ -391,8 +391,8 @@
 				{/if}
 			</div>
 		</div>
-		<div>
-			<h3 class="text-lg mb-1 font-bold text-gray-600">
+		<div class="pt-4">
+			<h2 class="text-lg mb-1 font-bold text-gray-600">
 				Arguments JSON schema
 				<Tooltip>
 					The jsonschema defines the constraints that the payload must respect to be compatible with
@@ -400,21 +400,21 @@
 					script jsonschema. See
 					<a href="https://json-schema.org/"> jsonschema documentation </a>
 				</Tooltip>
-			</h3>
+			</h2>
 			<Skeleton {loading} layout={[[15]]} />
 			{#if script}
 				<SchemaViewer schema={script.schema} />
 			{/if}
 		</div>
 		<div>
-			<h3 class="text-lg mb-1 font-bold text-gray-600">Code</h3>
+			<h2 class="text-lg mb-1 font-bold text-gray-600 border-b">Code</h2>
 			<Skeleton {loading} layout={[[20]]} />
 			{#if script}
 				<HighlightCode language={script.language} code={script.content} />
 			{/if}
 		</div>
 		<div>
-			<h3 class="text-lg mb-1 font-bold text-gray-600">Dependencies lock file</h3>
+			<h2 class="text-lg mb-1 font-bold text-gray-600 border-b">Dependencies lock file</h2>
 			<Skeleton {loading} layout={[[5]]} />
 			{#if script}
 				{#if script?.lock}

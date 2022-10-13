@@ -51,11 +51,10 @@
 			variant === 'border' ? 'border' : '',
 			ButtonType.FontSizeClasses[size],
 			ButtonType.SpacingClasses[spacingSize],
-			'focus:ring-4 font-medium',
+			'focus:ring-4 font-semibold',
 			'rounded-md',
 			'flex justify-center items-center text-center whitespace-nowrap',
-			btnClasses,
-			disabled ? 'pointer-events-none cursor-default filter grayscale' : ''
+			btnClasses
 		),
 		disabled,
 		href,

@@ -115,59 +115,63 @@
 	</div>
 
 	<div slot="content">
-		<div class="text-gray-700 text-2xs mb-6">
-			Variables have a globally unique name represented by their path. When passed to scripts, <pre
-				class="inline text-red-700 bg-gray-50 rounded round-sm">/</pre
-			>
-			are converted to
-			<pre class="inline text-red-700 bg-gray-50 rounded round-sm">_</pre>
-		</div>
-
-		<div class="flex flex-col gap-2 ">
+		<div class="flex flex-col gap-6">
 			<div>
-				<div class="text-gray-700 mb-0 pb-0">path</div>
-				<Path
-					bind:error={pathError}
-					bind:path
-					{initialPath}
-					namePlaceholder="my_variable"
-					kind="variable"
-				/>
+				<div>
+					<div class="mb-1 font-semibold text-gray-700">General</div>
+					<Path
+						bind:error={pathError}
+						bind:path
+						{initialPath}
+						namePlaceholder="my_variable"
+						kind="variable"
+					/>
+				</div>
+				<div class="mt-4">
+					<label class="block">
+						<span class="text-sm mr-1">Secret</span>
+						<input type="checkbox" bind:checked={variable.is_secret} />
+					</label>
+					{#if variable.is_secret}
+						<div
+							class="bg-orange-100 border-l-4 border-orange-500 text-orange-700 p-1 mt-1 text-sm"
+							role="alert"
+						>
+							If the variable is a secret, you will not be able to read the value of it from the
+							variable editor UI but only within scripts.
+							<Tooltip>
+								Within scripts, every read of the value create the audit log:
+								'variables.decrypt_secret'
+							</Tooltip>
+						</div>
+					{/if}
+				</div>
 			</div>
 
-			<label class="block pb-6">
-				<input type="checkbox" bind:checked={variable.is_secret} />
-				<span class="ml-2">Secret</span>
-				{#if variable.is_secret}
-					<div
-						class="bg-orange-100 border-l-4 border-orange-500 text-orange-700 p-1 mt-1 text-sm"
-						role="alert"
-					>
-						When a secret, you will not be able to read this variable value from the variable editor
-						UI but only within scripts. <Tooltip>
-							Within scripts, every read of the value create the audit log:
-							'variables.decrypt_secret'</Tooltip
-						>
-					</div>
-				{/if}
-			</label>
 			{#if variable.is_secret}
-				<div class="font-semibold text-gray-700 col-span-10 }">
+				<div class="mb-1 col-span-10">
 					<Password
 						bind:password={variable.value}
 						placeholder={'******** (only fill to update value)'}
-						label={`Secret value (${variable.value.length}/3000 characters)`}
+						label={`<span class="font-semibold text-gray-700">Secret value</span>
+							<span class="text-sm text-gray-500">(${variable.value.length}/3000 characters)</span>`}
 					/>
 				</div>
 			{:else}
 				<div>
-					<span>Variable value ({variable.value.length}/3000 characters)</span>
+					<div class="mb-1">
+						<span class="font-semibold text-gray-700">Variable value</span>
+						<span class="text-sm text-gray-500">({variable.value.length}/3000 characters)</span>
+					</div>
 					<AutosizedTextarea bind:value={variable.value} minRows={5} />
 				</div>
 			{/if}
 
-			<div class="flex flex-col w-full">
-				<span class="text-gray-700">Description<Required required={false} /></span>
+			<div>
+				<div class="mb-1 font-semibold text-gray-700">
+					Description
+					<Required required={false} />
+				</div>
 				<AutosizedTextarea bind:value={variable.description} placeholder={''} minRows={3} />
 			</div>
 		</div>
