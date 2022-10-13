@@ -98,7 +98,7 @@
 
 <svelte:window on:keydown={onKeyDown} />
 
-<div class="border-b shadow-sm p-1 pr-4">
+<div class="border-b-2 shadow-sm p-1 pr-4">
 	<div class="flex justify-between">
 		<EditorBar {editor} {lang} {websocketAlive} />
 
@@ -156,9 +156,9 @@
 						<div class="h-full overflow-auto">
 							<div class="p-4">
 								<div class="break-all relative font-sans">
-									<p class="items-baseline text-xs text-gray-600 hidden md:block mb-3">
-										To recompute the input schema press <Kbd class="">Ctrl/Cmd</Kbd> + <Kbd>S</Kbd> or
-										move the focus outside of the text editor
+									<p class="items-baseline break-normal text-sm text-gray-600 hidden md:block mb-3">
+										To recompute the input schema press <Kbd>Ctrl/Cmd</Kbd> + <Kbd>S</Kbd> or move the
+										focus outside of the text editor
 									</p>
 									<SchemaForm {schema} bind:args bind:isValid />
 								</div>

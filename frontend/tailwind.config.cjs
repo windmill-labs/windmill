@@ -7,7 +7,7 @@ const config = {
 		"./node_modules/flowbite-svelte/**/*.{html,js,svelte,ts}",
 	],
 	safelist: [
-		'inline-highlight'
+		'hljs'
 	],
 	theme: {
 		colors: {
@@ -93,6 +93,7 @@ const config = {
 		fontFamily: {
 			// add double quotes if there is space in font name
 			main: ['Inter', 'sans-serif'],
+			mono: ['ui-monospace', 'SFMono-Regular', 'Menlo', 'Monaco', 'Consolas', '"Liberation Mono"', '"Courier New"', 'monospace']
 		},
 		extend: {
 			maxHeight: {
@@ -160,30 +161,27 @@ const config = {
 					},
 				},
 				'h2': {
-					fontSize: '22px',
+					fontSize: '20px',
 					fontWeight: theme('fontWeight.extrabold'),
 					lineHeight: '1.1',
 					color: theme('colors.gray.700'),
-					[`@media (min-width: ${theme('screens.lg')})`]: {
-						fontSize: '24px',
-					},
 					[`@media (min-width: ${theme('screens.fhd')})`]: {
-						fontSize: '26px',
+						fontSize: '22px',
 					},
 					[`@media (min-width: ${theme('screens.qhd')})`]: {
-						fontSize: '30px',
+						fontSize: '25px',
 					},
 				},
 				'h3': {
-					fontSize: '20px',
+					fontSize: '18px',
 					fontWeight: theme('fontWeight.bold'),
 					lineHeight: '1.2',
 					color: theme('colors.gray.600'),
 					[`@media (min-width: ${theme('screens.fhd')})`]: {
-						fontSize: '23px',
+						fontSize: '20px',
 					},
 					[`@media (min-width: ${theme('screens.qhd')})`]: {
-						fontSize: '27px',
+						fontSize: '22px',
 					},
 				},
 				'h4': {
@@ -191,11 +189,8 @@ const config = {
 					fontWeight: theme('fontWeight.semibold'),
 					lineHeight: '1.3',
 					color: theme('colors.gray.600'),
-					[`@media (min-width: ${theme('screens.fhd')})`]: {
-						fontSize: '20px',
-					},
 					[`@media (min-width: ${theme('screens.qhd')})`]: {
-						fontSize: '23px',
+						fontSize: '20px',
 					},
 				},
 				'h5': {
@@ -244,7 +239,14 @@ const config = {
 					pointerEvents: 'none',
 					cursor: 'default',
 					filter: 'grayscale(1)'
-				}
+				},
+				'pre code.hljs': {
+					padding: '0px !important',
+					fontFamily: theme('fontFamily.mono'),
+					fontSize: theme('fontSize.sm') + ' !important',
+					lineHeight: theme('lineHeight.4') + ' !important',
+					whiteSpace: 'pre-wrap'
+				},
 			});
 			addComponents({
 				'#table-custom': {
@@ -281,12 +283,6 @@ const config = {
 					borderRadius: theme('borderRadius.sm'),
 					boxShadow: theme('boxShadow.sm'),
 					padding: theme('spacing.4')
-				},
-				'pre code.hljs': {
-					padding: '0px',
-					fontSize: theme('fontSize.xs'),
-					lineHeight: theme('lineHeight.4'),
-					whiteSpace: 'pre-wrap'
 				},
 				'.animate-skeleton': {
 					animation: theme('animation.pulse'),

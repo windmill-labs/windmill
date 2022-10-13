@@ -20,6 +20,7 @@
 	import Tab from '$lib/components/common/tabs/Tab.svelte'
 	import JobDetail from '$lib/components/jobs/JobDetail.svelte'
 	import { Skeleton } from '$lib/components/common'
+	import Tooltip from '../../lib/components/Tooltip.svelte'
 
 	let jobs: Job[] | undefined
 	let error: Error | undefined
@@ -145,17 +146,19 @@
 </script>
 
 <CenteredPage>
-	<PageHeader
-		title="Runs {path ? `of ${path}` : ''}"
-		tooltip="Below is NOT all the runs that have ever been run. You only see the runs whose execution has
-been permissioned with privilege that you are allowed to see. In most cases, it will only be
-your personal runs, scheduled runs of groups that you are member of, and runs that are
-permissioned at the group level of a group you are a member of. Hence, you can safely run
-script with sensitive logs knowing that only the users with the relevant permissions would see
-it. The permission of a run constraint the ephemeral bearer token that is passed to at
-execution time of that run. This is why runs with less permissions are less sensitive because
-the bearer token they use has less privilege."
-	/>
+	<div class="flex items-center min-h-[48px] my-4">
+		<h1 class="mr-1">Runs {path ? `of ${path}` : ''}</h1>
+		<Tooltip>
+			Below is NOT all the runs that have ever been run. You only see the runs whose execution has
+			been permissioned with privilege that you are allowed to see. In most cases, it will only be
+			your personal runs, scheduled runs of groups that you are member of, and runs that are
+			permissioned at the group level of a group you are a member of. Hence, you can safely run
+			script with sensitive logs knowing that only the users with the relevant permissions would see
+			it. The permission of a run constraint the ephemeral bearer token that is passed to at
+			execution time of that run. This is why runs with less permissions are less sensitive because
+			the bearer token they use has less privilege.
+		</Tooltip>
+	</div>
 
 	<div class="max-w-7x">
 		<div class="flex flex-row space-x-4">

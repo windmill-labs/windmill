@@ -144,7 +144,7 @@
 			bind:itemKind
 			bind:scriptPath={script_path}
 		/>
-		<div class="max-w-5xl {edit ? '' : 'mt-2 md:mt-6'}">
+		<div class={edit ? '' : 'mt-2 md:mt-6'}>
 			<h2 class="border-b pb-1 mt-8 mb-2">Arguments</h2>
 			{#if runnable}
 				{#if runnable?.schema && runnable.schema.properties && Object.keys(runnable.schema.properties).length > 0}

@@ -28,7 +28,7 @@
 	export let width = '24px'
 </script>
 
-<div class="flex flex-row gap-2 justify-center -pl-2 whitespace-nowrap">
+<div class="flex flex-row gap-2 justify-center items-center -pl-2 whitespace-nowrap">
 	{#if !silent && !after}
 		{name}
 	{/if}

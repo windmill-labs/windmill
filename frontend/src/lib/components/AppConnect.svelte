@@ -210,6 +210,7 @@
 			<div class="grid sm:grid-cols-2 md:grid-cols-3 gap-x-2 gap-y-1 items-center mb-2">
 				{#each Object.entries(connects).sort((a, b) => a[0].localeCompare(b[0])) as [key, values]}
 					<Button
+						size="sm"
 						variant="border"
 						color={key === resource_type ? 'blue' : 'dark'}
 						btnClasses={key === resource_type ? '!border-2 !bg-blue-50/75' : 'm-[1px]'}
@@ -222,11 +223,11 @@
 							dispatch('click')
 						}}
 					>
-						<IconedResourceType name={key} after={true} />
+						<IconedResourceType name={key} after={true} width="20px" height="20px" />
 					</Button>
 				{/each}
 			</div>
-			<div class="mb-1 font-semibold text-gray-700 mt-6 mt-6">Scopes</div>
+			<div class="mb-1 font-semibold text-gray-700 mt-6">Scopes</div>
 			{#if !manual && resource_type != ''}
 				{#each scopes as v}
 					<div class="flex flex-row max-w-md mb-2">
@@ -307,6 +308,7 @@
 			<div class="grid sm:grid-cols-2 md:grid-cols-3 gap-x-2 gap-y-1 items-center mb-2">
 				{#each connectsManual as [key, instructions]}
 					<Button
+						size="sm"
 						variant="border"
 						color={key === resource_type ? 'blue' : 'dark'}
 						btnClasses={key === resource_type ? '!border-2 !bg-blue-50/75' : 'm-[1px]'}
@@ -316,7 +318,7 @@
 							dispatch('click')
 						}}
 					>
-						<IconedResourceType name={key} after={true} />
+						<IconedResourceType name={key} after={true} width="20px" height="20px" />
 					</Button>
 				{/each}
 			</div>
