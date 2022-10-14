@@ -2551,6 +2551,29 @@ paths:
               schema:
                 type: string
 
+  /w/{workspace}/jobs/job_signature/{job_id}/{resume_id}:
+    get:
+      summary: create an HMac signature given a job id and a resume id
+      operationId: createJobSignature
+      tags:
+        - job
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/JobId"
+        - name: resume_id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: job signature
+          content:
+            text/plain:
+              schema:
+                type: string
+
+
   /w/{workspace}/jobs/resume/{job_id}/{resume_id}/{signature}:
     get:
       summary: resume a job for a suspended flow
