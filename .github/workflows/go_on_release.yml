@@ -3,6 +3,8 @@ on:
   push:
     tags:
       - "v*"
+  workflow_dispatch:
+
 env:
   repo: windmill-go-client
 
@@ -11,8 +13,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
+      - uses: actions/setup-go@v3
       - name: generate_go
         run: |
+          go install github.com/deepmap/oapi-codegen/cmd/oapi-codegen@latest
           cd go-client
           rm .gitignore
           ./build.sh

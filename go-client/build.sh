@@ -10,5 +10,5 @@ npx @redocly/openapi-cli@latest bundle openapi2.yaml --ext json > openapi-bundle
 
 rm -rf api/ || true
 mkdir -p api
-oapi-codegen -old-config-style --package=windmill_api --generate=types,client  openapi-bundled.json > api/windmill_api.gen.go
- rm openapi*
+~/go/bin/oapi-codegen -old-config-style --package=windmill_api --generate=types,client  openapi-bundled.json > api/windmill_api.gen.go
+rm openapi*
