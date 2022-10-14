@@ -49,7 +49,7 @@
 	}
 </script>
 
-<div class="px-2 pt-2">
+<div class="px-2 pt-2 overflow-auto">
 	<input
 		type="text"
 		bind:value={search}

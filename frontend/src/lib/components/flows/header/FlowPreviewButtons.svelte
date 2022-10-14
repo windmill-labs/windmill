@@ -23,7 +23,7 @@
 </script>
 
 <span
-	class="flex flex-row-reverse justify-between flex-wrap gap-2  w-full py-2 px-4 bg-white border-b border-t"
+	class="flex flex-row-reverse justify-between items-center flex-wrap gap-2  w-full min-h-[48px] py-1 px-4 bg-white border-b border-t"
 >
 	<Button
 		btnClasses="grow"

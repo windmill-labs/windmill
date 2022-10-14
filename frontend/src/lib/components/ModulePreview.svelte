@@ -2,9 +2,7 @@
 	import type { Schema } from '$lib/common'
 	import type { FlowModule, Job } from '$lib/gen'
 	import { getScriptByPath, sendUserToast, truncateRev } from '$lib/utils'
-
-	import { HSplitPane, VSplitPane } from 'svelte-split-pane'
-
+	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import RunForm from './RunForm.svelte'
 	import TestJobLoader from './TestJobLoader.svelte'
 	import LogViewer from './LogViewer.svelte'
@@ -67,50 +65,47 @@
 	bind:isLoading={testIsLoading}
 	bind:job={testJob}
 />
-<HSplitPane leftPaneSize="50%" rightPaneSize="50%" minLeftPaneSize="20%" minRightPaneSize="20%">
-	<left slot="left" class="relative">
-		<div class="overflow-auto h-full p-4">
-			<RunForm
-				runnable={{ summary: mod.summary ?? '', schema, description: '' }}
-				runAction={(_, args) => runTest(args)}
-				schedulable={false}
-				buttonText="Test just this step (Ctrl+Enter)"
-				detailed={false}
-				bind:args={stepArgs}
-			/>
-			{#if testIsLoading}
-				<Button
-					on:click={testJobLoader?.cancelJob}
-					btnClasses="w-full mt-4"
-					color="red"
-					size="sm"
-					startIcon={{
-						icon: faRotateRight,
-						classes: 'animate-spin'
-					}}
-				>
-					Cancel
-				</Button>
-			{/if}
-		</div>
-	</left>
-	<right slot="right">
-		<div class="overflow-auto h-full">
-			<VSplitPane topPanelSize="50%" downPanelSize="50%">
-				<top slot="top">
-					<LogViewer content={testJob?.logs} isLoading={testIsLoading} />
-				</top>
-				<down slot="down">
-					<pre class="overflow-x-auto break-all relative h-full p-2 text-sm"
-						>{#if testJob != undefined && 'result' in testJob && testJob.result != undefined}<DisplayResult
-								result={testJob.result}
-							/>
-						{:else if testIsLoading}Waiting for result...
-						{:else}Test to see the result here
-						{/if}
-        	</pre>
-				</down>
-			</VSplitPane>
-		</div>
-	</right>
-</HSplitPane>
+<Splitpanes>
+	<Pane size={50} minSize={20} class="p-4">
+		<RunForm
+			runnable={{ summary: mod.summary ?? '', schema, description: '' }}
+			runAction={(_, args) => runTest(args)}
+			schedulable={false}
+			buttonText="Test just this step (Ctrl+Enter)"
+			detailed={false}
+			bind:args={stepArgs}
+		/>
+		{#if testIsLoading}
+			<Button
+				on:click={testJobLoader?.cancelJob}
+				btnClasses="w-full mt-4"
+				color="red"
+				size="sm"
+				startIcon={{
+					icon: faRotateRight,
+					classes: 'animate-spin'
+				}}
+			>
+				Cancel
+			</Button>
+		{/if}
+	</Pane>
+	<Pane size={50} minSize={20}>
+		<Splitpanes horizontal>
+			<Pane size={50} minSize={10}>
+				<LogViewer content={testJob?.logs} isLoading={testIsLoading} />
+			</Pane>
+			<Pane size={50} minSize={10} class="text-sm p-2 text-gray-600">
+				{#if testJob != undefined && 'result' in testJob && testJob.result != undefined}
+					<pre class="overflow-x-auto break-all relative h-full">
+						<DisplayResult result={testJob.result} />
+					</pre>
+				{:else if testIsLoading}
+					Waiting for result...
+				{:else}
+					Test to see the result here
+				{/if}
+			</Pane>
+		</Splitpanes>
+	</Pane>
+</Splitpanes>
