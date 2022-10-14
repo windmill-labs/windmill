@@ -1,15 +1,9 @@
 #!/bin/bash
 set -e
 
-#TODO: remove once openapi-python-client supports recursive values
-../openflow.openapi.yaml > ../openflow.openapi.yaml.new
-# sed -z 's/    ForloopFlow:\n      type: object\n      properties:\n        modules:\n          type: array\n          items:\n            $ref: "#\/components\/schemas\/FlowModule"/    ForloopFlow:\n      type: object\n      properties:/' ../openflow.openapi.yaml > ../openflow.openapi.yaml.new
-sed -z 's/$ref: "#\/components\/schemas\/FlowModule"/$ref: "#\/components\/schemas\/Schedule"/' ../openflow.openapi.yaml > ../openflow.openapi.yaml.new
-mv ../openflow.openapi.yaml.new ../openflow.openapi.yaml
 cp  ../backend/openapi.yaml openapi.yaml
-
-swagger-cli bundle -r openapi.yaml -o openapi-deref.yaml
-mv ../openflow.openapi.yaml.tmp ../openflow.openapi.yaml
+npx @redocly/openapi-cli@latest bundle openapi.yaml > openapi-deref.yaml
+rm openapi.yaml
 
 rm -rf windmill-api/ || true
 openapi-python-client generate --config $PWD/python-gen.yaml --path openapi-deref.yaml

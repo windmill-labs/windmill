@@ -190,6 +190,10 @@ components:
     ForloopFlow:
       type: object
       properties:
+        modules:
+          type: array
+          items:
+            $ref: "#/components/schemas/FlowModule"
         iterator:
           $ref: "#/components/schemas/InputTransform"
         skip_failures:
