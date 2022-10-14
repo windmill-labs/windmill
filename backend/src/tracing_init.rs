@@ -7,6 +7,7 @@ use ::tracing_subscriber::{
 };
 use hyper::Response;
 use tower_http::trace::{MakeSpan, OnResponse};
+use tracing::Level;
 
 #[derive(Clone)]
 pub struct MyOnResponse {}
@@ -67,6 +68,7 @@ pub fn initialize_tracing() {
         .unwrap_or(false);
 
     let env_filter = EnvFilter::from_default_env();
+    let env_filter = env_filter.add_directive(Level::INFO.into());
 
     let nenv_filter = if tokio_console {
         env_filter

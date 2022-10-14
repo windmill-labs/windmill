@@ -6,6 +6,9 @@ import { sleep } from "https://deno.land/x/sleep@v1.2.1/mod.ts";
 import * as windmill from "https://deno.land/x/windmill@v1.37.0/mod.ts";
 import * as api from "https://deno.land/x/windmill@v1.37.0/windmill-api/index.ts";
 
+// type DataFrame = dfd.DataFrame;
+type DataFrame = any;
+
 async function login(
   config: api.Configuration,
   email: string,
@@ -24,7 +27,7 @@ await new Command()
   .option("--host <url:string>", "The windmill host to benchmark.", {
     default: "http://127.0.0.1/",
   })
-  .option("-j --jobs <jobs:number>", "The number of jobs to run at once.", {
+  .option("--workers <workers:number>", "The number of jobs to run at once.", {
     default: 1,
   })
   .option(
@@ -61,14 +64,39 @@ await new Command()
     "If set, exports will be into a JSON file."
   )
   .option(
-    "--exports [exports...:string]",
-    "Mark metrics (without label) to export."
+    "--export-histograms [histograms...:string]",
+    "Mark metrics (without label) that are reported as histograms to export."
+  )
+  .option(
+    "--histogram-buckets [buckets...:string]",
+    "Define what buckets to collect from histograms.",
+    {
+      default: [
+        "+Inf",
+        "10",
+        "5",
+        "2.5",
+        "2.5",
+        "1",
+        "0.5",
+        "0.25",
+        "0.1",
+        "0.05",
+        "0.025",
+        "0.01",
+        "0.005",
+      ],
+    }
+  )
+  .option(
+    "--export-simple [simple...:string]",
+    "Mark metrics (without label) that are reported as simple values."
   )
   .arguments("[domain]")
   .action(
     async ({
       host,
-      jobs,
+      workers: num_workers,
       seconds,
       email,
       password,
@@ -76,7 +104,9 @@ await new Command()
       workspace,
       metrics,
       exportJson,
-      exports,
+      exportHistograms,
+      exportSimple,
+      histogramBuckets,
     }) => {
       const metrics_worker = new Worker(
         new URL("./scraper.ts", import.meta.url).href,
@@ -85,56 +115,24 @@ await new Command()
         }
       );
 
-      const export_map: Map<
-        string,
-        Map<string, { val: number; samples: number }>
-      > = new Map();
-      // exports is true | string[] | undefined. the first condition checks that it's not undefined, the second condition checks it's the array
-      if (Array.isArray(exports)) {
-        exports.forEach((e) => {
-          export_map.set(e, new Map());
-        });
+      if (!Array.isArray(histogramBuckets)) {
+        histogramBuckets = [];
       }
 
-      metrics_worker.onmessage = (evt) => {
-        const data = evt.data as {
-          name: string;
-          help: string;
-        } & (
-          | {
-              type: "COUNTER" | "GAUGE";
-              metrics: [{ value: string; labels: Record<string, string> }];
-            }
-          | {
-              type: "HISTOGRAM";
-              metrics: [{ buckets: Record<string, number> }];
-            }
-        );
+      if (!Array.isArray(exportHistograms)) {
+        exportHistograms = [];
+      }
 
-        if (export_map.has(data.name)) {
-          const c = export_map.get(data.name)!;
-          if (data.type == "COUNTER" || data.type == "GAUGE") {
-            const c2 = c.get("value") ?? { val: 0, samples: 0 };
-            data.metrics.forEach((e) => {
-              c2.val += Number(e.value);
-              c2.samples++;
-            });
-            c.set("value", c2);
-          } else if (data.type == "HISTOGRAM") {
-            data.metrics.forEach((e) => {
-              new Map(Object.entries(e.buckets)).forEach((v, b) => {
-                const c2 = c.get(b) ?? { val: 0, samples: 0 };
-                c2.val += Number(v);
-                c2.samples++;
-                c.set(b, c2);
-              });
-            });
-          }
-          export_map.set(data.name, c);
-        }
-      };
+      if (!Array.isArray(exportSimple)) {
+        exportSimple = [];
+      }
 
-      metrics_worker.postMessage(metrics);
+      metrics_worker.postMessage({
+        exportHistograms,
+        histogramBuckets,
+        exportSimple,
+        host: metrics,
+      });
 
       console.log("collecting samples...");
       host = host.endsWith("/") ? host.substring(0, host.length - 1) : host;
@@ -181,8 +179,8 @@ await new Command()
         workspace_id: config.workspace_id,
       };
 
-      let workers: Worker[] = new Array(jobs);
-      for (let i = 0; i < jobs; i++) {
+      let workers: Worker[] = new Array(num_workers);
+      for (let i = 0; i < num_workers; i++) {
         workers[i] = new Worker(new URL("./worker.ts", import.meta.url).href, {
           type: "module",
         });
@@ -209,35 +207,32 @@ await new Command()
         await sleep(0.1);
       }
 
-      metrics_worker.terminate();
+      metrics_worker.postMessage("stop");
+      console.log("waiting for metrics");
+      const { columns, transfer_values } = await new Promise<{
+        columns: string;
+        transfer_values: ArrayBufferLike[];
+      }>((resolve, _reject) => {
+        metrics_worker.onmessage = (e) => {
+          resolve(e.data);
+          metrics_worker.terminate();
+        };
+      });
+      const values = transfer_values.map((x) => new Float32Array(x));
 
-      if (writeApi) {
-        await writeApi.close();
-      }
       if (exportJson) {
-        console.log("exporting to json");
-        const final_map: Map<string, number | Map<string, number>> = new Map();
-        export_map.forEach((v, k) => {
-          if (v.size === 1) {
-            const v2 = v.get("value")!;
-            final_map.set(k, v2.val / v2.samples);
-          } else {
-            const m: Map<string, number> = new Map();
-            v.forEach((v2, k2) => {
-              const mean = v2.val / v2.samples;
-              m.set(k2, mean);
-            });
-            final_map.set(k, m);
-          }
-        });
-        const json = JSON.stringify(final_map, (_k, v) => {
-          if (v instanceof Map) {
-            return Object.fromEntries(v);
-          }
-          return v;
-        });
-        console.log(json);
-        await Deno.writeTextFile(exportJson, json);
+        console.log("exporting mean & stddev to json");
+        const obj: any = {};
+        for (let i = 0; i < columns.length; i++) {
+          const name = columns[i]!;
+          const value = values[i]!;
+          const mean = value.reduce((acc, e) => acc + e, 0) / values.length;
+          const stddev =
+            value.reduce((acc, e) => acc + (e - mean) ** 2) / values.length;
+          obj[name] = { mean, stddev };
+        }
+
+        await Deno.writeTextFile(exportJson, JSON.stringify(obj));
       }
 
       console.log("done");
