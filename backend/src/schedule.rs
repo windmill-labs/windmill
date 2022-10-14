@@ -78,7 +78,7 @@ pub async fn push_scheduled_job<'c>(
     let offset = Duration::minutes(schedule.offset_.into());
     let now = now_from_db(&mut tx).await?;
     let next = sched
-        .after(&(now - offset))
+        .after(&(now - offset + Duration::seconds(1)))
         .next()
         .expect("a schedule should have a next event")
         + offset;
