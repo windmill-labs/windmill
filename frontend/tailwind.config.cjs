@@ -7,7 +7,9 @@ const config = {
 		"./node_modules/flowbite-svelte/**/*.{html,js,svelte,ts}",
 	],
 	safelist: [
-		'hljs'
+		'hljs',
+		'splitpanes__pane',
+		'splitpanes__splitter'
 	],
 	theme: {
 		colors: {
@@ -293,6 +295,36 @@ const config = {
 					color: 'transparent',
 					backgroundClip: 'text',
 					backgroundImage: `linear-gradient(to right, ${theme('colors.blue.600')}, ${theme('colors.blue.500')})`
+				},
+				'.splitpanes__pane': {
+					backgroundColor: theme('colors.white') + ' !important'
+				},
+				'.splitpanes__splitter': {
+					backgroundColor: theme('colors.gray.300') + ' !important',
+					margin: '0 !important',
+					border: 'none !important',
+					'&::before': {
+						backgroundColor: '#00000060 !important',
+					},
+					'&::after': {
+						content: 'none !important'
+					},
+				},
+				'.splitpanes--vertical>.splitpanes__splitter': {
+					width: '5px !important',
+					'&::before': {
+						left: '1px !important',
+						width: '3px !important',
+						marginLeft: '0 !important',
+					}
+				},
+				'.splitpanes--horizontal>.splitpanes__splitter': {
+					height: '5px !important',
+					'&::before': {
+						top: '1px !important',
+						height: '3px !important',
+						marginTop: '0 !important',
+					}
 				}
 			});
 			addUtilities({

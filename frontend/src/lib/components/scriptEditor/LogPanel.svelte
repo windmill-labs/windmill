@@ -5,7 +5,6 @@
 	import { faTimes } from '@fortawesome/free-solid-svg-icons'
 	import Icon from 'svelte-awesome'
 	import { check } from 'svelte-awesome/icons'
-
 	import Tabs from '../common/tabs/Tabs.svelte'
 	import Tab from '../common/tabs/Tab.svelte'
 	import TabContent from '../common/tabs/TabContent.svelte'
@@ -16,8 +15,8 @@
 	import { json } from 'svelte-highlight/languages'
 	import DrawerContent from '../common/drawer/DrawerContent.svelte'
 	import HighlightCode from '../HighlightCode.svelte'
-	import { VSplitPane } from 'svelte-split-pane'
 	import LogViewer from '../LogViewer.svelte'
+	import { Pane, Splitpanes } from 'svelte-splitpanes'
 
 	export let path: string | undefined
 	export let lang: Preview.language
@@ -71,21 +70,22 @@
 
 	<svelte:fragment slot="content">
 		<TabContent value="logs" class="h-full w-full relative">
-			<VSplitPane topPanelSize="50%" downPanelSize="50%">
-				<top slot="top">
+			<Splitpanes horizontal>
+				<Pane>
 					<LogViewer content={previewJob?.logs} isLoading={previewIsLoading} />
-				</top>
-				<down slot="down">
-					<pre class="overflow-x-auto break-all relative h-full p-2 text-sm"
-						>{#if previewJob != undefined && 'result' in previewJob && previewJob.result != undefined}<DisplayResult
-								result={previewJob.result}
-							/>
-						{:else if previewIsLoading}Waiting for result...
-						{:else}Test to see the result here
-						{/if}
-        </pre>
-				</down>
-			</VSplitPane>
+				</Pane>
+				<Pane class="text-sm p-2 text-gray-600">
+					{#if previewJob != undefined && 'result' in previewJob && previewJob.result != undefined}
+						<pre class="overflow-x-auto break-all relative h-full">
+							<DisplayResult result={previewJob.result} />
+						</pre>
+					{:else if previewIsLoading}
+						Waiting for result...
+					{:else}
+						Test to see the result here
+					{/if}
+				</Pane>
+			</Splitpanes>
 		</TabContent>
 		<TabContent value="history" class="p-2">
 			<TableCustom>
