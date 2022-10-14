@@ -1,4 +1,4 @@
-module windmill
+module github.com/windmill-labs/windmill-go-client
 
 go 1.19
 
