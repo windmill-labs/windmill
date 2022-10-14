@@ -3,7 +3,7 @@
 	import { workspaceStore } from '$lib/stores'
 	import { faClose, faPlay, faRefresh } from '@fortawesome/free-solid-svg-icons'
 	import { Button } from './common'
-	import { createEventDispatcher, getContext, onDestroy } from 'svelte'
+	import { createEventDispatcher, getContext } from 'svelte'
 	import Icon from 'svelte-awesome'
 	import { flowStateStore } from './flows/flowState'
 	import { mapJobResultsToFlowState, type JobResult } from './flows/flowStateUtils'

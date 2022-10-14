@@ -10,7 +10,6 @@
 	import { page } from '$app/stores'
 	import { sendUserToast, formatCron } from '$lib/utils'
 	import { ScriptService, Script, ScheduleService, type Flow, FlowService } from '$lib/gen'
-	import PageHeader from '$lib/components/PageHeader.svelte'
 	import Path from '$lib/components/Path.svelte'
 	import { Button } from '$lib/components/common'
 	import Tooltip from '$lib/components/Tooltip.svelte'
