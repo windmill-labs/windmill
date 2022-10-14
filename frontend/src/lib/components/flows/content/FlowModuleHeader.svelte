@@ -6,7 +6,6 @@
 	import { classNames } from '$lib/utils'
 
 	import {
-		faArrowRotateBack,
 		faArrowRotateForward,
 		faBed,
 		faCodeBranch,

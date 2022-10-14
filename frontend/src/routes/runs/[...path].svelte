@@ -13,7 +13,6 @@
 
 	import { page } from '$app/stores'
 	import { sendUserToast } from '$lib/utils'
-	import PageHeader from '$lib/components/PageHeader.svelte'
 	import { workspaceStore } from '$lib/stores'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
 	import Tabs from '$lib/components/common/tabs/Tabs.svelte'

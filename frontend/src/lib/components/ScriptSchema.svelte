@@ -1,7 +1,6 @@
 <script lang="ts">
 	import type { Schema } from '$lib/common'
 
-	import PageHeader from './PageHeader.svelte'
 	import SchemaForm from './SchemaForm.svelte'
 	import Tab from './common/tabs/Tab.svelte'
 	import Tabs from './common/tabs/Tabs.svelte'
