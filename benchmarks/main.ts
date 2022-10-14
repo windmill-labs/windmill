@@ -223,15 +223,16 @@ await new Command()
       const values = transfer_values.map((x) => new Float32Array(x));
 
       if (exportJson) {
-        console.log("exporting mean & stddev to json");
+        console.log("exporting mean & stdev to json");
         const obj: any = {};
         for (let i = 0; i < columns.length; i++) {
           const name = columns[i]!;
           const value = values[i]!;
           const mean = value.reduce((acc, e) => acc + e, 0) / values.length;
-          const stddev =
-            value.reduce((acc, e) => acc + (e - mean) ** 2) / values.length;
-          obj[name] = { mean, stddev };
+          const stdev = Math.sqrt(
+            value.reduce((acc, e) => acc + (e - mean) ** 2) / values.length
+          );
+          obj[name] = { mean, stdev };
         }
 
         await Deno.writeTextFile(exportJson, JSON.stringify(obj));
