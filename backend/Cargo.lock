@@ -4266,6 +4266,7 @@ dependencies = [
  "hyper",
  "itertools 0.10.5",
  "json-pointer",
+ "lazy_static",
  "lettre",
  "magic-crypt",
  "mime_guess",

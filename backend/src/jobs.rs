@@ -1233,6 +1233,25 @@ pub enum JobPayload {
     RawFlow { value: FlowValue, path: Option<String> },
 }
 
+lazy_static::lazy_static! {
+    // TODO: these aren't synced, they should be moved into the queue abstraction once/if that happens.
+    static ref JOBS_TOTAL_PUSHED: prometheus::IntCounter = prometheus::register_int_counter!(
+        "jobs_total_pushed",
+        "Total number of jobs pushed to the queue."
+    )
+    .unwrap();
+    static ref JOBS_TOTAL_DELETED: prometheus::IntCounter = prometheus::register_int_counter!(
+        "jobs_total_deleted",
+        "Total number of jobs deleted from the queue."
+    )
+    .unwrap();
+    static ref JOBS_TOTAL_PULLED: prometheus::IntCounter = prometheus::register_int_counter!(
+        "jobs_total_pulled",
+        "Total number of jobs pulled from the queue."
+    )
+    .unwrap();
+}
+
 #[instrument(level = "trace", skip_all)]
 pub async fn push<'c>(
     mut tx: Transaction<'c, Postgres>,
@@ -1456,6 +1475,8 @@ pub async fn push<'c>(
     .fetch_one(&mut tx)
     .await
     .map_err(|e| Error::InternalErr(format!("Could not insert into queue {job_id}: {e}")))?;
+    // TODO: technically the job isn't queued yet, as the transaction can be rolled back. Should be solved when moving these metrics to the queue abstraction.
+    JOBS_TOTAL_PUSHED.inc();
 
     {
         let uuid_string = job_id.to_string();
@@ -1660,12 +1681,16 @@ pub async fn pull(db: &DB) -> Result<Option<QueuedJob>, crate::Error> {
     )
     .fetch_optional(db)
     .await?;
+    if job.is_some() {
+        JOBS_TOTAL_PULLED.inc();
+    }
 
     Ok(job)
 }
 
 #[instrument(level = "trace", skip_all)]
 pub async fn delete_job(db: &DB, w_id: &str, job_id: Uuid) -> Result<(), crate::Error> {
+    JOBS_TOTAL_DELETED.inc();
     let job_removed = sqlx::query_scalar!(
         "DELETE FROM queue WHERE workspace_id = $1 AND id = $2 RETURNING 1",
         w_id,
