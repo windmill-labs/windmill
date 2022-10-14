@@ -3,3 +3,4 @@ dist/
 __pycache__/
 openapi.yaml
 openflow.openapi.yaml
+windmill-api/

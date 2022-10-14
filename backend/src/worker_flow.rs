@@ -1198,7 +1198,7 @@ async fn compute_next_flow_transform(
                 }
             }
         }
-        FlowModuleValue::Branches { branches, default, .. } => {
+        FlowModuleValue::BranchOne { branches, default, .. } => {
             let branch = match status_module {
                 FlowStatusModule::WaitingForPriorSteps => {
                     let mut branch_chosen = BranchChosen::Default;
@@ -1227,6 +1227,9 @@ async fn compute_next_flow_transform(
             // match inner_flow_transform {}
 
             Ok(NextFlowTransform::BranchChosen(branch, modules.clone()))
+        }
+        FlowModuleValue::BranchAll { branches: _branches, .. } => {
+            todo!()
         }
     }
 }
