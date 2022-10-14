@@ -3,14 +3,12 @@ set -e
 
 cp  ../backend/openapi.yaml openapi.yaml
 
-npx @redocly/openapi-cli@latest bundle openapi.yaml > openapi-bundled.yaml
+sed -z 's/                    extra_params:\n                      additionalProperties:\n                        type: string/                    extra_params: {}/' openapi.yaml > openapi1.yaml
+sed -z 's/                          enum: \[script, failure, trigger, command\]//' openapi1.yaml > openapi2.yaml
 
-sed -z 's/FlowModuleValue:/FlowModuleValue2:/' openapi-bundled.yaml  > openapi-decycled.yaml
-echo "    FlowModuleValue: {}" >> openapi-decycled.yaml
-npx @redocly/openapi-cli@latest bundle openapi-decycled.yaml --ext json -d > openapi-deref.json
+npx @redocly/openapi-cli@latest bundle openapi2.yaml --ext json > openapi-bundled.json
 
-
-rm -rf windmill-api/ || true
-mkdir -p windmill_api
-oapi-codegen -package windmill_api openapi-deref.json > windmill_api/windmill_api.gen.go
-rm openapi*
+rm -rf api/ || true
+mkdir -p api
+oapi-codegen -old-config-style --package=windmill_api --generate=types,client  openapi-bundled.json > api/windmill_api.gen.go
+ rm openapi*
