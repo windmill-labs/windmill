@@ -6,9 +6,6 @@ import { sleep } from "https://deno.land/x/sleep@v1.2.1/mod.ts";
 import * as windmill from "https://deno.land/x/windmill@v1.37.0/mod.ts";
 import * as api from "https://deno.land/x/windmill@v1.37.0/windmill-api/index.ts";
 
-// type DataFrame = dfd.DataFrame;
-type DataFrame = any;
-
 async function login(
   config: api.Configuration,
   email: string,
@@ -64,8 +61,16 @@ await new Command()
     "If set, exports will be into a JSON file."
   )
   .option(
+    "--export-csv <export_csv:string>",
+    "If set, exports will be into a csv file."
+  )
+  .option(
     "--export-histograms [histograms...:string]",
     "Mark metrics (without label) that are reported as histograms to export."
+  )
+  .option(
+    "--export-simple [simple...:string]",
+    "Mark metrics (without label) that are reported as simple values."
   )
   .option(
     "--histogram-buckets [buckets...:string]",
@@ -88,10 +93,6 @@ await new Command()
       ],
     }
   )
-  .option(
-    "--export-simple [simple...:string]",
-    "Mark metrics (without label) that are reported as simple values."
-  )
   .arguments("[domain]")
   .action(
     async ({
@@ -104,6 +105,7 @@ await new Command()
       workspace,
       metrics,
       exportJson,
+      exportCsv,
       exportHistograms,
       exportSimple,
       histogramBuckets,
@@ -210,7 +212,7 @@ await new Command()
       metrics_worker.postMessage("stop");
       console.log("waiting for metrics");
       const { columns, transfer_values } = await new Promise<{
-        columns: string;
+        columns: string[];
         transfer_values: ArrayBufferLike[];
       }>((resolve, _reject) => {
         metrics_worker.onmessage = (e) => {
@@ -235,6 +237,25 @@ await new Command()
         await Deno.writeTextFile(exportJson, JSON.stringify(obj));
       }
 
+      if (exportCsv) {
+        const f = await Deno.open(exportCsv, {
+          write: true,
+          create: true,
+          truncate: true,
+        });
+        const encoder = new TextEncoder();
+        const newline = new Uint8Array(1);
+        newline[0] = 0x0a;
+        await f.write(encoder.encode(columns.join(",")));
+        await f.write(newline);
+
+        for (let i = 0; i < values.length; i++) {
+          await f.write(encoder.encode(values[i].join(",")));
+          await f.write(newline);
+        }
+
+        f.close();
+      }
       console.log("done");
     }
   )

@@ -4,9 +4,6 @@
 import { sleep } from "https://deno.land/x/sleep@v1.2.1/sleep.ts";
 import parsePrometheusTextFormat from "npm:parse-prometheus-text-format";
 
-// type DataFrame = dfd.DataFrame;
-type DataFrame = any;
-
 const promise = new Promise<{
   host: string;
   histogramBuckets: string[];
