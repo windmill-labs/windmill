@@ -5,7 +5,7 @@ cp  ../backend/openapi.yaml openapi.yaml
 
 npx @redocly/openapi-cli@latest bundle openapi.yaml > openapi-deref.yaml
 
-#rm openapi.yaml
+rm openapi.yaml
 
 rm -rf windmill-api/ || true
 oapi-codegen -package windmill_api openapi-deref.yaml > windmill_api/windmill_api.gen.go
