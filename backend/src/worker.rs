@@ -2664,7 +2664,7 @@ def main():
                     "value": {
                         "branches": [],
                         "default": [module_add_item_to_list(2)],
-                        "type": "branches",
+                        "type": "branchone",
                     }
                 },
             ],
@@ -2708,13 +2708,13 @@ def main():
                                                 "modules": []
                                             }],
                                         "default": [module_add_item_to_list(2)],
-                                        "type": "branches",
+                                        "type": "branchone",
                                     }
                                 }]
                             },
                         ],
                         "default": [module_add_item_to_list(-4)],
-                        "type": "branches",
+                        "type": "branchone",
                     }
                 },
                 module_add_item_to_list(3),
@@ -2869,7 +2869,7 @@ def main():
             }
         }
 
-        async fn print_job(id: Uuid, db: &DB) -> Result<(), anyhow::Error> {
+        async fn _print_job(id: Uuid, db: &DB) -> Result<(), anyhow::Error> {
             tracing::info!(
                 "{:#?}",
                 get_job_by_id(db.begin().await?, "test-workspace", id)

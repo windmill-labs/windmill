@@ -143,14 +143,16 @@ components:
         - $ref: "#/components/schemas/RawScript"
         - $ref: "#/components/schemas/PathScript"
         - $ref: "#/components/schemas/ForloopFlow"
-        - $ref: "#/components/schemas/Branches"
+        - $ref: "#/components/schemas/BranchOne"
+        - $ref: "#/components/schemas/BranchAll"
       discriminator:
         propertyName: type
         mapping:
           rawscript: "#/components/schemas/RawScript"
           script: "#/components/schemas/PathScript"
           forloopflow: "#/components/schemas/ForloopFlow"
-          branches: "#/components/schemas/Branches"
+          branchone: "#/components/schemas/BranchOne"
+          branchall: "#/components/schemas/BranchAll"
 
     RawScript:
       type: object
@@ -206,7 +208,7 @@ components:
         - skip_failures
         - type
 
-    Branches:
+    BranchOne:
       type: object
       properties:
         branches:
@@ -226,21 +228,44 @@ components:
               - modules
               - expr
         default:
-          type: object
-          properties: 
-            modules:
-              type: array
-              items:
-                $ref: "#/components/schemas/FlowModule"
+          type: array
+          items:
+            $ref: "#/components/schemas/FlowModule"
           required: [modules]
         type:
           type: string
           enum:
-            - forloopflow
+            - branchone
       required:
         - branches
         - default
         - type
+
+    BranchAll:
+      type: object
+      properties:
+        branches:
+          type: array
+          items:
+            type: object
+            properties:
+              summary:
+                type: string
+              modules:
+                type: array
+                items:
+                  $ref: "#/components/schemas/FlowModule"
+            required:
+              - modules
+              - expr
+        type:
+          type: string
+          enum:
+            - branchall
+      required:
+        - branches
+        - type
+
 
     FlowStatus:
       type: object
