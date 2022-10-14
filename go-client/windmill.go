@@ -3,6 +3,7 @@ package windmill
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"os"
 
 	api "github.com/windmill-labs/windmill-go-client/api"
@@ -20,7 +21,14 @@ type ClientWithWorkspace struct {
 func GetClient() (ClientWithWorkspace, error) {
 	base_url := os.Getenv("BASE_INTERNAL_URL")
 	workspace := os.Getenv("WM_WORKSPACE")
-	client, _ := api.NewClientWithResponses(base_url)
+	token := os.Getenv("WM_TOKEN")
+	client, _ := api.NewClientWithResponses(base_url, func(c *api.Client) error {
+		c.RequestEditors = append(c.RequestEditors, func(ctx context.Context, req *http.Request) error {
+			req.Header.Add("Authorization", fmt.Sprintf("Bearer %s", token))
+			return nil
+		})
+		return nil
+	})
 	return ClientWithWorkspace{
 		Client:    client,
 		Workspace: workspace,
