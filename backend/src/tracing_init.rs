@@ -1,12 +1,12 @@
-use hyper::Response;
-use tower_http::trace::{MakeSpan, OnResponse};
-use tracing::{field, Metadata, Span};
-use tracing_subscriber::{
+use ::tracing::{field, Metadata, Span};
+use ::tracing_subscriber::{
     filter::filter_fn,
     fmt::{format, Layer},
     prelude::*,
     EnvFilter,
 };
+use hyper::Response;
+use tower_http::trace::{MakeSpan, OnResponse};
 
 #[derive(Clone)]
 pub struct MyOnResponse {}
