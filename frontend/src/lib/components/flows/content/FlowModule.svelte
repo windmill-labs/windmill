@@ -51,9 +51,11 @@
 	let modulePreview: ModulePreview
 	let websocketAlive = { pyright: false, black: false, deno: false, go: false }
 	let selected = 'inputs'
-	let headerGap, inputsGap, editorGap
+	let headerGap = 0,
+		inputsGap = 0,
+		editorGap = 0
 
-	$: totalTopGap = headerGap + inputsGap + editorGap
+	$: totalTopGap = headerGap + inputsGap + editorGap || 0
 	$: shouldPick = isEmptyFlowModule(flowModule)
 	$: stepPropPicker = failureModule
 		? { pickableProperties: { previous_result: { error: 'the error message' } }, extraLib: '' }
@@ -153,7 +155,11 @@
 				</div>
 			{/if}
 
-			<Splitpanes horizontal style="max-height: calc(100% - {totalTopGap}px) !important;">
+			<Splitpanes
+				id="split-panes"
+				horizontal
+				style="max-height: calc(100% - {totalTopGap}px) !important;"
+			>
 				<Pane size={50} minSize={20}>
 					{#if flowModule.value.type === 'rawscript'}
 						<div on:mouseleave={() => reload(flowModule)} class="h-full">
