@@ -347,6 +347,7 @@ async fn handle_job_error(
     .unwrap_or_else(|_| Map::new());
     let _ = postprocess_queued_job(
         job.is_flow_step,
+        &job.job_kind,
         job.schedule_path.clone(),
         job.script_path.clone(),
         &job.workspace_id,
@@ -383,6 +384,7 @@ async fn handle_job_error(
 
                     let _ = postprocess_queued_job(
                         parent_job.is_flow_step,
+                        &parent_job.job_kind,
                         parent_job.schedule_path.clone(),
                         parent_job.script_path.clone(),
                         &job.workspace_id,
@@ -547,6 +549,7 @@ async fn handle_queued_job(
 
             let _ = postprocess_queued_job(
                 job.is_flow_step,
+                &job.job_kind,
                 job.schedule_path,
                 job.script_path,
                 &w_id,
@@ -3527,13 +3530,13 @@ def main(error, port):
             base_internal_url: String::new(),
             base_url: String::new(),
             disable_nuser: std::env::var("DISABLE_NUSER")
-                    .ok()
-                    .and_then(|x| x.parse::<bool>().ok())
-                    .unwrap_or(false),
+                .ok()
+                .and_then(|x| x.parse::<bool>().ok())
+                .unwrap_or(false),
             disable_nsjail: std::env::var("DISABLE_NSJAIL")
-                    .ok()
-                    .and_then(|x| x.parse::<bool>().ok())
-                    .unwrap_or(false),
+                .ok()
+                .and_then(|x| x.parse::<bool>().ok())
+                .unwrap_or(false),
             keep_job_dir: std::env::var("KEEP_JOB_DIR")
                 .ok()
                 .and_then(|x| x.parse::<bool>().ok())
