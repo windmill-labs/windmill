@@ -83,6 +83,7 @@ await new Command()
       default: Infinity,
     }
   )
+  .option("--use-flows", "Run flows instead of jobs.")
   .option(
     "--histogram-buckets [buckets...:string]",
     "Define what buckets to collect from histograms.",
@@ -120,6 +121,7 @@ await new Command()
       exportSimple,
       histogramBuckets,
       maximumThroughput,
+      useFlows,
     }) => {
       const metrics_worker = new Worker(
         new URL("./scraper.ts", import.meta.url).href,
@@ -186,10 +188,13 @@ await new Command()
         workspace_id: config.workspace_id,
       };
 
+      const per_worker_throughput = maximumThroughput / num_workers;
       const shared_config = {
         server: host,
         token: final_token,
         workspace_id: config.workspace_id,
+        per_worker_throughput,
+        useFlows,
       };
 
       let workers: Worker[] = new Array(num_workers);
@@ -199,9 +204,8 @@ await new Command()
         });
       }
 
-      const per_worker_throughput = maximumThroughput / num_workers;
       workers.forEach((worker, i) => {
-        worker.postMessage({ ...shared_config, i, per_worker_throughput });
+        worker.postMessage({ ...shared_config, i });
       });
 
       await sleep(seconds);

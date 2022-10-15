@@ -5,7 +5,11 @@ import * as windmill from "https://deno.land/x/windmill@v1.37.0/mod.ts";
 import * as api from "https://deno.land/x/windmill@v1.37.0/windmill-api/index.ts";
 
 const promise = new Promise<
-  api.Configuration & { workspace_id: string; per_worker_throughput: number }
+  api.Configuration & {
+    workspace_id: string;
+    per_worker_throughput: number;
+    useFlows: boolean;
+  }
 >((resolve, _reject) => {
   self.onmessage = (evt) => {
     const sharedConfig = evt.data;
@@ -24,6 +28,7 @@ const promise = new Promise<
       }),
       workspace_id: sharedConfig.workspace_id,
       per_worker_throughput: sharedConfig.per_worker_throughput,
+      useFlows: sharedConfig.useFlows,
     };
     self.name = "Worker " + sharedConfig.i;
     resolve(config);
@@ -55,11 +60,40 @@ while (cont) {
     await sleep(0.1);
     continue;
   }
-  const uuid = await jobApi.runScriptPreview(config.workspace_id, {
-    language: "deno",
-    content: 'export function main(){ return Deno.env.get("WM_JOB_ID"); }',
-    args: {},
-  });
+  let uuid: string;
+  if (config.useFlows) {
+    uuid = await jobApi.runFlowPreview(config.workspace_id, {
+      args: {},
+      value: {
+        modules: [
+          {
+            inputTransforms: {},
+            value: {
+              language: "deno",
+              type: "rawscript",
+              content:
+                'export function main(){ return Deno.env.get("WM_JOB_ID"); }',
+            },
+          },
+          {
+            inputTransforms: {},
+            value: {
+              language: "deno",
+              type: "rawscript",
+              content:
+                'export function main(){ return Deno.env.get("WM_JOB_ID"); }',
+            },
+          },
+        ],
+      },
+    });
+  } else {
+    uuid = await jobApi.runScriptPreview(config.workspace_id, {
+      language: "deno",
+      content: 'export function main(){ return Deno.env.get("WM_JOB_ID"); }',
+      args: {},
+    });
+  }
   outstanding.push(uuid);
   total_spawned++;
 }
@@ -70,7 +104,7 @@ while (outstanding.length > 0) {
   if (r.running) {
     outstanding.push(uuid);
     continue;
-  } else {
+  } else if (!config.useFlows) {
     try {
       let result: string;
       if (r.result) {
@@ -80,7 +114,9 @@ while (outstanding.length > 0) {
         result = j.result;
       }
       if (result != uuid) {
-        console.log("job did not return correct UUID: " + result);
+        console.log(
+          "job did not return correct UUID: " + result + " != " + uuid
+        );
       }
     } catch (e) {
       console.log("error during wait: ", e);
