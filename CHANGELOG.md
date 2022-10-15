@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [1.38.5](https://github.com/windmill-labs/windmill/compare/v1.38.4...v1.38.5) (2022-10-15)
+
+
+### Bug Fixes
+
+* **deno-client:** use proper base url ([bb1750f](https://github.com/windmill-labs/windmill/commit/bb1750fd6dddaa1235deafe0a68467f3a631a8e9))
+
 ## [1.38.4](https://github.com/windmill-labs/windmill/compare/v1.38.3...v1.38.4) (2022-10-15)
 
 
