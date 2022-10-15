@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [1.38.1](https://github.com/windmill-labs/windmill/compare/v1.38.0...v1.38.1) (2022-10-14)
+
+
+### Bug Fixes
+
+* **go-client:** pass bearer token to requests ([9d38d66](https://github.com/windmill-labs/windmill/commit/9d38d66d2b6571d9ae7cbdb71d105790273155ca))
+
 ## [1.38.0](https://github.com/windmill-labs/windmill/compare/v1.37.0...v1.38.0) (2022-10-14)
 
 
