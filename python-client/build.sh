@@ -9,6 +9,8 @@ sed -z 's/FlowModuleValue:/FlowModuleValue2:/' openapi-bundled.yaml  > openapi-d
 echo "    FlowModuleValue: {}" >> openapi-decycled.yaml
 npx @redocly/openapi-cli@latest bundle openapi-decycled.yaml --ext json -d > openapi-deref.json
 
+sed '$d' .gitignore > .gitignore2
+mv .gitignore2 .gitignore
 
 rm -rf windmill-api/ || true
 openapi-python-client generate --config $PWD/python-gen.yaml --path openapi-deref.json
@@ -35,3 +37,4 @@ mv windmill-api/README.md.tmp windmill-api/README.md
 cd windmill-api && poetry build
 cd ../wmill && poetry build
 cd ../wmill_pg && poetry build
+cd .. && echo "windmill-api/" >> .gitignore 
