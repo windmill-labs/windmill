@@ -77,6 +77,13 @@ await new Command()
     "Mark metrics (without label) that are reported as simple values."
   )
   .option(
+    "--maximum-throughput <maximum_throughput:number>",
+    "Maximum number of jobs/flows to start in one second.",
+    {
+      default: Infinity,
+    }
+  )
+  .option(
     "--histogram-buckets [buckets...:string]",
     "Define what buckets to collect from histograms.",
     {
@@ -112,6 +119,7 @@ await new Command()
       exportHistograms,
       exportSimple,
       histogramBuckets,
+      maximumThroughput,
     }) => {
       const metrics_worker = new Worker(
         new URL("./scraper.ts", import.meta.url).href,
@@ -191,8 +199,9 @@ await new Command()
         });
       }
 
+      const per_worker_throughput = maximumThroughput / num_workers;
       workers.forEach((worker, i) => {
-        worker.postMessage({ ...shared_config, i: i });
+        worker.postMessage({ ...shared_config, i, per_worker_throughput });
       });
 
       await sleep(seconds);

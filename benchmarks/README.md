@@ -25,6 +25,7 @@ Options:
   --export-csv         <export_csv>     - If set, exports will be into a csv file.
   --export-histograms  [histograms...]  - Mark metrics (without label) that are reported as histograms to export.
   --export-simple      [simple...]      - Mark metrics (without label) that are reported as simple values.
+  --maximum-throughput  <maximum_throughput>  - Maximum number of jobs/flows to start in one second.                     (Default: Infinity)
   --histogram-buckets  [buckets...]     - Define what buckets to collect from histograms.                                (Default: [
                                                                                                                             "+Inf",  "10",    "5",
                                                                                                                             "2.5",   "2.5",   "1",
