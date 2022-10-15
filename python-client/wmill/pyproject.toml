@@ -15,7 +15,7 @@ packages = [
 include = ["wmill/py.typed"]
 
 [tool.poetry.dependencies]
-python = "^3.10"
+python = "^3.7"
 windmill-api = "^1.38.1"
 
 [build-system]
