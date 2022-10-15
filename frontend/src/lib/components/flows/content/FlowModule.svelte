@@ -57,10 +57,9 @@
 		editor: 0
 	}
 
-	$: totalTopGap =
-		Object.keys(topGap)
-			.map((key) => topGap[key])
-			.reduce((acc, curr) => acc + curr) + 5
+	$: totalTopGap = Object.keys(topGap)
+		.map((key) => topGap[key])
+		.reduce((acc, curr) => acc + curr)
 	$: shouldPick = isEmptyFlowModule(flowModule)
 	$: stepPropPicker = failureModule
 		? { pickableProperties: { previous_result: { error: 'the error message' } }, extraLib: '' }
