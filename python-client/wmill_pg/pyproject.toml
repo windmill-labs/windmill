@@ -15,7 +15,7 @@ packages = [
 include = ["wmill_pg/py.typed"]
 
 [tool.poetry.dependencies]
-python = "^3.10"
+python = "^3.7"
 wmill = "^1.5.0"
 psycopg2-binary = "*"
 
