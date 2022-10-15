@@ -3526,8 +3526,14 @@ def main(error, port):
         let worker_config = WorkerConfig {
             base_internal_url: String::new(),
             base_url: String::new(),
-            disable_nuser: false,
-            disable_nsjail: false,
+            disable_nuser: std::env::var("DISABLE_NUSER")
+                    .ok()
+                    .and_then(|x| x.parse::<bool>().ok())
+                    .unwrap_or(false),
+            disable_nsjail: std::env::var("DISABLE_NSJAIL")
+                    .ok()
+                    .and_then(|x| x.parse::<bool>().ok())
+                    .unwrap_or(false),
             keep_job_dir: std::env::var("KEEP_JOB_DIR")
                 .ok()
                 .and_then(|x| x.parse::<bool>().ok())
