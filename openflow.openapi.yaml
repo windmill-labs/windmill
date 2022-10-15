@@ -169,6 +169,8 @@ components:
           type: string
         type:
           type: string
+          enum:
+            - rawscript
       required:
         - type
         - content
