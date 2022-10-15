@@ -24,9 +24,13 @@ await new Command()
   .option("--host <url:string>", "The windmill host to benchmark.", {
     default: "http://127.0.0.1/",
   })
-  .option("--workers <workers:number>", "The number of jobs to run at once.", {
-    default: 1,
-  })
+  .option(
+    "--workers <workers:number>",
+    "The number of workers to run at once.",
+    {
+      default: 1,
+    }
+  )
   .option(
     "-s --seconds <seconds:number>",
     "How long to run the benchmark for (in seconds).",
@@ -93,7 +97,6 @@ await new Command()
       ],
     }
   )
-  .arguments("[domain]")
   .action(
     async ({
       host,
