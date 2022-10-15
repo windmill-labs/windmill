@@ -51,15 +51,9 @@
 	let modulePreview: ModulePreview
 	let websocketAlive = { pyright: false, black: false, deno: false, go: false }
 	let selected = 'inputs'
-	let topGap: Record<string, number> = {
-		header: 0,
-		inputs: 0,
-		editor: 0
-	}
+	let headerGap, inputsGap, editorGap
 
-	$: totalTopGap = Object.keys(topGap)
-		.map((key) => topGap[key])
-		.reduce((acc, curr) => acc + curr)
+	$: totalTopGap = headerGap + inputsGap + editorGap
 	$: shouldPick = isEmptyFlowModule(flowModule)
 	$: stepPropPicker = failureModule
 		? { pickableProperties: { previous_result: { error: 'the error message' } }, extraLib: '' }
@@ -109,7 +103,7 @@
 <svelte:window on:keydown={onKeyDown} />
 
 <div class="h-full" bind:clientWidth={$width}>
-	<FlowCard bind:flowModule bind:headerHeight={topGap.header}>
+	<FlowCard bind:flowModule bind:headerHeight={headerGap}>
 		<svelte:fragment slot="header">
 			<FlowModuleHeader
 				bind:module={flowModule}
@@ -129,7 +123,7 @@
 		</svelte:fragment>
 		{#if shouldPick}
 			<FlowInputs
-				bind:height={topGap.inputs}
+				bind:height={inputsGap}
 				shouldDisableTriggerScripts={parentIndex != 0}
 				shouldDisableLoopCreation={childIndex !== undefined ||
 					parentIndex === 0 ||
@@ -149,7 +143,7 @@
 			/>
 		{:else}
 			{#if flowModule.value.type === 'rawscript'}
-				<div bind:offsetHeight={topGap.editor} class="border-b-2 shadow-sm p-1 mb-1">
+				<div bind:offsetHeight={editorGap} class="border-b-2 shadow-sm p-1 mb-1">
 					<EditorBar
 						{editor}
 						lang={flowModule.value['language'] ?? 'deno'}
