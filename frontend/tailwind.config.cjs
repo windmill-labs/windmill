@@ -297,7 +297,8 @@ const config = {
 					backgroundImage: `linear-gradient(to right, ${theme('colors.blue.600')}, ${theme('colors.blue.500')})`
 				},
 				'.splitpanes__pane': {
-					backgroundColor: theme('colors.white') + ' !important'
+					backgroundColor: theme('colors.white') + ' !important',
+					overflow: 'auto !important',
 				},
 				'.splitpanes__splitter': {
 					backgroundColor: theme('colors.gray.300') + ' !important',

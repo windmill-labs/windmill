@@ -10,11 +10,12 @@
 	export let shouldDisableLoopCreation: boolean = false
 	export let shouldDisableTriggerScripts: boolean = false
 	export let failureModule: boolean
+	export let height: number = 0
 
 	const dispatch = createEventDispatcher()
 </script>
 
-<div class="space-y-4 p-4">
+<div bind:offsetHeight={height} class="space-y-4 p-4">
 	{#if !shouldDisableTriggerScripts}
 		<div class="text-sm font-bold">Scripts</div>
 	{/if}

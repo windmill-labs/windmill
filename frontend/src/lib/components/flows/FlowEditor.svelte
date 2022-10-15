@@ -22,7 +22,7 @@
 				{/if}
 			</div>
 		</Pane>
-		<Pane size={75} minSize={40}>
+		<Pane size={75} minSize={40} class="!overflow-hidden">
 			<FlowEditorPanel {initialPath} />
 		</Pane>
 	</Splitpanes>

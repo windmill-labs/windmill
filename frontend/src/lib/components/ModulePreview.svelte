@@ -95,15 +95,15 @@
 			<Pane size={50} minSize={10}>
 				<LogViewer content={testJob?.logs} isLoading={testIsLoading} />
 			</Pane>
-			<Pane size={50} minSize={10} class="text-sm p-2 text-gray-600">
+			<Pane size={50} minSize={10} class="text-sm text-gray-600">
 				{#if testJob != undefined && 'result' in testJob && testJob.result != undefined}
-					<pre class="overflow-x-auto break-all relative h-full">
+					<pre class="overflow-x-auto break-all relative h-full px-2">
 						<DisplayResult result={testJob.result} />
 					</pre>
-				{:else if testIsLoading}
-					Waiting for result...
 				{:else}
-					Test to see the result here
+					<div class="p-2">
+						{testIsLoading ? 'Waiting for result...' : 'Test to see the result here'}
+					</div>
 				{/if}
 			</Pane>
 		</Splitpanes>
