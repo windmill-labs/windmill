@@ -1,6 +1,16 @@
 # Changelog
 
 
+## [1.38.2](https://github.com/windmill-labs/windmill/compare/v1.38.1...v1.38.2) (2022-10-15)
+
+
+### Bug Fixes
+
+* **go-client:** improve go-client error handling ([467ff10](https://github.com/windmill-labs/windmill/commit/467ff105db34c7e2bd028d35dff18a08df599a4c))
+* **go-client:** improve go-client variable and resource handling ([fffcb5e](https://github.com/windmill-labs/windmill/commit/fffcb5ec2a47efcb9ba8db6211314d67f38f5b24))
+* **go-client:** return error ([1f7ef30](https://github.com/windmill-labs/windmill/commit/1f7ef3006f551a324b8b8f5e7d260d69287eb4cf))
+* **python-client:** provide backwards compatibility down to python3.7 ([#738](https://github.com/windmill-labs/windmill/issues/738)) ([#739](https://github.com/windmill-labs/windmill/issues/739)) ([e4cd931](https://github.com/windmill-labs/windmill/commit/e4cd931ab5d212e5bd8ed32f5fa1a33b431d16a4))
+
 ## [1.38.1](https://github.com/windmill-labs/windmill/compare/v1.38.0...v1.38.1) (2022-10-14)
 
 
