@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [1.38.3](https://github.com/windmill-labs/windmill/compare/v1.38.2...v1.38.3) (2022-10-15)
+
+
+### Bug Fixes
+
+* **go-client:** go-client README ([8d37e40](https://github.com/windmill-labs/windmill/commit/8d37e40fced961c15fc6cd2198c4e696952f392c))
+
 ## [1.38.2](https://github.com/windmill-labs/windmill/compare/v1.38.1...v1.38.2) (2022-10-15)
 
 
