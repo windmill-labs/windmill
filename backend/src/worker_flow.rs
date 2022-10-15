@@ -291,7 +291,7 @@ pub async fn update_flow_status_after_job_completion(
     };
     tx.commit().await?;
 
-    if old_status.step == 0 {
+    if old_status.step == 0 && !flow_job.is_flow_step {
         schedule_again_if_scheduled(
             flow_job.schedule_path.clone(),
             flow_job.script_path.clone(),
