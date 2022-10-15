@@ -102,6 +102,8 @@
 
 	afterUpdate(() => {
 		totalTopGap = 0
+		if (!wrapper?.children) return
+
 		for (let i = 0; i < wrapper.children.length; i++) {
 			const element = wrapper.children.item(i)
 			if (element?.id === PANES_ID) break
