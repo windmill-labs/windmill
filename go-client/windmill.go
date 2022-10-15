@@ -22,6 +22,7 @@ func GetClient() (ClientWithWorkspace, error) {
 	base_url := os.Getenv("BASE_INTERNAL_URL")
 	workspace := os.Getenv("WM_WORKSPACE")
 	token := os.Getenv("WM_TOKEN")
+
 	client, _ := api.NewClientWithResponses(base_url, func(c *api.Client) error {
 		c.RequestEditors = append(c.RequestEditors, func(ctx context.Context, req *http.Request) error {
 			req.Header.Add("Authorization", fmt.Sprintf("Bearer %s", token))
@@ -38,28 +39,28 @@ func newBool(b bool) *bool {
 	return &b
 }
 
-func GetVariable(path string) string {
+func GetVariable(path string) (string, error) {
 	client, err := GetClient()
 	if err != nil {
-		panic(err)
+		return "", err
 	}
 	res, err := client.Client.GetVariableWithResponse(context.Background(), client.Workspace, path, &api.GetVariableParams{
 		DecryptSecret: newBool(true),
 	})
 	if err != nil {
-		panic(err)
+		return "", err
 	}
-	return *res.JSON200.Value
+	return *res.JSON200.Value, nil
 }
 
-func GetResource(path string) map[string]interface{} {
+func GetResource(path string) (map[string]interface{}, error) {
 	client, err := GetClient()
 	if err != nil {
-		panic(err)
+		return nil, err
 	}
 	res, err := client.Client.GetResourceWithResponse(context.Background(), client.Workspace, path)
 	if err != nil {
-		panic(err)
+		return nil, err
 	}
-	return *res.JSON200.Value
+	return *res.JSON200.Value, nil
 }
