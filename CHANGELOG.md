@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [1.38.4](https://github.com/windmill-labs/windmill/compare/v1.38.3...v1.38.4) (2022-10-15)
+
+
+### Bug Fixes
+
+* refactor deno client to use another openapi generator [#743](https://github.com/windmill-labs/windmill/issues/743) ([350d31f](https://github.com/windmill-labs/windmill/commit/350d31fe068260820978b8a629a74da80384f037))
+
 ## [1.38.3](https://github.com/windmill-labs/windmill/compare/v1.38.2...v1.38.3) (2022-10-15)
 
 
