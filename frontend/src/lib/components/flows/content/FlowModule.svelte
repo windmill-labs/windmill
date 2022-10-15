@@ -30,7 +30,7 @@
 	import { flowStateStore, type FlowModuleState } from '../flowState'
 	import { scriptLangToEditorLang } from '$lib/utils'
 	import PropPickerWrapper from '../propPicker/PropPickerWrapper.svelte'
-	import { getContext, setContext } from 'svelte'
+	import { afterUpdate, getContext, setContext } from 'svelte'
 	import type { FlowEditorContext } from '../types'
 	import { loadSchemaFromModule, selectedIdToIndexes } from '../utils'
 	import { writable, type Writable } from 'svelte/store'
@@ -39,6 +39,7 @@
 	import FlowModuleSuspend from './FlowModuleSuspend.svelte'
 	import FlowRetries from './FlowRetries.svelte'
 
+	const PANES_ID = 'split-panes' as const
 	const { selectedId, select, previewArgs } = getContext<FlowEditorContext>('FlowEditorContext')
 
 	export let flowModule: FlowModule
@@ -51,11 +52,9 @@
 	let modulePreview: ModulePreview
 	let websocketAlive = { pyright: false, black: false, deno: false, go: false }
 	let selected = 'inputs'
-	let headerGap = 0,
-		inputsGap = 0,
-		editorGap = 0
+	let wrapper: HTMLDivElement
+	let totalTopGap = 0
 
-	$: totalTopGap = headerGap + inputsGap + editorGap || 0
 	$: shouldPick = isEmptyFlowModule(flowModule)
 	$: stepPropPicker = failureModule
 		? { pickableProperties: { previous_result: { error: 'the error message' } }, extraLib: '' }
@@ -100,12 +99,21 @@
 		width,
 		threshold: FLOW_MODULE_WIDTH_THRESHOLD
 	})
+
+	afterUpdate(() => {
+		totalTopGap = 0
+		for (let i = 0; i < wrapper.children.length; i++) {
+			const element = wrapper.children.item(i)
+			if (element?.id === PANES_ID) break
+			totalTopGap += element?.scrollHeight || 0
+		}
+	})
 </script>
 
 <svelte:window on:keydown={onKeyDown} />
 
-<div class="h-full" bind:clientWidth={$width}>
-	<FlowCard bind:flowModule bind:headerHeight={headerGap}>
+<div class="h-full" bind:this={wrapper} bind:clientWidth={$width}>
+	<FlowCard bind:flowModule>
 		<svelte:fragment slot="header">
 			<FlowModuleHeader
 				bind:module={flowModule}
@@ -125,7 +133,6 @@
 		</svelte:fragment>
 		{#if shouldPick}
 			<FlowInputs
-				bind:height={inputsGap}
 				shouldDisableTriggerScripts={parentIndex != 0}
 				shouldDisableLoopCreation={childIndex !== undefined ||
 					parentIndex === 0 ||
@@ -145,7 +152,7 @@
 			/>
 		{:else}
 			{#if flowModule.value.type === 'rawscript'}
-				<div bind:offsetHeight={editorGap} class="border-b-2 shadow-sm p-1 mb-1">
+				<div class="border-b-2 shadow-sm p-1 mb-1">
 					<EditorBar
 						{editor}
 						lang={flowModule.value['language'] ?? 'deno'}
@@ -156,7 +163,7 @@
 			{/if}
 
 			<Splitpanes
-				id="split-panes"
+				id={PANES_ID}
 				horizontal
 				style="max-height: calc(100% - {totalTopGap}px) !important;"
 			>

@@ -7,7 +7,6 @@
 
 	export let flowModule: FlowModule | undefined = undefined
 	export let title: string | undefined = undefined
-	export let height: number = 0
 
 	$: shouldPick = flowModule && isEmptyFlowModule(flowModule)
 
@@ -18,10 +17,7 @@
 	}
 </script>
 
-<div
-	bind:offsetHeight={height}
-	class="flex items-center justify-between py-2 px-4 border-b space-x-2 h-12 flex-nowrap"
->
+<div class="flex items-center justify-between py-2 px-4 border-b space-x-2 h-12 flex-nowrap">
 	{#if flowModule}
 		<span class="text-sm w-full">
 			<div class="flex items-center space-x-2">
