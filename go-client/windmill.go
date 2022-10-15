@@ -43,9 +43,12 @@ func GetVariable(path string) string {
 	if err != nil {
 		panic(err)
 	}
-	res, _ := client.Client.GetVariableWithResponse(context.Background(), client.Workspace, path, &api.GetVariableParams{
+	res, err := client.Client.GetVariableWithResponse(context.Background(), client.Workspace, path, &api.GetVariableParams{
 		DecryptSecret: newBool(true),
 	})
+	if err != nil {
+		panic(err)
+	}
 	return *res.JSON200.Value
 }
 
@@ -54,6 +57,9 @@ func GetResource(path string) map[string]interface{} {
 	if err != nil {
 		panic(err)
 	}
-	res, _ := client.Client.GetResourceWithResponse(context.Background(), client.Workspace, path)
+	res, err := client.Client.GetResourceWithResponse(context.Background(), client.Workspace, path)
+	if err != nil {
+		panic(err)
+	}
 	return *res.JSON200.Value
 }
