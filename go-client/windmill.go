@@ -19,7 +19,7 @@ type ClientWithWorkspace struct {
 }
 
 func GetClient() (ClientWithWorkspace, error) {
-	base_url := os.Getenv("BASE_INTERNAL_URL")
+	base_url := os.Getenv("BASE_INTERNAL_URL") + "/api"
 	workspace := os.Getenv("WM_WORKSPACE")
 	token := os.Getenv("WM_TOKEN")
 
