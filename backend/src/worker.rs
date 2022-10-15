@@ -347,7 +347,6 @@ async fn handle_job_error(
     .unwrap_or_else(|_| Map::new());
     let _ = postprocess_queued_job(
         job.is_flow_step,
-        &job.job_kind,
         job.schedule_path.clone(),
         job.script_path.clone(),
         &job.workspace_id,
@@ -384,7 +383,6 @@ async fn handle_job_error(
 
                     let _ = postprocess_queued_job(
                         parent_job.is_flow_step,
-                        &parent_job.job_kind,
                         parent_job.schedule_path.clone(),
                         parent_job.script_path.clone(),
                         &job.workspace_id,
@@ -549,7 +547,6 @@ async fn handle_queued_job(
 
             let _ = postprocess_queued_job(
                 job.is_flow_step,
-                &job.job_kind,
                 job.schedule_path,
                 job.script_path,
                 &w_id,

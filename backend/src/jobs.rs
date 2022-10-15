@@ -1591,7 +1591,6 @@ pub async fn add_completed_job(
 #[instrument(level = "trace", skip_all)]
 pub async fn postprocess_queued_job(
     is_flow_step: bool,
-    job_kind: &JobKind,
     schedule_path: Option<String>,
     script_path: Option<String>,
     w_id: &str,
@@ -1599,8 +1598,7 @@ pub async fn postprocess_queued_job(
     db: &DB,
 ) -> crate::error::Result<()> {
     let _ = delete_job(db, w_id, job_id).await?;
-    let job_kind = job_kind.clone();
-    if !is_flow_step && job_kind != JobKind::Flow && job_kind != JobKind::FlowPreview {
+    if !is_flow_step {
         schedule_again_if_scheduled(schedule_path, script_path, &w_id, db).await?;
     }
     Ok(())
