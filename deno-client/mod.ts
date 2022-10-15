@@ -1,10 +1,10 @@
-import { ResourceApi, VariableApi, ServerConfiguration, JobApi } from './windmill-api/index.ts'
-import { createConfiguration, type Configuration as Configuration } from './windmill-api/configuration.ts'
+import { ResourceService, VariableService } from './windmill-api/index.ts'
+import { OpenAPI } from './windmill-api/index.ts'
 
 export {
-    AdminApi, AuditApi, FlowApi, GranularAclApi, GroupApi,
-    JobApi, ResourceApi, VariableApi, ScriptApi, ScheduleApi, SettingsApi,
-    UserApi, WorkspaceApi
+    AdminService, AuditService, FlowService, GranularAclService, GroupService,
+    JobService, ResourceService, VariableService, ScriptService, ScheduleService, SettingsService,
+    UserService, WorkspaceService
 } from './windmill-api/index.ts'
 
 export { pgSql, pgClient } from './pg.ts'
@@ -14,23 +14,22 @@ export type Email = string
 export type Base64 = string
 export type Resource<S extends string> = any
 
-type Conf = Configuration & { workspace_id: string }
-
 export const SHARED_FOLDER = '/shared'
+
+export function setClient(token: string, baseUrl: string) {
+    OpenAPI.WITH_CREDENTIALS = true
+    OpenAPI.TOKEN = token
+    OpenAPI.BASE = baseUrl
+}
+
+setClient(Deno.env.get("WM_TOKEN") ?? 'no_token', Deno.env.get("BASE_INTERNAL_URL") ?? Deno.env.get("BASE_URL") ?? 'http://localhost:8000')
 
 /**
  * Create a client configuration from env variables
  * @returns client configuration
  */
-export function createConf(): Conf {
-    const token = Deno.env.get("WM_TOKEN") ?? 'no_token'
-    const base_url = Deno.env.get("BASE_INTERNAL_URL") ?? 'http://localhost:8000'
-    return {
-        ...createConfiguration({
-            baseServer: new ServerConfiguration(`${base_url}/api`, {}),
-            authMethods: { bearerAuth: { tokenProvider: { getToken() { return token } } } },
-        }), workspace_id: Deno.env.get("WM_WORKSPACE") ?? 'no_workspace'
-    }
+export function getWorkspace(): string {
+    return Deno.env.get("WM_WORKSPACE") ?? 'no_workspace'
 }
 
 /**
@@ -40,9 +39,9 @@ export function createConf(): Conf {
  * @returns resource value
  */
 export async function getResource(path: string, undefinedIfEmpty?: boolean): Promise<any> {
-    const conf = createConf()
+    const workspace = getWorkspace()
     try {
-        const resource = await new ResourceApi(conf).getResource(conf.workspace_id, path)
+        const resource = await ResourceService.getResource({ workspace, path })
         return await _transformLeaf(resource.value)
     } catch (e) {
         if (undefinedIfEmpty && e.code === 404) {
@@ -75,12 +74,11 @@ export function getInternalStatePath(suffix?: string): string {
  * @param initializeToTypeIfNotExist if the resource does not exist, initialize it with this type
  */
 export async function setResource(path: string, value: any, initializeToTypeIfNotExist?: string): Promise<void> {
-    const conf = createConf()
-    const resourceApi = new ResourceApi(conf)
-    if (await resourceApi.existsResource(conf.workspace_id, path)) {
-        await resourceApi.updateResource(conf.workspace_id, path, { value })
+    const workspace = getWorkspace()
+    if (await ResourceService.existsResource({ workspace, path })) {
+        await ResourceService.updateResource({ workspace, path, requestBody: { value } })
     } else if (initializeToTypeIfNotExist) {
-        await resourceApi.createResource(conf.workspace_id, { path, value, resourceType: initializeToTypeIfNotExist })
+        await ResourceService.createResource({ workspace, requestBody: { path, value, resource_type: initializeToTypeIfNotExist } })
     } else {
         throw Error(`Resource at path ${path} does not exist and no type was provided to initialize it`)
     }
@@ -109,8 +107,8 @@ export async function getInternalState(suffix?: string): Promise<any> {
  * @returns variable value
  */
 export async function getVariable(path: string): Promise<string | undefined> {
-    const conf = createConf()
-    const variable = await new VariableApi(conf).getVariable(conf.workspace_id, path)
+    const workspace = getWorkspace()
+    const variable = await VariableService.getVariable({ workspace, path })
     return variable.value
 }
 
@@ -140,10 +138,10 @@ export async function databaseUrlFromResource(path: string): Promise<string> {
 }
 
 
-export async function genNounceAndHmac(conf: Conf, jobId: string) {
+export async function genNounceAndHmac(workspace: string, jobId: string) {
     const nounce = Math.floor(Math.random() * 4294967295);
     const sig = await fetch(Deno.env.get("WM_BASE_URL") +
-        `/api/w/${conf.workspace_id}/jobs/job_signature/${jobId}/${nounce}?token=${Deno.env.get("WM_TOKEN")}`)
+        `/api/w/${workspace}/jobs/job_signature/${jobId}/${nounce}?token=${Deno.env.get("WM_TOKEN")}`)
     return {
         nounce,
         signature: await sig.text()
@@ -151,13 +149,14 @@ export async function genNounceAndHmac(conf: Conf, jobId: string) {
 }
 
 export async function getResumeEndpoints() {
-    const conf = createConf();
+    const workspace = getWorkspace()
+
     const { nounce, signature } = await genNounceAndHmac(
-        conf,
+        workspace,
         Deno.env.get("WM_JOB_ID") ?? "no_job_id",
     );
     const url_prefix = Deno.env.get("WM_BASE_URL") +
-        `/api/w/${conf.workspace_id}/jobs/`;
+        `/api/w/${workspace}/jobs/`;
 
     function getResumeUrl(op: string) {
         return url_prefix +
