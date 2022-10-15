@@ -19,7 +19,7 @@ export const SHARED_FOLDER = '/shared'
 export function setClient(token: string, baseUrl: string) {
     OpenAPI.WITH_CREDENTIALS = true
     OpenAPI.TOKEN = token
-    OpenAPI.BASE = baseUrl
+    OpenAPI.BASE = baseUrl + '/api'
 }
 
 setClient(Deno.env.get("WM_TOKEN") ?? 'no_token', Deno.env.get("BASE_INTERNAL_URL") ?? Deno.env.get("BASE_URL") ?? 'http://localhost:8000')
