@@ -79,21 +79,21 @@ pub enum FlowStatusModule {
         #[serde(skip_serializing_if = "Option::is_none")]
         iterator: Option<Iterator>,
         #[serde(skip_serializing_if = "Option::is_none")]
-        forloop_jobs: Option<Vec<Uuid>>,
+        flow_jobs: Option<Vec<Uuid>>,
         #[serde(skip_serializing_if = "Option::is_none")]
         branch_chosen: Option<BranchChosen>,
     },
     Success {
         job: Uuid,
         #[serde(skip_serializing_if = "Option::is_none")]
-        forloop_jobs: Option<Vec<Uuid>>,
+        flow_jobs: Option<Vec<Uuid>>,
         #[serde(skip_serializing_if = "Option::is_none")]
         branch_chosen: Option<BranchChosen>,
     },
     Failure {
         job: Uuid,
         #[serde(skip_serializing_if = "Option::is_none")]
-        forloop_jobs: Option<Vec<Uuid>>,
+        flow_jobs: Option<Vec<Uuid>>,
         #[serde(skip_serializing_if = "Option::is_none")]
         branch_chosen: Option<BranchChosen>,
     },
@@ -175,21 +175,21 @@ pub async fn update_flow_status_after_job_completion(
             (old_status.step, module.clone())
         }
         _ => {
-            let (forloop_jobs, branch_chosen) = match module {
-                FlowStatusModule::InProgress { forloop_jobs, branch_chosen, .. } => {
-                    (forloop_jobs.clone(), branch_chosen.clone())
+            let (flow_jobs, branch_chosen) = match module {
+                FlowStatusModule::InProgress { flow_jobs, branch_chosen, .. } => {
+                    (flow_jobs.clone(), branch_chosen.clone())
                 }
                 _ => (None, None),
             };
-            if success || (forloop_jobs.is_some() && skip_loop_failures) {
+            if success || (flow_jobs.is_some() && skip_loop_failures) {
                 (
                     old_status.step + 1,
-                    FlowStatusModule::Success { job: job.id, forloop_jobs, branch_chosen },
+                    FlowStatusModule::Success { job: job.id, flow_jobs, branch_chosen },
                 )
             } else {
                 (
                     old_status.step,
-                    FlowStatusModule::Failure { job: job.id, forloop_jobs, branch_chosen },
+                    FlowStatusModule::Failure { job: job.id, flow_jobs, branch_chosen },
                 )
             }
         }
@@ -229,7 +229,7 @@ pub async fn update_flow_status_after_job_completion(
         };
 
     let result = match &new_status {
-        FlowStatusModule::Success { forloop_jobs: Some(jobs), .. } => {
+        FlowStatusModule::Success { flow_jobs: Some(jobs), .. } => {
             let results = sqlx::query_as(
                 "
                   SELECT result
@@ -925,7 +925,7 @@ async fn push_next_flow_job(
                 &db,
                 FlowStatusModule::Success {
                     job: flow_job.id,
-                    forloop_jobs: Some(vec![]),
+                    flow_jobs: Some(vec![]),
                     branch_chosen: None,
                 },
                 json!([]),
@@ -970,22 +970,20 @@ async fn push_next_flow_job(
     .await?;
 
     let new_status = match next_status {
-        NextStatus::NextLoopIteration(NextIteration {
-            index, itered, mut forloop_jobs, ..
-        }) => {
-            forloop_jobs.push(uuid);
+        NextStatus::NextLoopIteration(NextIteration { index, itered, mut flow_jobs, .. }) => {
+            flow_jobs.push(uuid);
 
             FlowStatusModule::InProgress {
                 job: uuid,
                 iterator: Some(Iterator { index, itered }),
-                forloop_jobs: Some(forloop_jobs),
+                flow_jobs: Some(flow_jobs),
                 branch_chosen: None,
             }
         }
         NextStatus::BranchChosen(branch) => FlowStatusModule::InProgress {
             job: uuid,
             iterator: None,
-            forloop_jobs: None,
+            flow_jobs: None,
             branch_chosen: Some(branch),
         },
         NextStatus::NextStep => FlowStatusModule::WaitingForExecutor { job: uuid },
@@ -1081,7 +1079,7 @@ async fn jump_to_next_step(
 struct NextIteration {
     index: usize,
     itered: Vec<Value>,
-    forloop_jobs: Vec<Uuid>,
+    flow_jobs: Vec<Uuid>,
     new_args: Map<String, serde_json::Value>,
 }
 
@@ -1167,7 +1165,7 @@ async fn compute_next_flow_transform(
                         LoopStatus::NextIteration(NextIteration {
                             index: 0,
                             itered,
-                            forloop_jobs: vec![],
+                            flow_jobs: vec![],
                             new_args: new_args.clone(),
                         })
                     } else {
@@ -1177,7 +1175,7 @@ async fn compute_next_flow_transform(
 
                 FlowStatusModule::InProgress {
                     iterator: Some(Iterator { itered, index }),
-                    forloop_jobs: Some(forloop_jobs),
+                    flow_jobs: Some(flow_jobs),
                     ..
                 } => {
                     let (index, next) = index
@@ -1196,7 +1194,7 @@ async fn compute_next_flow_transform(
                     LoopStatus::NextIteration(NextIteration {
                         index,
                         itered: itered.clone(),
-                        forloop_jobs: forloop_jobs.clone(),
+                        flow_jobs: flow_jobs.clone(),
                         new_args: new_args.clone(),
                     })
                 }

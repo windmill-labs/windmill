@@ -321,7 +321,7 @@ components:
               type: array
               items: {}
             args: {}
-        forloop_jobs:
+        flow_jobs:
           type: array
           items:
             type: string
