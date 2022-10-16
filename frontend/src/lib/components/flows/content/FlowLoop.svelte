@@ -23,11 +23,7 @@
 	export let index: number
 
 	let editor: SimpleEditor | undefined = undefined
-	let monacos: { [id: string]: SimpleEditor } = {}
-
 	let selected: string = 'retries'
-
-	let inputTransformName = ''
 
 	$: mod = $flowStore.value.modules[index]
 
@@ -90,62 +86,6 @@
 									right: 'Skip failures'
 								}}
 							/>
-							<span class="my-2 text-sm font-bold"
-								>Pass specific flow context as loop flow input</span
-							>
-							<div class="flex flex-row mt-4 w-80 max-w-full"
-								><input
-									bind:value={inputTransformName}
-									placeholder="Argument name"
-									type="text"
-									class="w-20"
-								/><Button
-									disabled={inputTransformName == ''}
-									btnClasses="ml-2"
-									on:click={() =>
-										(mod.input_transforms[inputTransformName] = { type: 'javascript', expr: '' })}
-									>+</Button
-								></div
-							>
-
-							{#each Object.keys(mod.input_transforms) as key}
-								<div class="flex flex-row my-2">
-									<span class="my-2 text-sm font-bold">{key}</span>
-
-									<Button
-										btnClasses="ml-4"
-										on:click={() => {
-											delete mod.input_transforms[key]
-											mod.input_transforms = mod.input_transforms
-										}}>-</Button
-									>
-								</div>
-								<div class="border w-full">
-									{#if mod.input_transforms[key].type == 'javascript'}
-										<PropPickerWrapper
-											{pickableProperties}
-											on:select={({ detail }) => {
-												monacos[key]?.insertAtCursor(detail)
-											}}
-										>
-											<SimpleEditor
-												bind:this={monacos[key]}
-												lang="javascript"
-												bind:code={mod.input_transforms[key]['expr']}
-												class="small-editor"
-												shouldBindKey={false}
-											/>
-										</PropPickerWrapper>
-									{:else}
-										<Button
-											on:click={() => {
-												mod.input_transforms[key].type = 'javascript'
-												mod.input_transforms[key]['expr'] = ''
-											}}
-										/>
-									{/if}
-								</div>
-							{/each}
 						{/if}
 					</div></top
 				>

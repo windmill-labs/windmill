@@ -441,7 +441,7 @@ async fn handle_queued_job(
     match job.job_kind {
         JobKind::FlowPreview | JobKind::Flow => {
             let args = job.args.clone().unwrap_or(Value::Null);
-            handle_flow(&job, db, args, same_worker_tx).await?;
+            handle_flow(&job, db, args, same_worker_tx, worker_dir).await?;
         }
         _ => {
             let mut logs = "".to_string();
@@ -2642,7 +2642,7 @@ def main():
             "value": {
                 "type": "rawscript",
                 "language": "deno",
-                "content": "export function main(array, i){ array.push(i); return array}",
+                "content": "export function main(array, i){ array.push(i); return array }",
             }
         })
     }
@@ -3527,13 +3527,13 @@ def main(error, port):
             base_internal_url: String::new(),
             base_url: String::new(),
             disable_nuser: std::env::var("DISABLE_NUSER")
-                    .ok()
-                    .and_then(|x| x.parse::<bool>().ok())
-                    .unwrap_or(false),
+                .ok()
+                .and_then(|x| x.parse::<bool>().ok())
+                .unwrap_or(false),
             disable_nsjail: std::env::var("DISABLE_NSJAIL")
-                    .ok()
-                    .and_then(|x| x.parse::<bool>().ok())
-                    .unwrap_or(false),
+                .ok()
+                .and_then(|x| x.parse::<bool>().ok())
+                .unwrap_or(false),
             keep_job_dir: std::env::var("KEEP_JOB_DIR")
                 .ok()
                 .and_then(|x| x.parse::<bool>().ok())
