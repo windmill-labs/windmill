@@ -17,6 +17,7 @@
 	import HighlightCode from '../HighlightCode.svelte'
 	import LogViewer from '../LogViewer.svelte'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
+	import SplitPanesWrapper from '../splitPanes/SplitPanesWrapper.svelte'
 
 	export let path: string | undefined
 	export let lang: Preview.language
@@ -69,24 +70,28 @@
 	<Tab value="last_save"><span class="text-xs">Last save</span></Tab>
 
 	<svelte:fragment slot="content">
-		<TabContent value="logs" class="h-full w-full relative">
-			<Splitpanes horizontal>
-				<Pane>
+		<!--
+			TabContent would wrap it in an extra div which is undesirable in this situation
+			because SplitPanesWrapper uses the parent element as a reference point.
+		-->
+		{#if selectedTab === 'logs'}
+			<SplitPanesWrapper horizontal>
+				<Pane class="!duration-[0ms]">
 					<LogViewer content={previewJob?.logs} isLoading={previewIsLoading} />
 				</Pane>
-				<Pane class="text-sm p-2 text-gray-600">
+				<Pane class="!duration-[0ms]">
 					{#if previewJob != undefined && 'result' in previewJob && previewJob.result != undefined}
-						<pre class="overflow-x-auto break-all relative h-full">
+						<pre class="overflow-x-auto break-all relative h-full px-2">
 							<DisplayResult result={previewJob.result} />
 						</pre>
-					{:else if previewIsLoading}
-						Waiting for result...
 					{:else}
-						Test to see the result here
+						<div class="text-sm text-gray-600 p-2">
+							{previewIsLoading ? 'Waiting for result...' : 'Test to see the result here'}
+						</div>
 					{/if}
 				</Pane>
-			</Splitpanes>
-		</TabContent>
+			</SplitPanesWrapper>
+		{/if}
 		<TabContent value="history" class="p-2">
 			<TableCustom>
 				<tr slot="header-row">
