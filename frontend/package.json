@@ -60,7 +60,7 @@
 		"@fortawesome/free-solid-svg-icons": "^6.2.0",
 		"fuse.js": "^6.4.6",
 		"highlight.js": "^11.5.1",
-		"monaco-editor": "^0.34.0",
+		"monaco-editor": "^0.34.1",
 		"monaco-editor-workers": "^0.34.2",
 		"monaco-languageclient": "4.0.0",
 		"vscode-ws-jsonrpc": "^2.0.0"
