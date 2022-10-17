@@ -169,7 +169,10 @@
 		</TabContent>
 		<TabContent value="last_save" class="p-2">
 			{#if lastSave}
-				<h2>last local save for path {path}</h2>
+				<div class="text-sm font-bold text-gray-600">
+					Last local save for path
+					<span class="italic">{path}</span>
+				</div>
 				<HighlightCode language={lang} code={lastSave} />
 			{:else}
 				No local save
