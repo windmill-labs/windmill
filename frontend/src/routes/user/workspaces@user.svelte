@@ -122,7 +122,7 @@
 						<span class="text-sm">as an admin</span>
 					{/if}
 				</div>
-				<div class="flex justify-end items-center flex-wrap gap-1">
+				<div class="flex justify-end items-center flex-col sm:flex-row gap-1">
 					<a
 						class="font-bold p-1"
 						href="/user/accept_invite?workspace={encodeURIComponent(invite.workspace_id)}{rd
