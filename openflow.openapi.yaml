@@ -253,6 +253,8 @@ components:
             properties:
               summary:
                 type: string
+              skip_failure:
+                type: boolean
               modules:
                 type: array
                 items:
@@ -333,5 +335,17 @@ components:
               enum: [branch, default]
             branch:
               type: integer
+          required:
+            - type
+        branchall:
+          type: object
+          properties:
+            branch:
+              type: integer
+            len:
+              type: integer
+          required:
+            - branch
+            - len
             
       required: [type]
