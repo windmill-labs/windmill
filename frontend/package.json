@@ -23,7 +23,7 @@
 		"@types/vscode": "~1.72.0",
 		"@typescript-eslint/eslint-plugin": "^5.37.0",
 		"@typescript-eslint/parser": "^5.40.1",
-		"@zerodevx/svelte-toast": "^0.7.2",
+		"@zerodevx/svelte-toast": "^0.8.0",
 		"autoprefixer": "^10.4.12",
 		"cssnano": "^5.1.13",
 		"eslint": "^8.25.0",
