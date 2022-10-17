@@ -1736,9 +1736,9 @@ dependencies = [
 
 [[package]]
 name = "magic-crypt"
-version = "3.1.10"
+version = "3.1.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6c913782c21b53ad246863641fffbaf73a9eb32ff0d939b10d361b7294e2ea9c"
+checksum = "0196bd5c76f5f51d7d6563545f86262fef4c82d75466ba6f6d359c40a523318d"
 dependencies = [
  "aes",
  "base64",
