@@ -308,23 +308,45 @@ const config = {
 						backgroundColor: '#00000060 !important',
 					},
 					'&::after': {
-						content: 'none !important'
+						backgroundColor: '#3f83f850 !important',
+						margin: '0 !important',
+						transform: 'none !important',
+						zIndex: '1001 !important',
+						transition: 'opacity 200ms !important',
+						opacity: '0',
+						'--splitter-hover-size': '7px',
+						'--splitter-hover-adjustment': '-2px'
 					},
+					'&:hover::after': {
+						opacity: '1',
+					}
 				},
 				'.splitpanes--vertical>.splitpanes__splitter': {
-					width: '5px !important',
+					width: '3px !important',
 					'&::before': {
 						left: '1px !important',
-						width: '3px !important',
+						width: '1px !important',
 						marginLeft: '0 !important',
+					},
+					'&::after': {
+						top: '0 !important',
+						height: '100% !important',
+						left: 'var(--splitter-hover-adjustment) !important',
+						width: 'var(--splitter-hover-size) !important',
 					}
 				},
 				'.splitpanes--horizontal>.splitpanes__splitter': {
-					height: '5px !important',
+					height: '3px !important',
 					'&::before': {
 						top: '1px !important',
-						height: '3px !important',
+						height: '1px !important',
 						marginTop: '0 !important',
+					},
+					'&::after': {
+						top: 'var(--splitter-hover-adjustment) !important',
+						height: 'var(--splitter-hover-size) !important',
+						left: '0 !important',
+						width: '100% !important',
 					}
 				}
 			});
