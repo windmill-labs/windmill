@@ -29,7 +29,7 @@
 	$: isExponentialRetryEnabled = Boolean(flowModule.retry?.exponential)
 </script>
 
-<div class="flex flex-col items-start space-y-1">
+<div class="flex flex-col items-start space-y-1 {$$props.class}">
 	<Toggle
 		checked={isConstantRetryEnabled}
 		on:change={() => {
