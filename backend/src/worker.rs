@@ -2647,6 +2647,17 @@ def main():
         })
     }
 
+    fn module_failure() -> serde_json::Value {
+        json!({
+            "input_transform": {},
+            "value": {
+                "type": "rawscript",
+                "language": "deno",
+                "content": "export function main(){ throw Error('failure') }",
+            }
+        })
+    }
+
     #[sqlx::test(fixtures("base"))]
     async fn test_branchone_simple(db: DB) {
         initialize_tracing().await;
@@ -2706,6 +2717,70 @@ def main():
         let result = run_job_in_new_worker_until_complete(&db, flow).await;
 
         assert_eq!(result, serde_json::json!([[1, 2], [1, 3]]));
+    }
+
+    #[sqlx::test(fixtures("base"))]
+    async fn test_branchall_skip_failure(db: DB) {
+        initialize_tracing().await;
+
+        let flow: FlowValue = serde_json::from_value(json!({
+            "modules": [
+                {
+                    "value": {
+                        "type": "rawscript",
+                        "language": "deno",
+                        "content": "export function main(){ return [1] }",
+                    }
+                },
+                {
+                    "value": {
+                        "branches": [
+                            {"modules": [module_failure()], "skip_failure": false},
+                            {"modules": [module_add_item_to_list(3)]}],
+                        "type": "branchall",
+                    }
+                },
+            ],
+        }))
+        .unwrap();
+
+        let flow = JobPayload::RawFlow { value: flow, path: None };
+        let result = run_job_in_new_worker_until_complete(&db, flow).await;
+
+        assert_eq!(
+            result,
+            serde_json::json!({"error": "Error during execution of the script:\n\nerror: Uncaught (in promise) Error: failure\nexport function main(){ throw Error('failure') }\n                              ^\n    at main (file:///tmp/inner.ts:1:31)\n    at run (file:///tmp/main.ts:9:26)\n    at file:///tmp/main.ts:14:1"})
+        );
+
+        let flow: FlowValue = serde_json::from_value(json!({
+            "modules": [
+                {
+                    "value": {
+                        "type": "rawscript",
+                        "language": "deno",
+                        "content": "export function main(){ return [1] }",
+                    }
+                },
+                {
+                    "value": {
+                        "branches": [
+                            {"modules": [module_failure()], "skip_failure": true},
+                            {"modules": [module_add_item_to_list(2)]}
+                    ],
+                        "type": "branchall",
+                    }
+                },
+            ],
+        }))
+        .unwrap();
+
+        let flow = JobPayload::RawFlow { value: flow, path: None };
+        let result = run_job_in_new_worker_until_complete(&db, flow).await;
+
+        assert_eq!(
+            result,
+            serde_json::json!([{"error": "Error during execution of the script:\n\nerror: Uncaught (in promise) Error: failure\nexport function main(){ throw Error('failure') }\n                              ^\n    at main (file:///tmp/inner.ts:1:31)\n    at run (file:///tmp/main.ts:9:26)\n    at file:///tmp/main.ts:14:1"}, [1, 2]])
+        );
     }
 
     #[sqlx::test(fixtures("base"))]

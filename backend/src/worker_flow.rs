@@ -184,6 +184,17 @@ pub async fn update_flow_status_after_job_completion(
         false
     };
 
+    let skip_branch_failure = match module_status {
+        FlowStatusModule::InProgress {
+            branchall: Some(BranchAllStatus { branch, .. }), ..
+        } => compute_skip_branchall_failure(flow, old_status.step, *branch, &mut tx)
+            .await?
+            .unwrap_or(false),
+        _ => false,
+    };
+
+    let skip_failure = skip_branch_failure || skip_loop_failures;
+
     let (step_counter, new_status) = match module_status {
         FlowStatusModule::InProgress { iterator: Some(Iterator { index, itered, .. }), .. }
             if (*index + 1 < itered.len() && (success || skip_loop_failures)) =>
@@ -193,7 +204,9 @@ pub async fn update_flow_status_after_job_completion(
         FlowStatusModule::InProgress {
             branchall: Some(BranchAllStatus { branch, len, .. }),
             ..
-        } if branch.to_owned() < len - 1 => (old_status.step, module_status.clone()),
+        } if branch.to_owned() < len - 1 && (success || skip_branch_failure) => {
+            (old_status.step, module_status.clone())
+        }
         _ => {
             let (flow_jobs, branch_chosen) = match module_status {
                 FlowStatusModule::InProgress { flow_jobs, branch_chosen, .. } => {
@@ -201,7 +214,7 @@ pub async fn update_flow_status_after_job_completion(
                 }
                 _ => (None, None),
             };
-            if success || (flow_jobs.is_some() && skip_loop_failures) {
+            if success || (flow_jobs.is_some() && (skip_loop_failures || skip_branch_failure)) {
                 (
                     old_status.step + 1,
                     FlowStatusModule::Success { job: job.id, flow_jobs, branch_chosen },
@@ -256,7 +269,6 @@ pub async fn update_flow_status_after_job_completion(
                     FROM completed_job
                    WHERE id = ANY($1)
                      AND workspace_id = $2
-                     AND success = true
                 ORDER BY args->'iter'->'index'
                     ",
             )
@@ -300,7 +312,7 @@ pub async fn update_flow_status_after_job_completion(
         _ if flow_job.canceled => false,
         true => !is_last_step,
         false if unrecoverable => false,
-        false if skip_loop_failures => !is_last_step,
+        false if skip_failure => !is_last_step,
         false
             if next_retry(
                 &module.and_then(|m| m.retry.clone()).unwrap_or_default(),
@@ -408,6 +420,28 @@ async fn compute_skip_loop_failures<'c>(
         ",
     )
     .bind(step)
+    .bind(flow)
+    .fetch_one(tx)
+    .await
+    .map(|(v,)| v)
+    .map_err(|e| Error::InternalErr(format!("error during retrieval of skip_loop_failures: {e}")))
+}
+
+async fn compute_skip_branchall_failure<'c>(
+    flow: Uuid,
+    step: i32,
+    branch: usize,
+    tx: &mut sqlx::Transaction<'c, sqlx::Postgres>,
+) -> Result<Option<bool>, Error> {
+    sqlx::query_as(
+        "
+    SELECT (raw_flow->'modules'->$1->'value'->'branches'->$2->>'skip_failure')::bool
+      FROM queue
+     WHERE id = $3
+        ",
+    )
+    .bind(step)
+    .bind(branch as i32)
     .bind(flow)
     .fetch_one(tx)
     .await
