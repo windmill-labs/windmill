@@ -101,6 +101,14 @@ pub struct WorkerConfig {
     pub keep_job_dir: bool,
 }
 
+lazy_static::lazy_static! {
+    static ref WORKER_STARTED: prometheus::IntGauge = prometheus::register_int_gauge!(
+        "worker_started",
+        "Total number of workers started."
+    )
+    .unwrap();
+}
+
 pub async fn run_worker(
     db: &DB,
     timeout: i32,
@@ -172,6 +180,13 @@ pub async fn run_worker(
     )
     .expect("register prometheus metric");
 
+    let jobs_executed_m = prometheus::register_int_counter_vec!(
+        prometheus::Opts::new("jobs_executed", "Number of executed jobs",)
+            .const_label("name", &worker_name),
+        &["workspace_id", "language"],
+    )
+    .expect("register prometheus metric");
+
     let mut jobs_executed = 0;
 
     let deno_path = std::env::var("DENO_PATH").unwrap_or_else(|_| "/usr/bin/deno".to_string());
@@ -201,6 +216,7 @@ pub async fn run_worker(
         pip_extra_index_url,
         pip_trusted_host,
     };
+    WORKER_STARTED.inc();
 
     let (same_worker_tx, mut same_worker_rx) = mpsc::channel::<Uuid>(5);
 
@@ -247,6 +263,9 @@ pub async fn run_worker(
                     .start_timer();
 
                 jobs_executed += 1;
+                jobs_executed_m
+                    .with_label_values(label_values.as_slice())
+                    .inc();
 
                 let metrics =
                     Metrics { jobs_failed: jobs_failed.with_label_values(label_values.as_slice()) };
