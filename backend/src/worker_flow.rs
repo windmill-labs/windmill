@@ -7,7 +7,7 @@ use crate::{
     flows::{FlowModule, FlowModuleValue, FlowValue, InputTransform, Retry, Suspend},
     jobs::{
         add_completed_job, add_completed_job_error, get_queued_job, postprocess_queued_job, push,
-        script_path_to_payload, JobPayload, QueuedJob,
+        script_path_to_payload, JobPayload, QueuedJob, RawCode,
     },
     js_eval::{eval_timeout, EvalCreds},
     more_serde::is_default,
@@ -927,14 +927,19 @@ async fn push_next_flow_job(
     }
 
     let mut transform_context: Option<(String, Vec<String>)> = None;
-    let mut args = match module.value {
-        FlowModuleValue::Script { .. } | FlowModuleValue::RawScript { .. } => {
+    let mut args = match &module.value {
+        FlowModuleValue::Script { input_transforms, .. }
+        | FlowModuleValue::RawScript { input_transforms, .. } => {
             transform_context = Some(get_transform_context(&db, &flow_job, &status).await?);
             let (token, steps) = transform_context.as_ref().unwrap();
             transform_input(
                 &flow_job.args,
                 last_result.clone(),
-                &module.input_transforms,
+                if !input_transforms.is_empty() {
+                    input_transforms
+                } else {
+                    &module.input_transforms
+                },
                 &flow_job.workspace_id,
                 &token,
                 steps.to_vec(),
@@ -1192,18 +1197,21 @@ async fn compute_next_flow_transform(
     // args: &mut Map<String, serde_json::Value>,
 ) -> error::Result<NextFlowTransform> {
     match &module.value {
-        FlowModuleValue::Script { path: script_path } => Ok(NextFlowTransform::Continue(
+        FlowModuleValue::Script { path: script_path, .. } => Ok(NextFlowTransform::Continue(
             script_path_to_payload(script_path, &mut db.begin().await?, &flow_job.workspace_id)
                 .await?,
             NextStatus::NextStep,
         )),
-        FlowModuleValue::RawScript(raw_code) => {
-            let mut raw_code = raw_code.clone();
-            if raw_code.path.is_none() {
-                raw_code.path = Some(format!("{}/{}", flow_job.script_path(), status.step));
-            }
+        FlowModuleValue::RawScript { path, content, language, .. } => {
+            let path = path
+                .clone()
+                .or_else(|| Some(format!("{}/{}", flow_job.script_path(), status.step)));
             Ok(NextFlowTransform::Continue(
-                JobPayload::Code(raw_code),
+                JobPayload::Code(RawCode {
+                    path,
+                    content: content.clone(),
+                    language: language.clone(),
+                }),
                 NextStatus::NextStep,
             ))
         }

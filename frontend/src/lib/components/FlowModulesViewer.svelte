@@ -59,7 +59,11 @@
 											>
 											{#if open[i]}
 												<div class="border border-black p-2 bg-gray-50  divide-y">
-													<InputTransformsViewer inputTransforms={mod?.input_transforms} />
+													<InputTransformsViewer
+														inputTransforms={mod?.value?.input_transforms ??
+															mod?.input_transforms ??
+															{}}
+													/>
 													<div class="w-full h-full mt-6">
 														<iframe
 															style="height: 400px;"
@@ -82,7 +86,11 @@
 
 									{#if open[i]}
 										<div transition:slide class="border border-black p-2 bg-gray-50 w-full">
-											<InputTransformsViewer inputTransforms={mod?.input_transforms} />
+											<InputTransformsViewer
+												inputTransforms={mod?.value?.input_transforms ??
+													mod?.input_transforms ??
+													{}}
+											/>
 											<HighlightCode
 												language={mod?.value?.language ?? 'deno'}
 												code={mod?.value?.content}
@@ -136,7 +144,9 @@
 											{#if open[modules.length]}
 												<div class="border border-black p-2 bg-gray-50  divide-y">
 													<InputTransformsViewer
-														inputTransforms={failureModule?.input_transforms}
+														inputTransforms={failureModule?.value?.input_transforms ??
+															failureModule?.input_transforms ??
+															{}}
 													/>
 													<div class="w-full h-full mt-6">
 														<iframe
@@ -165,7 +175,11 @@
 
 									{#if open[modules.length]}
 										<div transition:slide class="border border-black p-2 bg-gray-50 w-full">
-											<InputTransformsViewer inputTransforms={failureModule?.input_transforms} />
+											<InputTransformsViewer
+												inputTransforms={failureModule?.value?.input_transforms ??
+													failureModule?.input_transforms ??
+													{}}
+											/>
 											<HighlightCode
 												language={failureModule?.value?.language ?? 'deno'}
 												code={failureModule?.value?.content}

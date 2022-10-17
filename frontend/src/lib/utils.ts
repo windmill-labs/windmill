@@ -141,12 +141,6 @@ export function emptySchema() {
 	}
 }
 
-export function emptyModule(): FlowModule {
-	return {
-		value: { type: 'script', path: '' },
-		input_transforms: {}
-	}
-}
 
 export function simpleSchema() {
 	return {
