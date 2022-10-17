@@ -21,6 +21,6 @@
 	$: flowModule && loadCode(flowModule)
 </script>
 
-<div class="flex flex-col flex-1 h-full overflow-auto">
+<div class="flex flex-col flex-1 h-full overflow-auto p-2">
 	<HighlightCode {language} {code} />
 </div>

@@ -4,6 +4,7 @@
 
 	export let value: string
 	export let alwaysMounted: boolean = false
+	export let style = ''
 
 	let clazz: string = ''
 	export { clazz as class }
@@ -11,7 +12,7 @@
 </script>
 
 {#if value === $selected || alwaysMounted}
-	<div class={`${clazz} ${value === $selected ? 'visible' : 'hidden'}`}>
+	<div class={`${clazz} ${value === $selected ? 'visible' : 'hidden'}`} {style}>
 		<slot />
 	</div>
 {/if}
