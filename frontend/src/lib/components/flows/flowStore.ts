@@ -33,7 +33,10 @@ export function initFlow(flow: Flow) {
 			delete modVal.input_transform
 		}
 		if (modVal.input_transforms && modVal.value.type == 'script' || modVal.value.type == 'rawscript') {
-			modVal.value.input_transforms = modVal.input_transforms
+			if (modVal.input_transforms && Object.keys(modVal.input_transforms).length > 0) {
+				modVal.value.input_transforms = modVal.input_transforms
+				delete modVal.input_transforms
+			}
 		}
 		if (modVal.stop_after_if_expr) {
 			modVal.stop_after_if = {

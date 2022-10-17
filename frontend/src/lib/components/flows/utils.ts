@@ -13,6 +13,7 @@ export function cleanInputs(flow: Flow | any): Flow {
 		if (mod.value.type == 'rawscript' || mod.value.type == 'script') {
 			if (Object.keys(mod.input_transforms ?? {}).length > 0) {
 				mod.value.input_transforms = mod.input_transforms
+				delete mod.input_transforms
 			}
 			Object.values(mod.input_transforms ?? {}).forEach((inp) => {
 				// for now we use the value for dynamic expression when done in the static editor so we have to resort to this
