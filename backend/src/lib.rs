@@ -12,7 +12,7 @@ use axum::{handler::Handler, middleware::from_extractor, routing::get, Extension
 use db::DB;
 use futures::FutureExt;
 use git_version::git_version;
-use std::{net::SocketAddr, sync::Arc};
+use std::{net::SocketAddr, sync::Arc, time::Duration};
 use tower::ServiceBuilder;
 use tower_cookies::CookieManagerLayer;
 use tower_http::trace::TraceLayer;
@@ -299,6 +299,7 @@ pub async fn run_workers(
 
             total_scheduled_count.inc_by(interval.total_scheduled_count);
             total_scheduled_duration.inc_by(interval.total_scheduled_duration.as_secs_f64());
+            tokio::time::sleep(Duration::from_millis(500)).await;
         }
     };
     handles.push(tokio::spawn(monitor_task));
