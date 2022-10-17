@@ -71,6 +71,8 @@ components:
     FlowModule:
       type: object
       properties:
+        id:
+          type: string
         input_transforms:
           type: object
           additionalProperties:
@@ -100,8 +102,8 @@ components:
         retry:
           $ref: "#/components/schemas/Retry"
       required:
-        - input_transforms
         - value
+        - id
 
     InputTransform:
       oneOf:
@@ -157,6 +159,10 @@ components:
     RawScript:
       type: object
       properties:
+        input_transforms:
+          type: object
+          additionalProperties:
+            $ref: "#/components/schemas/InputTransform"
         content:
           type: string
         language:
@@ -179,6 +185,10 @@ components:
     PathScript:
       type: object
       properties:
+        input_transforms:
+          type: object
+          additionalProperties:
+            $ref: "#/components/schemas/InputTransform"
         path:
           type: string
         type:

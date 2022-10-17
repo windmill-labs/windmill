@@ -2077,11 +2077,13 @@ mod tests {
             FlowValue {
                 modules: vec![
                     FlowModule {
-                        value: FlowModuleValue::RawScript(RawCode {
+                        id: "a".to_string(),
+                        value: FlowModuleValue::RawScript {
+                            input_transforms: Default::default(),
                             language: ScriptLang::Deno,
                             content: numbers.to_string(),
                             path: None,
-                        }),
+                        },
                         input_transforms: Default::default(),
                         stop_after_if: Default::default(),
                         summary: Default::default(),
@@ -2090,22 +2092,25 @@ mod tests {
                         sleep: None,
                     },
                     FlowModule {
+                        id: "b".to_string(),
                         value: FlowModuleValue::ForloopFlow {
                             iterator: InputTransform::Javascript { expr: "result".to_string() },
                             skip_failures: false,
                             modules: vec![FlowModule {
-                                value: FlowModuleValue::RawScript(RawCode {
+                                id: "c".to_string(),
+                                value: FlowModuleValue::RawScript {
+                                    input_transforms: [(
+                                        "n".to_string(),
+                                        InputTransform::Javascript {
+                                            expr: "previous_result.iter.value".to_string(),
+                                        },
+                                    )]
+                                    .into(),
                                     language: ScriptLang::Deno,
                                     content: doubles.to_string(),
                                     path: None,
-                                }),
-                                input_transforms: [(
-                                    "n".to_string(),
-                                    InputTransform::Javascript {
-                                        expr: "previous_result.iter.value".to_string(),
-                                    },
-                                )]
-                                .into(),
+                                },
+                                input_transforms: Default::default(),
                                 stop_after_if: Default::default(),
                                 summary: Default::default(),
                                 suspend: Default::default(),
@@ -2147,12 +2152,9 @@ mod tests {
         let flow = FlowValue {
             modules: vec![
                 FlowModule {
-                    value: FlowModuleValue::RawScript(RawCode {
-                        language: ScriptLang::Deno,
-                        content: write_file.clone(),
-                        path: None,
-                    }),
-                    input_transforms: [
+                    id: "a".to_string(),
+                    value: FlowModuleValue::RawScript {
+                        input_transforms: [
                         (
                             "loop".to_string(),
                             InputTransform::Static { value: json!(false) },
@@ -2164,6 +2166,11 @@ mod tests {
                         ),
                     ]
                     .into(),
+                        language: ScriptLang::Deno,
+                        content: write_file.clone(),
+                        path: None,
+                    },
+                    input_transforms: Default::default(),
                     stop_after_if: Default::default(),
                     summary: Default::default(),
                     suspend: Default::default(),
@@ -2171,33 +2178,36 @@ mod tests {
                     sleep: None,
                 },
                 FlowModule {
+                    id: "b".to_string(),
                     value: FlowModuleValue::ForloopFlow {
                         iterator: InputTransform::Static { value: json!([1, 2, 3]) },
                         skip_failures: false,
                         modules: vec![
                             FlowModule {
-                                value: FlowModuleValue::RawScript(RawCode {
+                                id: "d".to_string(),
+                                input_transforms: [
+                                (
+                                    "i".to_string(),
+                                    InputTransform::Javascript {
+                                        expr: "previous_result.iter.value".to_string(),
+                                    },
+                                ),
+                                (
+                                    "loop".to_string(),
+                                    InputTransform::Static { value: json!(true) },
+                                ),
+                                (
+                                    "path".to_string(),
+                                    InputTransform::Static { value: json!("inner.txt") },
+                                ),
+                            ]
+                            .into(),
+                                value: FlowModuleValue::RawScript {
+                                    input_transforms: [].into(),
                                     language: ScriptLang::Deno,
                                     content: write_file,
                                     path: None,
-                                }),
-                                input_transforms: [
-                                    (
-                                        "i".to_string(),
-                                        InputTransform::Javascript {
-                                            expr: "previous_result.iter.value".to_string(),
-                                        },
-                                    ),
-                                    (
-                                        "loop".to_string(),
-                                        InputTransform::Static { value: json!(true) },
-                                    ),
-                                    (
-                                        "path".to_string(),
-                                        InputTransform::Static { value: json!("inner.txt") },
-                                    ),
-                                ]
-                                .into(),
+                                },
                                 stop_after_if: Default::default(),
                                 summary: Default::default(),
                                 suspend: Default::default(),
@@ -2205,22 +2215,24 @@ mod tests {
                                 sleep: None,
                             },
                             FlowModule {
-                                value: FlowModuleValue::RawScript(RawCode {
+                                id: "e".to_string(),
+                                value: FlowModuleValue::RawScript {
+                                    input_transforms: [(
+                                        "path".to_string(),
+                                        InputTransform::Static { value: json!("inner.txt") },
+                                    ), (
+                                        "path2".to_string(),
+                                        InputTransform::Static { value: json!("outer.txt") },
+                                    )]
+                                    .into(),
                                     language: ScriptLang::Deno,
                                     content: r#"export async function main(path: string, path2: string) {  
                                         return await Deno.readTextFile(`/shared/${path}`) + "," + await Deno.readTextFile(`/shared/${path2}`);
                                     }"#
                                     .to_string(),
                                     path: None,
-                                }),
-                                input_transforms: [(
-                                    "path".to_string(),
-                                    InputTransform::Static { value: json!("inner.txt") },
-                                ), (
-                                    "path2".to_string(),
-                                    InputTransform::Static { value: json!("outer.txt") },
-                                )]
-                                .into(),
+                                },
+                                input_transforms: [].into(),
                                 stop_after_if: Default::default(),
                                 summary: Default::default(),
                                 suspend: Default::default(),
@@ -2238,15 +2250,9 @@ mod tests {
 
                 },
                 FlowModule {
-                    value: FlowModuleValue::RawScript(RawCode {
-                        language: ScriptLang::Deno,
-                        content: r#"export async function main(path: string, loops: string[], path2: string) {
-                            return await Deno.readTextFile(`/shared/${path}`) + "," + loops + "," + await Deno.readTextFile(`/shared/${path2}`);
-                        }"#
-                        .to_string(),
-                        path: None,
-                    }),
-                    input_transforms: [
+                    id: "c".to_string(),
+                    value: FlowModuleValue::RawScript {
+                        input_transforms: [
                         (
                             "loops".to_string(),
                             InputTransform::Javascript { expr: "previous_result".to_string() },
@@ -2261,6 +2267,14 @@ mod tests {
                         ),
                     ]
                     .into(),
+                        language: ScriptLang::Deno,
+                        content: r#"export async function main(path: string, loops: string[], path2: string) {
+                            return await Deno.readTextFile(`/shared/${path}`) + "," + loops + "," + await Deno.readTextFile(`/shared/${path2}`);
+                        }"#
+                        .to_string(),
+                        path: None,
+                    },
+                    input_transforms: [].into(),
                     stop_after_if: Default::default(),
                     summary: Default::default(),
                     suspend: Default::default(),
