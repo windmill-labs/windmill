@@ -186,10 +186,17 @@ pub enum InputTransform {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct BranchModules {
+pub struct BranchOneModules {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub summary: Option<String>,
     pub expr: String,
+    pub modules: Vec<FlowModule>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct BranchAllModules {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub summary: Option<String>,
     pub modules: Vec<FlowModule>,
 }
 
@@ -208,9 +215,12 @@ pub enum FlowModuleValue {
         #[serde(default = "default_true")]
         skip_failures: bool,
     },
-    Branches {
-        branches: Vec<BranchModules>,
+    BranchOne {
+        branches: Vec<BranchOneModules>,
         default: Vec<FlowModule>,
+    },
+    BranchAll {
+        branches: Vec<BranchAllModules>,
     },
     RawScript(RawCode),
 }

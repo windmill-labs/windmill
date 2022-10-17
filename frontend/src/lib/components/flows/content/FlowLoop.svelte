@@ -23,9 +23,7 @@
 	export let index: number
 
 	let editor: SimpleEditor | undefined = undefined
-	let monacos: { [id: string]: SimpleEditor } = {}
 	let selected: string = 'retries'
-	let inputTransformName = ''
 
 	$: mod = $flowStore.value.modules[index]
 

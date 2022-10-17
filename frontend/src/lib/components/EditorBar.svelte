@@ -124,6 +124,11 @@
 				editor.insertAtBeginning('import wmill\n')
 			}
 			editor.insertAtCursor(`wmill.get_variable("${path}")`)
+		} else if (lang == 'go') {
+			if (!editor.getCode().includes('wmill "github.com/windmill-labs/windmill-go-client"')) {
+				editor.insertAtBeginning('import wmill "github.com/windmill-labs/windmill-go-client"\n')
+			}
+			editor.insertAtCursor(`v, _ := wmill.GetVariable("${path}")`)
 		}
 		sendUserToast(`${name} inserted at cursor`)
 	}}
@@ -163,6 +168,11 @@
 				editor.insertAtBeginning('import wmill\n')
 			}
 			editor.insertAtCursor(`wmill.get_resource("${path}")`)
+		} else if (lang == 'go') {
+			if (!editor.getCode().includes('wmill "github.com/windmill-labs/windmill-go-client"')) {
+				editor.insertAtBeginning('import wmill "github.com/windmill-labs/windmill-go-client"\n')
+			}
+			editor.insertAtCursor(`r, _ := wmill.GetResource("${path}")`)
 		}
 		sendUserToast(`${path} inserted at cursor`)
 	}}

@@ -1,18 +1,20 @@
 #!/bin/bash
 set -e
 
-#TODO: remove once openapi-python-client supports recursive values
-cp ../openflow.openapi.yaml ../openflow.openapi.yaml.tmp
-sed -z 's/    ForloopFlow:\n      type: object\n      properties:\n        modules:\n          type: array\n          items:\n            $ref: "#\/components\/schemas\/FlowModule"/    ForloopFlow:\n      type: object\n      properties:/' ../openflow.openapi.yaml > ../openflow.openapi.yaml.new
-mv ../openflow.openapi.yaml.new ../openflow.openapi.yaml
 cp  ../backend/openapi.yaml openapi.yaml
 
-swagger-cli bundle -r openapi.yaml -o openapi-deref.yaml
+npx @redocly/openapi-cli@latest bundle openapi.yaml > openapi-bundled.yaml
 
-rm openapi.yaml && mv ../openflow.openapi.yaml.tmp ../openflow.openapi.yaml
+sed -z 's/FlowModuleValue:/FlowModuleValue2:/' openapi-bundled.yaml  > openapi-decycled.yaml
+echo "    FlowModuleValue: {}" >> openapi-decycled.yaml
+npx @redocly/openapi-cli@latest bundle openapi-decycled.yaml --ext json -d > openapi-deref.json
+
+sed '$d' .gitignore > .gitignore2
+mv .gitignore2 .gitignore
 
 rm -rf windmill-api/ || true
-openapi-python-client generate --config $PWD/python-gen.yaml --path openapi-deref.yaml
+openapi-python-client generate --config $PWD/python-gen.yaml --path openapi-deref.json
+rm openapi*
 
 cp LICENSE windmill-api/
 sed -i '5 i license = "Apache-2.0"' windmill-api/pyproject.toml
@@ -35,3 +37,4 @@ mv windmill-api/README.md.tmp windmill-api/README.md
 cd windmill-api && poetry build
 cd ../wmill && poetry build
 cd ../wmill_pg && poetry build
+cd .. && echo "windmill-api/" >> .gitignore 

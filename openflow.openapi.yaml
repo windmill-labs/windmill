@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.37.0
+  version: 1.38.5
   title: OpenFlow Spec
   contact:
     name: Ruben Fiszel
@@ -143,14 +143,16 @@ components:
         - $ref: "#/components/schemas/RawScript"
         - $ref: "#/components/schemas/PathScript"
         - $ref: "#/components/schemas/ForloopFlow"
-        - $ref: "#/components/schemas/Branches"
+        - $ref: "#/components/schemas/BranchOne"
+        - $ref: "#/components/schemas/BranchAll"
       discriminator:
         propertyName: type
         mapping:
           rawscript: "#/components/schemas/RawScript"
           script: "#/components/schemas/PathScript"
           forloopflow: "#/components/schemas/ForloopFlow"
-          branches: "#/components/schemas/Branches"
+          branchone: "#/components/schemas/BranchOne"
+          branchall: "#/components/schemas/BranchAll"
 
     RawScript:
       type: object
@@ -167,6 +169,8 @@ components:
           type: string
         type:
           type: string
+          enum:
+            - rawscript
       required:
         - type
         - content
@@ -206,7 +210,7 @@ components:
         - skip_failures
         - type
 
-    Branches:
+    BranchOne:
       type: object
       properties:
         branches:
@@ -226,21 +230,44 @@ components:
               - modules
               - expr
         default:
-          type: object
-          properties: 
-            modules:
-              type: array
-              items:
-                $ref: "#/components/schemas/FlowModule"
+          type: array
+          items:
+            $ref: "#/components/schemas/FlowModule"
           required: [modules]
         type:
           type: string
           enum:
-            - forloopflow
+            - branchone
       required:
         - branches
         - default
         - type
+
+    BranchAll:
+      type: object
+      properties:
+        branches:
+          type: array
+          items:
+            type: object
+            properties:
+              summary:
+                type: string
+              modules:
+                type: array
+                items:
+                  $ref: "#/components/schemas/FlowModule"
+            required:
+              - modules
+              - expr
+        type:
+          type: string
+          enum:
+            - branchall
+      required:
+        - branches
+        - type
+
 
     FlowStatus:
       type: object
@@ -294,7 +321,7 @@ components:
               type: array
               items: {}
             args: {}
-        forloop_jobs:
+        flow_jobs:
           type: array
           items:
             type: string

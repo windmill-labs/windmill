@@ -441,7 +441,7 @@ async fn handle_queued_job(
     match job.job_kind {
         JobKind::FlowPreview | JobKind::Flow => {
             let args = job.args.clone().unwrap_or(Value::Null);
-            handle_flow(&job, db, args, same_worker_tx).await?;
+            handle_flow(&job, db, args, same_worker_tx, worker_dir).await?;
         }
         _ => {
             let mut logs = "".to_string();
@@ -2642,7 +2642,7 @@ def main():
             "value": {
                 "type": "rawscript",
                 "language": "deno",
-                "content": "export function main(array, i){ array.push(i); return array}",
+                "content": "export function main(array, i){ array.push(i); return array }",
             }
         })
     }
@@ -2664,7 +2664,7 @@ def main():
                     "value": {
                         "branches": [],
                         "default": [module_add_item_to_list(2)],
-                        "type": "branches",
+                        "type": "branchone",
                     }
                 },
             ],
@@ -2708,13 +2708,13 @@ def main():
                                                 "modules": []
                                             }],
                                         "default": [module_add_item_to_list(2)],
-                                        "type": "branches",
+                                        "type": "branchone",
                                     }
                                 }]
                             },
                         ],
                         "default": [module_add_item_to_list(-4)],
-                        "type": "branches",
+                        "type": "branchone",
                     }
                 },
                 module_add_item_to_list(3),
@@ -2869,7 +2869,7 @@ def main():
             }
         }
 
-        async fn print_job(id: Uuid, db: &DB) -> Result<(), anyhow::Error> {
+        async fn _print_job(id: Uuid, db: &DB) -> Result<(), anyhow::Error> {
             tracing::info!(
                 "{:#?}",
                 get_job_by_id(db.begin().await?, "test-workspace", id)
@@ -3526,8 +3526,14 @@ def main(error, port):
         let worker_config = WorkerConfig {
             base_internal_url: String::new(),
             base_url: String::new(),
-            disable_nuser: false,
-            disable_nsjail: false,
+            disable_nuser: std::env::var("DISABLE_NUSER")
+                .ok()
+                .and_then(|x| x.parse::<bool>().ok())
+                .unwrap_or(false),
+            disable_nsjail: std::env::var("DISABLE_NSJAIL")
+                .ok()
+                .and_then(|x| x.parse::<bool>().ok())
+                .unwrap_or(false),
             keep_job_dir: std::env::var("KEEP_JOB_DIR")
                 .ok()
                 .and_then(|x| x.parse::<bool>().ok())

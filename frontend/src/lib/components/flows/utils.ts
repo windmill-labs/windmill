@@ -74,8 +74,6 @@ export function selectedIdToModuleState(selectedId: string, flow: FlowState): Fl
 	}
 }
 
-const loadSchemaLastRun = writable<[string | undefined, Schema]>(undefined)
-
 export async function loadSchemaFromModule(module: FlowModule): Promise<{
 	input_transforms: Record<string, InputTransform>
 	schema: Schema
