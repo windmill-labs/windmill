@@ -198,6 +198,8 @@ pub struct BranchAllModules {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub summary: Option<String>,
     pub modules: Vec<FlowModule>,
+    #[serde(default = "default_true")]
+    pub skip_failure: bool,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]

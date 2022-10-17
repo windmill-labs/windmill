@@ -253,6 +253,8 @@ components:
             properties:
               summary:
                 type: string
+              skip_failure:
+                type: boolean
               modules:
                 type: array
                 items:
