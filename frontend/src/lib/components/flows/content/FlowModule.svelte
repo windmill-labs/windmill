@@ -39,7 +39,6 @@
 	import FlowModuleSuspend from './FlowModuleSuspend.svelte'
 	import FlowRetries from './FlowRetries.svelte'
 
-	const PANES_ID = 'split-panes' as const
 	const { selectedId, select, previewArgs } = getContext<FlowEditorContext>('FlowEditorContext')
 
 	export let flowModule: FlowModule
@@ -53,6 +52,7 @@
 	let websocketAlive = { pyright: false, black: false, deno: false, go: false }
 	let selected = 'inputs'
 	let wrapper: HTMLDivElement
+	let panes: HTMLElement
 	let totalTopGap = 0
 
 	$: shouldPick = isEmptyFlowModule(flowModule)
@@ -102,13 +102,11 @@
 
 	afterUpdate(() => {
 		totalTopGap = 0
-		if (!wrapper?.children) return
+		if (!(wrapper && panes)) return
 
-		for (let i = 0; i < wrapper.children.length; i++) {
-			const element = wrapper.children.item(i)
-			if (element?.id === PANES_ID) break
-			totalTopGap += element?.scrollHeight || 0
-		}
+		const wrapperTop = wrapper.getBoundingClientRect().top
+		const panesTop = panes.getBoundingClientRect().top
+		totalTopGap = panesTop - wrapperTop
 	})
 </script>
 
@@ -164,80 +162,82 @@
 				</div>
 			{/if}
 
-			<Splitpanes
-				id={PANES_ID}
-				horizontal
+			<div
+				bind:this={panes}
+				class="h-full"
 				style="max-height: calc(100% - {totalTopGap}px) !important;"
 			>
-				<Pane size={50} minSize={20}>
-					{#if flowModule.value.type === 'rawscript'}
-						<div on:mouseleave={() => reload(flowModule)} class="h-full">
-							<Editor
-								bind:websocketAlive
-								bind:this={editor}
-								class="h-full px-2"
-								bind:code={flowModule.value.content}
-								deno={flowModule.value.language === RawScript.language.DENO}
-								lang={scriptLangToEditorLang(flowModule.value.language)}
-								automaticLayout={true}
-								cmdEnterAction={async () => {
-									selected = 'test'
-									await reload(flowModule)
-									modulePreview?.runTestWithStepArgs()
-								}}
-								formatAction={() => reload(flowModule)}
-							/>
+				<Splitpanes horizontal>
+					<Pane size={50} minSize={20}>
+						{#if flowModule.value.type === 'rawscript'}
+							<div on:mouseleave={() => reload(flowModule)} class="h-full">
+								<Editor
+									bind:websocketAlive
+									bind:this={editor}
+									class="h-full px-2"
+									bind:code={flowModule.value.content}
+									deno={flowModule.value.language === RawScript.language.DENO}
+									lang={scriptLangToEditorLang(flowModule.value.language)}
+									automaticLayout={true}
+									cmdEnterAction={async () => {
+										selected = 'test'
+										await reload(flowModule)
+										modulePreview?.runTestWithStepArgs()
+									}}
+									formatAction={() => reload(flowModule)}
+								/>
+							</div>
+						{:else if flowModule.value.type === 'script'}
+							<FlowModuleScript {flowModule} />
+						{/if}
+					</Pane>
+					<Pane size={50} minSize={20}>
+						<Tabs bind:selected>
+							<Tab value="inputs">Inputs</Tab>
+							<Tab value="test">Test</Tab>
+							<Tab value="retries">Retries</Tab>
+							{#if !$selectedId.includes('failure')}
+								<Tab value="early-stop">Early Stop</Tab>
+								<Tab value="suspend">Sleep/Suspend</Tab>
+							{/if}
+						</Tabs>
+						<div class="h-[calc(100%-32px)]">
+							{#if selected === 'inputs'}
+								<div class="h-full overflow-auto">
+									<PropPickerWrapper pickableProperties={stepPropPicker.pickableProperties}>
+										<p class="items-baseline text-xs text-gray-700 italic hidden md:block mb-2">
+											Move the focus outside of the text editor to recompute the inputs or press
+											Ctrl/Cmd+S
+										</p>
+										<SchemaForm
+											schema={flowModuleState.schema}
+											inputTransform={true}
+											importPath={$selectedId}
+											bind:args={flowModule.input_transforms}
+											bind:extraLib={stepPropPicker.extraLib}
+										/>
+									</PropPickerWrapper>
+								</div>
+							{:else if selected === 'test'}
+								<ModulePreview
+									bind:this={modulePreview}
+									mod={flowModule}
+									schema={flowModuleState.schema}
+									indices={[parentIndex, childIndex]}
+								/>
+							{:else if selected === 'retries'}
+								<FlowRetries bind:flowModule class="px-4 pb-4 h-full overflow-auto" />
+							{:else if selected === 'early-stop'}
+								<FlowModuleEarlyStop bind:flowModule class="px-4 pb-4 h-full overflow-auto" />
+							{:else if selected === 'suspend'}
+								<div class="px-4 pb-4 h-full overflow-auto">
+									<FlowModuleSuspend bind:flowModule />
+								</div>
+							{/if}
 						</div>
-					{:else if flowModule.value.type === 'script'}
-						<FlowModuleScript {flowModule} />
-					{/if}
-				</Pane>
-				<Pane size={50} minSize={20}>
-					<Tabs bind:selected>
-						<Tab value="inputs">Inputs</Tab>
-						<Tab value="test">Test</Tab>
-						<Tab value="retries">Retries</Tab>
-						{#if !$selectedId.includes('failure')}
-							<Tab value="early-stop">Early Stop</Tab>
-							<Tab value="suspend">Sleep/Suspend</Tab>
-						{/if}
-					</Tabs>
-					<div class="h-[calc(100%-32px)]">
-						{#if selected === 'inputs'}
-							<div class="h-full overflow-auto">
-								<PropPickerWrapper pickableProperties={stepPropPicker.pickableProperties}>
-									<p class="items-baseline text-xs text-gray-700 italic hidden md:block mb-2">
-										Move the focus outside of the text editor to recompute the inputs or press
-										Ctrl/Cmd+S
-									</p>
-									<SchemaForm
-										schema={flowModuleState.schema}
-										inputTransform={true}
-										importPath={$selectedId}
-										bind:args={flowModule.input_transforms}
-										bind:extraLib={stepPropPicker.extraLib}
-									/>
-								</PropPickerWrapper>
-							</div>
-						{:else if selected === 'test'}
-							<ModulePreview
-								bind:this={modulePreview}
-								mod={flowModule}
-								schema={flowModuleState.schema}
-								indices={[parentIndex, childIndex]}
-							/>
-						{:else if selected === 'retries'}
-							<FlowRetries bind:flowModule class="px-4 pb-4 h-full overflow-auto" />
-						{:else if selected === 'early-stop'}
-							<FlowModuleEarlyStop bind:flowModule class="px-4 pb-4 h-full overflow-auto" />
-						{:else if selected === 'suspend'}
-							<div class="px-4 pb-4 h-full overflow-auto">
-								<FlowModuleSuspend bind:flowModule />
-							</div>
-						{/if}
-					</div>
-				</Pane>
-			</Splitpanes>
+					</Pane>
+				</Splitpanes>
+			</div>
 		{/if}
 	</FlowCard>
 </div>
