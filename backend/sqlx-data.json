@@ -687,6 +687,33 @@
     },
     "query": "UPDATE script SET archived = true WHERE hash = $1 AND workspace_id = $2"
   },
+  "2be0cfd075df9624ccbcbe5fd645e0a5c25460c2d01493f86dcdd9b2b71f6181": {
+    "describe": {
+      "columns": [
+        {
+          "name": "flow_status",
+          "ordinal": 0,
+          "type_info": "Jsonb"
+        },
+        {
+          "name": "parent_job",
+          "ordinal": 1,
+          "type_info": "Uuid"
+        }
+      ],
+      "nullable": [
+        null,
+        null
+      ],
+      "parameters": {
+        "Left": [
+          "Uuid",
+          "Text"
+        ]
+      }
+    },
+    "query": "SELECT flow_status, parent_job FROM completed_job WHERE id = $1 AND workspace_id = $2 UNION ALL SELECT flow_status, parent_job FROM queue WHERE id = $1 AND workspace_id = $2 "
+  },
   "2bf44d998d7acd17ec6d98f81395f8bdac49f58880fbbb9350bf0142cd2efdc7": {
     "describe": {
       "columns": [],
@@ -2774,6 +2801,27 @@
       }
     },
     "query": "SELECT result FROM completed_job WHERE id = $1"
+  },
+  "c2d0e44faab6981a21ca28dfd6f4eef9dfcafb471852e701c0bbc8ae11344325": {
+    "describe": {
+      "columns": [
+        {
+          "name": "parent_job",
+          "ordinal": 0,
+          "type_info": "Uuid"
+        }
+      ],
+      "nullable": [
+        null
+      ],
+      "parameters": {
+        "Left": [
+          "Uuid",
+          "Text"
+        ]
+      }
+    },
+    "query": "SELECT parent_job FROM completed_job WHERE id = $1 AND workspace_id = $2 UNION ALL SELECT parent_job FROM queue WHERE id = $1 AND workspace_id = $2"
   },
   "c2d6cb56c1dea4498e2aab9ea9301dbbaa127602a38f57f5add4108fdc209b1a": {
     "describe": {
