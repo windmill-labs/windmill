@@ -372,17 +372,21 @@ pub async fn update_flow_status_after_job_completion(
         false => false,
     };
 
-    tx.commit().await?;
-
-    if old_status.step == 0 && !flow_job.is_flow_step {
-        schedule_again_if_scheduled(
-            flow_job.schedule_path.clone(),
-            flow_job.script_path.clone(),
+    if old_status.step == 0
+        && !flow_job.is_flow_step
+        && flow_job.schedule_path.is_some()
+        && flow_job.script_path.is_some()
+    {
+        tx = schedule_again_if_scheduled(
+            tx,
+            flow_job.schedule_path.as_ref().unwrap(),
+            flow_job.script_path.as_ref().unwrap(),
             &w_id,
-            db,
         )
         .await?;
     }
+
+    tx.commit().await?;
 
     let done = if !should_continue_flow {
         let logs = if flow_job.canceled {
@@ -431,8 +435,6 @@ pub async fn update_flow_status_after_job_completion(
     };
 
     if done {
-        let _ = delete_job(db, w_id, flow).await?;
-
         if flow_job.same_worker && !keep_job_dir {
             let _ = tokio::fs::remove_dir_all(format!("{worker_dir}/{}", flow_job.id)).await;
         }
