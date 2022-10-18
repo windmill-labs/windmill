@@ -23,7 +23,9 @@
 				childFlowModules: []
 			}
 			$flowStateStore.failureModule = failureModule
-			$flowStore.value.failure_module = emptyModule()
+			const errorModule = emptyModule()
+			errorModule.id = 'failure'
+			$flowStore.value.failure_module = errorModule
 			select('failure')
 		}
 	}

@@ -12,7 +12,7 @@ use anyhow::Context;
 use hmac::Mac;
 use sql_builder::prelude::*;
 use sqlx::{query_scalar, Postgres, Transaction};
-use std::collections::HashMap;
+use std::{collections::HashMap, str::FromStr};
 use tracing::instrument;
 
 use crate::{
@@ -76,6 +76,7 @@ pub fn workspaced_service() -> Router {
             "/job_signature/:job_id/:resume_id",
             get(create_job_signature),
         )
+        .route("/result_by_id/:job_id/:node_id", get(get_result_by_id))
 }
 
 pub fn global_service() -> Router {
@@ -942,6 +943,75 @@ async fn get_job(
     let job = crate::utils::not_found_if_none(job_o, "Completed Job", id.to_string())?;
     tx.commit().await?;
     Ok(Json(job))
+}
+
+#[derive(Deserialize)]
+pub struct ResultByIdQuery {
+    pub skip_direct: bool,
+}
+
+async fn get_result_by_id(
+    Extension(db): Extension<DB>,
+    Query(ResultByIdQuery { mut skip_direct }): Query<ResultByIdQuery>,
+    Path((w_id, flow_id, node_id)): Path<(String, String, String)>,
+) -> error::JsonResult<serde_json::Value> {
+    let mut result_id: Option<Uuid> = None;
+    let mut parent_id = Uuid::from_str(&flow_id).ok();
+    while result_id.is_none() && parent_id.is_some() {
+        if !skip_direct {
+            let r = sqlx::query!(
+                "SELECT flow_status, parent_job FROM completed_job WHERE id = $1 AND workspace_id = $2 UNION ALL SELECT flow_status, parent_job FROM queue WHERE id = $1 AND workspace_id = $2 ",
+                parent_id.unwrap(),
+                w_id,
+            )
+            .fetch_optional(&db)
+            .await?;
+            if let Some(r) = r {
+                let value = r
+                    .flow_status
+                    .as_ref()
+                    .ok_or_else(|| Error::InternalErr(format!("requiring a flow status value")))?
+                    .to_owned();
+                parent_id = r.parent_job;
+                let status_o = serde_json::from_value::<FlowStatus>(value.to_owned()).ok();
+                result_id = status_o.and_then(|status| {
+                    status
+                        .modules
+                        .iter()
+                        .find(|m| m.id() == node_id)
+                        .and_then(|m| m.job())
+                });
+            } else {
+                parent_id = None;
+            }
+        } else {
+            let q_parent = sqlx::query_scalar!(
+                "SELECT parent_job FROM completed_job WHERE id = $1 AND workspace_id = $2 UNION ALL SELECT parent_job FROM queue WHERE id = $1 AND workspace_id = $2",
+                parent_id.unwrap(),
+                w_id,
+            )
+            .fetch_optional(&db)
+            .await?
+            .flatten();
+            parent_id = q_parent;
+            skip_direct = false
+        }
+    }
+    let result_id = crate::utils::not_found_if_none(
+        result_id,
+        "Flow result by id",
+        format!("{}, {}", flow_id, node_id),
+    )?;
+    let value = sqlx::query_scalar!(
+        "SELECT result FROM completed_job WHERE id = $1 AND workspace_id = $2",
+        result_id,
+        w_id,
+    )
+    .fetch_optional(&db)
+    .await?
+    .flatten()
+    .unwrap_or(serde_json::Value::Null);
+    Ok(Json(value))
 }
 
 pub async fn get_job_by_id<'c>(
