@@ -48,6 +48,12 @@ self.onmessage = (evt) => {
   complete_timeout = evt.data;
 };
 
+
+const updateStatusInterval = setInterval(() => {
+  self.postMessage(total_spawned);
+}, 100)
+
+
 while (cont) {
   if ((await jobApi.listQueue(config.workspace_id)).length > 500) {
     console.log("queue very long. waiting...");
@@ -99,6 +105,8 @@ while (cont) {
   outstanding.push(uuid);
   total_spawned++;
 }
+
+clearInterval(updateStatusInterval);
 
 const end_time = Date.now() + complete_timeout;
 while (outstanding.length > 0 && Date.now() < end_time) {
