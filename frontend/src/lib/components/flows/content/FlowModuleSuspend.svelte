@@ -85,15 +85,17 @@
 	<span class="text-xs font-bold">Sleep for duration (seconds)</span>
 
 	{#if flowModule.sleep && schema.properties['sleep']}
-		<PropPickerWrapper
-			displayContext={false}
-			{pickableProperties}
-			on:select={({ detail }) => {
-				editor?.insertAtCursor(detail)
-			}}
-		>
-			<InputTransformForm bind:arg={flowModule.sleep} argName="sleep" {schema} />
-		</PropPickerWrapper>
+		<div class="border">
+			<PropPickerWrapper
+				displayContext={false}
+				{pickableProperties}
+				on:select={({ detail }) => {
+					editor?.insertAtCursor(detail)
+				}}
+			>
+				<InputTransformForm bind:arg={flowModule.sleep} argName="sleep" {schema} />
+			</PropPickerWrapper>
+		</div>
 	{:else}
 		<input type="number" disabled />
 	{/if}

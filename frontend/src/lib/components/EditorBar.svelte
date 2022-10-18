@@ -219,7 +219,7 @@
 		<div>
 			<Button
 				color="light"
-				btnClasses="mr-1 !font-medium"
+				btnClasses="mx-1 !font-medium"
 				on:click={variablePicker.openModal}
 				size="xs"
 				spacingSize="md"
