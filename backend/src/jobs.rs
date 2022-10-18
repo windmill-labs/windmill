@@ -1647,7 +1647,7 @@ pub async fn add_completed_job(
         skipped,
         queued_job.language: ScriptLang,
     )
-    .execute(db)
+    .execute(&mut tx)
     .await
     .map_err(|e| Error::InternalErr(format!("Could not add completed job {job_id}: {e}")))?;
     let _ = delete_job(db, &queued_job.workspace_id, job_id).await?;
