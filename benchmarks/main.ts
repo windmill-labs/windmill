@@ -212,11 +212,29 @@ await new Command()
         });
       }
 
+
+      let start: number | undefined = undefined;
+
+      let jobSent = Array(num_workers).fill(0);
+      const enc = (s: string) => new TextEncoder().encode(s);
+
+      const i = setInterval(async () => {
+        const elapsed = start ? Math.ceil((Date.now() - start) / 1000) : 0;
+        await Deno.stdout.write(enc(`elapsed: ${elapsed}/${seconds} | jobs sent: ${JSON.stringify(jobSent)}\r`))
+      }, 100);
+
       workers.forEach((worker, i) => {
         worker.postMessage({ ...shared_config, i });
+        worker.addEventListener("message", (evt: MessageEvent<any>) => {
+          jobSent[i] = evt.data
+        })
       });
+      start = Date.now();
 
       await sleep(seconds);
+
+      clearInterval(i);
+      await Deno.stdout.write(enc(`                                  \rduration: ${seconds} | jobs sent: ${JSON.stringify(jobSent)}\n`));
 
       let zombie_jobs = 0;
       workers.forEach((worker) => {
