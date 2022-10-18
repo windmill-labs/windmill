@@ -13,7 +13,7 @@
 	const dispatch = createEventDispatcher()
 
 	export let jobId: string
-	export let forloopJobIds: string[] | undefined = undefined
+	export let flowJobIds: string[] | undefined = undefined
 	export let jobResult: JobResult = {
 		job: undefined,
 		innerJobs: [],
@@ -76,11 +76,11 @@
 			</div>
 		{/if}
 
-		{#if Array.isArray(forloopJobIds) && forloopJobIds?.length > 0 && Array.isArray(jobResult.loopJobs)}
+		{#if Array.isArray(flowJobIds) && flowJobIds?.length > 0 && Array.isArray(jobResult.loopJobs)}
 			<h3 class="text-md leading-6 font-bold text-gray-900 border-b mb-4">
-				Loop results ({forloopJobIds.length} items)
+				Loop results ({flowJobIds.length} items)
 			</h3>
-			{#each forloopJobIds as loopJobId, j}
+			{#each flowJobIds as loopJobId, j}
 				<Button
 					color={forloop_selected == loopJobId ? 'dark' : 'light'}
 					class="flex justify-between w-full"
@@ -142,7 +142,7 @@
 							<svelte:self
 								jobId={mod.job}
 								bind:jobResult={jobResult.innerJobs[i]}
-								forloopJobIds={mod.forloop_jobs}
+								flowJobIds={mod.flow_jobs}
 								on:jobsLoaded={(e) => {
 									jobResult = jobResult
 								}}

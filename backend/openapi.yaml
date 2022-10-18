@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.37.0
+  version: 1.38.5
   title: Windmill server API
   contact:
     name: Windmill contact
@@ -2000,8 +2000,7 @@ paths:
           description: schedule the script to execute in the number of seconds starting now
           in: query
           schema:
-            type: number
-            format: int64
+            type: integer
         - $ref: "#/components/parameters/ParentJob"
 
       requestBody:
@@ -2040,8 +2039,7 @@ paths:
           description: schedule the script to execute in the number of seconds starting now
           in: query
           schema:
-            type: number
-            format: int64
+            type: integer
         - $ref: "#/components/parameters/ParentJob"
 
       requestBody:
@@ -2219,8 +2217,7 @@ paths:
           description: schedule the script to execute in the number of seconds starting now
           in: query
           schema:
-            type: number
-            format: int64
+            type: integer
         - $ref: "#/components/parameters/ParentJob"
 
       requestBody:
@@ -2259,8 +2256,7 @@ paths:
           description: schedule the script to execute in the number of seconds starting now
           in: query
           schema:
-            type: number
-            format: int64
+            type: integer
         - $ref: "#/components/parameters/ParentJob"
 
       requestBody:
@@ -2471,8 +2467,7 @@ paths:
         - name: log_offset
           in: query
           schema:
-            type: number
-            format: i32
+            type: integer
 
       responses:
         "200":
@@ -2551,10 +2546,33 @@ paths:
               schema:
                 type: string
 
-  /w/{workspace}/jobs/resume/{job_id}/{resume_id}/{signature}:
+  /w/{workspace}/jobs/job_signature/{id}/{resume_id}:
+    get:
+      summary: create an HMac signature given a job id and a resume id
+      operationId: createJobSignature
+      tags:
+        - job
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/JobId"
+        - name: resume_id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: job signature
+          content:
+            text/plain:
+              schema:
+                type: string
+
+
+  /w/{workspace}/jobs/resume/{id}/{resume_id}/{signature}:
     get:
       summary: resume a job for a suspended flow
-      operationId: resumeSuspendedJob
+      operationId: resumeSuspendedJobGet
       tags:
         - job
       parameters:
@@ -2584,12 +2602,22 @@ paths:
 
     post:
       summary: resume a job for a suspended flow
-      operationId: resumeSuspendedJob
+      operationId: resumeSuspendedJobPost
       tags:
         - job
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
         - $ref: "#/components/parameters/JobId"
+        - name: resume_id
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: signature
+          in: path
+          required: true
+          schema:
+            type: string
       requestBody:
         content:
           application/json:
@@ -2603,10 +2631,10 @@ paths:
               schema:
                 type: string
 
-  /w/{workspace}/jobs/cancel/{job_id}/{resume_id}/{signature}:
+  /w/{workspace}/jobs/cancel/{id}/{resume_id}/{signature}:
     get:
       summary: cancel a job for a suspended flow
-      operationId: cancelSuspendedJob
+      operationId: cancelSuspendedJobGet
       tags:
         - job
       parameters:
@@ -2636,12 +2664,22 @@ paths:
 
     post:
       summary: cancel a job for a suspended flow
-      operationId: cancelSuspendedJob
+      operationId: cancelSuspendedJobPost
       tags:
         - job
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
         - $ref: "#/components/parameters/JobId"
+        - name: resume_id
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: signature
+          in: path
+          required: true
+          schema:
+            type: string
       requestBody:
         content:
           application/json:
@@ -3190,7 +3228,6 @@ components:
       required: true
       schema:
         type: integer
-        format: int32
     Name:
       name: name
       in: path
@@ -3203,14 +3240,12 @@ components:
       in: query
       schema:
         type: integer
-        format: int32
     PerPage:
       name: per_page
       description: number of items to return for a given page (default 30, max 100)
       in: query
       schema:
         type: integer
-        format: int32
     OrderDesc:
       name: order_desc
       description: order by desc order (default true)
@@ -3747,7 +3782,6 @@ components:
       properties:
         id:
           type: integer
-          format: int32
         timestamp:
           type: string
           format: date-time
@@ -4099,8 +4133,7 @@ components:
         ip:
           type: string
         jobs_executed:
-          type: number
-          format: int32
+          type: integer
       required:
         - worker
         - worker_instance

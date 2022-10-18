@@ -4,32 +4,38 @@ import { inferArgs } from '$lib/infer'
 import { loadSchema } from '$lib/scripts'
 import { workspaceStore } from '$lib/stores'
 import { emptySchema } from '$lib/utils'
-import { get, writable } from 'svelte/store'
+import { get } from 'svelte/store'
 import type { FlowModuleState, FlowState } from './flowState'
 
 export function cleanInputs(flow: Flow | any): Flow {
 	const newFlow: Flow = JSON.parse(JSON.stringify(flow))
 	newFlow.value.modules.forEach((mod) => {
-		Object.values(mod.input_transforms).forEach((inp) => {
-			// for now we use the value for dynamic expression when done in the static editor so we have to resort to this
-			if (inp.type == 'javascript') {
-				//@ts-ignore
-				inp.value = undefined
-				inp.expr = inp.expr
-					.split('\n')
-					.filter(
-						(x) =>
-							x != '' &&
-							!x.startsWith(
-								`import { previous_result, flow_input, step, variable, resource, params } from 'windmill@`
-							)
-					)
-					.join('\n')
-			} else {
-				//@ts-ignore
-				inp.expr = undefined
+		if (mod.value.type == 'rawscript' || mod.value.type == 'script') {
+			if (Object.keys(mod.input_transforms ?? {}).length > 0) {
+				mod.value.input_transforms = mod.input_transforms
+				delete mod.input_transforms
 			}
-		})
+			Object.values(mod.input_transforms ?? {}).forEach((inp) => {
+				// for now we use the value for dynamic expression when done in the static editor so we have to resort to this
+				if (inp.type == 'javascript') {
+					//@ts-ignore
+					inp.value = undefined
+					inp.expr = inp.expr
+						.split('\n')
+						.filter(
+							(x) =>
+								x != '' &&
+								!x.startsWith(
+									`import { previous_result, flow_input, step, variable, resource, params } from 'windmill@`
+								)
+						)
+						.join('\n')
+				} else {
+					//@ts-ignore
+					inp.expr = undefined
+				}
+			})
+		}
 	})
 
 	return newFlow
@@ -73,8 +79,6 @@ export function selectedIdToModuleState(selectedId: string, flow: FlowState): Fl
 	}
 }
 
-const loadSchemaLastRun = writable<[string | undefined, Schema]>(undefined)
-
 export async function loadSchemaFromModule(module: FlowModule): Promise<{
 	input_transforms: Record<string, InputTransform>
 	schema: Schema
@@ -97,13 +101,16 @@ export async function loadSchemaFromModule(module: FlowModule): Promise<{
 
 		const keys = Object.keys(schema?.properties ?? {})
 
-		let input_transforms = module.input_transforms
+		if (Object.keys(module.input_transforms ?? {}).length > 0) {
+			mod.input_transforms = module.input_transforms
+		}
+		let input_transforms = mod.input_transforms ?? module.input_transforms ?? {}
 
 		if (
-			JSON.stringify(keys.sort()) !== JSON.stringify(Object.keys(module.input_transforms).sort())
+			JSON.stringify(keys.sort()) !== JSON.stringify(Object.keys(input_transforms).sort())
 		) {
 			input_transforms = keys.reduce((accu, key) => {
-				let nv = module.input_transforms[key] ?? {
+				let nv = input_transforms[key] ?? {
 					type: 'static',
 					value: undefined
 				}

@@ -441,7 +441,7 @@ async fn handle_queued_job(
     match job.job_kind {
         JobKind::FlowPreview | JobKind::Flow => {
             let args = job.args.clone().unwrap_or(Value::Null);
-            handle_flow(&job, db, args, same_worker_tx).await?;
+            handle_flow(&job, db, args, same_worker_tx, worker_dir).await?;
         }
         _ => {
             let mut logs = "".to_string();
@@ -2077,11 +2077,13 @@ mod tests {
             FlowValue {
                 modules: vec![
                     FlowModule {
-                        value: FlowModuleValue::RawScript(RawCode {
+                        id: "a".to_string(),
+                        value: FlowModuleValue::RawScript {
+                            input_transforms: Default::default(),
                             language: ScriptLang::Deno,
                             content: numbers.to_string(),
                             path: None,
-                        }),
+                        },
                         input_transforms: Default::default(),
                         stop_after_if: Default::default(),
                         summary: Default::default(),
@@ -2090,22 +2092,25 @@ mod tests {
                         sleep: None,
                     },
                     FlowModule {
+                        id: "b".to_string(),
                         value: FlowModuleValue::ForloopFlow {
                             iterator: InputTransform::Javascript { expr: "result".to_string() },
                             skip_failures: false,
                             modules: vec![FlowModule {
-                                value: FlowModuleValue::RawScript(RawCode {
+                                id: "c".to_string(),
+                                value: FlowModuleValue::RawScript {
+                                    input_transforms: [(
+                                        "n".to_string(),
+                                        InputTransform::Javascript {
+                                            expr: "previous_result.iter.value".to_string(),
+                                        },
+                                    )]
+                                    .into(),
                                     language: ScriptLang::Deno,
                                     content: doubles.to_string(),
                                     path: None,
-                                }),
-                                input_transforms: [(
-                                    "n".to_string(),
-                                    InputTransform::Javascript {
-                                        expr: "previous_result.iter.value".to_string(),
-                                    },
-                                )]
-                                .into(),
+                                },
+                                input_transforms: Default::default(),
                                 stop_after_if: Default::default(),
                                 summary: Default::default(),
                                 suspend: Default::default(),
@@ -2147,12 +2152,9 @@ mod tests {
         let flow = FlowValue {
             modules: vec![
                 FlowModule {
-                    value: FlowModuleValue::RawScript(RawCode {
-                        language: ScriptLang::Deno,
-                        content: write_file.clone(),
-                        path: None,
-                    }),
-                    input_transforms: [
+                    id: "a".to_string(),
+                    value: FlowModuleValue::RawScript {
+                        input_transforms: [
                         (
                             "loop".to_string(),
                             InputTransform::Static { value: json!(false) },
@@ -2164,6 +2166,11 @@ mod tests {
                         ),
                     ]
                     .into(),
+                        language: ScriptLang::Deno,
+                        content: write_file.clone(),
+                        path: None,
+                    },
+                    input_transforms: Default::default(),
                     stop_after_if: Default::default(),
                     summary: Default::default(),
                     suspend: Default::default(),
@@ -2171,33 +2178,36 @@ mod tests {
                     sleep: None,
                 },
                 FlowModule {
+                    id: "b".to_string(),
                     value: FlowModuleValue::ForloopFlow {
                         iterator: InputTransform::Static { value: json!([1, 2, 3]) },
                         skip_failures: false,
                         modules: vec![
                             FlowModule {
-                                value: FlowModuleValue::RawScript(RawCode {
+                                id: "d".to_string(),
+                                input_transforms: [
+                                (
+                                    "i".to_string(),
+                                    InputTransform::Javascript {
+                                        expr: "previous_result.iter.value".to_string(),
+                                    },
+                                ),
+                                (
+                                    "loop".to_string(),
+                                    InputTransform::Static { value: json!(true) },
+                                ),
+                                (
+                                    "path".to_string(),
+                                    InputTransform::Static { value: json!("inner.txt") },
+                                ),
+                            ]
+                            .into(),
+                                value: FlowModuleValue::RawScript {
+                                    input_transforms: [].into(),
                                     language: ScriptLang::Deno,
                                     content: write_file,
                                     path: None,
-                                }),
-                                input_transforms: [
-                                    (
-                                        "i".to_string(),
-                                        InputTransform::Javascript {
-                                            expr: "previous_result.iter.value".to_string(),
-                                        },
-                                    ),
-                                    (
-                                        "loop".to_string(),
-                                        InputTransform::Static { value: json!(true) },
-                                    ),
-                                    (
-                                        "path".to_string(),
-                                        InputTransform::Static { value: json!("inner.txt") },
-                                    ),
-                                ]
-                                .into(),
+                                },
                                 stop_after_if: Default::default(),
                                 summary: Default::default(),
                                 suspend: Default::default(),
@@ -2205,22 +2215,24 @@ mod tests {
                                 sleep: None,
                             },
                             FlowModule {
-                                value: FlowModuleValue::RawScript(RawCode {
+                                id: "e".to_string(),
+                                value: FlowModuleValue::RawScript {
+                                    input_transforms: [(
+                                        "path".to_string(),
+                                        InputTransform::Static { value: json!("inner.txt") },
+                                    ), (
+                                        "path2".to_string(),
+                                        InputTransform::Static { value: json!("outer.txt") },
+                                    )]
+                                    .into(),
                                     language: ScriptLang::Deno,
                                     content: r#"export async function main(path: string, path2: string) {  
                                         return await Deno.readTextFile(`/shared/${path}`) + "," + await Deno.readTextFile(`/shared/${path2}`);
                                     }"#
                                     .to_string(),
                                     path: None,
-                                }),
-                                input_transforms: [(
-                                    "path".to_string(),
-                                    InputTransform::Static { value: json!("inner.txt") },
-                                ), (
-                                    "path2".to_string(),
-                                    InputTransform::Static { value: json!("outer.txt") },
-                                )]
-                                .into(),
+                                },
+                                input_transforms: [].into(),
                                 stop_after_if: Default::default(),
                                 summary: Default::default(),
                                 suspend: Default::default(),
@@ -2238,15 +2250,9 @@ mod tests {
 
                 },
                 FlowModule {
-                    value: FlowModuleValue::RawScript(RawCode {
-                        language: ScriptLang::Deno,
-                        content: r#"export async function main(path: string, loops: string[], path2: string) {
-                            return await Deno.readTextFile(`/shared/${path}`) + "," + loops + "," + await Deno.readTextFile(`/shared/${path2}`);
-                        }"#
-                        .to_string(),
-                        path: None,
-                    }),
-                    input_transforms: [
+                    id: "c".to_string(),
+                    value: FlowModuleValue::RawScript {
+                        input_transforms: [
                         (
                             "loops".to_string(),
                             InputTransform::Javascript { expr: "previous_result".to_string() },
@@ -2261,6 +2267,14 @@ mod tests {
                         ),
                     ]
                     .into(),
+                        language: ScriptLang::Deno,
+                        content: r#"export async function main(path: string, loops: string[], path2: string) {
+                            return await Deno.readTextFile(`/shared/${path}`) + "," + loops + "," + await Deno.readTextFile(`/shared/${path2}`);
+                        }"#
+                        .to_string(),
+                        path: None,
+                    },
+                    input_transforms: [].into(),
                     stop_after_if: Default::default(),
                     summary: Default::default(),
                     suspend: Default::default(),
@@ -2642,13 +2656,24 @@ def main():
             "value": {
                 "type": "rawscript",
                 "language": "deno",
-                "content": "export function main(array, i){ array.push(i); return array}",
+                "content": "export function main(array, i){ array.push(i); return array }",
+            }
+        })
+    }
+
+    fn module_failure() -> serde_json::Value {
+        json!({
+            "input_transform": {},
+            "value": {
+                "type": "rawscript",
+                "language": "deno",
+                "content": "export function main(){ throw Error('failure') }",
             }
         })
     }
 
     #[sqlx::test(fixtures("base"))]
-    async fn test_branches_simple(db: DB) {
+    async fn test_branchone_simple(db: DB) {
         initialize_tracing().await;
 
         let flow: FlowValue = serde_json::from_value(json!({
@@ -2664,7 +2689,7 @@ def main():
                     "value": {
                         "branches": [],
                         "default": [module_add_item_to_list(2)],
-                        "type": "branches",
+                        "type": "branchone",
                     }
                 },
             ],
@@ -2678,7 +2703,102 @@ def main():
     }
 
     #[sqlx::test(fixtures("base"))]
-    async fn test_branches_nested(db: DB) {
+    async fn test_branchall_simple(db: DB) {
+        initialize_tracing().await;
+
+        let flow: FlowValue = serde_json::from_value(json!({
+            "modules": [
+                {
+                    "value": {
+                        "type": "rawscript",
+                        "language": "deno",
+                        "content": "export function main(){ return [1] }",
+                    }
+                },
+                {
+                    "value": {
+                        "branches": [
+                            {"modules": [module_add_item_to_list(2)]},
+                            {"modules": [module_add_item_to_list(3)]}],
+                        "type": "branchall",
+                    }
+                },
+            ],
+        }))
+        .unwrap();
+
+        let flow = JobPayload::RawFlow { value: flow, path: None };
+        let result = run_job_in_new_worker_until_complete(&db, flow).await;
+
+        assert_eq!(result, serde_json::json!([[1, 2], [1, 3]]));
+    }
+
+    #[sqlx::test(fixtures("base"))]
+    async fn test_branchall_skip_failure(db: DB) {
+        initialize_tracing().await;
+
+        let flow: FlowValue = serde_json::from_value(json!({
+            "modules": [
+                {
+                    "value": {
+                        "type": "rawscript",
+                        "language": "deno",
+                        "content": "export function main(){ return [1] }",
+                    }
+                },
+                {
+                    "value": {
+                        "branches": [
+                            {"modules": [module_failure()], "skip_failure": false},
+                            {"modules": [module_add_item_to_list(3)]}],
+                        "type": "branchall",
+                    }
+                },
+            ],
+        }))
+        .unwrap();
+
+        let flow = JobPayload::RawFlow { value: flow, path: None };
+        let result = run_job_in_new_worker_until_complete(&db, flow).await;
+
+        assert_eq!(
+            result,
+            serde_json::json!({"error": "Error during execution of the script:\n\nerror: Uncaught (in promise) Error: failure\nexport function main(){ throw Error('failure') }\n                              ^\n    at main (file:///tmp/inner.ts:1:31)\n    at run (file:///tmp/main.ts:9:26)\n    at file:///tmp/main.ts:14:1"})
+        );
+
+        let flow: FlowValue = serde_json::from_value(json!({
+            "modules": [
+                {
+                    "value": {
+                        "type": "rawscript",
+                        "language": "deno",
+                        "content": "export function main(){ return [1] }",
+                    }
+                },
+                {
+                    "value": {
+                        "branches": [
+                            {"modules": [module_failure()], "skip_failure": true},
+                            {"modules": [module_add_item_to_list(2)]}
+                    ],
+                        "type": "branchall",
+                    }
+                },
+            ],
+        }))
+        .unwrap();
+
+        let flow = JobPayload::RawFlow { value: flow, path: None };
+        let result = run_job_in_new_worker_until_complete(&db, flow).await;
+
+        assert_eq!(
+            result,
+            serde_json::json!([{"error": "Error during execution of the script:\n\nerror: Uncaught (in promise) Error: failure\nexport function main(){ throw Error('failure') }\n                              ^\n    at main (file:///tmp/inner.ts:1:31)\n    at run (file:///tmp/main.ts:9:26)\n    at file:///tmp/main.ts:14:1"}, [1, 2]])
+        );
+    }
+
+    #[sqlx::test(fixtures("base"))]
+    async fn test_branchone_nested(db: DB) {
         initialize_tracing().await;
 
         let flow: FlowValue = serde_json::from_value(json!({
@@ -2708,13 +2828,13 @@ def main():
                                                 "modules": []
                                             }],
                                         "default": [module_add_item_to_list(2)],
-                                        "type": "branches",
+                                        "type": "branchone",
                                     }
                                 }]
                             },
                         ],
                         "default": [module_add_item_to_list(-4)],
-                        "type": "branches",
+                        "type": "branchone",
                     }
                 },
                 module_add_item_to_list(3),
@@ -2726,6 +2846,57 @@ def main():
         let result = run_job_in_new_worker_until_complete(&db, flow).await;
 
         assert_eq!(result, serde_json::json!([1, 2, 3]));
+    }
+
+    #[sqlx::test(fixtures("base"))]
+    async fn test_branchall_nested(db: DB) {
+        initialize_tracing().await;
+
+        let flow: FlowValue = serde_json::from_value(json!({
+            "modules": [
+                {
+                    "value": {
+                        "type": "rawscript",
+                        "language": "deno",
+                        "content": "export function main(){ return [1] }",
+                    }
+                },
+                {
+                    "value": {
+                        "branches": [
+                            {
+                                "modules": [                {
+                                    "value": {
+                                        "branches": [
+                                            {"modules": [module_add_item_to_list(2)]},
+                                            {"modules": [module_add_item_to_list(3)]}],
+                                        "type": "branchall",
+                                    }
+                                }, {
+                                    "value": {
+                                        "branches": [
+                                            {"modules": [module_add_item_to_list(4)]},
+                                            {"modules": [module_add_item_to_list(5)]}],
+                                        "type": "branchall",
+                                    }
+                                }
+                                        ]
+                            },
+                            {"modules": [module_add_item_to_list(6)]}],
+                        "type": "branchall",
+                    }
+                },
+            ],
+        }))
+        .unwrap();
+
+        let flow = JobPayload::RawFlow { value: flow, path: None };
+        let result = run_job_in_new_worker_until_complete(&db, flow).await;
+
+        assert_eq!(
+            result,
+            serde_json::json!([[[[1, 2], [1, 3], 4], [[1, 2], [1, 3], 5]], [1, 6]])
+        );
     }
 
     #[sqlx::test(fixtures("base"))]
@@ -2869,7 +3040,7 @@ def main():
             }
         }
 
-        async fn print_job(id: Uuid, db: &DB) -> Result<(), anyhow::Error> {
+        async fn _print_job(id: Uuid, db: &DB) -> Result<(), anyhow::Error> {
             tracing::info!(
                 "{:#?}",
                 get_job_by_id(db.begin().await?, "test-workspace", id)
@@ -3526,8 +3697,14 @@ def main(error, port):
         let worker_config = WorkerConfig {
             base_internal_url: String::new(),
             base_url: String::new(),
-            disable_nuser: false,
-            disable_nsjail: false,
+            disable_nuser: std::env::var("DISABLE_NUSER")
+                .ok()
+                .and_then(|x| x.parse::<bool>().ok())
+                .unwrap_or(false),
+            disable_nsjail: std::env::var("DISABLE_NSJAIL")
+                .ok()
+                .and_then(|x| x.parse::<bool>().ok())
+                .unwrap_or(false),
             keep_job_dir: std::env::var("KEEP_JOB_DIR")
                 .ok()
                 .and_then(|x| x.parse::<bool>().ok())

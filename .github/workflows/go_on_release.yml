@@ -1,19 +1,23 @@
-name: Publish deno-client
+name: Publish go-client
 on:
   push:
     tags:
       - "v*"
+  workflow_dispatch:
+
 env:
-  repo: windmill-deno-client
+  repo: windmill-go-client
 
 jobs:
-  build_deno_and_push_to_repo:
+  build_go_and_push_to_repo:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
-      - name: generate_deno
+      - uses: actions/setup-go@v3
+      - name: generate_go
         run: |
-          cd deno-client
+          go install github.com/deepmap/oapi-codegen/cmd/oapi-codegen@latest
+          cd go-client
           rm .gitignore
           ./build.sh
       - name: Pushes to another repository
@@ -22,7 +26,7 @@ jobs:
         env:
           API_TOKEN_GITHUB: ${{ secrets.DENO_PAT }}
         with:
-          source-directory: deno-client/
+          source-directory: go-client/
           destination-github-username: ${{ github.repository_owner }}
           destination-repository-name: ${{ env.repo }}
           user-email: ruben@windmill.dev
@@ -30,7 +34,7 @@ jobs:
           target-branch: main
 
   tag_repo:
-    needs: [build_deno_and_push_to_repo]
+    needs: [build_go_and_push_to_repo]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3

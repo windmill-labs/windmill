@@ -5,19 +5,17 @@
 	import { emptySchema, scriptLangToEditorLang } from '$lib/utils'
 	import { faPlay, faRotateRight } from '@fortawesome/free-solid-svg-icons'
 	import Editor from './Editor.svelte'
-
 	import { inferArgs } from '$lib/infer'
-
 	import type { Preview } from '$lib/gen/models/Preview'
-
+	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import SchemaForm from './SchemaForm.svelte'
-	import LogPanel from './script_editor/LogPanel.svelte'
-	import { HSplitPane, VSplitPane } from 'svelte-split-pane'
+	import LogPanel from './scriptEditor/LogPanel.svelte'
 	import { faGithub } from '@fortawesome/free-brands-svg-icons'
 	import EditorBar from './EditorBar.svelte'
 	import TestJobLoader from './TestJobLoader.svelte'
 	import { onMount } from 'svelte'
 	import { Button, Kbd } from './common'
+	import SplitPanesWrapper from './splitPanes/SplitPanesWrapper.svelte'
 
 	// Exported
 	export let schema: Schema = emptySchema()
@@ -122,94 +120,84 @@
 		</div>
 	</div>
 </div>
-<div class="flex-1 overflow-auto">
-	<HSplitPane leftPaneSize="60%" rightPaneSize="40%" minLeftPaneSize="50px" minRightPaneSize="50px">
-		<left slot="left">
-			<div class="h-full">
-				<div
-					class="p-2 h-full"
-					on:mouseleave={() => {
-						inferSchema()
-					}}
-				>
-					<Editor
-						bind:code
-						bind:websocketAlive
-						bind:this={editor}
-						cmdEnterAction={async () => {
-							await inferSchema()
-							runTest()
-						}}
-						formatAction={async () => {
-							await inferSchema()
-							localStorage.setItem(path ?? 'last_save', code)
-							lastSave = code
-						}}
-						class="flex flex-1 h-full"
-						lang={scriptLangToEditorLang(lang)}
-						automaticLayout={true}
-					/>
+<SplitPanesWrapper>
+	<Pane size={60} minSize={10}>
+		<div
+			class="p-2 h-full"
+			on:mouseleave={() => {
+				inferSchema()
+			}}
+		>
+			<Editor
+				bind:code
+				bind:websocketAlive
+				bind:this={editor}
+				cmdEnterAction={async () => {
+					await inferSchema()
+					runTest()
+				}}
+				formatAction={async () => {
+					await inferSchema()
+					localStorage.setItem(path ?? 'last_save', code)
+					lastSave = code
+				}}
+				class="flex flex-1 h-full"
+				lang={scriptLangToEditorLang(lang)}
+				automaticLayout={true}
+			/>
+		</div>
+	</Pane>
+	<Pane size={40} minSize={10}>
+		<Splitpanes horizontal>
+			<Pane size={30}>
+				<div class="p-4">
+					<div class="break-all relative font-sans">
+						<p class="items-baseline break-normal text-sm text-gray-600 hidden md:block mb-3">
+							To recompute the input schema press <Kbd>Ctrl/Cmd</Kbd> + <Kbd>S</Kbd> or move the focus
+							outside of the text editor
+						</p>
+						<SchemaForm {schema} bind:args bind:isValid />
+					</div>
 				</div>
-			</div>
-		</left>
-		<right slot="right">
-			<div class="h-full">
-				<VSplitPane topPanelSize="30%" downPanelSize="70%">
-					<top slot="top">
-						<div class="h-full overflow-auto">
-							<div class="p-4">
-								<div class="break-all relative font-sans">
-									<p class="items-baseline break-normal text-sm text-gray-600 hidden md:block mb-3">
-										To recompute the input schema press <Kbd>Ctrl/Cmd</Kbd> + <Kbd>S</Kbd> or move the
-										focus outside of the text editor
-									</p>
-									<SchemaForm {schema} bind:args bind:isValid />
-								</div>
-							</div>
-						</div>
-					</top>
-					<down slot="down">
-						<div class="h-full overflow-hidden">
-							<div class="px-2 py-1">
-								{#if testIsLoading}
-									<Button
-										on:click={testJobLoader?.cancelJob}
-										btnClasses="w-full"
-										color="red"
-										size="xs"
-										startIcon={{
-											icon: faRotateRight,
-											classes: 'animate-spin'
-										}}
-									>
-										'Cancel'
-									</Button>
-								{:else}
-									<Button
-										on:click={runTest}
-										btnClasses="w-full"
-										size="xs"
-										startIcon={{
-											icon: faPlay,
-											classes: 'animate-none'
-										}}
-									>
-										{testIsLoading ? 'Running' : 'Test (Ctrl+Enter)'}
-									</Button>
-								{/if}
-							</div>
-							<LogPanel
-								{path}
-								{lang}
-								previewJob={testJob}
-								{pastPreviews}
-								previewIsLoading={testIsLoading}
-								bind:lastSave
-							/>
-						</div>
-					</down>
-				</VSplitPane>
-			</div>
-		</right>
-	</HSplitPane>
-</div>
+			</Pane>
+			<Pane size={70}>
+				<div class="px-2 py-1">
+					{#if testIsLoading}
+						<Button
+							on:click={testJobLoader?.cancelJob}
+							btnClasses="w-full"
+							color="red"
+							size="xs"
+							startIcon={{
+								icon: faRotateRight,
+								classes: 'animate-spin'
+							}}
+						>
+							'Cancel'
+						</Button>
+					{:else}
+						<Button
+							on:click={runTest}
+							btnClasses="w-full"
+							size="xs"
+							startIcon={{
+								icon: faPlay,
+								classes: 'animate-none'
+							}}
+						>
+							{testIsLoading ? 'Running' : 'Test (Ctrl+Enter)'}
+						</Button>
+					{/if}
+				</div>
+				<LogPanel
+					{path}
+					{lang}
+					previewJob={testJob}
+					{pastPreviews}
+					previewIsLoading={testIsLoading}
+					bind:lastSave
+				/>
+			</Pane>
+		</Splitpanes>
+	</Pane>
+</SplitPanesWrapper>

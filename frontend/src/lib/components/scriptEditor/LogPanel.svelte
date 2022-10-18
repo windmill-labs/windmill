@@ -5,7 +5,6 @@
 	import { faTimes } from '@fortawesome/free-solid-svg-icons'
 	import Icon from 'svelte-awesome'
 	import { check } from 'svelte-awesome/icons'
-
 	import Tabs from '../common/tabs/Tabs.svelte'
 	import Tab from '../common/tabs/Tab.svelte'
 	import TabContent from '../common/tabs/TabContent.svelte'
@@ -16,8 +15,9 @@
 	import { json } from 'svelte-highlight/languages'
 	import DrawerContent from '../common/drawer/DrawerContent.svelte'
 	import HighlightCode from '../HighlightCode.svelte'
-	import { VSplitPane } from 'svelte-split-pane'
 	import LogViewer from '../LogViewer.svelte'
+	import { Pane, Splitpanes } from 'svelte-splitpanes'
+	import SplitPanesWrapper from '../splitPanes/SplitPanesWrapper.svelte'
 
 	export let path: string | undefined
 	export let lang: Preview.language
@@ -70,23 +70,28 @@
 	<Tab value="last_save"><span class="text-xs">Last save</span></Tab>
 
 	<svelte:fragment slot="content">
-		<TabContent value="logs" class="h-full w-full relative">
-			<VSplitPane topPanelSize="50%" downPanelSize="50%">
-				<top slot="top">
+		<!--
+			TabContent would wrap it in an extra div which is undesirable in this situation
+			because SplitPanesWrapper uses the parent element as a reference point.
+		-->
+		{#if selectedTab === 'logs'}
+			<SplitPanesWrapper horizontal>
+				<Pane class="!duration-[0ms]">
 					<LogViewer content={previewJob?.logs} isLoading={previewIsLoading} />
-				</top>
-				<down slot="down">
-					<pre class="overflow-x-auto break-all relative h-full p-2 text-sm"
-						>{#if previewJob != undefined && 'result' in previewJob && previewJob.result != undefined}<DisplayResult
-								result={previewJob.result}
-							/>
-						{:else if previewIsLoading}Waiting for result...
-						{:else}Test to see the result here
-						{/if}
-        </pre>
-				</down>
-			</VSplitPane>
-		</TabContent>
+				</Pane>
+				<Pane class="!duration-[0ms]">
+					{#if previewJob != undefined && 'result' in previewJob && previewJob.result != undefined}
+						<pre class="overflow-x-auto break-all relative h-full px-2">
+							<DisplayResult result={previewJob.result} />
+						</pre>
+					{:else}
+						<div class="text-sm text-gray-600 p-2">
+							{previewIsLoading ? 'Waiting for result...' : 'Test to see the result here'}
+						</div>
+					{/if}
+				</Pane>
+			</SplitPanesWrapper>
+		{/if}
 		<TabContent value="history" class="p-2">
 			<TableCustom>
 				<tr slot="header-row">
@@ -164,7 +169,10 @@
 		</TabContent>
 		<TabContent value="last_save" class="p-2">
 			{#if lastSave}
-				<h2>last local save for path {path}</h2>
+				<div class="text-sm font-bold text-gray-600">
+					Last local save for path
+					<span class="italic">{path}</span>
+				</div>
 				<HighlightCode language={lang} code={lastSave} />
 			{:else}
 				No local save

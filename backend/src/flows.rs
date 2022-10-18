@@ -25,9 +25,8 @@ use crate::{
     audit::{audit_log, ActionKind},
     db::{UserDB, DB},
     error::{self, to_anyhow, Error, JsonResult, Result},
-    jobs::RawCode,
-    more_serde::{default_true, is_default},
-    scripts::Schema,
+    more_serde::{default_id, default_true, is_default},
+    scripts::{Schema, ScriptLang},
     users::Authed,
     utils::{http_get_from_hub, list_elems_from_hub, Pagination, StripPath},
 };
@@ -161,6 +160,8 @@ pub struct Suspend {
 
 #[derive(Deserialize, Serialize, Debug, Clone)]
 pub struct FlowModule {
+    #[serde(default = "default_id")]
+    pub id: String,
     #[serde(default)]
     #[serde(alias = "input_transform")]
     pub input_transforms: HashMap<String, InputTransform>,
@@ -186,11 +187,20 @@ pub enum InputTransform {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct BranchModules {
+pub struct BranchOneModules {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub summary: Option<String>,
     pub expr: String,
     pub modules: Vec<FlowModule>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct BranchAllModules {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub summary: Option<String>,
+    pub modules: Vec<FlowModule>,
+    #[serde(default = "default_true")]
+    pub skip_failure: bool,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -200,6 +210,9 @@ pub struct BranchModules {
 )]
 pub enum FlowModuleValue {
     Script {
+        #[serde(default)]
+        #[serde(alias = "input_transform")]
+        input_transforms: HashMap<String, InputTransform>,
         path: String,
     },
     ForloopFlow {
@@ -208,11 +221,21 @@ pub enum FlowModuleValue {
         #[serde(default = "default_true")]
         skip_failures: bool,
     },
-    Branches {
-        branches: Vec<BranchModules>,
+    BranchOne {
+        branches: Vec<BranchOneModules>,
         default: Vec<FlowModule>,
     },
-    RawScript(RawCode),
+    BranchAll {
+        branches: Vec<BranchAllModules>,
+    },
+    RawScript {
+        #[serde(default)]
+        #[serde(alias = "input_transform")]
+        input_transforms: HashMap<String, InputTransform>,
+        content: String,
+        path: Option<String>,
+        language: ScriptLang,
+    },
 }
 
 #[derive(Deserialize)]
@@ -510,12 +533,16 @@ mod tests {
         let fv = FlowValue {
             modules: vec![
                 FlowModule {
-                    input_transforms: [(
-                        "test".to_string(),
-                        InputTransform::Static { value: serde_json::json!("test2") },
-                    )]
-                    .into(),
-                    value: FlowModuleValue::Script { path: "test".to_string() },
+                    id: "a".to_string(),
+                    input_transforms: [].into(),
+                    value: FlowModuleValue::Script {
+                        path: "test".to_string(),
+                        input_transforms: [(
+                            "test".to_string(),
+                            InputTransform::Static { value: serde_json::json!("test2") },
+                        )]
+                        .into(),
+                    },
                     stop_after_if: None,
                     summary: None,
                     suspend: Default::default(),
@@ -523,12 +550,14 @@ mod tests {
                     sleep: None,
                 },
                 FlowModule {
+                    id: "b".to_string(),
                     input_transforms: HashMap::new(),
-                    value: FlowModuleValue::RawScript(RawCode {
+                    value: FlowModuleValue::RawScript {
+                        input_transforms: HashMap::new(),
                         content: "test".to_string(),
                         language: crate::scripts::ScriptLang::Deno,
                         path: None,
-                    }),
+                    },
                     stop_after_if: Some(StopAfterIf {
                         expr: "foo = 'bar'".to_string(),
                         skip_if_stopped: false,
@@ -539,11 +568,8 @@ mod tests {
                     sleep: None,
                 },
                 FlowModule {
-                    input_transforms: [(
-                        "iterand".to_string(),
-                        InputTransform::Static { value: serde_json::json!(vec![1, 2, 3]) },
-                    )]
-                    .into(),
+                    id: "c".to_string(),
+                    input_transforms: HashMap::new(),
                     value: FlowModuleValue::ForloopFlow {
                         iterator: InputTransform::Static { value: serde_json::json!([1, 2, 3]) },
                         modules: vec![],
@@ -560,8 +586,12 @@ mod tests {
                 },
             ],
             failure_module: Some(FlowModule {
+                id: "d".to_string(),
                 input_transforms: HashMap::new(),
-                value: FlowModuleValue::Script { path: "test".to_string() },
+                value: FlowModuleValue::Script {
+                    path: "test".to_string(),
+                    input_transforms: HashMap::new(),
+                },
                 stop_after_if: Some(StopAfterIf {
                     expr: "previous.isEmpty()".to_string(),
                     skip_if_stopped: false,
@@ -576,13 +606,15 @@ mod tests {
         let expect = serde_json::json!({
           "modules": [
             {
-              "input_transforms": {
-                "test": {
-                  "type": "static",
-                  "value": "test2"
-                }
-              },
+              "id": "a",
+              "input_transforms": {},
               "value": {
+                "input_transforms": {
+                    "test": {
+                      "type": "static",
+                      "value": "test2"
+                    }
+                  },
                 "type": "script",
                 "path": "test"
               },
@@ -590,8 +622,10 @@ mod tests {
               "summary": null
             },
             {
+              "id": "b",
               "input_transforms": {},
               "value": {
+                "input_transforms": {},
                 "type": "rawscript",
                 "content": "test",
                 "path": null,
@@ -604,16 +638,8 @@ mod tests {
               "summary": null
             },
             {
-              "input_transforms": {
-                "iterand": {
-                  "type": "static",
-                  "value": [
-                    1,
-                    2,
-                    3
-                  ]
-                }
-              },
+              "id": "c",
+              "input_transforms": {},
               "value": {
                 "type": "forloopflow",
                 "iterator": {
@@ -635,8 +661,10 @@ mod tests {
             }
           ],
           "failure_module": {
+            "id": "d",
             "input_transforms": {},
             "value": {
+              "input_transforms": {},
               "type": "script",
               "path": "test"
             },

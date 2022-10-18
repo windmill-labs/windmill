@@ -13,10 +13,12 @@
 	} from '@fortawesome/free-solid-svg-icons'
 	import {
 		emptyFlowModuleState,
+		emptyModule,
 		isEmptyFlowModule,
 		NEVER_TESTED_THIS_FAR
 	} from '$lib/components/flows/flowStateUtils'
-	import { classNames, emptyModule, emptySchema } from '$lib/utils'
+	import { classNames, emptySchema } from '$lib/utils'
+
 	import type { FlowModuleState } from '../flowState'
 	import type { FlowModule } from '$lib/gen'
 
