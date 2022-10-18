@@ -973,7 +973,7 @@ async fn get_result_by_id(
                     .ok_or_else(|| Error::InternalErr(format!("requiring a flow status value")))?
                     .to_owned();
                 parent_id = r.parent_job;
-                let status_o = serde_json::from_value::<FlowStatus>(value.to_owned()).ok();
+                let status_o = serde_json::from_value::<FlowStatus>(value).ok();
                 result_id = status_o.and_then(|status| {
                     status
                         .modules

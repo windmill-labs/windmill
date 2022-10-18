@@ -679,7 +679,7 @@ pub async fn handle_flow(
         .as_ref()
         .ok_or_else(|| Error::InternalErr(format!("requiring a raw flow value")))?
         .to_owned();
-    let flow = serde_json::from_value::<FlowValue>(value.to_owned())?;
+    let flow = serde_json::from_value::<FlowValue>(value)?;
 
     if flow.modules.is_empty() {
         let fake_job = QueuedJob { parent_job: Some(flow_job.id), ..flow_job.clone() };
