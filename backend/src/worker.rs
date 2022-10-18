@@ -107,6 +107,16 @@ lazy_static::lazy_static! {
         "Total number of workers started."
     )
     .unwrap();
+    static ref JOBS_ZOMBIE_RESTARTED: prometheus::IntCounter = prometheus::register_int_counter!(
+        "jobs_zombie_restarted",
+        "Total number of jobs restarted due to ping timeout."
+    )
+    .unwrap();
+    static ref JOBS_ZOMBIE_DELETED: prometheus::IntCounter = prometheus::register_int_counter!(
+        "JOBS_ZOMBIE_deleted",
+        "Total number of jobs deleted due to their ping timing out in an unrecoverable state."
+    )
+    .unwrap();
 }
 
 pub async fn run_worker(
@@ -1924,7 +1934,20 @@ pub async fn handle_zombie_jobs_periodically(
     mut rx: tokio::sync::broadcast::Receiver<()>,
 ) {
     loop {
-        let restarted = sqlx::query!(
+        handle_zombie_jobs(db, timeout).await;
+
+        tokio::select! {
+            _ = tokio::time::sleep(Duration::from_secs(60))    => (),
+            _ = rx.recv() => {
+                    println!("received killpill for monitor job");
+                    break;
+            }
+        }
+    }
+}
+
+async fn handle_zombie_jobs(db: &DB, timeout: i32) {
+    let restarted = sqlx::query!(
             "UPDATE queue SET running = false WHERE last_ping < now() - ($1 || ' seconds')::interval AND running = true AND job_kind != $2 AND same_worker = false RETURNING id, workspace_id, last_ping",
             (timeout * 5).to_string(),
             JobKind::Flow: JobKind,
@@ -1934,16 +1957,17 @@ pub async fn handle_zombie_jobs_periodically(
         .ok()
         .unwrap_or_else(|| vec![]);
 
-        for r in restarted {
-            tracing::info!(
-                "restarted zombie job {} {} {}",
-                r.id,
-                r.workspace_id,
-                r.last_ping
-            );
-        }
+    JOBS_ZOMBIE_RESTARTED.inc_by(restarted.len() as _);
+    for r in restarted {
+        tracing::info!(
+            "restarted zombie job {} {} {}",
+            r.id,
+            r.workspace_id,
+            r.last_ping
+        );
+    }
 
-        let timeouts = sqlx::query_as::<_, QueuedJob>(
+    let timeouts = sqlx::query_as::<_, QueuedJob>(
             "SELECT * FROM queue WHERE last_ping < now() - ($1 || ' seconds')::interval AND running = true AND job_kind != $2 AND same_worker = true",
         )
         .bind((timeout * 5).to_string())
@@ -1953,36 +1977,28 @@ pub async fn handle_zombie_jobs_periodically(
         .ok()
         .unwrap_or_else(|| vec![]);
 
-        for job in timeouts {
-            tracing::info!(
-                "timedouts zombie same_worker job {} {}",
-                job.id,
-                job.workspace_id,
-            );
+    JOBS_ZOMBIE_DELETED.inc_by(timeouts.len() as _);
+    for job in timeouts {
+        tracing::info!(
+            "timedouts zombie same_worker job {} {}",
+            job.id,
+            job.workspace_id,
+        );
 
-            // since the job is unrecoverable, the same worker queue should never be sent anything
-            let (same_worker_tx_never_used, _same_worker_rx_never_used) = mpsc::channel::<Uuid>(1);
+        // since the job is unrecoverable, the same worker queue should never be sent anything
+        let (same_worker_tx_never_used, _same_worker_rx_never_used) = mpsc::channel::<Uuid>(1);
 
-            let _ = handle_job_error(
-                db,
-                job,
-                error::Error::ExecutionErr("Same worker job timed out".to_string()),
-                None,
-                true,
-                same_worker_tx_never_used,
-                "",
-                true,
-            )
-            .await;
-        }
-
-        tokio::select! {
-            _ = tokio::time::sleep(Duration::from_secs(60))    => (),
-            _ = rx.recv() => {
-                    println!("received killpill for monitor job");
-                    break;
-            }
-        }
+        let _ = handle_job_error(
+            db,
+            job,
+            error::Error::ExecutionErr("Same worker job timed out".to_string()),
+            None,
+            true,
+            same_worker_tx_never_used,
+            "",
+            true,
+        )
+        .await;
     }
 }
 
