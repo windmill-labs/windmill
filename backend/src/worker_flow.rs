@@ -6,7 +6,7 @@ use crate::{
     error::{self, Error},
     flows::{FlowModule, FlowModuleValue, FlowValue, InputTransform, Retry, Suspend},
     jobs::{
-        add_completed_job, add_completed_job_error, delete_job, get_queued_job, push,
+        add_completed_job, add_completed_job_error, get_queued_job, push,
         schedule_again_if_scheduled, script_path_to_payload, JobPayload, QueuedJob, RawCode,
     },
     js_eval::{eval_timeout, EvalCreds, IdContext},
@@ -887,7 +887,6 @@ async fn push_next_flow_job(
                 let result = is_cancelled.unwrap_or(json!({ "error": logs }));
                 let _uuid =
                     add_completed_job(db, &flow_job, success, skipped, result, logs).await?;
-                let _ = delete_job(db, &flow_job.workspace_id, flow_job.id).await?;
 
                 return Ok(());
             }
@@ -1232,7 +1231,6 @@ async fn jump_to_next_step(
         let skipped = false;
         let logs = "Forloop completed without iteration".to_string();
         let _uuid = add_completed_job(db, &new_job, success, skipped, json!([]), logs).await?;
-        let _ = delete_job(db, &new_job.workspace_id, new_job.id).await?;
         return Ok(());
     }
 }
