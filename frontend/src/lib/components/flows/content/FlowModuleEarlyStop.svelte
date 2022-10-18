@@ -42,7 +42,7 @@
 	}
 </script>
 
-<div class="flex flex-col items-start space-y-2">
+<div class="flex flex-col items-start space-y-2 {$$props.class}">
 	<Toggle
 		checked={isStopAfterIfEnabled}
 		on:change={() => {
@@ -86,6 +86,6 @@
 		<span class="text-xs font-bold">Should skip if stopped</span>
 		<input type="checkbox" disabled />
 		<span class="text-xs font-bold">Stop condition expression</span>
-		<textarea disabled rows="3" />
+		<textarea disabled rows="3" class="min-h-[80px]" />
 	{/if}
 </div>

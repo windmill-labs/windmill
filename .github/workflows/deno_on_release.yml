@@ -9,14 +9,13 @@ env:
 jobs:
   build_deno_and_push_to_repo:
     runs-on: ubuntu-latest
-    container: openapitools/openapi-generator-cli:v6.0.0-beta
     steps:
       - uses: actions/checkout@v3
       - name: generate_deno
         run: |
           cd deno-client
           rm .gitignore
-          ./generate.sh
+          ./build.sh
       - name: Pushes to another repository
         id: push_directory
         uses: cpina/github-action-push-to-another-repository@devel

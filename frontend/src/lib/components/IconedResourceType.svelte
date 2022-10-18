@@ -1,5 +1,4 @@
 <script lang="ts">
-	import Icon from 'svelte-awesome'
 	import AirtableIcon from './icons/AirtableIcon.svelte'
 	import DbIcon from './icons/DbIcon.svelte'
 	import DiscordIcon from './icons/DiscordIcon.svelte'

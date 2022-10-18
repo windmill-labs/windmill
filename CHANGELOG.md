@@ -1,6 +1,68 @@
 # Changelog
 
 
+## [1.38.5](https://github.com/windmill-labs/windmill/compare/v1.38.4...v1.38.5) (2022-10-15)
+
+
+### Bug Fixes
+
+* **deno-client:** use proper base url ([bb1750f](https://github.com/windmill-labs/windmill/commit/bb1750fd6dddaa1235deafe0a68467f3a631a8e9))
+
+## [1.38.4](https://github.com/windmill-labs/windmill/compare/v1.38.3...v1.38.4) (2022-10-15)
+
+
+### Bug Fixes
+
+* refactor deno client to use another openapi generator [#743](https://github.com/windmill-labs/windmill/issues/743) ([350d31f](https://github.com/windmill-labs/windmill/commit/350d31fe068260820978b8a629a74da80384f037))
+
+## [1.38.3](https://github.com/windmill-labs/windmill/compare/v1.38.2...v1.38.3) (2022-10-15)
+
+
+### Bug Fixes
+
+* **go-client:** go-client README ([8d37e40](https://github.com/windmill-labs/windmill/commit/8d37e40fced961c15fc6cd2198c4e696952f392c))
+
+## [1.38.2](https://github.com/windmill-labs/windmill/compare/v1.38.1...v1.38.2) (2022-10-15)
+
+
+### Bug Fixes
+
+* **go-client:** improve go-client error handling ([467ff10](https://github.com/windmill-labs/windmill/commit/467ff105db34c7e2bd028d35dff18a08df599a4c))
+* **go-client:** improve go-client variable and resource handling ([fffcb5e](https://github.com/windmill-labs/windmill/commit/fffcb5ec2a47efcb9ba8db6211314d67f38f5b24))
+* **go-client:** return error ([1f7ef30](https://github.com/windmill-labs/windmill/commit/1f7ef3006f551a324b8b8f5e7d260d69287eb4cf))
+* **python-client:** provide backwards compatibility down to python3.7 ([#738](https://github.com/windmill-labs/windmill/issues/738)) ([#739](https://github.com/windmill-labs/windmill/issues/739)) ([e4cd931](https://github.com/windmill-labs/windmill/commit/e4cd931ab5d212e5bd8ed32f5fa1a33b431d16a4))
+
+## [1.38.1](https://github.com/windmill-labs/windmill/compare/v1.38.0...v1.38.1) (2022-10-14)
+
+
+### Bug Fixes
+
+* **go-client:** pass bearer token to requests ([9d38d66](https://github.com/windmill-labs/windmill/commit/9d38d66d2b6571d9ae7cbdb71d105790273155ca))
+
+## [1.38.0](https://github.com/windmill-labs/windmill/compare/v1.37.0...v1.38.0) (2022-10-14)
+
+
+### Features
+
+* **backend:** implement new OpenFlow module Branches ([#692](https://github.com/windmill-labs/windmill/issues/692)) ([cc07a6b](https://github.com/windmill-labs/windmill/commit/cc07a6b7e4572f239b11ff566d616bcf66952a1b))
+* **backend:** supercache for python heavy dependencies in alpha ([7e35d99](https://github.com/windmill-labs/windmill/commit/7e35d9989aab74cd91f676c679b36e98033f1176))
+* **frontend:** Loading placeholder ([#707](https://github.com/windmill-labs/windmill/issues/707)) ([9acee22](https://github.com/windmill-labs/windmill/commit/9acee22b1fc0b4eb82a1b47bc62598fe5af076e1))
+* **frontend:** Typography update ([#725](https://github.com/windmill-labs/windmill/issues/725)) ([2c1cd7e](https://github.com/windmill-labs/windmill/commit/2c1cd7eea8250f02588bc151bab8faf07ee7133d))
+* secure suspended resume event + configurable timeout ([#721](https://github.com/windmill-labs/windmill/issues/721)) ([ff7fb0f](https://github.com/windmill-labs/windmill/commit/ff7fb0f6f361322fbd3a1024c1604907d71aa4c9))
+* support struct in Go as script parameters [#705](https://github.com/windmill-labs/windmill/issues/705) ([7bdbfec](https://github.com/windmill-labs/windmill/commit/7bdbfec71a9a02ebbf4117c0e16e7249a0e028e6))
+
+
+### Bug Fixes
+
+* **deno:** approval endpoints generator ([#728](https://github.com/windmill-labs/windmill/issues/728)) ([af8a421](https://github.com/windmill-labs/windmill/commit/af8a4216f8c3960e8ae5f930d4303bda7eee5c2b))
+* **frontend:** Apply small text size to hljs ([#706](https://github.com/windmill-labs/windmill/issues/706)) ([8be31d6](https://github.com/windmill-labs/windmill/commit/8be31d608b928a0ba8d8c53cbfb87c4915e41c20))
+* **frontend:** do not alert on non internal nav for unconfirmed saves ([e5fdbff](https://github.com/windmill-labs/windmill/commit/e5fdbff8ec42ba1f581b0b94ef4ace0380a91d8a))
+* **frontend:** do not alert on non internal nav for unconfirmed saves ([24a2932](https://github.com/windmill-labs/windmill/commit/24a2932a7bddc13bddde760655bff44202e96d01))
+* **frontend:** fix viewscript for go ([e840522](https://github.com/windmill-labs/windmill/commit/e840522822c905be8fcfdeadde23ce76293d7755))
+* **frontend:** go websockets ([154796c](https://github.com/windmill-labs/windmill/commit/154796cdb692cf068afec53dc080c838df273ae6))
+* **frontend:** remove flowbite svelte dependency from shared Badge ([#722](https://github.com/windmill-labs/windmill/issues/722)) ([ca991d0](https://github.com/windmill-labs/windmill/commit/ca991d0fa10d2f8778512f67b1230b5922bbb980))
+* **frontend:** Update skeleton animation timings ([#730](https://github.com/windmill-labs/windmill/issues/730)) ([2e21fb4](https://github.com/windmill-labs/windmill/commit/2e21fb43d5edbf4f8e271bff8a6d6fa3736a79f7))
+
 ## [1.37.0](https://github.com/windmill-labs/windmill/compare/v1.36.0...v1.37.0) (2022-10-08)
 
 

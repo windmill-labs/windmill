@@ -1421,11 +1421,6 @@ pub async fn push<'c>(
     let is_running = same_worker;
     if let Some(flow) = raw_flow.as_ref() {
         same_worker = same_worker || flow.same_worker;
-        if flow.modules.len() == 0 {
-            Err(Error::BadRequest(format!(
-                "A flow needs at least one module to run"
-            )))?;
-        }
 
         for module in flow.modules.iter() {
             if let Some(retry) = &module.retry {
