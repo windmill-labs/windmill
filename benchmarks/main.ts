@@ -157,6 +157,21 @@ await new Command()
         host: metrics,
       });
 
+      console.log("Started with options", JSON.stringify({
+        host,
+        num_workers,
+        seconds,
+        email,
+        workspace,
+        metrics,
+        exportJson,
+        exportCsv,
+        exportHistograms,
+        exportSimple,
+        maximumThroughput,
+        useFlows,
+        zombieTimeout,
+      }, null, 4));
       console.log("collecting samples...");
       host = host.endsWith("/") ? host.substring(0, host.length - 1) : host;
       host = `${host}/api`;
