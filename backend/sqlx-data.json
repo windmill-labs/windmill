@@ -2306,6 +2306,28 @@
     },
     "query": "INSERT INTO workspace_settings\n            (workspace_id, slack_team_id, slack_name)\n            VALUES ($1, $2, $3) ON CONFLICT (workspace_id) DO UPDATE SET slack_team_id = $2, slack_name = $3"
   },
+  "a241c56415759105ccbcbf7fff77287fa4ec2cc096c0060d14db421115d63e2d": {
+    "describe": {
+      "columns": [
+        {
+          "name": "exists",
+          "ordinal": 0,
+          "type_info": "Bool"
+        }
+      ],
+      "nullable": [
+        null
+      ],
+      "parameters": {
+        "Left": [
+          "Text",
+          "Text",
+          "Timestamptz"
+        ]
+      }
+    },
+    "query": "SELECT EXISTS (SELECT 1 FROM queue WHERE workspace_id = $1 AND schedule_path = $2 AND scheduled_for = $3)"
+  },
   "a34066d4a1578a13b2e322e6936ae80a0239a79148f3edce65f51a93910a1a4b": {
     "describe": {
       "columns": [

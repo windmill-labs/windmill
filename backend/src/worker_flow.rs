@@ -6,8 +6,8 @@ use crate::{
     error::{self, Error},
     flows::{FlowModule, FlowModuleValue, FlowValue, InputTransform, Retry, Suspend},
     jobs::{
-        add_completed_job, add_completed_job_error, get_queued_job, postprocess_queued_job, push,
-        script_path_to_payload, JobPayload, QueuedJob, RawCode,
+        add_completed_job, add_completed_job_error, delete_job, get_queued_job, push,
+        schedule_again_if_scheduled, script_path_to_payload, JobPayload, QueuedJob, RawCode,
     },
     js_eval::{eval_timeout, EvalCreds, IdContext},
     more_serde::is_default,
@@ -374,6 +374,16 @@ pub async fn update_flow_status_after_job_completion(
 
     tx.commit().await?;
 
+    if old_status.step == 0 && !flow_job.is_flow_step {
+        schedule_again_if_scheduled(
+            flow_job.schedule_path.clone(),
+            flow_job.script_path.clone(),
+            &w_id,
+            db,
+        )
+        .await?;
+    }
+
     let done = if !should_continue_flow {
         let logs = if flow_job.canceled {
             "Flow job canceled".to_string()
@@ -421,15 +431,7 @@ pub async fn update_flow_status_after_job_completion(
     };
 
     if done {
-        postprocess_queued_job(
-            flow_job.is_flow_step,
-            flow_job.schedule_path.clone(),
-            flow_job.script_path.clone(),
-            &w_id,
-            flow,
-            db,
-        )
-        .await?;
+        let _ = delete_job(db, w_id, flow).await?;
 
         if flow_job.same_worker && !keep_job_dir {
             let _ = tokio::fs::remove_dir_all(format!("{worker_dir}/{}", flow_job.id)).await;
@@ -883,15 +885,7 @@ async fn push_next_flow_job(
                 let result = is_cancelled.unwrap_or(json!({ "error": logs }));
                 let _uuid =
                     add_completed_job(db, &flow_job, success, skipped, result, logs).await?;
-                postprocess_queued_job(
-                    false,
-                    flow_job.schedule_path.clone(),
-                    flow_job.script_path.clone(),
-                    &flow_job.workspace_id,
-                    flow_job.id,
-                    db,
-                )
-                .await?;
+                let _ = delete_job(db, &flow_job.workspace_id, flow_job.id).await?;
 
                 return Ok(());
             }
@@ -1236,15 +1230,7 @@ async fn jump_to_next_step(
         let skipped = false;
         let logs = "Forloop completed without iteration".to_string();
         let _uuid = add_completed_job(db, &new_job, success, skipped, json!([]), logs).await?;
-        postprocess_queued_job(
-            false,
-            new_job.schedule_path,
-            new_job.script_path,
-            &new_job.workspace_id,
-            new_job.id,
-            db,
-        )
-        .await?;
+        let _ = delete_job(db, &new_job.workspace_id, new_job.id).await?;
         return Ok(());
     }
 }
