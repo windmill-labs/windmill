@@ -3,17 +3,17 @@
 
 import { Command } from "https://deno.land/x/cliffy@v0.25.2/command/mod.ts";
 import { sleep } from "https://deno.land/x/sleep@v1.2.1/mod.ts";
-import * as windmill from "https://deno.land/x/windmill@v1.37.0/mod.ts";
-import * as api from "https://deno.land/x/windmill@v1.37.0/windmill-api/index.ts";
+import * as windmill from "https://deno.land/x/windmill@v1.38.5/mod.ts";
 
 async function login(
-  config: api.Configuration,
   email: string,
   password: string
 ): Promise<string> {
-  return await new windmill.UserApi(config).login({
-    email: email,
-    password: password,
+  return await windmill.UserService.login({
+    requestBody: {
+      email: email,
+      password: password,
+    }
   });
 }
 
@@ -131,6 +131,7 @@ await new Command()
       useFlows,
       zombieTimeout,
     }) => {
+      windmill.setClient("", host);
       const metrics_worker = new Worker(
         new URL("./scraper.ts", import.meta.url).href,
         {
@@ -173,20 +174,17 @@ await new Command()
         zombieTimeout,
       }, null, 4));
       console.log("collecting samples...");
-      host = host.endsWith("/") ? host.substring(0, host.length - 1) : host;
-      host = `${host}/api`;
 
-      let config = {
-        ...api.createConfiguration({
-          baseServer: new api.ServerConfiguration(host, {}),
-        }),
+      const config = {
+        token: "",
+        server: host,
         workspace_id: workspace,
       };
 
       let final_token: string;
       if (!token) {
         if (email && password) {
-          final_token = await login(config, email, password);
+          final_token = await login(email, password);
         } else {
           console.error("Token or email with password are required.");
           return;
@@ -195,21 +193,8 @@ await new Command()
         final_token = token;
       }
 
-      config = {
-        ...api.createConfiguration({
-          baseServer: config.baseServer,
-          authMethods: {
-            bearerAuth: {
-              tokenProvider: {
-                getToken() {
-                  return final_token;
-                },
-              },
-            },
-          },
-        }),
-        workspace_id: config.workspace_id,
-      };
+      config.token = final_token;
+      windmill.setClient(final_token, host);
 
       const per_worker_throughput = maximumThroughput / num_workers;
       const shared_config = {
@@ -230,19 +215,21 @@ await new Command()
 
       let start: number | undefined = undefined;
 
-      let jobSent = Array(num_workers).fill(0);
+      const jobsSent = Array(num_workers).fill(0);
       const enc = (s: string) => new TextEncoder().encode(s);
 
-      const i = setInterval(async () => {
+      const updateState = setInterval(async () => {
         const elapsed = start ? Math.ceil((Date.now() - start) / 1000) : 0;
-        await Deno.stdout.write(enc(`elapsed: ${elapsed}/${seconds} | jobs sent: ${JSON.stringify(jobSent)}\r`))
+        const sum = jobsSent.reduce((a, b) => a + b, 0)
+        const queue_length = (await windmill.JobService.listQueue({ workspace: config.workspace_id })).length
+        await Deno.stdout.write(enc(`elapsed: ${elapsed}/${seconds} | jobs sent: ${JSON.stringify(jobsSent)} (sum: ${sum}) | queue: ${queue_length}                   \r`))
       }, 100);
 
       workers.forEach((worker, i) => {
         worker.postMessage({ ...shared_config, i });
         worker.addEventListener("message", (evt: MessageEvent<any>) => {
           if (evt.data.type === "jobs_sent") {
-            jobSent[i] = evt.data.jobs_sent
+            jobsSent[i] = evt.data.jobs_sent
           }
         })
       });
@@ -250,14 +237,17 @@ await new Command()
 
       await sleep(seconds);
 
-      clearInterval(i);
-      await Deno.stdout.write(enc(`                                  \rduration: ${seconds} | jobs sent: ${JSON.stringify(jobSent)}\n`));
+      clearInterval(updateState);
+
+      await Deno.stdout.write(enc(" ".padStart(30) + `\rduration: ${seconds} | jobs sent: ${JSON.stringify(jobsSent)}\n`));
 
       let zombie_jobs = 0;
+      let incorrect_results = 0;
       workers.forEach((worker) => {
         const l = (evt: MessageEvent<any>) => {
           if (evt.data.type === "zombie_jobs") {
             zombie_jobs += evt.data.zombie_jobs;
+            incorrect_results += evt.data.incorrect_results;
             worker.removeEventListener("message", l);
             workers = workers.filter((w) => w != worker);
             worker.terminate();
@@ -275,6 +265,8 @@ await new Command()
       }
 
       console.log("zombie jobs: ", zombie_jobs);
+      console.log("incorrect results: ", incorrect_results);
+      console.log("queue length:", (await windmill.JobService.listQueue({ workspace: config.workspace_id })).length)
 
       metrics_worker.postMessage("stop");
       console.log("waiting for metrics");
