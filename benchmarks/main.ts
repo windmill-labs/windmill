@@ -85,6 +85,13 @@ await new Command()
   )
   .option("--use-flows", "Run flows instead of jobs.")
   .option(
+    "--zombie-timeout",
+    "The maximum time in ms to wait for jobs to complete.",
+    {
+      default: 90000,
+    }
+  )
+  .option(
     "--histogram-buckets [buckets...:string]",
     "Define what buckets to collect from histograms.",
     {
@@ -122,6 +129,7 @@ await new Command()
       histogramBuckets,
       maximumThroughput,
       useFlows,
+      zombieTimeout,
     }) => {
       const metrics_worker = new Worker(
         new URL("./scraper.ts", import.meta.url).href,
@@ -210,20 +218,26 @@ await new Command()
 
       await sleep(seconds);
 
+      let zombie_jobs = 0;
       workers.forEach((worker) => {
-        const l = (_ev: MessageEvent<any>) => {
+        const l = (evt: MessageEvent<any>) => {
+          zombie_jobs += evt.data;
           worker.removeEventListener("message", l);
           workers = workers.filter((w) => w != worker);
           worker.terminate();
         };
         worker.addEventListener("message", l);
-        worker.postMessage("stop");
+        worker.postMessage(
+          Number.isSafeInteger(zombieTimeout) ? zombieTimeout : 90000
+        );
       });
 
       console.log("waiting for shutdown");
       while (workers.length > 0) {
         await sleep(0.1);
       }
+
+      console.log("zombie jobs: ", zombie_jobs);
 
       metrics_worker.postMessage("stop");
       console.log("waiting for metrics");

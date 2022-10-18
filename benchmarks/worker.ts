@@ -41,9 +41,11 @@ const outstanding: string[] = [];
 let cont = true;
 let total_spawned = 0;
 const start_time = Date.now();
+let complete_timeout = Infinity;
 
-self.onmessage = (_evt) => {
+self.onmessage = (evt) => {
   cont = false;
+  complete_timeout = evt.data;
 };
 
 while (cont) {
@@ -98,7 +100,8 @@ while (cont) {
   total_spawned++;
 }
 
-while (outstanding.length > 0) {
+const end_time = Date.now() + complete_timeout;
+while (outstanding.length > 0 && Date.now() < end_time) {
   const uuid = outstanding.shift()!;
   const r = await jobApi.getJob(config.workspace_id, uuid);
   if (r.running) {
@@ -126,4 +129,4 @@ while (outstanding.length > 0) {
   }
 }
 
-self.postMessage("done");
+self.postMessage(outstanding.length);
