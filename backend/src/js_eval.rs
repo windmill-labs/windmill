@@ -301,9 +301,11 @@ async fn op_get_result(args: Vec<String>) -> Result<Option<serde_json::Value>, a
         ))
         .bearer_auth(token)
         .send()
-        .await?
+        .await
+        .map_err(|e| anyhow::anyhow!("error getting result for {id}: {}", e))?
         .json::<Option<serde_json::Value>>()
-        .await?;
+        .await
+        .map_err(|e| anyhow::anyhow!("error getting result for {id}: {}", e))?;
     Ok(result)
 }
 
@@ -322,9 +324,12 @@ async fn op_get_id(args: Vec<String>) -> Result<Option<serde_json::Value>, anyho
         ))
         .bearer_auth(token)
         .send()
-        .await?
+        .await
+        .map_err(|e| anyhow::anyhow!("error getting result for flow {flow_job_id} and node {node_id}: {}", e))?
         .json::<Option<serde_json::Value>>()
-        .await?;
+        .await
+        .map_err(|e| anyhow::anyhow!("error getting result for flow {flow_job_id} and node {node_id}: {}", e))?;
+
     Ok(result)
 }
 
