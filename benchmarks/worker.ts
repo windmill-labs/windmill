@@ -50,7 +50,7 @@ self.onmessage = (evt) => {
 
 
 const updateStatusInterval = setInterval(() => {
-  self.postMessage(total_spawned);
+  self.postMessage({ type: "jobs_sent", jobs_sent: total_spawned });
 }, 100)
 
 
@@ -112,29 +112,21 @@ const end_time = Date.now() + complete_timeout;
 while (outstanding.length > 0 && Date.now() < end_time) {
   const uuid = outstanding.shift()!;
   const r = await jobApi.getJob(config.workspace_id, uuid);
-  if (r.running) {
+  if (r.type == 'QueuedJob') {
     outstanding.push(uuid);
-    continue;
+    console.log(uuid)
   } else if (!config.useFlows) {
     try {
-      let result: string;
-      if (r.result) {
-        result = r.result;
-      } else {
-        const j = await jobApi.getCompletedJob(config.workspace_id, uuid);
-        result = j.result;
-      }
-      if (result != uuid) {
+      if (r.result != uuid) {
         console.log(
-          "job did not return correct UUID: " + result + " != " + uuid
+          "job did not return correct UUID: " + r.result + " != " + uuid
         );
       }
     } catch (e) {
       console.log("error during wait: ", e);
       outstanding.push(uuid);
-      continue;
     }
   }
 }
 
-self.postMessage(outstanding.length);
+self.postMessage({ type: "zombie_jobs", zombie_jobs: outstanding.length });

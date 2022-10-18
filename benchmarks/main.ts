@@ -226,7 +226,9 @@ await new Command()
       workers.forEach((worker, i) => {
         worker.postMessage({ ...shared_config, i });
         worker.addEventListener("message", (evt: MessageEvent<any>) => {
-          jobSent[i] = evt.data
+          if (evt.data.type === "jobs_sent") {
+            jobSent[i] = evt.data.jobs_sent
+          }
         })
       });
       start = Date.now();
@@ -239,10 +241,12 @@ await new Command()
       let zombie_jobs = 0;
       workers.forEach((worker) => {
         const l = (evt: MessageEvent<any>) => {
-          zombie_jobs += evt.data;
-          worker.removeEventListener("message", l);
-          workers = workers.filter((w) => w != worker);
-          worker.terminate();
+          if (evt.data.type === "zombie_jobs") {
+            zombie_jobs += evt.data.zombie_jobs;
+            worker.removeEventListener("message", l);
+            workers = workers.filter((w) => w != worker);
+            worker.terminate();
+          }
         };
         worker.addEventListener("message", l);
         worker.postMessage(
