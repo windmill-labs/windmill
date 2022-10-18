@@ -211,7 +211,7 @@ async function result_by_id(node_id) {{
                 by_id
                     .1
                     .into_iter()
-                    .map(|(k, v)| format!("\"{k}\": {v}"))
+                    .map(|(k, v)| format!("\"{k}\": \"{v}\""))
                     .join(","),
                 by_id.0,
             )
