@@ -7,7 +7,7 @@ use crate::{
     flows::{FlowModule, FlowModuleValue, FlowValue, InputTransform, Retry, Suspend},
     jobs::{
         add_completed_job, add_completed_job_error, delete_job, get_queued_job, push,
-        schedule_again_if_scheduled, script_path_to_payload, JobPayload, QueuedJob,
+        schedule_again_if_scheduled, script_path_to_payload, JobPayload, QueuedJob, RawCode,
     },
     js_eval::{eval_timeout, EvalCreds},
     more_serde::is_default,
