@@ -1652,6 +1652,8 @@ pub async fn add_completed_job(
     .map_err(|e| Error::InternalErr(format!("Could not add completed job {job_id}: {e}")))?;
     let _ = delete_job(db, &queued_job.workspace_id, job_id).await?;
     if !queued_job.is_flow_step
+        && queued_job.job_kind != JobKind::Flow
+        && queued_job.job_kind != JobKind::FlowPreview
         && queued_job.schedule_path.is_some()
         && queued_job.script_path.is_some()
     {
