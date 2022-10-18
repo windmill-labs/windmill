@@ -117,6 +117,10 @@ lazy_static::lazy_static! {
         "Total number of jobs deleted due to their ping timing out in an unrecoverable state."
     )
     .unwrap();
+    static ref WORKER_UPTIME_OPTS: prometheus::Opts = prometheus::opts!(
+        "worker_uptime",
+        "Total number of milliseconds since the worker has started"
+    );
 }
 
 pub async fn run_worker(
@@ -131,6 +135,8 @@ pub async fn run_worker(
     worker_config: WorkerConfig,
     mut rx: tokio::sync::broadcast::Receiver<()>,
 ) {
+    let start_time = Instant::now();
+
     let worker_dir = format!("{TMP_DIR}/{worker_name}");
     tracing::debug!(worker_dir = %worker_dir, worker_name = %worker_name, "Creating worker dir");
 
@@ -159,18 +165,14 @@ pub async fn run_worker(
 
     insert_initial_ping(worker_instance, &worker_name, ip, db).await;
 
-    prometheus::register_int_gauge!(prometheus::Opts::new(
-        "start_time_seconds",
-        "Start time of worker as seconds since unix epoch",
-    )
-    .const_label("name", &worker_name))
-    .expect("register prometheus metric")
-    .set(
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .ok()
-            .map(|duration| duration.as_secs() as i64)
-            .unwrap_or(0),
+    let uptime_metric = prometheus::register_int_counter!(WORKER_UPTIME_OPTS
+        .clone()
+        .const_label("name", &worker_name))
+    .unwrap();
+    uptime_metric.inc_by(
+        ((Instant::now() - start_time).as_millis() - uptime_metric.get() as u128)
+            .try_into()
+            .unwrap(),
     );
 
     let job_duration_seconds = prometheus::register_histogram_vec!(
@@ -231,6 +233,11 @@ pub async fn run_worker(
     let (same_worker_tx, mut same_worker_rx) = mpsc::channel::<Uuid>(5);
 
     loop {
+        uptime_metric.inc_by(
+            ((Instant::now() - start_time).as_millis() - uptime_metric.get() as u128)
+                .try_into()
+                .unwrap(),
+        );
         if last_ping.elapsed().as_secs() > NUM_SECS_ENV_CHECK {
             sqlx::query!(
                 "UPDATE worker_ping SET ping_at = now(), jobs_executed = $1 WHERE worker = $2",
