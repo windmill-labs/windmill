@@ -12,12 +12,14 @@
 	import { runFlowPreview, selectedIdToIndexes } from './flows/utils'
 	import SchemaForm from './SchemaForm.svelte'
 	import FlowStatusViewer from '../components/FlowStatusViewer.svelte'
+	import { ProgressBar, StepKind, type Progress } from './progressBar'
 
 	export let previewMode: 'upTo' | 'whole'
 
 	let jobId: string | undefined = undefined
 	let isValid: boolean = false
 	let isRunning: boolean = false
+	let jobProgress: { steps: Progress; index: number; next?: () => void } = { steps: [], index: 0 }
 
 	const { selectedId, previewArgs } = getContext<FlowEditorContext>('FlowEditorContext')
 
@@ -67,6 +69,8 @@
 	}
 
 	function onJobsLoaded(jobResult: JobResult) {
+		updateJobProgress(jobResult)
+
 		if (jobResult.job?.type === 'CompletedJob') {
 			isRunning = false
 		}
@@ -75,6 +79,34 @@
 				? selectedIdToIndexes($selectedId)[0] + 1
 				: $flowStateStore.modules.length
 		mapJobResultsToFlowState(jobResult, upToIndex)
+	}
+
+	function updateJobProgress(job: JobResult) {
+		if (!job?.innerJobs) return
+
+		let i = 0
+		jobProgress.steps = job.innerJobs.map(({ job: j, loopJobs }) => {
+			if (loopJobs?.length) {
+				const completedLength = loopJobs.filter((j) => j.job?.type === 'CompletedJob').length
+				i += completedLength
+				return new Array(loopJobs.length).fill(StepKind.loopStep)
+			}
+			if (j?.type === 'CompletedJob') {
+				i++
+			}
+			return StepKind.script
+		})
+		const difference = i - jobProgress.index
+		if (difference > 0) {
+			jobProgress.index = i
+
+			if (!jobProgress?.next) {
+				return
+			}
+			for (let j = 0; j < difference; j++) {
+				jobProgress?.next && jobProgress.next()
+			}
+		}
 	}
 </script>
 
@@ -137,7 +169,6 @@
 		<Button
 			variant="contained"
 			endIcon={{ icon: isRunning ? faRefresh : faPlay }}
-			size="lg"
 			color="blue"
 			btnClasses="w-full"
 			disabled={!isValid}
@@ -148,8 +179,17 @@
 	{/if}
 
 	<div class="h-full overflow-y-auto mb-16 grow">
+		{#if jobProgress.steps.length}
+			<ProgressBar steps={jobProgress.steps} bind:next={jobProgress.next} />
+		{/if}
 		{#if jobId}
-			<FlowStatusViewer {jobId} on:jobsLoaded={(e) => onJobsLoaded(e.detail)} />
+			<FlowStatusViewer
+				{jobId}
+				on:jobsLoaded={(e) => {
+					console.log(e.detail)
+					onJobsLoaded(e.detail)
+				}}
+			/>
 		{/if}
 	</div>
 </div>

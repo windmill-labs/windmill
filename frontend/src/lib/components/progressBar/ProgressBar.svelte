@@ -5,7 +5,7 @@
 	import ProgressBarGeneralPart from './ProgressBarGeneralPart.svelte'
 	import ProgressBarLoopPart from './ProgressBarLoopPart.svelte'
 
-	export let steps: Progress = []
+	export let steps: Progress
 	export let startIndex = 0
 	const length = 100 / steps.length
 	const percent = tweened(+(length * startIndex).toFixed(0), {
@@ -16,25 +16,36 @@
 	let loopIndex = 0
 	let isDone = false
 
-	function back() {
+	export function back() {
 		isDone = false
 		if (isLoop(currStep)) {
-			if (loopIndex <= 0) loopIndex = 0
-			else return loopIndex--
+			if (loopIndex <= 0) {
+				loopIndex = 0
+			} else {
+				loopIndex--
+				return
+			}
 		}
 
 		series[currentIndex].isDone = false
 		loopIndex = 0
-		if (currentIndex <= 0) currentIndex = 0
-		else currentIndex--
+		if (currentIndex <= 0) {
+			currentIndex = 0
+		} else {
+			currentIndex--
+		}
 		series[currentIndex].isDone = false
 	}
 
-	function next() {
+	export function next() {
 		if (isLoop(currStep)) {
 			const max = series[currentIndex].kind.length - 1
-			if (loopIndex >= max) loopIndex = max
-			else return loopIndex++
+			if (loopIndex >= max) {
+				loopIndex = max
+			} else {
+				loopIndex++
+				return
+			}
 		}
 
 		series[currentIndex].isDone = true
@@ -42,7 +53,9 @@
 		if (currentIndex >= steps.length - 1) {
 			currentIndex = steps.length - 1
 			isDone = true
-		} else currentIndex++
+		} else {
+			currentIndex++
+		}
 	}
 
 	$: currStep = steps[currentIndex]
