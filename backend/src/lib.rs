@@ -12,7 +12,7 @@ use axum::{handler::Handler, middleware::from_extractor, routing::get, Extension
 use db::DB;
 use futures::FutureExt;
 use git_version::git_version;
-use std::{net::SocketAddr, sync::Arc, time::Duration};
+use std::{net::SocketAddr, sync::Arc};
 use tower::ServiceBuilder;
 use tower_cookies::CookieManagerLayer;
 use tower_http::trace::TraceLayer;
