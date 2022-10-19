@@ -177,7 +177,7 @@ pub async fn run_worker(
 
     let job_duration_seconds = prometheus::register_histogram_vec!(
         prometheus::HistogramOpts::new(
-            "job_duration_seconds",
+            "worker_execution_duration",
             "Duration between receiving a job and completing it",
         )
         .const_label("name", &worker_name),
@@ -186,14 +186,14 @@ pub async fn run_worker(
     .expect("register prometheus metric");
 
     let jobs_failed = prometheus::register_int_counter_vec!(
-        prometheus::Opts::new("jobs_failed", "Number of failed jobs",)
+        prometheus::Opts::new("worker_execution_failed", "Number of failed jobs",)
             .const_label("name", &worker_name),
         &["workspace_id", "language"],
     )
     .expect("register prometheus metric");
 
     let jobs_executed_m = prometheus::register_int_counter_vec!(
-        prometheus::Opts::new("jobs_executed", "Number of executed jobs",)
+        prometheus::Opts::new("worker_execution_count", "Number of executed jobs",)
             .const_label("name", &worker_name),
         &["workspace_id", "language"],
     )
