@@ -1236,17 +1236,17 @@ pub enum JobPayload {
 lazy_static::lazy_static! {
     // TODO: these aren't synced, they should be moved into the queue abstraction once/if that happens.
     static ref JOBS_PUSHED: prometheus::IntCounter = prometheus::register_int_counter!(
-        "jobs_pushed",
+        "queue_push_count",
         "Total number of jobs pushed to the queue."
     )
     .unwrap();
     static ref JOBS_DELETED: prometheus::IntCounter = prometheus::register_int_counter!(
-        "jobs_deleted",
+        "queue_delete_count",
         "Total number of jobs deleted from the queue."
     )
     .unwrap();
     static ref JOBS_PULLED: prometheus::IntCounter = prometheus::register_int_counter!(
-        "jobs_pulled",
+        "queue_pull_count",
         "Total number of jobs pulled from the queue."
     )
     .unwrap();

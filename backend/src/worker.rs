@@ -108,12 +108,12 @@ lazy_static::lazy_static! {
     )
     .unwrap();
     static ref JOBS_ZOMBIE_RESTARTED: prometheus::IntCounter = prometheus::register_int_counter!(
-        "jobs_zombie_restarted",
+        "queue_zombie_restarted_count",
         "Total number of jobs restarted due to ping timeout."
     )
     .unwrap();
     static ref JOBS_ZOMBIE_DELETED: prometheus::IntCounter = prometheus::register_int_counter!(
-        "jobs_zombie_deleted",
+        "queue_zombie_deleted_count",
         "Total number of jobs deleted due to their ping timing out in an unrecoverable state."
     )
     .unwrap();
