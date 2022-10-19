@@ -1718,7 +1718,6 @@ pub async fn pull(db: &DB) -> Result<Option<QueuedJob>, crate::Error> {
               , started_at = coalesce(started_at, now())
               , last_ping = now()
               , suspend_until = null
-              , created_by = '42'
             WHERE id = (
                 SELECT id
                 FROM queue
