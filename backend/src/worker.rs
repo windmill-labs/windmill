@@ -13,10 +13,7 @@ use uuid::Uuid;
 use crate::{
     db::DB,
     error::{self, Error},
-    jobs::{
-        add_completed_job, add_completed_job_error, get_queued_job, postprocess_queued_job, pull,
-        JobKind, QueuedJob,
-    },
+    jobs::{add_completed_job, add_completed_job_error, get_queued_job, pull, JobKind, QueuedJob},
     parser::Typ,
     parser_go::otyp_to_string,
     parser_py,
@@ -264,8 +261,7 @@ pub async fn run_worker(
                 .await
                 .map_err(|_| Error::InternalErr("Impossible to fetch same_worker job".to_string()))
             },
-            job = pull(&db) =>
-                job,
+            job = pull(&db) => job,
         };
 
         match next_job {
@@ -334,6 +330,7 @@ pub async fn run_worker(
                     metrics.clone(),
                     &envs,
                     same_worker_tx.clone(),
+                    &worker_config.base_internal_url,
                 )
                 .await
                 .err()
@@ -347,6 +344,7 @@ pub async fn run_worker(
                         same_worker_tx.clone(),
                         &worker_dir,
                         !worker_config.keep_job_dir,
+                        &worker_config.base_internal_url,
                     )
                     .await;
                 };
@@ -372,6 +370,7 @@ async fn handle_job_error(
     same_worker_tx: Sender<Uuid>,
     worker_dir: &str,
     keep_job_dir: bool,
+    base_internal_url: &str,
 ) {
     let m = add_completed_job_error(
         db,
@@ -383,15 +382,7 @@ async fn handle_job_error(
     .await
     .map(|(_, m)| m)
     .unwrap_or_else(|_| Map::new());
-    let _ = postprocess_queued_job(
-        job.is_flow_step,
-        job.schedule_path.clone(),
-        job.script_path.clone(),
-        &job.workspace_id,
-        job.id,
-        db,
-    )
-    .await;
+
     if let Some(parent_job_id) = job.parent_job {
         let updated_flow = update_flow_status_after_job_completion(
             db,
@@ -403,6 +394,7 @@ async fn handle_job_error(
             same_worker_tx,
             worker_dir,
             keep_job_dir,
+            base_internal_url,
         )
         .await;
         if let Err(err) = updated_flow {
@@ -416,16 +408,6 @@ async fn handle_job_error(
                         format!("Unexpected error during flow job error handling:\n{err}"),
                         err,
                         metrics,
-                    )
-                    .await;
-
-                    let _ = postprocess_queued_job(
-                        parent_job.is_flow_step,
-                        parent_job.schedule_path.clone(),
-                        parent_job.script_path.clone(),
-                        &job.workspace_id,
-                        parent_job.id,
-                        db,
                     )
                     .await;
                 }
@@ -472,14 +454,20 @@ async fn handle_queued_job(
     metrics: Metrics,
     envs: &Envs,
     same_worker_tx: Sender<Uuid>,
+    base_internal_url: &str,
 ) -> crate::error::Result<()> {
-    let job_id = job.id;
-    let w_id = &job.workspace_id.clone();
-
     match job.job_kind {
         JobKind::FlowPreview | JobKind::Flow => {
             let args = job.args.clone().unwrap_or(Value::Null);
-            handle_flow(&job, db, args, same_worker_tx, worker_dir).await?;
+            handle_flow(
+                &job,
+                db,
+                args,
+                same_worker_tx,
+                worker_dir,
+                base_internal_url,
+            )
+            .await?;
         }
         _ => {
             let mut logs = "".to_string();
@@ -535,6 +523,7 @@ async fn handle_queued_job(
                             same_worker_tx.clone(),
                             worker_dir,
                             worker_config.keep_job_dir,
+                            &worker_config.base_internal_url,
                         )
                         .await?;
                     }
@@ -577,21 +566,12 @@ async fn handle_queued_job(
                             same_worker_tx,
                             worker_dir,
                             worker_config.keep_job_dir,
+                            &worker_config.base_internal_url,
                         )
                         .await?;
                     }
                 }
             };
-
-            let _ = postprocess_queued_job(
-                job.is_flow_step,
-                job.schedule_path,
-                job.script_path,
-                &w_id,
-                job_id,
-                db,
-            )
-            .await;
         }
     }
     Ok(())
@@ -2064,6 +2044,7 @@ async fn handle_python_heavy_reqs(
 #[cfg(test)]
 mod tests {
     use futures::Stream;
+    use futures::StreamExt;
     use serde_json::json;
     use sqlx::{postgres::PgListener, query_scalar};
     use uuid::Uuid;
@@ -2179,7 +2160,7 @@ mod tests {
 
         for i in 0..50 {
             println!("deno flow iteration: {}", i);
-            let result = run_job_in_new_worker_until_complete(&db, job.clone()).await;
+            let result = run_job_in_new_worker_until_complete(&db, job.clone(), None).await;
             assert_eq!(result, serde_json::json!([2, 4, 6]), "iteration: {}", i);
         }
     }
@@ -2332,13 +2313,61 @@ mod tests {
 
         let job = JobPayload::RawFlow { value: flow, path: None };
 
-        let result = run_job_in_new_worker_until_complete(&db, job.clone()).await;
+        let result = run_job_in_new_worker_until_complete(&db, job.clone(), None).await;
         assert_eq!(
             result,
             serde_json::json!("false 1,true 1,false 1,true 2,false 1,true 3,false 1,true 3")
         );
     }
 
+    #[sqlx::test(fixtures("base"))]
+    async fn test_flow_result_by_id(db: DB) {
+        initialize_tracing().await;
+
+        let server = ApiServer::start(db.clone()).await;
+        let port = server.addr.port();
+
+        let flow: FlowValue = serde_json::from_value(json!({
+            "modules": [
+                {
+                    "id": "a",
+                    "value": {
+                        "type": "rawscript",
+                        "language": "deno",
+                        "content": "export function main(){ return 42 }",
+                    }
+                },
+                {
+                    "value": {
+                        "branches": [
+                            {
+                                "modules": [{
+                                    "value": {
+                                        "branches": [{"modules": [                {
+                                            "id": "d",
+                                            "value": {
+                                                "input_transforms": {"v": {"type": "javascript", "expr": "result_by_id(\"a\")"}},
+                                                "type": "rawscript",
+                                                "language": "deno",
+                                                "content": "export function main(v){ return v }",
+                                            }
+
+                                        },]}],
+                                        "type": "branchall",
+                                    }
+                                }],
+                            }],
+                            "type": "branchall",
+                        },
+                    }
+            ],
+        }))
+        .unwrap();
+
+        let job = JobPayload::RawFlow { value: flow, path: None };
+        let result = run_job_in_new_worker_until_complete(&db, job.clone(), Some(port)).await;
+        assert_eq!(result, serde_json::json!([[42]]));
+    }
     #[sqlx::test(fixtures("base"))]
     async fn test_stop_after_if(db: DB) {
         initialize_tracing().await;
@@ -2372,13 +2401,13 @@ mod tests {
 
         let result = RunJob::from(job.clone())
             .arg("n", json!(123))
-            .run_until_complete(&db)
+            .run_until_complete(&db, None)
             .await;
         assert_eq!(json!("last step saw 123"), result);
 
         let result = RunJob::from(job.clone())
             .arg("n", json!(-123))
-            .run_until_complete(&db)
+            .run_until_complete(&db, None)
             .await;
         assert_eq!(json!(-123), result);
     }
@@ -2429,6 +2458,7 @@ mod tests {
             let result = run_job_in_new_worker_until_complete(
                 &db,
                 JobPayload::RawFlow { value: flow.clone(), path: None },
+                None,
             )
             .await;
 
@@ -2459,6 +2489,7 @@ mod tests {
             let result = run_job_in_new_worker_until_complete(
                 &db,
                 JobPayload::RawFlow { value: flow.clone(), path: None },
+                None,
             )
             .await;
 
@@ -2486,7 +2517,7 @@ func main(derp string) (string, error) {
             language: ScriptLang::Go,
         }))
         .arg("derp", json!("world"))
-        .run_until_complete(&db)
+        .run_until_complete(&db, None)
         .await;
 
         assert_eq!(result, serde_json::json!("hello world"));
@@ -2504,7 +2535,7 @@ def main():
 
         let job = JobPayload::Code(RawCode { content, path: None, language: ScriptLang::Python3 });
 
-        let result = run_job_in_new_worker_until_complete(&db, job).await;
+        let result = run_job_in_new_worker_until_complete(&db, job, None).await;
 
         assert_eq!(result, serde_json::json!("hello world"));
     }
@@ -2524,7 +2555,7 @@ def main():
 
         let job = JobPayload::Code(RawCode { content, path: None, language: ScriptLang::Python3 });
 
-        let result = run_job_in_new_worker_until_complete(&db, job).await;
+        let result = run_job_in_new_worker_until_complete(&db, job, None).await;
 
         assert_eq!(result, serde_json::json!(3));
     }
@@ -2543,7 +2574,7 @@ def main():
 
         let job = JobPayload::Code(RawCode { content, path: None, language: ScriptLang::Python3 });
 
-        let result = run_job_in_new_worker_until_complete(&db, job).await;
+        let result = run_job_in_new_worker_until_complete(&db, job, None).await;
 
         assert_eq!(result, serde_json::json!("test-workspace"));
     }
@@ -2593,7 +2624,7 @@ def main():
         .unwrap();
 
         let flow = JobPayload::RawFlow { value: flow, path: None };
-        let result = run_job_in_new_worker_until_complete(&db, flow).await;
+        let result = run_job_in_new_worker_until_complete(&db, flow, None).await;
 
         assert_eq!(result, serde_json::json!(0));
     }
@@ -2630,7 +2661,7 @@ def main():
         .unwrap();
 
         let flow = JobPayload::RawFlow { value: flow, path: None };
-        let result = run_job_in_new_worker_until_complete(&db, flow).await;
+        let result = run_job_in_new_worker_until_complete(&db, flow, None).await;
 
         assert_eq!(result, serde_json::json!([]));
     }
@@ -2680,7 +2711,7 @@ def main():
         .unwrap();
 
         let flow = JobPayload::RawFlow { value: flow, path: None };
-        let result = run_job_in_new_worker_until_complete(&db, flow).await;
+        let result = run_job_in_new_worker_until_complete(&db, flow, None).await;
 
         assert_eq!(result, serde_json::json!(9));
     }
@@ -2741,7 +2772,7 @@ def main():
         .unwrap();
 
         let flow = JobPayload::RawFlow { value: flow, path: None };
-        let result = run_job_in_new_worker_until_complete(&db, flow).await;
+        let result = run_job_in_new_worker_until_complete(&db, flow, None).await;
 
         assert_eq!(result, serde_json::json!([1, 2]));
     }
@@ -2772,7 +2803,7 @@ def main():
         .unwrap();
 
         let flow = JobPayload::RawFlow { value: flow, path: None };
-        let result = run_job_in_new_worker_until_complete(&db, flow).await;
+        let result = run_job_in_new_worker_until_complete(&db, flow, None).await;
 
         assert_eq!(result, serde_json::json!([[1, 2], [1, 3]]));
     }
@@ -2803,7 +2834,7 @@ def main():
         .unwrap();
 
         let flow = JobPayload::RawFlow { value: flow, path: None };
-        let result = run_job_in_new_worker_until_complete(&db, flow).await;
+        let result = run_job_in_new_worker_until_complete(&db, flow, None).await;
 
         assert_eq!(
             result,
@@ -2833,7 +2864,7 @@ def main():
         .unwrap();
 
         let flow = JobPayload::RawFlow { value: flow, path: None };
-        let result = run_job_in_new_worker_until_complete(&db, flow).await;
+        let result = run_job_in_new_worker_until_complete(&db, flow, None).await;
 
         assert_eq!(
             result,
@@ -2887,7 +2918,7 @@ def main():
         .unwrap();
 
         let flow = JobPayload::RawFlow { value: flow, path: None };
-        let result = run_job_in_new_worker_until_complete(&db, flow).await;
+        let result = run_job_in_new_worker_until_complete(&db, flow, None).await;
 
         assert_eq!(result, serde_json::json!([1, 2, 3]));
     }
@@ -2935,7 +2966,7 @@ def main():
         .unwrap();
 
         let flow = JobPayload::RawFlow { value: flow, path: None };
-        let result = run_job_in_new_worker_until_complete(&db, flow).await;
+        let result = run_job_in_new_worker_until_complete(&db, flow, None).await;
 
         assert_eq!(
             result,
@@ -2992,7 +3023,7 @@ def main():
 
         let result = RunJob::from(JobPayload::RawFlow { value: flow.clone(), path: None })
             .arg("n", json!(0))
-            .run_until_complete(&db)
+            .run_until_complete(&db, None)
             .await;
         assert!(result["from failure module"]["error"]
             .as_str()
@@ -3001,7 +3032,7 @@ def main():
 
         let result = RunJob::from(JobPayload::RawFlow { value: flow.clone(), path: None })
             .arg("n", json!(1))
-            .run_until_complete(&db)
+            .run_until_complete(&db, None)
             .await;
         assert!(result["from failure module"]["error"]
             .as_str()
@@ -3010,7 +3041,7 @@ def main():
 
         let result = RunJob::from(JobPayload::RawFlow { value: flow.clone(), path: None })
             .arg("n", json!(2))
-            .run_until_complete(&db)
+            .run_until_complete(&db, None)
             .await;
         assert!(result["from failure module"]["error"]
             .as_str()
@@ -3019,52 +3050,48 @@ def main():
 
         let result = RunJob::from(JobPayload::RawFlow { value: flow.clone(), path: None })
             .arg("n", json!(3))
-            .run_until_complete(&db)
+            .run_until_complete(&db, None)
             .await;
         assert_eq!(json!({ "l": [0, 1, 2] }), result);
     }
 
+    pub struct ApiServer {
+        pub addr: std::net::SocketAddr,
+        tx: tokio::sync::broadcast::Sender<()>,
+        task: tokio::task::JoinHandle<anyhow::Result<()>>,
+    }
+
+    impl ApiServer {
+        pub async fn start(db: DB) -> Self {
+            let (tx, rx) = tokio::sync::broadcast::channel::<()>(1);
+
+            let sock = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+
+            let addr = sock.local_addr().unwrap();
+            drop(sock);
+
+            let task = tokio::task::spawn({
+                crate::run_server(
+                    db.clone(),
+                    addr,
+                    format!("http://localhost:{}", addr.port()),
+                    rx,
+                )
+            });
+
+            return Self { addr, tx, task };
+        }
+
+        async fn close(self) -> anyhow::Result<()> {
+            let Self { tx, task, .. } = self;
+            drop(tx);
+            task.await.unwrap()
+        }
+    }
+
     mod suspend_resume {
 
-        use crate::jobs::get_job_by_id;
-
         use super::*;
-
-        use futures::{Stream, StreamExt};
-
-        struct ApiServer {
-            addr: std::net::SocketAddr,
-            tx: tokio::sync::broadcast::Sender<()>,
-            task: tokio::task::JoinHandle<anyhow::Result<()>>,
-        }
-
-        impl ApiServer {
-            async fn start(db: DB) -> Self {
-                let (tx, rx) = tokio::sync::broadcast::channel::<()>(1);
-
-                let sock = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-
-                let addr = sock.local_addr().unwrap();
-                drop(sock);
-
-                let task = tokio::task::spawn({
-                    crate::run_server(
-                        db.clone(),
-                        addr,
-                        format!("http://localhost:{}", addr.port()),
-                        rx,
-                    )
-                });
-
-                return Self { addr, tx, task };
-            }
-
-            async fn close(self) -> anyhow::Result<()> {
-                let Self { tx, task, .. } = self;
-                drop(tx);
-                task.await.unwrap()
-            }
-        }
 
         async fn wait_until_flow_suspends(
             flow: Uuid,
@@ -3087,7 +3114,7 @@ def main():
         async fn _print_job(id: Uuid, db: &DB) -> Result<(), anyhow::Error> {
             tracing::info!(
                 "{:#?}",
-                get_job_by_id(db.begin().await?, "test-workspace", id)
+                crate::jobs::get_job_by_id(db.begin().await?, "test-workspace", id)
                     .await?
                     .0
             );
@@ -3215,7 +3242,7 @@ def main():
                 .unwrap();
 
                 completed.find(&flow).await.unwrap();
-            })
+            }, None)
             .await;
 
             server.close().await.unwrap();
@@ -3256,7 +3283,7 @@ def main():
                 .arg("n", json!(1))
                 .arg("op", json!("cancel"))
                 .arg("port", json!(port))
-                .run_until_complete(&db)
+                .run_until_complete(&db, None)
                 .await;
 
             server.close().await.unwrap();
@@ -3311,7 +3338,7 @@ def main():
                 .unwrap();
 
                 completed.find(&flow).await.unwrap();
-            })
+            }, None)
             .await;
 
             server.close().await.unwrap();
@@ -3459,7 +3486,7 @@ def main(last, port):
                 RunJob::from(JobPayload::RawFlow { value: flow_forloop_retry(), path: None })
                     .arg("items", json!(["unused", "unused", "unused"]))
                     .arg("port", json!(server.addr.port()))
-                    .run_until_complete(&db)
+                    .run_until_complete(&db, None)
                     .await;
 
             assert_eq!(server.close().await, attempts);
@@ -3487,7 +3514,7 @@ def main(last, port):
                 RunJob::from(JobPayload::RawFlow { value: flow_forloop_retry(), path: None })
                     .arg("items", json!(["unused", "unused", "unused"]))
                     .arg("port", json!(server.addr.port()))
-                    .run_until_complete(&db)
+                    .run_until_complete(&db, None)
                     .await;
 
             assert_eq!(server.close().await, attempts);
@@ -3520,7 +3547,7 @@ def main(last, port):
                 RunJob::from(JobPayload::RawFlow { value: flow_forloop_retry(), path: None })
                     .arg("items", json!(["unused", "unused", "unused"]))
                     .arg("port", json!(server.addr.port()))
-                    .run_until_complete(&db)
+                    .run_until_complete(&db, None)
                     .await;
 
             assert_eq!(server.close().await, attempts);
@@ -3575,7 +3602,7 @@ def main(error, port):
             let server = Server::start(responses).await;
             let result = RunJob::from(JobPayload::RawFlow { value, path: None })
                 .arg("port", json!(server.addr.port()))
-                .run_until_complete(&db)
+                .run_until_complete(&db, None)
                 .await;
 
             assert_eq!(server.close().await, attempts);
@@ -3621,14 +3648,14 @@ def main(error, port):
 
         let result = RunJob::from(JobPayload::RawFlow { value: flow.clone(), path: None })
             .arg("items", json!([]))
-            .run_until_complete(&db)
+            .run_until_complete(&db, None)
             .await;
         assert_eq!(result, serde_json::json!([]));
 
         /* Don't actually test that this does 257 jobs or that will take forever. */
         let result = RunJob::from(JobPayload::RawFlow { value: flow.clone(), path: None })
             .arg("items", json!((0..257).collect::<Vec<_>>()))
-            .run_until_complete(&db)
+            .run_until_complete(&db, None)
             .await;
         assert!(matches!(result, Value::Object(_)));
         assert!(result["error"]
@@ -3656,9 +3683,9 @@ def main(error, port):
 
         async fn push(self, db: &DB) -> Uuid {
             let RunJob { payload, args } = self;
-
+            let tx = db.begin().await.unwrap();
             let (uuid, tx) = push(
-                db.begin().await.unwrap(),
+                tx,
                 "test-workspace",
                 payload,
                 Some(args),
@@ -3679,16 +3706,20 @@ def main(error, port):
         }
 
         /// push the job, spawn a worker, wait until the job is in completed_job
-        async fn run_until_complete(self, db: &DB) -> serde_json::Value {
+        async fn run_until_complete(self, db: &DB, port: Option<u16>) -> serde_json::Value {
             let uuid = self.push(db).await;
             let listener = listen_for_completed_jobs(db).await;
-            in_test_worker(db, listener.find(&uuid)).await;
+            in_test_worker(db, listener.find(&uuid), port).await;
             completed_job_result(uuid, db).await
         }
     }
 
-    async fn run_job_in_new_worker_until_complete(db: &DB, job: JobPayload) -> serde_json::Value {
-        RunJob::from(job).run_until_complete(db).await
+    async fn run_job_in_new_worker_until_complete(
+        db: &DB,
+        job: JobPayload,
+        port: Option<u16>,
+    ) -> serde_json::Value {
+        RunJob::from(job).run_until_complete(db, port).await
     }
 
     /// Start a worker with a timeout and run a future, until the worker quits or we time out.
@@ -3697,8 +3728,9 @@ def main(error, port):
     async fn in_test_worker<Fut: std::future::Future>(
         db: &DB,
         inner: Fut,
+        port: Option<u16>,
     ) -> <Fut as std::future::Future>::Output {
-        let (quit, worker) = spawn_test_worker(db);
+        let (quit, worker) = spawn_test_worker(db, port);
         let worker = tokio::time::timeout(std::time::Duration::from_secs(19), worker);
         tokio::pin!(worker);
 
@@ -3725,6 +3757,7 @@ def main(error, port):
 
     fn spawn_test_worker(
         db: &DB,
+        port: Option<u16>,
     ) -> (
         tokio::sync::broadcast::Sender<()>,
         tokio::task::JoinHandle<()>,
@@ -3738,9 +3771,10 @@ def main(error, port):
         let num_workers: u64 = 2;
         let ip: &str = Default::default();
         let sleep_queue: u64 = DEFAULT_SLEEP_QUEUE / num_workers;
+        let port = port.unwrap_or(8000);
         let worker_config = WorkerConfig {
-            base_internal_url: String::new(),
-            base_url: String::new(),
+            base_internal_url: format!("http://localhost:{port}"),
+            base_url: format!("http://localhost:{port}"),
             disable_nuser: std::env::var("DISABLE_NUSER")
                 .ok()
                 .and_then(|x| x.parse::<bool>().ok())

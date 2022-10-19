@@ -25,7 +25,7 @@ use axum::{
 use chrono::{DateTime, Duration, FixedOffset};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
-use sqlx::{FromRow, Postgres, Transaction};
+use sqlx::{query_scalar, FromRow, Postgres, Transaction};
 
 pub fn workspaced_service() -> Router {
     Router::new()
@@ -83,6 +83,20 @@ pub async fn push_scheduled_job<'c>(
         .expect("a schedule should have a next event")
         + offset;
 
+    let already_exists: bool = query_scalar!(
+        "SELECT EXISTS (SELECT 1 FROM queue WHERE workspace_id = $1 AND schedule_path = $2 AND scheduled_for = $3)",
+        &schedule.workspace_id,
+        &schedule.path,
+        next
+    )
+    .fetch_one(&mut tx)
+    .await?
+    .unwrap_or(false);
+
+    if already_exists {
+        return Ok(tx);
+    }
+
     let mut args: Option<Map<String, Value>> = None;
 
     if let Some(args_v) = schedule.args {
@@ -108,6 +122,7 @@ pub async fn push_scheduled_job<'c>(
             path: schedule.script_path,
         }
     };
+
     let (_, tx) = push(
         tx,
         &schedule.workspace_id,
@@ -173,11 +188,9 @@ async fn create_schedule(
     )
     .await?;
 
-    let tx = if ns.enabled.unwrap_or(true) {
-        push_scheduled_job(tx, schedule).await?
-    } else {
-        tx
-    };
+    if ns.enabled.unwrap_or(true) {
+        tx = push_scheduled_job(tx, schedule).await?
+    }
     tx.commit().await?;
 
     Ok(ns.path.to_string())
