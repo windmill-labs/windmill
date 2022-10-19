@@ -86,7 +86,7 @@ const GO_REQ_SPLITTER: &str = "//go.sum";
 
 #[derive(Clone)]
 pub struct Metrics {
-    pub jobs_failed: prometheus::IntCounter,
+    pub worker_execution_failed: prometheus::IntCounter,
 }
 
 #[derive(Clone)]
@@ -96,6 +96,28 @@ pub struct WorkerConfig {
     pub disable_nuser: bool,
     pub disable_nsjail: bool,
     pub keep_job_dir: bool,
+}
+
+lazy_static::lazy_static! {
+    static ref WORKER_STARTED: prometheus::IntGauge = prometheus::register_int_gauge!(
+        "worker_started",
+        "Total number of workers started."
+    )
+    .unwrap();
+    static ref QUEUE_ZOMBIE_RESTART_COUNT: prometheus::IntCounter = prometheus::register_int_counter!(
+        "queue_zombie_restart_count",
+        "Total number of jobs restarted due to ping timeout."
+    )
+    .unwrap();
+    static ref QUEUE_ZOMBIE_DELETE_COUNT: prometheus::IntCounter = prometheus::register_int_counter!(
+        "queue_zombie_delete_count",
+        "Total number of jobs deleted due to their ping timing out in an unrecoverable state."
+    )
+    .unwrap();
+    static ref WORKER_UPTIME_OPTS: prometheus::Opts = prometheus::opts!(
+        "worker_uptime",
+        "Total number of milliseconds since the worker has started"
+    );
 }
 
 pub async fn run_worker(
@@ -110,6 +132,8 @@ pub async fn run_worker(
     worker_config: WorkerConfig,
     mut rx: tokio::sync::broadcast::Receiver<()>,
 ) {
+    let start_time = Instant::now();
+
     let worker_dir = format!("{TMP_DIR}/{worker_name}");
     tracing::debug!(worker_dir = %worker_dir, worker_name = %worker_name, "Creating worker dir");
 
@@ -138,23 +162,19 @@ pub async fn run_worker(
 
     insert_initial_ping(worker_instance, &worker_name, ip, db).await;
 
-    prometheus::register_int_gauge!(prometheus::Opts::new(
-        "start_time_seconds",
-        "Start time of worker as seconds since unix epoch",
-    )
-    .const_label("name", &worker_name))
-    .expect("register prometheus metric")
-    .set(
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .ok()
-            .map(|duration| duration.as_secs() as i64)
-            .unwrap_or(0),
+    let uptime_metric = prometheus::register_int_counter!(WORKER_UPTIME_OPTS
+        .clone()
+        .const_label("name", &worker_name))
+    .unwrap();
+    uptime_metric.inc_by(
+        ((Instant::now() - start_time).as_millis() - uptime_metric.get() as u128)
+            .try_into()
+            .unwrap(),
     );
 
-    let job_duration_seconds = prometheus::register_histogram_vec!(
+    let worker_execution_duration = prometheus::register_histogram_vec!(
         prometheus::HistogramOpts::new(
-            "job_duration_seconds",
+            "worker_execution_duration",
             "Duration between receiving a job and completing it",
         )
         .const_label("name", &worker_name),
@@ -162,8 +182,15 @@ pub async fn run_worker(
     )
     .expect("register prometheus metric");
 
-    let jobs_failed = prometheus::register_int_counter_vec!(
-        prometheus::Opts::new("jobs_failed", "Number of failed jobs",)
+    let worker_execution_failed = prometheus::register_int_counter_vec!(
+        prometheus::Opts::new("worker_execution_failed", "Number of failed jobs",)
+            .const_label("name", &worker_name),
+        &["workspace_id", "language"],
+    )
+    .expect("register prometheus metric");
+
+    let worker_execution_count = prometheus::register_int_counter_vec!(
+        prometheus::Opts::new("worker_execution_count", "Number of executed jobs",)
             .const_label("name", &worker_name),
         &["workspace_id", "language"],
     )
@@ -198,10 +225,16 @@ pub async fn run_worker(
         pip_extra_index_url,
         pip_trusted_host,
     };
+    WORKER_STARTED.inc();
 
     let (same_worker_tx, mut same_worker_rx) = mpsc::channel::<Uuid>(5);
 
     loop {
+        uptime_metric.inc_by(
+            ((Instant::now() - start_time).as_millis() - uptime_metric.get() as u128)
+                .try_into()
+                .unwrap(),
+        );
         if last_ping.elapsed().as_secs() > NUM_SECS_ENV_CHECK {
             sqlx::query!(
                 "UPDATE worker_ping SET ping_at = now(), jobs_executed = $1 WHERE worker = $2",
@@ -238,14 +271,19 @@ pub async fn run_worker(
                     job.language.as_ref().map(|l| l.as_str()).unwrap_or(""),
                 ];
 
-                let _timer = job_duration_seconds
+                let _timer = worker_execution_duration
                     .with_label_values(label_values.as_slice())
                     .start_timer();
 
                 jobs_executed += 1;
+                worker_execution_count
+                    .with_label_values(label_values.as_slice())
+                    .inc();
 
-                let metrics =
-                    Metrics { jobs_failed: jobs_failed.with_label_values(label_values.as_slice()) };
+                let metrics = Metrics {
+                    worker_execution_failed: worker_execution_failed
+                        .with_label_values(label_values.as_slice()),
+                };
 
                 tracing::info!(worker = %worker_name, id = %job.id, "fetched job {}", job.id);
 
@@ -1885,7 +1923,20 @@ pub async fn handle_zombie_jobs_periodically(
     mut rx: tokio::sync::broadcast::Receiver<()>,
 ) {
     loop {
-        let restarted = sqlx::query!(
+        handle_zombie_jobs(db, timeout).await;
+
+        tokio::select! {
+            _ = tokio::time::sleep(Duration::from_secs(60))    => (),
+            _ = rx.recv() => {
+                    println!("received killpill for monitor job");
+                    break;
+            }
+        }
+    }
+}
+
+async fn handle_zombie_jobs(db: &DB, timeout: i32) {
+    let restarted = sqlx::query!(
             "UPDATE queue SET running = false WHERE last_ping < now() - ($1 || ' seconds')::interval AND running = true AND job_kind != $2 AND same_worker = false RETURNING id, workspace_id, last_ping",
             (timeout * 5).to_string(),
             JobKind::Flow: JobKind,
@@ -1895,16 +1946,17 @@ pub async fn handle_zombie_jobs_periodically(
         .ok()
         .unwrap_or_else(|| vec![]);
 
-        for r in restarted {
-            tracing::info!(
-                "restarted zombie job {} {} {}",
-                r.id,
-                r.workspace_id,
-                r.last_ping
-            );
-        }
+    QUEUE_ZOMBIE_RESTART_COUNT.inc_by(restarted.len() as _);
+    for r in restarted {
+        tracing::info!(
+            "restarted zombie job {} {} {}",
+            r.id,
+            r.workspace_id,
+            r.last_ping
+        );
+    }
 
-        let timeouts = sqlx::query_as::<_, QueuedJob>(
+    let timeouts = sqlx::query_as::<_, QueuedJob>(
             "SELECT * FROM queue WHERE last_ping < now() - ($1 || ' seconds')::interval AND running = true AND job_kind != $2 AND same_worker = true",
         )
         .bind((timeout * 5).to_string())
@@ -1914,38 +1966,30 @@ pub async fn handle_zombie_jobs_periodically(
         .ok()
         .unwrap_or_else(|| vec![]);
 
-        for job in timeouts {
-            tracing::info!(
-                "timedouts zombie same_worker job {} {}",
-                job.id,
-                job.workspace_id,
-            );
+    QUEUE_ZOMBIE_DELETE_COUNT.inc_by(timeouts.len() as _);
+    for job in timeouts {
+        tracing::info!(
+            "timedouts zombie same_worker job {} {}",
+            job.id,
+            job.workspace_id,
+        );
 
-            // since the job is unrecoverable, the same worker queue should never be sent anything
-            let (same_worker_tx_never_used, _same_worker_rx_never_used) = mpsc::channel::<Uuid>(1);
+        // since the job is unrecoverable, the same worker queue should never be sent anything
+        let (same_worker_tx_never_used, _same_worker_rx_never_used) = mpsc::channel::<Uuid>(1);
 
-            let _ = handle_job_error(
-                db,
-                job,
-                error::Error::ExecutionErr("Same worker job timed out".to_string()),
-                None,
-                true,
-                same_worker_tx_never_used,
-                "",
-                true,
-                &std::env::var("BASE_INTERNAL_URL")
-                    .unwrap_or_else(|_| "http://localhost:8000".to_string()),
-            )
-            .await;
-        }
-
-        tokio::select! {
-            _ = tokio::time::sleep(Duration::from_secs(60))    => (),
-            _ = rx.recv() => {
-                    println!("received killpill for monitor job");
-                    break;
-            }
-        }
+        let _ = handle_job_error(
+            db,
+            job,
+            error::Error::ExecutionErr("Same worker job timed out".to_string()),
+            None,
+            true,
+            same_worker_tx_never_used,
+            "",
+            true,
+            &std::env::var("BASE_INTERNAL_URL")
+                .unwrap_or_else(|_| "http://localhost:8000".to_string()),
+        )
+        .await;
     }
 }
 

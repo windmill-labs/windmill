@@ -1315,6 +1315,25 @@ pub enum JobPayload {
     RawFlow { value: FlowValue, path: Option<String> },
 }
 
+lazy_static::lazy_static! {
+    // TODO: these aren't synced, they should be moved into the queue abstraction once/if that happens.
+    static ref QUEUE_PUSH_COUNT: prometheus::IntCounter = prometheus::register_int_counter!(
+        "queue_push_count",
+        "Total number of jobs pushed to the queue."
+    )
+    .unwrap();
+    static ref QUEUE_DELETE_COUNT: prometheus::IntCounter = prometheus::register_int_counter!(
+        "queue_delete_count",
+        "Total number of jobs deleted from the queue."
+    )
+    .unwrap();
+    static ref QUEUE_PULL_COUNT: prometheus::IntCounter = prometheus::register_int_counter!(
+        "queue_pull_count",
+        "Total number of jobs pulled from the queue."
+    )
+    .unwrap();
+}
+
 #[instrument(level = "trace", skip_all)]
 pub async fn push<'c>(
     mut tx: Transaction<'c, Postgres>,
@@ -1533,6 +1552,8 @@ pub async fn push<'c>(
     .fetch_one(&mut tx)
     .await
     .map_err(|e| Error::InternalErr(format!("Could not insert into queue {job_id}: {e}")))?;
+    // TODO: technically the job isn't queued yet, as the transaction can be rolled back. Should be solved when moving these metrics to the queue abstraction.
+    QUEUE_PUSH_COUNT.inc();
 
     {
         let uuid_string = job_id.to_string();
@@ -1575,7 +1596,7 @@ pub async fn add_completed_job_error<E: ToString + std::fmt::Debug>(
     e: E,
     metrics: Option<worker::Metrics>,
 ) -> Result<(Uuid, Map<String, Value>), Error> {
-    metrics.map(|m| m.jobs_failed.inc());
+    metrics.map(|m| m.worker_execution_failed.inc());
     let mut output_map = serde_json::Map::new();
     output_map.insert(
         "error".to_string(),
@@ -1734,11 +1755,17 @@ pub async fn pull(db: &DB) -> Result<Option<QueuedJob>, crate::Error> {
     )
     .fetch_optional(db)
     .await?;
+    
+    if job.is_some() {
+        QUEUE_PULL_COUNT.inc();
+    }
+    
     Ok(job)
 }
 
 #[instrument(level = "trace", skip_all)]
 pub async fn delete_job(db: &DB, w_id: &str, job_id: Uuid) -> Result<(), crate::Error> {
+    QUEUE_DELETE_COUNT.inc();
     let job_removed = sqlx::query_scalar!(
         "DELETE FROM queue WHERE workspace_id = $1 AND id = $2 RETURNING 1",
         w_id,
