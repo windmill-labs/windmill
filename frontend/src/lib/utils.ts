@@ -548,7 +548,10 @@ export function scriptToHubUrl(
 	content: string,
 	summary: string,
 	description: string,
-	kind: Script.kind
+	kind: Script.kind,
+	language: Script.language,
+	schema: Schema | undefined,
+	lock: string | undefined
 ): URL {
 	const url = new URL('https://hub.windmill.dev/scripts/add')
 
@@ -556,6 +559,9 @@ export function scriptToHubUrl(
 	url.searchParams.append('summary', summary)
 	url.searchParams.append('description', description)
 	url.searchParams.append('kind', kind)
+	url.searchParams.append('language', language)
+	url.searchParams.append('schema', JSON.stringify(schema, null, 2))
+	lock && url.searchParams.append('lockfile', lock)
 
 	return url
 }
