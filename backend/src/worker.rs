@@ -89,7 +89,7 @@ const GO_REQ_SPLITTER: &str = "//go.sum";
 
 #[derive(Clone)]
 pub struct Metrics {
-    pub jobs_failed: prometheus::IntCounter,
+    pub worker_execution_failed: prometheus::IntCounter,
 }
 
 #[derive(Clone)]
@@ -185,7 +185,7 @@ pub async fn run_worker(
     )
     .expect("register prometheus metric");
 
-    let jobs_failed = prometheus::register_int_counter_vec!(
+    let worker_execution_failed = prometheus::register_int_counter_vec!(
         prometheus::Opts::new("worker_execution_failed", "Number of failed jobs",)
             .const_label("name", &worker_name),
         &["workspace_id", "language"],
@@ -284,8 +284,10 @@ pub async fn run_worker(
                     .with_label_values(label_values.as_slice())
                     .inc();
 
-                let metrics =
-                    Metrics { jobs_failed: jobs_failed.with_label_values(label_values.as_slice()) };
+                let metrics = Metrics {
+                    worker_execution_failed: worker_execution_failed
+                        .with_label_values(label_values.as_slice()),
+                };
 
                 tracing::info!(worker = %worker_name, id = %job.id, "fetched job {}", job.id);
 
