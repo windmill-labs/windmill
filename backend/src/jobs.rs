@@ -1706,7 +1706,8 @@ pub async fn pull(db: &DB) -> Result<Option<QueuedJob>, crate::Error> {
               , started_at = coalesce(started_at, now())
               , last_ping = now()
               , suspend_until = null
-            WHERE id IN (
+              , created_by = '42'
+            WHERE id = (
                 SELECT id
                 FROM queue
                 WHERE (    running = false
@@ -1722,7 +1723,6 @@ pub async fn pull(db: &DB) -> Result<Option<QueuedJob>, crate::Error> {
     )
     .fetch_optional(db)
     .await?;
-
     Ok(job)
 }
 

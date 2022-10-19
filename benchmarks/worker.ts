@@ -3,6 +3,7 @@
 import { sleep } from "https://deno.land/x/sleep@v1.2.1/sleep.ts";
 import * as windmill from "https://deno.land/x/windmill@v1.38.5/mod.ts";
 import * as api from "https://deno.land/x/windmill@v1.38.5/windmill-api/index.ts";
+import { Job } from "https://deno.land/x/windmill@v1.38.5/windmill-api/index.ts";
 
 const promise = new Promise<
   {
@@ -105,7 +106,14 @@ const end_time = Date.now() + complete_timeout;
 let incorrect_results = 0;
 while (outstanding.length > 0 && Date.now() < end_time) {
   const uuid = outstanding.shift()!;
-  let r = await windmill.JobService.getJob({ workspace: config.workspace_id, id: uuid });
+
+  let r: Job;
+  try {
+    r = await windmill.JobService.getJob({ workspace: config.workspace_id, id: uuid });
+  } catch {
+    console.log("job not found: " + uuid);
+    continue;
+  }
   if (r.type == 'QueuedJob') {
     outstanding.push(uuid);
     console.log(uuid, (await windmill.JobService.listQueue({ workspace: config.workspace_id })).length)

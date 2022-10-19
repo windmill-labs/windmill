@@ -228,8 +228,7 @@ pub async fn run_worker(
                 .await
                 .map_err(|_| Error::InternalErr("Impossible to fetch same_worker job".to_string()))
             },
-            job = pull(&db) =>
-                job,
+            job = pull(&db) => job,
         };
 
         match next_job {

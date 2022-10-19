@@ -34,9 +34,12 @@ async fn main() -> anyhow::Result<()> {
         .transpose()?
         .flatten();
 
-    let (server_mode, monitor_mode, migrate_db) = (true, true, true);
+    let server_mode = !std::env::var("DISABLE_SERVER")
+        .ok()
+        .and_then(|x| x.parse::<bool>().ok())
+        .unwrap_or(false);
 
-    if migrate_db {
+    if server_mode {
         windmill::migrate_db(&db).await?;
     }
 
@@ -48,7 +51,7 @@ async fn main() -> anyhow::Result<()> {
 
     let base_url = std::env::var("BASE_URL").unwrap_or_else(|_| "http://localhost".to_string());
 
-    if server_mode || monitor_mode || num_workers > 0 {
+    if server_mode || num_workers > 0 {
         let addr = SocketAddr::from(([0, 0, 0, 0], 8000));
 
         let timeout = std::env::var("TIMEOUT")
@@ -109,7 +112,7 @@ async fn main() -> anyhow::Result<()> {
         };
 
         let monitor_f = async {
-            if monitor_mode {
+            if server_mode {
                 windmill::monitor_db(&db, timeout, rx.resubscribe());
             }
             Ok(()) as anyhow::Result<()>
