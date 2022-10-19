@@ -107,13 +107,13 @@ lazy_static::lazy_static! {
         "Total number of workers started."
     )
     .unwrap();
-    static ref JOBS_ZOMBIE_RESTARTED: prometheus::IntCounter = prometheus::register_int_counter!(
-        "queue_zombie_restarted_count",
+    static ref QUEUE_ZOMBIE_RESTART_COUNT: prometheus::IntCounter = prometheus::register_int_counter!(
+        "queue_zombie_restart_count",
         "Total number of jobs restarted due to ping timeout."
     )
     .unwrap();
-    static ref JOBS_ZOMBIE_DELETED: prometheus::IntCounter = prometheus::register_int_counter!(
-        "queue_zombie_deleted_count",
+    static ref QUEUE_ZOMBIE_DELETE_COUNT: prometheus::IntCounter = prometheus::register_int_counter!(
+        "queue_zombie_delete_count",
         "Total number of jobs deleted due to their ping timing out in an unrecoverable state."
     )
     .unwrap();
@@ -175,7 +175,7 @@ pub async fn run_worker(
             .unwrap(),
     );
 
-    let job_duration_seconds = prometheus::register_histogram_vec!(
+    let worker_execution_duration = prometheus::register_histogram_vec!(
         prometheus::HistogramOpts::new(
             "worker_execution_duration",
             "Duration between receiving a job and completing it",
@@ -192,7 +192,7 @@ pub async fn run_worker(
     )
     .expect("register prometheus metric");
 
-    let jobs_executed_m = prometheus::register_int_counter_vec!(
+    let worker_execution_count = prometheus::register_int_counter_vec!(
         prometheus::Opts::new("worker_execution_count", "Number of executed jobs",)
             .const_label("name", &worker_name),
         &["workspace_id", "language"],
@@ -275,12 +275,12 @@ pub async fn run_worker(
                     job.language.as_ref().map(|l| l.as_str()).unwrap_or(""),
                 ];
 
-                let _timer = job_duration_seconds
+                let _timer = worker_execution_duration
                     .with_label_values(label_values.as_slice())
                     .start_timer();
 
                 jobs_executed += 1;
-                jobs_executed_m
+                worker_execution_count
                     .with_label_values(label_values.as_slice())
                     .inc();
 
@@ -1966,7 +1966,7 @@ async fn handle_zombie_jobs(db: &DB, timeout: i32) {
         .ok()
         .unwrap_or_else(|| vec![]);
 
-    JOBS_ZOMBIE_RESTARTED.inc_by(restarted.len() as _);
+    QUEUE_ZOMBIE_RESTART_COUNT.inc_by(restarted.len() as _);
     for r in restarted {
         tracing::info!(
             "restarted zombie job {} {} {}",
@@ -1986,7 +1986,7 @@ async fn handle_zombie_jobs(db: &DB, timeout: i32) {
         .ok()
         .unwrap_or_else(|| vec![]);
 
-    JOBS_ZOMBIE_DELETED.inc_by(timeouts.len() as _);
+    QUEUE_ZOMBIE_DELETE_COUNT.inc_by(timeouts.len() as _);
     for job in timeouts {
         tracing::info!(
             "timedouts zombie same_worker job {} {}",
