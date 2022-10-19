@@ -66,3 +66,5 @@ sqlx = { version = "^0", features = ["offline", "macros", "migrate", "uuid", "js
 dotenv = "^0"
 ulid = { version = "^1", features = ["uuid"] }
 futures = "^0"
+tokio-metrics = "0.1.0"
+lazy_static = "1.4.0"
