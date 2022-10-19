@@ -13,10 +13,7 @@ use uuid::Uuid;
 use crate::{
     db::DB,
     error::{self, Error},
-    jobs::{
-        add_completed_job, add_completed_job_error, get_queued_job, postprocess_queued_job, pull,
-        JobKind, QueuedJob,
-    },
+    jobs::{add_completed_job, add_completed_job_error, get_queued_job, pull, JobKind, QueuedJob},
     parser::Typ,
     parser_go::otyp_to_string,
     parser_py,
@@ -231,8 +228,7 @@ pub async fn run_worker(
                 .await
                 .map_err(|_| Error::InternalErr("Impossible to fetch same_worker job".to_string()))
             },
-            job = pull(&db) =>
-                job,
+            job = pull(&db) => job,
         };
 
         match next_job {
@@ -348,15 +344,7 @@ async fn handle_job_error(
     .await
     .map(|(_, m)| m)
     .unwrap_or_else(|_| Map::new());
-    let _ = postprocess_queued_job(
-        job.is_flow_step,
-        job.schedule_path.clone(),
-        job.script_path.clone(),
-        &job.workspace_id,
-        job.id,
-        db,
-    )
-    .await;
+
     if let Some(parent_job_id) = job.parent_job {
         let updated_flow = update_flow_status_after_job_completion(
             db,
@@ -382,16 +370,6 @@ async fn handle_job_error(
                         format!("Unexpected error during flow job error handling:\n{err}"),
                         err,
                         metrics,
-                    )
-                    .await;
-
-                    let _ = postprocess_queued_job(
-                        parent_job.is_flow_step,
-                        parent_job.schedule_path.clone(),
-                        parent_job.script_path.clone(),
-                        &job.workspace_id,
-                        parent_job.id,
-                        db,
                     )
                     .await;
                 }
@@ -440,9 +418,6 @@ async fn handle_queued_job(
     same_worker_tx: Sender<Uuid>,
     base_internal_url: &str,
 ) -> crate::error::Result<()> {
-    let job_id = job.id;
-    let w_id = &job.workspace_id.clone();
-
     match job.job_kind {
         JobKind::FlowPreview | JobKind::Flow => {
             let args = job.args.clone().unwrap_or(Value::Null);
@@ -559,16 +534,6 @@ async fn handle_queued_job(
                     }
                 }
             };
-
-            let _ = postprocess_queued_job(
-                job.is_flow_step,
-                job.schedule_path,
-                job.script_path,
-                &w_id,
-                job_id,
-                db,
-            )
-            .await;
         }
     }
     Ok(())
@@ -3676,9 +3641,9 @@ def main(error, port):
 
         async fn push(self, db: &DB) -> Uuid {
             let RunJob { payload, args } = self;
-
+            let tx = db.begin().await.unwrap();
             let (uuid, tx) = push(
-                db.begin().await.unwrap(),
+                tx,
                 "test-workspace",
                 payload,
                 Some(args),

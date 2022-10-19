@@ -188,11 +188,9 @@ async fn create_schedule(
     )
     .await?;
 
-    let tx = if ns.enabled.unwrap_or(true) {
-        push_scheduled_job(tx, schedule).await?
-    } else {
-        tx
-    };
+    if ns.enabled.unwrap_or(true) {
+        tx = push_scheduled_job(tx, schedule).await?
+    }
     tx.commit().await?;
 
     Ok(ns.path.to_string())
