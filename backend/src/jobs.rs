@@ -940,7 +940,7 @@ async fn get_job(
 ) -> error::JsonResult<Job> {
     let tx = db.begin().await?;
     let (job_o, tx) = get_job_by_id(tx, &w_id, id).await?;
-    let job = crate::utils::not_found_if_none(job_o, "Completed Job", id.to_string())?;
+    let job = crate::utils::not_found_if_none(job_o, "Job", id.to_string())?;
     tx.commit().await?;
     Ok(Json(job))
 }
