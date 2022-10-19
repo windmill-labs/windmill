@@ -1986,6 +1986,8 @@ async fn handle_zombie_jobs(db: &DB, timeout: i32) {
             same_worker_tx_never_used,
             "",
             true,
+            &std::env::var("BASE_INTERNAL_URL")
+                .unwrap_or_else(|_| "http://localhost:8000".to_string()),
         )
         .await;
     }
