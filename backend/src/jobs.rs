@@ -1030,7 +1030,19 @@ pub async fn get_job_by_id<'c>(
         Some(job) => Some(Job::CompletedJob(job)),
         None => get_queued_job(id, w_id, &mut tx).await?.map(Job::QueuedJob),
     };
-    Ok((job_option, tx))
+    if job_option.is_some() {
+        Ok((job_option, tx))
+    } else {
+        // check if a job had been moved in-between queries
+        let cjob_option = sqlx::query_as::<_, CompletedJob>(
+            "SELECT * FROM completed_job WHERE id = $1 AND workspace_id = $2",
+        )
+        .bind(id)
+        .bind(w_id)
+        .fetch_optional(&mut tx)
+        .await?;
+        Ok((cjob_option.map(Job::CompletedJob), tx))
+    }
 }
 
 pub async fn get_queued_job<'c>(
