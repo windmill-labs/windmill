@@ -1312,6 +1312,7 @@ fn gen_token() -> String {
     token
 }
 
+#[tracing::instrument(level = "trace", skip_all)]
 pub async fn create_token_for_owner(
     db: &DB,
     w_id: &str,

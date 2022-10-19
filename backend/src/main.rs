@@ -9,13 +9,24 @@
 use std::net::SocketAddr;
 
 use dotenv::dotenv;
+use tracing_flame::FlameLayer;
+use tracing_subscriber::{prelude::__tracing_subscriber_SubscriberExt, util::SubscriberInitExt};
 use windmill::WorkerConfig;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     dotenv().ok();
 
-    windmill::initialize_tracing();
+    // windmill::initialize_tracing();
+
+    let fmt_layer = tracing_subscriber::fmt::layer();
+
+    let (flame_layer, _guard) = FlameLayer::with_file("./tracing.folded").unwrap();
+
+    tracing_subscriber::registry()
+        .with(fmt_layer)
+        .with(flame_layer.with_threads_collapsed(true))
+        .init();
 
     let db = windmill::connect_db().await?;
 
@@ -130,5 +141,6 @@ async fn main() -> anyhow::Result<()> {
         futures::try_join!(shutdown_signal, server_f, workers_f, monitor_f, metrics_f)?;
     }
 
+    drop(_guard);
     Ok(())
 }
