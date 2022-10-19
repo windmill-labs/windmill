@@ -104,6 +104,8 @@ clearInterval(updateStatusInterval);
 
 const end_time = Date.now() + complete_timeout;
 let incorrect_results = 0;
+const enc = (s: string) => new TextEncoder().encode(s);
+
 while (outstanding.length > 0 && Date.now() < end_time) {
   const uuid = outstanding.shift()!;
 
@@ -116,7 +118,8 @@ while (outstanding.length > 0 && Date.now() < end_time) {
   }
   if (r.type == 'QueuedJob') {
     outstanding.push(uuid);
-    console.log(uuid, (await windmill.JobService.listQueue({ workspace: config.workspace_id })).length)
+    await Deno.stdout.write(enc(`uuid: ${uuid}, queue length: ${(await windmill.JobService.listQueue({ workspace: config.workspace_id })).length}                                                    \r`));
+
   } else if (!config.useFlows) {
     r = r as api.CompletedJob;
     try {

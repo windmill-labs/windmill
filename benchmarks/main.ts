@@ -239,8 +239,10 @@ await new Command()
 
       clearInterval(updateState);
 
-      await Deno.stdout.write(enc(" ".padStart(30) + `\rduration: ${seconds} | jobs sent: ${JSON.stringify(jobsSent)}\n`));
+      const sum = jobsSent.reduce((a, b) => a + b, 0)
+      await Deno.stdout.write(enc(" ".padStart(30) + `\rduration: ${seconds} | jobs sent: ${sum}\n`));
 
+      const shutdown_start = Date.now();
       let zombie_jobs = 0;
       let incorrect_results = 0;
       workers.forEach((worker) => {
@@ -263,6 +265,9 @@ await new Command()
       while (workers.length > 0) {
         await sleep(0.1);
       }
+      const tts = (Date.now() - shutdown_start) / 1000;
+      console.log("time to shutdown:", tts);
+      console.log("throughput /s", sum / (seconds + tts));
 
       console.log("zombie jobs: ", zombie_jobs);
       console.log("incorrect results: ", incorrect_results);
