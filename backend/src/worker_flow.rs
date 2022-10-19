@@ -6,7 +6,7 @@ use crate::{
     error::{self, Error},
     flows::{FlowModule, FlowModuleValue, FlowValue, InputTransform, Retry, Suspend},
     jobs::{
-        add_completed_job, add_completed_job_error, delete_job, get_queued_job, push,
+        add_completed_job, add_completed_job_error, get_queued_job, push,
         schedule_again_if_scheduled, script_path_to_payload, JobPayload, QueuedJob, RawCode,
     },
     js_eval::{eval_timeout, EvalCreds, IdContext},
@@ -372,17 +372,21 @@ pub async fn update_flow_status_after_job_completion(
         false => false,
     };
 
-    tx.commit().await?;
-
-    if old_status.step == 0 && !flow_job.is_flow_step {
-        schedule_again_if_scheduled(
-            flow_job.schedule_path.clone(),
-            flow_job.script_path.clone(),
+    if old_status.step == 0
+        && !flow_job.is_flow_step
+        && flow_job.schedule_path.is_some()
+        && flow_job.script_path.is_some()
+    {
+        tx = schedule_again_if_scheduled(
+            tx,
+            flow_job.schedule_path.as_ref().unwrap(),
+            flow_job.script_path.as_ref().unwrap(),
             &w_id,
-            db,
         )
         .await?;
     }
+
+    tx.commit().await?;
 
     let done = if !should_continue_flow {
         let logs = if flow_job.canceled {
@@ -431,8 +435,6 @@ pub async fn update_flow_status_after_job_completion(
     };
 
     if done {
-        let _ = delete_job(db, w_id, flow).await?;
-
         if flow_job.same_worker && !keep_job_dir {
             let _ = tokio::fs::remove_dir_all(format!("{worker_dir}/{}", flow_job.id)).await;
         }
@@ -885,7 +887,6 @@ async fn push_next_flow_job(
                 let result = is_cancelled.unwrap_or(json!({ "error": logs }));
                 let _uuid =
                     add_completed_job(db, &flow_job, success, skipped, result, logs).await?;
-                let _ = delete_job(db, &flow_job.workspace_id, flow_job.id).await?;
 
                 return Ok(());
             }
@@ -1230,7 +1231,6 @@ async fn jump_to_next_step(
         let skipped = false;
         let logs = "Forloop completed without iteration".to_string();
         let _uuid = add_completed_job(db, &new_job, success, skipped, json!([]), logs).await?;
-        let _ = delete_job(db, &new_job.workspace_id, new_job.id).await?;
         return Ok(());
     }
 }

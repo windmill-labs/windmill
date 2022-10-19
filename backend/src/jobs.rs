@@ -1590,6 +1590,7 @@ pub async fn add_completed_job(
     result: serde_json::Value,
     logs: String,
 ) -> Result<Uuid, Error> {
+    let mut tx = db.begin().await?;
     let job_id = queued_job.id.clone();
     sqlx::query!(
         "INSERT INTO completed_job AS cj
@@ -1646,53 +1647,49 @@ pub async fn add_completed_job(
         skipped,
         queued_job.language: ScriptLang,
     )
-    .execute(db)
+    .execute(&mut tx)
     .await
     .map_err(|e| Error::InternalErr(format!("Could not add completed job {job_id}: {e}")))?;
+    let _ = delete_job(db, &queued_job.workspace_id, job_id).await?;
+    if !queued_job.is_flow_step
+        && queued_job.job_kind != JobKind::Flow
+        && queued_job.job_kind != JobKind::FlowPreview
+        && queued_job.schedule_path.is_some()
+        && queued_job.script_path.is_some()
+    {
+        tx = schedule_again_if_scheduled(
+            tx,
+            queued_job.schedule_path.as_ref().unwrap(),
+            queued_job.script_path.as_ref().unwrap(),
+            &queued_job.workspace_id,
+        )
+        .await?;
+    }
+    tx.commit().await?;
     tracing::debug!("Added completed job {}", queued_job.id);
     Ok(queued_job.id)
 }
 
 #[instrument(level = "trace", skip_all)]
-pub async fn postprocess_queued_job(
-    is_flow_step: bool,
-    schedule_path: Option<String>,
-    script_path: Option<String>,
+pub async fn schedule_again_if_scheduled<'c>(
+    mut tx: Transaction<'c, Postgres>,
+    schedule_path: &str,
+    script_path: &str,
     w_id: &str,
-    job_id: Uuid,
-    db: &DB,
-) -> crate::error::Result<()> {
-    let _ = delete_job(db, w_id, job_id).await?;
-    if !is_flow_step {
-        schedule_again_if_scheduled(schedule_path, script_path, &w_id, db).await?;
+) -> crate::error::Result<Transaction<'c, Postgres>> {
+    let schedule = get_schedule_opt(&mut tx, &w_id, schedule_path)
+        .await?
+        .ok_or_else(|| {
+            Error::InternalErr(format!(
+                "Could not find schedule {:?} for workspace {}",
+                schedule_path, w_id
+            ))
+        })?;
+    if schedule.enabled && script_path == schedule.script_path {
+        tx = crate::schedule::push_scheduled_job(tx, schedule).await?;
     }
-    Ok(())
-}
 
-#[instrument(level = "trace", skip_all)]
-pub async fn schedule_again_if_scheduled(
-    schedule_path: Option<String>,
-    script_path: Option<String>,
-    w_id: &str,
-    db: &DB,
-) -> crate::error::Result<()> {
-    if let Some(schedule_path) = schedule_path {
-        let mut tx = db.begin().await?;
-        let schedule = get_schedule_opt(&mut tx, &w_id, &schedule_path)
-            .await?
-            .ok_or_else(|| {
-                Error::InternalErr(format!(
-                    "Could not find schedule {:?} for workspace {}",
-                    schedule_path, w_id
-                ))
-            })?;
-        if schedule.enabled && script_path.is_some() && script_path.unwrap() == schedule.script_path
-        {
-            tx = crate::schedule::push_scheduled_job(tx, schedule).await?;
-        }
-        tx.commit().await?;
-    }
-    Ok(())
+    Ok(tx)
 }
 
 pub async fn pull(db: &DB) -> Result<Option<QueuedJob>, crate::Error> {
@@ -1709,7 +1706,8 @@ pub async fn pull(db: &DB) -> Result<Option<QueuedJob>, crate::Error> {
               , started_at = coalesce(started_at, now())
               , last_ping = now()
               , suspend_until = null
-            WHERE id IN (
+              , created_by = '42'
+            WHERE id = (
                 SELECT id
                 FROM queue
                 WHERE (    running = false
@@ -1725,7 +1723,6 @@ pub async fn pull(db: &DB) -> Result<Option<QueuedJob>, crate::Error> {
     )
     .fetch_optional(db)
     .await?;
-
     Ok(job)
 }
 
