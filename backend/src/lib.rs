@@ -226,7 +226,7 @@ pub async fn run_workers(
         "unretrievable IP".to_string()
     });
 
-    let mut handles = Vec::with_capacity(num_workers as usize + 1);
+    let mut handles = Vec::with_capacity(num_workers as usize);
 
     for i in 1..(num_workers + 1) {
         let db1 = db.clone();
@@ -252,57 +252,6 @@ pub async fn run_workers(
             .await
         })));
     }
-
-    let monitor_task = async move {
-        // TODO: Also consider monitoring fast/slow poll here.
-        // fast/slow are decided at an arbitrary, defined, limit.
-
-        let total_poll_count = prometheus::register_int_counter!(
-            "workers_tokio_total_poll_count",
-            "The total number of times that tasks were polled."
-        )
-        .expect("Prometheus registration must succeed");
-        let total_poll_duration = prometheus::register_counter!(
-            "workers_tokio_total_poll_duration",
-            "The total duration elapsed during polls (in seconds)."
-        )
-        .expect("Prometheus registration must succeed");
-
-        let total_idled_count = prometheus::register_int_counter!(
-            "workers_tokio_total_idled_count",
-            "The total number of times that tasks idled, waiting to be awoken."
-        )
-        .expect("Prometheus registration must succeed");
-        let total_idle_duration = prometheus::register_counter!(
-            "workers_tokio_total_idled_duration",
-            "The total duration that tasks idled (in seconds)."
-        )
-        .expect("Prometheus registration must succeed");
-
-        let total_scheduled_count = prometheus::register_int_counter!(
-            "workers_tokio_total_scheduled_count",
-            "The total number of times that tasks were awoken (and then, presumably, scheduled for execution)."
-        )
-        .expect("Prometheus registration must succeed");
-        let total_scheduled_duration = prometheus::register_counter!(
-            "workers_tokio_total_scheduled_duration",
-            "The total duration that tasks spent waiting to be polled after awakening (in seconds)."
-        )
-        .expect("Prometheus registration must succeed");
-
-        for interval in monitor.intervals() {
-            total_poll_count.inc_by(interval.total_poll_count);
-            total_poll_duration.inc_by(interval.total_poll_duration.as_secs_f64());
-
-            total_idled_count.inc_by(interval.total_idled_count);
-            total_idle_duration.inc_by(interval.total_idle_duration.as_secs_f64());
-
-            total_scheduled_count.inc_by(interval.total_scheduled_count);
-            total_scheduled_duration.inc_by(interval.total_scheduled_duration.as_secs_f64());
-            tokio::time::sleep(Duration::from_millis(500)).await;
-        }
-    };
-    handles.push(tokio::spawn(monitor_task));
 
     futures::future::try_join_all(handles).await?;
     Ok(())
