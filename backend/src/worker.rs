@@ -33,7 +33,7 @@ use tokio::{
     process::{Child, Command},
     sync::{
         mpsc::{self, Sender},
-        watch,
+        oneshot, watch,
     },
     time::{interval, sleep, Instant, MissedTickBehavior},
 };
@@ -1626,6 +1626,8 @@ async fn handle_child(
     let output = child_joined_output_stream(&mut child);
     let job_id = job_id.clone();
 
+    let (tx, mut rx) = mpsc::channel::<()>(1);
+
     /* the cancellation future is polled on by `wait_on_child` while
      * waiting for the child to exit normally */
     let cancel_check = async {
@@ -1635,18 +1637,22 @@ async fn handle_child(
         interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
 
         loop {
-            interval.tick().await;
-            if sqlx::query_scalar!("SELECT canceled FROM queue WHERE id = $1", job_id)
-                .fetch_optional(&db)
-                .await
-                .map(|v| Some(true) == v)
-                .unwrap_or_else(|err| {
-                    tracing::error!(%job_id, %err, "error checking cancelation for job {job_id}: {err}");
-                    false
-                })
-            {
-                break;
-            }
+            tokio::select!(
+                _ = rx.recv() => break,
+                _ = interval.tick() => {
+                    if sqlx::query_scalar!("SELECT canceled FROM queue WHERE id = $1", job_id)
+                        .fetch_optional(&db)
+                        .await
+                        .map(|v| Some(true) == v)
+                        .unwrap_or_else(|err| {
+                            tracing::error!(%job_id, %err, "error checking cancelation for job {job_id}: {err}");
+                            false
+                        })
+                    {
+                        break;
+                    }
+                },
+            );
         }
 
         drop(interval);
@@ -1669,6 +1675,8 @@ async fn handle_child(
             _ = cancel_check => KillReason::Cancelled,
             _ = sleep(timeout) => KillReason::Timeout,
         };
+        tx.send(());
+        drop(tx);
 
         let set_reason = async {
             if kill_reason == KillReason::Timeout {
@@ -1811,7 +1819,7 @@ async fn handle_child(
             }
         }
         drop(interval);
-        });
+    });
     let (wait_result, _) = tokio::join!(wait_on_child, lines);
     tx.send(()).await.expect("send should always work");
 
