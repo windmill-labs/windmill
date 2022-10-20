@@ -35,6 +35,7 @@ use tokio::{
     sync::{
         broadcast,
         mpsc::{self, Sender, UnboundedSender},
+        oneshot,
     },
     time::{interval, sleep, Instant, MissedTickBehavior},
 };
@@ -1835,7 +1836,10 @@ async fn handle_child(
         }
     };
 
-    let mut kill_reason_rx = kill_reason_rx_org.resubscribe();
+    /* a stream updating "queue"."last_ping" at an interval */
+
+    let (kill_tx, mut kill_rx) = oneshot::channel::<()>();
+
     let mut interval = interval(ping_interval);
     interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
 
@@ -1851,11 +1855,12 @@ async fn handle_child(
                 tracing::error!(%job_id, %err, "error setting last ping for job {job_id}: {err}");
                     };
                 },
-                _ = kill_reason_rx.recv() => return,
+                _ = (&mut kill_rx) => return,
             }
         }
     });
     let (wait_result, _) = tokio::join!(wait_on_child, lines);
+    kill_tx.send(()).expect("send should always work");
 
     match wait_result {
         Ok(Ok(status)) => {
