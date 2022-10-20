@@ -73,6 +73,7 @@ components:
       properties:
         id:
           type: string
+        # to be removed in favor of raw/script input_transforms once migration is over
         input_transforms:
           type: object
           additionalProperties:
@@ -159,6 +160,7 @@ components:
     RawScript:
       type: object
       properties:
+        # to be made required once migration is over
         input_transforms:
           type: object
           additionalProperties:
@@ -185,6 +187,7 @@ components:
     PathScript:
       type: object
       properties:
+        # to be made required once migration is over
         input_transforms:
           type: object
           additionalProperties:
@@ -318,6 +321,8 @@ components:
             - InProgress
             - Success
             - Failure
+        id:
+          type: string
         job:
           type: string
           format: uuid

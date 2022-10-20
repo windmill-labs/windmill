@@ -219,13 +219,14 @@ pub async fn run_workers(
     rx: tokio::sync::broadcast::Receiver<()>,
 ) -> anyhow::Result<()> {
     let instance_name = rd_string(5);
+    let monitor = tokio_metrics::TaskMonitor::new();
 
     let ip = external_ip::get_ip().await.unwrap_or_else(|e| {
         tracing::warn!(error = e.to_string(), "failed to get external IP");
         "unretrievable IP".to_string()
     });
 
-    let mut handles = Vec::new();
+    let mut handles = Vec::with_capacity(num_workers as usize);
 
     for i in 1..(num_workers + 1) {
         let db1 = db.clone();
@@ -234,7 +235,7 @@ pub async fn run_workers(
         let ip = ip.clone();
         let rx = rx.resubscribe();
         let worker_config = worker_config.clone();
-        handles.push(tokio::spawn(async move {
+        handles.push(tokio::spawn(monitor.instrument(async move {
             tracing::info!(addr = %addr.to_string(), worker = %worker_name, "starting worker");
             worker::run_worker(
                 &db1,
@@ -249,8 +250,9 @@ pub async fn run_workers(
                 rx,
             )
             .await
-        }));
+        })));
     }
+
     futures::future::try_join_all(handles).await?;
     Ok(())
 }
