@@ -473,20 +473,14 @@ async fn handle_queued_job(
         }
         _ => {
             let (tx, mut rx) = mpsc::unbounded_channel::<String>();
-            let stream = stream::poll_fn(move |cx| rx.poll_recv(cx));
             let (btx, brx) = broadcast::channel(512);
             tokio::spawn(async move {
                 let btx = btx;
-                stream
-                    .flat_map(|e| {
-                        stream::iter(e.split('\n').map(|x| x.to_owned()).collect::<Vec<String>>())
-                        // TODO: optimize
-                    })
-                    .for_each(|e| {
-                        btx.send(e).unwrap();
-                        future::ready(())
-                    })
-                    .await;
+                while let Some(e) = rx.recv().await {
+                    for e in e.split('\n') {
+                        btx.send(e.to_owned()).unwrap();
+                    }
+                }
             });
 
             let batches = BroadcastStream::new(brx.resubscribe())
