@@ -7,7 +7,8 @@
  */
 
 use itertools::Itertools;
-use std::{borrow::Borrow, collections::HashMap, io, panic, process::Stdio, time::Duration};
+use std::{collections::HashMap, io, panic, process::Stdio, time::Duration};
+use tokio_stream::wrappers::BroadcastStream;
 use uuid::Uuid;
 
 use crate::{
@@ -32,14 +33,15 @@ use tokio::{
     io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader},
     process::{Child, Command},
     sync::{
-        mpsc::{self, Sender},
-        oneshot, watch,
+        broadcast,
+        mpsc::{self, Sender, UnboundedSender},
+        watch,
     },
     time::{interval, sleep, Instant, MissedTickBehavior},
 };
 
 use futures::{
-    future::{self, ready, FutureExt},
+    future,
     stream::{self, StreamExt},
 };
 
@@ -470,7 +472,51 @@ async fn handle_queued_job(
             .await?;
         }
         _ => {
-            let mut logs = "".to_string();
+            let (tx, mut rx) = mpsc::unbounded_channel::<String>();
+            let stream = stream::poll_fn(move |cx| rx.poll_recv(cx));
+            let (btx, brx) = broadcast::channel(512);
+            tokio::spawn(async move {
+                let btx = btx;
+                stream
+                    .flat_map(|e| {
+                        stream::iter(e.split('\n').map(|x| x.to_owned()).collect::<Vec<String>>())
+                        // TODO: optimize
+                    })
+                    .for_each(|e| {
+                        btx.send(e).unwrap();
+                        future::ready(())
+                    })
+                    .await;
+            });
+
+            let batches = BroadcastStream::new(brx.resubscribe())
+                .filter(|x| future::ready(x.is_ok()))
+                .map(|x| x.unwrap())
+                .ready_chunks(64);
+            let db1 = db.clone();
+            tokio::spawn(batches
+                .map(move |x| (db1.clone(), x))
+                .for_each(move |(db, lines)| async move {
+                // write batch of lines
+                if let Err(err) = sqlx::query!(
+                    "UPDATE queue SET logs = concat(logs, array_to_string($1::text[], '\n')) WHERE id = $2",
+                    &lines,
+                    job.id,
+                )
+                .execute(&db)
+                .await
+                {
+                    let job_id = job.id;
+                    tracing::error!(%job_id, %err, "error updating logs for job {job_id}: {err}");
+                };
+            }));
+            let accumulated_logs = tokio::spawn(async move {
+                BroadcastStream::new(brx.resubscribe())
+                    .filter(|x| future::ready(x.is_ok()))
+                    .map(|x| x.unwrap())
+                    .fold("".to_string(), |acc, x| future::ready(acc + &x + "\n"))
+                    .await
+            });
 
             if job.is_flow_step {
                 update_flow_status_in_progress(
@@ -491,17 +537,18 @@ async fn handle_queued_job(
                 job.id
             );
 
-            logs.push_str(&format!("job {} on worker {}\n", &job.id, &worker_name));
+            tx.send(format!("job {} on worker {}\n", &job.id, &worker_name))
+                .expect("log rx should never be dropped");
 
             let result = if matches!(job.job_kind, JobKind::Dependencies) {
-                handle_dependency_job(&job, &mut logs, job_dir, db, timeout, &envs).await
+                handle_dependency_job(&job, tx, job_dir, db, timeout, &envs).await
             } else {
                 handle_code_execution_job(
                     &job,
                     db,
                     job_dir,
                     worker_dir,
-                    &mut logs,
+                    tx,
                     timeout,
                     worker_config,
                     envs,
@@ -509,9 +556,13 @@ async fn handle_queued_job(
                 .await
             };
 
+            let accumulated_logs = accumulated_logs
+                .await
+                .expect("accumulation should never fail");
+
             match result {
                 Ok(r) => {
-                    add_completed_job(db, &job, true, false, r.clone(), logs).await?;
+                    add_completed_job(db, &job, true, false, r.clone(), accumulated_logs).await?;
                     if job.is_flow_step {
                         update_flow_status_after_job_completion(
                             db,
@@ -531,9 +582,11 @@ async fn handle_queued_job(
                 Err(e) => {
                     let error_message = match e {
                         Error::ExitStatus(_) => {
-                            let last_10_log_lines = logs
+                            // TODO: rework this to use streams (note that you will need another process above)
+
+                            let last_10_log_lines = accumulated_logs
                                 .lines()
-                                .skip(logs.lines().count().max(10) - 10)
+                                .skip(accumulated_logs.lines().count().max(10) - 10)
                                 .join("\n")
                                 .to_string()
                                 .replace("\n\n", "\n");
@@ -541,7 +594,7 @@ async fn handle_queued_job(
                             let log_lines = last_10_log_lines
                                 .split("CODE EXECUTION ---")
                                 .last()
-                                .unwrap_or(&logs);
+                                .unwrap_or(&accumulated_logs);
                             format!("Error during execution of the script:\n{}", log_lines)
                         }
                         err @ _ => format!("error before termination: {err:#?}"),
@@ -550,7 +603,7 @@ async fn handle_queued_job(
                     let (_, output_map) = add_completed_job_error(
                         db,
                         &job,
-                        logs,
+                        accumulated_logs,
                         error_message,
                         Some(metrics.clone()),
                     )
@@ -630,7 +683,7 @@ async fn handle_code_execution_job(
     db: &sqlx::Pool<sqlx::Postgres>,
     job_dir: &str,
     worker_dir: &str,
-    logs: &mut String,
+    logs: UnboundedSender<String>,
     timeout: i32,
     worker_config: &WorkerConfig,
     envs: &Envs,
@@ -752,7 +805,7 @@ mount {{
 async fn handle_go_job(
     WorkerConfig { base_internal_url, disable_nuser, disable_nsjail, base_url, .. }: &WorkerConfig,
     Envs { nsjail_path, go_path, path_env, gopath_env, home_env, .. }: &Envs,
-    logs: &mut String,
+    logs: UnboundedSender<String>,
     job: &QueuedJob,
     db: &sqlx::Pool<sqlx::Postgres>,
     inner_content: &str,
@@ -773,13 +826,14 @@ async fn handle_go_job(
         write_file(job_dir, "go.mod", md).await?;
         write_file(job_dir, "go.sum", sum).await?;
     } else {
-        logs.push_str("\n\n--- GO DEPENDENCIES SETUP ---\n");
-        set_logs(logs, job.id, db).await;
+        logs.send("\n\n--- GO DEPENDENCIES SETUP ---\n".to_string())
+            .expect("log rx should never be dropped");
+        // set_logs(logs, job.id, db).await;
 
         install_go_dependencies(
             &job.id,
             inner_content,
-            logs,
+            logs.clone(),
             job_dir,
             db,
             timeout,
@@ -789,8 +843,9 @@ async fn handle_go_job(
         .await?;
     }
 
-    logs.push_str("\n\n--- GO CODE EXECUTION ---\n");
-    set_logs(logs, job.id, db).await;
+    logs.send("\n\n--- GO CODE EXECUTION ---\n".to_string())
+        .expect("log rx should never be dropped");
+    // set_logs(logs, job.id, db).await;
 
     let token = create_token_for_owner(
         &db,
@@ -950,7 +1005,7 @@ fn capitalize(s: &str) -> String {
 async fn handle_deno_job(
     WorkerConfig { base_internal_url, base_url, disable_nuser, disable_nsjail, .. }: &WorkerConfig,
     Envs { nsjail_path, deno_path, path_env, .. }: &Envs,
-    logs: &mut String,
+    logs: UnboundedSender<String>,
     job: &QueuedJob,
     db: &sqlx::Pool<sqlx::Postgres>,
     job_dir: &str,
@@ -958,8 +1013,8 @@ async fn handle_deno_job(
     timeout: i32,
     shared_mount: &str,
 ) -> error::Result<serde_json::Value> {
-    logs.push_str("\n\n--- DENO CODE EXECUTION ---\n");
-    set_logs(logs, job.id, db).await;
+    logs.send("\n\n--- DENO CODE EXECUTION ---\n".to_string())
+        .expect("log rx should never be dropped");
     let _ = write_file(job_dir, "inner.ts", inner_content).await?;
     let sig = crate::parser_ts::parse_deno_signature(inner_content)?;
     let token = create_token_for_owner(
@@ -1089,7 +1144,7 @@ async fn handle_python_job(
     worker_dir: &str,
     worker_name: &str,
     job: &QueuedJob,
-    logs: &mut String,
+    logs: UnboundedSender<String>,
     db: &sqlx::Pool<sqlx::Postgres>,
     timeout: i32,
     inner_content: &String,
@@ -1106,7 +1161,7 @@ async fn handle_python_job(
             if requirements.is_empty() {
                 "".to_string()
             } else {
-                pip_compile(job, &requirements, logs, job_dir, envs, db, timeout)
+                pip_compile(job, &requirements, logs.clone(), job_dir, envs, db, timeout)
                     .await?
                     .map_err(|e| {
                         Error::ExecutionErr(format!("pip compile failed: {}", e.to_string()))
@@ -1153,12 +1208,20 @@ async fn handle_python_job(
         }
 
         if heavy.len() > 0 {
-            logs.push_str(&format!(
+            logs.send(format!(
                 "\nheavy deps detected, using supercache for: {heavy:?}"
-            ));
-            additional_python_paths =
-                handle_python_heavy_reqs(python_path, heavy, vars.clone(), job, logs, db, timeout)
-                    .await?;
+            ))
+            .expect("log rx should never be dropped");
+            additional_python_paths = handle_python_heavy_reqs(
+                python_path,
+                heavy,
+                vars.clone(),
+                job,
+                logs.clone(),
+                db,
+                timeout,
+            )
+            .await?;
         }
 
         if regular.len() > 0 {
@@ -1211,8 +1274,9 @@ async fn handle_python_job(
                     .spawn()?
             };
 
-            logs.push_str("\n--- PIP DEPENDENCIES INSTALL ---\n");
-            let child = handle_child(&job.id, db, logs, timeout, child).await;
+            logs.send("\n--- PIP DEPENDENCIES INSTALL ---\n".to_string())
+                .expect("log rx should never be dropped");
+            let child = handle_child(&job.id, db, logs.clone(), timeout, child).await;
             tracing::info!(
                 worker_name = %worker_name,
                 job_id = %job.id,
@@ -1223,12 +1287,14 @@ async fn handle_python_job(
             );
             child?;
         } else {
-            logs.push_str("\nskipping pip install since not needed");
+            logs.send("\nskipping pip install since not needed".to_string())
+                .expect("log rx should never be dropped");
         };
     }
-    logs.push_str("\n\n--- PYTHON CODE EXECUTION ---\n");
+    logs.send("\n\n--- PYTHON CODE EXECUTION ---\n".to_string())
+        .expect("log rx should never be dropped");
 
-    set_logs(logs, job.id, db).await;
+    // set_logs(logs, job.id, db).await;
 
     let _ = write_file(job_dir, "inner.py", inner_content).await?;
 
@@ -1394,7 +1460,7 @@ async fn read_result(job_dir: &str) -> error::Result<serde_json::Value> {
 
 async fn handle_dependency_job(
     job: &QueuedJob,
-    logs: &mut String,
+    logs: UnboundedSender<String>,
     job_dir: &str,
     db: &sqlx::Pool<sqlx::Postgres>,
     timeout: i32,
@@ -1446,7 +1512,7 @@ async fn handle_dependency_job(
         Err(error) => {
             sqlx::query!(
                 "UPDATE script SET lock_error_logs = $1 WHERE hash = $2 AND workspace_id = $3",
-                &format!("{logs}\n{error}"),
+                &format!("{error}"),
                 &job.script_hash.unwrap_or(ScriptHash(0)).0,
                 &job.workspace_id
             )
@@ -1460,13 +1526,14 @@ async fn handle_dependency_job(
 async fn pip_compile(
     job: &QueuedJob,
     requirements: &str,
-    logs: &mut String,
+    logs: UnboundedSender<String>,
     job_dir: &str,
     Envs { pip_extra_index_url, pip_index_url, pip_trusted_host, .. }: &Envs,
     db: &DB,
     timeout: i32,
 ) -> Result<Result<String, String>, Error> {
-    logs.push_str(&format!("content of requirements:\n{}\n", requirements));
+    logs.send(format!("content of requirements:\n{}\n", requirements))
+        .expect("log rx should never be dropped");
     let file = "requirements.in";
     write_file(job_dir, file, &requirements).await?;
     let mut args = vec!["-q", "--no-header", file];
@@ -1503,7 +1570,7 @@ async fn pip_compile(
 async fn install_go_dependencies(
     job_id: &Uuid,
     code: &str,
-    logs: &mut String,
+    logs: UnboundedSender<String>,
     job_dir: &str,
     db: &sqlx::Pool<sqlx::Postgres>,
     timeout: i32,
@@ -1518,7 +1585,7 @@ async fn install_go_dependencies(
         .stderr(Stdio::piped())
         .spawn()?;
 
-    handle_child(job_id, db, logs, timeout, child).await?;
+    handle_child(job_id, db, logs.clone(), timeout, child).await?;
 
     let child = Command::new(go_path)
         .current_dir(job_dir)
@@ -1612,7 +1679,7 @@ async fn get_reserved_variables(
 async fn handle_child(
     job_id: &Uuid,
     db: &DB,
-    logs: &mut String,
+    logs: UnboundedSender<String>,
     timeout: i32,
     mut child: Child,
 ) -> error::Result<()> {
@@ -1675,7 +1742,7 @@ async fn handle_child(
             _ = cancel_check => KillReason::Cancelled,
             _ = sleep(timeout) => KillReason::Timeout,
         };
-        tx.send(());
+        tx.send(()).await.expect("rx should never be dropped");
         drop(tx);
 
         let set_reason = async {
@@ -1707,21 +1774,15 @@ async fn handle_child(
     /* a future that reads output from the child and appends to the database */
     let lines = async move {
         /* log_remaining is zero when output limit was reached */
-        let mut log_remaining = (MAX_LOG_SIZE as usize).saturating_sub(logs.chars().count());
+        let mut log_remaining = MAX_LOG_SIZE as usize - 1000;
         let mut result = io::Result::Ok(());
         let mut output = output;
-        /* `do_write` resolves the task, but does not contain the Result.
-         * It's useful to know if the task completed. */
-        let (mut do_write, mut write_result) = tokio::spawn(ready(())).remote_handle();
-
         while let Some(line) = output.by_ref().next().await {
-            let do_write_ = do_write.shared();
-
             let mut read_lines = stream::once(async { line })
                 .chain(output.by_ref())
                 /* after receiving a line, continue until some delay has passed
                  * _and_ the previous database write is complete */
-                .take_until(future::join(sleep(write_logs_delay), do_write_.clone()))
+                .take_until(sleep(write_logs_delay))
                 .boxed();
 
             /* Read up until an error is encountered,
@@ -1733,13 +1794,16 @@ async fn handle_child(
                     Ok(_) if log_remaining == 0 => (),
                     Ok(line) => {
                         append_with_limit(&mut joined, &line, &mut log_remaining);
+                        logs.send(line).expect("log rx should never be dropped");
 
                         if log_remaining == 0 {
                             tracing::info!(%job_id, "Too many logs lines for job {job_id}");
                             let _ = set_too_many_logs.send(true);
-                            joined.push_str(&format!(
+                            let m = format!(
                                 "Job logs or result reached character limit of {MAX_LOG_SIZE}; killing job."
-                            ));
+                            );
+                            joined.push_str(&m);
+                            logs.send(m).expect("log rx should never be dropped");
                             /* stop reading and drop our streams fairly quickly */
                             break;
                         }
@@ -1751,27 +1815,6 @@ async fn handle_child(
                 }
             }
 
-            logs.push_str(&joined);
-
-            /* Ensure the last flush completed before starting a new one.
-             *
-             * This shouldn't pause since `take_until()` reads lines until `do_write`
-             * resolves. We only stop reading lines before `take_until()` resolves if we reach
-             * EOF or a read error.  In those cases, waiting on a database query to complete is
-             * fine because we're done. */
-
-            if let Some(Ok(p)) = do_write_
-                .then(|()| write_result)
-                .await
-                .err()
-                .map(|err| err.try_into_panic())
-            {
-                panic::resume_unwind(p);
-            }
-
-            (do_write, write_result) =
-                tokio::spawn(append_logs(job_id, joined, db.clone())).remote_handle();
-
             if let Err(err) = result {
                 tracing::error!(%job_id, %err, "error reading output for job {job_id}: {err}");
                 break;
@@ -1780,18 +1823,6 @@ async fn handle_child(
             if *set_too_many_logs.borrow() {
                 break;
             }
-        }
-
-        /* drop our end of the pipe */
-        drop(output);
-
-        if let Some(Ok(p)) = do_write
-            .then(|()| write_result)
-            .await
-            .err()
-            .map(|err| err.try_into_panic())
-        {
-            panic::resume_unwind(p);
         }
     };
 
@@ -1900,38 +1931,6 @@ fn append_with_limit(dst: &mut String, src: &str, limit: &mut usize) {
     }
 }
 
-async fn set_logs(logs: &str, id: uuid::Uuid, db: &DB) {
-    if sqlx::query!(
-        "UPDATE queue SET logs = $1 WHERE id = $2",
-        logs.to_owned(),
-        id
-    )
-    .execute(db)
-    .await
-    .is_err()
-    {
-        tracing::error!(%id, "error updating logs for id {id}")
-    };
-}
-
-/* TODO retry this? */
-async fn append_logs(job_id: uuid::Uuid, logs: impl AsRef<str>, db: impl Borrow<DB>) {
-    if logs.as_ref().is_empty() {
-        return;
-    }
-
-    if let Err(err) = sqlx::query!(
-        "UPDATE queue SET logs = concat(logs, $1::text) WHERE id = $2",
-        logs.as_ref(),
-        job_id,
-    )
-    .execute(db.borrow())
-    .await
-    {
-        tracing::error!(%job_id, %err, "error updating logs for job {job_id}: {err}");
-    }
-}
-
 pub async fn handle_zombie_jobs_periodically(
     db: &DB,
     timeout: i32,
@@ -2013,7 +2012,7 @@ async fn handle_python_heavy_reqs(
     heavy_requirements: Vec<&str>,
     vars: Vec<(&str, &String)>,
     job: &QueuedJob,
-    logs: &mut String,
+    logs: UnboundedSender<String>,
     db: &sqlx::Pool<sqlx::Postgres>,
     timeout: i32,
 ) -> error::Result<Vec<String>> {
@@ -2027,10 +2026,12 @@ async fn handle_python_heavy_reqs(
             continue;
         }
 
-        logs.push_str("\n--- PIP SUPERCACHE INSTALL ---\n");
-        logs.push_str(&format!("\nthe heavy dependency {req} is being installed for the first time.\nIt will take a bit longer but further execution will be much faster!"));
+        logs.send("\n--- PIP SUPERCACHE INSTALL ---\n".to_string())
+            .expect("log rx should never be dropped");
+        logs.send(format!("\nthe heavy dependency {req} is being installed for the first time.\nIt will take a bit longer but further execution will be much faster!")).expect("log rx should never be dropped");
 
-        logs.push_str("pip install\n");
+        logs.send("pip install\n".to_string())
+            .expect("log rx should never be dropped");
         let child = Command::new(python_path)
             .env_clear()
             .envs(vars.clone())
@@ -2051,7 +2052,7 @@ async fn handle_python_heavy_reqs(
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .spawn()?;
-        handle_child(&job.id, db, logs, timeout, child).await?;
+        handle_child(&job.id, db, logs.clone(), timeout, child).await?;
 
         req_paths.push(venv_p);
     }

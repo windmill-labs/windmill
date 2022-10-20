@@ -1755,11 +1755,11 @@ pub async fn pull(db: &DB) -> Result<Option<QueuedJob>, crate::Error> {
     )
     .fetch_optional(db)
     .await?;
-    
+
     if job.is_some() {
         QUEUE_PULL_COUNT.inc();
     }
-    
+
     Ok(job)
 }
 
