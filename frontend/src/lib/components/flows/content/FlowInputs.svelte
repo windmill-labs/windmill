@@ -22,6 +22,7 @@
 	<div class="grid sm:grid-col-2 lg:grid-cols-3 gap-4">
 		<PickScript kind={failureModule ? Script.kind.FAILURE : Script.kind.SCRIPT} on:pick />
 		<PickHubScript kind={failureModule ? Script.kind.FAILURE : Script.kind.SCRIPT} on:pick />
+		<PickHubScript kind={Script.kind.APPROVAL} on:pick />
 
 		<FlowScriptPicker
 			label={`Create a for-loop here`}

@@ -473,10 +473,11 @@ export async function getScriptByPath(path: string): Promise<{
 	language: 'deno' | 'python3' | 'go'
 }> {
 	if (path.startsWith('hub/')) {
-		const content = await ScriptService.getHubScriptContentByPath({ path })
+		const { content, language, schema } = await ScriptService.getHubScriptByPath({ path })
+
 		return {
 			content,
-			language: 'deno'
+			language,
 		}
 	} else {
 		const script = await ScriptService.getScriptByPath({
