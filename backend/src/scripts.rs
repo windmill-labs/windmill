@@ -46,6 +46,7 @@ pub fn global_service() -> Router {
         .route("/go/tojsonschema", post(parse_go_code_to_jsonschema))
         .route("/hub/list", get(list_hub_scripts))
         .route("/hub/get/*path", get(get_hub_script_by_path))
+        .route("/hub/get_full/*path", get(get_full_hub_script_by_path))
 }
 
 pub fn workspaced_service() -> Router {
@@ -529,6 +530,40 @@ pub async fn get_hub_script_by_path(
     .await
     .map_err(to_anyhow)?;
     Ok(content)
+}
+
+#[derive(Deserialize, Serialize)]
+pub struct HubScript {
+    pub content: String,
+    pub lockfile: Option<String>,
+    pub language: ScriptLang,
+    pub schema: Option<String>,
+}
+
+pub async fn get_full_hub_script_by_path(
+    Authed { email, username, .. }: Authed,
+    Path(path): Path<StripPath>,
+    Extension(http_client): Extension<Client>,
+    Host(host): Host,
+) -> JsonResult<HubScript> {
+    let path = path
+        .to_path()
+        .strip_prefix("hub/")
+        .ok_or_else(|| Error::BadRequest("Impossible to remove prefix hex".to_string()))?;
+
+    let value = http_get_from_hub(
+        http_client,
+        &format!("https://hub.windmill.dev/raw2/{path}"),
+        email,
+        username,
+        host,
+        true,
+    )
+    .await?
+    .json::<HubScript>()
+    .await
+    .map_err(to_anyhow)?;
+    Ok(Json(value))
 }
 
 async fn get_script_by_path(
