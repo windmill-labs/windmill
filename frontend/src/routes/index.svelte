@@ -9,8 +9,6 @@
 	import { FlowService, Job, JobService, Script, ScriptService, type Flow } from '$lib/gen'
 	import { userStore, workspaceStore } from '$lib/stores'
 	import { Skeleton } from '$lib/components/common'
-	import ProgressBar from '../lib/components/progressBar/ProgressBar.svelte'
-	import { StepKind } from '../lib/components/progressBar/model'
 
 	let scripts: Script[] = []
 	let flows: Flow[] = []
@@ -57,15 +55,6 @@
 </script>
 
 <CenteredPage>
-	<ProgressBar
-		steps={[
-			StepKind.script,
-			StepKind.script,
-			[StepKind.loopStep, StepKind.loopStep, StepKind.loopStep],
-			StepKind.script
-		]}
-		startIndex={0}
-	/>
 	<h1 class="flex items-center min-h-[48px] font-black my-4">Home</h1>
 	<div class="space-y-12">
 		<div>

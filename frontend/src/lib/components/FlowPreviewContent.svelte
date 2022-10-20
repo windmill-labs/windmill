@@ -19,7 +19,9 @@
 	let jobId: string | undefined = undefined
 	let isValid: boolean = false
 	let isRunning: boolean = false
-	let jobProgress: { steps: Progress; index: number; next?: () => void } = { steps: [], index: 0 }
+	let jobProgress:
+		| { steps: Progress; index: number; next?: () => void; reset?: () => void }
+		| undefined
 
 	const { selectedId, previewArgs } = getContext<FlowEditorContext>('FlowEditorContext')
 
@@ -48,6 +50,7 @@
 	const dispatch = createEventDispatcher()
 
 	export async function runPreview(args: Record<string, any>) {
+		resetJobProgress()
 		const newFlow = extractFlow(previewMode)
 		jobId = await runFlowPreview(args, newFlow)
 		isRunning = true
@@ -82,20 +85,34 @@
 	}
 
 	function updateJobProgress(job: JobResult) {
-		if (!job?.innerJobs) return
+		if (!job?.innerJobs || !jobProgress) return
 
 		let i = 0
-		jobProgress.steps = job.innerJobs.map(({ job: j, loopJobs }) => {
+		const steps = job.innerJobs.map(({ job: j, loopJobs }) => {
 			if (loopJobs?.length) {
 				const completedLength = loopJobs.filter((j) => j.job?.type === 'CompletedJob').length
 				i += completedLength
-				return new Array(loopJobs.length).fill(StepKind.loopStep)
+				return Array.from<unknown, StepKind.loopStep>(
+					{ length: loopJobs.length },
+					() => StepKind.loopStep
+				)
 			}
 			if (j?.type === 'CompletedJob') {
 				i++
 			}
 			return StepKind.script
 		})
+
+		const totalSteps = [jobProgress.steps, steps].map((stepArray) => {
+			// Returning the sum of the steps
+			return stepArray
+				.map((s) => (Array.isArray(s) ? s.length : 1))
+				.reduce((acc, curr) => acc + curr, 0)
+		})
+		if (totalSteps[1] > totalSteps[0]) {
+			jobProgress.steps = steps
+		}
+
 		const difference = i - jobProgress.index
 		if (difference > 0) {
 			jobProgress.index = i
@@ -103,10 +120,23 @@
 			if (!jobProgress?.next) {
 				return
 			}
-			for (let j = 0; j < difference; j++) {
-				jobProgress?.next && jobProgress.next()
-			}
+			setTimeout(() => {
+				for (let j = 0; j < difference; j++) {
+					jobProgress?.next && jobProgress.next()
+				}
+			}, 0)
 		}
+		if (job.job?.type === 'CompletedJob') {
+			jobProgress?.next && jobProgress.next()
+		}
+	}
+
+	function resetJobProgress() {
+		jobProgress = {
+			steps: [],
+			index: 0
+		}
+		jobProgress?.reset && jobProgress.reset()
 	}
 </script>
 
@@ -178,18 +208,18 @@
 		</Button>
 	{/if}
 
+	{#if jobProgress?.steps?.length}
+		<ProgressBar
+			steps={jobProgress.steps}
+			bind:next={jobProgress.next}
+			bind:reset={jobProgress.reset}
+			class="py-4"
+		/>
+	{/if}
+
 	<div class="h-full overflow-y-auto mb-16 grow">
-		{#if jobProgress.steps.length}
-			<ProgressBar steps={jobProgress.steps} bind:next={jobProgress.next} />
-		{/if}
 		{#if jobId}
-			<FlowStatusViewer
-				{jobId}
-				on:jobsLoaded={(e) => {
-					console.log(e.detail)
-					onJobsLoaded(e.detail)
-				}}
-			/>
+			<FlowStatusViewer {jobId} on:jobsLoaded={({ detail }) => onJobsLoaded(detail)} />
 		{/if}
 	</div>
 </div>

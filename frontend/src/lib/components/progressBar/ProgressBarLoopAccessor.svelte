@@ -8,6 +8,6 @@
 </script>
 
 <div
-	class="h-full absolute left-0 bg-blue-400 overflow-hidden"
+	class="h-full absolute left-0 bottom-0 bg-blue-400 overflow-hidden"
 	style="width: {$progress}%; opacity: {isLast ? 100 : 100 / length}%"
 />

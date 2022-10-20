@@ -7,11 +7,7 @@
 
 	export let steps: Progress
 	export let startIndex = 0
-	const length = 100 / steps.length
-	const percent = tweened(+(length * startIndex).toFixed(0), {
-		duration: 400,
-		easing: cubicOut
-	})
+	export let duration = 200
 	let currentIndex = startIndex
 	let loopIndex = 0
 	let isDone = false
@@ -19,9 +15,7 @@
 	export function back() {
 		isDone = false
 		if (isLoop(currStep)) {
-			if (loopIndex <= 0) {
-				loopIndex = 0
-			} else {
+			if (loopIndex > 0) {
 				loopIndex--
 				return
 			}
@@ -40,9 +34,7 @@
 	export function next() {
 		if (isLoop(currStep)) {
 			const max = series[currentIndex].kind.length - 1
-			if (loopIndex >= max) {
-				loopIndex = max
-			} else {
+			if (loopIndex < max) {
 				loopIndex++
 				return
 			}
@@ -52,19 +44,33 @@
 		loopIndex = 0
 		if (currentIndex >= steps.length - 1) {
 			currentIndex = steps.length - 1
-			isDone = true
+			accumulation = 100
 		} else {
 			currentIndex++
 		}
 	}
 
+	export function reset() {
+		currentIndex = startIndex
+		loopIndex = 0
+		isDone = false
+		steps = steps
+	}
+
+	$: length = 100 / (steps.length || 1)
+	$: percent = tweened(+(length * startIndex).toFixed(0), {
+		duration,
+		easing: cubicOut
+	})
 	$: currStep = steps[currentIndex]
-	$: series = steps.map((step, index) => ({ isDone: index < startIndex, kind: step }))
-	$: percent.set(series.map((s) => (s.isDone ? length : 0)).reduce((acc, curr) => acc + curr))
+	$: series = steps.map((step, index) => ({ isDone: index < currentIndex, kind: step }))
+	$: accumulation = series.map((s) => (s.isDone ? length : 0)).reduce((acc, curr) => acc + curr)
+	$: isDone = accumulation >= 100
+	$: percent.set(accumulation > 100 ? 100 : accumulation)
 </script>
 
-<div>
-	<div class="flex justify-between font-medium text-blue-700 mb-1">
+<div class={$$props.class}>
+	<div class="flex justify-between items-end font-medium text-blue-700 mb-1">
 		<span class="text-base">
 			{isDone
 				? 'Done'
@@ -76,7 +82,7 @@
 			{$percent.toFixed(0)}%
 		</span>
 	</div>
-	<div class="flex w-full bg-gray-200 rounded-full h-3 overflow-hidden">
+	<div class="flex w-full bg-gray-200 rounded-full h-4 overflow-hidden">
 		{#each series as step, index}
 			{@const isStepDone = isDone || step.isDone}
 			<div
@@ -84,9 +90,14 @@
 				style="width: {length}%;"
 			>
 				{#if isLoop(step.kind)}
-					<ProgressBarLoopPart isDone={isStepDone} {loopIndex} loopLength={step.kind.length} />
+					<ProgressBarLoopPart
+						isDone={isStepDone}
+						{duration}
+						{loopIndex}
+						loopLength={step.kind.length}
+					/>
 				{:else}
-					<ProgressBarGeneralPart isDone={isStepDone} />
+					<ProgressBarGeneralPart isDone={isStepDone} {duration} />
 				{/if}
 			</div>
 		{/each}
