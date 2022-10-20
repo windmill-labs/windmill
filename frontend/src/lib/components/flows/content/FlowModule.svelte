@@ -24,7 +24,7 @@
 	} from '$lib/components/flows/flowStateUtils'
 	import { flowStore } from '$lib/components/flows/flowStore'
 	import SchemaForm from '$lib/components/SchemaForm.svelte'
-	import { RawScript, type FlowModule } from '$lib/gen'
+	import { RawScript, Script, type FlowModule } from '$lib/gen'
 	import FlowCard from '../common/FlowCard.svelte'
 	import FlowModuleHeader from './FlowModuleHeader.svelte'
 	import { flowStateStore, type FlowModuleState } from '../flowState'
@@ -144,7 +144,13 @@
 						applyCreateLoop()
 						select(['loop', $selectedId].join('-'))
 					}}
-					on:pick={(e) => apply(pickScript, { path: e.detail.path, summary: e.detail.summary })}
+					on:pick={async (e) => {
+						await apply(pickScript, { path: e.detail.path, summary: e.detail.summary })
+						if (e.detail.kind == Script.kind.APPROVAL) {
+							flowModule.suspend = { required_events: 1, timeout: 1800 }
+							flowModule = flowModule
+						}
+					}}
 					on:new={(e) =>
 						apply(createInlineScriptModule, {
 							language: e.detail.language,
