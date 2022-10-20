@@ -46,7 +46,9 @@ while (cont) {
     await windmill.JobService.listQueue({ workspace: config.workspace_id })
   ).length;
   if (queue_length > 500) {
-    console.log(`queue length: ${queue_length} > 500. waiting...`);
+    console.log(
+      `queue length: ${queue_length} > 500. waiting...                                                            `
+    );
     await sleep(0.5);
     continue;
   }
