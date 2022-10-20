@@ -43,8 +43,8 @@ export async function getResource(path: string, undefinedIfEmpty?: boolean): Pro
     try {
         const resource = await ResourceService.getResource({ workspace, path })
         return await _transformLeaf(resource.value)
-    } catch (e) {
-        if (undefinedIfEmpty && e.code === 404) {
+    } catch (e: any) {
+        if (undefinedIfEmpty && e.status === 404) {
             return undefined
         } else {
             throw e
