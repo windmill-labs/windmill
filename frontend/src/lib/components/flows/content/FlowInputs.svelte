@@ -30,19 +30,28 @@
 			kind={failureModule ? Script.kind.FAILURE : Script.kind.SCRIPT}
 			on:pick
 		/>
-		<PickHubScript
-			customText={'Pick an approval script from the Hub'}
-			kind={Script.kind.APPROVAL}
-			on:pick
-		/>
+		{#if !failureModule}
+			<PickScript
+				customText={failureModule ? 'Pick an approval script from your workspace' : undefined}
+				kind={failureModule ? Script.kind.FAILURE : Script.kind.APPROVAL}
+				on:pick
+			/>
+			<PickHubScript
+				customText={'Pick an approval script from the Hub'}
+				kind={Script.kind.APPROVAL}
+				on:pick
+			/>
+		{/if}
 
-		<FlowScriptPicker
-			label={`Create a for-loop here`}
-			disabled={shouldDisableLoopCreation}
-			icon={faRepeat}
-			iconColor="text-blue-500"
-			on:click={() => dispatch('loop')}
-		/>
+		{#if !shouldDisableLoopCreation}
+			<FlowScriptPicker
+				label={`Create a for-loop here`}
+				disabled={shouldDisableLoopCreation}
+				icon={faRepeat}
+				iconColor="text-blue-500"
+				on:click={() => dispatch('loop')}
+			/>
+		{/if}
 
 		{#if !failureModule}
 			<FlowScriptPicker

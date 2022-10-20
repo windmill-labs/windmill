@@ -135,6 +135,7 @@ pub enum ScriptKind {
     Trigger,
     Failure,
     Script,
+    Approval,
 }
 
 #[derive(FromRow, Serialize)]
