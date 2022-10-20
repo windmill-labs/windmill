@@ -7,7 +7,7 @@
  */
 
 use itertools::Itertools;
-use std::{collections::HashMap, future::IntoFuture, io, panic, process::Stdio, time::Duration};
+use std::{collections::HashMap, io, panic, process::Stdio, time::Duration};
 use tokio_stream::wrappers::BroadcastStream;
 use uuid::Uuid;
 
@@ -35,7 +35,7 @@ use tokio::{
     sync::{
         broadcast,
         mpsc::{self, Sender, UnboundedSender},
-        oneshot, watch,
+        oneshot,
     },
     time::{interval, sleep, Instant, MissedTickBehavior},
 };
@@ -43,7 +43,6 @@ use tokio::{
 use futures::{
     future,
     stream::{self, StreamExt},
-    FutureExt,
 };
 
 use async_recursion::async_recursion;
@@ -1683,27 +1682,34 @@ async fn handle_child(
     let cancel_check_interval = Duration::from_millis(500);
     let write_logs_delay = Duration::from_millis(500);
 
-    let (set_too_many_logs, mut too_many_logs) = watch::channel::<bool>(false);
-
     let output = child_joined_output_stream(&mut child);
     let job_id = job_id.clone();
 
-    let (tx, mut rx) = mpsc::channel::<()>(1);
+    #[derive(Eq, PartialEq, Debug, Clone)]
+    enum KillReason {
+        TooManyLogs,
+        Timeout,
+        Cancelled,
+    }
+
+    let (kill_reason_tx_org, kill_reason_rx_org) = broadcast::channel::<KillReason>(3);
+
+    let kill_reason_tx = kill_reason_tx_org.clone();
+    let mut kill_reason_rx = kill_reason_rx_org.resubscribe();
 
     /* the cancellation future is polled on by `wait_on_child` while
      * waiting for the child to exit normally */
-    let cancel_check = async {
-        let db = db.clone();
-
+    let db1 = db.clone();
+    tokio::spawn(async move {
         let mut interval = interval(cancel_check_interval);
         interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
 
         loop {
             tokio::select!(
-                _ = rx.recv() => break,
+                _ = kill_reason_rx.recv() => break,
                 _ = interval.tick() => {
                     if sqlx::query_scalar!("SELECT canceled FROM queue WHERE id = $1", job_id)
-                        .fetch_optional(&db)
+                        .fetch_optional(&db1)
                         .await
                         .map(|v| Some(true) == v)
                         .unwrap_or_else(|err| {
@@ -1711,32 +1717,37 @@ async fn handle_child(
                             false
                         })
                     {
+                        kill_reason_tx.send(KillReason::Cancelled).expect("kill_reason_rx should never be dropped");
                         break;
                     }
                 },
             );
         }
-    };
+    });
 
-    #[derive(PartialEq, Debug)]
-    enum KillReason {
-        TooManyLogs,
-        Timeout,
-        Cancelled,
-    }
+    let kill_reason_tx = kill_reason_tx_org.clone();
+    let mut kill_reason_rx = kill_reason_rx_org.resubscribe();
+    let mut kill_reason_rx2 = kill_reason_rx_org.resubscribe();
     /* a future that completes when the child process exits */
     let wait_on_child = async {
         let db = db.clone();
 
+        tokio::spawn(async move {
+            if tokio::time::timeout(timeout, kill_reason_rx2.recv())
+                .await
+                .is_err()
+            {
+                kill_reason_tx
+                    .send(KillReason::Timeout)
+                    .expect("kill_reason_rx should never be dropped");
+            }
+        });
+
         let kill_reason = tokio::select! {
             biased;
             result = child.wait() => return result.map(Ok),
-            Ok(()) = too_many_logs.changed() => KillReason::TooManyLogs,
-            _ = cancel_check => KillReason::Cancelled,
-            _ = sleep(timeout) => KillReason::Timeout,
+            r = kill_reason_rx.recv() => r.expect("kill_reason_tx should never be dropped")
         };
-        tx.send(()).await.expect("rx should never be dropped");
-        drop(tx);
 
         let set_reason = async {
             if kill_reason == KillReason::Timeout {
@@ -1764,12 +1775,14 @@ async fn handle_child(
         kill.map(|()| Err(kill_reason))
     };
 
+    let kill_reason_tx = kill_reason_tx_org.clone();
     /* a future that reads output from the child and appends to the database */
     let lines = async move {
         /* log_remaining is zero when output limit was reached */
         let mut log_remaining = MAX_LOG_SIZE as usize - 1000;
         let mut result = io::Result::Ok(());
         let mut output = output;
+        // Note that this loop doesn't react to kill. This is to ensure all lines are read, even if the job outputs a large burst of data, and is then killed.
         while let Some(line) = output.by_ref().next().await {
             let mut read_lines = stream::once(async { line })
                 .chain(output.by_ref())
@@ -1782,6 +1795,7 @@ async fn handle_child(
              * handle log lines first and then the error... */
             let mut joined = String::new();
 
+            let mut too_many_logs = false;
             while let Some(line) = read_lines.next().await {
                 match line {
                     Ok(_) if log_remaining == 0 => (),
@@ -1791,7 +1805,10 @@ async fn handle_child(
 
                         if log_remaining == 0 {
                             tracing::info!(%job_id, "Too many logs lines for job {job_id}");
-                            let _ = set_too_many_logs.send(true);
+                            too_many_logs = true;
+                            kill_reason_tx
+                                .send(KillReason::TooManyLogs)
+                                .expect("kill_reason_rx should never be dropped");
                             let m = format!(
                                 "Job logs or result reached character limit of {MAX_LOG_SIZE}; killing job."
                             );
@@ -1813,7 +1830,7 @@ async fn handle_child(
                 break;
             }
 
-            if *set_too_many_logs.borrow() {
+            if too_many_logs {
                 break;
             }
         }
@@ -1846,9 +1863,6 @@ async fn handle_child(
     kill_tx.send(()).expect("send should always work");
 
     match wait_result {
-        _ if *too_many_logs.borrow() => Err(Error::ExecutionErr(
-            "logs or result reached limit".to_string(),
-        )),
         Ok(Ok(status)) => {
             if status.success() {
                 Ok(())
