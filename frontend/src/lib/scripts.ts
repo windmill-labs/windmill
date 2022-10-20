@@ -7,10 +7,14 @@ import { emptySchema } from './utils'
 
 export async function loadSchema(path: string): Promise<Schema> {
 	if (path.startsWith('hub/')) {
-		const code = await ScriptService.getHubScriptContentByPath({ path })
-		const schema = emptySchema()
-		await inferArgs('deno', code, schema)
-		return schema
+		const { content, language, schema } = await ScriptService.getHubScriptByPath({ path })
+		if (language == 'deno') {
+			const newSchema = emptySchema()
+			await inferArgs('deno', content ?? '', newSchema)
+			return newSchema
+		} else {
+			return JSON.parse(schema ?? "{}")
+		}
 	} else {
 		const script = await ScriptService.getScriptByPath({
 			workspace: get(workspaceStore)!,

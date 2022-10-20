@@ -1534,7 +1534,7 @@ paths:
                           type: boolean
                         kind:
                           type: string
-                          enum: [script, failure, trigger, command]
+                          enum: [script, failure, trigger, command, approval]
                         votes:
                           type: number
                         views:
@@ -1625,6 +1625,35 @@ paths:
             text/plain:
               schema:
                 type: string
+
+  /scripts/hub/get_full/{path}:
+    get:
+      summary: get full hub script by path
+      operationId: getHubScriptByPath
+      tags:
+        - script
+      parameters:
+        - $ref: "#/components/parameters/ScriptPath"
+      responses:
+        "200":
+          description: script details
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  content:
+                    type: string
+                  lockfile:
+                    type: string
+                  schema:
+                    type: string
+                  language:
+                    type: string
+                    enum: [deno, python3, go]
+                required:
+                  - content
+                  - language
 
   /w/{workspace}/scripts/list:
     get:
@@ -1745,7 +1774,7 @@ paths:
                   enum: [python3, deno, go]
                 kind:
                   type: string
-                  enum: [script, failure, trigger, command]
+                  enum: [script, failure, trigger, command, approval]
               required:
                 - path
                 - summary
@@ -1907,6 +1936,7 @@ paths:
             text/plain:
               schema:
                 type: string
+
 
   /w/{workspace}/scripts/exists/p/{path}:
     get:
@@ -3404,7 +3434,7 @@ components:
           enum: [python3, deno, go]
         kind:
           type: string
-          enum: [script, failure, trigger, command]
+          enum: [script, failure, trigger, command, approval]
       required:
         - hash
         - path

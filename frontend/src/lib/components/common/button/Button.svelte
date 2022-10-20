@@ -66,7 +66,11 @@
 		event.preventDefault()
 		dispatch('click', event)
 		if (href) {
-			goto(href)
+			if (href.startsWith('http')) {
+				window.open(href, target)
+			} else {
+				goto(href)
+			}
 		}
 	}
 
