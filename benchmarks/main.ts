@@ -22,7 +22,7 @@ await new Command()
   .description("Run Benchmark to measure throughput of windmill.")
   .version("v0.0.0")
   .option("--host <url:string>", "The windmill host to benchmark.", {
-    default: "http://127.0.0.1/",
+    default: "http://127.0.0.1",
   })
   .option(
     "--workers <workers:number>",
