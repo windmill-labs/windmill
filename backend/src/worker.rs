@@ -1687,8 +1687,6 @@ async fn handle_child(
                 },
             );
         }
-
-        drop(interval);
     };
 
     #[derive(PartialEq, Debug)]
