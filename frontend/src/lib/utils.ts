@@ -497,7 +497,7 @@ export async function loadHubScripts() {
 		const processed = scripts
 			.map((x) => ({
 				path: `hub/${x.id}/${x.app}/${x.summary.toLowerCase().replaceAll(/\s+/g, '_')}`,
-				summary: `${x.summary} (${x.app}) ${x.views} uses`,
+				summary: `${x.summary} (${x.app})`,
 				approved: x.approved,
 				kind: x.kind,
 				app: x.app,

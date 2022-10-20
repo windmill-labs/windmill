@@ -22,8 +22,8 @@
 
 <ItemPicker
 	bind:this={itemPicker}
-	pickCallback={(path) => {
-		dispatch('pick', { path })
+	pickCallback={(path, summary) => {
+		dispatch('pick', { path, summary })
 	}}
 	itemName={'Script'}
 	extraField="summary"

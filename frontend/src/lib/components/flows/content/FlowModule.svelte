@@ -144,7 +144,7 @@
 						applyCreateLoop()
 						select(['loop', $selectedId].join('-'))
 					}}
-					on:pick={(e) => apply(pickScript, e.detail.path)}
+					on:pick={(e) => apply(pickScript, { path: e.detail.path, summary: e.detail.summary })}
 					on:new={(e) =>
 						apply(createInlineScriptModule, {
 							language: e.detail.language,
