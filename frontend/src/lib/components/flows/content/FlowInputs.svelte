@@ -20,9 +20,21 @@
 	{/if}
 
 	<div class="grid sm:grid-col-2 lg:grid-cols-3 gap-4">
-		<PickScript kind={failureModule ? Script.kind.FAILURE : Script.kind.SCRIPT} on:pick />
-		<PickHubScript kind={failureModule ? Script.kind.FAILURE : Script.kind.SCRIPT} on:pick />
-		<PickHubScript an={true} kind={Script.kind.APPROVAL} on:pick />
+		<PickScript
+			customText={failureModule ? 'Pick an error handler from your workspace' : undefined}
+			kind={failureModule ? Script.kind.FAILURE : Script.kind.SCRIPT}
+			on:pick
+		/>
+		<PickHubScript
+			customText={failureModule ? 'Pick an error handler from your workspace' : undefined}
+			kind={failureModule ? Script.kind.FAILURE : Script.kind.SCRIPT}
+			on:pick
+		/>
+		<PickHubScript
+			customText={'Pick an approval script from the Hub'}
+			kind={Script.kind.APPROVAL}
+			on:pick
+		/>
 
 		<FlowScriptPicker
 			label={`Create a for-loop here`}

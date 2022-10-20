@@ -8,6 +8,7 @@
 	import FlowScriptPicker from './FlowScriptPicker.svelte'
 
 	export let kind: string
+	export let customText: string | undefined = undefined
 
 	type Item = { summary: String; path: String; version?: String }
 
@@ -31,7 +32,7 @@
 />
 
 <FlowScriptPicker
-	label={`Pick a ${kind == 'script' ? '' : kind} script from your workspace`}
+	label={customText ?? `Pick a ${kind == 'script' ? '' : kind} script from your workspace`}
 	icon={faUserGroup}
 	iconColor="text-blue-500"
 	on:click={() => itemPicker.openModal()}

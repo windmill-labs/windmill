@@ -9,7 +9,7 @@
 	import type { HubItem } from './model'
 
 	export let kind: Script.kind
-	export let an = false
+	export let customText: string | undefined = undefined
 
 	let items: HubItem[]
 	$: items = $hubScripts?.filter((x) => x.kind == kind) ?? []
@@ -32,7 +32,7 @@
 />
 
 <FlowScriptPicker
-	label={`Pick ${an ? 'an' : 'a'} ${kind == Script.kind.SCRIPT ? '' : kind} script from the Hub`}
+	label={customText ?? `Pick a ${kind == Script.kind.SCRIPT ? '' : kind} script from the Hub`}
 	icon={faUserGroup}
 	iconColor="text-blue-500"
 	on:click={() => itemPicker.openModal()}
