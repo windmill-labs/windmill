@@ -266,20 +266,7 @@ async fn openapi() -> &'static str {
 }
 
 pub async fn shutdown_signal(tx: tokio::sync::broadcast::Sender<()>) -> anyhow::Result<()> {
-    use std::io;
-    use tokio::signal::unix::SignalKind;
-
-    async fn terminate() -> io::Result<()> {
-        tokio::signal::unix::signal(SignalKind::terminate())?
-            .recv()
-            .await;
-        Ok(())
-    }
-
-    tokio::select! {
-        _ = terminate() => {},
-        _ = tokio::signal::ctrl_c() => {},
-    }
+    tokio::signal::ctrl_c().await.unwrap();
     println!("signal received, starting graceful shutdown");
     let _ = tx.send(());
     Ok(())
