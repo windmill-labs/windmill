@@ -1631,8 +1631,11 @@ async fn handle_child(
     let cancel_check = async {
         let db = db.clone();
 
-        let mut interval = interval_skipping_missed(cancel_check_interval).boxed();
-        while let Some(_) = interval.next().await {
+        let mut interval = interval(cancel_check_interval);
+        interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
+
+        loop {
+            interval.tick().await;
             if sqlx::query_scalar!("SELECT canceled FROM queue WHERE id = $1", job_id)
                 .fetch_optional(&db)
                 .await
@@ -1645,6 +1648,8 @@ async fn handle_child(
                 break;
             }
         }
+
+        drop(interval);
     };
 
     #[derive(PartialEq, Debug)]
@@ -1784,23 +1789,31 @@ async fn handle_child(
 
     /* a stream updating "queue"."last_ping" at an interval */
 
-    let ping = interval_skipping_missed(ping_interval)
-        .map(|_| db.clone())
-        .then(move |db| async move {
-            if let Err(err) =
-                sqlx::query!("UPDATE queue SET last_ping = now() WHERE id = $1", job_id)
-                    .execute(&db)
+    // this is technically oneshot, but borrowing rules don't allow it in a loop.
+    let (tx, mut rx) = mpsc::channel::<()>(1);
+
+    let mut interval = interval(ping_interval);
+    interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
+
+    let db1 = db.clone();
+    tokio::spawn(async move {
+        'outer: loop {
+            tokio::select! {
+                _ = interval.tick() => {
+                    if let Err(err) = sqlx::query!("UPDATE queue SET last_ping = now() WHERE id = $1", job_id)
+                        .execute(&db1)
                     .await
             {
                 tracing::error!(%job_id, %err, "error setting last ping for job {job_id}: {err}");
+                    };
+                },
+                _ = rx.recv() => break 'outer,
             }
+        }
+        drop(interval);
         });
-
-    let wait_result = tokio::select! {
-        (w, _) = future::join(wait_on_child, lines) => w,
-        /* ping should repeat forever without stopping */
-        _ = ping.collect::<()>() => unreachable!("job ping stopped"),
-    };
+    let (wait_result, _) = tokio::join!(wait_on_child, lines);
+    tx.send(()).await.expect("send should always work");
 
     match wait_result {
         _ if *too_many_logs.borrow() => Err(Error::ExecutionErr(
@@ -1822,12 +1835,6 @@ async fn handle_child(
         ))),
         Err(err) => Err(Error::ExecutionErr(format!("job process io error: {err}"))),
     }
-}
-
-fn interval_skipping_missed(period: Duration) -> impl futures::Stream<Item = Instant> {
-    let mut interval = interval(period);
-    interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
-    stream::poll_fn(move |cx| interval.poll_tick(cx).map(Some))
 }
 
 /// takes stdout and stderr from Child, panics if either are not present
