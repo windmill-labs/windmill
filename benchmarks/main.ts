@@ -5,15 +5,12 @@ import { Command } from "https://deno.land/x/cliffy@v0.25.2/command/mod.ts";
 import { sleep } from "https://deno.land/x/sleep@v1.2.1/mod.ts";
 import * as windmill from "https://deno.land/x/windmill@v1.38.5/mod.ts";
 
-async function login(
-  email: string,
-  password: string
-): Promise<string> {
+async function login(email: string, password: string): Promise<string> {
   return await windmill.UserService.login({
     requestBody: {
       email: email,
       password: password,
-    }
+    },
   });
 }
 
@@ -22,7 +19,7 @@ await new Command()
   .description("Run Benchmark to measure throughput of windmill.")
   .version("v0.0.0")
   .option("--host <url:string>", "The windmill host to benchmark.", {
-    default: "http://127.0.0.1/",
+    default: "http://127.0.0.1",
   })
   .option(
     "--workers <workers:number>",
@@ -92,6 +89,10 @@ await new Command()
     }
   )
   .option(
+    "--continous",
+    "Run the benchmark forever. This effectively disables metric collection & exports. No zombie jobs will be tracked."
+  )
+  .option(
     "--histogram-buckets [buckets...:string]",
     "Define what buckets to collect from histograms.",
     {
@@ -130,14 +131,9 @@ await new Command()
       maximumThroughput,
       useFlows,
       zombieTimeout,
+      continous,
     }) => {
       windmill.setClient("", host);
-      const metrics_worker = new Worker(
-        new URL("./scraper.ts", import.meta.url).href,
-        {
-          type: "module",
-        }
-      );
 
       if (!Array.isArray(histogramBuckets)) {
         histogramBuckets = [];
@@ -151,29 +147,45 @@ await new Command()
         exportSimple = [];
       }
 
-      metrics_worker.postMessage({
-        exportHistograms,
-        histogramBuckets,
-        exportSimple,
-        host: metrics,
-      });
+      let metrics_worker: Worker;
+      if (!continous) {
+        metrics_worker = new Worker(
+          new URL("./scraper.ts", import.meta.url).href,
+          {
+            type: "module",
+          }
+        );
 
-      console.log("Started with options", JSON.stringify({
-        host,
-        num_workers,
-        seconds,
-        email,
-        workspace,
-        metrics,
-        exportJson,
-        exportCsv,
-        exportHistograms,
-        exportSimple,
-        maximumThroughput,
-        useFlows,
-        zombieTimeout,
-      }, null, 4));
-      console.log("collecting samples...");
+        metrics_worker.postMessage({
+          exportHistograms,
+          histogramBuckets,
+          exportSimple,
+          host: metrics,
+        });
+      }
+
+      console.log(
+        "Started with options",
+        JSON.stringify(
+          {
+            host,
+            num_workers,
+            seconds,
+            email,
+            workspace,
+            metrics,
+            exportJson,
+            exportCsv,
+            exportHistograms,
+            exportSimple,
+            maximumThroughput,
+            useFlows,
+            zombieTimeout,
+          },
+          null,
+          4
+        )
+      );
 
       const config = {
         token: "",
@@ -203,6 +215,7 @@ await new Command()
         workspace_id: config.workspace_id,
         per_worker_throughput,
         useFlows,
+        continous,
       };
 
       let workers: Worker[] = new Array(num_workers);
@@ -212,7 +225,6 @@ await new Command()
         });
       }
 
-
       let start: number | undefined = undefined;
 
       const jobsSent = Array(num_workers).fill(0);
@@ -220,27 +232,48 @@ await new Command()
 
       const updateState = setInterval(async () => {
         const elapsed = start ? Math.ceil((Date.now() - start) / 1000) : 0;
-        const sum = jobsSent.reduce((a, b) => a + b, 0)
-        const queue_length = (await windmill.JobService.listQueue({ workspace: config.workspace_id })).length
-        await Deno.stdout.write(enc(`elapsed: ${elapsed}/${seconds} | jobs sent: ${JSON.stringify(jobsSent)} (sum: ${sum}) | queue: ${queue_length}                   \r`))
+        const sum = jobsSent.reduce((a, b) => a + b, 0);
+        const queue_length = (
+          await windmill.JobService.listQueue({
+            workspace: config.workspace_id,
+          })
+        ).length;
+        await Deno.stdout.write(
+          enc(
+            `elapsed: ${elapsed}/${seconds} | jobs sent: ${JSON.stringify(
+              jobsSent
+            )} (sum: ${sum} thr: ${(sum / elapsed).toFixed(
+              2
+            )}) | queue: ${queue_length}                          \r`
+          )
+        );
       }, 100);
 
       workers.forEach((worker, i) => {
         worker.postMessage({ ...shared_config, i });
         worker.addEventListener("message", (evt: MessageEvent<any>) => {
           if (evt.data.type === "jobs_sent") {
-            jobsSent[i] = evt.data.jobs_sent
+            jobsSent[i] = evt.data.jobs_sent;
           }
-        })
+        });
       });
       start = Date.now();
+
+      console.log("collecting samples...");
+      if (continous) {
+        while (true) {
+          await sleep(Infinity);
+        }
+      }
 
       await sleep(seconds);
 
       clearInterval(updateState);
 
-      const sum = jobsSent.reduce((a, b) => a + b, 0)
-      await Deno.stdout.write(enc(" ".padStart(30) + `\rduration: ${seconds} | jobs sent: ${sum}\n`));
+      const sum = jobsSent.reduce((a, b) => a + b, 0);
+      await Deno.stdout.write(
+        enc(" ".padStart(30) + `\rduration: ${seconds} | jobs sent: ${sum}\n`)
+      );
 
       const shutdown_start = Date.now();
       let zombie_jobs = 0;
@@ -271,9 +304,16 @@ await new Command()
 
       console.log("zombie jobs: ", zombie_jobs);
       console.log("incorrect results: ", incorrect_results);
-      console.log("queue length:", (await windmill.JobService.listQueue({ workspace: config.workspace_id })).length)
+      console.log(
+        "queue length:",
+        (
+          await windmill.JobService.listQueue({
+            workspace: config.workspace_id,
+          })
+        ).length
+      );
 
-      metrics_worker.postMessage("stop");
+      metrics_worker!.postMessage("stop");
       console.log("waiting for metrics");
       const { columns, transfer_values } = await new Promise<{
         columns: string[];
