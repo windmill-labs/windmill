@@ -14,7 +14,7 @@
 			<FlowPreviewButtons />
 			<div class="grow overflow-auto p-4 bg-gray-50">
 				{#if $flowStore.value.modules}
-					<FlowModuleSchemaMap bind:modules={$flowStore.value.modules} />
+					<FlowModuleSchemaMap bind:modules={$flowStore.value.modules} root />
 				{/if}
 			</div>
 		</Pane>

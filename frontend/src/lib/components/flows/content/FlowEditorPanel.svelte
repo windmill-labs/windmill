@@ -6,32 +6,11 @@
 	import FlowSettings from './FlowSettings.svelte'
 	import FlowInput from './FlowInput.svelte'
 	import FlowFailureModule from './FlowFailureModule.svelte'
-	import FlowLoopWrapper from './FlowLoopWrapper.svelte'
-	import FlowBranchesWrapper from './FlowBranchesWrapper.svelte'
-	import FlowDefaultBranchWrapper from './FlowDefaultBranchWrapper.svelte'
-	import { flowStateStore } from '../flowState'
+	import { flowStore } from '../flowStore'
 
 	export let initialPath: string
 
 	const { selectedId } = getContext<FlowEditorContext>('FlowEditorContext')
-
-	/**
-	 * {#if $selectedId.includes('loop')}
-			<FlowLoopWrapper />
-		{:else if $selectedId.includes('branches')}
-			<FlowBranchesWrapper />
-		{:else if $selectedId.includes('branch')}
-			<FlowDefaultBranchWrapper />
-		{:else if $selectedId === 'inputs'}
-			<FlowInput />
-		{:else if $selectedId === 'failure'}
-			<FlowFailureModule />
-		{:else}
-			<FlowModuleWrapper />
-		{/if}
-	*/
-
-	// Previous result du premier module -> avoid 2 fois previous_result
 </script>
 
 {#key $selectedId}
@@ -44,6 +23,11 @@
 	{:else if $selectedId === 'failure'}
 		<FlowFailureModule />
 	{:else}
-		<FlowModuleWrapper />
+		{#each $flowStore.value.modules as flowModule, index}
+			<FlowModuleWrapper
+				bind:flowModule
+				previousModuleId={$flowStore.value.modules[index - 1]?.id}
+			/>
+		{/each}
 	{/if}
 {/key}

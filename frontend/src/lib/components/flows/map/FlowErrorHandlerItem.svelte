@@ -52,12 +52,12 @@
 
 	<div class="w-full truncate block">
 		{#if Boolean($flowStore.value.failure_module)}
-			<span
-				>{$flowStore.value.failure_module?.summary ||
+			<span>
+				{$flowStore.value.failure_module?.summary ||
 					($flowStore.value.failure_module?.value.type === 'rawscript'
 						? `Inline ${$flowStore.value.failure_module?.value.language}`
-						: 'Select a script')}</span
-			>
+						: 'Select a script')}
+			</span>
 		{/if}
 	</div>
 </div>

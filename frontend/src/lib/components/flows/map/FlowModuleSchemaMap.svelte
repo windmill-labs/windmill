@@ -1,129 +1,85 @@
 <script lang="ts">
 	import type { FlowEditorContext } from '../types'
 	import { getContext } from 'svelte'
-	import FlowModuleSchemaItem from './FlowModuleSchemaItem.svelte'
-	import Icon from 'svelte-awesome'
-	import {
-		faCalendarAlt,
-		faCodeBranch,
-		faPen,
-		faPlus,
-		faSliders,
-		faTrashAlt
-	} from '@fortawesome/free-solid-svg-icons'
 	import { emptyModule } from '$lib/components/flows/flowStateUtils'
-	import { classNames, emptySchema } from '$lib/utils'
-
-	import { flowStateStore, type FlowModuleState } from '../flowState'
-
+	import { flowStateStore } from '../flowState'
 	import type { FlowModule } from '$lib/gen'
-
 	import FlowErrorHandlerItem from './FlowErrorHandlerItem.svelte'
 	import RemoveStepConfirmationModal from '../content/RemoveStepConfirmationModal.svelte'
-
 	import { emptyFlowModuleState, isEmptyFlowModule } from '../utils'
-	import { flowModuleMap } from '../flowModuleMap'
 	import MapItem from './MapItem.svelte'
+	import FlowSettingsItem from './FlowSettingsItem.svelte'
+	import FlowInputsItem from './FlowInputsItem.svelte'
+	import InsertModuleButton from './InsertModuleButton.svelte'
 
-	export let partialPath: number[] = []
+	export let root: boolean = false
+	export let color: 'blue' | 'orange' | 'indigo' = 'blue'
 	export let modules: FlowModule[]
 
-	const { select, selectedId, schedule } = getContext<FlowEditorContext>('FlowEditorContext')
+	let indexToRemove: number | undefined = undefined
+	const { select } = getContext<FlowEditorContext>('FlowEditorContext')
 
-	function insertAtIndex(index: number): void {
+	function insertNewModuleAtIndex(index: number): void {
 		const flowModule = emptyModule()
-
-		// Insert at the right place
 		modules.splice(index, 0, flowModule)
+		modules = modules
+		$flowStateStore[flowModule.id] = emptyFlowModuleState()
+
+		// TODO: Should find a way to select the newly inserted
+	}
+
+	function removeAtIndex(index: number): void {
+		select('settings')
+		const [removedModule] = modules.splice(index, 1)
 		modules = modules
 
 		flowStateStore.update((fss) => {
-			fss[flowModule.id] = emptyFlowModuleState()
+			delete fss[removedModule.id]
 			return fss
 		})
-
-		select(flowModule.id)
 	}
 
-	function removeById(id: string): void {
-		select('settings')
-
-		/*
-
-		modules.splice(index, 1)
-		moduleStates.splice(index, 1)
-		moduleStates = moduleStates
-		modules = modules
-		*/
-	}
-
-	let idToRemove: string | undefined = undefined
-	$: confirmationModalOpen = idToRemove !== undefined
-
-	$: settingsClass = classNames(
-		'border w-full rounded-md p-2 bg-white text-sm cursor-pointer flex items-center mb-4',
-		$selectedId.includes('settings') ? 'outline outline-offset-1 outline-2  outline-slate-900' : ''
-	)
+	$: confirmationModalOpen = indexToRemove !== undefined
 </script>
 
 <div class="flex flex-col justify-between">
 	<ul class="w-full">
-		{#if partialPath.length === 0}
-			<div on:click={() => select('settings')} class={settingsClass}>
-				<Icon data={faSliders} class="mr-2" />
-				<span
-					class="text-xs font-bold flex flex-row justify-between w-full flex-wrap gap-2 items-center"
-				>
-					Settings
-					<span
-						class={classNames('badge', $schedule?.enabled ? 'badge-on' : 'badge-off')}
-						on:click|stopPropagation={() => select('settings-schedule')}
-					>
-						{$schedule.cron}
-						<Icon class={$schedule.cron ? 'ml-2' : ''} data={faCalendarAlt} scale={0.8} />
-					</span>
-				</span>
-			</div>
-
-			<FlowModuleSchemaItem
-				on:click={() => select('inputs')}
-				isFirst
-				hasLine
-				selected={$selectedId === 'inputs'}
-			>
-				<div slot="icon">
-					<Icon data={faPen} scale={0.8} />
-				</div>
-				<div slot="content" class="flex flex-row text-xs ">Inputs</div>
-			</FlowModuleSchemaItem>
+		{#if root}
+			<FlowSettingsItem />
+			<FlowInputsItem />
 		{/if}
 
 		{#each modules as mod, index (index)}
-			<MapItem bind:mod {index} {partialPath} />
+			<MapItem
+				{color}
+				bind:mod
+				{index}
+				on:delete={(event) => {
+					if (event.detail.event.shiftKey || isEmptyFlowModule(mod)) {
+						removeAtIndex(index)
+					} else {
+						indexToRemove = index
+					}
+				}}
+			/>
 		{/each}
 
-		<button
-			on:click={() => insertAtIndex(modules.length)}
-			type="button"
-			class="text-gray-900 bg-white border m-0.5 border-gray-300 focus:outline-none hover:bg-gray-100 focus:ring-4 focus:ring-gray-200 font-medium rounded-full text-sm w-6 h-6 flex items-center justify-center"
-		>
-			<Icon data={faPlus} scale={0.8} />
-		</button>
+		<InsertModuleButton on:click={() => insertNewModuleAtIndex(modules.length)} />
+		{#if root}
+			<FlowErrorHandlerItem />
+		{/if}
 	</ul>
-	{#if partialPath.length === 0}
-		<FlowErrorHandlerItem />
-	{/if}
 </div>
 
 <RemoveStepConfirmationModal
 	bind:open={confirmationModalOpen}
 	on:canceled={() => {
-		idToRemove = undefined
+		indexToRemove = undefined
 	}}
 	on:confirmed={() => {
-		if (idToRemove !== undefined) {
-			removeById(idToRemove)
-			idToRemove = undefined
+		if (indexToRemove !== undefined) {
+			removeAtIndex(indexToRemove)
+			indexToRemove = undefined
 		}
 	}}
 />

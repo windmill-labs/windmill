@@ -9,19 +9,15 @@
 
 	import { flowStateStore } from '../flowState'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
-	import { flowModuleMap } from '../flowModuleMap'
 	import { getStepPropPicker } from '../previousResults'
+
+	export let flowModule: FlowModule
 
 	const { selectedId, previewArgs } = getContext<FlowEditorContext>('FlowEditorContext')
 	let editor: SimpleEditor | undefined = undefined
 
-	$: moduleMapped = $flowModuleMap[$selectedId]
-
-	const { flowModule, parentModuleId, previousModuleId } = moduleMapped
-
-	$: flowValue = flowModule.value as BranchOne
-
-	$: branch = flowValue.branches[Number(21) - 1] as {
+	// @ts-ignore
+	$: branch = flowModule.value.branches[Number(21) - 1] as {
 		summary?: string
 		expr: string
 		modules: Array<FlowModule>
@@ -31,7 +27,7 @@
 		flowModule.id,
 		$flowStore.schema,
 		$flowStateStore,
-		$flowModuleMap,
+		undefined,
 		$previewArgs
 	).pickableProperties
 </script>

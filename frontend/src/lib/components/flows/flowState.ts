@@ -7,9 +7,8 @@ import { emptyFlowModuleState, isEmptyFlowModule } from './utils'
 export type FlowModuleState = {
 	schema: Schema
 	previewResult?: any
-	// TODO: adds args JOB
-
-	// getStepPropPicker
+	// TODO: properly implement this
+	previewArgs?: any
 }
 
 export type FlowState = Record<string, FlowModuleState>
@@ -47,7 +46,7 @@ async function mapFlowModule(flowModule: FlowModule, modulesState: FlowState) {
 	}
 
 	if (value.type === 'branchone' || value.type === 'branchall') {
-		Promise.all(
+		await Promise.all(
 			value.branches.map(
 				async (branchModule: {
 					summary?: string
@@ -69,7 +68,7 @@ async function mapFlowModule(flowModule: FlowModule, modulesState: FlowState) {
 }
 
 async function mapFlowModules(flowModules: FlowModule[], modulesState: FlowState) {
-	Promise.all(
+	await Promise.all(
 		flowModules.map(async (flowModule: FlowModule) => {
 			await mapFlowModule(flowModule, modulesState)
 		})

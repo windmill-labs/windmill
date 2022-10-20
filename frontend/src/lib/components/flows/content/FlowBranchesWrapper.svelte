@@ -2,8 +2,8 @@
 	import { Tab } from '$lib/components/common'
 	import TabContent from '$lib/components/common/tabs/TabContent.svelte'
 	import Tabs from '$lib/components/common/tabs/Tabs.svelte'
+	import type { FlowModule } from '$lib/gen'
 	import { getContext } from 'svelte'
-	import { flowModuleMap } from '../flowModuleMap'
 	import type { FlowEditorContext } from '../types'
 	import FlowModuleEarlyStop from './FlowModuleEarlyStop.svelte'
 	import FlowModuleSuspend from './FlowModuleSuspend.svelte'
@@ -11,13 +11,12 @@
 
 	const { selectedId } = getContext<FlowEditorContext>('FlowEditorContext')
 
-	$: mod = $flowModuleMap[$selectedId]
-
+	export let flowModule: FlowModule
 	// Tab
 	let selected: string = 'retries'
 </script>
 
-{#if mod?.flowModule}
+{#if flowModule}
 	<Tabs bind:selected>
 		<Tab value="retries">Retries</Tab>
 		<Tab value="early-stop">Early Stop</Tab>
@@ -27,19 +26,19 @@
 			<div class="overflow-hidden bg-white" style="height:calc(100% - 32px);">
 				<TabContent value="retries" class="flex flex-col flex-1 h-full">
 					<div class="p-4 overflow-y-auto">
-						<FlowRetries bind:flowModule={mod.flowModule} />
+						<FlowRetries bind:flowModule />
 					</div>
 				</TabContent>
 
 				<TabContent value="early-stop" class="flex flex-col flex-1 h-full">
 					<div class="p-4 overflow-y-auto">
-						<FlowModuleEarlyStop bind:flowModule={mod.flowModule} />
+						<FlowModuleEarlyStop bind:flowModule />
 					</div>
 				</TabContent>
 
 				<TabContent value="suspend" class="flex flex-col flex-1 h-full">
 					<div class="p-4 overflow-y-auto">
-						<FlowModuleSuspend bind:flowModule={mod.flowModule} />
+						<FlowModuleSuspend bind:flowModule />
 					</div>
 				</TabContent>
 			</div>

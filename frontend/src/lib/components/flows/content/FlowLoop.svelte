@@ -5,9 +5,6 @@
 	import Toggle from '$lib/components/Toggle.svelte'
 	import SimpleEditor from '$lib/components/SimpleEditor.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
-	import { flowStore } from '../flowStore'
-	import { getStepPropPicker } from '../previousResults'
-	import { flowStateStore } from '../flowState'
 	import PropPickerWrapper from '../propPicker/PropPickerWrapper.svelte'
 	import FlowModuleEarlyStop from './FlowModuleEarlyStop.svelte'
 	import FlowModuleSuspend from './FlowModuleSuspend.svelte'
@@ -15,18 +12,17 @@
 	import { Button, Tab, TabContent, Tabs } from '$lib/components/common'
 	import type { FlowModule } from '$lib/gen/models/FlowModule'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
-	import { faTrash, faPlus } from '@fortawesome/free-solid-svg-icons'
 
 	const { previewArgs } = getContext<FlowEditorContext>('FlowEditorContext')
 
 	export let mod: FlowModule
-	export let index: number
+	export let parentModuleId: string | undefined
+	export let previousModuleId: string | undefined
 
 	let editor: SimpleEditor | undefined = undefined
 	let selected: string = 'retries'
 
-	$: mod = $flowStore.value.modules[index]
-
+	// TODO: FIX PICKABLE PROPERTIES
 	const pickableProperties = {}
 </script>
 

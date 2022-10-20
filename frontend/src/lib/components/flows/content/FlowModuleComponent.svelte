@@ -51,9 +51,6 @@
 	let panes: HTMLElement
 	let totalTopGap = 0
 
-	const parentIndex = 0
-	const childIndex = 0
-
 	$: shouldPick = isEmptyFlowModule(flowModule)
 
 	$: stepPropPicker = {
@@ -131,20 +128,18 @@
 					on:toggleStopAfterIf={() => (selected = 'early-stop')}
 					on:fork={() => apply(fork, flowModule)}
 					on:createScriptFromInlineScript={() => {
-						/*
 						apply(createScriptFromInlineScript, {
 							flowModule: flowModule,
 							suffix: $selectedId,
-							schema: flowModuleState.schema
+							schema: $flowStateStore[flowModule.id].schema
 						})
-						*/
 					}}
 				/>
 			</svelte:fragment>
 			{#if shouldPick}
 				<FlowInputs
-					shouldDisableTriggerScripts={true}
-					shouldDisableLoopCreation={true}
+					shouldDisableTriggerScripts={false}
+					shouldDisableLoopCreation={false}
 					on:loop={() => {
 						applyCreateLoop()
 						select(['loop', $selectedId].join('-'))
@@ -221,6 +216,7 @@
 												Move the focus outside of the text editor to recompute the inputs or press
 												Ctrl/Cmd+S
 											</p>
+
 											<SchemaForm
 												schema={$flowStateStore[$selectedId].schema}
 												inputTransform={true}

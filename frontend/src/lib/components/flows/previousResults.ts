@@ -4,7 +4,6 @@ import { buildExtraLib, objectToTsType, schemaToObject, schemaToTsType } from '$
 import { get } from 'svelte/store'
 import { flowStateStore, type FlowModuleState, type FlowState } from './flowState'
 import { NEVER_TESTED_THIS_FAR } from './utils'
-import type { FlowModuleMap } from './flowModuleMap'
 
 type Result = any
 
@@ -23,7 +22,7 @@ export function getStepPropPicker(
 	id: string,
 	flowInputSchema: Schema,
 	flowState: FlowState,
-	flowModuleMap: FlowModuleMap,
+	flowModuleMap: any,
 	args: Record<string, any>
 ): StepPropPicker {
 	return {

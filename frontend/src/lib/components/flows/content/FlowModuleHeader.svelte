@@ -16,7 +16,7 @@
 	import Icon from 'svelte-awesome'
 	import type { FlowEditorContext } from '../types'
 	import { isEmptyFlowModule } from '../utils'
-	import type { FlowModuleWidthContext } from './FlowModule.svelte'
+	import type { FlowModuleWidthContext } from './FlowModuleComponent.svelte'
 	import RemoveStepConfirmationModal from './RemoveStepConfirmationModal.svelte'
 
 	export let module: FlowModule
