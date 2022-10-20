@@ -8,6 +8,7 @@
 
 use itertools::Itertools;
 use std::{borrow::Borrow, collections::HashMap, io, panic, process::Stdio, time::Duration};
+use tracing::{trace_span, Instrument};
 use uuid::Uuid;
 
 use crate::{
@@ -92,7 +93,7 @@ pub struct Metrics {
     pub worker_execution_failed: prometheus::IntCounter,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct WorkerConfig {
     pub base_internal_url: String,
     pub base_url: String,
@@ -123,6 +124,7 @@ lazy_static::lazy_static! {
     );
 }
 
+#[tracing::instrument(level = "trace")]
 pub async fn run_worker(
     db: &DB,
     timeout: i32,
@@ -238,129 +240,145 @@ pub async fn run_worker(
                 .try_into()
                 .unwrap(),
         );
-        if last_ping.elapsed().as_secs() > NUM_SECS_ENV_CHECK {
-            sqlx::query!(
-                "UPDATE worker_ping SET ping_at = now(), jobs_executed = $1 WHERE worker = $2",
-                jobs_executed,
-                &worker_name
-            )
-            .execute(db)
-            .await
-            .expect("update worker ping");
-
-            last_ping = Instant::now();
-        }
-
-        let next_job = tokio::select! {
-            biased;
-            _ = rx.recv() => {
-                 println!("received killpill for worker {}", i_worker);
-                 break;
-            },
-            Some(job_id) = same_worker_rx.recv() => {
-                sqlx::query_as::<_, QueuedJob>("SELECT * FROM queue WHERE id = $1")
-                .bind(job_id)
-                .fetch_optional(db)
-                .await
-                .map_err(|_| Error::InternalErr("Impossible to fetch same_worker job".to_string()))
-            },
-            job = pull(&db) => job,
-        };
-
-        match next_job {
-            Ok(Some(job)) => {
-                let label_values = [
-                    &job.workspace_id,
-                    job.language.as_ref().map(|l| l.as_str()).unwrap_or(""),
-                ];
-
-                let _timer = worker_execution_duration
-                    .with_label_values(label_values.as_slice())
-                    .start_timer();
-
-                jobs_executed += 1;
-                worker_execution_count
-                    .with_label_values(label_values.as_slice())
-                    .inc();
-
-                let metrics = Metrics {
-                    worker_execution_failed: worker_execution_failed
-                        .with_label_values(label_values.as_slice()),
-                };
-
-                tracing::info!(worker = %worker_name, id = %job.id, "fetched job {}", job.id);
-
-                let job_dir = format!("{worker_dir}/{}", job.id);
-
-                DirBuilder::new()
-                    .create(&job_dir)
-                    .await
-                    .expect("could not create job dir");
-
-                let same_worker = job.same_worker;
-                let is_flow = job.job_kind == JobKind::Flow || job.job_kind == JobKind::FlowPreview;
-
-                if is_flow && same_worker {
-                    let target = &format!("{job_dir}/shared");
-                    if let Some(parent_flow) = job.parent_job {
-                        let parent_shared_dir = format!("{worker_dir}/{parent_flow}/shared");
-                        if metadata(&parent_shared_dir).await.is_err() {
-                            DirBuilder::new()
-                                .recursive(true)
-                                .create(&parent_shared_dir)
-                                .await
-                                .expect("could not create parent shared dir");
-                        }
-                        symlink(&parent_shared_dir, target)
-                            .await
-                            .expect("could not symlink target");
-                    } else {
-                        DirBuilder::new()
-                            .create(target)
-                            .await
-                            .expect("could not create shared dir");
-                    }
-                }
-
-                if let Some(err) = handle_queued_job(
-                    job.clone(),
-                    db,
-                    timeout,
-                    &worker_name,
-                    &worker_dir,
-                    &job_dir,
-                    &worker_config,
-                    metrics.clone(),
-                    &envs,
-                    same_worker_tx.clone(),
-                    &worker_config.base_internal_url,
+        let do_break = async {
+            if last_ping.elapsed().as_secs() > NUM_SECS_ENV_CHECK {
+                sqlx::query!(
+                    "UPDATE worker_ping SET ping_at = now(), jobs_executed = $1 WHERE worker = $2",
+                    jobs_executed,
+                    &worker_name
                 )
+                .execute(db)
                 .await
-                .err()
-                {
-                    handle_job_error(
+                .expect("update worker ping");
+
+                last_ping = Instant::now();
+            }
+
+            let (do_break, next_job) = async {
+                tokio::select! {
+                    biased;
+                    _ = rx.recv() => {
+                        println!("received killpill for worker {}", i_worker);
+                        (true, Ok(None))
+                    },
+                    Some(job_id) = same_worker_rx.recv() => {
+                        (false, sqlx::query_as::<_, QueuedJob>("SELECT * FROM queue WHERE id = $1")
+                        .bind(job_id)
+                        .fetch_optional(db)
+                        .await
+                        .map_err(|_| Error::InternalErr("Impossible to fetch same_worker job".to_string())))
+                    },
+                    job = pull(&db) => (false, job),
+                }
+            }.instrument(trace_span!("worker_get_next_job")).await;
+            if do_break {
+                return true;
+            }
+
+            match next_job {
+                Ok(Some(job)) => {
+                    let label_values = [
+                        &job.workspace_id,
+                        job.language.as_ref().map(|l| l.as_str()).unwrap_or(""),
+                    ];
+
+                    let _timer = worker_execution_duration
+                        .with_label_values(label_values.as_slice())
+                        .start_timer();
+
+                    jobs_executed += 1;
+                    worker_execution_count
+                        .with_label_values(label_values.as_slice())
+                        .inc();
+
+                    let metrics = Metrics {
+                        worker_execution_failed: worker_execution_failed
+                            .with_label_values(label_values.as_slice()),
+                    };
+
+                    tracing::info!(worker = %worker_name, id = %job.id, "fetched job {}", job.id);
+
+                    let job_dir = format!("{worker_dir}/{}", job.id);
+
+                    DirBuilder::new()
+                        .create(&job_dir)
+                        .await
+                        .expect("could not create job dir");
+
+                    let same_worker = job.same_worker;
+                    let is_flow = job.job_kind == JobKind::Flow || job.job_kind == JobKind::FlowPreview;
+
+                    if is_flow && same_worker {
+                        let target = &format!("{job_dir}/shared");
+                        if let Some(parent_flow) = job.parent_job {
+                            let parent_shared_dir = format!("{worker_dir}/{parent_flow}/shared");
+                            if metadata(&parent_shared_dir).await.is_err() {
+                                DirBuilder::new()
+                                    .recursive(true)
+                                    .create(&parent_shared_dir)
+                                    .await
+                                    .expect("could not create parent shared dir");
+                            }
+                            symlink(&parent_shared_dir, target)
+                                .await
+                                .expect("could not symlink target");
+                        } else {
+                            DirBuilder::new()
+                                .create(target)
+                                .await
+                                .expect("could not create shared dir");
+                        }
+                    }
+
+                    if let Some(err) = handle_queued_job(
+                        job.clone(),
                         db,
-                        job,
-                        err,
-                        Some(metrics),
-                        false,
-                        same_worker_tx.clone(),
+                        timeout,
+                        &worker_name,
                         &worker_dir,
-                        !worker_config.keep_job_dir,
+                        &job_dir,
+                        &worker_config,
+                        metrics.clone(),
+                        &envs,
+                        same_worker_tx.clone(),
                         &worker_config.base_internal_url,
                     )
-                    .await;
-                };
+                    .await
+                    .err()
+                    {
+                        handle_job_error(
+                            db,
+                            job,
+                            err,
+                            Some(metrics),
+                            false,
+                            same_worker_tx.clone(),
+                            &worker_dir,
+                            !worker_config.keep_job_dir,
+                            &worker_config.base_internal_url,
+                        )
+                        .await;
+                    };
 
-                if !worker_config.keep_job_dir && !(is_flow && same_worker) {
-                    let _ = tokio::fs::remove_dir_all(job_dir).await;
+                    if !worker_config.keep_job_dir && !(is_flow && same_worker) {
+                        let _ = tokio::fs::remove_dir_all(job_dir).await;
+                    }
                 }
-            }
-            Ok(None) => tokio::time::sleep(Duration::from_millis(sleep_queue * num_workers)).await,
-            Err(err) => {
-                tracing::error!(worker = %worker_name, "run_worker: pulling jobs: {}", err);
-            }
-        };
+                Ok(None) => {
+                    tokio::time::sleep(Duration::from_millis(sleep_queue * num_workers)).await
+                }
+                Err(err) => {
+                    tracing::error!(worker = %worker_name, "run_worker: pulling jobs: {}", err);
+                }
+            };
+
+            false
+        }
+        .instrument(trace_span!("worker_loop_iteration"))
+        .await;
+        if do_break {
+            break;
+        }
     }
 }
 
@@ -446,6 +464,7 @@ struct Envs {
     pip_trusted_host: Option<String>,
 }
 
+#[tracing::instrument(level = "trace", skip_all)]
 async fn handle_queued_job(
     job: QueuedJob,
     db: &sqlx::Pool<sqlx::Postgres>,
@@ -580,6 +599,7 @@ async fn handle_queued_job(
     Ok(())
 }
 
+#[tracing::instrument(level = "trace", skip_all)]
 async fn write_file(dir: &str, path: &str, content: &str) -> Result<File, Error> {
     let path = format!("{}/{}", dir, path);
     let mut file = File::create(&path).await?;
@@ -628,6 +648,7 @@ async fn transform_json_value(
     }
 }
 
+#[tracing::instrument(level = "trace", skip_all)]
 async fn handle_code_execution_job(
     job: &QueuedJob,
     db: &sqlx::Pool<sqlx::Postgres>,
@@ -763,6 +784,7 @@ mount {{
     result
 }
 
+#[tracing::instrument(level = "trace", skip_all)]
 async fn handle_go_job(
     WorkerConfig { base_internal_url, disable_nuser, disable_nsjail, base_url, .. }: &WorkerConfig,
     Envs { nsjail_path, go_path, path_env, gopath_env, home_env, .. }: &Envs,
@@ -961,6 +983,7 @@ fn capitalize(s: &str) -> String {
     }
 }
 
+#[tracing::instrument(level = "trace", skip_all)]
 async fn handle_deno_job(
     WorkerConfig { base_internal_url, base_url, disable_nuser, disable_nsjail, .. }: &WorkerConfig,
     Envs { nsjail_path, deno_path, path_env, .. }: &Envs,
@@ -975,7 +998,8 @@ async fn handle_deno_job(
     logs.push_str("\n\n--- DENO CODE EXECUTION ---\n");
     set_logs(logs, job.id, db).await;
     let _ = write_file(job_dir, "inner.ts", inner_content).await?;
-    let sig = crate::parser_ts::parse_deno_signature(inner_content)?;
+    let sig = trace_span!("parse_deno_signature")
+        .in_scope(|| crate::parser_ts::parse_deno_signature(inner_content))?;
     let token = create_token_for_owner(
         &db,
         &job.workspace_id,
@@ -1011,61 +1035,66 @@ run();
     let hostname_base = base_url.split("://").last().unwrap_or("localhost");
     let hostname_internal = base_internal_url.split("://").last().unwrap_or("localhost");
     let deno_auth_tokens = format!("{token}@{hostname_base};{token}@{hostname_internal}");
-    let child = if !disable_nsjail {
-        let _ = write_file(
-            job_dir,
-            "run.config.proto",
-            &NSJAIL_CONFIG_RUN_DENO_CONTENT
-                .replace("{JOB_DIR}", job_dir)
-                .replace("{CACHE_DIR}", DENO_CACHE_DIR)
-                .replace("{CLONE_NEWUSER}", &(!disable_nuser).to_string())
-                .replace("{SHARED_MOUNT}", shared_mount),
-        )
-        .await?;
-        Command::new(nsjail_path)
-            .current_dir(job_dir)
-            .env_clear()
-            .envs(reserved_variables)
-            .env("PATH", path_env)
-            .env("DENO_AUTH_TOKENS", deno_auth_tokens)
-            .env("BASE_INTERNAL_URL", base_internal_url)
-            .args(vec![
-                "--config",
+    let child = async {
+        Ok(if !disable_nsjail {
+            let _ = write_file(
+                job_dir,
                 "run.config.proto",
-                "--",
-                deno_path,
-                "run",
-                "--unstable",
-                "--v8-flags=--max-heap-size=2048",
-                "-A",
-                "/tmp/main.ts",
-            ])
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()?
-    } else {
-        Command::new(deno_path)
-            .current_dir(job_dir)
-            .env_clear()
-            .envs(reserved_variables)
-            .env("PATH", path_env)
-            .env("DENO_AUTH_TOKENS", deno_auth_tokens)
-            .env("BASE_INTERNAL_URL", base_internal_url)
-            .args(vec![
-                "run",
-                "--unstable",
-                "--v8-flags=--max-heap-size=2048",
-                "-A",
-                "main.ts",
-            ])
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()?
-    };
+                &NSJAIL_CONFIG_RUN_DENO_CONTENT
+                    .replace("{JOB_DIR}", job_dir)
+                    .replace("{CACHE_DIR}", DENO_CACHE_DIR)
+                    .replace("{CLONE_NEWUSER}", &(!disable_nuser).to_string())
+                    .replace("{SHARED_MOUNT}", shared_mount),
+            )
+            .await?;
+            Command::new(nsjail_path)
+                .current_dir(job_dir)
+                .env_clear()
+                .envs(reserved_variables)
+                .env("PATH", path_env)
+                .env("DENO_AUTH_TOKENS", deno_auth_tokens)
+                .env("BASE_INTERNAL_URL", base_internal_url)
+                .args(vec![
+                    "--config",
+                    "run.config.proto",
+                    "--",
+                    deno_path,
+                    "run",
+                    "--unstable",
+                    "--v8-flags=--max-heap-size=2048",
+                    "-A",
+                    "/tmp/main.ts",
+                ])
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped())
+                .spawn()?
+        } else {
+            Command::new(deno_path)
+                .current_dir(job_dir)
+                .env_clear()
+                .envs(reserved_variables)
+                .env("PATH", path_env)
+                .env("DENO_AUTH_TOKENS", deno_auth_tokens)
+                .env("BASE_INTERNAL_URL", base_internal_url)
+                .args(vec![
+                    "run",
+                    "--unstable",
+                    "--v8-flags=--max-heap-size=2048",
+                    "-A",
+                    "main.ts",
+                ])
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped())
+                .spawn()?
+        }) as error::Result<_>
+    }
+    .instrument(trace_span!("create_deno_jail"))
+    .await?;
     handle_child(&job.id, db, logs, timeout, child).await?;
     read_result(job_dir).await
 }
 
+#[tracing::instrument(level = "trace", skip_all)]
 async fn create_args_and_out_file(
     job: &QueuedJob,
     token: &String,
@@ -1086,6 +1115,7 @@ async fn create_args_and_out_file(
     Ok(())
 }
 
+#[tracing::instrument(level = "trace", skip_all)]
 async fn handle_python_job(
     WorkerConfig { base_internal_url, base_url, disable_nuser, disable_nsjail, .. }: &WorkerConfig,
     envs @ Envs {
@@ -1406,6 +1436,7 @@ async fn read_result(job_dir: &str) -> error::Result<serde_json::Value> {
         .map_err(|e| Error::ExecutionErr(format!("Error parsing result: {e}")))
 }
 
+#[tracing::instrument(level = "trace", skip_all)]
 async fn handle_dependency_job(
     job: &QueuedJob,
     logs: &mut String,
@@ -1582,6 +1613,7 @@ async fn gen_go_mymod(code: &str, job_dir: &str) -> error::Result<()> {
     Ok(())
 }
 
+#[tracing::instrument(level = "trace", skip_all)]
 async fn get_reserved_variables(
     job: &QueuedJob,
     token: &str,
@@ -1623,6 +1655,7 @@ async fn get_reserved_variables(
 /// - update the `last_line` and `logs` strings with the program output
 /// - update "queue"."last_ping" every five seconds
 /// - kill process if we exceed timeout or "queue"."canceled" is set
+#[tracing::instrument(level = "trace", skip_all)]
 async fn handle_child(
     job_id: &Uuid,
     db: &DB,
@@ -1794,7 +1827,7 @@ async fn handle_child(
         {
             panic::resume_unwind(p);
         }
-    };
+    }.instrument(trace_span!("child_lines"));
 
     /* a stream updating "queue"."last_ping" at an interval */
 
@@ -1899,6 +1932,7 @@ fn append_with_limit(dst: &mut String, src: &str, limit: &mut usize) {
     }
 }
 
+#[tracing::instrument(level = "trace", skip_all)]
 async fn set_logs(logs: &str, id: uuid::Uuid, db: &DB) {
     if sqlx::query!(
         "UPDATE queue SET logs = $1 WHERE id = $2",
@@ -1914,6 +1948,7 @@ async fn set_logs(logs: &str, id: uuid::Uuid, db: &DB) {
 }
 
 /* TODO retry this? */
+#[tracing::instrument(level = "trace", skip_all)]
 async fn append_logs(job_id: uuid::Uuid, logs: impl AsRef<str>, db: impl Borrow<DB>) {
     if logs.as_ref().is_empty() {
         return;

@@ -1312,6 +1312,7 @@ fn gen_token() -> String {
     token
 }
 
+#[tracing::instrument(level = "trace", skip_all)]
 pub async fn create_token_for_owner(
     db: &DB,
     w_id: &str,
@@ -1321,11 +1322,13 @@ pub async fn create_token_for_owner(
     username: &str,
 ) -> Result<String> {
     use rand::prelude::*;
-    let token: String = rand::thread_rng()
-        .sample_iter(&rand::distributions::Alphanumeric)
-        .take(30)
-        .map(char::from)
-        .collect();
+    let token: String = tracing::trace_span!("generate_token").in_scope(|| {
+        rand::thread_rng()
+            .sample_iter(&rand::distributions::Alphanumeric)
+            .take(30)
+            .map(char::from)
+            .collect()
+    });
     let mut tx = db.begin().await?;
     let is_super_admin = username.contains('@')
         && sqlx::query_scalar!(

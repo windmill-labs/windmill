@@ -53,6 +53,7 @@ pub struct AuditLog {
     pub parameters: Option<serde_json::Value>,
 }
 
+#[tracing::instrument(level = "trace", skip_all)]
 pub async fn audit_log<'c>(
     db: &mut Transaction<'c, Postgres>,
     username: &str,
