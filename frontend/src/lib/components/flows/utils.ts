@@ -1,5 +1,12 @@
 import type { Schema } from '$lib/common'
-import { JobService, type Flow, type FlowModule, type InputTransform, type Job } from '$lib/gen'
+import {
+	JobService,
+	ScriptService,
+	type Flow,
+	type FlowModule,
+	type InputTransform,
+	type Job
+} from '$lib/gen'
 import { inferArgs } from '$lib/infer'
 import { loadSchema } from '$lib/scripts'
 import { workspaceStore } from '$lib/stores'
@@ -51,26 +58,8 @@ export function getTypeAsString(arg: any): string {
 	return typeof arg
 }
 
-export function selectedIdToIndexes(selectedId: string): number[] {
-	const splitted = selectedId.split('-')
-	if (['loop', 'branches'].includes(splitted[0])) {
-		return [Number(splitted[1])]
-	} else {
-		return splitted.map(Number)
-	}
-}
-export function selectedIdToModule(selectedId: string, flow: Flow): FlowModule {
-	const [p, c] = selectedIdToIndexes(selectedId)
-	const pm = flow.value.modules[p]
-	if (c && pm.value.type == 'forloopflow') {
-		return pm.value.modules[c]
-	} else {
-		return pm
-	}
-}
-
-export function selectedIdToModuleState(selectedId: string, flow: FlowState): FlowModuleState {
-	const [p, c] = selectedIdToIndexes(selectedId)
+export function selectedIdToModuleState(flow: FlowState, indexes: Array<number>): FlowModuleState {
+	const [p, c] = indexes
 	const pm = flow.modules[p]
 	if (c && pm.childFlowModules) {
 		return pm.childFlowModules[c]
@@ -106,9 +95,7 @@ export async function loadSchemaFromModule(module: FlowModule): Promise<{
 		}
 		let input_transforms = mod.input_transforms ?? module.input_transforms ?? {}
 
-		if (
-			JSON.stringify(keys.sort()) !== JSON.stringify(Object.keys(input_transforms).sort())
-		) {
+		if (JSON.stringify(keys.sort()) !== JSON.stringify(Object.keys(input_transforms).sort())) {
 			input_transforms = keys.reduce((accu, key) => {
 				let nv = input_transforms[key] ?? {
 					type: 'static',
@@ -202,4 +189,65 @@ export function getIndexes(parentIndex: number | undefined, childIndex: number):
 	indexes.push(childIndex)
 
 	return indexes
+}
+export const NEVER_TESTED_THIS_FAR = 'never tested this far'
+
+export function emptyFlowModuleState(): FlowModuleState {
+	return {
+		schema: emptySchema(),
+		previewResult: NEVER_TESTED_THIS_FAR
+	}
+}
+
+const charCode = 'a'.charCodeAt(0)
+
+export function numberToChars(n: number) {
+	var b = [n],
+		sp,
+		out,
+		i,
+		div
+
+	sp = 0
+	while (sp < b.length) {
+		if (b[sp] > 25) {
+			div = Math.floor(b[sp] / 26)
+			b[sp + 1] = div - 1
+			b[sp] %= 26
+		}
+		sp += 1
+	}
+
+	out = ''
+	for (i = 0; i < b.length; i += 1) {
+		out = String.fromCharCode(charCode + b[i]) + out
+	}
+
+	return out
+}
+
+export function isEmptyFlowModule(flowModule: FlowModule): boolean {
+	return flowModule.value.type === 'script' && flowModule.value.path === ''
+}
+
+export async function findNextAvailablePath(path: string): Promise<string> {
+	try {
+		await ScriptService.getScriptByPath({
+			workspace: get(workspaceStore)!,
+			path
+		})
+
+		const [_, version] = path.split(/.*_([0-9]*)/)
+
+		if (version.length > 0) {
+			path = path.slice(0, -(version.length + 1))
+		}
+
+		path = `${path}_${Number(version) + 1}`
+
+		return findNextAvailablePath(path)
+	} catch (e) {
+		// Catching an error means the path is available
+		return path
+	}
 }

@@ -5,12 +5,9 @@
 	import PropPickerWrapper from '$lib/components/flows/propPicker/PropPickerWrapper.svelte'
 
 	import type { FlowModule } from '$lib/gen'
-	import { getStepPropPicker } from '../flowStateUtils'
-	import { flowStore } from '../flowStore'
-	import { flowStateStore } from '../flowState'
+
 	import type { FlowEditorContext } from '../types'
 	import { getContext } from 'svelte'
-	import { selectedIdToIndexes } from '../utils'
 
 	const { selectedId, previewArgs } = getContext<FlowEditorContext>('FlowEditorContext')
 
@@ -28,6 +25,7 @@
 		} else {
 			indices[0] += 1
 		}
+		/*
 		const props = getStepPropPicker(
 			indices,
 			$flowStore.schema,
@@ -39,6 +37,11 @@
 		delete props['previous_result']
 		props.step = props.step?.slice(0, props.step.length - 1)
 		pickableProperties = props
+		*/
+	}
+
+	function selectedIdToIndexes($selectedId: string) {
+		throw new Error('Function not implemented.')
 	}
 </script>
 

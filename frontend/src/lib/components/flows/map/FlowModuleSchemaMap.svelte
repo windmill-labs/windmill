@@ -11,108 +11,65 @@
 		faSliders,
 		faTrashAlt
 	} from '@fortawesome/free-solid-svg-icons'
-	import {
-		emptyFlowModuleState,
-		emptyModule,
-		isEmptyFlowModule,
-		NEVER_TESTED_THIS_FAR
-	} from '$lib/components/flows/flowStateUtils'
+	import { emptyModule } from '$lib/components/flows/flowStateUtils'
 	import { classNames, emptySchema } from '$lib/utils'
 
-	import type { FlowModuleState } from '../flowState'
+	import { flowStateStore, type FlowModuleState } from '../flowState'
+
 	import type { FlowModule } from '$lib/gen'
 
 	import FlowErrorHandlerItem from './FlowErrorHandlerItem.svelte'
 	import RemoveStepConfirmationModal from '../content/RemoveStepConfirmationModal.svelte'
-	import Button from '$lib/components/common/button/Button.svelte'
-	import { slide } from 'svelte/transition'
 
-	export let prefix: string | undefined = undefined
-	export let suffix: string | undefined = undefined
+	import { emptyFlowModuleState, isEmptyFlowModule } from '../utils'
+	import { flowModuleMap } from '../flowModuleMap'
+	import MapItem from './MapItem.svelte'
 
+	export let partialPath: number[] = []
 	export let modules: FlowModule[]
-	export let moduleStates: FlowModuleState[]
 
 	const { select, selectedId, schedule } = getContext<FlowEditorContext>('FlowEditorContext')
 
 	function insertAtIndex(index: number): void {
-		moduleStates.splice(index, 0, emptyFlowModuleState())
-		modules.splice(index, 0, emptyModule())
-		moduleStates = moduleStates
+		const flowModule = emptyModule()
+
+		// Insert at the right place
+		modules.splice(index, 0, flowModule)
 		modules = modules
-		select([prefix, String(index), suffix].filter(Boolean).join('-'))
+
+		flowStateStore.update((fss) => {
+			fss[flowModule.id] = emptyFlowModuleState()
+			return fss
+		})
+
+		select(flowModule.id)
 	}
 
-	function addBranch(index: number) {
-		moduleStates[index].childFlowModules?.splice(
-			moduleStates[index].childFlowModules?.length || 0,
-			0,
-			{
-				schema: emptySchema(),
-				childFlowModules: [emptyFlowModuleState()],
-				previewResult: NEVER_TESTED_THIS_FAR
-			}
-		)
-
-		const module = modules[index]
-
-		if (module.value.type === 'branches') {
-			module.value.branches = [
-				...module.value.branches,
-				{
-					summary: '',
-					expr: '',
-					modules: [emptyModule()]
-				}
-			]
-		}
-
-		modules[index] = module
-
-		moduleStates = moduleStates
-		modules = modules
-	}
-
-	function deleteBranch(index: number, branchIndex: number) {
+	function removeById(id: string): void {
 		select('settings')
 
-		moduleStates[index].childFlowModules?.splice(branchIndex - 1, 1)
-
-		const module = modules[index]
-
-		if (module.value.type === 'branches') {
-			module.value.branches.splice(branchIndex - 1, 1)
-		}
-
-		modules[index] = module
-		moduleStates = moduleStates
-		modules = modules
-	}
-
-	function removeAtIndex(index: number): void {
-		select('settings')
+		/*
 
 		modules.splice(index, 1)
 		moduleStates.splice(index, 1)
 		moduleStates = moduleStates
 		modules = modules
+		*/
 	}
-	let indexToRemove: number | undefined = undefined
-	$: confirmationModalOpen = indexToRemove !== undefined
+
+	let idToRemove: string | undefined = undefined
+	$: confirmationModalOpen = idToRemove !== undefined
+
+	$: settingsClass = classNames(
+		'border w-full rounded-md p-2 bg-white text-sm cursor-pointer flex items-center mb-4',
+		$selectedId.includes('settings') ? 'outline outline-offset-1 outline-2  outline-slate-900' : ''
+	)
 </script>
 
 <div class="flex flex-col justify-between">
 	<ul class="w-full">
-		{#if prefix === undefined}
-			<div
-				on:click={() => select('settings')}
-				class={classNames(
-					'border w-full rounded-md p-2 bg-white text-sm cursor-pointer flex items-center mb-4',
-					$selectedId.includes('settings')
-						? 'outline outline-offset-1 outline-2  outline-slate-900'
-						: ''
-				)}
-			>
+		{#if partialPath.length === 0}
+			<div on:click={() => select('settings')} class={settingsClass}>
 				<Icon data={faSliders} class="mr-2" />
 				<span
 					class="text-xs font-bold flex flex-row justify-between w-full flex-wrap gap-2 items-center"
@@ -142,182 +99,7 @@
 		{/if}
 
 		{#each modules as mod, index (index)}
-			<button
-				on:click={() => insertAtIndex(index)}
-				type="button"
-				class="text-gray-900 m-0.5 my-0.5 bg-white border border-gray-300 focus:outline-none hover:bg-gray-100 focus:ring-4 focus:ring-gray-200 font-medium rounded-full text-sm w-6 h-6 flex items-center justify-center"
-			>
-				<Icon data={faPlus} scale={0.8} />
-			</button>
-			{#if mod.value.type === 'forloopflow'}
-				<li>
-					<FlowModuleSchemaItem
-						deletable
-						on:delete={() => removeAtIndex(index)}
-						on:click={() => select(['loop', String(index)].join('-'))}
-						selected={$selectedId === ['loop', String(index)].join('-')}
-						retry={mod.retry?.constant != undefined || mod.retry?.exponential != undefined}
-						earlyStop={mod.stop_after_if != undefined}
-						suspend={Boolean(mod.suspend)}
-					>
-						<div slot="icon">
-							<span>{index + 1}</span>
-						</div>
-						<div slot="content" class="truncate block w-full">
-							<span>{mod.summary || 'For loop'}</span>
-						</div>
-					</FlowModuleSchemaItem>
-
-					<div class="flex text-xs">
-						<div class="line mr-2" />
-
-						<div class="w-full my-2">
-							{#if moduleStates[index]?.childFlowModules}
-								<svelte:self
-									prefix={String(index)}
-									moduleStates={moduleStates[index].childFlowModules}
-									modules={mod.value.modules}
-								/>
-							{/if}
-						</div>
-					</div>
-				</li>
-			{:else if mod.value.type === 'branches'}
-				<li>
-					<FlowModuleSchemaItem
-						deletable
-						on:delete={() => removeAtIndex(index)}
-						on:click={() => select(['branches', String(index)].join('-'))}
-						selected={$selectedId === ['branches', String(index)].filter(Boolean).join('-')}
-						retry={mod.retry?.constant != undefined || mod.retry?.exponential != undefined}
-						earlyStop={mod.stop_after_if != undefined}
-						suspend={Boolean(mod.suspend)}
-					>
-						<div slot="icon">
-							<span>{index + 1}</span>
-						</div>
-						<div slot="content" class="truncate block w-full text-xs">
-							<span>{mod.summary || 'Branches'}</span>
-						</div>
-					</FlowModuleSchemaItem>
-
-					<div class="flex text-xs">
-						<div
-							class="w-full space-y-2 flex flex-col border p-2 bg-gray-500 bg-opacity-10 rounded-sm my-2"
-						>
-							{#if moduleStates[index]?.childFlowModules !== undefined}
-								<Button
-									size="xs"
-									color="dark"
-									startIcon={{ icon: faCodeBranch }}
-									on:click={() => addBranch(index)}
-								>
-									Add branch
-								</Button>
-								{#each moduleStates[index]?.childFlowModules ?? [] as branchState, branchIndex}
-									{#if branchState.childFlowModules && branchIndex === 0}
-										<div
-											on:click={() => select(`branch-${index}-${branchIndex}`)}
-											class={classNames(
-												'border w-full rounded-md p-2 bg-white text-sm cursor-pointer flex items-center mb-4',
-												$selectedId === `branch-${index}-${branchIndex}`
-													? 'outline outline-offset-1 outline-2  outline-slate-900'
-													: ''
-											)}
-										>
-											<Icon data={faCodeBranch} class="mr-2" />
-											<span
-												class="text-xs flex flex-row justify-between w-full flex-wrap gap-2 items-center"
-											>
-												Default branch
-											</span>
-										</div>
-										{#if $selectedId.split('-')[2] === '0'}
-											<div transition:slide>
-												<svelte:self
-													prefix={String(index)}
-													suffix={String(branchIndex)}
-													moduleStates={branchState.childFlowModules}
-													modules={mod.value.default}
-												/>
-											</div>
-										{/if}
-									{:else if branchState.childFlowModules && branchIndex > 0}
-										<div
-											on:click={() => select(`branch-${index}-${branchIndex}`)}
-											class={classNames(
-												'border w-full rounded-md p-2 bg-white text-sm cursor-pointer flex items-center mb-4',
-												$selectedId === `branch-${index}-${branchIndex}`
-													? 'outline outline-offset-1 outline-2  outline-slate-900'
-													: ''
-											)}
-										>
-											<Icon data={faCodeBranch} class="mr-2" />
-											<span
-												class="text-xs flex flex-row justify-between w-full flex-wrap gap-2 items-center"
-											>
-												Branch {branchIndex}
-												<Button
-													iconOnly
-													size="xs"
-													startIcon={{ icon: faTrashAlt }}
-													color="light"
-													variant="border"
-													on:click={() => deleteBranch(index, branchIndex)}
-												/>
-											</span>
-										</div>
-
-										{#if $selectedId.split('-')[2] === String(branchIndex)}
-											<div transition:slide>
-												<svelte:self
-													prefix={String(index)}
-													suffix={String(branchIndex)}
-													moduleStates={branchState.childFlowModules}
-													modules={mod.value.branches[branchIndex - 1].modules}
-												/>
-											</div>
-										{/if}
-									{/if}
-								{/each}
-							{/if}
-						</div>
-					</div>
-				</li>
-			{:else}
-				<li>
-					<FlowModuleSchemaItem
-						on:click={() => select([prefix, String(index), suffix].filter(Boolean).join('-'))}
-						color={suffix ? 'indigo' : prefix ? 'orange' : 'blue'}
-						isLast={index === modules.length - 1}
-						selected={$selectedId === [prefix, String(index), suffix].filter(Boolean).join('-')}
-						deletable
-						on:delete={(event) => {
-							if (event.detail.event.shiftKey || isEmptyFlowModule(mod)) {
-								removeAtIndex(index)
-							} else {
-								indexToRemove = index
-							}
-						}}
-						retry={mod.retry?.constant != undefined || mod.retry?.exponential != undefined}
-						earlyStop={mod.stop_after_if != undefined}
-						suspend={Boolean(mod.suspend)}
-					>
-						<div slot="icon">
-							<span>{index + 1}</span>
-						</div>
-						<div slot="content" class="w-full truncate block text-xs">
-							<span>
-								{mod.summary ||
-									(`path` in mod.value ? mod.value.path : undefined) ||
-									(mod.value.type === 'rawscript'
-										? `Inline ${mod.value.language}`
-										: 'Select a script')}
-							</span>
-						</div>
-					</FlowModuleSchemaItem>
-				</li>
-			{/if}
+			<MapItem bind:mod {index} {partialPath} />
 		{/each}
 
 		<button
@@ -328,7 +110,7 @@
 			<Icon data={faPlus} scale={0.8} />
 		</button>
 	</ul>
-	{#if prefix === undefined}
+	{#if partialPath.length === 0}
 		<FlowErrorHandlerItem />
 	{/if}
 </div>
@@ -336,12 +118,12 @@
 <RemoveStepConfirmationModal
 	bind:open={confirmationModalOpen}
 	on:canceled={() => {
-		indexToRemove = undefined
+		idToRemove = undefined
 	}}
 	on:confirmed={() => {
-		if (indexToRemove !== undefined) {
-			removeAtIndex(indexToRemove)
-			indexToRemove = undefined
+		if (idToRemove !== undefined) {
+			removeById(idToRemove)
+			idToRemove = undefined
 		}
 	}}
 />

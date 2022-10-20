@@ -19,7 +19,8 @@
 
 	export let mod: FlowModule
 	export let schema: Schema
-	export let indices: [number, number | undefined]
+
+	let indices = []
 
 	let stepArgs: Record<string, any> = {}
 

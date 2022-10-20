@@ -19,8 +19,6 @@
 		createScriptFromInlineScript,
 		fork,
 		createBranches,
-		getStepPropPicker,
-		isEmptyFlowModule,
 		pickScript
 	} from '$lib/components/flows/flowStateUtils'
 	import { flowStore } from '$lib/components/flows/flowStore'
@@ -33,7 +31,7 @@
 	import PropPickerWrapper from '../propPicker/PropPickerWrapper.svelte'
 	import { afterUpdate, getContext, setContext } from 'svelte'
 	import type { FlowEditorContext } from '../types'
-	import { loadSchemaFromModule, selectedIdToIndexes } from '../utils'
+	import { isEmptyFlowModule, loadSchemaFromModule } from '../utils'
 	import { writable, type Writable } from 'svelte/store'
 	import FlowModuleScript from './FlowModuleScript.svelte'
 	import FlowModuleEarlyStop from './FlowModuleEarlyStop.svelte'
@@ -43,10 +41,7 @@
 	const { selectedId, select, previewArgs } = getContext<FlowEditorContext>('FlowEditorContext')
 
 	export let flowModule: FlowModule
-	export let flowModuleState: FlowModuleState
-	export let failureModule: boolean
-
-	$: [parentIndex, childIndex] = selectedIdToIndexes($selectedId)
+	export let failureModule: boolean = false
 
 	let editor: Editor
 	let modulePreview: ModulePreview
@@ -56,10 +51,15 @@
 	let panes: HTMLElement
 	let totalTopGap = 0
 
+	const parentIndex = 0
+	const childIndex = 0
+
 	$: shouldPick = isEmptyFlowModule(flowModule)
-	$: stepPropPicker = failureModule
-		? { pickableProperties: { previous_result: { error: 'the error message' } }, extraLib: '' }
-		: getStepPropPicker([parentIndex, childIndex], $flowStore.schema, $flowStateStore, $previewArgs)
+
+	$: stepPropPicker = {
+		pickableProperties: { previous_result: { error: 'the error message' } },
+		extraLib: ''
+	}
 
 	function onKeyDown(event: KeyboardEvent) {
 		if ((event.ctrlKey || event.metaKey) && event.key == 'Enter') {
@@ -70,24 +70,24 @@
 	}
 
 	async function apply<T>(fn: (arg: T) => Promise<[FlowModule, FlowModuleState]>, arg: T) {
-		const [module, moduleState] = await fn(arg)
+		const [module, flowModuleState] = await fn(arg)
 
-		if (
-			JSON.stringify(flowModule) != JSON.stringify(module) ||
-			JSON.stringify(flowModuleState) != JSON.stringify(moduleState)
-		) {
+		if (JSON.stringify(flowModule) != JSON.stringify(module)) {
 			flowModule = module
-			flowModuleState = moduleState
+			$flowStateStore[module.id] = flowModuleState
 		}
 	}
 
 	async function reload(flowModule: FlowModule) {
 		const { input_transforms, schema } = await loadSchemaFromModule(flowModule)
 
+		/*
 		flowModuleState.schema = schema
 		if (flowModule.value.type == 'script' || flowModule.value.type == 'rawscript') {
 			flowModule.input_transforms = input_transforms
 		}
+
+		*/
 		$flowStore = $flowStore
 	}
 
@@ -131,20 +131,20 @@
 					on:toggleStopAfterIf={() => (selected = 'early-stop')}
 					on:fork={() => apply(fork, flowModule)}
 					on:createScriptFromInlineScript={() => {
+						/*
 						apply(createScriptFromInlineScript, {
 							flowModule: flowModule,
 							suffix: $selectedId,
 							schema: flowModuleState.schema
 						})
+						*/
 					}}
 				/>
 			</svelte:fragment>
 			{#if shouldPick}
 				<FlowInputs
-					shouldDisableTriggerScripts={parentIndex != 0}
-					shouldDisableLoopCreation={childIndex !== undefined ||
-						parentIndex === 0 ||
-						$selectedId.includes('failure')}
+					shouldDisableTriggerScripts={true}
+					shouldDisableLoopCreation={true}
 					on:loop={() => {
 						applyCreateLoop()
 						select(['loop', $selectedId].join('-'))
@@ -222,7 +222,7 @@
 												Ctrl/Cmd+S
 											</p>
 											<SchemaForm
-												schema={flowModuleState.schema}
+												schema={$flowStateStore[$selectedId].schema}
 												inputTransform={true}
 												importPath={$selectedId}
 												bind:args={flowModule.value.input_transforms}
@@ -234,8 +234,7 @@
 									<ModulePreview
 										bind:this={modulePreview}
 										mod={flowModule}
-										schema={flowModuleState.schema}
-										indices={[parentIndex, childIndex]}
+										schema={$flowStateStore[$selectedId].schema}
 									/>
 								{:else if selected === 'retries'}
 									<FlowRetries bind:flowModule class="px-4 pb-4 h-full overflow-auto" />

@@ -6,7 +6,7 @@
 	import SimpleEditor from '$lib/components/SimpleEditor.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import { flowStore } from '../flowStore'
-	import { getStepPropPicker } from '../flowStateUtils'
+	import { getStepPropPicker } from '../previousResults'
 	import { flowStateStore } from '../flowState'
 	import PropPickerWrapper from '../propPicker/PropPickerWrapper.svelte'
 	import FlowModuleEarlyStop from './FlowModuleEarlyStop.svelte'
@@ -27,12 +27,7 @@
 
 	$: mod = $flowStore.value.modules[index]
 
-	$: pickableProperties = getStepPropPicker(
-		[Number(index)],
-		$flowStore.schema,
-		$flowStateStore,
-		$previewArgs
-	).pickableProperties
+	const pickableProperties = {}
 </script>
 
 <div class="h-full flex flex-col">

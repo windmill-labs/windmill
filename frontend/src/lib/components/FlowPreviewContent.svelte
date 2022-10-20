@@ -6,12 +6,12 @@
 	import { createEventDispatcher, getContext } from 'svelte'
 	import Icon from 'svelte-awesome'
 	import { flowStateStore } from './flows/flowState'
-	import { mapJobResultsToFlowState, type JobResult } from './flows/flowStateUtils'
 	import { flowStore } from './flows/flowStore'
 	import type { FlowEditorContext } from './flows/types'
-	import { runFlowPreview, selectedIdToIndexes } from './flows/utils'
+	import { runFlowPreview } from './flows/utils'
 	import SchemaForm from './SchemaForm.svelte'
 	import FlowStatusViewer from '../components/FlowStatusViewer.svelte'
+	import { mapJobResultsToFlowState, type JobResult } from './flows/previousResults'
 
 	export let previewMode: 'upTo' | 'whole'
 
@@ -22,10 +22,17 @@
 	const { selectedId, previewArgs } = getContext<FlowEditorContext>('FlowEditorContext')
 
 	function extractFlow(previewMode: 'upTo' | 'whole'): Flow {
+		/*
 		if (previewMode === 'whole') {
 			return $flowStore
 		} else {
-			let [parentIndex, childIndex] = selectedIdToIndexes($selectedId)
+			const positions = $idToPositionStore.get($selectedId)!
+
+			if (positions.length < 2) {
+				throw new Error('Up to inside branch is not supported, nor deeply nested modules')
+			}
+
+			const [parentIndex, childIndex] = positions
 
 			const flow = JSON.parse(JSON.stringify($flowStore))
 			const modules = flow.value.modules.slice(0, Number(parentIndex) + 1)
@@ -41,6 +48,11 @@
 			}
 			return flow
 		}
+		*/
+
+		const flow = JSON.parse(JSON.stringify($flowStore))
+
+		return flow
 	}
 
 	const dispatch = createEventDispatcher()
@@ -70,10 +82,10 @@
 		if (jobResult.job?.type === 'CompletedJob') {
 			isRunning = false
 		}
-		const upToIndex =
-			previewMode === 'upTo'
-				? selectedIdToIndexes($selectedId)[0] + 1
-				: $flowStateStore.modules.length
+
+		// TODO
+		const upToIndex = 1
+
 		mapJobResultsToFlowState(jobResult, upToIndex)
 	}
 </script>

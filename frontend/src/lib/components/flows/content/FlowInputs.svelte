@@ -51,36 +51,39 @@
 			label="New Python script (3.10)"
 			icon={faCode}
 			iconColor="text-green-500"
-			on:click={() =>
+			on:click={() => {
 				dispatch('new', {
 					language: RawScript.language.PYTHON3,
 					kind: 'script',
 					subkind: failureModule ? 'failure' : 'flow'
-				})}
+				})
+			}}
 		/>
 
 		<FlowScriptPicker
 			label="New Typescript script (Deno)"
 			icon={faCode}
 			iconColor="text-blue-800"
-			on:click={() =>
+			on:click={() => {
 				dispatch('new', {
 					language: RawScript.language.DENO,
 					kind: 'script',
 					subkind: failureModule ? 'failure' : 'flow'
-				})}
+				})
+			}}
 		/>
 
 		<FlowScriptPicker
 			label="New Go script"
 			icon={faCode}
 			iconColor="text-blue-700"
-			on:click={() =>
+			on:click={() => {
 				dispatch('new', {
 					language: RawScript.language.GO,
 					kind: 'script',
 					subkind: failureModule ? 'failure' : 'flow'
-				})}
+				})
+			}}
 		/>
 	</div>
 

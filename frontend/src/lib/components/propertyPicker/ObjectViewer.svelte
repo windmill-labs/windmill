@@ -2,7 +2,7 @@
 	import { truncate } from '$lib/utils'
 
 	import { createEventDispatcher } from 'svelte'
-	import { NEVER_TESTED_THIS_FAR } from '../flows/flowStateUtils'
+	import { NEVER_TESTED_THIS_FAR } from '../flows/utils'
 	import { getTypeAsString } from '../flows/utils'
 	import { computeKey } from './utils'
 	import WarningMessage from './WarningMessage.svelte'

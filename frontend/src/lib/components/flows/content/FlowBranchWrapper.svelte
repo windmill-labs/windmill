@@ -1,34 +1,37 @@
 <script lang="ts">
-	import type { Branches, FlowModule } from '$lib/gen'
+	import type { BranchOne, FlowModule } from '$lib/gen'
 	import { getContext } from 'svelte'
 	import FlowCard from '../common/FlowCard.svelte'
 	import { flowStore } from '../flowStore'
 	import type { FlowEditorContext } from '../types'
-	import { VSplitPane } from 'svelte-split-pane'
 	import PropPickerWrapper from '../propPicker/PropPickerWrapper.svelte'
 	import SimpleEditor from '$lib/components/SimpleEditor.svelte'
 
-	import { getStepPropPicker } from '../flowStateUtils'
 	import { flowStateStore } from '../flowState'
+	import { Pane, Splitpanes } from 'svelte-splitpanes'
+	import { flowModuleMap } from '../flowModuleMap'
+	import { getStepPropPicker } from '../previousResults'
 
-	const { selectedId } = getContext<FlowEditorContext>('FlowEditorContext')
+	const { selectedId, previewArgs } = getContext<FlowEditorContext>('FlowEditorContext')
 	let editor: SimpleEditor | undefined = undefined
-	const { previewArgs } = getContext<FlowEditorContext>('FlowEditorContext')
 
-	$: [branchKeyword, parentIndex, branchIndex] = $selectedId.split('-')
+	$: moduleMapped = $flowModuleMap[$selectedId]
 
-	$: flowModule = $flowStore.value.modules[parentIndex]
-	$: flowValue = flowModule.value as Branches
-	$: branch = flowValue.branches[Number(branchIndex) - 1] as {
+	const { flowModule, parentModuleId, previousModuleId } = moduleMapped
+
+	$: flowValue = flowModule.value as BranchOne
+
+	$: branch = flowValue.branches[Number(21) - 1] as {
 		summary?: string
 		expr: string
 		modules: Array<FlowModule>
 	}
 
 	$: pickableProperties = getStepPropPicker(
-		[Number(parentIndex)],
+		flowModule.id,
 		$flowStore.schema,
 		$flowStateStore,
+		$flowModuleMap,
 		$previewArgs
 	).pickableProperties
 </script>
@@ -39,8 +42,8 @@
 			<input bind:value={branch.summary} placeholder={'Summary'} />
 		</div>
 		<div class="overflow-hidden flex-grow">
-			<VSplitPane topPanelSize="60%" downPanelSize="40%" minTopPaneSize="20%" minDownPaneSize="20%">
-				<top slot="top" class="h-full">
+			<Splitpanes>
+				<Pane>
 					<div class="p-6 flex flex-col h-full overflow-clip">
 						<span class="mb-2 text-sm font-bold">Branch predicate</span>
 						<div class="border w-full">
@@ -60,9 +63,8 @@
 							</PropPickerWrapper>
 						</div>
 					</div>
-				</top>
-				<down slot="down" class="flex flex-col flex-1 h-full" />
-			</VSplitPane>
+				</Pane>
+			</Splitpanes>
 		</div>
 	</FlowCard>
 </div>

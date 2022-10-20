@@ -1,6 +1,5 @@
 <script lang="ts">
 	import Button from '$lib/components/common/button/Button.svelte'
-	import { isEmptyFlowModule } from '$lib/components/flows/flowStateUtils'
 
 	import type { FlowModule } from '$lib/gen'
 	import { classNames } from '$lib/utils'
@@ -16,6 +15,7 @@
 	import { createEventDispatcher, getContext } from 'svelte'
 	import Icon from 'svelte-awesome'
 	import type { FlowEditorContext } from '../types'
+	import { isEmptyFlowModule } from '../utils'
 	import type { FlowModuleWidthContext } from './FlowModule.svelte'
 	import RemoveStepConfirmationModal from './RemoveStepConfirmationModal.svelte'
 

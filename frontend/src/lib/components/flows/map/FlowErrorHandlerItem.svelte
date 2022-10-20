@@ -3,11 +3,12 @@
 	import { getContext } from 'svelte'
 	import Icon from 'svelte-awesome'
 	import { faBug } from '@fortawesome/free-solid-svg-icons'
-	import { emptyModule, NEVER_TESTED_THIS_FAR } from '$lib/components/flows/flowStateUtils'
+	import { emptyModule } from '$lib/components/flows/flowStateUtils'
 	import { classNames, emptySchema } from '$lib/utils'
 	import { flowStateStore, type FlowModuleState } from '../flowState'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import { flowStore } from '../flowStore'
+	import { NEVER_TESTED_THIS_FAR } from '../utils'
 
 	const { select, selectedId } = getContext<FlowEditorContext>('FlowEditorContext')
 
@@ -19,8 +20,7 @@
 		} else {
 			const failureModule: FlowModuleState = {
 				schema: emptySchema(),
-				previewResult: NEVER_TESTED_THIS_FAR,
-				childFlowModules: []
+				previewResult: NEVER_TESTED_THIS_FAR
 			}
 			$flowStateStore.failureModule = failureModule
 			$flowStore.value.failure_module = emptyModule()

@@ -3,7 +3,7 @@
 	import Badge from '$lib/components/common/badge/Badge.svelte'
 	import IconedPath from '$lib/components/IconedPath.svelte'
 	import { RawScript, type FlowModule } from '$lib/gen'
-	import { isEmptyFlowModule } from '../flowStateUtils'
+	import { isEmptyFlowModule } from '../utils'
 
 	export let flowModule: FlowModule | undefined = undefined
 	export let title: string | undefined = undefined

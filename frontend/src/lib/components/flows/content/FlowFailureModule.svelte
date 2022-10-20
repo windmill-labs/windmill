@@ -8,7 +8,7 @@
 {#if $flowStore.value.failure_module}
 	<FlowModule
 		bind:flowModule={$flowStore.value.failure_module}
-		bind:flowModuleState={$flowStateStore.failureModule}
+		bind:flowModuleState={$flowStateStore['failure']}
 		on:delete={() => {
 			$flowStore.value.failure_module = undefined
 		}}
