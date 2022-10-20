@@ -72,10 +72,11 @@ export function nextId(): string {
 	const len = computeLength(flowState.modules)
 	return numberToChars(len);
 }
-export async function pickScript(path: string): Promise<[FlowModule, FlowModuleState]> {
+export async function pickScript({ path, summary }: { path: string, summary?: string }): Promise<[FlowModule, FlowModuleState]> {
 	const flowModule: FlowModule = {
 		id: nextId(),
 		value: { type: 'script', path },
+		summary,
 		input_transforms: {}
 	}
 
@@ -191,7 +192,7 @@ export async function createScriptFromInlineScript({
 		workspace: get(workspaceStore)!,
 		requestBody: {
 			path: availablePath,
-			summary: '',
+			summary: flowModule.summary ?? '',
 			description,
 			content: flowModule.value.content,
 			parent_hash: undefined,
@@ -201,7 +202,7 @@ export async function createScriptFromInlineScript({
 		}
 	})
 
-	return pickScript(availablePath)
+	return pickScript({ path: availablePath, summary: flowModule.summary })
 }
 
 async function findNextAvailablePath(path: string): Promise<string> {
