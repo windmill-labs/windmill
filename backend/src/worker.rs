@@ -1828,15 +1828,14 @@ async fn handle_child(
 
     /* a stream updating "queue"."last_ping" at an interval */
 
-    // this is technically oneshot, but borrowing rules don't allow it in a loop.
-    let (tx, mut rx) = mpsc::channel::<()>(1);
+    let (kill_tx, mut kill_rx) = oneshot::channel::<()>();
 
     let mut interval = interval(ping_interval);
     interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
 
     let db1 = db.clone();
     tokio::spawn(async move {
-        'outer: loop {
+        loop {
             tokio::select! {
                 _ = interval.tick() => {
                     if let Err(err) = sqlx::query!("UPDATE queue SET last_ping = now() WHERE id = $1", job_id)
@@ -1846,13 +1845,12 @@ async fn handle_child(
                 tracing::error!(%job_id, %err, "error setting last ping for job {job_id}: {err}");
                     };
                 },
-                _ = rx.recv() => break 'outer,
+                _ = (&mut kill_rx) => return,
             }
         }
-        drop(interval);
     });
     let (wait_result, _) = tokio::join!(wait_on_child, lines);
-    tx.send(()).await.expect("send should always work");
+    kill_tx.send(()).expect("send should always work");
 
     match wait_result {
         _ if *too_many_logs.borrow() => Err(Error::ExecutionErr(
