@@ -13,7 +13,7 @@ export async function loadSchema(path: string): Promise<Schema> {
 			await inferArgs('deno', content ?? '', newSchema)
 			return newSchema
 		} else {
-			return JSON.parse(schema ?? "{}")
+			return schema ?? emptySchema()
 		}
 	} else {
 		const script = await ScriptService.getScriptByPath({
