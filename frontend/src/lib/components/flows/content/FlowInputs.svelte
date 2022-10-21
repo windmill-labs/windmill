@@ -19,7 +19,7 @@
 	<div class="text-sm font-bold">Inline script</div>
 	<div class="grid sm:grid-col-2 lg:grid-cols-3 gap-4">
 		<FlowScriptPicker
-			label="Python (3.10)"
+			label="Inline Python (3.10)"
 			icon={faCode}
 			iconColor="text-green-500"
 			on:click={() =>
@@ -31,7 +31,7 @@
 		/>
 
 		<FlowScriptPicker
-			label="Typescript (Deno)"
+			label="Inline Typescript (Deno)"
 			icon={faCode}
 			iconColor="text-blue-800"
 			on:click={() =>
@@ -43,7 +43,7 @@
 		/>
 
 		<FlowScriptPicker
-			label="Go"
+			label="Inline Go"
 			icon={faCode}
 			iconColor="text-blue-700"
 			on:click={() =>
@@ -56,7 +56,7 @@
 
 		{#if !failureModule}
 			<FlowScriptPicker
-				label={`PostgreSQL`}
+				label={`Inline PostgreSQL`}
 				icon={faCode}
 				iconColor="text-blue-800"
 				on:click={() =>
@@ -68,12 +68,12 @@
 
 	<div class="grid sm:grid-col-2 lg:grid-cols-3 gap-4">
 		<PickScript
-			customText={failureModule ? 'Pick an error handler from your workspace' : undefined}
+			customText={failureModule ? 'Error Handler from workspace' : undefined}
 			kind={failureModule ? Script.kind.FAILURE : Script.kind.SCRIPT}
 			on:pick
 		/>
 		<PickHubScript
-			customText={failureModule ? 'Pick an error handler from your workspace' : undefined}
+			customText={failureModule ? 'Error Handler from Hub' : undefined}
 			kind={failureModule ? Script.kind.FAILURE : Script.kind.SCRIPT}
 			on:pick
 		/>
@@ -86,7 +86,7 @@
 			<PickScript customText="Trigger script from workspace" kind={Script.kind.TRIGGER} on:pick />
 			<PickHubScript customText="Trigger script from Hub" kind={Script.kind.TRIGGER} on:pick />
 			<FlowScriptPicker
-				label="New Typescript script (Deno)"
+				label="Inlined Typescript (Deno)"
 				icon={faCode}
 				iconColor="text-blue-800"
 				on:click={() => dispatch('new', { language: RawScript.language.DENO, kind: 'trigger' })}
@@ -105,15 +105,17 @@
 			/>
 		</div>
 
-		<div class="text-sm font-bold">Flow primitive</div>
+		{#if !shouldDisableLoopCreation}
+			<div class="text-sm font-bold">Flow primitive</div>
 
-		<div class="grid sm:grid-col-1 md:grid-col-2 lg:grid-cols-3 gap-4">
-			<FlowScriptPicker
-				label={`Create a for-loop`}
-				icon={faRepeat}
-				iconColor="text-blue-500"
-				on:click={() => dispatch('loop')}
-			/>
-		</div>
+			<div class="grid sm:grid-col-1 md:grid-col-2 lg:grid-cols-3 gap-4">
+				<FlowScriptPicker
+					label={`Create a for-loop`}
+					icon={faRepeat}
+					iconColor="text-blue-500"
+					on:click={() => dispatch('loop')}
+				/>
+			</div>
+		{/if}
 	{/if}
 </div>
