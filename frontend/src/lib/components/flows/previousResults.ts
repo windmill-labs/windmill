@@ -1,7 +1,6 @@
 import type { Flow, FlowModule, Job } from '$lib/gen'
 import { buildExtraLib, objectToTsType, schemaToObject } from '$lib/utils'
-import { get } from 'svelte/store'
-import { flowStateStore, type FlowState } from './flowState'
+import type { FlowState } from './flowState'
 
 type Result = any
 
@@ -134,61 +133,4 @@ export function getStepPropPicker(
 			previous_result: previousResults
 		}
 	}
-}
-
-// OTHER FILE
-
-export type JobResult = {
-	job?: Job
-	innerJobs: JobResult[]
-	loopJobs?: JobResult[]
-}
-
-function getResult(job: Job | undefined): Result | undefined {
-	if (job && 'result' in job) {
-		return job.result
-	}
-}
-
-export function mapJobResultsToFlowState(jobs: JobResult, upto: number): void {
-	const results = jobs.innerJobs.map(({ job, loopJobs }) => {
-		if (loopJobs && loopJobs.length > 0) {
-			return [
-				job?.args,
-				loopJobs.map(({ job }) => {
-					return getResult(job)
-				})
-			]
-		} else {
-			return [job?.args, getResult(job)]
-		}
-	})
-
-	const old = get(flowStateStore)
-
-	/*
-	const modules = old.modules.map((flowModuleState: FlowModuleState, index: number) => {
-		if (results[index] && index <= upto) {
-			if (
-				results[index][1] != NEVER_TESTED_THIS_FAR ||
-				flowModuleState.previewResult == undefined
-			) {
-				flowModuleState.previewArgs = results[index][0]
-				flowModuleState.previewResult = results[index][1]
-				flowModuleState.childFlowModules?.map((innerMod, j) => {
-					const lastLoopJob = jobs.innerJobs[index].loopJobs?.length ?? 0
-					innerMod.previewResult = getResult(
-						jobs.innerJobs[index].loopJobs?.[lastLoopJob - 1]?.innerJobs?.[j]?.job
-					)
-				})
-			}
-		}
-
-		return flowModuleState
-	})
-*/
-	flowStateStore.set({
-		modules: old.modules,
-		failureModule: old.failureModule
-	})
 }

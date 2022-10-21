@@ -1,17 +1,15 @@
 <script lang="ts">
-	import { JobService, type Flow } from '$lib/gen'
+	import { Job, JobService, type Flow } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { faClose, faPlay, faRefresh } from '@fortawesome/free-solid-svg-icons'
 	import { Button } from './common'
 	import { createEventDispatcher, getContext } from 'svelte'
 	import Icon from 'svelte-awesome'
-	import { flowStateStore } from './flows/flowState'
 	import { flowStore } from './flows/flowStore'
 	import type { FlowEditorContext } from './flows/types'
 	import { runFlowPreview } from './flows/utils'
 	import SchemaForm from './SchemaForm.svelte'
 	import FlowStatusViewer from '../components/FlowStatusViewer.svelte'
-	import { mapJobResultsToFlowState, type JobResult } from './flows/previousResults'
 
 	export let previewMode: 'upTo' | 'whole'
 
@@ -81,22 +79,10 @@
 		}
 	}
 
-	function onJobsLoaded(jobResult: JobResult) {
-		if (jobResult.job?.type === 'CompletedJob') {
+	function onJobsLoaded(job: Job | undefined) {
+		if (job?.type === 'CompletedJob') {
 			isRunning = false
 		}
-
-		// TODO
-		/**
-		 * const upToIndex =
-				previewMode === 'upTo'
-				? selectedIdToIndexes($selectedId)[0] + 1
-				: $flowStateStore.modules.length
-
-		 */
-		const upToIndex = 1
-
-		mapJobResultsToFlowState(jobResult, upToIndex)
 	}
 </script>
 

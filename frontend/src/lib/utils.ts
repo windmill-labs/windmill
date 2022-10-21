@@ -73,6 +73,7 @@ export function getToday() {
 }
 
 export function sendUserToast(message: string, error: boolean = false): void {
+	console.trace(message, error)
 	if (error) {
 		toast.push(message, {
 			theme: {
@@ -477,7 +478,7 @@ export async function getScriptByPath(path: string): Promise<{
 
 		return {
 			content,
-			language,
+			language
 		}
 	} else {
 		const script = await ScriptService.getScriptByPath({
