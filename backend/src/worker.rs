@@ -1723,7 +1723,7 @@ async fn handle_child(
             _ = cancel_check => KillReason::Cancelled,
             _ = sleep(timeout) => KillReason::Timeout,
         };
-        let _ = tx.send(());
+        tx.send(()).await.expect("rx should never be dropped");
         drop(tx);
 
         let set_reason = async {
