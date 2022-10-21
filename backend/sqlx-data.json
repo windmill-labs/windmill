@@ -1276,7 +1276,8 @@
                   "script",
                   "trigger",
                   "failure",
-                  "command"
+                  "command",
+                  "approval"
                 ]
               },
               "name": "script_kind"
@@ -1386,6 +1387,29 @@
       }
     },
     "query": "INSERT INTO workspace_key\n            (workspace_id, kind, key)\n            VALUES ($1, 'cloud', $2)"
+  },
+  "651361530f153de49f300e4d647903794052ddc7d083d16b66d9ebd142239794": {
+    "describe": {
+      "columns": [
+        {
+          "name": "id",
+          "ordinal": 0,
+          "type_info": "Uuid"
+        }
+      ],
+      "nullable": [
+        false
+      ],
+      "parameters": {
+        "Left": [
+          "Varchar",
+          "Text",
+          "Uuid",
+          "Text"
+        ]
+      }
+    },
+    "query": "UPDATE queue SET canceled = true, canceled_by = $1, canceled_reason = $2 WHERE parent_job = $3 AND workspace_id = $4 RETURNING id"
   },
   "6c63bbcb45d3f51eccaea52ec862700e1f1c2426d823abd951e1eea4fd9b85aa": {
     "describe": {
@@ -3227,29 +3251,6 @@
     },
     "query": "\n           SELECT SUM(duration_ms)\n             FROM completed_job\n            WHERE permissioned_as = $1\n              AND created_at > NOW() - INTERVAL '1200 seconds'\n              AND workspace_id = $2"
   },
-  "e7051b21ffd80de0cb0644a71c89c9f63abed6b446d1e232adbb6931efad6d6d": {
-    "describe": {
-      "columns": [
-        {
-          "name": "id",
-          "ordinal": 0,
-          "type_info": "Uuid"
-        }
-      ],
-      "nullable": [
-        false
-      ],
-      "parameters": {
-        "Left": [
-          "Varchar",
-          "Text",
-          "Uuid",
-          "Text"
-        ]
-      }
-    },
-    "query": "UPDATE queue SET canceled = true, canceled_by = $1, canceled_reason = $2 WHERE id = $3 AND workspace_id = $4 RETURNING id"
-  },
   "ee99cb974fb35d2d92fa96cecb53b8ad3a729ac710f362dc55a576613b66f9be": {
     "describe": {
       "columns": [
@@ -3291,6 +3292,29 @@
       }
     },
     "query": "SELECT result FROM completed_job WHERE id = $1 AND workspace_id = $2"
+  },
+  "f1f7a27738deae46de6acc10cbff701ff0c3872cc5b387e304bd9a058bb0c8a8": {
+    "describe": {
+      "columns": [
+        {
+          "name": "id",
+          "ordinal": 0,
+          "type_info": "Uuid"
+        }
+      ],
+      "nullable": [
+        false
+      ],
+      "parameters": {
+        "Left": [
+          "Varchar",
+          "Text",
+          "Uuid",
+          "Text"
+        ]
+      }
+    },
+    "query": "UPDATE queue SET canceled = true, canceled_by = $1, canceled_reason = $2, scheduled_for = now(), suspend = 0 WHERE id = $3 AND workspace_id = $4 RETURNING id"
   },
   "f325a1262084bd3468e12dc8bcc289a96536f172b679af54dd0fbc82d4d7c987": {
     "describe": {
