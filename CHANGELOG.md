@@ -1,6 +1,30 @@
 # Changelog
 
 
+## [1.39.0](https://github.com/windmill-labs/windmill/compare/v1.38.5...v1.39.0) (2022-10-20)
+
+
+### Features
+
+* add ids to modules + input_transform lowered to flowmodulevalue ([#768](https://github.com/windmill-labs/windmill/issues/768)) ([af9e1f4](https://github.com/windmill-labs/windmill/commit/af9e1f4479604df53c1bdc2488867a0033abdc70))
+* add result by id to fetch result from any node ([#769](https://github.com/windmill-labs/windmill/issues/769)) ([57600ab](https://github.com/windmill-labs/windmill/commit/57600ab873a78435c5b930465ac466f69711e540))
+* **backend:** add branch all ([#751](https://github.com/windmill-labs/windmill/issues/751)) ([a5aad94](https://github.com/windmill-labs/windmill/commit/a5aad947e6402a174b0d4703e227e2370618292f))
+* **backend:** atomic moving queue -> complete and delete ([#771](https://github.com/windmill-labs/windmill/issues/771)) ([45a6976](https://github.com/windmill-labs/windmill/commit/45a6976d52829f181805281d78a741653e41b25c))
+* **backend:** rework forloop flow job arg passing + reimplement branchone using flows ([b180569](https://github.com/windmill-labs/windmill/commit/b1805699c9af759375b96969f1f9a0fd71ca6508))
+* **benchmark:** Initial Benchmarking Tool ([#731](https://github.com/windmill-labs/windmill/issues/731)) ([846462c](https://github.com/windmill-labs/windmill/commit/846462c68bf1a57523582c5e821e58a1f8b3886e))
+* **frontend:** publish script of any lang to hub ([1a93593](https://github.com/windmill-labs/windmill/commit/1a935935291bcb01bb8b7cc037949fb6b36afff0))
+* **frontend:** Update split panes ([#741](https://github.com/windmill-labs/windmill/issues/741)) ([8a774e0](https://github.com/windmill-labs/windmill/commit/8a774e0d042ed9a05b45cd8a85ba67c78eacc630))
+* **frontend:** Update workspace selector ([#754](https://github.com/windmill-labs/windmill/issues/754)) ([582fc9a](https://github.com/windmill-labs/windmill/commit/582fc9a2eda1e618a5a834bc79263e91a14ba26b))
+* InProgress forloop_jobs -> flow_jobs to unify with branchAll ([9e0c2d7](https://github.com/windmill-labs/windmill/commit/9e0c2d759b6db2061905677172a6d46f0bde684e))
+
+
+### Bug Fixes
+
+* **backend:** reschedule flow at first step end ([#746](https://github.com/windmill-labs/windmill/issues/746)) ([955cc41](https://github.com/windmill-labs/windmill/commit/955cc4104ae229544f83cf4d6ae9f3bda5df0e8a))
+* **deno-client:** error handling for getInternalState ([5117430](https://github.com/windmill-labs/windmill/commit/5117430b16c2f741b09702058a26d52aaafdaebe))
+* **frontend:** Fix text styling ([#753](https://github.com/windmill-labs/windmill/issues/753)) ([99e60b1](https://github.com/windmill-labs/windmill/commit/99e60b1b7423787f4cf48f66bc77d949c4687667))
+* **frontend:** Style fix ([#755](https://github.com/windmill-labs/windmill/issues/755)) ([9edb8a8](https://github.com/windmill-labs/windmill/commit/9edb8a8e1ce5fbe58bb89c4cd810e1c1e2f4303b))
+
 ## [1.38.5](https://github.com/windmill-labs/windmill/compare/v1.38.4...v1.38.5) (2022-10-15)
 
 

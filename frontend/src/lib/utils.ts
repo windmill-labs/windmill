@@ -473,10 +473,11 @@ export async function getScriptByPath(path: string): Promise<{
 	language: 'deno' | 'python3' | 'go'
 }> {
 	if (path.startsWith('hub/')) {
-		const content = await ScriptService.getHubScriptContentByPath({ path })
+		const { content, language, schema } = await ScriptService.getHubScriptByPath({ path })
+
 		return {
 			content,
-			language: 'deno'
+			language,
 		}
 	} else {
 		const script = await ScriptService.getScriptByPath({
@@ -496,7 +497,7 @@ export async function loadHubScripts() {
 		const processed = scripts
 			.map((x) => ({
 				path: `hub/${x.id}/${x.app}/${x.summary.toLowerCase().replaceAll(/\s+/g, '_')}`,
-				summary: `${x.summary} (${x.app}) ${x.views} uses`,
+				summary: `${x.summary} (${x.app})`,
 				approved: x.approved,
 				kind: x.kind,
 				app: x.app,
