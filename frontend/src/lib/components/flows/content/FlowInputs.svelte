@@ -86,7 +86,7 @@
 			<PickScript customText="Trigger script from workspace" kind={Script.kind.TRIGGER} on:pick />
 			<PickHubScript customText="Trigger script from Hub" kind={Script.kind.TRIGGER} on:pick />
 			<FlowScriptPicker
-				label="Inlined Typescript (Deno)"
+				label="Inline Typescript (Deno)"
 				icon={faCode}
 				iconColor="text-blue-800"
 				on:click={() => dispatch('new', { language: RawScript.language.DENO, kind: 'trigger' })}
