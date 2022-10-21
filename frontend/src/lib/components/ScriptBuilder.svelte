@@ -251,7 +251,7 @@
 						endIcon={{ icon: viewTemplate ? faChevronUp : faChevronDown }}
 						on:click={() => (viewTemplate = !viewTemplate)}
 					>
-						Use a predefined template that apply to this script kind and template
+						Use a predefined template specific to this language and script kind
 					</Button>
 
 					{#if viewTemplate}
