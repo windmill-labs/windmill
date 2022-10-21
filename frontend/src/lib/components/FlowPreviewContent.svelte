@@ -186,8 +186,6 @@
 	{/if}
 
 	<ProgressBar steps={jobProgress.steps} bind:reset={jobProgress.reset} class="py-4" />
-	<!-- {#if jobProgress?.steps?.length}
-	{/if} -->
 
 	<div class="h-full overflow-y-auto mb-16 grow">
 		{#if jobId}
