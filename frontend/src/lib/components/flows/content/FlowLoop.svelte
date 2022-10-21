@@ -31,7 +31,7 @@
 		previousModuleId,
 		$flowStore,
 		previewArgs
-	)
+	).pickableProperties
 </script>
 
 <div class="h-full flex flex-col">
@@ -98,7 +98,7 @@
 
 							<TabContent value="early-stop" class="flex flex-col flex-1 h-full">
 								<div class="p-4 overflow-y-auto">
-									<FlowModuleEarlyStop bind:flowModule={mod} />
+									<FlowModuleEarlyStop bind:flowModule={mod} {parentModule} {previousModuleId} />
 								</div>
 							</TabContent>
 

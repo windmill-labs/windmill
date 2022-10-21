@@ -249,7 +249,12 @@
 								{:else if selected === 'retries'}
 									<FlowRetries bind:flowModule class="px-4 pb-4 h-full overflow-auto" />
 								{:else if selected === 'early-stop'}
-									<FlowModuleEarlyStop bind:flowModule class="px-4 pb-4 h-full overflow-auto" />
+									<FlowModuleEarlyStop
+										bind:flowModule
+										class="px-4 pb-4 h-full overflow-auto"
+										{parentModule}
+										{previousModuleId}
+									/>
 								{:else if selected === 'suspend'}
 									<div class="px-4 pb-4 h-full overflow-auto">
 										<FlowModuleSuspend bind:flowModule />

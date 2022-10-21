@@ -1,5 +1,5 @@
 <script lang="ts">
-	import type { BranchOne, FlowModule } from '$lib/gen'
+	import type { FlowModule } from '$lib/gen'
 	import { getContext } from 'svelte'
 	import FlowCard from '../common/FlowCard.svelte'
 	import { flowStore } from '../flowStore'
@@ -16,20 +16,19 @@
 		expr: string
 		modules: Array<FlowModule>
 	}
+	export let parentModule: FlowModule | undefined
+	export let previousModuleId: string | undefined
 
-	const { selectedId, previewArgs } = getContext<FlowEditorContext>('FlowEditorContext')
+	const { previewArgs } = getContext<FlowEditorContext>('FlowEditorContext')
 	let editor: SimpleEditor | undefined = undefined
 
-	/**
-	 * getStepPropPicker(
-		flowModule.id,
-		$flowStore.schema,
+	$: pickableProperties = getStepPropPicker(
 		$flowStateStore,
-		undefined,
-		$previewArgs
-	).pickableProperties
-	 */
-	$: pickableProperties = {}
+		parentModule,
+		previousModuleId,
+		$flowStore,
+		previewArgs
+	)
 </script>
 
 <div class="h-full flex flex-col">

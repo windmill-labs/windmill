@@ -22,7 +22,7 @@
 	{#if flowModule.value.type === 'forloopflow'}
 		<FlowLoop bind:mod={flowModule} {parentModule} {previousModuleId} />
 	{:else if flowModule.value.type === 'branchone'}
-		<FlowBranchesWrapper bind:flowModule />
+		<FlowBranchesWrapper bind:flowModule {parentModule} {previousModuleId} />
 	{:else}
 		<FlowModuleComponent
 			bind:flowModule

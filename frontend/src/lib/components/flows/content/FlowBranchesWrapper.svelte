@@ -8,6 +8,9 @@
 	import FlowRetries from './FlowRetries.svelte'
 
 	export let flowModule: FlowModule
+	export let parentModule: FlowModule | undefined
+	export let previousModuleId: string | undefined
+
 	let selected: string = 'retries'
 </script>
 
@@ -27,7 +30,7 @@
 
 				<TabContent value="early-stop" class="flex flex-col flex-1 h-full">
 					<div class="p-4 overflow-y-auto">
-						<FlowModuleEarlyStop bind:flowModule />
+						<FlowModuleEarlyStop bind:flowModule {parentModule} {previousModuleId} />
 					</div>
 				</TabContent>
 
