@@ -22,7 +22,7 @@ use crate::{
     flows::FlowValue,
     oauth2::HmacSha256,
     schedule::get_schedule_opt,
-    scripts::{get_hub_script_by_path, ScriptHash, ScriptLang},
+    scripts::{get_full_hub_script_by_path, HubScript, ScriptHash, ScriptLang},
     users::{owner_to_token_owner, Authed},
     utils::{now_from_db, require_admin, Pagination, StripPath},
     variables::get_workspace_key,
@@ -1435,31 +1435,14 @@ pub async fn push<'c>(
             )
             .fetch_optional(&mut tx)
             .await?;
+            let script = get_hub_script(path.clone(), email, user).await?;
             (
                 None,
-                Some(path.clone()),
-                Some(
-                    get_hub_script_by_path(
-                        Authed {
-                            email,
-                            username: user.to_string(),
-                            is_admin: false,
-                            groups: vec![],
-                        },
-                        Path(StripPath(path)),
-                        Extension(
-                            reqwest::ClientBuilder::new()
-                                .user_agent("windmill/beta")
-                                .build()
-                                .map_err(to_anyhow)?,
-                        ),
-                        Host(std::env::var("BASE_URL").unwrap_or_else(|_| "".to_string())),
-                    )
-                    .await?,
-                ),
+                Some(path),
+                Some(script.content.clone()),
                 JobKind::Script_Hub,
                 None,
-                Some(ScriptLang::Deno),
+                Some(script.language.clone()),
             )
         }
         JobPayload::Code(RawCode { content, path, language }) => (
@@ -1586,6 +1569,26 @@ pub async fn push<'c>(
         .await?;
     }
     Ok((uuid, tx))
+}
+
+pub async fn get_hub_script(
+    path: String,
+    email: Option<String>,
+    user: &str,
+) -> error::Result<HubScript> {
+    get_full_hub_script_by_path(
+        Authed { email, username: user.to_string(), is_admin: false, groups: vec![] },
+        Path(StripPath(path)),
+        Extension(
+            reqwest::ClientBuilder::new()
+                .user_agent("windmill/beta")
+                .build()
+                .map_err(to_anyhow)?,
+        ),
+        Host(std::env::var("BASE_URL").unwrap_or_else(|_| "".to_string())),
+    )
+    .await
+    .map(|e| e.0)
 }
 
 #[instrument(level = "trace", skip_all)]

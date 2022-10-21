@@ -197,9 +197,11 @@
 						<RadioButton
 							label="Script Type"
 							options={[
-								['General Script', Script.kind.SCRIPT],
-								['Trigger Script', Script.kind.TRIGGER]
-								// ['Failure Handler', Script.kind.FAILURE],
+								['Common Script', Script.kind.SCRIPT],
+								['Trigger Script', Script.kind.TRIGGER],
+								['Error Handler', Script.kind.FAILURE],
+								['Approval Script', Script.kind.APPROVAL]
+
 								// ['Command Handler', Script.kind.COMMAND]
 							]}
 							on:change={(e) => {

@@ -82,7 +82,7 @@
 							Windmill
 						</div>
 
-						<div class="px-2 py-4 space-y-2 border-y border-blue-400 ">
+						<div class="px-2 py-4 space-y-2 border-y border-blue-400">
 							<WorkspaceMenu />
 							<UserMenu />
 						</div>
@@ -95,7 +95,7 @@
 
 		<div
 			class={classNames(
-				'hidden md:flex md:flex-col md:fixed md:inset-y-0 transition-all ease-in-out duration-200 shadow-md',
+				'hidden md:flex md:flex-col md:fixed md:inset-y-0 transition-all ease-in-out duration-200 shadow-md z-10',
 				isCollapsed ? 'md:w-12' : 'md:w-48'
 			)}
 		>
@@ -108,7 +108,7 @@
 					{/if}
 				</div>
 
-				<div class="px-2 py-4 space-y-2 border-y border-blue-400 ">
+				<div class="px-2 py-4 space-y-2 border-y border-blue-400">
 					<WorkspaceMenu {isCollapsed} />
 					<UserMenu {isCollapsed} />
 				</div>
