@@ -105,17 +105,15 @@
 			/>
 		</div>
 
-		{#if !shouldDisableTriggerScripts}
-			<div class="text-sm font-bold">Flow primitive</div>
+		<div class="text-sm font-bold">Flow primitive</div>
 
-			<div class="grid sm:grid-col-1 md:grid-col-2 lg:grid-cols-3 gap-4">
-				<FlowScriptPicker
-					label={`Create a for-loop`}
-					icon={faRepeat}
-					iconColor="text-blue-500"
-					on:click={() => dispatch('loop')}
-				/>
-			</div>
-		{/if}
+		<div class="grid sm:grid-col-1 md:grid-col-2 lg:grid-cols-3 gap-4">
+			<FlowScriptPicker
+				label={`Create a for-loop`}
+				icon={faRepeat}
+				iconColor="text-blue-500"
+				on:click={() => dispatch('loop')}
+			/>
+		</div>
 	{/if}
 </div>
