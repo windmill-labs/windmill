@@ -37,7 +37,7 @@ use tokio::{
     process::{Child, Command},
     sync::{
         mpsc::{self, Sender},
-        watch,
+        oneshot, watch,
     },
     time::{interval, sleep, Instant, MissedTickBehavior},
 };
@@ -1673,24 +1673,33 @@ async fn handle_child(
     let output = child_joined_output_stream(&mut child);
     let job_id = job_id.clone();
 
+    let (tx, mut rx) = mpsc::channel::<()>(1);
+
     /* the cancellation future is polled on by `wait_on_child` while
      * waiting for the child to exit normally */
     let cancel_check = async {
         let db = db.clone();
 
-        let mut interval = interval_skipping_missed(cancel_check_interval).boxed();
-        while let Some(_) = interval.next().await {
-            if sqlx::query_scalar!("SELECT canceled FROM queue WHERE id = $1", job_id)
-                .fetch_optional(&db)
-                .await
-                .map(|v| Some(true) == v)
-                .unwrap_or_else(|err| {
-                    tracing::error!(%job_id, %err, "error checking cancelation for job {job_id}: {err}");
-                    false
-                })
-            {
-                break;
-            }
+        let mut interval = interval(cancel_check_interval);
+        interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
+
+        loop {
+            tokio::select!(
+                _ = rx.recv() => break,
+                _ = interval.tick() => {
+                    if sqlx::query_scalar!("SELECT canceled FROM queue WHERE id = $1", job_id)
+                        .fetch_optional(&db)
+                        .await
+                        .map(|v| Some(true) == v)
+                        .unwrap_or_else(|err| {
+                            tracing::error!(%job_id, %err, "error checking cancelation for job {job_id}: {err}");
+                            false
+                        })
+                    {
+                        break;
+                    }
+                },
+            );
         }
     };
 
@@ -1711,6 +1720,8 @@ async fn handle_child(
             _ = cancel_check => KillReason::Cancelled,
             _ = sleep(timeout) => KillReason::Timeout,
         };
+        tx.send(());
+        drop(tx);
 
         let set_reason = async {
             if kill_reason == KillReason::Timeout {
@@ -1831,23 +1842,29 @@ async fn handle_child(
 
     /* a stream updating "queue"."last_ping" at an interval */
 
-    let ping = interval_skipping_missed(ping_interval)
-        .map(|_| db.clone())
-        .then(move |db| async move {
-            if let Err(err) =
-                sqlx::query!("UPDATE queue SET last_ping = now() WHERE id = $1", job_id)
-                    .execute(&db)
+    let (kill_tx, mut kill_rx) = oneshot::channel::<()>();
+
+    let mut interval = interval(ping_interval);
+    interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
+
+    let db1 = db.clone();
+    tokio::spawn(async move {
+        loop {
+            tokio::select! {
+                _ = interval.tick() => {
+                    if let Err(err) = sqlx::query!("UPDATE queue SET last_ping = now() WHERE id = $1", job_id)
+                        .execute(&db1)
                     .await
             {
                 tracing::error!(%job_id, %err, "error setting last ping for job {job_id}: {err}");
+                    };
+                },
+                _ = (&mut kill_rx) => return,
             }
-        });
-
-    let wait_result = tokio::select! {
-        (w, _) = future::join(wait_on_child, lines) => w,
-        /* ping should repeat forever without stopping */
-        _ = ping.collect::<()>() => unreachable!("job ping stopped"),
-    };
+        }
+    });
+    let (wait_result, _) = tokio::join!(wait_on_child, lines);
+    kill_tx.send(()).expect("send should always work");
 
     match wait_result {
         _ if *too_many_logs.borrow() => Err(Error::ExecutionErr(
@@ -1869,12 +1886,6 @@ async fn handle_child(
         ))),
         Err(err) => Err(Error::ExecutionErr(format!("job process io error: {err}"))),
     }
-}
-
-fn interval_skipping_missed(period: Duration) -> impl futures::Stream<Item = Instant> {
-    let mut interval = interval(period);
-    interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
-    stream::poll_fn(move |cx| interval.poll_tick(cx).map(Some))
 }
 
 /// takes stdout and stderr from Child, panics if either are not present
