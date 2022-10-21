@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { JobService, type Flow } from '$lib/gen'
+	import { FlowStatusModule, JobService, type Flow } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { faClose, faPlay, faRefresh } from '@fortawesome/free-solid-svg-icons'
 	import { Button } from './common'
@@ -12,16 +12,14 @@
 	import { runFlowPreview, selectedIdToIndexes } from './flows/utils'
 	import SchemaForm from './SchemaForm.svelte'
 	import FlowStatusViewer from '../components/FlowStatusViewer.svelte'
-	import { ProgressBar, StepKind, type Progress } from './progressBar'
+	import { ProgressBar, type GeneralStep, type LoopStep, type ProgressStep } from './progressBar'
 
 	export let previewMode: 'upTo' | 'whole'
 
 	let jobId: string | undefined = undefined
 	let isValid: boolean = false
 	let isRunning: boolean = false
-	let jobProgress:
-		| { steps: Progress; index: number; next?: () => void; reset?: () => void }
-		| undefined
+	let jobProgress: { steps: ProgressStep[]; reset?: () => void } = { steps: [] }
 
 	const { selectedId, previewArgs } = getContext<FlowEditorContext>('FlowEditorContext')
 
@@ -85,57 +83,36 @@
 	}
 
 	function updateJobProgress(job: JobResult) {
-		if (!job?.innerJobs || !jobProgress) return
-
-		let i = 0
-		const steps = job.innerJobs.map(({ job: j, loopJobs }) => {
-			if (loopJobs?.length) {
-				const completedLength = loopJobs.filter((j) => j.job?.type === 'CompletedJob').length
-				i += completedLength
-				return Array.from<unknown, StepKind.loopStep>(
-					{ length: loopJobs.length },
-					() => StepKind.loopStep
-				)
-			}
-			if (j?.type === 'CompletedJob') {
-				i++
-			}
-			return StepKind.script
-		})
-
-		const totalSteps = [jobProgress.steps, steps].map((stepArray) => {
-			// Returning the sum of the steps
-			return stepArray
-				.map((s) => (Array.isArray(s) ? s.length : 1))
-				.reduce((acc, curr) => acc + curr, 0)
-		})
-		if (totalSteps[1] > totalSteps[0]) {
-			jobProgress.steps = steps
+		const modules = job.job?.flow_status?.modules
+		if (!modules?.length) {
+			return
 		}
 
-		const difference = i - jobProgress.index
-		if (difference > 0) {
-			jobProgress.index = i
-
-			if (!jobProgress?.next) {
-				return
-			}
-			setTimeout(() => {
-				for (let j = 0; j < difference; j++) {
-					jobProgress?.next && jobProgress.next()
+		jobProgress.steps = modules.map(({ type, iterator }) => {
+			if (iterator) {
+				return <LoopStep>{
+					type: 'loop',
+					isDone: isJobStepDone(type),
+					index: iterator.index || 0,
+					length: iterator.itered?.length || 0
 				}
-			}, 0)
+			}
+			return <GeneralStep>{
+				type: 'general',
+				isDone: isJobStepDone(type)
+			}
+		})
+	}
+
+	function isJobStepDone(type: FlowStatusModule.type | undefined) {
+		if (!type) {
+			return false
 		}
-		if (job.job?.type === 'CompletedJob') {
-			jobProgress?.next && jobProgress.next()
-		}
+		return type === FlowStatusModule.type.SUCCESS || type === FlowStatusModule.type.FAILURE
 	}
 
 	function resetJobProgress() {
-		jobProgress = {
-			steps: [],
-			index: 0
-		}
+		jobProgress.steps = []
 		jobProgress?.reset && jobProgress.reset()
 	}
 </script>
@@ -208,14 +185,9 @@
 		</Button>
 	{/if}
 
-	{#if jobProgress?.steps?.length}
-		<ProgressBar
-			steps={jobProgress.steps}
-			bind:next={jobProgress.next}
-			bind:reset={jobProgress.reset}
-			class="py-4"
-		/>
-	{/if}
+	<ProgressBar steps={jobProgress.steps} bind:reset={jobProgress.reset} class="py-4" />
+	<!-- {#if jobProgress?.steps?.length}
+	{/if} -->
 
 	<div class="h-full overflow-y-auto mb-16 grow">
 		{#if jobId}

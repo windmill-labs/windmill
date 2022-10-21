@@ -1,19 +1,28 @@
-export enum StepKind {
-	script = 'Script',
-	loopStep = 'Loop Step'
+export type StepKind = 'general' | 'loop'
+
+type Step<T extends StepKind> = {
+	type: T
+	isDone: boolean
 }
 
-export const TYPE_STEP_MAPPING = {
-	script: StepKind.script,
-	rawscript: StepKind.script,
-	flow: StepKind.script,
-	forloopflow: StepKind.loopStep
-} as const
+export type GeneralStep = Step<'general'>
+export type LoopStep = Step<'loop'> & { index: number; length: number }
+export type ProgressStep = GeneralStep | LoopStep
 
-export type ProgressStep = StepKind.script | StepKind.loopStep[]
+export function isLoopStep(step: ProgressStep | undefined): step is LoopStep {
+	return step?.type === 'loop'
+}
 
-export type Progress = ProgressStep[]
+type State<T extends StepKind> = {
+	type: T
+	isDone: boolean
+	isDoneChanged: boolean
+}
 
-export function isLoop(step: ProgressStep): step is StepKind.loopStep[] {
-	return Array.isArray(step)
+export type GeneralState = State<'general'>
+export type LoopState = LoopStep & { index: number; indexChanged: boolean }
+export type ProgressState = GeneralState | LoopState
+
+export function isLoopState(state: ProgressState | undefined): state is LoopState {
+	return state?.type === 'loop'
 }
