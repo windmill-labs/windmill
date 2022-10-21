@@ -807,7 +807,7 @@ async fn cancel_job(
     let mut tx = user_db.begin(&authed).await?;
 
     let job_option = sqlx::query_scalar!(
-        "UPDATE queue SET canceled = true, canceled_by = $1, canceled_reason = $2 WHERE id = $3 \
+        "UPDATE queue SET canceled = true, canceled_by = $1, canceled_reason = $2, scheduled_for = now(), suspend = 0 WHERE id = $3 \
          AND workspace_id = $4 RETURNING id",
         &authed.username,
         reason,
@@ -816,6 +816,23 @@ async fn cancel_job(
     )
     .fetch_optional(&mut tx)
     .await?;
+
+    let mut jobs = job_option.map(|j| vec![j]).unwrap_or_default();
+
+    while !jobs.is_empty() {
+        let p_job = jobs.pop();
+        let new_jobs = sqlx::query_scalar!(
+            "UPDATE queue SET canceled = true, canceled_by = $1, canceled_reason = $2 WHERE parent_job = $3 \
+             AND workspace_id = $4 RETURNING id",
+            &authed.username,
+            reason,
+            p_job,
+            w_id
+        )
+        .fetch_all(&mut tx)
+        .await?;
+        jobs.extend(new_jobs);
+    }
 
     if let Some(id) = job_option {
         audit_log(
