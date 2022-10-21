@@ -538,7 +538,7 @@ pub struct HubScript {
     pub content: String,
     pub lockfile: Option<String>,
     pub language: ScriptLang,
-    pub schema: Option<String>,
+    pub schema: Option<serde_json::Value>,
 }
 
 pub async fn get_full_hub_script_by_path(

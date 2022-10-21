@@ -137,9 +137,7 @@
 			{#if shouldPick}
 				<FlowInputs
 					shouldDisableTriggerScripts={parentIndex != 0}
-					shouldDisableLoopCreation={childIndex !== undefined ||
-						parentIndex === 0 ||
-						$selectedId.includes('failure')}
+					shouldDisableLoopCreation={childIndex !== undefined || $selectedId.includes('failure')}
 					on:loop={() => {
 						applyCreateLoop()
 						select(['loop', $selectedId].join('-'))

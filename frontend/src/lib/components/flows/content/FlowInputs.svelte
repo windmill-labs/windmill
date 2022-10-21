@@ -8,6 +8,8 @@
 	import PickScript from '../pickers/PickScript.svelte'
 
 	export let shouldDisableTriggerScripts: boolean = false
+	export let shouldDisableLoopCreation: boolean = false
+
 	export let failureModule: boolean
 
 	const dispatch = createEventDispatcher()
@@ -103,15 +105,17 @@
 			/>
 		</div>
 
-		<div class="text-sm font-bold">Flow primitive</div>
+		{#if !shouldDisableTriggerScripts}
+			<div class="text-sm font-bold">Flow primitive</div>
 
-		<div class="grid sm:grid-col-1 md:grid-col-2 lg:grid-cols-3 gap-4">
-			<FlowScriptPicker
-				label={`Create a for-loop`}
-				icon={faRepeat}
-				iconColor="text-blue-500"
-				on:click={() => dispatch('loop')}
-			/>
-		</div>
+			<div class="grid sm:grid-col-1 md:grid-col-2 lg:grid-cols-3 gap-4">
+				<FlowScriptPicker
+					label={`Create a for-loop`}
+					icon={faRepeat}
+					iconColor="text-blue-500"
+					on:click={() => dispatch('loop')}
+				/>
+			</div>
+		{/if}
 	{/if}
 </div>
