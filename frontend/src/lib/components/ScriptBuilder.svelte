@@ -19,10 +19,14 @@
 	import UnsavedConfirmationModal from './common/confirmationModal/UnsavedConfirmationModal.svelte'
 	import { dirtyStore } from './common/confirmationModal/dirtyStore'
 	import { Button } from './common'
+	import { slide } from 'svelte/transition'
+	import { faChevronDown, faChevronUp } from '@fortawesome/free-solid-svg-icons'
 
 	export let script: Script
 	export let initialPath: string = ''
 	export let template: 'pgsql' | 'script' = 'script'
+
+	let viewScriptKind = script.kind !== Script.kind.SCRIPT
 
 	let pathError = ''
 
@@ -151,7 +155,7 @@
 		<CenteredPage>
 			<div class="space-y-6">
 				<h1 class="mb-4">New script</h1>
-				<h2 class="border-b pb-1 mt-4">General</h2>
+				<h2 class="border-b pb-1 mt-4">Path & Summary</h2>
 				<Path
 					bind:error={pathError}
 					bind:path={script.path}
@@ -167,6 +171,16 @@
 						<a href="https://docs.windmill.dev/docs/reference/namespaces">docs</a>
 					</div>
 				</Path>
+				<label class="block ">
+					<span class="text-gray-700">Summary <Required required={false} /></span>
+					<textarea
+						bind:value={script.summary}
+						class="block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-300 
+						focus:ring focus:ring-indigo-200 focus:ring-opacity-50 text-lg"
+						placeholder="A very short summary of the script displayed when the script is listed"
+						rows="1"
+					/>
+				</label>
 				<h2 class="border-b pb-1 mt-4">Language</h2>
 				<div class="max-w-md">
 					<RadioButton
@@ -180,44 +194,45 @@
 						bind:value={script.language}
 					/>
 				</div>
-				<h2 class="border-b pb-1 mt-4">
-					Script Kind <Tooltip
-						>In most cases, you will want the General Script. <br />
-						Trigger are meant to be used as the first module of flows to trigger them based on watching
-						new events externally. <br />
-						Failure scripts are used to handle unrecoverable errors of flows and for handling errors
-						at the workspace level. <br />
-						Command scripts are used when the workspace is associated with a slack workspace to be triggered
-						on command.</Tooltip
-					>
-				</h2>
-
-				{#if script.language == 'deno'}
-					<div class="max-w-lg">
+				<h2 class="border-b pb-1 mt-4"> Metadata </h2>
+				<Button
+					color="light"
+					size="sm"
+					endIcon={{ icon: viewScriptKind ? faChevronUp : faChevronDown }}
+					on:click={() => (viewScriptKind = !viewScriptKind)}
+				>
+					Specialize the script as a specific module kind for flows
+				</Button>
+				{#if viewScriptKind}
+					<div class="max-w-lg" transition:slide>
 						<RadioButton
 							label="Script Type"
 							options={[
 								['Common Script', Script.kind.SCRIPT],
-								['Trigger Script', Script.kind.TRIGGER],
-								['Error Handler', Script.kind.FAILURE],
-								['Approval Script', Script.kind.APPROVAL]
+								[
+									{
+										title: 'Trigger Script',
+										desc: `First module of flows to trigger them based on watching changes external periodically using an internal state`
+									},
+									Script.kind.TRIGGER
+								],
+								[
+									{
+										title: 'Error Handler',
+										desc: `Handle errors for flows after all retries attempts have been exhausted`
+									},
+									Script.kind.FAILURE
+								],
+								[
+									{
+										title: 'Approval Script',
+										desc: `Send notification externally to ask for approval to continue a flow`
+									},
+									Script.kind.APPROVAL
+								]
 
 								// ['Command Handler', Script.kind.COMMAND]
 							]}
-							on:change={(e) => {
-								if (isInitialCode(script.content)) {
-									template = 'script'
-									initContent(script.language, e.detail, template)
-								}
-							}}
-							bind:value={script.kind}
-						/>
-					</div>
-				{:else}
-					<div class="max-w-lg">
-						<RadioButton
-							label="Script Type"
-							options={[['General Script', Script.kind.SCRIPT]]}
 							on:change={(e) => {
 								if (isInitialCode(script.content)) {
 									template = 'script'
@@ -258,16 +273,6 @@
 					<input type="checkbox" bind:checked={script.is_template} />
 				</label>
 
-				<label class="block ">
-					<span class="text-gray-700 text-sm">Summary <Required required={false} /></span>
-					<textarea
-						bind:value={script.summary}
-						class="block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-300 
-						focus:ring focus:ring-indigo-200 focus:ring-opacity-50"
-						placeholder="A very short summary of the script displayed when the script is listed"
-						rows="1"
-					/>
-				</label>
 				<label class="block" for="inp">
 					<span class="text-gray-700 text-sm">
 						Description<Required required={false} detail="markdown" />
