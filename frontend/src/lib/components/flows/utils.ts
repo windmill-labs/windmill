@@ -12,7 +12,7 @@ import { loadSchema } from '$lib/scripts'
 import { workspaceStore } from '$lib/stores'
 import { emptySchema } from '$lib/utils'
 import { get } from 'svelte/store'
-import type { FlowModuleState, FlowState } from './flowState'
+import type { FlowModuleState } from './flowState'
 
 export function cleanInputs(flow: Flow | any): Flow {
 	const newFlow: Flow = JSON.parse(JSON.stringify(flow))

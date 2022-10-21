@@ -1,4 +1,5 @@
 <script lang="ts">
+	import Badge from '$lib/components/common/badge/Badge.svelte'
 	import Button from '$lib/components/common/button/Button.svelte'
 	import { classNames } from '$lib/utils'
 	import { faBed, faRepeat, faStop, faTrashAlt } from '@fortawesome/free-solid-svg-icons'
@@ -14,6 +15,7 @@
 	export let retry: boolean = false
 	export let earlyStop: boolean = false
 	export let suspend: boolean = false
+	export let id: string | undefined = undefined
 
 	const margin = isLast ? '' : isFirst ? 'mb-0.5' : 'my-0.5'
 	const dispatch = createEventDispatcher()
@@ -68,6 +70,9 @@
 			)}
 		>
 			<slot name="content" class="w-full" />
+			{#if id}
+				<Badge color="indigo">{id}</Badge>
+			{/if}
 			{#if deletable}
 				<Button
 					on:click={(event) => dispatch('delete', { event })}

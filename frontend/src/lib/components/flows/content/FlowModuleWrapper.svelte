@@ -7,7 +7,7 @@
 	import FlowLoop from './FlowLoop.svelte'
 	import FlowModuleComponent from './FlowModuleComponent.svelte'
 
-	const { selectedId, select } = getContext<FlowEditorContext>('FlowEditorContext')
+	const { selectedId } = getContext<FlowEditorContext>('FlowEditorContext')
 
 	export let flowModule: FlowModule
 

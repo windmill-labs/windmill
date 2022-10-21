@@ -26,13 +26,34 @@ export async function loadFlowModuleState(flowModule: FlowModule): Promise<FlowM
 		return emptyFlowModuleState()
 	}
 }
+const charCode = 'a'.charCodeAt(0)
 
 // Computes the next available id
-// TODO: We should compute the biggest id, not the length
 function nextId(): string {
 	const flowState = get(flowStateStore)
-	return numberToChars(Object.keys(flowState).length + 1)
+
+	const keys = Object.keys(flowState)
+		.filter((key) => key !== 'failure')
+		.map((key) => {
+			const reversedKey = key.split('').reverse().join('')
+			let number = 0
+
+			for (let i = 0; i < key.length; i++) {
+				const letter = reversedKey[i].charCodeAt(0) - charCode
+				number += letter + 26 * i
+			}
+
+			return number
+		})
+
+	if (keys.length === 0) {
+		return numberToChars(0)
+	} else {
+		debugger
+		return numberToChars(Math.max(...keys) + 1)
+	}
 }
+
 export async function pickScript({
 	path,
 	summary

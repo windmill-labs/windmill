@@ -1,8 +1,7 @@
 import type { Flow, FlowModule, Job } from '$lib/gen'
-import { buildExtraLib, objectToTsType, schemaToObject, schemaToTsType } from '$lib/utils'
+import { buildExtraLib, objectToTsType, schemaToObject } from '$lib/utils'
 import { get } from 'svelte/store'
-import { flowStateStore, type FlowModuleState, type FlowState } from './flowState'
-import { NEVER_TESTED_THIS_FAR } from './utils'
+import { flowStateStore, type FlowState } from './flowState'
 
 type Result = any
 
@@ -122,8 +121,9 @@ export function getStepPropPicker(
 	args: any
 ): StepPropPicker {
 	const flowInput = getFlowInput(parentModule, flowState, args, flow)
+
 	const previousResults = previousModuleId
-		? flowStateStore[previousModuleId].previewResult
+		? flowState[previousModuleId].previewResult
 		: flattenPreviousResult(flowInput)
 	//const priorIds = getPriorIds(flow, parentModule.id)
 

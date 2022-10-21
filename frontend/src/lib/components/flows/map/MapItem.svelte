@@ -30,7 +30,7 @@
 				<div slot="icon">
 					<span>{index + 1}</span>
 				</div>
-				<div slot="content" class="truncate block w-full">
+				<div slot="content" class="truncate block w-full text-xs">
 					<span>{mod.summary || 'For loop'}</span>
 				</div>
 			</FlowModuleSchemaItem>
@@ -54,6 +54,7 @@
 				retry={mod.retry?.constant != undefined || mod.retry?.exponential != undefined}
 				earlyStop={mod.stop_after_if != undefined}
 				suspend={Boolean(mod.suspend)}
+				id={mod.id}
 			>
 				<div slot="icon">
 					<span>{index + 1}</span>
