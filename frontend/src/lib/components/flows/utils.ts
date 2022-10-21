@@ -58,16 +58,6 @@ export function getTypeAsString(arg: any): string {
 	return typeof arg
 }
 
-export function selectedIdToModuleState(flow: FlowState, indexes: Array<number>): FlowModuleState {
-	const [p, c] = indexes
-	const pm = flow.modules[p]
-	if (c && pm.childFlowModules) {
-		return pm.childFlowModules[c]
-	} else {
-		return pm
-	}
-}
-
 export async function loadSchemaFromModule(module: FlowModule): Promise<{
 	input_transforms: Record<string, InputTransform>
 	schema: Schema
@@ -180,16 +170,6 @@ export function codeToStaticTemplate(code?: string): string | undefined {
 	return undefined
 }
 
-export function getIndexes(parentIndex: number | undefined, childIndex: number): number[] {
-	const indexes: number[] = []
-
-	if (parentIndex !== undefined) {
-		indexes.push(parentIndex)
-	}
-	indexes.push(childIndex)
-
-	return indexes
-}
 export const NEVER_TESTED_THIS_FAR = 'never tested this far'
 
 export function emptyFlowModuleState(): FlowModuleState {

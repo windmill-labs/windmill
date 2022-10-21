@@ -2,10 +2,9 @@
 	import type { FlowEditorContext } from '../types'
 	import { createEventDispatcher, getContext } from 'svelte'
 	import FlowModuleSchemaItem from './FlowModuleSchemaItem.svelte'
-	import Icon from 'svelte-awesome'
-	import { faPlus } from '@fortawesome/free-solid-svg-icons'
 	import type { FlowModule } from '$lib/gen'
 	import FlowModuleSchemaMap from './FlowModuleSchemaMap.svelte'
+	import InsertModuleButton from './InsertModuleButton.svelte'
 
 	export let mod: FlowModule
 	export let index: number
@@ -16,13 +15,7 @@
 </script>
 
 {#if mod}
-	<button
-		on:click={() => dispatch('insert')}
-		type="button"
-		class="text-gray-900 m-0.5 my-0.5 bg-white border border-gray-300 focus:outline-none hover:bg-gray-100 focus:ring-4 focus:ring-gray-200 font-medium rounded-full text-sm w-6 h-6 flex items-center justify-center"
-	>
-		<Icon data={faPlus} scale={0.8} />
-	</button>
+	<InsertModuleButton on:click={() => dispatch('insert')} />
 	{#if mod.value.type === 'forloopflow'}
 		<li>
 			<FlowModuleSchemaItem

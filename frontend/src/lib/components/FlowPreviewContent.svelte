@@ -20,8 +20,17 @@
 	let isRunning: boolean = false
 
 	const { selectedId, previewArgs } = getContext<FlowEditorContext>('FlowEditorContext')
+	const dispatch = createEventDispatcher()
 
 	function extractFlow(previewMode: 'upTo' | 'whole'): Flow {
+		if (previewMode === 'whole') {
+			return $flowStore
+		} else {
+			const flow = JSON.parse(JSON.stringify($flowStore))
+
+			return flow
+		}
+
 		/*
 		if (previewMode === 'whole') {
 			return $flowStore
@@ -49,13 +58,7 @@
 			return flow
 		}
 		*/
-
-		const flow = JSON.parse(JSON.stringify($flowStore))
-
-		return flow
 	}
-
-	const dispatch = createEventDispatcher()
 
 	export async function runPreview(args: Record<string, any>) {
 		const newFlow = extractFlow(previewMode)
@@ -84,6 +87,13 @@
 		}
 
 		// TODO
+		/**
+		 * const upToIndex =
+				previewMode === 'upTo'
+				? selectedIdToIndexes($selectedId)[0] + 1
+				: $flowStateStore.modules.length
+
+		 */
 		const upToIndex = 1
 
 		mapJobResultsToFlowState(jobResult, upToIndex)

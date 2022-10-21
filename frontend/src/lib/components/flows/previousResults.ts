@@ -1,5 +1,5 @@
 import type { Schema } from '$lib/common'
-import type { Job } from '$lib/gen'
+import type { Flow, FlowModule, Job } from '$lib/gen'
 import { buildExtraLib, objectToTsType, schemaToObject, schemaToTsType } from '$lib/utils'
 import { get } from 'svelte/store'
 import { flowStateStore, type FlowModuleState, type FlowState } from './flowState'
@@ -18,120 +18,135 @@ type StepPropPicker = {
 	extraLib: string
 }
 
-export function getStepPropPicker(
-	id: string,
-	flowInputSchema: Schema,
+function getPreviousResults(): any {
+	/**
+	 * 1. if previous, previous.result
+	 * 	 else flattenPreviousResult(getFlowInput())
+	 */
+}
+
+function dfs(id: string, flow: Flow): FlowModule[] {
+	function getSubModules(flowModule: FlowModule): FlowModule[] | undefined {
+		if (flowModule.value.type === 'forloopflow') {
+			return flowModule.value.modules
+		} else if (flowModule.value.type === 'branchall') {
+			return flowModule.value.branches.map((branch) => branch.modules).flat()
+		} else if (flowModule.value.type == 'branchone') {
+			return [
+				...flowModule.value.branches.map((branch) => branch.modules).flat(),
+				...flowModule.value.default
+			]
+		}
+	}
+
+	function rec(
+		flowModule: FlowModule | undefined,
+		flow: Flow | undefined = undefined
+	): FlowModule[] | undefined {
+		if (flowModule?.id === id) {
+			return [flowModule]
+		} else {
+			const submodules = flow ? flow.value.modules : getSubModules(flowModule)
+
+			if (submodules) {
+				let found: FlowModule[] | undefined = undefined
+
+				for (let submodule of submodules) {
+					found = rec(submodule)
+
+					if (found) {
+						break
+					}
+				}
+
+				if (flowModule && found) {
+					return [...found, flowModule]
+				} else {
+					return undefined
+				}
+			} else {
+				return undefined
+			}
+		}
+	}
+
+	return rec(undefined, flow) ?? []
+}
+
+function flattenPreviousResult(pr: any) {
+	if (typeof pr === 'object' && pr.previous_result) {
+		return pr.previous_result
+	}
+
+	return pr
+}
+
+function getFlowInput(
+	parentModule: FlowModule | undefined,
 	flowState: FlowState,
-	flowModuleMap: any,
-	args: Record<string, any>
+	flowInputSchema: Schema,
+	args,
+	flow: Flow,
+	grandParentModules: FlowModule[] | undefined = undefined
+) {
+	const parentState = parentModule ? flowState[parentModule.id] : undefined
+
+	if (parentState && parentModule) {
+		if (parentState.previewArgs) {
+			return parentState.previewArgs
+		} else {
+			const gpm: FlowModule[] = grandParentModules ?? dfs(parentModule.id, flow)
+			const head = gpm.pop()
+			const parentFlowInput = getFlowInput(head, flowState, flowInputSchema, args, flow, gpm)
+
+			if (parentModule.value.type === 'forloopflow') {
+				return {
+					...parentFlowInput,
+					iter: {
+						value: "Iteration's value",
+						index: "Iteration's index"
+					}
+				}
+			} else {
+				// Branches
+
+				return {
+					...parentFlowInput,
+					previous_result: flattenPreviousResult(getPreviousResults())
+				}
+			}
+		}
+	} else {
+		return schemaToObject(flowInputSchema, args)
+	}
+}
+
+function getPriorIds(flow: Flow, id: string): string[] {
+	// TODO: Ruben
+	return flow.value.modules.map((module) => module.id)
+}
+
+export function getStepPropPicker(
+	flowState: FlowState,
+	parentModule: FlowModule,
+	flow: Flow,
+	args: any,
+	flowInputSchema: Schema
 ): StepPropPicker {
+	const flowInput = getFlowInput(parentModule, flowState, flowInputSchema, flow, args)
+	const previousResults = {} //getPreviousResults()
+	//const priorIds = getPriorIds(flow, parentModule.id)
+
 	return {
+		extraLib: buildExtraLib(objectToTsType(flowInput), objectToTsType(previousResults)),
 		pickableProperties: {
-			previous_result: undefined
-		},
-		extraLib: ''
-	}
-
-	//const isInsideLoop: boolean = childIndex !== undefined
-
-	/*
-	const { flowModule, parentModuleId, previousModuleId } = flowModuleMap[id]
-	const flowInput = schemaToObject(flowInputSchema, args)
-
-	if (parenteModuleId) {
-	} else {
-		const extraLib = buildExtraLib(schemaToTsType(flowInputSchema), objectToTsType(lastResult))
-
-		return {
-			extraLib,
-			pickableProperties: {
-				flow_input: flowInput,
-				previous_result: lastResult,
-				step: results
-			}
+			flow_input: flowInput,
+			previous_result: previousResults
 		}
 	}
-
-	/*
-
-	const flowInput = schemaToObject(flowInputSchema, args)
-	const results = getPreviousResults(flowState.modules, parentIndex)
-
-	const lastResult =
-		parentIndex == 0
-			? flowInput
-			: results.length > 0
-			? results[results.length - 1]
-			: NEVER_TESTED_THIS_FAR
-
-	if (isInsideLoop) {
-		let forLoopFlowInput = {
-			...flowInput,
-			iter: {
-				value: "Iteration's value",
-				index: "Iteration's index"
-			}
-		}
-
-		if (flowState.modules[parentIndex]?.previewArgs) {
-			forLoopFlowInput = flowState.modules[parentIndex]?.previewArgs
-		}
-
-		const innerResults = getPreviousResults(
-			flowState.modules[parentIndex]?.childFlowModules,
-			childIndex
-		)
-
-		const innerLastResult =
-			childIndex == 0
-				? forLoopFlowInput
-				: innerResults.length > 0
-				? innerResults[innerResults.length - 1]
-				: NEVER_TESTED_THIS_FAR
-
-		const extraLib = buildExtraLib(
-			objectToTsType(forLoopFlowInput),
-			objectToTsType(innerLastResult)
-		)
-
-		return {
-			extraLib,
-			pickableProperties: {
-				flow_input: forLoopFlowInput,
-				previous_result: innerLastResult,
-				step: innerResults
-			}
-		}
-	} else {
-		const extraLib = buildExtraLib(schemaToTsType(flowInputSchema), objectToTsType(lastResult))
-
-		return {
-			extraLib,
-			pickableProperties: {
-				flow_input: flowInput,
-				previous_result: lastResult,
-				step: results
-			}
-		}
-	}
-	*/
 }
 
-function getPreviousResults(
-	flowModuleSchemas: FlowModuleState[] | undefined,
-	target: number
-): Result[] {
-	if (!Array.isArray(flowModuleSchemas) || target < 1) {
-		return []
-	}
-
-	const results = extractPreviewResults(flowModuleSchemas)
-	return results.splice(0, target)
-}
-
-function extractPreviewResults(flowModuleSchemas: FlowModuleState[]) {
-	return flowModuleSchemas.map((fms) => fms.previewResult)
-}
+// OTHER FILE
 
 export type JobResult = {
 	job?: Job

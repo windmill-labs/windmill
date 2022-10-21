@@ -88,7 +88,8 @@ export async function createBranches(): Promise<[FlowModule, FlowModuleState]> {
 			branches: [],
 			default: []
 		},
-		input_transforms: {}
+		input_transforms: {},
+		summary: ''
 	}
 
 	const flowModuleState = await loadFlowModuleState(branchesFlowModules)

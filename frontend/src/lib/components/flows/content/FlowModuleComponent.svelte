@@ -43,6 +43,11 @@
 	export let flowModule: FlowModule
 	export let failureModule: boolean = false
 
+	export let parentModuleId: string | undefined = undefined
+	export let isInsideLoop: boolean = false
+	// Pointer to previous module, for easy access to testing results
+	export let previousModuleId: string | undefined = undefined
+
 	let editor: Editor
 	let modulePreview: ModulePreview
 	let websocketAlive = { pyright: false, black: false, deno: false, go: false }
@@ -52,6 +57,14 @@
 	let totalTopGap = 0
 
 	$: shouldPick = isEmptyFlowModule(flowModule)
+
+	/*
+
+	$: stepPropPicker = failureModule
+		? { pickableProperties: { previous_result: { error: 'the error message' } }, extraLib: '' }
+		: getStepPropPicker([parentIndex, childIndex], $flowStore.schema, $flowStateStore, $previewArgs)
+
+		*/
 
 	$: stepPropPicker = {
 		pickableProperties: { previous_result: { error: 'the error message' } },
@@ -79,12 +92,13 @@
 		const { input_transforms, schema } = await loadSchemaFromModule(flowModule)
 
 		/*
-		flowModuleState.schema = schema
+		TODO: Fix this
+		flowSt.schema = schema
 		if (flowModule.value.type == 'script' || flowModule.value.type == 'rawscript') {
 			flowModule.input_transforms = input_transforms
 		}
-
 		*/
+
 		$flowStore = $flowStore
 	}
 

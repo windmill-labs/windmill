@@ -11,25 +11,25 @@
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import { getStepPropPicker } from '../previousResults'
 
-	export let flowModule: FlowModule
-
-	const { selectedId, previewArgs } = getContext<FlowEditorContext>('FlowEditorContext')
-	let editor: SimpleEditor | undefined = undefined
-
-	// @ts-ignore
-	$: branch = flowModule.value.branches[Number(21) - 1] as {
+	export let branch: {
 		summary?: string
 		expr: string
 		modules: Array<FlowModule>
 	}
 
-	$: pickableProperties = getStepPropPicker(
+	const { selectedId, previewArgs } = getContext<FlowEditorContext>('FlowEditorContext')
+	let editor: SimpleEditor | undefined = undefined
+
+	/**
+	 * getStepPropPicker(
 		flowModule.id,
 		$flowStore.schema,
 		$flowStateStore,
 		undefined,
 		$previewArgs
 	).pickableProperties
+	 */
+	$: pickableProperties = {}
 </script>
 
 <div class="h-full flex flex-col">

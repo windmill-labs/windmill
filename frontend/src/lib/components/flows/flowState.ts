@@ -7,7 +7,6 @@ import { emptyFlowModuleState, isEmptyFlowModule } from './utils'
 export type FlowModuleState = {
 	schema: Schema
 	previewResult?: any
-	// TODO: properly implement this
 	previewArgs?: any
 }
 
@@ -48,13 +47,8 @@ async function mapFlowModule(flowModule: FlowModule, modulesState: FlowState) {
 	if (value.type === 'branchone' || value.type === 'branchall') {
 		await Promise.all(
 			value.branches.map(
-				async (branchModule: {
-					summary?: string
-					skip_failure?: boolean
-					modules: Array<FlowModule>
-				}) => {
-					await mapFlowModules(branchModule.modules, modulesState)
-				}
+				(branchModule: { summary?: string; skip_failure?: boolean; modules: Array<FlowModule> }) =>
+					mapFlowModules(branchModule.modules, modulesState)
 			)
 		)
 	}
@@ -69,8 +63,6 @@ async function mapFlowModule(flowModule: FlowModule, modulesState: FlowState) {
 
 async function mapFlowModules(flowModules: FlowModule[], modulesState: FlowState) {
 	await Promise.all(
-		flowModules.map(async (flowModule: FlowModule) => {
-			await mapFlowModule(flowModule, modulesState)
-		})
+		flowModules.map((flowModule: FlowModule) => mapFlowModule(flowModule, modulesState))
 	)
 }

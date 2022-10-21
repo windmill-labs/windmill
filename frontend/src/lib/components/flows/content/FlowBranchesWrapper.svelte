@@ -3,16 +3,11 @@
 	import TabContent from '$lib/components/common/tabs/TabContent.svelte'
 	import Tabs from '$lib/components/common/tabs/Tabs.svelte'
 	import type { FlowModule } from '$lib/gen'
-	import { getContext } from 'svelte'
-	import type { FlowEditorContext } from '../types'
 	import FlowModuleEarlyStop from './FlowModuleEarlyStop.svelte'
 	import FlowModuleSuspend from './FlowModuleSuspend.svelte'
 	import FlowRetries from './FlowRetries.svelte'
 
-	const { selectedId } = getContext<FlowEditorContext>('FlowEditorContext')
-
 	export let flowModule: FlowModule
-	// Tab
 	let selected: string = 'retries'
 </script>
 
