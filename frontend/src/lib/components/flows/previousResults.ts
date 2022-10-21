@@ -1,4 +1,3 @@
-import type { Schema } from '$lib/common'
 import type { Flow, FlowModule, Job } from '$lib/gen'
 import { buildExtraLib, objectToTsType, schemaToObject, schemaToTsType } from '$lib/utils'
 import { get } from 'svelte/store'
@@ -18,15 +17,8 @@ type StepPropPicker = {
 	extraLib: string
 }
 
-function getPreviousResults(): any {
-	/**
-	 * 1. if previous, previous.result
-	 * 	 else flattenPreviousResult(getFlowInput())
-	 */
-}
-
 function dfs(id: string, flow: Flow): FlowModule[] {
-	function getSubModules(flowModule: FlowModule): FlowModule[] | undefined {
+	function getSubModules(flowModule: FlowModule): FlowModule[] {
 		if (flowModule.value.type === 'forloopflow') {
 			return flowModule.value.modules
 		} else if (flowModule.value.type === 'branchall') {
@@ -37,40 +29,37 @@ function dfs(id: string, flow: Flow): FlowModule[] {
 				...flowModule.value.default
 			]
 		}
+		return []
 	}
 
-	function rec(
-		flowModule: FlowModule | undefined,
-		flow: Flow | undefined = undefined
-	): FlowModule[] | undefined {
-		if (flowModule?.id === id) {
-			return [flowModule]
-		} else {
-			const submodules = flow ? flow.value.modules : getSubModules(flowModule)
+	function rec(id: string, modules: FlowModule[]): FlowModule[] | undefined {
+		for (let module of modules) {
+			if (module.id === id) {
+				return [module]
+			} else {
+				const submodules = getSubModules(module)
 
-			if (submodules) {
-				let found: FlowModule[] | undefined = undefined
-
-				for (let submodule of submodules) {
-					found = rec(submodule)
+				if (submodules) {
+					let found: FlowModule[] | undefined = undefined
+					found = rec(id, submodules)
 
 					if (found) {
 						break
 					}
-				}
 
-				if (flowModule && found) {
-					return [...found, flowModule]
+					if (module && found) {
+						return [...found, module]
+					} else {
+						return undefined
+					}
 				} else {
 					return undefined
 				}
-			} else {
-				return undefined
 			}
 		}
 	}
 
-	return rec(undefined, flow) ?? []
+	return rec(id, flow.value.modules) ?? []
 }
 
 function flattenPreviousResult(pr: any) {
@@ -84,8 +73,7 @@ function flattenPreviousResult(pr: any) {
 function getFlowInput(
 	parentModule: FlowModule | undefined,
 	flowState: FlowState,
-	flowInputSchema: Schema,
-	args,
+	args: any,
 	flow: Flow,
 	grandParentModules: FlowModule[] | undefined = undefined
 ) {
@@ -97,7 +85,7 @@ function getFlowInput(
 		} else {
 			const gpm: FlowModule[] = grandParentModules ?? dfs(parentModule.id, flow)
 			const head = gpm.pop()
-			const parentFlowInput = getFlowInput(head, flowState, flowInputSchema, args, flow, gpm)
+			const parentFlowInput = getFlowInput(head, flowState, args, flow, gpm)
 
 			if (parentModule.value.type === 'forloopflow') {
 				return {
@@ -111,13 +99,13 @@ function getFlowInput(
 				// Branches
 
 				return {
-					...parentFlowInput,
-					previous_result: flattenPreviousResult(getPreviousResults())
+					...parentFlowInput
+					// TODO: Fix previous_result: flattenPreviousResult(parentFlowInput)
 				}
 			}
 		}
 	} else {
-		return schemaToObject(flowInputSchema, args)
+		return schemaToObject(flow.schema, args)
 	}
 }
 
@@ -128,13 +116,15 @@ function getPriorIds(flow: Flow, id: string): string[] {
 
 export function getStepPropPicker(
 	flowState: FlowState,
-	parentModule: FlowModule,
+	parentModule: FlowModule | undefined,
+	previousModuleId: string | undefined,
 	flow: Flow,
-	args: any,
-	flowInputSchema: Schema
+	args: any
 ): StepPropPicker {
-	const flowInput = getFlowInput(parentModule, flowState, flowInputSchema, flow, args)
-	const previousResults = {} //getPreviousResults()
+	const flowInput = getFlowInput(parentModule, flowState, args, flow)
+	const previousResults = previousModuleId
+		? flowStateStore[previousModuleId].previewResult
+		: flattenPreviousResult(flowInput)
 	//const priorIds = getPriorIds(flow, parentModule.id)
 
 	return {
@@ -175,6 +165,8 @@ export function mapJobResultsToFlowState(jobs: JobResult, upto: number): void {
 	})
 
 	const old = get(flowStateStore)
+
+	/*
 	const modules = old.modules.map((flowModuleState: FlowModuleState, index: number) => {
 		if (results[index] && index <= upto) {
 			if (
@@ -194,9 +186,9 @@ export function mapJobResultsToFlowState(jobs: JobResult, upto: number): void {
 
 		return flowModuleState
 	})
-
+*/
 	flowStateStore.set({
-		modules,
+		modules: old.modules,
 		failureModule: old.failureModule
 	})
 }

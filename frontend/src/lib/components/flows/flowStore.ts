@@ -1,5 +1,5 @@
 import type { Flow, FlowModule, ForloopFlow, InputTransform } from '$lib/gen'
-import { derived, get, writable, readable } from 'svelte/store'
+import { get, writable } from 'svelte/store'
 import { flowStateStore, initFlowState } from './flowState'
 
 export type FlowMode = 'push' | 'pull'
@@ -64,8 +64,10 @@ export function initFlow(flow: Flow) {
 export async function copyFirstStepSchema() {
 	const flowState = get(flowStateStore)
 	flowStore.update((flow) => {
-		if (flowState.modules[0].schema) {
-			flow.schema = flowState.modules[0].schema
+		const firstModuleId = flow.value.modules[0].id
+
+		if (flowState[firstModuleId]) {
+			flow.schema = flowState[firstModuleId].schema
 		}
 		return flow
 	})

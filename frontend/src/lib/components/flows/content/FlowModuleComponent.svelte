@@ -37,15 +37,14 @@
 	import FlowModuleEarlyStop from './FlowModuleEarlyStop.svelte'
 	import FlowModuleSuspend from './FlowModuleSuspend.svelte'
 	import FlowRetries from './FlowRetries.svelte'
+	import { getStepPropPicker } from '../previousResults'
 
 	const { selectedId, select, previewArgs } = getContext<FlowEditorContext>('FlowEditorContext')
 
 	export let flowModule: FlowModule
 	export let failureModule: boolean = false
 
-	export let parentModuleId: string | undefined = undefined
-	export let isInsideLoop: boolean = false
-	// Pointer to previous module, for easy access to testing results
+	export let parentModule: FlowModule | undefined = undefined
 	export let previousModuleId: string | undefined = undefined
 
 	let editor: Editor
@@ -58,18 +57,13 @@
 
 	$: shouldPick = isEmptyFlowModule(flowModule)
 
-	/*
-
-	$: stepPropPicker = failureModule
-		? { pickableProperties: { previous_result: { error: 'the error message' } }, extraLib: '' }
-		: getStepPropPicker([parentIndex, childIndex], $flowStore.schema, $flowStateStore, $previewArgs)
-
-		*/
-
-	$: stepPropPicker = {
-		pickableProperties: { previous_result: { error: 'the error message' } },
-		extraLib: ''
-	}
+	$: stepPropPicker = getStepPropPicker(
+		$flowStateStore,
+		parentModule,
+		previousModuleId,
+		$flowStore,
+		previewArgs
+	)
 
 	function onKeyDown(event: KeyboardEvent) {
 		if ((event.ctrlKey || event.metaKey) && event.key == 'Enter') {

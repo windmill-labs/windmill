@@ -12,18 +12,26 @@
 	import { Button, Tab, TabContent, Tabs } from '$lib/components/common'
 	import type { FlowModule } from '$lib/gen/models/FlowModule'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
+	import { getStepPropPicker } from '../previousResults'
+	import { flowStateStore } from '../flowState'
+	import { flowStore } from '../flowStore'
 
 	const { previewArgs } = getContext<FlowEditorContext>('FlowEditorContext')
 
 	export let mod: FlowModule
-	export let parentModuleId: string | undefined
+	export let parentModule: FlowModule | undefined
 	export let previousModuleId: string | undefined
 
 	let editor: SimpleEditor | undefined = undefined
 	let selected: string = 'retries'
 
-	// TODO: FIX PICKABLE PROPERTIES
-	const pickableProperties = {}
+	$: pickableProperties = getStepPropPicker(
+		$flowStateStore,
+		parentModule,
+		previousModuleId,
+		$flowStore,
+		previewArgs
+	)
 </script>
 
 <div class="h-full flex flex-col">
