@@ -25,17 +25,58 @@ export async function loadFlowModuleSchema(flowModule: FlowModule): Promise<Flow
 	try {
 		const { input_transforms, schema } = await loadSchemaFromModule(flowModule)
 
-		flowModule.input_transforms = input_transforms
-
+		if (flowModule.value.type == 'script' || flowModule.value.type == 'rawscript') {
+			flowModule.value.input_transforms = input_transforms
+		}
 		return { schema, previewResult: NEVER_TESTED_THIS_FAR }
 	} catch (e) {
 		return { schema: emptySchema(), previewResult: NEVER_TESTED_THIS_FAR }
 	}
 }
 
-export async function pickScript(path: string): Promise<[FlowModule, FlowModuleState]> {
+function computeLength(flowModuleStates: FlowModuleState[] | undefined) {
+	let modules = flowModuleStates || []
+	return modules.length + modules.map(x => computeLength(x.childFlowModules ?? [])).reduce(
+		(a, b) => a + b,
+		0
+	);
+}
+
+const charCode = 'a'.charCodeAt(0);
+
+function numberToChars(n: number) {
+
+	var b = [n], sp, out, i, div;
+
+	sp = 0;
+	while (sp < b.length) {
+		if (b[sp] > 25) {
+			div = Math.floor(b[sp] / 26);
+			b[sp + 1] = div - 1;
+			b[sp] %= 26;
+		}
+		sp += 1;
+	}
+
+	out = "";
+	for (i = 0; i < b.length; i += 1) {
+		out = String.fromCharCode(charCode + b[i]) + out;
+	}
+
+	return out;
+}
+
+
+export function nextId(): string {
+	const flowState = get(flowStateStore)
+	const len = computeLength(flowState.modules)
+	return numberToChars(len);
+}
+export async function pickScript({ path, summary }: { path: string, summary?: string }): Promise<[FlowModule, FlowModuleState]> {
 	const flowModule: FlowModule = {
+		id: nextId(),
 		value: { type: 'script', path },
+		summary,
 		input_transforms: {}
 	}
 
@@ -54,6 +95,7 @@ export async function createInlineScriptModule({
 	const code = initialCode(language, kind, subkind)
 
 	const flowModule: FlowModule = {
+		id: nextId(),
 		value: { type: 'rawscript', content: code, language },
 		input_transforms: {}
 	}
@@ -63,6 +105,7 @@ export async function createInlineScriptModule({
 
 export async function createLoop(): Promise<[FlowModule, FlowModuleState]> {
 	const loopFlowModule: FlowModule = {
+		id: nextId(),
 		value: {
 			type: 'forloopflow',
 			modules: [],
@@ -96,12 +139,21 @@ export async function createInlineScriptModuleFromPath(path: string): Promise<Fl
 	const { content, language } = await getScriptByPath(path)
 
 	return {
+		id: nextId(),
 		value: {
 			type: 'rawscript',
 			language: language as RawScript.language,
 			content: content,
 			path
 		},
+		input_transforms: {}
+	}
+}
+
+export function emptyModule(): FlowModule {
+	return {
+		id: nextId(),
+		value: { type: 'script', path: '' },
 		input_transforms: {}
 	}
 }
@@ -140,7 +192,7 @@ export async function createScriptFromInlineScript({
 		workspace: get(workspaceStore)!,
 		requestBody: {
 			path: availablePath,
-			summary: '',
+			summary: flowModule.summary ?? '',
 			description,
 			content: flowModule.value.content,
 			parent_hash: undefined,
@@ -150,7 +202,7 @@ export async function createScriptFromInlineScript({
 		}
 	})
 
-	return pickScript(availablePath)
+	return pickScript({ path: availablePath, summary: flowModule.summary })
 }
 
 async function findNextAvailablePath(path: string): Promise<string> {

@@ -40,6 +40,7 @@
 			variant="border"
 			size="xs"
 			startIcon={{ icon: faExternalLink }}
+			target="_blank"
 		>
 			Explore community scripts on WindmillHub
 		</Button>

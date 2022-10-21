@@ -141,12 +141,6 @@ export function emptySchema() {
 	}
 }
 
-export function emptyModule(): FlowModule {
-	return {
-		value: { type: 'script', path: '' },
-		input_transforms: {}
-	}
-}
 
 export function simpleSchema() {
 	return {
@@ -479,10 +473,11 @@ export async function getScriptByPath(path: string): Promise<{
 	language: 'deno' | 'python3' | 'go'
 }> {
 	if (path.startsWith('hub/')) {
-		const content = await ScriptService.getHubScriptContentByPath({ path })
+		const { content, language, schema } = await ScriptService.getHubScriptByPath({ path })
+
 		return {
 			content,
-			language: 'deno'
+			language,
 		}
 	} else {
 		const script = await ScriptService.getScriptByPath({
@@ -502,7 +497,7 @@ export async function loadHubScripts() {
 		const processed = scripts
 			.map((x) => ({
 				path: `hub/${x.id}/${x.app}/${x.summary.toLowerCase().replaceAll(/\s+/g, '_')}`,
-				summary: `${x.summary} (${x.app}) ${x.views} uses`,
+				summary: `${x.summary} (${x.app})`,
 				approved: x.approved,
 				kind: x.kind,
 				app: x.app,
@@ -554,7 +549,10 @@ export function scriptToHubUrl(
 	content: string,
 	summary: string,
 	description: string,
-	kind: Script.kind
+	kind: Script.kind,
+	language: Script.language,
+	schema: Schema | undefined,
+	lock: string | undefined
 ): URL {
 	const url = new URL('https://hub.windmill.dev/scripts/add')
 
@@ -562,6 +560,9 @@ export function scriptToHubUrl(
 	url.searchParams.append('summary', summary)
 	url.searchParams.append('description', description)
 	url.searchParams.append('kind', kind)
+	url.searchParams.append('language', language)
+	url.searchParams.append('schema', JSON.stringify(schema, null, 2))
+	lock && url.searchParams.append('lockfile', lock)
 
 	return url
 }

@@ -171,12 +171,16 @@
 				View runs
 			</Button>
 			<Button
+				disabled={deploymentInProgress}
 				target="_blank"
 				href={scriptToHubUrl(
 					script.content,
 					script.summary,
 					script.description ?? '',
-					script.kind
+					script.kind,
+					script.language,
+					script.schema,
+					script.lock
 				).toString()}
 				variant="border"
 				color="blue"

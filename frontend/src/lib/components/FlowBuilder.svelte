@@ -110,7 +110,7 @@
 						requestBody: { enabled }
 					})
 				}
-			} else {
+			} else if (enabled) {
 				await createSchedule(flow.path)
 			}
 		}

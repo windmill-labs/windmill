@@ -4,8 +4,12 @@
 	import FlowModuleSchemaItem from './FlowModuleSchemaItem.svelte'
 	import Icon from 'svelte-awesome'
 	import { faCalendarAlt, faPen, faPlus, faSliders } from '@fortawesome/free-solid-svg-icons'
-	import { emptyFlowModuleState, isEmptyFlowModule } from '$lib/components/flows/flowStateUtils'
-	import { classNames, emptyModule } from '$lib/utils'
+	import {
+		emptyFlowModuleState,
+		emptyModule,
+		isEmptyFlowModule
+	} from '$lib/components/flows/flowStateUtils'
+	import { classNames } from '$lib/utils'
 	import type { FlowModuleState } from '../flowState'
 	import type { FlowModule } from '$lib/gen'
 

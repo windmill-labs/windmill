@@ -3,8 +3,8 @@
 	import { getContext } from 'svelte'
 	import Icon from 'svelte-awesome'
 	import { faBug } from '@fortawesome/free-solid-svg-icons'
-	import { NEVER_TESTED_THIS_FAR } from '$lib/components/flows/flowStateUtils'
-	import { classNames, emptyModule, emptySchema } from '$lib/utils'
+	import { emptyModule, NEVER_TESTED_THIS_FAR } from '$lib/components/flows/flowStateUtils'
+	import { classNames, emptySchema } from '$lib/utils'
 	import { flowStateStore, type FlowModuleState } from '../flowState'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import { flowStore } from '../flowStore'
@@ -23,7 +23,9 @@
 				childFlowModules: []
 			}
 			$flowStateStore.failureModule = failureModule
-			$flowStore.value.failure_module = emptyModule()
+			const errorModule = emptyModule()
+			errorModule.id = 'failure'
+			$flowStore.value.failure_module = errorModule
 			select('failure')
 		}
 	}

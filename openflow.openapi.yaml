@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.38.5
+  version: 1.39.0
   title: OpenFlow Spec
   contact:
     name: Ruben Fiszel
@@ -71,6 +71,9 @@ components:
     FlowModule:
       type: object
       properties:
+        id:
+          type: string
+        # to be removed in favor of raw/script input_transforms once migration is over
         input_transforms:
           type: object
           additionalProperties:
@@ -100,8 +103,8 @@ components:
         retry:
           $ref: "#/components/schemas/Retry"
       required:
-        - input_transforms
         - value
+        - id
 
     InputTransform:
       oneOf:
@@ -157,6 +160,11 @@ components:
     RawScript:
       type: object
       properties:
+        # to be made required once migration is over
+        input_transforms:
+          type: object
+          additionalProperties:
+            $ref: "#/components/schemas/InputTransform"
         content:
           type: string
         language:
@@ -179,6 +187,11 @@ components:
     PathScript:
       type: object
       properties:
+        # to be made required once migration is over
+        input_transforms:
+          type: object
+          additionalProperties:
+            $ref: "#/components/schemas/InputTransform"
         path:
           type: string
         type:
@@ -253,6 +266,8 @@ components:
             properties:
               summary:
                 type: string
+              skip_failure:
+                type: boolean
               modules:
                 type: array
                 items:
@@ -307,6 +322,8 @@ components:
             - InProgress
             - Success
             - Failure
+        id:
+          type: string
         job:
           type: string
           format: uuid
@@ -333,5 +350,17 @@ components:
               enum: [branch, default]
             branch:
               type: integer
+          required:
+            - type
+        branchall:
+          type: object
+          properties:
+            branch:
+              type: integer
+            len:
+              type: integer
+          required:
+            - branch
+            - len
             
       required: [type]

@@ -24,7 +24,7 @@
 	} from '$lib/components/flows/flowStateUtils'
 	import { flowStore } from '$lib/components/flows/flowStore'
 	import SchemaForm from '$lib/components/SchemaForm.svelte'
-	import { RawScript, type FlowModule } from '$lib/gen'
+	import { RawScript, Script, type FlowModule } from '$lib/gen'
 	import FlowCard from '../common/FlowCard.svelte'
 	import FlowModuleHeader from './FlowModuleHeader.svelte'
 	import { flowStateStore, type FlowModuleState } from '../flowState'
@@ -84,7 +84,9 @@
 		const { input_transforms, schema } = await loadSchemaFromModule(flowModule)
 
 		flowModuleState.schema = schema
-		flowModule.input_transforms = input_transforms
+		if (flowModule.value.type == 'script' || flowModule.value.type == 'rawscript') {
+			flowModule.input_transforms = input_transforms
+		}
 		$flowStore = $flowStore
 	}
 
@@ -112,132 +114,142 @@
 
 <svelte:window on:keydown={onKeyDown} />
 
-<div class="h-full" bind:this={wrapper} bind:clientWidth={$width}>
-	<FlowCard bind:flowModule>
-		<svelte:fragment slot="header">
-			<FlowModuleHeader
-				bind:module={flowModule}
-				on:delete
-				on:toggleSuspend={() => (selected = 'suspend')}
-				on:toggleRetry={() => (selected = 'retries')}
-				on:toggleStopAfterIf={() => (selected = 'early-stop')}
-				on:fork={() => apply(fork, flowModule)}
-				on:createScriptFromInlineScript={() => {
-					apply(createScriptFromInlineScript, {
-						flowModule: flowModule,
-						suffix: $selectedId,
-						schema: flowModuleState.schema
-					})
-				}}
-			/>
-		</svelte:fragment>
-		{#if shouldPick}
-			<FlowInputs
-				shouldDisableTriggerScripts={parentIndex != 0}
-				shouldDisableLoopCreation={childIndex !== undefined ||
-					parentIndex === 0 ||
-					$selectedId.includes('failure')}
-				on:loop={() => {
-					applyCreateLoop()
-					select(['loop', $selectedId].join('-'))
-				}}
-				on:pick={(e) => apply(pickScript, e.detail.path)}
-				on:new={(e) =>
-					apply(createInlineScriptModule, {
-						language: e.detail.language,
-						kind: e.detail.kind,
-						subkind: e.detail.subkind
-					})}
-				{failureModule}
-			/>
-		{:else}
-			{#if flowModule.value.type === 'rawscript'}
-				<div class="border-b-2 shadow-sm p-1 mb-1">
-					<EditorBar
-						{editor}
-						lang={flowModule.value['language'] ?? 'deno'}
-						{websocketAlive}
-						iconOnly={$width < FLOW_MODULE_WIDTH_THRESHOLD}
-					/>
+{#if flowModule.value.type === 'rawscript' || flowModule.value.type === 'script'}
+	<div class="h-full" bind:this={wrapper} bind:clientWidth={$width}>
+		<FlowCard bind:flowModule>
+			<svelte:fragment slot="header">
+				<FlowModuleHeader
+					bind:module={flowModule}
+					on:delete
+					on:toggleSuspend={() => (selected = 'suspend')}
+					on:toggleRetry={() => (selected = 'retries')}
+					on:toggleStopAfterIf={() => (selected = 'early-stop')}
+					on:fork={() => apply(fork, flowModule)}
+					on:createScriptFromInlineScript={() => {
+						apply(createScriptFromInlineScript, {
+							flowModule: flowModule,
+							suffix: $selectedId,
+							schema: flowModuleState.schema
+						})
+					}}
+				/>
+			</svelte:fragment>
+			{#if shouldPick}
+				<FlowInputs
+					shouldDisableTriggerScripts={parentIndex != 0}
+					shouldDisableLoopCreation={childIndex !== undefined ||
+						parentIndex === 0 ||
+						$selectedId.includes('failure')}
+					on:loop={() => {
+						applyCreateLoop()
+						select(['loop', $selectedId].join('-'))
+					}}
+					on:pick={async (e) => {
+						await apply(pickScript, { path: e.detail.path, summary: e.detail.summary })
+						if (e.detail.kind == Script.kind.APPROVAL) {
+							flowModule.suspend = { required_events: 1, timeout: 1800 }
+							flowModule = flowModule
+						}
+					}}
+					on:new={(e) =>
+						apply(createInlineScriptModule, {
+							language: e.detail.language,
+							kind: e.detail.kind,
+							subkind: e.detail.subkind
+						})}
+					{failureModule}
+				/>
+			{:else}
+				{#if flowModule.value.type === 'rawscript'}
+					<div class="border-b-2 shadow-sm p-1 mb-1">
+						<EditorBar
+							{editor}
+							lang={flowModule.value['language'] ?? 'deno'}
+							{websocketAlive}
+							iconOnly={$width < FLOW_MODULE_WIDTH_THRESHOLD}
+						/>
+					</div>
+				{/if}
+
+				<div
+					bind:this={panes}
+					class="h-full"
+					style="max-height: calc(100% - {totalTopGap}px) !important;"
+				>
+					<Splitpanes horizontal>
+						<Pane size={50} minSize={20}>
+							{#if flowModule.value.type === 'rawscript'}
+								<div on:mouseleave={() => reload(flowModule)} class="h-full">
+									<Editor
+										bind:websocketAlive
+										bind:this={editor}
+										class="h-full px-2"
+										bind:code={flowModule.value.content}
+										deno={flowModule.value.language === RawScript.language.DENO}
+										lang={scriptLangToEditorLang(flowModule.value.language)}
+										automaticLayout={true}
+										cmdEnterAction={async () => {
+											selected = 'test'
+											await reload(flowModule)
+											modulePreview?.runTestWithStepArgs()
+										}}
+										formatAction={() => reload(flowModule)}
+									/>
+								</div>
+							{:else if flowModule.value.type === 'script'}
+								<FlowModuleScript {flowModule} />
+							{/if}
+						</Pane>
+						<Pane size={50} minSize={20}>
+							<Tabs bind:selected>
+								<Tab value="inputs">Inputs</Tab>
+								<Tab value="test">Test</Tab>
+								<Tab value="retries">Retries</Tab>
+								{#if !$selectedId.includes('failure')}
+									<Tab value="early-stop">Early Stop</Tab>
+									<Tab value="suspend">Sleep/Suspend</Tab>
+								{/if}
+							</Tabs>
+							<div class="h-[calc(100%-32px)]">
+								{#if selected === 'inputs'}
+									<div class="h-full overflow-auto">
+										<PropPickerWrapper pickableProperties={stepPropPicker.pickableProperties}>
+											<p class="items-baseline text-xs text-gray-700 italic hidden md:block mb-2">
+												Move the focus outside of the text editor to recompute the inputs or press
+												Ctrl/Cmd+S
+											</p>
+											<SchemaForm
+												schema={flowModuleState.schema}
+												inputTransform={true}
+												importPath={$selectedId}
+												bind:args={flowModule.value.input_transforms}
+												bind:extraLib={stepPropPicker.extraLib}
+											/>
+										</PropPickerWrapper>
+									</div>
+								{:else if selected === 'test'}
+									<ModulePreview
+										bind:this={modulePreview}
+										mod={flowModule}
+										schema={flowModuleState.schema}
+										indices={[parentIndex, childIndex]}
+									/>
+								{:else if selected === 'retries'}
+									<FlowRetries bind:flowModule class="px-4 pb-4 h-full overflow-auto" />
+								{:else if selected === 'early-stop'}
+									<FlowModuleEarlyStop bind:flowModule class="px-4 pb-4 h-full overflow-auto" />
+								{:else if selected === 'suspend'}
+									<div class="px-4 pb-4 h-full overflow-auto">
+										<FlowModuleSuspend bind:flowModule />
+									</div>
+								{/if}
+							</div>
+						</Pane>
+					</Splitpanes>
 				</div>
 			{/if}
-
-			<div
-				bind:this={panes}
-				class="h-full"
-				style="max-height: calc(100% - {totalTopGap}px) !important;"
-			>
-				<Splitpanes horizontal>
-					<Pane size={50} minSize={20}>
-						{#if flowModule.value.type === 'rawscript'}
-							<div on:mouseleave={() => reload(flowModule)} class="h-full">
-								<Editor
-									bind:websocketAlive
-									bind:this={editor}
-									class="h-full px-2"
-									bind:code={flowModule.value.content}
-									deno={flowModule.value.language === RawScript.language.DENO}
-									lang={scriptLangToEditorLang(flowModule.value.language)}
-									automaticLayout={true}
-									cmdEnterAction={async () => {
-										selected = 'test'
-										await reload(flowModule)
-										modulePreview?.runTestWithStepArgs()
-									}}
-									formatAction={() => reload(flowModule)}
-								/>
-							</div>
-						{:else if flowModule.value.type === 'script'}
-							<FlowModuleScript {flowModule} />
-						{/if}
-					</Pane>
-					<Pane size={50} minSize={20}>
-						<Tabs bind:selected>
-							<Tab value="inputs">Inputs</Tab>
-							<Tab value="test">Test</Tab>
-							<Tab value="retries">Retries</Tab>
-							{#if !$selectedId.includes('failure')}
-								<Tab value="early-stop">Early Stop</Tab>
-								<Tab value="suspend">Sleep/Suspend</Tab>
-							{/if}
-						</Tabs>
-						<div class="h-[calc(100%-32px)]">
-							{#if selected === 'inputs'}
-								<div class="h-full overflow-auto">
-									<PropPickerWrapper pickableProperties={stepPropPicker.pickableProperties}>
-										<p class="items-baseline text-xs text-gray-700 italic hidden md:block mb-2">
-											Move the focus outside of the text editor to recompute the inputs or press
-											Ctrl/Cmd+S
-										</p>
-										<SchemaForm
-											schema={flowModuleState.schema}
-											inputTransform={true}
-											importPath={$selectedId}
-											bind:args={flowModule.input_transforms}
-											bind:extraLib={stepPropPicker.extraLib}
-										/>
-									</PropPickerWrapper>
-								</div>
-							{:else if selected === 'test'}
-								<ModulePreview
-									bind:this={modulePreview}
-									mod={flowModule}
-									schema={flowModuleState.schema}
-									indices={[parentIndex, childIndex]}
-								/>
-							{:else if selected === 'retries'}
-								<FlowRetries bind:flowModule class="px-4 pb-4 h-full overflow-auto" />
-							{:else if selected === 'early-stop'}
-								<FlowModuleEarlyStop bind:flowModule class="px-4 pb-4 h-full overflow-auto" />
-							{:else if selected === 'suspend'}
-								<div class="px-4 pb-4 h-full overflow-auto">
-									<FlowModuleSuspend bind:flowModule />
-								</div>
-							{/if}
-						</div>
-					</Pane>
-				</Splitpanes>
-			</div>
-		{/if}
-	</FlowCard>
-</div>
+		</FlowCard>
+	</div>
+{:else}
+	Incorrect flow module type
+{/if}
