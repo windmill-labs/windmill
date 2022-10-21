@@ -7,8 +7,8 @@
 	import Icon from 'svelte-awesome'
 	import { faChevronDown, faChevronUp } from '@fortawesome/free-solid-svg-icons'
 	import { createEventDispatcher } from 'svelte'
-	import type { JobResult } from './flows/flowStateUtils'
 	import { onDestroy } from 'svelte'
+	import type { JobResult } from './flows/previousResults'
 
 	const dispatch = createEventDispatcher()
 
@@ -141,7 +141,7 @@
 						{#if [FlowStatusModule.type.IN_PROGRESS, FlowStatusModule.type.SUCCESS, FlowStatusModule.type.FAILURE].includes(mod.type)}
 							<svelte:self
 								jobId={mod.job}
-								bind:jobResult={jobResult.innerJobs[i]}
+								bind:jobResult={jobResult.innerJobs[i].result}
 								flowJobIds={mod.flow_jobs}
 								on:jobsLoaded={(e) => {
 									jobResult = jobResult
