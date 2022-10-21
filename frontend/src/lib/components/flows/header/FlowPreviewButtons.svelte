@@ -59,5 +59,10 @@
 </span>
 
 <Drawer bind:open={previewOpen} size="800px">
-	<FlowPreviewContent bind:previewMode on:close={() => (previewOpen = !previewOpen)} />
+	<FlowPreviewContent
+		bind:previewMode
+		on:close={() => {
+			previewOpen && (previewOpen = false)
+		}}
+	/>
 </Drawer>
