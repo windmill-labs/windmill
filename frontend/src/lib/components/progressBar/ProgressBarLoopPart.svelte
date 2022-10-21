@@ -8,16 +8,15 @@
 	export let isDone: boolean = false
 	export let duration = 200
 
-	$: progresses = new Array(loopLength).fill(undefined).map(() => {
-		return tweened(isDone ? 100 : 0, {
+	$: progresses = Array.from({ length: loopLength }, (_, i) => {
+		return tweened(isDone || i < loopIndex - 1 ? 100 : 0, {
 			duration,
 			easing: cubicOut
 		})
 	})
 	$: if (loopIndex) {
-		// progresses[loopIndex - 1].set(100)
+		progresses[loopIndex - 1].set(100)
 	}
-	$: isDone ? progresses.forEach((p) => p.set(100)) : progresses.forEach((p) => p.set(0))
 </script>
 
 {#each progresses as progress, index}
