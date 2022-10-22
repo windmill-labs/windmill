@@ -1,9 +1,7 @@
 <script lang="ts">
 	import Button from '$lib/components/common/button/Button.svelte'
-
 	import type { FlowModule } from '$lib/gen'
 	import { classNames } from '$lib/utils'
-
 	import {
 		faArrowRotateForward,
 		faBed,
@@ -23,11 +21,11 @@
 
 	let confirmationModalOpen = false
 
-	$: shouldPick = isEmptyFlowModule(module)
-
 	const dispatch = createEventDispatcher()
 	const { selectedId, select } = getContext<FlowEditorContext>('FlowEditorContext')
 	const { width, threshold } = getContext<FlowModuleWidthContext>('FlowModuleWidth')
+
+	$: shouldPick = isEmptyFlowModule(module)
 	$: iconOnly = $width < threshold
 	$: moduleRetry = module.retry?.constant || module.retry?.exponential
 </script>

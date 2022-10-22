@@ -6,6 +6,7 @@
 	import FlowModuleSchemaMap from './FlowModuleSchemaMap.svelte'
 	import InsertModuleButton from './InsertModuleButton.svelte'
 	import FlowBranchMap from './FlowBranchMap.svelte'
+	import { fly } from 'svelte/transition'
 
 	export let mod: FlowModule
 	export let index: number
@@ -65,7 +66,7 @@
 			<FlowBranchMap bind:module={mod} />
 		</li>
 	{:else}
-		<li>
+		<li transition:fly>
 			<FlowModuleSchemaItem
 				on:click={() => select(mod.id)}
 				on:delete

@@ -7,9 +7,6 @@
 	import PickHubScript from '../pickers/PickHubScript.svelte'
 	import PickScript from '../pickers/PickScript.svelte'
 
-	export let shouldDisableTriggerScripts: boolean = false
-	export let shouldDisableLoopCreation: boolean = false
-
 	export let failureModule: boolean
 
 	const dispatch = createEventDispatcher()
@@ -82,20 +79,18 @@
 		/>
 	</div>
 
-	{#if !shouldDisableTriggerScripts}
-		<div class="text-sm font-bold">Trigger script</div>
+	<div class="text-sm font-bold">Trigger script</div>
 
-		<div class="grid sm:grid-col-1 md:grid-col-2 lg:grid-cols-3 gap-4">
-			<PickScript customText="Trigger script from workspace" kind={Script.kind.TRIGGER} on:pick />
-			<PickHubScript customText="Trigger script from Hub" kind={Script.kind.TRIGGER} on:pick />
-			<FlowScriptPicker
-				label="Inline Typescript (Deno)"
-				icon={faCode}
-				iconColor="text-blue-800"
-				on:click={() => dispatch('new', { language: RawScript.language.DENO, kind: 'trigger' })}
-			/>
-		</div>
-	{/if}
+	<div class="grid sm:grid-col-1 md:grid-col-2 lg:grid-cols-3 gap-4">
+		<PickScript customText="Trigger script from workspace" kind={Script.kind.TRIGGER} on:pick />
+		<PickHubScript customText="Trigger script from Hub" kind={Script.kind.TRIGGER} on:pick />
+		<FlowScriptPicker
+			label="Inline Typescript (Deno)"
+			icon={faCode}
+			iconColor="text-blue-800"
+			on:click={() => dispatch('new', { language: RawScript.language.DENO, kind: 'trigger' })}
+		/>
+	</div>
 
 	{#if !failureModule}
 		<div class="text-sm font-bold">Approval step</div>
@@ -108,24 +103,22 @@
 			/>
 		</div>
 
-		{#if !shouldDisableLoopCreation}
-			<div class="text-sm font-bold">Flow primitive</div>
+		<div class="text-sm font-bold">Flow primitive</div>
 
-			<div class="grid sm:grid-col-1 md:grid-col-2 lg:grid-cols-3 gap-4">
-				<FlowScriptPicker
-					label={`Create branches`}
-					icon={faCodeBranch}
-					iconColor="text-blue-500"
-					on:click={() => dispatch('branches')}
-				/>
+		<div class="grid sm:grid-col-1 md:grid-col-2 lg:grid-cols-3 gap-4">
+			<FlowScriptPicker
+				label={`Create branches`}
+				icon={faCodeBranch}
+				iconColor="text-blue-500"
+				on:click={() => dispatch('branches')}
+			/>
 
-				<FlowScriptPicker
-					label={`Create a for-loop`}
-					icon={faRepeat}
-					iconColor="text-blue-500"
-					on:click={() => dispatch('loop')}
-				/>
-			</div>
-		{/if}
+			<FlowScriptPicker
+				label={`Create a for-loop`}
+				icon={faRepeat}
+				iconColor="text-blue-500"
+				on:click={() => dispatch('loop')}
+			/>
+		</div>
 	{/if}
 </div>

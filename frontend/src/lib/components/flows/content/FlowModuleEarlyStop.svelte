@@ -48,11 +48,8 @@
 
 	{#if flowModule.stop_after_if}
 		<span class="text-xs font-bold">Should skip if stopped</span>
-
 		<input type="checkbox" bind:checked={flowModule.stop_after_if.skip_if_stopped} />
-
 		<span class="text-xs font-bold">Stop condition expression</span>
-
 		<div class="border w-full">
 			<PropPickerWrapper
 				{pickableProperties}

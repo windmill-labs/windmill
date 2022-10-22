@@ -1,7 +1,7 @@
 <script lang="ts">
 	import type { FlowEditorContext } from '../types'
 	import { getContext } from 'svelte'
-	import { emptyModule } from '$lib/components/flows/flowStateUtils'
+	import { deleteFlowStateById, emptyModule } from '$lib/components/flows/flowStateUtils'
 	import { flowStateStore } from '../flowState'
 	import type { FlowModule } from '$lib/gen'
 	import FlowErrorHandlerItem from './FlowErrorHandlerItem.svelte'
@@ -24,8 +24,7 @@
 		modules.splice(index, 0, flowModule)
 		modules = modules
 		$flowStateStore[flowModule.id] = emptyFlowModuleState()
-
-		// TODO: Should find a way to select the newly inserted
+		select(flowModule.id)
 	}
 
 	function removeAtIndex(index: number): void {
@@ -33,10 +32,7 @@
 		const [removedModule] = modules.splice(index, 1)
 		modules = modules
 
-		flowStateStore.update((fss) => {
-			delete fss[removedModule.id]
-			return fss
-		})
+		deleteFlowStateById(removedModule.id)
 	}
 
 	$: confirmationModalOpen = indexToRemove !== undefined
@@ -52,8 +48,8 @@
 		{#each modules as mod, index (index)}
 			<MapItem
 				{color}
-				bind:mod
 				{index}
+				bind:mod
 				on:delete={(event) => {
 					if (event.detail.event.shiftKey || isEmptyFlowModule(mod)) {
 						removeAtIndex(index)

@@ -28,7 +28,7 @@
 		previousModuleId,
 		$flowStore,
 		previewArgs
-	)
+	).pickableProperties
 </script>
 
 <div class="h-full flex flex-col">

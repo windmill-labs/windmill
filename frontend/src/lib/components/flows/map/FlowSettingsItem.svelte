@@ -9,7 +9,7 @@
 
 	$: settingsClass = classNames(
 		'border w-full rounded-md p-2 bg-white text-sm cursor-pointer flex items-center mb-4',
-		$selectedId.includes('settings') ? 'outline outline-offset-1 outline-2  outline-slate-900' : ''
+		$selectedId === 'settings' ? 'outline outline-offset-1 outline-2  outline-slate-900' : ''
 	)
 </script>
 

@@ -53,15 +53,13 @@ function nextId(): string {
 	}
 }
 
-export async function pickScript({
-	path,
-	summary
-}: {
-	path: string
-	summary?: string
-}): Promise<[FlowModule, FlowModuleState]> {
+export async function pickScript(
+	path: string,
+	summary: string,
+	id: string
+): Promise<[FlowModule, FlowModuleState]> {
 	const flowModule: FlowModule = {
-		id: nextId(),
+		id,
 		value: { type: 'script', path },
 		summary,
 		input_transforms: {}
@@ -70,19 +68,16 @@ export async function pickScript({
 	return [flowModule, await loadFlowModuleState(flowModule)]
 }
 
-export async function createInlineScriptModule({
-	language,
-	kind,
-	subkind
-}: {
-	language: RawScript.language
-	kind: Script.kind
-	subkind: 'pgsql' | 'flow'
-}): Promise<[FlowModule, FlowModuleState]> {
+export async function createInlineScriptModule(
+	language: RawScript.language,
+	kind: Script.kind,
+	subkind: 'pgsql' | 'flow',
+	id: string
+): Promise<[FlowModule, FlowModuleState]> {
 	const code = initialCode(language, kind, subkind)
 
 	const flowModule: FlowModule = {
-		id: nextId(),
+		id,
 		value: { type: 'rawscript', content: code, language },
 		input_transforms: {}
 	}
@@ -90,9 +85,9 @@ export async function createInlineScriptModule({
 	return [flowModule, await loadFlowModuleState(flowModule)]
 }
 
-export async function createLoop(): Promise<[FlowModule, FlowModuleState]> {
+export async function createLoop(id: string): Promise<[FlowModule, FlowModuleState]> {
 	const loopFlowModule: FlowModule = {
-		id: nextId(),
+		id,
 		value: {
 			type: 'forloopflow',
 			modules: [],
@@ -106,9 +101,9 @@ export async function createLoop(): Promise<[FlowModule, FlowModuleState]> {
 	return [loopFlowModule, flowModuleState]
 }
 
-export async function createBranches(): Promise<[FlowModule, FlowModuleState]> {
+export async function createBranches(id: string): Promise<[FlowModule, FlowModuleState]> {
 	const branchesFlowModules: FlowModule = {
-		id: nextId(),
+		id,
 		value: {
 			type: 'branchone',
 			branches: [],
@@ -127,16 +122,19 @@ export async function fork(flowModule: FlowModule): Promise<[FlowModule, FlowMod
 	if (flowModule.value.type !== 'script') {
 		throw new Error('Can only fork a script module')
 	}
-	const forkedFlowModule = await createInlineScriptModuleFromPath(flowModule.value.path ?? '')
+	const forkedFlowModule = await createInlineScriptModuleFromPath(
+		flowModule.value.path ?? '',
+		flowModule.id
+	)
 	const flowModuleState = await loadFlowModuleState(forkedFlowModule)
 	return [forkedFlowModule, flowModuleState]
 }
 
-async function createInlineScriptModuleFromPath(path: string): Promise<FlowModule> {
+async function createInlineScriptModuleFromPath(path: string, id: string): Promise<FlowModule> {
 	const { content, language } = await getScriptByPath(path)
 
 	return {
-		id: nextId(),
+		id,
 		value: {
 			type: 'rawscript',
 			language: language as RawScript.language,
@@ -155,15 +153,11 @@ export function emptyModule(): FlowModule {
 	}
 }
 
-export async function createScriptFromInlineScript({
-	flowModule,
-	suffix,
-	schema
-}: {
-	flowModule: FlowModule
-	suffix: string
+export async function createScriptFromInlineScript(
+	flowModule: FlowModule,
+	suffix: string,
 	schema: Schema
-}): Promise<[FlowModule, FlowModuleState]> {
+): Promise<[FlowModule, FlowModuleState]> {
 	const flow = get(flowStore)
 	const user = get(userStore)
 
@@ -199,5 +193,12 @@ export async function createScriptFromInlineScript({
 		}
 	})
 
-	return pickScript({ path: availablePath, summary: flowModule.summary })
+	return pickScript(availablePath, flowModule.summary ?? '', flowModule.id)
+}
+
+export function deleteFlowStateById(id: string) {
+	flowStateStore.update((fss) => {
+		delete fss[id]
+		return fss
+	})
 }

@@ -73,9 +73,7 @@
 		}
 	}
 
-	async function apply<T>(fn: (arg: T) => Promise<[FlowModule, FlowModuleState]>, arg: T) {
-		const [module, flowModuleState] = await fn(arg)
-
+	function updateStores(module: FlowModule, flowModuleState: FlowModuleState) {
 		if (JSON.stringify(flowModule) != JSON.stringify(module)) {
 			flowModule = module
 			$flowStateStore[module.id] = flowModuleState
@@ -85,23 +83,16 @@
 	async function reload(flowModule: FlowModule) {
 		const { input_transforms, schema } = await loadSchemaFromModule(flowModule)
 
-		/*
-		TODO: Fix this
-		flowSt.schema = schema
+		$flowStateStore[flowModule.id] = {
+			...$flowStateStore[flowModule.id],
+			schema
+		}
+
 		if (flowModule.value.type == 'script' || flowModule.value.type == 'rawscript') {
 			flowModule.input_transforms = input_transforms
 		}
-		*/
 
-		$flowStore = $flowStore
-	}
-
-	async function applyCreateLoop() {
-		await apply(createLoop, null)
-	}
-
-	async function applyCreateBranches() {
-		await apply(createBranches, null)
+		flowModule = flowModule
 	}
 
 	export const FLOW_MODULE_WIDTH_THRESHOLD = 768
@@ -134,41 +125,47 @@
 					on:toggleSuspend={() => (selected = 'suspend')}
 					on:toggleRetry={() => (selected = 'retries')}
 					on:toggleStopAfterIf={() => (selected = 'early-stop')}
-					on:fork={() => apply(fork, flowModule)}
-					on:createScriptFromInlineScript={() => {
-						apply(createScriptFromInlineScript, {
-							flowModule: flowModule,
-							suffix: $selectedId,
-							schema: $flowStateStore[flowModule.id].schema
-						})
+					on:fork={async () => {
+						const [module, state] = await fork(flowModule)
+						updateStores(module, state)
+					}}
+					on:createScriptFromInlineScript={async () => {
+						const [module, state] = await createScriptFromInlineScript(
+							flowModule,
+							$selectedId,
+							$flowStateStore[flowModule.id].schema
+						)
+						updateStores(module, state)
 					}}
 				/>
 			</svelte:fragment>
 			{#if shouldPick}
 				<FlowInputs
-					shouldDisableTriggerScripts={/*TODO*/ false}
-					shouldDisableLoopCreation={/*TODO*/ false}
-					on:loop={() => {
-						applyCreateLoop()
-						select(['loop', $selectedId].join('-'))
+					on:loop={async () => {
+						const [module, state] = await createLoop(flowModule.id)
+						updateStores(module, state)
 					}}
-					on:branches={() => {
-						applyCreateBranches()
-						select(['branches', $selectedId].join('-'))
+					on:branches={async () => {
+						const [module, state] = await createBranches(flowModule.id)
+						updateStores(module, state)
 					}}
-					on:pick={async (e) => {
-						await apply(pickScript, { path: e.detail.path, summary: e.detail.summary })
-						if (e.detail.kind == Script.kind.APPROVAL) {
-							flowModule.suspend = { required_events: 1, timeout: 1800 }
-							flowModule = flowModule
-						}
+					on:pick={async ({ detail }) => {
+						const { path, summary, kind } = detail
+						const [module, state] = await pickScript(path, summary, flowModule.id)
+						updateStores(module, state)
 					}}
-					on:new={(e) =>
-						apply(createInlineScriptModule, {
-							language: e.detail.language,
-							kind: e.detail.kind,
-							subkind: e.detail.subkind
-						})}
+					on:new={async ({ detail }) => {
+						const { language, kind, subkind } = detail
+
+						const [module, state] = await createInlineScriptModule(
+							language,
+							kind,
+							subkind,
+							flowModule.id
+						)
+
+						updateStores(module, state)
+					}}
 					{failureModule}
 				/>
 			{:else}

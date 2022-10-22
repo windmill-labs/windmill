@@ -9,9 +9,7 @@
 </script>
 
 <CronInput bind:schedule={$schedule.cron} />
-
 <SchemaForm schema={$flowStore.schema} bind:args={$schedule.args} />
-
 <Toggle
 	bind:checked={$schedule.enabled}
 	options={{
