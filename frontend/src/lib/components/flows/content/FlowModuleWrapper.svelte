@@ -6,7 +6,8 @@
 	import FlowBranchesWrapper from './FlowBranchesWrapper.svelte'
 	import FlowLoop from './FlowLoop.svelte'
 	import FlowModuleComponent from './FlowModuleComponent.svelte'
-	import FlowBranchWrapper from './FlowBranchWrapper.svelte'
+	import FlowBranchAllWrapper from './FlowBranchAllWrapper.svelte'
+	import FlowBranchOneWrapper from './FlowBranchOneWrapper.svelte'
 
 	const { selectedId } = getContext<FlowEditorContext>('FlowEditorContext')
 
@@ -23,6 +24,8 @@
 	{#if flowModule.value.type === 'forloopflow'}
 		<FlowLoop bind:mod={flowModule} {parentModule} {previousModuleId} />
 	{:else if flowModule.value.type === 'branchone'}
+		<FlowBranchesWrapper bind:flowModule {parentModule} {previousModuleId} />
+	{:else if flowModule.value.type === 'branchall'}
 		<FlowBranchesWrapper bind:flowModule {parentModule} {previousModuleId} />
 	{:else}
 		<FlowModuleComponent
@@ -56,7 +59,7 @@
 	{/if}
 	{#each flowModule.value.branches as branch, branchIndex}
 		{#if $selectedId === `${flowModule?.id}-branch-${branchIndex}`}
-			<FlowBranchWrapper bind:branch parentModule={flowModule} {previousModuleId} />
+			<FlowBranchOneWrapper bind:branch parentModule={flowModule} {previousModuleId} />
 		{:else}
 			{#each branch.modules as submodule, index}
 				<svelte:self
@@ -69,8 +72,8 @@
 	{/each}
 {:else if flowModule.value.type === 'branchall'}
 	{#each flowModule.value.branches as branch, branchIndex}
-		{#if $selectedId === `${parentModule?.id}-branch-${branchIndex}`}
-			TODO
+		{#if $selectedId === `${flowModule?.id}-branch-${branchIndex}`}
+			<FlowBranchAllWrapper bind:branch />
 		{:else}
 			{#each branch.modules as submodule, index}
 				<svelte:self

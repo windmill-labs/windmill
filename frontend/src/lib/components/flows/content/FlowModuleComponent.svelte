@@ -19,7 +19,8 @@
 		createScriptFromInlineScript,
 		fork,
 		createBranches,
-		pickScript
+		pickScript,
+		createBranchAll
 	} from '$lib/components/flows/flowStateUtils'
 	import { flowStore } from '$lib/components/flows/flowStore'
 	import SchemaForm from '$lib/components/SchemaForm.svelte'
@@ -145,8 +146,12 @@
 						const [module, state] = await createLoop(flowModule.id)
 						updateStores(module, state)
 					}}
-					on:branches={async () => {
+					on:branchone={async () => {
 						const [module, state] = await createBranches(flowModule.id)
+						updateStores(module, state)
+					}}
+					on:branchall={async () => {
+						const [module, state] = await createBranchAll(flowModule.id)
 						updateStores(module, state)
 					}}
 					on:pick={async ({ detail }) => {

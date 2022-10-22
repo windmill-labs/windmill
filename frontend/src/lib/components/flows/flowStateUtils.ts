@@ -118,6 +118,22 @@ export async function createBranches(id: string): Promise<[FlowModule, FlowModul
 	return [branchesFlowModules, flowModuleState]
 }
 
+export async function createBranchAll(id: string): Promise<[FlowModule, FlowModuleState]> {
+	const branchesFlowModules: FlowModule = {
+		id,
+		value: {
+			type: 'branchall',
+			branches: []
+		},
+		input_transforms: {},
+		summary: ''
+	}
+
+	const flowModuleState = await loadFlowModuleState(branchesFlowModules)
+
+	return [branchesFlowModules, flowModuleState]
+}
+
 export async function fork(flowModule: FlowModule): Promise<[FlowModule, FlowModuleState]> {
 	if (flowModule.value.type !== 'script') {
 		throw new Error('Can only fork a script module')
