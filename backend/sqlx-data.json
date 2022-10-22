@@ -878,6 +878,27 @@
     },
     "query": "SELECT * FROM usr where username = $1 AND workspace_id = $2"
   },
+  "3da0cf7edc975cb365c36d167df34d9d30d3e86f231bb9d1d3cc3bad6a50dfff": {
+    "describe": {
+      "columns": [
+        {
+          "name": "parent_job",
+          "ordinal": 0,
+          "type_info": "Uuid"
+        }
+      ],
+      "nullable": [
+        null
+      ],
+      "parameters": {
+        "Left": [
+          "Uuid",
+          "Text"
+        ]
+      }
+    },
+    "query": "\n        SELECT parent_job\n        FROM queue\n        WHERE id = $1 AND workspace_id = $2\n        UNION ALL\n        SELECT parent_job\n        FROM completed_job\n        WHERE id = $1 AND workspace_id = $2\n        "
+  },
   "3fabb3857c9cf2d057814b54ee54a95d01b6a7d9e89bea239b832a9d70f0044b": {
     "describe": {
       "columns": [],

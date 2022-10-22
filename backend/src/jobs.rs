@@ -97,6 +97,10 @@ pub fn global_service() -> Router {
             "/cancel/:job_id/:resume_id/:secret",
             post(cancel_suspended_job),
         )
+        .route(
+            "/get_flow/:job_id/:resume_id/:secret",
+            get(get_suspended_job_flow),
+        )
 }
 
 #[derive(Debug, sqlx::FromRow, Serialize, Clone)]
@@ -1098,6 +1102,40 @@ pub async fn cancel_suspended_job(
     let value = value.unwrap_or(serde_json::Value::Null);
     insert_resume_job(&db, &w_id, job, resume_id, secret, true, value).await?;
     Ok(StatusCode::CREATED)
+}
+
+pub async fn get_suspended_job_flow(
+    /* unauthed */
+    Extension(db): Extension<DB>,
+    Path((w_id, job, resume_id, secret)): Path<(String, Uuid, u32, String)>,
+) -> error::JsonResult<Job> {
+    let mut tx = db.begin().await?;
+    let key = get_workspace_key(&w_id, &mut tx).await?;
+    let mut mac = HmacSha256::new_from_slice(key.as_bytes()).map_err(to_anyhow)?;
+    mac.update(job.as_bytes());
+    mac.update(resume_id.to_be_bytes().as_ref());
+    mac.verify_slice(hex::decode(secret)?.as_ref())
+        .map_err(|_| anyhow::anyhow!("Invalid signature"))?;
+    let flow_id = sqlx::query_scalar!(
+        r#"
+        SELECT parent_job
+        FROM queue
+        WHERE id = $1 AND workspace_id = $2
+        UNION ALL
+        SELECT parent_job
+        FROM completed_job
+        WHERE id = $1 AND workspace_id = $2
+        "#,
+        job,
+        w_id
+    )
+    .fetch_optional(&mut tx)
+    .await?
+    .flatten()
+    .ok_or_else(|| anyhow::anyhow!("parent flow job not found"))?;
+    let flow_o = get_job_by_id(tx, &w_id, flow_id).await?.0;
+    let flow = crate::utils::not_found_if_none(flow_o, "Parent Flow", job.to_string())?;
+    Ok(Json(flow))
 }
 
 pub async fn create_job_signature(

@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.39.0
+  version: 1.40.1
   title: Windmill server API
   contact:
     name: Windmill contact
@@ -2648,6 +2648,7 @@ paths:
           schema:
             type: string
       requestBody:
+        required: true
         content:
           application/json:
             schema:
@@ -2710,6 +2711,7 @@ paths:
           schema:
             type: string
       requestBody:
+        required: true
         content:
           application/json:
             schema:
@@ -2722,6 +2724,32 @@ paths:
               schema:
                 type: string
 
+  /w/{workspace}/jobs/get_flow/{id}/{resume_id}/{signature}:
+    get:
+      summary: get parent flow job of suspended job
+      operationId: getSuspendedJobFlow
+      tags:
+        - job
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/JobId"
+        - name: resume_id
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: signature
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: parent flow details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Job"
 
   /schedules/preview:
     post:
