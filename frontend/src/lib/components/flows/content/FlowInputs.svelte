@@ -16,7 +16,7 @@
 </script>
 
 <div class="space-y-4 p-4">
-	<div class="text-sm font-bold">Inline script</div>
+	<div class="text-sm font-bold">Common script</div>
 	<div class="grid sm:grid-col-2 lg:grid-cols-3 gap-4">
 		<FlowScriptPicker
 			label="Inline Python (3.10)"
@@ -63,10 +63,7 @@
 					dispatch('new', { language: RawScript.language.DENO, kind: 'script', subkind: 'pgsql' })}
 			/>
 		{/if}
-	</div>
-	<div class="text-sm font-bold">Pre-made script</div>
 
-	<div class="grid sm:grid-col-2 lg:grid-cols-3 gap-4">
 		<PickScript
 			customText={failureModule ? 'Error Handler from workspace' : undefined}
 			kind={failureModule ? Script.kind.FAILURE : Script.kind.SCRIPT}

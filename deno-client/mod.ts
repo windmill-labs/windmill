@@ -139,11 +139,11 @@ export async function databaseUrlFromResource(path: string): Promise<string> {
 
 
 export async function genNounceAndHmac(workspace: string, jobId: string) {
-    const nounce = Math.floor(Math.random() * 4294967295);
+    const nonce = Math.floor(Math.random() * 4294967295);
     const sig = await fetch(Deno.env.get("WM_BASE_URL") +
-        `/api/w/${workspace}/jobs/job_signature/${jobId}/${nounce}?token=${Deno.env.get("WM_TOKEN")}`)
+        `/api/w/${workspace}/jobs/job_signature/${jobId}/${nonce}?token=${Deno.env.get("WM_TOKEN")}`)
     return {
-        nounce,
+        nonce,
         signature: await sig.text()
     };
 }
@@ -151,7 +151,7 @@ export async function genNounceAndHmac(workspace: string, jobId: string) {
 export async function getResumeEndpoints() {
     const workspace = getWorkspace()
 
-    const { nounce, signature } = await genNounceAndHmac(
+    const { nonce, signature } = await genNounceAndHmac(
         workspace,
         Deno.env.get("WM_JOB_ID") ?? "no_job_id",
     );
@@ -160,10 +160,11 @@ export async function getResumeEndpoints() {
 
     function getResumeUrl(op: string) {
         return url_prefix +
-            `${op}/${Deno.env.get("WM_JOB_ID")}/${nounce}/${signature}`;
+            `${op}/${Deno.env.get("WM_JOB_ID")}/${nonce}/${signature}`;
     }
 
     return {
+        approvalPage: Deno.env.get("WM_BASE_URL") + `/approve/${workspace}/${Deno.env.get("WM_JOB_ID")}/${nonce}/${signature}`,
         resume: getResumeUrl("resume"),
         cancel: getResumeUrl("cancel"),
     };
