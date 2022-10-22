@@ -1,6 +1,24 @@
 # Changelog
 
 
+## [1.40.0](https://github.com/windmill-labs/windmill/compare/v1.39.0...v1.40.0) (2022-10-22)
+
+
+### Features
+
+* **backend:** propagate cancel instantly to all flow jobs if any ([cb5ed9b](https://github.com/windmill-labs/windmill/commit/cb5ed9b9a1fdcaf5609ce20c59aeca2356ae1883))
+* **backend:** propagate cancel instantly to all flow jobs if any ([e0b86e9](https://github.com/windmill-labs/windmill/commit/e0b86e958f71c1dce72430905c879389382be01f))
+* **deno-client:** improve docs by extending function signatures ([#791](https://github.com/windmill-labs/windmill/issues/791)) ([4ab547b](https://github.com/windmill-labs/windmill/commit/4ab547bdf4e93793306b7f98bf0e237849aa391a))
+* support running and publishing go, python scripts to the hub ([#779](https://github.com/windmill-labs/windmill/issues/779)) ([8ec33c5](https://github.com/windmill-labs/windmill/commit/8ec33c5e165316e2f8f804575ea3369b8beefdbd))
+
+
+### Bug Fixes
+
+* **backend:** avoid mem leak on interval [#786](https://github.com/windmill-labs/windmill/issues/786) ([ac84b76](https://github.com/windmill-labs/windmill/commit/ac84b76909e0d6dfa170cb58608344b1b6d2627f))
+* **frontend:** rework te new script page ([6c68f26](https://github.com/windmill-labs/windmill/commit/6c68f264cbcf18a872775b37be40b4f09dee8e2b))
+* improve approval flow with approval page ([884edd7](https://github.com/windmill-labs/windmill/commit/884edd77153100a26a72c28c52b76c9619bd7642))
+* only create a schedule after flow change if schedule is enabled ([4ce3e07](https://github.com/windmill-labs/windmill/commit/4ce3e0795c000aeff6f729ed515091fb93f7ceb2))
+
 ## [1.39.0](https://github.com/windmill-labs/windmill/compare/v1.38.5...v1.39.0) (2022-10-20)
 
 
