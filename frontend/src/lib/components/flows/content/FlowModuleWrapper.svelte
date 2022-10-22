@@ -6,6 +6,7 @@
 	import FlowBranchesWrapper from './FlowBranchesWrapper.svelte'
 	import FlowLoop from './FlowLoop.svelte'
 	import FlowModuleComponent from './FlowModuleComponent.svelte'
+	import FlowBranchWrapper from './FlowBranchWrapper.svelte'
 
 	const { selectedId } = getContext<FlowEditorContext>('FlowEditorContext')
 
@@ -37,39 +38,47 @@
 	{#each flowModule.value.modules as submodule, index}
 		<svelte:self
 			bind:flowModule={submodule}
-			parentModule={flowModule}
+			bind:parentModule={flowModule}
 			previousModuleId={flowModule.value.modules[index - 1]?.id}
-			isParentLoop={true}
 		/>
 	{/each}
 {:else if flowModule.value.type === 'branchone'}
-	{#each flowModule.value.default as submodule, index}
-		<svelte:self
-			bind:flowModule={submodule}
-			parentModule={flowModule}
-			previousModuleId={flowModule.value.default[index - 1]?.id}
-			isParentLoop={true}
-		/>
-	{/each}
-	{#each flowModule.value.branches as branch, branchIndex}
-		{#each branch.modules as submodule, index}
+	{#if $selectedId === `${flowModule?.id}-branch-default`}
+		<div class="p-4 text-sm">Default branch</div>
+	{:else}
+		{#each flowModule.value.default as submodule, index}
 			<svelte:self
 				bind:flowModule={submodule}
-				parentModule={flowModule}
-				previousModuleId={flowModule.value.branches[branchIndex].modules[index - 1]?.id}
-				isParentLoop={true}
+				bind:parentModule={flowModule}
+				previousModuleId={flowModule.value.default[index - 1]?.id}
 			/>
 		{/each}
+	{/if}
+	{#each flowModule.value.branches as branch, branchIndex}
+		{#if $selectedId === `${flowModule?.id}-branch-${branchIndex}`}
+			<FlowBranchWrapper bind:branch parentModule={flowModule} {previousModuleId} />
+		{:else}
+			{#each branch.modules as submodule, index}
+				<svelte:self
+					bind:flowModule={submodule}
+					bind:parentModule={flowModule}
+					previousModuleId={flowModule.value.branches[branchIndex].modules[index - 1]?.id}
+				/>
+			{/each}
+		{/if}
 	{/each}
 {:else if flowModule.value.type === 'branchall'}
 	{#each flowModule.value.branches as branch, branchIndex}
-		{#each branch.modules as submodule, index}
-			<svelte:self
-				bind:flowModule={submodule}
-				parentModule={flowModule}
-				previousModuleId={flowModule.value.branches[branchIndex].modules[index - 1]?.id}
-				isParentLoop={true}
-			/>
-		{/each}
+		{#if $selectedId === `${parentModule?.id}-branch-${branchIndex}`}
+			TODO
+		{:else}
+			{#each branch.modules as submodule, index}
+				<svelte:self
+					bind:flowModule={submodule}
+					bind:parentModule={flowModule}
+					previousModuleId={flowModule.value.branches[branchIndex].modules[index - 1]?.id}
+				/>
+			{/each}
+		{/if}
 	{/each}
 {/if}

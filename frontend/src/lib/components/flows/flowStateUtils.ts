@@ -33,7 +33,7 @@ function nextId(): string {
 	const flowState = get(flowStateStore)
 
 	const keys = Object.keys(flowState)
-		.filter((key) => key !== 'failure')
+		.filter((key) => key !== 'failure' || key.includes('branch') || key.includes('loop'))
 		.map((key) => {
 			const reversedKey = key.split('').reverse().join('')
 			let number = 0

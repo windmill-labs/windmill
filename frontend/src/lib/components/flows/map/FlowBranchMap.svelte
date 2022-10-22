@@ -41,7 +41,7 @@
 					})
 				}
 
-				// Should also delete  custom branch state
+				// Should also delete custom branch state
 
 				return fss
 			})
@@ -70,10 +70,13 @@
 			<div
 				on:click={() => {
 					selectedBranch = 0
+					select(`${module.id}-branch-default`)
 				}}
 				class={classNames(
 					'border w-full rounded-md p-2 bg-white text-sm cursor-pointer flex items-center mb-4',
-					false ? 'outline outline-offset-1 outline-2  outline-slate-900' : ''
+					$selectedId === `${module.id}-branch-default`
+						? 'outline outline-offset-1 outline-2  outline-slate-900'
+						: ''
 				)}
 			>
 				<Icon data={faCodeBranch} class="mr-2" />
@@ -92,15 +95,18 @@
 				<div
 					on:click={() => {
 						selectedBranch = branchIndex + 1
+						select(`${module.id}-branch-${branchIndex}`)
 					}}
 					class={classNames(
 						'border w-full rounded-md p-2 bg-white text-sm cursor-pointer flex items-center mb-4',
-						false ? 'outline outline-offset-1 outline-2  outline-slate-900' : ''
+						$selectedId === `${module.id}-branch-${branchIndex}`
+							? 'outline outline-offset-1 outline-2  outline-slate-900'
+							: ''
 					)}
 				>
 					<Icon data={faCodeBranch} class="mr-2" />
 					<span class="text-xs flex flex-row justify-between w-full flex-wrap gap-2 items-center">
-						Branch {branchIndex}
+						{branch.summary || `Branch ${branchIndex}`}
 						<Button
 							iconOnly
 							size="xs"

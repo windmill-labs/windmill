@@ -5,11 +5,7 @@
 	import type { FlowModule } from '$lib/gen'
 	import FlowModuleSchemaMap from './FlowModuleSchemaMap.svelte'
 	import InsertModuleButton from './InsertModuleButton.svelte'
-	import { slide } from 'svelte/transition'
-	import { faCodeBranch } from '@fortawesome/free-solid-svg-icons'
-	import { Button } from '$lib/components/common'
-	import { classNames } from '$lib/utils'
-	import Branch from './Branch.svelte'
+	import FlowBranchMap from './FlowBranchMap.svelte'
 
 	export let mod: FlowModule
 	export let index: number
@@ -66,7 +62,7 @@
 					<span>{mod.summary || 'Branches'}</span>
 				</div>
 			</FlowModuleSchemaItem>
-			<Branch bind:module={mod} />
+			<FlowBranchMap bind:module={mod} />
 		</li>
 	{:else}
 		<li>
