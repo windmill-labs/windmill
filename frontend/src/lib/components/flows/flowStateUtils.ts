@@ -49,7 +49,6 @@ function nextId(): string {
 	if (keys.length === 0) {
 		return numberToChars(0)
 	} else {
-		debugger
 		return numberToChars(Math.max(...keys) + 1)
 	}
 }

@@ -61,6 +61,9 @@
 						indexToRemove = index
 					}
 				}}
+				on:insert={() => {
+					insertNewModuleAtIndex(index)
+				}}
 			/>
 		{/each}
 

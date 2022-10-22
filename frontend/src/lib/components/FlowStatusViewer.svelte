@@ -95,8 +95,7 @@
 						jobId={loopJobId}
 						on:jobsLoaded={(e) => {
 							if (flowJobIds?.moduleId) {
-								debugger
-								$flowStateStore[flowJobIds.moduleId].previewResult[j] = e.detail.result
+								$flowStateStore[flowJobIds.moduleId].previewResult = e.detail.result
 								$flowStateStore[flowJobIds.moduleId].previewArgs = e.detail.args
 							}
 						}}
@@ -142,6 +141,8 @@
 									if (mod.id) {
 										$flowStateStore[mod.id].previewResult = e.detail.result
 										$flowStateStore[mod.id].previewArgs = e.detail.args
+
+										console.log($flowStateStore[mod.id].previewResult)
 									}
 								}}
 							/>

@@ -42,4 +42,34 @@
 			isParentLoop={true}
 		/>
 	{/each}
+{:else if flowModule.value.type === 'branchone'}
+	{#each flowModule.value.default as submodule, index}
+		<svelte:self
+			bind:flowModule={submodule}
+			parentModule={flowModule}
+			previousModuleId={flowModule.value.default[index - 1]?.id}
+			isParentLoop={true}
+		/>
+	{/each}
+	{#each flowModule.value.branches as branch, branchIndex}
+		{#each branch.modules as submodule, index}
+			<svelte:self
+				bind:flowModule={submodule}
+				parentModule={flowModule}
+				previousModuleId={flowModule.value.branches[branchIndex].modules[index - 1]?.id}
+				isParentLoop={true}
+			/>
+		{/each}
+	{/each}
+{:else if flowModule.value.type === 'branchall'}
+	{#each flowModule.value.branches as branch, branchIndex}
+		{#each branch.modules as submodule, index}
+			<svelte:self
+				bind:flowModule={submodule}
+				parentModule={flowModule}
+				previousModuleId={flowModule.value.branches[branchIndex].modules[index - 1]?.id}
+				isParentLoop={true}
+			/>
+		{/each}
+	{/each}
 {/if}

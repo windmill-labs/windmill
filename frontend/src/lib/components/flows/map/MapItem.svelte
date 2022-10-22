@@ -5,6 +5,11 @@
 	import type { FlowModule } from '$lib/gen'
 	import FlowModuleSchemaMap from './FlowModuleSchemaMap.svelte'
 	import InsertModuleButton from './InsertModuleButton.svelte'
+	import { slide } from 'svelte/transition'
+	import { faCodeBranch } from '@fortawesome/free-solid-svg-icons'
+	import { Button } from '$lib/components/common'
+	import { classNames } from '$lib/utils'
+	import Branch from './Branch.svelte'
 
 	export let mod: FlowModule
 	export let index: number
@@ -39,9 +44,29 @@
 				<div class="line mr-2" />
 
 				<div class="w-full my-2">
-					<FlowModuleSchemaMap modules={mod.value.modules} color="orange" />
+					<FlowModuleSchemaMap bind:modules={mod.value.modules} color="orange" />
 				</div>
 			</div>
+		</li>
+	{:else if mod.value.type === 'branchone'}
+		<li>
+			<FlowModuleSchemaItem
+				deletable
+				on:delete
+				on:click={() => select(mod.id)}
+				selected={$selectedId === mod.id}
+				retry={mod.retry?.constant != undefined || mod.retry?.exponential != undefined}
+				earlyStop={mod.stop_after_if != undefined}
+				suspend={Boolean(mod.suspend)}
+			>
+				<div slot="icon">
+					<span>{index + 1}</span>
+				</div>
+				<div slot="content" class="truncate block w-full text-xs">
+					<span>{mod.summary || 'Branches'}</span>
+				</div>
+			</FlowModuleSchemaItem>
+			<Branch bind:module={mod} />
 		</li>
 	{:else}
 		<li>

@@ -44,6 +44,10 @@ async function mapFlowModule(flowModule: FlowModule, modulesState: FlowState) {
 		await mapFlowModules(value.modules, modulesState)
 	}
 
+	if (value.type === 'branchone') {
+		await mapFlowModules(value.default, modulesState)
+	}
+
 	if (value.type === 'branchone' || value.type === 'branchall') {
 		await Promise.all(
 			value.branches.map(
