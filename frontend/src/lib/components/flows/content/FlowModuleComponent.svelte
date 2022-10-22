@@ -146,8 +146,8 @@
 			</svelte:fragment>
 			{#if shouldPick}
 				<FlowInputs
-					shouldDisableTriggerScripts={false}
-					shouldDisableLoopCreation={false}
+					shouldDisableTriggerScripts={/*TODO*/ false}
+					shouldDisableLoopCreation={/*TODO*/ false}
 					on:loop={() => {
 						applyCreateLoop()
 						select(['loop', $selectedId].join('-'))

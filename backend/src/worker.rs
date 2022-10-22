@@ -478,6 +478,9 @@ async fn handle_queued_job(
     same_worker_tx: Sender<Uuid>,
     base_internal_url: &str,
 ) -> crate::error::Result<()> {
+    if job.canceled {
+        return Err(Error::ExecutionErr(format!("Job canceled")))?;
+    }
     match job.job_kind {
         JobKind::FlowPreview | JobKind::Flow => {
             let args = job.args.clone().unwrap_or(Value::Null);
@@ -1720,7 +1723,7 @@ async fn handle_child(
             _ = cancel_check => KillReason::Cancelled,
             _ = sleep(timeout) => KillReason::Timeout,
         };
-        tx.send(());
+        tx.send(()).await.expect("rx should never be dropped");
         drop(tx);
 
         let set_reason = async {

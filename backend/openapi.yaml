@@ -1646,8 +1646,7 @@ paths:
                     type: string
                   lockfile:
                     type: string
-                  schema:
-                    type: string
+                  schema: {}
                   language:
                     type: string
                     enum: [deno, python3, go]
