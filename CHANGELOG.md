@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [1.40.1](https://github.com/windmill-labs/windmill/compare/v1.40.0...v1.40.1) (2022-10-22)
+
+
+### Bug Fixes
+
+* **deno-client:** fix build.sh to have reproducible builds ([#793](https://github.com/windmill-labs/windmill/issues/793)) ([a5dfd86](https://github.com/windmill-labs/windmill/commit/a5dfd865c3912bb8528c0048519ad4c134eceab2))
+
 ## [1.40.0](https://github.com/windmill-labs/windmill/compare/v1.39.0...v1.40.0) (2022-10-22)
 
 
