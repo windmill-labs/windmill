@@ -384,32 +384,6 @@
     },
     "query": "SELECT * FROM workspace LIMIT $1 OFFSET $2"
   },
-  "13a10a404e892d6975d4913424880a75bfb2c6dfb5134c270c7c7225acb05db4": {
-    "describe": {
-      "columns": [
-        {
-          "name": "value",
-          "ordinal": 0,
-          "type_info": "Jsonb"
-        },
-        {
-          "name": "is_cancel",
-          "ordinal": 1,
-          "type_info": "Bool"
-        }
-      ],
-      "nullable": [
-        false,
-        false
-      ],
-      "parameters": {
-        "Left": [
-          "Uuid"
-        ]
-      }
-    },
-    "query": "SELECT value, is_cancel FROM resume_job WHERE job = $1 ORDER BY created_at ASC"
-  },
   "15de975d9be141c9ed9647935a508492aabbbddbf986d5c5c0f0c415293c432d": {
     "describe": {
       "columns": [],
@@ -777,22 +751,6 @@
       }
     },
     "query": "INSERT INTO variable\n            (workspace_id, path, value, is_secret, description, account, is_oauth)\n            VALUES ($1, $2, $3, $4, $5, $6, $7)"
-  },
-  "30d85ec4bfa7e81d2803ea9c0b638a01257ae2e9138dd82df526d28d4467df26": {
-    "describe": {
-      "columns": [],
-      "nullable": [],
-      "parameters": {
-        "Left": [
-          "Uuid",
-          "Uuid",
-          "Uuid",
-          "Jsonb",
-          "Bool"
-        ]
-      }
-    },
-    "query": "\n        INSERT INTO resume_job\n                    (id, job, flow, value, is_cancel)\n             VALUES ($1, $2, $3, $4, $5)\n        "
   },
   "355dcb2cbebd13f0e3bdd4929b9e431b0e6d72716d1c4f9ab6af6adce5b5e4b3": {
     "describe": {
@@ -1225,6 +1183,22 @@
       }
     },
     "query": "SELECT * from resource_type WHERE name = $1 AND (workspace_id = $2 OR workspace_id = 'starter')"
+  },
+  "5a9adf5eec1d51060e6f5ecebea60b511189a22019d6c9249bb30a0cf4ae23dd": {
+    "describe": {
+      "columns": [],
+      "nullable": [],
+      "parameters": {
+        "Left": [
+          "Uuid",
+          "Uuid",
+          "Uuid",
+          "Jsonb",
+          "Varchar"
+        ]
+      }
+    },
+    "query": "\n        INSERT INTO resume_job\n                    (id, job, flow, value, approver)\n             VALUES ($1, $2, $3, $4, $5)\n             ON CONFLICT (id) DO NOTHING\n        "
   },
   "5b7a1d16d8109a65479ab33d411c60d14ea91d870fdff8606d7aa4ad39f0ba00": {
     "describe": {
@@ -1958,6 +1932,32 @@
       }
     },
     "query": "\n        SELECT id, flow_status, suspend\n        FROM queue\n        WHERE id = ( SELECT parent_job FROM queue WHERE id = $1 UNION ALL SELECT parent_job FROM completed_job WHERE id = $1)\n        FOR UPDATE\n        "
+  },
+  "860ecd7137bf7963392e1102c642cfdb8f80db156d90229b0919c025ba4bab9c": {
+    "describe": {
+      "columns": [
+        {
+          "name": "value",
+          "ordinal": 0,
+          "type_info": "Jsonb"
+        },
+        {
+          "name": "approver",
+          "ordinal": 1,
+          "type_info": "Varchar"
+        }
+      ],
+      "nullable": [
+        false,
+        true
+      ],
+      "parameters": {
+        "Left": [
+          "Uuid"
+        ]
+      }
+    },
+    "query": "SELECT value, approver FROM resume_job WHERE job = $1 ORDER BY created_at ASC"
   },
   "88a3f58a1a315200fdd2e4bb8638246ee21818f8aaaf56f6e9d7ddce1490d886": {
     "describe": {
@@ -3271,6 +3271,26 @@
       }
     },
     "query": "\n           SELECT SUM(duration_ms)\n             FROM completed_job\n            WHERE permissioned_as = $1\n              AND created_at > NOW() - INTERVAL '1200 seconds'\n              AND workspace_id = $2"
+  },
+  "eceaa2cd70d08ec603072d7d49379ed19cfc78bd1f4a3a9fcbe33ed66d1be4be": {
+    "describe": {
+      "columns": [
+        {
+          "name": "approver",
+          "ordinal": 0,
+          "type_info": "Varchar"
+        }
+      ],
+      "nullable": [
+        true
+      ],
+      "parameters": {
+        "Left": [
+          "Uuid"
+        ]
+      }
+    },
+    "query": "\n            SELECT approver\n            FROM resume_job\n            WHERE job = $1\n            "
   },
   "ee99cb974fb35d2d92fa96cecb53b8ad3a729ac710f362dc55a576613b66f9be": {
     "describe": {

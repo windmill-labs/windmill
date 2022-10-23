@@ -362,5 +362,9 @@ components:
           required:
             - branch
             - len
+        approvers:
+          type: array
+          items:
+            type: string
             
       required: [type]
