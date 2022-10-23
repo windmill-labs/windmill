@@ -149,7 +149,7 @@ export interface NonceAndHmac {
  * @param jobId
  * @returns HMAC and nonce needed to authorize approval script actions
  */
-export async function genNounceAndHmac(workspace: string, jobId: string): Promise<NonceAndHmac> {
+export async function genNounceAndHmac(workspace: string, jobId: string, approver?: string): Promise<NonceAndHmac> {
     const nonce = Math.floor(Math.random() * 4294967295);
     const sig = await fetch(Deno.env.get("WM_BASE_URL") +
         `/api/w/${workspace}/jobs/job_signature/${jobId}/${nonce}?token=${Deno.env.get("WM_TOKEN")}`)
@@ -169,25 +169,26 @@ export interface ResumeEndpoints {
  * Get URLs needed for approval script
  * @returns approval page UI URL, resume and cancel API URLs for approval script
  */
-export async function getResumeEndpoints(): Promise<ResumeEndpoints> {
+export async function getResumeEndpoints(approver?: string): Promise<ResumeEndpoints> {
     const workspace = getWorkspace()
 
     const { nonce, signature } = await genNounceAndHmac(
         workspace,
         Deno.env.get("WM_JOB_ID") ?? "no_job_id",
+        approver
     );
     const url_prefix = Deno.env.get("WM_BASE_URL") +
         `/api/w/${workspace}/jobs/`;
 
-    function getResumeUrl(op: string): string {
+    function getResumeUrl(op: string, approver?: string): string {
         return url_prefix +
-            `${op}/${Deno.env.get("WM_JOB_ID")}/${nonce}/${signature}`;
+            `${op}/${Deno.env.get("WM_JOB_ID")}/${nonce}/${signature}${approver ? `?approver=${approver}` : ''}`;
     }
 
     return {
-        approvalPage: Deno.env.get("WM_BASE_URL") + `/approve/${workspace}/${Deno.env.get("WM_JOB_ID")}/${nonce}/${signature}`,
-        resume: getResumeUrl("resume"),
-        cancel: getResumeUrl("cancel"),
+        approvalPage: Deno.env.get("WM_BASE_URL") + `/approve/${workspace}/${Deno.env.get("WM_JOB_ID")}/${nonce}/${signature}${approver ? `?approver=${approver}` : ''}`,
+        resume: getResumeUrl("resume", approver),
+        cancel: getResumeUrl("cancel", approver),
     };
 }
 

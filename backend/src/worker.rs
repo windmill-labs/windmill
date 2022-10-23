@@ -15,8 +15,8 @@ use crate::{
     db::DB,
     error::{self, Error},
     jobs::{
-        add_completed_job, add_completed_job_error, get_hub_script, get_queued_job, pull, JobKind,
-        QueuedJob,
+        add_completed_job, add_completed_job_error, canceled_job_to_result, get_hub_script,
+        get_queued_job, pull, JobKind, QueuedJob,
     },
     parser::Typ,
     parser_go::otyp_to_string,
@@ -479,7 +479,7 @@ async fn handle_queued_job(
     base_internal_url: &str,
 ) -> crate::error::Result<()> {
     if job.canceled {
-        return Err(Error::ExecutionErr(format!("Job canceled")))?;
+        return Err(Error::ExecutionErr(canceled_job_to_result(&job)))?;
     }
     match job.job_kind {
         JobKind::FlowPreview | JobKind::Flow => {
@@ -3353,7 +3353,10 @@ def main():
 
             server.close().await.unwrap();
 
-            assert_eq!(json!("from job"), result);
+            assert_eq!(
+                json!({"error": "Job canceled: approval request disapproved by unknown" }),
+                result
+            );
         }
 
         #[sqlx::test(fixtures("base"))]
@@ -3410,7 +3413,10 @@ def main():
 
             let result = completed_job_result(flow, &db).await;
 
-            assert_eq!(json!("from test"), result);
+            assert_eq!(
+                json!({"error": "Job canceled: approval request disapproved by unknown" }),
+                result
+            );
         }
     }
 

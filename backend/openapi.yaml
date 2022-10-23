@@ -2589,6 +2589,10 @@ paths:
           required: true
           schema:
             type: integer
+        - name: approver
+          in: query
+          schema:
+            type: string
       responses:
         "200":
           description: job signature
@@ -2621,6 +2625,10 @@ paths:
           in: query
           schema:
             type: object
+        - name: approver
+          in: query
+          schema:
+            type: string
       responses:
         "201":
           description: job resumed
@@ -2645,6 +2653,10 @@ paths:
         - name: signature
           in: path
           required: true
+          schema:
+            type: string
+        - name: approver
+          in: query
           schema:
             type: string
       requestBody:
@@ -2684,6 +2696,10 @@ paths:
           in: query
           schema:
             type: object
+        - name: approver
+          in: query
+          schema:
+            type: string
       responses:
         "201":
           description: job resumed
@@ -2708,6 +2724,10 @@ paths:
         - name: signature
           in: path
           required: true
+          schema:
+            type: string
+        - name: approver
+          in: query
           schema:
             type: string
       requestBody:
@@ -2743,13 +2763,27 @@ paths:
           required: true
           schema:
             type: string
+        - name: approver
+          in: query
+          schema:
+            type: string
       responses:
         "200":
           description: parent flow details
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/Job"
+                type: object
+                properties:
+                  job:
+                    $ref: "#/components/schemas/Job"
+                  approvers:
+                    type: array
+                    items:
+                      type: string
+                required:
+                  - job
+                  - approvers
 
   /schedules/preview:
     post:

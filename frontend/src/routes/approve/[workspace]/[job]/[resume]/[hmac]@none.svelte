@@ -7,16 +7,19 @@
 	import FlowMetadata from '$lib/components/FlowMetadata.svelte'
 
 	let job: Job | undefined = undefined
+	let currentApprovers: string[] = []
 
 	getJob()
 
 	async function getJob() {
-		job = await JobService.getSuspendedJobFlow({
+		const suspendedJobFlow = await JobService.getSuspendedJobFlow({
 			workspace: $page.params.workspace,
 			id: $page.params.job,
 			resumeId: new Number($page.params.resume).valueOf(),
 			signature: $page.params.hmac
 		})
+		job = suspendedJobFlow.job
+		currentApprovers = suspendedJobFlow.approvers
 	}
 
 	async function resume() {
