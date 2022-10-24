@@ -7,10 +7,10 @@
  */
 
 use crate::{
-    error,
     js_eval::eval_sync,
     parser::{Arg, MainArgSignature, ObjectProperty, Typ},
 };
+use windmill_common::error;
 
 use serde_json::Value;
 use swc_common::{sync::Lrc, FileName, SourceMap, SourceMapper, Spanned};

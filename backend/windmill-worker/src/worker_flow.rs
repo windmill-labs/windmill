@@ -5,11 +5,10 @@ use crate::jobs::{
     add_completed_job, add_completed_job_error, get_queued_job, push, schedule_again_if_scheduled,
     JobPayload, QueuedJob, RawCode,
 };
-use crate::{
-    js_eval::{eval_timeout, EvalCreds, IdContext},
-    worker,
-};
-use anyhow::Context;
+#[cfg(feature = "deno")]
+use crate::js_eval::{eval_timeout, EvalCreds, IdContext};
+use crate::worker;
+use anyhow::{anyhow, Context};
 use async_recursion::async_recursion;
 use futures::TryStreamExt;
 use serde_json::{json, Map, Value};
@@ -215,8 +214,6 @@ pub async fn update_flow_status_after_job_completion(
         .context("remove flow status retry")?;
     }
 
-    tx.commit().await?;
-
     let flow_job = get_queued_job(flow, w_id, &mut tx)
         .await?
         .ok_or_else(|| Error::InternalErr(format!("requiring flow to be in the queue")))?;
@@ -244,6 +241,8 @@ pub async fn update_flow_status_after_job_completion(
         false if has_failure_module(flow, &mut tx).await? => true,
         false => false,
     };
+
+    tx.commit().await?;
 
     if old_status.step == 0
         && !flow_job.is_flow_step
@@ -400,6 +399,7 @@ fn next_retry(retry: &Retry, status: &RetryStatus) -> Option<(u16, Duration)> {
         .map(|d| (status.fail_count + 1, std::cmp::min(d, MAX_RETRY_INTERVAL)))
 }
 
+#[cfg(feature = "deno")]
 async fn compute_bool_from_expr(
     expr: String,
     result: serde_json::Value,
@@ -425,6 +425,15 @@ async fn compute_bool_from_expr(
             "Expected a boolean value, found: {a:?}"
         ))),
     }
+}
+
+#[cfg(not(feature = "deno"))]
+async fn compute_bool_from_expr(
+    expr: String,
+    result: serde_json::Value,
+    base_internal_url: &str,
+) -> error::Result<bool> {
+    Err(Error::InternalErr("Attempted to evaluate JS expression, but Deno is disabled. Consider enabling the deno feature during compilation.".to_string()))
 }
 
 pub async fn update_flow_status_in_progress(
@@ -471,7 +480,7 @@ async fn transform_input(
     token: &str,
     steps: Vec<Uuid>,
     resumes: &[Value],
-    by_id: &IdContext,
+    #[cfg(feature = "deno")] by_id: &IdContext,
     base_internal_url: &str,
 ) -> anyhow::Result<Map<String, serde_json::Value>> {
     let mut mapped = serde_json::Map::new();
@@ -485,6 +494,7 @@ async fn transform_input(
     for (key, val) in input_transforms.into_iter() {
         match val {
             InputTransform::Static { value: _ } => (),
+            #[cfg(feature = "deno")]
             InputTransform::Javascript { expr } => {
                 let flow_input = flow_args.clone().unwrap_or_else(|| json!({}));
                 let previous_result = flatten_previous_result(last_result.clone());
@@ -515,7 +525,9 @@ async fn transform_input(
                 })?;
                 mapped.insert(key.to_string(), v);
                 ()
-            }
+            },
+            #[cfg(not(feature = "deno"))]
+            InputTransform::Javascript { expr } => return Err(anyhow!("Attempted to evaluate JS expression, but Deno is disabled. Consider enabling the deno feature during compilation.".to_string()))
         }
     }
 
@@ -606,7 +618,7 @@ async fn push_next_flow_job(
     mut last_result: serde_json::Value,
     same_worker_tx: Sender<Uuid>,
     base_internal_url: &str,
-) -> anyhow::Result<()> {
+) -> error::Result<()> {
     /* `mut` because reassigned on FlowStatusModule::Failure when failure_module is Some */
     let mut i = usize::try_from(status.step)
         .with_context(|| format!("invalid module index {}", status.step))?;
@@ -627,6 +639,7 @@ async fn push_next_flow_job(
         if let Some(it) = sleep_input_transform {
             let json_value = match it {
                 InputTransform::Static { value } => value,
+                #[cfg(feature = "deno")]
                 InputTransform::Javascript { expr } => eval_timeout(
                     expr.to_string(),
                     [("result".to_string(), last_result.clone())].into(),
@@ -641,6 +654,8 @@ async fn push_next_flow_job(
                         "Error during isolated evaluation of expression `{expr}`:\n{e}"
                     ))
                 })?,
+                #[cfg(not(feature = "deno"))]
+                InputTransform::Javascript { expr } => return Err(Error::InternalErr("Attempted to evaluate JS expression, but Deno is disabled. Consider enabling the deno feature during compilation.".to_string()))
             };
             match json_value {
                 serde_json::Value::Number(n) => {
@@ -872,8 +887,10 @@ async fn push_next_flow_job(
         _ => (),
     }
 
-    let mut transform_context: Option<(String, Vec<Uuid>, IdContext)> = None;
+    #[cfg(feature = "deno")]
+    let mut transform_context: Option<TransformContext> = None;
     let mut args = match &module.value {
+        #[cfg(feature = "deno")]
         FlowModuleValue::Script { input_transforms, .. }
         | FlowModuleValue::RawScript { input_transforms, .. } => {
             transform_context =
@@ -896,6 +913,11 @@ async fn push_next_flow_job(
             )
             .await?
         }
+        #[cfg(not(feature = "deno"))]
+        FlowModuleValue::Script { input_transforms, .. }
+        | FlowModuleValue::RawScript { input_transforms, .. } => {  
+            return Err(Error::InternalErr("Attempted to evaluate JS expression, but Deno is disabled. Consider enabling the deno feature during compilation.".to_string()))
+        }
         _ => {
             /* embedded flow input is augmented with embedding flow input */
             if let Some(value) = &flow_job.args {
@@ -914,7 +936,10 @@ async fn push_next_flow_job(
     let next_flow_transform = compute_next_flow_transform(
         flow_job,
         &flow,
+        #[cfg(feature = "deno")]
         transform_context,
+        #[cfg(not(feature = "deno"))]
+        None,
         api_config,
         &module,
         &status,
@@ -1046,7 +1071,7 @@ async fn push_next_flow_job(
     tx.commit().await?;
 
     if continue_on_same_worker {
-        same_worker_tx.send(uuid).await?;
+        same_worker_tx.send(uuid).await.map_err(to_anyhow)?;
     }
     return Ok(());
 }
@@ -1062,7 +1087,7 @@ async fn jump_to_next_step(
     last_result: serde_json::Value,
     same_worker_tx: Sender<Uuid>,
     base_internal_url: &str,
-) -> anyhow::Result<()> {
+) -> error::Result<()> {
     let mut tx = db.begin().await?;
 
     let next_step = i
@@ -1165,10 +1190,16 @@ async fn script_path_to_payload<'c>(
     Ok(job_payload)
 }
 
+
+#[cfg(feature = "deno")]
+type TransformContext = (String, Vec<Uuid>, IdContext);
+#[cfg(not(feature = "deno"))]
+type TransformContext = (String, Vec<Uuid>, ());
+
 async fn compute_next_flow_transform(
     flow_job: &QueuedJob,
     flow: &FlowValue,
-    transform_context: Option<(String, Vec<Uuid>, IdContext)>,
+    transform_context: Option<TransformContext>,
     api_config: &configuration::Configuration,
     module: &FlowModule,
     status: &FlowStatus,
@@ -1406,7 +1437,7 @@ async fn get_transform_context(
     flow_job: &QueuedJob,
     status: &FlowStatus,
     modules: &Vec<FlowModule>,
-) -> error::Result<(String, Vec<Uuid>, IdContext)> {
+) -> error::Result<TransformContext> {
     let new_token = windmill_api_client::apis::user_api::create_token(
         api_config,
         models::NewToken {
@@ -1421,13 +1452,20 @@ async fn get_transform_context(
         .iter()
         .map(|x| x.job().unwrap_or_default())
         .collect();
-    let id_map: HashMap<String, Uuid> = modules
-        .iter()
-        .map(|x| x.id.clone())
-        .zip(new_steps.clone())
-        .collect();
 
-    Ok((new_token, new_steps, IdContext(flow_job.id, id_map)))
+    #[cfg(not(feature = "deno"))]
+    return Ok((new_token, new_steps, ()));
+
+    #[cfg(feature = "deno")]
+    {
+        let id_map: HashMap<String, Uuid> = modules
+            .iter()
+            .map(|x| x.id.clone())
+            .zip(new_steps.clone())
+            .collect();
+
+        Ok((new_token, new_steps, IdContext(flow_job.id, id_map)))
+    }
 }
 
 async fn evaluate_with<F>(
@@ -1436,7 +1474,10 @@ async fn evaluate_with<F>(
     token: String,
     workspace: String,
     steps: Vec<Uuid>,
+    #[cfg(feature = "deno")]
     by_id: Option<IdContext>,
+    #[cfg(not(feature = "deno"))]
+    by_id: Option<()>,
     base_internal_url: &str,
 ) -> anyhow::Result<serde_json::Value>
 where
@@ -1444,6 +1485,7 @@ where
 {
     match transform {
         InputTransform::Static { value } => Ok(value),
+        #[cfg(feature = "deno")]
         InputTransform::Javascript { expr } => {
             eval_timeout(
                 expr,
@@ -1454,6 +1496,10 @@ where
                 base_internal_url.to_string(),
             )
             .await
+        }
+        #[cfg(not(feature = "deno"))]
+        InputTransform::Javascript { expr } => {
+            return Err(anyhow!("Attempted to evaluate JS expression, but Deno is disabled. Consider enabling the deno feature during compilation.".to_string()))
         }
     }
 }

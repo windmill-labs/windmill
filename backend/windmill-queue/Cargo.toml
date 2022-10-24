@@ -10,7 +10,7 @@ path = "src/lib.rs"
 
 [dependencies]
 windmill-audit.workspace = true
-windmill-common = { workspace = true, features = ["sqlx"] }
+windmill-common = { workspace = true, features = ["sqlx", "reqwest"] }
 anyhow.workspace = true
 hmac.workspace = true
 sql-builder.workspace = true

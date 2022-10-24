@@ -15,6 +15,7 @@ use windmill_api_client::apis::configuration;
 use windmill_common::{
     error::{self, to_anyhow, Error},
     scripts::{ScriptHash, ScriptLang},
+    variables,
 };
 use windmill_queue::get_queued_job;
 
@@ -44,6 +45,18 @@ use crate::{
         handle_flow, update_flow_status_after_job_completion, update_flow_status_in_progress,
     },
 };
+
+#[tracing::instrument(level = "trace", skip_all)]
+pub async fn create_token_for_owner(
+    db: &Pool<Postgres>,
+    w_id: &str,
+    owner: &str,
+    label: &str,
+    expires_in: i32,
+    username: &str,
+) -> error::Result<String> {
+    todo!("implement token_for_owner")
+}
 
 const TMP_DIR: &str = "/tmp/windmill";
 const PIP_SUPERCACHE_DIR: &str = "/tmp/windmill/cache/pip_permanent";
@@ -344,6 +357,7 @@ pub async fn run_worker(
                     {
                         handle_job_error(
                             db,
+                            api_config,
                             job,
                             err,
                             Some(metrics),
@@ -379,7 +393,7 @@ pub async fn run_worker(
 }
 
 async fn handle_job_error(
-    db: &DB,
+    db: &Pool<Postgres>,
     api_config: &configuration::Configuration,
     job: QueuedJob,
     err: Error,
@@ -396,7 +410,7 @@ async fn handle_job_error(
         &job,
         "Unexpected error during job execution:\n".to_string(),
         &err,
-        metrics,
+        metrics.clone(),
     )
     .await
     .map(|(_, m)| m)
@@ -438,7 +452,12 @@ async fn handle_job_error(
     tracing::error!(job_id = %job.id, err = err.alt(), "error handling job: {} {} {}", job.id, job.workspace_id, job.created_by);
 }
 
-async fn insert_initial_ping(worker_instance: &str, worker_name: &str, ip: &str, db: &DB) {
+async fn insert_initial_ping(
+    worker_instance: &str,
+    worker_name: &str,
+    ip: &str,
+    db: &Pool<Postgres>,
+) {
     sqlx::query!(
         "INSERT INTO worker_ping (worker_instance, worker, ip) VALUES ($1, $2, $3)",
         worker_instance,
@@ -523,6 +542,7 @@ async fn handle_queued_job(
                 handle_code_execution_job(
                     &job,
                     db,
+                    api_config,
                     job_dir,
                     worker_dir,
                     &mut logs,
@@ -673,6 +693,7 @@ async fn transform_json_value(
 async fn handle_code_execution_job(
     job: &QueuedJob,
     db: &sqlx::Pool<sqlx::Postgres>,
+    api_config: &configuration::Configuration,
     job_dir: &str,
     worker_dir: &str,
     logs: &mut String,
@@ -740,13 +761,17 @@ mount {{
     } else {
         "".to_string()
     };
-    let result = match language {
+    let result: error::Result<serde_json::Value> = match language {
         None => {
             return Err(Error::ExecutionErr(
                 "Require language to be not null".to_string(),
             ))?;
         }
         Some(ScriptLang::Python3) => {
+            #[cfg(not(feature = "python"))]
+            panic!("Got python job, but python is unsupported. Enable the python feature during compilation.");
+
+            #[cfg(feature = "python")]
             handle_python_job(
                 worker_config,
                 envs,
@@ -764,12 +789,17 @@ mount {{
             .await
         }
         Some(ScriptLang::Deno) => {
+            #[cfg(not(feature = "deno"))]
+            panic!("Got deno job, but deno is unsupported. Enable the deno feature during compilation.");
+
+            #[cfg(feature = "deno")]
             handle_deno_job(
                 worker_config,
                 envs,
                 logs,
                 job,
                 db,
+                api_config,
                 job_dir,
                 &inner_content,
                 timeout,
@@ -778,6 +808,10 @@ mount {{
             .await
         }
         Some(ScriptLang::Go) => {
+            #[cfg(not(feature = "go"))]
+            panic!("Got go job, but go is unsupported. Enable the go feature during compilation.");
+
+            #[cfg(feature = "go")]
             handle_go_job(
                 worker_config,
                 envs,
@@ -806,6 +840,7 @@ mount {{
 }
 
 #[tracing::instrument(level = "trace", skip_all)]
+#[cfg(feature = "go")]
 async fn handle_go_job(
     WorkerConfig { base_internal_url, disable_nuser, disable_nsjail, base_url, .. }: &WorkerConfig,
     Envs { nsjail_path, go_path, path_env, gopath_env, home_env, .. }: &Envs,
@@ -1005,12 +1040,14 @@ fn capitalize(s: &str) -> String {
 }
 
 #[tracing::instrument(level = "trace", skip_all)]
+#[cfg(feature = "deno")]
 async fn handle_deno_job(
     WorkerConfig { base_internal_url, base_url, disable_nuser, disable_nsjail, .. }: &WorkerConfig,
     Envs { nsjail_path, deno_path, path_env, .. }: &Envs,
     logs: &mut String,
     job: &QueuedJob,
     db: &sqlx::Pool<sqlx::Postgres>,
+    api_config: &configuration::Configuration,
     job_dir: &str,
     inner_content: &String,
     timeout: i32,
@@ -1030,7 +1067,7 @@ async fn handle_deno_job(
         &job.created_by,
     )
     .await?;
-    create_args_and_out_file(job, &token, base_internal_url, job_dir).await?;
+    create_args_and_out_file(api_config, job, &token, base_internal_url, job_dir).await?;
     let spread = sig.args.into_iter().map(|x| x.name).join(",");
     let wrapper_content: String = format!(
         r#"
@@ -1117,6 +1154,7 @@ run();
 
 #[tracing::instrument(level = "trace", skip_all)]
 async fn create_args_and_out_file(
+    api_config: &configuration::Configuration,
     job: &QueuedJob,
     token: &String,
     base_internal_url: &String,
@@ -1124,8 +1162,14 @@ async fn create_args_and_out_file(
 ) -> Result<(), Error> {
     let args = if let Some(args) = &job.args {
         Some(
-            transform_json_value(token, &job.workspace_id, &base_internal_url, args.clone())
-                .await?,
+            transform_json_value(
+                api_config,
+                token,
+                &job.workspace_id,
+                &base_internal_url,
+                args.clone(),
+            )
+            .await?,
         )
     } else {
         None
@@ -1137,6 +1181,7 @@ async fn create_args_and_out_file(
 }
 
 #[tracing::instrument(level = "trace", skip_all)]
+#[cfg(feature = "python")]
 async fn handle_python_job(
     WorkerConfig { base_internal_url, base_url, disable_nuser, disable_nsjail, .. }: &WorkerConfig,
     envs @ Envs {
@@ -1466,33 +1511,45 @@ async fn handle_dependency_job(
     timeout: i32,
     envs: &Envs,
 ) -> error::Result<serde_json::Value> {
-    let content = match job.language {
+    let content: Result<String, String> = match job.language {
         Some(ScriptLang::Python3) => {
-            create_dependencies_dir(job_dir).await;
-            let requirements = &job
-                .raw_code
-                .as_ref()
-                .ok_or_else(|| Error::ExecutionErr("missing requirements".to_string()))?
-                .clone();
-            pip_compile(job, requirements, logs, job_dir, envs, db, timeout).await?
+            #[cfg(not(feature = "python"))]
+            panic!("tried handling python deps, but python is not available. Enable the python feature during compilation");
+
+            #[cfg(feature = "python")]
+            {
+                create_dependencies_dir(job_dir).await;
+                let requirements = &job
+                    .raw_code
+                    .as_ref()
+                    .ok_or_else(|| Error::ExecutionErr("missing requirements".to_string()))?
+                    .clone();
+                pip_compile(job, requirements, logs, job_dir, envs, db, timeout).await?
+            }
         }
         Some(ScriptLang::Go) => {
-            let requirements = job
-                .raw_code
-                .as_ref()
-                .ok_or_else(|| Error::ExecutionErr("missing requirements".to_string()))?;
-            install_go_dependencies(
-                &job.id,
-                &requirements,
-                logs,
-                job_dir,
-                db,
-                timeout,
-                &envs.go_path,
-                false,
-            )
-            .await
-            .map_err(|e| e.to_string())
+            #[cfg(not(feature = "python"))]
+            panic!("tried handling go deps, but python is not available. Enable the go feature during compilation");
+
+            #[cfg(feature = "go")]
+            {
+                let requirements = job
+                    .raw_code
+                    .as_ref()
+                    .ok_or_else(|| Error::ExecutionErr("missing requirements".to_string()))?;
+                install_go_dependencies(
+                    &job.id,
+                    &requirements,
+                    logs,
+                    job_dir,
+                    db,
+                    timeout,
+                    &envs.go_path,
+                    false,
+                )
+                .await
+                .map_err(|e| e.to_string())
+            }
         }
         _ => Err("Language incompatible with dep job".to_string()),
     };
@@ -1523,13 +1580,14 @@ async fn handle_dependency_job(
     }
 }
 
+#[cfg(feature = "python")]
 async fn pip_compile(
     job: &QueuedJob,
     requirements: &str,
     logs: &mut String,
     job_dir: &str,
     Envs { pip_extra_index_url, pip_index_url, pip_trusted_host, .. }: &Envs,
-    db: &DB,
+    db: &Pool<Postgres>,
     timeout: i32,
 ) -> Result<Result<String, String>, Error> {
     logs.push_str(&format!("content of requirements:\n{}\n", requirements));
@@ -1566,6 +1624,7 @@ async fn pip_compile(
         .join("\n")))
 }
 
+#[cfg(feature = "go")]
 async fn install_go_dependencies(
     job_id: &Uuid,
     code: &str,
@@ -1615,6 +1674,7 @@ async fn install_go_dependencies(
     }
 }
 
+#[cfg(feature = "go")]
 async fn gen_go_mymod(code: &str, job_dir: &str) -> error::Result<()> {
     let code = if code.trim_start().starts_with("package") {
         code.to_string()
@@ -1634,6 +1694,17 @@ async fn gen_go_mymod(code: &str, job_dir: &str) -> error::Result<()> {
     Ok(())
 }
 
+// TODO: this really shouldn't be here
+pub async fn get_email_from_username(
+    username: &String,
+    db: &Pool<Postgres>,
+) -> error::Result<Option<String>> {
+    let email = sqlx::query_scalar!("SELECT email FROM usr WHERE username = $1", username)
+        .fetch_optional(db)
+        .await?;
+    Ok(email)
+}
+
 #[tracing::instrument(level = "trace", skip_all)]
 async fn get_reserved_variables(
     job: &QueuedJob,
@@ -1649,6 +1720,7 @@ async fn get_reserved_variables(
     } else {
         None
     };
+
     let variables = variables::get_reserved_variables(
         &job.workspace_id,
         token,
@@ -1679,7 +1751,7 @@ async fn get_reserved_variables(
 #[tracing::instrument(level = "trace", skip_all)]
 async fn handle_child(
     job_id: &Uuid,
-    db: &DB,
+    db: &Pool<Postgres>,
     logs: &mut String,
     timeout: i32,
     mut child: Child,
@@ -1965,7 +2037,7 @@ fn append_with_limit(dst: &mut String, src: &str, limit: &mut usize) {
 }
 
 #[tracing::instrument(level = "trace", skip_all)]
-async fn set_logs(logs: &str, id: uuid::Uuid, db: &DB) {
+async fn set_logs(logs: &str, id: uuid::Uuid, db: &Pool<Postgres>) {
     if sqlx::query!(
         "UPDATE queue SET logs = $1 WHERE id = $2",
         logs.to_owned(),
@@ -1981,7 +2053,7 @@ async fn set_logs(logs: &str, id: uuid::Uuid, db: &DB) {
 
 /* TODO retry this? */
 #[tracing::instrument(level = "trace", skip_all)]
-async fn append_logs(job_id: uuid::Uuid, logs: impl AsRef<str>, db: impl Borrow<DB>) {
+async fn append_logs(job_id: uuid::Uuid, logs: impl AsRef<str>, db: impl Borrow<Pool<Postgres>>) {
     if logs.as_ref().is_empty() {
         return;
     }
@@ -1999,12 +2071,13 @@ async fn append_logs(job_id: uuid::Uuid, logs: impl AsRef<str>, db: impl Borrow<
 }
 
 pub async fn handle_zombie_jobs_periodically(
-    db: &DB,
+    db: &Pool<Postgres>,
+    api_config: &configuration::Configuration,
     timeout: i32,
     mut rx: tokio::sync::broadcast::Receiver<()>,
 ) {
     loop {
-        handle_zombie_jobs(db, timeout).await;
+        handle_zombie_jobs(db, api_config, timeout).await;
 
         tokio::select! {
             _ = tokio::time::sleep(Duration::from_secs(60))    => (),
@@ -2016,7 +2089,11 @@ pub async fn handle_zombie_jobs_periodically(
     }
 }
 
-async fn handle_zombie_jobs(db: &DB, timeout: i32) {
+async fn handle_zombie_jobs(
+    db: &Pool<Postgres>,
+    api_config: &configuration::Configuration,
+    timeout: i32,
+) {
     let restarted = sqlx::query!(
             "UPDATE queue SET running = false WHERE last_ping < now() - ($1 || ' seconds')::interval AND running = true AND job_kind != $2 AND same_worker = false RETURNING id, workspace_id, last_ping",
             (timeout * 5).to_string(),
@@ -2060,6 +2137,7 @@ async fn handle_zombie_jobs(db: &DB, timeout: i32) {
 
         let _ = handle_job_error(
             db,
+            api_config,
             job,
             error::Error::ExecutionErr("Same worker job timed out".to_string()),
             None,
@@ -2074,6 +2152,7 @@ async fn handle_zombie_jobs(db: &DB, timeout: i32) {
     }
 }
 
+#[cfg(feature = "python")]
 async fn handle_python_heavy_reqs(
     python_path: &String,
     heavy_requirements: Vec<&str>,

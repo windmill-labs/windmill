@@ -1309,14 +1309,7 @@ pub async fn create_token_for_owner(
     expires_in: i32,
     username: &str,
 ) -> Result<String> {
-    use rand::prelude::*;
-    let token: String = tracing::trace_span!("generate_token").in_scope(|| {
-        rand::thread_rng()
-            .sample_iter(&rand::distributions::Alphanumeric)
-            .take(30)
-            .map(char::from)
-            .collect()
-    });
+    let token = gen_token();
     let mut tx = db.begin().await?;
     let is_super_admin = username.contains('@')
         && sqlx::query_scalar!(
