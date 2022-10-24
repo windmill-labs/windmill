@@ -27,20 +27,17 @@ use crate::{
     db::{UserDB, DB},
     error::{self, to_anyhow, Error, Result},
     jobs,
-    jobs::{get_latest_hash_for_path, JobPayload},
     users::Authed,
     utils::not_found_if_none,
     variables::{build_crypt, encrypt},
     workspaces::WorkspaceSettings,
     BaseUrl,
 };
+use windmill_common::oauth2::*;
+
+use windmill_queue::{get_latest_hash_for_path, JobPayload};
 
 use std::str;
-
-use hmac::{Hmac, Mac};
-use sha2::Sha256;
-
-pub type HmacSha256 = Hmac<Sha256>;
 
 pub fn global_service() -> Router {
     Router::new()
@@ -673,7 +670,7 @@ async fn slack_command(
                 serde_json::Value::String(form.response_url),
             );
 
-            let (uuid, tx) = jobs::push(
+            let (uuid, tx) = windmill_queue::push(
                 tx,
                 &settings.workspace_id,
                 JobPayload::ScriptHash { hash: script_hash, path: script.to_owned() },

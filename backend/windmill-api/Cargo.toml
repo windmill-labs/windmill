@@ -1,0 +1,34 @@
+[package]
+name = "windmill-api"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+
+[lib]
+name = "windmill_api"
+path = "src/lib.rs"
+
+[[bin]]
+name = "windmill_api"
+path = "src/main.rs"
+
+[dependencies]
+windmill-queue.workspace = true
+windmill-common = { workspace = true, features = ["reqwest"] }
+windmill-audit.workspace = true
+tokio.workspace = true
+anyhow.workspace = true
+argon2.workspace = true
+axum.workspace = true
+futures.workspace = true
+git-version.workspace = true
+tower.workspace = true
+tower-cookies.workspace = true
+tower-http.workspace = true
+hyper.workspace = true
+itertools.workspace = true
+reqwest.workspace = true
+serde.workspace = true
+sqlx.workspace = true
+async-oauth2.workspace = true
+tracing.workspace = true

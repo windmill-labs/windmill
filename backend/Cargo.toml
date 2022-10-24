@@ -4,10 +4,36 @@ version = "1.39.0"
 authors = ["Ruben Fiszel <ruben@windmill.dev>"]
 edition = "2021"
 
-[build-dependencies]
-deno_core = "^0"
+[workspace]
+members = [
+    "./windmill-api",
+    "./windmill-queue",
+    "./windmill-worker",
+    "./windmill-common",
+    "./windmill-audit",
+    "./windmill-api-client",
+]
+
+[workspace.package]
+version = "1.39.0"
+authors = ["Ruben Fiszel <ruben@windmill.dev>"]
+edition = "2021"
+
+[lib]
+name = "windmill"
+path = "./src/lib.rs"
 
 [dependencies]
+windmill-api = { path = "./windmill-api" }
+windmill-worker = { path = "./windmill-worker" }
+
+[workspace.dependencies]
+windmill-api = { path = "./windmill-api" }
+windmill-api-client = { path = "./windmill-api-client" }
+windmill-queue = { path = "./windmill-queue" }
+windmill-worker = { path = "./windmill-worker" }
+windmill-common = { path = "./windmill-common" }
+windmill-audit = { path = "./windmill-audit" }
 axum = { version = "^0", features = ["headers"] }
 headers = "^0"
 hyper = { version = "^0", features = ["full"] }
@@ -20,13 +46,12 @@ serde_json = { version = "^1", features = ["preserve_order"] }
 uuid = { version = "^1", features = ["serde", "v4"] }
 thiserror = "^1"
 anyhow = "^1"
-chrono = { version = "^0", features = ["serde"]}
+chrono = { version = "^0", features = ["serde"] }
 tracing = "^0"
-tracing-subscriber = { version = "^0", features = ["env-filter", "json"]}
+tracing-subscriber = { version = "^0", features = ["env-filter", "json"] }
 console-subscriber = "^0"
 prometheus = { version = "^0", default-features = false }
 phf = { version = "0.11", features = ["macros"] }
-
 rust-embed = "^6"
 mime_guess = "^2"
 hex = "^0"
@@ -39,7 +64,13 @@ magic-crypt = "^3"
 git-version = "^0"
 rustpython-parser = "^0"
 cron = "^0"
-lettre = { version = "^0", features = ["rustls-tls", "tokio1", "tokio1-rustls-tls", "builder", "smtp-transport"],  default-features = false}
+lettre = { version = "^0", features = [
+    "rustls-tls",
+    "tokio1",
+    "tokio1-rustls-tls",
+    "builder",
+    "smtp-transport",
+], default-features = false }
 urlencoding = "^2"
 url = "^2"
 async-oauth2 = "^0"
@@ -57,14 +88,23 @@ async-recursion = "^1"
 swc_common = "^0"
 swc_ecma_parser = "^0"
 swc_ecma_ast = "^0"
-base64  = "^0"
+base64 = "^0"
 unicode-general-category = "^0"
 hmac = "^0"
 sha2 = "^0"
-
-sqlx = { version = "^0", features = ["offline", "macros", "migrate", "uuid", "json", "chrono", "postgres", "runtime-tokio-rustls"]}
+sqlx = { version = "^0", features = [
+    "offline",
+    "macros",
+    "migrate",
+    "uuid",
+    "json",
+    "chrono",
+    "postgres",
+    "runtime-tokio-rustls",
+] }
 dotenv = "^0"
 ulid = { version = "^1", features = ["uuid"] }
 futures = "^0"
 tokio-metrics = "0.1.0"
 lazy_static = "1.4.0"
+serde_derive = "1.0.147"

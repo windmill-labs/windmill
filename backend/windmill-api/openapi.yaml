@@ -1608,7 +1608,7 @@ paths:
                 type: object
                 properties:
                   flow:
-                    $ref: "../openflow.openapi.yaml#/components/schemas/OpenFlow"
+                    $ref: "../../openflow.openapi.yaml#/components/schemas/OpenFlow"
 
   /scripts/hub/get/{path}:
     get:
@@ -1937,7 +1937,6 @@ paths:
               schema:
                 type: string
 
-
   /w/{workspace}/scripts/exists/p/{path}:
     get:
       summary: exists script by path
@@ -2049,6 +2048,25 @@ paths:
               schema:
                 type: string
                 format: uuid
+
+  /w/{workspace}/jobs/hash/p/{path}:
+    get:
+      summary: get job hash by path
+      operationId: getHashByPath
+      tags:
+        - job
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/ScriptPath"
+
+      responses:
+        "200":
+          description: hash retrieved
+          content:
+            application/json:
+              schema:
+                type: integer
+                format: int64
 
   /w/{workspace}/jobs/run_wait_result/p/{path}:
     post:
@@ -2598,7 +2616,6 @@ paths:
               schema:
                 type: string
 
-
   /w/{workspace}/jobs/resume/{id}/{resume_id}/{signature}:
     get:
       summary: resume a job for a suspended flow
@@ -2722,7 +2739,6 @@ paths:
             text/plain:
               schema:
                 type: string
-
 
   /schedules/preview:
     post:
@@ -3386,7 +3402,7 @@ components:
       # explode: false
 
   schemas:
-    $ref: "../openflow.openapi.yaml#/components/schemas"
+    $ref: "../../openflow.openapi.yaml#/components/schemas"
     Script:
       type: object
       properties:
@@ -3515,9 +3531,9 @@ components:
             The user (u/userfoo) or group (g/groupfoo) whom 
             the execution of this script will be permissioned_as and by extension its DT_TOKEN.
         flow_status:
-          $ref: "../openflow.openapi.yaml#/components/schemas/FlowStatus"
+          $ref: "../../openflow.openapi.yaml#/components/schemas/FlowStatus"
         raw_flow:
-          $ref: "../openflow.openapi.yaml#/components/schemas/FlowValue"
+          $ref: "../../openflow.openapi.yaml#/components/schemas/FlowValue"
         is_flow_step:
           type: boolean
         language:
@@ -3593,9 +3609,9 @@ components:
             The user (u/userfoo) or group (g/groupfoo) whom 
             the execution of this script will be permissioned_as and by extension its DT_TOKEN.
         flow_status:
-          $ref: "../openflow.openapi.yaml#/components/schemas/FlowStatus"
+          $ref: "../../openflow.openapi.yaml#/components/schemas/FlowStatus"
         raw_flow:
-          $ref: "../openflow.openapi.yaml#/components/schemas/FlowValue"
+          $ref: "../../openflow.openapi.yaml#/components/schemas/FlowValue"
         is_flow_step:
           type: boolean
         language:
@@ -4268,7 +4284,7 @@ components:
 
     Flow:
       allOf:
-        - $ref: "../openflow.openapi.yaml#/components/schemas/OpenFlow"
+        - $ref: "../../openflow.openapi.yaml#/components/schemas/OpenFlow"
         - $ref: "#/components/schemas/FlowMetadata"
 
     FlowMetadata:
@@ -4298,7 +4314,7 @@ components:
 
     OpenFlowWPath:
       allOf:
-        - $ref: "../openflow.openapi.yaml#/components/schemas/OpenFlow"
+        - $ref: "../../openflow.openapi.yaml#/components/schemas/OpenFlow"
         - type: object
           properties:
             path:
@@ -4310,7 +4326,7 @@ components:
       type: object
       properties:
         value:
-          $ref: "../openflow.openapi.yaml#/components/schemas/FlowValue"
+          $ref: "../../openflow.openapi.yaml#/components/schemas/FlowValue"
         path:
           type: string
         args:

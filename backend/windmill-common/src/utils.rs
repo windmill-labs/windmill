@@ -7,11 +7,9 @@
  */
 
 use rand::{distributions::Alphanumeric, thread_rng, Rng};
-use reqwest::Response;
 use serde::Deserialize;
-use sqlx::{Postgres, Transaction};
 
-use crate::error::{to_anyhow, Error, Result};
+use crate::error::{Error, Result};
 
 pub const MAX_PER_PAGE: usize = 1000;
 pub const DEFAULT_PER_PAGE: usize = 100;
@@ -34,26 +32,6 @@ impl StripPath {
     }
 }
 
-pub async fn require_super_admin<'c>(
-    db: &mut Transaction<'c, Postgres>,
-    email: Option<String>,
-) -> Result<()> {
-    let is_admin = sqlx::query_scalar!(
-        "SELECT super_admin FROM password WHERE email = $1",
-        email.as_ref()
-    )
-    .fetch_one(db)
-    .await
-    .map_err(|e| Error::InternalErr(format!("fetching super admin: {e}")))?;
-    if !is_admin {
-        Err(Error::NotAuthorized(
-            "This endpoint require caller to be a super admin".to_owned(),
-        ))
-    } else {
-        Ok(())
-    }
-}
-
 pub fn require_admin(is_admin: bool, username: &str) -> Result<()> {
     if !is_admin {
         Err(Error::NotAuthorized(format!(
@@ -63,14 +41,6 @@ pub fn require_admin(is_admin: bool, username: &str) -> Result<()> {
     } else {
         Ok(())
     }
-}
-
-pub fn rd_string(len: usize) -> String {
-    thread_rng()
-        .sample_iter(&Alphanumeric)
-        .take(len)
-        .map(char::from)
-        .collect()
 }
 
 pub fn paginate(pagination: Pagination) -> (usize, usize) {
@@ -83,8 +53,9 @@ pub fn paginate(pagination: Pagination) -> (usize, usize) {
     (per_page, offset)
 }
 
+#[cfg(feature = "sqlx")]
 pub async fn now_from_db<'c>(
-    db: &mut Transaction<'c, Postgres>,
+    db: &mut sqlx::Transaction<'c, sqlx::Postgres>,
 ) -> Result<chrono::DateTime<chrono::Utc>> {
     Ok(sqlx::query_scalar!("SELECT now()")
         .fetch_one(db)
@@ -108,6 +79,7 @@ pub fn get_owner_from_path(path: &str) -> String {
     path.split('/').take(2).collect::<Vec<_>>().join("/")
 }
 
+#[cfg(feature = "reqwest")]
 pub async fn list_elems_from_hub(
     http_client: reqwest::Client,
     url: &str,
@@ -119,10 +91,11 @@ pub async fn list_elems_from_hub(
         .await?
         .json::<serde_json::Value>()
         .await
-        .map_err(to_anyhow)?;
+        .map_err(crate::error::to_anyhow)?;
     Ok(rows)
 }
 
+#[cfg(feature = "reqwest")]
 pub async fn http_get_from_hub(
     http_client: reqwest::Client,
     url: &str,
@@ -130,7 +103,7 @@ pub async fn http_get_from_hub(
     username: String,
     host: String,
     plain: bool,
-) -> Result<Response> {
+) -> Result<reqwest::Response> {
     let response = http_client
         .get(url)
         .header(
@@ -146,7 +119,15 @@ pub async fn http_get_from_hub(
         .header("X-hostname", host)
         .send()
         .await
-        .map_err(to_anyhow)?;
+        .map_err(crate::error::to_anyhow)?;
 
     Ok(response)
+}
+
+pub fn rd_string(len: usize) -> String {
+    thread_rng()
+        .sample_iter(&Alphanumeric)
+        .take(len)
+        .map(char::from)
+        .collect()
 }

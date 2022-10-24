@@ -1,169 +1,40 @@
 use std::collections::HashMap;
 use std::time::Duration;
 
+use crate::jobs::{
+    add_completed_job, add_completed_job_error, get_queued_job, push, schedule_again_if_scheduled,
+    JobPayload, QueuedJob, RawCode,
+};
 use crate::{
-    db::DB,
-    error::{self, Error},
-    flows::{FlowModule, FlowModuleValue, FlowValue, InputTransform, Retry, Suspend},
-    jobs::{
-        add_completed_job, add_completed_job_error, get_queued_job, push,
-        schedule_again_if_scheduled, script_path_to_payload, JobPayload, QueuedJob, RawCode,
-    },
     js_eval::{eval_timeout, EvalCreds, IdContext},
-    more_serde::is_default,
-    users::create_token_for_owner,
     worker,
 };
 use anyhow::Context;
 use async_recursion::async_recursion;
 use futures::TryStreamExt;
-use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
 use tokio::sync::mpsc::Sender;
 use tracing::instrument;
 use uuid::Uuid;
+use windmill_api_client::{
+    apis::{configuration, job_api},
+    models,
+};
+use windmill_common::{
+    error::{self, to_anyhow, Error},
+    flows::{FlowModule, FlowModuleValue, FlowValue, InputTransform, Retry, Suspend},
+    scripts::ScriptHash,
+};
 
-const MINUTES: Duration = Duration::from_secs(60);
-const HOURS: Duration = MINUTES.saturating_mul(60);
+type DB = sqlx::Pool<sqlx::Postgres>;
 
-pub const MAX_RETRY_ATTEMPTS: u16 = 1000;
-pub const MAX_RETRY_INTERVAL: Duration = HOURS.saturating_mul(6);
-
-#[derive(Serialize, Deserialize, Debug)]
-pub struct FlowStatus {
-    pub step: i32,
-    pub modules: Vec<FlowStatusModule>,
-    pub failure_module: FlowStatusModule,
-    #[serde(default)]
-    #[serde(skip_serializing_if = "is_default")]
-    pub retry: RetryStatus,
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone, Default, PartialEq)]
-#[serde(default)]
-pub struct RetryStatus {
-    pub fail_count: u16,
-    pub previous_result: Option<Value>,
-    pub failed_jobs: Vec<Uuid>,
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct Iterator {
-    pub index: usize,
-    pub itered: Vec<Value>,
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct BranchAllStatus {
-    pub branch: usize,
-    pub previous_result: serde_json::Value,
-    pub len: usize,
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone)]
-#[serde(
-    tag = "type",
-    rename_all(serialize = "lowercase", deserialize = "lowercase")
-)]
-pub enum BranchChosen {
-    Default,
-    Branch { branch: usize },
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone)]
-#[serde(tag = "type")]
-pub enum FlowStatusModule {
-    WaitingForPriorSteps {
-        id: String,
-    },
-    WaitingForEvents {
-        id: String,
-        count: u16,
-        job: Uuid,
-    },
-    WaitingForExecutor {
-        id: String,
-        job: Uuid,
-    },
-    InProgress {
-        id: String,
-        job: Uuid,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        iterator: Option<Iterator>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        flow_jobs: Option<Vec<Uuid>>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        branch_chosen: Option<BranchChosen>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        branchall: Option<BranchAllStatus>,
-    },
-    Success {
-        id: String,
-        job: Uuid,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        flow_jobs: Option<Vec<Uuid>>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        branch_chosen: Option<BranchChosen>,
-    },
-    Failure {
-        id: String,
-        job: Uuid,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        flow_jobs: Option<Vec<Uuid>>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        branch_chosen: Option<BranchChosen>,
-    },
-}
-
-impl FlowStatusModule {
-    pub fn job(&self) -> Option<Uuid> {
-        match self {
-            FlowStatusModule::WaitingForPriorSteps { .. } => None,
-            FlowStatusModule::WaitingForEvents { job, .. } => Some(*job),
-            FlowStatusModule::WaitingForExecutor { job, .. } => Some(*job),
-            FlowStatusModule::InProgress { job, .. } => Some(*job),
-            FlowStatusModule::Success { job, .. } => Some(*job),
-            FlowStatusModule::Failure { job, .. } => Some(*job),
-        }
-    }
-
-    pub fn id(&self) -> String {
-        match self {
-            FlowStatusModule::WaitingForPriorSteps { id, .. } => id.clone(),
-            FlowStatusModule::WaitingForEvents { id, .. } => id.clone(),
-            FlowStatusModule::WaitingForExecutor { id, .. } => id.clone(),
-            FlowStatusModule::InProgress { id, .. } => id.clone(),
-            FlowStatusModule::Success { id, .. } => id.clone(),
-            FlowStatusModule::Failure { id, .. } => id.clone(),
-        }
-    }
-}
-
-impl FlowStatus {
-    pub fn new(f: &FlowValue) -> Self {
-        Self {
-            step: 0,
-            modules: f
-                .modules
-                .iter()
-                .map(|m| FlowStatusModule::WaitingForPriorSteps { id: m.id.clone() })
-                .collect(),
-            failure_module: FlowStatusModule::WaitingForPriorSteps { id: "failure".to_string() },
-            retry: RetryStatus { fail_count: 0, previous_result: None, failed_jobs: vec![] },
-        }
-    }
-
-    /// current module status ... excluding failure_module
-    pub fn current_step(&self) -> Option<&FlowStatusModule> {
-        let i = usize::try_from(self.step).ok()?;
-        self.modules.get(i)
-    }
-}
+pub use windmill_common::worker_flow::*;
 
 #[async_recursion]
 #[instrument(level = "trace", skip_all)]
 pub async fn update_flow_status_after_job_completion(
     db: &DB,
+    api_config: &configuration::Configuration,
     job: &QueuedJob,
     success: bool,
     result: serde_json::Value,
@@ -344,6 +215,8 @@ pub async fn update_flow_status_after_job_completion(
         .context("remove flow status retry")?;
     }
 
+    tx.commit().await?;
+
     let flow_job = get_queued_job(flow, w_id, &mut tx)
         .await?
         .ok_or_else(|| Error::InternalErr(format!("requiring flow to be in the queue")))?;
@@ -377,16 +250,14 @@ pub async fn update_flow_status_after_job_completion(
         && flow_job.schedule_path.is_some()
         && flow_job.script_path.is_some()
     {
-        tx = schedule_again_if_scheduled(
-            tx,
+        schedule_again_if_scheduled(
+            api_config,
             flow_job.schedule_path.as_ref().unwrap(),
             flow_job.script_path.as_ref().unwrap(),
             &w_id,
         )
         .await?;
     }
-
-    tx.commit().await?;
 
     let done = if !should_continue_flow {
         let logs = if flow_job.canceled {
@@ -400,6 +271,7 @@ pub async fn update_flow_status_after_job_completion(
         tracing::debug!("{skip_if_stop_early:?}");
         add_completed_job(
             db,
+            api_config,
             &flow_job,
             success,
             stop_early && skip_if_stop_early.unwrap_or(false),
@@ -412,6 +284,7 @@ pub async fn update_flow_status_after_job_completion(
         match handle_flow(
             &flow_job,
             db,
+            api_config,
             result.clone(),
             same_worker_tx.clone(),
             worker_dir,
@@ -422,6 +295,7 @@ pub async fn update_flow_status_after_job_completion(
             Err(err) => {
                 let _ = add_completed_job_error(
                     db,
+                    api_config,
                     &flow_job,
                     "Unexpected error during flow chaining:\n".to_string(),
                     err,
@@ -442,6 +316,7 @@ pub async fn update_flow_status_after_job_completion(
         if flow_job.parent_job.is_some() {
             return Ok(update_flow_status_after_job_completion(
                 db,
+                api_config,
                 &flow_job,
                 success,
                 result,
@@ -550,10 +425,6 @@ async fn compute_bool_from_expr(
             "Expected a boolean value, found: {a:?}"
         ))),
     }
-}
-
-pub fn init_flow_status(f: &FlowValue) -> FlowStatus {
-    FlowStatus::new(f)
 }
 
 pub async fn update_flow_status_in_progress(
@@ -673,6 +544,7 @@ fn flatten_previous_result(last_result: serde_json::Value) -> serde_json::Value 
 pub async fn handle_flow(
     flow_job: &QueuedJob,
     db: &sqlx::Pool<sqlx::Postgres>,
+    api_config: &configuration::Configuration,
     last_result: serde_json::Value,
     same_worker_tx: Sender<Uuid>,
     worker_dir: &str,
@@ -689,6 +561,7 @@ pub async fn handle_flow(
         let fake_job = QueuedJob { parent_job: Some(flow_job.id), ..flow_job.clone() };
         update_flow_status_after_job_completion(
             db,
+            api_config,
             &fake_job,
             true,
             serde_json::json!({}),
@@ -713,6 +586,7 @@ pub async fn handle_flow(
         status,
         flow,
         db,
+        api_config,
         last_result,
         same_worker_tx,
         base_internal_url,
@@ -728,6 +602,7 @@ async fn push_next_flow_job(
     mut status: FlowStatus,
     flow: FlowValue,
     db: &sqlx::Pool<sqlx::Postgres>,
+    api_config: &configuration::Configuration,
     mut last_result: serde_json::Value,
     same_worker_tx: Sender<Uuid>,
     base_internal_url: &str,
@@ -864,7 +739,7 @@ async fn push_next_flow_job(
                 )
                 .bind(json!(FlowStatusModule::WaitingForEvents { id: status_module.id(), count: required_events, job: last }))
                 .bind((required_events - resume_messages.len() as u16) as i32)
-                .bind(suspend.timeout.map(|t| Duration::from_secs(t.into())).unwrap_or_else(|| 30 * MINUTES))
+                .bind(Duration::from_secs(suspend.timeout.map(|t| t.into()).unwrap_or_else(|| 30 * 60)))
                 .bind(flow_job.id)
                 .execute(&mut tx)
                 .await?;
@@ -886,7 +761,8 @@ async fn push_next_flow_job(
                 .to_string();
                 let result = is_cancelled.unwrap_or(json!({ "error": logs }));
                 let _uuid =
-                    add_completed_job(db, &flow_job, success, skipped, result, logs).await?;
+                    add_completed_job(db, api_config, &flow_job, success, skipped, result, logs)
+                        .await?;
 
                 return Ok(());
             }
@@ -1001,7 +877,7 @@ async fn push_next_flow_job(
         FlowModuleValue::Script { input_transforms, .. }
         | FlowModuleValue::RawScript { input_transforms, .. } => {
             transform_context =
-                Some(get_transform_context(&db, &flow_job, &status, &flow.modules).await?);
+                Some(get_transform_context(api_config, &flow_job, &status, &flow.modules).await?);
             let (token, steps, by_id) = transform_context.as_ref().unwrap();
             transform_input(
                 &flow_job.args,
@@ -1039,7 +915,7 @@ async fn push_next_flow_job(
         flow_job,
         &flow,
         transform_context,
-        &db,
+        api_config,
         &module,
         &status,
         &status_module,
@@ -1057,6 +933,7 @@ async fn push_next_flow_job(
                 &flow_job.id,
                 flow.clone(),
                 &db,
+                api_config,
                 FlowStatusModule::Success {
                     id: status_module.id(),
                     job: flow_job.id,
@@ -1180,6 +1057,7 @@ async fn jump_to_next_step(
     job_id: &Uuid,
     flow: FlowValue,
     db: &DB,
+    api_config: &configuration::Configuration,
     status_module: FlowStatusModule,
     last_result: serde_json::Value,
     same_worker_tx: Sender<Uuid>,
@@ -1221,6 +1099,7 @@ async fn jump_to_next_step(
             new_status,
             flow,
             db,
+            api_config,
             last_result,
             same_worker_tx,
             base_internal_url,
@@ -1230,7 +1109,8 @@ async fn jump_to_next_step(
         let success = true;
         let skipped = false;
         let logs = "Forloop completed without iteration".to_string();
-        let _uuid = add_completed_job(db, &new_job, success, skipped, json!([]), logs).await?;
+        let _uuid =
+            add_completed_job(db, api_config, &new_job, success, skipped, json!([]), logs).await?;
         return Ok(());
     }
 }
@@ -1266,11 +1146,30 @@ enum NextFlowTransform {
     Continue(JobPayload, NextStatus),
 }
 
+// a similar function exists on the backend
+// TODO: rewrite this to use an endpoint in the backend directly, instead of checking for hub itself, and then using the API
+async fn script_path_to_payload<'c>(
+    script_path: &str,
+    api_config: &configuration::Configuration,
+    w_id: &String,
+) -> Result<JobPayload, Error> {
+    let job_payload = if script_path.starts_with("hub/") {
+        JobPayload::ScriptHub { path: script_path.to_owned() }
+    } else {
+        let script_hash = job_api::get_hash_by_path(api_config, w_id, script_path)
+            .await
+            .map_err(to_anyhow)
+            .map(|i| ScriptHash(i))?;
+        JobPayload::ScriptHash { hash: script_hash, path: script_path.to_owned() }
+    };
+    Ok(job_payload)
+}
+
 async fn compute_next_flow_transform(
     flow_job: &QueuedJob,
     flow: &FlowValue,
     transform_context: Option<(String, Vec<Uuid>, IdContext)>,
-    db: &DB,
+    api_config: &configuration::Configuration,
     module: &FlowModule,
     status: &FlowStatus,
     status_module: &FlowStatusModule,
@@ -1279,8 +1178,7 @@ async fn compute_next_flow_transform(
 ) -> error::Result<NextFlowTransform> {
     match &module.value {
         FlowModuleValue::Script { path: script_path, .. } => Ok(NextFlowTransform::Continue(
-            script_path_to_payload(script_path, &mut db.begin().await?, &flow_job.workspace_id)
-                .await?,
+            script_path_to_payload(script_path, api_config, &flow_job.workspace_id).await?,
             NextStatus::NextStep,
         )),
         FlowModuleValue::RawScript { path, content, language, .. } => {
@@ -1305,31 +1203,28 @@ async fn compute_next_flow_transform(
                     let (token, steps, by_id) = if let Some(x) = transform_context {
                         x
                     } else {
-                        get_transform_context(&db, &flow_job, &status, &flow.modules).await?
+                        get_transform_context(api_config, &flow_job, &status, &flow.modules).await?
                     };
                     /* Iterator is an InputTransform, evaluate it into an array. */
-                    let itered = iterator
-                        .clone()
-                        .evaluate_with(
-                            || {
-                                vec![
-                                    ("result".to_string(), last_result.clone()),
-                                    ("previous_result".to_string(), last_result.clone()),
-                                ]
-                            },
-                            token,
-                            flow_job.workspace_id.clone(),
-                            steps,
-                            Some(by_id),
-                            base_internal_url,
-                        )
-                        .await?
-                        .into_array()
-                        .map_err(|not_array| {
-                            Error::ExecutionErr(format!(
-                                "Expected an array value, found: {not_array}"
-                            ))
-                        })?;
+                    let itered = evaluate_with(
+                        iterator.clone(),
+                        || {
+                            vec![
+                                ("result".to_string(), last_result.clone()),
+                                ("previous_result".to_string(), last_result.clone()),
+                            ]
+                        },
+                        token,
+                        flow_job.workspace_id.clone(),
+                        steps,
+                        Some(by_id),
+                        base_internal_url,
+                    )
+                    .await?
+                    .into_array()
+                    .map_err(|not_array| {
+                        Error::ExecutionErr(format!("Expected an array value, found: {not_array}"))
+                    })?;
 
                     if let Some(first) = itered.first() {
                         new_args.insert("iter".to_string(), json!({ "index": 0, "value": first }));
@@ -1507,20 +1402,20 @@ async fn compute_next_flow_transform(
 }
 
 async fn get_transform_context(
-    db: &DB,
+    api_config: &configuration::Configuration,
     flow_job: &QueuedJob,
     status: &FlowStatus,
     modules: &Vec<FlowModule>,
 ) -> error::Result<(String, Vec<Uuid>, IdContext)> {
-    let new_token = create_token_for_owner(
-        db,
-        &flow_job.workspace_id,
-        &flow_job.permissioned_as,
-        "transform-input",
-        10,
-        &flow_job.created_by,
+    let new_token = windmill_api_client::apis::user_api::create_token(
+        api_config,
+        models::NewToken {
+            label: Some("transform-input".to_owned()),
+            expiration: Some((chrono::Utc::now() + chrono::Duration::seconds(10)).to_string()),
+        },
     )
-    .await?;
+    .await
+    .map_err(to_anyhow)?;
     let new_steps: Vec<Uuid> = status
         .modules
         .iter()
@@ -1535,50 +1430,33 @@ async fn get_transform_context(
     Ok((new_token, new_steps, IdContext(flow_job.id, id_map)))
 }
 
-impl InputTransform {
-    async fn evaluate_with<F>(
-        self,
-        vars: F,
-        token: String,
-        workspace: String,
-        steps: Vec<Uuid>,
-        by_id: Option<IdContext>,
-        base_internal_url: &str,
-    ) -> anyhow::Result<Value>
-    where
-        F: FnOnce() -> Vec<(String, Value)>,
-    {
-        match self {
-            InputTransform::Static { value } => Ok(value),
-            InputTransform::Javascript { expr } => {
-                eval_timeout(
-                    expr,
-                    vars(),
-                    Some(EvalCreds { workspace, token }),
-                    steps,
-                    by_id,
-                    base_internal_url.to_string(),
-                )
-                .await
-            }
+async fn evaluate_with<F>(
+    transform: InputTransform,
+    vars: F,
+    token: String,
+    workspace: String,
+    steps: Vec<Uuid>,
+    by_id: Option<IdContext>,
+    base_internal_url: &str,
+) -> anyhow::Result<serde_json::Value>
+where
+    F: FnOnce() -> Vec<(String, serde_json::Value)>,
+{
+    match transform {
+        InputTransform::Static { value } => Ok(value),
+        InputTransform::Javascript { expr } => {
+            eval_timeout(
+                expr,
+                vars(),
+                Some(EvalCreds { workspace, token }),
+                steps,
+                by_id,
+                base_internal_url.to_string(),
+            )
+            .await
         }
     }
 }
-
-impl QueuedJob {
-    pub fn parse_raw_flow(&self) -> Option<FlowValue> {
-        self.raw_flow
-            .as_ref()
-            .and_then(|v| serde_json::from_value::<FlowValue>(v.clone()).ok())
-    }
-
-    pub fn parse_flow_status(&self) -> Option<FlowStatus> {
-        self.flow_status
-            .as_ref()
-            .and_then(|v| serde_json::from_value::<FlowStatus>(v.clone()).ok())
-    }
-}
-
 trait IntoArray: Sized {
     fn into_array(self) -> Result<Vec<Value>, Self>;
 }

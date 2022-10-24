@@ -12,7 +12,6 @@ use crate::{
     audit::{audit_log, ActionKind},
     db::{UserDB, DB},
     error::{self, Error, JsonResult, Result},
-    jobs::{self, push, JobPayload},
     users::Authed,
     utils::{get_owner_from_path, now_from_db, Pagination, StripPath},
 };
@@ -21,6 +20,7 @@ use axum::{
     routing::{delete, get, post},
     Json, Router,
 };
+use windmill_queue::{self, push, JobPayload};
 
 use chrono::{DateTime, Duration, FixedOffset};
 use serde::{Deserialize, Serialize};
@@ -113,7 +113,7 @@ pub async fn push_scheduled_job<'c>(
         JobPayload::Flow(schedule.script_path)
     } else {
         JobPayload::ScriptHash {
-            hash: jobs::get_latest_hash_for_path(
+            hash: windmill_queue::get_latest_hash_for_path(
                 &mut tx,
                 &schedule.workspace_id,
                 &schedule.script_path,

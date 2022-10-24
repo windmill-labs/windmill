@@ -6,6 +6,7 @@ pub async fn get_variable(
     token: &str,
     base_url: &str,
 ) -> Result<String, anyhow::Error> {
+    todo!("rework to use openapi client");
     let client = reqwest::Client::new();
     let res = client
         .get(format!("{base_url}/api/w/{workspace}/variables/get/{path}"))
@@ -30,6 +31,7 @@ pub async fn get_resource(
     token: &str,
     base_url: &str,
 ) -> Result<Option<serde_json::Value>, anyhow::Error> {
+    todo!("rework to use openapi client");
     let client = reqwest::Client::new();
     let res = client
         .get(format!(

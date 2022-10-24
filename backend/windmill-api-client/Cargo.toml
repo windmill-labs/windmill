@@ -1,8 +1,12 @@
 [package]
-name = "openapi"
+name = "windmill-api-client"
 version.workspace = true
 authors.workspace = true
 edition.workspace = true
+
+[lib]
+name = "windmill_api_client"
+path = "./src/lib.rs"
 
 [dependencies]
 serde.workspace = true

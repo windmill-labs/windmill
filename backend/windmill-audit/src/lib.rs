@@ -10,27 +10,14 @@ use sql_builder::prelude::*;
 
 use std::collections::HashMap;
 
-use crate::{
-    db::UserDB,
-    error::{Error, JsonResult, Result},
-    users::Authed,
+use windmill_common::{
+    error::{Error, Result},
     utils::Pagination,
-};
-use axum::{
-    extract::{Extension, Path, Query},
-    routing::get,
-    Json, Router,
 };
 
 use serde::{Deserialize, Serialize};
 use sql_builder::SqlBuilder;
 use sqlx::{FromRow, Postgres, Transaction};
-
-pub fn workspaced_service() -> Router {
-    Router::new()
-        .route("/list", get(list_audit))
-        .route("/get/:id", get(get_audit))
-}
 
 #[derive(sqlx::Type, Serialize, Deserialize, Debug)]
 #[sqlx(type_name = "ACTION_KIND", rename_all = "lowercase")]
@@ -99,14 +86,13 @@ pub struct ListAuditLogQuery {
     pub after: Option<chrono::DateTime<chrono::Utc>>,
 }
 
-async fn list_audit(
-    authed: Authed,
-    Extension(user_db): Extension<UserDB>,
-    Path(w_id): Path<String>,
-    Query(pagination): Query<Pagination>,
-    Query(lq): Query<ListAuditLogQuery>,
-) -> JsonResult<Vec<AuditLog>> {
-    let (per_page, offset) = crate::utils::paginate(pagination);
+pub async fn list_audit(
+    mut tx: Transaction<'_, sqlx::Postgres>,
+    w_id: String,
+    pagination: Pagination,
+    lq: ListAuditLogQuery,
+) -> Result<Vec<AuditLog>> {
+    let (per_page, offset) = windmill_common::utils::paginate(pagination);
 
     let mut sqlb = SqlBuilder::select_from("audit")
         .field("*")
@@ -136,25 +122,18 @@ async fn list_audit(
     }
 
     let sql = sqlb.sql().map_err(|e| Error::InternalErr(e.to_string()))?;
-    let mut tx = user_db.begin(&authed).await?;
     let rows = sqlx::query_as::<_, AuditLog>(&sql)
         .fetch_all(&mut tx)
         .await?;
-    tx.commit().await?;
-    Ok(Json(rows))
+    Ok(rows)
 }
 
-async fn get_audit(
-    authed: Authed,
-    Extension(user_db): Extension<UserDB>,
-    Path(id): Path<i32>,
-) -> JsonResult<AuditLog> {
-    let mut tx = user_db.begin(&authed).await?;
+pub async fn get_audit(mut tx: Transaction<'_, sqlx::Postgres>, id: i32) -> Result<AuditLog> {
     let audit_o = sqlx::query_as::<_, AuditLog>("SELECT * FROM audit WHERE id = $1")
         .bind(id)
         .fetch_optional(&mut tx)
         .await?;
     tx.commit().await?;
-    let audit = crate::utils::not_found_if_none(audit_o, "AuditLog", &id.to_string())?;
-    Ok(Json(audit))
+    let audit = windmill_common::utils::not_found_if_none(audit_o, "AuditLog", &id.to_string())?;
+    Ok(audit)
 }

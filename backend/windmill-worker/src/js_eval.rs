@@ -15,7 +15,11 @@ use serde_json::Value;
 use tokio::{sync::oneshot, time::timeout};
 use uuid::Uuid;
 
-use crate::{client, error::Error};
+use windmill_api_client::{
+    apis::{configuration, job_api, resource_api, variable_api},
+    models,
+};
+use windmill_common::error::Error;
 
 pub struct EvalCreds {
     pub workspace: String,
@@ -279,38 +283,38 @@ async function resource(path) {{
 //     Ok(path)
 // }
 
+// TODO: Can we a) share the api configuration here somehow or b) just implement this natively in deno, via the deno client?
 #[op]
 async fn op_variable(args: Vec<String>) -> Result<String, anyhow::Error> {
     let workspace = &args[0];
     let path = &args[1];
     let token = &args[2];
     let base_url = &args[3];
-    client::get_variable(workspace, path, token, &base_url).await
+    let mut config = configuration::Configuration::new();
+    config.base_path = base_url.to_owned();
+    config.bearer_access_token = Some(token.to_owned());
+    let result = variable_api::get_variable(&config, workspace, path, None).await?;
+    Ok(result.value.unwrap_or_else(|| "".to_owned()))
 }
 
 #[op]
-async fn op_get_result(args: Vec<String>) -> Result<Option<serde_json::Value>, anyhow::Error> {
+async fn op_get_result(args: Vec<String>) -> Result<models::CompletedJob, anyhow::Error> {
     let workspace = &args[0];
     let id = &args[1];
     let token = &args[2];
     let base_url = &args[3];
-    let client = reqwest::Client::new();
-    let result = client
-        .get(format!(
-            "{base_url}/api/w/{workspace}/jobs/completed/get_result/{id}"
-        ))
-        .bearer_auth(token)
-        .send()
-        .await
-        .map_err(|e| anyhow::anyhow!("error getting result for {id}: {}", e))?
-        .json::<Option<serde_json::Value>>()
-        .await
-        .map_err(|e| anyhow::anyhow!("error getting result for {id}: {}", e))?;
+    let mut config = configuration::Configuration::new();
+    config.base_path = base_url.to_owned();
+    config.bearer_access_token = Some(token.to_owned());
+    let result = job_api::get_completed_job(&config, workspace, id).await?;
+    // TODO: verify this works. Previously this returned Option<serde_jons::Value>, now it's statically typed.
     Ok(result)
 }
 
 #[op]
 async fn op_get_id(args: Vec<String>) -> Result<Option<serde_json::Value>, anyhow::Error> {
+    todo!("this uses an undocumented endpoint?");
+    /*
     let workspace = &args[0];
     let flow_job_id = &args[1];
     let token = &args[2];
@@ -330,16 +334,21 @@ async fn op_get_id(args: Vec<String>) -> Result<Option<serde_json::Value>, anyho
         .await
         .map_err(|e| anyhow::anyhow!("error getting result for flow {flow_job_id} and node {node_id}: {}", e))?;
 
-    Ok(result)
+    Ok(result)*/
 }
 
 #[op]
-async fn op_resource(args: Vec<String>) -> Result<Option<serde_json::Value>, anyhow::Error> {
+async fn op_resource(args: Vec<String>) -> Result<models::Resource, anyhow::Error> {
     let workspace = &args[0];
     let path = &args[1];
     let token = &args[2];
     let base_url = &args[3];
-    client::get_resource(workspace, path, token, &base_url).await
+    let mut config = configuration::Configuration::new();
+    config.base_path = base_url.to_owned();
+    config.bearer_access_token = Some(token.to_owned());
+    let result = resource_api::get_resource(&config, workspace, path).await?;
+    // TODO: verify this works. Previously this returned Option<serde_jons::Value>, now it's statically typed.
+    Ok(result)
 }
 
 #[cfg(test)]

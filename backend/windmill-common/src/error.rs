@@ -6,17 +6,23 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
+use axum::http::{Response, StatusCode};
+#[cfg(feature = "axum")]
 use axum::{
     body::{self, BoxBody},
     response::IntoResponse,
     Json,
 };
+#[cfg(feature = "hyper")]
 use hyper::{Response, StatusCode};
+#[cfg(feature = "sqlx")]
 use sqlx::migrate::MigrateError;
 use thiserror::Error;
+#[cfg(feature = "tokio")]
 use tokio::io;
 
 pub type Result<T> = std::result::Result<T, Error>;
+#[cfg(feature = "axum")]
 pub type JsonResult<T> = std::result::Result<Json<T>, Error>;
 
 #[derive(Debug, Error)]
@@ -34,8 +40,10 @@ pub enum Error {
     #[error("{0}")]
     ExecutionErr(String),
     #[error("IO error: {0}")]
+    #[cfg(feature = "tokio")]
     IoErr(#[from] io::Error),
     #[error("Sql error: {0}")]
+    #[cfg(feature = "sqlx")]
     SqlErr(#[from] sqlx::Error),
     #[error("Bad request: {0}")]
     BadRequest(String),
@@ -44,6 +52,7 @@ pub enum Error {
     #[error("Hexadecimal decoding error: {0}")]
     HexErr(#[from] hex::FromHexError),
     #[error("Migrating database: {0}")]
+    #[cfg(feature = "sqlx")]
     DatabaseMigration(#[from] MigrateError),
     #[error("Non-zero exit status: {0}")]
     ExitStatus(i32),
@@ -62,6 +71,7 @@ pub fn to_anyhow<T: 'static + std::error::Error + Send + Sync>(e: T) -> anyhow::
     From::from(e)
 }
 
+#[cfg(feature = "axum")]
 impl IntoResponse for Error {
     fn into_response(self) -> Response<BoxBody> {
         let e = &self;

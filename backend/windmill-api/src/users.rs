@@ -31,6 +31,7 @@ use sqlx::FromRow;
 use time::OffsetDateTime;
 use tower_cookies::{Cookie, Cookies};
 use tracing::Span;
+pub use windmill_common::users::*;
 
 const TTL_TOKEN_CACHE_S: u64 = 60 * 5; // 5 minutes
 pub const TTL_TOKEN_DB_H: u32 = 72;
@@ -272,14 +273,6 @@ where
             }
         }
     }
-}
-
-#[derive(Clone, Debug)]
-pub struct Authed {
-    pub email: Option<String>,
-    pub username: String,
-    pub is_admin: bool,
-    pub groups: Vec<String>,
 }
 
 #[async_trait]
@@ -990,11 +983,6 @@ async fn create_user(
     .await?;
     tx.commit().await?;
     Ok((StatusCode::CREATED, format!("email {} created", nu.email)))
-}
-
-pub fn owner_to_token_owner(user: &str, is_group: bool) -> String {
-    let prefix = if is_group { 'g' } else { 'u' };
-    format!("{}/{}", prefix, user)
 }
 
 async fn delete_user(

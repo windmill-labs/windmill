@@ -1,0 +1,15 @@
+[package]
+name = "windmill-audit"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+serde.workspace = true
+sql-builder.workspace = true
+sqlx.workspace = true
+chrono.workspace = true
+serde_json.workspace = true
+tracing.workspace = true
+windmill-common = { workspace = true, features = ["axum"] }
