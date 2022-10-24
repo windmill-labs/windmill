@@ -22,6 +22,7 @@ extern crate magic_crypt;
 extern crate dotenv;
 
 mod audit;
+mod capture;
 mod client;
 mod db;
 mod error;
@@ -155,7 +156,8 @@ pub async fn run_server(
                         .nest("/audit", audit::workspaced_service())
                         .nest("/acls", granular_acls::workspaced_service())
                         .nest("/workspaces", workspaces::workspaced_service())
-                        .nest("/flows", flows::workspaced_service()),
+                        .nest("/flows", flows::workspaced_service())
+                        .nest("/capture", capture::workspaced_service()),
                 )
                 .nest("/workspaces", workspaces::global_service())
                 .nest(
@@ -169,6 +171,7 @@ pub async fn run_server(
                 .route_layer(from_extractor::<users::Authed>())
                 .route_layer(from_extractor::<users::Tokened>())
                 .nest("/w/:workspace_id/jobs", jobs::global_service())
+                .nest("/w/:workspace_id/capture", capture::global_service())
                 .nest(
                     "/auth",
                     users::make_unauthed_service().layer(Extension(argon2)),
