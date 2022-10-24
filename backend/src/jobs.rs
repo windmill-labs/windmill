@@ -1275,13 +1275,14 @@ pub async fn get_suspended_job_flow(
     let flow = crate::utils::not_found_if_none(flow_o, "Parent Flow", job.to_string())?;
 
     let flow_status = flow
-        .raw_flow()
+        .flow_status()
         .ok_or_else(|| anyhow::anyhow!("unable to deserialize the flow"))?;
     let flow_module_status = flow_status
         .modules
         .iter()
         .find(|p| p.id() == job.to_string())
         .ok_or_else(|| anyhow::anyhow!("unable to find the module"))?;
+
     let approvers_from_status = match flow_module_status {
         FlowStatusModule::Success { approvers, .. } => approvers.to_owned(),
         _ => vec![],
@@ -1332,10 +1333,17 @@ pub enum Job {
 }
 
 impl Job {
-    pub fn raw_flow(&self) -> Option<FlowStatus> {
+    pub fn raw_flow(&self) -> Option<FlowValue> {
         let value = match self {
             Job::QueuedJob(job) => job.raw_flow.clone(),
             Job::CompletedJob(job) => job.raw_flow.clone(),
+        };
+        value.map(|v| serde_json::from_value(v).ok()).flatten()
+    }
+    pub fn flow_status(&self) -> Option<FlowStatus> {
+        let value = match self {
+            Job::QueuedJob(job) => job.flow_status.clone(),
+            Job::CompletedJob(job) => job.flow_status.clone(),
         };
         value.map(|v| serde_json::from_value(v).ok()).flatten()
     }
