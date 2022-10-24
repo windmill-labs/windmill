@@ -19,7 +19,7 @@
 	let jobId: string | undefined = undefined
 	let isValid: boolean = false
 	let isRunning: boolean = false
-	let jobProgress: { steps: ProgressStep[]; reset?: () => void } = { steps: [] }
+	let jobProgress: { steps: ProgressStep[]; error: boolean } = { steps: [], error: false }
 
 	const { selectedId, previewArgs } = getContext<FlowEditorContext>('FlowEditorContext')
 
@@ -89,6 +89,10 @@
 		}
 
 		jobProgress.steps = modules.map(({ type, iterator }) => {
+			if (type === FlowStatusModule.type.FAILURE) {
+				jobProgress.error = true
+			}
+
 			if (iterator) {
 				return <LoopStep>{
 					type: 'loop',
@@ -112,8 +116,8 @@
 	}
 
 	function resetJobProgress() {
+		jobProgress.error = false
 		jobProgress.steps = []
-		jobProgress?.reset && jobProgress.reset()
 	}
 </script>
 
@@ -185,7 +189,7 @@
 		</Button>
 	{/if}
 
-	<ProgressBar steps={jobProgress.steps} bind:reset={jobProgress.reset} class="py-4" />
+	<ProgressBar {...jobProgress} class="py-4" />
 
 	<div class="h-full overflow-y-auto mb-16 grow">
 		{#if jobId}

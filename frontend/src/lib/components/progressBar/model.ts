@@ -1,3 +1,12 @@
+import { tweened } from 'svelte/motion'
+import { cubicOut } from 'svelte/easing'
+
+export interface ProgressStateStoreValue {
+	length: number
+	finished: boolean
+	error: boolean
+}
+
 export type StepKind = 'general' | 'loop'
 
 type Step<T extends StepKind> = {
@@ -25,4 +34,11 @@ export type ProgressState = GeneralState | LoopState
 
 export function isLoopState(state: ProgressState | undefined): state is LoopState {
 	return state?.type === 'loop'
+}
+
+export function getTween(initialValue = 0, duration = 200) {
+	return tweened(initialValue, {
+		duration,
+		easing: cubicOut
+	})
 }
