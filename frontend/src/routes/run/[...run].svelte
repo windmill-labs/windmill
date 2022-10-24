@@ -30,8 +30,6 @@
 	import { userStore, workspaceStore } from '$lib/stores'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
 	import FlowStatusViewer from '$lib/components/FlowStatusViewer.svelte'
-	import TableCustom from '$lib/components/TableCustom.svelte'
-	import ArgInfo from '$lib/components/ArgInfo.svelte'
 	import HighlightCode from '$lib/components/HighlightCode.svelte'
 	import TestJobLoader from '$lib/components/TestJobLoader.svelte'
 	import LogViewer from '$lib/components/LogViewer.svelte'

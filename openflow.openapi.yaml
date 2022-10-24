@@ -148,6 +148,7 @@ components:
         - $ref: "#/components/schemas/ForloopFlow"
         - $ref: "#/components/schemas/BranchOne"
         - $ref: "#/components/schemas/BranchAll"
+        - $ref: "#/components/schemas/Identity"
       discriminator:
         propertyName: type
         mapping:
@@ -156,6 +157,7 @@ components:
           forloopflow: "#/components/schemas/ForloopFlow"
           branchone: "#/components/schemas/BranchOne"
           branchall: "#/components/schemas/BranchAll"
+          identity: "#/components/schemas/Identity"
 
     RawScript:
       type: object
@@ -281,6 +283,16 @@ components:
             - branchall
       required:
         - branches
+        - type
+
+    Identity:
+      type: object
+      properties:
+        type:
+          type: string
+          enum:
+            - identity
+      required:
         - type
 
 
