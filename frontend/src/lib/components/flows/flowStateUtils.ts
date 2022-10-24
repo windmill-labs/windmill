@@ -164,7 +164,7 @@ async function createInlineScriptModuleFromPath(path: string, id: string): Promi
 export function emptyModule(): FlowModule {
 	return {
 		id: nextId(),
-		value: { type: 'script', path: '' },
+		value: { type: 'identity' },
 		input_transforms: {}
 	}
 }

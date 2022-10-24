@@ -518,20 +518,24 @@ async fn handle_queued_job(
 
             logs.push_str(&format!("job {} on worker {}\n", &job.id, &worker_name));
 
-            let result = if matches!(job.job_kind, JobKind::Dependencies) {
-                handle_dependency_job(&job, &mut logs, job_dir, db, timeout, &envs).await
-            } else {
-                handle_code_execution_job(
-                    &job,
-                    db,
-                    job_dir,
-                    worker_dir,
-                    &mut logs,
-                    timeout,
-                    worker_config,
-                    envs,
-                )
-                .await
+            let result = match job.job_kind {
+                JobKind::Dependencies => {
+                    handle_dependency_job(&job, &mut logs, job_dir, db, timeout, &envs).await
+                }
+                JobKind::Identity => Ok(job.args.clone().unwrap_or_else(|| Value::Null)),
+                _ => {
+                    handle_code_execution_job(
+                        &job,
+                        db,
+                        job_dir,
+                        worker_dir,
+                        &mut logs,
+                        timeout,
+                        worker_config,
+                        envs,
+                    )
+                    .await
+                }
             };
 
             match result {

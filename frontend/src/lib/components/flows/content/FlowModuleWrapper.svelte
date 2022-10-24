@@ -8,6 +8,15 @@
 	import FlowModuleComponent from './FlowModuleComponent.svelte'
 	import FlowBranchAllWrapper from './FlowBranchAllWrapper.svelte'
 	import FlowBranchOneWrapper from './FlowBranchOneWrapper.svelte'
+	import {
+		createInlineScriptModule,
+		createLoop,
+		createBranches,
+		pickScript,
+		createBranchAll
+	} from '$lib/components/flows/flowStateUtils'
+	import FlowInputs from './FlowInputs.svelte'
+	import { flowStateStore, type FlowModuleState } from '../flowState'
 
 	const { selectedId } = getContext<FlowEditorContext>('FlowEditorContext')
 
@@ -18,6 +27,13 @@
 	export let parentModule: FlowModule | undefined = undefined
 	// Pointer to previous module, for easy access to testing results
 	export let previousModuleId: string | undefined = undefined
+
+	function updateStores(module: FlowModule, flowModuleState: FlowModuleState) {
+		if (JSON.stringify(flowModule) != JSON.stringify(module)) {
+			flowModule = module
+			$flowStateStore[module.id] = flowModuleState
+		}
+	}
 </script>
 
 {#if flowModule.id === $selectedId}
@@ -27,6 +43,40 @@
 		<FlowBranchesWrapper bind:flowModule {parentModule} {previousModuleId} />
 	{:else if flowModule.value.type === 'branchall'}
 		<FlowBranchesWrapper bind:flowModule {parentModule} {previousModuleId} />
+	{:else if flowModule.value.type === 'identity'}
+		<FlowInputs
+			shouldDisableTriggerScripts={parentModule !== undefined || previousModuleId !== undefined}
+			on:loop={async () => {
+				const [module, state] = await createLoop(flowModule.id)
+				updateStores(module, state)
+			}}
+			on:branchone={async () => {
+				const [module, state] = await createBranches(flowModule.id)
+				updateStores(module, state)
+			}}
+			on:branchall={async () => {
+				const [module, state] = await createBranchAll(flowModule.id)
+				updateStores(module, state)
+			}}
+			on:pick={async ({ detail }) => {
+				const { path, summary, kind } = detail
+				const [module, state] = await pickScript(path, summary, flowModule.id)
+				updateStores(module, state)
+			}}
+			on:new={async ({ detail }) => {
+				const { language, kind, subkind } = detail
+
+				const [module, state] = await createInlineScriptModule(
+					language,
+					kind,
+					subkind,
+					flowModule.id
+				)
+
+				updateStores(module, state)
+			}}
+			failureModule={/*TODO : FIX*/ false}
+		/>
 	{:else}
 		<FlowModuleComponent
 			bind:flowModule

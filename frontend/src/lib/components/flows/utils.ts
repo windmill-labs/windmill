@@ -207,7 +207,7 @@ export function numberToChars(n: number) {
 }
 
 export function isEmptyFlowModule(flowModule: FlowModule): boolean {
-	return flowModule.value.type === 'script' && flowModule.value.path === ''
+	return flowModule.value.type === 'identity'
 }
 
 export async function findNextAvailablePath(path: string): Promise<string> {

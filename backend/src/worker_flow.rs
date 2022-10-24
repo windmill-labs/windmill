@@ -71,6 +71,12 @@ pub enum BranchChosen {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct Approval {
+    pub resume_id: u16,
+    pub approver: String,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(tag = "type")]
 pub enum FlowStatusModule {
     WaitingForPriorSteps {
@@ -106,7 +112,7 @@ pub enum FlowStatusModule {
         branch_chosen: Option<BranchChosen>,
         #[serde(default)]
         #[serde(skip_serializing_if = "Vec::is_empty")]
-        approvers: Vec<String>,
+        approvers: Vec<Approval>,
     },
     Failure {
         id: String,
@@ -833,7 +839,7 @@ async fn push_next_flow_job(
             .context("lock flow in queue")?;
 
             let resumes = sqlx::query!(
-                "SELECT value, approver FROM resume_job WHERE job = $1 ORDER BY created_at ASC",
+                "SELECT value, approver, resume_id FROM resume_job WHERE job = $1 ORDER BY created_at ASC",
                 last
             )
             .fetch_all(&mut tx)
@@ -854,7 +860,10 @@ async fn push_next_flow_job(
                 .bind(status.step - 1)
                 .bind(json!(resumes
                     .into_iter()
-                    .map(|r| r.approver.unwrap_or_else(|| "unknown".to_string()))
+                    .map(|r| Approval {
+                        resume_id: r.resume_id as u16,
+                        approver: r.approver.unwrap_or_else(|| "unknown".to_string())
+                    })
                     .collect::<Vec<_>>()))
                 .bind(flow_job.id)
                 .execute(&mut tx)
@@ -1298,6 +1307,10 @@ async fn compute_next_flow_transform(
     base_internal_url: &str,
 ) -> error::Result<NextFlowTransform> {
     match &module.value {
+        FlowModuleValue::Identity => Ok(NextFlowTransform::Continue(
+            JobPayload::Identity,
+            NextStatus::NextStep,
+        )),
         FlowModuleValue::Script { path: script_path, .. } => Ok(NextFlowTransform::Continue(
             script_path_to_payload(script_path, &mut db.begin().await?, &flow_job.workspace_id)
                 .await?,
