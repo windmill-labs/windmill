@@ -11,4 +11,4 @@ RUN deno cache --unstable worker.ts
 ADD ./scraper.ts .
 RUN deno cache --unstable scraper.ts
 
- ENTRYPOINT [ "/tini", "--", "docker-entrypoint.sh", "run", "--unstable", "-A", "main.ts" ]
+ENTRYPOINT [ "/tini", "--", "docker-entrypoint.sh", "run", "--unstable", "-A", "main.ts" ]
