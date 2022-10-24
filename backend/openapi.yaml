@@ -3567,6 +3567,7 @@ components:
               "flow",
               "flowpreview",
               "script_hub",
+              "identity"
             ]
         schedule_path:
           type: string
@@ -3645,6 +3646,7 @@ components:
               "flow",
               "flowpreview",
               "script_hub",
+              "identity"
             ]
         schedule_path:
           type: string
