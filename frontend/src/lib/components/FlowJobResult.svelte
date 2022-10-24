@@ -1,27 +1,26 @@
 <script lang="ts">
 	import type { CompletedJob } from '$lib/gen'
 
-	import ChevronButton from './ChevronButton.svelte'
 	import DisplayResult from './DisplayResult.svelte'
+	import Tabs from './common/tabs/Tabs.svelte'
+	import Tab from './common/tabs/Tab.svelte'
+	import TabContent from './common/tabs/TabContent.svelte'
+	import LogViewer from './LogViewer.svelte'
 
 	export let job: CompletedJob | undefined
 </script>
 
 {#if job}
-	<div class="flex flex-col ml-10">
-		<div>
-			<ChevronButton text="result" viewOptions={true}>
-				<div class="text-xs">
-					<DisplayResult result={job.result} />
-				</div>
-			</ChevronButton>
-		</div>
-		<div>
-			<ChevronButton text="logs" viewOptions={true}>
-				<div class="text-xs p-4 bg-gray-50 overflow-auto max-h-80 border mt-1">
-					<pre class="w-full">{job.logs}</pre>
-				</div>
-			</ChevronButton>
-		</div>
-	</div>
+	<Tabs selected="results">
+		<Tab value="results">Results</Tab>
+		<Tab value="logs">Logs</Tab>
+		<svelte:fragment slot="content">
+			<TabContent value="results" class="border p-2 h-36 overflow-auto">
+				<DisplayResult result={job.result} />
+			</TabContent>
+			<TabContent value="logs" class="border h-36 overflow-auto">
+				<LogViewer content={job.logs ?? ''} isLoading={false} />
+			</TabContent>
+		</svelte:fragment>
+	</Tabs>
 {/if}

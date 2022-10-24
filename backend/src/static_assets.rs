@@ -12,6 +12,7 @@ use axum::{
     response::IntoResponse,
 };
 
+use mime_guess::mime;
 use rust_embed::RustEmbed;
 
 // static_handler is a handler that serves static files from the
@@ -46,12 +47,22 @@ fn serve_path(path: String) -> Response<BoxBody> {
         Some(content) => {
             let body = body::boxed(body::Full::from(content.data));
             let mime = mime_guess::from_path(path).first_or_octet_stream();
-            Response::builder()
-                .header(header::CONTENT_TYPE, mime.as_ref())
-                .header(header::CACHE_CONTROL, "max-age=3600".to_owned())
-                .body(body)
-                .unwrap()
+            let mut res = Response::builder().header(header::CONTENT_TYPE, mime.as_ref());
+            if mime.as_ref() == mime::APPLICATION_JAVASCRIPT {
+                res = res.header(header::CACHE_CONTROL, "max-age=31536000");
+            } else if (mime.type_(), mime.subtype()) == (mime::TEXT, mime::CSS) {
+                res = res.header(header::CACHE_CONTROL, "max-age=31536000");
+            } else if (mime.type_()) == (mime::IMAGE) {
+                res = res.header(header::CACHE_CONTROL, "max-age=31536000");
+            } else {
+                res = res.header(header::CACHE_CONTROL, "no-cache, no-store, must-revalidate");
+            }
+            res.body(body).unwrap()
         }
+        None if path.as_str().starts_with("_app/") => Response::builder()
+            .status(404)
+            .body(body::boxed(body::Empty::new()))
+            .unwrap(),
         None => serve_path("200.html".to_owned()),
     }
 }

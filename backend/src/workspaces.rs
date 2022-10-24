@@ -640,7 +640,7 @@ async fn tarball_workspace(
 
     {
         let variables = sqlx::query_as::<_, ListableVariable>(
-            "SELECT * FROM variable WHERE workspace_id = $1 AND is_secret = false",
+            "SELECT *, false as is_expired FROM variable WHERE workspace_id = $1 AND is_secret = false",
         )
         .bind(&w_id)
         .fetch_all(&db)

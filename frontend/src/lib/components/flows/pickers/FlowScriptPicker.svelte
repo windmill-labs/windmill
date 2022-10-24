@@ -1,5 +1,6 @@
 <script lang="ts">
 	import type { IconDefinition } from '@fortawesome/free-brands-svg-icons'
+	import { Button } from 'flowbite-svelte'
 	import Icon from 'svelte-awesome'
 
 	export let disabled: boolean = false
@@ -8,7 +9,7 @@
 	export let iconColor: string
 </script>
 
-<button {disabled} type="button" on:click class="default-secondary-button-v2 mb-2 w-full">
-	<Icon data={icon} class={`w-4 h-4 mr-2 -ml-2 ${iconColor}`} />
-	{label}
-</button>
+<Button {disabled} on:click size="md" class="text-left" color="alternative">
+	<Icon data={icon} class={`mr-2 ${iconColor} w-4`} scale={1.5} />
+	<span class="text-sm text-left"> {label} </span>
+</Button>

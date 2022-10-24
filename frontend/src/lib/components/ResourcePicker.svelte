@@ -41,6 +41,15 @@
 		class="text-xs text-blue-500"
 		type="button"
 		on:click={() => {
+			loadResources(resourceType)
+		}}
+	>
+		refresh
+	</button>
+	<button
+		class="text-xs text-blue-500"
+		type="button"
+		on:click={() => {
 			resourceEditor.initNew(resourceType)
 		}}
 	>

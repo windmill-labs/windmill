@@ -16,7 +16,6 @@
 		defaultIfEmptyString,
 		flowToHubUrl
 	} from '$lib/utils'
-	import Icon from 'svelte-awesome'
 	import {
 		faPlay,
 		faEdit,
@@ -24,7 +23,8 @@
 		faList,
 		faCalendar,
 		faShare,
-		faGlobe
+		faGlobe,
+		faCodeFork
 	} from '@fortawesome/free-solid-svg-icons'
 
 	import Tooltip from '$lib/components/Tooltip.svelte'
@@ -37,6 +37,7 @@
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
 	import FlowViewer from '$lib/components/FlowViewer.svelte'
 	import ObjectViewer from '$lib/components/propertyPicker/ObjectViewer.svelte'
+	import { Button, ActionRow, Skeleton } from '$lib/components/common'
 
 	let flow: Flow | undefined
 	let schedule: Schedule | undefined
@@ -87,103 +88,114 @@
 	}
 </script>
 
-<CenteredPage>
-	<div class="flex flex-row justify-between">
-		<h1>
-			<a href="/flows/get/{path}">{flow?.path ?? 'Loading...'}</a>
+<Skeleton
+	class="!max-w-6xl !px-4 sm:!px-6 md:!px-8"
+	loading={!flow}
+	layout={[0.75, [2, 0, 2], 2.25, [{ h: 1.5, w: 40 }], 0.2, [{ h: 1, w: 30 }]]}
+/>
+{#if flow}
+	<ActionRow applyPageWidth stickToTop>
+		<svelte:fragment slot="left">
+			<Button
+				href="/flows/run/{path}"
+				variant="contained"
+				color="blue"
+				size="xs"
+				startIcon={{ icon: faPlay }}
+			>
+				Run
+			</Button>
+			<Button
+				href="/flows/edit/{path}"
+				variant="contained"
+				color="blue"
+				size="xs"
+				startIcon={{ icon: faEdit }}
+				disabled={!can_write}
+			>
+				Edit
+			</Button>
+			<Button
+				href="/flows/add?template={flow.path}"
+				variant="contained"
+				color="blue"
+				size="xs"
+				startIcon={{ icon: faCodeFork }}
+			>
+				Use as template/Fork
+			</Button>
+		</svelte:fragment>
+		<svelte:fragment slot="right">
+			<Button
+				href="/runs/{flow.path}"
+				variant="border"
+				color="blue"
+				size="xs"
+				startIcon={{ icon: faList }}
+			>
+				View runs
+			</Button>
+			<Button
+				target="_blank"
+				href={flowToHubUrl(flow).toString()}
+				variant="border"
+				color="blue"
+				size="xs"
+				startIcon={{ icon: faGlobe }}
+			>
+				Publish to Hub
+			</Button>
+			<Dropdown
+				dropdownItems={[
+					{
+						displayName: 'Use as template',
+						icon: faEdit,
+						href: `/flows/add?template=${flow.path}`
+					},
+					{
+						displayName: 'Share',
+						icon: faShare,
+						action: () => {
+							shareModal.openModal()
+						},
+						disabled: !can_write
+					},
+					{
+						displayName: 'Schedule',
+						icon: faCalendar,
+						href: `/schedule/add?path=${flow.path}&isFlow=true`
+					},
+					{
+						displayName: 'Archive',
+						icon: faArchive,
+						type: 'delete',
+						action: () => {
+							flow?.path && archiveFlow()
+						},
+						disabled: flow.archived || !can_write
+					}
+				]}
+			/>
+		</svelte:fragment>
+	</ActionRow>
+{/if}
 
+<CenteredPage>
+	{#if flow}
+		<h1>
+			<a href="/flows/get/{path}">{flow?.path}</a>
 			<SharedBadge canWrite={can_write} extraPerms={flow?.extra_perms ?? {}} />
 		</h1>
-
-		{#if flow}
-			<div class="flex flex-row-reverse px-6">
-				<Dropdown
-					dropdownItems={[
-						{
-							displayName: 'Use as template',
-							icon: faEdit,
-							href: `/flows/add?template=${flow.path}`
-						},
-						{
-							displayName: 'Share',
-							icon: faShare,
-							action: () => {
-								shareModal.openModal()
-							},
-							disabled: !can_write
-						},
-						{
-							displayName: 'Schedule',
-							icon: faCalendar,
-							href: `/schedule/add?path=${flow.path}&isFlow=true`
-						},
-						{
-							displayName: 'Archive',
-							icon: faArchive,
-							type: 'delete',
-							action: () => {
-								flow?.path && archiveFlow()
-							},
-							disabled: flow.archived || !can_write
-						}
-					]}
-				/>
-				<div class="px-1">
-					<a
-						target="_blank"
-						class="inline-flex items-center default-button bg-transparent hover:bg-blue-500 text-blue-700 font-normal hover:text-white py-0 px-1 border-blue-500 hover:border-transparent rounded"
-						href={flowToHubUrl(flow).toString()}
-					>
-						<div class="inline-flex items-center justify-center">
-							<Icon class="text-blue-500" data={faGlobe} scale={0.5} />
-							<span class="pl-1">Publish to Hub</span>
-						</div>
-					</a>
-				</div>
-				<div class="px-1">
-					<a
-						class="inline-flex items-center default-button bg-transparent hover:bg-blue-500 text-blue-700 font-normal hover:text-white py-0 px-1 border-blue-500 hover:border-transparent rounded"
-						href="/runs/{flow.path}"
-					>
-						<div class="inline-flex items-center justify-center">
-							<Icon class="text-blue-500" data={faList} scale={0.5} />
-							<span class="pl-1">View runs</span>
-						</div>
-					</a>
-				</div>
-				<div class="px-1">
-					<a
-						class="inline-flex items-center default-button bg-transparent hover:bg-blue-500 text-blue-700 font-normal hover:text-white py-0 px-1 border-blue-500 hover:border-transparent rounded"
-						href="/flows/edit/{path}"
-						class:disabled={!can_write}
-					>
-						<div class="inline-flex items-center justify-center">
-							<Icon class="text-blue-500" data={faEdit} scale={0.5} />
-							<span class="pl-1">Edit</span>
-						</div>
-					</a>
-				</div>
-				<div class="px-1">
-					<a
-						class="inline-flex items-center default-button bg-transparent hover:bg-blue-500 text-blue-700 font-normal hover:text-white py-0 px-1 border-blue-500 hover:border-transparent rounded"
-						href="/flows/run/{path}"
-					>
-						<div class="inline-flex items-center justify-center">
-							<Icon class="text-blue-500" data={faPlay} scale={0.5} />
-							<span class="pl-1">Run</span>
-						</div>
-					</a>
-				</div>
-			</div>
-		{/if}
-	</div>
+	{/if}
 
 	<ShareModal bind:this={shareModal} kind="flow" path={flow?.path ?? ''} />
 
 	<div class="grid grid-cols-1 gap-6 max-w-7xl pb-6">
-		{#if flow === undefined}
-			<p>loading</p>
-		{:else}
+		<Skeleton
+			loading={!flow}
+			layout={[[{ h: 1.5, w: 40 }], 1, [4], 2.25, [{ h: 1.5, w: 30 }], 1, [10]]}
+		/>
+		{#if flow}
 			<p class="text-sm">Edited {displayDaysAgo(flow.edited_at ?? '')} by {flow.edited_by}</p>
 			<h2>{flow.summary}</h2>
 
@@ -233,11 +245,13 @@
 					corresponding jsonschema as payload. To create a permanent token, go to your user setting
 					by clicking your username on the top-left.</Tooltip
 				>
-				<pre><code
+				<pre
+					><code
 						><a href="/api/w/{$workspaceStore}/jobs/run/f/{flow?.path}"
 							>/api/w/{$workspaceStore}/jobs/run/f/{flow?.path}</a
 						></code
-					></pre>
+					></pre
+				>
 			</div>
 			<div>
 				<h2 class="text-gray-700 pb-1 mb-3 border-b">Flow</h2>

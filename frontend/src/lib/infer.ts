@@ -1,22 +1,37 @@
 import { ScriptService, type MainArgSignature } from '$lib/gen'
+import { get, writable } from 'svelte/store'
 import type { Schema, SchemaProperty } from './common.js'
 
+const loadSchemaLastRun = writable<[string | undefined, MainArgSignature | undefined]>(undefined)
+
+
 export async function inferArgs(
-	language: 'python3' | 'deno',
+	language: 'python3' | 'deno' | 'go',
 	code: string,
 	schema: Schema
 ): Promise<void> {
+	let lastRun = get(loadSchemaLastRun)
 	let inferedSchema: MainArgSignature
-	if (language == 'python3') {
-		inferedSchema = await ScriptService.pythonToJsonschema({
-			requestBody: code
-		})
-	} else if (language == 'deno') {
-		inferedSchema = await ScriptService.denoToJsonschema({
-			requestBody: code
-		})
+	if (lastRun && code == lastRun[0] && lastRun[1]) {
+		inferedSchema = lastRun[1]
 	} else {
-		return
+		if (code == '') { code = ' ' }
+		if (language == 'python3') {
+			inferedSchema = await ScriptService.pythonToJsonschema({
+				requestBody: code
+			})
+		} else if (language == 'deno') {
+			inferedSchema = await ScriptService.denoToJsonschema({
+				requestBody: code
+			})
+		} else if (language == 'go') {
+			inferedSchema = await ScriptService.goToJsonschema({
+				requestBody: code
+			})
+		} else {
+			return
+		}
+		loadSchemaLastRun.set([code, inferedSchema])
 	}
 
 	schema.required = []
@@ -32,49 +47,75 @@ export async function inferArgs(
 		argSigToJsonSchemaType(arg.typ, schema.properties[arg.name])
 		schema.properties[arg.name].default = arg.default
 
-		if (!arg.has_default) {
+		if (!arg.has_default && !schema.required.includes(arg.name)) {
 			schema.required.push(arg.name)
 		}
 	}
 }
 
 function argSigToJsonSchemaType(
-	t: string | { resource: string } | { list: string },
-	s: SchemaProperty
+	t: string
+		| { resource: string | null }
+		| { list: string | { str: any } | null }
+		| { str: string[] | null }
+		| { object: { key: string, typ: any }[] },
+	oldS: SchemaProperty
 ): void {
+
+
+	const newS: SchemaProperty = { type: '', description: '' }
 	if (t === 'int') {
-		s.type = 'integer'
+		newS.type = 'integer'
 	} else if (t === 'float') {
-		s.type = 'number'
+		newS.type = 'number'
 	} else if (t === 'bool') {
-		s.type = 'boolean'
-	} else if (t === 'str') {
-		s.type = 'string'
+		newS.type = 'boolean'
 	} else if (t === 'email') {
-		s.type = 'string'
-		s.format = 'email'
+		newS.type = 'string'
+		newS.format = 'email'
 	} else if (t === 'sql') {
-		s.type = 'string'
-		s.format = 'sql'
-	} else if (t === 'dict') {
-		s.type = 'object'
+		newS.type = 'string'
+		newS.format = 'sql'
 	} else if (t === 'bytes') {
-		s.type = 'string'
-		s.contentEncoding = 'base64'
+		newS.type = 'string'
+		newS.contentEncoding = 'base64'
 	} else if (t === 'datetime') {
-		s.type = 'string'
-		s.format = 'date-time'
+		newS.type = 'string'
+		newS.format = 'date-time'
+	} else if (typeof t !== 'string' && `object` in t) {
+		newS.type = 'object'
+		if (t.object) {
+			const properties = {}
+			for (const prop of t.object) {
+				properties[prop.key] = {}
+				argSigToJsonSchemaType(prop.typ, properties[prop.key])
+			}
+			newS.properties = properties
+		}
+	} else if (typeof t !== 'string' && `str` in t) {
+		newS.type = 'string'
+		if (t.str) {
+			newS.enum = t.str
+		}
 	} else if (typeof t !== 'string' && `resource` in t) {
-		s.type = 'object'
-		s.format = `resource-${t.resource}`
+		newS.type = 'object'
+		newS.format = `resource-${t.resource}`
 	} else if (typeof t !== 'string' && `list` in t) {
-		s.type = 'array'
+		newS.type = 'array'
 		if (t.list === 'int' || t.list === 'float') {
-			s.items = { type: 'number' }
+			newS.items = { type: 'number' }
 		} else if (t.list === 'bytes') {
-			s.items = { type: 'string', contentEncoding: 'base64' }
+			newS.items = { type: 'string', contentEncoding: 'base64' }
 		} else {
-			s.items = { type: 'string' }
+			newS.items = { type: 'string' }
 		}
 	}
+	if (oldS.type != newS.type) {
+		for (const prop of Object.getOwnPropertyNames(newS)) {
+			if (prop != "description") {
+				delete oldS[prop]
+			}
+		}
+	}
+	Object.assign(oldS, newS)
 }

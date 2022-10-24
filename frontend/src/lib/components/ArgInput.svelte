@@ -1,24 +1,20 @@
 <script lang="ts">
 	import { slide } from 'svelte/transition'
 
-	import {
-		faArrowRotateLeft,
-		faChevronDown,
-		faChevronUp,
-		faMinus,
-		faPlus
-	} from '@fortawesome/free-solid-svg-icons'
+	import { faChevronDown, faChevronUp, faMinus, faPlus } from '@fortawesome/free-solid-svg-icons'
 
 	import { setInputCat as computeInputCat, type InputCat } from '$lib/utils'
-	import { Button, Tooltip } from 'flowbite-svelte'
+	import { Button } from './common'
 	import { createEventDispatcher } from 'svelte'
 	import Icon from 'svelte-awesome'
-	import Editor from './Editor.svelte'
 	import FieldHeader from './FieldHeader.svelte'
 	import ObjectResourceInput from './ObjectResourceInput.svelte'
 	import ObjectTypeNarrowing from './ObjectTypeNarrowing.svelte'
 	import ResourcePicker from './ResourcePicker.svelte'
 	import StringTypeNarrowing from './StringTypeNarrowing.svelte'
+	import SchemaForm from './SchemaForm.svelte'
+	import type { SchemaProperty } from '$lib/common'
+	import SimpleEditor from './SimpleEditor.svelte'
 
 	export let label: string = ''
 	export let value: any
@@ -41,19 +37,20 @@
 		| { type?: 'string' | 'number' | 'bytes'; contentEncoding?: 'base64' }
 		| undefined = undefined
 	export let displayHeader = true
-	export let numberAsString = false
+	export let properties: { [name: string]: SchemaProperty } | undefined = undefined
 
 	let seeEditable: boolean = enum_ != undefined || pattern != undefined
 	const dispatch = createEventDispatcher()
 
-	$: minHeight = `${1 + minRows * 1.2}em`
 	$: maxHeight = maxRows ? `${1 + maxRows * 1.2}em` : `auto`
 
 	$: validateInput(pattern, value)
 
 	let error: string = ''
 
-	export let editor: Editor | undefined = undefined
+	let el: HTMLElement | undefined = undefined
+
+	export let editor: SimpleEditor | undefined = undefined
 
 	let rawValue: string | undefined = undefined
 
@@ -72,14 +69,17 @@
 			evalValueToRaw()
 			validateInput(pattern, value)
 		}
-		if (defaultValue) {
-			let stringified = JSON.stringify(defaultValue, null, 4)
-			if (stringified.length > 50) {
-				minRows = 3
-			}
-			if (type != 'string') {
-				minRows = Math.max(minRows, Math.min(stringified.split(/\r\n|\r|\n/).length + 1, maxRows))
-			}
+	}
+
+	$: {
+		defaultValue && recomputeRowSize(JSON.stringify(defaultValue, null, 4))
+	}
+
+	function recomputeRowSize(str: string) {
+		if (type == 'string') {
+			minRows = str.split('\n').length
+		} else if (type != 'string') {
+			minRows = Math.max(minRows, Math.min(str.split(/\r\n|\r|\n/).length + 1, maxRows))
 		}
 	}
 
@@ -103,7 +103,7 @@
 	}
 
 	function validateInput(pattern: string | undefined, v: any): void {
-		if (required && (v == undefined || v == null)) {
+		if (required && (v == undefined || v == null || v === '')) {
 			error = 'This field is required'
 			valid = false
 		} else {
@@ -127,8 +127,11 @@
 	}
 
 	$: {
-		if (value == undefined) {
+		if (value == undefined || value == null) {
 			value = defaultValue
+			if ((defaultValue === undefined || defaultValue === null) && inputCat === 'string') {
+				value = ''
+			}
 		}
 	}
 
@@ -136,7 +139,7 @@
 	$: inputCat = computeInputCat(type, format, itemsType?.type, enum_, contentEncoding)
 </script>
 
-<div class="flex flex-col w-full">
+<div class="flex flex-col w-full mb-2">
 	<div>
 		{#if displayHeader}
 			<FieldHeader {label} {required} {type} {contentEncoding} {format} {itemsType} />
@@ -176,20 +179,19 @@
 					</div>
 				{/if}
 			</div>
-			<span class="text-2xs">Preview:</span>
+			<span class="text-2xs">Input preview:</span>
 		{/if}
 
-		<div class="grid grid-cols-2">
+		{#if description}
 			<div class="text-sm italic pb-1">
 				{description}
 			</div>
-			<div class="text-right text-xs {error === '' ? 'text-white' : 'font-bold text-red-600'}">
-				{error === '' ? '...' : error}
-			</div>
-		</div>
+		{/if}
+
 		<div class="flex space-x-1">
-			{#if inputCat == 'number' && !numberAsString}
+			{#if inputCat == 'number'}
 				<input
+					on:focus
 					{disabled}
 					type="number"
 					class={valid
@@ -214,7 +216,7 @@
 			{:else if inputCat == 'list'}
 				<div>
 					<div>
-						{#each value ?? [] as v}
+						{#each value ?? [] as v, i}
 							<div class="flex flex-row max-w-md mt-1">
 								{#if itemsType?.type == 'number'}
 									<input type="number" bind:value={v} />
@@ -222,14 +224,17 @@
 									<input
 										type="file"
 										class="my-6"
-										on:change={(x) => fileChanged(x, (val) => (v = val))}
+										on:change={(x) => fileChanged(x, (val) => (value[i] = val))}
 										multiple={false}
 									/>
 								{:else}
 									<input type="text" bind:value={v} />
 								{/if}
-								<button
-									class="default-button-secondary mx-6"
+								<Button
+									variant="border"
+									color="red"
+									size="sm"
+									btnClasses="mx-6"
 									on:click={() => {
 										value = value.filter((el) => el != v)
 										if (value.length == 0) {
@@ -237,13 +242,16 @@
 										}
 									}}
 								>
-									<Icon data={faMinus} class="mb-1" />
-								</button>
+									<Icon data={faMinus} />
+								</Button>
 							</div>
 						{/each}
 					</div>
-					<button
-						class="default-button-secondary mt-1"
+					<Button
+						variant="border"
+						color="blue"
+						size="sm"
+						btnClasses="mt-1"
 						on:click={() => {
 							if (value == undefined) {
 								value = []
@@ -253,7 +261,7 @@
 					>
 						<Icon data={faPlus} class="mr-2" />
 						Add item
-					</button>
+					</Button>
 					<span class="ml-2">
 						{(value ?? []).length} item{(value ?? []).length > 1 ? 's' : ''}
 					</span>
@@ -261,15 +269,32 @@
 			{:else if inputCat == 'resource-object'}
 				<ObjectResourceInput {format} bind:value />
 			{:else if inputCat == 'object'}
-				<textarea
-					{disabled}
-					style="min-height: {minHeight}; max-height: {maxHeight}"
-					class="col-span-10 {valid
-						? ''
-						: 'border border-red-700 border-opacity-30 focus:border-red-700 focus:border-opacity-30 bg-red-100'}"
-					placeholder={defaultValue ? JSON.stringify(defaultValue, null, 4) : ''}
-					bind:value={rawValue}
-				/>
+				{#if properties && Object.keys(properties).length > 0}
+					<div class="p-4 pl-8 border rounded w-full">
+						<SchemaForm
+							schema={{ properties, $schema: '', required: [], type: 'object' }}
+							bind:args={value}
+						/>
+					</div>
+				{:else}
+					<textarea
+						bind:this={el}
+						on:focus
+						{disabled}
+						style="max-height: {maxHeight}"
+						on:input={(e) => {
+							if (el) {
+								el.style.height = '5px'
+								el.style.height = el.scrollHeight + 'px'
+							}
+						}}
+						class="col-span-10 {valid
+							? ''
+							: 'border border-red-700 border-opacity-30 focus:border-red-700 focus:border-opacity-30 bg-red-100'}"
+						placeholder={defaultValue ? JSON.stringify(defaultValue, null, 4) : ''}
+						bind:value={rawValue}
+					/>
+				{/if}
 			{:else if inputCat == 'enum'}
 				<select {disabled} class="px-6" bind:value>
 					{#each enum_ ?? [] as e}
@@ -280,13 +305,16 @@
 				<input class="inline-block" type="datetime-local" bind:value />
 			{:else if inputCat == 'sql'}
 				<div class="border rounded mb-4 w-full border-gray-700">
-					<Editor
+					<SimpleEditor
 						on:focus={() => dispatch('focus')}
 						on:blur={() => dispatch('blur')}
 						bind:this={editor}
 						lang="sql"
 						bind:code={value}
-						class="two-lines-editor"
+						class="few-lines-editor"
+						on:change={async () => {
+							dispatch('input', { rawValue: value, isRaw: false })
+						}}
 					/>
 				</div>
 			{:else if inputCat == 'base64'}
@@ -303,22 +331,29 @@
 						? format.substring('resource-'.length)
 						: undefined}
 				/>
-			{:else if inputCat == 'string' || (inputCat == 'number' && numberAsString)}
+			{:else if inputCat == 'string'}
 				<textarea
+					bind:this={el}
 					on:focus={() => dispatch('focus')}
 					on:blur={() => dispatch('blur')}
 					{disabled}
-					style="height: {minHeight}; max-height: {maxHeight}"
+					style="height: 30px; max-height: {maxHeight}"
 					class="col-span-10 {valid
 						? ''
 						: 'border border-red-700 border-opacity-30 focus:border-red-700 focus:border-opacity-30 bg-red-100'}"
 					placeholder={defaultValue ?? ''}
 					bind:value
-					on:input={() => dispatch('input', { rawValue: value, isRaw: false })}
+					on:input={async () => {
+						if (el) {
+							el.style.height = '30px'
+							el.style.height = el.scrollHeight + 'px'
+						}
+						dispatch('input', { rawValue: value, isRaw: false })
+					}}
 				/>
 			{/if}
 			{#if !required && inputCat != 'resource-object'}
-				<Tooltip placement="bottom" content="Reset to default value">
+				<!-- <Tooltip placement="bottom" content="Reset to default value">
 					<Button
 						on:click={() => (value = undefined)}
 						{disabled}
@@ -328,9 +363,12 @@
 					>
 						<Icon data={faArrowRotateLeft} />
 					</Button>
-				</Tooltip>
+				</Tooltip> -->
 			{/if}
 			<slot name="actions" />
+		</div>
+		<div class="text-right text-xs {error === '' ? 'text-white' : 'font-bold text-red-600'}">
+			{error === '' ? '...' : error}
 		</div>
 	</div>
 </div>

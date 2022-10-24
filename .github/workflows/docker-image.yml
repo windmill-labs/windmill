@@ -42,7 +42,6 @@ jobs:
           context: .
           push: true
           tags: |
-            ${{ env.LOCAL_REGISTRY }}/${{ env.IMAGE_NAME }}:latest
             ${{ steps.metalocal.outputs.tags }}
 
           labels: ${{ steps.metalocal.outputs.labels }}
@@ -76,7 +75,7 @@ jobs:
           context: .
           push: true
           tags: |
-            ${{ env.LOCAL_REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
             ${{ steps.metalocal.outputs.tags }}
             ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.metalocal.outputs.labels }}
@@ -105,7 +104,7 @@ jobs:
         run: echo "::set-output name=id::$(docker run --network=host --rm -d -p 8000:8000 --privileged -it -e DATABASE_URL=postgres://admin:changeme@localhost:5432/windmill -e BASE_INTERNAL_URL=http://localhost:8000 ${{ env.LOCAL_REGISTRY }}/${{ env.IMAGE_NAME }}:latest)"
         id: docker-container
       - name: "Playwright run"
-        timeout-minutes: 10
+        timeout-minutes: 2
         run: cd frontend && npm ci @playwright/test && npx playwright install && npm run test
       - name: "Clean up"
         run: docker kill ${{ steps.docker-container.outputs.id }}

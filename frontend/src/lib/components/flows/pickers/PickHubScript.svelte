@@ -5,13 +5,14 @@
 	import ItemPicker from '$lib/components/ItemPicker.svelte'
 	import { hubScripts } from '$lib/stores'
 	import { createEventDispatcher } from 'svelte'
+	import { Script } from '$lib/gen'
+	import type { HubItem } from './model'
 
-	export let isTrigger: boolean
+	export let kind: Script.kind
+	export let customText: string | undefined = undefined
 
-	type Item = { summary: String; path: String; version?: String }
-
-	let items: Item[]
-	$: items = $hubScripts?.filter((x) => x.is_trigger == isTrigger) ?? []
+	let items: HubItem[]
+	$: items = $hubScripts?.filter((x) => x.kind == kind) ?? []
 	let itemPicker: ItemPicker
 
 	const dispatch = createEventDispatcher()
@@ -19,18 +20,19 @@
 
 <ItemPicker
 	bind:this={itemPicker}
-	pickCallback={(path) => {
-		dispatch('pick', { path })
+	pickCallback={(path, summary) => {
+		dispatch('pick', { path, summary, kind })
 	}}
 	itemName={'Script'}
 	extraField="summary"
 	loadItems={async () => {
 		return items
 	}}
+	noItemMessage="Hub not reachable. If your environment is air gapped, contact sales@windmill.dev to setup a local mirror."
 />
 
 <FlowScriptPicker
-	label={`Pick a ${isTrigger ? 'trigger ' : ''} script from the Hub`}
+	label={customText ?? `${kind == Script.kind.SCRIPT ? 'Script' : `${kind} script`} from the Hub`}
 	icon={faUserGroup}
 	iconColor="text-blue-500"
 	on:click={() => itemPicker.openModal()}

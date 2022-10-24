@@ -1,12 +1,11 @@
 <script lang="ts">
 	import { userStore, workspaceStore } from '$lib/stores'
-
 	import Modal from './Modal.svelte'
 	import { type Group, GroupService, UserService } from '$lib/gen'
 	import AutoComplete from 'simple-svelte-autocomplete'
-	import PageHeader from './PageHeader.svelte'
 	import TableCustom from './TableCustom.svelte'
 	import { canWrite } from '$lib/utils'
+	import { Button } from './common'
 
 	let name = ''
 	let modal: Modal
@@ -54,45 +53,59 @@
 </script>
 
 <Modal bind:this={modal}>
-	<div slot="title">group {name}</div>
-	<div slot="content">
-		<PageHeader title="Summary" />
-		<p>{group?.summary ?? 'No summary'}</p>
-		<PageHeader title="Members">
+	<div slot="title">
+		{name}
+		<span class="text-sm text-gray-500 ml-1">(group)</span>
+	</div>
+	<div slot="content" class="flex flex-col gap-6">
+		<div>
+			<div class="font-semibold text-gray-700 mb-1">Summary</div>
+			<p>{group?.summary ?? 'No summary'}</p>
+		</div>
+		<div>
+			<div class="font-semibold text-gray-700 mb-1">Members</div>
 			{#if can_write}
-				<div>
+				<div class="flex items-start">
 					<AutoComplete items={usernames} bind:selectedItem={username} />
-					<button class="default-button ml-4" on:click={addToGroup}>Add member</button>
+					<Button
+						variant="contained"
+						color="blue"
+						size="sm"
+						btnClasses="!ml-4"
+						on:click={addToGroup}
+					>
+						Add member
+					</Button>
 				</div>
 			{/if}
-		</PageHeader>
-		<TableCustom>
-			<tr slot="header-row">
-				<th>user</th>
-				<th>admin of group</th>
-				<th />
-			</tr>
-			<tbody slot="body">
-				{#each members as { name, isAdmin }}<tr>
-						<td>{name}</td>
-						<td> {isAdmin ? 'admin' : ''} </td>
-						<td>
-							{#if can_write}
-								<button
-									class="ml-2 text-red-500"
-									on:click={async () => {
-										await GroupService.removeUserToGroup({
-											workspace: $workspaceStore ?? '',
-											name: group?.name ?? '',
-											requestBody: { username: name }
-										})
-										loadGroup()
-									}}>remove</button
-								>
-							{/if}</td
-						>
-					</tr>{/each}
-			</tbody></TableCustom
-		>
+			<TableCustom>
+				<tr slot="header-row">
+					<th>user</th>
+					<th>admin of group</th>
+					<th />
+				</tr>
+				<tbody slot="body">
+					{#each members as { name, isAdmin }}<tr>
+							<td>{name}</td>
+							<td> {isAdmin ? 'admin' : ''} </td>
+							<td>
+								{#if can_write}
+									<button
+										class="ml-2 text-red-500"
+										on:click={async () => {
+											await GroupService.removeUserToGroup({
+												workspace: $workspaceStore ?? '',
+												name: group?.name ?? '',
+												requestBody: { username: name }
+											})
+											loadGroup()
+										}}>remove</button
+									>
+								{/if}</td
+							>
+						</tr>{/each}
+				</tbody>
+			</TableCustom>
+		</div>
 	</div>
 </Modal>

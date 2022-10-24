@@ -7,6 +7,7 @@
  */
 
 use std::collections::HashMap;
+use std::time::Duration;
 
 use reqwest::Client;
 use sql_builder::prelude::*;
@@ -24,8 +25,8 @@ use crate::{
     audit::{audit_log, ActionKind},
     db::{UserDB, DB},
     error::{self, to_anyhow, Error, JsonResult, Result},
-    jobs::RawCode,
-    scripts::Schema,
+    more_serde::{default_id, default_true, is_default},
+    scripts::{Schema, ScriptLang},
     users::Authed,
     utils::{http_get_from_hub, list_elems_from_hub, Pagination, StripPath},
 };
@@ -69,21 +70,113 @@ pub struct NewFlow {
     pub schema: Option<Schema>,
 }
 
-#[derive(Deserialize, Serialize, Debug, Clone)]
+#[derive(Deserialize, Serialize, Debug, Clone, Default)]
 pub struct FlowValue {
     pub modules: Vec<FlowModule>,
+    #[serde(default)]
     pub failure_module: Option<FlowModule>,
+    #[serde(default)]
+    #[serde(skip_serializing_if = "is_default")]
+    pub same_worker: bool,
+}
+
+#[derive(Deserialize, Serialize, Debug, Clone)]
+pub struct StopAfterIf {
+    pub expr: String,
+    pub skip_if_stopped: bool,
+}
+
+#[derive(Deserialize, Serialize, Debug, Clone, Default, PartialEq)]
+#[serde(default)]
+pub struct Retry {
+    constant: ConstantDelay,
+    exponential: ExponentialDelay,
+}
+
+impl Retry {
+    /// Takes the number of previous retries and returns the interval until the next retry if any.
+    ///
+    /// May return [`Duration::ZERO`] to retry immediately.
+    pub fn interval(&self, previous_attempts: u16) -> Option<Duration> {
+        let Self { constant, exponential } = self;
+
+        if previous_attempts < constant.attempts {
+            Some(Duration::from_secs(constant.seconds as u64))
+        } else if previous_attempts - constant.attempts < exponential.attempts {
+            let exp = previous_attempts.saturating_add(1) as u32;
+            let secs = exponential.multiplier * exponential.seconds.saturating_pow(exp);
+            Some(Duration::from_secs(secs as u64))
+        } else {
+            None
+        }
+    }
+
+    pub fn has_attempts(&self) -> bool {
+        self.constant.attempts != 0 || self.exponential.attempts != 0
+    }
+
+    pub fn max_attempts(&self) -> u16 {
+        self.constant
+            .attempts
+            .saturating_add(self.exponential.attempts)
+    }
+
+    pub fn max_interval(&self) -> Option<Duration> {
+        self.max_attempts()
+            .checked_sub(1)
+            .and_then(|p| self.interval(p))
+    }
+}
+
+#[derive(Deserialize, Serialize, Debug, Clone, Default, PartialEq)]
+#[serde(default)]
+pub struct ConstantDelay {
+    pub attempts: u16,
+    pub seconds: u16,
+}
+
+/// multiplier * seconds ^ failures
+#[derive(Deserialize, Serialize, Debug, Clone, PartialEq)]
+#[serde(default)]
+pub struct ExponentialDelay {
+    pub attempts: u16,
+    pub multiplier: u16,
+    pub seconds: u16,
+}
+
+impl Default for ExponentialDelay {
+    fn default() -> Self {
+        Self { attempts: 0, multiplier: 1, seconds: 0 }
+    }
+}
+
+#[derive(Deserialize, Serialize, Debug, Clone)]
+pub struct Suspend {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub required_events: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub timeout: Option<u32>,
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone)]
 pub struct FlowModule {
-    pub input_transform: HashMap<String, InputTransform>,
+    #[serde(default = "default_id")]
+    pub id: String,
+    #[serde(default)]
+    #[serde(alias = "input_transform")]
+    pub input_transforms: HashMap<String, InputTransform>,
     pub value: FlowModuleValue,
-    pub stop_after_if_expr: Option<String>,
-    pub skip_if_stopped: Option<bool>,
+    pub stop_after_if: Option<StopAfterIf>,
+    pub summary: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub suspend: Option<Suspend>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub retry: Option<Retry>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sleep: Option<InputTransform>,
 }
 
-#[derive(Deserialize, Serialize, Debug, Clone)]
+#[derive(Deserialize, Serialize, Debug, Clone, PartialEq)]
 #[serde(
     tag = "type",
     rename_all(serialize = "lowercase", deserialize = "lowercase")
@@ -94,28 +187,56 @@ pub enum InputTransform {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct BranchOneModules {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub summary: Option<String>,
+    pub expr: String,
+    pub modules: Vec<FlowModule>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct BranchAllModules {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub summary: Option<String>,
+    pub modules: Vec<FlowModule>,
+    #[serde(default = "default_true")]
+    pub skip_failure: bool,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(
     tag = "type",
     rename_all(serialize = "lowercase", deserialize = "lowercase")
 )]
 pub enum FlowModuleValue {
     Script {
+        #[serde(default)]
+        #[serde(alias = "input_transform")]
+        input_transforms: HashMap<String, InputTransform>,
         path: String,
     },
     ForloopFlow {
         iterator: InputTransform,
-        value: Box<FlowValue>,
+        modules: Vec<FlowModule>,
         #[serde(default = "default_true")]
         skip_failures: bool,
     },
-    Flow {
-        path: String,
+    BranchOne {
+        branches: Vec<BranchOneModules>,
+        default: Vec<FlowModule>,
     },
-    RawScript(RawCode),
-}
-
-fn default_true() -> bool {
-    true
+    BranchAll {
+        branches: Vec<BranchAllModules>,
+    },
+    RawScript {
+        #[serde(default)]
+        #[serde(alias = "input_transform")]
+        input_transforms: HashMap<String, InputTransform>,
+        content: String,
+        path: Option<String>,
+        language: ScriptLang,
+    },
+    Identity,
 }
 
 #[derive(Deserialize)]
@@ -226,14 +347,13 @@ async fn create_flow(
 
     sqlx::query!(
         "INSERT INTO flow (workspace_id, path, summary, description, value, edited_by, edited_at, \
-         schema) VALUES ($1, $2, $3, $4, $5, $6, $7, $8::text::json)",
+         schema) VALUES ($1, $2, $3, $4, $5, $6, now(), $7::text::json)",
         w_id,
         nf.path,
         nf.summary,
         nf.description,
         nf.value,
         &authed.username,
-        &chrono::Utc::now(),
         nf.schema.and_then(|x| serde_json::to_string(&x.0).ok()),
     )
     .execute(&mut tx)
@@ -296,13 +416,12 @@ async fn update_flow(
     let schema = nf.schema.map(|x| x.0);
     let flow = sqlx::query_scalar!(
         "UPDATE flow SET path = $1, summary = $2, description = $3, value = $4, edited_by = $5, \
-         edited_at = $6, schema = $7 WHERE path = $8 AND workspace_id = $9 RETURNING path",
+         edited_at = now(), schema = $6 WHERE path = $7 AND workspace_id = $8 RETURNING path",
         nf.path,
         nf.summary,
         nf.description,
         nf.value,
         &authed.username,
-        &chrono::Utc::now(),
         schema,
         flow_path,
         w_id,
@@ -408,54 +527,262 @@ mod tests {
     // Note this useful idiom: importing names from outer (for mod tests) scope.
     use super::*;
 
+    const SECOND: Duration = Duration::from_secs(1);
+
     #[test]
-    fn test_serialize() -> anyhow::Result<()> {
-        let mut hm = HashMap::new();
-        hm.insert(
-            "test".to_owned(),
-            InputTransform::Static { value: serde_json::json!("test2") },
-        );
+    fn flowmodule_serde() {
         let fv = FlowValue {
             modules: vec![
                 FlowModule {
-                    input_transform: hm,
-                    value: FlowModuleValue::Script { path: "test".to_string() },
-                    stop_after_if_expr: None,
-                    skip_if_stopped: Some(false),
+                    id: "a".to_string(),
+                    input_transforms: [].into(),
+                    value: FlowModuleValue::Script {
+                        path: "test".to_string(),
+                        input_transforms: [(
+                            "test".to_string(),
+                            InputTransform::Static { value: serde_json::json!("test2") },
+                        )]
+                        .into(),
+                    },
+                    stop_after_if: None,
+                    summary: None,
+                    suspend: Default::default(),
+                    retry: None,
+                    sleep: None,
                 },
                 FlowModule {
-                    input_transform: HashMap::new(),
-                    value: FlowModuleValue::RawScript(RawCode {
+                    id: "b".to_string(),
+                    input_transforms: HashMap::new(),
+                    value: FlowModuleValue::RawScript {
+                        input_transforms: HashMap::new(),
                         content: "test".to_string(),
                         language: crate::scripts::ScriptLang::Deno,
                         path: None,
+                    },
+                    stop_after_if: Some(StopAfterIf {
+                        expr: "foo = 'bar'".to_string(),
+                        skip_if_stopped: false,
                     }),
-                    stop_after_if_expr: Some("foo = 'bar'".to_string()),
-                    skip_if_stopped: None,
+                    summary: None,
+                    suspend: Default::default(),
+                    retry: None,
+                    sleep: None,
                 },
                 FlowModule {
-                    input_transform: [(
-                        "iterand".to_string(),
-                        InputTransform::Static { value: serde_json::json!(vec![1, 2, 3]) },
-                    )]
-                    .into(),
+                    id: "c".to_string(),
+                    input_transforms: HashMap::new(),
                     value: FlowModuleValue::ForloopFlow {
                         iterator: InputTransform::Static { value: serde_json::json!([1, 2, 3]) },
-                        value: Box::new(FlowValue { modules: vec![], failure_module: None }),
+                        modules: vec![],
                         skip_failures: true,
                     },
-                    stop_after_if_expr: Some("previous.res1.isEmpty()".to_string()),
-                    skip_if_stopped: None,
+                    stop_after_if: Some(StopAfterIf {
+                        expr: "previous.isEmpty()".to_string(),
+                        skip_if_stopped: false,
+                    }),
+                    summary: None,
+                    suspend: Default::default(),
+                    retry: None,
+                    sleep: None,
                 },
             ],
             failure_module: Some(FlowModule {
-                input_transform: HashMap::new(),
-                value: FlowModuleValue::Flow { path: "test".to_string() },
-                stop_after_if_expr: Some("previous.res1.isEmpty()".to_string()),
-                skip_if_stopped: None,
+                id: "d".to_string(),
+                input_transforms: HashMap::new(),
+                value: FlowModuleValue::Script {
+                    path: "test".to_string(),
+                    input_transforms: HashMap::new(),
+                },
+                stop_after_if: Some(StopAfterIf {
+                    expr: "previous.isEmpty()".to_string(),
+                    skip_if_stopped: false,
+                }),
+                summary: None,
+                suspend: Default::default(),
+                retry: None,
+                sleep: None,
             }),
+            same_worker: false,
         };
-        println!("{}", serde_json::json!(fv).to_string());
-        Ok(())
+        let expect = serde_json::json!({
+          "modules": [
+            {
+              "id": "a",
+              "input_transforms": {},
+              "value": {
+                "input_transforms": {
+                    "test": {
+                      "type": "static",
+                      "value": "test2"
+                    }
+                  },
+                "type": "script",
+                "path": "test"
+              },
+              "stop_after_if": null,
+              "summary": null
+            },
+            {
+              "id": "b",
+              "input_transforms": {},
+              "value": {
+                "input_transforms": {},
+                "type": "rawscript",
+                "content": "test",
+                "path": null,
+                "language": "deno"
+              },
+              "stop_after_if": {
+                  "expr": "foo = 'bar'",
+                  "skip_if_stopped": false
+              },
+              "summary": null
+            },
+            {
+              "id": "c",
+              "input_transforms": {},
+              "value": {
+                "type": "forloopflow",
+                "iterator": {
+                  "type": "static",
+                  "value": [
+                    1,
+                    2,
+                    3
+                  ]
+                },
+                "skip_failures": true,
+                "modules": []
+              },
+              "stop_after_if": {
+                  "expr": "previous.isEmpty()",
+                  "skip_if_stopped": false,
+              },
+              "summary": null
+            }
+          ],
+          "failure_module": {
+            "id": "d",
+            "input_transforms": {},
+            "value": {
+              "input_transforms": {},
+              "type": "script",
+              "path": "test"
+            },
+            "stop_after_if": {
+                "expr": "previous.isEmpty()",
+                "skip_if_stopped": false
+            },
+            "summary": null
+          }
+        });
+        assert_eq!(dbg!(serde_json::json!(fv)), dbg!(expect));
+    }
+
+    #[test]
+    fn test_back_compat() {
+        /* renamed input_transform -> input_transforms but should deserialize old name */
+        let s = r#"
+        {
+            "value": {
+                "type": "rawscript",
+                "content": "def main(n): return",
+                "language": "python3"
+            },
+            "input_transform": {
+                "n": {
+                    "expr": "flow_input.iter.value",
+                    "type": "javascript"
+                }
+            }
+        }
+        "#;
+        let module: FlowModule = serde_json::from_str(s).unwrap();
+        assert_eq!(
+            module.input_transforms["n"],
+            InputTransform::Javascript { expr: "flow_input.iter.value".to_string() }
+        );
+    }
+
+    #[test]
+    fn retry_serde() {
+        assert_eq!(Retry::default(), serde_json::from_str(r#"{}"#).unwrap());
+
+        assert_eq!(
+            Retry::default(),
+            serde_json::from_str(
+                r#"
+                {
+                  "constant": {
+                    "seconds": 0
+                  },
+                  "exponential": {
+                    "multiplier": 1,
+                    "seconds": 0
+                  }
+                }
+                "#
+            )
+            .unwrap()
+        );
+
+        assert_eq!(
+            Retry {
+                constant: Default::default(),
+                exponential: ExponentialDelay { attempts: 0, multiplier: 1, seconds: 123 }
+            },
+            serde_json::from_str(
+                r#"
+                {
+                  "constant": {},
+                  "exponential": { "seconds": 123 }
+                }
+                "#
+            )
+            .unwrap()
+        );
+    }
+
+    #[test]
+    fn retry_exponential() {
+        let retry = Retry {
+            constant: ConstantDelay::default(),
+            exponential: ExponentialDelay { attempts: 3, multiplier: 4, seconds: 3 },
+        };
+        assert_eq!(
+            vec![
+                Some(12 * SECOND),
+                Some(36 * SECOND),
+                Some(108 * SECOND),
+                None
+            ],
+            (0..4)
+                .map(|previous_attempts| retry.interval(previous_attempts))
+                .collect::<Vec<_>>()
+        );
+
+        assert_eq!(Some(108 * SECOND), retry.max_interval());
+    }
+
+    #[test]
+    fn retry_both() {
+        let retry = Retry {
+            constant: ConstantDelay { attempts: 2, seconds: 4 },
+            exponential: ExponentialDelay { attempts: 2, multiplier: 1, seconds: 3 },
+        };
+        assert_eq!(
+            vec![
+                Some(4 * SECOND),
+                Some(4 * SECOND),
+                Some(27 * SECOND),
+                Some(81 * SECOND),
+                None,
+            ],
+            (0..5)
+                .map(|previous_attempts| retry.interval(previous_attempts))
+                .collect::<Vec<_>>()
+        );
+
+        assert_eq!(Some(81 * SECOND), retry.max_interval());
     }
 }

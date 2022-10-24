@@ -1,0 +1,52 @@
+name: Publish go-client
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+env:
+  repo: windmill-go-client
+
+jobs:
+  build_go_and_push_to_repo:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions/setup-go@v3
+      - name: generate_go
+        run: |
+          go install github.com/deepmap/oapi-codegen/cmd/oapi-codegen@latest
+          cd go-client
+          rm .gitignore
+          ./build.sh
+      - name: Pushes to another repository
+        id: push_directory
+        uses: cpina/github-action-push-to-another-repository@devel
+        env:
+          API_TOKEN_GITHUB: ${{ secrets.DENO_PAT }}
+        with:
+          source-directory: go-client/
+          destination-github-username: ${{ github.repository_owner }}
+          destination-repository-name: ${{ env.repo }}
+          user-email: ruben@windmill.dev
+          commit-message: See ORIGIN_COMMIT from $GITHUB_REF
+          target-branch: main
+
+  tag_repo:
+    needs: [build_go_and_push_to_repo]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          repository: ${{ github.repository_owner }}/${{ env.repo }}
+          token: ${{ secrets.DENO_PAT }}
+          path: ./client
+
+      - name: Push client
+        run: |
+          cd ./client
+          git config --global user.email "ruben@windmill.dev"
+          git config --global user.name "rubenfiszel[bot]"
+          git tag -a ${{ github.ref_name }} -m "${{ github.ref_name }}"
+          git push --tags

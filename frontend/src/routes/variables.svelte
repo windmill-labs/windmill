@@ -21,14 +21,23 @@
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
 	import Icon from 'svelte-awesome'
 	import { faPlus, faCircle } from '@fortawesome/free-solid-svg-icons'
+	import { Button } from '$lib/components/common'
+	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
+	import { Alert, Badge, Skeleton } from '$lib/components/common'
 
 	type ListableVariableW = ListableVariable & { canWrite: boolean }
 
 	let variables: ListableVariableW[] = []
 	let contextualVariables: ContextualVariable[] = []
-
 	let shareModal: ShareModal
 	let variableEditor: VariableEditor
+	let loading = {
+		variables: true,
+		contextual: true
+	}
+
+	let deleteConfirmedCallback: (() => void) | undefined = undefined
+	$: open = Boolean(deleteConfirmedCallback)
 
 	// If relative, the dropdown is positioned relative to its button
 	async function loadVariables(): Promise<void> {
@@ -38,11 +47,13 @@
 				...x
 			}
 		})
+		loading.variables = false
 	}
 	async function loadContextualVariables(): Promise<void> {
 		contextualVariables = await VariableService.listContextualVariables({
 			workspace: $workspaceStore!
 		})
+		loading.contextual = false
 	}
 
 	async function deleteVariable(path: string, account?: string): Promise<void> {
@@ -64,96 +75,107 @@
 
 <CenteredPage>
 	<PageHeader title="Variables">
-		<button
-			class="default-button"
-			on:click={() => {
-				variableEditor.initNew()
-			}}
-		>
-			<Icon class="text-white mb-1" data={faPlus} scale={0.9} /> &nbsp; New variable</button
-		>
+		<Button size="sm" startIcon={{ icon: faPlus }} on:click={() => variableEditor.initNew()}>
+			New&nbsp;variable
+		</Button>
 	</PageHeader>
 
 	<VariableEditor bind:this={variableEditor} on:create={loadVariables} />
 	<div class="relative">
-		<TableCustom>
-			<tr slot="header-row">
-				<th>path</th>
-				<th>value</th>
-				<th>secret</th>
-				<th>description</th>
-				<th>OAuth</th>
-				<th />
-			</tr>
-			<tbody slot="body">
-				{#each variables as { path, value, is_secret, description, extra_perms, canWrite, account, is_oauth }}
-					<tr>
-						<td
-							><a
-								id="edit-{path}"
-								style="cursor: pointer;"
-								on:click={() => variableEditor.editVariable(path)}>{path}</a
-							>
-							<div><SharedBadge {canWrite} extraPerms={extra_perms} /></div>
-						</td>
-						<td>{truncate(value ?? '******', 40)}</td>
-						<td>{is_secret ? 'secret' : 'visible'}</td>
-						<td>{description}</td>
-						<td>
-							{#if is_oauth}
-								<Icon
-									class="text-green-600"
-									data={faCircle}
-									scale={0.7}
-									label="Variable is tied to an OAuth app"
-								/>
-							{/if}
-						</td>
-						<td
-							><Dropdown
-								dropdownItems={[
-									{
-										displayName: 'Edit',
-										action: () => variableEditor.editVariable(path),
-										disabled: !canWrite
-									},
-									{
-										displayName: 'Delete',
-										action: () => deleteVariable(path, account),
-										disabled: !canWrite
-									},
-									{
-										displayName: 'Share',
-										action: () => {
-											shareModal.openModal(path)
+		{#if loading.variables}
+			<Skeleton layout={[0.5, [2], 1]} />
+			{#each new Array(3) as _}
+				<Skeleton layout={[[3.5], 0.5]} />
+			{/each}
+		{:else}
+			<TableCustom>
+				<tr slot="header-row">
+					<th>path</th>
+					<th>value</th>
+					<th>secret</th>
+					<th>description</th>
+					<th>OAuth</th>
+					<th />
+				</tr>
+				<tbody slot="body">
+					{#each variables as { path, value, is_secret, description, extra_perms, canWrite, account, is_oauth }}
+						<tr>
+							<td
+								><a
+									id="edit-{path}"
+									style="cursor: pointer;"
+									on:click={() => variableEditor.editVariable(path)}>{path}</a
+								>
+								<div><SharedBadge {canWrite} extraPerms={extra_perms} /></div>
+							</td>
+							<td>{truncate(value ?? '******', 40)}</td>
+							<td>{is_secret ? 'secret' : 'visible'}</td>
+							<td>{description}</td>
+							<td>
+								{#if is_oauth}
+									<Icon
+										class="text-green-600"
+										data={faCircle}
+										scale={0.7}
+										label="Variable is tied to an OAuth app"
+									/>
+								{/if}
+							</td>
+							<td
+								><Dropdown
+									dropdownItems={[
+										{
+											displayName: 'Edit',
+											action: () => variableEditor.editVariable(path),
+											disabled: !canWrite
 										},
-										disabled: !canWrite
-									},
-									...(account != undefined
-										? [
-												{
-													displayName: 'Refresh token',
-													action: async () => {
-														await OauthService.refreshToken({
-															workspace: $workspaceStore ?? '',
-															id: account,
-															requestBody: {
-																path
-															}
-														})
-														sendUserToast('Token refreshed')
+										{
+											displayName: 'Delete',
+
+											action: (event) => {
+												if (event?.shiftKey) {
+													deleteVariable(path, account)
+												} else {
+													deleteConfirmedCallback = () => {
+														deleteVariable(path, account)
 													}
 												}
-										  ]
-										: [])
-								]}
-								relative={false}
-							/></td
-						>
-					</tr>
-				{/each}
-			</tbody>
-		</TableCustom>
+											},
+											disabled: !canWrite
+										},
+										{
+											displayName: 'Share',
+											action: () => {
+												shareModal.openModal(path)
+											},
+											disabled: !canWrite
+										},
+										...(account != undefined
+											? [
+													{
+														displayName: 'Refresh token',
+														action: async () => {
+															await OauthService.refreshToken({
+																workspace: $workspaceStore ?? '',
+																id: account,
+																requestBody: {
+																	path
+																}
+															})
+															sendUserToast('Token refreshed')
+														}
+													}
+											  ]
+											: [])
+									]}
+									relative={false}
+								/></td
+							>
+						</tr>
+					{/each}
+				</tbody>
+			</TableCustom>
+		{/if}
 	</div>
 
 	<ShareModal
@@ -174,13 +196,43 @@
 	/>
 
 	<div class="my-5" />
-	<TableSimple
-		headers={['name', 'example of value', 'description']}
-		data={contextualVariables}
-		keys={['name', 'value', 'description']}
-		twTextSize="text-sm"
-	/>
+	{#if loading.contextual}
+		<Skeleton layout={[0.5, [2], 1]} />
+		{#each new Array(8) as _}
+			<Skeleton layout={[[2.8], 0.5]} />
+		{/each}
+	{:else}
+		<TableSimple
+			headers={['name', 'example of value', 'description']}
+			data={contextualVariables}
+			keys={['name', 'value', 'description']}
+			twTextSize="text-sm"
+		/>
+	{/if}
 </CenteredPage>
 
-<style>
-</style>
+<ConfirmationModal
+	{open}
+	title="Remove variable"
+	confirmationText="Remove"
+	on:canceled={() => {
+		deleteConfirmedCallback = undefined
+	}}
+	on:confirmed={() => {
+		if (deleteConfirmedCallback) {
+			deleteConfirmedCallback()
+		}
+		deleteConfirmedCallback = undefined
+	}}
+>
+	<div class="flex flex-col w-full space-y-4">
+		<span>Are you sure you want to remove this variable?</span>
+		<Alert type="info" title="Bypass confirmation">
+			<div>
+				You can press
+				<Badge color="dark-gray">SHIFT</Badge>
+				while removing a variable to bypass confirmation.
+			</div>
+		</Alert>
+	</div>
+</ConfirmationModal>

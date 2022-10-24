@@ -13,6 +13,8 @@
 	import Tooltip from './Tooltip.svelte'
 	import { userStore, workspaceStore } from '$lib/stores'
 	import { sleep } from '$lib/utils'
+	import { createEventDispatcher } from 'svelte'
+	import Required from './Required.svelte'
 
 	type PathKind = 'resource' | 'script' | 'variable' | 'flow' | 'schedule'
 	export let meta: Meta = {
@@ -27,14 +29,27 @@
 
 	export let kind: PathKind
 
+	const dispatch = createEventDispatcher()
+
 	let groups: Group[] = []
 
-	$: {
-		path = [meta.ownerKind === 'group' ? 'g' : 'u', meta.owner, meta.name].join('/')
+	$: path = metaToPath(meta)
+
+	function metaToPath(meta: Meta): string {
+		return [meta.ownerKind === 'group' ? 'g' : 'u', meta.owner, meta.name].join('/')
 	}
 
 	export function getPath() {
 		return path
+	}
+
+	function handleKeyUp(event: KeyboardEvent) {
+		const key = event.key
+
+		if (key === 'Enter') {
+			event.preventDefault()
+			dispatch('enter')
+		}
 	}
 
 	export async function reset() {
@@ -45,7 +60,12 @@
 				await sleep(500)
 			}
 			meta.owner = $userStore!.username
-			meta.name = ''
+			meta.name = namePlaceholder
+			let i = 1
+			while (await pathExists(metaToPath(meta), kind)) {
+				meta.name = `${namePlaceholder}_${i}`
+				i += 1
+			}
 		} else {
 			meta = pathToMeta(path)
 		}
@@ -59,57 +79,57 @@
 	}
 
 	async function validate(meta: Meta, path: string, kind: PathKind) {
-		validateName(meta) && (await validatePath(path, kind))
+		error = ''
+		validateName(meta) && validatePath(path, kind)
 	}
 
 	let validateTimeout: NodeJS.Timeout | undefined = undefined
 
 	async function validatePath(path: string, kind: PathKind): Promise<void> {
-		if (initialPath != '' && initialPath != path) {
-			if (validateTimeout) {
-				clearTimeout(validateTimeout)
+		if (validateTimeout) {
+			clearTimeout(validateTimeout)
+		}
+		validateTimeout = setTimeout(async () => {
+			if ((path == '' || path != initialPath) && (await pathExists(path, kind))) {
+				error = 'path already used'
+			} else if (validateName(meta)) {
+				error = ''
 			}
-			validateTimeout = setTimeout(async () => {
-				if (
-					initialPath != '' &&
-					initialPath != path &&
-					((kind == 'flow' &&
-						(await FlowService.existsFlowByPath({ workspace: $workspaceStore!, path: path }))) ||
-						(kind == 'script' &&
-							(await ScriptService.existsScriptByPath({
-								workspace: $workspaceStore!,
-								path: path
-							}))) ||
-						(kind == 'resource' &&
-							(await ResourceService.existsResource({
-								workspace: $workspaceStore!,
-								path: path
-							}))) ||
-						(kind == 'variable' &&
-							(await VariableService.existsVariable({
-								workspace: $workspaceStore!,
-								path: path
-							}))) ||
-						(kind == 'schedule' &&
-							(await ScheduleService.existsSchedule({ workspace: $workspaceStore!, path: path }))))
-				) {
-					error = 'path already used'
-				} else if (validateName(meta)) {
-					error = ''
-				}
-				validateTimeout = undefined
-			}, 500)
+			validateTimeout = undefined
+		}, 500)
+	}
+
+	async function pathExists(path: string, kind: PathKind): Promise<boolean> {
+		if (kind == 'flow') {
+			return await FlowService.existsFlowByPath({ workspace: $workspaceStore!, path: path })
+		} else if (kind == 'script') {
+			return await ScriptService.existsScriptByPath({
+				workspace: $workspaceStore!,
+				path: path
+			})
+		} else if (kind == 'resource') {
+			return await ResourceService.existsResource({
+				workspace: $workspaceStore!,
+				path: path
+			})
+		} else if (kind == 'variable') {
+			return await VariableService.existsVariable({
+				workspace: $workspaceStore!,
+				path: path
+			})
+		} else if (kind == 'schedule') {
+			return await ScheduleService.existsSchedule({ workspace: $workspaceStore!, path: path })
 		} else {
-			error = ''
+			return false
 		}
 	}
 
 	function validateName(meta: Meta): boolean {
 		if (meta.name == undefined || meta.name == '') {
-			error = 'choose a name'
+			error = 'Choose a name'
 			return false
 		} else if (!/^[\w-]+(\/[\w-]+)*$/.test(meta.name)) {
-			error = 'This name is not valid.'
+			error = 'This name is not valid'
 			return false
 		} else {
 			return true
@@ -156,7 +176,7 @@
 		</label>
 		{#if meta.ownerKind === 'user'}
 			<label class="block">
-				<span class="text-sm text-gray-700">Owner</span>
+				<span class="text-gray-700 text-sm">Owner</span>
 				<input
 					bind:value={meta.owner}
 					placeholder={$userStore?.username ?? ''}
@@ -165,7 +185,7 @@
 			</label>
 		{:else}
 			<label class="block">
-				<span class="text-sm text-gray-700">Owner</span>
+				<span class="text-gray-700 text-sm">Owner</span>
 				<select bind:value={meta.owner}>
 					{#each groups as g}
 						<option>{g.name}</option>
@@ -174,9 +194,14 @@
 			</label>
 		{/if}
 		<label class="block col-span-2">
-			<span class="text-gray-700 text-sm">Name<span class="text-red-600 text-sm">*</span></span>
+			<span class="text-gray-700 text-sm">
+				Name
+				<Required required={true} />
+			</span>
 			<input
 				autofocus
+				autocomplete="off"
+				on:keyup={handleKeyUp}
 				bind:value={meta.name}
 				placeholder={namePlaceholder}
 				class={error === ''
@@ -186,8 +211,8 @@
 		</label>
 	</div>
 	<div class="pt-0 text-xs px-1 flex flex-col-reverse sm:grid sm:grid-cols-4 sm:gap-4 w-full">
-		<div class="col-span-2">Path: <span class="font-mono">{path}</span></div>
-		<div class="text-purple-500 text-2xs col-span-2">{error}</div>
+		<div class="col-span-2"><span class="font-mono">{path}</span></div>
+		<div class="text-red-600 text-2xs col-span-2">{error}</div>
 	</div>
 </div>
 

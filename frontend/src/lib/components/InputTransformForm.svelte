@@ -2,35 +2,33 @@
 	import type { Schema } from '$lib/common'
 	import type { InputTransform } from '$lib/gen'
 	import type { InputCat } from '$lib/utils'
-	import { faChain } from '@fortawesome/free-solid-svg-icons'
-	import { Button, Tooltip } from 'flowbite-svelte'
-	import Icon from 'svelte-awesome'
+	import { getContext } from 'svelte'
+
 	import ArgInput from './ArgInput.svelte'
-	import Editor from './Editor.svelte'
 	import FieldHeader from './FieldHeader.svelte'
-	import DynamicInputHelpBox from './flows/DynamicInputHelpBox.svelte'
-	import { codeToStaticTemplate } from './flows/flowStore'
-	import { getCodeInjectionExpr, getDefaultExpr, isCodeInjection } from './flows/utils'
-	import ClickablePropertyPicker from './propertyPicker/ClickablePropertyPicker.svelte'
-	import OverlayPropertyPicker from './propertyPicker/OverlayPropertyPicker.svelte'
+	import DynamicInputHelpBox from './flows/content/DynamicInputHelpBox.svelte'
+	import type { PropPickerWrapperContext } from './flows/propPicker/PropPickerWrapper.svelte'
+	import { codeToStaticTemplate, getDefaultExpr, isCodeInjection } from './flows/utils'
+	import SimpleEditor from './SimpleEditor.svelte'
 	import Toggle from './Toggle.svelte'
+	import { Button } from './common'
+	import Icon from 'svelte-awesome'
+	import { faChain } from '@fortawesome/free-solid-svg-icons'
 
 	export let schema: Schema
 	export let arg: InputTransform | any
 	export let argName: string
 	export let extraLib: string = 'missing extraLib'
-	export let inputCheck: { [id: string]: boolean }
-	export let i: number | undefined = undefined
-	export let pickableProperties: Object | undefined = undefined
+	export let inputCheck: boolean = true
+	export let importPath: string | undefined = undefined
 
-	let overlays: { [id: string]: OverlayPropertyPicker } = {}
-	let monacos: { [id: string]: Editor } = {}
+	export let monaco: SimpleEditor | undefined = undefined
 
-	let inputCats: { [id: string]: InputCat } = {}
+	let inputCat: InputCat = 'object'
 	let propertyType = getPropertyType(arg)
 
 	function getPropertyType(arg: InputTransform | any): 'static' | 'javascript' {
-		let type: 'static' | 'javascript' = arg.type
+		let type: 'static' | 'javascript' = arg?.type ?? 'static'
 		if (type == 'javascript') {
 			if (codeToStaticTemplate(arg.expr)) {
 				type = 'static'
@@ -39,21 +37,18 @@
 		return type
 	}
 
-	function setPropertyType(id: string, rawValue: string, isRaw: boolean) {
+	function setPropertyType(rawValue: string) {
 		if (!arg) {
 			return
 		}
 
 		if (isCodeInjection(rawValue)) {
-			arg.expr = getCodeInjectionExpr(rawValue, isRaw)
+			arg.expr = getDefaultExpr(importPath, argName, `\`${rawValue}\``)
 			arg.type = 'javascript'
 			propertyType = 'static'
 		} else {
 			if (arg.type === 'javascript' && propertyType === 'static') {
 				arg.type = 'static'
-				if (inputCats[id] == 'number') {
-					arg.value = Number(arg.value)
-				}
 			}
 			if (arg.type) {
 				propertyType = arg.type
@@ -62,41 +57,27 @@
 	}
 
 	function isStaticTemplate(inputCat: InputCat) {
-		return inputCat === 'string' || inputCat === 'number' || inputCat === 'sql'
+		return inputCat === 'string' || inputCat === 'sql'
 	}
 
-	function focusProp(argName: string) {
-		Object.keys(overlays).forEach((k) => {
-			if (k == argName) {
-				overlays[k].focus()
-			} else {
-				overlays[k].unfocus()
-			}
-		})
-	}
-
-	function onPropertyLink(argName: string, rawValue: string) {
-		if (isStaticTemplate(inputCats[argName])) {
+	function connectProperty(rawValue: string) {
+		if (isStaticTemplate(inputCat)) {
 			arg.value = `\$\{${rawValue}}`
-			setPropertyType(argName, arg.value, false)
+			setPropertyType(arg.value)
 		} else {
-			arg.expr = getDefaultExpr(i ?? -1, undefined, rawValue)
-
+			arg.expr = getDefaultExpr(importPath, undefined, rawValue)
 			arg.type = 'javascript'
-
 			propertyType = 'javascript'
-		}
-
-		if (monacos[argName]) {
-			monacos[argName].setCode(arg.value)
 		}
 	}
 
 	$: checked = propertyType == 'javascript'
+
+	const { focusProp } = getContext<PropPickerWrapperContext>('PropPickerWrapper')
 </script>
 
 {#if arg != undefined}
-	<div class="flex justify-between items-center">
+	<div class="flex justify-between items-center mb-2">
 		<div class="flex items-center">
 			<FieldHeader
 				label={argName}
@@ -113,109 +94,108 @@
 				</span>
 			{/if}
 		</div>
-		<Toggle
-			bind:checked
-			options={{
-				right: 'Raw Javascript Editor'
-			}}
-			on:change={(e) => {
-				const type = e.detail ? 'javascript' : 'static'
-				const staticTemplate = isStaticTemplate(inputCats[argName])
-				if (type === 'javascript') {
-					arg.expr = getDefaultExpr(
-						i ?? -1,
-						argName,
-						staticTemplate ? `\`${arg.value ?? ''}\`` : undefined
-					)
-					arg.value = undefined
-					propertyType = 'javascript'
-				} else {
-					arg.value = staticTemplate ? codeToStaticTemplate(arg.expr) : undefined
+		<div class="flex flex-row space-x-2 items-center">
+			<Toggle
+				bind:checked
+				options={{
+					right: 'Raw Javascript Editor'
+				}}
+				on:change={(e) => {
+					const type = e.detail ? 'javascript' : 'static'
+					const staticTemplate = isStaticTemplate(inputCat)
+					if (type === 'javascript') {
+						arg.expr = getDefaultExpr(
+							importPath,
+							argName,
+							staticTemplate ? `\`${arg.value ?? ''}\`` : arg.value
+						)
 
-					arg.expr = undefined
-					propertyType = 'static'
-				}
+						arg.value = undefined
+						propertyType = 'javascript'
+					} else {
+						arg.value = staticTemplate ? codeToStaticTemplate(arg.expr) : undefined
 
-				arg.type = type
-			}}
-		/>
+						arg.expr = undefined
+						propertyType = 'static'
+					}
+
+					arg.type = type
+				}}
+			/>
+			<div
+				on:click={() => {
+					focusProp(argName, 'connect', (path) => {
+						connectProperty(path)
+					})
+				}}
+			>
+				<Button variant="contained" color="blue" size="md">
+					<Icon data={faChain} />
+				</Button>
+			</div>
+		</div>
 	</div>
 	<div class="max-w-xs" />
 
 	{#if propertyType === undefined || !checked}
-		<OverlayPropertyPicker
-			bind:this={overlays[argName]}
-			{pickableProperties}
-			disabled={!isStaticTemplate(inputCats[argName])}
-			on:select={(event) => {
-				const toAppend = `\$\{${event.detail}}`
-				arg.value = `${arg.value ?? ''}${toAppend}`
-				if (monacos[argName]) {
-					monacos[argName].setCode(arg.value)
+		<ArgInput
+			on:focus={() => {
+				if (isStaticTemplate(inputCat)) {
+					focusProp(argName, 'append', (path) => {
+						const toAppend = `\$\{${path}}`
+						arg.value = `${arg.value ?? ''}${toAppend}`
+						setPropertyType(arg.value)
+					})
+				} else {
+					focusProp(argName, 'insert', (path) => {
+						arg.expr = path
+						arg.type = 'javascript'
+						propertyType = 'javascript'
+					})
 				}
-				setPropertyType(argName, arg.value, false)
 			}}
-		>
-			<ArgInput
-				on:focus={() => focusProp(argName)}
-				label={argName}
-				bind:editor={monacos[argName]}
-				bind:description={schema.properties[argName].description}
-				bind:value={arg.value}
-				type={schema.properties[argName].type}
-				required={schema.required.includes(argName)}
-				bind:pattern={schema.properties[argName].pattern}
-				bind:valid={inputCheck[argName]}
-				defaultValue={schema.properties[argName].default}
-				bind:enum_={schema.properties[argName].enum}
-				bind:format={schema.properties[argName].format}
-				contentEncoding={schema.properties[argName].contentEncoding}
-				bind:itemsType={schema.properties[argName].items}
-				displayHeader={false}
-				bind:inputCat={inputCats[argName]}
-				numberAsString={true}
-				on:input={(e) => {
-					if (isStaticTemplate(inputCats[argName])) {
-						setPropertyType(argName, e.detail.rawValue, e.detail.isRaw)
-					}
-				}}
-			>
-				<div slot="actions">
-					<ClickablePropertyPicker
-						bind:pickableProperties
-						on:select={(event) => onPropertyLink(argName, event.detail)}
-					>
-						<Tooltip placement="bottom" content="Input connect">
-							<Button color="blue" size="sm" class="h-8">
-								<Icon data={faChain} />
-							</Button>
-						</Tooltip>
-					</ClickablePropertyPicker>
-				</div>
-			</ArgInput>
-		</OverlayPropertyPicker>
+			label={argName}
+			bind:editor={monaco}
+			bind:description={schema.properties[argName].description}
+			bind:value={arg.value}
+			type={schema.properties[argName].type}
+			required={schema.required.includes(argName)}
+			bind:pattern={schema.properties[argName].pattern}
+			bind:valid={inputCheck}
+			defaultValue={schema.properties[argName].default}
+			bind:enum_={schema.properties[argName].enum}
+			bind:format={schema.properties[argName].format}
+			contentEncoding={schema.properties[argName].contentEncoding}
+			bind:itemsType={schema.properties[argName].items}
+			properties={schema.properties[argName].properties}
+			displayHeader={false}
+			bind:inputCat
+			on:input={(e) => {
+				if (isStaticTemplate(inputCat)) {
+					setPropertyType(e.detail.rawValue)
+				}
+			}}
+		/>
 	{:else if checked}
 		{#if arg.expr != undefined}
-			<OverlayPropertyPicker
-				bind:this={overlays[argName]}
-				{pickableProperties}
-				on:select={(event) => {
-					monacos[argName].insertAtCursor(event.detail)
-				}}
-			>
-				<div class="border rounded p-2 mt-2 border-gray-300">
-					<Editor
-						bind:this={monacos[argName]}
-						on:focus={() => focusProp(argName)}
-						bind:code={arg.expr}
-						lang="javascript"
-						class="few-lines-editor"
-						{extraLib}
-						extraLibPath="file:///node_modules/@types/windmill@{i}/index.d.ts"
-					/>
-				</div>
-			</OverlayPropertyPicker>
-			<DynamicInputHelpBox />
+			<div class="border rounded p-2 mt-2 border-gray-300">
+				<SimpleEditor
+					bind:this={monaco}
+					on:focus={() => {
+						focusProp(argName, 'insert', (path) => {
+							monaco?.insertAtCursor(path)
+						})
+					}}
+					bind:code={arg.expr}
+					lang="javascript"
+					class="few-lines-editor"
+					{extraLib}
+					extraLibPath="file:///node_modules/@types/windmill@{importPath}/index.d.ts"
+					shouldBindKey={false}
+				/>
+			</div>
+			<DynamicInputHelpBox {importPath} />
+			<div class="mb-2" />
 		{/if}
 	{:else}
 		<p>Not recognized arg type {arg.type}</p>

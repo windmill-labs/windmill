@@ -9,11 +9,9 @@
 <script lang="ts">
 	import { page } from '$app/stores'
 	import { sendUserToast, formatCron } from '$lib/utils'
-	import { ScriptService, type Script, ScheduleService, type Flow, FlowService } from '$lib/gen'
-
-	import PageHeader from '$lib/components/PageHeader.svelte'
+	import { ScriptService, Script, ScheduleService, type Flow, FlowService } from '$lib/gen'
 	import Path from '$lib/components/Path.svelte'
-
+	import { Button } from '$lib/components/common'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import { goto } from '$app/navigation'
 	import { workspaceStore } from '$lib/stores'
@@ -94,7 +92,8 @@
 					offset: OFFSET,
 					script_path,
 					is_flow,
-					args
+					args,
+					enabled: true
 				}
 			})
 			goto('/schedules')
@@ -111,17 +110,17 @@
 </script>
 
 <CenteredPage>
-	<PageHeader title={edit ? 'Edit schedule ' + path : 'New schedule'} />
+	<h1 class="mb-4">{edit ? 'Edit schedule ' + path : 'New schedule'}</h1>
 
 	<div>
 		{#if !edit}
-			<h2>Save schedule as</h2>
+			<h2 class="border-b pb-1 mt-8 mb-2">Save schedule as</h2>
 
 			<Path
 				bind:error={pathError}
 				bind:path
 				{initialPath}
-				namePlaceholder={'my/schedule'}
+				namePlaceholder={'my_schedule'}
 				kind="schedule"
 			>
 				<div slot="ownerToolkit">
@@ -134,13 +133,18 @@
 			>
 		{/if}
 
-		<h2 class="my-2 md:mt-6">Script</h2>
+		<h2 class="border-b pb-1 mt-8 mb-2">Script</h2>
 		<p class="text-xs mb-1 text-gray-600">
 			Pick a script or flow to be triggered by the schedule<Required required={true} />
 		</p>
-		<ScriptPicker isTrigger={false} allowFlow={true} bind:itemKind bind:scriptPath={script_path} />
-		<div class="max-w-5xl {edit ? '' : 'mt-2 md:mt-6'}">
-			<h2>Arguments</h2>
+		<ScriptPicker
+			kind={Script.kind.SCRIPT}
+			allowFlow={true}
+			bind:itemKind
+			bind:scriptPath={script_path}
+		/>
+		<div class={edit ? '' : 'mt-2 md:mt-6'}>
+			<h2 class="border-b pb-1 mt-8 mb-2">Arguments</h2>
 			{#if runnable}
 				{#if runnable?.schema && runnable.schema.properties && Object.keys(runnable.schema.properties).length > 0}
 					<SchemaForm schema={runnable.schema} bind:isValid bind:args />
@@ -155,20 +159,16 @@
 				</div>
 			{/if}
 		</div>
-		<h2 class="mt-2 md:mt-6">
-			Schedule<Tooltip>Schedules use CRON syntax. Seconds are mandatory.</Tooltip>
+		<h2 class="border-b pb-1 mt-8 mb-2">
+			<span class="mr-1">Schedule</span>
+			<Tooltip>Schedules use CRON syntax. Seconds are mandatory.</Tooltip>
 		</h2>
 		<CronInput bind:schedule bind:validCRON />
 		<div class="flex flex-row-reverse mt-2 ">
 			<div>
-				<button
-					type="submit"
-					disabled={!allowSchedule || pathError != ''}
-					class="default-button w-min px-6"
-					on:click={scheduleScript}
-				>
+				<Button disabled={!allowSchedule || pathError != ''} on:click={scheduleScript}>
 					{edit ? 'Save' : 'Schedule'}
-				</button>
+				</Button>
 			</div>
 		</div>
 	</div>

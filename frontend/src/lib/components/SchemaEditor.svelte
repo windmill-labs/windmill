@@ -2,13 +2,12 @@
 	import type { Schema, SchemaProperty } from '$lib/common'
 	import { emptySchema, sendUserToast } from '$lib/utils'
 	import { faPen, faPlus, faTrash } from '@fortawesome/free-solid-svg-icons'
-	import { Button } from 'flowbite-svelte'
+	import { Button } from './common'
 	import { createEventDispatcher } from 'svelte'
-	import Icon from 'svelte-awesome'
-	import Editor from './Editor.svelte'
 	import SchemaEditorProperty from './SchemaEditorProperty.svelte'
 	import type { ModalSchemaProperty } from './SchemaModal.svelte'
 	import SchemaModal, { DEFAULT_PROPERTY, schemaToModal } from './SchemaModal.svelte'
+	import SimpleEditor from './SimpleEditor.svelte'
 	import TableCustom from './TableCustom.svelte'
 	import Toggle from './Toggle.svelte'
 	import Tooltip from './Tooltip.svelte'
@@ -65,7 +64,9 @@
 		} else {
 			schema.properties[modalProperty.name] = modalToSchema(modalProperty)
 			if (modalProperty.required) {
-				schema.required = [...schema.required, modalProperty.name]
+				if (!schema.required.includes(modalProperty.name)) {
+					schema.required.push(modalProperty.name)
+				}
 			} else if (schema.required.includes(modalProperty.name)) {
 				const index = schema.required.indexOf(modalProperty.name, 0)
 				if (index > -1) {
@@ -138,15 +139,17 @@
 </script>
 
 <div class="flex flex-col">
-	<div class="flex justify-between">
+	<div class="flex justify-between gap-x-2">
 		<Button
+			variant="contained"
+			color="blue"
+			size="sm"
+			startIcon={{ icon: faPlus }}
 			on:click={() => {
 				modalProperty = Object.assign({}, DEFAULT_PROPERTY)
 				schemaModal.openModal()
 			}}
-			color="blue"
 		>
-			<Icon data={faPlus} class="mr-1" />
 			Add argument
 		</Button>
 
@@ -188,21 +191,30 @@
 										<SchemaEditorProperty {property} />
 									</td>
 									<td>{property.description}</td>
-									<td>{JSON.stringify(property.default) ?? ''}</td>
-									<td>{schema.required.includes(name) ? 'Required' : 'Optional'}</td>
+									<td>{property.default ? JSON.stringify(property.default) : ''}</td>
+									<td
+										>{#if schema.required.includes(name)}
+											<span class="text-red-600 font-bold text-lg">*</span>
+										{/if}</td
+									>
 									<td class="justify-end flex">
 										<Button
 											color="red"
-											outline
-											class="mr-2"
-											size="xs"
+											variant="border"
+											btnClasses="mr-2"
+											size="sm"
+											startIcon={{ icon: faTrash }}
 											on:click={() => handleDeleteArgument(name)}
 										>
-											<Icon data={faTrash} class="mr-2" scale={0.8} />
 											Delete
 										</Button>
-										<Button color="alternative" size="xs" on:click={() => startEditArgument(name)}>
-											<Icon data={faPen} class="mr-2" scale={0.8} />
+										<Button
+											color="light"
+											variant="border"
+											size="sm"
+											startIcon={{ icon: faPen }}
+											on:click={() => startEditArgument(name)}
+										>
 											Edit
 										</Button>
 									</td>
@@ -216,7 +228,7 @@
 			</div>
 		{:else}
 			<div class="border rounded mt-4 p-2">
-				<Editor
+				<SimpleEditor
 					on:change={() => {
 						try {
 							schema = JSON.parse(schemaString)

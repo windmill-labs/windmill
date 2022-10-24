@@ -33,41 +33,62 @@
         "token_url": "https://oauth2.googleapis.com/token",
         "scopes": [
             "https://www.googleapis.com/auth/spreadsheets"
-        ]
+        ],
+        "extra_params": {
+            "access_type": "offline",
+            "consent": "prompt"
+        }
     },
     "gdrive": {
         "auth_url": "https://accounts.google.com/o/oauth2/v2/auth",
         "token_url": "https://oauth2.googleapis.com/token",
         "scopes": [
             "https://www.googleapis.com/auth/drive"
-        ]
+        ],
+        "extra_params": {
+            "access_type": "offline",
+            "consent": "prompt"
+        }
     },
     "gmail": {
         "auth_url": "https://accounts.google.com/o/oauth2/v2/auth",
         "token_url": "https://oauth2.googleapis.com/token",
         "scopes": [
-            "https://mail.google.com/"
-        ]
+            "https://www.googleapis.com/auth/gmail.send"
+        ],
+        "extra_params": {
+            "access_type": "offline",
+            "consent": "prompt"
+        }
     },
     "gcal": {
         "auth_url": "https://accounts.google.com/o/oauth2/v2/auth",
         "token_url": "https://oauth2.googleapis.com/token",
         "scopes": [
             "https://www.googleapis.com/auth/calendar.events"
-        ]
+        ],
+        "extra_params": {
+            "access_type": "offline",
+            "consent": "prompt"
+        }
     },
     "gcloud": {
         "auth_url": "https://accounts.google.com/o/oauth2/v2/auth",
         "token_url": "https://oauth2.googleapis.com/token",
         "scopes": [
             "https://www.googleapis.com/auth/cloud-platform"
-        ]
+        ],
+        "extra_params": {
+            "access_type": "offline",
+            "consent": "prompt"
+        }
     },
-    "discord": {
-        "auth_url": "https://discordapp.com/api/oauth2/authorize",
-        "token_url": "https://discordapp.com/api/oauth2/token",
-        "scopes": [
-            "bot"
-        ]
+    "basecamp": {
+        "auth_url": "https://launchpad.37signals.com/authorization/new",
+        "token_url": "https://launchpad.37signals.com/authorization/token",
+        "scopes": [],
+        "extra_params": {
+            "type": "web_server"
+        }
     }
 }

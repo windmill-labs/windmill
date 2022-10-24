@@ -7,22 +7,24 @@ function clearCookies() {
 	document.cookie.split(";").forEach(function (c) { document.cookie = c.replace(/^ +/, "").replace(/=.*/, "=;expires=" + new Date().toUTCString() + ";path=/") })
 }
 export function logoutWithRedirect(rd?: string): void {
-	const error = document.cookie.includes('token')
-		? `error=${encodeURIComponent('You have been logged out because your session has expired.')}&`
-		: ''
-	clearCookies()
-	goto(`/user/login?${error}${rd ? 'rd=' + encodeURIComponent(rd) : ''}`)
+	if (rd?.split('?')[0] != '/user/login') {
+		const error = document.cookie.includes('token')
+			? `error=${encodeURIComponent('You have been logged out because your session has expired.')}&`
+			: ''
+		clearCookies()
+		goto(`/user/login?${error}${rd ? 'rd=' + encodeURIComponent(rd) : ''}`, { replaceState: true })
+	}
 }
 
-export async function logout(logoutMessage?: string): Promise<void> {
+export async function logout(): Promise<void> {
 	try {
 		clearStores()
 		await UserService.logout()
 		clearCookies()
-		goto(`/user/login${logoutMessage ? '?error=' + encodeURIComponent(logoutMessage) : ''}`)
-		sendUserToast('you have been logged out')
 	} catch (error) {
-		goto('/user/login')
 		console.error(error)
+		clearCookies()
 	}
+	goto(`/user/login`)
+	sendUserToast('you have been logged out')
 }

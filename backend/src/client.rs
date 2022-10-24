@@ -42,6 +42,6 @@ pub async fn get_resource(
         let value = res.json::<Option<serde_json::Value>>().await?;
         Ok(value)
     } else {
-        Err(Error::NotFound(format!("Variable not found at {path}")))?
+        Err(Error::NotFound(format!("Resource not found at {path}")))?
     }
 }

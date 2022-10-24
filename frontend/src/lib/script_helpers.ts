@@ -1,16 +1,15 @@
+import type { Script } from "./gen"
+
 export const PYTHON_INIT_CODE = `import os
 import wmill
 from datetime import datetime
-# Our webeditor includes a syntax, type checker through a language server running pyright
-# and the autoformatter Black in our servers. Use Cmd/Ctrl + S to autoformat the code.
-# Beware that the code is only saved when you click Save and not across reload.
-# You can however navigate to any steps safely.
+
 """
+Use Cmd/Ctrl + S to autoformat the code.
 The client is used to interact with windmill itself through its standard API.
-One can explore the methods available through autocompletion of \`client.XXX\`.
-Only the most common methods are included for ease of use. Request more as
-feedback if you feel you are missing important ones.
+One can explore the methods available through autocompletion of \`wmill.XXX\`.
 """
+
 def main(name: str = "Nicolas Bourbaki",
          age: int = 42,
          obj: dict = {"even": "dicts"},
@@ -32,42 +31,179 @@ def main(name: str = "Nicolas Bourbaki",
     # the return value is then parsed and can be retrieved by other scripts conveniently
     return {"version": version, "splitted": name.split(), "user": user}
 `
-export const DENO_INIT_CODE = `// only do the following import if you require your script to interact with the windmill
-// for instance to get a variable or resource
-// import * as wmill from 'https://deno.land/x/windmill@v${__pkg__.version}/mod.ts'
+export const DENO_INIT_CODE = `// reload the smart assistant on the top right if it dies to get autocompletion and syntax highlighting
+// (Ctrl+space to cache dependencies on imports hover).
+// to import most npm packages without deno.land, use esm:
+// import { toWords } from "https://esm.sh/number-to-words"
+// import * as wmill from "https://deno.land/x/windmill@v${__pkg__.version}/mod.ts"
 
-export async function main(x: string, y: string = 'default arg') {
-	// let x = await wmill.getVariable('u/user/foo');
-	// let y = await wmill.getResource('u/user/foo')
-	return { foo: x }
+export async function main(
+  a: number,
+  b: "my" | "enum",
+  d = "inferred type string from default arg",
+  c = { nested: "object" },
+  //e: wmill.Base64
+) {
+  // let x = await wmill.getVariable('u/user/foo')
+  return { foo: a };
 }
 `
 
-export const DENO_INIT_CODE_TRIGGER = `import * as wmill from 'https://deno.land/x/windmill@v${__pkg__.version}/mod.ts'
+export const GO_INIT_CODE = `package inner
+
+import (
+	"fmt"
+	"rsc.io/quote"
+  // wmill "github.com/windmill-labs/windmill-go-client"
+)
+
+func main(x string) (interface{}, error) {
+	fmt.Println("Hello, World")
+	fmt.Println(quote.Opt())
+  // v, _ := wmill.GetVariable("g/all/pretty_secret")
+  return x, nil
+}
+`
+
+export const GO_FAILURE_MODULE_CODE = `package inner
+
+import (
+	"fmt"
+  "os"
+)
+
+// connect the error parameter to 'previous_result.error'
+
+func main(error string) (interface{}, error) {
+	fmt.Println(error)
+	fmt.Println("job", os.Getenv("WM_JOB_ID"))
+  return x, nil
+}
+`
+
+export const DENO_INIT_CODE_CLEAR = `// import * as wmill from "https://deno.land/x/windmill@v${__pkg__.version}/mod.ts"
+
+export async function main(x: string) {
+  return x
+}
+`
+
+export const DENO_FAILURE_MODULE_CODE = `
+// connect the error parameter to 'previous_result.error'
+
+export async function main(error: string) {
+  const job = Deno.env.get("WM_JOB_ID")
+  console.log("error", error)
+  console.log("job", job)
+  return { error, job }
+}
+`
+
+export const PYTHON_INIT_CODE_CLEAR = `#import wmill
+
+def main(x: str):
+  return x
+`
+
+export const PYTHON_FAILURE_MODULE_CODE = `import os
+
+# connect the error parameter to 'previous_result.error'
+
+def main(error: str):
+  job = os.environ.get("WM_JOB_ID")
+  print("error", error)
+  print("job", job)
+  return error, job
+`
+
+export const POSTGRES_INIT_CODE = `import {
+  pgSql,
+  type Resource,
+} from "https://deno.land/x/windmill@v${__pkg__.version}/mod.ts";
+
+//PG parameterized statement. No SQL injection is possible.
+export async function main(
+  db: Resource<"postgresql"> = "$res:g/all/demodb",
+  key: string,
+  value: string,
+) {
+  const query = await pgSql(
+    db,
+  )\`INSERT INTO demo VALUES (\${key}, \${value}) RETURNING *\`;
+  return query.rows;
+}`
+
+export const DENO_INIT_CODE_TRIGGER = `import * as wmill from "https://deno.land/x/windmill@v${__pkg__.version}/mod.ts"
 
 export async function main() {
 
     // A common trigger script would follow this pattern:
     // 1. Get the last saved state
-	// let state = wmill.getInternalState()
+    // const state = await wmill.getInternalState()
     // 2. Get the actual state from the external service
-    // let newState = await (await fetch('https://hacker-news.firebaseio.com/v0/topstories.json')).json()
+    // const newState = await (await fetch('https://hacker-news.firebaseio.com/v0/topstories.json')).json()
     // 3. Compare the two states and update the internal state
-    // wmill.setInternalState(newState)
-    // 4. Return the new ros
+    // await wmill.setInternalState(newState)
+    // 4. Return the new rows
     // return range from (state to newState)
 
-	return [1,2,3]
+    return [1,2,3]
 
     // In subsequent scripts, you may refer to each row/value returned by the trigger script using
     // 'flow_input._value'
 }
 `
 
-export function initialCode(language: 'deno' | 'python3', is_trigger: boolean): string {
-    return language === 'deno'
-        ? is_trigger
-            ? DENO_INIT_CODE_TRIGGER
-            : DENO_INIT_CODE
-        : PYTHON_INIT_CODE
+export const DENO_INIT_CODE_APPROVAL = `import * as wmill from "https://deno.land/x/windmill@v1.41.0/mod.ts"
+
+export async function main(approver?: string) {
+  return wmill.getResumeEndpoints(approver)
+}`
+
+const ALL_INITIAL_CODE = [PYTHON_INIT_CODE, DENO_INIT_CODE, POSTGRES_INIT_CODE, DENO_INIT_CODE_TRIGGER, DENO_INIT_CODE_CLEAR, PYTHON_INIT_CODE_CLEAR, DENO_INIT_CODE_APPROVAL]
+
+export function isInitialCode(content: string): boolean {
+  for (const code of ALL_INITIAL_CODE) {
+    if (content === code) {
+      return true
+    }
+  }
+  return false
+}
+
+export function initialCode(language: 'deno' | 'python3' | 'go', kind: Script.kind, subkind: 'pgsql' | 'flow' | 'script' | 'failure' | 'approval' | undefined): string {
+  if (language === 'deno') {
+    if (kind === 'trigger') {
+      return DENO_INIT_CODE_TRIGGER
+    } else if (kind === 'script') {
+      if (subkind === 'flow') {
+        return DENO_INIT_CODE_CLEAR
+      } else if (subkind === 'failure') {
+        return DENO_FAILURE_MODULE_CODE
+      } else if (subkind === 'approval') {
+        return DENO_INIT_CODE_APPROVAL
+      }
+      else if (subkind === 'pgsql') {
+        return POSTGRES_INIT_CODE
+      } else {
+        return DENO_INIT_CODE
+      }
+    } else {
+      return DENO_INIT_CODE
+    }
+  } else if (language === 'python3') {
+    if (subkind === 'flow') {
+      return PYTHON_INIT_CODE_CLEAR
+    } else if (subkind === 'failure') {
+      return PYTHON_FAILURE_MODULE_CODE
+    } else {
+      return PYTHON_INIT_CODE
+    }
+  } else {
+    if (subkind === 'failure') {
+      return GO_FAILURE_MODULE_CODE
+    } else {
+      return GO_INIT_CODE
+    }
+  }
 }

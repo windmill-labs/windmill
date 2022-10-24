@@ -2,7 +2,7 @@
 	import { goto } from '$app/navigation'
 	import { page } from '$app/stores'
 	import { FlowService, ScheduleService, type Flow } from '$lib/gen'
-	import { clearPreviewResults, workspaceStore } from '$lib/stores'
+	import { workspaceStore } from '$lib/stores'
 	import {
 		encodeState,
 		formatCron,
@@ -10,40 +10,47 @@
 		sendUserToast,
 		setQueryWithoutLoad
 	} from '$lib/utils'
-	import { Breadcrumb, BreadcrumbItem } from 'flowbite-svelte'
-	import { onMount } from 'svelte'
+	import { faGlobe, faPen } from '@fortawesome/free-solid-svg-icons'
+	import { setContext } from 'svelte'
+	import Icon from 'svelte-awesome'
+	import { writable } from 'svelte/store'
+	import CenteredPage from './CenteredPage.svelte'
+	import { Button } from './common'
+	import { dirtyStore } from './common/confirmationModal/dirtyStore'
+	import UnsavedConfirmationModal from './common/confirmationModal/UnsavedConfirmationModal.svelte'
 	import { OFFSET } from './CronInput.svelte'
-	import FlowEditor from './FlowEditor.svelte'
-	import { flowStore, mode } from './flows/flowStore'
-	import { flowToMode } from './flows/utils'
-
-	import ScriptSchema from './ScriptSchema.svelte'
+	import FlowEditor from './flows/FlowEditor.svelte'
+	import { flowStateStore } from './flows/flowState'
+	import { flowStore } from './flows/flowStore'
+	import FlowImportExportMenu from './flows/header/FlowImportExportMenu.svelte'
+	import { loadFlowSchedule, type Schedule } from './flows/scheduleUtils'
+	import type { FlowEditorContext } from './flows/types'
+	import { cleanInputs } from './flows/utils'
 
 	export let initialPath: string = ''
 	let pathError = ''
 
-	let scheduleArgs: Record<string, any>
-	let scheduleEnabled
-	let scheduleCron: string
-
-	$: step = Number($page.url.searchParams.get('step')) || 1
-
 	async function createSchedule(path: string) {
+		const { cron, args, enabled } = $scheduleStore
+
 		await ScheduleService.createSchedule({
 			workspace: $workspaceStore!,
 			requestBody: {
 				path: path,
-				schedule: formatCron(scheduleCron),
+				schedule: formatCron(cron),
 				offset: OFFSET,
 				script_path: path,
 				is_flow: true,
-				args: scheduleArgs,
-				enabled: scheduleEnabled
+				args,
+				enabled
 			}
 		})
 	}
+
 	async function saveFlow(): Promise<void> {
-		const flow = flowToMode($flowStore, $mode)
+		const flow = cleanInputs($flowStore)
+		const { cron, args, enabled } = $scheduleStore
+		$dirtyStore = false
 
 		if (initialPath === '') {
 			await FlowService.createFlow({
@@ -56,7 +63,7 @@
 					schema: flow.schema
 				}
 			})
-			if ($mode == 'pull') {
+			if (enabled) {
 				await createSchedule(flow.path)
 			}
 		} else {
@@ -82,28 +89,28 @@
 				})
 				if (
 					schedule.path != flow.path ||
-					JSON.stringify(schedule.args) != JSON.stringify(scheduleArgs) ||
-					schedule.schedule != scheduleCron
+					JSON.stringify(schedule.args) != JSON.stringify(args) ||
+					schedule.schedule != cron
 				) {
 					await ScheduleService.updateSchedule({
 						workspace: $workspaceStore ?? '',
 						path: initialPath,
 						requestBody: {
-							schedule: formatCron(scheduleCron),
+							schedule: formatCron(cron),
 							script_path: flow.path,
 							is_flow: true,
-							args: scheduleArgs
+							args
 						}
 					})
 				}
-				if (scheduleEnabled != schedule.enabled) {
+				if (enabled != schedule.enabled) {
 					await ScheduleService.setScheduleEnabled({
 						workspace: $workspaceStore ?? '',
 						path: flow.path,
-						requestBody: { enabled: scheduleEnabled }
+						requestBody: { enabled }
 					})
 				}
-			} else {
+			} else if (enabled) {
 				await createSchedule(flow.path)
 			}
 		}
@@ -111,85 +118,112 @@
 		goto(`/flows/get/${$flowStore.path}`)
 	}
 
-	async function changeStep(step: number) {
-		goto(`?step=${step}`)
-	}
-
 	flowStore.subscribe((flow: Flow) => {
 		if (flow) {
-			setQueryWithoutLoad($page.url, 'state', encodeState(flowToMode(flow, $mode)))
+			setQueryWithoutLoad($page.url, 'state', encodeState(flow))
 		}
 	})
 
-	onMount(() => {
-		loadHubScripts()
-		clearPreviewResults()
+	const selectedIdStore = writable<string>('settings')
+	const scheduleStore = writable<Schedule>({ args: {}, cron: '', enabled: false })
+	const previewArgsStore = writable<Record<string, any>>({})
+
+	function select(selectedId: string) {
+		selectedIdStore.set(selectedId)
+	}
+
+	setContext<FlowEditorContext>('FlowEditorContext', {
+		selectedId: selectedIdStore,
+		schedule: scheduleStore,
+		select,
+		previewArgs: previewArgsStore
 	})
+
+	async function loadSchedule() {
+		loadFlowSchedule(initialPath, $workspaceStore)
+			.then((schedule: Schedule) => {
+				scheduleStore.set(schedule)
+			})
+			.catch(() => {
+				scheduleStore.set({
+					cron: '0 */5 * * *',
+					args: {},
+					enabled: false
+				})
+			})
+	}
+
+	$: initialPath && $workspaceStore && loadSchedule()
+
+	loadHubScripts()
 </script>
 
-<div class="flex flex-col max-w-screen-lg w-full mb-96 px-8">
+<UnsavedConfirmationModal />
+
+<div class="flex flex-col flex-1 h-full">
 	<!-- Nav between steps-->
-	<div class="justify-between flex flex-row w-full">
-		<Breadcrumb>
-			<BreadcrumbItem>
-				<button on:click={() => changeStep(1)} class={step === 1 ? 'font-bold' : null}>
-					Flow Editor
-				</button>
-			</BreadcrumbItem>
-			<BreadcrumbItem>
-				<button on:click={() => changeStep(2)} class={step === 2 ? 'font-bold' : null}>
-					UI customisation
-				</button>
-			</BreadcrumbItem>
-		</Breadcrumb>
-		<div class="flex flex-row-reverse ml-2">
-			{#if step == 1}
-				<button
-					disabled={pathError != ''}
-					class="default-button px-6 max-h-8"
-					on:click={() => changeStep(2)}
-				>
-					Next
-				</button>
-				<button
-					disabled={pathError != ''}
-					class="default-button-secondary px-6 max-h-8 mr-2"
-					on:click={saveFlow}
-				>
-					Save
-				</button>
-			{:else}
-				<button class="default-button px-6 self-end" on:click={saveFlow}>Save</button>
-			{/if}
+	<div class="justify-between flex flex-row w-full my-2 px-4 space-x-4 h-10">
+		<div id="flow_title" class="flex justify-between items-center">
+			<button class="flex flex-row items-center w-full h-full" on:click={() => select('settings')}>
+				<span class="font-mono text-sm"> {$flowStore.path}</span>
+				<Icon
+					data={faPen}
+					scale={0.8}
+					class="text-gray-500 ml-2 flex justify-center items-center mb-0.5"
+				/>
+			</button>
 		</div>
-	</div>
-	<div class="flex flex-row-reverse">
-		<span class="my-1 text-sm text-gray-500 italic">
-			{#if initialPath && initialPath != $flowStore?.path} {initialPath} &rightarrow; {/if}
-			{$flowStore?.path}
-		</span>
+		<div class="shrink h-full">
+			<button
+				class="flex flex-row items-center w-full h-full"
+				on:click={() => {
+					select('settings')
+					document.getElementById('flow-summary')?.focus()
+				}}
+			>
+				<div class="overflow-x-auto flex items-center h-full text-sm text-left font-semibold">
+					<div
+						>{$flowStore.summary == '' || !$flowStore.summary
+							? 'No summary'
+							: $flowStore.summary}</div
+					>
+				</div>
+				<div>
+					<Icon data={faPen} scale={0.8} class="text-gray-500 ml-1" />
+				</div>
+			</button>
+		</div>
+		<div class="flex flex-row-reverse ml-2 space-x-reverse space-x-2">
+			<Button disabled={pathError != ''} color="blue" size="sm" on:click={saveFlow}>Save</Button>
+			<FlowImportExportMenu />
+
+			<Button
+				color="light"
+				size="sm"
+				variant="border"
+				on:click={() => {
+					const url = new URL('https://hub.windmill.dev/flows/add')
+					const openFlow = {
+						value: $flowStore.value,
+						summary: $flowStore.summary,
+						description: $flowStore.description,
+						schema: $flowStore.schema
+					}
+					url.searchParams.append('flow', btoa(JSON.stringify(openFlow)))
+					window.open(url, '_blank')?.focus()
+				}}
+			>
+				<Icon data={faGlobe} scale={0.8} class="inline mr-2" />
+				Publish to Hub
+			</Button>
+		</div>
 	</div>
 
 	<!-- metadata -->
 
-	{#if $flowStore}
-		{#if step === 1}
-			<FlowEditor
-				bind:pathError
-				bind:initialPath
-				bind:scheduleEnabled
-				bind:scheduleCron
-				bind:scheduleArgs
-			/>
-		{:else if step === 2}
-			<ScriptSchema
-				synchronizedHeader={false}
-				bind:summary={$flowStore.summary}
-				bind:description={$flowStore.description}
-				bind:schema={$flowStore.schema}
-			/>
-		{/if}
+	{#if $flowStateStore}
+		<FlowEditor {initialPath} />
 	{:else}
-		<p>Loading</p>
+		<CenteredPage>Loading...</CenteredPage>
 	{/if}
 </div>

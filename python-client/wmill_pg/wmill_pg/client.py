@@ -5,7 +5,7 @@ import wmill
 import psycopg2
 
 
-def query(query: str, connection: str | dict[str, Any] = "g/all/postgres") -> list[tuple[Any, ...]] | None:
+def query(query: str, connection: "str | dict[str, Any]" = "g/all/postgres") -> "list[tuple[Any, ...]] | None":
     """
     Query a postgres database using psycopg2 library underneath. See its documentation for more info.
 

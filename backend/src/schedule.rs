@@ -14,7 +14,7 @@ use crate::{
     error::{self, Error, JsonResult, Result},
     jobs::{self, push, JobPayload},
     users::Authed,
-    utils::{get_owner_from_path, Pagination, StripPath},
+    utils::{get_owner_from_path, now_from_db, Pagination, StripPath},
 };
 use axum::{
     extract::{Extension, Path, Query},
@@ -25,7 +25,7 @@ use axum::{
 use chrono::{DateTime, Duration, FixedOffset};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
-use sqlx::{FromRow, Postgres, Transaction};
+use sqlx::{query_scalar, FromRow, Postgres, Transaction};
 
 pub fn workspaced_service() -> Router {
     Router::new()
@@ -76,11 +76,26 @@ pub async fn push_scheduled_job<'c>(
         .map_err(|e| error::Error::BadRequest(e.to_string()))?;
 
     let offset = Duration::minutes(schedule.offset_.into());
+    let now = now_from_db(&mut tx).await?;
     let next = sched
-        .after(&(chrono::Utc::now() - offset + Duration::seconds(1)))
+        .after(&(now - offset + Duration::seconds(1)))
         .next()
         .expect("a schedule should have a next event")
         + offset;
+
+    let already_exists: bool = query_scalar!(
+        "SELECT EXISTS (SELECT 1 FROM queue WHERE workspace_id = $1 AND schedule_path = $2 AND scheduled_for = $3)",
+        &schedule.workspace_id,
+        &schedule.path,
+        next
+    )
+    .fetch_one(&mut tx)
+    .await?
+    .unwrap_or(false);
+
+    if already_exists {
+        return Ok(tx);
+    }
 
     let mut args: Option<Map<String, Value>> = None;
 
@@ -107,6 +122,7 @@ pub async fn push_scheduled_job<'c>(
             path: schedule.script_path,
         }
     };
+
     let (_, tx) = push(
         tx,
         &schedule.workspace_id,
@@ -117,6 +133,7 @@ pub async fn push_scheduled_job<'c>(
         Some(next),
         Some(schedule.path),
         None,
+        false,
         false,
     )
     .await?;
@@ -146,7 +163,7 @@ async fn create_schedule(
         ns.script_path,
         ns.is_flow,
         ns.args,
-        ns.enabled
+        ns.enabled.unwrap_or(false),
     )
     .fetch_one(&mut tx)
     .await
@@ -171,11 +188,9 @@ async fn create_schedule(
     )
     .await?;
 
-    let tx = if ns.enabled.unwrap_or(true) {
-        push_scheduled_job(tx, schedule).await?
-    } else {
-        tx
-    };
+    if ns.enabled.unwrap_or(true) {
+        tx = push_scheduled_job(tx, schedule).await?
+    }
     tx.commit().await?;
 
     Ok(ns.path.to_string())
@@ -217,9 +232,12 @@ pub struct EditSchedule {
 }
 
 async fn clear_schedule<'c>(db: &mut Transaction<'c, Postgres>, path: &str) -> Result<()> {
-    sqlx::query!("DELETE FROM queue WHERE schedule_path = $1", path)
-        .execute(db)
-        .await?;
+    sqlx::query!(
+        "DELETE FROM queue WHERE schedule_path = $1 AND running = false",
+        path
+    )
+    .execute(db)
+    .await?;
     Ok(())
 }
 

@@ -11,18 +11,35 @@
 	import { page } from '$app/stores'
 	import { faGithub, faGitlab, faGoogle } from '@fortawesome/free-brands-svg-icons'
 	import { onMount } from 'svelte'
-	import Icon from 'svelte-awesome'
 	import { slide } from 'svelte/transition'
 	import { OauthService, UserService, WorkspaceService } from '$lib/gen'
 	import { clearStores, usersWorkspaceStore, workspaceStore, userStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/utils'
 	import CenteredModal from '$lib/components/CenteredModal.svelte'
 	import { getUserExt, refreshSuperadmin } from '$lib/user'
+	import { Button } from '$lib/components/common'
 
 	let email = $page.url.searchParams.get('email') ?? ''
 	let password = $page.url.searchParams.get('password') ?? ''
 	const error = $page.url.searchParams.get('error') ?? undefined
 	const rd = $page.url.searchParams.get('rd')
+	const providers = [
+		{
+			type: 'github',
+			name: 'Github',
+			icon: faGithub
+		},
+		{
+			type: 'gitlab',
+			name: 'Gitlab',
+			icon: faGitlab
+		},
+		{
+			type: 'google',
+			name: 'Google',
+			icon: faGoogle
+		}
+	] as const
 
 	let showPassword = false
 	let logins: string[] = []
@@ -49,13 +66,9 @@
 
 	function redirectUser() {
 		if ($workspaceStore) {
-			if (rd) {
-				goto(decodeURI(rd))
-			} else {
-				goto('/')
-			}
+			goto(rd ?? '/')
 		} else {
-			goto('/user/workspaces')
+			goto(`/user/workspaces${rd ? `?rd=${encodeURIComponent(rd)}` : ''}`)
 		}
 	}
 
@@ -83,6 +96,13 @@
 		}
 	}
 
+	function storeRedirect(provider: typeof providers[number]['type']) {
+		if (rd) {
+			localStorage.setItem('rd', rd)
+		}
+		goto('/api/oauth/login/' + provider)
+	}
+
 	if (error) {
 		sendUserToast(error, true)
 	}
@@ -92,32 +112,19 @@
 	<!-- Enable submit form on enter -->
 	<CenteredModal>
 		<div class="justify-center text-center flex flex-col">
-			{#if logins.includes('github')}
-				<a rel="external" href="/api/oauth/login/github"
-					><button class="m-auto default-button bg-black mt-2 py-2 w-full text-gray-200"
-						>Github &nbsp;
-						<Icon class="text-white pb-1" data={faGithub} scale={1.4} />
-					</button></a
-				>
-			{/if}
-			{#if logins.includes('gitlab')}
-				<a rel="external" href="/api/oauth/login/gitlab"
-					><button
-						class="m-auto default-button bg-orange-400 mt-2 py-2 w-full text-black hover:bg-orange-600"
-						>Gitlab &nbsp;
-						<Icon class="pb-1" data={faGitlab} scale={1.4} />
-					</button></a
-				>
-			{/if}
-			{#if logins.includes('google')}
-				<a rel="external" href="/api/oauth/login/google"
-					><button
-						class="m-auto default-button bg-gray-100 mt-2 py-2 w-full text-black hover:bg-blue-300"
-						>Google &nbsp;
-						<Icon class="pb-1" data={faGoogle} scale={1.4} />
-					</button></a
-				>
-			{/if}
+			{#each providers as { type, icon, name }}
+				{#if logins.includes(type)}
+					<Button
+						color="dark"
+						variant="border"
+						endIcon={{ icon }}
+						btnClasses="mt-2"
+						on:click={() => storeRedirect(type)}
+					>
+						{name}
+					</Button>
+				{/if}
+			{/each}
 		</div>
 		<div class="flex flex-row-reverse w-full">
 			<button
@@ -137,21 +144,20 @@
 				</p>
 				<label class="block pb-2">
 					<span class="text-gray-700">email</span>
-					<input bind:value={email} class="default-input" id="email" />
+					<input bind:value={email} class="mt-1" id="email" />
 				</label>
 				<label class="block ">
 					<span class="text-gray-700">password</span>
 					<input
-						py-8
 						type="password"
 						on:keyup={handleKeyUp}
 						bind:value={password}
-						class="default-input"
+						class="mt-1"
 						id="password"
 					/>
 				</label>
-				<div class="flex flex-row-reverse  pt-4">
-					<button id="login2" class="default-button" type="button" on:click={login}> Login </button>
+				<div class="flex justify-end pt-4">
+					<Button id="login2" on:click={login}>Login</Button>
 				</div>
 			</div>
 		{/if}

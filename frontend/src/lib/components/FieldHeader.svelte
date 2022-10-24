@@ -11,15 +11,16 @@
 		| undefined = undefined
 </script>
 
-<h3>
+<div>
 	<span class="font-semibold">
-		{label}<Required {required} />
+		{label}
 	</span>
-	<span class="text-sm italic text-indigo-800"
-		>({type ?? 'any'}{contentEncoding && contentEncoding != ''
+	<span class="text-sm italic text-indigo-800">
+		({type ?? 'any'}{contentEncoding && contentEncoding != ''
 			? `, encoding: ${contentEncoding}`
 			: ''}{format && format != '' ? `, format: ${format}` : ''}{itemsType?.type
 			? ` of ${itemsType?.type}s`
 			: ''})</span
 	>
-</h3>
+	<Required {required} class="!ml-0" />
+</div>

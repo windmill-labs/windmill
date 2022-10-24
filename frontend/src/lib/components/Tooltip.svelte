@@ -41,7 +41,11 @@
 </script>
 
 <button use:popperRef on:mouseenter={open} on:mouseleave={close}>
-	<Icon class="text-gray-500 font-thin inline-block align-middle" data={faInfoCircle} scale={0.8} />
+	<Icon
+		class="text-gray-500 font-thin inline-block align-middle w-4"
+		data={faInfoCircle}
+		scale={0.8}
+	/>
 </button>
 {#if showTooltip}
 	<div
@@ -53,12 +57,11 @@
 		class="w-96 text-left"
 	>
 		<slot />
-		<div id="arrow" data-popper-arrow />
 	</div>
 {/if}
 
 <style>
 	#tooltip {
-		@apply z-50 font-normal text-gray-300 bg-zinc-800 p-4 rounded-xl whitespace-normal;
+		@apply z-50 text-base font-normal text-gray-300 bg-gray-800 p-4 rounded-xl whitespace-normal;
 	}
 </style>

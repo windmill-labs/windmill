@@ -10,18 +10,18 @@ use axum::{
     routing::{get, post},
     Json, Router,
 };
-use chrono::{Duration, Utc};
 use hyper::StatusCode;
 use itertools::Itertools;
 
 use oauth2::{Client as OClient, *};
 use reqwest::Client;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
-use slack_http_verifier::SlackVerifier;
 use sqlx::{Postgres, Transaction};
 use tokio::{fs::File, io::AsyncReadExt};
 use tower_cookies::{Cookie, Cookies};
 
+use crate::utils::now_from_db;
+use crate::IsSecure;
 use crate::{
     audit::{audit_log, ActionKind},
     db::{UserDB, DB},
@@ -34,6 +34,13 @@ use crate::{
     workspaces::WorkspaceSettings,
     BaseUrl,
 };
+
+use std::str;
+
+use hmac::{Hmac, Mac};
+use sha2::Sha256;
+
+pub type HmacSha256 = Hmac<Sha256>;
 
 pub fn global_service() -> Router {
     Router::new()
@@ -64,6 +71,7 @@ pub fn workspaced_service() -> Router {
 pub struct ClientWithScopes {
     client: OClient,
     scopes: Vec<String>,
+    extra_params: Option<HashMap<String, String>>,
 }
 
 pub type BasicClientsMap = HashMap<String, ClientWithScopes>;
@@ -73,6 +81,7 @@ pub struct OAuthConfig {
     auth_url: String,
     token_url: String,
     scopes: Option<Vec<String>>,
+    extra_params: Option<HashMap<String, String>>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -120,6 +129,7 @@ pub async fn build_oauth_clients(base_url: &str) -> anyhow::Result<AllClients> {
         .filter(|x| oauths.contains_key(&x.0))
         .map(|(k, v)| {
             let scopes = v.scopes.clone();
+            let extra_params = v.extra_params.clone();
             let named_client = build_basic_client(
                 k.clone(),
                 v,
@@ -129,7 +139,11 @@ pub async fn build_oauth_clients(base_url: &str) -> anyhow::Result<AllClients> {
             );
             (
                 named_client.0,
-                ClientWithScopes { client: named_client.1, scopes: scopes.unwrap_or(vec![]) },
+                ClientWithScopes {
+                    client: named_client.1,
+                    scopes: scopes.unwrap_or(vec![]),
+                    extra_params,
+                },
             )
         })
         .collect();
@@ -139,6 +153,8 @@ pub async fn build_oauth_clients(base_url: &str) -> anyhow::Result<AllClients> {
         .filter(|x| oauths.contains_key(&x.0))
         .map(|(k, v)| {
             let scopes = v.scopes.clone();
+            let extra_params = v.extra_params.clone();
+
             let named_client = build_basic_client(
                 k.clone(),
                 v,
@@ -148,7 +164,11 @@ pub async fn build_oauth_clients(base_url: &str) -> anyhow::Result<AllClients> {
             );
             (
                 named_client.0,
-                ClientWithScopes { client: named_client.1, scopes: scopes.unwrap_or(vec![]) },
+                ClientWithScopes {
+                    client: named_client.1,
+                    scopes: scopes.unwrap_or(vec![]),
+                    extra_params,
+                },
             )
         })
         .collect();
@@ -160,6 +180,7 @@ pub async fn build_oauth_clients(base_url: &str) -> anyhow::Result<AllClients> {
                 auth_url: "https://slack.com/oauth/authorize".to_string(),
                 token_url: "https://slack.com/api/oauth.access".to_string(),
                 scopes: None,
+                extra_params: None,
             },
             v.clone(),
             false,
@@ -178,18 +199,8 @@ pub fn build_basic_client(
     login: bool,
     base_url: &str,
 ) -> (String, OClient) {
-    let mut auth_url = Url::parse(&config.auth_url).expect("Invalid authorization endpoint URL");
+    let auth_url = Url::parse(&config.auth_url).expect("Invalid authorization endpoint URL");
     let token_url = Url::parse(&config.token_url).expect("Invalid token endpoint URL");
-
-    if ["gcal", "gdrive", "gsheets", "gcloud", "gmail"]
-        .into_iter()
-        .any(|x| x == name)
-    {
-        auth_url
-            .query_pairs_mut()
-            .append_pair("access_type", "offline")
-            .append_pair("prompt", "consent");
-    }
 
     let redirect_url = if login {
         format!("{base_url}/user/login_callback/{name}")
@@ -234,23 +245,24 @@ pub struct SlackBotToken {
     bot_access_token: String,
 }
 
-#[derive(Deserialize)]
-struct ConnectScopes {
-    scopes: Option<String>,
-}
 async fn connect(
     Path(client_name): Path<String>,
-    Query(ConnectScopes { scopes }): Query<ConnectScopes>,
+    Query(query): Query<HashMap<String, String>>,
     Extension(clients): Extension<Arc<AllClients>>,
     cookies: Cookies,
 ) -> error::Result<Redirect> {
+    let mut query = query.clone();
     let connects = &clients.connects;
-    oauth_redirect(
-        connects,
-        client_name,
-        cookies,
-        scopes.map(|x| x.split('+').map(|x| x.to_owned()).collect()),
-    )
+    let scopes = query
+        .get("scopes")
+        .map(|x| x.split('+').map(|x| x.to_owned()).collect());
+    query.remove("scopes");
+    let extra_params = if query.is_empty() {
+        None
+    } else {
+        Some(query.clone())
+    };
+    oauth_redirect(connects, client_name, cookies, scopes, extra_params)
 }
 
 #[derive(Deserialize)]
@@ -268,14 +280,13 @@ async fn create_account(
 ) -> error::Result<String> {
     let mut tx = user_db.begin(&authed).await?;
 
-    let expires_at = chrono::Utc::now() + Duration::seconds(payload.expires_in);
     let id = sqlx::query_scalar!(
         "INSERT INTO account (workspace_id, client, owner, expires_at, refresh_token) VALUES ($1, \
-         $2, $3, $4, $5) RETURNING id",
+         $2, $3, now() + ($4 || ' seconds')::interval, $5) RETURNING id",
         w_id,
         payload.client,
         payload.owner,
-        expires_at,
+        payload.expires_in.to_string(),
         payload.refresh_token
     )
     .fetch_one(&mut tx)
@@ -329,14 +340,27 @@ async fn list_logins(
     ))
 }
 
+#[derive(Serialize)]
+struct ScopesAndParams {
+    scopes: Vec<String>,
+    extra_params: Option<HashMap<String, String>>,
+}
 async fn list_connects(
     Extension(clients): Extension<Arc<AllClients>>,
-) -> error::JsonResult<HashMap<String, Vec<String>>> {
+) -> error::JsonResult<HashMap<String, ScopesAndParams>> {
     Ok(Json(
         (&clients.connects)
             .into_iter()
-            .map(|(k, v)| (k.to_owned(), v.scopes.clone()))
-            .collect::<HashMap<String, Vec<String>>>(),
+            .map(|(k, v)| {
+                (
+                    k.to_owned(),
+                    ScopesAndParams {
+                        scopes: v.scopes.clone(),
+                        extra_params: v.extra_params.clone(),
+                    },
+                )
+            })
+            .collect::<HashMap<String, ScopesAndParams>>(),
     ))
 }
 
@@ -403,7 +427,7 @@ async fn login(
     cookies: Cookies,
 ) -> error::Result<Redirect> {
     let clients = &clients.logins;
-    oauth_redirect(clients, client_name, cookies, None)
+    oauth_redirect(clients, client_name, cookies, None, None)
 }
 
 #[derive(Deserialize)]
@@ -454,7 +478,7 @@ pub async fn _refresh_token<'c>(
         .execute::<TokenResponse>()
         .await
         .map_err(to_anyhow)?;
-    let expires_at = Utc::now()
+    let expires_at = now_from_db(&mut tx).await?
         + chrono::Duration::seconds(
             token
                 .expires_in
@@ -660,6 +684,7 @@ async fn slack_command(
                 None,
                 None,
                 false,
+                false,
             )
             .await?;
             tx.commit().await?;
@@ -688,6 +713,7 @@ async fn login_callback(
     Extension(clients): Extension<Arc<AllClients>>,
     Extension(db): Extension<DB>,
     Extension(http_client): Extension<Client>,
+    Extension(is_secure): Extension<Arc<IsSecure>>,
 ) -> error::Result<String> {
     let client = (&clients
         .logins
@@ -713,7 +739,14 @@ async fn login_callback(
         if let Some((email, login_type, super_admin)) = login {
             let login_type = serde_json::json!(login_type);
             if login_type == client_name {
-                crate::users::create_session_token(&email, super_admin, &mut tx, cookies).await?;
+                crate::users::create_session_token(
+                    &email,
+                    super_admin,
+                    &mut tx,
+                    cookies,
+                    is_secure.0,
+                )
+                .await?;
             } else {
                 return Err(error::Error::BadRequest(format!(
                     "an user with the email associated to this login exists but with a different \
@@ -733,15 +766,16 @@ async fn login_callback(
             .bind(user.company)
             .execute(&mut tx)
             .await?;
-            crate::users::create_session_token(&email, false, &mut tx, cookies).await?;
+            crate::users::create_session_token(&email, false, &mut tx, cookies, is_secure.0)
+                .await?;
             audit_log(
                 &mut tx,
                 &email,
                 "oauth.signup",
                 ActionKind::Create,
                 "global",
-                Some("github"),
-                None,
+                Some(&email),
+                Some([("method", &client_name[..])].into()),
             )
             .await?;
             let demo_exists =
@@ -895,6 +929,7 @@ fn oauth_redirect(
     client_name: String,
     cookies: Cookies,
     scopes: Option<Vec<String>>,
+    extra_params: Option<HashMap<String, String>>,
 ) -> error::Result<Redirect> {
     let client_w_scopes = clients
         .get(&client_name)
@@ -911,9 +946,17 @@ fn oauth_redirect(
         client.add_scope(scope);
     }
 
-    let url = client.authorize_url(&state);
+    let mut auth_url = client.authorize_url(&state);
+
+    if let Some(extra_params) = extra_params {
+        let mut query_string = auth_url.query_pairs_mut();
+        for (key, value) in extra_params {
+            query_string.append_pair(&key, &value);
+        }
+    }
+
     set_cookie(&state, cookies);
-    Ok(Redirect::to(url.as_str()))
+    Ok(Redirect::to(auth_url.as_str()))
 }
 
 fn set_cookie(state: &State, cookies: Cookies) {
@@ -921,4 +964,29 @@ fn set_cookie(state: &State, cookies: Cookies) {
     let mut cookie = Cookie::new("csrf", csrf);
     cookie.set_path("/");
     cookies.add(cookie);
+}
+
+#[derive(Clone, Debug)]
+pub struct SlackVerifier {
+    mac: HmacSha256,
+}
+
+impl SlackVerifier {
+    pub fn new<S: AsRef<[u8]>>(secret: S) -> anyhow::Result<SlackVerifier> {
+        HmacSha256::new_from_slice(secret.as_ref())
+            .map(|mac| SlackVerifier { mac })
+            .map_err(|_| anyhow::anyhow!("invalid secret"))
+    }
+
+    pub fn verify(&self, ts: &str, body: &str, exp_sig: &str) -> anyhow::Result<()> {
+        let basestring = format!("v0:{}:{}", ts, body);
+        let mut mac = self.mac.clone();
+
+        mac.update(basestring.as_bytes());
+        let sig = format!("v0={}", hex::encode(mac.finalize().into_bytes()));
+        if sig != exp_sig {
+            Err(anyhow::anyhow!("signature mismatch"))?;
+        }
+        Ok(())
+    }
 }

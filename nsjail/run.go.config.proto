@@ -1,0 +1,147 @@
+name: "go run script"
+
+mode: ONCE
+hostname: "go"
+log_level: ERROR
+time_limit: 300
+
+rlimit_as: 2048
+rlimit_cpu: 1000
+rlimit_fsize: 1024
+rlimit_nofile: 64
+
+cwd: "/tmp/go"
+
+clone_newnet: false
+clone_newuser: {CLONE_NEWUSER}
+
+keep_caps: false
+keep_env: true
+
+mount {
+    src: "/bin"
+    dst: "/bin"
+	is_bind: true
+}
+
+mount {
+    src: "/lib"
+    dst: "/lib"
+	is_bind: true
+}
+
+
+mount {
+    src: "/lib64"
+    dst: "/lib64"
+	is_bind: true
+}
+
+
+mount {
+    src: "/usr"
+    dst: "/usr"
+	is_bind: true
+}
+
+mount {
+	src: "/dev/null"
+	dst: "/dev/null"
+	is_bind: true
+	rw: true
+}
+
+mount {
+	dst: "/tmp"
+	fstype: "tmpfs"
+	rw: true
+    options: "size=500000000"
+}
+
+mount {
+    src: "{JOB_DIR}/go.sum"
+    dst: "/tmp/go/go.sum"
+    is_bind: true
+    mandatory: false
+}
+
+mount {
+    src: "{JOB_DIR}/go.mod"
+    dst: "/tmp/go/go.mod"
+    is_bind: true
+}
+
+mount {
+    src: "{JOB_DIR}/main.go"
+    dst: "/tmp/go/main.go"
+    is_bind: true
+    mandatory: false
+}
+
+mount {
+    src: "{JOB_DIR}/inner/inner_main.go"
+    dst: "/tmp/go/inner/inner_main.go"
+    is_bind: true
+}
+
+mount {
+    src: "{JOB_DIR}/inner/runner.go"
+    dst: "/tmp/go/inner/runner.go"
+    is_bind: true
+}
+
+mount {
+    src: "{JOB_DIR}/args.json"
+    dst: "/tmp/go/args.json"
+    is_bind: true
+}
+
+mount {
+    src: "{JOB_DIR}/result.json"
+    dst: "/tmp/go/result.json"
+    rw: true
+    is_bind: true
+}
+
+
+mount {
+    src: "/etc/ssl"
+    dst: "/etc/ssl"
+	is_bind: true
+}
+
+mount {
+    src: "/etc/pki"
+    dst: "/etc/pki"
+    is_bind: true
+    mandatory: false
+}
+
+mount {
+    src: "/etc/resolv.conf"
+    dst: "/etc/resolv.conf"
+	is_bind: true
+}
+
+mount {
+    src: "/dev/random"
+    dst: "/dev/random"
+    is_bind: true
+}
+
+iface_no_lo: true
+
+mount {
+    src: "{CACHE_DIR}"
+    dst: "/tmp/.cache/go"
+    is_bind: true
+    rw: true
+    mandatory: false
+}
+
+{SHARED_MOUNT}
+
+envar: "GOPATH=/tmp/.cache/go"
+envar: "HOME=/tmp/go"
+
+

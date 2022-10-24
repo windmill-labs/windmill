@@ -1,0 +1,41 @@
+name: Backend only integration tests
+
+on:
+  push:
+    branches:
+      - "main"
+    paths:
+      - "backend/**"
+      - ".github/workflows/backend-test.yml"
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - "backend/**"
+      - ".github/workflows/backend-test.yml"
+
+jobs:
+  cargo_test:
+    runs-on: [self-hosted, new]
+    container:
+      image: ghcr.io/windmill-labs/backend-tests
+      options: --privileged
+    services:
+      postgres:
+        image: postgres
+        env:
+          POSTGRES_DB: windmill
+          POSTGRES_PASSWORD: changeme
+
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@v3
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: backend -> target
+      - name: cargo test
+        timeout-minutes: 5
+        run: mkdir frontend/build && cd backend && DATABASE_URL=postgres://postgres:changeme@postgres:5432/windmill cargo test -- --nocapture

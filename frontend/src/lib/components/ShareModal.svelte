@@ -8,6 +8,7 @@
 	import { createEventDispatcher } from 'svelte'
 	import AutoComplete from 'simple-svelte-autocomplete'
 	import { workspaceStore } from '$lib/stores'
+	import { Button } from './common'
 
 	const dispatch = createEventDispatcher()
 
@@ -79,47 +80,50 @@
 </script>
 
 <Modal bind:this={modal}>
-	<div slot="title">Share {path}</div>
+	<div slot="title">
+		Share {path}
+		<span class="text-sm text-gray-500 ml-1">(group)</span>
+	</div>
 
 	<div slot="content">
-		<div class="flex flex-row pb-0 mb-5 justify-between">
-			<label class="block">
-				<span class="text-gray-700 text-sm"> Owner Kind </span>
-
-				<select
-					class="block mt-2 w-20"
-					bind:value={ownerKind}
-					on:change={() => {
-						if (ownerKind === 'group') {
-							owner = 'all'
-						} else {
-							owner = ''
-						}
-					}}
-				>
-					<option>user</option>
-					<option>group</option>
-				</select>
-			</label>
-			<label class="block grow mx-2" for="inp">
-				<span class="text-sm text-gray-700">Owner</span>
-				<div class="block mt-1">
-					<div class="static z-50">
-						<AutoComplete
-							items={ownerKind === 'user' ? usernames : groups}
-							bind:selectedItem={owner}
-						/>
+		<div class="flex flex-row flex-wrap pb-0 mb-5 justify-between">
+			<div class="flex gap-4 mr-2">
+				<label class="block">
+					<span class="text-gray-700 text-sm"> Owner Kind </span>
+					<select
+						class="block mt-1 w-20"
+						bind:value={ownerKind}
+						on:change={() => {
+							if (ownerKind === 'group') {
+								owner = 'all'
+							} else {
+								owner = ''
+							}
+						}}
+					>
+						<option>user</option>
+						<option>group</option>
+					</select>
+				</label>
+				<label class="block" for="inp">
+					<span class="text-sm text-gray-700">Owner</span>
+					<div class="block mt-1">
+						<div class="static z-50">
+							<AutoComplete
+								items={ownerKind === 'user' ? usernames : groups}
+								bind:selectedItem={owner}
+							/>
+						</div>
 					</div>
-				</div>
-			</label>
-			<label class="block">
-				<span class="text-sm text-gray-700">Editor</span>
-				<input class="block mt-4" type="checkbox" bind:checked={write} />
-			</label>
-			<button
-				class="text-xs default-button max-h-6 place-self-end ml-2"
-				on:click={() => addAcl(newOwner, write)}>Add permission</button
-			>
+				</label>
+				<label class="flex flex-col grow pb-3 justify-between">
+					<div class="text-sm text-gray-700">Editor</div>
+					<input class="block ml-1" type="checkbox" bind:checked={write} />
+				</label>
+			</div>
+			<div class="center-center">
+				<Button size="sm" on:click={() => addAcl(newOwner, write)}>Add permission</Button>
+			</div>
 		</div>
 		<TableCustom>
 			<tr slot="header-row">
@@ -132,11 +136,11 @@
 					<tr>
 						<td>{owner}</td>
 						<td>{write}</td>
-						<td
-							><button class="default-button-secondary" on:click={() => deleteAcl(owner)}
-								>Delete</button
-							></td
-						>
+						<td>
+							<Button variant="border" color="red" size="sm" on:click={() => deleteAcl(owner)}>
+								Delete
+							</Button>
+						</td>
 					</tr>
 				{/each}
 			</tbody>

@@ -1,12 +1,18 @@
 /* eslint-disable @typescript-eslint/explicit-module-boundary-types */
 import { goto } from '$app/navigation'
-import { FlowService, ScriptService, type Flow, type User } from '$lib/gen'
+import { FlowService, Script, ScriptService, type Flow, type FlowModule, type User } from '$lib/gen'
 import { toast } from '@zerodevx/svelte-toast'
 import { get } from 'svelte/store'
 import type { Schema } from './common'
 import { hubScripts, workspaceStore, type UserExt } from './stores'
 
-
+export function validateUsername(username: string): string {
+	if (username != '' && !/^\w+$/.test(username)) {
+		return 'username can only contain letters and numbers'
+	} else {
+		return ''
+	}
+}
 
 export function isToday(someDate: Date): boolean {
 	const today = new Date()
@@ -34,7 +40,14 @@ export function displayDaysAgo(dateString: string): string {
 	} else if (isToday(date)) {
 		return `today at ${date.toLocaleTimeString()}`
 	} else {
-		return `${daysAgo(date) + 1} days ago`
+		let dAgo = daysAgo(date)
+		if (dAgo == 0) {
+			return `yday at ${date.toLocaleTimeString()}`
+		} else if (dAgo > 7) {
+			return `${dAgo + 1} days ago at ${date.toLocaleTimeString()}`
+		} else {
+			return displayDate(dateString)
+		}
 	}
 }
 
@@ -86,11 +99,10 @@ export function validatePassword(password: string): boolean {
 	return re.test(password)
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-export function clickOutside(node: any): any {
-	const handleClick = (event: Event) => {
-		if (node && !node.contains(event.target) && !event.defaultPrevented) {
-			node.dispatchEvent(new CustomEvent('click_outside', node))
+export function clickOutside(node: Node): { destroy(): void } {
+	const handleClick = (event: MouseEvent) => {
+		if (node && !node.contains(<HTMLElement>event.target) && !event.defaultPrevented) {
+			node.dispatchEvent(new CustomEvent<MouseEvent>('click_outside', { detail: event }))
 		}
 	}
 
@@ -111,7 +123,7 @@ export interface DropdownItem {
 	// If a DropdownItem has no action and no href, it will be created as a text line
 	displayName: string
 	eventName?: string //the event to send when clicking this item
-	action?: (() => Promise<void>) | (() => void)
+	action?: ((event?: MouseEvent) => Promise<void>) | ((event?: MouseEvent) => void)
 	href?: string
 	separatorTop?: boolean
 	separatorBottom?: boolean
@@ -128,6 +140,8 @@ export function emptySchema() {
 		type: 'object'
 	}
 }
+
+
 export function simpleSchema() {
 	return {
 		$schema: 'https://json-schema.org/draft/2020-12/schema',
@@ -258,6 +272,9 @@ export function groupBy<T>(
 }
 
 export function truncate(s: string, n: number, suffix: string = '...'): string {
+	if (!s) {
+		return suffix
+	}
 	if (s.length <= n) {
 		return s
 	} else {
@@ -266,6 +283,9 @@ export function truncate(s: string, n: number, suffix: string = '...'): string {
 }
 
 export function truncateRev(s: string, n: number, prefix: string = '...'): string {
+	if (!s) {
+		return prefix
+	}
 	if (s.length <= n) {
 		return s
 	} else {
@@ -395,9 +415,26 @@ export function objectToTsType(object: Object): string {
 	return `{ ${types} }`
 }
 
-export type InputCat = "string" | "number" | "boolean" | "list" | "resource-object" | "enum" | "date" | "base64" | "resource-string" | "object" | "sql"
+export type InputCat =
+	| 'string'
+	| 'number'
+	| 'boolean'
+	| 'list'
+	| 'resource-object'
+	| 'enum'
+	| 'date'
+	| 'base64'
+	| 'resource-string'
+	| 'object'
+	| 'sql'
 
-export function setInputCat(type: string | undefined, format: string | undefined, itemsType: string | undefined, enum_: any, contentEncoding: string | undefined): InputCat {
+export function setInputCat(
+	type: string | undefined,
+	format: string | undefined,
+	itemsType: string | undefined,
+	enum_: any,
+	contentEncoding: string | undefined
+): InputCat {
 	if (type === 'number' || type === 'integer') {
 		return 'number'
 	} else if (type === 'boolean') {
@@ -433,13 +470,14 @@ export function scriptPathToHref(path: string): string {
 
 export async function getScriptByPath(path: string): Promise<{
 	content: string
-	language: 'deno' | 'python3',
+	language: 'deno' | 'python3' | 'go'
 }> {
 	if (path.startsWith('hub/')) {
-		const content = await ScriptService.getHubScriptContentByPath({ path })
+		const { content, language, schema } = await ScriptService.getHubScriptByPath({ path })
+
 		return {
 			content,
-			language: 'deno'
+			language,
 		}
 	} else {
 		const script = await ScriptService.getScriptByPath({
@@ -453,28 +491,35 @@ export async function getScriptByPath(path: string): Promise<{
 	}
 }
 
-
-
 export async function loadHubScripts() {
-	const scripts = (await ScriptService.listHubScripts()).asks ?? []
-	const processed = scripts.map((x) => ({
-		path: `hub/${x.id}/${x.summary.toLowerCase().replaceAll(/\s+/g, '_')}`,
-		summary: `${x.summary} (${x.app}) ${x.views} uses`,
-		approved: x.approved,
-		is_trigger: x.is_trigger,
-		app: x.app,
-		views: x.views,
-		votes: x.votes,
-		ask_id: x.ask_id,
-	})).sort((a, b) => b.views - a.views)
-	hubScripts.set(processed)
+	try {
+		const scripts = (await ScriptService.listHubScripts()).asks ?? []
+		const processed = scripts
+			.map((x) => ({
+				path: `hub/${x.id}/${x.app}/${x.summary.toLowerCase().replaceAll(/\s+/g, '_')}`,
+				summary: `${x.summary} (${x.app})`,
+				approved: x.approved,
+				kind: x.kind,
+				app: x.app,
+				views: x.views,
+				votes: x.votes,
+				ask_id: x.ask_id
+			}))
+			.sort((a, b) => b.views - a.views)
+		hubScripts.set(processed)
+	} catch {
+		console.error('Hub is not available')
+	}
 }
 
-
 export async function loadHubFlows() {
-	const flows = (await FlowService.listHubFlows()).flows ?? []
-	const processed = flows.sort((a, b) => b.votes - a.votes)
-	return processed
+	try {
+		const flows = (await FlowService.listHubFlows()).flows ?? []
+		const processed = flows.sort((a, b) => b.votes - a.votes)
+		return processed
+	} catch {
+		console.error('Hub is not available')
+	}
 }
 
 export function formatCron(inp: string): string {
@@ -496,21 +541,55 @@ export function flowToHubUrl(flow: Flow): URL {
 		description: flow.description,
 		schema: flow.schema
 	}
-	url.searchParams.append(
-		'flow',
-		encodeState(openFlow)
-	)
+	url.searchParams.append('flow', encodeState(openFlow))
 	return url
 }
 
-
-export function scriptToHubUrl(content: string, summary: string, description: string, trigger: boolean): URL {
+export function scriptToHubUrl(
+	content: string,
+	summary: string,
+	description: string,
+	kind: Script.kind,
+	language: Script.language,
+	schema: Schema | undefined,
+	lock: string | undefined
+): URL {
 	const url = new URL('https://hub.windmill.dev/scripts/add')
 
 	url.searchParams.append('content', content)
 	url.searchParams.append('summary', summary)
 	url.searchParams.append('description', description)
-	url.searchParams.append('trigger', trigger.toString())
+	url.searchParams.append('kind', kind)
+	url.searchParams.append('language', language)
+	url.searchParams.append('schema', JSON.stringify(schema, null, 2))
+	lock && url.searchParams.append('lockfile', lock)
 
 	return url
+}
+
+export function classNames(...classes: Array<string | undefined>): string {
+	return classes.filter(Boolean).join(' ')
+}
+
+export function scriptLangToEditorLang(lang: Script.language): 'typescript' | 'python' | 'go' {
+	if (lang == 'deno') {
+		return 'typescript'
+	} else if (lang == 'python3') {
+		return 'python'
+	} else {
+		return lang
+	}
+}
+
+export async function copyToClipboard(value: string, sendToast = true): Promise<boolean> {
+	let success = false
+	if (navigator?.clipboard) {
+		success = await navigator.clipboard
+			.writeText(value)
+			.then(() => true)
+			.catch(() => false)
+	}
+	sendToast &&
+		sendUserToast(success ? 'Copied to clipboard!' : "Couldn't copy to clipboard", !success)
+	return success
 }

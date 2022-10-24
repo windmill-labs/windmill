@@ -1,30 +1,35 @@
-import { ResourceApi, VariableApi, ServerConfiguration } from './windmill-api/index.ts'
-import { createConfiguration, type Configuration as Configuration } from './windmill-api/configuration.ts'
+import { ResourceService, VariableService } from './windmill-api/index.ts'
+import { OpenAPI } from './windmill-api/index.ts'
 
 export {
-    AdminApi, AuditApi, FlowApi, GranularAclApi, GroupApi,
-    JobApi, ResourceApi, VariableApi, ScriptApi, ScheduleApi, SettingsApi,
-    UserApi, WorkspaceApi
+    AdminService, AuditService, FlowService, GranularAclService, GroupService,
+    JobService, ResourceService, VariableService, ScriptService, ScheduleService, SettingsService,
+    UserService, WorkspaceService
 } from './windmill-api/index.ts'
 
+export { pgSql, pgClient } from './pg.ts'
+
+export type Sql = string
 export type Email = string
 export type Base64 = string
-export type Sql = string
 export type Resource<S extends string> = any
+
+export const SHARED_FOLDER = '/shared'
+
+export function setClient(token: string, baseUrl: string) {
+    OpenAPI.WITH_CREDENTIALS = true
+    OpenAPI.TOKEN = token
+    OpenAPI.BASE = baseUrl + '/api'
+}
+
+setClient(Deno.env.get("WM_TOKEN") ?? 'no_token', Deno.env.get("BASE_INTERNAL_URL") ?? Deno.env.get("BASE_URL") ?? 'http://localhost:8000')
 
 /**
  * Create a client configuration from env variables
  * @returns client configuration
  */
-export function createConf(): Configuration & { workspace_id: string } {
-    const token = Deno.env.get("WM_TOKEN") ?? 'no_token'
-    const base_url = Deno.env.get("BASE_INTERNAL_URL") ?? 'http://localhost:8000'
-    return {
-        ...createConfiguration({
-            baseServer: new ServerConfiguration(`${base_url}/api`, {}),
-            authMethods: { bearerAuth: { tokenProvider: { getToken() { return token } } } },
-        }), workspace_id: Deno.env.get("WM_WORKSPACE") ?? 'no_workspace'
-    }
+export function getWorkspace(): string {
+    return Deno.env.get("WM_WORKSPACE") ?? 'no_workspace'
 }
 
 /**
@@ -34,12 +39,12 @@ export function createConf(): Configuration & { workspace_id: string } {
  * @returns resource value
  */
 export async function getResource(path: string, undefinedIfEmpty?: boolean): Promise<any> {
-    const conf = createConf()
+    const workspace = getWorkspace()
     try {
-        const resource = await new ResourceApi(conf).getResource(conf.workspace_id, path)
+        const resource = await ResourceService.getResource({ workspace, path })
         return await _transformLeaf(resource.value)
-    } catch (e) {
-        if (undefinedIfEmpty && e.code === 404) {
+    } catch (e: any) {
+        if (undefinedIfEmpty && e.status === 404) {
             return undefined
         } else {
             throw e
@@ -69,12 +74,11 @@ export function getInternalStatePath(suffix?: string): string {
  * @param initializeToTypeIfNotExist if the resource does not exist, initialize it with this type
  */
 export async function setResource(path: string, value: any, initializeToTypeIfNotExist?: string): Promise<void> {
-    const conf = createConf()
-    const resourceApi = new ResourceApi(conf)
-    if (await resourceApi.existsResource(conf.workspace_id, path)) {
-        await resourceApi.updateResource(conf.workspace_id, path, { value })
+    const workspace = getWorkspace()
+    if (await ResourceService.existsResource({ workspace, path })) {
+        await ResourceService.updateResource({ workspace, path, requestBody: { value } })
     } else if (initializeToTypeIfNotExist) {
-        await resourceApi.createResource(conf.workspace_id, { path, value, resourceType: initializeToTypeIfNotExist })
+        await ResourceService.createResource({ workspace, requestBody: { path, value, resource_type: initializeToTypeIfNotExist } })
     } else {
         throw Error(`Resource at path ${path} does not exist and no type was provided to initialize it`)
     }
@@ -103,8 +107,8 @@ export async function getInternalState(suffix?: string): Promise<any> {
  * @returns variable value
  */
 export async function getVariable(path: string): Promise<string | undefined> {
-    const conf = createConf()
-    const variable = await new VariableApi(conf).getVariable(conf.workspace_id, path)
+    const workspace = getWorkspace()
+    const variable = await VariableService.getVariable({ workspace, path })
     return variable.value
 }
 
@@ -131,4 +135,117 @@ async function _transformLeaf(v: any): Promise<any> {
 export async function databaseUrlFromResource(path: string): Promise<string> {
     const resource = await getResource(path)
     return `postgresql://${resource.user}:${resource.password}@${resource.host}:${resource.port}/${resource.dbname}?sslmode=${resource.sslmode}`
+}
+
+
+export interface NonceAndHmac {
+    nonce: number;
+    signature: string;
+}
+
+/**
+ * Get HMAC and nonce needed for approval script
+ * @param workspace workspace name
+ * @param jobId
+ * @param approver approver name
+ * @returns HMAC and nonce needed to authorize approval script actions
+ */
+export async function genNounceAndHmac(workspace: string, jobId: string, approver?: string): Promise<NonceAndHmac> {
+    const nonce = Math.floor(Math.random() * 4294967295);
+    const sig = await fetch(Deno.env.get("WM_BASE_URL") +
+        `/api/w/${workspace}/jobs/job_signature/${jobId}/${nonce}?token=${Deno.env.get("WM_TOKEN")}${approver ? `&approver=${approver}` : ''}`)
+    return {
+        nonce,
+        signature: await sig.text()
+    };
+}
+
+export interface ResumeEndpoints {
+    approvalPage: string;
+    resume: string;
+    cancel: string;
+}
+
+/**
+ * Get URLs needed for approval script
+ * @param approver approver name
+ * @returns approval page UI URL, resume and cancel API URLs for approval script
+ */
+export async function getResumeEndpoints(approver?: string): Promise<ResumeEndpoints> {
+    const workspace = getWorkspace()
+
+    const { nonce, signature } = await genNounceAndHmac(
+        workspace,
+        Deno.env.get("WM_JOB_ID") ?? "no_job_id",
+        approver
+    );
+    const url_prefix = Deno.env.get("WM_BASE_URL") +
+        `/api/w/${workspace}/jobs/`;
+
+    function getResumeUrl(op: string, approver?: string): string {
+        return url_prefix +
+            `${op}/${Deno.env.get("WM_JOB_ID")}/${nonce}/${signature}${approver ? `?approver=${approver}` : ''}`;
+    }
+
+    return {
+        approvalPage: Deno.env.get("WM_BASE_URL") + `/approve/${workspace}/${Deno.env.get("WM_JOB_ID")}/${nonce}/${signature}${approver ? `?approver=${approver}` : ''}`,
+        resume: getResumeUrl("resume", approver),
+        cancel: getResumeUrl("cancel", approver),
+    };
+}
+
+export function base64ToUint8Array(data: string): Uint8Array {
+    return Uint8Array.from(atob(data), c => c.charCodeAt(0))
+}
+
+export function uint8ArrayToBase64(arrayBuffer: Uint8Array): string {
+    let base64 = ''
+    const encodings = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/'
+
+    const bytes = new Uint8Array(arrayBuffer)
+    const byteLength = bytes.byteLength
+    const byteRemainder = byteLength % 3
+    const mainLength = byteLength - byteRemainder
+
+    let a, b, c, d
+    let chunk
+
+    // Main loop deals with bytes in chunks of 3
+    for (let i = 0; i < mainLength; i = i + 3) {
+        // Combine the three bytes into a single integer
+        chunk = (bytes[i] << 16) | (bytes[i + 1] << 8) | bytes[i + 2]
+
+        // Use bitmasks to extract 6-bit segments from the triplet
+        a = (chunk & 16515072) >> 18 // 16515072 = (2^6 - 1) << 18
+        b = (chunk & 258048) >> 12 // 258048   = (2^6 - 1) << 12
+        c = (chunk & 4032) >> 6 // 4032     = (2^6 - 1) << 6
+        d = chunk & 63               // 63       = 2^6 - 1
+
+        // Convert the raw binary segments to the appropriate ASCII encoding
+        base64 += encodings[a] + encodings[b] + encodings[c] + encodings[d]
+    }
+
+    // Deal with the remaining bytes and padding
+    if (byteRemainder == 1) {
+        chunk = bytes[mainLength]
+
+        a = (chunk & 252) >> 2 // 252 = (2^6 - 1) << 2
+
+        // Set the 4 least significant bits to zero
+        b = (chunk & 3) << 4 // 3   = 2^2 - 1
+
+        base64 += encodings[a] + encodings[b] + '=='
+    } else if (byteRemainder == 2) {
+        chunk = (bytes[mainLength] << 8) | bytes[mainLength + 1]
+
+        a = (chunk & 64512) >> 10 // 64512 = (2^6 - 1) << 10
+        b = (chunk & 1008) >> 4 // 1008  = (2^6 - 1) << 4
+
+        // Set the 2 least significant bits to zero
+        c = (chunk & 15) << 2 // 15    = 2^4 - 1
+
+        base64 += encodings[a] + encodings[b] + encodings[c] + '='
+    }
+
+    return base64
 }

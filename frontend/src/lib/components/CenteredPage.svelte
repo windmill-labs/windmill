@@ -1,5 +1,5 @@
-<div class="max-w-screen-lg flex grow w-full h-full xl:-ml-20">
-	<div class="grow w-full h-full">
+<div class="py-6">
+	<div class="max-w-6xl mx-auto px-4 sm:px-6 md:px-8">
 		<slot />
 	</div>
 </div>

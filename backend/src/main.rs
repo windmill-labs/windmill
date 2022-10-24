@@ -9,12 +9,13 @@
 use std::net::SocketAddr;
 
 use dotenv::dotenv;
+use windmill::WorkerConfig;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     dotenv().ok();
 
-    windmill::initialize_tracing().await?;
+    windmill::initialize_tracing();
 
     let db = windmill::connect_db().await?;
 
@@ -33,16 +34,24 @@ async fn main() -> anyhow::Result<()> {
         .transpose()?
         .flatten();
 
-    let (server_mode, monitor_mode, migrate_db) = (true, true, true);
+    let server_mode = !std::env::var("DISABLE_SERVER")
+        .ok()
+        .and_then(|x| x.parse::<bool>().ok())
+        .unwrap_or(false);
 
-    if migrate_db {
+    if server_mode {
         windmill::migrate_db(&db).await?;
     }
 
     let (tx, rx) = tokio::sync::broadcast::channel::<()>(3);
-    let shutdown_signal = windmill::shutdown_signal(tx.clone());
+    let shutdown_signal = windmill::shutdown_signal(tx);
 
-    if server_mode || monitor_mode || num_workers > 0 {
+    let base_internal_url =
+        std::env::var("BASE_INTERNAL_URL").unwrap_or_else(|_| "http://localhost:8000".to_string());
+
+    let base_url = std::env::var("BASE_URL").unwrap_or_else(|_| "http://localhost".to_string());
+
+    if server_mode || num_workers > 0 {
         let addr = SocketAddr::from(([0, 0, 0, 0], 8000));
 
         let timeout = std::env::var("TIMEOUT")
@@ -50,26 +59,13 @@ async fn main() -> anyhow::Result<()> {
             .and_then(|x| x.parse::<i32>().ok())
             .unwrap_or(windmill::DEFAULT_TIMEOUT);
 
+        let base_url_2 = base_url.clone();
         let server_f = async {
             if server_mode {
-                windmill::run_server(
-                    db.clone(),
-                    addr,
-                    &std::env::var("BASE_URL").unwrap_or("http://localhost".to_string()),
-                    windmill::EmailSender {
-                        from: "bot@windmill.dev".to_string(),
-                        server: "smtp.gmail.com".to_string(),
-                        password: std::env::var("SMTP_PASSWORD").unwrap_or("NOPASS".to_string()),
-                    },
-                    rx,
-                )
-                .await?;
+                windmill::run_server(db.clone(), addr, base_url_2, rx.resubscribe()).await?;
             }
             Ok(()) as anyhow::Result<()>
         };
-
-        let base_url = std::env::var("BASE_INTERNAL_URL")
-            .unwrap_or_else(|_| "http://missing-base-url".to_string());
 
         let workers_f = async {
             if num_workers > 0 {
@@ -85,11 +81,15 @@ async fn main() -> anyhow::Result<()> {
                     .ok()
                     .and_then(|x| x.parse::<bool>().ok())
                     .unwrap_or(false);
+                let keep_job_dir = std::env::var("KEEP_JOB_DIR")
+                    .ok()
+                    .and_then(|x| x.parse::<bool>().ok())
+                    .unwrap_or(false);
 
                 tracing::info!(
                     "DISABLE_NSJAIL: {disable_nsjail}, DISABLE_NUSER: {disable_nuser}, BASE_URL: \
                      {base_url}, SLEEP_QUEUE: {sleep_queue}, NUM_WORKERS: {num_workers}, TIMEOUT: \
-                     {timeout}"
+                     {timeout}, KEEP_JOB_DIR: {keep_job_dir}"
                 );
                 windmill::run_workers(
                     db.clone(),
@@ -97,10 +97,14 @@ async fn main() -> anyhow::Result<()> {
                     timeout,
                     num_workers,
                     sleep_queue,
-                    base_url,
-                    disable_nuser,
-                    disable_nsjail,
-                    tx.clone(),
+                    WorkerConfig {
+                        disable_nsjail,
+                        disable_nuser,
+                        base_internal_url,
+                        base_url,
+                        keep_job_dir,
+                    },
+                    rx.resubscribe(),
                 )
                 .await?;
             }
@@ -108,15 +112,15 @@ async fn main() -> anyhow::Result<()> {
         };
 
         let monitor_f = async {
-            if monitor_mode {
-                windmill::monitor_db(&db, timeout, tx.clone());
+            if server_mode {
+                windmill::monitor_db(&db, timeout, rx.resubscribe());
             }
             Ok(()) as anyhow::Result<()>
         };
 
         let metrics_f = async {
             match metrics_addr {
-                Some(addr) => windmill::serve_metrics(addr, tx.subscribe())
+                Some(addr) => windmill::serve_metrics(addr, rx.resubscribe())
                     .await
                     .map_err(anyhow::Error::from),
                 None => Ok(()),

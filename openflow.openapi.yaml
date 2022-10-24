@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.27.2
+  version: 1.41.0
   title: OpenFlow Spec
   contact:
     name: Ruben Fiszel
@@ -42,25 +42,69 @@ components:
             $ref: "#/components/schemas/FlowModule"
         failure_module:
           $ref: "#/components/schemas/FlowModule"
+        same_worker:
+          type: boolean
+
       required:
         - modules
+
+    Retry:
+      type: object
+      properties:
+        constant:
+          type: object
+          properties:
+            attempts:
+              type: integer
+            seconds:
+              type: integer
+        exponential:
+          type: object
+          properties:
+            attempts:
+              type: integer
+            multiplier:
+              type: integer
+            seconds:
+              type: integer
 
     FlowModule:
       type: object
       properties:
-        input_transform:
+        id:
+          type: string
+        # to be removed in favor of raw/script input_transforms once migration is over
+        input_transforms:
           type: object
           additionalProperties:
             $ref: "#/components/schemas/InputTransform"
         value:
           $ref: "#/components/schemas/FlowModuleValue"
-        stop_after_if_expr:
+        stop_after_if:
+          type: object
+          properties:
+            skip_if_stopped:
+              type: boolean
+            expr:
+              type: string
+          required:
+            - expr
+        sleep:
+          $ref: "#/components/schemas/InputTransform"
+        summary:
           type: string
-        skip_if_stopped:
-          type: boolean
+        suspend:
+          type: object
+          properties:
+            required_events:
+              type: integer
+            timeout:
+              type: integer
+        retry:
+          $ref: "#/components/schemas/Retry"
       required:
-        - input_transform
         - value
+        - id
 
     InputTransform:
       oneOf:
@@ -102,18 +146,27 @@ components:
         - $ref: "#/components/schemas/RawScript"
         - $ref: "#/components/schemas/PathScript"
         - $ref: "#/components/schemas/ForloopFlow"
-        - $ref: "#/components/schemas/PathFlow"
+        - $ref: "#/components/schemas/BranchOne"
+        - $ref: "#/components/schemas/BranchAll"
+        - $ref: "#/components/schemas/Identity"
       discriminator:
         propertyName: type
         mapping:
           rawscript: "#/components/schemas/RawScript"
           script: "#/components/schemas/PathScript"
           forloopflow: "#/components/schemas/ForloopFlow"
-          flow: "#/components/schemas/PathFlow"
+          branchone: "#/components/schemas/BranchOne"
+          branchall: "#/components/schemas/BranchAll"
+          identity: "#/components/schemas/Identity"
 
     RawScript:
       type: object
       properties:
+        # to be made required once migration is over
+        input_transforms:
+          type: object
+          additionalProperties:
+            $ref: "#/components/schemas/InputTransform"
         content:
           type: string
         language:
@@ -121,10 +174,13 @@ components:
           enum:
             - deno
             - python3
+            - go
         path:
           type: string
         type:
           type: string
+          enum:
+            - rawscript
       required:
         - type
         - content
@@ -133,6 +189,11 @@ components:
     PathScript:
       type: object
       properties:
+        # to be made required once migration is over
+        input_transforms:
+          type: object
+          additionalProperties:
+            $ref: "#/components/schemas/InputTransform"
         path:
           type: string
         type:
@@ -143,23 +204,13 @@ components:
         - type
         - path
 
-    PathFlow:
-      type: object
-      properties:
-        path:
-          type: string
-        type:
-          type: string
-          enum:
-            - flow
-      required:
-        - type
-
     ForloopFlow:
       type: object
       properties:
-        value:
-          $ref: "#/components/schemas/FlowValue"
+        modules:
+          type: array
+          items:
+            $ref: "#/components/schemas/FlowModule"
         iterator:
           $ref: "#/components/schemas/InputTransform"
         skip_failures:
@@ -169,10 +220,81 @@ components:
           enum:
             - forloopflow
       required:
-        - value
+        - modules
         - iterator
         - skip_failures
         - type
+
+    BranchOne:
+      type: object
+      properties:
+        branches:
+          type: array
+          items:
+            type: object
+            properties:
+              summary:
+                type: string
+              expr:
+                type: string
+              modules:
+                type: array
+                items:
+                  $ref: "#/components/schemas/FlowModule"
+            required:
+              - modules
+              - expr
+        default:
+          type: array
+          items:
+            $ref: "#/components/schemas/FlowModule"
+          required: [modules]
+        type:
+          type: string
+          enum:
+            - branchone
+      required:
+        - branches
+        - default
+        - type
+
+    BranchAll:
+      type: object
+      properties:
+        branches:
+          type: array
+          items:
+            type: object
+            properties:
+              summary:
+                type: string
+              skip_failure:
+                type: boolean
+              modules:
+                type: array
+                items:
+                  $ref: "#/components/schemas/FlowModule"
+            required:
+              - modules
+              - expr
+        type:
+          type: string
+          enum:
+            - branchall
+      required:
+        - branches
+        - type
+
+    Identity:
+      type: object
+      properties:
+        type:
+          type: string
+          enum:
+            - identity
+      required:
+        - type
+
 
     FlowStatus:
       type: object
@@ -185,6 +307,16 @@ components:
             $ref: "#/components/schemas/FlowStatusModule"
         failure_module:
           $ref: "#/components/schemas/FlowStatusModule"
+        retry:
+          type: object
+          properties:
+            fail_count:
+              type: integer
+            failed_jobs:
+              type: array
+              items:
+                type: string
+                format: uuid
       required:
         - step
         - modules
@@ -202,11 +334,13 @@ components:
             - InProgress
             - Success
             - Failure
+        id:
+          type: string
         job:
           type: string
           format: uuid
-        event:
-          type: string
+        count:
+          type: integer
         iterator:
           type: object
           properties:
@@ -216,8 +350,41 @@ components:
               type: array
               items: {}
             args: {}
-        forloop_jobs:
+        flow_jobs:
           type: array
           items:
             type: string
+        branch_chosen:
+          type: object
+          properties:
+            type:
+              type: string
+              enum: [branch, default]
+            branch:
+              type: integer
+          required:
+            - type
+        branchall:
+          type: object
+          properties:
+            branch:
+              type: integer
+            len:
+              type: integer
+          required:
+            - branch
+            - len
+        approvers:
+          type: array
+          items:
+            type: object
+            properties:
+              resume_id:
+                type: integer
+              approver:
+                type: string
+            required:
+              - resume_id
+              - approver
+            
       required: [type]

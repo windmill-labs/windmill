@@ -4,6 +4,7 @@
 	import { createEventDispatcher } from 'svelte'
 	import Icon from 'svelte-awesome'
 	import { faEllipsisH } from '@fortawesome/free-solid-svg-icons'
+	import { Button } from './common'
 
 	let open = false
 
@@ -27,15 +28,16 @@
 </script>
 
 <div
-	class="ml-3 {relative ? 'relative' : ''} {$$props.class}"
+	class="ml-2 {relative ? 'relative' : ''} {$$props.class}"
 	use:clickOutside
 	on:click_outside={handleClickOutsideMenu}
 >
-	<button
-		class="text-blue-500 text-right "
-		id="dropdown"
+	<Button
+		color="light"
+		size="xs"
 		aria-expanded="false"
 		aria-haspopup="true"
+		btnClasses="!text-blue-500 bg-transparent"
 		on:click={openMenu}
 	>
 		{#if !name}
@@ -43,7 +45,7 @@
 		{:else}
 			{name}
 		{/if}
-	</button>
+	</Button>
 	<div
 		class="flex flex-col z-50 origin-top-right absolute right-0 mt-2 w-48 rounded-md shadow-lg py-1 bg-white ring-1 ring-black ring-opacity-5 focus:outline-none {open
 			? 'visible'
@@ -55,10 +57,10 @@
 			{#each dropdownItems as item, i}
 				{#if item.action}
 					<button
-						on:click={() => {
+						on:click={(event) => {
 							if (!item.disabled) {
 								open = false
-								item.action && item.action()
+								item.action && item.action(event)
 								dispatch('click', { item: item?.eventName })
 							}
 						}}

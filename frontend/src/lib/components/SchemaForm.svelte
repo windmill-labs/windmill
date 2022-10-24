@@ -10,15 +10,31 @@
 	export let args: Record<string, InputTransform | any> = {}
 	export let editableSchema = false
 	export let isValid: boolean = true
-	export let pickableProperties: Object | undefined = undefined
 	export let extraLib: string = 'missing extraLib'
-	export let i: number | undefined = undefined
+	export let importPath: string | undefined = undefined
+	let clazz: string = ''
+	export { clazz as class }
 
 	let inputCheck: { [id: string]: boolean } = {}
 	$: isValid = allTrue(inputCheck) ?? false
+
+	$: if (args == undefined) {
+		args = {}
+	}
+
+	function removeExtraKey() {
+		Object.keys(args ?? {}).forEach((key) => {
+			if (!Object.keys(schema?.properties ?? {}).includes(key)) {
+				delete args[key]
+				delete inputCheck[key]
+			}
+		})
+	}
+
+	$: schema?.properties && removeExtraKey()
 </script>
 
-<div class="w-full">
+<div class="w-full {clazz}">
 	{#if Object.keys(schema?.properties ?? {}).length > 0}
 		{#each Object.keys(schema?.properties ?? {}) as argName}
 			{#if inputTransform}
@@ -26,10 +42,9 @@
 					bind:arg={args[argName]}
 					bind:schema
 					bind:argName
-					bind:inputCheck
-					bind:pickableProperties
+					bind:inputCheck={inputCheck[argName]}
 					bind:extraLib
-					bind:i
+					bind:importPath
 				/>
 			{:else}
 				<ArgInput
@@ -44,12 +59,13 @@
 					bind:enum_={schema.properties[argName].enum}
 					bind:format={schema.properties[argName].format}
 					contentEncoding={schema.properties[argName].contentEncoding}
+					properties={schema.properties[argName].properties}
 					bind:itemsType={schema.properties[argName].items}
 					{editableSchema}
 				/>
 			{/if}
 		{/each}
 	{:else}
-		<p class="italic text-sm">No settable input</p>
+		<p class="italic text-sm">No inputs</p>
 	{/if}
 </div>

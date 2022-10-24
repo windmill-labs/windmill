@@ -2,32 +2,20 @@
 	import { goto } from '$app/navigation'
 	import { page } from '$app/stores'
 	import { UserService, WorkspaceService } from '$lib/gen'
-	import { logout, logoutWithRedirect } from '$lib/logout'
+	import { logoutWithRedirect } from '$lib/logout'
 	import { superadmin, userStore, usersWorkspaceStore, workspaceStore } from '$lib/stores'
 	import { getUserExt, refreshSuperadmin } from '$lib/user'
 	import { sendUserToast } from '$lib/utils'
-	import { SvelteToast } from '@zerodevx/svelte-toast'
 	import { onMount } from 'svelte'
 	import github from 'svelte-highlight/styles/github'
-
-	// Default toast options
-	const toastOptions = {
-		duration: 4000, // duration of progress bar tween to the `next` value
-		initial: 1, // initial progress bar value
-		next: 0, // next progress value
-		pausable: false, // pause progress bar tween on mouse hover
-		dismissable: true, // allow dismiss with close button
-		reversed: false, // insert new toast to bottom of stack
-		intro: { x: 256 }, // toast intro fly animation settings
-		theme: {} // css var overrides
-	}
 
 	const monacoEditorUnhandledErrors = [
 		'Model not found',
 		'Connection is disposed.',
 		'Connection got disposed.',
 		'Stopping the server timed out',
-		'Canceled'
+		'Canceled',
+		'Missing service editorService'
 	]
 
 	async function loadUser() {
@@ -74,11 +62,18 @@
 				if (monacoEditorUnhandledErrors.includes(message)) {
 					return
 				}
+				if (message == 'Client not running') {
+					sendUserToast(
+						'Unrecoverable error for the smart assistant. Refresh the page to get the full experience again (This issue is WIP and will get fixed)',
+						true
+					)
+					return
+				}
 
 				if (status == '401') {
-					if ($page.url.pathname != '/user/login') {
-						sendUserToast('Logged out after a request was unauthorized', true)
-						logout($page.url.pathname)
+					const pathName = $page.url.pathname
+					if (pathName != '/user/login') {
+						logoutWithRedirect(pathName + $page.url.search)
 					}
 				} else {
 					if (body) {
@@ -99,12 +94,3 @@
 </svelte:head>
 
 <slot />
-<SvelteToast options={toastOptions} />
-
-<style>
-	:root {
-		--toastBackground: #eff6ff;
-		--toastBarBackground: #eff6ff;
-		--toastColor: #123456;
-	}
-</style>

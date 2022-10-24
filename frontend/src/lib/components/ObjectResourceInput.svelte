@@ -1,10 +1,10 @@
 <script lang="ts">
 	import { ResourceService } from '$lib/gen'
 
-	import ResourcePicker from './ResourcePicker.svelte'
 	import { workspaceStore } from '$lib/stores'
-	import SchemaForm from './SchemaForm.svelte'
 	import RadioButton from './RadioButton.svelte'
+	import ResourcePicker from './ResourcePicker.svelte'
+	import SchemaForm from './SchemaForm.svelte'
 
 	export let format: string
 	export let value: any
@@ -15,12 +15,6 @@
 
 	let path: string = ''
 	let args: Record<string, any> = {}
-
-	if (!isString(value) && value) {
-		args = value
-	}
-
-	valueToPath()
 
 	let schema: any | undefined = undefined
 	let isValid = true
@@ -38,22 +32,34 @@
 	}
 
 	function argToValue() {
-		if (option == 'resource') {
-			value = `$res:${path}`
-		} else {
-			value = args
-		}
+		value = args
 	}
+
+	function resourceToValue() {
+		value = `$res:${path}`
+	}
+
+	function isResource() {
+		return isString(value) && value.length >= '$res:'.length
+	}
+
 	function valueToPath() {
-		path =
-			isString(value) && value.length >= '$res:'.length ? value.substr('$res:'.length) : undefined
+		if (!isString(value) && value) {
+			args = value
+		}
+
+		if (isResource()) {
+			path = value.substr('$res:'.length)
+		} else if (value !== undefined && value !== '') {
+			option = 'raw'
+		}
 	}
 
 	$: value && valueToPath()
 </script>
 
-<div class="flex flex-row w-full gap-2">
-	<div class="shrink w-40">
+<div class="flex flex-row w-full flex-wrap gap-x-2">
+	<div class="shrink">
 		<RadioButton
 			options={[
 				[`Resource (${resourceTypeName})`, 'resource'],
@@ -69,7 +75,7 @@
 				on:refresh={() => loadSchema(format)}
 				on:change={(e) => {
 					path = e.detail
-					argToValue()
+					resourceToValue()
 				}}
 				bind:value={path}
 				resourceType={format.split('-').length > 1

@@ -2,7 +2,7 @@
 	import { goto } from '$app/navigation'
 
 	import { UserService, WorkspaceService } from '$lib/gen'
-	import { sendUserToast } from '$lib/utils'
+	import { sendUserToast, validateUsername } from '$lib/utils'
 	import { page } from '$app/stores'
 	import { usersWorkspaceStore, workspaceStore } from '$lib/stores'
 	import CenteredModal from '$lib/components/CenteredModal.svelte'
@@ -23,14 +23,14 @@
 		sendUserToast(`Invitation to ${workspace_id} accepted as ${username}`)
 		usersWorkspaceStore.set(await WorkspaceService.listUserWorkspaces())
 		workspaceStore.set(workspace_id)
-		goto('/scripts')
+		goto($page.url.searchParams.get('rd') ?? '/scripts')
 	}
 
 	async function validateName(username: string): Promise<void> {
 		try {
 			await WorkspaceService.existsUsername({ requestBody: { id: workspace_id, username } })
-			errorUsername = ''
-		} catch {
+			errorUsername = validateUsername(username)
+		} catch (error) {
 			errorUsername = 'username already exists'
 		}
 	}
@@ -64,7 +64,7 @@
 		<input
 			on:keyup={handleKey}
 			bind:value={username}
-			class="default-input"
+			class="mt-1"
 			class:input-error={errorUsername != ''}
 		/>
 	</label>

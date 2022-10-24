@@ -1,0 +1,25 @@
+// For format details, see https://aka.ms/devcontainer.json. For config options, see the README at:
+// https://github.com/microsoft/vscode-dev-containers/tree/v0.245.2/containers/docker-existing-docker-compose
+// If you want to run as a non-root user in the container, see .devcontainer/docker-compose.yml.
+{
+	"name": "Frontend container",
+	"dockerComposeFile": [
+		"../docker-compose.yml",
+		"../.devcontainer/docker-compose.yml"
+	],
+	"customizations": {
+		"vscode": {
+			"extensions": []
+		}
+	},
+	"service": "front",
+	"workspaceFolder": "/workspace",
+	"forwardPorts": [
+		8080
+	],
+	// Uncomment the next line if you want to keep your containers running after VS Code shuts down.
+	// "shutdownAction": "none",
+	"postCreateCommand": "cd frontend && npm install && npm run generate-backend-client && wget https://github.com/caddyserver/caddy/releases/download/v2.6.0-beta.3/caddy_2.6.0-beta.3_linux_amd64.deb -O /tmp/caddy.deb && sudo dpkg -i /tmp/caddy.deb && rm /tmp/caddy.deb",
+	"postStartCommand": "nohup bash -c 'cd frontend && npm run dev &' && nohup bash -c 'caddy run --config frontend/CaddyfileDev &'",
+	"remoteUser": "node"
+}

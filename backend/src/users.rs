@@ -13,6 +13,7 @@ use crate::{
     db::{UserDB, DB},
     error::{self, Error, JsonResult, Result},
     utils::{require_admin, require_super_admin, Pagination},
+    IsSecure,
 };
 use argon2::{password_hash::SaltString, Argon2, PasswordHash, PasswordHasher, PasswordVerifier};
 use axum::{
@@ -95,10 +96,9 @@ impl AuthCache {
             a @ Some(_) => a,
             None => {
                 let user_o = sqlx::query_as::<_, (Option<String>, Option<String>, bool)>(
-                    "UPDATE token SET last_used_at = $1 WHERE token = $2 AND (expiration > NOW() \
+                    "UPDATE token SET last_used_at = now() WHERE token = $1 AND (expiration > NOW() \
                      OR expiration IS NULL) RETURNING owner, email, super_admin",
                 )
-                .bind(chrono::Utc::now())
                 .bind(token)
                 .fetch_optional(&self.db)
                 .await
@@ -224,12 +224,24 @@ async fn extract_token<B: Send>(req: &mut RequestParts<B>) -> Option<String> {
         .and_then(|value| value.to_str().ok())
         .and_then(|s| s.strip_prefix("Bearer "));
 
-    match auth_header {
+    let from_cookie = match auth_header {
         Some(x) => Some(x.to_owned()),
         None => Extension::<Cookies>::from_request(req)
             .await
             .ok()
             .and_then(|cookies| cookies.get(COOKIE_NAME).map(|c| c.value().to_owned())),
+    };
+
+    #[derive(Deserialize)]
+    struct Token {
+        token: Option<String>,
+    }
+    match from_cookie {
+        Some(token) => Some(token),
+        None => Query::<Token>::from_request(req)
+            .await
+            .ok()
+            .and_then(|token| token.token.clone()),
     }
 }
 
@@ -1228,6 +1240,7 @@ async fn login(
     cookies: Cookies,
     Extension(db): Extension<DB>,
     Extension(argon2): Extension<Arc<Argon2<'_>>>,
+    Extension(is_secure): Extension<Arc<IsSecure>>,
     Json(Login { email, password }): Json<Login>,
 ) -> Result<String> {
     let mut tx = db.begin().await?;
@@ -1249,7 +1262,8 @@ async fn login(
         {
             Err(Error::BadRequest("Invalid login".to_string()))
         } else {
-            let token = create_session_token(&email, super_admin, &mut tx, cookies).await?;
+            let token =
+                create_session_token(&email, super_admin, &mut tx, cookies, is_secure.0).await?;
             tx.commit().await?;
             Ok(token)
         }
@@ -1263,22 +1277,23 @@ pub async fn create_session_token<'c>(
     super_admin: bool,
     tx: &mut sqlx::Transaction<'c, sqlx::Postgres>,
     cookies: Cookies,
+    is_secure: bool,
 ) -> Result<String> {
     let token = gen_token();
     sqlx::query!(
         "INSERT INTO token
             (token, email, label, expiration, super_admin)
-            VALUES ($1, $2, $3, $4, $5)",
+            VALUES ($1, $2, $3, now() + ($4 || ' hours')::interval, $5)",
         token,
         email,
         "session",
-        chrono::Utc::now() + chrono::Duration::hours(TTL_TOKEN_DB_H as i64),
+        TTL_TOKEN_DB_H.to_string(),
         super_admin
     )
     .execute(tx)
     .await?;
     let mut cookie = Cookie::new(COOKIE_NAME, token.clone());
-    cookie.set_secure(true);
+    cookie.set_secure(is_secure);
     cookie.set_path(COOKIE_PATH);
     let mut expire: OffsetDateTime = time::OffsetDateTime::now_utc();
     expire += time::Duration::days(3);
@@ -1297,19 +1312,23 @@ fn gen_token() -> String {
     token
 }
 
+#[tracing::instrument(level = "trace", skip_all)]
 pub async fn create_token_for_owner(
     db: &DB,
     w_id: &str,
     owner: &str,
-    NewToken { label, expiration }: NewToken,
+    label: &str,
+    expires_in: i32,
     username: &str,
 ) -> Result<String> {
     use rand::prelude::*;
-    let token: String = rand::thread_rng()
-        .sample_iter(&rand::distributions::Alphanumeric)
-        .take(30)
-        .map(char::from)
-        .collect();
+    let token: String = tracing::trace_span!("generate_token").in_scope(|| {
+        rand::thread_rng()
+            .sample_iter(&rand::distributions::Alphanumeric)
+            .take(30)
+            .map(char::from)
+            .collect()
+    });
     let mut tx = db.begin().await?;
     let is_super_admin = username.contains('@')
         && sqlx::query_scalar!(
@@ -1320,18 +1339,18 @@ pub async fn create_token_for_owner(
         .await?
         .unwrap_or(false);
 
-    sqlx::query!(
+    let expiration = sqlx::query_scalar!(
         "INSERT INTO token
             (workspace_id, token, owner, label, expiration, super_admin)
-            VALUES ($1, $2, $3, $4, $5, $6)",
+            VALUES ($1, $2, $3, $4, now() + ($5 || ' seconds')::interval, $6) RETURNING expiration",
         &w_id,
         token,
         owner,
         label,
-        expiration,
+        expires_in.to_string(),
         is_super_admin
     )
-    .execute(&mut tx)
+    .fetch_one(&mut tx)
     .await?;
     audit_log(
         &mut tx,
@@ -1342,7 +1361,7 @@ pub async fn create_token_for_owner(
         Some(&truncate_token(&token)),
         Some(
             [
-                label.as_ref().map(|label| ("label", &label[..])),
+                Some(("label", label)),
                 expiration
                     .map(|x| x.to_string())
                     .as_ref()
@@ -1425,8 +1444,10 @@ async fn delete_token(
         error::Error::BadRequest(format!("Only users with email can create tokens"))
     })?;
     let tokens_deleted: Vec<String> = sqlx::query_scalar(
-        "DELETE FROM token WHERE email = $1 AND
-     token LIKE concat($3, '%') RETURNING concat(substring(token for 10), '*****')",
+        "DELETE FROM token
+               WHERE email = $1
+                 AND token LIKE concat($2::text, '%')
+           RETURNING concat(substring(token for 10), '*****')",
     )
     .bind(&email)
     .bind(&token_prefix)
@@ -1488,10 +1509,9 @@ pub async fn delete_expired_items_perdiodically(
 ) -> () {
     loop {
         let tokens_deleted_r: std::result::Result<Vec<String>, _> = sqlx::query_scalar(
-            "DELETE FROM token WHERE expiration <= $1
+            "DELETE FROM token WHERE expiration <= now()
         RETURNING concat(substring(token for 10), '*****')",
         )
-        .bind(chrono::Utc::now())
         .fetch_all(db)
         .await;
 
@@ -1501,10 +1521,9 @@ pub async fn delete_expired_items_perdiodically(
         }
 
         let magic_links_deleted_r: std::result::Result<Vec<String>, _> = sqlx::query_scalar(
-            "DELETE FROM magic_link WHERE expiration <= $1
+            "DELETE FROM magic_link WHERE expiration <= now()
         RETURNING concat(substring(token for 10), '*****')",
         )
-        .bind(chrono::Utc::now())
         .fetch_all(db)
         .await;
 

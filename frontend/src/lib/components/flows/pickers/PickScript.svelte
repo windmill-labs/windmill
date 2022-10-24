@@ -2,45 +2,37 @@
 	import ItemPicker from '$lib/components/ItemPicker.svelte'
 	import { faUserGroup } from '@fortawesome/free-solid-svg-icons'
 
-	import { ScriptService } from '$lib/gen'
+	import { Script, ScriptService } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { createEventDispatcher } from 'svelte'
 	import FlowScriptPicker from './FlowScriptPicker.svelte'
 
-	export let isTrigger: boolean
+	export let kind: string
+	export let customText: string | undefined = undefined
 
 	type Item = { summary: String; path: String; version?: String }
 
-	let items: Item[] = []
 	let itemPicker: ItemPicker
 
 	const dispatch = createEventDispatcher()
 
-	async function loadItems(): Promise<void> {
-		items = await ScriptService.listScripts({ workspace: $workspaceStore!, isTrigger })
-	}
-
-	$: {
-		if ($workspaceStore) {
-			loadItems()
-		}
+	async function loadItems(): Promise<Item[]> {
+		return await ScriptService.listScripts({ workspace: $workspaceStore!, kind })
 	}
 </script>
 
 <ItemPicker
 	bind:this={itemPicker}
-	pickCallback={(path) => {
-		dispatch('pick', { path })
+	pickCallback={(path, summary) => {
+		dispatch('pick', { path, summary, kind })
 	}}
 	itemName={'Script'}
 	extraField="summary"
-	loadItems={async () => {
-		return items
-	}}
+	{loadItems}
 />
 
 <FlowScriptPicker
-	label={`Pick a ${isTrigger ? 'trigger ' : ''}script from your workspace`}
+	label={customText ?? `${kind == Script.kind.SCRIPT ? 'Script' : `${kind} script`} from workspace`}
 	icon={faUserGroup}
 	iconColor="text-blue-500"
 	on:click={() => itemPicker.openModal()}

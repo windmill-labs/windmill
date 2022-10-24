@@ -14,6 +14,7 @@
 	import ScriptBuilder from '$lib/components/ScriptBuilder.svelte'
 	import type { Schema } from '$lib/common'
 	import { decodeState, emptySchema, getScriptByPath, sendUserToast } from '$lib/utils'
+	import { dirtyStore } from '$lib/components/common/confirmationModal/dirtyStore'
 
 	// Default
 	let schema: Schema = emptySchema()
@@ -39,7 +40,7 @@
 					is_template: false,
 					extra_perms: {},
 					language: 'deno',
-					is_trigger: false
+					kind: Script.kind.SCRIPT
 			  }
 
 	async function loadTemplate(): Promise<void> {
@@ -52,6 +53,7 @@
 			script.description = template.description
 			script.content = template.content
 			script.schema = template.schema
+			script.language = template.language
 			sendUserToast('Code & arguments have been loaded from template.')
 		}
 	}
@@ -73,6 +75,7 @@
 			loadTemplate()
 		}
 	}
+	$dirtyStore = true
 </script>
 
 <ScriptBuilder {script} />

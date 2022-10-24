@@ -1,6 +1,6 @@
 [package]
 name = "windmill"
-version = "1.27.2"
+version = "1.41.0"
 authors = ["Ruben Fiszel <ruben@windmill.dev>"]
 edition = "2021"
 
@@ -25,6 +25,7 @@ tracing = "^0"
 tracing-subscriber = { version = "^0", features = ["env-filter", "json"]}
 console-subscriber = "^0"
 prometheus = { version = "^0", default-features = false }
+phf = { version = "0.11", features = ["macros"] }
 
 rust-embed = "^6"
 mime_guess = "^2"
@@ -38,14 +39,12 @@ magic-crypt = "^3"
 git-version = "^0"
 rustpython-parser = "^0"
 cron = "^0"
-external-ip = "^4"
 lettre = { version = "^0", features = ["rustls-tls", "tokio1", "tokio1-rustls-tls", "builder", "smtp-transport"],  default-features = false}
 urlencoding = "^2"
 url = "^2"
 async-oauth2 = "^0"
 reqwest = { version = "^0", features = ["json"] }
 time = "^0"
-slack-http-verifier = "^0"
 serde_urlencoded = "^0"
 tokio-tar = "^0"
 tempfile = "^3"
@@ -58,8 +57,14 @@ async-recursion = "^1"
 swc_common = "^0"
 swc_ecma_parser = "^0"
 swc_ecma_ast = "^0"
+base64  = "^0"
+unicode-general-category = "^0"
+hmac = "^0"
+sha2 = "^0"
 
-sqlx = { version = "^0", features = ["macros", "offline", "migrate", "uuid", "json", "chrono", "postgres", "runtime-tokio-rustls"]}
+sqlx = { version = "^0", features = ["offline", "macros", "migrate", "uuid", "json", "chrono", "postgres", "runtime-tokio-rustls"]}
 dotenv = "^0"
-ulid = { version = "^0", features = ["uuid"] }
+ulid = { version = "^1", features = ["uuid"] }
 futures = "^0"
+tokio-metrics = "0.1.0"
+lazy_static = "1.4.0"

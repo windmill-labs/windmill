@@ -1,6 +1,10 @@
 <script lang="ts">
+	import { truncate } from '$lib/utils'
+
 	import { createEventDispatcher } from 'svelte'
+	import { NEVER_TESTED_THIS_FAR } from '../flows/flowStateUtils'
 	import { getTypeAsString } from '../flows/utils'
+	import { computeKey } from './utils'
 	import WarningMessage from './WarningMessage.svelte'
 
 	export let json: Object
@@ -8,6 +12,8 @@
 	export let isLast = true
 	export let currentPath: string = ''
 	export let pureViewer = false
+	export let collapsed = level == 3 || Array.isArray(json)
+	export let rawKey = false
 
 	const collapsedSymbol = '...'
 	let keys: string | any[]
@@ -22,65 +28,52 @@
 		closeBracket = isArray ? ']' : '}'
 	}
 
-	$: collapsed = level == 2
-
 	function collapse() {
 		collapsed = !collapsed
 	}
 
 	const dispatch = createEventDispatcher()
 
-	function computeKey(key: string) {
-		if (isArray) {
-			if (currentPath === 'step') {
-				return `${currentPath}(${key})?`
-			}
-			return `${currentPath}[${key}]`
-		} else {
-			if (currentPath) {
-				return `${currentPath}.${key}`
-			} else {
-				return key
-			}
-		}
-	}
-
 	function selectProp(key: string) {
-		dispatch('select', computeKey(key))
+		dispatch('select', rawKey ? key : computeKey(key, isArray, currentPath))
 	}
 </script>
 
 {#if keys.length > 0}
 	<span class:hidden={collapsed}>
-		{#if level != 0}<span class="cursor-pointer hover:bg-slate-200" on:click={collapse}>(-)</span
-			>{/if}
+		{#if level != 0}
+			<span class="cursor-pointer hover:bg-gray-200 px-1 rounded" on:click={collapse}> (-) </span>
+		{/if}
 		<ul class="w-full">
 			{#each keys as key, index}
-				<li class={getTypeAsString(json[key]) !== 'object' ? 'hover:bg-sky-100 pt-1' : 'pt-1'}>
-					{#if !isArray}
-						<span class="key mr-1">{key}:</span>
-					{:else}
-						<span class="key mr-1">{index}:</span>
-					{/if}
+				<li class="pt-1">
+					<button
+						on:click={() => selectProp(key)}
+						class="key font-normal rounded px-1 hover:bg-blue-100"
+					>
+						{!isArray ? key : index}:
+					</button>
 
 					{#if getTypeAsString(json[key]) === 'object'}
 						<svelte:self
 							json={json[key]}
 							level={level + 1}
 							isLast={index === keys.length - 1}
-							currentPath={computeKey(key)}
+							currentPath={computeKey(key, isArray, currentPath)}
 							{pureViewer}
 							on:select
 						/>
 					{:else}
-						<button class="val {getTypeAsString(json[key])}" on:click={() => selectProp(key)}>
-							{#if json[key] === undefined}
+						<button
+							class="val rounded px-1 hover:bg-blue-100 {getTypeAsString(json[key])}"
+							on:click={() => selectProp(key)}
+						>
+							{#if json[key] === NEVER_TESTED_THIS_FAR}
 								<WarningMessage />
+							{:else if json[key] == undefined}
+								<span>undefined</span>
 							{:else}
-								<span> {JSON.stringify(json[key])}</span>
-								{#if !pureViewer}
-									<button class="ml-2 default-button-secondary py-0"> Select </button>
-								{/if}
+								<span>{truncate(JSON.stringify(json[key]), 40)}</span>
 							{/if}
 						</button>
 					{/if}
@@ -88,7 +81,7 @@
 			{/each}
 		</ul>
 	</span>
-	<span class="cursor-pointer hover:bg-slate-200" class:hidden={!collapsed} on:click={collapse}>
+	<span class="cursor-pointer hover:bg-gray-200" class:hidden={!collapsed} on:click={collapse}>
 		{openBracket}{collapsedSymbol}{closeBracket}
 	</span>
 	{#if !isLast && collapsed}
@@ -104,6 +97,7 @@
 		padding-left: 1rem;
 		border-left: 1px dotted lightgray;
 		@apply text-black;
+		@apply text-sm;
 	}
 
 	.val {
@@ -116,12 +110,12 @@
 		@apply text-red-500;
 	}
 	.val.string {
-		@apply text-lime-600;
+		@apply text-green-600;
 	}
 	.val.number {
 		@apply text-orange-600;
 	}
 	.val.boolean {
-		@apply text-cyan-600;
+		@apply text-blue-600;
 	}
 </style>

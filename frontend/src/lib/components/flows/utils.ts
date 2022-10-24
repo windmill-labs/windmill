@@ -1,50 +1,43 @@
 import type { Schema } from '$lib/common'
-import type { Flow, FlowModule, FlowModuleValue, InputTransform, RawScript } from '$lib/gen'
+import { JobService, type Flow, type FlowModule, type InputTransform, type Job } from '$lib/gen'
 import { inferArgs } from '$lib/infer'
 import { loadSchema } from '$lib/scripts'
-import { emptySchema, getScriptByPath, schemaToObject } from '$lib/utils'
+import { workspaceStore } from '$lib/stores'
+import { emptySchema } from '$lib/utils'
+import { get } from 'svelte/store'
+import type { FlowModuleState, FlowState } from './flowState'
 
-import type { FlowMode } from './flowStore'
-
-export function flowToMode(flow: Flow | any, mode: FlowMode): Flow {
+export function cleanInputs(flow: Flow | any): Flow {
 	const newFlow: Flow = JSON.parse(JSON.stringify(flow))
 	newFlow.value.modules.forEach((mod) => {
-		Object.values(mod.input_transform).forEach((inp) => {
-			// for now we use the value for dynamic expression when done in the static editor so we have to resort to this
-			if (inp.type == 'javascript') {
-				//@ts-ignore
-				inp.value = undefined
-			} else {
-				//@ts-ignore
-				inp.expr = undefined
+		if (mod.value.type == 'rawscript' || mod.value.type == 'script') {
+			if (Object.keys(mod.input_transforms ?? {}).length > 0) {
+				mod.value.input_transforms = mod.input_transforms
+				delete mod.input_transforms
 			}
-		})
-	})
-
-	if (mode == 'pull') {
-		const triggerModule = newFlow.value.modules[0]
-		const oldModules = newFlow.value.modules.slice(1)
-
-		if (triggerModule) {
-			triggerModule.stop_after_if_expr = 'result.res1.length == 0'
-			triggerModule.skip_if_stopped = true
-		}
-
-		newFlow.value.modules = newFlow.value.modules.slice(0, 1)
-		if (oldModules.length > 0) {
-			newFlow.value.modules.push({
-				input_transform: oldModules[0].input_transform,
-				value: {
-					type: 'forloopflow',
-					iterator: { type: 'javascript', expr: 'result.res1' },
-					value: {
-						modules: oldModules
-					},
-					skip_failures: true
+			Object.values(mod.input_transforms ?? {}).forEach((inp) => {
+				// for now we use the value for dynamic expression when done in the static editor so we have to resort to this
+				if (inp.type == 'javascript') {
+					//@ts-ignore
+					inp.value = undefined
+					inp.expr = inp.expr
+						.split('\n')
+						.filter(
+							(x) =>
+								x != '' &&
+								!x.startsWith(
+									`import { previous_result, flow_input, step, variable, resource, params } from 'windmill@`
+								)
+						)
+						.join('\n')
+				} else {
+					//@ts-ignore
+					inp.expr = undefined
 				}
 			})
 		}
-	}
+	})
+
 	return newFlow
 }
 
@@ -58,162 +51,157 @@ export function getTypeAsString(arg: any): string {
 	return typeof arg
 }
 
-export async function getFirstStepSchema(flow: Flow): Promise<Schema> {
-	const [firstModule] = flow.value.modules
-	if (firstModule.value.type === 'rawscript') {
-		const { language, content } = firstModule.value
-		if (language && content) {
-			const schema = emptySchema()
-			await inferArgs(language, content, schema)
-			return schema
-		}
-	} else if (firstModule.value.type == 'script') {
-		return await loadSchema(firstModule.value.path)
+
+export function selectedIdToIndexes(selectedId: string): number[] {
+	const splitted = selectedId.split('-')
+	if (splitted[0] == 'loop') {
+		return [Number(splitted[1])]
+	} else {
+		return splitted.map(Number)
 	}
-	return emptySchema()
 }
-
-export async function createInlineScriptModuleFromPath(path: string): Promise<FlowModuleValue> {
-	const { content, language } = await getScriptByPath(path)
-
-	return {
-		type: 'rawscript',
-		language: language as RawScript.language,
-		content: content,
-		path
+export function selectedIdToModule(selectedId: string, flow: Flow): FlowModule {
+	const [p, c] = selectedIdToIndexes(selectedId)
+	const pm = flow.value.modules[p]
+	if (c && pm.value.type == 'forloopflow') {
+		return pm.value.modules[c]
+	} else {
+		return pm
 	}
 }
 
-export function scrollIntoView(el: any) {
-	if (!el) return
-
-	el.scrollIntoView({
-		behavior: 'smooth',
-		block: 'start',
-		inline: 'nearest'
-	})
+export function selectedIdToModuleState(selectedId: string, flow: FlowState): FlowModuleState {
+	const [p, c] = selectedIdToIndexes(selectedId)
+	const pm = flow.modules[p]
+	if (c && pm.childFlowModules) {
+		return pm.childFlowModules[c]
+	} else {
+		return pm
+	}
 }
+
 export async function loadSchemaFromModule(module: FlowModule): Promise<{
-	input_transform: Record<string, InputTransform>
+	input_transforms: Record<string, InputTransform>
 	schema: Schema
 }> {
+
 	const mod = module.value
 
 	if (mod.type == 'rawscript' || mod.type === 'script') {
 		let schema: Schema
 		if (mod.type === 'rawscript') {
 			schema = emptySchema()
-			await inferArgs(mod.language!, mod.content!, schema)
-		} else {
+			await inferArgs(mod.language!, mod.content ?? '', schema)
+		} else if (mod.path && mod.path != '') {
 			schema = await loadSchema(mod.path!)
+		} else {
+			return {
+				input_transforms: {},
+				schema: emptySchema()
+			}
 		}
 
 		const keys = Object.keys(schema?.properties ?? {})
 
-		let input_transform = module.input_transform
+		if (Object.keys(module.input_transforms ?? {}).length > 0) {
+			mod.input_transforms = module.input_transforms
+		}
+		let input_transforms = mod.input_transforms ?? module.input_transforms ?? {}
 
 		if (
-			JSON.stringify(keys.sort()) !== JSON.stringify(Object.keys(module.input_transform).sort())
+			JSON.stringify(keys.sort()) !== JSON.stringify(Object.keys(input_transforms).sort())
 		) {
-			input_transform = keys.reduce((accu, key) => {
-				let nv = module.input_transform[key] ?? {
+			input_transforms = keys.reduce((accu, key) => {
+				let nv = input_transforms[key] ?? {
 					type: 'static',
 					value: undefined
 				}
 				accu[key] = nv
 				return accu
 			}, {})
+
 		}
 
 		return {
-			input_transform: input_transform,
+			input_transforms: input_transforms,
 			schema: schema ?? emptySchema()
 		}
 	}
 
 	return {
-		input_transform: {},
+		input_transforms: {},
 		schema: emptySchema()
 	}
 }
+
+const dynamicTemplateRegex = new RegExp(/\$\{(.*)\}/)
 
 export function isCodeInjection(expr: string | undefined): boolean {
 	if (!expr) {
 		return false
 	}
-	const lines = expr.split('\n')
-	const [returnStatement] = lines.reverse()
 
-	const returnStatementRegex = new RegExp(/\$\{(.*)\}/)
-	if (returnStatementRegex.test(returnStatement)) {
-		const [_, argName] = returnStatement.split(returnStatementRegex)
-
-		return Boolean(argName)
-	}
-	return false
+	return dynamicTemplateRegex.test(expr)
 }
 
-export function getCodeInjectionExpr(code: string, isRaw: boolean): string {
-	let expr = `\`${code}\``
-	if (isRaw) {
-		expr = `JSON.parse(${expr})`
-	}
-	return `import { previous_result, flow_input, step, variable, resource, params } from 'windmill'
-	
-${expr}`
-}
-
-export function getDefaultExpr(i: number, key: string = 'myfield', previousExpr?: string) {
-	const expr = previousExpr ?? `previous_result.${key}`
-	return `import { previous_result, flow_input, step, variable, resource, params } from 'windmill@${i}'
-
-${expr}`
-}
-
-export function getPickableProperties(
-	schema: Schema,
-	args: Record<string, any>,
-	previewResults: Record<number, Object>,
-	mode: FlowMode,
-	i: number
+export function getDefaultExpr(
+	importPath: string | undefined = undefined,
+	key: string = 'myfield',
+	previousExpr?: string
 ) {
-	const flowInputAsObject = schemaToObject(schema, args)
-	const flowInput =
-		mode === 'pull' && i >= 1
-			? Object.assign(
-					Object.assign(
-						{
-							_value: 'The current value of the iteration as an object',
-							_index: 'The current index of the iteration as a number'
-						},
-						flowInputAsObject
-					),
-					previewResults[0]
-			  )
-			: flowInputAsObject
+	const expr = previousExpr ?? `previous_result.${key}`
+	return `import { previous_result, flow_input, step, variable, resource, params } from 'windmill${importPath ? `@${importPath}` : ''
+		}'
 
-	let previous_result
-	if (i === 0 || (i == 1 && mode == 'pull')) {
-		previous_result = flowInput
-	} else if (mode == 'pull') {
-		previous_result = previewResults[1] ? previewResults[1][i - 2] : undefined
-	} else {
-		previous_result = previewResults[i - 1]
-	}
+${expr}`
+}
 
-	let step
-	if (i >= 1 && mode == 'push') {
-		step = Object.values(previewResults).slice(0, i)
-	} else if (i >= 2 && mode == 'pull') {
-		step = Object.values(previewResults[1] ?? {}).slice(0, i - 1)
-	} else {
-		step = []
-	}
-	const pickableProperties = {
-		flow_input: flowInput,
-		previous_result,
-		step
-	}
+export function jobsToResults(jobs: Job[]) {
+	return jobs.map((job) => {
+		if ('result' in job) {
+			return job.result
+		} else if (Array.isArray(job)) {
+			return jobsToResults(job)
+		}
+	})
+}
 
-	return pickableProperties
+export async function runFlowPreview(args: Record<string, any>, flow: Flow) {
+	const newFlow = flow
+	return await JobService.runFlowPreview({
+		workspace: get(workspaceStore) ?? '',
+		requestBody: {
+			args,
+			value: newFlow.value,
+			path: newFlow.path
+		}
+	})
+}
+
+export function codeToStaticTemplate(code?: string): string | undefined {
+	if (!code) return undefined
+
+	const lines = code
+		.split('\n')
+		.slice(1)
+		.filter((x) => x != '')
+
+	if (lines.length == 1) {
+		const line = lines[0].trim()
+		if (line[0] == '`' && line.charAt(line.length - 1) == '`') {
+			return line.slice(1, line.length - 1)
+		}
+	}
+	return undefined
+}
+
+export function getIndexes(parentIndex: number | undefined, childIndex: number): number[] {
+	const indexes: number[] = []
+
+	if (parentIndex !== undefined) {
+		indexes.push(parentIndex)
+	}
+	indexes.push(childIndex)
+
+	return indexes
 }

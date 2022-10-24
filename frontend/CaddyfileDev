@@ -1,0 +1,12 @@
+{
+  auto_https off
+}
+
+:8080 {  
+  bind {$ADDRESS}
+  reverse_proxy /api/* http://windmill:8000
+  reverse_proxy /* http://localhost:3000
+  reverse_proxy /ws/* http://lsp:3001 {
+    lb_policy header "Authorization"
+  }
+}

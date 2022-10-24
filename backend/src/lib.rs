@@ -6,14 +6,13 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
+use anyhow::Context;
 use argon2::Argon2;
 use axum::{handler::Handler, middleware::from_extractor, routing::get, Extension, Router};
 use db::DB;
 use futures::FutureExt;
 use git_version::git_version;
-use slack_http_verifier::SlackVerifier;
 use std::{net::SocketAddr, sync::Arc};
-use tokio::sync::Mutex;
 use tower::ServiceBuilder;
 use tower_cookies::CookieManagerLayer;
 use tower_http::trace::TraceLayer;
@@ -26,15 +25,22 @@ mod audit;
 mod capture;
 mod client;
 mod db;
-mod email;
 mod error;
+mod external_ip;
 mod flows;
 mod granular_acls;
 mod groups;
 mod jobs;
 mod js_eval;
+mod more_serde;
 mod oauth2;
 mod parser;
+mod parser_go;
+mod parser_go_ast;
+mod parser_go_scanner;
+mod parser_go_token;
+mod parser_py;
+mod parser_ts;
 mod resources;
 mod schedule;
 mod scripts;
@@ -50,55 +56,55 @@ mod workspaces;
 
 use error::Error;
 
-pub use crate::email::EmailSender;
 use crate::{
     db::UserDB,
     error::to_anyhow,
-    oauth2::build_oauth_clients,
+    oauth2::{build_oauth_clients, SlackVerifier},
     tracing_init::{MyMakeSpan, MyOnResponse},
     utils::rd_string,
 };
+
+pub use crate::tracing_init::initialize_tracing;
+pub use crate::worker::WorkerConfig;
 
 const GIT_VERSION: &str = git_version!(args = ["--tag", "--always"], fallback = "unknown-version");
 pub const DEFAULT_NUM_WORKERS: usize = 3;
 pub const DEFAULT_TIMEOUT: i32 = 300;
 pub const DEFAULT_SLEEP_QUEUE: u64 = 50;
+pub const DEFAULT_MAX_CONNECTIONS: u32 = 100;
 
 pub async fn migrate_db(db: &DB) -> anyhow::Result<()> {
-    let app_password = std::env::var("APP_USER_PASSWORD").unwrap_or_else(|_| "changeme".to_owned());
-
     db::migrate(db).await?;
-    db::setup_app_user(db, &app_password).await?;
     Ok(())
 }
 
 pub async fn connect_db() -> anyhow::Result<DB> {
     let database_url = std::env::var("DATABASE_URL")
         .map_err(|_| Error::BadConfig("DATABASE_URL env var is missing".to_string()))?;
-    Ok(db::connect(&database_url).await?)
-}
 
-pub async fn initialize_tracing() -> anyhow::Result<()> {
-    tracing_init::initialize_tracing().await
+    let max_connections = match std::env::var("DATABASE_CONNECTIONS") {
+        Ok(n) => n.parse::<u32>().context("invalid DATABASE_CONNECTIONS")?,
+        Err(_) => DEFAULT_MAX_CONNECTIONS,
+    };
+
+    Ok(db::connect(&database_url, max_connections).await?)
 }
 
 struct BaseUrl(String);
-
+struct IsSecure(bool);
 struct CloudHosted(bool);
 
 pub async fn run_server(
     db: DB,
     addr: SocketAddr,
-    base_url: &str,
-    es: EmailSender,
+    base_url: String,
     mut rx: tokio::sync::broadcast::Receiver<()>,
 ) -> anyhow::Result<()> {
     let user_db = UserDB::new(db.clone());
 
     let auth_cache = Arc::new(users::AuthCache::new(db.clone()));
     let argon2 = Arc::new(Argon2::default());
-    let email_sender = Arc::new(es);
-    let basic_clients = Arc::new(build_oauth_clients(base_url).await?);
+    let basic_clients = Arc::new(build_oauth_clients(&base_url).await?);
     let slack_verifier = Arc::new(
         std::env::var("SLACK_SIGNING_SECRET")
             .ok()
@@ -123,6 +129,9 @@ pub async fn run_server(
         .layer(Extension(Arc::new(CloudHosted(
             std::env::var("CLOUD_HOSTED").is_ok(),
         ))))
+        .layer(Extension(Arc::new(IsSecure(
+            base_url.starts_with("https://"),
+        ))))
         .layer(Extension(http_client))
         .layer(CookieManagerLayer::new());
     // build our application with a route
@@ -137,9 +146,7 @@ pub async fn run_server(
                         .nest("/jobs", jobs::workspaced_service())
                         .nest(
                             "/users",
-                            users::workspaced_service()
-                                .layer(Extension(argon2.clone()))
-                                .layer(Extension(email_sender)),
+                            users::workspaced_service().layer(Extension(argon2.clone())),
                         )
                         .nest("/variables", variables::workspaced_service())
                         .nest("/oauth", oauth2::workspaced_service())
@@ -163,6 +170,7 @@ pub async fn run_server(
                 .nest("/schedules", schedule::global_service())
                 .route_layer(from_extractor::<users::Authed>())
                 .route_layer(from_extractor::<users::Tokened>())
+                .nest("/w/:workspace_id/jobs", jobs::global_service())
                 .nest("/w/:workspace_id/capture", capture::global_service())
                 .nest(
                     "/auth",
@@ -194,14 +202,13 @@ pub async fn run_server(
     Ok(())
 }
 
-pub fn monitor_db(db: &DB, timeout: i32, tx: tokio::sync::broadcast::Sender<()>) {
+pub fn monitor_db(db: &DB, timeout: i32, rx: tokio::sync::broadcast::Receiver<()>) {
     let db1 = db.clone();
     let db2 = db.clone();
 
-    let rx1 = tx.subscribe();
-    let rx2 = tx.subscribe();
+    let rx2 = rx.resubscribe();
 
-    tokio::spawn(async move { worker::restart_zombie_jobs_periodically(&db1, timeout, rx1).await });
+    tokio::spawn(async move { worker::handle_zombie_jobs_periodically(&db1, timeout, rx).await });
     tokio::spawn(async move { users::delete_expired_items_perdiodically(&db2, rx2).await });
 }
 
@@ -211,36 +218,27 @@ pub async fn run_workers(
     timeout: i32,
     num_workers: i32,
     sleep_queue: u64,
-    base_url: String,
-    disable_nuser: bool,
-    disable_nsjail: bool,
-    tx: tokio::sync::broadcast::Sender<()>,
+    worker_config: WorkerConfig,
+    rx: tokio::sync::broadcast::Receiver<()>,
 ) -> anyhow::Result<()> {
     let instance_name = rd_string(5);
+    let monitor = tokio_metrics::TaskMonitor::new();
 
-    let mutex = Arc::new(Mutex::new(0));
+    let ip = external_ip::get_ip().await.unwrap_or_else(|e| {
+        tracing::warn!(error = e.to_string(), "failed to get external IP");
+        "unretrievable IP".to_string()
+    });
 
-    let sources: external_ip::Sources = external_ip::get_http_sources();
-    let consensus = external_ip::ConsensusBuilder::new()
-        .add_sources(sources)
-        .build();
+    let mut handles = Vec::with_capacity(num_workers as usize);
 
-    let ip = consensus
-        .get_consensus()
-        .await
-        .map(|x| x.to_string())
-        .unwrap_or_else(|| "Unretrievable ip".to_string());
-
-    let mut handles = Vec::new();
     for i in 1..(num_workers + 1) {
         let db1 = db.clone();
         let instance_name = instance_name.clone();
         let worker_name = format!("dt-worker-{}-{}", &instance_name, rd_string(5));
-        let m1 = mutex.clone();
         let ip = ip.clone();
-        let tx = tx.clone();
-        let base_url = base_url.clone();
-        handles.push(tokio::spawn(async move {
+        let rx = rx.resubscribe();
+        let worker_config = worker_config.clone();
+        handles.push(tokio::spawn(monitor.instrument(async move {
             tracing::info!(addr = %addr.to_string(), worker = %worker_name, "starting worker");
             worker::run_worker(
                 &db1,
@@ -249,17 +247,15 @@ pub async fn run_workers(
                 worker_name,
                 i as u64,
                 num_workers as u64,
-                m1,
                 &ip,
                 sleep_queue,
-                &base_url,
-                disable_nuser,
-                disable_nsjail,
-                tx,
+                worker_config,
+                rx,
             )
             .await
-        }));
+        })));
     }
+
     futures::future::try_join_all(handles).await?;
     Ok(())
 }

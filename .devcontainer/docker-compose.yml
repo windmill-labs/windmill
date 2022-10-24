@@ -1,0 +1,25 @@
+version: '3.7'
+services:
+  windmill:
+    build:
+      context: .
+      dockerfile: .devcontainer/Dockerfile
+    # image: mcr.microsoft.com/vscode/devcontainers/rust:bullseye
+    environment:
+      - DENO_PATH=/usr/local/cargo/bin/deno
+      - PYTHON_PATH=/usr/bin/python3
+      - NSJAIL_PATH=/bin/nsjail
+    volumes:
+      - .:/workspace:cached
+      - ~/.ssh:/home/vscode/.ssh:ro
+
+    command: /bin/sh -c "while sleep 1000; do :; done"
+ 
+
+  front:
+    image: mcr.microsoft.com/vscode/devcontainers/typescript-node:16
+    volumes:
+      - .:/workspace:cached
+      - ~/.ssh:/home/node/.ssh:ro
+
+    command: /bin/sh -c "while sleep 1000; do :; done"

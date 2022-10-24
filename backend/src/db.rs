@@ -12,9 +12,9 @@ use std::time::Duration;
 
 pub type DB = Pool<Postgres>;
 
-pub async fn connect(database_url: &str) -> Result<DB, Error> {
+pub async fn connect(database_url: &str, max_connections: u32) -> Result<DB, Error> {
     PgPoolOptions::new()
-        .max_connections(100)
+        .max_connections(max_connections)
         .max_lifetime(Duration::from_secs(30 * 60)) // 30 mins
         .connect(database_url)
         .await
@@ -30,19 +30,6 @@ pub async fn migrate(db: &DB) -> Result<(), Error> {
     Ok(())
 }
 
-pub async fn setup_app_user(db: &DB, password: &str) -> Result<(), Error> {
-    let mut tx = db.begin().await?;
-
-    sqlx::query(&format!("ALTER USER app WITH PASSWORD '{}'", password))
-        .execute(&mut tx)
-        .await?;
-    sqlx::query(&format!("ALTER USER admin WITH PASSWORD '{}'", password))
-        .execute(&mut tx)
-        .await?;
-    tx.commit().await?;
-
-    Ok(())
-}
 #[derive(Clone)]
 pub struct UserDB {
     db: DB,
@@ -58,9 +45,13 @@ impl UserDB {
         authed: &Authed,
     ) -> Result<Transaction<'static, Postgres>, sqlx::Error> {
         let mut tx = self.db.begin().await?;
-        let user = if authed.is_admin { "admin" } else { "app" };
+        let user = if authed.is_admin {
+            "windmill_admin"
+        } else {
+            "windmill_user"
+        };
 
-        sqlx::query(&format!("SET LOCAL SESSION AUTHORIZATION {}", user))
+        sqlx::query(&format!("SET LOCAL ROLE {}", user))
             .execute(&mut tx)
             .await?;
 

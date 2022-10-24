@@ -15,7 +15,7 @@
 		return typeof value === 'string' || value instanceof String
 	}
 
-	async function getResource(path) {
+	async function getResource(path: string) {
 		resource = await ResourceService.getResource({ workspace: $workspaceStore!, path })
 	}
 

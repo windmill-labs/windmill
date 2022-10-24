@@ -11,6 +11,7 @@ export interface SchemaProperty {
 	contentEncoding?: 'base64' | 'binary'
 	format?: string
 	items?: { type?: 'string' | 'number' | 'bytes', contentEncoding?: 'base64' },
+	properties?: { [name: string]: SchemaProperty }
 }
 
 export type Schema = {

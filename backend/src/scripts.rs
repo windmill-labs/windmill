@@ -14,7 +14,7 @@ use crate::{
     audit::{audit_log, ActionKind},
     db::{UserDB, DB},
     error::{to_anyhow, Error, JsonResult, Result},
-    jobs, parser,
+    jobs, parser, parser_go, parser_py, parser_ts,
     users::{owner_to_token_owner, truncate_token, Authed, Tokened},
     utils::{http_get_from_hub, list_elems_from_hub, require_admin, Pagination, StripPath},
 };
@@ -43,8 +43,10 @@ pub fn global_service() -> Router {
             post(parse_python_code_to_jsonschema),
         )
         .route("/deno/tojsonschema", post(parse_deno_code_to_jsonschema))
+        .route("/go/tojsonschema", post(parse_go_code_to_jsonschema))
         .route("/hub/list", get(list_hub_scripts))
         .route("/hub/get/*path", get(get_hub_script_by_path))
+        .route("/hub/get_full/*path", get(get_full_hub_script_by_path))
 }
 
 pub fn workspaced_service() -> Router {
@@ -53,10 +55,12 @@ pub fn workspaced_service() -> Router {
         .route("/create", post(create_script))
         .route("/archive/p/*path", post(archive_script_by_path))
         .route("/get/p/*path", get(get_script_by_path))
+        .route("/raw/p/*path", get(raw_script_by_path))
         .route("/exists/p/*path", get(exists_script_by_path))
         .route("/archive/h/:hash", post(archive_script_by_hash))
         .route("/delete/h/:hash", post(delete_script_by_hash))
         .route("/get/h/:hash", get(get_script_by_hash))
+        .route("/raw/h/:hash", get(raw_script_by_hash))
         .route("/deployment_status/h/:hash", get(get_deployment_status))
 }
 
@@ -66,6 +70,7 @@ pub fn workspaced_service() -> Router {
 pub enum ScriptLang {
     Deno,
     Python3,
+    Go,
 }
 
 impl ScriptLang {
@@ -73,6 +78,7 @@ impl ScriptLang {
         match self {
             ScriptLang::Deno => "deno",
             ScriptLang::Python3 => "python3",
+            ScriptLang::Go => "go",
         }
     }
 }
@@ -122,6 +128,16 @@ impl Serialize for ScriptHashes {
     }
 }
 
+#[derive(sqlx::Type, Serialize, Deserialize, Debug, Hash)]
+#[sqlx(type_name = "SCRIPT_KIND", rename_all = "lowercase")]
+#[serde(rename_all = "lowercase")]
+pub enum ScriptKind {
+    Trigger,
+    Failure,
+    Script,
+    Approval,
+}
+
 #[derive(FromRow, Serialize)]
 pub struct Script {
     pub workspace_id: String,
@@ -141,7 +157,7 @@ pub struct Script {
     pub lock: Option<String>,
     pub lock_error_logs: Option<String>,
     pub language: ScriptLang,
-    pub is_trigger: bool,
+    pub kind: ScriptKind,
 }
 
 #[derive(Serialize, Deserialize, sqlx::Type, Debug)]
@@ -168,7 +184,7 @@ pub struct NewScript {
     pub is_template: Option<bool>,
     pub lock: Option<Vec<String>>,
     pub language: ScriptLang,
-    pub is_trigger: Option<bool>,
+    pub kind: Option<ScriptKind>,
 }
 
 #[derive(Deserialize)]
@@ -183,7 +199,7 @@ pub struct ListScriptQuery {
     pub order_by: Option<String>,
     pub order_desc: Option<bool>,
     pub is_template: Option<bool>,
-    pub is_trigger: Option<bool>,
+    pub kind: Option<String>,
 }
 
 async fn list_scripts(
@@ -214,7 +230,7 @@ async fn list_scripts(
             "null as lock",
             "CASE WHEN lock_error_logs IS NOT NULL THEN 'error' ELSE null END as lock_error_logs",
             "language",
-            "is_trigger",
+            "kind",
         ])
         .order_by("created_at", lq.order_desc.unwrap_or(true))
         .and_where("workspace_id = ? OR workspace_id = 'starter'".bind(&w_id))
@@ -252,8 +268,8 @@ async fn list_scripts(
     if let Some(it) = &lq.is_template {
         sqlb.and_where_eq("is_template", it);
     }
-    if let Some(it) = &lq.is_trigger {
-        sqlb.and_where_eq("is_trigger", it);
+    if let Some(k) = &lq.kind {
+        sqlb.and_where_eq("kind", "?".bind(&k.to_lowercase()));
     }
 
     let sql = sqlb.sql().map_err(|e| Error::InternalErr(e.to_string()))?;
@@ -405,7 +421,7 @@ async fn create_script(
     //::text::json is to ensure we use serde_json with preserve order
     sqlx::query!(
         "INSERT INTO script (workspace_id, hash, path, parent_hashes, summary, description, \
-         content, created_by, schema, is_template, extra_perms, lock, language, is_trigger) \
+         content, created_by, schema, is_template, extra_perms, lock, language, kind) \
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::text::json, $10, $11, $12, $13, $14)",
         &w_id,
         &hash.0,
@@ -420,23 +436,27 @@ async fn create_script(
         extra_perms,
         lock,
         ns.language: ScriptLang,
-        ns.is_trigger.unwrap_or(false),
+        ns.kind.unwrap_or(ScriptKind::Script): ScriptKind,
     )
     .execute(&mut tx)
     .await?;
 
-    let mut tx = if ns.lock.is_none() && ns.language == ScriptLang::Python3 {
-        let dependencies = parser::parse_python_imports(&ns.content)?;
+    let mut tx = if ns.lock.is_none() && ns.language != ScriptLang::Deno {
+        let dependencies = match ns.language {
+            ScriptLang::Python3 => parser_py::parse_python_imports(&ns.content)?.join("\n"),
+            _ => ns.content,
+        };
         let (_, tx) = jobs::push(
             tx,
             &w_id,
-            jobs::JobPayload::Dependencies { hash, dependencies },
+            jobs::JobPayload::Dependencies { hash, dependencies, language: ns.language },
             None,
             &authed.username,
             owner_to_token_owner(&authed.username, false),
             None,
             None,
             None,
+            false,
             false,
         )
         .await?;
@@ -513,6 +533,40 @@ pub async fn get_hub_script_by_path(
     Ok(content)
 }
 
+#[derive(Deserialize, Serialize)]
+pub struct HubScript {
+    pub content: String,
+    pub lockfile: Option<String>,
+    pub language: ScriptLang,
+    pub schema: Option<serde_json::Value>,
+}
+
+pub async fn get_full_hub_script_by_path(
+    Authed { email, username, .. }: Authed,
+    Path(path): Path<StripPath>,
+    Extension(http_client): Extension<Client>,
+    Host(host): Host,
+) -> JsonResult<HubScript> {
+    let path = path
+        .to_path()
+        .strip_prefix("hub/")
+        .ok_or_else(|| Error::BadRequest("Impossible to remove prefix hex".to_string()))?;
+
+    let value = http_get_from_hub(
+        http_client,
+        &format!("https://hub.windmill.dev/raw2/{path}"),
+        email,
+        username,
+        host,
+        true,
+    )
+    .await?
+    .json::<HubScript>()
+    .await
+    .map_err(to_anyhow)?;
+    Ok(Json(value))
+}
+
 async fn get_script_by_path(
     authed: Authed,
     Extension(user_db): Extension<UserDB>,
@@ -523,8 +577,7 @@ async fn get_script_by_path(
 
     let script_o = sqlx::query_as::<_, Script>(
         "SELECT * FROM script WHERE path = $1 AND (workspace_id = $2 OR workspace_id = 'starter') \
-         AND
-         created_at = (SELECT max(created_at) FROM script WHERE path = $1 AND archived = false AND \
+         AND created_at = (SELECT max(created_at) FROM script WHERE path = $1 AND \
          (workspace_id = $2 OR workspace_id = 'starter'))",
     )
     .bind(path)
@@ -535,6 +588,32 @@ async fn get_script_by_path(
 
     let script = crate::utils::not_found_if_none(script_o, "Script", path)?;
     Ok(Json(script))
+}
+
+async fn raw_script_by_path(
+    authed: Authed,
+    Extension(user_db): Extension<UserDB>,
+    Path((w_id, path)): Path<(String, StripPath)>,
+) -> Result<String> {
+    let path = path
+        .to_path()
+        .strip_suffix(".ts")
+        .ok_or_else(|| Error::BadRequest("Raw script path must end with .ts".to_string()))?;
+    let mut tx = user_db.begin(&authed).await?;
+
+    let content_o = sqlx::query_scalar!(
+        "SELECT content FROM script WHERE path = $1 AND (workspace_id = $2 OR workspace_id = 'starter') \
+         AND
+         created_at = (SELECT max(created_at) FROM script WHERE path = $1 AND archived = false AND \
+         (workspace_id = $2 OR workspace_id = 'starter'))",
+         path, w_id
+    )
+    .fetch_optional(&mut tx)
+    .await?;
+    tx.commit().await?;
+
+    let content = crate::utils::not_found_if_none(content_o, "Script", path)?;
+    Ok(content)
 }
 
 async fn exists_script_by_path(
@@ -585,6 +664,21 @@ async fn get_script_by_hash(
     tx.commit().await?;
 
     Ok(Json(r))
+}
+
+async fn raw_script_by_hash(
+    authed: Authed,
+    Extension(user_db): Extension<UserDB>,
+    Path((w_id, hash_str)): Path<(String, String)>,
+) -> Result<String> {
+    let mut tx = user_db.begin(&authed).await?;
+    let hash = ScriptHash(to_i64(hash_str.strip_suffix(".ts").ok_or_else(|| {
+        Error::BadRequest("Raw script path must end with .ts".to_string())
+    })?)?);
+    let r = get_script_by_hash_internal(&mut tx, &w_id, &hash).await?;
+    tx.commit().await?;
+
+    Ok(r.content)
 }
 
 #[derive(FromRow, Serialize)]
@@ -713,13 +807,18 @@ async fn delete_script_by_hash(
 async fn parse_python_code_to_jsonschema(
     Json(code): Json<String>,
 ) -> JsonResult<parser::MainArgSignature> {
-    parser::parse_python_signature(&code).map(Json)
+    parser_py::parse_python_signature(&code).map(Json)
 }
 
 async fn parse_deno_code_to_jsonschema(
     Json(code): Json<String>,
 ) -> JsonResult<parser::MainArgSignature> {
-    parser::parse_deno_signature(&code).map(Json)
+    parser_ts::parse_deno_signature(&code).map(Json)
+}
+async fn parse_go_code_to_jsonschema(
+    Json(code): Json<String>,
+) -> JsonResult<parser::MainArgSignature> {
+    parser_go::parse_go_sig(&code).map(Json)
 }
 
 pub fn to_i64(s: &str) -> Result<i64> {

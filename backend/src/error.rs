@@ -45,8 +45,17 @@ pub enum Error {
     HexErr(#[from] hex::FromHexError),
     #[error("Migrating database: {0}")]
     DatabaseMigration(#[from] MigrateError),
+    #[error("Non-zero exit status: {0}")]
+    ExitStatus(i32),
     #[error(transparent)]
     Anyhow(#[from] anyhow::Error),
+}
+
+impl Error {
+    /// https://docs.rs/anyhow/1/anyhow/struct.Error.html#display-representations
+    pub fn alt(&self) -> String {
+        format!("{:#}", self)
+    }
 }
 
 pub fn to_anyhow<T: 'static + std::error::Error + Send + Sync>(e: T) -> anyhow::Error {
@@ -69,5 +78,15 @@ impl IntoResponse for Error {
             .status(status)
             .body(body)
             .unwrap()
+    }
+}
+
+pub trait OrElseNotFound<T> {
+    fn or_else_not_found(self, s: impl ToString) -> Result<T>;
+}
+
+impl<T> OrElseNotFound<T> for Option<T> {
+    fn or_else_not_found(self, s: impl ToString) -> Result<T> {
+        self.ok_or_else(|| Error::NotFound(s.to_string()))
     }
 }
