@@ -28,7 +28,8 @@ use crate::{
     variables::get_workspace_key,
     worker,
     worker_flow::{
-        init_flow_status, FlowStatus, FlowStatusModule, MAX_RETRY_ATTEMPTS, MAX_RETRY_INTERVAL,
+        init_flow_status, Approval, FlowStatus, FlowStatusModule, MAX_RETRY_ATTEMPTS,
+        MAX_RETRY_INTERVAL,
     },
 };
 use axum::{
@@ -1129,11 +1130,12 @@ pub async fn resume_suspended_job(
     sqlx::query!(
         r#"
         INSERT INTO resume_job
-                    (id, job, flow, value, approver)
-             VALUES ($1, $2, $3, $4, $5)
+                    (id, resume_id, job, flow, value, approver)
+             VALUES ($1, $2, $3, $4, $5, $6)
              ON CONFLICT (id) DO NOTHING
         "#,
         Uuid::from_u128(job_id.as_u128() ^ resume_id as u128),
+        resume_id as i32,
         job_id,
         flow.id,
         value,
@@ -1235,7 +1237,7 @@ pub async fn get_root_job(db: DB, w_id: &str, job: Uuid) -> error::Result<Uuid> 
 #[derive(Serialize)]
 pub struct SuspendedJobFlow {
     pub job: Job,
-    pub approvers: Vec<String>,
+    pub approvers: Vec<Approval>,
 }
 
 pub async fn get_suspended_job_flow(
@@ -1288,9 +1290,9 @@ pub async fn get_suspended_job_flow(
         _ => vec![],
     };
     let approvers = if approvers_from_status.is_empty() {
-        sqlx::query_scalar!(
+        sqlx::query!(
             r#"
-            SELECT approver
+            SELECT resume_id, approver
             FROM resume_job
             WHERE job = $1
             "#,
@@ -1299,7 +1301,10 @@ pub async fn get_suspended_job_flow(
         .fetch_all(&mut tx)
         .await?
         .into_iter()
-        .map(|x| x.unwrap_or_else(|| "anonymous".to_string()))
+        .map(|x| Approval {
+            resume_id: x.resume_id as u16,
+            approver: x.approver.unwrap_or_else(|| "anonymous".to_string()),
+        })
         .collect()
     } else {
         approvers_from_status
@@ -1359,6 +1364,7 @@ pub enum JobKind {
     Dependencies,
     Flow,
     FlowPreview,
+    Identity,
 }
 
 #[derive(sqlx::FromRow)]
@@ -1486,6 +1492,7 @@ pub enum JobPayload {
     Dependencies { hash: ScriptHash, dependencies: String, language: ScriptLang },
     Flow(String),
     RawFlow { value: FlowValue, path: Option<String> },
+    Identity,
 }
 
 lazy_static::lazy_static! {
@@ -1654,6 +1661,7 @@ pub async fn push<'c>(
             })?;
             (None, Some(flow), None, JobKind::Flow, Some(value), None)
         }
+        JobPayload::Identity => (None, None, None, JobKind::Identity, None, None),
     };
 
     let is_running = same_worker;
@@ -1728,6 +1736,7 @@ pub async fn push<'c>(
             JobKind::FlowPreview => "jobs.run.flow_preview",
             JobKind::Script_Hub => "jobs.run.script_hub",
             JobKind::Dependencies => "jobs.run.dependencies",
+            JobKind::Identity => "jobs.run.identity",
         };
 
         audit_log(

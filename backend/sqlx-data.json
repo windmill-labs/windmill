@@ -494,6 +494,23 @@
     },
     "query": "UPDATE queue SET logs = $1 WHERE id = $2"
   },
+  "1f68e0b0e6dfa59d782a4abeab8aa06ad808fc7e8255951e1be2fc41263f9c50": {
+    "describe": {
+      "columns": [],
+      "nullable": [],
+      "parameters": {
+        "Left": [
+          "Uuid",
+          "Int4",
+          "Uuid",
+          "Uuid",
+          "Jsonb",
+          "Varchar"
+        ]
+      }
+    },
+    "query": "\n        INSERT INTO resume_job\n                    (id, resume_id, job, flow, value, approver)\n             VALUES ($1, $2, $3, $4, $5, $6)\n             ON CONFLICT (id) DO NOTHING\n        "
+  },
   "1f93b533fa6fee0db4340445da3fac8e6773bc1db1f88cd60fd3c1e8c9781eb0": {
     "describe": {
       "columns": [],
@@ -1091,6 +1108,38 @@
     },
     "query": "DELETE FROM usr_to_group WHERE group_ = $1 AND workspace_id = $2"
   },
+  "541ebd3bac65431237cf3b882dfdcd61ca97c253d9754d05bba59fda89841067": {
+    "describe": {
+      "columns": [
+        {
+          "name": "value",
+          "ordinal": 0,
+          "type_info": "Jsonb"
+        },
+        {
+          "name": "approver",
+          "ordinal": 1,
+          "type_info": "Varchar"
+        },
+        {
+          "name": "resume_id",
+          "ordinal": 2,
+          "type_info": "Int4"
+        }
+      ],
+      "nullable": [
+        false,
+        true,
+        false
+      ],
+      "parameters": {
+        "Left": [
+          "Uuid"
+        ]
+      }
+    },
+    "query": "SELECT value, approver, resume_id FROM resume_job WHERE job = $1 ORDER BY created_at ASC"
+  },
   "5445083864b2b092b012e894bff7630a1d7b9deb8d33e9f909061f351f96844e": {
     "describe": {
       "columns": [
@@ -1183,22 +1232,6 @@
       }
     },
     "query": "SELECT * from resource_type WHERE name = $1 AND (workspace_id = $2 OR workspace_id = 'starter')"
-  },
-  "5a9adf5eec1d51060e6f5ecebea60b511189a22019d6c9249bb30a0cf4ae23dd": {
-    "describe": {
-      "columns": [],
-      "nullable": [],
-      "parameters": {
-        "Left": [
-          "Uuid",
-          "Uuid",
-          "Uuid",
-          "Jsonb",
-          "Varchar"
-        ]
-      }
-    },
-    "query": "\n        INSERT INTO resume_job\n                    (id, job, flow, value, approver)\n             VALUES ($1, $2, $3, $4, $5)\n             ON CONFLICT (id) DO NOTHING\n        "
   },
   "5b7a1d16d8109a65479ab33d411c60d14ea91d870fdff8606d7aa4ad39f0ba00": {
     "describe": {
@@ -1591,7 +1624,8 @@
                   "flow",
                   "dependencies",
                   "flowpreview",
-                  "script_hub"
+                  "script_hub",
+                  "identity"
                 ]
               },
               "name": "job_kind"
@@ -1872,7 +1906,8 @@
                   "flow",
                   "dependencies",
                   "flowpreview",
-                  "script_hub"
+                  "script_hub",
+                  "identity"
                 ]
               },
               "name": "job_kind"
@@ -1932,32 +1967,6 @@
       }
     },
     "query": "\n        SELECT id, flow_status, suspend\n        FROM queue\n        WHERE id = ( SELECT parent_job FROM queue WHERE id = $1 UNION ALL SELECT parent_job FROM completed_job WHERE id = $1)\n        FOR UPDATE\n        "
-  },
-  "860ecd7137bf7963392e1102c642cfdb8f80db156d90229b0919c025ba4bab9c": {
-    "describe": {
-      "columns": [
-        {
-          "name": "value",
-          "ordinal": 0,
-          "type_info": "Jsonb"
-        },
-        {
-          "name": "approver",
-          "ordinal": 1,
-          "type_info": "Varchar"
-        }
-      ],
-      "nullable": [
-        false,
-        true
-      ],
-      "parameters": {
-        "Left": [
-          "Uuid"
-        ]
-      }
-    },
-    "query": "SELECT value, approver FROM resume_job WHERE job = $1 ORDER BY created_at ASC"
   },
   "88a3f58a1a315200fdd2e4bb8638246ee21818f8aaaf56f6e9d7ddce1490d886": {
     "describe": {
@@ -2562,6 +2571,32 @@
     },
     "query": "INSERT INTO usr_to_group (workspace_id, usr, group_) VALUES ($1, $2, $3)"
   },
+  "aeaae7641539d51f4535b04e9a7adb7545bd37d0d706edb54b8f5507403105ee": {
+    "describe": {
+      "columns": [
+        {
+          "name": "resume_id",
+          "ordinal": 0,
+          "type_info": "Int4"
+        },
+        {
+          "name": "approver",
+          "ordinal": 1,
+          "type_info": "Varchar"
+        }
+      ],
+      "nullable": [
+        false,
+        true
+      ],
+      "parameters": {
+        "Left": [
+          "Uuid"
+        ]
+      }
+    },
+    "query": "\n            SELECT resume_id, approver\n            FROM resume_job\n            WHERE job = $1\n            "
+  },
   "b05c5f62ef4aa21d33369130cced0e9d7d128727eb58a9be7ae69cbb16bcbb27": {
     "describe": {
       "columns": [],
@@ -2993,7 +3028,8 @@
                   "flow",
                   "dependencies",
                   "flowpreview",
-                  "script_hub"
+                  "script_hub",
+                  "identity"
                 ]
               },
               "name": "job_kind"
@@ -3271,26 +3307,6 @@
       }
     },
     "query": "\n           SELECT SUM(duration_ms)\n             FROM completed_job\n            WHERE permissioned_as = $1\n              AND created_at > NOW() - INTERVAL '1200 seconds'\n              AND workspace_id = $2"
-  },
-  "eceaa2cd70d08ec603072d7d49379ed19cfc78bd1f4a3a9fcbe33ed66d1be4be": {
-    "describe": {
-      "columns": [
-        {
-          "name": "approver",
-          "ordinal": 0,
-          "type_info": "Varchar"
-        }
-      ],
-      "nullable": [
-        true
-      ],
-      "parameters": {
-        "Left": [
-          "Uuid"
-        ]
-      }
-    },
-    "query": "\n            SELECT approver\n            FROM resume_job\n            WHERE job = $1\n            "
   },
   "ee99cb974fb35d2d92fa96cecb53b8ad3a729ac710f362dc55a576613b66f9be": {
     "describe": {
