@@ -1,4 +1,5 @@
 <script lang="ts">
+	import Tooltip from '$lib/components/Tooltip.svelte'
 	import { RawScript, Script } from '$lib/gen'
 
 	import { faCode, faRepeat } from '@fortawesome/free-solid-svg-icons'
@@ -16,10 +17,10 @@
 </script>
 
 <div class="space-y-4 p-4">
-	<div class="text-sm font-bold">Inline script</div>
+	<div class="text-sm font-bold">Common script</div>
 	<div class="grid sm:grid-col-2 lg:grid-cols-3 gap-4">
 		<FlowScriptPicker
-			label="Python (3.10)"
+			label="Inline Python (3.10)"
 			icon={faCode}
 			iconColor="text-green-500"
 			on:click={() =>
@@ -31,7 +32,7 @@
 		/>
 
 		<FlowScriptPicker
-			label="Typescript (Deno)"
+			label="Inline Typescript (Deno)"
 			icon={faCode}
 			iconColor="text-blue-800"
 			on:click={() =>
@@ -43,7 +44,7 @@
 		/>
 
 		<FlowScriptPicker
-			label="Go"
+			label="Inline Go"
 			icon={faCode}
 			iconColor="text-blue-700"
 			on:click={() =>
@@ -56,37 +57,40 @@
 
 		{#if !failureModule}
 			<FlowScriptPicker
-				label={`PostgreSQL`}
+				label={`Inline PostgreSQL`}
 				icon={faCode}
 				iconColor="text-blue-800"
 				on:click={() =>
 					dispatch('new', { language: RawScript.language.DENO, kind: 'script', subkind: 'pgsql' })}
 			/>
 		{/if}
-	</div>
-	<div class="text-sm font-bold">Pre-made script</div>
 
-	<div class="grid sm:grid-col-2 lg:grid-cols-3 gap-4">
 		<PickScript
-			customText={failureModule ? 'Pick an error handler from your workspace' : undefined}
+			customText={failureModule ? 'Error Handler from workspace' : undefined}
 			kind={failureModule ? Script.kind.FAILURE : Script.kind.SCRIPT}
 			on:pick
 		/>
 		<PickHubScript
-			customText={failureModule ? 'Pick an error handler from your workspace' : undefined}
+			customText={failureModule ? 'Error Handler from Hub' : undefined}
 			kind={failureModule ? Script.kind.FAILURE : Script.kind.SCRIPT}
 			on:pick
 		/>
 	</div>
 
 	{#if !shouldDisableTriggerScripts}
-		<div class="text-sm font-bold">Trigger script</div>
+		<div class="text-sm font-bold"
+			>Trigger script<Tooltip
+				>Used as a first step most commonly with an intenal state and a schedule to watch for
+				changes on an external system, compute the diff since last time, set the new state. The
+				diffs are then treated one by one with a for-loop.</Tooltip
+			></div
+		>
 
 		<div class="grid sm:grid-col-1 md:grid-col-2 lg:grid-cols-3 gap-4">
 			<PickScript customText="Trigger script from workspace" kind={Script.kind.TRIGGER} on:pick />
 			<PickHubScript customText="Trigger script from Hub" kind={Script.kind.TRIGGER} on:pick />
 			<FlowScriptPicker
-				label="New Typescript script (Deno)"
+				label="Inline Typescript (Deno)"
 				icon={faCode}
 				iconColor="text-blue-800"
 				on:click={() => dispatch('new', { language: RawScript.language.DENO, kind: 'trigger' })}
@@ -95,7 +99,14 @@
 	{/if}
 
 	{#if !failureModule}
-		<div class="text-sm font-bold">Approval step</div>
+		<div class="text-sm font-bold"
+			>Approval step<Tooltip
+				>Inlined common scripts can be turned into approval step by changing their suspend settings.
+				An approval step will suspend the execution of a flow until it has been approved through the
+				resume endpoints or the approval page by and solely by the recipients of those secret urls.
+				Use getResumeEndpoints from the wmill client to generate those URLs.</Tooltip
+			></div
+		>
 		<div class="grid sm:grid-col-1 md:grid-col-2 lg:grid-cols-3 gap-4">
 			<PickScript customText="Approval step from workspace" kind={Script.kind.APPROVAL} on:pick />
 			<PickHubScript
@@ -103,9 +114,15 @@
 				kind={Script.kind.APPROVAL}
 				on:pick
 			/>
+			<FlowScriptPicker
+				label="Inline Typescript (Deno)"
+				icon={faCode}
+				iconColor="text-blue-800"
+				on:click={() => dispatch('new', { language: RawScript.language.DENO, kind: 'approval' })}
+			/>
 		</div>
 
-		{#if !shouldDisableTriggerScripts}
+		{#if !shouldDisableLoopCreation}
 			<div class="text-sm font-bold">Flow primitive</div>
 
 			<div class="grid sm:grid-col-1 md:grid-col-2 lg:grid-cols-3 gap-4">

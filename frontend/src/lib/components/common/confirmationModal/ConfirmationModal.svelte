@@ -16,6 +16,7 @@
 
 	function onKeyDown(event: KeyboardEvent) {
 		if (open) {
+			event.stopPropagation()
 			switch (event.key) {
 				case 'Enter':
 					dispatch('confirmed')

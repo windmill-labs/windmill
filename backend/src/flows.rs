@@ -236,6 +236,7 @@ pub enum FlowModuleValue {
         path: Option<String>,
         language: ScriptLang,
     },
+    Identity,
 }
 
 #[derive(Deserialize)]

@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.39.0
+  version: 1.41.0
   title: Windmill server API
   contact:
     name: Windmill contact
@@ -1646,8 +1646,7 @@ paths:
                     type: string
                   lockfile:
                     type: string
-                  schema:
-                    type: string
+                  schema: {}
                   language:
                     type: string
                     enum: [deno, python3, go]
@@ -2590,6 +2589,10 @@ paths:
           required: true
           schema:
             type: integer
+        - name: approver
+          in: query
+          schema:
+            type: string
       responses:
         "200":
           description: job signature
@@ -2622,6 +2625,10 @@ paths:
           in: query
           schema:
             type: object
+        - name: approver
+          in: query
+          schema:
+            type: string
       responses:
         "201":
           description: job resumed
@@ -2648,7 +2655,12 @@ paths:
           required: true
           schema:
             type: string
+        - name: approver
+          in: query
+          schema:
+            type: string
       requestBody:
+        required: true
         content:
           application/json:
             schema:
@@ -2684,6 +2696,10 @@ paths:
           in: query
           schema:
             type: object
+        - name: approver
+          in: query
+          schema:
+            type: string
       responses:
         "201":
           description: job resumed
@@ -2710,7 +2726,12 @@ paths:
           required: true
           schema:
             type: string
+        - name: approver
+          in: query
+          schema:
+            type: string
       requestBody:
+        required: true
         content:
           application/json:
             schema:
@@ -2723,6 +2744,54 @@ paths:
               schema:
                 type: string
 
+  /w/{workspace}/jobs/get_flow/{id}/{resume_id}/{signature}:
+    get:
+      summary: get parent flow job of suspended job
+      operationId: getSuspendedJobFlow
+      tags:
+        - job
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/JobId"
+        - name: resume_id
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: signature
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: approver
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: parent flow details
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  job:
+                    $ref: "#/components/schemas/Job"
+                  approvers:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        resume_id:
+                          type: integer
+                        approver:
+                          type: string
+                      required:
+                        - resume_id
+                        - approver
+                required:
+                  - job
+                  - approvers
 
   /schedules/preview:
     post:
@@ -3506,6 +3575,7 @@ components:
               "flow",
               "flowpreview",
               "script_hub",
+              "identity"
             ]
         schedule_path:
           type: string
@@ -3584,6 +3654,7 @@ components:
               "flow",
               "flowpreview",
               "script_hub",
+              "identity"
             ]
         schedule_path:
           type: string

@@ -41,7 +41,11 @@
 </script>
 
 <button use:popperRef on:mouseenter={open} on:mouseleave={close}>
-	<Icon class="text-gray-500 font-thin inline-block align-middle" data={faInfoCircle} scale={0.8} />
+	<Icon
+		class="text-gray-500 font-thin inline-block align-middle w-4"
+		data={faInfoCircle}
+		scale={0.8}
+	/>
 </button>
 {#if showTooltip}
 	<div

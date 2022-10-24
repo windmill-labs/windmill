@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.39.0
+  version: 1.41.0
   title: OpenFlow Spec
   contact:
     name: Ruben Fiszel
@@ -148,6 +148,7 @@ components:
         - $ref: "#/components/schemas/ForloopFlow"
         - $ref: "#/components/schemas/BranchOne"
         - $ref: "#/components/schemas/BranchAll"
+        - $ref: "#/components/schemas/Identity"
       discriminator:
         propertyName: type
         mapping:
@@ -156,6 +157,7 @@ components:
           forloopflow: "#/components/schemas/ForloopFlow"
           branchone: "#/components/schemas/BranchOne"
           branchall: "#/components/schemas/BranchAll"
+          identity: "#/components/schemas/Identity"
 
     RawScript:
       type: object
@@ -283,6 +285,16 @@ components:
         - branches
         - type
 
+    Identity:
+      type: object
+      properties:
+        type:
+          type: string
+          enum:
+            - identity
+      required:
+        - type
+
 
     FlowStatus:
       type: object
@@ -362,5 +374,17 @@ components:
           required:
             - branch
             - len
+        approvers:
+          type: array
+          items:
+            type: object
+            properties:
+              resume_id:
+                type: integer
+              approver:
+                type: string
+            required:
+              - resume_id
+              - approver
             
       required: [type]

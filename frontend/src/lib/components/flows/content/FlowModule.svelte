@@ -58,7 +58,12 @@
 	$: shouldPick = isEmptyFlowModule(flowModule)
 	$: stepPropPicker = failureModule
 		? { pickableProperties: { previous_result: { error: 'the error message' } }, extraLib: '' }
-		: getStepPropPicker([parentIndex, childIndex], $flowStore.schema, $flowStateStore, $previewArgs)
+		: getStepPropPicker(
+				[parentIndex, childIndex],
+				$flowStore?.schema,
+				$flowStateStore,
+				$previewArgs
+		  )
 
 	function onKeyDown(event: KeyboardEvent) {
 		if ((event.ctrlKey || event.metaKey) && event.key == 'Enter') {
@@ -149,12 +154,17 @@
 							flowModule = flowModule
 						}
 					}}
-					on:new={(e) =>
-						apply(createInlineScriptModule, {
+					on:new={async (e) => {
+						await apply(createInlineScriptModule, {
 							language: e.detail.language,
 							kind: e.detail.kind,
 							subkind: e.detail.subkind
-						})}
+						})
+						if (e.detail.kind == Script.kind.APPROVAL) {
+							flowModule.suspend = { required_events: 1, timeout: 1800 }
+							flowModule = flowModule
+						}
+					}}
 					{failureModule}
 				/>
 			{:else}
@@ -195,7 +205,7 @@
 									/>
 								</div>
 							{:else if flowModule.value.type === 'script'}
-								<FlowModuleScript {flowModule} />
+								<FlowModuleScript path={flowModule.value.path} />
 							{/if}
 						</Pane>
 						<Pane size={50} minSize={20}>

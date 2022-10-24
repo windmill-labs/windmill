@@ -27,6 +27,7 @@
 	export let template: 'pgsql' | 'script' = 'script'
 
 	let viewScriptKind = script.kind !== Script.kind.SCRIPT
+	let viewTemplate = script.kind !== Script.kind.SCRIPT && script.language == Script.language.DENO
 
 	let pathError = ''
 
@@ -243,25 +244,29 @@
 						/>
 					</div>
 				{/if}
-
 				{#if script.language == 'deno' && script.kind == Script.kind.SCRIPT}
-					<h2 class="border-b pb-1 mt-4">
-						Script Template <Tooltip
-							>A template is a pre-filled script corresponding to a more specialized use-case</Tooltip
-						>
-					</h2>
+					<Button
+						color="light"
+						size="sm"
+						endIcon={{ icon: viewTemplate ? faChevronUp : faChevronDown }}
+						on:click={() => (viewTemplate = !viewTemplate)}
+					>
+						Use a predefined template specific to this language and script kind
+					</Button>
 
-					<div class="max-w-md">
-						<RadioButton
-							label="Template"
-							options={[
-								['Standard', 'script'],
-								['PostgreSQL Prepared Statement', 'pgsql']
-							]}
-							on:change={(e) => initContent(script.language, script.kind, e.detail)}
-							bind:value={template}
-						/>
-					</div>
+					{#if viewTemplate}
+						<div class="max-w-lg" transition:slide>
+							<RadioButton
+								label="Template"
+								options={[
+									['Standard', 'script'],
+									['PostgreSQL Prepared Statement', 'pgsql']
+								]}
+								on:change={(e) => initContent(script.language, script.kind, e.detail)}
+								bind:value={template}
+							/>
+						</div>
+					{/if}
 				{/if}
 
 				<label class="block">
