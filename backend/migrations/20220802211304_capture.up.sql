@@ -10,8 +10,6 @@ CREATE TABLE capture (
     FOREIGN KEY (workspace_id)  REFERENCES workspace(id)
 );
 
-GRANT ALL ON capture TO app;
-GRANT ALL ON capture TO admin;
 ALTER TABLE capture ENABLE ROW LEVEL SECURITY;
 
 CREATE POLICY see_own ON capture FOR ALL
