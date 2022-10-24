@@ -16,7 +16,8 @@
 			workspace: $page.params.workspace,
 			id: $page.params.job,
 			resumeId: new Number($page.params.resume).valueOf(),
-			signature: $page.params.hmac
+			signature: $page.params.hmac,
+			approver: $page.url.searchParams.get('approver') ?? undefined
 		})
 		job = suspendedJobFlow.job
 		currentApprovers = suspendedJobFlow.approvers
@@ -28,6 +29,7 @@
 			id: $page.params.job,
 			resumeId: new Number($page.params.resume).valueOf(),
 			signature: $page.params.hmac,
+			approver: $page.url.searchParams.get('approver') ?? undefined,
 			requestBody: {}
 		})
 		sendUserToast('Flow approved')
@@ -39,6 +41,7 @@
 			id: $page.params.job,
 			resumeId: new Number($page.params.resume).valueOf(),
 			signature: $page.params.hmac,
+			approver: $page.url.searchParams.get('approver') ?? undefined,
 			requestBody: {}
 		})
 		sendUserToast('Flow disapproved!')

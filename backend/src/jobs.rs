@@ -1317,6 +1317,7 @@ pub async fn create_job_signature(
     let mut mac = HmacSha256::new_from_slice(key.as_bytes()).map_err(to_anyhow)?;
     mac.update(job_id.as_bytes());
     mac.update(resume_id.to_be_bytes().as_ref());
+    tracing::info!("approver: {:?}", approver.approver);
     if let Some(approver) = approver.approver {
         mac.update(approver.as_bytes());
     }
