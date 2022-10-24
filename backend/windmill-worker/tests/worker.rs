@@ -12,8 +12,6 @@ use crate::{
     DEFAULT_SLEEP_QUEUE,
 };
 
-use crate::worker::*;
-
 async fn initialize_tracing() {
     use std::sync::Once;
 
@@ -1092,7 +1090,7 @@ mod suspend_resume {
                                 const job = Deno.env.get('WM_JOB_ID');
                                 const token = Deno.env.get('WM_TOKEN');
                                 const r = await fetch(
-                                    `http://localhost:${port}/api/w/test-workspace/jobs/job_signature/${job}/0?token=${token}`,\
+                                    `http://localhost:${port}/api/w/test-workspace/jobs/job_signature/${job}/0?token=${token}&approver=ruben`,\
                                     {\
                                         method: 'GET',\
                                         headers: { 'Authorization': `Bearer ${token}` }\
@@ -1102,7 +1100,7 @@ mod suspend_resume {
                                 const secret = await r.text();\
                                 console.log('Secret: ' + secret + ' ' + job + ' ' + token);\
                                 const r2 = await fetch(
-                                    `http://localhost:${port}/api/w/test-workspace/jobs/${op}/${job}/0/${secret}`,\
+                                    `http://localhost:${port}/api/w/test-workspace/jobs/${op}/${job}/0/${secret}?approver=ruben`,\
                                     {\
                                         method: 'POST',\
                                         body: JSON.stringify('from job'),\
@@ -1178,7 +1176,7 @@ mod suspend_resume {
 
                 let token = create_token_for_owner(&db, "test-workspace", "u/test-user", "", 100, "").await.unwrap();
                 let secret = reqwest::get(format!(
-                    "http://localhost:{port}/api/w/test-workspace/jobs/job_signature/{second}/0?token={token}"
+                    "http://localhost:{port}/api/w/test-workspace/jobs/job_signature/{second}/0?token={token}&approver=ruben"
                 ))
                 .await
                 .unwrap()
@@ -1189,7 +1187,7 @@ mod suspend_resume {
 
                 /* ImZyb20gdGVzdCIK = base64 "from test" */
                 reqwest::get(format!(
-                    "http://localhost:{port}/api/w/test-workspace/jobs/resume/{second}/0/{secret}?payload=ImZyb20gdGVzdCIK"
+                    "http://localhost:{port}/api/w/test-workspace/jobs/resume/{second}/0/{secret}?payload=ImZyb20gdGVzdCIK&approver=ruben"
                 ))
                 .await
                 .unwrap()
@@ -1243,7 +1241,10 @@ mod suspend_resume {
 
         server.close().await.unwrap();
 
-        assert_eq!(json!("from job"), result);
+        assert_eq!(
+            json!({"error": "Job canceled: approval request disapproved by ruben" }),
+            result
+        );
     }
 
     #[sqlx::test(fixtures("base"))]
@@ -1300,7 +1301,10 @@ mod suspend_resume {
 
         let result = completed_job_result(flow, &db).await;
 
-        assert_eq!(json!("from test"), result);
+        assert_eq!(
+            json!({"error": "Job canceled: approval request disapproved by unknown" }),
+            result
+        );
     }
 }
 

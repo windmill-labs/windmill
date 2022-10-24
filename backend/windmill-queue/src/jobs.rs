@@ -56,15 +56,30 @@ pub async fn cancel_job(
     reason: String,
 ) -> error::Result<String> {
     let job_option = sqlx::query_scalar!(
-        "UPDATE queue SET canceled = true, canceled_by = $1, canceled_reason = $2 WHERE id = $3 \
+        "UPDATE queue SET canceled = true, canceled_by = $1, canceled_reason = $2, scheduled_for = now(), suspend = 0 WHERE id = $3 \
          AND workspace_id = $4 RETURNING id",
-        &authed.username,
+        authed.username,
         reason,
         id,
         w_id
     )
     .fetch_optional(&mut tx)
     .await?;
+    let mut jobs = job_option.map(|j| vec![j]).unwrap_or_default();
+    while !jobs.is_empty() {
+        let p_job = jobs.pop();
+        let new_jobs = sqlx::query_scalar!(
+            "UPDATE queue SET canceled = true, canceled_by = $1, canceled_reason = $2 WHERE parent_job = $3 \
+             AND workspace_id = $4 RETURNING id",
+            authed.username,
+            reason,
+            p_job,
+            w_id
+        )
+        .fetch_all(&mut tx)
+        .await?;
+        jobs.extend(new_jobs);
+    }
 
     if let Some(id) = job_option {
         audit_log(
@@ -101,75 +116,8 @@ fn verify_secret(secret: String, w_id: &str, job_id: Uuid, resume_id: u32) -> er
     // This can be used by both the create_job_signature function, where it would be used to then be incoded into bytes
     // And in the verify method it would then verify a slice.
     // Both functions also use hex to do byte -> string -> byte
-    Ok(())
-}
 
-pub async fn insert_resume_job(
-    db: &Pool<Postgres>,
-    w_id: &str,
-    job_id: Uuid,
-    resume_id: u32,
-    secret: String,
-    is_cancel: bool,
-    value: serde_json::Value,
-) -> error::Result<()> {
-    let mut tx = db.begin().await?;
-    verify_secret(secret, w_id, job_id, resume_id) // pair with create_job_signature
-        .map_err(|_| anyhow::anyhow!("Invalid signature"))?;
-    let flow = sqlx::query!(
-        r#"
-        SELECT id, flow_status, suspend
-        FROM queue
-        WHERE id = ( SELECT parent_job FROM queue WHERE id = $1 UNION ALL SELECT parent_job FROM completed_job WHERE id = $1)
-        FOR UPDATE
-        "#,
-        job_id,
-    )
-    .fetch_optional(&mut tx)
-    .await?
-    .ok_or_else(|| anyhow::anyhow!("parent flow job not found"))?;
-
-    sqlx::query!(
-        r#"
-        INSERT INTO resume_job
-                    (id, job, flow, value, is_cancel)
-             VALUES ($1, $2, $3, $4, $5)
-        "#,
-        Uuid::from_u128(job_id.as_u128() ^ resume_id as u128),
-        job_id,
-        flow.id,
-        value,
-        is_cancel,
-    )
-    .execute(&mut tx)
-    .await?;
-
-    /* If the flow is currently waiting to be resumed (`FlowStatusModule::WaitingForEvents`)
-     * the suspend column must be set to the number of resume messages waited on.
-     *
-     * The flow's queue row is locked in this transaction because to avoid race conditions around
-     * the suspend column.
-     * That is, a job needs one event but it hasn't arrived, a worker counts zero events before
-     * entering WaitingForEvents.  Then this message arrives but the job isn't in WaitingForEvents
-     * yet so the suspend counter isn't updated.  Then the job enters WaitingForEvents expecting
-     * one event to arrive based on the count that is no longer correct. */
-    if let Some(suspend) = (0 < flow.suspend).then(|| flow.suspend - 1) {
-        let status =
-            serde_json::from_value::<FlowStatus>(flow.flow_status.context("no flow status")?)
-                .context("deserialize flow status")?;
-        if matches!(status.current_step(), Some(FlowStatusModule::WaitingForEvents { job, .. }) if job == &job_id)
-        {
-            sqlx::query!(
-                "UPDATE queue SET suspend = $1 WHERE id = $2",
-                if is_cancel { 0 } else { suspend },
-                flow.id,
-            )
-            .execute(&mut tx)
-            .await?;
-        }
-    }
-
-    tx.commit().await?;
+    // Since I wrote the above additionally there's now an approver.
     Ok(())
 }
 
@@ -461,6 +409,7 @@ pub async fn push<'c>(
             })?;
             (None, Some(flow), None, JobKind::Flow, Some(value), None)
         }
+        JobPayload::Identity => (None, None, None, JobKind::Identity, None, None),
     };
 
     let is_running = same_worker;
@@ -535,6 +484,7 @@ pub async fn push<'c>(
             JobKind::FlowPreview => "jobs.run.flow_preview",
             JobKind::Script_Hub => "jobs.run.script_hub",
             JobKind::Dependencies => "jobs.run.dependencies",
+            JobKind::Identity => "jobs.run.identity",
         };
 
         audit_log(
@@ -549,6 +499,15 @@ pub async fn push<'c>(
         .await?;
     }
     Ok((uuid, tx))
+}
+
+pub fn canceled_job_to_result(job: &QueuedJob) -> String {
+    let reason = job
+        .canceled_reason
+        .as_deref()
+        .unwrap_or_else(|| "no reason given");
+    let canceler = job.canceled_by.as_deref().unwrap_or_else(|| "unknown");
+    format!("Job canceled: {reason} by {canceler}")
 }
 
 pub async fn get_hub_script(
@@ -632,6 +591,7 @@ pub enum JobKind {
     Dependencies,
     Flow,
     FlowPreview,
+    Identity,
 }
 
 #[derive(Debug, Clone)]
@@ -642,6 +602,7 @@ pub enum JobPayload {
     Dependencies { hash: ScriptHash, dependencies: String, language: ScriptLang },
     Flow(String),
     RawFlow { value: FlowValue, path: Option<String> },
+    Identity,
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug)]

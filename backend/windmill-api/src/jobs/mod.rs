@@ -6,6 +6,7 @@ use completed_jobs::*;
 mod job_update;
 use job_update::*;
 use windmill_common::scripts::ScriptHash;
+use windmill_queue::QueryApprover;
 
 pub fn workspaced_service() -> Router {
     Router::new()
@@ -30,7 +31,7 @@ pub fn workspaced_service() -> Router {
         )
         .route("/list", get(windmill_queue::list_jobs))
         .route("/queue/list", get(windmill_queue::list_queue_jobs))
-        .route("/queue/cancel/:id", post(cancel_job))
+        .route("/queue/cancel/:id", post(cancel_job_api))
         .route("/completed/list", get(windmill_queue::list_completed_jobs))
         .route("/completed/get/:id", get(windmill_queue::get_completed_job))
         .route(
@@ -49,6 +50,10 @@ pub fn workspaced_service() -> Router {
         )
         .route("/result_by_id/:job_id/:node_id", get(get_result_by_id))
         .route("/hash/p/*script_path", get_latest_hash_for_path_api)
+        .route(
+            "/get_flow/:job_id/:resume_id/:secret",
+            get(get_suspended_job_flow),
+        )
 }
 
 pub fn global_service() -> Router {
@@ -407,11 +412,77 @@ async fn list_jobs(
 pub async fn resume_suspended_job(
     /* unauthed */
     Extension(db): Extension<DB>,
-    Path((w_id, job, resume_id, secret)): Path<(String, Uuid, u32, String)>,
+    Path((w_id, job_id, resume_id, secret)): Path<(String, Uuid, u32, String)>,
     QueryOrBody(value): QueryOrBody<serde_json::Value>,
+    Query(approver): Query<QueryApprover>,
 ) -> error::Result<StatusCode> {
     let value = value.unwrap_or(serde_json::Value::Null);
-    insert_resume_job(&db, &w_id, job, resume_id, secret, false, value).await?;
+    let mut tx = db.begin().await?;
+    let key = get_workspace_key(&w_id, &mut tx).await?;
+    let mut mac = HmacSha256::new_from_slice(key.as_bytes()).map_err(to_anyhow)?;
+    mac.update(job_id.as_bytes());
+    mac.update(resume_id.to_be_bytes().as_ref());
+    if let Some(approver) = approver.approver.clone() {
+        mac.update(approver.as_bytes());
+    }
+    mac.verify_slice(hex::decode(secret)?.as_ref())
+        .map_err(|_| anyhow::anyhow!("Invalid signature"))?;
+    let flow = sqlx::query!(
+        r#"
+        SELECT id, flow_status, suspend
+        FROM queue
+        WHERE id = ( SELECT parent_job FROM queue WHERE id = $1 UNION ALL SELECT parent_job FROM completed_job WHERE id = $1)
+        FOR UPDATE
+        "#,
+        job_id,
+    )
+    .fetch_optional(&mut tx)
+    .await?
+    .ok_or_else(|| anyhow::anyhow!("parent flow job not found"))?;
+
+    sqlx::query!(
+        r#"
+        INSERT INTO resume_job
+                    (id, resume_id, job, flow, value, approver)
+             VALUES ($1, $2, $3, $4, $5, $6)
+             ON CONFLICT (id) DO NOTHING
+        "#,
+        Uuid::from_u128(job_id.as_u128() ^ resume_id as u128),
+        resume_id as i32,
+        job_id,
+        flow.id,
+        value,
+        approver.approver
+    )
+    .execute(&mut tx)
+    .await?;
+
+    /* If the flow is currently waiting to be resumed (`FlowStatusModule::WaitingForEvents`)
+     * the suspend column must be set to the number of resume messages waited on.
+     *
+     * The flow's queue row is locked in this transaction because to avoid race conditions around
+     * the suspend column.
+     * That is, a job needs one event but it hasn't arrived, a worker counts zero events before
+     * entering WaitingForEvents.  Then this message arrives but the job isn't in WaitingForEvents
+     * yet so the suspend counter isn't updated.  Then the job enters WaitingForEvents expecting
+     * one event to arrive based on the count that is no longer correct. */
+    if let Some(suspend) = (0 < flow.suspend).then(|| flow.suspend - 1) {
+        let status =
+            serde_json::from_value::<FlowStatus>(flow.flow_status.context("no flow status")?)
+                .context("deserialize flow status")?;
+        if matches!(status.current_step(), Some(FlowStatusModule::WaitingForEvents { job, .. }) if job == &job_id)
+        {
+            sqlx::query!(
+                "UPDATE queue SET suspend = $1 WHERE id = $2",
+                suspend,
+                flow.id,
+            )
+            .execute(&mut tx)
+            .await?;
+        }
+    }
+
+    tx.commit().await?;
     Ok(StatusCode::CREATED)
 }
 
@@ -419,12 +490,164 @@ pub async fn cancel_suspended_job(
     /* unauthed */
     Extension(db): Extension<DB>,
     Path((w_id, job, resume_id, secret)): Path<(String, Uuid, u32, String)>,
-    QueryOrBody(value): QueryOrBody<serde_json::Value>,
-) -> error::Result<StatusCode> {
-    let value = value.unwrap_or(serde_json::Value::Null);
-    insert_resume_job(&db, &w_id, job, resume_id, secret, true, value).await?;
-    Ok(StatusCode::CREATED)
+    Query(approver): Query<QueryApprover>,
+) -> error::Result<String> {
+    let mut tx = db.begin().await?;
+    let key = get_workspace_key(&w_id, &mut tx).await?;
+    let mut mac = HmacSha256::new_from_slice(key.as_bytes()).map_err(to_anyhow)?;
+    mac.update(job.as_bytes());
+    mac.update(resume_id.to_be_bytes().as_ref());
+    if let Some(approver) = approver.approver.clone() {
+        mac.update(approver.as_bytes());
+    }
+    mac.verify_slice(hex::decode(secret)?.as_ref())
+        .map_err(|_| anyhow::anyhow!("Invalid signature"))?;
+
+    let whom = approver.approver.unwrap_or_else(|| "unknown".to_string());
+    let parent_flow = get_root_job(db, &w_id, job).await?;
+    let (mut tx, job) = cancel_job(
+        &whom,
+        Some("approval request disapproved".to_string()),
+        parent_flow,
+        &w_id,
+        tx,
+    )
+    .await?;
+    if job.is_some() {
+        audit_log(
+            &mut tx,
+            &whom,
+            "jobs.disapproval",
+            ActionKind::Delete,
+            &w_id,
+            Some(&parent_flow.to_string()),
+            None,
+        )
+        .await?;
+    }
+    tx.commit().await?;
+    Ok("Flow of job cancelled".to_string())
 }
+
+pub async fn get_root_job(db: DB, w_id: &str, job: Uuid) -> error::Result<Uuid> {
+    let mut tx = db.begin().await?;
+    let mut job_id = job;
+    loop {
+        let (job, ntx) = get_job_by_id(tx, w_id, job_id).await?;
+        tx = ntx;
+        let p_job = job.and_then(|x| match x {
+            Job::QueuedJob(job) => job.parent_job,
+            Job::CompletedJob(job) => job.parent_job,
+        });
+        if let Some(p_job) = p_job {
+            job_id = p_job;
+        } else {
+            return Ok(job_id);
+        }
+    }
+}
+
+#[derive(Serialize)]
+pub struct SuspendedJobFlow {
+    pub job: Job,
+    pub approvers: Vec<Approval>,
+}
+
+#[derive(Deserialize)]
+pub struct QueryApprover {
+    pub approver: Option<String>,
+}
+
+pub async fn get_suspended_job_flow(
+    /* unauthed */
+    Extension(db): Extension<DB>,
+    Path((w_id, job, resume_id, secret)): Path<(String, Uuid, u32, String)>,
+    Query(approver): Query<QueryApprover>,
+) -> error::JsonResult<SuspendedJobFlow> {
+    let mut tx = db.begin().await?;
+    let key = get_workspace_key(&w_id, &mut tx).await?;
+    let mut mac = HmacSha256::new_from_slice(key.as_bytes()).map_err(to_anyhow)?;
+    mac.update(job.as_bytes());
+    mac.update(resume_id.to_be_bytes().as_ref());
+    if let Some(approver) = approver.approver {
+        mac.update(approver.as_bytes());
+    }
+    mac.verify_slice(hex::decode(secret)?.as_ref())
+        .map_err(|_| anyhow::anyhow!("Invalid signature"))?;
+    let flow_id = sqlx::query_scalar!(
+        r#"
+        SELECT parent_job
+        FROM queue
+        WHERE id = $1 AND workspace_id = $2
+        UNION ALL
+        SELECT parent_job
+        FROM completed_job
+        WHERE id = $1 AND workspace_id = $2
+        "#,
+        job,
+        w_id
+    )
+    .fetch_optional(&mut tx)
+    .await?
+    .flatten()
+    .ok_or_else(|| anyhow::anyhow!("parent flow job not found"))?;
+    let (flow_o, mut tx) = get_job_by_id(tx, &w_id, flow_id).await?;
+    let flow = crate::utils::not_found_if_none(flow_o, "Parent Flow", job.to_string())?;
+
+    let flow_status = flow
+        .flow_status()
+        .ok_or_else(|| anyhow::anyhow!("unable to deserialize the flow"))?;
+    let flow_module_status = flow_status
+        .modules
+        .iter()
+        .find(|p| p.job() == Some(job))
+        .ok_or_else(|| anyhow::anyhow!("unable to find the module"))?;
+
+    let approvers_from_status = match flow_module_status {
+        FlowStatusModule::Success { approvers, .. } => approvers.to_owned(),
+        _ => vec![],
+    };
+    let approvers = if approvers_from_status.is_empty() {
+        sqlx::query!(
+            r#"
+            SELECT resume_id, approver
+            FROM resume_job
+            WHERE job = $1
+            "#,
+            job,
+        )
+        .fetch_all(&mut tx)
+        .await?
+        .into_iter()
+        .map(|x| Approval {
+            resume_id: x.resume_id as u16,
+            approver: x.approver.unwrap_or_else(|| "anonymous".to_string()),
+        })
+        .collect()
+    } else {
+        approvers_from_status
+    };
+
+    Ok(Json(SuspendedJobFlow { job: flow, approvers }))
+}
+
+pub async fn create_job_signature(
+    authed: Authed,
+    Extension(user_db): Extension<UserDB>,
+    Path((w_id, job_id, resume_id)): Path<(String, Uuid, u32)>,
+    Query(approver): Query<QueryApprover>,
+) -> error::Result<String> {
+    let key = get_workspace_key(&w_id, &mut user_db.begin(&authed).await?).await?;
+    let mut mac = HmacSha256::new_from_slice(key.as_bytes()).map_err(to_anyhow)?;
+    mac.update(job_id.as_bytes());
+    mac.update(resume_id.to_be_bytes().as_ref());
+    tracing::info!("approver: {:?}", approver.approver);
+    if let Some(approver) = approver.approver {
+        mac.update(approver.as_bytes());
+    }
+    Ok(hex::encode(mac.finalize().into_bytes()))
+}
+
 
 pub async fn create_job_signature(
     authed: Authed,
@@ -443,6 +666,23 @@ pub async fn create_job_signature(
 pub enum Job {
     QueuedJob(QueuedJob),
     CompletedJob(CompletedJob),
+}
+
+impl Job {
+    pub fn raw_flow(&self) -> Option<FlowValue> {
+        let value = match self {
+            Job::QueuedJob(job) => job.raw_flow.clone(),
+            Job::CompletedJob(job) => job.raw_flow.clone(),
+        };
+        value.map(|v| serde_json::from_value(v).ok()).flatten()
+    }
+    pub fn flow_status(&self) -> Option<FlowStatus> {
+        let value = match self {
+            Job::QueuedJob(job) => job.flow_status.clone(),
+            Job::CompletedJob(job) => job.flow_status.clone(),
+        };
+        value.map(|v| serde_json::from_value(v).ok()).flatten()
+    }
 }
 
 #[derive(sqlx::FromRow)]
