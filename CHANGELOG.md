@@ -1,6 +1,19 @@
 # Changelog
 
 
+## [1.41.0](https://github.com/windmill-labs/windmill/compare/v1.40.1...v1.41.0) (2022-10-24)
+
+
+### Features
+
+* add approver to approval step ([a0b2c9e](https://github.com/windmill-labs/windmill/commit/a0b2c9e77dd77e5727b2921890b1298cbac780f9))
+
+
+### Bug Fixes
+
+* approval pages now require no auth ([3c91e42](https://github.com/windmill-labs/windmill/commit/3c91e42b9ec185d7ae17c76f82511f6caa4837de))
+* **deno-client:** add approver ([17d9f38](https://github.com/windmill-labs/windmill/commit/17d9f38d307c6a8554e20b60aabe675e43df10fd))
+
 ## [1.40.1](https://github.com/windmill-labs/windmill/compare/v1.40.0...v1.40.1) (2022-10-22)
 
 
