@@ -1,7 +1,7 @@
 <script context="module" lang="ts">
 	type InsertionMode = 'append' | 'connect' | 'insert'
 
-	type SelectCallback = (path: string) => void
+	type SelectCallback = (path: string) => boolean
 
 	type PropPickerConfig = {
 		insertionMode: InsertionMode
@@ -53,8 +53,9 @@
 			{pickableProperties}
 			on:select={({ detail }) => {
 				dispatch('select', detail)
-				$propPickerConfig?.onSelect(detail)
-				propPickerConfig.set(undefined)
+				if ($propPickerConfig?.onSelect(detail)) {
+					propPickerConfig.set(undefined)
+				}
 			}}
 		/>
 	</Pane>
