@@ -138,37 +138,61 @@ export async function databaseUrlFromResource(path: string): Promise<string> {
 }
 
 
-export async function genNounceAndHmac(workspace: string, jobId: string) {
-    const nounce = Math.floor(Math.random() * 4294967295);
+export interface NonceAndHmac {
+    nonce: number;
+    signature: string;
+}
+
+/**
+ * Get HMAC and nonce needed for approval script
+ * @param workspace workspace name
+ * @param jobId
+ * @param approver approver name
+ * @returns HMAC and nonce needed to authorize approval script actions
+ */
+export async function genNounceAndHmac(workspace: string, jobId: string, approver?: string): Promise<NonceAndHmac> {
+    const nonce = Math.floor(Math.random() * 4294967295);
     const sig = await fetch(Deno.env.get("WM_BASE_URL") +
-        `/api/w/${workspace}/jobs/job_signature/${jobId}/${nounce}?token=${Deno.env.get("WM_TOKEN")}`)
+        `/api/w/${workspace}/jobs/job_signature/${jobId}/${nonce}?token=${Deno.env.get("WM_TOKEN")}${approver ? `&approver=${approver}` : ''}`)
     return {
-        nounce,
+        nonce,
         signature: await sig.text()
     };
 }
 
-export async function getResumeEndpoints() {
+export interface ResumeEndpoints {
+    approvalPage: string;
+    resume: string;
+    cancel: string;
+}
+
+/**
+ * Get URLs needed for approval script
+ * @param approver approver name
+ * @returns approval page UI URL, resume and cancel API URLs for approval script
+ */
+export async function getResumeEndpoints(approver?: string): Promise<ResumeEndpoints> {
     const workspace = getWorkspace()
 
-    const { nounce, signature } = await genNounceAndHmac(
+    const { nonce, signature } = await genNounceAndHmac(
         workspace,
         Deno.env.get("WM_JOB_ID") ?? "no_job_id",
+        approver
     );
     const url_prefix = Deno.env.get("WM_BASE_URL") +
         `/api/w/${workspace}/jobs/`;
 
-    function getResumeUrl(op: string) {
+    function getResumeUrl(op: string, approver?: string): string {
         return url_prefix +
-            `${op}/${Deno.env.get("WM_JOB_ID")}/${nounce}/${signature}`;
+            `${op}/${Deno.env.get("WM_JOB_ID")}/${nonce}/${signature}${approver ? `?approver=${approver}` : ''}`;
     }
 
     return {
-        resume: getResumeUrl("resume"),
-        cancel: getResumeUrl("cancel"),
+        approvalPage: Deno.env.get("WM_BASE_URL") + `/approve/${workspace}/${Deno.env.get("WM_JOB_ID")}/${nonce}/${signature}${approver ? `?approver=${approver}` : ''}`,
+        resume: getResumeUrl("resume", approver),
+        cancel: getResumeUrl("cancel", approver),
     };
 }
-
 
 export function base64ToUint8Array(data: string): Uint8Array {
     return Uint8Array.from(atob(data), c => c.charCodeAt(0))

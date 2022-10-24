@@ -44,11 +44,11 @@
 		}
 	}}
 	options={{
-		right: 'Suspend flow execution until events received'
+		right: 'Suspend flow execution until approvals received'
 	}}
 />
 <div class="mb-4">
-	<span class="text-xs font-bold">Number of events to wait for</span>
+	<span class="text-xs font-bold">Number of approvals required for resuming flow</span>
 
 	{#if flowModule.suspend}
 		<input bind:value={flowModule.suspend.required_events} type="number" min="1" placeholder="1" />

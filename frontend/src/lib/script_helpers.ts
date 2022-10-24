@@ -154,7 +154,13 @@ export async function main() {
 }
 `
 
-const ALL_INITIAL_CODE = [PYTHON_INIT_CODE, DENO_INIT_CODE, POSTGRES_INIT_CODE, DENO_INIT_CODE_TRIGGER, DENO_INIT_CODE_CLEAR, PYTHON_INIT_CODE_CLEAR]
+export const DENO_INIT_CODE_APPROVAL = `import * as wmill from "https://deno.land/x/windmill@v1.41.0/mod.ts"
+
+export async function main(approver?: string) {
+  return wmill.getResumeEndpoints(approver)
+}`
+
+const ALL_INITIAL_CODE = [PYTHON_INIT_CODE, DENO_INIT_CODE, POSTGRES_INIT_CODE, DENO_INIT_CODE_TRIGGER, DENO_INIT_CODE_CLEAR, PYTHON_INIT_CODE_CLEAR, DENO_INIT_CODE_APPROVAL]
 
 export function isInitialCode(content: string): boolean {
   for (const code of ALL_INITIAL_CODE) {
@@ -165,7 +171,7 @@ export function isInitialCode(content: string): boolean {
   return false
 }
 
-export function initialCode(language: 'deno' | 'python3' | 'go', kind: Script.kind, subkind: 'pgsql' | 'flow' | 'script' | 'failure' | undefined): string {
+export function initialCode(language: 'deno' | 'python3' | 'go', kind: Script.kind, subkind: 'pgsql' | 'flow' | 'script' | 'failure' | 'approval' | undefined): string {
   if (language === 'deno') {
     if (kind === 'trigger') {
       return DENO_INIT_CODE_TRIGGER
@@ -174,6 +180,8 @@ export function initialCode(language: 'deno' | 'python3' | 'go', kind: Script.ki
         return DENO_INIT_CODE_CLEAR
       } else if (subkind === 'failure') {
         return DENO_FAILURE_MODULE_CODE
+      } else if (subkind === 'approval') {
+        return DENO_INIT_CODE_APPROVAL
       }
       else if (subkind === 'pgsql') {
         return POSTGRES_INIT_CODE

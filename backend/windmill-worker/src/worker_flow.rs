@@ -28,6 +28,7 @@ use windmill_common::{
 type DB = sqlx::Pool<sqlx::Postgres>;
 
 pub use windmill_common::worker_flow::*;
+use windmill_queue::canceled_job_to_result;
 
 #[async_recursion]
 #[instrument(level = "trace", skip_all)]
@@ -128,6 +129,7 @@ pub async fn update_flow_status_after_job_completion(
                         job: job.id,
                         flow_jobs,
                         branch_chosen,
+                        approvers: vec![],
                     },
                 )
             } else {
@@ -268,16 +270,28 @@ pub async fn update_flow_status_after_job_completion(
             "Flow job completed".to_string()
         };
         tracing::debug!("{skip_if_stop_early:?}");
-        add_completed_job(
-            db,
-            api_config,
-            &flow_job,
-            success,
-            stop_early && skip_if_stop_early.unwrap_or(false),
-            result.clone(),
-            logs,
-        )
-        .await?;
+        if flow_job.canceled {
+            add_completed_job_error(
+                db,
+                api_config,
+                &flow_job,
+                logs,
+                &canceled_job_to_result(&flow_job),
+                metrics.clone(),
+            )
+            .await?;
+        } else {
+            add_completed_job(
+                db,
+                api_config,
+                &flow_job,
+                success,
+                stop_early && skip_if_stop_early.unwrap_or(false),
+                result.clone(),
+                logs,
+            )
+            .await?;
+        }
         true
     } else {
         match handle_flow(
@@ -708,21 +722,36 @@ async fn push_next_flow_job(
             .context("lock flow in queue")?;
 
             let resumes = sqlx::query!(
-                "SELECT value, is_cancel FROM resume_job WHERE job = $1 ORDER BY created_at ASC",
+                "SELECT value, approver, resume_id FROM resume_job WHERE job = $1 ORDER BY created_at ASC",
                 last
             )
             .fetch_all(&mut tx)
             .await?;
 
-            let is_cancelled = resumes
-                .iter()
-                .find(|r| r.is_cancel)
-                .map(|r| r.value.clone());
-
-            resume_messages.extend(resumes.into_iter().map(|r| r.value));
+            resume_messages.extend(resumes.iter().map(|r| r.value.clone()));
 
             let required_events = suspend.required_events.unwrap() as u16;
-            if is_cancelled.is_none() && resume_messages.len() >= required_events as usize {
+            if resume_messages.len() >= required_events as usize {
+                sqlx::query(
+                    "
+                    UPDATE queue
+                       SET flow_status = 
+                            JSONB_SET(flow_status, ARRAY['modules', $1::TEXT, 'approvers'], $2)
+                       WHERE id = $3
+                      ",
+                )
+                .bind(status.step - 1)
+                .bind(json!(resumes
+                    .into_iter()
+                    .map(|r| Approval {
+                        resume_id: r.resume_id as u16,
+                        approver: r.approver.unwrap_or_else(|| "unknown".to_string())
+                    })
+                    .collect::<Vec<_>>()))
+                .bind(flow_job.id)
+                .execute(&mut tx)
+                .await?;
+
                 /* If we are woken up after suspending, last_result will be the flow args, but we
                  * should use the result from the last job */
                 if let FlowStatusModule::WaitingForEvents { .. } = &status_module {
@@ -737,12 +766,10 @@ async fn push_next_flow_job(
                 tx.commit().await?;
 
             /* not enough messages to do this job, "park"/suspend until there are */
-            } else if is_cancelled.is_none()
-                && matches!(
-                    &status_module,
-                    FlowStatusModule::WaitingForPriorSteps { .. }
-                )
-            {
+            } else if matches!(
+                &status_module,
+                FlowStatusModule::WaitingForPriorSteps { .. }
+            ) {
                 sqlx::query(
                     "
                     UPDATE queue
@@ -768,13 +795,8 @@ async fn push_next_flow_job(
 
                 let success = false;
                 let skipped = false;
-                let logs = if is_cancelled.is_some() {
-                    "Cancelled while waiting to be resumed"
-                } else {
-                    "Timed out waiting to be resumed"
-                }
-                .to_string();
-                let result = is_cancelled.unwrap_or(json!({ "error": logs }));
+                let logs = "Timed out waiting to be resumed".to_string();
+                let result = json!({ "error": logs });
                 let _uuid =
                     add_completed_job(db, api_config, &flow_job, success, skipped, result, logs)
                         .await?;
@@ -964,6 +986,7 @@ async fn push_next_flow_job(
                     job: flow_job.id,
                     flow_jobs: Some(vec![]),
                     branch_chosen: None,
+                    approvers: vec![],
                 },
                 json!([]),
                 same_worker_tx,
@@ -1208,6 +1231,10 @@ async fn compute_next_flow_transform(
     base_internal_url: &str,
 ) -> error::Result<NextFlowTransform> {
     match &module.value {
+        FlowModuleValue::Identity => Ok(NextFlowTransform::Continue(
+            JobPayload::Identity,
+            NextStatus::NextStep,
+        )),
         FlowModuleValue::Script { path: script_path, .. } => Ok(NextFlowTransform::Continue(
             script_path_to_payload(script_path, api_config, &flow_job.workspace_id).await?,
             NextStatus::NextStep,

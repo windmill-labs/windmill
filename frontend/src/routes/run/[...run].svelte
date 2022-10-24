@@ -9,14 +9,7 @@
 <script lang="ts">
 	import { page } from '$app/stores'
 	import { JobService, Job } from '$lib/gen'
-	import {
-		canWrite,
-		displayDaysAgo,
-		encodeState,
-		forLater,
-		sendUserToast,
-		truncateHash
-	} from '$lib/utils'
+	import { canWrite, encodeState, forLater, sendUserToast, truncateHash } from '$lib/utils'
 	import Icon from 'svelte-awesome'
 	import { check } from 'svelte-awesome/icons'
 	import {
@@ -26,14 +19,10 @@
 		faTrash,
 		faCalendar,
 		faTimesCircle,
-		faClock,
-		faUser,
 		faList,
 		faEdit,
 		faHourglassHalf,
-		faRobot,
 		faScroll,
-		faWind,
 		faFastForward
 	} from '@fortawesome/free-solid-svg-icons'
 	import Tooltip from '$lib/components/Tooltip.svelte'
@@ -41,13 +30,12 @@
 	import { userStore, workspaceStore } from '$lib/stores'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
 	import FlowStatusViewer from '$lib/components/FlowStatusViewer.svelte'
-	import JobStatus from '$lib/components/JobStatus.svelte'
-	import TableCustom from '$lib/components/TableCustom.svelte'
-	import ArgInfo from '$lib/components/ArgInfo.svelte'
 	import HighlightCode from '$lib/components/HighlightCode.svelte'
 	import TestJobLoader from '$lib/components/TestJobLoader.svelte'
 	import LogViewer from '$lib/components/LogViewer.svelte'
 	import { Button, ActionRow, Skeleton } from '$lib/components/common'
+	import FlowMetadata from '$lib/components/FlowMetadata.svelte'
+	import JobArgs from '$lib/components/JobArgs.svelte'
 
 	let workspace_id_query: string | undefined = $page.url.searchParams.get('workspace') ?? undefined
 	let workspace_id: string | undefined
@@ -254,33 +242,7 @@
 	<!-- Arguments and actions -->
 	<div class="flex flex-col mr-2 sm:mr-0 sm:grid sm:grid-cols-3 sm:gap-5">
 		<div class="col-span-2">
-			<TableCustom class="px-10 py-4">
-				<tr slot="header-row"
-					><th>Argument</th>
-					<th>Value</th></tr
-				>
-				<tbody slot="body">
-					{#if job && job.args && Object.keys(job.args).length > 0}
-						{#each Object.entries(job.args) as [arg, value]}
-							<tr>
-								<td>{arg}</td>
-								<td> <ArgInfo {value} /></td>
-							</tr>
-						{/each}
-					{:else if job}
-						<tr>No arguments</tr>
-					{:else}
-						<tr>
-							<td>
-								<Skeleton layout={[[3], 0.5, [3]]} />
-							</td>
-							<td>
-								<Skeleton layout={[[3], 0.5, [3]]} />
-							</td>
-						</tr>
-					{/if}
-				</tbody>
-			</TableCustom>
+			<JobArgs {job} />
 
 			{#if job?.job_kind == 'flow' || job?.job_kind == 'flowpreview'}
 				<div class="mt-10" />
@@ -291,66 +253,7 @@
 		</div>
 		<div>
 			<Skeleton loading={!job} layout={[[9.5]]} />
-			{#if job}
-				<div
-					class="rounded-md p-3 bg-gray-50 shadow-sm sm:text-sm md:text-base"
-					style="min-height: 150px;"
-				>
-					<JobStatus {job} />
-					<div>
-						<Icon class="text-gray-700" data={faClock} scale={SMALL_ICON_SCALE} /><span
-							class="mx-2"
-						>
-							Created {displayDaysAgo(job.created_at ?? '')}</span
-						>
-					</div>
-					{#if job && 'started_at' in job && job.started_at}
-						<div>
-							<Icon class="text-gray-700" data={faClock} scale={SMALL_ICON_SCALE} /><span
-								class="mx-2"
-							>
-								Started {displayDaysAgo(job.started_at ?? '')}</span
-							>
-						</div>
-					{/if}
-					<div>
-						{#if job && job.parent_job}
-							{#if job.is_flow_step}
-								<Icon class="text-gray-700" data={faWind} scale={SMALL_ICON_SCALE} /><span
-									class="mx-2"
-								>
-									Step of flow <a href={`/run/${job.parent_job}`}>{job.parent_job}</a></span
-								>
-							{:else}
-								<Icon class="text-gray-700" data={faRobot} scale={SMALL_ICON_SCALE} /><span
-									class="mx-2"
-								>
-									Triggered by parent <a href={`/run/${job.parent_job}`}>{job.parent_job}</a></span
-								>
-							{/if}
-						{:else if job && job.schedule_path}
-							<Icon class="text-gray-700" data={faCalendar} scale={SMALL_ICON_SCALE} />
-							<span class="mx-2"
-								>Triggered by the schedule: <a
-									href={`/schedule/add?edit=${job.schedule_path}&isFlow=${job.job_kind == 'flow'}`}
-									>{job.schedule_path}</a
-								></span
-							>
-						{/if}
-						<div>
-							<Icon class="text-gray-700" data={faUser} scale={SMALL_ICON_SCALE} /><span
-								class="mx-2"
-							>
-								By {job.created_by}
-								{#if job.permissioned_as !== `u/${job.created_by}`}but permissioned as {job.permissioned_as}{/if}
-							</span>
-						</div>
-					</div>
-					<div class="text-gray-700 text-2xs pt-2">
-						run id: <a href={`/run/${job.id}`}>{job.id}</a>
-					</div>
-				</div>
-			{/if}
+			{#if job}<FlowMetadata {job} />{/if}
 		</div>
 	</div>
 

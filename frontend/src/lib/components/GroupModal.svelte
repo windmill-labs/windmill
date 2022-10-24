@@ -3,7 +3,6 @@
 	import Modal from './Modal.svelte'
 	import { type Group, GroupService, UserService } from '$lib/gen'
 	import AutoComplete from 'simple-svelte-autocomplete'
-	import PageHeader from './PageHeader.svelte'
 	import TableCustom from './TableCustom.svelte'
 	import { canWrite } from '$lib/utils'
 	import { Button } from './common'

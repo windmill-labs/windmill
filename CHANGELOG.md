@@ -1,6 +1,43 @@
 # Changelog
 
 
+## [1.41.0](https://github.com/windmill-labs/windmill/compare/v1.40.1...v1.41.0) (2022-10-24)
+
+
+### Features
+
+* add approver to approval step ([a0b2c9e](https://github.com/windmill-labs/windmill/commit/a0b2c9e77dd77e5727b2921890b1298cbac780f9))
+
+
+### Bug Fixes
+
+* approval pages now require no auth ([3c91e42](https://github.com/windmill-labs/windmill/commit/3c91e42b9ec185d7ae17c76f82511f6caa4837de))
+* **deno-client:** add approver ([17d9f38](https://github.com/windmill-labs/windmill/commit/17d9f38d307c6a8554e20b60aabe675e43df10fd))
+
+## [1.40.1](https://github.com/windmill-labs/windmill/compare/v1.40.0...v1.40.1) (2022-10-22)
+
+
+### Bug Fixes
+
+* **deno-client:** fix build.sh to have reproducible builds ([#793](https://github.com/windmill-labs/windmill/issues/793)) ([a5dfd86](https://github.com/windmill-labs/windmill/commit/a5dfd865c3912bb8528c0048519ad4c134eceab2))
+
+## [1.40.0](https://github.com/windmill-labs/windmill/compare/v1.39.0...v1.40.0) (2022-10-22)
+
+
+### Features
+
+* **backend:** propagate cancel instantly to all flow jobs if any ([cb5ed9b](https://github.com/windmill-labs/windmill/commit/cb5ed9b9a1fdcaf5609ce20c59aeca2356ae1883))
+* **deno-client:** improve docs by extending function signatures ([#791](https://github.com/windmill-labs/windmill/issues/791)) ([4ab547b](https://github.com/windmill-labs/windmill/commit/4ab547bdf4e93793306b7f98bf0e237849aa391a))
+* support running and publishing go, python scripts to the hub ([#779](https://github.com/windmill-labs/windmill/issues/779)) ([8ec33c5](https://github.com/windmill-labs/windmill/commit/8ec33c5e165316e2f8f804575ea3369b8beefdbd))
+
+
+### Bug Fixes
+
+* **backend:** avoid mem leak on interval [#786](https://github.com/windmill-labs/windmill/issues/786) ([ac84b76](https://github.com/windmill-labs/windmill/commit/ac84b76909e0d6dfa170cb58608344b1b6d2627f))
+* **frontend:** rework te new script page ([6c68f26](https://github.com/windmill-labs/windmill/commit/6c68f264cbcf18a872775b37be40b4f09dee8e2b))
+* improve approval flow with approval page ([884edd7](https://github.com/windmill-labs/windmill/commit/884edd77153100a26a72c28c52b76c9619bd7642))
+* only create a schedule after flow change if schedule is enabled ([4ce3e07](https://github.com/windmill-labs/windmill/commit/4ce3e0795c000aeff6f729ed515091fb93f7ceb2))
+
 ## [1.39.0](https://github.com/windmill-labs/windmill/compare/v1.38.5...v1.39.0) (2022-10-20)
 
 

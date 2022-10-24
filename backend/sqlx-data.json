@@ -384,32 +384,6 @@
     },
     "query": "SELECT * FROM workspace LIMIT $1 OFFSET $2"
   },
-  "13a10a404e892d6975d4913424880a75bfb2c6dfb5134c270c7c7225acb05db4": {
-    "describe": {
-      "columns": [
-        {
-          "name": "value",
-          "ordinal": 0,
-          "type_info": "Jsonb"
-        },
-        {
-          "name": "is_cancel",
-          "ordinal": 1,
-          "type_info": "Bool"
-        }
-      ],
-      "nullable": [
-        false,
-        false
-      ],
-      "parameters": {
-        "Left": [
-          "Uuid"
-        ]
-      }
-    },
-    "query": "SELECT value, is_cancel FROM resume_job WHERE job = $1 ORDER BY created_at ASC"
-  },
   "15de975d9be141c9ed9647935a508492aabbbddbf986d5c5c0f0c415293c432d": {
     "describe": {
       "columns": [],
@@ -519,6 +493,23 @@
       }
     },
     "query": "UPDATE queue SET logs = $1 WHERE id = $2"
+  },
+  "1f68e0b0e6dfa59d782a4abeab8aa06ad808fc7e8255951e1be2fc41263f9c50": {
+    "describe": {
+      "columns": [],
+      "nullable": [],
+      "parameters": {
+        "Left": [
+          "Uuid",
+          "Int4",
+          "Uuid",
+          "Uuid",
+          "Jsonb",
+          "Varchar"
+        ]
+      }
+    },
+    "query": "\n        INSERT INTO resume_job\n                    (id, resume_id, job, flow, value, approver)\n             VALUES ($1, $2, $3, $4, $5, $6)\n             ON CONFLICT (id) DO NOTHING\n        "
   },
   "1f93b533fa6fee0db4340445da3fac8e6773bc1db1f88cd60fd3c1e8c9781eb0": {
     "describe": {
@@ -778,22 +769,6 @@
     },
     "query": "INSERT INTO variable\n            (workspace_id, path, value, is_secret, description, account, is_oauth)\n            VALUES ($1, $2, $3, $4, $5, $6, $7)"
   },
-  "30d85ec4bfa7e81d2803ea9c0b638a01257ae2e9138dd82df526d28d4467df26": {
-    "describe": {
-      "columns": [],
-      "nullable": [],
-      "parameters": {
-        "Left": [
-          "Uuid",
-          "Uuid",
-          "Uuid",
-          "Jsonb",
-          "Bool"
-        ]
-      }
-    },
-    "query": "\n        INSERT INTO resume_job\n                    (id, job, flow, value, is_cancel)\n             VALUES ($1, $2, $3, $4, $5)\n        "
-  },
   "355dcb2cbebd13f0e3bdd4929b9e431b0e6d72716d1c4f9ab6af6adce5b5e4b3": {
     "describe": {
       "columns": [
@@ -877,6 +852,27 @@
       }
     },
     "query": "SELECT * FROM usr where username = $1 AND workspace_id = $2"
+  },
+  "3da0cf7edc975cb365c36d167df34d9d30d3e86f231bb9d1d3cc3bad6a50dfff": {
+    "describe": {
+      "columns": [
+        {
+          "name": "parent_job",
+          "ordinal": 0,
+          "type_info": "Uuid"
+        }
+      ],
+      "nullable": [
+        null
+      ],
+      "parameters": {
+        "Left": [
+          "Uuid",
+          "Text"
+        ]
+      }
+    },
+    "query": "\n        SELECT parent_job\n        FROM queue\n        WHERE id = $1 AND workspace_id = $2\n        UNION ALL\n        SELECT parent_job\n        FROM completed_job\n        WHERE id = $1 AND workspace_id = $2\n        "
   },
   "3fabb3857c9cf2d057814b54ee54a95d01b6a7d9e89bea239b832a9d70f0044b": {
     "describe": {
@@ -1112,6 +1108,38 @@
     },
     "query": "DELETE FROM usr_to_group WHERE group_ = $1 AND workspace_id = $2"
   },
+  "541ebd3bac65431237cf3b882dfdcd61ca97c253d9754d05bba59fda89841067": {
+    "describe": {
+      "columns": [
+        {
+          "name": "value",
+          "ordinal": 0,
+          "type_info": "Jsonb"
+        },
+        {
+          "name": "approver",
+          "ordinal": 1,
+          "type_info": "Varchar"
+        },
+        {
+          "name": "resume_id",
+          "ordinal": 2,
+          "type_info": "Int4"
+        }
+      ],
+      "nullable": [
+        false,
+        true,
+        false
+      ],
+      "parameters": {
+        "Left": [
+          "Uuid"
+        ]
+      }
+    },
+    "query": "SELECT value, approver, resume_id FROM resume_job WHERE job = $1 ORDER BY created_at ASC"
+  },
   "5445083864b2b092b012e894bff7630a1d7b9deb8d33e9f909061f351f96844e": {
     "describe": {
       "columns": [
@@ -1276,7 +1304,8 @@
                   "script",
                   "trigger",
                   "failure",
-                  "command"
+                  "command",
+                  "approval"
                 ]
               },
               "name": "script_kind"
@@ -1386,6 +1415,29 @@
       }
     },
     "query": "INSERT INTO workspace_key\n            (workspace_id, kind, key)\n            VALUES ($1, 'cloud', $2)"
+  },
+  "651361530f153de49f300e4d647903794052ddc7d083d16b66d9ebd142239794": {
+    "describe": {
+      "columns": [
+        {
+          "name": "id",
+          "ordinal": 0,
+          "type_info": "Uuid"
+        }
+      ],
+      "nullable": [
+        false
+      ],
+      "parameters": {
+        "Left": [
+          "Varchar",
+          "Text",
+          "Uuid",
+          "Text"
+        ]
+      }
+    },
+    "query": "UPDATE queue SET canceled = true, canceled_by = $1, canceled_reason = $2 WHERE parent_job = $3 AND workspace_id = $4 RETURNING id"
   },
   "6c63bbcb45d3f51eccaea52ec862700e1f1c2426d823abd951e1eea4fd9b85aa": {
     "describe": {
@@ -1572,7 +1624,8 @@
                   "flow",
                   "dependencies",
                   "flowpreview",
-                  "script_hub"
+                  "script_hub",
+                  "identity"
                 ]
               },
               "name": "job_kind"
@@ -1853,7 +1906,8 @@
                   "flow",
                   "dependencies",
                   "flowpreview",
-                  "script_hub"
+                  "script_hub",
+                  "identity"
                 ]
               },
               "name": "job_kind"
@@ -2517,6 +2571,32 @@
     },
     "query": "INSERT INTO usr_to_group (workspace_id, usr, group_) VALUES ($1, $2, $3)"
   },
+  "aeaae7641539d51f4535b04e9a7adb7545bd37d0d706edb54b8f5507403105ee": {
+    "describe": {
+      "columns": [
+        {
+          "name": "resume_id",
+          "ordinal": 0,
+          "type_info": "Int4"
+        },
+        {
+          "name": "approver",
+          "ordinal": 1,
+          "type_info": "Varchar"
+        }
+      ],
+      "nullable": [
+        false,
+        true
+      ],
+      "parameters": {
+        "Left": [
+          "Uuid"
+        ]
+      }
+    },
+    "query": "\n            SELECT resume_id, approver\n            FROM resume_job\n            WHERE job = $1\n            "
+  },
   "b05c5f62ef4aa21d33369130cced0e9d7d128727eb58a9be7ae69cbb16bcbb27": {
     "describe": {
       "columns": [],
@@ -2948,7 +3028,8 @@
                   "flow",
                   "dependencies",
                   "flowpreview",
-                  "script_hub"
+                  "script_hub",
+                  "identity"
                 ]
               },
               "name": "job_kind"
@@ -3227,29 +3308,6 @@
     },
     "query": "\n           SELECT SUM(duration_ms)\n             FROM completed_job\n            WHERE permissioned_as = $1\n              AND created_at > NOW() - INTERVAL '1200 seconds'\n              AND workspace_id = $2"
   },
-  "e7051b21ffd80de0cb0644a71c89c9f63abed6b446d1e232adbb6931efad6d6d": {
-    "describe": {
-      "columns": [
-        {
-          "name": "id",
-          "ordinal": 0,
-          "type_info": "Uuid"
-        }
-      ],
-      "nullable": [
-        false
-      ],
-      "parameters": {
-        "Left": [
-          "Varchar",
-          "Text",
-          "Uuid",
-          "Text"
-        ]
-      }
-    },
-    "query": "UPDATE queue SET canceled = true, canceled_by = $1, canceled_reason = $2 WHERE id = $3 AND workspace_id = $4 RETURNING id"
-  },
   "ee99cb974fb35d2d92fa96cecb53b8ad3a729ac710f362dc55a576613b66f9be": {
     "describe": {
       "columns": [
@@ -3291,6 +3349,29 @@
       }
     },
     "query": "SELECT result FROM completed_job WHERE id = $1 AND workspace_id = $2"
+  },
+  "f1f7a27738deae46de6acc10cbff701ff0c3872cc5b387e304bd9a058bb0c8a8": {
+    "describe": {
+      "columns": [
+        {
+          "name": "id",
+          "ordinal": 0,
+          "type_info": "Uuid"
+        }
+      ],
+      "nullable": [
+        false
+      ],
+      "parameters": {
+        "Left": [
+          "Varchar",
+          "Text",
+          "Uuid",
+          "Text"
+        ]
+      }
+    },
+    "query": "UPDATE queue SET canceled = true, canceled_by = $1, canceled_reason = $2, scheduled_for = now(), suspend = 0 WHERE id = $3 AND workspace_id = $4 RETURNING id"
   },
   "f325a1262084bd3468e12dc8bcc289a96536f172b679af54dd0fbc82d4d7c987": {
     "describe": {

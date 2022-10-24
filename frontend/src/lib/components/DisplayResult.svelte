@@ -55,7 +55,7 @@
 					return 'jpeg'
 				} else if (keys.length == 1 && keys[0] == 'file') {
 					return 'file'
-				} else if (keys.length == 1 && keys[0] == 'error') {
+				} else if (keys.length == 1 && keys[0] == 'error' && typeof result['error'] == 'string') {
 					return 'error'
 				}
 			} catch (err) {}

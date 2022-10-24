@@ -2,7 +2,7 @@
 	import ItemPicker from '$lib/components/ItemPicker.svelte'
 	import { faUserGroup } from '@fortawesome/free-solid-svg-icons'
 
-	import { ScriptService } from '$lib/gen'
+	import { Script, ScriptService } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { createEventDispatcher } from 'svelte'
 	import FlowScriptPicker from './FlowScriptPicker.svelte'
@@ -24,7 +24,7 @@
 <ItemPicker
 	bind:this={itemPicker}
 	pickCallback={(path, summary) => {
-		dispatch('pick', { path, summary })
+		dispatch('pick', { path, summary, kind })
 	}}
 	itemName={'Script'}
 	extraField="summary"
@@ -32,7 +32,7 @@
 />
 
 <FlowScriptPicker
-	label={customText ?? `Pick a ${kind == 'script' ? '' : kind} script from your workspace`}
+	label={customText ?? `${kind == Script.kind.SCRIPT ? 'Script' : `${kind} script`} from workspace`}
 	icon={faUserGroup}
 	iconColor="text-blue-500"
 	on:click={() => itemPicker.openModal()}

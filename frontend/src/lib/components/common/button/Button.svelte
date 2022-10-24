@@ -32,6 +32,11 @@
 				'border-red-600 hover:border-red-700 bg-white hover:bg-red-100 text-red-600 hover:text-red-700 focus:ring-red-300',
 			contained: 'bg-red-600 hover:bg-red-700 text-white focus:ring-red-300'
 		},
+		green: {
+			border:
+				'border-green-600 hover:border-green-700 bg-white hover:bg-green-100 text-green-600 hover:text-green-700 focus:ring-green-300',
+			contained: 'bg-green-600 hover:bg-green-700 text-white focus:ring-green-300'
+		},
 		dark: {
 			border:
 				'border-gray-800 hover:border-gray-900 focus:border-gray-900 bg-white hover:bg-gray-200 focus:bg-gray-200 text-gray-800 hover:text-gray-900 focus:text-gray-900 focus:ring-gray-300',
