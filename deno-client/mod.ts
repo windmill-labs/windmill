@@ -147,12 +147,13 @@ export interface NonceAndHmac {
  * Get HMAC and nonce needed for approval script
  * @param workspace workspace name
  * @param jobId
+ * @param approver approver name
  * @returns HMAC and nonce needed to authorize approval script actions
  */
 export async function genNounceAndHmac(workspace: string, jobId: string, approver?: string): Promise<NonceAndHmac> {
     const nonce = Math.floor(Math.random() * 4294967295);
     const sig = await fetch(Deno.env.get("WM_BASE_URL") +
-        `/api/w/${workspace}/jobs/job_signature/${jobId}/${nonce}?token=${Deno.env.get("WM_TOKEN")}`)
+        `/api/w/${workspace}/jobs/job_signature/${jobId}/${nonce}?token=${Deno.env.get("WM_TOKEN")}${approver ? `&approver=${approver}` : ''}`)
     return {
         nonce,
         signature: await sig.text()
@@ -167,6 +168,7 @@ export interface ResumeEndpoints {
 
 /**
  * Get URLs needed for approval script
+ * @param approver approver name
  * @returns approval page UI URL, resume and cancel API URLs for approval script
  */
 export async function getResumeEndpoints(approver?: string): Promise<ResumeEndpoints> {
