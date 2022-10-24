@@ -88,6 +88,10 @@
 		<div class="flex flex-row justify-between flex-wrap sm:flex-nowrap gap-x-4">
 			<div class="w-full">
 				<h2 class="mt-4">Current approvers</h2>
+				<p class="text-xs italic"
+					>Each approver can only approve once and cannot change his approver name set by the
+					approval sender</p
+				>
 				<div class="my-4">
 					{#if currentApprovers.length > 0}
 						<ul>
