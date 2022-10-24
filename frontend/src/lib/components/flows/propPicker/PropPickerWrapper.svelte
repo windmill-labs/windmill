@@ -1,8 +1,6 @@
 <script context="module" lang="ts">
 	type InsertionMode = 'append' | 'connect' | 'insert'
-
 	type SelectCallback = (path: string) => void
-
 	type PropPickerConfig = {
 		insertionMode: InsertionMode
 		propName: string

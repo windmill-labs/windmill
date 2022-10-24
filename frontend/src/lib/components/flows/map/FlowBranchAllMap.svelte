@@ -34,13 +34,11 @@
 	function removeBranch(index: number) {
 		if (module.value.type === 'branchall') {
 			flowStateStore.update((fss) => {
-				if (module.value.type === 'branchone') {
+				if (module.value.type === 'branchall') {
 					module.value.branches[index].modules.forEach((mod) => {
 						delete fss[mod.id]
 					})
 				}
-
-				// Should also delete custom branch state
 
 				return fss
 			})

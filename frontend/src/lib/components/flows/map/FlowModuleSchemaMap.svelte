@@ -31,7 +31,6 @@
 		select('settings')
 		const [removedModule] = modules.splice(index, 1)
 		modules = modules
-
 		deleteFlowStateById(removedModule.id)
 	}
 
