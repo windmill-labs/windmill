@@ -1,4 +1,5 @@
 <script lang="ts">
+	import Tooltip from '$lib/components/Tooltip.svelte'
 	import { RawScript, Script } from '$lib/gen'
 
 	import { faCode, faRepeat } from '@fortawesome/free-solid-svg-icons'
@@ -77,7 +78,13 @@
 	</div>
 
 	{#if !shouldDisableTriggerScripts}
-		<div class="text-sm font-bold">Trigger script</div>
+		<div class="text-sm font-bold"
+			>Trigger script<Tooltip
+				>Used as a first step most commonly with an intenal state and a schedule to watch for
+				changes on an external system, compute the diff since last time, set the new state. The
+				diffs are then treated one by one with a for-loop.</Tooltip
+			></div
+		>
 
 		<div class="grid sm:grid-col-1 md:grid-col-2 lg:grid-cols-3 gap-4">
 			<PickScript customText="Trigger script from workspace" kind={Script.kind.TRIGGER} on:pick />
@@ -92,7 +99,14 @@
 	{/if}
 
 	{#if !failureModule}
-		<div class="text-sm font-bold">Approval step</div>
+		<div class="text-sm font-bold"
+			>Approval step<Tooltip
+				>Inlined common scripts can be turned into approval step by changing their suspend settings.
+				An approval step will suspend the execution of a flow until it has been approved through the
+				resume endpoints or the approval page by and solely by the recipients of those secret urls.
+				Use getResumeEndpoints from the wmill client to generate those URLs.</Tooltip
+			></div
+		>
 		<div class="grid sm:grid-col-1 md:grid-col-2 lg:grid-cols-3 gap-4">
 			<PickScript customText="Approval step from workspace" kind={Script.kind.APPROVAL} on:pick />
 			<PickHubScript
