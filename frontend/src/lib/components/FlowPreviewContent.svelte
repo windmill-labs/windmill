@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { FlowStatusModule, JobService, type Flow } from '$lib/gen'
+	import { JobService, type Flow } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { faClose, faPlay, faRefresh } from '@fortawesome/free-solid-svg-icons'
 	import { Button } from './common'
@@ -12,7 +12,7 @@
 	import { runFlowPreview, selectedIdToIndexes } from './flows/utils'
 	import SchemaForm from './SchemaForm.svelte'
 	import FlowStatusViewer from '../components/FlowStatusViewer.svelte'
-	import { ProgressBar, type GeneralStep, type LoopStep, type ProgressStep } from './progressBar'
+	import FlowProgressBar from './flows/FlowProgressBar.svelte'
 
 	export let previewMode: 'upTo' | 'whole'
 	export let open: boolean
@@ -20,7 +20,8 @@
 	let jobId: string | undefined = undefined
 	let isValid: boolean = false
 	let isRunning: boolean = false
-	let jobProgress: { steps: ProgressStep[]; error: boolean } = { steps: [], error: false }
+	let job: JobResult
+	let jobProgressReset: () => void
 
 	const { selectedId, previewArgs } = getContext<FlowEditorContext>('FlowEditorContext')
 
@@ -49,7 +50,7 @@
 	const dispatch = createEventDispatcher()
 
 	export async function runPreview(args: Record<string, any>) {
-		resetJobProgress()
+		jobProgressReset()
 		const newFlow = extractFlow(previewMode)
 		jobId = await runFlowPreview(args, newFlow)
 		isRunning = true
@@ -73,7 +74,7 @@
 	}
 
 	function onJobsLoaded(jobResult: JobResult) {
-		updateJobProgress(jobResult)
+		job = jobResult
 
 		if (jobResult.job?.type === 'CompletedJob') {
 			isRunning = false
@@ -83,58 +84,6 @@
 				? selectedIdToIndexes($selectedId)[0] + 1
 				: $flowStateStore.modules.length
 		mapJobResultsToFlowState(jobResult, upToIndex)
-	}
-
-	function updateJobProgress(job: JobResult) {
-		const modules = job.job?.flow_status?.modules
-		if (!modules?.length) {
-			return
-		}
-
-		jobProgress.steps = modules.map((module) => {
-			if (
-				module.type === FlowStatusModule.type.FAILURE ||
-				(module.type === FlowStatusModule.type.SUCCESS && job.job && job.job['success'] === false)
-			) {
-				jobProgress.error = true
-			}
-
-			// Loop is still iterating
-			if (module.iterator) {
-				return <LoopStep>{
-					type: 'loop',
-					isDone: isJobStepDone(module.type),
-					index: module.iterator.index || 0,
-					length: module.iterator.itered?.length || 0
-				}
-			}
-			// Loop is finished
-			else if (module['flow_jobs']) {
-				return <LoopStep>{
-					type: 'loop',
-					isDone: isJobStepDone(module.type),
-					index: module['flow_jobs'].length,
-					length: module['flow_jobs'].length
-				}
-			}
-			// Not a loop
-			return <GeneralStep>{
-				type: 'general',
-				isDone: isJobStepDone(module.type)
-			}
-		})
-	}
-
-	function isJobStepDone(type: FlowStatusModule.type | undefined) {
-		if (!type) {
-			return false
-		}
-		return type === FlowStatusModule.type.SUCCESS || type === FlowStatusModule.type.FAILURE
-	}
-
-	function resetJobProgress() {
-		jobProgress.error = false
-		jobProgress.steps = []
 	}
 </script>
 
@@ -206,7 +155,7 @@
 		</Button>
 	{/if}
 
-	<ProgressBar {...jobProgress} class="py-4" />
+	<FlowProgressBar job={job?.job} bind:reset={jobProgressReset} class="py-4" />
 
 	<div class="h-full overflow-y-auto mb-16 grow">
 		{#if jobId}

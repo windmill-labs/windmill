@@ -36,11 +36,14 @@
 	import { Button, ActionRow, Skeleton } from '$lib/components/common'
 	import FlowMetadata from '$lib/components/FlowMetadata.svelte'
 	import JobArgs from '$lib/components/JobArgs.svelte'
+	import FlowProgressBar from '$lib/components/flows/FlowProgressBar.svelte'
+	import type { JobResult } from '$lib/components/flows/flowStateUtils'
 
 	let workspace_id_query: string | undefined = $page.url.searchParams.get('workspace') ?? undefined
 	let workspace_id: string | undefined
 
 	let job: Job | undefined
+	let jobResult: JobResult
 	const iconScale = 1
 
 	let viewTab: 'result' | 'logs' | 'code' = 'result'
@@ -246,8 +249,14 @@
 
 			{#if job?.job_kind == 'flow' || job?.job_kind == 'flowpreview'}
 				<div class="mt-10" />
+				<FlowProgressBar job={jobResult?.job} class="py-4" />
 				<div class="max-w-lg">
-					<FlowStatusViewer jobId={job.id} />
+					<FlowStatusViewer
+						jobId={job.id}
+						on:jobsLoaded={({ detail }) => {
+							jobResult = detail
+						}}
+					/>
 				</div>
 			{/if}
 		</div>
