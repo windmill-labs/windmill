@@ -24,6 +24,6 @@
 	}
 </script>
 
-{#each progresses as progress, index}
-	<ProgressBarLoopAccessor {progress} {index} length={step.length} />
+{#each progresses as progress, i}
+	<ProgressBarLoopAccessor {progress} index={i} length={step.length} />
 {/each}

@@ -91,22 +91,36 @@
 			return
 		}
 
-		jobProgress.steps = modules.map(({ type, iterator }) => {
-			if (type === FlowStatusModule.type.FAILURE) {
+		jobProgress.steps = modules.map((module) => {
+			if (
+				module.type === FlowStatusModule.type.FAILURE ||
+				(module.type === FlowStatusModule.type.SUCCESS && job.job && job.job['success'] === false)
+			) {
 				jobProgress.error = true
 			}
 
-			if (iterator) {
+			// Loop is still iterating
+			if (module.iterator) {
 				return <LoopStep>{
 					type: 'loop',
-					isDone: isJobStepDone(type),
-					index: iterator.index || 0,
-					length: iterator.itered?.length || 0
+					isDone: isJobStepDone(module.type),
+					index: module.iterator.index || 0,
+					length: module.iterator.itered?.length || 0
 				}
 			}
+			// Loop is finished
+			else if (module['flow_jobs']) {
+				return <LoopStep>{
+					type: 'loop',
+					isDone: isJobStepDone(module.type),
+					index: module['flow_jobs'].length,
+					length: module['flow_jobs'].length
+				}
+			}
+			// Not a loop
 			return <GeneralStep>{
 				type: 'general',
-				isDone: isJobStepDone(type)
+				isDone: isJobStepDone(module.type)
 			}
 		})
 	}
