@@ -1280,7 +1280,7 @@ pub async fn get_suspended_job_flow(
     let flow_module_status = flow_status
         .modules
         .iter()
-        .find(|p| p.id() == job.to_string())
+        .find(|p| p.job() == Some(job))
         .ok_or_else(|| anyhow::anyhow!("unable to find the module"))?;
 
     let approvers_from_status = match flow_module_status {
