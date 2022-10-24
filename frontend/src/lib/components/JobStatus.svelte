@@ -20,24 +20,28 @@
 </script>
 
 {#if job && 'success' in job && job.success}
-	<Badge large color="green">
-		<Icon data={faCheck} scale={SMALL_ICON_SCALE} class="mr-2" />
-		Success {job.is_skipped ? '(Skipped)' : ''}
-	</Badge>
+	<div class="flex flex-row flex-wrap gap-y-1 mb-1 gap-x-2">
+		<Badge large color="green">
+			<Icon data={faCheck} scale={SMALL_ICON_SCALE} class="mr-2" />
+			Success {job.is_skipped ? '(Skipped)' : ''}
+		</Badge>
 
-	<Badge large>
-		<Icon data={faHourglassHalf} scale={SMALL_ICON_SCALE} class="mr-2" />
-		Job ran in {msToSec(job.duration_ms)} s
-	</Badge>
+		<Badge large>
+			<Icon data={faHourglassHalf} scale={SMALL_ICON_SCALE} class="mr-2" />
+			Job ran in {msToSec(job.duration_ms)} s
+		</Badge>
+	</div>
 {:else if job && 'success' in job}
-	<Badge large color="red">
-		<Icon data={faTimes} scale={SMALL_ICON_SCALE} class="mr-2" />
-		Failed
-	</Badge>
-	<Badge large>
-		<Icon data={faHourglassHalf} scale={SMALL_ICON_SCALE} class="mr-2" />
-		Job ran in {msToSec(job.duration_ms)}s
-	</Badge>
+	<div class="flex flex-row flex-wrap gap-y-1 mb-1 gap-x-2">
+		<Badge large color="red">
+			<Icon data={faTimes} scale={SMALL_ICON_SCALE} class="mr-2" />
+			Failed
+		</Badge>
+		<Badge large>
+			<Icon data={faHourglassHalf} scale={SMALL_ICON_SCALE} class="mr-2" />
+			Job ran in {msToSec(job.duration_ms)}s
+		</Badge>
+	</div>
 {:else if job && 'running' in job && job.running}
 	<Badge large color="yellow">
 		<Icon data={faCircle} scale={SMALL_ICON_SCALE} class="mr-2" />

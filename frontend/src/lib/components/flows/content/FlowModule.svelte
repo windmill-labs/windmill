@@ -154,12 +154,17 @@
 							flowModule = flowModule
 						}
 					}}
-					on:new={(e) =>
-						apply(createInlineScriptModule, {
+					on:new={async (e) => {
+						await apply(createInlineScriptModule, {
 							language: e.detail.language,
 							kind: e.detail.kind,
 							subkind: e.detail.subkind
-						})}
+						})
+						if (e.detail.kind == Script.kind.APPROVAL) {
+							flowModule.suspend = { required_events: 1, timeout: 1800 }
+							flowModule = flowModule
+						}
+					}}
 					{failureModule}
 				/>
 			{:else}

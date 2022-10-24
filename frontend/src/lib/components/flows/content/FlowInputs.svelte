@@ -114,6 +114,12 @@
 				kind={Script.kind.APPROVAL}
 				on:pick
 			/>
+			<FlowScriptPicker
+				label="Inline Typescript (Deno)"
+				icon={faCode}
+				iconColor="text-blue-800"
+				on:click={() => dispatch('new', { language: RawScript.language.DENO, kind: 'approval' })}
+			/>
 		</div>
 
 		{#if !shouldDisableLoopCreation}
