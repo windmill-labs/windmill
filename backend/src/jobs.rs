@@ -65,7 +65,7 @@ pub fn workspaced_service() -> Router {
         .route("/run/preview_flow", post(run_preview_flow_job))
         .route("/list", get(list_jobs))
         .route("/queue/list", get(list_queue_jobs))
-        .route("/queue/cancel/:id", post(cancel_job))
+        .route("/queue/cancel/:id", post(cancel_job_api))
         .route("/completed/list", get(list_completed_jobs))
         .route("/completed/get/:id", get(get_completed_job))
         .route("/completed/get_result/:id", get(get_completed_job_result))
@@ -802,41 +802,15 @@ async fn get_completed_job_result(
     Ok(Json(result))
 }
 
-async fn cancel_job(
+async fn cancel_job_api(
     authed: Authed,
     Extension(user_db): Extension<UserDB>,
     Path((w_id, id)): Path<(String, Uuid)>,
     Json(CancelJob { reason }): Json<CancelJob>,
 ) -> error::Result<String> {
-    let mut tx = user_db.begin(&authed).await?;
+    let tx = user_db.begin(&authed).await?;
 
-    let job_option = sqlx::query_scalar!(
-        "UPDATE queue SET canceled = true, canceled_by = $1, canceled_reason = $2, scheduled_for = now(), suspend = 0 WHERE id = $3 \
-         AND workspace_id = $4 RETURNING id",
-        &authed.username,
-        reason,
-        id,
-        w_id
-    )
-    .fetch_optional(&mut tx)
-    .await?;
-
-    let mut jobs = job_option.map(|j| vec![j]).unwrap_or_default();
-
-    while !jobs.is_empty() {
-        let p_job = jobs.pop();
-        let new_jobs = sqlx::query_scalar!(
-            "UPDATE queue SET canceled = true, canceled_by = $1, canceled_reason = $2 WHERE parent_job = $3 \
-             AND workspace_id = $4 RETURNING id",
-            &authed.username,
-            reason,
-            p_job,
-            w_id
-        )
-        .fetch_all(&mut tx)
-        .await?;
-        jobs.extend(new_jobs);
-    }
+    let (mut tx, job_option) = cancel_job(&authed.username, reason, id, &w_id, tx).await?;
 
     if let Some(id) = job_option {
         audit_log(
@@ -863,6 +837,41 @@ async fn cancel_job(
         };
         Err(err)
     }
+}
+
+async fn cancel_job<'c>(
+    username: &str,
+    reason: Option<String>,
+    id: Uuid,
+    w_id: &str,
+    mut tx: Transaction<'c, Postgres>,
+) -> error::Result<(Transaction<'c, Postgres>, Option<Uuid>)> {
+    let job_option = sqlx::query_scalar!(
+        "UPDATE queue SET canceled = true, canceled_by = $1, canceled_reason = $2, scheduled_for = now(), suspend = 0 WHERE id = $3 \
+         AND workspace_id = $4 RETURNING id",
+        username,
+        reason,
+        id,
+        w_id
+    )
+    .fetch_optional(&mut tx)
+    .await?;
+    let mut jobs = job_option.map(|j| vec![j]).unwrap_or_default();
+    while !jobs.is_empty() {
+        let p_job = jobs.pop();
+        let new_jobs = sqlx::query_scalar!(
+            "UPDATE queue SET canceled = true, canceled_by = $1, canceled_reason = $2 WHERE parent_job = $3 \
+             AND workspace_id = $4 RETURNING id",
+            username,
+            reason,
+            p_job,
+            w_id
+        )
+        .fetch_all(&mut tx)
+        .await?;
+        jobs.extend(new_jobs);
+    }
+    Ok((tx, job_option))
 }
 
 async fn delete_completed_job(
@@ -1066,6 +1075,10 @@ pub async fn get_job_by_id<'c>(
     }
 }
 
+#[derive(Deserialize)]
+pub struct QueryApprover {
+    pub approver: Option<String>,
+}
 pub async fn get_queued_job<'c>(
     id: Uuid,
     w_id: &str,
@@ -1085,85 +1098,19 @@ pub async fn get_queued_job<'c>(
 pub async fn resume_suspended_job(
     /* unauthed */
     Extension(db): Extension<DB>,
-    Path((w_id, job, resume_id, secret)): Path<(String, Uuid, u32, String)>,
+    Path((w_id, job_id, resume_id, secret)): Path<(String, Uuid, u32, String)>,
     QueryOrBody(value): QueryOrBody<serde_json::Value>,
+    Query(approver): Query<QueryApprover>,
 ) -> error::Result<StatusCode> {
     let value = value.unwrap_or(serde_json::Value::Null);
-    insert_resume_job(&db, &w_id, job, resume_id, secret, false, value).await?;
-    Ok(StatusCode::CREATED)
-}
-
-pub async fn cancel_suspended_job(
-    /* unauthed */
-    Extension(db): Extension<DB>,
-    Path((w_id, job, resume_id, secret)): Path<(String, Uuid, u32, String)>,
-    QueryOrBody(value): QueryOrBody<serde_json::Value>,
-) -> error::Result<StatusCode> {
-    let value = value.unwrap_or(serde_json::Value::Null);
-    insert_resume_job(&db, &w_id, job, resume_id, secret, true, value).await?;
-    Ok(StatusCode::CREATED)
-}
-
-pub async fn get_suspended_job_flow(
-    /* unauthed */
-    Extension(db): Extension<DB>,
-    Path((w_id, job, resume_id, secret)): Path<(String, Uuid, u32, String)>,
-) -> error::JsonResult<Job> {
-    let mut tx = db.begin().await?;
-    let key = get_workspace_key(&w_id, &mut tx).await?;
-    let mut mac = HmacSha256::new_from_slice(key.as_bytes()).map_err(to_anyhow)?;
-    mac.update(job.as_bytes());
-    mac.update(resume_id.to_be_bytes().as_ref());
-    mac.verify_slice(hex::decode(secret)?.as_ref())
-        .map_err(|_| anyhow::anyhow!("Invalid signature"))?;
-    let flow_id = sqlx::query_scalar!(
-        r#"
-        SELECT parent_job
-        FROM queue
-        WHERE id = $1 AND workspace_id = $2
-        UNION ALL
-        SELECT parent_job
-        FROM completed_job
-        WHERE id = $1 AND workspace_id = $2
-        "#,
-        job,
-        w_id
-    )
-    .fetch_optional(&mut tx)
-    .await?
-    .flatten()
-    .ok_or_else(|| anyhow::anyhow!("parent flow job not found"))?;
-    let flow_o = get_job_by_id(tx, &w_id, flow_id).await?.0;
-    let flow = crate::utils::not_found_if_none(flow_o, "Parent Flow", job.to_string())?;
-    Ok(Json(flow))
-}
-
-pub async fn create_job_signature(
-    authed: Authed,
-    Extension(user_db): Extension<UserDB>,
-    Path((w_id, job_id, resume_id)): Path<(String, Uuid, u32)>,
-) -> error::Result<String> {
-    let key = get_workspace_key(&w_id, &mut user_db.begin(&authed).await?).await?;
-    let mut mac = HmacSha256::new_from_slice(key.as_bytes()).map_err(to_anyhow)?;
-    mac.update(job_id.as_bytes());
-    mac.update(resume_id.to_be_bytes().as_ref());
-    Ok(hex::encode(mac.finalize().into_bytes()))
-}
-
-async fn insert_resume_job(
-    db: &DB,
-    w_id: &str,
-    job_id: Uuid,
-    resume_id: u32,
-    secret: String,
-    is_cancel: bool,
-    value: serde_json::Value,
-) -> error::Result<()> {
     let mut tx = db.begin().await?;
     let key = get_workspace_key(&w_id, &mut tx).await?;
     let mut mac = HmacSha256::new_from_slice(key.as_bytes()).map_err(to_anyhow)?;
     mac.update(job_id.as_bytes());
     mac.update(resume_id.to_be_bytes().as_ref());
+    if let Some(approver) = approver.approver.clone() {
+        mac.update(approver.as_bytes());
+    }
     mac.verify_slice(hex::decode(secret)?.as_ref())
         .map_err(|_| anyhow::anyhow!("Invalid signature"))?;
     let flow = sqlx::query!(
@@ -1182,14 +1129,15 @@ async fn insert_resume_job(
     sqlx::query!(
         r#"
         INSERT INTO resume_job
-                    (id, job, flow, value, is_cancel)
+                    (id, job, flow, value, approver)
              VALUES ($1, $2, $3, $4, $5)
+             ON CONFLICT (id) DO NOTHING
         "#,
         Uuid::from_u128(job_id.as_u128() ^ resume_id as u128),
         job_id,
         flow.id,
         value,
-        is_cancel,
+        approver.approver
     )
     .execute(&mut tx)
     .await?;
@@ -1211,7 +1159,7 @@ async fn insert_resume_job(
         {
             sqlx::query!(
                 "UPDATE queue SET suspend = $1 WHERE id = $2",
-                if is_cancel { 0 } else { suspend },
+                suspend,
                 flow.id,
             )
             .execute(&mut tx)
@@ -1220,7 +1168,161 @@ async fn insert_resume_job(
     }
 
     tx.commit().await?;
-    Ok(())
+    Ok(StatusCode::CREATED)
+}
+
+pub async fn cancel_suspended_job(
+    /* unauthed */
+    Extension(db): Extension<DB>,
+    Path((w_id, job, resume_id, secret)): Path<(String, Uuid, u32, String)>,
+    Query(approver): Query<QueryApprover>,
+) -> error::Result<String> {
+    let mut tx = db.begin().await?;
+    let key = get_workspace_key(&w_id, &mut tx).await?;
+    let mut mac = HmacSha256::new_from_slice(key.as_bytes()).map_err(to_anyhow)?;
+    mac.update(job.as_bytes());
+    mac.update(resume_id.to_be_bytes().as_ref());
+    if let Some(approver) = approver.approver.clone() {
+        mac.update(approver.as_bytes());
+    }
+    mac.verify_slice(hex::decode(secret)?.as_ref())
+        .map_err(|_| anyhow::anyhow!("Invalid signature"))?;
+
+    let whom = approver.approver.unwrap_or_else(|| "unknown".to_string());
+    let parent_flow = get_root_job(db, &w_id, job).await?;
+    let (mut tx, job) = cancel_job(
+        &whom,
+        Some("approval request disapproved".to_string()),
+        parent_flow,
+        &w_id,
+        tx,
+    )
+    .await?;
+    if job.is_some() {
+        audit_log(
+            &mut tx,
+            &whom,
+            "jobs.disapproval",
+            ActionKind::Delete,
+            &w_id,
+            Some(&parent_flow.to_string()),
+            None,
+        )
+        .await?;
+    }
+    tx.commit().await?;
+    Ok("Flow of job cancelled".to_string())
+}
+
+pub async fn get_root_job(db: DB, w_id: &str, job: Uuid) -> error::Result<Uuid> {
+    let mut tx = db.begin().await?;
+    let mut job_id = job;
+    loop {
+        let (job, ntx) = get_job_by_id(tx, w_id, job_id).await?;
+        tx = ntx;
+        let p_job = job.and_then(|x| match x {
+            Job::QueuedJob(job) => job.parent_job,
+            Job::CompletedJob(job) => job.parent_job,
+        });
+        if let Some(p_job) = p_job {
+            job_id = p_job;
+        } else {
+            return Ok(job_id);
+        }
+    }
+}
+
+#[derive(Serialize)]
+pub struct SuspendedJobFlow {
+    pub job: Job,
+    pub approvers: Vec<String>,
+}
+
+pub async fn get_suspended_job_flow(
+    /* unauthed */
+    Extension(db): Extension<DB>,
+    Path((w_id, job, resume_id, secret)): Path<(String, Uuid, u32, String)>,
+    Query(approver): Query<QueryApprover>,
+) -> error::JsonResult<SuspendedJobFlow> {
+    let mut tx = db.begin().await?;
+    let key = get_workspace_key(&w_id, &mut tx).await?;
+    let mut mac = HmacSha256::new_from_slice(key.as_bytes()).map_err(to_anyhow)?;
+    mac.update(job.as_bytes());
+    mac.update(resume_id.to_be_bytes().as_ref());
+    if let Some(approver) = approver.approver {
+        mac.update(approver.as_bytes());
+    }
+    mac.verify_slice(hex::decode(secret)?.as_ref())
+        .map_err(|_| anyhow::anyhow!("Invalid signature"))?;
+    let flow_id = sqlx::query_scalar!(
+        r#"
+        SELECT parent_job
+        FROM queue
+        WHERE id = $1 AND workspace_id = $2
+        UNION ALL
+        SELECT parent_job
+        FROM completed_job
+        WHERE id = $1 AND workspace_id = $2
+        "#,
+        job,
+        w_id
+    )
+    .fetch_optional(&mut tx)
+    .await?
+    .flatten()
+    .ok_or_else(|| anyhow::anyhow!("parent flow job not found"))?;
+    let (flow_o, mut tx) = get_job_by_id(tx, &w_id, flow_id).await?;
+    let flow = crate::utils::not_found_if_none(flow_o, "Parent Flow", job.to_string())?;
+
+    let flow_status = flow
+        .flow_status()
+        .ok_or_else(|| anyhow::anyhow!("unable to deserialize the flow"))?;
+    let flow_module_status = flow_status
+        .modules
+        .iter()
+        .find(|p| p.job() == Some(job))
+        .ok_or_else(|| anyhow::anyhow!("unable to find the module"))?;
+
+    let approvers_from_status = match flow_module_status {
+        FlowStatusModule::Success { approvers, .. } => approvers.to_owned(),
+        _ => vec![],
+    };
+    let approvers = if approvers_from_status.is_empty() {
+        sqlx::query_scalar!(
+            r#"
+            SELECT approver
+            FROM resume_job
+            WHERE job = $1
+            "#,
+            job,
+        )
+        .fetch_all(&mut tx)
+        .await?
+        .into_iter()
+        .map(|x| x.unwrap_or_else(|| "anonymous".to_string()))
+        .collect()
+    } else {
+        approvers_from_status
+    };
+
+    Ok(Json(SuspendedJobFlow { job: flow, approvers }))
+}
+
+pub async fn create_job_signature(
+    authed: Authed,
+    Extension(user_db): Extension<UserDB>,
+    Path((w_id, job_id, resume_id)): Path<(String, Uuid, u32)>,
+    Query(approver): Query<QueryApprover>,
+) -> error::Result<String> {
+    let key = get_workspace_key(&w_id, &mut user_db.begin(&authed).await?).await?;
+    let mut mac = HmacSha256::new_from_slice(key.as_bytes()).map_err(to_anyhow)?;
+    mac.update(job_id.as_bytes());
+    mac.update(resume_id.to_be_bytes().as_ref());
+    tracing::info!("approver: {:?}", approver.approver);
+    if let Some(approver) = approver.approver {
+        mac.update(approver.as_bytes());
+    }
+    Ok(hex::encode(mac.finalize().into_bytes()))
 }
 
 #[derive(Serialize, Debug)]
@@ -1230,6 +1332,22 @@ pub enum Job {
     CompletedJob(CompletedJob),
 }
 
+impl Job {
+    pub fn raw_flow(&self) -> Option<FlowValue> {
+        let value = match self {
+            Job::QueuedJob(job) => job.raw_flow.clone(),
+            Job::CompletedJob(job) => job.raw_flow.clone(),
+        };
+        value.map(|v| serde_json::from_value(v).ok()).flatten()
+    }
+    pub fn flow_status(&self) -> Option<FlowStatus> {
+        let value = match self {
+            Job::QueuedJob(job) => job.flow_status.clone(),
+            Job::CompletedJob(job) => job.flow_status.clone(),
+        };
+        value.map(|v| serde_json::from_value(v).ok()).flatten()
+    }
+}
 #[derive(sqlx::Type, Serialize, Deserialize, Debug, PartialEq, Clone)]
 #[sqlx(type_name = "JOB_KIND", rename_all = "lowercase")]
 #[serde(rename_all(serialize = "lowercase"))]
@@ -1646,6 +1764,14 @@ pub async fn get_hub_script(
     .map(|e| e.0)
 }
 
+pub fn canceled_job_to_result(job: &QueuedJob) -> String {
+    let reason = job
+        .canceled_reason
+        .as_deref()
+        .unwrap_or_else(|| "no reason given");
+    let canceler = job.canceled_by.as_deref().unwrap_or_else(|| "unknown");
+    format!("Job canceled: {reason} by {canceler}")
+}
 #[instrument(level = "trace", skip_all)]
 pub async fn add_completed_job_error<E: ToString + std::fmt::Debug>(
     db: &DB,

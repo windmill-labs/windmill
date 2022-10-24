@@ -6,7 +6,7 @@ use crate::{
     error::{self, Error},
     flows::{FlowModule, FlowModuleValue, FlowValue, InputTransform, Retry, Suspend},
     jobs::{
-        add_completed_job, add_completed_job_error, get_queued_job, push,
+        add_completed_job, add_completed_job_error, canceled_job_to_result, get_queued_job, push,
         schedule_again_if_scheduled, script_path_to_payload, JobPayload, QueuedJob, RawCode,
     },
     js_eval::{eval_timeout, EvalCreds, IdContext},
@@ -104,6 +104,9 @@ pub enum FlowStatusModule {
         flow_jobs: Option<Vec<Uuid>>,
         #[serde(skip_serializing_if = "Option::is_none")]
         branch_chosen: Option<BranchChosen>,
+        #[serde(default)]
+        #[serde(skip_serializing_if = "Vec::is_empty")]
+        approvers: Vec<String>,
     },
     Failure {
         id: String,
@@ -258,6 +261,7 @@ pub async fn update_flow_status_after_job_completion(
                         job: job.id,
                         flow_jobs,
                         branch_chosen,
+                        approvers: vec![],
                     },
                 )
             } else {
@@ -398,15 +402,26 @@ pub async fn update_flow_status_after_job_completion(
             "Flow job completed".to_string()
         };
         tracing::debug!("{skip_if_stop_early:?}");
-        add_completed_job(
-            db,
-            &flow_job,
-            success,
-            stop_early && skip_if_stop_early.unwrap_or(false),
-            result.clone(),
-            logs,
-        )
-        .await?;
+        if flow_job.canceled {
+            add_completed_job_error(
+                db,
+                &flow_job,
+                logs,
+                &canceled_job_to_result(&flow_job),
+                metrics.clone(),
+            )
+            .await?;
+        } else {
+            add_completed_job(
+                db,
+                &flow_job,
+                success,
+                stop_early && skip_if_stop_early.unwrap_or(false),
+                result.clone(),
+                logs,
+            )
+            .await?;
+        }
         true
     } else {
         match handle_flow(
@@ -818,21 +833,33 @@ async fn push_next_flow_job(
             .context("lock flow in queue")?;
 
             let resumes = sqlx::query!(
-                "SELECT value, is_cancel FROM resume_job WHERE job = $1 ORDER BY created_at ASC",
+                "SELECT value, approver FROM resume_job WHERE job = $1 ORDER BY created_at ASC",
                 last
             )
             .fetch_all(&mut tx)
             .await?;
 
-            let is_cancelled = resumes
-                .iter()
-                .find(|r| r.is_cancel)
-                .map(|r| r.value.clone());
-
-            resume_messages.extend(resumes.into_iter().map(|r| r.value));
+            resume_messages.extend(resumes.iter().map(|r| r.value.clone()));
 
             let required_events = suspend.required_events.unwrap() as u16;
-            if is_cancelled.is_none() && resume_messages.len() >= required_events as usize {
+            if resume_messages.len() >= required_events as usize {
+                sqlx::query(
+                    "
+                    UPDATE queue
+                       SET flow_status = 
+                            JSONB_SET(flow_status, ARRAY['modules', $1::TEXT, 'approvers'], $2)
+                       WHERE id = $3
+                      ",
+                )
+                .bind(status.step - 1)
+                .bind(json!(resumes
+                    .into_iter()
+                    .map(|r| r.approver.unwrap_or_else(|| "unknown".to_string()))
+                    .collect::<Vec<_>>()))
+                .bind(flow_job.id)
+                .execute(&mut tx)
+                .await?;
+
                 /* If we are woken up after suspending, last_result will be the flow args, but we
                  * should use the result from the last job */
                 if let FlowStatusModule::WaitingForEvents { .. } = &status_module {
@@ -847,12 +874,10 @@ async fn push_next_flow_job(
                 tx.commit().await?;
 
             /* not enough messages to do this job, "park"/suspend until there are */
-            } else if is_cancelled.is_none()
-                && matches!(
-                    &status_module,
-                    FlowStatusModule::WaitingForPriorSteps { .. }
-                )
-            {
+            } else if matches!(
+                &status_module,
+                FlowStatusModule::WaitingForPriorSteps { .. }
+            ) {
                 sqlx::query(
                     "
                     UPDATE queue
@@ -878,16 +903,10 @@ async fn push_next_flow_job(
 
                 let success = false;
                 let skipped = false;
-                let logs = if is_cancelled.is_some() {
-                    "Cancelled while waiting to be resumed"
-                } else {
-                    "Timed out waiting to be resumed"
-                }
-                .to_string();
-                let result = is_cancelled.unwrap_or(json!({ "error": logs }));
+                let logs = "Timed out waiting to be resumed".to_string();
+                let result = json!({ "error": logs });
                 let _uuid =
                     add_completed_job(db, &flow_job, success, skipped, result, logs).await?;
-
                 return Ok(());
             }
         }
@@ -1062,6 +1081,7 @@ async fn push_next_flow_job(
                     job: flow_job.id,
                     flow_jobs: Some(vec![]),
                     branch_chosen: None,
+                    approvers: vec![],
                 },
                 json!([]),
                 same_worker_tx,

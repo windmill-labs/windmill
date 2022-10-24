@@ -12,6 +12,7 @@
 	import FlowStatusViewer from '../components/FlowStatusViewer.svelte'
 
 	export let previewMode: 'upTo' | 'whole'
+	export let open: boolean
 
 	let jobId: string | undefined = undefined
 	let isValid: boolean = false
@@ -65,17 +66,19 @@
 	}
 
 	function onKeyDown(event: KeyboardEvent) {
-		switch (event.key) {
-			case 'Enter':
-				if (event.ctrlKey) {
-					event.preventDefault()
-					runPreview($previewArgs)
-				}
-				break
+		if (open) {
+			switch (event.key) {
+				case 'Enter':
+					if (event.ctrlKey) {
+						event.preventDefault()
+						runPreview($previewArgs)
+					}
+					break
 
-			case 'Escape':
-				dispatch('close')
-				break
+				case 'Escape':
+					dispatch('close')
+					break
+			}
 		}
 	}
 

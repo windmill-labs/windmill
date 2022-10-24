@@ -57,14 +57,9 @@
 	let totalTopGap = 0
 
 	$: shouldPick = isEmptyFlowModule(flowModule)
-
-	$: stepPropPicker = getStepPropPicker(
-		$flowStateStore,
-		parentModule,
-		previousModuleId,
-		$flowStore,
-		previewArgs
-	)
+	$: stepPropPicker = failureModule
+		? { pickableProperties: { previous_result: { error: 'the error message' } }, extraLib: '' }
+		: getStepPropPicker($flowStateStore, parentModule, previousModuleId, $flowStore, previewArgs)
 
 	function onKeyDown(event: KeyboardEvent) {
 		if ((event.ctrlKey || event.metaKey) && event.key == 'Enter') {
@@ -142,6 +137,7 @@
 			</svelte:fragment>
 			{#if shouldPick}
 				<FlowInputs
+					shouldDisableTriggerScripts={parentModule !== undefined || previousModuleId !== undefined}
 					on:loop={async () => {
 						const [module, state] = await createLoop(flowModule.id)
 						updateStores(module, state)
@@ -211,7 +207,7 @@
 									/>
 								</div>
 							{:else if flowModule.value.type === 'script'}
-								<FlowModuleScript {flowModule} />
+								<FlowModuleScript path={flowModule.value.path} />
 							{/if}
 						</Pane>
 						<Pane size={50} minSize={20}>

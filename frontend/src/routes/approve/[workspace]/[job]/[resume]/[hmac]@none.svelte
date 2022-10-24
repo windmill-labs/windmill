@@ -5,18 +5,24 @@
 	import CenteredModal from '$lib/components/CenteredModal.svelte'
 	import { sendUserToast } from '$lib/utils'
 	import FlowMetadata from '$lib/components/FlowMetadata.svelte'
+	import FlowViewer from '$lib/components/FlowViewer.svelte'
+	import JobArgs from '$lib/components/JobArgs.svelte'
 
 	let job: Job | undefined = undefined
+	let currentApprovers: string[] = []
 
 	getJob()
 
 	async function getJob() {
-		job = await JobService.getSuspendedJobFlow({
+		const suspendedJobFlow = await JobService.getSuspendedJobFlow({
 			workspace: $page.params.workspace,
 			id: $page.params.job,
 			resumeId: new Number($page.params.resume).valueOf(),
-			signature: $page.params.hmac
+			signature: $page.params.hmac,
+			approver: $page.url.searchParams.get('approver') ?? undefined
 		})
+		job = suspendedJobFlow.job
+		currentApprovers = suspendedJobFlow.approvers
 	}
 
 	async function resume() {
@@ -25,9 +31,11 @@
 			id: $page.params.job,
 			resumeId: new Number($page.params.resume).valueOf(),
 			signature: $page.params.hmac,
+			approver: $page.url.searchParams.get('approver') ?? undefined,
 			requestBody: {}
 		})
 		sendUserToast('Flow approved')
+		getJob()
 	}
 
 	async function cancel() {
@@ -36,21 +44,28 @@
 			id: $page.params.job,
 			resumeId: new Number($page.params.resume).valueOf(),
 			signature: $page.params.hmac,
+			approver: $page.url.searchParams.get('approver') ?? undefined,
 			requestBody: {}
 		})
 		sendUserToast('Flow disapproved!')
+		getJob()
 	}
 </script>
 
 <div class="min-h-screen antialiased text-gray-900">
 	<CenteredModal title="Approve flow?">
-		{#if job}
+		<JobArgs {job} />
+
+		{#if job && job.raw_flow}
 			<FlowMetadata {job} />
+			<FlowViewer flow={{ summary: '', value: job.raw_flow }} />
 		{/if}
 
 		<div class="w-max-md flex flex-row gap-x-4 gap-y-4 justify-between w-full flex-wrap">
-			<Button btnClasses="grow" color="red" on:click={cancel} size="md">Disapprove/Cancel</Button>
-			<Button btnClasses="grow" on:click={resume} size="md">Approve/Resume</Button>
+			<Button btnClasses="grow" color="red" on:click|once={cancel} size="md"
+				>Disapprove/Cancel</Button
+			>
+			<Button btnClasses="grow" on:click|once={resume} size="md">Approve/Resume</Button>
 		</div>
 
 		<div class="mt-4"><a href="https://windmill.dev">Learn more about Windmill</a></div>

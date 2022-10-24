@@ -9,14 +9,7 @@
 <script lang="ts">
 	import { page } from '$app/stores'
 	import { JobService, Job } from '$lib/gen'
-	import {
-		canWrite,
-		displayDaysAgo,
-		encodeState,
-		forLater,
-		sendUserToast,
-		truncateHash
-	} from '$lib/utils'
+	import { canWrite, encodeState, forLater, sendUserToast, truncateHash } from '$lib/utils'
 	import Icon from 'svelte-awesome'
 	import { check } from 'svelte-awesome/icons'
 	import {
@@ -26,14 +19,10 @@
 		faTrash,
 		faCalendar,
 		faTimesCircle,
-		faClock,
-		faUser,
 		faList,
 		faEdit,
 		faHourglassHalf,
-		faRobot,
 		faScroll,
-		faWind,
 		faFastForward
 	} from '@fortawesome/free-solid-svg-icons'
 	import Tooltip from '$lib/components/Tooltip.svelte'
@@ -48,6 +37,7 @@
 	import LogViewer from '$lib/components/LogViewer.svelte'
 	import { Button, ActionRow, Skeleton } from '$lib/components/common'
 	import FlowMetadata from '$lib/components/FlowMetadata.svelte'
+	import JobArgs from '$lib/components/JobArgs.svelte'
 
 	let workspace_id_query: string | undefined = $page.url.searchParams.get('workspace') ?? undefined
 	let workspace_id: string | undefined
@@ -254,33 +244,7 @@
 	<!-- Arguments and actions -->
 	<div class="flex flex-col mr-2 sm:mr-0 sm:grid sm:grid-cols-3 sm:gap-5">
 		<div class="col-span-2">
-			<TableCustom class="px-10 py-4">
-				<tr slot="header-row"
-					><th>Argument</th>
-					<th>Value</th></tr
-				>
-				<tbody slot="body">
-					{#if job && job.args && Object.keys(job.args).length > 0}
-						{#each Object.entries(job.args) as [arg, value]}
-							<tr>
-								<td>{arg}</td>
-								<td> <ArgInfo {value} /></td>
-							</tr>
-						{/each}
-					{:else if job}
-						<tr>No arguments</tr>
-					{:else}
-						<tr>
-							<td>
-								<Skeleton layout={[[3], 0.5, [3]]} />
-							</td>
-							<td>
-								<Skeleton layout={[[3], 0.5, [3]]} />
-							</td>
-						</tr>
-					{/if}
-				</tbody>
-			</TableCustom>
+			<JobArgs {job} />
 
 			{#if job?.job_kind == 'flow' || job?.job_kind == 'flowpreview'}
 				<div class="mt-10" />
