@@ -2780,7 +2780,15 @@ paths:
                   approvers:
                     type: array
                     items:
-                      type: string
+                      type: object
+                      properties:
+                        resume_id:
+                          type: integer
+                        approver:
+                          type: string
+                      required:
+                        - resume_id
+                        - approver
                 required:
                   - job
                   - approvers
