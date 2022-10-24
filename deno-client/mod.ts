@@ -179,18 +179,35 @@ export async function getResumeEndpoints(approver?: string): Promise<ResumeEndpo
         Deno.env.get("WM_JOB_ID") ?? "no_job_id",
         approver
     );
-    const url_prefix = Deno.env.get("WM_BASE_URL") +
-        `/api/w/${workspace}/jobs/`;
 
-    function getResumeUrl(op: string, approver?: string): string {
-        return url_prefix +
-            `${op}/${Deno.env.get("WM_JOB_ID")}/${nonce}/${signature}${approver ? `?approver=${approver}` : ''}`;
+    function getResumeUrl(op: string): string {
+        const u = new URL(
+            `${op}/${Deno.env.get("WM_JOB_ID")}/${nonce}/${signature}`,
+            Deno.env.get("WM_BASE_URL") + `/api/w/${workspace}/jobs/`,
+        );
+        if (approver) {
+            u.searchParams.append('approver', approver);
+        }
+
+        return u.toString();
+    }
+
+    function getApprovalPage() {
+        const u = new URL(
+            `/approve/${workspace}/${Deno.env.get("WM_JOB_ID")}/${nonce}/${signature}`,
+            Deno.env.get("WM_BASE_URL"),
+        );
+        if (approver) {
+            u.searchParams.append('approver', approver);
+        }
+
+        return u.toString();
     }
 
     return {
-        approvalPage: Deno.env.get("WM_BASE_URL") + `/approve/${workspace}/${Deno.env.get("WM_JOB_ID")}/${nonce}/${signature}${approver ? `?approver=${approver}` : ''}`,
-        resume: getResumeUrl("resume", approver),
-        cancel: getResumeUrl("cancel", approver),
+        approvalPage: getApprovalPage(),
+        resume: getResumeUrl("resume"),
+        cancel: getResumeUrl("cancel"),
     };
 }
 
