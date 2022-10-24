@@ -7,3 +7,5 @@ mod worker_flow;
 mod js_eval;
 #[cfg(feature = "deno")]
 mod parser_ts;
+
+pub use worker::*;

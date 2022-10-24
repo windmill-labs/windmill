@@ -57,11 +57,6 @@ use crate::{
 pub use crate::tracing_init::initialize_tracing;
 pub use crate::worker::WorkerConfig;
 
-pub const DEFAULT_NUM_WORKERS: usize = 3;
-pub const DEFAULT_TIMEOUT: i32 = 300;
-pub const DEFAULT_SLEEP_QUEUE: u64 = 50;
-pub const DEFAULT_MAX_CONNECTIONS: u32 = 100;
-
 pub async fn migrate_db(db: &DB) -> anyhow::Result<()> {
     db::migrate(db).await?;
     Ok(())

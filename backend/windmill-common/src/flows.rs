@@ -1,7 +1,6 @@
 use std::{collections::HashMap, time::Duration};
 
 use serde::{self, Deserialize, Serialize};
-use uuid::Uuid;
 
 use crate::{
     more_serde::{default_id, default_true, is_default},

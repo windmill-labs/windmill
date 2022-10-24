@@ -3,6 +3,11 @@ name = "windmill-worker"
 version.workspace = true
 authors.workspace = true
 edition.workspace = true
+default-run = "worker"
+
+[[bin]]
+name = "worker"
+path = "./main.rs"
 
 [features]
 default = ["deno"]
@@ -33,6 +38,7 @@ regex.workspace = true
 prometheus.workspace = true
 lazy_static.workspace = true
 chrono.workspace = true
+dotenv.workspace = true
 deno_core = { workspace = true, optional = true }
 swc_common = { workspace = true, optional = true }
 swc_ecma_parser = { workspace = true, optional = true }

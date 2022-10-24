@@ -19,9 +19,9 @@ version = "1.39.0"
 authors = ["Ruben Fiszel <ruben@windmill.dev>"]
 edition = "2021"
 
-[lib]
+[[bin]]
 name = "windmill"
-path = "./src/lib.rs"
+path = "./src/main.rs"
 
 [dependencies]
 windmill-api = { path = "./windmill-api" }
