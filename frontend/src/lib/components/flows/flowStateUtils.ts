@@ -60,9 +60,8 @@ export async function pickScript(
 ): Promise<[FlowModule, FlowModuleState]> {
 	const flowModule: FlowModule = {
 		id,
-		value: { type: 'script', path },
-		summary,
-		input_transforms: {}
+		value: { type: 'script', path, input_transforms: {} },
+		summary
 	}
 
 	return [flowModule, await loadFlowModuleState(flowModule)]
@@ -78,8 +77,7 @@ export async function createInlineScriptModule(
 
 	const flowModule: FlowModule = {
 		id,
-		value: { type: 'rawscript', content: code, language },
-		input_transforms: {}
+		value: { type: 'rawscript', content: code, language, input_transforms: {} }
 	}
 
 	return [flowModule, await loadFlowModuleState(flowModule)]
@@ -93,8 +91,7 @@ export async function createLoop(id: string): Promise<[FlowModule, FlowModuleSta
 			modules: [],
 			iterator: { type: 'javascript', expr: 'previous_result' },
 			skip_failures: true
-		},
-		input_transforms: {}
+		}
 	}
 
 	const flowModuleState = await loadFlowModuleState(loopFlowModule)
@@ -109,7 +106,6 @@ export async function createBranches(id: string): Promise<[FlowModule, FlowModul
 			branches: [],
 			default: []
 		},
-		input_transforms: {},
 		summary: ''
 	}
 
@@ -125,7 +121,6 @@ export async function createBranchAll(id: string): Promise<[FlowModule, FlowModu
 			type: 'branchall',
 			branches: []
 		},
-		input_transforms: {},
 		summary: ''
 	}
 
@@ -155,17 +150,16 @@ async function createInlineScriptModuleFromPath(path: string, id: string): Promi
 			type: 'rawscript',
 			language: language as RawScript.language,
 			content: content,
-			path
-		},
-		input_transforms: {}
+			path,
+			input_transforms: {}
+		}
 	}
 }
 
 export function emptyModule(): FlowModule {
 	return {
 		id: nextId(),
-		value: { type: 'identity' },
-		input_transforms: {}
+		value: { type: 'identity' }
 	}
 }
 

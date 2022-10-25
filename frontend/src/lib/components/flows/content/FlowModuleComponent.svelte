@@ -71,7 +71,7 @@
 		if (
 			flowModule.value.type == 'script' ||
 			(flowModule.value.type == 'rawscript' &&
-				JSON.stringify(flowModule.input_transforms) !== JSON.stringify(input_transforms))
+				JSON.stringify(flowModule.value.input_transforms) !== JSON.stringify(input_transforms))
 		) {
 			flowModule.value.input_transforms = input_transforms
 			hasChanged = true

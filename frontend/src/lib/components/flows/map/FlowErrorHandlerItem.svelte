@@ -25,8 +25,7 @@
 			$flowStateStore.failureModule = failureModule
 			$flowStore.value.failure_module = {
 				id: 'failure',
-				value: { type: 'identity' },
-				input_transforms: {}
+				value: { type: 'identity' }
 			}
 			select('failure')
 		}
