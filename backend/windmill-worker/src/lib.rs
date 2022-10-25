@@ -18,3 +18,6 @@ mod parser_go_ast;
 mod parser_go_scanner;
 #[cfg(feature = "go")]
 mod parser_go_token;
+
+#[cfg(feature = "python")]
+mod parser_py;

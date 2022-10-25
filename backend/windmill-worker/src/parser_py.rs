@@ -13,10 +13,8 @@ use phf::phf_map;
 use regex::Regex;
 use serde_json::json;
 
-use crate::{
-    error,
-    parser::{Arg, MainArgSignature, Typ},
-};
+use crate::parser::{Arg, MainArgSignature, Typ};
+use windmill_common::error;
 
 use rustpython_parser::{
     ast::{ExpressionType, Located, Number, StatementType, StringGroup, Varargs},

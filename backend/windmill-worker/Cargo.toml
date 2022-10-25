@@ -10,7 +10,7 @@ name = "worker"
 path = "./src/main.rs"
 
 [features]
-default = ["deno", "go"]
+default = ["deno", "go", "python"]
 deno = [
     "dep:deno_core",
     "dep:swc_common",
@@ -18,7 +18,7 @@ deno = [
     "dep:swc_ecma_ast",
 ]
 go = ["dep:phf", "dep:unicode-general-category"]
-python = []
+python = ["dep:rustpython-parser"]
 
 [dependencies]
 windmill-queue.workspace = true
@@ -51,3 +51,4 @@ swc_ecma_parser = { workspace = true, optional = true }
 swc_ecma_ast = { workspace = true, optional = true }
 phf = { workspace = true, optional = true }
 unicode-general-category = { workspace = true, optional = true }
+rustpython-parser = { workspace = true, optional = true }

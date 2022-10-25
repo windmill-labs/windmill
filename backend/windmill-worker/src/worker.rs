@@ -1262,7 +1262,7 @@ async fn handle_python_job(
     let requirements = match requirements_o {
         Some(r) => r,
         None => {
-            let requirements = parser_py::parse_python_imports(&inner_content)?.join("\n");
+            let requirements = crate::parser_py::parse_python_imports(&inner_content)?.join("\n");
             if requirements.is_empty() {
                 "".to_string()
             } else {
@@ -1397,14 +1397,14 @@ async fn handle_python_job(
         .args
         .into_iter()
         .map(|x| match x.typ {
-            Typ::Bytes => {
+            crate::parser::Typ::Bytes => {
                 format!(
                     "if \"{}\" in kwargs and kwargs[\"{}\"] is not None:\n    \
                                      kwargs[\"{}\"] = base64.b64decode(kwargs[\"{}\"])\n",
                     x.name, x.name, x.name, x.name
                 )
             }
-            Typ::Datetime => {
+            crate::parser::Typ::Datetime => {
                 format!(
                     "if \"{}\" in kwargs and kwargs[\"{}\"] is not None:\n    \
                                      kwargs[\"{}\"] = datetime.strptime(kwargs[\"{}\"], \
@@ -1428,7 +1428,7 @@ async fn handle_python_job(
     .await?;
     let mut job_api_config = configuration::Configuration::new();
     job_api_config.base_path = base_url.to_owned();
-    job_api_config.bearer_access_token = Some(token);
+    job_api_config.bearer_access_token = Some(token.clone());
     create_args_and_out_file(&job_api_config, job, job_dir).await?;
 
     let wrapper_content: String = format!(
@@ -1642,6 +1642,7 @@ async fn pip_compile(
     db: &Pool<Postgres>,
     timeout: i32,
 ) -> Result<Result<String, String>, Error> {
+    println!("pip_compile!!");
     logs.push_str(&format!("content of requirements:\n{}\n", requirements));
     let file = "requirements.in";
     write_file(job_dir, file, &requirements).await?;
@@ -1661,6 +1662,7 @@ async fn pip_compile(
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()?;
+    println!("pip_compile handle child!!");
     handle_child(&job.id, db, logs, timeout, child)
         .await
         .map_err(|e| Error::ExecutionErr(format!("Lock file generation failed: {e:?}")))?;
@@ -1668,6 +1670,7 @@ async fn pip_compile(
     let mut file = File::open(path_lock).await?;
     let mut req_content = "".to_string();
     file.read_to_string(&mut req_content).await?;
+    println!("pip_compile end!!");
     Ok(Ok(req_content
         .lines()
         .filter(|x| !x.trim_start().starts_with('#'))
