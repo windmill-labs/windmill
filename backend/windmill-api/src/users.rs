@@ -1072,6 +1072,13 @@ async fn set_password(
     Ok(format!("password of {} updated", email))
 }
 
+pub async fn get_email_from_username(username: &String, db: &DB) -> Result<Option<String>> {
+    let email = sqlx::query_scalar!("SELECT email FROM usr WHERE username = $1", username)
+        .fetch_optional(db)
+        .await?;
+    Ok(email)
+}
+
 pub fn hash_password(argon2: Arc<Argon2>, password: String) -> Result<String> {
     let salt = SaltString::generate(&mut OsRng);
     let password_hash = argon2

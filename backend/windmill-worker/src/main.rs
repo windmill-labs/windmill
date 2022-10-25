@@ -98,13 +98,14 @@ async fn main() -> anyhow::Result<()> {
             });
         let mut api_config = Configuration::new();
         api_config.base_path = base_url.clone();
-        api_config.bearer_access_token = Some(get_token());
+        let worker_name = format!("dt-worker-{}-{}", &instance_name, rd_string(5));
+        api_config.bearer_access_token = Some(get_token(&db, &worker_name).await);
         windmill_worker::run_worker(
             &db.clone(),
             &api_config,
             timeout,
             &instance_name,
-            format!("dt-worker-{}-{}", &instance_name, rd_string(5)),
+            worker_name,
             1,
             1,
             &ip,
@@ -136,6 +137,31 @@ async fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
-fn get_token() -> String {
-    todo!("get token");
+async fn get_token(db: &sqlx::Pool<sqlx::Postgres>, worker_name: &str) -> String {
+    // TODO: This is bad. Proper authentication should happen.
+    use rand::prelude::*;
+    let token: String = rand::thread_rng()
+        .sample_iter(&rand::distributions::Alphanumeric)
+        .take(30)
+        .map(char::from)
+        .collect();
+    let expiration = chrono::Utc::now() + chrono::Duration::days(2);
+    let mut tx = db.begin().await.unwrap();
+    sqlx::query!(
+        "INSERT INTO token
+            (token, email, label, expiration, super_admin)
+            VALUES ($1, $2, $3, $4, $5)",
+        token,
+        "worker@windmill.dev",
+        format!("worker token for {worker_name}"),
+        expiration,
+        false
+    )
+    .execute(&mut tx)
+    .await
+    .unwrap();
+
+    // TODO: This should be audit logged
+    tx.commit().await.unwrap();
+    token
 }

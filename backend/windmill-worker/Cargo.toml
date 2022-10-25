@@ -22,6 +22,7 @@ python = []
 
 [dependencies]
 windmill-queue.workspace = true
+windmill-audit.workspace = true # there isn't really a reason for audit-worth actions to happen in the worker.
 windmill-common = { workspace = true, features = [
     "tokio",
     "sqlx",
@@ -43,6 +44,7 @@ prometheus.workspace = true
 lazy_static.workspace = true
 chrono.workspace = true
 dotenv.workspace = true
+rand.workspace = true # TODO: Remove. only used by token creation hack.
 deno_core = { workspace = true, optional = true }
 swc_common = { workspace = true, optional = true }
 swc_ecma_parser = { workspace = true, optional = true }

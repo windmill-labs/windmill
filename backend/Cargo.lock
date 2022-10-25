@@ -3078,6 +3078,7 @@ dependencies = [
  "itertools",
  "lazy_static",
  "prometheus",
+ "rand",
  "regex",
  "serde",
  "serde_json",
@@ -3089,6 +3090,7 @@ dependencies = [
  "tracing",
  "uuid",
  "windmill-api-client",
+ "windmill-audit",
  "windmill-common",
  "windmill-queue",
 ]

@@ -55,7 +55,63 @@ pub async fn create_token_for_owner(
     expires_in: i32,
     username: &str,
 ) -> error::Result<String> {
-    todo!("implement token_for_owner")
+    // TODO: Bad implementation. We should not have access to this DB here.
+    use rand::prelude::*;
+    let token: String = rand::thread_rng()
+        .sample_iter(&rand::distributions::Alphanumeric)
+        .take(30)
+        .map(char::from)
+        .collect();
+    let mut tx = db.begin().await?;
+    let is_super_admin = username.contains('@')
+        && sqlx::query_scalar!(
+            "SELECT super_admin FROM password WHERE email = $1",
+            owner.split_once('/').map(|x| x.1).unwrap_or("")
+        )
+        .fetch_optional(&mut tx)
+        .await?
+        .unwrap_or(false);
+
+    let expiration = sqlx::query_scalar!(
+        "INSERT INTO token
+            (workspace_id, token, owner, label, expiration, super_admin)
+            VALUES ($1, $2, $3, $4, now() + ($5 || ' seconds')::interval, $6) RETURNING expiration",
+        &w_id,
+        token,
+        owner,
+        label,
+        expires_in.to_string(),
+        is_super_admin
+    )
+    .fetch_one(&mut tx)
+    .await?;
+
+    let mut truncated_token = token[..10].to_owned();
+    truncated_token.push_str("*****");
+
+    windmill_audit::audit_log(
+        &mut tx,
+        &username,
+        "users.token.create",
+        windmill_audit::ActionKind::Create,
+        w_id,
+        Some(&truncated_token),
+        Some(
+            [
+                Some(("label", label)),
+                expiration
+                    .map(|x| x.to_string())
+                    .as_ref()
+                    .map(|exp| ("expiration", &exp[..])),
+            ]
+            .into_iter()
+            .flatten()
+            .collect(),
+        ),
+    )
+    .await?;
+    tx.commit().await?;
+    Ok(token)
 }
 
 const TMP_DIR: &str = "/tmp/windmill";
@@ -642,9 +698,7 @@ async fn write_file(dir: &str, path: &str, content: &str) -> error::Result<File>
 #[async_recursion]
 async fn transform_json_value(
     api_config: &configuration::Configuration,
-    token: &str,
     workspace: &str,
-    base_url: &str,
     v: Value,
 ) -> error::Result<Value> {
     match v {
@@ -677,19 +731,14 @@ async fn transform_json_value(
                     .map_err(to_anyhow)?;
             transform_json_value(
                 api_config,
-                token,
                 workspace,
-                base_url,
                 serde_json::to_value(v).map_err(to_anyhow)?,
             )
             .await
         }
         Value::Object(mut m) => {
             for (a, b) in m.clone().into_iter() {
-                m.insert(
-                    a,
-                    transform_json_value(api_config, token, workspace, base_url, b).await?,
-                );
+                m.insert(a, transform_json_value(api_config, workspace, b).await?);
             }
             Ok(Value::Object(m))
         }
@@ -807,7 +856,6 @@ mount {{
                 logs,
                 job,
                 db,
-                api_config,
                 job_dir,
                 &inner_content,
                 timeout,
@@ -901,7 +949,10 @@ async fn handle_go_job(
         &job.created_by,
     )
     .await?;
-    create_args_and_out_file(job, &token, base_internal_url, job_dir).await?;
+    let mut job_api_config = configuration::Configuration::new();
+    job_api_config.base_path = base_url.to_owned();
+    job_api_config.bearer_access_token = Some(token);
+    create_args_and_out_file(&job_api_config, job, job_dir).await?;
     {
         let sig = crate::parser_go::parse_go_sig(&inner_content)?;
         drop(inner_content);
@@ -1055,7 +1106,6 @@ async fn handle_deno_job(
     logs: &mut String,
     job: &QueuedJob,
     db: &sqlx::Pool<sqlx::Postgres>,
-    api_config: &configuration::Configuration,
     job_dir: &str,
     inner_content: &String,
     timeout: i32,
@@ -1075,7 +1125,10 @@ async fn handle_deno_job(
         &job.created_by,
     )
     .await?;
-    create_args_and_out_file(api_config, job, &token, base_internal_url, job_dir).await?;
+    let mut job_api_config = configuration::Configuration::new();
+    job_api_config.base_path = base_url.to_owned();
+    job_api_config.bearer_access_token = Some(token.clone());
+    create_args_and_out_file(&job_api_config, job, job_dir).await?;
     let spread = sig.args.into_iter().map(|x| x.name).join(",");
     let wrapper_content: String = format!(
         r#"
@@ -1164,21 +1217,10 @@ run();
 async fn create_args_and_out_file(
     api_config: &configuration::Configuration,
     job: &QueuedJob,
-    token: &String,
-    base_internal_url: &String,
     job_dir: &str,
 ) -> Result<(), Error> {
     let args = if let Some(args) = &job.args {
-        Some(
-            transform_json_value(
-                api_config,
-                token,
-                &job.workspace_id,
-                &base_internal_url,
-                args.clone(),
-            )
-            .await?,
-        )
+        Some(transform_json_value(api_config, &job.workspace_id, args.clone()).await?)
     } else {
         None
     };
@@ -1384,8 +1426,10 @@ async fn handle_python_job(
         &job.created_by,
     )
     .await?;
-
-    create_args_and_out_file(job, &token, base_internal_url, job_dir).await?;
+    let mut job_api_config = configuration::Configuration::new();
+    job_api_config.base_path = base_url.to_owned();
+    job_api_config.bearer_access_token = Some(token);
+    create_args_and_out_file(&job_api_config, job, job_dir).await?;
 
     let wrapper_content: String = format!(
         r#"
