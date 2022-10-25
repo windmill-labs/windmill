@@ -1,7 +1,6 @@
 <script lang="ts">
 	import ItemPicker from '$lib/components/ItemPicker.svelte'
 	import { faUserGroup } from '@fortawesome/free-solid-svg-icons'
-
 	import { Script, ScriptService } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { createEventDispatcher } from 'svelte'
@@ -13,7 +12,6 @@
 	type Item = { summary: String; path: String; version?: String }
 
 	let itemPicker: ItemPicker
-
 	const dispatch = createEventDispatcher()
 
 	async function loadItems(): Promise<Item[]> {

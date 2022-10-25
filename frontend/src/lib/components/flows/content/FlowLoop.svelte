@@ -5,9 +5,6 @@
 	import Toggle from '$lib/components/Toggle.svelte'
 	import SimpleEditor from '$lib/components/SimpleEditor.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
-	import { flowStore } from '../flowStore'
-	import { getStepPropPicker } from '../flowStateUtils'
-	import { flowStateStore } from '../flowState'
 	import PropPickerWrapper from '../propPicker/PropPickerWrapper.svelte'
 	import FlowModuleEarlyStop from './FlowModuleEarlyStop.svelte'
 	import FlowModuleSuspend from './FlowModuleSuspend.svelte'
@@ -15,23 +12,25 @@
 	import { Button, Tab, TabContent, Tabs } from '$lib/components/common'
 	import type { FlowModule } from '$lib/gen/models/FlowModule'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
-	import { faTrash, faPlus } from '@fortawesome/free-solid-svg-icons'
+	import { getStepPropPicker } from '../previousResults'
+	import { flowStateStore } from '../flowState'
+	import { flowStore } from '../flowStore'
 
 	const { previewArgs } = getContext<FlowEditorContext>('FlowEditorContext')
 
 	export let mod: FlowModule
-	export let index: number
+	export let parentModule: FlowModule | undefined
+	export let previousModuleId: string | undefined
 
 	let editor: SimpleEditor | undefined = undefined
 	let selected: string = 'retries'
 
-	$: mod = $flowStore.value.modules[index]
-
 	$: pickableProperties = getStepPropPicker(
-		[Number(index)],
-		$flowStore.schema,
 		$flowStateStore,
-		$previewArgs
+		parentModule,
+		previousModuleId,
+		$flowStore,
+		previewArgs
 	).pickableProperties
 </script>
 
@@ -99,7 +98,7 @@
 
 							<TabContent value="early-stop" class="flex flex-col flex-1 h-full">
 								<div class="p-4 overflow-y-auto">
-									<FlowModuleEarlyStop bind:flowModule={mod} />
+									<FlowModuleEarlyStop bind:flowModule={mod} {parentModule} {previousModuleId} />
 								</div>
 							</TabContent>
 
