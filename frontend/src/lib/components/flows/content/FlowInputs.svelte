@@ -127,20 +127,20 @@
 
 		<div class="grid sm:grid-col-1 md:grid-col-2 lg:grid-cols-3 gap-4">
 			<FlowScriptPicker
-				label={`Create one branch`}
+				label={`Branches and switch to one`}
 				icon={faCodeBranch}
 				iconColor="text-blue-500"
 				on:click={() => dispatch('branchone')}
 			/>
 			<FlowScriptPicker
-				label={`Create all branches`}
+				label={`Branches and run them all`}
 				icon={faCodeBranch}
 				iconColor="text-blue-500"
 				on:click={() => dispatch('branchall')}
 			/>
 
 			<FlowScriptPicker
-				label={`Create a for-loop`}
+				label={`For loop`}
 				icon={faRepeat}
 				iconColor="text-blue-500"
 				on:click={() => dispatch('loop')}

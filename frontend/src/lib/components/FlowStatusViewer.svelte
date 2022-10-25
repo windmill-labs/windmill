@@ -13,6 +13,7 @@
 	const dispatch = createEventDispatcher()
 
 	export let jobId: string
+
 	export let flowJobIds:
 		| {
 				moduleId: string
@@ -68,7 +69,7 @@
 
 		{#if flowJobIds && Array.isArray(flowJobIds?.flowJobs) && flowJobIds?.flowJobs.length > 0}
 			<h3 class="text-md leading-6 font-bold text-gray-900 border-b mb-4">
-				Loop results ({flowJobIds?.flowJobs.length} items)
+				Embedded flows: ({flowJobIds?.flowJobs.length} items)
 			</h3>
 			{#each flowJobIds.flowJobs as loopJobId, j}
 				<Button
@@ -82,7 +83,7 @@
 						}
 					}}
 				>
-					Iteration: #{j}: {loopJobId}
+					#{j}: {loopJobId}
 
 					<Icon
 						class="ml-2"

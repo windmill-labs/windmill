@@ -75,25 +75,23 @@
 	$: checked = propertyType == 'javascript'
 
 	function onFocus() {
-		{
-			if (isStaticTemplate(inputCat)) {
-				focusProp(argName, 'append', (path) => {
-					const toAppend = `\$\{${path}}`
-					arg.value = `${arg.value ?? ''}${toAppend}`
-					setPropertyType(arg.value)
-					argInput?.focus()
-					return false
-				})
-			} else {
-				focusProp(argName, 'insert', (path) => {
-					arg.expr = path
-					arg.type = 'javascript'
-					propertyType = 'javascript'
-					return true
-				})
-			}
-			argInput?.recomputeSize()
+		if (isStaticTemplate(inputCat)) {
+			focusProp(argName, 'append', (path) => {
+				const toAppend = `\$\{${path}}`
+				arg.value = `${arg.value ?? ''}${toAppend}`
+				setPropertyType(arg.value)
+				argInput?.focus()
+				return false
+			})
+		} else {
+			focusProp(argName, 'insert', (path) => {
+				arg.expr = path
+				arg.type = 'javascript'
+				propertyType = 'javascript'
+				return true
+			})
 		}
+		argInput?.recomputeSize()
 	}
 	const { focusProp } = getContext<PropPickerWrapperContext>('PropPickerWrapper')
 </script>
@@ -165,7 +163,7 @@
 	{#if propertyType === undefined || !checked}
 		<ArgInput
 			bind:this={argInput}
-			on:focus={() => onFocus()}
+			on:focus={onFocus}
 			label={argName}
 			bind:editor={monaco}
 			bind:description={schema.properties[argName].description}
@@ -193,18 +191,18 @@
 			<div class="border rounded p-2 mt-2 border-gray-300">
 				<SimpleEditor
 					bind:this={monaco}
+					bind:code={arg.expr}
+					{extraLib}
+					lang="javascript"
+					class="few-lines-editor"
+					extraLibPath="file:///node_modules/@types/windmill@{importPath}/index.d.ts"
+					shouldBindKey={false}
 					on:focus={() => {
 						focusProp(argName, 'insert', (path) => {
 							monaco?.insertAtCursor(path)
 							return false
 						})
 					}}
-					bind:code={arg.expr}
-					lang="javascript"
-					class="few-lines-editor"
-					{extraLib}
-					extraLibPath="file:///node_modules/@types/windmill@{importPath}/index.d.ts"
-					shouldBindKey={false}
 				/>
 			</div>
 			<DynamicInputHelpBox {importPath} />
