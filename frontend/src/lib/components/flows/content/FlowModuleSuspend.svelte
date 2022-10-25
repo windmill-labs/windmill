@@ -9,7 +9,6 @@
 	import { flowStateStore } from '../flowState'
 	import PropPickerWrapper from '../propPicker/PropPickerWrapper.svelte'
 	import type { FlowEditorContext } from '../types'
-	import { selectedIdToModuleState } from '../utils'
 
 	export let flowModule: FlowModule
 
@@ -23,8 +22,8 @@
 
 	let editor: SimpleEditor | undefined = undefined
 
-	let pickableProperties = {
-		result: selectedIdToModuleState($selectedId, $flowStateStore).previewResult
+	const pickableProperties = {
+		result: $flowStateStore[$selectedId].previewResult
 	}
 
 	$: isSuspendEnabled = Boolean(flowModule.suspend)

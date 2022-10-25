@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { Button } from 'flowbite-svelte'
-	import { isEmptyFlowModule } from '../flowStateUtils'
 	import { copyFirstStepSchema, flowStore } from '../flowStore'
+	import { isEmptyFlowModule } from '../utils'
 </script>
 
 <Button

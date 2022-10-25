@@ -45,7 +45,6 @@
 			variant="border"
 			on:click={() => {
 				previewMode = 'upTo'
-
 				previewOpen = !previewOpen
 			}}
 		>

@@ -4,7 +4,15 @@ import { flowStateStore, initFlowState } from './flowState'
 
 export type FlowMode = 'push' | 'pull'
 
-export const flowStore = writable<Flow>({ summary: "", value: { modules: [] }, path: "", edited_at: "", edited_by: "", archived: false, extra_perms: {} })
+export const flowStore = writable<Flow>({
+	summary: '',
+	value: { modules: [] },
+	path: '',
+	edited_at: '',
+	edited_by: '',
+	archived: false,
+	extra_perms: {}
+})
 
 export function initFlow(flow: Flow) {
 	for (const mod of flow.value.modules) {
@@ -19,6 +27,7 @@ export function initFlow(flow: Flow) {
 			}
 		}
 	}
+
 	flowStore.set(flow)
 	initFlowState(flow)
 
@@ -32,7 +41,10 @@ export function initFlow(flow: Flow) {
 			modVal.input_transforms = modVal.input_transform
 			delete modVal.input_transform
 		}
-		if (modVal.input_transforms && modVal.value.type == 'script' || modVal.value.type == 'rawscript') {
+		if (
+			(modVal.input_transforms && modVal.value.type == 'script') ||
+			modVal.value.type == 'rawscript'
+		) {
 			if (modVal.input_transforms && Object.keys(modVal.input_transforms).length > 0) {
 				modVal.value.input_transforms = modVal.input_transforms
 				delete modVal.input_transforms
@@ -52,8 +64,10 @@ export function initFlow(flow: Flow) {
 export async function copyFirstStepSchema() {
 	const flowState = get(flowStateStore)
 	flowStore.update((flow) => {
-		if (flowState.modules[0].schema) {
-			flow.schema = flowState.modules[0].schema
+		const firstModuleId = flow.value.modules[0].id
+
+		if (flowState[firstModuleId]) {
+			flow.schema = flowState[firstModuleId].schema
 		}
 		return flow
 	})
