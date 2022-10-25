@@ -2,15 +2,15 @@
 
 use itertools::Itertools;
 
-use crate::error::to_anyhow;
 use crate::parser::{Arg, MainArgSignature, ObjectProperty, Typ};
 use crate::parser_go_ast::{self, FieldList, Ident, StructType};
 use crate::parser_go_ast::{Decl, Expr};
 use crate::parser_go_scanner;
 use crate::parser_go_token::{Position, Token};
 use std::fmt;
+use windmill_common::error::to_anyhow;
 
-pub fn parse_go_sig(code: &str) -> crate::error::Result<MainArgSignature> {
+pub fn parse_go_sig(code: &str) -> windmill_common::error::Result<MainArgSignature> {
     let filtered_code = filter_non_main(code);
     let file = parse_file("main.go", &filtered_code).map_err(to_anyhow)?;
     if let Some(Decl::FuncDecl(func)) = file.decls.first() {
@@ -26,7 +26,7 @@ pub fn parse_go_sig(code: &str) -> crate::error::Result<MainArgSignature> {
             .collect_vec();
         Ok(MainArgSignature { star_args: false, star_kwargs: false, args })
     } else {
-        Err(crate::error::Error::BadRequest(
+        Err(windmill_common::error::Error::BadRequest(
             "no main function found".to_string(),
         ))
     }

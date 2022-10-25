@@ -951,7 +951,7 @@ async fn handle_go_job(
     .await?;
     let mut job_api_config = configuration::Configuration::new();
     job_api_config.base_path = base_url.to_owned();
-    job_api_config.bearer_access_token = Some(token);
+    job_api_config.bearer_access_token = Some(token.clone());
     create_args_and_out_file(&job_api_config, job, job_dir).await?;
     {
         let sig = crate::parser_go::parse_go_sig(&inner_content)?;
@@ -1019,7 +1019,7 @@ func main() {{
                     format!(
                         "{} {} `json:\"{}\"`",
                         capitalize(&x.name),
-                        otyp_to_string(x.otyp),
+                        crate::parser_go::otyp_to_string(x.otyp),
                         x.name
                     )
                 })
@@ -1580,8 +1580,8 @@ async fn handle_dependency_job(
             }
         }
         Some(ScriptLang::Go) => {
-            #[cfg(not(feature = "python"))]
-            panic!("tried handling go deps, but python is not available. Enable the go feature during compilation");
+            #[cfg(not(feature = "go"))]
+            panic!("tried handling go deps, but go is not available. Enable the go feature during compilation");
 
             #[cfg(feature = "go")]
             {

@@ -10,14 +10,14 @@ name = "worker"
 path = "./src/main.rs"
 
 [features]
-default = ["deno"]
+default = ["deno", "go"]
 deno = [
     "dep:deno_core",
     "dep:swc_common",
     "dep:swc_ecma_parser",
     "dep:swc_ecma_ast",
 ]
-go = []
+go = ["dep:phf", "dep:unicode-general-category"]
 python = []
 
 [dependencies]
@@ -49,3 +49,5 @@ deno_core = { workspace = true, optional = true }
 swc_common = { workspace = true, optional = true }
 swc_ecma_parser = { workspace = true, optional = true }
 swc_ecma_ast = { workspace = true, optional = true }
+phf = { workspace = true, optional = true }
+unicode-general-category = { workspace = true, optional = true }
