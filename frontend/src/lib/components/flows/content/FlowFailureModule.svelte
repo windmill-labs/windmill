@@ -1,11 +1,10 @@
 <script lang="ts">
 	import { flowStore } from '../flowStore'
-	import FlowModule from './FlowModuleComponent.svelte'
+	import FlowModuleWrapper from './FlowModuleWrapper.svelte'
 </script>
 
 {#if $flowStore.value.failure_module}
-	<FlowModule
-		failureModule
+	<FlowModuleWrapper
 		bind:flowModule={$flowStore.value.failure_module}
 		on:delete={() => {
 			$flowStore.value.failure_module = undefined

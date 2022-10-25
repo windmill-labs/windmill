@@ -23,9 +23,11 @@
 				previewResult: NEVER_TESTED_THIS_FAR
 			}
 			$flowStateStore.failureModule = failureModule
-			const errorModule = emptyModule()
-			errorModule.id = 'failure'
-			$flowStore.value.failure_module = errorModule
+			$flowStore.value.failure_module = {
+				id: 'failure',
+				value: { type: 'identity' },
+				input_transforms: {}
+			}
 			select('failure')
 		}
 	}

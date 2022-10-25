@@ -79,7 +79,7 @@
 
 				updateStores(module, state)
 			}}
-			failureModule={/*TODO : FIX*/ false}
+			failureModule={$selectedId === 'failure'}
 		/>
 	{:else}
 		<FlowModuleComponent bind:flowModule {parentModule} {previousModuleId} />
