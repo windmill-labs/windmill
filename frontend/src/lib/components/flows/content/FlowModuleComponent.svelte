@@ -209,7 +209,6 @@
 									bind:flowModule
 									class="px-4 pb-4 h-full overflow-auto"
 									{parentModule}
-									{previousModuleId}
 								/>
 							{:else if selected === 'suspend'}
 								<div class="px-4 pb-4 h-full overflow-auto">

@@ -13,19 +13,25 @@
 
 	export let flowModule: FlowModule
 	export let parentModule: FlowModule | undefined
-	export let previousModuleId: string | undefined
 
 	let editor: SimpleEditor | undefined = undefined
 
 	$: isStopAfterIfEnabled = Boolean(flowModule.stop_after_if)
 
-	$: pickableProperties = getStepPropPicker(
-		$flowStateStore,
-		parentModule,
-		previousModuleId,
-		$flowStore,
-		previewArgs
-	).pickableProperties
+	let pickableProperties: Record<string, any> = {}
+
+	$: {
+		const propPicker = getStepPropPicker(
+			$flowStateStore,
+			parentModule,
+			flowModule.id,
+			$flowStore,
+			previewArgs
+		).pickableProperties
+		propPicker['result'] = propPicker['previous_result']
+		delete propPicker['previous_result']
+		pickableProperties = propPicker
+	}
 </script>
 
 <div class="flex flex-col items-start space-y-2 {$$props.class}">
