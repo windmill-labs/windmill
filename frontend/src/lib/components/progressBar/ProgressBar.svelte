@@ -7,7 +7,8 @@
 		type LoopState,
 		isLoopStep,
 		isLoopState,
-		getTween
+		getTween,
+		type ProgressStateStoreValue
 	} from './model'
 	import ProgressBarGeneralPart from './ProgressBarGeneralPart.svelte'
 	import ProgressBarLoopPart from './ProgressBarLoopPart.svelte'
@@ -19,7 +20,12 @@
 	let finished = false
 	let state: ProgressState[] = []
 
-	const stateStore = writable({ length: state.length, finished, error })
+	const stateStore = writable<ProgressStateStoreValue>({
+		length: state.length,
+		index: 0,
+		finished,
+		error
+	})
 	setContext('state', stateStore)
 
 	$: state = steps.map((step, i) => {
@@ -40,7 +46,7 @@
 			}
 		}
 	})
-	$: stateStore.set({ length: state.length, finished, error })
+	$: stateStore.update(({ index }) => ({ length: state.length, index, finished, error }))
 	$: stepIndex = state.findIndex(({ isDone }) => !isDone)
 	$: lastStep = state.at(-1)
 	$: if (typeof lastStep?.isDone === 'boolean') {
@@ -52,7 +58,12 @@
 	$: subStepIndex = lastStep ? lastStep['index'] : undefined
 	$: length = 100 / (state.length || 1)
 	$: if (!error) {
-		percent.set(finished ? 100 : length * stepIndex)
+		if (finished) {
+			percent.set(100)
+		} else {
+			const product = length * stepIndex
+			percent.set(product < 0 ? 0 : product)
+		}
 	}
 </script>
 

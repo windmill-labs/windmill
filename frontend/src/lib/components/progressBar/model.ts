@@ -3,6 +3,7 @@ import { cubicOut } from 'svelte/easing'
 
 export interface ProgressStateStoreValue {
 	length: number
+	index: number
 	finished: boolean
 	error: boolean
 }

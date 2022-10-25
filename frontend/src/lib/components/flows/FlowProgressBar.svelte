@@ -3,6 +3,7 @@
 	import { ProgressBar, type GeneralStep, type LoopStep, type ProgressStep } from '../progressBar'
 
 	export let job: Job | undefined = undefined
+	export let duration = 200
 	let jobProgress: { steps: ProgressStep[]; error: boolean } = { steps: [], error: false }
 
 	$: if (job) updateJobProgress(job)
@@ -60,4 +61,4 @@
 	}
 </script>
 
-<ProgressBar {...jobProgress} class={$$props.class} />
+<ProgressBar {...jobProgress} {duration} class={$$props.class} />

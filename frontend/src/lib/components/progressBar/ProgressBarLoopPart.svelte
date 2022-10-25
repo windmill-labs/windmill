@@ -11,13 +11,21 @@
 	let progresses = getTweenArray()
 
 	$: finishedAndNotLast = $state.finished && $state.length - 1 !== index
-	$: if (finishedAndNotLast && !$state.error) {
+	$: if (!$state.error && ($state.index > index || finishedAndNotLast)) {
 		progresses = getTweenArray(100)
 	}
-	$: if (step.indexChanged && !$state.error) {
+	$: if (!$state.error && step.indexChanged) {
 		progresses.filter((p, i) => get(p) === 0 && i < step.index).forEach((p) => p.set(100))
+		progresses.forEach((p, i) => {
+			if (get(p) === 0 && i < step.index) {
+				p.set(100)
+				if (index > $state.index) {
+					state.update((prev) => ({ ...prev, index }))
+				}
+			}
+		})
 	}
-	$: if ($state.finished && !$state.error) progresses.forEach((p) => p.set(100))
+	$: if (!$state.error && $state.finished) progresses.forEach((p) => p.set(100))
 
 	function getTweenArray(initial = 0) {
 		return Array.from({ length: step.length }, () => getTween(initial, duration))

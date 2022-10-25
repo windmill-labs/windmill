@@ -10,8 +10,13 @@
 	let progress = getTween(0, duration)
 
 	$: finishedAndNotLast = $state.finished && $state.length - 1 !== index
-	$: if (finishedAndNotLast) progress = getTween(100, duration)
-	$: if (!$state.error) progress.set($state.finished || step.isDone ? 100 : 0)
+	$: if (finishedAndNotLast || $state.index > index) progress = getTween(100, duration)
+	$: if (!$state.error && ($state.finished || step.isDone)) {
+		if (index > $state.index) {
+			state.update((prev) => ({ ...prev, index }))
+		}
+		progress.set(100)
+	}
 </script>
 
 <div
