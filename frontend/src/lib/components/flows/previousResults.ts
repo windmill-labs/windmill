@@ -1,3 +1,4 @@
+import type { Schema } from '$lib/common'
 import type { Flow, FlowModule, Job } from '$lib/gen'
 import { buildExtraLib, objectToTsType, schemaToObject } from '$lib/utils'
 import type { FlowState } from './flowState'
@@ -15,49 +16,55 @@ type StepPropPicker = {
 	extraLib: string
 }
 
-function dfs(id: string, flow: Flow): FlowModule[] {
-	function getSubModules(flowModule: FlowModule): FlowModule[] {
+type ParentModule = {
+	parentModule: FlowModule
+	parentPreviousModuleId: string | undefined
+}
+type ModuleBranches = FlowModule[][]
+
+function dfs(id: string | undefined, flow: Flow): ParentModule[] {
+	if (id === undefined) {
+		return []
+	}
+	function getSubModules(flowModule: FlowModule): ModuleBranches {
 		if (flowModule.value.type === 'forloopflow') {
-			return flowModule.value.modules
+			return [flowModule.value.modules]
 		} else if (flowModule.value.type === 'branchall') {
-			return flowModule.value.branches.map((branch) => branch.modules).flat()
+			return flowModule.value.branches.map((branch) => branch.modules)
 		} else if (flowModule.value.type == 'branchone') {
 			return [
-				...flowModule.value.branches.map((branch) => branch.modules).flat(),
-				...flowModule.value.default
+				...flowModule.value.branches.map((branch) => branch.modules),
+				flowModule.value.default
 			]
 		}
 		return []
 	}
 
-	function rec(id: string, modules: FlowModule[]): FlowModule[] | undefined {
-		for (let module of modules) {
-			if (module.id === id) {
-				return [module]
-			} else {
-				const submodules = getSubModules(module)
+	function rec(id: string, moduleBranches: ModuleBranches): ParentModule[] | undefined {
+		for (let modules of moduleBranches) {
+			let parentPreviousModuleId: string | undefined = undefined
 
-				if (submodules) {
-					let found: FlowModule[] | undefined = undefined
-					found = rec(id, submodules)
-
-					if (found) {
-						break
-					}
-
-					if (module && found) {
-						return [...found, module]
-					} else {
-						return undefined
-					}
+			for (let module of modules) {
+				if (module.id === id) {
+					return [{ parentModule: module, parentPreviousModuleId }]
 				} else {
-					return undefined
+					const submodules = getSubModules(module)
+
+					if (submodules) {
+						let found: ParentModule[] | undefined = rec(id, submodules)
+
+						if (module && found) {
+							return [...found, { parentModule: module, parentPreviousModuleId }]
+						}
+					}
 				}
+				parentPreviousModuleId = module.id
 			}
 		}
+		return undefined
 	}
 
-	return rec(id, flow.value.modules) ?? []
+	return rec(id, [flow.value.modules]) ?? []
 }
 
 function flattenPreviousResult(pr: any) {
@@ -69,21 +76,23 @@ function flattenPreviousResult(pr: any) {
 }
 
 function getFlowInput(
-	parentModule: FlowModule | undefined,
+	parentModules: ParentModule[],
 	flowState: FlowState,
 	args: any,
-	flow: Flow,
-	grandParentModules: FlowModule[] | undefined = undefined
+	schema: Schema
 ) {
+	const { parentModule, parentPreviousModuleId } = parentModules.shift() ?? {
+		parentModule: undefined,
+		parentPreviousModuleId: undefined
+	}
+
 	const parentState = parentModule ? flowState[parentModule.id] : undefined
 
 	if (parentState && parentModule) {
 		if (parentState.previewArgs) {
 			return parentState.previewArgs
 		} else {
-			const gpm: FlowModule[] = grandParentModules ?? dfs(parentModule.id, flow)
-			const head = gpm.pop()
-			const parentFlowInput = getFlowInput(head, flowState, args, flow, gpm)
+			const parentFlowInput = getFlowInput(parentModules, flowState, args, schema)
 
 			if (parentModule.value.type === 'forloopflow') {
 				return {
@@ -96,14 +105,18 @@ function getFlowInput(
 			} else {
 				// Branches
 
-				return {
-					...parentFlowInput
-					// TODO: Fix previous_result: flattenPreviousResult(parentFlowInput)
+				if (parentPreviousModuleId === undefined) {
+					return parentFlowInput
+				} else {
+					return {
+						...parentFlowInput,
+						previous_result: flattenPreviousResult(flowState[parentPreviousModuleId].previewResult)
+					}
 				}
 			}
 		}
 	} else {
-		return schemaToObject(flow.schema, args)
+		return schemaToObject(schema, args)
 	}
 }
 
@@ -119,12 +132,12 @@ export function getStepPropPicker(
 	flow: Flow,
 	args: any
 ): StepPropPicker {
-	const flowInput = getFlowInput(parentModule, flowState, args, flow)
+	const flowInput = getFlowInput(dfs(parentModule?.id, flow), flowState, args, flow.schema)
 
 	const previousResults = previousModuleId
 		? flowState[previousModuleId].previewResult
 		: flattenPreviousResult(flowInput)
-	//const priorIds = getPriorIds(flow, parentModule.id)
+	// const priorIds = getPriorIds(flow, parentModule.id)
 
 	return {
 		extraLib: buildExtraLib(objectToTsType(flowInput), objectToTsType(previousResults)),

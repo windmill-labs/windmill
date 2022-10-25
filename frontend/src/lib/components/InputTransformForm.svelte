@@ -122,17 +122,19 @@
 					arg.type = type
 				}}
 			/>
-			<div
+
+			<Button
+				variant="contained"
+				color="blue"
+				size="md"
 				on:click={() => {
 					focusProp(argName, 'connect', (path) => {
 						connectProperty(path)
 					})
 				}}
 			>
-				<Button variant="contained" color="blue" size="md">
-					<Icon data={faChain} />
-				</Button>
-			</div>
+				<Icon data={faChain} />
+			</Button>
 		</div>
 	</div>
 	<div class="max-w-xs" />

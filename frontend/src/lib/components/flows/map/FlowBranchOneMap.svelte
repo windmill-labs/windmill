@@ -82,7 +82,7 @@
 				</div>
 			{/if}
 
-			{#each module.value.branches ?? [] as branch, branchIndex}
+			{#each module.value.branches ?? [] as branch, branchIndex (branchIndex)}
 				<!-- svelte-ignore a11y-click-events-have-key-events -->
 				<div
 					on:click={() => {
@@ -99,6 +99,7 @@
 					<Icon data={faCodeBranch} class="mr-2" />
 					<span class="text-xs flex flex-row justify-between w-full flex-wrap gap-2 items-center">
 						{branch.summary || `Branch ${branchIndex}`}
+
 						<Button
 							iconOnly
 							size="xs"

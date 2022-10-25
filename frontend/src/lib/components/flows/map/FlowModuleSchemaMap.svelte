@@ -31,7 +31,41 @@
 		select('settings')
 		const [removedModule] = modules.splice(index, 1)
 		modules = modules
-		deleteFlowStateById(removedModule.id)
+
+		const leaves = findLeaves(removedModule)
+
+		leaves.forEach((leafId: string) => deleteFlowStateById(leafId))
+	}
+
+	function findLeaves(flowModule: FlowModule): string[] {
+		const id = flowModule.id
+
+		if (flowModule.value.type === 'forloopflow') {
+			return [id, ...flowModule.value.modules.map((fm) => findLeaves(fm)).flat()]
+		}
+
+		if (flowModule.value.type === 'branchall') {
+			return [
+				id,
+				...flowModule.value.branches
+					.map((branch) => branch.modules.map((mod) => findLeaves(mod)).flat())
+					.flat()
+			]
+		}
+
+		if (flowModule.value.type === 'branchone') {
+			return [
+				id,
+				...flowModule.value.branches
+					.map((branch) => {
+						return branch.modules.map((mod) => findLeaves(mod)).flat()
+					})
+					.flat(),
+				...flowModule.value.default.map((mod) => findLeaves(mod)).flat()
+			]
+		}
+
+		return [id]
 	}
 
 	$: confirmationModalOpen = indexToRemove !== undefined
@@ -44,13 +78,13 @@
 			<FlowInputsItem />
 		{/if}
 
-		{#each modules as mod, index (index)}
+		{#each modules as mod, index (mod.id)}
 			<MapItem
 				{color}
 				{index}
 				bind:mod
 				on:delete={(event) => {
-					if (event.detail.event.shiftKey || isEmptyFlowModule(mod)) {
+					if (event.detail.detail.shiftKey || isEmptyFlowModule(mod)) {
 						removeAtIndex(index)
 					} else {
 						indexToRemove = index
@@ -93,11 +127,5 @@
 
 	.badge-off {
 		@apply bg-gray-100 text-gray-800 hover:bg-gray-200;
-	}
-
-	.line {
-		background: repeating-linear-gradient(to bottom, transparent 0 4px, #bbb 4px 8px) 50%/1px 100%
-			no-repeat;
-		width: 2rem;
 	}
 </style>

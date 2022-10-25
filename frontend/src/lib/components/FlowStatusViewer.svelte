@@ -141,8 +141,6 @@
 									if (mod.id) {
 										$flowStateStore[mod.id].previewResult = e.detail.result
 										$flowStateStore[mod.id].previewArgs = e.detail.args
-
-										console.log($flowStateStore[mod.id].previewResult)
 									}
 								}}
 							/>

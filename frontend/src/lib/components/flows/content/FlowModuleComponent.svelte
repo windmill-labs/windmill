@@ -12,27 +12,18 @@
 	import Editor from '$lib/components/Editor.svelte'
 	import EditorBar from '$lib/components/EditorBar.svelte'
 	import ModulePreview from '$lib/components/ModulePreview.svelte'
-	import FlowInputs from './FlowInputs.svelte'
-	import {
-		createInlineScriptModule,
-		createLoop,
-		createScriptFromInlineScript,
-		fork,
-		createBranches,
-		pickScript,
-		createBranchAll
-	} from '$lib/components/flows/flowStateUtils'
+	import { createScriptFromInlineScript, fork } from '$lib/components/flows/flowStateUtils'
 	import { flowStore } from '$lib/components/flows/flowStore'
 	import SchemaForm from '$lib/components/SchemaForm.svelte'
-	import { RawScript, type FlowModule } from '$lib/gen'
+	import { RawScript, type Flow, type FlowModule } from '$lib/gen'
 	import FlowCard from '../common/FlowCard.svelte'
 	import FlowModuleHeader from './FlowModuleHeader.svelte'
 	import { flowStateStore, type FlowModuleState } from '../flowState'
 	import { scriptLangToEditorLang } from '$lib/utils'
 	import PropPickerWrapper from '../propPicker/PropPickerWrapper.svelte'
-	import { afterUpdate, getContext, setContext } from 'svelte'
+	import { afterUpdate, getContext, onDestroy, setContext } from 'svelte'
 	import type { FlowEditorContext } from '../types'
-	import { isEmptyFlowModule, loadSchemaFromModule } from '../utils'
+	import { loadSchemaFromModule } from '../utils'
 	import { writable, type Writable } from 'svelte/store'
 	import FlowModuleScript from './FlowModuleScript.svelte'
 	import FlowModuleEarlyStop from './FlowModuleEarlyStop.svelte'
@@ -40,7 +31,7 @@
 	import FlowRetries from './FlowRetries.svelte'
 	import { getStepPropPicker } from '../previousResults'
 
-	const { selectedId, select, previewArgs } = getContext<FlowEditorContext>('FlowEditorContext')
+	const { selectedId, previewArgs } = getContext<FlowEditorContext>('FlowEditorContext')
 
 	export let flowModule: FlowModule
 	export let failureModule: boolean = false
@@ -78,16 +69,24 @@
 	async function reload(flowModule: FlowModule) {
 		const { input_transforms, schema } = await loadSchemaFromModule(flowModule)
 
-		$flowStateStore[flowModule.id] = {
-			...$flowStateStore[flowModule.id],
-			schema
+		let hasChanged = false
+		if (JSON.stringify(schema) !== JSON.stringify($flowStateStore[flowModule.id].schema)) {
+			$flowStateStore[flowModule.id].schema = schema
+			hasChanged = true
 		}
 
-		if (flowModule.value.type == 'script' || flowModule.value.type == 'rawscript') {
+		if (
+			flowModule.value.type == 'script' ||
+			(flowModule.value.type == 'rawscript' &&
+				JSON.stringify(flowModule.input_transforms) !== JSON.stringify(input_transforms))
+		) {
 			flowModule.input_transforms = input_transforms
+			hasChanged = true
 		}
 
-		flowModule = flowModule
+		if (hasChanged) {
+			flowModule = flowModule
+		}
 	}
 
 	export const FLOW_MODULE_WIDTH_THRESHOLD = 768

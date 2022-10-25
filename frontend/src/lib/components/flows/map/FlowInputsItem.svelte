@@ -13,9 +13,9 @@
 	isFirst
 	hasLine
 	selected={$selectedId === 'inputs'}
+	label="Inputs"
 >
 	<div slot="icon">
 		<Icon data={faPen} scale={0.8} />
 	</div>
-	<div slot="content" class="flex flex-row text-xs "> Inputs</div>
 </FlowModuleSchemaItem>

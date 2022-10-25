@@ -41,7 +41,7 @@
 
 	function jobDone() {
 		if (testJob && !testJob.canceled && testJob.type == 'CompletedJob' && `result` in testJob) {
-			$flowStateStore[mod.id] = testJob.result
+			$flowStateStore[mod.id].previewResult = testJob.result
 		}
 	}
 </script>

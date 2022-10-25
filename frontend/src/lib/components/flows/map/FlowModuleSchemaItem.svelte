@@ -16,16 +16,17 @@
 	export let earlyStop: boolean = false
 	export let suspend: boolean = false
 	export let id: string | undefined = undefined
+	export let label: string
 
 	const margin = isLast ? '' : isFirst ? 'mb-0.5' : 'my-0.5'
-	const dispatch = createEventDispatcher()
+	const dispatch = createEventDispatcher<{ delete: CustomEvent<MouseEvent> }>()
 </script>
 
 <!-- svelte-ignore a11y-click-events-have-key-events -->
 <div class="flex" on:click>
 	<div
 		class={classNames(
-			'flex mr-2 ',
+			'flex mr-2 ml-0.5',
 			hasLine ? 'line' : '',
 			isFirst ? 'justify-center items-start' : 'justify-center items-center'
 		)}
@@ -34,17 +35,23 @@
 			class={classNames(
 				'flex justify-center items-center w-6 h-6 border rounded-full text-xs font-bold',
 				color === 'blue'
-					? 'bg-blue-100 text-blue-400'
+					? 'bg-blue-200 text-blue-800'
 					: color === 'orange'
-					? 'bg-orange-100 text-orange-400'
-					: 'bg-teal-200 text-teal-400',
-				margin
+					? 'bg-orange-200 text-orange-800'
+					: 'bg-teal-200 text-teal-800',
+				''
 			)}
 		>
 			<slot name="icon" />
 		</div>
 	</div>
-	<div class="relative w-full">
+	<div
+		class={classNames(
+			'relative w-full flex overflow-hidden rounded-sm cursor-pointer',
+			selected ? 'outline outline-offset-1 outline-2  outline-gray-600' : '',
+			margin
+		)}
+	>
 		<div class="absolute text-sm right-14 -bottom-3 flex flex-row gap-1">
 			{#if retry}
 				<div class="bg-white rounded border text-gray-600 px-1">
@@ -63,26 +70,24 @@
 			{/if}
 		</div>
 		<div
-			class={classNames(
-				'border  w-full rounded-sm p-2 bg-white text-sm cursor-pointer flex justify-between items-center space-x-2 overflow-hidden',
-				margin,
-				selected ? 'outline outline-offset-1 outline-2  outline-gray-600' : ''
-			)}
+			class="flex justify-between items-center w-full overflow-hidden border p-2 bg-white text-sm"
 		>
-			<slot name="content" class="w-full" />
-			{#if id}
-				<Badge color="indigo">{id}</Badge>
-			{/if}
-			{#if deletable}
-				<Button
-					on:click={(event) => dispatch('delete', { event })}
-					startIcon={{ icon: faTrashAlt }}
-					iconOnly={true}
-					color="light"
-					variant="border"
-					size="xs"
-				/>
-			{/if}
+			<div class="flex-1 truncate">{label}</div>
+			<div class="flex items-center space-x-2">
+				{#if id}
+					<Badge color="indigo">{id}</Badge>
+				{/if}
+				{#if deletable}
+					<Button
+						on:click={(event) => dispatch('delete', event)}
+						startIcon={{ icon: faTrashAlt }}
+						iconOnly={true}
+						color="light"
+						variant="border"
+						size="xs"
+					/>
+				{/if}
+			</div>
 		</div>
 	</div>
 </div>
@@ -91,6 +96,5 @@
 	.line {
 		background: repeating-linear-gradient(to bottom, transparent 0 4px, #bbb 4px 8px) 50%/1px 100%
 			no-repeat;
-		width: 2rem;
 	}
 </style>

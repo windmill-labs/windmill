@@ -8,7 +8,7 @@
 	import { Button } from '$lib/components/common'
 	import { classNames } from '$lib/utils'
 	import Icon from 'svelte-awesome'
-	import { emptyModule } from '../flowStateUtils'
+	import { deleteFlowStateById, emptyModule } from '../flowStateUtils'
 	import { emptyFlowModuleState } from '../utils'
 	import { flowStateStore } from '../flowState'
 
@@ -33,14 +33,8 @@
 
 	function removeBranch(index: number) {
 		if (module.value.type === 'branchall') {
-			flowStateStore.update((fss) => {
-				if (module.value.type === 'branchall') {
-					module.value.branches[index].modules.forEach((mod) => {
-						delete fss[mod.id]
-					})
-				}
-
-				return fss
+			module.value.branches[index].modules.forEach((mod) => {
+				deleteFlowStateById(mod.id)
 			})
 
 			module.value.branches.splice(index, 1)
@@ -63,7 +57,7 @@
 				Add branch
 			</Button>
 
-			{#each module.value.branches ?? [] as branch, branchIndex}
+			{#each module.value.branches ?? [] as branch, branchIndex (branchIndex)}
 				<!-- svelte-ignore a11y-click-events-have-key-events -->
 				<div
 					on:click={() => {
