@@ -73,7 +73,7 @@
 			(flowModule.value.type == 'rawscript' &&
 				JSON.stringify(flowModule.input_transforms) !== JSON.stringify(input_transforms))
 		) {
-			flowModule.input_transforms = input_transforms
+			flowModule.value.input_transforms = input_transforms
 			hasChanged = true
 		}
 

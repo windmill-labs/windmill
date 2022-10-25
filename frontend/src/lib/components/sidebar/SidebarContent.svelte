@@ -52,7 +52,7 @@
 	export let isCollapsed: boolean = false
 </script>
 
-<div class="flex-1 flex flex-col py-4 overflow-y-auto overflow-x-hidden">
+<div class="flex-1 flex flex-col py-4 overflow-x-hidden scrollbar-hide">
 	<nav class="h-full flex justify-between flex-col px-2">
 		<div class="space-y-2">
 			{#each mainMenuLinks as menuLink}
@@ -71,3 +71,16 @@
 		</div>
 	</nav>
 </div>
+
+<style>
+	/* For Webkit-based browsers (Chrome, Safari and Opera) */
+	.scrollbar-hide::-webkit-scrollbar {
+		display: none;
+	}
+
+	/* For IE, Edge and Firefox */
+	.scrollbar-hide {
+		-ms-overflow-style: none; /* IE and Edge */
+		scrollbar-width: none; /* Firefox */
+	}
+</style>
