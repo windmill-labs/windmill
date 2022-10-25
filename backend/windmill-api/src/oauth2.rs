@@ -19,23 +19,23 @@ use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use sqlx::{Postgres, Transaction};
 use tokio::{fs::File, io::AsyncReadExt};
 use tower_cookies::{Cookie, Cookies};
+use windmill_audit::{audit_log, ActionKind};
+use windmill_common::users::Authed;
+use windmill_common::utils::{not_found_if_none, now_from_db};
 
-use crate::utils::now_from_db;
+use crate::jobs::get_latest_hash_for_path;
 use crate::IsSecure;
 use crate::{
-    audit::{audit_log, ActionKind},
     db::{UserDB, DB},
-    error::{self, to_anyhow, Error, Result},
     jobs,
-    users::Authed,
-    utils::not_found_if_none,
     variables::{build_crypt, encrypt},
     workspaces::WorkspaceSettings,
     BaseUrl,
 };
+use windmill_common::error::{self, to_anyhow, Error, Result};
 use windmill_common::oauth2::*;
 
-use windmill_queue::{get_latest_hash_for_path, JobPayload};
+use windmill_queue::JobPayload;
 
 use std::str;
 
@@ -94,10 +94,11 @@ pub struct AllClients {
 
 pub async fn build_oauth_clients(base_url: &str) -> anyhow::Result<AllClients> {
     let connect_configs = serde_json::from_str::<HashMap<String, OAuthConfig>>(include_str!(
-        "../oauth_connect.json"
+        "../../oauth_connect.json"
     ))?;
-    let login_configs =
-        serde_json::from_str::<HashMap<String, OAuthConfig>>(include_str!("../oauth_login.json"))?;
+    let login_configs = serde_json::from_str::<HashMap<String, OAuthConfig>>(include_str!(
+        "../../oauth_login.json"
+    ))?;
 
     let mut content = String::new();
     let path = "./oauth.json";

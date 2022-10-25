@@ -14,7 +14,14 @@ path = "src/main.rs"
 
 [dependencies]
 windmill-queue.workspace = true
-windmill-common = { workspace = true, features = ["reqwest"] }
+windmill-common = { workspace = true, features = [
+    "reqwest",
+    "prometheus",
+    "axum",
+    "tokio",
+    "hyper",
+    "sqlx",
+] }
 windmill-audit.workspace = true
 tokio.workspace = true
 anyhow.workspace = true
@@ -32,3 +39,21 @@ serde.workspace = true
 sqlx.workspace = true
 async-oauth2.workspace = true
 tracing.workspace = true
+sql-builder.workspace = true
+serde_json.workspace = true
+chrono.workspace = true
+hex.workspace = true
+base64.workspace = true
+serde_urlencoded.workspace = true
+cron.workspace = true
+mime_guess.workspace = true
+rust-embed.workspace = true
+tracing-subscriber.workspace = true
+retainer.workspace = true
+rand.workspace = true
+time.workspace = true
+console-subscriber.workspace = true
+magic-crypt.workspace = true
+tempfile.workspace = true
+tokio-util.workspace = true
+tokio-tar.workspace = true

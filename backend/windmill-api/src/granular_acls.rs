@@ -6,12 +6,7 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
-use crate::{
-    db::UserDB,
-    error::{Error, JsonResult, Result},
-    users::Authed,
-    utils::StripPath,
-};
+use crate::db::UserDB;
 use axum::{
     extract::{Extension, Path},
     routing::{get, post},
@@ -19,6 +14,11 @@ use axum::{
 };
 
 use serde::{Deserialize, Serialize};
+use windmill_common::{
+    error::{Error, JsonResult},
+    users::Authed,
+    utils::{not_found_if_none, StripPath},
+};
 
 pub fn workspaced_service() -> Router {
     Router::new()
@@ -56,7 +56,7 @@ async fn add_granular_acl(
     .fetch_optional(&mut tx)
     .await?;
 
-    let _ = crate::utils::not_found_if_none(obj_o, &kind, &path)?;
+    let _ = not_found_if_none(obj_o, &kind, &path)?;
     tx.commit().await?;
 
     Ok("Successfully modified granular acl".to_string())
@@ -85,7 +85,7 @@ async fn remove_granular_acl(
     .fetch_optional(&mut tx)
     .await?;
 
-    let _ = crate::utils::not_found_if_none(obj_o, &kind, &path)?;
+    let _ = not_found_if_none(obj_o, &kind, &path)?;
     tx.commit().await?;
 
     Ok("Successfully removed granular acl".to_string())
@@ -112,7 +112,7 @@ async fn get_granular_acls(
     .fetch_optional(&mut tx)
     .await?;
 
-    let obj = crate::utils::not_found_if_none(obj_o, &kind, &path)?;
+    let obj = not_found_if_none(obj_o, &kind, &path)?;
     tx.commit().await?;
 
     Ok(Json(obj))

@@ -17,7 +17,9 @@ use windmill_common::{
     scripts::{ScriptHash, ScriptLang},
     variables,
 };
-use windmill_queue::{canceled_job_to_result, get_queued_job};
+use windmill_queue::{
+    canceled_job_to_result, get_hub_script, get_queued_job, pull, JobKind, QueuedJob,
+};
 
 use serde_json::{json, Map, Value};
 
@@ -40,7 +42,7 @@ use futures::{
 use async_recursion::async_recursion;
 
 use crate::{
-    jobs::{add_completed_job, add_completed_job_error, get_hub_script, pull, JobKind, QueuedJob},
+    jobs::{add_completed_job, add_completed_job_error},
     worker_flow::{
         handle_flow, update_flow_status_after_job_completion, update_flow_status_in_progress,
     },

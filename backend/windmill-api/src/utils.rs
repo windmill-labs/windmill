@@ -1,9 +1,10 @@
-pub use windmill_common::utils::*;
+use sqlx::{Postgres, Transaction};
+use windmill_common::error::{self, Error};
 
 pub async fn require_super_admin<'c>(
     db: &mut Transaction<'c, Postgres>,
     email: Option<String>,
-) -> Result<()> {
+) -> error::Result<()> {
     let is_admin = sqlx::query_scalar!(
         "SELECT super_admin FROM password WHERE email = $1",
         email.as_ref()

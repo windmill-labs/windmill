@@ -2,8 +2,7 @@ use std::collections::HashMap;
 use std::time::Duration;
 
 use crate::jobs::{
-    add_completed_job, add_completed_job_error, get_queued_job, push, schedule_again_if_scheduled,
-    JobPayload, QueuedJob, RawCode,
+    add_completed_job, add_completed_job_error, schedule_again_if_scheduled
 };
 #[cfg(feature = "deno")]
 use crate::js_eval::{eval_timeout, EvalCreds, IdContext};
@@ -23,13 +22,12 @@ use windmill_api_client::{
 use windmill_common::{
     error::{self, to_anyhow, Error},
     flows::{FlowModule, FlowModuleValue, FlowValue, InputTransform, Retry, Suspend},
-    scripts::ScriptHash,
+    scripts::ScriptHash, worker_flow::{FlowStatus, FlowStatusModule, BranchAllStatus, MAX_RETRY_ATTEMPTS, MAX_RETRY_INTERVAL, RetryStatus, Approval, BranchChosen},
 };
 
 type DB = sqlx::Pool<sqlx::Postgres>;
 
-pub use windmill_common::worker_flow::*;
-use windmill_queue::canceled_job_to_result;
+use windmill_queue::{canceled_job_to_result, QueuedJob, get_queued_job, push, JobPayload, RawCode};
 
 #[async_recursion]
 #[instrument(level = "trace", skip_all)]
@@ -104,7 +102,7 @@ pub async fn update_flow_status_after_job_completion(
     let skip_failure = skip_branch_failure || skip_loop_failures;
 
     let (step_counter, new_status) = match module_status {
-        FlowStatusModule::InProgress { iterator: Some(Iterator { index, itered, .. }), .. }
+        FlowStatusModule::InProgress { iterator: Some(windmill_common::worker_flow::Iterator { index, itered, .. }), .. }
             if (*index + 1 < itered.len() && (success || skip_loop_failures)) =>
         {
             (old_status.step, module_status.clone())
@@ -1043,7 +1041,7 @@ async fn push_next_flow_job(
 
             FlowStatusModule::InProgress {
                 job: uuid,
-                iterator: Some(Iterator { index, itered }),
+                iterator: Some(windmill_common::worker_flow::Iterator { index, itered }),
                 flow_jobs: Some(flow_jobs),
                 branch_chosen: None,
                 branchall: None,
@@ -1301,7 +1299,7 @@ async fn compute_next_flow_transform(
                 }
 
                 FlowStatusModule::InProgress {
-                    iterator: Some(Iterator { itered, index }),
+                    iterator: Some(windmill_common::worker_flow::Iterator { itered, index }),
                     flow_jobs: Some(flow_jobs),
                     ..
                 } => {

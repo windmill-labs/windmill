@@ -7,22 +7,27 @@
  */
 
 use crate::{
-    audit::{audit_log, ActionKind},
     db::{UserDB, DB},
-    error::{Error, JsonResult, Result},
-    flows::Flow,
     resources::{Resource, ResourceType},
-    scripts::{Schema, Script},
-    users::{Authed, WorkspaceInvite},
-    utils::{require_admin, require_super_admin, Pagination},
-    variables::ListableVariable,
+    users::WorkspaceInvite,
+    utils::require_super_admin,
 };
 use axum::{
     body::StreamBody,
     extract::{Extension, Path, Query},
+    headers,
     response::IntoResponse,
     routing::{delete, get, post},
     Json, Router,
+};
+use windmill_audit::{audit_log, ActionKind};
+use windmill_common::{
+    error::{Error, JsonResult, Result},
+    flows::Flow,
+    scripts::{Schema, Script},
+    users::Authed,
+    utils::{paginate, rd_string, require_admin, Pagination},
+    variables::ListableVariable,
 };
 
 use hyper::{header, StatusCode};
@@ -246,7 +251,7 @@ async fn list_workspaces_as_super_admin(
 ) -> JsonResult<Vec<Workspace>> {
     let mut tx = user_db.begin(&authed).await?;
     require_super_admin(&mut tx, email).await?;
-    let (per_page, offset) = crate::utils::paginate(pagination);
+    let (per_page, offset) = paginate(pagination);
 
     let workspaces = sqlx::query_as!(
         Workspace,
@@ -309,7 +314,7 @@ async fn create_workspace(
     )
     .execute(&mut tx)
     .await?;
-    let key = crate::utils::rd_string(64);
+    let key = rd_string(64);
     sqlx::query!(
         "INSERT INTO workspace_key
             (workspace_id, kind, key)

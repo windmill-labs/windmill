@@ -9,12 +9,8 @@
 use std::sync::Arc;
 
 use crate::{
-    audit::{audit_log, ActionKind},
     db::{UserDB, DB},
-    error::{Error, JsonResult, Result},
     oauth2::{AllClients, _refresh_token},
-    users::Authed,
-    utils::StripPath,
     BaseUrl,
 };
 use axum::{
@@ -23,6 +19,13 @@ use axum::{
     Json, Router,
 };
 use hyper::StatusCode;
+use windmill_audit::{audit_log, ActionKind};
+use windmill_common::{
+    error::{Error, JsonResult, Result},
+    users::Authed,
+    utils::{not_found_if_none, StripPath},
+    variables::{get_reserved_variables, ContextualVariable, CreateVariable, ListableVariable},
+};
 
 use magic_crypt::{MagicCrypt256, MagicCryptTrait};
 use reqwest::Client;
@@ -40,7 +43,7 @@ pub fn workspaced_service() -> Router {
         .route("/create", post(create_variable))
 }
 
-async fn list_contextual_variables(
+fn list_contextual_variables(
     Path(w_id): Path<String>,
     Extension(base_url): Extension<Arc<BaseUrl>>,
     Authed { username, email, .. }: Authed,
@@ -113,7 +116,7 @@ async fn get_variable(
     .fetch_optional(&mut tx)
     .await?;
 
-    let variable = crate::utils::not_found_if_none(variable_o, "Variable", &path)?;
+    let variable = not_found_if_none(variable_o, "Variable", &path)?;
 
     let decrypt_secret = q.decrypt_secret.unwrap_or(true);
 
@@ -260,6 +263,14 @@ async fn delete_variable(
     Ok(format!("variable {} deleted", path))
 }
 
+#[derive(Deserialize)]
+struct EditVariable {
+    path: Option<String>,
+    value: Option<String>,
+    is_secret: Option<bool>,
+    description: Option<String>,
+}
+
 async fn update_variable(
     authed: Authed,
     Extension(user_db): Extension<UserDB>,
@@ -316,7 +327,7 @@ async fn update_variable(
 
     let npath_o: Option<String> = sqlx::query_scalar(&sql).fetch_optional(&mut tx).await?;
 
-    let npath = crate::utils::not_found_if_none(npath_o, "Variable", path)?;
+    let npath = not_found_if_none(npath_o, "Variable", path)?;
 
     audit_log(
         &mut tx,

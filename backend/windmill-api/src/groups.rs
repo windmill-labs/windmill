@@ -6,17 +6,17 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
-use crate::{
-    audit::{audit_log, ActionKind},
-    db::{UserDB, DB},
-    error::{Error, JsonResult, Result},
-    users::{owner_to_token_owner, Authed},
-    utils::Pagination,
-};
+use crate::db::{UserDB, DB};
 use axum::{
     extract::{Extension, Path, Query},
     routing::{delete, get, post},
     Json, Router,
+};
+use windmill_audit::{audit_log, ActionKind};
+use windmill_common::{
+    error::{Error, JsonResult, Result},
+    users::{owner_to_token_owner, Authed},
+    utils::{not_found_if_none, paginate, Pagination},
 };
 
 use serde::{Deserialize, Serialize};
@@ -72,7 +72,7 @@ async fn list_groups(
     Path(w_id): Path<String>,
     Query(pagination): Query<Pagination>,
 ) -> JsonResult<Vec<Group>> {
-    let (per_page, offset) = crate::utils::paginate(pagination);
+    let (per_page, offset) = paginate(pagination);
 
     let rows = sqlx::query_as!(
         Group,
@@ -158,11 +158,7 @@ async fn get_group(
 ) -> JsonResult<GroupInfo> {
     let mut tx = user_db.begin(&authed).await?;
 
-    let group = crate::utils::not_found_if_none(
-        get_group_opt(&mut tx, &w_id, &name).await?,
-        "Group",
-        &name,
-    )?;
+    let group = not_found_if_none(get_group_opt(&mut tx, &w_id, &name).await?, "Group", &name)?;
 
     let members = sqlx::query_scalar!(
         "SELECT  usr.username  
@@ -191,7 +187,7 @@ async fn delete_group(
 ) -> Result<String> {
     let mut tx = user_db.begin(&authed).await?;
 
-    crate::utils::not_found_if_none(get_group_opt(&mut tx, &w_id, &name).await?, "Group", &name)?;
+    not_found_if_none(get_group_opt(&mut tx, &w_id, &name).await?, "Group", &name)?;
 
     sqlx::query!(
         "DELETE FROM usr_to_group WHERE group_ = $1 AND workspace_id = $2",
@@ -229,7 +225,7 @@ async fn update_group(
 ) -> Result<String> {
     let mut tx = user_db.begin(&authed).await?;
 
-    crate::utils::not_found_if_none(get_group_opt(&mut tx, &w_id, &name).await?, "Group", &name)?;
+    not_found_if_none(get_group_opt(&mut tx, &w_id, &name).await?, "Group", &name)?;
 
     sqlx::query_as!(
         Group,
@@ -263,7 +259,7 @@ async fn add_user(
 ) -> Result<String> {
     let mut tx = user_db.begin(&authed).await?;
 
-    crate::utils::not_found_if_none(get_group_opt(&mut tx, &w_id, &name).await?, "Group", &name)?;
+    not_found_if_none(get_group_opt(&mut tx, &w_id, &name).await?, "Group", &name)?;
 
     sqlx::query_as!(
         Group,
@@ -297,7 +293,7 @@ async fn remove_user(
 ) -> Result<String> {
     let mut tx = user_db.begin(&authed).await?;
 
-    crate::utils::not_found_if_none(get_group_opt(&mut tx, &w_id, &name).await?, "Group", &name)?;
+    not_found_if_none(get_group_opt(&mut tx, &w_id, &name).await?, "Group", &name)?;
     if &name == "all" {
         return Err(Error::BadRequest(format!("Cannot delete users from all")));
     }

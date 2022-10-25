@@ -6,7 +6,7 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
-use crate::{db::UserDB, error::JsonResult, users::Authed, utils::Pagination};
+use crate::db::UserDB;
 use axum::{
     extract::{Extension, Query},
     routing::get,
@@ -15,6 +15,11 @@ use axum::{
 
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
+use windmill_common::{
+    error::JsonResult,
+    users::Authed,
+    utils::{paginate, Pagination},
+};
 
 pub fn global_service() -> Router {
     Router::new().route("/list", get(list_worker_pings))
@@ -37,7 +42,7 @@ async fn list_worker_pings(
 ) -> JsonResult<Vec<WorkerPing>> {
     let mut tx = user_db.begin(&authed).await?;
 
-    let (per_page, offset) = crate::utils::paginate(pagination);
+    let (per_page, offset) = paginate(pagination);
 
     let rows = sqlx::query_as!(
         WorkerPing,

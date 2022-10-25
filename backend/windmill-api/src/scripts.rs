@@ -9,14 +9,11 @@
 use reqwest::Client;
 use serde::Deserializer;
 use sql_builder::prelude::*;
+use windmill_audit::{audit_log, ActionKind};
 
 use crate::{
-    audit::{audit_log, ActionKind},
     db::{UserDB, DB},
-    error::{to_anyhow, Error, JsonResult, Result},
-    parser, parser_go, parser_py, parser_ts,
-    users::{owner_to_token_owner, truncate_token, Authed, Tokened},
-    utils::{http_get_from_hub, list_elems_from_hub, require_admin, Pagination, StripPath},
+    users::{truncate_token, Tokened},
 };
 use axum::{
     extract::{Extension, Host, Path, Query},
@@ -33,7 +30,16 @@ use std::{
     fmt::Display,
     hash::{Hash, Hasher},
 };
-pub use windmill_common::scripts::*;
+use windmill_common::{
+    error::{to_anyhow, Error, JsonResult, Result},
+    scripts::{
+        to_i64, HubScript, ListScriptQuery, NewScript, Script, ScriptHash, ScriptKind, ScriptLang,
+    },
+    users::{owner_to_token_owner, Authed},
+    utils::{
+        list_elems_from_hub, not_found_if_none, paginate, require_admin, Pagination, StripPath,
+    },
+};
 use windmill_queue;
 
 const MAX_HASH_HISTORY_LENGTH_STORED: usize = 20;
@@ -72,7 +78,7 @@ async fn list_scripts(
     Query(pagination): Query<Pagination>,
     Query(lq): Query<ListScriptQuery>,
 ) -> JsonResult<Vec<Script>> {
-    let (per_page, offset) = crate::utils::paginate(pagination);
+    let (per_page, offset) = paginate(pagination);
 
     let mut sqlb = SqlBuilder::select_from("script as o")
         .fields(&[
@@ -376,7 +382,7 @@ pub async fn get_hub_script_by_path(
     Extension(http_client): Extension<Client>,
     Host(host): Host,
 ) -> Result<String> {
-    windmill_common::scripts::get_hub_script_by_path(authed, path, http_client, host)
+    windmill_common::scripts::get_hub_script_by_path(authed, path, http_client, host).await
 }
 
 pub async fn get_full_hub_script_by_path(
@@ -385,12 +391,10 @@ pub async fn get_full_hub_script_by_path(
     Extension(http_client): Extension<Client>,
     Host(host): Host,
 ) -> JsonResult<HubScript> {
-    Ok(Json(windmill_common::scripts::get_full_hub_script_by_path(
-        authed,
-        path,
-        http_client,
-        host,
-    )?))
+    Ok(Json(
+        windmill_common::scripts::get_full_hub_script_by_path(authed, path, http_client, host)
+            .await?,
+    ))
 }
 
 async fn get_script_by_path(
@@ -412,7 +416,7 @@ async fn get_script_by_path(
     .await?;
     tx.commit().await?;
 
-    let script = crate::utils::not_found_if_none(script_o, "Script", path)?;
+    let script = not_found_if_none(script_o, "Script", path)?;
     Ok(Json(script))
 }
 
@@ -438,7 +442,7 @@ async fn raw_script_by_path(
     .await?;
     tx.commit().await?;
 
-    let content = crate::utils::not_found_if_none(content_o, "Script", path)?;
+    let content = not_found_if_none(content_o, "Script", path)?;
     Ok(content)
 }
 
@@ -476,7 +480,7 @@ async fn get_script_by_hash_internal<'c>(
     .fetch_optional(db)
     .await?;
 
-    let script = crate::utils::not_found_if_none(script_o, "Script", hash.to_string())?;
+    let script = not_found_if_none(script_o, "Script", hash.to_string())?;
     Ok(script)
 }
 
@@ -528,7 +532,7 @@ async fn get_deployment_status(
     .fetch_optional(&mut tx)
     .await?;
 
-    let status = crate::utils::not_found_if_none(status_o, "DeploymentStatus", hash.to_string())?;
+    let status = not_found_if_none(status_o, "DeploymentStatus", hash.to_string())?;
 
     tx.commit().await?;
     Ok(Json(status))

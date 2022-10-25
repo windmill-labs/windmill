@@ -16,6 +16,7 @@ pub const DEFAULT_TIMEOUT: i32 = 300;
 pub const DEFAULT_SLEEP_QUEUE: u64 = 50;
 pub const DEFAULT_MAX_CONNECTIONS: u32 = 100;
 
+#[cfg(feature = "tokio")]
 pub async fn shutdown_signal(tx: tokio::sync::broadcast::Sender<()>) -> anyhow::Result<()> {
     use std::io;
     use tokio::signal::unix::SignalKind;

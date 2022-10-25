@@ -9,10 +9,8 @@
 use std::{sync::Arc, time::Duration};
 
 use crate::{
-    audit::{audit_log, ActionKind},
     db::{UserDB, DB},
-    error::{self, Error, JsonResult, Result},
-    utils::{require_admin, require_super_admin, Pagination},
+    utils::require_super_admin,
     IsSecure,
 };
 use argon2::{password_hash::SaltString, Argon2, PasswordHash, PasswordHasher, PasswordVerifier};
@@ -31,7 +29,12 @@ use sqlx::FromRow;
 use time::OffsetDateTime;
 use tower_cookies::{Cookie, Cookies};
 use tracing::Span;
-pub use windmill_common::users::*;
+use windmill_audit::{audit_log, ActionKind};
+use windmill_common::{
+    error::{self, Error, JsonResult, Result},
+    users::Authed,
+    utils::{not_found_if_none, paginate, require_admin, Pagination},
+};
 
 const TTL_TOKEN_CACHE_S: u64 = 60 * 5; // 5 minutes
 pub const TTL_TOKEN_DB_H: u32 = 72;
@@ -537,7 +540,7 @@ async fn list_users_as_super_admin(
 ) -> JsonResult<Vec<GlobalUserInfo>> {
     let mut tx = db.begin().await?;
     require_super_admin(&mut tx, authed.email).await?;
-    let (per_page, offset) = crate::utils::paginate(pagination);
+    let (per_page, offset) = paginate(pagination);
 
     let rows = sqlx::query_as!(
         GlobalUserInfo,
@@ -718,7 +721,7 @@ async fn whois(
     Path((w_id, username)): Path<(String, String)>,
 ) -> JsonResult<UserInfo> {
     let user_o = get_user(&w_id, &username, &db).await?;
-    let user = crate::utils::not_found_if_none(user_o, "User", username)?;
+    let user = not_found_if_none(user_o, "User", username)?;
     Ok(Json(user))
 }
 
@@ -1002,8 +1005,7 @@ async fn delete_user(
     .fetch_optional(&db)
     .await?;
 
-    let email_to_delete =
-        crate::utils::not_found_if_none(email_to_delete_o, "User", &username_to_delete)?;
+    let email_to_delete = not_found_if_none(email_to_delete_o, "User", &username_to_delete)?;
 
     sqlx::query!("DELETE FROM usr WHERE email = $1", email_to_delete)
         .execute(&mut tx)

@@ -6,13 +6,7 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
-use crate::{
-    audit::{audit_log, ActionKind},
-    db::{UserDB, DB},
-    error::{Error, JsonResult, Result},
-    users::Authed,
-    utils::{require_admin, Pagination, StripPath},
-};
+use crate::db::{UserDB, DB};
 use axum::{
     extract::{Extension, Path, Query},
     routing::{delete, get, post},
@@ -22,6 +16,12 @@ use hyper::StatusCode;
 use serde::{Deserialize, Serialize};
 use sql_builder::{bind::Bind, SqlBuilder};
 use sqlx::FromRow;
+use windmill_audit::{audit_log, ActionKind};
+use windmill_common::{
+    error::{Error, JsonResult, Result},
+    users::Authed,
+    utils::{not_found_if_none, paginate, require_admin, Pagination, StripPath},
+};
 
 pub fn workspaced_service() -> Router {
     Router::new()
@@ -99,7 +99,7 @@ async fn list_resources(
     Extension(user_db): Extension<UserDB>,
     Path(w_id): Path<String>,
 ) -> JsonResult<Vec<Resource>> {
-    let (per_page, offset) = crate::utils::paginate(pagination);
+    let (per_page, offset) = paginate(pagination);
 
     let mut sqlb = SqlBuilder::select_from("resource")
         .fields(&[
@@ -150,7 +150,7 @@ async fn get_resource(
     .await?;
     tx.commit().await?;
 
-    let resource = crate::utils::not_found_if_none(resource_o, "Resource", path)?;
+    let resource = not_found_if_none(resource_o, "Resource", path)?;
     Ok(Json(resource))
 }
 
@@ -190,7 +190,7 @@ async fn get_resource_value(
     .await?;
     tx.commit().await?;
 
-    let value = crate::utils::not_found_if_none(value_o, "Resource", path)?;
+    let value = not_found_if_none(value_o, "Resource", path)?;
     Ok(Json(value))
 }
 
@@ -294,7 +294,7 @@ async fn update_resource(
     let sql = sqlb.sql().map_err(|e| Error::InternalErr(e.to_string()))?;
     let npath_o: Option<String> = sqlx::query_scalar(&sql).fetch_optional(&mut tx).await?;
 
-    let npath = crate::utils::not_found_if_none(npath_o, "Resource", path)?;
+    let npath = not_found_if_none(npath_o, "Resource", path)?;
 
     audit_log(
         &mut tx,
@@ -360,7 +360,7 @@ async fn get_resource_type(
     .await?;
     tx.commit().await?;
 
-    let resource_type = crate::utils::not_found_if_none(resource_type_o, "ResourceType", name)?;
+    let resource_type = not_found_if_none(resource_type_o, "ResourceType", name)?;
     Ok(Json(resource_type))
 }
 

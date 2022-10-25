@@ -33,14 +33,6 @@ pub struct CreateVariable {
     pub is_oauth: Option<bool>,
 }
 
-#[derive(Deserialize)]
-struct EditVariable {
-    path: Option<String>,
-    value: Option<String>,
-    is_secret: Option<bool>,
-    description: Option<String>,
-}
-
 pub fn get_reserved_variables(
     w_id: &str,
     token: &str,

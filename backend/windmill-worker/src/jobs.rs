@@ -3,7 +3,7 @@ use tracing::instrument;
 use uuid::Uuid;
 use windmill_api_client::apis::{configuration, schedule_api};
 use windmill_common::error::Error;
-pub use windmill_queue::*;
+use windmill_queue::{delete_job, JobKind, QueuedJob};
 
 #[instrument(level = "trace", skip_all)]
 pub async fn add_completed_job_error<E: ToString + std::fmt::Debug>(

@@ -9,16 +9,19 @@
 use std::str::FromStr;
 
 use crate::{
-    audit::{audit_log, ActionKind},
     db::{UserDB, DB},
-    error::{self, Error, JsonResult, Result},
-    users::Authed,
-    utils::{get_owner_from_path, now_from_db, Pagination, StripPath},
+    jobs::get_latest_hash_for_path,
 };
 use axum::{
     extract::{Extension, Path, Query},
     routing::{delete, get, post},
     Json, Router,
+};
+use windmill_audit::{audit_log, ActionKind};
+use windmill_common::{
+    error::{self, Error, JsonResult, Result},
+    users::Authed,
+    utils::{get_owner_from_path, not_found_if_none, now_from_db, paginate, Pagination, StripPath},
 };
 use windmill_queue::{self, push, JobPayload};
 
@@ -113,12 +116,8 @@ pub async fn push_scheduled_job<'c>(
         JobPayload::Flow(schedule.script_path)
     } else {
         JobPayload::ScriptHash {
-            hash: windmill_queue::get_latest_hash_for_path(
-                &mut tx,
-                &schedule.workspace_id,
-                &schedule.script_path,
-            )
-            .await?,
+            hash: get_latest_hash_for_path(&mut tx, &schedule.workspace_id, &schedule.script_path)
+                .await?,
             path: schedule.script_path,
         }
     };
@@ -304,7 +303,7 @@ async fn list_schedule(
     Path(w_id): Path<String>,
     Query(pagination): Query<Pagination>,
 ) -> JsonResult<Vec<Schedule>> {
-    let (per_page, offset) = crate::utils::paginate(pagination);
+    let (per_page, offset) = paginate(pagination);
     let mut tx = user_db.begin(&authed).await?;
 
     let rows = sqlx::query_as!(
@@ -344,7 +343,7 @@ async fn get_schedule(
     let mut tx = user_db.begin(&authed).await?;
 
     let schedule_o = get_schedule_opt(&mut tx, &w_id, path).await?;
-    let schedule = crate::utils::not_found_if_none(schedule_o, "Schedule", path)?;
+    let schedule = not_found_if_none(schedule_o, "Schedule", path)?;
     tx.commit().await?;
     Ok(Json(schedule))
 }
@@ -414,7 +413,7 @@ pub async fn set_enabled(
     .fetch_optional(&mut tx)
     .await?;
 
-    let schedule = crate::utils::not_found_if_none(schedule_o, "Schedule", path)?;
+    let schedule = not_found_if_none(schedule_o, "Schedule", path)?;
 
     clear_schedule(&mut tx, path).await?;
 

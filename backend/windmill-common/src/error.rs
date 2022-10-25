@@ -6,7 +6,6 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
-use axum::http::{Response, StatusCode};
 #[cfg(feature = "axum")]
 use axum::{
     body::{self, BoxBody},
@@ -14,7 +13,7 @@ use axum::{
     Json,
 };
 #[cfg(feature = "hyper")]
-use hyper::{Response, StatusCode};
+use hyper::Response;
 #[cfg(feature = "sqlx")]
 use sqlx::migrate::MigrateError;
 use thiserror::Error;
@@ -73,17 +72,17 @@ pub fn to_anyhow<T: 'static + std::error::Error + Send + Sync>(e: T) -> anyhow::
 
 #[cfg(feature = "axum")]
 impl IntoResponse for Error {
-    fn into_response(self) -> Response<BoxBody> {
+    fn into_response(self) -> axum::response::Response<BoxBody> {
         let e = &self;
         let body = body::boxed(body::Full::from(e.to_string()));
         let status = match self {
-            Self::NotFound(_) => StatusCode::NOT_FOUND,
-            Self::NotAuthorized(_) => StatusCode::UNAUTHORIZED,
-            Self::SqlErr(_) | Self::BadRequest(_) => StatusCode::BAD_REQUEST,
-            _ => StatusCode::INTERNAL_SERVER_ERROR,
+            Self::NotFound(_) => axum::http::StatusCode::NOT_FOUND,
+            Self::NotAuthorized(_) => axum::http::StatusCode::UNAUTHORIZED,
+            Self::SqlErr(_) | Self::BadRequest(_) => axum::http::StatusCode::BAD_REQUEST,
+            _ => axum::http::StatusCode::INTERNAL_SERVER_ERROR,
         };
         tracing::error!(error = e.to_string());
-        Response::builder()
+        axum::response::Response::builder()
             .header("Content-Type", "text/plain")
             .status(status)
             .body(body)

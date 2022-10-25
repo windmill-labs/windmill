@@ -6,9 +6,9 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
-use crate::{error::Error, users::Authed};
 use sqlx::{postgres::PgPoolOptions, Pool, Postgres, Transaction};
 use std::time::Duration;
+use windmill_common::{error::Error, users::Authed};
 
 pub type DB = Pool<Postgres>;
 
@@ -22,7 +22,7 @@ pub async fn connect(database_url: &str, max_connections: u32) -> Result<DB, Err
 }
 
 pub async fn migrate(db: &DB) -> Result<(), Error> {
-    match sqlx::migrate!("./migrations").run(db).await {
+    match sqlx::migrate!("../migrations").run(db).await {
         Ok(_) => Ok(()),
         Err(err) => Err(err),
     }?;

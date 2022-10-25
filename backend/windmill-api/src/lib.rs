@@ -1,4 +1,3 @@
-use anyhow::Context;
 use argon2::Argon2;
 use axum::{handler::Handler, middleware::from_extractor, routing::get, Extension, Router};
 use db::DB;
@@ -8,18 +7,16 @@ use std::{net::SocketAddr, sync::Arc};
 use tower::ServiceBuilder;
 use tower_cookies::CookieManagerLayer;
 use tower_http::trace::TraceLayer;
+use windmill_common::{error::to_anyhow, users::Authed, utils::rd_string};
 
 use crate::{
     db::UserDB,
-    error::to_anyhow,
     oauth2::{build_oauth_clients, SlackVerifier},
     tracing_init::{MyMakeSpan, MyOnResponse},
-    utils::rd_string,
 };
 
 mod audit;
 mod db;
-mod error;
 mod flows;
 mod granular_acls;
 mod groups;
@@ -115,7 +112,7 @@ pub async fn run_server(
                 .nest("/scripts", scripts::global_service())
                 .nest("/flows", flows::global_service())
                 .nest("/schedules", schedule::global_service())
-                .route_layer(from_extractor::<users::Authed>())
+                .route_layer(from_extractor::<Authed>())
                 .route_layer(from_extractor::<users::Tokened>())
                 .nest("/w/:workspace_id/jobs", jobs::global_service())
                 .nest(

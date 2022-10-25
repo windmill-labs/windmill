@@ -1,4 +1,12 @@
-use axum::Router;
+use axum::{
+    extract::{Path, Query},
+    routing::get,
+    Extension, Json, Router,
+};
+use windmill_audit::{AuditLog, ListAuditLogQuery};
+use windmill_common::{error::JsonResult, users::Authed, utils::Pagination};
+
+use crate::db::UserDB;
 
 pub fn workspaced_service() -> Router {
     Router::new()
