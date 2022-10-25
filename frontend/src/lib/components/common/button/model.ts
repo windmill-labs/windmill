@@ -1,6 +1,6 @@
 export namespace ButtonType {
 	export type Size = 'xs' | 'sm' | 'md' | 'lg' | 'xl'
-	export type Color = 'blue' | 'red' | 'dark' | 'light'
+	export type Color = 'blue' | 'red' | 'dark' | 'light' | 'green'
 	export type Variant = 'contained' | 'border'
 	export type Target = '_self' | '_blank'
 	export type Element = HTMLButtonElement | HTMLAnchorElement

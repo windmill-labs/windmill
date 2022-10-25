@@ -23,6 +23,7 @@
 	export let importPath: string | undefined = undefined
 
 	export let monaco: SimpleEditor | undefined = undefined
+	let argInput: ArgInput | undefined = undefined
 
 	let inputCat: InputCat = 'object'
 	let propertyType = getPropertyType(arg)
@@ -73,6 +74,27 @@
 
 	$: checked = propertyType == 'javascript'
 
+	function onFocus() {
+		{
+			if (isStaticTemplate(inputCat)) {
+				focusProp(argName, 'append', (path) => {
+					const toAppend = `\$\{${path}}`
+					arg.value = `${arg.value ?? ''}${toAppend}`
+					setPropertyType(arg.value)
+					argInput?.focus()
+					return false
+				})
+			} else {
+				focusProp(argName, 'insert', (path) => {
+					arg.expr = path
+					arg.type = 'javascript'
+					propertyType = 'javascript'
+					return true
+				})
+			}
+			argInput?.recomputeSize()
+		}
+	}
 	const { focusProp } = getContext<PropPickerWrapperContext>('PropPickerWrapper')
 </script>
 
@@ -130,6 +152,7 @@
 				on:click={() => {
 					focusProp(argName, 'connect', (path) => {
 						connectProperty(path)
+						return false
 					})
 				}}
 			>
@@ -141,21 +164,8 @@
 
 	{#if propertyType === undefined || !checked}
 		<ArgInput
-			on:focus={() => {
-				if (isStaticTemplate(inputCat)) {
-					focusProp(argName, 'append', (path) => {
-						const toAppend = `\$\{${path}}`
-						arg.value = `${arg.value ?? ''}${toAppend}`
-						setPropertyType(arg.value)
-					})
-				} else {
-					focusProp(argName, 'insert', (path) => {
-						arg.expr = path
-						arg.type = 'javascript'
-						propertyType = 'javascript'
-					})
-				}
-			}}
+			bind:this={argInput}
+			on:focus={() => onFocus()}
 			label={argName}
 			bind:editor={monaco}
 			bind:description={schema.properties[argName].description}
@@ -186,6 +196,7 @@
 					on:focus={() => {
 						focusProp(argName, 'insert', (path) => {
 							monaco?.insertAtCursor(path)
+							return false
 						})
 					}}
 					bind:code={arg.expr}

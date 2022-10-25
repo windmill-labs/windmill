@@ -1,5 +1,5 @@
 <script lang="ts">
-	import type { FlowModule } from '$lib/gen'
+	import { Script, type FlowModule } from '$lib/gen'
 	import { getContext } from 'svelte'
 
 	import type { FlowEditorContext } from '../types'
@@ -72,6 +72,10 @@
 					subkind,
 					flowModule.id
 				)
+
+				if (kind == Script.kind.APPROVAL) {
+					module.suspend = { required_events: 1, timeout: 1800 }
+				}
 
 				updateStores(module, state)
 			}}
