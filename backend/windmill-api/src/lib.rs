@@ -1,18 +1,18 @@
 use argon2::Argon2;
 use axum::{handler::Handler, middleware::from_extractor, routing::get, Extension, Router};
 use db::DB;
-use futures::FutureExt;
 use git_version::git_version;
 use std::{net::SocketAddr, sync::Arc};
 use tower::ServiceBuilder;
 use tower_cookies::CookieManagerLayer;
 use tower_http::trace::TraceLayer;
-use windmill_common::{error::to_anyhow, users::Authed, utils::rd_string};
+use windmill_common::{error::to_anyhow, utils::rd_string};
 
 use crate::{
     db::UserDB,
     oauth2::{build_oauth_clients, SlackVerifier},
     tracing_init::{MyMakeSpan, MyOnResponse},
+    users::Authed,
 };
 
 mod audit;
@@ -151,4 +151,8 @@ async fn git_v() -> &'static str {
 
 async fn openapi() -> &'static str {
     include_str!("../openapi.yaml")
+}
+pub async fn migrate_db(db: &DB) -> anyhow::Result<()> {
+    db::migrate(db).await?;
+    Ok(())
 }

@@ -21,8 +21,13 @@ windmill-common = { workspace = true, features = [
     "tokio",
     "hyper",
     "sqlx",
+    "tracing_init",
 ] }
 windmill-audit.workspace = true
+windmill-parser.workspace = true
+windmill-parser-ts.workspace = true
+windmill-parser-go.workspace = true
+windmill-parser-py.workspace = true
 tokio.workspace = true
 anyhow.workspace = true
 argon2.workspace = true
@@ -52,8 +57,8 @@ tracing-subscriber.workspace = true
 retainer.workspace = true
 rand.workspace = true
 time.workspace = true
-console-subscriber.workspace = true
 magic-crypt.workspace = true
 tempfile.workspace = true
 tokio-util.workspace = true
 tokio-tar.workspace = true
+hmac.workspace = true

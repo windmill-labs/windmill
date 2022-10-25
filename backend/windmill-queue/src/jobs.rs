@@ -19,7 +19,6 @@ use windmill_common::{
     error::{self, to_anyhow, Error},
     flows::FlowValue,
     scripts::{get_full_hub_script_by_path, HubScript, ScriptHash, ScriptLang},
-    users::Authed,
     utils::StripPath,
     worker_flow::{
         init_flow_status, FlowStatus, FlowStatusModule, MAX_RETRY_ATTEMPTS, MAX_RETRY_INTERVAL,
@@ -48,17 +47,17 @@ lazy_static::lazy_static! {
 const MAX_NB_OF_JOBS_IN_Q_PER_USER: i64 = 10;
 const MAX_DURATION_LAST_1200: std::time::Duration = std::time::Duration::from_secs(900);
 
-pub async fn cancel_job(
-    mut tx: Transaction<'_, Postgres>,
-    authed: Authed,
-    w_id: String,
+pub async fn cancel_job<'c>(
+    username: &str,
+    reason: Option<String>,
     id: Uuid,
-    reason: String,
-) -> error::Result<String> {
+    w_id: &str,
+    mut tx: Transaction<'c, Postgres>,
+) -> error::Result<(Transaction<'c, Postgres>, Option<Uuid>)> {
     let job_option = sqlx::query_scalar!(
         "UPDATE queue SET canceled = true, canceled_by = $1, canceled_reason = $2, scheduled_for = now(), suspend = 0 WHERE id = $3 \
          AND workspace_id = $4 RETURNING id",
-        authed.username,
+        username,
         reason,
         id,
         w_id
@@ -71,7 +70,7 @@ pub async fn cancel_job(
         let new_jobs = sqlx::query_scalar!(
             "UPDATE queue SET canceled = true, canceled_by = $1, canceled_reason = $2 WHERE parent_job = $3 \
              AND workspace_id = $4 RETURNING id",
-            authed.username,
+            username,
             reason,
             p_job,
             w_id
@@ -80,32 +79,7 @@ pub async fn cancel_job(
         .await?;
         jobs.extend(new_jobs);
     }
-
-    if let Some(id) = job_option {
-        audit_log(
-            &mut tx,
-            &authed.username,
-            "jobs.cancel",
-            ActionKind::Delete,
-            &w_id,
-            Some(&id.to_string()),
-            None,
-        )
-        .await?;
-        Ok(id.to_string())
-    } else {
-        todo!("this resolves a completed job. Why? This is an error state regardless.");
-        /*
-        let (job_o, tx) = get_job_by_id(tx, &w_id, id).await?;
-        let err = match job_o {
-            Some(Job::CompletedJob(_)) => error::Error::BadRequest(format!(
-                "queued job id {} exists but is already completed and cannot be canceled",
-                id
-            )),
-            _ => error::Error::NotFound(format!("queued job id {} does not exist", id)),
-        };
-        Err(err)*/
-    }
+    Ok((tx, job_option))
 }
 
 fn verify_secret(secret: String, w_id: &str, job_id: Uuid, resume_id: u32) -> error::Result<()> {
@@ -516,7 +490,8 @@ pub async fn get_hub_script(
     user: &str,
 ) -> error::Result<HubScript> {
     get_full_hub_script_by_path(
-        Authed { email, username: user.to_string(), is_admin: false, groups: vec![] },
+        email,
+        user.to_string(),
         StripPath(path),
         reqwest::ClientBuilder::new()
             .user_agent("windmill/beta")

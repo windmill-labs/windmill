@@ -6,9 +6,6 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
-use std::collections::HashMap;
-use std::time::Duration;
-
 use reqwest::Client;
 use sql_builder::prelude::*;
 
@@ -17,20 +14,21 @@ use axum::{
     routing::{get, post},
     Json, Router,
 };
-use serde::{Deserialize, Serialize};
 use sql_builder::SqlBuilder;
-use sqlx::{FromRow, Postgres, Transaction};
+use sqlx::{Postgres, Transaction};
 use windmill_audit::{audit_log, ActionKind};
 use windmill_common::{
-    error::{self, to_anyhow, Error, JsonResult},
+    error::{self, to_anyhow, Error, JsonResult, Result},
     flows::{Flow, ListFlowQuery, NewFlow},
-    users::Authed,
     utils::{
         http_get_from_hub, list_elems_from_hub, not_found_if_none, paginate, Pagination, StripPath,
     },
 };
 
-use crate::db::{UserDB, DB};
+use crate::{
+    db::{UserDB, DB},
+    users::Authed,
+};
 
 pub fn workspaced_service() -> Router {
     Router::new()
@@ -323,6 +321,8 @@ async fn archive_flow_by_path(
 #[cfg(test)]
 mod tests {
 
+    use std::{collections::HashMap, time::Duration};
+
     use windmill_common::{
         flows::{
             ConstantDelay, ExponentialDelay, FlowModule, FlowModuleValue, FlowValue,
@@ -330,9 +330,6 @@ mod tests {
         },
         scripts,
     };
-
-    // Note this useful idiom: importing names from outer (for mod tests) scope.
-    use super::*;
 
     const SECOND: Duration = Duration::from_secs(1);
 

@@ -12,6 +12,11 @@ tokio = ["dep:tokio"]
 axum = ["dep:axum", "dep:tracing"]
 reqwest = ["dep:reqwest"]
 prometheus = ["dep:tiny_http", "dep:prometheus"]
+tracing_init = [
+    "dep:console-subscriber",
+    "dep:tracing",
+    "dep:tracing-subscriber",
+]
 
 
 [lib]
@@ -37,3 +42,5 @@ axum = { workspace = true, optional = true }
 hyper = { workspace = true, optional = true }
 tokio = { workspace = true, optional = true }
 reqwest = { workspace = true, optional = true }
+console-subscriber = { workspace = true, optional = true }
+tracing-subscriber = { workspace = true, optional = true }

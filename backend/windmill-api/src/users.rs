@@ -32,7 +32,6 @@ use tracing::Span;
 use windmill_audit::{audit_log, ActionKind};
 use windmill_common::{
     error::{self, Error, JsonResult, Result},
-    users::Authed,
     utils::{not_found_if_none, paginate, require_admin, Pagination},
 };
 
@@ -276,6 +275,14 @@ where
             }
         }
     }
+}
+
+#[derive(Clone, Debug)]
+pub struct Authed {
+    pub email: Option<String>,
+    pub username: String,
+    pub is_admin: bool,
+    pub groups: Vec<String>,
 }
 
 #[async_trait]

@@ -8,7 +8,9 @@
 
 use sqlx::{postgres::PgPoolOptions, Pool, Postgres, Transaction};
 use std::time::Duration;
-use windmill_common::{error::Error, users::Authed};
+use windmill_common::error::Error;
+
+use crate::users::Authed;
 
 pub type DB = Pool<Postgres>;
 

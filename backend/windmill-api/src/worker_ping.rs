@@ -6,7 +6,7 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
-use crate::db::UserDB;
+use crate::{db::UserDB, users::Authed};
 use axum::{
     extract::{Extension, Query},
     routing::get,
@@ -17,7 +17,6 @@ use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
 use windmill_common::{
     error::JsonResult,
-    users::Authed,
     utils::{paginate, Pagination},
 };
 

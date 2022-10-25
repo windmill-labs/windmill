@@ -11,14 +11,9 @@ path = "./src/main.rs"
 
 [features]
 default = ["deno", "go", "python"]
-deno = [
-    "dep:deno_core",
-    "dep:swc_common",
-    "dep:swc_ecma_parser",
-    "dep:swc_ecma_ast",
-]
-go = ["dep:phf", "dep:unicode-general-category"]
-python = ["dep:rustpython-parser"]
+deno = ["dep:windmill-parser-ts", "dep:deno_core"]
+go = ["dep:windmill-parser-go"]
+python = ["dep:windmill-parser-py"]
 
 [dependencies]
 windmill-queue.workspace = true
@@ -27,8 +22,13 @@ windmill-common = { workspace = true, features = [
     "tokio",
     "sqlx",
     "prometheus",
+    "tracing_init",
 ] }
 windmill-api-client.workspace = true
+windmill-parser.workspace = true
+windmill-parser-ts = { workspace = true, optional = true }
+windmill-parser-go = { workspace = true, optional = true }
+windmill-parser-py = { workspace = true, optional = true }
 sqlx.workspace = true
 uuid.workspace = true
 tracing.workspace = true
@@ -46,9 +46,3 @@ chrono.workspace = true
 dotenv.workspace = true
 rand.workspace = true # TODO: Remove. only used by token creation hack.
 deno_core = { workspace = true, optional = true }
-swc_common = { workspace = true, optional = true }
-swc_ecma_parser = { workspace = true, optional = true }
-swc_ecma_ast = { workspace = true, optional = true }
-phf = { workspace = true, optional = true }
-unicode-general-category = { workspace = true, optional = true }
-rustpython-parser = { workspace = true, optional = true }

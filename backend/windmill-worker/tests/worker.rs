@@ -1,22 +1,22 @@
 use futures::Stream;
 use futures::StreamExt;
 use serde_json::json;
+use sqlx::Pool;
+use sqlx::Postgres;
 use sqlx::{postgres::PgListener, query_scalar};
 use uuid::Uuid;
-
-use crate::{
-    db::DB,
-    flows::{FlowModule, FlowModuleValue, FlowValue, InputTransform},
-    jobs::{push, JobPayload, RawCode},
-    scripts::ScriptLang,
-    DEFAULT_SLEEP_QUEUE,
-};
-
+use windmill_common::flows::FlowModule;
+use windmill_common::flows::FlowModuleValue;
+use windmill_common::flows::FlowValue;
+use windmill_common::flows::InputTransform;
+use windmill_common::scripts::ScriptLang;
+use windmill_queue::JobPayload;
+use windmill_queue::RawCode;
 async fn initialize_tracing() {
     use std::sync::Once;
 
     static ONCE: Once = Once::new();
-    ONCE.call_once(crate::tracing_init::initialize_tracing);
+    ONCE.call_once(windmill_common::tracing_init::initialize_tracing);
 }
 
 /// it's important this is unique between tests as there is one prometheus registry and
@@ -45,7 +45,7 @@ fn next_worker_name() -> String {
 }
 
 #[sqlx::test(fixtures("base"))]
-async fn test_deno_flow(db: DB) {
+async fn test_deno_flow(db: Pool<Postgres>) {
     initialize_tracing().await;
 
     let numbers = "export function main() { return [1, 2, 3]; }";
@@ -119,7 +119,7 @@ async fn test_deno_flow(db: DB) {
 }
 
 #[sqlx::test(fixtures("base"))]
-async fn test_deno_flow_same_worker(db: DB) {
+async fn test_deno_flow_same_worker(db: Pool<Postgres>) {
     initialize_tracing().await;
 
     let write_file = r#"export async function main(loop: boolean, i: number, path: string) {  
@@ -274,7 +274,7 @@ async fn test_deno_flow_same_worker(db: DB) {
 }
 
 #[sqlx::test(fixtures("base"))]
-async fn test_flow_result_by_id(db: DB) {
+async fn test_flow_result_by_id(db: Pool<Postgres>) {
     initialize_tracing().await;
 
     let server = ApiServer::start(db.clone()).await;
@@ -322,7 +322,7 @@ async fn test_flow_result_by_id(db: DB) {
     assert_eq!(result, serde_json::json!([[42]]));
 }
 #[sqlx::test(fixtures("base"))]
-async fn test_stop_after_if(db: DB) {
+async fn test_stop_after_if(db: Pool<Postgres>) {
     initialize_tracing().await;
 
     let flow: FlowValue = serde_json::from_value(serde_json::json!({
@@ -366,7 +366,7 @@ async fn test_stop_after_if(db: DB) {
 }
 
 #[sqlx::test(fixtures("base"))]
-async fn test_python_flow(db: DB) {
+async fn test_python_flow(db: Pool<Postgres>) {
     initialize_tracing().await;
 
     let numbers = "def main(): return [1, 2, 3]";
@@ -420,7 +420,7 @@ async fn test_python_flow(db: DB) {
 }
 
 #[sqlx::test(fixtures("base"))]
-async fn test_python_flow_2(db: DB) {
+async fn test_python_flow_2(db: Pool<Postgres>) {
     initialize_tracing().await;
 
     let flow: FlowValue = serde_json::from_value(serde_json::json!({
@@ -451,7 +451,7 @@ async fn test_python_flow_2(db: DB) {
 }
 
 #[sqlx::test(fixtures("base"))]
-async fn test_go_job(db: DB) {
+async fn test_go_job(db: Pool<Postgres>) {
     initialize_tracing().await;
 
     let content = r#"
@@ -477,7 +477,7 @@ func main(derp string) (string, error) {
 }
 
 #[sqlx::test(fixtures("base"))]
-async fn test_python_job(db: DB) {
+async fn test_python_job(db: Pool<Postgres>) {
     initialize_tracing().await;
 
     let content = r#"
@@ -494,7 +494,7 @@ def main():
 }
 
 #[sqlx::test(fixtures("base"))]
-async fn test_python_job_heavy_dep(db: DB) {
+async fn test_python_job_heavy_dep(db: Pool<Postgres>) {
     initialize_tracing().await;
 
     let content = r#"
@@ -514,7 +514,7 @@ def main():
 }
 
 #[sqlx::test(fixtures("base"))]
-async fn test_python_job_with_imports(db: DB) {
+async fn test_python_job_with_imports(db: Pool<Postgres>) {
     initialize_tracing().await;
 
     let content = r#"
@@ -533,7 +533,7 @@ def main():
 }
 
 #[sqlx::test(fixtures("base"))]
-async fn test_empty_loop(db: DB) {
+async fn test_empty_loop(db: Pool<Postgres>) {
     initialize_tracing().await;
 
     let flow: FlowValue = serde_json::from_value(serde_json::json!({
@@ -583,7 +583,7 @@ async fn test_empty_loop(db: DB) {
 }
 
 #[sqlx::test(fixtures("base"))]
-async fn test_empty_loop_2(db: DB) {
+async fn test_empty_loop_2(db: Pool<Postgres>) {
     initialize_tracing().await;
 
     let flow: FlowValue = serde_json::from_value(serde_json::json!({
@@ -620,7 +620,7 @@ async fn test_empty_loop_2(db: DB) {
 }
 
 #[sqlx::test(fixtures("base"))]
-async fn test_step_after_loop(db: DB) {
+async fn test_step_after_loop(db: Pool<Postgres>) {
     initialize_tracing().await;
 
     let flow: FlowValue = serde_json::from_value(serde_json::json!({
@@ -701,7 +701,7 @@ fn module_failure() -> serde_json::Value {
 }
 
 #[sqlx::test(fixtures("base"))]
-async fn test_branchone_simple(db: DB) {
+async fn test_branchone_simple(db: Pool<Postgres>) {
     initialize_tracing().await;
 
     let flow: FlowValue = serde_json::from_value(json!({
@@ -731,7 +731,7 @@ async fn test_branchone_simple(db: DB) {
 }
 
 #[sqlx::test(fixtures("base"))]
-async fn test_branchall_simple(db: DB) {
+async fn test_branchall_simple(db: Pool<Postgres>) {
     initialize_tracing().await;
 
     let flow: FlowValue = serde_json::from_value(json!({
@@ -762,7 +762,7 @@ async fn test_branchall_simple(db: DB) {
 }
 
 #[sqlx::test(fixtures("base"))]
-async fn test_branchall_skip_failure(db: DB) {
+async fn test_branchall_skip_failure(db: Pool<Postgres>) {
     initialize_tracing().await;
 
     let flow: FlowValue = serde_json::from_value(json!({
@@ -826,7 +826,7 @@ async fn test_branchall_skip_failure(db: DB) {
 }
 
 #[sqlx::test(fixtures("base"))]
-async fn test_branchone_nested(db: DB) {
+async fn test_branchone_nested(db: Pool<Postgres>) {
     initialize_tracing().await;
 
     let flow: FlowValue = serde_json::from_value(json!({
@@ -877,7 +877,7 @@ async fn test_branchone_nested(db: DB) {
 }
 
 #[sqlx::test(fixtures("base"))]
-async fn test_branchall_nested(db: DB) {
+async fn test_branchall_nested(db: Pool<Postgres>) {
     initialize_tracing().await;
 
     let flow: FlowValue = serde_json::from_value(json!({
@@ -928,7 +928,7 @@ async fn test_branchall_nested(db: DB) {
 }
 
 #[sqlx::test(fixtures("base"))]
-async fn test_failure_module(db: DB) {
+async fn test_failure_module(db: Pool<Postgres>) {
     initialize_tracing().await;
 
     let flow: FlowValue = serde_json::from_value(serde_json::json!({
@@ -1015,7 +1015,7 @@ pub struct ApiServer {
 }
 
 impl ApiServer {
-    pub async fn start(db: DB) -> Self {
+    pub async fn start(db: Pool<Postgres>) -> Self {
         let (tx, rx) = tokio::sync::broadcast::channel::<()>(1);
 
         let sock = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -1145,7 +1145,7 @@ mod suspend_resume {
     }
 
     #[sqlx::test(fixtures("base"))]
-    async fn test(db: DB) {
+    async fn test(db: Pool<Postgres>) {
         initialize_tracing().await;
 
         let server = ApiServer::start(db.clone()).await;
@@ -1226,7 +1226,7 @@ mod suspend_resume {
     }
 
     #[sqlx::test(fixtures("base"))]
-    async fn cancel_from_job(db: DB) {
+    async fn cancel_from_job(db: Pool<Postgres>) {
         initialize_tracing().await;
 
         let server = ApiServer::start(db.clone()).await;
@@ -1248,7 +1248,7 @@ mod suspend_resume {
     }
 
     #[sqlx::test(fixtures("base"))]
-    async fn cancel_after_suspend(db: DB) {
+    async fn cancel_after_suspend(db: Pool<Postgres>) {
         initialize_tracing().await;
 
         let server = ApiServer::start(db.clone()).await;
@@ -1416,7 +1416,7 @@ def main(last, port):
     }
 
     #[sqlx::test(fixtures("base"))]
-    async fn test_pass(db: DB) {
+    async fn test_pass(db: Pool<Postgres>) {
         initialize_tracing().await;
 
         /* fails twice in the loop, then once on the last step
@@ -1453,7 +1453,7 @@ def main(last, port):
     }
 
     #[sqlx::test(fixtures("base"))]
-    async fn test_fail_step_zero(db: DB) {
+    async fn test_fail_step_zero(db: Pool<Postgres>) {
         initialize_tracing().await;
 
         /* attempt and fail the first step three times and stop */
@@ -1483,7 +1483,7 @@ def main(last, port):
     }
 
     #[sqlx::test(fixtures("base"))]
-    async fn test_fail_step_one(db: DB) {
+    async fn test_fail_step_one(db: Pool<Postgres>) {
         initialize_tracing().await;
 
         /* attempt and fail the first step three times and stop */
@@ -1515,7 +1515,7 @@ def main(last, port):
     }
 
     #[sqlx::test(fixtures("base"))]
-    async fn test_with_failure_module(db: DB) {
+    async fn test_with_failure_module(db: Pool<Postgres>) {
         let value = serde_json::from_value(json!({
             "modules": [{
                 "input_transform": { "port": { "type": "javascript", "expr": "flow_input.port" } },
@@ -1576,7 +1576,7 @@ def main(error, port):
 }
 
 #[sqlx::test(fixtures("base"))]
-async fn test_iteration(db: DB) {
+async fn test_iteration(db: Pool<Postgres>) {
     initialize_tracing().await;
 
     let flow: FlowValue = serde_json::from_value(serde_json::json!({

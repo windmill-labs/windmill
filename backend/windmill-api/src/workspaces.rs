@@ -9,7 +9,7 @@
 use crate::{
     db::{UserDB, DB},
     resources::{Resource, ResourceType},
-    users::WorkspaceInvite,
+    users::{Authed, WorkspaceInvite},
     utils::require_super_admin,
 };
 use axum::{
@@ -25,7 +25,6 @@ use windmill_common::{
     error::{Error, JsonResult, Result},
     flows::Flow,
     scripts::{Schema, Script},
-    users::Authed,
     utils::{paginate, rd_string, require_admin, Pagination},
     variables::ListableVariable,
 };

@@ -10,6 +10,7 @@ use axum::{
     routing::{get, post},
     Json, Router,
 };
+use hmac::Mac;
 use hyper::StatusCode;
 use itertools::Itertools;
 
@@ -20,14 +21,13 @@ use sqlx::{Postgres, Transaction};
 use tokio::{fs::File, io::AsyncReadExt};
 use tower_cookies::{Cookie, Cookies};
 use windmill_audit::{audit_log, ActionKind};
-use windmill_common::users::Authed;
 use windmill_common::utils::{not_found_if_none, now_from_db};
 
 use crate::jobs::get_latest_hash_for_path;
+use crate::users::Authed;
 use crate::IsSecure;
 use crate::{
     db::{UserDB, DB},
-    jobs,
     variables::{build_crypt, encrypt},
     workspaces::WorkspaceSettings,
     BaseUrl,

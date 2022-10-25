@@ -51,8 +51,8 @@ pub struct StopAfterIf {
 #[derive(Deserialize, Serialize, Debug, Clone, Default, PartialEq)]
 #[serde(default)]
 pub struct Retry {
-    constant: ConstantDelay,
-    exponential: ExponentialDelay,
+    pub constant: ConstantDelay,
+    pub exponential: ExponentialDelay,
 }
 
 impl Retry {

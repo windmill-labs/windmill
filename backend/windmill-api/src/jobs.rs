@@ -1,20 +1,22 @@
+use anyhow::Context;
 use axum::{
     extract::{FromRequest, Path, Query},
     response::{IntoResponse, Response},
     routing::{get, post},
     Extension, Json, Router,
 };
+use hmac::Mac;
 use hyper::StatusCode;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
-use sql_builder::{quote, SqlBuilder};
+use sql_builder::{prelude::*, quote, SqlBuilder};
 use sqlx::{query_scalar, types::Uuid, Postgres, Transaction};
 use windmill_audit::{audit_log, ActionKind};
 use windmill_common::{
-    error::{self, to_anyhow, Error},
+    error::{self, to_anyhow, Error, Result},
     flows::FlowValue,
     oauth2::HmacSha256,
     scripts::{ScriptHash, ScriptLang},
-    users::{owner_to_token_owner, Authed},
+    users::owner_to_token_owner,
     utils::{not_found_if_none, now_from_db, paginate, require_admin, Pagination, StripPath},
     worker_flow::{Approval, FlowStatus, FlowStatusModule},
 };
@@ -22,6 +24,7 @@ use windmill_queue::{get_queued_job, push, JobKind, JobPayload, QueuedJob, RawCo
 
 use crate::{
     db::{UserDB, DB},
+    users::Authed,
     variables::get_workspace_key,
 };
 
@@ -42,7 +45,7 @@ pub fn workspaced_service() -> Router {
         .route("/run/preview_flow", post(run_preview_flow_job))
         .route("/list", get(list_jobs))
         .route("/queue/list", get(list_queue_jobs))
-        .route("/queue/cancel/:id", post(cancel_job))
+        .route("/queue/cancel/:id", post(cancel_job_api))
         .route("/completed/list", get(list_completed_jobs))
         .route("/completed/get/:id", get(get_completed_job))
         .route("/completed/get_result/:id", get(get_completed_job_result))
@@ -54,7 +57,7 @@ pub fn workspaced_service() -> Router {
             get(create_job_signature),
         )
         .route("/result_by_id/:job_id/:node_id", get(get_result_by_id))
-        .route("/hash/p/*script_path", get_latest_hash_for_path_api)
+        .route("/hash/p/*script_path", get(get_latest_hash_for_path_api))
         .route(
             "/get_flow/:job_id/:resume_id/:secret",
             get(get_suspended_job_flow),
@@ -83,36 +86,63 @@ pub fn global_service() -> Router {
 
 async fn get_result_by_id(
     Extension(db): Extension<DB>,
-    Query(ResultByIdQuery { mut skip_direct }): Query<ResultByIdQuery>,
+    Query(ResultByIdQuery { skip_direct }): Query<ResultByIdQuery>,
     Path((w_id, flow_id, node_id)): Path<(String, String, String)>,
 ) -> windmill_common::error::JsonResult<serde_json::Value> {
     let res = windmill_queue::get_result_by_id(db, skip_direct, w_id, flow_id, node_id).await?;
     Ok(Json(res))
 }
 
-async fn cancel_job(
+async fn cancel_job_api(
     authed: Authed,
     Extension(user_db): Extension<UserDB>,
     Path((w_id, id)): Path<(String, Uuid)>,
     Json(CancelJob { reason }): Json<CancelJob>,
 ) -> error::Result<String> {
-    let mut tx = user_db.begin(&authed).await?;
-    let res = windmill_queue::cancel_job(tx, authed, w_id, id, reason).await?;
-    tx.commit().await?;
-    Ok(res)
+    let tx = user_db.begin(&authed).await?;
+
+    let (mut tx, job_option) =
+        windmill_queue::cancel_job(&authed.username, reason, id, &w_id, tx).await?;
+
+    if let Some(id) = job_option {
+        audit_log(
+            &mut tx,
+            &authed.username,
+            "jobs.cancel",
+            ActionKind::Delete,
+            &w_id,
+            Some(&id.to_string()),
+            None,
+        )
+        .await?;
+        tx.commit().await?;
+        Ok(id.to_string())
+    } else {
+        let (job_o, tx) = get_job_by_id(tx, &w_id, id).await?;
+        tx.commit().await?;
+        let err = match job_o {
+            Some(Job::CompletedJob(_)) => error::Error::BadRequest(format!(
+                "queued job id {} exists but is already completed and cannot be canceled",
+                id
+            )),
+            _ => error::Error::NotFound(format!("queued job id {} does not exist", id)),
+        };
+        Err(err)
+    }
 }
 
+// MARKER: NEW API ENDPOINT
 async fn get_latest_hash_for_path_api(
     Extension(db): Extension<DB>,
     Path((w_id, script_path)): Path<(String, StripPath)>,
 ) -> error::JsonResult<ScriptHash> {
     Ok(Json(
-        get_latest_hash_for_path(&db, &w_id, script_path).await?,
+        get_latest_hash_for_path(&mut db.begin().await?, &w_id, &script_path.0).await?,
     ))
 }
 
 pub async fn get_latest_hash_for_path<'c>(
-    db: &DB,
+    db: &mut Transaction<'c, Postgres>,
     w_id: &str,
     script_path: &str,
 ) -> error::Result<ScriptHash> {
@@ -133,7 +163,11 @@ pub async fn get_latest_hash_for_path<'c>(
     Ok(ScriptHash(script_hash))
 }
 
-pub async fn get_path_for_hash<'c>(db: &DB, w_id: &str, hash: i64) -> error::Result<String> {
+pub async fn get_path_for_hash<'c>(
+    db: &mut Transaction<'c, Postgres>,
+    w_id: &str,
+    hash: i64,
+) -> error::Result<String> {
     let path = sqlx::query_scalar!(
         "select path from script where hash = $1 AND (workspace_id = $2 OR workspace_id = \
          'starter')",
@@ -323,7 +357,7 @@ async fn list_jobs(
     Query(pagination): Query<Pagination>,
     Query(lq): Query<ListCompletedQuery>,
 ) -> error::JsonResult<Vec<Job>> {
-    todo!("rewrite this to just run list_queue_jobs and list_completed_jobs separately and return as one");
+    // TODO: todo!("rewrite this to just run list_queue_jobs and list_completed_jobs separately and return as one");
     let (per_page, offset) = paginate(pagination);
     let lqc = lq.clone();
     let sqlq = list_queue_jobs_query(
@@ -938,7 +972,7 @@ where
 
     async fn from_request(
         req: &mut axum::extract::RequestParts<B>,
-    ) -> Result<Self, Self::Rejection> {
+    ) -> std::result::Result<Self, Self::Rejection> {
         return if req.method() == axum::http::Method::GET {
             let Query(InPayload { payload }) = Query::from_request(req)
                 .await
@@ -1126,7 +1160,7 @@ pub async fn script_path_to_payload<'c>(
     script_path: &str,
     db: &mut Transaction<'c, Postgres>,
     w_id: &String,
-) -> Result<JobPayload, Error> {
+) -> std::result::Result<JobPayload, Error> {
     let job_payload = if script_path.starts_with("hub/") {
         JobPayload::ScriptHub { path: script_path.to_owned() }
     } else {

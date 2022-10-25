@@ -12,6 +12,10 @@ members = [
     "./windmill-common",
     "./windmill-audit",
     "./windmill-api-client",
+    "./parsers/windmill-parser",
+    "./parsers/windmill-parser-ts",
+    "./parsers/windmill-parser-go",
+    "./parsers/windmill-parser-py",
 ]
 
 [workspace.package]
@@ -34,6 +38,10 @@ windmill-queue = { path = "./windmill-queue" }
 windmill-worker = { path = "./windmill-worker" }
 windmill-common = { path = "./windmill-common" }
 windmill-audit = { path = "./windmill-audit" }
+windmill-parser = { path = "./parsers/windmill-parser" }
+windmill-parser-ts = { path = "./parsers/windmill-parser-ts" }
+windmill-parser-py = { path = "./parsers/windmill-parser-py" }
+windmill-parser-go = { path = "./parsers/windmill-parser-go" }
 tiny_http = "0.12.0"
 axum = { version = "^0", features = ["headers"] }
 headers = "^0"

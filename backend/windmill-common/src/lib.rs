@@ -11,6 +11,9 @@ pub mod utils;
 pub mod variables;
 pub mod worker_flow;
 
+#[cfg(feature = "tracing_init")]
+pub mod tracing_init;
+
 pub const DEFAULT_NUM_WORKERS: usize = 3;
 pub const DEFAULT_TIMEOUT: i32 = 300;
 pub const DEFAULT_SLEEP_QUEUE: u64 = 50;
@@ -40,10 +43,13 @@ pub async fn shutdown_signal(tx: tokio::sync::broadcast::Sender<()>) -> anyhow::
 #[cfg(feature = "prometheus")]
 pub async fn serve_metrics(
     addr: SocketAddr,
-    mut rx: tokio::sync::broadcast::Receiver<()>,
+    rx: tokio::sync::broadcast::Receiver<()>,
 ) -> Result<(), anyhow::Error> {
+    use tokio::task::yield_now;
+
     let server = tiny_http::Server::http(addr).map_err(|e| anyhow::anyhow!(e.to_string()))?;
     for request in server.incoming_requests() {
+        yield_now().await;
         if !rx.is_empty() {
             break;
         }
@@ -59,4 +65,37 @@ async fn metrics() -> Result<String, error::Error> {
     Ok(prometheus::TextEncoder::new()
         .encode_to_string(&metric_families)
         .map_err(anyhow::Error::from)?)
+}
+
+#[cfg(feature = "sqlx")]
+pub async fn connect_db() -> anyhow::Result<sqlx::Pool<sqlx::Postgres>> {
+    use anyhow::Context;
+    use error::Error;
+
+    let database_url = std::env::var("DATABASE_URL")
+        .map_err(|_| Error::BadConfig("DATABASE_URL env var is missing".to_string()))?;
+
+    let max_connections = match std::env::var("DATABASE_CONNECTIONS") {
+        Ok(n) => n.parse::<u32>().context("invalid DATABASE_CONNECTIONS")?,
+        Err(_) => DEFAULT_MAX_CONNECTIONS,
+    };
+
+    Ok(connect(&database_url, max_connections).await?)
+}
+
+#[cfg(feature = "sqlx")]
+pub async fn connect(
+    database_url: &str,
+    max_connections: u32,
+) -> Result<sqlx::Pool<sqlx::Postgres>, error::Error> {
+    use std::time::Duration;
+
+    use crate::error::Error;
+
+    sqlx::postgres::PgPoolOptions::new()
+        .max_connections(max_connections)
+        .max_lifetime(Duration::from_secs(30 * 60)) // 30 mins
+        .connect(database_url)
+        .await
+        .map_err(|err| Error::ConnectingToDatabase(err.to_string()))
 }

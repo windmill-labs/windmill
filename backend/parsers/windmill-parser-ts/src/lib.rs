@@ -5,12 +5,9 @@
  * Please see the included NOTICE for copyright information and
  * LICENSE-AGPL for a copy of the license.
  */
-
-use crate::{
-    js_eval::eval_sync,
-    parser::{Arg, MainArgSignature, ObjectProperty, Typ},
-};
+use deno_core::{serde_v8, v8, JsRuntime, RuntimeOptions};
 use windmill_common::error;
+use windmill_parser::{Arg, MainArgSignature, ObjectProperty, Typ};
 
 use serde_json::Value;
 use swc_common::{sync::Lrc, FileName, SourceMap, SourceMapper, Spanned};
@@ -260,6 +257,25 @@ fn tstype_to_typ(ts_type: &TsType) -> (Typ, bool) {
             }
         }
         _ => (Typ::Unknown, false),
+    }
+}
+
+pub fn eval_sync(code: &str) -> Result<serde_json::Value, String> {
+    let mut context = JsRuntime::new(RuntimeOptions::default());
+    let code = format!("let x = {}; x", code);
+    let res = context.execute_script("<anon>", &code);
+    match res {
+        Ok(global) => {
+            let scope = &mut context.handle_scope();
+            let local = v8::Local::new(scope, global);
+            let deserialized_value = serde_v8::from_v8::<serde_json::Value>(scope, local);
+
+            match deserialized_value {
+                Ok(value) => Ok(value),
+                Err(err) => Err(format!("Cannot deserialize value: {:?}", err)),
+            }
+        }
+        Err(err) => Err(format!("Evaling error: {:?}", err)),
     }
 }
 

@@ -4220,11 +4220,11 @@ dependencies = [
  "axum",
  "base64",
  "chrono",
- "console-subscriber",
  "cron",
  "futures",
  "git-version",
  "hex",
+ "hmac",
  "hyper",
  "itertools 0.10.5",
  "magic-crypt",
@@ -4250,6 +4250,10 @@ dependencies = [
  "tracing-subscriber",
  "windmill-audit",
  "windmill-common",
+ "windmill-parser",
+ "windmill-parser-go",
+ "windmill-parser-py",
+ "windmill-parser-ts",
  "windmill-queue",
 ]
 
@@ -4285,6 +4289,7 @@ dependencies = [
  "anyhow",
  "axum",
  "chrono",
+ "console-subscriber",
  "hex",
  "hmac",
  "hyper",
@@ -4299,7 +4304,56 @@ dependencies = [
  "tiny_http",
  "tokio",
  "tracing",
+ "tracing-subscriber",
  "uuid",
+]
+
+[[package]]
+name = "windmill-parser"
+version = "1.39.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "windmill-parser-go"
+version = "1.39.0"
+dependencies = [
+ "anyhow",
+ "itertools 0.8.2",
+ "phf",
+ "unicode-general-category",
+ "windmill-common",
+ "windmill-parser",
+]
+
+[[package]]
+name = "windmill-parser-py"
+version = "1.39.0"
+dependencies = [
+ "anyhow",
+ "itertools 0.8.2",
+ "phf",
+ "regex",
+ "rustpython-parser",
+ "serde_json",
+ "windmill-common",
+ "windmill-parser",
+]
+
+[[package]]
+name = "windmill-parser-ts"
+version = "1.39.0"
+dependencies = [
+ "anyhow",
+ "deno_core",
+ "serde_json",
+ "swc_common",
+ "swc_ecma_ast",
+ "swc_ecma_parser",
+ "windmill-common",
+ "windmill-parser",
 ]
 
 [[package]]
@@ -4336,24 +4390,22 @@ dependencies = [
  "futures",
  "itertools 0.10.5",
  "lazy_static",
- "phf",
  "prometheus",
  "rand 0.8.5",
  "regex",
- "rustpython-parser",
  "serde",
  "serde_json",
  "sqlx",
- "swc_common",
- "swc_ecma_ast",
- "swc_ecma_parser",
  "tokio",
  "tracing",
- "unicode-general-category",
  "uuid",
  "windmill-api-client",
  "windmill-audit",
  "windmill-common",
+ "windmill-parser",
+ "windmill-parser-go",
+ "windmill-parser-py",
+ "windmill-parser-ts",
  "windmill-queue",
 ]
 

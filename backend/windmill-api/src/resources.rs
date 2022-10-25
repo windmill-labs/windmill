@@ -6,7 +6,10 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
-use crate::db::{UserDB, DB};
+use crate::{
+    db::{UserDB, DB},
+    users::Authed,
+};
 use axum::{
     extract::{Extension, Path, Query},
     routing::{delete, get, post},
@@ -19,7 +22,6 @@ use sqlx::FromRow;
 use windmill_audit::{audit_log, ActionKind};
 use windmill_common::{
     error::{Error, JsonResult, Result},
-    users::Authed,
     utils::{not_found_if_none, paginate, require_admin, Pagination, StripPath},
 };
 

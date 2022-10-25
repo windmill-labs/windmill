@@ -7,7 +7,7 @@ use serde::de::Error as _;
 use serde::{ser::SerializeSeq, Deserialize, Deserializer, Serialize};
 use serde_json::to_string_pretty;
 
-use crate::{users::Authed, utils::StripPath};
+use crate::utils::StripPath;
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone, Hash)]
 #[cfg_attr(feature = "sqlx", derive(sqlx::Type))]
@@ -40,7 +40,7 @@ pub struct ScriptHash(pub i64);
 #[derive(PartialEq)]
 #[cfg_attr(feature = "sqlx", derive(sqlx::Type))]
 #[cfg_attr(feature = "sqlx", sqlx(transparent))]
-pub struct ScriptHashes(Vec<i64>);
+pub struct ScriptHashes(pub Vec<i64>);
 
 impl Display for ScriptHash {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -176,7 +176,8 @@ pub fn to_hex_string(i: &i64) -> String {
 
 #[cfg(feature = "reqwest")]
 pub async fn get_hub_script_by_path(
-    Authed { email, username, .. }: Authed,
+    email: Option<String>,
+    username: String,
     path: StripPath,
     http_client: reqwest::Client,
     host: String,
@@ -208,7 +209,8 @@ pub async fn get_hub_script_by_path(
 
 #[cfg(feature = "reqwest")]
 pub async fn get_full_hub_script_by_path(
-    Authed { email, username, .. }: Authed,
+    email: Option<String>,
+    username: String,
     path: StripPath,
     http_client: reqwest::Client,
     host: String,

@@ -956,7 +956,7 @@ async fn handle_go_job(
     job_api_config.bearer_access_token = Some(token.clone());
     create_args_and_out_file(&job_api_config, job, job_dir).await?;
     {
-        let sig = crate::parser_go::parse_go_sig(&inner_content)?;
+        let sig = windmill_parser_go::parse_go_sig(&inner_content)?;
         drop(inner_content);
 
         const WRAPPER_CONTENT: &str = r#"package main
@@ -1021,7 +1021,7 @@ func main() {{
                     format!(
                         "{} {} `json:\"{}\"`",
                         capitalize(&x.name),
-                        crate::parser_go::otyp_to_string(x.otyp),
+                        windmill_parser_go::otyp_to_string(x.otyp),
                         x.name
                     )
                 })
@@ -1117,7 +1117,7 @@ async fn handle_deno_job(
     set_logs(logs, job.id, db).await;
     let _ = write_file(job_dir, "inner.ts", inner_content).await?;
     let sig = trace_span!("parse_deno_signature")
-        .in_scope(|| crate::parser_ts::parse_deno_signature(inner_content))?;
+        .in_scope(|| windmill_parser_ts::parse_deno_signature(inner_content))?;
     let token = create_token_for_owner(
         &db,
         &job.workspace_id,
@@ -1264,7 +1264,7 @@ async fn handle_python_job(
     let requirements = match requirements_o {
         Some(r) => r,
         None => {
-            let requirements = crate::parser_py::parse_python_imports(&inner_content)?.join("\n");
+            let requirements = windmill_parser_py::parse_python_imports(&inner_content)?.join("\n");
             if requirements.is_empty() {
                 "".to_string()
             } else {
@@ -1394,19 +1394,19 @@ async fn handle_python_job(
 
     let _ = write_file(job_dir, "inner.py", inner_content).await?;
 
-    let sig = crate::parser_py::parse_python_signature(inner_content)?;
+    let sig = windmill_parser_py::parse_python_signature(inner_content)?;
     let transforms = sig
         .args
         .into_iter()
         .map(|x| match x.typ {
-            crate::parser::Typ::Bytes => {
+            windmill_parser::Typ::Bytes => {
                 format!(
                     "if \"{}\" in kwargs and kwargs[\"{}\"] is not None:\n    \
                                      kwargs[\"{}\"] = base64.b64decode(kwargs[\"{}\"])\n",
                     x.name, x.name, x.name, x.name
                 )
             }
-            crate::parser::Typ::Datetime => {
+            windmill_parser::Typ::Datetime => {
                 format!(
                     "if \"{}\" in kwargs and kwargs[\"{}\"] is not None:\n    \
                                      kwargs[\"{}\"] = datetime.strptime(kwargs[\"{}\"], \

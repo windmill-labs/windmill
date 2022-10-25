@@ -7,13 +7,12 @@
  */
 
 use reqwest::Client;
-use serde::Deserializer;
 use sql_builder::prelude::*;
 use windmill_audit::{audit_log, ActionKind};
 
 use crate::{
     db::{UserDB, DB},
-    users::{truncate_token, Tokened},
+    users::{truncate_token, Authed, Tokened},
 };
 use axum::{
     extract::{Extension, Host, Path, Query},
@@ -21,21 +20,20 @@ use axum::{
     Json, Router,
 };
 use hyper::StatusCode;
-use serde::{de::Error as _, ser::SerializeSeq, Deserialize, Serialize};
-use serde_json::{json, to_string_pretty};
+use serde::Serialize;
+use serde_json::json;
 use sql_builder::SqlBuilder;
 use sqlx::{FromRow, Postgres, Transaction};
 use std::{
     collections::hash_map::DefaultHasher,
-    fmt::Display,
     hash::{Hash, Hasher},
 };
 use windmill_common::{
-    error::{to_anyhow, Error, JsonResult, Result},
+    error::{Error, JsonResult, Result},
     scripts::{
         to_i64, HubScript, ListScriptQuery, NewScript, Script, ScriptHash, ScriptKind, ScriptLang,
     },
-    users::{owner_to_token_owner, Authed},
+    users::owner_to_token_owner,
     utils::{
         list_elems_from_hub, not_found_if_none, paginate, require_admin, Pagination, StripPath,
     },
@@ -312,7 +310,9 @@ async fn create_script(
 
     let mut tx = if ns.lock.is_none() && ns.language != ScriptLang::Deno {
         let dependencies = match ns.language {
-            ScriptLang::Python3 => parser_py::parse_python_imports(&ns.content)?.join("\n"),
+            ScriptLang::Python3 => {
+                windmill_parser_py::parse_python_imports(&ns.content)?.join("\n")
+            }
             _ => ns.content,
         };
         let (_, tx) = windmill_queue::push(
@@ -382,18 +382,31 @@ pub async fn get_hub_script_by_path(
     Extension(http_client): Extension<Client>,
     Host(host): Host,
 ) -> Result<String> {
-    windmill_common::scripts::get_hub_script_by_path(authed, path, http_client, host).await
+    windmill_common::scripts::get_hub_script_by_path(
+        authed.email,
+        authed.username,
+        path,
+        http_client,
+        host,
+    )
+    .await
 }
 
 pub async fn get_full_hub_script_by_path(
-    authed: Authed,
+    Authed { username, email, .. }: Authed,
     Path(path): Path<StripPath>,
     Extension(http_client): Extension<Client>,
     Host(host): Host,
 ) -> JsonResult<HubScript> {
     Ok(Json(
-        windmill_common::scripts::get_full_hub_script_by_path(authed, path, http_client, host)
-            .await?,
+        windmill_common::scripts::get_full_hub_script_by_path(
+            email,
+            username,
+            path,
+            http_client,
+            host,
+        )
+        .await?,
     ))
 }
 
@@ -636,17 +649,17 @@ async fn delete_script_by_hash(
 
 async fn parse_python_code_to_jsonschema(
     Json(code): Json<String>,
-) -> JsonResult<parser::MainArgSignature> {
-    parser_py::parse_python_signature(&code).map(Json)
+) -> JsonResult<windmill_parser::MainArgSignature> {
+    windmill_parser_py::parse_python_signature(&code).map(Json)
 }
 
 async fn parse_deno_code_to_jsonschema(
     Json(code): Json<String>,
-) -> JsonResult<parser::MainArgSignature> {
-    parser_ts::parse_deno_signature(&code).map(Json)
+) -> JsonResult<windmill_parser::MainArgSignature> {
+    windmill_parser_ts::parse_deno_signature(&code).map(Json)
 }
 async fn parse_go_code_to_jsonschema(
     Json(code): Json<String>,
-) -> JsonResult<parser::MainArgSignature> {
-    parser_go::parse_go_sig(&code).map(Json)
+) -> JsonResult<windmill_parser::MainArgSignature> {
+    windmill_parser_go::parse_go_sig(&code).map(Json)
 }

@@ -2064,8 +2064,7 @@ paths:
           content:
             application/json:
               schema:
-                type: integer
-                format: int64
+                type: string
 
   /w/{workspace}/jobs/run_wait_result/p/{path}:
     post:

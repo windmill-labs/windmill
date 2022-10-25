@@ -20,7 +20,7 @@ use windmill_common::{
 async fn main() -> anyhow::Result<()> {
     // dotenv().ok();
 
-    // TODO: setup tracing
+    windmill_common::tracing_init::initialize_tracing();
 
     let db = async {
         let database_url = std::env::var("DATABASE_URL")

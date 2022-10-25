@@ -57,23 +57,6 @@ use crate::{
 pub use crate::tracing_init::initialize_tracing;
 pub use crate::worker::WorkerConfig;
 
-pub async fn migrate_db(db: &DB) -> anyhow::Result<()> {
-    db::migrate(db).await?;
-    Ok(())
-}
-
-pub async fn connect_db() -> anyhow::Result<DB> {
-    let database_url = std::env::var("DATABASE_URL")
-        .map_err(|_| Error::BadConfig("DATABASE_URL env var is missing".to_string()))?;
-
-    let max_connections = match std::env::var("DATABASE_CONNECTIONS") {
-        Ok(n) => n.parse::<u32>().context("invalid DATABASE_CONNECTIONS")?,
-        Err(_) => DEFAULT_MAX_CONNECTIONS,
-    };
-
-    Ok(db::connect(&database_url, max_connections).await?)
-}
-
 pub fn monitor_db(db: &DB, timeout: i32, rx: tokio::sync::broadcast::Receiver<()>) {
     let db1 = db.clone();
     let db2 = db.clone();

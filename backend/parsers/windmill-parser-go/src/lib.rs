@@ -1,14 +1,17 @@
 #![allow(non_snake_case)] // TODO: switch to parse_* function naming
 
+mod parser_go_ast;
+mod parser_go_scanner;
+mod parser_go_token;
+
 use itertools::Itertools;
 
-use crate::parser::{Arg, MainArgSignature, ObjectProperty, Typ};
-use crate::parser_go_ast::{self, FieldList, Ident, StructType};
-use crate::parser_go_ast::{Decl, Expr};
-use crate::parser_go_scanner;
-use crate::parser_go_token::{Position, Token};
+use parser_go_ast::{Decl, Expr};
+use parser_go_ast::{FieldList, Ident, StructType};
+use parser_go_token::{Position, Token};
 use std::fmt;
 use windmill_common::error::to_anyhow;
+use windmill_parser::{Arg, MainArgSignature, ObjectProperty, Typ};
 
 pub fn parse_go_sig(code: &str) -> windmill_common::error::Result<MainArgSignature> {
     let filtered_code = filter_non_main(code);
@@ -107,7 +110,7 @@ pub fn otyp_to_string(otyp: Option<String>) -> String {
 #[cfg(test)]
 mod tests {
 
-    use crate::parser::{Arg, MainArgSignature, ObjectProperty, Typ};
+    use windmill_parser::{Arg, MainArgSignature, ObjectProperty, Typ};
 
     use super::*;
 

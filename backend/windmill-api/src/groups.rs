@@ -6,7 +6,10 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
-use crate::db::{UserDB, DB};
+use crate::{
+    db::{UserDB, DB},
+    users::Authed,
+};
 use axum::{
     extract::{Extension, Path, Query},
     routing::{delete, get, post},
@@ -15,7 +18,7 @@ use axum::{
 use windmill_audit::{audit_log, ActionKind};
 use windmill_common::{
     error::{Error, JsonResult, Result},
-    users::{owner_to_token_owner, Authed},
+    users::owner_to_token_owner,
     utils::{not_found_if_none, paginate, Pagination},
 };
 

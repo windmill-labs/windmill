@@ -11,6 +11,7 @@ use std::sync::Arc;
 use crate::{
     db::{UserDB, DB},
     oauth2::{AllClients, _refresh_token},
+    users::Authed,
     BaseUrl,
 };
 use axum::{
@@ -22,7 +23,6 @@ use hyper::StatusCode;
 use windmill_audit::{audit_log, ActionKind};
 use windmill_common::{
     error::{Error, JsonResult, Result},
-    users::Authed,
     utils::{not_found_if_none, StripPath},
     variables::{get_reserved_variables, ContextualVariable, CreateVariable, ListableVariable},
 };
@@ -43,7 +43,7 @@ pub fn workspaced_service() -> Router {
         .route("/create", post(create_variable))
 }
 
-fn list_contextual_variables(
+async fn list_contextual_variables(
     Path(w_id): Path<String>,
     Extension(base_url): Extension<Arc<BaseUrl>>,
     Authed { username, email, .. }: Authed,
