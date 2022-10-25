@@ -23,7 +23,7 @@
 </script>
 
 <!-- svelte-ignore a11y-click-events-have-key-events -->
-<div class="flex" on:click>
+<div class="flex relative" on:click>
 	<div
 		class={classNames(
 			'flex mr-2 ml-0.5',
@@ -47,7 +47,7 @@
 	</div>
 	<div
 		class={classNames(
-			'relative w-full flex overflow-hidden rounded-sm cursor-pointer',
+			'w-full flex overflow-hidden rounded-sm cursor-pointer',
 			selected ? 'outline outline-offset-1 outline-2  outline-gray-600' : '',
 			margin
 		)}
