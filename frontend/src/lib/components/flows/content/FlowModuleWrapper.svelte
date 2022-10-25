@@ -27,13 +27,6 @@
 	export let parentModule: FlowModule | undefined = undefined
 	// Pointer to previous module, for easy access to testing results
 	export let previousModuleId: string | undefined = undefined
-
-	function updateStores(module: FlowModule, flowModuleState: FlowModuleState) {
-		if (JSON.stringify(flowModule) != JSON.stringify(module)) {
-			flowModule = module
-			$flowStateStore[module.id] = flowModuleState
-		}
-	}
 </script>
 
 {#if flowModule.id === $selectedId}
@@ -48,20 +41,24 @@
 			shouldDisableTriggerScripts={parentModule !== undefined || previousModuleId !== undefined}
 			on:loop={async () => {
 				const [module, state] = await createLoop(flowModule.id)
-				updateStores(module, state)
+				flowModule = module
+				$flowStateStore[module.id] = state
 			}}
 			on:branchone={async () => {
 				const [module, state] = await createBranches(flowModule.id)
-				updateStores(module, state)
+				flowModule = module
+				$flowStateStore[module.id] = state
 			}}
 			on:branchall={async () => {
 				const [module, state] = await createBranchAll(flowModule.id)
-				updateStores(module, state)
+				flowModule = module
+				$flowStateStore[module.id] = state
 			}}
 			on:pick={async ({ detail }) => {
-				const { path, summary, kind } = detail
+				const { path, summary } = detail
 				const [module, state] = await pickScript(path, summary, flowModule.id)
-				updateStores(module, state)
+				flowModule = module
+				$flowStateStore[module.id] = state
 			}}
 			on:new={async ({ detail }) => {
 				const { language, kind, subkind } = detail
@@ -77,7 +74,8 @@
 					module.suspend = { required_events: 1, timeout: 1800 }
 				}
 
-				updateStores(module, state)
+				flowModule = module
+				$flowStateStore[module.id] = state
 			}}
 			failureModule={$selectedId === 'failure'}
 		/>
@@ -85,7 +83,7 @@
 		<FlowModuleComponent bind:flowModule {parentModule} {previousModuleId} />
 	{/if}
 {:else if flowModule.value.type === 'forloopflow'}
-	{#each flowModule.value.modules as submodule, index}
+	{#each flowModule.value.modules as submodule, index (index)}
 		<svelte:self
 			bind:flowModule={submodule}
 			bind:parentModule={flowModule}
@@ -104,7 +102,7 @@
 			/>
 		{/each}
 	{/if}
-	{#each flowModule.value.branches as branch, branchIndex}
+	{#each flowModule.value.branches as branch, branchIndex (branchIndex)}
 		{#if $selectedId === `${flowModule?.id}-branch-${branchIndex}`}
 			<FlowBranchOneWrapper bind:branch parentModule={flowModule} {previousModuleId} />
 		{:else}
@@ -118,7 +116,7 @@
 		{/if}
 	{/each}
 {:else if flowModule.value.type === 'branchall'}
-	{#each flowModule.value.branches as branch, branchIndex}
+	{#each flowModule.value.branches as branch, branchIndex (branchIndex)}
 		{#if $selectedId === `${flowModule?.id}-branch-${branchIndex}`}
 			<FlowBranchAllWrapper bind:branch />
 		{:else}

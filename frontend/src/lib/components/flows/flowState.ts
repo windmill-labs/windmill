@@ -28,9 +28,9 @@ export async function initFlowState(flow: Flow) {
 		? await loadFlowModuleState(flow.value.failure_module)
 		: emptyFlowModuleState()
 
-	flowStateStore.update((flowState: FlowState) => {
-		flowState = Object.assign({}, modulesState, { failure: failureModule })
-		return flowState
+	flowStateStore.set({
+		...modulesState,
+		failure: failureModule
 	})
 }
 

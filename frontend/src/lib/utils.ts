@@ -73,7 +73,6 @@ export function getToday() {
 }
 
 export function sendUserToast(message: string, error: boolean = false): void {
-	console.trace(message, error)
 	if (error) {
 		toast.push(message, {
 			theme: {

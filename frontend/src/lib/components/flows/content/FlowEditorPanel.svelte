@@ -23,7 +23,7 @@
 	{:else if $selectedId === 'failure'}
 		<FlowFailureModule />
 	{:else}
-		{#each $flowStore.value.modules as flowModule, index}
+		{#each $flowStore.value.modules as flowModule, index (index)}
 			<FlowModuleWrapper
 				bind:flowModule
 				previousModuleId={$flowStore.value.modules[index - 1]?.id}

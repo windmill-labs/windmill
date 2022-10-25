@@ -59,13 +59,6 @@
 		}
 	}
 
-	function updateStores(module: FlowModule, flowModuleState: FlowModuleState) {
-		if (JSON.stringify(flowModule) != JSON.stringify(module)) {
-			flowModule = module
-			$flowStateStore[module.id] = flowModuleState
-		}
-	}
-
 	async function reload(flowModule: FlowModule) {
 		const { input_transforms, schema } = await loadSchemaFromModule(flowModule)
 
@@ -120,7 +113,8 @@
 					on:toggleStopAfterIf={() => (selected = 'early-stop')}
 					on:fork={async () => {
 						const [module, state] = await fork(flowModule)
-						updateStores(module, state)
+						flowModule = module
+						$flowStateStore[module.id] = state
 					}}
 					on:createScriptFromInlineScript={async () => {
 						const [module, state] = await createScriptFromInlineScript(
@@ -128,7 +122,8 @@
 							$selectedId,
 							$flowStateStore[flowModule.id].schema
 						)
-						updateStores(module, state)
+						flowModule = module
+						$flowStateStore[module.id] = state
 					}}
 				/>
 			</svelte:fragment>
