@@ -14,6 +14,7 @@ use regex::Regex;
 use serde_json::Value;
 use tokio::{sync::oneshot, time::timeout};
 use uuid::Uuid;
+use windmill_parser_ts::eval_sync;
 
 use windmill_api_client::{
     apis::{configuration, job_api, resource_api, variable_api},
@@ -138,25 +139,6 @@ fn add_closing_bracket(s: &str) -> String {
     }
     s.insert_str(idx, ")");
     s
-}
-
-pub fn eval_sync(code: &str) -> Result<serde_json::Value, String> {
-    let mut context = JsRuntime::new(RuntimeOptions::default());
-    let code = format!("let x = {}; x", code);
-    let res = context.execute_script("<anon>", &code);
-    match res {
-        Ok(global) => {
-            let scope = &mut context.handle_scope();
-            let local = v8::Local::new(scope, global);
-            let deserialized_value = serde_v8::from_v8::<serde_json::Value>(scope, local);
-
-            match deserialized_value {
-                Ok(value) => Ok(value),
-                Err(err) => Err(format!("Cannot deserialize value: {:?}", err)),
-            }
-        }
-        Err(err) => Err(format!("Evaling error: {:?}", err)),
-    }
 }
 
 const SPLIT_PAT: &str = ";\n";
@@ -293,7 +275,6 @@ async fn op_variable(args: Vec<String>) -> Result<String, anyhow::Error> {
     let mut config = configuration::Configuration::new();
     config.base_path = base_url.to_owned();
     config.bearer_access_token = Some(token.to_owned());
-    // MARKER: WINDMILL API CLIENT
     let result = variable_api::get_variable(&config, workspace, path, None).await?;
     Ok(result.value.unwrap_or_else(|| "".to_owned()))
 }
@@ -307,7 +288,6 @@ async fn op_get_result(args: Vec<String>) -> Result<models::CompletedJob, anyhow
     let mut config = configuration::Configuration::new();
     config.base_path = base_url.to_owned();
     config.bearer_access_token = Some(token.to_owned());
-    // MARKER: WINDMILL API CLIENT
     let result = job_api::get_completed_job(&config, workspace, id).await?;
     // TODO: verify this works. Previously this returned Option<serde_jons::Value>, now it's statically typed.
     Ok(result)
@@ -348,7 +328,6 @@ async fn op_resource(args: Vec<String>) -> Result<models::Resource, anyhow::Erro
     let mut config = configuration::Configuration::new();
     config.base_path = base_url.to_owned();
     config.bearer_access_token = Some(token.to_owned());
-    // MARKER: WINDMILL API CLIENT
     let result = resource_api::get_resource(&config, workspace, path).await?;
     // TODO: verify this works. Previously this returned Option<serde_jons::Value>, now it's statically typed.
     Ok(result)

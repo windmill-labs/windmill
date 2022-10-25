@@ -130,7 +130,6 @@ pub async fn schedule_again_if_scheduled<'c>(
     script_path: &str,
     w_id: &str,
 ) -> windmill_common::error::Result<()> {
-    // MARKER: WINDMILL API CLIENT
     let schedule = schedule_api::get_schedule(api_config, w_id, schedule_path)
         .await
         .map_err(|_| {
