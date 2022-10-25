@@ -120,11 +120,6 @@ function getFlowInput(
 	}
 }
 
-function getPriorIds(flow: Flow, id: string): string[] {
-	// TODO: Ruben
-	return flow.value.modules.map((module) => module.id)
-}
-
 export function getStepPropPicker(
 	flowState: FlowState,
 	parentModule: FlowModule | undefined,
@@ -137,7 +132,6 @@ export function getStepPropPicker(
 	const previousResults = previousModuleId
 		? flowState[previousModuleId].previewResult
 		: flattenPreviousResult(flowInput)
-	// const priorIds = getPriorIds(flow, parentModule.id)
 
 	return {
 		extraLib: buildExtraLib(objectToTsType(flowInput), objectToTsType(previousResults)),

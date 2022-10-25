@@ -115,7 +115,6 @@
 			<svelte:fragment slot="header">
 				<FlowModuleHeader
 					bind:module={flowModule}
-					on:delete
 					on:toggleSuspend={() => (selected = 'suspend')}
 					on:toggleRetry={() => (selected = 'retries')}
 					on:toggleStopAfterIf={() => (selected = 'early-stop')}

@@ -7,22 +7,16 @@
 		faBed,
 		faCodeBranch,
 		faSave,
-		faStop,
-		faTrashAlt
+		faStop
 	} from '@fortawesome/free-solid-svg-icons'
 	import { createEventDispatcher, getContext } from 'svelte'
 	import Icon from 'svelte-awesome'
-	import type { FlowEditorContext } from '../types'
 	import { isEmptyFlowModule } from '../utils'
 	import type { FlowModuleWidthContext } from './FlowModuleComponent.svelte'
-	import RemoveStepConfirmationModal from './RemoveStepConfirmationModal.svelte'
 
 	export let module: FlowModule
 
-	let confirmationModalOpen = false
-
 	const dispatch = createEventDispatcher()
-	const { selectedId, select } = getContext<FlowEditorContext>('FlowEditorContext')
 	const { width, threshold } = getContext<FlowModuleWidthContext>('FlowModuleWidth')
 
 	$: shouldPick = isEmptyFlowModule(module)
@@ -76,34 +70,7 @@
 			Save to workspace
 		</Button>
 	{/if}
-	<Button
-		size="xs"
-		color="light"
-		variant="border"
-		startIcon={{ icon: faTrashAlt }}
-		{iconOnly}
-		on:click={({ detail }) => {
-			if (detail.shiftKey || shouldPick) {
-				dispatch('delete')
-				select('settings')
-			} else {
-				confirmationModalOpen = true
-			}
-		}}
-	>
-		{$selectedId.includes('failure') ? 'Delete error handler' : 'Remove step'}
-	</Button>
 </div>
-
-<RemoveStepConfirmationModal
-	bind:open={confirmationModalOpen}
-	on:confirmed={() => {
-		dispatch('delete')
-		setTimeout(() => {
-			select('settings')
-		})
-	}}
-/>
 
 <style>
 	.badge {

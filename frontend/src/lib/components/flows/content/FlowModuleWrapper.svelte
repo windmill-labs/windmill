@@ -78,14 +78,7 @@
 			failureModule={/*TODO : FIX*/ false}
 		/>
 	{:else}
-		<FlowModuleComponent
-			bind:flowModule
-			{parentModule}
-			{previousModuleId}
-			on:delete={() => {
-				// TODO: Restore this feature
-			}}
-		/>
+		<FlowModuleComponent bind:flowModule {parentModule} {previousModuleId} />
 	{/if}
 {:else if flowModule.value.type === 'forloopflow'}
 	{#each flowModule.value.modules as submodule, index}
