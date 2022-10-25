@@ -59,6 +59,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "ascii"
+version = "1.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d92bec98840b8f03a5ff5413de5293bfcd8bf96467cf5452609f939ec6f5de16"
+
+[[package]]
 name = "ast_node"
 version = "0.8.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -266,6 +272,12 @@ dependencies = [
  "wasm-bindgen",
  "winapi",
 ]
+
+[[package]]
+name = "chunked_transfer"
+version = "1.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fff857943da45f546682664a79488be82e69e43c1a7a2307679ab9afb3a66d2e"
 
 [[package]]
 name = "codespan-reporting"
@@ -2408,6 +2420,18 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "42657b1a6f4d817cda8e7a0ace261fe0cc946cf3a80314390b22cc61ae080792"
 
 [[package]]
+name = "tiny_http"
+version = "0.12.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "389915df6413a2e74fb181895f933386023c71110878cd0825588928e64cdc82"
+dependencies = [
+ "ascii",
+ "chunked_transfer",
+ "httpdate",
+ "log",
+]
+
+[[package]]
 name = "tinyvec"
 version = "1.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2941,8 +2965,8 @@ checksum = "712e227841d057c1ee1cd2fb22fa7e5a5461ae8e48fa2ca79ec42cfc1931183f"
 name = "windmill"
 version = "1.41.0"
 dependencies = [
- "windmill-api",
- "windmill-worker",
+ "anyhow",
+ "tokio",
 ]
 
 [[package]]
@@ -3005,6 +3029,7 @@ dependencies = [
  "hex",
  "hmac",
  "hyper",
+ "prometheus",
  "rand",
  "reqwest",
  "serde",
@@ -3012,6 +3037,7 @@ dependencies = [
  "sha2",
  "sqlx",
  "thiserror",
+ "tiny_http",
  "tokio",
  "tracing",
  "uuid",

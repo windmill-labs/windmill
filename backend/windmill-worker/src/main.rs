@@ -9,13 +9,16 @@
 use std::{net::SocketAddr, time::Duration};
 
 use anyhow::Context;
-use sqlx::postgres::PgPoolOptions;
+use sqlx::{postgres::PgPoolOptions, Pool, Postgres};
 use windmill_api_client::apis::configuration::Configuration;
-use windmill_common::{error::Error, utils::rd_string};
+use windmill_common::{
+    error::{self, Error},
+    utils::rd_string,
+};
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    dotenv().ok();
+    // dotenv().ok();
 
     // TODO: setup tracing
 
@@ -28,12 +31,14 @@ async fn main() -> anyhow::Result<()> {
             Err(_) => 10,
         };
 
-        Ok(PgPoolOptions::new()
-            .max_connections(max_connections)
-            .max_lifetime(Duration::from_secs(30 * 60)) // 30 mins
-            .connect(&database_url)
-            .await
-            .map_err(|err| Error::ConnectingToDatabase(err.to_string()))?)
+        Ok::<Pool<Postgres>, error::Error>(
+            PgPoolOptions::new()
+                .max_connections(max_connections)
+                .max_lifetime(Duration::from_secs(30 * 60)) // 30 mins
+                .connect(&database_url)
+                .await
+                .map_err(|err| Error::ConnectingToDatabase(err.to_string()))?,
+        )
     }
     .await?;
 
@@ -55,20 +60,16 @@ async fn main() -> anyhow::Result<()> {
 
     let base_url = std::env::var("BASE_URL").unwrap_or_else(|_| "http://localhost".to_string());
 
-    let addr = SocketAddr::from(([0, 0, 0, 0], 8000));
-
     let timeout = std::env::var("TIMEOUT")
         .ok()
         .and_then(|x| x.parse::<i32>().ok())
-        .unwrap_or(windmill::DEFAULT_TIMEOUT);
-
-    let base_url_2 = base_url.clone();
+        .unwrap_or(windmill_common::DEFAULT_TIMEOUT);
 
     let workers_f = async {
         let sleep_queue = std::env::var("SLEEP_QUEUE")
             .ok()
             .and_then(|x| x.parse::<u64>().ok())
-            .unwrap_or(windmill::DEFAULT_SLEEP_QUEUE);
+            .unwrap_or(windmill_common::DEFAULT_SLEEP_QUEUE);
         let disable_nuser = std::env::var("DISABLE_NUSER")
             .ok()
             .and_then(|x| x.parse::<bool>().ok())
@@ -95,8 +96,8 @@ async fn main() -> anyhow::Result<()> {
                 tracing::warn!(error = e.to_string(), "failed to get external IP");
                 "unretrievable IP".to_string()
             });
-        let api_config = Configuration::new();
-        api_config.base_path = base_url;
+        let mut api_config = Configuration::new();
+        api_config.base_path = base_url.clone();
         api_config.bearer_access_token = Some(get_token());
         windmill_worker::run_worker(
             &db.clone(),

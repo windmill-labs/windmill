@@ -293,6 +293,7 @@ async fn op_variable(args: Vec<String>) -> Result<String, anyhow::Error> {
     let mut config = configuration::Configuration::new();
     config.base_path = base_url.to_owned();
     config.bearer_access_token = Some(token.to_owned());
+    // MARKER: WINDMILL API CLIENT
     let result = variable_api::get_variable(&config, workspace, path, None).await?;
     Ok(result.value.unwrap_or_else(|| "".to_owned()))
 }
@@ -306,6 +307,7 @@ async fn op_get_result(args: Vec<String>) -> Result<models::CompletedJob, anyhow
     let mut config = configuration::Configuration::new();
     config.base_path = base_url.to_owned();
     config.bearer_access_token = Some(token.to_owned());
+    // MARKER: WINDMILL API CLIENT
     let result = job_api::get_completed_job(&config, workspace, id).await?;
     // TODO: verify this works. Previously this returned Option<serde_jons::Value>, now it's statically typed.
     Ok(result)
@@ -346,6 +348,7 @@ async fn op_resource(args: Vec<String>) -> Result<models::Resource, anyhow::Erro
     let mut config = configuration::Configuration::new();
     config.base_path = base_url.to_owned();
     config.bearer_access_token = Some(token.to_owned());
+    // MARKER: WINDMILL API CLIENT
     let result = resource_api::get_resource(&config, workspace, path).await?;
     // TODO: verify this works. Previously this returned Option<serde_jons::Value>, now it's statically typed.
     Ok(result)

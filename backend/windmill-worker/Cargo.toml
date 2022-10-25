@@ -7,7 +7,7 @@ default-run = "worker"
 
 [[bin]]
 name = "worker"
-path = "./main.rs"
+path = "./src/main.rs"
 
 [features]
 default = ["deno"]
@@ -22,7 +22,11 @@ python = []
 
 [dependencies]
 windmill-queue.workspace = true
-windmill-common = { workspace = true, features = ["tokio", "sqlx"] }
+windmill-common = { workspace = true, features = [
+    "tokio",
+    "sqlx",
+    "prometheus",
+] }
 windmill-api-client.workspace = true
 sqlx.workspace = true
 uuid.workspace = true

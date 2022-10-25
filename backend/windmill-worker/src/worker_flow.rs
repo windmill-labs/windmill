@@ -11,6 +11,7 @@ use crate::worker;
 use anyhow::{anyhow, Context};
 use async_recursion::async_recursion;
 use futures::TryStreamExt;
+use serde::{Serialize, Deserialize};
 use serde_json::{json, Map, Value};
 use tokio::sync::mpsc::Sender;
 use tracing::instrument;
@@ -1204,6 +1205,7 @@ async fn script_path_to_payload<'c>(
     let job_payload = if script_path.starts_with("hub/") {
         JobPayload::ScriptHub { path: script_path.to_owned() }
     } else {
+    // MARKER: WINDMILL API CLIENT
         let script_hash = job_api::get_hash_by_path(api_config, w_id, script_path)
             .await
             .map_err(to_anyhow)

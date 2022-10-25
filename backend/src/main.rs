@@ -6,13 +6,9 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
-use std::net::SocketAddr;
-
-use dotenv::dotenv;
-use windmill::WorkerConfig;
-
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
+    /*
     dotenv().ok();
 
     windmill::initialize_tracing();
@@ -128,7 +124,8 @@ async fn main() -> anyhow::Result<()> {
         };
 
         futures::try_join!(shutdown_signal, server_f, workers_f, monitor_f, metrics_f)?;
-    }
+    }*/
+    todo!("reeimplement");
 
     Ok(())
 }

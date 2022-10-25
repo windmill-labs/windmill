@@ -53,6 +53,12 @@ pub enum BranchChosen {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct Approval {
+    pub resume_id: u16,
+    pub approver: String,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(tag = "type")]
 pub enum FlowStatusModule {
     WaitingForPriorSteps {
@@ -86,6 +92,7 @@ pub enum FlowStatusModule {
         flow_jobs: Option<Vec<Uuid>>,
         #[serde(skip_serializing_if = "Option::is_none")]
         branch_chosen: Option<BranchChosen>,
+        approvers: Vec<Approval>,
     },
     Failure {
         id: String,

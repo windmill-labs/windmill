@@ -17,7 +17,7 @@ use windmill_common::{
     scripts::{ScriptHash, ScriptLang},
     variables,
 };
-use windmill_queue::get_queued_job;
+use windmill_queue::{canceled_job_to_result, get_queued_job};
 
 use serde_json::{json, Map, Value};
 
@@ -650,6 +650,7 @@ async fn transform_json_value(
     match v {
         Value::String(y) if y.starts_with("$var:") => {
             let path = y.strip_prefix("$var:").unwrap();
+            // MARKER: WINDMILL API CLIENT
             let v = windmill_api_client::apis::variable_api::get_variable(
                 api_config, workspace, path, None,
             )
@@ -669,6 +670,7 @@ async fn transform_json_value(
                     format!("invalid resource path: {path}",),
                 ));
             }
+            // MARKER: WINDMILL API CLIENT
             let v =
                 windmill_api_client::apis::resource_api::get_resource(api_config, workspace, path)
                     .await

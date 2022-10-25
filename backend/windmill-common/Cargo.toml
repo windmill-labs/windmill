@@ -11,6 +11,7 @@ hyper = ["dep:hyper"]
 tokio = ["dep:tokio"]
 axum = ["dep:axum", "dep:tracing"]
 reqwest = ["dep:reqwest"]
+prometheus = ["dep:tiny_http", "dep:prometheus"]
 
 
 [lib]
@@ -29,6 +30,8 @@ hex.workspace = true
 rand.workspace = true
 sqlx = { workspace = true, optional = true, features = ["postgres"] }
 uuid.workspace = true
+tiny_http = { workspace = true, optional = true }
+prometheus = { workspace = true, optional = true }
 tracing = { workspace = true, optional = true }
 axum = { workspace = true, optional = true }
 hyper = { workspace = true, optional = true }
