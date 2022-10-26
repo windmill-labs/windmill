@@ -32,7 +32,7 @@ export type RunFormComponent = {
 export type DisplayComponent = {
 	type: 'displaycomponent'
 	inputs: {
-		result: InputsSpec
+		result: AppInputTransform
 	}
 }
 

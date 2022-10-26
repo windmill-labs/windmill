@@ -17,12 +17,7 @@
 	let syncIteration: number = 0
 	let ITERATIONS_BEFORE_SLOW_REFRESH = 100
 
-	export async function runPreview(
-		path: string | undefined,
-		code: string,
-		lang: 'deno' | 'go' | 'python3',
-		args: Record<string, any>
-	): Promise<void> {
+	async function abstractRun(fn: () => Promise<string>) {
 		try {
 			intervalId && clearInterval(intervalId)
 			if (isLoading && job) {
@@ -34,7 +29,22 @@
 			}
 			isLoading = true
 
-			const testId = await JobService.runScriptPreview({
+			const testId = await fn()
+			await watchJob(testId)
+		} catch (err) {
+			isLoading = false
+			throw err
+		}
+	}
+
+	export async function runPreview(
+		path: string | undefined,
+		code: string,
+		lang: 'deno' | 'go' | 'python3',
+		args: Record<string, any>
+	): Promise<void> {
+		abstractRun(() =>
+			JobService.runScriptPreview({
 				workspace: $workspaceStore!,
 				requestBody: {
 					path,
@@ -43,11 +53,20 @@
 					language: lang as Preview.language
 				}
 			})
-			await watchJob(testId)
-		} catch (err) {
-			isLoading = false
-			throw err
-		}
+		)
+	}
+
+	export async function runScriptByPath(
+		path: string | undefined,
+		args: Record<string, any>
+	): Promise<void> {
+		abstractRun(() =>
+			JobService.runScriptByPath({
+				workspace: $workspaceStore!,
+				path: path ?? '',
+				requestBody: args
+			})
+		)
 	}
 
 	export async function cancelJob() {

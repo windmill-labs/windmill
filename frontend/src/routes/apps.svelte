@@ -85,6 +85,17 @@
 				params: {
 					hidden: ['b']
 				}
+			},
+			{
+				type: 'displaycomponent',
+				id: 'b',
+				inputs: {
+					result: {
+						id: 'a',
+						name: 'result',
+						type: 'output'
+					}
+				}
 			}
 		],
 		title: 'Fake title'

@@ -2,22 +2,21 @@
 	import type { Schema } from '$lib/common'
 	import { Button } from '$lib/components/common'
 	import SchemaForm from '$lib/components/SchemaForm.svelte'
-	import {
-		FlowService,
-		Job,
-		JobService,
-		Preview,
-		ScriptService,
-		type InputTransform
-	} from '$lib/gen'
+	import TestJobLoader from '$lib/components/TestJobLoader.svelte'
+	import { CompletedJob, FlowService, Job, ScriptService } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
-	import { faFile } from '@fortawesome/free-solid-svg-icons'
-	import type { Inputs } from '../types'
+	import { faArrowsRotate, faFile } from '@fortawesome/free-solid-svg-icons'
+	import Icon from 'svelte-awesome'
+	import type { World } from '../rx'
+	import type { InputsSpec } from '../types'
 
 	export let runType: 'script' | 'flow'
 	export let path: string
-	export let args: Inputs
+	export let id: string
+
+	export let args: InputsSpec
 	export let hidden: string[] = []
+	export let world: World | undefined
 
 	let schema: Schema | undefined = undefined
 	let schemaClone: Schema | undefined = undefined
@@ -63,7 +62,7 @@
 
 	let x = buildArgs(args)
 
-	function buildArgs(args: Inputs) {
+	function buildArgs(args: InputsSpec) {
 		return Object.keys(args)
 			.filter((x) => hidden.includes(x))
 			.reduce((previousValue: Record<string, any>, currentValue: string) => {
@@ -95,8 +94,28 @@
 	}
 
 	let isValid = true
+	let testIsLoading = false
+	let testJob: CompletedJob | undefined = undefined
+
+	let testJobLoader: TestJobLoader | undefined = undefined
+
+	export function getOutputs() {
+		return ['loading', 'result']
+	}
 </script>
 
+<TestJobLoader
+	on:done={() => {
+		if (testJob) {
+			world?.outputsById[id]['result'].set(testJob?.result)
+		}
+	}}
+	bind:isLoading={testIsLoading}
+	bind:job={testJob}
+	bind:this={testJobLoader}
+/>
+
+{testIsLoading}
 {#if schemaClone !== undefined}
 	<SchemaForm bind:schema={schemaClone} bind:args={x} bind:isValid />
 	<Button
@@ -105,16 +124,18 @@
 		variant="border"
 		on:click={() => {
 			const k = extractHiddenParamsFromSchemas(schema)
-			alert(
-				JSON.stringify({
-					...k,
-					...x
-				})
-			)
+
+			testJobLoader?.runScriptByPath(path, {
+				...k,
+				...x
+			})
 		}}
 		startIcon={{ icon: faFile }}
 		disabled={!isValid}
 	>
 		Submit
+		{#if testIsLoading}
+			<Icon data={faArrowsRotate} class="animate-spin" />
+		{/if}
 	</Button>
 {/if}
