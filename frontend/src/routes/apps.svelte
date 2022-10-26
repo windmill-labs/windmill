@@ -1,13 +1,12 @@
 <script lang="ts">
 	import AppWrapper from '$lib/components/apps/AppWrapper.svelte'
-	import type { App } from '$lib/components/apps/types'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
 	import { DrawerContent } from '$lib/components/common'
 	import Button from '$lib/components/common/button/Button.svelte'
 	import Drawer from '$lib/components/common/drawer/Drawer.svelte'
-	import InputTransformForm from '$lib/components/InputTransformForm.svelte'
 	import PageHeader from '$lib/components/PageHeader.svelte'
 	import Path from '$lib/components/Path.svelte'
+	import SimpleEditor from '$lib/components/SimpleEditor.svelte'
 	import { ResourceService, type InputTransform, type Resource } from '$lib/gen'
 	import { userStore, workspaceStore } from '$lib/stores'
 	import { canWrite, sendUserToast } from '$lib/utils'
@@ -63,45 +62,61 @@
 		}
 	}
 
-	const app: App = {
-		components: [
-			{
-				id: 'a',
-				type: 'runformcomponent',
-				runType: 'script',
-				path: 'u/faton/my_script_3',
-				inputs: {
-					runInputs: {
-						a: {
-							type: 'static',
-							value: 'first'
-						},
-						b: {
-							type: 'static',
-							value: 'second'
+	let app = JSON.stringify(
+		{
+			components: [
+				{
+					id: 'a',
+					type: 'runformcomponent',
+					runType: 'script',
+					path: 'u/faton/my_script_3',
+					inputs: {
+						runInputs: {
+							a: {
+								type: 'static',
+								value: 'first'
+							},
+							b: {
+								type: 'static',
+								value: 'second'
+							}
+						}
+					},
+					params: {
+						hidden: ['b']
+					}
+				},
+				{
+					type: 'displaycomponent',
+					id: 'b',
+					inputs: {
+						result: {
+							id: 'a',
+							name: 'result',
+							type: 'output'
 						}
 					}
 				},
-				params: {
-					hidden: ['b']
-				}
-			},
-			{
-				type: 'displaycomponent',
-				id: 'b',
-				inputs: {
-					result: {
-						id: 'a',
-						name: 'result',
-						type: 'output'
+				{
+					type: 'displaycomponent',
+					id: 'c',
+					inputs: {
+						result: {
+							id: 'a',
+							name: 'result',
+							type: 'output'
+						}
 					}
 				}
-			}
-		],
-		title: 'Fake title'
-	}
+			],
+			title: 'Fake title'
+		},
+		null,
+		4
+	)
 </script>
 
+<SimpleEditor bind:code={app} lang="json" class="small-editor" />
 <Drawer bind:open={drawerOpen} size="800px">
 	<DrawerContent title="Add an app" on:close={() => closeDrawer()}>
 		<Path bind:error={pathError} bind:path {initialPath} namePlaceholder="my_app" kind="app">
@@ -124,6 +139,6 @@
 	</PageHeader>
 
 	<div class="p-4 border ">
-		<AppWrapper {app} />
+		<AppWrapper app={JSON.parse(app)} />
 	</div>
 </CenteredPage>

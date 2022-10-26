@@ -8,23 +8,19 @@
 		result: AppInputTransform
 	}
 
-	$: inputResult = world?.connect(inputs.result, (x) => {
-		debugger
+	$: inputResult = world?.connect<any>(inputs.result, (x) => {
 		update()
 	})
 
-	let res: any
+	let result: any
+
 	function update() {
-		debugger
-		res = inputResult?.peak()
+		result = inputResult?.peak()
 	}
 
-	export function getOutputs() {
-		return []
-	}
+	export const staticOutputs: string[] = []
 </script>
 
-{res}
 {#if world}
-	<DisplayResult result={res} />
+	<DisplayResult {result} />
 {/if}

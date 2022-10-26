@@ -1,4 +1,3 @@
-import { writable } from 'svelte/store'
 import type { AppInputTransform, DynamicInput, InputsSpec, StaticInput } from './types'
 
 export interface Subscriber<T> {

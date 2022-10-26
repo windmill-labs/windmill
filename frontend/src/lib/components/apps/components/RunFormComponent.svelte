@@ -7,19 +7,30 @@
 	import { workspaceStore } from '$lib/stores'
 	import { faArrowsRotate, faFile } from '@fortawesome/free-solid-svg-icons'
 	import Icon from 'svelte-awesome'
-	import type { World } from '../rx'
+	import type { book } from 'svelte-awesome/icons'
+	import type { Output, World } from '../rx'
 	import type { InputsSpec } from '../types'
 
 	export let runType: 'script' | 'flow'
 	export let path: string
 	export let id: string
 
-	export let args: InputsSpec
+	export let inputs: {
+		runInputs: InputsSpec
+	}
+
 	export let hidden: string[] = []
 	export let world: World | undefined
 
 	let schema: Schema | undefined = undefined
 	let schemaClone: Schema | undefined = undefined
+
+	export const staticOutputs = ['loading', 'result']
+
+	$: outputs = world?.outputsById[id] as {
+		result: Output<any>
+		loading: Output<boolean>
+	}
 
 	async function loadSchema(workspace: string) {
 		if (runType === 'script') {
@@ -41,8 +52,8 @@
 	}
 
 	function mapInput(schema: Schema) {
-		Object.keys(args).forEach((argName) => {
-			const arg = args[argName]
+		Object.keys(inputs.runInputs).forEach((argName) => {
+			const arg = inputs.runInputs[argName]
 
 			if (hidden.includes(argName)) {
 				delete schema.properties[argName]
@@ -60,7 +71,7 @@
 
 	$: schemaClone && mapInput(schemaClone)
 
-	let x = buildArgs(args)
+	let x = buildArgs(inputs.runInputs)
 
 	function buildArgs(args: InputsSpec) {
 		return Object.keys(args)
@@ -77,9 +88,9 @@
 
 	function extractHiddenParamsFromSchemas(schema: Schema | undefined) {
 		if (schema) {
-			return Object.keys(args).reduce(
+			return Object.keys(inputs.runInputs).reduce(
 				(previousValue: Record<string, any>, currentValue: string) => {
-					const arg = args[currentValue]
+					const arg = inputs.runInputs[currentValue]
 
 					if (arg.type === 'static') {
 						previousValue[currentValue] = arg.value
@@ -98,16 +109,13 @@
 	let testJob: CompletedJob | undefined = undefined
 
 	let testJobLoader: TestJobLoader | undefined = undefined
-
-	export function getOutputs() {
-		return ['loading', 'result']
-	}
 </script>
 
 <TestJobLoader
 	on:done={() => {
 		if (testJob) {
-			world?.outputsById[id]['result'].set(testJob?.result)
+			outputs?.result.set(testJob?.result)
+			outputs?.loading.set(false)
 		}
 	}}
 	bind:isLoading={testIsLoading}
@@ -115,7 +123,6 @@
 	bind:this={testJobLoader}
 />
 
-{testIsLoading}
 {#if schemaClone !== undefined}
 	<SchemaForm bind:schema={schemaClone} bind:args={x} bind:isValid />
 	<Button
@@ -133,9 +140,11 @@
 		startIcon={{ icon: faFile }}
 		disabled={!isValid}
 	>
-		Submit
-		{#if testIsLoading}
-			<Icon data={faArrowsRotate} class="animate-spin" />
-		{/if}
+		<div>
+			Submit
+			{#if testIsLoading}
+				<Icon data={faArrowsRotate} class="animate-spin ml-2" scale={0.8} />
+			{/if}
+		</div>
 	</Button>
 {/if}
