@@ -24,13 +24,13 @@ export type World = {
 
 const worldStore = writable<World | undefined>(undefined)
 
-export function buildWorld(components: Record<string, { inputs: InputsSpec, outputs: string[] }>) {
+export function buildWorld(components: Record<string, string[]>) {
     const newWorld = buildObservableWorld()
     const outputsById: Record<string, Record<string, Output<any>>> = {}
 
-    for (const [k, v] of Object.entries(components)) {
+    for (const [k, outputs] of Object.entries(components)) {
         outputsById[k] = {}
-        for (const o of v.outputs) {
+        for (const o of outputs) {
             outputsById[k][o] = newWorld.newOutput(k, o)
         }
     }
