@@ -34,6 +34,7 @@
 			<FlowModuleSchemaItem
 				deletable
 				label={mod.summary || 'For loop'}
+				id={mod.id}
 				on:delete={onDelete}
 				on:click={() => select(mod.id)}
 				{...itemProps}

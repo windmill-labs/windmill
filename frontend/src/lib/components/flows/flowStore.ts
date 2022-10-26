@@ -1,6 +1,8 @@
 import type { Flow, FlowModule, ForloopFlow, InputTransform } from '$lib/gen'
 import { get, writable } from 'svelte/store'
 import { flowStateStore, initFlowState } from './flowState'
+import { nextId } from './flowStateUtils'
+import { numberToChars } from './utils'
 
 export type FlowMode = 'push' | 'pull'
 
@@ -14,7 +16,9 @@ export const flowStore = writable<Flow>({
 	extra_perms: {}
 })
 
-export function initFlow(flow: Flow) {
+export async function initFlow(flow: Flow) {
+
+	let counter = 40
 	for (const mod of flow.value.modules) {
 		migrateFlowModule(mod)
 		let val = mod.value
@@ -22,16 +26,20 @@ export function initFlow(flow: Flow) {
 			let flowVal = val as ForloopFlow & { value?: { modules?: FlowModule[] } }
 			if (flowVal.value && flowVal.value.modules) {
 				flowVal.modules = flowVal.value.modules
-				flowVal.modules.forEach(migrateFlowModule)
 				flowVal.value = undefined
 			}
+			flowVal.modules.forEach(migrateFlowModule)
+
 		}
 	}
 
+	await initFlowState(flow)
 	flowStore.set(flow)
-	initFlowState(flow)
 
 	function migrateFlowModule(mod: FlowModule) {
+		if (mod.id == undefined) {
+			mod.id = numberToChars(counter++)
+		}
 		let modVal = mod as FlowModule & {
 			input_transform?: Record<string, InputTransform>
 			stop_after_if_expr?: string
