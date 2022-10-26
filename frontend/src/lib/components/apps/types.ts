@@ -10,12 +10,10 @@ export type StaticInput = {
 	value: any
 }
 
-type AppInputTransform = DynamicInput | StaticInput
+export type AppInputTransform = DynamicInput | StaticInput
 
-type InputsLeaf = Record<string, AppInputTransform>
-type Inputs2 = Record<string, AppInputTransform | InputsLeaf>
-type Inputs1 = Record<string, AppInputTransform | Inputs2>
-type Inputs = Record<string, AppInputTransform | Inputs1>
+
+export type InputsSpec = Record<string, AppInputTransform>
 
 export type TextInputComponent = {
 	type: 'textinputcomponent'
@@ -26,14 +24,14 @@ export type RunFormComponent = {
 	path: string
 	type: 'runformcomponent'
 	inputs: {
-		runInputs: Inputs
+		runInputs: InputsSpec
 	}
 }
 
 export type DisplayComponent = {
 	type: 'displaycomponent'
 	inputs: {
-		result: Inputs
+		result: InputsSpec
 	}
 }
 
