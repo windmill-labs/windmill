@@ -15,11 +15,11 @@ export interface Input<T> extends Subscriber<T> {
     peak(): T | undefined
 }
 
-export interface World {
-    connect(x: StaticInput)
+export function buildWorld() {
+    function registerComponent() { }
 }
 
-export function buildWorld() {
+export function buildObservableWorld() {
     const observables: Record<string, Output<any>> = {}
 
     function connect<T>(inputSpec: DynamicInput, next: (x: T) => void): Input<T> {
