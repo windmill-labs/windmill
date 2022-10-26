@@ -1,13 +1,13 @@
-import type { InputTransform } from '$lib/gen'
 
-interface ComponentInputs {
-	inputs: Record<string, InputTransform>
+type AppInputTransform = {
+	id: string
+	name: string
 }
 
-type InputsLeaf = Record<string, InputTransform>
-type Inputs2 = Record<string, InputTransform | InputsLeaf>
-type Inputs1 = Record<string, InputTransform | Inputs2>
-type Inputs = Record<string, InputTransform | Inputs1>
+type InputsLeaf = Record<string, AppInputTransform>
+type Inputs2 = Record<string, AppInputTransform | InputsLeaf>
+type Inputs1 = Record<string, AppInputTransform | Inputs2>
+type Inputs = Record<string, AppInputTransform | Inputs1>
 
 export type TextInputComponent = {
 	type: 'textinputcomponent'
