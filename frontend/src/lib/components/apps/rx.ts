@@ -1,5 +1,3 @@
-
-
 export interface Subscriber {
     next(v: any),
 }

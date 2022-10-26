@@ -1,7 +1,11 @@
 
 type AppInputTransform = {
+	type: 'output'
 	id: string
 	name: string
+} | {
+	type: 'static'
+	value: any
 }
 
 type InputsLeaf = Record<string, AppInputTransform>
