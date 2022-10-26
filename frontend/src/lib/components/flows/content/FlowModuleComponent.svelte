@@ -15,13 +15,13 @@
 	import { createScriptFromInlineScript, fork } from '$lib/components/flows/flowStateUtils'
 	import { flowStore } from '$lib/components/flows/flowStore'
 	import SchemaForm from '$lib/components/SchemaForm.svelte'
-	import { RawScript, type Flow, type FlowModule } from '$lib/gen'
+	import { RawScript, type FlowModule } from '$lib/gen'
 	import FlowCard from '../common/FlowCard.svelte'
 	import FlowModuleHeader from './FlowModuleHeader.svelte'
-	import { flowStateStore, type FlowModuleState } from '../flowState'
+	import { flowStateStore } from '../flowState'
 	import { scriptLangToEditorLang } from '$lib/utils'
 	import PropPickerWrapper from '../propPicker/PropPickerWrapper.svelte'
-	import { afterUpdate, getContext, onDestroy, setContext } from 'svelte'
+	import { afterUpdate, getContext, setContext } from 'svelte'
 	import type { FlowEditorContext } from '../types'
 	import { loadSchemaFromModule } from '../utils'
 	import { writable, type Writable } from 'svelte/store'
@@ -47,6 +47,15 @@
 	let panes: HTMLElement
 	let totalTopGap = 0
 
+	let inputTransforms: Record<string, any> =
+		flowModule.value.type === 'rawscript' || flowModule.value.type === 'script'
+			? flowModule.value.input_transforms
+			: {}
+
+	$: if (flowModule.value.type === 'rawscript' || flowModule.value.type === 'script') {
+		flowModule.value.input_transforms = inputTransforms
+	}
+
 	$: stepPropPicker = failureModule
 		? { pickableProperties: { previous_result: { error: 'the error message' } }, extraLib: '' }
 		: getStepPropPicker($flowStateStore, parentModule, previousModuleId, $flowStore, previewArgs)
@@ -62,23 +71,17 @@
 	async function reload(flowModule: FlowModule) {
 		const { input_transforms, schema } = await loadSchemaFromModule(flowModule)
 
-		let hasChanged = false
+		setTimeout(() => {
+			if (
+				(flowModule.value.type == 'script' || flowModule.value.type == 'rawscript') &&
+				JSON.stringify(flowModule.value.input_transforms) !== JSON.stringify(input_transforms)
+			) {
+				inputTransforms = input_transforms
+			}
+		})
+
 		if (JSON.stringify(schema) !== JSON.stringify($flowStateStore[flowModule.id].schema)) {
 			$flowStateStore[flowModule.id].schema = schema
-			hasChanged = true
-		}
-
-		if (
-			flowModule.value.type == 'script' ||
-			(flowModule.value.type == 'rawscript' &&
-				JSON.stringify(flowModule.value.input_transforms) !== JSON.stringify(input_transforms))
-		) {
-			flowModule.value.input_transforms = input_transforms
-			hasChanged = true
-		}
-
-		if (hasChanged) {
-			flowModule = flowModule
 		}
 	}
 

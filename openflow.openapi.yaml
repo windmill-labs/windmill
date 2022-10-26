@@ -185,6 +185,7 @@ components:
         - type
         - content
         - language
+        - input_transforms
 
     PathScript:
       type: object
@@ -203,6 +204,7 @@ components:
       required:
         - type
         - path
+        - input_transforms
 
     ForloopFlow:
       type: object

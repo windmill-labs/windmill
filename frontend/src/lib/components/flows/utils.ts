@@ -19,7 +19,7 @@ export function cleanInputs(flow: Flow | any): Flow {
 	newFlow.value.modules.forEach((mod) => {
 		if (mod.value.type == 'rawscript' || mod.value.type == 'script') {
 			if (Object.keys(mod.input_transforms ?? {}).length > 0) {
-				mod.value.input_transforms = mod.input_transforms
+				mod.value.input_transforms = mod.input_transforms!
 				delete mod.input_transforms
 			}
 			Object.values(mod.input_transforms ?? {}).forEach((inp) => {
@@ -81,7 +81,7 @@ export async function loadSchemaFromModule(module: FlowModule): Promise<{
 		const keys = Object.keys(schema?.properties ?? {})
 
 		if (Object.keys(module.input_transforms ?? {}).length > 0) {
-			mod.input_transforms = module.input_transforms
+			mod.input_transforms = module.input_transforms!
 		}
 		let input_transforms = mod.input_transforms ?? module.input_transforms ?? {}
 
@@ -124,9 +124,8 @@ export function getDefaultExpr(
 	previousExpr?: string
 ) {
 	const expr = previousExpr ?? `previous_result.${key}`
-	return `import { previous_result, flow_input, step, variable, resource, params } from 'windmill${
-		importPath ? `@${importPath}` : ''
-	}'
+	return `import { previous_result, flow_input, step, variable, resource, params } from 'windmill${importPath ? `@${importPath}` : ''
+		}'
 
 ${expr}`
 }

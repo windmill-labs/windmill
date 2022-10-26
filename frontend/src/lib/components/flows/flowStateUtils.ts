@@ -1,5 +1,5 @@
 import type { Schema } from '$lib/common'
-import { Script, ScriptService, type FlowModule, type RawScript } from '$lib/gen'
+import { Script, ScriptService, type FlowModule, type PathScript, type RawScript } from '$lib/gen'
 import { initialCode } from '$lib/script_helpers'
 import { userStore, workspaceStore } from '$lib/stores'
 import { getScriptByPath } from '$lib/utils'
@@ -57,8 +57,8 @@ export async function pickScript(
 	path: string,
 	summary: string,
 	id: string
-): Promise<[FlowModule, FlowModuleState]> {
-	const flowModule: FlowModule = {
+): Promise<[FlowModule & { value: PathScript }, FlowModuleState]> {
+	const flowModule: FlowModule & { value: PathScript } = {
 		id,
 		value: { type: 'script', path, input_transforms: {} },
 		summary
@@ -129,7 +129,7 @@ export async function createBranchAll(id: string): Promise<[FlowModule, FlowModu
 	return [branchesFlowModules, flowModuleState]
 }
 
-export async function fork(flowModule: FlowModule): Promise<[FlowModule, FlowModuleState]> {
+export async function fork(flowModule: FlowModule): Promise<[FlowModule & { value: RawScript }, FlowModuleState]> {
 	if (flowModule.value.type !== 'script') {
 		throw new Error('Can only fork a script module')
 	}
@@ -141,7 +141,7 @@ export async function fork(flowModule: FlowModule): Promise<[FlowModule, FlowMod
 	return [forkedFlowModule, flowModuleState]
 }
 
-async function createInlineScriptModuleFromPath(path: string, id: string): Promise<FlowModule> {
+async function createInlineScriptModuleFromPath(path: string, id: string): Promise<FlowModule & { value: RawScript }> {
 	const { content, language } = await getScriptByPath(path)
 
 	return {
@@ -167,7 +167,7 @@ export async function createScriptFromInlineScript(
 	flowModule: FlowModule,
 	suffix: string,
 	schema: Schema
-): Promise<[FlowModule, FlowModuleState]> {
+): Promise<[FlowModule & { value: PathScript }, FlowModuleState]> {
 	const flow = get(flowStore)
 	const user = get(userStore)
 
