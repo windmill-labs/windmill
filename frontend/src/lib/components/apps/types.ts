@@ -1,12 +1,16 @@
 
-type AppInputTransform = {
+export type DynamicInput = {
 	type: 'output'
 	id: string
 	name: string
-} | {
+}
+
+export type StaticInput = {
 	type: 'static'
 	value: any
 }
+
+type AppInputTransform = DynamicInput | StaticInput
 
 type InputsLeaf = Record<string, AppInputTransform>
 type Inputs2 = Record<string, AppInputTransform | InputsLeaf>
