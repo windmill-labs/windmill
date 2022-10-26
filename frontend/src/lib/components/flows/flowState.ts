@@ -1,58 +1,72 @@
 import type { Schema } from '$lib/common'
 import type { Flow, FlowModule } from '$lib/gen'
 import { writable } from 'svelte/store'
-import { emptyFlowModuleState, isEmptyFlowModule, loadFlowModuleSchema } from './flowStateUtils'
+import { loadFlowModuleState } from './flowStateUtils'
+import { emptyFlowModuleState, isEmptyFlowModule } from './utils'
 
 export type FlowModuleState = {
 	schema: Schema
-	childFlowModules?: FlowModuleState[]
-	previewArgs?: any
 	previewResult?: any
+	previewArgs?: any
 }
 
-export type FlowState = {
-	modules: FlowModuleState[]
-	failureModule: FlowModuleState
-}
+export type FlowState = Record<string, FlowModuleState>
 
-export const flowStateStore = writable<FlowState>({ modules: [], failureModule: emptyFlowModuleState() })
+/**
+ * flowStateStore represents the local state of each module indexed by its id.
+ * It contains data loaded that are not contained in a Flow object i.e. schemas.
+ * We also hold the data of the results of a test job, ran by the user.
+ */
+export const flowStateStore = writable<FlowState>({})
 
 export async function initFlowState(flow: Flow) {
-	const modules = await mapFlowModules(flow.value.modules)
+	const modulesState: FlowState = {}
+
+	await mapFlowModules(flow.value.modules, modulesState)
 
 	const failureModule = flow.value.failure_module
-		? await mapFlowModule(flow.value.failure_module)
+		? await loadFlowModuleState(flow.value.failure_module)
 		: emptyFlowModuleState()
 
 	flowStateStore.set({
-		modules,
-		failureModule
+		...modulesState,
+		failure: failureModule
 	})
 }
 
-
-
-async function mapFlowModule(flowModule: FlowModule) {
+/**
+ * mapFlowModule recursively explore the flow, following deeply nested loop and branches modules
+ * to build the initial state.
+ */
+async function mapFlowModule(flowModule: FlowModule, modulesState: FlowState) {
 	const value = flowModule.value
 	if (value.type === 'forloopflow') {
-		const childFlowModules = await Promise.all(
-			value.modules.map(async (module) => loadFlowModuleSchema(module))
-		)
-		const loopFlowModule = await loadFlowModuleSchema(flowModule)
+		await mapFlowModules(value.modules, modulesState)
+	}
 
-		return {
-			...loopFlowModule,
-			childFlowModules
-		}
+	if (value.type === 'branchone') {
+		await mapFlowModules(value.default, modulesState)
+	}
+
+	if (value.type === 'branchone' || value.type === 'branchall') {
+		await Promise.all(
+			value.branches.map(
+				(branchModule: { summary?: string; skip_failure?: boolean; modules: Array<FlowModule> }) =>
+					mapFlowModules(branchModule.modules, modulesState)
+			)
+		)
 	}
 
 	if (isEmptyFlowModule(flowModule)) {
-		return emptyFlowModuleState()
+		modulesState[flowModule.id] = emptyFlowModuleState()
+	} else {
+		const flowModuleState = await loadFlowModuleState(flowModule)
+		modulesState[flowModule.id] = flowModuleState
 	}
-
-	return loadFlowModuleSchema(flowModule)
 }
 
-export async function mapFlowModules(flowModules: FlowModule[]): Promise<FlowModuleState[]> {
-	return Promise.all(flowModules.map(async (flowModule: FlowModule) => mapFlowModule(flowModule)))
+async function mapFlowModules(flowModules: FlowModule[], modulesState: FlowState) {
+	await Promise.all(
+		flowModules.map((flowModule: FlowModule) => mapFlowModule(flowModule, modulesState))
+	)
 }

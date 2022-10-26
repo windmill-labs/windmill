@@ -51,7 +51,8 @@
 			})
 			loadSchedules()
 		} catch (err) {
-			sendUserToast(`Cannot ` + enabled ? 'disable' : 'enable' + ` schedule: ${err}`, true)
+			sendUserToast(`Cannot ` + (enabled ? 'disable' : 'enable') + ` schedule: ${err}`, true)
+			loadSchedules()
 		}
 	}
 

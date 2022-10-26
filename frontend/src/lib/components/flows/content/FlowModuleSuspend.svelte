@@ -9,9 +9,9 @@
 	import { flowStateStore } from '../flowState'
 	import PropPickerWrapper from '../propPicker/PropPickerWrapper.svelte'
 	import type { FlowEditorContext } from '../types'
-	import { selectedIdToModuleState } from '../utils'
 
 	export let flowModule: FlowModule
+	export let previousModuleId: string | undefined
 
 	const { selectedId } = getContext<FlowEditorContext>('FlowEditorContext')
 
@@ -23,8 +23,8 @@
 
 	let editor: SimpleEditor | undefined = undefined
 
-	let pickableProperties = {
-		result: selectedIdToModuleState($selectedId, $flowStateStore).previewResult
+	const pickableProperties = {
+		result: $flowStateStore[$selectedId].previewResult
 	}
 
 	$: isSuspendEnabled = Boolean(flowModule.suspend)
@@ -87,6 +87,7 @@
 	{#if flowModule.sleep && schema.properties['sleep']}
 		<div class="border">
 			<PropPickerWrapper
+				priorId={previousModuleId}
 				displayContext={false}
 				{pickableProperties}
 				on:select={({ detail }) => {

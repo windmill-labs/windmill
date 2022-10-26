@@ -2,7 +2,7 @@
 	import { truncate } from '$lib/utils'
 
 	import { createEventDispatcher } from 'svelte'
-	import { NEVER_TESTED_THIS_FAR } from '../flows/flowStateUtils'
+	import { NEVER_TESTED_THIS_FAR } from '../flows/utils'
 	import { getTypeAsString } from '../flows/utils'
 	import { computeKey } from './utils'
 	import WarningMessage from './WarningMessage.svelte'
@@ -81,7 +81,11 @@
 			{/each}
 		</ul>
 	</span>
-	<span class="cursor-pointer hover:bg-gray-200" class:hidden={!collapsed} on:click={collapse}>
+	<span
+		class="cursor-pointer hover:bg-gray-200 {level == 0 ? 'ml-2' : ''}"
+		class:hidden={!collapsed}
+		on:click={collapse}
+	>
 		{openBracket}{collapsedSymbol}{closeBracket}
 	</span>
 	{#if !isLast && collapsed}

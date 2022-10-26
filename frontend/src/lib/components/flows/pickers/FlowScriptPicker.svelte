@@ -11,5 +11,5 @@
 
 <Button {disabled} on:click size="md" class="text-left" color="alternative">
 	<Icon data={icon} class={`mr-2 ${iconColor} w-4`} scale={1.5} />
-	<span class="text-sm text-left"> {label} </span>
+	<span class="text-sm text-left">{label}</span>
 </Button>

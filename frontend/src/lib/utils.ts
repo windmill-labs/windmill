@@ -56,8 +56,9 @@ export function displayDate(dateString: string | undefined): string {
 	if (date.toString() === 'Invalid Date') {
 		return ''
 	} else {
-		return `${date.getFullYear()}/${date.getMonth() + 1
-			}/${date.getDate()} at ${date.toLocaleTimeString()}`
+		return `${date.getFullYear()}/${
+			date.getMonth() + 1
+		}/${date.getDate()} at ${date.toLocaleTimeString()}`
 	}
 }
 
@@ -140,7 +141,6 @@ export function emptySchema() {
 		type: 'object'
 	}
 }
-
 
 export function simpleSchema() {
 	return {
@@ -477,7 +477,7 @@ export async function getScriptByPath(path: string): Promise<{
 
 		return {
 			content,
-			language,
+			language
 		}
 	} else {
 		const script = await ScriptService.getScriptByPath({
