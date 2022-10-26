@@ -74,20 +74,16 @@
 					runInputs: {
 						a: {
 							type: 'static',
-							value: 'Salut'
+							value: 'first'
+						},
+						b: {
+							type: 'static',
+							value: 'second'
 						}
 					}
-				}
-			},
-			{
-				id: 'b',
-				type: 'displaycomponent',
-				inputs: {
-					result: {
-						type: 'output',
-						id: 'a',
-						output: 'result'
-					}
+				},
+				params: {
+					hidden: ['b']
 				}
 			}
 		],
@@ -115,7 +111,8 @@
 			New app
 		</Button>
 	</PageHeader>
-	{JSON.stringify(apps)}
 
-	<AppWrapper {app} />
+	<div class="p-4 border ">
+		<AppWrapper {app} />
+	</div>
 </CenteredPage>

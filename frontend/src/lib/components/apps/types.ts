@@ -1,4 +1,3 @@
-
 export type DynamicInput = {
 	type: 'output'
 	id: string
@@ -15,7 +14,7 @@ type AppInputTransform = DynamicInput | StaticInput
 type InputsLeaf = Record<string, AppInputTransform>
 type Inputs2 = Record<string, AppInputTransform | InputsLeaf>
 type Inputs1 = Record<string, AppInputTransform | Inputs2>
-type Inputs = Record<string, AppInputTransform | Inputs1>
+export type Inputs = Record<string, AppInputTransform | Inputs1>
 
 export type TextInputComponent = {
 	type: 'textinputcomponent'
@@ -27,6 +26,9 @@ export type RunFormComponent = {
 	type: 'runformcomponent'
 	inputs: {
 		runInputs: Inputs
+	}
+	params: {
+		hidden: string[]
 	}
 }
 
