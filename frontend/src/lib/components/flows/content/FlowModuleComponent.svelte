@@ -184,7 +184,10 @@
 						<div class="h-[calc(100%-32px)]">
 							{#if selected === 'inputs'}
 								<div class="h-full overflow-auto">
-									<PropPickerWrapper pickableProperties={stepPropPicker.pickableProperties}>
+									<PropPickerWrapper
+										priorId={previousModuleId}
+										pickableProperties={stepPropPicker.pickableProperties}
+									>
 										<p class="items-baseline text-xs text-gray-700 italic hidden md:block mb-2">
 											Move the focus outside of the text editor to recompute the inputs or press
 											Ctrl/Cmd+S
@@ -209,13 +212,14 @@
 								<FlowRetries bind:flowModule class="px-4 pb-4 h-full overflow-auto" />
 							{:else if selected === 'early-stop'}
 								<FlowModuleEarlyStop
+									{previousModuleId}
 									bind:flowModule
 									class="px-4 pb-4 h-full overflow-auto"
 									{parentModule}
 								/>
 							{:else if selected === 'suspend'}
 								<div class="px-4 pb-4 h-full overflow-auto">
-									<FlowModuleSuspend bind:flowModule />
+									<FlowModuleSuspend {previousModuleId} bind:flowModule />
 								</div>
 							{/if}
 						</div>

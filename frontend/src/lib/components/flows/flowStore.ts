@@ -1,7 +1,6 @@
 import type { Flow, FlowModule, ForloopFlow, InputTransform } from '$lib/gen'
-import { get, writable } from 'svelte/store'
+import { get, writable, derived } from 'svelte/store'
 import { flowStateStore, initFlowState } from './flowState'
-import { nextId } from './flowStateUtils'
 import { numberToChars } from './utils'
 
 export type FlowMode = 'push' | 'pull'
@@ -15,6 +14,23 @@ export const flowStore = writable<Flow>({
 	archived: false,
 	extra_perms: {}
 })
+
+function dfs(modules: FlowModule[]): string[] {
+	let result: string[] = []
+	for (const module of modules) {
+		if (module.value.type == 'forloopflow') {
+			result = result.concat(dfs(module.value.modules)).concat(module.id)
+		} else if (module.value.type == 'branchone') {
+			result = result.concat(dfs(module.value.branches.map((b) => b.modules).flat().concat(module.value.default)).concat(module.id))
+		} else if (module.value.type == 'branchall') {
+			result = result.concat(dfs(module.value.branches.map((b) => b.modules).flat()).concat(module.id))
+		} else {
+			result.push(module.id)
+		}
+	}
+	return result
+}
+export const flowIds = derived(flowStore, flow => dfs(flow.value.modules))
 
 export async function initFlow(flow: Flow) {
 

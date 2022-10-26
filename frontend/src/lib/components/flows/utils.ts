@@ -205,6 +205,16 @@ export function numberToChars(n: number) {
 	return out
 }
 
+export function charsToNumber(n: string): number {
+	let b = 1
+	let res = 0
+	for (let c of n) {
+		b = b * 26
+		res += (c.charCodeAt(0) - charCode) * b
+	}
+	return res
+}
+
 export function isEmptyFlowModule(flowModule: FlowModule): boolean {
 	return flowModule.value.type === 'identity'
 }

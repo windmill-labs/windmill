@@ -43,6 +43,7 @@
 						<span class="mb-2 text-sm font-bold">Branch predicate</span>
 						<div class="border w-full">
 							<PropPickerWrapper
+								priorId={previousModuleId}
 								{pickableProperties}
 								on:select={({ detail }) => {
 									editor?.insertAtCursor(detail)
