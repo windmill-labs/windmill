@@ -105,7 +105,10 @@
 		<ObjectViewer
 			collapsed={true}
 			json={priorIds}
-			on:select={(e) => dispatch('select', `result_by_id('${e.detail}')`)}
+			on:select={(e) => {
+				const [first, ...second] = e.detail.split('.')
+				dispatch('select', `result_by_id('${first}')${second.length ? '.' + second.join('.') : ''}`)
+			}}
 		/>
 	</div>
 {/if}
