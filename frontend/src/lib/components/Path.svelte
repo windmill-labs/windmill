@@ -16,7 +16,7 @@
 	import { createEventDispatcher } from 'svelte'
 	import Required from './Required.svelte'
 
-	type PathKind = 'resource' | 'script' | 'variable' | 'flow' | 'schedule'
+	type PathKind = 'resource' | 'script' | 'variable' | 'flow' | 'schedule' | 'app'
 	export let meta: Meta = {
 		ownerKind: 'user',
 		owner: '',
