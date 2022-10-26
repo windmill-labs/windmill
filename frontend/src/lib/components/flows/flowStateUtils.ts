@@ -29,7 +29,7 @@ export async function loadFlowModuleState(flowModule: FlowModule): Promise<FlowM
 const charCode = 'a'.charCodeAt(0)
 
 // Computes the next available id
-function nextId(): string {
+export function nextId(): string {
 	const flowState = get(flowStateStore)
 
 	const keys = Object.keys(flowState)

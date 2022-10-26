@@ -78,7 +78,7 @@
 			<FlowInputsItem />
 		{/if}
 
-		{#each modules as mod, index (mod.id)}
+		{#each modules as mod, index (mod.id ?? index)}
 			<MapItem
 				{color}
 				{index}
