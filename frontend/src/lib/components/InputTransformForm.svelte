@@ -212,5 +212,5 @@
 		<p>Not recognized arg type {arg.type}</p>
 	{/if}
 {:else}
-	<p>Arg at {argName} is undefined</p>
+	<p class="text-sm text-gray-700">Arg at {argName} is undefined</p>
 {/if}

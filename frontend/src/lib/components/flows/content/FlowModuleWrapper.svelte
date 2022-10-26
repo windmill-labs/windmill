@@ -79,7 +79,7 @@
 			}}
 			failureModule={$selectedId === 'failure'}
 		/>
-	{:else}
+	{:else if flowModule.value.type === 'rawscript' || flowModule.value.type === 'script'}
 		<FlowModuleComponent bind:flowModule {parentModule} {previousModuleId} />
 	{/if}
 {:else if flowModule.value.type === 'forloopflow'}
