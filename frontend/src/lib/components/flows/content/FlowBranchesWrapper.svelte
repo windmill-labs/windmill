@@ -9,6 +9,7 @@
 
 	export let flowModule: FlowModule
 	export let parentModule: FlowModule | undefined
+	export let previousModuleId: string | undefined
 
 	let selected: string = 'retries'
 </script>
@@ -29,13 +30,13 @@
 
 				<TabContent value="early-stop" class="flex flex-col flex-1 h-full">
 					<div class="p-4 overflow-y-auto">
-						<FlowModuleEarlyStop bind:flowModule {parentModule} />
+						<FlowModuleEarlyStop {previousModuleId} bind:flowModule {parentModule} />
 					</div>
 				</TabContent>
 
 				<TabContent value="suspend" class="flex flex-col flex-1 h-full">
 					<div class="p-4 overflow-y-auto">
-						<FlowModuleSuspend bind:flowModule />
+						<FlowModuleSuspend {previousModuleId} bind:flowModule />
 					</div>
 				</TabContent>
 			</div>

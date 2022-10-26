@@ -52,6 +52,7 @@
 					{#if mod.value.iterator.type == 'javascript'}
 						<div class="border w-full">
 							<PropPickerWrapper
+								priorId={previousModuleId}
 								{pickableProperties}
 								on:select={({ detail }) => {
 									editor?.insertAtCursor(detail)
@@ -98,13 +99,13 @@
 
 							<TabContent value="early-stop" class="flex flex-col flex-1 h-full">
 								<div class="p-4 overflow-y-auto">
-									<FlowModuleEarlyStop bind:flowModule={mod} {parentModule} />
+									<FlowModuleEarlyStop {previousModuleId} bind:flowModule={mod} {parentModule} />
 								</div>
 							</TabContent>
 
 							<TabContent value="suspend" class="flex flex-col flex-1 h-full">
 								<div class="p-4 overflow-y-auto">
-									<FlowModuleSuspend bind:flowModule={mod} />
+									<FlowModuleSuspend {previousModuleId} bind:flowModule={mod} />
 								</div>
 							</TabContent>
 						</div>

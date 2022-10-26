@@ -11,6 +11,7 @@
 
 	const { previewArgs } = getContext<FlowEditorContext>('FlowEditorContext')
 
+	export let previousModuleId: string | undefined
 	export let flowModule: FlowModule
 	export let parentModule: FlowModule | undefined
 
@@ -58,6 +59,7 @@
 		<span class="text-xs font-bold">Stop condition expression</span>
 		<div class="border w-full">
 			<PropPickerWrapper
+				priorId={previousModuleId}
 				{pickableProperties}
 				on:select={({ detail }) => {
 					editor?.insertAtCursor(detail)

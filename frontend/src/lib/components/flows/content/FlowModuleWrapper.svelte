@@ -33,9 +33,9 @@
 	{#if flowModule.value.type === 'forloopflow'}
 		<FlowLoop bind:mod={flowModule} {parentModule} {previousModuleId} />
 	{:else if flowModule.value.type === 'branchone'}
-		<FlowBranchesWrapper bind:flowModule {parentModule} />
+		<FlowBranchesWrapper {previousModuleId} bind:flowModule {parentModule} />
 	{:else if flowModule.value.type === 'branchall'}
-		<FlowBranchesWrapper bind:flowModule {parentModule} />
+		<FlowBranchesWrapper {previousModuleId} bind:flowModule {parentModule} />
 	{:else if flowModule.value.type === 'identity'}
 		<FlowInputs
 			shouldDisableTriggerScripts={parentModule !== undefined || previousModuleId !== undefined}

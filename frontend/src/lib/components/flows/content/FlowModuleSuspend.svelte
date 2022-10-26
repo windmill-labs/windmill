@@ -11,6 +11,7 @@
 	import type { FlowEditorContext } from '../types'
 
 	export let flowModule: FlowModule
+	export let previousModuleId: string | undefined
 
 	const { selectedId } = getContext<FlowEditorContext>('FlowEditorContext')
 
@@ -86,6 +87,7 @@
 	{#if flowModule.sleep && schema.properties['sleep']}
 		<div class="border">
 			<PropPickerWrapper
+				priorId={previousModuleId}
 				displayContext={false}
 				{pickableProperties}
 				on:select={({ detail }) => {
