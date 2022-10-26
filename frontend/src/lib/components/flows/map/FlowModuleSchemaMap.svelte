@@ -71,7 +71,7 @@
 	$: confirmationModalOpen = indexToRemove !== undefined
 </script>
 
-<div class="flex flex-col justify-between">
+<div class="flex flex-col justify-between w-full">
 	<ul class="w-full">
 		{#if root}
 			<FlowSettingsItem />

@@ -30,7 +30,7 @@
 {#if mod}
 	<InsertModuleButton on:click={() => dispatch('insert')} />
 	{#if mod.value.type === 'forloopflow'}
-		<li>
+		<li class="w-full">
 			<FlowModuleSchemaItem
 				deletable
 				label={mod.summary || 'For loop'}
@@ -43,10 +43,12 @@
 					<span>{index + 1}</span>
 				</div>
 			</FlowModuleSchemaItem>
-			<div class="flex">
-				<div class="line w-8" />
-				<div class="w-full my-4">
-					<FlowModuleSchemaMap bind:modules={mod.value.modules} color="orange" />
+			<div class="flex flex-row w-full">
+				<div class="w-8 shrink-0 " />
+				<div class="grow my-4 overflow-auto">
+					<div class="w-full pr-1">
+						<FlowModuleSchemaMap bind:modules={mod.value.modules} color="orange" />
+					</div>
 				</div>
 			</div>
 		</li>
