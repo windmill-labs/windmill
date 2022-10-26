@@ -12,7 +12,7 @@ use crate::{
     error::{Error, JsonResult, Result},
     flows::Flow,
     resources::{Resource, ResourceType},
-    scripts::{Schema, Script},
+    scripts::{Schema, Script, ScriptLang},
     users::{Authed, WorkspaceInvite},
     utils::{require_admin, require_super_admin, Pagination},
     variables::ListableVariable,
@@ -554,9 +554,14 @@ async fn tarball_workspace(
         .await?;
 
         for script in scripts {
+            let ext = match script.language {
+                ScriptLang::Python3 => "py",
+                ScriptLang::Deno => "ts",
+                ScriptLang::Go => "go",
+            };
             write_to_archive(
                 script.content,
-                format!("scripts/{}.py", script.path),
+                format!("scripts/{}.{}", script.path, ext),
                 &mut a,
             )
             .await?;
