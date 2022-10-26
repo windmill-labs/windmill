@@ -1,4 +1,5 @@
-import type { DynamicInput, StaticInput } from "./types"
+import { writable } from "svelte/store"
+import type { DynamicInput, InputsSpec, StaticInput } from "./types"
 
 export interface Subscriber<T> {
     next(v: T),
@@ -15,9 +16,28 @@ export interface Input<T> extends Subscriber<T> {
     peak(): T | undefined
 }
 
-export function buildWorld() {
-    function registerComponent() { }
+export type World = {
+    outputsById: Record<string, Record<string, Output<any>>>,
+    connect: <T>(inputSpec: DynamicInput, next: (x: T) => void) => Input<T>;
+    newOutput: <T>(id: string, name: string) => Output<T>;
 }
+
+const worldStore = writable<World | undefined>(undefined)
+
+export function buildWorld(components: Record<string, { inputs: InputsSpec, outputs: string[] }>) {
+    const newWorld = buildObservableWorld()
+    const outputsById: Record<string, Record<string, Output<any>>> = {}
+
+    for (const [k, v] of Object.entries(components)) {
+        outputsById[k] = {}
+        for (const o of v.outputs) {
+            outputsById[k][o] = newWorld.newOutput(k, o)
+        }
+    }
+    return { outputsById, connect: newWorld.connect, newOutput: newWorld.newOutput }
+
+}
+
 
 export function buildObservableWorld() {
     const observables: Record<string, Output<any>> = {}
