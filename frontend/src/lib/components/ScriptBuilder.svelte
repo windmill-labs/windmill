@@ -17,7 +17,7 @@
 	import { dirtyStore } from './common/confirmationModal/dirtyStore'
 	import { Button } from './common'
 	import { slide } from 'svelte/transition'
-	import { faChevronDown, faChevronUp } from '@fortawesome/free-solid-svg-icons'
+	import { faChevronDown, faChevronUp, faPen } from '@fortawesome/free-solid-svg-icons'
 	import Breadcrumb from './common/breadcrumb/Breadcrumb.svelte'
 
 	export let script: Script
@@ -83,8 +83,8 @@
 <div class="flex flex-col h-screen">
 	<!-- Nav between steps-->
 	<div class="flex flex-col w-full px-4 py-2 border-b shadow-sm">
-		<div class="justify-between flex flex-row w-full">
-			<div class="flex flex-row w-full">
+		<div class="justify-between flex flex-row w-full items-center">
+			<div class="flex flex-row">
 				<Breadcrumb
 					items={['Metadata', 'Code', 'UI Customisation']}
 					selectedIndex={step}
@@ -94,7 +94,31 @@
 					<svelte:fragment slot="separator">/</svelte:fragment>
 				</Breadcrumb>
 			</div>
-			<span>{script.path}</span>
+
+			<div class="flex gap-1 flex-row">
+				<Button
+					startIcon={{ icon: faPen }}
+					variant="contained"
+					color="light"
+					size="xs"
+					on:click={() => changeStep(1)}
+				>
+					{script.path}
+				</Button>
+
+				<Button
+					startIcon={{ icon: faPen }}
+					variant="contained"
+					color="light"
+					size="xs"
+					on:click={() => changeStep(1)}
+				>
+					<div class="max-w-[10em] !truncate">
+						{script.summary == '' || !script.summary ? 'No summary' : script.summary}
+					</div>
+				</Button>
+			</div>
+
 			<div class="flex flex-row-reverse ml-2">
 				{#if step != 3}
 					<Button
