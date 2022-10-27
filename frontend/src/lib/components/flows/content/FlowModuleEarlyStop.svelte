@@ -1,44 +1,37 @@
 <script lang="ts">
 	import SimpleEditor from '$lib/components/SimpleEditor.svelte'
-
 	import Toggle from '$lib/components/Toggle.svelte'
 	import PropPickerWrapper from '$lib/components/flows/propPicker/PropPickerWrapper.svelte'
-
 	import type { FlowModule } from '$lib/gen'
-	import { getStepPropPicker } from '../flowStateUtils'
-	import { flowStore } from '../flowStore'
-	import { flowStateStore } from '../flowState'
 	import type { FlowEditorContext } from '../types'
 	import { getContext } from 'svelte'
-	import { selectedIdToIndexes } from '../utils'
+	import { getStepPropPicker } from '../previousResults'
+	import { flowStateStore } from '../flowState'
+	import { flowStore } from '../flowStore'
 
-	const { selectedId, previewArgs } = getContext<FlowEditorContext>('FlowEditorContext')
+	const { previewArgs } = getContext<FlowEditorContext>('FlowEditorContext')
 
+	export let previousModuleId: string | undefined
 	export let flowModule: FlowModule
+	export let parentModule: FlowModule | undefined
 
 	let editor: SimpleEditor | undefined = undefined
 
 	$: isStopAfterIfEnabled = Boolean(flowModule.stop_after_if)
-	let pickableProperties: Object = {}
+
+	let pickableProperties: Record<string, any> = {}
 
 	$: {
-		let indices = selectedIdToIndexes($selectedId)
-		if (indices[1]) {
-			indices[1] += 1
-		} else {
-			indices[0] += 1
-		}
-		const props = getStepPropPicker(
-			indices,
-			$flowStore.schema,
+		const propPicker = getStepPropPicker(
 			$flowStateStore,
-			$previewArgs
+			parentModule,
+			flowModule.id,
+			$flowStore,
+			previewArgs
 		).pickableProperties
-
-		props['result'] = props['previous_result']
-		delete props['previous_result']
-		props.step = props.step?.slice(0, props.step.length - 1)
-		pickableProperties = props
+		propPicker['result'] = propPicker['previous_result']
+		delete propPicker['previous_result']
+		pickableProperties = propPicker
 	}
 </script>
 
@@ -62,13 +55,11 @@
 
 	{#if flowModule.stop_after_if}
 		<span class="text-xs font-bold">Should skip if stopped</span>
-
 		<input type="checkbox" bind:checked={flowModule.stop_after_if.skip_if_stopped} />
-
 		<span class="text-xs font-bold">Stop condition expression</span>
-
 		<div class="border w-full">
 			<PropPickerWrapper
+				priorId={previousModuleId}
 				{pickableProperties}
 				on:select={({ detail }) => {
 					editor?.insertAtCursor(detail)

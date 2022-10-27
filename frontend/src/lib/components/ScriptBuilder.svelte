@@ -7,20 +7,18 @@
 	import { initialCode, isInitialCode } from '$lib/script_helpers'
 	import { workspaceStore } from '$lib/stores'
 	import { encodeState, sendUserToast, setQueryWithoutLoad } from '$lib/utils'
-	import { Breadcrumb, BreadcrumbItem } from 'flowbite-svelte'
-	import SvelteMarkdown from 'svelte-markdown'
 	import Path from './Path.svelte'
 	import RadioButton from './RadioButton.svelte'
 	import Required from './Required.svelte'
 	import ScriptEditor from './ScriptEditor.svelte'
 	import ScriptSchema from './ScriptSchema.svelte'
 	import CenteredPage from './CenteredPage.svelte'
-	import Tooltip from './Tooltip.svelte'
 	import UnsavedConfirmationModal from './common/confirmationModal/UnsavedConfirmationModal.svelte'
 	import { dirtyStore } from './common/confirmationModal/dirtyStore'
 	import { Button } from './common'
 	import { slide } from 'svelte/transition'
-	import { faChevronDown, faChevronUp } from '@fortawesome/free-solid-svg-icons'
+	import { faChevronDown, faChevronUp, faPen } from '@fortawesome/free-solid-svg-icons'
+	import Breadcrumb from './common/breadcrumb/Breadcrumb.svelte'
 
 	export let script: Script
 	export let initialPath: string = ''
@@ -85,34 +83,42 @@
 <div class="flex flex-col h-screen">
 	<!-- Nav between steps-->
 	<div class="flex flex-col w-full px-4 py-2 border-b shadow-sm">
-		<div class="justify-between flex flex-row drop-shadow-sm w-full">
-			<div class="flex flex-row w-full">
-				<Breadcrumb>
-					<BreadcrumbItem>
-						<button on:click={() => changeStep(1)} class={step === 1 ? 'font-bold' : null}>
-							Metadata
-						</button>
-					</BreadcrumbItem>
-					<BreadcrumbItem>
-						<button
-							on:click={() => changeStep(2)}
-							class={step === 2 ? 'font-bold' : null}
-							disabled={pathError != ''}
-						>
-							Code
-						</button>
-					</BreadcrumbItem>
-					<BreadcrumbItem>
-						<button
-							on:click={() => changeStep(3)}
-							class={step === 3 ? 'font-bold' : null}
-							disabled={pathError != ''}
-						>
-							UI customisation
-						</button>
-					</BreadcrumbItem>
+		<div class="justify-between flex flex-row w-full items-center">
+			<div class="flex flex-row">
+				<Breadcrumb
+					items={['Metadata', 'Code', 'UI Customisation']}
+					selectedIndex={step}
+					on:select={(e) => changeStep(e.detail.index + 1)}
+					disabled={pathError != ''}
+				>
+					<svelte:fragment slot="separator">/</svelte:fragment>
 				</Breadcrumb>
 			</div>
+
+			<div class="flex gap-1 flex-row">
+				<Button
+					startIcon={{ icon: faPen }}
+					variant="contained"
+					color="light"
+					size="xs"
+					on:click={() => changeStep(1)}
+				>
+					{script.path}
+				</Button>
+
+				<Button
+					startIcon={{ icon: faPen }}
+					variant="contained"
+					color="light"
+					size="xs"
+					on:click={() => changeStep(1)}
+				>
+					<div class="max-w-[10em] !truncate">
+						{script.summary == '' || !script.summary ? 'No summary' : script.summary}
+					</div>
+				</Button>
+			</div>
+
 			<div class="flex flex-row-reverse ml-2">
 				{#if step != 3}
 					<Button
@@ -155,7 +161,6 @@
 	{#if step === 1}
 		<CenteredPage>
 			<div class="space-y-6">
-				<h1 class="mb-4">New script</h1>
 				<h2 class="border-b pb-1 mt-4">Path & Summary</h2>
 				<Path
 					bind:error={pathError}
@@ -177,7 +182,7 @@
 					<textarea
 						bind:value={script.summary}
 						class="block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-300 
-						focus:ring focus:ring-indigo-200 focus:ring-opacity-50 text-lg"
+						focus:ring focus:ring-indigo-200 focus:ring-opacity-50"
 						placeholder="A very short summary of the script displayed when the script is listed"
 						rows="1"
 					/>
@@ -270,38 +275,9 @@
 				{/if}
 
 				<label class="block">
-					<span class="text-gray-700 mr-2"
-						>Save as workspace template <Tooltip
-							>Enable your teammates to use this script as a template to write new scripts.</Tooltip
-						>
-					</span>
+					<span class="text-gray-700 mr-2">Save as workspace template</span>
 					<input type="checkbox" bind:checked={script.is_template} />
 				</label>
-
-				<label class="block" for="inp">
-					<span class="text-gray-700 text-sm">
-						Description<Required required={false} detail="markdown" />
-						<textarea
-							id="inp"
-							bind:value={script.description}
-							class="block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-300 
-							focus:ring focus:ring-indigo-200 focus:ring-opacity-50"
-							placeholder="A description to help users understand what this script does and how to use it."
-							rows="3"
-						/>
-					</span>
-				</label>
-
-				<div>
-					<div class="font-bold pb-1 mt-4">Description preview</div>
-					{#if script.description}
-						<div class="prose max-h-48 mt-5 text-xs shadow-inner shadow-blue p-4 overflow-auto">
-							<SvelteMarkdown source={script.description} />
-						</div>
-					{:else}
-						<div class="text-sm text-gray-500"> Enter a description to see the preview </div>
-					{/if}
-				</div>
 			</div>
 		</CenteredPage>
 	{:else if step === 2}

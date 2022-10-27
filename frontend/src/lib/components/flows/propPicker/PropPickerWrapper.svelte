@@ -1,7 +1,7 @@
 <script context="module" lang="ts">
 	type InsertionMode = 'append' | 'connect' | 'insert'
 
-	type SelectCallback = (path: string) => void
+	type SelectCallback = (path: string) => boolean
 
 	type PropPickerConfig = {
 		insertionMode: InsertionMode
@@ -24,6 +24,7 @@
 
 	export let pickableProperties: Object = {}
 	export let displayContext = true
+	export let priorId: string | undefined
 
 	const propPickerConfig = writable<PropPickerConfig | undefined>(undefined)
 	const dispatch = createEventDispatcher()
@@ -49,12 +50,14 @@
 	</Pane>
 	<Pane minSize={20} class="px-2 py-2 h-full !duration-[0ms]">
 		<PropPicker
+			{priorId}
 			{displayContext}
 			{pickableProperties}
 			on:select={({ detail }) => {
 				dispatch('select', detail)
-				$propPickerConfig?.onSelect(detail)
-				propPickerConfig.set(undefined)
+				if ($propPickerConfig?.onSelect(detail)) {
+					propPickerConfig.set(undefined)
+				}
 			}}
 		/>
 	</Pane>

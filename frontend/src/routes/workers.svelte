@@ -8,11 +8,11 @@
 
 <script lang="ts">
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
+	import Badge from '$lib/components/common/badge/Badge.svelte'
 	import PageHeader from '$lib/components/PageHeader.svelte'
 	import TableCustom from '$lib/components/TableCustom.svelte'
 	import { WorkerService, type WorkerPing } from '$lib/gen'
 	import { displayDate, elapsedSinceSecs, groupBy, sendUserToast } from '$lib/utils'
-	import { Badge } from 'flowbite-svelte'
 	import { onDestroy, onMount } from 'svelte'
 
 	let workers: WorkerPing[] = []

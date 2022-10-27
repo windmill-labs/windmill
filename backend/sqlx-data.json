@@ -181,6 +181,20 @@
     },
     "query": "INSERT INTO workspace_invite\n            (workspace_id, email, is_admin)\n            VALUES ($1, $2, $3)"
   },
+  "0a9a191273c735c41d56ea46a39ffca075a0550eada87df7162c5037164ad6bf": {
+    "describe": {
+      "columns": [],
+      "nullable": [],
+      "parameters": {
+        "Left": [
+          "Varchar",
+          "Varchar",
+          "Varchar"
+        ]
+      }
+    },
+    "query": "\n       INSERT INTO capture\n                   (workspace_id, path, created_by)\n            VALUES ($1, $2, $3)\n       ON CONFLICT (workspace_id, path)\n     DO UPDATE SET created_at = now()\n        "
+  },
   "0ae9160591ae00117d20a616cfe07e38f0c32953c7e881e916c389255190b72d": {
     "describe": {
       "columns": [],
@@ -2714,6 +2728,20 @@
     },
     "query": "SELECT (flow_status->'step')::integer FROM queue WHERE id = $1"
   },
+  "b9468b9e16f55db11b33d8e9793e6e3ae6c5add6ca02414140adb724120a6800": {
+    "describe": {
+      "columns": [],
+      "nullable": [],
+      "parameters": {
+        "Left": [
+          "Text",
+          "Text",
+          "Jsonb"
+        ]
+      }
+    },
+    "query": "\n       UPDATE capture\n          SET payload = $3\n        WHERE workspace_id = $1\n          AND path = $2\n        "
+  },
   "bb56e61c7cfb09c0a28fb3226dfe91704c70d9fe15eda18e6889adfd7496f80b": {
     "describe": {
       "columns": [
@@ -3211,6 +3239,20 @@
     },
     "query": "SELECT EXISTS(SELECT 1 FROM workspace WHERE workspace.id = $1)"
   },
+  "e02b99525cb1f8737acfec86809f59c8cff67bb1ec3926680fb691cc3573738a": {
+    "describe": {
+      "columns": [],
+      "nullable": [],
+      "parameters": {
+        "Left": [
+          "Text",
+          "Text",
+          "Int8"
+        ]
+      }
+    },
+    "query": "\n   DELETE FROM capture\n         WHERE workspace_id = $1\n           AND created_by = $2\n           AND created_at <=\n              ( SELECT created_at\n                  FROM capture\n                 WHERE workspace_id = $1\n                   AND created_by = $2\n              ORDER BY created_at DESC\n                OFFSET $3\n                 LIMIT 1 )\n        "
+  },
   "e262f83b672a558092dc959b28a919f18e44b2a0d03b27b0ddba99896940c6d3": {
     "describe": {
       "columns": [
@@ -3386,6 +3428,27 @@
       }
     },
     "query": "DELETE FROM usr_to_group WHERE usr = $1 AND group_ = $2 AND workspace_id = $3"
+  },
+  "f4960efbb4189b595541608c9ab5cbbd56eb42059e961b6338b685105626a5c7": {
+    "describe": {
+      "columns": [
+        {
+          "name": "payload",
+          "ordinal": 0,
+          "type_info": "Jsonb"
+        }
+      ],
+      "nullable": [
+        false
+      ],
+      "parameters": {
+        "Left": [
+          "Text",
+          "Text"
+        ]
+      }
+    },
+    "query": "\n       SELECT payload\n         FROM capture\n        WHERE workspace_id = $1\n          AND path = $2\n        "
   },
   "f4a1bb4dfeafa3f28385c19d10730f2f49b4ebe5bba631cee46c760cee2e6949": {
     "describe": {

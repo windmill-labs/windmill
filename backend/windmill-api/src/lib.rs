@@ -16,6 +16,8 @@ use crate::{
 };
 
 mod audit;
+mod capture;
+mod client;
 mod db;
 mod flows;
 mod granular_acls;
@@ -103,7 +105,8 @@ pub async fn run_server(
                         .nest("/audit", audit::workspaced_service())
                         .nest("/acls", granular_acls::workspaced_service())
                         .nest("/workspaces", workspaces::workspaced_service())
-                        .nest("/flows", flows::workspaced_service()),
+                        .nest("/flows", flows::workspaced_service())
+                        .nest("/capture", capture::workspaced_service()),
                 )
                 .nest("/workspaces", workspaces::global_service())
                 .nest(
@@ -117,6 +120,7 @@ pub async fn run_server(
                 .route_layer(from_extractor::<Authed>())
                 .route_layer(from_extractor::<users::Tokened>())
                 .nest("/w/:workspace_id/jobs", jobs::global_service())
+                .nest("/w/:workspace_id/capture", capture::global_service())
                 .nest(
                     "/auth",
                     users::make_unauthed_service().layer(Extension(argon2)),

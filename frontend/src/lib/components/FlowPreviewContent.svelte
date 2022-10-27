@@ -1,15 +1,13 @@
 <script lang="ts">
-	import { JobService, type Flow } from '$lib/gen'
+	import { Job, JobService, type Flow } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { faClose, faPlay, faRefresh } from '@fortawesome/free-solid-svg-icons'
 	import { Button } from './common'
 	import { createEventDispatcher, getContext } from 'svelte'
 	import Icon from 'svelte-awesome'
-	import { flowStateStore } from './flows/flowState'
-	import { mapJobResultsToFlowState, type JobResult } from './flows/flowStateUtils'
 	import { flowStore } from './flows/flowStore'
 	import type { FlowEditorContext } from './flows/types'
-	import { runFlowPreview, selectedIdToIndexes } from './flows/utils'
+	import { runFlowPreview } from './flows/utils'
 	import SchemaForm from './SchemaForm.svelte'
 	import FlowStatusViewer from '../components/FlowStatusViewer.svelte'
 
@@ -21,12 +19,28 @@
 	let isRunning: boolean = false
 
 	const { selectedId, previewArgs } = getContext<FlowEditorContext>('FlowEditorContext')
+	const dispatch = createEventDispatcher()
 
 	function extractFlow(previewMode: 'upTo' | 'whole'): Flow {
 		if (previewMode === 'whole') {
 			return $flowStore
 		} else {
-			let [parentIndex, childIndex] = selectedIdToIndexes($selectedId)
+			const flow = JSON.parse(JSON.stringify($flowStore))
+
+			return flow
+		}
+
+		/*
+		if (previewMode === 'whole') {
+			return $flowStore
+		} else {
+			const positions = $idToPositionStore.get($selectedId)!
+
+			if (positions.length < 2) {
+				throw new Error('Up to inside branch is not supported, nor deeply nested modules')
+			}
+
+			const [parentIndex, childIndex] = positions
 
 			const flow = JSON.parse(JSON.stringify($flowStore))
 			const modules = flow.value.modules.slice(0, Number(parentIndex) + 1)
@@ -42,9 +56,8 @@
 			}
 			return flow
 		}
+		*/
 	}
-
-	const dispatch = createEventDispatcher()
 
 	export async function runPreview(args: Record<string, any>) {
 		const newFlow = extractFlow(previewMode)
@@ -69,15 +82,10 @@
 		}
 	}
 
-	function onJobsLoaded(jobResult: JobResult) {
-		if (jobResult.job?.type === 'CompletedJob') {
+	function onJobsLoaded(job: Job | undefined) {
+		if (job?.type === 'CompletedJob') {
 			isRunning = false
 		}
-		const upToIndex =
-			previewMode === 'upTo'
-				? selectedIdToIndexes($selectedId)[0] + 1
-				: $flowStateStore.modules.length
-		mapJobResultsToFlowState(jobResult, upToIndex)
 	}
 </script>
 

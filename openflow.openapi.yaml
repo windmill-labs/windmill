@@ -187,6 +187,7 @@ components:
         - type
         - content
         - language
+        - input_transforms
 
     PathScript:
       type: object
@@ -205,6 +206,7 @@ components:
       required:
         - type
         - path
+        - input_transforms
 
     ForloopFlow:
       type: object
@@ -286,7 +288,6 @@ components:
       required:
         - branches
         - type
-
     Identity:
       type: object
       properties:
@@ -296,7 +297,6 @@ components:
             - identity
       required:
         - type
-
     FlowStatus:
       type: object
       properties:

@@ -204,10 +204,7 @@ pub fn parse_python_imports(code: &str) -> error::Result<Vec<String>> {
             .collect();
         Ok(lines)
     } else {
-        let code = &code
-            .split("\n")
-            .filter(|x| x.starts_with("import ") || x.starts_with("from "))
-            .join("\n");
+        let code = &&code;
         let ast = parser::parse_program(code)
             .map_err(|e| {
                 error::Error::ExecutionErr(format!("Error parsing code: {}", e.to_string()))
