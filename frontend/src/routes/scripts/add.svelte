@@ -63,7 +63,7 @@
 			const template = await getScriptByPath(hubPath)
 			script.description = `Fork of ${hubPath}`
 			script.content = template.content
-			script.language = Script.language.DENO
+			script.language = template.language as Script.language
 			sendUserToast(`Code has been loaded from hub script ${hubPath}.`)
 		}
 	}
