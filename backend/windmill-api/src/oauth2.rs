@@ -23,7 +23,6 @@ use tower_cookies::{Cookie, Cookies};
 use windmill_audit::{audit_log, ActionKind};
 use windmill_common::utils::{not_found_if_none, now_from_db};
 
-use crate::jobs::get_latest_hash_for_path;
 use crate::users::Authed;
 use crate::IsSecure;
 use crate::{
@@ -663,7 +662,8 @@ async fn slack_command(
     if let Some(settings) = settings {
         if let Some(script) = &settings.slack_command_script {
             let script_hash =
-                get_latest_hash_for_path(&mut tx, &settings.workspace_id, script).await?;
+                windmill_common::get_latest_hash_for_path(&mut tx, &settings.workspace_id, script)
+                    .await?;
             let mut map = serde_json::Map::new();
             map.insert("text".to_string(), serde_json::Value::String(form.text));
             map.insert(

@@ -287,28 +287,19 @@ async fn op_get_result(
 
 #[op]
 async fn op_get_id(args: Vec<String>) -> Result<Option<serde_json::Value>, anyhow::Error> {
-    todo!("this uses an undocumented endpoint?");
-    /*
     let workspace = &args[0];
     let flow_job_id = &args[1];
     let token = &args[2];
     let base_url = &args[3];
     let node_id = &args[4];
 
-    let client = reqwest::Client::new();
+    let client = windmill_api_client::create_client(base_url, token.clone());
     let result = client
-        .get(format!(
-            "{base_url}/api/w/{workspace}/jobs/result_by_id/{flow_job_id}/{node_id}?skip_direct=true"
-        ))
-        .bearer_auth(token)
-        .send()
+        .result_by_id(workspace, flow_job_id, node_id, Some(true))
         .await
-        .map_err(|e| anyhow::anyhow!("error getting result for flow {flow_job_id} and node {node_id}: {}", e))?
-        .json::<Option<serde_json::Value>>()
-        .await
-        .map_err(|e| anyhow::anyhow!("error getting result for flow {flow_job_id} and node {node_id}: {}", e))?;
+        .map_or(None, |e| Some(e.into_inner()));
 
-    Ok(result)*/
+    Ok(result)
 }
 
 #[op]

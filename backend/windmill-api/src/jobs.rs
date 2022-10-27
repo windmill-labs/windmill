@@ -12,7 +12,7 @@ use sql_builder::{prelude::*, quote, SqlBuilder};
 use sqlx::{query_scalar, types::Uuid, Postgres, Transaction};
 use windmill_audit::{audit_log, ActionKind};
 use windmill_common::{
-    error::{self, to_anyhow, Error, Result},
+    error::{self, to_anyhow, Error},
     flows::FlowValue,
     oauth2::HmacSha256,
     scripts::{ScriptHash, ScriptLang},
@@ -57,7 +57,6 @@ pub fn workspaced_service() -> Router {
             get(create_job_signature),
         )
         .route("/result_by_id/:job_id/:node_id", get(get_result_by_id))
-        .route("/hash/p/*script_path", get(get_latest_hash_for_path_api))
         .route(
             "/get_flow/:job_id/:resume_id/:secret",
             get(get_suspended_job_flow),
@@ -129,37 +128,6 @@ async fn cancel_job_api(
         };
         Err(err)
     }
-}
-
-async fn get_latest_hash_for_path_api(
-    Extension(db): Extension<DB>,
-    Path((w_id, script_path)): Path<(String, StripPath)>,
-) -> error::JsonResult<ScriptHash> {
-    Ok(Json(
-        get_latest_hash_for_path(&mut db.begin().await?, &w_id, &script_path.0).await?,
-    ))
-}
-
-pub async fn get_latest_hash_for_path<'c>(
-    db: &mut Transaction<'c, Postgres>,
-    w_id: &str,
-    script_path: &str,
-) -> error::Result<ScriptHash> {
-    let script_hash_o = sqlx::query_scalar!(
-        "select hash from script where path = $1 AND (workspace_id = $2 OR workspace_id = \
-         'starter') AND
-    created_at = (SELECT max(created_at) FROM script WHERE path = $1 AND (workspace_id = $2 OR \
-         workspace_id = 'starter')) AND
-    deleted = false",
-        script_path,
-        w_id
-    )
-    .fetch_optional(db)
-    .await?;
-
-    let script_hash = not_found_if_none(script_hash_o, "ScriptHash", script_path)?;
-
-    Ok(ScriptHash(script_hash))
 }
 
 pub async fn get_path_for_hash<'c>(
@@ -1163,7 +1131,7 @@ pub async fn script_path_to_payload<'c>(
     let job_payload = if script_path.starts_with("hub/") {
         JobPayload::ScriptHub { path: script_path.to_owned() }
     } else {
-        let script_hash = get_latest_hash_for_path(db, w_id, script_path).await?;
+        let script_hash = windmill_common::get_latest_hash_for_path(db, w_id, script_path).await?;
         JobPayload::ScriptHash { hash: script_hash, path: script_path.to_owned() }
     };
     Ok(job_payload)

@@ -238,14 +238,13 @@ pub async fn update_flow_status_after_job_completion(
         false => false,
     };
 
-    tx.commit().await?;
-
     if old_status.step == 0
         && !flow_job.is_flow_step
         && flow_job.schedule_path.is_some()
         && flow_job.script_path.is_some()
     {
-        schedule_again_if_scheduled(
+        tx = schedule_again_if_scheduled(
+            tx,
             client,
             flow_job.schedule_path.as_ref().unwrap(),
             flow_job.script_path.as_ref().unwrap(),
@@ -253,6 +252,8 @@ pub async fn update_flow_status_after_job_completion(
         )
         .await?;
     }
+
+    tx.commit().await?;
 
     let done = if !should_continue_flow {
         let logs = if flow_job.canceled {
@@ -949,6 +950,7 @@ async fn push_next_flow_job(
         }
     };
 
+    let mut tx = db.begin().await?;
     let next_flow_transform = compute_next_flow_transform(
         flow_job,
         &flow,
@@ -957,6 +959,7 @@ async fn push_next_flow_job(
         #[cfg(not(feature = "deno"))]
         None,
         client,
+        &mut tx,
         &module,
         &status,
         &status_module,
@@ -964,6 +967,7 @@ async fn push_next_flow_job(
         base_internal_url,
     )
     .await?;
+    tx.commit().await?;
 
     let (job_payload, next_status) = match next_flow_transform {
         NextFlowTransform::Continue(job_payload, next_state) => (job_payload, next_state),
@@ -1192,18 +1196,14 @@ enum NextFlowTransform {
 // TODO: rewrite this to use an endpoint in the backend directly, instead of checking for hub itself, and then using the API
 async fn script_path_to_payload<'c>(
     script_path: &str,
-    client: &windmill_api_client::Client,
+    db: &mut sqlx::Transaction<'c, sqlx::Postgres>,
     w_id: &String,
 ) -> Result<JobPayload, Error> {
     let job_payload = if script_path.starts_with("hub/") {
         JobPayload::ScriptHub { path: script_path.to_owned() }
     } else {
-        let script_hash = client.get_hash_by_path(w_id, script_path)
-            .await
-            .map_err(|e| Error::Anyhow(to_anyhow(e)))
-            .map(|s| s.into_inner())
-            .and_then(|s| scripts::to_i64(&s))
-            .map(|i| ScriptHash(i))?;
+        let script_hash = windmill_common::get_latest_hash_for_path(db, w_id, script_path)
+            .await?;
         JobPayload::ScriptHash { hash: script_hash, path: script_path.to_owned() }
     };
     Ok(job_payload)
@@ -1220,6 +1220,7 @@ async fn compute_next_flow_transform(
     flow: &FlowValue,
     transform_context: Option<TransformContext>,
     client: &windmill_api_client::Client,
+    db: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     module: &FlowModule,
     status: &FlowStatus,
     status_module: &FlowStatusModule,
@@ -1232,7 +1233,7 @@ async fn compute_next_flow_transform(
             NextStatus::NextStep,
         )),
         FlowModuleValue::Script { path: script_path, .. } => Ok(NextFlowTransform::Continue(
-            script_path_to_payload(script_path, client, &flow_job.workspace_id).await?,
+            script_path_to_payload(script_path, db, &flow_job.workspace_id).await?,
             NextStatus::NextStep,
         )),
         FlowModuleValue::RawScript { path, content, language, .. } => {

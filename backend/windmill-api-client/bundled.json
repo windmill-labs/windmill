@@ -3237,35 +3237,6 @@
         }
       }
     },
-    "/w/{workspace}/jobs/hash/p/{path}": {
-      "get": {
-        "summary": "get job hash by path",
-        "operationId": "getHashByPath",
-        "tags": [
-          "job"
-        ],
-        "parameters": [
-          {
-            "$ref": "#/components/parameters/WorkspaceId"
-          },
-          {
-            "$ref": "#/components/parameters/ScriptPath"
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "hash retrieved",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "string"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
     "/w/{workspace}/jobs/run_wait_result/p/{path}": {
       "post": {
         "summary": "run script by path",
@@ -3312,6 +3283,54 @@
             }
           }
         },
+        "responses": {
+          "200": {
+            "description": "job result",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/w/{workspace}/jobs/result_by_id/{flow_job_id}/{node_id}": {
+      "get": {
+        "summary": "get job result by id",
+        "operationId": "resultById",
+        "tags": [
+          "job"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/WorkspaceId"
+          },
+          {
+            "name": "flow_job_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "node_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "skip_direct",
+            "description": "TODO Add description, I'm not even really sure what this does",
+            "in": "query",
+            "schema": {
+              "type": "boolean"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "description": "job result",

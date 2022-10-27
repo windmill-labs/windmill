@@ -99,3 +99,26 @@ pub async fn connect(
         .await
         .map_err(|err| Error::ConnectingToDatabase(err.to_string()))
 }
+
+// TODO: Move this elsewhere
+pub async fn get_latest_hash_for_path<'c>(
+    db: &mut sqlx::Transaction<'c, sqlx::Postgres>,
+    w_id: &str,
+    script_path: &str,
+) -> error::Result<scripts::ScriptHash> {
+    let script_hash_o = sqlx::query_scalar!(
+        "select hash from script where path = $1 AND (workspace_id = $2 OR workspace_id = \
+         'starter') AND
+    created_at = (SELECT max(created_at) FROM script WHERE path = $1 AND (workspace_id = $2 OR \
+         workspace_id = 'starter')) AND
+    deleted = false",
+        script_path,
+        w_id
+    )
+    .fetch_optional(db)
+    .await?;
+
+    let script_hash = utils::not_found_if_none(script_hash_o, "ScriptHash", script_path)?;
+
+    Ok(scripts::ScriptHash(script_hash))
+}

@@ -1,4 +1,4 @@
-use sqlx::{Pool, Postgres};
+use sqlx::{Pool, Postgres, Transaction};
 use tracing::instrument;
 use uuid::Uuid;
 use windmill_common::error::Error;
@@ -109,7 +109,8 @@ pub async fn add_completed_job(
         && queued_job.schedule_path.is_some()
         && queued_job.script_path.is_some()
     {
-        schedule_again_if_scheduled(
+        tx = schedule_again_if_scheduled(
+            tx,
             client,
             queued_job.schedule_path.as_ref().unwrap(),
             queued_job.script_path.as_ref().unwrap(),
@@ -124,11 +125,12 @@ pub async fn add_completed_job(
 
 #[instrument(level = "trace", skip_all)]
 pub async fn schedule_again_if_scheduled<'c>(
+    mut tx: Transaction<'c, Postgres>,
     client: &windmill_api_client::Client,
     schedule_path: &str,
     script_path: &str,
     w_id: &str,
-) -> windmill_common::error::Result<()> {
+) -> windmill_common::error::Result<Transaction<'c, Postgres>> {
     let schedule = client
         .get_schedule(w_id, schedule_path)
         .await
@@ -137,11 +139,29 @@ pub async fn schedule_again_if_scheduled<'c>(
                 "Could not find schedule {:?} for workspace {}",
                 schedule_path, w_id
             ))
-        })?;
+        })?
+        .into_inner();
     if schedule.enabled && script_path == schedule.script_path {
-        todo!("push scheduled job here");
-        // tx = crate::schedule::push_scheduled_job(tx, schedule).await?;
+        tx = windmill_queue::schedule::push_scheduled_job(
+            tx,
+            windmill_queue::schedule::Schedule {
+                workspace_id: w_id.to_owned(),
+                path: schedule.path,
+                edited_by: schedule.edited_by,
+                edited_at: schedule.edited_at,
+                schedule: schedule.schedule,
+                offset_: schedule.offset as _,
+                enabled: schedule.enabled,
+                script_path: schedule.script_path,
+                is_flow: schedule.is_flow,
+                args: schedule
+                    .args
+                    .and_then(|e| serde_json::to_value(e).map_or(None, |v| Some(v))),
+                extra_perms: serde_json::to_value(schedule.extra_perms).expect("hashmap -> json"),
+            },
+        )
+        .await?;
     }
 
-    Ok(())
+    Ok(tx)
 }

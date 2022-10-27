@@ -8,7 +8,6 @@
 
 use std::{collections::HashMap, str::FromStr};
 
-use anyhow::Context;
 use serde::{Deserialize, Serialize};
 use sqlx::{Pool, Postgres, Transaction};
 use tracing::instrument;
@@ -20,9 +19,7 @@ use windmill_common::{
     flows::FlowValue,
     scripts::{get_full_hub_script_by_path, HubScript, ScriptHash, ScriptLang},
     utils::StripPath,
-    worker_flow::{
-        init_flow_status, FlowStatus, FlowStatusModule, MAX_RETRY_ATTEMPTS, MAX_RETRY_INTERVAL,
-    },
+    worker_flow::{init_flow_status, FlowStatus, MAX_RETRY_ATTEMPTS, MAX_RETRY_INTERVAL},
 };
 
 lazy_static::lazy_static! {
@@ -80,19 +77,6 @@ pub async fn cancel_job<'c>(
         jobs.extend(new_jobs);
     }
     Ok((tx, job_option))
-}
-
-fn verify_secret(secret: String, w_id: &str, job_id: Uuid, resume_id: u32) -> error::Result<()> {
-    todo!("actually verify secret here.");
-    // The way this should work is:
-    // An API call should be made
-    // In the API there should be a shared function that creates the HmacSha256
-    // This can be used by both the create_job_signature function, where it would be used to then be incoded into bytes
-    // And in the verify method it would then verify a slice.
-    // Both functions also use hex to do byte -> string -> byte
-
-    // Since I wrote the above additionally there's now an approver.
-    Ok(())
 }
 
 pub async fn pull(db: &Pool<Postgres>) -> windmill_common::error::Result<Option<QueuedJob>> {
