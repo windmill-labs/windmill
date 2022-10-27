@@ -824,10 +824,6 @@ mount {{
             ))?;
         }
         Some(ScriptLang::Python3) => {
-            #[cfg(not(feature = "python"))]
-            panic!("Got python job, but python is unsupported. Enable the python feature during compilation.");
-
-            #[cfg(feature = "python")]
             handle_python_job(
                 worker_config,
                 envs,
@@ -845,10 +841,6 @@ mount {{
             .await
         }
         Some(ScriptLang::Deno) => {
-            #[cfg(not(feature = "deno"))]
-            panic!("Got deno job, but deno is unsupported. Enable the deno feature during compilation.");
-
-            #[cfg(feature = "deno")]
             handle_deno_job(
                 worker_config,
                 envs,
@@ -863,10 +855,6 @@ mount {{
             .await
         }
         Some(ScriptLang::Go) => {
-            #[cfg(not(feature = "go"))]
-            panic!("Got go job, but go is unsupported. Enable the go feature during compilation.");
-
-            #[cfg(feature = "go")]
             handle_go_job(
                 worker_config,
                 envs,
@@ -895,7 +883,6 @@ mount {{
 }
 
 #[tracing::instrument(level = "trace", skip_all)]
-#[cfg(feature = "go")]
 async fn handle_go_job(
     WorkerConfig { base_internal_url, disable_nuser, disable_nsjail, base_url, .. }: &WorkerConfig,
     Envs { nsjail_path, go_path, path_env, gopath_env, home_env, .. }: &Envs,
@@ -1096,7 +1083,6 @@ fn capitalize(s: &str) -> String {
 }
 
 #[tracing::instrument(level = "trace", skip_all)]
-#[cfg(feature = "deno")]
 async fn handle_deno_job(
     WorkerConfig { base_internal_url, base_url, disable_nuser, disable_nsjail, .. }: &WorkerConfig,
     Envs { nsjail_path, deno_path, path_env, .. }: &Envs,
@@ -1226,7 +1212,6 @@ async fn create_args_and_out_file(
 }
 
 #[tracing::instrument(level = "trace", skip_all)]
-#[cfg(feature = "python")]
 async fn handle_python_job(
     WorkerConfig { base_internal_url, base_url, disable_nuser, disable_nsjail, .. }: &WorkerConfig,
     envs @ Envs {
@@ -1558,43 +1543,31 @@ async fn handle_dependency_job(
 ) -> error::Result<serde_json::Value> {
     let content: Result<String, String> = match job.language {
         Some(ScriptLang::Python3) => {
-            #[cfg(not(feature = "python"))]
-            panic!("tried handling python deps, but python is not available. Enable the python feature during compilation");
-
-            #[cfg(feature = "python")]
-            {
-                create_dependencies_dir(job_dir).await;
-                let requirements = &job
-                    .raw_code
-                    .as_ref()
-                    .ok_or_else(|| Error::ExecutionErr("missing requirements".to_string()))?
-                    .clone();
-                pip_compile(job, requirements, logs, job_dir, envs, db, timeout).await?
-            }
+            create_dependencies_dir(job_dir).await;
+            let requirements = &job
+                .raw_code
+                .as_ref()
+                .ok_or_else(|| Error::ExecutionErr("missing requirements".to_string()))?
+                .clone();
+            pip_compile(job, requirements, logs, job_dir, envs, db, timeout).await?
         }
         Some(ScriptLang::Go) => {
-            #[cfg(not(feature = "go"))]
-            panic!("tried handling go deps, but go is not available. Enable the go feature during compilation");
-
-            #[cfg(feature = "go")]
-            {
-                let requirements = job
-                    .raw_code
-                    .as_ref()
-                    .ok_or_else(|| Error::ExecutionErr("missing requirements".to_string()))?;
-                install_go_dependencies(
-                    &job.id,
-                    &requirements,
-                    logs,
-                    job_dir,
-                    db,
-                    timeout,
-                    &envs.go_path,
-                    false,
-                )
-                .await
-                .map_err(|e| e.to_string())
-            }
+            let requirements = job
+                .raw_code
+                .as_ref()
+                .ok_or_else(|| Error::ExecutionErr("missing requirements".to_string()))?;
+            install_go_dependencies(
+                &job.id,
+                &requirements,
+                logs,
+                job_dir,
+                db,
+                timeout,
+                &envs.go_path,
+                false,
+            )
+            .await
+            .map_err(|e| e.to_string())
         }
         _ => Err("Language incompatible with dep job".to_string()),
     };
@@ -1625,7 +1598,6 @@ async fn handle_dependency_job(
     }
 }
 
-#[cfg(feature = "python")]
 async fn pip_compile(
     job: &QueuedJob,
     requirements: &str,
@@ -1672,7 +1644,6 @@ async fn pip_compile(
         .join("\n")))
 }
 
-#[cfg(feature = "go")]
 async fn install_go_dependencies(
     job_id: &Uuid,
     code: &str,
@@ -1722,7 +1693,6 @@ async fn install_go_dependencies(
     }
 }
 
-#[cfg(feature = "go")]
 async fn gen_go_mymod(code: &str, job_dir: &str) -> error::Result<()> {
     let code = if code.trim_start().starts_with("package") {
         code.to_string()
@@ -2200,7 +2170,6 @@ async fn handle_zombie_jobs(
     }
 }
 
-#[cfg(feature = "python")]
 async fn handle_python_heavy_reqs(
     python_path: &String,
     heavy_requirements: Vec<&str>,
