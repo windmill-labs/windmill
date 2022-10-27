@@ -20,8 +20,7 @@
 	import TableCustom from '$lib/components/TableCustom.svelte'
 	import { userStore, workspaceStore } from '$lib/stores'
 	import { faEdit, faPlus, faShare } from '@fortawesome/free-solid-svg-icons'
-	import { Alert } from 'flowbite-svelte'
-	import { Button } from '$lib/components/common'
+	import { Alert, Button } from '$lib/components/common'
 
 	type GroupW = Group & { canWrite: boolean }
 
@@ -83,12 +82,9 @@
 		</div>
 	</PageHeader>
 
-	<Alert accent rounded={false}>
-		<p class="font-bold text-lg">Groups are a team or enterprise feature - Unlimited during beta</p>
-		<p>
-			Groups are a team or enterprise feature and the feature might be significantly different after
-			beta in the community edition
-		</p>
+	<Alert type="info" title="Groups are a team or enterprise feature - Unlimited during beta">
+		Groups are a team or enterprise feature and the feature might be significantly different after
+		beta in the community edition
 	</Alert>
 
 	<div class="relative">
