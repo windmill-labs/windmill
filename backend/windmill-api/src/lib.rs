@@ -17,7 +17,6 @@ use crate::{
 
 mod audit;
 mod capture;
-mod client;
 mod db;
 mod flows;
 mod granular_acls;

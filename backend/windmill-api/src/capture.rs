@@ -4,12 +4,14 @@ use axum::{
     Json, Router,
 };
 use hyper::StatusCode;
+use windmill_common::{
+    error::{JsonResult, Result},
+    utils::{not_found_if_none, StripPath},
+};
 
 use crate::{
     db::{UserDB, DB},
-    error::{JsonResult, Result},
     users::Authed,
-    utils::{not_found_if_none, StripPath},
 };
 
 const KEEP_LAST: i64 = 8;

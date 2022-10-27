@@ -9,7 +9,6 @@
 use crate::{
     db::{UserDB, DB},
     resources::{Resource, ResourceType},
-    scripts::{Schema, Script, ScriptLang},
     users::{Authed, WorkspaceInvite},
     utils::require_super_admin,
 };
@@ -25,7 +24,7 @@ use windmill_audit::{audit_log, ActionKind};
 use windmill_common::{
     error::{Error, JsonResult, Result},
     flows::Flow,
-    scripts::{Schema, Script},
+    scripts::{Schema, Script, ScriptLang},
     utils::{paginate, rd_string, require_admin, Pagination},
     variables::ListableVariable,
 };
