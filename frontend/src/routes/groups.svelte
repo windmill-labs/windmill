@@ -97,20 +97,21 @@
 			<tbody slot="body">
 				{#each groups as { name, summary, extra_perms, canWrite }}
 					<tr>
-						<td
-							><a
+						<td>
+							<a
 								href="#{name}"
 								on:click={() => {
 									groupModal.openModal(name)
-								}}>{name}</a
-							>
+								}}
+								>{name}
+							</a>
 							<div>
 								<SharedBadge {canWrite} extraPerms={extra_perms} />
 							</div>
 						</td>
 						<td>{summary ?? ''}</td>
-						<td
-							><Dropdown
+						<td>
+							<Dropdown
 								dropdownItems={[
 									{
 										displayName: 'Manage members',
@@ -130,8 +131,8 @@
 									}
 								]}
 								relative={false}
-							/></td
-						>
+							/>
+						</td>
 					</tr>
 				{/each}
 			</tbody>
