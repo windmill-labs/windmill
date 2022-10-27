@@ -1,14 +1,13 @@
 use sqlx::{Pool, Postgres};
 use tracing::instrument;
 use uuid::Uuid;
-use windmill_api_client::apis::{configuration, schedule_api};
 use windmill_common::error::Error;
 use windmill_queue::{delete_job, JobKind, QueuedJob};
 
 #[instrument(level = "trace", skip_all)]
 pub async fn add_completed_job_error<E: ToString + std::fmt::Debug>(
     db: &Pool<Postgres>,
-    api_config: &configuration::Configuration,
+    client: &windmill_api_client::Client,
     queued_job: &QueuedJob,
     logs: String,
     e: E,
@@ -22,7 +21,7 @@ pub async fn add_completed_job_error<E: ToString + std::fmt::Debug>(
     );
     let a = add_completed_job(
         db,
-        api_config,
+        client,
         &queued_job,
         false,
         false,
@@ -36,7 +35,7 @@ pub async fn add_completed_job_error<E: ToString + std::fmt::Debug>(
 #[instrument(level = "trace", skip_all)]
 pub async fn add_completed_job(
     db: &Pool<Postgres>,
-    api_config: &configuration::Configuration,
+    client: &windmill_api_client::Client,
     queued_job: &QueuedJob,
     success: bool,
     skipped: bool,
@@ -111,7 +110,7 @@ pub async fn add_completed_job(
         && queued_job.script_path.is_some()
     {
         schedule_again_if_scheduled(
-            api_config,
+            client,
             queued_job.schedule_path.as_ref().unwrap(),
             queued_job.script_path.as_ref().unwrap(),
             &queued_job.workspace_id,
@@ -125,12 +124,13 @@ pub async fn add_completed_job(
 
 #[instrument(level = "trace", skip_all)]
 pub async fn schedule_again_if_scheduled<'c>(
-    api_config: &configuration::Configuration,
+    client: &windmill_api_client::Client,
     schedule_path: &str,
     script_path: &str,
     w_id: &str,
 ) -> windmill_common::error::Result<()> {
-    let schedule = schedule_api::get_schedule(api_config, w_id, schedule_path)
+    let schedule = client
+        .get_schedule(w_id, schedule_path)
         .await
         .map_err(|_| {
             Error::InternalErr(format!(

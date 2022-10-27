@@ -10,7 +10,6 @@ use std::{net::SocketAddr, time::Duration};
 
 use anyhow::Context;
 use sqlx::{postgres::PgPoolOptions, Pool, Postgres};
-use windmill_api_client::apis::configuration::Configuration;
 use windmill_common::{
     error::{self, Error},
     utils::rd_string,
@@ -96,13 +95,12 @@ async fn main() -> anyhow::Result<()> {
                 tracing::warn!(error = e.to_string(), "failed to get external IP");
                 "unretrievable IP".to_string()
             });
-        let mut api_config = Configuration::new();
-        api_config.base_path = base_url.clone();
         let worker_name = format!("dt-worker-{}-{}", &instance_name, rd_string(5));
-        api_config.bearer_access_token = Some(get_token(&db, &worker_name).await);
+        let client =
+            windmill_api_client::create_client(&base_url, get_token(&db, &worker_name).await);
         windmill_worker::run_worker(
             &db.clone(),
-            &api_config,
+            &client,
             timeout,
             &instance_name,
             worker_name,

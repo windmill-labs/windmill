@@ -39,6 +39,8 @@ struct BaseUrl(String);
 struct IsSecure(bool);
 struct CloudHosted(bool);
 
+pub use users::delete_expired_items_perdiodically;
+
 pub async fn run_server(
     db: DB,
     addr: SocketAddr,

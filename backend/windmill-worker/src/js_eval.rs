@@ -14,12 +14,6 @@ use regex::Regex;
 use serde_json::Value;
 use tokio::{sync::oneshot, time::timeout};
 use uuid::Uuid;
-use windmill_parser_ts::eval_sync;
-
-use windmill_api_client::{
-    apis::{configuration, job_api, resource_api, variable_api},
-    models,
-};
 use windmill_common::error::Error;
 
 pub struct EvalCreds {
@@ -272,25 +266,23 @@ async fn op_variable(args: Vec<String>) -> Result<String, anyhow::Error> {
     let path = &args[1];
     let token = &args[2];
     let base_url = &args[3];
-    let mut config = configuration::Configuration::new();
-    config.base_path = base_url.to_owned();
-    config.bearer_access_token = Some(token.to_owned());
-    let result = variable_api::get_variable(&config, workspace, path, None).await?;
-    Ok(result.value.unwrap_or_else(|| "".to_owned()))
+    let client = windmill_api_client::create_client(base_url, token.clone());
+    let result = client.get_variable(workspace, path, None).await?;
+    Ok(result.into_inner().value.unwrap_or_else(|| "".to_owned()))
 }
 
 #[op]
-async fn op_get_result(args: Vec<String>) -> Result<models::CompletedJob, anyhow::Error> {
+async fn op_get_result(
+    args: Vec<String>,
+) -> Result<windmill_api_client::types::CompletedJob, anyhow::Error> {
     let workspace = &args[0];
     let id = &args[1];
     let token = &args[2];
     let base_url = &args[3];
-    let mut config = configuration::Configuration::new();
-    config.base_path = base_url.to_owned();
-    config.bearer_access_token = Some(token.to_owned());
-    let result = job_api::get_completed_job(&config, workspace, id).await?;
+    let client = windmill_api_client::create_client(base_url, token.clone());
+    let result = client.get_completed_job(workspace, &id.parse()?).await?;
     // TODO: verify this works. Previously this returned Option<serde_jons::Value>, now it's statically typed.
-    Ok(result)
+    Ok(result.into_inner())
 }
 
 #[op]
@@ -320,17 +312,17 @@ async fn op_get_id(args: Vec<String>) -> Result<Option<serde_json::Value>, anyho
 }
 
 #[op]
-async fn op_resource(args: Vec<String>) -> Result<models::Resource, anyhow::Error> {
+async fn op_resource(
+    args: Vec<String>,
+) -> Result<windmill_api_client::types::Resource, anyhow::Error> {
     let workspace = &args[0];
     let path = &args[1];
     let token = &args[2];
     let base_url = &args[3];
-    let mut config = configuration::Configuration::new();
-    config.base_path = base_url.to_owned();
-    config.bearer_access_token = Some(token.to_owned());
-    let result = resource_api::get_resource(&config, workspace, path).await?;
+    let client = windmill_api_client::create_client(base_url, token.clone());
+    let result = client.get_resource(workspace, path).await?;
     // TODO: verify this works. Previously this returned Option<serde_jons::Value>, now it's statically typed.
-    Ok(result)
+    Ok(result.into_inner())
 }
 
 #[cfg(test)]

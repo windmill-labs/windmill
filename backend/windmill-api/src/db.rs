@@ -14,15 +14,6 @@ use crate::users::Authed;
 
 pub type DB = Pool<Postgres>;
 
-pub async fn connect(database_url: &str, max_connections: u32) -> Result<DB, Error> {
-    PgPoolOptions::new()
-        .max_connections(max_connections)
-        .max_lifetime(Duration::from_secs(30 * 60)) // 30 mins
-        .connect(database_url)
-        .await
-        .map_err(|err| Error::ConnectingToDatabase(err.to_string()))
-}
-
 pub async fn migrate(db: &DB) -> Result<(), Error> {
     match sqlx::migrate!("../migrations").run(db).await {
         Ok(_) => Ok(()),

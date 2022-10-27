@@ -11,7 +11,6 @@ use sqlx::{Pool, Postgres};
 use std::{borrow::Borrow, collections::HashMap, io, panic, process::Stdio, time::Duration};
 use tracing::{trace_span, Instrument};
 use uuid::Uuid;
-use windmill_api_client::apis::configuration;
 use windmill_common::{
     error::{self, to_anyhow, Error},
     scripts::{ScriptHash, ScriptLang},
@@ -192,7 +191,7 @@ lazy_static::lazy_static! {
 #[tracing::instrument(level = "trace")]
 pub async fn run_worker(
     db: &Pool<Postgres>,
-    api_config: &configuration::Configuration,
+    client: &windmill_api_client::Client,
     timeout: i32,
     worker_instance: &str,
     worker_name: String,
@@ -399,7 +398,7 @@ pub async fn run_worker(
                     if let Some(err) = handle_queued_job(
                         job.clone(),
                         db,
-                        api_config,
+                        client,
                         timeout,
                         &worker_name,
                         &worker_dir,
@@ -415,7 +414,7 @@ pub async fn run_worker(
                     {
                         handle_job_error(
                             db,
-                            api_config,
+                            client,
                             job,
                             err,
                             Some(metrics),
@@ -452,7 +451,7 @@ pub async fn run_worker(
 
 async fn handle_job_error(
     db: &Pool<Postgres>,
-    api_config: &configuration::Configuration,
+    client: &windmill_api_client::Client,
     job: QueuedJob,
     err: Error,
     metrics: Option<Metrics>,
@@ -464,7 +463,7 @@ async fn handle_job_error(
 ) {
     let m = add_completed_job_error(
         db,
-        api_config,
+        client,
         &job,
         "Unexpected error during job execution:\n".to_string(),
         &err,
@@ -477,7 +476,7 @@ async fn handle_job_error(
     if let Some(parent_job_id) = job.parent_job {
         let updated_flow = update_flow_status_after_job_completion(
             db,
-            api_config,
+            client,
             &job,
             false,
             serde_json::Value::Object(m),
@@ -496,7 +495,7 @@ async fn handle_job_error(
                 {
                     let _ = add_completed_job_error(
                         db,
-                        api_config,
+                        client,
                         &parent_job,
                         format!("Unexpected error during flow job error handling:\n{err}"),
                         err,
@@ -545,7 +544,7 @@ struct Envs {
 async fn handle_queued_job(
     job: QueuedJob,
     db: &sqlx::Pool<sqlx::Postgres>,
-    api_config: &configuration::Configuration,
+    client: &windmill_api_client::Client,
     timeout: i32,
     worker_name: &str,
     worker_dir: &str,
@@ -565,7 +564,7 @@ async fn handle_queued_job(
             handle_flow(
                 &job,
                 db,
-                api_config,
+                client,
                 args,
                 same_worker_tx,
                 worker_dir,
@@ -605,7 +604,7 @@ async fn handle_queued_job(
                     handle_code_execution_job(
                         &job,
                         db,
-                        api_config,
+                        client,
                         job_dir,
                         worker_dir,
                         &mut logs,
@@ -619,11 +618,11 @@ async fn handle_queued_job(
 
             match result {
                 Ok(r) => {
-                    add_completed_job(db, api_config, &job, true, false, r.clone(), logs).await?;
+                    add_completed_job(db, client, &job, true, false, r.clone(), logs).await?;
                     if job.is_flow_step {
                         update_flow_status_after_job_completion(
                             db,
-                            api_config,
+                            client,
                             &job,
                             true,
                             r,
@@ -658,7 +657,7 @@ async fn handle_queued_job(
 
                     let (_, output_map) = add_completed_job_error(
                         db,
-                        api_config,
+                        client,
                         &job,
                         logs,
                         error_message,
@@ -668,7 +667,7 @@ async fn handle_queued_job(
                     if job.is_flow_step {
                         update_flow_status_after_job_completion(
                             db,
-                            api_config,
+                            client,
                             &job,
                             false,
                             serde_json::Value::Object(output_map),
@@ -699,23 +698,23 @@ async fn write_file(dir: &str, path: &str, content: &str) -> error::Result<File>
 
 #[async_recursion]
 async fn transform_json_value(
-    api_config: &configuration::Configuration,
+    client: &windmill_api_client::Client,
     workspace: &str,
     v: Value,
 ) -> error::Result<Value> {
     match v {
         Value::String(y) if y.starts_with("$var:") => {
             let path = y.strip_prefix("$var:").unwrap();
-            let v = windmill_api_client::apis::variable_api::get_variable(
-                api_config, workspace, path, None,
-            )
-            .await
-            .map_err(to_anyhow)?
-            .value
-            .map_or_else(
-                || Err(Error::NotFound(format!("Variable not found at {path}"))),
-                |e| Ok(e),
-            )?;
+            let v = client
+                .get_variable(workspace, path, None)
+                .await
+                .map_err(to_anyhow)
+                .map(|v| v.into_inner())?
+                .value
+                .map_or_else(
+                    || Err(Error::NotFound(format!("Variable not found at {path}"))),
+                    |e| Ok(e),
+                )?;
             Ok(Value::String(v))
         }
         Value::String(y) if y.starts_with("$res:") => {
@@ -725,20 +724,20 @@ async fn transform_json_value(
                     format!("invalid resource path: {path}",),
                 ));
             }
-            let v =
-                windmill_api_client::apis::resource_api::get_resource(api_config, workspace, path)
-                    .await
-                    .map_err(to_anyhow)?;
+            let v = client
+                .get_resource(workspace, path)
+                .await
+                .map_err(to_anyhow)?;
             transform_json_value(
-                api_config,
+                client,
                 workspace,
-                serde_json::to_value(v).map_err(to_anyhow)?,
+                serde_json::to_value(v.into_inner()).map_err(to_anyhow)?,
             )
             .await
         }
         Value::Object(mut m) => {
             for (a, b) in m.clone().into_iter() {
-                m.insert(a, transform_json_value(api_config, workspace, b).await?);
+                m.insert(a, transform_json_value(client, workspace, b).await?);
             }
             Ok(Value::Object(m))
         }
@@ -750,7 +749,7 @@ async fn transform_json_value(
 async fn handle_code_execution_job(
     job: &QueuedJob,
     db: &sqlx::Pool<sqlx::Postgres>,
-    api_config: &configuration::Configuration,
+    client: &windmill_api_client::Client,
     job_dir: &str,
     worker_dir: &str,
     logs: &mut String,
@@ -949,10 +948,8 @@ async fn handle_go_job(
         &job.created_by,
     )
     .await?;
-    let mut job_api_config = configuration::Configuration::new();
-    job_api_config.base_path = base_url.to_owned();
-    job_api_config.bearer_access_token = Some(token.clone());
-    create_args_and_out_file(&job_api_config, job, job_dir).await?;
+    let job_client = windmill_api_client::create_client(base_url, token.clone());
+    create_args_and_out_file(&job_client, job, job_dir).await?;
     {
         let sig = windmill_parser_go::parse_go_sig(&inner_content)?;
         drop(inner_content);
@@ -1125,10 +1122,8 @@ async fn handle_deno_job(
         &job.created_by,
     )
     .await?;
-    let mut job_api_config = configuration::Configuration::new();
-    job_api_config.base_path = base_url.to_owned();
-    job_api_config.bearer_access_token = Some(token.clone());
-    create_args_and_out_file(&job_api_config, job, job_dir).await?;
+    let job_client = windmill_api_client::create_client(base_url, token.clone());
+    create_args_and_out_file(&job_client, job, job_dir).await?;
     let spread = sig.args.into_iter().map(|x| x.name).join(",");
     let wrapper_content: String = format!(
         r#"
@@ -1215,12 +1210,12 @@ run();
 
 #[tracing::instrument(level = "trace", skip_all)]
 async fn create_args_and_out_file(
-    api_config: &configuration::Configuration,
+    client: &windmill_api_client::Client,
     job: &QueuedJob,
     job_dir: &str,
 ) -> Result<(), Error> {
     let args = if let Some(args) = &job.args {
-        Some(transform_json_value(api_config, &job.workspace_id, args.clone()).await?)
+        Some(transform_json_value(client, &job.workspace_id, args.clone()).await?)
     } else {
         None
     };
@@ -1426,10 +1421,8 @@ async fn handle_python_job(
         &job.created_by,
     )
     .await?;
-    let mut job_api_config = configuration::Configuration::new();
-    job_api_config.base_path = base_url.to_owned();
-    job_api_config.bearer_access_token = Some(token.clone());
-    create_args_and_out_file(&job_api_config, job, job_dir).await?;
+    let job_client = windmill_api_client::create_client(base_url, token.clone());
+    create_args_and_out_file(&job_client, job, job_dir).await?;
 
     let wrapper_content: String = format!(
         r#"
@@ -2127,12 +2120,12 @@ async fn append_logs(job_id: uuid::Uuid, logs: impl AsRef<str>, db: impl Borrow<
 
 pub async fn handle_zombie_jobs_periodically(
     db: &Pool<Postgres>,
-    api_config: &configuration::Configuration,
+    client: &windmill_api_client::Client,
     timeout: i32,
     mut rx: tokio::sync::broadcast::Receiver<()>,
 ) {
     loop {
-        handle_zombie_jobs(db, api_config, timeout).await;
+        handle_zombie_jobs(db, client, timeout).await;
 
         tokio::select! {
             _ = tokio::time::sleep(Duration::from_secs(60))    => (),
@@ -2146,7 +2139,7 @@ pub async fn handle_zombie_jobs_periodically(
 
 async fn handle_zombie_jobs(
     db: &Pool<Postgres>,
-    api_config: &configuration::Configuration,
+    client: &windmill_api_client::Client,
     timeout: i32,
 ) {
     let restarted = sqlx::query!(
@@ -2192,7 +2185,7 @@ async fn handle_zombie_jobs(
 
         let _ = handle_job_error(
             db,
-            api_config,
+            client,
             job,
             error::Error::ExecutionErr("Same worker job timed out".to_string()),
             None,

@@ -2637,10 +2637,6 @@ paths:
           required: true
           schema:
             type: string
-        - name: payload
-          in: query
-          schema:
-            type: object
         - name: approver
           in: query
           schema:
@@ -2708,10 +2704,6 @@ paths:
           required: true
           schema:
             type: string
-        - name: payload
-          in: query
-          schema:
-            type: object
         - name: approver
           in: query
           schema:

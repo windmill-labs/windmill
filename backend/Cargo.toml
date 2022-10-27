@@ -30,6 +30,17 @@ path = "./src/main.rs"
 [dependencies]
 anyhow.workspace = true
 tokio.workspace = true
+dotenv.workspace = true
+windmill-common = { workspace = true, features = ["tracing_init"] }
+windmill-api.workspace = true
+windmill-api-client.workspace = true
+windmill-worker.workspace = true
+futures.workspace = true
+tracing.workspace = true
+sqlx.workspace = true
+tokio-metrics.workspace = true
+rand.workspace = true
+chrono.workspace = true
 
 [workspace.dependencies]
 windmill-api = { path = "./windmill-api" }

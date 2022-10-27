@@ -7,22 +7,17 @@ use crate::jobs::{
 #[cfg(feature = "deno")]
 use crate::js_eval::{eval_timeout, EvalCreds, IdContext};
 use crate::worker;
-use anyhow::{anyhow, Context};
+use anyhow::Context;
 use async_recursion::async_recursion;
-use futures::TryStreamExt;
-use serde::{Serialize, Deserialize};
+use futures::{StreamExt, TryStreamExt};
 use serde_json::{json, Map, Value};
 use tokio::sync::mpsc::Sender;
 use tracing::instrument;
 use uuid::Uuid;
-use windmill_api_client::{
-    apis::{configuration, job_api},
-    models,
-};
 use windmill_common::{
     error::{self, to_anyhow, Error},
     flows::{FlowModule, FlowModuleValue, FlowValue, InputTransform, Retry, Suspend},
-    scripts::ScriptHash, worker_flow::{FlowStatus, FlowStatusModule, BranchAllStatus, MAX_RETRY_ATTEMPTS, MAX_RETRY_INTERVAL, RetryStatus, Approval, BranchChosen},
+    scripts::{ScriptHash, self}, worker_flow::{FlowStatus, FlowStatusModule, BranchAllStatus, MAX_RETRY_ATTEMPTS, MAX_RETRY_INTERVAL, RetryStatus, Approval, BranchChosen},
 };
 
 type DB = sqlx::Pool<sqlx::Postgres>;
@@ -33,7 +28,7 @@ use windmill_queue::{canceled_job_to_result, QueuedJob, get_queued_job, push, Jo
 #[instrument(level = "trace", skip_all)]
 pub async fn update_flow_status_after_job_completion(
     db: &DB,
-    api_config: &configuration::Configuration,
+    client: &windmill_api_client::Client,
     job: &QueuedJob,
     success: bool,
     result: serde_json::Value,
@@ -251,7 +246,7 @@ pub async fn update_flow_status_after_job_completion(
         && flow_job.script_path.is_some()
     {
         schedule_again_if_scheduled(
-            api_config,
+            client,
             flow_job.schedule_path.as_ref().unwrap(),
             flow_job.script_path.as_ref().unwrap(),
             &w_id,
@@ -272,7 +267,7 @@ pub async fn update_flow_status_after_job_completion(
         if flow_job.canceled {
             add_completed_job_error(
                 db,
-                api_config,
+                client,
                 &flow_job,
                 logs,
                 &canceled_job_to_result(&flow_job),
@@ -282,7 +277,7 @@ pub async fn update_flow_status_after_job_completion(
         } else {
             add_completed_job(
                 db,
-                api_config,
+                client,
                 &flow_job,
                 success,
                 stop_early && skip_if_stop_early.unwrap_or(false),
@@ -296,7 +291,7 @@ pub async fn update_flow_status_after_job_completion(
         match handle_flow(
             &flow_job,
             db,
-            api_config,
+            client,
             result.clone(),
             same_worker_tx.clone(),
             worker_dir,
@@ -307,7 +302,7 @@ pub async fn update_flow_status_after_job_completion(
             Err(err) => {
                 let _ = add_completed_job_error(
                     db,
-                    api_config,
+                    client,
                     &flow_job,
                     "Unexpected error during flow chaining:\n".to_string(),
                     err,
@@ -328,7 +323,7 @@ pub async fn update_flow_status_after_job_completion(
         if flow_job.parent_job.is_some() {
             return Ok(update_flow_status_after_job_completion(
                 db,
-                api_config,
+                client,
                 &flow_job,
                 success,
                 result,
@@ -569,7 +564,7 @@ fn flatten_previous_result(last_result: serde_json::Value) -> serde_json::Value 
 pub async fn handle_flow(
     flow_job: &QueuedJob,
     db: &sqlx::Pool<sqlx::Postgres>,
-    api_config: &configuration::Configuration,
+    client: &windmill_api_client::Client,
     last_result: serde_json::Value,
     same_worker_tx: Sender<Uuid>,
     worker_dir: &str,
@@ -586,7 +581,7 @@ pub async fn handle_flow(
         let fake_job = QueuedJob { parent_job: Some(flow_job.id), ..flow_job.clone() };
         update_flow_status_after_job_completion(
             db,
-            api_config,
+            client,
             &fake_job,
             true,
             serde_json::json!({}),
@@ -611,7 +606,7 @@ pub async fn handle_flow(
         status,
         flow,
         db,
-        api_config,
+        client,
         last_result,
         same_worker_tx,
         base_internal_url,
@@ -627,7 +622,7 @@ async fn push_next_flow_job(
     mut status: FlowStatus,
     flow: FlowValue,
     db: &sqlx::Pool<sqlx::Postgres>,
-    api_config: &configuration::Configuration,
+    client: &windmill_api_client::Client,
     mut last_result: serde_json::Value,
     same_worker_tx: Sender<Uuid>,
     base_internal_url: &str,
@@ -797,7 +792,7 @@ async fn push_next_flow_job(
                 let logs = "Timed out waiting to be resumed".to_string();
                 let result = json!({ "error": logs });
                 let _uuid =
-                    add_completed_job(db, api_config, &flow_job, success, skipped, result, logs)
+                    add_completed_job(db, client, &flow_job, success, skipped, result, logs)
                         .await?;
 
                 return Ok(());
@@ -915,7 +910,7 @@ async fn push_next_flow_job(
         FlowModuleValue::Script { input_transforms, .. }
         | FlowModuleValue::RawScript { input_transforms, .. } => {
             transform_context =
-                Some(get_transform_context(api_config, &flow_job, &status, &flow.modules).await?);
+                Some(get_transform_context(client, &flow_job, &status, &flow.modules).await?);
             let (token, steps, by_id) = transform_context.as_ref().unwrap();
             transform_input(
                 &flow_job.args,
@@ -961,7 +956,7 @@ async fn push_next_flow_job(
         transform_context,
         #[cfg(not(feature = "deno"))]
         None,
-        api_config,
+        client,
         &module,
         &status,
         &status_module,
@@ -979,7 +974,7 @@ async fn push_next_flow_job(
                 &flow_job.id,
                 flow.clone(),
                 &db,
-                api_config,
+                client,
                 FlowStatusModule::Success {
                     id: status_module.id(),
                     job: flow_job.id,
@@ -1104,7 +1099,7 @@ async fn jump_to_next_step(
     job_id: &Uuid,
     flow: FlowValue,
     db: &DB,
-    api_config: &configuration::Configuration,
+    client: &windmill_api_client::Client,
     status_module: FlowStatusModule,
     last_result: serde_json::Value,
     same_worker_tx: Sender<Uuid>,
@@ -1146,7 +1141,7 @@ async fn jump_to_next_step(
             new_status,
             flow,
             db,
-            api_config,
+            client,
             last_result,
             same_worker_tx,
             base_internal_url,
@@ -1157,7 +1152,7 @@ async fn jump_to_next_step(
         let skipped = false;
         let logs = "Forloop completed without iteration".to_string();
         let _uuid =
-            add_completed_job(db, api_config, &new_job, success, skipped, json!([]), logs).await?;
+            add_completed_job(db, client, &new_job, success, skipped, json!([]), logs).await?;
         return Ok(());
     }
 }
@@ -1197,15 +1192,17 @@ enum NextFlowTransform {
 // TODO: rewrite this to use an endpoint in the backend directly, instead of checking for hub itself, and then using the API
 async fn script_path_to_payload<'c>(
     script_path: &str,
-    api_config: &configuration::Configuration,
+    client: &windmill_api_client::Client,
     w_id: &String,
 ) -> Result<JobPayload, Error> {
     let job_payload = if script_path.starts_with("hub/") {
         JobPayload::ScriptHub { path: script_path.to_owned() }
     } else {
-        let script_hash = job_api::get_hash_by_path(api_config, w_id, script_path)
+        let script_hash = client.get_hash_by_path(w_id, script_path)
             .await
-            .map_err(to_anyhow)
+            .map_err(|e| Error::Anyhow(to_anyhow(e)))
+            .map(|s| s.into_inner())
+            .and_then(|s| scripts::to_i64(&s))
             .map(|i| ScriptHash(i))?;
         JobPayload::ScriptHash { hash: script_hash, path: script_path.to_owned() }
     };
@@ -1222,7 +1219,7 @@ async fn compute_next_flow_transform(
     flow_job: &QueuedJob,
     flow: &FlowValue,
     transform_context: Option<TransformContext>,
-    api_config: &configuration::Configuration,
+    client: &windmill_api_client::Client,
     module: &FlowModule,
     status: &FlowStatus,
     status_module: &FlowStatusModule,
@@ -1235,7 +1232,7 @@ async fn compute_next_flow_transform(
             NextStatus::NextStep,
         )),
         FlowModuleValue::Script { path: script_path, .. } => Ok(NextFlowTransform::Continue(
-            script_path_to_payload(script_path, api_config, &flow_job.workspace_id).await?,
+            script_path_to_payload(script_path, client, &flow_job.workspace_id).await?,
             NextStatus::NextStep,
         )),
         FlowModuleValue::RawScript { path, content, language, .. } => {
@@ -1260,7 +1257,7 @@ async fn compute_next_flow_transform(
                     let (token, steps, by_id) = if let Some(x) = transform_context {
                         x
                     } else {
-                        get_transform_context(api_config, &flow_job, &status, &flow.modules).await?
+                        get_transform_context(client, &flow_job, &status, &flow.modules).await?
                     };
                     /* Iterator is an InputTransform, evaluate it into an array. */
                     let itered = evaluate_with(
@@ -1459,20 +1456,29 @@ async fn compute_next_flow_transform(
 }
 
 async fn get_transform_context(
-    api_config: &configuration::Configuration,
+    client: &windmill_api_client::Client,
     flow_job: &QueuedJob,
     status: &FlowStatus,
     modules: &Vec<FlowModule>,
 ) -> error::Result<TransformContext> {
-    let new_token = windmill_api_client::apis::user_api::create_token(
-        api_config,
-        models::NewToken {
+    let new_token = client.create_token(
+        &windmill_api_client::types::NewToken {
             label: Some("transform-input".to_owned()),
-            expiration: Some((chrono::Utc::now() + chrono::Duration::seconds(10)).to_string()),
+            expiration: Some(chrono::Utc::now() + chrono::Duration::seconds(10)),
         },
     )
     .await
-    .map_err(to_anyhow)?;
+    .map_err(to_anyhow)?
+    .into_inner();
+    let new_token = std::str::from_utf8(&
+        new_token
+        .into_inner()
+        .filter_map(|e| futures::future::ready(e.map_or(None, |v| Some(v))))  
+        .flat_map(|e| futures::stream::iter(e.into_iter()))
+        .collect::<Vec<u8>>()
+        .await)
+        .map_err(to_anyhow)?
+        .to_owned();
     let new_steps: Vec<Uuid> = status
         .modules
         .iter()

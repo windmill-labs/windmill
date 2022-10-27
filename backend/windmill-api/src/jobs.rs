@@ -131,7 +131,6 @@ async fn cancel_job_api(
     }
 }
 
-// MARKER: NEW API ENDPOINT
 async fn get_latest_hash_for_path_api(
     Extension(db): Extension<DB>,
     Path((w_id, script_path)): Path<(String, StripPath)>,
