@@ -37,10 +37,9 @@
 	import ShareModal from '$lib/components/ShareModal.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import TableCustom from '$lib/components/TableCustom.svelte'
-	import { Highlight } from 'svelte-highlight'
-	import { typescript } from 'svelte-highlight/languages/typescript'
 	import { Button, Tabs, Tab, Badge, Skeleton } from '$lib/components/common'
 	import CreateActions from '$lib/components/scripts/CreateActions.svelte'
+	import HighlightCode from '$lib/components/HighlightCode.svelte'
 
 	type Tab = 'all' | 'personal' | 'groups' | 'shared' | 'examples' | 'hub'
 	type Section = [string, ScriptW[]]
@@ -70,6 +69,7 @@
 
 	let codeViewer: Modal
 	let codeViewerContent: string = ''
+	let codeViewerLanguage: 'deno' | 'python3' | 'go' = 'deno'
 	let codeViewerPath: string = ''
 
 	$: filteredScripts =
@@ -131,7 +131,9 @@
 	}
 
 	async function viewCode(path: string) {
-		codeViewerContent = (await getScriptByPath(path)).content
+		const { content, language } = await getScriptByPath(path)
+		codeViewerContent = content
+		codeViewerLanguage = language
 		codeViewerPath = path
 		codeViewer.openModal()
 	}
@@ -153,7 +155,7 @@
 <Modal bind:this={codeViewer}>
 	<div slot="title">{codeViewerPath}</div>
 	<div slot="content">
-		<Highlight language={typescript} code={codeViewerContent} />
+		<HighlightCode language={codeViewerLanguage} code={codeViewerContent} />
 	</div>
 </Modal>
 

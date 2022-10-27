@@ -6,13 +6,11 @@
 	import { createEventDispatcher } from 'svelte'
 	import ItemPicker from './ItemPicker.svelte'
 	import Modal from './Modal.svelte'
-	import { Highlight } from 'svelte-highlight'
-	import typescript from 'svelte-highlight/languages/typescript'
-	import python from 'svelte-highlight/languages/python'
 
 	import { getScriptByPath } from '$lib/utils'
 	import RadioButton from './RadioButton.svelte'
 	import { Button } from './common'
+	import HighlightCode from './HighlightCode.svelte'
 
 	export let scriptPath: string | undefined = undefined
 	export let allowFlow = false
@@ -99,10 +97,6 @@
 <Modal bind:this={modalViewer}>
 	<div slot="title">Script {scriptPath}</div>
 	<div slot="content">
-		{#if lang == 'python3'}
-			<Highlight language={python} {code} />
-		{:else if lang == 'deno'}
-			<Highlight language={typescript} {code} />
-		{/if}
+		<HighlightCode {code} language={lang} />
 	</div>
 </Modal>
