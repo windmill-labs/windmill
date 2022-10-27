@@ -9,7 +9,7 @@
 	import FlowCard from '../common/FlowCard.svelte'
 	import FlowSchedules from './FlowSchedules.svelte'
 	import SvelteMarkdown from 'svelte-markdown'
-	import { Toggle } from 'flowbite-svelte'
+	import Toggle from '$lib/components/Toggle.svelte'
 
 	export let initialPath: string
 
@@ -26,9 +26,8 @@
 			<TabContent value="metadata" class="p-4">
 				<Path bind:path={$flowStore.path} {initialPath} namePlaceholder="my_flow" kind="flow">
 					<div slot="ownerToolkit">
-						Flow permissions depend on their path. Select the group <span class="font-mono"
-							>all</span
-						>
+						Flow permissions depend on their path. Select the group
+						<span class="font-mono"> all </span>
 						to share your flow, and <span class="font-mono">user</span> to keep it private.
 						<a href="https://docs.windmill.dev/docs/reference/namespaces">docs</a>
 					</div>
@@ -75,7 +74,7 @@
 				<FlowSchedules />
 			</TabContent>
 
-			<TabContent value="same-worker" class="p-4">
+			<TabContent value="same-worker" class="p-4 flex flex-col">
 				<span class="my-2 text-sm font-bold">Same Worker</span>
 
 				<Toggle
