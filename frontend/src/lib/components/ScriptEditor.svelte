@@ -11,11 +11,12 @@
 	import SchemaForm from './SchemaForm.svelte'
 	import LogPanel from './scriptEditor/LogPanel.svelte'
 	import { faGithub } from '@fortawesome/free-brands-svg-icons'
-	import EditorBar from './EditorBar.svelte'
+	import EditorBar, { EDITOR_BAR_WIDTH_THRESHOLD } from './EditorBar.svelte'
 	import TestJobLoader from './TestJobLoader.svelte'
 	import { onMount } from 'svelte'
 	import { Button, Kbd } from './common'
 	import SplitPanesWrapper from './splitPanes/SplitPanesWrapper.svelte'
+	import Tooltip from './Tooltip.svelte'
 
 	// Exported
 	export let schema: Schema = emptySchema()
@@ -24,6 +25,8 @@
 	export let lang: Preview.language
 
 	let websocketAlive = { pyright: false, black: false, deno: false, go: false }
+
+	let width = 1200
 
 	// Internal state
 	let editor: Editor
@@ -98,26 +101,22 @@
 
 <svelte:window on:keydown={onKeyDown} />
 
-<div class="border-b-2 shadow-sm p-1 pr-4">
-	<div class="flex justify-between">
-		<EditorBar {editor} {lang} {websocketAlive} />
+<div class="border-b-2 shadow-sm p-1 pr-4" bind:clientWidth={width}>
+	<div class="flex justify-between space-x-2">
+		<EditorBar iconOnly={width < EDITOR_BAR_WIDTH_THRESHOLD} {editor} {lang} {websocketAlive} />
 
-		<div class="flex divide-x">
-			<div>
-				<Button
-					target="_blank"
-					href="https://github.com/windmill-labs/windmill-gh-action-deploy"
-					color="light"
-					size="xs"
-					btnClasses="mr-1"
-					startIcon={{
-						icon: faGithub
-					}}
-				>
-					Sync from Github
-				</Button>
-			</div>
-		</div>
+		<Button
+			target="_blank"
+			href="https://github.com/windmill-labs/windmill-gh-action-deploy"
+			color="light"
+			size="sm"
+			btnClasses="mr-1 hidden md:block"
+			startIcon={{
+				icon: faGithub
+			}}
+		>
+			Sync from Github
+		</Button>
 	</div>
 </div>
 <SplitPanesWrapper>
@@ -150,12 +149,14 @@
 	<Pane size={40} minSize={10}>
 		<Splitpanes horizontal>
 			<Pane size={30}>
-				<div class="p-4">
+				<div class="w-full  bg-gray-100 px-2 text-sm"
+					>Preview <Tooltip>
+						To recompute the input schema press <Kbd>Ctrl/Cmd</Kbd> + <Kbd>S</Kbd> or move the focus
+						outside of the text editor
+					</Tooltip></div
+				>
+				<div class="px-2">
 					<div class="break-all relative font-sans">
-						<p class="items-baseline break-normal text-sm text-gray-600 hidden md:block mb-3">
-							To recompute the input schema press <Kbd>Ctrl/Cmd</Kbd> + <Kbd>S</Kbd> or move the focus
-							outside of the text editor
-						</p>
 						<SchemaForm {schema} bind:args bind:isValid />
 					</div>
 				</div>

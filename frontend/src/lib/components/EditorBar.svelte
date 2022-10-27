@@ -1,3 +1,7 @@
+<script context="module" lang="ts">
+	export const EDITOR_BAR_WIDTH_THRESHOLD = 1044
+</script>
+
 <script lang="ts">
 	import { ResourceService, ScriptService, VariableService } from '$lib/gen'
 	import { getScriptByPath, loadHubScripts, sendUserToast } from '$lib/utils'
