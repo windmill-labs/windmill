@@ -2,6 +2,8 @@ export type OwnerKind = 'group' | 'user'
 
 export type ActionKind = 'Create' | 'Update' | 'Delete' | 'Execute'
 
+export type SupportedLanguage = 'deno' | 'python3' | 'go'
+
 export interface SchemaProperty {
 	type: string | undefined
 	description: string
@@ -10,7 +12,7 @@ export interface SchemaProperty {
 	enum?: string[]
 	contentEncoding?: 'base64' | 'binary'
 	format?: string
-	items?: { type?: 'string' | 'number' | 'bytes', contentEncoding?: 'base64' },
+	items?: { type?: 'string' | 'number' | 'bytes'; contentEncoding?: 'base64' }
 	properties?: { [name: string]: SchemaProperty }
 }
 

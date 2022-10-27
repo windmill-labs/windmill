@@ -3,7 +3,7 @@ import { goto } from '$app/navigation'
 import { FlowService, Script, ScriptService, type Flow, type FlowModule, type User } from '$lib/gen'
 import { toast } from '@zerodevx/svelte-toast'
 import { get } from 'svelte/store'
-import type { Schema } from './common'
+import type { Schema, SupportedLanguage } from './common'
 import { hubScripts, workspaceStore, type UserExt } from './stores'
 
 export function validateUsername(username: string): string {
@@ -56,8 +56,9 @@ export function displayDate(dateString: string | undefined): string {
 	if (date.toString() === 'Invalid Date') {
 		return ''
 	} else {
-		return `${date.getFullYear()}/${date.getMonth() + 1
-			}/${date.getDate()} at ${date.toLocaleTimeString()}`
+		return `${date.getFullYear()}/${
+			date.getMonth() + 1
+		}/${date.getDate()} at ${date.toLocaleTimeString()}`
 	}
 }
 
@@ -140,7 +141,6 @@ export function emptySchema() {
 		type: 'object'
 	}
 }
-
 
 export function simpleSchema() {
 	return {
@@ -470,14 +470,14 @@ export function scriptPathToHref(path: string): string {
 
 export async function getScriptByPath(path: string): Promise<{
 	content: string
-	language: 'deno' | 'python3' | 'go'
+	language: SupportedLanguage
 }> {
 	if (path.startsWith('hub/')) {
 		const { content, language, schema } = await ScriptService.getHubScriptByPath({ path })
 
 		return {
 			content,
-			language,
+			language
 		}
 	} else {
 		const script = await ScriptService.getScriptByPath({
