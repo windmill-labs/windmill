@@ -2,7 +2,6 @@
 	import { faInfoCircle } from '@fortawesome/free-solid-svg-icons'
 	import Icon from 'svelte-awesome'
 	import { createPopperActions } from 'svelte-popperjs'
-	import { fade } from 'svelte/transition'
 	const [popperRef, popperContent] = createPopperActions({
 		placement: 'auto'
 	})
@@ -17,7 +16,7 @@
 	})
 	const extraOpts = {
 		modifiers: [
-			betterPreventOverflow({ padding: 50 }),
+			betterPreventOverflow({ padding: 10 }),
 			{ name: 'offset', options: { offset: [8, 8] } },
 			{
 				name: 'arrow',
@@ -36,7 +35,7 @@
 		showTooltip = true
 	}
 	function close() {
-		timeout = setTimeout(() => (showTooltip = false), 200)
+		timeout = setTimeout(() => (showTooltip = false), 100)
 	}
 </script>
 
@@ -49,7 +48,6 @@
 </button>
 {#if showTooltip}
 	<div
-		transition:fade
 		id="tooltip"
 		use:popperContent={extraOpts}
 		on:mouseenter={open}

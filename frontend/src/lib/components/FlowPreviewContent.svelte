@@ -10,6 +10,7 @@
 	import { runFlowPreview } from './flows/utils'
 	import SchemaForm from './SchemaForm.svelte'
 	import FlowStatusViewer from '../components/FlowStatusViewer.svelte'
+	import { flowStateStore } from './flows/flowState'
 
 	export let previewMode: 'upTo' | 'whole'
 	export let open: boolean
@@ -160,7 +161,11 @@
 
 	<div class="h-full overflow-y-auto mb-16 grow">
 		{#if jobId}
-			<FlowStatusViewer {jobId} on:jobsLoaded={(e) => onJobsLoaded(e.detail)} />
+			<FlowStatusViewer
+				flowState={$flowStateStore}
+				{jobId}
+				on:jobsLoaded={(e) => onJobsLoaded(e.detail)}
+			/>
 		{/if}
 	</div>
 </div>

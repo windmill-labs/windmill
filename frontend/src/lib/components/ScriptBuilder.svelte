@@ -29,6 +29,9 @@
 
 	let pathError = ''
 
+	let summaryC: HTMLTextAreaElement | undefined = undefined
+	let pathC: Path | undefined = undefined
+
 	$: setQueryWithoutLoad($page.url, 'state', encodeState(script))
 	$: step = Number($page.url.searchParams.get('step')) || 1
 
@@ -101,7 +104,10 @@
 					variant="contained"
 					color="light"
 					size="xs"
-					on:click={() => changeStep(1)}
+					on:click={async () => {
+						await changeStep(1)
+						setTimeout(() => pathC?.focus(), 100)
+					}}
 				>
 					{script.path}
 				</Button>
@@ -111,7 +117,10 @@
 					variant="contained"
 					color="light"
 					size="xs"
-					on:click={() => changeStep(1)}
+					on:click={async () => {
+						await changeStep(1)
+						setTimeout(() => summaryC?.focus(), 100)
+					}}
 				>
 					<div class="max-w-[10em] !truncate">
 						{script.summary == '' || !script.summary ? 'No summary' : script.summary}
@@ -119,10 +128,26 @@
 				</Button>
 			</div>
 
-			<div class="flex flex-row-reverse ml-2">
-				{#if step != 3}
+			<div class="flex flex-row gap-x-2">
+				<Button
+					size="sm"
+					variant={step == 1 ? 'border' : 'contained'}
+					disabled={step === 1 && pathError !== ''}
+					btnClasses={step == 3 ? 'invisible' : ''}
+					on:click={editScript}>Save (commit)</Button
+				>
+				<Button
+					variant="border"
+					size="sm"
+					btnClasses={step == 1 ? 'invisible' : ''}
+					on:click={() => changeStep(step - 1)}
+				>
+					Back
+				</Button>
+				{#if step < 3}
 					<Button
 						size="sm"
+						btnClasses={step == 3 ? 'invisible' : ''}
 						disabled={step === 1 && pathError !== ''}
 						on:click={() => changeStep(step + 1)}
 					>
@@ -130,28 +155,6 @@
 					</Button>
 				{:else}
 					<Button size="sm" on:click={editScript}>Save</Button>
-				{/if}
-				{#if step > 1}
-					<Button
-						variant="border"
-						size="sm"
-						btnClasses="mr-2"
-						on:click={() => changeStep(step - 1)}
-					>
-						Back
-					</Button>
-				{/if}
-				{#if step == 2}
-					<Button
-						variant="border"
-						size="sm"
-						btnClasses="mr-2"
-						on:click={async () => {
-							editScript()
-						}}
-					>
-						Save (commit)
-					</Button>
 				{/if}
 			</div>
 		</div>
@@ -163,6 +166,7 @@
 			<div class="space-y-6">
 				<h2 class="border-b pb-1 mt-4">Path & Summary</h2>
 				<Path
+					bind:this={pathC}
 					bind:error={pathError}
 					bind:path={script.path}
 					{initialPath}
@@ -178,8 +182,9 @@
 					</div>
 				</Path>
 				<label class="block ">
-					<span class="text-gray-700">Summary <Required required={false} /></span>
+					<span class="text-gray-700 text-sm">Summary <Required required={false} /></span>
 					<textarea
+						bind:this={summaryC}
 						bind:value={script.summary}
 						class="block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-300 
 						focus:ring focus:ring-indigo-200 focus:ring-opacity-50"

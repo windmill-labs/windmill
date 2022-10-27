@@ -1,16 +1,9 @@
-<script context="module" lang="ts">
-	export type FlowModuleWidthContext = {
-		width: Writable<number>
-		threshold: number
-	}
-</script>
-
 <script lang="ts">
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import Tab from '$lib/components/common/tabs/Tab.svelte'
 	import Tabs from '$lib/components/common/tabs/Tabs.svelte'
 	import Editor from '$lib/components/Editor.svelte'
-	import EditorBar from '$lib/components/EditorBar.svelte'
+	import EditorBar, { EDITOR_BAR_WIDTH_THRESHOLD } from '$lib/components/EditorBar.svelte'
 	import ModulePreview from '$lib/components/ModulePreview.svelte'
 	import { createScriptFromInlineScript, fork } from '$lib/components/flows/flowStateUtils'
 	import { flowStore } from '$lib/components/flows/flowStore'
@@ -24,12 +17,13 @@
 	import { afterUpdate, getContext, setContext } from 'svelte'
 	import type { FlowEditorContext } from '../types'
 	import { loadSchemaFromModule } from '../utils'
-	import { writable, type Writable } from 'svelte/store'
 	import FlowModuleScript from './FlowModuleScript.svelte'
 	import FlowModuleEarlyStop from './FlowModuleEarlyStop.svelte'
 	import FlowModuleSuspend from './FlowModuleSuspend.svelte'
 	import FlowRetries from './FlowRetries.svelte'
 	import { getStepPropPicker } from '../previousResults'
+	import Tooltip from '$lib/components/Tooltip.svelte'
+	import { Kbd } from '$lib/components/common'
 
 	const { selectedId, previewArgs } = getContext<FlowEditorContext>('FlowEditorContext')
 
@@ -46,6 +40,8 @@
 	let wrapper: HTMLDivElement
 	let panes: HTMLElement
 	let totalTopGap = 0
+
+	let width = 1200
 
 	let inputTransforms: Record<string, any> =
 		flowModule.value.type === 'rawscript' || flowModule.value.type === 'script'
@@ -85,14 +81,6 @@
 		}
 	}
 
-	export const FLOW_MODULE_WIDTH_THRESHOLD = 768
-	const width = writable<number>(0)
-
-	setContext<FlowModuleWidthContext>('FlowModuleWidth', {
-		width,
-		threshold: FLOW_MODULE_WIDTH_THRESHOLD
-	})
-
 	afterUpdate(() => {
 		totalTopGap = 0
 		if (!(wrapper && panes)) return
@@ -106,7 +94,7 @@
 <svelte:window on:keydown={onKeyDown} />
 
 {#if flowModule.value.type === 'rawscript' || flowModule.value.type === 'script'}
-	<div class="h-full" bind:this={wrapper} bind:clientWidth={$width}>
+	<div class="h-full" bind:this={wrapper} bind:clientWidth={width}>
 		<FlowCard bind:flowModule>
 			<svelte:fragment slot="header">
 				<FlowModuleHeader
@@ -137,7 +125,7 @@
 						{editor}
 						lang={flowModule.value['language'] ?? 'deno'}
 						{websocketAlive}
-						iconOnly={$width < FLOW_MODULE_WIDTH_THRESHOLD}
+						iconOnly={width < 768}
 					/>
 				</div>
 			{/if}
@@ -173,7 +161,12 @@
 					</Pane>
 					<Pane size={50} minSize={20}>
 						<Tabs bind:selected>
-							<Tab value="inputs">Inputs</Tab>
+							<Tab value="inputs"
+								><Tooltip>
+									Move the focus outside of the text editor to recompute the inputs or press
+									<Kbd>Ctrl/Cmd</Kbd> + <Kbd>S</Kbd>
+								</Tooltip>Inputs</Tab
+							>
 							<Tab value="test">Test</Tab>
 							<Tab value="retries">Retries</Tab>
 							{#if !$selectedId.includes('failure')}
@@ -188,11 +181,6 @@
 										priorId={previousModuleId}
 										pickableProperties={stepPropPicker.pickableProperties}
 									>
-										<p class="items-baseline text-xs text-gray-700 italic hidden md:block mb-2">
-											Move the focus outside of the text editor to recompute the inputs or press
-											Ctrl/Cmd+S
-										</p>
-
 										<SchemaForm
 											schema={$flowStateStore[$selectedId].schema}
 											inputTransform={true}
