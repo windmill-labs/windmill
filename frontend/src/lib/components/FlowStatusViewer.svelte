@@ -3,12 +3,12 @@
 	import { workspaceStore } from '$lib/stores'
 	import FlowJobResult from './FlowJobResult.svelte'
 	import FlowPreviewStatus from './preview/FlowPreviewStatus.svelte'
-	import { Button } from 'flowbite-svelte'
 	import Icon from 'svelte-awesome'
 	import { faChevronDown, faChevronUp } from '@fortawesome/free-solid-svg-icons'
 	import { createEventDispatcher } from 'svelte'
 	import { onDestroy } from 'svelte'
 	import { flowStateStore } from './flows/flowState'
+	import Button from './common/button/Button.svelte'
 
 	const dispatch = createEventDispatcher()
 
@@ -73,8 +73,9 @@
 			</h3>
 			{#each flowJobIds.flowJobs as loopJobId, j}
 				<Button
-					color={forloop_selected == loopJobId ? 'dark' : 'light'}
-					class="flex justify-between w-full"
+					variant={forloop_selected === loopJobId ? 'contained' : 'border'}
+					color={forloop_selected === loopJobId ? 'dark' : 'light'}
+					btnClasses="w-full flex justify-start"
 					on:click={() => {
 						if (forloop_selected == loopJobId) {
 							forloop_selected = ''
