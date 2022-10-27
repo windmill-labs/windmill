@@ -934,7 +934,15 @@ async fn push_next_flow_job(
         FlowModuleValue::Script { input_transforms, .. }
         | FlowModuleValue::RawScript { input_transforms, .. } => {  
             return Err(Error::InternalErr("Attempted to evaluate JS expression, but Deno is disabled. Consider enabling the deno feature during compilation.".to_string()))
-        }
+        },
+        FlowModuleValue::Identity => match last_result.clone() {
+            Value::Object(m) => m,
+            v @ _ => {
+                let mut m = Map::new();
+                m.insert("previous_result".to_string(), v);
+                m
+            }
+        },
         _ => {
             /* embedded flow input is augmented with embedding flow input */
             if let Some(value) = &flow_job.args {

@@ -162,7 +162,9 @@
 
 <div class="flex flex-col flex-1 h-full">
 	<!-- Nav between steps-->
-	<div class="justify-between flex flex-row w-full my-2 px-4 space-x-4 h-10">
+	<div
+		class="justify-between flex flex-row w-full my-2 px-4 space-x-4 h-10 overflow-x-auto scrollbar-hidden"
+	>
 		<div id="flow_title" class="flex justify-between items-center">
 			<button class="flex flex-row items-center w-full h-full" on:click={() => select('settings')}>
 				<span class="font-mono text-sm"> {$flowStore.path}</span>

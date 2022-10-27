@@ -1,5 +1,6 @@
 <script lang="ts">
 	import Button from '$lib/components/common/button/Button.svelte'
+	import { EDITOR_BAR_WIDTH_THRESHOLD } from '$lib/components/EditorBar.svelte'
 	import type { FlowModule } from '$lib/gen'
 	import { classNames } from '$lib/utils'
 	import {
@@ -9,22 +10,22 @@
 		faSave,
 		faStop
 	} from '@fortawesome/free-solid-svg-icons'
-	import { createEventDispatcher, getContext } from 'svelte'
+	import { createEventDispatcher } from 'svelte'
 	import Icon from 'svelte-awesome'
 	import { isEmptyFlowModule } from '../utils'
-	import type { FlowModuleWidthContext } from './FlowModuleComponent.svelte'
 
 	export let module: FlowModule
 
 	const dispatch = createEventDispatcher()
-	const { width, threshold } = getContext<FlowModuleWidthContext>('FlowModuleWidth')
+
+	let width = 0
 
 	$: shouldPick = isEmptyFlowModule(module)
-	$: iconOnly = $width < threshold
+	$: iconOnly = width < EDITOR_BAR_WIDTH_THRESHOLD
 	$: moduleRetry = module.retry?.constant || module.retry?.exponential
 </script>
 
-<div class="flex flex-row space-x-2">
+<div class="flex flex-row space-x-2" bind:clientWidth={width}>
 	{#if !shouldPick}
 		<span
 			class={classNames('badge', module.stop_after_if ? 'badge-on' : 'badge-off')}
