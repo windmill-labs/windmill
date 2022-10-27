@@ -7,20 +7,18 @@
 	import { initialCode, isInitialCode } from '$lib/script_helpers'
 	import { workspaceStore } from '$lib/stores'
 	import { encodeState, sendUserToast, setQueryWithoutLoad } from '$lib/utils'
-	import { Breadcrumb, BreadcrumbItem } from 'flowbite-svelte'
-	import SvelteMarkdown from 'svelte-markdown'
 	import Path from './Path.svelte'
 	import RadioButton from './RadioButton.svelte'
 	import Required from './Required.svelte'
 	import ScriptEditor from './ScriptEditor.svelte'
 	import ScriptSchema from './ScriptSchema.svelte'
 	import CenteredPage from './CenteredPage.svelte'
-	import Tooltip from './Tooltip.svelte'
 	import UnsavedConfirmationModal from './common/confirmationModal/UnsavedConfirmationModal.svelte'
 	import { dirtyStore } from './common/confirmationModal/dirtyStore'
 	import { Button } from './common'
 	import { slide } from 'svelte/transition'
 	import { faChevronDown, faChevronUp } from '@fortawesome/free-solid-svg-icons'
+	import Breadcrumb from './common/breadcrumb/Breadcrumb.svelte'
 
 	export let script: Script
 	export let initialPath: string = ''
@@ -85,35 +83,18 @@
 <div class="flex flex-col h-screen">
 	<!-- Nav between steps-->
 	<div class="flex flex-col w-full px-4 py-2 border-b shadow-sm">
-		<div class="justify-between flex flex-row drop-shadow-sm w-full">
+		<div class="justify-between flex flex-row w-full">
 			<div class="flex flex-row w-full">
-				<Breadcrumb>
-					<BreadcrumbItem>New Script</BreadcrumbItem>
-					<BreadcrumbItem>
-						<button on:click={() => changeStep(1)} class={step === 1 ? 'font-bold' : null}>
-							Metadata
-						</button>
-					</BreadcrumbItem>
-					<BreadcrumbItem>
-						<button
-							on:click={() => changeStep(2)}
-							class={step === 2 ? 'font-bold' : null}
-							disabled={pathError != ''}
-						>
-							Code
-						</button>
-					</BreadcrumbItem>
-					<BreadcrumbItem>
-						<button
-							on:click={() => changeStep(3)}
-							class={step === 3 ? 'font-bold' : null}
-							disabled={pathError != ''}
-						>
-							UI customisation
-						</button>
-					</BreadcrumbItem>
+				<Breadcrumb
+					items={['Metadata', 'Code', 'UI Customisation']}
+					selectedIndex={step}
+					on:select={(e) => changeStep(e.detail.index + 1)}
+					disabled={pathError != ''}
+				>
+					<svelte:fragment slot="separator">/</svelte:fragment>
 				</Breadcrumb>
 			</div>
+			<span>{script.path}</span>
 			<div class="flex flex-row-reverse ml-2">
 				{#if step != 3}
 					<Button
