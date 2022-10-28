@@ -84,7 +84,7 @@ hex = "^0"
 sql-builder = "^3"
 argon2 = "^0"
 retainer = "^0"
-rand = "^0"
+rand = "0.8.5"
 rand_core = { version = "^0", features = ["std"] }
 magic-crypt = "^3"
 git-version = "^0"
@@ -101,7 +101,7 @@ urlencoding = "^2"
 url = "^2"
 async-oauth2 = "^0"
 reqwest = { version = "^0", features = ["json"] }
-time = "^0"
+time = "0.3.16"
 serde_urlencoded = "^0"
 tokio-tar = "^0"
 tempfile = "^3"
@@ -116,8 +116,8 @@ swc_ecma_parser = "^0"
 swc_ecma_ast = "^0"
 base64 = "^0"
 unicode-general-category = "^0"
-hmac = "^0"
-sha2 = "^0"
+hmac = "0.12.1"
+sha2 = "0.10.6"
 sqlx = { version = "^0", features = [
     "offline",
     "macros",
