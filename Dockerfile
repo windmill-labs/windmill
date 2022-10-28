@@ -36,31 +36,76 @@ ENV NODE_OPTIONS "--max-old-space-size=8192"
 RUN npm run build
 RUN npm run check
 
+FROM node:19-alpine as bundle
+
+COPY /backend/windmill-api/openapi.yaml /backend/windmill-api/openapi.yaml
+COPY /openflow.openapi.yaml /openflow.openapi.yaml
+WORKDIR /backend/windmill-api-client/
+COPY /backend/windmill-api-client/bundle.sh .
+RUN sh ./bundle.sh
+
 FROM rust:slim-buster as builder
 
 RUN apt-get update && apt-get install -y git libssl-dev pkg-config
-
-RUN USER=root cargo new --bin windmill
-WORKDIR /windmill
-
-COPY ./backend/Cargo.toml .
-COPY ./backend/Cargo.lock .
-COPY ./backend/.cargo/ .cargo/
 
 RUN apt-get -y update \
     && apt-get install -y \
     curl lld
 
+RUN rustup component add rustfmt
+
+RUN USER=root cargo new --bin windmill
+WORKDIR /windmill
+
+RUN USER=root cargo new --bin windmill
+RUN USER=root cargo new --lib windmill-api
+RUN USER=root cargo new --lib windmill-audit
+RUN USER=root cargo new --lib windmill-common
+RUN USER=root cargo new --lib windmill-queue
+RUN USER=root cargo new --lib windmill-worker
+WORKDIR /windmill/parsers
+RUN USER=root cargo new --lib windmill-parser
+RUN USER=root cargo new --lib windmill-parser-go
+RUN USER=root cargo new --lib windmill-parser-py
+RUN USER=root cargo new --lib windmill-parser-ts
+WORKDIR /windmill
+
+
+COPY ./backend/Cargo.toml .
+COPY ./backend/windmill-api/Cargo.toml ./windmill-api/
+COPY ./backend/windmill-audit/Cargo.toml ./windmill-audit/
+COPY ./backend/windmill-common/Cargo.toml ./windmill-common/
+COPY ./backend/windmill-queue/Cargo.toml ./windmill-queue/
+COPY ./backend/windmill-worker/Cargo.toml ./windmill-worker/
+COPY ./backend/parsers/windmill-parser/Cargo.toml ./parsers/windmill-parser/
+COPY ./backend/parsers/windmill-parser-go/Cargo.toml ./parsers/windmill-parser-go/
+COPY ./backend/parsers/windmill-parser-py/Cargo.toml ./parsers/windmill-parser-py/
+COPY ./backend/parsers/windmill-parser-ts/Cargo.toml ./parsers/windmill-parser-ts/
+COPY ./backend/.cargo/ .cargo/
+
+COPY ./backend/windmill-api-client/ ./windmill-api-client/
+COPY --from=bundle /backend/windmill-api-client/bundled.json /backend/windmill-api-client/bundled.json
+
 ENV CARGO_INCREMENTAL=1
 
-RUN cargo build --release
-RUN rm src/*.rs
+RUN cargo build --release --locked
+RUN rm ./backend/src/*.rs
+RUN rm ./backend/windmill-api/src/*.rs
+RUN rm ./backend/windmill-api-client/src/*.rs
+RUN rm ./backend/windmill-audit/src/*.rs
+RUN rm ./backend/windmill-common/src/*.rs
+RUN rm ./backend/windmill-queue/src/*.rs
+RUN rm ./backend/windmill-worker/src/*.rs
+RUN rm ./backend/parsers/windmill-parser/src/*.rs
+RUN rm ./backend/parsers/windmill-parser-go/src/*.rs
+RUN rm ./backend/parsers/windmill-parser-py/src/*.rs
+RUN rm ./backend/parsers/windmill-parser-ts/src/*.rs
 
 RUN rm ./target/release/deps/windmill*
 ENV SQLX_OFFLINE=true
 
 COPY ./backend ./
-COPY ./nsjail /nsjail
+COPY ./windmill-worker/nsjail /windmill-worker/nsjail
 
 COPY --from=frontend /frontend /frontend
 COPY .git/ .git/
