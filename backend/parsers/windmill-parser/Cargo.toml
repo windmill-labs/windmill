@@ -1,8 +1,8 @@
 [package]
 name = "windmill-parser"
 version = "1.41.0"
-authors = ["Ruben Fiszel <ruben@windmill.dev>"]
-edition = "2021"
+edition.workspace = true
+authors.workspace = true
 
 [lib]
 name = "windmill_parser"

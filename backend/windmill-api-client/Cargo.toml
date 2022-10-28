@@ -1,8 +1,8 @@
 [package]
 name = "windmill-api-client"
 version = "1.41.0"
-authors = ["Ruben Fiszel <ruben@windmill.dev>"]
-edition = "2021"
+authors.workspace = true
+edition.workspace = true
 build = "build.rs"
 
 [lib]
