@@ -1,6 +1,6 @@
 [package]
 name = "windmill"
-version.workspace = true
+version = "1.41.0"
 authors.workspace = true
 edition.workspace = true
 
