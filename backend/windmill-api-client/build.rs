@@ -2,12 +2,14 @@ use std::{
     env,
     fs::{self, File},
     path::Path,
+    process::Command,
 };
 
 fn main() {
-    let src = "./bundled.json";
+    let src = "../windmill-api/openapi.yaml";
     println!("cargo:rerun-if-changed={}", src);
-    let file = File::open(src).unwrap();
+    Command::new("sh").args(&["bundle.sh"]).status().unwrap();
+    let file = File::open("./bundled.json").unwrap();
     let spec = serde_json::from_reader(file).unwrap();
     let mut generator = progenitor::Generator::default();
 

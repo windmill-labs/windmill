@@ -36,14 +36,6 @@ ENV NODE_OPTIONS "--max-old-space-size=8192"
 RUN npm run build
 RUN npm run check
 
-FROM node:19-alpine as bundle
-
-COPY /backend/windmill-api/openapi.yaml /backend/windmill-api/openapi.yaml
-COPY /openflow.openapi.yaml /openflow.openapi.yaml
-WORKDIR /backend/windmill-api-client/
-COPY /backend/windmill-api-client/bundle.sh .
-RUN sh ./bundle.sh
-
 FROM rust:slim-buster as builder
 
 RUN apt-get update && apt-get install -y git libssl-dev pkg-config
