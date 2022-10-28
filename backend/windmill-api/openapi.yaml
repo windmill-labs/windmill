@@ -2104,7 +2104,7 @@ paths:
           schema:
             type: string
         - name: skip_direct
-          description: TODO Add description, I'm not even really sure what this does
+          description: Skip checking that the node is part of the given flow.
           in: query
           schema:
             type: boolean
