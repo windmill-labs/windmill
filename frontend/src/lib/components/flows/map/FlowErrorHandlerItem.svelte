@@ -3,7 +3,6 @@
 	import { getContext } from 'svelte'
 	import Icon from 'svelte-awesome'
 	import { faBug } from '@fortawesome/free-solid-svg-icons'
-	import { emptyModule } from '$lib/components/flows/flowStateUtils'
 	import { classNames, emptySchema } from '$lib/utils'
 	import { flowStateStore, type FlowModuleState } from '../flowState'
 	import Toggle from '$lib/components/Toggle.svelte'

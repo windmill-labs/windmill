@@ -178,7 +178,7 @@ export function emptyFlowModuleState(): FlowModuleState {
 	}
 }
 
-const charCode = 'a'.charCodeAt(0)
+const aCharCode = 'a'.charCodeAt(0)
 
 export function numberToChars(n: number) {
 	var b = [n],
@@ -199,20 +199,20 @@ export function numberToChars(n: number) {
 
 	out = ''
 	for (i = 0; i < b.length; i += 1) {
-		out = String.fromCharCode(charCode + b[i]) + out
+		out = String.fromCharCode(aCharCode + b[i]) + out
 	}
 
 	return out
 }
 
 export function charsToNumber(n: string): number {
-	let b = 1
+	let b = Math.pow(26, n.length - 1)
 	let res = 0
 	for (let c of n) {
-		b = b * 26
-		res += (c.charCodeAt(0) - charCode) * b
+		res += (c.charCodeAt(0) - aCharCode + 1) * b
+		b = b / 26
 	}
-	return res
+	return res - 1
 }
 
 export function isEmptyFlowModule(flowModule: FlowModule): boolean {
