@@ -20,6 +20,7 @@
 	import ScriptPicker from '$lib/components/ScriptPicker.svelte'
 	import Required from '$lib/components/Required.svelte'
 	import CronInput, { OFFSET } from '$lib/components/CronInput.svelte'
+	import PageHeader from '$lib/components/PageHeader.svelte'
 
 	let initialPath = $page.url.searchParams.get('edit') || ''
 	let edit = initialPath === '' ? false : true
@@ -110,7 +111,7 @@
 </script>
 
 <CenteredPage>
-	<h1 class="mb-4">{edit ? 'Edit schedule ' + path : 'New schedule'}</h1>
+	<PageHeader title={edit ? 'Edit schedule ' + path : 'New schedule'} />
 
 	<div>
 		{#if !edit}
