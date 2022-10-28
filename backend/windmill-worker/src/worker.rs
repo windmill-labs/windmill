@@ -1611,7 +1611,6 @@ async fn pip_compile(
     db: &Pool<Postgres>,
     timeout: i32,
 ) -> Result<Result<String, String>, Error> {
-    println!("pip_compile!!");
     logs.push_str(&format!("content of requirements:\n{}\n", requirements));
     let file = "requirements.in";
     write_file(job_dir, file, &requirements).await?;
@@ -1631,7 +1630,6 @@ async fn pip_compile(
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()?;
-    println!("pip_compile handle child!!");
     handle_child(&job.id, db, logs, timeout, child)
         .await
         .map_err(|e| Error::ExecutionErr(format!("Lock file generation failed: {e:?}")))?;
@@ -1639,7 +1637,6 @@ async fn pip_compile(
     let mut file = File::open(path_lock).await?;
     let mut req_content = "".to_string();
     file.read_to_string(&mut req_content).await?;
-    println!("pip_compile end!!");
     Ok(Ok(req_content
         .lines()
         .filter(|x| !x.trim_start().starts_with('#'))
