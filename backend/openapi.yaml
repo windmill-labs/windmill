@@ -4129,8 +4129,7 @@ components:
           type: string
         resource_type:
           type: string
-        value:
-          type: object
+        value: {}
         is_oauth:
           type: boolean
         extra_perms:

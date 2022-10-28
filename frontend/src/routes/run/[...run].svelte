@@ -168,7 +168,7 @@
 	</ActionRow>
 {/if}
 <CenteredPage>
-	<div class="flex flex-row flex-wrap justify-between items-center gap-4 pb-4">
+	<div class="flex flex-row flex-wrap justify-between items-center gap-4 py-4">
 		<h1>
 			<div>
 				{#if job}

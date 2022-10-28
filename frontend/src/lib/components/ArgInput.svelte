@@ -1,6 +1,4 @@
 <script lang="ts">
-	import { slide } from 'svelte/transition'
-
 	import { faChevronDown, faChevronUp, faMinus, faPlus } from '@fortawesome/free-solid-svg-icons'
 
 	import { setInputCat as computeInputCat, type InputCat } from '$lib/utils'
@@ -155,7 +153,7 @@
 				</span>
 
 				{#if seeEditable}
-					<div transition:slide class="mt-2">
+					<div class="mt-2">
 						<label class="text-gray-700">
 							Description
 							<textarea rows="1" bind:value={description} placeholder="Edit description" />

@@ -1,6 +1,6 @@
 <script lang="ts">
 	import type { SchemaProperty } from '$lib/common'
-	import { Badge } from 'flowbite-svelte'
+	import Badge from './common/badge/Badge.svelte'
 
 	export let property: SchemaProperty
 </script>
