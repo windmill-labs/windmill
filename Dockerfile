@@ -76,7 +76,6 @@ COPY ./backend/parsers/windmill-parser-ts/Cargo.toml ./parsers/windmill-parser-t
 COPY ./backend/.cargo/ .cargo/
 
 COPY ./backend/windmill-api-client/ ./windmill-api-client/
-COPY --from=bundle /backend/windmill-api-client/bundled.json ./backend/windmill-api-client/bundled.json
 
 ENV CARGO_INCREMENTAL=1
 
