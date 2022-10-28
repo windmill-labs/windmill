@@ -49,7 +49,7 @@ RUN rustup component add rustfmt
 RUN USER=root cargo new --bin windmill
 WORKDIR /windmill
 
-COPY ./openflow.openapi.yaml .
+COPY ./openflow.openapi.yaml /openflow.openapi.yaml
 
 RUN USER=root cargo new --bin windmill
 RUN USER=root cargo new --lib windmill-api
