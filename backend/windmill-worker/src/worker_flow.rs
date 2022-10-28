@@ -6,7 +6,7 @@ use crate::js_eval::{eval_timeout, EvalCreds, IdContext};
 use crate::worker;
 use anyhow::Context;
 use async_recursion::async_recursion;
-use futures::{StreamExt, TryStreamExt};
+use futures::TryStreamExt;
 use serde_json::{json, Map, Value};
 use tokio::sync::mpsc::Sender;
 use tracing::instrument;
@@ -14,7 +14,6 @@ use uuid::Uuid;
 use windmill_common::{
     error::{self, to_anyhow, Error},
     flows::{FlowModule, FlowModuleValue, FlowValue, InputTransform, Retry, Suspend},
-    scripts::{self, ScriptHash},
     worker_flow::{
         Approval, BranchAllStatus, BranchChosen, FlowStatus, FlowStatusModule, RetryStatus,
         MAX_RETRY_ATTEMPTS, MAX_RETRY_INTERVAL,

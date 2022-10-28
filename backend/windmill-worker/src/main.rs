@@ -96,11 +96,8 @@ async fn main() -> anyhow::Result<()> {
                 "unretrievable IP".to_string()
             });
         let worker_name = format!("dt-worker-{}-{}", &instance_name, rd_string(5));
-        let client =
-            windmill_api_client::create_client(&base_url, get_token(&db, &worker_name).await);
         windmill_worker::run_worker(
             &db.clone(),
-            &client,
             timeout,
             &instance_name,
             worker_name,
@@ -133,31 +130,4 @@ async fn main() -> anyhow::Result<()> {
     futures::try_join!(shutdown_signal, workers_f, metrics_f)?;
 
     Ok(())
-}
-
-async fn get_token(db: &sqlx::Pool<sqlx::Postgres>, worker_name: &str) -> String {
-    // TODO: This is bad. Proper authentication should happen.
-    use rand::prelude::*;
-    let token: String = rand::thread_rng()
-        .sample_iter(&rand::distributions::Alphanumeric)
-        .take(30)
-        .map(char::from)
-        .collect();
-    let mut tx = db.begin().await.unwrap();
-    sqlx::query!(
-        "INSERT INTO token
-            (token, email, label, super_admin)
-            VALUES ($1, $2, $3, $4)",
-        token,
-        "worker@windmill.dev",
-        format!("worker token for {worker_name}"),
-        false
-    )
-    .execute(&mut tx)
-    .await
-    .unwrap();
-
-    // TODO: This should be audit logged
-    tx.commit().await.unwrap();
-    token
 }

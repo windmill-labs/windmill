@@ -116,9 +116,7 @@ async fn main() -> anyhow::Result<()> {
         let base_url = base_url2;
         let monitor_f = async {
             if server_mode {
-                let client =
-                    windmill_api_client::create_client(&base_url, get_token(&db, "Monitor").await);
-                monitor_db(&db, client, timeout, rx.resubscribe());
+                monitor_db(&db, timeout, base_url, rx.resubscribe());
             }
             Ok(()) as anyhow::Result<()>
         };
@@ -139,8 +137,8 @@ async fn main() -> anyhow::Result<()> {
 
 pub fn monitor_db(
     db: &Pool<Postgres>,
-    client: windmill_api_client::Client,
     timeout: i32,
+    base_url: String,
     rx: tokio::sync::broadcast::Receiver<()>,
 ) {
     let db1 = db.clone();
@@ -149,7 +147,7 @@ pub fn monitor_db(
     let rx2 = rx.resubscribe();
 
     tokio::spawn(async move {
-        windmill_worker::handle_zombie_jobs_periodically(&db1, &client, timeout, rx).await
+        windmill_worker::handle_zombie_jobs_periodically(&db1, timeout, &base_url, rx).await
     });
     tokio::spawn(async move { windmill_api::delete_expired_items_perdiodically(&db2, rx2).await });
 }
@@ -182,15 +180,10 @@ pub async fn run_workers(
         let ip = ip.clone();
         let rx = rx.resubscribe();
         let worker_config = worker_config.clone();
-        let client = windmill_api_client::create_client(
-            &worker_config.base_url,
-            get_token(&db, &worker_name).await,
-        );
         handles.push(tokio::spawn(monitor.instrument(async move {
             tracing::info!(addr = %addr.to_string(), worker = %worker_name, "starting worker");
             windmill_worker::run_worker(
                 &db1,
-                &client,
                 timeout,
                 &instance_name,
                 worker_name,
@@ -207,31 +200,4 @@ pub async fn run_workers(
 
     futures::future::try_join_all(handles).await?;
     Ok(())
-}
-
-async fn get_token(db: &sqlx::Pool<sqlx::Postgres>, worker_name: &str) -> String {
-    // TODO: This is bad. Proper authentication should happen.
-    use rand::prelude::*;
-    let token: String = rand::thread_rng()
-        .sample_iter(&rand::distributions::Alphanumeric)
-        .take(30)
-        .map(char::from)
-        .collect();
-    let mut tx = db.begin().await.unwrap();
-    sqlx::query!(
-        "INSERT INTO token
-            (token, email, label, super_admin)
-            VALUES ($1, $2, $3, $4)",
-        token,
-        "worker@windmill.dev",
-        format!("worker token for {worker_name}"),
-        false
-    )
-    .execute(&mut tx)
-    .await
-    .unwrap();
-
-    // TODO: This should be audit logged
-    tx.commit().await.unwrap();
-    token
 }

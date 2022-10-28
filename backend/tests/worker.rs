@@ -800,31 +800,6 @@ async fn in_test_worker<Fut: std::future::Future>(
     res
 }
 
-async fn get_token(db: &sqlx::Pool<sqlx::Postgres>, worker_name: &str) -> String {
-    use rand::prelude::*;
-    let token: String = rand::thread_rng()
-        .sample_iter(&rand::distributions::Alphanumeric)
-        .take(30)
-        .map(char::from)
-        .collect();
-    let mut tx = db.begin().await.expect("tx creation");
-    sqlx::query!(
-        "INSERT INTO token
-            (token, email, label, super_admin)
-            VALUES ($1, $2, $3, $4)",
-        token,
-        "worker@windmill.dev",
-        format!("wt {worker_name}"),
-        false
-    )
-    .execute(&mut tx)
-    .await
-    .expect("token insert");
-
-    tx.commit().await.expect("tx commit");
-    token
-}
-
 fn spawn_test_worker(
     db: &Pool<Postgres>,
     port: u16,
@@ -861,10 +836,6 @@ fn spawn_test_worker(
     let future = async move {
         windmill_worker::run_worker(
             &db,
-            &windmill_api_client::create_client(
-                &worker_config.base_url,
-                get_token(&db, &worker_name).await,
-            ),
             timeout,
             worker_instance,
             worker_name,

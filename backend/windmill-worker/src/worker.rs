@@ -189,7 +189,6 @@ lazy_static::lazy_static! {
 #[tracing::instrument(level = "trace")]
 pub async fn run_worker(
     db: &Pool<Postgres>,
-    client: &windmill_api_client::Client,
     timeout: i32,
     worker_instance: &str,
     worker_name: String,
@@ -392,11 +391,24 @@ pub async fn run_worker(
                                 .expect("could not create shared dir");
                         }
                     }
+                    let tx = db.begin().await.expect("could not start token transaction");
+                    let (tx, token) = create_token_for_owner(
+                        tx,
+                        &job.workspace_id,
+                        &job.permissioned_as,
+                        "ephemeral-script",
+                        timeout * 2,
+                        &job.created_by,
+                    )
+                    .await.expect("could not create job token");
+                    tx.commit().await.expect("could not commit job token");
+                    let job_client = windmill_api_client::create_client(&worker_config.base_url, token.clone());
 
                     if let Some(err) = handle_queued_job(
                         job.clone(),
                         db,
-                        client,
+                        &job_client,
+                        token,
                         timeout,
                         &worker_name,
                         &worker_dir,
@@ -412,7 +424,7 @@ pub async fn run_worker(
                     {
                         handle_job_error(
                             db,
-                            client,
+                            &job_client,
                             job,
                             err,
                             Some(metrics),
@@ -543,6 +555,7 @@ async fn handle_queued_job(
     job: QueuedJob,
     db: &sqlx::Pool<sqlx::Postgres>,
     client: &windmill_api_client::Client,
+    token: String,
     timeout: i32,
     worker_name: &str,
     worker_dir: &str,
@@ -602,6 +615,8 @@ async fn handle_queued_job(
                     handle_code_execution_job(
                         &job,
                         db,
+                        client,
+                        token,
                         job_dir,
                         worker_dir,
                         &mut logs,
@@ -746,6 +761,8 @@ async fn transform_json_value(
 async fn handle_code_execution_job(
     job: &QueuedJob,
     db: &sqlx::Pool<sqlx::Postgres>,
+    client: &windmill_api_client::Client,
+    token: String,
     job_dir: &str,
     worker_dir: &str,
     logs: &mut String,
@@ -830,6 +847,8 @@ mount {{
                 job,
                 logs,
                 db,
+                client,
+                token,
                 timeout,
                 &inner_content,
                 &shared_mount,
@@ -843,6 +862,8 @@ mount {{
                 logs,
                 job,
                 db,
+                client,
+                token,
                 job_dir,
                 &inner_content,
                 timeout,
@@ -857,6 +878,8 @@ mount {{
                 logs,
                 job,
                 db,
+                client,
+                token,
                 &inner_content,
                 timeout,
                 job_dir,
@@ -885,6 +908,8 @@ async fn handle_go_job(
     logs: &mut String,
     job: &QueuedJob,
     db: &sqlx::Pool<sqlx::Postgres>,
+    client: &windmill_api_client::Client,
+    token: String,
     inner_content: &str,
     timeout: i32,
     job_dir: &str,
@@ -921,20 +946,7 @@ async fn handle_go_job(
 
     logs.push_str("\n\n--- GO CODE EXECUTION ---\n");
     set_logs(logs, job.id, db).await;
-
-    let tx = db.begin().await?;
-    let (tx, token) = create_token_for_owner(
-        tx,
-        &job.workspace_id,
-        &job.permissioned_as,
-        "ephemeral-script",
-        timeout * 2,
-        &job.created_by,
-    )
-    .await?;
-    tx.commit().await?;
-    let job_client = windmill_api_client::create_client(base_url, token.clone());
-    create_args_and_out_file(&job_client, job, job_dir).await?;
+    create_args_and_out_file(client, job, job_dir).await?;
     {
         let sig = windmill_parser_go::parse_go_sig(&inner_content)?;
         drop(inner_content);
@@ -1087,6 +1099,8 @@ async fn handle_deno_job(
     logs: &mut String,
     job: &QueuedJob,
     db: &sqlx::Pool<sqlx::Postgres>,
+    client: &windmill_api_client::Client,
+    token: String,
     job_dir: &str,
     inner_content: &String,
     timeout: i32,
@@ -1097,19 +1111,7 @@ async fn handle_deno_job(
     let _ = write_file(job_dir, "inner.ts", inner_content).await?;
     let sig = trace_span!("parse_deno_signature")
         .in_scope(|| windmill_parser_ts::parse_deno_signature(inner_content))?;
-    let tx = db.begin().await?;
-    let (tx, token) = create_token_for_owner(
-        tx,
-        &job.workspace_id,
-        &job.permissioned_as,
-        "ephemeral-script",
-        timeout * 2,
-        &job.created_by,
-    )
-    .await?;
-    tx.commit().await?;
-    let job_client = windmill_api_client::create_client(base_url, token.clone());
-    create_args_and_out_file(&job_client, job, job_dir).await?;
+    create_args_and_out_file(client, job, job_dir).await?;
     let spread = sig.args.into_iter().map(|x| x.name).join(",");
     let wrapper_content: String = format!(
         r#"
@@ -1231,6 +1233,8 @@ async fn handle_python_job(
     job: &QueuedJob,
     logs: &mut String,
     db: &sqlx::Pool<sqlx::Postgres>,
+    client: &windmill_api_client::Client,
+    token: String,
     timeout: i32,
     inner_content: &String,
     shared_mount: &str,
@@ -1396,20 +1400,7 @@ async fn handle_python_job(
         })
         .collect::<Vec<String>>()
         .join("");
-
-    let tx = db.begin().await?;
-    let (tx, token) = create_token_for_owner(
-        tx,
-        &job.workspace_id,
-        &job.permissioned_as,
-        "ephemeral-script",
-        timeout * 2,
-        &job.created_by,
-    )
-    .await?;
-    tx.commit().await?;
-    let job_client = windmill_api_client::create_client(base_url, token.clone());
-    create_args_and_out_file(&job_client, job, job_dir).await?;
+    create_args_and_out_file(client, job, job_dir).await?;
 
     let wrapper_content: String = format!(
         r#"
@@ -2089,12 +2080,12 @@ async fn append_logs(job_id: uuid::Uuid, logs: impl AsRef<str>, db: impl Borrow<
 
 pub async fn handle_zombie_jobs_periodically(
     db: &Pool<Postgres>,
-    client: &windmill_api_client::Client,
     timeout: i32,
+    base_url: &str,
     mut rx: tokio::sync::broadcast::Receiver<()>,
 ) {
     loop {
-        handle_zombie_jobs(db, client, timeout).await;
+        handle_zombie_jobs(db, timeout, base_url).await;
 
         tokio::select! {
             _ = tokio::time::sleep(Duration::from_secs(60))    => (),
@@ -2106,11 +2097,7 @@ pub async fn handle_zombie_jobs_periodically(
     }
 }
 
-async fn handle_zombie_jobs(
-    db: &Pool<Postgres>,
-    client: &windmill_api_client::Client,
-    timeout: i32,
-) {
+async fn handle_zombie_jobs(db: &Pool<Postgres>, timeout: i32, base_url: &str) {
     let restarted = sqlx::query!(
             "UPDATE queue SET running = false WHERE last_ping < now() - ($1 || ' seconds')::interval AND running = true AND job_kind != $2 AND same_worker = false RETURNING id, workspace_id, last_ping",
             (timeout * 5).to_string(),
@@ -2152,9 +2139,23 @@ async fn handle_zombie_jobs(
         // since the job is unrecoverable, the same worker queue should never be sent anything
         let (same_worker_tx_never_used, _same_worker_rx_never_used) = mpsc::channel::<Uuid>(1);
 
+        let tx = db.begin().await.expect("could not start token transaction");
+        let (tx, token) = create_token_for_owner(
+            tx,
+            &job.workspace_id,
+            &job.permissioned_as,
+            "ephemeral-zombie-jobs",
+            timeout * 2,
+            &job.created_by,
+        )
+        .await
+        .expect("could not create job token");
+        tx.commit().await.expect("could not commit job token");
+        let client = windmill_api_client::create_client(base_url, token.clone());
+
         let _ = handle_job_error(
             db,
-            client,
+            &client,
             job,
             error::Error::ExecutionErr("Same worker job timed out".to_string()),
             None,
