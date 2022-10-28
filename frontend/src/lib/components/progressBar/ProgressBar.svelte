@@ -15,7 +15,7 @@
 
 	export let steps: ProgressStep[]
 	export let error = false
-	export let duration = 200
+	export let duration = 100
 	let percent = getTween(0, duration)
 	let finished = false
 	let state: ProgressState[] = []
