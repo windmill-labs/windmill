@@ -1,7 +1,6 @@
 <script lang="ts">
 	import { getContext } from 'svelte'
-	import type { Writable } from 'svelte/store'
-	import { select, ZoomTransform } from 'd3'
+	import { select } from 'd3'
 	import type { SupportedLanguage } from '$lib/common'
 	import LanguageIcon from '../common/languageIcons/LanguageIcon.svelte'
 	import FlowModuleHostIcon from './FlowModuleHostIcon.svelte'
@@ -14,7 +13,6 @@
 	export let title: string
 	export let lang: SupportedLanguage
 	export let host: ModuleHost
-	const transform = getContext<Writable<ZoomTransform>>('transform')
 	const { w: WIDTH } = getContext<NodeSizeContext>('nodeSize')
 	let wrapper: SVGGElement
 	let nodeType: SVGGElement

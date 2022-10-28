@@ -2,7 +2,7 @@
 	import { setContext } from 'svelte'
 	import type { FlowModule } from '$lib/gen'
 	import { Graph, GraphEdge, GraphNodeClass } from './'
-	import { FlowModule as FlowModuleComponent, type IFlowModule } from './'
+	import { FlowModuleNode, type IFlowModule } from './'
 	import { isParent, isParentArray, type NodeSizeContext } from './model'
 
 	const NODE_WIDTH = 260
@@ -34,53 +34,6 @@
 			]
 		}
 	})
-	$: console.log(modules);
-	$: console.log(graph);
-
-	// const graph: IFlowModule[][] = [
-	// 	[
-	// 		{
-	// 			node: new GraphNodeClass(new DOMRect(50, 50, NODE_WIDTH, NODE_HEIGHT), undefined),
-	// 			title: 'Inline deno',
-	// 			lang: 'deno',
-	// 			host: 'local'
-	// 		},
-	// 		{
-	// 			node: new GraphNodeClass(new DOMRect(350, 50, NODE_WIDTH, NODE_HEIGHT), undefined),
-	// 			title: 'Hub deno',
-	// 			lang: 'deno',
-	// 			host: 'hub'
-	// 		},
-	// 	],
-	// 	[
-	// 		{
-	// 			node: new GraphNodeClass(new DOMRect(50, 150, NODE_WIDTH, NODE_HEIGHT), undefined),
-	// 			title: 'Inline go',
-	// 			lang: 'go',
-	// 			host: 'local'
-	// 		},
-	// 		{
-	// 			node: new GraphNodeClass(new DOMRect(350, 150, NODE_WIDTH, NODE_HEIGHT), [{row: 0, col: 0}, {row: 0, col: 1}]),
-	// 			title: 'Hub go',
-	// 			lang: 'go',
-	// 			host: 'hub'
-	// 		},
-	// 	],
-	// 	[
-	// 		{
-	// 			node: new GraphNodeClass(new DOMRect(50, 500, NODE_WIDTH, NODE_HEIGHT), {row: 1, col: 0}),
-	// 			title: 'Inline python',
-	// 			lang: 'python3',
-	// 			host: 'local'
-	// 		},
-	// 		{
-	// 			node: new GraphNodeClass(new DOMRect(350, 500, NODE_WIDTH, NODE_HEIGHT), {row: 1, col: 0}),
-	// 			title: 'Hub python',
-	// 			lang: 'python3',
-	// 			host: 'hub'
-	// 		},
-	// 	],
-	// ]
 
 	function getSingleParentEdgePoints(module: IFlowModule) {
 		return {
@@ -109,7 +62,7 @@
 	{/each}
 	{#each graph as row}
 		{#each row as module}
-			<FlowModuleComponent {...module} />
+			<FlowModuleNode {...module} />
 		{/each}
 	{/each}
 </Graph>
