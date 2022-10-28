@@ -79,7 +79,6 @@ COPY ./backend/.cargo/ .cargo/
 
 COPY ./backend/windmill-api-client/ ./windmill-api-client/
 COPY ./backend/windmill-api/openapi.yaml ./windmill-api/openapi.yaml
-COPY ./openflow.openapi.yaml ../openflow.openapi.yaml
 
 ENV CARGO_INCREMENTAL=1
 
