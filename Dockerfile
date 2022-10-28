@@ -38,11 +38,11 @@ RUN npm run check
 
 FROM rust:slim-buster as builder
 
-RUN apt-get update && apt-get install -y git libssl-dev pkg-config
+RUN apt-get update && apt-get install -y git libssl-dev pkg-config npm
 
 RUN apt-get -y update \
     && apt-get install -y \
-    curl lld
+    curl lld nodejs npm
 
 RUN rustup component add rustfmt
 
