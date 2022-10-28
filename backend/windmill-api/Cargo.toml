@@ -1,6 +1,6 @@
 [package]
 name = "windmill-api"
-version.workspace = true
+version = "1.41.0"
 authors.workspace = true
 edition.workspace = true
 
@@ -33,7 +33,7 @@ anyhow.workspace = true
 argon2.workspace = true
 axum.workspace = true
 futures.workspace = true
-git-version.workspace = true
+git-version = "1.41.0"
 tower.workspace = true
 tower-cookies.workspace = true
 tower-http.workspace = true
