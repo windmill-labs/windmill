@@ -30,7 +30,6 @@ RUN apt-get -y update \
 
 ENV SQLX_OFFLINE=true
 
-COPY ./nsjail /nsjail
 
 RUN mkdir -p /frontend/build
 RUN apt-get update \
