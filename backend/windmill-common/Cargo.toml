@@ -1,8 +1,8 @@
 [package]
 name = "windmill-common"
 version = "1.41.0"
-authors.workspace = true
-edition.workspace = true
+authors = ["Ruben Fiszel <ruben@windmill.dev>"]
+edition = "2021"
 
 [features]
 default = []
