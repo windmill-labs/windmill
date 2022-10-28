@@ -10,9 +10,12 @@
 
 	import ObjectViewer from './ObjectViewer.svelte'
 	import { keepByKey } from './utils'
+	import { flowStateStore } from '../flows/flowState'
+	import { flowIds } from '../flows/flowStore'
 
 	export let pickableProperties: Object = {}
 	export let displayContext = true
+	export let priorId: string | undefined
 	let variables: Record<string, string> = {}
 	let resources: Record<string, any> = {}
 	let displayVariable = false
@@ -28,6 +31,20 @@
 	$: propsFiltered =
 		search === EMPTY_STRING ? pickableProperties : keepByKey(pickableProperties, search)
 
+	let priorIds = {}
+	$: {
+		if (priorId) {
+			const allState = $flowStateStore
+			priorIds = Object.fromEntries(
+				Object.entries(allState)
+					.filter(
+						(o) =>
+							$flowIds.includes(o[0]) && $flowIds.indexOf(o[0]) <= $flowIds.indexOf(priorId ?? '')
+					)
+					.map((o) => [o[0], o[1].previewResult])
+			)
+		}
+	}
 	async function loadVariables() {
 		variables = Object.fromEntries(
 			(
@@ -82,6 +99,19 @@
 <div class="overflow-y-auto mb-2">
 	<ObjectViewer json={propsFiltered} on:select />
 </div>
+{#if priorId}
+	<span class="font-bold text-sm">Result by id</span>
+	<div class="overflow-y-auto mb-2">
+		<ObjectViewer
+			collapsed={true}
+			json={priorIds}
+			on:select={(e) => {
+				const [first, ...second] = e.detail.split('.')
+				dispatch('select', `result_by_id('${first}')${second.length ? '.' + second.join('.') : ''}`)
+			}}
+		/>
+	</div>
+{/if}
 {#if displayContext}
 	<span class="font-bold text-sm">Variables </span>
 	<div class="overflow-y-auto mb-2">

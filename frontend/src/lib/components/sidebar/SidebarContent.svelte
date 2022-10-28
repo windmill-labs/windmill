@@ -52,7 +52,7 @@
 	export let isCollapsed: boolean = false
 </script>
 
-<div class="flex-1 flex flex-col py-4 overflow-y-auto overflow-x-hidden">
+<div class="flex-1 flex flex-col py-4 overflow-x-hidden scrollbar-hidden">
 	<nav class="h-full flex justify-between flex-col px-2">
 		<div class="space-y-2">
 			{#each mainMenuLinks as menuLink}

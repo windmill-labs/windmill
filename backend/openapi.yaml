@@ -3268,6 +3268,47 @@ paths:
             text/plain:
               schema:
                 type: string
+
+  /w/{workspace}/capture/{path}:
+    put:
+      summary: create flow preview capture
+      operationId: createCapture
+      tags:
+        - capture
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+      responses:
+        "201":
+          description: flow preview capture created
+    post:
+      summary: update flow preview capture
+      operationId: updateCapture
+      tags:
+        - capture
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+      responses:
+        "204":
+          description: flow preview captured
+    get:
+      summary: get flow preview capture
+      operationId: getCapture
+      tags:
+        - capture
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+      responses:
+        "200":
+          description: captured flow preview
+          content:
+            application/json:
+              schema: {}
+        "404":
+          description: capture does not exist for this flow
+
 components:
   securitySchemes:
     bearerAuth:
@@ -4088,8 +4129,7 @@ components:
           type: string
         resource_type:
           type: string
-        value:
-          type: object
+        value: {}
         is_oauth:
           type: boolean
         extra_perms:

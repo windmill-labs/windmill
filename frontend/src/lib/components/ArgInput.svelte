@@ -1,6 +1,4 @@
 <script lang="ts">
-	import { slide } from 'svelte/transition'
-
 	import { faChevronDown, faChevronUp, faMinus, faPlus } from '@fortawesome/free-solid-svg-icons'
 
 	import { setInputCat as computeInputCat, type InputCat } from '$lib/utils'
@@ -28,7 +26,6 @@
 	export let required = false
 	export let pattern: undefined | string = undefined
 	export let valid = required ? false : true
-	export let minRows = 1
 	export let maxRows = 10
 	export let enum_: string[] | undefined = undefined
 	export let disabled = false
@@ -71,18 +68,6 @@
 		}
 	}
 
-	$: {
-		defaultValue && recomputeRowSize(JSON.stringify(defaultValue, null, 4))
-	}
-
-	function recomputeRowSize(str: string) {
-		if (type == 'string') {
-			minRows = str.split('\n').length
-		} else if (type != 'string') {
-			minRows = Math.max(minRows, Math.min(str.split(/\r\n|\r|\n/).length + 1, maxRows))
-		}
-	}
-
 	export function evalValueToRaw() {
 		if (value) {
 			rawValue = JSON.stringify(value, null, 4)
@@ -99,6 +84,17 @@
 			reader.readAsDataURL(t.files[0])
 		} else {
 			cb(undefined)
+		}
+	}
+
+	export function focus() {
+		el?.focus()
+	}
+
+	export async function recomputeSize() {
+		if (el) {
+			el.style.height = '30px'
+			el.style.height = el.scrollHeight + 'px'
 		}
 	}
 
@@ -157,7 +153,7 @@
 				</span>
 
 				{#if seeEditable}
-					<div transition:slide class="mt-2">
+					<div class="mt-2">
 						<label class="text-gray-700">
 							Description
 							<textarea rows="1" bind:value={description} placeholder="Edit description" />
@@ -282,11 +278,9 @@
 						on:focus
 						{disabled}
 						style="max-height: {maxHeight}"
-						on:input={(e) => {
-							if (el) {
-								el.style.height = '5px'
-								el.style.height = el.scrollHeight + 'px'
-							}
+						on:input={() => {
+							recomputeSize()
+							dispatch('input', { rawValue: value, isRaw: false })
 						}}
 						class="col-span-10 {valid
 							? ''
@@ -343,11 +337,8 @@
 						: 'border border-red-700 border-opacity-30 focus:border-red-700 focus:border-opacity-30 bg-red-100'}"
 					placeholder={defaultValue ?? ''}
 					bind:value
-					on:input={async () => {
-						if (el) {
-							el.style.height = '30px'
-							el.style.height = el.scrollHeight + 'px'
-						}
+					on:input={() => {
+						recomputeSize()
 						dispatch('input', { rawValue: value, isRaw: false })
 					}}
 				/>

@@ -19,7 +19,6 @@
 
 	export let mod: FlowModule
 	export let schema: Schema
-	export let indices: [number, number | undefined]
 
 	let stepArgs: Record<string, any> = {}
 
@@ -42,19 +41,7 @@
 
 	function jobDone() {
 		if (testJob && !testJob.canceled && testJob.type == 'CompletedJob' && `result` in testJob) {
-			const result = testJob.result
-			const pMod = $flowStateStore.modules[indices[0]]
-			if (pMod) {
-				if (indices[1] != undefined && pMod.childFlowModules) {
-					const cMod = pMod.childFlowModules[indices[1]]
-					if (cMod) {
-						cMod.previewResult = result
-					}
-				} else {
-					pMod.previewResult = result
-				}
-				$flowStateStore.modules[indices[0]] = pMod
-			}
+			$flowStateStore[mod.id].previewResult = testJob.result
 		}
 	}
 </script>

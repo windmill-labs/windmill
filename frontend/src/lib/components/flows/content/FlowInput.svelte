@@ -14,10 +14,10 @@
 	<div>
 		<div class="p-6">
 			<SchemaEditor
+				bind:schema={$flowStore.schema}
 				on:change={() => {
 					$flowStore = $flowStore
 				}}
-				bind:schema={$flowStore.schema}
 			/>
 		</div>
 	</div>

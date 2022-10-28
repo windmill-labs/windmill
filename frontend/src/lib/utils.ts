@@ -141,7 +141,6 @@ export function emptySchema() {
 	}
 }
 
-
 export function simpleSchema() {
 	return {
 		$schema: 'https://json-schema.org/draft/2020-12/schema',
@@ -470,7 +469,8 @@ export function scriptPathToHref(path: string): string {
 
 export async function getScriptByPath(path: string): Promise<{
 	content: string
-	language: 'deno' | 'python3' | 'go'
+	language: 'deno' | 'python3' | 'go',
+	schema: any
 }> {
 	if (path.startsWith('hub/')) {
 		const { content, language, schema } = await ScriptService.getHubScriptByPath({ path })
@@ -478,6 +478,7 @@ export async function getScriptByPath(path: string): Promise<{
 		return {
 			content,
 			language,
+			schema
 		}
 	} else {
 		const script = await ScriptService.getScriptByPath({
@@ -486,7 +487,8 @@ export async function getScriptByPath(path: string): Promise<{
 		})
 		return {
 			content: script.content,
-			language: script.language
+			language: script.language,
+			schema: script.schema
 		}
 	}
 }

@@ -1,38 +1,31 @@
 <script lang="ts">
 	import Button from '$lib/components/common/button/Button.svelte'
-	import { isEmptyFlowModule } from '$lib/components/flows/flowStateUtils'
-
+	import { EDITOR_BAR_WIDTH_THRESHOLD } from '$lib/components/EditorBar.svelte'
 	import type { FlowModule } from '$lib/gen'
 	import { classNames } from '$lib/utils'
-
 	import {
 		faArrowRotateForward,
 		faBed,
 		faCodeBranch,
 		faSave,
-		faStop,
-		faTrashAlt
+		faStop
 	} from '@fortawesome/free-solid-svg-icons'
-	import { createEventDispatcher, getContext } from 'svelte'
+	import { createEventDispatcher } from 'svelte'
 	import Icon from 'svelte-awesome'
-	import type { FlowEditorContext } from '../types'
-	import type { FlowModuleWidthContext } from './FlowModule.svelte'
-	import RemoveStepConfirmationModal from './RemoveStepConfirmationModal.svelte'
+	import { isEmptyFlowModule } from '../utils'
 
 	export let module: FlowModule
 
-	let confirmationModalOpen = false
+	const dispatch = createEventDispatcher()
+
+	let width = 0
 
 	$: shouldPick = isEmptyFlowModule(module)
-
-	const dispatch = createEventDispatcher()
-	const { selectedId, select } = getContext<FlowEditorContext>('FlowEditorContext')
-	const { width, threshold } = getContext<FlowModuleWidthContext>('FlowModuleWidth')
-	$: iconOnly = $width < threshold
+	$: iconOnly = width < EDITOR_BAR_WIDTH_THRESHOLD
 	$: moduleRetry = module.retry?.constant || module.retry?.exponential
 </script>
 
-<div class="flex flex-row space-x-2">
+<div class="flex flex-row space-x-2" bind:clientWidth={width}>
 	{#if !shouldPick}
 		<span
 			class={classNames('badge', module.stop_after_if ? 'badge-on' : 'badge-off')}
@@ -78,34 +71,7 @@
 			Save to workspace
 		</Button>
 	{/if}
-	<Button
-		size="xs"
-		color="light"
-		variant="border"
-		startIcon={{ icon: faTrashAlt }}
-		{iconOnly}
-		on:click={({ detail }) => {
-			if (detail.shiftKey || shouldPick) {
-				dispatch('delete')
-				select('settings')
-			} else {
-				confirmationModalOpen = true
-			}
-		}}
-	>
-		{$selectedId.includes('failure') ? 'Delete error handler' : 'Remove step'}
-	</Button>
 </div>
-
-<RemoveStepConfirmationModal
-	bind:open={confirmationModalOpen}
-	on:confirmed={() => {
-		dispatch('delete')
-		setTimeout(() => {
-			select('settings')
-		})
-	}}
-/>
 
 <style>
 	.badge {

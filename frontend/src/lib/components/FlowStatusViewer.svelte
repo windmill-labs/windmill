@@ -1,56 +1,48 @@
 <script lang="ts">
-	import { FlowStatusModule, JobService } from '$lib/gen'
+	import { FlowStatusModule, Job, JobService } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import FlowJobResult from './FlowJobResult.svelte'
 	import FlowPreviewStatus from './preview/FlowPreviewStatus.svelte'
-	import { Button } from 'flowbite-svelte'
 	import Icon from 'svelte-awesome'
 	import { faChevronDown, faChevronUp } from '@fortawesome/free-solid-svg-icons'
 	import { createEventDispatcher } from 'svelte'
-	import type { JobResult } from './flows/flowStateUtils'
 	import { onDestroy } from 'svelte'
+	import type { FlowState } from './flows/flowState'
+	import { Button } from './common'
 
 	const dispatch = createEventDispatcher()
 
 	export let jobId: string
-	export let flowJobIds: string[] | undefined = undefined
-	export let jobResult: JobResult = {
-		job: undefined,
-		innerJobs: [],
-		loopJobs: []
-	}
+
+	export let flowState: FlowState | undefined = undefined
+	export let flowJobIds:
+		| {
+				moduleId: string
+				flowJobs: string[]
+		  }
+		| undefined = undefined
+	export let job: Job | undefined = undefined
 
 	let forloop_selected = ''
 	let timeout: NodeJS.Timeout
 
-	$: innerModules = jobResult?.job?.flow_status?.modules ?? []
+	$: innerModules = job?.flow_status?.modules.filter((x) => x.job != jobId) ?? []
 
 	async function loadJobInProgress() {
-		const job = await JobService.getJob({
+		job = await JobService.getJob({
 			workspace: $workspaceStore ?? '',
 			id: jobId ?? ''
 		})
-
-		if (jobResult) {
-			jobResult.job = job
-			jobResult = jobResult
-		} else {
-			jobResult = {
-				job: job,
-				innerJobs: [],
-				loopJobs: []
-			}
-		}
 
 		if (job?.type !== 'CompletedJob') {
 			timeout = setTimeout(() => loadJobInProgress(), 500)
 		}
 	}
 
-	$: jobResult && dispatch('jobsLoaded', jobResult)
+	$: job && dispatch('jobsLoaded', job)
 
 	function updateJobId() {
-		if (jobId !== jobResult?.job?.id) {
+		if (jobId !== job?.id) {
 			loadJobInProgress()
 		}
 	}
@@ -62,28 +54,29 @@
 	})
 </script>
 
-{#if jobResult?.job}
+{#if job}
 	<div class="flow-root w-full space-y-4">
 		{#if innerModules.length > 0}
 			<h3 class="text-md leading-6 font-bold text-gray-900 border-b pb-2">Flow result</h3>
 		{/if}
-		<FlowPreviewStatus job={jobResult.job} />
-		{#if `result` in jobResult.job}
-			<FlowJobResult job={jobResult.job} />
-		{:else if jobResult.job.logs}
+		<FlowPreviewStatus {job} />
+		{#if `result` in job}
+			<FlowJobResult {job} />
+		{:else if job.logs}
 			<div class="text-xs p-4 bg-gray-50 overflow-auto max-h-80 border">
-				<pre class="w-full">{jobResult.job.logs}</pre>
+				<pre class="w-full">{job.logs}</pre>
 			</div>
 		{/if}
 
-		{#if Array.isArray(flowJobIds) && flowJobIds?.length > 0 && Array.isArray(jobResult.loopJobs)}
+		{#if flowJobIds && Array.isArray(flowJobIds?.flowJobs) && flowJobIds?.flowJobs.length > 0}
 			<h3 class="text-md leading-6 font-bold text-gray-900 border-b mb-4">
-				Loop results ({flowJobIds.length} items)
+				Embedded flows: ({flowJobIds?.flowJobs.length} items)
 			</h3>
-			{#each flowJobIds as loopJobId, j}
+			{#each flowJobIds.flowJobs as loopJobId, j}
 				<Button
-					color={forloop_selected == loopJobId ? 'dark' : 'light'}
-					class="flex justify-between w-full"
+					variant={forloop_selected === loopJobId ? 'contained' : 'border'}
+					color={forloop_selected === loopJobId ? 'dark' : 'light'}
+					btnClasses="w-full flex justify-start"
 					on:click={() => {
 						if (forloop_selected == loopJobId) {
 							forloop_selected = ''
@@ -92,7 +85,7 @@
 						}
 					}}
 				>
-					Iteration: #{j}: {loopJobId}
+					#{j + 1}: {loopJobId}
 
 					<Icon
 						class="ml-2"
@@ -102,10 +95,21 @@
 				</Button>
 				<div class="border p-6" class:hidden={forloop_selected != loopJobId}>
 					<svelte:self
+						{flowState}
 						jobId={loopJobId}
-						bind:jobResult={jobResult.loopJobs[j]}
 						on:jobsLoaded={(e) => {
-							jobResult = jobResult
+							if (flowJobIds?.moduleId) {
+								if (flowState) {
+									if (
+										!flowState[flowJobIds.moduleId].previewResult ||
+										!Array.isArray(flowState[flowJobIds.moduleId].previewResult)
+									) {
+										flowState[flowJobIds.moduleId].previewResult = []
+									}
+									flowState[flowJobIds.moduleId].previewResult[j] = e.detail.result
+									flowState[flowJobIds.moduleId].previewArgs = e.detail.args
+								}
+							}
 						}}
 					/>
 				</div>
@@ -118,19 +122,17 @@
 
 				{#each innerModules as mod, i}
 					<p class="text-gray-500 mb-2 w-full ">
-						{#if jobResult.job?.raw_flow?.modules && i < jobResult.job?.raw_flow?.modules.length}
+						{#if job?.raw_flow?.modules && i < job?.raw_flow?.modules.length}
 							Step
 							<span class="font-medium text-gray-900">
 								{i + 1}
 							</span>
 							out of
-							<span class="font-medium text-gray-900"
-								>{jobResult.job?.raw_flow?.modules.length}</span
-							>
-							{#if jobResult.job.raw_flow?.modules[i]?.summary}
-								: <span class="font-medium text-gray-900"
-									>{jobResult.job.raw_flow?.modules[i]?.summary ?? ''}</span
-								>
+							<span class="font-medium text-gray-900">{job?.raw_flow?.modules.length}</span>
+							{#if job.raw_flow?.modules[i]?.summary}
+								: <span class="font-medium text-gray-900">
+									{job.raw_flow?.modules[i]?.summary ?? ''}
+								</span>
 							{/if}
 						{:else}
 							<span class="font-medium text-gray-900"> Failure module </span>
@@ -140,11 +142,21 @@
 					<li class="w-full border p-6 space-y-2">
 						{#if [FlowStatusModule.type.IN_PROGRESS, FlowStatusModule.type.SUCCESS, FlowStatusModule.type.FAILURE].includes(mod.type)}
 							<svelte:self
+								{flowState}
 								jobId={mod.job}
-								bind:jobResult={jobResult.innerJobs[i]}
-								flowJobIds={mod.flow_jobs}
+								flowJobIds={mod.flow_jobs
+									? {
+											moduleId: mod.id,
+											flowJobs: mod.flow_jobs
+									  }
+									: undefined}
 								on:jobsLoaded={(e) => {
-									jobResult = jobResult
+									if (mod.id && (mod.flow_jobs ?? []).length == 0) {
+										if (flowState) {
+											flowState[mod.id].previewResult = e.detail.result
+											flowState[mod.id].previewArgs = e.detail.args
+										}
+									}
 								}}
 							/>
 						{:else}
