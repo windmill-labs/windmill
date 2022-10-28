@@ -105,7 +105,7 @@ RUN rm ./target/release/deps/windmill*
 ENV SQLX_OFFLINE=true
 
 COPY ./backend ./
-COPY ./windmill-worker/nsjail /windmill-worker/nsjail
+COPY ./windmill-worker/nsjail ./windmill-worker/nsjail
 
 COPY --from=frontend /frontend /frontend
 COPY .git/ .git/
