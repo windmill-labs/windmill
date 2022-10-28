@@ -10,5 +10,5 @@ pub fn create_client(base_url: &str, token: String) -> Client {
         .default_headers(headers)
         .build()
         .expect("client build");
-    Client::new_with_client(base_url, client)
+    Client::new_with_client(&format!("{}/api", base_url.trim_end_matches('/')), client)
 }
