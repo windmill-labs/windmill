@@ -778,9 +778,9 @@ checksum = "f578e8e2c440e7297e008bb5486a3a8a194775224bbc23729b0dbdfaeebf162e"
 
 [[package]]
 name = "deno_core"
-version = "0.155.0"
+version = "0.156.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "95d779187cc23328025662dd9cd5e7871867ca047486bff86f7be0ab46fa468c"
+checksum = "9157c30bd82f4e4feca1b19786554dace4ebdaf0f61e8ee25bce8c966c7d97c7"
 dependencies = [
  "anyhow",
  "bytes",
@@ -802,9 +802,9 @@ dependencies = [
 
 [[package]]
 name = "deno_ops"
-version = "0.33.0"
+version = "0.34.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "53c198aa2122ca174a7e13398125d5a29291c7c38bad98c9ea32cd8a86b15302"
+checksum = "2b29fb7131fc319533e89b3fd3100409927295c15d05bfd212cbbbbc18182dc0"
 dependencies = [
  "once_cell",
  "proc-macro-crate",
@@ -1490,9 +1490,9 @@ dependencies = [
 
 [[package]]
 name = "iana-time-zone"
-version = "0.1.51"
+version = "0.1.53"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f5a6ef98976b22b3b7f2f3a806f858cb862044cfa66805aa3ad84cb3d3b785ed"
+checksum = "64c122667b287044802d6ce17ee2ddf13207ed924c712de9a66a5814d5b64765"
 dependencies = [
  "android_system_properties",
  "core-foundation-sys",
@@ -2038,9 +2038,9 @@ checksum = "a86ed3f5f244b372d6b1a00b72ef7f8876d0bc6a78a4c9985c53614041512063"
 
 [[package]]
 name = "os_str_bytes"
-version = "6.3.0"
+version = "6.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9ff7415e9ae3fff1225851df9e0d9e4e5479f947619774677a63572e55e80eff"
+checksum = "3baf96e39c5359d2eb0dd6ccb42c62b91d9678aa68160d261b9e0ccbf9e9dea9"
 
 [[package]]
 name = "overload"
@@ -3073,9 +3073,9 @@ dependencies = [
 
 [[package]]
 name = "serde_v8"
-version = "0.66.0"
+version = "0.67.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ea2b0ef50e4ea3b5a74bcddb063c132176b2433d873e126db983667ac951f98e"
+checksum = "225ac8039b46a4094ce9a30985820af6a602d27bdc7c0ce2728c10ad67aa03dd"
 dependencies = [
  "bytes",
  "derive_more",
@@ -3451,9 +3451,9 @@ dependencies = [
 
 [[package]]
 name = "swc_common"
-version = "0.29.12"
+version = "0.29.13"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c649d1932fb68dd5b80837b8e12ef26f863a0dbf04ff9d137c9c8705451d8749"
+checksum = "953e1f014688eadbbd3e9131a525e8922c552540bb02b0bb6d9fdcb1375bccc4"
 dependencies = [
  "ahash",
  "ast_node",
@@ -3478,9 +3478,9 @@ dependencies = [
 
 [[package]]
 name = "swc_ecma_ast"
-version = "0.94.16"
+version = "0.94.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d7842ad1e129520d93860a49c74b12541700bb7830378af14718345134f94ecc"
+checksum = "bc39246540303a9058283e6ef691a276c34afd8331e6873fb3e6fb7803eb77eb"
 dependencies = [
  "bitflags",
  "is-macro",
@@ -3495,9 +3495,9 @@ dependencies = [
 
 [[package]]
 name = "swc_ecma_parser"
-version = "0.122.22"
+version = "0.122.23"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f48a1907ac2090d07ed414e2f9255565c5a8a973d2b4e5ff2f9b95592669bd39"
+checksum = "6472a516d3e7f30277650353f5bdce431c273e43ba25ee918e8d0a5a0a9868eb"
 dependencies = [
  "either",
  "enum_kind",
@@ -4284,9 +4284,9 @@ dependencies = [
 
 [[package]]
 name = "v8"
-version = "0.53.1"
+version = "0.54.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e952e936bcb610c9f22997f50dc7f65887afe76e1fedd37daf532a20211335ca"
+checksum = "3b63103bd7caa4c3571e8baafe58f3e04818df70505304ed814737e655d1d8d6"
 dependencies = [
  "bitflags",
  "fslock",
