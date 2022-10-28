@@ -83,17 +83,17 @@ COPY ./backend/windmill-api/openapi.yaml ./windmill-api/openapi.yaml
 ENV CARGO_INCREMENTAL=1
 
 RUN cargo build --release
-RUN rm ./backend/src/*.rs
-RUN rm ./backend/windmill-api/src/*.rs
-RUN rm ./backend/windmill-api-client/src/*.rs
-RUN rm ./backend/windmill-audit/src/*.rs
-RUN rm ./backend/windmill-common/src/*.rs
-RUN rm ./backend/windmill-queue/src/*.rs
-RUN rm ./backend/windmill-worker/src/*.rs
-RUN rm ./backend/parsers/windmill-parser/src/*.rs
-RUN rm ./backend/parsers/windmill-parser-go/src/*.rs
-RUN rm ./backend/parsers/windmill-parser-py/src/*.rs
-RUN rm ./backend/parsers/windmill-parser-ts/src/*.rs
+RUN rm ./src/*.rs
+RUN rm ./windmill-api/src/*.rs
+RUN rm ./windmill-api-client/src/*.rs
+RUN rm ./windmill-audit/src/*.rs
+RUN rm ./windmill-common/src/*.rs
+RUN rm ./windmill-queue/src/*.rs
+RUN rm ./windmill-worker/src/*.rs
+RUN rm ./parsers/windmill-parser/src/*.rs
+RUN rm ./parsers/windmill-parser-go/src/*.rs
+RUN rm ./parsers/windmill-parser-py/src/*.rs
+RUN rm ./parsers/windmill-parser-ts/src/*.rs
 
 RUN rm ./target/release/deps/windmill*
 ENV SQLX_OFFLINE=true
