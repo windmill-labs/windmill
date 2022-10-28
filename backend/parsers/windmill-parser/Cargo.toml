@@ -1,6 +1,6 @@
 [package]
 name = "windmill-parser"
-version.workspace = true
+version = "1.41.0"
 edition.workspace = true
 authors.workspace = true
 
