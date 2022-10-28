@@ -4531,7 +4531,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-api"
-version = "1.39.0"
+version = "1.41.0"
 dependencies = [
  "anyhow",
  "argon2",
@@ -4545,10 +4545,10 @@ dependencies = [
  "hex",
  "hmac",
  "hyper",
- "itertools 0.10.5",
+ "itertools 0.8.2",
  "magic-crypt",
  "mime_guess",
- "rand 0.8.5",
+ "rand 0.6.5",
  "reqwest",
  "retainer",
  "rust-embed",
@@ -4558,7 +4558,7 @@ dependencies = [
  "sql-builder",
  "sqlx",
  "tempfile",
- "time 0.3.16",
+ "time 0.1.44",
  "tokio",
  "tokio-tar",
  "tokio-util",
@@ -4578,13 +4578,13 @@ dependencies = [
 
 [[package]]
 name = "windmill-api-client"
-version = "1.39.0"
+version = "1.41.0"
 dependencies = [
  "base64",
  "chrono",
  "progenitor",
  "progenitor-client",
- "rand 0.8.5",
+ "rand 0.6.5",
  "reqwest",
  "serde",
  "serde_json",
@@ -4606,7 +4606,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-common"
-version = "1.39.0"
+version = "1.41.0"
 dependencies = [
  "anyhow",
  "axum",
@@ -4616,11 +4616,11 @@ dependencies = [
  "hmac",
  "hyper",
  "prometheus",
- "rand 0.8.5",
+ "rand 0.6.5",
  "reqwest",
  "serde",
  "serde_json",
- "sha2 0.10.6",
+ "sha2 0.8.2",
  "sqlx",
  "thiserror",
  "tiny_http",
@@ -4632,7 +4632,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser"
-version = "1.39.0"
+version = "1.41.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -4640,10 +4640,10 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-go"
-version = "1.39.0"
+version = "1.41.0"
 dependencies = [
  "anyhow",
- "itertools 0.10.5",
+ "itertools 0.8.2",
  "phf",
  "unicode-general-category",
  "windmill-common",
@@ -4652,10 +4652,10 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-py"
-version = "1.39.0"
+version = "1.41.0"
 dependencies = [
  "anyhow",
- "itertools 0.10.5",
+ "itertools 0.8.2",
  "phf",
  "regex",
  "rustpython-parser",
@@ -4666,7 +4666,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-ts"
-version = "1.39.0"
+version = "1.41.0"
 dependencies = [
  "anyhow",
  "deno_core",
@@ -4680,7 +4680,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-queue"
-version = "1.39.0"
+version = "1.41.0"
 dependencies = [
  "anyhow",
  "chrono",
@@ -4703,7 +4703,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-worker"
-version = "1.39.0"
+version = "1.41.0"
 dependencies = [
  "anyhow",
  "async-recursion",
@@ -4711,10 +4711,10 @@ dependencies = [
  "deno_core",
  "dotenv",
  "futures",
- "itertools 0.10.5",
+ "itertools 0.8.2",
  "lazy_static",
  "prometheus",
- "rand 0.8.5",
+ "rand 0.6.5",
  "regex",
  "serde",
  "serde_json",
