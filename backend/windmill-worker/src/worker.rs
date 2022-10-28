@@ -602,7 +602,6 @@ async fn handle_queued_job(
                     handle_code_execution_job(
                         &job,
                         db,
-                        client,
                         job_dir,
                         worker_dir,
                         &mut logs,
@@ -747,7 +746,6 @@ async fn transform_json_value(
 async fn handle_code_execution_job(
     job: &QueuedJob,
     db: &sqlx::Pool<sqlx::Postgres>,
-    client: &windmill_api_client::Client,
     job_dir: &str,
     worker_dir: &str,
     logs: &mut String,
