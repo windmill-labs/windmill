@@ -217,16 +217,14 @@ async fn get_token(db: &sqlx::Pool<sqlx::Postgres>, worker_name: &str) -> String
         .take(30)
         .map(char::from)
         .collect();
-    let expiration = chrono::Utc::now() + chrono::Duration::days(2);
     let mut tx = db.begin().await.unwrap();
     sqlx::query!(
         "INSERT INTO token
-            (token, email, label, expiration, super_admin)
-            VALUES ($1, $2, $3, $4, $5)",
+            (token, email, label, super_admin)
+            VALUES ($1, $2, $3, $4)",
         token,
         "worker@windmill.dev",
         format!("worker token for {worker_name}"),
-        expiration,
         false
     )
     .execute(&mut tx)
