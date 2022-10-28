@@ -29,7 +29,7 @@ RUN npm ci
 # Copy all local files into the image.
 COPY frontend .
 RUN mkdir /backend
-COPY /backend/openapi.yaml /backend/openapi.yaml
+COPY /backend/windmill-api/openapi.yaml /backend/windmill-api/openapi.yaml
 COPY /openflow.openapi.yaml /openflow.openapi.yaml
 RUN npm run generate-backend-client
 ENV NODE_OPTIONS "--max-old-space-size=8192"
