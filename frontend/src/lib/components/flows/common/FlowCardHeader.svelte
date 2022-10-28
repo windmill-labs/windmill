@@ -22,7 +22,7 @@
 		<span class="text-sm w-full">
 			<div class="flex items-center space-x-2">
 				{#if shouldPick}
-					<span class="font-bold text-xs">Select a script</span>
+					<span class="font-bold text-xs">Select a step kind</span>
 				{:else if flowModule?.value.type === 'rawscript'}
 					<Badge color={languageColors[flowModule?.value.language] ?? 'gray'} capitalize>
 						{flowModule?.value.language}
