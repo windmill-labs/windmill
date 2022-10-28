@@ -22,8 +22,8 @@
 	].includes($selectedId)
 </script>
 
-<span
-	class="flex flex-row-reverse justify-between items-center flex-wrap gap-2  w-full min-h-[48px] py-1 px-4 bg-white border-b"
+<div
+	class="flex flex-row-reverse justify-between items-center flex-wrap gap-2  w-full  py-1 px-4 bg-white border-b"
 >
 	<Button
 		btnClasses="grow"
@@ -55,7 +55,7 @@
 			<Icon data={faPlay} class="ml-2" scale={0.8} />
 		</Button>
 	{/if}
-</span>
+</div>
 
 <Drawer bind:open={previewOpen} size="800px">
 	<FlowPreviewContent

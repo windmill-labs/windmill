@@ -1,66 +1,68 @@
 <script lang="ts">
-	import { Job, JobService, type Flow } from '$lib/gen'
+	import { Job, JobService, type Flow, type FlowModule } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { faClose, faPlay, faRefresh } from '@fortawesome/free-solid-svg-icons'
 	import { Button } from './common'
 	import { createEventDispatcher, getContext } from 'svelte'
 	import Icon from 'svelte-awesome'
-	import { flowStore } from './flows/flowStore'
+	import { dfs, flowIds, flowStore } from './flows/flowStore'
 	import type { FlowEditorContext } from './flows/types'
 	import { runFlowPreview } from './flows/utils'
 	import SchemaForm from './SchemaForm.svelte'
 	import FlowStatusViewer from '../components/FlowStatusViewer.svelte'
+	import FlowProgressBar from './flows/FlowProgressBar.svelte'
 	import { flowStateStore } from './flows/flowState'
 
 	export let previewMode: 'upTo' | 'whole'
 	export let open: boolean
 
 	let jobId: string | undefined = undefined
+	let job: Job | undefined = undefined
 	let isValid: boolean = false
 	let isRunning: boolean = false
+	let jobProgressReset: () => void
 
 	const { selectedId, previewArgs } = getContext<FlowEditorContext>('FlowEditorContext')
 	const dispatch = createEventDispatcher()
 
+	function sliceModules(modules: FlowModule[], upTo: number, idOrders: string[]): FlowModule[] {
+		return modules
+			.filter((x) => idOrders.indexOf(x.id) <= upTo)
+			.map((m) => {
+				if (m.value.type === 'forloopflow') {
+					m.value.modules = sliceModules(m.value.modules, upTo, idOrders)
+				} else if (m.value.type === 'branchone') {
+					m.value.branches = m.value.branches.map((b) => {
+						b.modules = sliceModules(b.modules, upTo, idOrders)
+						return b
+					})
+					m.value.default = sliceModules(m.value.default, upTo, idOrders)
+				} else if (m.value.type === 'branchall') {
+					m.value.branches = m.value.branches.map((b) => {
+						b.modules = sliceModules(b.modules, upTo, idOrders)
+						return b
+					})
+				}
+				return m
+			})
+	}
 	function extractFlow(previewMode: 'upTo' | 'whole'): Flow {
 		if (previewMode === 'whole') {
 			return $flowStore
 		} else {
-			const flow = JSON.parse(JSON.stringify($flowStore))
+			const flow: Flow = JSON.parse(JSON.stringify($flowStore))
+			const idOrders = dfs(flow.value.modules, true)
+			let upToIndex = idOrders.indexOf($selectedId)
 
-			return flow
-		}
-
-		/*
-		if (previewMode === 'whole') {
-			return $flowStore
-		} else {
-			const positions = $idToPositionStore.get($selectedId)!
-
-			if (positions.length < 2) {
-				throw new Error('Up to inside branch is not supported, nor deeply nested modules')
-			}
-
-			const [parentIndex, childIndex] = positions
-
-			const flow = JSON.parse(JSON.stringify($flowStore))
-			const modules = flow.value.modules.slice(0, Number(parentIndex) + 1)
-			flow.value.modules = modules
-
-			if (childIndex != undefined) {
-				const lastModule = modules[modules.length - 1].value
-				if (lastModule.type === 'forloopflow') {
-					lastModule.modules = lastModule.modules.slice(0, Number(childIndex) + 1)
-				} else {
-					throw Error('Excepted forloopflow module')
-				}
+			if (upToIndex != -1) {
+				flow.value.modules = sliceModules(flow.value.modules, upToIndex, idOrders)
 			}
 			return flow
 		}
-		*/
 	}
 
 	export async function runPreview(args: Record<string, any>) {
+		jobProgressReset()
 		const newFlow = extractFlow(previewMode)
 		jobId = await runFlowPreview(args, newFlow)
 		isRunning = true
@@ -83,7 +85,8 @@
 		}
 	}
 
-	function onJobsLoaded(job: Job | undefined) {
+	function onJobsLoaded(newJob: Job | undefined) {
+		job = newJob
 		if (job?.type === 'CompletedJob') {
 			isRunning = false
 		}
@@ -149,7 +152,6 @@
 		<Button
 			variant="contained"
 			endIcon={{ icon: isRunning ? faRefresh : faPlay }}
-			size="lg"
 			color="blue"
 			btnClasses="w-full"
 			disabled={!isValid}
@@ -159,12 +161,14 @@
 		</Button>
 	{/if}
 
+	<FlowProgressBar {job} bind:reset={jobProgressReset} class="py-4" />
+
 	<div class="h-full overflow-y-auto mb-16 grow">
 		{#if jobId}
 			<FlowStatusViewer
-				flowState={$flowStateStore}
+				bind:flowState={$flowStateStore}
 				{jobId}
-				on:jobsLoaded={(e) => onJobsLoaded(e.detail)}
+				on:jobsLoaded={({ detail }) => onJobsLoaded(detail)}
 			/>
 		{/if}
 	</div>
