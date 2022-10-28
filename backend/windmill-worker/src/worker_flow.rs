@@ -896,8 +896,10 @@ async fn push_next_flow_job(
     let mut args = match &module.value {
         FlowModuleValue::Script { input_transforms, .. }
         | FlowModuleValue::RawScript { input_transforms, .. } => {
-            transform_context =
-                Some(get_transform_context(client, &flow_job, &status, &flow.modules).await?);
+            let tx = db.begin().await?;
+            let (tx, ctx) = get_transform_context(tx, &flow_job, &status, &flow.modules).await?;
+            transform_context = Some(ctx);
+            tx.commit().await?;
             let (token, steps, by_id) = transform_context.as_ref().unwrap();
             transform_input(
                 &flow_job.args,
@@ -939,13 +941,13 @@ async fn push_next_flow_job(
         }
     };
 
-    let mut tx = db.begin().await?;
-    let next_flow_transform = compute_next_flow_transform(
+    let tx = db.begin().await?;
+    let (tx, next_flow_transform) = compute_next_flow_transform(
         flow_job,
         &flow,
         transform_context,
         client,
-        &mut tx,
+        tx,
         &module,
         &status,
         &status_module,
@@ -1196,38 +1198,45 @@ async fn script_path_to_payload<'c>(
 
 type TransformContext = (String, Vec<Uuid>, IdContext);
 
-async fn compute_next_flow_transform(
+async fn compute_next_flow_transform<'c>(
     flow_job: &QueuedJob,
     flow: &FlowValue,
     transform_context: Option<TransformContext>,
     client: &windmill_api_client::Client,
-    db: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    mut tx: sqlx::Transaction<'c, sqlx::Postgres>,
     module: &FlowModule,
     status: &FlowStatus,
     status_module: &FlowStatusModule,
     last_result: serde_json::Value,
     base_internal_url: &str,
-) -> error::Result<NextFlowTransform> {
+) -> error::Result<(sqlx::Transaction<'c, sqlx::Postgres>, NextFlowTransform)> {
     match &module.value {
-        FlowModuleValue::Identity => Ok(NextFlowTransform::Continue(
-            JobPayload::Identity,
-            NextStatus::NextStep,
+        FlowModuleValue::Identity => Ok((
+            tx,
+            NextFlowTransform::Continue(JobPayload::Identity, NextStatus::NextStep),
         )),
-        FlowModuleValue::Script { path: script_path, .. } => Ok(NextFlowTransform::Continue(
-            script_path_to_payload(script_path, db, &flow_job.workspace_id).await?,
-            NextStatus::NextStep,
-        )),
+        FlowModuleValue::Script { path: script_path, .. } => {
+            let payload =
+                script_path_to_payload(script_path, &mut tx, &flow_job.workspace_id).await?;
+            Ok((
+                tx,
+                NextFlowTransform::Continue(payload, NextStatus::NextStep),
+            ))
+        }
         FlowModuleValue::RawScript { path, content, language, .. } => {
             let path = path
                 .clone()
                 .or_else(|| Some(format!("{}/{}", flow_job.script_path(), status.step)));
-            Ok(NextFlowTransform::Continue(
-                JobPayload::Code(RawCode {
-                    path,
-                    content: content.clone(),
-                    language: language.clone(),
-                }),
-                NextStatus::NextStep,
+            Ok((
+                tx,
+                NextFlowTransform::Continue(
+                    JobPayload::Code(RawCode {
+                        path,
+                        content: content.clone(),
+                        language: language.clone(),
+                    }),
+                    NextStatus::NextStep,
+                ),
             ))
         }
         /* forloop modules are expected set `iter: { value: Value, index: usize }` as job arguments */
@@ -1239,7 +1248,10 @@ async fn compute_next_flow_transform(
                     let (token, steps, by_id) = if let Some(x) = transform_context {
                         x
                     } else {
-                        get_transform_context(client, &flow_job, &status, &flow.modules).await?
+                        let (tx_new, res) =
+                            get_transform_context(tx, &flow_job, &status, &flow.modules).await?;
+                        tx = tx_new;
+                        res
                     };
                     /* Iterator is an InputTransform, evaluate it into an array. */
                     let itered = evaluate_with(
@@ -1308,17 +1320,20 @@ async fn compute_next_flow_transform(
             };
 
             match next_loop_status {
-                LoopStatus::EmptyIterator => Ok(NextFlowTransform::EmptyInnerFlows),
-                LoopStatus::NextIteration(ns) => Ok(NextFlowTransform::Continue(
-                    JobPayload::RawFlow {
-                        value: FlowValue {
-                            modules: (*modules).clone(),
-                            failure_module: flow.failure_module.clone(),
-                            same_worker: flow.same_worker,
+                LoopStatus::EmptyIterator => Ok((tx, NextFlowTransform::EmptyInnerFlows)),
+                LoopStatus::NextIteration(ns) => Ok((
+                    tx,
+                    NextFlowTransform::Continue(
+                        JobPayload::RawFlow {
+                            value: FlowValue {
+                                modules: (*modules).clone(),
+                                failure_module: flow.failure_module.clone(),
+                                same_worker: flow.same_worker,
+                            },
+                            path: Some(format!("{}/loop-{}", flow_job.script_path(), status.step)),
                         },
-                        path: Some(format!("{}/loop-{}", flow_job.script_path(), status.step)),
-                    },
-                    NextStatus::NextLoopIteration(ns),
+                        NextStatus::NextLoopIteration(ns),
+                    ),
                 )),
             }
         }
@@ -1359,27 +1374,30 @@ async fn compute_next_flow_transform(
                 default.clone()
             };
 
-            Ok(NextFlowTransform::Continue(
-                JobPayload::RawFlow {
-                    value: FlowValue {
-                        modules,
-                        failure_module: flow.failure_module.clone(),
-                        same_worker: flow.same_worker,
+            Ok((
+                tx,
+                NextFlowTransform::Continue(
+                    JobPayload::RawFlow {
+                        value: FlowValue {
+                            modules,
+                            failure_module: flow.failure_module.clone(),
+                            same_worker: flow.same_worker,
+                        },
+                        path: Some(format!(
+                            "{}/branchone-{}",
+                            flow_job.script_path(),
+                            status.step
+                        )),
                     },
-                    path: Some(format!(
-                        "{}/branchone-{}",
-                        flow_job.script_path(),
-                        status.step
-                    )),
-                },
-                NextStatus::BranchChosen(branch),
+                    NextStatus::BranchChosen(branch),
+                ),
             ))
         }
         FlowModuleValue::BranchAll { branches, .. } => {
             let (status, flow_jobs) = match status_module {
                 FlowStatusModule::WaitingForPriorSteps { .. } => {
                     if branches.is_empty() {
-                        return Ok(NextFlowTransform::EmptyInnerFlows);
+                        return Ok((tx, NextFlowTransform::EmptyInnerFlows));
                     } else {
                         (
                             BranchAllStatus {
@@ -1418,49 +1436,43 @@ async fn compute_next_flow_transform(
                     ))
                 })?;
 
-            Ok(NextFlowTransform::Continue(
-                JobPayload::RawFlow {
-                    value: FlowValue {
-                        modules,
-                        failure_module: flow.failure_module.clone(),
-                        same_worker: flow.same_worker,
+            Ok((
+                tx,
+                NextFlowTransform::Continue(
+                    JobPayload::RawFlow {
+                        value: FlowValue {
+                            modules,
+                            failure_module: flow.failure_module.clone(),
+                            same_worker: flow.same_worker,
+                        },
+                        path: Some(format!(
+                            "{}/branchall-{}",
+                            flow_job.script_path(),
+                            status.branch
+                        )),
                     },
-                    path: Some(format!(
-                        "{}/branchall-{}",
-                        flow_job.script_path(),
-                        status.branch
-                    )),
-                },
-                NextStatus::NextBranchStep(NextBranch { status, flow_jobs }),
+                    NextStatus::NextBranchStep(NextBranch { status, flow_jobs }),
+                ),
             ))
         }
     }
 }
 
-async fn get_transform_context(
-    client: &windmill_api_client::Client,
+async fn get_transform_context<'c>(
+    tx: sqlx::Transaction<'c, sqlx::Postgres>,
     flow_job: &QueuedJob,
     status: &FlowStatus,
     modules: &Vec<FlowModule>,
-) -> error::Result<TransformContext> {
-    let new_token = client
-        .create_token(&windmill_api_client::types::NewToken {
-            label: Some("transform-input".to_owned()),
-            expiration: Some(chrono::Utc::now() + chrono::Duration::seconds(10)),
-        })
-        .await
-        .map_err(to_anyhow)?
-        .into_inner();
-    let new_token = std::str::from_utf8(
-        &new_token
-            .into_inner()
-            .filter_map(|e| futures::future::ready(e.map_or(None, |v| Some(v))))
-            .flat_map(|e| futures::stream::iter(e.into_iter()))
-            .collect::<Vec<u8>>()
-            .await,
+) -> error::Result<(sqlx::Transaction<'c, sqlx::Postgres>, TransformContext)> {
+    let (tx, new_token) = crate::create_token_for_owner(
+        tx,
+        &flow_job.workspace_id,
+        &flow_job.permissioned_as,
+        "transform-input",
+        10,
+        &flow_job.created_by,
     )
-    .map_err(to_anyhow)?
-    .to_owned();
+    .await?;
     let new_steps: Vec<Uuid> = status
         .modules
         .iter()
@@ -1472,7 +1484,7 @@ async fn get_transform_context(
         .zip(new_steps.clone())
         .collect();
 
-    Ok((new_token, new_steps, IdContext(flow_job.id, id_map)))
+    Ok((tx, (new_token, new_steps, IdContext(flow_job.id, id_map))))
 }
 
 async fn evaluate_with<F>(

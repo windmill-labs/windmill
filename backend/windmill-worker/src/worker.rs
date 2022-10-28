@@ -7,7 +7,7 @@
  */
 
 use itertools::Itertools;
-use sqlx::{Pool, Postgres};
+use sqlx::{Pool, Postgres, Transaction};
 use std::{borrow::Borrow, collections::HashMap, io, panic, process::Stdio, time::Duration};
 use tracing::{trace_span, Instrument};
 use uuid::Uuid;
@@ -48,14 +48,14 @@ use crate::{
 };
 
 #[tracing::instrument(level = "trace", skip_all)]
-pub async fn create_token_for_owner(
-    db: &Pool<Postgres>,
+pub async fn create_token_for_owner<'c>(
+    mut tx: Transaction<'c, Postgres>,
     w_id: &str,
     owner: &str,
     label: &str,
     expires_in: i32,
     username: &str,
-) -> error::Result<String> {
+) -> error::Result<(Transaction<'c, Postgres>, String)> {
     // TODO: Bad implementation. We should not have access to this DB here.
     use rand::prelude::*;
     let token: String = rand::thread_rng()
@@ -63,7 +63,6 @@ pub async fn create_token_for_owner(
         .take(30)
         .map(char::from)
         .collect();
-    let mut tx = db.begin().await?;
     let is_super_admin = username.contains('@')
         && sqlx::query_scalar!(
             "SELECT super_admin FROM password WHERE email = $1",
@@ -111,8 +110,7 @@ pub async fn create_token_for_owner(
         ),
     )
     .await?;
-    tx.commit().await?;
-    Ok(token)
+    Ok((tx, token))
 }
 
 const TMP_DIR: &str = "/tmp/windmill";
@@ -926,8 +924,9 @@ async fn handle_go_job(
     logs.push_str("\n\n--- GO CODE EXECUTION ---\n");
     set_logs(logs, job.id, db).await;
 
-    let token = create_token_for_owner(
-        &db,
+    let tx = db.begin().await?;
+    let (tx, token) = create_token_for_owner(
+        tx,
         &job.workspace_id,
         &job.permissioned_as,
         "ephemeral-script",
@@ -935,6 +934,7 @@ async fn handle_go_job(
         &job.created_by,
     )
     .await?;
+    tx.commit().await?;
     let job_client = windmill_api_client::create_client(base_url, token.clone());
     create_args_and_out_file(&job_client, job, job_dir).await?;
     {
@@ -1099,8 +1099,9 @@ async fn handle_deno_job(
     let _ = write_file(job_dir, "inner.ts", inner_content).await?;
     let sig = trace_span!("parse_deno_signature")
         .in_scope(|| windmill_parser_ts::parse_deno_signature(inner_content))?;
-    let token = create_token_for_owner(
-        &db,
+    let tx = db.begin().await?;
+    let (tx, token) = create_token_for_owner(
+        tx,
         &job.workspace_id,
         &job.permissioned_as,
         "ephemeral-script",
@@ -1108,6 +1109,7 @@ async fn handle_deno_job(
         &job.created_by,
     )
     .await?;
+    tx.commit().await?;
     let job_client = windmill_api_client::create_client(base_url, token.clone());
     create_args_and_out_file(&job_client, job, job_dir).await?;
     let spread = sig.args.into_iter().map(|x| x.name).join(",");
@@ -1397,8 +1399,9 @@ async fn handle_python_job(
         .collect::<Vec<String>>()
         .join("");
 
-    let token = create_token_for_owner(
-        &db,
+    let tx = db.begin().await?;
+    let (tx, token) = create_token_for_owner(
+        tx,
         &job.workspace_id,
         &job.permissioned_as,
         "ephemeral-script",
@@ -1406,6 +1409,7 @@ async fn handle_python_job(
         &job.created_by,
     )
     .await?;
+    tx.commit().await?;
     let job_client = windmill_api_client::create_client(base_url, token.clone());
     create_args_and_out_file(&job_client, job, job_dir).await?;
 
