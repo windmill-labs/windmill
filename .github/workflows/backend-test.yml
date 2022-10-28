@@ -33,11 +33,6 @@ jobs:
           --health-retries 5
     steps:
       - uses: actions/checkout@v3
-      - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: |
-            backend
-            backend -> target
       - name: cargo test
         timeout-minutes: 5
         run: mkdir frontend/build && cd backend && DATABASE_URL=postgres://postgres:changeme@postgres:5432/windmill cargo test -- --nocapture
