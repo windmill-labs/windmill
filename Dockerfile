@@ -88,7 +88,7 @@ COPY --from=bundle /backend/windmill-api-client/bundled.json /backend/windmill-a
 
 ENV CARGO_INCREMENTAL=1
 
-RUN cargo build --release --locked
+RUN cargo build --release
 RUN rm ./backend/src/*.rs
 RUN rm ./backend/windmill-api/src/*.rs
 RUN rm ./backend/windmill-api-client/src/*.rs
