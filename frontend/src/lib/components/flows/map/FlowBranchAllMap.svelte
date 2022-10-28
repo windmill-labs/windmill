@@ -8,7 +8,7 @@
 	import { Button } from '$lib/components/common'
 	import { classNames } from '$lib/utils'
 	import Icon from 'svelte-awesome'
-	import { deleteFlowStateById, emptyModule } from '../flowStateUtils'
+	import { deleteFlowStateById, emptyModule, idMutex } from '../flowStateUtils'
 	import { emptyFlowModuleState } from '../utils'
 	import { flowStateStore } from '../flowState'
 
@@ -17,18 +17,20 @@
 	let selectedBranch = 0
 	const { select, selectedId } = getContext<FlowEditorContext>('FlowEditorContext')
 
-	function addBranch() {
-		if (module.value.type === 'branchall') {
-			const newModule = emptyModule()
-			module.value.branches.splice(module.value.branches.length, 0, {
-				summary: '',
-				skip_failure: false,
-				modules: [newModule]
-			})
-			module = module
+	async function addBranch() {
+		await idMutex.runExclusive(async () => {
+			if (module.value.type === 'branchall') {
+				const newModule = emptyModule()
+				module.value.branches.splice(module.value.branches.length, 0, {
+					summary: '',
+					skip_failure: false,
+					modules: [newModule]
+				})
+				module = module
 
-			$flowStateStore[newModule.id] = emptyFlowModuleState()
-		}
+				$flowStateStore[newModule.id] = emptyFlowModuleState()
+			}
+		})
 	}
 
 	function removeBranch(index: number) {
