@@ -14,6 +14,17 @@ export interface NodeParent {
 	col: number
 }
 
+export function isParent(parent: any): parent is NodeParent {
+	return typeof parent?.row === 'number' && typeof parent?.col === 'number'
+}
+
+export function isParentArray(parent: any): parent is NodeParent[] {
+	return Array.isArray(parent) &&
+		(parent?.length
+			? typeof parent[0]?.row === 'number' && typeof parent[0]?.col === 'number'
+			: true)
+}
+
 export class GraphNodeClass {
 	isRoot: boolean
 	topAnchor!: DOMPoint

@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { getContext } from 'svelte'
-	import { select } from 'd3'
+	import type { Writable } from 'svelte/store'
+	import { select, ZoomTransform } from 'd3'
 	import type { SupportedLanguage } from '$lib/common'
 	import LanguageIcon from '../common/languageIcons/LanguageIcon.svelte'
 	import FlowModuleHostIcon from './FlowModuleHostIcon.svelte'
@@ -13,30 +14,31 @@
 	export let title: string
 	export let lang: SupportedLanguage
 	export let host: ModuleHost
+	const transform = getContext<Writable<ZoomTransform>>('transform')
 	const { w: WIDTH } = getContext<NodeSizeContext>('nodeSize')
+	let wrapper: SVGGElement
 	let nodeType: SVGGElement
 	let nodeTitle: SVGTextElement
 
-	$: if (nodeTitle) ellipsize(title)
+	$: if (nodeTitle && title) ellipsize(title)
 
 	const ellipsize = (text: string) => {
 		const elem = select(nodeTitle)
-		const maxLength = WIDTH - 2 * PADDING - nodeType.getBoundingClientRect().width
+		elem.attr('title', title)
+		const maxWidth = wrapper.getBoundingClientRect().width - nodeType.getBoundingClientRect().width - (PADDING * 2)
 		const cutoff = '...'
-		let length = (<SVGTextElement>elem.node()).getComputedTextLength()
-		if (!length || length < maxLength) {
-			elem.append('title').text(title)
+		let currentWidth = (<SVGTextElement>elem.text(text).node()).getBoundingClientRect().width
+		if (!currentWidth || currentWidth < maxWidth) {
 			return
 		}
 
+		const cl = cutoff.length
 		text = cutoff + text
-		while (length > maxLength && text.length) {
-			text = text.slice(0, -1)
-			elem.text(text.slice(cutoff.length) + cutoff)
-			elem.append('title').text(title)
-			length = (<SVGTextElement>elem.node()).getComputedTextLength()
+		while ((currentWidth > maxWidth) && text.length) {
+			text = text.slice(0, -1).trimEnd()
+			elem.text(text.slice(cl) + cutoff)
+			currentWidth = (<SVGTextElement>elem.node()).getBoundingClientRect().width
 		}
-		elem.text(text.slice(cutoff.length).trimEnd() + cutoff)
 	}
 </script>
 
@@ -44,7 +46,7 @@
 	<svelte:fragment slot="background">
 		<title>{title}</title>
 	</svelte:fragment>
-	<g transform={`translate(${PADDING} ${PADDING})`}>
+	<g bind:this={wrapper} transform={`translate(${PADDING} ${PADDING})`}>
 		<g bind:this={nodeType} transform={`translate(${WIDTH - PADDING - 60})`}>
 			<g transform={`translate(0 ${host === 'hub' ? -1 : 0})`}>
 				<FlowModuleHostIcon scale={1.5} {host} class="grayscale" />
@@ -60,7 +62,7 @@
 				fill="#111827"
 				class="select-none text-sm font-medium"
 			>
-				{title}
+				t
 			</text>
 		{/if}
 	</g>

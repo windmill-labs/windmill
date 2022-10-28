@@ -11,7 +11,7 @@
 
 <g transform={`translate(${$transform.x} ${$transform.y}) scale(${$transform.k} ${$transform.k})`}>
 	<g transform={`translate(${node.box.x} ${node.box.y})`}>
-		<rect fill="#ffffff" stroke="#111827" rx="4" width={WIDTH} height={HEIGHT}>
+		<rect fill="#ffffff" stroke="black" stroke-width="2" rx="4" width={WIDTH} height={HEIGHT}>
 			<slot name="background" />
 		</rect>
 		<slot />
