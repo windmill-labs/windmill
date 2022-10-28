@@ -4511,10 +4511,13 @@ name = "windmill"
 version = "1.41.0"
 dependencies = [
  "anyhow",
+ "axum",
  "chrono",
  "dotenv",
  "futures",
  "rand 0.8.5",
+ "reqwest",
+ "serde_json",
  "sqlx",
  "tokio",
  "tokio-metrics",
@@ -4522,6 +4525,7 @@ dependencies = [
  "windmill-api",
  "windmill-api-client",
  "windmill-common",
+ "windmill-queue",
  "windmill-worker",
 ]
 

@@ -9,12 +9,6 @@ default-run = "worker"
 name = "worker"
 path = "./src/main.rs"
 
-[features]
-default = ["deno", "go", "python"]
-deno = ["dep:windmill-parser-ts", "dep:deno_core"]
-go = ["dep:windmill-parser-go"]
-python = ["dep:windmill-parser-py"]
-
 [dependencies]
 windmill-queue.workspace = true
 windmill-audit.workspace = true # there isn't really a reason for audit-worth actions to happen in the worker.
@@ -26,9 +20,9 @@ windmill-common = { workspace = true, features = [
 ] }
 windmill-api-client.workspace = true
 windmill-parser.workspace = true
-windmill-parser-ts = { workspace = true, optional = true }
-windmill-parser-go = { workspace = true, optional = true }
-windmill-parser-py = { workspace = true, optional = true }
+windmill-parser-ts.workspace = true
+windmill-parser-go.workspace = true
+windmill-parser-py.workspace = true
 sqlx.workspace = true
 uuid.workspace = true
 tracing.workspace = true
@@ -45,4 +39,4 @@ lazy_static.workspace = true
 chrono.workspace = true
 dotenv.workspace = true
 rand.workspace = true # TODO: Remove. only used by token creation hack.
-deno_core = { workspace = true, optional = true }
+deno_core.workspace = true

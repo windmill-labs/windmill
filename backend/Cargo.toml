@@ -42,6 +42,12 @@ tokio-metrics.workspace = true
 rand.workspace = true
 chrono.workspace = true
 
+[dev-dependencies]
+serde_json.workspace = true
+reqwest.workspace = true
+windmill-queue.workspace = true
+axum.workspace = true
+
 [workspace.dependencies]
 windmill-api = { path = "./windmill-api" }
 windmill-api-client = { path = "./windmill-api-client" }

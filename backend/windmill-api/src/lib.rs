@@ -21,7 +21,7 @@ mod db;
 mod flows;
 mod granular_acls;
 mod groups;
-mod jobs;
+pub mod jobs;
 mod oauth2;
 mod resources;
 mod schedule;
