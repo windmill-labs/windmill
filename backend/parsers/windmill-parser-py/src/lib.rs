@@ -14,7 +14,7 @@ use regex::Regex;
 
 use serde_json::json;
 use windmill_common::error;
-use windmill_parser::{Arg, MainArgSignature, Typ};
+use windmill_parser::{json_to_typ, Arg, MainArgSignature, Typ};
 
 use rustpython_parser::{
     ast::{Constant, ExprKind, Located, StmtKind},
@@ -22,6 +22,7 @@ use rustpython_parser::{
 };
 
 const DEF_MAIN: &str = "def main(";
+const FUNCTION_CALL: &str = "<function call>";
 
 fn filter_non_main(code: &str) -> String {
     let mut filtered_code = String::new();
@@ -90,24 +91,32 @@ pub fn parse_python_signature(code: &str) -> error::Result<MainArgSignature> {
                     } else {
                         None
                     };
+
+                    let mut typ = x.annotation.map_or(Typ::Unknown, |e| match *e {
+                        Located { node: ExprKind::Name { id, .. }, .. } => match id.as_ref() {
+                            "str" => Typ::Str(None),
+                            "float" => Typ::Float,
+                            "int" => Typ::Int,
+                            "bool" => Typ::Bool,
+                            "dict" => Typ::Object(vec![]),
+                            "list" => Typ::List(Box::new(Typ::Str(None))),
+                            "bytes" => Typ::Bytes,
+                            "datetime" => Typ::Datetime,
+                            "datetime.datetime" => Typ::Datetime,
+                            _ => Typ::Unknown,
+                        },
+                        _ => Typ::Unknown,
+                    });
+                    if typ == Typ::Unknown
+                        && default.is_some()
+                        && default != Some(json!(FUNCTION_CALL))
+                    {
+                        typ = json_to_typ(default.as_ref().unwrap());
+                    }
                     Arg {
                         otyp: None,
                         name: x.arg,
-                        typ: x.annotation.map_or(Typ::Unknown, |e| match *e {
-                            Located { node: ExprKind::Name { id, .. }, .. } => match id.as_ref() {
-                                "str" => Typ::Str(None),
-                                "float" => Typ::Float,
-                                "int" => Typ::Int,
-                                "bool" => Typ::Bool,
-                                "dict" => Typ::Object(vec![]),
-                                "list" => Typ::List(Box::new(Typ::Str(None))),
-                                "bytes" => Typ::Bytes,
-                                "datetime" => Typ::Datetime,
-                                "datetime.datetime" => Typ::Datetime,
-                                _ => Typ::Unknown,
-                            },
-                            _ => Typ::Unknown,
-                        }),
+                        typ: typ,
                         has_default: default.is_some(),
                         default,
                     }
@@ -147,7 +156,7 @@ fn to_value(et: &ExprKind) -> Option<serde_json::Value> {
                 .collect::<Vec<_>>();
             Some(json!(v))
         }
-        ExprKind::Call { .. } => Some(json!("<function call>")),
+        ExprKind::Call { .. } => Some(json!(FUNCTION_CALL)),
         _ => None,
     }
 }
@@ -277,28 +286,28 @@ def main(test1: str, name: datetime.datetime = datetime.now(), byte: bytes = byt
                     Arg {
                         otyp: None,
                         name: "f".to_string(),
-                        typ: Typ::Unknown,
+                        typ: Typ::Str(None),
                         default: Some(json!("wewe")),
                         has_default: true
                     },
                     Arg {
                         otyp: None,
                         name: "g".to_string(),
-                        typ: Typ::Unknown,
+                        typ: Typ::Int,
                         default: Some(json!(21)),
                         has_default: true
                     },
                     Arg {
                         otyp: None,
                         name: "h".to_string(),
-                        typ: Typ::Unknown,
+                        typ: Typ::List(Box::new(Typ::Int)),
                         default: Some(json!([1, 2])),
                         has_default: true
                     },
                     Arg {
                         otyp: None,
                         name: "i".to_string(),
-                        typ: Typ::Unknown,
+                        typ: Typ::Bool,
                         default: Some(json!(true)),
                         has_default: true
                     },
@@ -366,7 +375,7 @@ def main(test1: str,
 import os
 
 def main(test1: str,
-    name: datetime.datetime = datetime.now(),
+    name = \"test\",
     byte: bytes = bytes(1)): return
 
 ";
@@ -387,8 +396,8 @@ def main(test1: str,
                     Arg {
                         otyp: None,
                         name: "name".to_string(),
-                        typ: Typ::Unknown,
-                        default: Some(json!("<function call>")),
+                        typ: Typ::Str(None),
+                        default: Some(json!("test")),
                         has_default: true
                     },
                     Arg {

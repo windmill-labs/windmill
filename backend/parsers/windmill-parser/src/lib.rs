@@ -7,6 +7,7 @@
  */
 
 use serde::Serialize;
+use serde_json::Value;
 
 #[derive(Serialize, Debug, PartialEq)]
 pub struct MainArgSignature {
@@ -46,4 +47,20 @@ pub struct Arg {
     pub typ: Typ,
     pub default: Option<serde_json::Value>,
     pub has_default: bool,
+}
+
+pub fn json_to_typ(js: &Value) -> Typ {
+    match js {
+        Value::String(_) => Typ::Str(None),
+        Value::Number(n) if n.is_i64() => Typ::Int,
+        Value::Number(_) => Typ::Float,
+        Value::Bool(_) => Typ::Bool,
+        Value::Object(o) => Typ::Object(
+            o.iter()
+                .map(|(k, v)| ObjectProperty { key: k.to_string(), typ: Box::new(json_to_typ(v)) })
+                .collect(),
+        ),
+        Value::Array(a) => Typ::List(Box::new(a.first().map(json_to_typ).unwrap_or(Typ::Unknown))),
+        _ => Typ::Unknown,
+    }
 }

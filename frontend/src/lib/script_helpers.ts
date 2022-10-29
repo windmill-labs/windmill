@@ -10,8 +10,9 @@ The client is used to interact with windmill itself through its standard API.
 One can explore the methods available through autocompletion of \`wmill.XXX\`.
 """
 
-def main(name: str = "Nicolas Bourbaki",
-         age: int = 42,
+def main(name = "Nicolas Bourbaki",
+         age = 42,
+         with_type: str,
          obj: dict = {"even": "dicts"},
          l: list = ["or", "lists!"],
          file_: bytes = bytes(0),
@@ -22,7 +23,12 @@ def main(name: str = "Nicolas Bourbaki",
     print("and its acolytes..", age, obj, l, len(file_), dtime)
     # retrieve variables, including secrets by querying the windmill platform.
     # secret fetching is audited by windmill.
-    secret = wmill.get_variable("g/all/pretty_secret")
+
+    try:
+      secret = wmill.get_variable("g/all/pretty_secret")
+    except:
+      secret = "No secret yet at g/all/pretty_secret!"
+
     print(f"The env variable at \`g/all/pretty_secret\`: {secret}")
     # interact with the windmill platform to get the version
     version = wmill.get_version()
