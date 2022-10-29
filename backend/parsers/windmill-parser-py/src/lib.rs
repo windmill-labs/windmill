@@ -21,9 +21,9 @@ use rustpython_parser::{
     parser,
 };
 
-fn filter_non_main(code: &str) -> String {
-    const DEF_MAIN: &str = "def main(";
+const DEF_MAIN: &str = "def main(";
 
+fn filter_non_main(code: &str) -> String {
     let mut filtered_code = String::new();
     let mut code_iter = code.split("\n");
     let mut remaining: String = String::new();
@@ -194,7 +194,7 @@ pub fn parse_python_imports(code: &str) -> error::Result<Vec<String>> {
             .collect();
         Ok(lines)
     } else {
-        let code = &&code;
+        let code = code.split(DEF_MAIN).next().unwrap_or("");
         let ast = parser::parse_program(code, "main.py").map_err(|e| {
             error::Error::ExecutionErr(format!("Error parsing code: {}", e.to_string()))
         })?;
