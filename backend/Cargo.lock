@@ -1484,15 +1484,6 @@ dependencies = [
 
 [[package]]
 name = "itertools"
-version = "0.8.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f56a2d0bc861f9165be4eb3442afd3c236d8a98afd426f65d92324ae1091a484"
-dependencies = [
- "either",
-]
-
-[[package]]
-name = "itertools"
 version = "0.10.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b0fd2260e829bddf4cb6ea802289de2f86d6a7a690192fbe91b3f46e0f2c8473"
@@ -1526,7 +1517,7 @@ dependencies = [
  "bit-set",
  "diff",
  "ena",
- "itertools 0.10.5",
+ "itertools",
  "lalrpop-util",
  "petgraph",
  "pico-args",
@@ -1876,9 +1867,9 @@ dependencies = [
 
 [[package]]
 name = "once_cell"
-version = "1.15.0"
+version = "1.16.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e82dad04139b71a90c080c8463fe0dc7902db5192d939bd0950f074d014339e1"
+checksum = "86f0b0d4bf799edbc74508c1e8bf170ff5f41238e5f8225603ca7caaae2b7860"
 
 [[package]]
 name = "opaque-debug"
@@ -2320,7 +2311,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7345d5f0e08c0536d7ac7229952590239e77abf0a0100a1b1d890add6ea96364"
 dependencies = [
  "anyhow",
- "itertools 0.10.5",
+ "itertools",
  "proc-macro2",
  "quote",
  "syn",
@@ -2613,7 +2604,7 @@ dependencies = [
  "bincode",
  "bitflags",
  "bstr",
- "itertools 0.10.5",
+ "itertools",
  "lz4_flex",
  "num-bigint",
  "num-complex",
@@ -2629,7 +2620,7 @@ source = "git+https://github.com/RustPython/RustPython#835771b7ea2903bf641f00db1
 dependencies = [
  "ahash",
  "anyhow",
- "itertools 0.10.5",
+ "itertools",
  "lalrpop",
  "lalrpop-util",
  "log",
@@ -3015,7 +3006,7 @@ version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f87e292b4291f154971a43c3774364e2cbcaec599d3f5bf6fa9d122885dbc38a"
 dependencies = [
- "itertools 0.10.5",
+ "itertools",
  "nom",
  "unicode_categories",
 ]
@@ -4314,7 +4305,7 @@ dependencies = [
  "hex",
  "hmac",
  "hyper",
- "itertools 0.8.2",
+ "itertools",
  "magic-crypt",
  "mime_guess",
  "rand",
@@ -4412,7 +4403,7 @@ name = "windmill-parser-go"
 version = "1.41.0"
 dependencies = [
  "anyhow",
- "itertools 0.8.2",
+ "itertools",
  "phf 0.11.1",
  "unicode-general-category",
  "windmill-common",
@@ -4424,7 +4415,7 @@ name = "windmill-parser-py"
 version = "1.41.0"
 dependencies = [
  "anyhow",
- "itertools 0.8.2",
+ "itertools",
  "phf 0.11.1",
  "regex",
  "rustpython-parser",
@@ -4480,7 +4471,7 @@ dependencies = [
  "deno_core",
  "dotenv",
  "futures",
- "itertools 0.8.2",
+ "itertools",
  "lazy_static",
  "prometheus",
  "rand",

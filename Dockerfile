@@ -63,10 +63,13 @@ RUN USER=root cargo new --lib windmill-parser-py
 RUN USER=root cargo new --lib windmill-parser-ts
 WORKDIR /windmill
 
+ENV SQLX_OFFLINE=true
+
 
 COPY ./backend/Cargo.toml .
 COPY ./backend/windmill-api/Cargo.toml ./windmill-api/
 COPY ./backend/windmill-audit/Cargo.toml ./windmill-audit/
+COPY ./backend/sqlx-data.json ./
 COPY ./backend/windmill-common ./windmill-common
 COPY ./backend/windmill-queue/Cargo.toml ./windmill-queue/
 COPY ./backend/windmill-worker/Cargo.toml ./windmill-worker/
@@ -95,7 +98,6 @@ RUN rm ./parsers/windmill-parser-py/src/*.rs
 RUN rm ./parsers/windmill-parser-ts/src/*.rs
 
 RUN rm -r ./**/target/**/**/windmill*
-ENV SQLX_OFFLINE=true
 
 COPY ./backend ./
 
