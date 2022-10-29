@@ -1,7 +1,8 @@
 [package]
 name = "windmill-audit"
-version = "0.1.0"
-edition = "2021"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
 
 [lib]
 name = "windmill_audit"
