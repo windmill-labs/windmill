@@ -1,0 +1,64 @@
+[package]
+name = "windmill-api"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+
+[lib]
+name = "windmill_api"
+path = "src/lib.rs"
+
+[[bin]]
+name = "windmill_api"
+path = "src/main.rs"
+
+[dependencies]
+windmill-queue.workspace = true
+windmill-common = { workspace = true, features = [
+    "reqwest",
+    "prometheus",
+    "axum",
+    "tokio",
+    "hyper",
+    "sqlx",
+    "tracing_init",
+] }
+windmill-audit.workspace = true
+windmill-parser.workspace = true
+windmill-parser-ts.workspace = true
+windmill-parser-go.workspace = true
+windmill-parser-py.workspace = true
+tokio.workspace = true
+anyhow.workspace = true
+argon2.workspace = true
+axum.workspace = true
+futures.workspace = true
+git-version.workspace = true
+tower.workspace = true
+tower-cookies.workspace = true
+tower-http.workspace = true
+hyper.workspace = true
+itertools.workspace = true
+reqwest.workspace = true
+serde.workspace = true
+sqlx.workspace = true
+async-oauth2.workspace = true
+tracing.workspace = true
+sql-builder.workspace = true
+serde_json.workspace = true
+chrono.workspace = true
+hex.workspace = true
+base64.workspace = true
+serde_urlencoded.workspace = true
+cron.workspace = true
+mime_guess.workspace = true
+rust-embed.workspace = true
+tracing-subscriber.workspace = true
+retainer.workspace = true
+rand.workspace = true
+time.workspace = true
+magic-crypt.workspace = true
+tempfile.workspace = true
+tokio-util.workspace = true
+tokio-tar.workspace = true
+hmac.workspace = true

@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-cp  ../backend/openapi.yaml openapi.yaml
+cp  ../backend/windmill-api/openapi.yaml openapi.yaml
 
 npx @redocly/openapi-cli@latest bundle openapi.yaml > openapi-bundled.yaml
 
