@@ -148,7 +148,7 @@
 	</Pane>
 	<Pane size={40} minSize={10}>
 		<Splitpanes horizontal>
-			<Pane size={30}>
+			<Pane size={33}>
 				<div class="w-full  bg-gray-100 px-2 text-sm"
 					>Preview <Tooltip>
 						To recompute the input schema press <Kbd>Ctrl/Cmd</Kbd> + <Kbd>S</Kbd> or move the focus
@@ -161,7 +161,7 @@
 					</div>
 				</div>
 			</Pane>
-			<Pane size={70}>
+			<Pane size={67}>
 				<div class="px-2 py-1">
 					{#if testIsLoading}
 						<Button
@@ -174,7 +174,7 @@
 								classes: 'animate-spin'
 							}}
 						>
-							'Cancel'
+							Cancel
 						</Button>
 					{:else}
 						<Button

@@ -39,7 +39,9 @@ use windmill_queue::{
 pub async fn update_flow_status_after_job_completion(
     db: &DB,
     client: &windmill_api_client::Client,
-    job: &QueuedJob,
+    flow: uuid::Uuid,
+    job_id_for_status: &Uuid,
+    w_id: &str,
     success: bool,
     result: serde_json::Value,
     metrics: Option<worker::Metrics>,
@@ -49,13 +51,7 @@ pub async fn update_flow_status_after_job_completion(
     keep_job_dir: bool,
     base_internal_url: &str,
 ) -> error::Result<()> {
-    tracing::debug!("UPDATE FLOW STATUS: {job:?} {success} {result:?}");
-
-    let w_id = &job.workspace_id;
-
-    let flow = job
-        .parent_job
-        .ok_or_else(|| Error::InternalErr(format!("expected parent job")))?;
+    tracing::debug!("UPDATE FLOW STATUS: {flow:?} {success} {result:?} {w_id}");
 
     let mut tx = db.begin().await?;
 
@@ -131,7 +127,7 @@ pub async fn update_flow_status_after_job_completion(
                     old_status.step + 1,
                     FlowStatusModule::Success {
                         id: module_status.id(),
-                        job: job.id,
+                        job: job_id_for_status.clone(),
                         flow_jobs,
                         branch_chosen,
                         approvers: vec![],
@@ -142,7 +138,7 @@ pub async fn update_flow_status_after_job_completion(
                     old_status.step,
                     FlowStatusModule::Failure {
                         id: module_status.id(),
-                        job: job.id,
+                        job: job_id_for_status.clone(),
                         flow_jobs,
                         branch_chosen,
                     },
@@ -332,11 +328,13 @@ pub async fn update_flow_status_after_job_completion(
             let _ = tokio::fs::remove_dir_all(format!("{worker_dir}/{}", flow_job.id)).await;
         }
 
-        if flow_job.parent_job.is_some() {
+        if let Some(parent_job) = flow_job.parent_job {
             return Ok(update_flow_status_after_job_completion(
                 db,
                 client,
-                &flow_job,
+                parent_job,
+                &flow,
+                w_id,
                 success,
                 result,
                 metrics,
@@ -577,11 +575,12 @@ pub async fn handle_flow(
     let flow = serde_json::from_value::<FlowValue>(value)?;
 
     if flow.modules.is_empty() {
-        let fake_job = QueuedJob { parent_job: Some(flow_job.id), ..flow_job.clone() };
         update_flow_status_after_job_completion(
             db,
             client,
-            &fake_job,
+            flow_job.id,
+            &Uuid::nil(),
+            flow_job.workspace_id.as_str(),
             true,
             serde_json::json!({}),
             None,
