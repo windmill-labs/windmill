@@ -483,11 +483,18 @@ async fn handle_job_error(
     .map(|(_, m)| m)
     .unwrap_or_else(|_| Map::new());
 
-    if let Some(parent_job_id) = job.parent_job {
+    if job.is_flow_step || job.job_kind == JobKind::FlowPreview || job.job_kind == JobKind::Flow {
+        let (flow, job_status_to_update) = if let Some(parent_job_id) = job.parent_job {
+            (parent_job_id, job.id)
+        } else {
+            (job.id, Uuid::nil())
+        };
         let updated_flow = update_flow_status_after_job_completion(
             db,
             client,
-            &job,
+            flow,
+            &job_status_to_update,
+            &job.workspace_id,
             false,
             serde_json::Value::Object(m),
             metrics.clone(),
@@ -499,19 +506,21 @@ async fn handle_job_error(
         )
         .await;
         if let Err(err) = updated_flow {
-            if let Ok(mut tx) = db.begin().await {
-                if let Ok(Some(parent_job)) =
-                    get_queued_job(parent_job_id, &job.workspace_id, &mut tx).await
-                {
-                    let _ = add_completed_job_error(
-                        db,
-                        client,
-                        &parent_job,
-                        format!("Unexpected error during flow job error handling:\n{err}"),
-                        err,
-                        metrics,
-                    )
-                    .await;
+            if let Some(parent_job_id) = job.parent_job {
+                if let Ok(mut tx) = db.begin().await {
+                    if let Ok(Some(parent_job)) =
+                        get_queued_job(parent_job_id, &job.workspace_id, &mut tx).await
+                    {
+                        let _ = add_completed_job_error(
+                            db,
+                            client,
+                            &parent_job,
+                            format!("Unexpected error during flow job error handling:\n{err}"),
+                            err,
+                            metrics,
+                        )
+                        .await;
+                    }
                 }
             }
         }
@@ -632,20 +641,24 @@ async fn handle_queued_job(
                 Ok(r) => {
                     add_completed_job(db, client, &job, true, false, r.clone(), logs).await?;
                     if job.is_flow_step {
-                        update_flow_status_after_job_completion(
-                            db,
-                            client,
-                            &job,
-                            true,
-                            r,
-                            Some(metrics.clone()),
-                            false,
-                            same_worker_tx.clone(),
-                            worker_dir,
-                            worker_config.keep_job_dir,
-                            &worker_config.base_internal_url,
-                        )
-                        .await?;
+                        if let Some(parent_job) = job.parent_job {
+                            update_flow_status_after_job_completion(
+                                db,
+                                client,
+                                parent_job,
+                                &job.id,
+                                &job.workspace_id,
+                                true,
+                                r,
+                                Some(metrics.clone()),
+                                false,
+                                same_worker_tx.clone(),
+                                worker_dir,
+                                worker_config.keep_job_dir,
+                                &worker_config.base_internal_url,
+                            )
+                            .await?;
+                        }
                     }
                 }
                 Err(e) => {
@@ -677,20 +690,24 @@ async fn handle_queued_job(
                     )
                     .await?;
                     if job.is_flow_step {
-                        update_flow_status_after_job_completion(
-                            db,
-                            client,
-                            &job,
-                            false,
-                            serde_json::Value::Object(output_map),
-                            Some(metrics),
-                            false,
-                            same_worker_tx,
-                            worker_dir,
-                            worker_config.keep_job_dir,
-                            &worker_config.base_internal_url,
-                        )
-                        .await?;
+                        if let Some(parent_job) = job.parent_job {
+                            update_flow_status_after_job_completion(
+                                db,
+                                client,
+                                parent_job,
+                                &job.id,
+                                &job.workspace_id,
+                                false,
+                                serde_json::Value::Object(output_map),
+                                Some(metrics),
+                                false,
+                                same_worker_tx,
+                                worker_dir,
+                                worker_config.keep_job_dir,
+                                &worker_config.base_internal_url,
+                            )
+                            .await?;
+                        }
                     }
                 }
             };
