@@ -1,8 +1,34 @@
-export function add(a: number, b: number): number {
-  return a + b;
-}
+import { Command } from "https://deno.land/x/cliffy@v0.25.4/command/mod.ts";
+import {
+  DenoLandProvider,
+  UpgradeCommand,
+} from "https://deno.land/x/cliffy@v0.25.4/command/upgrade/mod.ts";
+import login from "./login.ts";
 
-// Learn more at https://deno.land/manual/examples/module_metadata#concepts
-if (import.meta.main) {
-  console.log("Add 2 + 3 =", add(2, 3));
-}
+await new Command()
+  .name("windmill")
+  .description("A simple CLI tool for windmill.")
+  .globalOption(
+    "--base-url <baseUrl:string>",
+    "Specify the base url to use when interacting with the API.",
+    {
+      default: "https://app.windmill.dev/",
+    }
+  )
+  .version("v0.0.0")
+  .command("login", login)
+  .command(
+    "upgrade",
+    new UpgradeCommand({
+      main: "main.ts",
+      args: [
+        "--allow-net",
+        "--allow-read",
+        "--allow-write",
+        "--allow-env",
+        "--unstable",
+      ],
+      provider: new DenoLandProvider(),
+    })
+  )
+  .parse(Deno.args);
