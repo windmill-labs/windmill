@@ -18,6 +18,7 @@
 	export let endIcon: ButtonType.Icon | undefined = undefined
 	export let element: ButtonType.Element | undefined = undefined
 	export let id: string = ''
+	export let nonCaptureEvent: boolean = false
 
 	const dispatch = createEventDispatcher()
 	// Order of classes: border, border modifier, bg, bg modifier, text, text modifier, everything else
@@ -68,13 +69,15 @@
 	}
 
 	function onClick(event: MouseEvent) {
-		event.preventDefault()
-		dispatch('click', event)
-		if (href) {
-			if (href.startsWith('http')) {
-				window.open(href, target)
-			} else {
-				goto(href)
+		if (!nonCaptureEvent) {
+			event.preventDefault()
+			dispatch('click', event)
+			if (href) {
+				if (href.startsWith('http')) {
+					window.open(href, target)
+				} else {
+					goto(href)
+				}
 			}
 		}
 	}
@@ -90,7 +93,7 @@
 <svelte:element
 	this={href ? 'a' : 'button'}
 	bind:this={element}
-	on:click|stopPropagation={onClick}
+	on:click={onClick}
 	on:focus
 	on:blur
 	{...buttonProps}

@@ -1,5 +1,7 @@
 <script lang="ts">
+	import { Alert } from '$lib/components/common'
 	import Toggle from '$lib/components/Toggle.svelte'
+	import Tooltip from '$lib/components/Tooltip.svelte'
 	import type { FlowModule } from '$lib/gen'
 
 	export let flowModule: FlowModule
@@ -30,6 +32,15 @@
 </script>
 
 <div class="flex flex-col items-start space-y-1 {$$props.class}">
+	<h2 class="mt-2"
+		>Retries <Tooltip>
+			If defined, upon error this step will be retried with a delay and a maximum number of attempts
+			as defined below. If none of the retries succeed, the step job is a failure and the error will
+			propagate up in the case of a branch, and the error handler will be called ultimately if not
+			handled prior.</Tooltip
+		></h2
+	>
+
 	<Toggle
 		checked={isConstantRetryEnabled}
 		on:change={() => {

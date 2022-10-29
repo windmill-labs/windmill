@@ -80,7 +80,7 @@
 				{#if deletable}
 					<Button
 						on:click={(event) => dispatch('delete', event)}
-						startIcon={{ icon: faTrashAlt }}
+						startIcon={{ icon: faTrashAlt, classes: 'text-gray-500' }}
 						iconOnly={true}
 						color="light"
 						variant="border"

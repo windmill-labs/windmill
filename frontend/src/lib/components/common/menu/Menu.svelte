@@ -47,24 +47,20 @@
 </script>
 
 <div class="relative" bind:this={menu}>
-	<div>
-		<div on:click={() => (show = !show)} on:click>
-			<slot name="trigger" />
-		</div>
-
-		{#if show}
-			<div
-				in:scale={{ duration: 100, start: 0.95 }}
-				out:scale={{ duration: 75, start: 0.95 }}
-				class={classNames(
-					'z-50 absolute mt-2 w-60 rounded-md shadow-lg bg-white ring-1 ring-black ring-opacity-5 focus:outline-none',
-					placementsClasses[placement]
-				)}
-				role="menu"
-				tabindex="-1"
-			>
-				<slot {close} />
-			</div>
-		{/if}
+	<div on:click={() => (show = !show)} on:click>
+		<slot name="trigger" />
 	</div>
+
+	{#if show}
+		<div
+			class={classNames(
+				'z-50 absolute mt-2 w-60 rounded-md shadow-lg bg-white ring-1 ring-black ring-opacity-5 focus:outline-none',
+				placementsClasses[placement]
+			)}
+			role="menu"
+			tabindex="-1"
+		>
+			<slot {close} />
+		</div>
+	{/if}
 </div>
