@@ -29,7 +29,7 @@ RUN npm ci
 # Copy all local files into the image.
 COPY frontend .
 RUN mkdir /backend
-COPY /backend/openapi.yaml /backend/openapi.yaml
+COPY /backend/windmill-api/openapi.yaml /backend/windmill-api/openapi.yaml
 COPY /openflow.openapi.yaml /openflow.openapi.yaml
 RUN npm run generate-backend-client
 ENV NODE_OPTIONS "--max-old-space-size=8192"
@@ -38,29 +38,68 @@ RUN npm run check
 
 FROM rust:slim-buster as builder
 
-RUN apt-get update && apt-get install -y git libssl-dev pkg-config
+RUN apt-get update && apt-get install -y git libssl-dev pkg-config npm
+
+RUN apt-get -y update \
+    && apt-get install -y \
+    curl lld nodejs npm
+
+RUN rustup component add rustfmt
 
 RUN USER=root cargo new --bin windmill
 WORKDIR /windmill
 
-COPY ./backend/Cargo.toml .
-COPY ./backend/Cargo.lock .
-COPY ./backend/.cargo/ .cargo/
+COPY ./openflow.openapi.yaml /openflow.openapi.yaml
 
-RUN apt-get -y update \
-    && apt-get install -y \
-    curl lld
+RUN USER=root cargo new --bin windmill
+RUN USER=root cargo new --lib windmill-api
+RUN USER=root cargo new --lib windmill-audit
+RUN USER=root cargo new --lib windmill-queue
+RUN USER=root cargo new --lib windmill-worker
+WORKDIR /windmill/parsers
+RUN USER=root cargo new --lib windmill-parser
+RUN USER=root cargo new --lib windmill-parser-go
+RUN USER=root cargo new --lib windmill-parser-py
+RUN USER=root cargo new --lib windmill-parser-ts
+WORKDIR /windmill
+
+ENV SQLX_OFFLINE=true
+
+# COPY ./backend/Cargo.toml .
+# COPY ./backend/windmill-api/Cargo.toml ./windmill-api/
+# COPY ./backend/windmill-audit/Cargo.toml ./windmill-audit/
+# COPY ./backend/sqlx-data.json ./
+# COPY ./backend/windmill-common ./windmill-common
+# COPY ./backend/windmill-queue/Cargo.toml ./windmill-common/
+# COPY ./backend/windmill-queue/Cargo.toml ./windmill-queue/
+# COPY ./backend/windmill-worker/Cargo.toml ./windmill-worker/
+# COPY ./backend/parsers/windmill-parser/Cargo.toml ./parsers/windmill-parser/
+# COPY ./backend/parsers/windmill-parser-go/Cargo.toml ./parsers/windmill-parser-go/
+# COPY ./backend/parsers/windmill-parser-py/Cargo.toml ./parsers/windmill-parser-py/
+# COPY ./backend/parsers/windmill-parser-ts/Cargo.toml ./parsers/windmill-parser-ts/
+# COPY ./backend/.cargo/ .cargo/
+
+# COPY ./backend/windmill-api-client/ ./windmill-api-client/
+# COPY ./backend/windmill-api/openapi.yaml ./windmill-api/openapi.yaml
 
 ENV CARGO_INCREMENTAL=1
 
-RUN cargo build --release
-RUN rm src/*.rs
+# RUN cargo build --release
+# RUN rm ./src/*.rs
+# RUN rm ./windmill-api/src/*.rs
+# RUN rm ./windmill-api-client/src/*.rs
+# RUN rm ./windmill-audit/src/*.rs
+# RUN rm ./windmill-common/src/*.rs
+# RUN rm ./windmill-queue/src/*.rs
+# RUN rm ./windmill-worker/src/*.rs
+# RUN rm ./parsers/windmill-parser/src/*.rs
+# RUN rm ./parsers/windmill-parser-go/src/*.rs
+# RUN rm ./parsers/windmill-parser-py/src/*.rs
+# RUN rm ./parsers/windmill-parser-ts/src/*.rs
 
-RUN rm ./target/release/deps/windmill*
-ENV SQLX_OFFLINE=true
+# RUN rm -r ./target/release/deps/windmill*
 
 COPY ./backend ./
-COPY ./nsjail /nsjail
 
 COPY --from=frontend /frontend /frontend
 COPY .git/ .git/

@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-cp  ../backend/openapi.yaml openapi.yaml
+cp  ../backend/windmill-api/openapi.yaml openapi.yaml
 
 sed -z 's/                    extra_params:\n                      additionalProperties:\n                        type: string/                    extra_params: {}/' openapi.yaml > openapi1.yaml
 sed -z 's/                          enum: \[script, failure, trigger, command\]//' openapi1.yaml > openapi2.yaml

@@ -12,6 +12,8 @@ info:
     name: Apache 2.0
     url: https://www.apache.org/licenses/LICENSE-2.0.html
 
+paths: {}
+
 externalDocs:
   description: documentation portal
   url: https://docs.windmill.dev
