@@ -10,9 +10,9 @@ The client is used to interact with windmill itself through its standard API.
 One can explore the methods available through autocompletion of \`wmill.XXX\`.
 """
 
-def main(name = "Nicolas Bourbaki",
+def main(no_default: str,
+         name = "Nicolas Bourbaki",
          age = 42,
-         with_type: str,
          obj: dict = {"even": "dicts"},
          l: list = ["or", "lists!"],
          file_: bytes = bytes(0),
