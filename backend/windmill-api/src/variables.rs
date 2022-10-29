@@ -29,8 +29,8 @@ use windmill_common::{
 
 use magic_crypt::{MagicCrypt256, MagicCryptTrait};
 use reqwest::Client;
-use serde::{Deserialize, Serialize};
-use sqlx::{FromRow, Postgres, Transaction};
+use serde::Deserialize;
+use sqlx::{Postgres, Transaction};
 
 pub fn workspaced_service() -> Router {
     Router::new()

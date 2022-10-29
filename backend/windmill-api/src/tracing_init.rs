@@ -1,10 +1,4 @@
-use ::tracing::{field, Metadata, Span};
-use ::tracing_subscriber::{
-    filter::filter_fn,
-    fmt::{format, Layer},
-    prelude::*,
-    EnvFilter,
-};
+use ::tracing::{field, Span};
 use hyper::Response;
 use tower_http::trace::{MakeSpan, OnResponse};
 

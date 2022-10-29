@@ -1081,13 +1081,6 @@ async fn set_password(
     Ok(format!("password of {} updated", email))
 }
 
-pub async fn get_email_from_username(username: &String, db: &DB) -> Result<Option<String>> {
-    let email = sqlx::query_scalar!("SELECT email FROM usr WHERE username = $1", username)
-        .fetch_optional(db)
-        .await?;
-    Ok(email)
-}
-
 pub fn hash_password(argon2: Arc<Argon2>, password: String) -> Result<String> {
     let salt = SaltString::generate(&mut OsRng);
     let password_hash = argon2
@@ -1307,64 +1300,6 @@ fn gen_token() -> String {
         .map(char::from)
         .collect();
     token
-}
-
-#[tracing::instrument(level = "trace", skip_all)]
-pub async fn create_token_for_owner(
-    db: &DB,
-    w_id: &str,
-    owner: &str,
-    label: &str,
-    expires_in: i32,
-    username: &str,
-) -> Result<String> {
-    let token = gen_token();
-    let mut tx = db.begin().await?;
-    let is_super_admin = username.contains('@')
-        && sqlx::query_scalar!(
-            "SELECT super_admin FROM password WHERE email = $1",
-            owner.split_once('/').map(|x| x.1).unwrap_or("")
-        )
-        .fetch_optional(&mut tx)
-        .await?
-        .unwrap_or(false);
-
-    let expiration = sqlx::query_scalar!(
-        "INSERT INTO token
-            (workspace_id, token, owner, label, expiration, super_admin)
-            VALUES ($1, $2, $3, $4, now() + ($5 || ' seconds')::interval, $6) RETURNING expiration",
-        &w_id,
-        token,
-        owner,
-        label,
-        expires_in.to_string(),
-        is_super_admin
-    )
-    .fetch_one(&mut tx)
-    .await?;
-    audit_log(
-        &mut tx,
-        &username,
-        "users.token.create",
-        ActionKind::Create,
-        w_id,
-        Some(&truncate_token(&token)),
-        Some(
-            [
-                Some(("label", label)),
-                expiration
-                    .map(|x| x.to_string())
-                    .as_ref()
-                    .map(|exp| ("expiration", &exp[..])),
-            ]
-            .into_iter()
-            .flatten()
-            .collect(),
-        ),
-    )
-    .await?;
-    tx.commit().await?;
-    Ok(token)
 }
 
 async fn create_token(

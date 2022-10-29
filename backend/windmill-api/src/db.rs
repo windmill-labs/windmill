@@ -6,8 +6,7 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
-use sqlx::{postgres::PgPoolOptions, Pool, Postgres, Transaction};
-use std::time::Duration;
+use sqlx::{Pool, Postgres, Transaction};
 use windmill_common::error::Error;
 
 use crate::users::Authed;

@@ -499,7 +499,7 @@ def main(last, port):
     async fn test_pass(db: Pool<Postgres>) {
         initialize_tracing().await;
 
-        let server = ApiServer::start(db.clone()).await;
+        // let server = ApiServer::start(db.clone()).await;
 
         /* fails twice in the loop, then once on the last step
          * retry attempts is measured per-step, so it _retries_ at most two times on each step,
@@ -600,7 +600,7 @@ def main(last, port):
     async fn test_with_failure_module(db: Pool<Postgres>) {
         initialize_tracing().await;
 
-        let server = ApiServer::start(db.clone()).await;
+        // let server = ApiServer::start(db.clone()).await;
 
         let value = serde_json::from_value(json!({
             "modules": [{

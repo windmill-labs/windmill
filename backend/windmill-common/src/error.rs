@@ -12,8 +12,7 @@ use axum::{
     response::IntoResponse,
     Json,
 };
-#[cfg(feature = "hyper")]
-use hyper::Response;
+
 #[cfg(feature = "sqlx")]
 use sqlx::migrate::MigrateError;
 use thiserror::Error;
