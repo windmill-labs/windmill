@@ -97,7 +97,7 @@ RUN rm ./parsers/windmill-parser-go/src/*.rs
 RUN rm ./parsers/windmill-parser-py/src/*.rs
 RUN rm ./parsers/windmill-parser-ts/src/*.rs
 
-RUN rm -r ./**/target/**/**/windmill*
+RUN rm -r ./**/target/release/deps/windmill*
 
 COPY ./backend ./
 
