@@ -99,10 +99,10 @@
 		{/each}
 
 		<InsertModuleButton on:click={() => insertNewModuleAtIndex(modules.length)} />
-		{#if root}
-			<FlowErrorHandlerItem />
-		{/if}
 	</ul>
+	{#if root}
+		<FlowErrorHandlerItem />
+	{/if}
 </div>
 
 <RemoveStepConfirmationModal

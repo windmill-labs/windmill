@@ -9,12 +9,10 @@
 	const dispatch = createEventDispatcher()
 </script>
 
-<div class="flex items-center justify-center space-x-1">
+<div class="flex items-center justify-center">
 	{#each items as item, index}
 		{#if index > 0}
-			<div class="mx-1">
-				<slot name="separator" />
-			</div>
+			<slot name="separator" />
 		{/if}
 		<Button
 			size="sm"

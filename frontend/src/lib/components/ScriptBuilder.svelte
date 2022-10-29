@@ -98,8 +98,9 @@
 				</Breadcrumb>
 			</div>
 
-			<div class="gap-1 flex-row hidden md:flex">
+			<div class="gap-1 flex-row hidden md:flex shrink overflow-hidden">
 				<Button
+					btnClasses="hidden lg:inline-flex"
 					startIcon={{ icon: faPen }}
 					variant="contained"
 					color="light"
