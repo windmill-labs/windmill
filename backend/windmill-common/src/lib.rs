@@ -8,6 +8,8 @@
 
 use std::net::SocketAddr;
 
+use error::Error;
+
 pub mod error;
 pub mod external_ip;
 pub mod flows;
@@ -51,24 +53,23 @@ pub async fn shutdown_signal(tx: tokio::sync::broadcast::Sender<()>) -> anyhow::
 #[cfg(feature = "prometheus")]
 pub async fn serve_metrics(
     addr: SocketAddr,
-    rx: tokio::sync::broadcast::Receiver<()>,
-) -> Result<(), anyhow::Error> {
-    use tokio::task::yield_now;
-
-    let server = tiny_http::Server::http(addr).map_err(|e| anyhow::anyhow!(e.to_string()))?;
-    for request in server.incoming_requests() {
-        yield_now().await;
-        if !rx.is_empty() {
-            break;
-        }
-        let response = tiny_http::Response::from_string(metrics().await?);
-        let _ = request.respond(response);
-    }
-    Ok(())
+    mut rx: tokio::sync::broadcast::Receiver<()>,
+) -> Result<(), hyper::Error> {
+    use axum::{routing::get, Router};
+    axum::Server::bind(&addr)
+        .serve(
+            Router::new()
+                .route("/metrics", get(metrics))
+                .into_make_service(),
+        )
+        .with_graceful_shutdown(async {
+            rx.recv().await.ok();
+            println!("Graceful shutdown of metrics");
+        })
+        .await
 }
 
-#[cfg(feature = "prometheus")]
-async fn metrics() -> Result<String, error::Error> {
+async fn metrics() -> Result<String, Error> {
     let metric_families = prometheus::gather();
     Ok(prometheus::TextEncoder::new()
         .encode_to_string(&metric_families)
@@ -78,7 +79,6 @@ async fn metrics() -> Result<String, error::Error> {
 #[cfg(feature = "sqlx")]
 pub async fn connect_db() -> anyhow::Result<sqlx::Pool<sqlx::Postgres>> {
     use anyhow::Context;
-    use error::Error;
 
     let database_url = std::env::var("DATABASE_URL")
         .map_err(|_| Error::BadConfig("DATABASE_URL env var is missing".to_string()))?;
@@ -97,8 +97,6 @@ pub async fn connect(
     max_connections: u32,
 ) -> Result<sqlx::Pool<sqlx::Postgres>, error::Error> {
     use std::time::Duration;
-
-    use crate::error::Error;
 
     sqlx::postgres::PgPoolOptions::new()
         .max_connections(max_connections)
