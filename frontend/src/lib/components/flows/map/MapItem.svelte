@@ -95,7 +95,7 @@
 				{...itemProps}
 				label={mod.summary ||
 					(`path` in mod.value ? mod.value.path : undefined) ||
-					(mod.value.type === 'rawscript' ? `Inline ${mod.value.language}` : 'Select a script')}
+					(mod.value.type === 'rawscript' ? `Inline ${mod.value.language}` : 'To be defined')}
 			>
 				<div slot="icon">
 					<span>{index + 1}</span>

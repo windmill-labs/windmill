@@ -17,6 +17,7 @@
 	} from '$lib/components/flows/flowStateUtils'
 	import FlowInputs from './FlowInputs.svelte'
 	import { flowStateStore, type FlowModuleState } from '../flowState'
+	import Tooltip from '$lib/components/Tooltip.svelte'
 
 	const { selectedId } = getContext<FlowEditorContext>('FlowEditorContext')
 
@@ -37,6 +38,12 @@
 	{:else if flowModule.value.type === 'branchall'}
 		<FlowBranchesWrapper {previousModuleId} bind:flowModule {parentModule} />
 	{:else if flowModule.value.type === 'identity'}
+		<h1 class="p-4"
+			>Select a step kind <Tooltip
+				>Until being defined, this step acts as an identify function, returning as result its input
+				and assigning it a key 'previous_result' if the input is not a json object</Tooltip
+			></h1
+		>
 		<FlowInputs
 			shouldDisableTriggerScripts={parentModule !== undefined || previousModuleId !== undefined}
 			on:loop={async () => {

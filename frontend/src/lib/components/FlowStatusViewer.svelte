@@ -26,7 +26,7 @@
 	let forloop_selected = ''
 	let timeout: NodeJS.Timeout
 
-	$: innerModules = job?.flow_status?.modules ?? []
+	$: innerModules = job?.flow_status?.modules.filter((x) => x.job != jobId) ?? []
 
 	async function loadJobInProgress() {
 		job = await JobService.getJob({
@@ -98,7 +98,6 @@
 						{flowState}
 						jobId={loopJobId}
 						on:jobsLoaded={(e) => {
-							console.log('loop')
 							if (flowJobIds?.moduleId) {
 								if (flowState) {
 									if (
