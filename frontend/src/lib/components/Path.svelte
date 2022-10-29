@@ -205,6 +205,7 @@
 				<Required required={true} />
 			</span>
 			<input
+				id="path"
 				autofocus
 				bind:this={inputP}
 				autocomplete="off"

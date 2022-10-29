@@ -194,6 +194,7 @@
 				size="xs"
 				on:click={async () => {
 					select('settings')
+					document.getElementById('path')?.focus()
 				}}
 			>
 				{$flowStore.path}
