@@ -3,7 +3,7 @@
 	import Tab from '$lib/components/common/tabs/Tab.svelte'
 	import Tabs from '$lib/components/common/tabs/Tabs.svelte'
 	import Editor from '$lib/components/Editor.svelte'
-	import EditorBar, { EDITOR_BAR_WIDTH_THRESHOLD } from '$lib/components/EditorBar.svelte'
+	import EditorBar from '$lib/components/EditorBar.svelte'
 	import ModulePreview from '$lib/components/ModulePreview.svelte'
 	import { createScriptFromInlineScript, fork } from '$lib/components/flows/flowStateUtils'
 	import { flowStore } from '$lib/components/flows/flowStore'

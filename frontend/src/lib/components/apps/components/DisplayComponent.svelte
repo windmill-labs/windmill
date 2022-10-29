@@ -1,14 +1,14 @@
 <script lang="ts">
 	import DisplayResult from '$lib/components/DisplayResult.svelte'
-	import type { World } from '../rx'
-	import type { AppInputTransform } from '../types'
+	import { getContext } from 'svelte'
+	import type { AppEditorContext, AppInputTransform } from '../types'
 
-	export let world: World | undefined
+	const { worldStore } = getContext<AppEditorContext>('AppEditorContext')
 	export let inputs: {
 		result: AppInputTransform
 	}
 
-	$: inputResult = world?.connect<any>(inputs.result, (x) => {
+	$: inputResult = $worldStore?.connect<any>(inputs.result, (x) => {
 		update()
 	})
 
@@ -21,6 +21,6 @@
 	export const staticOutputs: string[] = []
 </script>
 
-{#if world}
+{#if $worldStore}
 	<DisplayResult {result} />
 {/if}

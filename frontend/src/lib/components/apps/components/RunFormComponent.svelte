@@ -6,10 +6,10 @@
 	import { CompletedJob, FlowService, Job, ScriptService } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { faArrowsRotate, faFile } from '@fortawesome/free-solid-svg-icons'
+	import { getContext } from 'svelte'
 	import Icon from 'svelte-awesome'
-	import type { book } from 'svelte-awesome/icons'
-	import type { Output, World } from '../rx'
-	import type { InputsSpec } from '../types'
+	import type { Output } from '../rx'
+	import type { AppEditorContext, InputsSpec } from '../types'
 
 	export let runType: 'script' | 'flow'
 	export let path: string
@@ -20,14 +20,14 @@
 	}
 
 	export let hidden: string[] = []
-	export let world: World | undefined
+	const { worldStore } = getContext<AppEditorContext>('AppEditorContext')
 
 	let schema: Schema | undefined = undefined
 	let schemaClone: Schema | undefined = undefined
 
 	export const staticOutputs = ['loading', 'result']
 
-	$: outputs = world?.outputsById[id] as {
+	$: outputs = $worldStore?.outputsById[id] as {
 		result: Output<any>
 		loading: Output<boolean>
 	}

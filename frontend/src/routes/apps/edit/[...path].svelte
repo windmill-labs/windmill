@@ -1,19 +1,49 @@
 <script lang="ts">
-	import SplitPanesWrapper from '$lib/components/splitPanes/SplitPanesWrapper.svelte'
-	import { Pane } from 'svelte-splitpanes'
+	import AppEditor from '$lib/components/apps/editor/AppEditor.svelte'
+	import type { App } from '$lib/components/apps/types'
+
+	let app: App = {
+		sections: [
+			{
+				components: [
+					{
+						id: 'a',
+						type: 'runformcomponent',
+						runType: 'script',
+						path: 'u/faton/my_script_3',
+						inputs: {
+							runInputs: {
+								a: {
+									type: 'static',
+									value: 'first'
+								},
+								b: {
+									type: 'static',
+									value: 'second'
+								}
+							}
+						},
+						params: {
+							hidden: ['b']
+						}
+					},
+					{
+						type: 'displaycomponent',
+						id: 'b',
+						inputs: {
+							result: {
+								id: 'a',
+								name: 'result',
+								type: 'output'
+							}
+						}
+					}
+				],
+				columns: 3
+			}
+		],
+		title: 'Fake title'
+	}
 </script>
 
-<SplitPanesWrapper>
-	<Pane />
-	<Pane>
-		<div class="p-4">
-			<div class="grid grid-cols-2 gap-4">
-				<div class="border flex p-2 h-16"> Form </div>
-				<div class="border flex p-2 h-16">01</div>
-				<div class="border flex p-2 h-16">01</div>
-				<div class="border flex p-2 h-16">01</div>
-				<div class="border flex p-2 h-16">01</div>
-			</div>
-		</div>
-	</Pane>
-</SplitPanesWrapper>
+<AppEditor bind:app />
