@@ -54,7 +54,6 @@ COPY ./openflow.openapi.yaml /openflow.openapi.yaml
 RUN USER=root cargo new --bin windmill
 RUN USER=root cargo new --lib windmill-api
 RUN USER=root cargo new --lib windmill-audit
-RUN USER=root cargo new --lib windmill-common
 RUN USER=root cargo new --lib windmill-queue
 RUN USER=root cargo new --lib windmill-worker
 WORKDIR /windmill/parsers
@@ -65,37 +64,37 @@ RUN USER=root cargo new --lib windmill-parser-ts
 WORKDIR /windmill
 
 
-# COPY ./backend/Cargo.toml .
-# COPY ./backend/windmill-api/Cargo.toml ./windmill-api/
-# COPY ./backend/windmill-audit/Cargo.toml ./windmill-audit/
-# COPY ./backend/windmill-common/Cargo.toml ./windmill-common/
-# COPY ./backend/windmill-queue/Cargo.toml ./windmill-queue/
-# COPY ./backend/windmill-worker/Cargo.toml ./windmill-worker/
-# COPY ./backend/parsers/windmill-parser/Cargo.toml ./parsers/windmill-parser/
-# COPY ./backend/parsers/windmill-parser-go/Cargo.toml ./parsers/windmill-parser-go/
-# COPY ./backend/parsers/windmill-parser-py/Cargo.toml ./parsers/windmill-parser-py/
-# COPY ./backend/parsers/windmill-parser-ts/Cargo.toml ./parsers/windmill-parser-ts/
-# COPY ./backend/.cargo/ .cargo/
+COPY ./backend/Cargo.toml .
+COPY ./backend/windmill-api/Cargo.toml ./windmill-api/
+COPY ./backend/windmill-audit/Cargo.toml ./windmill-audit/
+COPY ./backend/windmill-common ./windmill-common
+COPY ./backend/windmill-queue/Cargo.toml ./windmill-queue/
+COPY ./backend/windmill-worker/Cargo.toml ./windmill-worker/
+COPY ./backend/parsers/windmill-parser/Cargo.toml ./parsers/windmill-parser/
+COPY ./backend/parsers/windmill-parser-go/Cargo.toml ./parsers/windmill-parser-go/
+COPY ./backend/parsers/windmill-parser-py/Cargo.toml ./parsers/windmill-parser-py/
+COPY ./backend/parsers/windmill-parser-ts/Cargo.toml ./parsers/windmill-parser-ts/
+COPY ./backend/.cargo/ .cargo/
 
-# COPY ./backend/windmill-api-client/ ./windmill-api-client/
-# COPY ./backend/windmill-api/openapi.yaml ./windmill-api/openapi.yaml
+COPY ./backend/windmill-api-client/ ./windmill-api-client/
+COPY ./backend/windmill-api/openapi.yaml ./windmill-api/openapi.yaml
 
 ENV CARGO_INCREMENTAL=1
 
-# RUN cargo build --release
-# RUN rm ./src/*.rs
-# RUN rm ./windmill-api/src/*.rs
-# RUN rm ./windmill-api-client/src/*.rs
-# RUN rm ./windmill-audit/src/*.rs
-# RUN rm ./windmill-common/src/*.rs
-# RUN rm ./windmill-queue/src/*.rs
-# RUN rm ./windmill-worker/src/*.rs
-# RUN rm ./parsers/windmill-parser/src/*.rs
-# RUN rm ./parsers/windmill-parser-go/src/*.rs
-# RUN rm ./parsers/windmill-parser-py/src/*.rs
-# RUN rm ./parsers/windmill-parser-ts/src/*.rs
+RUN cargo build --release
+RUN rm ./src/*.rs
+RUN rm ./windmill-api/src/*.rs
+RUN rm ./windmill-api-client/src/*.rs
+RUN rm ./windmill-audit/src/*.rs
+RUN rm ./windmill-common/src/*.rs
+RUN rm ./windmill-queue/src/*.rs
+RUN rm ./windmill-worker/src/*.rs
+RUN rm ./parsers/windmill-parser/src/*.rs
+RUN rm ./parsers/windmill-parser-go/src/*.rs
+RUN rm ./parsers/windmill-parser-py/src/*.rs
+RUN rm ./parsers/windmill-parser-ts/src/*.rs
 
-# RUN rm -r ./**/target/**/**/windmill*
+RUN rm -r ./**/target/**/**/windmill*
 ENV SQLX_OFFLINE=true
 
 COPY ./backend ./
