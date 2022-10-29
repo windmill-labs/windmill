@@ -21,7 +21,7 @@
 				schema: emptySchema(),
 				previewResult: NEVER_TESTED_THIS_FAR
 			}
-			$flowStateStore.failureModule = failureModule
+			$flowStateStore['failure'] = failureModule
 			$flowStore.value.failure_module = {
 				id: 'failure',
 				value: { type: 'identity' }
