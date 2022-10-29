@@ -1185,12 +1185,13 @@ async fn test_flow_result_by_id(db: Pool<Postgres>) {
     assert_eq!(result, serde_json::json!([[42]]));
 }
 
-// #[sqlx::test(fixtures("base"))]
+#[sqlx::test(fixtures("base"))]
 async fn test_stop_after_if(db: Pool<Postgres>) {
     initialize_tracing().await;
-    let server = ApiServer::start(db.clone()).await;
-    let port = server.addr.port();
+    // let server = ApiServer::start(db.clone()).await;
+    // let port = server.addr.port();
 
+    let port = 123;
     let flow: FlowValue = serde_json::from_value(serde_json::json!({
         "modules": [
             {

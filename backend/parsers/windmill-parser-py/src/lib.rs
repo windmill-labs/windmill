@@ -11,13 +11,13 @@ use std::collections::HashMap;
 use itertools::Itertools;
 use phf::phf_map;
 use regex::Regex;
-use serde_json::json;
 
+use serde_json::json;
 use windmill_common::error;
 use windmill_parser::{Arg, MainArgSignature, Typ};
 
 use rustpython_parser::{
-    ast::{ExpressionType, Located, Number, StatementType, StringGroup, Varargs},
+    ast::{Constant, ExprKind, Located, StmtKind},
     parser,
 };
 
@@ -64,35 +64,27 @@ pub fn parse_python_signature(code: &str) -> error::Result<MainArgSignature> {
             "No main function found".to_string(),
         ));
     }
-    let ast = parser::parse_program(&filtered_code)
-        .map_err(|e| error::Error::ExecutionErr(format!("Error parsing code: {}", e.to_string())))?
-        .statements;
+    let ast = parser::parse_program(&filtered_code, "main.py").map_err(|e| {
+        error::Error::ExecutionErr(format!("Error parsing code: {}", e.to_string()))
+    })?;
     let param = ast.into_iter().find_map(|x| match x {
-        Located {
-            location: _,
-            node:
-                StatementType::FunctionDef {
-                    is_async: _,
-                    name,
-                    args,
-                    body: _,
-                    decorator_list: _,
-                    returns: _,
-                },
-        } if &name == "main" => Some(*args),
+        Located { node: StmtKind::FunctionDef { name, args, .. }, .. } if &name == "main" => {
+            Some(*args)
+        }
         _ => None,
     });
     if let Some(params) = param {
         //println!("{:?}", params);
         let def_arg_start = params.args.len() - params.defaults.len();
         Ok(MainArgSignature {
-            star_args: params.vararg != Varargs::None,
-            star_kwargs: params.vararg != Varargs::None,
+            star_args: params.vararg.is_some(),
+            star_kwargs: params.vararg.is_some(),
             args: params
                 .args
                 .into_iter()
                 .enumerate()
                 .map(|(i, x)| {
+                    let x = x.node;
                     let default = if i >= def_arg_start {
                         to_value(&params.defaults[i - def_arg_start].node)
                     } else {
@@ -102,20 +94,18 @@ pub fn parse_python_signature(code: &str) -> error::Result<MainArgSignature> {
                         otyp: None,
                         name: x.arg,
                         typ: x.annotation.map_or(Typ::Unknown, |e| match *e {
-                            Located { location: _, node: ExpressionType::Identifier { name } } => {
-                                match name.as_ref() {
-                                    "str" => Typ::Str(None),
-                                    "float" => Typ::Float,
-                                    "int" => Typ::Int,
-                                    "bool" => Typ::Bool,
-                                    "dict" => Typ::Object(vec![]),
-                                    "list" => Typ::List(Box::new(Typ::Str(None))),
-                                    "bytes" => Typ::Bytes,
-                                    "datetime" => Typ::Datetime,
-                                    "datetime.datetime" => Typ::Datetime,
-                                    _ => Typ::Unknown,
-                                }
-                            }
+                            Located { node: ExprKind::Name { id, .. }, .. } => match id.as_ref() {
+                                "str" => Typ::Str(None),
+                                "float" => Typ::Float,
+                                "int" => Typ::Int,
+                                "bool" => Typ::Bool,
+                                "dict" => Typ::Object(vec![]),
+                                "list" => Typ::List(Box::new(Typ::Str(None))),
+                                "bytes" => Typ::Bytes,
+                                "datetime" => Typ::Datetime,
+                                "datetime.datetime" => Typ::Datetime,
+                                _ => Typ::Unknown,
+                            },
                             _ => Typ::Unknown,
                         }),
                         has_default: default.is_some(),
@@ -131,24 +121,15 @@ pub fn parse_python_signature(code: &str) -> error::Result<MainArgSignature> {
     }
 }
 
-fn to_value(et: &ExpressionType) -> Option<serde_json::Value> {
+fn to_value(et: &ExprKind) -> Option<serde_json::Value> {
     match et {
-        ExpressionType::String { value: StringGroup::Constant { value } } => Some(json!(value)),
-        ExpressionType::Number { value } => match value {
-            Number::Integer { value } => Some(json!(value.to_string().parse::<i64>().unwrap())),
-            Number::Float { value } => Some(json!(value)),
-            _ => None,
-        },
-        ExpressionType::True => Some(json!(true)),
-        ExpressionType::False => Some(json!(false)),
-
-        ExpressionType::Dict { elements } => {
-            let v = elements
+        ExprKind::Constant { value, .. } => Some(constant_to_value(value)),
+        ExprKind::Dict { keys, values } => {
+            let v = keys
                 .into_iter()
+                .zip(values)
                 .map(|(k, v)| {
-                    let key = k
-                        .as_ref()
-                        .and_then(|x| to_value(&x.node))
+                    let key = to_value(&k.node)
                         .and_then(|x| match x {
                             serde_json::Value::String(s) => Some(s),
                             _ => None,
@@ -159,20 +140,29 @@ fn to_value(et: &ExpressionType) -> Option<serde_json::Value> {
                 .collect::<HashMap<String, _>>();
             Some(json!(v))
         }
-        ExpressionType::List { elements } => {
-            let v = elements
+        ExprKind::List { elts, .. } => {
+            let v = elts
                 .into_iter()
                 .map(|x| to_value(&x.node))
                 .collect::<Vec<_>>();
             Some(json!(v))
         }
-        ExpressionType::None => Some(json!(null)),
-
-        ExpressionType::Call { function: _, args: _, keywords: _ } => {
-            Some(json!("<function call>"))
-        }
-
+        ExprKind::Call { .. } => Some(json!("<function call>")),
         _ => None,
+    }
+}
+
+fn constant_to_value(c: &Constant) -> serde_json::Value {
+    match c {
+        Constant::None => json!(null),
+        Constant::Bool(b) => json!(b),
+        Constant::Str(s) => json!(s),
+        Constant::Bytes(b) => json!(b),
+        Constant::Int(i) => serde_json::from_str(&i.to_string()).unwrap_or(json!("invalid number")),
+        Constant::Tuple(t) => json!(t.iter().map(constant_to_value).collect::<Vec<_>>()),
+        Constant::Float(f) => json!(f),
+        Constant::Complex { real, imag } => json!([real, imag]),
+        Constant::Ellipsis => json!("..."),
     }
 }
 
@@ -205,24 +195,21 @@ pub fn parse_python_imports(code: &str) -> error::Result<Vec<String>> {
         Ok(lines)
     } else {
         let code = &&code;
-        let ast = parser::parse_program(code)
-            .map_err(|e| {
-                error::Error::ExecutionErr(format!("Error parsing code: {}", e.to_string()))
-            })?
-            .statements;
-
+        let ast = parser::parse_program(code, "main.py").map_err(|e| {
+            error::Error::ExecutionErr(format!("Error parsing code: {}", e.to_string()))
+        })?;
         let imports = ast
             .into_iter()
             .filter_map(|x| match x {
-                Located { location: _, node } => match node {
-                    StatementType::Import { names } => Some(
+                Located { node, .. } => match node {
+                    StmtKind::Import { names } => Some(
                         names
                             .into_iter()
-                            .map(|x| x.symbol.split('.').next().unwrap_or("").to_string())
+                            .map(|x| x.node.name.split('.').next().unwrap_or("").to_string())
                             .map(replace_import)
                             .collect::<Vec<String>>(),
                     ),
-                    StatementType::ImportFrom { level: _, module: Some(mod_), names: _ } => {
+                    StmtKind::ImportFrom { level: _, module: Some(mod_), names: _ } => {
                         let imprt = mod_.split('.').next().unwrap_or("").replace("_", "-");
 
                         Some(vec![replace_import(imprt)])
@@ -242,6 +229,8 @@ pub fn parse_python_imports(code: &str) -> error::Result<Vec<String>> {
 #[cfg(test)]
 mod tests {
 
+    use serde_json::json;
+
     use super::*;
 
     #[test]
@@ -250,7 +239,7 @@ mod tests {
 
 import os
 
-def main(test1: str, name: datetime.datetime = datetime.now(), byte: bytes = bytes(1)):
+def main(test1: str, name: datetime.datetime = datetime.now(), byte: bytes = bytes(1), f = \"wewe\", g = 21, h = [1,2], i = True):
 
 	print(f\"Hello World and a warm welcome especially to {name}\")
 	print(\"The env variable at `all/pretty_secret`: \", os.environ.get(\"ALL_PRETTY_SECRET\"))
@@ -284,7 +273,35 @@ def main(test1: str, name: datetime.datetime = datetime.now(), byte: bytes = byt
                         typ: Typ::Bytes,
                         default: Some(json!("<function call>")),
                         has_default: true
-                    }
+                    },
+                    Arg {
+                        otyp: None,
+                        name: "f".to_string(),
+                        typ: Typ::Unknown,
+                        default: Some(json!("wewe")),
+                        has_default: true
+                    },
+                    Arg {
+                        otyp: None,
+                        name: "g".to_string(),
+                        typ: Typ::Unknown,
+                        default: Some(json!(21)),
+                        has_default: true
+                    },
+                    Arg {
+                        otyp: None,
+                        name: "h".to_string(),
+                        typ: Typ::Unknown,
+                        default: Some(json!([1, 2])),
+                        has_default: true
+                    },
+                    Arg {
+                        otyp: None,
+                        name: "i".to_string(),
+                        typ: Typ::Unknown,
+                        default: Some(json!(true)),
+                        has_default: true
+                    },
                 ]
             }
         );

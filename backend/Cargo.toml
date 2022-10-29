@@ -88,7 +88,7 @@ rand = "0.8.5"
 rand_core = { version = "^0", features = ["std"] }
 magic-crypt = "^3"
 git-version = "^0"
-rustpython-parser = "^0"
+rustpython-parser = { git = "https://github.com/RustPython/RustPython" }
 cron = "^0"
 lettre = { version = "^0", features = [
     "rustls-tls",
