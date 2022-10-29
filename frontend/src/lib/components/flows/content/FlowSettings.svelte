@@ -54,7 +54,7 @@
 							bind:value={$flowStore.description}
 							class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-300 
 							focus:ring focus:ring-indigo-200 focus:ring-opacity-50"
-							placeholder="A description to help users understand what this script does and how to use it."
+							placeholder="A description to help users understand what this flow does and how to use it. Markdown accepted."
 							rows="3"
 						/>
 					</span>

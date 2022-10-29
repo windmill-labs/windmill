@@ -36,7 +36,11 @@
 					</label>
 					<label class="col-span-2">
 						<div class="text-gray-700 text-sm">Description</div>
-						<textarea bind:value={description} placeholder="Edit description" class="text-sm" />
+						<textarea
+							bind:value={description}
+							placeholder="Edit description. Markdown accepted."
+							class="text-sm"
+						/>
 						<div class="mt-1 px-2">
 							{#if description}
 								<div
