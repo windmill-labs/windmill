@@ -96,11 +96,11 @@ function getFlowInput(
 
 			if (parentModule.value.type === 'forloopflow') {
 				return {
-					...parentFlowInput,
 					iter: {
 						value: "Iteration's value",
 						index: "Iteration's index"
-					}
+					},
+					...parentFlowInput,
 				}
 			} else {
 				// Branches

@@ -12,7 +12,7 @@
 	import Icon from 'svelte-awesome'
 
 	import type { CompletedJob, QueuedJob } from '$lib/gen'
-	import { Badge } from 'flowbite-svelte'
+	import Badge from './common/badge/Badge.svelte'
 
 	const SMALL_ICON_SCALE = 0.7
 

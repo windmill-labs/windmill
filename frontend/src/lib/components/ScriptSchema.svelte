@@ -9,6 +9,7 @@
 	import Highlight from 'svelte-highlight'
 	import json from 'svelte-highlight/languages/json'
 	import SvelteMarkdown from 'svelte-markdown'
+	import { Alert } from './common'
 
 	export let schema: Schema
 	export let summary: string
@@ -20,7 +21,7 @@
 </script>
 
 <div class="w-full">
-	<h1 class="mb-4">UI customisation</h1>
+	<h1 class="my-4">UI customisation</h1>
 
 	<Tabs selected="ui">
 		<Tab value="ui">UI</Tab>
@@ -35,7 +36,11 @@
 					</label>
 					<label class="col-span-2">
 						<div class="text-gray-700 text-sm">Description</div>
-						<textarea bind:value={description} placeholder="Edit description" class="text-sm" />
+						<textarea
+							bind:value={description}
+							placeholder="Edit description. Markdown accepted."
+							class="text-sm"
+						/>
 						<div class="mt-1 px-2">
 							{#if description}
 								<div
@@ -49,15 +54,13 @@
 						</div>
 					</label>
 				</div>
-				<h2 class="border-b pb-1 mt-6">Arguments</h2>
-				<div class="bg-blue-100 border-l-4 border-blue-600 text-blue-700 p-4 m-4" role="alert">
-					<p class="font-bold">Synchronized with main signature</p>
-					<p>
-						Argument names, being required or not, and default values are derived from the main
-						signature of step 2 and cannot be edited directly. Change the main signature to edit
-						them.
-					</p>
-				</div>
+				<h2 class="border-b pb-1 my-4">Arguments</h2>
+				<Alert type="info" title="Synchronized with main signature">
+					Argument names, being required or not, and default values are derived from the main
+					signature of step 2 and cannot be edited directly. Change the main signature to edit them.
+				</Alert>
+				<div class="mt-4" />
+
 				<SchemaForm {schema} editableSchema={true} />
 			</TabContent>
 			<TabContent value="jsonschema">

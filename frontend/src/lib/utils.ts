@@ -56,9 +56,8 @@ export function displayDate(dateString: string | undefined): string {
 	if (date.toString() === 'Invalid Date') {
 		return ''
 	} else {
-		return `${date.getFullYear()}/${
-			date.getMonth() + 1
-		}/${date.getDate()} at ${date.toLocaleTimeString()}`
+		return `${date.getFullYear()}/${date.getMonth() + 1
+			}/${date.getDate()} at ${date.toLocaleTimeString()}`
 	}
 }
 
@@ -235,7 +234,11 @@ export async function setQuery(url: URL, key: string, value: string): Promise<vo
 export function setQueryWithoutLoad(url: URL, key: string, value: string): void {
 	const nurl = new URL(url.toString())
 	nurl.searchParams.set(key, value)
-	history.replaceState(null, '', nurl.toString())
+	try {
+		history.replaceState(null, '', nurl.toString())
+	} catch (e) {
+		console.error(e)
+	}
 }
 
 export function groupBy<T>(
@@ -470,14 +473,16 @@ export function scriptPathToHref(path: string): string {
 
 export async function getScriptByPath(path: string): Promise<{
 	content: string
-	language: 'deno' | 'python3' | 'go'
+	language: 'deno' | 'python3' | 'go',
+	schema: any
 }> {
 	if (path.startsWith('hub/')) {
 		const { content, language, schema } = await ScriptService.getHubScriptByPath({ path })
 
 		return {
 			content,
-			language
+			language,
+			schema
 		}
 	} else {
 		const script = await ScriptService.getScriptByPath({
@@ -486,7 +491,8 @@ export async function getScriptByPath(path: string): Promise<{
 		})
 		return {
 			content: script.content,
-			language: script.language
+			language: script.language,
+			schema: script.schema
 		}
 	}
 }

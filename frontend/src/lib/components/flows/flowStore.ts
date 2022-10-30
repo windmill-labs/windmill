@@ -15,21 +15,40 @@ export const flowStore = writable<Flow>({
 	extra_perms: {}
 })
 
-function dfs(modules: FlowModule[]): string[] {
+export function dfs(modules: FlowModule[], previewOrder: boolean = false): string[] {
 	let result: string[] = []
 	for (const module of modules) {
 		if (module.value.type == 'forloopflow') {
-			result = result.concat(dfs(module.value.modules)).concat(module.id)
+			if (previewOrder) {
+				result = result.concat(module.id)
+			}
+			result = result.concat(dfs(module.value.modules))
+			if (!previewOrder) {
+				result = result.concat(module.id)
+			}
 		} else if (module.value.type == 'branchone') {
-			result = result.concat(dfs(module.value.branches.map((b) => b.modules).flat().concat(module.value.default)).concat(module.id))
+			if (previewOrder) {
+				result = result.concat(module.id)
+			}
+			result = result.concat(dfs(module.value.branches.map((b) => b.modules).flat().concat(module.value.default)))
+			if (!previewOrder) {
+				result = result.concat(module.id)
+			}
 		} else if (module.value.type == 'branchall') {
-			result = result.concat(dfs(module.value.branches.map((b) => b.modules).flat()).concat(module.id))
+			if (previewOrder) {
+				result = result.concat(module.id)
+			}
+			result = result.concat(dfs(module.value.branches.map((b) => b.modules).flat()))
+			if (!previewOrder) {
+				result = result.concat(module.id)
+			}
 		} else {
 			result.push(module.id)
 		}
 	}
 	return result
 }
+
 export const flowIds = derived(flowStore, flow => dfs(flow.value.modules))
 
 export async function initFlow(flow: Flow) {

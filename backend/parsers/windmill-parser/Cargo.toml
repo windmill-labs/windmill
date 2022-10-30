@@ -1,0 +1,13 @@
+[package]
+name = "windmill-parser"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+
+[lib]
+name = "windmill_parser"
+path = "./src/lib.rs"
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true

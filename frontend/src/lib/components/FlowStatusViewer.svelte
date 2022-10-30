@@ -3,17 +3,18 @@
 	import { workspaceStore } from '$lib/stores'
 	import FlowJobResult from './FlowJobResult.svelte'
 	import FlowPreviewStatus from './preview/FlowPreviewStatus.svelte'
-	import { Button } from 'flowbite-svelte'
 	import Icon from 'svelte-awesome'
 	import { faChevronDown, faChevronUp } from '@fortawesome/free-solid-svg-icons'
 	import { createEventDispatcher } from 'svelte'
 	import { onDestroy } from 'svelte'
-	import { flowStateStore } from './flows/flowState'
+	import type { FlowState } from './flows/flowState'
+	import { Button } from './common'
 
 	const dispatch = createEventDispatcher()
 
 	export let jobId: string
 
+	export let flowState: FlowState | undefined = undefined
 	export let flowJobIds:
 		| {
 				moduleId: string
@@ -25,7 +26,7 @@
 	let forloop_selected = ''
 	let timeout: NodeJS.Timeout
 
-	$: innerModules = job?.flow_status?.modules ?? []
+	$: innerModules = job?.flow_status?.modules.filter((x) => x.job != jobId) ?? []
 
 	async function loadJobInProgress() {
 		job = await JobService.getJob({
@@ -73,8 +74,9 @@
 			</h3>
 			{#each flowJobIds.flowJobs as loopJobId, j}
 				<Button
-					color={forloop_selected == loopJobId ? 'dark' : 'light'}
-					class="flex justify-between w-full"
+					variant={forloop_selected === loopJobId ? 'contained' : 'border'}
+					color={forloop_selected === loopJobId ? 'dark' : 'light'}
+					btnClasses="w-full flex justify-start"
 					on:click={() => {
 						if (forloop_selected == loopJobId) {
 							forloop_selected = ''
@@ -83,7 +85,7 @@
 						}
 					}}
 				>
-					#{j}: {loopJobId}
+					#{j + 1}: {loopJobId}
 
 					<Icon
 						class="ml-2"
@@ -93,11 +95,20 @@
 				</Button>
 				<div class="border p-6" class:hidden={forloop_selected != loopJobId}>
 					<svelte:self
+						{flowState}
 						jobId={loopJobId}
 						on:jobsLoaded={(e) => {
 							if (flowJobIds?.moduleId) {
-								$flowStateStore[flowJobIds.moduleId].previewResult = e.detail.result
-								$flowStateStore[flowJobIds.moduleId].previewArgs = e.detail.args
+								if (flowState) {
+									if (
+										!flowState[flowJobIds.moduleId].previewResult ||
+										!Array.isArray(flowState[flowJobIds.moduleId].previewResult)
+									) {
+										flowState[flowJobIds.moduleId].previewResult = []
+									}
+									flowState[flowJobIds.moduleId].previewResult[j] = e.detail.result
+									flowState[flowJobIds.moduleId].previewArgs = e.detail.args
+								}
 							}
 						}}
 					/>
@@ -131,6 +142,7 @@
 					<li class="w-full border p-6 space-y-2">
 						{#if [FlowStatusModule.type.IN_PROGRESS, FlowStatusModule.type.SUCCESS, FlowStatusModule.type.FAILURE].includes(mod.type)}
 							<svelte:self
+								{flowState}
 								jobId={mod.job}
 								flowJobIds={mod.flow_jobs
 									? {
@@ -139,9 +151,11 @@
 									  }
 									: undefined}
 								on:jobsLoaded={(e) => {
-									if (mod.id) {
-										$flowStateStore[mod.id].previewResult = e.detail.result
-										$flowStateStore[mod.id].previewArgs = e.detail.args
+									if (mod.id && (mod.flow_jobs ?? []).length == 0) {
+										if (flowState) {
+											flowState[mod.id].previewResult = e.detail.result
+											flowState[mod.id].previewArgs = e.detail.args
+										}
 									}
 								}}
 							/>

@@ -8,6 +8,7 @@
 	import { getStepPropPicker } from '../previousResults'
 	import { flowStateStore } from '../flowState'
 	import { flowStore } from '../flowStore'
+	import Tooltip from '$lib/components/Tooltip.svelte'
 
 	const { previewArgs } = getContext<FlowEditorContext>('FlowEditorContext')
 
@@ -36,6 +37,13 @@
 </script>
 
 <div class="flex flex-col items-start space-y-2 {$$props.class}">
+	<h2 class="mt-2"
+		>Early stop <Tooltip>
+			If defined, at the end of the step, the predicate expression will be evaluated to decide if
+			the flow should stop early. Skipped flows are just a label useful to not see them in the runs
+			page.</Tooltip
+		></h2
+	>
 	<Toggle
 		checked={isStopAfterIfEnabled}
 		on:change={() => {

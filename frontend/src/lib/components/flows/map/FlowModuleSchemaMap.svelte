@@ -1,7 +1,7 @@
 <script lang="ts">
 	import type { FlowEditorContext } from '../types'
 	import { getContext } from 'svelte'
-	import { deleteFlowStateById, emptyModule } from '$lib/components/flows/flowStateUtils'
+	import { deleteFlowStateById, emptyModule, idMutex } from '$lib/components/flows/flowStateUtils'
 	import { flowStateStore } from '../flowState'
 	import type { FlowModule } from '$lib/gen'
 	import FlowErrorHandlerItem from './FlowErrorHandlerItem.svelte'
@@ -19,12 +19,14 @@
 	let indexToRemove: number | undefined = undefined
 	const { select } = getContext<FlowEditorContext>('FlowEditorContext')
 
-	function insertNewModuleAtIndex(index: number): void {
-		const flowModule = emptyModule()
-		modules.splice(index, 0, flowModule)
-		modules = modules
-		$flowStateStore[flowModule.id] = emptyFlowModuleState()
-		select(flowModule.id)
+	async function insertNewModuleAtIndex(index: number): Promise<void> {
+		await idMutex.runExclusive(async () => {
+			const flowModule = emptyModule()
+			modules.splice(index, 0, flowModule)
+			modules = modules
+			$flowStateStore[flowModule.id] = emptyFlowModuleState()
+			select(flowModule.id)
+		})
 	}
 
 	function removeAtIndex(index: number): void {
@@ -97,10 +99,10 @@
 		{/each}
 
 		<InsertModuleButton on:click={() => insertNewModuleAtIndex(modules.length)} />
-		{#if root}
-			<FlowErrorHandlerItem />
-		{/if}
 	</ul>
+	{#if root}
+		<FlowErrorHandlerItem />
+	{/if}
 </div>
 
 <RemoveStepConfirmationModal

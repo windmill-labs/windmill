@@ -44,7 +44,7 @@
 				</div>
 			</FlowModuleSchemaItem>
 			<div class="flex flex-row w-full">
-				<div class="w-8 shrink-0 " />
+				<div class="w-8 shrink-0 line" />
 				<div class="grow my-4 overflow-auto">
 					<div class="w-full pr-1">
 						<FlowModuleSchemaMap bind:modules={mod.value.modules} color="orange" />
@@ -95,7 +95,7 @@
 				{...itemProps}
 				label={mod.summary ||
 					(`path` in mod.value ? mod.value.path : undefined) ||
-					(mod.value.type === 'rawscript' ? `Inline ${mod.value.language}` : 'Select a script')}
+					(mod.value.type === 'rawscript' ? `Inline ${mod.value.language}` : 'To be defined')}
 			>
 				<div slot="icon">
 					<span>{index + 1}</span>

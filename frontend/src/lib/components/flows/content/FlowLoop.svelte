@@ -8,7 +8,7 @@
 	import PropPickerWrapper from '../propPicker/PropPickerWrapper.svelte'
 	import FlowModuleEarlyStop from './FlowModuleEarlyStop.svelte'
 	import FlowModuleSuspend from './FlowModuleSuspend.svelte'
-	import FlowRetries from './FlowRetries.svelte'
+	// import FlowRetries from './FlowRetries.svelte'
 	import { Button, Tab, TabContent, Tabs } from '$lib/components/common'
 	import type { FlowModule } from '$lib/gen/models/FlowModule'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
@@ -85,17 +85,17 @@
 			</Pane>
 			<Pane size={40} minSize={20} class="flex flex-col flex-1">
 				<Tabs bind:selected>
-					<Tab value="retries">Retries</Tab>
+					<!-- <Tab value="retries">Retries</Tab> -->
 					<Tab value="early-stop">Early Stop</Tab>
 					<Tab value="suspend">Sleep/Suspend</Tab>
 
 					<svelte:fragment slot="content">
 						<div class="overflow-hidden bg-white" style="height:calc(100% - 32px);">
-							<TabContent value="retries" class="flex flex-col flex-1 h-full">
+							<!-- <TabContent value="retries" class="flex flex-col flex-1 h-full">
 								<div class="p-4 overflow-y-auto">
 									<FlowRetries bind:flowModule={mod} />
 								</div>
-							</TabContent>
+							</TabContent> -->
 
 							<TabContent value="early-stop" class="flex flex-col flex-1 h-full">
 								<div class="p-4 overflow-y-auto">

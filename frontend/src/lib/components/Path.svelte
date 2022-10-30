@@ -29,6 +29,8 @@
 
 	export let kind: PathKind
 
+	let inputP: HTMLInputElement | undefined = undefined
+
 	const dispatch = createEventDispatcher()
 
 	let groups: Group[] = []
@@ -41,6 +43,10 @@
 
 	export function getPath() {
 		return path
+	}
+
+	export function focus() {
+		inputP?.focus()
 	}
 
 	function handleKeyUp(event: KeyboardEvent) {
@@ -199,7 +205,9 @@
 				<Required required={true} />
 			</span>
 			<input
+				id="path"
 				autofocus
+				bind:this={inputP}
 				autocomplete="off"
 				on:keyup={handleKeyUp}
 				bind:value={meta.name}
