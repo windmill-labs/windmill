@@ -83,7 +83,7 @@ paths:
         - $ref: "#/components/parameters/After"
         - $ref: "#/components/parameters/Username"
         - $ref: "#/components/parameters/Operation"
-        - $ref: "#/components/parameters/Resource"
+        - $ref: "#/components/parameters/ResourceName"
         - $ref: "#/components/parameters/ActionKind"
 
       responses:
@@ -3505,7 +3505,7 @@ components:
       in: query
       schema:
         type: string
-    Resource:
+    ResourceName:
       name: resource
       description: filter on exact or prefix name of resource
       in: query
