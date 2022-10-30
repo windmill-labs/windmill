@@ -16,7 +16,7 @@ use uuid::Uuid;
 use windmill_audit::{audit_log, ActionKind};
 use windmill_common::{
     error::{self, to_anyhow, Error},
-    flow_status::{init_flow_status, FlowStatus, MAX_RETRY_ATTEMPTS, MAX_RETRY_INTERVAL},
+    flow_status::{FlowStatus, MAX_RETRY_ATTEMPTS, MAX_RETRY_INTERVAL},
     flows::FlowValue,
     scripts::{get_full_hub_script_by_path, HubScript, ScriptHash, ScriptLang},
     utils::StripPath,
@@ -392,7 +392,7 @@ pub async fn push<'c>(
         }
     }
 
-    let flow_status = raw_flow.as_ref().map(init_flow_status);
+    let flow_status = raw_flow.as_ref().map(FlowStatus::new);
     let uuid = sqlx::query_scalar!(
         "INSERT INTO queue
             (workspace_id, id, running, parent_job, created_by, permissioned_as, scheduled_for, 

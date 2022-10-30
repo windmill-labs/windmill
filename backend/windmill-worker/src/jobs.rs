@@ -6,6 +6,7 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
+use serde_json::{Map, Value};
 use sqlx::{Pool, Postgres, Transaction};
 use tracing::instrument;
 use uuid::Uuid;
@@ -22,11 +23,8 @@ pub async fn add_completed_job_error<E: ToString + std::fmt::Debug>(
     metrics: Option<crate::worker::Metrics>,
 ) -> Result<(Uuid, serde_json::Map<String, serde_json::Value>), Error> {
     metrics.map(|m| m.worker_execution_failed.inc());
-    let mut output_map = serde_json::Map::new();
-    output_map.insert(
-        "error".to_string(),
-        serde_json::Value::String(e.to_string()),
-    );
+    let mut output_map = Map::new();
+    error_to_result(&mut output_map, &e);
     let a = add_completed_job(
         db,
         client,
@@ -38,6 +36,16 @@ pub async fn add_completed_job_error<E: ToString + std::fmt::Debug>(
     )
     .await?;
     Ok((a, output_map))
+}
+
+pub fn error_to_result<E: ToString + std::fmt::Debug>(
+    output_map: &mut Map<String, Value>,
+    err: &E,
+) {
+    output_map.insert(
+        "error".to_string(),
+        serde_json::Value::String(err.to_string()),
+    );
 }
 
 #[instrument(level = "trace", skip_all)]

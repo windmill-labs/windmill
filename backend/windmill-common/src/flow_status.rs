@@ -164,7 +164,3 @@ impl FlowStatus {
         self.modules.get(i)
     }
 }
-
-pub fn init_flow_status(f: &FlowValue) -> FlowStatus {
-    FlowStatus::new(f)
-}

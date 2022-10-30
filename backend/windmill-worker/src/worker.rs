@@ -42,7 +42,7 @@ use futures::{
 use async_recursion::async_recursion;
 
 use crate::{
-    jobs::{add_completed_job, add_completed_job_error},
+    jobs::{add_completed_job, add_completed_job_error, error_to_result},
     worker_flow::{
         handle_flow, update_flow_status_after_job_completion, update_flow_status_in_progress,
     },
@@ -467,24 +467,16 @@ async fn handle_job_error(
     keep_job_dir: bool,
     base_internal_url: &str,
 ) {
-    let m = add_completed_job_error(
-        db,
-        client,
-        &job,
-        "Unexpected error during job execution:\n".to_string(),
-        &err,
-        metrics.clone(),
-    )
-    .await
-    .map(|(_, m)| m)
-    .unwrap_or_else(|_| Map::new());
-
     if job.is_flow_step || job.job_kind == JobKind::FlowPreview || job.job_kind == JobKind::Flow {
         let (flow, job_status_to_update) = if let Some(parent_job_id) = job.parent_job {
             (parent_job_id, job.id)
         } else {
             (job.id, Uuid::nil())
         };
+        println!("job {:#?} failed {} {}", job, flow, job_status_to_update);
+
+        let mut output_map = serde_json::Map::new();
+        error_to_result(&mut output_map, &err);
         let updated_flow = update_flow_status_after_job_completion(
             db,
             client,
@@ -492,7 +484,7 @@ async fn handle_job_error(
             &job_status_to_update,
             &job.workspace_id,
             false,
-            serde_json::Value::Object(m),
+            serde_json::Value::Object(output_map),
             metrics.clone(),
             unrecoverable,
             same_worker_tx,
@@ -503,6 +495,8 @@ async fn handle_job_error(
         )
         .await;
         if let Err(err) = updated_flow {
+            println!("error updating flow status: {}", err);
+
             if let Some(parent_job_id) = job.parent_job {
                 if let Ok(mut tx) = db.begin().await {
                     if let Ok(Some(parent_job)) =
@@ -514,7 +508,7 @@ async fn handle_job_error(
                             &parent_job,
                             format!("Unexpected error during flow job error handling:\n{err}"),
                             err,
-                            metrics,
+                            metrics.clone(),
                         )
                         .await;
                     }
@@ -522,6 +516,18 @@ async fn handle_job_error(
             }
         }
     }
+    add_completed_job_error(
+        db,
+        client,
+        &job,
+        format!("Unexpected error during job execution:\n{err}"),
+        &err,
+        metrics,
+    )
+    .await
+    .map(|(_, m)| m)
+    .unwrap_or_else(|_| Map::new());
+
     tracing::error!(job_id = %job.id, err = err.alt(), "error handling job: {} {} {}", job.id, job.workspace_id, job.created_by);
 }
 
