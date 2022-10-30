@@ -211,15 +211,25 @@ pub async fn update_flow_status_after_job_completion(
         .await
         .map_err(|e| Error::InternalErr(format!("retrieval of stop_early_expr from state: {e}")))?;
 
-        (
-            success
-                && if let Some(expr) = stop_early_expr.clone() {
-                    compute_bool_from_expr(expr, result.clone(), base_internal_url).await?
-                } else {
-                    false
-                },
-            skip_if_stop_early.unwrap_or(false),
+        let flow_args = sqlx::query_scalar!(
+            "SELECT args FROM queue WHERE id = $1 AND workspace_id = $2",
+            flow,
+            w_id
         )
+        .fetch_one(&mut tx)
+        .await
+        .map_err(|e| {
+            Error::InternalErr(format!(
+                "fetching flow status {flow} while reporting {success} {result:?}: {e}"
+            ))
+        })?;
+        let stop_early = success
+            && if let Some(expr) = stop_early_expr.clone() {
+                compute_bool_from_expr(expr, &flow_args, result.clone(), base_internal_url).await?
+            } else {
+                false
+            };
+        (stop_early, skip_if_stop_early.unwrap_or(false))
     };
 
     let result = match &new_status {
@@ -464,12 +474,15 @@ fn next_retry(retry: &Retry, status: &RetryStatus) -> Option<(u16, Duration)> {
 
 async fn compute_bool_from_expr(
     expr: String,
+    flow_args: &Option<serde_json::Value>,
     result: serde_json::Value,
     base_internal_url: &str,
 ) -> error::Result<bool> {
+    let flow_input = flow_args.clone().unwrap_or_else(|| json!({}));
     match eval_timeout(
         expr,
         [
+            ("flow_input".to_string(), flow_input),
             ("result".to_string(), result.clone()),
             ("previous_result".to_string(), result),
         ]
@@ -1424,6 +1437,7 @@ async fn compute_next_flow_transform<'c>(
                     for (i, b) in branches.iter().enumerate() {
                         let pred = compute_bool_from_expr(
                             b.expr.to_string(),
+                            &flow_job.args,
                             last_result.clone(),
                             base_internal_url,
                         )

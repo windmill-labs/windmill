@@ -288,6 +288,27 @@
     },
     "query": "SELECT label, concat(substring(token for 10)) as token_prefix, expiration, created_at, last_used_at FROM token WHERE email = $1"
   },
+  "10e28457d488df43e81eed6960f16f76413121caf205ed7ceee506bd0fb168ab": {
+    "describe": {
+      "columns": [
+        {
+          "name": "args",
+          "ordinal": 0,
+          "type_info": "Jsonb"
+        }
+      ],
+      "nullable": [
+        true
+      ],
+      "parameters": {
+        "Left": [
+          "Uuid",
+          "Text"
+        ]
+      }
+    },
+    "query": "SELECT args FROM queue WHERE id = $1 AND workspace_id = $2"
+  },
   "11b1586acdfc180c5a077861ee1f7201fcbcec9d0ebada464f9d952c9c3e400d": {
     "describe": {
       "columns": [],
