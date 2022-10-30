@@ -1056,6 +1056,21 @@
     },
     "query": "UPDATE schedule SET schedule = $1, script_path = $2, is_flow = $3, args = $4 WHERE path = $5 AND workspace_id = $6 RETURNING *"
   },
+  "4f9a1d2c0806e5a617a693bfd4cab1aa8b22a83220e1070736ff57d1319a5196": {
+    "describe": {
+      "columns": [],
+      "nullable": [],
+      "parameters": {
+        "Left": [
+          "Text",
+          "Jsonb",
+          "Jsonb",
+          "Uuid"
+        ]
+      }
+    },
+    "query": "\n            UPDATE queue\n               SET flow_status = JSONB_SET(\n                                 JSONB_SET(flow_status, ARRAY['modules', $1::TEXT], $2),\n                                                        ARRAY['step'], $3)\n             WHERE id = $4\n            "
+  },
   "5061c0d054bf4f028e7fe51a8f9389024c6ae4492755cadac0f7167e5300bda0": {
     "describe": {
       "columns": [],
@@ -2571,6 +2586,19 @@
     },
     "query": "SELECT * FROM group_ WHERE workspace_id = $1 ORDER BY name desc LIMIT $2 OFFSET $3"
   },
+  "abea16604c25a0d1d4eeeb370c2780abda076df4f83c702a249f76862880daff": {
+    "describe": {
+      "columns": [],
+      "nullable": [],
+      "parameters": {
+        "Left": [
+          "Jsonb",
+          "Uuid"
+        ]
+      }
+    },
+    "query": "\n        UPDATE queue\n           SET flow_status = JSONB_SET(flow_status, ARRAY['failure_module'], $1)\n         WHERE id = $2\n        "
+  },
   "add01e9e31d64e88b84c9505fe3de553031e581b1bb173413a9a3e3eb0817b43": {
     "describe": {
       "columns": [],
@@ -2707,26 +2735,6 @@
       }
     },
     "query": "select hash from script where path = $1 AND (workspace_id = $2 OR workspace_id = 'starter') AND\n    created_at = (SELECT max(created_at) FROM script WHERE path = $1 AND (workspace_id = $2 OR workspace_id = 'starter')) AND\n    deleted = false"
-  },
-  "b87f19d248b7c5dbb57e9c6c3e4dd8a5bbb70815c06ee8e5bc8d57324eea1617": {
-    "describe": {
-      "columns": [
-        {
-          "name": "int4",
-          "ordinal": 0,
-          "type_info": "Int4"
-        }
-      ],
-      "nullable": [
-        null
-      ],
-      "parameters": {
-        "Left": [
-          "Uuid"
-        ]
-      }
-    },
-    "query": "SELECT (flow_status->'step')::integer FROM queue WHERE id = $1"
   },
   "b9468b9e16f55db11b33d8e9793e6e3ae6c5add6ca02414140adb724120a6800": {
     "describe": {
@@ -3614,6 +3622,32 @@
       }
     },
     "query": "SELECT workspace.* FROM workspace, usr WHERE usr.workspace_id = workspace.id AND usr.email = $1 AND deleted = false"
+  },
+  "f80e94176224ef23416da99b26ad5c330d65016fb93345b054cbb63a4bf37fc8": {
+    "describe": {
+      "columns": [
+        {
+          "name": "step",
+          "ordinal": 0,
+          "type_info": "Int4"
+        },
+        {
+          "name": "len",
+          "ordinal": 1,
+          "type_info": "Int4"
+        }
+      ],
+      "nullable": [
+        null,
+        null
+      ],
+      "parameters": {
+        "Left": [
+          "Uuid"
+        ]
+      }
+    },
+    "query": "SELECT (flow_status->'step')::integer as step, jsonb_array_length(flow_status->'modules') as len  FROM queue WHERE id = $1"
   },
   "f98046a2ee4ac10d9e507c033391dfb0c704dcd513d8b1e5564def4e85f9e80b": {
     "describe": {
