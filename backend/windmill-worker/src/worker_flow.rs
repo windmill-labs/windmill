@@ -1346,11 +1346,13 @@ async fn compute_next_flow_transform<'c>(
                         tx = tx_new;
                         res
                     };
+                    let flow_input = flow_job.args.clone().unwrap_or_else(|| json!({}));
                     /* Iterator is an InputTransform, evaluate it into an array. */
                     let itered = evaluate_with(
                         iterator.clone(),
                         || {
                             vec![
+                                ("flow_input".to_string(), flow_input),
                                 ("result".to_string(), last_result.clone()),
                                 ("previous_result".to_string(), last_result.clone()),
                             ]

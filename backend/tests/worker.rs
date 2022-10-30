@@ -1546,13 +1546,13 @@ async fn test_empty_loop(db: Pool<Postgres>) {
                     "iterator": { "type": "static", "value": [] },
                     "modules": [
                         {
-                            "input_transform": {
-                                "n": {
-                                    "type": "javascript",
-                                    "expr": "previous_result.iter.value",
-                                },
-                            },
                             "value": {
+                                "input_transform": {
+                                    "n": {
+                                        "type": "javascript",
+                                        "expr": "previous_result.iter.value",
+                                    },
+                                },
                                 "type": "rawscript",
                                 "language": "python3",
                                 "content": "def main(n): return n",
@@ -1562,13 +1562,13 @@ async fn test_empty_loop(db: Pool<Postgres>) {
                 },
             },
             {
-                "input_transform": {
-                    "items": {
-                        "type": "javascript",
-                        "expr": "previous_result",
-                    },
-                },
                 "value": {
+                    "input_transform": {
+                        "items": {
+                            "type": "javascript",
+                            "expr": "previous_result",
+                        },
+                    },
                     "type": "rawscript",
                     "language": "python3",
                     "content": "def main(items): return sum(items)",
@@ -1585,6 +1585,45 @@ async fn test_empty_loop(db: Pool<Postgres>) {
         .unwrap();
 
     assert_eq!(result, serde_json::json!(0));
+}
+
+#[sqlx::test(fixtures("base"))]
+async fn test_invalid_first_step(db: Pool<Postgres>) {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await;
+    let port = server.addr.port();
+
+    let flow: FlowValue = serde_json::from_value(serde_json::json!({
+        "modules": [
+            {
+                "value": {
+                    "type": "forloopflow",
+                    "iterator": { "type": "javascript", "expr": "flow_input" },
+                    "modules": [
+                        {
+                            "value": {
+                                "type": "identity",
+                            },
+                        }
+                    ],
+                },
+            },
+            {
+                "value": {
+                    "type": "identity",
+                },
+            },
+        ],
+    }))
+    .unwrap();
+
+    let flow = JobPayload::RawFlow { value: flow, path: None };
+    let job = run_job_in_new_worker_until_complete(&db, flow, port).await;
+
+    assert_eq!(
+        job.result.unwrap(),
+        serde_json::json!({"error":"Expected an array value, found: {}"})
+    );
 }
 
 #[sqlx::test(fixtures("base"))]
