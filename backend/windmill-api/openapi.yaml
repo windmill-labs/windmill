@@ -1321,11 +1321,27 @@ paths:
         - $ref: "#/components/parameters/Path"
       responses:
         "200":
-          description: resource deleted
+          description: resource
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Resource"
+
+  /w/{workspace}/resources/get_value/{path}:
+    get:
+      summary: get resource value
+      operationId: getResourceValue
+      tags:
+        - resource
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+      responses:
+        "200":
+          description: resource value
+          content:
+            application/json:
+              schema: {}
 
   /w/{workspace}/resources/exists/{path}:
     get:
