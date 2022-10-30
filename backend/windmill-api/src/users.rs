@@ -32,7 +32,7 @@ use tracing::Span;
 use windmill_audit::{audit_log, ActionKind};
 use windmill_common::{
     error::{self, Error, JsonResult, Result},
-    utils::{not_found_if_none, paginate, require_admin, Pagination},
+    utils::{not_found_if_none, paginate, rd_string, require_admin, Pagination},
 };
 
 const TTL_TOKEN_CACHE_S: u64 = 60 * 5; // 5 minutes
@@ -1269,7 +1269,7 @@ pub async fn create_session_token<'c>(
     cookies: Cookies,
     is_secure: bool,
 ) -> Result<String> {
-    let token = gen_token();
+    let token = rd_string(30);
     sqlx::query!(
         "INSERT INTO token
             (token, email, label, expiration, super_admin)
@@ -1292,22 +1292,12 @@ pub async fn create_session_token<'c>(
     Ok(token)
 }
 
-fn gen_token() -> String {
-    use rand::prelude::*;
-    let token: String = rand::thread_rng()
-        .sample_iter(&rand::distributions::Alphanumeric)
-        .take(30)
-        .map(char::from)
-        .collect();
-    token
-}
-
 async fn create_token(
     Extension(db): Extension<DB>,
     Authed { email, .. }: Authed,
     Json(new_token): Json<NewToken>,
 ) -> Result<(StatusCode, String)> {
-    let token = gen_token();
+    let token = rd_string(30);
     let mut tx = db.begin().await?;
     let email = email.ok_or_else(|| {
         error::Error::BadRequest(format!("Only users with email can create tokens"))

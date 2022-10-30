@@ -16,10 +16,10 @@ use uuid::Uuid;
 use windmill_audit::{audit_log, ActionKind};
 use windmill_common::{
     error::{self, to_anyhow, Error},
+    flow_status::{init_flow_status, FlowStatus, MAX_RETRY_ATTEMPTS, MAX_RETRY_INTERVAL},
     flows::FlowValue,
     scripts::{get_full_hub_script_by_path, HubScript, ScriptHash, ScriptLang},
     utils::StripPath,
-    worker_flow::{init_flow_status, FlowStatus, MAX_RETRY_ATTEMPTS, MAX_RETRY_INTERVAL},
 };
 
 lazy_static::lazy_static! {
@@ -200,7 +200,7 @@ pub async fn delete_job(
     .map_err(|e| Error::InternalErr(format!("Error during deletion of job {job_id}: {e}")))?
     .unwrap_or(0)
         == 1;
-    tracing::debug!("Job {job_id} deletion was achieved with success: {job_removed}");
+    tracing::debug!("Job {job_id} deleted: {job_removed}");
     Ok(())
 }
 

@@ -1,8 +1,9 @@
 use futures::{stream, Stream};
 use serde_json::json;
-use sqlx::{postgres::PgListener, query_scalar, types::Uuid, Pool, Postgres, Transaction};
+use sqlx::{postgres::PgListener, types::Uuid, Pool, Postgres, Transaction};
 use windmill_api::jobs::{CompletedJob, Job};
 use windmill_common::{
+    flow_status::{FlowStatus, FlowStatusModule},
     flows::{FlowModule, FlowModuleValue, FlowValue, InputTransform},
     scripts::ScriptLang,
     DEFAULT_SLEEP_QUEUE,
@@ -107,6 +108,29 @@ impl ApiServer {
     }
 }
 
+async fn _print_job(id: Uuid, db: &Pool<Postgres>) -> Result<(), anyhow::Error> {
+    tracing::info!(
+        "{:#?}",
+        get_job_by_id(db.begin().await?, "test-workspace", id)
+            .await?
+            .0
+    );
+    Ok(())
+}
+
+fn get_module(cjob: &CompletedJob, id: &str) -> Option<FlowStatusModule> {
+    cjob.flow_status.clone().and_then(|fs| {
+        find_module_in_vec(
+            serde_json::from_value::<FlowStatus>(fs).unwrap().modules,
+            id,
+        )
+    })
+}
+
+fn find_module_in_vec(modules: Vec<FlowStatusModule>, id: &str) -> Option<FlowStatusModule> {
+    modules.into_iter().find(|s| s.id() == id)
+}
+
 mod suspend_resume {
 
     use futures::{Stream, StreamExt};
@@ -133,16 +157,6 @@ mod suspend_resume {
                 break;
             }
         }
-    }
-
-    async fn _print_job(id: Uuid, db: &Pool<Postgres>) -> Result<(), anyhow::Error> {
-        tracing::info!(
-            "{:#?}",
-            get_job_by_id(db.begin().await?, "test-workspace", id)
-                .await?
-                .0
-        );
-        Ok(())
     }
 
     fn flow() -> FlowValue {
@@ -273,7 +287,7 @@ mod suspend_resume {
 
         server.close().await.unwrap();
 
-        let result = completed_job_result(flow, &db).await;
+        let result = completed_job(flow, &db).await.result.unwrap();
 
         assert_eq!(
             json!({
@@ -310,7 +324,9 @@ mod suspend_resume {
             .arg("op", json!("cancel"))
             .arg("port", json!(port))
             .run_until_complete(&db, port)
-            .await;
+            .await
+            .result
+            .unwrap();
 
         server.close().await.unwrap();
 
@@ -374,7 +390,7 @@ mod suspend_resume {
 
         server.close().await.unwrap();
 
-        let result = completed_job_result(flow, &db).await;
+        let result = completed_job(flow, &db).await.result.unwrap();
 
         assert_eq!(
             json!({"error": "Job canceled: approval request disapproved by unknown" }),
@@ -528,7 +544,9 @@ def main(last, port):
             .arg("items", json!(["unused", "unused", "unused"]))
             .arg("port", json!(server.addr.port()))
             .run_until_complete(&db, server.addr.port())
-            .await;
+            .await
+            .result
+            .unwrap();
 
         assert_eq!(server.close().await, attempts);
         assert_eq!(json!([3, 5, 7, 9]), result);
@@ -555,7 +573,9 @@ def main(last, port):
             .arg("items", json!(["unused", "unused", "unused"]))
             .arg("port", json!(server.addr.port()))
             .run_until_complete(&db, server.addr.port())
-            .await;
+            .await
+            .result
+            .unwrap();
 
         assert_eq!(server.close().await, attempts);
         assert!(result["error"]
@@ -587,7 +607,9 @@ def main(last, port):
             .arg("items", json!(["unused", "unused", "unused"]))
             .arg("port", json!(server.addr.port()))
             .run_until_complete(&db, server.addr.port())
-            .await;
+            .await
+            .result
+            .unwrap();
 
         assert_eq!(server.close().await, attempts);
         assert!(result["error"]
@@ -604,8 +626,9 @@ def main(last, port):
 
         let value = serde_json::from_value(json!({
             "modules": [{
-                "input_transform": { "port": { "type": "javascript", "expr": "flow_input.port" } },
+                "id": "a",
                 "value": {
+                    "input_transform": { "port": { "type": "javascript", "expr": "flow_input.port" } },
                     "type": "rawscript",
                     "language": "python3",
                     "content": r#"
@@ -617,9 +640,9 @@ def main(port):
                 "retry": { "constant": { "attempts": 1, "seconds": 0 } },
             }],
             "failure_module": {
-                "input_transform": { "error": { "type": "javascript", "expr": "previous_result", },
-                                     "port": { "type": "javascript", "expr": "flow_input.port" } },
                 "value": {
+                    "input_transform": { "error": { "type": "javascript", "expr": "previous_result", },
+                        "port": { "type": "javascript", "expr": "flow_input.port" } },
                     "type": "rawscript",
                     "language": "python3",
                     "content": r#"
@@ -643,10 +666,16 @@ def main(error, port):
         .into_iter()
         .unzip::<_, _, Vec<_>, Vec<_>>();
         let server = Server::start(responses).await;
-        let result = RunJob::from(JobPayload::RawFlow { value, path: None })
+        let cjob = RunJob::from(JobPayload::RawFlow { value, path: None })
             .arg("port", json!(server.addr.port()))
             .run_until_complete(&db, server.addr.port())
             .await;
+        let result = cjob.result.clone().unwrap();
+        let failed_module = get_module(&cjob, "a").unwrap();
+        match failed_module {
+            FlowStatusModule::Failure { .. } => {}
+            _ => panic!("expected failure module"),
+        }
 
         assert_eq!(server.close().await, attempts);
         assert_eq!(
@@ -694,14 +723,18 @@ async fn test_iteration(db: Pool<Postgres>) {
     let result = RunJob::from(JobPayload::RawFlow { value: flow.clone(), path: None })
         .arg("items", json!([]))
         .run_until_complete(&db, server.addr.port())
-        .await;
+        .await
+        .result
+        .unwrap();
     assert_eq!(result, serde_json::json!([]));
 
     /* Don't actually test that this does 257 jobs or that will take forever. */
     let result = RunJob::from(JobPayload::RawFlow { value: flow.clone(), path: None })
         .arg("items", json!((0..257).collect::<Vec<_>>()))
         .run_until_complete(&db, server.addr.port())
-        .await;
+        .await
+        .result
+        .unwrap();
     assert!(matches!(result, serde_json::Value::Object(_)));
     assert!(result["error"]
         .as_str()
@@ -751,11 +784,11 @@ impl RunJob {
     }
 
     /// push the job, spawn a worker, wait until the job is in completed_job
-    async fn run_until_complete(self, db: &Pool<Postgres>, port: u16) -> serde_json::Value {
+    async fn run_until_complete(self, db: &Pool<Postgres>, port: u16) -> CompletedJob {
         let uuid = self.push(db).await;
         let listener = listen_for_completed_jobs(db).await;
         in_test_worker(db, listener.find(&uuid), port).await;
-        completed_job_result(uuid, db).await
+        completed_job(uuid, db).await
     }
 }
 
@@ -763,7 +796,7 @@ async fn run_job_in_new_worker_until_complete(
     db: &Pool<Postgres>,
     job: JobPayload,
     port: u16,
-) -> serde_json::Value {
+) -> CompletedJob {
     RunJob::from(job).run_until_complete(db, port).await
 }
 
@@ -880,8 +913,8 @@ async fn listen_for_uuid_on(
     }))
 }
 
-async fn completed_job_result(uuid: Uuid, db: &Pool<Postgres>) -> serde_json::Value {
-    query_scalar("SELECT result FROM completed_job WHERE id = $1")
+async fn completed_job(uuid: Uuid, db: &Pool<Postgres>) -> CompletedJob {
+    sqlx::query_as::<_, CompletedJob>("SELECT * FROM completed_job WHERE id = $1")
         .bind(uuid)
         .fetch_one(db)
         .await
@@ -974,7 +1007,10 @@ async fn test_deno_flow(db: Pool<Postgres>) {
 
     for i in 0..50 {
         println!("deno flow iteration: {}", i);
-        let result = run_job_in_new_worker_until_complete(&db, job.clone(), port).await;
+        let result = run_job_in_new_worker_until_complete(&db, job.clone(), port)
+            .await
+            .result
+            .unwrap();
         assert_eq!(result, serde_json::json!([2, 4, 6]), "iteration: {}", i);
     }
 }
@@ -1129,7 +1165,10 @@ async fn test_deno_flow_same_worker(db: Pool<Postgres>) {
 
     let job = JobPayload::RawFlow { value: flow, path: None };
 
-    let result = run_job_in_new_worker_until_complete(&db, job.clone(), server.addr.port()).await;
+    let result = run_job_in_new_worker_until_complete(&db, job.clone(), server.addr.port())
+        .await
+        .result
+        .unwrap();
     assert_eq!(
         result,
         serde_json::json!("false 1,true 1,false 1,true 2,false 1,true 3,false 1,true 3")
@@ -1181,7 +1220,10 @@ async fn test_flow_result_by_id(db: Pool<Postgres>) {
         .unwrap();
 
     let job = JobPayload::RawFlow { value: flow, path: None };
-    let result = run_job_in_new_worker_until_complete(&db, job.clone(), port).await;
+    let result = run_job_in_new_worker_until_complete(&db, job.clone(), port)
+        .await
+        .result
+        .unwrap();
     assert_eq!(result, serde_json::json!([[42]]));
 }
 
@@ -1195,8 +1237,9 @@ async fn test_stop_after_if(db: Pool<Postgres>) {
     let flow: FlowValue = serde_json::from_value(serde_json::json!({
         "modules": [
             {
-                "input_transforms": { "n": { "type": "javascript", "expr": "flow_input.n" } },
+                "id": "a",
                 "value": {
+                    "input_transforms": { "n": { "type": "javascript", "expr": "flow_input.n" } },
                     "type": "rawscript",
                     "language": "python3",
                     "content": "def main(n): return n",
@@ -1207,8 +1250,9 @@ async fn test_stop_after_if(db: Pool<Postgres>) {
                 },
             },
             {
-                "input_transforms": { "n": { "type": "javascript", "expr": "previous_result" } },
+                "id": "b",
                 "value": {
+                    "input_transforms": { "n": { "type": "javascript", "expr": "previous_result" } },
                     "type": "rawscript",
                     "language": "python3",
                     "content": "def main(n): return f'last step saw {n}'",
@@ -1222,14 +1266,76 @@ async fn test_stop_after_if(db: Pool<Postgres>) {
     let result = RunJob::from(job.clone())
         .arg("n", json!(123))
         .run_until_complete(&db, port)
-        .await;
+        .await
+        .result
+        .unwrap();
     assert_eq!(json!("last step saw 123"), result);
 
-    let result = RunJob::from(job.clone())
+    let cjob = RunJob::from(job.clone())
         .arg("n", json!(-123))
         .run_until_complete(&db, port)
         .await;
+
+    let result = cjob.result.unwrap();
     assert_eq!(json!(-123), result);
+}
+
+#[sqlx::test(fixtures("base"))]
+async fn test_stop_after_if_nested(db: Pool<Postgres>) {
+    initialize_tracing().await;
+    // let server = ApiServer::start(db.clone()).await;
+    // let port = server.addr.port();
+
+    let port = 123;
+    let flow: FlowValue = serde_json::from_value(serde_json::json!({
+        "modules": [
+            {
+                "id": "a",
+                "value": {
+                    "branches": [{"modules": [{
+                    "id": "b",
+                    "value": {
+                        "input_transforms": { "n": { "type": "javascript", "expr": "flow_input.n" } },
+                        "type": "rawscript",
+                        "language": "python3",
+                        "content": "def main(n): return n",
+                    },
+                    "stop_after_if": {
+                        "expr": "result < 0",
+                        "skip_if_stopped": false,
+                    }}]}],
+                    "type": "branchall"
+                },
+            },
+            {
+                "id": "c",
+                "value": {
+                    "input_transforms": { "n": { "type": "javascript", "expr": "previous_result" } },
+                    "type": "rawscript",
+                    "language": "python3",
+                    "content": "def main(n): return f'last step saw {n}'",
+                },
+            },
+        ],
+    }))
+    .unwrap();
+    let job = JobPayload::RawFlow { value: flow, path: None };
+
+    let result = RunJob::from(job.clone())
+        .arg("n", json!(123))
+        .run_until_complete(&db, port)
+        .await
+        .result
+        .unwrap();
+    assert_eq!(json!("last step saw [123]"), result);
+
+    let cjob = RunJob::from(job.clone())
+        .arg("n", json!(-123))
+        .run_until_complete(&db, port)
+        .await;
+
+    let result = cjob.result.unwrap();
+    assert_eq!(json!([-123]), result);
 }
 
 #[sqlx::test(fixtures("base"))]
@@ -1282,7 +1388,9 @@ async fn test_python_flow(db: Pool<Postgres>) {
             JobPayload::RawFlow { value: flow.clone(), path: None },
             port,
         )
-        .await;
+        .await
+        .result
+        .unwrap();
 
         assert_eq!(result, serde_json::json!([2, 4, 6]), "iteration: {i}");
     }
@@ -1315,7 +1423,9 @@ async fn test_python_flow_2(db: Pool<Postgres>) {
             JobPayload::RawFlow { value: flow.clone(), path: None },
             port,
         )
-        .await;
+        .await
+        .result
+        .unwrap();
 
         assert_eq!(result, serde_json::json!("Hello"), "iteration: {i}");
     }
@@ -1344,7 +1454,9 @@ func main(derp string) (string, error) {
     }))
     .arg("derp", json!("world"))
     .run_until_complete(&db, port)
-    .await;
+    .await
+    .result
+    .unwrap();
 
     assert_eq!(result, serde_json::json!("hello world"));
 }
@@ -1363,7 +1475,10 @@ def main():
 
     let job = JobPayload::Code(RawCode { content, path: None, language: ScriptLang::Python3 });
 
-    let result = run_job_in_new_worker_until_complete(&db, job, port).await;
+    let result = run_job_in_new_worker_until_complete(&db, job, port)
+        .await
+        .result
+        .unwrap();
 
     assert_eq!(result, serde_json::json!("hello world"));
 }
@@ -1385,7 +1500,10 @@ def main():
 
     let job = JobPayload::Code(RawCode { content, path: None, language: ScriptLang::Python3 });
 
-    let result = run_job_in_new_worker_until_complete(&db, job, port).await;
+    let result = run_job_in_new_worker_until_complete(&db, job, port)
+        .await
+        .result
+        .unwrap();
 
     assert_eq!(result, serde_json::json!(3));
 }
@@ -1406,7 +1524,10 @@ def main():
 
     let job = JobPayload::Code(RawCode { content, path: None, language: ScriptLang::Python3 });
 
-    let result = run_job_in_new_worker_until_complete(&db, job, port).await;
+    let result = run_job_in_new_worker_until_complete(&db, job, port)
+        .await
+        .result
+        .unwrap();
 
     assert_eq!(result, serde_json::json!("test-workspace"));
 }
@@ -1458,7 +1579,10 @@ async fn test_empty_loop(db: Pool<Postgres>) {
     .unwrap();
 
     let flow = JobPayload::RawFlow { value: flow, path: None };
-    let result = run_job_in_new_worker_until_complete(&db, flow, port).await;
+    let result = run_job_in_new_worker_until_complete(&db, flow, port)
+        .await
+        .result
+        .unwrap();
 
     assert_eq!(result, serde_json::json!(0));
 }
@@ -1497,7 +1621,10 @@ async fn test_empty_loop_2(db: Pool<Postgres>) {
     .unwrap();
 
     let flow = JobPayload::RawFlow { value: flow, path: None };
-    let result = run_job_in_new_worker_until_complete(&db, flow, port).await;
+    let result = run_job_in_new_worker_until_complete(&db, flow, port)
+        .await
+        .result
+        .unwrap();
 
     assert_eq!(result, serde_json::json!([]));
 }
@@ -1548,7 +1675,10 @@ async fn test_step_after_loop(db: Pool<Postgres>) {
     .unwrap();
 
     let flow = JobPayload::RawFlow { value: flow, path: None };
-    let result = run_job_in_new_worker_until_complete(&db, flow, port).await;
+    let result = run_job_in_new_worker_until_complete(&db, flow, port)
+        .await
+        .result
+        .unwrap();
 
     assert_eq!(result, serde_json::json!(9));
 }
@@ -1611,7 +1741,10 @@ async fn test_branchone_simple(db: Pool<Postgres>) {
     .unwrap();
 
     let flow = JobPayload::RawFlow { value: flow, path: None };
-    let result = run_job_in_new_worker_until_complete(&db, flow, port).await;
+    let result = run_job_in_new_worker_until_complete(&db, flow, port)
+        .await
+        .result
+        .unwrap();
 
     assert_eq!(result, serde_json::json!([1, 2]));
 }
@@ -1644,7 +1777,10 @@ async fn test_branchall_simple(db: Pool<Postgres>) {
     .unwrap();
 
     let flow = JobPayload::RawFlow { value: flow, path: None };
-    let result = run_job_in_new_worker_until_complete(&db, flow, port).await;
+    let result = run_job_in_new_worker_until_complete(&db, flow, port)
+        .await
+        .result
+        .unwrap();
 
     assert_eq!(result, serde_json::json!([[1, 2], [1, 3]]));
 }
@@ -1677,7 +1813,10 @@ async fn test_branchall_skip_failure(db: Pool<Postgres>) {
     .unwrap();
 
     let flow = JobPayload::RawFlow { value: flow, path: None };
-    let result = run_job_in_new_worker_until_complete(&db, flow, port).await;
+    let result = run_job_in_new_worker_until_complete(&db, flow, port)
+        .await
+        .result
+        .unwrap();
 
     assert_eq!(
         result,
@@ -1707,7 +1846,10 @@ async fn test_branchall_skip_failure(db: Pool<Postgres>) {
     .unwrap();
 
     let flow = JobPayload::RawFlow { value: flow, path: None };
-    let result = run_job_in_new_worker_until_complete(&db, flow, port).await;
+    let result = run_job_in_new_worker_until_complete(&db, flow, port)
+        .await
+        .result
+        .unwrap();
 
     assert_eq!(
         result,
@@ -1763,7 +1905,10 @@ async fn test_branchone_nested(db: Pool<Postgres>) {
     .unwrap();
 
     let flow = JobPayload::RawFlow { value: flow, path: None };
-    let result = run_job_in_new_worker_until_complete(&db, flow, port).await;
+    let result = run_job_in_new_worker_until_complete(&db, flow, port)
+        .await
+        .result
+        .unwrap();
 
     assert_eq!(result, serde_json::json!([1, 2, 3]));
 }
@@ -1813,7 +1958,10 @@ async fn test_branchall_nested(db: Pool<Postgres>) {
     .unwrap();
 
     let flow = JobPayload::RawFlow { value: flow, path: None };
-    let result = run_job_in_new_worker_until_complete(&db, flow, port).await;
+    let result = run_job_in_new_worker_until_complete(&db, flow, port)
+        .await
+        .result
+        .unwrap();
 
     assert_eq!(
         result,
@@ -1873,7 +2021,9 @@ async fn test_failure_module(db: Pool<Postgres>) {
     let result = RunJob::from(JobPayload::RawFlow { value: flow.clone(), path: None })
         .arg("n", json!(0))
         .run_until_complete(&db, port)
-        .await;
+        .await
+        .result
+        .unwrap();
     assert!(result["from failure module"]["error"]
         .as_str()
         .unwrap()
@@ -1882,7 +2032,9 @@ async fn test_failure_module(db: Pool<Postgres>) {
     let result = RunJob::from(JobPayload::RawFlow { value: flow.clone(), path: None })
         .arg("n", json!(1))
         .run_until_complete(&db, port)
-        .await;
+        .await
+        .result
+        .unwrap();
     assert!(result["from failure module"]["error"]
         .as_str()
         .unwrap()
@@ -1891,7 +2043,9 @@ async fn test_failure_module(db: Pool<Postgres>) {
     let result = RunJob::from(JobPayload::RawFlow { value: flow.clone(), path: None })
         .arg("n", json!(2))
         .run_until_complete(&db, port)
-        .await;
+        .await
+        .result
+        .unwrap();
     assert!(result["from failure module"]["error"]
         .as_str()
         .unwrap()
@@ -1900,6 +2054,8 @@ async fn test_failure_module(db: Pool<Postgres>) {
     let result = RunJob::from(JobPayload::RawFlow { value: flow.clone(), path: None })
         .arg("n", json!(3))
         .run_until_complete(&db, port)
-        .await;
+        .await
+        .result
+        .unwrap();
     assert_eq!(json!({ "l": [0, 1, 2] }), result);
 }
