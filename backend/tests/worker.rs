@@ -2098,3 +2098,25 @@ async fn test_failure_module(db: Pool<Postgres>) {
         .unwrap();
     assert_eq!(json!({ "l": [0, 1, 2] }), result);
 }
+
+// #[cfg(test)]
+// mod client_test {
+//     use windmill_common::error::to_anyhow;
+
+//     #[tokio::test]
+//     async fn test_rust_client() -> Result<(), Box<dyn std::error::Error>> {
+//         println!(
+//             "{:#?}",
+//             windmill_api_client::create_client(
+//                 "http://windmill.wimill.xyz",
+//                 "XXXXXXXXXXXXXXX".to_string(),
+//             )
+//             .get_variable("demo", "u/ruben/test", Some(true))
+//             .await
+//             .map_err(to_anyhow)
+//             .map(|v| { v.into_inner() })?
+//             .value
+//         );
+//         Ok(())
+//     }
+// }
