@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [1.42.1](https://github.com/windmill-labs/windmill/compare/v1.42.0...v1.42.1) (2022-10-30)
+
+
+### Bug Fixes
+
+* **deno-client:** add missing approver encoding to hmac api request ([#829](https://github.com/windmill-labs/windmill/issues/829)) ([eef7c7f](https://github.com/windmill-labs/windmill/commit/eef7c7ff9442b818a87f63439726efc89395cb07))
+
 ## [1.42.0](https://github.com/windmill-labs/windmill/compare/v1.41.0...v1.42.0) (2022-10-30)
 
 
