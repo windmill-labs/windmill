@@ -503,6 +503,7 @@ async fn handle_job_error(
             worker_dir,
             keep_job_dir,
             base_internal_url,
+            None,
         )
         .await;
         if let Err(err) = updated_flow {
@@ -656,6 +657,7 @@ async fn handle_queued_job(
                                 worker_dir,
                                 worker_config.keep_job_dir,
                                 &worker_config.base_internal_url,
+                                None,
                             )
                             .await?;
                         }
@@ -705,6 +707,7 @@ async fn handle_queued_job(
                                 worker_dir,
                                 worker_config.keep_job_dir,
                                 &worker_config.base_internal_url,
+                                None,
                             )
                             .await?;
                         }

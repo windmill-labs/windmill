@@ -50,6 +50,7 @@ pub async fn update_flow_status_after_job_completion(
     worker_dir: &str,
     keep_job_dir: bool,
     base_internal_url: &str,
+    stop_early_override: Option<bool>,
 ) -> error::Result<()> {
     tracing::debug!("UPDATE FLOW STATUS: {flow:?} {success} {result:?} {w_id}");
 
@@ -152,8 +153,13 @@ pub async fn update_flow_status_after_job_completion(
         .map(|i| !(..old_status.modules.len()).contains(&i))
         .unwrap_or(true);
 
-    let (stop_early_expr, skip_if_stop_early) =
-        sqlx::query_as::<_, (Option<String>, Option<bool>)>(
+    let (stop_early, skip_if_stop_early) = if let Some(se) = stop_early_override {
+        (true, se)
+    } else {
+        let (stop_early_expr, skip_if_stop_early) = sqlx::query_as::<
+            _,
+            (Option<String>, Option<bool>),
+        >(
             "
             UPDATE queue
                SET flow_status = JSONB_SET(
@@ -173,12 +179,16 @@ pub async fn update_flow_status_after_job_completion(
         .await
         .map_err(|e| Error::InternalErr(format!("retrieval of stop_early_expr from state: {e}")))?;
 
-    let stop_early = success
-        && if let Some(expr) = stop_early_expr.clone() {
-            compute_bool_from_expr(expr, result.clone(), base_internal_url).await?
-        } else {
-            false
-        };
+        (
+            success
+                && if let Some(expr) = stop_early_expr.clone() {
+                    compute_bool_from_expr(expr, result.clone(), base_internal_url).await?
+                } else {
+                    false
+                },
+            skip_if_stop_early.unwrap_or(false),
+        )
+    };
 
     let result = match &new_status {
         FlowStatusModule::Success { flow_jobs: Some(jobs), .. } => {
@@ -266,8 +276,7 @@ pub async fn update_flow_status_after_job_completion(
         let logs = if flow_job.canceled {
             "Flow job canceled".to_string()
         } else if stop_early {
-            let stop_early_expr = stop_early_expr.unwrap();
-            format!("Flow job stopped early based on the stop_early_expr predicate: {stop_early_expr} returning true")
+            format!("Flow job stopped early because of a stop early predicate returning true")
         } else {
             "Flow job completed".to_string()
         };
@@ -288,7 +297,7 @@ pub async fn update_flow_status_after_job_completion(
                 client,
                 &flow_job,
                 success,
-                stop_early && skip_if_stop_early.unwrap_or(false),
+                stop_early && skip_if_stop_early,
                 result.clone(),
                 logs,
             )
@@ -343,6 +352,11 @@ pub async fn update_flow_status_after_job_completion(
                 worker_dir,
                 keep_job_dir,
                 base_internal_url,
+                if stop_early {
+                    Some(skip_if_stop_early)
+                } else {
+                    None
+                },
             )
             .await?);
         }
@@ -589,6 +603,7 @@ pub async fn handle_flow(
             worker_dir,
             false,
             base_internal_url,
+            None,
         )
         .await?;
         return Ok(());
