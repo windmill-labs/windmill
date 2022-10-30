@@ -23,6 +23,7 @@ use crate::{
     users::Authed,
 };
 
+mod app;
 mod audit;
 mod capture;
 mod db;
