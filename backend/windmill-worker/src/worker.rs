@@ -734,7 +734,7 @@ async fn transform_json_value(
         Value::String(y) if y.starts_with("$var:") => {
             let path = y.strip_prefix("$var:").unwrap();
             let v = client
-                .get_variable(workspace, path, None)
+                .get_variable(workspace, path, Some(true))
                 .await
                 .map_err(to_anyhow)
                 .map(|v| v.into_inner())?
@@ -753,15 +753,11 @@ async fn transform_json_value(
                 ));
             }
             let v = client
-                .get_resource(workspace, path)
+                .get_resource_value(workspace, path)
                 .await
-                .map_err(to_anyhow)?;
-            transform_json_value(
-                client,
-                workspace,
-                serde_json::to_value(v.into_inner()).map_err(to_anyhow)?,
-            )
-            .await
+                .map_err(to_anyhow)?
+                .into_inner();
+            transform_json_value(client, workspace, v).await
         }
         Value::Object(mut m) => {
             for (a, b) in m.clone().into_iter() {
