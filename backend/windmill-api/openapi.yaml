@@ -3895,7 +3895,7 @@ components:
         description:
           type: string
         account:
-          type: string
+          type: integer
         is_oauth:
           type: boolean
         extra_perms:
