@@ -21,11 +21,11 @@ use tracing::instrument;
 use uuid::Uuid;
 use windmill_common::{
     error::{self, to_anyhow, Error},
-    flows::{FlowModule, FlowModuleValue, FlowValue, InputTransform, Retry, Suspend},
-    worker_flow::{
+    flow_status::{
         Approval, BranchAllStatus, BranchChosen, FlowStatus, FlowStatusModule, RetryStatus,
         MAX_RETRY_ATTEMPTS, MAX_RETRY_INTERVAL,
     },
+    flows::{FlowModule, FlowModuleValue, FlowValue, InputTransform, Retry, Suspend},
 };
 
 type DB = sqlx::Pool<sqlx::Postgres>;
@@ -81,6 +81,8 @@ pub async fn update_flow_status_after_job_completion(
         .and_then(|i| old_status.modules.get(i))
         .unwrap_or(&old_status.failure_module);
 
+    tracing::debug!("UPDATE FLOW STATUS 2: {module_index:#?} {module_status:#?} {old_status:#?} ");
+
     let skip_loop_failures = if matches!(
         module_status,
         FlowStatusModule::InProgress { iterator: Some(_), .. }
@@ -105,7 +107,7 @@ pub async fn update_flow_status_after_job_completion(
 
     let (step_counter, new_status) = match module_status {
         FlowStatusModule::InProgress {
-            iterator: Some(windmill_common::worker_flow::Iterator { index, itered, .. }),
+            iterator: Some(windmill_common::flow_status::Iterator { index, itered, .. }),
             ..
         } if (*index + 1 < itered.len() && (success || skip_loop_failures)) => {
             (old_status.step, module_status.clone())
@@ -154,7 +156,37 @@ pub async fn update_flow_status_after_job_completion(
         .unwrap_or(true);
 
     let (stop_early, skip_if_stop_early) = if let Some(se) = stop_early_override {
+        sqlx::query!(
+            "
+            UPDATE queue
+               SET flow_status = JSONB_SET(
+                                 JSONB_SET(flow_status, ARRAY['modules', $1::TEXT], $2),
+                                                        ARRAY['step'], $3)
+             WHERE id = $4
+            ",
+            old_status.step.to_string(),
+            json!(new_status),
+            json!(step_counter),
+            flow
+        )
+        .execute(&mut tx)
+        .await?;
+
         (true, se)
+    } else if old_status.step >= old_status.modules.len() as i32 {
+        tracing::debug!("SET NEW STATUS: {new_status:#?} ");
+        sqlx::query!(
+            "
+        UPDATE queue
+           SET flow_status = JSONB_SET(flow_status, ARRAY['failure_module'], $1)
+         WHERE id = $2
+        ",
+            json!(new_status),
+            flow
+        )
+        .execute(&mut tx)
+        .await?;
+        (false, false)
     } else {
         let (stop_early_expr, skip_if_stop_early) = sqlx::query_as::<
             _,
@@ -172,8 +204,8 @@ pub async fn update_flow_status_after_job_completion(
             ",
         )
         .bind(old_status.step)
-        .bind(serde_json::json!(new_status))
-        .bind(serde_json::json!(step_counter))
+        .bind(json!(new_status))
+        .bind(json!(step_counter))
         .bind(flow)
         .fetch_one(&mut tx)
         .await
@@ -280,7 +312,6 @@ pub async fn update_flow_status_after_job_completion(
         } else {
             "Flow job completed".to_string()
         };
-        tracing::debug!("{skip_if_stop_early:?}");
         if flow_job.canceled {
             add_completed_job_error(
                 db,
@@ -465,31 +496,54 @@ pub async fn update_flow_status_in_progress(
     job_in_progress: Uuid,
 ) -> error::Result<()> {
     let step = get_step_of_flow_status(db, flow).await?;
-    sqlx::query(&format!(
-        "UPDATE queue
-            SET flow_status = jsonb_set(jsonb_set(flow_status, '{{modules, {step}, job}}', $1), '{{modules, {step}, type}}', $2)
-            WHERE id = $3 AND workspace_id = $4",
-    ))
-    .bind(json!(job_in_progress.to_string()))
-    .bind(json!("InProgress"))
-    .bind(flow)
-    .bind(w_id)
-    .execute(db)
-    .await?;
+    if let Step::Step(step) = step {
+        sqlx::query(&format!(
+            "UPDATE queue
+                SET flow_status = jsonb_set(jsonb_set(flow_status, '{{modules, {step}, job}}', $1), '{{modules, {step}, type}}', $2)
+                WHERE id = $3 AND workspace_id = $4",
+        ))
+        .bind(json!(job_in_progress.to_string()))
+        .bind(json!("InProgress"))
+        .bind(flow)
+        .bind(w_id)
+        .execute(db)
+        .await?;
+    } else {
+        sqlx::query(&format!(
+            "UPDATE queue
+                SET flow_status = jsonb_set(jsonb_set(flow_status, '{{failure_module, job}}', $1), '{{failure_module, type}}', $2)
+                WHERE id = $3 AND workspace_id = $4",
+        ))
+        .bind(json!(job_in_progress.to_string()))
+        .bind(json!("InProgress"))
+        .bind(flow)
+        .bind(w_id)
+        .execute(db)
+        .await?;
+    }
     Ok(())
 }
 
+pub enum Step {
+    Step(i32),
+    FailureStep,
+}
 #[instrument(level = "trace", skip_all)]
-pub async fn get_step_of_flow_status(db: &DB, id: Uuid) -> error::Result<i32> {
-    let r = sqlx::query_scalar!(
-        "SELECT (flow_status->'step')::integer FROM queue WHERE id = $1",
+pub async fn get_step_of_flow_status(db: &DB, id: Uuid) -> error::Result<Step> {
+    let r = sqlx::query!(
+        "SELECT (flow_status->'step')::integer as step, jsonb_array_length(flow_status->'modules') as len  FROM queue WHERE id = $1",
         id
     )
     .fetch_one(db)
     .await
-    .map_err(|e| Error::InternalErr(format!("fetching step flow status: {e}")))?
-    .ok_or_else(|| Error::InternalErr(format!("not found step")))?;
-    Ok(r)
+    .map_err(|e| Error::InternalErr(format!("fetching step flow status: {e}")))?;
+    if r.step < r.len {
+        Ok(Step::Step(r.step.ok_or_else(|| {
+            Error::InternalErr("step is null".to_string())
+        })?))
+    } else {
+        Ok(Step::FailureStep)
+    }
 }
 
 /// resumes should be in order of timestamp ascending, so that more recent are at the end
@@ -520,7 +574,7 @@ async fn transform_input(
                 let flow_input = flow_args.clone().unwrap_or_else(|| json!({}));
                 let previous_result = flatten_previous_result(last_result.clone());
                 let context = vec![
-                    ("params".to_string(), serde_json::json!(mapped)),
+                    ("params".to_string(), json!(mapped)),
                     ("previous_result".to_string(), previous_result),
                     ("flow_input".to_string(), flow_input),
                     (
@@ -596,7 +650,7 @@ pub async fn handle_flow(
             &Uuid::nil(),
             flow_job.workspace_id.as_str(),
             true,
-            serde_json::json!({}),
+            json!({}),
             None,
             true,
             same_worker_tx,
@@ -613,7 +667,7 @@ pub async fn handle_flow(
         serde_json::from_value::<FlowStatus>(flow_job.flow_status.clone().unwrap_or_default())
             .with_context(|| format!("parse flow status {}", flow_job.id))?;
 
-    tracing::debug!("handle_flow: {:#?}", flow_job);
+    tracing::debug!("handle_flow: {:#?}", flow_job.flow_status);
     push_next_flow_job(
         flow_job,
         status,
@@ -695,7 +749,7 @@ async fn push_next_flow_job(
         .unwrap_or_else(|| status.failure_module.clone());
 
     tracing::debug!(
-        "push_next_flow_job: module: {:#?}, status: {:#?}",
+        "push_next_flow_job {i}: module: {:#?}, status: {:#?}",
         module.value,
         status_module
     );
@@ -1048,11 +1102,11 @@ async fn push_next_flow_job(
 
             FlowStatusModule::InProgress {
                 job: uuid,
-                iterator: Some(windmill_common::worker_flow::Iterator { index, itered }),
+                iterator: Some(windmill_common::flow_status::Iterator { index, itered }),
                 flow_jobs: Some(flow_jobs),
                 branch_chosen: None,
                 branchall: None,
-                id: module.id.clone(),
+                id: status_module.id(),
             }
         }
         NextStatus::NextBranchStep(NextBranch { mut flow_jobs, status, .. }) => {
@@ -1064,7 +1118,7 @@ async fn push_next_flow_job(
                 flow_jobs: Some(flow_jobs),
                 branch_chosen: None,
                 branchall: Some(status),
-                id: module.id.clone(),
+                id: status_module.id(),
             }
         }
 
@@ -1074,23 +1128,30 @@ async fn push_next_flow_job(
             flow_jobs: None,
             branch_chosen: Some(branch),
             branchall: None,
-            id: module.id.clone(),
+            id: status_module.id(),
         },
         NextStatus::NextStep => {
-            FlowStatusModule::WaitingForExecutor { id: module.id.clone(), job: uuid }
+            FlowStatusModule::WaitingForExecutor { id: status_module.id(), job: uuid }
         }
     };
 
-    sqlx::query(
+    tracing::debug!("STATUS STEP: {:?} {i} {:#?}", status.step, new_status);
+
+    let json_pointer = if i >= flow.modules.len() {
+        "'failure_module'"
+    } else {
+        "'modules', $1::TEXT"
+    };
+    sqlx::query(&format!(
         "
-        UPDATE queue
-           SET flow_status = JSONB_SET(
-                             JSONB_SET(flow_status, ARRAY['modules', $1::TEXT], $2),
-                                                    ARRAY['step'], $3)
-         WHERE id = $4
-          ",
-    )
-    .bind(status.step)
+            UPDATE queue
+               SET flow_status = JSONB_SET(
+                                 JSONB_SET(flow_status, ARRAY[{json_pointer}], $2),
+                                                        ARRAY['step'], $3)
+             WHERE id = $4
+              "
+    ))
+    .bind(i as i32)
     .bind(json!(new_status))
     .bind(json!(i))
     .bind(flow_job.id)
@@ -1308,7 +1369,7 @@ async fn compute_next_flow_transform<'c>(
                 }
 
                 FlowStatusModule::InProgress {
-                    iterator: Some(windmill_common::worker_flow::Iterator { itered, index }),
+                    iterator: Some(windmill_common::flow_status::Iterator { itered, index }),
                     flow_jobs: Some(flow_jobs),
                     ..
                 } => {

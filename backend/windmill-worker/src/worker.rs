@@ -14,6 +14,7 @@ use uuid::Uuid;
 use windmill_common::{
     error::{self, to_anyhow, Error},
     scripts::{ScriptHash, ScriptLang},
+    utils::rd_string,
     variables,
 };
 use windmill_queue::{
@@ -57,12 +58,7 @@ pub async fn create_token_for_owner<'c>(
     username: &str,
 ) -> error::Result<(Transaction<'c, Postgres>, String)> {
     // TODO: Bad implementation. We should not have access to this DB here.
-    use rand::prelude::*;
-    let token: String = rand::thread_rng()
-        .sample_iter(&rand::distributions::Alphanumeric)
-        .take(30)
-        .map(char::from)
-        .collect();
+    let token: String = rd_string(30);
     let is_super_admin = username.contains('@')
         && sqlx::query_scalar!(
             "SELECT super_admin FROM password WHERE email = $1",

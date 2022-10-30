@@ -100,6 +100,8 @@ pub enum FlowStatusModule {
         flow_jobs: Option<Vec<Uuid>>,
         #[serde(skip_serializing_if = "Option::is_none")]
         branch_chosen: Option<BranchChosen>,
+        #[serde(default)]
+        #[serde(skip_serializing_if = "Vec::is_empty")]
         approvers: Vec<Approval>,
     },
     Failure {
@@ -145,7 +147,13 @@ impl FlowStatus {
                 .iter()
                 .map(|m| FlowStatusModule::WaitingForPriorSteps { id: m.id.clone() })
                 .collect(),
-            failure_module: FlowStatusModule::WaitingForPriorSteps { id: "failure".to_string() },
+            failure_module: FlowStatusModule::WaitingForPriorSteps {
+                id: f
+                    .failure_module
+                    .as_ref()
+                    .map(|x| x.id.clone())
+                    .unwrap_or_else(|| "failure".to_string()),
+            },
             retry: RetryStatus { fail_count: 0, previous_result: None, failed_jobs: vec![] },
         }
     }
