@@ -57,6 +57,32 @@ async function login({ baseUrl }: Options, email?: string, password?: string) {
   console.log(colors.bold.underline.green("Successfully logged in!"));
 }
 
+export async function getToken(baseUrl: string): Promise<string> {
+  const baseHash = Math.abs(hash_string(baseUrl)).toString(16);
+  const store = dir("config") + "/windmill/";
+  try {
+    await Deno.mkdir(store);
+  } catch {
+    /* ignore existing folder */
+  }
+  const baseStore = store + baseHash + "/";
+  try {
+    await Deno.mkdir(baseStore);
+  } catch {
+    /*ignore existing folder */
+  }
+  try {
+    return await Deno.readTextFile(baseStore + "token");
+  } catch {
+    console.log(
+      colors.bold.underline.red(
+        "You need to be logged in to do this! Run 'windmill login' to login."
+      )
+    );
+    return Deno.exit(-1);
+  }
+}
+
 const command = new Command()
   .description("log into windmill")
   .arguments("[email:string] [password:string]")

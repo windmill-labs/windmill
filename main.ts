@@ -4,6 +4,7 @@ import {
   UpgradeCommand,
 } from "https://deno.land/x/cliffy@v0.25.4/command/upgrade/mod.ts";
 import login from "./login.ts";
+import flow from "./flow.ts";
 
 await new Command()
   .name("windmill")
@@ -17,6 +18,7 @@ await new Command()
   )
   .version("v0.0.0")
   .command("login", login)
+  .command("flow", flow)
   .command(
     "upgrade",
     new UpgradeCommand({
