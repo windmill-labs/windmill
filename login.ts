@@ -10,6 +10,7 @@ import {
   UserService,
 } from "https://deno.land/x/windmill@v1.41.0/mod.ts";
 import { colors } from "https://deno.land/x/cliffy@v0.25.4/ansi/colors.ts";
+import * as fs from "https://deno.land/std@0.161.0/fs/mod.ts";
 
 export type Options = GlobalOptions;
 
@@ -30,18 +31,9 @@ async function login({ baseUrl }: Options, email?: string, password?: string) {
   setClient("no_token", baseUrl);
   const baseHash = Math.abs(hash_string(baseUrl)).toString(16);
   const store = dir("config") + "/windmill/";
-  try {
-    await Deno.mkdir(store);
-  } catch {
-    /* ignore existing folder */
-  }
+  await fs.ensureDir(store);
   const baseStore = store + baseHash + "/";
-  try {
-    await Deno.mkdir(baseStore);
-  } catch {
-    /*ignore existing folder */
-  }
-
+  await fs.ensureDir(baseStore);
   email = email ?? (await Input.prompt({ message: "Input your Email" }));
   password =
     password ?? (await Secret.prompt({ message: "Input your Password" }));
@@ -60,17 +52,9 @@ async function login({ baseUrl }: Options, email?: string, password?: string) {
 export async function getToken(baseUrl: string): Promise<string> {
   const baseHash = Math.abs(hash_string(baseUrl)).toString(16);
   const store = dir("config") + "/windmill/";
-  try {
-    await Deno.mkdir(store);
-  } catch {
-    /* ignore existing folder */
-  }
+  await fs.ensureDir(store);
   const baseStore = store + baseHash + "/";
-  try {
-    await Deno.mkdir(baseStore);
-  } catch {
-    /*ignore existing folder */
-  }
+  await fs.ensureDir(baseStore);
   try {
     return await Deno.readTextFile(baseStore + "token");
   } catch {
