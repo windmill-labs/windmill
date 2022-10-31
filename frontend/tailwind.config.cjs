@@ -251,7 +251,7 @@ const config = {
 				},
 			});
 			addComponents({
-				'#table-custom': {
+				'.table-custom': {
 					'& th': {
 						paddingTop: theme('spacing.3'),
 						paddingBottom: theme('spacing.3'),
