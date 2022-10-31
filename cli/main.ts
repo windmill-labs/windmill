@@ -10,6 +10,7 @@ import workspace from "./workspace.ts";
 import resource from "./resource.ts";
 import remote from "./remote.ts";
 import user from "./user.ts";
+import setup from "./setup.ts";
 
 await new Command()
   .name("windmill")
@@ -63,6 +64,7 @@ await new Command()
   .command("resource", resource)
   .command("remote", remote)
   .command("user", user)
+  .command("setup", setup)
   .command(
     "upgrade",
     new UpgradeCommand({
