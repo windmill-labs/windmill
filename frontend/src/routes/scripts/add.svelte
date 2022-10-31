@@ -59,9 +59,12 @@
 
 	async function loadHub(): Promise<void> {
 		if (hubPath) {
-			const { content, language } = await ScriptService.getHubScriptByPath({ path: hubPath })
+			const { content, language, summary } = await ScriptService.getHubScriptByPath({
+				path: hubPath
+			})
 			script.description = `Fork of ${hubPath}`
 			script.content = content
+			script.summary = summary ?? ''
 			script.language = language as Script.language
 		}
 	}

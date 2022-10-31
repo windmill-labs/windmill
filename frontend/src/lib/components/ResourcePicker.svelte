@@ -33,12 +33,15 @@
 		<option value={r.path}>{r.path}{r.description ? ' | ' + r.description : ''}</option>
 	{/each}
 </select>
-<div class="flex flex-row gap-4">
-	<a class="text-xs hover:underline" target="_blank" href="/resources?connect_app={resourceType}"
-		>Connect the app {resourceType} to an account (if available)</a
+<div class="flex flex-row gap-2">
+	<a
+		class="text-xs hover:underline"
+		rel="noreferrer"
+		target="_blank"
+		href="/resources?connect_app={resourceType}">Connect {resourceType} with OAuth</a
 	>
 	<button
-		class="text-xs text-blue-500"
+		class="text-xs text-blue-500 font-normal"
 		type="button"
 		on:click={() => {
 			loadResources(resourceType)
@@ -47,12 +50,12 @@
 		refresh
 	</button>
 	<button
-		class="text-xs text-blue-500"
+		class="text-xs text-blue-500 font-normal"
 		type="button"
 		on:click={() => {
 			resourceEditor.initNew(resourceType)
 		}}
 	>
-		+ Create a new {resourceType} resource manually
+		+Create a new {resourceType}
 	</button>
 </div>
