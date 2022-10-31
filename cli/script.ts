@@ -165,6 +165,15 @@ async function list(opts: GlobalOptions & { showArchived: boolean }) {
     .render();
 }
 
+async function show(opts: GlobalOptions, path: string) {
+  const { workspace } = await getContext(opts);
+  const s = await ScriptService.getScriptByPath({ workspace, path });
+  console.log(colors.underline(s.path));
+  if (s.description) console.log(s.description);
+  console.log("");
+  console.log(s.content);
+}
+
 const command = new Command()
   .description("script related commands")
   .option("--show-archived", "Enable archived scripts in output")
@@ -174,6 +183,9 @@ const command = new Command()
     "push a local script spec. This overrides any remote versions."
   )
   .arguments("<file_path:string> <remote_path:string> [content_path:string]")
-  .action(push as any);
+  .action(push as any)
+  .command("show", "show a scripts content")
+  .arguments("<path:string>")
+  .action(show as any);
 
 export default command;
