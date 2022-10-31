@@ -7,6 +7,7 @@ import login from "./login.ts";
 import flow from "./flow.ts";
 import script from "./script.ts";
 import workspace from "./workspace.ts";
+import resource from "./resource.ts";
 
 await new Command()
   .name("windmill")
@@ -27,6 +28,7 @@ await new Command()
   .command("flow", flow)
   .command("script", script)
   .command("workspace", workspace)
+  .command("resource", resource)
   .command(
     "upgrade",
     new UpgradeCommand({
