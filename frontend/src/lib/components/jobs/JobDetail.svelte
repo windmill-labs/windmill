@@ -34,7 +34,7 @@
 				{#if job === undefined}
 					No job found
 				{:else}
-					<div class="block text-center align-middle pb-3 pt-2 px-6">
+					<div class="block text-center align-middle  px-6">
 						{#if 'success' in job && job.success}
 							{#if job.is_skipped}
 								<Icon
@@ -82,36 +82,40 @@
 						{/if}
 					</div>
 
-					<div class="break-all py-2">
-						{#if job.script_path}
-							<a class="pr-3" href="/run/{job.id}">{job.script_path} </a>
-						{:else if 'job_kind' in job && job.job_kind == 'preview'}
-							<a class="pr-3" href="/run/{job.id}">Preview without path </a>
-						{:else if 'job_kind' in job && job.job_kind != 'script'}
-							<a class="pr-3" href="/run/{job.id}">lock dependencies</a>
-						{/if}
-						{#if job.script_hash}
-							<a href="/scripts/get/{job.script_hash}" class="commit-hash"
-								>{truncateHash(job.script_hash ?? '')}</a
-							>
-						{/if}
-						{#if 'job_kind' in job && job.job_kind != 'script'}<span
-								class="bg-blue-200 text-gray-700 text-xs rounded px-1 mx-3 whitespace-nowrap"
-								><a href="/run/{job.id}">{job.job_kind}</a></span
-							>
-						{:else if job.is_flow_step}
-							<span class="bg-blue-200 text-gray-700 text-xs rounded px-1 mx-3"
-								><a href="/run/{job.parent_job}">step of flow</a></span
-							>
-						{/if}
+					<div class="flex flex-row space-x-2">
+						<div class="whitespace-nowrap">
+							{#if job.script_path}
+								<a href="/run/{job.id}">{job.script_path} </a>
+							{:else if 'job_kind' in job && job.job_kind == 'preview'}
+								<a href="/run/{job.id}">Preview without path </a>
+							{:else if 'job_kind' in job && job.job_kind == 'dependencies'}
+								<a href="/run/{job.id}">lock deps of {truncateHash(job.script_hash ?? '')}</a>
+							{:else if 'job_kind' in job && job.job_kind == 'identity'}
+								<a href="/run/{job.id}">no op</a>
+							{/if}
+						</div>
+						<div class="whitespace-nowrap">
+							{#if job.script_hash}
+								<a href="/scripts/get/{job.script_hash}" class="commit-hash"
+									>{truncateHash(job.script_hash ?? '')}</a
+								>
+							{/if}
+							{#if 'job_kind' in job && job.job_kind != 'script'}<span
+									class="bg-blue-200 text-gray-700 text-xs rounded px-1 whitespace-nowrap"
+									><a href="/run/{job.id}">{job.job_kind}</a></span
+								>
+							{:else if job.is_flow_step}
+								<span class="bg-blue-200 text-gray-700 text-xs rounded px-1 "
+									><a href="/run/{job.parent_job}">step of flow</a></span
+								>
+							{/if}
+						</div>
 					</div>
 				{/if}
 			</div>
-			<div>
-				<span class="pl-14 italic text-gray-500 text-2xs  whitespace-nowrap overflow-hidden"
-					>Run {job.id}</span
-				>
-			</div>
+			<div class="pl-14 italic text-gray-500 text-2xs  whitespace-nowrap overflow-hidden"
+				>{truncateRev(job.id, 8, '')}</div
+			>
 		</div>
 		<div class="bg-white grid grid-cols-2 gap-x-2 col-span-2">
 			<div class="w-full text-gray-500 text-xs text-left flex flex-col gap-1 mx-4 overflow-hidden">

@@ -291,9 +291,9 @@
 					{:else}
 						<div class="grid md:grid-cols-2 gap-4 sm:grid-cols-1 xl:grid-cols-3 mt-2">
 							{#each scripts as { summary, path, hash, language, extra_perms, canWrite, lock_error_logs, kind }}
-								<div
-									class="flex flex-col justify-between gap-2 max-w-lg overflow-visible shadow-sm shadow-blue-100 
-									border border-gray-200 bg-gray-50 py-2 hover:border-gray-600 hover:border-opacity-60"
+								<a
+									class="border p-4 rounded-sm shadow-sm space-y-2 hover:border-blue-600 text-gray-800 flex flex-col justify-between"
+									href="/scripts/get/{hash}"
 								>
 									<div class="flex flex-col gap-1">
 										<a href="/scripts/get/{hash}" class="px-6">
@@ -406,7 +406,7 @@
 											</Button>
 										</div>
 									</div>
-								</div>
+								</a>
 							{/each}
 						</div>
 					{/if}

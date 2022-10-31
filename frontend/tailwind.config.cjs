@@ -254,6 +254,7 @@ const config = {
 				'.table-custom': {
 					'& th': {
 						paddingTop: theme('spacing.3'),
+						paddingRight: theme('spacing.2'),
 						paddingBottom: theme('spacing.3'),
 						fontSize: theme('fontSize.sm'),
 						textAlign: 'left',
@@ -262,8 +263,9 @@ const config = {
 						textTransform: 'capitalize',
 					},
 					'& td': {
-						paddingTop: theme('spacing.4'),
-						paddingBottom: theme('spacing.4'),
+						paddingRight: theme('spacing.2'),
+						paddingTop: theme('spacing.2'),
+						paddingBottom: theme('spacing.2'),
 						fontSize: theme('fontSize.sm'),
 						color: theme('colors.gray.700'),
 					},

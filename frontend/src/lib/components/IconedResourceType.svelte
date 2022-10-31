@@ -25,9 +25,10 @@
 	export let after: boolean = false
 	export let height = '24px'
 	export let width = '24px'
+	export let center = false
 </script>
 
-<div class="flex flex-row gap-2 justify-center items-center break-all whitespace-normal -pl-2">
+<div class=" truncate flex flex-row gap-2 {center ? 'justify-center items-center' : ''}  -pl-2">
 	{#if !silent && !after}
 		{name}
 	{/if}
@@ -72,6 +73,8 @@
 		<WindmillIcon {height} {width} />
 	{:else if name === 'http'}
 		<HttpIcon {height} {width} />
+	{:else}
+		<span style="width: {width}" class="bg-gray-100 rounded-full" />
 	{/if}
 	{#if !silent && after}
 		{name}
