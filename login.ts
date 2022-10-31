@@ -4,36 +4,18 @@ import {
   Secret,
 } from "https://deno.land/x/cliffy@v0.25.4/prompt/mod.ts";
 import { GlobalOptions } from "./types.ts";
-import dir from "https://deno.land/x/dir@1.5.1/mod.ts";
 import {
   setClient,
   UserService,
 } from "https://deno.land/x/windmill@v1.41.0/mod.ts";
 import { colors } from "https://deno.land/x/cliffy@v0.25.4/ansi/colors.ts";
-import * as fs from "https://deno.land/std@0.161.0/fs/mod.ts";
+import { getStore } from "./store.ts";
 
 export type Options = GlobalOptions;
 
-function hash_string(str: string): number {
-  let hash = 0,
-    i,
-    chr;
-  if (str.length === 0) return hash;
-  for (i = 0; i < str.length; i++) {
-    chr = str.charCodeAt(i);
-    hash = (hash << 5) - hash + chr;
-    hash |= 0; // Convert to 32bit integer
-  }
-  return hash;
-}
-
 async function login({ baseUrl }: Options, email?: string, password?: string) {
   setClient("no_token", baseUrl);
-  const baseHash = Math.abs(hash_string(baseUrl)).toString(16);
-  const store = dir("config") + "/windmill/";
-  await fs.ensureDir(store);
-  const baseStore = store + baseHash + "/";
-  await fs.ensureDir(baseStore);
+  const baseStore = await getStore(baseUrl);
   email = email ?? (await Input.prompt({ message: "Input your Email" }));
   password =
     password ?? (await Secret.prompt({ message: "Input your Password" }));
@@ -50,11 +32,7 @@ async function login({ baseUrl }: Options, email?: string, password?: string) {
 }
 
 export async function getToken(baseUrl: string): Promise<string> {
-  const baseHash = Math.abs(hash_string(baseUrl)).toString(16);
-  const store = dir("config") + "/windmill/";
-  await fs.ensureDir(store);
-  const baseStore = store + baseHash + "/";
-  await fs.ensureDir(baseStore);
+  const baseStore = await getStore(baseUrl);
   try {
     return await Deno.readTextFile(baseStore + "token");
   } catch {
