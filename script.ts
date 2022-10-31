@@ -6,12 +6,9 @@ import {
 import { GlobalOptions } from "./types.ts";
 import { getToken } from "./login.ts";
 import { colors } from "https://deno.land/x/cliffy@v0.25.4/ansi/colors.ts";
-import * as fs from "https://deno.land/std@0.161.0/fs/mod.ts";
+import { getDefaultWorkspaceId } from "./workspace.ts";
 
-type Options = GlobalOptions;
 type ScriptFile = {
-  workspace_id: string;
-  path: string;
   parent_hash?: string;
   summary: string;
   description: string;
@@ -21,12 +18,28 @@ type ScriptFile = {
   kind?: "script" | "failure" | "trigger" | "command" | "approval";
 };
 
+type PushOptions = GlobalOptions;
 async function push(
-  { baseUrl }: Options,
+  { baseUrl, workspace }: PushOptions,
   filePath: string,
+  remotePath: string,
   contentPath?: string
 ) {
   setClient(await getToken(baseUrl), baseUrl);
+  const workspaceId = workspace ?? (await getDefaultWorkspaceId(baseUrl));
+  if (!workspaceId) {
+    console.log(colors.red("No default workspace set and no override given."));
+    return;
+  }
+
+  if (!(remotePath.startsWith("g") || remotePath.startsWith("u"))) {
+    console.log(
+      colors.red(
+        "Given remote path looks invalid. Remote paths are typicall of the form <u|g>/<username|group>/..."
+      )
+    );
+    return;
+  }
 
   const fstat = await Deno.stat(filePath);
   if (!fstat.isFile) {
@@ -85,8 +98,8 @@ async function push(
     try {
       parent_hash = (
         await ScriptService.getScriptByPath({
-          workspace: data.workspace_id,
-          path: data.path,
+          workspace: workspaceId,
+          path: remotePath,
         })
       ).hash;
     } catch {
@@ -96,9 +109,9 @@ async function push(
 
   console.log(colors.bold.yellow("Pushing script..."));
   await ScriptService.createScript({
-    workspace: data.workspace_id,
+    workspace: workspaceId,
     requestBody: {
-      path: data.path,
+      path: remotePath,
       summary: data.summary,
       content: content,
       description: data.description,
@@ -119,7 +132,7 @@ const command = new Command()
     "push",
     "push a local script spec. This overrides any remote versions."
   )
-  .arguments("<file_path:string> [content_path:string]")
+  .arguments("<file_path:string> <remote_path:string> [content_path:string]")
   .action(push as any);
 
 export default command;

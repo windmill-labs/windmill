@@ -10,7 +10,9 @@ import { colors } from "https://deno.land/x/cliffy@v0.25.4/ansi/colors.ts";
 import { Table } from "https://deno.land/x/cliffy@v0.25.4/table/mod.ts";
 import { getStore } from "./store.ts";
 
-export async function getDefaultId(baseUrl: string): Promise<string | null> {
+export async function getDefaultWorkspaceId(
+  baseUrl: string
+): Promise<string | null> {
   const baseStore = await getStore(baseUrl);
   try {
     return await Deno.readTextFile(baseStore + "default_workspace_id");
@@ -22,7 +24,7 @@ export async function getDefaultId(baseUrl: string): Promise<string | null> {
 type ListOptions = GlobalOptions;
 async function list({ baseUrl }: ListOptions) {
   setClient(await getToken(baseUrl), baseUrl);
-  const defaultId = await getDefaultId(baseUrl);
+  const defaultId = await getDefaultWorkspaceId(baseUrl);
   const workspaces = await WorkspaceService.listWorkspaces();
   new Table()
     .header(["id", "name"])
@@ -42,7 +44,7 @@ async function list({ baseUrl }: ListOptions) {
 type GetDefaultOptions = GlobalOptions;
 async function getDefault({ baseUrl }: GetDefaultOptions) {
   setClient(await getToken(baseUrl), baseUrl);
-  const id = await getDefaultId(baseUrl);
+  const id = await getDefaultWorkspaceId(baseUrl);
   if (!id) {
     console.log(
       colors.red(
@@ -67,9 +69,18 @@ async function getDefault({ baseUrl }: GetDefaultOptions) {
 
 type SetDefaultOptions = GlobalOptions;
 async function setDefault(
-  { baseUrl }: SetDefaultOptions,
+  { baseUrl, workspace: workspaceOption }: SetDefaultOptions,
   workspace_id: string
 ) {
+  if (workspaceOption) {
+    console.log(
+      colors.underline.bold.red(
+        "!! --workspace option set, but this command expects the workspace to be passed as a positional argument. !!"
+      )
+    );
+    return;
+  }
+
   setClient(await getToken(baseUrl), baseUrl);
   const baseStore = await getStore(baseUrl);
   const info = (await WorkspaceService.listWorkspaces()).find(

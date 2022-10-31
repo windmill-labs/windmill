@@ -4,29 +4,46 @@ import {
   setClient,
 } from "https://deno.land/x/windmill@v1.41.0/mod.ts";
 import { GlobalOptions } from "./types.ts";
-import { OpenFlowWPath } from "https://deno.land/x/windmill@v1.41.0/windmill-api/index.ts";
+import { OpenFlow } from "https://deno.land/x/windmill@v1.41.0/windmill-api/index.ts";
 import { getToken } from "./login.ts";
 import { colors } from "https://deno.land/x/cliffy@v0.25.4/ansi/colors.ts";
+import { getDefaultWorkspaceId } from "./workspace.ts";
 
 type Options = GlobalOptions;
 
-async function push({ baseUrl }: Options, filePath: string) {
+async function push(
+  { baseUrl, workspace }: Options,
+  filePath: string,
+  remotePath: string
+) {
   setClient(await getToken(baseUrl), baseUrl);
-  const data: OpenFlowWPath & { workspace_id: string } = JSON.parse(
-    await Deno.readTextFile(filePath)
-  );
+  const workspaceId = workspace ?? (await getDefaultWorkspaceId(baseUrl));
+  if (!workspaceId) {
+    console.log(colors.red("No default workspace set and no override given."));
+    return;
+  }
+
+  if (!(remotePath.startsWith("g") || remotePath.startsWith("u"))) {
+    console.log(
+      colors.red(
+        "Given remote path looks invalid. Remote paths are typicall of the form <u|g>/<username|group>/..."
+      )
+    );
+    return;
+  }
+  const data: OpenFlow = JSON.parse(await Deno.readTextFile(filePath));
   if (
     await FlowService.existsFlowByPath({
-      workspace: data.workspace_id,
-      path: data.path,
+      workspace: workspaceId,
+      path: remotePath,
     })
   ) {
     console.log(colors.bold.yellow("Updating existing flow..."));
     await FlowService.updateFlow({
-      workspace: data.workspace_id,
-      path: data.path,
+      workspace: workspaceId,
+      path: remotePath,
       requestBody: {
-        path: data.path,
+        path: remotePath,
         summary: data.summary,
         value: data.value,
         schema: data.schema,
@@ -36,9 +53,9 @@ async function push({ baseUrl }: Options, filePath: string) {
   } else {
     console.log(colors.bold.yellow("Creating new flow..."));
     await FlowService.createFlow({
-      workspace: data.workspace_id,
+      workspace: workspaceId,
       requestBody: {
-        path: data.path,
+        path: remotePath,
         summary: data.summary,
         value: data.value,
         schema: data.schema,
@@ -55,7 +72,7 @@ const command = new Command()
     "push",
     "push a local flow spec. This overrides any remote versions."
   )
-  .arguments("<file_path:string>")
+  .arguments("<file_path:string> <remote_path:string>")
   .action(push as any);
 
 export default command;

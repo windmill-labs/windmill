@@ -18,6 +18,10 @@ await new Command()
       default: "https://app.windmill.dev/",
     }
   )
+  .globalOption(
+    "--workspace <workspace_id:string>",
+    "Specify the target workspace. This overrides the default workspace."
+  )
   .version("v0.0.0")
   .command("login", login)
   .command("flow", flow)
