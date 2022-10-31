@@ -4,15 +4,27 @@ import {
   Secret,
 } from "https://deno.land/x/cliffy@v0.25.4/prompt/mod.ts";
 import { GlobalOptions } from "./types.ts";
-import { UserService } from "https://deno.land/x/windmill@v1.41.0/mod.ts";
+import {
+  setClient,
+  UserService,
+} from "https://deno.land/x/windmill@v1.41.0/mod.ts";
 import { colors } from "https://deno.land/x/cliffy@v0.25.4/ansi/colors.ts";
 import { getStore } from "./store.ts";
-import { getContext } from "./context.ts";
+import { getRemote } from "./remote.ts";
 
 export type Options = GlobalOptions;
 
-async function login(opts: Options, email?: string, password?: string) {
-  const { urlStore } = await getContext(opts);
+async function login(
+  { remote, baseUrl }: Options,
+  email?: string,
+  password?: string
+) {
+  if (remote) {
+    baseUrl = baseUrl ?? (await getRemote(remote))?.baseUrl;
+  }
+  baseUrl = baseUrl ?? "https://app.windmill.dev";
+  setClient("no-token", baseUrl);
+  const urlStore = await getStore(baseUrl);
   email = email ?? (await Input.prompt({ message: "Input your Email" }));
   password =
     password ?? (await Secret.prompt({ message: "Input your Password" }));
