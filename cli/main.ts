@@ -23,6 +23,27 @@ await new Command()
     "--workspace <workspace_id:string>",
     "Specify the target workspace. This overrides the default workspace."
   )
+  .globalOption(
+    "--token <token:string>",
+    "Specify a token to use for authentication. This will not be stored. Takes presedence over username/password",
+    {
+      conflicts: ["email", "password"],
+    }
+  )
+  .globalOption(
+    "--email <email:string>",
+    "Specify credentials to use for authentication. This will not be stored. It will only be used to exchange for a token with the API server, which will not be stored either.",
+    {
+      depends: ["password"],
+    }
+  )
+  .globalOption(
+    "--password <password:string>",
+    "Specify credentials to use for authentication. This will not be stored. It will only be used to exchange for a token with the API server, which will not be stored either.",
+    {
+      depends: ["email"],
+    }
+  )
   .version("v0.0.0")
   .command("login", login)
   .command("flow", flow)

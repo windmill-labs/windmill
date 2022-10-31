@@ -43,7 +43,9 @@ export async function getToken(baseUrl: string): Promise<string> {
 }
 
 const command = new Command()
-  .description("log into windmill")
+  .description(
+    "Log into windmill. The credentials are not stored, but the token they are exchanged for will be."
+  )
   .arguments("[email:string] [password:string]")
   .action(login as any);
 

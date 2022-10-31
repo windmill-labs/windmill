@@ -1,5 +1,8 @@
 import { colors } from "https://deno.land/x/cliffy@v0.25.4/ansi/colors.ts";
-import { setClient } from "https://deno.land/x/windmill@v1.41.0/mod.ts";
+import {
+  setClient,
+  UserService,
+} from "https://deno.land/x/windmill@v1.41.0/mod.ts";
 import { getToken } from "./login.ts";
 import { getStore } from "./store.ts";
 import { GlobalOptions } from "./types.ts";
@@ -14,8 +17,14 @@ export type Context = {
 export async function getContext({
   baseUrl,
   workspace,
+  token,
+  email,
+  password,
 }: GlobalOptions): Promise<Context> {
-  let token = undefined;
+  if (email && password) {
+    token =
+      token ?? (await UserService.login({ requestBody: { email, password } }));
+  }
   token = token ?? (await getToken(baseUrl));
   setClient(token, baseUrl);
   const workspaceId = workspace ?? (await getDefaultWorkspaceId(baseUrl));
