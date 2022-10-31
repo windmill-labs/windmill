@@ -14,7 +14,7 @@
 -->
 <div class="flex flex-col {$$props.class} min-w-full">
 	<div class="inline-block min-w-full py-2 align-middle">
-		<table id="table-custom" class="min-w-full divide-y divide-gray-300 table-auto">
+		<table class="table-custom min-w-full divide-y divide-gray-300 table-auto">
 			<thead>
 				<slot name="header-row" />
 			</thead>
