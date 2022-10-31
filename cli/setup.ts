@@ -16,7 +16,8 @@ import { getStore } from "./store.ts";
 async function setup(_opts: never) {
   let baseUrl = await Input.prompt({
     message: "What's your base url?",
-    suggestions: ["http://app.windmill.dev"],
+    suggestions: ["http://app.windmill.dev", "http://localhost"],
+    default: "http://app.windmill.dev",
   });
   if (baseUrl.endsWith("/")) baseUrl = baseUrl.substring(0, baseUrl.length - 1);
   setClient("no-token", baseUrl);
