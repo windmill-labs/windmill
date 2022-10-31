@@ -136,22 +136,18 @@
 				<div>
 					{#if job && job.parent_job}
 						{#if job.is_flow_step}
-							<Icon class="text-gray-700" data={faWind} scale={SMALL_ICON_SCALE} /><span
-								class="mx-2"
-							>
+							<Icon class="text-gray-700" data={faWind} scale={SMALL_ICON_SCALE} /><span>
 								Step of flow <a href={`/run/${job.parent_job}`}>{truncateRev(job.parent_job, 6)}</a
 								></span
 							>
 						{:else}
-							<Icon class="text-gray-700" data={faRobot} scale={SMALL_ICON_SCALE} /><span
-								class="mx-2"
-							>
+							<Icon class="text-gray-700" data={faRobot} scale={SMALL_ICON_SCALE} /><span>
 								Triggered by parent <a href={`/run/${job.parent_job}`}>{job.parent_job}</a></span
 							>
 						{/if}
 					{:else if job && job.schedule_path}
 						<Icon class="text-gray-700" data={faCalendar} scale={SMALL_ICON_SCALE} />
-						<span class="mx-2"
+						<span
 							>Triggered by the schedule: <a
 								href={`/schedule/add?edit=${job.schedule_path}&isFlow=${job.job_kind == 'flow'}`}
 								>{job.schedule_path}</a
