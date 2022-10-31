@@ -104,6 +104,8 @@ components:
               type: integer
         retry:
           $ref: "#/components/schemas/Retry"
+        parallel:
+          type: boolean
       required:
         - value
         - id
