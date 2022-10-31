@@ -171,7 +171,7 @@ pub struct BranchAllModules {
     pub modules: Vec<FlowModule>,
     #[serde(default = "default_true")]
     pub skip_failure: bool,
-    #[serde(default = "default_false")]
+    #[serde(default = "default_true")]
     pub parallel: bool,
 }
 

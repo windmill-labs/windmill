@@ -182,7 +182,8 @@ pub async fn update_flow_status_after_job_completion(
                 };
                 (true, Some(new_status))
             } else {
-                (false, None)
+                tx.commit().await?;
+                return Ok(());
             }
         }
         FlowStatusModule::InProgress {
@@ -1391,6 +1392,7 @@ async fn jump_to_next_step(
 
 /// Some state about the current/last forloop FlowStatusModule used to initialized the next
 /// iteration's FlowStatusModule after pushing a job
+#[derive(Debug)]
 struct NextIteration {
     index: usize,
     itered: Vec<Value>,
@@ -1404,11 +1406,13 @@ enum LoopStatus {
     EmptyIterator,
 }
 
+#[derive(Debug)]
 struct NextBranch {
     status: BranchAllStatus,
     flow_jobs: Vec<Uuid>,
 }
 
+#[derive(Debug)]
 enum NextStatus {
     NextStep,
     BranchChosen(BranchChosen),
@@ -1520,7 +1524,9 @@ async fn compute_next_flow_transform<'c>(
                         Error::ExecutionErr(format!("Expected an array value, found: {not_array}"))
                     })?;
 
-                    if *parallel {
+                    if itered.is_empty() {
+                        LoopStatus::EmptyIterator
+                    } else if *parallel {
                         LoopStatus::ParallelIteration { itered }
                     } else if let Some(first) = itered.first() {
                         new_args.insert("iter".to_string(), json!({ "index": 0, "value": first }));
@@ -1532,7 +1538,7 @@ async fn compute_next_flow_transform<'c>(
                             new_args: new_args.clone(),
                         })
                     } else {
-                        LoopStatus::EmptyIterator
+                        panic!("itered cannot be empty")
                     }
                 }
 
@@ -1586,14 +1592,16 @@ async fn compute_next_flow_transform<'c>(
                 LoopStatus::ParallelIteration { itered } => Ok((
                     tx,
                     NextFlowTransform::Continue(
-                        vec![JobPayload::RawFlow {
-                            value: FlowValue {
-                                modules: (*modules).clone(),
-                                failure_module: flow.failure_module.clone(),
-                                same_worker: flow.same_worker,
-                            },
-                            path: Some(format!("{}/loop-{}", flow_job.script_path(), status.step)),
-                        }],
+                        (0..itered.len())
+                            .map(|i| JobPayload::RawFlow {
+                                value: FlowValue {
+                                    modules: (*modules).clone(),
+                                    failure_module: flow.failure_module.clone(),
+                                    same_worker: flow.same_worker,
+                                },
+                                path: Some(format!("{}/loop-{}", flow_job.script_path(), i)),
+                            })
+                            .collect(),
                         NextStatus::AllFlowJobs {
                             branchall: None,
                             iterator: Some(windmill_common::flow_status::Iterator {

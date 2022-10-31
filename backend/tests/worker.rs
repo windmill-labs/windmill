@@ -789,6 +789,7 @@ async fn test_iteration_parallel(db: Pool<Postgres>) {
         .result
         .unwrap();
     assert!(matches!(result, serde_json::Value::Object(_)));
+    println!("{}", result);
     assert!(result["error"]
         .as_str()
         .unwrap()
@@ -1844,7 +1845,7 @@ async fn test_branchone_simple(db: Pool<Postgres>) {
 }
 
 #[sqlx::test(fixtures("base"))]
-async fn test_branchall_simple(db: Pool<Postgres>) {
+async fn test_branchall_sequential(db: Pool<Postgres>) {
     initialize_tracing().await;
     let server = ApiServer::start(db.clone()).await;
     let port = server.addr.port();
@@ -1864,6 +1865,7 @@ async fn test_branchall_simple(db: Pool<Postgres>) {
                         {"modules": [module_add_item_to_list(2)]},
                         {"modules": [module_add_item_to_list(3)]}],
                     "type": "branchall",
+                    "parallel": true,
                 }
             },
         ],
@@ -1880,7 +1882,7 @@ async fn test_branchall_simple(db: Pool<Postgres>) {
 }
 
 #[sqlx::test(fixtures("base"))]
-async fn test_branchall_simple_parallel(db: Pool<Postgres>) {
+async fn test_branchall_simple(db: Pool<Postgres>) {
     initialize_tracing().await;
     let server = ApiServer::start(db.clone()).await;
     let port = server.addr.port();
@@ -1899,7 +1901,6 @@ async fn test_branchall_simple_parallel(db: Pool<Postgres>) {
                     "branches": [
                         {"modules": [module_add_item_to_list(2)]},
                         {"modules": [module_add_item_to_list(3)]}],
-                    "parallel": true,
                     "type": "branchall",
                 }
             },
