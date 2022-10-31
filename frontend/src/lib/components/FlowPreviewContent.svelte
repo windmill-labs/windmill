@@ -163,7 +163,7 @@
 
 	<FlowProgressBar {job} bind:reset={jobProgressReset} class="py-4" />
 
-	<div class="h-full overflow-y-auto mb-16 grow">
+	<div class="h-full overflow-y-auto mb-16 pt-4 grow">
 		{#if jobId}
 			<FlowStatusViewer
 				bind:flowState={$flowStateStore}
