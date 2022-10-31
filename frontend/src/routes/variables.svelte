@@ -56,7 +56,7 @@
 		loading.contextual = false
 	}
 
-	async function deleteVariable(path: string, account?: string): Promise<void> {
+	async function deleteVariable(path: string, account?: number): Promise<void> {
 		if (account) {
 			OauthService.disconnectAccount({ workspace: $workspaceStore!, id: account })
 		}

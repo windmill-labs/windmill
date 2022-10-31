@@ -3366,7 +3366,7 @@ components:
       in: path
       required: true
       schema:
-        type: string
+        type: integer
     ClientName:
       name: client_name
       in: path
