@@ -9,11 +9,10 @@ import { getStore } from "./store.ts";
 import { getContext } from "./context.ts";
 
 export async function getDefaultWorkspaceId(
-  baseUrl: string
+  urlStore: string
 ): Promise<string | null> {
-  const baseStore = await getStore(baseUrl);
   try {
-    return await Deno.readTextFile(baseStore + "default_workspace_id");
+    return await Deno.readTextFile(urlStore + "default_workspace_id");
   } catch {
     return null;
   }
@@ -39,9 +38,9 @@ async function list(opts: ListOptions) {
 }
 
 type GetDefaultOptions = GlobalOptions;
-async function getDefault({ baseUrl }: GetDefaultOptions) {
-  setClient(await getToken(baseUrl), baseUrl);
-  const id = await getDefaultWorkspaceId(baseUrl);
+async function getDefault(opts: GetDefaultOptions) {
+  const { urlStore } = await getContext(opts);
+  const id = await getDefaultWorkspaceId(urlStore);
   if (!id) {
     console.log(
       colors.red(

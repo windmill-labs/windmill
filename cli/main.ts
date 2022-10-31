@@ -8,6 +8,7 @@ import flow from "./flow.ts";
 import script from "./script.ts";
 import workspace from "./workspace.ts";
 import resource from "./resource.ts";
+import remote from "./remote.ts";
 
 await new Command()
   .name("windmill")
@@ -16,12 +17,19 @@ await new Command()
     "--base-url <baseUrl:string>",
     "Specify the base url to use when interacting with the API.",
     {
-      default: "https://app.windmill.dev/",
+      conflicts: ["remote"],
     }
   )
   .globalOption(
     "--workspace <workspace_id:string>",
     "Specify the target workspace. This overrides the default workspace."
+  )
+  .globalOption(
+    "--remote <remote_name:string>",
+    "Specify the target remote, add to this list via `wmill remote add`.",
+    {
+      conflicts: ["base-url"],
+    }
   )
   .globalOption(
     "--token <token:string>",
@@ -35,6 +43,7 @@ await new Command()
     "Specify credentials to use for authentication. This will not be stored. It will only be used to exchange for a token with the API server, which will not be stored either.",
     {
       depends: ["password"],
+      conflicts: ["token"],
     }
   )
   .globalOption(
@@ -42,6 +51,7 @@ await new Command()
     "Specify credentials to use for authentication. This will not be stored. It will only be used to exchange for a token with the API server, which will not be stored either.",
     {
       depends: ["email"],
+      conflicts: ["token"],
     }
   )
   .version("v0.0.0")
@@ -50,6 +60,7 @@ await new Command()
   .command("script", script)
   .command("workspace", workspace)
   .command("resource", resource)
+  .command("remote", remote)
   .command(
     "upgrade",
     new UpgradeCommand({

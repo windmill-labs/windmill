@@ -14,11 +14,15 @@ function hash_string(str: string): number {
   return hash;
 }
 
-export async function getStore(baseUrl: string): Promise<string> {
-  const baseHash = Math.abs(hash_string(baseUrl)).toString(16);
+export async function getRootStore(): Promise<string> {
   const store = dir("config") + "/windmill/";
   await fs.ensureDir(store);
-  const baseStore = store + baseHash + "/";
+  return store;
+}
+
+export async function getStore(baseUrl: string): Promise<string> {
+  const baseHash = Math.abs(hash_string(baseUrl)).toString(16);
+  const baseStore = (await getRootStore()) + baseHash + "/";
   await fs.ensureDir(baseStore);
   return baseStore;
 }
