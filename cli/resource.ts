@@ -1,12 +1,8 @@
 import { Command } from "https://deno.land/x/cliffy@v0.25.4/command/command.ts";
-import {
-  ResourceService,
-  setClient,
-} from "https://deno.land/x/windmill@v1.41.0/mod.ts";
+import { ResourceService } from "https://deno.land/x/windmill@v1.41.0/mod.ts";
 import { GlobalOptions } from "./types.ts";
-import { getToken } from "./login.ts";
 import { colors } from "https://deno.land/x/cliffy@v0.25.4/ansi/colors.ts";
-import { getDefaultWorkspaceId } from "./workspace.ts";
+import { getContext } from "./context.ts";
 
 type ResourceFile = {
   value: any;
@@ -16,17 +12,8 @@ type ResourceFile = {
 };
 
 type PushOptions = GlobalOptions;
-async function push(
-  { baseUrl, workspace }: PushOptions,
-  filePath: string,
-  remotePath: string
-) {
-  setClient(await getToken(baseUrl), baseUrl);
-  const workspaceId = workspace ?? (await getDefaultWorkspaceId(baseUrl));
-  if (!workspaceId) {
-    console.log(colors.red("No default workspace set and no override given."));
-    return;
-  }
+async function push(opts: PushOptions, filePath: string, remotePath: string) {
+  const { workspace } = getContext(opts);
 
   if (!(remotePath.startsWith("g") || remotePath.startsWith("u"))) {
     console.log(
@@ -49,13 +36,13 @@ async function push(
   // TODO:
   if (
     await ResourceService.existsResource({
-      workspace: workspaceId,
+      workspace: workspace,
       path: remotePath,
     })
   ) {
     console.log(colors.yellow("Updating existing resource..."));
     const existing = await ResourceService.getResource({
-      workspace: workspaceId,
+      workspace: workspace,
       path: remotePath,
     });
     if (existing.resource_type != data.resource_type) {
@@ -79,7 +66,7 @@ async function push(
       return;
     }
     await ResourceService.updateResource({
-      workspace: workspaceId,
+      workspace: workspace,
       path: remotePath,
       requestBody: {
         path: remotePath,
@@ -90,7 +77,7 @@ async function push(
   } else {
     console.log(colors.yellow("Creating new resource..."));
     await ResourceService.createResource({
-      workspace: workspaceId,
+      workspace: workspace,
       requestBody: {
         path: remotePath,
         resource_type: data.resource_type,

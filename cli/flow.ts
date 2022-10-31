@@ -1,27 +1,14 @@
 import { Command } from "https://deno.land/x/cliffy@v0.25.4/command/command.ts";
-import {
-  FlowService,
-  setClient,
-} from "https://deno.land/x/windmill@v1.41.0/mod.ts";
+import { FlowService } from "https://deno.land/x/windmill@v1.41.0/mod.ts";
 import { GlobalOptions } from "./types.ts";
 import { OpenFlow } from "https://deno.land/x/windmill@v1.41.0/windmill-api/index.ts";
-import { getToken } from "./login.ts";
 import { colors } from "https://deno.land/x/cliffy@v0.25.4/ansi/colors.ts";
-import { getDefaultWorkspaceId } from "./workspace.ts";
+import { getContext } from "./context.ts";
 
 type Options = GlobalOptions;
 
-async function push(
-  { baseUrl, workspace }: Options,
-  filePath: string,
-  remotePath: string
-) {
-  setClient(await getToken(baseUrl), baseUrl);
-  const workspaceId = workspace ?? (await getDefaultWorkspaceId(baseUrl));
-  if (!workspaceId) {
-    console.log(colors.red("No default workspace set and no override given."));
-    return;
-  }
+async function push(opts: Options, filePath: string, remotePath: string) {
+  const { workspace } = await getContext(opts);
 
   if (!(remotePath.startsWith("g") || remotePath.startsWith("u"))) {
     console.log(
@@ -34,13 +21,13 @@ async function push(
   const data: OpenFlow = JSON.parse(await Deno.readTextFile(filePath));
   if (
     await FlowService.existsFlowByPath({
-      workspace: workspaceId,
+      workspace: workspace,
       path: remotePath,
     })
   ) {
     console.log(colors.bold.yellow("Updating existing flow..."));
     await FlowService.updateFlow({
-      workspace: workspaceId,
+      workspace: workspace,
       path: remotePath,
       requestBody: {
         path: remotePath,
@@ -53,7 +40,7 @@ async function push(
   } else {
     console.log(colors.bold.yellow("Creating new flow..."));
     await FlowService.createFlow({
-      workspace: workspaceId,
+      workspace: workspace,
       requestBody: {
         path: remotePath,
         summary: data.summary,

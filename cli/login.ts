@@ -4,18 +4,15 @@ import {
   Secret,
 } from "https://deno.land/x/cliffy@v0.25.4/prompt/mod.ts";
 import { GlobalOptions } from "./types.ts";
-import {
-  setClient,
-  UserService,
-} from "https://deno.land/x/windmill@v1.41.0/mod.ts";
+import { UserService } from "https://deno.land/x/windmill@v1.41.0/mod.ts";
 import { colors } from "https://deno.land/x/cliffy@v0.25.4/ansi/colors.ts";
 import { getStore } from "./store.ts";
+import { getContext } from "./context.ts";
 
 export type Options = GlobalOptions;
 
-async function login({ baseUrl }: Options, email?: string, password?: string) {
-  setClient("no_token", baseUrl);
-  const baseStore = await getStore(baseUrl);
+async function login(opts: Options, email?: string, password?: string) {
+  const { urlStore } = await getContext(opts);
   email = email ?? (await Input.prompt({ message: "Input your Email" }));
   password =
     password ?? (await Secret.prompt({ message: "Input your Password" }));
@@ -27,7 +24,7 @@ async function login({ baseUrl }: Options, email?: string, password?: string) {
     },
   });
 
-  await Deno.writeTextFile(baseStore + "token", token);
+  await Deno.writeTextFile(urlStore + "token", token);
   console.log(colors.bold.underline.green("Successfully logged in!"));
 }
 

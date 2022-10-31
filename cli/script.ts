@@ -1,12 +1,8 @@
 import { Command } from "https://deno.land/x/cliffy@v0.25.4/command/command.ts";
-import {
-  ScriptService,
-  setClient,
-} from "https://deno.land/x/windmill@v1.41.0/mod.ts";
+import { ScriptService } from "https://deno.land/x/windmill@v1.41.0/mod.ts";
 import { GlobalOptions } from "./types.ts";
-import { getToken } from "./login.ts";
 import { colors } from "https://deno.land/x/cliffy@v0.25.4/ansi/colors.ts";
-import { getDefaultWorkspaceId } from "./workspace.ts";
+import { getContext } from "./context.ts";
 
 type ScriptFile = {
   parent_hash?: string;
@@ -20,18 +16,12 @@ type ScriptFile = {
 
 type PushOptions = GlobalOptions;
 async function push(
-  { baseUrl, workspace }: PushOptions,
+  opts: PushOptions,
   filePath: string,
   remotePath: string,
   contentPath?: string
 ) {
-  setClient(await getToken(baseUrl), baseUrl);
-  const workspaceId = workspace ?? (await getDefaultWorkspaceId(baseUrl));
-  if (!workspaceId) {
-    console.log(colors.red("No default workspace set and no override given."));
-    return;
-  }
-
+  const { workspace } = await getContext(opts);
   if (!(remotePath.startsWith("g") || remotePath.startsWith("u"))) {
     console.log(
       colors.red(
@@ -98,7 +88,7 @@ async function push(
     try {
       parent_hash = (
         await ScriptService.getScriptByPath({
-          workspace: workspaceId,
+          workspace: workspace,
           path: remotePath,
         })
       ).hash;
@@ -109,7 +99,7 @@ async function push(
 
   console.log(colors.bold.yellow("Pushing script..."));
   await ScriptService.createScript({
-    workspace: workspaceId,
+    workspace: workspace,
     requestBody: {
       path: remotePath,
       summary: data.summary,

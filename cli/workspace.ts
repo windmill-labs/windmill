@@ -6,6 +6,7 @@ import { getToken } from "./login.ts";
 import { colors } from "https://deno.land/x/cliffy@v0.25.4/ansi/colors.ts";
 import { Table } from "https://deno.land/x/cliffy@v0.25.4/table/mod.ts";
 import { getStore } from "./store.ts";
+import { getContext } from "./context.ts";
 
 export async function getDefaultWorkspaceId(
   baseUrl: string
@@ -19,9 +20,8 @@ export async function getDefaultWorkspaceId(
 }
 
 type ListOptions = GlobalOptions;
-async function list({ baseUrl }: ListOptions) {
-  setClient(await getToken(baseUrl), baseUrl);
-  const defaultId = await getDefaultWorkspaceId(baseUrl);
+async function list(opts: ListOptions) {
+  const { workspace: defaultId } = await getContext(opts);
   const workspaces = await WorkspaceService.listWorkspaces();
   new Table()
     .header(["id", "name"])
@@ -65,11 +65,8 @@ async function getDefault({ baseUrl }: GetDefaultOptions) {
 }
 
 type SetDefaultOptions = GlobalOptions;
-async function setDefault(
-  { baseUrl, workspace: workspaceOption }: SetDefaultOptions,
-  workspace_id: string
-) {
-  if (workspaceOption) {
+async function setDefault(opts: SetDefaultOptions, workspace_id: string) {
+  if (opts.workspace) {
     console.log(
       colors.underline.bold.red(
         "!! --workspace option set, but this command expects the workspace to be passed as a positional argument. !!"
@@ -78,8 +75,7 @@ async function setDefault(
     return;
   }
 
-  setClient(await getToken(baseUrl), baseUrl);
-  const baseStore = await getStore(baseUrl);
+  const { urlStore } = await getContext(opts);
   const info = (await WorkspaceService.listWorkspaces()).find(
     (x) => x.id == workspace_id
   );
@@ -93,17 +89,16 @@ async function setDefault(
     );
     return;
   }
-  await Deno.writeTextFile(baseStore + "default_workspace_id", workspace_id);
+  await Deno.writeTextFile(urlStore + "default_workspace_id", workspace_id);
 }
 
 const command = new Command()
   .description("workspace related commands")
+  .action(list as any)
   .command("get-default", "get the current default workspace")
   .action(getDefault as any)
   .command("set-default", "set the current default workspace")
   .arguments("<workspace_id:string>")
-  .action(setDefault as any)
-  .command("list", "list available workspaces")
-  .action(list as any);
+  .action(setDefault as any);
 
 export default command;
