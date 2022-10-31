@@ -10,7 +10,7 @@ import {
 } from "https://deno.land/x/windmill@v1.41.0/mod.ts";
 import { colors } from "https://deno.land/x/cliffy@v0.25.4/ansi/colors.ts";
 import { getStore } from "./store.ts";
-import { getRemote } from "./remote.ts";
+import { getDefaultRemote, getRemote } from "./remote.ts";
 
 export type Options = GlobalOptions;
 
@@ -22,6 +22,7 @@ async function login(
   if (remote) {
     baseUrl = baseUrl ?? (await getRemote(remote))?.baseUrl;
   }
+  baseUrl = baseUrl ?? (await getDefaultRemote())?.baseUrl;
   baseUrl = baseUrl ?? "https://app.windmill.dev";
   setClient("no-token", baseUrl);
   const urlStore = await getStore(baseUrl);

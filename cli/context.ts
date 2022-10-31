@@ -4,7 +4,7 @@ import {
   UserService,
 } from "https://deno.land/x/windmill@v1.41.0/mod.ts";
 import { getToken } from "./login.ts";
-import { getRemote } from "./remote.ts";
+import { getDefaultRemote, getRemote } from "./remote.ts";
 import { getStore } from "./store.ts";
 import { GlobalOptions } from "./types.ts";
 import { getDefaultWorkspaceId } from "./workspace.ts";
@@ -26,6 +26,7 @@ export async function getContext({
   if (remote) {
     baseUrl = baseUrl ?? (await getRemote(remote))?.baseUrl;
   }
+  baseUrl = baseUrl ?? (await getDefaultRemote())?.baseUrl;
   baseUrl = baseUrl ?? "https://app.windmill.dev";
   if (email && password) {
     setClient("no-token", baseUrl);

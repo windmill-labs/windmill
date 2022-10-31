@@ -12,12 +12,23 @@ import {
   WorkspaceService,
 } from "https://deno.land/x/windmill@v1.41.0/mod.ts";
 import { getStore } from "./store.ts";
+import { add as addRemote, setDefault as setDefaultRemote } from "./remote.ts";
 
 async function setup(_opts: never) {
   let baseUrl = await Input.prompt({
     message: "What's your base url?",
     suggestions: ["http://app.windmill.dev", "http://localhost"],
     default: "http://app.windmill.dev",
+  });
+  const remoteName = await Input.prompt({
+    message: "What do you want to name this remote?",
+    suggestions: ["origin", "local", "cloud"],
+    default:
+      baseUrl == "http://localhost"
+        ? "local"
+        : baseUrl == "http://app.windmill.dev"
+        ? "cloud"
+        : undefined,
   });
   if (baseUrl.endsWith("/")) baseUrl = baseUrl.substring(0, baseUrl.length - 1);
   setClient("no-token", baseUrl);
@@ -72,7 +83,8 @@ async function setup(_opts: never) {
     message: "Select a default workspace",
     options: workspaces.map((x) => ({ name: x.name, value: x.id })),
   });
-  // TODO: store default url
+  await addRemote(_opts, remoteName, baseUrl);
+  await setDefaultRemote(_opts, remoteName);
   await Deno.writeTextFile(urlStore + "token", token);
   await Deno.writeTextFile(
     urlStore + "default_workspace_id",

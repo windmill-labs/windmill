@@ -1,11 +1,8 @@
 import { Command } from "https://deno.land/x/cliffy@v0.25.4/command/command.ts";
-import { setClient } from "https://deno.land/x/windmill@v1.41.0/mod.ts";
 import { GlobalOptions } from "./types.ts";
 import { WorkspaceService } from "https://deno.land/x/windmill@v1.41.0/windmill-api/index.ts";
-import { getToken } from "./login.ts";
 import { colors } from "https://deno.land/x/cliffy@v0.25.4/ansi/colors.ts";
 import { Table } from "https://deno.land/x/cliffy@v0.25.4/table/mod.ts";
-import { getStore } from "./store.ts";
 import { getContext } from "./context.ts";
 
 export async function getDefaultWorkspaceId(
