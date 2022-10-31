@@ -782,15 +782,14 @@ async fn test_iteration_parallel(db: Pool<Postgres>) {
     assert_eq!(result, serde_json::json!([]));
 
     /* Don't actually test that this does 257 jobs or that will take forever. */
-    let result = RunJob::from(JobPayload::RawFlow { value: flow.clone(), path: None })
-        .arg("items", json!((0..257).collect::<Vec<_>>()))
+    let job = RunJob::from(JobPayload::RawFlow { value: flow.clone(), path: None })
+        .arg("items", json!((0..100).collect::<Vec<_>>()))
         .run_until_complete(&db, server.addr.port())
-        .await
-        .result
-        .unwrap();
-    assert!(matches!(result, serde_json::Value::Object(_)));
-    println!("{}", result);
-    assert!(result["error"]
+        .await;
+
+    let result = job.result.unwrap();
+    assert!(matches!(result, serde_json::Value::Array(_)));
+    assert!(result[2]["error"]
         .as_str()
         .unwrap()
         .contains("StopIteration: 2"));

@@ -150,6 +150,7 @@ pub async fn update_flow_status_after_job_completion(
                     "unexpected status for parallel module"
                 )))?,
             };
+            // println!("{nindex} {len}");
             if nindex + 1 == len {
                 let new_status = if skip_loop_failures
                     || sqlx::query_scalar!(
@@ -309,7 +310,8 @@ pub async fn update_flow_status_after_job_completion(
     };
 
     let result = match &new_status {
-        Some(FlowStatusModule::Success { flow_jobs: Some(jobs), .. }) => {
+        Some(FlowStatusModule::Success { flow_jobs: Some(jobs), .. })
+        | Some(FlowStatusModule::Failure { flow_jobs: Some(jobs), .. }) => {
             let results = sqlx::query!(
                 "
                   SELECT result, id
