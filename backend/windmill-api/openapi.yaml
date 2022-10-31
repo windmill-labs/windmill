@@ -1666,6 +1666,8 @@ paths:
                   language:
                     type: string
                     enum: [deno, python3, go]
+                  summary:
+                    type: string
                 required:
                   - content
                   - language
