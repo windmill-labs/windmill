@@ -189,9 +189,10 @@
 			</div>
 			<Skeleton loading={!jobs} layout={[[6], 1, [6], 1, [6], 1, [6], 1, [6]]} />
 			{#if jobs}
-				<div class="space-y-2">
+				<div class="space-y-0">
 					{#each jobs as job}
 						<JobDetail {job} />
+						<div class="line w-8 h-4" />
 					{/each}
 				</div>
 			{/if}
@@ -211,3 +212,10 @@
 		{/if}
 	</div>
 </CenteredPage>
+
+<style>
+	.line {
+		background: repeating-linear-gradient(to bottom, transparent 0 4px, #000 4px 8px) 50%/1px 100%
+			no-repeat;
+	}
+</style>
