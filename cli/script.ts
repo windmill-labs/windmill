@@ -3,6 +3,10 @@ import { ScriptService } from "https://deno.land/x/windmill@v1.41.0/mod.ts";
 import { GlobalOptions } from "./types.ts";
 import { colors } from "https://deno.land/x/cliffy@v0.25.4/ansi/colors.ts";
 import { getContext } from "./context.ts";
+import { List } from "https://deno.land/x/cliffy@v0.25.4/prompt/list.ts";
+import { passwordGenerator } from "https://deno.land/x/password_generator@latest/mod.ts";
+import { Script } from "https://deno.land/x/windmill@v1.41.0/windmill-api/index.ts";
+import { Table } from "https://deno.land/x/cliffy@v0.25.4/table/table.ts";
 
 type ScriptFile = {
   parent_hash?: string;
@@ -116,8 +120,55 @@ async function push(
   console.log(colors.bold.underline.green("Script successfully pushed"));
 }
 
+async function list(opts: GlobalOptions & { showArchived: boolean }) {
+  const { workspace } = await getContext(opts);
+
+  let page = 0;
+  const perPage = 10;
+  const total: Script[] = [];
+  while (true) {
+    const res = await ScriptService.listScripts({
+      workspace,
+      page,
+      perPage,
+    });
+    page += 1;
+    total.push(...res);
+    if (res.length < perPage) {
+      break;
+    }
+  }
+
+  new Table()
+    .header([
+      "path",
+      "hash",
+      "kind",
+      "language",
+      "created at",
+      "created by",
+      "description",
+    ])
+    .padding(2)
+    .border(true)
+    .body(
+      total.map((x) => [
+        x.path,
+        x.hash,
+        x.kind,
+        x.language,
+        x.created_at,
+        x.created_by,
+        x.description ?? "-",
+      ])
+    )
+    .render();
+}
+
 const command = new Command()
   .description("script related commands")
+  .option("--show-archived", "Enable archived scripts in output")
+  .action(list as any)
   .command(
     "push",
     "push a local script spec. This overrides any remote versions."
