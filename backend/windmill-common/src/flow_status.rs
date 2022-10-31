@@ -11,6 +11,7 @@ use std::time::Duration;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+use crate::more_serde::default_false;
 use crate::{flows::FlowValue, more_serde::is_default};
 
 const MINUTES: Duration = Duration::from_secs(60);
@@ -92,6 +93,8 @@ pub enum FlowStatusModule {
         branch_chosen: Option<BranchChosen>,
         #[serde(skip_serializing_if = "Option::is_none")]
         branchall: Option<BranchAllStatus>,
+        #[serde(default = "default_false")]
+        parallel: bool,
     },
     Success {
         id: String,

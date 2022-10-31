@@ -742,6 +742,59 @@ async fn test_iteration(db: Pool<Postgres>) {
         .contains("StopIteration: 2"));
 }
 
+#[sqlx::test(fixtures("base"))]
+async fn test_iteration_parallel(db: Pool<Postgres>) {
+    initialize_tracing().await;
+
+    let server = ApiServer::start(db.clone()).await;
+
+    let flow: FlowValue = serde_json::from_value(serde_json::json!({
+        "modules": [{
+            "value": {
+                "type": "forloopflow",
+                "iterator": { "type": "javascript", "expr": "result.items" },
+                "skip_failures": false,
+                "parallel": true,
+                "modules": [{
+                    "input_transform": {
+                        "n": {
+                            "type": "javascript",
+                            "expr": "previous_result.iter.value",
+                        },
+                    },
+                    "value": {
+                        "type": "rawscript",
+                        "language": "python3",
+                        "content": "def main(n):\n    if 1 < n:\n        raise StopIteration(n)",
+                    },
+                }],
+            },
+        }],
+    }))
+    .unwrap();
+
+    let result = RunJob::from(JobPayload::RawFlow { value: flow.clone(), path: None })
+        .arg("items", json!([]))
+        .run_until_complete(&db, server.addr.port())
+        .await
+        .result
+        .unwrap();
+    assert_eq!(result, serde_json::json!([]));
+
+    /* Don't actually test that this does 257 jobs or that will take forever. */
+    let result = RunJob::from(JobPayload::RawFlow { value: flow.clone(), path: None })
+        .arg("items", json!((0..257).collect::<Vec<_>>()))
+        .run_until_complete(&db, server.addr.port())
+        .await
+        .result
+        .unwrap();
+    assert!(matches!(result, serde_json::Value::Object(_)));
+    assert!(result["error"]
+        .as_str()
+        .unwrap()
+        .contains("StopIteration: 2"));
+}
+
 struct RunJob {
     payload: JobPayload,
     args: serde_json::Map<String, serde_json::Value>,
@@ -967,6 +1020,7 @@ async fn test_deno_flow(db: Pool<Postgres>) {
                     value: FlowModuleValue::ForloopFlow {
                         iterator: InputTransform::Javascript { expr: "result".to_string() },
                         skip_failures: false,
+                        parallel: false,
                         modules: vec![FlowModule {
                             id: "c".to_string(),
                             value: FlowModuleValue::RawScript {
@@ -1059,6 +1113,7 @@ async fn test_deno_flow_same_worker(db: Pool<Postgres>) {
                     value: FlowModuleValue::ForloopFlow {
                         iterator: InputTransform::Static { value: json!([1, 2, 3]) },
                         skip_failures: false,
+                        parallel: false,
                         modules: vec![
                             FlowModule {
                                 id: "d".to_string(),
@@ -1808,6 +1863,43 @@ async fn test_branchall_simple(db: Pool<Postgres>) {
                     "branches": [
                         {"modules": [module_add_item_to_list(2)]},
                         {"modules": [module_add_item_to_list(3)]}],
+                    "type": "branchall",
+                }
+            },
+        ],
+    }))
+    .unwrap();
+
+    let flow = JobPayload::RawFlow { value: flow, path: None };
+    let result = run_job_in_new_worker_until_complete(&db, flow, port)
+        .await
+        .result
+        .unwrap();
+
+    assert_eq!(result, serde_json::json!([[1, 2], [1, 3]]));
+}
+
+#[sqlx::test(fixtures("base"))]
+async fn test_branchall_simple_parallel(db: Pool<Postgres>) {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await;
+    let port = server.addr.port();
+
+    let flow: FlowValue = serde_json::from_value(json!({
+        "modules": [
+            {
+                "value": {
+                    "type": "rawscript",
+                    "language": "deno",
+                    "content": "export function main(){ return [1] }",
+                }
+            },
+            {
+                "value": {
+                    "branches": [
+                        {"modules": [module_add_item_to_list(2)]},
+                        {"modules": [module_add_item_to_list(3)]}],
+                    "parallel": true,
                     "type": "branchall",
                 }
             },

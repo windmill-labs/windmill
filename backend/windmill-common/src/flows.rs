@@ -11,7 +11,7 @@ use std::{collections::HashMap, time::Duration};
 use serde::{self, Deserialize, Serialize};
 
 use crate::{
-    more_serde::{default_id, default_true, is_default},
+    more_serde::{default_false, default_id, default_true, is_default},
     scripts::{Schema, ScriptLang},
 };
 
@@ -171,6 +171,8 @@ pub struct BranchAllModules {
     pub modules: Vec<FlowModule>,
     #[serde(default = "default_true")]
     pub skip_failure: bool,
+    #[serde(default = "default_false")]
+    pub parallel: bool,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -190,6 +192,8 @@ pub enum FlowModuleValue {
         modules: Vec<FlowModule>,
         #[serde(default = "default_true")]
         skip_failures: bool,
+        #[serde(default = "default_false")]
+        parallel: bool,
     },
     BranchOne {
         branches: Vec<BranchOneModules>,
@@ -197,6 +201,8 @@ pub enum FlowModuleValue {
     },
     BranchAll {
         branches: Vec<BranchAllModules>,
+        #[serde(default = "default_false")]
+        parallel: bool,
     },
     RawScript {
         #[serde(default)]
