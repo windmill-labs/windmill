@@ -39,13 +39,62 @@ async function list({ baseUrl }: ListOptions) {
     .render();
 }
 
+type GetDefaultOptions = GlobalOptions;
+async function getDefault({ baseUrl }: GetDefaultOptions) {
+  setClient(await getToken(baseUrl), baseUrl);
+  const id = await getDefaultId(baseUrl);
+  if (!id) {
+    console.log(
+      colors.red(
+        "No default workspace set. Run windmill workspace set-default <workspace_id> to set."
+      )
+    );
+    return;
+  }
+  const info = (await WorkspaceService.listWorkspaces()).find(
+    (x) => x.id == id
+  );
+  if (!info) {
+    console.log(
+      colors.underline.red(
+        "Default workspace is set, but cannot be found on remote. Maybe it has been deleted?"
+      )
+    );
+    return;
+  }
+  console.log(colors.green("Id: " + info.id + " Name: " + info.name));
+}
+
+type SetDefaultOptions = GlobalOptions;
+async function setDefault(
+  { baseUrl }: SetDefaultOptions,
+  workspace_id: string
+) {
+  setClient(await getToken(baseUrl), baseUrl);
+  const baseStore = await getStore(baseUrl);
+  const info = (await WorkspaceService.listWorkspaces()).find(
+    (x) => x.id == workspace_id
+  );
+  if (!info) {
+    console.log(
+      colors.underline.red(
+        "Given workspace id " +
+          workspace_id +
+          " cannot be found on remote. Maybe it has been deleted?"
+      )
+    );
+    return;
+  }
+  await Deno.writeTextFile(baseStore + "default_workspace_id", workspace_id);
+}
+
 const command = new Command()
   .description("workspace related commands")
-  //.command("default", "get the current default workspace")
-  //.action(get_default as any)
-  //.command("default", "set the current default workspace")
-  //.arguments("<workspace_id:string>")
-  //.action(set_default as any)
+  .command("get-default", "get the current default workspace")
+  .action(getDefault as any)
+  .command("set-default", "set the current default workspace")
+  .arguments("<workspace_id:string>")
+  .action(setDefault as any)
   .command("list", "list available workspaces")
   .action(list as any);
 
