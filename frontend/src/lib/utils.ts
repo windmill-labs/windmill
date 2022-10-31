@@ -38,13 +38,13 @@ export function displayDaysAgo(dateString: string): string {
 	if (nbSecondsAgo < 600) {
 		return `${nbSecondsAgo}s ago`
 	} else if (isToday(date)) {
-		return `today at ${date.toLocaleTimeString()}`
+		return `today at ${date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
 	} else {
 		let dAgo = daysAgo(date)
 		if (dAgo == 0) {
-			return `yday at ${date.toLocaleTimeString()}`
+			return `yday at ${date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
 		} else if (dAgo > 7) {
-			return `${dAgo + 1} days ago at ${date.toLocaleTimeString()}`
+			return `${dAgo + 1} days ago at ${date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
 		} else {
 			return displayDate(dateString)
 		}
@@ -57,7 +57,7 @@ export function displayDate(dateString: string | undefined): string {
 		return ''
 	} else {
 		return `${date.getFullYear()}/${date.getMonth() + 1
-			}/${date.getDate()} at ${date.toLocaleTimeString()}`
+			}/${date.getDate()} at ${date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
 	}
 }
 

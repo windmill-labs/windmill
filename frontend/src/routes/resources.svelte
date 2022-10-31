@@ -185,6 +185,7 @@
 							<tr>
 								<td class="my-12"
 									><a
+										class="break-all"
 										href="#{path}"
 										on:click={async () => {
 											resourceViewerTitle = `Resource ${path}`
@@ -200,7 +201,7 @@
 									>
 									<div class="mb-1 -mt-1"><SharedBadge {canWrite} extraPerms={extra_perms} /></div>
 								</td>
-								<td class="px-2"><IconedResourceType name={resource_type} after={false} /></td>
+								<td class="px-2"><IconedResourceType name={resource_type} after={true} /></td>
 								<td><SvelteMarkdown source={description ?? ''} /></td>
 								<td>
 									{#if is_oauth}
@@ -282,7 +283,7 @@
 				{#if resourceTypes}
 					{#each resourceTypes as { name, description, schema, canWrite }}
 						<tr>
-							<td class="pr-4"
+							<td
 								><a
 									href="#{name}"
 									on:click={() => {
@@ -290,7 +291,7 @@
 										resourceViewerSchema = schema
 										typeModalMode = 'view-type'
 										resourceViewer.openModal()
-									}}><span class="text-gray-700"><IconedResourceType {name} /></span></a
+									}}><IconedResourceType after={true} {name} /></a
 								></td
 							>
 							<td><SvelteMarkdown source={description ?? ''} /></td>

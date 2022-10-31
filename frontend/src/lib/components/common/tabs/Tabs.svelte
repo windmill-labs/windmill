@@ -16,20 +16,20 @@
 
 	$: selected && updateSelected()
 
-	const selectedContent = writable(selected)
+	const selectedStore = writable(selected)
 
-	$: $selectedContent && dispatch('selected', $selectedContent)
+	$: $selectedStore && dispatch('selected', $selectedStore)
 
 	setContext<TabsContext>('Tabs', {
-		selected: selectedContent,
+		selected: selectedStore,
 		update: (value: string) => {
-			selectedContent.set(value)
+			selectedStore.set(value)
 			selected = value
 		}
 	})
 
 	function updateSelected() {
-		selectedContent.set(selected)
+		selectedStore.set(selected)
 	}
 </script>
 
