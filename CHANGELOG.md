@@ -1,6 +1,14 @@
 # Changelog
 
 
+## [1.43.0](https://github.com/windmill-labs/windmill/compare/v1.42.1...v1.43.0) (2022-11-01)
+
+
+### Features
+
+* **backend:** add parallel option for forloop and branchall ([#840](https://github.com/windmill-labs/windmill/issues/840)) ([39937e6](https://github.com/windmill-labs/windmill/commit/39937e6a83c3b7ec9dd889b40c10004abb8938a7))
+* new wmill CLI [#831](https://github.com/windmill-labs/windmill/issues/831) ([f5ea13a](https://github.com/windmill-labs/windmill/commit/f5ea13ab2b2f7f8735504099d0267c32ac8ca6f2))
+
 ## [1.42.1](https://github.com/windmill-labs/windmill/compare/v1.42.0...v1.42.1) (2022-10-30)
 
 
