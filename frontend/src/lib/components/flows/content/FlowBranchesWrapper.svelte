@@ -14,7 +14,7 @@
 	export let parentModule: FlowModule | undefined
 	export let previousModuleId: string | undefined
 
-	let selected: string = 'retries'
+	let selected: string = 'early-stop'
 </script>
 
 <div class="h-full flex flex-col">
@@ -48,14 +48,17 @@
 						stopped early, can be made to sleep or to suspend after execution.
 					</Alert>
 				{/if}
+
 				{#if flowModule.value.type == 'branchall'}
-					<div class="mt-6 mb-2 text-sm font-bold">Run in parallel</div>
-					<Toggle
-						bind:checked={flowModule.value.parallel}
-						options={{
-							right: 'All branches run in parallel'
-						}}
-					/>
+					<div class="p-2">
+						<div class="mt-6 mb-2 text-sm font-bold">Run in parallel</div>
+						<Toggle
+							bind:checked={flowModule.value.parallel}
+							options={{
+								right: 'All branches run in parallel'
+							}}
+						/>
+					</div>
 				{/if}
 			</div>
 			{#if flowModule}
