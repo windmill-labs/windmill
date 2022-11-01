@@ -223,6 +223,8 @@ components:
           type: string
           enum:
             - forloopflow
+        parallel:
+          type: boolean
       required:
         - modules
         - iterator
@@ -285,6 +287,8 @@ components:
           type: string
           enum:
             - branchall
+        parallel:
+          type: boolean
       required:
         - branches
         - type
