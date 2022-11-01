@@ -746,29 +746,6 @@ pub async fn handle_flow(
         serde_json::from_value::<FlowStatus>(flow_job.flow_status.clone().unwrap_or_default())
             .with_context(|| format!("parse flow status {}", flow_job.id))?;
 
-    let done = status.step >= flow.modules.len() as i32;
-
-    if flow.modules.is_empty() || done {
-        return update_flow_status_after_job_completion(
-            db,
-            client,
-            flow_job.id,
-            &Uuid::nil(),
-            flow_job.workspace_id.as_str(),
-            true,
-            json!({}),
-            None,
-            true,
-            same_worker_tx,
-            worker_dir,
-            false,
-            base_internal_url,
-            None,
-        )
-        .await
-        .map_err(to_anyhow);
-    }
-
     tracing::debug!("handle_flow: {:#?}", flow_job.flow_status);
     push_next_flow_job(
         flow_job,
@@ -779,6 +756,7 @@ pub async fn handle_flow(
         last_result,
         same_worker_tx,
         base_internal_url,
+        worker_dir,
     )
     .await?;
     Ok(())
@@ -795,11 +773,46 @@ async fn push_next_flow_job(
     mut last_result: serde_json::Value,
     same_worker_tx: Sender<Uuid>,
     base_internal_url: &str,
+    worker_dir: &str,
 ) -> error::Result<()> {
     let mut i = usize::try_from(status.step)
         .with_context(|| format!("invalid module index {}", status.step))?;
 
-    let mut module: &FlowModule = &flow.modules[i];
+    let mut status_module: FlowStatusModule = status
+        .modules
+        .get(i)
+        .cloned()
+        .unwrap_or_else(|| status.failure_module.clone());
+
+    if flow.modules.is_empty() || matches!(status_module, FlowStatusModule::Success { .. }) {
+        return update_flow_status_after_job_completion(
+            db,
+            client,
+            flow_job.id,
+            &Uuid::nil(),
+            flow_job.workspace_id.as_str(),
+            true,
+            if flow.modules.is_empty() {
+                json!({})
+            } else {
+                json!([])
+            },
+            None,
+            true,
+            same_worker_tx,
+            worker_dir,
+            false,
+            base_internal_url,
+            None,
+        )
+        .await;
+    }
+
+    let mut module: &FlowModule = flow
+        .modules
+        .get(i)
+        .or_else(|| flow.failure_module.as_ref())
+        .with_context(|| format!("no module at index {}", status.step))?;
 
     // calculate sleep if any
     let mut scheduled_for_o = {
@@ -838,18 +851,6 @@ async fn push_next_flow_job(
             None
         }
     };
-
-    let mut status_module: FlowStatusModule = status
-        .modules
-        .get(i)
-        .cloned()
-        .unwrap_or_else(|| status.failure_module.clone());
-
-    tracing::debug!(
-        "push_next_flow_job {i}: module: {:#?}, status: {:#?}",
-        module.value,
-        status_module
-    );
 
     let mut resume_messages: Vec<Value> = vec![];
 
@@ -1134,15 +1135,12 @@ async fn push_next_flow_job(
             sqlx::query(
                         r#"
                                 UPDATE queue
-                                    SET flow_status = JSONB_SET(
-                                                      JSONB_SET(flow_status, ARRAY['modules', $1::TEXT], $2),
-                                                                               ARRAY['step'], $3)
-                                    WHERE id = $4
+                                    SET flow_status = JSONB_SET(flow_status, ARRAY['modules', $1::TEXT], $2)
+                                    WHERE id = $3
                                 "#,
                     )
                     .bind(status.step)
                     .bind(json!(FlowStatusModule::Success { id: status_module.id(), job: Uuid::nil(), flow_jobs: None, branch_chosen: None, approvers: vec![] }))
-                    .bind(json!(status.step + 1))
                     .bind(flow_job.id)
                     .execute(db)
                     .await?;
