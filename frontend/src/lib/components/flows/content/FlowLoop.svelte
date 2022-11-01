@@ -81,6 +81,13 @@
 							right: 'Skip failures'
 						}}
 					/>
+					<div class="mt-6 mb-2 text-sm font-bold">Run in parallel</div>
+					<Toggle
+						bind:checked={mod.value.parallel}
+						options={{
+							right: 'Skip failures'
+						}}
+					/>
 				{/if}
 			</Pane>
 			<Pane size={40} minSize={20} class="flex flex-col flex-1">
