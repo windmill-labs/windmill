@@ -673,6 +673,20 @@
     },
     "query": "INSERT INTO resource\n            (workspace_id, path, value, description, resource_type, is_oauth)\n            VALUES ($1, $2, $3, $4, $5, $6)"
   },
+  "282655dc568d000379196fae0dee32438a824d93f4ad2fcc155269e76f4ca20d": {
+    "describe": {
+      "columns": [],
+      "nullable": [],
+      "parameters": {
+        "Left": [
+          "Varchar",
+          "Varchar",
+          "Varchar"
+        ]
+      }
+    },
+    "query": "INSERT INTO workspace_settings\n                (workspace_id, slack_team_id, slack_name)\n                VALUES ($1, $2, $3) ON CONFLICT (workspace_id) DO UPDATE SET slack_team_id = $2, slack_name = $3"
+  },
   "28c042adef65c3055edc324fbbd2f267285d3566cbec58404983323d410ace27": {
     "describe": {
       "columns": [
@@ -2036,6 +2050,20 @@
     },
     "query": "\n        SELECT id, flow_status, suspend\n        FROM queue\n        WHERE id = ( SELECT parent_job FROM queue WHERE id = $1 UNION ALL SELECT parent_job FROM completed_job WHERE id = $1)\n        FOR UPDATE\n        "
   },
+  "877829f87c4d94c2e385ab9c5d75d3f70929c89231650e20db57c4b7c1d8911f": {
+    "describe": {
+      "columns": [],
+      "nullable": [],
+      "parameters": {
+        "Left": [
+          "Varchar",
+          "Varchar",
+          "Text"
+        ]
+      }
+    },
+    "query": "INSERT INTO group_\n                (workspace_id, name, summary)\n                VALUES ($1, $2, $3) ON CONFLICT DO NOTHING"
+  },
   "88a3f58a1a315200fdd2e4bb8638246ee21818f8aaaf56f6e9d7ddce1490d886": {
     "describe": {
       "columns": [
@@ -2467,20 +2495,6 @@
       }
     },
     "query": "\n            UPDATE queue\n               SET flow_status = JSONB_SET(flow_status, ARRAY['modules', $1::TEXT, 'branchall', 'branch'], ((flow_status->'modules'->$1::int->'branchall'->>'branch')::int + 1)::text::jsonb)\n             WHERE id = $2\n             RETURNING (flow_status->'modules'->$1::int->'branchall'->>'branch')::int\n            "
-  },
-  "9a581f49d34d62550e58e6210b4bd24b7db499cc5e0350c0ce7024b3d59b13ab": {
-    "describe": {
-      "columns": [],
-      "nullable": [],
-      "parameters": {
-        "Left": [
-          "Varchar",
-          "Varchar",
-          "Varchar"
-        ]
-      }
-    },
-    "query": "INSERT INTO workspace_settings\n            (workspace_id, slack_team_id, slack_name)\n            VALUES ($1, $2, $3) ON CONFLICT (workspace_id) DO UPDATE SET slack_team_id = $2, slack_name = $3"
   },
   "a241c56415759105ccbcbf7fff77287fa4ec2cc096c0060d14db421115d63e2d": {
     "describe": {
@@ -3168,20 +3182,6 @@
       }
     },
     "query": "UPDATE queue SET running = false WHERE last_ping < now() - ($1 || ' seconds')::interval AND running = true AND job_kind != $2 AND same_worker = false RETURNING id, workspace_id, last_ping"
-  },
-  "d2dcf69b20488d610599c309862722f805049e479035be6a416d05d73528a8e1": {
-    "describe": {
-      "columns": [],
-      "nullable": [],
-      "parameters": {
-        "Left": [
-          "Varchar",
-          "Varchar",
-          "Text"
-        ]
-      }
-    },
-    "query": "INSERT INTO group_\n            (workspace_id, name, summary)\n            VALUES ($1, $2, $3) ON CONFLICT DO NOTHING"
   },
   "d4eb7aea60894b65498144b9bf522beba612f36368d62fe4e94b5b9e26349d32": {
     "describe": {
