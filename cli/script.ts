@@ -118,7 +118,7 @@ async function push(
   console.log(colors.bold.underline.green("Script successfully pushed"));
 }
 
-async function list(opts: GlobalOptions & { showArchived: boolean }) {
+async function list(opts: GlobalOptions & { showArchived?: boolean }) {
   const { workspace } = await getContext(opts);
 
   let page = 0;
@@ -129,6 +129,7 @@ async function list(opts: GlobalOptions & { showArchived: boolean }) {
       workspace,
       page,
       perPage,
+      showArchived: opts.showArchived ?? false,
     });
     page += 1;
     total.push(...res);

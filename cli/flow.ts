@@ -1,9 +1,13 @@
 import { Command } from "https://deno.land/x/cliffy@v0.25.4/command/command.ts";
 import { FlowService } from "https://deno.land/x/windmill@v1.41.0/mod.ts";
 import { GlobalOptions } from "./types.ts";
-import { OpenFlow } from "https://deno.land/x/windmill@v1.41.0/windmill-api/index.ts";
+import {
+  Flow,
+  OpenFlow,
+} from "https://deno.land/x/windmill@v1.41.0/windmill-api/index.ts";
 import { colors } from "https://deno.land/x/cliffy@v0.25.4/ansi/colors.ts";
 import { getContext } from "./context.ts";
+import { Table } from "https://deno.land/x/cliffy@v0.25.4/table/table.ts";
 
 type Options = GlobalOptions;
 
@@ -53,8 +57,46 @@ async function push(opts: Options, filePath: string, remotePath: string) {
   console.log(colors.bold.underline.green("Flow successfully pushed"));
 }
 
+async function list(opts: GlobalOptions & { showArchived?: boolean }) {
+  const { workspace } = await getContext(opts);
+
+  let page = 0;
+  const perPage = 10;
+  const total: Flow[] = [];
+  while (true) {
+    const res = await FlowService.listFlows({
+      workspace,
+      page,
+      perPage,
+      showArchived: opts.showArchived ?? false,
+    });
+    page += 1;
+    total.push(...res);
+    if (res.length < perPage) {
+      break;
+    }
+  }
+
+  new Table()
+    .header(["path", "summary", "edited at", "edited by", "description"])
+    .padding(2)
+    .border(true)
+    .body(
+      total.map((x) => [
+        x.path,
+        x.summary,
+        x.edited_at,
+        x.edited_by,
+        x.description ?? "-",
+      ])
+    )
+    .render();
+}
+
 const command = new Command()
   .description("flow related commands")
+  .option("--show-archived", "Enable archived scripts in output")
+  .action(list as any)
   .command(
     "push",
     "push a local flow spec. This overrides any remote versions."
