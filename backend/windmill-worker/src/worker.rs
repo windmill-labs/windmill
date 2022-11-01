@@ -787,9 +787,7 @@ async fn handle_code_execution_job(
     worker_config: &WorkerConfig,
     envs: &Envs,
 ) -> error::Result<serde_json::Value> {
-    let (inner_content, requirements_o, language) = if matches!(job.job_kind, JobKind::Preview)
-        || (matches!(job.job_kind, JobKind::Script_Hub) && job.language == Some(ScriptLang::Deno))
-    {
+    let (inner_content, requirements_o, language) = if matches!(job.job_kind, JobKind::Preview) {
         let code = (job.raw_code.as_ref().unwrap_or(&"no raw code".to_owned())).to_owned();
         (code, None, job.language.to_owned())
     } else if matches!(job.job_kind, JobKind::Script_Hub) {
