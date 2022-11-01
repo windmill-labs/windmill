@@ -23,7 +23,7 @@
 	export let previousModuleId: string | undefined
 
 	let editor: SimpleEditor | undefined = undefined
-	let selected: string = 'retries'
+	let selected: string = 'early-stop'
 
 	$: pickableProperties = getStepPropPicker(
 		$flowStateStore,
