@@ -22,6 +22,15 @@ async function push(opts: Options, filePath: string, remotePath: string) {
     );
     return;
   }
+  await pushFlow(filePath, workspace, remotePath);
+  console.log(colors.bold.underline.green("Flow successfully pushed"));
+}
+
+export async function pushFlow(
+  filePath: string,
+  workspace: string,
+  remotePath: string
+) {
   const data: OpenFlow = JSON.parse(await Deno.readTextFile(filePath));
   if (
     await FlowService.existsFlowByPath({
@@ -54,7 +63,6 @@ async function push(opts: Options, filePath: string, remotePath: string) {
       },
     });
   }
-  console.log(colors.bold.underline.green("Flow successfully pushed"));
 }
 
 async function list(opts: GlobalOptions & { showArchived?: boolean }) {

@@ -51,9 +51,18 @@ async function push(opts: GlobalOptions, filePath: string, remotePath: string) {
     throw new Error("file path must refer to a file.");
   }
 
-  const data: VariableFile = JSON.parse(await Deno.readTextFile(filePath));
-
   console.log(colors.bold.yellow("Pushing variable..."));
+
+  await pushVariable(workspace, filePath, remotePath);
+  console.log(colors.bold.underline.green("Variable successfully pushed"));
+}
+
+export async function pushVariable(
+  workspace: string,
+  filePath: string,
+  remotePath: string
+) {
+  const data: VariableFile = JSON.parse(await Deno.readTextFile(filePath));
   if (await VariableService.existsVariable({ workspace, path: remotePath })) {
     const existing = await VariableService.getVariable({
       workspace: workspace,
@@ -119,7 +128,6 @@ async function push(opts: GlobalOptions, filePath: string, remotePath: string) {
       },
     });
   }
-  console.log(colors.bold.underline.green("Variable successfully pushed"));
 }
 
 const command = new Command()

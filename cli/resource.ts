@@ -13,29 +13,12 @@ type ResourceFile = {
   is_oauth?: boolean;
 };
 
-type PushOptions = GlobalOptions;
-async function push(opts: PushOptions, filePath: string, remotePath: string) {
-  const { workspace } = await getContext(opts);
-
-  if (!(remotePath.startsWith("g") || remotePath.startsWith("u"))) {
-    console.log(
-      colors.red(
-        "Given remote path looks invalid. Remote paths are typicall of the form <u|g>/<username|group>/..."
-      )
-    );
-    return;
-  }
-
-  const fstat = await Deno.stat(filePath);
-  if (!fstat.isFile) {
-    throw new Error("file path must refer to a file.");
-  }
-
+export async function pushResource(
+  workspace: string,
+  filePath: string,
+  remotePath: string
+) {
   const data: ResourceFile = JSON.parse(await Deno.readTextFile(filePath));
-
-  console.log(colors.bold.yellow("Pushing resource..."));
-
-  // TODO:
   if (
     await ResourceService.existsResource({
       workspace: workspace,
@@ -89,6 +72,29 @@ async function push(opts: PushOptions, filePath: string, remotePath: string) {
       },
     });
   }
+}
+
+type PushOptions = GlobalOptions;
+async function push(opts: PushOptions, filePath: string, remotePath: string) {
+  const { workspace } = await getContext(opts);
+
+  if (!(remotePath.startsWith("g") || remotePath.startsWith("u"))) {
+    console.log(
+      colors.red(
+        "Given remote path looks invalid. Remote paths are typicall of the form <u|g>/<username|group>/..."
+      )
+    );
+    return;
+  }
+
+  const fstat = await Deno.stat(filePath);
+  if (!fstat.isFile) {
+    throw new Error("file path must refer to a file.");
+  }
+
+  console.log(colors.bold.yellow("Pushing resource..."));
+
+  await pushResource(workspace, filePath, remotePath);
   console.log(colors.bold.underline.green("Resource successfully pushed"));
 }
 

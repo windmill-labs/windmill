@@ -12,6 +12,7 @@ import remote from "./remote.ts";
 import user from "./user.ts";
 import setup from "./setup.ts";
 import variable from "./variable.ts";
+import push from "./push.ts";
 
 await new Command()
   .name("windmill")
@@ -67,6 +68,7 @@ await new Command()
   .command("user", user)
   .command("setup", setup)
   .command("variable", variable)
+  .command("push", push)
   .command(
     "upgrade",
     new UpgradeCommand({

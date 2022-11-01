@@ -38,35 +38,7 @@ async function push(
     throw new Error("file path must refer to a file.");
   }
   if (!contentPath) {
-    const candidates = [
-      filePath.replace(".json", ".ts"),
-      filePath.replace(".json", ".py"),
-      filePath.replace(".json", ".go"),
-    ];
-    const validCandidates = (
-      await Promise.all(
-        candidates.map((x) => {
-          return Deno.stat(x)
-            .catch(() => undefined)
-            .then((x) => x?.isFile)
-            .then((e) => {
-              return { path: x, file: e };
-            });
-        })
-      )
-    )
-      .filter((x) => x.file)
-      .map((x) => x.path);
-    if (validCandidates.length > 1) {
-      throw new Error(
-        "No content path given and more then one candidate found: " +
-          validCandidates.join(", ")
-      );
-    }
-    if (validCandidates.length < 1) {
-      throw new Error("No content path given and no content file found.");
-    }
-    contentPath = validCandidates[0];
+    contentPath = await findContentFile(filePath);
   } else {
     const fstat = await Deno.stat(filePath);
     if (!fstat.isFile) {
@@ -74,6 +46,48 @@ async function push(
     }
   }
 
+  await pushScript(filePath, contentPath, workspace, remotePath);
+  console.log(colors.bold.underline.green("Script successfully pushed"));
+}
+
+export async function findContentFile(filePath: string) {
+  const candidates = [
+    filePath.replace(".json", ".ts"),
+    filePath.replace(".json", ".py"),
+    filePath.replace(".json", ".go"),
+  ];
+  const validCandidates = (
+    await Promise.all(
+      candidates.map((x) => {
+        return Deno.stat(x)
+          .catch(() => undefined)
+          .then((x) => x?.isFile)
+          .then((e) => {
+            return { path: x, file: e };
+          });
+      })
+    )
+  )
+    .filter((x) => x.file)
+    .map((x) => x.path);
+  if (validCandidates.length > 1) {
+    throw new Error(
+      "No content path given and more then one candidate found: " +
+        validCandidates.join(", ")
+    );
+  }
+  if (validCandidates.length < 1) {
+    throw new Error("No content path given and no content file found.");
+  }
+  return validCandidates[0];
+}
+
+export async function pushScript(
+  filePath: string,
+  contentPath: string,
+  workspace: string,
+  remotePath: string
+) {
   const data: ScriptFile = JSON.parse(await Deno.readTextFile(filePath));
   const content = await Deno.readTextFile(contentPath);
 
@@ -115,7 +129,6 @@ async function push(
       schema: data.schema,
     },
   });
-  console.log(colors.bold.underline.green("Script successfully pushed"));
 }
 
 async function list(opts: GlobalOptions & { showArchived?: boolean }) {
