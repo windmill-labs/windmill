@@ -578,7 +578,7 @@ def main(last, port):
             .unwrap();
 
         assert_eq!(server.close().await, attempts);
-        assert!(result["error"]
+        assert!(result[1]["error"]
             .as_str()
             .unwrap()
             .contains(r#"Uncaught (in promise) "read""#));
@@ -735,8 +735,8 @@ async fn test_iteration(db: Pool<Postgres>) {
         .await
         .result
         .unwrap();
-    assert!(matches!(result, serde_json::Value::Object(_)));
-    assert!(result["error"]
+    assert!(matches!(result, serde_json::Value::Array(_)));
+    assert!(result[2]["error"]
         .as_str()
         .unwrap()
         .contains("StopIteration: 2"));
