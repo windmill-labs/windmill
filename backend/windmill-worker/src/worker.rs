@@ -1586,6 +1586,15 @@ async fn handle_dependency_job(
             .await
             .map_err(|e| e.to_string())
         }
+        Some(ScriptLang::Deno) => {
+            let requirements = job
+                .raw_code
+                .as_ref()
+                .ok_or_else(|| Error::ExecutionErr("missing requirements".to_string()))?;
+            generate_deno_lock(&job.id, &requirements, logs, job_dir, db, timeout)
+                .await
+                .map_err(|e| e.to_string())
+        }
         _ => Err("Language incompatible with dep job".to_string()),
     };
 
@@ -1613,6 +1622,32 @@ async fn handle_dependency_job(
             Err(Error::ExecutionErr(format!("Error locking file: {error}")))?
         }
     }
+}
+
+async fn generate_deno_lock(
+    job_id: &Uuid,
+    code: &str,
+    logs: &mut String,
+    job_dir: &str,
+    db: &sqlx::Pool<sqlx::Postgres>,
+    timeout: i32,
+) -> error::Result<String> {
+    let _ = write_file(job_dir, "main.ts", code).await?;
+
+    let child = Command::new("deno")
+        .current_dir(job_dir)
+        .args(vec!["cache", "--lock=lock.json", "--lock-write", "main.ts"])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()?;
+
+    handle_child(job_id, db, logs, timeout, child).await?;
+
+    let path_lock = format!("{job_dir}/lock.json");
+    let mut file = File::open(path_lock).await?;
+    let mut req_content = "".to_string();
+    file.read_to_string(&mut req_content).await?;
+    Ok(req_content)
 }
 
 async fn pip_compile(
