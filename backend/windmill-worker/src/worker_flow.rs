@@ -742,8 +742,14 @@ pub async fn handle_flow(
         .to_owned();
     let flow = serde_json::from_value::<FlowValue>(value)?;
 
-    if flow.modules.is_empty() {
-        update_flow_status_after_job_completion(
+    let status: FlowStatus =
+        serde_json::from_value::<FlowStatus>(flow_job.flow_status.clone().unwrap_or_default())
+            .with_context(|| format!("parse flow status {}", flow_job.id))?;
+
+    let done = status.step >= flow.modules.len() as i32;
+
+    if flow.modules.is_empty() || done {
+        return update_flow_status_after_job_completion(
             db,
             client,
             flow_job.id,
@@ -759,13 +765,9 @@ pub async fn handle_flow(
             base_internal_url,
             None,
         )
-        .await?;
-        return Ok(());
+        .await
+        .map_err(to_anyhow);
     }
-
-    let status: FlowStatus =
-        serde_json::from_value::<FlowStatus>(flow_job.flow_status.clone().unwrap_or_default())
-            .with_context(|| format!("parse flow status {}", flow_job.id))?;
 
     tracing::debug!("handle_flow: {:#?}", flow_job.flow_status);
     push_next_flow_job(
@@ -794,15 +796,10 @@ async fn push_next_flow_job(
     same_worker_tx: Sender<Uuid>,
     base_internal_url: &str,
 ) -> error::Result<()> {
-    /* `mut` because reassigned on FlowStatusModule::Failure when failure_module is Some */
     let mut i = usize::try_from(status.step)
         .with_context(|| format!("invalid module index {}", status.step))?;
 
-    let mut module: &FlowModule = flow
-        .modules
-        .get(i)
-        .or_else(|| flow.failure_module.as_ref())
-        .with_context(|| format!("no module at index {}", status.step))?;
+    let mut module: &FlowModule = &flow.modules[i];
 
     // calculate sleep if any
     let mut scheduled_for_o = {
@@ -1134,25 +1131,26 @@ async fn push_next_flow_job(
     let (job_payloads, next_status) = match next_flow_transform {
         NextFlowTransform::Continue(job_payload, next_state) => (job_payload, next_state),
         NextFlowTransform::EmptyInnerFlows => {
-            return jump_to_next_step(
-                status.step,
-                i,
-                &flow_job.id,
-                flow.clone(),
-                &db,
-                client,
-                FlowStatusModule::Success {
-                    id: status_module.id(),
-                    job: flow_job.id,
-                    flow_jobs: Some(vec![]),
-                    branch_chosen: None,
-                    approvers: vec![],
-                },
-                json!([]),
-                same_worker_tx,
-                base_internal_url,
-            )
-            .await;
+            sqlx::query(
+                        r#"
+                                UPDATE queue
+                                    SET flow_status = JSONB_SET(
+                                                      JSONB_SET(flow_status, ARRAY['modules', $1::TEXT], $2),
+                                                                               ARRAY['step'], $3)
+                                    WHERE id = $4
+                                "#,
+                    )
+                    .bind(status.step)
+                    .bind(json!(FlowStatusModule::Success { id: status_module.id(), job: Uuid::nil(), flow_jobs: None, branch_chosen: None, approvers: vec![] }))
+                    .bind(json!(status.step + 1))
+                    .bind(flow_job.id)
+                    .execute(db)
+                    .await?;
+            same_worker_tx
+                .send(flow_job.id)
+                .await
+                .expect("send to same worker");
+            return Ok(());
         }
     };
 
@@ -1327,69 +1325,69 @@ async fn push_next_flow_job(
     return Ok(());
 }
 
-async fn jump_to_next_step(
-    status_step: i32,
-    i: usize,
-    job_id: &Uuid,
-    flow: FlowValue,
-    db: &DB,
-    client: &windmill_api_client::Client,
-    status_module: FlowStatusModule,
-    last_result: serde_json::Value,
-    same_worker_tx: Sender<Uuid>,
-    base_internal_url: &str,
-) -> error::Result<()> {
-    let mut tx = db.begin().await?;
+// async fn jump_to_next_step(
+//     status_step: i32,
+//     i: usize,
+//     job_id: &Uuid,
+//     flow: FlowValue,
+//     db: &DB,
+//     client: &windmill_api_client::Client,
+//     status_module: FlowStatusModule,
+//     last_result: serde_json::Value,
+//     same_worker_tx: Sender<Uuid>,
+//     base_internal_url: &str,
+// ) -> error::Result<()> {
+//     let mut tx = db.begin().await?;
 
-    let next_step = i
-        .checked_add(1)
-        .filter(|i| (..flow.modules.len()).contains(i));
+//     let next_step = i
+//         .checked_add(1)
+//         .filter(|i| (..flow.modules.len()).contains(i));
 
-    let new_job = sqlx::query_as::<_, QueuedJob>(
-        r#"
-                UPDATE queue
-                    SET flow_status = JSONB_SET(
-                                      JSONB_SET(flow_status, ARRAY['modules', $1::TEXT], $2),
-                                                               ARRAY['step'], $3)
-                    WHERE id = $4
-                RETURNING *
-                "#,
-    )
-    .bind(status_step)
-    .bind(json!(status_module))
-    .bind(json!(next_step.unwrap_or(i)))
-    .bind(job_id)
-    .fetch_one(&mut tx)
-    .await?;
+//     let new_job = sqlx::query_as::<_, QueuedJob>(
+//         r#"
+//                 UPDATE queue
+//                     SET flow_status = JSONB_SET(
+//                                       JSONB_SET(flow_status, ARRAY['modules', $1::TEXT], $2),
+//                                                                ARRAY['step'], $3)
+//                     WHERE id = $4
+//                 RETURNING *
+//                 "#,
+//     )
+//     .bind(status_step)
+//     .bind(json!(status_module))
+//     .bind(json!(next_step.unwrap_or(i)))
+//     .bind(job_id)
+//     .fetch_one(&mut tx)
+//     .await?;
 
-    tx.commit().await?;
+//     tx.commit().await?;
 
-    let new_status = new_job.parse_flow_status().ok_or_else(|| {
-        Error::ExecutionErr("Impossible to parse new status after jump".to_string())
-    })?;
+//     let new_status = new_job.parse_flow_status().ok_or_else(|| {
+//         Error::ExecutionErr("Impossible to parse new status after jump".to_string())
+//     })?;
 
-    if next_step.is_some() {
-        tracing::debug!("Jumping to next step with flow {flow:#?}");
-        return push_next_flow_job(
-            &new_job,
-            new_status,
-            flow,
-            db,
-            client,
-            last_result,
-            same_worker_tx,
-            base_internal_url,
-        )
-        .await;
-    } else {
-        let success = true;
-        let skipped = false;
-        let logs = "Forloop completed without iteration".to_string();
-        let _uuid =
-            add_completed_job(db, client, &new_job, success, skipped, json!([]), logs).await?;
-        return Ok(());
-    }
-}
+//     if next_step.is_some() {
+//         tracing::debug!("Jumping to next step with flow {flow:#?}");
+//         return push_next_flow_job(
+//             &new_job,
+//             new_status,
+//             flow,
+//             db,
+//             client,
+//             last_result,
+//             same_worker_tx,
+//             base_internal_url,
+//         )
+//         .await;
+//     } else {
+//         let success = true;
+//         let skipped = false;
+//         let logs = "Forloop completed without iteration".to_string();
+//         let _uuid =
+//             add_completed_job(db, client, &new_job, success, skipped, json!([]), logs).await?;
+//         return Ok(());
+//     }
+// }
 
 /// Some state about the current/last forloop FlowStatusModule used to initialized the next
 /// iteration's FlowStatusModule after pushing a job
