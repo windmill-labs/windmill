@@ -784,6 +784,7 @@ async fn push_next_flow_job(
         .cloned()
         .unwrap_or_else(|| status.failure_module.clone());
 
+    // if this is an empty module of if the module has aleady been completed, successfully, update the parent flow
     if flow.modules.is_empty() || matches!(status_module, FlowStatusModule::Success { .. }) {
         return update_flow_status_after_job_completion(
             db,
@@ -1144,6 +1145,8 @@ async fn push_next_flow_job(
                     .bind(flow_job.id)
                     .execute(db)
                     .await?;
+            // flow is reprocessed by the worker in a state where the module has completed succesfully.
+            // The next steps are pull -> handle flow -> push next flow job -> update flow status since module status is success
             same_worker_tx
                 .send(flow_job.id)
                 .await
