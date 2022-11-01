@@ -1026,12 +1026,14 @@ paths:
               schema:
                 type: string
 
-  /oauth/connect_slack_callback:
+  /w/{workspace}/oauth/connect_slack_callback:
     post:
       summary: connect slack callback
       operationId: connectSlackCallback
       tags:
         - oauth
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
       requestBody:
         description: code endpoint
         required: true
@@ -1051,9 +1053,9 @@ paths:
         "200":
           description: slack token
           content:
-            application/json:
+            text/plain:
               schema:
-                $ref: "#/components/schemas/SlackToken"
+                type: string
 
   /oauth/connect_callback/{client_name}:
     post:
@@ -1180,28 +1182,6 @@ paths:
       responses:
         "200":
           description: disconnected slack
-          content:
-            text/plain:
-              schema:
-                type: string
-
-  /w/{workspace}/oauth/set_workspace_slack:
-    post:
-      summary: set workspace's slack
-      operationId: setWorkspaceSlack
-      tags:
-        - oauth
-      parameters:
-        - $ref: "#/components/parameters/WorkspaceId"
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/SlackToken"
-      responses:
-        "200":
-          description: workspace slack is set
           content:
             text/plain:
               schema:
