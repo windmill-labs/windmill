@@ -25,7 +25,9 @@
         "auth_url": "https://slack.com/oauth/authorize",
         "token_url": "https://slack.com/api/oauth.access",
         "scopes": [
-            "chat:write:user"
+            "chat:write:user",
+            "users:read",
+            "users:read.email"
         ]
     },
     "gsheets": {
