@@ -883,6 +883,7 @@ mount {{
                 &inner_content,
                 timeout,
                 &shared_mount,
+                requirements_o,
             )
             .await
         }
@@ -1120,9 +1121,15 @@ async fn handle_deno_job(
     inner_content: &String,
     timeout: i32,
     shared_mount: &str,
+    lockfile: Option<String>,
 ) -> error::Result<serde_json::Value> {
     logs.push_str("\n\n--- DENO CODE EXECUTION ---\n");
     set_logs(logs, job.id, db).await;
+    let lockfile = lockfile.unwrap_or("{}".to_string());
+    let _ = write_file(job_dir, "lock.json", &lockfile).await?;
+    // TODO: Separately cache dependencies here using `deno cache --reload --lock=lock.json src/deps.ts` (https://deno.land/manual@v1.27.0/linking_to_external_code/integrity_checking)
+    // Then require caching below using --cached-only. This makes it so we require zero network interaction when running the process below
+
     let _ = write_file(job_dir, "inner.ts", inner_content).await?;
     let sig = trace_span!("parse_deno_signature")
         .in_scope(|| windmill_parser_ts::parse_deno_signature(inner_content))?;
@@ -1177,6 +1184,7 @@ run();
                     "--",
                     deno_path,
                     "run",
+                    "--lock=/tmp/lock.json",
                     "--unstable",
                     "--v8-flags=--max-heap-size=2048",
                     "-A",
@@ -1195,6 +1203,7 @@ run();
                 .env("BASE_INTERNAL_URL", base_internal_url)
                 .args(vec![
                     "run",
+                    "--lock=lock.json",
                     "--unstable",
                     "--v8-flags=--max-heap-size=2048",
                     "-A",
