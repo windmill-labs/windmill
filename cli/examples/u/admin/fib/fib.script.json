@@ -1,0 +1,19 @@
+{
+  "summary": "",
+  "description": "",
+  "schema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+      "element": {
+        "description": "",
+        "type": "number",
+        "default": null,
+        "format": ""
+      }
+    },
+    "required": ["element"],
+    "type": "object"
+  },
+  "is_template": false,
+  "lock": []
+}
