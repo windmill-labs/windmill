@@ -1636,7 +1636,13 @@ async fn generate_deno_lock(
 
     let child = Command::new("deno")
         .current_dir(job_dir)
-        .args(vec!["cache", "--lock=lock.json", "--lock-write", "main.ts"])
+        .args(vec![
+            "cache",
+            "--unstable",
+            "--lock=lock.json",
+            "--lock-write",
+            "main.ts",
+        ])
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()?;
