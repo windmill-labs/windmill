@@ -117,10 +117,10 @@ async function list(opts: GlobalOptions) {
   }
 
   new Table()
-    .header(["Path", "Resource Type", "Description"])
+    .header(["Path", "Resource Type"])
     .padding(2)
     .border(true)
-    .body(total.map((x) => [x.path, x.resource_type, x.description]))
+    .body(total.map((x) => [x.path, x.resource_type]))
     .render();
 }
 
