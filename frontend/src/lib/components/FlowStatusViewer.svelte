@@ -29,14 +29,19 @@
 	$: innerModules =
 		job?.flow_status?.modules
 			.filter((x) => x.job != jobId)
-			.concat(job?.flow_status.failure_module ? job?.flow_status.failure_module : []) ?? []
+			.concat(
+				job?.flow_status.failure_module.type != 'WaitingForPriorSteps'
+					? job?.flow_status.failure_module
+					: []
+			) ?? []
 
 	async function loadJobInProgress() {
-		job = await JobService.getJob({
-			workspace: $workspaceStore ?? '',
-			id: jobId ?? ''
-		})
-
+		if (jobId != '00000000-0000-0000-0000-000000000000') {
+			job = await JobService.getJob({
+				workspace: $workspaceStore ?? '',
+				id: jobId ?? ''
+			})
+		}
 		if (job?.type !== 'CompletedJob') {
 			timeout = setTimeout(() => loadJobInProgress(), 500)
 		}
@@ -141,7 +146,7 @@
 								</span>
 							{/if}
 						{:else}
-							<h3> Failure module </h3>
+							<h3>Failure module</h3>
 						{/if}
 					</h3>
 					<div class="line w-8 h-10" />

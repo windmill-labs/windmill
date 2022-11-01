@@ -473,7 +473,6 @@ async fn handle_job_error(
         } else {
             (job.id, Uuid::nil())
         };
-        println!("job {:#?} failed {} {}", job, flow, job_status_to_update);
 
         let mut output_map = serde_json::Map::new();
         error_to_result(&mut output_map, &err);

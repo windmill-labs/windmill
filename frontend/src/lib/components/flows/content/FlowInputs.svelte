@@ -81,7 +81,7 @@
 		<div class="text-sm font-bold pt-8">
 			Trigger script
 			<Tooltip>
-				Used as a first step most commonly with an intenal state and a schedule to watch for changes
+				Used as a first step most commonly with an internal state and a schedule to watch for changes
 				on an external system, compute the diff since last time, set the new state. The diffs are
 				then treated one by one with a for-loop.
 			</Tooltip>

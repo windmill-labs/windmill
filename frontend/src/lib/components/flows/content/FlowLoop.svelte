@@ -23,7 +23,7 @@
 	export let previousModuleId: string | undefined
 
 	let editor: SimpleEditor | undefined = undefined
-	let selected: string = 'retries'
+	let selected: string = 'early-stop'
 
 	$: pickableProperties = getStepPropPicker(
 		$flowStateStore,
@@ -79,6 +79,13 @@
 						bind:checked={mod.value.skip_failures}
 						options={{
 							right: 'Skip failures'
+						}}
+					/>
+					<div class="mt-6 mb-2 text-sm font-bold">Run in parallel</div>
+					<Toggle
+						bind:checked={mod.value.parallel}
+						options={{
+							right: 'All iterations run in parallel'
 						}}
 					/>
 				{/if}
