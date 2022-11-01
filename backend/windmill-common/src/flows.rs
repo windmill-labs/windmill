@@ -201,7 +201,7 @@ pub enum FlowModuleValue {
     },
     BranchAll {
         branches: Vec<BranchAllModules>,
-        #[serde(default = "default_false")]
+        #[serde(default = "default_true")]
         parallel: bool,
     },
     RawScript {

@@ -786,7 +786,7 @@ async fn test_iteration_parallel(db: Pool<Postgres>) {
         .arg("items", json!((0..100).collect::<Vec<_>>()))
         .run_until_complete(&db, server.addr.port())
         .await;
-
+    // println!("{:#?}", job);
     let result = job.result.unwrap();
     assert!(matches!(result, serde_json::Value::Array(_)));
     assert!(result[2]["error"]
@@ -1951,7 +1951,7 @@ async fn test_branchall_skip_failure(db: Pool<Postgres>) {
 
     assert_eq!(
         result,
-        serde_json::json!({"error": "Error during execution of the script:\n\nerror: Uncaught (in promise) Error: failure\nexport function main(){ throw Error('failure') }\n                              ^\n    at main (file:///tmp/inner.ts:1:31)\n    at run (file:///tmp/main.ts:9:26)\n    at file:///tmp/main.ts:14:1"})
+        serde_json::json!([{"error": "Error during execution of the script:\n\nerror: Uncaught (in promise) Error: failure\nexport function main(){ throw Error('failure') }\n                              ^\n    at main (file:///tmp/inner.ts:1:31)\n    at run (file:///tmp/main.ts:9:26)\n    at file:///tmp/main.ts:14:1"}, [1,3]])
     );
 
     let flow: FlowValue = serde_json::from_value(json!({

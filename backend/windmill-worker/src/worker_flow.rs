@@ -150,8 +150,7 @@ pub async fn update_flow_status_after_job_completion(
                     "unexpected status for parallel module"
                 )))?,
             };
-            // println!("{nindex} {len}");
-            if nindex + 1 == len {
+            if nindex == len {
                 let new_status = if skip_loop_failures
                     || sqlx::query_scalar!(
                         "
