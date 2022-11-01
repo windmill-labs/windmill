@@ -14,6 +14,8 @@ import setup from "./setup.ts";
 import variable from "./variable.ts";
 import push from "./push.ts";
 
+const VERSION = "v1.42.1";
+
 await new Command()
   .name("wmill")
   .description("A simple CLI tool for windmill.")
@@ -58,7 +60,7 @@ await new Command()
       conflicts: ["token"],
     }
   )
-  .version("v0.0.0")
+  .version(VERSION)
   .command("login", login)
   .command("flow", flow)
   .command("script", script)
