@@ -3,8 +3,6 @@ import { ScriptService } from "https://deno.land/x/windmill@v1.41.0/mod.ts";
 import { GlobalOptions } from "./types.ts";
 import { colors } from "https://deno.land/x/cliffy@v0.25.4/ansi/colors.ts";
 import { getContext } from "./context.ts";
-import { List } from "https://deno.land/x/cliffy@v0.25.4/prompt/list.ts";
-import { passwordGenerator } from "https://deno.land/x/password_generator@latest/mod.ts";
 import { Script } from "https://deno.land/x/windmill@v1.41.0/windmill-api/index.ts";
 import { Table } from "https://deno.land/x/cliffy@v0.25.4/table/table.ts";
 

@@ -3,6 +3,8 @@ import { ResourceService } from "https://deno.land/x/windmill@v1.41.0/mod.ts";
 import { GlobalOptions } from "./types.ts";
 import { colors } from "https://deno.land/x/cliffy@v0.25.4/ansi/colors.ts";
 import { getContext } from "./context.ts";
+import { Resource } from "https://deno.land/x/windmill@v1.41.0/windmill-api/index.ts";
+import { Table } from "https://deno.land/x/cliffy@v0.25.4/table/table.ts";
 
 type ResourceFile = {
   value: any;
@@ -13,7 +15,7 @@ type ResourceFile = {
 
 type PushOptions = GlobalOptions;
 async function push(opts: PushOptions, filePath: string, remotePath: string) {
-  const { workspace } = getContext(opts);
+  const { workspace } = await getContext(opts);
 
   if (!(remotePath.startsWith("g") || remotePath.startsWith("u"))) {
     console.log(
@@ -90,8 +92,35 @@ async function push(opts: PushOptions, filePath: string, remotePath: string) {
   console.log(colors.bold.underline.green("Resource successfully pushed"));
 }
 
+async function list(opts: GlobalOptions) {
+  const { workspace } = await getContext(opts);
+  let page = 0;
+  const perPage = 10;
+  const total: Resource[] = [];
+  while (true) {
+    const res = await ResourceService.listResource({
+      workspace,
+      page,
+      perPage,
+    });
+    total.push(...res);
+    page += 1;
+    if (res.length < perPage) {
+      break;
+    }
+  }
+
+  new Table()
+    .header(["Path", "Resource Type", "Description"])
+    .padding(2)
+    .border(true)
+    .body(total.map((x) => [x.path, x.resource_type, x.description]))
+    .render();
+}
+
 const command = new Command()
   .description("resource related commands")
+  .action(list as any)
   .command(
     "push",
     "push a local resource spec. This overrides any remote versions."
