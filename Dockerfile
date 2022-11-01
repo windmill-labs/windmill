@@ -87,12 +87,6 @@ RUN apt-get update \
     libv8-dev tesseract-ocr \
     && rm -rf /var/lib/apt/lists/*
 
-
-RUN wget https://get.helm.sh/helm-v3.10.1-linux-amd64.tar.gz && \
-    tar -zxvf helm-v3.10.1-linux-amd64.tar.gz  && \
-    mv linux-amd64/helm /usr/local/bin/helm && \
-    chmod +x /usr/local/bin/helm
-
 RUN wget https://golang.org/dl/go1.19.1.linux-amd64.tar.gz && tar -C /usr/local -xzf go1.19.1.linux-amd64.tar.gz
 ENV PATH="${PATH}:/usr/local/go/bin"
 ENV GO_PATH=/usr/local/go/bin/go
