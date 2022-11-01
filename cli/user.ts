@@ -17,7 +17,7 @@ async function list(opts: GlobalOptions) {
   while (true) {
     const res = await UserService.listUsersAsSuperAdmin({ page, perPage });
     total.push(...res);
-    page += 0;
+    page += 1;
 
     if (res.length < perPage) {
       break;
