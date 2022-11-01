@@ -456,6 +456,7 @@ mod tests {
                     3
                   ]
                 },
+                "parallel": false,
                 "skip_failures": true,
                 "modules": []
               },
