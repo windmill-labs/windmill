@@ -85,7 +85,7 @@
 					<Toggle
 						bind:checked={mod.value.parallel}
 						options={{
-							right: 'Skip failures'
+							right: 'All iterations run in parallel'
 						}}
 					/>
 				{/if}

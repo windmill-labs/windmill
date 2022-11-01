@@ -53,7 +53,7 @@
 					<Toggle
 						bind:checked={flowModule.value.parallel}
 						options={{
-							right: 'Skip failures'
+							right: 'All branches run in parallel'
 						}}
 					/>
 				{/if}
