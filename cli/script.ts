@@ -152,15 +152,7 @@ async function list(opts: GlobalOptions & { showArchived?: boolean }) {
   }
 
   new Table()
-    .header([
-      "path",
-      "hash",
-      "kind",
-      "language",
-      "created at",
-      "created by",
-      "description",
-    ])
+    .header(["path", "hash", "kind", "language", "created at", "created by"])
     .padding(2)
     .border(true)
     .body(
@@ -171,7 +163,6 @@ async function list(opts: GlobalOptions & { showArchived?: boolean }) {
         x.language,
         x.created_at,
         x.created_by,
-        x.description ?? "-",
       ])
     )
     .render();

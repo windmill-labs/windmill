@@ -1,4 +1,3 @@
-import { reset } from "https://deno.land/std@0.161.0/fmt/colors.ts";
 import { Command } from "https://deno.land/x/cliffy@v0.25.4/command/command.ts";
 import { Table } from "https://deno.land/x/cliffy@v0.25.4/table/table.ts";
 import { UserService } from "https://deno.land/x/windmill@v1.41.0/mod.ts";
@@ -17,7 +16,7 @@ async function list(opts: GlobalOptions) {
   while (true) {
     const res = await UserService.listUsersAsSuperAdmin({ page, perPage });
     total.push(...res);
-    page += 0;
+    page += 1;
 
     if (res.length < perPage) {
       break;
