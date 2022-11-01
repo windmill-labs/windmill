@@ -3,7 +3,14 @@
 	import JobStatus from '$lib/components/JobStatus.svelte'
 	import Icon from 'svelte-awesome'
 	import { displayDaysAgo } from '$lib/utils'
-	import { faCalendar, faClock, faRobot, faUser, faWind } from '@fortawesome/free-solid-svg-icons'
+	import {
+		faCalendar,
+		faClock,
+		faRobot,
+		faScroll,
+		faUser,
+		faWind
+	} from '@fortawesome/free-solid-svg-icons'
 
 	export let job: Job
 	const SMALL_ICON_SCALE = 0.7
@@ -36,13 +43,26 @@
 			{/if}
 		{:else if job && job.schedule_path}
 			<Icon class="text-gray-700" data={faCalendar} scale={SMALL_ICON_SCALE} />
-			<span class="mx-2"
+			<span
 				>Triggered by the schedule: <a
 					href={`/schedule/add?edit=${job.schedule_path}&isFlow=${job.job_kind == 'flow'}`}
 					>{job.schedule_path}</a
 				></span
 			>
 		{/if}
+
+		{#if (job && job.job_kind == 'flow') || job?.job_kind == 'script'}
+			{@const stem = `/${job?.job_kind}s`}
+			{@const isScript = job?.job_kind === 'script'}
+			{@const viewHref = `${stem}/get/${isScript ? job?.script_hash : job?.script_path}`}
+			<div>
+				<Icon class="text-gray-700" data={faScroll} scale={SMALL_ICON_SCALE} /><span class="mx-2">
+					{job?.job_kind}:
+					<a href={viewHref}>{isScript ? job?.script_hash : job?.script_path}</a>
+				</span>
+			</div>
+		{/if}
+
 		<div>
 			<Icon class="text-gray-700" data={faUser} scale={SMALL_ICON_SCALE} /><span class="mx-2">
 				By {job.created_by}

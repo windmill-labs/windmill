@@ -86,7 +86,7 @@
 <div class="flex flex-col h-screen">
 	<!-- Nav between steps-->
 	<div class="flex flex-col w-full px-4 py-2 border-b shadow-sm">
-		<div class="justify-between flex flex-row w-full items-center">
+		<div class="justify-between flex flex-row w-full items-center overflow-x-auto scrollbar-hidden">
 			<div class="flex flex-row">
 				<Breadcrumb
 					items={['Metadata', 'Code', 'UI Customisation']}
@@ -98,8 +98,9 @@
 				</Breadcrumb>
 			</div>
 
-			<div class="flex gap-1 flex-row">
+			<div class="gap-1 flex-row hidden md:flex shrink overflow-hidden">
 				<Button
+					btnClasses="hidden lg:inline-flex"
 					startIcon={{ icon: faPen }}
 					variant="contained"
 					color="light"

@@ -1,0 +1,19 @@
+[package]
+name = "windmill-parser-ts"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+
+[lib]
+name = "windmill_parser_ts"
+path = "./src/lib.rs"
+
+[dependencies]
+windmill-parser.workspace = true
+windmill-common.workspace = true
+deno_core.workspace = true
+swc_common.workspace = true
+swc_ecma_parser.workspace = true
+swc_ecma_ast.workspace = true
+serde_json.workspace = true
+anyhow.workspace = true

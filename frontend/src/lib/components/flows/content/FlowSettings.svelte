@@ -10,6 +10,7 @@
 	import FlowSchedules from './FlowSchedules.svelte'
 	import SvelteMarkdown from 'svelte-markdown'
 	import Toggle from '$lib/components/Toggle.svelte'
+	import { Alert } from '$lib/components/common'
 
 	export let initialPath: string
 
@@ -53,7 +54,7 @@
 							bind:value={$flowStore.description}
 							class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-300 
 							focus:ring focus:ring-indigo-200 focus:ring-opacity-50"
-							placeholder="A description to help users understand what this script does and how to use it."
+							placeholder="A description to help users understand what this flow does and how to use it. Markdown accepted."
 							rows="3"
 						/>
 					</span>
@@ -71,12 +72,22 @@
 				</div>
 			</TabContent>
 			<TabContent value="schedule" class="p-4">
+				<Alert type="info" title="Primary Schedule">
+					Flows can be triggered by any schedules, their webhooks or their UI but they only have
+					only one primary schedules with which they share the same path. The primary schedule can
+					be set here.
+				</Alert>
+				<div class="mt-4" />
 				<FlowSchedules />
 			</TabContent>
 
 			<TabContent value="same-worker" class="p-4 flex flex-col">
+				<Alert type="info" title="Toggle Same Worker to have all steps be ran on the same worker">
+					Steps will be run one after the other on the same worker, and will share a folder at
+					`/shared` in which they can store heavier data and pass them to the next step. <br /><br
+					/>Beware that the `/shared` folder is not preserved across suspends and sleeps.
+				</Alert>
 				<span class="my-2 text-sm font-bold">Same Worker</span>
-
 				<Toggle
 					bind:checked={$flowStore.value.same_worker}
 					options={{

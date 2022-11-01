@@ -71,6 +71,9 @@
 			while (await pathExists(metaToPath(meta), kind)) {
 				meta.name = `${namePlaceholder}_${i}`
 				i += 1
+				if (initialPath && initialPath != '') {
+					meta = pathToMeta(initialPath)
+				}
 			}
 		} else {
 			meta = pathToMeta(path)
@@ -205,6 +208,7 @@
 				<Required required={true} />
 			</span>
 			<input
+				id="path"
 				autofocus
 				bind:this={inputP}
 				autocomplete="off"

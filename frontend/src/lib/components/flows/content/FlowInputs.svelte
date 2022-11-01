@@ -78,10 +78,10 @@
 	</div>
 
 	{#if !shouldDisableTriggerScripts}
-		<div class="text-sm font-bold">
+		<div class="text-sm font-bold pt-8">
 			Trigger script
 			<Tooltip>
-				Used as a first step most commonly with an intenal state and a schedule to watch for changes
+				Used as a first step most commonly with an internal state and a schedule to watch for changes
 				on an external system, compute the diff since last time, set the new state. The diffs are
 				then treated one by one with a for-loop.
 			</Tooltip>
@@ -99,7 +99,7 @@
 		</div>
 	{/if}
 	{#if !failureModule}
-		<div class="text-sm font-bold">
+		<div class="text-sm font-bold pt-8">
 			Approval step
 			<Tooltip>
 				Inlined common scripts can be turned into approval step by changing their suspend settings.
@@ -123,7 +123,7 @@
 			/>
 		</div>
 
-		<div class="text-sm font-bold">Flow primitive</div>
+		<div class="text-sm font-bold pt-8">Flow primitive</div>
 
 		<div class="grid sm:grid-col-1 md:grid-col-2 lg:grid-cols-3 gap-4">
 			<FlowScriptPicker

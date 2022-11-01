@@ -10,6 +10,8 @@
 	import { page } from '$app/stores'
 	import { sendUserToast, formatCron } from '$lib/utils'
 	import { ScriptService, Script, ScheduleService, type Flow, FlowService } from '$lib/gen'
+	import Toggle from '$lib/components/Toggle.svelte'
+
 	import Path from '$lib/components/Path.svelte'
 	import { Button } from '$lib/components/common'
 	import Tooltip from '$lib/components/Tooltip.svelte'
@@ -20,6 +22,7 @@
 	import ScriptPicker from '$lib/components/ScriptPicker.svelte'
 	import Required from '$lib/components/Required.svelte'
 	import CronInput, { OFFSET } from '$lib/components/CronInput.svelte'
+	import PageHeader from '$lib/components/PageHeader.svelte'
 
 	let initialPath = $page.url.searchParams.get('edit') || ''
 	let edit = initialPath === '' ? false : true
@@ -37,6 +40,7 @@
 	let isValid = true
 
 	let path: string = ''
+	let enabled: boolean = false
 	let pathError = ''
 
 	let validCRON = true
@@ -110,7 +114,7 @@
 </script>
 
 <CenteredPage>
-	<h1 class="mb-4">{edit ? 'Edit schedule ' + path : 'New schedule'}</h1>
+	<PageHeader title={edit ? 'Edit schedule ' + initialPath : 'New schedule'} />
 
 	<div>
 		{#if !edit}
@@ -164,6 +168,20 @@
 			<Tooltip>Schedules use CRON syntax. Seconds are mandatory.</Tooltip>
 		</h2>
 		<CronInput bind:schedule bind:validCRON />
+		{#if edit}
+			<h2 class="border-b pb-1 mt-8 mb-2">Enable</h2>
+			<Toggle
+				checked={enabled}
+				on:change={async (e) => {
+					await ScheduleService.setScheduleEnabled({
+						path: initialPath,
+						workspace: $workspaceStore ?? '',
+						requestBody: { enabled: e.detail }
+					})
+					sendUserToast(`${e.detail ? 'enabled' : 'disabled'} schedule ${initialPath}`)
+				}}
+			/>
+		{/if}
 		<div class="flex flex-row-reverse mt-2 ">
 			<div>
 				<Button disabled={!allowSchedule || pathError != ''} on:click={scheduleScript}>

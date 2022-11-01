@@ -508,6 +508,33 @@
     },
     "query": "UPDATE queue SET logs = $1 WHERE id = $2"
   },
+  "1f040850c2a82bc09789226b167c43fd4935cfbb4951760a4d527665b70a5ac7": {
+    "describe": {
+      "columns": [
+        {
+          "name": "result",
+          "ordinal": 0,
+          "type_info": "Jsonb"
+        },
+        {
+          "name": "id",
+          "ordinal": 1,
+          "type_info": "Uuid"
+        }
+      ],
+      "nullable": [
+        true,
+        false
+      ],
+      "parameters": {
+        "Left": [
+          "UuidArray",
+          "Text"
+        ]
+      }
+    },
+    "query": "\n                  SELECT result, id\n                    FROM completed_job\n                   WHERE id = ANY($1)\n                     AND workspace_id = $2\n                    "
+  },
   "1f68e0b0e6dfa59d782a4abeab8aa06ad808fc7e8255951e1be2fc41263f9c50": {
     "describe": {
       "columns": [],
@@ -922,6 +949,20 @@
     },
     "query": "SELECT substr(logs, $1) as logs FROM completed_job WHERE workspace_id = $2 AND id = $3"
   },
+  "47a74719faba8a6377ba157d25929a6f1e74afdffd642d5a1c7db57e745e0c01": {
+    "describe": {
+      "columns": [],
+      "nullable": [],
+      "parameters": {
+        "Left": [
+          "Text",
+          "Jsonb",
+          "Uuid"
+        ]
+      }
+    },
+    "query": "\n            UPDATE queue\n               SET flow_status = JSONB_SET(flow_status, ARRAY['modules', $1::TEXT], $2)\n             WHERE id = $3\n            "
+  },
   "486f181a9ced2bdc7c8d93da22c9d3e229ef106174bff2c472dbe82622f382b6": {
     "describe": {
       "columns": [],
@@ -955,6 +996,19 @@
       }
     },
     "query": "SELECT is_admin FROM usr where username = $1 AND workspace_id = $2"
+  },
+  "4de3ba6930b91c639f9f3939dab7b3ab35aa792484e4ccb8084c336a2ec60f45": {
+    "describe": {
+      "columns": [],
+      "nullable": [],
+      "parameters": {
+        "Left": [
+          "Jsonb",
+          "Uuid"
+        ]
+      }
+    },
+    "query": "\n            UPDATE queue\n               SET flow_status = JSONB_SET(flow_status, ARRAY['step'], $1)\n             WHERE id = $2\n            "
   },
   "4e8ff055a80cc2e6b7fd6653c0c8e9a0e4b223a4bdeab0cf43dc79ce10f635b9": {
     "describe": {
@@ -2164,6 +2218,39 @@
     },
     "query": "SELECT * FROM schedule WHERE workspace_id = $1 ORDER BY edited_at desc LIMIT $2 OFFSET $3"
   },
+  "8cea673a5b17bc7cf671b539c2c1eb34731c77aaf42dc12e45472eeb134887d0": {
+    "describe": {
+      "columns": [
+        {
+          "name": "stop_early_expr",
+          "ordinal": 0,
+          "type_info": "Text"
+        },
+        {
+          "name": "skip_if_stopped",
+          "ordinal": 1,
+          "type_info": "Bool"
+        },
+        {
+          "name": "args",
+          "ordinal": 2,
+          "type_info": "Jsonb"
+        }
+      ],
+      "nullable": [
+        null,
+        null,
+        true
+      ],
+      "parameters": {
+        "Left": [
+          "Int4",
+          "Uuid"
+        ]
+      }
+    },
+    "query": "\n            SELECT raw_flow->'modules'->$1::int->'stop_after_if'->>'expr' as stop_early_expr,\n            (raw_flow->'modules'->$1::int->'stop_after_if'->>'skip_if_stopped')::bool as skip_if_stopped,\n            args \n            FROM queue\n             WHERE id = $2\n            "
+  },
   "8d631abe38ae964edb357217463a2c1617d4b3b18a7ed0724ad1c65b95980a2c": {
     "describe": {
       "columns": [
@@ -2360,6 +2447,27 @@
     },
     "query": "SELECT value from resource WHERE path = $1 AND (workspace_id = $2 OR workspace_id = 'starter')"
   },
+  "9681c348429f5e647ab55a4a54933faa64018f8539a143641f10d14ddd3a09c4": {
+    "describe": {
+      "columns": [
+        {
+          "name": "int4",
+          "ordinal": 0,
+          "type_info": "Int4"
+        }
+      ],
+      "nullable": [
+        null
+      ],
+      "parameters": {
+        "Left": [
+          "Int4",
+          "Uuid"
+        ]
+      }
+    },
+    "query": "\n            UPDATE queue\n               SET flow_status = JSONB_SET(flow_status, ARRAY['modules', $1::TEXT, 'branchall', 'branch'], ((flow_status->'modules'->$1::int->'branchall'->>'branch')::int + 1)::text::jsonb)\n             WHERE id = $2\n             RETURNING (flow_status->'modules'->$1::int->'branchall'->>'branch')::int\n            "
+  },
   "9a581f49d34d62550e58e6210b4bd24b7db499cc5e0350c0ce7024b3d59b13ab": {
     "describe": {
       "columns": [],
@@ -2437,6 +2545,19 @@
       }
     },
     "query": "SELECT EXISTS(SELECT 1 FROM flow WHERE path = $1 AND (workspace_id = $2 OR workspace_id = 'starter'))"
+  },
+  "a6145b0482c9e5da245059a80b1563cad20318fd2dd8aef33f9ca97de1826b8b": {
+    "describe": {
+      "columns": [],
+      "nullable": [],
+      "parameters": {
+        "Left": [
+          "Jsonb",
+          "Uuid"
+        ]
+      }
+    },
+    "query": "\n            UPDATE queue\n               SET flow_status = JSONB_SET(flow_status, ARRAY['failure_module'], $1)\n             WHERE id = $2\n            "
   },
   "a98b2d68f023f46ab91167d3147416df672c2aed2ba5ab70e98a9da5fa47255a": {
     "describe": {
@@ -2707,26 +2828,6 @@
       }
     },
     "query": "select hash from script where path = $1 AND (workspace_id = $2 OR workspace_id = 'starter') AND\n    created_at = (SELECT max(created_at) FROM script WHERE path = $1 AND (workspace_id = $2 OR workspace_id = 'starter')) AND\n    deleted = false"
-  },
-  "b87f19d248b7c5dbb57e9c6c3e4dd8a5bbb70815c06ee8e5bc8d57324eea1617": {
-    "describe": {
-      "columns": [
-        {
-          "name": "int4",
-          "ordinal": 0,
-          "type_info": "Int4"
-        }
-      ],
-      "nullable": [
-        null
-      ],
-      "parameters": {
-        "Left": [
-          "Uuid"
-        ]
-      }
-    },
-    "query": "SELECT (flow_status->'step')::integer FROM queue WHERE id = $1"
   },
   "b9468b9e16f55db11b33d8e9793e6e3ae6c5add6ca02414140adb724120a6800": {
     "describe": {
@@ -3329,6 +3430,27 @@
     },
     "query": "SELECT EXISTS(SELECT 1 FROM script WHERE path = $1 AND (workspace_id = $2 OR workspace_id = 'starter') AND\n         created_at = (SELECT max(created_at) FROM script WHERE path = $1 AND (workspace_id = $2 OR workspace_id = 'starter')))"
   },
+  "e5a130478c8a581412f786b430c2c166c489faccbd0d9b448f8e7ad57559e605": {
+    "describe": {
+      "columns": [
+        {
+          "name": "int4",
+          "ordinal": 0,
+          "type_info": "Int4"
+        }
+      ],
+      "nullable": [
+        null
+      ],
+      "parameters": {
+        "Left": [
+          "Int4",
+          "Uuid"
+        ]
+      }
+    },
+    "query": "\n            UPDATE queue\n               SET flow_status = JSONB_SET(flow_status, ARRAY['modules', $1::TEXT, 'iterator', 'index'], ((flow_status->'modules'->$1::int->'iterator'->>'index')::int + 1)::text::jsonb)\n             WHERE id = $2\n             RETURNING (flow_status->'modules'->$1::int->'iterator'->>'index')::int\n            "
+  },
   "e69142610bd94f6c65022cca5ccf7458b7c5bb77b3ed0278715222dd920d8644": {
     "describe": {
       "columns": [
@@ -3349,6 +3471,26 @@
       }
     },
     "query": "\n           SELECT SUM(duration_ms)\n             FROM completed_job\n            WHERE permissioned_as = $1\n              AND created_at > NOW() - INTERVAL '1200 seconds'\n              AND workspace_id = $2"
+  },
+  "ed400dbf4a1fa597bc984240cfe9069369a8a265b127116187d78c0ba93ae076": {
+    "describe": {
+      "columns": [
+        {
+          "name": "success",
+          "ordinal": 0,
+          "type_info": "Bool"
+        }
+      ],
+      "nullable": [
+        false
+      ],
+      "parameters": {
+        "Left": [
+          "UuidArray"
+        ]
+      }
+    },
+    "query": "\n                      SELECT success\n                        FROM completed_job\n                       WHERE id = ANY($1)\n                        "
   },
   "ee99cb974fb35d2d92fa96cecb53b8ad3a729ac710f362dc55a576613b66f9be": {
     "describe": {
@@ -3614,6 +3756,32 @@
       }
     },
     "query": "SELECT workspace.* FROM workspace, usr WHERE usr.workspace_id = workspace.id AND usr.email = $1 AND deleted = false"
+  },
+  "f80e94176224ef23416da99b26ad5c330d65016fb93345b054cbb63a4bf37fc8": {
+    "describe": {
+      "columns": [
+        {
+          "name": "step",
+          "ordinal": 0,
+          "type_info": "Int4"
+        },
+        {
+          "name": "len",
+          "ordinal": 1,
+          "type_info": "Int4"
+        }
+      ],
+      "nullable": [
+        null,
+        null
+      ],
+      "parameters": {
+        "Left": [
+          "Uuid"
+        ]
+      }
+    },
+    "query": "SELECT (flow_status->'step')::integer as step, jsonb_array_length(flow_status->'modules') as len  FROM queue WHERE id = $1"
   },
   "f98046a2ee4ac10d9e507c033391dfb0c704dcd513d8b1e5564def4e85f9e80b": {
     "describe": {

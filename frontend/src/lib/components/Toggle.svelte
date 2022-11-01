@@ -16,14 +16,14 @@
 		{#if Boolean(options?.left)}
 			<span class="mr-2 text-sm font-medium text-gray-900">{options?.left}</span>
 		{/if}
-		<div class="relative">
+		<div class="relative" on:click|stopPropagation={() => {}}>
 			<input
 				type="checkbox"
 				value={false}
 				{id}
 				class="sr-only peer"
 				bind:checked
-				on:change={() => {
+				on:change|stopPropagation={(e) => {
 					dispatch('change', checked)
 				}}
 			/>

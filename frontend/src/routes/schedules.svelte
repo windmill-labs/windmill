@@ -27,7 +27,7 @@
 	import { userStore, workspaceStore } from '$lib/stores'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
-	import { Button, Skeleton } from '$lib/components/common'
+	import { Badge, Button, Skeleton } from '$lib/components/common'
 
 	type ScheduleW = Schedule & { canWrite: boolean }
 
@@ -86,18 +86,21 @@
 				</tr>
 				<tbody slot="body">
 					{#each schedules as { path, edited_by, edited_at, schedule, offset_, enabled, script_path, is_flow, extra_perms, canWrite }}
-						<tr class={enabled ? '' : 'bg-gray-100'}>
+						<tr class={enabled ? '' : 'bg-gray-50'}>
 							<td class="max-w-sm"
-								><a class="break-all" href="/schedule/add?edit={path}&isFlow={is_flow}">{path}</a>
+								><a class="break-all text-sm" href="/schedule/add?edit={path}&isFlow={is_flow}"
+									>{path}</a
+								>
 								<SharedBadge {canWrite} extraPerms={extra_perms} />
 							</td>
-							<td class="whitespace-nowrap"
-								><a href="{is_flow ? '/flows/get' : '/scripts/get'}/{script_path}">{script_path}</a
+							<td class="break-all"
+								><a class="text-sm" href="{is_flow ? '/flows/get' : '/scripts/get'}/{script_path}"
+									>{script_path}</a
 								><span class="text-2xs text-gray-500 bg-gray-100 font-mono ml-2"
 									>{is_flow ? 'flow' : 'script'}</span
 								></td
 							>
-							<td>{schedule}</td>
+							<td><Badge color="blue">{schedule}</Badge></td>
 							<td>
 								<Toggle
 									checked={enabled}
@@ -110,8 +113,10 @@
 									}}
 								/></td
 							>
-							<td>{offset_ < 0 ? '+' : ''}{(offset_ / 60) * -1}</td>
-							<td class="text-2xs">By {edited_by} <br />at {displayDate(edited_at)}</td>
+							<td><Badge color="blue">{offset_ < 0 ? '+' : ''}{(offset_ / 60) * -1}</Badge></td>
+							<td
+								><span class="text-2xs">By {edited_by} <br />the {displayDate(edited_at)}</span></td
+							>
 							<td
 								><Dropdown
 									dropdownItems={[

@@ -37,7 +37,6 @@
 	import FlowMetadata from '$lib/components/FlowMetadata.svelte'
 	import JobArgs from '$lib/components/JobArgs.svelte'
 	import FlowProgressBar from '$lib/components/flows/FlowProgressBar.svelte'
-	import { flowStateStore, initFlowState } from '$lib/components/flows/flowState'
 
 	let workspace_id_query: string | undefined = $page.url.searchParams.get('workspace') ?? undefined
 	let workspace_id: string | undefined
@@ -113,6 +112,8 @@
 			}`}
 			{@const editHref = `${stem}/edit/${route}${isScript ? '?step=2' : ''}`}
 			{@const isRunning = job && 'running' in job && job.running}
+			{@const runsHref = `/runs/${job?.script_path}${!isScript ? '?jobKind=flow' : ''}`}
+			{@const viewHref = `${stem}/get/${isScript ? job?.script_hash : job?.script_path}`}
 			{#if isRunning}
 				<Button
 					color="red"
@@ -137,12 +138,14 @@
 			{#if canWrite(job?.script_path ?? '', {}, $userStore)}
 				<Button href={editHref} color="blue" size="xs" startIcon={{ icon: faEdit }}>Edit</Button>
 			{/if}
+			<Button href={viewHref} color="blue" size="xs" startIcon={{ icon: faScroll }}>
+				View {job?.job_kind}
+			</Button>
+			<Button href={runsHref} variant="border" color="blue" size="xs" startIcon={{ icon: faList }}>
+				View runs
+			</Button>
 		</svelte:fragment>
 		<svelte:fragment slot="right">
-			{@const stem = `/${job?.job_kind}s`}
-			{@const isScript = job?.job_kind === 'script'}
-			{@const runsHref = `/runs/${job?.script_path}${!isScript ? '?jobKind=flow' : ''}`}
-			{@const viewHref = `${stem}/get/${isScript ? job?.script_hash : job?.script_path}`}
 			{#if job && 'deleted' in job && !job?.deleted && ($userStore?.is_admin ?? false)}
 				<Button
 					variant="border"
@@ -154,86 +157,67 @@
 					Delete
 				</Button>
 			{/if}
-			<Button href={runsHref} variant="border" color="blue" size="xs" startIcon={{ icon: faList }}>
-				View runs
-			</Button>
-			<Button
-				href={viewHref}
-				variant="border"
-				color="blue"
-				size="xs"
-				startIcon={{ icon: faScroll }}
-			>
-				View {job?.job_kind}
-			</Button>
 		</svelte:fragment>
 	</ActionRow>
 {/if}
 <CenteredPage>
-	<div class="flex flex-row flex-wrap justify-between items-center gap-4 py-4">
-		<h1>
-			<div>
-				{#if job}
-					{#if 'success' in job && job.success}
-						{#if job.is_skipped}
-							<Icon
-								class="text-green-600"
-								data={faFastForward}
-								scale={SMALL_ICON_SCALE}
-								label="Job completed successfully but was skipped"
-							/>
-						{:else}
-							<Icon
-								class="text-green-600"
-								data={check}
-								scale={SMALL_ICON_SCALE}
-								label="Job completed successfully"
-							/>
-						{/if}
-					{:else if job && 'success' in job}
+	<h1 class="flex flex-row flex-wrap justify-between items-center gap-4 py-6">
+		<div>
+			{#if job}
+				{#if 'success' in job && job.success}
+					{#if job.is_skipped}
 						<Icon
-							class="text-red-700"
-							data={faTimes}
-							scale={iconScale}
-							label="Job completed with an error"
+							class="text-green-600"
+							data={faFastForward}
+							scale={SMALL_ICON_SCALE}
+							label="Job completed successfully but was skipped"
 						/>
-					{:else if job && 'running' in job && job.running}
+					{:else}
 						<Icon
-							class="text-yellow-500"
-							data={faCircle}
-							scale={iconScale}
-							label="Job is running"
-						/>
-					{:else if job && 'running' in job && job.scheduled_for && forLater(job.scheduled_for)}
-						<Icon
-							class="text-gray-700"
-							data={faCalendar}
-							scale={iconScale}
-							label="Job is scheduled for a later time"
-						/>
-					{:else if job && 'running' in job && job.scheduled_for}
-						<Icon
-							class="text-gray-500"
-							data={faHourglassHalf}
-							scale={iconScale}
-							label="Job is waiting for an executor"
+							class="text-green-600"
+							data={check}
+							scale={SMALL_ICON_SCALE}
+							label="Job completed successfully"
 						/>
 					{/if}
-					{job.script_path ?? (job.job_kind == 'dependencies' ? 'lock dependencies' : 'No path')}
-					{#if job.script_hash}
-						<a
-							href="/scripts/get/{job.script_hash}"
-							class="text-2xs text-gray-500 bg-gray-100 font-mono"
-							>{truncateHash(job.script_hash)}</a
-						>
-					{:else if job && 'job_kind' in job}<span
-							class="bg-blue-200 text-gray-700 text-xs rounded px-1 mx-3">{job.job_kind}</span
-						>
-					{/if}
+				{:else if job && 'success' in job}
+					<Icon
+						class="text-red-700"
+						data={faTimes}
+						scale={iconScale}
+						label="Job completed with an error"
+					/>
+				{:else if job && 'running' in job && job.running}
+					<Icon class="text-yellow-500" data={faCircle} scale={iconScale} label="Job is running" />
+				{:else if job && 'running' in job && job.scheduled_for && forLater(job.scheduled_for)}
+					<Icon
+						class="text-gray-700"
+						data={faCalendar}
+						scale={iconScale}
+						label="Job is scheduled for a later time"
+					/>
+				{:else if job && 'running' in job && job.scheduled_for}
+					<Icon
+						class="text-gray-500"
+						data={faHourglassHalf}
+						scale={iconScale}
+						label="Job is waiting for an executor"
+					/>
 				{/if}
-			</div>
-		</h1>
-	</div>
+				{job.script_path ?? (job.job_kind == 'dependencies' ? 'lock dependencies' : 'No path')}
+				{#if job.script_hash}
+					<a
+						href="/scripts/get/{job.script_hash}"
+						class="text-2xs text-gray-500 bg-gray-100 font-mono">{truncateHash(job.script_hash)}</a
+					>
+				{/if}
+				{#if job && 'job_kind' in job}<span
+						class="bg-blue-200 text-gray-700 text-xs rounded px-1 mx-3">{job.job_kind}</span
+					>
+				{/if}
+			{/if}
+		</div>
+	</h1>
 	{#if job && 'deleted' in job && job?.deleted}
 		<div class="bg-red-100 border-l-4 border-red-600 text-orange-700 p-4" role="alert">
 			<p class="font-bold">Deleted</p>

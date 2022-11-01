@@ -17,6 +17,8 @@
 	} from '$lib/components/flows/flowStateUtils'
 	import FlowInputs from './FlowInputs.svelte'
 	import { flowStateStore, type FlowModuleState } from '../flowState'
+	import Tooltip from '$lib/components/Tooltip.svelte'
+	import { Alert } from '$lib/components/common'
 
 	const { selectedId } = getContext<FlowEditorContext>('FlowEditorContext')
 
@@ -32,11 +34,25 @@
 {#if flowModule.id === $selectedId}
 	{#if flowModule.value.type === 'forloopflow'}
 		<FlowLoop bind:mod={flowModule} {parentModule} {previousModuleId} />
-	{:else if flowModule.value.type === 'branchone'}
-		<FlowBranchesWrapper {previousModuleId} bind:flowModule {parentModule} />
-	{:else if flowModule.value.type === 'branchall'}
+	{:else if flowModule.value.type === 'branchone' || flowModule.value.type === 'branchall'}
 		<FlowBranchesWrapper {previousModuleId} bind:flowModule {parentModule} />
 	{:else if flowModule.value.type === 'identity'}
+		{#if $selectedId == 'failure'}
+			<Alert type="info" title="Error handlers are triggered upon non recovered errors">
+				If defined, the error handler will take as input, the result of the step that errored (which
+				has its error in the 'error field').
+				<br />
+				<br />
+				Steps are retried until they succeed, or until the maximum number of retries defined for that
+				spec is reached, at which point the error handler is called.
+			</Alert>
+		{/if}
+		<h1 class="p-4"
+			>Select a step kind <Tooltip
+				>Until being defined, this step acts as an identify function, returning as result its input
+				and assigning it a key 'previous_result' if the input is not a json object</Tooltip
+			></h1
+		>
 		<FlowInputs
 			shouldDisableTriggerScripts={parentModule !== undefined || previousModuleId !== undefined}
 			on:loop={async () => {

@@ -2,6 +2,7 @@
 	import InputTransformForm from '$lib/components/InputTransformForm.svelte'
 	import type SimpleEditor from '$lib/components/SimpleEditor.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
+	import Tooltip from '$lib/components/Tooltip.svelte'
 
 	import type { FlowModule } from '$lib/gen'
 	import { emptySchema } from '$lib/utils'
@@ -31,6 +32,13 @@
 	$: isSleepEnabled = Boolean(flowModule.sleep)
 </script>
 
+<h2 class="mt-2"
+	>Suspend<Tooltip>
+		If defined, at the end of the step, the flow will be suspended until it receives external
+		requests to be resumed or canceled. This is most useful to implement approval steps but can be
+		used flexibly for other purpose. To get the resume urls, use `wmill.getResumeEndpoints`.</Tooltip
+	></h2
+>
 <Toggle
 	checked={isSuspendEnabled}
 	on:change={() => {
@@ -65,6 +73,12 @@
 	{/if}
 </div>
 
+<h2 class="mt-4"
+	>Sleep<Tooltip>
+		If defined, at the end of the step, the flow will sleep for a number of seconds before being
+		resumed. Sleeping is passive and does not consume any resources.</Tooltip
+	></h2
+>
 <Toggle
 	checked={isSleepEnabled}
 	on:change={() => {

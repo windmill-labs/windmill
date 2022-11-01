@@ -56,7 +56,7 @@
 		loading.contextual = false
 	}
 
-	async function deleteVariable(path: string, account?: string): Promise<void> {
+	async function deleteVariable(path: string, account?: number): Promise<void> {
 		if (account) {
 			OauthService.disconnectAccount({ workspace: $workspaceStore!, id: account })
 		}
@@ -102,15 +102,16 @@
 						<tr>
 							<td
 								><a
+									class="break-all"
 									id="edit-{path}"
-									style="cursor: pointer;"
-									on:click={() => variableEditor.editVariable(path)}>{path}</a
+									on:click={() => variableEditor.editVariable(path)}
+									href="#{path}">{path}</a
 								>
 								<div><SharedBadge {canWrite} extraPerms={extra_perms} /></div>
 							</td>
 							<td>{truncate(value ?? '******', 40)}</td>
 							<td>{is_secret ? 'secret' : 'visible'}</td>
-							<td>{description}</td>
+							<td>{truncate(description ?? '', 50)}</td>
 							<td>
 								{#if is_oauth}
 									<Icon
@@ -157,7 +158,7 @@
 														action: async () => {
 															await OauthService.refreshToken({
 																workspace: $workspaceStore ?? '',
-																id: account,
+																id: account ?? 0,
 																requestBody: {
 																	path
 																}

@@ -7,12 +7,14 @@ import { get } from 'svelte/store'
 import { flowStateStore, type FlowModuleState } from './flowState'
 import { flowStore } from './flowStore'
 import {
+	charsToNumber,
 	emptyFlowModuleState,
 	findNextAvailablePath,
 	loadSchemaFromModule,
 	NEVER_TESTED_THIS_FAR,
 	numberToChars
 } from './utils'
+import { Mutex } from 'async-mutex'
 
 export async function loadFlowModuleState(flowModule: FlowModule): Promise<FlowModuleState> {
 	try {
@@ -26,37 +28,34 @@ export async function loadFlowModuleState(flowModule: FlowModule): Promise<FlowM
 		return emptyFlowModuleState()
 	}
 }
-const charCode = 'a'.charCodeAt(0)
+
+export const idMutex = new Mutex()
 
 export function getNextId(currentKeys: string[]): string {
-	const keys = currentKeys.map((key) => {
-		const reversedKey = key.split('').reverse().join('')
-		let number = 0
-
-		for (let i = 0; i < key.length; i++) {
-			const letter = reversedKey[i].charCodeAt(0) - charCode
-			number += letter + 26 * i
+	const max = currentKeys.reduce((acc, key) => {
+		if (key === 'failure' || key.includes('branch') || key.includes('loop')) {
+			return acc
+		} else {
+			const num = charsToNumber(key)
+			return Math.max(acc, num + 1)
 		}
-
-		return number
-	})
-
-	if (keys.length === 0) {
-		return numberToChars(0)
-	} else {
-		return numberToChars(Math.max(...keys) + 1)
-	}
+	}, 0)
+	return numberToChars(max)
 }
 
 // Computes the next available id
 export function nextId(): string {
 	const flowState = get(flowStateStore)
 
-	return getNextId(
-		Object.keys(flowState).filter(
-			(key) => key !== 'failure' || key.includes('branch') || key.includes('loop')
-		)
-	)
+	const max = Object.keys(flowState).reduce((acc, key) => {
+		if (key === 'failure' || key.includes('branch') || key.includes('loop')) {
+			return acc
+		} else {
+			const num = charsToNumber(key)
+			return Math.max(acc, num + 1)
+		}
+	}, 0)
+	return numberToChars(max)
 }
 
 export async function pickScript(

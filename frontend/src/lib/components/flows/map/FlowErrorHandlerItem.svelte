@@ -3,7 +3,6 @@
 	import { getContext } from 'svelte'
 	import Icon from 'svelte-awesome'
 	import { faBug } from '@fortawesome/free-solid-svg-icons'
-	import { emptyModule } from '$lib/components/flows/flowStateUtils'
 	import { classNames, emptySchema } from '$lib/utils'
 	import { flowStateStore, type FlowModuleState } from '../flowState'
 	import Toggle from '$lib/components/Toggle.svelte'
@@ -22,7 +21,7 @@
 				schema: emptySchema(),
 				previewResult: NEVER_TESTED_THIS_FAR
 			}
-			$flowStateStore.failureModule = failureModule
+			$flowStateStore['failure'] = failureModule
 			$flowStore.value.failure_module = {
 				id: 'failure',
 				value: { type: 'identity' }
@@ -42,7 +41,7 @@
 		}
 	}}
 	class={classNames(
-		'border rounded-md p-2 bg-white text-sm cursor-pointer mt-4 flex flex-col overflow-x-hidden',
+		'border rounded-md p-2 bg-white text-sm cursor-pointer mt-4 flex flex-col overflow-x-hidden  bottom-0 z-10 sticky',
 		$selectedId.includes('failure') ? 'outline outline-offset-1 outline-2 outline-slate-900' : ''
 	)}
 >

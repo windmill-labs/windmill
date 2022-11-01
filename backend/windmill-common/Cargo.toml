@@ -1,0 +1,45 @@
+[package]
+name = "windmill-common"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+
+[features]
+default = []
+sqlx = ["dep:sqlx"]
+hyper = ["dep:hyper"]
+tokio = ["dep:tokio"]
+axum = ["dep:axum", "dep:tracing"]
+reqwest = ["dep:reqwest"]
+prometheus = ["dep:prometheus"]
+tracing_init = [
+    "dep:console-subscriber",
+    "dep:tracing",
+    "dep:tracing-subscriber",
+]
+
+
+[lib]
+name = "windmill_common"
+path = "src/lib.rs"
+
+[dependencies]
+hmac.workspace = true
+sha2.workspace = true
+thiserror.workspace = true
+anyhow.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+chrono.workspace = true
+hex.workspace = true
+rand.workspace = true
+sqlx = { workspace = true, optional = true, features = ["postgres"] }
+uuid.workspace = true
+prometheus = { workspace = true, optional = true }
+tracing = { workspace = true, optional = true }
+axum = { workspace = true, optional = true }
+hyper = { workspace = true, optional = true }
+tokio = { workspace = true, optional = true }
+reqwest = { workspace = true, optional = true }
+console-subscriber = { workspace = true, optional = true }
+tracing-subscriber = { workspace = true, optional = true }

@@ -18,8 +18,8 @@
 
 	const dispatch = createEventDispatcher()
 
-	function openMenu() {
-		open = true
+	function toggle() {
+		open = !open
 	}
 
 	function handleClickOutsideMenu(event: Event) {
@@ -32,14 +32,7 @@
 	use:clickOutside
 	on:click_outside={handleClickOutsideMenu}
 >
-	<Button
-		color="light"
-		size="xs"
-		aria-expanded="false"
-		aria-haspopup="true"
-		btnClasses="!text-blue-500 bg-transparent"
-		on:click={openMenu}
-	>
+	<Button color="light" size="xs" btnClasses="!text-blue-500 bg-transparent" on:click={toggle}>
 		{#if !name}
 			<Icon data={faEllipsisH} scale={1.2} />
 		{:else}

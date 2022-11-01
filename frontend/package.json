@@ -1,6 +1,6 @@
 {
 	"name": "windmill",
-	"version": "1.41.0",
+	"version": "1.42.1",
 	"scripts": {
 		"dev": "vite dev",
 		"build": "vite build",
@@ -10,13 +10,13 @@
 		"lint": "prettier --ignore-path .gitignore --check --plugin-search-dir=. . && eslint --ignore-path .gitignore .",
 		"format": "prettier --ignore-path .gitignore --write --plugin-search-dir=. .",
 		"package": "svelte-kit package && cd package && rm README.md && rm README_DEV.md && sed -i -e 's/windmill/windmill-components/g' package.json",
-		"generate-backend-client": "openapi --input ../backend/openapi.yaml --output ./src/lib/gen --useOptions && sed -i '213 i \\    request.referrerPolicy = \"no-referrer\"\n' src/lib/gen/core/request.ts",
+		"generate-backend-client": "openapi --input ../backend/windmill-api/openapi.yaml --output ./src/lib/gen --useOptions && sed -i '213 i \\    request.referrerPolicy = \"no-referrer\"\n' src/lib/gen/core/request.ts",
 		"pretest": "tsc --incremental -p tests/tsconfig.json",
 		"test": "playwright test --config=tests-out/playwright.config.js"
 	},
 	"devDependencies": {
 		"@playwright/test": "^1.27.1",
-		"@sveltejs/adapter-static": "^1.0.0-next.44",
+		"@sveltejs/adapter-static": "^1.0.0-next.47",
 		"@sveltejs/kit": "next",
 		"@tailwindcss/forms": "^0.5.3",
 		"@tailwindcss/typography": "^0.5.7",
@@ -24,7 +24,7 @@
 		"@typescript-eslint/eslint-plugin": "^5.40.1",
 		"@typescript-eslint/parser": "^5.40.1",
 		"@zerodevx/svelte-toast": "^0.8.0",
-		"autoprefixer": "^10.4.12",
+		"autoprefixer": "^10.4.13",
 		"cssnano": "^5.1.13",
 		"eslint": "^8.26.0",
 		"eslint-config-prettier": "^8.3.0",
@@ -50,14 +50,15 @@
 		"svelte-preprocess": "^4.9.8",
 		"svelte-splitpanes": "^0.7.3",
 		"svelte2tsx": "^0.5.20",
-		"tailwindcss": "^3.1.8",
-		"tslib": "^2.3.1",
+		"tailwindcss": "^3.2.1",
+		"tslib": "^2.4.1",
 		"typescript": "^4.8.4"
 	},
 	"type": "module",
 	"dependencies": {
 		"@fortawesome/free-brands-svg-icons": "^6.2.0",
 		"@fortawesome/free-solid-svg-icons": "^6.2.0",
+		"async-mutex": "^0.4.0",
 		"fuse.js": "^6.4.6",
 		"highlight.js": "^11.5.1",
 		"monaco-editor": "^0.34.1",
