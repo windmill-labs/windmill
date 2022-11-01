@@ -1,12 +1,11 @@
 <script lang="ts">
-	import Button from '$lib/components/common/button/Button.svelte'
 	import SplitPanesWrapper from '$lib/components/splitPanes/SplitPanesWrapper.svelte'
 	import { onMount, setContext } from 'svelte'
 
 	import { Pane } from 'svelte-splitpanes'
 	import { writable } from 'svelte/store'
 	import { buildWorld, type World } from '../rx'
-	import type { App, AppEditorContext, AppSelection } from '../types'
+	import type { App, AppEditorContext, AppSelection, EditorMode } from '../types'
 	import AppEditorHeader from './AppEditorHeader.svelte'
 	import SectionsEditor from './SectionsEditor.svelte'
 	import ComponentPanel from './settingsPanel/ComponentPanel.svelte'
@@ -18,12 +17,14 @@
 	const staticOutputs = writable<Record<string, string[]>>({})
 
 	const selection = writable<AppSelection>(undefined)
+	const mode = writable<EditorMode>('width')
 
 	setContext<AppEditorContext>('AppEditorContext', {
 		worldStore,
 		staticOutputs,
 		app: appStore,
-		selection
+		selection,
+		mode
 	})
 
 	onMount(() => {
@@ -31,11 +32,12 @@
 	})
 </script>
 
-<AppEditorHeader title="Test" />
+{$mode}
+<AppEditorHeader title="Test" bind:mode={$mode} />
 <SplitPanesWrapper>
 	<Pane minSize={20} maxSize={30} size={20} />
 	<Pane>
-		<SectionsEditor bind:sections={$appStore.sections} />
+		<SectionsEditor bind:sections={$appStore.sections} mode={$mode} />
 	</Pane>
 	<Pane minSize={20} maxSize={30} size={20}>
 		<div class="p-4">

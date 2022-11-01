@@ -109,7 +109,8 @@
 					}
 				}
 			],
-			title: 'Fake title'
+			title: 'Fake title',
+			id: 'a'
 		},
 		null,
 		4
@@ -138,7 +139,5 @@
 		</Button>
 	</PageHeader>
 
-	<div class="p-4 border ">
-		<AppWrapper app={JSON.parse(app)} />
-	</div>
+	<div class="p-4 border " />
 </CenteredPage>

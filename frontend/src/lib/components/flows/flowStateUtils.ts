@@ -28,29 +28,35 @@ export async function loadFlowModuleState(flowModule: FlowModule): Promise<FlowM
 }
 const charCode = 'a'.charCodeAt(0)
 
-// Computes the next available id
-export function nextId(): string {
-	const flowState = get(flowStateStore)
+export function getNextId(currentKeys: string[]): string {
+	const keys = currentKeys.map((key) => {
+		const reversedKey = key.split('').reverse().join('')
+		let number = 0
 
-	const keys = Object.keys(flowState)
-		.filter((key) => key !== 'failure' || key.includes('branch') || key.includes('loop'))
-		.map((key) => {
-			const reversedKey = key.split('').reverse().join('')
-			let number = 0
+		for (let i = 0; i < key.length; i++) {
+			const letter = reversedKey[i].charCodeAt(0) - charCode
+			number += letter + 26 * i
+		}
 
-			for (let i = 0; i < key.length; i++) {
-				const letter = reversedKey[i].charCodeAt(0) - charCode
-				number += letter + 26 * i
-			}
-
-			return number
-		})
+		return number
+	})
 
 	if (keys.length === 0) {
 		return numberToChars(0)
 	} else {
 		return numberToChars(Math.max(...keys) + 1)
 	}
+}
+
+// Computes the next available id
+export function nextId(): string {
+	const flowState = get(flowStateStore)
+
+	return getNextId(
+		Object.keys(flowState).filter(
+			(key) => key !== 'failure' || key.includes('branch') || key.includes('loop')
+		)
+	)
 }
 
 export async function pickScript(
@@ -129,7 +135,9 @@ export async function createBranchAll(id: string): Promise<[FlowModule, FlowModu
 	return [branchesFlowModules, flowModuleState]
 }
 
-export async function fork(flowModule: FlowModule): Promise<[FlowModule & { value: RawScript }, FlowModuleState]> {
+export async function fork(
+	flowModule: FlowModule
+): Promise<[FlowModule & { value: RawScript }, FlowModuleState]> {
 	if (flowModule.value.type !== 'script') {
 		throw new Error('Can only fork a script module')
 	}
@@ -141,7 +149,10 @@ export async function fork(flowModule: FlowModule): Promise<[FlowModule & { valu
 	return [forkedFlowModule, flowModuleState]
 }
 
-async function createInlineScriptModuleFromPath(path: string, id: string): Promise<FlowModule & { value: RawScript }> {
+async function createInlineScriptModuleFromPath(
+	path: string,
+	id: string
+): Promise<FlowModule & { value: RawScript }> {
 	const { content, language } = await getScriptByPath(path)
 
 	return {

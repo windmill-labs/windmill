@@ -25,11 +25,15 @@
 						},
 						params: {
 							hidden: ['b']
-						}
+						},
+						width: 50,
+						horizontalAlignement: 'center',
+						verticalAlignement: 'center'
 					},
 					{
 						type: 'displaycomponent',
 						id: 'b',
+						width: 50,
 						inputs: {
 							result: {
 								id: 'a',
@@ -39,7 +43,8 @@
 						}
 					}
 				],
-				columns: 3
+				columns: 3,
+				id: 'a'
 			}
 		],
 		title: 'Fake title'

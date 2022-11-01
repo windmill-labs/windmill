@@ -40,14 +40,17 @@ export type DisplayComponent = {
 }
 
 export type AppComponent =
-	| ((RunFormComponent | DisplayComponent | TextInputComponent) & {
+	| (RunFormComponent | DisplayComponent | TextInputComponent) & {
 			id: string
-	  })
-	| undefined
+			width: number
+			horizontalAlignement?: 'left' | 'center' | 'right'
+			verticalAlignement?: 'top' | 'center' | 'bottom'
+	  }
 
 export type AppSection = {
 	components: AppComponent[]
-	columns: number
+	id: string
+	columns: 1 | 2 | 3
 }
 
 export type App = {
@@ -62,4 +65,7 @@ export type AppEditorContext = {
 	staticOutputs: Writable<Record<string, string[]>>
 	app: Writable<App>
 	selection: Writable<AppSelection | undefined>
+	mode: Writable<EditorMode>
 }
+
+export type EditorMode = 'width' | 'dnd'
