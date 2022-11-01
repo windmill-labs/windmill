@@ -2,6 +2,8 @@
 	import { Alert, Tab } from '$lib/components/common'
 	import TabContent from '$lib/components/common/tabs/TabContent.svelte'
 	import Tabs from '$lib/components/common/tabs/Tabs.svelte'
+	import Toggle from '$lib/components/Toggle.svelte'
+
 	import type { FlowModule } from '$lib/gen'
 	import FlowCard from '../common/FlowCard.svelte'
 	import FlowModuleEarlyStop from './FlowModuleEarlyStop.svelte'
@@ -9,7 +11,6 @@
 	// import FlowRetries from './FlowRetries.svelte'
 
 	export let flowModule: FlowModule
-	export let type: 'branchall' | 'branchone'
 	export let parentModule: FlowModule | undefined
 	export let previousModuleId: string | undefined
 
@@ -17,10 +18,10 @@
 </script>
 
 <div class="h-full flex flex-col">
-	<FlowCard title={type == 'branchall' ? 'Run all branches' : 'Run one branch'}>
+	<FlowCard title={flowModule.value.type == 'branchall' ? 'Run all branches' : 'Run one branch'}>
 		<div class="flex flex-col h-full">
 			<div class="border">
-				{#if type == 'branchall'}
+				{#if flowModule.value.type == 'branchall'}
 					<Alert type="info" title="All branches will be run in order">
 						Branches run in sequence, every branch is run to the end one after the other.
 						<br />
@@ -46,6 +47,15 @@
 						Since this is a step containing all branches as embedded flows, this step can be retried,
 						stopped early, can be made to sleep or to suspend after execution.
 					</Alert>
+				{/if}
+				{#if flowModule.value.type == 'branchall'}
+					<div class="mt-6 mb-2 text-sm font-bold">Run in parallel</div>
+					<Toggle
+						bind:checked={flowModule.value.parallel}
+						options={{
+							right: 'All branches run in parallel'
+						}}
+					/>
 				{/if}
 			</div>
 			{#if flowModule}

@@ -379,6 +379,7 @@ mod tests {
                         iterator: InputTransform::Static { value: serde_json::json!([1, 2, 3]) },
                         modules: vec![],
                         skip_failures: true,
+                        parallel: false,
                     },
                     stop_after_if: Some(StopAfterIf {
                         expr: "previous.isEmpty()".to_string(),
@@ -455,6 +456,7 @@ mod tests {
                     3
                   ]
                 },
+                "parallel": false,
                 "skip_failures": true,
                 "modules": []
               },
