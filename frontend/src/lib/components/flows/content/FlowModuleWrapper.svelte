@@ -71,8 +71,13 @@
 				$flowStateStore[module.id] = state
 			}}
 			on:pick={async ({ detail }) => {
-				const { path, summary } = detail
+				const { path, summary, kind } = detail
 				const [module, state] = await pickScript(path, summary, flowModule.id)
+
+				if (kind == Script.kind.APPROVAL) {
+					module.suspend = { required_events: 1, timeout: 1800 }
+				}
+
 				flowModule = module
 				$flowStateStore[module.id] = state
 			}}

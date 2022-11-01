@@ -43,7 +43,9 @@
 	<div class="overlay" on:click={handleClickAway} />
 
 	<div class="panel {placement}" class:size>
-		<slot />
+		{#if open}
+			<slot />
+		{/if}
 	</div>
 </aside>
 

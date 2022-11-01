@@ -341,7 +341,7 @@
 												{@const url = webhooks[key][type]}
 												<li class="flex justify-between items-center mt-2">
 													<a
-														href={'//' + url}
+														href={$page.url.protocol + '//' + url}
 														class="whitespace-nowrap text-ellipsis overflow-hidden mr-1"
 													>
 														{url}
@@ -351,7 +351,7 @@
 															{type}
 														</Badge>
 														<Button
-															on:click={() => copyToClipboard(url)}
+															on:click={() => copyToClipboard($page.url.protocol + '//' + url)}
 															color="blue"
 															size="xs"
 															startIcon={{ icon: faClipboard }}
