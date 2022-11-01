@@ -18,12 +18,10 @@
 		if (error) {
 			sendUserToast(`Error trying to add slack connection: ${error}`, true)
 		} else if (code && state) {
-			const res = await OauthService.connectSlackCallback({ requestBody: { code, state } })
-			if (!res.bot.bot_access_token) {
-				throw Error('access token missing')
-			}
-			$oauthStore = { access_token: res.bot.bot_access_token }
-			await OauthService.setWorkspaceSlack({ workspace: $workspaceStore!, requestBody: res })
+			await OauthService.connectSlackCallback({
+				workspace: $workspaceStore!,
+				requestBody: { code, state }
+			})
 			sendUserToast('Slack workspace connected to your Windmill workspace')
 		} else {
 			sendUserToast('Missing code or state as query params', true)

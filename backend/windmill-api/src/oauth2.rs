@@ -39,7 +39,7 @@ use crate::{
     workspaces::WorkspaceSettings,
     BaseUrl,
 };
-use windmill_common::error::{self, to_anyhow, Error, Result};
+use windmill_common::error::{self, to_anyhow, Error};
 use windmill_common::oauth2::*;
 
 use windmill_queue::JobPayload;
@@ -53,7 +53,6 @@ pub fn global_service() -> Router {
         .route("/connect/:client", get(connect))
         .route("/connect_callback/:client", post(connect_callback))
         .route("/connect_slack", get(connect_slack))
-        .route("/connect_slack_callback", post(connect_slack_callback))
         .route(
             "/slack_command",
             post(slack_command).route_layer(axum::middleware::from_extractor::<SlackSig>()),
@@ -66,10 +65,10 @@ pub fn workspaced_service() -> Router {
     Router::new()
         .route("/disconnect/:id", post(disconnect))
         .route("/disconnect_slack", post(disconnect_slack))
-        .route("/set_workspace_slack", post(set_workspace_slack))
         .route("/create_account", post(create_account))
         .route("/delete_account/:id", post(delete_account))
         .route("/refresh_token/:id", post(refresh_token))
+        .route("/connect_slack_callback", post(connect_slack_callback))
 }
 
 pub struct ClientWithScopes {
@@ -141,6 +140,7 @@ pub async fn build_oauth_clients(base_url: &str) -> anyhow::Result<AllClients> {
                 oauths.get(&k).unwrap().clone(),
                 true,
                 base_url,
+                None,
             );
             (
                 named_client.0,
@@ -166,6 +166,7 @@ pub async fn build_oauth_clients(base_url: &str) -> anyhow::Result<AllClients> {
                 oauths.get(&k).unwrap().clone(),
                 false,
                 base_url,
+                None,
             );
             (
                 named_client.0,
@@ -190,6 +191,7 @@ pub async fn build_oauth_clients(base_url: &str) -> anyhow::Result<AllClients> {
             v.clone(),
             false,
             base_url,
+            Some(format!("{base_url}/oauth/callback_slack")),
         )
         .1
     });
@@ -203,12 +205,15 @@ pub fn build_basic_client(
     client_params: OAuthClient,
     login: bool,
     base_url: &str,
+    override_callback: Option<String>,
 ) -> (String, OClient) {
     let auth_url = Url::parse(&config.auth_url).expect("Invalid authorization endpoint URL");
     let token_url = Url::parse(&config.token_url).expect("Invalid token endpoint URL");
 
     let redirect_url = if login {
         format!("{base_url}/user/login_callback/{name}")
+    } else if let Some(callback) = override_callback {
+        callback
     } else {
         format!("{base_url}/oauth/callback/{name}")
     };
@@ -555,11 +560,14 @@ async fn connect_callback(
 }
 
 async fn connect_slack_callback(
+    Path(w_id): Path<String>,
+    authed: Authed,
     cookies: Cookies,
     Json(callback): Json<OAuthCallback>,
+    Extension(user_db): Extension<UserDB>,
     Extension(clients): Extension<Arc<AllClients>>,
     Extension(http_client): Extension<Client>,
-) -> error::JsonResult<SlackTokenResponse> {
+) -> error::Result<String> {
     let client = clients
         .slack
         .as_ref()
@@ -568,22 +576,13 @@ async fn connect_slack_callback(
     let token =
         exchange_code::<SlackTokenResponse>(callback, &cookies, client, &http_client).await?;
 
-    Ok(Json(token))
-}
-
-async fn set_workspace_slack(
-    Path(w_id): Path<String>,
-    Json(token): Json<SlackTokenResponse>,
-    Extension(user_db): Extension<UserDB>,
-    authed: Authed,
-) -> Result<String> {
     let mut tx = user_db.begin(&authed).await?;
 
     sqlx::query!(
         "INSERT INTO workspace_settings
-            (workspace_id, slack_team_id, slack_name)
-            VALUES ($1, $2, $3) ON CONFLICT (workspace_id) DO UPDATE SET slack_team_id = $2, \
-         slack_name = $3",
+                (workspace_id, slack_team_id, slack_name)
+                VALUES ($1, $2, $3) ON CONFLICT (workspace_id) DO UPDATE SET slack_team_id = $2, \
+             slack_name = $3",
         &w_id,
         token.team_id,
         token.team_name
@@ -592,13 +591,13 @@ async fn set_workspace_slack(
     .await?;
     sqlx::query!(
         "INSERT INTO group_
-            (workspace_id, name, summary)
-            VALUES ($1, $2, $3) ON CONFLICT DO NOTHING",
+                (workspace_id, name, summary)
+                VALUES ($1, $2, $3) ON CONFLICT DO NOTHING",
         &w_id,
         "slack",
         "The group that runs the script triggered by the slack /windmill command.
-                     Share scripts to this group to make them executable from slack and add
-                     members to this group to let them manage the slack related owner space."
+                         Share scripts to this group to make them executable from slack and add
+                         members to this group to let them manage the slack related owner space."
     )
     .execute(&mut tx)
     .await?;
