@@ -15,7 +15,7 @@ import variable from "./variable.ts";
 import push from "./push.ts";
 
 await new Command()
-  .name("windmill")
+  .name("wmill")
   .description("A simple CLI tool for windmill.")
   .globalOption(
     "--base-url <baseUrl:string>",
@@ -80,7 +80,7 @@ await new Command()
         "--allow-env",
         "--unstable",
       ],
-      provider: new DenoLandProvider(),
+      provider: new DenoLandProvider({ name: "wmill" }),
     })
   )
   .parse(Deno.args);

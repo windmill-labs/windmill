@@ -1,4 +1,3 @@
-import { name } from "https://deno.land/std@0.141.0/_wasm_crypto/crypto.wasm.mjs";
 import { ensureDir } from "https://deno.land/std@0.161.0/fs/ensure_dir.ts";
 import { colors } from "https://deno.land/x/cliffy@v0.25.4/ansi/colors.ts";
 import { Command } from "https://deno.land/x/cliffy@v0.25.4/command/command.ts";

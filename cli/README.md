@@ -2,6 +2,8 @@
 
 A simple CLI allowing interactions with windmill from the command line.
 
+[![asciicast](https://asciinema.org/a/533968.svg)](https://asciinema.org/a/533968)
+
 ## Setup
 
 Setup the CLI by running `wmill setup`. This will guide you through the setup process easily.
