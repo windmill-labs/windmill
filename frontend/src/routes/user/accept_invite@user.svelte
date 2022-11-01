@@ -20,7 +20,6 @@
 				workspace_id
 			}
 		})
-		sendUserToast(`Invitation to ${workspace_id} accepted as ${username}`)
 		usersWorkspaceStore.set(await WorkspaceService.listUserWorkspaces())
 		workspaceStore.set(workspace_id)
 		goto($page.url.searchParams.get('rd') ?? '/scripts')

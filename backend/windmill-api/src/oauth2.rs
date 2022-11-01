@@ -477,12 +477,19 @@ pub async fn _refresh_token<'c>(
         .client)
         .to_owned();
 
-    let token = client
+    let token_json = client
         .exchange_refresh_token(&RefreshToken::from(account.refresh_token.clone()))
         .with_client(&http_client)
-        .execute::<TokenResponse>()
+        .execute::<serde_json::Value>()
         .await
         .map_err(to_anyhow)?;
+
+    let token = serde_json::from_value::<TokenResponse>(token_json.clone()).map_err(|e| {
+        Error::BadConfig(format!(
+            "Error deserializing response as a new token: {e}\nresponse:{token_json}"
+        ))
+    })?;
+
     let expires_at = now_from_db(&mut tx).await?
         + chrono::Duration::seconds(
             token

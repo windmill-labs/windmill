@@ -272,21 +272,18 @@
 					{:else}
 						<div class="grid md:grid-cols-2 gap-4 sm:grid-cols-1 xl:grid-cols-3 mt-2">
 							{#each flows as { summary, path, extra_perms, canWrite }}
-								<div
-									class="flex flex-col justify-between max-w-lg overflow-visible 
-									shadow-sm shadow-blue-100 border border-gray-200 
-									hover:border hover:border-gray-600 hover:border-opacity-60 bg-gray-50 py-2"
+								<a
+									class="border p-4 rounded-sm shadow-sm space-y-2 hover:border-blue-600 text-gray-800 flex flex-col justify-between"
+									href="/flows/get/{path}"
 								>
-									<a href="/flows/get/{path}">
-										<div class="px-6 overflow-auto ">
-											<div class="font-semibold text-gray-700">
-												{!summary || summary.length == 0 ? path : summary}
-											</div>
-											<p class="text-gray-700 text-xs">
-												<a class="text-gray-700 text-xs" href="/flows/get/{path}">Path: {path} </a>
-											</p>
+									<div class="px-6 overflow-auto ">
+										<div class="font-semibold text-gray-700">
+											{!summary || summary.length == 0 ? path : summary}
 										</div>
-									</a>
+										<p class="text-gray-700 text-xs">
+											<a class="text-gray-700 text-xs" href="/flows/get/{path}">{path} </a>
+										</p>
+									</div>
 									<div class="flex flex-row pl-6 pr-2 mt-2">
 										<div class="mr-3 w-full">
 											<SharedBadge {canWrite} extraPerms={extra_perms} />
@@ -377,7 +374,7 @@
 											</div>
 										</div>
 									</div>
-								</div>
+								</a>
 							{/each}
 						</div>
 					{/if}

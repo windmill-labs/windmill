@@ -9,9 +9,9 @@
 	export let script: Script
 </script>
 
-<div
-	class="border p-4 rounded-sm shadow-sm space-y-2 hover:border-blue-600 flex flex-col justify-between cursor-pointer"
-	on:click={() => goto(`/scripts/get/${script.hash}`)}
+<a
+	class="border p-4 rounded-sm shadow-sm space-y-2 hover:border-blue-600 text-gray-800 flex flex-col justify-between"
+	href="/scripts/get/{script.hash}"
 >
 	<div class="font-bold">{script.summary || script.path}</div>
 
@@ -32,27 +32,25 @@
 			</Badge>
 		{/if}
 	</div>
-	<ActionRow>
-		<svelte:fragment slot="right">
-			<Button
-				on:click={() => goto(`/scripts/edit/${script.hash}?step=2`)}
-				color="dark"
-				size="xs"
-				variant="border"
-				startIcon={{ icon: faPencil }}
-			>
-				Edit
-			</Button>
+	<div class="flex flex-row-reverse gap-x-2">
+		<Button
+			on:click={() => goto(`/scripts/edit/${script.hash}?step=2`)}
+			color="dark"
+			size="xs"
+			variant="border"
+			startIcon={{ icon: faPencil }}
+		>
+			Edit
+		</Button>
 
-			<Button
-				on:click={() => goto(`/scripts/run/${script.hash}`)}
-				color="dark"
-				size="xs"
-				variant="border"
-				startIcon={{ icon: faPlay }}
-			>
-				Run
-			</Button>
-		</svelte:fragment>
-	</ActionRow>
-</div>
+		<Button
+			on:click={() => goto(`/scripts/run/${script.hash}`)}
+			color="dark"
+			size="xs"
+			variant="border"
+			startIcon={{ icon: faPlay }}
+		>
+			Run
+		</Button>
+	</div>
+</a>

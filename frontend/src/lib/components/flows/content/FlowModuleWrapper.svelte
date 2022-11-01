@@ -34,20 +34,8 @@
 {#if flowModule.id === $selectedId}
 	{#if flowModule.value.type === 'forloopflow'}
 		<FlowLoop bind:mod={flowModule} {parentModule} {previousModuleId} />
-	{:else if flowModule.value.type === 'branchone'}
-		<FlowBranchesWrapper
-			type={flowModule.value.type}
-			{previousModuleId}
-			bind:flowModule
-			{parentModule}
-		/>
-	{:else if flowModule.value.type === 'branchall'}
-		<FlowBranchesWrapper
-			type={flowModule.value.type}
-			{previousModuleId}
-			bind:flowModule
-			{parentModule}
-		/>
+	{:else if flowModule.value.type === 'branchone' || flowModule.value.type === 'branchall'}
+		<FlowBranchesWrapper {previousModuleId} bind:flowModule {parentModule} />
 	{:else if flowModule.value.type === 'identity'}
 		{#if $selectedId == 'failure'}
 			<Alert type="info" title="Error handlers are triggered upon non recovered errors">

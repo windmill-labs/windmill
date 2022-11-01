@@ -14,6 +14,10 @@ pub fn default_true() -> bool {
     true
 }
 
+pub fn default_false() -> bool {
+    false
+}
+
 pub fn default_id() -> String {
     rd_string(6)
 }

@@ -11,7 +11,7 @@
 
 	$: finishedAndNotLast = $state.finished && $state.length - 1 !== index
 	$: if (finishedAndNotLast || $state.index > index) progress = getTween(100, duration)
-	$: if (!$state.error && ($state.finished || step.isDone)) {
+	$: if ($state.finished || step.isDone) {
 		if (index > $state.index) {
 			state.update((prev) => ({ ...prev, index }))
 		}

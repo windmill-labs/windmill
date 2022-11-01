@@ -578,7 +578,7 @@ def main(last, port):
             .unwrap();
 
         assert_eq!(server.close().await, attempts);
-        assert!(result["error"]
+        assert!(result[1]["error"]
             .as_str()
             .unwrap()
             .contains(r#"Uncaught (in promise) "read""#));
@@ -735,8 +735,61 @@ async fn test_iteration(db: Pool<Postgres>) {
         .await
         .result
         .unwrap();
-    assert!(matches!(result, serde_json::Value::Object(_)));
-    assert!(result["error"]
+    assert!(matches!(result, serde_json::Value::Array(_)));
+    assert!(result[2]["error"]
+        .as_str()
+        .unwrap()
+        .contains("StopIteration: 2"));
+}
+
+#[sqlx::test(fixtures("base"))]
+async fn test_iteration_parallel(db: Pool<Postgres>) {
+    initialize_tracing().await;
+
+    let server = ApiServer::start(db.clone()).await;
+
+    let flow: FlowValue = serde_json::from_value(serde_json::json!({
+        "modules": [{
+            "value": {
+                "type": "forloopflow",
+                "iterator": { "type": "javascript", "expr": "result.items" },
+                "skip_failures": false,
+                "parallel": true,
+                "modules": [{
+                    "input_transform": {
+                        "n": {
+                            "type": "javascript",
+                            "expr": "previous_result.iter.value",
+                        },
+                    },
+                    "value": {
+                        "type": "rawscript",
+                        "language": "python3",
+                        "content": "def main(n):\n    if 1 < n:\n        raise StopIteration(n)",
+                    },
+                }],
+            },
+        }],
+    }))
+    .unwrap();
+
+    let result = RunJob::from(JobPayload::RawFlow { value: flow.clone(), path: None })
+        .arg("items", json!([]))
+        .run_until_complete(&db, server.addr.port())
+        .await
+        .result
+        .unwrap();
+    assert_eq!(result, serde_json::json!([]));
+
+    /* Don't actually test that this does 257 jobs or that will take forever. */
+    let job = RunJob::from(JobPayload::RawFlow { value: flow.clone(), path: None })
+        .arg("items", json!((0..50).collect::<Vec<_>>()))
+        .run_until_complete(&db, server.addr.port())
+        .await;
+    // println!("{:#?}", job);
+    let result = job.result.unwrap();
+    assert!(matches!(result, serde_json::Value::Array(_)));
+    assert!(result[2]["error"]
         .as_str()
         .unwrap()
         .contains("StopIteration: 2"));
@@ -967,6 +1020,7 @@ async fn test_deno_flow(db: Pool<Postgres>) {
                     value: FlowModuleValue::ForloopFlow {
                         iterator: InputTransform::Javascript { expr: "result".to_string() },
                         skip_failures: false,
+                        parallel: false,
                         modules: vec![FlowModule {
                             id: "c".to_string(),
                             value: FlowModuleValue::RawScript {
@@ -1059,6 +1113,7 @@ async fn test_deno_flow_same_worker(db: Pool<Postgres>) {
                     value: FlowModuleValue::ForloopFlow {
                         iterator: InputTransform::Static { value: json!([1, 2, 3]) },
                         skip_failures: false,
+                        parallel: false,
                         modules: vec![
                             FlowModule {
                                 id: "d".to_string(),
@@ -1546,13 +1601,13 @@ async fn test_empty_loop(db: Pool<Postgres>) {
                     "iterator": { "type": "static", "value": [] },
                     "modules": [
                         {
-                            "input_transform": {
-                                "n": {
-                                    "type": "javascript",
-                                    "expr": "previous_result.iter.value",
-                                },
-                            },
                             "value": {
+                                "input_transform": {
+                                    "n": {
+                                        "type": "javascript",
+                                        "expr": "previous_result.iter.value",
+                                    },
+                                },
                                 "type": "rawscript",
                                 "language": "python3",
                                 "content": "def main(n): return n",
@@ -1562,13 +1617,13 @@ async fn test_empty_loop(db: Pool<Postgres>) {
                 },
             },
             {
-                "input_transform": {
-                    "items": {
-                        "type": "javascript",
-                        "expr": "previous_result",
-                    },
-                },
                 "value": {
+                    "input_transform": {
+                        "items": {
+                            "type": "javascript",
+                            "expr": "previous_result",
+                        },
+                    },
                     "type": "rawscript",
                     "language": "python3",
                     "content": "def main(items): return sum(items)",
@@ -1585,6 +1640,45 @@ async fn test_empty_loop(db: Pool<Postgres>) {
         .unwrap();
 
     assert_eq!(result, serde_json::json!(0));
+}
+
+#[sqlx::test(fixtures("base"))]
+async fn test_invalid_first_step(db: Pool<Postgres>) {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await;
+    let port = server.addr.port();
+
+    let flow: FlowValue = serde_json::from_value(serde_json::json!({
+        "modules": [
+            {
+                "value": {
+                    "type": "forloopflow",
+                    "iterator": { "type": "javascript", "expr": "flow_input" },
+                    "modules": [
+                        {
+                            "value": {
+                                "type": "identity",
+                            },
+                        }
+                    ],
+                },
+            },
+            {
+                "value": {
+                    "type": "identity",
+                },
+            },
+        ],
+    }))
+    .unwrap();
+
+    let flow = JobPayload::RawFlow { value: flow, path: None };
+    let job = run_job_in_new_worker_until_complete(&db, flow, port).await;
+
+    assert_eq!(
+        job.result.unwrap(),
+        serde_json::json!({"error":"Expected an array value, found: {}"})
+    );
 }
 
 #[sqlx::test(fixtures("base"))]
@@ -1750,6 +1844,43 @@ async fn test_branchone_simple(db: Pool<Postgres>) {
 }
 
 #[sqlx::test(fixtures("base"))]
+async fn test_branchall_sequential(db: Pool<Postgres>) {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await;
+    let port = server.addr.port();
+
+    let flow: FlowValue = serde_json::from_value(json!({
+        "modules": [
+            {
+                "value": {
+                    "type": "rawscript",
+                    "language": "deno",
+                    "content": "export function main(){ return [1] }",
+                }
+            },
+            {
+                "value": {
+                    "branches": [
+                        {"modules": [module_add_item_to_list(2)]},
+                        {"modules": [module_add_item_to_list(3)]}],
+                    "type": "branchall",
+                    "parallel": true,
+                }
+            },
+        ],
+    }))
+    .unwrap();
+
+    let flow = JobPayload::RawFlow { value: flow, path: None };
+    let result = run_job_in_new_worker_until_complete(&db, flow, port)
+        .await
+        .result
+        .unwrap();
+
+    assert_eq!(result, serde_json::json!([[1, 2], [1, 3]]));
+}
+
+#[sqlx::test(fixtures("base"))]
 async fn test_branchall_simple(db: Pool<Postgres>) {
     initialize_tracing().await;
     let server = ApiServer::start(db.clone()).await;
@@ -1820,7 +1951,7 @@ async fn test_branchall_skip_failure(db: Pool<Postgres>) {
 
     assert_eq!(
         result,
-        serde_json::json!({"error": "Error during execution of the script:\n\nerror: Uncaught (in promise) Error: failure\nexport function main(){ throw Error('failure') }\n                              ^\n    at main (file:///tmp/inner.ts:1:31)\n    at run (file:///tmp/main.ts:9:26)\n    at file:///tmp/main.ts:14:1"})
+        serde_json::json!([{"error": "Error during execution of the script:\n\nerror: Uncaught (in promise) Error: failure\nexport function main(){ throw Error('failure') }\n                              ^\n    at main (file:///tmp/inner.ts:1:31)\n    at run (file:///tmp/main.ts:9:26)\n    at file:///tmp/main.ts:14:1"}, [1,3]])
     );
 
     let flow: FlowValue = serde_json::from_value(json!({
@@ -2059,3 +2190,25 @@ async fn test_failure_module(db: Pool<Postgres>) {
         .unwrap();
     assert_eq!(json!({ "l": [0, 1, 2] }), result);
 }
+
+// #[cfg(test)]
+// mod client_test {
+//     use windmill_common::error::to_anyhow;
+
+//     #[tokio::test]
+//     async fn test_rust_client() -> Result<(), Box<dyn std::error::Error>> {
+//         println!(
+//             "{:#?}",
+//             windmill_api_client::create_client(
+//                 "http://windmill.wimill.xyz",
+//                 "XXXXXXXXXXXXXXX".to_string(),
+//             )
+//             .get_variable("demo", "u/ruben/test", Some(true))
+//             .await
+//             .map_err(to_anyhow)
+//             .map(|v| { v.into_inner() })?
+//             .value
+//         );
+//         Ok(())
+//     }
+// }

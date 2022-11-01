@@ -253,5 +253,6 @@ pub struct HubScript {
     pub content: String,
     pub lockfile: Option<String>,
     pub language: ScriptLang,
-    pub schema: Option<String>,
+    pub schema: serde_json::Value,
+    pub summary: Option<String>,
 }

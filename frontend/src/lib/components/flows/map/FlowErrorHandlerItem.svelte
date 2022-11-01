@@ -41,7 +41,7 @@
 		}
 	}}
 	class={classNames(
-		'border rounded-md p-2 bg-white text-sm cursor-pointer mt-4 flex flex-col overflow-x-hidden  bottom-0 z-20 sticky',
+		'border rounded-md p-2 bg-white text-sm cursor-pointer mt-4 flex flex-col overflow-x-hidden  bottom-0 z-10 sticky',
 		$selectedId.includes('failure') ? 'outline outline-offset-1 outline-2 outline-slate-900' : ''
 	)}
 >

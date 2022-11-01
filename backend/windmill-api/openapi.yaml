@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.41.0
+  version: 1.42.1
   title: Windmill server API
   contact:
     name: Windmill contact
@@ -83,7 +83,7 @@ paths:
         - $ref: "#/components/parameters/After"
         - $ref: "#/components/parameters/Username"
         - $ref: "#/components/parameters/Operation"
-        - $ref: "#/components/parameters/Resource"
+        - $ref: "#/components/parameters/ResourceName"
         - $ref: "#/components/parameters/ActionKind"
 
       responses:
@@ -1321,11 +1321,27 @@ paths:
         - $ref: "#/components/parameters/Path"
       responses:
         "200":
-          description: resource deleted
+          description: resource
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Resource"
+
+  /w/{workspace}/resources/get_value/{path}:
+    get:
+      summary: get resource value
+      operationId: getResourceValue
+      tags:
+        - resource
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+      responses:
+        "200":
+          description: resource value
+          content:
+            application/json:
+              schema: {}
 
   /w/{workspace}/resources/exists/{path}:
     get:
@@ -1650,6 +1666,8 @@ paths:
                   language:
                     type: string
                     enum: [deno, python3, go]
+                  summary:
+                    type: string
                 required:
                   - content
                   - language
@@ -3350,7 +3368,7 @@ components:
       in: path
       required: true
       schema:
-        type: string
+        type: integer
     ClientName:
       name: client_name
       in: path
@@ -3489,7 +3507,7 @@ components:
       in: query
       schema:
         type: string
-    Resource:
+    ResourceName:
       name: resource
       description: filter on exact or prefix name of resource
       in: query
@@ -3879,7 +3897,7 @@ components:
         description:
           type: string
         account:
-          type: string
+          type: integer
         is_oauth:
           type: boolean
         extra_perms:

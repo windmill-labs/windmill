@@ -197,7 +197,9 @@
 			layout={[[{ h: 1.5, w: 40 }], 1, [4], 2.25, [{ h: 1.5, w: 30 }], 1, [10]]}
 		/>
 		{#if flow}
-			<p class="text-sm">Edited {displayDaysAgo(flow.edited_at ?? '')} by {flow.edited_by}</p>
+			<p class="text-sm text-gray-600"
+				>Edited {displayDaysAgo(flow.edited_at ?? '')} by {flow.edited_by}</p
+			>
 			<h2>{flow.summary}</h2>
 
 			<div class="prose">

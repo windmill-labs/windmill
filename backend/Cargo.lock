@@ -1338,9 +1338,9 @@ checksum = "9a3a5bfb195931eeb336b2a7b4d761daec841b97f947d34394601737a7bba5e4"
 
 [[package]]
 name = "hyper"
-version = "0.14.20"
+version = "0.14.22"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "02c929dc5c39e335a03c405292728118860721b10190d98c2a0f0efd5baafbac"
+checksum = "abfba89e19b959ca163c7752ba59d737c1ceea53a5d31a149c805446fc958064"
 dependencies = [
  "bytes",
  "futures-channel",
@@ -4244,7 +4244,7 @@ checksum = "712e227841d057c1ee1cd2fb22fa7e5a5461ae8e48fa2ca79ec42cfc1931183f"
 
 [[package]]
 name = "windmill"
-version = "1.41.0"
+version = "1.42.1"
 dependencies = [
  "anyhow",
  "axum",
@@ -4267,7 +4267,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-api"
-version = "1.41.0"
+version = "1.42.1"
 dependencies = [
  "anyhow",
  "argon2",
@@ -4314,7 +4314,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-api-client"
-version = "1.41.0"
+version = "1.42.1"
 dependencies = [
  "base64",
  "chrono",
@@ -4329,7 +4329,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-audit"
-version = "1.41.0"
+version = "1.42.1"
 dependencies = [
  "chrono",
  "serde",
@@ -4342,7 +4342,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-common"
-version = "1.41.0"
+version = "1.42.1"
 dependencies = [
  "anyhow",
  "axum",
@@ -4367,7 +4367,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser"
-version = "1.41.0"
+version = "1.42.1"
 dependencies = [
  "serde",
  "serde_json",
@@ -4375,7 +4375,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-go"
-version = "1.41.0"
+version = "1.42.1"
 dependencies = [
  "anyhow",
  "itertools",
@@ -4387,7 +4387,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-py"
-version = "1.41.0"
+version = "1.42.1"
 dependencies = [
  "anyhow",
  "itertools",
@@ -4401,7 +4401,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-ts"
-version = "1.41.0"
+version = "1.42.1"
 dependencies = [
  "anyhow",
  "deno_core",
@@ -4415,7 +4415,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-queue"
-version = "1.41.0"
+version = "1.42.1"
 dependencies = [
  "anyhow",
  "chrono",
@@ -4438,7 +4438,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-worker"
-version = "1.41.0"
+version = "1.42.1"
 dependencies = [
  "anyhow",
  "async-recursion",

@@ -41,7 +41,7 @@
 		} else {
 			return {
 				type: step.type,
-				isDone: error ? false : step.isDone,
+				isDone: step.isDone,
 				isDoneChanged: !state[i]?.isDone && step.isDone
 			}
 		}
@@ -57,13 +57,11 @@
 	}
 	$: subStepIndex = lastStep ? lastStep['index'] : undefined
 	$: length = 100 / (state.length || 1)
-	$: if (!error) {
-		if (finished) {
-			percent.set(100)
-		} else {
-			const product = length * stepIndex
-			percent.set(product < 0 ? 0 : product)
-		}
+	$: if (finished) {
+		percent.set(100)
+	} else {
+		const product = length * stepIndex
+		percent.set(product < 0 ? 0 : product)
 	}
 </script>
 
