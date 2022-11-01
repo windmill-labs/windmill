@@ -1,0 +1,13 @@
+{
+  "value": {
+    "host": "$var:g/all/not_secret",
+    "port": 124,
+    "user": "aaaa",
+    "dbname": "bbbb",
+    "sslmode": "disable",
+    "password": "$var:g/all/pretty_secret"
+  },
+  "description": "",
+  "resource_type": "postgres",
+  "is_oauth": false
+}
