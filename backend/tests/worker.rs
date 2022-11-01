@@ -783,7 +783,7 @@ async fn test_iteration_parallel(db: Pool<Postgres>) {
 
     /* Don't actually test that this does 257 jobs or that will take forever. */
     let job = RunJob::from(JobPayload::RawFlow { value: flow.clone(), path: None })
-        .arg("items", json!((0..100).collect::<Vec<_>>()))
+        .arg("items", json!((0..50).collect::<Vec<_>>()))
         .run_until_complete(&db, server.addr.port())
         .await;
     // println!("{:#?}", job);
