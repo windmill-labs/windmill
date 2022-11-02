@@ -207,7 +207,8 @@ the following format:
 {
   "<client>": {
     "id": "<CLIENT_ID>",
-    "secret": "<CLIENT_SECRET>"
+    "secret": "<CLIENT_SECRET>",
+    "allowed_domains": ["windmill.dev"] //restrict a client OAuth login to some domains
   }
 }
 ```

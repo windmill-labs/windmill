@@ -75,6 +75,7 @@ pub struct ClientWithScopes {
     client: OClient,
     scopes: Vec<String>,
     extra_params: Option<HashMap<String, String>>,
+    allowed_domains: Option<Vec<String>>,
 }
 
 pub type BasicClientsMap = HashMap<String, ClientWithScopes>;
@@ -91,6 +92,7 @@ pub struct OAuthConfig {
 pub struct OAuthClient {
     id: String,
     secret: String,
+    allowed_domains: Option<Vec<String>>,
 }
 pub struct AllClients {
     pub logins: BasicClientsMap,
@@ -134,20 +136,16 @@ pub async fn build_oauth_clients(base_url: &str) -> anyhow::Result<AllClients> {
         .map(|(k, v)| {
             let scopes = v.scopes.clone();
             let extra_params = v.extra_params.clone();
-            let named_client = build_basic_client(
-                k.clone(),
-                v,
-                oauths.get(&k).unwrap().clone(),
-                true,
-                base_url,
-                None,
-            );
+            let client_params = oauths.get(&k).unwrap().clone();
+            let named_client =
+                build_basic_client(k.clone(), v, client_params.clone(), true, base_url, None);
             (
                 named_client.0,
                 ClientWithScopes {
                     client: named_client.1,
                     scopes: scopes.unwrap_or(vec![]),
                     extra_params,
+                    allowed_domains: client_params.allowed_domains,
                 },
             )
         })
@@ -174,6 +172,7 @@ pub async fn build_oauth_clients(base_url: &str) -> anyhow::Result<AllClients> {
                     client: named_client.1,
                     scopes: scopes.unwrap_or(vec![]),
                     extra_params,
+                    allowed_domains: None,
                 },
             )
         })
@@ -727,18 +726,25 @@ async fn login_callback(
     Extension(http_client): Extension<Client>,
     Extension(is_secure): Extension<Arc<IsSecure>>,
 ) -> error::Result<String> {
-    let client = (&clients
+    let client_w_config = &clients
         .logins
         .get(&client_name)
-        .ok_or_else(|| error::Error::BadRequest("invalid client".to_string()))?
-        .client)
-        .to_owned();
+        .ok_or_else(|| error::Error::BadRequest("invalid client".to_string()))?;
+    let client = client_w_config.client.to_owned();
     let token_res = exchange_code::<TokenResponse>(callback, &cookies, client, &http_client).await;
 
     if let Ok(token) = token_res {
         let token = &token.access_token.to_string();
 
         let email = get_email(&http_client, &client_name, token).await?;
+
+        if let Some(domains) = &client_w_config.allowed_domains {
+            if !domains.iter().any(|d| email.ends_with(d)) {
+                return Err(error::Error::BadRequest(format!(
+                    "domain is not in the list of allowed domains: {email}, allowed: {domains:#?}",
+                )));
+            }
+        }
 
         let mut tx = db.begin().await?;
 
