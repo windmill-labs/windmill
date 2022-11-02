@@ -244,50 +244,6 @@
     },
     "query": "DELETE FROM account WHERE id = $1 AND workspace_id = $2"
   },
-  "103e321fbaa847831682b5cba2fd94f12c508ddf372f9facd18e30d00afd1ea3": {
-    "describe": {
-      "columns": [
-        {
-          "name": "label",
-          "ordinal": 0,
-          "type_info": "Varchar"
-        },
-        {
-          "name": "token_prefix",
-          "ordinal": 1,
-          "type_info": "Text"
-        },
-        {
-          "name": "expiration",
-          "ordinal": 2,
-          "type_info": "Timestamptz"
-        },
-        {
-          "name": "created_at",
-          "ordinal": 3,
-          "type_info": "Timestamptz"
-        },
-        {
-          "name": "last_used_at",
-          "ordinal": 4,
-          "type_info": "Timestamptz"
-        }
-      ],
-      "nullable": [
-        true,
-        null,
-        true,
-        false,
-        false
-      ],
-      "parameters": {
-        "Left": [
-          "Text"
-        ]
-      }
-    },
-    "query": "SELECT label, concat(substring(token for 10)) as token_prefix, expiration, created_at, last_used_at FROM token WHERE email = $1"
-  },
   "11b1586acdfc180c5a077861ee1f7201fcbcec9d0ebada464f9d952c9c3e400d": {
     "describe": {
       "columns": [],
@@ -2821,6 +2777,50 @@
       }
     },
     "query": "SELECT * from workspace_invite WHERE workspace_id = $1"
+  },
+  "b5c9891b5bf3d581e62f8835aaa25b8158fe3cefc849af0ba312a45cf22721ca": {
+    "describe": {
+      "columns": [
+        {
+          "name": "label",
+          "ordinal": 0,
+          "type_info": "Varchar"
+        },
+        {
+          "name": "token_prefix",
+          "ordinal": 1,
+          "type_info": "Text"
+        },
+        {
+          "name": "expiration",
+          "ordinal": 2,
+          "type_info": "Timestamptz"
+        },
+        {
+          "name": "created_at",
+          "ordinal": 3,
+          "type_info": "Timestamptz"
+        },
+        {
+          "name": "last_used_at",
+          "ordinal": 4,
+          "type_info": "Timestamptz"
+        }
+      ],
+      "nullable": [
+        true,
+        null,
+        true,
+        false,
+        false
+      ],
+      "parameters": {
+        "Left": [
+          "Text"
+        ]
+      }
+    },
+    "query": "SELECT label, concat(substring(token for 10)) as token_prefix, expiration, created_at, last_used_at FROM token WHERE email = $1\n         ORDER BY created_at DESC"
   },
   "b7dd791cd69748ef51b7520f505c0c8bb1b4014a273476eddfecf1ab658a18b4": {
     "describe": {

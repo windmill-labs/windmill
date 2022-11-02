@@ -11,7 +11,7 @@
 	const dispatch = createEventDispatcher()
 </script>
 
-<span>
+<span class={$$props.class}>
 	<label for={id} class="inline-flex items-center cursor-pointer mt-2">
 		{#if Boolean(options?.left)}
 			<span class="mr-2 text-sm font-medium text-gray-900">{options?.left}</span>

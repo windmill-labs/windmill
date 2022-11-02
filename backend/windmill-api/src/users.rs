@@ -1341,7 +1341,8 @@ async fn list_tokens(
     let rows = sqlx::query_as!(
         TruncatedToken,
         "SELECT label, concat(substring(token for 10)) as token_prefix, expiration, created_at, \
-         last_used_at FROM token WHERE email = $1",
+         last_used_at FROM token WHERE email = $1
+         ORDER BY created_at DESC",
         email,
     )
     .fetch_all(&db)
