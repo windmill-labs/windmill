@@ -174,14 +174,7 @@
 					on:enter={() => changeStep(2)}
 					namePlaceholder="my_script"
 					kind="script"
-				>
-					<div slot="ownerToolkit">
-						Script permissions depend on their path. Select the group
-						<span class="font-mono"> all </span>
-						to share your script, and <span class="font-mono">user</span> to keep it private.
-						<a href="https://docs.windmill.dev/docs/reference/namespaces">docs</a>
-					</div>
-				</Path>
+				/>
 				<label class="block ">
 					<span class="text-gray-700 text-sm">Summary <Required required={false} /></span>
 					<textarea

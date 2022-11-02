@@ -100,14 +100,14 @@
 			</label>
 		{/each}
 		<div class="flex flex-row-reverse  pt-4">
-			<a
+			<Button
 				href="/user/create_workspace{rd ? `?rd=${encodeURIComponent(rd)}` : ''}"
-				class="primary-button"
-				>Create a new workspace &rightarrow;
-			</a>
+				variant="border"
+				>+&nbsp;Create a new workspace
+			</Button>
 		</div>
 
-		<h2 class="mt-6 mb-4">Invitations</h2>
+		<h2 class="mt-6 mb-4">Invites to join a Workspace</h2>
 		{#if invites.length == 0}
 			<p class="text-sm text-gray-600 mt-2">You have no invites to any workspaces at the moment.</p>
 		{/if}
@@ -149,12 +149,12 @@
 		{/each}
 		<div class="flex justify-between items-center mt-10">
 			{#if $superadmin}
-				<a class="mr-10" href="/user/superadmin_settings">
-					<Icon data={faCrown} class="mr-1" scale={1} />Superadmin settings</a
+				<Button variant="border" size="sm" href="/user/superadmin_settings">
+					<Icon data={faCrown} class="mr-1" scale={1} />Superadmin settings</Button
 				>
 			{/if}
-			<a class="mr-10" href="/user/settings">
-				<Icon data={faUserCog} class="mr-1" scale={1} />User settings</a
+			<Button variant="border" size="sm" href="/user/settings">
+				<Icon data={faUserCog} class="mr-1" scale={1} />User settings</Button
 			>
 			<Button
 				variant="border"

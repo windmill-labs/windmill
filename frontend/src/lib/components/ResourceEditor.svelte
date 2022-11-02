@@ -137,15 +137,7 @@
 						{initialPath}
 						namePlaceholder="my_resource"
 						kind="resource"
-					>
-						<div slot="ownerToolkit">
-							Resource permissions depend on their path. Select the group <span class="font-mono"
-								>all</span
-							>
-							to share it, and <span class="font-mono">user</span> to keep it private.
-							<a href="https://docs.windmill.dev/docs/reference/namespaces">docs</a>
-						</div>
-					</Path>
+					/>
 				</div>
 				<span class=" mt-3 font-semibold text-gray-700 "
 					>Description <Required required={false} />

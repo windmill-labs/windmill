@@ -90,21 +90,23 @@
 	$: endIconClass = classNames(iconOnly ? undefined : isSmall ? 'ml-1' : 'ml-2', endIcon?.classes)
 </script>
 
-<svelte:element
-	this={href ? 'a' : 'button'}
-	bind:this={element}
-	on:click={onClick}
-	on:focus
-	on:blur
-	{...buttonProps}
->
-	{#if startIcon}
-		<Icon data={startIcon.icon} class={startIconClass} scale={ButtonType.IconScale[size]} />
-	{/if}
-	{#if !iconOnly}
-		<slot />
-	{/if}
-	{#if endIcon}
-		<Icon data={endIcon.icon} class={endIconClass} scale={ButtonType.IconScale[size]} />
-	{/if}
-</svelte:element>
+<div class="inline-flex">
+	<svelte:element
+		this={href ? 'a' : 'button'}
+		bind:this={element}
+		on:click={onClick}
+		on:focus
+		on:blur
+		{...buttonProps}
+	>
+		{#if startIcon}
+			<Icon data={startIcon.icon} class={startIconClass} scale={ButtonType.IconScale[size]} />
+		{/if}
+		{#if !iconOnly}
+			<slot />
+		{/if}
+		{#if endIcon}
+			<Icon data={endIcon.icon} class={endIconClass} scale={ButtonType.IconScale[size]} />
+		{/if}
+	</svelte:element>
+</div>
