@@ -280,11 +280,9 @@ async fn create_script(
         .map(|v| v.1.clone())
         .unwrap_or(json!({}));
 
-    let lock = if ns.language == ScriptLang::Deno {
-        Some("".to_string())
-    } else {
-        ns.lock.as_ref().map(|x| x.join("\n"))
-    };
+    let lock = ns.lock.as_ref().map(|x| x.join("\n"));
+    let lock = lock.and_then(|e| if e.is_empty() { None } else { Some(e) });
+    let needs_lock_gen = lock.is_none();
     //::text::json is to ensure we use serde_json with preserve order
     sqlx::query!(
         "INSERT INTO script (workspace_id, hash, path, parent_hashes, summary, description, \
@@ -308,7 +306,7 @@ async fn create_script(
     .execute(&mut tx)
     .await?;
 
-    let mut tx = if ns.lock.is_none() && ns.language != ScriptLang::Deno {
+    let mut tx = if needs_lock_gen {
         let dependencies = match ns.language {
             ScriptLang::Python3 => {
                 windmill_parser_py::parse_python_imports(&ns.content)?.join("\n")

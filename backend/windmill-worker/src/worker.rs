@@ -787,9 +787,7 @@ async fn handle_code_execution_job(
     worker_config: &WorkerConfig,
     envs: &Envs,
 ) -> error::Result<serde_json::Value> {
-    let (inner_content, requirements_o, language) = if matches!(job.job_kind, JobKind::Preview)
-        || (matches!(job.job_kind, JobKind::Script_Hub) && job.language == Some(ScriptLang::Deno))
-    {
+    let (inner_content, requirements_o, language) = if matches!(job.job_kind, JobKind::Preview) {
         let code = (job.raw_code.as_ref().unwrap_or(&"no raw code".to_owned())).to_owned();
         (code, None, job.language.to_owned())
     } else if matches!(job.job_kind, JobKind::Script_Hub) {
@@ -885,6 +883,7 @@ mount {{
                 &inner_content,
                 timeout,
                 &shared_mount,
+                requirements_o,
             )
             .await
         }
@@ -1122,9 +1121,17 @@ async fn handle_deno_job(
     inner_content: &String,
     timeout: i32,
     shared_mount: &str,
+    lockfile: Option<String>,
 ) -> error::Result<serde_json::Value> {
     logs.push_str("\n\n--- DENO CODE EXECUTION ---\n");
     set_logs(logs, job.id, db).await;
+    let lockfile = lockfile
+        .and_then(|e| if e.starts_with("{") { Some(e) } else { None })
+        .unwrap_or("{}".to_string());
+    let _ = write_file(job_dir, "lock.json", &lockfile).await?;
+    // TODO: Separately cache dependencies here using `deno cache --reload --lock=lock.json src/deps.ts` (https://deno.land/manual@v1.27.0/linking_to_external_code/integrity_checking)
+    // Then require caching below using --cached-only. This makes it so we require zero network interaction when running the process below
+
     let _ = write_file(job_dir, "inner.ts", inner_content).await?;
     let sig = trace_span!("parse_deno_signature")
         .in_scope(|| windmill_parser_ts::parse_deno_signature(inner_content))?;
@@ -1179,6 +1186,7 @@ run();
                     "--",
                     deno_path,
                     "run",
+                    "--lock=/tmp/lock.json",
                     "--unstable",
                     "--v8-flags=--max-heap-size=2048",
                     "-A",
@@ -1197,6 +1205,7 @@ run();
                 .env("BASE_INTERNAL_URL", base_internal_url)
                 .args(vec![
                     "run",
+                    "--lock=lock.json",
                     "--unstable",
                     "--v8-flags=--max-heap-size=2048",
                     "-A",
@@ -1578,6 +1587,39 @@ async fn handle_dependency_job(
     }
 }
 
+async fn generate_deno_lock(
+    job_id: &Uuid,
+    code: &str,
+    logs: &mut String,
+    job_dir: &str,
+    db: &sqlx::Pool<sqlx::Postgres>,
+    timeout: i32,
+    Envs { deno_path, .. }: &Envs,
+) -> error::Result<String> {
+    let _ = write_file(job_dir, "main.ts", code).await?;
+
+    let child = Command::new(deno_path)
+        .current_dir(job_dir)
+        .args(vec![
+            "cache",
+            "--unstable",
+            "--lock=lock.json",
+            "--lock-write",
+            "main.ts",
+        ])
+        .env("NO_COLOR", "1")
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()?;
+
+    handle_child(job_id, db, logs, timeout, child).await?;
+
+    let path_lock = format!("{job_dir}/lock.json");
+    let mut file = File::open(path_lock).await?;
+    let mut req_content = "".to_string();
+    file.read_to_string(&mut req_content).await?;
+    Ok(req_content)
+}
 async fn capture_dependency_job(
     job: &QueuedJob,
     logs: &mut String,
@@ -1613,7 +1655,14 @@ async fn capture_dependency_job(
             )
             .await
         }
-        _ => Err(error::Error::ExecutionErr(
+        Some(ScriptLang::Deno) => {
+            let requirements = job
+                .raw_code
+                .as_ref()
+                .ok_or_else(|| Error::ExecutionErr("missing requirements".to_string()))?;
+            generate_deno_lock(&job.id, &requirements, logs, job_dir, db, timeout, &envs).await
+        }
+        _ => Err(error::Error::InternalErr(
             "Language incompatible with dep job".to_string(),
         )),
     }
