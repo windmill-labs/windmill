@@ -47,12 +47,12 @@
 		>
 			<div
 				class={classNames(
-					'fixed inset-0 bg-gray-600 bg-opacity-75 transition-opacity ease-linear duration-300',
-					menuOpen ? 'opacity-100' : 'opacity-0 '
+					'fixed inset-0 bg-gray-600 bg-opacity-75 transition-opacity ease-linear duration-300 z-40',
+					menuOpen ? 'opacity-100' : 'opacity-0'
 				)}
 			/>
 
-			<div class="fixed inset-0 flex">
+			<div class="fixed inset-0 flex z-40">
 				<div
 					class={classNames(
 						'relative flex-1 flex flex-col max-w-xs w-full bg-white transition ease-in-out duration-300 transform',
@@ -106,7 +106,7 @@
 
 		<div
 			class={classNames(
-				'hidden md:flex md:flex-col md:fixed md:inset-y-0 transition-all ease-in-out duration-200 shadow-md z-10',
+				'hidden md:flex md:flex-col md:fixed md:inset-y-0 transition-all ease-in-out duration-200 shadow-md z-40',
 				isCollapsed ? 'md:w-12' : 'md:w-48'
 			)}
 		>
