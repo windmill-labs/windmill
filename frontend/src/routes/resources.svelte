@@ -7,7 +7,7 @@
 </script>
 
 <script lang="ts">
-	import { canWrite, emptySchema, sendUserToast } from '$lib/utils'
+	import { canWrite, emptySchema, sendUserToast, truncate } from '$lib/utils'
 	import { ResourceService, VariableService } from '$lib/gen'
 	import type { Resource, ResourceType } from '$lib/gen'
 	import PageHeader from '$lib/components/PageHeader.svelte'
@@ -50,6 +50,7 @@
 	let resourceViewer: Modal
 	let resourceViewerTitle: string = ''
 	let resourceViewerSchema: Schema = emptySchema()
+	let resourceViewerDescription = ''
 	let typeModalMode: 'view' | 'view-type' | 'create' = 'view'
 	let newResourceTypeName: string
 	let newResourceTypeSchema: Schema
@@ -153,7 +154,10 @@
 </script>
 
 <CenteredPage>
-	<PageHeader title="Resources">
+	<PageHeader
+		title="Resources"
+		tooltip="Save and permission rich objects (JSON) including credentials obtained through OAuth."
+	>
 		<div class="flex flex-row space-x-4">
 			<Button size="sm" startIcon={{ icon: faChain }} on:click={() => appConnect.open()}>
 				Connect an API
@@ -174,7 +178,7 @@
 			<TableCustom>
 				<tr slot="header-row">
 					<th>path</th>
-					<th>resource_type</th>
+					<th>resource type</th>
 					<th>description</th>
 					<th>OAuth</th>
 					<th />
@@ -189,12 +193,12 @@
 										href="#{path}"
 										on:click={async () => {
 											resourceViewerTitle = `Resource ${path}`
-											resourceViewerSchema = (
-												await ResourceService.getResource({
-													workspace: $workspaceStore ?? 'no_workspace',
-													path
-												})
-											).value
+											const resource = await ResourceService.getResource({
+												workspace: $workspaceStore ?? 'no_workspace',
+												path
+											})
+											resourceViewerSchema = resource.value
+											resourceViewerDescription = resource.description ?? ''
 											typeModalMode = 'view'
 											resourceViewer.openModal()
 										}}>{path}</a
@@ -202,8 +206,12 @@
 									<div class="mb-1 -mt-1"><SharedBadge {canWrite} extraPerms={extra_perms} /></div>
 								</td>
 								<td class="px-2"><IconedResourceType name={resource_type} after={true} /></td>
-								<td><SvelteMarkdown source={description ?? ''} /></td>
-								<td>
+								<td
+									><span class="text-gray-500 text-xs"
+										><SvelteMarkdown source={truncate(description ?? '', 30)} /></span
+									></td
+								>
+								<td class="text-center">
 									{#if is_oauth}
 										<Icon
 											class="text-green-600"
@@ -263,7 +271,11 @@
 		{/if}
 	</div>
 	<div class="py-10" />
-	<PageHeader title="Resources types" primary={false}>
+	<PageHeader
+		title="Resources types"
+		primary={false}
+		tooltip="Schema and label to filter resources by type"
+	>
 		<Button size="sm" startIcon={{ icon: faPlus }} on:click={startNewType}>Add a type</Button>
 	</PageHeader>
 
@@ -289,17 +301,23 @@
 									on:click={() => {
 										resourceViewerTitle = `Resource type ${name}`
 										resourceViewerSchema = schema
+										resourceViewerDescription = description ?? ''
 										typeModalMode = 'view-type'
 										resourceViewer.openModal()
 									}}><IconedResourceType after={true} {name} /></a
 								></td
 							>
-							<td><SvelteMarkdown source={description ?? ''} /></td>
+							<td
+								><span class="text-gray-500 text-xs"
+									><SvelteMarkdown source={truncate(description ?? '', 30)} /></span
+								></td
+							>
 							<td>
 								{#if canWrite}
 									<Button
 										size="sm"
 										color="red"
+										variant="border"
 										startIcon={{ icon: faTrash }}
 										on:click={() => handleDeleteResourceType(name)}
 										disabled={!($userStore?.is_admin || false)}
@@ -358,8 +376,16 @@
 				</div>
 			</div>
 		{:else if typeModalMode === 'view'}
-			<Highlight language={json} code={JSON.stringify(resourceViewerSchema, null, 4)} />
+			<div class="py-2 bg-gray-100">
+				<SvelteMarkdown source={resourceViewerDescription} />
+			</div>
+			<div class="border p-2">
+				<Highlight language={json} code={JSON.stringify(resourceViewerSchema, null, 4)} />
+			</div>
 		{:else if typeModalMode === 'view-type'}
+			<div class="py-2 bg-gray-100">
+				<SvelteMarkdown source={resourceViewerDescription} />
+			</div>
 			<SchemaViewer schema={resourceViewerSchema} />
 		{/if}
 	</div>

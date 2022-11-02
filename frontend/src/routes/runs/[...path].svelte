@@ -21,6 +21,7 @@
 	import { Skeleton } from '$lib/components/common'
 	import Tooltip from '../../lib/components/Tooltip.svelte'
 	import { goto } from '$app/navigation'
+	import PageHeader from '$lib/components/PageHeader.svelte'
 
 	let jobs: Job[] | undefined
 	let error: Error | undefined
@@ -147,16 +148,13 @@
 </script>
 
 <CenteredPage>
-	<div class="flex items-center min-h-[48px] my-4">
-		<h1 class="mr-1">Runs {path ? `of ${path}` : ''}</h1>
-		<Tooltip>
-			All past and schedule executions of scripts and flows, including previews.
-			<br />
-			You only see your own runs or runs of groups you belong to unless you are an admin.
-		</Tooltip>
-	</div>
+	<PageHeader
+		title="Runs {path ? `of ${path}` : ''}"
+		tooltip="All past and schedule executions of scripts and flows, including previews.
+	You only see your own runs or runs of groups you belong to unless you are an admin."
+	/>
 
-	<div class="max-w-7x">
+	<div class="max-w-7x mt-6">
 		<div class="flex flex-row space-x-4">
 			<select
 				bind:value={success}

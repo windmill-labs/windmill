@@ -28,7 +28,7 @@
 
 		<Badge large>
 			<Icon data={faHourglassHalf} scale={SMALL_ICON_SCALE} class="mr-2" />
-			Job ran in {msToSec(job.duration_ms)} s
+			Ran in {msToSec(job.duration_ms)} s
 		</Badge>
 	</div>
 {:else if job && 'success' in job}
@@ -39,7 +39,7 @@
 		</Badge>
 		<Badge large>
 			<Icon data={faHourglassHalf} scale={SMALL_ICON_SCALE} class="mr-2" />
-			Job ran in {msToSec(job.duration_ms)}s
+			Ran in {msToSec(job.duration_ms)}s
 		</Badge>
 	</div>
 {:else if job && 'running' in job && job.running}

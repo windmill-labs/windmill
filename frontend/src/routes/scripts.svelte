@@ -162,12 +162,9 @@
 <CenteredPage>
 	<PageHeader
 		title="Scripts"
-		tooltip="A script can either be used standalone or as part of a Flow. 
-		When standalone, it has an auto-generated UI from its parameters whom you can access clicking on 'Run'.
-		Like everything in windmill, scripts have owners (users or groups) and can be shared to other users and other groups. It is enough to have
-		read-access on a script to be able to execute it. However, you will also need to have been
-		granted visibility on the resources and variables it uses, otherwise it will behave as if those
-		items did not exist at runtime of the script."
+		tooltip="A Script can be used standalone or as part of a Flow. 
+		When standalone, it has webhooks and an auto-generated UI from its parameters whom you can access clicking on 'Run'.
+		Scripts have owners (users or groups) and can be shared to users and groups."
 	>
 		<CreateActions />
 	</PageHeader>

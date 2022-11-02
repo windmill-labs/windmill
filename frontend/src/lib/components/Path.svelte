@@ -15,6 +15,7 @@
 	import { sleep } from '$lib/utils'
 	import { createEventDispatcher } from 'svelte'
 	import Required from './Required.svelte'
+	import Popover from './Popover.svelte'
 
 	type PathKind = 'resource' | 'script' | 'variable' | 'flow' | 'schedule' | 'app'
 	export let meta: Meta = {
@@ -164,9 +165,15 @@
 	<div class="flex flex-col sm:grid sm:grid-cols-4 sm:gap-4 pb-0 mb-1">
 		<label class="block">
 			<span class="text-gray-700 text-sm whitespace-nowrap">
-				Owner Kind <Tooltip>
-					<slot name="ownerToolkit" />
-				</Tooltip>
+				<Popover
+					>Owner Kind
+					<span slot="text"
+						>Select the group <span class="font-mono">all</span>
+						to share it with all workspace users, and <span class="font-mono">user</span> to keep it
+						private.
+						<a href="https://docs.windmill.dev/docs/reference/namespaces">docs</a>
+					</span>
+				</Popover>
 			</span>
 
 			<select

@@ -34,10 +34,7 @@ impl StripPath {
 
 pub fn require_admin(is_admin: bool, username: &str) -> Result<()> {
     if !is_admin {
-        Err(Error::NotAuthorized(format!(
-            "This endpoint require caller {} to be an admin",
-            username
-        )))
+        Err(Error::RequireAdmin(username.to_string()))
     } else {
         Ok(())
     }

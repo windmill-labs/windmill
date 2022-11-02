@@ -12,7 +12,7 @@
 
 	export let flowModule: FlowModule
 	export let parentModule: FlowModule | undefined
-	export let previousModuleId: string | undefined
+	export let previousModule: FlowModule | undefined
 
 	let selected: string = 'early-stop'
 </script>
@@ -77,13 +77,17 @@
 
 							<TabContent value="early-stop" class="flex flex-col flex-1 h-full">
 								<div class="p-4 overflow-y-auto">
-									<FlowModuleEarlyStop {previousModuleId} bind:flowModule {parentModule} />
+									<FlowModuleEarlyStop
+										previousModuleId={previousModule?.id}
+										bind:flowModule
+										{parentModule}
+									/>
 								</div>
 							</TabContent>
 
 							<TabContent value="suspend" class="flex flex-col flex-1 h-full">
 								<div class="p-4 overflow-y-auto">
-									<FlowModuleSuspend {previousModuleId} bind:flowModule />
+									<FlowModuleSuspend previousModuleId={previousModule?.id} bind:flowModule />
 								</div>
 							</TabContent>
 						</div>

@@ -15,7 +15,7 @@
 		</button>
 	</div>
 
-	<div class="p-2 h-full">
+	<div class="p-2 h-full overflow-y-auto">
 		<slot />
 	</div>
 </div>

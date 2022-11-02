@@ -68,7 +68,10 @@
 <GroupModal bind:this={groupModal} />
 
 <CenteredPage>
-	<PageHeader title="Groups">
+	<PageHeader
+		title="Groups"
+		tooltip="Group users together to grant roles and homegenous permissions. Same users can be in many groups at the same time."
+	>
 		<div class="flex flex-row">
 			<input
 				class="mr-2"

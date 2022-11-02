@@ -20,7 +20,7 @@
 
 	export let mod: FlowModule
 	export let parentModule: FlowModule | undefined
-	export let previousModuleId: string | undefined
+	export let previousModule: FlowModule | undefined
 
 	let editor: SimpleEditor | undefined = undefined
 	let selected: string = 'early-stop'
@@ -28,9 +28,10 @@
 	$: pickableProperties = getStepPropPicker(
 		$flowStateStore,
 		parentModule,
-		previousModuleId,
+		previousModule,
 		$flowStore,
-		previewArgs
+		previewArgs,
+		true
 	).pickableProperties
 </script>
 
@@ -52,7 +53,7 @@
 					{#if mod.value.iterator.type == 'javascript'}
 						<div class="border w-full">
 							<PropPickerWrapper
-								priorId={previousModuleId}
+								priorId={previousModule?.id}
 								{pickableProperties}
 								on:select={({ detail }) => {
 									editor?.insertAtCursor(detail)
@@ -106,13 +107,17 @@
 
 							<TabContent value="early-stop" class="flex flex-col flex-1 h-full">
 								<div class="p-4 overflow-y-auto">
-									<FlowModuleEarlyStop {previousModuleId} bind:flowModule={mod} {parentModule} />
+									<FlowModuleEarlyStop
+										previousModuleId={previousModule?.id}
+										bind:flowModule={mod}
+										{parentModule}
+									/>
 								</div>
 							</TabContent>
 
 							<TabContent value="suspend" class="flex flex-col flex-1 h-full">
 								<div class="p-4 overflow-y-auto">
-									<FlowModuleSuspend {previousModuleId} bind:flowModule={mod} />
+									<FlowModuleSuspend previousModuleId={previousModule?.id} bind:flowModule={mod} />
 								</div>
 							</TabContent>
 						</div>

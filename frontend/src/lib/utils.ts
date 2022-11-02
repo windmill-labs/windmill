@@ -280,7 +280,7 @@ export function groupBy<T>(
 
 export function truncate(s: string, n: number, suffix: string = '...'): string {
 	if (!s) {
-		return suffix
+		return ''
 	}
 	if (s.length <= n) {
 		return s
