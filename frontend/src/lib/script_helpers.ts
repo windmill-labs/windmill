@@ -63,8 +63,9 @@ import (
   // wmill "github.com/windmill-labs/windmill-go-client"
 )
 
-func main(x string, nested struct{ v string }) (interface{}, error) {
+func main(x string, nested struct{ Foo string \`json:"bar"\` }) (interface{}, error) {
 	fmt.Println("Hello, World")
+	fmt.Println(nested.Foo)
 	fmt.Println(quote.Opt())
   // v, _ := wmill.GetVariable("g/all/pretty_secret")
   return x, nil
