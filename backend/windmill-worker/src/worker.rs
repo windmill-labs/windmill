@@ -1594,10 +1594,11 @@ async fn generate_deno_lock(
     job_dir: &str,
     db: &sqlx::Pool<sqlx::Postgres>,
     timeout: i32,
+    Envs { deno_path, .. }: &Envs,
 ) -> error::Result<String> {
     let _ = write_file(job_dir, "main.ts", code).await?;
 
-    let child = Command::new("deno")
+    let child = Command::new(deno_path)
         .current_dir(job_dir)
         .args(vec![
             "cache",
@@ -1658,7 +1659,7 @@ async fn capture_dependency_job(
                 .raw_code
                 .as_ref()
                 .ok_or_else(|| Error::ExecutionErr("missing requirements".to_string()))?;
-            generate_deno_lock(&job.id, &requirements, logs, job_dir, db, timeout).await
+            generate_deno_lock(&job.id, &requirements, logs, job_dir, db, timeout, &envs).await
         }
         _ => Err(error::Error::InternalErr(
             "Language incompatible with dep job".to_string(),
