@@ -5,10 +5,11 @@
 	import { buildWorld, type World } from './rx'
 	import { writable } from 'svelte/store'
 	import DisplayComponent from './components/DisplayComponent.svelte'
+	import type { Schema } from '$lib/common'
 
 	export let app: App
 
-	let components: Record<string, string[]> = {}
+	let components: Record<string, Schema> = {}
 	const worldStore = writable<World | undefined>(undefined)
 
 	onMount(() => {

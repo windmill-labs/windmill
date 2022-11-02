@@ -136,7 +136,7 @@
 </script>
 
 <div
-	class="h-80 rounded-b-sm flex-row gap-4 p-4 flex border-2 border-gray-500 bg-white cursor-pointer "
+	class="h-80 rounded-b-sm flex-row gap-4 p-4 flex border-2 border-gray bg-white cursor-pointer "
 >
 	<div class="dotted-background h-full flex flex-row gap-2 w-full">
 		<div
@@ -164,11 +164,15 @@
 					<div
 						class={numberToTailwindWidthMap[Math.round((100 * component.width) / sum)]}
 						animate:flip={{ duration: flipDurationMs }}
-						on:click={() => {
+						on:click|stopPropagation={() => {
 							$selection = { componentIndex, sectionIndex }
 						}}
 					>
-						<ComponentEditor bind:component />
+						<ComponentEditor
+							bind:component
+							selected={componentIndex === $selection?.componentIndex &&
+								sectionIndex === $selection?.sectionIndex}
+						/>
 					</div>
 				{/each}
 			{:else}
@@ -181,12 +185,14 @@
 			{/if}
 		</div>
 		{#if canDrop}
-			<div class={classNames('h-full', numberToTailwindWidthMap[Math.round(100 - sum)])}>
-				<div
-					class="border flex justify-center flex-col items-center w-full h-full bg-green-200 bg-opacity-50"
-				>
-					<div>Empty component</div>
-				</div>
+			<div class={classNames('h-full flex gap-2', numberToTailwindWidthMap[Math.round(100 - sum)])}>
+				{#each Array(columns - components.length) as _}
+					<div
+						class="border flex justify-center flex-col items-center h-full w-full bg-green-200 bg-opacity-50"
+					>
+						<div> Empty component</div>
+					</div>
+				{/each}
 			</div>
 		{/if}
 	</div>

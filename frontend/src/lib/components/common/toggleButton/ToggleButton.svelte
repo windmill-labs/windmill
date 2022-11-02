@@ -4,7 +4,7 @@
 	import Button from '../button/Button.svelte'
 	import type { ToggleButtonContext } from './ToggleButtonGroup.svelte'
 
-	export let value: string
+	export let value: any
 	export let position: 'left' | 'center' | 'right'
 
 	const { select, selected } = getContext<ToggleButtonContext>('ToggleButtonGroup')
@@ -19,7 +19,7 @@
 		position === 'center' ? 'rounded-none border-t border-b' : '',
 		position === 'right' ? 'rounded-none rounded-r-md !border border-l-0' : ''
 	)}
-	color={$selected.includes(value) ? 'dark' : 'light'}
+	color={$selected === value ? 'dark' : 'light'}
 	variant="contained"
 >
 	<slot />

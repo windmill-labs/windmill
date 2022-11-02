@@ -1,25 +1,41 @@
 <script lang="ts">
 	import Button from '$lib/components/common/button/Button.svelte'
+
+	import SchemaForm from '$lib/components/SchemaForm.svelte'
 	import { faTrashAlt } from '@fortawesome/free-solid-svg-icons'
-	import { getContext } from 'svelte'
+	import { createEventDispatcher, getContext } from 'svelte'
 	import type { AppComponent, AppEditorContext } from '../../types'
 
-	export let component: AppComponent
+	export let component: AppComponent | undefined
 
-	const { staticOutputs, worldStore } = getContext<AppEditorContext>('AppEditorContext')
+	const dispatch = createEventDispatcher()
+	const { staticOutputs, worldStore, schemas, app, selection } =
+		getContext<AppEditorContext>('AppEditorContext')
 
 	function deleteComponent() {
-		component = undefined
+		dispatch('remove')
 	}
+
+	$: schema = component && $schemas[component.id]
 </script>
 
-{#if component}
-	{JSON.stringify($staticOutputs[component.id])}
-	{JSON.stringify($worldStore?.outputsById[component.id])}
+<div class="p-2 flex flex-col gap-2">
+	{#if component}
+		{#if schema}
+			<div class="text-sm font-bold">Inputs</div>
 
-	<Button size="sm" color="red" startIcon={{ icon: faTrashAlt }} on:click={() => deleteComponent()}>
-		Delete component
-	</Button>
-{:else}
-	Empty component
-{/if}
+			<SchemaForm {schema} args={component.inputs.runInputs} />
+		{/if}
+
+		<Button
+			size="sm"
+			color="red"
+			startIcon={{ icon: faTrashAlt }}
+			on:click={() => deleteComponent()}
+		>
+			Delete component
+		</Button>
+	{:else}
+		Empty component
+	{/if}
+</div>

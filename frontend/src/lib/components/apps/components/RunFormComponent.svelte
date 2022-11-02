@@ -22,7 +22,7 @@
 	export let hidden: string[] = []
 	const { worldStore } = getContext<AppEditorContext>('AppEditorContext')
 
-	let schema: Schema | undefined = undefined
+	export let schema: Schema | undefined = undefined
 	let schemaClone: Schema | undefined = undefined
 
 	export const staticOutputs = ['loading', 'result']

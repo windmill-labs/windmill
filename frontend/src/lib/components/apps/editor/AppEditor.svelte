@@ -1,6 +1,6 @@
 <script lang="ts">
 	import SplitPanesWrapper from '$lib/components/splitPanes/SplitPanesWrapper.svelte'
-	import { faDisplay } from '@fortawesome/free-solid-svg-icons'
+	import { faBarChart, faDisplay, faPieChart } from '@fortawesome/free-solid-svg-icons'
 	import { faWpforms } from '@fortawesome/free-brands-svg-icons'
 
 	import { onMount, setContext } from 'svelte'
@@ -15,6 +15,8 @@
 	import ComponentPanel from './settingsPanel/ComponentPanel.svelte'
 	import { dndzone } from 'svelte-dnd-action'
 	import { flip } from 'svelte/animate'
+	import type { Schema } from '$lib/common'
+	import SectionPanel from './settingsPanel/SectionPanel.svelte'
 	const flipDurationMs = 200
 
 	export let app: App
@@ -23,15 +25,17 @@
 	const worldStore = writable<World | undefined>(undefined)
 	const staticOutputs = writable<Record<string, string[]>>({})
 
-	const selection = writable<AppSelection>(undefined)
+	const selection = writable<AppSelection | undefined>(undefined)
 	const mode = writable<EditorMode>('dnd')
+	const schemas = writable<Schema[]>([])
 
 	setContext<AppEditorContext>('AppEditorContext', {
 		worldStore,
 		staticOutputs,
 		app: appStore,
 		selection,
-		mode
+		mode,
+		schemas
 	})
 
 	onMount(() => {
@@ -48,6 +52,16 @@
 			id: 'runformcomponent',
 			name: 'Run form',
 			icon: faWpforms
+		},
+		{
+			id: 'piechart',
+			name: 'Pie chart',
+			icon: faPieChart
+		},
+		{
+			id: 'barchart',
+			name: 'Bar chart',
+			icon: faBarChart
 		}
 	]
 </script>
@@ -90,14 +104,24 @@
 		<SectionsEditor bind:sections={$appStore.sections} mode={$mode} />
 	</Pane>
 	<Pane minSize={20} maxSize={30} size={20}>
-		<div class="p-4">
-			{#if $selection?.sectionIndex !== undefined && $selection?.componentIndex !== undefined}
-				<ComponentPanel
-					bind:component={$appStore.sections[$selection?.sectionIndex].components[
-						$selection?.componentIndex
-					]}
-				/>
-			{/if}
-		</div>
+		{#if $selection?.sectionIndex !== undefined && $selection?.componentIndex === undefined}
+			<SectionPanel bind:section={$appStore.sections[$selection.sectionIndex]} />
+		{:else if $selection?.sectionIndex !== undefined && $selection?.componentIndex !== undefined}
+			<ComponentPanel
+				bind:component={$appStore.sections[$selection?.sectionIndex].components[
+					$selection?.componentIndex
+				]}
+				on:remove={() => {
+					if ($selection?.sectionIndex !== undefined && $selection?.componentIndex !== undefined) {
+						$appStore.sections[$selection?.sectionIndex].components.splice(
+							$selection?.componentIndex,
+							1
+						)
+						$appStore = $appStore
+						$selection = undefined
+					}
+				}}
+			/>
+		{/if}
 	</Pane>
 </SplitPanesWrapper>

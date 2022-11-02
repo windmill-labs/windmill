@@ -1,3 +1,4 @@
+import type { Schema } from '$lib/common'
 import type { Writable } from 'svelte/store'
 import type { World } from './rx'
 
@@ -66,6 +67,7 @@ export type AppEditorContext = {
 	app: Writable<App>
 	selection: Writable<AppSelection | undefined>
 	mode: Writable<EditorMode>
+	schemas: Writable<Schema[]>
 }
 
-export type EditorMode = 'width' | 'dnd'
+export type EditorMode = 'width' | 'dnd' | 'preview'
