@@ -75,6 +75,9 @@
 					if (pathName != '/user/login') {
 						logoutWithRedirect(pathName + $page.url.search)
 					}
+				}
+				if (status == '403') {
+					sendUserToast('An endpoint required a privilege which you do not have', true)
 				} else {
 					if (body) {
 						sendUserToast(`${body}`, true)

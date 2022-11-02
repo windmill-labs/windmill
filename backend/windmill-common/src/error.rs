@@ -35,6 +35,8 @@ pub enum Error {
     NotFound(String),
     #[error("Not authorized: {0}")]
     NotAuthorized(String),
+    #[error("Require Admin privileges for {0}")]
+    RequireAdmin(String),
     #[error("{0}")]
     ExecutionErr(String),
     #[error("IO error: {0}")]
@@ -77,6 +79,7 @@ impl IntoResponse for Error {
         let status = match self {
             Self::NotFound(_) => axum::http::StatusCode::NOT_FOUND,
             Self::NotAuthorized(_) => axum::http::StatusCode::UNAUTHORIZED,
+            Self::RequireAdmin(_) => axum::http::StatusCode::FORBIDDEN,
             Self::SqlErr(_) | Self::BadRequest(_) => axum::http::StatusCode::BAD_REQUEST,
             _ => axum::http::StatusCode::INTERNAL_SERVER_ERROR,
         };
