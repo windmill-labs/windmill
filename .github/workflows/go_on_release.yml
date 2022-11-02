@@ -20,6 +20,7 @@ jobs:
           cd go-client
           rm .gitignore
           ./build.sh
+          go build
       - name: Pushes to another repository
         id: push_directory
         uses: cpina/github-action-push-to-another-repository@devel
