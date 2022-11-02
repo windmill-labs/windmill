@@ -60,15 +60,15 @@
 	}}
 />
 
-<div class="flex flex-row flex-wrap items-center gap-4">
-	<div class="w-80 -mb-2">
-		{#if options.length > 1}
+<div class="flex flex-row flex-wrap items-center gap-4 w-full">
+	{#if options.length > 1}
+		<div class="w-80 -mb-2">
 			<RadioButton bind:value={itemKind} {options} />
-		{/if}
-	</div>
+		</div>
+	{/if}
 
 	<div class="flex items-center grow gap-4">
-		<input type="text" value={scriptPath ?? 'No path chosen yet'} disabled />
+		<input class="grow w-full" type="text" value={scriptPath ?? 'No path chosen yet'} disabled />
 		<Button
 			size="sm"
 			endIcon={{ icon: faSearch }}

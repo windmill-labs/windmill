@@ -162,7 +162,7 @@
 				</div>
 			</Pane>
 			<Pane size={67}>
-				<div class="px-2 py-1">
+				<div class="px-2 py-1 w-full">
 					{#if testIsLoading}
 						<Button
 							on:click={testJobLoader?.cancelJob}

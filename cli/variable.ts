@@ -11,7 +11,7 @@ async function list(opts: GlobalOptions) {
   const variables = await VariableService.listVariable({ workspace });
 
   new Table()
-    .header(["Path", "Is Secret", "Account", "Value", "Description"])
+    .header(["Path", "Is Secret", "Account", "Value"])
     .padding(2)
     .border(true)
     .body(
@@ -20,7 +20,6 @@ async function list(opts: GlobalOptions) {
         x.is_secret ? "true" : "false",
         x.account ?? "-",
         x.value ?? "-",
-        x.description ?? "-",
       ])
     )
     .render();

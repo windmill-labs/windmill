@@ -12,9 +12,9 @@
 
 	const { previewArgs } = getContext<FlowEditorContext>('FlowEditorContext')
 
-	export let previousModuleId: string | undefined
 	export let flowModule: FlowModule
 	export let parentModule: FlowModule | undefined
+	export let previousModuleId: string | undefined
 
 	let editor: SimpleEditor | undefined = undefined
 
@@ -26,7 +26,7 @@
 		const propPicker = getStepPropPicker(
 			$flowStateStore,
 			parentModule,
-			flowModule.id,
+			flowModule,
 			$flowStore,
 			previewArgs
 		).pickableProperties

@@ -86,7 +86,7 @@ async function list(opts: GlobalOptions & { showArchived?: boolean }) {
   }
 
   new Table()
-    .header(["path", "summary", "edited at", "edited by", "description"])
+    .header(["path", "summary", "edited at", "edited by"])
     .padding(2)
     .border(true)
     .body(

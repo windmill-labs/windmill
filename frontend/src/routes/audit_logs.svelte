@@ -90,7 +90,7 @@
 <CenteredPage>
 	<PageHeader
 		title="Audit logs"
-		tooltip="You can only see the audit logs you have visibility on, so only your own as a user."
+		tooltip="You can only see your own audit logs unless you are an admin."
 	/>
 
 	<Alert type="info" title="Audit logs are a team or enterprise feature - Unlimited during beta">

@@ -4,10 +4,12 @@
 	import { userStore, usersWorkspaceStore, superadmin } from '$lib/stores'
 	import { classNames } from '$lib/utils'
 	import { faCrown, faUser } from '@fortawesome/free-solid-svg-icons'
+	import { createEventDispatcher } from 'svelte'
 
 	import Icon from 'svelte-awesome'
 	import Menu from '../common/menu/Menu.svelte'
 
+	let dispatch = createEventDispatcher()
 	export let isCollapsed: boolean = false
 </script>
 
@@ -43,7 +45,8 @@
 		</div>
 		<div class="py-1" role="none">
 			<a
-				href="/user/settings"
+				on:click={() => dispatch('user-settings')}
+				href="#user-settings"
 				class="text-gray-700 block px-4 py-2 text-sm hover:bg-gray-100 hover:text-gray-900"
 				role="menuitem"
 				tabindex="-1"
@@ -51,6 +54,19 @@
 				Account settings
 			</a>
 		</div>
+		{#if $superadmin}
+			<div class="py-1" role="none">
+				<a
+					on:click={() => dispatch('superadmin-settings')}
+					href="#user-settings"
+					class="text-gray-700 block px-4 py-2 text-sm hover:bg-gray-100 hover:text-gray-900"
+					role="menuitem"
+					tabindex="-1"
+				>
+					Superadmin settings
+				</a>
+			</div>
+		{/if}
 		<div class="py-1" role="none">
 			<button
 				type="button"

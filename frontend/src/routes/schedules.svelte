@@ -64,7 +64,7 @@
 </script>
 
 <CenteredPage>
-	<PageHeader title="Schedules">
+	<PageHeader title="Schedules" tooltip="Trigger Scripts and Flows according to a cron schedule">
 		<Button size="sm" startIcon={{ icon: faPlus }} href="/schedule/add">New&nbsp;schedule</Button>
 	</PageHeader>
 	<div class="relative mt-10">

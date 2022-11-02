@@ -254,7 +254,8 @@ const config = {
 				'.table-custom': {
 					'& th': {
 						paddingTop: theme('spacing.3'),
-						paddingRight: theme('spacing.2'),
+						paddingRight: theme('spacing.1'),
+						paddingLeft: theme('spacing.1'),
 						paddingBottom: theme('spacing.3'),
 						fontSize: theme('fontSize.sm'),
 						textAlign: 'left',

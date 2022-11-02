@@ -77,10 +77,6 @@
 						runPreview($previewArgs)
 					}
 					break
-
-				case 'Escape':
-					dispatch('close')
-					break
 			}
 		}
 	}
