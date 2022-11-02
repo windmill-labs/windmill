@@ -31,19 +31,33 @@
 		open = !open
 	}
 
+	function onKeyDown(event: KeyboardEvent) {
+		if (open) {
+			switch (event.key) {
+				case 'Escape':
+					open = false
+					break
+			}
+		}
+	}
+
 	$: open ? dispatch('open') : dispatch('close')
 
+	let timeout = true
+	$: !open ? setTimeout(() => (timeout = true), duration * 1000) : (timeout = false)
 	onMount(() => {
 		mounted = true
 		scrollLock(open)
 	})
 </script>
 
-<aside class="drawer" class:open {style}>
+<svelte:window on:keydown={onKeyDown} />
+
+<aside class="drawer" class:open class:close={!open} {style}>
 	<div class="overlay" on:click={handleClickAway} />
 
 	<div class="panel {placement}" class:size>
-		{#if open}
+		{#if open || !timeout}
 			<slot />
 		{/if}
 	</div>
