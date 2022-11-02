@@ -31,7 +31,7 @@
 	export let failureModule: boolean = false
 
 	export let parentModule: FlowModule | undefined = undefined
-	export let previousModuleId: string | undefined = undefined
+	export let previousModule: FlowModule | undefined
 
 	let editor: Editor
 	let modulePreview: ModulePreview
@@ -54,7 +54,14 @@
 
 	$: stepPropPicker = failureModule
 		? { pickableProperties: { previous_result: { error: 'the error message' } }, extraLib: '' }
-		: getStepPropPicker($flowStateStore, parentModule, previousModuleId, $flowStore, previewArgs)
+		: getStepPropPicker(
+				$flowStateStore,
+				parentModule,
+				previousModule,
+				$flowStore,
+				previewArgs,
+				true
+		  )
 
 	function onKeyDown(event: KeyboardEvent) {
 		if ((event.ctrlKey || event.metaKey) && event.key == 'Enter') {
@@ -178,7 +185,7 @@
 							{#if selected === 'inputs'}
 								<div class="h-full overflow-auto">
 									<PropPickerWrapper
-										priorId={previousModuleId}
+										priorId={previousModule?.id}
 										pickableProperties={stepPropPicker.pickableProperties}
 									>
 										<SchemaForm
@@ -200,14 +207,14 @@
 								<FlowRetries bind:flowModule class="px-4 pb-4 h-full overflow-auto" />
 							{:else if selected === 'early-stop'}
 								<FlowModuleEarlyStop
-									{previousModuleId}
+									previousModuleId={previousModule?.id}
 									bind:flowModule
 									class="px-4 pb-4 h-full overflow-auto"
 									{parentModule}
 								/>
 							{:else if selected === 'suspend'}
 								<div class="px-4 pb-4 h-full overflow-auto">
-									<FlowModuleSuspend {previousModuleId} bind:flowModule />
+									<FlowModuleSuspend previousModuleId={previousModule?.id} bind:flowModule />
 								</div>
 							{/if}
 						</div>

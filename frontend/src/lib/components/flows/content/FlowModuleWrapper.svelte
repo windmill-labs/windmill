@@ -28,14 +28,14 @@
 	// Pointer to parent module, only defined within Branches or Loops.
 	export let parentModule: FlowModule | undefined = undefined
 	// Pointer to previous module, for easy access to testing results
-	export let previousModuleId: string | undefined = undefined
+	export let previousModule: FlowModule | undefined = undefined
 </script>
 
 {#if flowModule.id === $selectedId}
 	{#if flowModule.value.type === 'forloopflow'}
-		<FlowLoop bind:mod={flowModule} {parentModule} {previousModuleId} />
+		<FlowLoop bind:mod={flowModule} {parentModule} {previousModule} />
 	{:else if flowModule.value.type === 'branchone' || flowModule.value.type === 'branchall'}
-		<FlowBranchesWrapper {previousModuleId} bind:flowModule {parentModule} />
+		<FlowBranchesWrapper {previousModule} bind:flowModule {parentModule} />
 	{:else if flowModule.value.type === 'identity'}
 		{#if $selectedId == 'failure'}
 			<Alert type="info" title="Error handlers are triggered upon non recovered errors">
@@ -46,15 +46,19 @@
 				Steps are retried until they succeed, or until the maximum number of retries defined for that
 				spec is reached, at which point the error handler is called.
 			</Alert>
+		{:else}
+			<h1 class="p-4"
+				>Select a step kind <Tooltip
+					>Until being defined, this step acts as an identify function, returning as result its
+					input and assigning it a key 'previous_result' if the input is not a json object</Tooltip
+				></h1
+			>
 		{/if}
-		<h1 class="p-4"
-			>Select a step kind <Tooltip
-				>Until being defined, this step acts as an identify function, returning as result its input
-				and assigning it a key 'previous_result' if the input is not a json object</Tooltip
-			></h1
-		>
+
 		<FlowInputs
-			shouldDisableTriggerScripts={parentModule !== undefined || previousModuleId !== undefined}
+			shouldDisableTriggerScripts={parentModule !== undefined ||
+				previousModule !== undefined ||
+				$selectedId == 'failure'}
 			on:loop={async () => {
 				const [module, state] = await createLoop(flowModule.id)
 				flowModule = module
@@ -101,7 +105,7 @@
 			failureModule={$selectedId === 'failure'}
 		/>
 	{:else if flowModule.value.type === 'rawscript' || flowModule.value.type === 'script'}
-		<FlowModuleComponent bind:flowModule {parentModule} {previousModuleId} />
+		<FlowModuleComponent bind:flowModule {parentModule} {previousModule} />
 	{/if}
 {:else if flowModule.value.type === 'forloopflow'}
 	{#each flowModule.value.modules as submodule, index (index)}
@@ -125,7 +129,7 @@
 	{/if}
 	{#each flowModule.value.branches as branch, branchIndex (branchIndex)}
 		{#if $selectedId === `${flowModule?.id}-branch-${branchIndex}`}
-			<FlowBranchOneWrapper bind:branch parentModule={flowModule} {previousModuleId} />
+			<FlowBranchOneWrapper bind:branch parentModule={flowModule} {previousModule} />
 		{:else}
 			{#each branch.modules as submodule, index}
 				<svelte:self

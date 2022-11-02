@@ -25,7 +25,6 @@
 		faScroll,
 		faFastForward
 	} from '@fortawesome/free-solid-svg-icons'
-	import Tooltip from '$lib/components/Tooltip.svelte'
 	import DisplayResult from '$lib/components/DisplayResult.svelte'
 	import { userStore, workspaceStore } from '$lib/stores'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
@@ -33,10 +32,11 @@
 	import HighlightCode from '$lib/components/HighlightCode.svelte'
 	import TestJobLoader from '$lib/components/TestJobLoader.svelte'
 	import LogViewer from '$lib/components/LogViewer.svelte'
-	import { Button, ActionRow, Skeleton } from '$lib/components/common'
+	import { Button, ActionRow, Skeleton, Tab } from '$lib/components/common'
 	import FlowMetadata from '$lib/components/FlowMetadata.svelte'
 	import JobArgs from '$lib/components/JobArgs.svelte'
 	import FlowProgressBar from '$lib/components/flows/FlowProgressBar.svelte'
+	import Tabs from '$lib/components/common/tabs/Tabs.svelte'
 
 	let workspace_id_query: string | undefined = $page.url.searchParams.get('workspace') ?? undefined
 	let workspace_id: string | undefined
@@ -252,40 +252,14 @@
 	{#if job?.job_kind !== 'flow' && job?.job_kind !== 'flowpreview'}
 		<!-- Logs and outputs-->
 		<div class="mr-2 sm:mr-0 mt-12">
-			<div class="flex flex-col sm:flex-row text-base">
-				<button
-					class=" py-1 px-6 block border-gray-200 hover:bg-gray-50  {viewTab !== 'result'
-						? 'text-gray-500'
-						: 'text-gray-700 font-semibold  '}"
-					on:click={() => (viewTab = 'result')}
+			<Tabs bind:selected={viewTab}>
+				<Tab value="result">Result</Tab>
+				<Tab value="logs">Logs</Tab>
+				<Tab value="code"
+					>{job?.job_kind == 'dependencies' ? 'Input Dependencies' : 'Code previewed'}</Tab
 				>
-					Result <Tooltip
-						>What is returned by the <span class="font-mono">main</span> function of the script,
-						stringified to JSON. Then for some specific cases, like having "png", "jpeg" or "file"
-						as sole key, they are displayed more richly. See
-						<a href="https://docs.windmill.dev/docs/reference#rich-display-rendering">here</a> for more
-						details.</Tooltip
-					>
-				</button>
-				<button
-					class="py-1 px-6 block border-gray-200 hover:bg-gray-50  {viewTab !== 'logs'
-						? 'text-gray-500'
-						: 'text-gray-700 font-semibold  '}"
-					on:click={() => (viewTab = 'logs')}
-				>
-					Logs
-				</button>
-				{#if job && 'raw_code' in job && job.raw_code}
-					<button
-						class="py-1 px-6 block border-gray-200 hover:bg-gray-50  {viewTab !== 'code'
-							? 'text-gray-500'
-							: 'text-gray-700 font-semibold  '}"
-						on:click={() => (viewTab = 'code')}
-					>
-						{job.job_kind == 'dependencies' ? 'Input Dependencies' : 'Code previewed'}
-					</button>
-				{/if}
-			</div>
+			</Tabs>
+
 			<Skeleton loading={!job} layout={[[5]]} />
 			{#if job}
 				<div class="flex flex-row border rounded-md p-3 max-h-1/2 overflow-auto">

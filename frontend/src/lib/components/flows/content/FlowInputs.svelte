@@ -14,7 +14,7 @@
 </script>
 
 <div class="space-y-4 p-4">
-	<div class="text-sm font-bold">Common script</div>
+	<div class="text-sm font-bold">{failureModule ? 'Error handler' : 'Common script'}</div>
 	<div class="grid sm:grid-col-2 lg:grid-cols-3 gap-4">
 		<FlowScriptPicker
 			label="Inline Python (3.10)"
@@ -23,8 +23,8 @@
 			on:click={() => {
 				dispatch('new', {
 					language: RawScript.language.PYTHON3,
-					kind: 'script',
-					subkind: failureModule ? 'failure' : 'flow'
+					kind: failureModule ? 'failure' : 'script',
+					subkind: 'flow'
 				})
 			}}
 		/>
@@ -36,8 +36,8 @@
 			on:click={() => {
 				dispatch('new', {
 					language: RawScript.language.DENO,
-					kind: 'script',
-					subkind: failureModule ? 'failure' : 'flow'
+					kind: failureModule ? 'failure' : 'script',
+					subkind: 'flow'
 				})
 			}}
 		/>
@@ -49,8 +49,8 @@
 			on:click={() => {
 				dispatch('new', {
 					language: RawScript.language.GO,
-					kind: 'script',
-					subkind: failureModule ? 'failure' : 'flow'
+					kind: failureModule ? 'failure' : 'script',
+					subkind: 'flow'
 				})
 			}}
 		/>
@@ -81,9 +81,9 @@
 		<div class="text-sm font-bold pt-8">
 			Trigger script
 			<Tooltip>
-				Used as a first step most commonly with an internal state and a schedule to watch for changes
-				on an external system, compute the diff since last time, set the new state. The diffs are
-				then treated one by one with a for-loop.
+				Used as a first step most commonly with an internal state and a schedule to watch for
+				changes on an external system, compute the diff since last time, set the new state. The
+				diffs are then treated one by one with a for-loop.
 			</Tooltip>
 		</div>
 

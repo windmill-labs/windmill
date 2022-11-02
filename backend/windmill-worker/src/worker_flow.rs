@@ -656,6 +656,7 @@ async fn transform_input(
     token: &str,
     steps: Vec<Uuid>,
     resumes: &[Value],
+    approvers: Vec<String>,
     by_id: &IdContext,
     base_internal_url: &str,
 ) -> anyhow::Result<Map<String, serde_json::Value>> {
@@ -682,6 +683,7 @@ async fn transform_input(
                         resumes.last().map(|v| json!(v)).unwrap_or_default(),
                     ),
                     ("resumes".to_string(), resumes.clone().into()),
+                    ("approvers".to_string(), json!(approvers.clone())),
                 ];
 
                 let v = eval_timeout(
@@ -854,6 +856,7 @@ async fn push_next_flow_job(
     };
 
     let mut resume_messages: Vec<Value> = vec![];
+    let mut approvers: Vec<String> = vec![];
 
     /* (suspend / resume), when starting a module, if previous module has a
      * non-zero `suspend` value, collect `resume_job`s for the previous module job.
@@ -886,6 +889,12 @@ async fn push_next_flow_job(
             .await?;
 
             resume_messages.extend(resumes.iter().map(|r| r.value.clone()));
+            approvers.extend(resumes.iter().map(|r| {
+                r.approver
+                    .as_deref()
+                    .unwrap_or_else(|| "anonymous")
+                    .to_string()
+            }));
 
             let required_events = suspend.required_events.unwrap() as u16;
             if resume_messages.len() >= required_events as usize {
@@ -1087,6 +1096,7 @@ async fn push_next_flow_job(
                 &token,
                 steps.to_vec(),
                 resume_messages.as_slice(),
+                approvers,
                 by_id,
                 base_internal_url,
             )

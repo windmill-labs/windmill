@@ -40,7 +40,7 @@
 		class="text-xs text-blue-500"
 		on:click={async () => {
 			await getResource(value.substring('$res:'.length))
-			jsonViewer.openModal()
+			jsonViewer.toggleDrawer()
 		}}>{value}</button
 	>{:else if asJson.length > 40}
 	{truncate(asJson, 40)}<a
