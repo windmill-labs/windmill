@@ -41,6 +41,14 @@
 								type: 'output'
 							}
 						}
+					},
+					{
+						type: 'barchartcomponent',
+						id: 'c',
+						width: 33,
+						inputs: {
+							result: {}
+						}
 					}
 				],
 				columns: 3,

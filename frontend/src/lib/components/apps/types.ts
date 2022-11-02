@@ -33,6 +33,11 @@ export type RunFormComponent = {
 	}
 }
 
+export type BarChartComponent = {
+	type: 'barchartcomponent'
+	inputs: {}
+}
+
 export type DisplayComponent = {
 	type: 'displaycomponent'
 	inputs: {
@@ -41,7 +46,7 @@ export type DisplayComponent = {
 }
 
 export type AppComponent =
-	| (RunFormComponent | DisplayComponent | TextInputComponent) & {
+	| (RunFormComponent | DisplayComponent | TextInputComponent | BarChartComponent) & {
 			id: string
 			width: number
 			horizontalAlignement?: 'left' | 'center' | 'right'

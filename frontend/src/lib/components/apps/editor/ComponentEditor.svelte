@@ -1,6 +1,8 @@
 <script lang="ts">
 	import { classNames } from '$lib/utils'
 	import { getContext } from 'svelte'
+	import { barChart } from 'svelte-awesome/icons'
+	import BarChartComponent from '../components/BarChartComponent.svelte'
 	import DisplayComponent from '../components/DisplayComponent.svelte'
 	import RunFormComponent from '../components/RunFormComponent.svelte'
 	import type { AppComponent, AppEditorContext } from '../types'
@@ -25,7 +27,7 @@
 		</span>
 		<div
 			class={classNames(
-				'p-2 border cursor-pointer hover:bg-blue-100 h-full bg-white',
+				'p-2 border overflow-auto cursor-pointer hover:bg-blue-100 h-full bg-white',
 				selected ? 'border-indigo-400' : 'border-gray-400'
 			)}
 		>
@@ -37,6 +39,12 @@
 				/>
 			{:else if component.type === 'displaycomponent'}
 				<DisplayComponent
+					{...component}
+					bind:staticOutputs={$staticOutputs[component.id]}
+					bind:schema={$schemas[component.id]}
+				/>
+			{:else if component.type === 'barchartcomponent'}
+				<BarChartComponent
 					{...component}
 					bind:staticOutputs={$staticOutputs[component.id]}
 					bind:schema={$schemas[component.id]}
