@@ -1607,7 +1607,7 @@ async fn generate_deno_lock(
             "--lock-write",
             "main.ts",
         ])
-        .env("NO_COLOR", 1)
+        .env("NO_COLOR", "1")
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()?;
