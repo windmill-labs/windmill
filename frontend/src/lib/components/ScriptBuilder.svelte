@@ -16,9 +16,9 @@
 	import UnsavedConfirmationModal from './common/confirmationModal/UnsavedConfirmationModal.svelte'
 	import { dirtyStore } from './common/confirmationModal/dirtyStore'
 	import { Button } from './common'
-	import { slide } from 'svelte/transition'
 	import { faChevronDown, faChevronUp, faPen } from '@fortawesome/free-solid-svg-icons'
 	import Breadcrumb from './common/breadcrumb/Breadcrumb.svelte'
+	import Toggle from './Toggle.svelte'
 
 	export let script: Script
 	export let initialPath: string = ''
@@ -276,10 +276,10 @@
 					{/if}
 				{/if}
 
-				<label class="block">
-					<span class="text-gray-700 mr-2">Save as workspace template</span>
-					<input type="checkbox" bind:checked={script.is_template} />
-				</label>
+				<Toggle
+					bind:checked={script.is_template}
+					options={{ right: 'Save as a workspace template' }}
+				/>
 			</div>
 		</CenteredPage>
 	{:else if step === 2}

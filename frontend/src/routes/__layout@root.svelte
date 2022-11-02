@@ -9,14 +9,18 @@
 	import WorkspaceMenu from '$lib/components/sidebar/WorkspaceMenu.svelte'
 	import SidebarContent from '$lib/components/sidebar/SidebarContent.svelte'
 	import '../app.css'
-	import { userStore } from '$lib/stores'
+	import { superadmin, userStore } from '$lib/stores'
 	import CenteredModal from '$lib/components/CenteredModal.svelte'
 	import { beforeNavigate } from '$app/navigation'
+	import UserSettings from '$lib/components/UserSettings.svelte'
+	import SuperadminSettings from '$lib/components/SuperadminSettings.svelte'
 
 	OpenAPI.WITH_CREDENTIALS = true
 
 	let menuOpen = false
 	let isCollapsed = false
+	let userSettings: UserSettings
+	let superadminSettings: SuperadminSettings
 
 	beforeNavigate((newNavigationState) => {
 		menuOpen = false
@@ -29,8 +33,12 @@
 </script>
 
 <svelte:window bind:innerWidth />
+<UserSettings bind:this={userSettings} />
 
 {#if $userStore}
+	{#if $superadmin}
+		<SuperadminSettings bind:this={superadminSettings} />
+	{/if}
 	<div>
 		<div
 			class={classNames('relative  md:hidden 	', menuOpen ? 'z-40' : 'pointer-events-none')}
@@ -84,7 +92,10 @@
 
 						<div class="px-2 py-4 space-y-2 border-y border-blue-400">
 							<WorkspaceMenu />
-							<UserMenu />
+							<UserMenu
+								on:user-settings={() => userSettings.toggleDrawer()}
+								on:superadmin-settings={() => superadminSettings.toggleDrawer()}
+							/>
 						</div>
 
 						<SidebarContent {isCollapsed} />
@@ -110,7 +121,11 @@
 
 				<div class="px-2 py-4 space-y-2 border-y border-blue-400">
 					<WorkspaceMenu {isCollapsed} />
-					<UserMenu {isCollapsed} />
+					<UserMenu
+						on:user-settings={userSettings.toggleDrawer}
+						on:superadmin-settings={() => superadminSettings.toggleDrawer()}
+						{isCollapsed}
+					/>
 				</div>
 				<SidebarContent {isCollapsed} />
 

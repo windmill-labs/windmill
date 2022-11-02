@@ -13,14 +13,20 @@
 	import { logout, logoutWithRedirect } from '$lib/logout'
 	import { UserService, type WorkspaceInvite, WorkspaceService } from '$lib/gen'
 	import { superadmin, usersWorkspaceStore, workspaceStore } from '$lib/stores'
-	import Switch from '$lib/components/Switch.svelte'
 	import { faCrown, faUserCog } from '@fortawesome/free-solid-svg-icons'
 	import Icon from 'svelte-awesome'
 	import { Button } from '$lib/components/common'
+	import Toggle from '$lib/components/Toggle.svelte'
+	import UserSettings from '$lib/components/UserSettings.svelte'
+	import SuperadminSettings from '$lib/components/SuperadminSettings.svelte'
 
 	let invites: WorkspaceInvite[] = []
 	let list_all_as_super_admin: boolean = false
 	let workspaces: { id: string; name: string; username: string }[] = []
+
+	let userSettings: UserSettings
+	let superadminSettings: SuperadminSettings
+
 	const rd = $page.url.searchParams.get('rd')
 
 	async function loadInvites() {
@@ -62,6 +68,10 @@
 	loadWorkspaces()
 </script>
 
+{#if $superadmin}
+	<SuperadminSettings bind:this={superadminSettings} />
+{/if}
+
 <div class="center-center min-h-screen p-4">
 	<div
 		class="border rounded-md shadow-md bg-white w-full max-w-[640px] p-4 sm:py-8 sm:px-10 mb-6 md:mb-20"
@@ -72,12 +82,12 @@
 		</p>
 		<h2 class="mb-4">Workspaces</h2>
 		{#if $superadmin}
-			<Switch
-				textFormat="text-xs"
-				label={'List all as superadmin'}
-				bind:checked={list_all_as_super_admin}
-			/>
-			<div class="my-4" />
+			<div class="flex flex-row-reverse pb-4">
+				<Toggle
+					bind:checked={list_all_as_super_admin}
+					options={{ right: 'List all as superadmin' }}
+				/>
+			</div>
 		{/if}
 		{#if workspaces.length == 0}
 			<p class="text-sm text-gray-600 mt-2">
@@ -150,11 +160,11 @@
 		{/each}
 		<div class="flex justify-between items-center mt-10">
 			{#if $superadmin}
-				<Button variant="border" size="sm" href="/user/superadmin_settings">
+				<Button variant="border" size="sm" on:click={superadminSettings.toggleDrawer}>
 					<Icon data={faCrown} class="mr-1" scale={1} />Superadmin settings</Button
 				>
 			{/if}
-			<Button variant="border" size="sm" href="/user/settings">
+			<Button variant="border" size="sm" on:click={userSettings.toggleDrawer}>
 				<Icon data={faUserCog} class="mr-1" scale={1} />User settings</Button
 			>
 			<Button
@@ -170,3 +180,4 @@
 		</div>
 	</div>
 </div>
+<UserSettings bind:this={userSettings} />

@@ -1,6 +1,5 @@
 <script lang="ts" context="module">
 	import type { SchemaProperty } from '$lib/common'
-	import Modal from './Modal.svelte'
 
 	export const ARG_TYPES = ['integer', 'number', 'string', 'boolean', 'object', 'array'] as const
 	export type ArgType = typeof ARG_TYPES[number]
@@ -44,13 +43,14 @@
 </script>
 
 <script lang="ts">
-	import Switch from './Switch.svelte'
 	import { createEventDispatcher } from 'svelte'
 	import ArgInput from './ArgInput.svelte'
 	import StringTypeNarrowing from './StringTypeNarrowing.svelte'
 	import Required from './Required.svelte'
 	import ObjectTypeNarrowing from './ObjectTypeNarrowing.svelte'
 	import { Button } from './common'
+	import Toggle from '$lib/components/Toggle.svelte'
+	import Modal from './Modal.svelte'
 
 	export let property: ModalSchemaProperty = DEFAULT_PROPERTY
 	export let error = ''
@@ -160,18 +160,19 @@
 					</Button>
 				</div>
 			</div>
-			<Switch
-				label={'Required'}
-				textFormat={'text-md font-semibold text-gray-700'}
-				class="my-2 !justify-start"
-				bind:checked={property.required}
-			/>
-			<ArgInput
-				label="Default"
-				bind:value={property.default}
-				type={property.selectedType}
-				pattern={property.pattern}
-			/>
+			<div class="flex flex-row gap-x-4">
+				<ArgInput
+					label="Default"
+					bind:value={property.default}
+					type={property.selectedType}
+					pattern={property.pattern}
+				/>
+				<Toggle
+					options={{ right: 'Required' }}
+					class="mt-5 !justify-start"
+					bind:checked={property.required}
+				/>
+			</div>
 			{#if property.selectedType !== 'boolean'}
 				<div>
 					<div class="font-semibold text-gray-700 mb-1">Advanced</div>
