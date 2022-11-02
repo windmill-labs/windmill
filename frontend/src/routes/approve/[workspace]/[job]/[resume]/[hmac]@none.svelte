@@ -45,15 +45,19 @@
 	})
 
 	async function getJob() {
-		const suspendedJobFlow = await JobService.getSuspendedJobFlow({
-			workspace: $page.params.workspace,
-			id: $page.params.job,
-			resumeId: new Number($page.params.resume).valueOf(),
-			signature: $page.params.hmac,
-			approver
-		})
-		job = suspendedJobFlow.job
-		currentApprovers = suspendedJobFlow.approvers
+		try {
+			const suspendedJobFlow = await JobService.getSuspendedJobFlow({
+				workspace: $page.params.workspace,
+				id: $page.params.job,
+				resumeId: new Number($page.params.resume).valueOf(),
+				signature: $page.params.hmac,
+				approver
+			})
+			job = suspendedJobFlow.job
+			currentApprovers = suspendedJobFlow.approvers
+		} catch (e) {
+			sendUserToast(e.message, true)
+		}
 	}
 
 	async function resume() {

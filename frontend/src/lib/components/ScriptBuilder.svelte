@@ -200,16 +200,18 @@
 					/>
 				</div>
 				<h2 class="border-b pb-1 mt-4"> Metadata </h2>
-				<Button
-					color="light"
-					size="sm"
-					endIcon={{ icon: viewScriptKind ? faChevronUp : faChevronDown }}
-					on:click={() => (viewScriptKind = !viewScriptKind)}
-				>
-					Specialize the script as a specific module kind for flows
-				</Button>
+				<div>
+					<Button
+						color="light"
+						size="sm"
+						endIcon={{ icon: viewScriptKind ? faChevronUp : faChevronDown }}
+						on:click={() => (viewScriptKind = !viewScriptKind)}
+					>
+						Specialize the script as a specific module kind for flows
+					</Button>
+				</div>
 				{#if viewScriptKind}
-					<div class="max-w-lg" transition:slide>
+					<div class="max-w-lg">
 						<RadioButton
 							label="Script Type"
 							options={[
@@ -249,17 +251,18 @@
 					</div>
 				{/if}
 				{#if script.language == 'deno' && script.kind == Script.kind.SCRIPT}
-					<Button
-						color="light"
-						size="sm"
-						endIcon={{ icon: viewTemplate ? faChevronUp : faChevronDown }}
-						on:click={() => (viewTemplate = !viewTemplate)}
-					>
-						Use a predefined template specific to this language and script kind
-					</Button>
-
+					<div
+						><Button
+							color="light"
+							size="sm"
+							endIcon={{ icon: viewTemplate ? faChevronUp : faChevronDown }}
+							on:click={() => (viewTemplate = !viewTemplate)}
+						>
+							Use a predefined template specific to this language and script kind
+						</Button>
+					</div>
 					{#if viewTemplate}
-						<div class="max-w-lg" transition:slide>
+						<div class="max-w-lg">
 							<RadioButton
 								label="Template"
 								options={[
