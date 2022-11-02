@@ -26,14 +26,14 @@
 						params: {
 							hidden: ['b']
 						},
-						width: 50,
+						width: 33,
 						horizontalAlignement: 'center',
 						verticalAlignement: 'center'
 					},
 					{
 						type: 'displaycomponent',
 						id: 'b',
-						width: 50,
+						width: 33,
 						inputs: {
 							result: {
 								id: 'a',

@@ -1,14 +1,21 @@
 <script lang="ts">
 	import SplitPanesWrapper from '$lib/components/splitPanes/SplitPanesWrapper.svelte'
+	import { faDisplay } from '@fortawesome/free-solid-svg-icons'
+	import { faWpforms } from '@fortawesome/free-brands-svg-icons'
+
 	import { onMount, setContext } from 'svelte'
+	import Icon from 'svelte-awesome'
 
 	import { Pane } from 'svelte-splitpanes'
 	import { writable } from 'svelte/store'
 	import { buildWorld, type World } from '../rx'
-	import type { App, AppEditorContext, AppSelection, EditorMode } from '../types'
+	import type { App, AppEditorContext, AppSelection, EditorMode, AppInputTransform } from '../types'
 	import AppEditorHeader from './AppEditorHeader.svelte'
 	import SectionsEditor from './SectionsEditor.svelte'
 	import ComponentPanel from './settingsPanel/ComponentPanel.svelte'
+	import { dndzone } from 'svelte-dnd-action'
+	import { flip } from 'svelte/animate'
+	const flipDurationMs = 200
 
 	export let app: App
 	const appStore = writable<App>(app)
@@ -17,7 +24,7 @@
 	const staticOutputs = writable<Record<string, string[]>>({})
 
 	const selection = writable<AppSelection>(undefined)
-	const mode = writable<EditorMode>('width')
+	const mode = writable<EditorMode>('dnd')
 
 	setContext<AppEditorContext>('AppEditorContext', {
 		worldStore,
@@ -30,12 +37,55 @@
 	onMount(() => {
 		$worldStore = buildWorld($staticOutputs)
 	})
+
+	let c = [
+		{
+			id: 'displaycomponent',
+			name: 'Display component',
+			icon: faDisplay
+		},
+		{
+			id: 'runformcomponent',
+			name: 'Run form',
+			icon: faWpforms
+		}
+	]
 </script>
 
-{$mode}
-<AppEditorHeader title="Test" bind:mode={$mode} />
+<AppEditorHeader title="Sample app" bind:mode={$mode} />
 <SplitPanesWrapper>
-	<Pane minSize={20} maxSize={30} size={20} />
+	<Pane minSize={20} maxSize={30} size={20}>
+		<div
+			class="grid grid-cols-2 gap-2 p-2"
+			use:dndzone={{
+				items: c,
+				flipDurationMs,
+				type: 'component',
+				dropTargetStyle: {
+					outline: 'dashed white',
+					outlineOffset: '2px'
+				},
+				dragDisabled: false,
+				dropFromOthersDisabled: true
+			}}
+			on:consider={(e) => {
+				c = c
+			}}
+			on:finalize={(e) => {
+				c = e.detail.items
+			}}
+		>
+			{#each c as component (component.id)}
+				<div
+					class="border shadow-sm h-24 p-2 flex flex-col gap-2 items-center justify-center"
+					animate:flip={{ duration: flipDurationMs }}
+				>
+					<Icon data={component.icon} scale={1.6} />
+					<div class="text-xs">{component.name}</div>
+				</div>
+			{/each}
+		</div>
+	</Pane>
 	<Pane>
 		<SectionsEditor bind:sections={$appStore.sections} mode={$mode} />
 	</Pane>

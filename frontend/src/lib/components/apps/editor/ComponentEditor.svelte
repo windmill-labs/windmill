@@ -16,7 +16,7 @@
 		<span class="bg-gray-500 text-white px-2 text-xs py-1 font-bold rounded-t-sm w-fit">
 			{component.type}
 		</span>
-		<div class="p-2 border border-gray-400  cursor-pointer hover:bg-blue-100 h-full">
+		<div class="p-2 border border-gray-400  cursor-pointer hover:bg-blue-100 h-full bg-white">
 			{#if component.type === 'runformcomponent'}
 				<RunFormComponent {...component} bind:staticOutputs={$staticOutputs[component.id]} />
 			{:else if component.type === 'displaycomponent'}

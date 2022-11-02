@@ -8,6 +8,9 @@
 	import { getNextId } from '$lib/components/flows/flowStateUtils'
 	import Badge from '$lib/components/common/badge/Badge.svelte'
 	import ComponentsEditor from './ComponentsEditor.svelte'
+	import { Pane, Splitpanes } from 'svelte-splitpanes'
+	import ComponentEditor from './ComponentEditor.svelte'
+	import { pluralize } from '$lib/utils'
 
 	export let sections: AppSection[]
 
@@ -23,7 +26,7 @@
 	function addEmptySection() {
 		sections = [
 			...sections,
-			{ components: [], columns: 1, id: getNextId(sections.map((s) => s.id)) }
+			{ components: [], columns: 3, id: getNextId(sections.map((s) => s.id)) }
 		]
 	}
 
@@ -40,6 +43,7 @@
 			items: sections,
 			flipDurationMs,
 			type: 'section',
+			dragDisabled: mode === 'width',
 			dropTargetStyle: {
 				outline: 'dashed blue',
 				outlineOffset: '8px'
@@ -63,9 +67,26 @@
 					/>
 				{:else if mode === 'width'}
 					<div
-						class="h-80 rounded-b-sm flex-row gap-4 p-4 flex border-2 border-gray-500 bg-white cursor-pointer "
+						class="h-80 w-full rounded-b-sm flex-row gap-4 p-4 flex border-2 border-gray-500 bg-white cursor-pointer "
 					>
-						s
+						<Splitpanes>
+							{#each section.components as component}
+								<Pane bind:size={component.width} minSize={20}>
+									<ComponentEditor bind:component />
+								</Pane>
+							{/each}
+
+							<Pane
+								size={100 - section.components.reduce((accu, curr) => accu + curr.width, 0)}
+								minSize={20}
+							>
+								<div
+									class="border flex justify-center flex-col items-center w-full h-full bg-green-200 bg-opacity-50"
+								>
+									<div>Empty</div>
+								</div>
+							</Pane>
+						</Splitpanes>
 					</div>
 				{/if}
 			</section>

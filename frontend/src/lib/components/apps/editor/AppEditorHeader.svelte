@@ -14,11 +14,11 @@
 	<span class="text-sm">{title}</span>
 	<div class="flex flex-row gap-2">
 		<ToggleButtonGroup bind:selected={mode}>
-			<ToggleButton position="left" value="width" startIcon={{ icon: faArrowsLeftRight }}>
-				Width editor
-			</ToggleButton>
-			<ToggleButton position="right" value="dnd" startIcon={{ icon: faHand }}>
+			<ToggleButton position="left" value="dnd" startIcon={{ icon: faHand }}>
 				Component editor
+			</ToggleButton>
+			<ToggleButton position="right" value="width" startIcon={{ icon: faArrowsLeftRight }}>
+				Width editor
 			</ToggleButton>
 		</ToggleButtonGroup>
 		<Badge color="dark-indigo">Draft</Badge>
