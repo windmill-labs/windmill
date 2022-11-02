@@ -63,7 +63,7 @@ import (
   // wmill "github.com/windmill-labs/windmill-go-client"
 )
 
-func main(x string) (interface{}, error) {
+func main(x string, nested struct{ v string }) (interface{}, error) {
 	fmt.Println("Hello, World")
 	fmt.Println(quote.Opt())
   // v, _ := wmill.GetVariable("g/all/pretty_secret")
