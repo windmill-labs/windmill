@@ -1126,9 +1126,12 @@ async fn handle_deno_job(
     logs.push_str("\n\n--- DENO CODE EXECUTION ---\n");
     set_logs(logs, job.id, db).await;
     let lockfile = lockfile.and_then(|e| if e.starts_with("{") { Some(e) } else { None });
-    if let Some(lockfile) = lockfile.clone() {
-        let _ = write_file(job_dir, "lock.json", &lockfile).await?;
-    }
+    let _ = write_file(
+        job_dir,
+        "lock.json",
+        &lockfile.clone().unwrap_or("".to_string()),
+    )
+    .await?;
     // TODO: Separately cache dependencies here using `deno cache --reload --lock=lock.json src/deps.ts` (https://deno.land/manual@v1.27.0/linking_to_external_code/integrity_checking)
     // Then require caching below using --cached-only. This makes it so we require zero network interaction when running the process below
 
