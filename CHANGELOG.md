@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [1.43.2](https://github.com/windmill-labs/windmill/compare/v1.43.1...v1.43.2) (2022-11-02)
+
+
+### Bug Fixes
+
+* **go-client:** use stable oapi codegen version ([4707d1e](https://github.com/windmill-labs/windmill/commit/4707d1ecaafa10b9cf8737e18ab432b3855c0c7f))
+
 ## [1.43.1](https://github.com/windmill-labs/windmill/compare/v1.43.0...v1.43.1) (2022-11-02)
 
 
