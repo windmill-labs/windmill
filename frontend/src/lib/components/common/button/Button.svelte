@@ -60,7 +60,7 @@
 			ButtonType.SpacingClasses[spacingSize],
 			'focus:ring-4 font-semibold',
 			'rounded-md',
-			'flex justify-center items-center text-center whitespace-nowrap',
+			'justify-center items-center text-center whitespace-nowrap inline-flex',
 			btnClasses
 		),
 		disabled,
@@ -91,23 +91,21 @@
 	$: endIconClass = classNames(iconOnly ? undefined : isSmall ? 'ml-1' : 'ml-2', endIcon?.classes)
 </script>
 
-<div class="inline-flex">
-	<svelte:element
-		this={href ? 'a' : 'button'}
-		bind:this={element}
-		on:click={onClick}
-		on:focus
-		on:blur
-		{...buttonProps}
-	>
-		{#if startIcon}
-			<Icon data={startIcon.icon} class={startIconClass} scale={ButtonType.IconScale[size]} />
-		{/if}
-		{#if !iconOnly}
-			<slot />
-		{/if}
-		{#if endIcon}
-			<Icon data={endIcon.icon} class={endIconClass} scale={ButtonType.IconScale[size]} />
-		{/if}
-	</svelte:element>
-</div>
+<svelte:element
+	this={href ? 'a' : 'button'}
+	bind:this={element}
+	on:click={onClick}
+	on:focus
+	on:blur
+	{...buttonProps}
+>
+	{#if startIcon}
+		<Icon data={startIcon.icon} class={startIconClass} scale={ButtonType.IconScale[size]} />
+	{/if}
+	{#if !iconOnly}
+		<slot />
+	{/if}
+	{#if endIcon}
+		<Icon data={endIcon.icon} class={endIconClass} scale={ButtonType.IconScale[size]} />
+	{/if}
+</svelte:element>

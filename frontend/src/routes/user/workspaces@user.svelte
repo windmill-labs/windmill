@@ -101,6 +101,7 @@
 		{/each}
 		<div class="flex flex-row-reverse  pt-4">
 			<Button
+				size="sm"
 				href="/user/create_workspace{rd ? `?rd=${encodeURIComponent(rd)}` : ''}"
 				variant="border"
 				>+&nbsp;Create a new workspace
