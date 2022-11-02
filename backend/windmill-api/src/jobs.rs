@@ -65,10 +65,6 @@ pub fn workspaced_service() -> Router {
             get(create_job_signature),
         )
         .route("/result_by_id/:job_id/:node_id", get(get_result_by_id))
-        .route(
-            "/get_flow/:job_id/:resume_id/:secret",
-            get(get_suspended_job_flow),
-        )
 }
 
 pub fn global_service() -> Router {
@@ -88,6 +84,10 @@ pub fn global_service() -> Router {
         .route(
             "/cancel/:job_id/:resume_id/:secret",
             post(cancel_suspended_job),
+        )
+        .route(
+            "/get_flow/:job_id/:resume_id/:secret",
+            get(get_suspended_job_flow),
         )
 }
 
