@@ -1,6 +1,14 @@
 # Changelog
 
 
+## [1.43.1](https://github.com/windmill-labs/windmill/compare/v1.43.0...v1.43.1) (2022-11-02)
+
+
+### Bug Fixes
+
+* **backend:** extend default scope set for slack resource ([#848](https://github.com/windmill-labs/windmill/issues/848)) ([ffaf7ca](https://github.com/windmill-labs/windmill/commit/ffaf7cad4a76e1c520071877579485b4c757c65e))
+* **go-client:** fix openapi generation ([1329493](https://github.com/windmill-labs/windmill/commit/1329493873fb18b373c879f3f153fdf2a5036405))
+
 ## [1.43.0](https://github.com/windmill-labs/windmill/compare/v1.42.1...v1.43.0) (2022-11-01)
 
 
