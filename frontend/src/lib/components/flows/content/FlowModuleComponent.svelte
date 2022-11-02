@@ -83,7 +83,7 @@
 			}
 		})
 
-		if (JSON.stringify(schema) !== JSON.stringify($flowStateStore[flowModule.id].schema)) {
+		if (JSON.stringify(schema) !== JSON.stringify($flowStateStore[flowModule.id]?.schema)) {
 			$flowStateStore[flowModule.id].schema = schema
 		}
 	}
