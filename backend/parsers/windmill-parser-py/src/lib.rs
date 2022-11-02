@@ -176,7 +176,8 @@ fn constant_to_value(c: &Constant) -> serde_json::Value {
 }
 
 static PYTHON_IMPORTS_REPLACEMENT: phf::Map<&'static str, &'static str> = phf_map! {
-    "psycopg2" => "psycopg2-binary"
+    "psycopg2" => "psycopg2-binary",
+    "git" => "GitPython"
 };
 
 fn replace_import(x: String) -> String {

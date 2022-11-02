@@ -1268,7 +1268,7 @@ async fn handle_python_job(
                 "".to_string()
             } else {
                 pip_compile(job, &requirements, logs, job_dir, envs, db, timeout)
-                    .await?
+                    .await
                     .map_err(|e| {
                         Error::ExecutionErr(format!("pip compile failed: {}", e.to_string()))
                     })?
@@ -1551,37 +1551,7 @@ async fn handle_dependency_job(
     timeout: i32,
     envs: &Envs,
 ) -> error::Result<serde_json::Value> {
-    let content: Result<String, String> = match job.language {
-        Some(ScriptLang::Python3) => {
-            create_dependencies_dir(job_dir).await;
-            let requirements = &job
-                .raw_code
-                .as_ref()
-                .ok_or_else(|| Error::ExecutionErr("missing requirements".to_string()))?
-                .clone();
-            pip_compile(job, requirements, logs, job_dir, envs, db, timeout).await?
-        }
-        Some(ScriptLang::Go) => {
-            let requirements = job
-                .raw_code
-                .as_ref()
-                .ok_or_else(|| Error::ExecutionErr("missing requirements".to_string()))?;
-            install_go_dependencies(
-                &job.id,
-                &requirements,
-                logs,
-                job_dir,
-                db,
-                timeout,
-                &envs.go_path,
-                false,
-            )
-            .await
-            .map_err(|e| e.to_string())
-        }
-        _ => Err("Language incompatible with dep job".to_string()),
-    };
-
+    let content = capture_dependency_job(job, logs, job_dir, db, timeout, envs).await;
     match content {
         Ok(content) => {
             sqlx::query!(
@@ -1608,6 +1578,47 @@ async fn handle_dependency_job(
     }
 }
 
+async fn capture_dependency_job(
+    job: &QueuedJob,
+    logs: &mut String,
+    job_dir: &str,
+    db: &sqlx::Pool<sqlx::Postgres>,
+    timeout: i32,
+    envs: &Envs,
+) -> error::Result<String> {
+    match job.language {
+        Some(ScriptLang::Python3) => {
+            create_dependencies_dir(job_dir).await;
+            let requirements = &job
+                .raw_code
+                .as_ref()
+                .ok_or_else(|| Error::ExecutionErr("missing requirements".to_string()))?
+                .clone();
+            pip_compile(job, requirements, logs, job_dir, envs, db, timeout).await
+        }
+        Some(ScriptLang::Go) => {
+            let requirements = job
+                .raw_code
+                .as_ref()
+                .ok_or_else(|| Error::ExecutionErr("missing requirements".to_string()))?;
+            install_go_dependencies(
+                &job.id,
+                &requirements,
+                logs,
+                job_dir,
+                db,
+                timeout,
+                &envs.go_path,
+                false,
+            )
+            .await
+        }
+        _ => Err(error::Error::ExecutionErr(
+            "Language incompatible with dep job".to_string(),
+        )),
+    }
+}
+
 async fn pip_compile(
     job: &QueuedJob,
     requirements: &str,
@@ -1616,7 +1627,7 @@ async fn pip_compile(
     Envs { pip_extra_index_url, pip_index_url, pip_trusted_host, .. }: &Envs,
     db: &Pool<Postgres>,
     timeout: i32,
-) -> Result<Result<String, String>, Error> {
+) -> error::Result<String> {
     logs.push_str(&format!("content of requirements:\n{}\n", requirements));
     let file = "requirements.in";
     write_file(job_dir, file, &requirements).await?;
@@ -1643,12 +1654,12 @@ async fn pip_compile(
     let mut file = File::open(path_lock).await?;
     let mut req_content = "".to_string();
     file.read_to_string(&mut req_content).await?;
-    Ok(Ok(req_content
+    Ok(req_content
         .lines()
         .filter(|x| !x.trim_start().starts_with('#'))
         .map(|x| x.to_string())
         .collect::<Vec<String>>()
-        .join("\n")))
+        .join("\n"))
 }
 
 async fn install_go_dependencies(
