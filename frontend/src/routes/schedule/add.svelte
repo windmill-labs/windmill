@@ -126,15 +126,7 @@
 				{initialPath}
 				namePlaceholder={'my_schedule'}
 				kind="schedule"
-			>
-				<div slot="ownerToolkit">
-					Schedule permissions depend on their path. Select the group <span class="font-mono"
-						>all</span
-					>
-					to share it, and <span class="font-mono">user</span> to keep it private.
-					<a href="https://docs.windmill.dev/docs/reference/namespaces">docs</a>
-				</div></Path
-			>
+			/>
 		{/if}
 
 		<h2 class="border-b pb-1 mt-8 mb-2">Script</h2>

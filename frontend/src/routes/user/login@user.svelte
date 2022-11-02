@@ -118,7 +118,7 @@
 						color="dark"
 						variant="border"
 						endIcon={{ icon }}
-						btnClasses="mt-2"
+						btnClasses="mt-2 w-full"
 						on:click={() => storeRedirect(type)}
 					>
 						{name}
