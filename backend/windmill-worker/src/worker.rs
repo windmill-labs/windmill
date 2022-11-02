@@ -1125,10 +1125,13 @@ async fn handle_deno_job(
 ) -> error::Result<serde_json::Value> {
     logs.push_str("\n\n--- DENO CODE EXECUTION ---\n");
     set_logs(logs, job.id, db).await;
-    let lockfile = lockfile
-        .and_then(|e| if e.starts_with("{") { Some(e) } else { None })
-        .unwrap_or("{}".to_string());
-    let _ = write_file(job_dir, "lock.json", &lockfile).await?;
+    let lockfile = lockfile.and_then(|e| if e.starts_with("{") { Some(e) } else { None });
+    let _ = write_file(
+        job_dir,
+        "lock.json",
+        &lockfile.clone().unwrap_or("".to_string()),
+    )
+    .await?;
     // TODO: Separately cache dependencies here using `deno cache --reload --lock=lock.json src/deps.ts` (https://deno.land/manual@v1.27.0/linking_to_external_code/integrity_checking)
     // Then require caching below using --cached-only. This makes it so we require zero network interaction when running the process below
 
@@ -1173,6 +1176,20 @@ run();
                     .replace("{SHARED_MOUNT}", shared_mount),
             )
             .await?;
+            let mut args = Vec::new();
+            args.push("--config");
+            args.push("run.config.proto");
+            args.push("--");
+            args.push(deno_path);
+            args.push("run");
+            if lockfile.is_some() {
+                args.push("--lock=/tmp/lock.json");
+            }
+            args.push("--unstable");
+            args.push("--v8-flags=--max-heap-size=2048");
+            args.push("-A");
+            args.push("/tmp/main.ts");
+
             Command::new(nsjail_path)
                 .current_dir(job_dir)
                 .env_clear()
@@ -1180,22 +1197,20 @@ run();
                 .env("PATH", path_env)
                 .env("DENO_AUTH_TOKENS", deno_auth_tokens)
                 .env("BASE_INTERNAL_URL", base_internal_url)
-                .args(vec![
-                    "--config",
-                    "run.config.proto",
-                    "--",
-                    deno_path,
-                    "run",
-                    "--lock=/tmp/lock.json",
-                    "--unstable",
-                    "--v8-flags=--max-heap-size=2048",
-                    "-A",
-                    "/tmp/main.ts",
-                ])
+                .args(args)
                 .stdout(Stdio::piped())
                 .stderr(Stdio::piped())
                 .spawn()?
         } else {
+            let mut args = Vec::new();
+            args.push("run");
+            if lockfile.is_some() {
+                args.push("--lock=/tmp/lock.json");
+            }
+            args.push("--unstable");
+            args.push("--v8-flags=--max-heap-size=2048");
+            args.push("-A");
+            args.push("/tmp/main.ts");
             Command::new(deno_path)
                 .current_dir(job_dir)
                 .env_clear()
@@ -1203,14 +1218,7 @@ run();
                 .env("PATH", path_env)
                 .env("DENO_AUTH_TOKENS", deno_auth_tokens)
                 .env("BASE_INTERNAL_URL", base_internal_url)
-                .args(vec![
-                    "run",
-                    "--lock=lock.json",
-                    "--unstable",
-                    "--v8-flags=--max-heap-size=2048",
-                    "-A",
-                    "main.ts",
-                ])
+                .args(args)
                 .stdout(Stdio::piped())
                 .stderr(Stdio::piped())
                 .spawn()?
