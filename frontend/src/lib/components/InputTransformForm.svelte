@@ -91,7 +91,6 @@
 				return true
 			})
 		}
-		argInput?.recomputeSize()
 	}
 	const { focusProp } = getContext<PropPickerWrapperContext>('PropPickerWrapper')
 </script>

@@ -13,6 +13,7 @@
 	import SchemaForm from './SchemaForm.svelte'
 	import type { SchemaProperty } from '$lib/common'
 	import SimpleEditor from './SimpleEditor.svelte'
+	import autosize from 'svelte-autosize'
 
 	export let label: string = ''
 	export let value: any
@@ -45,7 +46,7 @@
 
 	let error: string = ''
 
-	let el: HTMLElement | undefined = undefined
+	let el: HTMLTextAreaElement | undefined = undefined
 
 	export let editor: SimpleEditor | undefined = undefined
 
@@ -89,6 +90,7 @@
 
 	export function focus() {
 		el?.focus()
+		el && el.dispatchEvent(new Event('input'))
 	}
 
 	function validateInput(pattern: string | undefined, v: any): void {
@@ -266,24 +268,21 @@
 						/>
 					</div>
 				{:else}
-					<div class="container">
-						<pre aria-hidden="true" style="min-height: 2.2em; max-height: {maxHeight}"
-							>{rawValue + '\n'}</pre
-						>
-						<textarea
-							on:focus
-							{disabled}
-							style="max-height: {maxHeight}"
-							on:input={() => {
-								dispatch('input', { rawValue: value, isRaw: false })
-							}}
-							class="col-span-10 {valid
-								? ''
-								: 'border border-red-700 border-opacity-30 focus:border-red-700 focus:border-opacity-30 bg-red-100'}"
-							placeholder={defaultValue ? JSON.stringify(defaultValue, null, 4) : ''}
-							bind:value={rawValue}
-						/>
-					</div>
+					<textarea
+						bind:this={el}
+						on:focus
+						{disabled}
+						use:autosize
+						style="max-height: {maxHeight}"
+						on:input={() => {
+							dispatch('input', { rawValue: value, isRaw: false })
+						}}
+						class="col-span-10 {valid
+							? ''
+							: 'border border-red-700 border-opacity-30 focus:border-red-700 focus:border-opacity-30 bg-red-100'}"
+						placeholder={defaultValue ? JSON.stringify(defaultValue, null, 4) : ''}
+						bind:value={rawValue}
+					/>
 				{/if}
 			{:else if inputCat == 'enum'}
 				<select {disabled} class="px-6" bind:value>
@@ -322,25 +321,22 @@
 						: undefined}
 				/>
 			{:else if inputCat == 'string'}
-				<div class="container">
-					<pre aria-hidden="true" style="min-height: 2.2em; max-height: {maxHeight}"
-						>{value + '\n'}</pre
-					>
-					<textarea
-						on:focus={() => dispatch('focus')}
-						on:blur={() => dispatch('blur')}
-						type="text"
-						{disabled}
-						class="col-span-10 resize {valid
-							? ''
-							: 'border border-red-700 border-opacity-30 focus:border-red-700 focus:border-opacity-30 bg-red-100'}"
-						placeholder={defaultValue ?? ''}
-						bind:value
-						on:input={() => {
-							dispatch('input', { rawValue: value, isRaw: false })
-						}}
-					/>
-				</div>
+				<textarea
+					bind:this={el}
+					on:focus={() => dispatch('focus')}
+					on:blur={() => dispatch('blur')}
+					use:autosize
+					type="text"
+					{disabled}
+					class="col-span-10 {valid
+						? ''
+						: 'border border-red-700 border-opacity-30 focus:border-red-700 focus:border-opacity-30 bg-red-100'}"
+					placeholder={defaultValue ?? ''}
+					bind:value
+					on:input={() => {
+						dispatch('input', { rawValue: value, isRaw: false })
+					}}
+				/>
 			{/if}
 			{#if !required && inputCat != 'resource-object'}
 				<!-- <Tooltip placement="bottom" content="Reset to default value">
@@ -362,24 +358,3 @@
 		</div>
 	</div>
 </div>
-
-<style>
-	.container {
-		position: relative;
-	}
-
-	pre,
-	textarea {
-		font-family: inherit;
-		padding: 0.5em;
-		box-sizing: border-box;
-		line-height: 1.2;
-		overflow: hidden;
-	}
-	textarea {
-		position: absolute;
-		width: 100%;
-		height: 100%;
-		top: 0;
-	}
-</style>
