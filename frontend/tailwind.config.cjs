@@ -134,7 +134,6 @@ const config = {
 	plugins: [
 		require('@tailwindcss/forms'),
 		require('@tailwindcss/typography'),
-		require('flowbite/plugin'),
 		plugin(({ addBase, addComponents, addUtilities, theme }) => {
 			addBase({
 				'html': {

@@ -12,7 +12,7 @@
 	<pre aria-hidden="true" style="min-height: {minHeight}; max-height: {maxHeight}">
 		{value + '\n'}
 	</pre>
-	<textarea class="col-span-10 resize" bind:value {placeholder} />
+	<textarea type="text" class="col-span-10 resize" bind:value {placeholder} />
 </div>
 
 <style>
