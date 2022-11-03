@@ -322,6 +322,7 @@
 				/>
 			{:else if inputCat == 'string'}
 				<textarea
+					rows="1"
 					bind:this={el}
 					on:focus={() => dispatch('focus')}
 					on:blur={() => dispatch('blur')}
