@@ -14,6 +14,7 @@
 	import type { SchemaProperty } from '$lib/common'
 	import SimpleEditor from './SimpleEditor.svelte'
 	import autosize from 'svelte-autosize'
+	import Toggle from './Toggle.svelte'
 
 	export let label: string = ''
 	export let value: any
@@ -151,7 +152,13 @@
 					<div class="mt-2">
 						<label class="text-gray-700">
 							Description
-							<textarea rows="1" bind:value={description} placeholder="Edit description" />
+							<textarea
+								class="mb-1"
+								use:autosize
+								rows="1"
+								bind:value={description}
+								placeholder="Field description"
+							/>
 							{#if type == 'string' && !contentEncoding && format != 'date-time'}
 								<StringTypeNarrowing bind:format bind:pattern bind:enum_ bind:contentEncoding />
 							{:else if type == 'object'}
@@ -193,9 +200,8 @@
 					on:input={() => dispatch('input', { value, isRaw: true })}
 				/>
 			{:else if inputCat == 'boolean'}
-				<input
+				<Toggle
 					{disabled}
-					type="checkbox"
 					class={valid
 						? ''
 						: 'border border-red-700 border-opacity-30 focus:border-red-700 focus:border-opacity-30 bg-red-100'}

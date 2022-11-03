@@ -25,6 +25,7 @@ export async function loadFlowModuleState(flowModule: FlowModule): Promise<FlowM
 		}
 		return { schema, previewResult: NEVER_TESTED_THIS_FAR }
 	} catch (e) {
+		console.error(e)
 		return emptyFlowModuleState()
 	}
 }

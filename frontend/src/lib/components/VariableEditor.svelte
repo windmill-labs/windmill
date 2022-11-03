@@ -11,6 +11,7 @@
 	import DrawerContent from './common/drawer/DrawerContent.svelte'
 	import Alert from './common/alert/Alert.svelte'
 	import autosize from 'svelte-autosize'
+	import Toggle from './Toggle.svelte'
 
 	const dispatch = createEventDispatcher()
 
@@ -124,10 +125,7 @@
 					/>
 				</div>
 				<div class="mt-4">
-					<label class="block">
-						<span class="text-sm mr-1">Secret</span>
-						<input type="checkbox" bind:checked={variable.is_secret} />
-					</label>
+					<Toggle bind:checked={variable.is_secret} options={{ right: 'Secret' }} />
 					{#if variable.is_secret}
 						<Alert type="warning" title="Not visible after this">
 							If the variable is a secret, you will not be able to read the value of it from the
@@ -156,7 +154,13 @@
 					<span class="font-semibold text-gray-700">Variable value</span>
 					<span class="text-sm text-gray-500">({variable.value.length}/3000 characters)</span>
 				</div>
-				<textarea type="text" use:autosize bind:value={variable.value} />
+				<textarea
+					rows="4"
+					type="text"
+					use:autosize
+					bind:value={variable.value}
+					placeholder="My variable value"
+				/>
 			</div>
 			<!-- {/if} -->
 
@@ -165,11 +169,12 @@
 					Description
 					<Required required={false} />
 				</div>
-				<input
+				<textarea
+					rows="4"
 					type="text"
 					use:autosize
 					bind:value={variable.description}
-					placeholder="Description (can use Markdown)"
+					placeholder="Used for X"
 				/>
 			</div>
 		</div>
