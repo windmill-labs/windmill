@@ -3472,6 +3472,18 @@
     },
     "query": "\n           SELECT SUM(duration_ms)\n             FROM completed_job\n            WHERE permissioned_as = $1\n              AND created_at > NOW() - INTERVAL '1200 seconds'\n              AND workspace_id = $2"
   },
+  "e838b15953b567af2a2da6a4e3a04add5ec2cacabd93171a97c5fc978a64f8aa": {
+    "describe": {
+      "columns": [],
+      "nullable": [],
+      "parameters": {
+        "Left": [
+          "Text"
+        ]
+      }
+    },
+    "query": "DELETE FROM password WHERE email = $1"
+  },
   "ed400dbf4a1fa597bc984240cfe9069369a8a265b127116187d78c0ba93ae076": {
     "describe": {
       "columns": [
