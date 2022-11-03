@@ -11,7 +11,9 @@ on:
 
 jobs:
   publish_pypi:
-    runs-on: [self-hosted, new]
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/windmill-labs/python-client-builder
     steps:
       - uses: actions/checkout@v3
       - name: Upload python client
@@ -19,8 +21,6 @@ jobs:
           PYPI_PASSWORD: ${{ secrets.PYPI_PASSWORD }}
         run: |
           cd python-client
-          export PATH=$PATH:/usr/local/bin
-          export PATH=$PATH:/root/.local/bin
           ./publish.sh
 
   publish_lsp:
