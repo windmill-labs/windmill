@@ -85,7 +85,7 @@
 				const { language, content } = await getScriptByPath(scriptPath ?? '')
 				code = content
 				lang = language
-				drawerViewer.openModal()
+				drawerViewer.openDrawer()
 			}}
 		>
 			Show code

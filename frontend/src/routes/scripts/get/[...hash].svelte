@@ -200,7 +200,7 @@
 						displayName: 'Share',
 						icon: faShare,
 						action: () => {
-							shareModal.openModal()
+							shareModal.openDrawer()
 						},
 						disabled: !can_write
 					},

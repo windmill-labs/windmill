@@ -153,7 +153,7 @@
 											icon: faShare,
 											disabled: !canWrite,
 											action: () => {
-												shareModal.openModal(path)
+												shareModal.openDrawer(path)
 											}
 										}
 									]}

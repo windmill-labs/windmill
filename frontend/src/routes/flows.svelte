@@ -330,7 +330,7 @@
 															displayName: 'Share',
 															icon: faShare,
 															action: () => {
-																shareModal.openModal(path)
+																shareModal.openDrawer(path)
 															},
 															disabled: !canWrite
 														},
