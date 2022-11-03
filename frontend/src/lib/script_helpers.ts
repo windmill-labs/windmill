@@ -39,8 +39,9 @@ def main(no_default: str,
 `
 export const DENO_INIT_CODE = `// reload the smart assistant on the top right if it dies to get autocompletion and syntax highlighting
 // (Ctrl+space to cache dependencies on imports hover).
-// to import most npm packages without deno.land, use esm:
-// import { toWords } from "https://esm.sh/number-to-words"
+
+// you can use npm imports directly!
+// import { toWords } from "npm:number-to-words@1"
 // import * as wmill from "https://deno.land/x/windmill@v${__pkg__.version}/mod.ts"
 
 export async function main(
