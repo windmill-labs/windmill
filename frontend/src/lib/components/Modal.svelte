@@ -6,14 +6,14 @@
 
 	const dispatch = createEventDispatcher()
 
-	export function closeModal(): void {
+	export function closeDrawer(): void {
 		document.body.style.overflow = 'auto'
 
 		open = false
 		dispatch('close')
 	}
 
-	export function openModal(): void {
+	export function openDrawer(): void {
 		document.body.style.overflow = 'hidden'
 		open = true
 		dispatch('open')
@@ -24,7 +24,7 @@
 		if (key === 'Escape' || key === 'Esc') {
 			if (open) {
 				event.preventDefault()
-				closeModal()
+				closeDrawer()
 			}
 		}
 	}
@@ -44,7 +44,7 @@
 					<button
 						on:click={() => {
 							open = false
-							closeModal()
+							closeDrawer()
 						}}
 					>
 						<svg
@@ -72,7 +72,7 @@
 					<div class="flex flex-row justify-between p-2 ">
 						<button
 							on:click={() => {
-								closeModal()
+								closeDrawer()
 							}}
 						>
 							<svg

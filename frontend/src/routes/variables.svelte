@@ -168,7 +168,7 @@
 										{
 											displayName: 'Share',
 											action: () => {
-												shareModal.openModal(path)
+												shareModal.openDrawer(path)
 											},
 											disabled: !canWrite
 										},
