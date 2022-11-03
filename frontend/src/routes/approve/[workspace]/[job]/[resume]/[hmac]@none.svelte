@@ -16,6 +16,9 @@
 
 	let completed: boolean = false
 	$: completed = job?.type == 'CompletedJob'
+	$: alreadyResumed = currentApprovers
+		.map((x) => x.resume_id)
+		.includes(new Number($page.params.resume).valueOf())
 
 	let timeout: NodeJS.Timer | undefined = undefined
 
@@ -135,14 +138,24 @@
 			<div class="my-2"
 				><p><b>The flow is not running anymore. You cannot cancel or resume it.</b></p></div
 			>
+		{:else if alreadyResumed}
+			<div class="my-2"><p><b>You have already approved this flow to be resumed</b></p></div>
 		{/if}
 
 		<div class="w-max-md flex flex-row gap-x-4 gap-y-4 justify-between w-full flex-wrap mt-2">
-			<Button btnClasses="grow" color="red" on:click|once={cancel} size="md" disabled={completed}
-				>Disapprove/Cancel</Button
+			<Button
+				btnClasses="grow"
+				color="red"
+				on:click|once={cancel}
+				size="md"
+				disabled={completed || alreadyResumed}>Disapprove/Cancel</Button
 			>
-			<Button btnClasses="grow" color="green" on:click|once={resume} size="md" disabled={completed}
-				>Approve/Resume</Button
+			<Button
+				btnClasses="grow"
+				color="green"
+				on:click|once={resume}
+				size="md"
+				disabled={completed || alreadyResumed}>Approve/Resume</Button
 			>
 		</div>
 
