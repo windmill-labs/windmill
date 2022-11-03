@@ -110,7 +110,7 @@ function getFlowInput(
 				} else {
 					return {
 						...parentFlowInput,
-						previous_result: flattenPreviousResult(flowState[parentPreviousModuleId].previewResult)
+						previous_result: flattenPreviousResult(flowState[parentPreviousModuleId]?.previewResult ?? {})
 					}
 				}
 			}
@@ -131,7 +131,7 @@ export function getStepPropPicker(
 	const flowInput = getFlowInput(dfs(parentModule?.id, flow), flowState, args, flow.schema)
 
 	const previousResults = previousModule
-		? flowState[previousModule.id].previewResult
+		? flowState[previousModule.id]?.previewResult
 		: flattenPreviousResult(flowInput)
 
 	const pickableProperties = {

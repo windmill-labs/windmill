@@ -19,8 +19,8 @@ export type FlowState = Record<string, FlowModuleState>
  */
 export const flowStateStore = writable<FlowState>({})
 
-export async function initFlowState(flow: Flow, flowState: FlowState | undefined) {
-	const modulesState: FlowState = flowState ?? {}
+export async function initFlowState(flow: Flow) {
+	const modulesState: FlowState = {}
 
 	await mapFlowModules(flow.value.modules, modulesState)
 
@@ -28,6 +28,7 @@ export async function initFlowState(flow: Flow, flowState: FlowState | undefined
 		? await loadFlowModuleState(flow.value.failure_module)
 		: emptyFlowModuleState()
 
+	console.log(modulesState)
 	flowStateStore.set({
 		...modulesState,
 		failure: failureModule
@@ -63,6 +64,7 @@ async function mapFlowModule(flowModule: FlowModule, modulesState: FlowState) {
 		const flowModuleState = await loadFlowModuleState(flowModule)
 		modulesState[flowModule.id] = flowModuleState
 	}
+
 }
 
 async function mapFlowModules(flowModules: FlowModule[], modulesState: FlowState) {

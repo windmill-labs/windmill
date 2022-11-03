@@ -137,8 +137,7 @@
 					'state',
 					encodeState({
 						flow: $flowStore,
-						selectedId: $selectedIdStore,
-						flowStateStore: $flowStateStore
+						selectedId: $selectedIdStore
 					})
 				),
 			500
@@ -175,7 +174,6 @@
 	}
 
 	onMount(() => {
-		console.log(selectedId)
 		selectedId && select(selectedId)
 	})
 
