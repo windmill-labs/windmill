@@ -194,6 +194,7 @@
 			<label class="block">
 				<span class="text-gray-700 text-sm">Owner</span>
 				<input
+					type="text"
 					bind:value={meta.owner}
 					placeholder={$userStore?.username ?? ''}
 					disabled={!($userStore?.is_admin ?? false)}
@@ -215,6 +216,7 @@
 				<Required required={true} />
 			</span>
 			<input
+				type="text"
 				id="path"
 				autofocus
 				bind:this={inputP}

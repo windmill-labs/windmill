@@ -91,13 +91,6 @@
 		el?.focus()
 	}
 
-	export async function recomputeSize() {
-		if (el) {
-			el.style.height = '30px'
-			el.style.height = el.scrollHeight + 'px'
-		}
-	}
-
 	function validateInput(pattern: string | undefined, v: any): void {
 		if (required && (v == undefined || v == null || v === '')) {
 			error = 'This field is required'
@@ -273,21 +266,24 @@
 						/>
 					</div>
 				{:else}
-					<textarea
-						bind:this={el}
-						on:focus
-						{disabled}
-						style="max-height: {maxHeight}"
-						on:input={() => {
-							recomputeSize()
-							dispatch('input', { rawValue: value, isRaw: false })
-						}}
-						class="col-span-10 {valid
-							? ''
-							: 'border border-red-700 border-opacity-30 focus:border-red-700 focus:border-opacity-30 bg-red-100'}"
-						placeholder={defaultValue ? JSON.stringify(defaultValue, null, 4) : ''}
-						bind:value={rawValue}
-					/>
+					<div class="container">
+						<pre aria-hidden="true" style="min-height: 2.2em; max-height: {maxHeight}"
+							>{rawValue + '\n'}</pre
+						>
+						<textarea
+							on:focus
+							{disabled}
+							style="max-height: {maxHeight}"
+							on:input={() => {
+								dispatch('input', { rawValue: value, isRaw: false })
+							}}
+							class="col-span-10 {valid
+								? ''
+								: 'border border-red-700 border-opacity-30 focus:border-red-700 focus:border-opacity-30 bg-red-100'}"
+							placeholder={defaultValue ? JSON.stringify(defaultValue, null, 4) : ''}
+							bind:value={rawValue}
+						/>
+					</div>
 				{/if}
 			{:else if inputCat == 'enum'}
 				<select {disabled} class="px-6" bind:value>
@@ -326,22 +322,25 @@
 						: undefined}
 				/>
 			{:else if inputCat == 'string'}
-				<textarea
-					bind:this={el}
-					on:focus={() => dispatch('focus')}
-					on:blur={() => dispatch('blur')}
-					{disabled}
-					style="height: 30px; max-height: {maxHeight}"
-					class="col-span-10 {valid
-						? ''
-						: 'border border-red-700 border-opacity-30 focus:border-red-700 focus:border-opacity-30 bg-red-100'}"
-					placeholder={defaultValue ?? ''}
-					bind:value
-					on:input={() => {
-						recomputeSize()
-						dispatch('input', { rawValue: value, isRaw: false })
-					}}
-				/>
+				<div class="container">
+					<pre aria-hidden="true" style="min-height: 2.2em; max-height: {maxHeight}"
+						>{value + '\n'}</pre
+					>
+					<textarea
+						on:focus={() => dispatch('focus')}
+						on:blur={() => dispatch('blur')}
+						type="text"
+						{disabled}
+						class="col-span-10 resize {valid
+							? ''
+							: 'border border-red-700 border-opacity-30 focus:border-red-700 focus:border-opacity-30 bg-red-100'}"
+						placeholder={defaultValue ?? ''}
+						bind:value
+						on:input={() => {
+							dispatch('input', { rawValue: value, isRaw: false })
+						}}
+					/>
+				</div>
 			{/if}
 			{#if !required && inputCat != 'resource-object'}
 				<!-- <Tooltip placement="bottom" content="Reset to default value">
@@ -363,3 +362,24 @@
 		</div>
 	</div>
 </div>
+
+<style>
+	.container {
+		position: relative;
+	}
+
+	pre,
+	textarea {
+		font-family: inherit;
+		padding: 0.5em;
+		box-sizing: border-box;
+		line-height: 1.2;
+		overflow: hidden;
+	}
+	textarea {
+		position: absolute;
+		width: 100%;
+		height: 100%;
+		top: 0;
+	}
+</style>

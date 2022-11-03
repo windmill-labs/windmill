@@ -147,7 +147,7 @@
 					{/if}
 				</div>
 			</div>
-
+			<!-- 
 			{#if variable.is_secret}
 				<div class="mb-1 col-span-10">
 					<Password
@@ -157,15 +157,15 @@
 							<span class="text-sm text-gray-500">(${variable.value.length}/3000 characters)</span>`}
 					/>
 				</div>
-			{:else}
-				<div>
-					<div class="mb-1">
-						<span class="font-semibold text-gray-700">Variable value</span>
-						<span class="text-sm text-gray-500">({variable.value.length}/3000 characters)</span>
-					</div>
-					<AutosizedTextarea bind:value={variable.value} minRows={5} />
+			{:else} -->
+			<div>
+				<div class="mb-1">
+					<span class="font-semibold text-gray-700">Variable value</span>
+					<span class="text-sm text-gray-500">({variable.value.length}/3000 characters)</span>
 				</div>
-			{/if}
+				<AutosizedTextarea bind:value={variable.value} minRows={5} />
+			</div>
+			<!-- {/if} -->
 
 			<div>
 				<div class="mb-1 font-semibold text-gray-700">
