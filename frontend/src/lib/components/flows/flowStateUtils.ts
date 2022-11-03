@@ -14,7 +14,7 @@ import {
 	NEVER_TESTED_THIS_FAR,
 	numberToChars
 } from './utils'
-import { Mutex, Semaphore, withTimeout } from 'async-mutex';
+import { Mutex } from 'async-mutex';
 
 export async function loadFlowModuleState(flowModule: FlowModule): Promise<FlowModuleState> {
 	try {

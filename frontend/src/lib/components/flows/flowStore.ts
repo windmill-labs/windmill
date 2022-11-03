@@ -51,7 +51,7 @@ export function dfs(modules: FlowModule[], previewOrder: boolean = false): strin
 
 export const flowIds = derived(flowStore, flow => dfs(flow.value.modules))
 
-export async function initFlow(flow: Flow, flowState: FlowState | undefined) {
+export async function initFlow(flow: Flow) {
 
 	let counter = 40
 	for (const mod of flow.value.modules) {
@@ -68,7 +68,7 @@ export async function initFlow(flow: Flow, flowState: FlowState | undefined) {
 		}
 	}
 
-	await initFlowState(flow, flowState)
+	await initFlowState(flow)
 
 	flowStore.set(flow)
 

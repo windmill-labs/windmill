@@ -112,7 +112,7 @@
 								if (flowState) {
 									if (
 										!flowState[flowJobIds.moduleId].previewResult ||
-										!Array.isArray(flowState[flowJobIds.moduleId].previewResult)
+										!Array.isArray(flowState[flowJobIds.moduleId]?.previewResult)
 									) {
 										flowState[flowJobIds.moduleId].previewResult = []
 									}
@@ -163,7 +163,7 @@
 									: undefined}
 								on:jobsLoaded={(e) => {
 									if (mod.id && (mod.flow_jobs ?? []).length == 0) {
-										if (flowState) {
+										if (flowState && flowState[mod.id]) {
 											flowState[mod.id].previewResult = e.detail.result
 											flowState[mod.id].previewArgs = e.detail.args
 										}

@@ -84,7 +84,11 @@
 		})
 
 		if (JSON.stringify(schema) !== JSON.stringify($flowStateStore[flowModule.id]?.schema)) {
-			$flowStateStore[flowModule.id].schema = schema
+			if (!$flowStateStore[flowModule.id]) {
+				$flowStateStore[flowModule.id] = { schema }
+			} else {
+				$flowStateStore[flowModule.id].schema = schema
+			}
 		}
 	}
 
@@ -174,7 +178,7 @@
 									<Kbd>Ctrl/Cmd</Kbd> + <Kbd>S</Kbd>
 								</Tooltip>Inputs</Tab
 							>
-							<Tab value="test">Test</Tab>
+							<Tab value="test">Test this step</Tab>
 							<Tab value="retries">Retries</Tab>
 							{#if !$selectedId.includes('failure')}
 								<Tab value="early-stop">Early Stop</Tab>
@@ -189,7 +193,7 @@
 										pickableProperties={stepPropPicker.pickableProperties}
 									>
 										<SchemaForm
-											schema={$flowStateStore[$selectedId].schema}
+											schema={$flowStateStore[$selectedId]?.schema ?? {}}
 											inputTransform={true}
 											importPath={$selectedId}
 											bind:args={flowModule.value.input_transforms}
@@ -201,7 +205,7 @@
 								<ModulePreview
 									bind:this={modulePreview}
 									mod={flowModule}
-									schema={$flowStateStore[$selectedId].schema}
+									schema={$flowStateStore[$selectedId]?.schema ?? {}}
 								/>
 							{:else if selected === 'retries'}
 								<FlowRetries bind:flowModule class="px-4 pb-4 h-full overflow-auto" />

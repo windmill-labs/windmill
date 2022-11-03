@@ -34,7 +34,7 @@
 
 	let initialPath: string = ''
 
-	initFlow(flow, undefined)
+	initFlow(flow)
 
 	async function loadFlow(): Promise<void> {
 		flow =
@@ -46,7 +46,7 @@
 				  })
 		initialPath = flow.path
 
-		await initFlow(flow, stateLoadedFromUrl?.flowState)
+		await initFlow(flow)
 		selectedId = stateLoadedFromUrl?.selectedId
 		$dirtyStore = false
 	}

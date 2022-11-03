@@ -44,7 +44,7 @@
 	function importJson() {
 		Object.assign($flowStore, JSON.parse(pendingJson))
 
-		initFlow($flowStore, undefined)
+		initFlow($flowStore)
 		sendUserToast('OpenFlow imported from JSON')
 		drawers.json?.toggleDrawer()
 	}
