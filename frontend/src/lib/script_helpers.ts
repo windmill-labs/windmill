@@ -64,7 +64,9 @@ import (
   // wmill "github.com/windmill-labs/windmill-go-client"
 )
 
-func main(x string, nested struct{ Foo string \`json:"bar"\` }) (interface{}, error) {
+// the main must return (interface{}, error)
+
+func main(x string, nested struct{ Foo string \`json:"foo"\` }) (interface{}, error) {
 	fmt.Println("Hello, World")
 	fmt.Println(nested.Foo)
 	fmt.Println(quote.Opt())
