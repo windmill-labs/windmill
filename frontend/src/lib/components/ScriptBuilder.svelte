@@ -29,7 +29,7 @@
 
 	let pathError = ''
 
-	let summaryC: HTMLTextAreaElement | undefined = undefined
+	let summaryC: HTMLInputElement | undefined = undefined
 	let pathC: Path | undefined = undefined
 
 	$: setQueryWithoutLoad($page.url, 'state', encodeState(script))
@@ -177,11 +177,10 @@
 				/>
 				<label class="block ">
 					<span class="text-gray-700 text-sm">Summary <Required required={false} /></span>
-					<textarea
+					<input
+						type="text"
 						bind:this={summaryC}
 						bind:value={script.summary}
-						class="block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-300 
-						focus:ring focus:ring-indigo-200 focus:ring-opacity-50"
 						placeholder="A very short summary of the script displayed when the script is listed"
 						rows="1"
 					/>

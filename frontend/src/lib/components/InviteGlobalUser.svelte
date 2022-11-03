@@ -1,18 +1,11 @@
 <script lang="ts">
 	import { sendUserToast } from '$lib/utils'
-	import type Modal from './Modal.svelte'
 	import { createEventDispatcher } from 'svelte'
 	import { UserService } from '$lib/gen'
 	import { Button } from './common'
 	import Toggle from './Toggle.svelte'
 
 	const dispatch = createEventDispatcher()
-
-	let modal: Modal
-
-	export function openModal(): void {
-		modal.openModal()
-	}
 
 	let email: string
 	let is_super_admin = false
@@ -44,12 +37,12 @@
 </script>
 
 <div class="flex flex-row">
-	<input on:keyup={handleKeyUp} placeholder="email" bind:value={email} />
+	<input type="email" on:keyup={handleKeyUp} placeholder="email" bind:value={email} />
 
 	<Toggle class="mx-2" bind:checked={is_super_admin} options={{ right: 'admin' }} />
 	<input on:keyup={handleKeyUp} type="password" placeholder="password" bind:value={password} />
-	<input on:keyup={handleKeyUp} placeholder="name" bind:value={name} />
-	<input on:keyup={handleKeyUp} placeholder="company" bind:value={company} />
+	<input type="text" on:keyup={handleKeyUp} placeholder="name" bind:value={name} />
+	<input type="text" on:keyup={handleKeyUp} placeholder="company" bind:value={company} />
 
 	<Button
 		variant="contained"

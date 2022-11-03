@@ -89,21 +89,21 @@
 
 	<label class="block pb-2 pt-4">
 		<span class="text-gray-700">workspace name:</span>
-		<input bind:value={name} class="mt-1" />
+		<input type="text" bind:value={name} class="mt-1" />
 	</label>
 	<label class="block pb-2">
 		<span class="text-gray-700">workspace id:</span>
 		{#if errorId}
 			<span class="text-red-500 text-xs">{errorId}</span>
 		{/if}
-		<input bind:value={id} class="mt-1" class:input-error={errorId != ''} />
+		<input type="text" bind:value={id} class="mt-1" class:input-error={errorId != ''} />
 	</label>
 	<label class="block pb-2">
 		<span class="text-gray-700">your username in that workspace:</span>
 		{#if errorUser}
 			<span class="text-red-500 text-xs">{errorUser}</span>
 		{/if}
-		<input bind:value={username} on:keyup={handleKeyUp} class="mt-1" />
+		<input type="text" bind:value={username} on:keyup={handleKeyUp} class="mt-1" />
 	</label>
 	<div class="flex flex-row justify-between pt-4">
 		<Button variant="border" size="sm" href="/user/workspaces"

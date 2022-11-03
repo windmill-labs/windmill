@@ -104,7 +104,7 @@
 							<a
 								href="#{name}"
 								on:click={() => {
-									groupModal.openModal(name)
+									groupModal.openDrawer(name)
 								}}
 								>{name}
 							</a>
@@ -121,7 +121,7 @@
 										icon: faEdit,
 										disabled: !canWrite,
 										action: () => {
-											groupModal.openModal(name)
+											groupModal.openDrawer(name)
 										}
 									},
 									{
@@ -129,7 +129,7 @@
 										icon: faShare,
 										disabled: !canWrite,
 										action: () => {
-											shareModal.openModal(name)
+											shareModal.openDrawer(name)
 										}
 									}
 								]}

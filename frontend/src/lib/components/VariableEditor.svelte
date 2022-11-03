@@ -1,15 +1,16 @@
 <script lang="ts">
-	import Password from './Password.svelte'
 	import { sendUserToast } from '$lib/utils'
 	import { VariableService } from '$lib/gen'
 	import AutosizedTextarea from './AutosizedTextarea.svelte'
 	import Path from './Path.svelte'
-	import Modal from './Modal.svelte'
 	import { createEventDispatcher } from 'svelte'
 	import { workspaceStore } from '$lib/stores'
 	import Required from './Required.svelte'
 	import Tooltip from './Tooltip.svelte'
 	import { Button } from './common'
+	import Drawer from './common/drawer/Drawer.svelte'
+	import DrawerContent from './common/drawer/DrawerContent.svelte'
+	import Alert from './common/alert/Alert.svelte'
 
 	const dispatch = createEventDispatcher()
 
@@ -26,7 +27,7 @@
 	}
 	let valid = true
 
-	let modal: Modal
+	let drawer: Drawer
 	let edit = false
 	let initialPath: string
 	let pathError = ''
@@ -40,7 +41,7 @@
 		edit = false
 		initialPath = ''
 		path = ''
-		modal.openModal()
+		drawer.openDrawer()
 	}
 
 	export async function editVariable(path: string): Promise<void> {
@@ -56,7 +57,7 @@
 			description: getV.description ?? ''
 		}
 		initialPath = path
-		modal.openModal()
+		drawer.openDrawer()
 	}
 
 	const MAX_VARIABLE_LENGTH = 3000
@@ -75,7 +76,7 @@
 		})
 		sendUserToast(`Successfully created variable ${path}`)
 		dispatch('create')
-		modal.closeModal()
+		drawer.closeDrawer()
 	}
 
 	async function updateVariable(): Promise<void> {
@@ -98,23 +99,18 @@
 			})
 			sendUserToast(`Successfully updated variable at ${initialPath}`)
 			dispatch('create')
-			modal.closeModal()
+			drawer.closeDrawer()
 		} catch (err) {
 			sendUserToast(`Could not update variable: ${err.body}`, true)
 		}
 	}
 </script>
 
-<Modal z="z-50" bind:this={modal}>
-	<div slot="title">
-		{#if edit}
-			Update variable at {initialPath}
-		{:else}
-			Add a variable
-		{/if}
-	</div>
-
-	<div slot="content">
+<Drawer bind:this={drawer}>
+	<DrawerContent
+		title={edit ? `Update variable at ${initialPath}` : 'Add a variable'}
+		on:close={drawer.closeDrawer}
+	>
 		<div class="flex flex-col gap-6">
 			<div>
 				<div>
@@ -133,17 +129,14 @@
 						<input type="checkbox" bind:checked={variable.is_secret} />
 					</label>
 					{#if variable.is_secret}
-						<div
-							class="bg-orange-100 border-l-4 border-orange-500 text-orange-700 p-1 mt-1 text-sm"
-							role="alert"
-						>
+						<Alert type="warning" title="Not visible after this">
 							If the variable is a secret, you will not be able to read the value of it from the
 							variable editor UI but only within scripts.
 							<Tooltip>
 								Within scripts, every read of the value create the audit log:
 								'variables.decrypt_secret'
 							</Tooltip>
-						</div>
+						</Alert>
 					{/if}
 				</div>
 			</div>
@@ -175,14 +168,14 @@
 				<AutosizedTextarea bind:value={variable.description} placeholder={''} minRows={3} />
 			</div>
 		</div>
-	</div>
-	<div slot="submission">
-		<Button
-			size="sm"
-			on:click={() => (edit ? updateVariable() : createVariable())}
-			disabled={!valid || pathError != ''}
-		>
-			{edit ? 'Save' : 'Add a variable'}
-		</Button>
-	</div>
-</Modal>
+		<div slot="submission">
+			<Button
+				size="sm"
+				on:click={() => (edit ? updateVariable() : createVariable())}
+				disabled={!valid || pathError != ''}
+			>
+				{edit ? 'Save' : 'Add a variable'}
+			</Button>
+		</div>
+	</DrawerContent>
+</Drawer>
