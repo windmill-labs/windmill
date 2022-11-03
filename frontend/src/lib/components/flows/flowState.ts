@@ -28,7 +28,6 @@ export async function initFlowState(flow: Flow) {
 		? await loadFlowModuleState(flow.value.failure_module)
 		: emptyFlowModuleState()
 
-	console.log(modulesState)
 	flowStateStore.set({
 		...modulesState,
 		failure: failureModule

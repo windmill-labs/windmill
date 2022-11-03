@@ -134,7 +134,7 @@
 					size="sm"
 					variant={step == 1 ? 'border' : 'contained'}
 					disabled={step === 1 && pathError !== ''}
-					btnClasses={step == 3 ? 'invisible' : ''}
+					btnClasses={step == 1 && initialPath == '' ? 'invisible' : ''}
 					on:click={editScript}>Save (commit)</Button
 				>
 				<Button
