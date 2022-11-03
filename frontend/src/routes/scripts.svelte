@@ -31,15 +31,15 @@
 	} from '$lib/utils'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
 	import Dropdown from '$lib/components/Dropdown.svelte'
-	import Modal from '$lib/components/Modal.svelte'
 	import PageHeader from '$lib/components/PageHeader.svelte'
 	import SharedBadge from '$lib/components/SharedBadge.svelte'
 	import ShareModal from '$lib/components/ShareModal.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import TableCustom from '$lib/components/TableCustom.svelte'
-	import { Button, Tabs, Tab, Badge, Skeleton } from '$lib/components/common'
+	import { Button, Tabs, Tab, Badge, Skeleton, DrawerContent } from '$lib/components/common'
 	import CreateActions from '$lib/components/scripts/CreateActions.svelte'
 	import HighlightCode from '$lib/components/HighlightCode.svelte'
+	import Drawer from '$lib/components/common/drawer/Drawer.svelte'
 
 	type Tab = 'all' | 'personal' | 'groups' | 'shared' | 'examples' | 'hub'
 	type Section = [string, ScriptW[]]
@@ -67,7 +67,7 @@
 		keys: ['app', 'path', 'summary']
 	})
 
-	let codeViewer: Modal
+	let codeViewer: Drawer
 	let codeViewerContent: string = ''
 	let codeViewerLanguage: 'deno' | 'python3' | 'go' = 'deno'
 	let codeViewerPath: string = ''
@@ -135,7 +135,7 @@
 		codeViewerContent = content
 		codeViewerLanguage = language
 		codeViewerPath = path
-		codeViewer.openModal()
+		codeViewer.openDrawer()
 	}
 
 	async function loadHubScriptsWFuse(): Promise<void> {
@@ -152,12 +152,11 @@
 	}
 </script>
 
-<Modal bind:this={codeViewer}>
-	<div slot="title">{codeViewerPath}</div>
-	<div slot="content">
+<Drawer bind:this={codeViewer}>
+	<DrawerContent title="Script {codeViewerPath}" on:close={codeViewer.closeDrawer}>
 		<HighlightCode language={codeViewerLanguage} code={codeViewerContent} />
-	</div>
-</Modal>
+	</DrawerContent>
+</Drawer>
 
 <CenteredPage>
 	<PageHeader
@@ -179,7 +178,12 @@
 	</Tabs>
 
 	{#if tab != 'hub'}
-		<input placeholder="Search scripts" bind:value={scriptFilter} class="search-bar mt-2" />
+		<input
+			type="text"
+			placeholder="Search scripts"
+			bind:value={scriptFilter}
+			class="search-bar mt-2"
+		/>
 	{/if}
 
 	<div class="grid grid-cols-1 divide-y">
@@ -221,7 +225,12 @@
 							their Python counterparts.
 						</Tooltip>
 					</h2>
-					<input placeholder="Search hub scripts" bind:value={hubFilter} class="search-bar mt-2" />
+					<input
+						type="text"
+						placeholder="Search hub scripts"
+						bind:value={hubFilter}
+						class="search-bar mt-2"
+					/>
 					<div class="relative">
 						{#if $hubScripts != undefined}
 							<TableCustom>

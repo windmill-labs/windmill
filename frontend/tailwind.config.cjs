@@ -218,7 +218,7 @@ const config = {
 				'a': {
 					color: theme('colors.blue.500')
 				},
-				'input,input[type="text"],input[type="email"],input[type="url"],input[type="password"],input[type="number"],input[type="date"],input[type="datetime-local"],input[type="month"],input[type="search"],input[type="tel"],input[type="time"],input[type="week"],textarea,select': {
+				'input,input[type="text"],input[type="email"],input[type="url"],input[type="password"],input[type="number"],input[type="date"],input[type="datetime-local"],input[type="month"],input[type="search"],input[type="tel"],input[type="time"],input[type="week"],textarea,textarea[type="text"],select': {
 					display: 'block',
 					fontSize: theme('fontSize.sm'),
 					width: '100%',

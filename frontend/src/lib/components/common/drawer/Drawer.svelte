@@ -11,6 +11,13 @@
 		open = !open
 	}
 
+	export function openDrawer() {
+		open = true
+	}
+	export function closeDrawer() {
+		open = false
+	}
+
 	let mounted = false
 	const dispatch = createEventDispatcher()
 
@@ -36,6 +43,7 @@
 			switch (event.key) {
 				case 'Escape':
 					open = false
+					event.preventDefault()
 					break
 			}
 		}
@@ -55,7 +63,6 @@
 
 <aside class="drawer" class:open class:close={!open} {style}>
 	<div class="overlay" on:click={handleClickAway} />
-
 	<div class="panel {placement}" class:size>
 		{#if open || !timeout}
 			<slot />
@@ -72,9 +79,12 @@
 		width: 100%;
 		z-index: -1;
 		transition: z-index var(--duration) step-end;
+		overflow: clip;
 	}
 
 	.drawer.open {
+		height: 100%;
+		width: 100%;
 		z-index: 99;
 		transition: z-index var(--duration) step-start;
 	}
@@ -91,8 +101,13 @@
 		transition: opacity var(--duration) ease;
 	}
 
-	.drawer.open .overlay {
+	.drawer.open > .overlay {
 		opacity: 1;
+	}
+
+	.drawer.close > .panel {
+		height: 0;
+		overflow: hidden;
 	}
 
 	.panel {
@@ -134,7 +149,7 @@
 		max-height: var(--size);
 	}
 
-	.drawer.open .panel {
+	.drawer.open > .panel {
 		transform: translate(0, 0);
 	}
 </style>

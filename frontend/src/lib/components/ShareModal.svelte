@@ -1,5 +1,4 @@
 <script lang="ts">
-	import Modal from './Modal.svelte'
 	import TableCustom from './TableCustom.svelte'
 
 	import { GranularAclService } from '$lib/gen/services/GranularAclService'
@@ -8,7 +7,9 @@
 	import { createEventDispatcher } from 'svelte'
 	import AutoComplete from 'simple-svelte-autocomplete'
 	import { workspaceStore } from '$lib/stores'
-	import { Button } from './common'
+	import { Alert, Button, Drawer } from './common'
+	import DrawerContent from './common/drawer/DrawerContent.svelte'
+	import Toggle from './Toggle.svelte'
 
 	const dispatch = createEventDispatcher()
 
@@ -24,18 +25,18 @@
 	let groups: String[] = []
 	let usernames: string[] = []
 
-	let modal: Modal
+	let drawer: Drawer
 
 	$: newOwner = [ownerKind === 'group' ? 'g' : 'u', owner].join('/')
 
-	export async function openModal(newPath?: string) {
+	export async function openDrawer(newPath?: string) {
 		if (newPath) {
 			path = newPath
 		}
 		loadAcls()
 		loadGroups()
 		loadUsernames()
-		modal.openModal()
+		drawer.openDrawer()
 	}
 
 	async function loadAcls() {
@@ -79,71 +80,72 @@
 	}
 </script>
 
-<Modal bind:this={modal}>
-	<div slot="title">
-		Share {path}
-		<span class="text-sm text-gray-500 ml-1">(group)</span>
-	</div>
-
-	<div slot="content">
-		<div class="flex flex-row flex-wrap pb-0 mb-5 justify-between">
-			<div class="flex gap-4 mr-2">
-				<label class="block">
-					<span class="text-gray-700 text-sm"> Owner Kind </span>
-					<select
-						class="block mt-1 w-20"
-						bind:value={ownerKind}
-						on:change={() => {
-							if (ownerKind === 'group') {
-								owner = 'all'
-							} else {
-								owner = ''
-							}
-						}}
-					>
-						<option>user</option>
-						<option>group</option>
-					</select>
-				</label>
-				<label class="block" for="inp">
-					<span class="text-sm text-gray-700">Owner</span>
-					<div class="block mt-1">
-						<div class="static z-50">
-							<AutoComplete
-								items={ownerKind === 'user' ? usernames : groups}
-								bind:selectedItem={owner}
-							/>
+<Drawer bind:this={drawer}>
+	<DrawerContent title="Share {path}" on:close={drawer.closeDrawer}>
+		<div>
+			<Alert type="info" title="Owners/Editors/Readers"
+				>Owner is the user or group that is prefix of a given path. Sharing allow other users or
+				group to be able to read or write to this item without being an owner.</Alert
+			>
+			<div class="flex flex-row flex-wrap pb-0 my-5  items-end">
+				<div class="flex gap-4 mr-2 flex-row">
+					<label class="flex flex-col">
+						<span class="text-gray-700 text-sm"> Owner Kind </span>
+						<select
+							class="block mt-1 w-20"
+							bind:value={ownerKind}
+							on:change={() => {
+								if (ownerKind === 'group') {
+									owner = 'all'
+								} else {
+									owner = ''
+								}
+							}}
+						>
+							<option>user</option>
+							<option>group</option>
+						</select>
+					</label>
+					<label class="flex flex-col" for="inp">
+						<span class="text-sm text-gray-700">Owner</span>
+						<div class="block mt-1">
+							<div class="static z-50">
+								<AutoComplete
+									items={ownerKind === 'user' ? usernames : groups}
+									bind:selectedItem={owner}
+								/>
+							</div>
 						</div>
-					</div>
-				</label>
-				<label class="flex flex-col grow pb-3 justify-between">
-					<div class="text-sm text-gray-700">Editor</div>
-					<input class="block ml-1" type="checkbox" bind:checked={write} />
-				</label>
+					</label>
+					<label class="flex flex-col items-end" for="inp">
+						<span class="text-sm text-gray-700">Editor</span>
+						<Toggle bind:checked={write} />
+					</label>
+				</div>
+				<div>
+					<Button size="sm" on:click={() => addAcl(newOwner, write)}>Add permission</Button>
+				</div>
 			</div>
-			<div class="center-center">
-				<Button size="sm" on:click={() => addAcl(newOwner, write)}>Add permission</Button>
-			</div>
+			<TableCustom>
+				<tr slot="header-row">
+					<th>owner</th>
+					<th>has write permission</th>
+					<th />
+				</tr>
+				<tbody slot="body">
+					{#each acls as [owner, write]}
+						<tr>
+							<td>{owner}</td>
+							<td>{write}</td>
+							<td>
+								<Button variant="border" color="red" size="sm" on:click={() => deleteAcl(owner)}>
+									Delete
+								</Button>
+							</td>
+						</tr>
+					{/each}
+				</tbody>
+			</TableCustom>
 		</div>
-		<TableCustom>
-			<tr slot="header-row">
-				<th>owner</th>
-				<th>has write permission</th>
-				<th />
-			</tr>
-			<tbody slot="body">
-				{#each acls as [owner, write]}
-					<tr>
-						<td>{owner}</td>
-						<td>{write}</td>
-						<td>
-							<Button variant="border" color="red" size="sm" on:click={() => deleteAcl(owner)}>
-								Delete
-							</Button>
-						</td>
-					</tr>
-				{/each}
-			</tbody>
-		</TableCustom>
-	</div>
-</Modal>
+	</DrawerContent>
+</Drawer>

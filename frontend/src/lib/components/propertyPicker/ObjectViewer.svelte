@@ -100,12 +100,11 @@
 		list-style: none;
 		padding-left: 1rem;
 		border-left: 1px dotted lightgray;
-		@apply text-black;
 		@apply text-sm;
 	}
 
 	.val {
-		@apply text-black;
+		/* @apply font-black; */
 	}
 	.val.undefined {
 		@apply text-red-500;

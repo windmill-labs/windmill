@@ -89,7 +89,7 @@
 				<div class="mt-4">
 					<label class="block w-60 mb-2 text-gray-500">
 						<div class="text-gray-700">email</div>
-						<input disabled value={$usersWorkspaceStore?.email} class="input mt-1" />
+						<input type="text" disabled value={$usersWorkspaceStore?.email} class="input mt-1" />
 					</label>
 					{#if login_type == 'password'}
 						<label class="block w-120">
@@ -167,7 +167,7 @@
 				<div class="flex flex-row flex-wrap gap-x-2 w-full justify-between">
 					<div class="flex flex-col">
 						<label for="label">Label <span class="text-xs text-gray-500">(optional)</span></label>
-						<input bind:value={newTokenLabel} />
+						<input type="text" bind:value={newTokenLabel} />
 					</div>
 					<div class="flex flex-col ">
 						<label for="expires"
