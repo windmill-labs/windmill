@@ -10,7 +10,17 @@
 		result: AppInputTransform
 	}
 
-	export const schema: Schema = emptySchema()
+	export const schema: Schema = {
+		$schema: 'https://json-schema.org/draft/2020-12/schema',
+		properties: {
+			result: {
+				type: 'any',
+				description: ''
+			}
+		},
+		required: ['result'],
+		type: 'object'
+	}
 
 	$: inputResult = $worldStore?.connect<any>(inputs.result, (x) => {
 		update()

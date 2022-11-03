@@ -1,7 +1,9 @@
 <script lang="ts">
-	import { ToggleButton, ToggleButtonGroup } from '$lib/components/common'
+	import { Alert, ToggleButton, ToggleButtonGroup } from '$lib/components/common'
 	import Badge from '$lib/components/common/badge/Badge.svelte'
-
+	import Button from '$lib/components/common/button/Button.svelte'
+	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
+	import { faTrashAlt } from '@fortawesome/free-solid-svg-icons'
 	import { createEventDispatcher } from 'svelte'
 	import type { AppSection } from '../../types'
 
@@ -9,20 +11,73 @@
 
 	const dispatch = createEventDispatcher()
 
-	function deleteSection() {
-		dispatch('remove')
+	let deleteConfirmedCallback: (() => void) | undefined = undefined
+	$: open = Boolean(deleteConfirmedCallback)
+
+	function deleteSection(event: CustomEvent<PointerEvent>) {
+		if (
+			section &&
+			Array.isArray(section.components) &&
+			section?.components.length > 0 &&
+			!event.detail.shiftKey
+		) {
+			deleteConfirmedCallback = () => {
+				dispatch('remove')
+				deleteConfirmedCallback = undefined
+			}
+		} else {
+			dispatch('remove')
+		}
 	}
 </script>
 
 {#if section}
 	<div class="p-2 flex flex-col gap-2 items-start">
+		<span class="text-md font-bold">Section editor</span>
+
 		<Badge color="indigo">{section.id}</Badge>
 
 		<div class="text-sm font-bold">Columns</div>
 		<ToggleButtonGroup bind:selected={section.columns}>
-			<ToggleButton position="left" value={1}>1</ToggleButton>
-			<ToggleButton position="center" value={2}>2</ToggleButton>
+			<ToggleButton position="left" value={1} disabled={section.components.length >= 2}>
+				1
+			</ToggleButton>
+			<ToggleButton position="center" value={2} disabled={section.components.length === 3}>
+				2
+			</ToggleButton>
 			<ToggleButton position="right" value={3}>3</ToggleButton>
 		</ToggleButtonGroup>
+
+		<div class="text-sm font-bold">Danger zone</div>
+
+		<Button size="xs" color="red" startIcon={{ icon: faTrashAlt }} on:click={deleteSection}>
+			Delete section
+		</Button>
 	</div>
 {/if}
+
+<ConfirmationModal
+	{open}
+	title="Remove section"
+	confirmationText="Remove"
+	on:canceled={() => {
+		deleteConfirmedCallback = undefined
+	}}
+	on:confirmed={() => {
+		if (deleteConfirmedCallback) {
+			deleteConfirmedCallback()
+		}
+		deleteConfirmedCallback = undefined
+	}}
+>
+	<div class="flex flex-col w-full space-y-4">
+		<span>Are you sure you want to remove this section?</span>
+		<Alert type="info" title="Bypass confirmation">
+			<div>
+				You can press
+				<Badge color="dark-gray">SHIFT</Badge>
+				while removing a resource to bypass confirmation.
+			</div>
+		</Alert>
+	</div>
+</ConfirmationModal>

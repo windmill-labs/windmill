@@ -43,12 +43,24 @@
 						}
 					},
 					{
-						type: 'barchartcomponent',
+						type: 'tablecomponent',
 						id: 'c',
 						width: 33,
 						inputs: {
 							result: {}
-						}
+						},
+						data: [
+							{
+								a: 'first',
+								b: 'second'
+							}
+						],
+						headers: ['a', 'b'],
+						path: '',
+						runType: 'script',
+						title: 'Sample title',
+						description:
+							'Lorem ipsum dolor sit amet, consectetur adipiscing elit. Donec auctor, nisl eget ultricies lacinia, nunc nisl aliquam nisl, eget aliquam nunc nisl eget nunc. Donec auctor, nisl eget ultricies lacinia, nunc nisl aliquam nisl, eget aliquam nunc nisl eget nunc.'
 					}
 				],
 				columns: 3,

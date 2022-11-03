@@ -38,6 +38,17 @@ export type BarChartComponent = {
 	inputs: {}
 }
 
+export type TableComponent = {
+	type: 'tablecomponent'
+	inputs: {}
+	path: string
+	runType: 'script' | 'flow'
+	title: string
+	description: string | undefined
+	headers: string[]
+	data: Array<Record<string, any>>
+}
+
 export type DisplayComponent = {
 	type: 'displaycomponent'
 	inputs: {
@@ -46,7 +57,13 @@ export type DisplayComponent = {
 }
 
 export type AppComponent =
-	| (RunFormComponent | DisplayComponent | TextInputComponent | BarChartComponent) & {
+	| (
+			| RunFormComponent
+			| DisplayComponent
+			| TextInputComponent
+			| BarChartComponent
+			| TableComponent
+	  ) & {
 			id: string
 			width: number
 			horizontalAlignement?: 'left' | 'center' | 'right'

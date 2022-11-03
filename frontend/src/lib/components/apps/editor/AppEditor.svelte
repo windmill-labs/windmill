@@ -17,6 +17,7 @@
 	import { flip } from 'svelte/animate'
 	import type { Schema } from '$lib/common'
 	import SectionPanel from './settingsPanel/SectionPanel.svelte'
+
 	const flipDurationMs = 200
 
 	export let app: App
@@ -103,10 +104,8 @@
 	<Pane>
 		<SectionsEditor bind:sections={$appStore.sections} mode={$mode} />
 	</Pane>
-	<Pane minSize={20} maxSize={30} size={20}>
-		{#if $selection?.sectionIndex !== undefined && $selection?.componentIndex === undefined}
-			<SectionPanel bind:section={$appStore.sections[$selection.sectionIndex]} />
-		{:else if $selection?.sectionIndex !== undefined && $selection?.componentIndex !== undefined}
+	<Pane minSize={20} maxSize={30} size={20} class="gap-8 flex flex-col">
+		{#if $selection?.sectionIndex !== undefined && $selection?.componentIndex !== undefined}
 			<ComponentPanel
 				bind:component={$appStore.sections[$selection?.sectionIndex].components[
 					$selection?.componentIndex
@@ -117,6 +116,19 @@
 							$selection?.componentIndex,
 							1
 						)
+						$appStore = $appStore
+						$selection = undefined
+					}
+				}}
+			/>
+		{/if}
+
+		{#if $selection?.sectionIndex !== undefined}
+			<SectionPanel
+				bind:section={$appStore.sections[$selection.sectionIndex]}
+				on:remove={() => {
+					if ($selection?.sectionIndex !== undefined) {
+						$appStore.sections.splice($selection?.sectionIndex, 1)
 						$appStore = $appStore
 						$selection = undefined
 					}

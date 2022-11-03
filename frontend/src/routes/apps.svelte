@@ -1,5 +1,4 @@
 <script lang="ts">
-	import AppWrapper from '$lib/components/apps/AppWrapper.svelte'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
 	import { DrawerContent } from '$lib/components/common'
 	import Button from '$lib/components/common/button/Button.svelte'

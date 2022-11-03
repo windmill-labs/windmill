@@ -19,16 +19,22 @@
 	$: schema = component && $schemas[component.id]
 </script>
 
-<div class="p-2 flex flex-col gap-2">
+<div class="p-2 flex flex-col gap-2 items-start">
+	<span class="text-md font-bold">Component editor</span>
 	{#if component}
 		{#if schema}
 			<div class="text-sm font-bold">Inputs</div>
 
-			<SchemaForm {schema} args={component.inputs.runInputs} />
+			{#if component.type === 'runformcomponent' && component.inputs}
+				<SchemaForm {schema} args={component.inputs.runInputs} />
+			{/if}
+			{#if component.type === 'displaycomponent' && component.inputs}
+				<SchemaForm {schema} args={component.inputs.result} />
+			{/if}
 		{/if}
 
 		<Button
-			size="sm"
+			size="xs"
 			color="red"
 			startIcon={{ icon: faTrashAlt }}
 			on:click={() => deleteComponent()}

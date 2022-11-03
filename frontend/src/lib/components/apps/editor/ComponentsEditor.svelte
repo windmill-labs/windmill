@@ -135,13 +135,11 @@
 	$: canDrop = components.length > 0 && components.length < columns
 </script>
 
-<div
-	class="h-80 rounded-b-sm flex-row gap-4 p-4 flex border-2 border-gray bg-white cursor-pointer "
->
-	<div class="dotted-background h-full flex flex-row gap-2 w-full">
+<div class="h-80 rounded-b-sm flex-row p-4 flex border-2 border-gray bg-white cursor-pointer ">
+	<div class="dotted-background h-full flex flex-row gap-1 w-full">
 		<div
 			class={classNames(
-				'flex gap-2',
+				'flex gap-1',
 				canDrop ? numberToTailwindWidthMap[Math.round(sum)] : 'w-full'
 			)}
 			use:dndzone={{
@@ -176,11 +174,14 @@
 					</div>
 				{/each}
 			{:else}
-				<div
-					class="border flex justify-center flex-col items-center w-full bg-green-200 bg-opacity-50"
-				>
-					<div>Empty section</div>
-					<div>Drop up to {pluralize(columns, 'component')}</div>
+				<div class="flex w-full gap-1">
+					{#each Array(columns - components.length) as x}
+						<div
+							class="border flex justify-center flex-col items-center w-full bg-green-200 bg-opacity-50"
+						>
+							<div>Empty component</div>
+						</div>
+					{/each}
 				</div>
 			{/if}
 		</div>

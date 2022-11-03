@@ -10,7 +10,7 @@
 	import ComponentsEditor from './ComponentsEditor.svelte'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import ComponentEditor from './ComponentEditor.svelte'
-	import { classNames, pluralize } from '$lib/utils'
+	import { classNames } from '$lib/utils'
 	import RunFormComponent from '../components/RunFormComponent.svelte'
 	import DisplayComponent from '../components/DisplayComponent.svelte'
 
@@ -30,11 +30,6 @@
 			...sections,
 			{ components: [], columns: 3, id: getNextId(sections.map((s) => s.id)) }
 		]
-	}
-
-	function removeSection(index: number) {
-		sections.splice(index, 1)
-		sections = sections
 	}
 
 	const numberToTailwindWidthMap = {
@@ -158,6 +153,7 @@
 		on:finalize={handleSort}
 	>
 		{#each sections as section, sectionIndex (section.id)}
+			{@const selected = $selection?.sectionIndex === sectionIndex}
 			<!-- svelte-ignore a11y-click-events-have-key-events -->
 			<section
 				animate:flip={{ duration: flipDurationMs }}
@@ -166,7 +162,12 @@
 				}}
 			>
 				{#if mode !== 'preview'}
-					<span class="bg-gray-500 text-white px-2 text-sm py-1 font-bold rounded-t-sm">
+					<span
+						class={classNames(
+							'text-white px-2 text-sm py-1 font-bold',
+							selected ? 'bg-indigo-500' : 'bg-gray-500'
+						)}
+					>
 						Section {sectionIndex + 1}
 						<Badge>{section.id}</Badge>
 					</span>
@@ -199,7 +200,7 @@
 					</div>
 				{:else if mode === 'width'}
 					<div
-						class="h-80 w-full rounded-b-sm flex-row gap-4 p-4 flex border-2 border-gray-500 bg-white cursor-pointer "
+						class="h-80 w-full rounded-b-sm flex-row gap-4 p-4 flex border-2 border-gray-200 bg-white cursor-pointer "
 					>
 						<Splitpanes>
 							{#each section.components as component}
@@ -208,16 +209,21 @@
 								</Pane>
 							{/each}
 
-							<Pane
-								size={100 - section.components.reduce((accu, curr) => accu + curr.width, 0)}
-								minSize={20}
-							>
-								<div
-									class="border flex justify-center flex-col items-center w-full h-full bg-green-200 bg-opacity-50"
+							{#if section.components.length < section.columns}
+								<Pane
+									size={100 - section.components.reduce((accu, curr) => accu + curr.width, 0)}
+									minSize={20}
+									class="gap-2 w-full flex flex-row"
 								>
-									<div>Empty</div>
-								</div>
-							</Pane>
+									{#each Array(section.columns - section.components.length) as _}
+										<div
+											class="border flex justify-center flex-col items-center w-full h-full bg-green-200 bg-opacity-50"
+										>
+											<div>Empty</div>
+										</div>
+									{/each}
+								</Pane>
+							{/if}
 						</Splitpanes>
 					</div>
 				{/if}
