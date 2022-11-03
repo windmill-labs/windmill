@@ -18,4 +18,9 @@
 	<div class="p-2 h-full overflow-y-auto">
 		<slot />
 	</div>
+	<div class="flex flex-col bg-white border-gray-200 p-2">
+		<div class="flex flex-row-reverse p-2 ">
+			<slot name="submission" class="sticky" />
+		</div>
+	</div>
 </div>

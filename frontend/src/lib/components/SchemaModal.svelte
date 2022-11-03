@@ -50,7 +50,8 @@
 	import ObjectTypeNarrowing from './ObjectTypeNarrowing.svelte'
 	import { Button } from './common'
 	import Toggle from '$lib/components/Toggle.svelte'
-	import Modal from './Modal.svelte'
+	import DrawerContent from './common/drawer/DrawerContent.svelte'
+	import Drawer from './common/drawer/Drawer.svelte'
 
 	export let property: ModalSchemaProperty = DEFAULT_PROPERTY
 	export let error = ''
@@ -60,15 +61,15 @@
 	let resource_type: string | undefined = undefined
 
 	const dispatch = createEventDispatcher()
-	let modal: Modal
+	let drawer: Drawer
 
-	export function openModal(): void {
-		modal.openModal()
+	export function openDrawer(): void {
+		drawer.openDrawer()
 		resource_type = property.format?.substring(5)
 	}
 
-	export function closeModal(): void {
-		modal.closeModal()
+	export function closeDrawer(): void {
+		drawer.closeDrawer()
 	}
 
 	function clearModal(): void {
@@ -82,6 +83,7 @@
 		property.selectedType = DEFAULT_PROPERTY.selectedType
 		property.format = undefined
 		resource_type = undefined
+		drawer.closeDrawer()
 	}
 
 	$: if (property.selectedType == 'object' && resource_type) {
@@ -95,9 +97,8 @@
 	}
 </script>
 
-<Modal bind:this={modal} on:close={clearModal}>
-	<div slot="title">Add an argument</div>
-	<div slot="content">
+<Drawer bind:this={drawer} placement="right">
+	<DrawerContent on:close={clearModal} title="Add an argument">
 		<div class="flex flex-col gap-6">
 			<div>
 				<label class="block">
@@ -198,16 +199,16 @@
 				</div>
 			{/if}
 		</div>
-	</div>
 
-	<button
-		disabled={!property.name || !property.selectedType || error != ''}
-		slot="submission"
-		class="px-4 py-2 text-white font-semibold bg-blue-500 rounded"
-		on:click={() => {
-			dispatch('save')
-		}}
-	>
-		Save
-	</button>
-</Modal>
+		<button
+			disabled={!property.name || !property.selectedType || error != ''}
+			slot="submission"
+			class="px-4 py-2 text-white font-semibold bg-blue-500 rounded"
+			on:click={() => {
+				dispatch('save')
+			}}
+		>
+			Save
+		</button>
+	</DrawerContent>
+</Drawer>

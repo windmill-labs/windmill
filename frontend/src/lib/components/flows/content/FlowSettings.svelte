@@ -29,9 +29,9 @@
 
 				<label class="block my-4">
 					<span class="text-gray-700 text-sm">Summary <Required required={false} /></span>
-					<textarea
+					<input
+						type="text"
 						bind:value={$flowStore.summary}
-						class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-300 focus:ring focus:ring-indigo-200 focus:ring-opacity-50"
 						placeholder="A very short summary of the flow displayed when the flow is listed"
 						rows="1"
 						id="flow-summary"
@@ -43,10 +43,10 @@
 						Description
 						<Required required={false} detail="markdown" />
 						<textarea
+							type="text"
+							class="text-sm"
 							id="inp"
 							bind:value={$flowStore.description}
-							class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-300 
-							focus:ring focus:ring-indigo-200 focus:ring-opacity-50"
 							placeholder="A description to help users understand what this flow does and how to use it. Markdown accepted."
 							rows="3"
 						/>

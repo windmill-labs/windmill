@@ -11,7 +11,7 @@
 		setQueryWithoutLoad
 	} from '$lib/utils'
 	import { faGlobe, faPen } from '@fortawesome/free-solid-svg-icons'
-	import { setContext } from 'svelte'
+	import { onMount, setContext } from 'svelte'
 	import { writable } from 'svelte/store'
 	import CenteredPage from './CenteredPage.svelte'
 	import { Button } from './common'
@@ -28,6 +28,8 @@
 	import { cleanInputs } from './flows/utils'
 
 	export let initialPath: string = ''
+	export let selectedId: string | undefined
+
 	let pathError = ''
 
 	async function createSchedule(path: string) {
@@ -118,11 +120,30 @@
 		goto(`/flows/get/${$flowStore.path}`)
 	}
 
-	flowStore.subscribe((flow: Flow) => {
-		if (flow) {
-			setQueryWithoutLoad($page.url, 'state', encodeState(flow))
+	let timeout: NodeJS.Timeout | undefined = undefined
+
+	$: {
+		if ($flowStore && $flowStateStore) {
+			setUrl()
 		}
-	})
+	}
+
+	function setUrl() {
+		timeout && clearTimeout(timeout)
+		timeout = setTimeout(
+			() =>
+				setQueryWithoutLoad(
+					$page.url,
+					'state',
+					encodeState({
+						flow: $flowStore,
+						selectedId: $selectedIdStore,
+						flowStateStore: $flowStateStore
+					})
+				),
+			500
+		)
+	}
 
 	const selectedIdStore = writable<string>('settings')
 	const scheduleStore = writable<Schedule>({ args: {}, cron: '', enabled: false })
@@ -152,6 +173,11 @@
 				})
 			})
 	}
+
+	onMount(() => {
+		console.log(selectedId)
+		selectedId && select(selectedId)
+	})
 
 	$: initialPath && $workspaceStore && loadSchedule()
 

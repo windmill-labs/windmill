@@ -1,6 +1,6 @@
 import type { Flow, FlowModule, ForloopFlow, InputTransform } from '$lib/gen'
 import { get, writable, derived } from 'svelte/store'
-import { flowStateStore, initFlowState } from './flowState'
+import { flowStateStore, initFlowState, type FlowState } from './flowState'
 import { numberToChars } from './utils'
 
 export type FlowMode = 'push' | 'pull'
@@ -51,7 +51,7 @@ export function dfs(modules: FlowModule[], previewOrder: boolean = false): strin
 
 export const flowIds = derived(flowStore, flow => dfs(flow.value.modules))
 
-export async function initFlow(flow: Flow) {
+export async function initFlow(flow: Flow, flowState: FlowState | undefined) {
 
 	let counter = 40
 	for (const mod of flow.value.modules) {
@@ -68,7 +68,8 @@ export async function initFlow(flow: Flow) {
 		}
 	}
 
-	await initFlowState(flow)
+	await initFlowState(flow, flowState)
+
 	flowStore.set(flow)
 
 	function migrateFlowModule(mod: FlowModule) {

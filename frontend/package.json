@@ -29,7 +29,6 @@
 		"eslint": "^8.26.0",
 		"eslint-config-prettier": "^8.3.0",
 		"eslint-plugin-svelte3": "^4.0.0",
-		"flowbite": "^1.5.3",
 		"openapi-typescript-codegen": "^0.23.0",
 		"path-browserify": "^1.0.1",
 		"postcss": "^8.4.18",
@@ -66,6 +65,7 @@
 		"monaco-editor-workers": "^0.34.2",
 		"monaco-languageclient": "4.0.1",
 		"svelte-chartjs": "^3.0.1",
+		"svelte-autosize": "^1.0.1",
 		"vscode-ws-jsonrpc": "^2.0.0"
 	}
 }

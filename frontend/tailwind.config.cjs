@@ -138,7 +138,6 @@ const config = {
 	plugins: [
 		require('@tailwindcss/forms'),
 		require('@tailwindcss/typography'),
-		require('flowbite/plugin'),
 		plugin(({ addBase, addComponents, addUtilities, theme }) => {
 			addBase({
 				html: {
@@ -214,7 +213,31 @@ const config = {
 					lineHeight: '1.5',
 					color: theme('colors.gray.600'),
 					[`@media (min-width: ${theme('screens.qhd')})`]: {
-						fontSize: '18px'
+						fontSize: '18px',
+					},
+				},
+				'button': {
+					fontWeight: theme('fontWeight.semibold'),
+				},
+				'a': {
+					color: theme('colors.blue.500')
+				},
+				'input,input[type="text"],input[type="email"],input[type="url"],input[type="password"],input[type="number"],input[type="date"],input[type="datetime-local"],input[type="month"],input[type="search"],input[type="tel"],input[type="time"],input[type="week"],textarea,textarea[type="text"],select': {
+					display: 'block',
+					fontSize: theme('fontSize.sm'),
+					width: '100%',
+					padding: `${theme('spacing.1')} ${theme('spacing.2')}`,
+					border: `1px solid ${theme('colors.gray.300')}`,
+					borderRadius: theme('borderRadius.md'),
+					boxShadow: theme('boxShadow.sm'),
+					'&:focus': {
+						'--tw-ring-color': theme('colors.indigo.100'),
+						'--tw-ring-offset-shadow': 'var(--tw-ring-inset) 0 0 0 var(--tw-ring-offset-width) var(--tw-ring-offset-color)',
+						'--tw-ring-shadow': 'var(--tw-ring-inset) 0 0 0 calc(3px + var(--tw-ring-offset-width)) var(--tw-ring-color)',
+						boxShadow: 'var(--tw-ring-offset-shadow), var(--tw-ring-shadow), var(--tw-shadow, 0 0 #0000)'
+					},
+					'&:disabled,[disabled]': {
+						backgroundColor: theme('colors.gray.100') + ' !important'
 					}
 				},
 				button: {
