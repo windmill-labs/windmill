@@ -20,17 +20,29 @@
 	}
 
 	export let hidden: string[] = []
-	const { worldStore } = getContext<AppEditorContext>('AppEditorContext')
 
 	export let schema: Schema | undefined = undefined
-	let schemaClone: Schema | undefined = undefined
-
 	export const staticOutputs = ['loading', 'result']
+
+	const { worldStore } = getContext<AppEditorContext>('AppEditorContext')
+
+	let schemaClone: Schema | undefined = undefined
+	let isValid = true
+	let testIsLoading = false
+	let testJob: CompletedJob | undefined = undefined
+	let testJobLoader: TestJobLoader | undefined = undefined
+	let x = buildArgs(inputs.runInputs)
 
 	$: outputs = $worldStore?.outputsById[id] as {
 		result: Output<any>
 		loading: Output<boolean>
 	}
+
+	$: if ($workspaceStore) {
+		loadSchema($workspaceStore)
+	}
+
+	$: schemaClone && mapInput(schemaClone)
 
 	async function loadSchema(workspace: string) {
 		if (runType === 'script') {
@@ -65,14 +77,6 @@
 		})
 	}
 
-	$: if ($workspaceStore) {
-		loadSchema($workspaceStore)
-	}
-
-	$: schemaClone && mapInput(schemaClone)
-
-	let x = buildArgs(inputs.runInputs)
-
 	function buildArgs(args: InputsSpec) {
 		return Object.keys(args)
 			.filter((x) => hidden.includes(x))
@@ -103,12 +107,6 @@
 			return {}
 		}
 	}
-
-	let isValid = true
-	let testIsLoading = false
-	let testJob: CompletedJob | undefined = undefined
-
-	let testJobLoader: TestJobLoader | undefined = undefined
 </script>
 
 <TestJobLoader

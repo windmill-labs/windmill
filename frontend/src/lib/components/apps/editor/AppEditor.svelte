@@ -1,6 +1,6 @@
 <script lang="ts">
 	import SplitPanesWrapper from '$lib/components/splitPanes/SplitPanesWrapper.svelte'
-	import { faBarChart, faDisplay, faPieChart } from '@fortawesome/free-solid-svg-icons'
+	import { faBarChart, faDisplay, faPieChart, faTable } from '@fortawesome/free-solid-svg-icons'
 	import { faWpforms } from '@fortawesome/free-brands-svg-icons'
 
 	import { onMount, setContext } from 'svelte'
@@ -63,6 +63,11 @@
 			id: 'barchart',
 			name: 'Bar chart',
 			icon: faBarChart
+		},
+		{
+			id: 'table',
+			name: 'Table',
+			icon: faTable
 		}
 	]
 </script>
@@ -70,41 +75,43 @@
 <AppEditorHeader title="Sample app" bind:mode={$mode} />
 <SplitPanesWrapper>
 	<Pane minSize={20} maxSize={30} size={20}>
-		<div
-			class="grid grid-cols-2 gap-2 p-2"
-			use:dndzone={{
-				items: c,
-				flipDurationMs,
-				type: 'component',
-				dropTargetStyle: {
-					outline: 'dashed white',
-					outlineOffset: '2px'
-				},
-				dragDisabled: false,
-				dropFromOthersDisabled: true
-			}}
-			on:consider={(e) => {
-				c = c
-			}}
-			on:finalize={(e) => {
-				c = e.detail.items
-			}}
+		<div class="bg-gray-100 h-full">
+			<div
+				class="grid grid-cols-2 gap-2 p-2 "
+				use:dndzone={{
+					items: c,
+					flipDurationMs,
+					type: 'component',
+					dropTargetStyle: {
+						outline: 'dashed white',
+						outlineOffset: '2px'
+					},
+					dragDisabled: false,
+					dropFromOthersDisabled: true
+				}}
+				on:consider={(e) => {
+					c = c
+				}}
+				on:finalize={(e) => {
+					c = e.detail.items
+				}}
+			>
+				{#each c as component (component.id)}
+					<div
+						class="border shadow-sm h-24 p-2 flex flex-col gap-2 items-center justify-center bg-white rounded-md"
+						animate:flip={{ duration: flipDurationMs }}
+					>
+						<Icon data={component.icon} scale={1.6} />
+						<div class="text-xs">{component.name}</div>
+					</div>
+				{/each}
+			</div></div
 		>
-			{#each c as component (component.id)}
-				<div
-					class="border shadow-sm h-24 p-2 flex flex-col gap-2 items-center justify-center"
-					animate:flip={{ duration: flipDurationMs }}
-				>
-					<Icon data={component.icon} scale={1.6} />
-					<div class="text-xs">{component.name}</div>
-				</div>
-			{/each}
-		</div>
 	</Pane>
 	<Pane>
 		<SectionsEditor bind:sections={$appStore.sections} mode={$mode} />
 	</Pane>
-	<Pane minSize={20} maxSize={30} size={20} class="gap-8 flex flex-col">
+	<Pane minSize={20} maxSize={30} size={20} class="gap-4 flex flex-col">
 		{#if $selection?.sectionIndex !== undefined && $selection?.componentIndex !== undefined}
 			<ComponentPanel
 				bind:component={$appStore.sections[$selection?.sectionIndex].components[

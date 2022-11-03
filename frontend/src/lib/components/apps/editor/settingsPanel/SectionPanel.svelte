@@ -32,9 +32,9 @@
 </script>
 
 {#if section}
-	<div class="p-2 flex flex-col gap-2 items-start">
-		<span class="text-md font-bold">Section editor</span>
+	<span class="text-sm font-bold border-y w-full py-1 px-2">Section editor</span>
 
+	<div class="p-2 flex flex-col gap-2 items-start">
 		<Badge color="indigo">{section.id}</Badge>
 
 		<div class="text-sm font-bold">Columns</div>
