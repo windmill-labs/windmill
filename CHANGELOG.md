@@ -1,6 +1,21 @@
 # Changelog
 
 
+## [1.44.0](https://github.com/windmill-labs/windmill/compare/v1.43.2...v1.44.0) (2022-11-03)
+
+
+### Features
+
+* **backend:** Deno lock files ([#851](https://github.com/windmill-labs/windmill/issues/851)) ([5bbfb40](https://github.com/windmill-labs/windmill/commit/5bbfb40ee1114d83bf0a277fa991aa70d5be8a62))
+* implement allowed domains for self-hosted ([513924b](https://github.com/windmill-labs/windmill/commit/513924b0437a1d80720ac5bd1f38c33f97839d28))
+
+
+### Bug Fixes
+
+* **backend:** capture up all lockfile issues ([35868ef](https://github.com/windmill-labs/windmill/commit/35868ef9bf1eac650cbb735807aebc5a604dd5d6))
+* implement require admin differently than unauthorized ([14c296d](https://github.com/windmill-labs/windmill/commit/14c296dbb85131c355980cd416c26a88c4823978))
+* **python-client:** fix get_resource ([20bc904](https://github.com/windmill-labs/windmill/commit/20bc904e5fa3b97192d9cf7b2b70bdbde0408913))
+
 ## [1.43.2](https://github.com/windmill-labs/windmill/compare/v1.43.1...v1.43.2) (2022-11-02)
 
 
