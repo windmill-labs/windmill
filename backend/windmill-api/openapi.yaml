@@ -273,6 +273,26 @@ paths:
               schema:
                 type: string
 
+  /users/delete/{email}:
+    delete:
+      summary: global delete user (require super admin)
+      operationId: globalUserDelete
+      tags:
+        - user
+      parameters:
+        - name: email
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: user deleted
+          content:
+            text/plain:
+              schema:
+                type: string
+
   /w/{workspace}/users/delete/{username}:
     delete:
       summary: delete user (require admin privilege)
