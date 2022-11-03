@@ -180,7 +180,7 @@
 					script.kind,
 					script.language,
 					script.schema,
-					script.lock
+					script.language == 'deno' ? '' : script.lock
 				).toString()}
 				variant="border"
 				color="blue"
