@@ -45,7 +45,7 @@
 </script>
 
 <Splitpanes>
-	<Pane minSize={20} class="relative p-4 !duration-[0ms]">
+	<Pane minSize={20} size={66} class="relative p-4 !duration-[0ms]">
 		<slot />
 	</Pane>
 	<Pane minSize={20} class="px-2 py-2 h-full !duration-[0ms]">

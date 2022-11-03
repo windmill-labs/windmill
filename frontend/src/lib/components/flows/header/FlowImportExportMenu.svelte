@@ -20,7 +20,7 @@
 	function importJson() {
 		Object.assign($flowStore, JSON.parse(pendingJson))
 
-		initFlow($flowStore)
+		initFlow($flowStore, undefined)
 		sendUserToast('OpenFlow imported from JSON')
 		jsonSetterDrawer.toggleDrawer()
 	}

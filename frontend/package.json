@@ -62,6 +62,7 @@
 		"monaco-editor": "^0.34.1",
 		"monaco-editor-workers": "^0.34.2",
 		"monaco-languageclient": "4.0.1",
+		"svelte-autosize": "^1.0.1",
 		"vscode-ws-jsonrpc": "^2.0.0"
 	}
 }

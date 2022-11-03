@@ -1,7 +1,6 @@
 <script lang="ts">
 	import { sendUserToast } from '$lib/utils'
 	import { VariableService } from '$lib/gen'
-	import AutosizedTextarea from './AutosizedTextarea.svelte'
 	import Path from './Path.svelte'
 	import { createEventDispatcher } from 'svelte'
 	import { workspaceStore } from '$lib/stores'
@@ -11,6 +10,7 @@
 	import Drawer from './common/drawer/Drawer.svelte'
 	import DrawerContent from './common/drawer/DrawerContent.svelte'
 	import Alert from './common/alert/Alert.svelte'
+	import autosize from 'svelte-autosize'
 
 	const dispatch = createEventDispatcher()
 
@@ -156,7 +156,7 @@
 					<span class="font-semibold text-gray-700">Variable value</span>
 					<span class="text-sm text-gray-500">({variable.value.length}/3000 characters)</span>
 				</div>
-				<AutosizedTextarea bind:value={variable.value} minRows={5} />
+				<textarea type="text" use:autosize bind:value={variable.value} />
 			</div>
 			<!-- {/if} -->
 
@@ -165,7 +165,12 @@
 					Description
 					<Required required={false} />
 				</div>
-				<AutosizedTextarea bind:value={variable.description} placeholder={''} minRows={3} />
+				<input
+					type="text"
+					use:autosize
+					bind:value={variable.description}
+					placeholder="Description (can use Markdown)"
+				/>
 			</div>
 		</div>
 		<div slot="submission">

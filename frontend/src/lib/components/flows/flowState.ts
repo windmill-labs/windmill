@@ -19,8 +19,8 @@ export type FlowState = Record<string, FlowModuleState>
  */
 export const flowStateStore = writable<FlowState>({})
 
-export async function initFlowState(flow: Flow) {
-	const modulesState: FlowState = {}
+export async function initFlowState(flow: Flow, flowState: FlowState | undefined) {
+	const modulesState: FlowState = flowState ?? {}
 
 	await mapFlowModules(flow.value.modules, modulesState)
 

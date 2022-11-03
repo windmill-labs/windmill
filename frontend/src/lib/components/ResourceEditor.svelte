@@ -5,7 +5,6 @@
 	import type { Schema } from '$lib/common'
 	import Path from './Path.svelte'
 	import ArgInput from './ArgInput.svelte'
-	import AutosizedTextarea from './AutosizedTextarea.svelte'
 	import ItemPicker from './ItemPicker.svelte'
 	import VariableEditor from './VariableEditor.svelte'
 	import Required from './Required.svelte'
@@ -14,6 +13,7 @@
 	import { workspaceStore } from '$lib/stores'
 	import ResourceTypePicker from './ResourceTypePicker.svelte'
 	import DrawerContent from './common/drawer/DrawerContent.svelte'
+	import autosize from 'svelte-autosize'
 
 	let path = ''
 	let initialPath = ''
@@ -140,10 +140,11 @@
 					<span class=" mt-3 font-semibold text-gray-700 "
 						>Description <Required required={false} />
 					</span>
-					<AutosizedTextarea
+					<textarea
+						type="text"
+						use:autosize
 						bind:value={description}
 						placeholder={DESCRIPTION_PLACEHOLDER}
-						minRows={3}
 					/>
 					<div>
 						<div class="mb-2 font-semibold text-gray-700">
