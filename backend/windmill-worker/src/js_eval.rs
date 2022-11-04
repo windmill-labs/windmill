@@ -49,7 +49,7 @@ pub async fn eval_timeout(
                 ])
             }
 
-            if !steps.is_empty() {
+            if !steps.is_empty() || by_id.is_some() {
                 ops.push(op_get_result::decl())
             }
 
@@ -238,7 +238,7 @@ async function resource(path) {{
             })
             .join(""),
     );
-    // tracing::debug!("{}", code);
+    tracing::debug!("{}", code);
     let global = context.execute_script("<anon>", &code)?;
     let global = context.resolve_value(global).await?;
 
@@ -272,17 +272,18 @@ async fn op_variable(args: Vec<String>) -> Result<String, anyhow::Error> {
 }
 
 #[op]
-async fn op_get_result(
-    args: Vec<String>,
-) -> Result<windmill_api_client::types::CompletedJob, anyhow::Error> {
+async fn op_get_result(args: Vec<String>) -> Result<serde_json::Value, anyhow::Error> {
     let workspace = &args[0];
     let id = &args[1];
     let token = &args[2];
     let base_url = &args[3];
     let client = windmill_api_client::create_client(base_url, token.clone());
-    let result = client.get_completed_job(workspace, &id.parse()?).await?;
-    // TODO: verify this works. Previously this returned Option<serde_jons::Value>, now it's statically typed.
-    Ok(result.into_inner())
+    let result = client
+        .get_completed_job(workspace, &id.parse()?)
+        .await?
+        .result
+        .clone();
+    Ok(serde_json::json!(result))
 }
 
 #[op]

@@ -1844,6 +1844,42 @@ async fn test_branchone_simple(db: Pool<Postgres>) {
 }
 
 #[sqlx::test(fixtures("base"))]
+async fn test_branchone_with_cond(db: Pool<Postgres>) {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await;
+    let port = server.addr.port();
+
+    let flow: FlowValue = serde_json::from_value(json!({
+        "modules": [
+            {
+                "id": "a",
+                "value": {
+                    "type": "rawscript",
+                    "language": "deno",
+                    "content": "export function main(){ return [1] }",
+                }
+            },
+            {
+                "value": {
+                    "branches": [{"expr": "previous_result[0] == 1 && result_by_id(\"a\")[0] == 1", "modules": [module_add_item_to_list(3)]}],
+                    "default": [module_add_item_to_list(2)],
+                    "type": "branchone",
+                }
+            },
+        ],
+    }))
+    .unwrap();
+
+    let flow = JobPayload::RawFlow { value: flow, path: None };
+    let result = run_job_in_new_worker_until_complete(&db, flow, port)
+        .await
+        .result
+        .unwrap();
+
+    assert_eq!(result, serde_json::json!([1, 3]));
+}
+
+#[sqlx::test(fixtures("base"))]
 async fn test_branchall_sequential(db: Pool<Postgres>) {
     initialize_tracing().await;
     let server = ApiServer::start(db.clone()).await;
