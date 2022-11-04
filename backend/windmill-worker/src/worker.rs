@@ -787,22 +787,23 @@ async fn handle_code_execution_job(
     worker_config: &WorkerConfig,
     envs: &Envs,
 ) -> error::Result<serde_json::Value> {
+    // TODO: Simplify this, ScriptHub == Preview?
     let (inner_content, requirements_o, language) = if matches!(job.job_kind, JobKind::Preview)
         || (matches!(job.job_kind, JobKind::Script_Hub) && job.language == Some(ScriptLang::Deno))
     {
-        let code = (job.raw_code.as_ref().unwrap_or(&"no raw code".to_owned())).to_owned();
-        (code, None, job.language.to_owned())
+        let code = job
+            .raw_code
+            .clone()
+            .unwrap_or_else(|| "no raw code".to_owned());
+        let lock = job.raw_lock.clone();
+        (code, lock, job.language.to_owned())
     } else if matches!(job.job_kind, JobKind::Script_Hub) {
-        let code = (job.raw_code.as_ref().unwrap_or(&"no raw code".to_owned())).to_owned();
-        let script = get_hub_script(
-            job.script_path
-                .clone()
-                .unwrap_or_else(|| "missing script path".to_string()),
-            None,
-            &job.created_by,
-        )
-        .await?;
-        (code, script.lockfile, job.language.to_owned())
+        let code = job
+            .raw_code
+            .clone()
+            .unwrap_or_else(|| "no raw code".to_owned());
+        let lock = job.raw_lock.clone();
+        (code, lock, job.language.to_owned())
     } else {
         sqlx::query_as::<_, (String, Option<String>, Option<ScriptLang>)>(
             "SELECT content, lock, language FROM script WHERE hash = $1 AND (workspace_id = $2 OR \

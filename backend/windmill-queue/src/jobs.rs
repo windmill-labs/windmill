@@ -508,6 +508,7 @@ pub struct QueuedJob {
     pub args: Option<serde_json::Value>,
     pub logs: Option<String>,
     pub raw_code: Option<String>,
+    pub raw_lock: Option<String>,
     pub canceled: bool,
     pub canceled_by: Option<String>,
     pub canceled_reason: Option<String>,

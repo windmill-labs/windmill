@@ -757,6 +757,7 @@ impl From<UnifiedJob> for Job {
                 scheduled_for: uj.scheduled_for.unwrap(),
                 logs: None,
                 raw_code: None,
+                raw_lock: None,
                 canceled: uj.canceled,
                 canceled_by: uj.canceled_by,
                 canceled_reason: None,
