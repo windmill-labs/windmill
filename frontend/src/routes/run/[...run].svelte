@@ -37,6 +37,7 @@
 	import JobArgs from '$lib/components/JobArgs.svelte'
 	import FlowProgressBar from '$lib/components/flows/FlowProgressBar.svelte'
 	import Tabs from '$lib/components/common/tabs/Tabs.svelte'
+	import Badge from '$lib/components/common/badge/Badge.svelte'
 
 	let workspace_id_query: string | undefined = $page.url.searchParams.get('workspace') ?? undefined
 	let workspace_id: string | undefined
@@ -206,14 +207,11 @@
 				{/if}
 				{job.script_path ?? (job.job_kind == 'dependencies' ? 'lock dependencies' : 'No path')}
 				{#if job.script_hash}
-					<a
-						href="/scripts/get/{job.script_hash}"
-						class="text-2xs text-gray-500 bg-gray-100 font-mono">{truncateHash(job.script_hash)}</a
+					<a href="/scripts/get/{job.script_hash}"
+						><Badge color="gray">{truncateHash(job.script_hash)}</Badge></a
 					>
 				{/if}
-				{#if job && 'job_kind' in job}<span
-						class="bg-blue-200 text-gray-700 text-xs rounded px-1 mx-3">{job.job_kind}</span
-					>
+				{#if job && 'job_kind' in job}<Badge color="blue">{job.job_kind}</Badge>
 				{/if}
 			{/if}
 		</div>
@@ -255,9 +253,11 @@
 			<Tabs bind:selected={viewTab}>
 				<Tab value="result">Result</Tab>
 				<Tab value="logs">Logs</Tab>
-				<Tab value="code"
-					>{job?.job_kind == 'dependencies' ? 'Input Dependencies' : 'Code previewed'}</Tab
-				>
+				{#if job?.job_kind == 'dependencies'}
+					<Tab value="code">Dependencies</Tab>
+				{:else if job?.job_kind == 'preview'}
+					<Tab value="code">Code</Tab>
+				{/if}
 			</Tabs>
 
 			<Skeleton loading={!job} layout={[[5]]} />

@@ -14,7 +14,8 @@
 		canWrite,
 		sendUserToast,
 		defaultIfEmptyString,
-		flowToHubUrl
+		flowToHubUrl,
+		copyToClipboard
 	} from '$lib/utils'
 	import {
 		faPlay,
@@ -24,7 +25,8 @@
 		faCalendar,
 		faShare,
 		faGlobe,
-		faCodeFork
+		faCodeFork,
+		faClipboard
 	} from '@fortawesome/free-solid-svg-icons'
 
 	import Tooltip from '$lib/components/Tooltip.svelte'
@@ -37,7 +39,10 @@
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
 	import FlowViewer from '$lib/components/FlowViewer.svelte'
 	import ObjectViewer from '$lib/components/propertyPicker/ObjectViewer.svelte'
-	import { Button, ActionRow, Skeleton } from '$lib/components/common'
+	import { Button, ActionRow, Skeleton, Badge } from '$lib/components/common'
+	import UserSettings from '$lib/components/UserSettings.svelte'
+
+	let userSettings: UserSettings
 
 	let flow: Flow | undefined
 	let schedule: Schedule | undefined
@@ -87,7 +92,11 @@
 		flow = await FlowService.getFlowByPath({ workspace: $workspaceStore!, path })
 		can_write = canWrite(flow.path, flow.extra_perms!, $userStore)
 	}
+
+	$: url = `${$page.url.hostname}/api/w/${$workspaceStore}/jobs/run/f/${flow?.path}`
 </script>
+
+<UserSettings bind:this={userSettings} />
 
 <Skeleton
 	class="!max-w-6xl !px-4 sm:!px-6 md:!px-8"
@@ -200,10 +209,11 @@
 			<p class="text-sm text-gray-600"
 				>Edited {displayDaysAgo(flow.edited_at ?? '')} by {flow.edited_by}</p
 			>
-			<h2>{flow.summary}</h2>
-
-			<div class="prose">
-				<SvelteMarkdown source={defaultIfEmptyString(flow.description, 'No description')} />
+			<div>
+				<h2 class="font-bold mb-2">{flow.summary}</h2>
+				<div class="prose">
+					<SvelteMarkdown source={defaultIfEmptyString(flow.description, 'No description')} />
+				</div>
 			</div>
 			{#if schedule}
 				<div>
@@ -242,19 +252,38 @@
 				</div>
 			{/if}
 			<div>
-				<span>Webhook to run this flow:</span>
-				<Tooltip
-					>Send a POST http request with a token as bearer token and the args respecting the
-					corresponding jsonschema as payload. To create a permanent token, go to your user setting
-					by clicking your username on the top-left.</Tooltip
+				<h3 class="text-lg mb-1 font-bold text-gray-600"
+					>Webhook<Tooltip
+						>To trigger this script with a webhook, do a POST request to the endpoint below. Flows
+						are not public and can only be run by users with at least view rights on them. You will
+						need to pass a bearer token to authentify as a user. You can either pass it as a Bearer
+						token or as query arg `?token=XXX`. <a
+							href="https://docs.windmill.dev/docs/getting_started/webhooks">See docs</a
+						></Tooltip
+					></h3
 				>
-				<pre
-					><code
-						><a href="/api/w/{$workspaceStore}/jobs/run/f/{flow?.path}"
-							>/api/w/{$workspaceStore}/jobs/run/f/{flow?.path}</a
-						></code
-					></pre
-				>
+				<div class="max-w-lg border border-blue-200 p-4">
+					<div class="flex flex-row gap-x-2">
+						<a
+							href={$page.url.protocol + '//' + url}
+							class="whitespace-nowrap text-ellipsis overflow-hidden mr-1"
+						>
+							{url}
+						</a>
+						<Button
+							on:click={() => copyToClipboard($page.url.protocol + '//' + url)}
+							color="blue"
+							size="xs"
+							startIcon={{ icon: faClipboard }}
+							btnClasses="ml-2"
+						>
+							Copy
+						</Button>
+					</div>
+					<div class="flex flex-row-reverse mt-2">
+						<Button size="xs" on:click={userSettings.toggleDrawer}>Create token</Button>
+					</div>
+				</div>
 			</div>
 			<div>
 				<h2 class="text-gray-700 pb-1 mb-3 border-b">Flow</h2>

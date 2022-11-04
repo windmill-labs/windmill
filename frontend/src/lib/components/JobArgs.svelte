@@ -16,8 +16,8 @@
 		{#if job && job.args && Object.keys(job.args).length > 0}
 			{#each Object.entries(job.args) as [arg, value]}
 				<tr>
-					<td>{arg}</td>
-					<td> <ArgInfo {value} /></td>
+					<td class="font-semibold">{arg}</td>
+					<td><ArgInfo {value} /></td>
 				</tr>
 			{/each}
 		{:else if job}

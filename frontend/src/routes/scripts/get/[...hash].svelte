@@ -43,7 +43,9 @@
 	import HighlightCode from '$lib/components/HighlightCode.svelte'
 	import { Badge, Tabs, Tab, TabContent, Button, ActionRow } from '$lib/components/common'
 	import Skeleton from '../../../lib/components/common/skeleton/Skeleton.svelte'
+	import UserSettings from '$lib/components/UserSettings.svelte'
 
+	let userSettings: UserSettings
 	let script: Script | undefined
 	let topHash: string | undefined
 	let can_write = false
@@ -127,6 +129,8 @@
 		intervalId && clearInterval(intervalId)
 	})
 </script>
+
+<UserSettings bind:this={userSettings} />
 
 <Skeleton {loading} class="!px-4 sm:!px-6 md:!px-8 !max-w-6xl" layout={[0.75, [2, 0, 2], 1]} />
 {#if script}
@@ -326,7 +330,16 @@
 
 		<div class="flex flex-col lg:flex-row gap-4">
 			<div class="lg:w-1/2">
-				<h3 class="text-lg mb-1 font-bold text-gray-600">Webhooks</h3>
+				<h3 class="text-lg mb-1 font-bold text-gray-600"
+					>Webhooks<Tooltip
+						>To trigger this script with a webhook, do a POST request to the endpoints below.
+						Scripts are not public and can only be run by users with at least view rights on them.
+						You will need to pass a bearer token to authentify as a user. You can either pass it as
+						a Bearer token or as query arg `?token=XXX`. <a
+							href="https://docs.windmill.dev/docs/getting_started/webhooks">See docs</a
+						></Tooltip
+					></h3
+				>
 				<Skeleton {loading} layout={[[8.5]]} />
 				{#if script}
 					<div class="box">
@@ -363,6 +376,9 @@
 												</li>
 											{/each}
 										</ul>
+										<div class="flex flex-row-reverse mt-2">
+											<Button size="xs" on:click={userSettings.toggleDrawer}>Create token</Button>
+										</div>
 									</TabContent>
 								{/each}
 							</svelte:fragment>
