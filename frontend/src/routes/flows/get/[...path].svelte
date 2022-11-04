@@ -262,8 +262,8 @@
 						></Tooltip
 					></h3
 				>
-				<div class="max-w-lg border border-blue-200 p-4">
-					<div class="flex flex-row gap-x-2">
+				<div class="box max-w-2xl">
+					<div class="flex flex-row gap-x-2 w-full">
 						<a
 							href={$page.url.protocol + '//' + url}
 							class="whitespace-nowrap text-ellipsis overflow-hidden mr-1"
