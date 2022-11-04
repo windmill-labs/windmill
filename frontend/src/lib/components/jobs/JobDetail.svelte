@@ -21,6 +21,7 @@
 	} from '@fortawesome/free-solid-svg-icons'
 	import Icon from 'svelte-awesome'
 	import { check } from 'svelte-awesome/icons'
+	import { Badge } from '../common'
 
 	const SMALL_ICON_SCALE = 0.7
 
@@ -95,19 +96,12 @@
 							{/if}
 						</div>
 						<div class="whitespace-nowrap">
-							{#if job.script_hash}
-								<a href="/scripts/get/{job.script_hash}" class="commit-hash"
-									>{truncateHash(job.script_hash ?? '')}</a
+							{#if 'job_kind' in job}<a href="/run/{job.id}"
+									><Badge color="blue">{job.job_kind}</Badge></a
 								>
 							{/if}
-							{#if 'job_kind' in job && job.job_kind != 'script'}<span
-									class="bg-blue-200 text-gray-700 text-xs rounded px-1 whitespace-nowrap"
-									><a href="/run/{job.id}">{job.job_kind}</a></span
-								>
-							{:else if job.is_flow_step}
-								<span class="bg-blue-200 text-gray-700 text-xs rounded px-1 "
-									><a href="/run/{job.parent_job}">step of flow</a></span
-								>
+							{#if (job.is_flow_step && job.job_kind == 'script') || job.job_kind == 'preview'}
+								<a href="/run/{job.parent_job}"><Badge color="gray">flow step</Badge></a>
 							{/if}
 						</div>
 					</div>

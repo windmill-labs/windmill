@@ -19,7 +19,6 @@
 	import Tab from '$lib/components/common/tabs/Tab.svelte'
 	import JobDetail from '$lib/components/jobs/JobDetail.svelte'
 	import { Skeleton } from '$lib/components/common'
-	import Tooltip from '../../lib/components/Tooltip.svelte'
 	import { goto } from '$app/navigation'
 	import PageHeader from '$lib/components/PageHeader.svelte'
 
