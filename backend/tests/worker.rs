@@ -1007,6 +1007,7 @@ async fn test_deno_flow(db: Pool<Postgres>) {
                         language: ScriptLang::Deno,
                         content: numbers.to_string(),
                         path: None,
+                        lock: None,
                     },
                     input_transforms: Default::default(),
                     stop_after_if: Default::default(),
@@ -1034,6 +1035,7 @@ async fn test_deno_flow(db: Pool<Postgres>) {
                                 language: ScriptLang::Deno,
                                 content: doubles.to_string(),
                                 path: None,
+                                lock: None,
                             },
                             input_transforms: Default::default(),
                             stop_after_if: Default::default(),
@@ -1086,20 +1088,21 @@ async fn test_deno_flow_same_worker(db: Pool<Postgres>) {
                     id: "a".to_string(),
                     value: FlowModuleValue::RawScript {
                         input_transforms: [
-                        (
-                            "loop".to_string(),
-                            InputTransform::Static { value: json!(false) },
-                        ),
-                        ("i".to_string(), InputTransform::Static { value: json!(1) }),
-                        (
-                            "path".to_string(),
-                            InputTransform::Static { value: json!("outer.txt") },
-                        ),
-                    ]
-                    .into(),
+                            (
+                                "loop".to_string(),
+                                InputTransform::Static { value: json!(false) },
+                            ),
+                            ("i".to_string(), InputTransform::Static { value: json!(1) }),
+                            (
+                                "path".to_string(),
+                                InputTransform::Static { value: json!("outer.txt") },
+                            ),
+                        ]
+                        .into(),
                         language: ScriptLang::Deno,
                         content: write_file.clone(),
                         path: None,
+                        lock: None,
                     },
                     input_transforms: Default::default(),
                     stop_after_if: Default::default(),
@@ -1139,6 +1142,7 @@ async fn test_deno_flow_same_worker(db: Pool<Postgres>) {
                                     language: ScriptLang::Deno,
                                     content: write_file,
                                     path: None,
+                                    lock: None,
                                 },
                                 stop_after_if: Default::default(),
                                 summary: Default::default(),
@@ -1163,6 +1167,7 @@ async fn test_deno_flow_same_worker(db: Pool<Postgres>) {
                                     }"#
                                     .to_string(),
                                     path: None,
+                                    lock: None,
                                 },
                                 input_transforms: [].into(),
                                 stop_after_if: Default::default(),
@@ -1185,26 +1190,27 @@ async fn test_deno_flow_same_worker(db: Pool<Postgres>) {
                     id: "c".to_string(),
                     value: FlowModuleValue::RawScript {
                         input_transforms: [
-                        (
-                            "loops".to_string(),
-                            InputTransform::Javascript { expr: "previous_result".to_string() },
-                        ),
-                        (
-                            "path".to_string(),
-                            InputTransform::Static { value: json!("outer.txt") },
-                        ),
-                        (
-                            "path2".to_string(),
-                            InputTransform::Static { value: json!("inner.txt") },
-                        ),
-                    ]
-                    .into(),
+                            (
+                                "loops".to_string(),
+                                InputTransform::Javascript { expr: "previous_result".to_string() },
+                            ),
+                            (
+                                "path".to_string(),
+                                InputTransform::Static { value: json!("outer.txt") },
+                            ),
+                            (
+                                "path2".to_string(),
+                                InputTransform::Static { value: json!("inner.txt") },
+                            ),
+                        ]
+                        .into(),
                         language: ScriptLang::Deno,
                         content: r#"export async function main(path: string, loops: string[], path2: string) {
                             return await Deno.readTextFile(`/shared/${path}`) + "," + loops + "," + await Deno.readTextFile(`/shared/${path2}`);
                         }"#
                         .to_string(),
                         path: None,
+                        lock: None,
                     },
                     input_transforms: [].into(),
                     stop_after_if: Default::default(),
@@ -1505,6 +1511,7 @@ func main(derp string) (string, error) {
     let result = RunJob::from(JobPayload::Code(RawCode {
         content,
         path: None,
+        lock: None,
         language: ScriptLang::Go,
     }))
     .arg("derp", json!("world"))
@@ -1528,7 +1535,12 @@ def main():
         "#
     .to_owned();
 
-    let job = JobPayload::Code(RawCode { content, path: None, language: ScriptLang::Python3 });
+    let job = JobPayload::Code(RawCode {
+        content,
+        path: None,
+        language: ScriptLang::Python3,
+        lock: None,
+    });
 
     let result = run_job_in_new_worker_until_complete(&db, job, port)
         .await
@@ -1553,7 +1565,12 @@ def main():
         "#
     .to_owned();
 
-    let job = JobPayload::Code(RawCode { content, path: None, language: ScriptLang::Python3 });
+    let job = JobPayload::Code(RawCode {
+        content,
+        path: None,
+        language: ScriptLang::Python3,
+        lock: None,
+    });
 
     let result = run_job_in_new_worker_until_complete(&db, job, port)
         .await
@@ -1577,7 +1594,12 @@ def main():
         "#
     .to_owned();
 
-    let job = JobPayload::Code(RawCode { content, path: None, language: ScriptLang::Python3 });
+    let job = JobPayload::Code(RawCode {
+        content,
+        path: None,
+        language: ScriptLang::Python3,
+        lock: None,
+    });
 
     let result = run_job_in_new_worker_until_complete(&db, job, port)
         .await

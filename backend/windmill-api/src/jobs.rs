@@ -1023,6 +1023,7 @@ async fn run_preview_job(
             content: preview.content,
             path: preview.path,
             language: preview.language,
+            lock: None,
         }),
         preview.args,
         &authed.username,

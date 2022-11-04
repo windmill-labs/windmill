@@ -362,6 +362,7 @@ mod tests {
                         content: "test".to_string(),
                         language: scripts::ScriptLang::Deno,
                         path: None,
+                        lock: None,
                     },
                     stop_after_if: Some(StopAfterIf {
                         expr: "foo = 'bar'".to_string(),
