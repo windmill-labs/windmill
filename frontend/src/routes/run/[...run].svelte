@@ -226,7 +226,7 @@
 	<!-- Arguments and actions -->
 	<div class="flex flex-col mr-2 sm:mr-0 sm:grid sm:grid-cols-3 sm:gap-5">
 		<div class="col-span-2">
-			<JobArgs {job} />
+			<JobArgs args={job?.args} />
 
 			{#if job?.job_kind == 'flow' || job?.job_kind == 'flowpreview'}
 				<div class="mt-10" />

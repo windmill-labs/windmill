@@ -41,6 +41,9 @@
 	import ObjectViewer from '$lib/components/propertyPicker/ObjectViewer.svelte'
 	import { Button, ActionRow, Skeleton, Badge } from '$lib/components/common'
 	import UserSettings from '$lib/components/UserSettings.svelte'
+	import ArgInput from '$lib/components/ArgInput.svelte'
+	import JobArgs from '$lib/components/JobArgs.svelte'
+	import CronInput from '$lib/components/CronInput.svelte'
 
 	let userSettings: UserSettings
 
@@ -215,36 +218,6 @@
 					<SvelteMarkdown source={defaultIfEmptyString(flow.description, 'No description')} />
 				</div>
 			</div>
-			{#if schedule}
-				<div>
-					<h2 class="text-gray-700 pb-1 mb-3 border-b">Primary Schedule</h2>
-					<div>
-						<h3 class="text-gray-700 ">Enabled</h3>
-						<Toggle
-							checked={schedule.enabled}
-							on:change={(e) => {
-								if (can_write) {
-									setScheduleEnabled(path, e.detail)
-								} else {
-									sendUserToast('not enough permission', true)
-								}
-							}}
-						/>
-					</div>
-					<div>
-						<div>
-							<h3 class="text-gray-700">Schedule</h3>
-							<span class="font-mono p-1 border" class:bg-gray-300={!schedule.enabled}
-								>{schedule.schedule}</span
-							>
-						</div>
-						<div>
-							<h3 class="text-gray-700 ">Args</h3>
-							<ObjectViewer json={schedule.args ?? {}} pureViewer={true} />
-						</div>
-					</div>
-				</div>
-			{/if}
 			{#if flow.archived}
 				<div class="bg-red-100 border-l-4 border-red-500 text-orange-700 p-4" role="alert">
 					<p class="font-bold">Archived</p>
@@ -252,7 +225,10 @@
 				</div>
 			{/if}
 			<div>
-				<h3 class="text-lg mb-1 font-bold text-gray-600"
+				<h2 class="text-gray-700 pb-1 mb-3 border-b">Flow</h2>
+				<FlowViewer {flow} />
+
+				<h2 class="my-4 text-gray-700 pb-1 mb-3 border-b"
 					>Webhook<Tooltip
 						>To trigger this script with a webhook, do a POST request to the endpoint below. Flows
 						are not public and can only be run by users with at least view rights on them. You will
@@ -260,7 +236,7 @@
 						token or as query arg `?token=XXX`. <a
 							href="https://docs.windmill.dev/docs/getting_started/webhooks">See docs</a
 						></Tooltip
-					></h3
+					></h2
 				>
 				<div class="box max-w-2xl">
 					<div class="flex flex-row gap-x-2 w-full">
@@ -284,10 +260,33 @@
 						<Button size="xs" on:click={userSettings.toggleDrawer}>Create token</Button>
 					</div>
 				</div>
-			</div>
-			<div>
-				<h2 class="text-gray-700 pb-1 mb-3 border-b">Flow</h2>
-				<FlowViewer {flow} />
+				{#if schedule}
+					<div class="mt-8">
+						<h2 class="text-gray-700 pb-1 mb-3 border-b inline-flex flex-row items-center gap-x-4"
+							><div>Primary Schedule </div>
+							<Badge color="gray">{schedule.schedule}</Badge>
+							<Toggle
+								checked={schedule.enabled}
+								on:change={(e) => {
+									if (can_write) {
+										setScheduleEnabled(path, e.detail)
+									} else {
+										sendUserToast('not enough permission', true)
+									}
+								}}
+							/>
+							<Button size="xs" href="/schedule/add?edit={flow.path}&isFlow=true"
+								>Edit schedule</Button
+							>
+						</h2>
+						<div class="max-w-lg">
+							<JobArgs args={schedule.args ?? {}} />
+						</div>
+						<div class="box max-w-lg mt-2">
+							<CronInput disabled={true} schedule={schedule.schedule} />
+						</div>
+					</div>
+				{/if}
 			</div>
 		{/if}
 	</div>

@@ -128,7 +128,7 @@
 		</div>
 		<h2 class="mt-4">Flow arguments</h2>
 
-		<JobArgs {job} />
+		<JobArgs args={job?.args} />
 		<div class="mt-8">
 			{#if approver}
 				<p>Dis/approving as: <b>{approver}</b></p>
