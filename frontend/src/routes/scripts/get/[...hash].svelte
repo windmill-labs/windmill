@@ -288,7 +288,7 @@
 				<h2 class="font-bold mb-2"
 					>{script.summary && script.summary != '' ? script.summary : 'No summary'}</h2
 				>
-				<div class="prose box">
+				<div class="prose text-xs box">
 					<SvelteMarkdown source={defaultIfEmptyString(script.description, 'No description')} />
 				</div>
 			</div>

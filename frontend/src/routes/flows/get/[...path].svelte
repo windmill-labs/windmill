@@ -216,7 +216,7 @@
 				<h2 class="font-bold mb-2"
 					>{flow.summary && flow.summary != '' ? flow.summary : 'No summary'}</h2
 				>
-				<div class="prose box">
+				<div class="prose text-xs box">
 					<SvelteMarkdown source={defaultIfEmptyString(flow.description, 'No description')} />
 				</div>
 			</div>
@@ -257,8 +257,6 @@
 						>
 							Copy
 						</Button>
-					</div>
-					<div class="flex flex-row-reverse mt-2">
 						<Button size="xs" on:click={userSettings.toggleDrawer}>Create token</Button>
 					</div>
 				</div>
