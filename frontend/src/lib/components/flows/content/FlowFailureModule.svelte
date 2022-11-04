@@ -9,5 +9,6 @@
 		on:delete={() => {
 			$flowStore.value.failure_module = undefined
 		}}
+		previousModule={undefined}
 	/>
 {/if}
