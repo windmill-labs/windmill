@@ -328,89 +328,6 @@
 			{/if}
 		{/if}
 
-		<div class="flex flex-col lg:flex-row gap-4">
-			<div class="lg:w-1/2">
-				<h3 class="text-lg mb-1 font-bold text-gray-600"
-					>Webhooks<Tooltip
-						>To trigger this script with a webhook, do a POST request to the endpoints below.
-						Scripts are not public and can only be run by users with at least view rights on them.
-						You will need to pass a bearer token to authentify as a user. You can either pass it as
-						a Bearer token or as query arg `?token=XXX`. <a
-							href="https://docs.windmill.dev/docs/getting_started/webhooks">See docs</a
-						></Tooltip
-					></h3
-				>
-				<Skeleton {loading} layout={[[8.5]]} />
-				{#if script}
-					<div class="box">
-						<Tabs selected="uuid">
-							<Tab value="uuid">UUID</Tab>
-							<Tab value="result">Result</Tab>
-							<svelte:fragment slot="content">
-								{#each Object.keys(webhooks) as key}
-									<TabContent value={key}>
-										<ul>
-											{#each Object.keys(webhooks[key]) as type}
-												{@const url = webhooks[key][type]}
-												<li class="flex justify-between items-center mt-2">
-													<a
-														href={$page.url.protocol + '//' + url}
-														class="whitespace-nowrap text-ellipsis overflow-hidden mr-1"
-													>
-														{url}
-													</a>
-													<div class="flex">
-														<Badge color="dark-gray" capitalize>
-															{type}
-														</Badge>
-														<Button
-															on:click={() => copyToClipboard($page.url.protocol + '//' + url)}
-															color="blue"
-															size="xs"
-															startIcon={{ icon: faClipboard }}
-															btnClasses="ml-2"
-														>
-															Copy
-														</Button>
-													</div>
-												</li>
-											{/each}
-										</ul>
-										<div class="flex flex-row-reverse mt-2">
-											<Button size="xs" on:click={userSettings.toggleDrawer}>Create token</Button>
-										</div>
-									</TabContent>
-								{/each}
-							</svelte:fragment>
-						</Tabs>
-					</div>
-				{/if}
-			</div>
-			<div class="lg:w-1/2">
-				<h3 class="text-lg mb-1 font-bold text-gray-600">Versions</h3>
-				<Skeleton {loading} layout={[[8.5]]} />
-				{#if script}
-					<div class="box">
-						<h4 class="font-bold text-gray-500">Current</h4>
-						<div class="mt-1">
-							{script?.hash}
-						</div>
-						<h4 class="font-bold text-gray-500 mt-2">Previous</h4>
-						{#if script?.parent_hashes?.length}
-							<ul class="max-h-20 overflow-y-auto">
-								{#each script.parent_hashes as hash}
-									<li class="mt-1">
-										<a href="/scripts/get/{hash}">{hash}</a>
-									</li>
-								{/each}
-							</ul>
-						{:else}
-							<p class="text-sm text-gray-500">There are no previous versions</p>
-						{/if}
-					</div>
-				{/if}
-			</div>
-		</div>
 		<div class="pt-4">
 			<h2 class="text-lg mb-1 font-bold text-gray-600">
 				Arguments JSON schema
@@ -433,16 +350,99 @@
 				<HighlightCode language={script.language} code={script.content} />
 			{/if}
 		</div>
-		<div>
-			<h2 class="text-lg mb-1 font-bold text-gray-600 border-b">Dependencies lock file</h2>
-			<Skeleton {loading} layout={[[5]]} />
+	</div>
+	<div class="flex flex-col lg:flex-row gap-4 mt-8">
+		<div class="lg:w-1/2">
+			<h3 class="text-lg mb-1 font-bold text-gray-600"
+				>Webhooks<Tooltip
+					>To trigger this script with a webhook, do a POST request to the endpoints below. Scripts
+					are not public and can only be run by users with at least view rights on them. You will
+					need to pass a bearer token to authentify as a user. You can either pass it as a Bearer
+					token or as query arg `?token=XXX`. <a
+						href="https://docs.windmill.dev/docs/getting_started/webhooks">See docs</a
+					></Tooltip
+				></h3
+			>
+			<Skeleton {loading} layout={[[8.5]]} />
 			{#if script}
-				{#if script?.lock}
-					<pre class="text-xs">{script.lock}</pre>
-				{:else}
-					<p class="text-sm text-gray-500">There is no lock file for this script</p>
-				{/if}
+				<div class="box">
+					<Tabs selected="uuid">
+						<Tab value="uuid">UUID</Tab>
+						<Tab value="result">Result</Tab>
+						<svelte:fragment slot="content">
+							{#each Object.keys(webhooks) as key}
+								<TabContent value={key}>
+									<ul>
+										{#each Object.keys(webhooks[key]) as type}
+											{@const url = webhooks[key][type]}
+											<li class="flex justify-between items-center mt-2">
+												<a
+													href={$page.url.protocol + '//' + url}
+													class="whitespace-nowrap text-ellipsis overflow-hidden mr-1"
+												>
+													{url}
+												</a>
+												<div class="flex">
+													<Badge color="dark-gray" capitalize>
+														{type}
+													</Badge>
+													<Button
+														on:click={() => copyToClipboard($page.url.protocol + '//' + url)}
+														color="blue"
+														size="xs"
+														startIcon={{ icon: faClipboard }}
+														btnClasses="ml-2"
+													>
+														Copy
+													</Button>
+												</div>
+											</li>
+										{/each}
+									</ul>
+									<div class="flex flex-row-reverse mt-2">
+										<Button size="xs" on:click={userSettings.toggleDrawer}>Create token</Button>
+									</div>
+								</TabContent>
+							{/each}
+						</svelte:fragment>
+					</Tabs>
+				</div>
 			{/if}
 		</div>
+		<div class="lg:w-1/2">
+			<h3 class="text-lg mb-1 font-bold text-gray-600">Versions</h3>
+			<Skeleton {loading} layout={[[8.5]]} />
+			{#if script}
+				<div class="box">
+					<h4 class="font-bold text-gray-500">Current</h4>
+					<div class="mt-1">
+						{script?.hash}
+					</div>
+					<h4 class="font-bold text-gray-500 mt-2">Previous</h4>
+					{#if script?.parent_hashes?.length}
+						<ul class="max-h-20 overflow-y-auto">
+							{#each script.parent_hashes as hash}
+								<li class="mt-1">
+									<a href="/scripts/get/{hash}">{hash}</a>
+								</li>
+							{/each}
+						</ul>
+					{:else}
+						<p class="text-sm text-gray-500">There are no previous versions</p>
+					{/if}
+				</div>
+			{/if}
+		</div>
+	</div>
+	<div>
+		<h2 class="text-lg mb-1 font-bold text-gray-600 border-b mt-8">Dependencies lock file</h2>
+		<Skeleton {loading} layout={[[5]]} />
+		{#if script}
+			{#if script?.lock}
+				<pre class="text-xs">{script.lock}</pre>
+			{:else}
+				<p class="text-sm text-gray-500">There is no lock file for this script</p>
+			{/if}
+		{/if}
 	</div>
 </CenteredPage>
