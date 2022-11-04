@@ -16,4 +16,7 @@
 	.splitpanes--horizontal > .splitpanes__pane {
 		transition: none !important;
 	}
+	.monaco-workbench > .notifications-toasts.visible {
+		display: none !important;
+	}
 }
