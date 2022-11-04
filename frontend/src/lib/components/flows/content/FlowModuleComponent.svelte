@@ -24,6 +24,8 @@
 	import { getStepPropPicker } from '../previousResults'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import { Kbd } from '$lib/components/common'
+	import Button from '$lib/components/common/button/Button.svelte'
+	import Alert from '$lib/components/common/alert/Alert.svelte'
 
 	const { selectedId, previewArgs } = getContext<FlowEditorContext>('FlowEditorContext')
 
@@ -188,6 +190,7 @@
 							{#if !$selectedId.includes('failure')}
 								<Tab value="early-stop">Early Stop</Tab>
 								<Tab value="suspend">Sleep/Suspend</Tab>
+								<Tab value="same_worker">Same Worker/Shared dir</Tab>
 							{/if}
 						</Tabs>
 						<div class="h-[calc(100%-32px)]">
@@ -224,6 +227,19 @@
 							{:else if selected === 'suspend'}
 								<div class="px-4 pb-4 h-full overflow-auto">
 									<FlowModuleSuspend previousModuleId={previousModule?.id} bind:flowModule />
+								</div>
+							{:else if selected === 'same_worker'}
+								<div class="p-4  h-full overflow-auto">
+									<Alert type="info" title="Share a directory using same worker">
+										If same worker is set, all steps will be run on the same worker and will share
+										the folder `/shared` to pass data between each other.
+									</Alert>
+									<Button
+										btnClasses="mt-4"
+										on:click={() => {
+											$selectedId = 'settings-same-worker'
+										}}>Set same worker in the flow settings</Button
+									>
 								</div>
 							{/if}
 						</div>

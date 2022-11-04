@@ -20,6 +20,8 @@
 		<FlowInput />
 	{:else if $selectedId === 'settings-schedule'}
 		<FlowSettings {initialPath} defaultTab="schedule" />
+	{:else if $selectedId === 'settings-same-worker'}
+		<FlowSettings {initialPath} defaultTab="same-worker" />
 	{:else if $selectedId === 'failure'}
 		<FlowFailureModule />
 	{:else}
