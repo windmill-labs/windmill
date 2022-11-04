@@ -1,10 +1,16 @@
 <script lang="ts">
 	import { getContext } from 'svelte'
-	import { select } from 'd3'
 	import type { SupportedLanguage } from '$lib/common'
 	import LanguageIcon from '../common/languageIcons/LanguageIcon.svelte'
 	import FlowModuleHostIcon from './FlowModuleHostIcon.svelte'
-	import { GraphNode, type GraphNodeClass, type ModuleHost, type NodeSizeContext } from '.'
+	import {
+		GraphNode,
+		GRAPH_CONTEXT_KEY,
+		ellipsize,
+		type GraphNodeClass,
+		type ModuleHost,
+		type GraphContext,
+	} from '.'
 
 	const PADDING = 8
 	const ICON = 24
@@ -13,31 +19,13 @@
 	export let title: string
 	export let lang: SupportedLanguage
 	export let host: ModuleHost
-	const { w: WIDTH } = getContext<NodeSizeContext>('nodeSize')
+	const { width } = getContext<GraphContext>(GRAPH_CONTEXT_KEY).node
 	let wrapper: SVGGElement
 	let nodeType: SVGGElement
 	let nodeTitle: SVGTextElement
 
-	$: if (nodeTitle && title) ellipsize(title)
-
-	const ellipsize = (text: string) => {
-		const elem = select(nodeTitle)
-		elem.attr('title', title)
-		const maxWidth = wrapper.getBoundingClientRect().width - nodeType.getBoundingClientRect().width - (PADDING * 2)
-		const cutoff = '...'
-		let currentWidth = (<SVGTextElement>elem.text(text).node()).getBoundingClientRect().width
-		if (!currentWidth || currentWidth < maxWidth) {
-			return
-		}
-
-		const cl = cutoff.length
-		text = cutoff + text
-		while ((currentWidth > maxWidth) && text.length) {
-			text = text.slice(0, -1).trimEnd()
-			elem.text(text.slice(cl) + cutoff)
-			currentWidth = (<SVGTextElement>elem.node()).getBoundingClientRect().width
-		}
-	}
+	$: maxTextWidth = (node.box.width - (nodeType?.getBoundingClientRect().width || 0) - (PADDING * 2))
+	$: nodeTitle && ellipsize(title, nodeTitle, maxTextWidth)
 </script>
 
 <GraphNode {node}>
@@ -45,7 +33,7 @@
 		<title>{title}</title>
 	</svelte:fragment>
 	<g bind:this={wrapper} transform={`translate(${PADDING} ${PADDING})`}>
-		<g bind:this={nodeType} transform={`translate(${WIDTH - PADDING - 60})`}>
+		<g bind:this={nodeType} transform={`translate(${width - PADDING - 60})`}>
 			<g transform={`translate(0 ${host === 'hub' ? -1 : 0})`}>
 				<FlowModuleHostIcon scale={1.5} {host} class="grayscale" />
 			</g>

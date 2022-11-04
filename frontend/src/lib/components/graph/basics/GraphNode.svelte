@@ -1,19 +1,36 @@
 <script lang="ts">
-	import { getContext } from 'svelte'
-	import type { Writable } from 'svelte/store'
-	import type { ZoomTransform } from 'd3'
-	import type { GraphNodeClass, NodeSizeContext } from '..'
+	import { GraphEdge, isParent, isParentArray, type GraphNodeClass } from '..'
 
 	export let node: GraphNodeClass
-	const transform = getContext<Writable<ZoomTransform>>('transform')
-	const { w: WIDTH, h: HEIGHT } = getContext<NodeSizeContext>('nodeSize')
+	export let fill = '#ffffff'
+	export let stroke = '#000000'
+	export let noEdge = false
+
+	function getSingleParentAnchor(node: GraphNodeClass) {
+		return {
+			from: node.getParentAnchor() as DOMPoint,
+			to: node.topAnchor
+		}
+	}
+
+	function getMultiParentAnchors(node: GraphNodeClass) {
+		const parents = <DOMPoint[]>node.getParentAnchor()
+		return parents.map(from => ({from, to: node.topAnchor}))
+	}
 </script>
 
-<g transform={`translate(${$transform.x} ${$transform.y}) scale(${$transform.k} ${$transform.k})`}>
-	<g transform={`translate(${node.box.x} ${node.box.y})`}>
-		<rect fill="#ffffff" stroke="black" stroke-width="2" rx="4" width={WIDTH} height={HEIGHT}>
-			<slot name="background" />
-		</rect>
-		<slot />
-	</g>
+{#if !noEdge}
+	{#if isParent(node.parent)}
+		<GraphEdge {...getSingleParentAnchor(node)} />
+	{:else if isParentArray(node.parent)}
+		{#each getMultiParentAnchors(node) as points}
+			<GraphEdge {...points} />
+		{/each}
+	{/if}
+{/if}
+<g transform={`translate(${node.box.x} ${node.box.y})`}>
+	<rect {fill} {stroke} stroke-width="2" rx="4" width={node.box.width} height={node.box.height}>
+		<slot name="background" />
+	</rect>
+	<slot />
 </g>

@@ -10,7 +10,7 @@
 
 	export let width: string | number = 400
 	export let height: string | number = 400
-	let svg: Element
+	export let svg: Element
 	let transform = writable(zoomIdentity)
 
 	setContext('transform', transform)
@@ -39,7 +39,7 @@
 
 		select(svg).call(
 			zoom()
-				.scaleExtent([1 / 10, 8])
+				.scaleExtent([0.2, 20])
 				.on('zoom', zoomed)
 		)
 		resize()
@@ -76,6 +76,8 @@
 		{height}
 		class="w-full h-full cursor-[grab] active:!cursor-[grabbing]"
 	>
-		<slot />
+		<g transform={`translate(${$transform.x} ${$transform.y}) scale(${$transform.k} ${$transform.k})`}>
+			<slot />
+		</g>
 	</svg>
 </div>
