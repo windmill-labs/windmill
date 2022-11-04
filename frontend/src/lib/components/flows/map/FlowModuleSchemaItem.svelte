@@ -38,7 +38,7 @@
 					? 'bg-blue-200 text-blue-800'
 					: color === 'orange'
 					? 'bg-orange-200 text-orange-800'
-					: 'bg-teal-200 text-teal-800',
+					: 'bg-blue-100 text-blue-600',
 				''
 			)}
 		>

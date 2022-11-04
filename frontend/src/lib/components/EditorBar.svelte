@@ -211,7 +211,7 @@
 
 <div class="flex flex-row justify-between items-center overflow-hidden w-full">
 	<div class="flex flex-row divide-x items-center">
-		<div class="ml-2">
+		<div class="mx-2">
 			<span
 				title={validCode
 					? 'last signature parsing was sucessful'
