@@ -76,20 +76,26 @@
 						{#each branches as branch, i}
 							{#if flowModule.value.type === 'branchone'}
 								<div class="flex flex-row gap-x-2 items-center">
-									<Button on:click={() => ($selectedId = branch.id)}>
-										Set branch {i} '{branch.summary && branch.summary != ''
-											? branch.summary
-											: 'No summary'}' predicate</Button
+									<div class="max-w-sm w-full text-sm text-gray-600">
+										{branch.summary && branch.summary != '' ? branch.summary : 'No summary'}</div
 									>
+									<div>
+										<Button size="sm" on:click={() => ($selectedId = branch.id)}>
+											Set branch {i} predicate</Button
+										>
+									</div>
 									<HighlightCode language="deno" code={branch.expr} />
 								</div>
 							{:else}
-								<div>
-									<Badge large={true} color="blue">
-										branch {i}: {branch.summary && branch.summary != ''
-											? branch.summary
-											: 'No summary'}
-									</Badge>
+								<div class="flex flex-row gap-x-2">
+									<div class="max-w-sm w-full text-sm text-gray-600">
+										{branch.summary && branch.summary != '' ? branch.summary : 'No summary'}
+									</div>
+									<div>
+										<Button size="sm" on:click={() => ($selectedId = branch.id)}>
+											Set branch {i} summary</Button
+										>
+									</div>
 								</div>
 							{/if}
 						{/each}

@@ -112,7 +112,7 @@
 		<svelte:self
 			bind:flowModule={submodule}
 			bind:parentModule={flowModule}
-			previousModuleId={flowModule.value.modules[index - 1]?.id}
+			previousModule={flowModule.value.modules[index - 1]}
 		/>
 	{/each}
 {:else if flowModule.value.type === 'branchone'}
@@ -123,7 +123,7 @@
 			<svelte:self
 				bind:flowModule={submodule}
 				bind:parentModule={flowModule}
-				previousModuleId={flowModule.value.default[index - 1]?.id}
+				previousModule={flowModule.value.default[index - 1]}
 			/>
 		{/each}
 	{/if}
@@ -135,7 +135,7 @@
 				<svelte:self
 					bind:flowModule={submodule}
 					bind:parentModule={flowModule}
-					previousModuleId={flowModule.value.branches[branchIndex].modules[index - 1]?.id}
+					previousModule={flowModule.value.branches[branchIndex].modules[index - 1]}
 				/>
 			{/each}
 		{/if}
@@ -149,7 +149,7 @@
 				<svelte:self
 					bind:flowModule={submodule}
 					bind:parentModule={flowModule}
-					previousModuleId={flowModule.value.branches[branchIndex].modules[index - 1]?.id}
+					previousModule={flowModule.value.branches[branchIndex].modules[index - 1]}
 				/>
 			{/each}
 		{/if}
