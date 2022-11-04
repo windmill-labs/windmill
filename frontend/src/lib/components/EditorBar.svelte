@@ -213,6 +213,9 @@
 	<div class="flex flex-row divide-x items-center">
 		<div class="ml-2">
 			<span
+				title={validCode
+					? 'last signature parsing was sucessful'
+					: 'last signature parsing was succesful'}
 				class="relative inline-flex rounded-full h-2 w-2 {validCode
 					? 'bg-green-500/80'
 					: 'bg-red-500'}"
