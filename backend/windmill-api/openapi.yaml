@@ -3709,8 +3709,7 @@ components:
           type: string
         args:
           $ref: "#/components/schemas/ScriptArgs"
-        result:
-          type: object
+        result: {}
         logs:
           type: string
         deleted:

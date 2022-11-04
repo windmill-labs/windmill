@@ -1861,7 +1861,7 @@ async fn test_branchone_with_cond(db: Pool<Postgres>) {
             },
             {
                 "value": {
-                    "branches": [{"expr": "previous_result[0] == 1 && result_by_id(\"a\") == [1]", "modules": [module_add_item_to_list(3)]}],
+                    "branches": [{"expr": "previous_result[0] == 1 && result_by_id(\"a\")[0] == 1", "modules": [module_add_item_to_list(3)]}],
                     "default": [module_add_item_to_list(2)],
                     "type": "branchone",
                 }

@@ -1079,14 +1079,12 @@ async fn push_next_flow_job(
     }
 
     let mut transform_context: Option<TransformContext> = None;
-    let mut tx = db.begin().await?;
 
     let mut args = match &module.value {
         FlowModuleValue::Script { input_transforms, .. }
         | FlowModuleValue::RawScript { input_transforms, .. } => {
-            let (ntx, ctx) = get_transform_context(tx, &flow_job, &status, &flow.modules).await?;
+            let ctx = get_transform_context(db, &flow_job, &status, &flow.modules).await?;
             transform_context = Some(ctx);
-            tx = ntx;
             let (token, steps, by_id) = transform_context.as_ref().unwrap();
             transform_input(
                 &flow_job.args,
@@ -1129,10 +1127,13 @@ async fn push_next_flow_job(
         }
     };
 
+    let tx = db.begin().await?;
+
     let (tx, next_flow_transform) = compute_next_flow_transform(
         flow_job,
         &flow,
         transform_context,
+        db,
         tx,
         &module,
         &status,
@@ -1464,6 +1465,7 @@ async fn compute_next_flow_transform<'c>(
     flow_job: &QueuedJob,
     flow: &FlowValue,
     transform_context: Option<TransformContext>,
+    db: &DB,
     mut tx: sqlx::Transaction<'c, sqlx::Postgres>,
     module: &FlowModule,
     status: &FlowStatus,
@@ -1509,10 +1511,7 @@ async fn compute_next_flow_transform<'c>(
                     let (token, steps, by_id) = if let Some(x) = transform_context {
                         x
                     } else {
-                        let (tx_new, res) =
-                            get_transform_context(tx, &flow_job, &status, &flow.modules).await?;
-                        tx = tx_new;
-                        res
+                        get_transform_context(db, &flow_job, &status, &flow.modules).await?
                     };
                     let flow_input = flow_job.args.clone().unwrap_or_else(|| json!({}));
                     /* Iterator is an InputTransform, evaluate it into an array. */
@@ -1630,9 +1629,8 @@ async fn compute_next_flow_transform<'c>(
             let branch = match status_module {
                 FlowStatusModule::WaitingForPriorSteps { .. } => {
                     let mut branch_chosen = BranchChosen::Default;
-                    let (tx_new, (token, _steps, idcontext)) =
-                        get_transform_context(tx, &flow_job, &status, &flow.modules).await?;
-                    tx = tx_new;
+                    let (token, _steps, idcontext) =
+                        get_transform_context(db, &flow_job, &status, &flow.modules).await?;
                     for (i, b) in branches.iter().enumerate() {
                         let pred = compute_bool_from_expr(
                             b.expr.to_string(),
@@ -1786,12 +1784,13 @@ async fn compute_next_flow_transform<'c>(
     }
 }
 
-async fn get_transform_context<'c>(
-    tx: sqlx::Transaction<'c, sqlx::Postgres>,
+async fn get_transform_context(
+    db: &DB,
     flow_job: &QueuedJob,
     status: &FlowStatus,
     modules: &Vec<FlowModule>,
-) -> error::Result<(sqlx::Transaction<'c, sqlx::Postgres>, TransformContext)> {
+) -> error::Result<TransformContext> {
+    let tx = db.begin().await?;
     let (tx, new_token) = crate::create_token_for_owner(
         tx,
         &flow_job.workspace_id,
@@ -1801,6 +1800,9 @@ async fn get_transform_context<'c>(
         &flow_job.created_by,
     )
     .await?;
+    //we need to commit asap otherwise the token won't be valid for auth to check outside of this transaction
+    //which will happen with client http calls
+    tx.commit().await?;
     let new_steps: Vec<Uuid> = status
         .modules
         .iter()
@@ -1812,7 +1814,7 @@ async fn get_transform_context<'c>(
         .zip(new_steps.clone())
         .collect();
 
-    Ok((tx, (new_token, new_steps, IdContext(flow_job.id, id_map))))
+    Ok((new_token, new_steps, IdContext(flow_job.id, id_map)))
 }
 
 async fn evaluate_with<F>(
