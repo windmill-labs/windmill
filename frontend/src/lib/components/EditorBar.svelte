@@ -7,6 +7,7 @@
 	import { getScriptByPath, loadHubScripts, sendUserToast } from '$lib/utils'
 
 	import {
+		faCircle,
 		faCode,
 		faCube,
 		faDollarSign,
@@ -24,11 +25,14 @@
 	import HighlightCode from './HighlightCode.svelte'
 	import DrawerContent from './common/drawer/DrawerContent.svelte'
 	import { Drawer } from './common'
+	import Icon from 'svelte-awesome'
+	import Popover from './Popover.svelte'
 
 	export let lang: 'python3' | 'deno' | 'go'
 	export let editor: Editor
 	export let websocketAlive: { pyright: boolean; black: boolean; deno: boolean; go: boolean }
 	export let iconOnly: boolean = false
+	export let validCode: boolean = true
 
 	let contextualVariablePicker: ItemPicker
 	let variablePicker: ItemPicker
@@ -207,6 +211,13 @@
 
 <div class="flex flex-row justify-between items-center overflow-hidden w-full">
 	<div class="flex flex-row divide-x items-center">
+		<div class="ml-2">
+			<span
+				class="relative inline-flex rounded-full h-2 w-2 {validCode
+					? 'bg-green-500/80'
+					: 'bg-red-500'}"
+			/>
+		</div>
 		<div>
 			<Button
 				color="light"
@@ -289,14 +300,20 @@
 			{/if}
 			<span class="ml-1">
 				{#if lang == 'deno'}
-					(<span class={websocketAlive.deno ? 'text-green-600' : 'text-red-700'}>Deno</span>)
+					(<span class={websocketAlive.deno ? 'green' : 'text-red-700'}>Deno</span>)
 				{:else if lang == 'go'}
-					(<span class={websocketAlive.go ? 'text-green-600' : 'text-red-700'}>Go</span>)
+					(<span class={websocketAlive.go ? 'green' : 'text-red-700'}>Go</span>)
 				{:else if lang == 'python3'}
-					(<span class={websocketAlive.pyright ? 'text-green-600' : 'text-red-700'}>Pyright</span>
-					<span class={websocketAlive.black ? 'text-green-600' : 'text-red-700'}>Black</span>)
+					(<span class={websocketAlive.pyright ? 'green' : 'text-red-700'}>Pyright</span>
+					<span class={websocketAlive.black ? 'green' : 'text-red-700'}>Black</span>)
 				{/if}
 			</span>
 		</Button>
 	</div>
 </div>
+
+<style>
+	span.green {
+		@apply text-green-600 animate-[pulse_5s_ease-in-out_infinite];
+	}
+</style>

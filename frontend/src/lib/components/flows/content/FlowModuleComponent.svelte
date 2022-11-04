@@ -40,7 +40,7 @@
 	let wrapper: HTMLDivElement
 	let panes: HTMLElement
 	let totalTopGap = 0
-
+	let validCode = true
 	let width = 1200
 
 	let inputTransforms: Record<string, any> =
@@ -72,23 +72,27 @@
 	}
 
 	async function reload(flowModule: FlowModule) {
-		const { input_transforms, schema } = await loadSchemaFromModule(flowModule)
+		try {
+			const { input_transforms, schema } = await loadSchemaFromModule(flowModule)
+			validCode = true
+			setTimeout(() => {
+				if (
+					(flowModule.value.type == 'script' || flowModule.value.type == 'rawscript') &&
+					JSON.stringify(flowModule.value.input_transforms) !== JSON.stringify(input_transforms)
+				) {
+					inputTransforms = input_transforms
+				}
+			})
 
-		setTimeout(() => {
-			if (
-				(flowModule.value.type == 'script' || flowModule.value.type == 'rawscript') &&
-				JSON.stringify(flowModule.value.input_transforms) !== JSON.stringify(input_transforms)
-			) {
-				inputTransforms = input_transforms
+			if (JSON.stringify(schema) !== JSON.stringify($flowStateStore[flowModule.id]?.schema)) {
+				if (!$flowStateStore[flowModule.id]) {
+					$flowStateStore[flowModule.id] = { schema }
+				} else {
+					$flowStateStore[flowModule.id].schema = schema
+				}
 			}
-		})
-
-		if (JSON.stringify(schema) !== JSON.stringify($flowStateStore[flowModule.id]?.schema)) {
-			if (!$flowStateStore[flowModule.id]) {
-				$flowStateStore[flowModule.id] = { schema }
-			} else {
-				$flowStateStore[flowModule.id].schema = schema
-			}
+		} catch (e) {
+			validCode = false
 		}
 	}
 
@@ -133,6 +137,7 @@
 			{#if flowModule.value.type === 'rawscript'}
 				<div class="border-b-2 shadow-sm p-1 mb-1">
 					<EditorBar
+						{validCode}
 						{editor}
 						lang={flowModule.value['language'] ?? 'deno'}
 						{websocketAlive}
