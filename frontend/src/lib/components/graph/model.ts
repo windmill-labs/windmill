@@ -1,7 +1,7 @@
 import type { Writable } from "svelte/store"
 import type { SupportedLanguage } from "../../common"
 
-export type ModuleHost = 'local' | 'hub'
+export type ModuleHost = 'inline' | 'hub'
 
 export const GRAPH_CONTEXT_KEY = 'graph_context' as const
 export interface GraphContext {
@@ -102,8 +102,8 @@ export class GraphNodeClass {
 export interface IFlowModuleNode {
 	node: GraphNodeClass
 	title: string
-	lang: SupportedLanguage
 	host: ModuleHost
+	lang?: SupportedLanguage
 }
 
 export function isFlowModuleNode(item: FlowItem): item is IFlowModuleNode {

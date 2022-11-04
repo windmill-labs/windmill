@@ -17,7 +17,7 @@
 
 	export let node: GraphNodeClass
 	export let title: string
-	export let lang: SupportedLanguage
+	export let lang: SupportedLanguage | undefined = undefined
 	export let host: ModuleHost
 	const { width } = getContext<GraphContext>(GRAPH_CONTEXT_KEY).node
 	let wrapper: SVGGElement
@@ -34,11 +34,13 @@
 	</svelte:fragment>
 	<g bind:this={wrapper} transform={`translate(${PADDING} ${PADDING})`}>
 		<g bind:this={nodeType} transform={`translate(${width - PADDING - 60})`}>
-			<g transform={`translate(0 ${host === 'hub' ? -1 : 0})`}>
-				<FlowModuleHostIcon scale={1.5} {host} class="grayscale" />
-			</g>
+			{#if lang}
+				<g transform={`translate(0 ${host === 'hub' ? -1 : 0})`}>
+					<LanguageIcon scale={1.5} {lang} class="grayscale" />
+				</g>
+			{/if}
 			<g transform={`translate(${ICON + PADDING * 0.5})`}>
-				<LanguageIcon scale={1.5} {lang} class="grayscale" />
+				<FlowModuleHostIcon scale={1.5} {host} class="grayscale" />
 			</g>
 		</g>
 		{#if nodeType}

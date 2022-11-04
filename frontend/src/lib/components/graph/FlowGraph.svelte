@@ -14,7 +14,8 @@
 		type FlowItemsGraph,
 		type GraphContext,
 		type IFlowLoopNode,
-		type IFlowModuleNode
+		type IFlowModuleNode,
+		type ModuleHost
 	} from './'
 
 	export let modules: FlowModule[] = []
@@ -50,18 +51,27 @@
 	function getConvertedFlowModule(parentLevel: FlowItem[] | undefined, currentLevel: FlowItem[], module: FlowModule) {
 		const type = module.value.type
 		if(type === 'rawscript') {
-			return flowModuleToNode(parentLevel, currentLevel, module.summary, module.value.language)
+			const lang = module.value.language
+			return flowModuleToNode(parentLevel, currentLevel, module.summary || 'Inline ' + lang, 'inline', lang)
+		} else if(type === 'script') {
+			return flowModuleToNode(parentLevel, currentLevel, module.summary || module.value.path, 'hub')
 		} else if(type === 'forloopflow') {
 			return flowModuleToLoop(parentLevel, module.value.modules, module.summary)
 		}
 	}
 
-	function flowModuleToNode(parentLevel: FlowItem[] | undefined, currentLevel: FlowItem[], title: string | undefined, lang: RawScript.language): IFlowModuleNode {
+	function flowModuleToNode(
+		parentLevel: FlowItem[] | undefined,
+		currentLevel: FlowItem[],
+		title: string,
+		host: ModuleHost,
+		lang?: RawScript.language
+	): IFlowModuleNode {
 		return {
 			node: createNodeClass(parentLevel, currentLevel),
-			title: title || 'Inline ' + lang,
-			lang,
-			host: 'local'
+			title,
+			host,
+			lang
 		}
 	}
 
