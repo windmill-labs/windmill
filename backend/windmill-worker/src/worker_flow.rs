@@ -301,7 +301,8 @@ pub async fn update_flow_status_after_job_completion(
 
         let stop_early = success
             && if let Some(expr) = r.stop_early_expr.clone() {
-                compute_bool_from_expr(expr, &r.args, result.clone(), base_internal_url).await?
+                compute_bool_from_expr(expr, &r.args, result.clone(), base_internal_url, None, None)
+                    .await?
             } else {
                 false
             };
@@ -564,6 +565,8 @@ async fn compute_bool_from_expr(
     flow_args: &Option<serde_json::Value>,
     result: serde_json::Value,
     base_internal_url: &str,
+    by_id: Option<IdContext>,
+    creds: Option<EvalCreds>,
 ) -> error::Result<bool> {
     let flow_input = flow_args.clone().unwrap_or_else(|| json!({}));
     match eval_timeout(
@@ -574,9 +577,9 @@ async fn compute_bool_from_expr(
             ("previous_result".to_string(), result),
         ]
         .into(),
-        None,
+        creds,
         vec![],
-        None,
+        by_id,
         base_internal_url.to_string(),
     )
     .await?
@@ -1076,13 +1079,14 @@ async fn push_next_flow_job(
     }
 
     let mut transform_context: Option<TransformContext> = None;
+    let mut tx = db.begin().await?;
+
     let mut args = match &module.value {
         FlowModuleValue::Script { input_transforms, .. }
         | FlowModuleValue::RawScript { input_transforms, .. } => {
-            let tx = db.begin().await?;
-            let (tx, ctx) = get_transform_context(tx, &flow_job, &status, &flow.modules).await?;
+            let (ntx, ctx) = get_transform_context(tx, &flow_job, &status, &flow.modules).await?;
             transform_context = Some(ctx);
-            tx.commit().await?;
+            tx = ntx;
             let (token, steps, by_id) = transform_context.as_ref().unwrap();
             transform_input(
                 &flow_job.args,
@@ -1125,7 +1129,6 @@ async fn push_next_flow_job(
         }
     };
 
-    let tx = db.begin().await?;
     let (tx, next_flow_transform) = compute_next_flow_transform(
         flow_job,
         &flow,
@@ -1627,12 +1630,20 @@ async fn compute_next_flow_transform<'c>(
             let branch = match status_module {
                 FlowStatusModule::WaitingForPriorSteps { .. } => {
                     let mut branch_chosen = BranchChosen::Default;
+                    let (tx_new, (token, _steps, idcontext)) =
+                        get_transform_context(tx, &flow_job, &status, &flow.modules).await?;
+                    tx = tx_new;
                     for (i, b) in branches.iter().enumerate() {
                         let pred = compute_bool_from_expr(
                             b.expr.to_string(),
                             &flow_job.args,
                             last_result.clone(),
                             base_internal_url,
+                            Some(idcontext.clone()),
+                            Some(EvalCreds {
+                                workspace: flow_job.workspace_id.clone(),
+                                token: token.to_string(),
+                            }),
                         )
                         .await?;
 
