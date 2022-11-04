@@ -47,7 +47,7 @@ pub fn workspaced_service() -> Router {
         .route("/list_usernames", get(list_usernames))
         .route("/exists", post(exists_username))
         .route("/update/:user", post(update_workspace_user))
-        .route("/delete/:user", delete(delete_user))
+        .route("/delete/:user", delete(delete_workspace_user))
         .route("/whois/:email", get(whois))
         .route("/whoami", get(whoami))
         .route("/leave", post(leave_workspace))
@@ -64,6 +64,7 @@ pub fn global_service() -> Router {
         .route("/setpassword", post(set_password))
         .route("/create", post(create_user))
         .route("/update/:user", post(update_user))
+        .route("/delete/:user", delete(delete_user))
         .route("/logout", post(logout))
         .route("/tokens/create", post(create_token))
         .route("/tokens/delete/:token_prefix", delete(delete_token))
@@ -957,6 +958,37 @@ async fn update_user(
     Ok(format!("email {} updated", &email_to_update))
 }
 
+async fn delete_user(
+    Authed { email, .. }: Authed,
+    Path(email_to_delete): Path<String>,
+    Extension(db): Extension<DB>,
+) -> Result<String> {
+    let mut tx = db.begin().await?;
+
+    require_super_admin(&mut tx, email.clone()).await?;
+
+    sqlx::query!("DELETE FROM usr WHERE email = $1", &email_to_delete)
+        .execute(&mut tx)
+        .await?;
+
+    sqlx::query!("DELETE FROM password WHERE email = $1", &email_to_delete)
+        .execute(&mut tx)
+        .await?;
+
+    audit_log(
+        &mut tx,
+        &email.unwrap(),
+        "users.delete",
+        ActionKind::Delete,
+        "global",
+        Some(&email_to_delete),
+        None,
+    )
+    .await?;
+    tx.commit().await?;
+    Ok(format!("email {} deleted", &email_to_delete))
+}
+
 async fn create_user(
     Authed { email, .. }: Authed,
     Extension(db): Extension<DB>,
@@ -995,7 +1027,7 @@ async fn create_user(
     Ok((StatusCode::CREATED, format!("email {} created", nu.email)))
 }
 
-async fn delete_user(
+async fn delete_workspace_user(
     Authed { username, is_admin, .. }: Authed,
     Extension(db): Extension<DB>,
     Path((w_id, username_to_delete)): Path<(String, String)>,
@@ -1341,7 +1373,8 @@ async fn list_tokens(
     let rows = sqlx::query_as!(
         TruncatedToken,
         "SELECT label, concat(substring(token for 10)) as token_prefix, expiration, created_at, \
-         last_used_at FROM token WHERE email = $1",
+         last_used_at FROM token WHERE email = $1
+         ORDER BY created_at DESC",
         email,
     )
     .fetch_all(&db)

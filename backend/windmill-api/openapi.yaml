@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.43.0
+  version: 1.44.0
   title: Windmill server API
   contact:
     name: Windmill contact
@@ -268,6 +268,26 @@ paths:
       responses:
         "200":
           description: user updated
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /users/delete/{email}:
+    delete:
+      summary: global delete user (require super admin)
+      operationId: globalUserDelete
+      tags:
+        - user
+      parameters:
+        - name: email
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: user deleted
           content:
             text/plain:
               schema:
@@ -3689,8 +3709,7 @@ components:
           type: string
         args:
           $ref: "#/components/schemas/ScriptArgs"
-        result:
-          type: object
+        result: {}
         logs:
           type: string
         deleted:

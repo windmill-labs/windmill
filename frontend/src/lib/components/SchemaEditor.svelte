@@ -80,7 +80,7 @@
 			modalProperty = Object.assign({}, DEFAULT_PROPERTY)
 			editing = false
 			oldArgName = undefined
-			schemaModal.closeModal()
+			schemaModal.closeDrawer()
 		}
 		schema = schema
 		schemaString = JSON.stringify(schema, null, '\t')
@@ -97,7 +97,7 @@
 				schema.required.includes(argName)
 			)
 			oldArgName = argName
-			schemaModal.openModal()
+			schemaModal.openDrawer()
 		} else {
 			sendUserToast(`This argument does not exist and can't be edited`, true)
 		}
@@ -147,7 +147,7 @@
 			startIcon={{ icon: faPlus }}
 			on:click={() => {
 				modalProperty = Object.assign({}, DEFAULT_PROPERTY)
-				schemaModal.openModal()
+				schemaModal.openDrawer()
 			}}
 		>
 			Add argument

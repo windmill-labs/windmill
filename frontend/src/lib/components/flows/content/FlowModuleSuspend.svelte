@@ -25,7 +25,7 @@
 	let editor: SimpleEditor | undefined = undefined
 
 	const pickableProperties = {
-		result: $flowStateStore[$selectedId].previewResult
+		result: $flowStateStore[$selectedId]?.previewResult ?? {}
 	}
 
 	$: isSuspendEnabled = Boolean(flowModule.suspend)

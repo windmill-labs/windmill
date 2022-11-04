@@ -134,7 +134,6 @@ const config = {
 	plugins: [
 		require('@tailwindcss/forms'),
 		require('@tailwindcss/typography'),
-		require('flowbite/plugin'),
 		plugin(({ addBase, addComponents, addUtilities, theme }) => {
 			addBase({
 				'html': {
@@ -219,7 +218,7 @@ const config = {
 				'a': {
 					color: theme('colors.blue.500')
 				},
-				'input,input[type="text"],input[type="email"],input[type="url"],input[type="password"],input[type="number"],input[type="date"],input[type="datetime-local"],input[type="month"],input[type="search"],input[type="tel"],input[type="time"],input[type="week"],textarea,select': {
+				'input,input[type="text"],input[type="email"],input[type="url"],input[type="password"],input[type="number"],input[type="date"],input[type="datetime-local"],input[type="month"],input[type="search"],input[type="tel"],input[type="time"],input[type="week"],textarea,textarea[type="text"],select': {
 					display: 'block',
 					fontSize: theme('fontSize.sm'),
 					width: '100%',
@@ -254,7 +253,8 @@ const config = {
 				'.table-custom': {
 					'& th': {
 						paddingTop: theme('spacing.3'),
-						paddingRight: theme('spacing.2'),
+						paddingRight: theme('spacing.1'),
+						paddingLeft: theme('spacing.1'),
 						paddingBottom: theme('spacing.3'),
 						fontSize: theme('fontSize.sm'),
 						textAlign: 'left',

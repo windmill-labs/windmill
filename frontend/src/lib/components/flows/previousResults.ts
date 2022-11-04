@@ -110,7 +110,7 @@ function getFlowInput(
 				} else {
 					return {
 						...parentFlowInput,
-						previous_result: flattenPreviousResult(flowState[parentPreviousModuleId].previewResult)
+						previous_result: flattenPreviousResult(flowState[parentPreviousModuleId]?.previewResult ?? {})
 					}
 				}
 			}
@@ -123,21 +123,27 @@ function getFlowInput(
 export function getStepPropPicker(
 	flowState: FlowState,
 	parentModule: FlowModule | undefined,
-	previousModuleId: string | undefined,
+	previousModule: FlowModule | undefined,
 	flow: Flow,
-	args: any
+	args: any,
+	approvers: boolean = false
 ): StepPropPicker {
 	const flowInput = getFlowInput(dfs(parentModule?.id, flow), flowState, args, flow.schema)
 
-	const previousResults = previousModuleId
-		? flowState[previousModuleId].previewResult
+	const previousResults = previousModule
+		? flowState[previousModule.id]?.previewResult
 		: flattenPreviousResult(flowInput)
 
+	const pickableProperties = {
+		flow_input: flowInput,
+		previous_result: previousResults
+	}
+
+	if (approvers && ((previousModule?.suspend?.required_events ?? 0) > 0)) {
+		pickableProperties["approvers"] = "The list of approvers"
+	}
 	return {
 		extraLib: buildExtraLib(objectToTsType(flowInput), objectToTsType(previousResults)),
-		pickableProperties: {
-			flow_input: flowInput,
-			previous_result: previousResults
-		}
+		pickableProperties
 	}
 }

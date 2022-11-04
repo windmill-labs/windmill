@@ -7,6 +7,7 @@
 	import { getScriptByPath, loadHubScripts, sendUserToast } from '$lib/utils'
 
 	import {
+		faCircle,
 		faCode,
 		faCube,
 		faDollarSign,
@@ -18,16 +19,20 @@
 	import { hubScripts, workspaceStore } from '$lib/stores'
 	import type Editor from './Editor.svelte'
 	import ItemPicker from './ItemPicker.svelte'
-	import Modal from './Modal.svelte'
 	import ResourceEditor from './ResourceEditor.svelte'
 	import VariableEditor from './VariableEditor.svelte'
 	import Button from './common/button/Button.svelte'
 	import HighlightCode from './HighlightCode.svelte'
+	import DrawerContent from './common/drawer/DrawerContent.svelte'
+	import { Drawer } from './common'
+	import Icon from 'svelte-awesome'
+	import Popover from './Popover.svelte'
 
 	export let lang: 'python3' | 'deno' | 'go'
 	export let editor: Editor
 	export let websocketAlive: { pyright: boolean; black: boolean; deno: boolean; go: boolean }
 	export let iconOnly: boolean = false
+	export let validCode: boolean = true
 
 	let contextualVariablePicker: ItemPicker
 	let variablePicker: ItemPicker
@@ -36,16 +41,16 @@
 	let variableEditor: VariableEditor
 	let resourceEditor: ResourceEditor
 
-	let codeViewer: Modal
+	let codeViewer: Drawer
 	let codeLang: 'python3' | 'deno' | 'go' = 'deno'
 	let codeContent: string = ''
 
 	function addEditorActions() {
 		editor.addAction('insert-variable', 'Windmill: Insert variable', () => {
-			variablePicker.openModal()
+			variablePicker.openDrawer()
 		})
 		editor.addAction('insert-resource', 'Windmill: Insert resource', () => {
-			resourcePicker.openModal()
+			resourcePicker.openDrawer()
 		})
 	}
 
@@ -80,7 +85,7 @@
 		const { language, content } = await getScriptByPath(path ?? '')
 		codeContent = content
 		codeLang = language
-		codeViewer.openModal()
+		codeViewer.openDrawer()
 	}}
 	closeOnClick={false}
 	itemName="script"
@@ -88,12 +93,11 @@
 	loadItems={loadScripts}
 />
 
-<Modal bind:this={codeViewer}>
-	<div slot="title">Code</div>
-	<div slot="content">
+<Drawer bind:this={codeViewer} size="600px">
+	<DrawerContent title="Code" on:close={codeViewer.closeDrawer}>
 		<HighlightCode language={codeLang} code={codeContent} />
-	</div></Modal
->
+	</DrawerContent>
+</Drawer>
 
 <ItemPicker
 	bind:this={contextualVariablePicker}
@@ -130,7 +134,7 @@
 			editor.insertAtCursor(`wmill.get_variable("${path}")`)
 		} else if (lang == 'go') {
 			if (!editor.getCode().includes('wmill "github.com/windmill-labs/windmill-go-client"')) {
-				editor.insertAtBeginning('import wmill "github.com/windmill-labs/windmill-go-client"\n')
+				editor.insertAtLine('import wmill "github.com/windmill-labs/windmill-go-client"\n\n', 3)
 			}
 			editor.insertAtCursor(`v, _ := wmill.GetVariable("${path}")`)
 		}
@@ -174,7 +178,7 @@
 			editor.insertAtCursor(`wmill.get_resource("${path}")`)
 		} else if (lang == 'go') {
 			if (!editor.getCode().includes('wmill "github.com/windmill-labs/windmill-go-client"')) {
-				editor.insertAtBeginning('import wmill "github.com/windmill-labs/windmill-go-client"\n')
+				editor.insertAtLine('import wmill "github.com/windmill-labs/windmill-go-client"\n\n', 3)
 			}
 			editor.insertAtCursor(`r, _ := wmill.GetResource("${path}")`)
 		}
@@ -202,16 +206,26 @@
 	</div>
 </ItemPicker>
 
-<ResourceEditor bind:this={resourceEditor} on:refresh={resourcePicker.openModal} />
-<VariableEditor bind:this={variableEditor} on:create={variablePicker.openModal} />
+<ResourceEditor bind:this={resourceEditor} on:refresh={resourcePicker.openDrawer} />
+<VariableEditor bind:this={variableEditor} on:create={variablePicker.openDrawer} />
 
 <div class="flex flex-row justify-between items-center overflow-hidden w-full">
 	<div class="flex flex-row divide-x items-center">
+		<div class="ml-2">
+			<span
+				title={validCode
+					? 'last signature parsing was sucessful'
+					: 'last signature parsing was succesful'}
+				class="relative inline-flex rounded-full h-2 w-2 {validCode
+					? 'bg-green-500/80'
+					: 'bg-red-500'}"
+			/>
+		</div>
 		<div>
 			<Button
 				color="light"
 				btnClasses="mr-1 !font-medium"
-				on:click={contextualVariablePicker.openModal}
+				on:click={contextualVariablePicker.openDrawer}
 				size="xs"
 				spacingSize="md"
 				startIcon={{ icon: faDollarSign }}
@@ -224,7 +238,7 @@
 			<Button
 				color="light"
 				btnClasses="mx-1 !font-medium"
-				on:click={variablePicker.openModal}
+				on:click={variablePicker.openDrawer}
 				size="xs"
 				spacingSize="md"
 				startIcon={{ icon: faWallet }}
@@ -239,7 +253,7 @@
 				size="xs"
 				spacingSize="md"
 				color="light"
-				on:click={resourcePicker.openModal}
+				on:click={resourcePicker.openDrawer}
 				{iconOnly}
 				startIcon={{ icon: faCube }}
 			>
@@ -253,7 +267,7 @@
 				size="xs"
 				spacingSize="md"
 				color="light"
-				on:click={scriptPicker.openModal}
+				on:click={scriptPicker.openDrawer}
 				{iconOnly}
 				startIcon={{ icon: faCode }}
 			>
@@ -289,14 +303,20 @@
 			{/if}
 			<span class="ml-1">
 				{#if lang == 'deno'}
-					(<span class={websocketAlive.deno ? 'text-green-600' : 'text-red-700'}>Deno</span>)
+					(<span class={websocketAlive.deno ? 'green' : 'text-red-700'}>Deno</span>)
 				{:else if lang == 'go'}
-					(<span class={websocketAlive.go ? 'text-green-600' : 'text-red-700'}>Go</span>)
+					(<span class={websocketAlive.go ? 'green' : 'text-red-700'}>Go</span>)
 				{:else if lang == 'python3'}
-					(<span class={websocketAlive.pyright ? 'text-green-600' : 'text-red-700'}>Pyright</span>
-					<span class={websocketAlive.black ? 'text-green-600' : 'text-red-700'}>Black</span>)
+					(<span class={websocketAlive.pyright ? 'green' : 'text-red-700'}>Pyright</span>
+					<span class={websocketAlive.black ? 'green' : 'text-red-700'}>Black</span>)
 				{/if}
 			</span>
 		</Button>
 	</div>
 </div>
+
+<style>
+	span.green {
+		@apply text-green-600 animate-[pulse_5s_ease-in-out_infinite];
+	}
+</style>

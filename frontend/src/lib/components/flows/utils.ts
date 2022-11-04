@@ -71,6 +71,8 @@ export async function loadSchemaFromModule(module: FlowModule): Promise<{
 			await inferArgs(mod.language!, mod.content ?? '', schema)
 		} else if (mod.path && mod.path != '') {
 			schema = await loadSchema(mod.path!)
+			console.log(mod.path)
+			console.log(schema)
 		} else {
 			return {
 				input_transforms: {},

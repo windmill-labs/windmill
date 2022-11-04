@@ -32,9 +32,10 @@
 	import { superadmin, userStore, workspaceStore } from '$lib/stores'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
 	import TableCustom from '$lib/components/TableCustom.svelte'
-	import Modal from '$lib/components/Modal.svelte'
 	import FlowViewer from '$lib/components/FlowViewer.svelte'
 	import { Button, Tabs, Tab, Skeleton } from '../lib/components/common'
+	import Drawer from '$lib/components/common/drawer/Drawer.svelte'
+	import DrawerContent from '$lib/components/common/drawer/DrawerContent.svelte'
 
 	type Tab = 'all' | 'personal' | 'groups' | 'shared' | 'hub'
 	type Section = [string, FlowW[]]
@@ -70,7 +71,7 @@
 	$: filteredHubFlows =
 		hubFilter.length > 0 ? flowHubFuse.search(hubFilter).map((value) => value.item) : hubFlows ?? []
 
-	let flowViewer: Modal
+	let flowViewer: Drawer
 	let flowViewerFlow: OpenFlow | undefined
 
 	$: {
@@ -136,7 +137,7 @@
 	async function viewFlow(id: number): Promise<void> {
 		const hub = (await FlowService.getHubFlowById({ id: Number(id) })).flow
 		flowViewerFlow = hub
-		flowViewer.openModal()
+		flowViewer.openDrawer()
 	}
 
 	loadHubFlowsWFuse()
@@ -148,14 +149,16 @@
 	}
 </script>
 
-<Modal bind:this={flowViewer}>
-	<div slot="title">Hub flow '{flowViewerFlow?.summary ?? ''}'</div>
-	<div slot="content">
+<Drawer bind:this={flowViewer}>
+	<DrawerContent
+		title="Hub flow '{flowViewerFlow?.summary ?? ''}'"
+		on:close={flowViewer.closeDrawer}
+	>
 		{#if flowViewerFlow}
 			<FlowViewer flow={flowViewerFlow} />
 		{/if}
-	</div></Modal
->
+	</DrawerContent>
+</Drawer>
 
 <CenteredPage>
 	<PageHeader title="Flows" tooltip="Flows can compose and chain scripts together">
@@ -173,7 +176,7 @@
 	</Tabs>
 
 	{#if tab != 'hub'}
-		<input placeholder="Search flows" bind:value={flowFilter} class="search-bar mt-2" />
+		<input type="text" placeholder="Search flows" bind:value={flowFilter} class="search-bar mt-2" />
 	{/if}
 	<div class="grid grid-cols-1 divide-y">
 		{#each tab == 'all' ? ['personal', 'groups', 'shared', 'hub'] : [tab] as sectionTab}
@@ -203,7 +206,12 @@
 							selected carefully by the Windmill team.
 						</Tooltip>
 					</h2>
-					<input placeholder="Search hub flows" bind:value={hubFilter} class="search-bar mt-2" />
+					<input
+						type="text"
+						placeholder="Search hub flows"
+						bind:value={hubFilter}
+						class="search-bar mt-2"
+					/>
 					<div class="relative mt-2">
 						{#if loading.hub}
 							<Skeleton
@@ -322,7 +330,7 @@
 															displayName: 'Share',
 															icon: faShare,
 															action: () => {
-																shareModal.openModal(path)
+																shareModal.openDrawer(path)
 															},
 															disabled: !canWrite
 														},

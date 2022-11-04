@@ -28,6 +28,7 @@
 	import AppConnect from '$lib/components/AppConnect.svelte'
 	import { onMount } from 'svelte'
 	import { Button } from '$lib/components/common'
+	import Tooltip from '$lib/components/Tooltip.svelte'
 
 	let users: User[] = []
 	let invites: WorkspaceInvite[] = []
@@ -226,18 +227,18 @@
 				Disconnect Slack
 			</Button>
 		{/if}
-		<h3 class="mt-5 text-gray-700">Select a script to run on /windmill command:</h3>
+		<h3 class="mt-5 text-gray-700"
+			>Script to run on /windmill command <Tooltip>
+				A script run from slack /windmill command is run as group 'slack'. The script chosen is
+				passed the parameters <pre>response_url: string, text: string</pre> respectively the url to
+				reply directly to the trigger and the text of the command.
+				<a href="/scripts/add?template=u/admin/triggered_from_slack_command"
+					>Define your own trigger script from a compatible template</a
+				></Tooltip
+			></h3
+		>
 		<ScriptPicker kind={Script.kind.SCRIPT} bind:scriptPath on:select={editSlackCommand} />
 
-		<p class="text-sm text-gray-700 italic mt-3">
-			A script run from slack /windmill command is run as group 'slack' and hence every variables or
-			resources used within it be visible to that group. The script chosen must be able to take as
-			parameter `response_url: str, text: str`, respectively the url to reply directly to the
-			trigger and the text of the command.
-			<a href="/scripts/add?template=u/admin/triggered_from_slack_command"
-				>Define your own trigger script from a compatible template</a
-			>
-		</p>
 		<div class="mt-10" />
 		<PageHeader title="Export workspace" primary={false} />
 		<div class="flex justify-start">

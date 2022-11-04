@@ -31,7 +31,7 @@
 	export let failureModule: boolean = false
 
 	export let parentModule: FlowModule | undefined = undefined
-	export let previousModuleId: string | undefined = undefined
+	export let previousModule: FlowModule | undefined
 
 	let editor: Editor
 	let modulePreview: ModulePreview
@@ -40,7 +40,7 @@
 	let wrapper: HTMLDivElement
 	let panes: HTMLElement
 	let totalTopGap = 0
-
+	let validCode = true
 	let width = 1200
 
 	let inputTransforms: Record<string, any> =
@@ -54,7 +54,14 @@
 
 	$: stepPropPicker = failureModule
 		? { pickableProperties: { previous_result: { error: 'the error message' } }, extraLib: '' }
-		: getStepPropPicker($flowStateStore, parentModule, previousModuleId, $flowStore, previewArgs)
+		: getStepPropPicker(
+				$flowStateStore,
+				parentModule,
+				previousModule,
+				$flowStore,
+				previewArgs,
+				true
+		  )
 
 	function onKeyDown(event: KeyboardEvent) {
 		if ((event.ctrlKey || event.metaKey) && event.key == 'Enter') {
@@ -65,19 +72,27 @@
 	}
 
 	async function reload(flowModule: FlowModule) {
-		const { input_transforms, schema } = await loadSchemaFromModule(flowModule)
+		try {
+			const { input_transforms, schema } = await loadSchemaFromModule(flowModule)
+			validCode = true
+			setTimeout(() => {
+				if (
+					(flowModule.value.type == 'script' || flowModule.value.type == 'rawscript') &&
+					JSON.stringify(flowModule.value.input_transforms) !== JSON.stringify(input_transforms)
+				) {
+					inputTransforms = input_transforms
+				}
+			})
 
-		setTimeout(() => {
-			if (
-				(flowModule.value.type == 'script' || flowModule.value.type == 'rawscript') &&
-				JSON.stringify(flowModule.value.input_transforms) !== JSON.stringify(input_transforms)
-			) {
-				inputTransforms = input_transforms
+			if (JSON.stringify(schema) !== JSON.stringify($flowStateStore[flowModule.id]?.schema)) {
+				if (!$flowStateStore[flowModule.id]) {
+					$flowStateStore[flowModule.id] = { schema }
+				} else {
+					$flowStateStore[flowModule.id].schema = schema
+				}
 			}
-		})
-
-		if (JSON.stringify(schema) !== JSON.stringify($flowStateStore[flowModule.id].schema)) {
-			$flowStateStore[flowModule.id].schema = schema
+		} catch (e) {
+			validCode = false
 		}
 	}
 
@@ -122,6 +137,7 @@
 			{#if flowModule.value.type === 'rawscript'}
 				<div class="border-b-2 shadow-sm p-1 mb-1">
 					<EditorBar
+						{validCode}
 						{editor}
 						lang={flowModule.value['language'] ?? 'deno'}
 						{websocketAlive}
@@ -167,7 +183,7 @@
 									<Kbd>Ctrl/Cmd</Kbd> + <Kbd>S</Kbd>
 								</Tooltip>Inputs</Tab
 							>
-							<Tab value="test">Test</Tab>
+							<Tab value="test">Test this step</Tab>
 							<Tab value="retries">Retries</Tab>
 							{#if !$selectedId.includes('failure')}
 								<Tab value="early-stop">Early Stop</Tab>
@@ -178,11 +194,11 @@
 							{#if selected === 'inputs'}
 								<div class="h-full overflow-auto">
 									<PropPickerWrapper
-										priorId={previousModuleId}
+										priorId={previousModule?.id}
 										pickableProperties={stepPropPicker.pickableProperties}
 									>
 										<SchemaForm
-											schema={$flowStateStore[$selectedId].schema}
+											schema={$flowStateStore[$selectedId]?.schema ?? {}}
 											inputTransform={true}
 											importPath={$selectedId}
 											bind:args={flowModule.value.input_transforms}
@@ -194,20 +210,20 @@
 								<ModulePreview
 									bind:this={modulePreview}
 									mod={flowModule}
-									schema={$flowStateStore[$selectedId].schema}
+									schema={$flowStateStore[$selectedId]?.schema ?? {}}
 								/>
 							{:else if selected === 'retries'}
 								<FlowRetries bind:flowModule class="px-4 pb-4 h-full overflow-auto" />
 							{:else if selected === 'early-stop'}
 								<FlowModuleEarlyStop
-									{previousModuleId}
+									previousModuleId={previousModule?.id}
 									bind:flowModule
 									class="px-4 pb-4 h-full overflow-auto"
 									{parentModule}
 								/>
 							{:else if selected === 'suspend'}
 								<div class="px-4 pb-4 h-full overflow-auto">
-									<FlowModuleSuspend {previousModuleId} bind:flowModule />
+									<FlowModuleSuspend previousModuleId={previousModule?.id} bind:flowModule />
 								</div>
 							{/if}
 						</div>

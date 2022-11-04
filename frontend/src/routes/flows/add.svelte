@@ -20,21 +20,20 @@
 	const hubId = $page.url.searchParams.get('hub')
 
 	const templatePath = $page.url.searchParams.get('template')
+	let selectedId: string | undefined
 
 	async function loadFlow() {
-		let flow: Flow =
-			initialState != undefined
-				? decodeState(initialState)
-				: {
-						path: '',
-						summary: '',
-						value: { modules: [] },
-						edited_by: '',
-						edited_at: '',
-						archived: false,
-						extra_perms: {},
-						schema: emptySchema()
-				  }
+		let state = initialState ? decodeState(initialState) : undefined
+		let flow: Flow = state?.flow ?? {
+			path: '',
+			summary: '',
+			value: { modules: [] },
+			edited_by: '',
+			edited_at: '',
+			archived: false,
+			extra_perms: {},
+			schema: emptySchema()
+		}
 
 		if (templatePath) {
 			const template = await FlowService.getFlowByPath({
@@ -50,7 +49,8 @@
 			flow = flow
 			$page.url.searchParams.delete('hub')
 		}
-		initFlow(flow)
+		selectedId = state?.selectedId
+		await initFlow(flow)
 	}
 
 	loadFlow()
@@ -58,4 +58,4 @@
 	$dirtyStore = true
 </script>
 
-<FlowBuilder />
+<FlowBuilder {selectedId} />

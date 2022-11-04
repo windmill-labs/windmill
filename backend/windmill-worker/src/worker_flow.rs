@@ -301,7 +301,8 @@ pub async fn update_flow_status_after_job_completion(
 
         let stop_early = success
             && if let Some(expr) = r.stop_early_expr.clone() {
-                compute_bool_from_expr(expr, &r.args, result.clone(), base_internal_url).await?
+                compute_bool_from_expr(expr, &r.args, result.clone(), base_internal_url, None, None)
+                    .await?
             } else {
                 false
             };
@@ -564,6 +565,8 @@ async fn compute_bool_from_expr(
     flow_args: &Option<serde_json::Value>,
     result: serde_json::Value,
     base_internal_url: &str,
+    by_id: Option<IdContext>,
+    creds: Option<EvalCreds>,
 ) -> error::Result<bool> {
     let flow_input = flow_args.clone().unwrap_or_else(|| json!({}));
     match eval_timeout(
@@ -574,9 +577,9 @@ async fn compute_bool_from_expr(
             ("previous_result".to_string(), result),
         ]
         .into(),
-        None,
+        creds,
         vec![],
-        None,
+        by_id,
         base_internal_url.to_string(),
     )
     .await?
@@ -656,6 +659,7 @@ async fn transform_input(
     token: &str,
     steps: Vec<Uuid>,
     resumes: &[Value],
+    approvers: Vec<String>,
     by_id: &IdContext,
     base_internal_url: &str,
 ) -> anyhow::Result<Map<String, serde_json::Value>> {
@@ -682,6 +686,7 @@ async fn transform_input(
                         resumes.last().map(|v| json!(v)).unwrap_or_default(),
                     ),
                     ("resumes".to_string(), resumes.clone().into()),
+                    ("approvers".to_string(), json!(approvers.clone())),
                 ];
 
                 let v = eval_timeout(
@@ -854,6 +859,7 @@ async fn push_next_flow_job(
     };
 
     let mut resume_messages: Vec<Value> = vec![];
+    let mut approvers: Vec<String> = vec![];
 
     /* (suspend / resume), when starting a module, if previous module has a
      * non-zero `suspend` value, collect `resume_job`s for the previous module job.
@@ -886,6 +892,12 @@ async fn push_next_flow_job(
             .await?;
 
             resume_messages.extend(resumes.iter().map(|r| r.value.clone()));
+            approvers.extend(resumes.iter().map(|r| {
+                r.approver
+                    .as_deref()
+                    .unwrap_or_else(|| "anonymous")
+                    .to_string()
+            }));
 
             let required_events = suspend.required_events.unwrap() as u16;
             if resume_messages.len() >= required_events as usize {
@@ -1067,13 +1079,12 @@ async fn push_next_flow_job(
     }
 
     let mut transform_context: Option<TransformContext> = None;
+
     let mut args = match &module.value {
         FlowModuleValue::Script { input_transforms, .. }
         | FlowModuleValue::RawScript { input_transforms, .. } => {
-            let tx = db.begin().await?;
-            let (tx, ctx) = get_transform_context(tx, &flow_job, &status, &flow.modules).await?;
+            let ctx = get_transform_context(db, &flow_job, &status, &flow.modules).await?;
             transform_context = Some(ctx);
-            tx.commit().await?;
             let (token, steps, by_id) = transform_context.as_ref().unwrap();
             transform_input(
                 &flow_job.args,
@@ -1087,6 +1098,7 @@ async fn push_next_flow_job(
                 &token,
                 steps.to_vec(),
                 resume_messages.as_slice(),
+                approvers,
                 by_id,
                 base_internal_url,
             )
@@ -1116,10 +1128,12 @@ async fn push_next_flow_job(
     };
 
     let tx = db.begin().await?;
+
     let (tx, next_flow_transform) = compute_next_flow_transform(
         flow_job,
         &flow,
         transform_context,
+        db,
         tx,
         &module,
         &status,
@@ -1451,6 +1465,7 @@ async fn compute_next_flow_transform<'c>(
     flow_job: &QueuedJob,
     flow: &FlowValue,
     transform_context: Option<TransformContext>,
+    db: &DB,
     mut tx: sqlx::Transaction<'c, sqlx::Postgres>,
     module: &FlowModule,
     status: &FlowStatus,
@@ -1497,10 +1512,7 @@ async fn compute_next_flow_transform<'c>(
                     let (token, steps, by_id) = if let Some(x) = transform_context {
                         x
                     } else {
-                        let (tx_new, res) =
-                            get_transform_context(tx, &flow_job, &status, &flow.modules).await?;
-                        tx = tx_new;
-                        res
+                        get_transform_context(db, &flow_job, &status, &flow.modules).await?
                     };
                     let flow_input = flow_job.args.clone().unwrap_or_else(|| json!({}));
                     /* Iterator is an InputTransform, evaluate it into an array. */
@@ -1618,12 +1630,19 @@ async fn compute_next_flow_transform<'c>(
             let branch = match status_module {
                 FlowStatusModule::WaitingForPriorSteps { .. } => {
                     let mut branch_chosen = BranchChosen::Default;
+                    let (token, _steps, idcontext) =
+                        get_transform_context(db, &flow_job, &status, &flow.modules).await?;
                     for (i, b) in branches.iter().enumerate() {
                         let pred = compute_bool_from_expr(
                             b.expr.to_string(),
                             &flow_job.args,
                             last_result.clone(),
                             base_internal_url,
+                            Some(idcontext.clone()),
+                            Some(EvalCreds {
+                                workspace: flow_job.workspace_id.clone(),
+                                token: token.to_string(),
+                            }),
                         )
                         .await?;
 
@@ -1766,12 +1785,13 @@ async fn compute_next_flow_transform<'c>(
     }
 }
 
-async fn get_transform_context<'c>(
-    tx: sqlx::Transaction<'c, sqlx::Postgres>,
+async fn get_transform_context(
+    db: &DB,
     flow_job: &QueuedJob,
     status: &FlowStatus,
     modules: &Vec<FlowModule>,
-) -> error::Result<(sqlx::Transaction<'c, sqlx::Postgres>, TransformContext)> {
+) -> error::Result<TransformContext> {
+    let tx = db.begin().await?;
     let (tx, new_token) = crate::create_token_for_owner(
         tx,
         &flow_job.workspace_id,
@@ -1781,6 +1801,9 @@ async fn get_transform_context<'c>(
         &flow_job.created_by,
     )
     .await?;
+    //we need to commit asap otherwise the token won't be valid for auth to check outside of this transaction
+    //which will happen with client http calls
+    tx.commit().await?;
     let new_steps: Vec<Uuid> = status
         .modules
         .iter()
@@ -1792,7 +1815,7 @@ async fn get_transform_context<'c>(
         .zip(new_steps.clone())
         .collect();
 
-    Ok((tx, (new_token, new_steps, IdContext(flow_job.id, id_map))))
+    Ok((new_token, new_steps, IdContext(flow_job.id, id_map)))
 }
 
 async fn evaluate_with<F>(

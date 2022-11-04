@@ -1,14 +1,14 @@
 <script lang="ts">
 	import { userStore, workspaceStore } from '$lib/stores'
-	import Modal from './Modal.svelte'
 	import { type Group, GroupService, UserService } from '$lib/gen'
 	import AutoComplete from 'simple-svelte-autocomplete'
 	import TableCustom from './TableCustom.svelte'
 	import { canWrite } from '$lib/utils'
-	import { Button } from './common'
+	import { Button, Drawer } from './common'
+	import DrawerContent from './common/drawer/DrawerContent.svelte'
 
 	let name = ''
-	let modal: Modal
+	let drawer: Drawer
 	let can_write = false
 
 	let group: Group | undefined
@@ -30,11 +30,11 @@
 			})
 		}
 	}
-	export function openModal(newName: string): void {
+	export function openDrawer(newName: string): void {
 		name = newName
 		loadGroup()
 		loadUsernames()
-		modal.openModal()
+		drawer.openDrawer()
 	}
 
 	async function addToGroup() {
@@ -52,18 +52,12 @@
 	}
 </script>
 
-<Modal bind:this={modal}>
-	<div slot="title">
-		{name}
-		<span class="text-sm text-gray-500 ml-1">(group)</span>
-	</div>
-	<div slot="content" class="flex flex-col gap-6">
-		<div>
-			<div class="font-semibold text-gray-700 mb-1">Summary</div>
+<Drawer bind:this={drawer}>
+	<DrawerContent title="Group {name}" on:close={drawer.closeDrawer}>
+		<div class="flex flex-col gap-6">
+			<h2>Summary</h2>
 			<p>{group?.summary ?? 'No summary'}</p>
-		</div>
-		<div>
-			<div class="font-semibold text-gray-700 mb-1">Members</div>
+			<h2>Members</h2>
 			{#if can_write}
 				<div class="flex items-start">
 					<AutoComplete items={usernames} bind:selectedItem={username} />
@@ -107,5 +101,5 @@
 				</tbody>
 			</TableCustom>
 		</div>
-	</div>
-</Modal>
+	</DrawerContent>
+</Drawer>

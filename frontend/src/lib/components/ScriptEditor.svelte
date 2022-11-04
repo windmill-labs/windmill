@@ -42,6 +42,7 @@
 	let testJob: Job | undefined
 	let pastPreviews: CompletedJob[] = []
 	let lastSave: string | null
+	let validCode = true
 
 	$: lastSave = localStorage.getItem(path ?? 'last_save')
 
@@ -73,7 +74,13 @@
 			}
 		})
 
-		await inferArgs(lang, code, schema)
+		try {
+			await inferArgs(lang, code, schema)
+			validCode = true
+		} catch (e) {
+			console.error("Couldn't infer args", e)
+			validCode = false
+		}
 
 		schema = schema
 
@@ -103,7 +110,13 @@
 
 <div class="border-b-2 shadow-sm p-1 pr-4" bind:clientWidth={width}>
 	<div class="flex justify-between space-x-2">
-		<EditorBar iconOnly={width < EDITOR_BAR_WIDTH_THRESHOLD} {editor} {lang} {websocketAlive} />
+		<EditorBar
+			{validCode}
+			iconOnly={width < EDITOR_BAR_WIDTH_THRESHOLD}
+			{editor}
+			{lang}
+			{websocketAlive}
+		/>
 
 		<Button
 			target="_blank"
@@ -162,7 +175,7 @@
 				</div>
 			</Pane>
 			<Pane size={67}>
-				<div class="px-2 py-1">
+				<div class="px-2 py-1 w-full">
 					{#if testIsLoading}
 						<Button
 							on:click={testJobLoader?.cancelJob}

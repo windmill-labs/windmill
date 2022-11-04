@@ -180,7 +180,7 @@
 					script.kind,
 					script.language,
 					script.schema,
-					script.lock
+					script.language == 'deno' ? '' : script.lock
 				).toString()}
 				variant="border"
 				color="blue"
@@ -200,7 +200,7 @@
 						displayName: 'Share',
 						icon: faShare,
 						action: () => {
-							shareModal.openModal()
+							shareModal.openDrawer()
 						},
 						disabled: !can_write
 					},

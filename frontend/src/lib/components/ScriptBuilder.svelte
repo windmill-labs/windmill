@@ -16,9 +16,9 @@
 	import UnsavedConfirmationModal from './common/confirmationModal/UnsavedConfirmationModal.svelte'
 	import { dirtyStore } from './common/confirmationModal/dirtyStore'
 	import { Button } from './common'
-	import { slide } from 'svelte/transition'
 	import { faChevronDown, faChevronUp, faPen } from '@fortawesome/free-solid-svg-icons'
 	import Breadcrumb from './common/breadcrumb/Breadcrumb.svelte'
+	import Toggle from './Toggle.svelte'
 
 	export let script: Script
 	export let initialPath: string = ''
@@ -29,7 +29,7 @@
 
 	let pathError = ''
 
-	let summaryC: HTMLTextAreaElement | undefined = undefined
+	let summaryC: HTMLInputElement | undefined = undefined
 	let pathC: Path | undefined = undefined
 
 	$: setQueryWithoutLoad($page.url, 'state', encodeState(script))
@@ -134,7 +134,7 @@
 					size="sm"
 					variant={step == 1 ? 'border' : 'contained'}
 					disabled={step === 1 && pathError !== ''}
-					btnClasses={step == 3 ? 'invisible' : ''}
+					btnClasses={step == 1 && initialPath == '' ? 'invisible' : ''}
 					on:click={editScript}>Save (commit)</Button
 				>
 				<Button
@@ -174,21 +174,13 @@
 					on:enter={() => changeStep(2)}
 					namePlaceholder="my_script"
 					kind="script"
-				>
-					<div slot="ownerToolkit">
-						Script permissions depend on their path. Select the group
-						<span class="font-mono"> all </span>
-						to share your script, and <span class="font-mono">user</span> to keep it private.
-						<a href="https://docs.windmill.dev/docs/reference/namespaces">docs</a>
-					</div>
-				</Path>
+				/>
 				<label class="block ">
 					<span class="text-gray-700 text-sm">Summary <Required required={false} /></span>
-					<textarea
+					<input
+						type="text"
 						bind:this={summaryC}
 						bind:value={script.summary}
-						class="block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-300 
-						focus:ring focus:ring-indigo-200 focus:ring-opacity-50"
 						placeholder="A very short summary of the script displayed when the script is listed"
 						rows="1"
 					/>
@@ -207,16 +199,18 @@
 					/>
 				</div>
 				<h2 class="border-b pb-1 mt-4"> Metadata </h2>
-				<Button
-					color="light"
-					size="sm"
-					endIcon={{ icon: viewScriptKind ? faChevronUp : faChevronDown }}
-					on:click={() => (viewScriptKind = !viewScriptKind)}
-				>
-					Specialize the script as a specific module kind for flows
-				</Button>
+				<div>
+					<Button
+						color="light"
+						size="sm"
+						endIcon={{ icon: viewScriptKind ? faChevronUp : faChevronDown }}
+						on:click={() => (viewScriptKind = !viewScriptKind)}
+					>
+						Specialize the script as a specific module kind for flows
+					</Button>
+				</div>
 				{#if viewScriptKind}
-					<div class="max-w-lg" transition:slide>
+					<div class="max-w-lg">
 						<RadioButton
 							label="Script Type"
 							options={[
@@ -256,17 +250,18 @@
 					</div>
 				{/if}
 				{#if script.language == 'deno' && script.kind == Script.kind.SCRIPT}
-					<Button
-						color="light"
-						size="sm"
-						endIcon={{ icon: viewTemplate ? faChevronUp : faChevronDown }}
-						on:click={() => (viewTemplate = !viewTemplate)}
-					>
-						Use a predefined template specific to this language and script kind
-					</Button>
-
+					<div
+						><Button
+							color="light"
+							size="sm"
+							endIcon={{ icon: viewTemplate ? faChevronUp : faChevronDown }}
+							on:click={() => (viewTemplate = !viewTemplate)}
+						>
+							Use a predefined template specific to this language and script kind
+						</Button>
+					</div>
 					{#if viewTemplate}
-						<div class="max-w-lg" transition:slide>
+						<div class="max-w-lg">
 							<RadioButton
 								label="Template"
 								options={[
@@ -280,10 +275,10 @@
 					{/if}
 				{/if}
 
-				<label class="block">
-					<span class="text-gray-700 mr-2">Save as workspace template</span>
-					<input type="checkbox" bind:checked={script.is_template} />
-				</label>
+				<Toggle
+					bind:checked={script.is_template}
+					options={{ right: 'Save as a workspace template' }}
+				/>
 			</div>
 		</CenteredPage>
 	{:else if step === 2}

@@ -20,10 +20,11 @@
 	import { userStore, workspaceStore } from '$lib/stores'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
 	import Icon from 'svelte-awesome'
-	import { faPlus, faCircle } from '@fortawesome/free-solid-svg-icons'
+	import { faPlus, faCircle, faLock, faEyeSlash } from '@fortawesome/free-solid-svg-icons'
 	import { Button } from '$lib/components/common'
 	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
 	import { Alert, Badge, Skeleton } from '$lib/components/common'
+	import Popover from '$lib/components/Popover.svelte'
 
 	type ListableVariableW = ListableVariable & { canWrite: boolean }
 
@@ -74,7 +75,10 @@
 </script>
 
 <CenteredPage>
-	<PageHeader title="Variables">
+	<PageHeader
+		title="Variables"
+		tooltip="Save and permission strings to be reused in Scripts and Flows."
+	>
 		<Button size="sm" startIcon={{ icon: faPlus }} on:click={() => variableEditor.initNew()}>
 			New&nbsp;variable
 		</Button>
@@ -91,8 +95,8 @@
 			<TableCustom>
 				<tr slot="header-row">
 					<th>path</th>
+
 					<th>value</th>
-					<th>secret</th>
 					<th>description</th>
 					<th>OAuth</th>
 					<th />
@@ -109,13 +113,30 @@
 								>
 								<div><SharedBadge {canWrite} extraPerms={extra_perms} /></div>
 							</td>
-							<td>{truncate(value ?? '******', 40)}</td>
-							<td>{is_secret ? 'secret' : 'visible'}</td>
-							<td>{truncate(description ?? '', 50)}</td>
-							<td>
+							<td
+								><span class="text-sm break-all">
+									{truncate(value ?? '******', 20)}
+									{#if is_secret}
+										<Popover>
+											<Icon
+												label="Secret"
+												class="text-gray-700 mb-2 ml-2"
+												data={faEyeSlash}
+												scale={0.8}
+											/>
+											<span slot="text">This item is secret</span>
+										</Popover>
+									{/if}
+								</span></td
+							>
+							<td class="break-all"
+								><span class="text-xs text-gray-500">{truncate(description ?? '', 50)}</span></td
+							>
+
+							<td class="text-center">
 								{#if is_oauth}
 									<Icon
-										class="text-green-600"
+										class="text-green-500"
 										data={faCircle}
 										scale={0.7}
 										label="Variable is tied to an OAuth app"
@@ -147,7 +168,7 @@
 										{
 											displayName: 'Share',
 											action: () => {
-												shareModal.openModal(path)
+												shareModal.openDrawer(path)
 											},
 											disabled: !canWrite
 										},

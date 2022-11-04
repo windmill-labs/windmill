@@ -1,6 +1,6 @@
 import type { Flow, FlowModule, ForloopFlow, InputTransform } from '$lib/gen'
 import { get, writable, derived } from 'svelte/store'
-import { flowStateStore, initFlowState } from './flowState'
+import { flowStateStore, initFlowState, type FlowState } from './flowState'
 import { numberToChars } from './utils'
 
 export type FlowMode = 'push' | 'pull'
@@ -69,6 +69,7 @@ export async function initFlow(flow: Flow) {
 	}
 
 	await initFlowState(flow)
+
 	flowStore.set(flow)
 
 	function migrateFlowModule(mod: FlowModule) {

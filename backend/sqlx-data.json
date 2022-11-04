@@ -244,50 +244,6 @@
     },
     "query": "DELETE FROM account WHERE id = $1 AND workspace_id = $2"
   },
-  "103e321fbaa847831682b5cba2fd94f12c508ddf372f9facd18e30d00afd1ea3": {
-    "describe": {
-      "columns": [
-        {
-          "name": "label",
-          "ordinal": 0,
-          "type_info": "Varchar"
-        },
-        {
-          "name": "token_prefix",
-          "ordinal": 1,
-          "type_info": "Text"
-        },
-        {
-          "name": "expiration",
-          "ordinal": 2,
-          "type_info": "Timestamptz"
-        },
-        {
-          "name": "created_at",
-          "ordinal": 3,
-          "type_info": "Timestamptz"
-        },
-        {
-          "name": "last_used_at",
-          "ordinal": 4,
-          "type_info": "Timestamptz"
-        }
-      ],
-      "nullable": [
-        true,
-        null,
-        true,
-        false,
-        false
-      ],
-      "parameters": {
-        "Left": [
-          "Text"
-        ]
-      }
-    },
-    "query": "SELECT label, concat(substring(token for 10)) as token_prefix, expiration, created_at, last_used_at FROM token WHERE email = $1"
-  },
   "11b1586acdfc180c5a077861ee1f7201fcbcec9d0ebada464f9d952c9c3e400d": {
     "describe": {
       "columns": [],
@@ -534,23 +490,6 @@
       }
     },
     "query": "\n                  SELECT result, id\n                    FROM completed_job\n                   WHERE id = ANY($1)\n                     AND workspace_id = $2\n                    "
-  },
-  "1f68e0b0e6dfa59d782a4abeab8aa06ad808fc7e8255951e1be2fc41263f9c50": {
-    "describe": {
-      "columns": [],
-      "nullable": [],
-      "parameters": {
-        "Left": [
-          "Uuid",
-          "Int4",
-          "Uuid",
-          "Uuid",
-          "Jsonb",
-          "Varchar"
-        ]
-      }
-    },
-    "query": "\n        INSERT INTO resume_job\n                    (id, resume_id, job, flow, value, approver)\n             VALUES ($1, $2, $3, $4, $5, $6)\n             ON CONFLICT (id) DO NOTHING\n        "
   },
   "1f93b533fa6fee0db4340445da3fac8e6773bc1db1f88cd60fd3c1e8c9781eb0": {
     "describe": {
@@ -962,6 +901,26 @@
       }
     },
     "query": "SELECT substr(logs, $1) as logs FROM completed_job WHERE workspace_id = $2 AND id = $3"
+  },
+  "46b44de4ea6eb15258c1cb9bbd21cab7fc350b46e8899d59759945eae02a6d40": {
+    "describe": {
+      "columns": [
+        {
+          "name": "exists",
+          "ordinal": 0,
+          "type_info": "Bool"
+        }
+      ],
+      "nullable": [
+        null
+      ],
+      "parameters": {
+        "Left": [
+          "Uuid"
+        ]
+      }
+    },
+    "query": "\n        SELECT EXISTS (SELECT 1 FROM resume_job WHERE id = $1)\n        "
   },
   "47a74719faba8a6377ba157d25929a6f1e74afdffd642d5a1c7db57e745e0c01": {
     "describe": {
@@ -2822,6 +2781,50 @@
     },
     "query": "SELECT * from workspace_invite WHERE workspace_id = $1"
   },
+  "b5c9891b5bf3d581e62f8835aaa25b8158fe3cefc849af0ba312a45cf22721ca": {
+    "describe": {
+      "columns": [
+        {
+          "name": "label",
+          "ordinal": 0,
+          "type_info": "Varchar"
+        },
+        {
+          "name": "token_prefix",
+          "ordinal": 1,
+          "type_info": "Text"
+        },
+        {
+          "name": "expiration",
+          "ordinal": 2,
+          "type_info": "Timestamptz"
+        },
+        {
+          "name": "created_at",
+          "ordinal": 3,
+          "type_info": "Timestamptz"
+        },
+        {
+          "name": "last_used_at",
+          "ordinal": 4,
+          "type_info": "Timestamptz"
+        }
+      ],
+      "nullable": [
+        true,
+        null,
+        true,
+        false,
+        false
+      ],
+      "parameters": {
+        "Left": [
+          "Text"
+        ]
+      }
+    },
+    "query": "SELECT label, concat(substring(token for 10)) as token_prefix, expiration, created_at, last_used_at FROM token WHERE email = $1\n         ORDER BY created_at DESC"
+  },
   "b7dd791cd69748ef51b7520f505c0c8bb1b4014a273476eddfecf1ab658a18b4": {
     "describe": {
       "columns": [
@@ -3066,6 +3069,23 @@
       }
     },
     "query": "SELECT  usr.username  \n            FROM usr_to_group LEFT JOIN usr ON usr_to_group.usr = usr.username \n            WHERE group_ = $1 AND usr.workspace_id = $2 AND usr_to_group.workspace_id = $2"
+  },
+  "c4f1c14c3aae145b52ff39bdecd779cd3eba27a869fda68516dc68dc2abefd38": {
+    "describe": {
+      "columns": [],
+      "nullable": [],
+      "parameters": {
+        "Left": [
+          "Uuid",
+          "Int4",
+          "Uuid",
+          "Uuid",
+          "Jsonb",
+          "Varchar"
+        ]
+      }
+    },
+    "query": "\n        INSERT INTO resume_job\n                    (id, resume_id, job, flow, value, approver)\n             VALUES ($1, $2, $3, $4, $5, $6)\n        "
   },
   "c59dd666b9a316c027e8c319b80ccbab3a220d93b64357981bd4a03324dad1d0": {
     "describe": {
@@ -3471,6 +3491,18 @@
       }
     },
     "query": "\n           SELECT SUM(duration_ms)\n             FROM completed_job\n            WHERE permissioned_as = $1\n              AND created_at > NOW() - INTERVAL '1200 seconds'\n              AND workspace_id = $2"
+  },
+  "e838b15953b567af2a2da6a4e3a04add5ec2cacabd93171a97c5fc978a64f8aa": {
+    "describe": {
+      "columns": [],
+      "nullable": [],
+      "parameters": {
+        "Left": [
+          "Text"
+        ]
+      }
+    },
+    "query": "DELETE FROM password WHERE email = $1"
   },
   "ed400dbf4a1fa597bc984240cfe9069369a8a265b127116187d78c0ba93ae076": {
     "describe": {

@@ -5,11 +5,10 @@
 	import { hubScripts, workspaceStore } from '$lib/stores'
 	import { createEventDispatcher } from 'svelte'
 	import ItemPicker from './ItemPicker.svelte'
-	import Modal from './Modal.svelte'
 
 	import { getScriptByPath } from '$lib/utils'
 	import RadioButton from './RadioButton.svelte'
-	import { Button } from './common'
+	import { Button, Drawer, DrawerContent } from './common'
 	import HighlightCode from './HighlightCode.svelte'
 
 	export let scriptPath: string | undefined = undefined
@@ -20,7 +19,7 @@
 
 	let items: { summary: String; path: String; version?: String }[] = []
 	let itemPicker: ItemPicker
-	let modalViewer: Modal
+	let drawerViewer: Drawer
 	let code: string = ''
 	let lang: 'deno' | 'python3' | 'go' | undefined
 
@@ -60,20 +59,20 @@
 	}}
 />
 
-<div class="flex flex-row flex-wrap items-center gap-4">
-	<div class="w-80 -mb-2">
-		{#if options.length > 1}
+<div class="flex flex-row flex-wrap items-center gap-4 w-full">
+	{#if options.length > 1}
+		<div class="w-80 -mb-2">
 			<RadioButton bind:value={itemKind} {options} />
-		{/if}
-	</div>
+		</div>
+	{/if}
 
 	<div class="flex items-center grow gap-4">
-		<input type="text" value={scriptPath ?? 'No path chosen yet'} disabled />
+		<input class="grow w-full" type="text" value={scriptPath ?? 'No path chosen yet'} disabled />
 		<Button
 			size="sm"
 			endIcon={{ icon: faSearch }}
 			btnClasses="mx-auto whitespace-nowrap"
-			on:click={() => itemPicker.openModal()}
+			on:click={() => itemPicker.openDrawer()}
 		>
 			Pick a {itemKind} path
 		</Button>
@@ -86,7 +85,7 @@
 				const { language, content } = await getScriptByPath(scriptPath ?? '')
 				code = content
 				lang = language
-				modalViewer.openModal()
+				drawerViewer.openDrawer()
 			}}
 		>
 			Show code
@@ -94,9 +93,8 @@
 	{/if}
 </div>
 
-<Modal bind:this={modalViewer}>
-	<div slot="title">Script {scriptPath}</div>
-	<div slot="content">
+<Drawer bind:this={drawerViewer}>
+	<DrawerContent title="Script {scriptPath}" on:close={drawerViewer.closeDrawer}>
 		<HighlightCode {code} language={lang} />
-	</div>
-</Modal>
+	</DrawerContent>
+</Drawer>

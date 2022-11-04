@@ -17,7 +17,7 @@
 		modules: Array<FlowModule>
 	}
 	export let parentModule: FlowModule | undefined
-	export let previousModuleId: string | undefined
+	export let previousModule: FlowModule | undefined
 
 	const { previewArgs } = getContext<FlowEditorContext>('FlowEditorContext')
 	let editor: SimpleEditor | undefined = undefined
@@ -25,9 +25,10 @@
 	$: pickableProperties = getStepPropPicker(
 		$flowStateStore,
 		parentModule,
-		previousModuleId,
+		previousModule,
 		$flowStore,
-		previewArgs
+		previewArgs,
+		true
 	).pickableProperties
 </script>
 
@@ -43,7 +44,7 @@
 						<span class="mb-2 text-sm font-bold">Branch predicate</span>
 						<div class="border w-full">
 							<PropPickerWrapper
-								priorId={previousModuleId}
+								priorId={previousModule?.id}
 								{pickableProperties}
 								on:select={({ detail }) => {
 									editor?.insertAtCursor(detail)
