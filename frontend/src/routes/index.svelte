@@ -38,7 +38,8 @@
 		jobs = await JobService.listJobs({
 			workspace: $workspaceStore!,
 			success: true,
-			createdBy: $userStore?.username
+			createdBy: $userStore?.username,
+			jobKinds: 'flow,script'
 		})
 		loading.jobs = false
 	}
