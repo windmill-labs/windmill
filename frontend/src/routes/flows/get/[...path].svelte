@@ -213,8 +213,10 @@
 				>Edited {displayDaysAgo(flow.edited_at ?? '')} by {flow.edited_by}</p
 			>
 			<div>
-				<h2 class="font-bold mb-2">{flow.summary}</h2>
-				<div class="prose">
+				<h2 class="font-bold mb-2"
+					>{flow.summary && flow.summary != '' ? flow.summary : 'No summary'}</h2
+				>
+				<div class="prose box">
 					<SvelteMarkdown source={defaultIfEmptyString(flow.description, 'No description')} />
 				</div>
 			</div>

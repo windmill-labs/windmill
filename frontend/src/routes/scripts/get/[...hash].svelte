@@ -281,12 +281,14 @@
 
 	<ShareModal bind:this={shareModal} kind="script" path={script?.path ?? ''} />
 
-	<div class="flex flex-col gap-8 max-w-7xl pt-8 pb-2">
+	<div class="flex flex-col gap-8 max-w-7xl pt-4 pb-2">
 		<Skeleton {loading} layout={[[3], 1]} />
 		{#if script}
 			<div>
-				<h2 class="font-bold mb-2">{script.summary}</h2>
-				<div class="prose">
+				<h2 class="font-bold mb-2"
+					>{script.summary && script.summary != '' ? script.summary : 'No summary'}</h2
+				>
+				<div class="prose box">
 					<SvelteMarkdown source={defaultIfEmptyString(script.description, 'No description')} />
 				</div>
 			</div>
@@ -328,7 +330,7 @@
 			{/if}
 		{/if}
 
-		<div class="pt-4">
+		<div class="">
 			<h2 class="text-lg mb-1 font-bold text-gray-600">
 				Arguments JSON schema
 				<Tooltip>
@@ -340,7 +342,9 @@
 			</h2>
 			<Skeleton {loading} layout={[[15]]} />
 			{#if script}
-				<SchemaViewer schema={script.schema} />
+				<div class="box mt-2">
+					<SchemaViewer schema={script.schema} />
+				</div>
 			{/if}
 		</div>
 		<div>
