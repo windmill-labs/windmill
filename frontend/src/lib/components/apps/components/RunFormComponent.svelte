@@ -3,32 +3,30 @@
 	import { Button } from '$lib/components/common'
 	import SchemaForm from '$lib/components/SchemaForm.svelte'
 	import TestJobLoader from '$lib/components/TestJobLoader.svelte'
-	import { CompletedJob, FlowService, Job, ScriptService } from '$lib/gen'
+	import { CompletedJob, FlowService, Job, ScriptService, type InputTransform } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { faArrowsRotate, faFile } from '@fortawesome/free-solid-svg-icons'
 	import { getContext } from 'svelte'
 	import Icon from 'svelte-awesome'
-	import { schemaToInputsSpec } from '../editor/settingsPanel/utils'
 	import type { Output } from '../rx'
-	import type { AppEditorContext, InputsSpec } from '../types'
+	import type { App, AppEditorContext, InputsSpec } from '../types'
+	import { isAppInputTransformHidden, schemaToInputsSpec } from '../utils'
 
 	// Component props
 	export let id: string
 	export let inputs: InputsSpec
-	export let hidden: string[] = []
 
 	// Extra props
-	let schema: Schema | undefined = undefined
 	export const staticOutputs = ['loading', 'result']
-
 	const { worldStore, app } = getContext<AppEditorContext>('AppEditorContext')
 
-	let schemaClone: Schema | undefined = undefined
+	let schema: Schema | undefined = undefined
 	let isValid = true
 	let testIsLoading = false
 	let testJob: CompletedJob | undefined = undefined
 	let testJobLoader: TestJobLoader | undefined = undefined
-	let x = buildArgs(inputs)
+
+	$: args = inputsSpecToSchemaArgs(inputs, $app)
 	$: triggerable = $app.policy?.triggerables[id]
 
 	$: outputs = $worldStore?.outputsById[id] as {
@@ -40,7 +38,7 @@
 		loadSchema($workspaceStore)
 	}
 
-	$: schemaClone && mapInput(schemaClone)
+	$: schema && app && deleteHiddenArgFromSchema(schema, $app)
 
 	async function loadSchema(workspace: string) {
 		if (triggerable?.type === 'script') {
@@ -50,7 +48,6 @@
 			})
 
 			schema = script.schema
-
 			inputs = schemaToInputsSpec(schema)
 		} else if (triggerable?.type === 'flow') {
 			const flow = await FlowService.getFlowByPath({
@@ -61,53 +58,46 @@
 			schema = flow.schema
 			inputs = schemaToInputsSpec(schema)
 		}
-
-		schemaClone = JSON.parse(JSON.stringify(schema))
 	}
 
-	function mapInput(schema: Schema) {
-		Object.keys(inputs).forEach((argName) => {
-			const arg = inputs[argName]
+	// DONE
+	function deleteHiddenArgFromSchema(schema: Schema, app: App) {
+		if (!app.policy.triggerables[id]) {
+			throw new Error(`Triggerable ${id} not found`)
+		}
 
-			if (hidden.includes(argName)) {
+		const { staticFields } = app.policy.triggerables[id]
+
+		Object.keys(staticFields).forEach((argName) => {
+			const input = inputs[argName]
+
+			if (isAppInputTransformHidden(input)) {
 				delete schema.properties[argName]
-			}
-
-			if (arg.type === 'static' && schema.properties[argName]) {
-				schema.properties[argName].default = $app.policy?.triggerables[id]?.staticFields[argName]
 			}
 		})
 	}
 
-	function buildArgs(args: InputsSpec) {
-		return Object.keys(args)
-			.filter((x) => hidden.includes(x))
-			.reduce((previousValue: Record<string, any>, currentValue: string) => {
+	function inputsSpecToSchemaArgs(
+		args: InputsSpec,
+		app: App
+	): Record<string, InputTransform | any> {
+		if (!app.policy.triggerables[id]) {
+			throw new Error(`Triggerable ${id} not found`)
+		}
+
+		const { staticFields } = app.policy.triggerables[id]
+
+		return Object.keys(args).reduce(
+			(previousValue: Record<string, InputTransform>, currentValue: string) => {
 				const arg = args[currentValue]
 
 				if (arg.type === 'static') {
-					previousValue[currentValue] = $app.policy?.triggerables[id]?.staticFields[currentValue]
+					previousValue[currentValue] = staticFields[currentValue]
 				}
 				return previousValue
-			}, {})
-	}
-
-	function extractHiddenParamsFromSchemas(schema: Schema | undefined) {
-		if (schema) {
-			return Object.keys(inputs).reduce(
-				(previousValue: Record<string, any>, currentValue: string) => {
-					const arg = inputs[currentValue]
-
-					if (arg.type === 'static') {
-						previousValue[currentValue] = $app.policy?.triggerables[id]?.staticFields[currentValue]
-					}
-					return previousValue
-				},
-				{}
-			)
-		} else {
-			return {}
-		}
+			},
+			{}
+		)
 	}
 </script>
 
@@ -123,19 +113,14 @@
 	bind:this={testJobLoader}
 />
 
-{#if schemaClone !== undefined}
-	<SchemaForm bind:schema={schemaClone} bind:args={x} bind:isValid />
+{#if schema !== undefined}
+	<SchemaForm bind:schema bind:args bind:isValid />
 	<Button
 		size="xs"
 		color="dark"
 		variant="border"
 		on:click={() => {
-			const k = extractHiddenParamsFromSchemas(schema)
-
-			testJobLoader?.runScriptByPath(triggerable?.path, {
-				...k,
-				...x
-			})
+			testJobLoader?.runScriptByPath(triggerable?.path, args)
 		}}
 		startIcon={{ icon: faFile }}
 		disabled={!isValid}

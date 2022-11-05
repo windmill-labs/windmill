@@ -33,9 +33,6 @@ export type TextInputComponent = {
 export type RunFormComponent = {
 	type: 'runformcomponent'
 	inputs: InputsSpec
-	params: {
-		hidden: string[]
-	}
 }
 
 export type BarChartComponent = {
@@ -89,7 +86,7 @@ export type AppSection = {
 export type App = {
 	sections: AppSection[]
 	title: string
-	policy: Policy | undefined
+	policy: Policy
 }
 
 export type AppSelection = { sectionIndex: number; componentIndex: number | undefined }

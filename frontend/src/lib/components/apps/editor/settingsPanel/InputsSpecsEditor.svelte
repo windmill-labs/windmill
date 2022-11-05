@@ -1,30 +1,50 @@
 <script lang="ts">
 	import { ToggleButton, ToggleButtonGroup } from '$lib/components/common'
+	import { classNames } from '$lib/utils'
 	import { faBolt, faLink, faUser } from '@fortawesome/free-solid-svg-icons'
+	import { slide } from 'svelte/transition'
 	import type { InputsSpec } from '../../types'
 	import InputsSpecEditor from './InputsSpecEditor.svelte'
 
 	export let inputSpecs: InputsSpec
 	export let componenId: string
+
+	let openedProp = Object.keys(inputSpecs)[0]
 </script>
 
-{#each Object.keys(inputSpecs) as inputSpecKey}
-	<span class="text-sm font-bold">{inputSpecKey}</span>
-	<ToggleButtonGroup bind:selected={inputSpecs[inputSpecKey].type}>
-		<ToggleButton position="left" value="static" startIcon={{ icon: faBolt }} size="xs">
-			Static
-		</ToggleButton>
-		<ToggleButton position="center" value="output" startIcon={{ icon: faLink }} size="xs">
-			Dynamic
-		</ToggleButton>
-		<ToggleButton position="right" value="user" startIcon={{ icon: faUser }} size="xs">
-			User
-		</ToggleButton>
-	</ToggleButtonGroup>
-
-	<InputsSpecEditor
-		bind:appInputTransform={inputSpecs[inputSpecKey]}
-		propKey={inputSpecKey}
-		{componenId}
-	/>
-{/each}
+<div class="w-full flex flex-col gap-4">
+	{#each Object.keys(inputSpecs) as inputSpecKey}
+		<!-- svelte-ignore a11y-click-events-have-key-events -->
+		<div
+			class={classNames(
+				'w-full text-xs font-bold  border rounded-md py-1 px-2 cursor-pointer hover:bg-gray-800 hover:text-white transition-all',
+				openedProp !== inputSpecKey ? 'bg-gray-200 ' : 'bg-gray-600 text-gray-300'
+			)}
+			on:click={() => {
+				openedProp = inputSpecKey
+			}}
+		>
+			{inputSpecKey}
+		</div>
+		{#if inputSpecKey === openedProp}
+			<div class="flex flex-col w-full gap-2" transition:slide>
+				<ToggleButtonGroup bind:selected={inputSpecs[inputSpecKey].type}>
+					<ToggleButton position="left" value="static" startIcon={{ icon: faBolt }} size="xs">
+						Static
+					</ToggleButton>
+					<ToggleButton position="center" value="output" startIcon={{ icon: faLink }} size="xs">
+						Dynamic
+					</ToggleButton>
+					<ToggleButton position="right" value="user" startIcon={{ icon: faUser }} size="xs">
+						User
+					</ToggleButton>
+				</ToggleButtonGroup>
+				<InputsSpecEditor
+					bind:appInputTransform={inputSpecs[inputSpecKey]}
+					propKey={inputSpecKey}
+					{componenId}
+				/>
+			</div>
+		{/if}
+	{/each}
+</div>

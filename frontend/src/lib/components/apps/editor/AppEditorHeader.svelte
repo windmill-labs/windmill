@@ -16,18 +16,25 @@
 
 <div class="border-b h-12 flex flex-row justify-between py-2 px-4 items-center">
 	<span class="text-sm">{title}</span>
-	<div class="flex flex-row gap-2">
+	<div>
 		<ToggleButtonGroup bind:selected={mode}>
-			<ToggleButton position="left" value="dnd" startIcon={{ icon: faHand }}>
+			<ToggleButton position="left" value="dnd" startIcon={{ icon: faHand }} size="sm">
 				Component editor
 			</ToggleButton>
-			<ToggleButton position="center" value="width" startIcon={{ icon: faArrowsLeftRight }}>
+			<ToggleButton
+				position="center"
+				value="width"
+				startIcon={{ icon: faArrowsLeftRight }}
+				size="sm"
+			>
 				Width editor
 			</ToggleButton>
-			<ToggleButton position="right" value="preview" startIcon={{ icon: faDisplay }}>
+			<ToggleButton position="right" value="preview" startIcon={{ icon: faDisplay }} size="sm">
 				Preview
 			</ToggleButton>
 		</ToggleButtonGroup>
+	</div>
+	<div class="flex flex-row gap-2">
 		<Button color="dark" size="sm" variant="border" startIcon={{ icon: faExternalLink }}>
 			Publish
 		</Button>

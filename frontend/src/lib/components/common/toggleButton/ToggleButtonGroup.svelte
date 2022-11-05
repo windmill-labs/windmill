@@ -22,6 +22,6 @@
 	})
 </script>
 
-<div class="flex w-min rounded-md shadow-sm" role="group">
+<div class="flex w-full rounded-md shadow-sm" role="group">
 	<slot />
 </div>

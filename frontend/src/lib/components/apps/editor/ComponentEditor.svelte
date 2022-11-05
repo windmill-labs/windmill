@@ -1,7 +1,6 @@
 <script lang="ts">
 	import { classNames } from '$lib/utils'
 	import { getContext } from 'svelte'
-	import { barChart } from 'svelte-awesome/icons'
 	import BarChartComponent from '../components/BarChartComponent.svelte'
 	import DisplayComponent from '../components/DisplayComponent.svelte'
 	import RunFormComponent from '../components/RunFormComponent.svelte'

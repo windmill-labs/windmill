@@ -1,11 +1,6 @@
 <script lang="ts">
-	import type { Schema } from '$lib/common'
-	import { classNames, emptySchema } from '$lib/utils'
-
-	export let schema: Schema = emptySchema()
-
-	export let path: string
-	export let runType: 'script' | 'flow'
+	import type {} from '$lib/common'
+	import { classNames } from '$lib/utils'
 
 	export let id: string
 	export let title: string

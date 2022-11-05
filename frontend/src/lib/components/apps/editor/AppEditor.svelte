@@ -111,7 +111,7 @@
 	<Pane>
 		<SectionsEditor bind:sections={$appStore.sections} mode={$mode} />
 	</Pane>
-	<Pane minSize={20} maxSize={30} size={20} class="gap-4 flex flex-col">
+	<Pane minSize={20} maxSize={30} size={20}>
 		{#if $selection?.sectionIndex !== undefined && $selection?.componentIndex !== undefined}
 			<ComponentPanel
 				bind:component={$appStore.sections[$selection?.sectionIndex].components[

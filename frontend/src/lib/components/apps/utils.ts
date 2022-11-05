@@ -1,5 +1,5 @@
+import type { App, AppInputTransform, InputsSpec } from './types'
 import type { Schema } from '$lib/common'
-import type { App, InputsSpec } from '../../types'
 
 export function isPolicyDefined(app: App, componentId: string): boolean {
 	return app.policy?.triggerables[componentId] !== undefined
@@ -19,4 +19,11 @@ export function schemaToInputsSpec(schema: Schema | undefined): InputsSpec {
 	}
 
 	return inputsSpec
+}
+
+export function isAppInputTransformHidden(input: AppInputTransform): boolean {
+	return (
+		(input.type === 'static' && input.visible === false) ||
+		(input.type === 'output' && input.visible === false)
+	)
 }

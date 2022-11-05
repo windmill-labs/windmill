@@ -19,9 +19,7 @@
 								visible: true
 							}
 						},
-						params: {
-							hidden: ['b']
-						},
+
 						width: 33,
 						horizontalAlignement: 'center',
 						verticalAlignement: 'center',

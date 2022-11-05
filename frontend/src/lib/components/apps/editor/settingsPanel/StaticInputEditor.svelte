@@ -9,7 +9,13 @@
 
 	const { app } = getContext<AppEditorContext>('AppEditorContext')
 
-	$: value = $app.policy?.triggerables?.[componenId]?.staticFields?.[propKey]
+	let value = $app.policy.triggerables?.[componenId]?.staticFields?.[propKey]
+
+	function updatePolicy() {
+		$app.policy.triggerables[componenId].staticFields[propKey] = value
+	}
+
+	$: value && updatePolicy()
 </script>
 
 <Toggle bind:checked={input.visible} options={{ right: 'Visible' }} />

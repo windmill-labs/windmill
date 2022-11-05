@@ -4,8 +4,7 @@
 	import ComponentEditor from './ComponentEditor.svelte'
 	import { dndzone } from 'svelte-dnd-action'
 	import { flip } from 'svelte/animate'
-	import { classNames, pluralize } from '$lib/utils'
-	import { dev } from '$app/env'
+	import { classNames } from '$lib/utils'
 
 	export let components: AppComponent[]
 	export let sectionIndex: number

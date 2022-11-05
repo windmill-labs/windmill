@@ -6,6 +6,7 @@
 	import { faTrashAlt } from '@fortawesome/free-solid-svg-icons'
 	import { createEventDispatcher } from 'svelte'
 	import type { AppSection } from '../../types'
+	import PanelSection from './common/PanelSection.svelte'
 
 	export let section: AppSection | undefined
 
@@ -32,27 +33,36 @@
 </script>
 
 {#if section}
-	<span class="text-sm font-bold border-y w-full py-1 px-2">Section editor</span>
+	<div class="flex flex-col w-full divide-y">
+		<span class="text-sm border-y w-full py-1 px-2 bg-gray-800 text-white">Section editor</span>
+		<PanelSection title="Columns">
+			<ToggleButtonGroup bind:selected={section.columns}>
+				<ToggleButton position="left" value={1} disabled={section.components.length >= 2} size="xs">
+					1
+				</ToggleButton>
+				<ToggleButton
+					position="center"
+					value={2}
+					disabled={section.components.length === 3}
+					size="xs"
+				>
+					2
+				</ToggleButton>
+				<ToggleButton position="right" value={3} size="xs">3</ToggleButton>
+			</ToggleButtonGroup>
+		</PanelSection>
 
-	<div class="p-2 flex flex-col gap-2 items-start">
-		<Badge color="indigo">{section.id}</Badge>
-
-		<div class="text-sm font-bold">Columns</div>
-		<ToggleButtonGroup bind:selected={section.columns}>
-			<ToggleButton position="left" value={1} disabled={section.components.length >= 2}>
-				1
-			</ToggleButton>
-			<ToggleButton position="center" value={2} disabled={section.components.length === 3}>
-				2
-			</ToggleButton>
-			<ToggleButton position="right" value={3}>3</ToggleButton>
-		</ToggleButtonGroup>
-
-		<div class="text-sm font-bold">Danger zone</div>
-
-		<Button size="xs" color="red" startIcon={{ icon: faTrashAlt }} on:click={deleteSection}>
-			Delete section
-		</Button>
+		<PanelSection title="Danger zone">
+			<Button
+				size="xs"
+				variant="border"
+				color="red"
+				startIcon={{ icon: faTrashAlt }}
+				on:click={deleteSection}
+			>
+				Delete section
+			</Button>
+		</PanelSection>
 	</div>
 {/if}
 

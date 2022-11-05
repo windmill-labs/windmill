@@ -3,8 +3,9 @@
 	import { getContext } from 'svelte'
 	import type { AppEditorContext, InputsSpec } from '../types'
 
-	const { worldStore } = getContext<AppEditorContext>('AppEditorContext')
 	export let inputs: InputsSpec
+
+	const { worldStore } = getContext<AppEditorContext>('AppEditorContext')
 
 	$: inputResult = $worldStore?.connect<any>(inputs.result, (x) => {
 		update()
