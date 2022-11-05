@@ -802,14 +802,17 @@ async fn login_callback(
                     .await?
                     .unwrap_or(false);
             if demo_exists {
-                sqlx::query!(
+                if let Err(e) = sqlx::query!(
                     "INSERT INTO workspace_invite
             (workspace_id, email, is_admin)
             VALUES ('demo', $1, false)",
                     &email
                 )
                 .execute(&mut tx)
-                .await?;
+                .await
+                {
+                    tracing::error!("error inserting invite: {:#?}", e);
+                }
             }
         }
         tx.commit().await?;
