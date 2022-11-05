@@ -50,8 +50,6 @@
 	}
 
 	onMount(() => {
-		loadUser()
-
 		window.onunhandledrejection = (event: PromiseRejectionEvent) => {
 			event.preventDefault()
 
@@ -94,6 +92,7 @@
 				console.log('Caught unhandled promise rejection without message', event)
 			}
 		}
+		loadUser()
 	})
 </script>
 

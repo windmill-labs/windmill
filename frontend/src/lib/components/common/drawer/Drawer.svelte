@@ -18,6 +18,10 @@
 		open = false
 	}
 
+	export function isOpen() {
+		return open
+	}
+
 	let mounted = false
 	const dispatch = createEventDispatcher()
 

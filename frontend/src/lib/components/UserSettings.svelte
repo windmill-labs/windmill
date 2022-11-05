@@ -24,6 +24,11 @@
 
 	let drawer: Drawer
 	export function toggleDrawer() {
+		if (!drawer || !drawer?.isOpen()) {
+			loadVersion()
+			loadLoginType()
+			listTokens()
+		}
 		drawer?.toggleDrawer()
 	}
 
@@ -69,10 +74,6 @@
 		sendUserToast('Succesfully deleted token')
 		listTokens()
 	}
-
-	loadVersion()
-	loadLoginType()
-	listTokens()
 </script>
 
 <Drawer bind:this={drawer} size="800px">
