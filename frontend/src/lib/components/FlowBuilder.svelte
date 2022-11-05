@@ -29,6 +29,7 @@
 
 	export let initialPath: string = ''
 	export let selectedId: string | undefined
+	export let initialArgs: Record<string, any> = {}
 
 	let pathError = ''
 
@@ -146,7 +147,7 @@
 
 	const selectedIdStore = writable<string>('settings')
 	const scheduleStore = writable<Schedule>({ args: {}, cron: '', enabled: false })
-	const previewArgsStore = writable<Record<string, any>>({})
+	const previewArgsStore = writable<Record<string, any>>(initialArgs)
 
 	function select(selectedId: string) {
 		selectedIdStore.set(selectedId)

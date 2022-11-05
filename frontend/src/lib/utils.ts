@@ -226,6 +226,19 @@ export function decodeState(query: string): any {
 	return JSON.parse(decodeURIComponent(atob(query)))
 }
 
+export function decodeArgs(queryArgs: string | undefined): any {
+	if (queryArgs) {
+		const parsed = decodeState(queryArgs)
+		Object.entries(parsed).forEach(([k, v]) => {
+			if (v == '<function call>') {
+				parsed[k] = undefined
+			}
+		})
+		return parsed
+	}
+	return {}
+}
+
 export async function setQuery(url: URL, key: string, value: string): Promise<void> {
 	url.searchParams.set(key, value)
 	await goto(`?${url.searchParams.toString()}`)
