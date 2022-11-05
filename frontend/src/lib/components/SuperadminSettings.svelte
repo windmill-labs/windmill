@@ -72,7 +72,7 @@
 
 		<div class="flex flex-col h-full">
 			<div>
-				<div class="text-xs pt-2 text-gray-500 ">
+				<div class="text-xs pt-1 text-gray-500 ">
 					Windmill {version}
 				</div>
 

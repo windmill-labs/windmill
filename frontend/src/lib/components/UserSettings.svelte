@@ -80,9 +80,10 @@
 	<DrawerContent title="User Settings" on:close={drawer.toggleDrawer}>
 		<div class="flex flex-col h-full">
 			<div>
-				<div class="text-xs text-gray-500 italic pb-4">
+				<div class="text-xs pt-1 pb-2 text-gray-500 ">
 					Windmill {version}
 				</div>
+
 				<h2 class="border-b">User info</h2>
 				<div class="">
 					{#if passwordError}
