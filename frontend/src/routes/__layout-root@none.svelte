@@ -45,7 +45,7 @@
 			}
 		} catch (e) {
 			console.error(e)
-			logoutWithRedirect($page.url.pathname + $page.url.search)
+			await logoutWithRedirect($page.url.pathname + $page.url.search)
 		}
 	}
 
@@ -79,6 +79,7 @@
 					const pathName = $page.url.pathname
 					if (pathName != '/user/login') {
 						logoutWithRedirect(pathName + $page.url.search)
+						return
 					}
 				} else if (status == '403') {
 					sendUserToast('An endpoint required a privilege which you do not have', true)

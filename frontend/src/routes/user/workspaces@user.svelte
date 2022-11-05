@@ -46,7 +46,7 @@
 				workspaceStore.set(localStorage.getItem('workspace')?.toString())
 			}
 		} else {
-			logoutWithRedirect($page.url.pathname + $page.url.search)
+			await logoutWithRedirect($page.url.pathname + $page.url.search)
 		}
 	}
 
