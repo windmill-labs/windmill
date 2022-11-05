@@ -81,7 +81,7 @@
 		<div class="flex flex-col h-full">
 			<div>
 				<div class="text-xs text-gray-500 italic pb-4">
-					Running windmill version (backend) {version}
+					Windmill {version}
 				</div>
 				<h2 class="border-b">User info</h2>
 				<div class="">
