@@ -62,3 +62,4 @@ tempfile.workspace = true
 tokio-util.workspace = true
 tokio-tar.workspace = true
 hmac.workspace = true
+cookie.workspace = true

@@ -1317,6 +1317,7 @@ pub async fn create_session_token<'c>(
     .await?;
     let mut cookie = Cookie::new(COOKIE_NAME, token.clone());
     cookie.set_secure(is_secure);
+    cookie.set_same_site(cookie::SameSite::Lax);
     cookie.set_path(COOKIE_PATH);
     let mut expire: OffsetDateTime = time::OffsetDateTime::now_utc();
     expire += time::Duration::days(3);
