@@ -19,12 +19,12 @@
 	import Tab from '$lib/components/common/tabs/Tab.svelte'
 	import JobDetail from '$lib/components/jobs/JobDetail.svelte'
 	import { Skeleton } from '$lib/components/common'
-	import Tooltip from '../../lib/components/Tooltip.svelte'
+	import { goto } from '$app/navigation'
+	import PageHeader from '$lib/components/PageHeader.svelte'
 
 	let jobs: Job[] | undefined
 	let error: Error | undefined
 	let intervalId: NodeJS.Timer | undefined
-	let path: string = $page.params.path
 	let createdBefore: string | undefined = $page.url.searchParams.get('createdBefore') ?? undefined
 
 	let success: boolean | undefined =
@@ -39,7 +39,9 @@
 	let showOlderJobs = true
 	const jobsPerPage = 100
 
-	let jobKindsCat: string = $page.url.searchParams.get('job_kinds') ?? 'runs'
+	$: path = $page.params.path
+
+	$: jobKindsCat = $page.url.searchParams.get('job_kinds') ?? 'runs'
 
 	$: jobKinds = computeJobKinds(jobKindsCat)
 
@@ -145,21 +147,13 @@
 </script>
 
 <CenteredPage>
-	<div class="flex items-center min-h-[48px] my-4">
-		<h1 class="mr-1">Runs {path ? `of ${path}` : ''}</h1>
-		<Tooltip>
-			Below is NOT all the runs that have ever been run. You only see the runs whose execution has
-			been permissioned with privilege that you are allowed to see. In most cases, it will only be
-			your personal runs, scheduled runs of groups that you are member of, and runs that are
-			permissioned at the group level of a group you are a member of. Hence, you can safely run
-			script with sensitive logs knowing that only the users with the relevant permissions would see
-			it. The permission of a run constraint the ephemeral bearer token that is passed to at
-			execution time of that run. This is why runs with less permissions are less sensitive because
-			the bearer token they use has less privilege.
-		</Tooltip>
-	</div>
+	<PageHeader
+		title="Runs {path ? `of ${path}` : ''}"
+		tooltip="All past and schedule executions of scripts and flows, including previews.
+	You only see your own runs or runs of groups you belong to unless you are an admin."
+	/>
 
-	<div class="max-w-7x">
+	<div class="max-w-7x mt-6">
 		<div class="flex flex-row space-x-4">
 			<select
 				bind:value={success}
@@ -179,8 +173,15 @@
 			</select>
 		</div>
 		<div>
-			<div class="my-2">
-				<Tabs bind:selected={jobKindsCat}>
+			<div class="my-2 pb-2">
+				<Tabs
+					selected={jobKindsCat}
+					on:selected={(e) => {
+						const url = new URL($page.url)
+						url.searchParams.set('job_kinds', e.detail)
+						goto(url)
+					}}
+				>
 					<Tab value="all">All</Tab>
 					<Tab value="runs">Runs</Tab>
 					<Tab value="previews">Previews</Tab>
@@ -189,9 +190,10 @@
 			</div>
 			<Skeleton loading={!jobs} layout={[[6], 1, [6], 1, [6], 1, [6], 1, [6]]} />
 			{#if jobs}
-				<div class="space-y-2">
+				<div class="space-y-0">
 					{#each jobs as job}
 						<JobDetail {job} />
+						<div class="line w-20 h-4" />
 					{/each}
 				</div>
 			{/if}
@@ -211,3 +213,10 @@
 		{/if}
 	</div>
 </CenteredPage>
+
+<style>
+	.line {
+		background: repeating-linear-gradient(to bottom, transparent 0 4px, #999 4px 8px) 50%/1px 100%
+			no-repeat;
+	}
+</style>

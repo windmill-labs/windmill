@@ -16,10 +16,11 @@ jobs:
       - uses: actions/setup-go@v3
       - name: generate_go
         run: |
-          go install github.com/deepmap/oapi-codegen/cmd/oapi-codegen@latest
+          go install github.com/deepmap/oapi-codegen/cmd/oapi-codegen@v1.11.0
           cd go-client
           rm .gitignore
           ./build.sh
+          go build
       - name: Pushes to another repository
         id: push_directory
         uses: cpina/github-action-push-to-another-repository@devel

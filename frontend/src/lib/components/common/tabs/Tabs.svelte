@@ -16,25 +16,25 @@
 
 	$: selected && updateSelected()
 
-	const selectedContent = writable(selected)
+	const selectedStore = writable(selected)
 
-	$: $selectedContent && dispatch('selected', $selectedContent)
+	$: $selectedStore && dispatch('selected', $selectedStore)
 
 	setContext<TabsContext>('Tabs', {
-		selected: selectedContent,
+		selected: selectedStore,
 		update: (value: string) => {
-			selectedContent.set(value)
+			selectedStore.set(value)
 			selected = value
 		}
 	})
 
 	function updateSelected() {
-		selectedContent.set(selected)
+		selectedStore.set(selected)
 	}
 </script>
 
 <div
-	class="border-b border-gray-200 flex flex-row whitespace-nowrap overflow-y-auto {$$props.class}"
+	class="border-b border-gray-200 flex flex-row whitespace-nowrap overflow-y-auto scrollbar-hidden {$$props.class}"
 >
 	<slot />
 </div>

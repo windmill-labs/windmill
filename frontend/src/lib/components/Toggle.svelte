@@ -6,24 +6,26 @@
 		right?: string
 	} = {}
 	export let checked: boolean = false
+	export let disabled = false
 
 	const id = (Math.random() + 1).toString(36).substring(10)
 	const dispatch = createEventDispatcher()
 </script>
 
-<span>
+<span class={$$props.class}>
 	<label for={id} class="inline-flex items-center cursor-pointer mt-2">
 		{#if Boolean(options?.left)}
 			<span class="mr-2 text-sm font-medium text-gray-900">{options?.left}</span>
 		{/if}
-		<div class="relative">
+		<div class="relative" on:click|stopPropagation={() => {}}>
 			<input
+				{disabled}
 				type="checkbox"
 				value={false}
 				{id}
 				class="sr-only peer"
 				bind:checked
-				on:change={() => {
+				on:change|stopPropagation={(e) => {
 					dispatch('change', checked)
 				}}
 			/>

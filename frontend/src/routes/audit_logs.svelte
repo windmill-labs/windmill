@@ -18,6 +18,7 @@
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
 	import Icon from 'svelte-awesome'
 	import { faCross, faEdit, faPlay, faPlus, faQuestion } from '@fortawesome/free-solid-svg-icons'
+	import { Alert } from '$lib/components/common'
 
 	let logs: AuditLog[]
 	let usernames: string[]
@@ -89,18 +90,15 @@
 <CenteredPage>
 	<PageHeader
 		title="Audit logs"
-		tooltip="You can only see the audit logs you have visibility on, so only your own as a user."
+		tooltip="You can only see your own audit logs unless you are an admin."
 	/>
 
-	<div class="bg-blue-100 border-l-4 border-blue-600 text-blue-700 p-4 m-4" role="alert">
-		<p class="font-bold">Audit logs are a team or enterprise feature - Unlimited during beta</p>
-		<p>
-			Audit logs are a team or enterprise feature and the feature might be significantly different
-			after beta in the community edition
-		</p>
-	</div>
+	<Alert type="info" title="Audit logs are a team or enterprise feature - Unlimited during beta">
+		Audit logs are a team or enterprise feature and the feature might be significantly different
+		after beta in the community edition
+	</Alert>
 	<!-- Filtering -->
-	<div class="flex flex-row mb-3">
+	<div class="flex flex-row my-3">
 		<label>
 			<select class="px-6" bind:value={username} on:change={() => gotoUsername(username)}>
 				{#if usernames}

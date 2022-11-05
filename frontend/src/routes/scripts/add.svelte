@@ -13,7 +13,7 @@
 	import { workspaceStore } from '$lib/stores'
 	import ScriptBuilder from '$lib/components/ScriptBuilder.svelte'
 	import type { Schema } from '$lib/common'
-	import { decodeState, emptySchema, getScriptByPath, sendUserToast } from '$lib/utils'
+	import { decodeState, emptySchema } from '$lib/utils'
 	import { dirtyStore } from '$lib/components/common/confirmationModal/dirtyStore'
 
 	// Default
@@ -54,17 +54,18 @@
 			script.content = template.content
 			script.schema = template.schema
 			script.language = template.language
-			sendUserToast('Code & arguments have been loaded from template.')
 		}
 	}
 
 	async function loadHub(): Promise<void> {
 		if (hubPath) {
-			const template = await getScriptByPath(hubPath)
+			const { content, language, summary } = await ScriptService.getHubScriptByPath({
+				path: hubPath
+			})
 			script.description = `Fork of ${hubPath}`
-			script.content = template.content
-			script.language = Script.language.DENO
-			sendUserToast(`Code has been loaded from hub script ${hubPath}.`)
+			script.content = content
+			script.summary = summary ?? ''
+			script.language = language as Script.language
 		}
 	}
 

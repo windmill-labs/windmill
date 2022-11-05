@@ -14,7 +14,8 @@
 		canWrite,
 		sendUserToast,
 		defaultIfEmptyString,
-		flowToHubUrl
+		flowToHubUrl,
+		copyToClipboard
 	} from '$lib/utils'
 	import {
 		faPlay,
@@ -24,7 +25,8 @@
 		faCalendar,
 		faShare,
 		faGlobe,
-		faCodeFork
+		faCodeFork,
+		faClipboard
 	} from '@fortawesome/free-solid-svg-icons'
 
 	import Tooltip from '$lib/components/Tooltip.svelte'
@@ -37,7 +39,13 @@
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
 	import FlowViewer from '$lib/components/FlowViewer.svelte'
 	import ObjectViewer from '$lib/components/propertyPicker/ObjectViewer.svelte'
-	import { Button, ActionRow, Skeleton } from '$lib/components/common'
+	import { Button, ActionRow, Skeleton, Badge } from '$lib/components/common'
+	import UserSettings from '$lib/components/UserSettings.svelte'
+	import ArgInput from '$lib/components/ArgInput.svelte'
+	import JobArgs from '$lib/components/JobArgs.svelte'
+	import CronInput from '$lib/components/CronInput.svelte'
+
+	let userSettings: UserSettings
 
 	let flow: Flow | undefined
 	let schedule: Schedule | undefined
@@ -87,7 +95,11 @@
 		flow = await FlowService.getFlowByPath({ workspace: $workspaceStore!, path })
 		can_write = canWrite(flow.path, flow.extra_perms!, $userStore)
 	}
+
+	$: url = `${$page.url.hostname}/api/w/${$workspaceStore}/jobs/run/f/${flow?.path}`
 </script>
+
+<UserSettings bind:this={userSettings} />
 
 <Skeleton
 	class="!max-w-6xl !px-4 sm:!px-6 md:!px-8"
@@ -157,7 +169,7 @@
 						displayName: 'Share',
 						icon: faShare,
 						action: () => {
-							shareModal.openModal()
+							shareModal.openDrawer()
 						},
 						disabled: !can_write
 					},
@@ -197,42 +209,17 @@
 			layout={[[{ h: 1.5, w: 40 }], 1, [4], 2.25, [{ h: 1.5, w: 30 }], 1, [10]]}
 		/>
 		{#if flow}
-			<p class="text-sm">Edited {displayDaysAgo(flow.edited_at ?? '')} by {flow.edited_by}</p>
-			<h2>{flow.summary}</h2>
-
-			<div class="prose">
-				<SvelteMarkdown source={defaultIfEmptyString(flow.description, 'No description')} />
-			</div>
-			{#if schedule}
-				<div>
-					<h2 class="text-gray-700 pb-1 mb-3 border-b">Primary Schedule</h2>
-					<div>
-						<h3 class="text-gray-700 ">Enabled</h3>
-						<Toggle
-							checked={schedule.enabled}
-							on:change={(e) => {
-								if (can_write) {
-									setScheduleEnabled(path, e.detail)
-								} else {
-									sendUserToast('not enough permission', true)
-								}
-							}}
-						/>
-					</div>
-					<div>
-						<div>
-							<h3 class="text-gray-700">Schedule</h3>
-							<span class="font-mono p-1 border" class:bg-gray-300={!schedule.enabled}
-								>{schedule.schedule}</span
-							>
-						</div>
-						<div>
-							<h3 class="text-gray-700 ">Args</h3>
-							<ObjectViewer json={schedule.args ?? {}} pureViewer={true} />
-						</div>
-					</div>
+			<p class="text-sm text-gray-600"
+				>Edited {displayDaysAgo(flow.edited_at ?? '')} by {flow.edited_by}</p
+			>
+			<div>
+				<h2 class="font-bold mb-2"
+					>{flow.summary && flow.summary != '' ? flow.summary : 'No summary'}</h2
+				>
+				<div class="prose text-xs box">
+					<SvelteMarkdown source={defaultIfEmptyString(flow.description, 'No description')} />
 				</div>
-			{/if}
+			</div>
 			{#if flow.archived}
 				<div class="bg-red-100 border-l-4 border-red-500 text-orange-700 p-4" role="alert">
 					<p class="font-bold">Archived</p>
@@ -240,23 +227,66 @@
 				</div>
 			{/if}
 			<div>
-				<span>Webhook to run this flow:</span>
-				<Tooltip
-					>Send a POST http request with a token as bearer token and the args respecting the
-					corresponding jsonschema as payload. To create a permanent token, go to your user setting
-					by clicking your username on the top-left.</Tooltip
-				>
-				<pre
-					><code
-						><a href="/api/w/{$workspaceStore}/jobs/run/f/{flow?.path}"
-							>/api/w/{$workspaceStore}/jobs/run/f/{flow?.path}</a
-						></code
-					></pre
-				>
-			</div>
-			<div>
 				<h2 class="text-gray-700 pb-1 mb-3 border-b">Flow</h2>
 				<FlowViewer {flow} />
+
+				<h2 class="my-4 text-gray-700 pb-1 mb-3 border-b"
+					>Webhook<Tooltip
+						>To trigger this script with a webhook, do a POST request to the endpoint below. Flows
+						are not public and can only be run by users with at least view rights on them. You will
+						need to pass a bearer token to authentify as a user. You can either pass it as a Bearer
+						token or as query arg `?token=XXX`. <a
+							href="https://docs.windmill.dev/docs/getting_started/webhooks">See docs</a
+						></Tooltip
+					></h2
+				>
+				<div class="box max-w-2xl">
+					<div class="flex flex-row gap-x-2 w-full">
+						<a
+							href={$page.url.protocol + '//' + url}
+							class="whitespace-nowrap text-ellipsis overflow-hidden mr-1"
+						>
+							{url}
+						</a>
+						<Button
+							on:click={() => copyToClipboard($page.url.protocol + '//' + url)}
+							color="blue"
+							size="xs"
+							startIcon={{ icon: faClipboard }}
+							btnClasses="ml-2"
+						>
+							Copy
+						</Button>
+						<Button size="xs" on:click={userSettings.toggleDrawer}>Create token</Button>
+					</div>
+				</div>
+				{#if schedule}
+					<div class="mt-8">
+						<h2 class="text-gray-700 pb-1 mb-3 border-b inline-flex flex-row items-center gap-x-4"
+							><div>Primary Schedule </div>
+							<Badge color="gray">{schedule.schedule}</Badge>
+							<Toggle
+								checked={schedule.enabled}
+								on:change={(e) => {
+									if (can_write) {
+										setScheduleEnabled(path, e.detail)
+									} else {
+										sendUserToast('not enough permission', true)
+									}
+								}}
+							/>
+							<Button size="xs" href="/schedule/add?edit={flow.path}&isFlow=true"
+								>Edit schedule</Button
+							>
+						</h2>
+						<div class="max-w-lg">
+							<JobArgs args={schedule.args ?? {}} />
+						</div>
+						<div class="box max-w-lg mt-2">
+							<CronInput disabled={true} schedule={schedule.schedule} />
+						</div>
+					</div>
+				{/if}
 			</div>
 		{/if}
 	</div>

@@ -15,6 +15,7 @@
 	import { sleep } from '$lib/utils'
 	import { createEventDispatcher } from 'svelte'
 	import Required from './Required.svelte'
+	import Popover from './Popover.svelte'
 
 	type PathKind = 'resource' | 'script' | 'variable' | 'flow' | 'schedule'
 	export let meta: Meta = {
@@ -29,6 +30,8 @@
 
 	export let kind: PathKind
 
+	let inputP: HTMLInputElement | undefined = undefined
+
 	const dispatch = createEventDispatcher()
 
 	let groups: Group[] = []
@@ -41,6 +44,10 @@
 
 	export function getPath() {
 		return path
+	}
+
+	export function focus() {
+		inputP?.focus()
 	}
 
 	function handleKeyUp(event: KeyboardEvent) {
@@ -65,6 +72,9 @@
 			while (await pathExists(metaToPath(meta), kind)) {
 				meta.name = `${namePlaceholder}_${i}`
 				i += 1
+				if (initialPath && initialPath != '') {
+					meta = pathToMeta(initialPath)
+				}
 			}
 		} else {
 			meta = pathToMeta(path)
@@ -155,9 +165,15 @@
 	<div class="flex flex-col sm:grid sm:grid-cols-4 sm:gap-4 pb-0 mb-1">
 		<label class="block">
 			<span class="text-gray-700 text-sm whitespace-nowrap">
-				Owner Kind <Tooltip>
-					<slot name="ownerToolkit" />
-				</Tooltip>
+				<Popover
+					>Owner Kind
+					<span slot="text"
+						>Select the group <span class="font-mono">all</span>
+						to share it with all workspace users, and <span class="font-mono">user</span> to keep it
+						private.
+						<a href="https://docs.windmill.dev/docs/reference/namespaces">docs</a>
+					</span>
+				</Popover>
 			</span>
 
 			<select
@@ -178,6 +194,7 @@
 			<label class="block">
 				<span class="text-gray-700 text-sm">Owner</span>
 				<input
+					type="text"
 					bind:value={meta.owner}
 					placeholder={$userStore?.username ?? ''}
 					disabled={!($userStore?.is_admin ?? false)}
@@ -199,7 +216,10 @@
 				<Required required={true} />
 			</span>
 			<input
+				type="text"
+				id="path"
 				autofocus
+				bind:this={inputP}
 				autocomplete="off"
 				on:keyup={handleKeyUp}
 				bind:value={meta.name}

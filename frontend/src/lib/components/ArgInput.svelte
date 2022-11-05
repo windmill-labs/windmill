@@ -1,6 +1,4 @@
 <script lang="ts">
-	import { slide } from 'svelte/transition'
-
 	import { faChevronDown, faChevronUp, faMinus, faPlus } from '@fortawesome/free-solid-svg-icons'
 
 	import { setInputCat as computeInputCat, type InputCat } from '$lib/utils'
@@ -15,6 +13,8 @@
 	import SchemaForm from './SchemaForm.svelte'
 	import type { SchemaProperty } from '$lib/common'
 	import SimpleEditor from './SimpleEditor.svelte'
+	import autosize from 'svelte-autosize'
+	import Toggle from './Toggle.svelte'
 
 	export let label: string = ''
 	export let value: any
@@ -47,7 +47,7 @@
 
 	let error: string = ''
 
-	let el: HTMLElement | undefined = undefined
+	let el: HTMLTextAreaElement | undefined = undefined
 
 	export let editor: SimpleEditor | undefined = undefined
 
@@ -91,13 +91,7 @@
 
 	export function focus() {
 		el?.focus()
-	}
-
-	export async function recomputeSize() {
-		if (el) {
-			el.style.height = '30px'
-			el.style.height = el.scrollHeight + 'px'
-		}
+		el && el.dispatchEvent(new Event('input'))
 	}
 
 	function validateInput(pattern: string | undefined, v: any): void {
@@ -155,10 +149,16 @@
 				</span>
 
 				{#if seeEditable}
-					<div transition:slide class="mt-2">
+					<div class="mt-2">
 						<label class="text-gray-700">
 							Description
-							<textarea rows="1" bind:value={description} placeholder="Edit description" />
+							<textarea
+								class="mb-1"
+								use:autosize
+								rows="1"
+								bind:value={description}
+								placeholder="Field description"
+							/>
 							{#if type == 'string' && !contentEncoding && format != 'date-time'}
 								<StringTypeNarrowing bind:format bind:pattern bind:enum_ bind:contentEncoding />
 							{:else if type == 'object'}
@@ -200,9 +200,8 @@
 					on:input={() => dispatch('input', { value, isRaw: true })}
 				/>
 			{:else if inputCat == 'boolean'}
-				<input
+				<Toggle
 					{disabled}
-					type="checkbox"
 					class={valid
 						? ''
 						: 'border border-red-700 border-opacity-30 focus:border-red-700 focus:border-opacity-30 bg-red-100'}
@@ -279,9 +278,9 @@
 						bind:this={el}
 						on:focus
 						{disabled}
+						use:autosize
 						style="max-height: {maxHeight}"
 						on:input={() => {
-							recomputeSize()
 							dispatch('input', { rawValue: value, isRaw: false })
 						}}
 						class="col-span-10 {valid
@@ -329,18 +328,19 @@
 				/>
 			{:else if inputCat == 'string'}
 				<textarea
+					rows="1"
 					bind:this={el}
 					on:focus={() => dispatch('focus')}
 					on:blur={() => dispatch('blur')}
+					use:autosize
+					type="text"
 					{disabled}
-					style="height: 30px; max-height: {maxHeight}"
 					class="col-span-10 {valid
 						? ''
 						: 'border border-red-700 border-opacity-30 focus:border-red-700 focus:border-opacity-30 bg-red-100'}"
 					placeholder={defaultValue ?? ''}
 					bind:value
 					on:input={() => {
-						recomputeSize()
 						dispatch('input', { rawValue: value, isRaw: false })
 					}}
 				/>

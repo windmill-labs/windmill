@@ -58,6 +58,11 @@
 			if (event.reason?.message) {
 				const { message, body, status } = event.reason
 
+				if (message === 'Missing service editorService') {
+					console.error('Reloading the page to fix a Monaco Editor bug')
+					location.reload()
+					return
+				}
 				// Unhandled errors from Monaco Editor don't logout the user
 				if (monacoEditorUnhandledErrors.includes(message)) {
 					return
@@ -75,6 +80,8 @@
 					if (pathName != '/user/login') {
 						logoutWithRedirect(pathName + $page.url.search)
 					}
+				} else if (status == '403') {
+					sendUserToast('An endpoint required a privilege which you do not have', true)
 				} else {
 					if (body) {
 						sendUserToast(`${body}`, true)

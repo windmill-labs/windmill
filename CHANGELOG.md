@@ -1,6 +1,72 @@
 # Changelog
 
 
+## [1.44.0](https://github.com/windmill-labs/windmill/compare/v1.43.2...v1.44.0) (2022-11-03)
+
+
+### Features
+
+* **backend:** Deno lock files ([#851](https://github.com/windmill-labs/windmill/issues/851)) ([5bbfb40](https://github.com/windmill-labs/windmill/commit/5bbfb40ee1114d83bf0a277fa991aa70d5be8a62))
+* implement allowed domains for self-hosted ([513924b](https://github.com/windmill-labs/windmill/commit/513924b0437a1d80720ac5bd1f38c33f97839d28))
+
+
+### Bug Fixes
+
+* **backend:** capture up all lockfile issues ([35868ef](https://github.com/windmill-labs/windmill/commit/35868ef9bf1eac650cbb735807aebc5a604dd5d6))
+* implement require admin differently than unauthorized ([14c296d](https://github.com/windmill-labs/windmill/commit/14c296dbb85131c355980cd416c26a88c4823978))
+* **python-client:** fix get_resource ([20bc904](https://github.com/windmill-labs/windmill/commit/20bc904e5fa3b97192d9cf7b2b70bdbde0408913))
+
+## [1.43.2](https://github.com/windmill-labs/windmill/compare/v1.43.1...v1.43.2) (2022-11-02)
+
+
+### Bug Fixes
+
+* **go-client:** use stable oapi codegen version ([4707d1e](https://github.com/windmill-labs/windmill/commit/4707d1ecaafa10b9cf8737e18ab432b3855c0c7f))
+
+## [1.43.1](https://github.com/windmill-labs/windmill/compare/v1.43.0...v1.43.1) (2022-11-02)
+
+
+### Bug Fixes
+
+* **backend:** extend default scope set for slack resource ([#848](https://github.com/windmill-labs/windmill/issues/848)) ([ffaf7ca](https://github.com/windmill-labs/windmill/commit/ffaf7cad4a76e1c520071877579485b4c757c65e))
+* **go-client:** fix openapi generation ([1329493](https://github.com/windmill-labs/windmill/commit/1329493873fb18b373c879f3f153fdf2a5036405))
+
+## [1.43.0](https://github.com/windmill-labs/windmill/compare/v1.42.1...v1.43.0) (2022-11-01)
+
+
+### Features
+
+* **backend:** add parallel option for forloop and branchall ([#840](https://github.com/windmill-labs/windmill/issues/840)) ([39937e6](https://github.com/windmill-labs/windmill/commit/39937e6a83c3b7ec9dd889b40c10004abb8938a7))
+* new wmill CLI [#831](https://github.com/windmill-labs/windmill/issues/831) ([f5ea13a](https://github.com/windmill-labs/windmill/commit/f5ea13ab2b2f7f8735504099d0267c32ac8ca6f2))
+
+## [1.42.1](https://github.com/windmill-labs/windmill/compare/v1.42.0...v1.42.1) (2022-10-30)
+
+
+### Bug Fixes
+
+* **deno-client:** add missing approver encoding to hmac api request ([#829](https://github.com/windmill-labs/windmill/issues/829)) ([eef7c7f](https://github.com/windmill-labs/windmill/commit/eef7c7ff9442b818a87f63439726efc89395cb07))
+
+## [1.42.0](https://github.com/windmill-labs/windmill/compare/v1.41.0...v1.42.0) (2022-10-30)
+
+
+### Features
+
+* **frontend:** Flow editor branches ([#727](https://github.com/windmill-labs/windmill/issues/727)) ([054c142](https://github.com/windmill-labs/windmill/commit/054c142882d4dc7b097fb04def0595e79ab81b75))
+* **frontend:** result by id ([6fcf984](https://github.com/windmill-labs/windmill/commit/6fcf984ea344331ee96fcb7b42b5ac7a91a6e00e))
+* **frontend:** Update progress bar ([#770](https://github.com/windmill-labs/windmill/issues/770)) ([17e766a](https://github.com/windmill-labs/windmill/commit/17e766aa6e252419e4395cca9c56e707fe9247b3))
+* payload capture of json to initialize flow input ([#655](https://github.com/windmill-labs/windmill/issues/655)) ([9a67607](https://github.com/windmill-labs/windmill/commit/9a67607b20896b2efa65863604d8cb791c9943b5))
+* **python:** type is automatically inferred from default parameters ([84a3fbe](https://github.com/windmill-labs/windmill/commit/84a3fbe46b4efb321b3b676258b1fc59cd67b186))
+
+
+### Bug Fixes
+
+* **backend:** fix error handler progress update ([4bd74ad](https://github.com/windmill-labs/windmill/commit/4bd74ad7232755a3c2d911d5284282bb1fb4f430))
+* **deno-client:** automatically encode approver param + refactor: use URL class to format urls ([#809](https://github.com/windmill-labs/windmill/issues/809)) ([10e1de8](https://github.com/windmill-labs/windmill/commit/10e1de84760b6b7eec92397117c44a938b0bc358))
+* **frontend:** Add summary to the script editor ([#825](https://github.com/windmill-labs/windmill/issues/825)) ([79e8b1f](https://github.com/windmill-labs/windmill/commit/79e8b1ff75b76d6a5c2f80079255124014a2c813))
+* **frontend:** Fix input transforms ([#813](https://github.com/windmill-labs/windmill/issues/813)) ([53eede4](https://github.com/windmill-labs/windmill/commit/53eede4f02c01c9dce0c10e4439a3cc2687010ac))
+* **frontend:** Fix legacy input transforms ([#814](https://github.com/windmill-labs/windmill/issues/814)) ([b078bde](https://github.com/windmill-labs/windmill/commit/b078bde30528dbbadf41cfacaf46223317795a2e))
+* **frontend:** Fix overlay map indicator ([#816](https://github.com/windmill-labs/windmill/issues/816)) ([a65c4c3](https://github.com/windmill-labs/windmill/commit/a65c4c35709e199943499304d4b04ce4fbbd1a98))
+
 ## [1.41.0](https://github.com/windmill-labs/windmill/compare/v1.40.1...v1.41.0) (2022-10-24)
 
 

@@ -1,9 +1,10 @@
 #!/bin/bash
 set -e
 
-cp  ../backend/openapi.yaml openapi.yaml
+mkdir openapi
+cp  ../backend/windmill-api/openapi.yaml openapi/openapi.yaml
 
-npx @redocly/openapi-cli@latest bundle openapi.yaml > openapi-bundled.yaml
+npx @redocly/openapi-cli@latest bundle openapi/openapi.yaml > openapi-bundled.yaml
 
 sed -z 's/FlowModuleValue:/FlowModuleValue2:/' openapi-bundled.yaml  > openapi-decycled.yaml
 echo "    FlowModuleValue: {}" >> openapi-decycled.yaml
@@ -14,6 +15,7 @@ mv .gitignore2 .gitignore
 
 rm -rf windmill-api/ || true
 openapi-python-client generate --config $PWD/python-gen.yaml --path openapi-deref.json
+rm -rf openapi/
 rm openapi*
 
 cp LICENSE windmill-api/

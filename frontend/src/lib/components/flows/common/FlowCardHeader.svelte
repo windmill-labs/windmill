@@ -3,7 +3,7 @@
 	import Badge from '$lib/components/common/badge/Badge.svelte'
 	import IconedPath from '$lib/components/IconedPath.svelte'
 	import { RawScript, type FlowModule } from '$lib/gen'
-	import { isEmptyFlowModule } from '../flowStateUtils'
+	import { isEmptyFlowModule } from '../utils'
 
 	export let flowModule: FlowModule | undefined = undefined
 	export let title: string | undefined = undefined
@@ -22,7 +22,7 @@
 		<span class="text-sm w-full">
 			<div class="flex items-center space-x-2">
 				{#if shouldPick}
-					<span class="font-bold text-xs">Select a script</span>
+					<span class="font-bold text-xs">Select a step kind</span>
 				{:else if flowModule?.value.type === 'rawscript'}
 					<Badge color={languageColors[flowModule?.value.language] ?? 'gray'} capitalize>
 						{flowModule?.value.language}

@@ -32,7 +32,12 @@
 
 	import getMessageServiceOverride from 'vscode/service-override/messages'
 	import { StandaloneServices } from 'vscode/services'
-	import { DENO_INIT_CODE_CLEAR, PYTHON_INIT_CODE_CLEAR } from '$lib/script_helpers'
+	import {
+		DENO_INIT_CODE,
+		DENO_INIT_CODE_CLEAR,
+		GO_INIT_CODE,
+		PYTHON_INIT_CODE_CLEAR
+	} from '$lib/script_helpers'
 	import {
 		createHash as randomHash,
 		editorConfig,
@@ -109,6 +114,14 @@
 		}
 	}
 
+	export function insertAtLine(code: string, line: number): void {
+		if (editor) {
+			const range = { startLineNumber: line, startColumn: 1, endLineNumber: line, endColumn: 1 }
+			const op = { range: range, text: code, forceMoveMarkers: true }
+			editor.executeEdits('external', [op])
+		}
+	}
+
 	export function setCode(ncode: string): void {
 		code = ncode
 		if (editor) {
@@ -132,8 +145,8 @@
 				setCode(DENO_INIT_CODE_CLEAR)
 			} else if (lang == 'python') {
 				setCode(PYTHON_INIT_CODE_CLEAR)
-			} else {
-				setCode('')
+			} else if (lang == 'go') {
+				setCode(GO_INIT_CODE)
 			}
 		}
 	}

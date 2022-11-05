@@ -6,7 +6,7 @@
 	import FlowSettings from './FlowSettings.svelte'
 	import FlowInput from './FlowInput.svelte'
 	import FlowFailureModule from './FlowFailureModule.svelte'
-	import FlowLoopWrapper from './FlowLoopWrapper.svelte'
+	import { flowStore } from '../flowStore'
 
 	export let initialPath: string
 
@@ -16,15 +16,17 @@
 {#key $selectedId}
 	{#if $selectedId === 'settings'}
 		<FlowSettings {initialPath} />
-	{:else if $selectedId === 'settings-schedule'}
-		<FlowSettings {initialPath} defaultTab="schedule" />
-	{:else if $selectedId.includes('loop')}
-		<FlowLoopWrapper />
 	{:else if $selectedId === 'inputs'}
 		<FlowInput />
+	{:else if $selectedId === 'settings-schedule'}
+		<FlowSettings {initialPath} defaultTab="schedule" />
+	{:else if $selectedId === 'settings-same-worker'}
+		<FlowSettings {initialPath} defaultTab="same-worker" />
 	{:else if $selectedId === 'failure'}
 		<FlowFailureModule />
 	{:else}
-		<FlowModuleWrapper />
+		{#each $flowStore.value.modules as flowModule, index (flowModule.id ?? index)}
+			<FlowModuleWrapper bind:flowModule previousModule={$flowStore.value.modules[index - 1]} />
+		{/each}
 	{/if}
 {/key}

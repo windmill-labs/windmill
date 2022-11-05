@@ -62,7 +62,7 @@
 <div class="flex flex-row gap-2">
 	<ButtonPopup size="sm" startIcon={{ icon: faPlus }} href="/scripts/add">
 		<svelte:fragment slot="main">New script</svelte:fragment>
-		<ButtonPopupItem on:click={() => drawers.hub?.openModal()}>
+		<ButtonPopupItem on:click={() => drawers.hub?.openDrawer()}>
 			Import script from WindmillHub
 		</ButtonPopupItem>
 		<ButtonPopupItem on:click={() => drawers.template?.toggleDrawer()}>

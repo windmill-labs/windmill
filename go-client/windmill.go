@@ -53,7 +53,7 @@ func GetVariable(path string) (string, error) {
 	return *res.JSON200.Value, nil
 }
 
-func GetResource(path string) (map[string]interface{}, error) {
+func GetResource(path string) (interface{}, error) {
 	client, err := GetClient()
 	if err != nil {
 		return nil, err

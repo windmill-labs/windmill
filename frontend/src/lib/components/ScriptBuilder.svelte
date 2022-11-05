@@ -7,29 +7,31 @@
 	import { initialCode, isInitialCode } from '$lib/script_helpers'
 	import { workspaceStore } from '$lib/stores'
 	import { encodeState, sendUserToast, setQueryWithoutLoad } from '$lib/utils'
-	import { Breadcrumb, BreadcrumbItem } from 'flowbite-svelte'
-	import SvelteMarkdown from 'svelte-markdown'
 	import Path from './Path.svelte'
 	import RadioButton from './RadioButton.svelte'
 	import Required from './Required.svelte'
 	import ScriptEditor from './ScriptEditor.svelte'
 	import ScriptSchema from './ScriptSchema.svelte'
 	import CenteredPage from './CenteredPage.svelte'
-	import Tooltip from './Tooltip.svelte'
 	import UnsavedConfirmationModal from './common/confirmationModal/UnsavedConfirmationModal.svelte'
 	import { dirtyStore } from './common/confirmationModal/dirtyStore'
 	import { Button } from './common'
-	import { slide } from 'svelte/transition'
-	import { faChevronDown, faChevronUp } from '@fortawesome/free-solid-svg-icons'
+	import { faChevronDown, faChevronUp, faPen } from '@fortawesome/free-solid-svg-icons'
+	import Breadcrumb from './common/breadcrumb/Breadcrumb.svelte'
+	import Toggle from './Toggle.svelte'
 
 	export let script: Script
 	export let initialPath: string = ''
 	export let template: 'pgsql' | 'script' = 'script'
+	export let initialArgs: Record<string, any> = {}
 
 	let viewScriptKind = script.kind !== Script.kind.SCRIPT
 	let viewTemplate = script.kind !== Script.kind.SCRIPT && script.language == Script.language.DENO
 
 	let pathError = ''
+
+	let summaryC: HTMLInputElement | undefined = undefined
+	let pathC: Path | undefined = undefined
 
 	$: setQueryWithoutLoad($page.url, 'state', encodeState(script))
 	$: step = Number($page.url.searchParams.get('step')) || 1
@@ -85,38 +87,69 @@
 <div class="flex flex-col h-screen">
 	<!-- Nav between steps-->
 	<div class="flex flex-col w-full px-4 py-2 border-b shadow-sm">
-		<div class="justify-between flex flex-row drop-shadow-sm w-full">
-			<div class="flex flex-row w-full">
-				<Breadcrumb>
-					<BreadcrumbItem>
-						<button on:click={() => changeStep(1)} class={step === 1 ? 'font-bold' : null}>
-							Metadata
-						</button>
-					</BreadcrumbItem>
-					<BreadcrumbItem>
-						<button
-							on:click={() => changeStep(2)}
-							class={step === 2 ? 'font-bold' : null}
-							disabled={pathError != ''}
-						>
-							Code
-						</button>
-					</BreadcrumbItem>
-					<BreadcrumbItem>
-						<button
-							on:click={() => changeStep(3)}
-							class={step === 3 ? 'font-bold' : null}
-							disabled={pathError != ''}
-						>
-							UI customisation
-						</button>
-					</BreadcrumbItem>
+		<div class="justify-between flex flex-row w-full items-center overflow-x-auto scrollbar-hidden">
+			<div class="flex flex-row">
+				<Breadcrumb
+					items={['Metadata', 'Code', 'UI Customisation']}
+					selectedIndex={step}
+					on:select={(e) => changeStep(e.detail.index + 1)}
+					disabled={pathError != ''}
+				>
+					<svelte:fragment slot="separator">/</svelte:fragment>
 				</Breadcrumb>
 			</div>
-			<div class="flex flex-row-reverse ml-2">
-				{#if step != 3}
+
+			<div class="gap-1 flex-row hidden md:flex shrink overflow-hidden">
+				<Button
+					btnClasses="hidden lg:inline-flex"
+					startIcon={{ icon: faPen }}
+					variant="contained"
+					color="light"
+					size="xs"
+					on:click={async () => {
+						await changeStep(1)
+						setTimeout(() => pathC?.focus(), 100)
+					}}
+				>
+					{script.path}
+				</Button>
+
+				<Button
+					startIcon={{ icon: faPen }}
+					variant="contained"
+					color="light"
+					size="xs"
+					on:click={async () => {
+						await changeStep(1)
+						setTimeout(() => summaryC?.focus(), 100)
+					}}
+				>
+					<div class="max-w-[10em] !truncate">
+						{script.summary == '' || !script.summary ? 'No summary' : script.summary}
+					</div>
+				</Button>
+			</div>
+
+			<div class="flex flex-row gap-x-2">
+				<Button
+					size="sm"
+					variant={step == 1 ? 'border' : 'contained'}
+					disabled={step === 1 && pathError !== ''}
+					btnClasses={step == 1 && initialPath == '' ? 'invisible' : ''}
+					on:click={editScript}>Save (commit)</Button
+				>
+				<Button
+					variant="border"
+					size="sm"
+					btnClasses={step == 1 ? 'invisible' : ''}
+					on:click={() => changeStep(step - 1)}
+				>
+					Back
+				</Button>
+				{#if step < 3}
 					<Button
 						size="sm"
+						btnClasses={step == 3 ? 'invisible' : ''}
 						disabled={step === 1 && pathError !== ''}
 						on:click={() => changeStep(step + 1)}
 					>
@@ -124,28 +157,6 @@
 					</Button>
 				{:else}
 					<Button size="sm" on:click={editScript}>Save</Button>
-				{/if}
-				{#if step > 1}
-					<Button
-						variant="border"
-						size="sm"
-						btnClasses="mr-2"
-						on:click={() => changeStep(step - 1)}
-					>
-						Back
-					</Button>
-				{/if}
-				{#if step == 2}
-					<Button
-						variant="border"
-						size="sm"
-						btnClasses="mr-2"
-						on:click={async () => {
-							editScript()
-						}}
-					>
-						Save (commit)
-					</Button>
 				{/if}
 			</div>
 		</div>
@@ -155,29 +166,22 @@
 	{#if step === 1}
 		<CenteredPage>
 			<div class="space-y-6">
-				<h1 class="mb-4">New script</h1>
 				<h2 class="border-b pb-1 mt-4">Path & Summary</h2>
 				<Path
+					bind:this={pathC}
 					bind:error={pathError}
 					bind:path={script.path}
 					{initialPath}
 					on:enter={() => changeStep(2)}
 					namePlaceholder="my_script"
 					kind="script"
-				>
-					<div slot="ownerToolkit">
-						Script permissions depend on their path. Select the group
-						<span class="font-mono"> all </span>
-						to share your script, and <span class="font-mono">user</span> to keep it private.
-						<a href="https://docs.windmill.dev/docs/reference/namespaces">docs</a>
-					</div>
-				</Path>
+				/>
 				<label class="block ">
-					<span class="text-gray-700">Summary <Required required={false} /></span>
-					<textarea
+					<span class="text-gray-700 text-sm">Summary <Required required={false} /></span>
+					<input
+						type="text"
+						bind:this={summaryC}
 						bind:value={script.summary}
-						class="block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-300 
-						focus:ring focus:ring-indigo-200 focus:ring-opacity-50 text-lg"
 						placeholder="A very short summary of the script displayed when the script is listed"
 						rows="1"
 					/>
@@ -196,16 +200,18 @@
 					/>
 				</div>
 				<h2 class="border-b pb-1 mt-4"> Metadata </h2>
-				<Button
-					color="light"
-					size="sm"
-					endIcon={{ icon: viewScriptKind ? faChevronUp : faChevronDown }}
-					on:click={() => (viewScriptKind = !viewScriptKind)}
-				>
-					Specialize the script as a specific module kind for flows
-				</Button>
+				<div>
+					<Button
+						color="light"
+						size="sm"
+						endIcon={{ icon: viewScriptKind ? faChevronUp : faChevronDown }}
+						on:click={() => (viewScriptKind = !viewScriptKind)}
+					>
+						Specialize the script as a specific module kind for flows
+					</Button>
+				</div>
 				{#if viewScriptKind}
-					<div class="max-w-lg" transition:slide>
+					<div class="max-w-lg">
 						<RadioButton
 							label="Script Type"
 							options={[
@@ -245,17 +251,18 @@
 					</div>
 				{/if}
 				{#if script.language == 'deno' && script.kind == Script.kind.SCRIPT}
-					<Button
-						color="light"
-						size="sm"
-						endIcon={{ icon: viewTemplate ? faChevronUp : faChevronDown }}
-						on:click={() => (viewTemplate = !viewTemplate)}
-					>
-						Use a predefined template specific to this language and script kind
-					</Button>
-
+					<div
+						><Button
+							color="light"
+							size="sm"
+							endIcon={{ icon: viewTemplate ? faChevronUp : faChevronDown }}
+							on:click={() => (viewTemplate = !viewTemplate)}
+						>
+							Use a predefined template specific to this language and script kind
+						</Button>
+					</div>
 					{#if viewTemplate}
-						<div class="max-w-lg" transition:slide>
+						<div class="max-w-lg">
 							<RadioButton
 								label="Template"
 								options={[
@@ -269,39 +276,10 @@
 					{/if}
 				{/if}
 
-				<label class="block">
-					<span class="text-gray-700 mr-2"
-						>Save as workspace template <Tooltip
-							>Enable your teammates to use this script as a template to write new scripts.</Tooltip
-						>
-					</span>
-					<input type="checkbox" bind:checked={script.is_template} />
-				</label>
-
-				<label class="block" for="inp">
-					<span class="text-gray-700 text-sm">
-						Description<Required required={false} detail="markdown" />
-						<textarea
-							id="inp"
-							bind:value={script.description}
-							class="block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-300 
-							focus:ring focus:ring-indigo-200 focus:ring-opacity-50"
-							placeholder="A description to help users understand what this script does and how to use it."
-							rows="3"
-						/>
-					</span>
-				</label>
-
-				<div>
-					<div class="font-bold pb-1 mt-4">Description preview</div>
-					{#if script.description}
-						<div class="prose max-h-48 mt-5 text-xs shadow-inner shadow-blue p-4 overflow-auto">
-							<SvelteMarkdown source={script.description} />
-						</div>
-					{:else}
-						<div class="text-sm text-gray-500"> Enter a description to see the preview </div>
-					{/if}
-				</div>
+				<Toggle
+					bind:checked={script.is_template}
+					options={{ right: 'Save as a workspace template' }}
+				/>
 			</div>
 		</CenteredPage>
 	{:else if step === 2}
@@ -310,6 +288,7 @@
 			path={script.path}
 			bind:code={script.content}
 			lang={script.language}
+			{initialArgs}
 		/>
 	{:else if step === 3}
 		<CenteredPage>

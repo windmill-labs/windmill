@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.41.0
+  version: 1.44.0
   title: OpenFlow Spec
   contact:
     name: Ruben Fiszel
@@ -11,6 +11,8 @@ info:
   license:
     name: Apache 2.0
     url: https://www.apache.org/licenses/LICENSE-2.0.html
+
+paths: {}
 
 externalDocs:
   description: documentation portal
@@ -185,6 +187,7 @@ components:
         - type
         - content
         - language
+        - input_transforms
 
     PathScript:
       type: object
@@ -203,6 +206,7 @@ components:
       required:
         - type
         - path
+        - input_transforms
 
     ForloopFlow:
       type: object
@@ -219,6 +223,8 @@ components:
           type: string
           enum:
             - forloopflow
+        parallel:
+          type: boolean
       required:
         - modules
         - iterator
@@ -281,10 +287,11 @@ components:
           type: string
           enum:
             - branchall
+        parallel:
+          type: boolean
       required:
         - branches
         - type
-
     Identity:
       type: object
       properties:
@@ -294,8 +301,6 @@ components:
             - identity
       required:
         - type
-
-
     FlowStatus:
       type: object
       properties:
@@ -386,5 +391,5 @@ components:
             required:
               - resume_id
               - approver
-            
+
       required: [type]

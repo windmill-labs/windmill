@@ -11,19 +11,24 @@
 	import SchemaForm from './SchemaForm.svelte'
 	import LogPanel from './scriptEditor/LogPanel.svelte'
 	import { faGithub } from '@fortawesome/free-brands-svg-icons'
-	import EditorBar from './EditorBar.svelte'
+	import EditorBar, { EDITOR_BAR_WIDTH_THRESHOLD } from './EditorBar.svelte'
 	import TestJobLoader from './TestJobLoader.svelte'
 	import { onMount } from 'svelte'
 	import { Button, Kbd } from './common'
 	import SplitPanesWrapper from './splitPanes/SplitPanesWrapper.svelte'
+	import Tooltip from './Tooltip.svelte'
+	import WindmillIcon from './icons/WindmillIcon.svelte'
 
 	// Exported
 	export let schema: Schema = emptySchema()
 	export let code: string
 	export let path: string | undefined
 	export let lang: Preview.language
+	export let initialArgs: Record<string, any> = {}
 
 	let websocketAlive = { pyright: false, black: false, deno: false, go: false }
+
+	let width = 1200
 
 	// Internal state
 	let editor: Editor
@@ -31,7 +36,7 @@
 	let testJobLoader: TestJobLoader
 
 	// Test args input
-	let args: Record<string, any> = {}
+	let args: Record<string, any> = initialArgs
 	let isValid: boolean = true
 
 	// Test
@@ -39,6 +44,7 @@
 	let testJob: Job | undefined
 	let pastPreviews: CompletedJob[] = []
 	let lastSave: string | null
+	let validCode = true
 
 	$: lastSave = localStorage.getItem(path ?? 'last_save')
 
@@ -70,7 +76,13 @@
 			}
 		})
 
-		await inferArgs(lang, code, schema)
+		try {
+			await inferArgs(lang, code, schema)
+			validCode = true
+		} catch (e) {
+			console.error("Couldn't infer args", e)
+			validCode = false
+		}
 
 		schema = schema
 
@@ -98,26 +110,28 @@
 
 <svelte:window on:keydown={onKeyDown} />
 
-<div class="border-b-2 shadow-sm p-1 pr-4">
-	<div class="flex justify-between">
-		<EditorBar {editor} {lang} {websocketAlive} />
+<div class="border-b-2 shadow-sm p-1 pr-4" bind:clientWidth={width}>
+	<div class="flex justify-between space-x-2">
+		<EditorBar
+			{validCode}
+			iconOnly={width < EDITOR_BAR_WIDTH_THRESHOLD}
+			{editor}
+			{lang}
+			{websocketAlive}
+		/>
 
-		<div class="flex divide-x">
-			<div>
-				<Button
-					target="_blank"
-					href="https://github.com/windmill-labs/windmill-gh-action-deploy"
-					color="light"
-					size="xs"
-					btnClasses="mr-1"
-					startIcon={{
-						icon: faGithub
-					}}
-				>
-					Sync from Github
-				</Button>
-			</div>
-		</div>
+		<Button
+			target="_blank"
+			href="https://github.com/windmill-labs/windmill-gh-action-deploy"
+			color="light"
+			size="sm"
+			btnClasses="mr-1 hidden md:block"
+			startIcon={{
+				icon: faGithub
+			}}
+		>
+			Sync from Github
+		</Button>
 	</div>
 </div>
 <SplitPanesWrapper>
@@ -149,31 +163,30 @@
 	</Pane>
 	<Pane size={40} minSize={10}>
 		<Splitpanes horizontal>
-			<Pane size={30}>
-				<div class="p-4">
+			<Pane size={33}>
+				<div class="w-full  bg-gray-100 px-2 text-sm"
+					>Preview <Tooltip>
+						To recompute the input schema press <Kbd>Ctrl/Cmd</Kbd> + <Kbd>S</Kbd> or move the focus
+						outside of the text editor
+					</Tooltip></div
+				>
+				<div class="px-2">
 					<div class="break-all relative font-sans">
-						<p class="items-baseline break-normal text-sm text-gray-600 hidden md:block mb-3">
-							To recompute the input schema press <Kbd>Ctrl/Cmd</Kbd> + <Kbd>S</Kbd> or move the focus
-							outside of the text editor
-						</p>
 						<SchemaForm {schema} bind:args bind:isValid />
 					</div>
 				</div>
 			</Pane>
-			<Pane size={70}>
-				<div class="px-2 py-1">
+			<Pane size={67}>
+				<div class="px-2 py-1 w-full">
 					{#if testIsLoading}
-						<Button
-							on:click={testJobLoader?.cancelJob}
-							btnClasses="w-full"
-							color="red"
-							size="xs"
-							startIcon={{
-								icon: faRotateRight,
-								classes: 'animate-spin'
-							}}
-						>
-							'Cancel'
+						<Button on:click={testJobLoader?.cancelJob} btnClasses="w-full" color="red" size="xs">
+							<WindmillIcon
+								white={true}
+								class="animate-[spin_5s_linear_infinite] mr-2 text-white"
+								height="20px"
+								width="20px"
+							/>
+							Cancel
 						</Button>
 					{:else}
 						<Button

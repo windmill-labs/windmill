@@ -75,24 +75,21 @@
 	$: checked = propertyType == 'javascript'
 
 	function onFocus() {
-		{
-			if (isStaticTemplate(inputCat)) {
-				focusProp(argName, 'append', (path) => {
-					const toAppend = `\$\{${path}}`
-					arg.value = `${arg.value ?? ''}${toAppend}`
-					setPropertyType(arg.value)
-					argInput?.focus()
-					return false
-				})
-			} else {
-				focusProp(argName, 'insert', (path) => {
-					arg.expr = path
-					arg.type = 'javascript'
-					propertyType = 'javascript'
-					return true
-				})
-			}
-			argInput?.recomputeSize()
+		if (isStaticTemplate(inputCat)) {
+			focusProp(argName, 'append', (path) => {
+				const toAppend = `\$\{${path}}`
+				arg.value = `${arg.value ?? ''}${toAppend}`
+				setPropertyType(arg.value)
+				argInput?.focus()
+				return false
+			})
+		} else {
+			focusProp(argName, 'insert', (path) => {
+				arg.expr = path
+				arg.type = 'javascript'
+				propertyType = 'javascript'
+				return true
+			})
 		}
 	}
 	const { focusProp } = getContext<PropPickerWrapperContext>('PropPickerWrapper')
@@ -144,7 +141,11 @@
 					arg.type = type
 				}}
 			/>
-			<div
+
+			<Button
+				variant="contained"
+				color="blue"
+				size="md"
 				on:click={() => {
 					focusProp(argName, 'connect', (path) => {
 						connectProperty(path)
@@ -152,10 +153,8 @@
 					})
 				}}
 			>
-				<Button variant="contained" color="blue" size="md">
-					<Icon data={faChain} />
-				</Button>
-			</div>
+				<Icon data={faChain} />
+			</Button>
 		</div>
 	</div>
 	<div class="max-w-xs" />
@@ -163,7 +162,7 @@
 	{#if propertyType === undefined || !checked}
 		<ArgInput
 			bind:this={argInput}
-			on:focus={() => onFocus()}
+			on:focus={onFocus}
 			label={argName}
 			bind:editor={monaco}
 			bind:description={schema.properties[argName].description}
@@ -191,18 +190,18 @@
 			<div class="border rounded p-2 mt-2 border-gray-300">
 				<SimpleEditor
 					bind:this={monaco}
+					bind:code={arg.expr}
+					{extraLib}
+					lang="javascript"
+					class="few-lines-editor"
+					extraLibPath="file:///node_modules/@types/windmill@{importPath}/index.d.ts"
+					shouldBindKey={false}
 					on:focus={() => {
 						focusProp(argName, 'insert', (path) => {
 							monaco?.insertAtCursor(path)
 							return false
 						})
 					}}
-					bind:code={arg.expr}
-					lang="javascript"
-					class="few-lines-editor"
-					{extraLib}
-					extraLibPath="file:///node_modules/@types/windmill@{importPath}/index.d.ts"
-					shouldBindKey={false}
 				/>
 			</div>
 			<DynamicInputHelpBox {importPath} />
@@ -212,5 +211,5 @@
 		<p>Not recognized arg type {arg.type}</p>
 	{/if}
 {:else}
-	<p>Arg at {argName} is undefined</p>
+	<p class="text-sm text-gray-700">Arg at {argName} is undefined</p>
 {/if}

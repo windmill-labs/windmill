@@ -9,14 +9,19 @@
 	import WorkspaceMenu from '$lib/components/sidebar/WorkspaceMenu.svelte'
 	import SidebarContent from '$lib/components/sidebar/SidebarContent.svelte'
 	import '../app.css'
-	import { userStore } from '$lib/stores'
+	import { superadmin, userStore } from '$lib/stores'
 	import CenteredModal from '$lib/components/CenteredModal.svelte'
 	import { beforeNavigate } from '$app/navigation'
+	import UserSettings from '$lib/components/UserSettings.svelte'
+	import SuperadminSettings from '$lib/components/SuperadminSettings.svelte'
+	import WindmillIcon from '$lib/components/icons/WindmillIcon.svelte'
 
 	OpenAPI.WITH_CREDENTIALS = true
 
 	let menuOpen = false
 	let isCollapsed = false
+	let userSettings: UserSettings
+	let superadminSettings: SuperadminSettings
 
 	beforeNavigate((newNavigationState) => {
 		menuOpen = false
@@ -29,8 +34,12 @@
 </script>
 
 <svelte:window bind:innerWidth />
+<UserSettings bind:this={userSettings} />
 
 {#if $userStore}
+	{#if $superadmin}
+		<SuperadminSettings bind:this={superadminSettings} />
+	{/if}
 	<div>
 		<div
 			class={classNames('relative  md:hidden 	', menuOpen ? 'z-40' : 'pointer-events-none')}
@@ -39,12 +48,12 @@
 		>
 			<div
 				class={classNames(
-					'fixed inset-0 bg-gray-600 bg-opacity-75 transition-opacity ease-linear duration-300',
-					menuOpen ? 'opacity-100' : 'opacity-0 '
+					'fixed inset-0 bg-gray-600 bg-opacity-75 transition-opacity ease-linear duration-300 z-40',
+					menuOpen ? 'opacity-100' : 'opacity-0'
 				)}
 			/>
 
-			<div class="fixed inset-0 flex">
+			<div class="fixed inset-0 flex z-40">
 				<div
 					class={classNames(
 						'relative flex-1 flex flex-col max-w-xs w-full bg-white transition ease-in-out duration-300 transform',
@@ -84,7 +93,10 @@
 
 						<div class="px-2 py-4 space-y-2 border-y border-blue-400">
 							<WorkspaceMenu />
-							<UserMenu />
+							<UserMenu
+								on:user-settings={() => userSettings.toggleDrawer()}
+								on:superadmin-settings={() => superadminSettings.toggleDrawer()}
+							/>
 						</div>
 
 						<SidebarContent {isCollapsed} />
@@ -95,7 +107,7 @@
 
 		<div
 			class={classNames(
-				'hidden md:flex md:flex-col md:fixed md:inset-y-0 transition-all ease-in-out duration-200 shadow-md z-10',
+				'hidden md:flex md:flex-col md:fixed md:inset-y-0 transition-all ease-in-out duration-200 shadow-md z-40',
 				isCollapsed ? 'md:w-12' : 'md:w-48'
 			)}
 		>
@@ -110,7 +122,11 @@
 
 				<div class="px-2 py-4 space-y-2 border-y border-blue-400">
 					<WorkspaceMenu {isCollapsed} />
-					<UserMenu {isCollapsed} />
+					<UserMenu
+						on:user-settings={userSettings.toggleDrawer}
+						on:superadmin-settings={() => superadminSettings.toggleDrawer()}
+						{isCollapsed}
+					/>
 				</div>
 				<SidebarContent {isCollapsed} />
 
@@ -131,14 +147,9 @@
 				</div>
 			</div>
 		</div>
-		<div
-			class={classNames(
-				'flex flex-col flex-1 transition-all ease-in-out duration-200',
-				isCollapsed ? 'md:pl-12' : 'md:pl-48'
-			)}
-		>
+		<div class={classNames('flex flex-col flex-1', isCollapsed ? 'md:pl-12' : 'md:pl-48')}>
 			<main>
-				<div class="w-full h-screen">
+				<div class="w-full h-screen overflow-auto">
 					<div
 						class="py-2 px-2 sm:px-4 md:px-8 flex justify-between items-center shadow-sm max-w-6xl mx-auto md:hidden"
 					>
@@ -170,7 +181,7 @@
 {:else}
 	<CenteredModal title="Loading user">
 		<div class="mx-auto w-0">
-			<Icon class="animate-spin" data={faSpinner} scale={2.0} />
+			<WindmillIcon class="animate-[spin_5s_linear_infinite]" height="80px" width="80px" />
 		</div>
 	</CenteredModal>
 {/if}

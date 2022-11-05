@@ -1,18 +1,25 @@
 import type { Schema } from '$lib/common'
-import { JobService, type Flow, type FlowModule, type InputTransform, type Job } from '$lib/gen'
+import {
+	JobService,
+	ScriptService,
+	type Flow,
+	type FlowModule,
+	type InputTransform,
+	type Job
+} from '$lib/gen'
 import { inferArgs } from '$lib/infer'
 import { loadSchema } from '$lib/scripts'
 import { workspaceStore } from '$lib/stores'
 import { emptySchema } from '$lib/utils'
 import { get } from 'svelte/store'
-import type { FlowModuleState, FlowState } from './flowState'
+import type { FlowModuleState } from './flowState'
 
 export function cleanInputs(flow: Flow | any): Flow {
 	const newFlow: Flow = JSON.parse(JSON.stringify(flow))
 	newFlow.value.modules.forEach((mod) => {
 		if (mod.value.type == 'rawscript' || mod.value.type == 'script') {
 			if (Object.keys(mod.input_transforms ?? {}).length > 0) {
-				mod.value.input_transforms = mod.input_transforms
+				mod.value.input_transforms = mod.input_transforms!
 				delete mod.input_transforms
 			}
 			Object.values(mod.input_transforms ?? {}).forEach((inp) => {
@@ -51,40 +58,10 @@ export function getTypeAsString(arg: any): string {
 	return typeof arg
 }
 
-
-export function selectedIdToIndexes(selectedId: string): number[] {
-	const splitted = selectedId.split('-')
-	if (splitted[0] == 'loop') {
-		return [Number(splitted[1])]
-	} else {
-		return splitted.map(Number)
-	}
-}
-export function selectedIdToModule(selectedId: string, flow: Flow): FlowModule {
-	const [p, c] = selectedIdToIndexes(selectedId)
-	const pm = flow.value.modules[p]
-	if (c && pm.value.type == 'forloopflow') {
-		return pm.value.modules[c]
-	} else {
-		return pm
-	}
-}
-
-export function selectedIdToModuleState(selectedId: string, flow: FlowState): FlowModuleState {
-	const [p, c] = selectedIdToIndexes(selectedId)
-	const pm = flow.modules[p]
-	if (c && pm.childFlowModules) {
-		return pm.childFlowModules[c]
-	} else {
-		return pm
-	}
-}
-
 export async function loadSchemaFromModule(module: FlowModule): Promise<{
 	input_transforms: Record<string, InputTransform>
 	schema: Schema
 }> {
-
 	const mod = module.value
 
 	if (mod.type == 'rawscript' || mod.type === 'script') {
@@ -94,6 +71,8 @@ export async function loadSchemaFromModule(module: FlowModule): Promise<{
 			await inferArgs(mod.language!, mod.content ?? '', schema)
 		} else if (mod.path && mod.path != '') {
 			schema = await loadSchema(mod.path!)
+			console.log(mod.path)
+			console.log(schema)
 		} else {
 			return {
 				input_transforms: {},
@@ -104,13 +83,11 @@ export async function loadSchemaFromModule(module: FlowModule): Promise<{
 		const keys = Object.keys(schema?.properties ?? {})
 
 		if (Object.keys(module.input_transforms ?? {}).length > 0) {
-			mod.input_transforms = module.input_transforms
+			mod.input_transforms = module.input_transforms!
 		}
 		let input_transforms = mod.input_transforms ?? module.input_transforms ?? {}
 
-		if (
-			JSON.stringify(keys.sort()) !== JSON.stringify(Object.keys(input_transforms).sort())
-		) {
+		if (JSON.stringify(keys.sort()) !== JSON.stringify(Object.keys(input_transforms).sort())) {
 			input_transforms = keys.reduce((accu, key) => {
 				let nv = input_transforms[key] ?? {
 					type: 'static',
@@ -119,7 +96,6 @@ export async function loadSchemaFromModule(module: FlowModule): Promise<{
 				accu[key] = nv
 				return accu
 			}, {})
-
 		}
 
 		return {
@@ -195,13 +171,74 @@ export function codeToStaticTemplate(code?: string): string | undefined {
 	return undefined
 }
 
-export function getIndexes(parentIndex: number | undefined, childIndex: number): number[] {
-	const indexes: number[] = []
+export const NEVER_TESTED_THIS_FAR = 'never tested this far'
 
-	if (parentIndex !== undefined) {
-		indexes.push(parentIndex)
+export function emptyFlowModuleState(): FlowModuleState {
+	return {
+		schema: emptySchema(),
+		previewResult: NEVER_TESTED_THIS_FAR
 	}
-	indexes.push(childIndex)
+}
 
-	return indexes
+const aCharCode = 'a'.charCodeAt(0)
+
+export function numberToChars(n: number) {
+	var b = [n],
+		sp,
+		out,
+		i,
+		div
+
+	sp = 0
+	while (sp < b.length) {
+		if (b[sp] > 25) {
+			div = Math.floor(b[sp] / 26)
+			b[sp + 1] = div - 1
+			b[sp] %= 26
+		}
+		sp += 1
+	}
+
+	out = ''
+	for (i = 0; i < b.length; i += 1) {
+		out = String.fromCharCode(aCharCode + b[i]) + out
+	}
+
+	return out
+}
+
+export function charsToNumber(n: string): number {
+	let b = Math.pow(26, n.length - 1)
+	let res = 0
+	for (let c of n) {
+		res += (c.charCodeAt(0) - aCharCode + 1) * b
+		b = b / 26
+	}
+	return res - 1
+}
+
+export function isEmptyFlowModule(flowModule: FlowModule): boolean {
+	return flowModule.value.type === 'identity'
+}
+
+export async function findNextAvailablePath(path: string): Promise<string> {
+	try {
+		await ScriptService.getScriptByPath({
+			workspace: get(workspaceStore)!,
+			path
+		})
+
+		const [_, version] = path.split(/.*_([0-9]*)/)
+
+		if (version.length > 0) {
+			path = path.slice(0, -(version.length + 1))
+		}
+
+		path = `${path}_${Number(version) + 1}`
+
+		return findNextAvailablePath(path)
+	} catch (e) {
+		// Catching an error means the path is available
+		return path
+	}
 }

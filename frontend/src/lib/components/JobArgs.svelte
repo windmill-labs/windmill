@@ -1,26 +1,25 @@
 <script lang="ts">
-	import type { Job } from '$lib/gen'
 	import ArgInfo from './ArgInfo.svelte'
 	import { Skeleton } from './common'
 	import TableCustom from './TableCustom.svelte'
 
-	export let job: Job | undefined
+	export let args: any
 </script>
 
-<TableCustom class="px-10 py-4">
+<TableCustom class="px-10 py-2">
 	<tr slot="header-row"
 		><th>Argument</th>
 		<th>Value</th></tr
 	>
 	<tbody slot="body">
-		{#if job && job.args && Object.keys(job.args).length > 0}
-			{#each Object.entries(job.args) as [arg, value]}
+		{#if args && Object.keys(args).length > 0}
+			{#each Object.entries(args) as [arg, value]}
 				<tr>
-					<td>{arg}</td>
-					<td> <ArgInfo {value} /></td>
+					<td class="font-semibold">{arg}</td>
+					<td><ArgInfo {value} /></td>
 				</tr>
 			{/each}
-		{:else if job}
+		{:else if args}
 			<tr>No arguments</tr>
 		{:else}
 			<tr>

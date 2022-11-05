@@ -3,11 +3,11 @@
 	import { getContext } from 'svelte'
 	import Icon from 'svelte-awesome'
 	import { faBug } from '@fortawesome/free-solid-svg-icons'
-	import { emptyModule, NEVER_TESTED_THIS_FAR } from '$lib/components/flows/flowStateUtils'
 	import { classNames, emptySchema } from '$lib/utils'
 	import { flowStateStore, type FlowModuleState } from '../flowState'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import { flowStore } from '../flowStore'
+	import { NEVER_TESTED_THIS_FAR } from '../utils'
 
 	const { select, selectedId } = getContext<FlowEditorContext>('FlowEditorContext')
 
@@ -19,18 +19,19 @@
 		} else {
 			const failureModule: FlowModuleState = {
 				schema: emptySchema(),
-				previewResult: NEVER_TESTED_THIS_FAR,
-				childFlowModules: []
+				previewResult: NEVER_TESTED_THIS_FAR
 			}
-			$flowStateStore.failureModule = failureModule
-			const errorModule = emptyModule()
-			errorModule.id = 'failure'
-			$flowStore.value.failure_module = errorModule
+			$flowStateStore['failure'] = failureModule
+			$flowStore.value.failure_module = {
+				id: 'failure',
+				value: { type: 'identity' }
+			}
 			select('failure')
 		}
 	}
 </script>
 
+<!-- svelte-ignore a11y-click-events-have-key-events -->
 <div
 	on:click={() => {
 		if ($flowStore.value.failure_module) {
@@ -40,7 +41,7 @@
 		}
 	}}
 	class={classNames(
-		'border rounded-md p-2 bg-white text-sm cursor-pointer mt-4 flex flex-col overflow-x-hidden',
+		'border rounded-md p-2 bg-white text-sm cursor-pointer mt-4 flex flex-col overflow-x-hidden  bottom-0 z-10 sticky',
 		$selectedId.includes('failure') ? 'outline outline-offset-1 outline-2 outline-slate-900' : ''
 	)}
 >
@@ -54,12 +55,12 @@
 
 	<div class="w-full truncate block">
 		{#if Boolean($flowStore.value.failure_module)}
-			<span
-				>{$flowStore.value.failure_module?.summary ||
+			<span>
+				{$flowStore.value.failure_module?.summary ||
 					($flowStore.value.failure_module?.value.type === 'rawscript'
 						? `Inline ${$flowStore.value.failure_module?.value.language}`
-						: 'Select a script')}</span
-			>
+						: 'Select a script')}
+			</span>
 		{/if}
 	</div>
 </div>

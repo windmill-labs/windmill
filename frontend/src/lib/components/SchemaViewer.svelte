@@ -8,6 +8,7 @@
 	import Tab from './common/tabs/Tab.svelte'
 	import TabContent from './common/tabs/TabContent.svelte'
 	import Tabs from './common/tabs/Tabs.svelte'
+	import { Badge } from './common'
 
 	export let schema: Schema | undefined = emptySchema()
 </script>
@@ -32,11 +33,13 @@
 							<tbody slot="body">
 								{#each Object.entries(schema.properties) as [name, property] (name)}
 									<tr>
-										<td>{name}</td>
+										<td class="font-semibold pl-1">{name}</td>
 										<td
-											>{#if !property.type} any {:else} {property.type} {/if}</td
+											><Badge color="blue"
+												>{#if !property.type} any {:else} {property.type} {/if}</Badge
+											></td
 										>
-										<td>{property.description}</td>
+										<td>{property.description ?? ''}</td>
 										<td
 											>{property.default == '<function call>'
 												? '<function call>'

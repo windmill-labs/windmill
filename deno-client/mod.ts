@@ -152,8 +152,17 @@ export interface NonceAndHmac {
  */
 export async function genNounceAndHmac(workspace: string, jobId: string, approver?: string): Promise<NonceAndHmac> {
     const nonce = Math.floor(Math.random() * 4294967295);
-    const sig = await fetch(Deno.env.get("WM_BASE_URL") +
-        `/api/w/${workspace}/jobs/job_signature/${jobId}/${nonce}?token=${Deno.env.get("WM_TOKEN")}${approver ? `&approver=${approver}` : ''}`)
+    const u = new URL(
+        `/api/w/${workspace}/jobs/job_signature/${jobId}/${nonce}`,
+        Deno.env.get("WM_BASE_URL"),
+    );
+
+    u.searchParams.append('token', Deno.env.get("WM_TOKEN"));
+    if (approver) {
+        u.searchParams.append('approver', approver);
+    }
+
+    const sig = await fetch(u.toString());
     return {
         nonce,
         signature: await sig.text()

@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { page } from '$app/stores'
-	import { decodeState, getToday } from '$lib/utils'
+	import { decodeArgs, decodeState, getToday } from '$lib/utils'
 	import { slide } from 'svelte/transition'
 
 	import { faChevronDown, faChevronUp } from '@fortawesome/free-solid-svg-icons'
@@ -16,20 +16,9 @@
 	export let schedulable = true
 	export let detailed = true
 
-	export let args: Record<string, any> = {}
+	export let args: Record<string, any> = decodeArgs($page.url.searchParams.get('args') ?? undefined)
 
 	let isValid = true
-
-	let queryArgs = $page.url.searchParams.get('args')
-	if (queryArgs) {
-		const parsed = decodeState(queryArgs)
-		Object.entries(parsed).forEach(([k, v]) => {
-			if (v == '<function call>') {
-				parsed[k] = undefined
-			}
-		})
-		args = parsed
-	}
 
 	// Run later
 	let viewOptions = false

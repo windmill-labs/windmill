@@ -129,7 +129,7 @@ def get_resource(path: str) -> Dict[str, Any]:
     if isinstance(parsed.value, Unset):
         return {}
 
-    raw_dict = parsed.value.to_dict()
+    raw_dict = parsed.value
     res = _transform_leaves(raw_dict)
 
     return res

@@ -1,4 +1,4 @@
-FROM python:3.10-slim-buster as nsjail
+FROM python:3.11.0-slim-buster as nsjail
 
 WORKDIR /nsjail
 
@@ -19,6 +19,23 @@ RUN git clone -b master --single-branch https://github.com/google/nsjail.git . \
     && git checkout dccf911fd2659e7b08ce9507c25b2b38ec2c5800
 RUN make
 
+FROM rust:slim-buster AS rust_base
+
+RUN apt-get update && apt-get install -y git libssl-dev pkg-config npm
+
+RUN apt-get -y update \
+    && apt-get install -y \
+    curl lld nodejs npm
+
+RUN rustup component add rustfmt
+
+RUN cargo install cargo-chef 
+
+WORKDIR /windmill
+
+ENV SQLX_OFFLINE=true
+ENV CARGO_INCREMENTAL=1
+
 FROM node:19-alpine as frontend
 
 # install dependencies
@@ -29,38 +46,29 @@ RUN npm ci
 # Copy all local files into the image.
 COPY frontend .
 RUN mkdir /backend
-COPY /backend/openapi.yaml /backend/openapi.yaml
+COPY /backend/windmill-api/openapi.yaml /backend/windmill-api/openapi.yaml
 COPY /openflow.openapi.yaml /openflow.openapi.yaml
 RUN npm run generate-backend-client
 ENV NODE_OPTIONS "--max-old-space-size=8192"
 RUN npm run build
 RUN npm run check
 
-FROM rust:slim-buster as builder
 
-RUN apt-get update && apt-get install -y git libssl-dev pkg-config
+FROM rust_base AS planner
 
-RUN USER=root cargo new --bin windmill
-WORKDIR /windmill
-
-COPY ./backend/Cargo.toml .
-COPY ./backend/Cargo.lock .
-COPY ./backend/.cargo/ .cargo/
-
-RUN apt-get -y update \
-    && apt-get install -y \
-    curl lld
-
-ENV CARGO_INCREMENTAL=1
-
-RUN cargo build --release
-RUN rm src/*.rs
-
-RUN rm ./target/release/deps/windmill*
-ENV SQLX_OFFLINE=true
-
+COPY ./openflow.openapi.yaml /openflow.openapi.yaml
 COPY ./backend ./
-COPY ./nsjail /nsjail
+
+RUN cargo chef prepare  --recipe-path recipe.json
+
+FROM rust_base AS builder
+
+COPY --from=planner /windmill/recipe.json recipe.json
+
+RUN cargo chef cook --release --recipe-path recipe.json
+
+COPY ./openflow.openapi.yaml /openflow.openapi.yaml
+COPY ./backend ./
 
 COPY --from=frontend /frontend /frontend
 COPY .git/ .git/

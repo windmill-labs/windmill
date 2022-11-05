@@ -18,6 +18,7 @@
 	export let endIcon: ButtonType.Icon | undefined = undefined
 	export let element: ButtonType.Element | undefined = undefined
 	export let id: string = ''
+	export let nonCaptureEvent: boolean = false
 
 	const dispatch = createEventDispatcher()
 	// Order of classes: border, border modifier, bg, bg modifier, text, text modifier, everything else
@@ -44,8 +45,9 @@
 		},
 		light: {
 			border:
-				'border bg-white hover:bg-gray-100 focus:bg-gray-100 text-gray-700 hover:text-gray-800 focus:text-gray-800 focus:ring-gray-300',
-			contained: 'bg-white hover:bg-gray-100 focus:bg-gray-100 text-gray-700 focus:ring-gray-300'
+				'border border-gray-300 bg-white hover:bg-gray-100 focus:bg-gray-100 text-gray-700 hover:text-gray-800 focus:text-gray-800 focus:ring-gray-300',
+			contained:
+				'bg-white border-gray-300  hover:bg-gray-100 focus:bg-gray-100 text-gray-700 focus:ring-gray-300'
 		}
 	}
 
@@ -58,8 +60,9 @@
 			ButtonType.SpacingClasses[spacingSize],
 			'focus:ring-4 font-semibold',
 			'rounded-md',
-			'flex justify-center items-center text-center whitespace-nowrap',
-			btnClasses
+			'justify-center items-center text-center whitespace-nowrap inline-flex',
+			btnClasses,
+			disabled ? 'bg-gray-200' : ''
 		),
 		disabled,
 		href,
@@ -68,13 +71,15 @@
 	}
 
 	function onClick(event: MouseEvent) {
-		event.preventDefault()
-		dispatch('click', event)
-		if (href) {
-			if (href.startsWith('http')) {
-				window.open(href, target)
-			} else {
-				goto(href)
+		if (!nonCaptureEvent) {
+			event.preventDefault()
+			dispatch('click', event)
+			if (href) {
+				if (href.startsWith('http')) {
+					window.open(href, target)
+				} else {
+					goto(href)
+				}
 			}
 		}
 	}
@@ -90,7 +95,7 @@
 <svelte:element
 	this={href ? 'a' : 'button'}
 	bind:this={element}
-	on:click|stopPropagation={onClick}
+	on:click={onClick}
 	on:focus
 	on:blur
 	{...buttonProps}

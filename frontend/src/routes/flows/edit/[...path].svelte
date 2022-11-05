@@ -12,12 +12,15 @@
 	import { page } from '$app/stores'
 	import FlowBuilder from '$lib/components/FlowBuilder.svelte'
 	import { workspaceStore } from '$lib/stores'
-	import { decodeState, emptySchema } from '$lib/utils'
+	import { decodeArgs, decodeState, emptySchema } from '$lib/utils'
 	import { initFlow } from '$lib/components/flows/flowStore'
 	import { dirtyStore } from '$lib/components/common/confirmationModal/dirtyStore'
 
 	const initialState = $page.url.searchParams.get('state')
-	let flowLoadedFromUrl = initialState != undefined ? decodeState(initialState) : undefined
+	let stateLoadedFromUrl = initialState != undefined ? decodeState(initialState) : undefined
+	const initialArgs = decodeArgs($page.url.searchParams.get('args') ?? undefined)
+
+	let selectedId: string | undefined = undefined
 
 	let flow: Flow = {
 		path: $page.params.path,
@@ -36,15 +39,16 @@
 
 	async function loadFlow(): Promise<void> {
 		flow =
-			flowLoadedFromUrl != undefined && flowLoadedFromUrl.path == flow.path
-				? flowLoadedFromUrl
+			stateLoadedFromUrl != undefined && stateLoadedFromUrl?.flow?.path == flow.path
+				? stateLoadedFromUrl.flow
 				: await FlowService.getFlowByPath({
 						workspace: $workspaceStore!,
 						path: flow.path
 				  })
 		initialPath = flow.path
 
-		initFlow(flow)
+		await initFlow(flow)
+		selectedId = stateLoadedFromUrl?.selectedId
 		$dirtyStore = false
 	}
 
@@ -53,8 +57,6 @@
 			loadFlow()
 		}
 	}
-
-
 </script>
 
-<FlowBuilder {initialPath} />
+<FlowBuilder {initialPath} {selectedId} {initialArgs} />

@@ -38,13 +38,13 @@ export function displayDaysAgo(dateString: string): string {
 	if (nbSecondsAgo < 600) {
 		return `${nbSecondsAgo}s ago`
 	} else if (isToday(date)) {
-		return `today at ${date.toLocaleTimeString()}`
+		return `today at ${date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
 	} else {
 		let dAgo = daysAgo(date)
 		if (dAgo == 0) {
-			return `yday at ${date.toLocaleTimeString()}`
+			return `yday at ${date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
 		} else if (dAgo > 7) {
-			return `${dAgo + 1} days ago at ${date.toLocaleTimeString()}`
+			return `${dAgo + 1} days ago at ${date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
 		} else {
 			return displayDate(dateString)
 		}
@@ -56,9 +56,8 @@ export function displayDate(dateString: string | undefined): string {
 	if (date.toString() === 'Invalid Date') {
 		return ''
 	} else {
-		return `${date.getFullYear()}/${
-			date.getMonth() + 1
-		}/${date.getDate()} at ${date.toLocaleTimeString()}`
+		return `${date.getFullYear()}/${date.getMonth() + 1
+			}/${date.getDate()} at ${date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
 	}
 }
 
@@ -227,6 +226,19 @@ export function decodeState(query: string): any {
 	return JSON.parse(decodeURIComponent(atob(query)))
 }
 
+export function decodeArgs(queryArgs: string | undefined): any {
+	if (queryArgs) {
+		const parsed = decodeState(queryArgs)
+		Object.entries(parsed).forEach(([k, v]) => {
+			if (v == '<function call>') {
+				parsed[k] = undefined
+			}
+		})
+		return parsed
+	}
+	return {}
+}
+
 export async function setQuery(url: URL, key: string, value: string): Promise<void> {
 	url.searchParams.set(key, value)
 	await goto(`?${url.searchParams.toString()}`)
@@ -235,7 +247,11 @@ export async function setQuery(url: URL, key: string, value: string): Promise<vo
 export function setQueryWithoutLoad(url: URL, key: string, value: string): void {
 	const nurl = new URL(url.toString())
 	nurl.searchParams.set(key, value)
-	history.replaceState(null, '', nurl.toString())
+	try {
+		history.replaceState(null, '', nurl.toString())
+	} catch (e) {
+		console.error(e)
+	}
 }
 
 export function groupBy<T>(
@@ -273,7 +289,7 @@ export function groupBy<T>(
 
 export function truncate(s: string, n: number, suffix: string = '...'): string {
 	if (!s) {
-		return suffix
+		return ''
 	}
 	if (s.length <= n) {
 		return s
@@ -471,13 +487,15 @@ export function scriptPathToHref(path: string): string {
 export async function getScriptByPath(path: string): Promise<{
 	content: string
 	language: SupportedLanguage
+	schema: any
 }> {
 	if (path.startsWith('hub/')) {
 		const { content, language, schema } = await ScriptService.getHubScriptByPath({ path })
 
 		return {
 			content,
-			language
+			language,
+			schema
 		}
 	} else {
 		const script = await ScriptService.getScriptByPath({
@@ -486,7 +504,8 @@ export async function getScriptByPath(path: string): Promise<{
 		})
 		return {
 			content: script.content,
-			language: script.language
+			language: script.language,
+			schema: script.schema
 		}
 	}
 }

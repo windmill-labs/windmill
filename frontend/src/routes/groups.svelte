@@ -20,8 +20,7 @@
 	import TableCustom from '$lib/components/TableCustom.svelte'
 	import { userStore, workspaceStore } from '$lib/stores'
 	import { faEdit, faPlus, faShare } from '@fortawesome/free-solid-svg-icons'
-	import { Alert } from 'flowbite-svelte'
-	import { Button } from '$lib/components/common'
+	import { Alert, Button } from '$lib/components/common'
 
 	type GroupW = Group & { canWrite: boolean }
 
@@ -69,7 +68,10 @@
 <GroupModal bind:this={groupModal} />
 
 <CenteredPage>
-	<PageHeader title="Groups">
+	<PageHeader
+		title="Groups"
+		tooltip="Group users together to grant roles and homegenous permissions. Same users can be in many groups at the same time."
+	>
 		<div class="flex flex-row">
 			<input
 				class="mr-2"
@@ -83,12 +85,9 @@
 		</div>
 	</PageHeader>
 
-	<Alert accent rounded={false}>
-		<p class="font-bold text-lg">Groups are a team or enterprise feature - Unlimited during beta</p>
-		<p>
-			Groups are a team or enterprise feature and the feature might be significantly different after
-			beta in the community edition
-		</p>
+	<Alert type="info" title="Groups are a team or enterprise feature - Unlimited during beta">
+		Groups are a team or enterprise feature and the feature might be significantly different after
+		beta in the community edition
 	</Alert>
 
 	<div class="relative">
@@ -101,27 +100,28 @@
 			<tbody slot="body">
 				{#each groups as { name, summary, extra_perms, canWrite }}
 					<tr>
-						<td
-							><a
+						<td>
+							<a
 								href="#{name}"
 								on:click={() => {
-									groupModal.openModal(name)
-								}}>{name}</a
-							>
+									groupModal.openDrawer(name)
+								}}
+								>{name}
+							</a>
 							<div>
 								<SharedBadge {canWrite} extraPerms={extra_perms} />
 							</div>
 						</td>
 						<td>{summary ?? ''}</td>
-						<td
-							><Dropdown
+						<td>
+							<Dropdown
 								dropdownItems={[
 									{
 										displayName: 'Manage members',
 										icon: faEdit,
 										disabled: !canWrite,
 										action: () => {
-											groupModal.openModal(name)
+											groupModal.openDrawer(name)
 										}
 									},
 									{
@@ -129,13 +129,13 @@
 										icon: faShare,
 										disabled: !canWrite,
 										action: () => {
-											shareModal.openModal(name)
+											shareModal.openDrawer(name)
 										}
 									}
 								]}
 								relative={false}
-							/></td
-						>
+							/>
+						</td>
 					</tr>
 				{/each}
 			</tbody>
