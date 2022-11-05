@@ -58,12 +58,16 @@
 		"@fortawesome/free-solid-svg-icons": "^6.2.0",
 		"@redocly/json-to-json-schema": "^0.0.1",
 		"async-mutex": "^0.4.0",
+		"chartjs-adapter-date-fns": "^2.0.0",
+		"chartjs-plugin-zoom": "^1.2.1",
+		"date-fns": "^2.29.3",
 		"fuse.js": "^6.4.6",
 		"highlight.js": "^11.5.1",
 		"monaco-editor": "^0.34.1",
 		"monaco-editor-workers": "^0.34.2",
 		"monaco-languageclient": "4.0.1",
 		"svelte-autosize": "^1.0.1",
+		"svelte-chartjs": "^3.0.1",
 		"vscode-ws-jsonrpc": "^2.0.0"
 	}
 }

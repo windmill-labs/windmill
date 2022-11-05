@@ -21,6 +21,7 @@
 	import { Skeleton } from '$lib/components/common'
 	import { goto } from '$app/navigation'
 	import PageHeader from '$lib/components/PageHeader.svelte'
+	import RunChart from '$lib/components/RunChart.svelte'
 
 	let jobs: Job[] | undefined
 	let error: Error | undefined
@@ -111,14 +112,21 @@
 		if (jobs && createdBefore === undefined) {
 			const reversedJobs = jobs.slice(0, jobsPerPage).reverse()
 			const lastIndex = reversedJobs.findIndex((x) => x.type == Job.type.QUEUED_JOB) - 1
-			const ts = lastIndex >= 0 ? reversedJobs[lastIndex].created_at : undefined
+			let ts = lastIndex >= 0 ? reversedJobs[lastIndex].created_at : undefined
+			if (!ts) {
+				const date = jobs.length > 0 ? new Date(jobs[0]?.created_at!) : new Date()
+				date.setSeconds(date.getSeconds() + 1)
+				ts = date.toISOString()
+			}
 			const newJobs = await fetchJobs(undefined, ts)
-			const oldJobs = jobs.map((x) => x.id)
-			jobs = newJobs.filter((x) => !oldJobs.includes(x.id)).concat(jobs)
-			newJobs
-				.filter((x) => oldJobs.includes(x.id))
-				.forEach((x) => (jobs![jobs?.findIndex((y) => y.id == x.id)!] = x))
-			jobs = jobs
+			if (newJobs && newJobs.length > 0) {
+				const oldJobs = jobs.map((x) => x.id)
+				jobs = newJobs.filter((x) => !oldJobs.includes(x.id)).concat(jobs)
+				newJobs
+					.filter((x) => oldJobs.includes(x.id))
+					.forEach((x) => (jobs![jobs?.findIndex((y) => y.id == x.id)!] = x))
+				jobs = jobs
+			}
 		}
 	}
 
@@ -139,6 +147,8 @@
 
 	$: jobKindsCat && syncCatWithURL()
 
+	$: completedJobs =
+		jobs?.filter((x) => x.type == 'CompletedJob').map((x) => x as CompletedJob) ?? []
 	onDestroy(() => {
 		if (intervalId) {
 			clearInterval(intervalId)
@@ -187,6 +197,9 @@
 					<Tab value="previews">Previews</Tab>
 					<Tab value="dependencies">Dependencies</Tab>
 				</Tabs>
+			</div>
+			<div class="border mb-4">
+				<RunChart jobs={completedJobs} />
 			</div>
 			<Skeleton loading={!jobs} layout={[[6], 1, [6], 1, [6], 1, [6], 1, [6]]} />
 			{#if jobs}
