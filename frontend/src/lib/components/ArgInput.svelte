@@ -360,7 +360,7 @@
 			{/if}
 			<slot name="actions" />
 		</div>
-		<div class="text-right text-xs {error === '' ? 'text-white' : 'font-bold text-red-600'}">
+		<div class="text-right text-xs {error === '' ? 'text-white' : 'text-red-600'}">
 			{error === '' ? '...' : error}
 		</div>
 	</div>
