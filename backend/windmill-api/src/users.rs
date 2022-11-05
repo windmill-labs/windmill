@@ -32,7 +32,7 @@ use tracing::Span;
 use windmill_audit::{audit_log, ActionKind};
 use windmill_common::{
     error::{self, Error, JsonResult, Result},
-    utils::{not_found_if_none, paginate, rd_string, require_admin, Pagination},
+    utils::{not_found_if_none, rd_string, require_admin, Pagination},
 };
 
 const TTL_TOKEN_CACHE_S: u64 = 60 * 5; // 5 minutes
@@ -548,7 +548,8 @@ async fn list_users_as_super_admin(
 ) -> JsonResult<Vec<GlobalUserInfo>> {
     let mut tx = db.begin().await?;
     require_super_admin(&mut tx, authed.email).await?;
-    let (per_page, offset) = paginate(pagination);
+    let per_page = pagination.per_page.unwrap_or(10000).max(1);
+    let offset = (pagination.page.unwrap_or(1).max(1) - 1) * per_page;
 
     let rows = sqlx::query_as!(
         GlobalUserInfo,

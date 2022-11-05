@@ -116,7 +116,6 @@
 		background: white;
 		z-index: 3;
 		transition: transform var(--duration) ease;
-		overflow: auto;
 	}
 
 	.panel.left {

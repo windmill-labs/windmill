@@ -77,27 +77,34 @@
 
 <Drawer bind:this={drawer} size="800px">
 	<DrawerContent title="User Settings" on:close={drawer.toggleDrawer}>
-		<div class="text-xs text-gray-500 italic py-4">
-			Running windmill version (backend) {version}
-		</div>
-		<h2 class="border-b">User info</h2>
-		<div class="">
-			{#if passwordError}
-				<div class="text-red-600 text-2xs grow">{passwordError}</div>
-			{/if}
-			<div class="flex flex-col gap-2 w-full ">
-				<div class="mt-4">
-					<label class="block w-60 mb-2 text-gray-500">
-						<div class="text-gray-700">email</div>
-						<input type="text" disabled value={$usersWorkspaceStore?.email} class="input mt-1" />
-					</label>
-					{#if login_type == 'password'}
-						<label class="block w-120">
-							<div class="text-gray-700">password</div>
-							<input
-								type="password"
-								bind:value={newPassword}
-								class="
+		<div class="flex flex-col h-full">
+			<div>
+				<div class="text-xs text-gray-500 italic pb-4">
+					Running windmill version (backend) {version}
+				</div>
+				<h2 class="border-b">User info</h2>
+				<div class="">
+					{#if passwordError}
+						<div class="text-red-600 text-2xs grow">{passwordError}</div>
+					{/if}
+					<div class="flex flex-col gap-2 w-full ">
+						<div class="mt-4">
+							<label class="block w-60 mb-2 text-gray-500">
+								<div class="text-gray-700">email</div>
+								<input
+									type="text"
+									disabled
+									value={$usersWorkspaceStore?.email}
+									class="input mt-1"
+								/>
+							</label>
+							{#if login_type == 'password'}
+								<label class="block w-120">
+									<div class="text-gray-700">password</div>
+									<input
+										type="password"
+										bind:value={newPassword}
+										class="
 							w-full
 							block
 							py-1
@@ -109,128 +116,133 @@
 							focus:border-indigo-300 focus:ring focus:ring-indigo-200 focus:ring-opacity-50
 							text-sm
 							"
-							/>
-							<Button size="sm" btnClasses="mt-4" on:click={setPassword}>Set password</Button>
-						</label>
-					{:else if login_type == 'github'}
-						<span>Authentified through Github OAuth2. Cannot set a password.</span>
-					{/if}
-				</div>
-			</div>
-		</div>
-
-		<div class="grid grid-cols-2 pt-24 pb-1">
-			<h2 class="py-0 my-0 border-b">Tokens</h2>
-			<div class="flex justify-end border-b pb-1">
-				<Button
-					size="sm"
-					startIcon={{ icon: faPlus }}
-					btnClasses={displayCreateToken ? 'hidden' : ''}
-					on:click={() => {
-						displayCreateToken = !displayCreateToken
-						newToken = undefined
-						newTokenExpiration = undefined
-						newTokenLabel = undefined
-					}}
-				>
-					Create token
-				</Button>
-			</div>
-		</div>
-		<div class="text-2xs text-gray-500 italic pb-6">
-			Authentify to the Windmill API with access tokens.
-		</div>
-
-		<div>
-			<div
-				class="{newToken
-					? ''
-					: 'hidden'} border rounded-md mb-6 px-2 py-2 bg-green-50 flex flex-row flex-wrap "
-			>
-				<div>
-					Added token: <button on:click={() => copyToClipboard(newToken ?? '')} class="inline"
-						>{truncate(newToken ?? '', 10, '****')} <Icon data={faClipboard} />
-					</button>
-				</div>
-				<div class="pt-1 text-xs text-right">
-					Make sure to copy your personal access token now. You won’t be able to see it again!
-				</div>
-			</div>
-
-			<!-- Token creation interface -->
-			<div
-				class="{displayCreateToken
-					? ''
-					: 'hidden'} py-3 px-3 border rounded-md mb-6 bg-gray-50 min-w-min"
-			>
-				<h3 class="pb-3 font-semibold">Add new token</h3>
-				<div class="flex flex-row flex-wrap gap-x-2 w-full justify-between">
-					<div class="flex flex-col">
-						<label for="label">Label <span class="text-xs text-gray-500">(optional)</span></label>
-						<input type="text" bind:value={newTokenLabel} />
-					</div>
-					<div class="flex flex-col ">
-						<label for="expires"
-							>Expires on <span class="text-xs text-gray-500">(optional)</span>
-						</label>
-						<input
-							class="block md:w-1/2"
-							type="date"
-							id="expires"
-							name="expiration-date"
-							bind:value={newTokenExpiration}
-							min={getToday().getFullYear() +
-								'/' +
-								getToday().getMonth() +
-								'/' +
-								getToday().getDate()}
-							max={getToday().getFullYear() +
-								1 +
-								'/' +
-								getToday().getMonth() +
-								'/' +
-								getToday().getDate()}
-						/>
-					</div>
-					<div class="flex items-end">
-						<Button btnClasses="!mt-2" on:click={createToken}>Submit</Button>
+									/>
+									<Button size="sm" btnClasses="mt-4" on:click={setPassword}>Set password</Button>
+								</label>
+							{:else if login_type == 'github'}
+								<span>Authentified through Github OAuth2. Cannot set a password.</span>
+							{/if}
+						</div>
 					</div>
 				</div>
-			</div>
 
-			<TableCustom>
-				<tr slot="header-row">
-					<th>prefix</th>
-					<th>label</th>
-					<th>expiration</th>
-					<th />
-				</tr>
-				<tbody slot="body">
-					{#if tokens && tokens.length > 0}
-						{#each tokens as { token_prefix, expiration, label }}
-							<tr>
-								<td class="grow">{token_prefix}****</td>
-								<td class="grow">{label ?? ''}</td>
-								<td class="grow">{displayDate(expiration ?? '')}</td>
-								<td class="grow"
-									><button
-										class="text-red-500 text-xs underline"
-										on:click={() => {
-											deleteToken(token_prefix)
-										}}>Delete</button
-									></td
-								>
-							</tr>
-						{/each}
-					{:else if tokens && tokens.length === 0}
-						<tr class="px-6"
-							><td class="text-gray-700 italic text-xs"> There are no tokens yet</td></tr
+				<div class="grid grid-cols-2 pt-8 pb-1">
+					<h2 class="py-0 my-0 border-b">Tokens</h2>
+					<div class="flex justify-end border-b pb-1">
+						<Button
+							size="sm"
+							startIcon={{ icon: faPlus }}
+							btnClasses={displayCreateToken ? 'hidden' : ''}
+							on:click={() => {
+								displayCreateToken = !displayCreateToken
+								newToken = undefined
+								newTokenExpiration = undefined
+								newTokenLabel = undefined
+							}}
 						>
-					{:else}
-						<tr> Loading...</tr>
-					{/if}
-				</tbody>
-			</TableCustom>
+							Create token
+						</Button>
+					</div>
+				</div>
+				<div class="text-2xs text-gray-500 italic pb-6">
+					Authentify to the Windmill API with access tokens.
+				</div>
+
+				<div>
+					<div
+						class="{newToken
+							? ''
+							: 'hidden'} border rounded-md mb-6 px-2 py-2 bg-green-50 flex flex-row flex-wrap "
+					>
+						<div>
+							Added token: <button on:click={() => copyToClipboard(newToken ?? '')} class="inline"
+								>{truncate(newToken ?? '', 10, '****')} <Icon data={faClipboard} />
+							</button>
+						</div>
+						<div class="pt-1 text-xs text-right">
+							Make sure to copy your personal access token now. You won’t be able to see it again!
+						</div>
+					</div>
+
+					<!-- Token creation interface -->
+					<div
+						class="{displayCreateToken
+							? ''
+							: 'hidden'} py-3 px-3 border rounded-md mb-6 bg-gray-50 min-w-min"
+					>
+						<h3 class="pb-3 font-semibold">Add new token</h3>
+						<div class="flex flex-row flex-wrap gap-x-2 w-full justify-between">
+							<div class="flex flex-col">
+								<label for="label"
+									>Label <span class="text-xs text-gray-500">(optional)</span></label
+								>
+								<input type="text" bind:value={newTokenLabel} />
+							</div>
+							<div class="flex flex-col ">
+								<label for="expires"
+									>Expires on <span class="text-xs text-gray-500">(optional)</span>
+								</label>
+								<input
+									class="block md:w-1/2"
+									type="date"
+									id="expires"
+									name="expiration-date"
+									bind:value={newTokenExpiration}
+									min={getToday().getFullYear() +
+										'/' +
+										getToday().getMonth() +
+										'/' +
+										getToday().getDate()}
+									max={getToday().getFullYear() +
+										1 +
+										'/' +
+										getToday().getMonth() +
+										'/' +
+										getToday().getDate()}
+								/>
+							</div>
+							<div class="flex items-end">
+								<Button btnClasses="!mt-2" on:click={createToken}>Submit</Button>
+							</div>
+						</div>
+					</div>
+				</div>
+				<div class="overflow-auto">
+					<TableCustom>
+						<tr slot="header-row">
+							<th>prefix</th>
+							<th>label</th>
+							<th>expiration</th>
+							<th />
+						</tr>
+						<tbody slot="body">
+							{#if tokens && tokens.length > 0}
+								{#each tokens as { token_prefix, expiration, label }}
+									<tr>
+										<td class="grow">{token_prefix}****</td>
+										<td class="grow">{label ?? ''}</td>
+										<td class="grow">{displayDate(expiration ?? '')}</td>
+										<td class="grow"
+											><button
+												class="text-red-500 text-xs underline"
+												on:click={() => {
+													deleteToken(token_prefix)
+												}}>Delete</button
+											></td
+										>
+									</tr>
+								{/each}
+							{:else if tokens && tokens.length === 0}
+								<tr class="px-6"
+									><td class="text-gray-700 italic text-xs"> There are no tokens yet</td></tr
+								>
+							{:else}
+								<tr> Loading...</tr>
+							{/if}
+						</tbody>
+					</TableCustom>
+				</div>
+			</div>
 		</div>
 	</DrawerContent>
 </Drawer>
