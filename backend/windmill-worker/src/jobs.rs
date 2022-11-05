@@ -10,7 +10,7 @@ use serde_json::{Map, Value};
 use sqlx::{Pool, Postgres, Transaction};
 use tracing::instrument;
 use uuid::Uuid;
-use windmill_common::error::Error;
+use windmill_common::{error::Error, flow_status::FlowStatusModule};
 use windmill_queue::{delete_job, JobKind, QueuedJob};
 
 #[instrument(level = "trace", skip_all)]
@@ -58,6 +58,36 @@ pub async fn add_completed_job(
     result: serde_json::Value,
     logs: String,
 ) -> Result<Uuid, Error> {
+    let duration =
+        if queued_job.job_kind == JobKind::Flow || queued_job.job_kind == JobKind::FlowPreview {
+            let jobs = queued_job.parse_flow_status().map(|s| {
+                let mut modules = s.modules;
+                modules.extend([s.failure_module]);
+                modules
+                    .into_iter()
+                    .filter_map(|m| match m {
+                        FlowStatusModule::Success { job, .. }
+                        | FlowStatusModule::Failure { job, .. } => Some(job),
+                        _ => None,
+                    })
+                    .collect::<Vec<_>>()
+            });
+            if let Some(jobs) = jobs {
+                sqlx::query_scalar!(
+                    "SELECT SUM(duration_ms) as duration FROM completed_job WHERE id = ANY($1)",
+                    jobs.as_slice()
+                )
+                .fetch_one(db)
+                .await
+                .ok()
+                .flatten()
+            } else {
+                tracing::warn!("Could not parse flow status");
+                None
+            }
+        } else {
+            None
+        };
     let mut tx = db.begin().await?;
     let job_id = queued_job.id.clone();
     sqlx::query!(
@@ -87,7 +117,7 @@ pub async fn add_completed_job(
                    , is_flow_step
                    , is_skipped
                    , language )
-            VALUES ($1, $2, $3, $4, $5, $6, EXTRACT(milliseconds FROM (now() - $6)), $7, $8, $9,\
+            VALUES ($1, $2, $3, $4, $5, $6, COALESCE($25, EXTRACT(milliseconds FROM (now() - $6))), $7, $8, $9,\
                     $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24)
          ON CONFLICT (id) DO UPDATE SET success = $7, result = $11, logs = concat(cj.logs, $12)",
         queued_job.workspace_id,
@@ -114,6 +144,7 @@ pub async fn add_completed_job(
         queued_job.is_flow_step,
         skipped,
         queued_job.language: ScriptLang,
+        duration: Option<i64>
     )
     .execute(&mut tx)
     .await
