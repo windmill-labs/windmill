@@ -72,8 +72,8 @@
 
 		<div class="flex flex-col h-full">
 			<div>
-				<div class="text-xs pt-2 text-gray-500 ">
-					Running windmill version (backend) {version}
+				<div class="text-xs pt-1 text-gray-500 ">
+					Windmill {version}
 				</div>
 
 				<PageHeader title="All users" primary={false} />
@@ -84,7 +84,7 @@
 
 				<input placeholder="Search users" bind:value={userFilter} class="input mt-1" />
 			</div>
-			<div class="border mb-4 overflow-auto">
+			<div class="mt-2 overflow-auto">
 				<TableCustom>
 					<tr slot="header-row" class="sticky top-0 bg-white border-b">
 						<th>email</th>

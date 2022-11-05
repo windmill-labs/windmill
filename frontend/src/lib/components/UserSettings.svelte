@@ -24,6 +24,11 @@
 
 	let drawer: Drawer
 	export function toggleDrawer() {
+		if (!drawer || !drawer?.isOpen()) {
+			loadVersion()
+			loadLoginType()
+			listTokens()
+		}
 		drawer?.toggleDrawer()
 	}
 
@@ -69,19 +74,16 @@
 		sendUserToast('Succesfully deleted token')
 		listTokens()
 	}
-
-	loadVersion()
-	loadLoginType()
-	listTokens()
 </script>
 
 <Drawer bind:this={drawer} size="800px">
 	<DrawerContent title="User Settings" on:close={drawer.toggleDrawer}>
 		<div class="flex flex-col h-full">
 			<div>
-				<div class="text-xs text-gray-500 italic pb-4">
-					Running windmill version (backend) {version}
+				<div class="text-xs pt-1 pb-2 text-gray-500 ">
+					Windmill {version}
 				</div>
+
 				<h2 class="border-b">User info</h2>
 				<div class="">
 					{#if passwordError}

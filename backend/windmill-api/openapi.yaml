@@ -128,6 +128,26 @@ paths:
               schema:
                 type: string
 
+  /auth/logout:
+    post:
+      security: []
+      summary: logout 
+      operationId: logout
+      tags:
+        - user
+
+      responses:
+        "200":
+          description: clear cookies and clear token (if applicable)
+          headers:
+            Set-Cookie:
+              schema:
+                type: string
+          content:
+            text/plain:
+              schema:
+                type: string
+
   /w/{workspace}/users/add:
     post:
       summary: create user (require admin privilege)
@@ -310,20 +330,6 @@ paths:
       responses:
         "200":
           description: delete user
-          content:
-            text/plain:
-              schema:
-                type: string
-
-  /users/logout:
-    post:
-      summary: logout
-      operationId: logout
-      tags:
-        - user
-      responses:
-        "200":
-          description: logout
           content:
             text/plain:
               schema:
