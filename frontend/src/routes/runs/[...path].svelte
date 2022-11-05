@@ -233,11 +233,11 @@
 				/>
 			</div>
 			<div class="flex flex-row gap-x-2 w-full mb-2">
-				<div class="relative"
+				<div class="relative w-full"
 					><span class="text-xs absolute -top-4">min datetime</span>
-					<input type="text" value={minTs ?? 'zoom x axis to set min'} disabled />
+					<input type="text" value={minTs ?? 'zoom x axis to set min (drag with ctrl)'} disabled />
 				</div>
-				<div class="relative"
+				<div class="relative w-full"
 					><span class="text-xs absolute -top-4">max datetime</span>
 					<input type="text" value={maxTs ?? 'zoom x axis to set max'} disabled />
 				</div>
