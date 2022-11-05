@@ -75,7 +75,6 @@
 </script>
 
 <Scatter
-	title={`Last ${jobs?.length} completed jobs`}
 	{data}
 	options={{
 		responsive: true,
