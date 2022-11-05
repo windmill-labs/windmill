@@ -28,8 +28,8 @@
 		},
 		loop: {
 			width: 260,
-			padding: 26,
-			scale: 0.8
+			padding: 13,
+			scale: 0.9
 		},
 		gap: {
 			vertical: 100,
@@ -42,13 +42,13 @@
 	$: if(modules) {
 		const g: FlowItemsGraph = []
 		for (let i = 0; i < modules.length; i++) {
-			const module = getConvertedFlowModule(i === 0 ? undefined : g[i - 1], g[i], modules[i])
+			const module = getConvertedFlowModule(i === 0 ? undefined : g[i - 1], g[i], modules[i], 0)
 			if(module) g.push([module])
 		}
 		context.graph.set(g)
 	}
 
-	function getConvertedFlowModule(parentLevel: FlowItem[] | undefined, currentLevel: FlowItem[], module: FlowModule) {
+	function getConvertedFlowModule(parentLevel: FlowItem[] | undefined, currentLevel: FlowItem[], module: FlowModule, depth: number) {
 		const type = module.value.type
 		if(type === 'rawscript') {
 			const lang = module.value.language
@@ -56,7 +56,7 @@
 		} else if(type === 'script') {
 			return flowModuleToNode(parentLevel, currentLevel, module.summary || module.value.path, 'hub')
 		} else if(type === 'forloopflow') {
-			return flowModuleToLoop(parentLevel, module.value.modules, module.summary)
+			return flowModuleToLoop(parentLevel, module.value.modules, depth, module.summary)
 		}
 	}
 
@@ -70,13 +70,13 @@
 		return { node: createNodeClass(parentLevel, currentLevel), title, host, lang }
 	}
 
-	function flowModuleToLoop(parentLevel: FlowItem[] | undefined, modules: FlowModule[], title?: string): IFlowLoopNode {
+	function flowModuleToLoop(parentLevel: FlowItem[] | undefined, modules: FlowModule[], depth: number, title?: string): IFlowLoopNode {
 		const items: FlowItem[] = []
 		for (let i = 0; i < modules.length; i++) {
-			const module = getConvertedFlowModule(parentLevel, items, modules[i])
+			const module = getConvertedFlowModule(parentLevel, items, modules[i], depth + 1)
 			if(module) items.push(module)
 		}
-		const node = createNodeClass(parentLevel, items, true)
+		const node = createNodeClass(parentLevel, items, true, depth + 1)
 		items[0] && items[0].node.setParent(undefined, false)
 		items.forEach(({node}, i) => node.updateBox({ y: getIncrementalYPos(i) }))
 		return {
@@ -86,13 +86,27 @@
 		}
 	}
 
-	function createNodeClass(parentLevel: FlowItem[] | undefined, currentLevel: FlowItem[], isLoopRoot = false) {
+	function getLoopHeight(modules: FlowItem[], depth = 0): number {
+		const scale = context.loop.scale ** depth
+		let h = context.gap.vertical * scale
+		console.log(depth);
+		modules.forEach(item => {
+			if(isFlowLoopNode(item)) {
+				h += getLoopHeight(item.modules)
+			} else {
+				h += (context.node.height + context.gap.vertical) * scale
+			}
+		})
+		return h
+	}
+
+	function createNodeClass(parentLevel: FlowItem[] | undefined, currentLevel: FlowItem[], isLoopRoot = false, depth = 0) {
 		const parent = currentLevel?.length && !isLoopRoot ? currentLevel.at(-1) : parentLevel?.at(-1)
 		return new GraphNodeClass(
 			{
 				y: context.gap.vertical + (parent ? parent.node.botAnchor.y : 0),
 				width: context[isLoopRoot ? 'loop' : 'node'].width,
-				height: isLoopRoot ? getIncrementalYPos(currentLevel.length) : context.node.height
+				height: isLoopRoot ? getLoopHeight(currentLevel, depth) : context.node.height
 			},
 			parent?.node
 		)

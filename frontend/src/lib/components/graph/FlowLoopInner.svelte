@@ -24,12 +24,14 @@
 	}
 </script>
 
-<g bind:this={wrapper} transform={`translate(${padding} ${padding}) scale(${scale ** depth})`}>
-	{#each modules as item}
-		{#if isFlowModuleNode(item)}
-			<FlowModuleNode {...item} />
-		{:else if isFlowLoopNode(item)}
-			<FlowLoopNode {...item} {depth} />
-		{/if}
-	{/each}
+<g transform={`translate(${padding})`}>
+	<g bind:this={wrapper} transform={`scale(${scale ** depth})`}>
+		{#each modules as item}
+			{#if isFlowModuleNode(item)}
+				<FlowModuleNode {...item} />
+			{:else if isFlowLoopNode(item)}
+				<FlowLoopNode {...item} {depth} />
+			{/if}
+		{/each}
+	</g>
 </g>

@@ -13,6 +13,8 @@
 	import { ellipsize } from './utils'
 
 	const LABEL_HEIGHT = 30
+	const stroke = '#8a8a8a'
+	const fill = '#6e6e6e'
 
 	export let node: GraphNodeClass
 	export let title: string
@@ -39,25 +41,27 @@
 	$: maxLabelWidth = (node.box.width - 10) * $transform.k * (scale ** depth)
 </script>
 
-<GraphNode {node} stroke="#6e6e6e" fill="transparent">
+<GraphNode {node} {stroke} fill="transparent">
 	<svelte:fragment slot="background">
 		<title>{title}</title>
 	</svelte:fragment>
 	<FlowLoopInner {modules} depth={depth + 1} />
-	<GraphNode node={label.top.node} stroke="#6e6e6e">
+	<GraphNode node={label.top.node} {stroke}>
 		<text
 			bind:this={topText}
 			{...points}
+			{fill}
 			text-anchor="middle"
 			dominant-baseline="middle"
 		>
 			{ellipsize(label.top.text, topText, maxLabelWidth)}
 		</text>
 	</GraphNode>
-	<GraphNode node={label.bottom.node} stroke="#6e6e6e">
+	<GraphNode node={label.bottom.node} {stroke}>
 		<text
 			bind:this={botText}
 			{...points}
+			{fill}
 			text-anchor="middle"
 			dominant-baseline="middle"
 		>
