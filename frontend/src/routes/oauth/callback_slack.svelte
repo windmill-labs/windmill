@@ -9,6 +9,7 @@
 	import { faSpinner } from '@fortawesome/free-solid-svg-icons'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
 	import PageHeader from '$lib/components/PageHeader.svelte'
+	import WindmillIcon from '$lib/components/icons/WindmillIcon.svelte'
 
 	let error = $page.url.searchParams.get('error')
 	let code = $page.url.searchParams.get('code') ?? undefined
@@ -33,6 +34,6 @@
 <CenteredPage>
 	<PageHeader title="Connection to slack in progress" />
 	<div class="mx-auto w-0">
-		<Icon class="animate-spin" data={faSpinner} scale={2.0} />
+		<WindmillIcon class="animate-[spin_5s_linear_infinite]" height="80px" width="80px" />
 	</div>
 </CenteredPage>

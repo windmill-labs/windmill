@@ -17,6 +17,7 @@
 	import { Button, Kbd } from './common'
 	import SplitPanesWrapper from './splitPanes/SplitPanesWrapper.svelte'
 	import Tooltip from './Tooltip.svelte'
+	import WindmillIcon from './icons/WindmillIcon.svelte'
 
 	// Exported
 	export let schema: Schema = emptySchema()
@@ -177,16 +178,13 @@
 			<Pane size={67}>
 				<div class="px-2 py-1 w-full">
 					{#if testIsLoading}
-						<Button
-							on:click={testJobLoader?.cancelJob}
-							btnClasses="w-full"
-							color="red"
-							size="xs"
-							startIcon={{
-								icon: faRotateRight,
-								classes: 'animate-spin'
-							}}
-						>
+						<Button on:click={testJobLoader?.cancelJob} btnClasses="w-full" color="red" size="xs">
+							<WindmillIcon
+								white={true}
+								class="animate-[spin_5s_linear_infinite] mr-2 text-white"
+								height="20px"
+								width="20px"
+							/>
 							Cancel
 						</Button>
 					{:else}
