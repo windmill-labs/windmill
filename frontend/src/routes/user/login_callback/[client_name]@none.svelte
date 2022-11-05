@@ -24,12 +24,12 @@
 		}
 		if (error) {
 			sendUserToast(`Error trying to login with ${clientName} ${error}`, true)
-			logoutWithRedirect(rd ?? undefined)
+			await logoutWithRedirect(rd ?? undefined)
 		} else if (code && state && clientName) {
 			try {
 				await UserService.loginWithOauth({ requestBody: { code, state }, clientName })
 			} catch (e) {
-				logoutWithRedirect(rd ?? undefined)
+				await logoutWithRedirect(rd ?? undefined)
 				sendUserToast(e.body ?? e.message, true)
 				return
 			}
@@ -45,7 +45,7 @@
 			}
 		} else {
 			sendUserToast('Missing code or state as query params', true)
-			logoutWithRedirect(rd ?? undefined)
+			await logoutWithRedirect(rd ?? undefined)
 		}
 	})
 </script>

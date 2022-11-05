@@ -58,7 +58,7 @@
 		pan: {
 			enabled: true,
 			modifierKey: 'ctrl' as 'ctrl',
-			onPan: ({ chart }) => {
+			onPanComplete: ({ chart }) => {
 				dispatch('zoom', { min: new Date(chart.scales.x.min), max: new Date(chart.scales.x.max) })
 			}
 		},

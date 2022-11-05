@@ -64,7 +64,7 @@
 			} catch {}
 		}
 		if (!$usersWorkspaceStore) {
-			logoutWithRedirect($page.url.pathname + $page.url.search)
+			await logoutWithRedirect($page.url.pathname + $page.url.search)
 		}
 	}
 

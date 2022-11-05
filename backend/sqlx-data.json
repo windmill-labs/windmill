@@ -2455,6 +2455,26 @@
     },
     "query": "\n            UPDATE queue\n               SET flow_status = JSONB_SET(flow_status, ARRAY['modules', $1::TEXT, 'branchall', 'branch'], ((flow_status->'modules'->$1::int->'branchall'->>'branch')::int + 1)::text::jsonb)\n             WHERE id = $2\n             RETURNING (flow_status->'modules'->$1::int->'branchall'->>'branch')::int\n            "
   },
+  "97e364c703bdcdfb5345810659cbe0477a28b8199ef0b297f9a22c88a43b6b5c": {
+    "describe": {
+      "columns": [
+        {
+          "name": "email",
+          "ordinal": 0,
+          "type_info": "Varchar"
+        }
+      ],
+      "nullable": [
+        true
+      ],
+      "parameters": {
+        "Left": [
+          "Text"
+        ]
+      }
+    },
+    "query": "DELETE FROM token WHERE token = $1 RETURNING email"
+  },
   "a241c56415759105ccbcbf7fff77287fa4ec2cc096c0060d14db421115d63e2d": {
     "describe": {
       "columns": [
