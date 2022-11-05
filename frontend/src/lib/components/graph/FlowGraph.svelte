@@ -67,12 +67,7 @@
 		host: ModuleHost,
 		lang?: RawScript.language
 	): IFlowModuleNode {
-		return {
-			node: createNodeClass(parentLevel, currentLevel),
-			title,
-			host,
-			lang
-		}
+		return { node: createNodeClass(parentLevel, currentLevel), title, host, lang }
 	}
 
 	function flowModuleToLoop(parentLevel: FlowItem[] | undefined, modules: FlowModule[], title?: string): IFlowLoopNode {

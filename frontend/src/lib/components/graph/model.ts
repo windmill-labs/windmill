@@ -107,7 +107,7 @@ export interface IFlowModuleNode {
 }
 
 export function isFlowModuleNode(item: FlowItem): item is IFlowModuleNode {
-	return !!item['lang'] && !!item['host']
+	return !!item['title'] && !!item['host'] && item.node instanceof GraphNodeClass
 }
 
 export interface IFlowLoopNode {
