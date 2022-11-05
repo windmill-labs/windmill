@@ -15,8 +15,11 @@
 		LogarithmicScale
 	} from 'chart.js'
 	import type { CompletedJob } from '$lib/gen'
+	import { createEventDispatcher } from 'svelte'
 
 	export let jobs: CompletedJob[] | undefined = []
+
+	const dispatch = createEventDispatcher()
 
 	$: success = jobs?.filter((x) => x.success)
 	$: failed = jobs?.filter((x) => !x.success)
@@ -54,13 +57,19 @@
 	const zoomOptions = {
 		pan: {
 			enabled: true,
-			modifierKey: 'ctrl' as 'ctrl'
+			modifierKey: 'ctrl' as 'ctrl',
+			onPan: ({ chart }) => {
+				console.log('XXX')
+			}
 		},
 		zoom: {
 			drag: {
 				enabled: true
 			},
-			mode: 'x' as 'x'
+			mode: 'x' as 'x',
+			onZoom: ({ chart }) => {
+				dispatch('zoom', { min: new Date(chart.scales.x.min), max: new Date(chart.scales.x.max) })
+			}
 		}
 	}
 </script>
