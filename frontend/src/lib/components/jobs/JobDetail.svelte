@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { goto } from '$app/navigation'
+	import { page } from '$app/stores'
 	import type { Job } from '$lib/gen'
 	import {
 		displayDate,
@@ -15,13 +17,14 @@
 		faFastForward,
 		faHourglassHalf,
 		faRobot,
+		faSearch,
 		faTimes,
 		faUser,
 		faWind
 	} from '@fortawesome/free-solid-svg-icons'
 	import Icon from 'svelte-awesome'
 	import { check } from 'svelte-awesome/icons'
-	import { Badge } from '../common'
+	import { Badge, Button } from '../common'
 
 	const SMALL_ICON_SCALE = 0.7
 
@@ -94,6 +97,12 @@
 							{:else if 'job_kind' in job && job.job_kind == 'identity'}
 								<a href="/run/{job.id}">no op</a>
 							{/if}
+							<button
+								class="ml-1"
+								on:click={() => {
+									goto(`/runs/${job.script_path}?${$page.url.searchParams.toString()}`)
+								}}><Badge><Icon scale={0.7} data={faSearch} /></Badge></button
+							>
 						</div>
 						<div class="whitespace-nowrap">
 							{#if 'job_kind' in job}<a href="/run/{job.id}"
