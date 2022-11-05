@@ -43,7 +43,7 @@
 		}}>{value}</button
 	>
 {:else if typeof value !== 'object'}
-	{truncate(value, 40)}
+	{truncate(JSON.stringify(value), 40)}
 	{#if JSON.stringify(value).length > 40}
 		<button
 			class="text-xs text-blue-500"
@@ -55,7 +55,7 @@
 	{/if}
 {:else}
 	<div class="max-h-40 overflow-auto">
-		<ObjectViewer pureViewer={true} json={value} />
+		<ObjectViewer topBrackets={true} pureViewer={true} json={value} />
 	</div>
 	{#if JSON.stringify(value).length > 120}
 		<button
