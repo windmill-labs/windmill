@@ -40,13 +40,13 @@
 		labels: ['Duration'],
 		datasets: [
 			{
-				borderColor: 'rgba(99,0,125, .2)',
+				// borderColor: 'rgba(99,0,125, .2)',
 				backgroundColor: '#f87171',
 				label: 'Failed',
 				data: failed?.map((job) => ({ x: job.created_at as any, y: job.duration_ms })) ?? []
 			},
 			{
-				borderColor: 'rgba(99,0,125, .2)',
+				// borderColor: 'rgba(99,0,125, .2)',
 				backgroundColor: '#4ade80',
 				label: 'Successful',
 				data: success?.map((job) => ({ x: job.created_at as any, y: job.duration_ms })) ?? []
@@ -59,7 +59,7 @@
 			enabled: true,
 			modifierKey: 'ctrl' as 'ctrl',
 			onPan: ({ chart }) => {
-				console.log('XXX')
+				dispatch('zoom', { min: new Date(chart.scales.x.min), max: new Date(chart.scales.x.max) })
 			}
 		},
 		zoom: {
@@ -85,10 +85,20 @@
 		},
 		scales: {
 			x: {
+				grid: {
+					display: false
+				},
 				type: 'time',
 				min: jobs?.[jobs?.length - 1]?.created_at ?? new Date().toString()
 			},
 			y: {
+				grid: {
+					display: false
+				},
+				title: {
+					display: true,
+					text: 'job duration (ms)'
+				},
 				type: 'logarithmic'
 			}
 		},
