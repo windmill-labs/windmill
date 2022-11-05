@@ -24,6 +24,7 @@
 	export let code: string
 	export let path: string | undefined
 	export let lang: Preview.language
+	export let initialArgs: Record<string, any> = {}
 
 	let websocketAlive = { pyright: false, black: false, deno: false, go: false }
 
@@ -35,7 +36,7 @@
 	let testJobLoader: TestJobLoader
 
 	// Test args input
-	let args: Record<string, any> = {}
+	let args: Record<string, any> = initialArgs
 	let isValid: boolean = true
 
 	// Test

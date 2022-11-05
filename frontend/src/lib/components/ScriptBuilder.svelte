@@ -23,6 +23,7 @@
 	export let script: Script
 	export let initialPath: string = ''
 	export let template: 'pgsql' | 'script' = 'script'
+	export let initialArgs: Record<string, any> = {}
 
 	let viewScriptKind = script.kind !== Script.kind.SCRIPT
 	let viewTemplate = script.kind !== Script.kind.SCRIPT && script.language == Script.language.DENO
@@ -287,6 +288,7 @@
 			path={script.path}
 			bind:code={script.content}
 			lang={script.language}
+			{initialArgs}
 		/>
 	{:else if step === 3}
 		<CenteredPage>

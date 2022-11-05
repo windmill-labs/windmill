@@ -55,7 +55,7 @@
 	{/if}
 {:else}
 	<div class="max-h-40 overflow-auto">
-		<ObjectViewer topBrackets={true} pureViewer={true} json={value} />
+		<ObjectViewer collapsed={false} topBrackets={true} pureViewer={true} json={value} />
 	</div>
 	{#if JSON.stringify(value).length > 120}
 		<button

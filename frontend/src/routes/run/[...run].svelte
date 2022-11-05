@@ -111,7 +111,11 @@
 			{@const runHref = `${stem}/run/${route}${
 				job?.args ? '?args=' + encodeURIComponent(encodeState(job?.args)) : ''
 			}`}
-			{@const editHref = `${stem}/edit/${route}${isScript ? '?step=2' : ''}`}
+			{@const editHref = `${stem}/edit/${route}${
+				isScript
+					? `?step=2${job?.args ? `&args=${encodeURIComponent(encodeState(job?.args))}` : ''}`
+					: `${job?.args ? `?args=${encodeURIComponent(encodeState(job?.args))}` : ''}`
+			}`}
 			{@const isRunning = job && 'running' in job && job.running}
 			{@const runsHref = `/runs/${job?.script_path}${!isScript ? '?jobKind=flow' : ''}`}
 			{@const viewHref = `${stem}/get/${isScript ? job?.script_hash : job?.script_path}`}
