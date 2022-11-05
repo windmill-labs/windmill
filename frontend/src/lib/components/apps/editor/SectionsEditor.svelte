@@ -19,7 +19,7 @@
 	export let mode: EditorMode = 'width'
 
 	const flipDurationMs = 200
-	const { selection, staticOutputs, schemas } = getContext<AppEditorContext>('AppEditorContext')
+	const { selection, staticOutputs } = getContext<AppEditorContext>('AppEditorContext')
 
 	function handleSort(e) {
 		sections = e.detail.items
@@ -28,7 +28,13 @@
 	function addEmptySection() {
 		sections = [
 			...sections,
-			{ components: [], columns: 3, id: getNextId(sections.map((s) => s.id)) }
+			{
+				components: [],
+				columns: 3,
+				id: getNextId(sections.map((s) => s.id)),
+				title: 'New section',
+				description: 'section'
+			}
 		]
 	}
 
@@ -186,13 +192,11 @@
 									<RunFormComponent
 										{...component}
 										bind:staticOutputs={$staticOutputs[component.id]}
-										bind:schema={$schemas[component.id]}
 									/>
 								{:else if component.type === 'displaycomponent'}
 									<DisplayComponent
 										{...component}
 										bind:staticOutputs={$staticOutputs[component.id]}
-										bind:schema={$schemas[component.id]}
 									/>
 								{/if}
 							</div>

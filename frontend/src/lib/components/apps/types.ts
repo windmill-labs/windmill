@@ -1,33 +1,38 @@
-import type { Schema } from '$lib/common'
+import type { Schema, SchemaProperty } from '$lib/common'
 import type { Writable } from 'svelte/store'
 import type { World } from './rx'
 
+export type UserInput = {
+	type: 'user'
+	schemaProperty: SchemaProperty
+	// Default value override
+	defaultValue: any
+}
+
 export type DynamicInput = {
 	type: 'output'
-	id: string
+	id: FieldID
 	name: string
+	visible?: boolean //default false
 }
 
 export type StaticInput = {
 	type: 'static'
-	value: any
+	visible?: boolean //default false
 }
 
-export type AppInputTransform = DynamicInput | StaticInput
+export type AppInputTransform = DynamicInput | StaticInput | UserInput
 
-export type InputsSpec = Record<string, AppInputTransform>
+// From ID of component + ID of field -> retrieve value from Policy
+export type InputsSpec = Record<FieldID, AppInputTransform>
 
 export type TextInputComponent = {
 	type: 'textinputcomponent'
 }
 
 export type RunFormComponent = {
-	runType: 'script' | 'flow'
-	path: string
 	type: 'runformcomponent'
-	inputs: {
-		runInputs: InputsSpec
-	}
+	inputs: InputsSpec
 	params: {
 		hidden: string[]
 	}
@@ -51,9 +56,7 @@ export type TableComponent = {
 
 export type DisplayComponent = {
 	type: 'displaycomponent'
-	inputs: {
-		result: AppInputTransform
-	}
+	inputs: InputsSpec
 }
 
 export type AppComponent =
@@ -64,21 +67,29 @@ export type AppComponent =
 			| BarChartComponent
 			| TableComponent
 	  ) & {
-			id: string
+			id: ComponentID
+			title: string
+			description: string
 			width: number
 			horizontalAlignement?: 'left' | 'center' | 'right'
 			verticalAlignement?: 'top' | 'center' | 'bottom'
+			configSchema: Schema | undefined
 	  }
 
+type SectionID = string
+
 export type AppSection = {
+	title: string
+	description: string
 	components: AppComponent[]
-	id: string
+	id: SectionID
 	columns: 1 | 2 | 3
 }
 
 export type App = {
 	sections: AppSection[]
 	title: string
+	policy: Policy | undefined
 }
 
 export type AppSelection = { sectionIndex: number; componentIndex: number | undefined }
@@ -93,3 +104,27 @@ export type AppEditorContext = {
 }
 
 export type EditorMode = 'width' | 'dnd' | 'preview'
+
+type FieldID = string
+
+export interface TriggerablePolicy {
+	path: string
+	staticFields: Record<FieldID, any>
+	type: 'script' | 'flow'
+}
+
+interface Policy {
+	triggerables: Record<ComponentID, TriggerablePolicy>
+}
+
+type ComponentID = string
+
+interface Policy {
+	triggerables: Record<ComponentID, TriggerablePolicy>
+}
+
+enum PublishedStatus {
+	ViewerPerms = 'ViewerPerms',
+	AuthorPermsUser = 'AuthorPermsUser',
+	AuthorPermsPublic = 'AuthorPermsPublic'
+}

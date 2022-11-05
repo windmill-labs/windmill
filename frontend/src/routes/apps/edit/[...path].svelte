@@ -9,18 +9,14 @@
 					{
 						id: 'a',
 						type: 'runformcomponent',
-						runType: 'script',
-						path: 'u/faton/my_script_3',
 						inputs: {
-							runInputs: {
-								a: {
-									type: 'static',
-									value: 'first'
-								},
-								b: {
-									type: 'static',
-									value: 'second'
-								}
+							a: {
+								type: 'static',
+								visible: true
+							},
+							b: {
+								type: 'static',
+								visible: true
 							}
 						},
 						params: {
@@ -28,12 +24,20 @@
 						},
 						width: 33,
 						horizontalAlignement: 'center',
-						verticalAlignement: 'center'
+						verticalAlignement: 'center',
+						title: 'My title',
+						description: 'My description',
+						configSchema: undefined
 					},
 					{
 						type: 'displaycomponent',
 						id: 'b',
 						width: 33,
+						horizontalAlignement: 'center',
+						verticalAlignement: 'center',
+						title: 'My title',
+						description: 'My description',
+						configSchema: undefined,
 						inputs: {
 							result: {
 								id: 'a',
@@ -41,33 +45,27 @@
 								type: 'output'
 							}
 						}
-					},
-					{
-						type: 'tablecomponent',
-						id: 'c',
-						width: 33,
-						inputs: {
-							result: {}
-						},
-						data: [
-							{
-								a: 'first',
-								b: 'second'
-							}
-						],
-						headers: ['a', 'b'],
-						path: '',
-						runType: 'script',
-						title: 'Sample title',
-						description:
-							'Lorem ipsum dolor sit amet, consectetur adipiscing elit. Donec auctor, nisl eget ultricies lacinia, nunc nisl aliquam nisl, eget aliquam nunc nisl eget nunc. Donec auctor, nisl eget ultricies lacinia, nunc nisl aliquam nisl, eget aliquam nunc nisl eget nunc.'
 					}
 				],
 				columns: 3,
-				id: 'a'
+				id: 'a',
+				title: 'Section 1',
+				description: 'Section 1 description'
 			}
 		],
-		title: 'Fake title'
+		title: 'Fake title',
+		policy: {
+			triggerables: {
+				a: {
+					path: 'u/faton/my_script_3',
+					staticFields: {
+						a: 'a',
+						b: 'b'
+					},
+					type: 'script'
+				}
+			}
+		}
 	}
 </script>
 

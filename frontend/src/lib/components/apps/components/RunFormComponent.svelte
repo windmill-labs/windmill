@@ -8,30 +8,28 @@
 	import { faArrowsRotate, faFile } from '@fortawesome/free-solid-svg-icons'
 	import { getContext } from 'svelte'
 	import Icon from 'svelte-awesome'
+	import { schemaToInputsSpec } from '../editor/settingsPanel/utils'
 	import type { Output } from '../rx'
 	import type { AppEditorContext, InputsSpec } from '../types'
 
-	export let runType: 'script' | 'flow'
-	export let path: string
+	// Component props
 	export let id: string
-
-	export let inputs: {
-		runInputs: InputsSpec
-	}
-
+	export let inputs: InputsSpec
 	export let hidden: string[] = []
 
-	export let schema: Schema | undefined = undefined
+	// Extra props
+	let schema: Schema | undefined = undefined
 	export const staticOutputs = ['loading', 'result']
 
-	const { worldStore } = getContext<AppEditorContext>('AppEditorContext')
+	const { worldStore, app } = getContext<AppEditorContext>('AppEditorContext')
 
 	let schemaClone: Schema | undefined = undefined
 	let isValid = true
 	let testIsLoading = false
 	let testJob: CompletedJob | undefined = undefined
 	let testJobLoader: TestJobLoader | undefined = undefined
-	let x = buildArgs(inputs.runInputs)
+	let x = buildArgs(inputs)
+	$: triggerable = $app.policy?.triggerables[id]
 
 	$: outputs = $worldStore?.outputsById[id] as {
 		result: Output<any>
@@ -45,34 +43,38 @@
 	$: schemaClone && mapInput(schemaClone)
 
 	async function loadSchema(workspace: string) {
-		if (runType === 'script') {
+		if (triggerable?.type === 'script') {
 			const script = await ScriptService.getScriptByPath({
 				workspace,
-				path
+				path: triggerable.path
 			})
+
 			schema = script.schema
-		} else if (runType === 'flow') {
+
+			inputs = schemaToInputsSpec(schema)
+		} else if (triggerable?.type === 'flow') {
 			const flow = await FlowService.getFlowByPath({
 				workspace,
-				path
+				path: triggerable.path
 			})
 
 			schema = flow.schema
+			inputs = schemaToInputsSpec(schema)
 		}
 
 		schemaClone = JSON.parse(JSON.stringify(schema))
 	}
 
 	function mapInput(schema: Schema) {
-		Object.keys(inputs.runInputs).forEach((argName) => {
-			const arg = inputs.runInputs[argName]
+		Object.keys(inputs).forEach((argName) => {
+			const arg = inputs[argName]
 
 			if (hidden.includes(argName)) {
 				delete schema.properties[argName]
 			}
 
 			if (arg.type === 'static' && schema.properties[argName]) {
-				schema.properties[argName].default = arg.value
+				schema.properties[argName].default = $app.policy?.triggerables[id]?.staticFields[argName]
 			}
 		})
 	}
@@ -84,7 +86,7 @@
 				const arg = args[currentValue]
 
 				if (arg.type === 'static') {
-					previousValue[currentValue] = arg.value
+					previousValue[currentValue] = $app.policy?.triggerables[id]?.staticFields[currentValue]
 				}
 				return previousValue
 			}, {})
@@ -92,12 +94,12 @@
 
 	function extractHiddenParamsFromSchemas(schema: Schema | undefined) {
 		if (schema) {
-			return Object.keys(inputs.runInputs).reduce(
+			return Object.keys(inputs).reduce(
 				(previousValue: Record<string, any>, currentValue: string) => {
-					const arg = inputs.runInputs[currentValue]
+					const arg = inputs[currentValue]
 
 					if (arg.type === 'static') {
-						previousValue[currentValue] = arg.value
+						previousValue[currentValue] = $app.policy?.triggerables[id]?.staticFields[currentValue]
 					}
 					return previousValue
 				},
@@ -130,7 +132,7 @@
 		on:click={() => {
 			const k = extractHiddenParamsFromSchemas(schema)
 
-			testJobLoader?.runScriptByPath(path, {
+			testJobLoader?.runScriptByPath(triggerable?.path, {
 				...k,
 				...x
 			})

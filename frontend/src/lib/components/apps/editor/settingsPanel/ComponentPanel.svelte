@@ -1,34 +1,34 @@
 <script lang="ts">
 	import Button from '$lib/components/common/button/Button.svelte'
 
-	import SchemaForm from '$lib/components/SchemaForm.svelte'
 	import { faTrashAlt } from '@fortawesome/free-solid-svg-icons'
 	import { createEventDispatcher, getContext } from 'svelte'
 
 	import type { AppComponent, AppEditorContext } from '../../types'
+	import InputsSpecsEditor from './InputsSpecsEditor.svelte'
+	import { isPolicyDefined } from './utils'
 	export let component: AppComponent | undefined
 
 	const dispatch = createEventDispatcher()
-	const { schemas } = getContext<AppEditorContext>('AppEditorContext')
-
-	$: schema = component && $schemas[component.id]
+	const { app } = getContext<AppEditorContext>('AppEditorContext')
 </script>
 
 <span class="text-sm font-bold border-y w-full py-1 px-2">Component editor</span>
 
 <div class="p-2 flex flex-col gap-2 items-start">
 	{#if component}
-		{#if schema}
-			<div class="text-sm font-bold">Inputs</div>
+		<div class="text-sm font-bold">Inputs</div>
+		{#if component.type === 'runformcomponent' && component.inputs}
+			<InputsSpecsEditor inputSpecs={component.inputs} componenId={component.id} />
 
-			{#if component.type === 'runformcomponent' && component.inputs}
-				<SchemaForm {schema} args={component.inputs.runInputs} />
-
-				<SchemaForm {schema} args={component.inputs.runInputs} />
+			{#if isPolicyDefined($app, component.id)}
+				isPolicyDefined
+			{:else}
+				Should display hardcoded form to set type and path (script picker)
 			{/if}
-			{#if component.type === 'displaycomponent' && component.inputs}
-				<SchemaForm {schema} args={component.inputs.result} />
-			{/if}
+		{/if}
+		{#if component.type === 'displaycomponent' && component.inputs}
+			<InputsSpecsEditor inputSpecs={component.inputs} componenId={component.id} />
 		{/if}
 
 		<Button

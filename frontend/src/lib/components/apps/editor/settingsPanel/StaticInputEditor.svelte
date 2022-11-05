@@ -1,0 +1,16 @@
+<script lang="ts">
+	import type { AppEditorContext, StaticInput, TriggerablePolicy } from '../../types'
+	import Toggle from '$lib/components/Toggle.svelte'
+	import { getContext } from 'svelte'
+
+	export let input: StaticInput
+	export let propKey: string
+	export let componenId: string
+
+	const { app } = getContext<AppEditorContext>('AppEditorContext')
+
+	$: value = $app.policy?.triggerables?.[componenId]?.staticFields?.[propKey]
+</script>
+
+<Toggle bind:checked={input.visible} options={{ right: 'Visible' }} />
+<input bind:value />
