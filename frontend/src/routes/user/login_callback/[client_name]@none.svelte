@@ -10,6 +10,7 @@
 	import { userStore, workspaceStore } from '$lib/stores'
 	import { getUserExt } from '$lib/user'
 	import { logoutWithRedirect } from '$lib/logout'
+	import WindmillIcon from '$lib/components/icons/WindmillIcon.svelte'
 
 	let error = $page.url.searchParams.get('error')
 	let clientName = $page.params.client_name
@@ -51,6 +52,6 @@
 
 <CenteredModal title="Login from {clientName} in progress">
 	<div class="mx-auto w-0">
-		<Icon class="animate-spin" data={faSpinner} scale={2.0} />
+		<WindmillIcon class="animate-[spin_5s_linear_infinite]" height="80px" width="80px" />
 	</div>
 </CenteredModal>

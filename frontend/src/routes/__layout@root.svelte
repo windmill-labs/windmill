@@ -14,6 +14,7 @@
 	import { beforeNavigate } from '$app/navigation'
 	import UserSettings from '$lib/components/UserSettings.svelte'
 	import SuperadminSettings from '$lib/components/SuperadminSettings.svelte'
+	import WindmillIcon from '$lib/components/icons/WindmillIcon.svelte'
 
 	OpenAPI.WITH_CREDENTIALS = true
 
@@ -180,7 +181,7 @@
 {:else}
 	<CenteredModal title="Loading user">
 		<div class="mx-auto w-0">
-			<Icon class="animate-spin" data={faSpinner} scale={2.0} />
+			<WindmillIcon class="animate-[spin_5s_linear_infinite]" height="80px" width="80px" />
 		</div>
 	</CenteredModal>
 {/if}

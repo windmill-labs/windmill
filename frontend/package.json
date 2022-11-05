@@ -56,6 +56,7 @@
 	"dependencies": {
 		"@fortawesome/free-brands-svg-icons": "^6.2.0",
 		"@fortawesome/free-solid-svg-icons": "^6.2.0",
+		"@redocly/json-to-json-schema": "^0.0.1",
 		"async-mutex": "^0.4.0",
 		"fuse.js": "^6.4.6",
 		"highlight.js": "^11.5.1",

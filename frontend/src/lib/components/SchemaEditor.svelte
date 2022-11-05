@@ -190,7 +190,7 @@
 									<td>
 										<SchemaEditorProperty {property} />
 									</td>
-									<td>{property.description}</td>
+									<td>{property.description ?? ''}</td>
 									<td>{property.default ? JSON.stringify(property.default) : ''}</td>
 									<td
 										>{#if schema.required.includes(name)}
