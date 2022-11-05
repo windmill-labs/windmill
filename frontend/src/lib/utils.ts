@@ -360,7 +360,7 @@ export const params: any;`
 }
 
 export function schemaToTsType(schema: Schema): string {
-	if (!schema) {
+	if (!schema || !schema.properties) {
 		return 'any'
 	}
 	const propKeys = Object.keys(schema.properties)
@@ -395,7 +395,7 @@ export function schemaToTsType(schema: Schema): string {
 export function schemaToObject(schema: Schema, args: Record<string, any>): Object {
 	const object = {}
 
-	if (!schema) {
+	if (!schema || !schema.properties) {
 		return object
 	}
 	const propKeys = Object.keys(schema.properties)

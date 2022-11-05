@@ -14,6 +14,9 @@
 	import SchemaViewer from '$lib/components/SchemaViewer.svelte'
 	import { getContext } from 'svelte'
 	import type { FlowEditorContext } from '../types'
+	import { copyToClipboard } from '$lib/utils'
+	import Icon from 'svelte-awesome'
+	import { faClipboard } from '@fortawesome/free-solid-svg-icons'
 
 	const { previewArgs } = getContext<FlowEditorContext>('FlowEditorContext')
 
@@ -39,7 +42,7 @@
 			path: $flowStore.path
 		})
 		captureInput = capture
-		jsonSchema = { required: [], ...convert(capture) }
+		jsonSchema = { required: [], properties: {}, ...convert(capture) }
 	}
 </script>
 
@@ -54,25 +57,41 @@
 	on:close={() => interval && clearInterval(interval)}
 >
 	<DrawerContent title="Capture from a request to seed inputs" on:close={drawer.closeDrawer}>
-		Send a payload at: <div
-			><a
+		Send a payload at: <div>
+			<a
 				class="text-2xl"
+				on:click={(e) => {
+					e.preventDefault()
+					copyToClipboard(
+						`${$page.url.protocol}//${$page.url.hostname}/api/w/${$workspaceStore}/capture/${$flowStore.path}`
+					)
+				}}
 				href="{$page.url.protocol}//{$page.url
 					.hostname}/api/w/{$workspaceStore}/capture/{$flowStore.path}"
 				>{$page.url.protocol}//{$page.url
-					.hostname}/api/w/{$workspaceStore}/capture/{$flowStore.path}</a
-			></div
-		>
+					.hostname}/api/w/{$workspaceStore}/capture/{$flowStore.path}
+				<Icon data={faClipboard} /></a
+			>
+		</div>
+		<p class="text-gray-600 mt-4 text-xs">CURL example</p>
+
+		<div class="text-xs box mb-4 b">
+			<pre class="overflow-auto"
+				>{`curl -X POST ${$page.url.protocol}//${$page.url.hostname}/api/w/${$workspaceStore}/capture/${$flowStore.path} \\
+   -H 'Content-Type: application/json' \\
+   -d '{"foo": 42}'`}</pre
+			>
+		</div>
 		<div class="items-center flex flex-row gap-x-2 text-xs text-gray-600">
-			Listening for new payload
+			Listening for new requests
 			<WindmillIcon
 				class="animate-[pulse_5s_linear_infinite] animate-[spin_5s_linear_infinite]"
 			/></div
 		>
-		<div class="box p-2 my-2">
+		<div class="box p-2 my-2  mb-4">
 			<ObjectViewer topBrackets={true} json={captureInput} />
 		</div>
-		<div class="flex flex-row gap-2">
+		<div class="flex flex-row-reverse gap-2" slot="submission">
 			<Button
 				size="sm"
 				on:click={() => {
@@ -88,7 +107,7 @@
 				}}>Copy only as test args</Button
 			>
 		</div>
-		<h3 class="mt-2">JSONSchema</h3>
+		<h3 class="mt-2">Derived inputs schema</h3>
 		<div class="box p-2">
 			<SchemaViewer schema={jsonSchema} />
 		</div>

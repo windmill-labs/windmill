@@ -10,7 +10,6 @@
 		type Group
 	} from '$lib/gen'
 	import { GroupService } from '$lib/gen'
-	import Tooltip from './Tooltip.svelte'
 	import { userStore, workspaceStore } from '$lib/stores'
 	import { sleep } from '$lib/utils'
 	import { createEventDispatcher } from 'svelte'

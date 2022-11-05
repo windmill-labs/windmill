@@ -180,8 +180,10 @@
 	</div>
 {:else}
 	<CenteredModal title="Loading user">
-		<div class="mx-auto w-0">
-			<WindmillIcon class="animate-[spin_5s_linear_infinite]" height="80px" width="80px" />
+		<div class="w-full ">
+			<div class="block m-auto w-20">
+				<WindmillIcon class="animate-[spin_6s_linear_infinite]" height="80px" width="80px" />
+			</div>
 		</div>
 	</CenteredModal>
 {/if}
