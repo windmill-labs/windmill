@@ -6,6 +6,7 @@
 	import { page } from '$app/stores'
 	import { usersWorkspaceStore, workspaceStore } from '$lib/stores'
 	import CenteredModal from '$lib/components/CenteredModal.svelte'
+	import { Button } from '$lib/components/common'
 
 	let workspace_id = $page.url.searchParams.get('workspace') ?? ''
 	let username = ''
@@ -68,8 +69,9 @@
 		/>
 	</label>
 	<div class="flex flex-row justify-between pt-4">
-		<a href="/user/workspaces">&leftarrow; workspaces</a>
-
+		<Button variant="border" size="sm" href="/user/workspaces"
+			>&leftarrow; Back to workspaces</Button
+		>
 		<button
 			disabled={errorUsername != '' || !username}
 			class="place-items-end bg-blue-500 hover:bg-blue-700 text-white font-bold py-1 px-2 border rounded"
