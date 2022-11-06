@@ -431,6 +431,7 @@
 		return () => {
 			try {
 				closeWebsockets()
+				model.dispose()
 				editor && editor.dispose()
 			} catch (err) {
 				console.log('error disposing editor', err)
