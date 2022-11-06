@@ -35,14 +35,21 @@
 					: []
 			) ?? []
 
+	let errorCount = 0
 	async function loadJobInProgress() {
 		if (jobId != '00000000-0000-0000-0000-000000000000') {
-			job = await JobService.getJob({
-				workspace: $workspaceStore ?? '',
-				id: jobId ?? ''
-			})
+			try {
+				job = await JobService.getJob({
+					workspace: $workspaceStore ?? '',
+					id: jobId ?? ''
+				})
+				errorCount = 0
+			} catch (e) {
+				errorCount += 1
+				console.error(e)
+			}
 		}
-		if (job?.type !== 'CompletedJob') {
+		if (job?.type !== 'CompletedJob' && errorCount < 4) {
 			timeout = setTimeout(() => loadJobInProgress(), 500)
 		}
 	}
@@ -67,19 +74,20 @@
 		{#if innerModules.length > 0}
 			<h3 class="text-md leading-6 font-bold text-gray-900 border-b pb-2">Flow result</h3>
 		{/if}
-		<FlowPreviewStatus {job} />
-		{#if `result` in job}
-			<div class="w-full h-full overflow-auto max-h-80 bg-white">
-				<FlowJobResult {job} />
-			</div>
-		{:else if job.logs}
-			<div class="text-xs p-4 bg-gray-50 overflow-auto max-h-80 border">
-				<pre class="w-full">{job.logs}</pre>
-			</div>
-		{/if}
-
+		<div class={innerModules.length > 0 ? 'border border-gray-400 shadow p-2' : ''}>
+			<FlowPreviewStatus {job} />
+			{#if `result` in job}
+				<div class="w-full h-ful">
+					<FlowJobResult {job} />
+				</div>
+			{:else if job.logs}
+				<div class="text-xs p-4 bg-gray-50 overflow-auto max-h-80 border">
+					<pre class="w-full">{job.logs}</pre>
+				</div>
+			{/if}
+		</div>
 		{#if flowJobIds && Array.isArray(flowJobIds?.flowJobs) && flowJobIds?.flowJobs.length > 0}
-			<h3 class="text-md leading-6 font-bold text-gray-900 border-b mb-4">
+			<h3 class="text-md leading-6 font-bold text-gray-600 border-b mb-4">
 				Embedded flows: ({flowJobIds?.flowJobs.length} items)
 			</h3>
 			{#each flowJobIds.flowJobs as loopJobId, j}
@@ -152,7 +160,7 @@
 						{/if}
 					</h3>
 					<div class="line w-8 h-10" />
-					<li class="w-full border p-6 space-y-2 bg-blue-50/50">
+					<li class="w-full border border-gray-600 p-6 space-y-2 bg-blue-50/50">
 						{#if [FlowStatusModule.type.IN_PROGRESS, FlowStatusModule.type.SUCCESS, FlowStatusModule.type.FAILURE].includes(mod.type)}
 							<svelte:self
 								{flowState}
