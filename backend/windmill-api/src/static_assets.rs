@@ -27,16 +27,15 @@ pub async fn static_handler(uri: Uri, Extension(is_secure): Extension<Arc<IsSecu
 #[derive(RustEmbed)]
 #[folder = "../../frontend/build/"]
 struct Asset;
-pub struct StaticFile<T, U>(pub T, pub U);
+pub struct StaticFile<T>(pub T, pub bool);
 
-impl<T, U> IntoResponse for StaticFile<T, U>
+impl<T> IntoResponse for StaticFile<T>
 where
     T: Into<String>,
-    U: Into<bool>,
 {
     fn into_response(self) -> Response<BoxBody> {
         let path = self.0.into();
-        serve_path(path, self.1.into())
+        serve_path(path, self.1)
     }
 }
 
