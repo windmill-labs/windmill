@@ -39,11 +39,12 @@ where
 {
     fn into_response(self) -> Response<BoxBody> {
         let path = self.0.into();
-        serve_path(path, self.1, self.2)
+        let can_set_security_headers = self.1 && self.2;
+        serve_path(path, can_set_security_headers)
     }
 }
 
-fn serve_path(path: String, is_secure: bool, is_cloud_hosted: bool) -> Response<BoxBody> {
+fn serve_path(path: String, can_set_security_headers: bool) -> Response<BoxBody> {
     if path.starts_with("api/") {
         return Response::builder()
             .status(404)
@@ -64,30 +65,25 @@ fn serve_path(path: String, is_secure: bool, is_cloud_hosted: bool) -> Response<
             } else {
                 res = res.header(header::CACHE_CONTROL, "no-cache, no-store, must-revalidate");
             }
-            res = set_security_headers(res, is_secure, is_cloud_hosted);
+
+            if can_set_security_headers {
+                res = set_security_headers(res);
+            }
             res.body(body).unwrap()
         }
         None if path.as_str().starts_with("_app/") => Response::builder()
             .status(404)
             .body(body::boxed(body::Empty::new()))
             .unwrap(),
-        None => serve_path("200.html".to_owned(), is_secure, is_cloud_hosted),
+        None => serve_path("200.html".to_owned(), can_set_security_headers),
     }
 }
 
-fn set_security_headers(mut res: Builder, is_secure: bool, is_cloud_hosted: bool) -> Builder {
-    res = res.header("X-Frame-Options", "DENY");
-    res = res.header("X-Content-Type-Options", "nosniff");
-    if is_secure && is_cloud_hosted {
-        res = set_content_security_policy(res);
-    }
-
-    res
-}
-
-fn set_content_security_policy(mut res: Builder) -> Builder {
+fn set_security_headers(mut res: Builder) -> Builder {
     let csp = "frame-ancestors 'none'; frame-src 'none'; worker-src 'self'; child-src 'none'; object-src 'none'";
     res = res.header("Content-Security-Policy", csp);
+    res = res.header("X-Frame-Options", "DENY");
+    res = res.header("X-Content-Type-Options", "nosniff");
 
     res
 }
