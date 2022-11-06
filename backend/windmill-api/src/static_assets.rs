@@ -72,6 +72,14 @@ fn set_security_headers(mut res: Builder) -> Builder {
     res = res.header("X-XSS-Protection", "1; mode=block");
     res = res.header("X-Frame-Options", "DENY");
     res = res.header("X-Content-Type-Options", "nosniff");
+    res = set_content_security_policy(res);
+
+    res
+}
+
+fn set_content_security_policy(mut res: Builder) -> Builder {
+    let csp = "frame-ancestors 'none'; frame-src 'none'; worker-src 'self'; child-src 'none'; object-src 'none'";
+    res = res.header("Content-Security-Policy", csp);
 
     res
 }
