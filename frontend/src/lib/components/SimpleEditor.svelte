@@ -29,6 +29,7 @@
 
 	let divEl: HTMLDivElement | null = null
 	let editor: monaco.editor.IStandaloneCodeEditor
+	let model: monaco.editor.ITextModel
 
 	export let lang: string
 	export let code: string = ''
@@ -96,7 +97,7 @@
 	}
 
 	async function loadMonaco() {
-		const model = monaco.editor.createModel(code, lang, monaco.Uri.parse(uri))
+		model = monaco.editor.createModel(code, lang, monaco.Uri.parse(uri))
 
 		model.updateOptions(updateOptions)
 
@@ -150,6 +151,7 @@
 
 	onDestroy(() => {
 		try {
+			model && model.dispose()
 			editor && editor.dispose()
 		} catch (err) {}
 	})
