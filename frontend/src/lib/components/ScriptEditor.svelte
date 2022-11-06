@@ -171,7 +171,7 @@
 					</Tooltip></div
 				>
 				<div class="px-2">
-					<div class="break-all relative font-sans">
+					<div class="break-words relative font-sans">
 						<SchemaForm {schema} bind:args bind:isValid />
 					</div>
 				</div>

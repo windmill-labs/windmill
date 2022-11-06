@@ -242,7 +242,7 @@
 		<div class="flex flex-row flex-wrap justify-between gap-4">
 			<div>
 				<div class="flex items-center flex-wrap mb-2">
-					<h1 class="font-bold text-blue-500 break-all !p-0 mr-2">
+					<h1 class="font-bold text-blue-500 break-words !p-0 mr-2">
 						{script?.path ?? 'Loading...'}
 					</h1>
 					<div class="flex items-center gap-2">

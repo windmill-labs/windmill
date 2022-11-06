@@ -84,7 +84,7 @@
 							on:click={() => {
 								menuOpen = !menuOpen
 							}}
-							class="ml-1 flex items-center justify-center h-10 w-10 rounded-full focus:outline-none focus:ring-2 focus:ring-inset focus:ring-white"
+							class="ml-1 flex items-center justify-center h-8 w-8 rounded-full focus:outline-none focus:ring-2 focus:ring-inset focus:ring-white border border-white"
 						>
 							<svg
 								class="h-6 w-6 text-white"
@@ -100,8 +100,9 @@
 						</button>
 					</div>
 					<div class="bg-blue-500 h-full">
-						<div class="flex items-center flex-shrink-0 p-4 font-extrabold text-white">
-							Windmill
+						<div class="flex items-center gap-x-2 flex-shrink-0 p-4 font-extrabold text-white w-40">
+							<WindmillIcon white={true} height="20px" width="20px" />
+							{#if !isCollapsed}Windmill{/if}
 						</div>
 
 						<div class="px-2 py-4 space-y-2 border-y border-blue-400">
@@ -125,13 +126,16 @@
 			)}
 		>
 			<div class="flex-1 flex flex-col min-h-0 shadow-lg bg-blue-500">
-				<div class="flex items-center flex-shrink-0 p-4 font-extrabold text-white">
-					{#if isCollapsed}
-						W
-					{:else}
-						Windmill
-					{/if}
-				</div>
+				<button
+					on:click={() => {
+						isCollapsed = !isCollapsed
+					}}
+				>
+					<div class="flex items-center gap-x-2 flex-shrink-0 p-4 font-extrabold text-white w-40">
+						<WindmillIcon white={true} height="20px" width="20px" />
+						{#if !isCollapsed}Windmill{/if}
+					</div>
+				</button>
 
 				<div class="px-2 py-4 space-y-2 border-y border-blue-400">
 					<WorkspaceMenu {isCollapsed} />

@@ -101,8 +101,8 @@
 									<td>{email}</td>
 									<td>{super_admin ? 'yes' : ''}</td>
 									<td>{login_type}</td>
-									<td><span class="break-all">{name ?? ''}</span></td>
-									<td><span class="break-all">{company ?? ''}</span></td>
+									<td><span class="break-words">{name ?? ''}</span></td>
+									<td><span class="break-words">{company ?? ''}</span></td>
 									<td>
 										<div class="flex flex-row gap-x-1">
 											<button

@@ -6,7 +6,7 @@
 	export let primary: boolean = true
 </script>
 
-<div class="flex flex-col sm:flex-row justify-between mt-4 mb-2 min-h-[48px]">
+<div class="flex flex-row flex-wrap justify-between mt-4 mb-2 min-h-[48px]">
 	{#if primary}
 		<span class="flex items-center space-x-2">
 			<h1 class="mr-0.5">{title}</h1>
