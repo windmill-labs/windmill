@@ -46,7 +46,7 @@ const GIT_VERSION: &str = git_version!(args = ["--tag", "--always"], fallback = 
 
 struct BaseUrl(String);
 pub struct IsSecure(bool);
-struct CloudHosted(bool);
+pub struct CloudHosted(bool);
 
 pub use users::delete_expired_items_perdiodically;
 
