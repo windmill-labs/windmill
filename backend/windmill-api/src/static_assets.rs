@@ -80,10 +80,12 @@ fn serve_path(path: String, can_set_security_headers: bool) -> Response<BoxBody>
 }
 
 fn set_security_headers(mut res: Builder) -> Builder {
-    let csp = "frame-ancestors 'none'; frame-src 'none'; worker-src 'self'; child-src 'none'; object-src 'none'; script-src 'self' 'unsafe-inline';";
-    res = res.header("Content-Security-Policy", csp);
     res = res.header("X-Frame-Options", "DENY");
     res = res.header("X-Content-Type-Options", "nosniff");
+
+    if let Ok(csp) = std::env::var("SERVE_CSP") {
+        res = res.header("Content-Security-Policy", csp);
+    }
 
     res
 }
