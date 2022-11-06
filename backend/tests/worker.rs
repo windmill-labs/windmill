@@ -1061,10 +1061,9 @@ async fn test_deno_flow(db: Pool<Postgres>) {
 
     for i in 0..50 {
         println!("deno flow iteration: {}", i);
-        let result = run_job_in_new_worker_until_complete(&db, job.clone(), port)
-            .await
-            .result
-            .unwrap();
+        let job = run_job_in_new_worker_until_complete(&db, job.clone(), port).await;
+        // println!("job: {:#?}", job.flow_status);
+        let result = job.result.unwrap();
         assert_eq!(result, serde_json::json!([2, 4, 6]), "iteration: {}", i);
     }
 }

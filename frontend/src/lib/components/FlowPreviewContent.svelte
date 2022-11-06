@@ -96,7 +96,7 @@
 <svelte:window on:keydown={onKeyDown} />
 
 <div class="flex divide-y flex-col space-y-2 h-screen bg-white px-6 py-2 w-full">
-	<div class="flex flex-row justify-between w-full ">
+	<div class="flex flex-row justify-between w-full items-center gap-x-1">
 		<Button
 			variant="border"
 			size="lg"
@@ -118,7 +118,7 @@
 				class="text-lg leading-6 font-bold text-gray-900 inline-flex flex-row justify-between w-full"
 			>
 				<div>
-					Test preview - {previewMode === 'upTo'
+					Test {previewMode === 'upTo'
 						? `up to step ${$selectedId.split('-').join(',')}`
 						: ' whole flow'}
 				</div>
