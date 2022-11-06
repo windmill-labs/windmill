@@ -1,6 +1,32 @@
 # Changelog
 
 
+## [1.45.0](https://github.com/windmill-labs/windmill/compare/v1.44.0...v1.45.0) (2022-11-06)
+
+
+### Features
+
+* **backend:** add global delete user endpoint ([23a0c10](https://github.com/windmill-labs/windmill/commit/23a0c10b77a430b274e7023078f1a7a963e490d2))
+* **backend:** add global delete user endpoint ([76e53a0](https://github.com/windmill-labs/windmill/commit/76e53a013935a105063bf3afd2a4671c580a87ac))
+* **backend:** flow duration is now computed as the sum of every child ([badc601](https://github.com/windmill-labs/windmill/commit/badc60193c2480f93056eee5be6548bcf49fc1fc))
+* **backend:** use result_by_id in branchone ([#857](https://github.com/windmill-labs/windmill/issues/857)) ([0170188](https://github.com/windmill-labs/windmill/commit/01701882dc168862219ac4e3cf53621e1937b013))
+* **frontend:** fill schema and test args from payload ([cc65bf5](https://github.com/windmill-labs/windmill/commit/cc65bf5f48447cd52547a50a714ece38f5c445f7))
+* **frontend:** show runs using a time chart ([d318725](https://github.com/windmill-labs/windmill/commit/d318725adb2b95908984ff6351629fa858244744))
+* **frontend:** show runs using a time chart ([b31c5c4](https://github.com/windmill-labs/windmill/commit/b31c5c435e9aa8268e5c4f5771bb444182f76a01))
+* support bash as 4th language ([#865](https://github.com/windmill-labs/windmill/issues/865)) ([3c09275](https://github.com/windmill-labs/windmill/commit/3c0927596078eb68a9066663fb5a3bd5202c1850))
+
+
+### Bug Fixes
+
+* **backend:** improve csp ([#861](https://github.com/windmill-labs/windmill/issues/861)) ([3ba1870](https://github.com/windmill-labs/windmill/commit/3ba18700dea282837d1bb27f24ed50ad1c417063))
+* **backend:** tighten http security headers ([#860](https://github.com/windmill-labs/windmill/issues/860)) ([7040bbe](https://github.com/windmill-labs/windmill/commit/7040bbe4c92c522d0815bc93c36604accd321bd5))
+* **backend:** tighten security around cookies to avoid csrf ([#859](https://github.com/windmill-labs/windmill/issues/859)) ([cddec64](https://github.com/windmill-labs/windmill/commit/cddec6469e7f3a082504f181de3785a2759b0a16))
+* **frontend:** dispose monaco models onDestroy ([83c79a4](https://github.com/windmill-labs/windmill/commit/83c79a47eefe63aee3ecb9e009323d561b8b662f))
+* **frontend:** fix remaining openModal bugs ([49bebe2](https://github.com/windmill-labs/windmill/commit/49bebe20cc87b5ce078d04f7fad9003d2e26bbf6))
+* **frontend:** go editor nits ([971988d](https://github.com/windmill-labs/windmill/commit/971988dfe222ebee4fa2a8b796f50f57f0a291a0))
+* **frontend:** reload websocket on lsp go import install ([5b4c9d9](https://github.com/windmill-labs/windmill/commit/5b4c9d9eb044a68a278c069fd1932a0b8c19b5d1))
+* **frontend:** reset rows default to 1 ([175a188](https://github.com/windmill-labs/windmill/commit/175a188f61f344c830d937e854cd4f4d77069fcb))
+
 ## [1.44.0](https://github.com/windmill-labs/windmill/compare/v1.43.2...v1.44.0) (2022-11-03)
 
 
