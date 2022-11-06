@@ -95,7 +95,9 @@
 						}
 					}}
 				>
-					#{j + 1}: {loopJobId}
+					<span class="truncate">
+						#{j + 1}: {loopJobId}
+					</span>
 
 					<Icon
 						class="ml-2"
