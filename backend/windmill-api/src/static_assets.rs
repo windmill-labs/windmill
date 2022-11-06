@@ -8,7 +8,7 @@
 
 use axum::{
     body::{self, BoxBody},
-    http::{header, Response, Uri},
+    http::{header, Response, Uri, response::Builder},
     response::IntoResponse,
 };
 
@@ -57,6 +57,7 @@ fn serve_path(path: String) -> Response<BoxBody> {
             } else {
                 res = res.header(header::CACHE_CONTROL, "no-cache, no-store, must-revalidate");
             }
+            res = set_security_headers(res);
             res.body(body).unwrap()
         }
         None if path.as_str().starts_with("_app/") => Response::builder()
@@ -65,4 +66,12 @@ fn serve_path(path: String) -> Response<BoxBody> {
             .unwrap(),
         None => serve_path("200.html".to_owned()),
     }
+}
+
+fn set_security_headers(mut res: Builder) -> Builder {
+    res = res.header("X-XSS-Protection", "1; mode=block");
+    res = res.header("X-Frame-Options", "DENY");
+    res = res.header("X-Content-Type-Options", "nosniff");
+
+    res
 }
