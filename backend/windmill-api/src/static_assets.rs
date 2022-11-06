@@ -10,33 +10,37 @@ use axum::{
     body::{self, BoxBody},
     http::{header, Response, Uri, response::Builder},
     response::IntoResponse,
+    Extension,
 };
 
+use crate::IsSecure;
 use mime_guess::mime;
 use rust_embed::RustEmbed;
+use std::sync::Arc;
 
 // static_handler is a handler that serves static files from the
-pub async fn static_handler(uri: Uri) -> impl IntoResponse {
+pub async fn static_handler(uri: Uri, Extension(is_secure): Extension<Arc<IsSecure>>) -> impl IntoResponse {
     let path = uri.path().trim_start_matches('/').to_string();
-    StaticFile(path)
+    StaticFile(path, is_secure.0)
 }
 
 #[derive(RustEmbed)]
 #[folder = "../../frontend/build/"]
 struct Asset;
-pub struct StaticFile<T>(pub T);
+pub struct StaticFile<T, U>(pub T, pub U);
 
-impl<T> IntoResponse for StaticFile<T>
+impl<T, U> IntoResponse for StaticFile<T, U>
 where
     T: Into<String>,
+    U: Into<bool>,
 {
     fn into_response(self) -> Response<BoxBody> {
         let path = self.0.into();
-        serve_path(path)
+        serve_path(path, self.1.into())
     }
 }
 
-fn serve_path(path: String) -> Response<BoxBody> {
+fn serve_path(path: String, is_secure: bool) -> Response<BoxBody> {
     if path.starts_with("api/") {
         return Response::builder()
             .status(404)
@@ -57,22 +61,24 @@ fn serve_path(path: String) -> Response<BoxBody> {
             } else {
                 res = res.header(header::CACHE_CONTROL, "no-cache, no-store, must-revalidate");
             }
-            res = set_security_headers(res);
+            res = set_security_headers(res, is_secure);
             res.body(body).unwrap()
         }
         None if path.as_str().starts_with("_app/") => Response::builder()
             .status(404)
             .body(body::boxed(body::Empty::new()))
             .unwrap(),
-        None => serve_path("200.html".to_owned()),
+        None => serve_path("200.html".to_owned(), is_secure),
     }
 }
 
-fn set_security_headers(mut res: Builder) -> Builder {
+fn set_security_headers(mut res: Builder, is_secure: bool) -> Builder {
     res = res.header("X-XSS-Protection", "1; mode=block");
     res = res.header("X-Frame-Options", "DENY");
     res = res.header("X-Content-Type-Options", "nosniff");
-    res = set_content_security_policy(res);
+    if std::env::var("CLOUD_HOSTED").is_ok() && is_secure {
+        res = set_content_security_policy(res);
+    }
 
     res
 }
