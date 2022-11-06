@@ -1671,7 +1671,7 @@ paths:
                   schema: {}
                   language:
                     type: string
-                    enum: [deno, python3, go]
+                    enum: [deno, python3, go, bash]
                   summary:
                     type: string
                 required:
@@ -1794,7 +1794,7 @@ paths:
                     type: string
                 language:
                   type: string
-                  enum: [python3, deno, go]
+                  enum: [python3, deno, go, bash]
                 kind:
                   type: string
                   enum: [script, failure, trigger, command, approval]
@@ -1841,6 +1841,27 @@ paths:
         - script
       requestBody:
         description: deno code with the main function
+        required: true
+        content:
+          application/json:
+            schema:
+              type: string
+      responses:
+        "200":
+          description: parsed args
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MainArgSignature"
+
+  /scripts/bash/tojsonschema:
+    post:
+      summary: inspect bash code to infer jsonschema of arguments
+      operationId: bashToJsonschema
+      tags:
+        - script
+      requestBody:
+        description: bash code with the main function
         required: true
         content:
           application/json:
@@ -3585,7 +3606,7 @@ components:
           type: string
         language:
           type: string
-          enum: [python3, deno, go]
+          enum: [python3, deno, go, bash]
         kind:
           type: string
           enum: [script, failure, trigger, command, approval]
@@ -3677,7 +3698,7 @@ components:
           type: boolean
         language:
           type: string
-          enum: [python3, deno, go]
+          enum: [python3, deno, go, bash]
       required:
         - id
         - running
@@ -3755,7 +3776,7 @@ components:
           type: boolean
         language:
           type: string
-          enum: [python3, deno, go]
+          enum: [python3, deno, go, bash]
         is_skipped:
           type: boolean
       required:
@@ -4126,7 +4147,7 @@ components:
           $ref: "#/components/schemas/ScriptArgs"
         language:
           type: string
-          enum: [python3, deno, go]
+          enum: [python3, deno, go, bash]
 
       required:
         - content

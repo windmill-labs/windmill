@@ -20,7 +20,7 @@
 	export async function runPreview(
 		path: string | undefined,
 		code: string,
-		lang: 'deno' | 'go' | 'python3',
+		lang: 'deno' | 'go' | 'python3' | 'bash',
 		args: Record<string, any>
 	): Promise<void> {
 		try {

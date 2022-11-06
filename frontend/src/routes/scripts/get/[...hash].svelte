@@ -432,7 +432,7 @@
 									{/each}
 								</ul>
 								<div class="flex flex-row-reverse mt-2">
-									<Button size="xs" on:click={userSettings.toggleDrawer}>Create token</Button>
+									<Button size="xs" on:click={userSettings.openDrawer}>Create token</Button>
 								</div>
 							</TabContent>
 						{/each}
