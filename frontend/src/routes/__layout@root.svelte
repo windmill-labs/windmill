@@ -34,7 +34,7 @@
 
 	let innerWidth = window.innerWidth
 
-	$: innerWidth < 1248 && innerWidth > 768 && (isCollapsed = true)
+	$: innerWidth < 1248 && innerWidth >= 768 && (isCollapsed = true)
 	$: (innerWidth >= 1248 || innerWidth < 768) && (isCollapsed = false)
 </script>
 
@@ -100,7 +100,10 @@
 						</button>
 					</div>
 					<div class="bg-blue-500 h-full">
-						<div class="flex items-center gap-x-2 flex-shrink-0 p-4 font-extrabold text-white w-40">
+						<div
+							class="flex items-center gap-x-2 flex-shrink-0 p-4 font-extrabold text-white w-10"
+							class:w-40={!isCollapsed}
+						>
 							<WindmillIcon white={true} height="20px" width="20px" />
 							{#if !isCollapsed}Windmill{/if}
 						</div>
@@ -131,7 +134,10 @@
 						isCollapsed = !isCollapsed
 					}}
 				>
-					<div class="flex items-center gap-x-2 flex-shrink-0 p-4 font-extrabold text-white w-40">
+					<div
+						class="flex items-center gap-x-2 flex-shrink-0 p-4 font-extrabold text-white w-14"
+						class:w-40={!isCollapsed}
+					>
 						<WindmillIcon white={true} height="20px" width="20px" />
 						{#if !isCollapsed}Windmill{/if}
 					</div>
@@ -164,9 +170,9 @@
 				</div>
 			</div>
 		</div>
-		<div class={classNames('flex flex-col flex-1', isCollapsed ? 'md:pl-12' : 'md:pl-48')}>
+		<div class={classNames('w-full flex flex-col flex-1', isCollapsed ? 'md:pl-12' : 'md:pl-48')}>
 			<main>
-				<div class="w-full h-screen overflow-auto">
+				<div class="w-full relative">
 					<div
 						class="py-2 px-2 sm:px-4 md:px-8 flex justify-between items-center shadow-sm max-w-6xl mx-auto md:hidden"
 					>

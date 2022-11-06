@@ -105,6 +105,30 @@
 {#if job?.job_kind === 'script' || job?.job_kind === 'flow'}
 	<ActionRow applyPageWidth stickToTop>
 		<svelte:fragment slot="left">
+			{@const isScript = job?.job_kind === 'script'}
+			{@const runsHref = `/runs/${job?.script_path}${!isScript ? '?jobKind=flow' : ''}`}
+			{#if job && 'deleted' in job && !job?.deleted && ($userStore?.is_admin ?? false)}
+				<Button
+					variant="border"
+					color="red"
+					size="xs"
+					startIcon={{ icon: faTrash }}
+					on:click={() => job?.id && deleteCompletedJob(job.id)}
+				>
+					Delete
+				</Button>
+				<Button
+					href={runsHref}
+					variant="border"
+					color="blue"
+					size="xs"
+					startIcon={{ icon: faList }}
+				>
+					View runs
+				</Button>
+			{/if}
+		</svelte:fragment>
+		<svelte:fragment slot="right">
 			{@const stem = `/${job?.job_kind}s`}
 			{@const isScript = job?.job_kind === 'script'}
 			{@const route = isScript ? job?.script_hash : job?.script_path}
@@ -146,22 +170,6 @@
 			<Button href={viewHref} color="blue" size="xs" startIcon={{ icon: faScroll }}>
 				View {job?.job_kind}
 			</Button>
-			<Button href={runsHref} variant="border" color="blue" size="xs" startIcon={{ icon: faList }}>
-				View runs
-			</Button>
-		</svelte:fragment>
-		<svelte:fragment slot="right">
-			{#if job && 'deleted' in job && !job?.deleted && ($userStore?.is_admin ?? false)}
-				<Button
-					variant="border"
-					color="red"
-					size="xs"
-					startIcon={{ icon: faTrash }}
-					on:click={() => job?.id && deleteCompletedJob(job.id)}
-				>
-					Delete
-				</Button>
-			{/if}
 		</svelte:fragment>
 	</ActionRow>
 {/if}
