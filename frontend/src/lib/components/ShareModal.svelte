@@ -84,8 +84,8 @@
 	<DrawerContent title="Share {path}" on:close={drawer.closeDrawer}>
 		<div>
 			<Alert type="info" title="Owners/Editors/Readers"
-				>Owner is the user or group that is prefix of a given path. Sharing allow other users or
-				group to be able to read or write to this item without being an owner.</Alert
+				>Owner is the user or group that is prefix of its path. Sharing allow other users or group
+				to be able to read or write to this item without being an owner.</Alert
 			>
 			<div class="flex flex-row flex-wrap pb-0 my-5  items-end">
 				<div class="flex gap-4 mr-2 flex-row">
@@ -122,7 +122,7 @@
 						<Toggle bind:checked={write} />
 					</label>
 				</div>
-				<div>
+				<div class="mt-2">
 					<Button size="sm" on:click={() => addAcl(newOwner, write)}>Add permission</Button>
 				</div>
 			</div>

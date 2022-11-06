@@ -621,8 +621,8 @@ async fn delete_script_by_hash(
 
     require_admin(authed.is_admin, &authed.username)?;
     let script = sqlx::query_as::<_, Script>(
-        "UPDATE script SET content = '', archived = true, deleted = true WHERE hash = $1 AND \
-         workspace_id = $2RETURNING *",
+        "UPDATE script SET content = '', archived = true, deleted = true, lock = '', schema = null WHERE hash = $1 AND \
+         workspace_id = $2 RETURNING *",
     )
     .bind(&hash.0)
     .bind(&w_id)
