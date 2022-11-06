@@ -22,6 +22,12 @@ const config = {
 		prerender: {
 			default: false,
 		},
+		csp: {
+			mode: 'hash',
+			directives: {
+				'script-src': ['self'],
+			},
+		},
 	}
 }
 
