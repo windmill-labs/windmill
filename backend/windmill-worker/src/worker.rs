@@ -139,8 +139,8 @@ const DEFAULT_HEAVY_DEPS: [&str; 18] = [
 const INCLUDE_DEPS_PY_SH_CONTENT: &str = include_str!("../nsjail/download_deps.py.sh");
 const NSJAIL_CONFIG_DOWNLOAD_PY_CONTENT: &str = include_str!("../nsjail/download.py.config.proto");
 const NSJAIL_CONFIG_RUN_PYTHON3_CONTENT: &str = include_str!("../nsjail/run.python3.config.proto");
-
 const NSJAIL_CONFIG_RUN_GO_CONTENT: &str = include_str!("../nsjail/run.go.config.proto");
+const NSJAIL_CONFIG_RUN_BASH_CONTENT: &str = include_str!("../nsjail/run.bash.config.proto");
 
 const NSJAIL_CONFIG_RUN_DENO_CONTENT: &str = include_str!("../nsjail/run.deno.config.proto");
 const MAX_LOG_SIZE: u32 = 200000;
@@ -904,6 +904,22 @@ mount {{
             )
             .await
         }
+        Some(ScriptLang::Bash) => {
+            handle_bash_job(
+                worker_config,
+                envs,
+                logs,
+                job,
+                db,
+                client,
+                token,
+                &inner_content,
+                timeout,
+                job_dir,
+                &shared_mount,
+            )
+            .await
+        }
     };
     tracing::info!(
         worker_name = %worker_name,
@@ -1092,6 +1108,77 @@ func Run(req Req) (interface{{}}, error){{
             .env("GOPATH", gopath_env)
             .env("HOME", home_env)
             .args(vec!["run", "main.go"])
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()?
+    };
+    handle_child(&job.id, db, logs, timeout, child).await?;
+    read_result(job_dir).await
+}
+
+#[tracing::instrument(level = "trace", skip_all)]
+async fn handle_bash_job(
+    WorkerConfig { base_internal_url, disable_nuser, disable_nsjail, base_url, .. }: &WorkerConfig,
+    Envs { nsjail_path, path_env, home_env, .. }: &Envs,
+    logs: &mut String,
+    job: &QueuedJob,
+    db: &sqlx::Pool<sqlx::Postgres>,
+    client: &windmill_api_client::Client,
+    token: String,
+    inner_content: &str,
+    timeout: i32,
+    job_dir: &str,
+    shared_mount: &str,
+) -> Result<serde_json::Value, Error> {
+    logs.push_str("\n\n--- BASH CODE EXECUTION ---\n");
+    set_logs(logs, job.id, db).await;
+    create_args_and_out_file(client, job, job_dir).await?;
+    {
+        let sig = windmill_parser_go::parse_go_sig(&inner_content)?;
+
+        let main_script = "";
+        write_file(job_dir, "main.sh", main_script).await?;
+    }
+
+    let mut reserved_variables = get_reserved_variables(job, &token, &base_url, db).await?;
+    reserved_variables.insert("RUST_LOG".to_string(), "info".to_string());
+
+    let child = if !disable_nsjail {
+        let _ = write_file(
+            job_dir,
+            "run.config.proto",
+            &NSJAIL_CONFIG_RUN_BASH_CONTENT
+                .replace("{JOB_DIR}", job_dir)
+                .replace("{CLONE_NEWUSER}", &(!disable_nuser).to_string())
+                .replace("{SHARED_MOUNT}", shared_mount),
+        )
+        .await?;
+
+        Command::new(nsjail_path)
+            .current_dir(job_dir)
+            .env_clear()
+            .envs(reserved_variables)
+            .env("PATH", path_env)
+            .env("BASE_INTERNAL_URL", base_internal_url)
+            .args(vec![
+                "--config",
+                "run.config.proto",
+                "--",
+                "/bin/sh",
+                "main.sh",
+            ])
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()?
+    } else {
+        Command::new("/bin/sh")
+            .current_dir(job_dir)
+            .env_clear()
+            .envs(reserved_variables)
+            .env("PATH", path_env)
+            .env("BASE_INTERNAL_URL", base_internal_url)
+            .env("HOME", home_env)
+            .args(vec!["main.sh"])
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .spawn()?

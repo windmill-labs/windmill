@@ -59,6 +59,7 @@ windmill-parser = { path = "./parsers/windmill-parser" }
 windmill-parser-ts = { path = "./parsers/windmill-parser-ts" }
 windmill-parser-py = { path = "./parsers/windmill-parser-py" }
 windmill-parser-go = { path = "./parsers/windmill-parser-go" }
+windmill-parser-bash = { path = "./parsers/windmill-parser-bash" }
 axum = { version = "^0", features = ["headers"] }
 headers = "^0"
 hyper = { version = "^0", features = ["full"] }
@@ -133,3 +134,4 @@ futures = "^0"
 tokio-metrics = "0.1.0"
 lazy_static = "1.4.0"
 serde_derive = "1.0.147"
+conch-parser = "^0"
