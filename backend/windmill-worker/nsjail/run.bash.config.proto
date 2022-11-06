@@ -66,20 +66,6 @@ mount {
 }
 
 mount {
-    src: "{JOB_DIR}/args.json"
-    dst: "/tmp/go/args.json"
-    is_bind: true
-}
-
-mount {
-    src: "{JOB_DIR}/result.json"
-    dst: "/tmp/go/result.json"
-    rw: true
-    is_bind: true
-}
-
-
-mount {
     src: "/etc/ssl"
     dst: "/etc/ssl"
 	is_bind: true

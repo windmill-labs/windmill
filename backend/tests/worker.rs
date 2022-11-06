@@ -1516,6 +1516,30 @@ func main(derp string) (string, error) {
 }
 
 #[sqlx::test(fixtures("base"))]
+async fn test_bash_job(db: Pool<Postgres>) {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await;
+    let port = server.addr.port();
+
+    let content = r#"
+msg="$1"
+echo "hello $msg"
+"#
+    .to_owned();
+
+    let job = RunJob::from(JobPayload::Code(RawCode {
+        content,
+        path: None,
+        language: ScriptLang::Bash,
+    }))
+    .arg("msg", json!("world"))
+    .run_until_complete(&db, port)
+    .await;
+
+    assert_eq!(job.result, Some(json!("hello world")));
+}
+
+#[sqlx::test(fixtures("base"))]
 async fn test_python_job(db: Pool<Postgres>) {
     initialize_tracing().await;
     let server = ApiServer::start(db.clone()).await;

@@ -15,4 +15,4 @@ phf.workspace = true
 unicode-general-category.workspace = true
 itertools.workspace = true
 anyhow.workspace = true
-conch-parser.workspace = true
+regex.workspace = true

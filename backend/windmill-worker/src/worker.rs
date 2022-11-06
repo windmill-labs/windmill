@@ -911,7 +911,6 @@ mount {{
                 logs,
                 job,
                 db,
-                client,
                 token,
                 &inner_content,
                 timeout,
@@ -1123,25 +1122,36 @@ async fn handle_bash_job(
     logs: &mut String,
     job: &QueuedJob,
     db: &sqlx::Pool<sqlx::Postgres>,
-    client: &windmill_api_client::Client,
     token: String,
-    inner_content: &str,
+    content: &str,
     timeout: i32,
     job_dir: &str,
     shared_mount: &str,
 ) -> Result<serde_json::Value, Error> {
     logs.push_str("\n\n--- BASH CODE EXECUTION ---\n");
     set_logs(logs, job.id, db).await;
-    create_args_and_out_file(client, job, job_dir).await?;
-    {
-        let sig = windmill_parser_go::parse_go_sig(&inner_content)?;
-
-        let main_script = "";
-        write_file(job_dir, "main.sh", main_script).await?;
-    }
+    write_file(job_dir, "main.sh", content).await?;
 
     let mut reserved_variables = get_reserved_variables(job, &token, &base_url, db).await?;
     reserved_variables.insert("RUST_LOG".to_string(), "info".to_string());
+
+    let hm = match job.args {
+        Some(Value::Object(ref hm)) => hm.clone(),
+        _ => serde_json::Map::new(),
+    };
+    let args_owned = windmill_parser_bash::parse_bash_sig(&content)?
+        .args
+        .iter()
+        .map(|arg| {
+            hm.get(&arg.name)
+                .and_then(|v| match v {
+                    Value::String(s) => Some(s.clone()),
+                    _ => serde_json::to_string(v).ok(),
+                })
+                .unwrap_or_else(String::new)
+        })
+        .collect::<Vec<String>>();
+    let args = args_owned.iter().map(|s| &s[..]).collect::<Vec<&str>>();
 
     let child = if !disable_nsjail {
         let _ = write_file(
@@ -1153,24 +1163,21 @@ async fn handle_bash_job(
                 .replace("{SHARED_MOUNT}", shared_mount),
         )
         .await?;
-
+        let mut cmd_args = vec!["--config", "run.config.proto", "--", "/bin/sh", "main.sh"];
+        cmd_args.extend(args);
         Command::new(nsjail_path)
             .current_dir(job_dir)
             .env_clear()
             .envs(reserved_variables)
             .env("PATH", path_env)
             .env("BASE_INTERNAL_URL", base_internal_url)
-            .args(vec![
-                "--config",
-                "run.config.proto",
-                "--",
-                "/bin/sh",
-                "main.sh",
-            ])
+            .args(cmd_args)
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .spawn()?
     } else {
+        let mut cmd_args = vec!["main.sh"];
+        cmd_args.extend(&args);
         Command::new("/bin/sh")
             .current_dir(job_dir)
             .env_clear()
@@ -1178,13 +1185,18 @@ async fn handle_bash_job(
             .env("PATH", path_env)
             .env("BASE_INTERNAL_URL", base_internal_url)
             .env("HOME", home_env)
-            .args(vec!["main.sh"])
+            .args(cmd_args)
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .spawn()?
     };
     handle_child(&job.id, db, logs, timeout, child).await?;
-    read_result(job_dir).await
+    //for now bash jobs have an empty result object
+    Ok(serde_json::json!(logs
+        .lines()
+        .last()
+        .map(|x| x.to_string())
+        .unwrap_or_else(String::new)))
 }
 
 fn capitalize(s: &str) -> String {

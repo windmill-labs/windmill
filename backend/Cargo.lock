@@ -438,15 +438,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "conch-parser"
-version = "0.1.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "baf61cea7edff80a7d8a9a4c219d391664715559e9d4e7129494b45278705a41"
-dependencies = [
- "void",
-]
-
-[[package]]
 name = "convert_case"
 version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3844,12 +3835,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "49874b5167b65d7193b8aba1567f5c7d93d001cafc34600cee003eda787e483f"
 
 [[package]]
-name = "void"
-version = "1.0.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6a02e4885ed3bc0f2de90ea6dd45ebcbb66dacffe03547fadbb0eeae2770887d"
-
-[[package]]
 name = "waker-fn"
 version = "1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4173,9 +4158,9 @@ name = "windmill-parser-bash"
 version = "1.44.0"
 dependencies = [
  "anyhow",
- "conch-parser",
  "itertools",
  "phf 0.11.1",
+ "regex",
  "unicode-general-category",
  "windmill-common",
  "windmill-parser",
