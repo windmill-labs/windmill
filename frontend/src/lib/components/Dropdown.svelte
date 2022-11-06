@@ -55,6 +55,7 @@
 					<button
 						on:click={(event) => {
 							if (!item.disabled) {
+								event.preventDefault()
 								open = false
 								item.action && item.action(event)
 								dispatch('click', { item: item?.eventName })
