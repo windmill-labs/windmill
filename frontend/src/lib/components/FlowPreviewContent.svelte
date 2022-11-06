@@ -95,31 +95,8 @@
 
 <svelte:window on:keydown={onKeyDown} />
 
-<div class="flex divide-y flex-col space-y-2 h-screen bg-white p-6 w-full">
-	<div class="flex justify-between w-full ">
-		<div class="flex flex-row justify-center items-center w-full mr-4">
-			<div class="flex justify-center p-2 w-8 h-8 bg-blue-200 rounded-lg mr-2 ">
-				<Icon data={faPlay} scale={1} class="text-blue-500" />
-			</div>
-
-			<h3
-				class="text-lg leading-6 font-bold text-gray-900 inline-flex flex-row justify-between w-full"
-			>
-				<div>
-					Test preview - {previewMode === 'upTo'
-						? `up to step ${$selectedId.split('-').join(',')}`
-						: ' whole flow'}
-				</div>
-				<Button
-					btnClasses="ml-2"
-					size="sm"
-					variant="border"
-					on:click={() => {
-						capturePayload.openDrawer()
-					}}>Fill test args from payload</Button
-				>
-			</h3>
-		</div>
+<div class="flex divide-y flex-col space-y-2 h-screen bg-white px-6 py-2 w-full">
+	<div class="flex flex-row justify-between w-full items-center gap-x-1">
 		<Button
 			variant="border"
 			size="lg"
@@ -131,6 +108,30 @@
 		>
 			<Icon data={faClose} />
 		</Button>
+
+		<div class="flex flex-row justify-center items-center">
+			<div class="flex justify-center p-2 w-8 h-8 bg-blue-200 rounded-lg mr-2 ">
+				<Icon data={faPlay} scale={1} class="text-blue-500" />
+			</div>
+
+			<h3
+				class="text-lg leading-6 font-bold text-gray-900 inline-flex flex-row justify-between w-full"
+			>
+				<div>
+					Test {previewMode === 'upTo'
+						? `up to step ${$selectedId.split('-').join(',')}`
+						: ' whole flow'}
+				</div>
+			</h3>
+		</div>
+		<Button
+			btnClasses="ml-2"
+			size="sm"
+			variant="border"
+			on:click={() => {
+				capturePayload.openDrawer()
+			}}>Fill test args from payload</Button
+		>
 	</div>
 	<div class="grow pb-8 max-h-1/2 overflow-auto">
 		<SchemaForm

@@ -26,6 +26,8 @@
 	}
 
 	export let tab: 'ui' | 'json' | 'schema' = 'ui'
+	export let noSummary = false
+
 	let open: { [id: number]: boolean } = {}
 	if (initialOpen) {
 		open[initialOpen] = true
@@ -44,8 +46,10 @@
 	<svelte:fragment slot="content">
 		<TabContent value="ui">
 			<div class="flow-root w-full pb-4">
-				<h2 class="my-4">{flow.summary}</h2>
-				<SvelteMarkdown source={flow.description ?? ''} />
+				{#if !noSummary}
+					<h2 class="my-4">{flow.summary}</h2>
+					<SvelteMarkdown source={flow.description ?? ''} />
+				{/if}
 
 				<p class="font-black text-lg w-full my-4">
 					<span>Inputs</span>

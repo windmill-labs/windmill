@@ -14,7 +14,7 @@
 >
 	<div class="font-bold">{flow.summary || flow.path}</div>
 
-	<div class="inline-flex justify-between w-full break-all">
+	<div class="inline-flex justify-between w-full break-words">
 		<div class="text-xs">{flow.path}</div>
 	</div>
 

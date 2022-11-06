@@ -194,8 +194,12 @@ export function canWrite(
 	return false
 }
 
+export function emptyString(str: string | undefined | null): boolean {
+	return str === undefined || str === null || str === ''
+}
+
 export function defaultIfEmptyString(str: string | undefined, dflt: string): string {
-	return str == undefined || str == '' ? dflt : str
+	return emptyString(str) ? dflt : str!
 }
 
 export function removeKeysWithEmptyValues(obj: any): any {
