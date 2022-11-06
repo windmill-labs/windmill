@@ -221,6 +221,19 @@
 					const languageClient = createLanguageClient({ reader, writer }, name, options)
 					websockets.push([languageClient, webSocket])
 
+					// HACK ALERT: for some reasons, the client need to be restarted to take into account the 'go get <dep>' command
+					// the only way I could figure out to listen for this event is this. I'm sure there is a better way to do this
+					if (name == 'go') {
+						const om = webSocket.onmessage
+						webSocket.onmessage = (e) => {
+							om && om.apply(webSocket, [e])
+							const js = JSON.parse(e.data)
+							if (js.method == 'window/showMessage' && js.params.message == 'completed') {
+								console.log('reloading websocket after go get')
+								reloadWebsocket()
+							}
+						}
+					}
 					reader.onClose(async () => {
 						try {
 							console.log('CLOSE')
