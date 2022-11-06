@@ -37,6 +37,7 @@
 		| undefined = undefined
 	export let displayHeader = true
 	export let properties: { [name: string]: SchemaProperty } | undefined = undefined
+	export let autofocus = false
 
 	let seeEditable: boolean = enum_ != undefined || pattern != undefined
 	const dispatch = createEventDispatcher()
@@ -189,6 +190,7 @@
 		<div class="flex space-x-1">
 			{#if inputCat == 'number'}
 				<input
+					{autofocus}
 					on:focus
 					{disabled}
 					type="number"
@@ -216,16 +218,17 @@
 						{#each value ?? [] as v, i}
 							<div class="flex flex-row max-w-md mt-1">
 								{#if itemsType?.type == 'number'}
-									<input type="number" bind:value={v} />
+									<input autofocus={autofocus && i == 0} type="number" bind:value={v} />
 								{:else if itemsType?.type == 'string' && itemsType?.contentEncoding == 'base64'}
 									<input
+										autofocus={autofocus && i == 0}
 										type="file"
 										class="my-6"
 										on:change={(x) => fileChanged(x, (val) => (value[i] = val))}
 										multiple={false}
 									/>
 								{:else}
-									<input type="text" bind:value={v} />
+									<input autofocus={autofocus && i == 0} type="text" bind:value={v} />
 								{/if}
 								<Button
 									variant="border"
@@ -277,6 +280,7 @@
 					<textarea
 						bind:this={el}
 						on:focus
+						{autofocus}
 						{disabled}
 						use:autosize
 						style="max-height: {maxHeight}"
@@ -297,7 +301,7 @@
 					{/each}
 				</select>
 			{:else if inputCat == 'date'}
-				<input class="inline-block" type="datetime-local" bind:value />
+				<input {autofocus} class="inline-block" type="datetime-local" bind:value />
 			{:else if inputCat == 'sql'}
 				<div class="border rounded mb-4 w-full border-gray-700">
 					<SimpleEditor
@@ -314,6 +318,7 @@
 				</div>
 			{:else if inputCat == 'base64'}
 				<input
+					{autofocus}
 					type="file"
 					class="my-6"
 					on:change={(x) => fileChanged(x, (val) => (value = val))}
@@ -328,6 +333,7 @@
 				/>
 			{:else if inputCat == 'string'}
 				<textarea
+					{autofocus}
 					rows="1"
 					bind:this={el}
 					on:focus={() => dispatch('focus')}

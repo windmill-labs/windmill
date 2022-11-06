@@ -128,5 +128,12 @@
 			</div>
 		</div>
 	{/if}
-	<RunForm bind:this={runForm} bind:isValid detailed={false} runnable={flow} runAction={runFlow} />
+	<RunForm
+		autofocus
+		bind:this={runForm}
+		bind:isValid
+		detailed={false}
+		runnable={flow}
+		runAction={runFlow}
+	/>
 </CenteredPage>

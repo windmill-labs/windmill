@@ -12,6 +12,8 @@
 	export let isValid: boolean = true
 	export let extraLib: string = 'missing extraLib'
 	export let importPath: string | undefined = undefined
+	export let autofocus = false
+
 	let clazz: string = ''
 	export { clazz as class }
 
@@ -36,7 +38,7 @@
 
 <div class="w-full {clazz}">
 	{#if Object.keys(schema?.properties ?? {}).length > 0}
-		{#each Object.keys(schema?.properties ?? {}) as argName}
+		{#each Object.keys(schema?.properties ?? {}) as argName, i (argName)}
 			{#if inputTransform}
 				<InputTransformForm
 					bind:arg={args[argName]}
@@ -48,6 +50,7 @@
 				/>
 			{:else}
 				<ArgInput
+					autofocus={i == 0 && autofocus}
 					label={argName}
 					bind:description={schema.properties[argName].description}
 					bind:value={args[argName]}

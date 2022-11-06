@@ -64,7 +64,7 @@
 						</TableCustom>
 					</div>
 				{:else}
-					<div class="text-gray-700 text-xs italic">This script has no arguments</div>
+					<div class="text-gray-700 text-xs italic m-1">No arguments</div>
 				{/if}
 			</TabContent>
 			<TabContent value="advanced">

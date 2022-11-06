@@ -35,6 +35,7 @@
 	export let buttonText = 'Run'
 	export let schedulable = true
 	export let detailed = true
+	export let autofocus = false
 
 	export let args: Record<string, any> = decodeArgs($page.url.searchParams.get('args') ?? undefined)
 
@@ -97,7 +98,7 @@
 		{#if !runnable.schema.properties || Object.keys(runnable.schema.properties).length === 0}
 			<div class="text-sm p-4">No arguments</div>
 		{:else}
-			<SchemaForm schema={runnable.schema} bind:isValid bind:args />
+			<SchemaForm {autofocus} schema={runnable.schema} bind:isValid bind:args />
 		{/if}
 	{:else}
 		<div class="text-sm">No schema</div>
