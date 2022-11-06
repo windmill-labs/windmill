@@ -132,7 +132,7 @@
 	$: inputCat = computeInputCat(type, format, itemsType?.type, enum_, contentEncoding)
 </script>
 
-<div class="flex flex-col w-full mb-2">
+<div class="flex flex-col w-full">
 	<div>
 		{#if displayHeader}
 			<FieldHeader {label} {required} {type} {contentEncoding} {format} {itemsType} />
