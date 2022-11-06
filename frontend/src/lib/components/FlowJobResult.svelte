@@ -2,25 +2,19 @@
 	import type { CompletedJob } from '$lib/gen'
 
 	import DisplayResult from './DisplayResult.svelte'
-	import Tabs from './common/tabs/Tabs.svelte'
-	import Tab from './common/tabs/Tab.svelte'
-	import TabContent from './common/tabs/TabContent.svelte'
 	import LogViewer from './LogViewer.svelte'
 
 	export let job: CompletedJob | undefined
 </script>
 
 {#if job}
-	<Tabs selected="results">
-		<Tab value="results">Results</Tab>
-		<Tab value="logs">Logs</Tab>
-		<svelte:fragment slot="content">
-			<TabContent value="results" class="border p-2 h-36 overflow-auto">
-				<DisplayResult result={job.result} />
-			</TabContent>
-			<TabContent value="logs" class="border h-36 overflow-auto">
-				<LogViewer content={job.logs ?? ''} isLoading={false} />
-			</TabContent>
-		</svelte:fragment>
-	</Tabs>
+	<div class="grid grid-cols-2 shadow border border-gray-800 h-full">
+		<div class="bg-white max-h-80 h-full p-1 overflow-auto relative">
+			<span class="text-gray-500">Result</span>
+			<DisplayResult result={job.result} />
+		</div>
+		<div class="overflow-auto max-h-80 h-full relative">
+			<LogViewer content={job.logs ?? ''} isLoading={false} />
+		</div>
+	</div>
 {/if}
