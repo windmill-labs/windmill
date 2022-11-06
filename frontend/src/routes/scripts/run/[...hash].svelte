@@ -165,6 +165,7 @@
 		</div>
 	{:else}
 		<RunForm
+			autofocus
 			detailed={false}
 			bind:isValid
 			bind:this={runForm}
