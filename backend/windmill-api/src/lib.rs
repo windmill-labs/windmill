@@ -47,6 +47,8 @@ const GIT_VERSION: &str = git_version!(args = ["--tag", "--always"], fallback = 
 struct BaseUrl(String);
 pub struct IsSecure(bool);
 pub struct CloudHosted(bool);
+#[derive(Clone)]
+pub struct ContentSecurityPolicy(String);
 
 pub use users::delete_expired_items_perdiodically;
 
@@ -88,6 +90,9 @@ pub async fn run_server(
         .layer(Extension(Arc::new(IsSecure(
             base_url.starts_with("https://"),
         ))))
+        .layer(Extension(ContentSecurityPolicy(
+            std::env::var("SERVE_CSP").unwrap_or("".to_owned()),
+        )))
         .layer(Extension(http_client))
         .layer(CookieManagerLayer::new());
     // build our application with a route
