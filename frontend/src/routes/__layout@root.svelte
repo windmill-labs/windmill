@@ -111,8 +111,8 @@
 						<div class="px-2 py-4 space-y-2 border-y border-blue-400">
 							<WorkspaceMenu />
 							<UserMenu
-								on:user-settings={() => userSettings.toggleDrawer()}
-								on:superadmin-settings={() => superadminSettings.toggleDrawer()}
+								on:user-settings={() => userSettings.openDrawer()}
+								on:superadmin-settings={() => superadminSettings.openDrawer()}
 							/>
 						</div>
 
@@ -146,8 +146,8 @@
 				<div class="px-2 py-4 space-y-2 border-y border-blue-400">
 					<WorkspaceMenu {isCollapsed} />
 					<UserMenu
-						on:user-settings={userSettings.toggleDrawer}
-						on:superadmin-settings={() => superadminSettings.toggleDrawer()}
+						on:user-settings={userSettings.openDrawer}
+						on:superadmin-settings={() => superadminSettings.openDrawer()}
 						{isCollapsed}
 					/>
 				</div>

@@ -143,6 +143,15 @@ export async function main(
   return query.rows;
 }`
 
+export const BASH_INIT_CODE = `
+# arguments of the form X="$I" are parsed as parameters X of type string
+msg="$1"
+
+# the last line of the stdout is the return value
+echo "Hello $msg"
+`
+
+
 export const DENO_INIT_CODE_TRIGGER = `import * as wmill from "https://deno.land/x/windmill@v${__pkg__.version}/mod.ts"
 
 export async function main() {
@@ -181,7 +190,7 @@ export function isInitialCode(content: string): boolean {
   return false
 }
 
-export function initialCode(language: 'deno' | 'python3' | 'go', kind: Script.kind, subkind: 'pgsql' | 'flow' | 'script' | undefined): string {
+export function initialCode(language: 'deno' | 'python3' | 'go' | 'bash', kind: Script.kind, subkind: 'pgsql' | 'flow' | 'script' | undefined): string {
   if (language === 'deno') {
     if (kind === 'trigger') {
       return DENO_INIT_CODE_TRIGGER
@@ -210,6 +219,8 @@ export function initialCode(language: 'deno' | 'python3' | 'go', kind: Script.ki
     } else {
       return PYTHON_INIT_CODE
     }
+  } else if (language == 'bash') {
+    return BASH_INIT_CODE
   } else {
     if (kind === 'failure') {
       return GO_FAILURE_MODULE_CODE

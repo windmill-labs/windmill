@@ -69,7 +69,7 @@
 
 	let codeViewer: Drawer
 	let codeViewerContent: string = ''
-	let codeViewerLanguage: 'deno' | 'python3' | 'go' = 'deno'
+	let codeViewerLanguage: 'deno' | 'python3' | 'go' | 'bash' = 'deno'
 	let codeViewerPath: string = ''
 
 	$: filteredScripts =

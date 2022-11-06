@@ -16,7 +16,7 @@
 	import DrawerContent from '../common/drawer/DrawerContent.svelte'
 	import HighlightCode from '../HighlightCode.svelte'
 	import LogViewer from '../LogViewer.svelte'
-	import { Pane, Splitpanes } from 'svelte-splitpanes'
+	import { Pane } from 'svelte-splitpanes'
 	import SplitPanesWrapper from '../splitPanes/SplitPanesWrapper.svelte'
 
 	export let path: string | undefined
@@ -59,7 +59,7 @@
 				class="overflow-x-auto break-words relative h-full m-2 text-xs bg-white shadow-inner p-2">
 				{drawerContent?.content}
 			</pre>
-		{:else if drawerContent?.mode === 'deno' || drawerContent?.mode === 'python3' || drawerContent?.mode === 'go'}
+		{:else if drawerContent?.mode === 'deno' || drawerContent?.mode === 'python3' || drawerContent?.mode === 'go' || drawerContent?.mode === 'bash'}
 			<HighlightCode language={drawerContent?.mode} code={drawerContent?.content} />
 		{/if}
 	</DrawerContent>
@@ -82,8 +82,8 @@
 				</Pane>
 				<Pane class="!duration-[0ms]">
 					{#if previewJob != undefined && 'result' in previewJob && previewJob.result != undefined}
-						<pre class="overflow-x-auto break-words relative h-full px-2">
-							<DisplayResult result={previewJob.result} />
+						<pre class="overflow-x-auto break-words relative h-full p-2"
+							><DisplayResult result={previewJob.result} />
 						</pre>
 					{:else}
 						<div class="text-sm text-gray-600 p-2">

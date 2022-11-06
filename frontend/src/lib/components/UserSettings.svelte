@@ -23,12 +23,15 @@
 	import DrawerContent from '$lib/components/common/drawer/DrawerContent.svelte'
 
 	let drawer: Drawer
+
+	export function openDrawer() {
+		loadVersion()
+		loadLoginType()
+		listTokens()
+		drawer?.openDrawer()
+	}
+
 	export function toggleDrawer() {
-		if (!drawer || !drawer?.isOpen()) {
-			loadVersion()
-			loadLoginType()
-			listTokens()
-		}
 		drawer?.toggleDrawer()
 	}
 

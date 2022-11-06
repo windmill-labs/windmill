@@ -246,7 +246,7 @@
 							>
 								Copy
 							</Button>
-							<Button size="xs" on:click={userSettings.toggleDrawer}>Create token</Button>
+							<Button size="xs" on:click={userSettings.openDrawer}>Create token</Button>
 						</div>
 					</div>
 					{#if schedule}

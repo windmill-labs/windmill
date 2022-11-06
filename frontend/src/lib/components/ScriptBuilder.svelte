@@ -41,7 +41,7 @@
 	}
 
 	function initContent(
-		language: 'deno' | 'python3' | 'go',
+		language: 'deno' | 'python3' | 'go' | 'bash',
 		kind: Script.kind,
 		template: 'pgsql' | 'script'
 	) {
@@ -193,7 +193,8 @@
 						options={[
 							['Typescript (Deno)', 'deno'],
 							['Python 3.10', 'python3'],
-							['Go', 'go']
+							['Go', 'go'],
+							['Bash', 'bash']
 						]}
 						on:change={(e) => initContent(e.detail, script.kind, template)}
 						bind:value={script.language}
@@ -275,11 +276,12 @@
 						</div>
 					{/if}
 				{/if}
-
-				<Toggle
-					bind:checked={script.is_template}
-					options={{ right: 'Save as a workspace template' }}
-				/>
+				<div class="ml-3">
+					<Toggle
+						bind:checked={script.is_template}
+						options={{ right: 'Save as a workspace template' }}
+					/>
+				</div>
 			</div>
 		</CenteredPage>
 	{:else if step === 2}

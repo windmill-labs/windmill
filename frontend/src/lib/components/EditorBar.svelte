@@ -25,10 +25,8 @@
 	import HighlightCode from './HighlightCode.svelte'
 	import DrawerContent from './common/drawer/DrawerContent.svelte'
 	import { Drawer } from './common'
-	import Icon from 'svelte-awesome'
-	import Popover from './Popover.svelte'
 
-	export let lang: 'python3' | 'deno' | 'go'
+	export let lang: 'python3' | 'deno' | 'go' | 'bash'
 	export let editor: Editor
 	export let websocketAlive: { pyright: boolean; black: boolean; deno: boolean; go: boolean }
 	export let iconOnly: boolean = false
@@ -42,7 +40,7 @@
 	let resourceEditor: ResourceEditor
 
 	let codeViewer: Drawer
-	let codeLang: 'python3' | 'deno' | 'go' = 'deno'
+	let codeLang: 'python3' | 'deno' | 'go' | 'bash' = 'deno'
 	let codeContent: string = ''
 
 	function addEditorActions() {
