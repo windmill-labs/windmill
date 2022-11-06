@@ -45,8 +45,8 @@ mod workspaces;
 const GIT_VERSION: &str = git_version!(args = ["--tag", "--always"], fallback = "unknown-version");
 
 struct BaseUrl(String);
-struct IsSecure(bool);
-struct CloudHosted(bool);
+pub struct IsSecure(bool);
+pub struct CloudHosted(bool);
 
 pub use users::delete_expired_items_perdiodically;
 
