@@ -5,7 +5,7 @@
 	export let path: string
 
 	let code: string
-	let language: 'deno' | 'python3' | 'go'
+	let language: 'deno' | 'python3' | 'go' | 'bash'
 
 	async function loadCode(path: string) {
 		const script = await getScriptByPath(path!)

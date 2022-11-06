@@ -10,9 +10,17 @@
 	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
 
 	let drawer: Drawer
+
+	export function openDrawer() {
+		loadVersion()
+		listUsers()
+		drawer?.openDrawer()
+	}
+
 	export function toggleDrawer() {
 		drawer?.toggleDrawer()
 	}
+
 	let version: string | undefined
 	let users: GlobalUserInfo[] = []
 	let filteredUsers: GlobalUserInfo[] | undefined
@@ -37,9 +45,6 @@
 		users = await UserService.listUsersAsSuperAdmin({ perPage: 100000 })
 		fuse?.setCollection(users)
 	}
-
-	loadVersion()
-	listUsers()
 </script>
 
 <Drawer bind:this={drawer} on:open={listUsers} size="900px">

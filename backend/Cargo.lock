@@ -4086,6 +4086,7 @@ dependencies = [
  "windmill-audit",
  "windmill-common",
  "windmill-parser",
+ "windmill-parser-bash",
  "windmill-parser-go",
  "windmill-parser-py",
  "windmill-parser-ts",
@@ -4150,6 +4151,19 @@ version = "1.44.0"
 dependencies = [
  "serde",
  "serde_json",
+]
+
+[[package]]
+name = "windmill-parser-bash"
+version = "1.44.0"
+dependencies = [
+ "anyhow",
+ "itertools",
+ "phf 0.11.1",
+ "regex",
+ "unicode-general-category",
+ "windmill-common",
+ "windmill-parser",
 ]
 
 [[package]]
@@ -4240,6 +4254,7 @@ dependencies = [
  "windmill-audit",
  "windmill-common",
  "windmill-parser",
+ "windmill-parser-bash",
  "windmill-parser-go",
  "windmill-parser-py",
  "windmill-parser-ts",

@@ -33,7 +33,7 @@
 	import getMessageServiceOverride from 'vscode/service-override/messages'
 	import { StandaloneServices } from 'vscode/services'
 	import {
-		DENO_INIT_CODE,
+		BASH_INIT_CODE,
 		DENO_INIT_CODE_CLEAR,
 		GO_INIT_CODE,
 		PYTHON_INIT_CODE_CLEAR
@@ -57,7 +57,7 @@
 	let divEl: HTMLDivElement | null = null
 	let editor: monaco.editor.IStandaloneCodeEditor
 
-	export let lang: 'typescript' | 'python' | 'go'
+	export let lang: 'typescript' | 'python' | 'go' | 'shell'
 	export let code: string = ''
 	export let hash: string = randomHash()
 	export let cmdEnterAction: (() => void) | undefined = undefined
@@ -147,6 +147,8 @@
 				setCode(PYTHON_INIT_CODE_CLEAR)
 			} else if (lang == 'go') {
 				setCode(GO_INIT_CODE)
+			} else if (lang == 'shell') {
+				setCode(BASH_INIT_CODE)
 			}
 		}
 	}
