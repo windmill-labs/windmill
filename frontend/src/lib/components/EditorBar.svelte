@@ -107,6 +107,13 @@
 				editor.insertAtBeginning('import os\n')
 			}
 			editor.insertAtCursor(`os.environ.get("${name}")`)
+		} else if (lang == 'go') {
+			if (!editor.getCode().includes('"os"')) {
+				editor.insertAtLine('import "os"\n', 2)
+			}
+			editor.insertAtCursor(`os.Getenv("${name}")`)
+		} else if (lang == 'bash') {
+			editor.insertAtCursor(`$${name}`)
 		}
 		sendUserToast(`${name} inserted at cursor`)
 	}}
@@ -135,6 +142,8 @@
 				editor.insertAtLine('import wmill "github.com/windmill-labs/windmill-go-client"\n\n', 3)
 			}
 			editor.insertAtCursor(`v, _ := wmill.GetVariable("${path}")`)
+		} else if (lang == 'bash') {
+			sendUserToast('Not supported yet', true)
 		}
 		sendUserToast(`${name} inserted at cursor`)
 	}}
@@ -179,6 +188,8 @@
 				editor.insertAtLine('import wmill "github.com/windmill-labs/windmill-go-client"\n\n', 3)
 			}
 			editor.insertAtCursor(`r, _ := wmill.GetResource("${path}")`)
+		} else if (lang == 'bash') {
+			sendUserToast('Not supported yet', true)
 		}
 		sendUserToast(`${path} inserted at cursor`)
 	}}
