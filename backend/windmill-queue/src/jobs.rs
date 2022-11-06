@@ -348,6 +348,30 @@ pub async fn push<'c>(
             None,
             Some(language),
         ),
+        JobPayload::FlowDependencies { path } => {
+            let value_json = sqlx::query_scalar!(
+                "SELECT value FROM flow WHERE path = $1 AND (workspace_id = $2 OR workspace_id = \
+                 'starter')",
+                path,
+                workspace_id
+            )
+            .fetch_optional(&mut tx)
+            .await?
+            .ok_or_else(|| Error::InternalErr(format!("not found flow at path {:?}", path)))?;
+            let value = serde_json::from_value::<FlowValue>(value_json).map_err(|err| {
+                Error::InternalErr(format!(
+                    "could not convert json to flow for {path}: {err:?}"
+                ))
+            })?;
+            (
+                None,
+                Some(path),
+                None,
+                JobKind::FlowDependencies,
+                Some(value),
+                None,
+            )
+        }
         JobPayload::RawFlow { value, path } => {
             (None, path, None, JobKind::FlowPreview, Some(value), None)
         }
@@ -449,6 +473,7 @@ pub async fn push<'c>(
             JobKind::Script_Hub => "jobs.run.script_hub",
             JobKind::Dependencies => "jobs.run.dependencies",
             JobKind::Identity => "jobs.run.identity",
+            JobKind::FlowDependencies => "jobs.run.flow_dependencies",
         };
 
         audit_log(
@@ -558,6 +583,7 @@ pub enum JobKind {
     Flow,
     FlowPreview,
     Identity,
+    FlowDependencies,
 }
 
 #[derive(Debug, Clone)]
@@ -566,6 +592,7 @@ pub enum JobPayload {
     ScriptHash { hash: ScriptHash, path: String },
     Code(RawCode),
     Dependencies { hash: ScriptHash, dependencies: String, language: ScriptLang },
+    FlowDependencies { path: String },
     Flow(String),
     RawFlow { value: FlowValue, path: Option<String> },
     Identity,

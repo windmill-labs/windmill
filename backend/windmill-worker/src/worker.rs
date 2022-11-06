@@ -13,13 +13,12 @@ use tracing::{trace_span, Instrument};
 use uuid::Uuid;
 use windmill_common::{
     error::{self, to_anyhow, Error},
+    flows::{FlowModuleValue, FlowValue},
     scripts::{ScriptHash, ScriptLang},
     utils::rd_string,
     variables,
 };
-use windmill_queue::{
-    canceled_job_to_result, get_hub_script, get_queued_job, pull, JobKind, QueuedJob,
-};
+use windmill_queue::{canceled_job_to_result, get_queued_job, pull, JobKind, QueuedJob};
 
 use serde_json::{json, Map, Value};
 
@@ -364,7 +363,7 @@ pub async fn run_worker(
                         .expect("could not create job dir");
 
                     let same_worker = job.same_worker;
-                    let is_flow = job.job_kind == JobKind::Flow || job.job_kind == JobKind::FlowPreview;
+                    let is_flow = job.job_kind == JobKind::Flow || job.job_kind == JobKind::FlowPreview || job.job_kind == JobKind::FlowDependencies;
 
                     if is_flow && same_worker {
                         let target = &format!("{job_dir}/shared");
@@ -620,6 +619,11 @@ async fn handle_queued_job(
             let result = match job.job_kind {
                 JobKind::Dependencies => {
                     handle_dependency_job(&job, &mut logs, job_dir, db, timeout, &envs).await
+                }
+                JobKind::FlowDependencies => {
+                    handle_flow_dependency_job(&job, &mut logs, job_dir, db, timeout, &envs)
+                        .await
+                        .map(|()| Value::Null)
                 }
                 JobKind::Identity => Ok(job.args.clone().unwrap_or_else(|| Value::Null)),
                 _ => {
@@ -1285,7 +1289,7 @@ async fn handle_python_job(
             if requirements.is_empty() {
                 "".to_string()
             } else {
-                pip_compile(job, &requirements, logs, job_dir, envs, db, timeout)
+                pip_compile(&job.id, &requirements, logs, job_dir, envs, db, timeout)
                     .await
                     .map_err(|e| {
                         Error::ExecutionErr(format!("pip compile failed: {}", e.to_string()))
@@ -1569,7 +1573,24 @@ async fn handle_dependency_job(
     timeout: i32,
     envs: &Envs,
 ) -> error::Result<serde_json::Value> {
-    let content = capture_dependency_job(job, logs, job_dir, db, timeout, envs).await;
+    let content = capture_dependency_job(
+        &job.id,
+        job.language.as_ref().map(|v| Ok(v)).unwrap_or_else(|| {
+            Err(Error::InternalErr(
+                "Job Language required for dependency jobs".to_owned(),
+            ))
+        })?,
+        job.raw_code
+            .as_ref()
+            .map(|a| a.as_str())
+            .unwrap_or_else(|| "no raw code"),
+        logs,
+        job_dir,
+        db,
+        timeout,
+        envs,
+    )
+    .await;
     match content {
         Ok(content) => {
             sqlx::query!(
@@ -1594,6 +1615,91 @@ async fn handle_dependency_job(
             Err(Error::ExecutionErr(format!("Error locking file: {error}")))?
         }
     }
+}
+
+#[tracing::instrument(level = "trace", skip_all)]
+async fn handle_flow_dependency_job(
+    job: &QueuedJob,
+    logs: &mut String,
+    job_dir: &str,
+    db: &sqlx::Pool<sqlx::Postgres>,
+    timeout: i32,
+    envs: &Envs,
+) -> error::Result<()> {
+    let path = job.script_path.clone().ok_or_else(|| {
+        error::Error::InternalErr(
+            "Cannot resolve flow dependencies for flow without path".to_string(),
+        )
+    })?;
+    let raw_flow = job.raw_flow.clone().map(|v| Ok(v)).unwrap_or_else(|| {
+        Err(Error::InternalErr(
+            "Flow Dependency requires raw flow".to_owned(),
+        ))
+    })?;
+    let mut flow = serde_json::from_value::<FlowValue>(raw_flow).map_err(to_anyhow)?;
+    let mut new_flow_modules = Vec::new();
+    for mut e in flow.modules.into_iter() {
+        // We only want to lock scripts that
+        // - have no path
+        let FlowModuleValue::RawScript { lock: _, path: None, content, language, input_transforms} = e.value else {
+            new_flow_modules.push(e);
+            continue;
+        };
+        let new_lock = capture_dependency_job(
+            &job.id, &language, &content, logs, job_dir, db, timeout, envs,
+        )
+        .await;
+        match new_lock {
+            Ok(new_lock) => {
+                e.value = FlowModuleValue::RawScript {
+                    lock: Some(new_lock),
+                    path: None,
+                    input_transforms,
+                    content,
+                    language,
+                };
+                new_flow_modules.push(e);
+                continue;
+            }
+            Err(_error) => {
+                // TODO: Record flow raw script error lock logs
+                e.value = FlowModuleValue::RawScript {
+                    lock: None,
+                    path: None,
+                    input_transforms,
+                    content,
+                    language,
+                };
+                new_flow_modules.push(e);
+                continue;
+            }
+        }
+    }
+    flow.modules = new_flow_modules;
+    let new_flow_value = serde_json::to_value(flow).map_err(to_anyhow)?;
+
+    // Re-check cancelation to ensure we don't accidentially override a flow.
+    if sqlx::query_scalar!("SELECT canceled FROM queue WHERE id = $1", job.id)
+        .fetch_optional(db)
+        .await
+        .map(|v| Some(true) == v)
+        .unwrap_or_else(|err| {
+            tracing::error!(%job.id, %err, "error checking cancelation for job {0}: {err}", job.id);
+            false
+        })
+    {
+        return Ok(());
+    }
+
+    sqlx::query!(
+        "UPDATE flow SET value = $1 WHERE path = $2 AND workspace_id = $3",
+        new_flow_value,
+        path,
+        job.workspace_id
+    )
+    .execute(db)
+    .await?;
+    Ok(())
 }
 
 async fn generate_deno_lock(
@@ -1630,31 +1736,24 @@ async fn generate_deno_lock(
     Ok(req_content)
 }
 async fn capture_dependency_job(
-    job: &QueuedJob,
+    job_id: &Uuid,
+    job_language: &ScriptLang,
+    job_raw_code: &str,
     logs: &mut String,
     job_dir: &str,
     db: &sqlx::Pool<sqlx::Postgres>,
     timeout: i32,
     envs: &Envs,
 ) -> error::Result<String> {
-    match job.language {
-        Some(ScriptLang::Python3) => {
+    match job_language {
+        ScriptLang::Python3 => {
             create_dependencies_dir(job_dir).await;
-            let requirements = &job
-                .raw_code
-                .as_ref()
-                .ok_or_else(|| Error::ExecutionErr("missing requirements".to_string()))?
-                .clone();
-            pip_compile(job, requirements, logs, job_dir, envs, db, timeout).await
+            pip_compile(job_id, job_raw_code, logs, job_dir, envs, db, timeout).await
         }
-        Some(ScriptLang::Go) => {
-            let requirements = job
-                .raw_code
-                .as_ref()
-                .ok_or_else(|| Error::ExecutionErr("missing requirements".to_string()))?;
+        ScriptLang::Go => {
             install_go_dependencies(
-                &job.id,
-                &requirements,
+                job_id,
+                job_raw_code,
                 logs,
                 job_dir,
                 db,
@@ -1664,12 +1763,8 @@ async fn capture_dependency_job(
             )
             .await
         }
-        Some(ScriptLang::Deno) => {
-            let requirements = job
-                .raw_code
-                .as_ref()
-                .ok_or_else(|| Error::ExecutionErr("missing requirements".to_string()))?;
-            generate_deno_lock(&job.id, &requirements, logs, job_dir, db, timeout, &envs).await
+        ScriptLang::Deno => {
+            generate_deno_lock(job_id, job_raw_code, logs, job_dir, db, timeout, &envs).await
         }
         _ => Err(error::Error::InternalErr(
             "Language incompatible with dep job".to_string(),
@@ -1678,7 +1773,7 @@ async fn capture_dependency_job(
 }
 
 async fn pip_compile(
-    job: &QueuedJob,
+    job_id: &Uuid,
     requirements: &str,
     logs: &mut String,
     job_dir: &str,
@@ -1705,7 +1800,7 @@ async fn pip_compile(
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()?;
-    handle_child(&job.id, db, logs, timeout, child)
+    handle_child(job_id, db, logs, timeout, child)
         .await
         .map_err(|e| Error::ExecutionErr(format!("Lock file generation failed: {e:?}")))?;
     let path_lock = format!("{job_dir}/requirements.txt");
