@@ -13,7 +13,7 @@ use axum::{
     Extension,
 };
 
-use crate::{CloudHosted, IsSecure};
+use crate::{CloudHosted, ContentSecurityPolicy, IsSecure};
 use mime_guess::mime;
 use rust_embed::RustEmbed;
 use std::sync::Arc;
@@ -23,15 +23,16 @@ pub async fn static_handler(
     uri: Uri,
     Extension(is_secure): Extension<Arc<IsSecure>>,
     Extension(is_cloud_hosted): Extension<Arc<CloudHosted>>,
+    Extension(csp): Extension<ContentSecurityPolicy>,
 ) -> impl IntoResponse {
     let path = uri.path().trim_start_matches('/').to_string();
-    StaticFile(path, is_secure.0, is_cloud_hosted.0)
+    StaticFile(path, is_secure.0, is_cloud_hosted.0, csp.0)
 }
 
 #[derive(RustEmbed)]
 #[folder = "../../frontend/build/"]
 struct Asset;
-pub struct StaticFile<T>(pub T, pub bool, pub bool);
+pub struct StaticFile<T>(pub T, pub bool, pub bool, pub String);
 
 impl<T> IntoResponse for StaticFile<T>
 where
@@ -40,11 +41,12 @@ where
     fn into_response(self) -> Response<BoxBody> {
         let path = self.0.into();
         let can_set_security_headers = self.1 && self.2;
-        serve_path(path, can_set_security_headers)
+        let csp = self.3;
+        serve_path(path, can_set_security_headers, csp)
     }
 }
 
-fn serve_path(path: String, can_set_security_headers: bool) -> Response<BoxBody> {
+fn serve_path(path: String, can_set_security_headers: bool, csp: String) -> Response<BoxBody> {
     if path.starts_with("api/") {
         return Response::builder()
             .status(404)
@@ -67,7 +69,7 @@ fn serve_path(path: String, can_set_security_headers: bool) -> Response<BoxBody>
             }
 
             if can_set_security_headers {
-                res = set_security_headers(res);
+                res = set_security_headers(res, csp);
             }
             res.body(body).unwrap()
         }
@@ -75,15 +77,17 @@ fn serve_path(path: String, can_set_security_headers: bool) -> Response<BoxBody>
             .status(404)
             .body(body::boxed(body::Empty::new()))
             .unwrap(),
-        None => serve_path("200.html".to_owned(), can_set_security_headers),
+        None => serve_path("200.html".to_owned(), can_set_security_headers, csp),
     }
 }
 
-fn set_security_headers(mut res: Builder) -> Builder {
-    let csp = "frame-ancestors 'none'; frame-src 'none'; worker-src 'self'; child-src 'none'; object-src 'none'; script-src 'self' 'unsafe-inline';";
-    res = res.header("Content-Security-Policy", csp);
+fn set_security_headers(mut res: Builder, csp: String) -> Builder {
     res = res.header("X-Frame-Options", "DENY");
     res = res.header("X-Content-Type-Options", "nosniff");
+
+    if !csp.is_empty() {
+        res = res.header("Content-Security-Policy", csp);
+    }
 
     res
 }
