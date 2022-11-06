@@ -80,7 +80,10 @@
 		responsive: true,
 		maintainAspectRatio: false,
 		plugins: {
-			zoom: zoomOptions
+			zoom: zoomOptions,
+			legend: {
+				display: false
+			}
 		},
 		scales: {
 			x: {
