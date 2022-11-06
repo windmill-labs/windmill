@@ -34,7 +34,7 @@
 	on:click_outside={handleClickOutsideMenu}
 >
 	<Button color="light" size="xs" btnClasses="!text-blue-500 bg-transparent" on:click={toggle}>
-		{#if !$$slots}
+		{#if !$$slots.default}
 			<Icon data={faEllipsisH} scale={1.2} />
 		{:else}
 			<slot />
