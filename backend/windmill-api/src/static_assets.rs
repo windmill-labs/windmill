@@ -76,7 +76,6 @@ fn serve_path(path: String, is_secure: bool, is_cloud_hosted: bool) -> Response<
 }
 
 fn set_security_headers(mut res: Builder, is_secure: bool, is_cloud_hosted: bool) -> Builder {
-    res = res.header("X-XSS-Protection", "1; mode=block");
     res = res.header("X-Frame-Options", "DENY");
     res = res.header("X-Content-Type-Options", "nosniff");
     if is_secure && is_cloud_hosted {
