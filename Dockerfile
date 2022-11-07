@@ -59,13 +59,13 @@ FROM rust_base AS planner
 COPY ./openflow.openapi.yaml /openflow.openapi.yaml
 COPY ./backend ./
 
-RUN cargo chef prepare  --recipe-path recipe.json
+# RUN cargo chef prepare  --recipe-path recipe.json
 
 FROM rust_base AS builder
 
 COPY --from=planner /windmill/recipe.json recipe.json
 
-RUN cargo chef cook --release --recipe-path recipe.json
+# RUN cargo chef cook --release --recipe-path recipe.json
 
 COPY ./openflow.openapi.yaml /openflow.openapi.yaml
 COPY ./backend ./
