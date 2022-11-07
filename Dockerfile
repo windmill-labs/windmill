@@ -73,7 +73,7 @@ COPY ./backend ./
 COPY --from=frontend /frontend /frontend
 COPY .git/ .git/
 
-RUN cargo build --release
+RUN CARGO_NET_GIT_FETCH_WITH_CLI=true cargo build --release
 
 
 FROM python:3.10-slim-buster
