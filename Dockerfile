@@ -76,7 +76,7 @@ COPY .git/ .git/
 RUN cargo build --release
 
 
-FROM python:3.10-slim-buster
+FROM python:3.11.0-slim-buster
 
 ARG APP=/usr/src/app
 
