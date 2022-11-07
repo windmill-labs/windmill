@@ -48,7 +48,7 @@
 		"svelte-preprocess": "^4.9.8",
 		"svelte-splitpanes": "^0.7.3",
 		"svelte2tsx": "^0.5.20",
-		"tailwindcss": "^3.2.1",
+		"tailwindcss": "^3.2.2",
 		"tslib": "^2.4.1",
 		"typescript": "^4.8.4"
 	},
