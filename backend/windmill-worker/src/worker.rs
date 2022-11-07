@@ -1738,9 +1738,7 @@ async fn handle_flow_dependency_job(
     let mut flow = serde_json::from_value::<FlowValue>(raw_flow).map_err(to_anyhow)?;
     let mut new_flow_modules = Vec::new();
     for mut e in flow.modules.into_iter() {
-        // We only want to lock scripts that
-        // - have no path
-        let FlowModuleValue::RawScript { lock: _, path: None, content, language, input_transforms} = e.value else {
+        let FlowModuleValue::RawScript { lock: _, path: path, content, language, input_transforms} = e.value else {
             new_flow_modules.push(e);
             continue;
         };
@@ -1752,7 +1750,7 @@ async fn handle_flow_dependency_job(
             Ok(new_lock) => {
                 e.value = FlowModuleValue::RawScript {
                     lock: Some(new_lock),
-                    path: None,
+                    path: path,
                     input_transforms,
                     content,
                     language,
@@ -1764,7 +1762,7 @@ async fn handle_flow_dependency_job(
                 // TODO: Record flow raw script error lock logs
                 e.value = FlowModuleValue::RawScript {
                     lock: None,
-                    path: None,
+                    path: path,
                     input_transforms,
                     content,
                     language,
