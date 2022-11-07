@@ -23,16 +23,16 @@ pub async fn static_handler(
     uri: Uri,
     Extension(is_secure): Extension<Arc<IsSecure>>,
     Extension(is_cloud_hosted): Extension<Arc<CloudHosted>>,
-    Extension(csp): Extension<ContentSecurityPolicy>,
+    Extension(csp): Extension<Arc<ContentSecurityPolicy>>,
 ) -> impl IntoResponse {
     let path = uri.path().trim_start_matches('/').to_string();
-    StaticFile(path, is_secure.0, is_cloud_hosted.0, csp.0)
+    StaticFile(path, is_secure.0, is_cloud_hosted.0, csp)
 }
 
 #[derive(RustEmbed)]
 #[folder = "../../frontend/build/"]
 struct Asset;
-pub struct StaticFile<T>(pub T, pub bool, pub bool, pub String);
+pub struct StaticFile<T>(pub T, pub bool, pub bool, pub Arc<ContentSecurityPolicy>);
 
 impl<T> IntoResponse for StaticFile<T>
 where
@@ -46,7 +46,7 @@ where
     }
 }
 
-fn serve_path(path: String, can_set_security_headers: bool, csp: String) -> Response<BoxBody> {
+fn serve_path(path: String, can_set_security_headers: bool, csp: Arc<ContentSecurityPolicy>) -> Response<BoxBody> {
     if path.starts_with("api/") {
         return Response::builder()
             .status(404)
@@ -81,12 +81,12 @@ fn serve_path(path: String, can_set_security_headers: bool, csp: String) -> Resp
     }
 }
 
-fn set_security_headers(mut res: Builder, csp: String) -> Builder {
+fn set_security_headers(mut res: Builder, csp: Arc<ContentSecurityPolicy>) -> Builder {
     res = res.header("X-Frame-Options", "DENY");
     res = res.header("X-Content-Type-Options", "nosniff");
 
-    if !csp.is_empty() {
-        res = res.header("Content-Security-Policy", csp);
+    if !csp.0.is_empty() {
+        res = res.header("Content-Security-Policy", &csp.0);
     }
 
     res
