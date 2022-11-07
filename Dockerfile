@@ -84,7 +84,23 @@ RUN apt-get update \
     && apt-get install -y ca-certificates wget curl git jq libprotobuf-dev libnl-route-3-dev \
     && rm -rf /var/lib/apt/lists/*
 
-RUN wget https://golang.org/dl/go1.19.1.linux-amd64.tar.gz && tar -C /usr/local -xzf go1.19.1.linux-amd64.tar.gz && rm go1.19.1.linux-amd64.tar.gz
+
+RUN set -eux; \
+    arch="$(dpkg --print-architecture)"; arch="${arch##*-}"; \
+    url=; \
+    case "$arch" in \
+    'amd64') \
+    targz='go1.19.3.linux-amd64.tar.gz'; \
+    sha256='74b9640724fd4e6bb0ed2a1bc44ae813a03f1e72a4c76253e2d5c015494430ba'; \
+    ;; \
+    'arm64') \
+    targz='go1.19.3.linux-arm64.tar.gz'; \
+    sha256='99de2fe112a52ab748fb175edea64b313a0c8d51d6157dba683a6be163fd5eab'; \
+    ;; \
+    *) echo >&2 "error: unsupported architecture '$arch' (likely packaging update needed)"; exit 1 ;; \
+    esac; \
+    wget "https://golang.org/dl/$targz" && tar -C /usr/local -xzf "$targz" && rm "$targz";
+
 ENV PATH="${PATH}:/usr/local/go/bin"
 ENV GO_PATH=/usr/local/go/bin/go
 

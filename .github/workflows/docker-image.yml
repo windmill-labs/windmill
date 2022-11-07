@@ -25,6 +25,9 @@ jobs:
           fetch-depth: 0
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v2
+        
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v2
 
       - name: Docker meta
         id: meta-slim
@@ -45,6 +48,7 @@ jobs:
         with:
           context: .
           push: true
+          platforms: linux/amd64,linux/arm64
           tags: |
             ${{ env.LOCAL_REGISTRY }}/${{ env.IMAGE_NAME }}-slim:latest
             ${{ steps.meta-slim.outputs.tags }}
@@ -82,6 +86,7 @@ jobs:
         with:
           context: .
           push: true
+          platforms: linux/amd64,linux/arm64
           tags: |
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
             ${{ env.LOCAL_REGISTRY }}/${{ env.IMAGE_NAME }}-slim:latest
