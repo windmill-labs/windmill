@@ -172,6 +172,8 @@ compiling from source or using without a postgres super user, see
 `docker compose up` with the following docker-compose is sufficient:
 <https://github.com/windmill-labs/windmill/blob/main/docker-compose.yml>
 
+Go to https://localhost et voilà :)
+
 For older kernels < 4.18, set `DISABLE_NUSER=true` as env variable, otherwise
 nsjail will not be able to launch the isolated scripts.
 

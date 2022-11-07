@@ -31,14 +31,21 @@ services:
       - BASE_INTERNAL_URL=http://localhost:8000
       - RUST_LOG=info
       - NUM_WORKERS=3
-      - RUST_BACKTRACE=1
       - DISABLE_NUSER=false
+      - DISABLE_NSJAIL=false
+      - KEEP_JOB_DIR=true
       - DENO_PATH=/usr/bin/deno
       - PYTHON_PATH=/usr/local/bin/python3
       - NSJAIL_PATH=nsjail
+      - METRICS_ADDR=false
     depends_on:
       db:
         condition: service_healthy
+    # to mount the worker folder to debug,, KEEP_JOB_DIR=true and mount /tmp/windmill
+    volumes:
+      - worker_dependency_cache:/tmp/windmill/cache
+      # - ./oauth.json/:/usr/src/app/oauth.json
+
   lsp:
     image: ghcr.io/windmill-labs/windmill-lsp:latest
     restart: unless-stopped
@@ -57,3 +64,4 @@ services:
 
 volumes:
   db_data: null
+  worker_dependency_cache: null
