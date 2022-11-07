@@ -173,6 +173,6 @@
 
 	.few-lines-editor {
 		/* stylelint-disable-next-line unit-allowed-list */
-		height: 150px;
+		height: 100px;
 	}
 </style>

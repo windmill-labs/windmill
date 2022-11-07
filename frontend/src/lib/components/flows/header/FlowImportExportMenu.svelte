@@ -26,26 +26,20 @@
 	}
 </script>
 
-<Menu placement="bottom-end">
-	<div slot="trigger">
-		<Button nonCaptureEvent={true} color="light" size="sm" variant="border">Import/Export</Button>
-	</div>
-
-	<div class="divide-y divide-gray-200">
-		<MenuItem on:click={() => jsonSetterDrawer.toggleDrawer()}>
-			<Icon data={faFileImport} scale={0.6} class="inline mr-2" />
-			Import from a JSON OpenFlow
-		</MenuItem>
-		<MenuItem on:click={() => jsonViewerDrawer.toggleDrawer()}>
-			<Icon data={faFileExport} scale={0.6} class="inline mr-2" />
-			Export to a JSON OpenFlow
-		</MenuItem>
-	</div>
-</Menu>
+<div class="flex-row gap-x-2 hidden sm:flex">
+	<Button size="sm" variant="border" color="light" on:click={() => jsonSetterDrawer.toggleDrawer()}>
+		<Icon data={faFileImport} scale={0.6} class="inline mr-2" />
+		Import JSON
+	</Button>
+	<Button size="sm" variant="border" color="light" on:click={() => jsonViewerDrawer.toggleDrawer()}>
+		<Icon data={faFileExport} scale={0.6} class="inline mr-2" />
+		Export JSON
+	</Button>
+</div>
 
 <Drawer bind:this={jsonSetterDrawer} size="800px">
 	<DrawerContent title="Import JSON" on:close={() => jsonSetterDrawer.toggleDrawer()}>
-		<Button size="sm" on:click={importJson}>Import</Button>
+		<Button slot="submission" size="sm" on:click={importJson}>Import</Button>
 		<SimpleEditor bind:code={pendingJson} lang="json" class="h-full" />
 	</DrawerContent>
 </Drawer>
