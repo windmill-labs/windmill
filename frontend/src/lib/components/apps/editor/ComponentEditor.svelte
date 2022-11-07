@@ -10,9 +10,7 @@
 	export let component: AppComponent
 	export let selected: boolean
 
-	const { staticOutputs } = getContext<AppEditorContext>('AppEditorContext')
-
-	function removeComponent() {}
+	const { staticOutputs, app } = getContext<AppEditorContext>('AppEditorContext')
 </script>
 
 {#if component}
@@ -32,7 +30,11 @@
 				{component.type}
 			</span>
 			{#if component.type === 'runformcomponent'}
-				<RunFormComponent {...component} bind:staticOutputs={$staticOutputs[component.id]} />
+				<RunFormComponent
+					{...component}
+					bind:staticOutputs={$staticOutputs[component.id]}
+					triggerable={$app.policy.triggerables[component.id]}
+				/>
 			{:else if component.type === 'displaycomponent'}
 				<DisplayComponent {...component} bind:staticOutputs={$staticOutputs[component.id]} />
 			{:else if component.type === 'barchartcomponent'}

@@ -14,6 +14,7 @@
 
 <div class="w-full flex flex-col gap-4">
 	{#each Object.keys(inputSpecs) as inputSpecKey}
+		{inputSpecs[inputSpecKey].type}
 		<!-- svelte-ignore a11y-click-events-have-key-events -->
 		<div
 			class={classNames(

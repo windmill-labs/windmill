@@ -24,10 +24,10 @@
 		<PanelSection title="Inputs">
 			<div class="text-sm font-bold" />
 			{#if component.type === 'runformcomponent' && component.inputs}
-				<InputsSpecsEditor inputSpecs={component.inputs} componenId={component.id} />
+				<InputsSpecsEditor bind:inputSpecs={component.inputs} componenId={component.id} />
 			{/if}
 			{#if component.type === 'displaycomponent' && component.inputs}
-				<InputsSpecsEditor inputSpecs={component.inputs} componenId={component.id} />
+				<InputsSpecsEditor bind:inputSpecs={component.inputs} componenId={component.id} />
 			{/if}
 		</PanelSection>
 

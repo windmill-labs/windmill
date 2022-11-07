@@ -3,101 +3,66 @@
 	import { Button } from '$lib/components/common'
 	import SchemaForm from '$lib/components/SchemaForm.svelte'
 	import TestJobLoader from '$lib/components/TestJobLoader.svelte'
-	import { CompletedJob, FlowService, Job, ScriptService, type InputTransform } from '$lib/gen'
+	import type { CompletedJob } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { faArrowsRotate, faFile } from '@fortawesome/free-solid-svg-icons'
 	import { getContext } from 'svelte'
 	import Icon from 'svelte-awesome'
 	import type { Output } from '../rx'
-	import type { App, AppEditorContext, InputsSpec } from '../types'
-	import { isAppInputTransformHidden, schemaToInputsSpec } from '../utils'
+	import type { AppEditorContext, AppInputTransform, InputsSpec, TriggerablePolicy } from '../types'
+	import { buildArgs, loadSchema, mergeArgs, schemaToInputsSpec } from '../utils'
 
 	// Component props
 	export let id: string
 	export let inputs: InputsSpec
+	export let triggerable: TriggerablePolicy
 
-	// Extra props
 	export const staticOutputs = ['loading', 'result']
-	const { worldStore, app } = getContext<AppEditorContext>('AppEditorContext')
-
-	let schema: Schema | undefined = undefined
-	let isValid = true
-	let testIsLoading = false
-	let testJob: CompletedJob | undefined = undefined
-	let testJobLoader: TestJobLoader | undefined = undefined
-
-	$: args = inputsSpecToSchemaArgs(inputs, $app)
-	$: triggerable = $app.policy?.triggerables[id]
+	const { worldStore } = getContext<AppEditorContext>('AppEditorContext')
 
 	$: outputs = $worldStore?.outputsById[id] as {
 		result: Output<any>
 		loading: Output<boolean>
 	}
 
-	$: if ($workspaceStore) {
-		loadSchema($workspaceStore)
+	// Local state
+	let args: Record<string, any> = {}
+	let schema: Schema | undefined = undefined
+	let schemaClone: Schema | undefined = undefined
+
+	let schemaBackup: Schema | undefined = undefined
+
+	let isValid = true
+	let testIsLoading = false
+	let testJob: CompletedJob | undefined = undefined
+	let testJobLoader: TestJobLoader | undefined = undefined
+
+	$: if ($workspaceStore && triggerable && schema === undefined) {
+		loadSchemaFromTriggerable($workspaceStore, triggerable)
 	}
 
-	$: schema && app && deleteHiddenArgFromSchema(schema, $app)
-
-	async function loadSchema(workspace: string) {
-		if (triggerable?.type === 'script') {
-			const script = await ScriptService.getScriptByPath({
-				workspace,
-				path: triggerable.path
-			})
-
-			schema = script.schema
-			inputs = schemaToInputsSpec(schema)
-		} else if (triggerable?.type === 'flow') {
-			const flow = await FlowService.getFlowByPath({
-				workspace,
-				path: triggerable.path
-			})
-
-			schema = flow.schema
-			inputs = schemaToInputsSpec(schema)
-		}
+	$: if (schema && triggerable) {
+		findABetterName(schema, triggerable)
 	}
 
-	// DONE
-	function deleteHiddenArgFromSchema(schema: Schema, app: App) {
-		if (!app.policy.triggerables[id]) {
-			throw new Error(`Triggerable ${id} not found`)
-		}
-
-		const { staticFields } = app.policy.triggerables[id]
-
-		Object.keys(staticFields).forEach((argName) => {
-			const input = inputs[argName]
-
-			if (isAppInputTransformHidden(input)) {
-				delete schema.properties[argName]
-			}
-		})
+	// Load once
+	async function loadSchemaFromTriggerable(workspace: string, triggerable: TriggerablePolicy) {
+		schema = await loadSchema(workspace, triggerable)
+		schemaBackup = schema
 	}
 
-	function inputsSpecToSchemaArgs(
-		args: InputsSpec,
-		app: App
-	): Record<string, InputTransform | any> {
-		if (!app.policy.triggerables[id]) {
-			throw new Error(`Triggerable ${id} not found`)
-		}
+	async function findABetterName(schema: Schema, triggerable: TriggerablePolicy) {
+		args = buildArgs(inputs, triggerable, schema)
 
-		const { staticFields } = app.policy.triggerables[id]
+		schemaClone = JSON.parse(JSON.stringify(schema))
 
-		return Object.keys(args).reduce(
-			(previousValue: Record<string, InputTransform>, currentValue: string) => {
-				const arg = args[currentValue]
-
-				if (arg.type === 'static') {
-					previousValue[currentValue] = staticFields[currentValue]
+		if (schemaClone !== undefined) {
+			Object.keys(schemaClone.properties).forEach((propKey) => {
+				if (!Object.keys(args).includes(propKey)) {
+					delete schemaClone!.properties[propKey]
 				}
-				return previousValue
-			},
-			{}
-		)
+			})
+		}
 	}
 </script>
 
@@ -113,15 +78,13 @@
 	bind:this={testJobLoader}
 />
 
-{#if schema !== undefined}
-	<SchemaForm bind:schema bind:args bind:isValid />
+{#if schemaClone !== undefined}
+	<SchemaForm schema={schemaClone} bind:args bind:isValid />
 	<Button
 		size="xs"
 		color="dark"
 		variant="border"
-		on:click={() => {
-			testJobLoader?.runScriptByPath(triggerable?.path, args)
-		}}
+		on:click={() => testJobLoader?.runScriptByPath(triggerable?.path, args)}
 		startIcon={{ icon: faFile }}
 		disabled={!isValid}
 	>
