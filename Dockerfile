@@ -63,7 +63,7 @@ COPY ./backend ./
 
 FROM rust_base AS builder
 
-COPY --from=planner /windmill/recipe.json recipe.json
+# COPY --from=planner /windmill/recipe.json recipe.json
 
 # RUN cargo chef cook --release --recipe-path recipe.json
 
