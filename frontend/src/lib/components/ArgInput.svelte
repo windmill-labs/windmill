@@ -92,7 +92,6 @@
 
 	export function focus() {
 		el?.focus()
-		el && el.dispatchEvent(new Event('input'))
 	}
 
 	function validateInput(pattern: string | undefined, v: any): void {
@@ -347,6 +346,7 @@
 					placeholder={defaultValue ?? ''}
 					bind:value
 					on:input={() => {
+						console.log(6, value)
 						dispatch('input', { rawValue: value, isRaw: false })
 					}}
 				/>
