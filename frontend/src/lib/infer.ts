@@ -113,6 +113,8 @@ function argSigToJsonSchemaType(
 		} else {
 			newS.items = { type: 'string' }
 		}
+	} else {
+		newS.type = 'object'
 	}
 	if (oldS.type != newS.type) {
 		for (const prop of Object.getOwnPropertyNames(newS)) {

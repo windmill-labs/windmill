@@ -99,6 +99,11 @@ fn parse_go_typ(typ: &parser_go_ast::Expr) -> (Option<String>, Typ) {
                 Typ::Object(typs),
             )
         }
+        Expr::InterfaceType(_) => (Some("interface{}".to_string()), Typ::Object(vec![])),
+        Expr::MapType(_) => (
+            Some("map[string]interface{}".to_string()),
+            Typ::Object(vec![]),
+        ),
         _ => (None, Typ::Unknown),
     }
 }
@@ -122,7 +127,7 @@ package main
 
 import "fmt"
 
-func main(x int, y string, z bool, l []string, o struct { Name string `json:"name"` }) {
+func main(x int, y string, z bool, l []string, o struct { Name string `json:"name"` }, n interface{}, m map[string]interface{}) {
     fmt.Println("hello world")
 }    
 
@@ -169,6 +174,20 @@ func main(x int, y string, z bool, l []string, o struct { Name string `json:"nam
                             key: "name".to_string(),
                             typ: Box::new(Typ::Str(None))
                         },]),
+                        default: None,
+                        has_default: false
+                    },
+                    Arg {
+                        otyp: Some("interface{}".to_string()),
+                        name: "n".to_string(),
+                        typ: Typ::Object(vec![]),
+                        default: None,
+                        has_default: false
+                    },
+                    Arg {
+                        otyp: Some("map[string]interface{}".to_string()),
+                        name: "m".to_string(),
+                        typ: Typ::Object(vec![]),
                         default: None,
                         has_default: false
                     },
