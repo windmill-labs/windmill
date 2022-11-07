@@ -108,10 +108,19 @@ export async function initFlow(flow: Flow) {
 export async function copyFirstStepSchema() {
 	const flowState = get(flowStateStore)
 	flowStore.update((flow) => {
-		const firstModuleId = flow.value.modules[0].id
+		const firstModuleId = flow.value.modules[0]?.id
 
-		if (flowState[firstModuleId]) {
+		if (flowState[firstModuleId] && firstModuleId) {
 			flow.schema = flowState[firstModuleId].schema
+			const v = flow.value.modules[0].value
+			if (v.type == 'rawscript' || v.type == 'script') {
+				Object.keys(v.input_transforms ?? {}).forEach((key) => {
+					v.input_transforms[key] = {
+						type: 'javascript',
+						expr: `flow_input.${key}`
+					}
+				})
+			}
 		}
 		return flow
 	})
