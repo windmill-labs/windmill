@@ -13,6 +13,7 @@ import user from "./user.ts";
 import setup from "./setup.ts";
 import variable from "./variable.ts";
 import push from "./push.ts";
+import pull from "./pull.ts";
 
 const VERSION = "v1.45.0";
 
@@ -71,6 +72,7 @@ await new Command()
   .command("setup", setup)
   .command("variable", variable)
   .command("push", push)
+  .command("pull", pull)
   .command(
     "upgrade",
     new UpgradeCommand({
