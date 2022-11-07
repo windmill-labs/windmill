@@ -129,6 +129,7 @@ mount {
 
 iface_no_lo: true
 
+envar: "LD_LIBRARY_PATH=/usr/local/lib:$LD_LIBRARY_PATH"
 envar: "PYTHONPATH=/tmp/dependencies{ADDITIONAL_PYTHON_PATHS}"
 envar: "HOME=/tmp"
 
