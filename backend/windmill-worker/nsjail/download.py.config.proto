@@ -11,6 +11,7 @@ rlimit_fsize: 1024
 rlimit_nofile: 64
 
 envar: "HOME=/user"
+envar: "LD_LIBRARY_PATH=/usr/local/lib:$LD_LIBRARY_PATH"
 
 cwd: "/tmp"
 
