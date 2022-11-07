@@ -791,31 +791,26 @@ async fn handle_code_execution_job(
     worker_config: &WorkerConfig,
     envs: &Envs,
 ) -> error::Result<serde_json::Value> {
-    // TODO: Simplify this, ScriptHub == Preview?
-    let (inner_content, requirements_o, language) = if matches!(job.job_kind, JobKind::Preview) {
-        let code = job
-            .raw_code
-            .clone()
-            .unwrap_or_else(|| "no raw code".to_owned());
-        let lock = job.raw_lock.clone();
-        (code, lock, job.language.to_owned())
-    } else if matches!(job.job_kind, JobKind::Script_Hub) {
-        let code = job
-            .raw_code
-            .clone()
-            .unwrap_or_else(|| "no raw code".to_owned());
-        let lock = job.raw_lock.clone();
-        (code, lock, job.language.to_owned())
-    } else {
-        sqlx::query_as::<_, (String, Option<String>, Option<ScriptLang>)>(
+    let (inner_content, requirements_o, language) = match job.job_kind {
+        JobKind::Preview | JobKind::Script_Hub => (
+            job.raw_code
+                .clone()
+                .unwrap_or_else(|| "no raw code".to_owned()),
+            job.raw_lock.clone(),
+            job.language.to_owned(),
+        ),
+        JobKind::Script => sqlx::query_as::<_, (String, Option<String>, Option<ScriptLang>)>(
             "SELECT content, lock, language FROM script WHERE hash = $1 AND (workspace_id = $2 OR \
-             workspace_id = 'starter')",
+                                    workspace_id = 'starter')",
         )
         .bind(&job.script_hash.unwrap_or(ScriptHash(0)).0)
         .bind(&job.workspace_id)
         .fetch_optional(db)
         .await?
-        .ok_or_else(|| Error::InternalErr(format!("expected content and lock")))?
+        .ok_or_else(|| Error::InternalErr(format!("expected content and lock")))?,
+        _ => unreachable!(
+            "handle_code_execution_job should never be reachable with a non-code execution job"
+        ),
     };
     let worker_name = worker_dir.split("/").last().unwrap_or("unknown");
     let lang_str = job
