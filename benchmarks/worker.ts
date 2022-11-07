@@ -1,16 +1,18 @@
 /// <reference no-default-lib="true" />
 /// <reference lib="deno.worker" />
-import { boolean } from "https://deno.land/x/cliffy@v0.25.2/flags/types/boolean.ts";
 import { sleep } from "https://deno.land/x/sleep@v1.2.1/sleep.ts";
 import * as windmill from "https://deno.land/x/windmill@v1.38.5/mod.ts";
 import * as api from "https://deno.land/x/windmill@v1.38.5/windmill-api/index.ts";
 import { Job } from "https://deno.land/x/windmill@v1.38.5/windmill-api/index.ts";
+import { Action, evaluate } from "./action.ts";
 
 const promise = new Promise<{
   workspace_id: string;
   per_worker_throughput: number;
   useFlows: boolean;
   continous: boolean;
+  max_per_worker: number;
+  custom: Action | undefined;
 }>((resolve, _reject) => {
   self.onmessage = (evt) => {
     const sharedConfig = evt.data;
@@ -20,6 +22,8 @@ const promise = new Promise<{
       per_worker_throughput: sharedConfig.per_worker_throughput,
       useFlows: sharedConfig.useFlows,
       continous: sharedConfig.continous,
+      max_per_worker: sharedConfig.max_per_worker,
+      custom: sharedConfig.custom,
     };
     self.name = "Worker " + sharedConfig.i;
     resolve(config);
@@ -60,8 +64,15 @@ while (cont) {
     await sleep(0.1);
     continue;
   }
+  total_spawned++;
+  if (total_spawned > config.max_per_worker) {
+    break;
+  }
   let uuid: string;
-  if (config.useFlows) {
+  if (config.custom) {
+    await evaluate(config.custom);
+    continue;
+  } else if (config.useFlows) {
     uuid = await windmill.JobService.runFlowPreview({
       workspace: config.workspace_id,
       requestBody: {
@@ -101,7 +112,6 @@ while (cont) {
     });
   }
   if (!config.continous) outstanding.push(uuid);
-  total_spawned++;
 }
 
 clearInterval(updateStatusInterval);
