@@ -14,6 +14,7 @@
 	export let pureViewer = false
 	export let collapsed = level == 3 || Array.isArray(json)
 	export let rawKey = false
+	export let topBrackets = false
 
 	const collapsedSymbol = '...'
 	let keys: string | any[]
@@ -44,12 +45,13 @@
 		{#if level != 0}
 			<span class="cursor-pointer hover:bg-gray-200 px-1 rounded" on:click={collapse}> (-) </span>
 		{/if}
+		{#if level == 0 && topBrackets}<span class="h-0">{openBracket}</span>{/if}
 		<ul class="w-full">
 			{#each keys as key, index}
 				<li class="pt-1">
 					<button
 						on:click={() => selectProp(key)}
-						class="key font-normal rounded px-1 hover:bg-blue-100"
+						class="key {pureViewer ? 'cursor-auto' : ''} font-normal rounded px-1 hover:bg-blue-100"
 					>
 						{!isArray ? key : index}:
 					</button>
@@ -65,7 +67,9 @@
 						/>
 					{:else}
 						<button
-							class="val rounded px-1 hover:bg-blue-100 {getTypeAsString(json[key])}"
+							class="val {pureViewer
+								? 'cursor-auto'
+								: ''} rounded px-1 hover:bg-blue-100 {getTypeAsString(json[key])}"
 							on:click={() => selectProp(key)}
 						>
 							{#if json[key] === NEVER_TESTED_THIS_FAR}
@@ -80,6 +84,7 @@
 				</li>
 			{/each}
 		</ul>
+		{#if level == 0 && topBrackets}<span class="h-0">{closeBracket}</span>{/if}
 	</span>
 	<span
 		class="cursor-pointer hover:bg-gray-200 {level == 0 ? 'ml-2' : ''}"

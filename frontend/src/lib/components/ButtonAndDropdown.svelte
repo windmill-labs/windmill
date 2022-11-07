@@ -22,7 +22,7 @@
 		class="border-l border-gray-300 px-2 inline-block py-0 my-0"
 		on:click={() => dispatch('clickDropdown')}
 	>
-		<div slot="name" class="py-0 my-0">
+		<div class="py-0 my-0">
 			<Icon class="text-white align-top py-0 my-0" data={faSortDown} />
 		</div>
 	</Dropdown>

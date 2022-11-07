@@ -66,7 +66,7 @@
 									<IconedResourceType silent={true} name={obj['app']} />
 									<span class="mr-2" />
 								{/if}
-								<span class="mr-2">{obj[extraField]}</span><span class="font-normal break-all"
+								<span class="mr-2">{obj[extraField]}</span><span class="font-normal break-words"
 									>{obj['path'] ?? ''}</span
 								>
 							</p>

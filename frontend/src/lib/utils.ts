@@ -194,8 +194,12 @@ export function canWrite(
 	return false
 }
 
+export function emptyString(str: string | undefined | null): boolean {
+	return str === undefined || str === null || str === ''
+}
+
 export function defaultIfEmptyString(str: string | undefined, dflt: string): string {
-	return str == undefined || str == '' ? dflt : str
+	return emptyString(str) ? dflt : str!
 }
 
 export function removeKeysWithEmptyValues(obj: any): any {
@@ -224,6 +228,19 @@ export function encodeState(state: any): string {
 
 export function decodeState(query: string): any {
 	return JSON.parse(decodeURIComponent(atob(query)))
+}
+
+export function decodeArgs(queryArgs: string | undefined): any {
+	if (queryArgs) {
+		const parsed = decodeState(queryArgs)
+		Object.entries(parsed).forEach(([k, v]) => {
+			if (v == '<function call>') {
+				parsed[k] = undefined
+			}
+		})
+		return parsed
+	}
+	return {}
 }
 
 export async function setQuery(url: URL, key: string, value: string): Promise<void> {
@@ -347,7 +364,7 @@ export const params: any;`
 }
 
 export function schemaToTsType(schema: Schema): string {
-	if (!schema) {
+	if (!schema || !schema.properties) {
 		return 'any'
 	}
 	const propKeys = Object.keys(schema.properties)
@@ -382,7 +399,7 @@ export function schemaToTsType(schema: Schema): string {
 export function schemaToObject(schema: Schema, args: Record<string, any>): Object {
 	const object = {}
 
-	if (!schema) {
+	if (!schema || !schema.properties) {
 		return object
 	}
 	const propKeys = Object.keys(schema.properties)
@@ -473,7 +490,7 @@ export function scriptPathToHref(path: string): string {
 
 export async function getScriptByPath(path: string): Promise<{
 	content: string
-	language: 'deno' | 'python3' | 'go',
+	language: 'deno' | 'python3' | 'go' | 'bash',
 	schema: any
 }> {
 	if (path.startsWith('hub/')) {
@@ -577,11 +594,13 @@ export function classNames(...classes: Array<string | undefined>): string {
 	return classes.filter(Boolean).join(' ')
 }
 
-export function scriptLangToEditorLang(lang: Script.language): 'typescript' | 'python' | 'go' {
+export function scriptLangToEditorLang(lang: Script.language): 'typescript' | 'python' | 'go' | 'shell' {
 	if (lang == 'deno') {
 		return 'typescript'
 	} else if (lang == 'python3') {
 		return 'python'
+	} else if (lang == 'bash') {
+		return 'shell'
 	} else {
 		return lang
 	}

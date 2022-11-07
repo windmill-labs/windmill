@@ -1063,10 +1063,9 @@ async fn test_deno_flow(db: Pool<Postgres>) {
 
     for i in 0..50 {
         println!("deno flow iteration: {}", i);
-        let result = run_job_in_new_worker_until_complete(&db, job.clone(), port)
-            .await
-            .result
-            .unwrap();
+        let job = run_job_in_new_worker_until_complete(&db, job.clone(), port).await;
+        // println!("job: {:#?}", job.flow_status);
+        let result = job.result.unwrap();
         assert_eq!(result, serde_json::json!([2, 4, 6]), "iteration: {}", i);
     }
 }
@@ -1521,6 +1520,30 @@ func main(derp string) (string, error) {
     .unwrap();
 
     assert_eq!(result, serde_json::json!("hello world"));
+}
+
+#[sqlx::test(fixtures("base"))]
+async fn test_bash_job(db: Pool<Postgres>) {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await;
+    let port = server.addr.port();
+
+    let content = r#"
+msg="$1"
+echo "hello $msg"
+"#
+    .to_owned();
+
+    let job = RunJob::from(JobPayload::Code(RawCode {
+        content,
+        path: None,
+        language: ScriptLang::Bash,
+    }))
+    .arg("msg", json!("world"))
+    .run_until_complete(&db, port)
+    .await;
+
+    assert_eq!(job.result, Some(json!("hello world")));
 }
 
 #[sqlx::test(fixtures("base"))]

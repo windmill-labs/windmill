@@ -4,7 +4,7 @@
 
 	import { truncateHash } from '$lib/utils'
 	import { faPencil, faPlay } from '@fortawesome/free-solid-svg-icons'
-	import { Button, Badge, ActionRow } from '$lib/components/common'
+	import { Button, Badge } from '$lib/components/common'
 
 	export let script: Script
 </script>

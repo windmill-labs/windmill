@@ -258,6 +258,7 @@ async fn connect(
     Path(client_name): Path<String>,
     Query(query): Query<HashMap<String, String>>,
     Extension(clients): Extension<Arc<AllClients>>,
+    Extension(is_secure): Extension<Arc<IsSecure>>,
     cookies: Cookies,
 ) -> error::Result<Redirect> {
     let mut query = query.clone();
@@ -271,7 +272,14 @@ async fn connect(
     } else {
         Some(query.clone())
     };
-    oauth_redirect(connects, client_name, cookies, scopes, extra_params)
+    oauth_redirect(
+        connects,
+        client_name,
+        cookies,
+        scopes,
+        extra_params,
+        is_secure.0,
+    )
 }
 
 #[derive(Deserialize)]
@@ -375,6 +383,7 @@ async fn list_connects(
 
 async fn connect_slack(
     Extension(clients): Extension<Arc<AllClients>>,
+    Extension(is_secure): Extension<Arc<IsSecure>>,
     cookies: Cookies,
 ) -> error::Result<Redirect> {
     let mut client = clients
@@ -388,7 +397,7 @@ async fn connect_slack(
     client.add_scope("commands");
     let url = client.authorize_url(&state);
 
-    set_cookie(&state, cookies);
+    set_cookie(&state, cookies, is_secure.0);
     Ok(Redirect::to(url.as_str()))
 }
 
@@ -432,11 +441,12 @@ async fn disconnect_slack(
 
 async fn login(
     Extension(clients): Extension<Arc<AllClients>>,
+    Extension(is_secure): Extension<Arc<IsSecure>>,
     Path(client_name): Path<String>,
     cookies: Cookies,
 ) -> error::Result<Redirect> {
     let clients = &clients.logins;
-    oauth_redirect(clients, client_name, cookies, None, None)
+    oauth_redirect(clients, client_name, cookies, None, None, is_secure.0)
 }
 
 #[derive(Deserialize)]
@@ -802,14 +812,17 @@ async fn login_callback(
                     .await?
                     .unwrap_or(false);
             if demo_exists {
-                sqlx::query!(
+                if let Err(e) = sqlx::query!(
                     "INSERT INTO workspace_invite
             (workspace_id, email, is_admin)
             VALUES ('demo', $1, false)",
                     &email
                 )
                 .execute(&mut tx)
-                .await?;
+                .await
+                {
+                    tracing::error!("error inserting invite: {:#?}", e);
+                }
             }
         }
         tx.commit().await?;
@@ -948,6 +961,7 @@ fn oauth_redirect(
     cookies: Cookies,
     scopes: Option<Vec<String>>,
     extra_params: Option<HashMap<String, String>>,
+    is_secure: bool,
 ) -> error::Result<Redirect> {
     let client_w_scopes = clients
         .get(&client_name)
@@ -973,13 +987,16 @@ fn oauth_redirect(
         }
     }
 
-    set_cookie(&state, cookies);
+    set_cookie(&state, cookies, is_secure);
     Ok(Redirect::to(auth_url.as_str()))
 }
 
-fn set_cookie(state: &State, cookies: Cookies) {
+fn set_cookie(state: &State, cookies: Cookies, is_secure: bool) {
     let csrf = state.to_base64();
     let mut cookie = Cookie::new("csrf", csrf);
+    cookie.set_secure(is_secure);
+    cookie.set_same_site(cookie::SameSite::Lax);
+    cookie.set_http_only(true);
     cookie.set_path("/");
     cookies.add(cookie);
 }

@@ -17,12 +17,14 @@
 	import { Button, Kbd } from './common'
 	import SplitPanesWrapper from './splitPanes/SplitPanesWrapper.svelte'
 	import Tooltip from './Tooltip.svelte'
+	import WindmillIcon from './icons/WindmillIcon.svelte'
 
 	// Exported
 	export let schema: Schema = emptySchema()
 	export let code: string
 	export let path: string | undefined
 	export let lang: Preview.language
+	export let initialArgs: Record<string, any> = {}
 
 	let websocketAlive = { pyright: false, black: false, deno: false, go: false }
 
@@ -34,7 +36,7 @@
 	let testJobLoader: TestJobLoader
 
 	// Test args input
-	let args: Record<string, any> = {}
+	let args: Record<string, any> = initialArgs
 	let isValid: boolean = true
 
 	// Test
@@ -169,7 +171,7 @@
 					</Tooltip></div
 				>
 				<div class="px-2">
-					<div class="break-all relative font-sans">
+					<div class="break-words relative font-sans">
 						<SchemaForm {schema} bind:args bind:isValid />
 					</div>
 				</div>
@@ -177,16 +179,13 @@
 			<Pane size={67}>
 				<div class="px-2 py-1 w-full">
 					{#if testIsLoading}
-						<Button
-							on:click={testJobLoader?.cancelJob}
-							btnClasses="w-full"
-							color="red"
-							size="xs"
-							startIcon={{
-								icon: faRotateRight,
-								classes: 'animate-spin'
-							}}
-						>
+						<Button on:click={testJobLoader?.cancelJob} btnClasses="w-full" color="red" size="xs">
+							<WindmillIcon
+								white={true}
+								class="animate-[spin_5s_linear_infinite] mr-2 text-white"
+								height="20px"
+								width="20px"
+							/>
 							Cancel
 						</Button>
 					{:else}

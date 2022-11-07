@@ -18,10 +18,12 @@
 	import Tabs from '$lib/components/common/tabs/Tabs.svelte'
 	import Tab from '$lib/components/common/tabs/Tab.svelte'
 	import JobDetail from '$lib/components/jobs/JobDetail.svelte'
-	import { Skeleton } from '$lib/components/common'
-	import Tooltip from '../../lib/components/Tooltip.svelte'
+	import { Button, Skeleton } from '$lib/components/common'
 	import { goto } from '$app/navigation'
 	import PageHeader from '$lib/components/PageHeader.svelte'
+	import RunChart from '$lib/components/RunChart.svelte'
+	import { faSearch, faSearchMinus } from '@fortawesome/free-solid-svg-icons'
+	import Icon from 'svelte-awesome'
 
 	let jobs: Job[] | undefined
 	let error: Error | undefined
@@ -112,20 +114,28 @@
 		if (jobs && createdBefore === undefined) {
 			const reversedJobs = jobs.slice(0, jobsPerPage).reverse()
 			const lastIndex = reversedJobs.findIndex((x) => x.type == Job.type.QUEUED_JOB) - 1
-			const ts = lastIndex >= 0 ? reversedJobs[lastIndex].created_at : undefined
-			const newJobs = await fetchJobs(undefined, ts)
-			const oldJobs = jobs.map((x) => x.id)
-			jobs = newJobs.filter((x) => !oldJobs.includes(x.id)).concat(jobs)
-			newJobs
-				.filter((x) => oldJobs.includes(x.id))
-				.forEach((x) => (jobs![jobs?.findIndex((y) => y.id == x.id)!] = x))
-			jobs = jobs
+			let ts = lastIndex >= 0 ? reversedJobs[lastIndex].created_at : undefined
+			if (!ts) {
+				const date = jobs.length > 0 ? new Date(jobs[0]?.created_at!) : new Date()
+				date.setSeconds(date.getSeconds() + 1)
+				ts = date.toISOString()
+			}
+			const newJobs = await fetchJobs(maxTs, minTs ?? ts)
+			if (newJobs && newJobs.length > 0) {
+				const oldJobs = jobs.map((x) => x.id)
+				jobs = newJobs.filter((x) => !oldJobs.includes(x.id)).concat(jobs)
+				newJobs
+					.filter((x) => oldJobs.includes(x.id))
+					.forEach((x) => (jobs![jobs?.findIndex((y) => y.id == x.id)!] = x))
+				jobs = jobs
+			}
 		}
 	}
 
 	$: {
 		if ($workspaceStore) {
 			loadJobs(createdBefore)
+			path // trigger on path change
 			success && isSkipped && jobKinds
 			if (intervalId) {
 				clearInterval(intervalId)
@@ -140,11 +150,17 @@
 
 	$: jobKindsCat && syncCatWithURL()
 
+	$: completedJobs =
+		jobs?.filter((x) => x.type == 'CompletedJob').map((x) => x as CompletedJob) ?? []
 	onDestroy(() => {
 		if (intervalId) {
 			clearInterval(intervalId)
 		}
 	})
+	let searchPath = ''
+	$: searchPath = path
+	let minTs = undefined
+	let maxTs = undefined
 </script>
 
 <CenteredPage>
@@ -153,8 +169,25 @@
 		tooltip="All past and schedule executions of scripts and flows, including previews.
 	You only see your own runs or runs of groups you belong to unless you are an admin."
 	/>
+	<div class="flex flex-row gap-x-2">
+		<input placeholder="Search jobs at a given path" type="text" bind:value={searchPath} />
+		<Button
+			variant="border"
+			on:click={() => {
+				goto('/runs?' + $page.url.searchParams.toString())
+			}}
+			size="xs"><Icon data={faSearchMinus} /></Button
+		>
+		<Button
+			variant="border"
+			on:click={() => {
+				goto('/runs?' + $page.url.searchParams.toString())
+			}}
+			size="xs"><Icon data={faSearch} /></Button
+		>
+	</div>
 
-	<div class="max-w-7x mt-6">
+	<div class="max-w-7x mt-2">
 		<div class="flex flex-row space-x-4">
 			<select
 				bind:value={success}
@@ -188,6 +221,35 @@
 					<Tab value="previews">Previews</Tab>
 					<Tab value="dependencies">Dependencies</Tab>
 				</Tabs>
+			</div>
+			<div class="border mb-4">
+				<RunChart
+					jobs={completedJobs}
+					on:zoom={async (e) => {
+						minTs = e.detail.min.toISOString()
+						maxTs = e.detail.max.toISOString()
+						jobs = await fetchJobs(maxTs, minTs)
+					}}
+				/>
+			</div>
+			<div class="flex flex-row gap-x-2 w-full mb-2">
+				<div class="relative w-full"
+					><span class="text-xs absolute -top-4">min datetime</span>
+					<input type="text" value={minTs ?? 'zoom x axis to set min (drag with ctrl)'} disabled />
+				</div>
+				<div class="relative w-full"
+					><span class="text-xs absolute -top-4">max datetime</span>
+					<input type="text" value={maxTs ?? 'zoom x axis to set max'} disabled />
+				</div>
+				<Button
+					variant="border"
+					on:click={async () => {
+						minTs = undefined
+						maxTs = undefined
+						jobs = await fetchJobs(maxTs, minTs)
+					}}
+					size="xs"><Icon data={faSearchMinus} /></Button
+				>
 			</div>
 			<Skeleton loading={!jobs} layout={[[6], 1, [6], 1, [6], 1, [6], 1, [6]]} />
 			{#if jobs}

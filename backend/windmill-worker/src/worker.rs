@@ -138,8 +138,8 @@ const DEFAULT_HEAVY_DEPS: [&str; 18] = [
 const INCLUDE_DEPS_PY_SH_CONTENT: &str = include_str!("../nsjail/download_deps.py.sh");
 const NSJAIL_CONFIG_DOWNLOAD_PY_CONTENT: &str = include_str!("../nsjail/download.py.config.proto");
 const NSJAIL_CONFIG_RUN_PYTHON3_CONTENT: &str = include_str!("../nsjail/run.python3.config.proto");
-
 const NSJAIL_CONFIG_RUN_GO_CONTENT: &str = include_str!("../nsjail/run.go.config.proto");
+const NSJAIL_CONFIG_RUN_BASH_CONTENT: &str = include_str!("../nsjail/run.bash.config.proto");
 
 const NSJAIL_CONFIG_RUN_DENO_CONTENT: &str = include_str!("../nsjail/run.deno.config.proto");
 const MAX_LOG_SIZE: u32 = 200000;
@@ -909,6 +909,21 @@ mount {{
             )
             .await
         }
+        Some(ScriptLang::Bash) => {
+            handle_bash_job(
+                worker_config,
+                envs,
+                logs,
+                job,
+                db,
+                token,
+                &inner_content,
+                timeout,
+                job_dir,
+                &shared_mount,
+            )
+            .await
+        }
     };
     tracing::info!(
         worker_name = %worker_name,
@@ -1103,6 +1118,90 @@ func Run(req Req) (interface{{}}, error){{
     };
     handle_child(&job.id, db, logs, timeout, child).await?;
     read_result(job_dir).await
+}
+
+#[tracing::instrument(level = "trace", skip_all)]
+async fn handle_bash_job(
+    WorkerConfig { base_internal_url, disable_nuser, disable_nsjail, base_url, .. }: &WorkerConfig,
+    Envs { nsjail_path, path_env, home_env, .. }: &Envs,
+    logs: &mut String,
+    job: &QueuedJob,
+    db: &sqlx::Pool<sqlx::Postgres>,
+    token: String,
+    content: &str,
+    timeout: i32,
+    job_dir: &str,
+    shared_mount: &str,
+) -> Result<serde_json::Value, Error> {
+    logs.push_str("\n\n--- BASH CODE EXECUTION ---\n");
+    set_logs(logs, job.id, db).await;
+    write_file(job_dir, "main.sh", content).await?;
+
+    let mut reserved_variables = get_reserved_variables(job, &token, &base_url, db).await?;
+    reserved_variables.insert("RUST_LOG".to_string(), "info".to_string());
+
+    let hm = match job.args {
+        Some(Value::Object(ref hm)) => hm.clone(),
+        _ => serde_json::Map::new(),
+    };
+    let args_owned = windmill_parser_bash::parse_bash_sig(&content)?
+        .args
+        .iter()
+        .map(|arg| {
+            hm.get(&arg.name)
+                .and_then(|v| match v {
+                    Value::String(s) => Some(s.clone()),
+                    _ => serde_json::to_string(v).ok(),
+                })
+                .unwrap_or_else(String::new)
+        })
+        .collect::<Vec<String>>();
+    let args = args_owned.iter().map(|s| &s[..]).collect::<Vec<&str>>();
+
+    let child = if !disable_nsjail {
+        let _ = write_file(
+            job_dir,
+            "run.config.proto",
+            &NSJAIL_CONFIG_RUN_BASH_CONTENT
+                .replace("{JOB_DIR}", job_dir)
+                .replace("{CLONE_NEWUSER}", &(!disable_nuser).to_string())
+                .replace("{SHARED_MOUNT}", shared_mount),
+        )
+        .await?;
+        let mut cmd_args = vec!["--config", "run.config.proto", "--", "/bin/sh", "main.sh"];
+        cmd_args.extend(args);
+        Command::new(nsjail_path)
+            .current_dir(job_dir)
+            .env_clear()
+            .envs(reserved_variables)
+            .env("PATH", path_env)
+            .env("BASE_INTERNAL_URL", base_internal_url)
+            .args(cmd_args)
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()?
+    } else {
+        let mut cmd_args = vec!["main.sh"];
+        cmd_args.extend(&args);
+        Command::new("/bin/sh")
+            .current_dir(job_dir)
+            .env_clear()
+            .envs(reserved_variables)
+            .env("PATH", path_env)
+            .env("BASE_INTERNAL_URL", base_internal_url)
+            .env("HOME", home_env)
+            .args(cmd_args)
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()?
+    };
+    handle_child(&job.id, db, logs, timeout, child).await?;
+    //for now bash jobs have an empty result object
+    Ok(serde_json::json!(logs
+        .lines()
+        .last()
+        .map(|x| x.to_string())
+        .unwrap_or_else(String::new)))
 }
 
 fn capitalize(s: &str) -> String {

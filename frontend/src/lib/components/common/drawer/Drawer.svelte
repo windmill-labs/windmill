@@ -18,6 +18,10 @@
 		open = false
 	}
 
+	export function isOpen() {
+		return open
+	}
+
 	let mounted = false
 	const dispatch = createEventDispatcher()
 
@@ -61,7 +65,7 @@
 
 <svelte:window on:keydown={onKeyDown} />
 
-<aside class="drawer" class:open class:close={!open} {style}>
+<aside class="drawer" class:open class:close={!open && timeout} {style}>
 	<div class="overlay" on:click={handleClickAway} />
 	<div class="panel {placement}" class:size>
 		{#if open || !timeout}
@@ -116,7 +120,6 @@
 		background: white;
 		z-index: 3;
 		transition: transform var(--duration) ease;
-		overflow: auto;
 	}
 
 	.panel.left {

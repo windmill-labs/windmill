@@ -45,19 +45,22 @@
 			}
 		} catch (e) {
 			console.error(e)
-			logoutWithRedirect($page.url.pathname + $page.url.search)
+			await logoutWithRedirect($page.url.pathname + $page.url.search)
 		}
 	}
 
 	onMount(() => {
-		loadUser()
-
 		window.onunhandledrejection = (event: PromiseRejectionEvent) => {
 			event.preventDefault()
 
 			if (event.reason?.message) {
 				const { message, body, status } = event.reason
 
+				if (message === 'Missing service editorService') {
+					console.error('Reloading the page to fix a Monaco Editor bug')
+					location.reload()
+					return
+				}
 				// Unhandled errors from Monaco Editor don't logout the user
 				if (monacoEditorUnhandledErrors.includes(message)) {
 					return
@@ -74,6 +77,7 @@
 					const pathName = $page.url.pathname
 					if (pathName != '/user/login') {
 						logoutWithRedirect(pathName + $page.url.search)
+						return
 					}
 				} else if (status == '403') {
 					sendUserToast('An endpoint required a privilege which you do not have', true)
@@ -88,6 +92,7 @@
 				console.log('Caught unhandled promise rejection without message', event)
 			}
 		}
+		loadUser()
 	})
 </script>
 

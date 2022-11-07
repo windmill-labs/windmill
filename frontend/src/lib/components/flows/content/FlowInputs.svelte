@@ -55,6 +55,19 @@
 			}}
 		/>
 
+		<FlowScriptPicker
+			label="Inline Bash"
+			icon={faCode}
+			iconColor="text-green-700"
+			on:click={() => {
+				dispatch('new', {
+					language: RawScript.language.BASH,
+					kind: failureModule ? 'failure' : 'script',
+					subkind: 'flow'
+				})
+			}}
+		/>
+
 		{#if !failureModule}
 			<FlowScriptPicker
 				label={`Inline PostgreSQL`}

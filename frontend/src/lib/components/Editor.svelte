@@ -33,7 +33,7 @@
 	import getMessageServiceOverride from 'vscode/service-override/messages'
 	import { StandaloneServices } from 'vscode/services'
 	import {
-		DENO_INIT_CODE,
+		BASH_INIT_CODE,
 		DENO_INIT_CODE_CLEAR,
 		GO_INIT_CODE,
 		PYTHON_INIT_CODE_CLEAR
@@ -57,7 +57,7 @@
 	let divEl: HTMLDivElement | null = null
 	let editor: monaco.editor.IStandaloneCodeEditor
 
-	export let lang: 'typescript' | 'python' | 'go'
+	export let lang: 'typescript' | 'python' | 'go' | 'shell'
 	export let code: string = ''
 	export let hash: string = randomHash()
 	export let cmdEnterAction: (() => void) | undefined = undefined
@@ -147,6 +147,8 @@
 				setCode(PYTHON_INIT_CODE_CLEAR)
 			} else if (lang == 'go') {
 				setCode(GO_INIT_CODE)
+			} else if (lang == 'shell') {
+				setCode(BASH_INIT_CODE)
 			}
 		}
 	}
@@ -221,6 +223,19 @@
 					const languageClient = createLanguageClient({ reader, writer }, name, options)
 					websockets.push([languageClient, webSocket])
 
+					// HACK ALERT: for some reasons, the client need to be restarted to take into account the 'go get <dep>' command
+					// the only way I could figure out to listen for this event is this. I'm sure there is a better way to do this
+					if (name == 'go') {
+						const om = webSocket.onmessage
+						webSocket.onmessage = (e) => {
+							om && om.apply(webSocket, [e])
+							const js = JSON.parse(e.data)
+							if (js.method == 'window/showMessage' && js.params.message == 'completed') {
+								console.log('reloading websocket after go get')
+								reloadWebsocket()
+							}
+						}
+					}
 					reader.onClose(async () => {
 						try {
 							console.log('CLOSE')
@@ -431,6 +446,7 @@
 		return () => {
 			try {
 				closeWebsockets()
+				model.dispose()
 				editor && editor.dispose()
 			} catch (err) {
 				console.log('error disposing editor', err)

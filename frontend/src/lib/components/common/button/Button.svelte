@@ -61,7 +61,8 @@
 			'focus:ring-4 font-semibold',
 			'rounded-md',
 			'justify-center items-center text-center whitespace-nowrap inline-flex',
-			btnClasses
+			btnClasses,
+			disabled ? 'bg-gray-200' : ''
 		),
 		disabled,
 		href,
