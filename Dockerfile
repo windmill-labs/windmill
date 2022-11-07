@@ -29,7 +29,7 @@ RUN apt-get -y update \
 
 RUN rustup component add rustfmt
 
-RUN cargo install cargo-chef 
+# RUN cargo install cargo-chef 
 
 WORKDIR /windmill
 
