@@ -236,6 +236,7 @@ pub struct SlackTokenResponse {
     #[serde(default)]
     scopes: Option<Vec<Scope>>,
     bot: SlackBotToken,
+    incoming_webhook: SlackIncomingWebhook,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -252,6 +253,14 @@ pub struct TokenResponse {
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct SlackBotToken {
     bot_access_token: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct SlackIncomingWebhook {
+    channel: String,
+    channel_id: String,
+    configuration_url: String,
+    url: String,
 }
 
 async fn connect(
@@ -395,6 +404,7 @@ async fn connect_slack(
 
     client.add_scope("bot");
     client.add_scope("commands");
+    client.add_scope("incoming-webhook");
     let url = client.authorize_url(&state);
 
     set_cookie(&state, cookies, is_secure.0);
