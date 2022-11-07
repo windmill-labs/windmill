@@ -48,7 +48,7 @@ jobs:
         with:
           context: .
           push: true
-          platforms: linux/amd64,linux/arm64
+          platforms: linux/arm64
           tags: |
             ${{ env.LOCAL_REGISTRY }}/${{ env.IMAGE_NAME }}-slim:latest
             ${{ steps.meta-slim.outputs.tags }}
