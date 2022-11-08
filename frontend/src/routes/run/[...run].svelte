@@ -264,19 +264,6 @@
 		<div class="flex flex-col mr-2 sm:mr-0 sm:grid sm:grid-cols-3 sm:gap-5">
 			<div class="col-span-2">
 				<JobArgs args={job?.args} />
-
-				{#if job?.job_kind == 'flow' || job?.job_kind == 'flowpreview'}
-					<div class="mt-10" />
-					<FlowProgressBar {job} class="py-4" />
-					<div class="max-w-lg">
-						<FlowStatusViewer
-							jobId={job.id}
-							on:jobsLoaded={({ detail }) => {
-								job = detail
-							}}
-						/>
-					</div>
-				{/if}
 			</div>
 			<div>
 				<Skeleton loading={!job} layout={[[9.5]]} />
@@ -319,6 +306,17 @@
 						{/if}
 					</div>
 				{/if}
+			</div>
+		{:else}
+			<div class="mt-10" />
+			<FlowProgressBar {job} class="py-4" />
+			<div class="w-full mt-10 mb-20">
+				<FlowStatusViewer
+					jobId={job.id}
+					on:jobsLoaded={({ detail }) => {
+						job = detail
+					}}
+				/>
 			</div>
 		{/if}
 	</CenteredPage>

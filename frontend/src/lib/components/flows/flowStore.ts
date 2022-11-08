@@ -1,4 +1,5 @@
 import type { Flow, FlowModule, ForloopFlow, InputTransform } from '$lib/gen'
+import { sendUserToast } from '$lib/utils'
 import { get, writable, derived } from 'svelte/store'
 import { flowStateStore, initFlowState, type FlowState } from './flowState'
 import { numberToChars } from './utils'
@@ -124,4 +125,5 @@ export async function copyFirstStepSchema() {
 		}
 		return flow
 	})
+	sendUserToast('Copied first step schema as flow input schema')
 }

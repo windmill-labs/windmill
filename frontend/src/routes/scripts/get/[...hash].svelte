@@ -45,6 +45,7 @@
 	import { Badge, Tabs, Tab, TabContent, Button, ActionRow } from '$lib/components/common'
 	import Skeleton from '../../../lib/components/common/skeleton/Skeleton.svelte'
 	import UserSettings from '$lib/components/UserSettings.svelte'
+	import Icon from 'svelte-awesome'
 
 	let userSettings: UserSettings
 	let script: Script | undefined
@@ -257,6 +258,9 @@
 							<Badge color="dark-gray">
 								{truncateHash(script?.hash ?? '')}
 							</Badge>
+							<a href="#webhooks">
+								<Badge color="dark-blue">Webhooks</Badge>
+							</a>
 							{#if script?.is_template}
 								<Badge color="blue">Template</Badge>
 							{/if}
@@ -286,7 +290,7 @@
 			<Skeleton {loading} layout={[[3], 1]} />
 
 			{#if script}
-				<div class="flex flex-col lg:flex-row gap-4">
+				<div class="flex flex-col lg:flex-row gap-4 mt-4">
 					<div class="lg:w-1/2">
 						<h3 class="text-lg mb-1 font-bold text-gray-600">Description</h3>
 
@@ -359,7 +363,7 @@
 				{/if}
 			{/if}
 
-			<div class="">
+			<div class="mt-4">
 				<h2 class="text-lg mb-1 font-bold text-gray-600">
 					Arguments JSON schema
 					<Tooltip>
@@ -377,7 +381,7 @@
 				{/if}
 			</div>
 			<div>
-				<h2 class="text-lg mb-1 font-bold text-gray-600 border-b">Code</h2>
+				<h2 class="text-lg mb-1 mt-4 font-bold text-gray-600 border-b">Code</h2>
 				<Skeleton {loading} layout={[[20]]} />
 				{#if script}
 					<HighlightCode language={script.language} code={script.content} />
@@ -385,7 +389,7 @@
 			</div>
 		</div>
 
-		<h3 class="text-lg mb-1 mt-8 font-bold text-gray-600"
+		<h3 id="webhooks" class="text-lg mb-1 mt-8 font-bold text-gray-600"
 			>Webhooks<Tooltip
 				>To trigger this script with a webhook, do a POST request to the endpoints below. Scripts
 				are not public and can only be run by users with at least view rights on them. You will need
@@ -409,25 +413,21 @@
 										{@const url = webhooks[key][type]}
 										<li class="flex justify-between items-center mt-2">
 											<a
+												on:click={(e) => {
+													e.preventDefault()
+													copyToClipboard(url)
+												}}
 												href={$page.url.protocol + '//' + url}
 												class="whitespace-nowrap text-ellipsis overflow-hidden mr-1"
 											>
 												{url}
+												<span class="text-gray-700 ml-2">
+													<Icon data={faClipboard} />
+												</span>
 											</a>
-											<div class="flex">
-												<Badge color="dark-gray" capitalize>
-													{type}
-												</Badge>
-												<Button
-													on:click={() => copyToClipboard($page.url.protocol + '//' + url)}
-													color="blue"
-													size="xs"
-													startIcon={{ icon: faClipboard }}
-													btnClasses="ml-2"
-												>
-													Copy
-												</Button>
-											</div>
+											<Badge color="dark-gray" capitalize>
+												{type}
+											</Badge>
 										</li>
 									{/each}
 								</ul>

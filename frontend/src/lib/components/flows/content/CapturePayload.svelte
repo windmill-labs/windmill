@@ -14,7 +14,7 @@
 	import SchemaViewer from '$lib/components/SchemaViewer.svelte'
 	import { getContext } from 'svelte'
 	import type { FlowEditorContext } from '../types'
-	import { copyToClipboard } from '$lib/utils'
+	import { copyToClipboard, sendUserToast } from '$lib/utils'
 	import Icon from 'svelte-awesome'
 	import { faClipboard } from '@fortawesome/free-solid-svg-icons'
 
@@ -97,6 +97,7 @@
 				on:click={() => {
 					$previewArgs = captureInput
 					$flowStore.schema = jsonSchema
+					sendUserToast('Copied as flow inputs and test args')
 				}}>Copy as flow inputs and test args</Button
 			>
 			<Button
@@ -104,6 +105,7 @@
 				variant="border"
 				on:click={() => {
 					$previewArgs = captureInput
+					sendUserToast('Copied as test args')
 				}}>Copy only as test args</Button
 			>
 		</div>
