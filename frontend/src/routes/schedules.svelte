@@ -67,7 +67,7 @@
 	<PageHeader title="Schedules" tooltip="Trigger Scripts and Flows according to a cron schedule">
 		<Button size="sm" startIcon={{ icon: faPlus }} href="/schedule/add">New&nbsp;schedule</Button>
 	</PageHeader>
-	<div class="relative mt-10">
+	<div class="mt-10 mb-40">
 		{#if loading}
 			<Skeleton layout={[0.5, [2.1], 0.7]} />
 			{#each new Array(6) as _}
@@ -157,7 +157,7 @@
 											}
 										}
 									]}
-									relative={false}
+									relative={true}
 								/></td
 							>
 						</tr>
