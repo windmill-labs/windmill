@@ -1694,6 +1694,20 @@ async fn handle_dependency_job(
     }
 }
 
+#[cfg(not(feature = "deno-lock"))]
+async fn generate_deno_lock(
+    _job_id: &Uuid,
+    _code: &str,
+    _logs: &mut String,
+    _job_dir: &str,
+    _db: &sqlx::Pool<sqlx::Postgres>,
+    _timeout: i32,
+    _envs: &Envs,
+) -> error::Result<String> {
+    Ok(String::new())
+}
+
+#[cfg(feature = "deno-lock")]
 async fn generate_deno_lock(
     job_id: &Uuid,
     code: &str,
