@@ -1537,6 +1537,7 @@ echo "hello $msg"
     let job = RunJob::from(JobPayload::Code(RawCode {
         content,
         path: None,
+        lock: None,
         language: ScriptLang::Bash,
     }))
     .arg("msg", json!("world"))
