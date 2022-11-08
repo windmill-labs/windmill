@@ -85,7 +85,7 @@
 	</PageHeader>
 
 	<VariableEditor bind:this={variableEditor} on:create={loadVariables} />
-	<div class="relative overflow-auto">
+	<div class="relative overflow-x-auto pb-40 pr-4">
 		{#if loading.variables}
 			<Skeleton layout={[0.5, [2], 1]} />
 			{#each new Array(3) as _}
@@ -198,7 +198,7 @@
 											  ]
 											: [])
 									]}
-									relative={false}
+									relative={true}
 								/></td
 							>
 						</tr>
@@ -215,7 +215,6 @@
 			loadVariables()
 		}}
 	/>
-	<div class="my-10" />
 
 	<PageHeader
 		title="Contextual Variables"

@@ -27,7 +27,7 @@
 	import Icon from 'svelte-awesome'
 	import Password from './Password.svelte'
 	import Path from './Path.svelte'
-	import { Button, Drawer } from './common'
+	import { Alert, Button, Drawer } from './common'
 	import DrawerContent from './common/drawer/DrawerContent.svelte'
 
 	let manual = false
@@ -195,15 +195,11 @@
 	<DrawerContent title="Connect an API" on:close={drawer.closeDrawer}>
 		{#if step == 1}
 			{#if resource_type && !connects[resource_type] && !connectsManual.find((x) => x[0] == resource_type)}
-				<div class="bg-red-100 border-l-4 border-red-600 text-orange-700 p-4" role="alert">
-					<p class="font-bold">No API integration for {resource_type}</p>
-					<p>
-						The resource type "{resource_type}" seems to not have an OAuth API integration. You can
-						still create this resource manually by closing this modal and pressing: "Add a
-						resource". You can also contribute to windmill and add it as an API integration if
-						relevant.
-					</p>
-				</div>
+				<Alert class="mb-4" type="error" title="Resource type not found">
+					The resource type "{resource_type}" seems to not have an OAuth API integration. You can
+					still create this resource manually by closing this modal and pressing: "Add a resource".
+					You can also contribute to windmill and add it as an API integration if relevant.
+				</Alert>
 			{/if}
 			<div class="mb-1 font-semibold text-gray-700">OAuth APIs</div>
 			<div class="grid sm:grid-cols-2 md:grid-cols-3 gap-x-2 gap-y-1 items-center mb-2">
