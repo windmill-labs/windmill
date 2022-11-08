@@ -13,18 +13,25 @@ export type DynamicInput = {
 	type: 'output'
 	id: FieldID
 	name: string
-	visible?: boolean //default false
+	defaultValue: any
 }
 
 export type StaticInput = {
 	type: 'static'
-	visible?: boolean //default false
+	value: any
+}
+
+export type StaticRunFormInput = {
+	type: 'staticRunForm'
+	visible?: boolean //default false,
 }
 
 export type AppInputTransform = DynamicInput | StaticInput | UserInput
+export type AppInputTransformRunForm = StaticRunFormInput | DynamicInput | UserInput
 
 // From ID of component + ID of field -> retrieve value from Policy
 export type InputsSpec = Record<FieldID, AppInputTransform>
+export type InputsSpecRunForm = Record<FieldID, AppInputTransformRunForm>
 
 export type TextInputComponent = {
 	type: 'textinputcomponent'
@@ -115,10 +122,6 @@ interface Policy {
 }
 
 type ComponentID = string
-
-interface Policy {
-	triggerables: Record<ComponentID, TriggerablePolicy>
-}
 
 enum PublishedStatus {
 	ViewerPerms = 'ViewerPerms',

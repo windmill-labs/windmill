@@ -1,4 +1,11 @@
-import type { AppInputTransform, DynamicInput, InputsSpec, StaticInput } from './types'
+import type {
+	AppInputTransform,
+	AppInputTransformRunForm,
+	DynamicInput,
+	InputsSpec,
+	StaticInput,
+	StaticRunFormInput
+} from './types'
 
 export interface Subscriber<T> {
 	next(v: T)
@@ -36,13 +43,18 @@ export function buildWorld(components: Record<string, string[]>) {
 export function buildObservableWorld() {
 	const observables: Record<string, Output<any>> = {}
 
-	function connect<T>(inputSpec: AppInputTransform, next: (x: T) => void): Input<T> {
-		if (inputSpec.type === 'static') {
+	function connect<T>(
+		inputSpec: AppInputTransform | AppInputTransformRunForm,
+		next: (x: T) => void,
+		componentId: string | undefined = undefined
+	): Input<T> {
+		if (inputSpec.type === 'staticRunForm') {
+		} else if (inputSpec.type === 'static') {
 			return {
 				peak: () => inputSpec.value,
 				next: () => {}
 			}
-		} else {
+		} else if (inputSpec.type === 'output') {
 			const input = cachedInput(next)
 			let obs = observables[`${inputSpec.id}.${inputSpec.name}`]
 			if (!obs) {
