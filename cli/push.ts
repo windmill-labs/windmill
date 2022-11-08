@@ -1,6 +1,6 @@
 import { colors } from "https://deno.land/x/cliffy@v0.25.4/ansi/colors.ts";
 import { Command } from "https://deno.land/x/cliffy@v0.25.4/command/command.ts";
-import { joinPath } from "https://deno.land/x/postgres@v0.16.1/deps.ts";
+import * as path from "https://deno.land/std@0.162.0/path/mod.ts";
 import { getContext } from "./context.ts";
 import { pushFlow } from "./flow.ts";
 import { pushResource } from "./resource.ts";
@@ -47,7 +47,7 @@ async function findCandidateFiles(dir: string): Promise<Candidate[]> {
             "Including organizational folder " + e.name + " in push!"
           )
         );
-        candidates.push(...(await findCandidateFiles(joinPath(dir, e.name))));
+        candidates.push(...(await findCandidateFiles(path.join(dir, e.name))));
       }
     }
   }
