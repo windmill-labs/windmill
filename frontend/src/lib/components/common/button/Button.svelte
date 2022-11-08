@@ -62,7 +62,7 @@
 			'rounded-md',
 			'justify-center items-center text-center whitespace-nowrap inline-flex',
 			btnClasses,
-			disabled ? 'bg-gray-200' : ''
+			disabled ? 'bg-gray-300' : ''
 		),
 		disabled,
 		href,

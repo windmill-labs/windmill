@@ -52,7 +52,7 @@
 				{/if}
 
 				<p class="font-black text-lg w-full my-4">
-					<span>Inputs</span>
+					<span>Flow Inputs</span>
 				</p>
 				{#if flow.schema && flow.schema.properties && Object.keys(flow.schema.properties).length > 0 && flow.schema}
 					<ul class="my-2">

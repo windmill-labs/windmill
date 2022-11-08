@@ -10,7 +10,7 @@
 </script>
 
 <div class="flex flex-col divide-y h-screen max-h-screen">
-	<div class="flex justify-between items-center py-2 px-6">
+	<div class="flex justify-between items-center py-2 px-6 gap-x-2">
 		<Button
 			variant="border"
 			size="lg"
@@ -21,7 +21,7 @@
 		>
 			<Icon data={faClose} />
 		</Button>
-		<span class="font-bold">{title}</span>
+		<span class="font-bold truncate">{title}</span>
 		<div class="flex flex-row">
 			{#if $$slots.submission}
 				<slot name="submission" class="sticky" />

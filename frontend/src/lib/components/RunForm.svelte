@@ -36,6 +36,7 @@
 	export let schedulable = true
 	export let detailed = true
 	export let autofocus = false
+	export let topButton = false
 
 	export let args: Record<string, any> = decodeArgs($page.url.searchParams.get('args') ?? undefined)
 
@@ -92,6 +93,15 @@
 		{:else}
 			<h1>Loading...</h1>
 		{/if}
+	{/if}
+	{#if topButton}
+		<Button
+			btnClasses="!px-6 !py-1 w-full"
+			disabled={!isValid}
+			on:click={() => runAction(undefined, args)}
+		>
+			{buttonText}
+		</Button>
 	{/if}
 	{#if runnable?.schema}
 		<div class="my-2" />
@@ -152,7 +162,7 @@
 				{scheduledForStr ? 'Schedule run to a later time' : buttonText}
 			</Button>
 		</div>
-	{:else}
+	{:else if !topButton}
 		<Button
 			btnClasses="!px-6 !py-1 w-full"
 			disabled={!isValid}
