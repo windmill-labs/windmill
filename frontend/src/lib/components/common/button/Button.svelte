@@ -75,7 +75,7 @@
 			event.preventDefault()
 			dispatch('click', event)
 			if (href) {
-				if (href.startsWith('http')) {
+				if (href.startsWith('http') || target == '_blank') {
 					window.open(href, target)
 				} else {
 					goto(href)

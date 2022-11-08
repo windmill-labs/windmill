@@ -7,7 +7,6 @@
 	import { getScriptByPath, loadHubScripts, sendUserToast } from '$lib/utils'
 
 	import {
-		faCircle,
 		faCode,
 		faCube,
 		faDollarSign,
@@ -198,10 +197,10 @@
 	loadItems={async () =>
 		await ResourceService.listResource({ workspace: $workspaceStore ?? 'NO_W' })}
 >
-	<div slot="submission" class="flex flex-row">
-		<div class="text-xs mr-2 align-middle">
-			The resource you were looking for does not exist yet?
-		</div>
+	<div slot="submission" class="flex flex-row gap-x-1">
+		<Button target="_blank" color="blue" size="sm" href="/resources?connect_app=undefined">
+			Connect an API
+		</Button>
 		<Button
 			variant="border"
 			color="blue"
@@ -210,7 +209,7 @@
 				resourceEditor.initNew()
 			}}
 		>
-			Create a new resource
+			New custom resource
 		</Button>
 	</div>
 </ItemPicker>
