@@ -60,6 +60,7 @@
 			schedulable={false}
 			buttonText="Test just this step (Ctrl+Enter)"
 			detailed={false}
+			topButton
 			bind:args={stepArgs}
 		/>
 		{#if testIsLoading}

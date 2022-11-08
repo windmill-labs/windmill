@@ -13,7 +13,8 @@
 	isFirst
 	hasLine
 	selected={$selectedId === 'inputs'}
-	label="Inputs"
+	bold
+	label="Flow Inputs"
 >
 	<div slot="icon">
 		<Icon data={faPen} scale={0.8} />

@@ -48,6 +48,7 @@
 
 <Drawer
 	bind:this={drawer}
+	size="900px"
 	on:open={() => {
 		startCapturePoint()
 		interval = setInterval(() => {
@@ -56,7 +57,7 @@
 	}}
 	on:close={() => interval && clearInterval(interval)}
 >
-	<DrawerContent title="Capture from a request to seed inputs" on:close={drawer.closeDrawer}>
+	<DrawerContent title="Capture request" on:close={drawer.closeDrawer}>
 		Send a payload at: <div>
 			<a
 				class="text-2xl"

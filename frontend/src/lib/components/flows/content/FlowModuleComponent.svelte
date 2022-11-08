@@ -183,9 +183,9 @@
 								><Tooltip>
 									Move the focus outside of the text editor to recompute the inputs or press
 									<Kbd>Ctrl/Cmd</Kbd> + <Kbd>S</Kbd>
-								</Tooltip>Inputs</Tab
+								</Tooltip><span class="font-semibold">Step Inputs</span></Tab
 							>
-							<Tab value="test">Test this step</Tab>
+							<Tab value="test"><span class="font-semibold text-md">Test this step</span></Tab>
 							<Tab value="retries">Retries</Tab>
 							{#if !$selectedId.includes('failure')}
 								<Tab value="early-stop">Early Stop</Tab>

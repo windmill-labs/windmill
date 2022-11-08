@@ -2,8 +2,6 @@
 	import Drawer from '$lib/components/common/drawer/Drawer.svelte'
 	import DrawerContent from '$lib/components/common/drawer/DrawerContent.svelte'
 
-	import Menu from '$lib/components/common/menu/Menu.svelte'
-	import MenuItem from '$lib/components/common/menu/MenuItem.svelte'
 	import FlowViewer from '$lib/components/FlowViewer.svelte'
 	import SimpleEditor from '$lib/components/SimpleEditor.svelte'
 	import { sendUserToast } from '$lib/utils'
