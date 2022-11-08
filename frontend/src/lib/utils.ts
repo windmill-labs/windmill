@@ -252,7 +252,7 @@ export function setQueryWithoutLoad(url: URL, key: string, value: string): void 
 	const nurl = new URL(url.toString())
 	nurl.searchParams.set(key, value)
 	try {
-		history.replaceState(null, '', nurl.toString())
+		history.replaceState(history.state, '', nurl.toString())
 	} catch (e) {
 		console.error(e)
 	}
