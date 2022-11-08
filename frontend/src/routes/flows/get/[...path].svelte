@@ -43,6 +43,7 @@
 	import UserSettings from '$lib/components/UserSettings.svelte'
 	import JobArgs from '$lib/components/JobArgs.svelte'
 	import CronInput from '$lib/components/CronInput.svelte'
+	import Icon from 'svelte-awesome'
 
 	let userSettings: UserSettings
 
@@ -194,7 +195,6 @@
 				<h2 class="font-bold pb-4">{flow.path}</h2>
 			{/if}
 		{/if}
-
 		<ShareModal bind:this={shareModal} kind="flow" path={flow?.path ?? ''} />
 
 		<div class="grid grid-cols-1 gap-6 max-w-7xl pb-6">
@@ -204,7 +204,10 @@
 			/>
 			{#if flow}
 				<p class="text-sm text-gray-600"
-					>Edited {displayDaysAgo(flow.edited_at ?? '')} by {flow.edited_by}</p
+					>Edited {displayDaysAgo(flow.edited_at ?? '')} by {flow.edited_by}
+					<a href="#webhook" class="ml-2">
+						<Badge color="dark-blue">Webhook</Badge>
+					</a></p
 				>
 
 				{#if flow.archived}
@@ -213,13 +216,13 @@
 						<p>This version was archived</p>
 					</div>
 				{/if}
-				<div class="prose text-sm box max-w-6xl w-full">
+				<div class="prose text-sm box max-w-6xl w-full mt-4">
 					<SvelteMarkdown source={defaultIfEmptyString(flow?.description, 'No description')} />
 				</div>
-				<div>
+				<div class="mt-4">
 					<FlowViewer {flow} noSummary={true} />
 
-					<h2 class="my-4 text-gray-700 pb-1 mb-3 border-b"
+					<h2 id="webhook" class="mb-4 mt-10 text-gray-700 pb-1 mb-3 border-b"
 						>Webhook<Tooltip
 							>To trigger this script with a webhook, do a POST request to the endpoint below. Flows
 							are not public and can only be run by users with at least view rights on them. You
@@ -232,25 +235,24 @@
 					<div class="box max-w-2xl">
 						<div class="flex flex-row gap-x-2 w-full">
 							<a
+								on:click={(e) => {
+									e.preventDefault()
+									copyToClipboard(url)
+								}}
 								href={$page.url.protocol + '//' + url}
 								class="whitespace-nowrap text-ellipsis overflow-hidden mr-1"
 							>
 								{url}
+								<span class="text-gray-700 ml-2">
+									<Icon data={faClipboard} />
+								</span>
 							</a>
-							<Button
-								on:click={() => copyToClipboard($page.url.protocol + '//' + url)}
-								color="blue"
-								size="xs"
-								startIcon={{ icon: faClipboard }}
-								btnClasses="ml-2"
-							>
-								Copy
-							</Button>
+
 							<Button size="xs" on:click={userSettings.openDrawer}>Create token</Button>
 						</div>
 					</div>
 					{#if schedule}
-						<div class="mt-8">
+						<div class="mt-10">
 							<h2 class="text-gray-700 pb-1 mb-3 border-b inline-flex flex-row items-center gap-x-4"
 								><div>Primary Schedule </div>
 								<Badge color="gray">{schedule.schedule}</Badge>

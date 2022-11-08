@@ -45,15 +45,24 @@
 				backgroundColor: '#f87171',
 				label: 'Failed',
 				data:
-					failed?.map((job) => ({ x: job.created_at as any, y: job.duration_ms, id: job.id })) ?? []
+					failed?.map((job) => ({
+						x: job.created_at as any,
+						y: job.duration_ms,
+						id: job.id,
+						path: job.script_path
+					})) ?? []
 			},
 			{
 				// borderColor: 'rgba(99,0,125, .2)',
 				backgroundColor: '#4ade80',
 				label: 'Successful',
 				data:
-					success?.map((job) => ({ x: job.created_at as any, y: job.duration_ms, id: job.id })) ??
-					[]
+					success?.map((job) => ({
+						x: job.created_at as any,
+						y: job.duration_ms,
+						id: job.id,
+						path: job.script_path
+					})) ?? []
 			}
 		]
 	}
@@ -76,6 +85,10 @@
 			}
 		}
 	}
+
+	function getPath(x: any): string {
+		return x.path
+	}
 </script>
 
 <Scatter
@@ -91,15 +104,7 @@
 			tooltip: {
 				callbacks: {
 					label: function (context) {
-						let label = context.dataset.label || 'X'
-
-						if (label) {
-							label += ': '
-						}
-						if (context.parsed.y !== null) {
-							label += JSON.stringify(context.parsed)
-						}
-						return label
+						return getPath(context.raw)
 					}
 				}
 			}
