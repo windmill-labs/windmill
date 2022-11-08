@@ -20,7 +20,7 @@
 						Job Id
 					</th>
 					<td class="py-2">
-						<a rel="noreferrer" target="_blank" href="/run/{job?.id}">
+						<a rel="noreferrer" target="_blank" href="/run/{job?.id}?workspace={job?.workspace_id}">
 							{job?.id}
 						</a>
 					</td>

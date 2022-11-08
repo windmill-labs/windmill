@@ -11,7 +11,10 @@
 
 	export let isLoading = false
 	export let job: Job | undefined = undefined
+	export let workspaceOverride: string | undefined = undefined
+	export let notfound = false
 
+	$: workspace = workspaceOverride ?? $workspaceStore
 	let intervalId: NodeJS.Timer
 
 	let syncIteration: number = 0
@@ -27,7 +30,7 @@
 			intervalId && clearInterval(intervalId)
 			if (isLoading && job) {
 				JobService.cancelQueuedJob({
-					workspace: $workspaceStore!,
+					workspace: workspace!,
 					id: job.id,
 					requestBody: {}
 				})
@@ -35,7 +38,7 @@
 			isLoading = true
 
 			const testId = await JobService.runScriptPreview({
-				workspace: $workspaceStore!,
+				workspace: workspace!,
 				requestBody: {
 					path,
 					content: code,
@@ -78,7 +81,7 @@
 		try {
 			if (job && `running` in job) {
 				let previewJobUpdates = await JobService.getJobUpdates({
-					workspace: $workspaceStore!,
+					workspace: workspace!,
 					id,
 					running: job.running,
 					logOffset: job.logs?.length ?? 0
@@ -88,21 +91,29 @@
 					job.logs = (job.logs ?? '').concat(previewJobUpdates.new_logs)
 				}
 				if ((previewJobUpdates.running ?? false) || (previewJobUpdates.completed ?? false)) {
-					job = await JobService.getJob({ workspace: $workspaceStore!, id })
+					job = await JobService.getJob({ workspace: workspace!, id })
 				}
 			} else {
-				job = await JobService.getJob({ workspace: $workspaceStore!, id })
+				console.log(workspaceOverride)
+				console.log(workspace)
+
+				job = await JobService.getJob({ workspace: workspace!, id })
 			}
 			if (job?.type === 'CompletedJob') {
 				//only CompletedJob has success property
 				isCompleted = true
-				clearInterval(intervalId)
+				intervalId && clearInterval(intervalId)
 				if (isLoading) {
 					dispatch('done', job)
 					isLoading = false
 				}
 			}
+			notfound = false
 		} catch (err) {
+			intervalId && clearInterval(intervalId)
+			if (err.status === 404) {
+				notfound = true
+			}
 			console.error(err)
 		}
 		return isCompleted

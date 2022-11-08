@@ -16,6 +16,7 @@
 	} from 'chart.js'
 	import type { CompletedJob } from '$lib/gen'
 	import { createEventDispatcher } from 'svelte'
+	import { json } from 'svelte-highlight/languages'
 
 	export let jobs: CompletedJob[] | undefined = []
 
@@ -43,13 +44,16 @@
 				// borderColor: 'rgba(99,0,125, .2)',
 				backgroundColor: '#f87171',
 				label: 'Failed',
-				data: failed?.map((job) => ({ x: job.created_at as any, y: job.duration_ms })) ?? []
+				data:
+					failed?.map((job) => ({ x: job.created_at as any, y: job.duration_ms, id: job.id })) ?? []
 			},
 			{
 				// borderColor: 'rgba(99,0,125, .2)',
 				backgroundColor: '#4ade80',
 				label: 'Successful',
-				data: success?.map((job) => ({ x: job.created_at as any, y: job.duration_ms })) ?? []
+				data:
+					success?.map((job) => ({ x: job.created_at as any, y: job.duration_ms, id: job.id })) ??
+					[]
 			}
 		]
 	}
@@ -83,8 +87,24 @@
 			zoom: zoomOptions,
 			legend: {
 				display: false
+			},
+			tooltip: {
+				callbacks: {
+					label: function (context) {
+						let label = context.dataset.label || 'X'
+
+						if (label) {
+							label += ': '
+						}
+						if (context.parsed.y !== null) {
+							label += JSON.stringify(context.parsed)
+						}
+						return label
+					}
+				}
 			}
 		},
+
 		scales: {
 			x: {
 				grid: {

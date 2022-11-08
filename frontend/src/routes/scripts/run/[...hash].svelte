@@ -59,8 +59,8 @@
 				requestBody: args,
 				scheduledFor
 			})
-			sendUserToast(`Job <a href='/run/${run}'>${run}</a> started`)
-			goto('/run/' + run)
+			sendUserToast(`Job <a href='/run/${run}?workspace=${$workspaceStore}'>${run}</a> started`)
+			goto('/run/' + run + '?workspace=' + $workspaceStore)
 		} catch (err) {
 			sendUserToast(`Could not create job: ${err}`, true)
 		}
