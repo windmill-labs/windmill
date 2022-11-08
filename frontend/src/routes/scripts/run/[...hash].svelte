@@ -92,7 +92,7 @@
 
 <CenteredPage>
 	{#if script}
-		<div class="flex flex-row flex-wrap justify-between gap-4">
+		<div class="flex flex-row flex-wrap justify-between gap-4 mb-6">
 			<div class="w-full">
 				<div class="flex flex-col mt-6 mb-2 w-full">
 					<div class="flex flex-row flex-wrap w-full justify-between "
@@ -143,7 +143,7 @@
 					</div>
 				</div>
 			</div>
-			<div class="prose text-sm box max-w-6xl w-full mb-4">
+			<div class="prose text-sm box max-w-6xl w-full mb-4 mt-8">
 				<SvelteMarkdown source={defaultIfEmptyString(script.description, 'No description')} />
 			</div>
 		</div>

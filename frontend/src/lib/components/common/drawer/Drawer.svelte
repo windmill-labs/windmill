@@ -39,7 +39,7 @@
 
 	function handleClickAway() {
 		dispatch('clickAway')
-		open = !open
+		open = false
 	}
 
 	function onKeyDown(event: KeyboardEvent) {
