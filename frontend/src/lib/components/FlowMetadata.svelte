@@ -71,6 +71,6 @@
 		</div>
 	</div>
 	<div class="text-gray-700 text-2xs pt-2">
-		run id: <a href={`/run/${job.id}`}>{job.id}</a>
+		run id: <a href={`/run/${job.id}?workspace=${job.workspace_id}`}>{job.id}</a>
 	</div>
 </div>

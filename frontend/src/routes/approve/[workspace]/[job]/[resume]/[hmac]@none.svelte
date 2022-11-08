@@ -161,7 +161,9 @@
 
 		<div class="mt-4 flex flex-row flex-wrap justify-between"
 			><a href="https://windmill.dev">Learn more about Windmill</a>
-			<a target="_blank" href="/run/{job?.id}">Flow run details (require auth)</a>
+			<a target="_blank" rel="noreferrer" href="/run/{job?.id}?workspace={job?.workspace_id}"
+				>Flow run details (require auth)</a
+			>
 		</div>
 		{#if job && job.raw_flow}
 			<h2 class="mt-10">Flow details</h2>
