@@ -40,6 +40,7 @@
 	import Badge from '$lib/components/common/badge/Badge.svelte'
 
 	$: workspace_id = $page.url.searchParams.get('workspace') ?? $workspaceStore
+	$: not_same_workspace = workspace_id !== $workspaceStore
 
 	let job: Job | undefined
 	const iconScale = 1
@@ -130,6 +131,7 @@
 				{@const runsHref = `/runs/${job?.script_path}${!isScript ? '?jobKind=flow' : ''}`}
 				{#if job && 'deleted' in job && !job?.deleted && ($userStore?.is_admin ?? false)}
 					<Button
+						disabled={not_same_workspace}
 						variant="border"
 						color="red"
 						size="xs"
@@ -139,6 +141,7 @@
 						Delete
 					</Button>
 					<Button
+						disabled={not_same_workspace}
 						href={runsHref}
 						variant="border"
 						color="blue"
@@ -165,6 +168,7 @@
 				{@const viewHref = `${stem}/get/${isScript ? job?.script_hash : job?.script_path}`}
 				{#if isRunning}
 					<Button
+						disabled={not_same_workspace}
 						color="red"
 						size="xs"
 						startIcon={{ icon: faTimesCircle }}
@@ -177,17 +181,34 @@
 						Cancel
 					</Button>
 				{/if}
+				{#if not_same_workspace}
+					<span class="text-red-500 text-sm"
+						>Disabled because job from a different workspace {workspace_id} (current: {$workspaceStore})</span
+					>
+				{/if}
 				<Button
 					href={runHref}
-					disabled={isRunning}
+					disabled={isRunning || not_same_workspace}
 					color="blue"
 					size="xs"
 					startIcon={{ icon: faRefresh }}>Run again</Button
 				>
 				{#if canWrite(job?.script_path ?? '', {}, $userStore)}
-					<Button href={editHref} color="blue" size="xs" startIcon={{ icon: faEdit }}>Edit</Button>
+					<Button
+						disabled={not_same_workspace}
+						href={editHref}
+						color="blue"
+						size="xs"
+						startIcon={{ icon: faEdit }}>Edit</Button
+					>
 				{/if}
-				<Button href={viewHref} color="blue" size="xs" startIcon={{ icon: faScroll }}>
+				<Button
+					disabled={not_same_workspace}
+					href={viewHref}
+					color="blue"
+					size="xs"
+					startIcon={{ icon: faScroll }}
+				>
 					View {job?.job_kind}
 				</Button>
 			</svelte:fragment>
