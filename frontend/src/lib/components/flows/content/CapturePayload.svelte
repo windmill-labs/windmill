@@ -17,6 +17,7 @@
 	import { copyToClipboard, sendUserToast } from '$lib/utils'
 	import Icon from 'svelte-awesome'
 	import { faClipboard } from '@fortawesome/free-solid-svg-icons'
+	import SchemaForm from '$lib/components/SchemaForm.svelte'
 
 	const { previewArgs } = getContext<FlowEditorContext>('FlowEditorContext')
 
@@ -114,5 +115,7 @@
 		<div class="box p-2">
 			<SchemaViewer schema={jsonSchema} />
 		</div>
+		<h3 class="mt-2">Test args</h3>
+		<SchemaForm class="h-full pt-4" schema={$flowStore.schema} args={$previewArgs} />
 	</DrawerContent>
 </Drawer>
