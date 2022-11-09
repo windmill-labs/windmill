@@ -51,15 +51,6 @@
 		<div
 			class="w-full space-y-2 flex flex-col border p-2 bg-gray-500 bg-opacity-10 rounded-sm my-2"
 		>
-			<Button
-				size="xs"
-				color="dark"
-				startIcon={{ icon: faCodeBranch }}
-				on:click={() => addBranch()}
-			>
-				Add branch
-			</Button>
-
 			<!-- svelte-ignore a11y-click-events-have-key-events -->
 			<div
 				on:click={() => {
@@ -67,7 +58,7 @@
 					select(`${module.id}-branch-default`)
 				}}
 				class={classNames(
-					'border w-full rounded-md p-2 bg-white text-sm cursor-pointer flex items-center mb-4',
+					'border w-full rounded-md p-2 bg-white text-sm cursor-pointer flex items-center',
 					$selectedId === `${module.id}-branch-default`
 						? 'outline outline-offset-1 outline-2  outline-slate-900'
 						: ''
@@ -113,12 +104,21 @@
 					</span>
 				</div>
 
-				{#if selectedBranch === branchIndex + 1}
-					<div transition:slide>
-						<FlowModuleSchemaMap bind:modules={branch.modules} color="indigo" />
-					</div>
-				{/if}
+				<div>
+					<FlowModuleSchemaMap bind:modules={branch.modules} color="indigo" />
+				</div>
 			{/each}
+			<div>
+				<Button
+					btnClasses=""
+					size="xs"
+					color="dark"
+					startIcon={{ icon: faCodeBranch }}
+					on:click={() => addBranch()}
+				>
+					Add branch
+				</Button>
+			</div>
 		</div>
 	</div>
 {/if}
