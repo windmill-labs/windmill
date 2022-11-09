@@ -1,4 +1,5 @@
 import type { Writable } from "svelte/store"
+import type { Node } from "svelvet"
 import type { SupportedLanguage } from "../../common"
 
 export type ModuleHost = 'inline' | 'hub'
@@ -106,8 +107,9 @@ export interface IFlowModuleNode {
 	lang?: SupportedLanguage
 }
 
-export function isFlowModuleNode(item: FlowItem): item is IFlowModuleNode {
-	return !!item['title'] && !!item['host'] && item.node instanceof GraphNodeClass
+export function isFlowModuleNode(item: FlowItem | undefined): item is IFlowModuleNode {
+	if(!item) return false
+	return !!item['title'] && !!item['host'] && item['node'] instanceof GraphNodeClass
 }
 
 export interface IFlowLoopNode {
@@ -116,10 +118,43 @@ export interface IFlowLoopNode {
 	modules: FlowItem[]
 }
 
-export function isFlowLoopNode(item: FlowItem): item is IFlowLoopNode {
-	return item['modules'] && Array.isArray(item['modules'])
+export function isFlowLoopNode(item: FlowItem | undefined): item is IFlowLoopNode {
+	if(!item) return false
+	return item['node'] && item['title'] && item['modules'] && Array.isArray(item['modules'])
 }
 
-export type FlowItem = (IFlowModuleNode | IFlowLoopNode)
+export interface IFlowBranchNode {
+	node: GraphNodeClass
+	modules: FlowItem[]
+}
+
+export function isFlowBranchNode(item: FlowItem | undefined): item is IFlowBranchNode {
+	if(!item) return false
+	return !item['title'] && item['modules'] && Array.isArray(item['modules'])
+}
+
+export type FlowItem = (IFlowModuleNode | IFlowLoopNode | IFlowBranchNode)
 
 export type FlowItemsGraph = FlowItem[][]
+
+//////////////////////////////////////////////////////////////////////
+
+export type InnerItem = Node | Loop | Branch
+
+export type Loop = {
+	type: 'loop',
+	items: NestedNodes
+}
+
+export type Branch = {
+	type: 'branch',
+	items: NestedNodes[]
+}
+
+export type GraphItem = Node | Loop | Branch
+
+export type NestedNodes = GraphItem[]
+
+export function isNode(node: GraphItem | NestedNodes | undefined): node is Node {
+	return !Array.isArray(node) && typeof node?.['id'] === 'number'
+}

@@ -1,4 +1,6 @@
 import { select } from "d3-selection"
+import { writable } from "svelte/store"
+import type { FlowItem, FlowItemsGraph } from "./model"
 
 export function ellipsize(text: string, element: Element, maxWidth: number, cutoff = '...') {
 	const elem = select(element)
@@ -14,5 +16,19 @@ export function ellipsize(text: string, element: Element, maxWidth: number, cuto
 		text = text.slice(0, -1).trimEnd()
 		elem.text(text.slice(cl) + cutoff)
 		currentWidth = (<SVGTextElement>elem.node()).getBoundingClientRect().width
+	}
+}
+
+export function createGraphStore(initial: FlowItemsGraph = []) {
+	const store = writable<FlowItemsGraph>(initial)
+	return {
+		subscribe: store.subscribe,
+		set: store.set,
+		reset: () => store.set(initial),
+		update: store.update,
+		append: (module: FlowItem | undefined) => {
+			if(!module) return
+			store.update(last => [...last, [module]])
+		}
 	}
 }
