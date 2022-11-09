@@ -1,9 +1,9 @@
 <script lang="ts">
-	import Svelvet, { type Node, type Edge } from "svelvet";
+	import Svelvet, { type Edge } from "svelvet";
 	import { sugiyama, dagStratify, decrossOpt } from 'd3-dag'
 	import type { FlowModule, RawScript } from "../../gen"
 	import type { NestedNodes, ModuleHost } from "."
-	import { isNode, type Branch, type GraphItem, type InnerItem, type Loop } from "./model"
+	import { isNode, isLoop, isBranch, type GraphItem, type Node, type Loop, type Branch } from "./model"
 
 	const NODE = {
 		width: 200,
@@ -39,12 +39,12 @@
 			const isItemNode = isNode(item)
 			if(isItemNode) {
 				localLastId = item.id
-			} else if(item.type === 'loop') {
+			} else if(isLoop(item)) {
 				localLastId = lastId
 			}
 			nestedNodes.push(item)
 			if(!isItemNode) {
-				if(item.type === 'branch') {
+				if(isBranch(item)) {
 					localLastId = lastId
 				}
 			}
@@ -82,11 +82,12 @@
 			id: idGenerator.next().value,
 	    position: { x: -1, y: -1 },
 	    data: { label: `${title} - ${host}` },
+			host,
 	    width: NODE.width,
 	    height: NODE.height,
 	    bgColor: "white",
 			childNodes: [],
-			parentNode: parentId
+			parentIds: parentId ? ['' + parentId] : []
 		}
 	}
 
@@ -113,9 +114,9 @@
 		nestedNodes.forEach(node => {
 			if(isNode(node)) {
 				array.push(node)
-			} else if (node.type === 'loop') {
+			} else if (isLoop(node)) {
 				flattenNestedNodes(node.items, array)
-			} else if(node.type === 'branch') {
+			} else if(isBranch(node)) {
 				node.items.forEach(item => {
 					flattenNestedNodes(item, array)
 				})
