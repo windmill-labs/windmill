@@ -2,26 +2,22 @@
 	import Svelvet, { type Edge } from "svelvet";
 	import { sugiyama, dagStratify, decrossOpt } from 'd3-dag'
 	import type { FlowModule, RawScript } from "../../gen"
-	import type { NestedNodes, ModuleHost } from "."
-	import { isNode, isLoop, isBranch, type GraphItem, type Node, type Loop, type Branch } from "./model"
-
-	const NODE = {
-		width: 200,
-		height: 40,
-		gap: {
-			horizontal: 20,
-			vertical: 50
-		}
-	}
+	import {
+		NODE,
+		createIdGenerator,
+		isNode,
+		isLoop,
+		isBranch,
+		type GraphItem,
+		type Node,
+		type Loop,
+		type Branch,
+		type NestedNodes,
+		type ModuleHost
+	} from "."
 
 	export let modules: FlowModule[] = []
-	let lastId: number | undefined = undefined
-	const idGenerator = function*() {
-		let id = 0
-		while(true) {
-			lastId = id === 0 ? undefined : id - 1
-			yield id++
-	}}()
+	const idGenerator = createIdGenerator()
 	let nestedNodes: NestedNodes
 	let nodes: Node[] = []
 	let edges: Edge[] = []
@@ -32,10 +28,12 @@
 	function createGraph(modules: FlowModule[]) {
 		nestedNodes = nodes = []
 
+		nestedNodes.push(createVirtualNode(getParentIds(), 'Flow start'))
 		modules.forEach(m => {
 			const item = getConvertedFlowModule(m)
 			item && nestedNodes.push(item)
 		})
+		nestedNodes.push(createVirtualNode(getParentIds(), 'Flow end'))
 
 		const flatNodes = flattenNestedNodes(nestedNodes)
 		nodes = layoutNodes(flatNodes)
