@@ -16,14 +16,18 @@
 		type ModuleHost
 	} from "."
 
-	export let modules: FlowModule[] = []
+	export let modules: FlowModule[] | undefined = []
 	const idGenerator = createIdGenerator()
 	let nestedNodes: NestedNodes
 	let nodes: Node[] = []
 	let edges: Edge[] = []
 	let width: number, height: number
 	
-	$: if(modules) createGraph(modules)
+	$: if(modules?.length) {
+		createGraph(modules)
+	} else {
+		nodes = edges = []
+	}
 
 	function createGraph(modules: FlowModule[]) {
 		nestedNodes = nodes = []

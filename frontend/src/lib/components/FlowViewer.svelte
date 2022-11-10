@@ -7,8 +7,8 @@
 	import SchemaViewer from './SchemaViewer.svelte'
 	import FieldHeader from './FieldHeader.svelte'
 	import SvelteMarkdown from 'svelte-markdown'
-	import FlowModulesViewer from './FlowModulesViewer.svelte'
 	import { copyToClipboard } from '../utils'
+	import { FlowGraph } from './graph'
 
 	export let flow: {
 		summary: string
@@ -72,10 +72,9 @@
 				{:else}
 					<div class="text-gray-700 text-xs italic mb-4">No inputs</div>
 				{/if}
-				<FlowModulesViewer
-					modules={flow?.value?.modules}
-					failureModule={flow?.value?.failure_module}
-				/>
+				<div class="w-full h-[80vh] border rounded-md overflow-hidden">
+					<FlowGraph modules={flow?.value?.modules}  />
+				</div>
 			</div>
 		</TabContent>
 		<TabContent value="json">
