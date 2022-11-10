@@ -1,14 +1,12 @@
 import type { Schema } from '$lib/common'
 import type { Flow, FlowModule, Job } from '$lib/gen'
-import { buildExtraLib, objectToTsType, schemaToObject } from '$lib/utils'
+import { schemaToObject } from '$lib/utils'
 import type { FlowState } from './flowState'
 
-type Result = any
-
-type PickableProperties = {
-	flow_input?: Object
-	previous_result: Result | undefined
-	step?: Result[]
+export type PickableProperties = {
+	flow_input: Object
+	priorIds: Record<string, any>
+	previousId: string | undefined
 }
 
 type StepPropPicker = {
@@ -16,13 +14,10 @@ type StepPropPicker = {
 	extraLib: string
 }
 
-type ParentModule = {
-	parentModule: FlowModule
-	parentPreviousModuleId: string | undefined
-}
+
 type ModuleBranches = FlowModule[][]
 
-function dfs(id: string | undefined, flow: Flow): ParentModule[] {
+function dfs(id: string | undefined, flow: Flow, getParents: boolean = true): FlowModule[] {
 	if (id === undefined) {
 		return []
 	}
@@ -40,25 +35,24 @@ function dfs(id: string | undefined, flow: Flow): ParentModule[] {
 		return []
 	}
 
-	function rec(id: string, moduleBranches: ModuleBranches): ParentModule[] | undefined {
+	function rec(id: string, moduleBranches: ModuleBranches): FlowModule[] | undefined {
 		for (let modules of moduleBranches) {
-			let parentPreviousModuleId: string | undefined = undefined
 
-			for (let module of modules) {
+
+			for (const [i, module] of modules.entries()) {
 				if (module.id === id) {
-					return [{ parentModule: module, parentPreviousModuleId }]
+					return getParents ? [module] : modules.slice(0, i + 1).reverse()
 				} else {
 					const submodules = getSubModules(module)
 
 					if (submodules) {
-						let found: ParentModule[] | undefined = rec(id, submodules)
+						let found: FlowModule[] | undefined = rec(id, submodules)
 
-						if (module && found) {
-							return [...found, { parentModule: module, parentPreviousModuleId }]
+						if (found) {
+							return getParents ? [...found, module] : [...found, ...modules.slice(0, i).reverse()]
 						}
 					}
 				}
-				parentPreviousModuleId = module.id
 			}
 		}
 		return undefined
@@ -67,24 +61,13 @@ function dfs(id: string | undefined, flow: Flow): ParentModule[] {
 	return rec(id, [flow.value.modules]) ?? []
 }
 
-function flattenPreviousResult(pr: any) {
-	if (typeof pr === 'object' && pr.previous_result) {
-		return pr.previous_result
-	}
-
-	return pr
-}
-
 function getFlowInput(
-	parentModules: ParentModule[],
+	parentModules: FlowModule[],
 	flowState: FlowState,
 	args: any,
 	schema: Schema
 ) {
-	const { parentModule, parentPreviousModuleId } = parentModules.shift() ?? {
-		parentModule: undefined,
-		parentPreviousModuleId: undefined
-	}
+	const parentModule = parentModules.shift()
 
 	const parentState = parentModule ? flowState[parentModule.id] : undefined
 
@@ -103,16 +86,7 @@ function getFlowInput(
 					...parentFlowInput,
 				}
 			} else {
-				// Branches
-
-				if (parentPreviousModuleId === undefined) {
-					return parentFlowInput
-				} else {
-					return {
-						...parentFlowInput,
-						previous_result: flattenPreviousResult(flowState[parentPreviousModuleId]?.previewResult ?? {})
-					}
-				}
+				return parentFlowInput
 			}
 		}
 	} else {
@@ -124,26 +98,67 @@ export function getStepPropPicker(
 	flowState: FlowState,
 	parentModule: FlowModule | undefined,
 	previousModule: FlowModule | undefined,
+	id: string,
 	flow: Flow,
 	args: any,
+	include_node: boolean,
 	approvers: boolean = false
 ): StepPropPicker {
 	const flowInput = getFlowInput(dfs(parentModule?.id, flow), flowState, args, flow.schema)
 
-	const previousResults = previousModule
-		? flowState[previousModule.id]?.previewResult
-		: flattenPreviousResult(flowInput)
+	const previousIds = dfs(id, flow, false).map((x) => x.id)
+	if (!include_node) {
+		previousIds.shift()
+	}
+
+
+	let priorIds = Object.fromEntries(previousIds.map((id) => [id, flowState[id]?.previewResult ?? {}]))
+
 
 	const pickableProperties = {
 		flow_input: flowInput,
-		previous_result: previousResults
+		priorIds,
+		previousId: previousIds[0]
 	}
 
 	if (approvers && ((previousModule?.suspend?.required_events ?? 0) > 0)) {
 		pickableProperties["approvers"] = "The list of approvers"
 	}
+
 	return {
-		extraLib: buildExtraLib(objectToTsType(flowInput), objectToTsType(previousResults)),
+		extraLib: buildExtraLib(flowInput, priorIds),
 		pickableProperties
 	}
+}
+
+export function buildExtraLib(flowInput: Record<string, any>, results: Record<string, any>): string {
+	return `
+/**
+* get variable (including secret) at path
+* @param {string} path - path of the variable (e.g: g/all/pretty_secret)
+*/
+export function variable(path: string): string;
+
+/**
+* get resource at path
+* @param {string} path - path of the resource (e.g: g/all/my_resource)
+*/
+export function resource(path: string): any;
+
+/**
+* flow input as an object
+*/
+export const flow_input = ${JSON.stringify(flowInput)};
+
+/**
+* static params of this same step
+*/
+export const params: any;
+
+/**
+ * result by id
+ */
+export const results = ${JSON.stringify(results)};
+`
+
 }

@@ -2414,6 +2414,27 @@
     },
     "query": "DELETE FROM token WHERE token = $1 RETURNING email"
   },
+  "a227548b6604c56bfc15eb780bd8ee72a89dc6701a50f5048e928bd87baa7b9a": {
+    "describe": {
+      "columns": [
+        {
+          "name": "result",
+          "ordinal": 0,
+          "type_info": "Jsonb"
+        }
+      ],
+      "nullable": [
+        true
+      ],
+      "parameters": {
+        "Left": [
+          "UuidArray",
+          "Text"
+        ]
+      }
+    },
+    "query": "SELECT result FROM completed_job WHERE id = ANY($1) AND workspace_id = $2"
+  },
   "a241c56415759105ccbcbf7fff77287fa4ec2cc096c0060d14db421115d63e2d": {
     "describe": {
       "columns": [

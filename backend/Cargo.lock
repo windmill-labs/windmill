@@ -4159,6 +4159,7 @@ version = "1.45.0"
 dependencies = [
  "anyhow",
  "itertools",
+ "lazy_static",
  "phf 0.11.1",
  "regex",
  "unicode-general-category",
@@ -4184,6 +4185,7 @@ version = "1.45.0"
 dependencies = [
  "anyhow",
  "itertools",
+ "lazy_static",
  "phf 0.11.1",
  "regex",
  "rustpython-parser",

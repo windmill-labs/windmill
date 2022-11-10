@@ -19,7 +19,7 @@ function diff(target: Object, source: Object): Object {
 
 	const result = {}
 
-	Object.keys(target).forEach((key: string) => {
+	Object.keys(target ?? {}).forEach((key: string) => {
 		if (typeof source[key] === 'object') {
 			const difference = diff(target[key], source[key])
 
@@ -34,7 +34,10 @@ function diff(target: Object, source: Object): Object {
 	return result
 }
 
-export function keepByKey(json: Object, key: string): Object {
+export function keepByKey(json: Object | undefined, key: string): Object {
+	if (!json) {
+		return {}
+	}
 	return diff(json, filterByKey(json, key))
 }
 

@@ -10,11 +10,12 @@ use std::collections::HashMap;
 
 use deno_core::{op, serde_v8, v8, v8::IsolateHandle, Extension, JsRuntime, RuntimeOptions};
 use itertools::Itertools;
+use lazy_static::lazy_static;
 use regex::Regex;
 use serde_json::Value;
 use tokio::{sync::oneshot, time::timeout};
 use uuid::Uuid;
-use windmill_common::error::Error;
+use windmill_common::{error::Error, flow_status::JobResult};
 
 pub struct EvalCreds {
     pub workspace: String,
@@ -22,13 +23,16 @@ pub struct EvalCreds {
 }
 
 #[derive(Debug, Clone)]
-pub struct IdContext(pub Uuid, pub HashMap<String, Uuid>);
+pub struct IdContext {
+    pub flow_job: Uuid,
+    pub steps_results: HashMap<String, JobResult>,
+    pub previous_id: String,
+}
 
 pub async fn eval_timeout(
     expr: String,
     env: Vec<(String, serde_json::Value)>,
     creds: Option<EvalCreds>,
-    steps: Vec<Uuid>,
     by_id: Option<IdContext>,
     base_internal_url: String,
 ) -> anyhow::Result<serde_json::Value> {
@@ -49,12 +53,9 @@ pub async fn eval_timeout(
                 ])
             }
 
-            if !steps.is_empty() || by_id.is_some() {
-                ops.push(op_get_result::decl())
-            }
-
             if by_id.is_some() {
-                ops.push(op_get_id::decl())
+                ops.push(op_get_result::decl());
+                ops.push(op_get_id::decl());
             }
 
             let ext = Extension::builder().ops(ops).build();
@@ -82,12 +83,13 @@ pub async fn eval_timeout(
                 .into_iter()
                 .fold(expr, replace_with_await);
 
+            let expr = replace_with_await_result(expr);
+
             let r = runtime.block_on(eval(
                 &mut js_runtime,
                 &expr,
                 env,
                 creds,
-                steps,
                 by_id,
                 &base_internal_url,
             ))?;
@@ -115,6 +117,13 @@ fn replace_with_await(expr: String, fn_name: &str) -> String {
     }
     s
 }
+lazy_static! {
+    static ref RE: Regex = Regex::new("(?m)(?P<r>results.([a-z]|[A-Z]|_|[1-9])+)").unwrap();
+}
+
+fn replace_with_await_result(expr: String) -> String {
+    RE.replace_all(&expr, "(await $r)").to_string()
+}
 
 fn add_closing_bracket(s: &str) -> String {
     let mut s = s.to_string();
@@ -141,7 +150,6 @@ async fn eval(
     expr: &str,
     env: Vec<(String, serde_json::Value)>,
     creds: Option<EvalCreds>,
-    steps: Vec<Uuid>,
     by_id: Option<IdContext>,
     base_internal_url: &str,
 ) -> anyhow::Result<serde_json::Value> {
@@ -153,47 +161,52 @@ async fn eval(
             .join("\n"),
         expr.split(SPLIT_PAT).last().unwrap_or_else(|| "")
     );
-    let (steps_code, api_code, by_id_code) = if let Some(EvalCreds { workspace, token }) = creds {
-        let steps_code = if !steps.is_empty() {
-            format!(
-                r#"
-let steps = [{}];
-async function step(n) {{
-    if (n == -1) {{
-        return previous_result;
-    }}
-    if (n < 0) {{
-        let steps_length = steps.length;
-        n = n % steps.length + steps.length;
-    }}
-    let id = steps[n];
-    return await Deno.core.opAsync("op_get_result", [workspace, id, token, base_url]);
-}}"#,
-                steps.into_iter().map(|x| format!("\"{x}\"")).join(",")
-            )
-        } else {
-            String::new()
-        };
-
+    let (api_code, by_id_code) = if let Some(EvalCreds { workspace, token }) = creds {
         let by_id_code = if let Some(by_id) = by_id {
             format!(
                 r#"
 async function result_by_id(node_id) {{
     let id_map = {{ {} }};
     let id = id_map[node_id];
-    if (id) {{
-        return await Deno.core.opAsync("op_get_result", [workspace, id, token, base_url]);
+    if (node_id == "{}") {{
+        return previous_result;
+    }} else if (id) {{
+        if (Array.isArray(id)) {{
+            return await Promise.all(id.map(async (id) => await get_result(id)));
+        }} else {{
+            return await get_result(id);
+        }}
     }} else {{
         let flow_job_id = "{}";
         return await Deno.core.opAsync("op_get_id", [workspace, flow_job_id, token, base_url, node_id]);
     }}
-}}"#,
+}}
+
+async function get_result(id) {{
+    return await Deno.core.opAsync("op_get_result", [workspace, id, token, base_url]);
+}}
+const results = new Proxy({{}}, {{
+    get: function(target, name, receiver) {{
+        return result_by_id(name);
+    }}
+}});
+
+"#,
                 by_id
-                    .1
+                    .steps_results
                     .into_iter()
-                    .map(|(k, v)| format!("\"{k}\": \"{v}\""))
+                    .map(|(k, v)| {
+                        let v_str = match v {
+                            JobResult::SingleJob(x) => x.to_string(),
+                            JobResult::ListJob(x) => {
+                                format!("[{}]", x.iter().map(|x| x.to_string()).join(","))
+                            }
+                        };
+                        format!("\"{k}\": \"{v_str}\"")
+                    })
                     .join(","),
-                by_id.0,
+                by_id.previous_id,
+                by_id.flow_job,
             )
         } else {
             String::new()
@@ -213,16 +226,15 @@ async function resource(path) {{
         "#,
             base_internal_url,
         );
-        (steps_code, api_code, by_id_code)
+        (api_code, by_id_code)
     } else {
-        (String::new(), String::new(), String::new())
+        (String::new(), String::new())
     };
 
     let code = format!(
         r#"
 {api_code}
 {}
-{steps_code}
 {by_id_code}
 (async () => {{ 
     {expr} 
@@ -334,7 +346,7 @@ mod tests {
         let code = "value.test + params.test";
 
         let mut runtime = JsRuntime::new(RuntimeOptions::default());
-        let res = eval(&mut runtime, code, env, None, vec![], None, "").await?;
+        let res = eval(&mut runtime, code, env, None, None, "").await?;
         assert_eq!(res, json!(4));
         Ok(())
     }
@@ -347,7 +359,7 @@ mod tests {
 multiline template`";
 
         let mut runtime = JsRuntime::new(RuntimeOptions::default());
-        let res = eval(&mut runtime, code, env, None, vec![], None, "").await?;
+        let res = eval(&mut runtime, code, env, None, None, "").await?;
         assert_eq!(res, json!("my 5\nmultiline template"));
         Ok(())
     }
@@ -360,7 +372,7 @@ multiline template`";
         ];
         let code = r#"params.test"#;
 
-        let res = eval_timeout(code.to_string(), env, None, vec![], None, "".to_string()).await?;
+        let res = eval_timeout(code.to_string(), env, None, None, "".to_string()).await?;
         assert_eq!(res, json!(2));
         Ok(())
     }

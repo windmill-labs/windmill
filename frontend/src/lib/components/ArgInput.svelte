@@ -346,7 +346,6 @@
 					placeholder={defaultValue ?? ''}
 					bind:value
 					on:input={() => {
-						console.log(6, value)
 						dispatch('input', { rawValue: value, isRaw: false })
 					}}
 				/>

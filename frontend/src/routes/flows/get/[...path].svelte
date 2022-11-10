@@ -222,7 +222,7 @@
 				<div class="mt-4">
 					<FlowViewer {flow} noSummary={true} />
 
-					<h2 id="webhook" class="mb-4 mt-10 text-gray-700 pb-1 mb-3 border-b"
+					<h2 id="webhook" class="mt-10 text-gray-700 pb-1 mb-3 border-b"
 						>Webhook<Tooltip
 							>To trigger this script with a webhook, do a POST request to the endpoint below. Flows
 							are not public and can only be run by users with at least view rights on them. You

@@ -49,7 +49,7 @@
 {#if module.value.type === 'branchone'}
 	<div class="flex text-xs">
 		<div
-			class="w-full space-y-2 flex flex-col border p-2 bg-gray-500 bg-opacity-10 rounded-sm my-2"
+			class="w-full space-y-2 flex flex-col border p-2 bg-gray-500 border-gray-600 bg-opacity-10 rounded-sm my-2"
 		>
 			<!-- svelte-ignore a11y-click-events-have-key-events -->
 			<div
@@ -65,15 +65,15 @@
 				)}
 			>
 				<Icon data={faCodeBranch} class="mr-2" />
-				<span class="text-xs flex flex-row justify-between w-full flex-wrap gap-2 items-center">
+				<span
+					class="truncate text-xs flex flex-row justify-between w-full flex-wrap gap-2 items-center"
+				>
 					Default branch
 				</span>
 			</div>
-			{#if selectedBranch === 0}
-				<div transition:slide>
-					<FlowModuleSchemaMap bind:modules={module.value.default} color="indigo" />
-				</div>
-			{/if}
+			<div>
+				<FlowModuleSchemaMap bind:modules={module.value.default} color="indigo" />
+			</div>
 
 			{#each module.value.branches ?? [] as branch, branchIndex (branchIndex)}
 				<!-- svelte-ignore a11y-click-events-have-key-events -->
@@ -90,7 +90,9 @@
 					)}
 				>
 					<Icon data={faCodeBranch} class="mr-2" />
-					<span class="text-xs flex flex-row justify-between w-full flex-wrap gap-2 items-center">
+					<span
+						class="text-xs flex flex-row justify-between w-full flex-wrap gap-2 items-center truncate"
+					>
 						{branch.summary || `Branch ${branchIndex}`}
 
 						<Button
@@ -108,7 +110,7 @@
 					<FlowModuleSchemaMap bind:modules={branch.modules} color="indigo" />
 				</div>
 			{/each}
-			<div>
+			<div class="overflow-clip">
 				<Button
 					btnClasses=""
 					size="xs"

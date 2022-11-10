@@ -14,7 +14,7 @@
 	hasLine
 	selected={$selectedId === 'inputs'}
 	bold
-	label="Flow Inputs"
+	label="Flow Input"
 >
 	<div slot="icon">
 		<Icon data={faPen} scale={0.8} />

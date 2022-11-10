@@ -117,6 +117,12 @@ pub enum FlowStatusModule {
     },
 }
 
+#[derive(Debug, Clone)]
+pub enum JobResult {
+    SingleJob(Uuid),
+    ListJob(Vec<Uuid>),
+}
+
 impl FlowStatusModule {
     pub fn job(&self) -> Option<Uuid> {
         match self {
@@ -127,6 +133,21 @@ impl FlowStatusModule {
             FlowStatusModule::Success { job, .. } => Some(*job),
             FlowStatusModule::Failure { job, .. } => Some(*job),
         }
+    }
+
+    pub fn flow_jobs(&self) -> Option<Vec<Uuid>> {
+        match self {
+            FlowStatusModule::InProgress { flow_jobs, .. } => flow_jobs.clone(),
+            FlowStatusModule::Success { flow_jobs, .. } => flow_jobs.clone(),
+            FlowStatusModule::Failure { flow_jobs, .. } => flow_jobs.clone(),
+            _ => None,
+        }
+    }
+
+    pub fn job_result(&self) -> Option<JobResult> {
+        self.flow_jobs()
+            .map(JobResult::ListJob)
+            .or_else(|| self.job().map(JobResult::SingleJob))
     }
 
     pub fn id(&self) -> String {

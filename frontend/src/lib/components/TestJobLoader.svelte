@@ -94,9 +94,6 @@
 					job = await JobService.getJob({ workspace: workspace!, id })
 				}
 			} else {
-				console.log(workspaceOverride)
-				console.log(workspace)
-
 				job = await JobService.getJob({ workspace: workspace!, id })
 			}
 			if (job?.type === 'CompletedJob') {
