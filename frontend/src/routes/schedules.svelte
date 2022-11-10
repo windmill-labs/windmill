@@ -67,7 +67,7 @@
 	<PageHeader title="Schedules" tooltip="Trigger Scripts and Flows according to a cron schedule">
 		<Button size="sm" startIcon={{ icon: faPlus }} href="/schedule/add">New&nbsp;schedule</Button>
 	</PageHeader>
-	<div class="relative mt-10">
+	<div class="mt-10 mb-40">
 		{#if loading}
 			<Skeleton layout={[0.5, [2.1], 0.7]} />
 			{#each new Array(6) as _}
@@ -93,14 +93,14 @@
 								>
 								<SharedBadge {canWrite} extraPerms={extra_perms} />
 							</td>
-							<td class="break-words"
-								><a class="text-sm" href="{is_flow ? '/flows/get' : '/scripts/get'}/{script_path}"
-									>{script_path}</a
-								><span class="text-2xs text-gray-500 bg-gray-100 font-mono ml-2"
-									>{is_flow ? 'flow' : 'script'}</span
-								></td
-							>
-							<td><Badge color="blue">{schedule}</Badge></td>
+							<td
+								><div class="inline-flex flex-row gap-x-2 align-middle"
+									><Badge class="text-2xs font-mono ml-2">{is_flow ? 'flow' : 'script'}</Badge><a
+										class="text-sm break-words"
+										href="{is_flow ? '/flows/get' : '/scripts/get'}/{script_path}">{script_path}</a
+									></div
+								>
+							</td><td><Badge color="blue">{schedule}</Badge></td>
 							<td>
 								<Toggle
 									checked={enabled}
@@ -157,7 +157,7 @@
 											}
 										}
 									]}
-									relative={false}
+									relative={true}
 								/></td
 							>
 						</tr>

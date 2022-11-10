@@ -16,6 +16,7 @@
 	} from 'chart.js'
 	import type { CompletedJob } from '$lib/gen'
 	import { createEventDispatcher } from 'svelte'
+	import { json } from 'svelte-highlight/languages'
 
 	export let jobs: CompletedJob[] | undefined = []
 
@@ -43,13 +44,25 @@
 				// borderColor: 'rgba(99,0,125, .2)',
 				backgroundColor: '#f87171',
 				label: 'Failed',
-				data: failed?.map((job) => ({ x: job.created_at as any, y: job.duration_ms })) ?? []
+				data:
+					failed?.map((job) => ({
+						x: job.created_at as any,
+						y: job.duration_ms,
+						id: job.id,
+						path: job.script_path
+					})) ?? []
 			},
 			{
 				// borderColor: 'rgba(99,0,125, .2)',
 				backgroundColor: '#4ade80',
 				label: 'Successful',
-				data: success?.map((job) => ({ x: job.created_at as any, y: job.duration_ms })) ?? []
+				data:
+					success?.map((job) => ({
+						x: job.created_at as any,
+						y: job.duration_ms,
+						id: job.id,
+						path: job.script_path
+					})) ?? []
 			}
 		]
 	}
@@ -72,6 +85,10 @@
 			}
 		}
 	}
+
+	function getPath(x: any): string {
+		return x.path
+	}
 </script>
 
 <Scatter
@@ -83,8 +100,16 @@
 			zoom: zoomOptions,
 			legend: {
 				display: false
+			},
+			tooltip: {
+				callbacks: {
+					label: function (context) {
+						return getPath(context.raw)
+					}
+				}
 			}
 		},
+
 		scales: {
 			x: {
 				grid: {

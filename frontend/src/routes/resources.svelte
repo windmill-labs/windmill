@@ -150,7 +150,12 @@
 			appConnect.openFromOauth(resource_type)
 		}
 		if ($page.url.searchParams.get('connect_app')) {
-			appConnect.open($page.url.searchParams.get('connect_app') ?? undefined)
+			const rt = $page.url.searchParams.get('connect_app') ?? undefined
+			if (rt == 'undefined') {
+				appConnect.open()
+			} else {
+				appConnect.open(rt)
+			}
 		}
 	})
 </script>
@@ -217,7 +222,7 @@
 			</Button>
 		</div>
 	</PageHeader>
-	<div class="relative overflow-auto">
+	<div class="overflow-x-auto pb-40 pr-4">
 		{#if loading.resources}
 			<Skeleton layout={[0.5, [2], 1]} />
 			{#each new Array(6) as _}
@@ -311,7 +316,7 @@
 												}
 											}
 										]}
-										relative={false}
+										relative={true}
 									/>
 								</td>
 							</tr>
@@ -325,7 +330,6 @@
 			</TableCustom>
 		{/if}
 	</div>
-	<div class="py-10" />
 	<PageHeader
 		title="Resources types"
 		primary={false}

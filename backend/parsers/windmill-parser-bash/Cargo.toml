@@ -16,3 +16,4 @@ unicode-general-category.workspace = true
 itertools.workspace = true
 anyhow.workspace = true
 regex.workspace = true
+lazy_static.workspace = true

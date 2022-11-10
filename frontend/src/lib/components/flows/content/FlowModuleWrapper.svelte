@@ -117,7 +117,7 @@
 	{/each}
 {:else if flowModule.value.type === 'branchone'}
 	{#if $selectedId === `${flowModule?.id}-branch-default`}
-		<div class="p-4 text-sm">Default branch</div>
+		<div class="p-4 text-sm truncate">Default branch</div>
 	{:else}
 		{#each flowModule.value.default as submodule, index}
 			<svelte:self

@@ -12,7 +12,7 @@
 </script>
 
 <CapturePayload bind:this={capturePayload} />
-<FlowCard title="Flow Inputs">
+<FlowCard title="Flow Input">
 	<div slot="header">
 		<div class="flex flex-row space-x-4">
 			<Button

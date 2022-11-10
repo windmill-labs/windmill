@@ -92,7 +92,6 @@
 
 	export function focus() {
 		el?.focus()
-		el && el.dispatchEvent(new Event('input'))
 	}
 
 	function validateInput(pattern: string | undefined, v: any): void {

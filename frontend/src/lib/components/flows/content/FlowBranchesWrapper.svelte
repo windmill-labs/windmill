@@ -127,11 +127,7 @@
 
 							<TabContent value="early-stop" class="flex flex-col flex-1 h-full">
 								<div class="p-4 overflow-y-auto">
-									<FlowModuleEarlyStop
-										previousModuleId={previousModule?.id}
-										bind:flowModule
-										{parentModule}
-									/>
+									<FlowModuleEarlyStop bind:flowModule />
 								</div>
 							</TabContent>
 

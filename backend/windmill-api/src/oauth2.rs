@@ -710,7 +710,10 @@ async fn slack_command(
             .await?;
             tx.commit().await?;
             let url = base_url.0.to_owned();
-            return Ok(format!("Job launched. See details at {url}/run/{uuid}"));
+            return Ok(format!(
+                "Job launched. See details at {url}/run/{uuid}?workspace={}",
+                &settings.workspace_id
+            ));
         }
     }
 

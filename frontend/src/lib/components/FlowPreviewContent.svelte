@@ -5,7 +5,7 @@
 	import { Button } from './common'
 	import { createEventDispatcher, getContext } from 'svelte'
 	import Icon from 'svelte-awesome'
-	import { dfs, flowIds, flowStore } from './flows/flowStore'
+	import { dfs, flowStore } from './flows/flowStore'
 	import type { FlowEditorContext } from './flows/types'
 	import { runFlowPreview } from './flows/utils'
 	import SchemaForm from './SchemaForm.svelte'
@@ -53,7 +53,7 @@
 			return $flowStore
 		} else {
 			const flow: Flow = JSON.parse(JSON.stringify($flowStore))
-			const idOrders = dfs(flow.value.modules, true)
+			const idOrders = dfs(flow.value.modules)
 			let upToIndex = idOrders.indexOf($selectedId)
 
 			if (upToIndex != -1) {

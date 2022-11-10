@@ -57,7 +57,6 @@
 			{@const viewHref = `${stem}/get/${isScript ? job?.script_hash : job?.script_path}`}
 			<div>
 				<Icon class="text-gray-700" data={faScroll} scale={SMALL_ICON_SCALE} /><span class="mx-2">
-					{job?.job_kind}:
 					<a href={viewHref}>{isScript ? job?.script_hash : job?.script_path}</a>
 				</span>
 			</div>
@@ -71,6 +70,6 @@
 		</div>
 	</div>
 	<div class="text-gray-700 text-2xs pt-2">
-		run id: <a href={`/run/${job.id}`}>{job.id}</a>
+		run id: <a href={`/run/${job.id}?workspace=${job.workspace_id}`}>{job.id}</a>
 	</div>
 </div>

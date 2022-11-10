@@ -48,7 +48,7 @@
 </script>
 
 <Drawer bind:this={drawer} on:open={listUsers} size="900px">
-	<DrawerContent overflow_y={false} title="Superadmin Settings" on:close={drawer.toggleDrawer}>
+	<DrawerContent overflow_y={false} title="Superadmin Settings" on:close={drawer.closeDrawer}>
 		<ConfirmationModal
 			open={openConfirmation}
 			title="Remove user"

@@ -14,9 +14,10 @@
 	import SchemaViewer from '$lib/components/SchemaViewer.svelte'
 	import { getContext } from 'svelte'
 	import type { FlowEditorContext } from '../types'
-	import { copyToClipboard } from '$lib/utils'
+	import { copyToClipboard, sendUserToast } from '$lib/utils'
 	import Icon from 'svelte-awesome'
 	import { faClipboard } from '@fortawesome/free-solid-svg-icons'
+	import SchemaForm from '$lib/components/SchemaForm.svelte'
 
 	const { previewArgs } = getContext<FlowEditorContext>('FlowEditorContext')
 
@@ -48,6 +49,7 @@
 
 <Drawer
 	bind:this={drawer}
+	size="900px"
 	on:open={() => {
 		startCapturePoint()
 		interval = setInterval(() => {
@@ -56,7 +58,7 @@
 	}}
 	on:close={() => interval && clearInterval(interval)}
 >
-	<DrawerContent title="Capture from a request to seed inputs" on:close={drawer.closeDrawer}>
+	<DrawerContent title="Capture request" on:close={drawer.closeDrawer}>
 		Send a payload at: <div>
 			<a
 				class="text-2xl"
@@ -97,6 +99,7 @@
 				on:click={() => {
 					$previewArgs = captureInput
 					$flowStore.schema = jsonSchema
+					sendUserToast('Copied as flow inputs and test args')
 				}}>Copy as flow inputs and test args</Button
 			>
 			<Button
@@ -104,6 +107,7 @@
 				variant="border"
 				on:click={() => {
 					$previewArgs = captureInput
+					sendUserToast('Copied as test args')
 				}}>Copy only as test args</Button
 			>
 		</div>
@@ -111,5 +115,7 @@
 		<div class="box p-2">
 			<SchemaViewer schema={jsonSchema} />
 		</div>
+		<h3 class="mt-2">Test args</h3>
+		<SchemaForm class="h-full pt-4" schema={$flowStore.schema} args={$previewArgs} />
 	</DrawerContent>
 </Drawer>

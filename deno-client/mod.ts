@@ -47,7 +47,7 @@ export async function getResource(path: string, undefinedIfEmpty?: boolean): Pro
         if (undefinedIfEmpty && e.status === 404) {
             return undefined
         } else {
-            throw e
+            throw Error(`Resource not found at ${path} or not visible to you`)
         }
     }
 }
@@ -108,8 +108,12 @@ export async function getInternalState(suffix?: string): Promise<any> {
  */
 export async function getVariable(path: string): Promise<string | undefined> {
     const workspace = getWorkspace()
-    const variable = await VariableService.getVariable({ workspace, path })
-    return variable.value
+    try {
+        const variable = await VariableService.getVariable({ workspace, path })
+        return variable.value
+    } catch (e: any) {
+        throw Error(`Variable not found at ${path} or not visible to you`)
+    }
 }
 
 async function transformLeaves(d: { [key: string]: any }): Promise<{ [key: string]: any }> {

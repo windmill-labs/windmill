@@ -4,6 +4,7 @@
 import { Command } from "https://deno.land/x/cliffy@v0.25.2/command/mod.ts";
 import { sleep } from "https://deno.land/x/sleep@v1.2.1/mod.ts";
 import * as windmill from "https://deno.land/x/windmill@v1.38.5/mod.ts";
+import { Action } from "./action.ts";
 
 async function login(email: string, password: string): Promise<string> {
   return await windmill.UserService.login({
@@ -35,6 +36,7 @@ await new Command()
       default: 30,
     }
   )
+  .option("--max <max:number>", "Maximum number of operations performed.")
   .option("-e --email <email:string>", "The email to use to login.")
   .option("-p --password <password:string>", "The password to use to login.")
   .env(
@@ -81,6 +83,7 @@ await new Command()
     }
   )
   .option("--use-flows", "Run flows instead of jobs.")
+  .option("--custom <custom_path:string>", "Use custom actions during bench")
   .option(
     "--zombie-timeout",
     "The maximum time in ms to wait for jobs to complete.",
@@ -132,8 +135,14 @@ await new Command()
       useFlows,
       zombieTimeout,
       continous,
+      max,
+      custom,
     }) => {
       windmill.setClient("", host);
+
+      const custom_content: Action | undefined = custom
+        ? JSON.parse(await Deno.readTextFile(custom))
+        : undefined;
 
       if (!Array.isArray(histogramBuckets)) {
         histogramBuckets = [];
@@ -209,13 +218,16 @@ await new Command()
       windmill.setClient(final_token, host);
 
       const per_worker_throughput = maximumThroughput / num_workers;
+      const max_per_worker = max ? max / num_workers : undefined;
       const shared_config = {
         server: host,
         token: final_token,
         workspace_id: config.workspace_id,
         per_worker_throughput,
+        max_per_worker,
         useFlows,
         continous,
+        custom: custom_content,
       };
 
       let workers: Worker[] = new Array(num_workers);

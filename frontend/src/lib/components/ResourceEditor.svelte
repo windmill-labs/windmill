@@ -247,9 +247,6 @@
 		>
 			Create a new variable
 		</Button>
-		<div class="text-xs mr-2 align-middle">
-			The variable you were looking for does not exist yet?
-		</div>
 	</div>
 </ItemPicker>
 
