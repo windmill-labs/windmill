@@ -2,7 +2,7 @@ export type OwnerKind = 'group' | 'user'
 
 export type ActionKind = 'Create' | 'Update' | 'Delete' | 'Execute'
 
-export type SupportedLanguage = 'deno' | 'python3' | 'go'
+export type SupportedLanguage = 'deno' | 'python3' | 'go' | 'bash'
 
 export interface SchemaProperty {
 	type: string | undefined
