@@ -193,7 +193,7 @@
 					<div
 						class="border flex justify-center flex-col items-center h-full w-full bg-green-200 bg-opacity-50"
 					>
-						<div> Empty component</div>
+						<div>Empty component</div>
 					</div>
 				{/each}
 			</div>
