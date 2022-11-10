@@ -621,7 +621,14 @@ async fn handle_queued_job(
                 JobKind::Dependencies => {
                     handle_dependency_job(&job, &mut logs, job_dir, db, timeout, &envs).await
                 }
-                JobKind::Identity => Ok(job.args.clone().unwrap_or_else(|| Value::Null)),
+                JobKind::Identity => match job.args.clone() {
+                    Some(Value::Object(args))
+                        if args.len() == 1 && args.contains_key("previous_result") =>
+                    {
+                        Ok(args.get("previous_result").unwrap().clone())
+                    }
+                    args @ _ => Ok(args.unwrap_or_else(|| Value::Null)),
+                },
                 _ => {
                     handle_code_execution_job(
                         &job,

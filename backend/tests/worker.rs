@@ -1071,6 +1071,42 @@ async fn test_deno_flow(db: Pool<Postgres>) {
 }
 
 #[sqlx::test(fixtures("base"))]
+async fn test_identity(db: Pool<Postgres>) {
+    initialize_tracing().await;
+
+    let server = ApiServer::start(db.clone()).await;
+
+    let flow: FlowValue = serde_json::from_value(serde_json::json!({
+        "modules": [{
+                "value": {
+                    "type": "rawscript",
+                    "language": "python3",
+                    "content": "def main(): return 42",
+                }}, {
+                    "value": {
+                        "type": "identity",
+                    },
+                }, {
+                    "value": {
+                        "type": "identity",
+                    },
+                }, {
+                    "value": {
+                        "type": "identity",
+                    },
+                }],
+    }))
+    .unwrap();
+
+    let result = RunJob::from(JobPayload::RawFlow { value: flow.clone(), path: None })
+        .run_until_complete(&db, server.addr.port())
+        .await
+        .result
+        .unwrap();
+    assert_eq!(result, serde_json::json!(42));
+}
+
+#[sqlx::test(fixtures("base"))]
 async fn test_deno_flow_same_worker(db: Pool<Postgres>) {
     initialize_tracing().await;
 
