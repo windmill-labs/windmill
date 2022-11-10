@@ -38,6 +38,19 @@
 		}
 	}
 
+	export async function runScriptByPath(
+		path: string | undefined,
+		args: Record<string, any>
+	): Promise<void> {
+		abstractRun(() =>
+			JobService.runScriptByPath({
+				workspace: $workspaceStore!,
+				path: path ?? '',
+				requestBody: args
+			})
+		)
+	}
+
 	export async function runPreview(
 		path: string | undefined,
 		code: string,
