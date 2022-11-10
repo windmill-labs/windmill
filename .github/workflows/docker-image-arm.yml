@@ -5,7 +5,7 @@ env:
 name: Build and push arm docker image
 on:
   push:
-    branches: [main]
+    branches: ["*"]
     tags: ["*"]
   pull_request:
     types: [opened, synchronize, reopened]
