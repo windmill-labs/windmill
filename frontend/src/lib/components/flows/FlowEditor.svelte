@@ -20,7 +20,7 @@
 		<Pane size={25} minSize={20} class="h-full">
 			<div class="h-full">
 				{#if $flowStore.value.modules}
-					<FlowGraph modules={$flowStore.value.modules} gridProps={{class: '!h-full !m-0', height: "100%"}} />
+					<FlowGraph modules={$flowStore.value.modules}  />
 				{/if}
 			</div>
 		</Pane>

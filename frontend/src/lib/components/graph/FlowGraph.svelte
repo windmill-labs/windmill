@@ -46,9 +46,9 @@
 
 		if(type === 'rawscript') {
 			const lang = module.value.language
-			return flowModuleToNode(parentIds, module.summary || 'Inline ' + lang, 'inline', lang)
+			return flowModuleToNode(parentIds, module.summary || 'Inline script', 'inline', lang)
 		} else if(type === 'script') {
-			return flowModuleToNode(parentIds, module.summary || module.value.path, 'hub')
+			return flowModuleToNode(parentIds, module.summary || module.value.path || 'Hub script', 'hub')
 		} else if(type === 'forloopflow') {
 			const expr = module.value.iterator['expr']
 			return flowModuleToLoop(module.value.modules, expr ? `Expression: ${expr}` : 'For loop', parent)
@@ -82,10 +82,28 @@
 		host: ModuleHost,
 		lang?: RawScript.language
 	): Node {
+		const langImg: Record<RawScript.language, string> = {
+			deno: '/icons/ts-lang.svg',
+			go: '/icons/go-lang.svg',
+			python3: '/icons/python-lang.svg',
+		}
+		const hostImg: Record<ModuleHost, string> = {
+			hub: '/icons/hub-script.svg',
+			inline: '/icons/inline-script.svg',
+		}
+		const wrapperWidth = lang ? 'w-[calc(100%-40px)]' : 'w-[calc(100%-20px)]'
 		return {
 			id: idGenerator.next().value,
 	    position: { x: -1, y: -1 },
-	    data: { label: `${title} - ${host}` },
+	    data: { html: `
+				<div class="w-full flex justify-between items-center px-1">
+					<div class="${wrapperWidth} text-left ellipsize">${title}</div>
+					<div class="flex items-center grayscale">
+						${lang ? `<img src="${langImg[lang]}">` : ''}
+						<img src="${hostImg[host]}">
+					</div>
+				</div>
+			`},
 			host,
 	    width: NODE.width,
 	    height: NODE.height,
