@@ -1,6 +1,7 @@
 env:
   REGISTRY: ghcr.io
   IMAGE_NAME: ${{ github.repository }}
+  LOCAL_REGISTRY: registry.wimill.xyz
 
 name: Build and push arm docker image
 on:
@@ -11,7 +12,7 @@ on:
     types: [opened, synchronize, reopened]
 
 concurrency:
-  group: arm
+  group: ${{ github.ref }}-arm
   cancel-in-progress: true
 
 jobs:
