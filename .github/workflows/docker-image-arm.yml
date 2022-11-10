@@ -5,7 +5,7 @@ env:
 name: Build and push arm docker image
 on:
   push:
-    branches: ["*"]
+    branches: [main]
     tags: ["*"]
   pull_request:
     types: [opened, synchronize, reopened]
@@ -17,7 +17,6 @@ concurrency:
 jobs:
   publish_privately_arm:
     runs-on: [self-hosted, new]
-    needs: [build]
     # if: github.event_name != 'pull_request'
     steps:
       - uses: actions/checkout@v3
