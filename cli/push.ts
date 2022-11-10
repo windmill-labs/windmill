@@ -1,5 +1,6 @@
 import { colors } from "https://deno.land/x/cliffy@v0.25.4/ansi/colors.ts";
 import { Command } from "https://deno.land/x/cliffy@v0.25.4/command/command.ts";
+import * as path from "https://deno.land/std@0.162.0/path/mod.ts";
 import { getContext } from "./context.ts";
 import { pushFlow } from "./flow.ts";
 import { pushResource } from "./resource.ts";
@@ -7,16 +8,13 @@ import { findContentFile, pushScript } from "./script.ts";
 import { GlobalOptions } from "./types.ts";
 import { pushVariable } from "./variable.ts";
 
-async function push(opts: GlobalOptions, dir?: string) {
-  dir = dir ?? Deno.cwd();
-  const { workspace } = await getContext(opts);
-
-  const candidates: {
-    path: string;
-    group: boolean;
-    groupOrUsername: string;
-  }[] = [];
-  console.log(colors.blue("Searching Directory..."));
+type Candidate = {
+  path: string;
+  group: boolean;
+  groupOrUsername: string;
+};
+async function findCandidateFiles(dir: string): Promise<Candidate[]> {
+  const candidates: Candidate[] = [];
   for await (const e of Deno.readDir(dir)) {
     if (e.isDirectory) {
       if (e.name == "u" || e.name == "g") {
@@ -43,9 +41,25 @@ async function push(opts: GlobalOptions, dir?: string) {
             }
           }
         }
+      } else {
+        console.log(
+          colors.yellow(
+            "Including organizational folder " + e.name + " in push!"
+          )
+        );
+        candidates.push(...(await findCandidateFiles(path.join(dir, e.name))));
       }
     }
   }
+  return candidates;
+}
+
+async function push(opts: GlobalOptions, dir?: string) {
+  dir = dir ?? Deno.cwd();
+  const { workspace } = await getContext(opts);
+
+  console.log(colors.blue("Searching Directory..."));
+  const candidates: Candidate[] = await findCandidateFiles(dir);
   console.log(colors.blue("Found " + candidates.length + " candidates"));
   for (const candidate of candidates) {
     // full file name. No leading /. includes .type.json

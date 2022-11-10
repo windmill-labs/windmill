@@ -45,13 +45,11 @@
 			}
 		} catch (e) {
 			console.error(e)
-			logoutWithRedirect($page.url.pathname + $page.url.search)
+			await logoutWithRedirect($page.url.pathname + $page.url.search)
 		}
 	}
 
 	onMount(() => {
-		loadUser()
-
 		window.onunhandledrejection = (event: PromiseRejectionEvent) => {
 			event.preventDefault()
 
@@ -79,6 +77,7 @@
 					const pathName = $page.url.pathname
 					if (pathName != '/user/login') {
 						logoutWithRedirect(pathName + $page.url.search)
+						return
 					}
 				} else if (status == '403') {
 					sendUserToast('An endpoint required a privilege which you do not have', true)
@@ -93,6 +92,7 @@
 				console.log('Caught unhandled promise rejection without message', event)
 			}
 		}
+		loadUser()
 	})
 </script>
 

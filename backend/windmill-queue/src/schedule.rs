@@ -189,9 +189,8 @@ async fn check_flow_conflict<'c>(
         .unwrap_or(false);
         if exists_flow {
             return Err(error::Error::BadConfig(format!(
-                "If a schedule has the same path as or a flow, it must be its primary schedule \
-                 and hence can only trigger it. 
-            However the provided path is: {script_path} and is_flow is: {is_flow}",
+                "The path is the same as a flow, it can only trigger that flow.
+            However the provided path is: {script_path} and is_flow is {is_flow}"
             )));
         };
     }
@@ -267,6 +266,7 @@ pub async fn edit_schedule(
         ),
     )
     .await?;
+    tx.commit().await?;
 
     Ok(path.to_string())
 }

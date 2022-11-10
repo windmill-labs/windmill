@@ -7,7 +7,6 @@
 	import { getScriptByPath, loadHubScripts, sendUserToast } from '$lib/utils'
 
 	import {
-		faCircle,
 		faCode,
 		faCube,
 		faDollarSign,
@@ -25,10 +24,8 @@
 	import HighlightCode from './HighlightCode.svelte'
 	import DrawerContent from './common/drawer/DrawerContent.svelte'
 	import { Drawer } from './common'
-	import Icon from 'svelte-awesome'
-	import Popover from './Popover.svelte'
 
-	export let lang: 'python3' | 'deno' | 'go'
+	export let lang: 'python3' | 'deno' | 'go' | 'bash'
 	export let editor: Editor
 	export let websocketAlive: { pyright: boolean; black: boolean; deno: boolean; go: boolean }
 	export let iconOnly: boolean = false
@@ -42,7 +39,7 @@
 	let resourceEditor: ResourceEditor
 
 	let codeViewer: Drawer
-	let codeLang: 'python3' | 'deno' | 'go' = 'deno'
+	let codeLang: 'python3' | 'deno' | 'go' | 'bash' = 'deno'
 	let codeContent: string = ''
 
 	function addEditorActions() {
@@ -109,6 +106,13 @@
 				editor.insertAtBeginning('import os\n')
 			}
 			editor.insertAtCursor(`os.environ.get("${name}")`)
+		} else if (lang == 'go') {
+			if (!editor.getCode().includes('"os"')) {
+				editor.insertAtLine('import "os"\n', 2)
+			}
+			editor.insertAtCursor(`os.Getenv("${name}")`)
+		} else if (lang == 'bash') {
+			editor.insertAtCursor(`$${name}`)
 		}
 		sendUserToast(`${name} inserted at cursor`)
 	}}
@@ -137,6 +141,8 @@
 				editor.insertAtLine('import wmill "github.com/windmill-labs/windmill-go-client"\n\n', 3)
 			}
 			editor.insertAtCursor(`v, _ := wmill.GetVariable("${path}")`)
+		} else if (lang == 'bash') {
+			sendUserToast('Not supported yet', true)
 		}
 		sendUserToast(`${name} inserted at cursor`)
 	}}
@@ -181,6 +187,8 @@
 				editor.insertAtLine('import wmill "github.com/windmill-labs/windmill-go-client"\n\n', 3)
 			}
 			editor.insertAtCursor(`r, _ := wmill.GetResource("${path}")`)
+		} else if (lang == 'bash') {
+			sendUserToast('Not supported yet', true)
 		}
 		sendUserToast(`${path} inserted at cursor`)
 	}}
@@ -189,10 +197,10 @@
 	loadItems={async () =>
 		await ResourceService.listResource({ workspace: $workspaceStore ?? 'NO_W' })}
 >
-	<div slot="submission" class="flex flex-row">
-		<div class="text-xs mr-2 align-middle">
-			The resource you were looking for does not exist yet?
-		</div>
+	<div slot="submission" class="flex flex-row gap-x-1">
+		<Button target="_blank" color="blue" size="sm" href="/resources?connect_app=undefined">
+			Connect an API
+		</Button>
 		<Button
 			variant="border"
 			color="blue"
@@ -201,7 +209,7 @@
 				resourceEditor.initNew()
 			}}
 		>
-			Create a new resource
+			New custom resource
 		</Button>
 	</div>
 </ItemPicker>

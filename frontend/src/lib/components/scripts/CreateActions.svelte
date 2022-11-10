@@ -120,7 +120,7 @@
 <!-- Raw JSON -->
 <Drawer bind:this={drawers.json} size="800px">
 	<DrawerContent title="Import JSON" on:close={() => drawers.json?.toggleDrawer()}>
-		<div class="p-2"><Button size="sm" on:click={importJson}>Import</Button></div>
 		<SimpleEditor bind:code={pendingJson} lang="json" class="h-full" />
+		<span slot="submission"><Button size="sm" on:click={importJson}>Import</Button></span>
 	</DrawerContent>
 </Drawer>

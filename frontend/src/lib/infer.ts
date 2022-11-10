@@ -6,7 +6,7 @@ const loadSchemaLastRun = writable<[string | undefined, MainArgSignature | undef
 
 
 export async function inferArgs(
-	language: 'python3' | 'deno' | 'go',
+	language: 'python3' | 'deno' | 'go' | 'bash',
 	code: string,
 	schema: Schema
 ): Promise<void> {
@@ -26,6 +26,10 @@ export async function inferArgs(
 			})
 		} else if (language == 'go') {
 			inferedSchema = await ScriptService.goToJsonschema({
+				requestBody: code
+			})
+		} else if (language == 'bash') {
+			inferedSchema = await ScriptService.bashToJsonschema({
 				requestBody: code
 			})
 		} else {
@@ -109,6 +113,8 @@ function argSigToJsonSchemaType(
 		} else {
 			newS.items = { type: 'string' }
 		}
+	} else {
+		newS.type = 'object'
 	}
 	if (oldS.type != newS.type) {
 		for (const prop of Object.getOwnPropertyNames(newS)) {

@@ -6,16 +6,28 @@
 	import TableCustom from '$lib/components/TableCustom.svelte'
 	import PageHeader from '$lib/components/PageHeader.svelte'
 	import InviteGlobalUser from '$lib/components/InviteGlobalUser.svelte'
-	import { Drawer, DrawerContent } from '$lib/components/common'
+	import { Alert, Badge, Drawer, DrawerContent } from '$lib/components/common'
+	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
 
 	let drawer: Drawer
+
+	export function openDrawer() {
+		loadVersion()
+		listUsers()
+		drawer?.openDrawer()
+	}
+
 	export function toggleDrawer() {
 		drawer?.toggleDrawer()
 	}
+
 	let version: string | undefined
 	let users: GlobalUserInfo[] = []
 	let filteredUsers: GlobalUserInfo[] | undefined
 	let userFilter = ''
+
+	let deleteConfirmedCallback: (() => void) | undefined = undefined
+	$: openConfirmation = Boolean(deleteConfirmedCallback)
 
 	const fuseOptions = {
 		includeScore: false,
@@ -30,65 +42,105 @@
 	}
 
 	async function listUsers(): Promise<void> {
-		users = await UserService.listUsersAsSuperAdmin({})
+		users = await UserService.listUsersAsSuperAdmin({ perPage: 100000 })
 		fuse?.setCollection(users)
 	}
-
-	loadVersion()
-	listUsers()
 </script>
 
-<Drawer bind:this={drawer} size="800px">
-	<DrawerContent title="Superadmin Settings" on:close={drawer.toggleDrawer}>
-		<div class="text-xs pt-2 text-gray-500 ">
-			Running windmill version (backend) {version}
-		</div>
+<Drawer bind:this={drawer} on:open={listUsers} size="900px">
+	<DrawerContent overflow_y={false} title="Superadmin Settings" on:close={drawer.closeDrawer}>
+		<ConfirmationModal
+			open={openConfirmation}
+			title="Remove user"
+			confirmationText="Remove"
+			on:canceled={() => {
+				deleteConfirmedCallback = undefined
+			}}
+			on:confirmed={() => {
+				if (deleteConfirmedCallback) {
+					deleteConfirmedCallback()
+				}
+				deleteConfirmedCallback = undefined
+			}}
+		>
+			<div class="flex flex-col w-full space-y-4">
+				<span>Are you sure you want to remove this user?</span>
+				<Alert type="info" title="Bypass confirmation">
+					<div>
+						You can press
+						<Badge color="dark-gray">SHIFT</Badge>
+						while removing a variable to bypass confirmation.
+					</div>
+				</Alert>
+			</div>
+		</ConfirmationModal>
 
-		<PageHeader title="All users" primary={false} />
+		<div class="flex flex-col h-full">
+			<div>
+				<div class="text-xs pt-1 text-gray-500 ">
+					Windmill {version}
+				</div>
 
-		<div class="pb-1" />
-		<InviteGlobalUser on:new={listUsers} />
-		<div class="pb-1" />
+				<PageHeader title="All users" primary={false} />
 
-		<input placeholder="Search users" bind:value={userFilter} class="input mt-1" />
-		<div class="overflow-x-auto border mb-4">
-			<TableCustom>
-				<tr slot="header-row">
-					<th>email</th>
-					<th>superadmin</th>
-					<th>auth</th>
-					<th>name</th>
-					<th>company</th>
-					<th />
-				</tr>
-				<tbody slot="body">
-					{#if filteredUsers && users}
-						{#each userFilter === '' ? users : filteredUsers as { email, super_admin, login_type, name, company }}
-							<tr class="border">
-								<td>{email}</td>
-								<td>{super_admin}</td>
-								<td>{login_type}</td>
-								<td>{name}</td>
-								<td>{company}</td>
-								<td>
-									<button
-										class="text-blue-500"
-										on:click={async () => {
-											await UserService.globalUserUpdate({
-												email,
-												requestBody: {
-													is_super_admin: !super_admin
-												}
-											})
-											listUsers()
-										}}>{super_admin ? 'demote' : 'promote'}</button
-									></td
-								>
-							</tr>
-						{/each}
-					{/if}
-				</tbody>
-			</TableCustom>
+				<div class="pb-1" />
+				<InviteGlobalUser on:new={listUsers} />
+				<div class="pb-1" />
+
+				<input placeholder="Search users" bind:value={userFilter} class="input mt-1" />
+			</div>
+			<div class="mt-2 overflow-auto">
+				<TableCustom>
+					<tr slot="header-row" class="sticky top-0 bg-white border-b">
+						<th>email</th>
+						<th>superadmin</th>
+						<th>auth</th>
+						<th>name</th>
+						<th>company</th>
+						<th />
+					</tr>
+					<tbody slot="body" class="overflow-y-auto h-full max-h-full">
+						{#if filteredUsers && users}
+							{#each userFilter === '' ? users : filteredUsers as { email, super_admin, login_type, name, company }}
+								<tr class="border">
+									<td>{email}</td>
+									<td>{super_admin ? 'yes' : ''}</td>
+									<td>{login_type}</td>
+									<td><span class="break-words">{name ?? ''}</span></td>
+									<td><span class="break-words">{company ?? ''}</span></td>
+									<td>
+										<div class="flex flex-row gap-x-1">
+											<button
+												class="text-blue-500"
+												on:click={async () => {
+													await UserService.globalUserUpdate({
+														email,
+														requestBody: {
+															is_super_admin: !super_admin
+														}
+													})
+													listUsers()
+												}}>{super_admin ? 'demote' : 'promote'}</button
+											>
+											|
+											<button
+												class="text-red-500"
+												on:click={async () => {
+													deleteConfirmedCallback = async () => {
+														await UserService.globalUserDelete({ email })
+														listUsers()
+													}
+													openConfirmation = true
+												}}>remove</button
+											>
+										</div>
+									</td>
+								</tr>
+							{/each}
+						{/if}
+					</tbody>
+				</TableCustom>
+			</div>
 		</div>
 	</DrawerContent>
 </Drawer>

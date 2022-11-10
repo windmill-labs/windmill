@@ -62,7 +62,7 @@
 			'rounded-md',
 			'justify-center items-center text-center whitespace-nowrap inline-flex',
 			btnClasses,
-			disabled ? 'bg-gray-200' : ''
+			disabled ? 'bg-gray-300' : ''
 		),
 		disabled,
 		href,
@@ -75,7 +75,7 @@
 			event.preventDefault()
 			dispatch('click', event)
 			if (href) {
-				if (href.startsWith('http')) {
+				if (href.startsWith('http') || target == '_blank') {
 					window.open(href, target)
 				} else {
 					goto(href)

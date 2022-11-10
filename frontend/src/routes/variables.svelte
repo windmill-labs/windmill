@@ -85,7 +85,7 @@
 	</PageHeader>
 
 	<VariableEditor bind:this={variableEditor} on:create={loadVariables} />
-	<div class="relative">
+	<div class="relative overflow-x-auto pb-40 pr-4">
 		{#if loading.variables}
 			<Skeleton layout={[0.5, [2], 1]} />
 			{#each new Array(3) as _}
@@ -106,16 +106,18 @@
 						<tr>
 							<td
 								><a
-									class="break-all"
+									class="break-words"
 									id="edit-{path}"
 									on:click={() => variableEditor.editVariable(path)}
 									href="#{path}">{path}</a
 								>
 								<div><SharedBadge {canWrite} extraPerms={extra_perms} /></div>
 							</td>
-							<td
-								><span class="text-sm break-all">
-									{truncate(value ?? '******', 20)}
+							<td>
+								<span class="inline-flex flex-row">
+									<span class="text-sm break-words">
+										{truncate(value ?? '****', 20)}
+									</span>
 									{#if is_secret}
 										<Popover>
 											<Icon
@@ -127,20 +129,26 @@
 											<span slot="text">This item is secret</span>
 										</Popover>
 									{/if}
-								</span></td
-							>
-							<td class="break-all"
+								</span>
+							</td>
+							<td class="break-words"
 								><span class="text-xs text-gray-500">{truncate(description ?? '', 50)}</span></td
 							>
 
 							<td class="text-center">
 								{#if is_oauth}
-									<Icon
-										class="text-green-500"
-										data={faCircle}
-										scale={0.7}
-										label="Variable is tied to an OAuth app"
-									/>
+									<Popover>
+										<Icon
+											class="text-green-600 animate-[pulse_5s_linear_infinite]"
+											data={faCircle}
+											scale={0.7}
+											label="Variable is tied to an OAuth app"
+										/>
+										<div slot="text">
+											The variable is tied to an OAuth app. The token is refreshed automatically if
+											applicable.
+										</div>
+									</Popover>
 								{/if}
 							</td>
 							<td
@@ -190,7 +198,7 @@
 											  ]
 											: [])
 									]}
-									relative={false}
+									relative={true}
 								/></td
 							>
 						</tr>
@@ -207,7 +215,6 @@
 			loadVariables()
 		}}
 	/>
-	<div class="my-10" />
 
 	<PageHeader
 		title="Contextual Variables"
@@ -217,20 +224,22 @@
 		primary={false}
 	/>
 
-	<div class="my-5" />
-	{#if loading.contextual}
-		<Skeleton layout={[0.5, [2], 1]} />
-		{#each new Array(8) as _}
-			<Skeleton layout={[[2.8], 0.5]} />
-		{/each}
-	{:else}
-		<TableSimple
-			headers={['name', 'example of value', 'description']}
-			data={contextualVariables}
-			keys={['name', 'value', 'description']}
-			twTextSize="text-sm"
-		/>
-	{/if}
+	<div class="overflow-auto">
+		<div class="my-5" />
+		{#if loading.contextual}
+			<Skeleton layout={[0.5, [2], 1]} />
+			{#each new Array(8) as _}
+				<Skeleton layout={[[2.8], 0.5]} />
+			{/each}
+		{:else}
+			<TableSimple
+				headers={['name', 'example of value', 'description']}
+				data={contextualVariables}
+				keys={['name', 'value', 'description']}
+				twTextSize="text-sm"
+			/>
+		{/if}
+	</div>
 </CenteredPage>
 
 <ConfirmationModal

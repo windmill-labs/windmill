@@ -32,7 +32,7 @@ use tracing::Span;
 use windmill_audit::{audit_log, ActionKind};
 use windmill_common::{
     error::{self, Error, JsonResult, Result},
-    utils::{not_found_if_none, paginate, rd_string, require_admin, Pagination},
+    utils::{not_found_if_none, rd_string, require_admin, Pagination},
 };
 
 const TTL_TOKEN_CACHE_S: u64 = 60 * 5; // 5 minutes
@@ -65,7 +65,6 @@ pub fn global_service() -> Router {
         .route("/create", post(create_user))
         .route("/update/:user", post(update_user))
         .route("/delete/:user", delete(delete_user))
-        .route("/logout", post(logout))
         .route("/tokens/create", post(create_token))
         .route("/tokens/delete/:token_prefix", delete(delete_token))
         .route("/tokens/list", get(list_tokens))
@@ -77,7 +76,9 @@ pub fn global_service() -> Router {
 }
 
 pub fn make_unauthed_service() -> Router {
-    Router::new().route("/login", post(login))
+    Router::new()
+        .route("/login", post(login))
+        .route("/logout", post(logout))
 }
 
 pub struct AuthCache {
@@ -548,7 +549,8 @@ async fn list_users_as_super_admin(
 ) -> JsonResult<Vec<GlobalUserInfo>> {
     let mut tx = db.begin().await?;
     require_super_admin(&mut tx, authed.email).await?;
-    let (per_page, offset) = paginate(pagination);
+    let per_page = pagination.per_page.unwrap_or(10000).max(1);
+    let offset = (pagination.page.unwrap_or(1).max(1) - 1) * per_page;
 
     let rows = sqlx::query_as!(
         GlobalUserInfo,
@@ -612,25 +614,29 @@ async fn logout(
     Tokened { token }: Tokened,
     cookies: Cookies,
     Extension(db): Extension<DB>,
-    Authed { username, .. }: Authed,
 ) -> Result<String> {
     let mut cookie = Cookie::new(COOKIE_NAME, "");
     cookie.set_path(COOKIE_PATH);
     cookies.remove(cookie);
     let mut tx = db.begin().await?;
-    audit_log(
-        &mut tx,
-        &username,
-        "users.logout",
-        ActionKind::Delete,
-        "global",
-        Some(&truncate_token(&token)),
-        None,
-    )
-    .await?;
+    let email = sqlx::query_scalar!("DELETE FROM token WHERE token = $1 RETURNING email", token)
+        .fetch_optional(&mut tx)
+        .await?;
+    if let Some(email) = email {
+        audit_log(
+            &mut tx,
+            &email.unwrap_or("noemail".to_string()),
+            "users.logout",
+            ActionKind::Delete,
+            "global",
+            Some(&truncate_token(&token)),
+            None,
+        )
+        .await?;
+    }
     tx.commit().await?;
 
-    Ok(username)
+    Ok("logged out successfully".to_string())
 }
 
 async fn whoami(
@@ -1316,6 +1322,8 @@ pub async fn create_session_token<'c>(
     .await?;
     let mut cookie = Cookie::new(COOKIE_NAME, token.clone());
     cookie.set_secure(is_secure);
+    cookie.set_same_site(cookie::SameSite::Lax);
+    cookie.set_http_only(true);
     cookie.set_path(COOKIE_PATH);
     let mut expire: OffsetDateTime = time::OffsetDateTime::now_utc();
     expire += time::Duration::days(3);

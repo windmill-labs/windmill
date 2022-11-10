@@ -55,13 +55,22 @@
 	}
 
 	$: stepPropPicker = failureModule
-		? { pickableProperties: { previous_result: { error: 'the error message' } }, extraLib: '' }
+		? {
+				pickableProperties: {
+					flow_input: $flowStateStore.previewArgs,
+					priorIds: {},
+					previousId: undefined
+				},
+				extraLib: ''
+		  }
 		: getStepPropPicker(
 				$flowStateStore,
 				parentModule,
 				previousModule,
+				flowModule.id,
 				$flowStore,
 				previewArgs,
+				false,
 				true
 		  )
 
@@ -183,9 +192,9 @@
 								><Tooltip>
 									Move the focus outside of the text editor to recompute the inputs or press
 									<Kbd>Ctrl/Cmd</Kbd> + <Kbd>S</Kbd>
-								</Tooltip>Inputs</Tab
+								</Tooltip><span class="font-semibold">Step Input</span></Tab
 							>
-							<Tab value="test">Test this step</Tab>
+							<Tab value="test"><span class="font-semibold text-md">Test this step</span></Tab>
 							<Tab value="retries">Retries</Tab>
 							{#if !$selectedId.includes('failure')}
 								<Tab value="early-stop">Early Stop</Tab>
@@ -196,10 +205,7 @@
 						<div class="h-[calc(100%-32px)]">
 							{#if selected === 'inputs'}
 								<div class="h-full overflow-auto">
-									<PropPickerWrapper
-										priorId={previousModule?.id}
-										pickableProperties={stepPropPicker.pickableProperties}
-									>
+									<PropPickerWrapper pickableProperties={stepPropPicker.pickableProperties}>
 										<SchemaForm
 											schema={$flowStateStore[$selectedId]?.schema ?? {}}
 											inputTransform={true}
@@ -218,12 +224,7 @@
 							{:else if selected === 'retries'}
 								<FlowRetries bind:flowModule class="px-4 pb-4 h-full overflow-auto" />
 							{:else if selected === 'early-stop'}
-								<FlowModuleEarlyStop
-									previousModuleId={previousModule?.id}
-									bind:flowModule
-									class="px-4 pb-4 h-full overflow-auto"
-									{parentModule}
-								/>
+								<FlowModuleEarlyStop bind:flowModule class="px-4 pb-4 h-full overflow-auto" />
 							{:else if selected === 'suspend'}
 								<div class="px-4 pb-4 h-full overflow-auto">
 									<FlowModuleSuspend previousModuleId={previousModule?.id} bind:flowModule />

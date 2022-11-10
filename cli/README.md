@@ -4,6 +4,12 @@ A simple CLI allowing interactions with windmill from the command line.
 
 [![asciicast](https://asciinema.org/a/533968.svg)](https://asciinema.org/a/533968)
 
+## Installation
+
+Install the `wmill` CLI tool using `deno install --unstable -A https://deno.land/x/wmill/main.ts`.
+
+Update to the latest version using `wmill upgrade`.
+
 ## Setup
 
 Setup the CLI by running `wmill setup`. This will guide you through the setup process easily.

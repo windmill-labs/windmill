@@ -18,6 +18,10 @@
 		open = false
 	}
 
+	export function isOpen() {
+		return open
+	}
+
 	let mounted = false
 	const dispatch = createEventDispatcher()
 
@@ -35,7 +39,7 @@
 
 	function handleClickAway() {
 		dispatch('clickAway')
-		open = !open
+		open = false
 	}
 
 	function onKeyDown(event: KeyboardEvent) {
@@ -116,7 +120,6 @@
 		background: white;
 		z-index: 3;
 		transition: transform var(--duration) ease;
-		overflow: auto;
 	}
 
 	.panel.left {

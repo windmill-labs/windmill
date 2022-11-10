@@ -86,11 +86,7 @@
 		</ul>
 		{#if level == 0 && topBrackets}<span class="h-0">{closeBracket}</span>{/if}
 	</span>
-	<span
-		class="cursor-pointer hover:bg-gray-200 {level == 0 ? 'ml-2' : ''}"
-		class:hidden={!collapsed}
-		on:click={collapse}
-	>
+	<span class="cursor-pointer hover:bg-gray-200" class:hidden={!collapsed} on:click={collapse}>
 		{openBracket}{collapsedSymbol}{closeBracket}
 	</span>
 	{#if !isLast && collapsed}

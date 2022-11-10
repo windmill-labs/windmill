@@ -19,7 +19,7 @@
 	import ShareModal from '$lib/components/ShareModal.svelte'
 	import TableCustom from '$lib/components/TableCustom.svelte'
 	import { userStore, workspaceStore } from '$lib/stores'
-	import { faEdit, faPlus, faShare } from '@fortawesome/free-solid-svg-icons'
+	import { faEdit, faPlus, faShare, faTrash } from '@fortawesome/free-solid-svg-icons'
 	import { Alert, Button } from '$lib/components/common'
 
 	type GroupW = Group & { canWrite: boolean }
@@ -90,7 +90,7 @@
 		beta in the community edition
 	</Alert>
 
-	<div class="relative">
+	<div class="relative mb-20">
 		<TableCustom>
 			<tr slot="header-row">
 				<th>Name</th>
@@ -130,6 +130,17 @@
 										disabled: !canWrite,
 										action: () => {
 											shareModal.openDrawer(name)
+										}
+									},
+									{
+										displayName: 'Delete',
+
+										icon: faTrash,
+										type: 'delete',
+										disabled: !canWrite,
+										action: async () => {
+											await GroupService.deleteGroup({ workspace: $workspaceStore ?? '', name })
+											loadGroups()
 										}
 									}
 								]}

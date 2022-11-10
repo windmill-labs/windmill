@@ -13,7 +13,8 @@
 	const languageColors: Record<RawScript.language, BadgeColor> = {
 		[RawScript.language.GO]: 'dark-indigo',
 		[RawScript.language.DENO]: 'dark-blue',
-		[RawScript.language.PYTHON3]: 'dark-green'
+		[RawScript.language.PYTHON3]: 'dark-green',
+		[RawScript.language.BASH]: 'dark-yellow'
 	}
 </script>
 

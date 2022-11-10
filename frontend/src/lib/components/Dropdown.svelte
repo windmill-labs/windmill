@@ -15,6 +15,7 @@
 	// This can cause the dropdown to be hidden if it is in an overflow-hidden div.
 	// In that case, set relative to false and control the dropdown positioning from the div
 	export let relative = true
+	export let left = true
 
 	const dispatch = createEventDispatcher()
 
@@ -33,14 +34,16 @@
 	on:click_outside={handleClickOutsideMenu}
 >
 	<Button color="light" size="xs" btnClasses="!text-blue-500 bg-transparent" on:click={toggle}>
-		{#if !name}
+		{#if !$$slots.default}
 			<Icon data={faEllipsisH} scale={1.2} />
 		{:else}
-			{name}
+			<slot />
 		{/if}
 	</Button>
 	<div
-		class="flex flex-col z-50 origin-top-right absolute right-0 mt-2 w-48 rounded-md shadow-lg py-1 bg-white ring-1 ring-black ring-opacity-5 focus:outline-none {open
+		class="flex flex-col z-50 origin-top-right absolute {left
+			? 'right-0'
+			: 'left-0'} mt-2 w-48 rounded-md shadow-lg py-1 bg-white ring-1 ring-black ring-opacity-5 focus:outline-none {open
 			? 'visible'
 			: 'hidden'}"
 		role="menu"
@@ -52,6 +55,7 @@
 					<button
 						on:click={(event) => {
 							if (!item.disabled) {
+								event.preventDefault()
 								open = false
 								item.action && item.action(event)
 								dispatch('click', { item: item?.eventName })

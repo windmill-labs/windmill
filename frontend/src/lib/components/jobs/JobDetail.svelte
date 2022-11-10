@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { goto } from '$app/navigation'
+	import { page } from '$app/stores'
 	import type { Job } from '$lib/gen'
 	import {
 		displayDate,
@@ -15,13 +17,14 @@
 		faFastForward,
 		faHourglassHalf,
 		faRobot,
+		faSearch,
 		faTimes,
 		faUser,
 		faWind
 	} from '@fortawesome/free-solid-svg-icons'
 	import Icon from 'svelte-awesome'
 	import { check } from 'svelte-awesome/icons'
-	import { Badge } from '../common'
+	import { Badge, Button } from '../common'
 
 	const SMALL_ICON_SCALE = 0.7
 
@@ -86,22 +89,32 @@
 					<div class="flex flex-row space-x-2">
 						<div class="whitespace-nowrap">
 							{#if job.script_path}
-								<a href="/run/{job.id}">{job.script_path} </a>
+								<a href="/run/{job.id}?workspace={job.workspace_id}">{job.script_path} </a>
 							{:else if 'job_kind' in job && job.job_kind == 'preview'}
-								<a href="/run/{job.id}">Preview without path </a>
+								<a href="/run/{job.id}?workspace={job.workspace_id}">Preview without path </a>
 							{:else if 'job_kind' in job && job.job_kind == 'dependencies'}
-								<a href="/run/{job.id}">lock deps of {truncateHash(job.script_hash ?? '')}</a>
+								<a href="/run/{job.id}?workspace={job.workspace_id}"
+									>lock deps of {truncateHash(job.script_hash ?? '')}</a
+								>
 							{:else if 'job_kind' in job && job.job_kind == 'identity'}
-								<a href="/run/{job.id}">no op</a>
+								<a href="/run/{job.id}?workspace={job.workspace_id}">no op</a>
 							{/if}
+							<button
+								class="ml-1"
+								on:click={() => {
+									goto(`/runs/${job.script_path}?${$page.url.searchParams.toString()}`)
+								}}><Badge><Icon scale={0.7} data={faSearch} /></Badge></button
+							>
 						</div>
 						<div class="whitespace-nowrap">
 							{#if 'job_kind' in job}<a href="/run/{job.id}"
 									><Badge color="blue">{job.job_kind}</Badge></a
 								>
 							{/if}
-							{#if (job.is_flow_step && job.job_kind == 'script') || job.job_kind == 'preview'}
-								<a href="/run/{job.parent_job}"><Badge color="gray">flow step</Badge></a>
+							{#if job.is_flow_step && (job.job_kind == 'script' || job.job_kind == 'preview')}
+								<a href="/run/{job.parent_job}?workspace={job.workspace_id}"
+									><Badge color="gray">flow step</Badge></a
+								>
 							{/if}
 						</div>
 					</div>

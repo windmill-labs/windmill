@@ -36,7 +36,7 @@
 	}
 </script>
 
-<div class="flex flex-row">
+<div class="flex flex-row space-x-1">
 	<input type="email" on:keyup={handleKeyUp} placeholder="email" bind:value={email} />
 
 	<Toggle class="mx-2" bind:checked={is_super_admin} options={{ right: 'admin' }} />

@@ -18,7 +18,7 @@ use serde_json::{json, Map, Value};
 use tokio::sync::mpsc::Sender;
 use tracing::instrument;
 use uuid::Uuid;
-use windmill_common::flow_status::Iterator;
+use windmill_common::flow_status::{Iterator, JobResult};
 use windmill_common::{
     error::{self, to_anyhow, Error},
     flow_status::{
@@ -77,6 +77,7 @@ pub async fn update_flow_status_after_job_completion(
         })?;
 
     let module_index = usize::try_from(old_status.step).ok();
+
     let module_status = module_index
         .and_then(|i| old_status.modules.get(i))
         .unwrap_or(&old_status.failure_module);
@@ -578,7 +579,6 @@ async fn compute_bool_from_expr(
         ]
         .into(),
         creds,
-        vec![],
         by_id,
         base_internal_url.to_string(),
     )
@@ -657,7 +657,6 @@ async fn transform_input(
     input_transforms: &HashMap<String, InputTransform>,
     workspace: &str,
     token: &str,
-    steps: Vec<Uuid>,
     resumes: &[Value],
     approvers: Vec<String>,
     by_id: &IdContext,
@@ -676,7 +675,7 @@ async fn transform_input(
             InputTransform::Static { value: _ } => (),
             InputTransform::Javascript { expr } => {
                 let flow_input = flow_args.clone().unwrap_or_else(|| json!({}));
-                let previous_result = flatten_previous_result(last_result.clone());
+                let previous_result = last_result.clone();
                 let context = vec![
                     ("params".to_string(), json!(mapped)),
                     ("previous_result".to_string(), previous_result),
@@ -693,7 +692,6 @@ async fn transform_input(
                     expr.to_string(),
                     context,
                     Some(EvalCreds { workspace: workspace.to_string(), token: token.to_string() }),
-                    steps.clone(),
                     Some(by_id.clone()),
                     base_internal_url.to_string(),
                 )
@@ -710,24 +708,6 @@ async fn transform_input(
     }
 
     Ok(mapped)
-}
-
-fn flatten_previous_result(last_result: serde_json::Value) -> serde_json::Value {
-    if last_result.is_object()
-        && last_result
-            .as_object()
-            .unwrap()
-            .contains_key("previous_result")
-    {
-        last_result
-            .as_object()
-            .unwrap()
-            .get("previous_result")
-            .unwrap()
-            .clone()
-    } else {
-        last_result.clone()
-    }
 }
 
 #[instrument(level = "trace", skip_all)]
@@ -820,6 +800,12 @@ async fn push_next_flow_job(
         .or_else(|| flow.failure_module.as_ref())
         .with_context(|| format!("no module at index {}", status.step))?;
 
+    let previous_id = if i >= 1 {
+        flow.modules.get(i - 1).map(|m| m.id.clone()).unwrap()
+    } else {
+        String::new()
+    };
+
     // calculate sleep if any
     let mut scheduled_for_o = {
         let sleep_input_transform = i
@@ -834,7 +820,6 @@ async fn push_next_flow_job(
                     expr.to_string(),
                     [("result".to_string(), last_result.clone())].into(),
                     None,
-                    vec![],
                     None,
                     "".to_string(),
                 )
@@ -1083,9 +1068,9 @@ async fn push_next_flow_job(
     let mut args = match &module.value {
         FlowModuleValue::Script { input_transforms, .. }
         | FlowModuleValue::RawScript { input_transforms, .. } => {
-            let ctx = get_transform_context(db, &flow_job, &status, &flow.modules).await?;
+            let ctx = get_transform_context(db, &flow_job, previous_id.clone(), &status).await?;
             transform_context = Some(ctx);
-            let (token, steps, by_id) = transform_context.as_ref().unwrap();
+            let (token, by_id) = transform_context.as_ref().unwrap();
             transform_input(
                 &flow_job.args,
                 last_result.clone(),
@@ -1096,7 +1081,6 @@ async fn push_next_flow_job(
                 },
                 &flow_job.workspace_id,
                 &token,
-                steps.to_vec(),
                 resume_messages.as_slice(),
                 approvers,
                 by_id,
@@ -1140,6 +1124,7 @@ async fn push_next_flow_job(
         &status_module,
         last_result.clone(),
         base_internal_url,
+        previous_id,
     )
     .await?;
     tx.commit().await?;
@@ -1177,31 +1162,12 @@ async fn push_next_flow_job(
             args.extend(new_args.clone());
             vec![args]
         }
-        NextStatus::BranchChosen(_) => {
-            args.insert(
-                "previous_result".to_string(),
-                flatten_previous_result(last_result),
-            );
-            vec![args]
-        }
-        NextStatus::NextBranchStep(NextBranch { status, .. }) => {
-            args.insert(
-                "previous_result".to_string(),
-                flatten_previous_result(status.previous_result.clone()),
-            );
-            vec![args]
-        }
+
         NextStatus::AllFlowJobs {
             branchall: Some(BranchAllStatus { len, .. }),
             iterator: None,
             ..
-        } => {
-            args.insert(
-                "previous_result".to_string(),
-                flatten_previous_result(last_result),
-            );
-            (0..*len).map(|_| args.clone()).collect()
-        }
+        } => (0..*len).map(|_| args.clone()).collect(),
         NextStatus::AllFlowJobs {
             branchall: None,
             iterator: Some(Iterator { itered, .. }),
@@ -1459,7 +1425,7 @@ async fn script_path_to_payload<'c>(
     Ok(job_payload)
 }
 
-type TransformContext = (String, Vec<Uuid>, IdContext);
+type TransformContext = (String, IdContext);
 
 async fn compute_next_flow_transform<'c>(
     flow_job: &QueuedJob,
@@ -1472,6 +1438,7 @@ async fn compute_next_flow_transform<'c>(
     status_module: &FlowStatusModule,
     last_result: serde_json::Value,
     base_internal_url: &str,
+    previous_id: String,
 ) -> error::Result<(sqlx::Transaction<'c, sqlx::Postgres>, NextFlowTransform)> {
     match &module.value {
         FlowModuleValue::Identity => Ok((
@@ -1508,10 +1475,10 @@ async fn compute_next_flow_transform<'c>(
 
             let next_loop_status = match status_module {
                 FlowStatusModule::WaitingForPriorSteps { .. } => {
-                    let (token, steps, by_id) = if let Some(x) = transform_context {
+                    let (token, by_id) = if let Some(x) = transform_context {
                         x
                     } else {
-                        get_transform_context(db, &flow_job, &status, &flow.modules).await?
+                        get_transform_context(db, &flow_job, previous_id, &status).await?
                     };
                     let flow_input = flow_job.args.clone().unwrap_or_else(|| json!({}));
                     /* Iterator is an InputTransform, evaluate it into an array. */
@@ -1526,7 +1493,6 @@ async fn compute_next_flow_transform<'c>(
                         },
                         token,
                         flow_job.workspace_id.clone(),
-                        steps,
                         Some(by_id),
                         base_internal_url,
                     )
@@ -1629,8 +1595,8 @@ async fn compute_next_flow_transform<'c>(
             let branch = match status_module {
                 FlowStatusModule::WaitingForPriorSteps { .. } => {
                     let mut branch_chosen = BranchChosen::Default;
-                    let (token, _steps, idcontext) =
-                        get_transform_context(db, &flow_job, &status, &flow.modules).await?;
+                    let (token, idcontext) =
+                        get_transform_context(db, &flow_job, previous_id, &status).await?;
                     for (i, b) in branches.iter().enumerate() {
                         let pred = compute_bool_from_expr(
                             b.expr.to_string(),
@@ -1787,8 +1753,8 @@ async fn compute_next_flow_transform<'c>(
 async fn get_transform_context(
     db: &DB,
     flow_job: &QueuedJob,
+    previous_id: String,
     status: &FlowStatus,
-    modules: &Vec<FlowModule>,
 ) -> error::Result<TransformContext> {
     let tx = db.begin().await?;
     let (tx, new_token) = crate::create_token_for_owner(
@@ -1803,18 +1769,16 @@ async fn get_transform_context(
     //we need to commit asap otherwise the token won't be valid for auth to check outside of this transaction
     //which will happen with client http calls
     tx.commit().await?;
-    let new_steps: Vec<Uuid> = status
+    let steps_results: HashMap<String, JobResult> = status
         .modules
         .iter()
-        .map(|x| x.job().unwrap_or_default())
-        .collect();
-    let id_map: HashMap<String, Uuid> = modules
-        .iter()
-        .map(|x| x.id.clone())
-        .zip(new_steps.clone())
+        .filter_map(|x| x.job_result().map(|y| (x.id(), y)))
         .collect();
 
-    Ok((new_token, new_steps, IdContext(flow_job.id, id_map)))
+    Ok((
+        new_token,
+        IdContext { flow_job: flow_job.id, steps_results, previous_id },
+    ))
 }
 
 async fn evaluate_with<F>(
@@ -1822,7 +1786,6 @@ async fn evaluate_with<F>(
     vars: F,
     token: String,
     workspace: String,
-    steps: Vec<Uuid>,
     by_id: Option<IdContext>,
     base_internal_url: &str,
 ) -> anyhow::Result<serde_json::Value>
@@ -1836,7 +1799,6 @@ where
                 expr,
                 vars(),
                 Some(EvalCreds { workspace, token }),
-                steps,
                 by_id,
                 base_internal_url.to_string(),
             )

@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { faArrowLeft, faSpinner } from '@fortawesome/free-solid-svg-icons'
+	import { faArrowLeft } from '@fortawesome/free-solid-svg-icons'
 	import Icon from 'svelte-awesome'
 
 	import UserMenu from '$lib/components/sidebar/UserMenu.svelte'
@@ -11,10 +11,11 @@
 	import '../app.css'
 	import { superadmin, userStore } from '$lib/stores'
 	import CenteredModal from '$lib/components/CenteredModal.svelte'
-	import { beforeNavigate } from '$app/navigation'
+	import { beforeNavigate, goto } from '$app/navigation'
 	import UserSettings from '$lib/components/UserSettings.svelte'
 	import SuperadminSettings from '$lib/components/SuperadminSettings.svelte'
 	import WindmillIcon from '$lib/components/icons/WindmillIcon.svelte'
+	import { page } from '$app/stores'
 
 	OpenAPI.WITH_CREDENTIALS = true
 
@@ -23,20 +24,32 @@
 	let userSettings: UserSettings
 	let superadminSettings: SuperadminSettings
 
+	if ($page.status == 404) {
+		goto('/user/login')
+	}
+
 	beforeNavigate((newNavigationState) => {
 		menuOpen = false
 	})
 
 	let innerWidth = window.innerWidth
 
-	$: innerWidth < 1248 && innerWidth > 768 && (isCollapsed = true)
+	$: innerWidth < 1248 && innerWidth >= 768 && (isCollapsed = true)
 	$: (innerWidth >= 1248 || innerWidth < 768) && (isCollapsed = false)
 </script>
 
 <svelte:window bind:innerWidth />
 <UserSettings bind:this={userSettings} />
 
-{#if $userStore}
+{#if $page.status == 404}
+	<CenteredModal title="Page not found, redirecting you to login">
+		<div class="w-full ">
+			<div class="block m-auto w-20">
+				<WindmillIcon class="animate-[spin_6s_linear_infinite]" height="80px" width="80px" />
+			</div>
+		</div>
+	</CenteredModal>
+{:else if $userStore}
 	{#if $superadmin}
 		<SuperadminSettings bind:this={superadminSettings} />
 	{/if}
@@ -71,7 +84,7 @@
 							on:click={() => {
 								menuOpen = !menuOpen
 							}}
-							class="ml-1 flex items-center justify-center h-10 w-10 rounded-full focus:outline-none focus:ring-2 focus:ring-inset focus:ring-white"
+							class="ml-1 flex items-center justify-center h-8 w-8 rounded-full focus:outline-none focus:ring-2 focus:ring-inset focus:ring-white border border-white"
 						>
 							<svg
 								class="h-6 w-6 text-white"
@@ -87,15 +100,19 @@
 						</button>
 					</div>
 					<div class="bg-blue-500 h-full">
-						<div class="flex items-center flex-shrink-0 p-4 font-extrabold text-white">
-							Windmill
+						<div
+							class="flex items-center gap-x-2 flex-shrink-0 p-4 font-extrabold text-white w-10"
+							class:w-40={!isCollapsed}
+						>
+							<WindmillIcon white={true} height="20px" width="20px" />
+							{#if !isCollapsed}Windmill{/if}
 						</div>
 
 						<div class="px-2 py-4 space-y-2 border-y border-blue-400">
 							<WorkspaceMenu />
 							<UserMenu
-								on:user-settings={() => userSettings.toggleDrawer()}
-								on:superadmin-settings={() => superadminSettings.toggleDrawer()}
+								on:user-settings={() => userSettings.openDrawer()}
+								on:superadmin-settings={() => superadminSettings.openDrawer()}
 							/>
 						</div>
 
@@ -112,19 +129,25 @@
 			)}
 		>
 			<div class="flex-1 flex flex-col min-h-0 shadow-lg bg-blue-500">
-				<div class="flex items-center flex-shrink-0 p-4 font-extrabold text-white">
-					{#if isCollapsed}
-						W
-					{:else}
-						Windmill
-					{/if}
-				</div>
+				<button
+					on:click={() => {
+						isCollapsed = !isCollapsed
+					}}
+				>
+					<div
+						class="flex items-center gap-x-2 flex-shrink-0 p-4 font-extrabold text-white w-14"
+						class:w-40={!isCollapsed}
+					>
+						<WindmillIcon white={true} height="20px" width="20px" />
+						{#if !isCollapsed}Windmill{/if}
+					</div>
+				</button>
 
 				<div class="px-2 py-4 space-y-2 border-y border-blue-400">
 					<WorkspaceMenu {isCollapsed} />
 					<UserMenu
-						on:user-settings={userSettings.toggleDrawer}
-						on:superadmin-settings={() => superadminSettings.toggleDrawer()}
+						on:user-settings={userSettings.openDrawer}
+						on:superadmin-settings={() => superadminSettings.openDrawer()}
 						{isCollapsed}
 					/>
 				</div>
@@ -147,7 +170,7 @@
 				</div>
 			</div>
 		</div>
-		<div class={classNames('flex flex-col flex-1', isCollapsed ? 'md:pl-12' : 'md:pl-48')}>
+		<div class={classNames('w-full flex flex-col flex-1', isCollapsed ? 'md:pl-12' : 'md:pl-48')}>
 			<main class="min-h-screen">
 				<div class="relative w-full h-full">
 					<div
@@ -180,8 +203,10 @@
 	</div>
 {:else}
 	<CenteredModal title="Loading user">
-		<div class="mx-auto w-0">
-			<WindmillIcon class="animate-[spin_5s_linear_infinite]" height="80px" width="80px" />
+		<div class="w-full ">
+			<div class="block m-auto w-20">
+				<WindmillIcon class="animate-[spin_6s_linear_infinite]" height="80px" width="80px" />
+			</div>
 		</div>
 	</CenteredModal>
 {/if}
