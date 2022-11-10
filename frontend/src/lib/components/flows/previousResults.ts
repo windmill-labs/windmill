@@ -112,12 +112,12 @@ export function getStepPropPicker(
 	}
 
 
-	let priorIds = Object.fromEntries(previousIds.map((id) => [id, flowState[id]?.previewResult ?? {}]))
+	let priorIds = Object.fromEntries(previousIds.map((id) => [id, flowState[id]?.previewResult ?? {}]).reverse())
 
 
 	const pickableProperties = {
 		flow_input: flowInput,
-		priorIds,
+		priorIds: priorIds,
 		previousId: previousIds[0]
 	}
 
