@@ -35,10 +35,12 @@
 		That snippet can be a single line:
 		<pre><code>last_result.myarg</code></pre>
 		or a multiline:
-		<pre><code
+		<pre
+			><code
 				>let x = 5;
 x + 2</code
-			></pre>
+			></pre
+		>
 		<p>
 			If it is multiline, the statement before the final expression <b
 				>MUST END WITH ; and a newline</b
@@ -74,7 +76,7 @@ x + 2</code
 		</ul>
 		<p>To re-enable editor assistance, import the helper functions types using:</p>
 		<code>
-			{`import { previous_result, flow_input, step, variable, resource, params } from 'windmill${
+			{`import { results, flow_input, variable, resource, params } from 'windmill${
 				importPath ? `@${importPath}` : ''
 			}'`}
 		</code>

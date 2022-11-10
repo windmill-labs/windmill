@@ -325,44 +325,6 @@ export function mapUserToUserExt(user: User): UserExt {
 	}
 }
 
-export function buildExtraLib(flowInput: string, previousResultType?: string): string {
-	return `
-/**
-* get variable (including secret) at path
-* @param {string} path - path of the variable (e.g: g/all/pretty_secret)
-*/
-export function variable(path: string): string;
-
-/**
-* get resource at path
-* @param {string} path - path of the resource (e.g: g/all/my_resource)
-*/
-export function resource(path: string): any;
-
-/**
-* get result of step n.
-* If n is negative, for instance -1, it is the step just before this one.
-* Step 0 is flow input.
-* @param {number} n - step number.
-*/
-export function step(n: number): any;
-
-/**
-* flow input as an object
-*/
-export const flow_input: ${flowInput};
-
-/**
-* previous result as an object
-*/
-export const previous_result: ${previousResultType || 'any'};
-
-/**
-* static params of this same step
-*/
-export const params: any;`
-}
-
 export function schemaToTsType(schema: Schema): string {
 	if (!schema || !schema.properties) {
 		return 'any'
@@ -411,29 +373,6 @@ export function schemaToObject(schema: Schema, args: Record<string, any>): Objec
 	return object
 }
 
-export function valueToTsType(value: any): string {
-	const typeOfValue: string = typeof value
-
-	if (['string', 'number', 'boolean'].includes(typeOfValue)) {
-		return typeOfValue
-	} else if (Array.isArray(value)) {
-		const type = objectToTsType(value[0])
-		return `Array<${type}>`
-	} else if (typeof value === 'object') {
-		return objectToTsType(value)
-	} else {
-		return 'any'
-	}
-}
-
-export function objectToTsType(object: Object): string {
-	if (!object) {
-		return 'any'
-	}
-	const propKeys = Object.keys(object)
-	const types = propKeys.map((key: string) => `${key}: ${valueToTsType(object[key])}`).join(';')
-	return `{ ${types} }`
-}
 
 export type InputCat =
 	| 'string'
