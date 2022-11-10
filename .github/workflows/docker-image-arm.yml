@@ -11,11 +11,11 @@ on:
     types: [opened, synchronize, reopened]
 
 concurrency:
-  group: ${{ github.ref }}
+  group: ${{ github.ref }}-arm
   cancel-in-progress: true
 
 jobs:
-  publish_privately_arm:
+  publish_arm:
     runs-on: [self-hosted, new]
     steps:
       - uses: actions/checkout@v3
