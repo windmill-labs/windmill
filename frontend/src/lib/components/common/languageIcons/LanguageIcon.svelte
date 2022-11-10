@@ -1,7 +1,7 @@
 <script lang="ts">
 	import type { SupportedLanguage } from '$lib/common'
 	import type { SvelteComponent } from 'svelte'
-	import { GoIcon, PythonIcon, TypeScriptIcon } from './'
+	import { BashIcon, GoIcon, PythonIcon, TypeScriptIcon } from './'
 
 	export let lang: SupportedLanguage
 	export let width = 16
@@ -10,7 +10,8 @@
 	const langToComponent: Record<SupportedLanguage, typeof SvelteComponent> = {
 		go: GoIcon,
 		python3: PythonIcon,
-		deno: TypeScriptIcon
+		deno: TypeScriptIcon,
+		bash: BashIcon
 	}
 </script>
 

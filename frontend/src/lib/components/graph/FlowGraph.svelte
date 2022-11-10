@@ -90,6 +90,7 @@
 			deno: '/icons/ts-lang.svg',
 			go: '/icons/go-lang.svg',
 			python3: '/icons/python-lang.svg',
+			bash: '/icons/bash-lang.svg',
 		}
 		const hostImg: Record<ModuleHost, string> = {
 			hub: '/icons/hub-script.svg',
