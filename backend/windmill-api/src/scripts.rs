@@ -50,6 +50,7 @@ pub fn global_service() -> Router {
         )
         .route("/deno/tojsonschema", post(parse_deno_code_to_jsonschema))
         .route("/go/tojsonschema", post(parse_go_code_to_jsonschema))
+        .route("/bash/tojsonschema", post(parse_bash_code_to_jsonschema))
         .route("/hub/list", get(list_hub_scripts))
         .route("/hub/get/*path", get(get_hub_script_by_path))
         .route("/hub/get_full/*path", get(get_full_hub_script_by_path))
@@ -280,11 +281,9 @@ async fn create_script(
         .map(|v| v.1.clone())
         .unwrap_or(json!({}));
 
-    let lock = if ns.language == ScriptLang::Deno {
-        Some("".to_string())
-    } else {
-        ns.lock.as_ref().map(|x| x.join("\n"))
-    };
+    let lock = ns.lock.as_ref().map(|x| x.join("\n"));
+    let lock = lock.and_then(|e| if e.is_empty() { None } else { Some(e) });
+    let needs_lock_gen = lock.is_none();
     //::text::json is to ensure we use serde_json with preserve order
     sqlx::query!(
         "INSERT INTO script (workspace_id, hash, path, parent_hashes, summary, description, \
@@ -308,7 +307,7 @@ async fn create_script(
     .execute(&mut tx)
     .await?;
 
-    let mut tx = if ns.lock.is_none() && ns.language != ScriptLang::Deno {
+    let mut tx = if needs_lock_gen {
         let dependencies = match ns.language {
             ScriptLang::Python3 => {
                 windmill_parser_py::parse_python_imports(&ns.content)?.join("\n")
@@ -623,8 +622,8 @@ async fn delete_script_by_hash(
 
     require_admin(authed.is_admin, &authed.username)?;
     let script = sqlx::query_as::<_, Script>(
-        "UPDATE script SET content = '', archived = true, deleted = true WHERE hash = $1 AND \
-         workspace_id = $2RETURNING *",
+        "UPDATE script SET content = '', archived = true, deleted = true, lock = '', schema = null WHERE hash = $1 AND \
+         workspace_id = $2 RETURNING *",
     )
     .bind(&hash.0)
     .bind(&w_id)
@@ -662,4 +661,10 @@ async fn parse_go_code_to_jsonschema(
     Json(code): Json<String>,
 ) -> JsonResult<windmill_parser::MainArgSignature> {
     windmill_parser_go::parse_go_sig(&code).map(Json)
+}
+
+async fn parse_bash_code_to_jsonschema(
+    Json(code): Json<String>,
+) -> JsonResult<windmill_parser::MainArgSignature> {
+    windmill_parser_bash::parse_bash_sig(&code).map(Json)
 }

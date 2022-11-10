@@ -5,7 +5,7 @@
 	import HatIcon from '../icons/HatIcon.svelte'
 </script>
 
-<div class="p-4 border border-gray-300 rounded-md bg-gray-50 ">
+<div class="p-4 border border-gray-300 rounded-md bg-gray-50 overflow-auto">
 	<div class="flex items-center">
 		<h3 class="inline-flex items-center font-semibold">
 			<HatIcon class="w-6 h-6 mr-2" />
@@ -15,7 +15,7 @@
 	<div class="mt-2 mb-4 text-sm text-gray-700 ">
 		Create a new script or find inspiration on the Hub!
 	</div>
-	<div class="inline-flex flex-wrap gap-y-2 ">
+	<div class="inline-flex flex-wrap gap-y-2">
 		<Button
 			on:click={() => goto('scripts/add')}
 			color="dark"

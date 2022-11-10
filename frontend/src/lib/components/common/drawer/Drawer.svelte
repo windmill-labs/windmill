@@ -11,6 +11,17 @@
 		open = !open
 	}
 
+	export function openDrawer() {
+		open = true
+	}
+	export function closeDrawer() {
+		open = false
+	}
+
+	export function isOpen() {
+		return open
+	}
+
 	let mounted = false
 	const dispatch = createEventDispatcher()
 
@@ -28,22 +39,38 @@
 
 	function handleClickAway() {
 		dispatch('clickAway')
-		open = !open
+		open = false
+	}
+
+	function onKeyDown(event: KeyboardEvent) {
+		if (open) {
+			switch (event.key) {
+				case 'Escape':
+					open = false
+					event.preventDefault()
+					break
+			}
+		}
 	}
 
 	$: open ? dispatch('open') : dispatch('close')
 
+	let timeout = true
+	$: !open ? setTimeout(() => (timeout = true), duration * 1000) : (timeout = false)
 	onMount(() => {
 		mounted = true
 		scrollLock(open)
 	})
 </script>
 
-<aside class="drawer" class:open {style}>
-	<div class="overlay" on:click={handleClickAway} />
+<svelte:window on:keydown={onKeyDown} />
 
+<aside class="drawer" class:open class:close={!open && timeout} {style}>
+	<div class="overlay" on:click={handleClickAway} />
 	<div class="panel {placement}" class:size>
-		<slot />
+		{#if open || !timeout}
+			<slot />
+		{/if}
 	</div>
 </aside>
 
@@ -56,9 +83,12 @@
 		width: 100%;
 		z-index: -1;
 		transition: z-index var(--duration) step-end;
+		overflow: clip;
 	}
 
 	.drawer.open {
+		height: 100%;
+		width: 100%;
 		z-index: 99;
 		transition: z-index var(--duration) step-start;
 	}
@@ -75,8 +105,13 @@
 		transition: opacity var(--duration) ease;
 	}
 
-	.drawer.open .overlay {
+	.drawer.open > .overlay {
 		opacity: 1;
+	}
+
+	.drawer.close > .panel {
+		height: 0;
+		overflow: hidden;
 	}
 
 	.panel {
@@ -85,7 +120,6 @@
 		background: white;
 		z-index: 3;
 		transition: transform var(--duration) ease;
-		overflow: auto;
 	}
 
 	.panel.left {
@@ -118,7 +152,7 @@
 		max-height: var(--size);
 	}
 
-	.drawer.open .panel {
+	.drawer.open > .panel {
 		transform: translate(0, 0);
 	}
 </style>

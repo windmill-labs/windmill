@@ -9,6 +9,10 @@ default-run = "worker"
 name = "worker"
 path = "./src/main.rs"
 
+[features]
+default = []
+deno-lock = []
+
 [dependencies]
 windmill-queue.workspace = true
 windmill-audit.workspace = true # there isn't really a reason for audit-worth actions to happen in the worker.
@@ -23,6 +27,7 @@ windmill-parser.workspace = true
 windmill-parser-ts.workspace = true
 windmill-parser-go.workspace = true
 windmill-parser-py.workspace = true
+windmill-parser-bash.workspace = true
 sqlx.workspace = true
 uuid.workspace = true
 tracing.workspace = true

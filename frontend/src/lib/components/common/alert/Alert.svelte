@@ -47,7 +47,7 @@
 	}
 </script>
 
-<div class={classNames('rounded-md p-4', classes[type].bgClass)}>
+<div class={classNames('rounded-md p-4', classes[type].bgClass, $$props.class)}>
 	<div class="flex">
 		<div class="flex h-8 w-8 items-center justify-center rounded-full">
 			<Icon data={icons[type]} class={classes[type].iconClass} />

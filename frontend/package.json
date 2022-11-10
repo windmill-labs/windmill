@@ -1,6 +1,6 @@
 {
 	"name": "windmill",
-	"version": "1.42.1",
+	"version": "1.45.0",
 	"scripts": {
 		"dev": "vite dev",
 		"build": "vite build",
@@ -20,16 +20,15 @@
 		"@sveltejs/kit": "next",
 		"@tailwindcss/forms": "^0.5.3",
 		"@tailwindcss/typography": "^0.5.7",
-		"@types/vscode": "~1.72.0",
+		"@types/vscode": "~1.73.0",
 		"@typescript-eslint/eslint-plugin": "^5.40.1",
 		"@typescript-eslint/parser": "^5.40.1",
-		"@zerodevx/svelte-toast": "^0.8.0",
+		"@zerodevx/svelte-toast": "^0.8.1",
 		"autoprefixer": "^10.4.13",
-		"cssnano": "^5.1.13",
+		"cssnano": "^5.1.14",
 		"eslint": "^8.26.0",
 		"eslint-config-prettier": "^8.3.0",
 		"eslint-plugin-svelte3": "^4.0.0",
-		"flowbite": "^1.5.3",
 		"openapi-typescript-codegen": "^0.23.0",
 		"path-browserify": "^1.0.1",
 		"postcss": "^8.4.18",
@@ -49,7 +48,7 @@
 		"svelte-preprocess": "^4.9.8",
 		"svelte-splitpanes": "^0.7.3",
 		"svelte2tsx": "^0.5.20",
-		"tailwindcss": "^3.2.1",
+		"tailwindcss": "^3.2.2",
 		"tslib": "^2.4.1",
 		"typescript": "^4.8.4"
 	},
@@ -57,12 +56,18 @@
 	"dependencies": {
 		"@fortawesome/free-brands-svg-icons": "^6.2.0",
 		"@fortawesome/free-solid-svg-icons": "^6.2.0",
+		"@redocly/json-to-json-schema": "^0.0.1",
 		"async-mutex": "^0.4.0",
+		"chartjs-adapter-date-fns": "^2.0.0",
+		"chartjs-plugin-zoom": "^1.2.1",
+		"date-fns": "^2.29.3",
 		"fuse.js": "^6.4.6",
 		"highlight.js": "^11.5.1",
 		"monaco-editor": "^0.34.1",
 		"monaco-editor-workers": "^0.34.2",
 		"monaco-languageclient": "4.0.1",
+		"svelte-autosize": "^1.0.1",
+		"svelte-chartjs": "^3.0.1",
 		"vscode-ws-jsonrpc": "^2.0.0"
 	}
 }

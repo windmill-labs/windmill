@@ -139,8 +139,8 @@ const DEFAULT_HEAVY_DEPS: [&str; 18] = [
 const INCLUDE_DEPS_PY_SH_CONTENT: &str = include_str!("../nsjail/download_deps.py.sh");
 const NSJAIL_CONFIG_DOWNLOAD_PY_CONTENT: &str = include_str!("../nsjail/download.py.config.proto");
 const NSJAIL_CONFIG_RUN_PYTHON3_CONTENT: &str = include_str!("../nsjail/run.python3.config.proto");
-
 const NSJAIL_CONFIG_RUN_GO_CONTENT: &str = include_str!("../nsjail/run.go.config.proto");
+const NSJAIL_CONFIG_RUN_BASH_CONTENT: &str = include_str!("../nsjail/run.bash.config.proto");
 
 const NSJAIL_CONFIG_RUN_DENO_CONTENT: &str = include_str!("../nsjail/run.deno.config.proto");
 const MAX_LOG_SIZE: u32 = 200000;
@@ -621,7 +621,14 @@ async fn handle_queued_job(
                 JobKind::Dependencies => {
                     handle_dependency_job(&job, &mut logs, job_dir, db, timeout, &envs).await
                 }
-                JobKind::Identity => Ok(job.args.clone().unwrap_or_else(|| Value::Null)),
+                JobKind::Identity => match job.args.clone() {
+                    Some(Value::Object(args))
+                        if args.len() == 1 && args.contains_key("previous_result") =>
+                    {
+                        Ok(args.get("previous_result").unwrap().clone())
+                    }
+                    args @ _ => Ok(args.unwrap_or_else(|| Value::Null)),
+                },
                 _ => {
                     handle_code_execution_job(
                         &job,
@@ -787,9 +794,7 @@ async fn handle_code_execution_job(
     worker_config: &WorkerConfig,
     envs: &Envs,
 ) -> error::Result<serde_json::Value> {
-    let (inner_content, requirements_o, language) = if matches!(job.job_kind, JobKind::Preview)
-        || (matches!(job.job_kind, JobKind::Script_Hub) && job.language == Some(ScriptLang::Deno))
-    {
+    let (inner_content, requirements_o, language) = if matches!(job.job_kind, JobKind::Preview) {
         let code = (job.raw_code.as_ref().unwrap_or(&"no raw code".to_owned())).to_owned();
         (code, None, job.language.to_owned())
     } else if matches!(job.job_kind, JobKind::Script_Hub) {
@@ -885,6 +890,7 @@ mount {{
                 &inner_content,
                 timeout,
                 &shared_mount,
+                requirements_o,
             )
             .await
         }
@@ -901,6 +907,21 @@ mount {{
                 timeout,
                 job_dir,
                 requirements_o,
+                &shared_mount,
+            )
+            .await
+        }
+        Some(ScriptLang::Bash) => {
+            handle_bash_job(
+                worker_config,
+                envs,
+                logs,
+                job,
+                db,
+                token,
+                &inner_content,
+                timeout,
+                job_dir,
                 &shared_mount,
             )
             .await
@@ -1101,6 +1122,90 @@ func Run(req Req) (interface{{}}, error){{
     read_result(job_dir).await
 }
 
+#[tracing::instrument(level = "trace", skip_all)]
+async fn handle_bash_job(
+    WorkerConfig { base_internal_url, disable_nuser, disable_nsjail, base_url, .. }: &WorkerConfig,
+    Envs { nsjail_path, path_env, home_env, .. }: &Envs,
+    logs: &mut String,
+    job: &QueuedJob,
+    db: &sqlx::Pool<sqlx::Postgres>,
+    token: String,
+    content: &str,
+    timeout: i32,
+    job_dir: &str,
+    shared_mount: &str,
+) -> Result<serde_json::Value, Error> {
+    logs.push_str("\n\n--- BASH CODE EXECUTION ---\n");
+    set_logs(logs, job.id, db).await;
+    write_file(job_dir, "main.sh", content).await?;
+
+    let mut reserved_variables = get_reserved_variables(job, &token, &base_url, db).await?;
+    reserved_variables.insert("RUST_LOG".to_string(), "info".to_string());
+
+    let hm = match job.args {
+        Some(Value::Object(ref hm)) => hm.clone(),
+        _ => serde_json::Map::new(),
+    };
+    let args_owned = windmill_parser_bash::parse_bash_sig(&content)?
+        .args
+        .iter()
+        .map(|arg| {
+            hm.get(&arg.name)
+                .and_then(|v| match v {
+                    Value::String(s) => Some(s.clone()),
+                    _ => serde_json::to_string(v).ok(),
+                })
+                .unwrap_or_else(String::new)
+        })
+        .collect::<Vec<String>>();
+    let args = args_owned.iter().map(|s| &s[..]).collect::<Vec<&str>>();
+
+    let child = if !disable_nsjail {
+        let _ = write_file(
+            job_dir,
+            "run.config.proto",
+            &NSJAIL_CONFIG_RUN_BASH_CONTENT
+                .replace("{JOB_DIR}", job_dir)
+                .replace("{CLONE_NEWUSER}", &(!disable_nuser).to_string())
+                .replace("{SHARED_MOUNT}", shared_mount),
+        )
+        .await?;
+        let mut cmd_args = vec!["--config", "run.config.proto", "--", "/bin/sh", "main.sh"];
+        cmd_args.extend(args);
+        Command::new(nsjail_path)
+            .current_dir(job_dir)
+            .env_clear()
+            .envs(reserved_variables)
+            .env("PATH", path_env)
+            .env("BASE_INTERNAL_URL", base_internal_url)
+            .args(cmd_args)
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()?
+    } else {
+        let mut cmd_args = vec!["main.sh"];
+        cmd_args.extend(&args);
+        Command::new("/bin/sh")
+            .current_dir(job_dir)
+            .env_clear()
+            .envs(reserved_variables)
+            .env("PATH", path_env)
+            .env("BASE_INTERNAL_URL", base_internal_url)
+            .env("HOME", home_env)
+            .args(cmd_args)
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()?
+    };
+    handle_child(&job.id, db, logs, timeout, child).await?;
+    //for now bash jobs have an empty result object
+    Ok(serde_json::json!(logs
+        .lines()
+        .last()
+        .map(|x| x.to_string())
+        .unwrap_or_else(String::new)))
+}
+
 fn capitalize(s: &str) -> String {
     let mut c = s.chars();
     match c.next() {
@@ -1122,9 +1227,20 @@ async fn handle_deno_job(
     inner_content: &String,
     timeout: i32,
     shared_mount: &str,
+    lockfile: Option<String>,
 ) -> error::Result<serde_json::Value> {
     logs.push_str("\n\n--- DENO CODE EXECUTION ---\n");
     set_logs(logs, job.id, db).await;
+    let lockfile = lockfile.and_then(|e| if e.starts_with("{") { Some(e) } else { None });
+    let _ = write_file(
+        job_dir,
+        "lock.json",
+        &lockfile.clone().unwrap_or("".to_string()),
+    )
+    .await?;
+    // TODO: Separately cache dependencies here using `deno cache --reload --lock=lock.json src/deps.ts` (https://deno.land/manual@v1.27.0/linking_to_external_code/integrity_checking)
+    // Then require caching below using --cached-only. This makes it so we require zero network interaction when running the process below
+
     let _ = write_file(job_dir, "inner.ts", inner_content).await?;
     let sig = trace_span!("parse_deno_signature")
         .in_scope(|| windmill_parser_ts::parse_deno_signature(inner_content))?;
@@ -1166,6 +1282,20 @@ run();
                     .replace("{SHARED_MOUNT}", shared_mount),
             )
             .await?;
+            let mut args = Vec::new();
+            args.push("--config");
+            args.push("run.config.proto");
+            args.push("--");
+            args.push(deno_path);
+            args.push("run");
+            if lockfile.is_some() {
+                args.push("--lock=/tmp/lock.json");
+            }
+            args.push("--unstable");
+            args.push("--v8-flags=--max-heap-size=2048");
+            args.push("-A");
+            args.push("/tmp/main.ts");
+
             Command::new(nsjail_path)
                 .current_dir(job_dir)
                 .env_clear()
@@ -1173,21 +1303,20 @@ run();
                 .env("PATH", path_env)
                 .env("DENO_AUTH_TOKENS", deno_auth_tokens)
                 .env("BASE_INTERNAL_URL", base_internal_url)
-                .args(vec![
-                    "--config",
-                    "run.config.proto",
-                    "--",
-                    deno_path,
-                    "run",
-                    "--unstable",
-                    "--v8-flags=--max-heap-size=2048",
-                    "-A",
-                    "/tmp/main.ts",
-                ])
+                .args(args)
                 .stdout(Stdio::piped())
                 .stderr(Stdio::piped())
                 .spawn()?
         } else {
+            let mut args = Vec::new();
+            args.push("run");
+            if lockfile.is_some() {
+                args.push("--lock=/tmp/lock.json");
+            }
+            args.push("--unstable");
+            args.push("--v8-flags=--max-heap-size=2048");
+            args.push("-A");
+            args.push("/tmp/main.ts");
             Command::new(deno_path)
                 .current_dir(job_dir)
                 .env_clear()
@@ -1195,13 +1324,7 @@ run();
                 .env("PATH", path_env)
                 .env("DENO_AUTH_TOKENS", deno_auth_tokens)
                 .env("BASE_INTERNAL_URL", base_internal_url)
-                .args(vec![
-                    "run",
-                    "--unstable",
-                    "--v8-flags=--max-heap-size=2048",
-                    "-A",
-                    "main.ts",
-                ])
+                .args(args)
                 .stdout(Stdio::piped())
                 .stderr(Stdio::piped())
                 .spawn()?
@@ -1268,7 +1391,7 @@ async fn handle_python_job(
                 "".to_string()
             } else {
                 pip_compile(job, &requirements, logs, job_dir, envs, db, timeout)
-                    .await?
+                    .await
                     .map_err(|e| {
                         Error::ExecutionErr(format!("pip compile failed: {}", e.to_string()))
                     })?
@@ -1551,37 +1674,7 @@ async fn handle_dependency_job(
     timeout: i32,
     envs: &Envs,
 ) -> error::Result<serde_json::Value> {
-    let content: Result<String, String> = match job.language {
-        Some(ScriptLang::Python3) => {
-            create_dependencies_dir(job_dir).await;
-            let requirements = &job
-                .raw_code
-                .as_ref()
-                .ok_or_else(|| Error::ExecutionErr("missing requirements".to_string()))?
-                .clone();
-            pip_compile(job, requirements, logs, job_dir, envs, db, timeout).await?
-        }
-        Some(ScriptLang::Go) => {
-            let requirements = job
-                .raw_code
-                .as_ref()
-                .ok_or_else(|| Error::ExecutionErr("missing requirements".to_string()))?;
-            install_go_dependencies(
-                &job.id,
-                &requirements,
-                logs,
-                job_dir,
-                db,
-                timeout,
-                &envs.go_path,
-                false,
-            )
-            .await
-            .map_err(|e| e.to_string())
-        }
-        _ => Err("Language incompatible with dep job".to_string()),
-    };
-
+    let content = capture_dependency_job(job, logs, job_dir, db, timeout, envs).await;
     match content {
         Ok(content) => {
             sqlx::query!(
@@ -1608,6 +1701,101 @@ async fn handle_dependency_job(
     }
 }
 
+#[cfg(not(feature = "deno-lock"))]
+async fn generate_deno_lock(
+    _job_id: &Uuid,
+    _code: &str,
+    _logs: &mut String,
+    _job_dir: &str,
+    _db: &sqlx::Pool<sqlx::Postgres>,
+    _timeout: i32,
+    _envs: &Envs,
+) -> error::Result<String> {
+    Ok(String::new())
+}
+
+#[cfg(feature = "deno-lock")]
+async fn generate_deno_lock(
+    job_id: &Uuid,
+    code: &str,
+    logs: &mut String,
+    job_dir: &str,
+    db: &sqlx::Pool<sqlx::Postgres>,
+    timeout: i32,
+    Envs { deno_path, .. }: &Envs,
+) -> error::Result<String> {
+    let _ = write_file(job_dir, "main.ts", code).await?;
+
+    let child = Command::new(deno_path)
+        .current_dir(job_dir)
+        .args(vec![
+            "cache",
+            "--unstable",
+            "--lock=lock.json",
+            "--lock-write",
+            "main.ts",
+        ])
+        .env("NO_COLOR", "1")
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()?;
+
+    handle_child(job_id, db, logs, timeout, child).await?;
+
+    let path_lock = format!("{job_dir}/lock.json");
+    let mut file = File::open(path_lock).await?;
+    let mut req_content = "".to_string();
+    file.read_to_string(&mut req_content).await?;
+    Ok(req_content)
+}
+async fn capture_dependency_job(
+    job: &QueuedJob,
+    logs: &mut String,
+    job_dir: &str,
+    db: &sqlx::Pool<sqlx::Postgres>,
+    timeout: i32,
+    envs: &Envs,
+) -> error::Result<String> {
+    match job.language {
+        Some(ScriptLang::Python3) => {
+            create_dependencies_dir(job_dir).await;
+            let requirements = &job
+                .raw_code
+                .as_ref()
+                .ok_or_else(|| Error::ExecutionErr("missing requirements".to_string()))?
+                .clone();
+            pip_compile(job, requirements, logs, job_dir, envs, db, timeout).await
+        }
+        Some(ScriptLang::Go) => {
+            let requirements = job
+                .raw_code
+                .as_ref()
+                .ok_or_else(|| Error::ExecutionErr("missing requirements".to_string()))?;
+            install_go_dependencies(
+                &job.id,
+                &requirements,
+                logs,
+                job_dir,
+                db,
+                timeout,
+                &envs.go_path,
+                false,
+            )
+            .await
+        }
+        Some(ScriptLang::Deno) => {
+            let requirements = job
+                .raw_code
+                .as_ref()
+                .ok_or_else(|| Error::ExecutionErr("missing requirements".to_string()))?;
+            generate_deno_lock(&job.id, &requirements, logs, job_dir, db, timeout, &envs).await
+        }
+        _ => Err(error::Error::InternalErr(
+            "Language incompatible with dep job".to_string(),
+        )),
+    }
+}
+
 async fn pip_compile(
     job: &QueuedJob,
     requirements: &str,
@@ -1616,7 +1804,7 @@ async fn pip_compile(
     Envs { pip_extra_index_url, pip_index_url, pip_trusted_host, .. }: &Envs,
     db: &Pool<Postgres>,
     timeout: i32,
-) -> Result<Result<String, String>, Error> {
+) -> error::Result<String> {
     logs.push_str(&format!("content of requirements:\n{}\n", requirements));
     let file = "requirements.in";
     write_file(job_dir, file, &requirements).await?;
@@ -1643,12 +1831,12 @@ async fn pip_compile(
     let mut file = File::open(path_lock).await?;
     let mut req_content = "".to_string();
     file.read_to_string(&mut req_content).await?;
-    Ok(Ok(req_content
+    Ok(req_content
         .lines()
         .filter(|x| !x.trim_start().starts_with('#'))
         .map(|x| x.to_string())
         .collect::<Vec<String>>()
-        .join("\n")))
+        .join("\n"))
 }
 
 async fn install_go_dependencies(

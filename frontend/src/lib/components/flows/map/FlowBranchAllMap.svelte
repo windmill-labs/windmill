@@ -48,17 +48,8 @@
 {#if module.value.type === 'branchall'}
 	<div class="flex text-xs">
 		<div
-			class="w-full space-y-2 flex flex-col border p-2 bg-gray-500 bg-opacity-10 rounded-sm my-2"
+			class="w-full space-y-2 flex flex-col border p-2 bg-gray-500 border-gray-600 bg-opacity-10 rounded-sm my-2"
 		>
-			<Button
-				size="xs"
-				color="dark"
-				startIcon={{ icon: faCodeBranch }}
-				on:click={() => addBranch()}
-			>
-				Add branch
-			</Button>
-
 			{#each module.value.branches ?? [] as branch, branchIndex (branchIndex)}
 				<!-- svelte-ignore a11y-click-events-have-key-events -->
 				<div
@@ -67,14 +58,16 @@
 						select(`${module.id}-branch-${branchIndex}`)
 					}}
 					class={classNames(
-						'border w-full rounded-md p-2 bg-white text-sm cursor-pointer flex items-center mb-4',
+						'border w-full rounded-md p-2 bg-white text-sm cursor-pointer flex items-center',
 						$selectedId === `${module.id}-branch-${branchIndex}`
 							? 'outline outline-offset-1 outline-2  outline-slate-900'
 							: ''
 					)}
 				>
 					<Icon data={faCodeBranch} class="mr-2" />
-					<span class="text-xs flex flex-row justify-between w-full flex-wrap gap-2 items-center">
+					<span
+						class="text-xs flex flex-row justify-between w-full flex-wrap gap-2 items-center truncate"
+					>
 						{branch.summary || `Branch ${branchIndex}`}
 						<Button
 							iconOnly
@@ -87,12 +80,20 @@
 					</span>
 				</div>
 
-				{#if selectedBranch === branchIndex}
-					<div transition:slide>
-						<FlowModuleSchemaMap bind:modules={branch.modules} color="indigo" />
-					</div>
-				{/if}
+				<div>
+					<FlowModuleSchemaMap bind:modules={branch.modules} color="indigo" />
+				</div>
 			{/each}
+			<div class="overflow-clip">
+				<Button
+					size="xs"
+					color="dark"
+					startIcon={{ icon: faCodeBranch }}
+					on:click={() => addBranch()}
+				>
+					Add branch
+				</Button>
+			</div>
 		</div>
 	</div>
 {/if}

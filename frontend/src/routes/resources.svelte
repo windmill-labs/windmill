@@ -7,13 +7,12 @@
 </script>
 
 <script lang="ts">
-	import { canWrite, emptySchema, sendUserToast } from '$lib/utils'
+	import { canWrite, emptySchema, sendUserToast, truncate } from '$lib/utils'
 	import { ResourceService, VariableService } from '$lib/gen'
 	import type { Resource, ResourceType } from '$lib/gen'
 	import PageHeader from '$lib/components/PageHeader.svelte'
 	import ResourceEditor from '$lib/components/ResourceEditor.svelte'
 	import TableCustom from '$lib/components/TableCustom.svelte'
-	import Modal from '$lib/components/Modal.svelte'
 	import Highlight from 'svelte-highlight'
 	import json from 'svelte-highlight/languages/json'
 	import IconedResourceType from '$lib/components/IconedResourceType.svelte'
@@ -41,16 +40,20 @@
 	import { onMount } from 'svelte'
 	import { Button, Alert, Badge, Skeleton } from '$lib/components/common'
 	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
+	import Drawer from '$lib/components/common/drawer/Drawer.svelte'
+	import DrawerContent from '$lib/components/common/drawer/DrawerContent.svelte'
+	import Popover from '$lib/components/Popover.svelte'
 
 	type ResourceW = Resource & { canWrite: boolean }
 	type ResourceTypeW = ResourceType & { canWrite: boolean }
 
 	let resources: ResourceW[] | undefined
 	let resourceTypes: ResourceTypeW[] | undefined
-	let resourceViewer: Modal
+	let resourceViewer: Drawer
 	let resourceViewerTitle: string = ''
 	let resourceViewerSchema: Schema = emptySchema()
-	let typeModalMode: 'view' | 'view-type' | 'create' = 'view'
+	let resourceViewerDescription = ''
+	let typeDrawerMode: 'view' | 'view-type' | 'create' = 'view'
 	let newResourceTypeName: string
 	let newResourceTypeSchema: Schema
 	let newResourceTypeDescription: string
@@ -105,7 +108,7 @@
 				description: newResourceTypeDescription
 			}
 		})
-		resourceViewer.closeModal()
+		resourceViewer.closeDrawer()
 		loadResourceTypes()
 	}
 
@@ -126,12 +129,12 @@
 	}
 
 	const startNewType = () => {
-		resourceViewerTitle = `Create resource type`
+		resourceViewerTitle = `Create a Resource Type`
 		newResourceTypeName = 'my_resource_type'
 		newResourceTypeSchema = emptySchema()
 		newResourceTypeDescription = 'my description'
-		typeModalMode = 'create'
-		resourceViewer.openModal()
+		typeDrawerMode = 'create'
+		resourceViewer.openDrawer()
 	}
 
 	$: {
@@ -147,13 +150,69 @@
 			appConnect.openFromOauth(resource_type)
 		}
 		if ($page.url.searchParams.get('connect_app')) {
-			appConnect.open($page.url.searchParams.get('connect_app') ?? undefined)
+			const rt = $page.url.searchParams.get('connect_app') ?? undefined
+			if (rt == 'undefined') {
+				appConnect.open()
+			} else {
+				appConnect.open(rt)
+			}
 		}
 	})
 </script>
 
+<Drawer bind:this={resourceViewer} size="800px">
+	<DrawerContent title={resourceViewerTitle} on:close={resourceViewer.closeDrawer}>
+		<div>
+			{#if typeDrawerMode === 'create'}
+				<div class="flex flex-col gap-6">
+					<label for="inp">
+						<div class="mb-1 font-semibold text-gray-700">Name<Required required={true} /></div>
+						<div>
+							<span
+								class="border border-gray-700 rounded p-1 -mr-4 text-sm bg-gray-200 inline-block w-8"
+								>c_</span
+							>
+							<div class="inline-block">
+								<input id="inp" type="text" bind:value={newResourceTypeName} />
+							</div>
+						</div>
+					</label>
+					<label>
+						<div class="mb-1 font-semibold text-gray-700">Description</div>
+						<input type="text" bind:value={newResourceTypeDescription} /></label
+					>
+					<div>
+						<div class="mb-1 font-semibold text-gray-700">Schema</div>
+						<SchemaEditor bind:schema={newResourceTypeSchema} />
+					</div>
+				</div>
+			{:else if typeDrawerMode === 'view'}
+				<div class="py-2 ">
+					<SvelteMarkdown source={resourceViewerDescription} />
+				</div>
+				<div class="border p-2">
+					<Highlight language={json} code={JSON.stringify(resourceViewerSchema, null, 4)} />
+				</div>
+			{:else if typeDrawerMode === 'view-type'}
+				<div class="py-2">
+					<SvelteMarkdown source={resourceViewerDescription} />
+				</div>
+				<SchemaViewer schema={resourceViewerSchema} />
+			{/if}
+		</div>
+		<div slot="submission">
+			{#if typeDrawerMode === 'create'}
+				<Button on:click={addResourceType}>Save</Button>
+			{/if}
+		</div>
+	</DrawerContent>
+</Drawer>
+
 <CenteredPage>
-	<PageHeader title="Resources">
+	<PageHeader
+		title="Resources"
+		tooltip="Save and permission rich objects (JSON) including credentials obtained through OAuth."
+	>
 		<div class="flex flex-row space-x-4">
 			<Button size="sm" startIcon={{ icon: faChain }} on:click={() => appConnect.open()}>
 				Connect an API
@@ -163,8 +222,7 @@
 			</Button>
 		</div>
 	</PageHeader>
-
-	<div class="relative">
+	<div class="overflow-x-auto pb-40 pr-4">
 		{#if loading.resources}
 			<Skeleton layout={[0.5, [2], 1]} />
 			{#each new Array(6) as _}
@@ -174,7 +232,7 @@
 			<TableCustom>
 				<tr slot="header-row">
 					<th>path</th>
-					<th>resource_type</th>
+					<th>resource type</th>
 					<th>description</th>
 					<th>OAuth</th>
 					<th />
@@ -185,32 +243,42 @@
 							<tr>
 								<td class="my-12"
 									><a
-										class="break-all"
+										class="break-words"
 										href="#{path}"
 										on:click={async () => {
 											resourceViewerTitle = `Resource ${path}`
-											resourceViewerSchema = (
-												await ResourceService.getResource({
-													workspace: $workspaceStore ?? 'no_workspace',
-													path
-												})
-											).value
-											typeModalMode = 'view'
-											resourceViewer.openModal()
+											const resource = await ResourceService.getResource({
+												workspace: $workspaceStore ?? 'no_workspace',
+												path
+											})
+											resourceViewerSchema = resource.value
+											resourceViewerDescription = resource.description ?? ''
+											typeDrawerMode = 'view'
+											resourceViewer.openDrawer()
 										}}>{path}</a
 									>
 									<div class="mb-1 -mt-1"><SharedBadge {canWrite} extraPerms={extra_perms} /></div>
 								</td>
 								<td class="px-2"><IconedResourceType name={resource_type} after={true} /></td>
-								<td><SvelteMarkdown source={description ?? ''} /></td>
-								<td>
+								<td
+									><span class="text-gray-500 text-xs"
+										><SvelteMarkdown source={truncate(description ?? '', 30)} /></span
+									></td
+								>
+								<td class="text-center">
 									{#if is_oauth}
-										<Icon
-											class="text-green-600"
-											data={faCircle}
-											scale={0.7}
-											label="Resource is tied to an OAuth app"
-										/>
+										<Popover>
+											<Icon
+												class="text-green-600 animate-[pulse_5s_linear_infinite]"
+												data={faCircle}
+												scale={0.7}
+												label="Variable is tied to an OAuth app"
+											/>
+											<div slot="text">
+												The resource is tied to an OAuth app. The token is refreshed automatically
+												if applicable.
+											</div>
+										</Popover>
 									{/if}
 								</td>
 								<td>
@@ -221,7 +289,7 @@
 												icon: faShare,
 												disabled: !canWrite,
 												action: () => {
-													shareModal.openModal(path)
+													shareModal.openDrawer(path)
 												}
 											},
 											{
@@ -248,7 +316,7 @@
 												}
 											}
 										]}
-										relative={false}
+										relative={true}
 									/>
 								</td>
 							</tr>
@@ -262,8 +330,11 @@
 			</TableCustom>
 		{/if}
 	</div>
-	<div class="py-10" />
-	<PageHeader title="Resources types" primary={false}>
+	<PageHeader
+		title="Resources types"
+		primary={false}
+		tooltip="Schema and label to filter resources by type"
+	>
 		<Button size="sm" startIcon={{ icon: faPlus }} on:click={startNewType}>Add a type</Button>
 	</PageHeader>
 
@@ -273,50 +344,58 @@
 			<Skeleton layout={[[4], 0.7]} />
 		{/each}
 	{:else}
-		<TableCustom>
-			<tr slot="header-row">
-				<th>name</th>
-				<th>description</th>
-				<th />
-			</tr>
-			<tbody slot="body">
-				{#if resourceTypes}
-					{#each resourceTypes as { name, description, schema, canWrite }}
-						<tr>
-							<td
-								><a
-									href="#{name}"
-									on:click={() => {
-										resourceViewerTitle = `Resource type ${name}`
-										resourceViewerSchema = schema
-										typeModalMode = 'view-type'
-										resourceViewer.openModal()
-									}}><IconedResourceType after={true} {name} /></a
-								></td
-							>
-							<td><SvelteMarkdown source={description ?? ''} /></td>
-							<td>
-								{#if canWrite}
-									<Button
-										size="sm"
-										color="red"
-										startIcon={{ icon: faTrash }}
-										on:click={() => handleDeleteResourceType(name)}
-										disabled={!($userStore?.is_admin || false)}
-									>
-										Delete
-									</Button>
-								{/if}
-							</td>
-						</tr>
-					{/each}
-				{:else if resources}
-					<tr> No resources types to display</tr>
-				{:else}
-					<tr>Loading...</tr>
-				{/if}
-			</tbody>
-		</TableCustom>
+		<div class="overflow-auto">
+			<TableCustom>
+				<tr slot="header-row">
+					<th>name</th>
+					<th>description</th>
+					<th />
+				</tr>
+				<tbody slot="body">
+					{#if resourceTypes}
+						{#each resourceTypes as { name, description, schema, canWrite }}
+							<tr>
+								<td
+									><a
+										href="#{name}"
+										on:click={() => {
+											resourceViewerTitle = `Resource type ${name}`
+											resourceViewerSchema = schema
+											resourceViewerDescription = description ?? ''
+											typeDrawerMode = 'view-type'
+											resourceViewer.openDrawer()
+										}}><IconedResourceType after={true} {name} /></a
+									></td
+								>
+								<td
+									><span class="text-gray-500 text-xs"
+										><SvelteMarkdown source={truncate(description ?? '', 30)} /></span
+									></td
+								>
+								<td>
+									{#if canWrite}
+										<Button
+											size="sm"
+											color="red"
+											variant="border"
+											startIcon={{ icon: faTrash }}
+											on:click={() => handleDeleteResourceType(name)}
+											disabled={!($userStore?.is_admin || false)}
+										>
+											Delete
+										</Button>
+									{/if}
+								</td>
+							</tr>
+						{/each}
+					{:else if resources}
+						<tr> No resources types to display</tr>
+					{:else}
+						<tr>Loading...</tr>
+					{/if}
+				</tbody>
+			</TableCustom>
+		</div>
 	{/if}
 </CenteredPage>
 
@@ -330,45 +409,6 @@
 		loadResources()
 	}}
 />
-
-<Modal bind:this={resourceViewer}>
-	<div slot="title">{resourceViewerTitle}</div>
-	<div slot="content">
-		{#if typeModalMode === 'create'}
-			<div class="flex flex-col gap-6">
-				<label for="inp">
-					<div class="mb-1 font-semibold text-gray-700">Name<Required required={true} /></div>
-					<div>
-						<span
-							class="border border-gray-700 rounded p-1 -mr-4 text-sm bg-gray-200 inline-block w-8"
-							>c_</span
-						>
-						<div class="inline-block">
-							<input id="inp" type="text" bind:value={newResourceTypeName} />
-						</div>
-					</div>
-				</label>
-				<label>
-					<div class="mb-1 font-semibold text-gray-700">Description</div>
-					<input type="text" bind:value={newResourceTypeDescription} /></label
-				>
-				<div>
-					<div class="mb-1 font-semibold text-gray-700">Schema</div>
-					<SchemaEditor bind:schema={newResourceTypeSchema} />
-				</div>
-			</div>
-		{:else if typeModalMode === 'view'}
-			<Highlight language={json} code={JSON.stringify(resourceViewerSchema, null, 4)} />
-		{:else if typeModalMode === 'view-type'}
-			<SchemaViewer schema={resourceViewerSchema} />
-		{/if}
-	</div>
-	<div slot="submission">
-		{#if typeModalMode === 'create'}
-			<Button on:click={addResourceType}>Save</Button>
-		{/if}
-	</div>
-</Modal>
 
 <ConfirmationModal
 	{open}

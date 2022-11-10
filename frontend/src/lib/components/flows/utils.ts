@@ -33,7 +33,7 @@ export function cleanInputs(flow: Flow | any): Flow {
 							(x) =>
 								x != '' &&
 								!x.startsWith(
-									`import { previous_result, flow_input, step, variable, resource, params } from 'windmill@`
+									`import { results, flow_input, variable, resource, params } from 'windmill@`
 								)
 						)
 						.join('\n')
@@ -123,8 +123,8 @@ export function getDefaultExpr(
 	key: string = 'myfield',
 	previousExpr?: string
 ) {
-	const expr = previousExpr ?? `previous_result.${key}`
-	return `import { previous_result, flow_input, step, variable, resource, params } from 'windmill${importPath ? `@${importPath}` : ''
+	const expr = previousExpr ?? `results.${key}`
+	return `import { results, flow_input, variable, resource, params } from 'windmill${importPath ? `@${importPath}` : ''
 		}'
 
 ${expr}`

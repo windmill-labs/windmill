@@ -1,0 +1,19 @@
+[package]
+name = "windmill-parser-bash"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+
+[lib]
+name = "windmill_parser_bash"
+path = "./src/lib.rs"
+
+[dependencies]
+windmill-parser.workspace = true
+windmill-common.workspace = true
+phf.workspace = true
+unicode-general-category.workspace = true
+itertools.workspace = true
+anyhow.workspace = true
+regex.workspace = true
+lazy_static.workspace = true

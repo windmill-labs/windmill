@@ -1,6 +1,68 @@
 # Changelog
 
 
+## [1.45.0](https://github.com/windmill-labs/windmill/compare/v1.44.0...v1.45.0) (2022-11-06)
+
+
+### Features
+
+* **backend:** add global delete user endpoint ([23a0c10](https://github.com/windmill-labs/windmill/commit/23a0c10b77a430b274e7023078f1a7a963e490d2))
+* **backend:** flow duration is now computed as the sum of every child ([badc601](https://github.com/windmill-labs/windmill/commit/badc60193c2480f93056eee5be6548bcf49fc1fc))
+* **backend:** use result_by_id in branchone ([#857](https://github.com/windmill-labs/windmill/issues/857)) ([0170188](https://github.com/windmill-labs/windmill/commit/01701882dc168862219ac4e3cf53621e1937b013))
+* **frontend:** fill schema and test args from payload ([cc65bf5](https://github.com/windmill-labs/windmill/commit/cc65bf5f48447cd52547a50a714ece38f5c445f7))
+* **frontend:** show runs using a time chart ([b31c5c4](https://github.com/windmill-labs/windmill/commit/b31c5c435e9aa8268e5c4f5771bb444182f76a01))
+* support bash as 4th language ([#865](https://github.com/windmill-labs/windmill/issues/865)) ([3c09275](https://github.com/windmill-labs/windmill/commit/3c0927596078eb68a9066663fb5a3bd5202c1850))
+
+
+### Bug Fixes
+
+* **backend:** improve csp ([#861](https://github.com/windmill-labs/windmill/issues/861)) ([3ba1870](https://github.com/windmill-labs/windmill/commit/3ba18700dea282837d1bb27f24ed50ad1c417063))
+* **backend:** tighten http security headers ([#860](https://github.com/windmill-labs/windmill/issues/860)) ([7040bbe](https://github.com/windmill-labs/windmill/commit/7040bbe4c92c522d0815bc93c36604accd321bd5))
+* **backend:** tighten security around cookies to avoid csrf ([#859](https://github.com/windmill-labs/windmill/issues/859)) ([cddec64](https://github.com/windmill-labs/windmill/commit/cddec6469e7f3a082504f181de3785a2759b0a16))
+* **frontend:** dispose monaco models onDestroy ([83c79a4](https://github.com/windmill-labs/windmill/commit/83c79a47eefe63aee3ecb9e009323d561b8b662f))
+* **frontend:** fix remaining openModal bugs ([49bebe2](https://github.com/windmill-labs/windmill/commit/49bebe20cc87b5ce078d04f7fad9003d2e26bbf6))
+* **frontend:** go editor nits ([971988d](https://github.com/windmill-labs/windmill/commit/971988dfe222ebee4fa2a8b796f50f57f0a291a0))
+* **frontend:** reload websocket on lsp go import install ([5b4c9d9](https://github.com/windmill-labs/windmill/commit/5b4c9d9eb044a68a278c069fd1932a0b8c19b5d1))
+* **frontend:** reset rows default to 1 ([175a188](https://github.com/windmill-labs/windmill/commit/175a188f61f344c830d937e854cd4f4d77069fcb))
+
+## [1.44.0](https://github.com/windmill-labs/windmill/compare/v1.43.2...v1.44.0) (2022-11-03)
+
+
+### Features
+
+* **backend:** Deno lock files ([#851](https://github.com/windmill-labs/windmill/issues/851)) ([5bbfb40](https://github.com/windmill-labs/windmill/commit/5bbfb40ee1114d83bf0a277fa991aa70d5be8a62))
+* implement allowed domains for self-hosted ([513924b](https://github.com/windmill-labs/windmill/commit/513924b0437a1d80720ac5bd1f38c33f97839d28))
+
+
+### Bug Fixes
+
+* **backend:** capture up all lockfile issues ([35868ef](https://github.com/windmill-labs/windmill/commit/35868ef9bf1eac650cbb735807aebc5a604dd5d6))
+* implement require admin differently than unauthorized ([14c296d](https://github.com/windmill-labs/windmill/commit/14c296dbb85131c355980cd416c26a88c4823978))
+* **python-client:** fix get_resource ([20bc904](https://github.com/windmill-labs/windmill/commit/20bc904e5fa3b97192d9cf7b2b70bdbde0408913))
+
+## [1.43.2](https://github.com/windmill-labs/windmill/compare/v1.43.1...v1.43.2) (2022-11-02)
+
+
+### Bug Fixes
+
+* **go-client:** use stable oapi codegen version ([4707d1e](https://github.com/windmill-labs/windmill/commit/4707d1ecaafa10b9cf8737e18ab432b3855c0c7f))
+
+## [1.43.1](https://github.com/windmill-labs/windmill/compare/v1.43.0...v1.43.1) (2022-11-02)
+
+
+### Bug Fixes
+
+* **backend:** extend default scope set for slack resource ([#848](https://github.com/windmill-labs/windmill/issues/848)) ([ffaf7ca](https://github.com/windmill-labs/windmill/commit/ffaf7cad4a76e1c520071877579485b4c757c65e))
+* **go-client:** fix openapi generation ([1329493](https://github.com/windmill-labs/windmill/commit/1329493873fb18b373c879f3f153fdf2a5036405))
+
+## [1.43.0](https://github.com/windmill-labs/windmill/compare/v1.42.1...v1.43.0) (2022-11-01)
+
+
+### Features
+
+* **backend:** add parallel option for forloop and branchall ([#840](https://github.com/windmill-labs/windmill/issues/840)) ([39937e6](https://github.com/windmill-labs/windmill/commit/39937e6a83c3b7ec9dd889b40c10004abb8938a7))
+* new wmill CLI [#831](https://github.com/windmill-labs/windmill/issues/831) ([f5ea13a](https://github.com/windmill-labs/windmill/commit/f5ea13ab2b2f7f8735504099d0267c32ac8ca6f2))
+
 ## [1.42.1](https://github.com/windmill-labs/windmill/compare/v1.42.0...v1.42.1) (2022-10-30)
 
 

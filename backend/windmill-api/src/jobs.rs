@@ -65,10 +65,6 @@ pub fn workspaced_service() -> Router {
             get(create_job_signature),
         )
         .route("/result_by_id/:job_id/:node_id", get(get_result_by_id))
-        .route(
-            "/get_flow/:job_id/:resume_id/:secret",
-            get(get_suspended_job_flow),
-        )
 }
 
 pub fn global_service() -> Router {
@@ -88,6 +84,10 @@ pub fn global_service() -> Router {
         .route(
             "/cancel/:job_id/:resume_id/:secret",
             post(cancel_suspended_job),
+        )
+        .route(
+            "/get_flow/:job_id/:resume_id/:secret",
+            get(get_suspended_job_flow),
         )
 }
 
@@ -452,12 +452,25 @@ pub async fn resume_suspended_job(
     .await?
     .ok_or_else(|| anyhow::anyhow!("parent flow job not found"))?;
 
+    let exists = sqlx::query_scalar!(
+        r#"
+        SELECT EXISTS (SELECT 1 FROM resume_job WHERE id = $1)
+        "#,
+        Uuid::from_u128(job_id.as_u128() ^ resume_id as u128),
+    )
+    .fetch_one(&mut tx)
+    .await?
+    .unwrap_or(false);
+
+    if exists {
+        return Err(anyhow::anyhow!("resume request already sent").into());
+    }
+
     sqlx::query!(
         r#"
         INSERT INTO resume_job
                     (id, resume_id, job, flow, value, approver)
              VALUES ($1, $2, $3, $4, $5, $6)
-             ON CONFLICT (id) DO NOTHING
         "#,
         Uuid::from_u128(job_id.as_u128() ^ resume_id as u128),
         resume_id as i32,

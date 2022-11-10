@@ -24,9 +24,7 @@
 
 	let editor: SimpleEditor | undefined = undefined
 
-	const pickableProperties = {
-		result: $flowStateStore[$selectedId].previewResult
-	}
+	const result = $flowStateStore[$selectedId]?.previewResult ?? {}
 
 	$: isSuspendEnabled = Boolean(flowModule.suspend)
 	$: isSleepEnabled = Boolean(flowModule.sleep)
@@ -101,9 +99,10 @@
 	{#if flowModule.sleep && schema.properties['sleep']}
 		<div class="border">
 			<PropPickerWrapper
-				priorId={previousModuleId}
+				notSelectable
+				{result}
 				displayContext={false}
-				{pickableProperties}
+				pickableProperties={undefined}
 				on:select={({ detail }) => {
 					editor?.insertAtCursor(detail)
 				}}

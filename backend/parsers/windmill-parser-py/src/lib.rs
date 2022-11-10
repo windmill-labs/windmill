@@ -9,6 +9,7 @@
 use std::collections::HashMap;
 
 use itertools::Itertools;
+use lazy_static::lazy_static;
 use phf::phf_map;
 use regex::Regex;
 
@@ -176,7 +177,9 @@ fn constant_to_value(c: &Constant) -> serde_json::Value {
 }
 
 static PYTHON_IMPORTS_REPLACEMENT: phf::Map<&'static str, &'static str> = phf_map! {
-    "psycopg2" => "psycopg2-binary"
+    "psycopg2" => "psycopg2-binary",
+    "yaml" => "pyyaml",
+    "git" => "GitPython"
 };
 
 fn replace_import(x: String) -> String {
@@ -187,17 +190,20 @@ fn replace_import(x: String) -> String {
         .to_string()
 }
 
+lazy_static! {
+    static ref RE: Regex = Regex::new(r"^\#(\S+)$").unwrap();
+}
+
 pub fn parse_python_imports(code: &str) -> error::Result<Vec<String>> {
     let find_requirements = code
         .lines()
         .find_position(|x| x.starts_with("#requirements:"));
-    let re = Regex::new(r"^\#(\S+)$").unwrap();
     if let Some((pos, _)) = find_requirements {
         let lines = code
             .lines()
             .skip(pos + 1)
             .map_while(|x| {
-                re.captures(x)
+                RE.captures(x)
                     .map(|x| x.get(1).unwrap().as_str().to_string())
             })
             .collect();

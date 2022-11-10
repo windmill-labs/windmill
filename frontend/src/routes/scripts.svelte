@@ -31,15 +31,15 @@
 	} from '$lib/utils'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
 	import Dropdown from '$lib/components/Dropdown.svelte'
-	import Modal from '$lib/components/Modal.svelte'
 	import PageHeader from '$lib/components/PageHeader.svelte'
 	import SharedBadge from '$lib/components/SharedBadge.svelte'
 	import ShareModal from '$lib/components/ShareModal.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import TableCustom from '$lib/components/TableCustom.svelte'
-	import { Button, Tabs, Tab, Badge, Skeleton } from '$lib/components/common'
+	import { Button, Tabs, Tab, Badge, Skeleton, DrawerContent } from '$lib/components/common'
 	import CreateActions from '$lib/components/scripts/CreateActions.svelte'
 	import HighlightCode from '$lib/components/HighlightCode.svelte'
+	import Drawer from '$lib/components/common/drawer/Drawer.svelte'
 
 	type Tab = 'all' | 'personal' | 'groups' | 'shared' | 'examples' | 'hub'
 	type Section = [string, ScriptW[]]
@@ -67,9 +67,9 @@
 		keys: ['app', 'path', 'summary']
 	})
 
-	let codeViewer: Modal
+	let codeViewer: Drawer
 	let codeViewerContent: string = ''
-	let codeViewerLanguage: 'deno' | 'python3' | 'go' = 'deno'
+	let codeViewerLanguage: 'deno' | 'python3' | 'go' | 'bash' = 'deno'
 	let codeViewerPath: string = ''
 
 	$: filteredScripts =
@@ -135,7 +135,7 @@
 		codeViewerContent = content
 		codeViewerLanguage = language
 		codeViewerPath = path
-		codeViewer.openModal()
+		codeViewer.openDrawer()
 	}
 
 	async function loadHubScriptsWFuse(): Promise<void> {
@@ -152,22 +152,18 @@
 	}
 </script>
 
-<Modal bind:this={codeViewer}>
-	<div slot="title">{codeViewerPath}</div>
-	<div slot="content">
+<Drawer bind:this={codeViewer}>
+	<DrawerContent title="Script {codeViewerPath}" on:close={codeViewer.closeDrawer}>
 		<HighlightCode language={codeViewerLanguage} code={codeViewerContent} />
-	</div>
-</Modal>
+	</DrawerContent>
+</Drawer>
 
 <CenteredPage>
 	<PageHeader
 		title="Scripts"
-		tooltip="A script can either be used standalone or as part of a Flow. 
-		When standalone, it has an auto-generated UI from its parameters whom you can access clicking on 'Run'.
-		Like everything in windmill, scripts have owners (users or groups) and can be shared to other users and other groups. It is enough to have
-		read-access on a script to be able to execute it. However, you will also need to have been
-		granted visibility on the resources and variables it uses, otherwise it will behave as if those
-		items did not exist at runtime of the script."
+		tooltip="A Script can be used standalone or as part of a Flow. 
+		When standalone, it has webhooks and an auto-generated UI from its parameters whom you can access clicking on 'Run'.
+		Scripts have owners (users or groups) and can be shared to users and groups."
 	>
 		<CreateActions />
 	</PageHeader>
@@ -182,7 +178,12 @@
 	</Tabs>
 
 	{#if tab != 'hub'}
-		<input placeholder="Search scripts" bind:value={scriptFilter} class="search-bar mt-2" />
+		<input
+			type="text"
+			placeholder="Search scripts"
+			bind:value={scriptFilter}
+			class="search-bar mt-2"
+		/>
 	{/if}
 
 	<div class="grid grid-cols-1 divide-y">
@@ -224,7 +225,12 @@
 							their Python counterparts.
 						</Tooltip>
 					</h2>
-					<input placeholder="Search hub scripts" bind:value={hubFilter} class="search-bar mt-2" />
+					<input
+						type="text"
+						placeholder="Search hub scripts"
+						bind:value={hubFilter}
+						class="search-bar mt-2"
+					/>
 					<div class="relative">
 						{#if $hubScripts != undefined}
 							<TableCustom>
@@ -356,7 +362,7 @@
 														displayName: 'Share',
 														icon: faShare,
 														action: () => {
-															shareModal.openModal(path)
+															shareModal.openDrawer(path)
 														},
 														disabled: !canWrite
 													},

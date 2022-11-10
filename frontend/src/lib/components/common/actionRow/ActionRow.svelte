@@ -2,7 +2,7 @@
 	export let applyPageWidth = false
 	export let stickToTop = false
 
-	$: wide = applyPageWidth ? 'max-w-6xl mx-auto px-4 sm:px-6 md:px-8 ' : ''
+	$: wide = applyPageWidth ? 'max-w-6xl mx-auto px-4 sm:px-6 md:px-8' : ''
 
 	let scrollY: number
 </script>
@@ -10,8 +10,8 @@
 <svelte:window bind:scrollY />
 
 <div
-	class={'bg-white py-3 ' +
-		(stickToTop ? 'sticky top-0 ' + (scrollY >= 30 ? 'border-b ' : '') : '') +
+	class={'bg-white py-3 w-full ' +
+		(stickToTop ? 'lg:sticky lg:top-0 ' + (scrollY >= 30 ? 'border-b ' : '') : '') +
 		$$props.class}
 >
 	<div class={'w-full flex flex-wrap justify-between items-center gap-4 ' + wide}>

@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { goto } from '$app/navigation'
+	import { page } from '$app/stores'
 	import type { Job } from '$lib/gen'
 	import {
 		displayDate,
@@ -15,12 +17,14 @@
 		faFastForward,
 		faHourglassHalf,
 		faRobot,
+		faSearch,
 		faTimes,
 		faUser,
 		faWind
 	} from '@fortawesome/free-solid-svg-icons'
 	import Icon from 'svelte-awesome'
 	import { check } from 'svelte-awesome/icons'
+	import { Badge, Button } from '../common'
 
 	const SMALL_ICON_SCALE = 0.7
 
@@ -85,28 +89,31 @@
 					<div class="flex flex-row space-x-2">
 						<div class="whitespace-nowrap">
 							{#if job.script_path}
-								<a href="/run/{job.id}">{job.script_path} </a>
+								<a href="/run/{job.id}?workspace={job.workspace_id}">{job.script_path} </a>
 							{:else if 'job_kind' in job && job.job_kind == 'preview'}
-								<a href="/run/{job.id}">Preview without path </a>
+								<a href="/run/{job.id}?workspace={job.workspace_id}">Preview without path </a>
 							{:else if 'job_kind' in job && job.job_kind == 'dependencies'}
-								<a href="/run/{job.id}">lock deps of {truncateHash(job.script_hash ?? '')}</a>
+								<a href="/run/{job.id}?workspace={job.workspace_id}"
+									>lock deps of {truncateHash(job.script_hash ?? '')}</a
+								>
 							{:else if 'job_kind' in job && job.job_kind == 'identity'}
-								<a href="/run/{job.id}">no op</a>
+								<a href="/run/{job.id}?workspace={job.workspace_id}">no op</a>
 							{/if}
+							<button
+								class="ml-1"
+								on:click={() => {
+									goto(`/runs/${job.script_path}?${$page.url.searchParams.toString()}`)
+								}}><Badge><Icon scale={0.7} data={faSearch} /></Badge></button
+							>
 						</div>
 						<div class="whitespace-nowrap">
-							{#if job.script_hash}
-								<a href="/scripts/get/{job.script_hash}" class="commit-hash"
-									>{truncateHash(job.script_hash ?? '')}</a
+							{#if 'job_kind' in job}<a href="/run/{job.id}"
+									><Badge color="blue">{job.job_kind}</Badge></a
 								>
 							{/if}
-							{#if 'job_kind' in job && job.job_kind != 'script'}<span
-									class="bg-blue-200 text-gray-700 text-xs rounded px-1 whitespace-nowrap"
-									><a href="/run/{job.id}">{job.job_kind}</a></span
-								>
-							{:else if job.is_flow_step}
-								<span class="bg-blue-200 text-gray-700 text-xs rounded px-1 "
-									><a href="/run/{job.parent_job}">step of flow</a></span
+							{#if job.is_flow_step && (job.job_kind == 'script' || job.job_kind == 'preview')}
+								<a href="/run/{job.parent_job}?workspace={job.workspace_id}"
+									><Badge color="gray">flow step</Badge></a
 								>
 							{/if}
 						</div>
@@ -136,18 +143,22 @@
 				<div>
 					{#if job && job.parent_job}
 						{#if job.is_flow_step}
-							<Icon class="text-gray-700" data={faWind} scale={SMALL_ICON_SCALE} /><span>
+							<Icon class="text-gray-700" data={faWind} scale={SMALL_ICON_SCALE} /><span
+								class="mx-2"
+							>
 								Step of flow <a href={`/run/${job.parent_job}`}>{truncateRev(job.parent_job, 6)}</a
 								></span
 							>
 						{:else}
-							<Icon class="text-gray-700" data={faRobot} scale={SMALL_ICON_SCALE} /><span>
+							<Icon class="text-gray-700" data={faRobot} scale={SMALL_ICON_SCALE} /><span
+								class="mx-2"
+							>
 								Triggered by parent <a href={`/run/${job.parent_job}`}>{job.parent_job}</a></span
 							>
 						{/if}
 					{:else if job && job.schedule_path}
 						<Icon class="text-gray-700" data={faCalendar} scale={SMALL_ICON_SCALE} />
-						<span
+						<span class="mx-2"
 							>Triggered by the schedule: <a
 								href={`/schedule/add?edit=${job.schedule_path}&isFlow=${job.job_kind == 'flow'}`}
 								>{job.schedule_path}</a

@@ -19,7 +19,7 @@
 	import ShareModal from '$lib/components/ShareModal.svelte'
 	import TableCustom from '$lib/components/TableCustom.svelte'
 	import { userStore, workspaceStore } from '$lib/stores'
-	import { faEdit, faPlus, faShare } from '@fortawesome/free-solid-svg-icons'
+	import { faEdit, faPlus, faShare, faTrash } from '@fortawesome/free-solid-svg-icons'
 	import { Alert, Button } from '$lib/components/common'
 
 	type GroupW = Group & { canWrite: boolean }
@@ -68,7 +68,10 @@
 <GroupModal bind:this={groupModal} />
 
 <CenteredPage>
-	<PageHeader title="Groups">
+	<PageHeader
+		title="Groups"
+		tooltip="Group users together to grant roles and homegenous permissions. Same users can be in many groups at the same time."
+	>
 		<div class="flex flex-row">
 			<input
 				class="mr-2"
@@ -87,7 +90,7 @@
 		beta in the community edition
 	</Alert>
 
-	<div class="relative">
+	<div class="relative mb-20">
 		<TableCustom>
 			<tr slot="header-row">
 				<th>Name</th>
@@ -101,7 +104,7 @@
 							<a
 								href="#{name}"
 								on:click={() => {
-									groupModal.openModal(name)
+									groupModal.openDrawer(name)
 								}}
 								>{name}
 							</a>
@@ -118,7 +121,7 @@
 										icon: faEdit,
 										disabled: !canWrite,
 										action: () => {
-											groupModal.openModal(name)
+											groupModal.openDrawer(name)
 										}
 									},
 									{
@@ -126,7 +129,18 @@
 										icon: faShare,
 										disabled: !canWrite,
 										action: () => {
-											shareModal.openModal(name)
+											shareModal.openDrawer(name)
+										}
+									},
+									{
+										displayName: 'Delete',
+
+										icon: faTrash,
+										type: 'delete',
+										disabled: !canWrite,
+										action: async () => {
+											await GroupService.deleteGroup({ workspace: $workspaceStore ?? '', name })
+											loadGroups()
 										}
 									}
 								]}

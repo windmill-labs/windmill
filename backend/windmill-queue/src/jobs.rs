@@ -16,7 +16,7 @@ use uuid::Uuid;
 use windmill_audit::{audit_log, ActionKind};
 use windmill_common::{
     error::{self, to_anyhow, Error},
-    flow_status::{FlowStatus, MAX_RETRY_ATTEMPTS, MAX_RETRY_INTERVAL},
+    flow_status::{FlowStatus, JobResult, MAX_RETRY_ATTEMPTS, MAX_RETRY_INTERVAL},
     flows::FlowValue,
     scripts::{get_full_hub_script_by_path, HubScript, ScriptHash, ScriptLang},
     utils::StripPath,
@@ -124,7 +124,7 @@ pub async fn get_result_by_id(
     flow_id: String,
     node_id: String,
 ) -> error::Result<serde_json::Value> {
-    let mut result_id: Option<Uuid> = None;
+    let mut result_id: Option<JobResult> = None;
     let mut parent_id = Uuid::from_str(&flow_id).ok();
     while result_id.is_none() && parent_id.is_some() {
         if !skip_direct {
@@ -148,7 +148,7 @@ pub async fn get_result_by_id(
                         .modules
                         .iter()
                         .find(|m| m.id() == node_id)
-                        .and_then(|m| m.job())
+                        .and_then(|m| m.job_result())
                 });
             } else {
                 parent_id = None;
@@ -171,15 +171,33 @@ pub async fn get_result_by_id(
         "Flow result by id",
         format!("{}, {}", flow_id, node_id),
     )?;
-    let value = sqlx::query_scalar!(
-        "SELECT result FROM completed_job WHERE id = $1 AND workspace_id = $2",
-        result_id,
-        w_id,
-    )
-    .fetch_optional(&db)
-    .await?
-    .flatten()
-    .unwrap_or(serde_json::Value::Null);
+    println!("result_id: {:#?}, {node_id}", result_id);
+
+    let value = match result_id {
+        JobResult::ListJob(x) => {
+            let rows = sqlx::query_scalar!(
+                "SELECT result FROM completed_job WHERE id = ANY($1) AND workspace_id = $2",
+                x.as_slice(),
+                w_id,
+            )
+            .fetch_all(&db)
+            .await?
+            .into_iter()
+            .filter_map(|x| x)
+            .collect::<Vec<serde_json::Value>>();
+            serde_json::json!(rows)
+        }
+        JobResult::SingleJob(x) => sqlx::query_scalar!(
+            "SELECT result FROM completed_job WHERE id = $1 AND workspace_id = $2",
+            x,
+            w_id,
+        )
+        .fetch_optional(&db)
+        .await?
+        .flatten()
+        .unwrap_or(serde_json::Value::Null),
+    };
+
     Ok(value)
 }
 

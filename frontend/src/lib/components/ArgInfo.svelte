@@ -1,33 +1,33 @@
 <script lang="ts">
 	import { truncate } from '$lib/utils'
-	import Modal from './Modal.svelte'
 	import Tooltip from './Tooltip.svelte'
 	import json from 'svelte-highlight/languages/json'
 	import { Highlight } from 'svelte-highlight'
-	import { ResourceService, type Resource } from '$lib/gen'
+	import { ResourceService } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
+	import Drawer from './common/drawer/Drawer.svelte'
+	import { DrawerContent } from './common'
+	import ObjectViewer from './propertyPicker/ObjectViewer.svelte'
 
 	export let value: any
-	let resourceViewer: Modal
-	let resource: Resource
+	let jsonViewer: Drawer
+	let jsonViewerContent: any | undefined
 
 	function isString(value: any) {
 		return typeof value === 'string' || value instanceof String
 	}
 
 	async function getResource(path: string) {
-		resource = await ResourceService.getResource({ workspace: $workspaceStore!, path })
+		jsonViewerContent = (await ResourceService.getResource({ workspace: $workspaceStore!, path }))
+			.value
 	}
-
-	let asJson: string = JSON.stringify(value, null, 4)
 </script>
 
-<Modal bind:this={resourceViewer}>
-	<div slot="title">{resource.path}</div>
-	<div slot="content">
-		<Highlight language={json} code={JSON.stringify(resource.value, null, 4)} />
-	</div>
-</Modal>
+<Drawer bind:this={jsonViewer} size="800px">
+	<DrawerContent title="See JSON" on:close={jsonViewer.toggleDrawer}>
+		<Highlight language={json} code={JSON.stringify(jsonViewerContent, null, 4)} />
+	</DrawerContent>
+</Drawer>
 
 {#if value == '<function call>'}
 	{'<function call>'}<Tooltip
@@ -39,10 +39,31 @@
 		class="text-xs text-blue-500"
 		on:click={async () => {
 			await getResource(value.substring('$res:'.length))
-			resourceViewer.openModal()
+			jsonViewer.toggleDrawer()
 		}}>{value}</button
-	>{:else if asJson.length > 40}
-	{truncate(asJson, 40)}<Tooltip>{asJson}</Tooltip>
+	>
+{:else if typeof value !== 'object'}
+	{truncate(JSON.stringify(value), 40)}
+	{#if JSON.stringify(value).length > 40}
+		<button
+			class="text-xs text-blue-500"
+			on:click={() => {
+				jsonViewerContent = value
+				jsonViewer.toggleDrawer()
+			}}>See expanded</button
+		>
+	{/if}
 {:else}
-	{asJson}
+	<div class="max-h-40 overflow-auto">
+		<ObjectViewer collapsed={false} topBrackets={true} pureViewer={true} json={value} />
+	</div>
+	{#if JSON.stringify(value).length > 120}
+		<button
+			class="text-xs text-blue-500"
+			on:click={() => {
+				jsonViewerContent = value
+				jsonViewer.toggleDrawer()
+			}}>See JSON</button
+		>
+	{/if}
 {/if}

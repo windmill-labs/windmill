@@ -1,0 +1,37 @@
+{
+  "summary": "",
+  "description": "",
+  "value": {
+    "modules": [
+      {
+        "value": {
+          "path": "u/admin/test_script",
+          "type": "script"
+        },
+        "input_transforms": {}
+      },
+      {
+        "value": {
+          "path": "u/admin/fib",
+          "type": "script"
+        },
+        "input_transforms": {
+          "element": {
+            "type": "static",
+            "value": 100
+          }
+        }
+      }
+    ]
+  },
+  "edited_by": "admin",
+  "edited_at": "2022-10-17T16:08:38.000148Z",
+  "archived": false,
+  "schema": {
+    "type": "object",
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "required": [],
+    "properties": {}
+  },
+  "extra_perms": {}
+}

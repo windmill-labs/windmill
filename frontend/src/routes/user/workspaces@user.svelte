@@ -13,14 +13,20 @@
 	import { logout, logoutWithRedirect } from '$lib/logout'
 	import { UserService, type WorkspaceInvite, WorkspaceService } from '$lib/gen'
 	import { superadmin, usersWorkspaceStore, workspaceStore } from '$lib/stores'
-	import Switch from '$lib/components/Switch.svelte'
 	import { faCrown, faUserCog } from '@fortawesome/free-solid-svg-icons'
 	import Icon from 'svelte-awesome'
 	import { Button } from '$lib/components/common'
+	import Toggle from '$lib/components/Toggle.svelte'
+	import UserSettings from '$lib/components/UserSettings.svelte'
+	import SuperadminSettings from '$lib/components/SuperadminSettings.svelte'
 
 	let invites: WorkspaceInvite[] = []
 	let list_all_as_super_admin: boolean = false
 	let workspaces: { id: string; name: string; username: string }[] = []
+
+	let userSettings: UserSettings
+	let superadminSettings: SuperadminSettings
+
 	const rd = $page.url.searchParams.get('rd')
 
 	async function loadInvites() {
@@ -40,7 +46,7 @@
 				workspaceStore.set(localStorage.getItem('workspace')?.toString())
 			}
 		} else {
-			logoutWithRedirect($page.url.pathname + $page.url.search)
+			await logoutWithRedirect($page.url.pathname + $page.url.search)
 		}
 	}
 
@@ -62,6 +68,10 @@
 	loadWorkspaces()
 </script>
 
+{#if $superadmin}
+	<SuperadminSettings bind:this={superadminSettings} />
+{/if}
+
 <div class="center-center min-h-screen p-4">
 	<div
 		class="border rounded-md shadow-md bg-white w-full max-w-[640px] p-4 sm:py-8 sm:px-10 mb-6 md:mb-20"
@@ -72,12 +82,12 @@
 		</p>
 		<h2 class="mb-4">Workspaces</h2>
 		{#if $superadmin}
-			<Switch
-				textFormat="text-xs"
-				label={'List all as superadmin'}
-				bind:checked={list_all_as_super_admin}
-			/>
-			<div class="my-4" />
+			<div class="flex flex-row-reverse pb-4">
+				<Toggle
+					bind:checked={list_all_as_super_admin}
+					options={{ right: 'List all as superadmin' }}
+				/>
+			</div>
 		{/if}
 		{#if workspaces.length == 0}
 			<p class="text-sm text-gray-600 mt-2">
@@ -100,14 +110,15 @@
 			</label>
 		{/each}
 		<div class="flex flex-row-reverse  pt-4">
-			<a
+			<Button
+				size="sm"
 				href="/user/create_workspace{rd ? `?rd=${encodeURIComponent(rd)}` : ''}"
-				class="primary-button"
-				>Create a new workspace &rightarrow;
-			</a>
+				variant="border"
+				>+&nbsp;Create a new workspace
+			</Button>
 		</div>
 
-		<h2 class="mt-6 mb-4">Invitations</h2>
+		<h2 class="mt-6 mb-4">Invites to join a Workspace</h2>
 		{#if invites.length == 0}
 			<p class="text-sm text-gray-600 mt-2">You have no invites to any workspaces at the moment.</p>
 		{/if}
@@ -149,12 +160,12 @@
 		{/each}
 		<div class="flex justify-between items-center mt-10">
 			{#if $superadmin}
-				<a class="mr-10" href="/user/superadmin_settings">
-					<Icon data={faCrown} class="mr-1" scale={1} />Superadmin settings</a
+				<Button variant="border" size="sm" on:click={superadminSettings.openDrawer}>
+					<Icon data={faCrown} class="mr-1" scale={1} />Superadmin settings</Button
 				>
 			{/if}
-			<a class="mr-10" href="/user/settings">
-				<Icon data={faUserCog} class="mr-1" scale={1} />User settings</a
+			<Button variant="border" size="sm" on:click={userSettings.openDrawer}>
+				<Icon data={faUserCog} class="mr-1" scale={1} />User settings</Button
 			>
 			<Button
 				variant="border"
@@ -169,3 +180,4 @@
 		</div>
 	</div>
 </div>
+<UserSettings bind:this={userSettings} />

@@ -1,6 +1,6 @@
 [package]
 name = "windmill"
-version = "1.42.1"
+version = "1.45.0"
 authors.workspace = true
 edition.workspace = true
 
@@ -19,7 +19,7 @@ members = [
 ]
 
 [workspace.package]
-version = "1.42.1"
+version = "1.45.0"
 authors = ["Ruben Fiszel <ruben@windmill.dev>"]
 edition = "2021"
 
@@ -59,6 +59,7 @@ windmill-parser = { path = "./parsers/windmill-parser" }
 windmill-parser-ts = { path = "./parsers/windmill-parser-ts" }
 windmill-parser-py = { path = "./parsers/windmill-parser-py" }
 windmill-parser-go = { path = "./parsers/windmill-parser-go" }
+windmill-parser-bash = { path = "./parsers/windmill-parser-bash" }
 axum = { version = "^0", features = ["headers"] }
 headers = "^0"
 hyper = { version = "^0", features = ["full"] }
@@ -74,8 +75,8 @@ anyhow = "^1"
 chrono = { version = "^0", features = ["serde"] }
 tracing = "^0"
 tracing-subscriber = { version = "^0", features = ["env-filter", "json"] }
-console-subscriber = "^0"
 prometheus = { version = "^0", default-features = false }
+cookie = { version = "^0" }
 phf = { version = "0.11", features = ["macros"] }
 rust-embed = "^6"
 mime_guess = "^2"

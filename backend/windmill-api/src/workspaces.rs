@@ -562,6 +562,7 @@ async fn tarball_workspace(
                 ScriptLang::Python3 => "py",
                 ScriptLang::Deno => "ts",
                 ScriptLang::Go => "go",
+                ScriptLang::Bash => "sh",
             };
             write_to_archive(
                 script.content,

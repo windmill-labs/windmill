@@ -45,8 +45,9 @@
 		},
 		light: {
 			border:
-				'border bg-white hover:bg-gray-100 focus:bg-gray-100 text-gray-700 hover:text-gray-800 focus:text-gray-800 focus:ring-gray-300',
-			contained: 'bg-white hover:bg-gray-100 focus:bg-gray-100 text-gray-700 focus:ring-gray-300'
+				'border border-gray-300 bg-white hover:bg-gray-100 focus:bg-gray-100 text-gray-700 hover:text-gray-800 focus:text-gray-800 focus:ring-gray-300',
+			contained:
+				'bg-white border-gray-300  hover:bg-gray-100 focus:bg-gray-100 text-gray-700 focus:ring-gray-300'
 		}
 	}
 
@@ -59,8 +60,9 @@
 			ButtonType.SpacingClasses[spacingSize],
 			'focus:ring-4 font-semibold',
 			'rounded-md',
-			'flex justify-center items-center text-center whitespace-nowrap',
-			btnClasses
+			'justify-center items-center text-center whitespace-nowrap inline-flex',
+			btnClasses,
+			disabled ? 'bg-gray-300' : ''
 		),
 		disabled,
 		href,
@@ -73,7 +75,7 @@
 			event.preventDefault()
 			dispatch('click', event)
 			if (href) {
-				if (href.startsWith('http')) {
+				if (href.startsWith('http') || target == '_blank') {
 					window.open(href, target)
 				} else {
 					goto(href)

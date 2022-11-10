@@ -3,9 +3,10 @@
 	import python from 'svelte-highlight/languages/python'
 	import typescript from 'svelte-highlight/languages/typescript'
 	import go from 'svelte-highlight/languages/go'
+	import shell from 'svelte-highlight/languages/shell'
 
 	export let code: string = ''
-	export let language: 'python3' | 'deno' | 'go' | undefined
+	export let language: 'python3' | 'deno' | 'go' | 'bash' | undefined
 
 	function getLang(lang: string | undefined) {
 		switch (lang) {
@@ -15,8 +16,10 @@
 				return typescript
 			case 'go':
 				return go
+			case 'bash':
+				return shell
 			default:
-				return python
+				return typescript
 		}
 	}
 

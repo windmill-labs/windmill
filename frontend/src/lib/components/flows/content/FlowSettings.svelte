@@ -25,20 +25,13 @@
 
 		<svelte:fragment slot="content">
 			<TabContent value="metadata" class="p-4">
-				<Path bind:path={$flowStore.path} {initialPath} namePlaceholder="my_flow" kind="flow">
-					<div slot="ownerToolkit">
-						Flow permissions depend on their path. Select the group
-						<span class="font-mono"> all </span>
-						to share your flow, and <span class="font-mono">user</span> to keep it private.
-						<a href="https://docs.windmill.dev/docs/reference/namespaces">docs</a>
-					</div>
-				</Path>
+				<Path bind:path={$flowStore.path} {initialPath} namePlaceholder="my_flow" kind="flow" />
 
 				<label class="block my-4">
 					<span class="text-gray-700 text-sm">Summary <Required required={false} /></span>
-					<textarea
+					<input
+						type="text"
 						bind:value={$flowStore.summary}
-						class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-300 focus:ring focus:ring-indigo-200 focus:ring-opacity-50"
 						placeholder="A very short summary of the flow displayed when the flow is listed"
 						rows="1"
 						id="flow-summary"
@@ -50,10 +43,10 @@
 						Description
 						<Required required={false} detail="markdown" />
 						<textarea
+							type="text"
+							class="text-sm"
 							id="inp"
 							bind:value={$flowStore.description}
-							class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-300 
-							focus:ring focus:ring-indigo-200 focus:ring-opacity-50"
 							placeholder="A description to help users understand what this flow does and how to use it. Markdown accepted."
 							rows="3"
 						/>

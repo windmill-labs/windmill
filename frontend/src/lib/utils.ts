@@ -194,8 +194,12 @@ export function canWrite(
 	return false
 }
 
+export function emptyString(str: string | undefined | null): boolean {
+	return str === undefined || str === null || str === ''
+}
+
 export function defaultIfEmptyString(str: string | undefined, dflt: string): string {
-	return str == undefined || str == '' ? dflt : str
+	return emptyString(str) ? dflt : str!
 }
 
 export function removeKeysWithEmptyValues(obj: any): any {
@@ -226,6 +230,19 @@ export function decodeState(query: string): any {
 	return JSON.parse(decodeURIComponent(atob(query)))
 }
 
+export function decodeArgs(queryArgs: string | undefined): any {
+	if (queryArgs) {
+		const parsed = decodeState(queryArgs)
+		Object.entries(parsed).forEach(([k, v]) => {
+			if (v == '<function call>') {
+				parsed[k] = undefined
+			}
+		})
+		return parsed
+	}
+	return {}
+}
+
 export async function setQuery(url: URL, key: string, value: string): Promise<void> {
 	url.searchParams.set(key, value)
 	await goto(`?${url.searchParams.toString()}`)
@@ -235,7 +252,7 @@ export function setQueryWithoutLoad(url: URL, key: string, value: string): void 
 	const nurl = new URL(url.toString())
 	nurl.searchParams.set(key, value)
 	try {
-		history.replaceState(null, '', nurl.toString())
+		history.replaceState(history.state, '', nurl.toString())
 	} catch (e) {
 		console.error(e)
 	}
@@ -276,7 +293,7 @@ export function groupBy<T>(
 
 export function truncate(s: string, n: number, suffix: string = '...'): string {
 	if (!s) {
-		return suffix
+		return ''
 	}
 	if (s.length <= n) {
 		return s
@@ -308,46 +325,8 @@ export function mapUserToUserExt(user: User): UserExt {
 	}
 }
 
-export function buildExtraLib(flowInput: string, previousResultType?: string): string {
-	return `
-/**
-* get variable (including secret) at path
-* @param {string} path - path of the variable (e.g: g/all/pretty_secret)
-*/
-export function variable(path: string): string;
-
-/**
-* get resource at path
-* @param {string} path - path of the resource (e.g: g/all/my_resource)
-*/
-export function resource(path: string): any;
-
-/**
-* get result of step n.
-* If n is negative, for instance -1, it is the step just before this one.
-* Step 0 is flow input.
-* @param {number} n - step number.
-*/
-export function step(n: number): any;
-
-/**
-* flow input as an object
-*/
-export const flow_input: ${flowInput};
-
-/**
-* previous result as an object
-*/
-export const previous_result: ${previousResultType || 'any'};
-
-/**
-* static params of this same step
-*/
-export const params: any;`
-}
-
 export function schemaToTsType(schema: Schema): string {
-	if (!schema) {
+	if (!schema || !schema.properties) {
 		return 'any'
 	}
 	const propKeys = Object.keys(schema.properties)
@@ -382,7 +361,7 @@ export function schemaToTsType(schema: Schema): string {
 export function schemaToObject(schema: Schema, args: Record<string, any>): Object {
 	const object = {}
 
-	if (!schema) {
+	if (!schema || !schema.properties) {
 		return object
 	}
 	const propKeys = Object.keys(schema.properties)
@@ -394,29 +373,6 @@ export function schemaToObject(schema: Schema, args: Record<string, any>): Objec
 	return object
 }
 
-export function valueToTsType(value: any): string {
-	const typeOfValue: string = typeof value
-
-	if (['string', 'number', 'boolean'].includes(typeOfValue)) {
-		return typeOfValue
-	} else if (Array.isArray(value)) {
-		const type = objectToTsType(value[0])
-		return `Array<${type}>`
-	} else if (typeof value === 'object') {
-		return objectToTsType(value)
-	} else {
-		return 'any'
-	}
-}
-
-export function objectToTsType(object: Object): string {
-	if (!object) {
-		return 'any'
-	}
-	const propKeys = Object.keys(object)
-	const types = propKeys.map((key: string) => `${key}: ${valueToTsType(object[key])}`).join(';')
-	return `{ ${types} }`
-}
 
 export type InputCat =
 	| 'string'
@@ -473,7 +429,7 @@ export function scriptPathToHref(path: string): string {
 
 export async function getScriptByPath(path: string): Promise<{
 	content: string
-	language: 'deno' | 'python3' | 'go',
+	language: 'deno' | 'python3' | 'go' | 'bash',
 	schema: any
 }> {
 	if (path.startsWith('hub/')) {
@@ -577,11 +533,13 @@ export function classNames(...classes: Array<string | undefined>): string {
 	return classes.filter(Boolean).join(' ')
 }
 
-export function scriptLangToEditorLang(lang: Script.language): 'typescript' | 'python' | 'go' {
+export function scriptLangToEditorLang(lang: Script.language): 'typescript' | 'python' | 'go' | 'shell' {
 	if (lang == 'deno') {
 		return 'typescript'
 	} else if (lang == 'python3') {
 		return 'python'
+	} else if (lang == 'bash') {
+		return 'shell'
 	} else {
 		return lang
 	}

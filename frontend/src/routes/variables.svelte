@@ -20,10 +20,11 @@
 	import { userStore, workspaceStore } from '$lib/stores'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
 	import Icon from 'svelte-awesome'
-	import { faPlus, faCircle } from '@fortawesome/free-solid-svg-icons'
+	import { faPlus, faCircle, faLock, faEyeSlash } from '@fortawesome/free-solid-svg-icons'
 	import { Button } from '$lib/components/common'
 	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
 	import { Alert, Badge, Skeleton } from '$lib/components/common'
+	import Popover from '$lib/components/Popover.svelte'
 
 	type ListableVariableW = ListableVariable & { canWrite: boolean }
 
@@ -74,14 +75,17 @@
 </script>
 
 <CenteredPage>
-	<PageHeader title="Variables">
+	<PageHeader
+		title="Variables"
+		tooltip="Save and permission strings to be reused in Scripts and Flows."
+	>
 		<Button size="sm" startIcon={{ icon: faPlus }} on:click={() => variableEditor.initNew()}>
 			New&nbsp;variable
 		</Button>
 	</PageHeader>
 
 	<VariableEditor bind:this={variableEditor} on:create={loadVariables} />
-	<div class="relative">
+	<div class="relative overflow-x-auto pb-40 pr-4">
 		{#if loading.variables}
 			<Skeleton layout={[0.5, [2], 1]} />
 			{#each new Array(3) as _}
@@ -91,8 +95,8 @@
 			<TableCustom>
 				<tr slot="header-row">
 					<th>path</th>
+
 					<th>value</th>
-					<th>secret</th>
 					<th>description</th>
 					<th>OAuth</th>
 					<th />
@@ -102,24 +106,49 @@
 						<tr>
 							<td
 								><a
-									class="break-all"
+									class="break-words"
 									id="edit-{path}"
 									on:click={() => variableEditor.editVariable(path)}
 									href="#{path}">{path}</a
 								>
 								<div><SharedBadge {canWrite} extraPerms={extra_perms} /></div>
 							</td>
-							<td>{truncate(value ?? '******', 40)}</td>
-							<td>{is_secret ? 'secret' : 'visible'}</td>
-							<td>{truncate(description ?? '', 50)}</td>
 							<td>
+								<span class="inline-flex flex-row">
+									<span class="text-sm break-words">
+										{truncate(value ?? '****', 20)}
+									</span>
+									{#if is_secret}
+										<Popover>
+											<Icon
+												label="Secret"
+												class="text-gray-700 mb-2 ml-2"
+												data={faEyeSlash}
+												scale={0.8}
+											/>
+											<span slot="text">This item is secret</span>
+										</Popover>
+									{/if}
+								</span>
+							</td>
+							<td class="break-words"
+								><span class="text-xs text-gray-500">{truncate(description ?? '', 50)}</span></td
+							>
+
+							<td class="text-center">
 								{#if is_oauth}
-									<Icon
-										class="text-green-600"
-										data={faCircle}
-										scale={0.7}
-										label="Variable is tied to an OAuth app"
-									/>
+									<Popover>
+										<Icon
+											class="text-green-600 animate-[pulse_5s_linear_infinite]"
+											data={faCircle}
+											scale={0.7}
+											label="Variable is tied to an OAuth app"
+										/>
+										<div slot="text">
+											The variable is tied to an OAuth app. The token is refreshed automatically if
+											applicable.
+										</div>
+									</Popover>
 								{/if}
 							</td>
 							<td
@@ -147,7 +176,7 @@
 										{
 											displayName: 'Share',
 											action: () => {
-												shareModal.openModal(path)
+												shareModal.openDrawer(path)
 											},
 											disabled: !canWrite
 										},
@@ -169,7 +198,7 @@
 											  ]
 											: [])
 									]}
-									relative={false}
+									relative={true}
 								/></td
 							>
 						</tr>
@@ -186,7 +215,6 @@
 			loadVariables()
 		}}
 	/>
-	<div class="my-10" />
 
 	<PageHeader
 		title="Contextual Variables"
@@ -196,20 +224,22 @@
 		primary={false}
 	/>
 
-	<div class="my-5" />
-	{#if loading.contextual}
-		<Skeleton layout={[0.5, [2], 1]} />
-		{#each new Array(8) as _}
-			<Skeleton layout={[[2.8], 0.5]} />
-		{/each}
-	{:else}
-		<TableSimple
-			headers={['name', 'example of value', 'description']}
-			data={contextualVariables}
-			keys={['name', 'value', 'description']}
-			twTextSize="text-sm"
-		/>
-	{/if}
+	<div class="overflow-auto">
+		<div class="my-5" />
+		{#if loading.contextual}
+			<Skeleton layout={[0.5, [2], 1]} />
+			{#each new Array(8) as _}
+				<Skeleton layout={[[2.8], 0.5]} />
+			{/each}
+		{:else}
+			<TableSimple
+				headers={['name', 'example of value', 'description']}
+				data={contextualVariables}
+				keys={['name', 'value', 'description']}
+				twTextSize="text-sm"
+			/>
+		{/if}
+	</div>
 </CenteredPage>
 
 <ConfirmationModal

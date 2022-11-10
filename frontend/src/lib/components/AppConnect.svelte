@@ -25,10 +25,10 @@
 	import { sendUserToast, truncateRev } from '$lib/utils'
 	import { createEventDispatcher } from 'svelte'
 	import Icon from 'svelte-awesome'
-	import Modal from './Modal.svelte'
 	import Password from './Password.svelte'
 	import Path from './Path.svelte'
-	import { Button } from './common'
+	import { Alert, Button, Drawer } from './common'
+	import DrawerContent from './common/drawer/DrawerContent.svelte'
 
 	let manual = false
 	let value: string = ''
@@ -44,7 +44,7 @@
 
 	let path: string
 
-	let modal: Modal
+	let drawer: Drawer
 	let resource_type = ''
 	let step = 1
 
@@ -65,7 +65,7 @@
 			scopes = connect.scopes
 			extra_params = Object.entries(connect.extra_params ?? {})
 		}
-		modal.openModal()
+		drawer.openDrawer()
 	}
 
 	export function openFromOauth(rt: string) {
@@ -76,7 +76,7 @@
 		manual = false
 		step = 3
 		no_back = true
-		modal.openModal()
+		drawer.openDrawer()
 	}
 
 	async function loadConnects() {
@@ -157,7 +157,7 @@
 			})
 			dispatch('refresh')
 			sendUserToast(`App token set at resource and variable path: ${path}`)
-			modal.closeModal()
+			drawer.closeDrawer()
 		}
 	}
 
@@ -182,8 +182,8 @@
 		(step == 3 && pathError != '')
 </script>
 
-<Modal
-	bind:this={modal}
+<Drawer
+	bind:this={drawer}
 	on:close={() => {
 		dispatch('close')
 	}}
@@ -192,19 +192,14 @@
 		loadResources()
 	}}
 >
-	<div slot="title">Connect an API</div>
-	<div slot="content">
+	<DrawerContent title="Connect an API" on:close={drawer.closeDrawer}>
 		{#if step == 1}
 			{#if resource_type && !connects[resource_type] && !connectsManual.find((x) => x[0] == resource_type)}
-				<div class="bg-red-100 border-l-4 border-red-600 text-orange-700 p-4" role="alert">
-					<p class="font-bold">No API integration for {resource_type}</p>
-					<p>
-						The resource type "{resource_type}" seems to not have an OAuth API integration. You can
-						still create this resource manually by closing this modal and pressing: "Add a
-						resource". You can also contribute to windmill and add it as an API integration if
-						relevant.
-					</p>
-				</div>
+				<Alert class="mb-4" type="error" title="Resource type not found">
+					The resource type "{resource_type}" seems to not have an OAuth API integration. You can
+					still create this resource manually by closing this modal and pressing: "Add a resource".
+					You can also contribute to windmill and add it as an API integration if relevant.
+				</Alert>
 			{/if}
 			<div class="mb-1 font-semibold text-gray-700">OAuth APIs</div>
 			<div class="grid sm:grid-cols-2 md:grid-cols-3 gap-x-2 gap-y-1 items-center mb-2">
@@ -366,25 +361,25 @@
 				</li>
 			</ul>
 		{/if}
-	</div>
-	<div slot="submission" class="flex items-center gap-4">
-		{#if step > 1 && !no_back}
-			<Button variant="border" on:click={back}>Back</Button>
-		{/if}
-		{#if isGoogleSignin}
-			<button {disabled} on:click={next}>
-				<img class="h-10 w-auto" src="/google_signin.png" alt="Google sign-in" />
-			</button>
-		{:else}
-			<Button {disabled} on:click={next}>
-				{#if step == 1 && !manual}
-					Connect
-				{:else if step == 3}
-					Add resource
-				{:else}
-					Next
-				{/if}
-			</Button>
-		{/if}
-	</div>
-</Modal>
+		<div slot="submission" class="flex items-center gap-4">
+			{#if step > 1 && !no_back}
+				<Button variant="border" on:click={back}>Back</Button>
+			{/if}
+			{#if isGoogleSignin}
+				<button {disabled} on:click={next}>
+					<img class="h-10 w-auto" src="/google_signin.png" alt="Google sign-in" />
+				</button>
+			{:else}
+				<Button {disabled} on:click={next}>
+					{#if step == 1 && !manual}
+						Connect
+					{:else if step == 3}
+						Add resource
+					{:else}
+						Next
+					{/if}
+				</Button>
+			{/if}
+		</div>
+	</DrawerContent>
+</Drawer>

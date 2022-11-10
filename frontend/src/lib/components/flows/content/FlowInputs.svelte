@@ -14,8 +14,8 @@
 </script>
 
 <div class="space-y-4 p-4">
-	<div class="text-sm font-bold">Common script</div>
-	<div class="grid sm:grid-col-2 lg:grid-cols-3 gap-4">
+	<div class="text-sm font-bold">{failureModule ? 'Error handler' : 'Common script'}</div>
+	<div class="grid sm:grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
 		<FlowScriptPicker
 			label="Inline Python (3.10)"
 			icon={faCode}
@@ -23,8 +23,8 @@
 			on:click={() => {
 				dispatch('new', {
 					language: RawScript.language.PYTHON3,
-					kind: 'script',
-					subkind: failureModule ? 'failure' : 'flow'
+					kind: failureModule ? 'failure' : 'script',
+					subkind: 'flow'
 				})
 			}}
 		/>
@@ -36,8 +36,8 @@
 			on:click={() => {
 				dispatch('new', {
 					language: RawScript.language.DENO,
-					kind: 'script',
-					subkind: failureModule ? 'failure' : 'flow'
+					kind: failureModule ? 'failure' : 'script',
+					subkind: 'flow'
 				})
 			}}
 		/>
@@ -49,8 +49,21 @@
 			on:click={() => {
 				dispatch('new', {
 					language: RawScript.language.GO,
-					kind: 'script',
-					subkind: failureModule ? 'failure' : 'flow'
+					kind: failureModule ? 'failure' : 'script',
+					subkind: 'flow'
+				})
+			}}
+		/>
+
+		<FlowScriptPicker
+			label="Inline Bash"
+			icon={faCode}
+			iconColor="text-green-700"
+			on:click={() => {
+				dispatch('new', {
+					language: RawScript.language.BASH,
+					kind: failureModule ? 'failure' : 'script',
+					subkind: 'flow'
 				})
 			}}
 		/>
@@ -81,13 +94,13 @@
 		<div class="text-sm font-bold pt-8">
 			Trigger script
 			<Tooltip>
-				Used as a first step most commonly with an internal state and a schedule to watch for changes
-				on an external system, compute the diff since last time, set the new state. The diffs are
-				then treated one by one with a for-loop.
+				Used as a first step most commonly with an internal state and a schedule to watch for
+				changes on an external system, compute the diff since last time, set the new state. The
+				diffs are then treated one by one with a for-loop.
 			</Tooltip>
 		</div>
 
-		<div class="grid sm:grid-col-1 md:grid-col-2 lg:grid-cols-3 gap-4">
+		<div class="grid sm:grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
 			<PickScript customText="Trigger script from workspace" kind={Script.kind.TRIGGER} on:pick />
 			<PickHubScript customText="Trigger script from Hub" kind={Script.kind.TRIGGER} on:pick />
 			<FlowScriptPicker
@@ -108,7 +121,7 @@
 				Use getResumeEndpoints from the wmill client to generate those URLs.
 			</Tooltip>
 		</div>
-		<div class="grid sm:grid-col-1 md:grid-col-2 lg:grid-cols-3 gap-4">
+		<div class="grid sm:grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
 			<PickScript customText="Approval step from workspace" kind={Script.kind.APPROVAL} on:pick />
 			<PickHubScript
 				customText={'Approval step from the Hub'}
@@ -125,7 +138,7 @@
 
 		<div class="text-sm font-bold pt-8">Flow primitive</div>
 
-		<div class="grid sm:grid-col-1 md:grid-col-2 lg:grid-cols-3 gap-4">
+		<div class="grid sm:grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
 			<FlowScriptPicker
 				label={`Branches and switch to one`}
 				icon={faCodeBranch}

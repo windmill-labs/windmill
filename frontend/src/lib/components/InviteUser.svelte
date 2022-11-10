@@ -1,19 +1,12 @@
 <script lang="ts">
 	import { sendUserToast } from '$lib/utils'
-	import Switch from './Switch.svelte'
-	import type Modal from './Modal.svelte'
 	import { createEventDispatcher } from 'svelte'
 	import { workspaceStore } from '$lib/stores'
 	import { WorkspaceService } from '$lib/gen'
 	import { Button } from './common'
+	import Toggle from '$lib/components/Toggle.svelte'
 
 	const dispatch = createEventDispatcher()
-
-	let modal: Modal
-
-	export function openModal(): void {
-		modal.openModal()
-	}
 
 	let email: string
 	let is_admin = false
@@ -40,14 +33,14 @@
 </script>
 
 <div class="flex flex-row">
-	<input on:keyup={handleKeyUp} placeholder="email" bind:value={email} />
+	<input type="email" on:keyup={handleKeyUp} placeholder="email" bind:value={email} class="mr-4" />
 
-	<Switch class="ml-2" bind:checked={is_admin} horizontal={true} label={'admin: '} />
+	<Toggle bind:checked={is_admin} options={{ right: 'admin' }} />
 	<Button
 		variant="contained"
 		color="blue"
 		size="sm"
-		btnClasses="!ml-4"
+		btnClasses="!ml-8"
 		on:click={inviteUser}
 		disabled={email === undefined}
 	>

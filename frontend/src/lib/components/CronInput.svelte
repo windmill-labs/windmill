@@ -12,6 +12,7 @@
 	let preview: string[] = []
 	let cronError = ''
 	export let schedule: string = '0 0 12 * *'
+	export let disabled = false
 	let limit = 3
 
 	$: handleScheduleInput(schedule)
@@ -44,28 +45,31 @@
 		id="cron-schedule"
 		name="cron-schedule"
 		bind:value={schedule}
+		{disabled}
 	/>
 </div>
-<div class="flex flex-row text-xs text-blue-500 gap-3 pl-28">
-	<button
-		on:click={() => {
-			schedule = '0 */15 * * *'
-			cronError = ''
-		}}>every 15 min</button
-	>
-	<button
-		on:click={() => {
-			schedule = '0 0 * * * *'
-			cronError = ''
-		}}>every hour</button
-	>
-	<button
-		on:click={() => {
-			schedule = '0 0 8 * * *'
-			cronError = ''
-		}}>once a day at 8AM</button
-	>
-</div>
+{#if !disabled}
+	<div class="flex flex-row text-xs text-blue-500 gap-3 pl-28">
+		<button
+			on:click={() => {
+				schedule = '0 */15 * * *'
+				cronError = ''
+			}}>every 15 min</button
+		>
+		<button
+			on:click={() => {
+				schedule = '0 0 * * * *'
+				cronError = ''
+			}}>every hour</button
+		>
+		<button
+			on:click={() => {
+				schedule = '0 0 8 * * *'
+				cronError = ''
+			}}>once a day at 8AM</button
+		>
+	</div>
+{/if}
 
 <CollapseLink text="preview next runs" open={true}>
 	{#if preview && preview.length > 0}

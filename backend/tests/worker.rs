@@ -162,6 +162,7 @@ mod suspend_resume {
     fn flow() -> FlowValue {
         serde_json::from_value(serde_json::json!({
                 "modules": [{
+                    "id": "a",
                     "input_transform": {
                         "n": { "type": "javascript", "expr": "flow_input.n", },
                         "port": { "type": "javascript", "expr": "flow_input.port", },
@@ -200,8 +201,9 @@ mod suspend_resume {
                         "required_events": 1
                     },
                 }, {
+                    "id": "b",
                     "input_transform": {
-                        "n": { "type": "javascript", "expr": "previous_result", },
+                        "n": { "type": "javascript", "expr": "results.a", },
                         "resume": { "type": "javascript", "expr": "resume", },
                         "resumes": { "type": "javascript", "expr": "resumes", },
                     },
@@ -215,7 +217,7 @@ mod suspend_resume {
                     },
                 }, {
                     "input_transform": {
-                        "last": { "type": "javascript", "expr": "previous_result", },
+                        "last": { "type": "javascript", "expr": "results.b", },
                         "resume": { "type": "javascript", "expr": "resume", },
                         "resumes": { "type": "javascript", "expr": "resumes", },
                     },
@@ -478,13 +480,14 @@ def main(last, port):
     fn flow_forloop_retry() -> FlowValue {
         serde_json::from_value(serde_json::json!({
             "modules": [{
+                "id": "a",
                 "value": {
                     "type": "forloopflow",
-                    "iterator": { "type": "javascript", "expr": "result.items" },
+                    "iterator": { "type": "javascript", "expr": "flow_input.items" },
                     "skip_failures": false,
                     "modules": [{
                         "input_transform": {
-                            "index": { "type": "javascript", "expr": "previous_result.iter.index" },
+                            "index": { "type": "javascript", "expr": "flow_input.iter.index" },
                             "port": { "type": "javascript", "expr": "flow_input.port" },
                         },
                         "value": {
@@ -497,7 +500,7 @@ def main(last, port):
                 "retry": { "constant": { "attempts": 2, "seconds": 0 } },
             }, {
                 "input_transform": {
-                    "last": { "type": "javascript", "expr": "previous_result" },
+                    "last": { "type": "javascript", "expr": "results.a" },
                     "port": { "type": "javascript", "expr": "flow_input.port" },
                 },
                 "value": {
@@ -603,14 +606,13 @@ def main(last, port):
         .into_iter()
         .unzip::<_, _, Vec<_>, Vec<_>>();
         let server = Server::start(responses).await;
-        let result = RunJob::from(JobPayload::RawFlow { value: flow_forloop_retry(), path: None })
+        let job = RunJob::from(JobPayload::RawFlow { value: flow_forloop_retry(), path: None })
             .arg("items", json!(["unused", "unused", "unused"]))
             .arg("port", json!(server.addr.port()))
             .run_until_complete(&db, server.addr.port())
-            .await
-            .result
-            .unwrap();
+            .await;
 
+        let result = job.result.unwrap();
         assert_eq!(server.close().await, attempts);
         assert!(result["error"]
             .as_str()
@@ -706,7 +708,7 @@ async fn test_iteration(db: Pool<Postgres>) {
                     "input_transform": {
                         "n": {
                             "type": "javascript",
-                            "expr": "previous_result.iter.value",
+                            "expr": "flow_input.iter.value",
                         },
                     },
                     "value": {
@@ -759,7 +761,7 @@ async fn test_iteration_parallel(db: Pool<Postgres>) {
                     "input_transform": {
                         "n": {
                             "type": "javascript",
-                            "expr": "previous_result.iter.value",
+                            "expr": "flow_input.iter.value",
                         },
                     },
                     "value": {
@@ -1027,7 +1029,7 @@ async fn test_deno_flow(db: Pool<Postgres>) {
                                 input_transforms: [(
                                     "n".to_string(),
                                     InputTransform::Javascript {
-                                        expr: "previous_result.iter.value".to_string(),
+                                        expr: "flow_input.iter.value".to_string(),
                                     },
                                 )]
                                 .into(),
@@ -1061,12 +1063,47 @@ async fn test_deno_flow(db: Pool<Postgres>) {
 
     for i in 0..50 {
         println!("deno flow iteration: {}", i);
-        let result = run_job_in_new_worker_until_complete(&db, job.clone(), port)
-            .await
-            .result
-            .unwrap();
+        let job = run_job_in_new_worker_until_complete(&db, job.clone(), port).await;
+        // println!("job: {:#?}", job.flow_status);
+        let result = job.result.unwrap();
         assert_eq!(result, serde_json::json!([2, 4, 6]), "iteration: {}", i);
     }
+}
+
+#[sqlx::test(fixtures("base"))]
+async fn test_identity(db: Pool<Postgres>) {
+    initialize_tracing().await;
+
+    let server = ApiServer::start(db.clone()).await;
+
+    let flow: FlowValue = serde_json::from_value(serde_json::json!({
+        "modules": [{
+                "value": {
+                    "type": "rawscript",
+                    "language": "python3",
+                    "content": "def main(): return 42",
+                }}, {
+                    "value": {
+                        "type": "identity",
+                    },
+                }, {
+                    "value": {
+                        "type": "identity",
+                    },
+                }, {
+                    "value": {
+                        "type": "identity",
+                    },
+                }],
+    }))
+    .unwrap();
+
+    let result = RunJob::from(JobPayload::RawFlow { value: flow.clone(), path: None })
+        .run_until_complete(&db, server.addr.port())
+        .await
+        .result
+        .unwrap();
+    assert_eq!(result, serde_json::json!(42));
 }
 
 #[sqlx::test(fixtures("base"))]
@@ -1121,7 +1158,7 @@ async fn test_deno_flow_same_worker(db: Pool<Postgres>) {
                                 (
                                     "i".to_string(),
                                     InputTransform::Javascript {
-                                        expr: "previous_result.iter.value".to_string(),
+                                        expr: "flow_input.iter.value".to_string(),
                                     },
                                 ),
                                 (
@@ -1187,7 +1224,7 @@ async fn test_deno_flow_same_worker(db: Pool<Postgres>) {
                         input_transforms: [
                         (
                             "loops".to_string(),
-                            InputTransform::Javascript { expr: "previous_result".to_string() },
+                            InputTransform::Javascript { expr: "results.b".to_string() },
                         ),
                         (
                             "path".to_string(),
@@ -1256,7 +1293,7 @@ async fn test_flow_result_by_id(db: Pool<Postgres>) {
                                         "branches": [{"modules": [                {
                                             "id": "d",
                                             "value": {
-                                                "input_transforms": {"v": {"type": "javascript", "expr": "result_by_id(\"a\")"}},
+                                                "input_transforms": {"v": {"type": "javascript", "expr": "results.a"}},
                                                 "type": "rawscript",
                                                 "language": "deno",
                                                 "content": "export function main(v){ return v }",
@@ -1307,7 +1344,7 @@ async fn test_stop_after_if(db: Pool<Postgres>) {
             {
                 "id": "b",
                 "value": {
-                    "input_transforms": { "n": { "type": "javascript", "expr": "previous_result" } },
+                    "input_transforms": { "n": { "type": "javascript", "expr": "results.a" } },
                     "type": "rawscript",
                     "language": "python3",
                     "content": "def main(n): return f'last step saw {n}'",
@@ -1365,7 +1402,7 @@ async fn test_stop_after_if_nested(db: Pool<Postgres>) {
             {
                 "id": "c",
                 "value": {
-                    "input_transforms": { "n": { "type": "javascript", "expr": "previous_result" } },
+                    "input_transforms": { "n": { "type": "javascript", "expr": "results.a" } },
                     "type": "rawscript",
                     "language": "python3",
                     "content": "def main(n): return f'last step saw {n}'",
@@ -1426,7 +1463,7 @@ async fn test_python_flow(db: Pool<Postgres>) {
                         "input_transform": {
                             "n": {
                                 "type": "javascript",
-                                "expr": "previous_result.iter.value",
+                                "expr": "flow_input.iter.value",
                             },
                         },
                     }],
@@ -1436,7 +1473,7 @@ async fn test_python_flow(db: Pool<Postgres>) {
     }))
     .unwrap();
 
-    for i in 0..50 {
+    for i in 0..10 {
         println!("python flow iteration: {}", i);
         let result = run_job_in_new_worker_until_complete(
             &db,
@@ -1514,6 +1551,30 @@ func main(derp string) (string, error) {
     .unwrap();
 
     assert_eq!(result, serde_json::json!("hello world"));
+}
+
+#[sqlx::test(fixtures("base"))]
+async fn test_bash_job(db: Pool<Postgres>) {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await;
+    let port = server.addr.port();
+
+    let content = r#"
+msg="$1"
+echo "hello $msg"
+"#
+    .to_owned();
+
+    let job = RunJob::from(JobPayload::Code(RawCode {
+        content,
+        path: None,
+        language: ScriptLang::Bash,
+    }))
+    .arg("msg", json!("world"))
+    .run_until_complete(&db, port)
+    .await;
+
+    assert_eq!(job.result, Some(json!("hello world")));
 }
 
 #[sqlx::test(fixtures("base"))]
@@ -1596,6 +1657,7 @@ async fn test_empty_loop(db: Pool<Postgres>) {
     let flow: FlowValue = serde_json::from_value(serde_json::json!({
         "modules": [
             {
+                "id": "a",
                 "value": {
                     "type": "forloopflow",
                     "iterator": { "type": "static", "value": [] },
@@ -1605,7 +1667,7 @@ async fn test_empty_loop(db: Pool<Postgres>) {
                                 "input_transform": {
                                     "n": {
                                         "type": "javascript",
-                                        "expr": "previous_result.iter.value",
+                                        "expr": "flow_input.iter.value",
                                     },
                                 },
                                 "type": "rawscript",
@@ -1621,7 +1683,7 @@ async fn test_empty_loop(db: Pool<Postgres>) {
                     "input_transform": {
                         "items": {
                             "type": "javascript",
-                            "expr": "previous_result",
+                            "expr": "results.a",
                         },
                     },
                     "type": "rawscript",
@@ -1698,7 +1760,7 @@ async fn test_empty_loop_2(db: Pool<Postgres>) {
                             "input_transform": {
                                 "n": {
                                     "type": "javascript",
-                                    "expr": "previous_result.iter.value",
+                                    "expr": "flow_input.iter.value",
                                 },
                             },
                             "value": {
@@ -1731,6 +1793,7 @@ async fn test_step_after_loop(db: Pool<Postgres>) {
     let flow: FlowValue = serde_json::from_value(serde_json::json!({
         "modules": [
             {
+                "id": "a",
                 "value": {
                     "type": "forloopflow",
                     "iterator": { "type": "static", "value": [2,3,4] },
@@ -1739,7 +1802,7 @@ async fn test_step_after_loop(db: Pool<Postgres>) {
                             "input_transform": {
                                 "n": {
                                     "type": "javascript",
-                                    "expr": "previous_result.iter.value",
+                                    "expr": "flow_input.iter.value",
                                 },
                             },
                             "value": {
@@ -1755,7 +1818,7 @@ async fn test_step_after_loop(db: Pool<Postgres>) {
                 "input_transform": {
                     "items": {
                         "type": "javascript",
-                        "expr": "previous_result",
+                        "expr": "results.a",
                     },
                 },
                 "value": {
@@ -1777,12 +1840,13 @@ async fn test_step_after_loop(db: Pool<Postgres>) {
     assert_eq!(result, serde_json::json!(9));
 }
 
-fn module_add_item_to_list(i: i32) -> serde_json::Value {
+fn module_add_item_to_list(i: i32, id: &str) -> serde_json::Value {
     json!({
+        "id": format!("id_{}", i.to_string().replace("-", "_")),
         "input_transform": {
             "array": {
                 "type": "javascript",
-                "expr": "previous_result",
+                "expr": format!("results.{id}"),
             },
             "i": {
                 "type": "static",
@@ -1817,6 +1881,7 @@ async fn test_branchone_simple(db: Pool<Postgres>) {
     let flow: FlowValue = serde_json::from_value(json!({
         "modules": [
             {
+                "id": "a",
                 "value": {
                     "type": "rawscript",
                     "language": "deno",
@@ -1826,7 +1891,7 @@ async fn test_branchone_simple(db: Pool<Postgres>) {
             {
                 "value": {
                     "branches": [],
-                    "default": [module_add_item_to_list(2)],
+                    "default": [module_add_item_to_list(2, "a")],
                     "type": "branchone",
                 }
             },
@@ -1844,6 +1909,42 @@ async fn test_branchone_simple(db: Pool<Postgres>) {
 }
 
 #[sqlx::test(fixtures("base"))]
+async fn test_branchone_with_cond(db: Pool<Postgres>) {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await;
+    let port = server.addr.port();
+
+    let flow: FlowValue = serde_json::from_value(json!({
+        "modules": [
+            {
+                "id": "a",
+                "value": {
+                    "type": "rawscript",
+                    "language": "deno",
+                    "content": "export function main(){ return [1] }",
+                }
+            },
+            {
+                "value": {
+                    "branches": [{"expr": "results.a[0] == 1", "modules": [module_add_item_to_list(3, "a")]}],
+                    "default": [module_add_item_to_list(2, "a")],
+                    "type": "branchone",
+                }
+            },
+        ],
+    }))
+    .unwrap();
+
+    let flow = JobPayload::RawFlow { value: flow, path: None };
+    let result = run_job_in_new_worker_until_complete(&db, flow, port)
+        .await
+        .result
+        .unwrap();
+
+    assert_eq!(result, serde_json::json!([1, 3]));
+}
+
+#[sqlx::test(fixtures("base"))]
 async fn test_branchall_sequential(db: Pool<Postgres>) {
     initialize_tracing().await;
     let server = ApiServer::start(db.clone()).await;
@@ -1852,6 +1953,7 @@ async fn test_branchall_sequential(db: Pool<Postgres>) {
     let flow: FlowValue = serde_json::from_value(json!({
         "modules": [
             {
+                "id": "a",
                 "value": {
                     "type": "rawscript",
                     "language": "deno",
@@ -1861,8 +1963,8 @@ async fn test_branchall_sequential(db: Pool<Postgres>) {
             {
                 "value": {
                     "branches": [
-                        {"modules": [module_add_item_to_list(2)]},
-                        {"modules": [module_add_item_to_list(3)]}],
+                        {"modules": [module_add_item_to_list(2, "a")]},
+                        {"modules": [module_add_item_to_list(3, "a")]}],
                     "type": "branchall",
                     "parallel": true,
                 }
@@ -1889,6 +1991,7 @@ async fn test_branchall_simple(db: Pool<Postgres>) {
     let flow: FlowValue = serde_json::from_value(json!({
         "modules": [
             {
+                "id": "a",
                 "value": {
                     "type": "rawscript",
                     "language": "deno",
@@ -1898,8 +2001,8 @@ async fn test_branchall_simple(db: Pool<Postgres>) {
             {
                 "value": {
                     "branches": [
-                        {"modules": [module_add_item_to_list(2)]},
-                        {"modules": [module_add_item_to_list(3)]}],
+                        {"modules": [module_add_item_to_list(2, "a")]},
+                        {"modules": [module_add_item_to_list(3, "a")]}],
                     "type": "branchall",
                 }
             },
@@ -1925,6 +2028,7 @@ async fn test_branchall_skip_failure(db: Pool<Postgres>) {
     let flow: FlowValue = serde_json::from_value(json!({
         "modules": [
             {
+                "id": "a",
                 "value": {
                     "type": "rawscript",
                     "language": "deno",
@@ -1935,7 +2039,7 @@ async fn test_branchall_skip_failure(db: Pool<Postgres>) {
                 "value": {
                     "branches": [
                         {"modules": [module_failure()], "skip_failure": false},
-                        {"modules": [module_add_item_to_list(3)]}],
+                        {"modules": [module_add_item_to_list(3, "a")]}],
                     "type": "branchall",
                 }
             },
@@ -1957,6 +2061,7 @@ async fn test_branchall_skip_failure(db: Pool<Postgres>) {
     let flow: FlowValue = serde_json::from_value(json!({
         "modules": [
             {
+                "id": "a",
                 "value": {
                     "type": "rawscript",
                     "language": "deno",
@@ -1967,7 +2072,7 @@ async fn test_branchall_skip_failure(db: Pool<Postgres>) {
                 "value": {
                     "branches": [
                         {"modules": [module_failure()], "skip_failure": true},
-                        {"modules": [module_add_item_to_list(2)]}
+                        {"modules": [module_add_item_to_list(2, "a")]}
                 ],
                     "type": "branchall",
                 }
@@ -1997,14 +2102,16 @@ async fn test_branchone_nested(db: Pool<Postgres>) {
     let flow: FlowValue = serde_json::from_value(json!({
         "modules": [
             {
+                "id": "a",
                 "value": {
                     "type": "rawscript",
                     "language": "deno",
                     "content": "export function main(){ return [] }",
                 }
             },
-            module_add_item_to_list(1),
+            module_add_item_to_list(1, "a"),
             {
+                "id": "b",
                 "value": {
                     "branches": [
                         {
@@ -2020,17 +2127,17 @@ async fn test_branchone_nested(db: Pool<Postgres>) {
                                             "expr": "false",
                                             "modules": []
                                         }],
-                                    "default": [module_add_item_to_list(2)],
+                                    "default": [module_add_item_to_list(2, "id_1")],
                                     "type": "branchone",
                                 }
                             }]
                         },
                     ],
-                    "default": [module_add_item_to_list(-4)],
+                    "default": [module_add_item_to_list(-4, "id_1")],
                     "type": "branchone",
                 }
             },
-            module_add_item_to_list(3),
+            module_add_item_to_list(3, "b"),
         ],
     }))
     .unwrap();
@@ -2053,6 +2160,7 @@ async fn test_branchall_nested(db: Pool<Postgres>) {
     let flow: FlowValue = serde_json::from_value(json!({
         "modules": [
             {
+                "id": "a",
                 "value": {
                     "type": "rawscript",
                     "language": "deno",
@@ -2063,24 +2171,27 @@ async fn test_branchall_nested(db: Pool<Postgres>) {
                 "value": {
                     "branches": [
                         {
-                            "modules": [                {
+                            "modules": [
+                                    {
+                                "id": "b",
                                 "value": {
                                     "branches": [
-                                        {"modules": [module_add_item_to_list(2)]},
-                                        {"modules": [module_add_item_to_list(3)]}],
+                                        {"modules": [module_add_item_to_list(2, "a")]},
+                                        {"modules": [module_add_item_to_list(3, "a")]}],
                                     "type": "branchall",
                                 }
                             }, {
                                 "value": {
                                     "branches": [
-                                        {"modules": [module_add_item_to_list(4)]},
-                                        {"modules": [module_add_item_to_list(5)]}],
+                                        {"modules": [module_add_item_to_list(4, "b")]},
+                                        {"modules": [module_add_item_to_list(5, "b")]}],
                                     "type": "branchall",
                                 }
                             }
                                     ]
                         },
-                        {"modules": [module_add_item_to_list(6)]}],
+                        {"modules": [module_add_item_to_list(6, "a")]}],
+                        // "parallel": false,
                     "type": "branchall",
                 }
             },
@@ -2094,6 +2205,7 @@ async fn test_branchall_nested(db: Pool<Postgres>) {
         .result
         .unwrap();
 
+    println!("{:#?}", result);
     assert_eq!(
         result,
         serde_json::json!([[[[1, 2], [1, 3], 4], [[1, 2], [1, 3], 5]], [1, 6]])
@@ -2108,31 +2220,33 @@ async fn test_failure_module(db: Pool<Postgres>) {
 
     let flow: FlowValue = serde_json::from_value(serde_json::json!({
             "modules": [{
-                "input_transform": {
-                    "l": { "type": "javascript", "expr": "[]", },
-                    "n": { "type": "javascript", "expr": "flow_input.n", },
-                },
+                "id": "a",
                 "value": {
+                    "input_transform": {
+                        "l": { "type": "javascript", "expr": "[]", },
+                        "n": { "type": "javascript", "expr": "flow_input.n", },
+                    },
                     "type": "rawscript",
                     "language": "deno",
                     "content": "export function main(n, l) { if (n == 0) throw l; return { l: [...l, 0] } }",
                 },
             }, {
-                "input_transform": {
-                    "l": { "type": "javascript", "expr": "previous_result.l", },
-                    "n": { "type": "javascript", "expr": "flow_input.n", },
-                },
+                "id": "b",
                 "value": {
+                    "input_transform": {
+                        "l": { "type": "javascript", "expr": "results.a.l", },
+                        "n": { "type": "javascript", "expr": "flow_input.n", },
+                    },
                     "type": "rawscript",
                     "language": "deno",
                     "content": "export function main(n, l) { if (n == 1) throw l; return { l: [...l, 1] } }",
                 },
             }, {
-                "input_transform": {
-                    "l": { "type": "javascript", "expr": "previous_result.l", },
-                    "n": { "type": "javascript", "expr": "flow_input.n", },
-                },
                 "value": {
+                    "input_transform": {
+                        "l": { "type": "javascript", "expr": "results.b.l", },
+                        "n": { "type": "javascript", "expr": "flow_input.n", },
+                    },
                     "type": "rawscript",
                     "language": "deno",
                     "content": "export function main(n, l) { if (n == 2) throw l; return { l: [...l, 2] } }",

@@ -1,0 +1,7 @@
+FROM nikolaik/python-nodejs:python3.11-nodejs19
+
+RUN python3 -m pip install pipx poetry
+RUN python3 -m pipx ensurepath
+ENV PATH="/root/.local/bin:${PATH}"
+ENV PATH="/usr/local/bin:${PATH}"
+RUN pipx install openapi-python-client==0.11.6 --include-deps

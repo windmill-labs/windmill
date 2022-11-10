@@ -1,4 +1,4 @@
-FROM python:3.11.0-slim-buster as nsjail
+FROM debian:buster-slim as nsjail
 
 WORKDIR /nsjail
 
@@ -76,32 +76,21 @@ COPY .git/ .git/
 RUN cargo build --release
 
 
-FROM debian:buster-slim
+FROM python:3.11.0-slim-buster
+
 ARG APP=/usr/src/app
 
 RUN apt-get update \
-    && apt-get install -y ca-certificates tzdata libpq5 \
-    make build-essential libssl-dev zlib1g-dev libbz2-dev libreadline-dev \
-    libsqlite3-dev wget curl llvm libncurses5-dev libncursesw5-dev xz-utils tk-dev libxml2-dev \
-    libxmlsec1-dev libffi-dev liblzma-dev mecab-ipadic-utf8 libgdbm-dev libc6-dev git libprotobuf-dev=3.6.* libnl-route-3-dev=3.4.* \
-    libv8-dev tesseract-ocr \
+    && apt-get install -y ca-certificates wget curl git jq libprotobuf-dev libnl-route-3-dev \
     && rm -rf /var/lib/apt/lists/*
 
-RUN wget https://golang.org/dl/go1.19.1.linux-amd64.tar.gz && tar -C /usr/local -xzf go1.19.1.linux-amd64.tar.gz
+RUN wget https://golang.org/dl/go1.19.1.linux-amd64.tar.gz && tar -C /usr/local -xzf go1.19.1.linux-amd64.tar.gz && rm go1.19.1.linux-amd64.tar.gz
 ENV PATH="${PATH}:/usr/local/go/bin"
 ENV GO_PATH=/usr/local/go/bin/go
 
 ENV TZ=Etc/UTC
 
-ENV PYTHON_VERSION 3.10.4
-
-RUN wget https://www.python.org/ftp/python/${PYTHON_VERSION}/Python-${PYTHON_VERSION}.tgz \
-    && tar -xf Python-${PYTHON_VERSION}.tgz && cd Python-${PYTHON_VERSION}/ && ./configure --enable-optimizations \
-    && make -j 4 && make install
-
 RUN /usr/local/bin/python3 -m pip install pip-tools
-RUN /usr/local/bin/python3 -m pip install nltk
-RUN mkdir -p /nsjail_data/python && HOME=/nsjail_data/python /usr/local/bin/python3 -m nltk.downloader vader_lexicon
 
 COPY --from=builder /windmill/target/release/windmill ${APP}/windmill
 

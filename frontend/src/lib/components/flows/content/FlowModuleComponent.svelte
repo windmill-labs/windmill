@@ -24,6 +24,8 @@
 	import { getStepPropPicker } from '../previousResults'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import { Kbd } from '$lib/components/common'
+	import Button from '$lib/components/common/button/Button.svelte'
+	import Alert from '$lib/components/common/alert/Alert.svelte'
 
 	const { selectedId, previewArgs } = getContext<FlowEditorContext>('FlowEditorContext')
 
@@ -31,7 +33,7 @@
 	export let failureModule: boolean = false
 
 	export let parentModule: FlowModule | undefined = undefined
-	export let previousModuleId: string | undefined = undefined
+	export let previousModule: FlowModule | undefined
 
 	let editor: Editor
 	let modulePreview: ModulePreview
@@ -40,7 +42,7 @@
 	let wrapper: HTMLDivElement
 	let panes: HTMLElement
 	let totalTopGap = 0
-
+	let validCode = true
 	let width = 1200
 
 	let inputTransforms: Record<string, any> =
@@ -53,8 +55,24 @@
 	}
 
 	$: stepPropPicker = failureModule
-		? { pickableProperties: { previous_result: { error: 'the error message' } }, extraLib: '' }
-		: getStepPropPicker($flowStateStore, parentModule, previousModuleId, $flowStore, previewArgs)
+		? {
+				pickableProperties: {
+					flow_input: $flowStateStore.previewArgs,
+					priorIds: {},
+					previousId: undefined
+				},
+				extraLib: ''
+		  }
+		: getStepPropPicker(
+				$flowStateStore,
+				parentModule,
+				previousModule,
+				flowModule.id,
+				$flowStore,
+				previewArgs,
+				false,
+				true
+		  )
 
 	function onKeyDown(event: KeyboardEvent) {
 		if ((event.ctrlKey || event.metaKey) && event.key == 'Enter') {
@@ -65,19 +83,27 @@
 	}
 
 	async function reload(flowModule: FlowModule) {
-		const { input_transforms, schema } = await loadSchemaFromModule(flowModule)
+		try {
+			const { input_transforms, schema } = await loadSchemaFromModule(flowModule)
+			validCode = true
+			setTimeout(() => {
+				if (
+					(flowModule.value.type == 'script' || flowModule.value.type == 'rawscript') &&
+					JSON.stringify(flowModule.value.input_transforms) !== JSON.stringify(input_transforms)
+				) {
+					inputTransforms = input_transforms
+				}
+			})
 
-		setTimeout(() => {
-			if (
-				(flowModule.value.type == 'script' || flowModule.value.type == 'rawscript') &&
-				JSON.stringify(flowModule.value.input_transforms) !== JSON.stringify(input_transforms)
-			) {
-				inputTransforms = input_transforms
+			if (JSON.stringify(schema) !== JSON.stringify($flowStateStore[flowModule.id]?.schema)) {
+				if (!$flowStateStore[flowModule.id]) {
+					$flowStateStore[flowModule.id] = { schema }
+				} else {
+					$flowStateStore[flowModule.id].schema = schema
+				}
 			}
-		})
-
-		if (JSON.stringify(schema) !== JSON.stringify($flowStateStore[flowModule.id].schema)) {
-			$flowStateStore[flowModule.id].schema = schema
+		} catch (e) {
+			validCode = false
 		}
 	}
 
@@ -122,6 +148,7 @@
 			{#if flowModule.value.type === 'rawscript'}
 				<div class="border-b-2 shadow-sm p-1 mb-1">
 					<EditorBar
+						{validCode}
 						{editor}
 						lang={flowModule.value['language'] ?? 'deno'}
 						{websocketAlive}
@@ -165,24 +192,22 @@
 								><Tooltip>
 									Move the focus outside of the text editor to recompute the inputs or press
 									<Kbd>Ctrl/Cmd</Kbd> + <Kbd>S</Kbd>
-								</Tooltip>Inputs</Tab
+								</Tooltip><span class="font-semibold">Step Input</span></Tab
 							>
-							<Tab value="test">Test</Tab>
+							<Tab value="test"><span class="font-semibold text-md">Test this step</span></Tab>
 							<Tab value="retries">Retries</Tab>
 							{#if !$selectedId.includes('failure')}
 								<Tab value="early-stop">Early Stop</Tab>
 								<Tab value="suspend">Sleep/Suspend</Tab>
+								<Tab value="same_worker">Same Worker/Shared dir</Tab>
 							{/if}
 						</Tabs>
 						<div class="h-[calc(100%-32px)]">
 							{#if selected === 'inputs'}
 								<div class="h-full overflow-auto">
-									<PropPickerWrapper
-										priorId={previousModuleId}
-										pickableProperties={stepPropPicker.pickableProperties}
-									>
+									<PropPickerWrapper pickableProperties={stepPropPicker.pickableProperties}>
 										<SchemaForm
-											schema={$flowStateStore[$selectedId].schema}
+											schema={$flowStateStore[$selectedId]?.schema ?? {}}
 											inputTransform={true}
 											importPath={$selectedId}
 											bind:args={flowModule.value.input_transforms}
@@ -194,20 +219,28 @@
 								<ModulePreview
 									bind:this={modulePreview}
 									mod={flowModule}
-									schema={$flowStateStore[$selectedId].schema}
+									schema={$flowStateStore[$selectedId]?.schema ?? {}}
 								/>
 							{:else if selected === 'retries'}
 								<FlowRetries bind:flowModule class="px-4 pb-4 h-full overflow-auto" />
 							{:else if selected === 'early-stop'}
-								<FlowModuleEarlyStop
-									{previousModuleId}
-									bind:flowModule
-									class="px-4 pb-4 h-full overflow-auto"
-									{parentModule}
-								/>
+								<FlowModuleEarlyStop bind:flowModule class="px-4 pb-4 h-full overflow-auto" />
 							{:else if selected === 'suspend'}
 								<div class="px-4 pb-4 h-full overflow-auto">
-									<FlowModuleSuspend {previousModuleId} bind:flowModule />
+									<FlowModuleSuspend previousModuleId={previousModule?.id} bind:flowModule />
+								</div>
+							{:else if selected === 'same_worker'}
+								<div class="p-4  h-full overflow-auto">
+									<Alert type="info" title="Share a directory using same worker">
+										If same worker is set, all steps will be run on the same worker and will share
+										the folder `/shared` to pass data between each other.
+									</Alert>
+									<Button
+										btnClasses="mt-4"
+										on:click={() => {
+											$selectedId = 'settings-same-worker'
+										}}>Set same worker in the flow settings</Button
+									>
 								</div>
 							{/if}
 						</div>

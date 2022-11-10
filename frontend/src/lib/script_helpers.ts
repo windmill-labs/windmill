@@ -39,8 +39,9 @@ def main(no_default: str,
 `
 export const DENO_INIT_CODE = `// reload the smart assistant on the top right if it dies to get autocompletion and syntax highlighting
 // (Ctrl+space to cache dependencies on imports hover).
-// to import most npm packages without deno.land, use esm:
-// import { toWords } from "https://esm.sh/number-to-words"
+
+// you can use npm imports directly!
+// import { toWords } from "npm:number-to-words@1"
 // import * as wmill from "https://deno.land/x/windmill@v${__pkg__.version}/mod.ts"
 
 export async function main(
@@ -63,8 +64,11 @@ import (
   // wmill "github.com/windmill-labs/windmill-go-client"
 )
 
-func main(x string) (interface{}, error) {
+// the main must return (interface{}, error)
+
+func main(x string, nested struct{ Foo string \`json:"foo"\` }) (interface{}, error) {
 	fmt.Println("Hello, World")
+	fmt.Println(nested.Foo)
 	fmt.Println(quote.Opt())
   // v, _ := wmill.GetVariable("g/all/pretty_secret")
   return x, nil
@@ -139,6 +143,15 @@ export async function main(
   return query.rows;
 }`
 
+export const BASH_INIT_CODE = `
+# arguments of the form X="$I" are parsed as parameters X of type string
+msg="$1"
+
+# the last line of the stdout is the return value
+echo "Hello $msg"
+`
+
+
 export const DENO_INIT_CODE_TRIGGER = `import * as wmill from "https://deno.land/x/windmill@v${__pkg__.version}/mod.ts"
 
 export async function main() {
@@ -166,7 +179,7 @@ export async function main(approver?: string) {
   return wmill.getResumeEndpoints(approver)
 }`
 
-const ALL_INITIAL_CODE = [PYTHON_INIT_CODE, DENO_INIT_CODE, POSTGRES_INIT_CODE, DENO_INIT_CODE_TRIGGER, DENO_INIT_CODE_CLEAR, PYTHON_INIT_CODE_CLEAR, DENO_INIT_CODE_APPROVAL]
+const ALL_INITIAL_CODE = [PYTHON_INIT_CODE, DENO_INIT_CODE, POSTGRES_INIT_CODE, DENO_INIT_CODE_TRIGGER, DENO_INIT_CODE_CLEAR, PYTHON_INIT_CODE_CLEAR, DENO_INIT_CODE_APPROVAL, DENO_FAILURE_MODULE_CODE]
 
 export function isInitialCode(content: string): boolean {
   for (const code of ALL_INITIAL_CODE) {
@@ -177,36 +190,39 @@ export function isInitialCode(content: string): boolean {
   return false
 }
 
-export function initialCode(language: 'deno' | 'python3' | 'go', kind: Script.kind, subkind: 'pgsql' | 'flow' | 'script' | 'failure' | 'approval' | undefined): string {
+export function initialCode(language: 'deno' | 'python3' | 'go' | 'bash', kind: Script.kind, subkind: 'pgsql' | 'flow' | 'script' | undefined): string {
   if (language === 'deno') {
     if (kind === 'trigger') {
       return DENO_INIT_CODE_TRIGGER
     } else if (kind === 'script') {
       if (subkind === 'flow') {
         return DENO_INIT_CODE_CLEAR
-      } else if (subkind === 'failure') {
-        return DENO_FAILURE_MODULE_CODE
-      } else if (subkind === 'approval') {
-        return DENO_INIT_CODE_APPROVAL
       }
       else if (subkind === 'pgsql') {
         return POSTGRES_INIT_CODE
       } else {
         return DENO_INIT_CODE
       }
-    } else {
+    } else if (kind === 'failure') {
+      return DENO_FAILURE_MODULE_CODE
+    } else if (kind === 'approval') {
+      return DENO_INIT_CODE_APPROVAL
+    }
+    else {
       return DENO_INIT_CODE
     }
   } else if (language === 'python3') {
     if (subkind === 'flow') {
       return PYTHON_INIT_CODE_CLEAR
-    } else if (subkind === 'failure') {
+    } else if (kind === 'failure') {
       return PYTHON_FAILURE_MODULE_CODE
     } else {
       return PYTHON_INIT_CODE
     }
+  } else if (language == 'bash') {
+    return BASH_INIT_CODE
   } else {
-    if (subkind === 'failure') {
+    if (kind === 'failure') {
       return GO_FAILURE_MODULE_CODE
     } else {
       return GO_INIT_CODE

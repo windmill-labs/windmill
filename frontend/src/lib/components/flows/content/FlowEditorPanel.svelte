@@ -20,14 +20,13 @@
 		<FlowInput />
 	{:else if $selectedId === 'settings-schedule'}
 		<FlowSettings {initialPath} defaultTab="schedule" />
+	{:else if $selectedId === 'settings-same-worker'}
+		<FlowSettings {initialPath} defaultTab="same-worker" />
 	{:else if $selectedId === 'failure'}
 		<FlowFailureModule />
 	{:else}
 		{#each $flowStore.value.modules as flowModule, index (flowModule.id ?? index)}
-			<FlowModuleWrapper
-				bind:flowModule
-				previousModuleId={$flowStore.value.modules[index - 1]?.id}
-			/>
+			<FlowModuleWrapper bind:flowModule previousModule={$flowStore.value.modules[index - 1]} />
 		{/each}
 	{/if}
 {/key}

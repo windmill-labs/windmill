@@ -8,21 +8,35 @@
 
 <script lang="ts">
 	import { page } from '$app/stores'
-	import { sendUserToast } from '$lib/utils'
+	import {
+		canWrite,
+		defaultIfEmptyString,
+		displayDaysAgo,
+		emptyString,
+		sendUserToast
+	} from '$lib/utils'
 	import { FlowService, type Flow, JobService } from '$lib/gen'
 	import { goto } from '$app/navigation'
-	import { workspaceStore } from '$lib/stores'
+	import { userStore, workspaceStore } from '$lib/stores'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
 	import RunForm from '$lib/components/RunForm.svelte'
-	import PageHeader from '$lib/components/PageHeader.svelte'
+	import { Button } from '$lib/components/common'
+	import { faPlay, faScroll } from '@fortawesome/free-solid-svg-icons'
+	import SharedBadge from '$lib/components/SharedBadge.svelte'
+	import SvelteMarkdown from 'svelte-markdown'
 
 	const path = $page.params.path
 	let flow: Flow | undefined
+	let runForm: RunForm | undefined
+	let isValid = true
+	let can_write = false
 
 	async function loadFlow() {
 		try {
 			if (path) {
 				flow = await FlowService.getFlowByPath({ workspace: $workspaceStore!, path })
+				can_write =
+					flow.workspace_id == $workspaceStore && canWrite(flow.path, flow.extra_perms!, $userStore)
 			} else {
 				sendUserToast(`Failed to fetch flow path from URL`, true)
 			}
@@ -40,8 +54,8 @@
 			requestBody: args,
 			scheduledFor
 		})
-		sendUserToast(`Job <a href='/run/${run}'>${run}</a> was created.`)
-		goto('/run/' + run)
+		sendUserToast(`Job <a href='/run/${run}?workspace=${$workspaceStore}'>${run}</a> started`)
+		goto('/run/' + run + '?workspace=' + $workspaceStore)
 	}
 
 	$: {
@@ -49,11 +63,77 @@
 			loadFlow()
 		}
 	}
+	function onKeyDown(event: KeyboardEvent) {
+		switch (event.key) {
+			case 'Enter':
+				if (event.ctrlKey) {
+					if (isValid) {
+						event.preventDefault()
+						runForm?.run()
+					} else {
+						sendUserToast('Please fix errors before running', true)
+					}
+				}
+				break
+		}
+	}
 </script>
 
+<svelte:window on:keydown={onKeyDown} />
+
 <CenteredPage>
-	<PageHeader title="Run flow {flow?.path ?? '...'}">
-		<a href="/flows/get/{flow?.path}">View flow {flow?.path ?? ''} details</a>
-	</PageHeader>
-	<RunForm runnable={flow} runAction={runFlow} />
+	{#if flow}
+		<div class="flex flex-row flex-wrap justify-between gap-4 mb-6">
+			<div class="w-full">
+				<div class="flex flex-col mt-6 mb-2 w-full">
+					<div class="flex flex-row flex-wrap w-full justify-between "
+						><div class="flex flex-col">
+							<h1 class="break-words py-2 mr-2">
+								{defaultIfEmptyString(flow.summary, flow.path)}
+							</h1>
+							{#if !emptyString(flow.summary)}
+								<h2 class="font-bold pb-4">{flow.path}</h2>
+							{/if}
+						</div>
+						<div class="flex-row hidden lg:flex">
+							<div>
+								<Button
+									startIcon={{ icon: faScroll }}
+									disabled={flow == undefined}
+									btnClasses="mr-4"
+									variant="border"
+									href="/flows/get/{flow?.path}">View flow</Button
+								>
+								<Button
+									startIcon={{ icon: faPlay }}
+									disabled={runForm == undefined || !isValid}
+									on:click={() => runForm?.run()}>Run (Ctrl+Enter)</Button
+								>
+							</div>
+						</div></div
+					>
+					<div class="flex items-center gap-2">
+						<span class="text-sm text-gray-500">
+							{#if flow}
+								Edited {displayDaysAgo(flow.edited_at || '')} by {flow.edited_by || 'unknown'}
+							{/if}
+						</span>
+
+						<SharedBadge canWrite={can_write} extraPerms={flow?.extra_perms ?? {}} />
+					</div>
+				</div>
+			</div>
+			<div class="prose text-sm box max-w-6xl w-full mt-8">
+				<SvelteMarkdown source={defaultIfEmptyString(flow.description, 'No description')} />
+			</div>
+		</div>
+	{/if}
+	<RunForm
+		autofocus
+		bind:this={runForm}
+		bind:isValid
+		detailed={false}
+		runnable={flow}
+		runAction={runFlow}
+	/>
 </CenteredPage>
