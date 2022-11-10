@@ -63,7 +63,7 @@
 			const branches = module.value.branches.map(b => b.modules)
 			return flowModuleToBranch(branches, parent)
 		}
-		return undefined
+		return flowModuleToNode(parentIds, module.summary || 'Identity script', 'inline')
 	}
 
 	function getParentIds(items: NestedNodes | undefined = undefined): string[] {
@@ -135,12 +135,17 @@
 			type: 'branch',
 			items: []
 		}
+		console.log(branches[0]);
 		branches.forEach(modules => {
 			const items: NestedNodes = []
-			modules.forEach(module => {
-				const item = getConvertedFlowModule(module, items.length ? items : parent)
-				item && items.push(item)
-			})
+			if(!modules.length) {
+				items.push(createVirtualNode(getParentIds(parent), 'Empty branch'))
+			} else {
+				modules.forEach(module => {
+					const item = getConvertedFlowModule(module, items.length ? items : parent)
+					item && items.push(item)
+				})
+			}
 			items.length && branch.items.push(items)
 		})
 		return branch
