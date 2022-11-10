@@ -148,8 +148,8 @@
 			</div>
 		</div>
 		<div class={classNames('flex flex-col flex-1', isCollapsed ? 'md:pl-12' : 'md:pl-48')}>
-			<main>
-				<div class="w-full h-screen overflow-auto">
+			<main class="min-h-screen">
+				<div class="relative w-full h-full">
 					<div
 						class="py-2 px-2 sm:px-4 md:px-8 flex justify-between items-center shadow-sm max-w-6xl mx-auto md:hidden"
 					>
