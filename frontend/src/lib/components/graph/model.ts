@@ -2,7 +2,7 @@ import type { Node as SvelvetNode } from "svelvet"
 
 export type ModuleHost = 'inline' | 'hub'
 
-export type Node = SvelvetNode & { parentIds: string[], host: ModuleHost }
+export type Node = SvelvetNode & { parentIds: string[], host?: ModuleHost }
 
 export type Loop = {
 	type: 'loop',

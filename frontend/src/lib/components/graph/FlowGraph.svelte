@@ -22,6 +22,7 @@
 			lastId = id === 0 ? undefined : id - 1
 			yield id++
 	}}()
+	let nestedNodes: NestedNodes
 	let nodes: Node[] = []
 	let edges: Edge[] = []
 	let width: number, height: number
@@ -29,25 +30,11 @@
 	$: if(modules) createGraph(modules)
 
 	function createGraph(modules: FlowModule[]) {
-		let localLastId: number | undefined = undefined
-		const nestedNodes: NestedNodes = nodes = []
+		nestedNodes = nodes = []
 
 		modules.forEach(m => {
-			const item = getConvertedFlowModule(localLastId, m)
-			if(!item) return;
-
-			const isItemNode = isNode(item)
-			if(isItemNode) {
-				localLastId = item.id
-			} else if(isLoop(item)) {
-				localLastId = lastId
-			}
-			nestedNodes.push(item)
-			if(!isItemNode) {
-				if(isBranch(item)) {
-					localLastId = lastId
-				}
-			}
+			const item = getConvertedFlowModule(m)
+			item && nestedNodes.push(item)
 		})
 
 		const flatNodes = flattenNestedNodes(nestedNodes)
@@ -55,25 +42,44 @@
 		edges = createEdges(nodes)
 	}
 
-	function getConvertedFlowModule(parentId: number | undefined, module: FlowModule): GraphItem {
+	function getConvertedFlowModule(module: FlowModule, parent: NestedNodes | undefined = undefined): GraphItem | undefined {
 		const type = module.value.type
+		const parentIds = getParentIds(parent)
 
 		if(type === 'rawscript') {
 			const lang = module.value.language
-			return flowModuleToNode(parentId, module.summary || 'Inline ' + lang, 'inline', lang)
+			return flowModuleToNode(parentIds, module.summary || 'Inline ' + lang, 'inline', lang)
 		} else if(type === 'script') {
-			return flowModuleToNode(parentId, module.summary || module.value.path, 'hub')
-		} /*else if(type === 'forloopflow') {
-			return flowModuleToLoop(parentLevel, module.value.modules, depth, module.summary)
-		}*/ else if(type === 'branchone') {
+			return flowModuleToNode(parentIds, module.summary || module.value.path, 'hub')
+		} else if(type === 'forloopflow') {
+			const expr = module.value.iterator['expr']
+			return flowModuleToLoop(module.value.modules, expr ? `Expression: ${expr}` : 'For loop', parent)
+		} else if(type === 'branchone') {
 			const branches = [module.value.default, ...module.value.branches.map(b => b.modules)]
-			return flowModuleToBranch(parentId, branches)
-		} /*else if(type === 'branchall') {}*/
-		return {type: 'loop', items: []}
+			return flowModuleToBranch(branches, parent)
+		} else if(type === 'branchall') {
+			const branches = module.value.branches.map(b => b.modules)
+			return flowModuleToBranch(branches, parent)
+		}
+		return undefined
+	}
+
+	function getParentIds(items: NestedNodes | undefined = undefined): string[] {
+		const item = items?.at(-1) || nestedNodes.at(-1)
+		if(!item) return []
+
+		if(isNode(item)) {
+			return ['' + item.id]
+		} else if(isLoop(item)) {
+			return getParentIds(item.items)
+		} else if(isBranch(item)) {
+			return item.items.map(i => getParentIds(i)).flat()
+		}
+		return []
 	}
 
 	function flowModuleToNode(
-		parentId: number | undefined,
+		parentIds: string[],
 		title: string,
 		host: ModuleHost,
 		lang?: RawScript.language
@@ -86,26 +92,36 @@
 	    width: NODE.width,
 	    height: NODE.height,
 	    bgColor: "white",
-			childNodes: [],
-			parentIds: parentId ? ['' + parentId] : []
+			parentIds
 		}
 	}
 
-	function flowModuleToBranch(parentId: number | undefined, branches: FlowModule[][]): Branch {
+	function flowModuleToLoop(modules: FlowModule[], startLabel: string, parent: NestedNodes | undefined = undefined): Loop {
+		const loop: Loop = {
+			type: 'loop',
+			items: [createVirtualNode(getParentIds(parent), startLabel)]
+		}
+		modules.forEach(module => {
+			const item = getConvertedFlowModule(module, loop.items)
+			item && loop.items.push(item)
+		})
+		loop.items.push(createVirtualNode(getParentIds(loop.items), 'Collection of the results'))
+		return loop
+	}
+
+	function flowModuleToBranch(branches: FlowModule[][], parent: NestedNodes | undefined = undefined): Branch {
 		const branch: Branch = {
 			type: 'branch',
 			items: []
 		}
-		for (let i = 0; i < branches.length; i++) {
-			const items: GraphItem[] = []
-			for (let j = 0; j < branches[i].length; j++) {
-				const item = getConvertedFlowModule(items.at(-1)?.['id'] || parentId, branches[i][j])
+		branches.forEach(modules => {
+			const items: NestedNodes = []
+			modules.forEach(module => {
+				const item = getConvertedFlowModule(module, items.length ? items : parent)
 				item && items.push(item)
-			}
-			if(items.length) {
-				branch.items.push(items)
-			}
-		}
+			})
+			items.length && branch.items.push(items)
+		})
 		return branch
 	}
 
@@ -122,19 +138,17 @@
 				})
 			}
 		})
-		
 		return array
 	}
 
 	function layoutNodes(nodes: Node[]) {
 		if(!nodes.length) return []
-		const stratify = dagStratify().id(({id}: Node) => '' + id).parentIds(({parentNode}: Node) => parentNode ? ['' + parentNode] : [])
+		const stratify = dagStratify().id(({id}: Node) => '' + id)
 		const dag = stratify(nodes)
 		const layout = sugiyama()
 			.decross(decrossOpt())
 			.nodeSize(() => [NODE.width + NODE.gap.horizontal, NODE.height + NODE.gap.vertical])
 		layout(dag)
-		
 		return dag
 			.descendants()
 			.map(des => ({...des.data, id: +des.data.id, position: { x: des.x || 0, y: des.y || 0 }}))
@@ -143,21 +157,34 @@
 	function createEdges(nodes: Node[]): Edge[] {
 		const edges: Edge[] = []
 		nodes.forEach(node => {
-			if(typeof node.parentNode !== 'number') return
-			edges.push({
-				id: `e-${node.parentNode}-${node.id}`,
-				source: node.parentNode,
-				target: node.id,
-				arrow: true
+			node.parentIds.forEach(pid => {
+				edges.push({
+					id: `e-${pid}-${node.id}`,
+					source: +pid,
+					target: node.id,
+					arrow: true,
+					// type: 'smoothstep'
+				})
 			})
 		})
-
 		return edges
+	}
+
+	function createVirtualNode(parentIds: string[], label: string): Node {
+		return {
+			id: idGenerator.next().value,
+	    position: { x: -1, y: -1 },
+	    data: { label },
+	    width: NODE.width,
+	    height: NODE.height,
+	    bgColor: "#d4e4ff",
+			parentIds
+		}
 	}
 </script>
 
 <div bind:clientWidth={width} bind:clientHeight={height} class="w-full h-full">
 	{#if width && height}
-		<Svelvet {nodes} {edges} {width} {height} background />
+		<Svelvet {nodes} {edges} width={width-1} height={height-1} background />
 	{/if}
 </div>
