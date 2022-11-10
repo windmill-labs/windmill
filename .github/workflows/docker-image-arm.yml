@@ -11,7 +11,7 @@ on:
     types: [opened, synchronize, reopened]
 
 concurrency:
-  group: ${{ github.ref }}-arm
+  group: arm
   cancel-in-progress: true
 
 jobs:
