@@ -1,15 +1,20 @@
 <script lang="ts">
 	import DisplayResult from '$lib/components/DisplayResult.svelte'
 	import { getContext } from 'svelte'
-	import type { AppEditorContext, InputsSpec } from '../types'
+	import type { AppEditorContext, ComponentInputsSpec } from '../types'
 
-	export let inputs: InputsSpec
+	export let componentInputs: ComponentInputsSpec
 
 	const { worldStore } = getContext<AppEditorContext>('AppEditorContext')
 
-	$: inputResult = $worldStore?.connect<any>(inputs.result, (x) => {
-		update()
-	})
+	$: inputResult =
+		componentInputs.result.id && componentInputs.result.name
+			? $worldStore?.connect<any>(componentInputs.result, (x) => {
+					update()
+			  })
+			: undefined
+
+	$: inputResult && console.log(inputResult)
 
 	let result: any
 

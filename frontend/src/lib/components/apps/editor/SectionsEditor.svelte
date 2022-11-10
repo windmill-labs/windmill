@@ -19,7 +19,7 @@
 	export let mode: EditorMode = 'width'
 
 	const flipDurationMs = 200
-	const { selection, staticOutputs } = getContext<AppEditorContext>('AppEditorContext')
+	const { selection, staticOutputs, app } = getContext<AppEditorContext>('AppEditorContext')
 
 	function handleSort(e) {
 		sections = e.detail.items
@@ -192,6 +192,7 @@
 									<RunFormComponent
 										{...component}
 										bind:staticOutputs={$staticOutputs[component.id]}
+										triggerable={$app.policy.triggerables[component.id]}
 									/>
 								{:else if component.type === 'displaycomponent'}
 									<DisplayComponent

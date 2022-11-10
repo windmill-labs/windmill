@@ -53,7 +53,6 @@
 		loadUser()
 
 		window.onunhandledrejection = (event: PromiseRejectionEvent) => {
-			debugger
 			event.preventDefault()
 
 			if (event.reason?.message) {

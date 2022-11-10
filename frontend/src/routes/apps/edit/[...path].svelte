@@ -12,10 +12,12 @@
 						inputs: {
 							a: {
 								type: 'static',
+								value: 'Test value A',
 								visible: true
 							},
 							b: {
 								type: 'static',
+								value: 'Test value B',
 								visible: true
 							}
 						},
@@ -25,7 +27,8 @@
 						verticalAlignement: 'center',
 						title: 'My title',
 						description: 'My description',
-						configSchema: undefined
+						configSchema: undefined,
+						componentInputs: {}
 					},
 					{
 						type: 'displaycomponent',
@@ -36,13 +39,15 @@
 						title: 'My title',
 						description: 'My description',
 						configSchema: undefined,
-						inputs: {
+						componentInputs: {
 							result: {
-								id: 'a',
-								name: 'result',
-								type: 'output'
+								id: undefined,
+								name: undefined,
+								type: 'output',
+								defaultValue: undefined
 							}
-						}
+						},
+						inputs: {}
 					}
 				],
 				columns: 3,
@@ -56,10 +61,6 @@
 			triggerables: {
 				a: {
 					path: 'u/faton/my_script_3',
-					staticFields: {
-						a: 'a',
-						b: 'b'
-					},
 					type: 'script'
 				}
 			}

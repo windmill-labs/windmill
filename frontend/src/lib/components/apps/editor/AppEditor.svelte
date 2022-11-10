@@ -9,7 +9,7 @@
 	import { Pane } from 'svelte-splitpanes'
 	import { writable } from 'svelte/store'
 	import { buildWorld, type World } from '../rx'
-	import type { App, AppEditorContext, AppSelection, EditorMode, AppInputTransform } from '../types'
+	import type { App, AppEditorContext, AppSelection, ConnectingInput, EditorMode } from '../types'
 	import AppEditorHeader from './AppEditorHeader.svelte'
 	import SectionsEditor from './SectionsEditor.svelte'
 	import ComponentPanel from './settingsPanel/ComponentPanel.svelte'
@@ -30,13 +30,19 @@
 	const mode = writable<EditorMode>('dnd')
 	const schemas = writable<Schema[]>([])
 
+	const connectingInput = writable<ConnectingInput>({
+		opened: false,
+		input: undefined
+	})
+
 	setContext<AppEditorContext>('AppEditorContext', {
 		worldStore,
 		staticOutputs,
 		app: appStore,
 		selection,
 		mode,
-		schemas
+		schemas,
+		connectingInput
 	})
 
 	onMount(() => {

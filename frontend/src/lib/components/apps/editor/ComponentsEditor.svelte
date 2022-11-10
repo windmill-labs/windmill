@@ -11,7 +11,7 @@
 	export let columns: number
 
 	const flipDurationMs = 200
-	const { selection } = getContext<AppEditorContext>('AppEditorContext')
+	const { selection, connectingInput } = getContext<AppEditorContext>('AppEditorContext')
 
 	function handleSort(event: CustomEvent<DndEvent<AppComponent>>) {
 		components = event.detail.items
@@ -163,7 +163,9 @@
 						class={numberToTailwindWidthMap[Math.round((100 * component.width) / sum)]}
 						animate:flip={{ duration: flipDurationMs }}
 						on:click|stopPropagation={() => {
-							$selection = { componentIndex, sectionIndex }
+							if (!$connectingInput.opened) {
+								$selection = { componentIndex, sectionIndex }
+							}
 						}}
 					>
 						<ComponentEditor

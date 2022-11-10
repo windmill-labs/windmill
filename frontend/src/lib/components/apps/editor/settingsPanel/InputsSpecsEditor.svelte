@@ -7,14 +7,12 @@
 	import InputsSpecEditor from './InputsSpecEditor.svelte'
 
 	export let inputSpecs: InputsSpec
-	export let componenId: string
 
 	let openedProp = Object.keys(inputSpecs)[0]
 </script>
 
 <div class="w-full flex flex-col gap-4">
 	{#each Object.keys(inputSpecs) as inputSpecKey}
-		{inputSpecs[inputSpecKey].type}
 		<!-- svelte-ignore a11y-click-events-have-key-events -->
 		<div
 			class={classNames(
@@ -28,7 +26,7 @@
 			{inputSpecKey}
 		</div>
 		{#if inputSpecKey === openedProp}
-			<div class="flex flex-col w-full gap-2" transition:slide>
+			<div class="flex flex-col w-full gap-2">
 				<ToggleButtonGroup bind:selected={inputSpecs[inputSpecKey].type}>
 					<ToggleButton position="left" value="static" startIcon={{ icon: faBolt }} size="xs">
 						Static
@@ -40,11 +38,7 @@
 						User
 					</ToggleButton>
 				</ToggleButtonGroup>
-				<InputsSpecEditor
-					bind:appInputTransform={inputSpecs[inputSpecKey]}
-					propKey={inputSpecKey}
-					{componenId}
-				/>
+				<InputsSpecEditor bind:appInputTransform={inputSpecs[inputSpecKey]} />
 			</div>
 		{/if}
 	{/each}

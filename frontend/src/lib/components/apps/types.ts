@@ -7,31 +7,28 @@ export type UserInput = {
 	schemaProperty: SchemaProperty
 	// Default value override
 	defaultValue: any
+	value: any
 }
 
 export type DynamicInput = {
 	type: 'output'
-	id: FieldID
-	name: string
+	id: FieldID | undefined
+	name: string | undefined
+	// Before any connection occures
 	defaultValue: any
 }
 
 export type StaticInput = {
 	type: 'static'
 	value: any
-}
-
-export type StaticRunFormInput = {
-	type: 'staticRunForm'
-	visible?: boolean //default false,
+	visible?: boolean
 }
 
 export type AppInputTransform = DynamicInput | StaticInput | UserInput
-export type AppInputTransformRunForm = StaticRunFormInput | DynamicInput | UserInput
 
-// From ID of component + ID of field -> retrieve value from Policy
+// Inner inputs, (search, filter, page, inputs of a script or flow)
 export type InputsSpec = Record<FieldID, AppInputTransform>
-export type InputsSpecRunForm = Record<FieldID, AppInputTransformRunForm>
+export type ComponentInputsSpec = Record<FieldID, DynamicInput>
 
 export type TextInputComponent = {
 	type: 'textinputcomponent'
@@ -39,7 +36,6 @@ export type TextInputComponent = {
 
 export type RunFormComponent = {
 	type: 'runformcomponent'
-	inputs: InputsSpec
 }
 
 export type BarChartComponent = {
@@ -60,7 +56,6 @@ export type TableComponent = {
 
 export type DisplayComponent = {
 	type: 'displaycomponent'
-	inputs: InputsSpec
 }
 
 export type AppComponent =
@@ -78,6 +73,8 @@ export type AppComponent =
 			horizontalAlignement?: 'left' | 'center' | 'right'
 			verticalAlignement?: 'top' | 'center' | 'bottom'
 			configSchema: Schema | undefined
+			inputs: InputsSpec
+			componentInputs: ComponentInputsSpec
 	  }
 
 type SectionID = string
@@ -98,6 +95,11 @@ export type App = {
 
 export type AppSelection = { sectionIndex: number; componentIndex: number | undefined }
 
+export type ConnectingInput = {
+	opened: boolean
+	input?: DynamicInput
+}
+
 export type AppEditorContext = {
 	worldStore: Writable<World | undefined>
 	staticOutputs: Writable<Record<string, string[]>>
@@ -105,6 +107,7 @@ export type AppEditorContext = {
 	selection: Writable<AppSelection | undefined>
 	mode: Writable<EditorMode>
 	schemas: Writable<Schema[]>
+	connectingInput: Writable<ConnectingInput>
 }
 
 export type EditorMode = 'width' | 'dnd' | 'preview'
@@ -113,7 +116,6 @@ type FieldID = string
 
 export interface TriggerablePolicy {
 	path: string
-	staticFields: Record<FieldID, any>
 	type: 'script' | 'flow'
 }
 
@@ -127,4 +129,11 @@ enum PublishedStatus {
 	ViewerPerms = 'ViewerPerms',
 	AuthorPermsUser = 'AuthorPermsUser',
 	AuthorPermsPublic = 'AuthorPermsPublic'
+}
+
+export type EditorConfig = {
+	staticInputDisabled: boolean
+	outputInputDisabled: boolean
+	userInputEnabled: boolean
+	visibiltyEnabled: boolean
 }

@@ -9,8 +9,8 @@
 	import { getContext } from 'svelte'
 	import Icon from 'svelte-awesome'
 	import type { Output } from '../rx'
-	import type { AppEditorContext, AppInputTransform, InputsSpec, TriggerablePolicy } from '../types'
-	import { buildArgs, loadSchema, mergeArgs, schemaToInputsSpec } from '../utils'
+	import type { AppEditorContext, InputsSpec, TriggerablePolicy } from '../types'
+	import { buildArgs, loadSchema } from '../utils'
 
 	// Component props
 	export let id: string
@@ -30,8 +30,6 @@
 	let schema: Schema | undefined = undefined
 	let schemaClone: Schema | undefined = undefined
 
-	let schemaBackup: Schema | undefined = undefined
-
 	let isValid = true
 	let testIsLoading = false
 	let testJob: CompletedJob | undefined = undefined
@@ -41,22 +39,22 @@
 		loadSchemaFromTriggerable($workspaceStore, triggerable)
 	}
 
-	$: if (schema && triggerable) {
-		findABetterName(schema, triggerable)
+	$: if (inputs && schema !== undefined) {
+		reloadSchemaAndArgs()
 	}
 
 	// Load once
 	async function loadSchemaFromTriggerable(workspace: string, triggerable: TriggerablePolicy) {
 		schema = await loadSchema(workspace, triggerable)
-		schemaBackup = schema
+		args = buildArgs(inputs, schema)
 	}
 
-	async function findABetterName(schema: Schema, triggerable: TriggerablePolicy) {
-		args = buildArgs(inputs, triggerable, schema)
-
+	async function reloadSchemaAndArgs() {
 		schemaClone = JSON.parse(JSON.stringify(schema))
 
 		if (schemaClone !== undefined) {
+			args = buildArgs(inputs, schemaClone)
+
 			Object.keys(schemaClone.properties).forEach((propKey) => {
 				if (!Object.keys(args).includes(propKey)) {
 					delete schemaClone!.properties[propKey]
@@ -64,6 +62,13 @@
 			})
 		}
 	}
+
+	$: disabledArgs = Object.keys(inputs).reduce((a: string[], c: string) => {
+		if (inputs[c].type === 'static') {
+			a = [...a, c]
+		}
+		return a
+	}, [])
 </script>
 
 <TestJobLoader
@@ -79,12 +84,17 @@
 />
 
 {#if schemaClone !== undefined}
-	<SchemaForm schema={schemaClone} bind:args bind:isValid />
+	<SchemaForm schema={schemaClone} bind:args bind:isValid {disabledArgs} />
 	<Button
 		size="xs"
 		color="dark"
 		variant="border"
-		on:click={() => testJobLoader?.runScriptByPath(triggerable?.path, args)}
+		on:click={() => {
+			if (schema) {
+				testJobLoader?.runScriptByPath(triggerable?.path, args)
+				outputs?.loading.set(true)
+			}
+		}}
 		startIcon={{ icon: faFile }}
 		disabled={!isValid}
 	>

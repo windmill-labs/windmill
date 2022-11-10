@@ -7,17 +7,17 @@ type Args = Record<string, any>
 
 export function buildArgs(
 	inputSpecs: InputsSpec,
-	triggerable: TriggerablePolicy,
-	schema: Schema
+	schema: Schema,
+	includeHidden: boolean = false
 ): Args {
-	return Object.entries(schema.properties).reduce((acc, [key, value]) => {
+	return Object.keys(schema.properties).reduce((acc, key) => {
 		const input = inputSpecs[key]
-		if (input.type === 'static' && input.visible) {
-			acc[key] = triggerable.staticFields[key]
+		if (input.type === 'static' && (input.visible || includeHidden)) {
+			acc[key] = input.value
 		}
 
-		if (input.type === 'output' && input.visible) {
-			acc[key] = triggerable.staticFields[key]
+		if (input.type === 'output') {
+			acc[key] = input.defaultValue
 		}
 
 		if (input.type === 'user') {
@@ -49,29 +49,6 @@ export async function loadSchema(
 	}
 }
 
-export function mergeArgs(defaultArgs: Args, args: Args): Args {
-	return {
-		...defaultArgs,
-		...args
-	}
-}
-
 export function isPolicyDefined(app: App, componentId: string): boolean {
 	return app.policy?.triggerables[componentId] !== undefined
-}
-
-export function schemaToInputsSpec(schema: Schema | undefined): InputsSpec {
-	const inputsSpec: InputsSpec = {}
-
-	if (schema) {
-		for (const [key, value] of Object.entries(schema.properties)) {
-			inputsSpec[key] = {
-				type: 'user',
-				schemaProperty: value,
-				defaultValue: value.default
-			}
-		}
-	}
-
-	return inputsSpec
 }

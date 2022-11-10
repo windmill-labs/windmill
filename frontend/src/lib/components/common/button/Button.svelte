@@ -94,7 +94,7 @@
 <svelte:element
 	this={href ? 'a' : 'button'}
 	bind:this={element}
-	on:click={onClick}
+	on:click|stopPropagation={onClick}
 	on:focus
 	on:blur
 	{...buttonProps}
