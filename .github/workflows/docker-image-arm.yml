@@ -30,7 +30,6 @@ jobs:
 
       - name: Docker meta
         id: meta-slim-public
-        if: github.event_name != 'pull_request'
         uses: docker/metadata-action@v4
         with:
           images: |
@@ -43,14 +42,12 @@ jobs:
 
       - name: Login to registry
         uses: docker/login-action@v2
-        if: github.event_name != 'pull_request'
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build and push publicly
-        if: github.event_name != 'pull_request'
         uses: docker/build-push-action@v3
         with:
           context: .
