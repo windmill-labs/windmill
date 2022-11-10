@@ -28,6 +28,7 @@ pub enum ScriptLang {
     Deno,
     Python3,
     Go,
+    Bash,
 }
 
 impl ScriptLang {
@@ -36,6 +37,7 @@ impl ScriptLang {
             ScriptLang::Deno => "deno",
             ScriptLang::Python3 => "python3",
             ScriptLang::Go => "go",
+            ScriptLang::Bash => "bash",
         }
     }
 }

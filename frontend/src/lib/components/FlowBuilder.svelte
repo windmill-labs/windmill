@@ -29,6 +29,7 @@
 
 	export let initialPath: string = ''
 	export let selectedId: string | undefined
+	export let initialArgs: Record<string, any> = {}
 
 	let pathError = ''
 
@@ -137,8 +138,7 @@
 					'state',
 					encodeState({
 						flow: $flowStore,
-						selectedId: $selectedIdStore,
-						flowStateStore: $flowStateStore
+						selectedId: $selectedIdStore
 					})
 				),
 			500
@@ -147,7 +147,7 @@
 
 	const selectedIdStore = writable<string>('settings')
 	const scheduleStore = writable<Schedule>({ args: {}, cron: '', enabled: false })
-	const previewArgsStore = writable<Record<string, any>>({})
+	const previewArgsStore = writable<Record<string, any>>(initialArgs)
 
 	function select(selectedId: string) {
 		selectedIdStore.set(selectedId)
@@ -175,7 +175,6 @@
 	}
 
 	onMount(() => {
-		console.log(selectedId)
 		selectedId && select(selectedId)
 	})
 
@@ -186,29 +185,12 @@
 
 <UnsavedConfirmationModal />
 
-<div class="flex flex-col flex-1 h-full">
+<div class="flex flex-col flex-1 h-screen">
 	<!-- Nav between steps-->
-	<div class="justify-between flex flex-row w-full py-2 px-4 space-x-4">
+	<div
+		class="justify-between flex flex-row w-full py-2 px-4 space-x-4 overflow-x-auto scrollbar-hidden"
+	>
 		<div class="flex flex-row space-x-2">
-			<Button
-				color="light"
-				size="sm"
-				variant="border"
-				on:click={() => {
-					const url = new URL('https://hub.windmill.dev/flows/add')
-					const openFlow = {
-						value: $flowStore.value,
-						summary: $flowStore.summary,
-						description: $flowStore.description,
-						schema: $flowStore.schema
-					}
-					url.searchParams.append('flow', btoa(JSON.stringify(openFlow)))
-					window.open(url, '_blank')?.focus()
-				}}
-				startIcon={{ icon: faGlobe }}
-			>
-				Publish to Hub
-			</Button>
 			<FlowImportExportMenu />
 		</div>
 		<div class="gap-1 flex-row hidden md:flex shrink overflow-hidden">

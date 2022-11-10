@@ -7,6 +7,7 @@
 	import { workspaceStore } from '$lib/stores'
 	import Drawer from './common/drawer/Drawer.svelte'
 	import { DrawerContent } from './common'
+	import ObjectViewer from './propertyPicker/ObjectViewer.svelte'
 
 	export let value: any
 	let jsonViewer: Drawer
@@ -20,11 +21,9 @@
 		jsonViewerContent = (await ResourceService.getResource({ workspace: $workspaceStore!, path }))
 			.value
 	}
-
-	$: asJson = JSON.stringify(value, null, 4)
 </script>
 
-<Drawer bind:this={jsonViewer} size="400px">
+<Drawer bind:this={jsonViewer} size="800px">
 	<DrawerContent title="See JSON" on:close={jsonViewer.toggleDrawer}>
 		<Highlight language={json} code={JSON.stringify(jsonViewerContent, null, 4)} />
 	</DrawerContent>
@@ -42,14 +41,29 @@
 			await getResource(value.substring('$res:'.length))
 			jsonViewer.toggleDrawer()
 		}}>{value}</button
-	>{:else if asJson.length > 40}
-	{truncate(asJson, 40)}<a
-		href="#json"
-		on:click|preventDefault={() => {
-			jsonViewerContent = value
-			jsonViewer.toggleDrawer()
-		}}>(+)</a
 	>
+{:else if typeof value !== 'object'}
+	{truncate(JSON.stringify(value), 40)}
+	{#if JSON.stringify(value).length > 40}
+		<button
+			class="text-xs text-blue-500"
+			on:click={() => {
+				jsonViewerContent = value
+				jsonViewer.toggleDrawer()
+			}}>See expanded</button
+		>
+	{/if}
 {:else}
-	{asJson}
+	<div class="max-h-40 overflow-auto">
+		<ObjectViewer collapsed={false} topBrackets={true} pureViewer={true} json={value} />
+	</div>
+	{#if JSON.stringify(value).length > 120}
+		<button
+			class="text-xs text-blue-500"
+			on:click={() => {
+				jsonViewerContent = value
+				jsonViewer.toggleDrawer()
+			}}>See JSON</button
+		>
+	{/if}
 {/if}

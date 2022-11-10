@@ -3,37 +3,17 @@
 	import Toggle from '$lib/components/Toggle.svelte'
 	import PropPickerWrapper from '$lib/components/flows/propPicker/PropPickerWrapper.svelte'
 	import type { FlowModule } from '$lib/gen'
-	import type { FlowEditorContext } from '../types'
-	import { getContext } from 'svelte'
-	import { getStepPropPicker } from '../previousResults'
 	import { flowStateStore } from '../flowState'
-	import { flowStore } from '../flowStore'
 	import Tooltip from '$lib/components/Tooltip.svelte'
-
-	const { previewArgs } = getContext<FlowEditorContext>('FlowEditorContext')
+	import { NEVER_TESTED_THIS_FAR } from '../utils'
 
 	export let flowModule: FlowModule
-	export let parentModule: FlowModule | undefined
-	export let previousModuleId: string | undefined
 
 	let editor: SimpleEditor | undefined = undefined
 
 	$: isStopAfterIfEnabled = Boolean(flowModule.stop_after_if)
 
-	let pickableProperties: Record<string, any> = {}
-
-	$: {
-		const propPicker = getStepPropPicker(
-			$flowStateStore,
-			parentModule,
-			flowModule,
-			$flowStore,
-			previewArgs
-		).pickableProperties
-		propPicker['result'] = propPicker['previous_result']
-		delete propPicker['previous_result']
-		pickableProperties = propPicker
-	}
+	$: result = $flowStateStore[flowModule.id]?.previewResult ?? NEVER_TESTED_THIS_FAR
 </script>
 
 <div class="flex flex-col items-start space-y-2 {$$props.class}">
@@ -61,30 +41,39 @@
 		}}
 	/>
 
-	{#if flowModule.stop_after_if}
-		<span class="text-xs font-bold">Should skip if stopped</span>
-		<input type="checkbox" bind:checked={flowModule.stop_after_if.skip_if_stopped} />
-		<span class="text-xs font-bold">Stop condition expression</span>
-		<div class="border w-full">
-			<PropPickerWrapper
-				priorId={previousModuleId}
-				{pickableProperties}
-				on:select={({ detail }) => {
-					editor?.insertAtCursor(detail)
+	<div class="w-full border p-2  flex flex-col {flowModule.stop_after_if ? '' : 'bg-gray-50'}">
+		{#if flowModule.stop_after_if}
+			<Toggle
+				bind:checked={flowModule.stop_after_if.skip_if_stopped}
+				options={{
+					right: 'Skip if stopped'
 				}}
-			>
-				<SimpleEditor
-					bind:this={editor}
-					lang="javascript"
-					bind:code={flowModule.stop_after_if.expr}
-					class="small-editor"
-				/>
-			</PropPickerWrapper>
-		</div>
-	{:else}
-		<span class="text-xs font-bold">Should skip if stopped</span>
-		<input type="checkbox" disabled />
-		<span class="text-xs font-bold">Stop condition expression</span>
-		<textarea disabled rows="3" class="min-h-[80px]" />
-	{/if}
+			/>
+			<span class="text-xs font-bold">Stop condition expression</span>
+			<div class="border w-full">
+				<PropPickerWrapper
+					{result}
+					pickableProperties={undefined}
+					on:select={({ detail }) => {
+						editor?.insertAtCursor(detail)
+					}}
+				>
+					<SimpleEditor
+						bind:this={editor}
+						lang="javascript"
+						bind:code={flowModule.stop_after_if.expr}
+						class="small-editor"
+					/>
+				</PropPickerWrapper>
+			</div>
+		{:else}
+			<Toggle
+				disabled
+				options={{
+					right: 'Skip if stopped'
+				}}
+			/> <span class="text-xs font-bold">Stop condition expression</span>
+			<textarea disabled rows="3" class="min-h-[80px]" />
+		{/if}
+	</div>
 </div>

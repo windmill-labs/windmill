@@ -50,7 +50,7 @@
 			$page.url.searchParams.delete('hub')
 		}
 		selectedId = state?.selectedId
-		await initFlow(flow, state?.flowState)
+		await initFlow(flow)
 	}
 
 	loadFlow()

@@ -14,6 +14,7 @@
 	import type { SchemaProperty } from '$lib/common'
 	import SimpleEditor from './SimpleEditor.svelte'
 	import autosize from 'svelte-autosize'
+	import Toggle from './Toggle.svelte'
 
 	export let label: string = ''
 	export let value: any
@@ -36,6 +37,7 @@
 		| undefined = undefined
 	export let displayHeader = true
 	export let properties: { [name: string]: SchemaProperty } | undefined = undefined
+	export let autofocus = false
 
 	let seeEditable: boolean = enum_ != undefined || pattern != undefined
 	const dispatch = createEventDispatcher()
@@ -90,7 +92,6 @@
 
 	export function focus() {
 		el?.focus()
-		el && el.dispatchEvent(new Event('input'))
 	}
 
 	function validateInput(pattern: string | undefined, v: any): void {
@@ -130,7 +131,7 @@
 	$: inputCat = computeInputCat(type, format, itemsType?.type, enum_, contentEncoding)
 </script>
 
-<div class="flex flex-col w-full mb-2">
+<div class="flex flex-col w-full">
 	<div>
 		{#if displayHeader}
 			<FieldHeader {label} {required} {type} {contentEncoding} {format} {itemsType} />
@@ -151,7 +152,13 @@
 					<div class="mt-2">
 						<label class="text-gray-700">
 							Description
-							<textarea rows="1" bind:value={description} placeholder="Edit description" />
+							<textarea
+								class="mb-1"
+								use:autosize
+								rows="1"
+								bind:value={description}
+								placeholder="Field description"
+							/>
 							{#if type == 'string' && !contentEncoding && format != 'date-time'}
 								<StringTypeNarrowing bind:format bind:pattern bind:enum_ bind:contentEncoding />
 							{:else if type == 'object'}
@@ -182,6 +189,7 @@
 		<div class="flex space-x-1">
 			{#if inputCat == 'number'}
 				<input
+					{autofocus}
 					on:focus
 					{disabled}
 					type="number"
@@ -193,9 +201,8 @@
 					on:input={() => dispatch('input', { value, isRaw: true })}
 				/>
 			{:else if inputCat == 'boolean'}
-				<input
+				<Toggle
 					{disabled}
-					type="checkbox"
 					class={valid
 						? ''
 						: 'border border-red-700 border-opacity-30 focus:border-red-700 focus:border-opacity-30 bg-red-100'}
@@ -210,16 +217,17 @@
 						{#each value ?? [] as v, i}
 							<div class="flex flex-row max-w-md mt-1">
 								{#if itemsType?.type == 'number'}
-									<input type="number" bind:value={v} />
+									<input autofocus={autofocus && i == 0} type="number" bind:value={v} />
 								{:else if itemsType?.type == 'string' && itemsType?.contentEncoding == 'base64'}
 									<input
+										autofocus={autofocus && i == 0}
 										type="file"
 										class="my-6"
 										on:change={(x) => fileChanged(x, (val) => (value[i] = val))}
 										multiple={false}
 									/>
 								{:else}
-									<input type="text" bind:value={v} />
+									<input autofocus={autofocus && i == 0} type="text" bind:value={v} />
 								{/if}
 								<Button
 									variant="border"
@@ -271,6 +279,7 @@
 					<textarea
 						bind:this={el}
 						on:focus
+						{autofocus}
 						{disabled}
 						use:autosize
 						style="max-height: {maxHeight}"
@@ -291,7 +300,7 @@
 					{/each}
 				</select>
 			{:else if inputCat == 'date'}
-				<input class="inline-block" type="datetime-local" bind:value />
+				<input {autofocus} class="inline-block" type="datetime-local" bind:value />
 			{:else if inputCat == 'sql'}
 				<div class="border rounded mb-4 w-full border-gray-700">
 					<SimpleEditor
@@ -308,6 +317,7 @@
 				</div>
 			{:else if inputCat == 'base64'}
 				<input
+					{autofocus}
 					type="file"
 					class="my-6"
 					on:change={(x) => fileChanged(x, (val) => (value = val))}
@@ -322,6 +332,8 @@
 				/>
 			{:else if inputCat == 'string'}
 				<textarea
+					{autofocus}
+					rows="1"
 					bind:this={el}
 					on:focus={() => dispatch('focus')}
 					on:blur={() => dispatch('blur')}
@@ -353,7 +365,7 @@
 			{/if}
 			<slot name="actions" />
 		</div>
-		<div class="text-right text-xs {error === '' ? 'text-white' : 'font-bold text-red-600'}">
+		<div class="text-right text-xs {error === '' ? 'text-white' : 'text-red-600'}">
 			{error === '' ? '...' : error}
 		</div>
 	</div>

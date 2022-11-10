@@ -44,7 +44,7 @@
 	function importJson() {
 		Object.assign($flowStore, JSON.parse(pendingJson))
 
-		initFlow($flowStore, undefined)
+		initFlow($flowStore)
 		sendUserToast('OpenFlow imported from JSON')
 		drawers.json?.toggleDrawer()
 	}
@@ -62,7 +62,7 @@
 <div class="flex flex-row gap-2">
 	<ButtonPopup size="sm" startIcon={{ icon: faPlus }} href="/scripts/add">
 		<svelte:fragment slot="main">New script</svelte:fragment>
-		<ButtonPopupItem on:click={() => drawers.hub?.openModal()}>
+		<ButtonPopupItem on:click={() => drawers.hub?.openDrawer()}>
 			Import script from WindmillHub
 		</ButtonPopupItem>
 		<ButtonPopupItem on:click={() => drawers.template?.toggleDrawer()}>
@@ -120,7 +120,7 @@
 <!-- Raw JSON -->
 <Drawer bind:this={drawers.json} size="800px">
 	<DrawerContent title="Import JSON" on:close={() => drawers.json?.toggleDrawer()}>
-		<div class="p-2"><Button size="sm" on:click={importJson}>Import</Button></div>
 		<SimpleEditor bind:code={pendingJson} lang="json" class="h-full" />
+		<span slot="submission"><Button size="sm" on:click={importJson}>Import</Button></span>
 	</DrawerContent>
 </Drawer>

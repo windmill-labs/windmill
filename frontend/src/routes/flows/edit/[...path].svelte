@@ -12,12 +12,13 @@
 	import { page } from '$app/stores'
 	import FlowBuilder from '$lib/components/FlowBuilder.svelte'
 	import { workspaceStore } from '$lib/stores'
-	import { decodeState, emptySchema } from '$lib/utils'
+	import { decodeArgs, decodeState, emptySchema } from '$lib/utils'
 	import { initFlow } from '$lib/components/flows/flowStore'
 	import { dirtyStore } from '$lib/components/common/confirmationModal/dirtyStore'
 
 	const initialState = $page.url.searchParams.get('state')
 	let stateLoadedFromUrl = initialState != undefined ? decodeState(initialState) : undefined
+	const initialArgs = decodeArgs($page.url.searchParams.get('args') ?? undefined)
 
 	let selectedId: string | undefined = undefined
 
@@ -34,7 +35,7 @@
 
 	let initialPath: string = ''
 
-	initFlow(flow, undefined)
+	initFlow(flow)
 
 	async function loadFlow(): Promise<void> {
 		flow =
@@ -46,7 +47,7 @@
 				  })
 		initialPath = flow.path
 
-		await initFlow(flow, stateLoadedFromUrl?.flowState)
+		await initFlow(flow)
 		selectedId = stateLoadedFromUrl?.selectedId
 		$dirtyStore = false
 	}
@@ -58,4 +59,4 @@
 	}
 </script>
 
-<FlowBuilder {initialPath} {selectedId} />
+<FlowBuilder {initialPath} {selectedId} {initialArgs} />

@@ -1,4 +1,4 @@
-FROM python:3.11.0-slim-buster as nsjail
+FROM debian:buster-slim as nsjail
 
 WORKDIR /nsjail
 
@@ -29,7 +29,7 @@ RUN apt-get -y update \
 
 RUN rustup component add rustfmt
 
-RUN cargo install cargo-chef 
+RUN CARGO_NET_GIT_FETCH_WITH_CLI=true cargo install cargo-chef 
 
 WORKDIR /windmill
 
@@ -59,13 +59,13 @@ FROM rust_base AS planner
 COPY ./openflow.openapi.yaml /openflow.openapi.yaml
 COPY ./backend ./
 
-RUN cargo chef prepare  --recipe-path recipe.json
+RUN CARGO_NET_GIT_FETCH_WITH_CLI=true cargo chef prepare  --recipe-path recipe.json
 
 FROM rust_base AS builder
 
 COPY --from=planner /windmill/recipe.json recipe.json
 
-RUN cargo chef cook --release --recipe-path recipe.json
+RUN CARGO_NET_GIT_FETCH_WITH_CLI=true cargo chef cook --release --recipe-path recipe.json
 
 COPY ./openflow.openapi.yaml /openflow.openapi.yaml
 COPY ./backend ./
@@ -73,35 +73,39 @@ COPY ./backend ./
 COPY --from=frontend /frontend /frontend
 COPY .git/ .git/
 
-RUN cargo build --release
+RUN CARGO_NET_GIT_FETCH_WITH_CLI=true cargo build --release
 
 
-FROM debian:buster-slim
+FROM python:3.11.0-slim-buster
+
 ARG APP=/usr/src/app
 
 RUN apt-get update \
-    && apt-get install -y ca-certificates tzdata libpq5 \
-    make build-essential libssl-dev zlib1g-dev libbz2-dev libreadline-dev \
-    libsqlite3-dev wget curl llvm libncurses5-dev libncursesw5-dev xz-utils tk-dev libxml2-dev \
-    libxmlsec1-dev libffi-dev liblzma-dev mecab-ipadic-utf8 libgdbm-dev libc6-dev git libprotobuf-dev=3.6.* libnl-route-3-dev=3.4.* \
-    libv8-dev tesseract-ocr \
+    && apt-get install -y ca-certificates wget curl git jq libprotobuf-dev libnl-route-3-dev \
     && rm -rf /var/lib/apt/lists/*
 
-RUN wget https://golang.org/dl/go1.19.1.linux-amd64.tar.gz && tar -C /usr/local -xzf go1.19.1.linux-amd64.tar.gz
+RUN set -eux; \
+    arch="$(dpkg --print-architecture)"; arch="${arch##*-}"; \
+    url=; \
+    case "$arch" in \
+    'amd64') \
+    targz='go1.19.3.linux-amd64.tar.gz'; \
+    sha256='74b9640724fd4e6bb0ed2a1bc44ae813a03f1e72a4c76253e2d5c015494430ba'; \
+    ;; \
+    'arm64') \
+    targz='go1.19.3.linux-arm64.tar.gz'; \
+    sha256='99de2fe112a52ab748fb175edea64b313a0c8d51d6157dba683a6be163fd5eab'; \
+    ;; \
+    *) echo >&2 "error: unsupported architecture '$arch' (likely packaging update needed)"; exit 1 ;; \
+    esac; \
+    wget "https://golang.org/dl/$targz" && tar -C /usr/local -xzf "$targz" && rm "$targz";
+
 ENV PATH="${PATH}:/usr/local/go/bin"
 ENV GO_PATH=/usr/local/go/bin/go
 
 ENV TZ=Etc/UTC
 
-ENV PYTHON_VERSION 3.10.4
-
-RUN wget https://www.python.org/ftp/python/${PYTHON_VERSION}/Python-${PYTHON_VERSION}.tgz \
-    && tar -xf Python-${PYTHON_VERSION}.tgz && cd Python-${PYTHON_VERSION}/ && ./configure --enable-optimizations \
-    && make -j 4 && make install
-
 RUN /usr/local/bin/python3 -m pip install pip-tools
-RUN /usr/local/bin/python3 -m pip install nltk
-RUN mkdir -p /nsjail_data/python && HOME=/nsjail_data/python /usr/local/bin/python3 -m nltk.downloader vader_lexicon
 
 COPY --from=builder /windmill/target/release/windmill ${APP}/windmill
 

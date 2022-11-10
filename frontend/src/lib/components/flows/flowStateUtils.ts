@@ -25,6 +25,7 @@ export async function loadFlowModuleState(flowModule: FlowModule): Promise<FlowM
 		}
 		return { schema, previewResult: NEVER_TESTED_THIS_FAR }
 	} catch (e) {
+		console.error(e)
 		return emptyFlowModuleState()
 	}
 }
@@ -94,7 +95,7 @@ export async function createLoop(id: string): Promise<[FlowModule, FlowModuleSta
 		value: {
 			type: 'forloopflow',
 			modules: [],
-			iterator: { type: 'javascript', expr: 'previous_result' },
+			iterator: { type: 'javascript', expr: '' },
 			skip_failures: true
 		}
 	}

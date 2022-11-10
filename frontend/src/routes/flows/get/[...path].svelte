@@ -14,7 +14,9 @@
 		canWrite,
 		sendUserToast,
 		defaultIfEmptyString,
-		flowToHubUrl
+		flowToHubUrl,
+		copyToClipboard,
+		emptyString
 	} from '$lib/utils'
 	import {
 		faPlay,
@@ -24,7 +26,8 @@
 		faCalendar,
 		faShare,
 		faGlobe,
-		faCodeFork
+		faCodeFork,
+		faClipboard
 	} from '@fortawesome/free-solid-svg-icons'
 
 	import Tooltip from '$lib/components/Tooltip.svelte'
@@ -36,8 +39,13 @@
 	import Dropdown from '$lib/components/Dropdown.svelte'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
 	import FlowViewer from '$lib/components/FlowViewer.svelte'
-	import ObjectViewer from '$lib/components/propertyPicker/ObjectViewer.svelte'
-	import { Button, ActionRow, Skeleton } from '$lib/components/common'
+	import { Button, ActionRow, Skeleton, Badge } from '$lib/components/common'
+	import UserSettings from '$lib/components/UserSettings.svelte'
+	import JobArgs from '$lib/components/JobArgs.svelte'
+	import CronInput from '$lib/components/CronInput.svelte'
+	import Icon from 'svelte-awesome'
+
+	let userSettings: UserSettings
 
 	let flow: Flow | undefined
 	let schedule: Schedule | undefined
@@ -87,179 +95,191 @@
 		flow = await FlowService.getFlowByPath({ workspace: $workspaceStore!, path })
 		can_write = canWrite(flow.path, flow.extra_perms!, $userStore)
 	}
+
+	$: url = `${$page.url.hostname}/api/w/${$workspaceStore}/jobs/run/f/${flow?.path}`
 </script>
 
-<Skeleton
-	class="!max-w-6xl !px-4 sm:!px-6 md:!px-8"
-	loading={!flow}
-	layout={[0.75, [2, 0, 2], 2.25, [{ h: 1.5, w: 40 }], 0.2, [{ h: 1, w: 30 }]]}
-/>
-{#if flow}
-	<ActionRow applyPageWidth stickToTop>
-		<svelte:fragment slot="left">
-			<Button
-				href="/flows/run/{path}"
-				variant="contained"
-				color="blue"
-				size="xs"
-				startIcon={{ icon: faPlay }}
-			>
-				Run
-			</Button>
-			<Button
-				href="/flows/edit/{path}"
-				variant="contained"
-				color="blue"
-				size="xs"
-				startIcon={{ icon: faEdit }}
-				disabled={!can_write}
-			>
-				Edit
-			</Button>
-			<Button
-				href="/flows/add?template={flow.path}"
-				variant="contained"
-				color="blue"
-				size="xs"
-				startIcon={{ icon: faCodeFork }}
-			>
-				Use as template/Fork
-			</Button>
-		</svelte:fragment>
-		<svelte:fragment slot="right">
-			<Button
-				href="/runs/{flow.path}"
-				variant="border"
-				color="blue"
-				size="xs"
-				startIcon={{ icon: faList }}
-			>
-				View runs
-			</Button>
-			<Button
-				target="_blank"
-				href={flowToHubUrl(flow).toString()}
-				variant="border"
-				color="blue"
-				size="xs"
-				startIcon={{ icon: faGlobe }}
-			>
-				Publish to Hub
-			</Button>
-			<Dropdown
-				dropdownItems={[
-					{
-						displayName: 'Use as template',
-						icon: faEdit,
-						href: `/flows/add?template=${flow.path}`
-					},
-					{
-						displayName: 'Share',
-						icon: faShare,
-						action: () => {
-							shareModal.openModal()
-						},
-						disabled: !can_write
-					},
-					{
-						displayName: 'Schedule',
-						icon: faCalendar,
-						href: `/schedule/add?path=${flow.path}&isFlow=true`
-					},
-					{
-						displayName: 'Archive',
-						icon: faArchive,
-						type: 'delete',
-						action: () => {
-							flow?.path && archiveFlow()
-						},
-						disabled: flow.archived || !can_write
-					}
-				]}
-			/>
-		</svelte:fragment>
-	</ActionRow>
-{/if}
+<UserSettings bind:this={userSettings} />
 
-<CenteredPage>
+<div class="relative h-screen overflow-auto">
+	<Skeleton
+		class="!max-w-6xl !px-4 sm:!px-6 md:!px-8"
+		loading={!flow}
+		layout={[0.75, [2, 0, 2], 2.25, [{ h: 1.5, w: 40 }], 0.2, [{ h: 1, w: 30 }]]}
+	/>
 	{#if flow}
-		<h1>
-			<a href="/flows/get/{path}">{flow?.path}</a>
-			<SharedBadge canWrite={can_write} extraPerms={flow?.extra_perms ?? {}} />
-		</h1>
+		<ActionRow applyPageWidth stickToTop>
+			<svelte:fragment slot="left">
+				<Button
+					on:click={() => flow?.path && archiveFlow()}
+					variant="border"
+					color="red"
+					size="xs"
+					startIcon={{ icon: faArchive }}
+					disabled={flow.archived || !can_write}
+				>
+					Archive
+				</Button>
+				<Button
+					target="_blank"
+					href={flowToHubUrl(flow).toString()}
+					variant="border"
+					color="light"
+					size="xs"
+					startIcon={{ icon: faGlobe }}
+				>
+					Publish to Hub
+				</Button>
+				<Button
+					href="/schedule/add?path={flow.path}&isFlow=true"
+					variant="border"
+					color="light"
+					size="xs"
+					startIcon={{ icon: faCalendar }}
+				>
+					Schedule
+				</Button>
+				<Button
+					on:click={() => shareModal.openDrawer()}
+					variant="border"
+					color="light"
+					size="xs"
+					startIcon={{ icon: faShare }}
+					disabled={!can_write}
+				>
+					Share
+				</Button>
+			</svelte:fragment>
+			<svelte:fragment slot="right">
+				<Button
+					href="/flows/run/{path}"
+					variant="contained"
+					color="blue"
+					size="xs"
+					startIcon={{ icon: faPlay }}
+				>
+					Run
+				</Button>
+				<Button
+					href="/flows/edit/{path}"
+					variant="contained"
+					color="blue"
+					size="xs"
+					startIcon={{ icon: faEdit }}
+					disabled={!can_write}
+				>
+					Edit
+				</Button>
+				<Button
+					href="/flows/add?template={flow.path}"
+					variant="contained"
+					color="blue"
+					size="xs"
+					startIcon={{ icon: faCodeFork }}
+				>
+					Use as template/Fork
+				</Button>
+				<Button href="/runs/{flow.path}" color="blue" size="xs" startIcon={{ icon: faList }}>
+					View runs
+				</Button>
+			</svelte:fragment>
+		</ActionRow>
 	{/if}
 
-	<ShareModal bind:this={shareModal} kind="flow" path={flow?.path ?? ''} />
-
-	<div class="grid grid-cols-1 gap-6 max-w-7xl pb-6">
-		<Skeleton
-			loading={!flow}
-			layout={[[{ h: 1.5, w: 40 }], 1, [4], 2.25, [{ h: 1.5, w: 30 }], 1, [10]]}
-		/>
+	<CenteredPage>
 		{#if flow}
-			<p class="text-sm text-gray-600"
-				>Edited {displayDaysAgo(flow.edited_at ?? '')} by {flow.edited_by}</p
-			>
-			<h2>{flow.summary}</h2>
-
-			<div class="prose">
-				<SvelteMarkdown source={defaultIfEmptyString(flow.description, 'No description')} />
-			</div>
-			{#if schedule}
-				<div>
-					<h2 class="text-gray-700 pb-1 mb-3 border-b">Primary Schedule</h2>
-					<div>
-						<h3 class="text-gray-700 ">Enabled</h3>
-						<Toggle
-							checked={schedule.enabled}
-							on:change={(e) => {
-								if (can_write) {
-									setScheduleEnabled(path, e.detail)
-								} else {
-									sendUserToast('not enough permission', true)
-								}
-							}}
-						/>
-					</div>
-					<div>
-						<div>
-							<h3 class="text-gray-700">Schedule</h3>
-							<span class="font-mono p-1 border" class:bg-gray-300={!schedule.enabled}
-								>{schedule.schedule}</span
-							>
-						</div>
-						<div>
-							<h3 class="text-gray-700 ">Args</h3>
-							<ObjectViewer json={schedule.args ?? {}} pureViewer={true} />
-						</div>
-					</div>
-				</div>
+			<h1 class="break-words py-2 mr-2">
+				{defaultIfEmptyString(flow.summary, flow.path)}
+			</h1>
+			{#if !emptyString(flow.summary)}
+				<h2 class="font-bold pb-4">{flow.path}</h2>
 			{/if}
-			{#if flow.archived}
-				<div class="bg-red-100 border-l-4 border-red-500 text-orange-700 p-4" role="alert">
-					<p class="font-bold">Archived</p>
-					<p>This version was archived</p>
-				</div>
-			{/if}
-			<div>
-				<span>Webhook to run this flow:</span>
-				<Tooltip
-					>Send a POST http request with a token as bearer token and the args respecting the
-					corresponding jsonschema as payload. To create a permanent token, go to your user setting
-					by clicking your username on the top-left.</Tooltip
-				>
-				<pre
-					><code
-						><a href="/api/w/{$workspaceStore}/jobs/run/f/{flow?.path}"
-							>/api/w/{$workspaceStore}/jobs/run/f/{flow?.path}</a
-						></code
-					></pre
-				>
-			</div>
-			<div>
-				<h2 class="text-gray-700 pb-1 mb-3 border-b">Flow</h2>
-				<FlowViewer {flow} />
-			</div>
 		{/if}
-	</div>
-</CenteredPage>
+		<ShareModal bind:this={shareModal} kind="flow" path={flow?.path ?? ''} />
+
+		<div class="grid grid-cols-1 gap-6 max-w-7xl pb-6">
+			<Skeleton
+				loading={!flow}
+				layout={[[{ h: 1.5, w: 40 }], 1, [4], 2.25, [{ h: 1.5, w: 30 }], 1, [10]]}
+			/>
+			{#if flow}
+				<p class="text-sm text-gray-600"
+					>Edited {displayDaysAgo(flow.edited_at ?? '')} by {flow.edited_by}
+					<a href="#webhook" class="ml-2">
+						<Badge color="dark-blue">Webhook</Badge>
+					</a></p
+				>
+
+				{#if flow.archived}
+					<div class="bg-red-100 border-l-4 border-red-500 text-orange-700 p-4" role="alert">
+						<p class="font-bold">Archived</p>
+						<p>This version was archived</p>
+					</div>
+				{/if}
+				<div class="prose text-sm box max-w-6xl w-full mt-4">
+					<SvelteMarkdown source={defaultIfEmptyString(flow?.description, 'No description')} />
+				</div>
+				<div class="mt-4">
+					<FlowViewer {flow} noSummary={true} />
+
+					<h2 id="webhook" class="mt-10 text-gray-700 pb-1 mb-3 border-b"
+						>Webhook<Tooltip
+							>To trigger this script with a webhook, do a POST request to the endpoint below. Flows
+							are not public and can only be run by users with at least view rights on them. You
+							will need to pass a bearer token to authentify as a user. You can either pass it as a
+							Bearer token or as query arg `?token=XXX`. <a
+								href="https://docs.windmill.dev/docs/getting_started/webhooks">See docs</a
+							></Tooltip
+						></h2
+					>
+					<div class="box max-w-2xl">
+						<div class="flex flex-row gap-x-2 w-full">
+							<a
+								on:click={(e) => {
+									e.preventDefault()
+									copyToClipboard(url)
+								}}
+								href={$page.url.protocol + '//' + url}
+								class="whitespace-nowrap text-ellipsis overflow-hidden mr-1"
+							>
+								{url}
+								<span class="text-gray-700 ml-2">
+									<Icon data={faClipboard} />
+								</span>
+							</a>
+
+							<Button size="xs" on:click={userSettings.openDrawer}>Create token</Button>
+						</div>
+					</div>
+					{#if schedule}
+						<div class="mt-10">
+							<h2 class="text-gray-700 pb-1 mb-3 border-b inline-flex flex-row items-center gap-x-4"
+								><div>Primary Schedule </div>
+								<Badge color="gray">{schedule.schedule}</Badge>
+								<Toggle
+									checked={schedule.enabled}
+									on:change={(e) => {
+										if (can_write) {
+											setScheduleEnabled(path, e.detail)
+										} else {
+											sendUserToast('not enough permission', true)
+										}
+									}}
+								/>
+								<Button size="xs" href="/schedule/add?edit={flow.path}&isFlow=true"
+									>Edit schedule</Button
+								>
+							</h2>
+							<div class="max-w-lg">
+								<JobArgs args={schedule.args ?? {}} />
+							</div>
+							<div class="box max-w-lg mt-2">
+								<CronInput disabled={true} schedule={schedule.schedule} />
+							</div>
+						</div>
+					{/if}
+				</div>
+			{/if}
+		</div>
+	</CenteredPage>
+</div>

@@ -67,7 +67,7 @@
 	<PageHeader title="Schedules" tooltip="Trigger Scripts and Flows according to a cron schedule">
 		<Button size="sm" startIcon={{ icon: faPlus }} href="/schedule/add">New&nbsp;schedule</Button>
 	</PageHeader>
-	<div class="relative mt-10">
+	<div class="mt-10 mb-40">
 		{#if loading}
 			<Skeleton layout={[0.5, [2.1], 0.7]} />
 			{#each new Array(6) as _}
@@ -88,12 +88,12 @@
 					{#each schedules as { path, edited_by, edited_at, schedule, offset_, enabled, script_path, is_flow, extra_perms, canWrite }}
 						<tr class={enabled ? '' : 'bg-gray-50'}>
 							<td class="max-w-sm"
-								><a class="break-all text-sm" href="/schedule/add?edit={path}&isFlow={is_flow}"
+								><a class="break-words text-sm" href="/schedule/add?edit={path}&isFlow={is_flow}"
 									>{path}</a
 								>
 								<SharedBadge {canWrite} extraPerms={extra_perms} />
 							</td>
-							<td class="break-all"
+							<td class="break-words"
 								><a class="text-sm" href="{is_flow ? '/flows/get' : '/scripts/get'}/{script_path}"
 									>{script_path}</a
 								><span class="text-2xs text-gray-500 bg-gray-100 font-mono ml-2"
@@ -153,11 +153,11 @@
 											icon: faShare,
 											disabled: !canWrite,
 											action: () => {
-												shareModal.openModal(path)
+												shareModal.openDrawer(path)
 											}
 										}
 									]}
-									relative={false}
+									relative={true}
 								/></td
 							>
 						</tr>

@@ -1,35 +1,50 @@
 <script lang="ts">
 	import { page } from '$app/stores'
-	import { decodeState, getToday } from '$lib/utils'
+	import {
+		decodeArgs,
+		defaultIfEmptyString,
+		displayDaysAgo,
+		emptyString,
+		getToday,
+		truncateHash
+	} from '$lib/utils'
 	import { slide } from 'svelte/transition'
 
 	import { faChevronDown, faChevronUp } from '@fortawesome/free-solid-svg-icons'
-	import SvelteMarkdown from 'svelte-markdown'
 	import SchemaForm from './SchemaForm.svelte'
-	import Tooltip from './Tooltip.svelte'
 	import type { Schema } from '$lib/common'
-	import { Button } from './common'
+	import { Badge, Button } from './common'
+	import SharedBadge from './SharedBadge.svelte'
 
-	export let runnable: { summary?: string; schema?: Schema; description?: string } | undefined
+	export let runnable:
+		| {
+				summary?: string
+				schema?: Schema
+				description?: string
+				path?: string
+				is_template?: boolean
+				hash?: string
+				kind?: string
+				can_write?: boolean
+				created_at?: string
+				created_by?: string
+				extra_perms?: Record<string, boolean>
+		  }
+		| undefined
 	export let runAction: (scheduledForStr: string | undefined, args: Record<string, any>) => void
 	export let buttonText = 'Run'
 	export let schedulable = true
 	export let detailed = true
+	export let autofocus = false
+	export let topButton = false
 
-	export let args: Record<string, any> = {}
+	export let args: Record<string, any> = decodeArgs($page.url.searchParams.get('args') ?? undefined)
 
-	let isValid = true
-
-	let queryArgs = $page.url.searchParams.get('args')
-	if (queryArgs) {
-		const parsed = decodeState(queryArgs)
-		Object.entries(parsed).forEach(([k, v]) => {
-			if (v == '<function call>') {
-				parsed[k] = undefined
-			}
-		})
-		args = parsed
+	export function run() {
+		runAction(scheduledForStr, args)
 	}
+
+	export let isValid = true
 
 	// Run later
 	let viewOptions = false
@@ -38,38 +53,62 @@
 
 <div class="max-w-6xl">
 	{#if detailed}
-		<div class="grid grid-cols-3 gap-2">
-			<div>
-				<h2 class="mb-1">Summary</h2>
-				<div class="mb-2 md:mb-3 text-sm">
-					{runnable?.summary ? runnable?.summary : 'No summary'}
-				</div>
-			</div>
-			<div class="col-span-2">
-				<h2 class="mb-1">Description</h2>
-				<div class="mb-2 md:mb-6">
-					<div class="prose text-sm">
-						<SvelteMarkdown
-							source={runnable?.description ? runnable?.description : 'No description'}
-						/>
+		{#if runnable}
+			<div class="flex flex-row flex-wrap justify-between gap-4">
+				<div>
+					<div class="flex flex-col mb-2">
+						<h1 class="break-words py-2 mr-2">
+							{defaultIfEmptyString(runnable.summary, runnable.path ?? '')}
+						</h1>
+						{#if !emptyString(runnable.summary)}
+							<h2 class="font-bold pb-4">{runnable.path}</h2>
+						{/if}
+
+						<div class="flex items-center gap-2">
+							<span class="text-sm text-gray-500">
+								{#if runnable}
+									Edited {displayDaysAgo(runnable.created_at || '')} by {runnable.created_by ||
+										'unknown'}
+								{/if}
+							</span>
+							<Badge color="dark-gray">
+								{truncateHash(runnable?.hash ?? '')}
+							</Badge>
+							{#if runnable?.is_template}
+								<Badge color="blue">Template</Badge>
+							{/if}
+							{#if runnable && runnable.kind !== 'runnable'}
+								<Badge color="blue">
+									{runnable?.kind}
+								</Badge>
+							{/if}
+							<SharedBadge
+								canWrite={runnable.can_write ?? true}
+								extraPerms={runnable?.extra_perms ?? {}}
+							/>
+						</div>
 					</div>
 				</div>
 			</div>
-		</div>
+		{:else}
+			<h1>Loading...</h1>
+		{/if}
+	{/if}
+	{#if topButton}
+		<Button
+			btnClasses="!px-6 !py-1 w-full"
+			disabled={!isValid}
+			on:click={() => runAction(undefined, args)}
+		>
+			{buttonText}
+		</Button>
 	{/if}
 	{#if runnable?.schema}
-		{#if detailed}
-			<h2>
-				Arguments
-				<Tooltip>
-					The optional fields, if left blank, will use the placeholder value as default.
-				</Tooltip>
-			</h2>
-		{/if}
+		<div class="my-2" />
 		{#if !runnable.schema.properties || Object.keys(runnable.schema.properties).length === 0}
 			<div class="text-sm p-4">No arguments</div>
 		{:else}
-			<SchemaForm schema={runnable.schema} bind:isValid bind:args />
+			<SchemaForm {autofocus} schema={runnable.schema} bind:isValid bind:args />
 		{/if}
 	{:else}
 		<div class="text-sm">No schema</div>
@@ -123,7 +162,7 @@
 				{scheduledForStr ? 'Schedule run to a later time' : buttonText}
 			</Button>
 		</div>
-	{:else}
+	{:else if !topButton}
 		<Button
 			btnClasses="!px-6 !py-1 w-full"
 			disabled={!isValid}

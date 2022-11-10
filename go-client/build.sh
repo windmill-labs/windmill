@@ -6,7 +6,7 @@ cp  ../backend/windmill-api/openapi.yaml openapi/openapi.yaml
 
 sed -z 's/                    extra_params:\n                      additionalProperties:\n                        type: string/                    extra_params: {}/' openapi/openapi.yaml > openapi/openapi1.yaml
 sed -z 's/                          enum: \[script, failure, trigger, command, approval\]//' openapi/openapi1.yaml > openapi/openapi2.yaml
-sed -z 's/                    enum: \[deno, python3, go\]//' openapi/openapi2.yaml > openapi/openapi3.yaml
+sed -z 's/                    enum: \[deno, python3, go, bash\]//' openapi/openapi2.yaml > openapi/openapi3.yaml
 
 npx @redocly/openapi-cli@latest bundle openapi/openapi3.yaml --ext json > openapi-bundled.json
 

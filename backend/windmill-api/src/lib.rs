@@ -45,8 +45,9 @@ mod workspaces;
 const GIT_VERSION: &str = git_version!(args = ["--tag", "--always"], fallback = "unknown-version");
 
 struct BaseUrl(String);
-struct IsSecure(bool);
-struct CloudHosted(bool);
+pub struct IsSecure(bool);
+pub struct CloudHosted(bool);
+pub struct ContentSecurityPolicy(String);
 
 pub use users::delete_expired_items_perdiodically;
 
@@ -87,6 +88,9 @@ pub async fn run_server(
         ))))
         .layer(Extension(Arc::new(IsSecure(
             base_url.starts_with("https://"),
+        ))))
+        .layer(Extension(Arc::new(ContentSecurityPolicy(
+            std::env::var("SERVE_CSP").unwrap_or("".to_owned()),
         ))))
         .layer(Extension(http_client))
         .layer(CookieManagerLayer::new());

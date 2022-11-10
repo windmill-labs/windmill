@@ -3,8 +3,12 @@ const plugin = require('tailwindcss/plugin')
 /** @type {import('tailwindcss').Config} */
 const config = {
 	content: [
-		'./src/**/*.{html,js,svelte,ts}',
-		'./node_modules/flowbite-svelte/**/*.{html,js,svelte,ts}'
+		'./src/**/*.{html,js,svelte,ts}'
+	],
+	safelist: [
+		'hljs',
+		'splitpanes__pane',
+		'splitpanes__splitter'
 	],
 	safelist: ['hljs', 'splitpanes__pane', 'splitpanes__splitter'],
 	theme: {
@@ -38,10 +42,12 @@ const config = {
 			},
 			orange: {
 				100: '#ffedd5',
+				200: '#ffedd5',
 				400: '#fb923c',
 				500: '#f97316',
 				600: '#ea580c',
-				700: '#c2410c'
+				700: '#c2410c',
+				800: '#c2410c',
 			},
 			yellow: {
 				50: '#fefce8',

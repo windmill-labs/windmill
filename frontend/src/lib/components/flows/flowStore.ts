@@ -1,4 +1,5 @@
 import type { Flow, FlowModule, ForloopFlow, InputTransform } from '$lib/gen'
+import { sendUserToast } from '$lib/utils'
 import { get, writable, derived } from 'svelte/store'
 import { flowStateStore, initFlowState, type FlowState } from './flowState'
 import { numberToChars } from './utils'
@@ -15,33 +16,18 @@ export const flowStore = writable<Flow>({
 	extra_perms: {}
 })
 
-export function dfs(modules: FlowModule[], previewOrder: boolean = false): string[] {
+export function dfs(modules: FlowModule[]): string[] {
 	let result: string[] = []
 	for (const module of modules) {
 		if (module.value.type == 'forloopflow') {
-			if (previewOrder) {
-				result = result.concat(module.id)
-			}
+			result = result.concat(module.id)
 			result = result.concat(dfs(module.value.modules))
-			if (!previewOrder) {
-				result = result.concat(module.id)
-			}
 		} else if (module.value.type == 'branchone') {
-			if (previewOrder) {
-				result = result.concat(module.id)
-			}
+			result = result.concat(module.id)
 			result = result.concat(dfs(module.value.branches.map((b) => b.modules).flat().concat(module.value.default)))
-			if (!previewOrder) {
-				result = result.concat(module.id)
-			}
 		} else if (module.value.type == 'branchall') {
-			if (previewOrder) {
-				result = result.concat(module.id)
-			}
+			result = result.concat(module.id)
 			result = result.concat(dfs(module.value.branches.map((b) => b.modules).flat()))
-			if (!previewOrder) {
-				result = result.concat(module.id)
-			}
 		} else {
 			result.push(module.id)
 		}
@@ -49,9 +35,8 @@ export function dfs(modules: FlowModule[], previewOrder: boolean = false): strin
 	return result
 }
 
-export const flowIds = derived(flowStore, flow => dfs(flow.value.modules))
 
-export async function initFlow(flow: Flow, flowState: FlowState | undefined) {
+export async function initFlow(flow: Flow) {
 
 	let counter = 40
 	for (const mod of flow.value.modules) {
@@ -68,7 +53,7 @@ export async function initFlow(flow: Flow, flowState: FlowState | undefined) {
 		}
 	}
 
-	await initFlowState(flow, flowState)
+	await initFlowState(flow)
 
 	flowStore.set(flow)
 
@@ -108,11 +93,21 @@ export async function initFlow(flow: Flow, flowState: FlowState | undefined) {
 export async function copyFirstStepSchema() {
 	const flowState = get(flowStateStore)
 	flowStore.update((flow) => {
-		const firstModuleId = flow.value.modules[0].id
+		const firstModuleId = flow.value.modules[0]?.id
 
-		if (flowState[firstModuleId]) {
+		if (flowState[firstModuleId] && firstModuleId) {
 			flow.schema = flowState[firstModuleId].schema
+			const v = flow.value.modules[0].value
+			if (v.type == 'rawscript' || v.type == 'script') {
+				Object.keys(v.input_transforms ?? {}).forEach((key) => {
+					v.input_transforms[key] = {
+						type: 'javascript',
+						expr: `flow_input.${key}`
+					}
+				})
+			}
 		}
 		return flow
 	})
+	sendUserToast('Copied first step schema as flow input schema')
 }

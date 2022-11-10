@@ -6,6 +6,7 @@
 		right?: string
 	} = {}
 	export let checked: boolean = false
+	export let disabled = false
 
 	const id = (Math.random() + 1).toString(36).substring(10)
 	const dispatch = createEventDispatcher()
@@ -18,6 +19,7 @@
 		{/if}
 		<div class="relative" on:click|stopPropagation={() => {}}>
 			<input
+				{disabled}
 				type="checkbox"
 				value={false}
 				{id}

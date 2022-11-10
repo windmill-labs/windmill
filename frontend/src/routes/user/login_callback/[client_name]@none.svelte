@@ -10,6 +10,7 @@
 	import { userStore, workspaceStore } from '$lib/stores'
 	import { getUserExt } from '$lib/user'
 	import { logoutWithRedirect } from '$lib/logout'
+	import WindmillIcon from '$lib/components/icons/WindmillIcon.svelte'
 
 	let error = $page.url.searchParams.get('error')
 	let clientName = $page.params.client_name
@@ -23,12 +24,12 @@
 		}
 		if (error) {
 			sendUserToast(`Error trying to login with ${clientName} ${error}`, true)
-			logoutWithRedirect(rd ?? undefined)
+			await logoutWithRedirect(rd ?? undefined)
 		} else if (code && state && clientName) {
 			try {
 				await UserService.loginWithOauth({ requestBody: { code, state }, clientName })
 			} catch (e) {
-				logoutWithRedirect(rd ?? undefined)
+				await logoutWithRedirect(rd ?? undefined)
 				sendUserToast(e.body ?? e.message, true)
 				return
 			}
@@ -44,13 +45,15 @@
 			}
 		} else {
 			sendUserToast('Missing code or state as query params', true)
-			logoutWithRedirect(rd ?? undefined)
+			await logoutWithRedirect(rd ?? undefined)
 		}
 	})
 </script>
 
-<CenteredModal title="Login from {clientName} in progress">
-	<div class="mx-auto w-0">
-		<Icon class="animate-spin" data={faSpinner} scale={2.0} />
+<CenteredModal title="Login from {clientName}">
+	<div class="w-full ">
+		<div class="block m-auto w-20">
+			<WindmillIcon class="animate-[spin_6s_linear_infinite]" height="80px" width="80px" />
+		</div>
 	</div>
 </CenteredModal>

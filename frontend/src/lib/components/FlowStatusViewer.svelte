@@ -9,6 +9,7 @@
 	import { onDestroy } from 'svelte'
 	import type { FlowState } from './flows/flowState'
 	import { Button } from './common'
+	import DisplayResult from './DisplayResult.svelte'
 
 	const dispatch = createEventDispatcher()
 
@@ -23,8 +24,19 @@
 		| undefined = undefined
 	export let job: Job | undefined = undefined
 
+	let jobResults: any[] = []
+
 	let forloop_selected = ''
 	let timeout: NodeJS.Timeout
+
+	let lastSize = 0
+	$: {
+		let len = (flowJobIds?.flowJobs ?? []).length
+		if (len != lastSize) {
+			forloop_selected = flowJobIds?.flowJobs[len - 1] ?? ''
+			lastSize = len
+		}
+	}
 
 	$: innerModules =
 		job?.flow_status?.modules
@@ -35,14 +47,21 @@
 					: []
 			) ?? []
 
+	let errorCount = 0
 	async function loadJobInProgress() {
 		if (jobId != '00000000-0000-0000-0000-000000000000') {
-			job = await JobService.getJob({
-				workspace: $workspaceStore ?? '',
-				id: jobId ?? ''
-			})
+			try {
+				job = await JobService.getJob({
+					workspace: $workspaceStore ?? '',
+					id: jobId ?? ''
+				})
+				errorCount = 0
+			} catch (e) {
+				errorCount += 1
+				console.error(e)
+			}
 		}
-		if (job?.type !== 'CompletedJob') {
+		if (job?.type !== 'CompletedJob' && errorCount < 4) {
 			timeout = setTimeout(() => loadJobInProgress(), 500)
 		}
 	}
@@ -57,6 +76,8 @@
 
 	$: jobId && updateJobId()
 
+	$: isListJob = flowJobIds && Array.isArray(flowJobIds?.flowJobs)
+
 	onDestroy(() => {
 		timeout && clearTimeout(timeout)
 	})
@@ -67,22 +88,30 @@
 		{#if innerModules.length > 0}
 			<h3 class="text-md leading-6 font-bold text-gray-900 border-b pb-2">Flow result</h3>
 		{/if}
-		<FlowPreviewStatus {job} />
-		{#if `result` in job}
-			<div class="w-full h-full overflow-auto max-h-80 bg-white">
-				<FlowJobResult {job} />
+		{#if isListJob}
+			<div class="w-full h-full border border-gray-600 bg-white p-1">
+				<DisplayResult result={jobResults} />
 			</div>
-		{:else if job.logs}
-			<div class="text-xs p-4 bg-gray-50 overflow-auto max-h-80 border">
-				<pre class="w-full">{job.logs}</pre>
+		{:else}
+			<div class={innerModules.length > 0 ? 'border border-gray-400 shadow p-2' : ''}>
+				<FlowPreviewStatus {job} />
+				{#if `result` in job}
+					<div class="w-full h-full">
+						<FlowJobResult result={job.result} logs={job.logs ?? ''} />
+					</div>
+				{:else if job.logs}
+					<div class="text-xs p-4 bg-gray-50 overflow-auto max-h-80 border">
+						<pre class="w-full">{job.logs}</pre>
+					</div>
+				{/if}
 			</div>
 		{/if}
 
-		{#if flowJobIds && Array.isArray(flowJobIds?.flowJobs) && flowJobIds?.flowJobs.length > 0}
-			<h3 class="text-md leading-6 font-bold text-gray-900 border-b mb-4">
+		{#if isListJob}
+			<h3 class="text-md leading-6 font-bold text-gray-600 border-b mb-4">
 				Embedded flows: ({flowJobIds?.flowJobs.length} items)
 			</h3>
-			{#each flowJobIds.flowJobs as loopJobId, j}
+			{#each flowJobIds?.flowJobs ?? [] as loopJobId, j}
 				<Button
 					variant={forloop_selected === loopJobId ? 'contained' : 'border'}
 					color={forloop_selected === loopJobId ? 'dark' : 'light'}
@@ -95,7 +124,9 @@
 						}
 					}}
 				>
-					#{j + 1}: {loopJobId}
+					<span class="truncate">
+						#{j + 1}: {loopJobId}
+					</span>
 
 					<Icon
 						class="ml-2"
@@ -112,12 +143,13 @@
 								if (flowState) {
 									if (
 										!flowState[flowJobIds.moduleId].previewResult ||
-										!Array.isArray(flowState[flowJobIds.moduleId].previewResult)
+										!Array.isArray(flowState[flowJobIds.moduleId]?.previewResult)
 									) {
 										flowState[flowJobIds.moduleId].previewResult = []
 									}
 									flowState[flowJobIds.moduleId].previewResult[j] = e.detail.result
 									flowState[flowJobIds.moduleId].previewArgs = e.detail.args
+									jobResults[j] = e.detail.result == null ? 'Job in progress ...' : e.detail.result
 								}
 							}
 						}}
@@ -150,7 +182,7 @@
 						{/if}
 					</h3>
 					<div class="line w-8 h-10" />
-					<li class="w-full border p-6 space-y-2 bg-blue-50/50">
+					<li class="w-full border border-gray-600 p-6 space-y-2 bg-blue-50/50">
 						{#if [FlowStatusModule.type.IN_PROGRESS, FlowStatusModule.type.SUCCESS, FlowStatusModule.type.FAILURE].includes(mod.type)}
 							<svelte:self
 								{flowState}
@@ -163,7 +195,7 @@
 									: undefined}
 								on:jobsLoaded={(e) => {
 									if (mod.id && (mod.flow_jobs ?? []).length == 0) {
-										if (flowState) {
+										if (flowState && flowState[mod.id]) {
 											flowState[mod.id].previewResult = e.detail.result
 											flowState[mod.id].previewArgs = e.detail.args
 										}

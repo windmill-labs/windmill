@@ -452,12 +452,25 @@ pub async fn resume_suspended_job(
     .await?
     .ok_or_else(|| anyhow::anyhow!("parent flow job not found"))?;
 
+    let exists = sqlx::query_scalar!(
+        r#"
+        SELECT EXISTS (SELECT 1 FROM resume_job WHERE id = $1)
+        "#,
+        Uuid::from_u128(job_id.as_u128() ^ resume_id as u128),
+    )
+    .fetch_one(&mut tx)
+    .await?
+    .unwrap_or(false);
+
+    if exists {
+        return Err(anyhow::anyhow!("resume request already sent").into());
+    }
+
     sqlx::query!(
         r#"
         INSERT INTO resume_job
                     (id, resume_id, job, flow, value, approver)
              VALUES ($1, $2, $3, $4, $5, $6)
-             ON CONFLICT (id) DO NOTHING
         "#,
         Uuid::from_u128(job_id.as_u128() ^ resume_id as u128),
         resume_id as i32,

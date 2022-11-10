@@ -25,10 +25,11 @@
 	import DrawerContent from './common/drawer/DrawerContent.svelte'
 	import { Drawer } from './common'
 
-	export let lang: 'python3' | 'deno' | 'go'
+	export let lang: 'python3' | 'deno' | 'go' | 'bash'
 	export let editor: Editor
 	export let websocketAlive: { pyright: boolean; black: boolean; deno: boolean; go: boolean }
 	export let iconOnly: boolean = false
+	export let validCode: boolean = true
 
 	let contextualVariablePicker: ItemPicker
 	let variablePicker: ItemPicker
@@ -38,7 +39,7 @@
 	let resourceEditor: ResourceEditor
 
 	let codeViewer: Drawer
-	let codeLang: 'python3' | 'deno' | 'go' = 'deno'
+	let codeLang: 'python3' | 'deno' | 'go' | 'bash' = 'deno'
 	let codeContent: string = ''
 
 	function addEditorActions() {
@@ -105,6 +106,13 @@
 				editor.insertAtBeginning('import os\n')
 			}
 			editor.insertAtCursor(`os.environ.get("${name}")`)
+		} else if (lang == 'go') {
+			if (!editor.getCode().includes('"os"')) {
+				editor.insertAtLine('import "os"\n', 2)
+			}
+			editor.insertAtCursor(`os.Getenv("${name}")`)
+		} else if (lang == 'bash') {
+			editor.insertAtCursor(`$${name}`)
 		}
 		sendUserToast(`${name} inserted at cursor`)
 	}}
@@ -130,9 +138,11 @@
 			editor.insertAtCursor(`wmill.get_variable("${path}")`)
 		} else if (lang == 'go') {
 			if (!editor.getCode().includes('wmill "github.com/windmill-labs/windmill-go-client"')) {
-				editor.insertAtBeginning('import wmill "github.com/windmill-labs/windmill-go-client"\n')
+				editor.insertAtLine('import wmill "github.com/windmill-labs/windmill-go-client"\n\n', 3)
 			}
 			editor.insertAtCursor(`v, _ := wmill.GetVariable("${path}")`)
+		} else if (lang == 'bash') {
+			sendUserToast('Not supported yet', true)
 		}
 		sendUserToast(`${name} inserted at cursor`)
 	}}
@@ -174,9 +184,11 @@
 			editor.insertAtCursor(`wmill.get_resource("${path}")`)
 		} else if (lang == 'go') {
 			if (!editor.getCode().includes('wmill "github.com/windmill-labs/windmill-go-client"')) {
-				editor.insertAtBeginning('import wmill "github.com/windmill-labs/windmill-go-client"\n')
+				editor.insertAtLine('import wmill "github.com/windmill-labs/windmill-go-client"\n\n', 3)
 			}
 			editor.insertAtCursor(`r, _ := wmill.GetResource("${path}")`)
+		} else if (lang == 'bash') {
+			sendUserToast('Not supported yet', true)
 		}
 		sendUserToast(`${path} inserted at cursor`)
 	}}
@@ -185,10 +197,10 @@
 	loadItems={async () =>
 		await ResourceService.listResource({ workspace: $workspaceStore ?? 'NO_W' })}
 >
-	<div slot="submission" class="flex flex-row">
-		<div class="text-xs mr-2 align-middle">
-			The resource you were looking for does not exist yet?
-		</div>
+	<div slot="submission" class="flex flex-row gap-x-1">
+		<Button target="_blank" color="blue" size="sm" href="/resources?connect_app=undefined">
+			Connect an API
+		</Button>
 		<Button
 			variant="border"
 			color="blue"
@@ -197,7 +209,7 @@
 				resourceEditor.initNew()
 			}}
 		>
-			Create a new resource
+			New custom resource
 		</Button>
 	</div>
 </ItemPicker>
@@ -207,6 +219,16 @@
 
 <div class="flex flex-row justify-between items-center overflow-hidden w-full">
 	<div class="flex flex-row divide-x items-center">
+		<div class="mx-2">
+			<span
+				title={validCode
+					? 'last signature parsing was sucessful'
+					: 'last signature parsing was succesful'}
+				class="relative inline-flex rounded-full h-2 w-2 {validCode
+					? 'bg-green-500/80'
+					: 'bg-red-500'}"
+			/>
+		</div>
 		<div>
 			<Button
 				color="light"
@@ -289,14 +311,20 @@
 			{/if}
 			<span class="ml-1">
 				{#if lang == 'deno'}
-					(<span class={websocketAlive.deno ? 'text-green-600' : 'text-red-700'}>Deno</span>)
+					(<span class={websocketAlive.deno ? 'green' : 'text-red-700'}>Deno</span>)
 				{:else if lang == 'go'}
-					(<span class={websocketAlive.go ? 'text-green-600' : 'text-red-700'}>Go</span>)
+					(<span class={websocketAlive.go ? 'green' : 'text-red-700'}>Go</span>)
 				{:else if lang == 'python3'}
-					(<span class={websocketAlive.pyright ? 'text-green-600' : 'text-red-700'}>Pyright</span>
-					<span class={websocketAlive.black ? 'text-green-600' : 'text-red-700'}>Black</span>)
+					(<span class={websocketAlive.pyright ? 'green' : 'text-red-700'}>Pyright</span>
+					<span class={websocketAlive.black ? 'green' : 'text-red-700'}>Black</span>)
 				{/if}
 			</span>
 		</Button>
 	</div>
 </div>
+
+<style>
+	span.green {
+		@apply text-green-600 animate-[pulse_5s_ease-in-out_infinite];
+	}
+</style>

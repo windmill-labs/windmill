@@ -13,6 +13,7 @@ export type Context = {
   workspace: string;
   baseUrl: string;
   urlStore: string;
+  token: string;
 };
 
 export async function getContext({
@@ -45,5 +46,6 @@ export async function getContext({
     workspace: workspaceId,
     baseUrl: baseUrl,
     urlStore: urlStore,
+    token: token,
   };
 }

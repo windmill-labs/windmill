@@ -15,6 +15,7 @@
 	export let retry: boolean = false
 	export let earlyStop: boolean = false
 	export let suspend: boolean = false
+	export let bold: boolean = false
 	export let id: string | undefined = undefined
 	export let label: string
 
@@ -38,7 +39,7 @@
 					? 'bg-blue-200 text-blue-800'
 					: color === 'orange'
 					? 'bg-orange-200 text-orange-800'
-					: 'bg-teal-200 text-teal-800',
+					: 'bg-blue-100 text-blue-600',
 				''
 			)}
 		>
@@ -72,7 +73,7 @@
 		<div
 			class="flex justify-between items-center w-full overflow-hidden border p-2 bg-white text-sm"
 		>
-			<div class="flex-1 truncate">{label}</div>
+			<div class="flex-1 truncate" class:font-bold={bold}>{label}</div>
 			<div class="flex items-center space-x-2">
 				{#if id}
 					<Badge color="indigo">{id}</Badge>

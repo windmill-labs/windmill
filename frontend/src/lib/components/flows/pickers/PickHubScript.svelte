@@ -35,5 +35,5 @@
 	label={customText ?? `${kind == Script.kind.SCRIPT ? 'Script' : `${kind} script`} from the Hub`}
 	icon={faUserGroup}
 	iconColor="text-blue-500"
-	on:click={() => itemPicker.openModal()}
+	on:click={() => itemPicker.openDrawer()}
 />

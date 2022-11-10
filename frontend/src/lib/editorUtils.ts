@@ -43,6 +43,8 @@ export function langToExt(lang: string): string {
             return 'py'
         case 'go':
             return 'go'
+        case 'bash':
+            return 'sh'
         default:
             return 'unknown'
     }

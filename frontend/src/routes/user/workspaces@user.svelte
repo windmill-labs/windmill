@@ -46,7 +46,7 @@
 				workspaceStore.set(localStorage.getItem('workspace')?.toString())
 			}
 		} else {
-			logoutWithRedirect($page.url.pathname + $page.url.search)
+			await logoutWithRedirect($page.url.pathname + $page.url.search)
 		}
 	}
 
@@ -160,11 +160,11 @@
 		{/each}
 		<div class="flex justify-between items-center mt-10">
 			{#if $superadmin}
-				<Button variant="border" size="sm" on:click={superadminSettings.toggleDrawer}>
+				<Button variant="border" size="sm" on:click={superadminSettings.openDrawer}>
 					<Icon data={faCrown} class="mr-1" scale={1} />Superadmin settings</Button
 				>
 			{/if}
-			<Button variant="border" size="sm" on:click={userSettings.toggleDrawer}>
+			<Button variant="border" size="sm" on:click={userSettings.openDrawer}>
 				<Icon data={faUserCog} class="mr-1" scale={1} />User settings</Button
 			>
 			<Button

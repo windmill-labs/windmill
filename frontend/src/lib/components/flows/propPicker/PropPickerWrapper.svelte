@@ -18,13 +18,17 @@
 
 <script lang="ts">
 	import PropPicker from '$lib/components/propertyPicker/PropPicker.svelte'
+	import PropPickerResult from '$lib/components/propertyPicker/PropPickerResult.svelte'
 	import { createEventDispatcher, setContext } from 'svelte'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import { writable, type Writable } from 'svelte/store'
+	import type { PickableProperties } from '../previousResults'
 
-	export let pickableProperties: Object = {}
+	export let pickableProperties: PickableProperties | undefined
+	export let result: any = undefined
+	export let error: boolean = false
 	export let displayContext = true
-	export let priorId: string | undefined
+	export let notSelectable = false
 
 	const propPickerConfig = writable<PropPickerConfig | undefined>(undefined)
 	const dispatch = createEventDispatcher()
@@ -45,20 +49,25 @@
 </script>
 
 <Splitpanes>
-	<Pane minSize={20} size={66} class="relative p-4 !duration-[0ms]">
+	<Pane minSize={20} size={66} class="relative p-4 !transition-none">
 		<slot />
 	</Pane>
-	<Pane minSize={20} class="px-2 py-2 h-full !duration-[0ms]">
-		<PropPicker
-			{priorId}
-			{displayContext}
-			{pickableProperties}
-			on:select={({ detail }) => {
-				dispatch('select', detail)
-				if ($propPickerConfig?.onSelect(detail)) {
-					propPickerConfig.set(undefined)
-				}
-			}}
-		/>
+	<Pane minSize={20} size={34} class="px-2 py-2 h-full !transition-none">
+		{#if result}
+			<PropPickerResult {result} />
+		{:else if pickableProperties}
+			<PropPicker
+				{displayContext}
+				{error}
+				{pickableProperties}
+				{notSelectable}
+				on:select={({ detail }) => {
+					dispatch('select', detail)
+					if ($propPickerConfig?.onSelect(detail)) {
+						propPickerConfig.set(undefined)
+					}
+				}}
+			/>
+		{/if}
 	</Pane>
 </Splitpanes>

@@ -42,6 +42,7 @@
 	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
 	import Drawer from '$lib/components/common/drawer/Drawer.svelte'
 	import DrawerContent from '$lib/components/common/drawer/DrawerContent.svelte'
+	import Popover from '$lib/components/Popover.svelte'
 
 	type ResourceW = Resource & { canWrite: boolean }
 	type ResourceTypeW = ResourceType & { canWrite: boolean }
@@ -149,7 +150,12 @@
 			appConnect.openFromOauth(resource_type)
 		}
 		if ($page.url.searchParams.get('connect_app')) {
-			appConnect.open($page.url.searchParams.get('connect_app') ?? undefined)
+			const rt = $page.url.searchParams.get('connect_app') ?? undefined
+			if (rt == 'undefined') {
+				appConnect.open()
+			} else {
+				appConnect.open(rt)
+			}
 		}
 	})
 </script>
@@ -216,8 +222,7 @@
 			</Button>
 		</div>
 	</PageHeader>
-
-	<div class="relative">
+	<div class="overflow-x-auto pb-40 pr-4">
 		{#if loading.resources}
 			<Skeleton layout={[0.5, [2], 1]} />
 			{#each new Array(6) as _}
@@ -238,7 +243,7 @@
 							<tr>
 								<td class="my-12"
 									><a
-										class="break-all"
+										class="break-words"
 										href="#{path}"
 										on:click={async () => {
 											resourceViewerTitle = `Resource ${path}`
@@ -262,12 +267,18 @@
 								>
 								<td class="text-center">
 									{#if is_oauth}
-										<Icon
-											class="text-green-600"
-											data={faCircle}
-											scale={0.7}
-											label="Resource is tied to an OAuth app"
-										/>
+										<Popover>
+											<Icon
+												class="text-green-600 animate-[pulse_5s_linear_infinite]"
+												data={faCircle}
+												scale={0.7}
+												label="Variable is tied to an OAuth app"
+											/>
+											<div slot="text">
+												The resource is tied to an OAuth app. The token is refreshed automatically
+												if applicable.
+											</div>
+										</Popover>
 									{/if}
 								</td>
 								<td>
@@ -305,7 +316,7 @@
 												}
 											}
 										]}
-										relative={false}
+										relative={true}
 									/>
 								</td>
 							</tr>
@@ -319,7 +330,6 @@
 			</TableCustom>
 		{/if}
 	</div>
-	<div class="py-10" />
 	<PageHeader
 		title="Resources types"
 		primary={false}
@@ -334,56 +344,58 @@
 			<Skeleton layout={[[4], 0.7]} />
 		{/each}
 	{:else}
-		<TableCustom>
-			<tr slot="header-row">
-				<th>name</th>
-				<th>description</th>
-				<th />
-			</tr>
-			<tbody slot="body">
-				{#if resourceTypes}
-					{#each resourceTypes as { name, description, schema, canWrite }}
-						<tr>
-							<td
-								><a
-									href="#{name}"
-									on:click={() => {
-										resourceViewerTitle = `Resource type ${name}`
-										resourceViewerSchema = schema
-										resourceViewerDescription = description ?? ''
-										typeDrawerMode = 'view-type'
-										resourceViewer.openDrawer()
-									}}><IconedResourceType after={true} {name} /></a
-								></td
-							>
-							<td
-								><span class="text-gray-500 text-xs"
-									><SvelteMarkdown source={truncate(description ?? '', 30)} /></span
-								></td
-							>
-							<td>
-								{#if canWrite}
-									<Button
-										size="sm"
-										color="red"
-										variant="border"
-										startIcon={{ icon: faTrash }}
-										on:click={() => handleDeleteResourceType(name)}
-										disabled={!($userStore?.is_admin || false)}
-									>
-										Delete
-									</Button>
-								{/if}
-							</td>
-						</tr>
-					{/each}
-				{:else if resources}
-					<tr> No resources types to display</tr>
-				{:else}
-					<tr>Loading...</tr>
-				{/if}
-			</tbody>
-		</TableCustom>
+		<div class="overflow-auto">
+			<TableCustom>
+				<tr slot="header-row">
+					<th>name</th>
+					<th>description</th>
+					<th />
+				</tr>
+				<tbody slot="body">
+					{#if resourceTypes}
+						{#each resourceTypes as { name, description, schema, canWrite }}
+							<tr>
+								<td
+									><a
+										href="#{name}"
+										on:click={() => {
+											resourceViewerTitle = `Resource type ${name}`
+											resourceViewerSchema = schema
+											resourceViewerDescription = description ?? ''
+											typeDrawerMode = 'view-type'
+											resourceViewer.openDrawer()
+										}}><IconedResourceType after={true} {name} /></a
+									></td
+								>
+								<td
+									><span class="text-gray-500 text-xs"
+										><SvelteMarkdown source={truncate(description ?? '', 30)} /></span
+									></td
+								>
+								<td>
+									{#if canWrite}
+										<Button
+											size="sm"
+											color="red"
+											variant="border"
+											startIcon={{ icon: faTrash }}
+											on:click={() => handleDeleteResourceType(name)}
+											disabled={!($userStore?.is_admin || false)}
+										>
+											Delete
+										</Button>
+									{/if}
+								</td>
+							</tr>
+						{/each}
+					{:else if resources}
+						<tr> No resources types to display</tr>
+					{:else}
+						<tr>Loading...</tr>
+					{/if}
+				</tbody>
+			</TableCustom>
+		</div>
 	{/if}
 </CenteredPage>
 

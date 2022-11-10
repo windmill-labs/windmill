@@ -1,17 +1,18 @@
 <script lang="ts">
 	import { Job, JobService } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
-
 	import { onDestroy } from 'svelte'
-
 	import type { Preview } from '$lib/gen/models/Preview'
 	import { createEventDispatcher } from 'svelte'
 
-	const dispatch = createEventDispatcher()
-
 	export let isLoading = false
 	export let job: Job | undefined = undefined
+	export let workspaceOverride: string | undefined = undefined
+	export let notfound = false
 
+	const dispatch = createEventDispatcher()
+
+	$: workspace = workspaceOverride ?? $workspaceStore
 	let intervalId: NodeJS.Timer
 
 	let syncIteration: number = 0
@@ -22,7 +23,7 @@
 			intervalId && clearInterval(intervalId)
 			if (isLoading && job) {
 				JobService.cancelQueuedJob({
-					workspace: $workspaceStore!,
+					workspace: workspace!,
 					id: job.id,
 					requestBody: {}
 				})
@@ -40,7 +41,7 @@
 	export async function runPreview(
 		path: string | undefined,
 		code: string,
-		lang: 'deno' | 'go' | 'python3',
+		lang: 'deno' | 'go' | 'python3' | 'bash',
 		args: Record<string, any>
 	): Promise<void> {
 		abstractRun(() =>
@@ -52,19 +53,6 @@
 					args,
 					language: lang as Preview.language
 				}
-			})
-		)
-	}
-
-	export async function runScriptByPath(
-		path: string | undefined,
-		args: Record<string, any>
-	): Promise<void> {
-		abstractRun(() =>
-			JobService.runScriptByPath({
-				workspace: $workspaceStore!,
-				path: path ?? '',
-				requestBody: args
 			})
 		)
 	}
@@ -97,7 +85,7 @@
 		try {
 			if (job && `running` in job) {
 				let previewJobUpdates = await JobService.getJobUpdates({
-					workspace: $workspaceStore!,
+					workspace: workspace!,
 					id,
 					running: job.running,
 					logOffset: job.logs?.length ?? 0
@@ -107,21 +95,26 @@
 					job.logs = (job.logs ?? '').concat(previewJobUpdates.new_logs)
 				}
 				if ((previewJobUpdates.running ?? false) || (previewJobUpdates.completed ?? false)) {
-					job = await JobService.getJob({ workspace: $workspaceStore!, id })
+					job = await JobService.getJob({ workspace: workspace!, id })
 				}
 			} else {
-				job = await JobService.getJob({ workspace: $workspaceStore!, id })
+				job = await JobService.getJob({ workspace: workspace!, id })
 			}
 			if (job?.type === 'CompletedJob') {
 				//only CompletedJob has success property
 				isCompleted = true
-				clearInterval(intervalId)
+				intervalId && clearInterval(intervalId)
 				if (isLoading) {
 					dispatch('done', job)
 					isLoading = false
 				}
 			}
+			notfound = false
 		} catch (err) {
+			intervalId && clearInterval(intervalId)
+			if (err.status === 404) {
+				notfound = true
+			}
 			console.error(err)
 		}
 		return isCompleted

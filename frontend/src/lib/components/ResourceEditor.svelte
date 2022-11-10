@@ -125,7 +125,7 @@
 		<div>
 			<!-- content -->
 			{#if step === 1}
-				<div class="flex flex-col gap-3	px-6 py-3 bg-gray-50 text-gray-700">
+				<div class="flex flex-col gap-3 py-3  text-gray-700">
 					<div>
 						<span class="text-red-600 text-2xs grow">{error ?? ''}</span>
 						<span class="mb-1 font-semibold text-gray-700">Path</span>
@@ -247,9 +247,6 @@
 		>
 			Create a new variable
 		</Button>
-		<div class="text-xs mr-2 align-middle">
-			The variable you were looking for does not exist yet?
-		</div>
 	</div>
 </ItemPicker>
 

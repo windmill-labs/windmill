@@ -50,6 +50,7 @@ pub fn global_service() -> Router {
         )
         .route("/deno/tojsonschema", post(parse_deno_code_to_jsonschema))
         .route("/go/tojsonschema", post(parse_go_code_to_jsonschema))
+        .route("/bash/tojsonschema", post(parse_bash_code_to_jsonschema))
         .route("/hub/list", get(list_hub_scripts))
         .route("/hub/get/*path", get(get_hub_script_by_path))
         .route("/hub/get_full/*path", get(get_full_hub_script_by_path))
@@ -621,8 +622,8 @@ async fn delete_script_by_hash(
 
     require_admin(authed.is_admin, &authed.username)?;
     let script = sqlx::query_as::<_, Script>(
-        "UPDATE script SET content = '', archived = true, deleted = true WHERE hash = $1 AND \
-         workspace_id = $2RETURNING *",
+        "UPDATE script SET content = '', archived = true, deleted = true, lock = '', schema = null WHERE hash = $1 AND \
+         workspace_id = $2 RETURNING *",
     )
     .bind(&hash.0)
     .bind(&w_id)
@@ -660,4 +661,10 @@ async fn parse_go_code_to_jsonschema(
     Json(code): Json<String>,
 ) -> JsonResult<windmill_parser::MainArgSignature> {
     windmill_parser_go::parse_go_sig(&code).map(Json)
+}
+
+async fn parse_bash_code_to_jsonschema(
+    Json(code): Json<String>,
+) -> JsonResult<windmill_parser::MainArgSignature> {
+    windmill_parser_bash::parse_bash_sig(&code).map(Json)
 }

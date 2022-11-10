@@ -21,7 +21,7 @@
 	let itemPicker: ItemPicker
 	let drawerViewer: Drawer
 	let code: string = ''
-	let lang: 'deno' | 'python3' | 'go' | undefined
+	let lang: 'deno' | 'python3' | 'go' | 'bash' | undefined
 
 	let options: [[string, any]] = [['Script', 'script']]
 	allowHub && options.unshift(['Hub', 'hub'])
@@ -85,7 +85,7 @@
 				const { language, content } = await getScriptByPath(scriptPath ?? '')
 				code = content
 				lang = language
-				drawerViewer.openModal()
+				drawerViewer.openDrawer()
 			}}
 		>
 			Show code
