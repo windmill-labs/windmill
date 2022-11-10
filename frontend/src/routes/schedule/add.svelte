@@ -66,6 +66,7 @@
 				workspace: $workspaceStore!,
 				path: initialPath
 			})
+			enabled = s.enabled
 			schedule = s.schedule
 			script_path = s.script_path ?? ''
 			args = s.args ?? {}
