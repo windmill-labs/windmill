@@ -64,9 +64,11 @@
 				...items[idx],
 				id: getNextId(e.detail.items.map((item) => item.id)),
 				// @ts-ignore
-				type: items[idx].type
+				type: items[idx].type,
+				width: 100
 			})
 			items = e.detail.items
+
 			shouldIgnoreDndEvents = true
 		} else if (!shouldIgnoreDndEvents) {
 			items = e.detail.items

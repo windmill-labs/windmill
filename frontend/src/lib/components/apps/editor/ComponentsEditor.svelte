@@ -5,6 +5,7 @@
 	import { dndzone } from 'svelte-dnd-action'
 	import { flip } from 'svelte/animate'
 	import { classNames } from '$lib/utils'
+	import { getNextId } from '$lib/components/flows/flowStateUtils'
 
 	export let components: AppComponent[]
 	export let sectionIndex: number
@@ -13,8 +14,25 @@
 	const flipDurationMs = 200
 	const { selection, connectingInput } = getContext<AppEditorContext>('AppEditorContext')
 
-	function handleSort(event: CustomEvent<DndEvent<AppComponent>>) {
+	function handleDndConsider(event: CustomEvent<DndEvent<AppComponent>>) {
 		components = event.detail.items
+	}
+
+	function handleDndFinalize(event: CustomEvent<DndEvent<AppComponent>>) {
+		const totalWidth = components
+			.map((c) => c.width)
+			.filter(Boolean)
+			.reduce((a, b) => a + b, 0)
+
+		components = event.detail.items.map((item) => {
+			if (item.width === undefined) {
+				item.width = 100 - totalWidth
+				item.id = getNextId(components.map((c) => c.id))
+				console.log(item)
+			}
+
+			return item
+		})
 	}
 
 	// HACK
@@ -153,8 +171,8 @@
 				dragDisabled: components.length === 0,
 				dropFromOthersDisabled: components.length === columns
 			}}
-			on:consider={handleSort}
-			on:finalize={handleSort}
+			on:consider={handleDndConsider}
+			on:finalize={handleDndFinalize}
 		>
 			{#if components.length > 0}
 				{#each components as component, componentIndex (component.id)}
