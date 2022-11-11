@@ -367,6 +367,15 @@ const config = {
 					whiteSpace: 'nowrap',
 					textOverflow: 'ellipsis',
 				},
+				/** Set the '-webkit-line-clamp' property to the desired number of lines.
+				 * 
+				 * Eg.: `class="ellipsize-multi-line [-webkit-line-clamp:3]"`
+				 */
+				'.ellipsize-multi-line': {
+					display: '-webkit-box',
+					'-webkit-box-orient': 'vertical',
+					overflow: 'hidden'
+				},
 				'.disabled': {
 					pointerEvents: 'none',
 					cursor: 'default',
@@ -379,7 +388,7 @@ const config = {
 						display: 'none',
 						width: '0px',
 					},
-				},
+				}
 			})
 		})
 	],

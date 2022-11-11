@@ -200,7 +200,11 @@
 		return {
 			id: idGenerator.next().value,
 	    position: { x: -1, y: -1 },
-	    data: { label },
+	    data: { html: `
+				<div class="w-full max-h-full text-center ellipsize-multi-line [-webkit-line-clamp:2] px-1">
+					${label}
+				</div>
+			`},
 	    width: NODE.width,
 	    height: NODE.height,
 	    bgColor: "#d4e4ff",
