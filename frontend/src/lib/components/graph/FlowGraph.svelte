@@ -50,9 +50,9 @@
 
 		if(type === 'rawscript') {
 			const lang = module.value.language
-			return flowModuleToNode(parentIds, module.summary || 'Inline script', 'inline', lang)
+			return flowModuleToNode(parentIds, module.id, module.summary || 'Inline script', 'inline', lang)
 		} else if(type === 'script') {
-			return flowModuleToNode(parentIds, module.summary || module.value.path || 'Hub script', 'hub')
+			return flowModuleToNode(parentIds, module.id, module.summary || module.value.path || 'Hub script', 'hub')
 		} else if(type === 'forloopflow') {
 			const expr = module.value.iterator['expr']
 			return flowModuleToLoop(module.value.modules, expr ? `Expression: ${expr}` : 'For loop', parent)
@@ -63,7 +63,7 @@
 			const branches = module.value.branches.map(b => b.modules)
 			return flowModuleToBranch(branches, parent)
 		}
-		return flowModuleToNode(parentIds, module.summary || 'Identity script', 'inline')
+		return flowModuleToNode(parentIds, module.id, module.summary || 'Identity script', 'inline')
 	}
 
 	function getParentIds(items: NestedNodes | undefined = undefined): string[] {
@@ -82,6 +82,7 @@
 
 	function flowModuleToNode(
 		parentIds: string[],
+		id: string,
 		title: string,
 		host: ModuleHost,
 		lang?: RawScript.language
@@ -102,7 +103,12 @@
 	    position: { x: -1, y: -1 },
 	    data: { html: `
 				<div class="w-full flex justify-between items-center px-1">
-					<div class="${wrapperWidth} text-left ellipsize">${title}</div>
+					<div class="${wrapperWidth} flex text-left ellipsize">
+						<span class="center-center font-semibold bg-indigo-100 text-indigo-800 rounded px-1 pb-[2px] mr-1">
+							${id}
+						</span>
+						${title}
+					</div>
 					<div class="flex items-center grayscale">
 						${lang ? `<img src="${langImg[lang]}">` : ''}
 						<img src="${hostImg[host]}">
