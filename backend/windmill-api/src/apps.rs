@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 /*
  * Author: Ruben Fiszel
  * Copyright: Windmill Labs, Inc 2022
@@ -5,10 +7,7 @@
  * Please see the included NOTICE for copyright information and
  * LICENSE-AGPL for a copy of the license.
  */
-use crate::{
-    db::{UserDB, DB},
-    users::Authed,
-};
+use crate::{db::UserDB, users::Authed};
 use axum::{
     extract::{Extension, Path, Query},
     routing::{delete, get, post},
@@ -16,7 +15,7 @@ use axum::{
 };
 use hyper::StatusCode;
 use serde::{Deserialize, Serialize};
-use serde_json::Map;
+use serde_json::{json, Map, Value};
 use sql_builder::{bind::Bind, SqlBuilder};
 use sqlx::{types::Uuid, FromRow};
 use windmill_audit::{audit_log, ActionKind};
@@ -45,28 +44,46 @@ pub enum ExecutionMode {
 
 #[derive(FromRow, Serialize, Deserialize)]
 pub struct App {
-    pub id: Uuid,
+    pub id: i64,
     pub workspace_id: String,
     pub path: String,
     pub summary: String,
-    pub value: serde_json::Value,
-    pub policy: serde_json::Value,
-    pub created_by: String,
-    pub created_at: chrono::DateTime<chrono::Utc>,
+    pub versions: Vec<i64>,
     pub execution_mode: ExecutionMode,
     pub extra_perms: serde_json::Value,
+}
+
+#[derive(FromRow, Serialize, Deserialize)]
+pub struct AppVersion {
+    pub id: i64,
+    pub flow_id: Uuid,
+    pub value: serde_json::Value,
+    pub created_by: String,
+    pub created_at: chrono::DateTime<chrono::Utc>,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct AppWithLastVersion {
+    pub id: Uuid,
+    pub summary: String,
+    pub version_id: Uuid,
+    pub value: serde_json::Value,
+    pub policy: Policy,
+    pub execution_mode: ExecutionMode,
+    pub created_by: String,
+    pub created_at: chrono::DateTime<chrono::Utc>,
 }
 
 #[derive(Serialize, Deserialize)]
 pub struct TriggerablePolicy {
     pub path: String,
-    pub staticFields: serde_json::Value,
+    pub static_fields: Map<String, Value>,
     pub is_flow: bool,
 }
 
 #[derive(Serialize, Deserialize)]
 pub struct Policy {
-    pub paths: Map<String, TriggerablePolicy>,
+    pub paths: HashMap<String, TriggerablePolicy>,
 }
 
 #[derive(Deserialize)]
@@ -75,12 +92,16 @@ pub struct CreateApp {
     pub summary: String,
     pub execution_mode: ExecutionMode,
     pub value: serde_json::Value,
+    pub policy: Policy,
 }
 
 #[derive(Deserialize)]
 pub struct EditApp {
-    pub summary: String,
-    pub value: serde_json::Value,
+    pub path: Option<String>,
+    pub summary: Option<String>,
+    pub value: Option<serde_json::Value>,
+    pub policy: Option<Policy>,
+    pub execution_mode: Option<ExecutionMode>,
 }
 
 async fn list_apps(
@@ -125,7 +146,7 @@ async fn get_app(
 
     let app_o = sqlx::query_as!(
         App,
-        "SELECT * from app WHERE path = $1 AND workspace_id = $2",
+        "SELECT id, workspace_id, path, summary, versions, execution_mode as \"execution_mode: _\", extra_perms from app WHERE path = $1 AND workspace_id = $2",
         path.to_owned(),
         &w_id
     )
@@ -145,19 +166,38 @@ async fn create_app(
 ) -> Result<(StatusCode, String)> {
     let mut tx = user_db.begin(&authed).await?;
 
-    sqlx::query!(
+    let id = sqlx::query_scalar!(
         "INSERT INTO app
-            (workspace_id, path, value, description, app_type, is_oauth)
-            VALUES ($1, $2, $3, $4, $5, $6)",
+            (workspace_id, path, summary, policy, execution_mode)
+            VALUES ($1, $2, $3, $4, $5) RETURNING id",
         w_id,
         app.path,
+        app.summary,
+        json!(app.policy),
+        app.execution_mode: ExecutionMode
+    )
+    .fetch_one(&mut tx)
+    .await?;
+
+    let v_id = sqlx::query_scalar!(
+        "INSERT INTO app_version
+            (flow_id, value, created_by)
+            VALUES ($1, $2, $3) RETURNING id",
+        id,
         app.value,
-        app.description,
-        app.app_type,
-        app.is_oauth.unwrap_or(false)
+        authed.username,
+    )
+    .fetch_one(&mut tx)
+    .await?;
+
+    sqlx::query!(
+        "UPDATE app SET versions = array_append(versions, $1) WHERE id = $2",
+        v_id,
+        id
     )
     .execute(&mut tx)
     .await?;
+
     audit_log(
         &mut tx,
         &authed.username,
@@ -222,9 +262,6 @@ async fn update_app(
     }
     if let Some(nvalue) = ns.value {
         sqlb.set_str("value", nvalue.to_string());
-    }
-    if let Some(ndesc) = ns.description {
-        sqlb.set_str("description", ndesc);
     }
 
     sqlb.returning("path");

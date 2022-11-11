@@ -118,7 +118,8 @@ pub async fn run_server(
                         .nest("/acls", granular_acls::workspaced_service())
                         .nest("/workspaces", workspaces::workspaced_service())
                         .nest("/flows", flows::workspaced_service())
-                        .nest("/capture", capture::workspaced_service()),
+                        .nest("/capture", capture::workspaced_service())
+                        .nest("/apps", apps::workspaced_service()),
                 )
                 .nest("/workspaces", workspaces::global_service())
                 .nest(
