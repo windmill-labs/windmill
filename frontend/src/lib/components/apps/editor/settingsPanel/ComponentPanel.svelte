@@ -1,21 +1,23 @@
 <script lang="ts">
 	import { ToggleButton, ToggleButtonGroup } from '$lib/components/common'
 	import Button from '$lib/components/common/button/Button.svelte'
+	import PickScript from '$lib/components/flows/pickers/PickScript.svelte'
 	import {
 		faAlignCenter,
 		faAlignLeft,
 		faAlignRight,
 		faTrashAlt
 	} from '@fortawesome/free-solid-svg-icons'
-	import { createEventDispatcher } from 'svelte'
+	import { createEventDispatcher, getContext } from 'svelte'
 	import Icon from 'svelte-awesome'
-	import type { AppComponent } from '../../types'
+	import type { AppComponent, AppEditorContext } from '../../types'
 	import PanelSection from './common/PanelSection.svelte'
 	import ComponentInputsSpecsEditor from './ComponentInputsSpecsEditor.svelte'
 	import InputsSpecsEditor from './InputsSpecsEditor.svelte'
 
 	export let component: AppComponent | undefined
 
+	const { app } = getContext<AppEditorContext>('AppEditorContext')
 	const dispatch = createEventDispatcher()
 </script>
 
@@ -25,9 +27,26 @@
 			<span class="text-sm border-y w-full py-1 px-2 bg-gray-800 text-white">Component editor</span>
 
 			<PanelSection title="Inputs">
-				{#if component.type === 'runformcomponent' && component.inputs}
+				{#if component.type === 'runformcomponent'}
 					<InputsSpecsEditor bind:inputSpecs={component.inputs} />
 				{/if}
+
+				{#if component.type === 'runformcomponent' && $app.policy.triggerables[component.id] === undefined}
+					<span class="text-sm">Select a script or a flow to continue</span>
+					<PickScript
+						kind="script"
+						on:pick={({ detail }) => {
+							const { path } = detail
+							if (component?.id) {
+								$app.policy.triggerables[component.id] = {
+									type: 'script',
+									path
+								}
+							}
+						}}
+					/>
+				{/if}
+
 				{#if component.type === 'displaycomponent' && component.componentInputs}
 					<ComponentInputsSpecsEditor bind:componentInputs={component.componentInputs} />
 				{/if}

@@ -10,8 +10,17 @@ export function buildArgs(
 	schema: Schema,
 	includeHidden: boolean = false
 ): Args {
-	return Object.keys(schema.properties).reduce((acc, key) => {
-		const input = inputSpecs[key]
+	const obj = Object.keys(schema.properties).reduce((acc, key) => {
+		let input = inputSpecs[key]
+
+		if (!input) {
+			input = {
+				type: 'static',
+				value: '',
+				visible: true
+			}
+		}
+
 		if (input.type === 'static' && (input.visible || includeHidden)) {
 			acc[key] = input.value
 		}
@@ -26,6 +35,8 @@ export function buildArgs(
 
 		return acc
 	}, {})
+
+	return obj
 }
 
 export async function loadSchema(
@@ -51,4 +62,17 @@ export async function loadSchema(
 
 export function isPolicyDefined(app: App, componentId: string): boolean {
 	return app.policy?.triggerables[componentId] !== undefined
+}
+
+export function schemaToInputsSpec(schema: Schema): InputsSpec {
+	return Object.keys(schema.properties).reduce((accu, key) => {
+		const property = schema.properties[key]
+		accu[key] = {
+			type: 'static',
+			defaultValue: property.default,
+			value: undefined,
+			visible: true
+		}
+		return accu
+	}, {})
 }

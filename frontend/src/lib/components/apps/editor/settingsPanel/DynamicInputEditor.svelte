@@ -8,7 +8,7 @@
 
 	const { connectingInput, selection } = getContext<AppEditorContext>('AppEditorContext')
 
-	function xy() {
+	function applyConnection() {
 		if (!$connectingInput.opened && $connectingInput.input !== undefined) {
 			input = $connectingInput.input
 			$selection = $selection
@@ -20,7 +20,7 @@
 		}
 	}
 
-	$: $connectingInput && xy()
+	$: $connectingInput && applyConnection()
 </script>
 
 {#if input.id && input.name}

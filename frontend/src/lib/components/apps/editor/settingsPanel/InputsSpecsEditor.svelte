@@ -2,7 +2,6 @@
 	import { ToggleButton, ToggleButtonGroup } from '$lib/components/common'
 	import { classNames } from '$lib/utils'
 	import { faBolt, faLink, faUser } from '@fortawesome/free-solid-svg-icons'
-	import { slide } from 'svelte/transition'
 	import type { InputsSpec } from '../../types'
 	import InputsSpecEditor from './InputsSpecEditor.svelte'
 

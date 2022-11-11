@@ -10,7 +10,7 @@
 	import Icon from 'svelte-awesome'
 	import type { Output } from '../rx'
 	import type { AppEditorContext, InputsSpec, TriggerablePolicy } from '../types'
-	import { buildArgs, loadSchema } from '../utils'
+	import { buildArgs, loadSchema, schemaToInputsSpec } from '../utils'
 
 	// Component props
 	export let id: string
@@ -40,6 +40,10 @@
 	}
 
 	$: if (inputs && schema !== undefined) {
+		if (Object.keys(schema.properties).length !== Object.keys(inputs).length) {
+			inputs = schemaToInputsSpec(schema)
+		}
+
 		reloadSchemaAndArgs()
 	}
 

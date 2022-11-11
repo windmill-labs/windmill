@@ -59,6 +59,7 @@
 			{#if component.type === 'runformcomponent'}
 				<RunFormComponent
 					{...component}
+					bind:inputs={component.inputs}
 					bind:staticOutputs={$staticOutputs[component.id]}
 					triggerable={$app.policy.triggerables[component.id]}
 				/>
