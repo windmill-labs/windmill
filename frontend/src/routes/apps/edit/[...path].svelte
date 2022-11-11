@@ -68,4 +68,6 @@
 	}
 </script>
 
-<AppEditor bind:app />
+<div class="h-screen">
+	<AppEditor bind:app />
+</div>

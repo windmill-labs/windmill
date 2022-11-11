@@ -14,11 +14,21 @@
 	import PanelSection from './common/PanelSection.svelte'
 	import ComponentInputsSpecsEditor from './ComponentInputsSpecsEditor.svelte'
 	import InputsSpecsEditor from './InputsSpecsEditor.svelte'
+	import PickFlow from './PickFlow.svelte'
 
 	export let component: AppComponent | undefined
 
 	const { app } = getContext<AppEditorContext>('AppEditorContext')
 	const dispatch = createEventDispatcher()
+
+	function setTriggerable(path: string, type: 'flow' | 'script') {
+		if (component?.id) {
+			$app.policy.triggerables[component.id] = {
+				type,
+				path
+			}
+		}
+	}
 </script>
 
 {#if component}
@@ -36,13 +46,12 @@
 					<PickScript
 						kind="script"
 						on:pick={({ detail }) => {
-							const { path } = detail
-							if (component?.id) {
-								$app.policy.triggerables[component.id] = {
-									type: 'script',
-									path
-								}
-							}
+							setTriggerable(detail.path, 'script')
+						}}
+					/>
+					<PickFlow
+						on:pick={({ detail }) => {
+							setTriggerable(detail.path, 'flow')
 						}}
 					/>
 				{/if}

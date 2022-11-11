@@ -51,6 +51,19 @@
 		)
 	}
 
+	export async function runFlowByPath(
+		path: string | undefined,
+		args: Record<string, any>
+	): Promise<void> {
+		abstractRun(() =>
+			JobService.runFlowByPath({
+				workspace: $workspaceStore!,
+				path: path ?? '',
+				requestBody: args
+			})
+		)
+	}
+
 	export async function runPreview(
 		path: string | undefined,
 		code: string,

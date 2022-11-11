@@ -95,7 +95,13 @@
 		variant="border"
 		on:click={() => {
 			if (schema) {
-				testJobLoader?.runScriptByPath(triggerable?.path, args)
+				if (triggerable.type === 'script') {
+					testJobLoader?.runScriptByPath(triggerable?.path, args)
+				}
+
+				if (triggerable.type === 'flow') {
+					testJobLoader?.runFlowByPath(triggerable?.path, args)
+				}
 				outputs?.loading.set(true)
 			}
 		}}
