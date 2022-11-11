@@ -97,21 +97,21 @@
 			hub: '/icons/hub-script.svg',
 			inline: '/icons/inline-script.svg',
 		}
-		const wrapperWidth = lang ? 'w-[calc(100%-40px)]' : 'w-[calc(100%-20px)]'
+		const wrapperWidth = lang ? 'w-[calc(100%-70px)]' : 'w-[calc(100%-50px)]'
 		return {
 			id: idGenerator.next().value,
 	    position: { x: -1, y: -1 },
 	    data: { html: `
 				<div class="w-full flex justify-between items-center px-1">
-					<div class="${wrapperWidth} flex text-left ellipsize">
-						<span class="center-center font-semibold bg-indigo-100 text-indigo-800 rounded px-1 pb-[2px] mr-1">
-							${id}
-						</span>
+					<div class="${wrapperWidth} text-left ellipsize">
 						${title}
 					</div>
-					<div class="flex items-center grayscale">
-						${lang ? `<img src="${langImg[lang]}">` : ''}
-						<img src="${hostImg[host]}">
+					<div class="flex items-center">
+						${lang ? `<img src="${langImg[lang]}" class="grayscale">` : ''}
+						<img src="${hostImg[host]}" class="grayscale">
+						<span class="center-center font-semibold bg-indigo-100 text-indigo-800 rounded px-1 pb-[2px] ml-[2px]">
+							${id}
+						</span>
 					</div>
 				</div>
 			`},
