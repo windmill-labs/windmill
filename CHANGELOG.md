@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [1.46.1](https://github.com/windmill-labs/windmill/compare/v1.46.0...v1.46.1) (2022-11-12)
+
+
+### Bug Fixes
+
+* **backend:** apps backend v0 ([#888](https://github.com/windmill-labs/windmill/issues/888)) ([2d9e990](https://github.com/windmill-labs/windmill/commit/2d9e9909da5b82eda39eb99c870f073b869b6ff5))
+
 ## [1.46.0](https://github.com/windmill-labs/windmill/compare/v1.45.0...v1.46.0) (2022-11-12)
 
 
