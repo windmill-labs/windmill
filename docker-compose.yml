@@ -19,6 +19,7 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+
   windmill:
     image: ghcr.io/windmill-labs/windmill:main
     privileged: true
@@ -51,6 +52,7 @@ services:
     restart: unless-stopped
     ports:
       - 3001:3001
+
   caddy:
     image: caddy:2.5.2-alpine
     restart: unless-stopped

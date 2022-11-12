@@ -2301,6 +2301,203 @@ paths:
               schema:
                 type: string
 
+  /w/{workspace}/apps/list:
+    get:
+      summary: list all available apps
+      operationId: listApps
+      tags:
+        - app
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/PerPage"
+        - $ref: "#/components/parameters/OrderDesc"
+        - $ref: "#/components/parameters/CreatedBy"
+        - name: path_start
+          description: mask to filter matching starting path
+          in: query
+          schema:
+            type: string
+        - name: path_exact
+          description: mask to filter exact matching path
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: All available apps
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ListableApp"
+
+  /w/{workspace}/apps/get/p/{path}:
+    get:
+      summary: get app by path
+      operationId: getAppByPath
+      tags:
+        - app
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/ScriptPath"
+      responses:
+        "200":
+          description: app details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AppWithLastVersion"
+
+  /w/{workspace}/apps/get/v/{id}:
+    get:
+      summary: get app by version
+      operationId: getAppByVersion
+      tags:
+        - app
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/PathId"
+      responses:
+        "200":
+          description: app details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AppWithLastVersion"
+
+  /w/{workspace}/apps/create:
+    post:
+      summary: create app
+      operationId: createApp
+      tags:
+        - app
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        description: new app
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                path:
+                  type: string
+                value: {}
+                summary: 
+                  type: string
+                policy:
+                  $ref: "#/components/schemas/Policy"
+              required:
+                - path
+                - value
+                - summary
+                - policy
+      responses:
+        "201":
+          description: app created
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/apps/delete/{path}:
+    delete:
+      summary: delete app
+      operationId: deleteApp
+      tags:
+        - app
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+      responses:
+        "200":
+          description: app deleted
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/apps/update/{path}:
+    post:
+      summary: update app
+      operationId: updateApp
+      tags:
+        - app
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/ScriptPath"
+      requestBody:
+        description: update app
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                path:
+                  type: string
+                summary:
+                  type: string
+                value: {}
+                policy:
+                  $ref: "#/components/schemas/Policy"
+      responses:
+        "200":
+          description: app updated
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/apps/execute_component/{path}:
+    post:
+      summary: executeComponent
+      operationId: executeComponent
+      tags:
+        - app
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/ScriptPath"
+      requestBody:
+        description: update app
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                #script: script/<path>
+                #flow: flow/<path>
+                path:
+                  type: string
+                args: {}
+                raw_code: 
+                  type: object
+                  properties:
+                    content:
+                      type: string
+                    language:
+                      type: string
+                    path:
+                      type: string
+                  required:
+                    - content
+                    - language
+              required:
+                - args
+
+      responses:
+        "200":
+          description: job uuid
+          content:
+            text/plain:
+              schema:
+                type: string
+
+
   /w/{workspace}/jobs/run/f/{path}:
     post:
       summary: run flow by path
@@ -4495,6 +4692,72 @@ components:
         - value
         - content
         - args
+
+    Policy:
+      type: object
+      properties:
+        triggerables:
+          type: object
+          additionalProperties:
+            type: object
+        execution_mode:
+          type: string
+          enum: [viewer, publisher, anonymous]
+        on_behalf_of:
+          type: string
+
+
+    ListableApp:
+      type: object
+      properties:
+        id:
+          type: integer
+        workspace_id:
+          type: string
+        path:
+          type: string
+        summary:
+          type: string
+        version:
+          type: integer
+        extra_perms:
+          type: object
+          additionalProperties:
+            type: boolean
+        execution_mode:
+          type: string
+          enum: [viewer, publisher, anonymous]
+
+    AppWithLastVersion:
+      type: object
+      properties:
+        id:
+          type: integer
+        workspace_id:
+          type: string
+        path:
+          type: string
+        summary:
+          type: string
+        versions:
+          type: array
+          items:
+            type: integer
+        created_by:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        value: {}
+        policy:        
+          $ref: "#/components/schemas/Policy"
+        execution_mode:
+          type: string
+          enum: [viewer, publisher, anonymous]
+        extra_perms:
+          type: object
+          additionalProperties:
+            type: boolean
 
     SlackToken:
       type: object

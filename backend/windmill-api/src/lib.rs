@@ -20,9 +20,10 @@ use crate::{
     db::UserDB,
     oauth2::{build_oauth_clients, SlackVerifier},
     tracing_init::{MyMakeSpan, MyOnResponse},
-    users::Authed,
+    users::{Authed, OptAuthed},
 };
 
+mod apps;
 mod audit;
 mod capture;
 mod db;
@@ -117,7 +118,8 @@ pub async fn run_server(
                         .nest("/acls", granular_acls::workspaced_service())
                         .nest("/workspaces", workspaces::workspaced_service())
                         .nest("/flows", flows::workspaced_service())
-                        .nest("/capture", capture::workspaced_service()),
+                        .nest("/capture", capture::workspaced_service())
+                        .nest("/apps", apps::workspaced_service()),
                 )
                 .nest("/workspaces", workspaces::global_service())
                 .nest(
@@ -130,6 +132,10 @@ pub async fn run_server(
                 .nest("/schedules", schedule::global_service())
                 .route_layer(from_extractor::<Authed>())
                 .route_layer(from_extractor::<users::Tokened>())
+                .nest(
+                    "/w/:workspace_id/apps",
+                    apps::unauthed_service().layer(from_extractor::<OptAuthed>()),
+                )
                 .nest("/w/:workspace_id/jobs", jobs::global_service())
                 .nest("/w/:workspace_id/capture", capture::global_service())
                 .nest(
