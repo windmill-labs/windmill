@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [1.46.2](https://github.com/windmill-labs/windmill/compare/v1.46.1...v1.46.2) (2022-11-12)
+
+
+### Bug Fixes
+
+* **ci:** sqlx offline data ([76a6768](https://github.com/windmill-labs/windmill/commit/76a6768ed9ab223363f47c62cfcd8c51dd624b62))
+
 ## [1.46.1](https://github.com/windmill-labs/windmill/compare/v1.46.0...v1.46.1) (2022-11-12)
 
 
