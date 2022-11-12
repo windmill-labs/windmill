@@ -2306,7 +2306,7 @@ paths:
       summary: list all available apps
       operationId: listApps
       tags:
-        - flow
+        - app
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
         - $ref: "#/components/parameters/Page"
@@ -2353,7 +2353,7 @@ paths:
   /w/{workspace}/apps/get/v/{id}:
     get:
       summary: get app by version
-      operationId: getAppByPath
+      operationId: getAppByVersion
       tags:
         - app
       parameters:
@@ -2370,9 +2370,9 @@ paths:
   /w/{workspace}/apps/create:
     post:
       summary: create app
-      operationId: listApps
+      operationId: createApp
       tags:
-        - flow
+        - app
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
       requestBody:
@@ -2425,7 +2425,7 @@ paths:
       summary: update app
       operationId: updateApp
       tags:
-        - flow
+        - app
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
         - $ref: "#/components/parameters/ScriptPath"
@@ -2454,10 +2454,10 @@ paths:
 
   /w/{workspace}/apps/execute_component/{path}:
     post:
-      summary: update app
-      operationId: updateApp
+      summary: executeComponent
+      operationId: executeComponent
       tags:
-        - flow
+        - app
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
         - $ref: "#/components/parameters/ScriptPath"
