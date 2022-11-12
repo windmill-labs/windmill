@@ -331,6 +331,24 @@ where
     }
 }
 
+#[derive(Clone, Debug)]
+pub struct OptAuthed(pub Option<Authed>);
+
+#[async_trait]
+impl<B> FromRequest<B> for OptAuthed
+where
+    B: Send,
+{
+    type Rejection = (StatusCode, String);
+
+    async fn from_request(req: &mut RequestParts<B>) -> std::result::Result<Self, Self::Rejection> {
+        Authed::from_request(req)
+            .await
+            .map(|authed| Self(Some(authed)))
+            .or_else(|_| Ok(Self(None)))
+    }
+}
+
 #[derive(FromRow, Serialize)]
 pub struct User {
     pub workspace_id: String,
