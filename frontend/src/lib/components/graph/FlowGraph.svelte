@@ -154,7 +154,7 @@
 			data: {
 				html: `
 				<div class="w-full flex justify-between items-center px-1">
-					<div class="${wrapperWidth} text-left ellipsize text-2xs">
+					<div class="${wrapperWidth} text-left ellipsize text-2xs truncate">
 						${title}
 					</div>
 					<div class="flex items-center">
@@ -192,7 +192,7 @@
 			const item = getConvertedFlowModule(module, loop.items)
 			item && loop.items.push(item)
 		})
-		loop.items.push(createVirtualNode(getParentIds(loop.items), 'Collection of the results'))
+		loop.items.push(createVirtualNode(getParentIds(loop.items), "Collect iterations' results"))
 		return loop
 	}
 
