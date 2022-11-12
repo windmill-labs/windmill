@@ -20,7 +20,7 @@ use crate::{
     db::UserDB,
     oauth2::{build_oauth_clients, SlackVerifier},
     tracing_init::{MyMakeSpan, MyOnResponse},
-    users::Authed,
+    users::{Authed, OptAuthed},
 };
 
 mod apps;
@@ -132,6 +132,10 @@ pub async fn run_server(
                 .nest("/schedules", schedule::global_service())
                 .route_layer(from_extractor::<Authed>())
                 .route_layer(from_extractor::<users::Tokened>())
+                .nest(
+                    "/w/:workspace_id/apps",
+                    apps::unauthed_service().layer(from_extractor::<OptAuthed>()),
+                )
                 .nest("/w/:workspace_id/jobs", jobs::global_service())
                 .nest("/w/:workspace_id/capture", capture::global_service())
                 .nest(

@@ -1,6 +1,4 @@
 -- Add up migration script here
-CREATE TYPE EXECUTION_MODE AS ENUM ('anonymous', 'publisher', 'viewer');
-
 CREATE TABLE app (
     id BIGSERIAL PRIMARY KEY,
     workspace_id VARCHAR(50) NOT NULL REFERENCES workspace(id),
@@ -8,7 +6,6 @@ CREATE TABLE app (
     summary VARCHAR(1000) NOT NULL DEFAULT '',
     policy JSONB NOT NULL,
     versions BIGINT[] NOT NULL,
-    execution_mode EXECUTION_MODE NOT NULL DEFAULT 'publisher',
     extra_perms JSONB NOT NULL DEFAULT '{}'
 );
 
