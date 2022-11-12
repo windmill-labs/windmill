@@ -125,7 +125,7 @@ jobs:
         run: docker kill ${{ steps.docker-container.outputs.id }}
         if: always()
 
-  publish_privately:
+  publish_privately_heavy:
     runs-on: [self-hosted, new]
     needs: [build]
     if: github.event_name != 'pull_request'
@@ -171,7 +171,7 @@ jobs:
           cache-from: type=registry,ref=${{ env.LOCAL_REGISTRY }}/${{ env.IMAGE_NAME }}:buildcache
           cache-to: type=registry,ref=${{ env.LOCAL_REGISTRY }}/${{ env.IMAGE_NAME }}:buildcache,mode=max
 
-  publish_internal:
+  publish_privately_helm:
     runs-on: [self-hosted, new]
     needs: [build]
     if: github.event_name != 'pull_request'
@@ -199,6 +199,6 @@ jobs:
           push: true
           file: ./docker/Dockerfilehelm
           tags: |
-             {{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:helm
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:helm
           cache-from: type=registry,ref=${{ env.LOCAL_REGISTRY }}/${{ env.IMAGE_NAME }}:buildcache
           cache-to: type=registry,ref=${{ env.LOCAL_REGISTRY }}/${{ env.IMAGE_NAME }}:buildcache,mode=max
