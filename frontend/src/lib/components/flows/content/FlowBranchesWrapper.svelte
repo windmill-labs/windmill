@@ -84,7 +84,9 @@
 											Set branch {i} predicate</Button
 										>
 									</div>
-									<HighlightCode language="deno" code={branch.expr} />
+									<div class="w-full text-2xs">
+										<HighlightCode language="deno" code={branch.expr} />
+									</div>
 								</div>
 							{:else}
 								<div class="flex flex-row gap-x-2">

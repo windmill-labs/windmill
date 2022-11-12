@@ -1,8 +1,8 @@
 import type { Node as SvelvetNode } from "svelvet"
 
-export type ModuleHost = 'inline' | 'hub'
+export type ModuleHost = 'workspace' | 'inline' | 'hub'
 
-export type Node = SvelvetNode & { parentIds: string[], host?: ModuleHost }
+export type Node = SvelvetNode & { parentIds: string[], edgeLabel?: string, host?: ModuleHost }
 
 export type Loop = {
 	type: 'loop',

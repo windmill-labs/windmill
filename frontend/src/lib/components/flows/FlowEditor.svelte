@@ -3,7 +3,6 @@
 	import FlowEditorPanel from './content/FlowEditorPanel.svelte'
 	import FlowModuleSchemaMap from './map/FlowModuleSchemaMap.svelte'
 	import { flowStore } from './flowStore'
-	import { FlowGraph } from '../graph'
 
 	export let initialPath: string
 </script>
@@ -17,14 +16,7 @@
 				{/if}
 			</div>
 		</Pane>
-		<!-- <Pane size={25} minSize={20} class="h-full">
-			<div class="h-full">
-				{#if $flowStore.value.modules}
-					<FlowGraph modules={$flowStore.value.modules}  />
-				{/if}
-			</div>
-		</Pane> -->
-		<Pane size={50} minSize={40}>
+		<Pane size={75} minSize={40}>
 			<FlowEditorPanel {initialPath} />
 		</Pane>
 	</Splitpanes>
