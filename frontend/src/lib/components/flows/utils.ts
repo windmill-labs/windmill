@@ -22,21 +22,12 @@ export function cleanInputs(flow: Flow | any): Flow {
 				mod.value.input_transforms = mod.input_transforms!
 				delete mod.input_transforms
 			}
-			Object.values(mod.input_transforms ?? {}).forEach((inp) => {
+			Object.values(mod.value.input_transforms ?? {}).forEach((inp) => {
 				// for now we use the value for dynamic expression when done in the static editor so we have to resort to this
 				if (inp.type == 'javascript') {
 					//@ts-ignore
 					inp.value = undefined
-					inp.expr = inp.expr
-						.split('\n')
-						.filter(
-							(x) =>
-								x != '' &&
-								!x.startsWith(
-									`import { results, flow_input, variable, resource, params } from 'windmill@`
-								)
-						)
-						.join('\n')
+					inp.expr = cleanExpr(inp.expr)
 				} else {
 					//@ts-ignore
 					inp.expr = undefined
@@ -48,6 +39,18 @@ export function cleanInputs(flow: Flow | any): Flow {
 	return newFlow
 }
 
+export function cleanExpr(expr: string): string {
+	return expr
+		.split('\n')
+		.filter(
+			(x) =>
+				x != '' &&
+				!x.startsWith(
+					`import `
+				)
+		)
+		.join('\n')
+}
 export function getTypeAsString(arg: any): string {
 	if (arg === null) {
 		return 'null'
