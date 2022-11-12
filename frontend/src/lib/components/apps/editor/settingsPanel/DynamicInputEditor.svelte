@@ -11,6 +11,7 @@
 	function applyConnection() {
 		if (!$connectingInput.opened && $connectingInput.input !== undefined) {
 			input = $connectingInput.input
+
 			$selection = $selection
 
 			$connectingInput = {

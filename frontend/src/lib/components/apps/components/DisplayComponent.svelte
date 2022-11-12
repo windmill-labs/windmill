@@ -14,8 +14,6 @@
 			  })
 			: undefined
 
-	$: inputResult && console.log(inputResult)
-
 	let result: any
 
 	function update() {

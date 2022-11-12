@@ -27,8 +27,12 @@
 		components = event.detail.items.map((item) => {
 			if (item.width === undefined) {
 				item.width = 100 - totalWidth
-				item.id = getNextId(components.map((c) => c.id))
-				console.log(item)
+
+				const id = getNextId(
+					components.map((c) => c.id).filter((id) => id !== event.detail.info.id)
+				)
+
+				item.id = id
 			}
 
 			return item

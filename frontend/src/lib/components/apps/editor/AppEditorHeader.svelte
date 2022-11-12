@@ -2,12 +2,7 @@
 	import Button from '$lib/components/common/button/Button.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton/ToggleButton.svelte'
 	import ToggleButtonGroup from '$lib/components/common/toggleButton/ToggleButtonGroup.svelte'
-	import {
-		faArrowsLeftRight,
-		faDisplay,
-		faExternalLink,
-		faHand
-	} from '@fortawesome/free-solid-svg-icons'
+	import { faArrowsLeftRight, faExternalLink, faHand } from '@fortawesome/free-solid-svg-icons'
 	import type { EditorMode } from '../types'
 
 	export let title: string
@@ -22,15 +17,12 @@
 				Component editor
 			</ToggleButton>
 			<ToggleButton
-				position="center"
+				position="right"
 				value="width"
 				startIcon={{ icon: faArrowsLeftRight }}
 				size="sm"
 			>
 				Width editor
-			</ToggleButton>
-			<ToggleButton position="right" value="preview" startIcon={{ icon: faDisplay }} size="sm">
-				Preview
 			</ToggleButton>
 		</ToggleButtonGroup>
 	</div>
