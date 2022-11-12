@@ -1,6 +1,17 @@
 # Changelog
 
 
+## [1.46.0](https://github.com/windmill-labs/windmill/compare/v1.45.0...v1.46.0) (2022-11-12)
+
+
+### Features
+
+* **cli:** Relax push folder layout to accept one layer of organizational structure ([#882](https://github.com/windmill-labs/windmill/issues/882)) ([a658308](https://github.com/windmill-labs/windmill/commit/a658308b59d7ef51d1aa6cda7598947ed0ce7548))
+* **cli:** Tarball pull ([#867](https://github.com/windmill-labs/windmill/issues/867)) ([d375836](https://github.com/windmill-labs/windmill/commit/d375836989fd730acbb4a04218d143b9fef63e0d))
+* deprecate previous_result in favor of results per id ([40183ce](https://github.com/windmill-labs/windmill/commit/40183ce4e42f648d9eb6e2765fb141e16eba908e))
+* **frontend:** Flow graph ([#827](https://github.com/windmill-labs/windmill/issues/827)) ([9bf0f6e](https://github.com/windmill-labs/windmill/commit/9bf0f6e70d7501737a61e4d62d116d44b1f136df))
+* publish arm64 image ([#885](https://github.com/windmill-labs/windmill/issues/885)) ([c3b2bab](https://github.com/windmill-labs/windmill/commit/c3b2bab5d1a7eee49c517c2c8c5e9108c3f32333))
+
 ## [1.45.0](https://github.com/windmill-labs/windmill/compare/v1.44.0...v1.45.0) (2022-11-06)
 
 
