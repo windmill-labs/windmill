@@ -139,7 +139,6 @@ const config = {
 		plugin(({ addBase, addComponents, addUtilities, theme }) => {
 			addBase({
 				'html': {
-					overflowY: 'auto',
 					fontFamily: theme('fontFamily.main'),
 					fontSize: theme('fontSize.base'),
 					fontWeight: theme('fontWeight.normal'),
@@ -279,7 +278,7 @@ const config = {
 					fontSize: theme('fontSize.2xs'),
 					color: theme('colors.gray.500'),
 					backgroundColor: theme('colors.gray.200'),
-          fontFamily: theme('fontFamily.mono'),
+					fontFamily: theme('fontFamily.mono'),
 				},
 				'.input-error': {
 					borderColor: `${theme('colors.red.500')} !important`
@@ -294,7 +293,7 @@ const config = {
 					animation: theme('animation.pulse'),
 					backgroundColor: theme('colors.blue.100'),
 					borderRadius: theme('borderRadius.DEFAULT'),
-        },
+				},
 				'.text-blue-gradient': {
 					color: 'transparent',
 					backgroundClip: 'text',
@@ -368,6 +367,15 @@ const config = {
 					whiteSpace: 'nowrap',
 					textOverflow: 'ellipsis',
 				},
+				/** Set the '-webkit-line-clamp' property to the desired number of lines.
+				 * 
+				 * Eg.: `class="ellipsize-multi-line [-webkit-line-clamp:3]"`
+				 */
+				'.ellipsize-multi-line': {
+					display: '-webkit-box',
+					'-webkit-box-orient': 'vertical',
+					overflow: 'hidden'
+				},
 				'.disabled': {
 					pointerEvents: 'none',
 					cursor: 'default',
@@ -380,7 +388,7 @@ const config = {
 						display: 'none',
 						width: '0px',
 					},
-				},
+				}
 			})
 		})
 	],
