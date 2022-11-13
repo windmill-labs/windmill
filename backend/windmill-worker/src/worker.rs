@@ -956,31 +956,35 @@ async fn handle_go_job(
 ) -> Result<serde_json::Value, Error> {
     //go does not like executing modules at temp root
     let job_dir = &format!("{job_dir}/go");
-    if let Some(requirements) = requirements_o {
+    let skip_go_mod = if let Some(requirements) = requirements_o {
         gen_go_mymod(inner_content, job_dir).await?;
-        let (md, sum) = requirements
-            .split_once(GO_REQ_SPLITTER)
-            .ok_or(Error::ExecutionErr(
-                "Invalid requirement file, missing splitter".to_string(),
-            ))?;
-        write_file(job_dir, "go.mod", md).await?;
-        write_file(job_dir, "go.sum", sum).await?;
-    } else {
-        logs.push_str("\n\n--- GO DEPENDENCIES SETUP ---\n");
-        set_logs(logs, job.id, db).await;
 
-        install_go_dependencies(
-            &job.id,
-            inner_content,
-            logs,
-            job_dir,
-            db,
-            timeout,
-            go_path,
-            true,
-        )
-        .await?;
-    }
+        // TODO: remove after some time in favor of just requirements
+        // this is just migration code from a time we also stored go.sum
+        let md = requirements
+            .split_once(GO_REQ_SPLITTER)
+            .map(|x| x.0)
+            .unwrap_or(&requirements);
+        write_file(job_dir, "go.mod", &md).await?;
+        true
+    } else {
+        false
+    };
+    logs.push_str("\n\n--- GO DEPENDENCIES SETUP ---\n");
+    set_logs(logs, job.id, db).await;
+
+    install_go_dependencies(
+        &job.id,
+        inner_content,
+        logs,
+        job_dir,
+        db,
+        timeout,
+        go_path,
+        true,
+        skip_go_mod,
+    )
+    .await?;
 
     logs.push_str("\n\n--- GO CODE EXECUTION ---\n");
     set_logs(logs, job.id, db).await;
@@ -1092,7 +1096,6 @@ func Run(req Req) (interface{{}}, error){{
             .envs(reserved_variables)
             .env("PATH", path_env)
             .env("BASE_INTERNAL_URL", base_internal_url)
-            .env("GOMEMLIMIT", "2000MiB")
             .args(vec![
                 "--config",
                 "run.config.proto",
@@ -1780,6 +1783,7 @@ async fn capture_dependency_job(
                 timeout,
                 &envs.go_path,
                 false,
+                false,
             )
             .await
         }
@@ -1848,20 +1852,21 @@ async fn install_go_dependencies(
     timeout: i32,
     go_path: &str,
     preview: bool,
+    skip_go_mod: bool,
 ) -> error::Result<String> {
-    gen_go_mymod(code, job_dir).await?;
-    let child = Command::new("go")
-        .current_dir(job_dir)
-        .args(vec!["mod", "init", "mymod"])
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()?;
+    if !skip_go_mod {
+        gen_go_mymod(code, job_dir).await?;
+        let child = Command::new("go")
+            .current_dir(job_dir)
+            .args(vec!["mod", "init", "mymod"])
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()?;
 
-    handle_child(job_id, db, logs, timeout, child).await?;
-
+        handle_child(job_id, db, logs, timeout, child).await?;
+    }
     let child = Command::new(go_path)
         .current_dir(job_dir)
-        .env("GOMEMLIMIT", "2000MiB")
         .args(vec!["mod", "tidy"])
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -1877,12 +1882,6 @@ async fn install_go_dependencies(
 
         let mut file = File::open(format!("{job_dir}/go.mod")).await?;
         file.read_to_string(&mut req_content).await?;
-
-        req_content.push_str(&format!("\n{GO_REQ_SPLITTER}\n"));
-
-        if let Ok(mut file) = File::open(format!("{job_dir}/go.sum")).await {
-            file.read_to_string(&mut req_content).await?;
-        }
 
         Ok(req_content)
     }
