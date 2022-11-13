@@ -82,11 +82,12 @@
 				edgeLabel
 			)
 		} else if (type === 'script') {
+			const isHub = module.value.path.startsWith('hub/')
 			return flowModuleToNode(
 				parentIds,
 				module.id,
-				module.summary || module.value.path || 'Hub script',
-				module.value.path.startsWith('hub/') ? 'hub' : 'workspace',
+				module.summary || module.value.path,
+				isHub ? 'hub' : 'workspace',
 				module,
 				undefined,
 				edgeLabel
