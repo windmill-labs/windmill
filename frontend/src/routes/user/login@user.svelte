@@ -110,7 +110,7 @@
 
 <div class="min-h-screen antialiased text-gray-900">
 	<!-- Enable submit form on enter -->
-	<CenteredModal>
+	<CenteredModal title="Login to Windmill">
 		<div class="justify-center text-center flex flex-col">
 			{#each providers as { type, icon, name }}
 				{#if logins.includes(type)}

@@ -2,7 +2,7 @@
 	import { SettingsService } from '$lib/gen'
 
 	export let subtitle: string | undefined = undefined
-	export let title = 'Welcome to Windmill (beta)'
+	export let title = 'Windmill'
 	let version = ''
 
 	SettingsService.backendVersion().then((x) => {

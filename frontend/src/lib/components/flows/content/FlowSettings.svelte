@@ -17,6 +17,7 @@
 	export let initialPath: string
 
 	export let defaultTab = 'metadata'
+	let topHeight = 0
 </script>
 
 <div class="h-full overflow-hidden">
@@ -24,9 +25,10 @@
 		<div class="h-full flex-1">
 			<Splitpanes horizontal>
 				<Pane size={50} minSize={20}>
-					<div class="max-w-full w-full overflow-hidden h-full">
+					<div bind:clientHeight={topHeight} class="max-w-full w-full overflow-hidden h-full">
 						{#if $flowStore.value.modules}
 							<FlowGraph
+								minHeight={topHeight}
 								modules={$flowStore.value.modules}
 								failureModule={$flowStore.value.failure_module}
 							/>

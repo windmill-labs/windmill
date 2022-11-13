@@ -21,6 +21,7 @@
 
 	export let modules: FlowModule[] | undefined = []
 	export let failureModule: FlowModule | undefined = undefined
+	export let minHeight: number = 0
 
 	const idGenerator = createIdGenerator()
 	let nestedNodes: NestedNodes
@@ -30,10 +31,13 @@
 
 	let dispatch = createEventDispatcher()
 
-	$: if (modules?.length) {
-		createGraph(modules, failureModule)
-	} else {
-		nodes = edges = []
+	$: {
+		width && height && minHeight
+		if (modules?.length) {
+			createGraph(modules, failureModule)
+		} else {
+			nodes = edges = []
+		}
 	}
 
 	function createGraph(modules: FlowModule[], failureModule?: FlowModule) {
@@ -53,7 +57,7 @@
 		const flatNodes = flattenNestedNodes(nestedNodes)
 		const layered = layoutNodes(flatNodes)
 		nodes = layered.nodes
-		width = layered.width
+		// width = layered.width
 		height = layered.height
 		edges = createEdges(nodes)
 	}
@@ -236,23 +240,25 @@
 		return array
 	}
 
-	function layoutNodes(nodes: Node[]): { nodes: Node[]; width: number; height: number } {
-		if (!nodes.length) return { nodes: [], width: 0, height: 0 }
+	function layoutNodes(nodes: Node[]): { nodes: Node[]; height: number } {
+		if (!nodes.length) return { nodes: [], height: 0 }
 		const stratify = dagStratify().id(({ id }: Node) => '' + id)
 		const dag = stratify(nodes)
 		const layout = sugiyama()
 			.decross(decrossOpt())
 			.coord(coordCenter())
 			.nodeSize(() => [NODE.width + NODE.gap.horizontal, NODE.height + NODE.gap.vertical])
-		const { width, height } = layout(dag)
+		const boxSize = layout(dag)
 		return {
 			nodes: dag.descendants().map((des) => ({
 				...des.data,
 				id: +des.data.id,
-				position: { x: des.x ? des.x - NODE.width / 2 : 0, y: des.y || 0 }
+				position: {
+					x: des.x ? des.x + (width - boxSize.width - NODE.width) / 2 : 0,
+					y: des.y || 0
+				}
 			})),
-			width: width,
-			height: height + NODE.height
+			height: Math.max(boxSize.height + NODE.height, minHeight)
 		}
 	}
 
@@ -316,13 +322,8 @@
 	}
 </script>
 
-<div
-	on:scroll={() => console.log('X')}
-	bind:clientWidth={width}
-	bind:clientHeight={height}
-	class="w-full h-full overflow-hidden"
->
+<div bind:clientWidth={width} class="w-full h-full overflow-hidden">
 	{#if width && height}
-		<Svelvet {nodes} {edges} {width} {height} bgColor="rgb(249 250 251)" />
+		<Svelvet {nodes} {width} {edges} {height} bgColor="rgb(249 250 251)" />
 	{/if}
 </div>
