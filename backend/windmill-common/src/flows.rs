@@ -209,6 +209,7 @@ pub enum FlowModuleValue {
         #[serde(alias = "input_transform")]
         input_transforms: HashMap<String, InputTransform>,
         content: String,
+        lock: Option<String>,
         path: Option<String>,
         language: ScriptLang,
     },

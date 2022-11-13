@@ -1453,7 +1453,7 @@ async fn compute_next_flow_transform<'c>(
                 NextFlowTransform::Continue(vec![payload], NextStatus::NextStep),
             ))
         }
-        FlowModuleValue::RawScript { path, content, language, .. } => {
+        FlowModuleValue::RawScript { path, content, language, lock, .. } => {
             let path = path
                 .clone()
                 .or_else(|| Some(format!("{}/{}", flow_job.script_path(), status.step)));
@@ -1464,6 +1464,7 @@ async fn compute_next_flow_transform<'c>(
                         path,
                         content: content.clone(),
                         language: language.clone(),
+                        lock: lock.clone(),
                     })],
                     NextStatus::NextStep,
                 ),

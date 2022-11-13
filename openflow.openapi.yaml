@@ -180,6 +180,8 @@ components:
             - bash
         path:
           type: string
+        lock:
+          type: string
         type:
           type: string
           enum:

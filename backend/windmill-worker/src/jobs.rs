@@ -106,6 +106,7 @@ pub async fn add_completed_job(
                    , result
                    , logs
                    , raw_code
+                   , raw_lock
                    , canceled
                    , canceled_by
                    , canceled_reason
@@ -117,8 +118,8 @@ pub async fn add_completed_job(
                    , is_flow_step
                    , is_skipped
                    , language )
-            VALUES ($1, $2, $3, $4, $5, $6, COALESCE($25, EXTRACT(milliseconds FROM (now() - $6))), $7, $8, $9,\
-                    $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24)
+            VALUES ($1, $2, $3, $4, $5, $6, COALESCE($26, EXTRACT(milliseconds FROM (now() - $6))), $7, $8, $9,\
+                    $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25)
          ON CONFLICT (id) DO UPDATE SET success = $7, result = $11, logs = concat(cj.logs, $12)",
         queued_job.workspace_id,
         queued_job.id,
@@ -133,6 +134,7 @@ pub async fn add_completed_job(
         result,
         logs,
         queued_job.raw_code,
+        queued_job.raw_lock,
         queued_job.canceled,
         queued_job.canceled_by,
         queued_job.canceled_reason,
