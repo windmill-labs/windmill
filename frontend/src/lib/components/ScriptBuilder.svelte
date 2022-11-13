@@ -129,19 +129,18 @@
 					</div>
 				</Button>
 			</div>
-
 			<div class="flex flex-row gap-x-2">
 				<Button
 					size="sm"
 					variant={step == 1 ? 'border' : 'contained'}
 					disabled={step === 1 && pathError !== ''}
-					btnClasses={step == 1 && initialPath == '' ? 'invisible' : ''}
+					btnClasses={step == 1 && initialPath == '' ? 'hidden sm:invisible' : ''}
 					on:click={editScript}>Save (commit)</Button
 				>
 				<Button
 					variant="border"
 					size="sm"
-					btnClasses={step == 1 ? 'invisible' : ''}
+					btnClasses={step == 1 ? 'hidden sm:invisible' : ''}
 					on:click={() => changeStep(step - 1)}
 				>
 					Back
@@ -149,7 +148,7 @@
 				{#if step < 3}
 					<Button
 						size="sm"
-						btnClasses={step == 3 ? 'invisible' : ''}
+						btnClasses={step == 3 ? 'hidden sm:invisible' : ''}
 						disabled={step === 1 && pathError !== ''}
 						on:click={() => changeStep(step + 1)}
 					>
