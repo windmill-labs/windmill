@@ -24,6 +24,7 @@ use windmill_common::{
         http_get_from_hub, list_elems_from_hub, not_found_if_none, paginate, Pagination, StripPath,
     },
 };
+use windmill_queue::{push, JobPayload};
 
 use crate::{
     db::{UserDB, DB},
@@ -138,13 +139,13 @@ async fn create_flow(
     Json(nf): Json<NewFlow>,
 ) -> Result<String> {
     // cron::Schedule::from_str(&ns.schedule).map_err(|e| error::Error::BadRequest(e.to_string()))?;
-    let mut tx = user_db.begin(&authed).await?;
+    let mut tx = user_db.clone().begin(&authed).await?;
 
     check_schedule_conflict(&mut tx, &w_id, &nf.path).await?;
 
     sqlx::query!(
         "INSERT INTO flow (workspace_id, path, summary, description, value, edited_by, edited_at, \
-         schema) VALUES ($1, $2, $3, $4, $5, $6, now(), $7::text::json)",
+         schema, dependency_job) VALUES ($1, $2, $3, $4, $5, $6, now(), $7::text::json, NULL)",
         w_id,
         nf.path,
         nf.summary,
@@ -173,6 +174,32 @@ async fn create_flow(
     .await?;
 
     tx.commit().await?;
+
+    let tx = user_db.begin(&authed).await?;
+    let (dependency_job_uuid, mut tx) = push(
+        tx,
+        &w_id,
+        JobPayload::FlowDependencies { path: nf.path.clone() },
+        None,
+        &authed.username,
+        windmill_common::users::owner_to_token_owner(&authed.username, false),
+        None,
+        None,
+        None,
+        false,
+        false,
+    )
+    .await?;
+    sqlx::query!(
+        "UPDATE flow SET dependency_job = $1 WHERE path = $2 AND workspace_id = $3",
+        dependency_job_uuid,
+        nf.path,
+        w_id
+    )
+    .execute(&mut tx)
+    .await?;
+    tx.commit().await?;
+
     Ok(nf.path.to_string())
 }
 
@@ -205,15 +232,23 @@ async fn update_flow(
     Path((w_id, flow_path)): Path<(String, StripPath)>,
     Json(nf): Json<NewFlow>,
 ) -> Result<String> {
-    let mut tx = user_db.begin(&authed).await?;
+    let mut tx = user_db.clone().begin(&authed).await?;
 
     let flow_path = flow_path.to_path();
     check_schedule_conflict(&mut tx, &w_id, flow_path).await?;
 
     let schema = nf.schema.map(|x| x.0);
-    let flow = sqlx::query_scalar!(
+    let old_dep_job = sqlx::query_scalar!(
+        "SELECT dependency_job FROM flow WHERE path = $1 AND workspace_id = $2",
+        nf.path,
+        w_id
+    )
+    .fetch_optional(&mut tx)
+    .await?;
+    let old_dep_job = not_found_if_none(old_dep_job, "Flow", flow_path)?;
+    sqlx::query!(
         "UPDATE flow SET path = $1, summary = $2, description = $3, value = $4, edited_by = $5, \
-         edited_at = now(), schema = $6 WHERE path = $7 AND workspace_id = $8 RETURNING path",
+         edited_at = now(), schema = $6, dependency_job = NULL WHERE path = $7 AND workspace_id = $8",
         nf.path,
         nf.summary,
         nf.description,
@@ -223,9 +258,8 @@ async fn update_flow(
         flow_path,
         w_id,
     )
-    .fetch_optional(&mut tx)
+    .execute(&mut tx)
     .await?;
-    not_found_if_none(flow, "Flow", flow_path)?;
 
     audit_log(
         &mut tx,
@@ -243,6 +277,39 @@ async fn update_flow(
     )
     .await?;
 
+    tx.commit().await?;
+
+    let tx = user_db.begin(&authed).await?;
+    let (dependency_job_uuid, mut tx) = push(
+        tx,
+        &w_id,
+        JobPayload::FlowDependencies { path: nf.path.clone() },
+        None,
+        &authed.username,
+        windmill_common::users::owner_to_token_owner(&authed.username, false),
+        None,
+        None,
+        None,
+        false,
+        false,
+    )
+    .await?;
+    sqlx::query!(
+        "UPDATE flow SET dependency_job = $1 WHERE path = $2 AND workspace_id = $3",
+        dependency_job_uuid,
+        nf.path,
+        w_id
+    )
+    .execute(&mut tx)
+    .await?;
+    if let Some(old_dep_job) = old_dep_job {
+        sqlx::query!(
+            "UPDATE queue SET canceled = true WHERE id = $1",
+            old_dep_job
+        )
+        .execute(&mut tx)
+        .await?;
+    }
     tx.commit().await?;
     Ok(nf.path.to_string())
 }
@@ -362,6 +429,7 @@ mod tests {
                         content: "test".to_string(),
                         language: scripts::ScriptLang::Deno,
                         path: None,
+                        lock: None,
                     },
                     stop_after_if: Some(StopAfterIf {
                         expr: "foo = 'bar'".to_string(),
@@ -434,6 +502,7 @@ mod tests {
                 "input_transforms": {},
                 "type": "rawscript",
                 "content": "test",
+                "lock": null,
                 "path": null,
                 "language": "deno"
               },
