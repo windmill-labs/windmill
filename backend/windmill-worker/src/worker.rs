@@ -1743,7 +1743,7 @@ async fn handle_flow_dependency_job(
     let mut flow = serde_json::from_value::<FlowValue>(raw_flow).map_err(to_anyhow)?;
     let mut new_flow_modules = Vec::new();
     for mut e in flow.modules.into_iter() {
-        let FlowModuleValue::RawScript { lock: _, path: path, content, language, input_transforms} = e.value else {
+        let FlowModuleValue::RawScript { lock: _, path, content, language, input_transforms} = e.value else {
             new_flow_modules.push(e);
             continue;
         };

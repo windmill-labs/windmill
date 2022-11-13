@@ -502,6 +502,7 @@ mod tests {
                 "input_transforms": {},
                 "type": "rawscript",
                 "content": "test",
+                "lock": null,
                 "path": null,
                 "language": "deno"
               },
