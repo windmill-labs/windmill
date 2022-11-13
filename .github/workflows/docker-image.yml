@@ -199,6 +199,6 @@ jobs:
           push: true
           file: ./docker/DockerfileHelm
           tags: |
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:helm
+            ${{ env.ECR_REGISTRY }}/${{ env.IMAGE_NAME }}:helm
           cache-from: type=registry,ref=${{ env.LOCAL_REGISTRY }}/${{ env.IMAGE_NAME }}:buildcache
           cache-to: type=registry,ref=${{ env.LOCAL_REGISTRY }}/${{ env.IMAGE_NAME }}:buildcache,mode=max
