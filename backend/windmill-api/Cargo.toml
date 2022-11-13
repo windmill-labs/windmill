@@ -64,3 +64,4 @@ tokio-util.workspace = true
 tokio-tar.workspace = true
 hmac.workspace = true
 cookie.workspace = true
+sha2.workspace = true

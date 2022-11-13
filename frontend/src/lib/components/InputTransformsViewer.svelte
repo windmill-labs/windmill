@@ -3,6 +3,7 @@
 	import { Highlight } from 'svelte-highlight'
 	import ObjectViewer from './propertyPicker/ObjectViewer.svelte'
 	import typescript from 'svelte-highlight/languages/typescript'
+	import { cleanExpr } from './flows/utils'
 
 	export let inputTransforms: Record<string, InputTransform>
 </script>
@@ -14,7 +15,7 @@
 					json={val.value}
 				/>{:else}
 				<span class="text-xs">
-					<Highlight offsetTop={0} language={typescript} code={val.expr} />
+					<Highlight offsetTop={0} language={typescript} code={cleanExpr(val.expr)} />
 				</span>
 			{/if}
 		</li>

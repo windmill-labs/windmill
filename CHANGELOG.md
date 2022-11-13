@@ -1,6 +1,31 @@
 # Changelog
 
 
+## [1.46.2](https://github.com/windmill-labs/windmill/compare/v1.46.1...v1.46.2) (2022-11-12)
+
+
+### Bug Fixes
+
+* **ci:** sqlx offline data ([76a6768](https://github.com/windmill-labs/windmill/commit/76a6768ed9ab223363f47c62cfcd8c51dd624b62))
+
+## [1.46.1](https://github.com/windmill-labs/windmill/compare/v1.46.0...v1.46.1) (2022-11-12)
+
+
+### Bug Fixes
+
+* **backend:** apps backend v0 ([#888](https://github.com/windmill-labs/windmill/issues/888)) ([2d9e990](https://github.com/windmill-labs/windmill/commit/2d9e9909da5b82eda39eb99c870f073b869b6ff5))
+
+## [1.46.0](https://github.com/windmill-labs/windmill/compare/v1.45.0...v1.46.0) (2022-11-12)
+
+
+### Features
+
+* **cli:** Relax push folder layout to accept one layer of organizational structure ([#882](https://github.com/windmill-labs/windmill/issues/882)) ([a658308](https://github.com/windmill-labs/windmill/commit/a658308b59d7ef51d1aa6cda7598947ed0ce7548))
+* **cli:** Tarball pull ([#867](https://github.com/windmill-labs/windmill/issues/867)) ([d375836](https://github.com/windmill-labs/windmill/commit/d375836989fd730acbb4a04218d143b9fef63e0d))
+* deprecate previous_result in favor of results per id ([40183ce](https://github.com/windmill-labs/windmill/commit/40183ce4e42f648d9eb6e2765fb141e16eba908e))
+* **frontend:** Flow graph ([#827](https://github.com/windmill-labs/windmill/issues/827)) ([9bf0f6e](https://github.com/windmill-labs/windmill/commit/9bf0f6e70d7501737a61e4d62d116d44b1f136df))
+* publish arm64 image ([#885](https://github.com/windmill-labs/windmill/issues/885)) ([c3b2bab](https://github.com/windmill-labs/windmill/commit/c3b2bab5d1a7eee49c517c2c8c5e9108c3f32333))
+
 ## [1.45.0](https://github.com/windmill-labs/windmill/compare/v1.44.0...v1.45.0) (2022-11-06)
 
 

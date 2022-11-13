@@ -57,15 +57,9 @@ x + 2</code
 			functions:
 		</p>
 		<ul class="ml-4">
-			<li>
-				<b>previous_result</b>: the object containing the result of the previous step
-			</li>
+			<li><b>result.id</b>: the result of step at id 'id'</li>
 			<li><b>flow_input</b>: the object containing the flow input arguments</li>
 			<li><b>params</b>: the object containing the current step static values</li>
-			<li>
-				<b>step(n)</b>: the function returning the result of step number n. One can also use a
-				negative n. step(0) == result of the first step , step(-1) == previous_result
-			</li>
 			<li>
 				<b>variable(path)</b>: the function returning the variable (including secrets) at given path
 				as a string

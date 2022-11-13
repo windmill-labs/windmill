@@ -428,6 +428,29 @@
     },
     "query": "SELECT dependency_job FROM flow WHERE path = $1 AND workspace_id = $2"
   },
+  "190cb52762c82b4c7f318decf73cfb4377825c93b5777904b82f8940bb18be3e": {
+    "describe": {
+      "columns": [
+        {
+          "name": "id",
+          "ordinal": 0,
+          "type_info": "Int8"
+        }
+      ],
+      "nullable": [
+        false
+      ],
+      "parameters": {
+        "Left": [
+          "Varchar",
+          "Varchar",
+          "Varchar",
+          "Jsonb"
+        ]
+      }
+    },
+    "query": "INSERT INTO app\n            (workspace_id, path, summary, policy)\n            VALUES ($1, $2, $3, $4) RETURNING id"
+  },
   "1ad8677694aca94ee0e6da287d7cc028dcf673583a0e3e4fedd0e5d6766c5860": {
     "describe": {
       "columns": [],
@@ -525,6 +548,27 @@
     },
     "query": "UPDATE queue SET suspend = $1 WHERE id = $2"
   },
+  "20e8a8343adc4a3a28a1c4908a13047cddafc4480cf028d3455fd17347cace73": {
+    "describe": {
+      "columns": [
+        {
+          "name": "id",
+          "ordinal": 0,
+          "type_info": "Int8"
+        }
+      ],
+      "nullable": [
+        false
+      ],
+      "parameters": {
+        "Left": [
+          "Text",
+          "Text"
+        ]
+      }
+    },
+    "query": "SELECT id FROM app WHERE path = $1 AND workspace_id = $2"
+  },
   "21cd7cbab7799baf5c381427d9b373c0bb144715eddfe54e3b01f6049d7966a2": {
     "describe": {
       "columns": [
@@ -556,6 +600,28 @@
       }
     },
     "query": "SELECT workspace.id, workspace.name, usr.username\n     FROM workspace, usr WHERE usr.workspace_id = workspace.id AND usr.email = $1 AND deleted = false"
+  },
+  "23086afd75927486884944e48b768e956d1fd77ce08c6f345fcde083b1e9bbf1": {
+    "describe": {
+      "columns": [
+        {
+          "name": "id",
+          "ordinal": 0,
+          "type_info": "Int8"
+        }
+      ],
+      "nullable": [
+        false
+      ],
+      "parameters": {
+        "Left": [
+          "Int8",
+          "Jsonb",
+          "Varchar"
+        ]
+      }
+    },
+    "query": "INSERT INTO app_version\n            (flow_id, value, created_by)\n            VALUES ($1, $2, $3) RETURNING id"
   },
   "230d58732a08164268ca10d248a93cced646632a76864b693ed2325d85b36c45": {
     "describe": {
@@ -903,6 +969,19 @@
       }
     },
     "query": "\n        SELECT parent_job\n        FROM queue\n        WHERE id = $1 AND workspace_id = $2\n        UNION ALL\n        SELECT parent_job\n        FROM completed_job\n        WHERE id = $1 AND workspace_id = $2\n        "
+  },
+  "3e5722b7d1a07c699e9555875d0d13e1a022adc74c203ca1f26a06575e14c5dd": {
+    "describe": {
+      "columns": [],
+      "nullable": [],
+      "parameters": {
+        "Left": [
+          "Int8",
+          "Int8"
+        ]
+      }
+    },
+    "query": "UPDATE app SET versions = array_append(versions, $1) WHERE id = $2"
   },
   "3fabb3857c9cf2d057814b54ee54a95d01b6a7d9e89bea239b832a9d70f0044b": {
     "describe": {
@@ -1319,6 +1398,75 @@
     },
     "query": "INSERT INTO token\n            (token, email, label, expiration, super_admin)\n            VALUES ($1, $2, $3, $4, $5)"
   },
+  "547f0a03f954210b06ad3cbee0ff4ef90c378be68d6a105b8bcda8a7a8d834c6": {
+    "describe": {
+      "columns": [
+        {
+          "name": "id",
+          "ordinal": 0,
+          "type_info": "Int8"
+        },
+        {
+          "name": "path",
+          "ordinal": 1,
+          "type_info": "Varchar"
+        },
+        {
+          "name": "summary",
+          "ordinal": 2,
+          "type_info": "Varchar"
+        },
+        {
+          "name": "versions",
+          "ordinal": 3,
+          "type_info": "Int8Array"
+        },
+        {
+          "name": "policy",
+          "ordinal": 4,
+          "type_info": "Jsonb"
+        },
+        {
+          "name": "extra_perms",
+          "ordinal": 5,
+          "type_info": "Jsonb"
+        },
+        {
+          "name": "value",
+          "ordinal": 6,
+          "type_info": "Jsonb"
+        },
+        {
+          "name": "created_at",
+          "ordinal": 7,
+          "type_info": "Timestamptz"
+        },
+        {
+          "name": "created_by",
+          "ordinal": 8,
+          "type_info": "Varchar"
+        }
+      ],
+      "nullable": [
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false
+      ],
+      "parameters": {
+        "Left": [
+          "Int8",
+          "Text"
+        ]
+      }
+    },
+    "query": "SELECT app.id, app.path, app.summary, app.versions, app.policy,\n        app.extra_perms, app_version.value, \n        app_version.created_at, app_version.created_by from app, app_version \n        WHERE app_version.id = $1 AND app.id = app_version.flow_id AND app.workspace_id = $2"
+  },
   "58efbf34ba014b4853ef20ae400929b57c1d9de4262189274badf100d29e0649": {
     "describe": {
       "columns": [
@@ -1611,6 +1759,27 @@
       }
     },
     "query": "SELECT set_config('session.user', $1, true)"
+  },
+  "6dfd1ac7168f098a9e7c92d530a470c0a156041d5081053d43d9efb00d81c464": {
+    "describe": {
+      "columns": [
+        {
+          "name": "policy",
+          "ordinal": 0,
+          "type_info": "Jsonb"
+        }
+      ],
+      "nullable": [
+        false
+      ],
+      "parameters": {
+        "Left": [
+          "Text",
+          "Text"
+        ]
+      }
+    },
+    "query": "SELECT policy from app WHERE path = $1 AND workspace_id = $2"
   },
   "6eacfedfc1ab2431c318996d2ff480a65d55fc43d8fa95aa4e2e8430722dc82d": {
     "describe": {
@@ -2409,6 +2578,28 @@
     },
     "query": "INSERT INTO completed_job AS cj\n                   ( workspace_id\n                   , id\n                   , parent_job\n                   , created_by\n                   , created_at\n                   , started_at\n                   , duration_ms\n                   , success\n                   , script_hash\n                   , script_path\n                   , args\n                   , result\n                   , logs\n                   , raw_code\n                   , raw_lock\n                   , canceled\n                   , canceled_by\n                   , canceled_reason\n                   , job_kind\n                   , schedule_path\n                   , permissioned_as\n                   , flow_status\n                   , raw_flow\n                   , is_flow_step\n                   , is_skipped\n                   , language )\n            VALUES ($1, $2, $3, $4, $5, $6, COALESCE($26, EXTRACT(milliseconds FROM (now() - $6))), $7, $8, $9,$10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25)\n         ON CONFLICT (id) DO UPDATE SET success = $7, result = $11, logs = concat(cj.logs, $12)"
   },
+  "9251404312374679a4be2f9def508fcadce446405e91d95100c3397ec26e5882": {
+    "describe": {
+      "columns": [
+        {
+          "name": "id",
+          "ordinal": 0,
+          "type_info": "Int8"
+        }
+      ],
+      "nullable": [
+        false
+      ],
+      "parameters": {
+        "Left": [
+          "Int8",
+          "Jsonb",
+          "Varchar"
+        ]
+      }
+    },
+    "query": "INSERT INTO app_version\n                (flow_id, value, created_by)\n                VALUES ($1, $2, $3) RETURNING id"
+  },
   "92ee6274b2287bc4d368bfdb47d6452df75bd265cdd891f55112df2795294dac": {
     "describe": {
       "columns": [
@@ -2792,6 +2983,19 @@
       }
     },
     "query": "INSERT INTO token\n            (token, email, label, expiration, super_admin)\n            VALUES ($1, $2, $3, now() + ($4 || ' hours')::interval, $5)"
+  },
+  "b1d619ba58b58805308bcf1d5c46a3c1998a52c63aeb7c06f4c2a34916702537": {
+    "describe": {
+      "columns": [],
+      "nullable": [],
+      "parameters": {
+        "Left": [
+          "Text",
+          "Text"
+        ]
+      }
+    },
+    "query": "DELETE FROM app WHERE path = $1 AND workspace_id = $2"
   },
   "b20977e70ebac7ccbaec5a2a1e940301dd331a5f9a4be67a27cfbff8619ac8f0": {
     "describe": {
@@ -3307,6 +3511,75 @@
     },
     "query": "UPDATE queue SET running = false WHERE last_ping < now() - ($1 || ' seconds')::interval AND running = true AND job_kind != $2 AND same_worker = false RETURNING id, workspace_id, last_ping"
   },
+  "d07faf1c9501d1bc5f6fd9588bb3da7b7f4897fcfd26dcb3b8ce406b1f653077": {
+    "describe": {
+      "columns": [
+        {
+          "name": "id",
+          "ordinal": 0,
+          "type_info": "Int8"
+        },
+        {
+          "name": "path",
+          "ordinal": 1,
+          "type_info": "Varchar"
+        },
+        {
+          "name": "summary",
+          "ordinal": 2,
+          "type_info": "Varchar"
+        },
+        {
+          "name": "versions",
+          "ordinal": 3,
+          "type_info": "Int8Array"
+        },
+        {
+          "name": "policy",
+          "ordinal": 4,
+          "type_info": "Jsonb"
+        },
+        {
+          "name": "extra_perms",
+          "ordinal": 5,
+          "type_info": "Jsonb"
+        },
+        {
+          "name": "value",
+          "ordinal": 6,
+          "type_info": "Jsonb"
+        },
+        {
+          "name": "created_at",
+          "ordinal": 7,
+          "type_info": "Timestamptz"
+        },
+        {
+          "name": "created_by",
+          "ordinal": 8,
+          "type_info": "Varchar"
+        }
+      ],
+      "nullable": [
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false
+      ],
+      "parameters": {
+        "Left": [
+          "Text",
+          "Text"
+        ]
+      }
+    },
+    "query": "SELECT app.id, app.path, app.summary, app.versions, app.policy,\n        app.extra_perms, app_version.value, \n        app_version.created_at, app_version.created_by from app, app_version \n        WHERE app.path = $1 AND app.workspace_id = $2 AND app_version.id = app.versions[array_upper(app.versions, 1)]"
+  },
   "d4eb7aea60894b65498144b9bf522beba612f36368d62fe4e94b5b9e26349d32": {
     "describe": {
       "columns": [
@@ -3431,6 +3704,20 @@
       }
     },
     "query": "SELECT content FROM script WHERE path = $1 AND (workspace_id = $2 OR workspace_id = 'starter') AND\n         created_at = (SELECT max(created_at) FROM script WHERE path = $1 AND archived = false AND (workspace_id = $2 OR workspace_id = 'starter'))"
+  },
+  "dd466b6a6b51c1802935fbed6be221f9d945711a2f389d377713e9698a8c2638": {
+    "describe": {
+      "columns": [],
+      "nullable": [],
+      "parameters": {
+        "Left": [
+          "Int8",
+          "Text",
+          "Text"
+        ]
+      }
+    },
+    "query": "UPDATE app SET versions = array_append(versions, $1) WHERE path = $2 AND workspace_id = $3"
   },
   "dd60eb23701e97460e307b6152404e939e5bbf22d425cadd876f629134c4a683": {
     "describe": {
