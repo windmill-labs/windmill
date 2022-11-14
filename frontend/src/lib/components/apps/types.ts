@@ -61,22 +61,22 @@ export type DisplayComponent = {
 
 export type AppComponent =
 	| (
-			| RunFormComponent
-			| DisplayComponent
-			| TextInputComponent
-			| BarChartComponent
-			| TableComponent
-	  ) & {
-			id: ComponentID
-			title: string
-			description: string
-			width: number
-			horizontalAlignement?: 'left' | 'center' | 'right'
-			verticalAlignement?: 'top' | 'center' | 'bottom'
-			configSchema: Schema | undefined
-			inputs: InputsSpec
-			componentInputs: ComponentInputsSpec
-	  }
+		| RunFormComponent
+		| DisplayComponent
+		| TextInputComponent
+		| BarChartComponent
+		| TableComponent
+	) & {
+		id: ComponentID
+		title: string
+		description: string
+		width: number
+		horizontalAlignement?: 'left' | 'center' | 'right'
+		verticalAlignement?: 'top' | 'center' | 'bottom'
+		configSchema: Schema | undefined
+		inputs: InputsSpec
+		componentInputs: ComponentInputsSpec
+	}
 
 type SectionID = string
 
@@ -91,7 +91,6 @@ export type AppSection = {
 export type App = {
 	sections: AppSection[]
 	title: string
-	policy: Policy
 }
 
 export type AppSelection = { sectionIndex: number; componentIndex: number | undefined }

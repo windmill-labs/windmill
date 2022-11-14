@@ -16,6 +16,7 @@
 
 	export let sections: AppSection[]
 
+	console.log(sections)
 	export let mode: EditorMode = 'width'
 
 	const flipDurationMs = 200

@@ -13,11 +13,14 @@
 	import type { Schema } from '$lib/common'
 	import SectionPanel from './settingsPanel/SectionPanel.svelte'
 	import ComponentList from './componentsPanel/ComponentList.svelte'
-	import type { AppWithLastVersion } from '$lib/gen'
+	import type { Policy } from '$lib/gen'
 
-	export let app: AppWithLastVersion
-	const appStore = writable<App>(app.value)
+	export let app: App
+	export let policy: Policy
 
+	console.log(app)
+	const appStore = writable<App>({ ...app })
+	console.log($appStore)
 	const worldStore = writable<World | undefined>(undefined)
 	const staticOutputs = writable<Record<string, string[]>>({})
 

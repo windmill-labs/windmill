@@ -4758,6 +4758,18 @@ components:
           type: object
           additionalProperties:
             type: boolean
+      required:
+        - id
+        - workspace_id
+        - path
+        - summary
+        - versions
+        - created_by
+        - created_at
+        - value
+        - policy
+        - execution_mode
+        - extra_perms
 
     SlackToken:
       type: object

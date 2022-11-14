@@ -4,7 +4,7 @@
 	import { workspaceStore } from '$lib/stores'
 	import { page } from '$app/stores'
 
-	let app: AppWithLastVersion
+	let app: AppWithLastVersion | undefined = undefined
 	let path = $page.params.path
 
 	async function loadApp(): Promise<void> {
@@ -23,6 +23,6 @@
 
 {#if app}
 	<div class="h-screen">
-		<AppEditor bind:app={app.value} />
+		<AppEditor app={app.value} policy={app.policy} />
 	</div>
 {/if}

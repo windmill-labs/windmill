@@ -8,7 +8,7 @@
 	import PageHeader from '$lib/components/PageHeader.svelte'
 	import Path from '$lib/components/Path.svelte'
 	import SharedBadge from '$lib/components/SharedBadge.svelte'
-	import { AppService, AppWithLastVersion, Policy, ResourceService } from '$lib/gen'
+	import { AppService, AppWithLastVersion, ListableApp, Policy, ResourceService } from '$lib/gen'
 	import { userStore, workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/utils'
 	import { faEdit, faPlus } from '@fortawesome/free-solid-svg-icons'
@@ -17,19 +17,19 @@
 	let initialPath = ''
 	let pathError = ''
 
-	let apps: AppWithLastVersion[] | undefined = undefined
+	let apps: ListableApp[] | undefined = undefined
 
 	async function createApp() {
 		const appJson: App = {
 			sections: [],
-			title: 'New app',
-			policy: {
-				triggerables: {},
-				execution_mode: Policy.execution_mode.PUBLISHER,
-				on_behalf_of: $userStore?.username
-			}
+			title: 'New app'
 		}
 
+		const policy = {
+			triggerables: {},
+			execution_mode: Policy.execution_mode.PUBLISHER,
+			on_behalf_of: `u/${$userStore?.username}`
+		}
 		try {
 			const appId = await AppService.createApp({
 				workspace: $workspaceStore!,
@@ -37,7 +37,7 @@
 					value: appJson,
 					path,
 					summary: 'App summary',
-					policy: appJson.policy
+					policy
 				}
 			})
 
@@ -96,7 +96,7 @@
 			<p class="text-xs text-gray-600 italic mt-2">No scripts yet</p>
 		{:else if apps}
 			<div class="grid md:grid-cols-2 gap-4 sm:grid-cols-1 xl:grid-cols-3 mt-2">
-				{#each apps as { summary, path, versions, created_at, created_by, id, value, policy, execution_mode, extra_perms }}
+				{#each apps as { summary, path, extra_perms }}
 					<a
 						class="border p-4 rounded-sm shadow-sm space-y-2 hover:border-blue-600 text-gray-800 flex flex-col justify-between"
 						href="/apps/get/{path}"
