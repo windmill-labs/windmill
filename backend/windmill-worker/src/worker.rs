@@ -269,7 +269,6 @@ pub async fn run_worker(
         .unwrap_or_else(|_| vec![]);
     let nsjail_path = std::env::var("NSJAIL_PATH").unwrap_or_else(|_| "nsjail".to_string());
     let path_env = std::env::var("PATH").unwrap_or_else(|_| String::new());
-    let gopath_env = std::env::var("GOPATH").unwrap_or_else(|_| String::new());
     let home_env = std::env::var("HOME").unwrap_or_else(|_| String::new());
     let pip_index_url = std::env::var("PIP_INDEX_URL").ok();
     let pip_extra_index_url = std::env::var("PIP_EXTRA_INDEX_URL").ok();
@@ -281,7 +280,6 @@ pub async fn run_worker(
         python_heavy_deps,
         nsjail_path,
         path_env,
-        gopath_env,
         home_env,
         pip_index_url,
         pip_extra_index_url,
@@ -553,7 +551,6 @@ struct Envs {
     python_heavy_deps: Vec<String>,
     nsjail_path: String,
     path_env: String,
-    gopath_env: String,
     home_env: String,
     pip_index_url: Option<String>,
     pip_extra_index_url: Option<String>,
@@ -942,7 +939,7 @@ mount {{
 #[tracing::instrument(level = "trace", skip_all)]
 async fn handle_go_job(
     WorkerConfig { base_internal_url, disable_nuser, disable_nsjail, base_url, .. }: &WorkerConfig,
-    Envs { nsjail_path, go_path, path_env, gopath_env, home_env, .. }: &Envs,
+    Envs { nsjail_path, go_path, path_env, home_env, .. }: &Envs,
     logs: &mut String,
     job: &QueuedJob,
     db: &sqlx::Pool<sqlx::Postgres>,
@@ -1114,7 +1111,7 @@ func Run(req Req) (interface{{}}, error){{
             .envs(reserved_variables)
             .env("PATH", path_env)
             .env("BASE_INTERNAL_URL", base_internal_url)
-            .env("GOPATH", gopath_env)
+            .env("GOPATH", GO_CACHE_DIR)
             .env("HOME", home_env)
             .args(vec!["run", "main.go"])
             .stdout(Stdio::piped())
