@@ -191,7 +191,7 @@
 						label="Language"
 						options={[
 							['Typescript (Deno)', 'deno'],
-							['Python 3.10', 'python3'],
+							['Python 3.11', 'python3'],
 							['Go', 'go'],
 							['Bash', 'bash']
 						]}
