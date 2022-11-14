@@ -130,7 +130,7 @@ async fn list_apps(
             "path",
             "summary",
             "versions[array_upper(versions, 1)] as version",
-            "policy->>execution_mode as execution_mode",
+            "policy->>'execution_mode' as execution_mode",
             "extra_perms",
         ])
         .order_by("path", true)
