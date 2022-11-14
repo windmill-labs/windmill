@@ -20,7 +20,7 @@
 	let stateLoadedFromUrl = initialState != undefined ? decodeState(initialState) : undefined
 	const initialArgs = decodeArgs($page.url.searchParams.get('args') ?? undefined)
 
-	let selectedId: string | undefined = undefined
+	let selectedId: string = 'settings-graph'
 
 	let flow: Flow = {
 		path: $page.params.path,

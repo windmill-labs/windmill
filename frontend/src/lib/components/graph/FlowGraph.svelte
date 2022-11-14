@@ -22,6 +22,9 @@
 	export let modules: FlowModule[] | undefined = []
 	export let failureModule: FlowModule | undefined = undefined
 	export let minHeight: number = 0
+	export let notSelectable = false
+
+	let selectedNode: string | undefined = undefined
 
 	const idGenerator = createIdGenerator()
 	let nestedNodes: NestedNodes
@@ -32,8 +35,8 @@
 	let dispatch = createEventDispatcher()
 
 	$: {
-		width && height && minHeight
-		if (modules?.length) {
+		width && height && minHeight && selectedNode
+		if (modules) {
 			createGraph(modules, failureModule)
 		} else {
 			nodes = edges = []
@@ -94,7 +97,11 @@
 			)
 		} else if (type === 'forloopflow') {
 			const expr = module.value.iterator['expr']
-			return flowModuleToLoop(module.value.modules, `For loop: ${truncate(expr, 10)}`, parent)
+			return flowModuleToLoop(
+				module.value.modules,
+				`For each item in: ${truncate(expr, 10)}`,
+				parent
+			)
 		} else if (type === 'branchone') {
 			const branches = [module.value.default, ...module.value.branches.map((b) => b.modules)]
 			return flowModuleToBranch(
@@ -175,9 +182,13 @@
 			host,
 			width: NODE.width,
 			height: NODE.height,
-			bgColor: 'white',
+			borderColor: selectedNode == onClickDetail.id ? 'black' : '#999',
+			bgColor: selectedNode == onClickDetail.id ? '#f5f5f5' : 'white',
 			parentIds,
 			clickCallback: (node) => {
+				if (!notSelectable) {
+					selectedNode = onClickDetail.id
+				}
 				dispatch('click', onClickDetail)
 			},
 			edgeLabel
@@ -242,7 +253,6 @@
 	}
 
 	function layoutNodes(nodes: Node[]): { nodes: Node[]; height: number } {
-		if (!nodes.length) return { nodes: [], height: 0 }
 		const stratify = dagStratify().id(({ id }: Node) => '' + id)
 		const dag = stratify(nodes)
 		const layout = sugiyama()
@@ -296,6 +306,7 @@
 			},
 			width: NODE.width,
 			height: NODE.height,
+			borderColor: '#999',
 			bgColor: '#d4e4ff',
 			parentIds
 		}
@@ -315,8 +326,13 @@
 			width: NODE.width,
 			height: NODE.height,
 			bgColor: 'rgb(248 113 113)',
+			borderColor: '#999',
+
 			parentIds,
 			clickCallback: (node) => {
+				if (!notSelectable) {
+					selectedNode = module.id
+				}
 				dispatch('click', module)
 			}
 		}
