@@ -82,7 +82,7 @@
 				workspace: $workspaceStore!,
 				path,
 				requestBody: {
-					path: triggerable?.path,
+					path: `${triggerable.type}/${triggerable?.path}`,
 					args
 				}
 			})
@@ -95,7 +95,6 @@
 <TestJobLoader
 	on:done={() => {
 		if (testJob) {
-			x
 			outputs?.result.set(testJob?.result)
 			outputs?.loading.set(false)
 		}
