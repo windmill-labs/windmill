@@ -9,6 +9,7 @@
 	import { setContext } from 'svelte'
 	import { writable, type Writable } from 'svelte/store'
 	import { createEventDispatcher } from 'svelte'
+	import { classNames } from '$lib/utils'
 
 	const dispatch = createEventDispatcher()
 
@@ -34,7 +35,10 @@
 </script>
 
 <div
-	class="border-b border-gray-200 flex flex-row whitespace-nowrap overflow-y-auto scrollbar-hidden {$$props.class}"
+	class={classNames(
+		'border-b border-gray-200 flex flex-row whitespace-nowrap overflow-y-auto scrollbar-hidden',
+		$$props.class
+	)}
 >
 	<slot />
 </div>
