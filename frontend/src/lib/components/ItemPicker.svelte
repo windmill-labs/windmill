@@ -1,8 +1,9 @@
 <script lang="ts">
 	import Fuse from 'fuse.js'
-	import { Drawer } from './common'
+	import { Drawer, Skeleton } from './common'
 	import DrawerContent from './common/drawer/DrawerContent.svelte'
 	import IconedResourceType from './IconedResourceType.svelte'
+	import WindmillIcon from './icons/WindmillIcon.svelte'
 
 	type Item = Record<string, any>
 	export let pickCallback: (path: string, f: string) => void
@@ -12,6 +13,7 @@
 	export let closeOnClick = true
 	export let noItemMessage = ''
 
+	let loading = false
 	let items: Item[] | undefined = []
 	let filteredItems: Item[] | undefined = []
 	let itemsFilter = ''
@@ -23,11 +25,13 @@
 	const fuse: Fuse<Item> = new Fuse(items, fuseOptions)
 
 	export function openDrawer() {
+		loading = true
 		loadItems().then((v) => {
 			items = v
 			if (items) {
 				fuse.setCollection(items)
 			}
+			loading = false
 		})
 		drawer.openDrawer()
 	}
@@ -41,15 +45,19 @@
 <Drawer bind:this={drawer} size="600px">
 	<DrawerContent title="Search a {itemName}" on:close={drawer.closeDrawer}>
 		<div>
-			{#if filteredItems}
-				<div class="w-12/12 pb-4">
-					<input
-						type="text"
-						placeholder="Search {itemName}"
-						bind:value={itemsFilter}
-						class="search-item"
-					/>
-				</div>
+			<div class="w-12/12 pb-4">
+				<input
+					type="text"
+					placeholder="Search {itemName}"
+					bind:value={itemsFilter}
+					class="search-item"
+				/>
+			</div>
+			{#if loading}
+				{#each new Array(6) as _}
+					<Skeleton layout={[[2], 0.7]} />
+				{/each}
+			{:else if filteredItems}
 				<ul class="divide-y divide-gray-200">
 					{#each filteredItems as obj}
 						<li

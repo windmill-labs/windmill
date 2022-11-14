@@ -13,6 +13,7 @@
 <div class="flex flex-col divide-y h-screen max-h-screen">
 	<div class="flex justify-between items-center gap-x-2">
 		<Button
+			btnClasses="m-1"
 			variant="border"
 			size="lg"
 			color="dark"
