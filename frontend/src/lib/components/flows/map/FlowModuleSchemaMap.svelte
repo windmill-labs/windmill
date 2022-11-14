@@ -79,7 +79,7 @@
 			<FlowSettingsItem />
 		</div>
 	{/if}
-	<ul class="w-full flex-auto relative overflow-y-auto overflow-x-hidden py-4">
+	<ul class="w-full flex-auto relative overflow-y-auto overflow-x-hidden pl-2 pr-1 py-4">
 		{#if root}
 			<li>
 				<FlowInputsItem />
