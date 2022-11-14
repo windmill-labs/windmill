@@ -19,7 +19,7 @@
 		"@sveltejs/adapter-static": "^1.0.0-next.48",
 		"@sveltejs/kit": "next",
 		"@tailwindcss/forms": "^0.5.3",
-		"@tailwindcss/typography": "^0.5.7",
+		"@tailwindcss/typography": "^0.5.8",
 		"@types/vscode": "~1.73.0",
 		"@typescript-eslint/eslint-plugin": "^5.40.1",
 		"@typescript-eslint/parser": "^5.43.0",
