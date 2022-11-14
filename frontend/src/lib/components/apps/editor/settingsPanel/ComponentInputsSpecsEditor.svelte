@@ -1,6 +1,5 @@
 <script lang="ts">
 	import { classNames } from '$lib/utils'
-	import { slide } from 'svelte/transition'
 	import type { ComponentInputsSpec } from '../../types'
 	import DynamicInputEditor from './DynamicInputEditor.svelte'
 

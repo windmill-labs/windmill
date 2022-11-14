@@ -37,6 +37,8 @@ export type TextInputComponent = {
 
 export type RunFormComponent = {
 	type: 'runformcomponent'
+	path?: string
+	runType?: 'script' | 'flow'
 }
 
 export type BarChartComponent = {
@@ -61,22 +63,22 @@ export type DisplayComponent = {
 
 export type AppComponent =
 	| (
-		| RunFormComponent
-		| DisplayComponent
-		| TextInputComponent
-		| BarChartComponent
-		| TableComponent
-	) & {
-		id: ComponentID
-		title: string
-		description: string
-		width: number
-		horizontalAlignement?: 'left' | 'center' | 'right'
-		verticalAlignement?: 'top' | 'center' | 'bottom'
-		configSchema: Schema | undefined
-		inputs: InputsSpec
-		componentInputs: ComponentInputsSpec
-	}
+			| RunFormComponent
+			| DisplayComponent
+			| TextInputComponent
+			| BarChartComponent
+			| TableComponent
+	  ) & {
+			id: ComponentID
+			title: string
+			description: string
+			width: number
+			horizontalAlignement?: 'left' | 'center' | 'right'
+			verticalAlignement?: 'top' | 'center' | 'bottom'
+			configSchema: Schema | undefined
+			inputs: InputsSpec
+			componentInputs: ComponentInputsSpec
+	  }
 
 type SectionID = string
 
@@ -113,11 +115,6 @@ export type AppEditorContext = {
 export type EditorMode = 'width' | 'dnd' | 'preview'
 
 type FieldID = string
-
-export interface TriggerablePolicy {
-	path: string
-	type: 'script' | 'flow'
-}
 
 type ComponentID = string
 

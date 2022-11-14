@@ -23,6 +23,6 @@
 
 {#if app}
 	<div class="h-screen">
-		<AppEditor app={app.value} policy={app.policy} />
+		<AppEditor app={app.value} />
 	</div>
 {/if}

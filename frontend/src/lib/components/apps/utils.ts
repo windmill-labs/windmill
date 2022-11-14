@@ -1,4 +1,4 @@
-import type { App, TriggerablePolicy, InputsSpec } from './types'
+import type { InputsSpec } from './types'
 import type { Schema } from '$lib/common'
 
 import { FlowService, ScriptService } from '$lib/gen'
@@ -41,27 +41,24 @@ export function buildArgs(
 
 export async function loadSchema(
 	workspace: string,
-	triggerable: TriggerablePolicy
+	path: string,
+	runType: 'script' | 'flow'
 ): Promise<Schema> {
-	if (triggerable?.type === 'script') {
+	if (runType === 'script') {
 		const script = await ScriptService.getScriptByPath({
 			workspace,
-			path: triggerable.path
+			path
 		})
 
 		return script.schema
 	} else {
 		const flow = await FlowService.getFlowByPath({
 			workspace,
-			path: triggerable.path
+			path
 		})
 
 		return flow.schema
 	}
-}
-
-export function isPolicyDefined(app: App, componentId: string): boolean {
-	return app.policy?.triggerables[componentId] !== undefined
 }
 
 export function schemaToInputsSpec(schema: Schema): InputsSpec {

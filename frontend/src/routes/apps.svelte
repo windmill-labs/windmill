@@ -8,7 +8,7 @@
 	import PageHeader from '$lib/components/PageHeader.svelte'
 	import Path from '$lib/components/Path.svelte'
 	import SharedBadge from '$lib/components/SharedBadge.svelte'
-	import { AppService, AppWithLastVersion, ListableApp, Policy, ResourceService } from '$lib/gen'
+	import { AppService, ListableApp, Policy } from '$lib/gen'
 	import { userStore, workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/utils'
 	import { faEdit, faPlus } from '@fortawesome/free-solid-svg-icons'

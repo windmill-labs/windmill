@@ -10,17 +10,18 @@
 	import { getContext } from 'svelte'
 	import Icon from 'svelte-awesome'
 	import type { Output } from '../rx'
-	import type { AppEditorContext, InputsSpec, TriggerablePolicy } from '../types'
+	import type { AppEditorContext, InputsSpec } from '../types'
 	import { buildArgs, loadSchema, schemaToInputsSpec } from '../utils'
 
 	// Component props
 	export let id: string
 	export let inputs: InputsSpec
-	export let triggerable: TriggerablePolicy
+	export let path: string | undefined = undefined
+	export let runType: 'script' | 'flow' | undefined = undefined
 
 	export const staticOutputs = ['loading', 'result']
 	const { worldStore } = getContext<AppEditorContext>('AppEditorContext')
-	let path = $page.params.path
+	let pagePath = $page.params.path
 
 	$: outputs = $worldStore?.outputsById[id] as {
 		result: Output<any>
@@ -37,8 +38,8 @@
 	let testJob: CompletedJob | undefined = undefined
 	let testJobLoader: TestJobLoader | undefined = undefined
 
-	$: if ($workspaceStore && triggerable && schema === undefined) {
-		loadSchemaFromTriggerable($workspaceStore, triggerable)
+	$: if ($workspaceStore && path && runType) {
+		loadSchemaFromTriggerable($workspaceStore, path, runType)
 	}
 
 	$: if (inputs && schema !== undefined) {
@@ -50,8 +51,12 @@
 	}
 
 	// Load once
-	async function loadSchemaFromTriggerable(workspace: string, triggerable: TriggerablePolicy) {
-		schema = await loadSchema(workspace, triggerable)
+	async function loadSchemaFromTriggerable(
+		workspace: string,
+		path: string,
+		runType: 'script' | 'flow'
+	) {
+		schema = await loadSchema(workspace, path, runType)
 		args = buildArgs(inputs, schema)
 	}
 
@@ -80,9 +85,9 @@
 		await testJobLoader?.abstractRun(() =>
 			AppService.executeComponent({
 				workspace: $workspaceStore!,
-				path,
+				path: pagePath,
 				requestBody: {
-					path: `${triggerable.type}/${triggerable?.path}`,
+					path: `${runType}/${path}`,
 					args
 				}
 			})

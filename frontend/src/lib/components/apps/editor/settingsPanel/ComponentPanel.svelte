@@ -20,15 +20,6 @@
 
 	const { app } = getContext<AppEditorContext>('AppEditorContext')
 	const dispatch = createEventDispatcher()
-
-	function setTriggerable(path: string, type: 'flow' | 'script') {
-		if (component?.id) {
-			$app.policy = {
-				...$app.policy,
-				triggerables: { ...$app.policy.triggerables, [component.id]: { path, type } }
-			}
-		}
-	}
 </script>
 
 {#if component}
@@ -41,17 +32,23 @@
 					<InputsSpecsEditor bind:inputSpecs={component.inputs} />
 				{/if}
 
-				{#if component.type === 'runformcomponent' && $app.policy?.triggerables?.[component.id] === undefined}
+				{#if component.type === 'runformcomponent' && component.path === undefined}
 					<span class="text-sm">Select a script or a flow to continue</span>
 					<PickScript
 						kind="script"
 						on:pick={({ detail }) => {
-							setTriggerable(detail.path, 'script')
+							if (component && component.type === 'runformcomponent') {
+								component.path = detail.path
+								component.runType = 'script'
+							}
 						}}
 					/>
 					<PickFlow
 						on:pick={({ detail }) => {
-							setTriggerable(detail.path, 'flow')
+							if (component && component.type === 'runformcomponent') {
+								component.path = detail.path
+								component.runType = 'flow'
+							}
 						}}
 					/>
 				{/if}

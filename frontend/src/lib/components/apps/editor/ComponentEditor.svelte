@@ -61,7 +61,6 @@
 					{...component}
 					bind:inputs={component.inputs}
 					bind:staticOutputs={$staticOutputs[component.id]}
-					triggerable={$app.policy?.triggerables?.[component.id]}
 				/>
 			{:else if component.type === 'displaycomponent'}
 				<DisplayComponent {...component} bind:staticOutputs={$staticOutputs[component.id]} />
