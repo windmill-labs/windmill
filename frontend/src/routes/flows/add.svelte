@@ -13,7 +13,7 @@
 	import FlowBuilder from '$lib/components/FlowBuilder.svelte'
 	import { initFlow } from '$lib/components/flows/flowStore'
 	import { FlowService, type Flow } from '$lib/gen'
-	import { workspaceStore } from '$lib/stores'
+	import { userStore, workspaceStore } from '$lib/stores'
 	import { decodeState, emptySchema } from '$lib/utils'
 
 	const initialState = $page.url.searchParams.get('state')
@@ -44,12 +44,14 @@
 				path: templatePath
 			})
 			Object.assign(flow, template)
+			flow.path = templatePath
 			flow = flow
 			$page.url.searchParams.delete('template')
 			selectedId = 'settings-graph'
 		} else if (hubId) {
-			const hub = (await FlowService.getHubFlowById({ id: Number(hubId) })).flow
-			Object.assign(flow, hub)
+			const hub = await FlowService.getHubFlowById({ id: Number(hubId) })
+			flow.path = `u/${$userStore?.username}/flow_${hubId}`
+			Object.assign(flow, hub.flow)
 			flow = flow
 			$page.url.searchParams.delete('hub')
 			selectedId = 'settings-graph'

@@ -224,7 +224,7 @@
 					document.getElementById('path')?.focus()
 				}}
 			>
-				{$flowStore.path}
+				{$flowStore.path && $flowStore.path != '' ? $flowStore.path : 'Choose a path'}
 			</Button>
 			<Button
 				startIcon={{ icon: faPen }}
