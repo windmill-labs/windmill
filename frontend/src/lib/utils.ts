@@ -44,7 +44,10 @@ export function displayDaysAgo(dateString: string): string {
 		if (dAgo == 0) {
 			return `yday at ${date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
 		} else if (dAgo > 7) {
-			return `${dAgo + 1} days ago at ${date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
+			return `${dAgo + 1} days ago at ${date.toLocaleTimeString([], {
+				hour: '2-digit',
+				minute: '2-digit'
+			})}`
 		} else {
 			return displayDate(dateString)
 		}
@@ -56,8 +59,9 @@ export function displayDate(dateString: string | undefined): string {
 	if (date.toString() === 'Invalid Date') {
 		return ''
 	} else {
-		return `${date.getFullYear()}/${date.getMonth() + 1
-			}/${date.getDate()} at ${date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
+		return `${date.getFullYear()}/${
+			date.getMonth() + 1
+		}/${date.getDate()} at ${date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
 	}
 }
 
@@ -556,4 +560,14 @@ export async function copyToClipboard(value: string, sendToast = true): Promise<
 	sendToast &&
 		sendUserToast(success ? 'Copied to clipboard!' : "Couldn't copy to clipboard", !success)
 	return success
+}
+
+export function pluralize(quantity: number, word: string, customPlural?: string) {
+	if (quantity <= 1) {
+		return `${quantity} ${word}`
+	} else if (customPlural) {
+		return `${quantity} ${customPlural}}`
+	} else {
+		return `${quantity} ${word}s`
+	}
 }

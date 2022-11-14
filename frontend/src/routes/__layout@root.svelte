@@ -28,7 +28,7 @@
 		goto('/user/login')
 	}
 
-	beforeNavigate((newNavigationState) => {
+	beforeNavigate(() => {
 		menuOpen = false
 	})
 

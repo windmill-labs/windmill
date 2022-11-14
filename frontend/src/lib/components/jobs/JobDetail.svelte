@@ -24,7 +24,7 @@
 	} from '@fortawesome/free-solid-svg-icons'
 	import Icon from 'svelte-awesome'
 	import { check } from 'svelte-awesome/icons'
-	import { Badge, Button } from '../common'
+	import { Badge } from '../common'
 
 	const SMALL_ICON_SCALE = 0.7
 
