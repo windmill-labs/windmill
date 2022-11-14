@@ -428,29 +428,6 @@
     },
     "query": "SELECT dependency_job FROM flow WHERE path = $1 AND workspace_id = $2"
   },
-  "190cb52762c82b4c7f318decf73cfb4377825c93b5777904b82f8940bb18be3e": {
-    "describe": {
-      "columns": [
-        {
-          "name": "id",
-          "ordinal": 0,
-          "type_info": "Int8"
-        }
-      ],
-      "nullable": [
-        false
-      ],
-      "parameters": {
-        "Left": [
-          "Varchar",
-          "Varchar",
-          "Varchar",
-          "Jsonb"
-        ]
-      }
-    },
-    "query": "INSERT INTO app\n            (workspace_id, path, summary, policy)\n            VALUES ($1, $2, $3, $4) RETURNING id"
-  },
   "1ad8677694aca94ee0e6da287d7cc028dcf673583a0e3e4fedd0e5d6766c5860": {
     "describe": {
       "columns": [],
@@ -2682,6 +2659,29 @@
       }
     },
     "query": "DELETE FROM token WHERE token = $1 RETURNING email"
+  },
+  "9def921a0b697e4cbcb6ad88196ff6f66358f3b819aaf4e279596ccfc433fa92": {
+    "describe": {
+      "columns": [
+        {
+          "name": "id",
+          "ordinal": 0,
+          "type_info": "Int8"
+        }
+      ],
+      "nullable": [
+        false
+      ],
+      "parameters": {
+        "Left": [
+          "Varchar",
+          "Varchar",
+          "Varchar",
+          "Jsonb"
+        ]
+      }
+    },
+    "query": "INSERT INTO app\n            (workspace_id, path, summary, policy, versions)\n            VALUES ($1, $2, $3, $4, '{}') RETURNING id"
   },
   "a227548b6604c56bfc15eb780bd8ee72a89dc6701a50f5048e928bd87baa7b9a": {
     "describe": {

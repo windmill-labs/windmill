@@ -208,8 +208,8 @@ async fn create_app(
 
     let id = sqlx::query_scalar!(
         "INSERT INTO app
-            (workspace_id, path, summary, policy)
-            VALUES ($1, $2, $3, $4) RETURNING id",
+            (workspace_id, path, summary, policy, versions)
+            VALUES ($1, $2, $3, $4, '{}') RETURNING id",
         w_id,
         app.path,
         app.summary,
@@ -249,7 +249,7 @@ async fn create_app(
     .await?;
     tx.commit().await?;
 
-    Ok((StatusCode::CREATED, format!("app {} created", app.path)))
+    Ok((StatusCode::CREATED, app.path))
 }
 
 async fn delete_app(

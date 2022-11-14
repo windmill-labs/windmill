@@ -17,10 +17,7 @@
 	let initialPath = ''
 	let pathError = ''
 
-	let loading = {
-		apps: true
-	}
-	let apps: AppWithLastVersion[] | undefined
+	let apps: AppWithLastVersion[] | undefined = undefined
 
 	async function createApp() {
 		const appJson: App = {
@@ -37,14 +34,14 @@
 			const appId = await AppService.createApp({
 				workspace: $workspaceStore!,
 				requestBody: {
-					value: JSON.stringify({}),
+					value: appJson,
 					path,
 					summary: 'App summary',
 					policy: appJson.policy
 				}
 			})
 
-			goto(`/apps/edit/${appId}}`)
+			goto(`/apps/edit/${appId}`)
 		} catch (e) {
 			sendUserToast('Error creating app', e)
 		}
@@ -52,7 +49,6 @@
 
 	async function loadApps(): Promise<void> {
 		apps = await AppService.listApps({ workspace: $workspaceStore! })
-		loading.apps = false
 	}
 
 	let drawerOpen = false
@@ -90,7 +86,7 @@
 	</PageHeader>
 
 	<div class="p-4 border ">
-		{#if loading}
+		{#if !apps}
 			<div class="grid gap-4 sm:grid-cols-1 md:grid-cols-2 xl:grid-cols-3 mt-2">
 				{#each new Array(3) as _}
 					<Skeleton layout={[[8.5]]} />
@@ -106,7 +102,7 @@
 						href="/apps/get/{path}"
 					>
 						<div class="flex flex-col gap-1">
-							<a href="/scripts/get/{path}" class="px-6">
+							<a href="/apps/get/{path}" class="px-6">
 								<div class="font-semibold text-gray-700">
 									{!summary || summary.length == 0 ? path : summary}
 								</div>
