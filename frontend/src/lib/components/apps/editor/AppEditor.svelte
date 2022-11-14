@@ -16,7 +16,8 @@
 
 	export let app: App
 
-	const appStore = writable<App>({ ...app })
+	console.log(app)
+	const appStore = writable<App>(app)
 	const worldStore = writable<World | undefined>(undefined)
 	const staticOutputs = writable<Record<string, string[]>>({})
 

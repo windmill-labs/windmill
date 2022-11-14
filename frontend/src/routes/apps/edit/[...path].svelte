@@ -12,6 +12,7 @@
 			path,
 			workspace: $workspaceStore!
 		})
+		console.log(app)
 	}
 
 	$: {
