@@ -88,7 +88,8 @@
 				path: pagePath,
 				requestBody: {
 					path: `${runType}/${path}`,
-					args
+					args,
+					force_viewer_static_fields: {}
 				}
 			})
 		)

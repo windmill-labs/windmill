@@ -80,7 +80,7 @@ pub struct AppWithLastVersion {
 
 pub type StaticFields = Map<String, Value>;
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 #[serde(rename_all = "lowercase")]
 pub enum ExecutionMode {
     Anonymous,
@@ -88,7 +88,7 @@ pub enum ExecutionMode {
     Viewer,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Policy {
     pub on_behalf_of: Option<String>,
     //paths:
@@ -371,13 +371,15 @@ async fn update_app(
     Ok(format!("app {} updated (npath: {:?})", path, npath))
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Clone)]
 pub struct ExecuteApp {
     pub args: Map<String, serde_json::Value>,
     // - script: script/<path>
     // - flow: flow/<path>
     pub path: Option<String>,
     pub raw_code: Option<RawCode>,
+    // if set, the app is executed as viewer with the given static fields
+    pub force_viewer_static_fields: Option<StaticFields>,
 }
 
 fn digest(code: &str) -> String {
@@ -422,6 +424,24 @@ async fn execute_component(
 
     let policy = serde_json::from_value::<Policy>(policy).map_err(to_anyhow)?;
 
+    let policy = if let Some(static_fields) = payload.clone().force_viewer_static_fields {
+        let mut hm = HashMap::new();
+        if let Some(path) = payload.path.clone() {
+            hm.insert(path, static_fields);
+        } else {
+            hm.insert(
+                format!(
+                    "rawcode/{}",
+                    digest(payload.raw_code.clone().unwrap().content.as_str())
+                ),
+                static_fields,
+            );
+        }
+        Policy { execution_mode: ExecutionMode::Viewer, triggerables: hm, on_behalf_of: None }
+    } else {
+        policy
+    };
+
     let (username, permissioned_as) = match policy.execution_mode {
         ExecutionMode::Anonymous => {
             let username = opt_authed
@@ -464,14 +484,14 @@ async fn execute_component(
     };
 
     let (job_payload, args) = match &payload {
-        ExecuteApp { args, raw_code: Some(raw_code), path: None } => {
+        ExecuteApp { args, raw_code: Some(raw_code), path: None, .. } => {
             let content = &raw_code.content;
             let payload = JobPayload::Code(raw_code.clone());
             let path = digest(content);
             let args = build_args(policy, path, args)?;
             (payload, args)
         }
-        ExecuteApp { args, raw_code: None, path: Some(path) } => {
+        ExecuteApp { args, raw_code: None, path: Some(path), .. } => {
             let payload = if path.starts_with("script/") {
                 script_path_to_payload(path.strip_prefix("script/").unwrap(), &mut tx, &w_id)
                     .await?

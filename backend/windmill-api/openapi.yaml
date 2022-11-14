@@ -2486,6 +2486,8 @@ paths:
                   required:
                     - content
                     - language
+                force_viewer_static_fields:
+                  type: object
               required:
                 - args
 
