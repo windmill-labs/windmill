@@ -1,4 +1,5 @@
 import type { Schema, SchemaProperty } from '$lib/common'
+import type { Policy } from '$lib/gen'
 import type { Writable } from 'svelte/store'
 import type { World } from './rx'
 
@@ -119,17 +120,7 @@ export interface TriggerablePolicy {
 	type: 'script' | 'flow'
 }
 
-interface Policy {
-	triggerables: Record<ComponentID, TriggerablePolicy>
-}
-
 type ComponentID = string
-
-enum PublishedStatus {
-	ViewerPerms = 'ViewerPerms',
-	AuthorPermsUser = 'AuthorPermsUser',
-	AuthorPermsPublic = 'AuthorPermsPublic'
-}
 
 export type EditorConfig = {
 	staticInputDisabled: boolean

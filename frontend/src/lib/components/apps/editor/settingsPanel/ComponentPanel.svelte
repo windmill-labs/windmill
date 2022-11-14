@@ -23,9 +23,9 @@
 
 	function setTriggerable(path: string, type: 'flow' | 'script') {
 		if (component?.id) {
-			$app.policy.triggerables[component.id] = {
-				type,
-				path
+			$app.policy = {
+				...$app.policy,
+				triggerables: { ...$app.policy.triggerables, [component.id]: { path, type } }
 			}
 		}
 	}
@@ -41,7 +41,7 @@
 					<InputsSpecsEditor bind:inputSpecs={component.inputs} />
 				{/if}
 
-				{#if component.type === 'runformcomponent' && $app.policy.triggerables[component.id] === undefined}
+				{#if component.type === 'runformcomponent' && $app.policy?.triggerables?.[component.id] === undefined}
 					<span class="text-sm">Select a script or a flow to continue</span>
 					<PickScript
 						kind="script"

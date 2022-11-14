@@ -18,7 +18,7 @@
 	let syncIteration: number = 0
 	let ITERATIONS_BEFORE_SLOW_REFRESH = 100
 
-	async function abstractRun(fn: () => Promise<string>) {
+	export async function abstractRun(fn: () => Promise<string>) {
 		try {
 			intervalId && clearInterval(intervalId)
 			if (isLoading && job) {

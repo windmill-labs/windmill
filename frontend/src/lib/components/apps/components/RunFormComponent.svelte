@@ -1,9 +1,10 @@
 <script lang="ts">
+	import { page } from '$app/stores'
 	import type { Schema } from '$lib/common'
 	import { Button } from '$lib/components/common'
 	import SchemaForm from '$lib/components/SchemaForm.svelte'
 	import TestJobLoader from '$lib/components/TestJobLoader.svelte'
-	import type { CompletedJob } from '$lib/gen'
+	import { AppService, type CompletedJob } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { faArrowsRotate, faFile } from '@fortawesome/free-solid-svg-icons'
 	import { getContext } from 'svelte'
@@ -19,6 +20,7 @@
 
 	export const staticOutputs = ['loading', 'result']
 	const { worldStore } = getContext<AppEditorContext>('AppEditorContext')
+	let path = $page.params.path
 
 	$: outputs = $worldStore?.outputsById[id] as {
 		result: Output<any>
@@ -73,11 +75,27 @@
 		}
 		return a
 	}, [])
+
+	async function executeComponent() {
+		await testJobLoader?.abstractRun(() =>
+			AppService.executeComponent({
+				workspace: $workspaceStore!,
+				path,
+				requestBody: {
+					path: triggerable?.path,
+					args
+				}
+			})
+		)
+
+		outputs?.loading.set(true)
+	}
 </script>
 
 <TestJobLoader
 	on:done={() => {
 		if (testJob) {
+			x
 			outputs?.result.set(testJob?.result)
 			outputs?.loading.set(false)
 		}
@@ -93,18 +111,7 @@
 		size="xs"
 		color="dark"
 		variant="border"
-		on:click={() => {
-			if (schema) {
-				if (triggerable.type === 'script') {
-					testJobLoader?.runScriptByPath(triggerable?.path, args)
-				}
-
-				if (triggerable.type === 'flow') {
-					testJobLoader?.runFlowByPath(triggerable?.path, args)
-				}
-				outputs?.loading.set(true)
-			}
-		}}
+		on:click={() => executeComponent()}
 		startIcon={{ icon: faFile }}
 		disabled={!isValid}
 	>

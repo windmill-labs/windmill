@@ -1,73 +1,28 @@
 <script lang="ts">
 	import AppEditor from '$lib/components/apps/editor/AppEditor.svelte'
-	import type { App } from '$lib/components/apps/types'
+	import { AppService, AppWithLastVersion } from '$lib/gen'
+	import { workspaceStore } from '$lib/stores'
+	import { page } from '$app/stores'
 
-	let app: App = {
-		sections: [
-			{
-				components: [
-					{
-						id: 'a',
-						type: 'runformcomponent',
-						inputs: {
-							a: {
-								type: 'static',
-								value: 'Test value A',
-								visible: true
-							},
-							b: {
-								type: 'static',
-								value: 'Test value B',
-								visible: true
-							}
-						},
+	let app: AppWithLastVersion
+	let path = $page.params.path
 
-						width: 33,
-						horizontalAlignement: 'center',
-						verticalAlignement: 'center',
-						title: 'My title',
-						description: 'My description',
-						configSchema: undefined,
-						componentInputs: {}
-					},
-					{
-						type: 'displaycomponent',
-						id: 'b',
-						width: 33,
-						horizontalAlignement: 'center',
-						verticalAlignement: 'center',
-						title: 'My title',
-						description: 'My description',
-						configSchema: undefined,
-						componentInputs: {
-							result: {
-								id: undefined,
-								name: undefined,
-								type: 'output',
-								defaultValue: undefined
-							}
-						},
-						inputs: {}
-					}
-				],
-				columns: 3,
-				id: 'a',
-				title: 'Section 1',
-				description: 'Section 1 description'
-			}
-		],
-		title: 'Fake title',
-		policy: {
-			triggerables: {
-				a: {
-					path: 'u/faton/my_script_3',
-					type: 'script'
-				}
-			}
+	async function loadApp(): Promise<void> {
+		app = await AppService.getAppByPath({
+			path,
+			workspace: $workspaceStore!
+		})
+	}
+
+	$: {
+		if ($workspaceStore) {
+			loadApp()
 		}
 	}
 </script>
 
-<div class="h-screen">
-	<AppEditor bind:app />
-</div>
+{#if app}
+	<div class="h-screen">
+		<AppEditor bind:app={app.value} />
+	</div>
+{/if}
