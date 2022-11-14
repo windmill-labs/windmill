@@ -21,13 +21,19 @@
 		<div
 			class="sticky top-0 right-0 w-full flex flex-row-reverse justify-between text-gray-500 text-sm bg-gray-50/20"
 		>
-			<div>
+			<div class="p-2 text-xs flex gap-2 items-center">
 				Auto scroll
 				<input type="checkbox" bind:checked={scroll} />
 			</div>
 		</div>
-		<pre class="whitespace-pre-wrap break-words bg-gray-50 text-xs w-full p-2"
-			>{#if content}{content}{:else if isLoading}Waiting for job to start...{:else}No logs are available yet{/if}</pre
-		>
+		<pre class="whitespace-pre-wrap break-words bg-gray-50 text-xs w-full p-2">
+			{#if content}
+				{content}
+			{:else if isLoading}
+				Waiting for job to start...
+			{:else}
+				No logs are available yet
+			{/if}
+			</pre>
 	</div>
 </div>
