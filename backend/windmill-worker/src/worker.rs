@@ -13,13 +13,12 @@ use tracing::{trace_span, Instrument};
 use uuid::Uuid;
 use windmill_common::{
     error::{self, to_anyhow, Error},
+    flows::{FlowModuleValue, FlowValue},
     scripts::{ScriptHash, ScriptLang},
     utils::rd_string,
     variables,
 };
-use windmill_queue::{
-    canceled_job_to_result, get_hub_script, get_queued_job, pull, JobKind, QueuedJob,
-};
+use windmill_queue::{canceled_job_to_result, get_queued_job, pull, JobKind, QueuedJob};
 
 use serde_json::{json, Map, Value};
 
@@ -364,7 +363,7 @@ pub async fn run_worker(
                         .expect("could not create job dir");
 
                     let same_worker = job.same_worker;
-                    let is_flow = job.job_kind == JobKind::Flow || job.job_kind == JobKind::FlowPreview;
+                    let is_flow = job.job_kind == JobKind::Flow || job.job_kind == JobKind::FlowPreview || job.job_kind == JobKind::FlowDependencies;
 
                     if is_flow && same_worker {
                         let target = &format!("{job_dir}/shared");
@@ -621,6 +620,11 @@ async fn handle_queued_job(
                 JobKind::Dependencies => {
                     handle_dependency_job(&job, &mut logs, job_dir, db, timeout, &envs).await
                 }
+                JobKind::FlowDependencies => {
+                    handle_flow_dependency_job(&job, &mut logs, job_dir, db, timeout, &envs)
+                        .await
+                        .map(|()| Value::Null)
+                }
                 JobKind::Identity => match job.args.clone() {
                     Some(Value::Object(args))
                         if args.len() == 1 && args.contains_key("previous_result") =>
@@ -794,30 +798,26 @@ async fn handle_code_execution_job(
     worker_config: &WorkerConfig,
     envs: &Envs,
 ) -> error::Result<serde_json::Value> {
-    let (inner_content, requirements_o, language) = if matches!(job.job_kind, JobKind::Preview) {
-        let code = (job.raw_code.as_ref().unwrap_or(&"no raw code".to_owned())).to_owned();
-        (code, None, job.language.to_owned())
-    } else if matches!(job.job_kind, JobKind::Script_Hub) {
-        let code = (job.raw_code.as_ref().unwrap_or(&"no raw code".to_owned())).to_owned();
-        let script = get_hub_script(
-            job.script_path
+    let (inner_content, requirements_o, language) = match job.job_kind {
+        JobKind::Preview | JobKind::Script_Hub => (
+            job.raw_code
                 .clone()
-                .unwrap_or_else(|| "missing script path".to_string()),
-            None,
-            &job.created_by,
-        )
-        .await?;
-        (code, script.lockfile, job.language.to_owned())
-    } else {
-        sqlx::query_as::<_, (String, Option<String>, Option<ScriptLang>)>(
+                .unwrap_or_else(|| "no raw code".to_owned()),
+            job.raw_lock.clone(),
+            job.language.to_owned(),
+        ),
+        JobKind::Script => sqlx::query_as::<_, (String, Option<String>, Option<ScriptLang>)>(
             "SELECT content, lock, language FROM script WHERE hash = $1 AND (workspace_id = $2 OR \
-             workspace_id = 'starter')",
+                                    workspace_id = 'starter')",
         )
         .bind(&job.script_hash.unwrap_or(ScriptHash(0)).0)
         .bind(&job.workspace_id)
         .fetch_optional(db)
         .await?
-        .ok_or_else(|| Error::InternalErr(format!("expected content and lock")))?
+        .ok_or_else(|| Error::InternalErr(format!("expected content and lock")))?,
+        _ => unreachable!(
+            "handle_code_execution_job should never be reachable with a non-code execution job"
+        ),
     };
     let worker_name = worker_dir.split("/").last().unwrap_or("unknown");
     let lang_str = job
@@ -956,31 +956,35 @@ async fn handle_go_job(
 ) -> Result<serde_json::Value, Error> {
     //go does not like executing modules at temp root
     let job_dir = &format!("{job_dir}/go");
-    if let Some(requirements) = requirements_o {
+    let skip_go_mod = if let Some(requirements) = requirements_o {
         gen_go_mymod(inner_content, job_dir).await?;
-        let (md, sum) = requirements
-            .split_once(GO_REQ_SPLITTER)
-            .ok_or(Error::ExecutionErr(
-                "Invalid requirement file, missing splitter".to_string(),
-            ))?;
-        write_file(job_dir, "go.mod", md).await?;
-        write_file(job_dir, "go.sum", sum).await?;
-    } else {
-        logs.push_str("\n\n--- GO DEPENDENCIES SETUP ---\n");
-        set_logs(logs, job.id, db).await;
 
-        install_go_dependencies(
-            &job.id,
-            inner_content,
-            logs,
-            job_dir,
-            db,
-            timeout,
-            go_path,
-            true,
-        )
-        .await?;
-    }
+        // TODO: remove after some time in favor of just requirements
+        // this is just migration code from a time we also stored go.sum
+        let md = requirements
+            .split_once(GO_REQ_SPLITTER)
+            .map(|x| x.0)
+            .unwrap_or(&requirements);
+        write_file(job_dir, "go.mod", &md).await?;
+        true
+    } else {
+        false
+    };
+    logs.push_str("\n\n--- GO DEPENDENCIES SETUP ---\n");
+    set_logs(logs, job.id, db).await;
+
+    install_go_dependencies(
+        &job.id,
+        inner_content,
+        logs,
+        job_dir,
+        db,
+        timeout,
+        go_path,
+        true,
+        skip_go_mod,
+    )
+    .await?;
 
     logs.push_str("\n\n--- GO CODE EXECUTION ---\n");
     set_logs(logs, job.id, db).await;
@@ -1092,7 +1096,6 @@ func Run(req Req) (interface{{}}, error){{
             .envs(reserved_variables)
             .env("PATH", path_env)
             .env("BASE_INTERNAL_URL", base_internal_url)
-            .env("GOMEMLIMIT", "2000MiB")
             .args(vec![
                 "--config",
                 "run.config.proto",
@@ -1390,7 +1393,7 @@ async fn handle_python_job(
             if requirements.is_empty() {
                 "".to_string()
             } else {
-                pip_compile(job, &requirements, logs, job_dir, envs, db, timeout)
+                pip_compile(&job.id, &requirements, logs, job_dir, envs, db, timeout)
                     .await
                     .map_err(|e| {
                         Error::ExecutionErr(format!("pip compile failed: {}", e.to_string()))
@@ -1674,7 +1677,24 @@ async fn handle_dependency_job(
     timeout: i32,
     envs: &Envs,
 ) -> error::Result<serde_json::Value> {
-    let content = capture_dependency_job(job, logs, job_dir, db, timeout, envs).await;
+    let content = capture_dependency_job(
+        &job.id,
+        job.language.as_ref().map(|v| Ok(v)).unwrap_or_else(|| {
+            Err(Error::InternalErr(
+                "Job Language required for dependency jobs".to_owned(),
+            ))
+        })?,
+        job.raw_code
+            .as_ref()
+            .map(|a| a.as_str())
+            .unwrap_or_else(|| "no raw code"),
+        logs,
+        job_dir,
+        db,
+        timeout,
+        envs,
+    )
+    .await;
     match content {
         Ok(content) => {
             sqlx::query!(
@@ -1699,6 +1719,89 @@ async fn handle_dependency_job(
             Err(Error::ExecutionErr(format!("Error locking file: {error}")))?
         }
     }
+}
+
+#[tracing::instrument(level = "trace", skip_all)]
+async fn handle_flow_dependency_job(
+    job: &QueuedJob,
+    logs: &mut String,
+    job_dir: &str,
+    db: &sqlx::Pool<sqlx::Postgres>,
+    timeout: i32,
+    envs: &Envs,
+) -> error::Result<()> {
+    let path = job.script_path.clone().ok_or_else(|| {
+        error::Error::InternalErr(
+            "Cannot resolve flow dependencies for flow without path".to_string(),
+        )
+    })?;
+    let raw_flow = job.raw_flow.clone().map(|v| Ok(v)).unwrap_or_else(|| {
+        Err(Error::InternalErr(
+            "Flow Dependency requires raw flow".to_owned(),
+        ))
+    })?;
+    let mut flow = serde_json::from_value::<FlowValue>(raw_flow).map_err(to_anyhow)?;
+    let mut new_flow_modules = Vec::new();
+    for mut e in flow.modules.into_iter() {
+        let FlowModuleValue::RawScript { lock: _, path, content, language, input_transforms} = e.value else {
+            new_flow_modules.push(e);
+            continue;
+        };
+        let new_lock = capture_dependency_job(
+            &job.id, &language, &content, logs, job_dir, db, timeout, envs,
+        )
+        .await;
+        match new_lock {
+            Ok(new_lock) => {
+                e.value = FlowModuleValue::RawScript {
+                    lock: Some(new_lock),
+                    path: path,
+                    input_transforms,
+                    content,
+                    language,
+                };
+                new_flow_modules.push(e);
+                continue;
+            }
+            Err(_error) => {
+                // TODO: Record flow raw script error lock logs
+                e.value = FlowModuleValue::RawScript {
+                    lock: None,
+                    path: path,
+                    input_transforms,
+                    content,
+                    language,
+                };
+                new_flow_modules.push(e);
+                continue;
+            }
+        }
+    }
+    flow.modules = new_flow_modules;
+    let new_flow_value = serde_json::to_value(flow).map_err(to_anyhow)?;
+
+    // Re-check cancelation to ensure we don't accidentially override a flow.
+    if sqlx::query_scalar!("SELECT canceled FROM queue WHERE id = $1", job.id)
+        .fetch_optional(db)
+        .await
+        .map(|v| Some(true) == v)
+        .unwrap_or_else(|err| {
+            tracing::error!(%job.id, %err, "error checking cancelation for job {0}: {err}", job.id);
+            false
+        })
+    {
+        return Ok(());
+    }
+
+    sqlx::query!(
+        "UPDATE flow SET value = $1 WHERE path = $2 AND workspace_id = $3",
+        new_flow_value,
+        path,
+        job.workspace_id
+    )
+    .execute(db)
+    .await?;
+    Ok(())
 }
 
 #[cfg(not(feature = "deno-lock"))]
@@ -1749,46 +1852,36 @@ async fn generate_deno_lock(
     Ok(req_content)
 }
 async fn capture_dependency_job(
-    job: &QueuedJob,
+    job_id: &Uuid,
+    job_language: &ScriptLang,
+    job_raw_code: &str,
     logs: &mut String,
     job_dir: &str,
     db: &sqlx::Pool<sqlx::Postgres>,
     timeout: i32,
     envs: &Envs,
 ) -> error::Result<String> {
-    match job.language {
-        Some(ScriptLang::Python3) => {
+    match job_language {
+        ScriptLang::Python3 => {
             create_dependencies_dir(job_dir).await;
-            let requirements = &job
-                .raw_code
-                .as_ref()
-                .ok_or_else(|| Error::ExecutionErr("missing requirements".to_string()))?
-                .clone();
-            pip_compile(job, requirements, logs, job_dir, envs, db, timeout).await
+            pip_compile(job_id, job_raw_code, logs, job_dir, envs, db, timeout).await
         }
-        Some(ScriptLang::Go) => {
-            let requirements = job
-                .raw_code
-                .as_ref()
-                .ok_or_else(|| Error::ExecutionErr("missing requirements".to_string()))?;
+        ScriptLang::Go => {
             install_go_dependencies(
-                &job.id,
-                &requirements,
+                job_id,
+                job_raw_code,
                 logs,
                 job_dir,
                 db,
                 timeout,
                 &envs.go_path,
                 false,
+                false,
             )
             .await
         }
-        Some(ScriptLang::Deno) => {
-            let requirements = job
-                .raw_code
-                .as_ref()
-                .ok_or_else(|| Error::ExecutionErr("missing requirements".to_string()))?;
-            generate_deno_lock(&job.id, &requirements, logs, job_dir, db, timeout, &envs).await
+        ScriptLang::Deno => {
+            generate_deno_lock(job_id, job_raw_code, logs, job_dir, db, timeout, &envs).await
         }
         _ => Err(error::Error::InternalErr(
             "Language incompatible with dep job".to_string(),
@@ -1797,7 +1890,7 @@ async fn capture_dependency_job(
 }
 
 async fn pip_compile(
-    job: &QueuedJob,
+    job_id: &Uuid,
     requirements: &str,
     logs: &mut String,
     job_dir: &str,
@@ -1824,7 +1917,7 @@ async fn pip_compile(
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()?;
-    handle_child(&job.id, db, logs, timeout, child)
+    handle_child(job_id, db, logs, timeout, child)
         .await
         .map_err(|e| Error::ExecutionErr(format!("Lock file generation failed: {e:?}")))?;
     let path_lock = format!("{job_dir}/requirements.txt");
@@ -1848,20 +1941,21 @@ async fn install_go_dependencies(
     timeout: i32,
     go_path: &str,
     preview: bool,
+    skip_go_mod: bool,
 ) -> error::Result<String> {
-    gen_go_mymod(code, job_dir).await?;
-    let child = Command::new("go")
-        .current_dir(job_dir)
-        .args(vec!["mod", "init", "mymod"])
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()?;
+    if !skip_go_mod {
+        gen_go_mymod(code, job_dir).await?;
+        let child = Command::new("go")
+            .current_dir(job_dir)
+            .args(vec!["mod", "init", "mymod"])
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()?;
 
-    handle_child(job_id, db, logs, timeout, child).await?;
-
+        handle_child(job_id, db, logs, timeout, child).await?;
+    }
     let child = Command::new(go_path)
         .current_dir(job_dir)
-        .env("GOMEMLIMIT", "2000MiB")
         .args(vec!["mod", "tidy"])
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -1877,12 +1971,6 @@ async fn install_go_dependencies(
 
         let mut file = File::open(format!("{job_dir}/go.mod")).await?;
         file.read_to_string(&mut req_content).await?;
-
-        req_content.push_str(&format!("\n{GO_REQ_SPLITTER}\n"));
-
-        if let Ok(mut file) = File::open(format!("{job_dir}/go.sum")).await {
-            file.read_to_string(&mut req_content).await?;
-        }
 
         Ok(req_content)
     }

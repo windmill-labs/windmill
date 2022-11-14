@@ -307,7 +307,8 @@ pub async fn push<'c>(
         }
     }
 
-    let (script_hash, script_path, raw_code, job_kind, raw_flow, language) = match job_payload {
+    let (script_hash, script_path, raw_code_tuple, job_kind, raw_flow, language) = match job_payload
+    {
         JobPayload::ScriptHash { hash, path } => {
             let language = sqlx::query_scalar!(
                 "SELECT language as \"language: ScriptLang\" FROM script WHERE hash = $1 AND \
@@ -343,16 +344,16 @@ pub async fn push<'c>(
             (
                 None,
                 Some(path),
-                Some(script.content.clone()),
+                Some((script.content, script.lockfile)),
                 JobKind::Script_Hub,
                 None,
-                Some(script.language.clone()),
+                Some(script.language),
             )
         }
-        JobPayload::Code(RawCode { content, path, language }) => (
+        JobPayload::Code(RawCode { content, path, language, lock }) => (
             None,
             path,
-            Some(content),
+            Some((content, lock)),
             JobKind::Preview,
             None,
             Some(language),
@@ -360,11 +361,35 @@ pub async fn push<'c>(
         JobPayload::Dependencies { hash, dependencies, language } => (
             Some(hash.0),
             None,
-            Some(dependencies),
+            Some((dependencies, None)),
             JobKind::Dependencies,
             None,
             Some(language),
         ),
+        JobPayload::FlowDependencies { path } => {
+            let value_json = sqlx::query_scalar!(
+                "SELECT value FROM flow WHERE path = $1 AND (workspace_id = $2 OR workspace_id = \
+                 'starter')",
+                path,
+                workspace_id
+            )
+            .fetch_optional(&mut tx)
+            .await?
+            .ok_or_else(|| Error::InternalErr(format!("not found flow at path {:?}", path)))?;
+            let value = serde_json::from_value::<FlowValue>(value_json).map_err(|err| {
+                Error::InternalErr(format!(
+                    "could not convert json to flow for {path}: {err:?}"
+                ))
+            })?;
+            (
+                None,
+                Some(path),
+                None,
+                JobKind::FlowDependencies,
+                Some(value),
+                None,
+            )
+        }
         JobPayload::RawFlow { value, path } => {
             (None, path, None, JobKind::FlowPreview, Some(value), None)
         }
@@ -410,13 +435,17 @@ pub async fn push<'c>(
         }
     }
 
+    let (raw_code, raw_lock) = raw_code_tuple
+        .map(|e| (Some(e.0), e.1))
+        .unwrap_or_else(|| (None, None));
+
     let flow_status = raw_flow.as_ref().map(FlowStatus::new);
     let uuid = sqlx::query_scalar!(
         "INSERT INTO queue
             (workspace_id, id, running, parent_job, created_by, permissioned_as, scheduled_for, 
-                script_hash, script_path, raw_code, args, job_kind, schedule_path, raw_flow, \
+                script_hash, script_path, raw_code, raw_lock, args, job_kind, schedule_path, raw_flow, \
          flow_status, is_flow_step, language, started_at, same_worker)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, CASE WHEN $3 THEN now() END, $18) \
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, CASE WHEN $3 THEN now() END, $19) \
          RETURNING id",
         workspace_id,
         job_id,
@@ -428,6 +457,7 @@ pub async fn push<'c>(
         script_hash,
         script_path.clone(),
         raw_code,
+        raw_lock,
         args_json,
         job_kind: JobKind,
         schedule_path,
@@ -461,6 +491,7 @@ pub async fn push<'c>(
             JobKind::Script_Hub => "jobs.run.script_hub",
             JobKind::Dependencies => "jobs.run.dependencies",
             JobKind::Identity => "jobs.run.identity",
+            JobKind::FlowDependencies => "jobs.run.flow_dependencies",
         };
 
         audit_log(
@@ -520,6 +551,7 @@ pub struct QueuedJob {
     pub args: Option<serde_json::Value>,
     pub logs: Option<String>,
     pub raw_code: Option<String>,
+    pub raw_lock: Option<String>,
     pub canceled: bool,
     pub canceled_by: Option<String>,
     pub canceled_reason: Option<String>,
@@ -569,6 +601,7 @@ pub enum JobKind {
     Flow,
     FlowPreview,
     Identity,
+    FlowDependencies,
 }
 
 #[derive(Debug, Clone)]
@@ -577,6 +610,7 @@ pub enum JobPayload {
     ScriptHash { hash: ScriptHash, path: String },
     Code(RawCode),
     Dependencies { hash: ScriptHash, dependencies: String, language: ScriptLang },
+    FlowDependencies { path: String },
     Flow(String),
     RawFlow { value: FlowValue, path: Option<String> },
     Identity,
@@ -587,4 +621,5 @@ pub struct RawCode {
     pub content: String,
     pub path: Option<String>,
     pub language: ScriptLang,
+    pub lock: Option<String>,
 }

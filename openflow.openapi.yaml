@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.45.0
+  version: 1.46.2
   title: OpenFlow Spec
   contact:
     name: Ruben Fiszel
@@ -179,6 +179,8 @@ components:
             - go
             - bash
         path:
+          type: string
+        lock:
           type: string
         type:
           type: string

@@ -1619,9 +1619,9 @@ dependencies = [
 
 [[package]]
 name = "native-tls"
-version = "0.2.11"
+version = "0.2.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "07226173c32f2926027b63cce4bcd8076c3552846cbe7925f3aaffeac0a3b92e"
+checksum = "fd7e2f3618557f980e0b17e8856252eee3c97fa12c54dff0ca290fb6266ca4a9"
 dependencies = [
  "lazy_static",
  "libc",
@@ -2519,9 +2519,9 @@ dependencies = [
 
 [[package]]
 name = "scoped-tls"
-version = "1.0.1"
+version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e1cf6437eb19a8f4a6cc0f7dca544973b0b78843adbfeb3683d1a94a0024a294"
+checksum = "ea6a9290e3c9cf0f18145ef7ffa62d68ee0bf5fcd651017e586dc7fd5da448c2"
 
 [[package]]
 name = "scopeguard"
@@ -4023,7 +4023,7 @@ checksum = "712e227841d057c1ee1cd2fb22fa7e5a5461ae8e48fa2ca79ec42cfc1931183f"
 
 [[package]]
 name = "windmill"
-version = "1.45.0"
+version = "1.46.2"
 dependencies = [
  "anyhow",
  "axum",
@@ -4046,7 +4046,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-api"
-version = "1.45.0"
+version = "1.46.2"
 dependencies = [
  "anyhow",
  "argon2",
@@ -4071,6 +4071,7 @@ dependencies = [
  "serde",
  "serde_json",
  "serde_urlencoded",
+ "sha2 0.10.6",
  "sql-builder",
  "sqlx",
  "tempfile",
@@ -4095,7 +4096,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-api-client"
-version = "1.45.0"
+version = "1.46.2"
 dependencies = [
  "base64",
  "chrono",
@@ -4110,7 +4111,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-audit"
-version = "1.45.0"
+version = "1.46.2"
 dependencies = [
  "chrono",
  "serde",
@@ -4123,7 +4124,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-common"
-version = "1.45.0"
+version = "1.46.2"
 dependencies = [
  "anyhow",
  "axum",
@@ -4147,7 +4148,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser"
-version = "1.45.0"
+version = "1.46.2"
 dependencies = [
  "serde",
  "serde_json",
@@ -4155,7 +4156,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-bash"
-version = "1.45.0"
+version = "1.46.2"
 dependencies = [
  "anyhow",
  "itertools",
@@ -4169,7 +4170,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-go"
-version = "1.45.0"
+version = "1.46.2"
 dependencies = [
  "anyhow",
  "itertools",
@@ -4181,7 +4182,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-py"
-version = "1.45.0"
+version = "1.46.2"
 dependencies = [
  "anyhow",
  "itertools",
@@ -4196,7 +4197,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-ts"
-version = "1.45.0"
+version = "1.46.2"
 dependencies = [
  "anyhow",
  "deno_core",
@@ -4210,7 +4211,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-queue"
-version = "1.45.0"
+version = "1.46.2"
 dependencies = [
  "anyhow",
  "chrono",
@@ -4233,7 +4234,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-worker"
-version = "1.45.0"
+version = "1.46.2"
 dependencies = [
  "anyhow",
  "async-recursion",
