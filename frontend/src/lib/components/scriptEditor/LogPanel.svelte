@@ -66,9 +66,9 @@
 </Drawer>
 
 <Tabs bind:selected={selectedTab}>
-	<Tab value="logs"><span class="text-xs">Logs/Result</span></Tab>
-	<Tab value="history"><span class="text-xs">History</span></Tab>
-	<Tab value="last_save"><span class="text-xs">Last save</span></Tab>
+	<Tab value="logs" size="xs">Logs/Result</Tab>
+	<Tab value="history" size="xs">History</Tab>
+	<Tab value="last_save" size="xs">Last save</Tab>
 
 	<svelte:fragment slot="content">
 		<!--
