@@ -73,11 +73,17 @@
 	$: confirmationModalOpen = indexToRemove !== undefined
 </script>
 
-<div class="flex flex-col justify-between w-full">
-	<ul class="w-full">
-		{#if root}
+<div class="flex flex-col h-full">
+	{#if root}
+		<div class="flex-initial p-4 border-b">
 			<FlowSettingsItem />
-			<FlowInputsItem />
+		</div>
+	{/if}
+	<ul class="w-full flex-auto relative overflow-y-auto overflow-x-hidden p-4">
+		{#if root}
+			<li>
+				<FlowInputsItem />
+			</li>
 		{/if}
 
 		{#each modules as mod, index (mod.id ?? index)}
@@ -101,7 +107,9 @@
 		<InsertModuleButton on:click={() => insertNewModuleAtIndex(modules.length)} />
 	</ul>
 	{#if root}
-		<FlowErrorHandlerItem />
+		<div class="flex-none p-4 border-t">
+			<FlowErrorHandlerItem />
+		</div>
 	{/if}
 </div>
 
