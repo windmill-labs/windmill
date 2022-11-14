@@ -1322,6 +1322,7 @@ run();
                 .env_clear()
                 .envs(reserved_variables)
                 .env("PATH", path_env)
+                .env("DENO_DIR", DENO_CACHE_DIR)
                 .env("DENO_AUTH_TOKENS", deno_auth_tokens)
                 .env("BASE_INTERNAL_URL", base_internal_url)
                 .args(args)
