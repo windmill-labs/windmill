@@ -10,7 +10,7 @@
 <div class="h-full overflow-hidden border-t">
 	<Splitpanes>
 		<Pane size={25} minSize={20} class="h-full">
-			<div class="grow overflow-auto p-4 bg-gray h-full bg-gray-50 relative">
+			<div class="grow overflow-auto bg-gray h-full bg-gray-50 relative">
 				{#if $flowStore.value.modules}
 					<FlowModuleSchemaMap bind:modules={$flowStore.value.modules} root />
 				{/if}
