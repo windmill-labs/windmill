@@ -430,10 +430,7 @@ async fn execute_component(
             hm.insert(path, static_fields);
         } else {
             hm.insert(
-                format!(
-                    "rawcode/{}",
-                    digest(payload.raw_code.clone().unwrap().content.as_str())
-                ),
+                digest(payload.raw_code.clone().unwrap().content.as_str()),
                 static_fields,
             );
         }
