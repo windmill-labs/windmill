@@ -1,18 +1,16 @@
 <script lang="ts">
 	import { Job, JobService } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
-
 	import { onDestroy } from 'svelte'
-
 	import type { Preview } from '$lib/gen/models/Preview'
 	import { createEventDispatcher } from 'svelte'
-
-	const dispatch = createEventDispatcher()
 
 	export let isLoading = false
 	export let job: Job | undefined = undefined
 	export let workspaceOverride: string | undefined = undefined
 	export let notfound = false
+
+	const dispatch = createEventDispatcher()
 
 	$: workspace = workspaceOverride ?? $workspaceStore
 	let intervalId: NodeJS.Timer
@@ -20,12 +18,7 @@
 	let syncIteration: number = 0
 	let ITERATIONS_BEFORE_SLOW_REFRESH = 100
 
-	export async function runPreview(
-		path: string | undefined,
-		code: string,
-		lang: 'deno' | 'go' | 'python3' | 'bash',
-		args: Record<string, any>
-	): Promise<void> {
+	export async function abstractRun(fn: () => Promise<string>) {
 		try {
 			intervalId && clearInterval(intervalId)
 			if (isLoading && job) {
@@ -37,8 +30,49 @@
 			}
 			isLoading = true
 
-			const testId = await JobService.runScriptPreview({
-				workspace: workspace!,
+			const testId = await fn()
+			await watchJob(testId)
+		} catch (err) {
+			isLoading = false
+			throw err
+		}
+	}
+
+	export async function runScriptByPath(
+		path: string | undefined,
+		args: Record<string, any>
+	): Promise<void> {
+		abstractRun(() =>
+			JobService.runScriptByPath({
+				workspace: $workspaceStore!,
+				path: path ?? '',
+				requestBody: args
+			})
+		)
+	}
+
+	export async function runFlowByPath(
+		path: string | undefined,
+		args: Record<string, any>
+	): Promise<void> {
+		abstractRun(() =>
+			JobService.runFlowByPath({
+				workspace: $workspaceStore!,
+				path: path ?? '',
+				requestBody: args
+			})
+		)
+	}
+
+	export async function runPreview(
+		path: string | undefined,
+		code: string,
+		lang: 'deno' | 'go' | 'python3' | 'bash',
+		args: Record<string, any>
+	): Promise<void> {
+		abstractRun(() =>
+			JobService.runScriptPreview({
+				workspace: $workspaceStore!,
 				requestBody: {
 					path,
 					content: code,
@@ -46,11 +80,7 @@
 					language: lang as Preview.language
 				}
 			})
-			await watchJob(testId)
-		} catch (err) {
-			isLoading = false
-			throw err
-		}
+		)
 	}
 
 	export async function cancelJob() {
