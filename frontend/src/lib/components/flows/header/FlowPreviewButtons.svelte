@@ -15,6 +15,8 @@
 		'settings',
 		'settings-schedule',
 		'settings-retries',
+		'settings-same-worker',
+		'settings-graph',
 		'inputs',
 		'schedules',
 		'failure'
