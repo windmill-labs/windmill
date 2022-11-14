@@ -22,7 +22,7 @@
 		"@tailwindcss/typography": "^0.5.7",
 		"@types/vscode": "~1.73.0",
 		"@typescript-eslint/eslint-plugin": "^5.40.1",
-		"@typescript-eslint/parser": "^5.40.1",
+		"@typescript-eslint/parser": "^5.43.0",
 		"@zerodevx/svelte-toast": "^0.8.1",
 		"autoprefixer": "^10.4.13",
 		"cssnano": "^5.1.14",
