@@ -145,7 +145,7 @@ def get_result(job_id: str) -> Dict[str, Any]:
         return res.result.to_dict()  # type: ignore
 
 
-def get_resource(path: str | None) -> Any:
+def get_resource(path: str | None = None) -> Any:
     """
     Returns the resource at a given path as a python dict.
     """
@@ -172,7 +172,9 @@ def get_state() -> Any:
     return get_resource(None)
 
 
-def set_resource(value: Any, path: str | None, resource_type: str = "state") -> None:
+def set_resource(
+    value: Any, path: str | None = None, resource_type: str = "state"
+) -> None:
     """
     Set the resource at a given path as a string, creating it if it does not exist
     """
