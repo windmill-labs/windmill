@@ -158,11 +158,11 @@ export async function main() {
 
     // A common trigger script would follow this pattern:
     // 1. Get the last saved state
-    // const state = await wmill.getInternalState()
+    // const state = await wmill.getState()
     // 2. Get the actual state from the external service
     // const newState = await (await fetch('https://hacker-news.firebaseio.com/v0/topstories.json')).json()
     // 3. Compare the two states and update the internal state
-    // await wmill.setInternalState(newState)
+    // await wmill.setState(newState)
     // 4. Return the new rows
     // return range from (state to newState)
 
