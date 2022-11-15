@@ -281,8 +281,15 @@ async fn create_script(
         .map(|v| v.1.clone())
         .unwrap_or(json!({}));
 
-    let lock = ns.lock.as_ref().map(|x| x.join("\n"));
-    let lock = lock.and_then(|e| if e.is_empty() { None } else { Some(e) });
+    let lock = if ns.language == ScriptLang::Bash {
+        Some(String::new())
+    } else {
+        ns.lock
+            .as_ref()
+            .map(|x| x.join("\n"))
+            .and_then(|e| if e.is_empty() { None } else { Some(e) })
+    };
+
     let needs_lock_gen = lock.is_none();
     //::text::json is to ensure we use serde_json with preserve order
     sqlx::query!(
