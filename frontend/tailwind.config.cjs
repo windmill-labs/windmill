@@ -10,6 +10,7 @@ const config = {
 			current: 'currentcolor',
 			transparent: 'transparent',
 			white: '#ffffff',
+			black: 'rgb(48, 48, 48)',
 			gray: {
 				50: '#f9fafb',
 				100: '#f3f4f6',
@@ -328,11 +329,11 @@ const config = {
 					backgroundColor: theme('colors.blue.100'),
 					borderRadius: theme('borderRadius.DEFAULT')
 				},
-				'.text-blue-gradient': {
+				'.text-black-gradient': {
 					color: 'transparent',
 					backgroundClip: 'text',
-					backgroundImage: `linear-gradient(to right, ${theme('colors.blue.600')}, ${theme(
-						'colors.blue.500'
+					backgroundImage: `linear-gradient(to right, ${theme('colors.black')}, ${theme(
+						'colors.gray.600'
 					)})`
 				},
 				'.splitpanes__pane': {

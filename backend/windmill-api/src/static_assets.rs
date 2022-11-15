@@ -46,7 +46,11 @@ where
     }
 }
 
-fn serve_path(path: String, can_set_security_headers: bool, csp: Arc<ContentSecurityPolicy>) -> Response<BoxBody> {
+fn serve_path(
+    path: String,
+    can_set_security_headers: bool,
+    csp: Arc<ContentSecurityPolicy>,
+) -> Response<BoxBody> {
     if path.starts_with("api/") {
         return Response::builder()
             .status(404)
@@ -62,7 +66,7 @@ fn serve_path(path: String, can_set_security_headers: bool, csp: Arc<ContentSecu
                 res = res.header(header::CACHE_CONTROL, "max-age=31536000");
             } else if (mime.type_(), mime.subtype()) == (mime::TEXT, mime::CSS) {
                 res = res.header(header::CACHE_CONTROL, "max-age=31536000");
-            } else if (mime.type_()) == (mime::IMAGE) {
+            } else if (mime.type_()) == (mime::IMAGE) || (mime.type_()) == (mime::FONT) {
                 res = res.header(header::CACHE_CONTROL, "max-age=31536000");
             } else {
                 res = res.header(header::CACHE_CONTROL, "no-cache, no-store, must-revalidate");
