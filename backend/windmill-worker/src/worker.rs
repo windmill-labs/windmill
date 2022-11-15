@@ -26,9 +26,9 @@ use windmill_queue::{canceled_job_to_result, get_queued_job, pull, JobKind, Queu
 use serde_json::{json, Map, Value};
 
 use tokio::{
-    fs::{self, metadata, symlink, DirBuilder, File},
+    fs::{metadata, symlink, DirBuilder, File},
     io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader},
-    process::{self, Child, Command},
+    process::{Child, Command},
     sync::{
         mpsc::{self, Sender},
         oneshot, watch,
@@ -54,11 +54,12 @@ pub async fn create_periodic_job_background(
     periodic_script: Option<String>,
     num_workers: usize,
 ) -> mpsc::Sender<()> {
-    use tokio_stream::wrappers::ReceiverStream;
-
     const MAX_MINUTES: u64 = 60;
     const MAX_JOBS: u32 = 1000;
     let channel = mpsc::channel(num_workers * 2);
+    let _ = periodic_script; // disable warning for non-enterprise
+
+    use tokio_stream::wrappers::ReceiverStream;
 
     let periodic_script = match periodic_script {
         Some(s) => s,
@@ -91,6 +92,8 @@ pub async fn create_periodic_job_background(
             }),
         )
         .for_each(|()| async {
+            let _ = periodic_script;
+            #[cfg(feature = "enterprise")]
             run_periodic_jobs(&periodic_script).await;
         })
         .await;
@@ -100,7 +103,9 @@ pub async fn create_periodic_job_background(
     channel.0
 }
 
+#[cfg(feature = "enterprise")]
 async fn wait_write_lock() {
+    use tokio::fs;
     loop {
         match fs::read(WRITE_LOCK_PATH).await {
             Ok(contents) => {
@@ -126,7 +131,9 @@ async fn wait_write_lock() {
     }
 }
 
+#[cfg(feature = "enterprise")]
 async fn run_periodic_jobs(periodic_script: &str) {
+    use tokio::fs;
     tracing::info!("Running periodic jobs");
     wait_write_lock().await;
 
@@ -447,6 +454,7 @@ pub async fn run_worker(
 
             match next_job {
                 Ok(Some(job)) => {
+                    #[cfg(feature = "enterprise")]
                     let _ = job_completed_sender.send(()).await; // optionally notify sender, we don't care whether this worked
                     let label_values = [
                         &job.workspace_id,
@@ -911,6 +919,7 @@ async fn handle_code_execution_job(
     worker_config: &WorkerConfig,
     envs: &Envs,
 ) -> error::Result<serde_json::Value> {
+    #[cfg(feature = "enterprise")]
     wait_write_lock().await;
     let (inner_content, requirements_o, language) = match job.job_kind {
         JobKind::Preview | JobKind::Script_Hub => (
