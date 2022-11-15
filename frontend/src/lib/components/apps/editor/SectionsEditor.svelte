@@ -202,4 +202,19 @@
 			</section>
 		{/each}
 	</div>
+	{#if mode !== 'preview'}
+		<section>
+			<div class="h-80 border border-blue-500 border-dashed bg-white flex ">
+				<Button
+					btnClasses="m-auto"
+					color="dark"
+					size="sm"
+					startIcon={{ icon: faPlus }}
+					on:click={() => addEmptySection()}
+				>
+					Add
+				</Button>
+			</div>
+		</section>
+	{/if}
 </div>
