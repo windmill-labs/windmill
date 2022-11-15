@@ -37,10 +37,10 @@
 						close()
 					}}
 				>
-					<td class="text-gray-300 font-mono pl-4 pr-1 py-2 text-xs whitespace-nowrap"
+					<td class="text-gray-500 font-mono pl-4 pr-1 py-2 text-xs whitespace-nowrap"
 						>{workspace.id}</td
 					>
-					<td class="text-gray-500 pr-4 py-2 w-full">{workspace.name}</td>
+					<td class="text-gray-700 pr-4 py-2 w-full">{workspace.name}</td>
 				</tr>
 			{/each}
 		</table>

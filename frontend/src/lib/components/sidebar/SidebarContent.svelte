@@ -54,19 +54,20 @@
 
 <div class="flex-1 flex flex-col py-4 overflow-x-hidden scrollbar-hidden">
 	<nav class="h-full flex justify-between flex-col px-2">
-		<div class="space-y-2">
+		<div class="space-y-1">
 			{#each mainMenuLinks as menuLink}
-				<MenuLink {...menuLink} {isCollapsed} />
+				<MenuLink class="text-lg" {...menuLink} {isCollapsed} />
 			{/each}
 			<div class="h-8" />
 			{#each secondaryMenuLinks as menuLink}
-				<MenuLink {...menuLink} {isCollapsed} />
+				<MenuLink class="text-xs" {...menuLink} {isCollapsed} />
 			{/each}
 		</div>
 
-		<div class="space-y-2">
+		<div class="space-1-2">
+			<div class="h-4" />
 			{#each thirdMenuLinks as menuLink}
-				<MenuLink {...menuLink} {isCollapsed} />
+				<MenuLink class="text-xs" {...menuLink} {isCollapsed} />
 			{/each}
 		</div>
 	</nav>

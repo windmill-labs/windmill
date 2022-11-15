@@ -60,7 +60,7 @@
 	<div class="space-y-12">
 		<div>
 			<h2 class="border-b mb-4 py-2">
-				<span class="text-blue-gradient">Scripts</span>
+				<span class="text-black-gradient">Scripts</span>
 			</h2>
 			<ScriptGettingStarted />
 
@@ -93,7 +93,7 @@
 		</div>
 		<div>
 			<h2 class="border-b mb-4 py-2">
-				<span class="text-blue-gradient">Flows</span>
+				<span class="text-black-gradient">Flows</span>
 			</h2>
 			<FlowGettingStarted />
 			<div class="mt-6 mb-2 text-md font-bold text-gray-900 ">Latest flows:</div>
@@ -126,7 +126,7 @@
 		</div>
 		<div>
 			<h2 class="border-b mb-4 py-2">
-				<span class="text-blue-gradient">Resources</span>
+				<span class="text-black-gradient">Resources</span>
 			</h2>
 
 			{#if resources.length === 0}
@@ -135,7 +135,7 @@
 		</div>
 		<div>
 			<h2 class="border-b mb-4 py-2">
-				<span class="text-blue-gradient">Runs</span>
+				<span class="text-black-gradient">Runs</span>
 			</h2>
 
 			<div class="grid grid-cols-1 gap-4 my-4">
