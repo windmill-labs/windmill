@@ -6,6 +6,7 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
+use const_format::concatcp;
 use itertools::Itertools;
 use sqlx::{Pool, Postgres, Transaction};
 use std::{
@@ -25,9 +26,9 @@ use windmill_queue::{canceled_job_to_result, get_queued_job, pull, JobKind, Queu
 use serde_json::{json, Map, Value};
 
 use tokio::{
-    fs::{metadata, symlink, DirBuilder, File},
+    fs::{self, metadata, symlink, DirBuilder, File},
     io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader},
-    process::{Child, Command},
+    process::{self, Child, Command},
     sync::{
         mpsc::{self, Sender},
         oneshot, watch,
@@ -91,8 +92,65 @@ pub async fn create_periodic_job_background(num_workers: usize) -> mpsc::Sender<
     channel.0
 }
 
+async fn wait_write_lock() {
+    loop {
+        match fs::read(WRITE_LOCK_PATH).await {
+            Ok(contents) => {
+                let pid = String::from_utf8(contents).unwrap().parse::<u32>().unwrap();
+                loop {
+                    match fs::File::open(format!("/proc/{}", pid)).await {
+                        Ok(h) => {
+                            drop(h);
+                            // pid still exists...
+                            tokio::time::sleep(Duration::from_millis(250)).await;
+                        }
+                        Err(_) => {
+                            // process is gone, but forgot lock....
+                            tracing::warn!("Lock file exists but process does not. Cleaning up.");
+                            let _ = fs::remove_file(WRITE_LOCK_PATH).await;
+                            break;
+                        }
+                    }
+                }
+            }
+            Err(_) => return, // no file exists
+        }
+    }
+}
+
 async fn run_periodic_jobs() {
     tracing::info!("Running periodic jobs");
+    wait_write_lock().await;
+
+    const PERIODIC_FILENAME: &str = "./periodic";
+
+    match Command::new("/usr/bin/bash")
+        .env_clear()
+        .current_dir(std::env::current_dir().unwrap())
+        .env("BASH_ENV", "/dev/stdin")
+        .arg("-c")
+        .arg(PERIODIC_FILENAME)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::null())
+        .spawn()
+    {
+        Ok(mut h) => {
+            let mut stdin = h.stdin.take().unwrap();
+
+            fs::write(WRITE_LOCK_PATH, h.id().unwrap().to_string())
+                .await
+                .unwrap();
+
+            stdin.write_all(b"echo $PWD").await.unwrap();
+            stdin.shutdown().await.unwrap();
+            drop(stdin);
+
+            h.wait().await.unwrap();
+
+            fs::remove_file(WRITE_LOCK_PATH).await.unwrap();
+        }
+        Err(e) => tracing::warn!("Failed to run periodic job. Error: {:?}", e),
+    }
 }
 
 #[tracing::instrument(level = "trace", skip_all)]
@@ -158,9 +216,11 @@ pub async fn create_token_for_owner<'c>(
 
 const TMP_DIR: &str = "/tmp/windmill";
 const PIP_SUPERCACHE_DIR: &str = "/tmp/windmill/cache/pip_permanent";
-const PIP_CACHE_DIR: &str = "/tmp/windmill/cache/pip";
-const DENO_CACHE_DIR: &str = "/tmp/windmill/cache/deno";
-const GO_CACHE_DIR: &str = "/tmp/windmill/cache/go";
+const ROOT_CACHE_DIR: &str = "/tmp/windmill/cache/";
+const PIP_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "pip");
+const DENO_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "deno");
+const GO_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "go");
+const WRITE_LOCK_PATH: &str = concatcp!(ROOT_CACHE_DIR, ".write-lock");
 const NUM_SECS_ENV_CHECK: u64 = 15;
 const DEFAULT_HEAVY_DEPS: [&str; 18] = [
     "numpy",
@@ -845,6 +905,7 @@ async fn handle_code_execution_job(
     worker_config: &WorkerConfig,
     envs: &Envs,
 ) -> error::Result<serde_json::Value> {
+    wait_write_lock().await;
     let (inner_content, requirements_o, language) = match job.job_kind {
         JobKind::Preview | JobKind::Script_Hub => (
             job.raw_code
