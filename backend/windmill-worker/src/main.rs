@@ -81,6 +81,10 @@ async fn main() -> anyhow::Result<()> {
             .ok()
             .and_then(|x| x.parse::<bool>().ok())
             .unwrap_or(false);
+        let periodic_script = std::env::var("PERIODIC_SCRIPT")
+            .ok()
+            .map(|e| Some(e))
+            .unwrap_or(None);
 
         tracing::info!(
             "DISABLE_NSJAIL: {disable_nsjail}, DISABLE_NUSER: {disable_nuser}, BASE_URL: \
@@ -95,7 +99,7 @@ async fn main() -> anyhow::Result<()> {
                 tracing::warn!(error = e.to_string(), "failed to get external IP");
                 "unretrievable IP".to_string()
             });
-        let sender = windmill_worker::create_periodic_job_background(1).await;
+        let sender = windmill_worker::create_periodic_job_background(periodic_script, 1).await;
         let worker_name = format!("dt-worker-{}-{}", &instance_name, rd_string(5));
         windmill_worker::run_worker(
             &db.clone(),

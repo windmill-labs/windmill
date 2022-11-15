@@ -87,6 +87,10 @@ async fn main() -> anyhow::Result<()> {
                     .ok()
                     .and_then(|x| x.parse::<bool>().ok())
                     .unwrap_or(false);
+                let periodic_script = std::env::var("PERIODIC_SCRIPT")
+                    .ok()
+                    .map(|e| Some(e))
+                    .unwrap_or(None);
 
                 tracing::info!(
                     "DISABLE_NSJAIL: {disable_nsjail}, DISABLE_NUSER: {disable_nuser}, BASE_URL: \
@@ -107,6 +111,7 @@ async fn main() -> anyhow::Result<()> {
                         keep_job_dir,
                     },
                     rx.resubscribe(),
+                    periodic_script,
                 )
                 .await?;
             }
@@ -160,6 +165,7 @@ pub async fn run_workers(
     sleep_queue: u64,
     worker_config: WorkerConfig,
     rx: tokio::sync::broadcast::Receiver<()>,
+    periodic_script: Option<String>,
 ) -> anyhow::Result<()> {
     let instance_name = rd_string(5);
     let monitor = tokio_metrics::TaskMonitor::new();
@@ -171,7 +177,9 @@ pub async fn run_workers(
             "unretrievable IP".to_string()
         });
 
-    let sender = windmill_worker::create_periodic_job_background(num_workers as usize).await;
+    let sender =
+        windmill_worker::create_periodic_job_background(periodic_script, num_workers as usize)
+            .await;
     let mut handles = Vec::with_capacity(num_workers as usize);
 
     for i in 1..(num_workers + 1) {

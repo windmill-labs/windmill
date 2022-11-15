@@ -50,12 +50,20 @@ use crate::{
     },
 };
 
-pub async fn create_periodic_job_background(num_workers: usize) -> mpsc::Sender<()> {
+pub async fn create_periodic_job_background(
+    periodic_script: Option<String>,
+    num_workers: usize,
+) -> mpsc::Sender<()> {
     use tokio_stream::wrappers::ReceiverStream;
 
     const MAX_MINUTES: u64 = 60;
     const MAX_JOBS: u32 = 1000;
     let channel = mpsc::channel(num_workers * 2);
+
+    let periodic_script = match periodic_script {
+        Some(s) => s,
+        None => return channel.0, // receiver will be dopped, so send would error, but this is handled
+    };
     let mut interval = interval(Duration::from_secs(60 * MAX_MINUTES));
     tokio::spawn(async move {
         let count = std::sync::Arc::new(std::sync::Mutex::new(std::cell::RefCell::new(0u32)));
@@ -83,7 +91,7 @@ pub async fn create_periodic_job_background(num_workers: usize) -> mpsc::Sender<
             }),
         )
         .for_each(|()| async {
-            run_periodic_jobs().await;
+            run_periodic_jobs(&periodic_script).await;
         })
         .await;
         unreachable!("No more periodic jobs are run. This should never happen. Both the interval and all workers sender have been dropped!!");
@@ -118,18 +126,16 @@ async fn wait_write_lock() {
     }
 }
 
-async fn run_periodic_jobs() {
+async fn run_periodic_jobs(periodic_script: &str) {
     tracing::info!("Running periodic jobs");
     wait_write_lock().await;
-
-    const PERIODIC_FILENAME: &str = "./periodic";
 
     match Command::new("/usr/bin/bash")
         .env_clear()
         .current_dir(std::env::current_dir().unwrap())
         .env("BASH_ENV", "/dev/stdin")
         .arg("-c")
-        .arg(PERIODIC_FILENAME)
+        .arg(periodic_script)
         .stdin(Stdio::piped())
         .stdout(Stdio::null())
         .spawn()
