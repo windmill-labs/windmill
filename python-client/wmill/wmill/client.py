@@ -273,7 +273,7 @@ def _transform_leaves(d: Dict[str, Any]) -> Dict[str, Any]:
 
 def _transform_leaf(v: Any) -> Any:
     if isinstance(v, dict):
-        return Client._transform_leaves(v)  # type: ignore
+        return _transform_leaves(v)  # type: ignore
     elif isinstance(v, str):
         if v.startswith(VAR_RESOURCE_PREFIX):
             var_name = v[len(VAR_RESOURCE_PREFIX) :]
