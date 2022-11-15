@@ -161,17 +161,15 @@ def get_resource(path: str | None) -> Any:
     if isinstance(parsed.value, Unset):
         return {}
 
-    raw_dict = parsed.value
-    res = _transform_leaves(raw_dict)
-
-    return res
+    raw = parsed.value
+    return _transform_leaf(raw)
 
 
 def get_state() -> Any:
     """
     Get the state
     """
-    get_resource(None)
+    return get_resource(None)
 
 
 def set_resource(value: Any, path: str | None, resource_type: str = "state") -> None:
