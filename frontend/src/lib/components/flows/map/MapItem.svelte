@@ -22,8 +22,8 @@
 		suspend: Boolean(mod.suspend)
 	}
 
-	function onDelete(event: CustomEvent<CustomEvent<MouseEvent>>) {
-		dispatch('delete', event.detail)
+	function onDelete(event: CustomEvent<MouseEvent>) {
+		dispatch('delete', event)
 	}
 </script>
 
@@ -45,8 +45,8 @@
 			</FlowModuleSchemaItem>
 			<div class="flex flex-row w-full">
 				<div class="w-7 shrink-0 line" />
-				<div class="grow my-4 overflow-auto">
-					<div class="w-full pr-1">
+				<div class="grow my-1 overflow-auto">
+					<div class="w-full">
 						<FlowModuleSchemaMap bind:modules={mod.value.modules} color="orange" />
 					</div>
 				</div>
