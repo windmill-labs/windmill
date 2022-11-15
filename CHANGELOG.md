@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [1.47.1](https://github.com/windmill-labs/windmill/compare/v1.47.0...v1.47.1) (2022-11-15)
+
+
+### Bug Fixes
+
+* **python-client:** fix set_resource ([a6a5ada](https://github.com/windmill-labs/windmill/commit/a6a5adadf45f6334eaf17f59985c0e7870f25167))
+
 ## [1.47.0](https://github.com/windmill-labs/windmill/compare/v1.46.2...v1.47.0) (2022-11-15)
 
 
