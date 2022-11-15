@@ -8,7 +8,9 @@
 
 use itertools::Itertools;
 use sqlx::{Pool, Postgres, Transaction};
-use std::{borrow::Borrow, collections::HashMap, io, panic, process::Stdio, time::Duration};
+use std::{
+    borrow::Borrow, collections::HashMap, io, panic, process::Stdio, task::Poll, time::Duration,
+};
 use tracing::{trace_span, Instrument};
 use uuid::Uuid;
 use windmill_common::{
@@ -35,7 +37,7 @@ use tokio::{
 
 use futures::{
     future::{self, ready, FutureExt},
-    stream::{self, StreamExt},
+    stream, StreamExt,
 };
 
 use async_recursion::async_recursion;
@@ -46,6 +48,52 @@ use crate::{
         handle_flow, update_flow_status_after_job_completion, update_flow_status_in_progress,
     },
 };
+
+pub async fn create_periodic_job_background(num_workers: usize) -> mpsc::Sender<()> {
+    use tokio_stream::wrappers::ReceiverStream;
+
+    const MAX_MINUTES: u64 = 60;
+    const MAX_JOBS: u32 = 1000;
+    let channel = mpsc::channel(num_workers * 2);
+    let mut interval = interval(Duration::from_secs(60 * MAX_MINUTES));
+    tokio::spawn(async move {
+        let count = std::sync::Arc::new(std::sync::Mutex::new(std::cell::RefCell::new(0u32)));
+        tokio_stream::StreamExt::merge(
+            ReceiverStream::new(channel.1).filter_map(|()| {
+                // this is completely safe, and should never panic.
+                // Stream guarantees are so that the future returned below may
+                // be executed in parallel, but the function creation the future may not.
+                // The lock is therefor never held by more then one function
+                // And using this across threads is fully safe.
+                let lock = count.lock().unwrap();
+                let mut m = lock.borrow_mut();
+                *m += 1;
+                if *m >= MAX_JOBS {
+                    *m = 0;
+                    future::ready(Some(()))
+                } else {
+                    future::ready(None)
+                }
+            }),
+            // we could use an IntervalStream here, but that takes ownership of the interval.
+            stream::poll_fn(|cx| match interval.poll_tick(cx) {
+                Poll::Ready(_) => Poll::Ready(Some(())),
+                Poll::Pending => Poll::Pending,
+            }),
+        )
+        .for_each(|()| async {
+            run_periodic_jobs().await;
+        })
+        .await;
+        unreachable!("No more periodic jobs are run. This should never happen. Both the interval and all workers sender have been dropped!!");
+    });
+
+    channel.0
+}
+
+async fn run_periodic_jobs() {
+    tracing::info!("Running periodic jobs");
+}
 
 #[tracing::instrument(level = "trace", skip_all)]
 pub async fn create_token_for_owner<'c>(
@@ -192,6 +240,7 @@ pub async fn run_worker(
     ip: &str,
     sleep_queue: u64,
     worker_config: WorkerConfig,
+    job_completed_sender: mpsc::Sender<()>,
     mut rx: tokio::sync::broadcast::Receiver<()>,
 ) {
     let start_time = Instant::now();
@@ -332,6 +381,7 @@ pub async fn run_worker(
 
             match next_job {
                 Ok(Some(job)) => {
+                    let _ = job_completed_sender.send(()).await; // optionally notify sender, we don't care whether this worked
                     let label_values = [
                         &job.workspace_id,
                         job.language.as_ref().map(|l| l.as_str()).unwrap_or(""),

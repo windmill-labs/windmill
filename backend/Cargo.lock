@@ -4251,6 +4251,7 @@ dependencies = [
  "serde_json",
  "sqlx",
  "tokio",
+ "tokio-stream",
  "tracing",
  "uuid",
  "windmill-api-client",

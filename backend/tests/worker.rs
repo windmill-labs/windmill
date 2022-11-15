@@ -1,6 +1,7 @@
 use futures::{stream, Stream};
 use serde_json::json;
 use sqlx::{postgres::PgListener, types::Uuid, Pool, Postgres, Transaction};
+use tokio::sync::mpsc;
 use windmill_api::jobs::{CompletedJob, Job};
 use windmill_common::{
     flow_status::{FlowStatus, FlowStatusModule},
@@ -921,6 +922,7 @@ fn spawn_test_worker(
             .and_then(|x| x.parse::<bool>().ok())
             .unwrap_or(false),
     };
+    let (sender, _receiver) = mpsc::channel(1);
     let future = async move {
         windmill_worker::run_worker(
             &db,
@@ -932,6 +934,7 @@ fn spawn_test_worker(
             ip,
             sleep_queue,
             worker_config,
+            sender,
             rx,
         )
         .await
