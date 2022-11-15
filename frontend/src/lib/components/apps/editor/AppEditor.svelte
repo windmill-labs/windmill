@@ -57,8 +57,8 @@
 	</Pane>
 	<Pane minSize={40} maxSize={50} size={30}>
 		<Tabs selected="settings">
-			<Tab value="settings" size="md">Settings</Tab>
-			<Tab value="insert" size="md">Insert</Tab>
+			<Tab value="settings" size="xs"><div class="m-1">Settings</div></Tab>
+			<Tab value="insert" size="xs"><div class="m-1">Insert</div></Tab>
 			<svelte:fragment slot="content">
 				<TabContent value="settings">
 					{#if $selection?.sectionIndex !== undefined && $selection?.componentIndex !== undefined}

@@ -41,6 +41,29 @@
 			</span>
 		{/if}
 
+		{#if selected}
+			<div
+				class={classNames(
+					'absolute top-1/2 h-8 w-2 rounded-sm -left-1 cursor-col-resize',
+					selected ? 'bg-indigo-500' : 'bg-gray-500'
+				)}
+				draggable="true"
+				id="left"
+				on:dragstart|stopPropagation|capture|preventDefault={(e) => {
+					debugger
+				}}
+			/>
+			<span
+				class={classNames(
+					'absolute top-1/2 h-8 w-2 rounded-sm -right-1 cursor-col-resize',
+					selected ? 'bg-indigo-500' : 'bg-gray-500'
+				)}
+				on:dragstart|stopPropagation|preventDefault={(e) => {
+					console.log(e)
+				}}
+			/>
+		{/if}
+
 		<div
 			class={classNames(
 				'p-2 border border-white overflow-auto cursor-pointer hover:border-blue-500 h-full bg-white',

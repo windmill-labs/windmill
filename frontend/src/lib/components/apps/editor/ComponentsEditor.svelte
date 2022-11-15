@@ -5,24 +5,33 @@
 	import { dndzone } from 'svelte-dnd-action'
 	import { flip } from 'svelte/animate'
 	import { classNames } from '$lib/utils'
-	import { getNextId } from '$lib/components/flows/flowStateUtils'
-	import { Button, Drawer, DrawerContent } from '$lib/components/common'
+	import { Button } from '$lib/components/common'
 	import { faPlus } from '@fortawesome/free-solid-svg-icons'
-	import ComponentList from './componentsPanel/ComponentList.svelte'
 
 	export let components: AppComponent[]
 	export let sectionIndex: number
 	export let columns: number
 
 	const flipDurationMs = 200
-	const { selection, connectingInput, resizing } = getContext<AppEditorContext>('AppEditorContext')
+	const { selection, connectingInput, resizing, app } =
+		getContext<AppEditorContext>('AppEditorContext')
 
 	function handleDndConsider(event: CustomEvent<DndEvent<AppComponent>>) {
-		components = event.detail.items
+		components = event.detail.items.map((c) => {
+			return {
+				...c,
+				width: Math.round(100 / event.detail.items.length)
+			}
+		})
 	}
 
 	function handleDndFinalize(event: CustomEvent<DndEvent<AppComponent>>) {
-		components = event.detail.items
+		components = event.detail.items.map((c) => {
+			return {
+				...c,
+				width: Math.round(100 / event.detail.items.length)
+			}
+		})
 	}
 
 	// HACK
@@ -138,82 +147,9 @@
 		99: 'w-[99%]',
 		100: 'w-[100%]'
 	}
-
-	$: sum = components.reduce((acc, component) => acc + component.width, 0)
-	$: canDrop = components.length > 0 && components.length < columns
-
-	let componentInsertionOpen: boolean = false
-
-	function openComponentList() {
-		componentInsertionOpen = true
-	}
-
-	function insertComponent(appComponent: AppComponent) {
-		if (componentInsertionOpen) {
-			const id = getNextId(components.map((c) => c.id))
-
-			components.push({
-				...appComponent,
-				id,
-				width: 100
-			})
-
-			components.map((component) => {
-				component.width = Math.round(100 / components.length)
-			})
-
-			components = components
-
-			componentInsertionOpen = false
-		}
-	}
-
-	/**
-	 * 
-	 * 	{#each components as component, index}
-			{#if $selection?.componentIndex === index}
-				<div
-					class={classNames(
-						'h-full absolute ',
-						numberToTailwindWidthMap[
-							components.slice(0, index + 1).reduce((acc, component) => acc + component.width, 0)
-						]
-					)}
-				>
-					<div
-						class="h-10 w-2 bg-blue-500 top-1/2 right-0 absolute z-50 rounded-md cursor-col-resize"
-						draggable="true"
-						on:dragstart={(event) => {
-							console.log(event.offsetX)
-							component.width += event.offsetX
-							components[index + 1].width -= event.offsetX
-
-							component = component
-							components = components
-						}}
-						on:mouseenter={() => {
-							$resizing = true
-						}}
-					/>
-				</div>
-			{/if}
-		{/each}
-		
-	*/
 </script>
 
-<Drawer bind:open={componentInsertionOpen} size="800px">
-	<DrawerContent
-		title="Insert component"
-		on:close={() => {
-			componentInsertionOpen = false
-		}}
-	>
-		<ComponentList on:pick={(event) => insertComponent(event.detail)} />
-	</DrawerContent>
-</Drawer>
-
-<div class="h-80 rounded-b-sm flex-row  flex bg-white cursor-pointer ">
+<div class="rounded-b-sm flex-row  flex bg-white cursor-pointer ">
 	<div class="flex flex-row w-full">
 		<div
 			class={classNames('flex w-full gap-2 hover:bg-blue-100 p-4 rounded-md')}
@@ -250,21 +186,6 @@
 						/>
 					</div>
 				{/each}
-			{:else}
-				<div class="flex w-full gap-1">
-					{#each Array(columns - components.length) as _, index}
-						<div
-							class="border flex justify-center flex-col items-center w-full bg-blue-100 bg-opacity-50"
-						>
-							<Button
-								on:click={() => openComponentList()}
-								color="dark"
-								size="xs"
-								startIcon={{ icon: faPlus }}>Add</Button
-							>
-						</div>
-					{/each}
-				</div>
 			{/if}
 		</div>
 	</div>

@@ -24,7 +24,7 @@
 </script>
 
 {#if $worldStore}
-	<div class="border flex flex-col h-full shadow-sm rounded-sm">
+	<div class="border flex flex-col h-64 shadow-sm rounded-sm">
 		<div class="w-full border-b px-2 text-xs p-1 font-semibold bg-gray-500 text-white rounded-t-sm">
 			Results
 		</div>
