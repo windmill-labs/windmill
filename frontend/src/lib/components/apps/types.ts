@@ -31,6 +31,10 @@ export type AppInputTransform = DynamicInput | StaticInput | UserInput
 export type InputsSpec = Record<FieldID, AppInputTransform>
 export type ComponentInputsSpec = Record<FieldID, DynamicInput>
 
+export type TextComponent = {
+	type: 'textcomponent'
+}
+
 export type TextInputComponent = {
 	type: 'textinputcomponent'
 }
@@ -68,6 +72,7 @@ export type AppComponent =
 			| TextInputComponent
 			| BarChartComponent
 			| TableComponent
+			| TextComponent
 	  ) & {
 			id: ComponentID
 			title: string

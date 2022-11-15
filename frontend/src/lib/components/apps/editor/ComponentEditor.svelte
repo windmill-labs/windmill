@@ -6,6 +6,7 @@
 	import DisplayComponent from '../components/DisplayComponent.svelte'
 	import RunFormComponent from '../components/RunFormComponent.svelte'
 	import TableComponent from '../components/TableComponent.svelte'
+	import TextComponent from '../components/TextComponent.svelte'
 	import type { AppComponent, AppEditorContext } from '../types'
 	import { displayData } from '../utils'
 
@@ -63,7 +64,7 @@
 					selected ? 'bg-indigo-500' : 'bg-gray-500'
 				)}
 			>
-				{displayData[component.type].name}
+				{displayData[component.type].name} - {component.id}
 			</span>
 		{/if}
 
@@ -98,6 +99,12 @@
 				<BarChartComponent {...component} bind:staticOutputs={$staticOutputs[component.id]} />
 			{:else if component.type === 'tablecomponent'}
 				<TableComponent {...component} bind:staticOutputs={$staticOutputs[component.id]} />
+			{:else if component.type === 'textcomponent'}
+				<TextComponent
+					{...component}
+					bind:staticOutputs={$staticOutputs[component.id]}
+					bind:inputs={component.inputs}
+				/>
 			{/if}
 		</div>
 	</div>

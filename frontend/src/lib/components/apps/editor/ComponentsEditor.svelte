@@ -5,13 +5,14 @@
 	import { dndzone } from 'svelte-dnd-action'
 	import { flip } from 'svelte/animate'
 	import { classNames } from '$lib/utils'
+	import { getNextId } from '$lib/components/flows/flowStateUtils'
 
 	export let components: AppComponent[]
 	export let sectionIndex: number
 	export let columns: number
 
 	const flipDurationMs = 200
-	const { selection, connectingInput, resizing, mode } =
+	const { selection, connectingInput, resizing, mode, app } =
 		getContext<AppEditorContext>('AppEditorContext')
 
 	function handleDndConsider(event: CustomEvent<DndEvent<AppComponent>>) {

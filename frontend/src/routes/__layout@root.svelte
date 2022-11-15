@@ -61,7 +61,7 @@
 		>
 			<div
 				class={classNames(
-					'fixed inset-0 bg-black bg-opacity-75 transition-opacity ease-linear duration-300 z-40',
+					'fixed inset-0 bg-gray-800 bg-opacity-75 transition-opacity ease-linear duration-300 z-40',
 					menuOpen ? 'opacity-100' : 'opacity-0'
 				)}
 			/>
@@ -99,7 +99,7 @@
 							</svg>
 						</button>
 					</div>
-					<div class="bg-black h-full">
+					<div class="bg-gray-800 h-full">
 						<div
 							class="flex items-center gap-x-2 flex-shrink-0 p-4 font-extrabold text-white w-10"
 							class:w-40={!isCollapsed}
@@ -128,7 +128,7 @@
 				isCollapsed ? 'md:w-12' : 'md:w-40'
 			)}
 		>
-			<div class="flex-1 flex flex-col min-h-0 shadow-lg bg-black">
+			<div class="flex-1 flex flex-col min-h-0 shadow-lg bg-gray-800">
 				<button
 					on:click={() => {
 						isCollapsed = !isCollapsed

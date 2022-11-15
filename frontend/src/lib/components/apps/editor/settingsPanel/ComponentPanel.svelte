@@ -27,7 +27,7 @@
 			<span class="text-sm border-y w-full py-1 px-2 bg-gray-800 text-white">Component editor</span>
 
 			<PanelSection title="Inputs">
-				{#if component.type === 'runformcomponent'}
+				{#if component.inputs}
 					<InputsSpecsEditor bind:inputSpecs={component.inputs} />
 				{/if}
 
@@ -52,7 +52,7 @@
 					/>
 				{/if}
 
-				{#if component.type === 'displaycomponent' && component.componentInputs}
+				{#if component.componentInputs}
 					<ComponentInputsSpecsEditor bind:componentInputs={component.componentInputs} />
 				{/if}
 			</PanelSection>

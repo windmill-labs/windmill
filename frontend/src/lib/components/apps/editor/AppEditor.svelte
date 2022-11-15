@@ -59,7 +59,7 @@
 		$worldStore = buildWorld($staticOutputs)
 	})
 
-	let selectedTab = 'insert'
+	let selectedTab = 'settings'
 </script>
 
 <AppEditorHeader title={app.title} bind:mode={$mode} />
@@ -67,63 +67,65 @@
 	<Pane>
 		<SectionsEditor bind:sections={$appStore.sections} mode={$mode} />
 	</Pane>
-	<Pane minSize={40} maxSize={50} size={30}>
-		<Tabs selected={selectedTab}>
-			<Tab value="insert" size="xs">
-				<div class="m-1 flex flex-row gap-2">
-					<Icon data={faPlus} />
-					<span>Insert</span>
-				</div>
-			</Tab>
-			<Tab value="settings" size="xs">
-				<div class="m-1 flex flex-row gap-2">
-					<Icon data={faSliders} />
-					<span>Settings</span>
-				</div>
-			</Tab>
-			<svelte:fragment slot="content">
-				<TabContent value="settings">
-					{#if $selection?.sectionIndex !== undefined && $selection?.componentIndex !== undefined}
-						<ComponentPanel
-							bind:component={$appStore.sections[$selection?.sectionIndex].components[
-								$selection?.componentIndex
-							]}
-							on:remove={() => {
-								if (
-									$selection?.sectionIndex !== undefined &&
-									$selection?.componentIndex !== undefined
-								) {
-									$appStore.sections[$selection?.sectionIndex].components.splice(
-										$selection?.componentIndex,
-										1
-									)
+	{#if $mode !== 'preview'}
+		<Pane size={30} minSize={30} maxSize={50}>
+			<Tabs selected={selectedTab}>
+				<Tab value="insert" size="xs">
+					<div class="m-1 flex flex-row gap-2">
+						<Icon data={faPlus} />
+						<span>Insert</span>
+					</div>
+				</Tab>
+				<Tab value="settings" size="xs">
+					<div class="m-1 flex flex-row gap-2">
+						<Icon data={faSliders} />
+						<span>Settings</span>
+					</div>
+				</Tab>
+				<svelte:fragment slot="content">
+					<TabContent value="settings">
+						{#if $selection?.sectionIndex !== undefined && $selection?.componentIndex !== undefined}
+							<ComponentPanel
+								bind:component={$appStore.sections[$selection?.sectionIndex].components[
+									$selection?.componentIndex
+								]}
+								on:remove={() => {
+									if (
+										$selection?.sectionIndex !== undefined &&
+										$selection?.componentIndex !== undefined
+									) {
+										$appStore.sections[$selection?.sectionIndex].components.splice(
+											$selection?.componentIndex,
+											1
+										)
 
-									$appStore = $appStore
-									$selection = undefined
-								}
-							}}
-						/>
-					{/if}
-					{#if $selection?.sectionIndex !== undefined}
-						<SectionPanel
-							bind:section={$appStore.sections[$selection.sectionIndex]}
-							on:remove={() => {
-								if ($selection?.sectionIndex !== undefined) {
-									$appStore.sections.splice($selection?.sectionIndex, 1)
-									$appStore = $appStore
-									$selection = undefined
-								}
-							}}
-						/>
-					{/if}
-					{#if $selection === undefined}
-						<div class="p-4 text-sm">No component selected.</div>
-					{/if}
-				</TabContent>
-				<TabContent value="insert">
-					<ComponentList />
-				</TabContent>
-			</svelte:fragment>
-		</Tabs>
-	</Pane>
+										$appStore = $appStore
+										$selection = undefined
+									}
+								}}
+							/>
+						{/if}
+						{#if $selection?.sectionIndex !== undefined}
+							<SectionPanel
+								bind:section={$appStore.sections[$selection.sectionIndex]}
+								on:remove={() => {
+									if ($selection?.sectionIndex !== undefined) {
+										$appStore.sections.splice($selection?.sectionIndex, 1)
+										$appStore = $appStore
+										$selection = undefined
+									}
+								}}
+							/>
+						{/if}
+						{#if $selection === undefined}
+							<div class="p-4 text-sm">No component selected.</div>
+						{/if}
+					</TabContent>
+					<TabContent value="insert">
+						<ComponentList />
+					</TabContent>
+				</svelte:fragment>
+			</Tabs>
+		</Pane>
+	{/if}
 </SplitPanesWrapper>

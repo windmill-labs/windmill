@@ -42,7 +42,14 @@
 			...defaultProps,
 			// Used by the dnd library, should be replaced by unique id
 			id: 'textcomponent',
-			type: 'textcomponent'
+			type: 'textcomponent',
+			inputs: {
+				content: {
+					type: 'static',
+					visible: true,
+					value: 'Lorem ipsum'
+				}
+			}
 		},
 		{
 			...defaultProps,
@@ -101,7 +108,7 @@
 >
 	{#each items as item (item.id)}
 		<div
-			class="border shadow-sm h-24 p-2 flex flex-col gap-2 items-center justify-center bg-white rounded-md scale-100 hover:scale-105 ease-in duration-100"
+			class="border shadow-sm h-24 p-2 flex flex-col gap-2 items-center justify-center bg-white rounded-md scale-100 hover:scale-105 ease-in duration-75"
 			animate:flip={{ duration: flipDurationMs }}
 		>
 			<Icon data={displayData[item.type].icon} scale={1.6} class="text-blue-800" />
@@ -117,7 +124,7 @@
 >
 	{#each x as item (item.id)}
 		<div
-			class="border shadow-sm h-24 p-2 flex flex-col gap-2 items-center justify-center bg-white rounded-md scale-100 hover:scale-105 ease-in duration-100"
+			class="border shadow-sm h-24 p-2 flex flex-col gap-2 items-center justify-center bg-white rounded-md scale-100 hover:scale-105 ease-in duration-75"
 			animate:flip={{ duration: flipDurationMs }}
 		>
 			<Icon data={displayData[item.type].icon} scale={1.6} class="text-blue-800" />
@@ -133,7 +140,7 @@
 >
 	{#each charts as item (item.id)}
 		<div
-			class="border shadow-sm h-24 p-2 flex flex-col gap-2 items-center justify-center bg-white rounded-md scale-100 hover:scale-105 ease-in duration-100"
+			class="border shadow-sm h-24 p-2 flex flex-col gap-2 items-center justify-center bg-white rounded-md scale-100 hover:scale-105 ease-in duration-75"
 			animate:flip={{ duration: flipDurationMs }}
 		>
 			<Icon data={displayData[item.type].icon} scale={1.6} class="text-blue-800" />
