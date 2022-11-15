@@ -58,7 +58,7 @@
 			{#each mainMenuLinks as menuLink}
 				<MenuLink class="text-lg" {...menuLink} {isCollapsed} />
 			{/each}
-			<div class="h-4" />
+			<div class="h-8" />
 			{#each secondaryMenuLinks as menuLink}
 				<MenuLink class="text-xs" {...menuLink} {isCollapsed} />
 			{/each}
@@ -67,7 +67,7 @@
 		<div class="space-1-2">
 			<div class="h-4" />
 			{#each thirdMenuLinks as menuLink}
-				<MenuLink class="text-2xs" {...menuLink} {isCollapsed} />
+				<MenuLink class="text-xs" {...menuLink} {isCollapsed} />
 			{/each}
 		</div>
 	</nav>

@@ -34,12 +34,13 @@ export function getWorkspace(): string {
 
 /**
  * Get a resource value by path
- * @param path path of the resource
+ * @param path path of the resource,  default to internal state path
  * @param undefinedIfEmpty if the resource does not exist, return undefined instead of throwing an error
  * @returns resource value
  */
-export async function getResource(path: string, undefinedIfEmpty?: boolean): Promise<any> {
+export async function getResource(path?: string, undefinedIfEmpty?: boolean): Promise<any> {
     const workspace = getWorkspace()
+    path = path ?? getStatePath()
     try {
         const resource = await ResourceService.getResource({ workspace, path })
         return await _transformLeaf(resource.value)
@@ -52,12 +53,12 @@ export async function getResource(path: string, undefinedIfEmpty?: boolean): Pro
     }
 }
 
-export function getInternalStatePath(suffix?: string): string {
+export function getStatePath(): string {
     const env_flow_path = Deno.env.get("WM_FLOW_PATH")
     const env_job_path = Deno.env.get("WM_JOB_PATH")
     const permissioned_as = Deno.env.get("WM_PERMISSIONED_AS")
     const flow_path = env_flow_path != undefined && env_flow_path != "" ? env_flow_path : 'NO_FLOW_PATH'
-    const script_path = suffix ?? (env_job_path != undefined && env_job_path != "" ? env_job_path : 'NO_JOB_PATH')
+    const script_path = env_job_path != undefined && env_job_path != "" ? env_job_path : 'NO_JOB_PATH'
     const env_schedule_path = Deno.env.get("WM_SCHEDULE_PATH")
     const schedule_path = env_schedule_path != undefined && env_schedule_path != "" ? `/${env_schedule_path}` : ''
 
@@ -69,11 +70,12 @@ export function getInternalStatePath(suffix?: string): string {
 
 /**
  * Set a resource value by path
- * @param path path of the resource to set
+ * @param path path of the resource to set, default to state path
  * @param value new value of the resource to set
  * @param initializeToTypeIfNotExist if the resource does not exist, initialize it with this type
  */
-export async function setResource(path: string, value: any, initializeToTypeIfNotExist?: string): Promise<void> {
+export async function setResource(value: any, path?: string, initializeToTypeIfNotExist?: string): Promise<void> {
+    path = path ?? getStatePath()
     const workspace = getWorkspace()
     if (await ResourceService.existsResource({ workspace, path })) {
         await ResourceService.updateResource({ workspace, path, requestBody: { value } })
@@ -85,20 +87,35 @@ export async function setResource(path: string, value: any, initializeToTypeIfNo
 }
 
 /**
- * Set the internal state
+ * Set the state
  * @param state state to set
- * @param suffix suffix of the path of the internal state (useful to share internal state between jobs)
+ * @deprecated use setState instead
  */
-export async function setInternalState(state: any, suffix?: string): Promise<void> {
-    await setResource(getInternalStatePath(suffix), state, 'state')
+export async function setInternalState(state: any): Promise<void> {
+    await setResource(state, undefined, 'state')
+}
+
+/**
+ * Set the state
+ * @param state state to set
+ */
+export async function setState(state: any): Promise<void> {
+    await setResource(state, undefined, 'state')
 }
 
 /**
  * Get the internal state
- * @param suffix suffix of the path of the internal state (useful to share internal state between jobs)
+ * @deprecated use getState instead
  */
-export async function getInternalState(suffix?: string): Promise<any> {
-    return await getResource(getInternalStatePath(suffix), true)
+export async function getInternalState(): Promise<any> {
+    return await getResource(getStatePath(), true)
+}
+
+/**
+ * Get the state shared across executions
+ */
+export async function getState(): Promise<any> {
+    return await getResource(getStatePath(), true)
 }
 
 /**
@@ -161,7 +178,7 @@ export async function genNounceAndHmac(workspace: string, jobId: string, approve
         Deno.env.get("WM_BASE_URL"),
     );
 
-    u.searchParams.append('token', Deno.env.get("WM_TOKEN"));
+    u.searchParams.append('token', Deno.env.get("WM_TOKEN") ?? '');
     if (approver) {
         u.searchParams.append('approver', approver);
     }

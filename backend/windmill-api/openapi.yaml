@@ -4358,8 +4358,7 @@ components:
       properties:
         path:
           type: string
-        value:
-          type: object
+        value: {}
         description:
           type: string
         resource_type:
@@ -4378,8 +4377,7 @@ components:
           type: string
         description:
           type: string
-        value:
-          type: object
+        value: {}
 
     Resource:
       type: object
