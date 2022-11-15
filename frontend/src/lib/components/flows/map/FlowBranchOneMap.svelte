@@ -82,7 +82,7 @@
 						select(`${module.id}-branch-${branchIndex}`)
 					}}
 					class={classNames(
-						'border w-full rounded-md p-2 bg-white text-sm cursor-pointer flex items-center mb-4',
+						'border w-full rounded-md p-2 bg-white text-sm cursor-pointer flex items-center mb-4 module relative',
 						$selectedId === `${module.id}-branch-${branchIndex}`
 							? 'outline outline-offset-1 outline-2  outline-slate-900'
 							: ''
@@ -94,12 +94,15 @@
 					>
 						{branch.summary || `Branch ${branchIndex}`}
 						<button
-							class="absolute -top-1 right-1 rounded-full m-auto  h-4 w-4 "
+							class="absolute -top-2 -right-2 rounded-full bg-white h-4 w-4 center-center trash {$selectedId ===
+							`${module.id}-branch-${branchIndex}`
+								? ''
+								: '!hidden'}"
 							on:click={() => removeBranch(branchIndex)}
 							><Icon
-								data={faTrashAlt}
+								data={faTimesCircle}
 								class="text-gray-600 hover:text-red-600"
-								scale={0.6}
+								scale={0.9}
 							/></button
 						>
 					</span>
@@ -123,3 +126,9 @@
 		</div>
 	</div>
 {/if}
+
+<style>
+	.module:hover .trash {
+		display: flex !important;
+	}
+</style>

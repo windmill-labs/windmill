@@ -76,7 +76,7 @@
 			{/if}
 		</div>
 		<div
-			class="flex justify-between items-center w-full overflow-hidden border p-2 bg-white text-2xs"
+			class="flex justify-between items-center w-full overflow-hidden border p-2 bg-white text-2xs module"
 		>
 			<div class="flex-1 truncate" class:font-bold={bold}>{label}</div>
 			<div class="flex items-center space-x-2">
@@ -85,9 +85,15 @@
 				{/if}
 				{#if deletable}
 					<button
-						class="absolute -top-1 right-1 rounded-full m-auto bg-white  h-4 w-4 "
+						class="absolute -top-2 right-0 rounded-full h-4 w-4 trash center-center bg-white {selected
+							? ''
+							: '!hidden'}"
 						on:click={(event) => dispatch('delete', event)}
-						><Icon data={faTrashAlt} class="text-gray-600 hover:text-red-600" scale={0.6} /></button
+						><Icon
+							data={faTimesCircle}
+							class="text-gray-600 hover:text-red-600"
+							scale={0.9}
+						/></button
 					>
 				{/if}
 			</div>
@@ -96,6 +102,9 @@
 </div>
 
 <style>
+	.module:hover .trash {
+		display: flex !important;
+	}
 	.line {
 		background: repeating-linear-gradient(to bottom, transparent 0 4px, #bbb 4px 8px) 50%/1px 100%
 			no-repeat;
