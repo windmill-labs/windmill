@@ -61,7 +61,7 @@
 		>
 			<div
 				class={classNames(
-					'fixed inset-0 bg-gray-600 bg-opacity-75 transition-opacity ease-linear duration-300 z-40',
+					'fixed inset-0 bg-black bg-opacity-75 transition-opacity ease-linear duration-300 z-40',
 					menuOpen ? 'opacity-100' : 'opacity-0'
 				)}
 			/>
@@ -69,7 +69,7 @@
 			<div class="fixed inset-0 flex z-40">
 				<div
 					class={classNames(
-						'relative flex-1 flex flex-col max-w-xs w-full bg-white transition ease-in-out duration-300 transform',
+						'relative flex-1 flex flex-col max-w-min w-full bg-white transition ease-in-out duration-300 transform',
 						menuOpen ? 'translate-x-0' : '-translate-x-full'
 					)}
 				>
@@ -99,7 +99,7 @@
 							</svg>
 						</button>
 					</div>
-					<div class="bg-blue-500 h-full">
+					<div class="bg-black h-full">
 						<div
 							class="flex items-center gap-x-2 flex-shrink-0 p-4 font-extrabold text-white w-10"
 							class:w-40={!isCollapsed}
@@ -108,7 +108,7 @@
 							{#if !isCollapsed}Windmill{/if}
 						</div>
 
-						<div class="px-2 py-4 space-y-2 border-y border-blue-400">
+						<div class="px-2 py-4 space-y-2 border-y border-gray-400">
 							<WorkspaceMenu />
 							<UserMenu
 								on:user-settings={() => userSettings.openDrawer()}
@@ -124,11 +124,11 @@
 
 		<div
 			class={classNames(
-				'hidden md:flex md:flex-col md:fixed md:inset-y-0 transition-all ease-in-out duration-200 shadow-md z-40',
-				isCollapsed ? 'md:w-12' : 'md:w-48'
+				'hidden md:flex md:flex-col md:fixed md:inset-y-0  transition-all ease-in-out duration-200 shadow-md z-40',
+				isCollapsed ? 'md:w-12' : 'md:w-40'
 			)}
 		>
-			<div class="flex-1 flex flex-col min-h-0 shadow-lg bg-blue-500">
+			<div class="flex-1 flex flex-col min-h-0 shadow-lg bg-black">
 				<button
 					on:click={() => {
 						isCollapsed = !isCollapsed
@@ -143,7 +143,7 @@
 					</div>
 				</button>
 
-				<div class="px-2 py-4 space-y-2 border-y border-blue-400">
+				<div class="px-2 py-4 space-y-2 border-y border-gray-300">
 					<WorkspaceMenu {isCollapsed} />
 					<UserMenu
 						on:user-settings={userSettings.openDrawer}
@@ -153,7 +153,7 @@
 				</div>
 				<SidebarContent {isCollapsed} />
 
-				<div class="flex-shrink-0 flex p-4 border-t border-blue-400">
+				<div class="flex-shrink-0 flex p-4 border-t border-gray-300">
 					<button
 						on:click={() => {
 							isCollapsed = !isCollapsed
@@ -170,7 +170,7 @@
 				</div>
 			</div>
 		</div>
-		<div class={classNames('w-full flex flex-col flex-1', isCollapsed ? 'md:pl-12' : 'md:pl-48')}>
+		<div class={classNames('w-full flex flex-col flex-1', isCollapsed ? 'md:pl-12' : 'md:pl-40')}>
 			<main class="min-h-screen">
 				<div class="relative w-full h-full">
 					<div
