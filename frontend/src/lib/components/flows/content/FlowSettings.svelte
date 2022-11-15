@@ -101,7 +101,10 @@
 						/>
 					</TabContent>
 					<TabContent value="graph">
-						<div bind:clientHeight={topHeight} class="max-w-full w-full overflow-hidden h-full">
+						<div
+							bind:clientHeight={topHeight}
+							class="max-w-full w-full overflow-hidden h-screen bg-gray-50"
+						>
 							{#if $flowStore.value.modules}
 								<FlowGraph
 									on:click={(e) => {
