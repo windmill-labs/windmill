@@ -32,27 +32,27 @@
 	}
 </script>
 
-<div class="border-b h-12 flex flex-row justify-between py-2 px-4 items-center">
+<div class="border-b flex flex-row justify-between py-1 px-4 items-center">
 	<span class="text-sm">{title}</span>
 	<div>
 		<ToggleButtonGroup bind:selected={mode}>
-			<ToggleButton position="left" value="dnd" startIcon={{ icon: faHand }} size="sm">
+			<ToggleButton position="left" value="dnd" startIcon={{ icon: faHand }} size="xs">
 				Component editor
 			</ToggleButton>
 			<ToggleButton
 				position="right"
 				value="width"
 				startIcon={{ icon: faArrowsLeftRight }}
-				size="sm"
+				size="xs"
 			>
 				Width editor
 			</ToggleButton>
 		</ToggleButtonGroup>
 	</div>
 	<div class="flex flex-row gap-2">
-		<Button color="dark" size="sm" variant="border" startIcon={{ icon: faExternalLink }}>
+		<Button color="dark" size="xs" variant="border" startIcon={{ icon: faExternalLink }}>
 			Publish
 		</Button>
-		<Button on:click={save} size="sm">Save</Button>
+		<Button on:click={save} color="dark" size="xs">Save</Button>
 	</div>
 </div>

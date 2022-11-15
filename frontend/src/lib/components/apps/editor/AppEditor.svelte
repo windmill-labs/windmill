@@ -12,11 +12,13 @@
 
 	import type { Schema } from '$lib/common'
 	import SectionPanel from './settingsPanel/SectionPanel.svelte'
+	import Tabs from '$lib/components/common/tabs/Tabs.svelte'
+	import TabContent from '$lib/components/common/tabs/TabContent.svelte'
+	import { Tab } from '$lib/components/common'
 	import ComponentList from './componentsPanel/ComponentList.svelte'
 
 	export let app: App
 
-	console.log(app)
 	const appStore = writable<App>(app)
 	const worldStore = writable<World | undefined>(undefined)
 	const staticOutputs = writable<Record<string, string[]>>({})
@@ -24,6 +26,8 @@
 	const selection = writable<AppSelection | undefined>(undefined)
 	const mode = writable<EditorMode>('dnd')
 	const schemas = writable<Schema[]>([])
+
+	const resizing = writable<boolean>(false)
 
 	const connectingInput = writable<ConnectingInput>({
 		opened: false,
@@ -37,7 +41,8 @@
 		selection,
 		mode,
 		schemas,
-		connectingInput
+		connectingInput,
+		resizing
 	})
 
 	onMount(() => {
@@ -47,42 +52,54 @@
 
 <AppEditorHeader title="Sample app" bind:mode={$mode} />
 <SplitPanesWrapper>
-	<Pane minSize={20} maxSize={30} size={20}>
-		<ComponentList />
-	</Pane>
 	<Pane>
 		<SectionsEditor bind:sections={$appStore.sections} mode={$mode} />
 	</Pane>
-	<Pane minSize={20} maxSize={30} size={20}>
-		{#if $selection?.sectionIndex !== undefined && $selection?.componentIndex !== undefined}
-			<ComponentPanel
-				bind:component={$appStore.sections[$selection?.sectionIndex].components[
-					$selection?.componentIndex
-				]}
-				on:remove={() => {
-					if ($selection?.sectionIndex !== undefined && $selection?.componentIndex !== undefined) {
-						$appStore.sections[$selection?.sectionIndex].components.splice(
-							$selection?.componentIndex,
-							1
-						)
-						$appStore = $appStore
-						$selection = undefined
-					}
-				}}
-			/>
-		{/if}
+	<Pane minSize={40} maxSize={50} size={30}>
+		<Tabs selected="settings">
+			<Tab value="settings" size="md">Settings</Tab>
+			<Tab value="insert" size="md">Insert</Tab>
+			<svelte:fragment slot="content">
+				<TabContent value="settings">
+					{#if $selection?.sectionIndex !== undefined && $selection?.componentIndex !== undefined}
+						<ComponentPanel
+							bind:component={$appStore.sections[$selection?.sectionIndex].components[
+								$selection?.componentIndex
+							]}
+							on:remove={() => {
+								if (
+									$selection?.sectionIndex !== undefined &&
+									$selection?.componentIndex !== undefined
+								) {
+									$appStore.sections[$selection?.sectionIndex].components.splice(
+										$selection?.componentIndex,
+										1
+									)
 
-		{#if $selection?.sectionIndex !== undefined}
-			<SectionPanel
-				bind:section={$appStore.sections[$selection.sectionIndex]}
-				on:remove={() => {
-					if ($selection?.sectionIndex !== undefined) {
-						$appStore.sections.splice($selection?.sectionIndex, 1)
-						$appStore = $appStore
-						$selection = undefined
-					}
-				}}
-			/>
-		{/if}
+									$appStore = $appStore
+									$selection = undefined
+								}
+							}}
+						/>
+					{/if}
+
+					{#if $selection?.sectionIndex !== undefined}
+						<SectionPanel
+							bind:section={$appStore.sections[$selection.sectionIndex]}
+							on:remove={() => {
+								if ($selection?.sectionIndex !== undefined) {
+									$appStore.sections.splice($selection?.sectionIndex, 1)
+									$appStore = $appStore
+									$selection = undefined
+								}
+							}}
+						/>
+					{/if}
+				</TabContent>
+				<TabContent value="insert">
+					<ComponentList />
+				</TabContent>
+			</svelte:fragment>
+		</Tabs>
 	</Pane>
 </SplitPanesWrapper>

@@ -24,5 +24,12 @@
 </script>
 
 {#if $worldStore}
-	<DisplayResult {result} />
+	<div class="border flex flex-col h-full shadow-sm rounded-sm">
+		<div class="w-full border-b px-2 text-xs p-1 font-semibold bg-gray-500 text-white rounded-t-sm">
+			Results
+		</div>
+		<div class="p-2">
+			<DisplayResult {result} />
+		</div>
+	</div>
 {/if}

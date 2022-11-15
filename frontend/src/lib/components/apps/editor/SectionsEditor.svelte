@@ -6,7 +6,6 @@
 	import { dndzone } from 'svelte-dnd-action'
 	import { flip } from 'svelte/animate'
 	import { getNextId } from '$lib/components/flows/flowStateUtils'
-	import Badge from '$lib/components/common/badge/Badge.svelte'
 	import ComponentsEditor from './ComponentsEditor.svelte'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import ComponentEditor from './ComponentEditor.svelte'
@@ -15,12 +14,10 @@
 	import DisplayComponent from '../components/DisplayComponent.svelte'
 
 	export let sections: AppSection[]
-
-	console.log(sections)
 	export let mode: EditorMode = 'width'
 
 	const flipDurationMs = 200
-	const { selection, staticOutputs, app } = getContext<AppEditorContext>('AppEditorContext')
+	const { selection, resizing } = getContext<AppEditorContext>('AppEditorContext')
 
 	function handleSort(e) {
 		sections = e.detail.items
@@ -143,24 +140,23 @@
 	}
 </script>
 
-<div class="dotted-background h-full w-full p-8">
+<div class="w-full p-4 relative">
 	<div
-		class="flex-col flex justify-start gap-8 pt-8 mb-8"
+		class="flex-col flex gap-4 mb-4 w-full"
 		use:dndzone={{
 			items: sections,
 			flipDurationMs,
 			type: 'section',
-			dragDisabled: mode === 'width',
+			dragDisabled: mode === 'width' || $resizing,
 			dropTargetStyle: {
-				outline: 'dashed blue',
-				outlineOffset: '8px'
+				outline: '1px dashed blue',
+				outlineOffset: '2px'
 			}
 		}}
 		on:consider={handleSort}
 		on:finalize={handleSort}
 	>
 		{#each sections as section, sectionIndex (section.id)}
-			{@const selected = $selection?.sectionIndex === sectionIndex}
 			<!-- svelte-ignore a11y-click-events-have-key-events -->
 			<section
 				animate:flip={{ duration: flipDurationMs }}
@@ -168,44 +164,15 @@
 					$selection = { sectionIndex, componentIndex: undefined }
 				}}
 			>
-				{#if mode !== 'preview'}
-					<span
-						class={classNames(
-							'text-white px-2 text-sm py-1 font-bold',
-							selected ? 'bg-indigo-500' : 'bg-gray-500'
-						)}
-					>
-						Section {sectionIndex + 1}
-						<Badge>{section.id}</Badge>
-					</span>
-				{/if}
 				{#if mode === 'dnd'}
 					<ComponentsEditor
 						bind:components={section.components}
 						columns={section.columns}
 						{sectionIndex}
 					/>
-				{:else if mode === 'preview'}
-					<div class="w-full flex bg-white">
-						{#each section.components as component}
-							<div class={classNames(numberToTailwindWidthMap[Math.round(component.width)])}>
-								{#if component.type === 'runformcomponent'}
-									<RunFormComponent
-										{...component}
-										bind:staticOutputs={$staticOutputs[component.id]}
-									/>
-								{:else if component.type === 'displaycomponent'}
-									<DisplayComponent
-										{...component}
-										bind:staticOutputs={$staticOutputs[component.id]}
-									/>
-								{/if}
-							</div>
-						{/each}
-					</div>
 				{:else if mode === 'width'}
 					<div
-						class="h-80 w-full rounded-b-sm flex-row gap-4 p-4 flex border-2 border-gray-200 bg-white cursor-pointer "
+						class="h-80 w-full rounded-b-sm flex-row gap-4 flex border-2 border-gray-200 bg-white cursor-pointer "
 					>
 						<Splitpanes>
 							{#each section.components as component}
@@ -235,30 +202,4 @@
 			</section>
 		{/each}
 	</div>
-	{#if mode !== 'preview'}
-		<section>
-			<span class="bg-blue-500 text-white px-2 text-sm py-1 font-bold rounded-t-sm">
-				Empty section
-			</span>
-			<div class="h-96 border-2 border-blue-200 border-dashed bg-white flex">
-				<Button
-					btnClasses="m-auto"
-					color="dark"
-					size="sm"
-					startIcon={{ icon: faPlus }}
-					on:click={() => addEmptySection()}
-				>
-					Add
-				</Button>
-			</div>
-		</section>
-	{/if}
 </div>
-
-<style>
-	.dotted-background {
-		background-image: radial-gradient(circle at 1px 1px, #ccc 1px, transparent 0);
-		background-size: 40px 40px;
-		background-position: 20px 20px;
-	}
-</style>

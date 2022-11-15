@@ -1,10 +1,8 @@
 <script lang="ts">
-	import { flip } from 'svelte/animate'
-	import { dndzone, TRIGGERS, SHADOW_ITEM_MARKER_PROPERTY_NAME } from 'svelte-dnd-action'
 	import Icon from 'svelte-awesome'
 	import { faDisplay } from '@fortawesome/free-solid-svg-icons'
 	import { faWpforms } from '@fortawesome/free-brands-svg-icons'
-	import { getNextId } from '$lib/components/flows/flowStateUtils'
+	import { createEventDispatcher } from 'svelte'
 
 	const defaultProps = {
 		horizontalAlignement: 'center',
@@ -50,53 +48,15 @@
 		}
 	}
 
-	const flipDurationMs = 300
-	let shouldIgnoreDndEvents = false
-
-	function handleDndConsider(e) {
-		const { trigger, id } = e.detail.info
-		if (trigger === TRIGGERS.DRAG_STARTED) {
-			const idx = items.findIndex((item) => item.id === id)
-
-			e.detail.items = e.detail.items.filter((item) => !item[SHADOW_ITEM_MARKER_PROPERTY_NAME])
-
-			e.detail.items.splice(idx, 0, {
-				...items[idx],
-				id: getNextId(e.detail.items.map((item) => item.id)),
-				// @ts-ignore
-				type: items[idx].type,
-				width: 100
-			})
-			items = e.detail.items
-
-			shouldIgnoreDndEvents = true
-		} else if (!shouldIgnoreDndEvents) {
-			items = e.detail.items
-		} else {
-			items = [...items]
-		}
-	}
-
-	function handleDndFinalize(e) {
-		if (!shouldIgnoreDndEvents) {
-			items = e.detail.items
-		} else {
-			items = [...items]
-			shouldIgnoreDndEvents = false
-		}
-	}
+	const dispatch = createEventDispatcher()
 </script>
 
-<section
-	use:dndzone={{ items, flipDurationMs, type: 'component' }}
-	on:consider={handleDndConsider}
-	on:finalize={handleDndFinalize}
-	class="grid grid-cols-2 gap-2 p-2"
->
+<section class="grid grid-cols-3 gap-2 p-2">
 	{#each items as item (item.id)}
+		<!-- svelte-ignore a11y-click-events-have-key-events -->
 		<div
 			class="border shadow-sm h-24 p-2 flex flex-col gap-2 items-center justify-center bg-white rounded-md"
-			animate:flip={{ duration: flipDurationMs }}
+			on:click={() => dispatch('pick', item)}
 		>
 			<Icon data={displayData[item.type].icon} scale={1.6} />
 			<div class="text-xs">{displayData[item.type].name}</div>

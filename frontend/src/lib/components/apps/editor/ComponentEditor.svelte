@@ -11,7 +11,7 @@
 	export let component: AppComponent
 	export let selected: boolean
 
-	const { staticOutputs, app, connectingInput } = getContext<AppEditorContext>('AppEditorContext')
+	const { staticOutputs, connectingInput } = getContext<AppEditorContext>('AppEditorContext')
 
 	function connectInput(output: string) {
 		if ($connectingInput) {
@@ -29,19 +29,22 @@
 </script>
 
 {#if component}
-	<div class="h-full flex flex-col w-full">
-		<span
-			class={classNames(
-				' text-white px-2 text-xs py-1 font-bold rounded-t-sm w-fit ',
-				selected ? 'bg-indigo-500' : 'bg-gray-500'
-			)}
-		>
-			{component.type}
-		</span>
+	<div class="h-full flex flex-col w-full relative">
+		{#if selected}
+			<span
+				class={classNames(
+					' text-white px-1 text-2xs py-0.5 font-bold rounded-t-sm w-fit absolute -top-5',
+					selected ? 'bg-indigo-500' : 'bg-gray-500'
+				)}
+			>
+				{component.type}
+			</span>
+		{/if}
+
 		<div
 			class={classNames(
-				'p-2 border overflow-auto cursor-pointer hover:bg-blue-100 h-full bg-white relative',
-				selected ? 'border-indigo-400' : 'border-gray-400'
+				'p-2 border border-white overflow-auto cursor-pointer hover:border-blue-500 h-full bg-white',
+				selected ? 'border-blue-500' : 'border-white'
 			)}
 		>
 			{#if $connectingInput.opened && $staticOutputs[component.id]}

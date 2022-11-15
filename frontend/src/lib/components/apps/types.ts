@@ -110,6 +110,7 @@ export type AppEditorContext = {
 	mode: Writable<EditorMode>
 	schemas: Writable<Schema[]>
 	connectingInput: Writable<ConnectingInput>
+	resizing: Writable<boolean>
 }
 
 export type EditorMode = 'width' | 'dnd' | 'preview'

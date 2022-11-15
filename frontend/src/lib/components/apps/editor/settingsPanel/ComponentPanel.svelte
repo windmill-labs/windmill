@@ -8,9 +8,9 @@
 		faAlignRight,
 		faTrashAlt
 	} from '@fortawesome/free-solid-svg-icons'
-	import { createEventDispatcher, getContext } from 'svelte'
+	import { createEventDispatcher } from 'svelte'
 	import Icon from 'svelte-awesome'
-	import type { AppComponent, AppEditorContext } from '../../types'
+	import type { AppComponent } from '../../types'
 	import PanelSection from './common/PanelSection.svelte'
 	import ComponentInputsSpecsEditor from './ComponentInputsSpecsEditor.svelte'
 	import InputsSpecsEditor from './InputsSpecsEditor.svelte'
@@ -18,7 +18,6 @@
 
 	export let component: AppComponent | undefined
 
-	const { app } = getContext<AppEditorContext>('AppEditorContext')
 	const dispatch = createEventDispatcher()
 </script>
 
