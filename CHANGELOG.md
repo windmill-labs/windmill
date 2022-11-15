@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [1.47.3](https://github.com/windmill-labs/windmill/compare/v1.47.2...v1.47.3) (2022-11-15)
+
+
+### Bug Fixes
+
+* **python-client:** fix transform_leaves ([a649f77](https://github.com/windmill-labs/windmill/commit/a649f772a564eaffb5f6192a510f7112ed618300))
+
 ## [1.47.2](https://github.com/windmill-labs/windmill/compare/v1.47.1...v1.47.2) (2022-11-15)
 
 
