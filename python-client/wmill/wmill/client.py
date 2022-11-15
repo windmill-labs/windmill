@@ -174,7 +174,7 @@ def get_state() -> Any:
     get_resource(None)
 
 
-def set_resource(value: Any, path: str | None, type: str = "state") -> None:
+def set_resource(value: Any, path: str | None, resource_type: str = "state") -> None:
     """
     Set the resource at a given path as a string, creating it if it does not exist
     """
@@ -187,7 +187,9 @@ def set_resource(value: Any, path: str | None, type: str = "state") -> None:
         create_resource_api.sync_detailed(
             workspace=workspace,
             client=client,
-            json_body=CreateResourceJsonBody(path=path, value=value, type=type),
+            json_body=CreateResourceJsonBody(
+                path=path, value=value, resource_type=resource_type
+            ),
         )
     else:
         update_resource_api.sync_detailed(
