@@ -9,7 +9,15 @@ from windmill_api.api.settings import backend_version
 from windmill_api.api.job import run_script_by_hash, get_job, get_completed_job
 
 from windmill_api.api.resource import get_resource as get_resource_api
+from windmill_api.api.resource import exists_resource as exists_resource_api
+from windmill_api.api.resource import update_resource as update_resource_api
+from windmill_api.api.resource import create_resource as create_resource_api
 from windmill_api.api.variable import get_variable as get_variable_api
+from windmill_api.api.variable import exists_variable as exists_variable_api
+from windmill_api.api.variable import update_variable as update_variable_api
+from windmill_api.api.variable import create_variable as create_variable_api
+from windmill_api.models.create_variable_json_body import CreateVariableJsonBody
+from windmill_api.models import *
 from windmill_api.models.get_job_response_200_type import GetJobResponse200Type
 
 from windmill_api.models.run_script_by_hash_json_body import RunScriptByHashJsonBody
@@ -27,20 +35,25 @@ class JobStatus(Enum):
     RUNNING = 2
     COMPLETED = 3
 
+
 _client: "AuthenticatedClient | None" = None
 
-def create_client(base_url: "str | None" = None, token: "str | None" = None) -> AuthenticatedClient:
+
+def create_client(
+    base_url: "str | None" = None, token: "str | None" = None
+) -> AuthenticatedClient:
     env_base_url = os.environ.get("BASE_INTERNAL_URL")
 
     if env_base_url is not None:
         env_base_url = env_base_url + "/api"
 
     base_url_: str = base_url or env_base_url or "http://localhost:8000/api"
-    token_ : str = token or os.environ.get("WM_TOKEN") or ""
+    token_: str = token or os.environ.get("WM_TOKEN") or ""
     global _client
     if _client is None:
         _client = AuthenticatedClient(base_url=base_url_, token=token_, timeout=30)
     return _client
+
 
 def get_workspace() -> str:
     from_env = os.environ.get("WM_WORKSPACE")
@@ -48,11 +61,15 @@ def get_workspace() -> str:
         raise Exception("Workspace not passed as WM_WORKSPACE")
     return from_env
 
+
 def get_version() -> str:
     """
     Returns the current version of the backend
     """
-    return backend_version.sync_detailed(client=create_client()).content.decode("us-ascii")
+    return backend_version.sync_detailed(client=create_client()).content.decode(
+        "us-ascii"
+    )
+
 
 def run_script_async(
     hash: str,
@@ -71,7 +88,10 @@ def run_script_async(
         parent_job=os.environ.get("DT_JOB_ID"),
     ).content.decode("us-ascii")
 
-def run_script_sync(hash: str, args: Dict[str, Any] = {}, verbose: bool = False) -> Dict[str, Any]:
+
+def run_script_sync(
+    hash: str, args: Dict[str, Any] = {}, verbose: bool = False
+) -> Dict[str, Any]:
     """
     Run a script, wait for it to complete and return the result of the launched script
     """
@@ -87,11 +107,14 @@ def run_script_sync(hash: str, args: Dict[str, Any] = {}, verbose: bool = False)
         nb_iter += 1
     return get_result(job_id)
 
+
 def get_job_status(job_id: str) -> JobStatus:
     """
     Returns the status of a queued or completed job
     """
-    res = get_job.sync_detailed(client=create_client(), workspace=get_workspace(), id=job_id).parsed
+    res = get_job.sync_detailed(
+        client=create_client(), workspace=get_workspace(), id=job_id
+    ).parsed
     if not res:
         raise Exception(f"Job {job_id} not found")
     elif not res.type:
@@ -106,11 +129,14 @@ def get_job_status(job_id: str) -> JobStatus:
         else:
             return JobStatus.WAITING
 
+
 def get_result(job_id: str) -> Dict[str, Any]:
     """
     Returns the result of a completed job
     """
-    res = get_completed_job.sync_detailed(client=create_client(), workspace=get_workspace(), id=job_id).parsed
+    res = get_completed_job.sync_detailed(
+        client=create_client(), workspace=get_workspace(), id=job_id
+    ).parsed
     if not res:
         raise Exception(f"Job {job_id} not found")
     if not res.result:
@@ -118,13 +144,19 @@ def get_result(job_id: str) -> Dict[str, Any]:
     else:
         return res.result.to_dict()  # type: ignore
 
-def get_resource(path: str) -> Dict[str, Any]:
+
+def get_resource(path: str | None) -> Any:
     """
     Returns the resource at a given path as a python dict.
     """
-    parsed = get_resource_api.sync_detailed(workspace=get_workspace(), path=path, client=create_client()).parsed
+    path = path or get_state_path()
+    parsed = get_resource_api.sync_detailed(
+        workspace=get_workspace(), path=path, client=create_client()
+    ).parsed
     if parsed is None:
-        raise Exception(f"Resource at path {path} does not exist or you do not have read permissions on it")
+        raise Exception(
+            f"Resource at path {path} does not exist or you do not have read permissions on it"
+        )
 
     if isinstance(parsed.value, Unset):
         return {}
@@ -134,25 +166,117 @@ def get_resource(path: str) -> Dict[str, Any]:
 
     return res
 
+
+def get_state() -> Any:
+    """
+    Get the state
+    """
+    get_resource(None)
+
+
+def set_resource(value: Any, path: str | None, type: str = "state") -> None:
+    """
+    Set the resource at a given path as a string, creating it if it does not exist
+    """
+    path = path or get_state_path()
+    workspace = get_workspace()
+    client = create_client()
+    if not exists_resource_api.sync_detailed(
+        workspace=workspace, path=path, client=client
+    ).parsed:
+        create_resource_api.sync_detailed(
+            workspace=workspace,
+            client=client,
+            json_body=CreateResourceJsonBody(path=path, value=value, type=type),
+        )
+    else:
+        update_resource_api.sync_detailed(
+            workspace=get_workspace(),
+            client=client,
+            path=path,
+            json_body=UpdateResourceJsonBody(value=value),
+        )
+
+
+def set_state(value: Any) -> None:
+    """
+    Set the state
+    """
+    set_resource(value, None)
+
+
 def get_variable(path: str) -> str:
     """
     Returns the variable at a given path as a string
     """
-    res = get_variable_api.sync_detailed(workspace=get_workspace(), path=path, client=create_client()).parsed
+    res = get_variable_api.sync_detailed(
+        workspace=get_workspace(), path=path, client=create_client()
+    ).parsed
     if res is None:
-        raise Exception(f"Variable at path {path} does not exist or you do not have read permissions on it")
+        raise Exception(
+            f"Variable at path {path} does not exist or you do not have read permissions on it"
+        )
 
-    return res.value # type: ignore
+    return res.value  # type: ignore
+
+
+def set_variable(path: str, value: str) -> None:
+    """
+    Set the variable at a given path as a string, creating it if it does not exist
+    """
+    workspace = get_workspace()
+    client = create_client()
+    if not exists_variable_api.sync_detailed(
+        workspace=workspace, path=path, client=client
+    ).parsed:
+        create_variable_api.sync_detailed(
+            workspace=workspace,
+            client=client,
+            json_body=CreateVariableJsonBody(
+                path=path, value=value, is_secret=False, description=""
+            ),
+        )
+    else:
+        update_variable_api.sync_detailed(
+            workspace=get_workspace(),
+            path=path,
+            client=client,
+            json_body=UpdateVariableJsonBody(value=value),
+        )
+
+
+def get_state_path() -> str:
+    """
+    Get a stable path for next execution of the script to point to the same resource
+    """
+    permissioned_as = os.environ.get("WM_PERMISSIONED_AS")
+    flow_path = os.environ.get("WM_FLOW_PATH") or "NO_FLOW_PATH"
+    script_path = os.environ.get("WM_JOB_PATH") or "NO_JOB_PATH"
+    env_schedule_path = os.environ.get("WM_SCHEDULE_PATH")
+    schedule_path = (
+        ""
+        if env_schedule_path is None or env_schedule_path == ""
+        else f"/{env_schedule_path}"
+    )
+
+    if script_path.endswith("/"):
+        raise Exception(
+            "The script path must not end with '/', give a name to your script!"
+        )
+
+    return f"{permissioned_as}/{flow_path}/{script_path}{schedule_path}"
+
 
 def _transform_leaves(d: Dict[str, Any]) -> Dict[str, Any]:
     return {k: _transform_leaf(v) for k, v in d.items()}
+
 
 def _transform_leaf(v: Any) -> Any:
     if isinstance(v, dict):
         return Client._transform_leaves(v)  # type: ignore
     elif isinstance(v, str):
         if v.startswith(VAR_RESOURCE_PREFIX):
-            var_name = v[len(VAR_RESOURCE_PREFIX):]
+            var_name = v[len(VAR_RESOURCE_PREFIX) :]
             return get_variable(var_name)
         else:
             return v

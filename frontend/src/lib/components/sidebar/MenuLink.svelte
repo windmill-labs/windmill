@@ -47,7 +47,7 @@
 			<span
 				class={classNames(
 					'whitespace-pre text-white',
-					isSelected ? ' text-gray-700 font-bold' : 'text-white group-hover:text-gray-500'
+					isSelected ? ' text-gray-700 font-bold' : 'text-white group-hover:text-gray-900'
 				)}
 			>
 				{label}
