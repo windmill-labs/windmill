@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [1.47.2](https://github.com/windmill-labs/windmill/compare/v1.47.1...v1.47.2) (2022-11-15)
+
+
+### Bug Fixes
+
+* **python-client:** fix get_state ([b4fd470](https://github.com/windmill-labs/windmill/commit/b4fd4700251892116b0dff2940d98b7e473c79bf))
+
 ## [1.47.1](https://github.com/windmill-labs/windmill/compare/v1.47.0...v1.47.1) (2022-11-15)
 
 
