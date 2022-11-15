@@ -4046,7 +4046,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-api"
-version = "1.46.2"
+version = "1.47.3"
 dependencies = [
  "anyhow",
  "argon2",
@@ -4096,7 +4096,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-api-client"
-version = "1.46.2"
+version = "1.47.3"
 dependencies = [
  "base64",
  "chrono",
@@ -4111,7 +4111,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-audit"
-version = "1.46.2"
+version = "1.47.3"
 dependencies = [
  "chrono",
  "serde",
@@ -4124,7 +4124,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-common"
-version = "1.46.2"
+version = "1.47.3"
 dependencies = [
  "anyhow",
  "axum",
@@ -4148,7 +4148,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser"
-version = "1.46.2"
+version = "1.47.3"
 dependencies = [
  "serde",
  "serde_json",
@@ -4156,7 +4156,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-bash"
-version = "1.46.2"
+version = "1.47.3"
 dependencies = [
  "anyhow",
  "itertools",
@@ -4170,7 +4170,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-go"
-version = "1.46.2"
+version = "1.47.3"
 dependencies = [
  "anyhow",
  "itertools",
@@ -4182,7 +4182,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-py"
-version = "1.46.2"
+version = "1.47.3"
 dependencies = [
  "anyhow",
  "itertools",
@@ -4197,7 +4197,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-ts"
-version = "1.46.2"
+version = "1.47.3"
 dependencies = [
  "anyhow",
  "deno_core",
@@ -4211,7 +4211,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-queue"
-version = "1.46.2"
+version = "1.47.3"
 dependencies = [
  "anyhow",
  "chrono",
@@ -4234,7 +4234,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-worker"
-version = "1.46.2"
+version = "1.47.3"
 dependencies = [
  "anyhow",
  "async-recursion",
