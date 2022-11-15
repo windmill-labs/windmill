@@ -610,6 +610,39 @@ async fn connect_slack_callback(
     )
     .execute(&mut tx)
     .await?;
+
+    let token_path = "g/slack/bot_token";
+    let mc = build_crypt(&mut tx, &w_id).await?;
+    let value = encrypt(&mc, &token.bot.bot_access_token);
+    sqlx::query!(
+        "INSERT INTO variable
+            (workspace_id, path, value, is_secret, description, account, is_oauth)
+            VALUES ($1, $2, $3, $4, $5, $6, $7)
+            ON CONFLICT (workspace_id, path) DO UPDATE SET value = $3",
+        &w_id,
+        token_path,
+        value,
+        true,
+        "The slack bot token to act on behalf of the installed app of the connected workspace",
+        None::<i32>,
+        true,
+    )
+    .execute(&mut tx)
+    .await?;
+
+    sqlx::query!(
+        "INSERT INTO resource
+            (workspace_id, path, value, description, resource_type, is_oauth)
+            VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT (workspace_id, path) DO UPDATE SET value = $3",
+        w_id,
+        token_path,
+        serde_json::json!({ "token": format!("$var:{token_path}") }),
+        "The slack bot token to act on behalf of the installed app of the connected workspace",
+        "slack",
+        true
+    )
+    .execute(&mut tx)
+    .await?;
     tx.commit().await?;
     Ok("slack workspace connected".to_string())
 }
