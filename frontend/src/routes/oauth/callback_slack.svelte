@@ -5,8 +5,6 @@
 	import { onMount } from 'svelte'
 	import { OauthService } from '$lib/gen'
 	import { workspaceStore, oauthStore } from '$lib/stores'
-	import Icon from 'svelte-awesome'
-	import { faSpinner } from '@fortawesome/free-solid-svg-icons'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
 	import PageHeader from '$lib/components/PageHeader.svelte'
 	import WindmillIcon from '$lib/components/icons/WindmillIcon.svelte'
@@ -19,11 +17,14 @@
 		if (error) {
 			sendUserToast(`Error trying to add slack connection: ${error}`, true)
 		} else if (code && state) {
-			await OauthService.connectSlackCallback({
+			const token = await OauthService.connectSlackCallback({
 				workspace: $workspaceStore!,
 				requestBody: { code, state }
 			})
-			sendUserToast('Slack workspace connected to your Windmill workspace')
+			oauthStore.set({ access_token: token })
+			sendUserToast(
+				'Slack workspace connected to your Windmill workspace and slack token saved at `g/slack/bot_token`.'
+			)
 		} else {
 			sendUserToast('Missing code or state as query params', true)
 		}
