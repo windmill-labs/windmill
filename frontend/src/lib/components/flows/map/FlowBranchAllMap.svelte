@@ -4,7 +4,7 @@
 	import type { FlowModule } from '$lib/gen'
 	import FlowModuleSchemaMap from './FlowModuleSchemaMap.svelte'
 	import { slide } from 'svelte/transition'
-	import { faCodeBranch, faTrashAlt } from '@fortawesome/free-solid-svg-icons'
+	import { faCodeBranch, faTimesCircle, faTrashAlt } from '@fortawesome/free-solid-svg-icons'
 	import { Button } from '$lib/components/common'
 	import { classNames } from '$lib/utils'
 	import Icon from 'svelte-awesome'
@@ -48,7 +48,7 @@
 {#if module.value.type === 'branchall'}
 	<div class="flex text-xs">
 		<div
-			class="w-full space-y-2 flex flex-col border p-2 bg-gray-500 border-gray-600 bg-opacity-10 rounded-sm my-2"
+			class="w-full space-y-2 flex flex-col border p-2 bg-gray-500 border-gray-600 bg-opacity-10 rounded-sm my-2 relative"
 		>
 			{#each module.value.branches ?? [] as branch, branchIndex (branchIndex)}
 				<!-- svelte-ignore a11y-click-events-have-key-events -->
@@ -69,14 +69,15 @@
 						class="text-xs flex flex-row justify-between w-full flex-wrap gap-2 items-center truncate"
 					>
 						{branch.summary || `Branch ${branchIndex}`}
-						<Button
-							iconOnly
-							size="xs"
-							startIcon={{ icon: faTrashAlt }}
-							color="light"
-							variant="border"
+						<button
+							class="absolute -top-1 right-1 rounded-full bg-white h-4 w-4 "
 							on:click={() => removeBranch(branchIndex)}
-						/>
+							><Icon
+								data={faTrashAlt}
+								class="text-gray-600 hover:text-red-600"
+								scale={0.6}
+							/></button
+						>
 					</span>
 				</div>
 

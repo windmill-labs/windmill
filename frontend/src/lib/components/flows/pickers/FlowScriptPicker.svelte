@@ -10,6 +10,7 @@
 
 <Button
 	{disabled}
+	btnClasses="truncate"
 	on:click
 	size="sm"
 	spacingSize="md"
