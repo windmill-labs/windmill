@@ -7,11 +7,12 @@
 	import RunFormComponent from '../components/RunFormComponent.svelte'
 	import TableComponent from '../components/TableComponent.svelte'
 	import type { AppComponent, AppEditorContext } from '../types'
+	import { displayData } from '../utils'
 
 	export let component: AppComponent
 	export let selected: boolean
 
-	const { staticOutputs, connectingInput } = getContext<AppEditorContext>('AppEditorContext')
+	const { staticOutputs, connectingInput, mode } = getContext<AppEditorContext>('AppEditorContext')
 
 	function connectInput(output: string) {
 		if ($connectingInput) {
@@ -26,22 +27,9 @@
 			}
 		}
 	}
-</script>
 
-{#if component}
-	<div class="h-full flex flex-col w-full relative">
-		{#if selected}
-			<span
-				class={classNames(
-					' text-white px-1 text-2xs py-0.5 font-bold rounded-t-sm w-fit absolute -top-5',
-					selected ? 'bg-indigo-500' : 'bg-gray-500'
-				)}
-			>
-				{component.type}
-			</span>
-		{/if}
-
-		{#if selected}
+	/**
+	 * 	{#if selected}
 			<div
 				class={classNames(
 					'absolute top-1/2 h-8 w-2 rounded-sm -left-1 cursor-col-resize',
@@ -63,11 +51,27 @@
 				}}
 			/>
 		{/if}
+	*/
+</script>
+
+{#if component}
+	<div class="h-full flex flex-col w-full relative">
+		{#if selected}
+			<span
+				class={classNames(
+					'text-white px-1 text-2xs py-0.5 font-bold rounded-t-sm w-fit absolute -top-5',
+					selected ? 'bg-indigo-500' : 'bg-gray-500'
+				)}
+			>
+				{displayData[component.type].name}
+			</span>
+		{/if}
 
 		<div
 			class={classNames(
-				'p-2 border border-white overflow-auto cursor-pointer hover:border-blue-500 h-full bg-white',
-				selected ? 'border-blue-500' : 'border-white'
+				'p-2 border overflow-auto cursor-pointer  h-full bg-white',
+				selected ? 'border-blue-500' : 'border-white',
+				$mode === 'preview' ? 'border-white' : 'hover:border-blue-500 '
 			)}
 		>
 			{#if $connectingInput.opened && $staticOutputs[component.id]}

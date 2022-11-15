@@ -5,7 +5,7 @@
 	import ToggleButtonGroup from '$lib/components/common/toggleButton/ToggleButtonGroup.svelte'
 	import { AppService, Policy } from '$lib/gen'
 	import { userStore, workspaceStore } from '$lib/stores'
-	import { faArrowsLeftRight, faExternalLink, faHand } from '@fortawesome/free-solid-svg-icons'
+	import { faDisplay, faExternalLink, faHand } from '@fortawesome/free-solid-svg-icons'
 	import { getContext } from 'svelte'
 	import type { AppEditorContext, EditorMode } from '../types'
 
@@ -28,7 +28,6 @@
 				}
 			}
 		})
-		console.log('App saved')
 	}
 </script>
 
@@ -39,13 +38,8 @@
 			<ToggleButton position="left" value="dnd" startIcon={{ icon: faHand }} size="xs">
 				Component editor
 			</ToggleButton>
-			<ToggleButton
-				position="right"
-				value="width"
-				startIcon={{ icon: faArrowsLeftRight }}
-				size="xs"
-			>
-				Width editor
+			<ToggleButton position="right" value="preview" startIcon={{ icon: faDisplay }} size="xs">
+				Preview
 			</ToggleButton>
 		</ToggleButtonGroup>
 	</div>

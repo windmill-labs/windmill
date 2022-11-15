@@ -5,15 +5,13 @@
 	import { dndzone } from 'svelte-dnd-action'
 	import { flip } from 'svelte/animate'
 	import { classNames } from '$lib/utils'
-	import { Button } from '$lib/components/common'
-	import { faPlus } from '@fortawesome/free-solid-svg-icons'
 
 	export let components: AppComponent[]
 	export let sectionIndex: number
 	export let columns: number
 
 	const flipDurationMs = 200
-	const { selection, connectingInput, resizing, app } =
+	const { selection, connectingInput, resizing, mode } =
 		getContext<AppEditorContext>('AppEditorContext')
 
 	function handleDndConsider(event: CustomEvent<DndEvent<AppComponent>>) {
@@ -147,12 +145,17 @@
 		99: 'w-[99%]',
 		100: 'w-[100%]'
 	}
+
+	$: isPreview = $mode === 'preview'
 </script>
 
 <div class="rounded-b-sm flex-row  flex bg-white cursor-pointer ">
 	<div class="flex flex-row w-full">
 		<div
-			class={classNames('flex w-full gap-2 hover:bg-blue-100 p-4 rounded-md')}
+			class={classNames(
+				'flex w-full gap-2  p-4 rounded-md pt-8',
+				isPreview ? '' : 'hover:bg-blue-100'
+			)}
 			use:dndzone={{
 				items: components,
 				flipDurationMs,
@@ -161,8 +164,8 @@
 					outline: '1px dashed blue',
 					outlineOffset: '2px'
 				},
-				dragDisabled: components.length === 0 || $resizing,
-				dropFromOthersDisabled: components.length === columns
+				dragDisabled: components.length === 0 || $resizing || isPreview,
+				dropFromOthersDisabled: components.length === columns || isPreview
 			}}
 			on:consider={handleDndConsider}
 			on:finalize={handleDndFinalize}
@@ -174,7 +177,7 @@
 						class={classNames(numberToTailwindWidthMap[component.width], 'bg-green-100')}
 						animate:flip={{ duration: flipDurationMs }}
 						on:click|stopPropagation={() => {
-							if (!$connectingInput.opened) {
+							if (!$connectingInput.opened && !isPreview) {
 								$selection = { componentIndex, sectionIndex }
 							}
 						}}

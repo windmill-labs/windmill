@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Alert, ToggleButton, ToggleButtonGroup } from '$lib/components/common'
+	import { Alert } from '$lib/components/common'
 	import Badge from '$lib/components/common/badge/Badge.svelte'
 	import Button from '$lib/components/common/button/Button.svelte'
 	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
@@ -35,22 +35,6 @@
 {#if section}
 	<div class="flex flex-col w-full divide-y">
 		<span class="text-sm border-y w-full py-1 px-2 bg-gray-800 text-white">Section editor</span>
-		<PanelSection title="Columns">
-			<ToggleButtonGroup bind:selected={section.columns}>
-				<ToggleButton position="left" value={1} disabled={section.components.length >= 2} size="xs">
-					1
-				</ToggleButton>
-				<ToggleButton
-					position="center"
-					value={2}
-					disabled={section.components.length === 3}
-					size="xs"
-				>
-					2
-				</ToggleButton>
-				<ToggleButton position="right" value={3} size="xs">3</ToggleButton>
-			</ToggleButtonGroup>
-		</PanelSection>
 
 		<PanelSection title="Danger zone">
 			<Button

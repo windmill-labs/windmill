@@ -16,6 +16,8 @@
 	import TabContent from '$lib/components/common/tabs/TabContent.svelte'
 	import { Tab } from '$lib/components/common'
 	import ComponentList from './componentsPanel/ComponentList.svelte'
+	import Icon from 'svelte-awesome'
+	import { faPlus, faSliders } from '@fortawesome/free-solid-svg-icons'
 
 	export let app: App
 
@@ -45,20 +47,40 @@
 		resizing
 	})
 
+	function clearSelectionOnPreview() {
+		if ($mode === 'preview') {
+			$selection = undefined
+		}
+	}
+
+	$: $mode && $selection && clearSelectionOnPreview()
+
 	onMount(() => {
 		$worldStore = buildWorld($staticOutputs)
 	})
+
+	let selectedTab = 'insert'
 </script>
 
-<AppEditorHeader title="Sample app" bind:mode={$mode} />
+<AppEditorHeader title={app.title} bind:mode={$mode} />
 <SplitPanesWrapper>
 	<Pane>
 		<SectionsEditor bind:sections={$appStore.sections} mode={$mode} />
 	</Pane>
 	<Pane minSize={40} maxSize={50} size={30}>
-		<Tabs selected="settings">
-			<Tab value="settings" size="xs"><div class="m-1">Settings</div></Tab>
-			<Tab value="insert" size="xs"><div class="m-1">Insert</div></Tab>
+		<Tabs selected={selectedTab}>
+			<Tab value="insert" size="xs">
+				<div class="m-1 flex flex-row gap-2">
+					<Icon data={faPlus} />
+					<span>Insert</span>
+				</div>
+			</Tab>
+			<Tab value="settings" size="xs">
+				<div class="m-1 flex flex-row gap-2">
+					<Icon data={faSliders} />
+					<span>Settings</span>
+				</div>
+			</Tab>
 			<svelte:fragment slot="content">
 				<TabContent value="settings">
 					{#if $selection?.sectionIndex !== undefined && $selection?.componentIndex !== undefined}
@@ -82,7 +104,6 @@
 							}}
 						/>
 					{/if}
-
 					{#if $selection?.sectionIndex !== undefined}
 						<SectionPanel
 							bind:section={$appStore.sections[$selection.sectionIndex]}

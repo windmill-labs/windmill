@@ -1,10 +1,8 @@
 <script lang="ts">
 	import { flip } from 'svelte/animate'
-	import { dndzone, TRIGGERS, SHADOW_ITEM_MARKER_PROPERTY_NAME } from 'svelte-dnd-action'
+	import { dndzone } from 'svelte-dnd-action'
 	import Icon from 'svelte-awesome'
-	import { faDisplay, faFile } from '@fortawesome/free-solid-svg-icons'
-	import { faWpforms } from '@fortawesome/free-brands-svg-icons'
-	import { getNextId } from '$lib/components/flows/flowStateUtils'
+	import { displayData } from '../../utils'
 
 	const defaultProps = {
 		horizontalAlignement: 'center',
@@ -36,80 +34,109 @@
 			// Used by the dnd library, should be replaced by unique id
 			id: 'runformcomponent',
 			type: 'runformcomponent'
-		},
+		}
+	]
+
+	let x = [
 		{
 			...defaultProps,
 			// Used by the dnd library, should be replaced by unique id
 			id: 'textcomponent',
 			type: 'textcomponent'
+		},
+		{
+			...defaultProps,
+			id: 'buttoncomponent',
+			type: 'buttoncomponent'
+		},
+		{
+			...defaultProps,
+			id: 'imagecomponent',
+			type: 'imagecomponent'
+		},
+		{
+			...defaultProps,
+			id: 'inputcomponent',
+			type: 'inputcomponent'
+		},
+		{
+			...defaultProps,
+			id: 'selectcomponent',
+			type: 'selectcomponent'
+		},
+		{
+			...defaultProps,
+			id: 'checkboxcomponent',
+			type: 'checkboxcomponent'
+		},
+		{
+			...defaultProps,
+			id: 'radiocomponent',
+			type: 'radiocomponent'
 		}
 	]
 
-	const displayData = {
-		displaycomponent: {
-			name: 'Display component',
-			icon: faDisplay
+	let charts = [
+		{
+			...defaultProps,
+			// Used by the dnd library, should be replaced by unique id
+			id: 'piechartcomponent',
+			type: 'piechartcomponent'
 		},
-		runformcomponent: {
-			name: 'Run form',
-			icon: faWpforms
-		},
-
-		textcomponent: {
-			name: 'Text component',
-			icon: faFile
+		{
+			...defaultProps,
+			id: 'barchartcomponent',
+			type: 'barchartcomponent'
 		}
-	}
+	]
 
 	const flipDurationMs = 300
-	let shouldIgnoreDndEvents = false
-
-	function handleDndConsider(e) {
-		const { trigger, id } = e.detail.info
-		if (trigger === TRIGGERS.DRAG_STARTED) {
-			const idx = items.findIndex((item) => item.id === id)
-
-			e.detail.items = e.detail.items.filter((item) => !item[SHADOW_ITEM_MARKER_PROPERTY_NAME])
-
-			e.detail.items.splice(idx, 0, {
-				...items[idx],
-				id: getNextId(e.detail.items.map((item) => item.id)),
-				// @ts-ignore
-				type: items[idx].type,
-				width: 100
-			})
-			items = e.detail.items
-
-			shouldIgnoreDndEvents = true
-		} else if (!shouldIgnoreDndEvents) {
-			items = e.detail.items
-		} else {
-			items = [...items]
-		}
-	}
-
-	function handleDndFinalize(e) {
-		if (!shouldIgnoreDndEvents) {
-			items = e.detail.items
-		} else {
-			items = [...items]
-			shouldIgnoreDndEvents = false
-		}
-	}
 </script>
+
+<div class="px-4 pt-4 text-sm font-semibold">Component</div>
 
 <section
 	use:dndzone={{ items, flipDurationMs, type: 'component' }}
-	on:consider={handleDndConsider}
-	on:finalize={handleDndFinalize}
-	class="grid grid-cols-3 gap-2 p-2"
+	class="grid grid-cols-3 gap-4 p-4"
 >
 	{#each items as item (item.id)}
 		<div
-			class="border shadow-sm h-24 p-2 flex flex-col gap-2 items-center justify-center bg-white rounded-md"
+			class="border shadow-sm h-24 p-2 flex flex-col gap-2 items-center justify-center bg-white rounded-md scale-100 hover:scale-105 ease-in duration-100"
 			animate:flip={{ duration: flipDurationMs }}
 		>
-			<Icon data={displayData[item.type].icon} scale={1.6} />
+			<Icon data={displayData[item.type].icon} scale={1.6} class="text-blue-800" />
+			<div class="text-xs">{displayData[item.type].name}</div>
+		</div>
+	{/each}
+</section>
+
+<div class="px-4 pt-4 text-sm font-semibold">Components</div>
+<section
+	use:dndzone={{ items: x, flipDurationMs, type: 'component' }}
+	class="grid grid-cols-3 gap-4 p-4"
+>
+	{#each x as item (item.id)}
+		<div
+			class="border shadow-sm h-24 p-2 flex flex-col gap-2 items-center justify-center bg-white rounded-md scale-100 hover:scale-105 ease-in duration-100"
+			animate:flip={{ duration: flipDurationMs }}
+		>
+			<Icon data={displayData[item.type].icon} scale={1.6} class="text-blue-800" />
+			<div class="text-xs">{displayData[item.type].name}</div>
+		</div>
+	{/each}
+</section>
+
+<div class="px-4 pt-4 text-sm font-semibold">Charts</div>
+<section
+	use:dndzone={{ items: charts, flipDurationMs, type: 'component' }}
+	class="grid grid-cols-3 gap-4 p-4"
+>
+	{#each charts as item (item.id)}
+		<div
+			class="border shadow-sm h-24 p-2 flex flex-col gap-2 items-center justify-center bg-white rounded-md scale-100 hover:scale-105 ease-in duration-100"
+			animate:flip={{ duration: flipDurationMs }}
+		>
+			<Icon data={displayData[item.type].icon} scale={1.6} class="text-blue-800" />
 			<div class="text-xs">{displayData[item.type].name}</div>
 		</div>
 	{/each}
