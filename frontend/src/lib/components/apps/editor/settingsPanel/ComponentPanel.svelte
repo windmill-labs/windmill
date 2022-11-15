@@ -57,13 +57,6 @@
 				{/if}
 			</PanelSection>
 
-			<PanelSection title="Content">
-				<div class="w-full text-xs font-bold">Title</div>
-				<input type="text" class="w-full" bind:value={component.title} />
-				<div class="w-full text-xs font-bold">Description</div>
-				<textarea type="text" class="w-full" rows="2" bind:value={component.description} />
-			</PanelSection>
-
 			<PanelSection title="Alignement">
 				<div class="w-full text-xs font-bold">Horizontal alignement</div>
 

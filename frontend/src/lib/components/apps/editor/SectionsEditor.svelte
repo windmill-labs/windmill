@@ -86,30 +86,32 @@
 		{/each}
 	</div>
 	{#if mode !== 'preview'}
-		<section>
-			<div
-				class="h-80 hover:bg-blue-100 rounded-md"
-				use:dndzone={{
-					items: emptyComponents,
-					flipDurationMs,
-					type: 'component',
-					dropTargetStyle: {
-						outline: '1px dashed blue',
-						outlineOffset: '8px'
-					}
-				}}
-				on:consider={(e) => {
-					emptyComponents = e.detail.items
-				}}
-				on:finalize={(e) => {
-					emptyComponents = e.detail.items
-					dropped = true
-				}}
-			>
-				{#each emptyComponents as emptyComponnet, emptyIndex (emptyComponnet.id)}
-					<div>{emptyIndex}</div>
-				{/each}
-			</div>
-		</section>
+		<div class="w-full">
+			<section>
+				<div
+					class="h-48  bg-gray-200 rounded-md flex justify-center items-center"
+					use:dndzone={{
+						items: emptyComponents,
+						flipDurationMs,
+						type: 'component',
+						dropTargetStyle: {
+							outline: '1px dashed blue',
+							outlineOffset: '8px'
+						}
+					}}
+					on:consider={(e) => {
+						emptyComponents = e.detail.items
+					}}
+					on:finalize={(e) => {
+						emptyComponents = e.detail.items
+						dropped = true
+					}}
+				>
+					{#each emptyComponents as emptyComponnet, emptyIndex (emptyComponnet.id)}
+						<div>{emptyIndex}</div>
+					{/each}
+				</div>
+			</section>
+		</div>
 	{/if}
 </div>

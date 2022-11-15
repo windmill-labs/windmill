@@ -7,12 +7,12 @@
 
 	const { worldStore } = getContext<AppEditorContext>('AppEditorContext')
 
-	$: inputResult =
-		componentInputs.result.id && componentInputs.result.name
-			? $worldStore?.connect<any>(componentInputs.result, (x) => {
-					update()
-			  })
-			: undefined
+	$: hasConnection = componentInputs.result.id && componentInputs.result.name
+	$: inputResult = hasConnection
+		? $worldStore?.connect<any>(componentInputs.result, (x) => {
+				update()
+		  })
+		: undefined
 
 	let result: any
 
@@ -29,7 +29,13 @@
 			Results
 		</div>
 		<div class="p-2">
-			<DisplayResult {result} />
+			{#if !hasConnection}
+				<span class="text-sm">Not connected</span>
+			{:else if result === undefined}
+				<span class="text-sm">Waiting for result</span>
+			{:else}
+				<DisplayResult {result} />
+			{/if}
 		</div>
 	</div>
 {/if}

@@ -116,6 +116,9 @@
 							}}
 						/>
 					{/if}
+					{#if $selection === undefined}
+						<div class="p-4 text-sm">No component selected.</div>
+					{/if}
 				</TabContent>
 				<TabContent value="insert">
 					<ComponentList />

@@ -10,6 +10,4 @@
 	<StaticInputEditor bind:input={appInputTransform} />
 {:else if appInputTransform.type === 'output'}
 	<DynamicInputEditor bind:input={appInputTransform} />
-{:else if appInputTransform.type === 'user'}
-	<span>Not implemented</span>
 {/if}
