@@ -9,6 +9,7 @@ const config = {
 			current: 'currentcolor',
 			transparent: 'transparent',
 			white: '#ffffff',
+			black: 'rgb(48, 48, 48)',
 			gray: {
 				50: '#f9fafb',
 				100: '#f3f4f6',
@@ -242,6 +243,34 @@ const config = {
 							backgroundColor: theme('colors.gray.100') + ' !important'
 						}
 					},
+				button: {
+					fontWeight: theme('fontWeight.semibold')
+				},
+				a: {
+					color: theme('colors.blue.500')
+				},
+				'input,input[type="text"],input[type="email"],input[type="url"],input[type="password"],input[type="number"],input[type="date"],input[type="datetime-local"],input[type="month"],input[type="search"],input[type="tel"],input[type="time"],input[type="week"],textarea,select':
+					{
+						display: 'block',
+						fontSize: theme('fontSize.sm'),
+						width: '100%',
+						padding: `${theme('spacing.1')} ${theme('spacing.2')}`,
+						border: `1px solid ${theme('colors.gray.300')}`,
+						borderRadius: theme('borderRadius.md'),
+						boxShadow: theme('boxShadow.sm'),
+						'&:focus': {
+							'--tw-ring-color': theme('colors.indigo.100'),
+							'--tw-ring-offset-shadow':
+								'var(--tw-ring-inset) 0 0 0 var(--tw-ring-offset-width) var(--tw-ring-offset-color)',
+							'--tw-ring-shadow':
+								'var(--tw-ring-inset) 0 0 0 calc(3px + var(--tw-ring-offset-width)) var(--tw-ring-color)',
+							boxShadow:
+								'var(--tw-ring-offset-shadow), var(--tw-ring-shadow), var(--tw-shadow, 0 0 #0000)'
+						},
+						'&:disabled,[disabled]': {
+							backgroundColor: theme('colors.gray.100') + ' !important'
+						}
+					},
 				'button:disabled,button[disabled=true],a:disabled,a[disabled=true]': {
 					pointerEvents: 'none',
 					cursor: 'default',
@@ -299,11 +328,11 @@ const config = {
 					backgroundColor: theme('colors.blue.100'),
 					borderRadius: theme('borderRadius.DEFAULT')
 				},
-				'.text-blue-gradient': {
+				'.text-black-gradient': {
 					color: 'transparent',
 					backgroundClip: 'text',
-					backgroundImage: `linear-gradient(to right, ${theme('colors.blue.600')}, ${theme(
-						'colors.blue.500'
+					backgroundImage: `linear-gradient(to right, ${theme('colors.black')}, ${theme(
+						'colors.gray.600'
 					)})`
 				},
 				'.splitpanes__pane': {

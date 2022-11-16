@@ -1,6 +1,44 @@
 # Changelog
 
 
+## [1.47.3](https://github.com/windmill-labs/windmill/compare/v1.47.2...v1.47.3) (2022-11-15)
+
+
+### Bug Fixes
+
+* **python-client:** fix transform_leaves ([a649f77](https://github.com/windmill-labs/windmill/commit/a649f772a564eaffb5f6192a510f7112ed618300))
+
+## [1.47.2](https://github.com/windmill-labs/windmill/compare/v1.47.1...v1.47.2) (2022-11-15)
+
+
+### Bug Fixes
+
+* **python-client:** fix get_state ([b4fd470](https://github.com/windmill-labs/windmill/commit/b4fd4700251892116b0dff2940d98b7e473c79bf))
+
+## [1.47.1](https://github.com/windmill-labs/windmill/compare/v1.47.0...v1.47.1) (2022-11-15)
+
+
+### Bug Fixes
+
+* **python-client:** fix set_resource ([a6a5ada](https://github.com/windmill-labs/windmill/commit/a6a5adadf45f6334eaf17f59985c0e7870f25167))
+
+## [1.47.0](https://github.com/windmill-labs/windmill/compare/v1.46.2...v1.47.0) (2022-11-15)
+
+
+### Features
+
+* **backend:** Flow lock ([#868](https://github.com/windmill-labs/windmill/issues/868)) ([47c9ff1](https://github.com/windmill-labs/windmill/commit/47c9ff1edc28b63a1a16ffce08d3751a4f8f5422))
+* **backend:** remove go.sum from go lockfile ([#891](https://github.com/windmill-labs/windmill/issues/891)) ([3357cff](https://github.com/windmill-labs/windmill/commit/3357cffb043254d8712a2afe2729533d5884d56f))
+* **clients:** rename internal state as state + setters for resources/variables in python ([32bca1f](https://github.com/windmill-labs/windmill/commit/32bca1fd4cd0714a9f18a508b0e0782f63ee25a8))
+
+
+### Bug Fixes
+
+* **backend:** go use windmill cache dir even if nsjail disabled ([a9abd28](https://github.com/windmill-labs/windmill/commit/a9abd288822731add05d00e3d3fc43d29e11c7cb))
+* **frontend:** add size prop to tabs ([#894](https://github.com/windmill-labs/windmill/issues/894)) ([e8d3a0e](https://github.com/windmill-labs/windmill/commit/e8d3a0efb1e23ae66d755489f96f09932544be9c))
+* **frontend:** App Editor v0 ([#886](https://github.com/windmill-labs/windmill/issues/886)) ([cc5f629](https://github.com/windmill-labs/windmill/commit/cc5f629a7b142a2bd0ce7ca8950e24f6cb5473ff))
+* **frontend:** Set settings as header and error handler as footer ([#893](https://github.com/windmill-labs/windmill/issues/893)) ([4dc05b9](https://github.com/windmill-labs/windmill/commit/4dc05b913e4d98dd37b032639831d20aa662e4e9))
+
 ## [1.46.2](https://github.com/windmill-labs/windmill/compare/v1.46.1...v1.46.2) (2022-11-12)
 
 

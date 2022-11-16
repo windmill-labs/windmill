@@ -53,7 +53,7 @@
 			variant="border"
 			on:click={() => dispatch('fork')}
 			startIcon={{ icon: faCodeBranch }}
-			{iconOnly}
+			iconOnly={false}
 		>
 			Fork
 		</Button>
@@ -66,7 +66,7 @@
 			variant="border"
 			startIcon={{ icon: faSave }}
 			on:click={() => dispatch('createScriptFromInlineScript')}
-			{iconOnly}
+			iconOnly={false}
 		>
 			Save to workspace
 		</Button>

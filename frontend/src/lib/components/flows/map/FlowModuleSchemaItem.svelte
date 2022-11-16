@@ -1,8 +1,13 @@
 <script lang="ts">
 	import Badge from '$lib/components/common/badge/Badge.svelte'
-	import Button from '$lib/components/common/button/Button.svelte'
 	import { classNames } from '$lib/utils'
-	import { faBed, faRepeat, faStop, faTrashAlt } from '@fortawesome/free-solid-svg-icons'
+	import {
+		faBed,
+		faRepeat,
+		faStop,
+		faTimesCircle,
+		faTrashAlt
+	} from '@fortawesome/free-solid-svg-icons'
 	import { createEventDispatcher } from 'svelte'
 	import Icon from 'svelte-awesome'
 
@@ -20,7 +25,7 @@
 	export let label: string
 
 	const margin = isLast ? '' : isFirst ? 'mb-0.5' : 'my-0.5'
-	const dispatch = createEventDispatcher<{ delete: CustomEvent<MouseEvent> }>()
+	const dispatch = createEventDispatcher()
 </script>
 
 <!-- svelte-ignore a11y-click-events-have-key-events -->
@@ -48,7 +53,7 @@
 	</div>
 	<div
 		class={classNames(
-			'w-full flex overflow-hidden rounded-sm cursor-pointer',
+			'w-full flex overflow-hidden rounded-sm cursor-pointer mr-2',
 			selected ? 'outline outline-offset-1 outline-2  outline-gray-600' : '',
 			margin
 		)}
@@ -71,7 +76,7 @@
 			{/if}
 		</div>
 		<div
-			class="flex justify-between items-center w-full overflow-hidden border p-2 bg-white text-sm"
+			class="flex justify-between items-center w-full overflow-hidden border p-2 bg-white text-2xs module"
 		>
 			<div class="flex-1 truncate" class:font-bold={bold}>{label}</div>
 			<div class="flex items-center space-x-2">
@@ -79,14 +84,17 @@
 					<Badge color="indigo">{id}</Badge>
 				{/if}
 				{#if deletable}
-					<Button
+					<button
+						class="absolute -top-2 right-0 rounded-full h-4 w-4 trash center-center bg-white {selected
+							? ''
+							: '!hidden'}"
 						on:click={(event) => dispatch('delete', event)}
-						startIcon={{ icon: faTrashAlt, classes: 'text-gray-500' }}
-						iconOnly={true}
-						color="light"
-						variant="border"
-						size="xs"
-					/>
+						><Icon
+							data={faTimesCircle}
+							class="text-gray-600 hover:text-red-600"
+							scale={0.9}
+						/></button
+					>
 				{/if}
 			</div>
 		</div>
@@ -94,6 +102,9 @@
 </div>
 
 <style>
+	.module:hover .trash {
+		display: flex !important;
+	}
 	.line {
 		background: repeating-linear-gradient(to bottom, transparent 0 4px, #bbb 4px 8px) 50%/1px 100%
 			no-repeat;

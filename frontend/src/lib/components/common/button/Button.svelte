@@ -4,6 +4,7 @@
 	import Icon from 'svelte-awesome'
 	import { ButtonType } from './model'
 	import { goto } from '$app/navigation'
+	import { faArrowsRotate, faSpinner } from '@fortawesome/free-solid-svg-icons'
 
 	export let size: ButtonType.Size = 'md'
 	export let spacingSize: ButtonType.Size = size
@@ -19,6 +20,8 @@
 	export let element: ButtonType.Element | undefined = undefined
 	export let id: string = ''
 	export let nonCaptureEvent: boolean = false
+
+	let loading = false
 
 	const dispatch = createEventDispatcher()
 	// Order of classes: border, border modifier, bg, bg modifier, text, text modifier, everything else
@@ -70,7 +73,7 @@
 		tabindex: disabled ? -1 : 0
 	}
 
-	function onClick(event: MouseEvent) {
+	async function onClick(event: MouseEvent) {
 		if (!nonCaptureEvent) {
 			event.preventDefault()
 			dispatch('click', event)
@@ -78,7 +81,9 @@
 				if (href.startsWith('http') || target == '_blank') {
 					window.open(href, target)
 				} else {
-					goto(href)
+					loading = true
+					await goto(href)
+					loading = false
 				}
 			}
 		}
@@ -95,14 +100,21 @@
 <svelte:element
 	this={href ? 'a' : 'button'}
 	bind:this={element}
-	on:click={onClick}
+	on:click|stopPropagation={onClick}
 	on:focus
 	on:blur
 	{...buttonProps}
 >
-	{#if startIcon}
+	{#if loading}
+		<Icon
+			data={faSpinner}
+			class={`animate-spin ${startIconClass}`}
+			scale={ButtonType.IconScale[size]}
+		/>
+	{:else if startIcon}
 		<Icon data={startIcon.icon} class={startIconClass} scale={ButtonType.IconScale[size]} />
 	{/if}
+
 	{#if !iconOnly}
 		<slot />
 	{/if}

@@ -20,7 +20,9 @@
 	let stateLoadedFromUrl = initialState != undefined ? decodeState(initialState) : undefined
 	const initialArgs = decodeArgs($page.url.searchParams.get('args') ?? undefined)
 
-	let selectedId: string | undefined = undefined
+	let loading = false
+
+	let selectedId: string = 'settings-graph'
 
 	let flow: Flow = {
 		path: $page.params.path,
@@ -38,6 +40,7 @@
 	initFlow(flow)
 
 	async function loadFlow(): Promise<void> {
+		loading = true
 		flow =
 			stateLoadedFromUrl != undefined && stateLoadedFromUrl?.flow?.path == flow.path
 				? stateLoadedFromUrl.flow
@@ -48,6 +51,7 @@
 		initialPath = flow.path
 
 		await initFlow(flow)
+		loading = false
 		selectedId = stateLoadedFromUrl?.selectedId
 		$dirtyStore = false
 	}
@@ -59,4 +63,4 @@
 	}
 </script>
 
-<FlowBuilder {initialPath} {selectedId} {initialArgs} />
+<FlowBuilder {initialPath} {selectedId} {initialArgs} {loading} />

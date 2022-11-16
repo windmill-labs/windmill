@@ -5,26 +5,20 @@
 	import { Script } from '$lib/gen'
 	import { ScriptService } from '$lib/gen'
 	import { workspaceStore, hubScripts } from '$lib/stores'
-	import { sendUserToast } from '$lib/utils'
-	import { Button, ButtonPopup, ButtonPopupItem } from '$lib/components/common'
+	import { ButtonPopup, ButtonPopupItem } from '$lib/components/common'
 	import ItemPicker from '../ItemPicker.svelte'
 	import type { HubItem } from '../flows/pickers/model'
 	import Drawer from '$lib/components/common/drawer/Drawer.svelte'
 	import DrawerContent from '$lib/components/common/drawer/DrawerContent.svelte'
-	import SimpleEditor from '$lib/components/SimpleEditor.svelte'
-	import { flowStore, initFlow } from '$lib/components/flows/flowStore'
 
 	const drawers: {
 		hub: ItemPicker | undefined
 		template: Drawer | undefined
-		json: Drawer | undefined
 	} = {
 		hub: undefined,
-		template: undefined,
-		json: undefined
+		template: undefined
 	}
 	let hubItems: HubItem[]
-	let pendingJson: string
 	let templateScripts: Script[] = []
 	let templateFilter = ''
 	let filteredTemplates: Script[] | undefined
@@ -41,14 +35,6 @@
 			? templateFuse.search(templateFilter).map((value) => value.item)
 			: templateScripts
 
-	function importJson() {
-		Object.assign($flowStore, JSON.parse(pendingJson))
-
-		initFlow($flowStore)
-		sendUserToast('OpenFlow imported from JSON')
-		drawers.json?.toggleDrawer()
-	}
-
 	async function loadTemplateScripts(): Promise<void> {
 		templateScripts = await ScriptService.listScripts({
 			workspace: $workspaceStore!,
@@ -61,15 +47,12 @@
 <!-- Buttons -->
 <div class="flex flex-row gap-2">
 	<ButtonPopup size="sm" startIcon={{ icon: faPlus }} href="/scripts/add">
-		<svelte:fragment slot="main">New script</svelte:fragment>
+		<svelte:fragment slot="main">New Script</svelte:fragment>
 		<ButtonPopupItem on:click={() => drawers.hub?.openDrawer()}>
 			Import script from WindmillHub
 		</ButtonPopupItem>
 		<ButtonPopupItem on:click={() => drawers.template?.toggleDrawer()}>
 			Import script from template
-		</ButtonPopupItem>
-		<ButtonPopupItem on:click={() => drawers.json?.toggleDrawer()}>
-			Import script from raw JSON
 		</ButtonPopupItem>
 	</ButtonPopup>
 </div>
@@ -79,7 +62,6 @@
 <ItemPicker
 	bind:this={drawers.hub}
 	pickCallback={(path) => {
-		console.log('pick', { path })
 		goto('/scripts/add?hub=' + path)
 	}}
 	itemName={'Script'}
@@ -115,12 +97,5 @@
 				<p class="text-sm text-gray-700">No templates</p>
 			{/if}
 		</div>
-	</DrawerContent>
-</Drawer>
-<!-- Raw JSON -->
-<Drawer bind:this={drawers.json} size="800px">
-	<DrawerContent title="Import JSON" on:close={() => drawers.json?.toggleDrawer()}>
-		<SimpleEditor bind:code={pendingJson} lang="json" class="h-full" />
-		<span slot="submission"><Button size="sm" on:click={importJson}>Import</Button></span>
 	</DrawerContent>
 </Drawer>

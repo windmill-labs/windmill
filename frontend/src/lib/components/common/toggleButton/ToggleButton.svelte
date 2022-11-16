@@ -1,24 +1,27 @@
 <script lang="ts">
 	import { classNames } from '$lib/utils'
+	import { faRing } from '@fortawesome/free-solid-svg-icons'
 	import { getContext } from 'svelte'
+	import Button from '../button/Button.svelte'
 	import type { ToggleButtonContext } from './ToggleButtonGroup.svelte'
 
-	export let value: string
+	export let value: any
 	export let position: 'left' | 'center' | 'right'
 
 	const { select, selected } = getContext<ToggleButtonContext>('ToggleButtonGroup')
 </script>
 
-<button
-	type="button"
+<Button
+	{...$$props}
 	on:click={() => select(value)}
-	class={classNames(
-		'py-1 px-2 text-sm font-medium border-gray-200 ',
-		position === 'left' ? 'rounded-l-lg border' : '',
-		position === 'center' ? 'border-t border-b' : '',
-		position === 'right' ? 'rounded-r-md border border-l-0' : '',
-		$selected.includes(value) ? 'text-white bg-gray-900 ' : 'text-gray-900 bg-white '
+	btnClasses={classNames(
+		'border-gray-200 focus:ring-0 w-full',
+		position === 'left' ? 'rounded-none rounded-l-lg border' : '',
+		position === 'center' ? 'rounded-none border-t border-b' : '',
+		position === 'right' ? 'rounded-none rounded-r-md !border border-l-0' : ''
 	)}
+	color={$selected === value ? 'dark' : 'light'}
+	variant="contained"
 >
 	<slot />
-</button>
+</Button>

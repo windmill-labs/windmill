@@ -1,33 +1,31 @@
 <script lang="ts">
 	import { Job, JobService } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
-
 	import { onDestroy } from 'svelte'
-
 	import type { Preview } from '$lib/gen/models/Preview'
 	import { createEventDispatcher } from 'svelte'
-
-	const dispatch = createEventDispatcher()
+	import {
+		setIntervalAsync,
+		clearIntervalAsync,
+		type SetIntervalAsyncTimer
+	} from 'set-interval-async'
 
 	export let isLoading = false
 	export let job: Job | undefined = undefined
 	export let workspaceOverride: string | undefined = undefined
 	export let notfound = false
 
+	const dispatch = createEventDispatcher()
+
 	$: workspace = workspaceOverride ?? $workspaceStore
-	let intervalId: NodeJS.Timer
+	let intervalId: SetIntervalAsyncTimer<unknown[]> | undefined = undefined
 
 	let syncIteration: number = 0
 	let ITERATIONS_BEFORE_SLOW_REFRESH = 100
 
-	export async function runPreview(
-		path: string | undefined,
-		code: string,
-		lang: 'deno' | 'go' | 'python3' | 'bash',
-		args: Record<string, any>
-	): Promise<void> {
+	export async function abstractRun(fn: () => Promise<string>) {
 		try {
-			intervalId && clearInterval(intervalId)
+			intervalId && clearIntervalAsync(intervalId)
 			if (isLoading && job) {
 				JobService.cancelQueuedJob({
 					workspace: workspace!,
@@ -37,8 +35,49 @@
 			}
 			isLoading = true
 
-			const testId = await JobService.runScriptPreview({
-				workspace: workspace!,
+			const testId = await fn()
+			await watchJob(testId)
+		} catch (err) {
+			isLoading = false
+			throw err
+		}
+	}
+
+	export async function runScriptByPath(
+		path: string | undefined,
+		args: Record<string, any>
+	): Promise<void> {
+		abstractRun(() =>
+			JobService.runScriptByPath({
+				workspace: $workspaceStore!,
+				path: path ?? '',
+				requestBody: args
+			})
+		)
+	}
+
+	export async function runFlowByPath(
+		path: string | undefined,
+		args: Record<string, any>
+	): Promise<void> {
+		abstractRun(() =>
+			JobService.runFlowByPath({
+				workspace: $workspaceStore!,
+				path: path ?? '',
+				requestBody: args
+			})
+		)
+	}
+
+	export async function runPreview(
+		path: string | undefined,
+		code: string,
+		lang: 'deno' | 'go' | 'python3' | 'bash',
+		args: Record<string, any>
+	): Promise<void> {
+		abstractRun(() =>
+			JobService.runScriptPreview({
+				workspace: $workspaceStore!,
 				requestBody: {
 					path,
 					content: code,
@@ -46,11 +85,7 @@
 					language: lang as Preview.language
 				}
 			})
-			await watchJob(testId)
-		} catch (err) {
-			isLoading = false
-			throw err
-		}
+		)
 	}
 
 	export async function cancelJob() {
@@ -63,15 +98,14 @@
 	}
 
 	export async function watchJob(testId: string) {
-		console.log('watch jobs')
-		intervalId && clearInterval(intervalId)
+		intervalId && clearIntervalAsync(intervalId)
 		job = undefined
 		syncIteration = 0
 		const isCompleted = await loadTestJob(testId)
 		if (!isCompleted) {
 			isLoading = true
-			intervalId = setInterval(() => {
-				syncer(testId)
+			intervalId = setIntervalAsync(async () => {
+				await syncer(testId)
 			}, 500)
 		}
 	}
@@ -99,7 +133,7 @@
 			if (job?.type === 'CompletedJob') {
 				//only CompletedJob has success property
 				isCompleted = true
-				intervalId && clearInterval(intervalId)
+				intervalId && clearIntervalAsync(intervalId)
 				if (isLoading) {
 					dispatch('done', job)
 					isLoading = false
@@ -107,7 +141,7 @@
 			}
 			notfound = false
 		} catch (err) {
-			intervalId && clearInterval(intervalId)
+			intervalId && clearIntervalAsync(intervalId)
 			if (err.status === 404) {
 				notfound = true
 			}
@@ -116,16 +150,16 @@
 		return isCompleted
 	}
 
-	function syncer(id: string): void {
+	async function syncer(id: string): Promise<void> {
 		if (syncIteration == ITERATIONS_BEFORE_SLOW_REFRESH) {
-			intervalId && clearInterval(intervalId)
-			intervalId = setInterval(() => syncer(id), 2000)
+			intervalId && clearIntervalAsync(intervalId)
+			intervalId = setIntervalAsync(async () => await syncer(id), 2000)
 		}
 		syncIteration++
-		loadTestJob(id)
+		await loadTestJob(id)
 	}
 
 	onDestroy(() => {
-		intervalId && clearInterval(intervalId)
+		intervalId && clearIntervalAsync(intervalId)
 	})
 </script>

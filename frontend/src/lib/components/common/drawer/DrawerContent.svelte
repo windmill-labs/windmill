@@ -6,12 +6,14 @@
 
 	export let title: string | undefined = undefined
 	export let overflow_y = true
+	export let noPadding = false
 	const dispatch = createEventDispatcher()
 </script>
 
 <div class="flex flex-col divide-y h-screen max-h-screen">
-	<div class="flex justify-between items-center py-2 px-6 gap-x-2">
+	<div class="flex justify-between items-center gap-x-2">
 		<Button
+			btnClasses="m-1"
 			variant="border"
 			size="lg"
 			color="dark"
@@ -29,7 +31,10 @@
 		</div>
 	</div>
 
-	<div class="py-2 px-6 grow h-full max-h-full" class:overflow-y-auto={overflow_y}>
+	<div
+		class="{noPadding ? '' : 'py-2 px-6'} grow h-full max-h-full"
+		class:overflow-y-auto={overflow_y}
+	>
 		<slot />
 	</div>
 </div>

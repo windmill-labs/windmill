@@ -18,7 +18,7 @@
 	import type { User } from '$lib/gen'
 	import { sendUserToast, msToSec } from '$lib/utils'
 	import PageHeader from '$lib/components/PageHeader.svelte'
-	import { userStore, usersWorkspaceStore, workspaceStore, oauthStore } from '$lib/stores'
+	import { userStore, usersWorkspaceStore, workspaceStore } from '$lib/stores'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
 	import { faSlack } from '@fortawesome/free-brands-svg-icons'
 	import TableCustom from '$lib/components/TableCustom.svelte'
@@ -26,9 +26,9 @@
 	import InviteUser from '$lib/components/InviteUser.svelte'
 	import ScriptPicker from '$lib/components/ScriptPicker.svelte'
 	import AppConnect from '$lib/components/AppConnect.svelte'
-	import { onMount } from 'svelte'
 	import { Button } from '$lib/components/common'
 	import Tooltip from '$lib/components/Tooltip.svelte'
+	import { faScroll, faWind } from '@fortawesome/free-solid-svg-icons'
 
 	let users: User[] = []
 	let invites: WorkspaceInvite[] = []
@@ -37,7 +37,6 @@
 	let scriptPath: string
 	let team_name: string | undefined
 
-	let appConnect: AppConnect
 	const fuseOptions = {
 		includeScore: false,
 		keys: ['username', 'email']
@@ -101,15 +100,8 @@
 			loadSlack()
 		}
 	}
-
-	onMount(() => {
-		if ($oauthStore) {
-			appConnect.openFromOauth('slack')
-		}
-	})
 </script>
 
-<AppConnect bind:this={appConnect} />
 <CenteredPage>
 	{#if $userStore?.is_admin}
 		<PageHeader title="Workspace Settings of {$workspaceStore}" />
@@ -206,25 +198,38 @@
 		<p class="text-xs text-gray-700 my-1">
 			Status: {#if team_name}Connected to slack workspace {team_name}{:else}Not connected{/if}
 		</p>
-		<div class="flex justify-start">
+
+		{#if team_name}
+			<div class="flex flex-col gap-2 max-w-sm">
+				<Button
+					size="sm"
+					endIcon={{ icon: faSlack }}
+					btnClasses="mt-2"
+					variant="border"
+					on:click={async () => {
+						await OauthService.disconnectSlack({
+							workspace: $workspaceStore ?? ''
+						})
+						loadSlack()
+						sendUserToast('Disconnected Slack')
+					}}
+				>
+					Disconnect Slack
+				</Button>
+				<Button
+					size="sm"
+					endIcon={{ icon: faScroll }}
+					href="/scripts/add?hub=hub%2F314%2Fslack%2Fexample_of_responding_to_a_slack_command_slack"
+				>
+					Create a script to handle slack commands
+				</Button>
+				<Button size="sm" endIcon={{ icon: faWind }} href="/flows/add?hub=28">
+					Create a flow to handle slack commands
+				</Button>
+			</div>
+		{:else}
 			<Button size="sm" endIcon={{ icon: faSlack }} href="/api/oauth/connect_slack">
 				Connect to Slack
-			</Button>
-		</div>
-		{#if team_name}
-			<Button
-				size="sm"
-				endIcon={{ icon: faSlack }}
-				btnClasses="mt-2"
-				on:click={async () => {
-					await OauthService.disconnectSlack({
-						workspace: $workspaceStore ?? ''
-					})
-					loadSlack()
-					sendUserToast('Disconnected Slack')
-				}}
-			>
-				Disconnect Slack
 			</Button>
 		{/if}
 		<h3 class="mt-5 text-gray-700"

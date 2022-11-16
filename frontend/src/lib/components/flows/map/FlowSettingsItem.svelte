@@ -18,7 +18,7 @@
 <div on:click={() => select('settings')} class={settingsClass}>
 	<Icon data={faSliders} class="mr-2" />
 	<span
-		class="text-xs font-bold flex flex-row justify-between w-full  gap-2 items-center flex-wrap"
+		class="text-xs font-bold flex flex-row justify-between w-full  gap-2 items-center flex-wrap truncate"
 	>
 		Settings
 		<span

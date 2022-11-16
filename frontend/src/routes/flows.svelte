@@ -36,6 +36,7 @@
 	import { Button, Tabs, Tab, Skeleton } from '../lib/components/common'
 	import Drawer from '$lib/components/common/drawer/Drawer.svelte'
 	import DrawerContent from '$lib/components/common/drawer/DrawerContent.svelte'
+	import CreateActions from '$lib/components/flows/CreateActions.svelte'
 
 	type Tab = 'all' | 'personal' | 'groups' | 'shared' | 'hub'
 	type Section = [string, FlowW[]]
@@ -60,7 +61,7 @@
 	}
 	const flowFuse: Fuse<FlowW> = new Fuse(flows, flowFuseOptions)
 
-	const flowHubFuse: Fuse<FlowW> = new Fuse(flows, {
+	const flowHubFuse: Fuse<any> = new Fuse([], {
 		includeScore: false,
 		keys: ['summary']
 	})
@@ -121,7 +122,7 @@
 	async function loadHubFlowsWFuse(): Promise<void> {
 		hubFlows = await loadHubFlows()
 		loading.hub = false
-		flowFuse.setCollection(flows)
+		flowHubFuse.setCollection(hubFlows ?? [])
 	}
 
 	async function archiveFlow(path: string): Promise<void> {
@@ -149,7 +150,7 @@
 	}
 </script>
 
-<Drawer bind:this={flowViewer}>
+<Drawer bind:this={flowViewer} size="900px">
 	<DrawerContent
 		title="Hub flow '{flowViewerFlow?.summary ?? ''}'"
 		on:close={flowViewer.closeDrawer}
@@ -163,7 +164,7 @@
 <CenteredPage>
 	<PageHeader title="Flows" tooltip="Flows can compose and chain scripts together">
 		<div class="flex flex-row">
-			<Button href="/flows/add" size="sm" startIcon={{ icon: faPlus }}>New flow</Button>
+			<CreateActions />
 		</div>
 	</PageHeader>
 

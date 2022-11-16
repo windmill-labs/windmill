@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.46.2
+  version: 1.47.3
   title: Windmill server API
   contact:
     name: Windmill contact
@@ -2486,6 +2486,8 @@ paths:
                   required:
                     - content
                     - language
+                force_viewer_static_fields:
+                  type: object
               required:
                 - args
 
@@ -4356,8 +4358,7 @@ components:
       properties:
         path:
           type: string
-        value:
-          type: object
+        value: {}
         description:
           type: string
         resource_type:
@@ -4376,8 +4377,7 @@ components:
           type: string
         description:
           type: string
-        value:
-          type: object
+        value: {}
 
     Resource:
       type: object
@@ -4758,6 +4758,18 @@ components:
           type: object
           additionalProperties:
             type: boolean
+      required:
+        - id
+        - workspace_id
+        - path
+        - summary
+        - versions
+        - created_by
+        - created_at
+        - value
+        - policy
+        - execution_mode
+        - extra_perms
 
     SlackToken:
       type: object

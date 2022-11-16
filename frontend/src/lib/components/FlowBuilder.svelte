@@ -10,14 +10,15 @@
 		sendUserToast,
 		setQueryWithoutLoad
 	} from '$lib/utils'
-	import { faGlobe, faPen } from '@fortawesome/free-solid-svg-icons'
-	import { onMount, setContext } from 'svelte'
+	import { faEye, faPen } from '@fortawesome/free-solid-svg-icons'
+	import { setContext } from 'svelte'
 	import { writable } from 'svelte/store'
 	import CenteredPage from './CenteredPage.svelte'
-	import { Button } from './common'
+	import { Button, Drawer, DrawerContent } from './common'
 	import { dirtyStore } from './common/confirmationModal/dirtyStore'
 	import UnsavedConfirmationModal from './common/confirmationModal/UnsavedConfirmationModal.svelte'
 	import { OFFSET } from './CronInput.svelte'
+	import FlowGraphViewer from './FlowGraphViewer.svelte'
 	import FlowEditor from './flows/FlowEditor.svelte'
 	import { flowStateStore } from './flows/flowState'
 	import { flowStore } from './flows/flowStore'
@@ -30,6 +31,7 @@
 	export let initialPath: string = ''
 	export let selectedId: string | undefined
 	export let initialArgs: Record<string, any> = {}
+	export let loading = false
 
 	let pathError = ''
 
@@ -145,7 +147,8 @@
 		)
 	}
 
-	const selectedIdStore = writable<string>('settings')
+	const selectedIdStore = writable<string>(selectedId)
+
 	const scheduleStore = writable<Schedule>({ args: {}, cron: '', enabled: false })
 	const previewArgsStore = writable<Record<string, any>>(initialArgs)
 
@@ -174,24 +177,40 @@
 			})
 	}
 
-	onMount(() => {
-		selectedId && select(selectedId)
-	})
+	$: selectedId && select(selectedId)
 
 	$: initialPath && $workspaceStore && loadSchedule()
 
 	loadHubScripts()
+
+	let flowViewer: Drawer
 </script>
 
 <UnsavedConfirmationModal />
+
+<Drawer bind:this={flowViewer} size="900px">
+	<DrawerContent title="View Graph" on:close={flowViewer.closeDrawer} noPadding>
+		<FlowGraphViewer flow={$flowStore} overflowAuto />
+	</DrawerContent>
+</Drawer>
 
 <div class="flex flex-col flex-1 h-screen">
 	<!-- Nav between steps-->
 	<div
 		class="justify-between flex flex-row w-full py-2 px-4 space-x-4 overflow-x-auto scrollbar-hidden"
 	>
-		<div class="flex flex-row space-x-2">
+		<div class="flex flex-row">
 			<FlowImportExportMenu />
+			<Button
+				btnClasses="inline-flex"
+				startIcon={{ icon: faEye }}
+				variant="border"
+				color="light"
+				size="sm"
+				on:click={flowViewer.openDrawer}
+			>
+				View Graph
+			</Button>
 		</div>
 		<div class="gap-1 flex-row hidden md:flex shrink overflow-hidden">
 			<Button
@@ -205,7 +224,7 @@
 					document.getElementById('path')?.focus()
 				}}
 			>
-				{$flowStore.path}
+				{$flowStore.path && $flowStore.path != '' ? $flowStore.path : 'Choose a path'}
 			</Button>
 			<Button
 				startIcon={{ icon: faPen }}
@@ -229,9 +248,8 @@
 	</div>
 
 	<!-- metadata -->
-
 	{#if $flowStateStore}
-		<FlowEditor {initialPath} />
+		<FlowEditor {initialPath} {loading} />
 	{:else}
 		<CenteredPage>Loading...</CenteredPage>
 	{/if}

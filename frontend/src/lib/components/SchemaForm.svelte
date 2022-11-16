@@ -8,6 +8,8 @@
 	export let inputTransform = false
 	export let schema: Schema
 	export let args: Record<string, InputTransform | any> = {}
+	export let disabledArgs: string[] = []
+
 	export let editableSchema = false
 	export let isValid: boolean = true
 	export let extraLib: string = 'missing extraLib'
@@ -64,6 +66,7 @@
 					contentEncoding={schema.properties[argName].contentEncoding}
 					properties={schema.properties[argName].properties}
 					bind:itemsType={schema.properties[argName].items}
+					disabled={disabledArgs.includes(argName)}
 					{editableSchema}
 				/>
 			{/if}

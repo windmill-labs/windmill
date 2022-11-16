@@ -4,7 +4,7 @@
 	import type { FlowModule } from '$lib/gen'
 	import FlowModuleSchemaMap from './FlowModuleSchemaMap.svelte'
 	import { slide } from 'svelte/transition'
-	import { faCodeBranch, faTrashAlt } from '@fortawesome/free-solid-svg-icons'
+	import { faCodeBranch, faTimesCircle, faTrashAlt } from '@fortawesome/free-solid-svg-icons'
 	import { Button } from '$lib/components/common'
 	import { classNames } from '$lib/utils'
 	import Icon from 'svelte-awesome'
@@ -48,7 +48,7 @@
 {#if module.value.type === 'branchall'}
 	<div class="flex text-xs">
 		<div
-			class="w-full space-y-2 flex flex-col border p-2 bg-gray-500 border-gray-600 bg-opacity-10 rounded-sm my-2"
+			class="w-full space-y-2 flex flex-col border p-2 bg-gray-500 border-gray-600 bg-opacity-10 rounded-sm my-2 relative"
 		>
 			{#each module.value.branches ?? [] as branch, branchIndex (branchIndex)}
 				<!-- svelte-ignore a11y-click-events-have-key-events -->
@@ -58,7 +58,7 @@
 						select(`${module.id}-branch-${branchIndex}`)
 					}}
 					class={classNames(
-						'border w-full rounded-md p-2 bg-white text-sm cursor-pointer flex items-center',
+						'border w-full rounded-md p-2 bg-white text-sm cursor-pointer flex items-center relative module',
 						$selectedId === `${module.id}-branch-${branchIndex}`
 							? 'outline outline-offset-1 outline-2  outline-slate-900'
 							: ''
@@ -69,14 +69,18 @@
 						class="text-xs flex flex-row justify-between w-full flex-wrap gap-2 items-center truncate"
 					>
 						{branch.summary || `Branch ${branchIndex}`}
-						<Button
-							iconOnly
-							size="xs"
-							startIcon={{ icon: faTrashAlt }}
-							color="light"
-							variant="border"
+						<button
+							class="absolute -top-2 -right-1 rounded-full h-4 w-4 bg-white center-center {$selectedId ===
+							`${module.id}-branch-${branchIndex}`
+								? ''
+								: '!hidden'} trash"
 							on:click={() => removeBranch(branchIndex)}
-						/>
+							><Icon
+								data={faTimesCircle}
+								class="text-gray-600 hover:text-red-600"
+								scale={0.9}
+							/></button
+						>
 					</span>
 				</div>
 
@@ -97,3 +101,9 @@
 		</div>
 	</div>
 {/if}
+
+<style>
+	.module:hover .trash {
+		display: flex !important;
+	}
+</style>

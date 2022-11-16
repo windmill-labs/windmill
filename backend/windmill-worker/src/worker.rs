@@ -1309,6 +1309,7 @@ run();
                 .spawn()?
         } else {
             let mut args = Vec::new();
+            let script_path = format!("{job_dir}/main.ts");
             args.push("run");
             if lockfile.is_some() {
                 args.push("--lock=/tmp/lock.json");
@@ -1316,7 +1317,7 @@ run();
             args.push("--unstable");
             args.push("--v8-flags=--max-heap-size=2048");
             args.push("-A");
-            args.push("/tmp/main.ts");
+            args.push(&script_path);
             Command::new(deno_path)
                 .current_dir(job_dir)
                 .env_clear()
