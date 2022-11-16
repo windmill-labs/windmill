@@ -1427,7 +1427,7 @@ async fn handle_python_job(
 
         let _ = write_file(job_dir, "requirements.txt", &regular.join("\n")).await?;
 
-        let mut vars = vec![];
+        let mut vars = vec![("PATH", path_env)];
         if let Some(url) = pip_extra_index_url {
             vars.push(("EXTRA_INDEX_URL", url));
         }
@@ -1491,6 +1491,7 @@ async fn handle_python_job(
                 Command::new(python_path)
                     .current_dir(job_dir)
                     .env_clear()
+                    .envs(vars)
                     .args(args)
                     .stdout(Stdio::piped())
                     .stderr(Stdio::piped())
