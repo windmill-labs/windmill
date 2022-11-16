@@ -81,7 +81,7 @@ FROM python:3.11.0-slim-buster
 ARG APP=/usr/src/app
 
 RUN apt-get update \
-    && apt-get install -y ca-certificates wget curl git jq libprotobuf-dev libnl-route-3-dev \
+    && apt-get install -y ca-certificates wget curl git jq libprotobuf-dev libnl-route-3-dev build-essential \
     && rm -rf /var/lib/apt/lists/*
 
 RUN set -eux; \
