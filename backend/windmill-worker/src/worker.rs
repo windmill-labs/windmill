@@ -9,9 +9,7 @@
 use const_format::concatcp;
 use itertools::Itertools;
 use sqlx::{Pool, Postgres, Transaction};
-use std::{
-    borrow::Borrow, collections::HashMap, io, panic, process::Stdio, task::Poll, time::Duration,
-};
+use std::{borrow::Borrow, collections::HashMap, io, panic, process::Stdio, time::Duration};
 use tracing::{trace_span, Instrument};
 use uuid::Uuid;
 use windmill_common::{
@@ -50,92 +48,10 @@ use crate::{
     },
 };
 
-pub async fn create_periodic_job_background(
-    periodic_script: Option<String>,
-    num_workers: usize,
-) -> mpsc::Sender<()> {
-    const MAX_MINUTES: u64 = 60;
-    const MAX_JOBS: u32 = 1000;
-    let channel = mpsc::channel(num_workers * 2);
-    let _ = periodic_script; // disable warning for non-enterprise
-
-    use tokio_stream::wrappers::ReceiverStream;
-
-    let periodic_script = match periodic_script {
-        Some(s) => s,
-        None => return channel.0, // receiver will be dopped, so send would error, but this is handled
-    };
-    let mut interval = interval(Duration::from_secs(60 * MAX_MINUTES));
-    tokio::spawn(async move {
-        let count = std::sync::Arc::new(std::sync::Mutex::new(std::cell::RefCell::new(0u32)));
-        tokio_stream::StreamExt::merge(
-            ReceiverStream::new(channel.1).filter_map(|()| {
-                // this is completely safe, and should never panic.
-                // Stream guarantees are so that the future returned below may
-                // be executed in parallel, but the function creation the future may not.
-                // The lock is therefor never held by more then one function
-                // And using this across threads is fully safe.
-                let lock = count.lock().unwrap();
-                let mut m = lock.borrow_mut();
-                *m += 1;
-                if *m >= MAX_JOBS {
-                    *m = 0;
-                    future::ready(Some(()))
-                } else {
-                    future::ready(None)
-                }
-            }),
-            // we could use an IntervalStream here, but that takes ownership of the interval.
-            stream::poll_fn(|cx| match interval.poll_tick(cx) {
-                Poll::Ready(_) => Poll::Ready(Some(())),
-                Poll::Pending => Poll::Pending,
-            }),
-        )
-        .for_each(|()| async {
-            let _ = periodic_script;
-            #[cfg(feature = "enterprise")]
-            run_periodic_jobs(&periodic_script).await;
-        })
-        .await;
-        unreachable!("No more periodic jobs are run. This should never happen. Both the interval and all workers sender have been dropped!!");
-    });
-
-    channel.0
-}
-
-#[cfg(feature = "enterprise")]
-async fn wait_write_lock() {
-    use tokio::fs;
-    loop {
-        match fs::read(WRITE_LOCK_PATH).await {
-            Ok(contents) => {
-                let pid = String::from_utf8(contents).unwrap().parse::<u32>().unwrap();
-                loop {
-                    match fs::File::open(format!("/proc/{}", pid)).await {
-                        Ok(h) => {
-                            drop(h);
-                            // pid still exists...
-                            tokio::time::sleep(Duration::from_millis(250)).await;
-                        }
-                        Err(_) => {
-                            // process is gone, but forgot lock....
-                            tracing::warn!("Lock file exists but process does not. Cleaning up.");
-                            let _ = fs::remove_file(WRITE_LOCK_PATH).await;
-                            break;
-                        }
-                    }
-                }
-            }
-            Err(_) => return, // no file exists
-        }
-    }
-}
-
 #[cfg(feature = "enterprise")]
 async fn run_periodic_jobs(periodic_script: &str) {
     use tokio::fs;
     tracing::info!("Running periodic jobs");
-    wait_write_lock().await;
 
     match Command::new("/usr/bin/bash")
         .env_clear()
@@ -313,10 +229,13 @@ pub async fn run_worker(
     ip: &str,
     sleep_queue: u64,
     worker_config: WorkerConfig,
-    job_completed_sender: mpsc::Sender<()>,
+    periodic_script: Option<String>,
     mut rx: tokio::sync::broadcast::Receiver<()>,
 ) {
     let start_time = Instant::now();
+
+    #[cfg(feature = "enterprise")]
+    let mut sync_interval = interval(Duration::from_secs(60 * 60));
 
     let worker_dir = format!("{TMP_DIR}/{worker_name}");
     tracing::debug!(worker_dir = %worker_dir, worker_name = %worker_name, "Creating worker dir");
@@ -431,31 +350,58 @@ pub async fn run_worker(
                 last_ping = Instant::now();
             }
 
-            let (do_break, next_job) = async {
-                tokio::select! {
-                    biased;
-                    _ = rx.recv() => {
-                        println!("received killpill for worker {}", i_worker);
-                        (true, Ok(None))
-                    },
-                    Some(job_id) = same_worker_rx.recv() => {
-                        (false, sqlx::query_as::<_, QueuedJob>("SELECT * FROM queue WHERE id = $1")
-                        .bind(job_id)
-                        .fetch_optional(db)
-                        .await
-                        .map_err(|_| Error::InternalErr("Impossible to fetch same_worker job".to_string())))
-                    },
-                    job = pull(&db) => (false, job),
+            let (do_break, next_job, is_sync) = async {
+                if cfg!(feature = "enterprise") && periodic_script.is_some()
+                {
+                    tokio::select! {
+                        biased;
+                        _ = rx.recv() => {
+                            println!("received killpill for worker {}", i_worker);
+                            (true, Ok(None), false)
+                        },
+                        _ = sync_interval.tick() => {
+                            (false, Ok(None), true)
+                        }
+                        Some(job_id) = same_worker_rx.recv() => {
+                            (false, sqlx::query_as::<_, QueuedJob>("SELECT * FROM queue WHERE id = $1")
+                            .bind(job_id)
+                            .fetch_optional(db)
+                            .await
+                            .map_err(|_| Error::InternalErr("Impossible to fetch same_worker job".to_string())), false)
+                        },
+                        job = pull(&db) => (false, job, false),
+                    }
+                }
+                else {
+                    let (do_break, next_job) = tokio::select! {
+                        biased;
+                        _ = rx.recv() => {
+                            println!("received killpill for worker {}", i_worker);
+                            (true, Ok(None))
+                        },
+                        Some(job_id) = same_worker_rx.recv() => {
+                            (false, sqlx::query_as::<_, QueuedJob>("SELECT * FROM queue WHERE id = $1")
+                            .bind(job_id)
+                            .fetch_optional(db)
+                            .await
+                            .map_err(|_| Error::InternalErr("Impossible to fetch same_worker job".to_string())))
+                        },
+                        job = pull(&db) => (false, job),
+                    };
+                    (do_break, next_job, false)
                 }
             }.instrument(trace_span!("worker_get_next_job")).await;
             if do_break {
                 return true;
             }
 
+            if is_sync {
+                run_periodic_jobs(&periodic_script.clone().unwrap()).await;
+                return false;
+            }
+
             match next_job {
                 Ok(Some(job)) => {
-                    #[cfg(feature = "enterprise")]
-                    let _ = job_completed_sender.send(()).await; // optionally notify sender, we don't care whether this worked
                     let label_values = [
                         &job.workspace_id,
                         job.language.as_ref().map(|l| l.as_str()).unwrap_or(""),
@@ -919,8 +865,6 @@ async fn handle_code_execution_job(
     worker_config: &WorkerConfig,
     envs: &Envs,
 ) -> error::Result<serde_json::Value> {
-    #[cfg(feature = "enterprise")]
-    wait_write_lock().await;
     let (inner_content, requirements_o, language) = match job.job_kind {
         JobKind::Preview | JobKind::Script_Hub => (
             job.raw_code

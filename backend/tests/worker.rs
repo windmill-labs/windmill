@@ -922,7 +922,6 @@ fn spawn_test_worker(
             .and_then(|x| x.parse::<bool>().ok())
             .unwrap_or(false),
     };
-    let (sender, _receiver) = mpsc::channel(1);
     let future = async move {
         windmill_worker::run_worker(
             &db,
@@ -934,7 +933,7 @@ fn spawn_test_worker(
             ip,
             sleep_queue,
             worker_config,
-            sender,
+            None,
             rx,
         )
         .await

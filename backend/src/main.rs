@@ -165,7 +165,7 @@ pub async fn run_workers(
     sleep_queue: u64,
     worker_config: WorkerConfig,
     rx: tokio::sync::broadcast::Receiver<()>,
-    periodic_script: Option<String>,
+    mut periodic_script: Option<String>,
 ) -> anyhow::Result<()> {
     let instance_name = rd_string(5);
     let monitor = tokio_metrics::TaskMonitor::new();
@@ -177,9 +177,6 @@ pub async fn run_workers(
             "unretrievable IP".to_string()
         });
 
-    let sender =
-        windmill_worker::create_periodic_job_background(periodic_script, num_workers as usize)
-            .await;
     let mut handles = Vec::with_capacity(num_workers as usize);
 
     for i in 1..(num_workers + 1) {
@@ -189,7 +186,7 @@ pub async fn run_workers(
         let ip = ip.clone();
         let rx = rx.resubscribe();
         let worker_config = worker_config.clone();
-        let w_sender = sender.clone();
+        let wp = periodic_script.take();
         handles.push(tokio::spawn(monitor.instrument(async move {
             tracing::info!(addr = %addr.to_string(), worker = %worker_name, "starting worker");
             windmill_worker::run_worker(
@@ -202,7 +199,7 @@ pub async fn run_workers(
                 &ip,
                 sleep_queue,
                 worker_config,
-                w_sender,
+                wp,
                 rx,
             )
             .await

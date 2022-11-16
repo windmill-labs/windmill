@@ -99,7 +99,6 @@ async fn main() -> anyhow::Result<()> {
                 tracing::warn!(error = e.to_string(), "failed to get external IP");
                 "unretrievable IP".to_string()
             });
-        let sender = windmill_worker::create_periodic_job_background(periodic_script, 1).await;
         let worker_name = format!("dt-worker-{}-{}", &instance_name, rd_string(5));
         windmill_worker::run_worker(
             &db.clone(),
@@ -117,7 +116,7 @@ async fn main() -> anyhow::Result<()> {
                 base_url,
                 keep_job_dir,
             },
-            sender,
+            periodic_script,
             rx.resubscribe(),
         )
         .await;
