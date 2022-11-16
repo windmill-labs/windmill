@@ -26,14 +26,8 @@
 				<input type="checkbox" bind:checked={scroll} />
 			</div>
 		</div>
-		<pre class="whitespace-pre-wrap break-words bg-gray-50 text-xs w-full p-2">
-			{#if content}
-				{content}
-			{:else if isLoading}
-				Waiting for job to start...
-			{:else}
-				No logs are available yet
-			{/if}
-			</pre>
+		<pre class="whitespace-pre-wrap break-words bg-gray-50 text-xs w-full p-2"
+			>{#if content}{content}{:else if isLoading}Waiting for job to start...{:else}No logs are available yet{/if}</pre
+		>
 	</div>
 </div>
