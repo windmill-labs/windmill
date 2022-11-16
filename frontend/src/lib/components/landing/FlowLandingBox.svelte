@@ -20,7 +20,7 @@
 
 	<div class="flex flex-row-reverse gap-x-2">
 		<Button
-			on:click={() => goto(`/flows/edit/${flow.path}`)}
+			href="/flows/edit/{flow.path}"
 			color="dark"
 			size="xs"
 			variant="border"
@@ -30,7 +30,7 @@
 		</Button>
 
 		<Button
-			on:click={() => goto(`/flows/run/${flow.path}`)}
+			href="/flows/run/{flow.path}"
 			color="dark"
 			size="xs"
 			variant="border"

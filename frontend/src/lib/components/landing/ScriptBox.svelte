@@ -34,7 +34,7 @@
 	</div>
 	<div class="flex flex-row-reverse gap-x-2">
 		<Button
-			on:click={() => goto(`/scripts/edit/${script.hash}?step=2`)}
+			href="/scripts/edit/{script.hash}?step=2"
 			color="dark"
 			size="xs"
 			variant="border"
@@ -44,7 +44,7 @@
 		</Button>
 
 		<Button
-			on:click={() => goto(`/scripts/run/${script.hash}`)}
+			href="/scripts/run/{script.hash}"
 			color="dark"
 			size="xs"
 			variant="border"
