@@ -75,24 +75,20 @@ export type AppComponent =
 			| TextComponent
 	  ) & {
 			id: ComponentID
-			title: string
-			description: string
 			width: number
 			horizontalAlignement?: 'left' | 'center' | 'right'
 			verticalAlignement?: 'top' | 'center' | 'bottom'
-			configSchema: Schema | undefined
+
 			inputs: InputsSpec
+			// Only dynamic inputs
 			componentInputs: ComponentInputsSpec
 	  }
 
 type SectionID = string
 
 export type AppSection = {
-	title: string
-	description: string
 	components: AppComponent[]
 	id: SectionID
-	columns: 1 | 2 | 3
 }
 
 export type App = {

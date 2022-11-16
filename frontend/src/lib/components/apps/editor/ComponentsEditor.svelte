@@ -1,15 +1,13 @@
 <script lang="ts">
-	import { getContext, onMount } from 'svelte'
+	import { getContext } from 'svelte'
 	import type { AppComponent, AppEditorContext } from '../types'
 	import ComponentEditor from './ComponentEditor.svelte'
 	import { dndzone } from 'svelte-dnd-action'
 	import { flip } from 'svelte/animate'
 	import { classNames } from '$lib/utils'
-	import { getNextId } from '$lib/components/flows/flowStateUtils'
 
 	export let components: AppComponent[]
 	export let sectionIndex: number
-	export let columns: number
 
 	const flipDurationMs = 200
 	const { selection, connectingInput, resizing, mode, app } =
@@ -32,17 +30,6 @@
 			}
 		})
 	}
-
-	// HACK
-	onMount(() => {
-		// get all div elements with the id "component"
-		const divs = document.querySelectorAll<HTMLDivElement>('#component')
-		// loop through the divs
-		divs.forEach((div, index) => {
-			// set component width
-			div.style.width = `${Math.round(components[index].width)}%`
-		})
-	})
 
 	const numberToTailwindWidthMap = {
 		1: 'w-[1%]',
@@ -165,8 +152,8 @@
 					outline: '1px dashed blue',
 					outlineOffset: '2px'
 				},
-				dragDisabled: components.length === 0 || $resizing || isPreview,
-				dropFromOthersDisabled: components.length === columns || isPreview
+				dragDisabled: isPreview,
+				dropFromOthersDisabled: components.length === 3 || isPreview
 			}}
 			on:consider={handleDndConsider}
 			on:finalize={handleDndFinalize}

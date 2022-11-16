@@ -3,16 +3,7 @@
 	import { dndzone } from 'svelte-dnd-action'
 	import Icon from 'svelte-awesome'
 	import { displayData } from '../../utils'
-
-	const defaultProps = {
-		horizontalAlignement: 'center',
-		verticalAlignement: 'center',
-		title: 'My title',
-		description: 'My description',
-		configSchema: undefined,
-		inputs: {},
-		componentInputs: {}
-	}
+	import { defaultAlignement, defaultProps } from './componentDefaultProps'
 
 	let items = [
 		{
@@ -40,6 +31,7 @@
 	let x = [
 		{
 			...defaultProps,
+			...defaultAlignement,
 			// Used by the dnd library, should be replaced by unique id
 			id: 'textcomponent',
 			type: 'textcomponent',
@@ -104,11 +96,11 @@
 
 <section
 	use:dndzone={{ items, flipDurationMs, type: 'component' }}
-	class="grid grid-cols-3 gap-4 p-4"
+	class="grid grid-cols-4 gap-2 p-4"
 >
 	{#each items as item (item.id)}
 		<div
-			class="border shadow-sm h-24 p-2 flex flex-col gap-2 items-center justify-center bg-white rounded-md scale-100 hover:scale-105 ease-in duration-75"
+			class="border shadow-sm h-20 p-2 flex flex-col gap-2 items-center justify-center bg-white rounded-md scale-100 hover:scale-105 ease-in duration-75"
 			animate:flip={{ duration: flipDurationMs }}
 		>
 			<Icon data={displayData[item.type].icon} scale={1.6} class="text-blue-800" />
@@ -120,11 +112,11 @@
 <div class="px-4 pt-4 text-sm font-semibold">Components</div>
 <section
 	use:dndzone={{ items: x, flipDurationMs, type: 'component' }}
-	class="grid grid-cols-3 gap-4 p-4"
+	class="grid grid-cols-4 gap-2 p-4"
 >
 	{#each x as item (item.id)}
 		<div
-			class="border shadow-sm h-24 p-2 flex flex-col gap-2 items-center justify-center bg-white rounded-md scale-100 hover:scale-105 ease-in duration-75"
+			class="border shadow-sm h-20 p-2 flex flex-col gap-2 items-center justify-center bg-white rounded-md scale-100 hover:scale-105 ease-in duration-75"
 			animate:flip={{ duration: flipDurationMs }}
 		>
 			<Icon data={displayData[item.type].icon} scale={1.6} class="text-blue-800" />
@@ -136,11 +128,11 @@
 <div class="px-4 pt-4 text-sm font-semibold">Charts</div>
 <section
 	use:dndzone={{ items: charts, flipDurationMs, type: 'component' }}
-	class="grid grid-cols-3 gap-4 p-4"
+	class="grid grid-cols-4 gap-2 p-4"
 >
 	{#each charts as item (item.id)}
 		<div
-			class="border shadow-sm h-24 p-2 flex flex-col gap-2 items-center justify-center bg-white rounded-md scale-100 hover:scale-105 ease-in duration-75"
+			class="border shadow-sm h-20 p-2 flex flex-col gap-2 items-center justify-center bg-white rounded-md scale-100 hover:scale-105 ease-in duration-75"
 			animate:flip={{ duration: flipDurationMs }}
 		>
 			<Icon data={displayData[item.type].icon} scale={1.6} class="text-blue-800" />

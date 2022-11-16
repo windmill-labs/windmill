@@ -35,10 +35,7 @@
 			...sections,
 			{
 				components: [component],
-				columns: 3,
-				id: getNextId(sections.map((s) => s.id)),
-				title: 'New section',
-				description: 'section'
+				id: getNextId(sections.map((s) => s.id))
 			}
 		]
 
@@ -60,7 +57,7 @@
 			items: sections,
 			flipDurationMs,
 			type: 'section',
-			dragDisabled: mode === 'width' || $resizing,
+			dragDisabled: mode === 'width',
 			dropTargetStyle: {
 				outline: '1px dashed blue',
 				outlineOffset: '8px'
@@ -77,11 +74,7 @@
 					$selection = { sectionIndex, componentIndex: undefined }
 				}}
 			>
-				<ComponentsEditor
-					bind:components={section.components}
-					columns={section.columns}
-					{sectionIndex}
-				/>
+				<ComponentsEditor bind:components={section.components} {sectionIndex} />
 			</section>
 		{/each}
 	</div>

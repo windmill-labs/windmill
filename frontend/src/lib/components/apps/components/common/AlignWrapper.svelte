@@ -1,11 +1,8 @@
 <script lang="ts">
 	import { classNames } from '$lib/utils'
-	import { getContext } from 'svelte'
-	import type { AppEditorContext, InputsSpec } from '../types'
 
-	export let inputs: InputsSpec
-	export let horizontalAlignement: 'left' | 'center' | 'right'
-	export let verticalAlignement: 'top' | 'center' | 'bottom'
+	export let horizontalAlignement: 'left' | 'center' | 'right' | undefined
+	export let verticalAlignement: 'top' | 'center' | 'bottom' | undefined
 
 	function tailwindHorizontalAlignement(horizontalAlignement) {
 		switch (horizontalAlignement) {
@@ -29,16 +26,13 @@
 		}
 	}
 
-	const { worldStore } = getContext<AppEditorContext>('AppEditorContext')
-
-	export const staticOutputs: string[] = []
-	$: x = classNames(
-		'flex',
+	$: classes = classNames(
+		'flex w-full h-full',
 		tailwindHorizontalAlignement(horizontalAlignement),
 		tailwindVerticalAlignement(verticalAlignement)
 	)
 </script>
 
-{#if $worldStore && inputs?.content.type === 'static'}
-	<div class={x}>{inputs?.content?.value}</div>
-{/if}
+<div class={classes}>
+	<slot />
+</div>

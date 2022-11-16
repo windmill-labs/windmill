@@ -18,8 +18,8 @@
 	export let inputs: InputsSpec
 	export let path: string | undefined = undefined
 	export let runType: 'script' | 'flow' | undefined = undefined
-
 	export const staticOutputs = ['loading', 'result']
+
 	const { worldStore } = getContext<AppEditorContext>('AppEditorContext')
 	let pagePath = $page.params.path
 
@@ -111,20 +111,22 @@
 />
 
 {#if schemaClone !== undefined}
-	<SchemaForm schema={schemaClone} bind:args bind:isValid {disabledArgs} />
-	<Button
-		size="xs"
-		color="dark"
-		variant="border"
-		on:click={() => executeComponent()}
-		startIcon={{ icon: faFile }}
-		disabled={!isValid}
-	>
-		<div>
-			Submit
-			{#if testIsLoading}
-				<Icon data={faArrowsRotate} class="animate-spin ml-2" scale={0.8} />
-			{/if}
-		</div>
-	</Button>
+	<div class="border p-2 shadow-sm rounded-sm">
+		<SchemaForm schema={schemaClone} bind:args bind:isValid {disabledArgs} />
+		<Button
+			size="xs"
+			color="dark"
+			variant="border"
+			on:click={() => executeComponent()}
+			startIcon={{ icon: faFile }}
+			disabled={!isValid}
+		>
+			<div>
+				Submit
+				{#if testIsLoading}
+					<Icon data={faArrowsRotate} class="animate-spin ml-2" scale={0.8} />
+				{/if}
+			</div>
+		</Button>
+	</div>
 {/if}

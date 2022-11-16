@@ -2,18 +2,19 @@
 	import Button from '$lib/components/common/button/Button.svelte'
 	import { classNames } from '$lib/utils'
 	import { getContext } from 'svelte'
-	import BarChartComponent from '../components/BarChartComponent.svelte'
+	import BarChartComponent from '../components/charts/BarChartComponent.svelte'
 	import DisplayComponent from '../components/DisplayComponent.svelte'
 	import RunFormComponent from '../components/RunFormComponent.svelte'
 	import TableComponent from '../components/TableComponent.svelte'
-	import TextComponent from '../components/TextComponent.svelte'
+	import TextComponent from '../components/common/TextComponent.svelte'
 	import type { AppComponent, AppEditorContext } from '../types'
 	import { displayData } from '../utils'
 
 	export let component: AppComponent
 	export let selected: boolean
 
-	const { staticOutputs, connectingInput, mode } = getContext<AppEditorContext>('AppEditorContext')
+	const { staticOutputs, connectingInput, mode, resizing } =
+		getContext<AppEditorContext>('AppEditorContext')
 
 	function connectInput(output: string) {
 		if ($connectingInput) {
@@ -52,7 +53,11 @@
 				}}
 			/>
 		{/if}
+
+		
 	*/
+
+	let startX = 0
 </script>
 
 {#if component}

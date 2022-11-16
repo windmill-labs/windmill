@@ -57,38 +57,39 @@
 				{/if}
 			</PanelSection>
 
-			<PanelSection title="Alignement">
-				<div class="w-full text-xs font-bold">Horizontal alignement</div>
+			{#if component.verticalAlignement !== undefined}
+				<PanelSection title="Alignement">
+					<div class="w-full text-xs font-bold">Horizontal alignement</div>
 
-				<ToggleButtonGroup bind:selected={component.horizontalAlignement}>
-					<ToggleButton position="left" value="left" size="xs">
-						<Icon data={faAlignLeft} />
-					</ToggleButton>
-					<ToggleButton position="center" value="center" size="xs">
-						<Icon data={faAlignCenter} />
-					</ToggleButton>
-					<ToggleButton position="right" value="right" size="xs">
-						<Icon data={faAlignRight} />
-					</ToggleButton>
-				</ToggleButtonGroup>
-				<div class="w-full text-xs font-bold">Vertical alignement</div>
+					<ToggleButtonGroup bind:selected={component.horizontalAlignement}>
+						<ToggleButton position="left" value="left" size="xs">
+							<Icon data={faAlignLeft} />
+						</ToggleButton>
+						<ToggleButton position="center" value="center" size="xs">
+							<Icon data={faAlignCenter} />
+						</ToggleButton>
+						<ToggleButton position="right" value="right" size="xs">
+							<Icon data={faAlignRight} />
+						</ToggleButton>
+					</ToggleButtonGroup>
+					<div class="w-full text-xs font-bold">Vertical alignement</div>
 
-				<ToggleButtonGroup bind:selected={component.verticalAlignement}>
-					<ToggleButton position="left" value="left" size="xs">
-						<Icon data={faAlignLeft} />
-					</ToggleButton>
-					<ToggleButton position="center" value="center" size="xs">
-						<Icon data={faAlignCenter} />
-					</ToggleButton>
-					<ToggleButton position="right" value="right" size="xs">
-						<Icon data={faAlignRight} />
-					</ToggleButton>
-				</ToggleButtonGroup>
+					<ToggleButtonGroup bind:selected={component.verticalAlignement}>
+						<ToggleButton position="left" value="top" size="xs">
+							<Icon data={faAlignLeft} />
+						</ToggleButton>
+						<ToggleButton position="center" value="center" size="xs">
+							<Icon data={faAlignCenter} />
+						</ToggleButton>
+						<ToggleButton position="right" value="bottom" size="xs">
+							<Icon data={faAlignRight} />
+						</ToggleButton>
+					</ToggleButtonGroup>
 
-				<div class="w-full text-xs font-bold">Width (%)</div>
-				<input value={Math.round(component.width)} type="number" class="w-full" disabled />
-			</PanelSection>
-
+					<div class="w-full text-xs font-bold">Width (%)</div>
+					<input value={Math.round(component.width)} type="number" class="w-full" disabled />
+				</PanelSection>
+			{/if}
 			<PanelSection title="Danger zone">
 				<Button
 					size="xs"
