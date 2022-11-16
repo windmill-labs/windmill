@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.46.2
+  version: 1.47.3
   title: Windmill server API
   contact:
     name: Windmill contact
@@ -4358,8 +4358,7 @@ components:
       properties:
         path:
           type: string
-        value:
-          type: object
+        value: {}
         description:
           type: string
         resource_type:
@@ -4378,8 +4377,7 @@ components:
           type: string
         description:
           type: string
-        value:
-          type: object
+        value: {}
 
     Resource:
       type: object
