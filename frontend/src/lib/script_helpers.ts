@@ -1,8 +1,7 @@
 import type { Script } from "./gen"
 
 export const PYTHON_INIT_CODE = `import os
-import wmill
-from datetime import datetime
+from wmill import *
 
 """
 Use Cmd/Ctrl + S to autoformat the code.
@@ -16,7 +15,7 @@ def main(no_default: str,
          obj: dict = {"even": "dicts"},
          l: list = ["or", "lists!"],
          file_: bytes = bytes(0),
-         dtime: datetime = datetime.now()):
+         db: Resource["postgresql"] = "g/all/demodb"):
     """A main function is required for the script to be able to accept arguments.
     Types are recommended."""
     print(f"Hello World and a warm welcome especially to {name}")
@@ -25,7 +24,7 @@ def main(no_default: str,
     # secret fetching is audited by windmill.
 
     try:
-      secret = wmill.get_variable("g/all/pretty_secret")
+      secret = get_variable("g/all/pretty_secret")
     except:
       secret = "No secret yet at g/all/pretty_secret!"
 
@@ -38,9 +37,9 @@ def main(no_default: str,
     return {"version": version, "splitted": name.split(), "user": user}
 `
 export const DENO_INIT_CODE = `// reload the smart assistant on the top right if it dies to get autocompletion and syntax highlighting
-// (Ctrl+space to cache dependencies on imports hover).
+// (Ctrl+space to cache dependencies on imports hover, Ctrl+S to autoformat and parse parameters).
 
-// you can use npm imports directly!
+// you can use npm imports directly
 // import { toWords } from "npm:number-to-words@1"
 // import * as wmill from "https://deno.land/x/windmill@v${__pkg__.version}/mod.ts"
 
