@@ -716,10 +716,19 @@ async fn slack_command(
     .await?;
 
     if let Some(settings) = settings {
-        if let Some(script) = &settings.slack_command_script {
-            let script_hash =
-                windmill_common::get_latest_hash_for_path(&mut tx, &settings.workspace_id, script)
-                    .await?;
+        if let Some(path) = &settings.slack_command_script {
+            let payload = if let Some(path) = path.strip_prefix("flow/") {
+                JobPayload::Flow(path.to_string())
+            } else {
+                let path = path.strip_prefix("script/").unwrap_or_else(|| path);
+                let script_hash = windmill_common::get_latest_hash_for_path(
+                    &mut tx,
+                    &settings.workspace_id,
+                    path,
+                )
+                .await?;
+                JobPayload::ScriptHash { hash: script_hash, path: path.to_owned() }
+            };
             let mut map = serde_json::Map::new();
             map.insert("text".to_string(), serde_json::Value::String(form.text));
             map.insert(
@@ -730,7 +739,7 @@ async fn slack_command(
             let (uuid, tx) = windmill_queue::push(
                 tx,
                 &settings.workspace_id,
-                JobPayload::ScriptHash { hash: script_hash, path: script.to_owned() },
+                payload,
                 Some(map),
                 &form.user_name,
                 "g/slack".to_string(),

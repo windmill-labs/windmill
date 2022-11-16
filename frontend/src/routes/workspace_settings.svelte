@@ -25,7 +25,6 @@
 	import { goto } from '$app/navigation'
 	import InviteUser from '$lib/components/InviteUser.svelte'
 	import ScriptPicker from '$lib/components/ScriptPicker.svelte'
-	import AppConnect from '$lib/components/AppConnect.svelte'
 	import { Button } from '$lib/components/common'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import { faScroll, faWind } from '@fortawesome/free-solid-svg-icons'
@@ -36,6 +35,7 @@
 	let userFilter = ''
 	let scriptPath: string
 	let team_name: string | undefined
+	let itemKind: 'flow' | 'script' = 'flow'
 
 	const fuseOptions = {
 		includeScore: false,
@@ -73,7 +73,7 @@
 	async function editSlackCommand(): Promise<void> {
 		await WorkspaceService.editSlackCommand({
 			workspace: $workspaceStore!,
-			requestBody: { slack_command_script: scriptPath }
+			requestBody: { slack_command_script: `${itemKind}/${scriptPath}` }
 		})
 		sendUserToast(`slack command script set to ${scriptPath}`)
 	}
@@ -233,16 +233,19 @@
 			</Button>
 		{/if}
 		<h3 class="mt-5 text-gray-700"
-			>Script to run on /windmill command <Tooltip>
-				A script run from slack /windmill command is run as group 'slack'. The script chosen is
-				passed the parameters <pre>response_url: string, text: string</pre> respectively the url to
-				reply directly to the trigger and the text of the command.
-				<a href="/scripts/add?template=u/admin/triggered_from_slack_command"
-					>Define your own trigger script from a compatible template</a
-				></Tooltip
-			></h3
-		>
-		<ScriptPicker kind={Script.kind.SCRIPT} bind:scriptPath on:select={editSlackCommand} />
+			>Script or flow to run on /windmill command <Tooltip>
+				The script or flow to be triggered when the `/windmill` command is invoked. The script or
+				flow chosen is passed the parameters <pre>response_url: string, text: string</pre>
+				respectively the url to reply directly to the trigger and the text of the command.</Tooltip
+			>
+		</h3>
+		<ScriptPicker
+			kind={Script.kind.SCRIPT}
+			allowFlow
+			bind:itemKind
+			bind:scriptPath
+			on:select={editSlackCommand}
+		/>
 
 		<div class="mt-10" />
 		<PageHeader title="Export workspace" primary={false} />
