@@ -9,22 +9,36 @@ from windmill_api.api.settings import backend_version
 from windmill_api.api.job import run_script_by_hash, get_job, get_completed_job
 
 from windmill_api.api.resource import get_resource as get_resource_api
-from windmill_api.api.resource import exists_resource as exists_resource_api
-from windmill_api.api.resource import update_resource as update_resource_api
-from windmill_api.api.resource import create_resource as create_resource_api
 from windmill_api.api.variable import get_variable as get_variable_api
-from windmill_api.api.variable import exists_variable as exists_variable_api
-from windmill_api.api.variable import update_variable as update_variable_api
-from windmill_api.api.variable import create_variable as create_variable_api
+from windmill_api.api.resource import exists_resource, update_resource, create_resource
+from windmill_api.api.variable import exists_variable, update_variable, create_variable
+
+from windmill_api.models.update_resource_json_body import UpdateResourceJsonBody
 from windmill_api.models.create_variable_json_body import CreateVariableJsonBody
-from windmill_api.models import *
+from windmill_api.models.update_variable_json_body import UpdateVariableJsonBody
+from windmill_api.models.create_resource_json_body import CreateResourceJsonBody
 from windmill_api.models.get_job_response_200_type import GetJobResponse200Type
 
+
 from windmill_api.models.run_script_by_hash_json_body import RunScriptByHashJsonBody
+
 
 from enum import Enum
 
 from windmill_api.types import Unset
+
+from typing import Generic, TypeVar, TypeAlias
+
+S = TypeVar("S")
+
+
+class Resource(Generic[S]):
+    pass
+
+
+postgresql = TypeAlias
+mysql = TypeAlias
+bigquery = TypeAlias
 
 
 VAR_RESOURCE_PREFIX = "$var:"
@@ -51,7 +65,9 @@ def create_client(
     token_: str = token or os.environ.get("WM_TOKEN") or ""
     global _client
     if _client is None:
-        _client = AuthenticatedClient(base_url=base_url_, token=token_, timeout=30)
+        _client = AuthenticatedClient(
+            base_url=base_url_, token=token_, timeout=30, verify_ssl=False
+        )
     return _client
 
 
@@ -74,7 +90,7 @@ def get_version() -> str:
 def run_script_async(
     hash: str,
     args: Dict[str, Any] = {},
-    scheduled_in_secs: Union[None, float] = None,
+    scheduled_in_secs: Union[None, int] = None,
 ) -> str:
     """
     Launch the run of a script and return immediately its job id
@@ -181,10 +197,10 @@ def set_resource(
     path = path or get_state_path()
     workspace = get_workspace()
     client = create_client()
-    if not exists_resource_api.sync_detailed(
+    if not exists_resource.sync_detailed(
         workspace=workspace, path=path, client=client
     ).parsed:
-        create_resource_api.sync_detailed(
+        create_resource.sync_detailed(
             workspace=workspace,
             client=client,
             json_body=CreateResourceJsonBody(
@@ -192,7 +208,7 @@ def set_resource(
             ),
         )
     else:
-        update_resource_api.sync_detailed(
+        update_resource.sync_detailed(
             workspace=get_workspace(),
             client=client,
             path=path,
@@ -228,10 +244,10 @@ def set_variable(path: str, value: str) -> None:
     """
     workspace = get_workspace()
     client = create_client()
-    if not exists_variable_api.sync_detailed(
+    if not exists_variable.sync_detailed(
         workspace=workspace, path=path, client=client
     ).parsed:
-        create_variable_api.sync_detailed(
+        create_variable.sync_detailed(
             workspace=workspace,
             client=client,
             json_body=CreateVariableJsonBody(
@@ -239,7 +255,7 @@ def set_variable(path: str, value: str) -> None:
             ),
         )
     else:
-        update_variable_api.sync_detailed(
+        update_variable.sync_detailed(
             workspace=get_workspace(),
             path=path,
             client=client,
