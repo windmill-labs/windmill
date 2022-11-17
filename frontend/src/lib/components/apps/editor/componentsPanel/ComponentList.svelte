@@ -51,8 +51,6 @@
 			}
 		}
 
-		debugger
-
 		$app.grid = [...grid, newItem]
 	}
 </script>
