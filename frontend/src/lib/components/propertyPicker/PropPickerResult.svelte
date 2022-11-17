@@ -4,8 +4,6 @@
 	import ObjectViewer from './ObjectViewer.svelte'
 
 	export let result: any
-
-	const dispatch = createEventDispatcher()
 </script>
 
 <div class="w-full">

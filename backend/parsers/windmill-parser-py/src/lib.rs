@@ -106,21 +106,35 @@ pub fn parse_python_signature(code: &str) -> error::Result<MainArgSignature> {
                             "datetime.datetime" => Typ::Datetime,
                             _ => Typ::Unknown,
                         },
+                        Located { node: ExprKind::Subscript { slice, value, .. }, .. } => {
+                            match (*value, *slice) {
+                                (
+                                    Located { node: ExprKind::Name { id, .. }, .. },
+                                    Located {
+                                        node:
+                                            ExprKind::Constant {
+                                                value: Constant::Str(resource_name),
+                                                ..
+                                            },
+                                        ..
+                                    },
+                                ) if id == "Resource" || id.ends_with(".Resource") => {
+                                    Typ::Resource(resource_name)
+                                }
+                                _ => Typ::Unknown,
+                            }
+                        }
                         _ => Typ::Unknown,
                     });
+
                     if typ == Typ::Unknown
                         && default.is_some()
                         && default != Some(json!(FUNCTION_CALL))
                     {
                         typ = json_to_typ(default.as_ref().unwrap());
                     }
-                    Arg {
-                        otyp: None,
-                        name: x.arg,
-                        typ: typ,
-                        has_default: default.is_some(),
-                        default,
-                    }
+
+                    Arg { otyp: None, name: x.arg, typ, has_default: default.is_some(), default }
                 })
                 .collect(),
         })
@@ -332,7 +346,8 @@ import os
 
 def main(test1: str,
     name: datetime.datetime = datetime.now(),
-    byte: bytes = bytes(1)):
+    byte: bytes = bytes(1),
+    resource: Resource['postgres'] = \"g/all/resource\"):
 
 	print(f\"Hello World and a warm welcome especially to {name}\")
 	print(\"The env variable at `all/pretty_secret`: \", os.environ.get(\"ALL_PRETTY_SECRET\"))
@@ -365,6 +380,13 @@ def main(test1: str,
                         name: "byte".to_string(),
                         typ: Typ::Bytes,
                         default: Some(json!("<function call>")),
+                        has_default: true
+                    },
+                    Arg {
+                        otyp: None,
+                        name: "resource".to_string(),
+                        typ: Typ::Resource("postgres".to_string()),
+                        default: Some(json!("g/all/resource")),
                         has_default: true
                     }
                 ]
@@ -435,7 +457,7 @@ def main():
 
 ";
         let r = parse_python_imports(code)?;
-        println!("{}", serde_json::to_string(&r)?);
+        // println!("{}", serde_json::to_string(&r)?);
         assert_eq!(r, vec!["wmill", "zanzibar", "matplotlib"]);
         Ok(())
     }

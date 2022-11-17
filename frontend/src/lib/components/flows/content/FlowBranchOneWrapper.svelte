@@ -28,7 +28,7 @@
 		previousModule,
 		parentModule.id,
 		$flowStore,
-		previewArgs,
+		$previewArgs,
 		false,
 		true
 	).pickableProperties
