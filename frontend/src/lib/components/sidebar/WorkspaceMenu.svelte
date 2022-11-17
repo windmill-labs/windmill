@@ -23,7 +23,7 @@
 		/>
 
 		{#if !isCollapsed}
-			<span class={classNames('whitespace-pre')}> {$workspaceStore} </span>
+			<span class={classNames('whitespace-pre truncate')}> {$workspaceStore} </span>
 		{/if}
 	</button>
 

@@ -46,7 +46,7 @@
 			<Toggle
 				bind:checked={flowModule.stop_after_if.skip_if_stopped}
 				options={{
-					right: 'Skip if stopped'
+					right: 'Label flow as "skipped" if stopped'
 				}}
 			/>
 			<span class="text-xs font-bold">Stop condition expression</span>
@@ -70,7 +70,7 @@
 			<Toggle
 				disabled
 				options={{
-					right: 'Skip if stopped'
+					right: 'Label flow as "skipped" if stopped'
 				}}
 			/> <span class="text-xs font-bold">Stop condition expression</span>
 			<textarea disabled rows="3" class="min-h-[80px]" />

@@ -15,7 +15,7 @@
 	<div class="mt-2 mb-4 text-sm text-gray-700 dark:text-gray-300">
 		Connect to apps like Slack, Google Drive or Airtable using OAuth.
 	</div>
-	<Button on:click={() => goto('resources')} color="dark" startIcon={{ icon: faLink }} size="xs">
+	<Button href="/resources" color="dark" startIcon={{ icon: faLink }} size="xs">
 		Connect an API
 	</Button>
 </div>

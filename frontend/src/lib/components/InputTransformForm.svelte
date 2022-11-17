@@ -113,7 +113,7 @@
 				</span>
 			{/if}
 		</div>
-		<div class="flex flex-row space-x-2 items-center">
+		<div class="flex flex-row space-x-4 items-center">
 			<Toggle
 				bind:checked
 				options={{
@@ -145,16 +145,14 @@
 			<Button
 				variant="contained"
 				color="blue"
-				size="md"
+				size="sm"
 				on:click={() => {
 					focusProp(argName, 'connect', (path) => {
 						connectProperty(path)
 						return false
 					})
-				}}
+				}}>Connect &rightarrow;</Button
 			>
-				<Icon data={faChain} />
-			</Button>
 		</div>
 	</div>
 	<div class="max-w-xs" />

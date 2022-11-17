@@ -199,7 +199,7 @@
 						bind:value={script.language}
 					/>
 				</div>
-				<h2 class="border-b pb-1 mt-4"> Metadata </h2>
+				<h2 class="border-b pb-1 mt-4">Advanced</h2>
 				<div>
 					<Button
 						color="light"
