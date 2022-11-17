@@ -10,6 +10,8 @@
 	import Button from './common/button/Button.svelte'
 	import { faRotateRight } from '@fortawesome/free-solid-svg-icons'
 	import { flowStateStore } from './flows/flowState'
+	import { flowStore } from './flows/flowStore'
+	import { Alert } from './common'
 
 	let testJobLoader: TestJobLoader
 
@@ -54,6 +56,12 @@
 />
 <Splitpanes>
 	<Pane size={50} minSize={20} class="p-4">
+		{#if $flowStore.value.same_worker}
+			<div class="mb-1 bg-yellow-100 text-yellow-700 p-1 text-xs"
+				>Using same_worker does not preserve /shared across individual step tests</div
+			>
+		{/if}
+
 		<RunForm
 			runnable={{ summary: mod.summary ?? '', schema, description: '' }}
 			runAction={(_, args) => runTest(args)}

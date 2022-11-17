@@ -847,8 +847,17 @@ mount {{
             ))?,
         )
     } else {
-        "".to_string()
+        r#"
+mount {
+    dst: "/shared"
+    fstype: "tmpfs"
+    rw: true
+    options: "size=500000000"
+}
+        "#
+        .to_string()
     };
+
     let result: error::Result<serde_json::Value> = match language {
         None => {
             return Err(Error::ExecutionErr(
