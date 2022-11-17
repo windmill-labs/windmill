@@ -4,7 +4,9 @@
 	export let horizontalAlignement: 'left' | 'center' | 'right' | undefined
 	export let verticalAlignement: 'top' | 'center' | 'bottom' | undefined
 
-	function tailwindHorizontalAlignement(horizontalAlignement) {
+	function tailwindHorizontalAlignement(
+		horizontalAlignement: 'left' | 'center' | 'right' | undefined
+	) {
 		switch (horizontalAlignement) {
 			case 'left':
 				return 'justify-start'
@@ -15,7 +17,7 @@
 		}
 	}
 
-	function tailwindVerticalAlignement(verticalAlignement) {
+	function tailwindVerticalAlignement(verticalAlignement: 'top' | 'center' | 'bottom' | undefined) {
 		switch (verticalAlignement) {
 			case 'top':
 				return 'items-start'
@@ -27,7 +29,7 @@
 	}
 
 	$: classes = classNames(
-		'flex w-full h-full',
+		'flex w-full h-full flex-col',
 		tailwindHorizontalAlignement(horizontalAlignement),
 		tailwindVerticalAlignement(verticalAlignement)
 	)

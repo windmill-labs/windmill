@@ -1,5 +1,5 @@
 import type { Schema, SchemaProperty } from '$lib/common'
-import type { Policy } from '$lib/gen'
+import type { FilledItem } from 'svelte-grid'
 import type { Writable } from 'svelte/store'
 import type { World } from './rx'
 
@@ -23,13 +23,14 @@ export type StaticInput = {
 	type: 'static'
 	value: any
 	visible?: boolean
+	fieldType: 'text' | 'textarea' | 'number' | 'boolean' | 'select' | 'date' | 'time' | 'datetime'
 }
 
 export type AppInputTransform = DynamicInput | StaticInput | UserInput
 
 // Inner inputs, (search, filter, page, inputs of a script or flow)
 export type InputsSpec = Record<FieldID, AppInputTransform>
-export type ComponentInputsSpec = Record<FieldID, DynamicInput>
+export type ComponentInputsSpec = Record<FieldID, DynamicInput | StaticInput>
 
 export type TextComponent = {
 	type: 'textcomponent'
@@ -80,7 +81,7 @@ export type AppComponent =
 			verticalAlignement?: 'top' | 'center' | 'bottom'
 
 			inputs: InputsSpec
-			// Only dynamic inputs
+			// Only dynamic inputs (Result of display)
 			componentInputs: ComponentInputsSpec
 	  }
 
@@ -91,12 +92,15 @@ export type AppSection = {
 	id: SectionID
 }
 
+export type GridItem = FilledItem<{
+	data: AppComponent
+	id: string
+}>
+
 export type App = {
-	sections: AppSection[]
+	grid: GridItem[]
 	title: string
 }
-
-export type AppSelection = { sectionIndex: number; componentIndex: number | undefined }
 
 export type ConnectingInput = {
 	opened: boolean
@@ -107,7 +111,7 @@ export type AppEditorContext = {
 	worldStore: Writable<World | undefined>
 	staticOutputs: Writable<Record<string, string[]>>
 	app: Writable<App>
-	selection: Writable<AppSelection | undefined>
+	selectedComponent: Writable<string | undefined>
 	mode: Writable<EditorMode>
 	schemas: Writable<Schema[]>
 	connectingInput: Writable<ConnectingInput>

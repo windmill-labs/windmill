@@ -6,13 +6,14 @@
 
 	export let input: DynamicInput
 
-	const { connectingInput, selection } = getContext<AppEditorContext>('AppEditorContext')
+	const { connectingInput, selectedComponent } = getContext<AppEditorContext>('AppEditorContext')
 
 	function applyConnection() {
 		if (!$connectingInput.opened && $connectingInput.input !== undefined) {
 			input = $connectingInput.input
 
-			$selection = $selection
+			// TODO: Check whether this is needed
+			$selectedComponent = $selectedComponent
 
 			$connectingInput = {
 				opened: false,

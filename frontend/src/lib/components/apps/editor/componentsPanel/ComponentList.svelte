@@ -1,142 +1,75 @@
 <script lang="ts">
-	import { flip } from 'svelte/animate'
-	import { dndzone } from 'svelte-dnd-action'
 	import Icon from 'svelte-awesome'
+	import type { AppComponent, AppEditorContext, GridItem } from '../../types'
 	import { displayData } from '../../utils'
-	import { defaultAlignement, defaultProps } from './componentDefaultProps'
+	import { componentSets } from './data'
 
-	let items = [
-		{
-			...defaultProps,
-			// Used by the dnd library, should be replaced by unique id
-			id: 'displaycomponent',
-			type: 'displaycomponent',
-			componentInputs: {
-				result: {
-					id: undefined,
-					name: undefined,
-					type: 'output',
-					defaultValue: undefined
-				}
+	import gridHelp from 'svelte-grid/build/helper/index.mjs'
+	import { getContext } from 'svelte'
+	import { getNextId } from '$lib/components/flows/flowStateUtils'
+	import type { Size } from 'svelte-grid'
+
+	const { app } = getContext<AppEditorContext>('AppEditorContext')
+
+	const COLS = 6
+
+	function add(
+		appComponent: AppComponent,
+		defaultDimensions: Size,
+		minDimensions: Size = { w: 1, h: 1 },
+		maxDimensions: Size = { w: 6, h: 6 }
+	) {
+		const grid = $app.grid ?? []
+		const id = getNextId(grid.map((gridItem) => gridItem.data.id))
+
+		appComponent.id = id
+
+		let newItem: GridItem = {
+			[COLS]: {
+				fixed: false,
+				resizable: true,
+				draggable: true,
+				customDragger: false,
+				customResizer: false,
+				min: minDimensions,
+				max: maxDimensions,
+				x: 0,
+				y: 0,
+				...defaultDimensions
+			},
+			data: JSON.parse(JSON.stringify(appComponent)),
+			id: id
+		}
+
+		let findOutPosition = gridHelp.findSpace(newItem, grid, COLS)
+
+		newItem = {
+			...newItem,
+			[COLS]: {
+				...newItem[COLS],
+				...findOutPosition
 			}
-		},
-		{
-			...defaultProps,
-			// Used by the dnd library, should be replaced by unique id
-			id: 'runformcomponent',
-			type: 'runformcomponent'
 		}
-	]
 
-	let x = [
-		{
-			...defaultProps,
-			...defaultAlignement,
-			// Used by the dnd library, should be replaced by unique id
-			id: 'textcomponent',
-			type: 'textcomponent',
-			inputs: {
-				content: {
-					type: 'static',
-					visible: true,
-					value: 'Lorem ipsum'
-				}
-			}
-		},
-		{
-			...defaultProps,
-			id: 'buttoncomponent',
-			type: 'buttoncomponent'
-		},
-		{
-			...defaultProps,
-			id: 'imagecomponent',
-			type: 'imagecomponent'
-		},
-		{
-			...defaultProps,
-			id: 'inputcomponent',
-			type: 'inputcomponent'
-		},
-		{
-			...defaultProps,
-			id: 'selectcomponent',
-			type: 'selectcomponent'
-		},
-		{
-			...defaultProps,
-			id: 'checkboxcomponent',
-			type: 'checkboxcomponent'
-		},
-		{
-			...defaultProps,
-			id: 'radiocomponent',
-			type: 'radiocomponent'
-		}
-	]
+		debugger
 
-	let charts = [
-		{
-			...defaultProps,
-			// Used by the dnd library, should be replaced by unique id
-			id: 'piechartcomponent',
-			type: 'piechartcomponent'
-		},
-		{
-			...defaultProps,
-			id: 'barchartcomponent',
-			type: 'barchartcomponent'
-		}
-	]
-
-	const flipDurationMs = 300
+		$app.grid = [...grid, newItem]
+	}
 </script>
 
-<div class="px-4 pt-4 text-sm font-semibold">Component</div>
+{#each componentSets as componentSet, index (index)}
+	<div class="px-4 pt-4 text-sm font-semibold">{componentSet.title}</div>
 
-<section
-	use:dndzone={{ items, flipDurationMs, type: 'component' }}
-	class="grid grid-cols-4 gap-2 p-4"
->
-	{#each items as item (item.id)}
-		<div
-			class="border shadow-sm h-20 p-2 flex flex-col gap-2 items-center justify-center bg-white rounded-md scale-100 hover:scale-105 ease-in duration-75"
-			animate:flip={{ duration: flipDurationMs }}
-		>
-			<Icon data={displayData[item.type].icon} scale={1.6} class="text-blue-800" />
-			<div class="text-xs">{displayData[item.type].name}</div>
-		</div>
-	{/each}
-</section>
-
-<div class="px-4 pt-4 text-sm font-semibold">Components</div>
-<section
-	use:dndzone={{ items: x, flipDurationMs, type: 'component' }}
-	class="grid grid-cols-4 gap-2 p-4"
->
-	{#each x as item (item.id)}
-		<div
-			class="border shadow-sm h-20 p-2 flex flex-col gap-2 items-center justify-center bg-white rounded-md scale-100 hover:scale-105 ease-in duration-75"
-			animate:flip={{ duration: flipDurationMs }}
-		>
-			<Icon data={displayData[item.type].icon} scale={1.6} class="text-blue-800" />
-			<div class="text-xs">{displayData[item.type].name}</div>
-		</div>
-	{/each}
-</section>
-
-<div class="px-4 pt-4 text-sm font-semibold">Charts</div>
-<section
-	use:dndzone={{ items: charts, flipDurationMs, type: 'component' }}
-	class="grid grid-cols-4 gap-2 p-4"
->
-	{#each charts as item (item.id)}
-		<div
-			class="border shadow-sm h-20 p-2 flex flex-col gap-2 items-center justify-center bg-white rounded-md scale-100 hover:scale-105 ease-in duration-75"
-			animate:flip={{ duration: flipDurationMs }}
-		>
-			<Icon data={displayData[item.type].icon} scale={1.6} class="text-blue-800" />
-			<div class="text-xs">{displayData[item.type].name}</div>
-		</div>
-	{/each}
-</section>
+	<section class="grid grid-cols-4 gap-2 p-4">
+		{#each componentSet.components as item, componentIndex (componentIndex)}
+			<!-- svelte-ignore a11y-click-events-have-key-events -->
+			<div
+				class="border shadow-sm h-20 p-2 flex flex-col gap-2 items-center justify-center bg-white rounded-md scale-100 hover:scale-105 ease-in duration-75"
+				on:click={() => add(item, { w: 2, h: 2 })}
+			>
+				<Icon data={displayData[item.type].icon} scale={1.6} class="text-blue-800" />
+				<div class="text-xs">{displayData[item.type].name}</div>
+			</div>
+		{/each}
+	</section>
+{/each}

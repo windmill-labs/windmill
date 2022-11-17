@@ -8,99 +8,102 @@
 		faAlignRight,
 		faTrashAlt
 	} from '@fortawesome/free-solid-svg-icons'
-	import { createEventDispatcher } from 'svelte'
+	import { getContext } from 'svelte'
 	import Icon from 'svelte-awesome'
-	import type { AppComponent } from '../../types'
+	import type { AppComponent, AppEditorContext } from '../../types'
 	import PanelSection from './common/PanelSection.svelte'
 	import ComponentInputsSpecsEditor from './ComponentInputsSpecsEditor.svelte'
 	import InputsSpecsEditor from './InputsSpecsEditor.svelte'
 	import PickFlow from './PickFlow.svelte'
+	import gridHelp from 'svelte-grid/build/helper/index.mjs'
 
 	export let component: AppComponent | undefined
 
-	const dispatch = createEventDispatcher()
+	const { app } = getContext<AppEditorContext>('AppEditorContext')
+
+	function remove() {
+		const COLS = 6
+		const index = $app.grid.findIndex((c) => c.data.id === component?.id)
+		$app.grid.splice(index, 1)
+		$app.grid = gridHelp.adjust($app.grid, COLS)
+	}
 </script>
 
 {#if component}
-	{#key component.id}
-		<div class="flex flex-col w-full divide-y">
-			<span class="text-sm border-y w-full py-1 px-2 bg-gray-800 text-white">Component editor</span>
+	<div class="flex flex-col w-full divide-y">
+		<span class="text-sm border-y w-full py-1 px-2 bg-gray-800 text-white">Component editor</span>
 
-			<PanelSection title="Inputs">
-				{#if component.inputs}
-					<InputsSpecsEditor bind:inputSpecs={component.inputs} />
-				{/if}
-
-				{#if component.type === 'runformcomponent' && component.path === undefined}
-					<span class="text-sm">Select a script or a flow to continue</span>
-					<PickScript
-						kind="script"
-						on:pick={({ detail }) => {
-							if (component && component.type === 'runformcomponent') {
-								component.path = detail.path
-								component.runType = 'script'
-							}
-						}}
-					/>
-					<PickFlow
-						on:pick={({ detail }) => {
-							if (component && component.type === 'runformcomponent') {
-								component.path = detail.path
-								component.runType = 'flow'
-							}
-						}}
-					/>
-				{/if}
-
-				{#if component.componentInputs}
-					<ComponentInputsSpecsEditor bind:componentInputs={component.componentInputs} />
-				{/if}
-			</PanelSection>
-
-			{#if component.verticalAlignement !== undefined}
-				<PanelSection title="Alignement">
-					<div class="w-full text-xs font-bold">Horizontal alignement</div>
-
-					<ToggleButtonGroup bind:selected={component.horizontalAlignement}>
-						<ToggleButton position="left" value="left" size="xs">
-							<Icon data={faAlignLeft} />
-						</ToggleButton>
-						<ToggleButton position="center" value="center" size="xs">
-							<Icon data={faAlignCenter} />
-						</ToggleButton>
-						<ToggleButton position="right" value="right" size="xs">
-							<Icon data={faAlignRight} />
-						</ToggleButton>
-					</ToggleButtonGroup>
-					<div class="w-full text-xs font-bold">Vertical alignement</div>
-
-					<ToggleButtonGroup bind:selected={component.verticalAlignement}>
-						<ToggleButton position="left" value="top" size="xs">
-							<Icon data={faAlignLeft} />
-						</ToggleButton>
-						<ToggleButton position="center" value="center" size="xs">
-							<Icon data={faAlignCenter} />
-						</ToggleButton>
-						<ToggleButton position="right" value="bottom" size="xs">
-							<Icon data={faAlignRight} />
-						</ToggleButton>
-					</ToggleButtonGroup>
-
-					<div class="w-full text-xs font-bold">Width (%)</div>
-					<input value={Math.round(component.width)} type="number" class="w-full" disabled />
-				</PanelSection>
+		<PanelSection title="Inputs">
+			{#if component.inputs}
+				<InputsSpecsEditor bind:inputSpecs={component.inputs} />
 			{/if}
-			<PanelSection title="Danger zone">
-				<Button
-					size="xs"
-					color="red"
-					variant="border"
-					startIcon={{ icon: faTrashAlt }}
-					on:click={() => dispatch('remove')}
-				>
-					Delete component
-				</Button>
+
+			{#if component.type === 'runformcomponent' && component.path === undefined}
+				<span class="text-sm">Select a script or a flow to continue</span>
+				<PickScript
+					kind="script"
+					on:pick={({ detail }) => {
+						if (component && component.type === 'runformcomponent') {
+							component.path = detail.path
+							component.runType = 'script'
+						}
+					}}
+				/>
+				<PickFlow
+					on:pick={({ detail }) => {
+						if (component && component.type === 'runformcomponent') {
+							component.path = detail.path
+							component.runType = 'flow'
+						}
+					}}
+				/>
+			{/if}
+
+			{#if component.componentInputs}
+				<ComponentInputsSpecsEditor bind:componentInputSpecs={component.componentInputs} />
+			{/if}
+		</PanelSection>
+
+		{#if component.verticalAlignement !== undefined}
+			<PanelSection title="Alignement">
+				<div class="w-full text-xs font-bold">Horizontal alignement</div>
+
+				<ToggleButtonGroup bind:selected={component.horizontalAlignement}>
+					<ToggleButton position="left" value="left" size="xs">
+						<Icon data={faAlignLeft} />
+					</ToggleButton>
+					<ToggleButton position="center" value="center" size="xs">
+						<Icon data={faAlignCenter} />
+					</ToggleButton>
+					<ToggleButton position="right" value="right" size="xs">
+						<Icon data={faAlignRight} />
+					</ToggleButton>
+				</ToggleButtonGroup>
+				<div class="w-full text-xs font-bold">Vertical alignement</div>
+
+				<ToggleButtonGroup bind:selected={component.verticalAlignement}>
+					<ToggleButton position="left" value="top" size="xs">
+						<Icon data={faAlignLeft} />
+					</ToggleButton>
+					<ToggleButton position="center" value="center" size="xs">
+						<Icon data={faAlignCenter} />
+					</ToggleButton>
+					<ToggleButton position="right" value="bottom" size="xs">
+						<Icon data={faAlignRight} />
+					</ToggleButton>
+				</ToggleButtonGroup>
 			</PanelSection>
-		</div>
-	{/key}
+		{/if}
+		<PanelSection title="Danger zone">
+			<Button
+				size="xs"
+				color="red"
+				variant="border"
+				startIcon={{ icon: faTrashAlt }}
+				on:click={remove}
+			>
+				Delete component
+			</Button>
+		</PanelSection>
+	</div>
 {/if}

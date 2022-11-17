@@ -37,7 +37,7 @@
 						User
 					</ToggleButton>
 				</ToggleButtonGroup>
-				<InputsSpecEditor bind:appInputTransform={inputSpecs[inputSpecKey]} />
+				<InputsSpecEditor bind:appInputTransform={inputSpecs[inputSpecKey]} canHide />
 			</div>
 		{/if}
 	{/each}

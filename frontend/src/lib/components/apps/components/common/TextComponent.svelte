@@ -1,19 +1,22 @@
 <script lang="ts">
 	import { getContext } from 'svelte'
-	import type { AppEditorContext, InputsSpec } from '../../types'
+	import SvelteMarkdown from 'svelte-markdown'
+	import type { AppEditorContext, ComponentInputsSpec } from '../../types'
 	import AlignWrapper from './AlignWrapper.svelte'
 
-	export let inputs: InputsSpec
-	export let horizontalAlignement: 'left' | 'center' | 'right' | undefined
-	export let verticalAlignement: 'top' | 'center' | 'bottom' | undefined
+	export let componentInputs: ComponentInputsSpec
+	export let horizontalAlignement: 'left' | 'center' | 'right' | undefined = undefined
+	export let verticalAlignement: 'top' | 'center' | 'bottom' | undefined = undefined
 
 	const { worldStore } = getContext<AppEditorContext>('AppEditorContext')
 
 	export const staticOutputs: string[] = []
 </script>
 
-{#if $worldStore && inputs?.content.type === 'static'}
-	<AlignWrapper {horizontalAlignement} {verticalAlignement}>
-		{inputs?.content?.value}
-	</AlignWrapper>
+{#if $worldStore && componentInputs?.content.type === 'static'}
+	<div class="prose">
+		<AlignWrapper {horizontalAlignement} {verticalAlignement}>
+			<SvelteMarkdown source={componentInputs?.content?.value} />
+		</AlignWrapper>
+	</div>
 {/if}

@@ -13,8 +13,7 @@
 	export let component: AppComponent
 	export let selected: boolean
 
-	const { staticOutputs, connectingInput, mode, resizing } =
-		getContext<AppEditorContext>('AppEditorContext')
+	const { staticOutputs, connectingInput, mode } = getContext<AppEditorContext>('AppEditorContext')
 
 	function connectInput(output: string) {
 		if ($connectingInput) {
@@ -29,35 +28,6 @@
 			}
 		}
 	}
-
-	/**
-	 * 	{#if selected}
-			<div
-				class={classNames(
-					'absolute top-1/2 h-8 w-2 rounded-sm -left-1 cursor-col-resize',
-					selected ? 'bg-indigo-500' : 'bg-gray-500'
-				)}
-				draggable="true"
-				id="left"
-				on:dragstart|stopPropagation|capture|preventDefault={(e) => {
-					debugger
-				}}
-			/>
-			<span
-				class={classNames(
-					'absolute top-1/2 h-8 w-2 rounded-sm -right-1 cursor-col-resize',
-					selected ? 'bg-indigo-500' : 'bg-gray-500'
-				)}
-				on:dragstart|stopPropagation|preventDefault={(e) => {
-					console.log(e)
-				}}
-			/>
-		{/if}
-
-		
-	*/
-
-	let startX = 0
 </script>
 
 {#if component}

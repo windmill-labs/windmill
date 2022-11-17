@@ -1,4 +1,4 @@
-import type { AppInputTransform, DynamicInput, InputsSpec, StaticInput } from './types'
+import type { AppInputTransform } from './types'
 
 export interface Subscriber<T> {
 	next(v: T)
@@ -30,6 +30,7 @@ export function buildWorld(components: Record<string, string[]>) {
 			outputsById[k][o] = newWorld.newOutput(k, o)
 		}
 	}
+
 	return { outputsById, connect: newWorld.connect }
 }
 
@@ -63,6 +64,7 @@ export function buildObservableWorld() {
 
 	function newOutput<T>(id: string, name: string): Output<T> {
 		const output = settableOutput<T>()
+		debugger
 		observables[`${id}.${name}`] = output
 		return output
 	}
