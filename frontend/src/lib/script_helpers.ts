@@ -1,7 +1,7 @@
 import type { Script } from "./gen"
 
 export const PYTHON_INIT_CODE = `import os
-from wmill import *
+import wmill
 
 """
 Use Cmd/Ctrl + S to autoformat the code.
@@ -14,17 +14,16 @@ def main(no_default: str,
          age = 42,
          obj: dict = {"even": "dicts"},
          l: list = ["or", "lists!"],
-         file_: bytes = bytes(0),
-         db: Resource["postgresql"] = "g/all/demodb"):
+         file_: bytes = bytes(0)):
     """A main function is required for the script to be able to accept arguments.
     Types are recommended."""
     print(f"Hello World and a warm welcome especially to {name}")
-    print("and its acolytes..", age, obj, l, len(file_), dtime)
+    print("and its acolytes..", age, obj, l, len(file_))
     # retrieve variables, including secrets by querying the windmill platform.
     # secret fetching is audited by windmill.
 
     try:
-      secret = get_variable("g/all/pretty_secret")
+      secret = wmill.get_variable("g/all/pretty_secret")
     except:
       secret = "No secret yet at g/all/pretty_secret!"
 
