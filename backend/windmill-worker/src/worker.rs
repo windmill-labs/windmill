@@ -48,14 +48,15 @@ use crate::{
     },
 };
 
-async fn run_periodic_jobs(periodic_script: &str) {
+async fn run_periodic_jobs(bucket: &str) {
     tracing::info!("Running periodic jobs");
 
-    match Command::new("/usr/bin/bash")
-        .env_clear()
-        .current_dir(std::env::current_dir().unwrap())
-        .arg("-c")
-        .arg(periodic_script)
+    match Command::new("rclone")
+        .arg("sync")
+        .arg(ROOT_CACHE_DIR)
+        .arg(format!(":s3,env_auth=true:{}", bucket))
+        .arg("--size-only")
+        .arg("--fast-list")
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .spawn()
@@ -214,7 +215,7 @@ pub async fn run_worker(
     ip: &str,
     sleep_queue: u64,
     worker_config: WorkerConfig,
-    periodic_script: Option<String>,
+    sync_bucket: Option<String>,
     mut rx: tokio::sync::broadcast::Receiver<()>,
 ) {
     let start_time = Instant::now();
@@ -337,7 +338,7 @@ pub async fn run_worker(
 
             #[cfg(feature = "enterprise")]
             if last_sync.elapsed().as_secs() > NUM_SECS_SYNC {
-                run_periodic_jobs(&periodic_script.clone().unwrap()).await;
+                run_periodic_jobs(&sync_bucket.clone().unwrap()).await;
             }
 
             let (do_break, next_job) = async {

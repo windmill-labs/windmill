@@ -87,7 +87,7 @@ async fn main() -> anyhow::Result<()> {
                     .ok()
                     .and_then(|x| x.parse::<bool>().ok())
                     .unwrap_or(false);
-                let periodic_script = std::env::var("PERIODIC_SCRIPT")
+                let sync_bucket = std::env::var("S3_CACHE_BUCKET")
                     .ok()
                     .map(|e| Some(e))
                     .unwrap_or(None);
@@ -111,7 +111,7 @@ async fn main() -> anyhow::Result<()> {
                         keep_job_dir,
                     },
                     rx.resubscribe(),
-                    periodic_script,
+                    sync_bucket,
                 )
                 .await?;
             }
