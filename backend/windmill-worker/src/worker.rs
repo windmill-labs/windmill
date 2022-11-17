@@ -48,35 +48,20 @@ use crate::{
     },
 };
 
-#[cfg(feature = "enterprise")]
 async fn run_periodic_jobs(periodic_script: &str) {
-    use tokio::fs;
     tracing::info!("Running periodic jobs");
 
     match Command::new("/usr/bin/bash")
         .env_clear()
         .current_dir(std::env::current_dir().unwrap())
-        .env("BASH_ENV", "/dev/stdin")
         .arg("-c")
         .arg(periodic_script)
-        .stdin(Stdio::piped())
+        .stdin(Stdio::null())
         .stdout(Stdio::null())
         .spawn()
     {
         Ok(mut h) => {
-            let mut stdin = h.stdin.take().unwrap();
-
-            fs::write(WRITE_LOCK_PATH, h.id().unwrap().to_string())
-                .await
-                .unwrap();
-
-            stdin.write_all(b"echo $PWD").await.unwrap();
-            stdin.shutdown().await.unwrap();
-            drop(stdin);
-
             h.wait().await.unwrap();
-
-            fs::remove_file(WRITE_LOCK_PATH).await.unwrap();
         }
         Err(e) => tracing::warn!("Failed to run periodic job. Error: {:?}", e),
     }
@@ -149,7 +134,6 @@ const ROOT_CACHE_DIR: &str = "/tmp/windmill/cache/";
 const PIP_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "pip");
 const DENO_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "deno");
 const GO_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "go");
-const WRITE_LOCK_PATH: &str = concatcp!(ROOT_CACHE_DIR, ".write-lock");
 const NUM_SECS_ENV_CHECK: u64 = 15;
 const DEFAULT_HEAVY_DEPS: [&str; 18] = [
     "numpy",
@@ -353,24 +337,28 @@ pub async fn run_worker(
             let (do_break, next_job, is_sync) = async {
                 if cfg!(feature = "enterprise") && periodic_script.is_some()
                 {
-                    tokio::select! {
-                        biased;
-                        _ = rx.recv() => {
-                            println!("received killpill for worker {}", i_worker);
-                            (true, Ok(None), false)
-                        },
-                        _ = sync_interval.tick() => {
-                            (false, Ok(None), true)
-                        }
-                        Some(job_id) = same_worker_rx.recv() => {
-                            (false, sqlx::query_as::<_, QueuedJob>("SELECT * FROM queue WHERE id = $1")
-                            .bind(job_id)
-                            .fetch_optional(db)
-                            .await
-                            .map_err(|_| Error::InternalErr("Impossible to fetch same_worker job".to_string())), false)
-                        },
-                        job = pull(&db) => (false, job, false),
+                    #[cfg(feature = "enterprise")]
+                    {
+                        return tokio::select! {
+                            biased;
+                            _ = rx.recv() => {
+                                println!("received killpill for worker {}", i_worker);
+                                (true, Ok(None), false)
+                            },
+                            _ = sync_interval.tick() => {
+                                (false, Ok(None), true)
+                            }
+                            Some(job_id) = same_worker_rx.recv() => {
+                                (false, sqlx::query_as::<_, QueuedJob>("SELECT * FROM queue WHERE id = $1")
+                                .bind(job_id)
+                                .fetch_optional(db)
+                                .await
+                                .map_err(|_| Error::InternalErr("Impossible to fetch same_worker job".to_string())), false)
+                            },
+                            job = pull(&db) => (false, job, false),
+                        };
                     }
+                    unreachable!();
                 }
                 else {
                     let (do_break, next_job) = tokio::select! {

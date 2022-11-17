@@ -1,7 +1,6 @@
 use futures::{stream, Stream};
 use serde_json::json;
 use sqlx::{postgres::PgListener, types::Uuid, Pool, Postgres, Transaction};
-use tokio::sync::mpsc;
 use windmill_api::jobs::{CompletedJob, Job};
 use windmill_common::{
     flow_status::{FlowStatus, FlowStatusModule},
