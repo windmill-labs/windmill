@@ -13,7 +13,7 @@
 - the second slot should be a <tbody>, containing th elements
 -->
 <div class="flex flex-col {$$props.class} min-w-full">
-	<div class="inline-block min-w-full py-2 align-middle">
+	<div class="inline-block min-w-full py-2 align-middle overflow-auto">
 		<table class="table-custom min-w-full table-auto divide-y divide-gray-300">
 			<thead>
 				<slot name="header-row" />
@@ -22,7 +22,7 @@
 		</table>
 	</div>
 	{#if paginated}
-		<div class="flex flex-row-reverse text-gray-500 mb-6">
+		<div class="sticky flex flex-row-reverse text-gray-500 mb-6">
 			<button
 				class="ml-2 drop-shadow-md {showNext ? 'visible' : 'invisible'}"
 				on:click={() => dispatch('next')}
