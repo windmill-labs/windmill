@@ -21,7 +21,7 @@
 
 	async function createApp() {
 		const appJson: App = {
-			sections: [],
+			grid: [],
 			title: 'New app'
 		}
 

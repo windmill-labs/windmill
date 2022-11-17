@@ -10,7 +10,7 @@ const config = {
 			current: 'currentcolor',
 			transparent: 'transparent',
 			white: '#ffffff',
-			black: 'rgb(48, 48, 48)',
+			black: '#000000',
 			gray: {
 				50: '#f9fafb',
 				100: '#f3f4f6',
