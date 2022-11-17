@@ -1,3 +1,4 @@
+import type { AppComponent } from '../../types'
 import { defaultAlignement, defaultProps } from './componentDefaultProps'
 
 const windmillComponents = {
@@ -21,7 +22,7 @@ const windmillComponents = {
 			id: 'runformcomponent',
 			type: 'runformcomponent'
 		}
-	]
+	] as AppComponent[]
 }
 
 const plainComponents = {
@@ -71,7 +72,7 @@ const plainComponents = {
 			id: 'radiocomponent',
 			type: 'radiocomponent'
 		}
-	]
+	] as AppComponent[]
 }
 
 const chartComponents = {
@@ -87,7 +88,7 @@ const chartComponents = {
 			id: 'barchartcomponent',
 			type: 'barchartcomponent'
 		}
-	]
+	] as AppComponent[]
 }
 
 const componentSets = [windmillComponents, plainComponents, chartComponents]

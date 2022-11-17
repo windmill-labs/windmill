@@ -1,3 +1,5 @@
+import type { AppComponent } from '$lib/components/apps/types'
+
 declare module 'simple-svelte-autocomplete'
 
 declare module 'svelte-grid' {
@@ -41,7 +43,7 @@ declare module 'svelte-grid' {
 	}
 
 	export interface Slots<T> {
-		default: { item: ItemLayout; dataItem: Item<T> }
+		default: { item: ItemLayout; dataItem: Item<T> & { data: AppComponent } }
 	}
 
 	export default class Grid<T = {}> extends SvelteComponentTyped<Props<T>, {}, Slots<T>> {}

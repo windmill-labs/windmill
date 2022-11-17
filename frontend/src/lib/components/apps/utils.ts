@@ -29,7 +29,8 @@ export function buildArgs(
 			input = {
 				type: 'static',
 				value: '',
-				visible: true
+				visible: true,
+				fieldType: 'text'
 			}
 		}
 
