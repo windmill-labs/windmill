@@ -31,9 +31,7 @@
 
 {#if component}
 	<div class="flex flex-col w-full divide-y">
-		<span class="text-sm border-y w-full py-1 px-2 bg-gray-800 text-white">Component editor</span>
-
-		<PanelSection title="Inputs">
+		<PanelSection title="Context">
 			{#if component.inputs}
 				<InputsSpecsEditor bind:inputSpecs={component.inputs} />
 			{/if}

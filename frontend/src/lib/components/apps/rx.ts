@@ -21,6 +21,7 @@ export type World = {
 }
 
 export function buildWorld(components: Record<string, string[]>) {
+	console.log({ components })
 	const newWorld = buildObservableWorld()
 	const outputsById: Record<string, Record<string, Output<any>>> = {}
 
@@ -48,7 +49,11 @@ export function buildObservableWorld() {
 			let obs = observables[`${inputSpec.id}.${inputSpec.name}`]
 
 			if (!obs) {
-				throw Error('Observable at ' + inputSpec.id + '.' + inputSpec.name + ' not found')
+				console.warn('Observable at ' + inputSpec.id + '.' + inputSpec.name + ' not found')
+				return {
+					peak: () => undefined,
+					next: () => {}
+				}
 			}
 			obs.subscribe(input)
 			return input
@@ -64,7 +69,6 @@ export function buildObservableWorld() {
 
 	function newOutput<T>(id: string, name: string): Output<T> {
 		const output = settableOutput<T>()
-		debugger
 		observables[`${id}.${name}`] = output
 		return output
 	}

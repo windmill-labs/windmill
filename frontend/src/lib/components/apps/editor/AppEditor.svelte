@@ -17,6 +17,9 @@
 	import Icon from 'svelte-awesome'
 	import { faPlus, faSliders } from '@fortawesome/free-solid-svg-icons'
 	import ComponentPanel from './settingsPanel/ComponentPanel.svelte'
+	import PanelSection from './settingsPanel/common/PanelSection.svelte'
+	import Badge from '$lib/components/common/badge/Badge.svelte'
+	import Button from '$lib/components/common/button/Button.svelte'
 
 	export let app: App
 
@@ -59,21 +62,69 @@
 	$: $mode && $selectedComponent && clearSelectionOnPreview()
 	$: mounted && ($worldStore = buildWorld($staticOutputs))
 
-	let selectedTab = 'settings'
+	$: selectedTab = 'settings'
+
+	selectedComponent.subscribe(() => {
+		if (selectedTab === 'insert') {
+			setTimeout(() => {
+				selectedTab = 'settings'
+			})
+		}
+	})
+
+	function connectInput(id: string, name: string) {
+		if ($connectingInput) {
+			$connectingInput = {
+				opened: false,
+				input: {
+					id,
+					name,
+					type: 'output',
+					defaultValue: undefined
+				}
+			}
+		}
+	}
 </script>
 
 <AppEditorHeader title={app.title} bind:mode={$mode} />
 <SplitPanesWrapper>
+	{#if $mode !== 'preview'}
+		<Pane size={20} minSize={20} maxSize={40}>
+			<PanelSection title="Component output">
+				{#each Object.entries($staticOutputs) as [componentId, outputs], index}
+					{#if outputs.length > 0}
+						<Badge color="blue">{componentId}</Badge>
+
+						{#each outputs as output}
+							<Button
+								size="xs"
+								color="dark"
+								disabled={!$connectingInput.opened}
+								on:click={() => {
+									connectInput(componentId, output)
+								}}
+							>
+								{output}
+							</Button>
+						{/each}
+					{/if}
+				{/each}
+			</PanelSection>
+
+			<PanelSection title="Context">Todo</PanelSection>
+		</Pane>
+	{/if}
 	<Pane>
-		<div class="m-8">
+		<div class="p-4 bg-gray-100">
 			{#if $appStore.grid}
 				<GridEditor />
 			{/if}
 		</div>
 	</Pane>
 	{#if $mode !== 'preview'}
-		<Pane size={30} minSize={30} maxSize={50}>
-			<Tabs selected={selectedTab}>
+		<Pane size={20} minSize={20} maxSize={40}>
+			<Tabs bind:selected={selectedTab}>
 				<Tab value="insert" size="xs">
 					<div class="m-1 flex flex-row gap-2">
 						<Icon data={faPlus} />

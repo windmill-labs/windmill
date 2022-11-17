@@ -60,7 +60,7 @@
 {#each componentSets as componentSet, index (index)}
 	<div class="px-4 pt-4 text-sm font-semibold">{componentSet.title}</div>
 
-	<section class="grid grid-cols-4 gap-2 p-4">
+	<section class="grid grid-cols-3 gap-2 p-4">
 		{#each componentSet.components as item, componentIndex (componentIndex)}
 			<!-- svelte-ignore a11y-click-events-have-key-events -->
 			<div
