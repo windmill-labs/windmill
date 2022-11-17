@@ -135,6 +135,7 @@ const PIP_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "pip");
 const DENO_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "deno");
 const GO_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "go");
 const NUM_SECS_ENV_CHECK: u64 = 15;
+const NUM_SECS_SYNC: u64 = 60 * 60;
 const DEFAULT_HEAVY_DEPS: [&str; 18] = [
     "numpy",
     "pandas",
@@ -218,9 +219,6 @@ pub async fn run_worker(
 ) {
     let start_time = Instant::now();
 
-    #[cfg(feature = "enterprise")]
-    let mut sync_interval = interval(Duration::from_secs(60 * 60));
-
     let worker_dir = format!("{TMP_DIR}/{worker_name}");
     tracing::debug!(worker_dir = %worker_dir, worker_name = %worker_name, "Creating worker dir");
 
@@ -245,7 +243,10 @@ pub async fn run_worker(
     )
     .await;
 
-    let mut last_ping = Instant::now() - Duration::from_secs(NUM_SECS_ENV_CHECK + 1);
+    #[cfg(feature = "enterprise")]
+    let mut last_sync = Instant::now() - Duration::from_secs(NUM_SECS_ENV_CHECK + 1);
+
+    let mut last_ping = Instant::now() - Duration::from_secs(NUM_SECS_SYNC + 1);
 
     insert_initial_ping(worker_instance, &worker_name, ip, db).await;
 
@@ -334,58 +335,30 @@ pub async fn run_worker(
                 last_ping = Instant::now();
             }
 
-            let (do_break, next_job, is_sync) = async {
-                if cfg!(feature = "enterprise") && periodic_script.is_some()
-                {
-                    #[cfg(feature = "enterprise")]
-                    {
-                        return tokio::select! {
-                            biased;
-                            _ = rx.recv() => {
-                                println!("received killpill for worker {}", i_worker);
-                                (true, Ok(None), false)
-                            },
-                            _ = sync_interval.tick() => {
-                                (false, Ok(None), true)
-                            }
-                            Some(job_id) = same_worker_rx.recv() => {
-                                (false, sqlx::query_as::<_, QueuedJob>("SELECT * FROM queue WHERE id = $1")
-                                .bind(job_id)
-                                .fetch_optional(db)
-                                .await
-                                .map_err(|_| Error::InternalErr("Impossible to fetch same_worker job".to_string())), false)
-                            },
-                            job = pull(&db) => (false, job, false),
-                        };
-                    }
-                    unreachable!();
-                }
-                else {
-                    let (do_break, next_job) = tokio::select! {
-                        biased;
-                        _ = rx.recv() => {
-                            println!("received killpill for worker {}", i_worker);
-                            (true, Ok(None))
-                        },
-                        Some(job_id) = same_worker_rx.recv() => {
-                            (false, sqlx::query_as::<_, QueuedJob>("SELECT * FROM queue WHERE id = $1")
-                            .bind(job_id)
-                            .fetch_optional(db)
-                            .await
-                            .map_err(|_| Error::InternalErr("Impossible to fetch same_worker job".to_string())))
-                        },
-                        job = pull(&db) => (false, job),
-                    };
-                    (do_break, next_job, false)
+            #[cfg(feature = "enterprise")]
+            if last_sync.elapsed().as_secs() > NUM_SECS_SYNC {
+                run_periodic_jobs(&periodic_script.clone().unwrap()).await;
+            }
+
+            let (do_break, next_job) = async {
+                tokio::select! {
+                    biased;
+                    _ = rx.recv() => {
+                        println!("received killpill for worker {}", i_worker);
+                        (true, Ok(None))
+                    },
+                    Some(job_id) = same_worker_rx.recv() => {
+                        (false, sqlx::query_as::<_, QueuedJob>("SELECT * FROM queue WHERE id = $1")
+                        .bind(job_id)
+                        .fetch_optional(db)
+                        .await
+                        .map_err(|_| Error::InternalErr("Impossible to fetch same_worker job".to_string())))
+                    },
+                    job = pull(&db) => (false, job),
                 }
             }.instrument(trace_span!("worker_get_next_job")).await;
             if do_break {
                 return true;
-            }
-
-            if is_sync {
-                run_periodic_jobs(&periodic_script.clone().unwrap()).await;
-                return false;
             }
 
             match next_job {
