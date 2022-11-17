@@ -108,11 +108,7 @@
 			if (Object.keys(schema.properties).includes(argName)) {
 				delete schema.properties[argName]
 
-				const requiredIndex = schema.required.findIndex((arg) => arg === argName)
-
-				if (requiredIndex > -1) {
-					schema.required = schema.required.slice(requiredIndex, 1)
-				}
+				schema.required = schema.required.filter((arg) => arg !== argName)
 
 				schema = schema
 				schemaString = JSON.stringify(schema, null, '\t')
