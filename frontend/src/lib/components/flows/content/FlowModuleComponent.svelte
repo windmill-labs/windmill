@@ -69,7 +69,7 @@
 				previousModule,
 				flowModule.id,
 				$flowStore,
-				previewArgs,
+				$previewArgs,
 				false,
 				true
 		  )
