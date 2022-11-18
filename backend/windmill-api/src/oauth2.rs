@@ -32,13 +32,13 @@ use windmill_audit::{audit_log, ActionKind};
 use windmill_common::utils::{not_found_if_none, now_from_db};
 
 use crate::users::Authed;
-use crate::IsSecure;
 use crate::{
     db::{UserDB, DB},
     variables::{build_crypt, encrypt},
     workspaces::WorkspaceSettings,
     BaseUrl,
 };
+use crate::{CookieDomain, IsSecure};
 use windmill_common::error::{self, to_anyhow, Error};
 use windmill_common::oauth2::*;
 
@@ -780,6 +780,7 @@ async fn login_callback(
     Extension(db): Extension<DB>,
     Extension(http_client): Extension<Client>,
     Extension(is_secure): Extension<Arc<IsSecure>>,
+    Extension(cookie_domain): Extension<Arc<CookieDomain>>,
 ) -> error::Result<String> {
     let client_w_config = &clients
         .logins
@@ -818,6 +819,7 @@ async fn login_callback(
                     &mut tx,
                     cookies,
                     is_secure.0,
+                    &cookie_domain.as_ref().0,
                 )
                 .await?;
             } else {
@@ -839,8 +841,15 @@ async fn login_callback(
             .bind(user.company)
             .execute(&mut tx)
             .await?;
-            crate::users::create_session_token(&email, false, &mut tx, cookies, is_secure.0)
-                .await?;
+            crate::users::create_session_token(
+                &email,
+                false,
+                &mut tx,
+                cookies,
+                is_secure.0,
+                &cookie_domain.as_ref().0,
+            )
+            .await?;
             audit_log(
                 &mut tx,
                 &email,
