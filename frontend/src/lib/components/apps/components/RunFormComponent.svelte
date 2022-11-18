@@ -18,8 +18,8 @@
 	export let inputs: InputsSpec
 	export let path: string | undefined = undefined
 	export let runType: 'script' | 'flow' | undefined = undefined
-
 	export const staticOutputs = ['loading', 'result']
+
 	const { worldStore } = getContext<AppEditorContext>('AppEditorContext')
 	let pagePath = $page.params.path
 

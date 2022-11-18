@@ -11,17 +11,18 @@ use std::{sync::Arc, time::Duration};
 use crate::{
     db::{UserDB, DB},
     utils::require_super_admin,
-    IsSecure,
+    CookieDomain, IsSecure,
 };
 use argon2::{password_hash::SaltString, Argon2, PasswordHash, PasswordHasher, PasswordVerifier};
 use axum::{
     async_trait,
     extract::{Extension, FromRequest, Path, Query, RequestParts},
     http,
+    response::{IntoResponse, Response},
     routing::{delete, get, post},
     Json, Router,
 };
-use hyper::StatusCode;
+use hyper::{header::LOCATION, StatusCode};
 use rand::rngs::OsRng;
 use retainer::Cache;
 use serde::{Deserialize, Serialize};
@@ -79,6 +80,7 @@ pub fn make_unauthed_service() -> Router {
     Router::new()
         .route("/login", post(login))
         .route("/logout", post(logout))
+        .route("/logout", get(logout))
 }
 
 pub struct AuthCache {
@@ -628,11 +630,16 @@ async fn list_invites(
     Ok(Json(rows))
 }
 
+#[derive(Deserialize)]
+struct LogoutQuery {
+    rd: Option<String>,
+}
 async fn logout(
     Tokened { token }: Tokened,
     cookies: Cookies,
     Extension(db): Extension<DB>,
-) -> Result<String> {
+    Query(LogoutQuery { rd }): Query<LogoutQuery>,
+) -> Result<Response> {
     let mut cookie = Cookie::new(COOKIE_NAME, "");
     cookie.set_path(COOKIE_PATH);
     cookies.remove(cookie);
@@ -653,8 +660,11 @@ async fn logout(
         .await?;
     }
     tx.commit().await?;
-
-    Ok("logged out successfully".to_string())
+    if let Some(rd) = rd {
+        Ok((StatusCode::TEMPORARY_REDIRECT, [(LOCATION, rd)]).into_response())
+    } else {
+        Ok((StatusCode::OK, "logged out successfully".to_string()).into_response())
+    }
 }
 
 async fn whoami(
@@ -1287,6 +1297,7 @@ async fn login(
     Extension(db): Extension<DB>,
     Extension(argon2): Extension<Arc<Argon2<'_>>>,
     Extension(is_secure): Extension<Arc<IsSecure>>,
+    Extension(cookie_domain): Extension<Arc<CookieDomain>>,
     Json(Login { email, password }): Json<Login>,
 ) -> Result<String> {
     let mut tx = db.begin().await?;
@@ -1308,8 +1319,15 @@ async fn login(
         {
             Err(Error::BadRequest("Invalid login".to_string()))
         } else {
-            let token =
-                create_session_token(&email, super_admin, &mut tx, cookies, is_secure.0).await?;
+            let token = create_session_token(
+                &email,
+                super_admin,
+                &mut tx,
+                cookies,
+                is_secure.0,
+                &cookie_domain.as_ref().0,
+            )
+            .await?;
             tx.commit().await?;
             Ok(token)
         }
@@ -1324,6 +1342,7 @@ pub async fn create_session_token<'c>(
     tx: &mut sqlx::Transaction<'c, sqlx::Postgres>,
     cookies: Cookies,
     is_secure: bool,
+    domain: &Option<String>,
 ) -> Result<String> {
     let token = rd_string(30);
     sqlx::query!(
@@ -1343,6 +1362,9 @@ pub async fn create_session_token<'c>(
     cookie.set_same_site(cookie::SameSite::Lax);
     cookie.set_http_only(true);
     cookie.set_path(COOKIE_PATH);
+    if domain.is_some() {
+        cookie.set_domain(domain.clone().unwrap());
+    }
     let mut expire: OffsetDateTime = time::OffsetDateTime::now_utc();
     expire += time::Duration::days(3);
     cookie.set_expires(expire);

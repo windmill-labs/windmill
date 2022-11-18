@@ -2,7 +2,6 @@
 	import type {} from '$lib/common'
 	import { classNames } from '$lib/utils'
 
-	export let id: string
 	export let title: string
 	export let description: string | undefined = undefined
 

@@ -210,6 +210,23 @@
     },
     "query": "INSERT INTO usr\n            (workspace_id, email, username, is_admin)\n            VALUES ($1, $2, $3, $4)"
   },
+  "0c3a39eafc349870be019318d6925922558ac20fdd76b042d69ccd8a527e3ff5": {
+    "describe": {
+      "columns": [],
+      "nullable": [],
+      "parameters": {
+        "Left": [
+          "Varchar",
+          "Varchar",
+          "Jsonb",
+          "Text",
+          "Varchar",
+          "Bool"
+        ]
+      }
+    },
+    "query": "INSERT INTO resource\n            (workspace_id, path, value, description, resource_type, is_oauth)\n            VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT (workspace_id, path) DO UPDATE SET value = $3"
+  },
   "0d6412bc3ebb1d58bdd9cbcef774dacf9016fa402af5c1b4e339b9a3d7163d5e": {
     "describe": {
       "columns": [
@@ -1288,6 +1305,24 @@
       }
     },
     "query": "DELETE FROM usr_to_group WHERE group_ = $1 AND workspace_id = $2"
+  },
+  "52c8b4350235bdaab4df79e517d5e42a61a4e1e209d120b2c8bb31ebb7ce1e56": {
+    "describe": {
+      "columns": [],
+      "nullable": [],
+      "parameters": {
+        "Left": [
+          "Varchar",
+          "Varchar",
+          "Varchar",
+          "Bool",
+          "Varchar",
+          "Int4",
+          "Bool"
+        ]
+      }
+    },
+    "query": "INSERT INTO variable\n            (workspace_id, path, value, is_secret, description, account, is_oauth)\n            VALUES ($1, $2, $3, $4, $5, $6, $7)\n            ON CONFLICT (workspace_id, path) DO UPDATE SET value = $3"
   },
   "541ebd3bac65431237cf3b882dfdcd61ca97c253d9754d05bba59fda89841067": {
     "describe": {

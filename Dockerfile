@@ -83,6 +83,7 @@ ARG APP=/usr/src/app
 
 RUN apt-get update \
     && apt-get install -y ca-certificates wget curl git jq libprotobuf-dev libnl-route-3-dev unzip \
+    && apt-get install -y ca-certificates wget curl git jq libprotobuf-dev libnl-route-3-dev unzip build-essential \
     && rm -rf /var/lib/apt/lists/*
 
 RUN arch="$(dpkg --print-architecture)"; arch="${arch##*-}"; \

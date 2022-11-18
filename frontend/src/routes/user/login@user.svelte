@@ -65,6 +65,10 @@
 	}
 
 	function redirectUser() {
+		if (rd?.startsWith('http')) {
+			goto(rd)
+			return
+		}
 		if ($workspaceStore) {
 			goto(rd ?? '/')
 		} else {

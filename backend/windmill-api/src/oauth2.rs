@@ -32,13 +32,13 @@ use windmill_audit::{audit_log, ActionKind};
 use windmill_common::utils::{not_found_if_none, now_from_db};
 
 use crate::users::Authed;
-use crate::IsSecure;
 use crate::{
     db::{UserDB, DB},
     variables::{build_crypt, encrypt},
     workspaces::WorkspaceSettings,
     BaseUrl,
 };
+use crate::{CookieDomain, IsSecure};
 use windmill_common::error::{self, to_anyhow, Error};
 use windmill_common::oauth2::*;
 
@@ -610,6 +610,39 @@ async fn connect_slack_callback(
     )
     .execute(&mut tx)
     .await?;
+
+    let token_path = "g/slack/bot_token";
+    let mc = build_crypt(&mut tx, &w_id).await?;
+    let value = encrypt(&mc, &token.bot.bot_access_token);
+    sqlx::query!(
+        "INSERT INTO variable
+            (workspace_id, path, value, is_secret, description, account, is_oauth)
+            VALUES ($1, $2, $3, $4, $5, $6, $7)
+            ON CONFLICT (workspace_id, path) DO UPDATE SET value = $3",
+        &w_id,
+        token_path,
+        value,
+        true,
+        "The slack bot token to act on behalf of the installed app of the connected workspace",
+        None::<i32>,
+        true,
+    )
+    .execute(&mut tx)
+    .await?;
+
+    sqlx::query!(
+        "INSERT INTO resource
+            (workspace_id, path, value, description, resource_type, is_oauth)
+            VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT (workspace_id, path) DO UPDATE SET value = $3",
+        w_id,
+        token_path,
+        serde_json::json!({ "token": format!("$var:{token_path}") }),
+        "The slack bot token to act on behalf of the installed app of the connected workspace",
+        "slack",
+        true
+    )
+    .execute(&mut tx)
+    .await?;
     tx.commit().await?;
     Ok("slack workspace connected".to_string())
 }
@@ -683,10 +716,19 @@ async fn slack_command(
     .await?;
 
     if let Some(settings) = settings {
-        if let Some(script) = &settings.slack_command_script {
-            let script_hash =
-                windmill_common::get_latest_hash_for_path(&mut tx, &settings.workspace_id, script)
-                    .await?;
+        if let Some(path) = &settings.slack_command_script {
+            let payload = if let Some(path) = path.strip_prefix("flow/") {
+                JobPayload::Flow(path.to_string())
+            } else {
+                let path = path.strip_prefix("script/").unwrap_or_else(|| path);
+                let script_hash = windmill_common::get_latest_hash_for_path(
+                    &mut tx,
+                    &settings.workspace_id,
+                    path,
+                )
+                .await?;
+                JobPayload::ScriptHash { hash: script_hash, path: path.to_owned() }
+            };
             let mut map = serde_json::Map::new();
             map.insert("text".to_string(), serde_json::Value::String(form.text));
             map.insert(
@@ -697,7 +739,7 @@ async fn slack_command(
             let (uuid, tx) = windmill_queue::push(
                 tx,
                 &settings.workspace_id,
-                JobPayload::ScriptHash { hash: script_hash, path: script.to_owned() },
+                payload,
                 Some(map),
                 &form.user_name,
                 "g/slack".to_string(),
@@ -738,6 +780,7 @@ async fn login_callback(
     Extension(db): Extension<DB>,
     Extension(http_client): Extension<Client>,
     Extension(is_secure): Extension<Arc<IsSecure>>,
+    Extension(cookie_domain): Extension<Arc<CookieDomain>>,
 ) -> error::Result<String> {
     let client_w_config = &clients
         .logins
@@ -776,6 +819,7 @@ async fn login_callback(
                     &mut tx,
                     cookies,
                     is_secure.0,
+                    &cookie_domain.as_ref().0,
                 )
                 .await?;
             } else {
@@ -797,8 +841,15 @@ async fn login_callback(
             .bind(user.company)
             .execute(&mut tx)
             .await?;
-            crate::users::create_session_token(&email, false, &mut tx, cookies, is_secure.0)
-                .await?;
+            crate::users::create_session_token(
+                &email,
+                false,
+                &mut tx,
+                cookies,
+                is_secure.0,
+                &cookie_domain.as_ref().0,
+            )
+            .await?;
             audit_log(
                 &mut tx,
                 &email,

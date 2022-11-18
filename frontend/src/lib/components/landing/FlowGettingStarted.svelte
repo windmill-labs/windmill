@@ -18,13 +18,7 @@
 		the Hub!
 	</div>
 	<div class="flex flex-row flex-wrap gap-y-2">
-		<Button
-			on:click={() => goto('flows/add')}
-			color="dark"
-			size="xs"
-			btnClasses="mr-2"
-			startIcon={{ icon: faPlus }}
-		>
+		<Button href="/flows/add" color="dark" size="xs" btnClasses="mr-2" startIcon={{ icon: faPlus }}>
 			Create flow
 		</Button>
 		<Button

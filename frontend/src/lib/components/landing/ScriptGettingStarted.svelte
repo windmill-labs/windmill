@@ -17,7 +17,7 @@
 	</div>
 	<div class="inline-flex flex-wrap gap-y-2">
 		<Button
-			on:click={() => goto('scripts/add')}
+			href="/scripts/add"
 			color="dark"
 			size="xs"
 			btnClasses="mr-2"

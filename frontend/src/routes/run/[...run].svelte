@@ -125,7 +125,7 @@
 		layout={[0.75, [2, 0, 2], 2.25, [{ h: 1.5, w: 40 }]]}
 	/>
 	{#if job?.job_kind === 'script' || job?.job_kind === 'flow'}
-		<ActionRow applyPageWidth stickToTop>
+		<ActionRow applyPageWidth>
 			<svelte:fragment slot="left">
 				{@const isScript = job?.job_kind === 'script'}
 				{@const runsHref = `/runs/${job?.script_path}${!isScript ? '?jobKind=flow' : ''}`}

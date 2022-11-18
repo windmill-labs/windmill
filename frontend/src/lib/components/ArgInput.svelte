@@ -144,7 +144,7 @@
 						seeEditable = !seeEditable
 					}}
 				>
-					Customize argument
+					Customize property
 					<Icon class="ml-2" data={seeEditable ? faChevronUp : faChevronDown} scale={0.7} />
 				</span>
 
