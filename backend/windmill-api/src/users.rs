@@ -80,6 +80,7 @@ pub fn make_unauthed_service() -> Router {
     Router::new()
         .route("/login", post(login))
         .route("/logout", post(logout))
+        .route("/logout", get(logout))
 }
 
 pub struct AuthCache {
