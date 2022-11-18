@@ -47,6 +47,7 @@ const GIT_VERSION: &str = git_version!(args = ["--tag", "--always"], fallback = 
 
 struct BaseUrl(String);
 pub struct IsSecure(bool);
+pub struct CookieDomain(Option<String>);
 pub struct CloudHosted(bool);
 pub struct ContentSecurityPolicy(String);
 
@@ -92,6 +93,9 @@ pub async fn run_server(
         ))))
         .layer(Extension(Arc::new(ContentSecurityPolicy(
             std::env::var("SERVE_CSP").unwrap_or("".to_owned()),
+        ))))
+        .layer(Extension(Arc::new(CookieDomain(
+            std::env::var("COOKIE_DOMAIN").ok(),
         ))))
         .layer(Extension(http_client))
         .layer(CookieManagerLayer::new());
