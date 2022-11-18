@@ -87,6 +87,10 @@ async fn main() -> anyhow::Result<()> {
                     .ok()
                     .and_then(|x| x.parse::<bool>().ok())
                     .unwrap_or(false);
+                let sync_bucket = std::env::var("S3_CACHE_BUCKET")
+                    .ok()
+                    .map(|e| Some(e))
+                    .unwrap_or(None);
 
                 tracing::info!(
                     "DISABLE_NSJAIL: {disable_nsjail}, DISABLE_NUSER: {disable_nuser}, BASE_URL: \
@@ -107,6 +111,7 @@ async fn main() -> anyhow::Result<()> {
                         keep_job_dir,
                     },
                     rx.resubscribe(),
+                    sync_bucket,
                 )
                 .await?;
             }
@@ -160,6 +165,7 @@ pub async fn run_workers(
     sleep_queue: u64,
     worker_config: WorkerConfig,
     rx: tokio::sync::broadcast::Receiver<()>,
+    mut periodic_script: Option<String>,
 ) -> anyhow::Result<()> {
     let instance_name = rd_string(5);
     let monitor = tokio_metrics::TaskMonitor::new();
@@ -180,6 +186,7 @@ pub async fn run_workers(
         let ip = ip.clone();
         let rx = rx.resubscribe();
         let worker_config = worker_config.clone();
+        let wp = periodic_script.take();
         handles.push(tokio::spawn(monitor.instrument(async move {
             tracing::info!(addr = %addr.to_string(), worker = %worker_name, "starting worker");
             windmill_worker::run_worker(
@@ -192,6 +199,7 @@ pub async fn run_workers(
                 &ip,
                 sleep_queue,
                 worker_config,
+                wp,
                 rx,
             )
             .await
