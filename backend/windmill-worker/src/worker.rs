@@ -91,6 +91,14 @@ async fn run_periodic_jobs_initial(bucket: &str) {
         }
         Err(e) => tracing::warn!("Failed to run periodic job. Error: {:?}", e),
     }
+
+    for x in [PIP_CACHE_DIR, DENO_CACHE_DIR, GO_CACHE_DIR] {
+        DirBuilder::new()
+            .recursive(true)
+            .create(x)
+            .await
+            .expect("could not create initial worker dir");
+    }
 }
 
 #[tracing::instrument(level = "trace", skip_all)]
