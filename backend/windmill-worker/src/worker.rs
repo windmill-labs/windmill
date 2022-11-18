@@ -54,10 +54,34 @@ async fn run_periodic_jobs(bucket: &str) {
 
     match Command::new("rclone")
         .arg("bisync")
-        .arg(ROOT_CACHE_DIR)
         .arg(format!(":s3,env_auth=true:{}", bucket))
+        .arg(ROOT_CACHE_DIR)
         .arg("--size-only")
         .arg("--fast-list")
+        .arg("--force")
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .spawn()
+    {
+        Ok(mut h) => {
+            h.wait().await.unwrap();
+        }
+        Err(e) => tracing::warn!("Failed to run periodic job. Error: {:?}", e),
+    }
+}
+
+#[cfg(feature = "enterprise")]
+async fn run_periodic_jobs_initial(bucket: &str) {
+    tracing::info!("Running periodic jobs");
+
+    match Command::new("rclone")
+        .arg("bisync")
+        .arg(format!(":s3,env_auth=true:{}", bucket))
+        .arg(ROOT_CACHE_DIR)
+        .arg("--size-only")
+        .arg("--fast-list")
+        .arg("--force")
+        .arg("--resync")
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .spawn()
@@ -137,7 +161,7 @@ const PIP_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "pip");
 const DENO_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "deno");
 const GO_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "go");
 const NUM_SECS_ENV_CHECK: u64 = 15;
-const NUM_SECS_SYNC: u64 = 60 * 10;
+const NUM_SECS_SYNC: u64 = 60 * 1;
 const DEFAULT_HEAVY_DEPS: [&str; 18] = [
     "numpy",
     "pandas",
@@ -315,6 +339,11 @@ pub async fn run_worker(
     };
     WORKER_STARTED.inc();
 
+    #[cfg(feature = "enterprise")]
+    if let Some(ref s) = sync_bucket.clone() {
+        run_periodic_jobs_initial(&s).await;
+    }
+
     let (same_worker_tx, mut same_worker_rx) = mpsc::channel::<Uuid>(5);
 
     loop {
@@ -339,7 +368,9 @@ pub async fn run_worker(
 
             #[cfg(feature = "enterprise")]
             if last_sync.elapsed().as_secs() > NUM_SECS_SYNC {
-                run_periodic_jobs(&sync_bucket.clone().unwrap()).await;
+                if let Some(ref s) = sync_bucket.clone() {
+                    run_periodic_jobs(&s).await;
+                }
                 last_sync = Instant::now();
             }
 
