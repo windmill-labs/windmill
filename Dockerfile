@@ -85,8 +85,10 @@ RUN apt-get update \
     && apt-get install -y ca-certificates wget curl git jq libprotobuf-dev libnl-route-3-dev unzip \
     && rm -rf /var/lib/apt/lists/*
 
-RUN arch="$(dpkg --print-architecture)"; arch="${arch##*-}"; curl -o rclone.zip "https://downloads.rclone.org/v1.60.1/rclone-v1.60.1-linux-$arch.zip"
-RUN unzip -p rclone.zip rclone > /usr/bin/rclone; rm rclone.zip
+RUN arch="$(dpkg --print-architecture)"; arch="${arch##*-}"; \
+    curl -o rclone.zip "https://downloads.rclone.org/v1.60.1/rclone-v1.60.1-linux-$arch.zip"; \
+    unzip -p rclone.zip rclone-v1.60.1-linux-$arch/rclone > /usr/bin/rclone; rm rclone.zip; \
+    chown root:root /usr/bin/rclone; chmod 755 /usr/bin/rclone
 
 RUN set -eux; \
     arch="$(dpkg --print-architecture)"; arch="${arch##*-}"; \
