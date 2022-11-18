@@ -87,6 +87,7 @@ async fn main() -> anyhow::Result<()> {
                     .ok()
                     .and_then(|x| x.parse::<bool>().ok())
                     .unwrap_or(false);
+                let license_key = std::env::var("LICENSE_KEY").ok();
                 let sync_bucket = std::env::var("S3_CACHE_BUCKET")
                     .ok()
                     .map(|e| Some(e))
@@ -112,6 +113,7 @@ async fn main() -> anyhow::Result<()> {
                     },
                     rx.resubscribe(),
                     sync_bucket,
+                    license_key,
                 )
                 .await?;
             }
@@ -166,7 +168,22 @@ pub async fn run_workers(
     worker_config: WorkerConfig,
     rx: tokio::sync::broadcast::Receiver<()>,
     mut periodic_script: Option<String>,
+    license_key: Option<String>,
 ) -> anyhow::Result<()> {
+    #[cfg(feature = "enterprise")]
+    if let Some(license_key) = license_key {
+        if license_key != "REQUIRED_DEC1" {
+            panic!("Invalid license key");
+        }
+    } else {
+        panic!("License key is required for the enterprise edition");
+    }
+
+    #[cfg(not(feature = "enterprise"))]
+    if license_key.is_some() {
+        panic!("License key is required ONLY for the enterprise edition");
+    }
+
     let instance_name = rd_string(5);
     let monitor = tokio_metrics::TaskMonitor::new();
 

@@ -87,32 +87,16 @@ mount {
 
 
 mount {
-    src: "{JOB_DIR}/requirements.txt"
-    dst: "/user/requirements.txt"
-    is_bind: true
-}
-
-mount {
-    src: "{JOB_DIR}/dependencies"
-    dst: "/out"
-    is_bind: true
-    rw: true
-}
-
-
-mount {
     src: "{WORKER_DIR}/download_deps.py.sh"
     dst: "/download_deps.sh"
     is_bind: true
 }
 
-
 mount {
     src: "{CACHE_DIR}"
-    dst: "/tmp/.cache/pip"
+    dst: "{CACHE_DIR}"
     is_bind: true
     rw: true
-    mandatory: false
 }
 
 exec_bin {
