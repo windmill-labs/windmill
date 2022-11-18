@@ -161,7 +161,7 @@ const PIP_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "pip");
 const DENO_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "deno");
 const GO_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "go");
 const NUM_SECS_ENV_CHECK: u64 = 15;
-const NUM_SECS_SYNC: u64 = 60 * 1;
+const NUM_SECS_SYNC: u64 = 60 * 10;
 const DEFAULT_HEAVY_DEPS: [&str; 18] = [
     "numpy",
     "pandas",
