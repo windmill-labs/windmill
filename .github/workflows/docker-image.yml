@@ -156,6 +156,7 @@ jobs:
 
 
   publish_privately_heavy:
+    needs: [build]
     runs-on: [self-hosted, new]
     if: github.event_name != 'pull_request'
     steps:
