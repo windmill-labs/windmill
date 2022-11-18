@@ -340,6 +340,7 @@ pub async fn run_worker(
             #[cfg(feature = "enterprise")]
             if last_sync.elapsed().as_secs() > NUM_SECS_SYNC {
                 run_periodic_jobs(&sync_bucket.clone().unwrap()).await;
+                last_sync = Instant::now();
             }
 
             let (do_break, next_job) = async {
