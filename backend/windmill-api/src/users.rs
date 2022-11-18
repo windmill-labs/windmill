@@ -18,10 +18,11 @@ use axum::{
     async_trait,
     extract::{Extension, FromRequest, Path, Query, RequestParts},
     http,
+    response::{IntoResponse, Response},
     routing::{delete, get, post},
     Json, Router,
 };
-use hyper::StatusCode;
+use hyper::{header::LOCATION, StatusCode};
 use rand::rngs::OsRng;
 use retainer::Cache;
 use serde::{Deserialize, Serialize};
@@ -628,11 +629,16 @@ async fn list_invites(
     Ok(Json(rows))
 }
 
+#[derive(Deserialize)]
+struct LogoutQuery {
+    rd: Option<String>,
+}
 async fn logout(
     Tokened { token }: Tokened,
     cookies: Cookies,
     Extension(db): Extension<DB>,
-) -> Result<String> {
+    Query(LogoutQuery { rd }): Query<LogoutQuery>,
+) -> Result<Response> {
     let mut cookie = Cookie::new(COOKIE_NAME, "");
     cookie.set_path(COOKIE_PATH);
     cookies.remove(cookie);
@@ -653,8 +659,11 @@ async fn logout(
         .await?;
     }
     tx.commit().await?;
-
-    Ok("logged out successfully".to_string())
+    if let Some(rd) = rd {
+        Ok((StatusCode::TEMPORARY_REDIRECT, [(LOCATION, rd)]).into_response())
+    } else {
+        Ok((StatusCode::OK, "logged out successfully".to_string()).into_response())
+    }
 }
 
 async fn whoami(
