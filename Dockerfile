@@ -62,10 +62,11 @@ COPY ./backend ./
 RUN CARGO_NET_GIT_FETCH_WITH_CLI=true cargo chef prepare --recipe-path recipe.json
 
 FROM rust_base AS builder
+ARG features=""
 
 COPY --from=planner /windmill/recipe.json recipe.json
 
-RUN CARGO_NET_GIT_FETCH_WITH_CLI=true cargo chef cook --release --features enterprise --recipe-path recipe.json
+RUN CARGO_NET_GIT_FETCH_WITH_CLI=true cargo chef cook --release --features "$features" --recipe-path recipe.json
 
 COPY ./openflow.openapi.yaml /openflow.openapi.yaml
 COPY ./backend ./
@@ -73,7 +74,7 @@ COPY ./backend ./
 COPY --from=frontend /frontend /frontend
 COPY .git/ .git/
 
-RUN CARGO_NET_GIT_FETCH_WITH_CLI=true cargo build --release --features enterprise
+RUN CARGO_NET_GIT_FETCH_WITH_CLI=true cargo build --release --features "$features"
 
 
 FROM python:3.11.0-slim-buster
