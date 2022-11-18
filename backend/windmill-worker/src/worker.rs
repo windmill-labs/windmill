@@ -48,11 +48,12 @@ use crate::{
     },
 };
 
+#[cfg(feature = "enterprise")]
 async fn run_periodic_jobs(bucket: &str) {
     tracing::info!("Running periodic jobs");
 
     match Command::new("rclone")
-        .arg("sync")
+        .arg("bisync")
         .arg(ROOT_CACHE_DIR)
         .arg(format!(":s3,env_auth=true:{}", bucket))
         .arg("--size-only")

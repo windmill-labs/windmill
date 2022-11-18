@@ -59,13 +59,13 @@ FROM rust_base AS planner
 COPY ./openflow.openapi.yaml /openflow.openapi.yaml
 COPY ./backend ./
 
-RUN CARGO_NET_GIT_FETCH_WITH_CLI=true cargo chef prepare  --recipe-path recipe.json
+RUN CARGO_NET_GIT_FETCH_WITH_CLI=true cargo chef prepare --recipe-path recipe.json
 
 FROM rust_base AS builder
 
 COPY --from=planner /windmill/recipe.json recipe.json
 
-RUN CARGO_NET_GIT_FETCH_WITH_CLI=true cargo chef cook --release --recipe-path recipe.json
+RUN CARGO_NET_GIT_FETCH_WITH_CLI=true cargo chef cook --release --features enterprise --recipe-path recipe.json
 
 COPY ./openflow.openapi.yaml /openflow.openapi.yaml
 COPY ./backend ./
@@ -73,7 +73,7 @@ COPY ./backend ./
 COPY --from=frontend /frontend /frontend
 COPY .git/ .git/
 
-RUN CARGO_NET_GIT_FETCH_WITH_CLI=true cargo build --release
+RUN CARGO_NET_GIT_FETCH_WITH_CLI=true cargo build --release --features enterprise
 
 
 FROM python:3.11.0-slim-buster
@@ -81,7 +81,7 @@ FROM python:3.11.0-slim-buster
 ARG APP=/usr/src/app
 
 RUN apt-get update \
-    && apt-get install -y ca-certificates wget curl git jq libprotobuf-dev libnl-route-3-dev \
+    && apt-get install -y ca-certificates wget curl git jq libprotobuf-dev libnl-route-3-dev rclone \
     && rm -rf /var/lib/apt/lists/*
 
 RUN set -eux; \

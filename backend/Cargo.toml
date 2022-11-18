@@ -27,6 +27,9 @@ edition = "2021"
 name = "windmill"
 path = "./src/main.rs"
 
+[features]
+enterprise = ["windmill-worker/enterprise"]
+
 [dependencies]
 anyhow.workspace = true
 tokio.workspace = true
@@ -135,11 +138,4 @@ tokio-metrics = "0.1.0"
 lazy_static = "1.4.0"
 serde_derive = "1.0.147"
 tokio-stream = "0.1"
-const_format = { version = "0.2", features = [
-    "rust_1_64",
-    "rust_1_51",
-    "assertcp",
-    "assertc",
-    "derive",
-    "fmt",
-] }
+const_format = { version = "0.2", features = ["rust_1_64", "rust_1_51"] }
