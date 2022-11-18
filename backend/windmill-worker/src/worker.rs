@@ -2443,7 +2443,6 @@ async fn handle_python_reqs(
         // todo: handle many reqs
         let venv_p = format!("{PIP_CACHE_DIR}/{req}");
         if metadata(&venv_p).await.is_ok() {
-            tracing::info!("already exists: {:?}", &venv_p);
             req_paths.push(venv_p);
             continue;
         }
@@ -2494,7 +2493,6 @@ async fn handle_python_reqs(
                 .spawn()?
         };
 
-        logs.push_str("\n--- PIP DEPENDENCIES INSTALL ---\n");
         let child = handle_child(&job.id, db, logs, timeout, child).await;
         tracing::info!(
             worker_name = %worker_name,
