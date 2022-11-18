@@ -127,7 +127,6 @@ jobs:
 
   publish_privately_heavy:
     runs-on: [self-hosted, new]
-    needs: [build]
     if: github.event_name != 'pull_request'
     steps:
       - uses: actions/checkout@v3
@@ -164,12 +163,14 @@ jobs:
         with:
           context: .
           push: true
-          file: ./docker/DockerfileHeavy
+          file: ./Dockerfile
+          build-args: |
+            features=enterprise
           tags: |
             ${{ steps.meta-heavy.outputs.tags }}
           labels: ${{ steps.meta-heavy.outputs.labels }}
-          cache-from: type=registry,ref=${{ env.LOCAL_REGISTRY }}/${{ env.IMAGE_NAME }}:buildcache
-          cache-to: type=registry,ref=${{ env.LOCAL_REGISTRY }}/${{ env.IMAGE_NAME }}:buildcache,mode=max
+          cache-from: type=registry,ref=${{ env.LOCAL_REGISTRY }}/${{ env.IMAGE_NAME }}-ee:buildcache
+          cache-to: type=registry,ref=${{ env.LOCAL_REGISTRY }}/${{ env.IMAGE_NAME }}-ee:buildcache,mode=max
 
   publish_privately_helm:
     runs-on: [self-hosted, new]
@@ -200,5 +201,5 @@ jobs:
           file: ./docker/DockerfileHelm
           tags: |
             ${{ env.ECR_REGISTRY }}/${{ env.IMAGE_NAME }}:helm
-          cache-from: type=registry,ref=${{ env.LOCAL_REGISTRY }}/${{ env.IMAGE_NAME }}:buildcache
-          cache-to: type=registry,ref=${{ env.LOCAL_REGISTRY }}/${{ env.IMAGE_NAME }}:buildcache,mode=max
+          cache-from: type=registry,ref=${{ env.LOCAL_REGISTRY }}/${{ env.IMAGE_NAME }}-helm:buildcache
+          cache-to: type=registry,ref=${{ env.LOCAL_REGISTRY }}/${{ env.IMAGE_NAME }}-helm:buildcache,mode=max
