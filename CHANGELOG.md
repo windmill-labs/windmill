@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [1.48.1](https://github.com/windmill-labs/windmill/compare/v1.48.0...v1.48.1) (2022-11-19)
+
+
+### Bug Fixes
+
+* **python-client:** get_state on empty state return None ([968675d](https://github.com/windmill-labs/windmill/commit/968675d8d068b19413a8bca7d4cb80179646c114))
+
 ## [1.48.0](https://github.com/windmill-labs/windmill/compare/v1.47.3...v1.48.0) (2022-11-18)
 
 
