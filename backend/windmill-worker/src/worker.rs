@@ -1871,7 +1871,7 @@ async fn pip_compile(
     logs.push_str(&format!("\ncontent of requirements:\n{}", requirements));
     let file = "requirements.in";
     write_file(job_dir, file, &requirements).await?;
-    let mut args = vec!["-q", "--no-header", file];
+    let mut args = vec!["-q", "--no-header", file, "--resolver=backtracking"];
     if let Some(url) = pip_extra_index_url {
         args.extend(["--extra-index-url", url]);
     }
