@@ -72,7 +72,7 @@
 							>
 								{#if `app` in obj}
 									<div class="mr-2 text-sm text-left truncate w-24">
-										<IconedResourceType silent={true} name={obj['app']} />
+										<IconedResourceType after={true} silent={false} name={obj['app']} />
 									</div>
 								{/if}
 								{#if `resource_type` in obj}
