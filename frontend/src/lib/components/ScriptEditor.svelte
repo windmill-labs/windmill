@@ -122,7 +122,7 @@
 
 		<Button
 			target="_blank"
-			href="https://github.com/windmill-labs/windmill-gh-action-deploy"
+			href="https://github.com/windmill-labs/windmill/tree/main/cli"
 			color="light"
 			size="sm"
 			btnClasses="mr-1 hidden md:block"
