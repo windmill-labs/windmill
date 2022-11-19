@@ -3,7 +3,7 @@
 	import { CompletedJob, Job, JobService } from '$lib/gen'
 	import { userStore, workspaceStore } from '$lib/stores'
 	import { emptySchema, scriptLangToEditorLang } from '$lib/utils'
-	import { faPlay, faRotateRight } from '@fortawesome/free-solid-svg-icons'
+	import { faPlay } from '@fortawesome/free-solid-svg-icons'
 	import Editor from './Editor.svelte'
 	import { inferArgs } from '$lib/infer'
 	import type { Preview } from '$lib/gen/models/Preview'

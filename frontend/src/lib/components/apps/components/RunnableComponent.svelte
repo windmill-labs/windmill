@@ -1,14 +1,11 @@
 <script lang="ts">
 	import { page } from '$app/stores'
 	import type { Schema } from '$lib/common'
-	import { Button } from '$lib/components/common'
 	import SchemaForm from '$lib/components/SchemaForm.svelte'
 	import TestJobLoader from '$lib/components/TestJobLoader.svelte'
 	import { AppService, type CompletedJob } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
-	import { faArrowsRotate, faFile } from '@fortawesome/free-solid-svg-icons'
 	import { getContext } from 'svelte'
-	import Icon from 'svelte-awesome'
 	import type { Output } from '../rx'
 	import type { AppEditorContext, InputsSpec } from '../types'
 	import { buildArgs, loadSchema, schemaToInputsSpec } from '../utils'
@@ -19,8 +16,7 @@
 	export let path: string | undefined = undefined
 	export let runType: 'script' | 'flow' | undefined = undefined
 	export let inlineScriptName: string | undefined = undefined
-
-	export const staticOutputs = ['loading', 'result']
+	export let extraQueryParams: Record<string, any> = {}
 
 	const { worldStore, app } = getContext<AppEditorContext>('AppEditorContext')
 	let pagePath = $page.params.path
@@ -91,7 +87,10 @@
 	async function executeComponent() {
 		await testJobLoader?.abstractRun(() => {
 			const requestBody = {
-				args,
+				args: {
+					...args,
+					...extraQueryParams
+				},
 				force_viewer_static_fields: {}
 			}
 
@@ -114,6 +113,8 @@
 
 		outputs?.loading.set(true)
 	}
+
+	$: args && executeComponent()
 </script>
 
 <TestJobLoader
@@ -130,19 +131,6 @@
 
 {#if schemaClone !== undefined}
 	<SchemaForm schema={schemaClone} bind:args bind:isValid {disabledArgs} />
-	<Button
-		size="xs"
-		color="dark"
-		variant="border"
-		on:click={() => executeComponent()}
-		startIcon={{ icon: faFile }}
-		disabled={!isValid}
-	>
-		<div>
-			Submit
-			{#if testIsLoading}
-				<Icon data={faArrowsRotate} class="animate-spin ml-2" scale={0.8} />
-			{/if}
-		</div>
-	</Button>
 {/if}
+
+<slot />

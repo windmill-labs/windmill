@@ -132,5 +132,9 @@ export const displayData = {
 	barchartcomponent: {
 		name: 'Bar chart',
 		icon: faBarChart
+	},
+	tablecomponent: {
+		name: 'Table',
+		icon: faBarChart
 	}
 }

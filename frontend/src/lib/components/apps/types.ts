@@ -1,4 +1,5 @@
 import type { Schema, SchemaProperty } from '$lib/common'
+import type { Preview } from '$lib/gen'
 import type { FilledItem } from 'svelte-grid'
 import type { Writable } from 'svelte/store'
 import type { World } from './rx'
@@ -40,26 +41,22 @@ export type TextInputComponent = {
 	type: 'textinputcomponent'
 }
 
-export type RunFormComponent = {
-	type: 'runformcomponent'
+type Runnable = {
+	inlineScriptName?: string
 	path?: string
 	runType?: 'script' | 'flow'
 }
 
-export type BarChartComponent = {
-	type: 'barchartcomponent'
-	inputs: {}
+export type RunFormComponent = Runnable & {
+	type: 'runformcomponent'
 }
 
-export type TableComponent = {
+export type BarChartComponent = {
+	type: 'barchartcomponent'
+}
+
+export type TableComponent = Runnable & {
 	type: 'tablecomponent'
-	inputs: {}
-	path: string
-	runType: 'script' | 'flow'
-	title: string
-	description: string | undefined
-	headers: string[]
-	data: Array<Record<string, any>>
 }
 
 export type DisplayComponent = {
@@ -74,6 +71,7 @@ export type AppComponent =
 			| BarChartComponent
 			| TableComponent
 			| TextComponent
+			| TableComponent
 	  ) & {
 			id: ComponentID
 			width: number
@@ -83,6 +81,9 @@ export type AppComponent =
 			inputs: InputsSpec
 			// Only dynamic inputs (Result of display)
 			componentInputs: ComponentInputsSpec
+			runnable?: boolean | undefined
+
+			// TODO: add min/max width/height
 	  }
 
 type SectionID = string
@@ -99,6 +100,10 @@ export type GridItem = FilledItem<{
 
 export type App = {
 	grid: GridItem[]
+	inlineScripts: Record<
+		string,
+		{ content: string; language: Preview.language; path: string; schema: Schema }
+	>
 	title: string
 }
 
@@ -118,7 +123,7 @@ export type AppEditorContext = {
 	resizing: Writable<boolean>
 }
 
-export type EditorMode = 'width' | 'dnd' | 'preview'
+export type EditorMode = 'dnd' | 'preview'
 
 type FieldID = string
 

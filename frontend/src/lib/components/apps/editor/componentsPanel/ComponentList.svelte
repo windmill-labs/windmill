@@ -13,7 +13,7 @@
 
 	const COLS = 6
 
-	function add(
+	function addComponent(
 		appComponent: AppComponent,
 		defaultDimensions: Size,
 		minDimensions: Size = { w: 1, h: 1 },
@@ -63,7 +63,7 @@
 			<!-- svelte-ignore a11y-click-events-have-key-events -->
 			<div
 				class="border shadow-sm h-20 p-2 flex flex-col gap-2 items-center justify-center bg-white rounded-md scale-100 hover:scale-105 ease-in duration-75"
-				on:click={() => add(item, { w: 2, h: 2 })}
+				on:click={() => addComponent(item, { w: 2, h: 2 })}
 			>
 				<Icon data={displayData[item.type].icon} scale={1.6} class="text-blue-800" />
 				<div class="text-xs">{displayData[item.type].name}</div>

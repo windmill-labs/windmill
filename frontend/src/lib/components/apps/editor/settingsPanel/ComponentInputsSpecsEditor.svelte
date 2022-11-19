@@ -11,13 +11,13 @@
 </script>
 
 <div class="w-full flex flex-col gap-4">
-	{#each Object.keys(componentInputSpecs) as inputSpecKey}
-		<!-- svelte-ignore a11y-click-events-have-key-events -->
+	{#each Object.keys(componentInputSpecs) as inputSpecKey, index (index)}
 		<div
 			class={classNames(
 				'w-full text-xs font-bold  border rounded-md py-1 px-2 cursor-pointer hover:bg-gray-800 hover:text-white transition-all',
 				openedProp !== inputSpecKey ? 'bg-gray-200 ' : 'bg-gray-600 text-gray-300'
 			)}
+			on:keypress
 			on:click={() => {
 				openedProp = inputSpecKey
 			}}

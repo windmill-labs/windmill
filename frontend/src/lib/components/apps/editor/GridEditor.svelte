@@ -11,21 +11,21 @@
 
 	$: if ($mode === 'preview') {
 		$app.grid.map((c) => {
-			c[6].customDragger = true
-			c[6].customResizer = true
+			c[COLS].customDragger = true
+			c[COLS].customResizer = true
 			return c
 		})
 	} else {
 		$app.grid.map((c) => {
-			c[6].customDragger = false
-			c[6].customResizer = false
+			c[COLS].customDragger = false
+			c[COLS].customResizer = false
 			return c
 		})
 	}
 </script>
 
 <div class="bg-white">
-	<Grid bind:items={$app.grid} rowHeight={100} let:dataItem {cols}>
+	<Grid bind:items={$app.grid} rowHeight={64} let:dataItem {cols}>
 		{@const index = $app.grid.findIndex((c) => c.data.id === dataItem.data.id)}
 		<!-- svelte-ignore a11y-click-events-have-key-events -->
 		<div

@@ -13,7 +13,7 @@
 	export const staticOutputs: string[] = []
 </script>
 
-{#if $worldStore && componentInputs?.content.type === 'static'}
+{#if $worldStore && componentInputs?.content?.type === 'static'}
 	<div class="prose">
 		<AlignWrapper {horizontalAlignement} {verticalAlignement}>
 			<SvelteMarkdown source={componentInputs?.content?.value} />

@@ -91,6 +91,30 @@ const chartComponents = {
 	] as AppComponent[]
 }
 
-const componentSets = [windmillComponents, plainComponents, chartComponents]
+const tableComponents = {
+	title: 'Table',
+	components: [
+		{
+			...defaultProps,
+			id: 'tablecomponent',
+			type: 'tablecomponent',
+			componentInputs: {
+				searchEnabled: {
+					type: 'static',
+					value: false,
+					fieldType: 'boolean'
+				},
+				paginationEnabled: {
+					type: 'static',
+					value: false,
+					fieldType: 'boolean'
+				}
+			},
+			runnable: true
+		}
+	] as AppComponent[]
+}
+
+const componentSets = [windmillComponents, plainComponents, chartComponents, tableComponents]
 
 export { componentSets }
