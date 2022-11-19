@@ -53,7 +53,24 @@ pub fn get_reserved_variables(
     flow_id: Option<String>,
     flow_path: Option<String>,
     schedule_path: Option<String>,
-) -> [ContextualVariable; 11] {
+) -> [ContextualVariable; 12] {
+    let state_path = {
+        let flow_path = flow_path
+            .clone()
+            .unwrap_or_else(|| "NO_FLOW_PATH".to_string());
+        let script_path = path.clone().unwrap_or_else(|| "NO_JOB_PATH".to_string());
+        let schedule_path = schedule_path
+            .clone()
+            .map(|x| format!("/{x}"))
+            .unwrap_or_else(String::new);
+
+        let script_path = if script_path.ends_with("/") {
+            "NO_NAME".to_string()
+        } else {
+            script_path
+        };
+        format!("{permissioned_as}/{flow_path}/{script_path}{schedule_path}")
+    };
     [
         ContextualVariable {
             name: "WM_WORKSPACE".to_string(),
@@ -113,6 +130,11 @@ pub fn get_reserved_variables(
             name: "WM_PERMISSIONED_AS".to_string(),
             value: permissioned_as.to_string(),
             description: "Fully Qualified (u/g) owner name of executor of the job".to_string(),
+        },
+        ContextualVariable {
+            name: "WM_STATE_PATH".to_string(),
+            value: state_path,
+            description: "State resource path unique to a script and its trigger".to_string(),
         },
     ]
 }

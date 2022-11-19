@@ -54,18 +54,11 @@ export async function getResource(path?: string, undefinedIfEmpty?: boolean): Pr
 }
 
 export function getStatePath(): string {
-    const env_flow_path = Deno.env.get("WM_FLOW_PATH")
-    const env_job_path = Deno.env.get("WM_JOB_PATH")
-    const permissioned_as = Deno.env.get("WM_PERMISSIONED_AS")
-    const flow_path = env_flow_path != undefined && env_flow_path != "" ? env_flow_path : 'NO_FLOW_PATH'
-    const script_path = env_job_path != undefined && env_job_path != "" ? env_job_path : 'NO_JOB_PATH'
-    const env_schedule_path = Deno.env.get("WM_SCHEDULE_PATH")
-    const schedule_path = env_schedule_path != undefined && env_schedule_path != "" ? `/${env_schedule_path}` : ''
-
-    if (script_path.slice(script_path.length - 1) === '/') {
-        throw Error(`The script path must not end with '/', give a name to your script!`)
+    const state_path = Deno.env.get("WM_STATE_PATH")
+    if (state_path === undefined) {
+        throw Error("State path not set")
     }
-    return `${permissioned_as}/${flow_path}/${script_path}${schedule_path}`
+    return state_path
 }
 
 /**
