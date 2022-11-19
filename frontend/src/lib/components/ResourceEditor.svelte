@@ -14,6 +14,7 @@
 	import ResourceTypePicker from './ResourceTypePicker.svelte'
 	import DrawerContent from './common/drawer/DrawerContent.svelte'
 	import autosize from 'svelte-autosize'
+	import SimpleEditor from './SimpleEditor.svelte'
 
 	let path = ''
 	let initialPath = ''
@@ -37,6 +38,8 @@
 	let variableEditor: VariableEditor
 	let drawer: Drawer
 
+	let rawCode: string | undefined = undefined
+
 	const dispatch = createEventDispatcher()
 
 	export async function initNew(rt?: string) {
@@ -58,8 +61,8 @@
 		resourceToEdit = await ResourceService.getResource({ workspace: $workspaceStore!, path: p })
 		description = resourceToEdit!.description ?? ''
 		selectedResourceType = resourceToEdit!.resource_type
-		await loadResourceType()
 		args = resourceToEdit!.value
+		await loadResourceType()
 		drawer.openDrawer()
 	}
 
@@ -77,6 +80,14 @@
 	async function editResource(): Promise<void> {
 		try {
 			if (resourceToEdit) {
+				if (rawCode != undefined) {
+					try {
+						args = JSON.parse(rawCode)
+					} catch (e) {
+						sendUserToast("Couldn't parse the content as JSON", true)
+						return
+					}
+				}
 				await ResourceService.updateResource({
 					workspace: $workspaceStore!,
 					path: resourceToEdit.path,
@@ -95,13 +106,18 @@
 
 	async function loadResourceType(): Promise<void> {
 		if (selectedResourceType) {
-			resourceType = await ResourceService.getResourceType({
-				workspace: $workspaceStore!,
-				path: selectedResourceType
-			})
+			try {
+				resourceType = await ResourceService.getResourceType({
+					workspace: $workspaceStore!,
+					path: selectedResourceType
+				})
 
-			if (resourceType.schema) {
-				resourceSchema = resourceType.schema as Schema
+				if (resourceType.schema) {
+					resourceSchema = resourceType.schema as Schema
+				}
+			} catch (err) {
+				resourceSchema = undefined
+				rawCode = JSON.stringify(args, null, 2)
 			}
 		} else {
 			sendUserToast(`ResourceType cannot be undefined.`, true)
@@ -194,7 +210,9 @@
 							</div>
 						{/each}
 					{:else}
-						<div>Invalid schema</div>
+						<div class="h-full w-full">
+							<SimpleEditor class="editor" lang="json" bind:code={rawCode} />
+						</div>
 					{/if}
 				</div>
 			{/if}

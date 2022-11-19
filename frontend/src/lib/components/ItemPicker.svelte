@@ -3,7 +3,6 @@
 	import { Drawer, Skeleton } from './common'
 	import DrawerContent from './common/drawer/DrawerContent.svelte'
 	import IconedResourceType from './IconedResourceType.svelte'
-	import WindmillIcon from './icons/WindmillIcon.svelte'
 
 	type Item = Record<string, any>
 	export let pickCallback: (path: string, f: string) => void
@@ -12,6 +11,7 @@
 	export let itemName: string
 	export let closeOnClick = true
 	export let noItemMessage = ''
+	export let buttons: Record<string, (x: string) => void> = {}
 
 	let loading = false
 	let items: Item[] | undefined = []
@@ -60,25 +60,55 @@
 			{:else if filteredItems}
 				<ul class="divide-y divide-gray-200">
 					{#each filteredItems as obj}
-						<li
-							class="py-4 px-1 gap-1 flex flex-col hover:bg-white hover:border text-black cursor-pointer"
-							on:click={() => {
-								if (closeOnClick) {
-									drawer.closeDrawer()
-								}
-								pickCallback(obj['path'], obj[extraField])
-							}}
-						>
-							<p class="text-sm font-semibold flex flex-row">
+						<li class="flex flex-row w-full">
+							<button
+								class="py-4 px-1 gap-1 flex flex-row grow hover:bg-white hover:border text-black"
+								on:click={() => {
+									if (closeOnClick) {
+										drawer.closeDrawer()
+									}
+									pickCallback(obj['path'], obj[extraField])
+								}}
+							>
 								{#if `app` in obj}
-									<IconedResourceType silent={true} name={obj['app']} />
-									<span class="mr-2" />
+									<div class="mr-2 text-sm text-left truncate w-24">
+										<IconedResourceType silent={true} name={obj['app']} />
+									</div>
 								{/if}
-								<span class="mr-2">{obj[extraField]}</span><span class="font-normal break-words"
-									>{obj['path'] ?? ''}</span
-								>
-							</p>
-							<p class="text-xs italic">{obj['description'] ?? ''}</p>
+								{#if `resource_type` in obj}
+									<div class="mr-2 truncate text-left w-24 text-sm">
+										<IconedResourceType after={true} name={obj['resource_type']} />
+									</div>
+								{/if}
+								<div class="flex flex-col">
+									<div class="text-sm font-semibold flex flex-col">
+										<span class="mr-2 text-left">{obj[extraField] ?? ''}</span>
+										{#if extraField != 'path'}
+											<span class="font-normal text-xs text-left italic overflow-hidden"
+												>{obj['path'] ?? ''}</span
+											>
+										{/if}
+									</div>
+									{#if extraField != 'description'}
+										<div class="text-xs font-light italic text-left">{obj['description'] ?? ''}</div
+										>
+									{/if}
+								</div>
+							</button>
+							{#if buttons}
+								<div class="flex flex-row">
+									{#each Object.entries(buttons) as [name, button]}
+										<button
+											class="py-4 px-1 gap-1 flex flex-row grow hover:bg-white hover:border text-black"
+											on:click={() => {
+												button(obj['path'] ?? '')
+											}}
+										>
+											{name}
+										</button>
+									{/each}
+								</div>
+							{/if}
 						</li>
 					{/each}
 				</ul>
@@ -86,7 +116,7 @@
 				<span class="mt-2 text-sm text-red-400">{noItemMessage}</span>
 			{/if}
 		</div>
-		<span slot="submission">
+		<span slot="submission" class="mr-2">
 			<slot name="submission" />
 		</span>
 	</DrawerContent>
