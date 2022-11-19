@@ -54,9 +54,7 @@
 	$: editor && addEditorActions()
 
 	async function loadVariables() {
-		return (await VariableService.listVariable({ workspace: $workspaceStore ?? '' })).map((x) => {
-			return { name: x.path, ...x }
-		})
+		return await VariableService.listVariable({ workspace: $workspaceStore ?? '' })
 	}
 
 	async function loadContextualVariables() {
@@ -147,13 +145,10 @@
 		sendUserToast(`${name} inserted at cursor`)
 	}}
 	itemName="Variable"
-	extraField="name"
+	extraField="path"
 	loadItems={loadVariables}
 >
 	<div slot="submission" class="flex flex-row">
-		<div class="text-xs mr-2 align-middle">
-			The variable you were looking for does not exist yet?
-		</div>
 		<Button
 			variant="border"
 			color="blue"
@@ -193,7 +188,8 @@
 		sendUserToast(`${path} inserted at cursor`)
 	}}
 	itemName="Resource"
-	extraField="resource_type"
+	buttons={{ edit: (x) => resourceEditor.initEdit(x) }}
+	extraField="description"
 	loadItems={async () =>
 		await ResourceService.listResource({ workspace: $workspaceStore ?? 'NO_W' })}
 >

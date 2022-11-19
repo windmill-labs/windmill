@@ -3,8 +3,10 @@ import type { Script } from "./gen"
 export const PYTHON_INIT_CODE = `import os
 import wmill
 
+# You can import any package from PyPI, even if the assistant complains
+
 """
-Use Cmd/Ctrl + S to autoformat the code.
+Use Cmd/Ctrl + S to autoformat the code. Reset content in the bar to start from a clean template.
 The client is used to interact with windmill itself through its standard API.
 One can explore the methods available through autocompletion of \`wmill.XXX\`.
 """
