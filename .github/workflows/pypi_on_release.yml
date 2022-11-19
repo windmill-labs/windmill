@@ -28,6 +28,9 @@ jobs:
     needs: [publish_pypi]
     runs-on: [self-hosted, new]
     steps:
+      - name: Sleep for 30 seconds waiting for pypi to update index
+        run: sleep 30s
+        shell: bash
       - uses: actions/checkout@v3
         with:
           fetch-depth: 0
