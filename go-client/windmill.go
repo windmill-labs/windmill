@@ -2,16 +2,13 @@ package windmill
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
 
 	api "github.com/windmill-labs/windmill-go-client/api"
 )
-
-func hello_world() {
-	fmt.Println("Windmill")
-}
 
 type ClientWithWorkspace struct {
 	Client    *api.ClientWithResponses
@@ -47,6 +44,9 @@ func GetVariable(path string) (string, error) {
 	res, err := client.Client.GetVariableWithResponse(context.Background(), client.Workspace, path, &api.GetVariableParams{
 		DecryptSecret: newBool(true),
 	})
+	if res.StatusCode()/100 != 2 {
+		return "", errors.New(string(res.Body))
+	}
 	if err != nil {
 		return "", err
 	}
@@ -59,8 +59,68 @@ func GetResource(path string) (interface{}, error) {
 		return nil, err
 	}
 	res, err := client.Client.GetResourceWithResponse(context.Background(), client.Workspace, path)
+	if res.StatusCode()/100 != 2 {
+		return nil, errors.New(string(res.Body))
+	}
 	if err != nil {
 		return nil, err
 	}
 	return *res.JSON200.Value, nil
+}
+
+func SetResource(path string, value interface{}) error {
+	client, err := GetClient()
+	if err != nil {
+		return err
+	}
+	res, err := client.Client.UpdateResourceWithResponse(context.Background(), client.Workspace, path, api.EditResource{Value: &value})
+	if err != nil {
+		return err
+	}
+	if res.StatusCode()/100 != 2 {
+		return errors.New(string(res.Body))
+	}
+	return nil
+}
+
+func SetVariable(path string, value string) error {
+	client, err := GetClient()
+	if err != nil {
+		return err
+	}
+	res, err := client.Client.UpdateVariableWithResponse(context.Background(), client.Workspace, path, api.EditVariable{Value: &value})
+	if err != nil {
+		return err
+	}
+	if res.StatusCode()/100 != 2 {
+		return errors.New(string(res.Body))
+	}
+	return nil
+}
+
+func GetStatePath() string {
+	return os.Getenv("WM_STATE_PATH")
+}
+
+func GetState() (interface{}, error) {
+	return GetResource(GetStatePath())
+}
+
+func SetState(state interface{}) error {
+	err := SetResource(GetStatePath(), state)
+	if err != nil {
+		client, err := GetClient()
+		if err != nil {
+			return err
+		}
+		res, err := client.Client.CreateResourceWithResponse(context.Background(), client.Workspace, api.CreateResource{Value: &state})
+		if err != nil {
+			return err
+		}
+		if res.StatusCode()/100 != 2 {
+			return errors.New(string(res.Body))
+		}
+		return nil
+	}
+	return nil
 }
