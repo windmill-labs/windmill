@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [1.48.2](https://github.com/windmill-labs/windmill/compare/v1.48.1...v1.48.2) (2022-11-19)
+
+
+### Bug Fixes
+
+* **go-client:** support setVariable, setResource, setState, getState ([e33bd1e](https://github.com/windmill-labs/windmill/commit/e33bd1e6b25bb9e3a3fe6f2c93d8c686c200b253))
+
 ## [1.48.1](https://github.com/windmill-labs/windmill/compare/v1.48.0...v1.48.1) (2022-11-19)
 
 
