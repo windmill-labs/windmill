@@ -86,16 +86,10 @@
 		<div class="flex flex-row flex-wrap justify-between gap-4 mb-6">
 			<div class="w-full">
 				<div class="flex flex-col mt-6 mb-2 w-full">
-					<div class="flex flex-row flex-wrap w-full justify-between "
-						><div class="flex flex-col">
-							<h1 class="break-words py-2 mr-2">
-								{defaultIfEmptyString(flow.summary, flow.path)}
-							</h1>
-							{#if !emptyString(flow.summary)}
-								<h2 class="font-bold pb-4">{flow.path}</h2>
-							{/if}
-						</div>
-						<div class="flex-row hidden lg:flex">
+					<div
+						class="flex flex-row-reverse w-full flex-wrap md:flex-nowrap justify-between gap-x-1"
+					>
+						<div class="flex flex-row">
 							<div>
 								<Button
 									startIcon={{ icon: faScroll }}
@@ -104,12 +98,22 @@
 									variant="border"
 									href="/flows/get/{flow?.path}">View flow</Button
 								>
+							</div>
+							<div>
 								<Button
 									startIcon={{ icon: faPlay }}
 									disabled={runForm == undefined || !isValid}
 									on:click={() => runForm?.run()}>Run (Ctrl+Enter)</Button
 								>
 							</div>
+						</div>
+						<div class="flex flex-col">
+							<h1 class="break-words py-2 mr-2">
+								{defaultIfEmptyString(flow.summary, flow.path)}
+							</h1>
+							{#if !emptyString(flow.summary)}
+								<h2 class="font-bold pb-4">{flow.path}</h2>
+							{/if}
 						</div></div
 					>
 					<div class="flex items-center gap-2">
