@@ -53,13 +53,11 @@ async fn run_periodic_jobs(bucket: &str) {
     tracing::info!("Running periodic jobs");
 
     match Command::new("rclone")
-        .arg("bisync")
+        .arg("copy")
         .arg(format!(":s3,env_auth=true:{}", bucket))
         .arg(ROOT_CACHE_DIR)
         .arg("--size-only")
         .arg("--fast-list")
-        .arg("--force")
-        .arg("--resync")
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .spawn()
@@ -67,7 +65,23 @@ async fn run_periodic_jobs(bucket: &str) {
         Ok(mut h) => {
             h.wait().await.unwrap();
         }
-        Err(e) => tracing::warn!("Failed to run periodic job. Error: {:?}", e),
+        Err(e) => tracing::warn!("Failed to run periodic job pull. Error: {:?}", e),
+    }
+
+    match Command::new("rclone")
+        .arg("copy")
+        .arg(ROOT_CACHE_DIR)
+        .arg(format!(":s3,env_auth=true:{}", bucket))
+        .arg("--size-only")
+        .arg("--fast-list")
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .spawn()
+    {
+        Ok(mut h) => {
+            h.wait().await.unwrap();
+        }
+        Err(e) => tracing::warn!("Failed to run periodic job push. Error: {:?}", e),
     }
 }
 
