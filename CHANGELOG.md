@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [1.49.1](https://github.com/windmill-labs/windmill/compare/v1.49.0...v1.49.1) (2022-11-20)
+
+
+### Bug Fixes
+
+* **caching:** add a second caching mechanism by tarring the entire cache for fast startup ([230bb2e](https://github.com/windmill-labs/windmill/commit/230bb2ec6b105508fb50b0a77780990bcb38b4fd))
+
 ## [1.49.0](https://github.com/windmill-labs/windmill/compare/v1.48.2...v1.49.0) (2022-11-20)
 
 
