@@ -13,6 +13,7 @@ use sqlx::{Pool, Postgres, Transaction};
 use std::{borrow::Borrow, collections::HashMap, io, panic, process::Stdio, time::Duration};
 use tracing::{trace_span, Instrument};
 use uuid::Uuid;
+
 use windmill_common::{
     error::{self, to_anyhow, Error},
     flows::{FlowModuleValue, FlowValue},
@@ -50,16 +51,24 @@ use crate::{
 };
 
 #[cfg(feature = "enterprise")]
+use rand::Rng;
+
+#[cfg(feature = "enterprise")]
+const TAR_CACHE_FILENAME: &str = "entirecache.tar";
+
+#[cfg(feature = "enterprise")]
 async fn copy_cache_from_bucket(bucket: &str) {
     tracing::info!("Copying cache from bucket {bucket}");
     let elapsed = Instant::now();
 
     match Command::new("rclone")
         .arg("copy")
-        .arg(format!(":s3,env_auth=true:{}", bucket))
+        .arg(format!(":s3,env_auth=true:{bucket}"))
         .arg(ROOT_CACHE_DIR)
         .arg("--size-only")
         .arg("--fast-list")
+        .arg("--exclude")
+        .arg(format!("\"{TAR_CACHE_FILENAME}\""))
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .spawn()
@@ -90,9 +99,11 @@ async fn copy_cache_to_bucket(bucket: &str) {
     match Command::new("rclone")
         .arg("copy")
         .arg(ROOT_CACHE_DIR)
-        .arg(format!(":s3,env_auth=true:{}", bucket))
+        .arg(format!(":s3,env_auth=true:{bucket}"))
         .arg("--size-only")
         .arg("--fast-list")
+        .arg("--exclude")
+        .arg(format!("\"{TAR_CACHE_FILENAME}\""))
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .spawn()
@@ -106,6 +117,107 @@ async fn copy_cache_to_bucket(bucket: &str) {
         "Finished copying cache to bucket {bucket}, took: {:?}s",
         elapsed.elapsed().as_secs()
     );
+}
+
+#[cfg(feature = "enterprise")]
+async fn copy_cache_to_bucket_as_tar(bucket: &str) {
+    tracing::info!("Copying cache to bucket {bucket} as tar");
+    let elapsed = Instant::now();
+
+    match Command::new("tar")
+        .arg("-c")
+        .arg("-f")
+        .arg(format!("{ROOT_CACHE_DIR}/{TAR_CACHE_FILENAME}"))
+        .args(&[PIP_CACHE_DIR, DENO_CACHE_DIR, GO_CACHE_DIR])
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .spawn()
+    {
+        Ok(mut h) => {
+            if !h.wait().await.unwrap().success() {
+                tracing::warn!("Failed to tar cache");
+                return;
+            }
+        }
+        Err(e) => {
+            tracing::warn!("Failed tar cache. Error: {e:?}");
+            return;
+        }
+    }
+
+    match Command::new("rclone")
+        .arg("copyto")
+        .arg(ROOT_CACHE_DIR)
+        .arg(format!(":s3,env_auth=true:{bucket}/{TAR_CACHE_FILENAME}"))
+        .arg("--size-only")
+        .arg("--fast-list")
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .spawn()
+    {
+        Ok(mut h) => {
+            h.wait().await.unwrap();
+        }
+        Err(e) => tracing::warn!("Failed to copying tar cache to bucket. Error: {:?}", e),
+    }
+    tracing::info!(
+        "Finished copying cache to bucket {bucket} as tar, took: {:?}s",
+        elapsed.elapsed().as_secs()
+    );
+}
+
+#[cfg(feature = "enterprise")]
+async fn copy_cache_from_bucket_as_tar(bucket: &str) -> bool {
+    tracing::info!("Copying cache from bucket {bucket} as tar");
+    let elapsed = Instant::now();
+
+    match Command::new("rclone")
+        .arg("copyto")
+        .arg(format!(":s3,env_auth=true:{bucket}/{TAR_CACHE_FILENAME}"))
+        .arg(format!("{ROOT_CACHE_DIR}/{TAR_CACHE_FILENAME}"))
+        .arg("--size-only")
+        .arg("--fast-list")
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .spawn()
+    {
+        Ok(mut h) => {
+            if !h.wait().await.unwrap().success() {
+                tracing::warn!("Failed to download tar cache");
+                return false;
+            }
+        }
+        Err(e) => {
+            tracing::warn!("Failed to download tar cache. Error: {e:?}");
+            return false;
+        }
+    }
+
+    match Command::new("tar")
+        .current_dir(ROOT_CACHE_DIR)
+        .arg("-xvf")
+        .arg(format!("{ROOT_CACHE_DIR}/{TAR_CACHE_FILENAME}"))
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .spawn()
+    {
+        Ok(mut h) => {
+            if !h.wait().await.unwrap().success() {
+                tracing::warn!("Failed to untar cache");
+                return false;
+            }
+        }
+        Err(e) => {
+            tracing::warn!("Failed untar cache. Error: {e:?}");
+            return false;
+        }
+    }
+
+    tracing::info!(
+        "Finished copying cache from bucket {bucket} as tar, took: {:?}s",
+        elapsed.elapsed().as_secs()
+    );
+    return true;
 }
 
 #[tracing::instrument(level = "trace", skip_all)]
@@ -309,6 +421,13 @@ pub async fn run_worker(
     let pip_index_url = std::env::var("PIP_INDEX_URL").ok();
     let pip_extra_index_url = std::env::var("PIP_EXTRA_INDEX_URL").ok();
     let pip_trusted_host = std::env::var("PIP_TRUSTED_HOST").ok();
+
+    #[cfg(feature = "enterprise")]
+    let tar_cache_rate = std::env::var("TAR_CACHE_RATE")
+        .ok()
+        .and_then(|x| x.parse::<i32>().ok())
+        .unwrap_or(100);
+
     let envs = Envs {
         deno_path,
         go_path,
@@ -324,7 +443,11 @@ pub async fn run_worker(
 
     #[cfg(feature = "enterprise")]
     if let Some(ref s) = sync_bucket.clone() {
-        copy_cache_from_bucket(&s).await;
+        // We try to download the entire cache as a tar, it is much faster over S3
+        if !copy_cache_from_bucket_as_tar(&s).await {
+            // We revert to copying the cache from the bucket
+            copy_cache_from_bucket(&s).await;
+        }
     }
 
     #[cfg(feature = "enterprise")]
@@ -357,6 +480,9 @@ pub async fn run_worker(
                 if let Some(ref s) = sync_bucket.clone() {
                     copy_cache_from_bucket(&s).await;
                     copy_cache_to_bucket(&s).await;
+                    if rand::thread_rng().gen_range(0..tar_cache_rate) == 1 {
+                        copy_cache_to_bucket_as_tar(&s).await;
+                    }
                 }
                 last_sync = Instant::now();
             }
