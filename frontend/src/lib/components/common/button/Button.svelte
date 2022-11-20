@@ -72,7 +72,7 @@
 		href,
 		target,
 		tabindex: disabled ? -1 : 0,
-		type: href === undefined ? undefined : buttonType
+		type: buttonType
 	}
 
 	async function onClick(event: MouseEvent) {
@@ -102,10 +102,11 @@
 <svelte:element
 	this={href ? 'a' : 'button'}
 	bind:this={element}
-	on:click|stopPropagation={onClick}
+	on:click={onClick}
 	on:focus
 	on:blur
 	{...buttonProps}
+	type="submit"
 >
 	{#if loading}
 		<Icon

@@ -5,7 +5,7 @@
 	import type { Output } from '../rx'
 	import type { AppEditorContext, ComponentInputsSpec, InputsSpec } from '../types'
 	import ComponentInputValue from './helpers/ComponentInputValue.svelte'
-	import DeboucedInput from './helpers/DeboucedInput.svelte'
+	import DebouncedInput from './helpers/DebouncedInput.svelte'
 	import RunnableComponent from './helpers/RunnableComponent.svelte'
 
 	export let id: string
@@ -48,29 +48,26 @@
 	let search = ''
 
 	let result: Array<Record<string, any>> = []
-	let loading: boolean = false
 	$: headers = Object.keys(result[0] || {}) || []
-
-	$: console.log(result, loading, headers)
 </script>
 
 <ComponentInputValue input={componentInputs.searchEnabled} bind:value={searchEnabledValue} />
 <ComponentInputValue input={componentInputs.paginationEnabled} bind:value={paginationEnabled} />
 
 <RunnableComponent
-	bind:inputs
-	bind:result
-	bind:loading
+	{id}
 	{path}
 	{runType}
 	{inlineScriptName}
+	bind:inputs
+	bind:result
 	extraQueryParams={{ search, page }}
 >
 	<div class="gap-2 flex flex-col mt-2">
 		{#if searchEnabledValue}
 			<div>
 				<div>
-					<DeboucedInput placeholder="Search..." bind:value={search} />
+					<DebouncedInput placeholder="Search..." bind:value={search} />
 				</div>
 			</div>
 		{/if}

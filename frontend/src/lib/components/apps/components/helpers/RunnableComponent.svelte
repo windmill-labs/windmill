@@ -6,13 +6,15 @@
 	import TestJobLoader from '$lib/components/TestJobLoader.svelte'
 	import { AppService, type CompletedJob } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
-	import { faArrowsRotate, faFile } from '@fortawesome/free-solid-svg-icons'
+	import { faArrowsRotate } from '@fortawesome/free-solid-svg-icons'
 	import { getContext } from 'svelte'
 	import Icon from 'svelte-awesome'
+	import type { Output } from '../../rx'
 	import type { AppEditorContext, InputsSpec } from '../../types'
 	import { buildArgs, loadSchema, schemaToInputsSpec } from '../../utils'
 
 	// Component props
+	export let id: string
 	export let inputs: InputsSpec
 	export let path: string | undefined = undefined
 	export let runType: 'script' | 'flow' | undefined = undefined
@@ -21,10 +23,9 @@
 
 	export let shouldTick: number | undefined = undefined
 
-	export let result: any
-	export let loading: boolean
+	export let result: any = undefined
 
-	const { app } = getContext<AppEditorContext>('AppEditorContext')
+	const { app, worldStore } = getContext<AppEditorContext>('AppEditorContext')
 	let pagePath = $page.params.path
 
 	// Local state
@@ -34,6 +35,11 @@
 
 	let isValid = true
 	let testIsLoading = false
+
+	$: if (outputs) {
+		outputs.loading.set(testIsLoading)
+	}
+
 	let testJob: CompletedJob | undefined = undefined
 	let testJobLoader: TestJobLoader | undefined = undefined
 
@@ -41,7 +47,7 @@
 		loadSchemaFromTriggerable($workspaceStore, path, runType)
 	}
 
-	$: if (inlineScriptName) {
+	$: if (inlineScriptName && $app.inlineScripts[inlineScriptName]) {
 		schema = $app.inlineScripts[inlineScriptName].schema
 
 		Object.keys(extraQueryParams).forEach((key) => {
@@ -124,8 +130,6 @@
 				requestBody
 			})
 		})
-
-		loading = true
 	}
 
 	$: if (testJobLoader && shouldTick) {
@@ -133,13 +137,18 @@
 	}
 
 	$: extraQueryParams && executeComponent()
+
+	$: outputs = $worldStore?.outputsById[id] as {
+		result: Output<Array<any>>
+		loading: Output<boolean>
+	}
 </script>
 
 <TestJobLoader
 	on:done={() => {
 		if (testJob) {
+			outputs.result.set(testJob?.result)
 			result = testJob?.result
-			loading = false
 		}
 	}}
 	bind:isLoading={testIsLoading}

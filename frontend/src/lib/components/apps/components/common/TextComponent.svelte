@@ -2,7 +2,7 @@
 	import { getContext } from 'svelte'
 	import SvelteMarkdown from 'svelte-markdown'
 	import type { AppEditorContext, ComponentInputsSpec } from '../../types'
-	import AlignWrapper from './AlignWrapper.svelte'
+	import AlignWrapper from '../helpers/AlignWrapper.svelte'
 
 	export let componentInputs: ComponentInputsSpec
 	export let horizontalAlignement: 'left' | 'center' | 'right' | undefined = undefined
