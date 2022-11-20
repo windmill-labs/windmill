@@ -1,4 +1,3 @@
 openapi-deref.yaml
 dist/
-__pycache__/
 windmill-api/
