@@ -49,8 +49,8 @@ use crate::{
 };
 
 #[cfg(feature = "enterprise")]
-async fn run_periodic_jobs(bucket: &str) {
-    tracing::info!("Running periodic jobs");
+async fn copy_cache_from_bucket(bucket: &str) {
+    tracing::info!("Copying cache from bucket {bucket}");
 
     match Command::new("rclone")
         .arg("copy")
@@ -68,6 +68,19 @@ async fn run_periodic_jobs(bucket: &str) {
         Err(e) => tracing::warn!("Failed to run periodic job pull. Error: {:?}", e),
     }
 
+    for x in [PIP_CACHE_DIR, DENO_CACHE_DIR, GO_CACHE_DIR] {
+        DirBuilder::new()
+            .recursive(true)
+            .create(x)
+            .await
+            .expect("could not create initial worker dir");
+    }
+}
+
+#[cfg(feature = "enterprise")]
+async fn copy_cache_to_bucket(bucket: &str) {
+    tracing::info!("Copying cache to bucket {bucket}");
+
     match Command::new("rclone")
         .arg("copy")
         .arg(ROOT_CACHE_DIR)
@@ -82,37 +95,6 @@ async fn run_periodic_jobs(bucket: &str) {
             h.wait().await.unwrap();
         }
         Err(e) => tracing::warn!("Failed to run periodic job push. Error: {:?}", e),
-    }
-}
-
-#[cfg(feature = "enterprise")]
-async fn run_periodic_jobs_initial(bucket: &str) {
-    tracing::info!("Running periodic jobs");
-
-    match Command::new("rclone")
-        .arg("bisync")
-        .arg(format!(":s3,env_auth=true:{}", bucket))
-        .arg(ROOT_CACHE_DIR)
-        .arg("--size-only")
-        .arg("--fast-list")
-        .arg("--force")
-        .arg("--resync")
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .spawn()
-    {
-        Ok(mut h) => {
-            h.wait().await.unwrap();
-        }
-        Err(e) => tracing::warn!("Failed to run periodic job. Error: {:?}", e),
-    }
-
-    for x in [PIP_CACHE_DIR, DENO_CACHE_DIR, GO_CACHE_DIR] {
-        DirBuilder::new()
-            .recursive(true)
-            .create(x)
-            .await
-            .expect("could not create initial worker dir");
     }
 }
 
@@ -265,9 +247,6 @@ pub async fn run_worker(
     )
     .await;
 
-    #[cfg(feature = "enterprise")]
-    let mut last_sync = Instant::now() - Duration::from_secs(NUM_SECS_ENV_CHECK + 1);
-
     let mut last_ping = Instant::now() - Duration::from_secs(NUM_SECS_SYNC + 1);
 
     insert_initial_ping(worker_instance, &worker_name, ip, db).await;
@@ -333,8 +312,11 @@ pub async fn run_worker(
 
     #[cfg(feature = "enterprise")]
     if let Some(ref s) = sync_bucket.clone() {
-        run_periodic_jobs_initial(&s).await;
+        copy_cache_from_bucket(&s).await;
     }
+
+    #[cfg(feature = "enterprise")]
+    let mut last_sync = Instant::now();
 
     let (same_worker_tx, mut same_worker_rx) = mpsc::channel::<Uuid>(5);
 
@@ -361,7 +343,8 @@ pub async fn run_worker(
             #[cfg(feature = "enterprise")]
             if last_sync.elapsed().as_secs() > NUM_SECS_SYNC {
                 if let Some(ref s) = sync_bucket.clone() {
-                    run_periodic_jobs(&s).await;
+                    copy_cache_from_bucket(&s).await;
+                    copy_cache_to_bucket(&s).await;
                 }
                 last_sync = Instant::now();
             }
