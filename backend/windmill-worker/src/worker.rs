@@ -1151,6 +1151,18 @@ func Run(req Req) (interface{{}}, error){{
                 .replace("{SHARED_MOUNT}", shared_mount),
         )
         .await?;
+        let build_go = Command::new(go_path)
+            .current_dir(job_dir)
+            .env_clear()
+            .env("PATH", path_env)
+            .env("BASE_INTERNAL_URL", base_internal_url)
+            .env("GOPATH", GO_CACHE_DIR)
+            .env("HOME", home_env)
+            .args(vec!["build", "main.go"])
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()?;
+        handle_child(&job.id, db, logs, timeout, build_go).await?;
 
         Command::new(nsjail_path)
             .current_dir(job_dir)
@@ -1158,14 +1170,7 @@ func Run(req Req) (interface{{}}, error){{
             .envs(reserved_variables)
             .env("PATH", path_env)
             .env("BASE_INTERNAL_URL", base_internal_url)
-            .args(vec![
-                "--config",
-                "run.config.proto",
-                "--",
-                go_path,
-                "run",
-                "main.go",
-            ])
+            .args(vec!["--config", "run.config.proto", "--", "/tmp/go/main"])
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .spawn()?

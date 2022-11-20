@@ -58,36 +58,12 @@ mount {
     options: "size=500000000"
 }
 
+
 mount {
-    src: "{JOB_DIR}/go.sum"
-    dst: "/tmp/go/go.sum"
+    src: "{JOB_DIR}/main"
+    dst: "/tmp/go/main"
     is_bind: true
     mandatory: false
-}
-
-mount {
-    src: "{JOB_DIR}/go.mod"
-    dst: "/tmp/go/go.mod"
-    is_bind: true
-}
-
-mount {
-    src: "{JOB_DIR}/main.go"
-    dst: "/tmp/go/main.go"
-    is_bind: true
-    mandatory: false
-}
-
-mount {
-    src: "{JOB_DIR}/inner/inner_main.go"
-    dst: "/tmp/go/inner/inner_main.go"
-    is_bind: true
-}
-
-mount {
-    src: "{JOB_DIR}/inner/runner.go"
-    dst: "/tmp/go/inner/runner.go"
-    is_bind: true
 }
 
 mount {
