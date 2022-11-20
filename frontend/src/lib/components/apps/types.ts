@@ -41,6 +41,10 @@ export type TextInputComponent = {
 	type: 'textinputcomponent'
 }
 
+export type ButtonComponent = {
+	type: 'buttoncomponent'
+}
+
 type Runnable = {
 	inlineScriptName?: string
 	path?: string
@@ -72,6 +76,7 @@ export type AppComponent =
 			| TableComponent
 			| TextComponent
 			| TableComponent
+			| ButtonComponent
 	  ) & {
 			id: ComponentID
 			width: number

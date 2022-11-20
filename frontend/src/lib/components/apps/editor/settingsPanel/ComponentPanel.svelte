@@ -57,11 +57,12 @@
 				/>
 			{/if}
 
-			{#if component.type === 'runformcomponent' && component.inlineScriptName === undefined}
+			{#if component.runnable}
 				{#each Object.keys($app.inlineScripts ?? {}) as inlineScriptName}
 					<Button
 						on:click={() => {
-							if (component?.type === 'runformcomponent') {
+							if (component?.runnable) {
+								// @ts-ignore
 								component.inlineScriptName = inlineScriptName
 							}
 						}}

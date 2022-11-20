@@ -80,6 +80,7 @@ pub fn make_unauthed_service() -> Router {
     Router::new()
         .route("/login", post(login))
         .route("/logout", post(logout))
+        .route("/logout", get(logout))
 }
 
 pub struct AuthCache {
@@ -637,10 +638,15 @@ async fn logout(
     Tokened { token }: Tokened,
     cookies: Cookies,
     Extension(db): Extension<DB>,
+    Extension(cookie_domain): Extension<Arc<CookieDomain>>,
     Query(LogoutQuery { rd }): Query<LogoutQuery>,
 ) -> Result<Response> {
     let mut cookie = Cookie::new(COOKIE_NAME, "");
     cookie.set_path(COOKIE_PATH);
+    let domain = cookie_domain.0.clone();
+    if domain.is_some() {
+        cookie.set_domain(domain.clone().unwrap());
+    }
     cookies.remove(cookie);
     let mut tx = db.begin().await?;
     let email = sqlx::query_scalar!("DELETE FROM token WHERE token = $1 RETURNING email", token)

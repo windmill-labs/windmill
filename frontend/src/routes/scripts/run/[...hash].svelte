@@ -23,16 +23,17 @@
 	import { inferArgs } from '$lib/infer'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
 	import RunForm from '$lib/components/RunForm.svelte'
-	import { Badge, Button } from '$lib/components/common'
+	import { Alert, Badge, Button } from '$lib/components/common'
 	import SharedBadge from '$lib/components/SharedBadge.svelte'
 	import SvelteMarkdown from 'svelte-markdown'
 	import { faPlay, faScroll } from '@fortawesome/free-solid-svg-icons'
 
-	const hash = $page.params.hash
+	$: hash = $page.params.hash
 	let script: Script | undefined
 	let runForm: RunForm | undefined
 	let isValid = true
 	let can_write = false
+	let topHash: string | undefined
 
 	async function loadScript() {
 		if (hash) {
@@ -41,6 +42,15 @@
 				script.schema = emptySchema()
 				inferArgs(script.language, script.content, script.schema)
 				script = script
+			}
+			if (script.path && script.archived) {
+				const script_by_path = await ScriptService.getScriptByPath({
+					workspace: $workspaceStore!,
+					path: script.path
+				}).catch((_) => console.error('this script has no non-archived version'))
+				topHash = script_by_path?.hash
+			} else {
+				topHash = undefined
 			}
 			can_write =
 				script.workspace_id == $workspaceStore &&
@@ -67,7 +77,7 @@
 	}
 
 	$: {
-		if ($workspaceStore) {
+		if ($workspaceStore && hash) {
 			loadScript()
 		}
 	}
@@ -92,19 +102,19 @@
 
 <CenteredPage>
 	{#if script}
-		<div class="flex flex-row flex-wrap justify-between gap-4 mb-6">
+		<div class="flex flex-col justify-between gap-4 mb-6">
+			{#if topHash}
+				<Alert type="warning" title="Not HEAD">
+					This hash is not HEAD (latest non-archived version at this path) :
+					<a href="/scripts/run/{topHash}">Go to the HEAD of this path</a>
+				</Alert>
+			{/if}
 			<div class="w-full">
 				<div class="flex flex-col mt-6 mb-2 w-full">
-					<div class="flex flex-row flex-wrap w-full justify-between "
-						><div class="flex flex-col">
-							<h1 class="break-words py-2 mr-2">
-								{defaultIfEmptyString(script.summary, script.path)}
-							</h1>
-							{#if !emptyString(script.summary)}
-								<h2 class="font-bold pb-4">{script.path}</h2>
-							{/if}
-						</div>
-						<div class="flex-row hidden lg:flex">
+					<div
+						class="flex flex-row-reverse w-full flex-wrap md:flex-nowrap justify-between gap-x-1"
+					>
+						<div class="flex flex-row">
 							<div>
 								<Button
 									startIcon={{ icon: faScroll }}
@@ -113,14 +123,24 @@
 									variant="border"
 									href="/scripts/get/{script?.hash}">View script</Button
 								>
+							</div>
+							<div>
 								<Button
 									startIcon={{ icon: faPlay }}
 									disabled={runForm == undefined || !isValid}
 									on:click={() => runForm?.run()}>Run (Ctrl+Enter)</Button
 								>
 							</div>
-						</div></div
-					>
+						</div>
+						<div class="flex flex-col grow">
+							<h1 class="break-words py-2 mr-2">
+								{defaultIfEmptyString(script.summary, script.path)}
+							</h1>
+							{#if !emptyString(script.summary)}
+								<h2 class="font-bold pb-4">{script.path}</h2>
+							{/if}
+						</div>
+					</div>
 					<div class="flex items-center gap-2">
 						<span class="text-sm text-gray-500">
 							{#if script}

@@ -53,9 +53,7 @@ class JobStatus(Enum):
 _client: "AuthenticatedClient | None" = None
 
 
-def create_client(
-    base_url: "str | None" = None, token: "str | None" = None
-) -> AuthenticatedClient:
+def create_client(base_url: "str | None" = None, token: "str | None" = None) -> AuthenticatedClient:
     env_base_url = os.environ.get("BASE_INTERNAL_URL")
 
     if env_base_url is not None:
@@ -65,9 +63,7 @@ def create_client(
     token_: str = token or os.environ.get("WM_TOKEN") or ""
     global _client
     if _client is None:
-        _client = AuthenticatedClient(
-            base_url=base_url_, token=token_, timeout=30, verify_ssl=False
-        )
+        _client = AuthenticatedClient(base_url=base_url_, token=token_, timeout=30, verify_ssl=False)
     return _client
 
 
@@ -82,9 +78,7 @@ def get_version() -> str:
     """
     Returns the current version of the backend
     """
-    return backend_version.sync_detailed(client=create_client()).content.decode(
-        "us-ascii"
-    )
+    return backend_version.sync_detailed(client=create_client()).content.decode("us-ascii")
 
 
 def run_script_async(
@@ -105,9 +99,7 @@ def run_script_async(
     ).content.decode("us-ascii")
 
 
-def run_script_sync(
-    hash: str, args: Dict[str, Any] = {}, verbose: bool = False
-) -> Dict[str, Any]:
+def run_script_sync(hash: str, args: Dict[str, Any] = {}, verbose: bool = False) -> Dict[str, Any]:
     """
     Run a script, wait for it to complete and return the result of the launched script
     """
@@ -128,9 +120,7 @@ def get_job_status(job_id: str) -> JobStatus:
     """
     Returns the status of a queued or completed job
     """
-    res = get_job.sync_detailed(
-        client=create_client(), workspace=get_workspace(), id=job_id
-    ).parsed
+    res = get_job.sync_detailed(client=create_client(), workspace=get_workspace(), id=job_id).parsed
     if not res:
         raise Exception(f"Job {job_id} not found")
     elif not res.type:
@@ -150,9 +140,7 @@ def get_result(job_id: str) -> Dict[str, Any]:
     """
     Returns the result of a completed job
     """
-    res = get_completed_job.sync_detailed(
-        client=create_client(), workspace=get_workspace(), id=job_id
-    ).parsed
+    res = get_completed_job.sync_detailed(client=create_client(), workspace=get_workspace(), id=job_id).parsed
     if not res:
         raise Exception(f"Job {job_id} not found")
     if not res.result:
@@ -161,21 +149,20 @@ def get_result(job_id: str) -> Dict[str, Any]:
         return res.result.to_dict()  # type: ignore
 
 
-def get_resource(path: str | None = None) -> Any:
+def get_resource(path: str | None = None, none_if_undefined: bool = False) -> Any:
     """
-    Returns the resource at a given path as a python dict.
+    Returns the resource at a given path
     """
     path = path or get_state_path()
-    parsed = get_resource_api.sync_detailed(
-        workspace=get_workspace(), path=path, client=create_client()
-    ).parsed
+    parsed = get_resource_api.sync_detailed(workspace=get_workspace(), path=path, client=create_client()).parsed
     if parsed is None:
-        raise Exception(
-            f"Resource at path {path} does not exist or you do not have read permissions on it"
-        )
+        if none_if_undefined:
+            return None
+        else:
+            raise Exception(f"Resource at path {path} does not exist or you do not have read permissions on it")
 
     if isinstance(parsed.value, Unset):
-        return {}
+        return None
 
     raw = parsed.value
     return _transform_leaf(raw)
@@ -185,27 +172,21 @@ def get_state() -> Any:
     """
     Get the state
     """
-    return get_resource(None)
+    return get_resource(None, True)
 
 
-def set_resource(
-    value: Any, path: str | None = None, resource_type: str = "state"
-) -> None:
+def set_resource(value: Any, path: str | None = None, resource_type: str = "state") -> None:
     """
     Set the resource at a given path as a string, creating it if it does not exist
     """
     path = path or get_state_path()
     workspace = get_workspace()
     client = create_client()
-    if not exists_resource.sync_detailed(
-        workspace=workspace, path=path, client=client
-    ).parsed:
+    if not exists_resource.sync_detailed(workspace=workspace, path=path, client=client).parsed:
         create_resource.sync_detailed(
             workspace=workspace,
             client=client,
-            json_body=CreateResourceJsonBody(
-                path=path, value=value, resource_type=resource_type
-            ),
+            json_body=CreateResourceJsonBody(path=path, value=value, resource_type=resource_type),
         )
     else:
         update_resource.sync_detailed(
@@ -227,13 +208,9 @@ def get_variable(path: str) -> str:
     """
     Returns the variable at a given path as a string
     """
-    res = get_variable_api.sync_detailed(
-        workspace=get_workspace(), path=path, client=create_client()
-    ).parsed
+    res = get_variable_api.sync_detailed(workspace=get_workspace(), path=path, client=create_client()).parsed
     if res is None:
-        raise Exception(
-            f"Variable at path {path} does not exist or you do not have read permissions on it"
-        )
+        raise Exception(f"Variable at path {path} does not exist or you do not have read permissions on it")
 
     return res.value  # type: ignore
 
@@ -244,15 +221,11 @@ def set_variable(path: str, value: str) -> None:
     """
     workspace = get_workspace()
     client = create_client()
-    if not exists_variable.sync_detailed(
-        workspace=workspace, path=path, client=client
-    ).parsed:
+    if not exists_variable.sync_detailed(workspace=workspace, path=path, client=client).parsed:
         create_variable.sync_detailed(
             workspace=workspace,
             client=client,
-            json_body=CreateVariableJsonBody(
-                path=path, value=value, is_secret=False, description=""
-            ),
+            json_body=CreateVariableJsonBody(path=path, value=value, is_secret=False, description=""),
         )
     else:
         update_variable.sync_detailed(
@@ -271,16 +244,10 @@ def get_state_path() -> str:
     flow_path = os.environ.get("WM_FLOW_PATH") or "NO_FLOW_PATH"
     script_path = os.environ.get("WM_JOB_PATH") or "NO_JOB_PATH"
     env_schedule_path = os.environ.get("WM_SCHEDULE_PATH")
-    schedule_path = (
-        ""
-        if env_schedule_path is None or env_schedule_path == ""
-        else f"/{env_schedule_path}"
-    )
+    schedule_path = "" if env_schedule_path is None or env_schedule_path == "" else f"/{env_schedule_path}"
 
     if script_path.endswith("/"):
-        raise Exception(
-            "The script path must not end with '/', give a name to your script!"
-        )
+        raise Exception("The script path must not end with '/', give a name to your script!")
 
     return f"{permissioned_as}/{flow_path}/{script_path}{schedule_path}"
 

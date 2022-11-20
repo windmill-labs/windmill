@@ -1,30 +1,31 @@
 <script lang="ts">
 	import { page } from '$app/stores'
 	import type { Schema } from '$lib/common'
+	import Button from '$lib/components/common/button/Button.svelte'
 	import SchemaForm from '$lib/components/SchemaForm.svelte'
 	import TestJobLoader from '$lib/components/TestJobLoader.svelte'
 	import { AppService, type CompletedJob } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
+	import { faArrowsRotate, faFile } from '@fortawesome/free-solid-svg-icons'
 	import { getContext } from 'svelte'
-	import type { Output } from '../rx'
-	import type { AppEditorContext, InputsSpec } from '../types'
-	import { buildArgs, loadSchema, schemaToInputsSpec } from '../utils'
+	import Icon from 'svelte-awesome'
+	import type { AppEditorContext, InputsSpec } from '../../types'
+	import { buildArgs, loadSchema, schemaToInputsSpec } from '../../utils'
 
 	// Component props
-	export let id: string
 	export let inputs: InputsSpec
 	export let path: string | undefined = undefined
 	export let runType: 'script' | 'flow' | undefined = undefined
 	export let inlineScriptName: string | undefined = undefined
 	export let extraQueryParams: Record<string, any> = {}
 
-	const { worldStore, app } = getContext<AppEditorContext>('AppEditorContext')
-	let pagePath = $page.params.path
+	export let shouldTick: number | undefined = undefined
 
-	$: outputs = $worldStore?.outputsById[id] as {
-		result: Output<any>
-		loading: Output<boolean>
-	}
+	export let result: any
+	export let loading: boolean
+
+	const { app } = getContext<AppEditorContext>('AppEditorContext')
+	let pagePath = $page.params.path
 
 	// Local state
 	let args: Record<string, any> = {}
@@ -42,6 +43,13 @@
 
 	$: if (inlineScriptName) {
 		schema = $app.inlineScripts[inlineScriptName].schema
+
+		Object.keys(extraQueryParams).forEach((key) => {
+			if (schema?.properties[key]) {
+				delete schema.properties[key]
+			}
+		})
+
 		reloadSchemaAndArgs()
 	}
 
@@ -60,6 +68,12 @@
 		runType: 'script' | 'flow'
 	) {
 		schema = await loadSchema(workspace, path, runType)
+
+		Object.keys(extraQueryParams).forEach((key) => {
+			if (schema?.properties[key]) {
+				delete schema.properties[key]
+			}
+		})
 		args = buildArgs(inputs, schema)
 	}
 
@@ -111,17 +125,21 @@
 			})
 		})
 
-		outputs?.loading.set(true)
+		loading = true
 	}
 
-	$: args && executeComponent()
+	$: if (testJobLoader && shouldTick) {
+		executeComponent()
+	}
+
+	$: extraQueryParams && executeComponent()
 </script>
 
 <TestJobLoader
 	on:done={() => {
 		if (testJob) {
-			outputs?.result.set(testJob?.result)
-			outputs?.loading.set(false)
+			result = testJob?.result
+			loading = false
 		}
 	}}
 	bind:isLoading={testIsLoading}
@@ -133,4 +151,14 @@
 	<SchemaForm schema={schemaClone} bind:args bind:isValid {disabledArgs} />
 {/if}
 
+{#if shouldTick === undefined}
+	<Button size="xs" color="dark" on:click={() => executeComponent()} disabled={!isValid}>
+		<div>
+			{Object.keys(args).length > 0 ? 'Submit' : 'Refresh'}
+			{#if testIsLoading}
+				<Icon data={faArrowsRotate} class="animate-spin ml-2" scale={0.8} />
+			{/if}
+		</div>
+	</Button>
+{/if}
 <slot />

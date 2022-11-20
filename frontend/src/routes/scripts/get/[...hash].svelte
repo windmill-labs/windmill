@@ -42,7 +42,7 @@
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
 	import { onDestroy } from 'svelte'
 	import HighlightCode from '$lib/components/HighlightCode.svelte'
-	import { Badge, Tabs, Tab, TabContent, Button, ActionRow } from '$lib/components/common'
+	import { Badge, Tabs, Tab, TabContent, Button, ActionRow, Alert } from '$lib/components/common'
 	import Skeleton from '../../../lib/components/common/skeleton/Skeleton.svelte'
 	import UserSettings from '$lib/components/UserSettings.svelte'
 	import Icon from 'svelte-awesome'
@@ -336,22 +336,13 @@
 							</div>
 						{/if}
 						{#if topHash}
-							<div
-								class="bg-orange-100 border-l-4 border-orange-500 text-orange-700 p-4"
-								role="alert"
-							>
-								<p class="font-bold">Not HEAD</p>
-								<p>
-									This hash is not HEAD (latest non-archived version at this path) :
-									<a href="/scripts/get/{topHash}">Go to the HEAD of this path</a>
-								</p>
-							</div>
+							<Alert type="warning" title="Not HEAD">
+								This hash is not HEAD (latest non-archived version at this path) :
+								<a href="/scripts/get/{topHash}">Go to the HEAD of this path</a>
+							</Alert>
 						{/if}
-						{#if script.archived}
-							<div class="bg-red-100 border-l-4 border-red-500 text-orange-700 p-4" role="alert">
-								<p class="font-bold">Archived</p>
-								<p>This version was archived</p>
-							</div>
+						{#if script.archived && !topHash}
+							<Alert type="error" title="Archived">This version was archived</Alert>
 						{/if}
 						{#if script.deleted}
 							<div class="bg-red-100 border-l-4 border-red-600 text-orange-700 p-4" role="alert">

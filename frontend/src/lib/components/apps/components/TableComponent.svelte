@@ -4,8 +4,9 @@
 	import { getContext } from 'svelte'
 	import type { Output } from '../rx'
 	import type { AppEditorContext, ComponentInputsSpec, InputsSpec } from '../types'
-	import ComponentInputValue from './ComponentInputValue.svelte'
-	import RunnableComponent from './RunnableComponent.svelte'
+	import ComponentInputValue from './helpers/ComponentInputValue.svelte'
+	import DeboucedInput from './helpers/DeboucedInput.svelte'
+	import RunnableComponent from './helpers/RunnableComponent.svelte'
 
 	export let id: string
 	export let inputs: InputsSpec
@@ -16,18 +17,6 @@
 
 	const { worldStore } = getContext<AppEditorContext>('AppEditorContext')
 
-	let headers: string[] = ['Name', 'Description']
-	let data: Array<Record<string, any>> = [
-		{
-			name: 'test',
-			description: 'test'
-		},
-		{
-			name: 'test2',
-			description: 'test2'
-		}
-	]
-
 	// ComponentInput: Static/dynamic
 	// ScriptInput: Run form: Static/Dynamic/User
 	// paramInput: Search : configurable only at component level (toggle)
@@ -36,6 +25,8 @@
 
 	$: outputs = $worldStore?.outputsById[id] as {
 		selectedRow: Output<any>
+		result: Output<Array<string>>
+		loading: Output<boolean>
 	}
 
 	let selectedRowIndex = -1
@@ -55,46 +46,55 @@
 
 	let page = 1
 	let search = ''
+
+	let result: Array<Record<string, any>> = []
+	let loading: boolean = false
+	$: headers = Object.keys(result[0] || {}) || []
+
+	$: console.log(result, loading, headers)
 </script>
 
 <ComponentInputValue input={componentInputs.searchEnabled} bind:value={searchEnabledValue} />
 <ComponentInputValue input={componentInputs.paginationEnabled} bind:value={paginationEnabled} />
 
 <RunnableComponent
-	{id}
-	{inputs}
+	bind:inputs
+	bind:result
+	bind:loading
 	{path}
 	{runType}
 	{inlineScriptName}
 	extraQueryParams={{ search, page }}
 >
-	<div class="gap-2 flex flex-col">
+	<div class="gap-2 flex flex-col mt-2">
 		{#if searchEnabledValue}
 			<div>
 				<div>
-					<input placeholder="Search..." bind:value={search} />
+					<DeboucedInput placeholder="Search..." bind:value={search} />
 				</div>
 			</div>
 		{/if}
 		<div class="flex flex-col">
 			<table class="divide-y divide-gray-300 border">
-				<thead class="bg-gray-50">
-					<tr>
-						{#each headers as header}
-							<th
-								scope="col"
-								class="px-4 py-2 text-left text-xs font-medium text-gray-500 tracking-wider"
-							>
-								{header}
+				{#if headers}
+					<thead class="bg-gray-50">
+						<tr>
+							{#each headers as header}
+								<th
+									scope="col"
+									class="px-4 py-2 text-left text-xs font-medium text-gray-500 tracking-wider"
+								>
+									{header}
+								</th>
+							{/each}
+							<th scope="col" class="relative py-2 px-4">
+								<span class="sr-only">Edit</span>
 							</th>
-						{/each}
-						<th scope="col" class="relative py-2 px-4">
-							<span class="sr-only">Edit</span>
-						</th>
-					</tr>
-				</thead>
+						</tr>
+					</thead>
+				{/if}
 				<tbody class="divide-y divide-gray-200 bg-white">
-					{#each data as row, rowIndex (rowIndex)}
+					{#each result as row, rowIndex (rowIndex)}
 						<tr
 							class={classNames(
 								selectedRowIndex === rowIndex ? 'bg-blue-100 hover:bg-blue-200' : 'hover:bg-blue-50'

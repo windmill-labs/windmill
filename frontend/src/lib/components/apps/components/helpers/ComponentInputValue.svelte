@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { getContext } from 'svelte'
-	import type { StaticInput, DynamicInput, AppEditorContext } from '../types'
+	import type { StaticInput, DynamicInput, AppEditorContext } from '../../types'
 
 	export let input: DynamicInput | StaticInput
 	export let value: any

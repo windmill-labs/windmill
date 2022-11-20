@@ -58,11 +58,11 @@
 {#each componentSets as componentSet, index (index)}
 	<div class="px-4 pt-4 text-sm font-semibold">{componentSet.title}</div>
 
-	<section class="grid grid-cols-3 gap-2 p-4">
+	<section class="grid grid-cols-3 gap-1 p-4">
 		{#each componentSet.components as item, componentIndex (componentIndex)}
 			<!-- svelte-ignore a11y-click-events-have-key-events -->
 			<div
-				class="border shadow-sm h-20 p-2 flex flex-col gap-2 items-center justify-center bg-white rounded-md scale-100 hover:scale-105 ease-in duration-75"
+				class="border shadow-sm h-16 p-2 flex flex-col gap-2 items-center justify-center bg-white rounded-md scale-100 hover:scale-105 ease-in duration-75"
 				on:click={() => addComponent(item, { w: 2, h: 2 })}
 			>
 				<Icon data={displayData[item.type].icon} scale={1.6} class="text-blue-800" />

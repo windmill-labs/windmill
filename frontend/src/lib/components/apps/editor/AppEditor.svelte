@@ -78,7 +78,7 @@
 			<ContextPanel appPath={path} />
 		</Pane>
 	{/if}
-	<Pane>
+	<Pane size={60} maxSize={100}>
 		<div class="p-4 bg-gray-100 h-full">
 			{#if $appStore.grid}
 				<GridEditor />

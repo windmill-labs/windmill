@@ -27,13 +27,18 @@ def main(no_default: str,
     except:
       secret = "No secret yet at g/all/pretty_secret!"
 
-    print(f"The env variable at \`g/all/pretty_secret\`: {secret}")
-    # interact with the windmill platform to get the version
-    version = wmill.get_version()
+    print(f"The variable at \`g/all/pretty_secret\`: {secret}")
+    
+    # Get last state of this script execution by the same trigger/user
+    last_state = wmill.get_state()
+    new_state = {"foo": 42} if last_state is None else last_state
+    new_state["foo"] += 1
+    wmill.set_state(new_state)
+
     # fetch reserved variables as environment variables
     user = os.environ.get("WM_USERNAME")
     # the return value is then parsed and can be retrieved by other scripts conveniently
-    return {"version": version, "splitted": name.split(), "user": user}
+    return {"splitted": name.split(), "user": user, "state": new_state}
 `
 export const DENO_INIT_CODE = `// reload the smart assistant on the top right if it dies to get autocompletion and syntax highlighting
 // (Ctrl+space to cache dependencies on imports hover, Ctrl+S to autoformat and parse parameters).

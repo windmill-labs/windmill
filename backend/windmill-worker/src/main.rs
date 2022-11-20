@@ -81,6 +81,10 @@ async fn main() -> anyhow::Result<()> {
             .ok()
             .and_then(|x| x.parse::<bool>().ok())
             .unwrap_or(false);
+        let sync_bucket = std::env::var("S3_CACHE_BUCKET")
+            .ok()
+            .map(|e| Some(e))
+            .unwrap_or(None);
 
         tracing::info!(
             "DISABLE_NSJAIL: {disable_nsjail}, DISABLE_NUSER: {disable_nuser}, BASE_URL: \
@@ -112,6 +116,7 @@ async fn main() -> anyhow::Result<()> {
                 base_url,
                 keep_job_dir,
             },
+            sync_bucket,
             rx.resubscribe(),
         )
         .await;

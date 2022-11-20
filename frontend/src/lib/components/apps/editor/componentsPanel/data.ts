@@ -45,7 +45,16 @@ const plainComponents = {
 		{
 			...defaultProps,
 			id: 'buttoncomponent',
-			type: 'buttoncomponent'
+			type: 'buttoncomponent',
+			componentInputs: {
+				label: {
+					type: 'static',
+					visible: true,
+					value: 'Lorem ipsum',
+					fieldType: 'textarea'
+				}
+			},
+			runnable: true
 		},
 		{
 			...defaultProps,

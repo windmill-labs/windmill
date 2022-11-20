@@ -1,6 +1,24 @@
 # Changelog
 
 
+## [1.48.0](https://github.com/windmill-labs/windmill/compare/v1.47.3...v1.48.0) (2022-11-18)
+
+
+### Features
+
+* add slack_bot token on connecting workspace to slack ([b3178d1](https://github.com/windmill-labs/windmill/commit/b3178d1b8aacfa90b8a68554a186f3b26f3190ba))
+* **backend:** sync cache features on all workers [enterprise] ([#907](https://github.com/windmill-labs/windmill/issues/907)) ([bd09884](https://github.com/windmill-labs/windmill/commit/bd09884955bbe04f41fbcce9b978a070145f23a3))
+* **python:** add Resource[resource_type] as a parsed parameter ([9d17abb](https://github.com/windmill-labs/windmill/commit/9d17abbb12463c81de325eef875161cf86449b25))
+* supercache extended to all version ([8846ca5](https://github.com/windmill-labs/windmill/commit/8846ca585699c2ec7b18b4479e895b296774ee95))
+
+
+### Bug Fixes
+
+* **backend:** saving bash script does not require dep job ([381b036](https://github.com/windmill-labs/windmill/commit/381b0368d72ad42501082c91a7c62964593ba3ad))
+* **frontend:** app editor v1 ([#908](https://github.com/windmill-labs/windmill/issues/908)) ([53a8c5e](https://github.com/windmill-labs/windmill/commit/53a8c5e04cc4f407c137b0d621003dbab1bfdc67))
+* **frontend:** Reduce the size of the separator + fix Auto scroll ([#895](https://github.com/windmill-labs/windmill/issues/895)) ([3f8295b](https://github.com/windmill-labs/windmill/commit/3f8295bb0c7d9e9c831e8dbcb7f1e8b944e45c66))
+* support flows to be triggered by slack commands ([199a11a](https://github.com/windmill-labs/windmill/commit/199a11a8cf92691a3ac5aa7ebdc3157d10677139))
+
 ## [1.47.3](https://github.com/windmill-labs/windmill/compare/v1.47.2...v1.47.3) (2022-11-15)
 
 
