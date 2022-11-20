@@ -53,7 +53,6 @@ jobs:
           cache-from: type=registry,ref=${{ env.LOCAL_REGISTRY }}/${{ env.IMAGE_NAME }}-slim:buildcache
           cache-to: type=registry,ref=${{ env.LOCAL_REGISTRY }}/${{ env.IMAGE_NAME }}-slim:buildcache
 
-
       - name: Docker meta
         id: meta-public
         if: github.event_name != 'pull_request'
@@ -67,18 +66,6 @@ jobs:
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
 
-      - name: Docker meta
-        id: meta-ee-public
-        if: github.event_name != 'pull_request'
-        uses: docker/metadata-action@v4
-        with:
-          images: |
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee
-          tags: |
-            type=ref,event=branch
-            type=ref,event=pr
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
 
       - name: Login to registry
         uses: docker/login-action@v2
@@ -103,23 +90,6 @@ jobs:
             org.opencontainers.image.licenses=AGPLv3
           cache-from: type=registry,ref=${{ env.LOCAL_REGISTRY }}/${{ env.IMAGE_NAME }}-slim:buildcache
           cache-to: type=registry,ref=${{ env.LOCAL_REGISTRY }}/${{ env.IMAGE_NAME }}-slim:buildcache
-
-      - name: Build and push publicly ee
-        if: github.event_name != 'pull_request'
-        uses: docker/build-push-action@v3
-        with:
-          context: .
-          push: true
-          build-args: |
-            features=enterprise
-          tags: |
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee:latest
-            ${{ steps.meta-ee-public.outputs.tags }}
-          labels: |
-            ${{ steps.meta-ee-public.outputs.labels }}
-            org.opencontainers.image.licenses=Windmill-Enterprise-License
-          cache-from: type=registry,ref=${{ env.LOCAL_REGISTRY }}/${{ env.IMAGE_NAME }}-ee:buildcache
-          cache-to: type=registry,ref=${{ env.LOCAL_REGISTRY }}/${{ env.IMAGE_NAME }}-ee:buildcache
 
   build_ee:
     runs-on: [self-hosted, new]
