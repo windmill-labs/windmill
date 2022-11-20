@@ -1,6 +1,14 @@
 # Changelog
 
 
+## [1.49.0](https://github.com/windmill-labs/windmill/compare/v1.48.2...v1.49.0) (2022-11-20)
+
+
+### Features
+
+* **go:** improve cold start of 200ms by building outside of nsjail ([838a92a](https://github.com/windmill-labs/windmill/commit/838a92a0dbb75f4e7e32a7541800cbda4808cea7))
+* **python-client:** remove unecessary imports in wmill to speed-up imports ([46fe9ad](https://github.com/windmill-labs/windmill/commit/46fe9ad52594d3a45b7917b91b37a83bc779bb1b))
+
 ## [1.48.2](https://github.com/windmill-labs/windmill/compare/v1.48.1...v1.48.2) (2022-11-19)
 
 
