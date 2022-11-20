@@ -1,6 +1,6 @@
 {
 	"name": "windmill",
-	"version": "1.48.0",
+	"version": "1.48.2",
 	"scripts": {
 		"dev": "vite dev",
 		"build": "vite build",
@@ -60,6 +60,7 @@
 	"dependencies": {
 		"@fortawesome/free-brands-svg-icons": "^6.2.0",
 		"@fortawesome/free-solid-svg-icons": "^6.2.0",
+		"@leeoniya/ufuzzy": "^0.8.0",
 		"@redocly/json-to-json-schema": "^0.0.1",
 		"async-mutex": "^0.4.0",
 		"chartjs-adapter-date-fns": "^2.0.0",
