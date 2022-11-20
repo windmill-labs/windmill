@@ -196,7 +196,7 @@ async fn copy_cache_from_bucket_as_tar(bucket: &str) -> bool {
 
     match Command::new("tar")
         .current_dir(ROOT_CACHE_DIR)
-        .arg("-xvf")
+        .arg("-xpvf")
         .arg(format!("{ROOT_CACHE_DIR}/{TAR_CACHE_FILENAME}"))
         .stdin(Stdio::null())
         .stdout(Stdio::null())
