@@ -4279,6 +4279,7 @@ dependencies = [
  "deno_core",
  "dotenv",
  "futures",
+ "git-version",
  "itertools",
  "lazy_static",
  "prometheus",
