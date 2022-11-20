@@ -59,6 +59,7 @@ async fn run_periodic_jobs(bucket: &str) {
         .arg("--size-only")
         .arg("--fast-list")
         .arg("--force")
+        .arg("--resync")
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .spawn()
