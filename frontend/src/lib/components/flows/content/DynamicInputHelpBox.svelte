@@ -3,8 +3,6 @@
 	import Icon from 'svelte-awesome'
 	import { slide } from 'svelte/transition'
 
-	export let importPath: string | undefined = undefined
-
 	$: opened = false
 </script>
 
@@ -27,37 +25,14 @@
 		role="alert"
 		id="dynamic-input-help-box"
 	>
-		<p class="font-bold">Dynamic arg help</p>
-		<p>
-			When a field is using the "Raw Javascript Editor", its value is computed dynamically as the
-			evaluation of its corresponding javascript snippet.
-		</p>
-		That snippet can be a single line:
-		<pre><code>last_result.myarg</code></pre>
-		or a multiline:
-		<pre
-			><code
-				>let x = 5;
-x + 2</code
-			></pre
-		>
+		the last line must always be the final expression.
 		<p>
 			If it is multiline, the statement before the final expression <b
 				>MUST END WITH ; and a newline</b
 			>
 		</p>
-		The snippet can also be a string template:
-		<code
-			>`Hello $&#123;params.name&#125;, all your base $&#123;previous_result.base_name&#125; belong
-			to us`</code
-		>
-		However, the last line must always be the final expression.
-		<p>
-			The snippet can use any javascript primitives, and the following flow specific objects and
-			functions:
-		</p>
 		<ul class="ml-4">
-			<li><b>result.id</b>: the result of step at id 'id'</li>
+			<li><b>{'results.<id>'}</b>: the result of step at id 'id'</li>
 			<li><b>flow_input</b>: the object containing the flow input arguments</li>
 			<li><b>params</b>: the object containing the current step static values</li>
 			<li>
@@ -68,11 +43,5 @@ x + 2</code
 				<b>resource(path)</b>: the function returning the resource at a given path as an object
 			</li>
 		</ul>
-		<p>To re-enable editor assistance, import the helper functions types using:</p>
-		<code>
-			{`import { results, flow_input, variable, resource, params } from 'windmill${
-				importPath ? `@${importPath}` : ''
-			}'`}
-		</code>
 	</div>
 {/if}

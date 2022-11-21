@@ -3,7 +3,7 @@
 	import { getContext } from 'svelte'
 	import FlowModuleSchemaItem from './FlowModuleSchemaItem.svelte'
 	import Icon from 'svelte-awesome'
-	import { faPen } from '@fortawesome/free-solid-svg-icons'
+	import { faFlagCheckered, faPen } from '@fortawesome/free-solid-svg-icons'
 
 	const { select, selectedId } = getContext<FlowEditorContext>('FlowEditorContext')
 </script>
@@ -15,8 +15,9 @@
 	selected={$selectedId === 'inputs'}
 	bold
 	label="Flow Input"
+	id={'flow_input'}
 >
 	<div slot="icon">
-		<Icon data={faPen} scale={0.8} />
+		<Icon data={faFlagCheckered} scale={0.8} />
 	</div>
 </FlowModuleSchemaItem>

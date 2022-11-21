@@ -10,17 +10,15 @@
 	import type { PropPickerWrapperContext } from './flows/propPicker/PropPickerWrapper.svelte'
 	import { codeToStaticTemplate, getDefaultExpr, isCodeInjection } from './flows/utils'
 	import SimpleEditor from './SimpleEditor.svelte'
-	import Toggle from './Toggle.svelte'
-	import { Button } from './common'
-	import Icon from 'svelte-awesome'
-	import { faChain } from '@fortawesome/free-solid-svg-icons'
+	import { Button, ToggleButton, ToggleButtonGroup } from './common'
+	import { faCode } from '@fortawesome/free-solid-svg-icons'
 
 	export let schema: Schema
 	export let arg: InputTransform | any
 	export let argName: string
 	export let extraLib: string = 'missing extraLib'
 	export let inputCheck: boolean = true
-	export let importPath: string | undefined = undefined
+	export let previousModuleId: string | undefined
 
 	export let monaco: SimpleEditor | undefined = undefined
 	let argInput: ArgInput | undefined = undefined
@@ -44,7 +42,7 @@
 		}
 
 		if (isCodeInjection(rawValue)) {
-			arg.expr = getDefaultExpr(importPath, argName, `\`${rawValue}\``)
+			arg.expr = getDefaultExpr(argName, previousModuleId, `\`${rawValue}\``)
 			arg.type = 'javascript'
 			propertyType = 'static'
 		} else {
@@ -66,13 +64,11 @@
 			arg.value = `\$\{${rawValue}}`
 			setPropertyType(arg.value)
 		} else {
-			arg.expr = getDefaultExpr(importPath, undefined, rawValue)
+			arg.expr = getDefaultExpr(undefined, previousModuleId, rawValue)
 			arg.type = 'javascript'
 			propertyType = 'javascript'
 		}
 	}
-
-	$: checked = propertyType == 'javascript'
 
 	function onFocus() {
 		if (isStaticTemplate(inputCat)) {
@@ -96,68 +92,85 @@
 </script>
 
 {#if arg != undefined}
-	<div class="flex justify-between items-center mb-2">
-		<div class="flex items-center">
-			<FieldHeader
-				label={argName}
-				format={schema.properties[argName].format}
-				contentEncoding={schema.properties[argName].contentEncoding}
-				required={schema.required.includes(argName)}
-				type={schema.properties[argName].type}
-				itemsType={schema.properties[argName].items}
-			/>
+	<div class="flex flex-row justify-between items-center gap-x-1 mb-2">
+		<div class="flex flex-row gap-4">
+			<div class="flex items-center w-full">
+				<FieldHeader
+					label={argName}
+					format={schema.properties[argName].format}
+					contentEncoding={schema.properties[argName].contentEncoding}
+					required={schema.required.includes(argName)}
+					type={schema.properties[argName].type}
+					itemsType={schema.properties[argName].items}
+				/>
 
-			{#if !checked && arg.type === 'javascript'}
-				<span class="bg-blue-100 text-blue-800 text-sm font-medium mr-2 px-2.5 py-0.5 rounded ml-2">
-					{'${...}'}
-				</span>
-			{/if}
+				{#if propertyType == 'static' && arg.type === 'javascript'}
+					<span
+						class="bg-blue-100 text-blue-800 text-sm font-medium mr-2 px-2.5 py-0.5 rounded ml-2"
+					>
+						{'${...}'}
+					</span>
+				{/if}
+			</div>
+			<div class="flex flex-col w-full gap-2">
+				<ToggleButtonGroup
+					bind:selected={propertyType}
+					on:selected={(e) => {
+						const staticTemplate = isStaticTemplate(inputCat)
+						if (e.detail === 'javascript') {
+							arg.expr = getDefaultExpr(
+								argName,
+								previousModuleId,
+								staticTemplate ? `\`${arg.value ?? ''}\`` : arg.value
+							)
+
+							arg.value = undefined
+							propertyType = 'javascript'
+							arg.type = 'javascript'
+						} else {
+							arg.value = staticTemplate ? codeToStaticTemplate(arg.expr) : undefined
+							arg.expr = undefined
+							propertyType = 'static'
+							if (!isStaticTemplate) {
+								arg.type = 'static'
+							} else {
+								setPropertyType(arg.value)
+							}
+						}
+					}}
+				>
+					{#if isStaticTemplate(inputCat)}
+						<ToggleButton position="left" value="static" size="xs">Template</ToggleButton>
+					{:else}
+						<ToggleButton position="left" value="static" size="xs">Static</ToggleButton>
+					{/if}
+
+					<ToggleButton position="right" value="javascript" startIcon={{ icon: faCode }} size="xs">
+						Dynamic (JS)
+					</ToggleButton>
+				</ToggleButtonGroup>
+				<!-- <InputsSpecEditor bind:appInputTransform={componentInputSpecs[inputSpecKey]} /> -->
+			</div>
 		</div>
 		<div class="flex flex-row space-x-4 items-center">
-			<Toggle
-				bind:checked
-				options={{
-					right: 'Raw Javascript Editor'
-				}}
-				on:change={(e) => {
-					const type = e.detail ? 'javascript' : 'static'
-					const staticTemplate = isStaticTemplate(inputCat)
-					if (type === 'javascript') {
-						arg.expr = getDefaultExpr(
-							importPath,
-							argName,
-							staticTemplate ? `\`${arg.value ?? ''}\`` : arg.value
-						)
-
-						arg.value = undefined
-						propertyType = 'javascript'
-					} else {
-						arg.value = staticTemplate ? codeToStaticTemplate(arg.expr) : undefined
-
-						arg.expr = undefined
-						propertyType = 'static'
-					}
-
-					arg.type = type
-				}}
-			/>
-
-			<Button
-				variant="contained"
-				color="blue"
-				size="sm"
-				on:click={() => {
-					focusProp(argName, 'connect', (path) => {
-						connectProperty(path)
-						return false
-					})
-				}}>Connect &rightarrow;</Button
-			>
+			<div>
+				<Button
+					variant="contained"
+					color="blue"
+					size="xs"
+					on:click={() => {
+						focusProp(argName, 'connect', (path) => {
+							connectProperty(path)
+							return false
+						})
+					}}>Connect &rightarrow;</Button
+				>
+			</div>
 		</div>
 	</div>
 	<div class="max-w-xs" />
 
-	{#if propertyType === undefined || !checked}
+	{#if propertyType === undefined || propertyType == 'static'}
 		<ArgInput
 			bind:this={argInput}
 			on:focus={onFocus}
@@ -183,30 +196,27 @@
 				}
 			}}
 		/>
-	{:else if checked}
-		{#if arg.expr != undefined}
-			<div class="border rounded p-2 mt-2 border-gray-300">
-				<SimpleEditor
-					bind:this={monaco}
-					bind:code={arg.expr}
-					{extraLib}
-					lang="javascript"
-					class="few-lines-editor"
-					extraLibPath="file:///node_modules/@types/windmill@{importPath}/index.d.ts"
-					shouldBindKey={false}
-					on:focus={() => {
-						focusProp(argName, 'insert', (path) => {
-							monaco?.insertAtCursor(path)
-							return false
-						})
-					}}
-				/>
-			</div>
-			<DynamicInputHelpBox {importPath} />
-			<div class="mb-2" />
-		{/if}
+	{:else if arg.expr != undefined}
+		<div class="border rounded p-2 mt-2 border-gray-300">
+			<SimpleEditor
+				bind:this={monaco}
+				bind:code={arg.expr}
+				{extraLib}
+				lang="javascript"
+				shouldBindKey={false}
+				on:focus={() => {
+					focusProp(argName, 'insert', (path) => {
+						monaco?.insertAtCursor(path)
+						return false
+					})
+				}}
+				autoHeight
+			/>
+		</div>
+		<DynamicInputHelpBox />
+		<div class="mb-2" />
 	{:else}
-		<p>Not recognized arg type {arg.type}</p>
+		Not recognized input type {argName}
 	{/if}
 {:else}
 	<p class="text-sm text-gray-700">Arg at {argName} is undefined</p>

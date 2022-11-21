@@ -38,8 +38,8 @@
 	export let formatAction: (() => void) | undefined = undefined
 	export let automaticLayout = true
 	export let extraLib: string = ''
-	export let extraLibPath: string = ''
 	export let shouldBindKey: boolean = true
+	export let autoHeight = false
 
 	const dispatch = createEventDispatcher()
 
@@ -96,6 +96,7 @@
 		}
 	}
 
+	let width = 0
 	async function loadMonaco() {
 		model = monaco.editor.createModel(code, lang, monaco.Uri.parse(uri))
 
@@ -115,6 +116,24 @@
 			dispatch('change')
 		})
 
+		if (autoHeight) {
+			let ignoreEvent = false
+			const updateHeight = () => {
+				const contentHeight = Math.min(1000, editor.getContentHeight())
+				if (divEl) {
+					divEl.style.height = `${contentHeight}px`
+				}
+				try {
+					ignoreEvent = true
+					editor.layout({ width, height: contentHeight })
+				} finally {
+					ignoreEvent = false
+				}
+			}
+			editor.onDidContentSizeChange(updateHeight)
+			updateHeight()
+		}
+
 		editor.onDidFocusEditorText(() => {
 			editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, function () {
 				code = getCode()
@@ -133,13 +152,15 @@
 			dispatch('blur')
 		})
 
-		if (lang == 'javascript' && extraLib != '' && extraLibPath != '') {
+		if (lang == 'javascript' && extraLib != '') {
 			monaco.languages.typescript.javascriptDefaults.setExtraLibs([
 				{
 					content: extraLib,
-					filePath: extraLibPath
+					filePath: 'windmill.d.ts'
 				}
 			])
+		} else {
+			monaco.languages.typescript.javascriptDefaults.setExtraLibs([])
 		}
 	}
 
@@ -157,7 +178,7 @@
 	})
 </script>
 
-<div bind:this={divEl} class={$$props.class} />
+<div bind:this={divEl} class={$$props.class} bind:clientWidth={width} />
 
 <style>
 	.editor {

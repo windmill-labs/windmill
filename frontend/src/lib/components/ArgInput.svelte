@@ -65,6 +65,7 @@
 	}
 
 	$: {
+		error = ''
 		if (inputCat === 'object') {
 			evalValueToRaw()
 			validateInput(pattern, value)
