@@ -176,8 +176,14 @@
 									automaticLayout={true}
 									cmdEnterAction={async () => {
 										selected = 'test'
+										if (flowModule.value.type === 'rawscript') {
+											flowModule.value.content = editor.getCode()
+										}
 										await reload(flowModule)
 										modulePreview?.runTestWithStepArgs()
+									}}
+									on:change={async (event) => {
+										await reload(flowModule)
 									}}
 									formatAction={() => reload(flowModule)}
 								/>

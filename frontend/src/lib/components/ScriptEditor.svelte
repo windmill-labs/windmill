@@ -146,6 +146,7 @@
 				bind:code
 				bind:websocketAlive
 				bind:this={editor}
+				on:change={() => inferSchema()}
 				cmdEnterAction={async () => {
 					await inferSchema()
 					runTest()

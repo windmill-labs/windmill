@@ -16,7 +16,7 @@
 	import UnsavedConfirmationModal from './common/confirmationModal/UnsavedConfirmationModal.svelte'
 	import { dirtyStore } from './common/confirmationModal/dirtyStore'
 	import { Button } from './common'
-	import { faChevronDown, faChevronUp, faPen } from '@fortawesome/free-solid-svg-icons'
+	import { faChevronDown, faChevronUp, faPen, faSave } from '@fortawesome/free-solid-svg-icons'
 	import Breadcrumb from './common/breadcrumb/Breadcrumb.svelte'
 	import Toggle from './Toggle.svelte'
 
@@ -86,11 +86,13 @@
 <UnsavedConfirmationModal />
 <div class="flex flex-col h-screen">
 	<!-- Nav between steps-->
-	<div class="flex flex-col w-full px-4 py-2 border-b shadow-sm">
-		<div class="justify-between flex flex-row w-full items-center overflow-x-auto scrollbar-hidden">
-			<div class="flex flex-row">
+	<div class="flex flex-col w-full px-2 py-1 border-b shadow-sm">
+		<div
+			class="justify-between flex flex-row w-full items-center overflow-x-auto scrollbar-hidden px-2"
+		>
+			<div class="flex flex-row py-1">
 				<Breadcrumb
-					items={['Metadata', 'Code', 'UI Customisation']}
+					items={['Metadata', 'Code', 'Advanced']}
 					selectedIndex={step}
 					on:select={(e) => changeStep(e.detail.index + 1)}
 					disabled={pathError != ''}
@@ -131,13 +133,6 @@
 			</div>
 			<div class="flex flex-row gap-x-2">
 				<Button
-					size="sm"
-					variant={step == 1 ? 'border' : 'contained'}
-					disabled={step === 1 && pathError !== ''}
-					btnClasses={step == 1 && initialPath == '' ? 'hidden sm:invisible' : ''}
-					on:click={editScript}>Save (commit)</Button
-				>
-				<Button
 					variant="border"
 					size="sm"
 					btnClasses={step == 1 ? 'hidden sm:invisible' : ''}
@@ -145,18 +140,22 @@
 				>
 					Back
 				</Button>
-				{#if step < 3}
-					<Button
-						size="sm"
-						btnClasses={step == 3 ? 'hidden sm:invisible' : ''}
-						disabled={step === 1 && pathError !== ''}
-						on:click={() => changeStep(step + 1)}
-					>
-						Next
-					</Button>
-				{:else}
-					<Button size="sm" on:click={editScript}>Save</Button>
-				{/if}
+				<Button
+					size="sm"
+					variant={step == 1 ? 'contained' : 'border'}
+					btnClasses={step == 3 ? 'invisible' : ''}
+					disabled={step === 1 && pathError !== ''}
+					on:click={() => changeStep(step + 1)}
+				>
+					Next
+				</Button>
+				<Button
+					size="sm"
+					variant={step == 1 ? 'border' : 'contained'}
+					disabled={step === 1 && pathError !== ''}
+					btnClasses={step == 1 && initialPath == '' ? 'invisible' : ''}
+					on:click={editScript}>Save</Button
+				>
 			</div>
 		</div>
 	</div>

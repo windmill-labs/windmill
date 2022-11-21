@@ -23,7 +23,7 @@
 	import Button from './common/button/Button.svelte'
 	import HighlightCode from './HighlightCode.svelte'
 	import DrawerContent from './common/drawer/DrawerContent.svelte'
-	import { Drawer } from './common'
+	import { Badge, Drawer } from './common'
 
 	export let lang: 'python3' | 'deno' | 'go' | 'bash'
 	export let editor: Editor
@@ -213,17 +213,14 @@
 <ResourceEditor bind:this={resourceEditor} on:refresh={resourcePicker.openDrawer} />
 <VariableEditor bind:this={variableEditor} on:create={variablePicker.openDrawer} />
 
-<div class="flex flex-row justify-between items-center overflow-hidden w-full">
+<div class="flex flex-row justify-between items-center overflow-hidden w-full px-1">
 	<div class="flex flex-row divide-x items-center">
 		<div class="mx-2">
-			<span
-				title={validCode
-					? 'last signature parsing was sucessful'
-					: 'last signature parsing was NOT succesful'}
-				class="relative inline-flex rounded-full h-2 w-2 {validCode
-					? 'bg-green-500/80'
-					: 'bg-red-500'}"
-			/>
+			{#if validCode}
+				<Badge color="green">Inputs</Badge>
+			{:else}
+				<Badge color="red">Inputs</Badge>
+			{/if}
 		</div>
 		<div>
 			<Button
@@ -293,9 +290,9 @@
 			</Button>
 		</div>
 	</div>
-	<div>
+	<div class="py-1">
 		<Button
-			btnClasses="ml-1 !font-medium"
+			btnClasses="!font-medium"
 			size="xs"
 			spacingSize="md"
 			color="light"
@@ -305,7 +302,7 @@
 			{#if !iconOnly}
 				Reload assistants
 			{/if}
-			<span class="ml-1">
+			<span class="ml-1 -my-1">
 				{#if lang == 'deno'}
 					(<span class={websocketAlive.deno ? 'green' : 'text-red-700'}>Deno</span>)
 				{:else if lang == 'go'}
