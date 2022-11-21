@@ -1,6 +1,19 @@
 # Changelog
 
 
+## [1.50.0](https://github.com/windmill-labs/windmill/compare/v1.49.1...v1.50.0) (2022-11-21)
+
+
+### Features
+
+* **deno,python:** get/set_shared_state ([c8266fb](https://github.com/windmill-labs/windmill/commit/c8266fb8b3262d9e9ec5698f824b2e9df716a228))
+* **frontend:** overhaul the whole flow UX ([d23e218](https://github.com/windmill-labs/windmill/commit/d23e218e1fd9b200aaa3fff12182f18e251da796))
+
+
+### Bug Fixes
+
+* **caching:** preserve permissions ([a352975](https://github.com/windmill-labs/windmill/commit/a3529759ad34db5c8234a7886aba1c3d07a644cf))
+
 ## [1.49.1](https://github.com/windmill-labs/windmill/compare/v1.49.0...v1.49.1) (2022-11-20)
 
 
