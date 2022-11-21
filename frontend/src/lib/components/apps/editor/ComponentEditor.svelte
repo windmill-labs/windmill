@@ -8,6 +8,8 @@
 	import TextComponent from '../components/common/TextComponent.svelte'
 	import type { AppComponent, AppEditorContext } from '../types'
 	import { displayData } from '../utils'
+	import ButtonComponent from '../components/common/ButtonComponent.svelte'
+	import PieChartComponent from '../components/charts/PieChartComponent.svelte'
 
 	export let component: AppComponent
 	export let selected: boolean
@@ -44,10 +46,22 @@
 			<DisplayComponent {...component} bind:staticOutputs={$staticOutputs[component.id]} />
 		{:else if component.type === 'barchartcomponent'}
 			<BarChartComponent {...component} bind:staticOutputs={$staticOutputs[component.id]} />
+		{:else if component.type === 'piechartcomponent'}
+			<PieChartComponent {...component} bind:staticOutputs={$staticOutputs[component.id]} />
 		{:else if component.type === 'tablecomponent'}
-			<TableComponent {...component} bind:staticOutputs={$staticOutputs[component.id]} />
+			<TableComponent
+				{...component}
+				bind:staticOutputs={$staticOutputs[component.id]}
+				bind:inputs={component.inputs}
+			/>
 		{:else if component.type === 'textcomponent'}
 			<TextComponent
+				{...component}
+				bind:staticOutputs={$staticOutputs[component.id]}
+				bind:componentInputs={component.componentInputs}
+			/>
+		{:else if component.type === 'buttoncomponent'}
+			<ButtonComponent
 				{...component}
 				bind:staticOutputs={$staticOutputs[component.id]}
 				bind:componentInputs={component.componentInputs}

@@ -45,7 +45,16 @@ const plainComponents = {
 		{
 			...defaultProps,
 			id: 'buttoncomponent',
-			type: 'buttoncomponent'
+			type: 'buttoncomponent',
+			componentInputs: {
+				label: {
+					type: 'static',
+					visible: true,
+					value: 'Lorem ipsum',
+					fieldType: 'textarea'
+				}
+			},
+			runnable: true
 		},
 		{
 			...defaultProps,
@@ -81,7 +90,15 @@ const chartComponents = {
 		{
 			...defaultProps,
 			id: 'piechartcomponent',
-			type: 'piechartcomponent'
+			type: 'piechartcomponent',
+			componentInputs: {
+				dataset: {
+					type: 'static',
+					visible: true,
+					value: {},
+					fieldType: 'textarea'
+				}
+			}
 		},
 		{
 			...defaultProps,
@@ -91,6 +108,30 @@ const chartComponents = {
 	] as AppComponent[]
 }
 
-const componentSets = [windmillComponents, plainComponents, chartComponents]
+const tableComponents = {
+	title: 'Table',
+	components: [
+		{
+			...defaultProps,
+			id: 'tablecomponent',
+			type: 'tablecomponent',
+			componentInputs: {
+				searchEnabled: {
+					type: 'static',
+					value: false,
+					fieldType: 'boolean'
+				},
+				paginationEnabled: {
+					type: 'static',
+					value: false,
+					fieldType: 'boolean'
+				}
+			},
+			runnable: true
+		}
+	] as AppComponent[]
+}
+
+const componentSets = [windmillComponents, plainComponents, chartComponents, tableComponents]
 
 export { componentSets }

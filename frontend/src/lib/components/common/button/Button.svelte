@@ -20,6 +20,7 @@
 	export let element: ButtonType.Element | undefined = undefined
 	export let id: string = ''
 	export let nonCaptureEvent: boolean = false
+	export let buttonType: 'button' | 'submit' | 'reset' = 'button'
 
 	let loading = false
 
@@ -70,7 +71,8 @@
 		disabled,
 		href,
 		target,
-		tabindex: disabled ? -1 : 0
+		tabindex: disabled ? -1 : 0,
+		type: buttonType
 	}
 
 	async function onClick(event: MouseEvent) {
@@ -100,10 +102,11 @@
 <svelte:element
 	this={href ? 'a' : 'button'}
 	bind:this={element}
-	on:click|stopPropagation={onClick}
+	on:click={onClick}
 	on:focus
 	on:blur
 	{...buttonProps}
+	type="submit"
 >
 	{#if loading}
 		<Icon
