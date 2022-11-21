@@ -36,7 +36,7 @@
 				<InputsSpecsEditor bind:inputSpecs={component.inputs} />
 			{/if}
 
-			{#if component.runnable}
+			{#if component.runnable && component['path'] === undefined && component['inlineScriptName'] === undefined}
 				<span class="text-sm">Select a script or a flow to continue</span>
 				<PickScript
 					kind="script"
@@ -57,7 +57,7 @@
 				/>
 			{/if}
 
-			{#if component.runnable}
+			{#if component.runnable && component['path'] === undefined && component['inlineScriptName'] === undefined}
 				{#each Object.keys($app.inlineScripts ?? {}) as inlineScriptName}
 					<Button
 						on:click={() => {
