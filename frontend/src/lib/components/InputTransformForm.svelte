@@ -92,81 +92,77 @@
 </script>
 
 {#if arg != undefined}
-	<div class="flex flex-row justify-between items-center gap-x-1 mb-2">
-		<div class="flex flex-row gap-4">
-			<div class="flex items-center w-full">
-				<FieldHeader
-					label={argName}
-					format={schema.properties[argName].format}
-					contentEncoding={schema.properties[argName].contentEncoding}
-					required={schema.required.includes(argName)}
-					type={schema.properties[argName].type}
-					itemsType={schema.properties[argName].items}
-				/>
+	<div class="flex flex-row justify-between gap-4 mb-1">
+		<div class="flex items-center grow">
+			<FieldHeader
+				label={argName}
+				format={schema.properties[argName].format}
+				contentEncoding={schema.properties[argName].contentEncoding}
+				required={schema.required.includes(argName)}
+				type={schema.properties[argName].type}
+				itemsType={schema.properties[argName].items}
+			/>
 
-				{#if propertyType == 'static' && arg.type === 'javascript'}
-					<span
-						class="bg-blue-100 text-blue-800 text-sm font-medium mr-2 px-2.5 py-0.5 rounded ml-2"
-					>
-						{'${...}'}
-					</span>
-				{/if}
-			</div>
-			<div class="flex flex-col w-full gap-2">
-				<ToggleButtonGroup
-					bind:selected={propertyType}
-					on:selected={(e) => {
-						const staticTemplate = isStaticTemplate(inputCat)
-						if (e.detail === 'javascript') {
-							arg.expr = getDefaultExpr(
-								argName,
-								previousModuleId,
-								staticTemplate ? `\`${arg.value ?? ''}\`` : arg.value
-							)
+			{#if isStaticTemplate(inputCat)}
+				<span
+					class="bg-blue-100 text-blue-800 text-sm font-medium mr-2 px-2.5 py-0.5 rounded ml-2 {propertyType ==
+						'static' && arg.type === 'javascript'
+						? 'visible'
+						: 'invisible'}"
+				>
+					{'${...}'}
+				</span>
+			{/if}
+		</div>
+		<div>
+			<ToggleButtonGroup
+				bind:selected={propertyType}
+				on:selected={(e) => {
+					const staticTemplate = isStaticTemplate(inputCat)
+					if (e.detail === 'javascript') {
+						arg.expr = getDefaultExpr(
+							argName,
+							previousModuleId,
+							staticTemplate ? `\`${arg.value ?? ''}\`` : arg.value
+						)
 
-							arg.value = undefined
-							propertyType = 'javascript'
-							arg.type = 'javascript'
+						arg.value = undefined
+						propertyType = 'javascript'
+						arg.type = 'javascript'
+					} else {
+						arg.value = staticTemplate ? codeToStaticTemplate(arg.expr) : undefined
+						arg.expr = undefined
+						propertyType = 'static'
+						if (!isStaticTemplate) {
+							arg.type = 'static'
 						} else {
-							arg.value = staticTemplate ? codeToStaticTemplate(arg.expr) : undefined
-							arg.expr = undefined
-							propertyType = 'static'
-							if (!isStaticTemplate) {
-								arg.type = 'static'
-							} else {
-								setPropertyType(arg.value)
-							}
+							setPropertyType(arg.value)
 						}
-					}}
-				>
-					{#if isStaticTemplate(inputCat)}
-						<ToggleButton position="left" value="static" size="xs">Template</ToggleButton>
-					{:else}
-						<ToggleButton position="left" value="static" size="xs">Static</ToggleButton>
-					{/if}
+					}
+				}}
+			>
+				{#if isStaticTemplate(inputCat)}
+					<ToggleButton position="left" value="static" size="xs">Template</ToggleButton>
+				{:else}
+					<ToggleButton position="left" value="static" size="xs">Static</ToggleButton>
+				{/if}
 
-					<ToggleButton position="right" value="javascript" startIcon={{ icon: faCode }} size="xs">
-						Dynamic (JS)
-					</ToggleButton>
-				</ToggleButtonGroup>
-				<!-- <InputsSpecEditor bind:appInputTransform={componentInputSpecs[inputSpecKey]} /> -->
-			</div>
+				<ToggleButton position="right" value="javascript" startIcon={{ icon: faCode }} size="xs">
+					Dynamic (JS)
+				</ToggleButton>
+			</ToggleButtonGroup>
 		</div>
-		<div class="flex flex-row space-x-4 items-center">
-			<div>
-				<Button
-					variant="contained"
-					color="blue"
-					size="xs"
-					on:click={() => {
-						focusProp(argName, 'connect', (path) => {
-							connectProperty(path)
-							return false
-						})
-					}}>Connect &rightarrow;</Button
-				>
-			</div>
-		</div>
+		<Button
+			variant="contained"
+			color="blue"
+			size="xs"
+			on:click={() => {
+				focusProp(argName, 'connect', (path) => {
+					connectProperty(path)
+					return false
+				})
+			}}>Connect &rightarrow;</Button
+		>
 	</div>
 	<div class="max-w-xs" />
 
