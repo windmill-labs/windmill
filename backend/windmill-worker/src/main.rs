@@ -51,6 +51,16 @@ async fn main() -> anyhow::Result<()> {
         .transpose()?
         .flatten();
 
+    let profiling_addr: Option<SocketAddr> = std::env::var("PROFILING_ADDR")
+        .ok()
+        .map(|s| {
+            s.parse::<bool>()
+                .map(|b| b.then(|| SocketAddr::from(([0, 0, 0, 0], 4001))))
+                .or_else(|_| s.parse::<SocketAddr>().map(Some))
+        })
+        .transpose()?
+        .flatten();
+
     let (tx, rx) = tokio::sync::broadcast::channel::<()>(3);
     let shutdown_signal = windmill_common::shutdown_signal(tx);
 
@@ -127,7 +137,16 @@ async fn main() -> anyhow::Result<()> {
         }
     };
 
-    futures::try_join!(shutdown_signal, workers_f, metrics_f)?;
+    let profiling_f = async {
+        match profiling_addr {
+            Some(addr) => windmill_common::serve_profiling(addr, rx.resubscribe())
+                .await
+                .map_err(anyhow::Error::from),
+            None => Ok(()),
+        }
+    };
+
+    futures::try_join!(shutdown_signal, workers_f, metrics_f, profiling_f)?;
 
     Ok(())
 }

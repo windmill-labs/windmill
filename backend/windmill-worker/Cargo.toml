@@ -21,6 +21,7 @@ windmill-common = { workspace = true, features = [
     "sqlx",
     "prometheus",
     "tracing_init",
+    "profiling",
 ] }
 windmill-api-client.workspace = true
 windmill-parser.workspace = true

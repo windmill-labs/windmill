@@ -22,6 +22,7 @@ windmill-common = { workspace = true, features = [
     "hyper",
     "sqlx",
     "tracing_init",
+    "profiling",
 ] }
 windmill-audit.workspace = true
 windmill-parser.workspace = true

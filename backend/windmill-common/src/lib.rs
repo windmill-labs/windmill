@@ -76,6 +76,101 @@ async fn metrics() -> Result<String, Error> {
         .map_err(anyhow::Error::from)?)
 }
 
+#[cfg(feature = "profiling")]
+pub async fn serve_profiling(
+    addr: SocketAddr,
+    rx: tokio::sync::broadcast::Receiver<()>,
+) -> Result<(), hyper::Error> {
+    use bytes::Bytes;
+    use hyper::{
+        header::{CONTENT_TYPE, TRANSFER_ENCODING},
+        server::conn::AddrStream,
+        service::{make_service_fn, service_fn},
+        Version,
+    };
+    use pprof::protos::Message;
+    use std::{convert::Infallible, time::Duration};
+    use tokio::sync::mpsc::{self, UnboundedSender};
+    use tokio_stream::StreamExt;
+
+    struct StreamWriter(UnboundedSender<Bytes>);
+
+    impl std::io::Write for StreamWriter {
+        fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+            let len = buf.len();
+            self.0
+                .send(Bytes::from(buf.to_vec()))
+                .map_err(|e| std::io::Error::new(std::io::ErrorKind::BrokenPipe, e))?;
+            return Ok(len);
+        }
+
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    hyper::server::Server::bind(&addr)
+        .serve(make_service_fn(|_socket: &AddrStream| {
+            let rx = rx.resubscribe();
+            async move {
+                let rx = rx.resubscribe();
+                Ok::<_, Infallible>(service_fn(move |request| {
+                    let mut rx = rx.resubscribe();
+                    let secs = Duration::from_secs(
+                        request
+                            .uri()
+                            .query()
+                            .and_then(|e| {
+                                querystring::querify(e)
+                                    .into_iter()
+                                    .filter(|e| e.0 == "seconds")
+                                    .take(1)
+                                    .next()
+                            })
+                            .and_then(|s| s.1.parse().ok())
+                            .unwrap_or(2),
+                    );
+                    let (sender, recv) = mpsc::unbounded_channel::<Bytes>();
+                    tokio::spawn(async move {
+                        let profiler_guard = pprof::ProfilerGuardBuilder::default()
+                            .frequency(1000)
+                            .blocklist(&["libc", "libgcc", "pthread", "vdso"])
+                            .build()
+                            .unwrap();
+                        tokio::select! {
+                            _ = tokio::time::sleep(secs) => (),
+                            _ = rx.recv() => return
+                        }
+                        let report = profiler_guard.report().build().unwrap();
+                        let pprof = report.pprof().unwrap();
+                        let mut writer = StreamWriter(sender);
+                        pprof.write_to_writer(&mut writer).unwrap();
+                    });
+                    let stream = tokio_stream::wrappers::UnboundedReceiverStream::new(recv);
+                    let gzip_stream = tokio_util::io::ReaderStream::new(
+                        async_compression::tokio::bufread::GzipEncoder::new(
+                            // unfortunately "!" isn't stable & infalliable doesn't implement From<std::io::Error> so this odd typing exists
+                            tokio_util::io::StreamReader::new(
+                                stream.map(|e| Ok::<_, std::io::Error>(e)),
+                            ),
+                        ),
+                    );
+                    let r = Ok::<_, Infallible>(
+                        hyper::Response::builder()
+                            .status(200)
+                            .header(CONTENT_TYPE, "application/octet-stream")
+                            .header(TRANSFER_ENCODING, "chunked")
+                            .version(Version::HTTP_11)
+                            .body(hyper::body::Body::wrap_stream(gzip_stream))
+                            .unwrap(),
+                    );
+                    async move { r }
+                }))
+            }
+        }))
+        .await
+}
+
 #[cfg(feature = "sqlx")]
 pub async fn connect_db() -> anyhow::Result<sqlx::Pool<sqlx::Postgres>> {
     use anyhow::Context;

@@ -12,11 +12,15 @@ tokio = ["dep:tokio"]
 axum = ["dep:axum", "dep:tracing"]
 reqwest = ["dep:reqwest"]
 prometheus = ["dep:prometheus"]
-tracing_init = [
-    "dep:tracing",
-    "dep:tracing-subscriber",
+tracing_init = ["dep:tracing", "dep:tracing-subscriber"]
+profiling = [
+    "dep:pprof",
+    "dep:tokio-stream",
+    "dep:async-compression",
+    "dep:tokio-util",
+    "dep:bytes",
+    "dep:querystring",
 ]
-
 
 [lib]
 name = "windmill_common"
@@ -41,3 +45,9 @@ hyper = { workspace = true, optional = true }
 tokio = { workspace = true, optional = true }
 reqwest = { workspace = true, optional = true }
 tracing-subscriber = { workspace = true, optional = true }
+pprof = { workspace = true, optional = true, features = ["protobuf-codec"] }
+tokio-stream = { workspace = true, optional = true }
+async-compression = { workspace = true, optional = true, features = ["gzip"] }
+tokio-util = { workspace = true, optional = true }
+bytes = { workspace = true, optional = true }
+querystring = { workspace = true, optional = true }
