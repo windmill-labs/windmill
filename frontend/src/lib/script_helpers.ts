@@ -1,10 +1,12 @@
 import type { Script } from "./gen"
 
 export const PYTHON_INIT_CODE = `import os
-from wmill import *
+import wmill
+
+# You can import any package from PyPI, even if the assistant complains
 
 """
-Use Cmd/Ctrl + S to autoformat the code.
+Use Cmd/Ctrl + S to autoformat the code. Reset content in the bar to start from a clean template.
 The client is used to interact with windmill itself through its standard API.
 One can explore the methods available through autocompletion of \`wmill.XXX\`.
 """
@@ -14,27 +16,31 @@ def main(no_default: str,
          age = 42,
          obj: dict = {"even": "dicts"},
          l: list = ["or", "lists!"],
-         file_: bytes = bytes(0),
-         db: Resource["postgresql"] = "g/all/demodb"):
+         file_: bytes = bytes(0)):
     """A main function is required for the script to be able to accept arguments.
     Types are recommended."""
     print(f"Hello World and a warm welcome especially to {name}")
-    print("and its acolytes..", age, obj, l, len(file_), dtime)
+    print("and its acolytes..", age, obj, l, len(file_))
     # retrieve variables, including secrets by querying the windmill platform.
     # secret fetching is audited by windmill.
 
     try:
-      secret = get_variable("g/all/pretty_secret")
+      secret = wmill.get_variable("g/all/pretty_secret")
     except:
       secret = "No secret yet at g/all/pretty_secret!"
 
-    print(f"The env variable at \`g/all/pretty_secret\`: {secret}")
-    # interact with the windmill platform to get the version
-    version = wmill.get_version()
+    print(f"The variable at \`g/all/pretty_secret\`: {secret}")
+    
+    # Get last state of this script execution by the same trigger/user
+    last_state = wmill.get_state()
+    new_state = {"foo": 42} if last_state is None else last_state
+    new_state["foo"] += 1
+    wmill.set_state(new_state)
+
     # fetch reserved variables as environment variables
     user = os.environ.get("WM_USERNAME")
     # the return value is then parsed and can be retrieved by other scripts conveniently
-    return {"version": version, "splitted": name.split(), "user": user}
+    return {"splitted": name.split(), "user": user, "state": new_state}
 `
 export const DENO_INIT_CODE = `// reload the smart assistant on the top right if it dies to get autocompletion and syntax highlighting
 // (Ctrl+space to cache dependencies on imports hover, Ctrl+S to autoformat and parse parameters).

@@ -1,6 +1,66 @@
 # Changelog
 
 
+## [1.50.0](https://github.com/windmill-labs/windmill/compare/v1.49.1...v1.50.0) (2022-11-21)
+
+
+### Features
+
+* **deno,python:** get/set_shared_state ([c8266fb](https://github.com/windmill-labs/windmill/commit/c8266fb8b3262d9e9ec5698f824b2e9df716a228))
+* **frontend:** overhaul the whole flow UX ([d23e218](https://github.com/windmill-labs/windmill/commit/d23e218e1fd9b200aaa3fff12182f18e251da796))
+
+
+### Bug Fixes
+
+* **caching:** preserve permissions ([a352975](https://github.com/windmill-labs/windmill/commit/a3529759ad34db5c8234a7886aba1c3d07a644cf))
+
+## [1.49.1](https://github.com/windmill-labs/windmill/compare/v1.49.0...v1.49.1) (2022-11-20)
+
+
+### Bug Fixes
+
+* **caching:** add a second caching mechanism by tarring the entire cache for fast startup ([7af345e](https://github.com/windmill-labs/windmill/commit/7af345e5e57c6fbc35db9069782432664232851a))
+
+## [1.49.0](https://github.com/windmill-labs/windmill/compare/v1.48.2...v1.49.0) (2022-11-20)
+
+
+### Features
+
+* **go:** improve cold start of 200ms by building outside of nsjail ([838a92a](https://github.com/windmill-labs/windmill/commit/838a92a0dbb75f4e7e32a7541800cbda4808cea7))
+* **python-client:** remove unecessary imports in wmill to speed-up imports ([46fe9ad](https://github.com/windmill-labs/windmill/commit/46fe9ad52594d3a45b7917b91b37a83bc779bb1b))
+
+## [1.48.2](https://github.com/windmill-labs/windmill/compare/v1.48.1...v1.48.2) (2022-11-19)
+
+
+### Bug Fixes
+
+* **go-client:** support setVariable, setResource, setState, getState ([e33bd1e](https://github.com/windmill-labs/windmill/commit/e33bd1e6b25bb9e3a3fe6f2c93d8c686c200b253))
+
+## [1.48.1](https://github.com/windmill-labs/windmill/compare/v1.48.0...v1.48.1) (2022-11-19)
+
+
+### Bug Fixes
+
+* **python-client:** get_state on empty state return None ([968675d](https://github.com/windmill-labs/windmill/commit/968675d8d068b19413a8bca7d4cb80179646c114))
+
+## [1.48.0](https://github.com/windmill-labs/windmill/compare/v1.47.3...v1.48.0) (2022-11-18)
+
+
+### Features
+
+* add slack_bot token on connecting workspace to slack ([b3178d1](https://github.com/windmill-labs/windmill/commit/b3178d1b8aacfa90b8a68554a186f3b26f3190ba))
+* **backend:** sync cache features on all workers [enterprise] ([#907](https://github.com/windmill-labs/windmill/issues/907)) ([bd09884](https://github.com/windmill-labs/windmill/commit/bd09884955bbe04f41fbcce9b978a070145f23a3))
+* **python:** add Resource[resource_type] as a parsed parameter ([9d17abb](https://github.com/windmill-labs/windmill/commit/9d17abbb12463c81de325eef875161cf86449b25))
+* supercache extended to all version ([8846ca5](https://github.com/windmill-labs/windmill/commit/8846ca585699c2ec7b18b4479e895b296774ee95))
+
+
+### Bug Fixes
+
+* **backend:** saving bash script does not require dep job ([381b036](https://github.com/windmill-labs/windmill/commit/381b0368d72ad42501082c91a7c62964593ba3ad))
+* **frontend:** app editor v1 ([#908](https://github.com/windmill-labs/windmill/issues/908)) ([53a8c5e](https://github.com/windmill-labs/windmill/commit/53a8c5e04cc4f407c137b0d621003dbab1bfdc67))
+* **frontend:** Reduce the size of the separator + fix Auto scroll ([#895](https://github.com/windmill-labs/windmill/issues/895)) ([3f8295b](https://github.com/windmill-labs/windmill/commit/3f8295bb0c7d9e9c831e8dbcb7f1e8b944e45c66))
+* support flows to be triggered by slack commands ([199a11a](https://github.com/windmill-labs/windmill/commit/199a11a8cf92691a3ac5aa7ebdc3157d10677139))
+
 ## [1.47.3](https://github.com/windmill-labs/windmill/compare/v1.47.2...v1.47.3) (2022-11-15)
 
 

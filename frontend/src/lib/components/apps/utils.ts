@@ -2,6 +2,18 @@ import type { InputsSpec } from './types'
 import type { Schema } from '$lib/common'
 
 import { FlowService, ScriptService } from '$lib/gen'
+import {
+	faBarChart,
+	faCode,
+	faDisplay,
+	faFile,
+	faFileAudio,
+	faImage,
+	faMobileScreenButton,
+	faPieChart,
+	faSpellCheck,
+	faTabletButton
+} from '@fortawesome/free-solid-svg-icons'
 
 type Args = Record<string, any>
 
@@ -17,7 +29,8 @@ export function buildArgs(
 			input = {
 				type: 'static',
 				value: '',
-				visible: true
+				visible: true,
+				fieldType: 'text'
 			}
 		}
 
@@ -72,4 +85,56 @@ export function schemaToInputsSpec(schema: Schema): InputsSpec {
 		}
 		return accu
 	}, {})
+}
+
+export const displayData = {
+	displaycomponent: {
+		name: 'Result',
+		icon: faDisplay
+	},
+	runformcomponent: {
+		name: 'Script',
+		icon: faCode
+	},
+	textcomponent: {
+		name: 'Text',
+		icon: faFile
+	},
+	buttoncomponent: {
+		name: 'Button',
+		icon: faMobileScreenButton
+	},
+	imagecomponent: {
+		name: 'Image',
+		icon: faImage
+	},
+	inputcomponent: {
+		name: 'Input',
+		icon: faFileAudio
+	},
+	selectcomponent: {
+		name: 'Select',
+		icon: faSpellCheck
+	},
+	checkboxcomponent: {
+		name: 'Checkbox',
+		icon: faTabletButton
+	},
+
+	radiocomponent: {
+		name: 'Radio Button',
+		icon: faTabletButton
+	},
+	piechartcomponent: {
+		name: 'Pie chart',
+		icon: faPieChart
+	},
+	barchartcomponent: {
+		name: 'Bar chart',
+		icon: faBarChart
+	},
+	tablecomponent: {
+		name: 'Table',
+		icon: faBarChart
+	}
 }

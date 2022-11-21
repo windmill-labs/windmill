@@ -20,7 +20,7 @@
 <!-- svelte-ignore a11y-click-events-have-key-events -->
 <div
 	class={classNames(
-		value === $selected
+		$selected?.startsWith(value)
 			? 'border-b-2 border-gray-600 text-gray-800 '
 			: 'hover:border-b-2 hover:border-gray-300 text-gray-500',
 		'py-1 px-4 cursor-pointer transition-all ease-linear font-medium',

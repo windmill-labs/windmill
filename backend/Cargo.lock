@@ -481,6 +481,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "const_format"
+version = "0.2.30"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7309d9b4d3d2c0641e018d449232f2e28f1b22933c137f157d3dbc14228b8c0e"
+dependencies = [
+ "const_format_proc_macros",
+ "konst",
+]
+
+[[package]]
+name = "const_format_proc_macros"
+version = "0.2.29"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d897f47bf7270cf70d370f8f98c1abb6d2d4cf60a6845d30e05bfb90c6568650"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "unicode-xid",
+]
+
+[[package]]
 name = "convert_case"
 version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1468,6 +1489,21 @@ checksum = "49409df3e3bf0856b916e2ceaca09ee28e6871cf7d9ce97a692cacfdb2a25a47"
 dependencies = [
  "wasm-bindgen",
 ]
+
+[[package]]
+name = "konst"
+version = "0.2.19"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "330f0e13e6483b8c34885f7e6c9f19b1a7bd449c673fbb948a51c99d66ef74f4"
+dependencies = [
+ "konst_macro_rules",
+]
+
+[[package]]
+name = "konst_macro_rules"
+version = "0.2.19"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a4933f3f57a8e9d9da04db23fb153356ecaf00cbd14aee46279c33dc80925c37"
 
 [[package]]
 name = "lalrpop"
@@ -4241,7 +4277,7 @@ checksum = "712e227841d057c1ee1cd2fb22fa7e5a5461ae8e48fa2ca79ec42cfc1931183f"
 
 [[package]]
 name = "windmill"
-version = "1.47.3"
+version = "1.50.0"
 dependencies = [
  "anyhow",
  "axum",
@@ -4264,7 +4300,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-api"
-version = "1.47.3"
+version = "1.49.1"
 dependencies = [
  "anyhow",
  "argon2",
@@ -4314,7 +4350,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-api-client"
-version = "1.47.3"
+version = "1.49.1"
 dependencies = [
  "base64",
  "chrono",
@@ -4329,7 +4365,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-audit"
-version = "1.47.3"
+version = "1.49.1"
 dependencies = [
  "chrono",
  "serde",
@@ -4342,7 +4378,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-common"
-version = "1.47.3"
+version = "1.49.1"
 dependencies = [
  "anyhow",
  "async-compression",
@@ -4372,7 +4408,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser"
-version = "1.47.3"
+version = "1.49.1"
 dependencies = [
  "serde",
  "serde_json",
@@ -4380,7 +4416,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-bash"
-version = "1.47.3"
+version = "1.49.1"
 dependencies = [
  "anyhow",
  "itertools",
@@ -4394,7 +4430,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-go"
-version = "1.47.3"
+version = "1.49.1"
 dependencies = [
  "anyhow",
  "itertools",
@@ -4406,7 +4442,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-py"
-version = "1.47.3"
+version = "1.49.1"
 dependencies = [
  "anyhow",
  "itertools",
@@ -4421,7 +4457,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-ts"
-version = "1.47.3"
+version = "1.49.1"
 dependencies = [
  "anyhow",
  "deno_core",
@@ -4435,7 +4471,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-queue"
-version = "1.47.3"
+version = "1.49.1"
 dependencies = [
  "anyhow",
  "chrono",
@@ -4458,14 +4494,16 @@ dependencies = [
 
 [[package]]
 name = "windmill-worker"
-version = "1.47.3"
+version = "1.49.1"
 dependencies = [
  "anyhow",
  "async-recursion",
  "chrono",
+ "const_format",
  "deno_core",
  "dotenv",
  "futures",
+ "git-version",
  "itertools",
  "lazy_static",
  "prometheus",

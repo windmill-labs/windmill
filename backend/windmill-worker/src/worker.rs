@@ -6,11 +6,14 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
+use const_format::concatcp;
+use git_version::git_version;
 use itertools::Itertools;
 use sqlx::{Pool, Postgres, Transaction};
 use std::{borrow::Borrow, collections::HashMap, io, panic, process::Stdio, time::Duration};
 use tracing::{trace_span, Instrument};
 use uuid::Uuid;
+
 use windmill_common::{
     error::{self, to_anyhow, Error},
     flows::{FlowModuleValue, FlowValue},
@@ -35,7 +38,7 @@ use tokio::{
 
 use futures::{
     future::{self, ready, FutureExt},
-    stream::{self, StreamExt},
+    stream, StreamExt,
 };
 
 use async_recursion::async_recursion;
@@ -46,6 +49,178 @@ use crate::{
         handle_flow, update_flow_status_after_job_completion, update_flow_status_in_progress,
     },
 };
+
+#[cfg(feature = "enterprise")]
+use rand::Rng;
+
+#[cfg(feature = "enterprise")]
+const TAR_CACHE_FILENAME: &str = "entirecache.tar";
+
+#[cfg(feature = "enterprise")]
+async fn copy_cache_from_bucket(bucket: &str) {
+    tracing::info!("Copying cache from bucket {bucket}");
+    let elapsed = Instant::now();
+
+    match Command::new("rclone")
+        .arg("copy")
+        .arg(format!(":s3,env_auth=true:{bucket}"))
+        .arg(ROOT_CACHE_DIR)
+        .arg("--size-only")
+        .arg("--fast-list")
+        .arg("--exclude")
+        .arg(format!("\"{TAR_CACHE_FILENAME}\""))
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .spawn()
+    {
+        Ok(mut h) => {
+            h.wait().await.unwrap();
+        }
+        Err(e) => tracing::warn!("Failed to run periodic job pull. Error: {:?}", e),
+    }
+    tracing::info!(
+        "Finished copying cache from bucket {bucket}, took {:?}s",
+        elapsed.elapsed().as_secs()
+    );
+
+    for x in [PIP_CACHE_DIR, DENO_CACHE_DIR, GO_CACHE_DIR] {
+        DirBuilder::new()
+            .recursive(true)
+            .create(x)
+            .await
+            .expect("could not create initial worker dir");
+    }
+}
+
+#[cfg(feature = "enterprise")]
+async fn copy_cache_to_bucket(bucket: &str) {
+    tracing::info!("Copying cache to bucket {bucket}");
+    let elapsed = Instant::now();
+    match Command::new("rclone")
+        .arg("copy")
+        .arg(ROOT_CACHE_DIR)
+        .arg(format!(":s3,env_auth=true:{bucket}"))
+        .arg("--size-only")
+        .arg("--fast-list")
+        .arg("--exclude")
+        .arg(format!("\"{TAR_CACHE_FILENAME}\""))
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .spawn()
+    {
+        Ok(mut h) => {
+            h.wait().await.unwrap();
+        }
+        Err(e) => tracing::warn!("Failed to run periodic job push. Error: {:?}", e),
+    }
+    tracing::info!(
+        "Finished copying cache to bucket {bucket}, took: {:?}s",
+        elapsed.elapsed().as_secs()
+    );
+}
+
+#[cfg(feature = "enterprise")]
+async fn copy_cache_to_bucket_as_tar(bucket: &str) {
+    tracing::info!("Copying cache to bucket {bucket} as tar");
+    let elapsed = Instant::now();
+
+    match Command::new("tar")
+        .current_dir(ROOT_CACHE_DIR)
+        .arg("-c")
+        .arg("-f")
+        .arg(format!("{ROOT_CACHE_DIR}/{TAR_CACHE_FILENAME}"))
+        .args(&["pip", "go", "deno"])
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .spawn()
+    {
+        Ok(mut h) => {
+            if !h.wait().await.unwrap().success() {
+                tracing::warn!("Failed to tar cache");
+                return;
+            }
+        }
+        Err(e) => {
+            tracing::warn!("Failed tar cache. Error: {e:?}");
+            return;
+        }
+    }
+
+    match Command::new("rclone")
+        .current_dir(ROOT_CACHE_DIR)
+        .arg("copyto")
+        .arg(TAR_CACHE_FILENAME)
+        .arg(format!(":s3,env_auth=true:{bucket}/{TAR_CACHE_FILENAME}"))
+        .arg("--size-only")
+        .arg("--fast-list")
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .spawn()
+    {
+        Ok(mut h) => {
+            h.wait().await.unwrap();
+        }
+        Err(e) => tracing::warn!("Failed to copying tar cache to bucket. Error: {:?}", e),
+    }
+    tracing::info!(
+        "Finished copying cache to bucket {bucket} as tar, took: {:?}s",
+        elapsed.elapsed().as_secs()
+    );
+}
+
+#[cfg(feature = "enterprise")]
+async fn copy_cache_from_bucket_as_tar(bucket: &str) -> bool {
+    tracing::info!("Copying cache from bucket {bucket} as tar");
+    let elapsed = Instant::now();
+
+    match Command::new("rclone")
+        .arg("copyto")
+        .arg(format!(":s3,env_auth=true:{bucket}/{TAR_CACHE_FILENAME}"))
+        .arg(format!("{ROOT_CACHE_DIR}/{TAR_CACHE_FILENAME}"))
+        .arg("--size-only")
+        .arg("--fast-list")
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .spawn()
+    {
+        Ok(mut h) => {
+            if !h.wait().await.unwrap().success() {
+                tracing::warn!("Failed to download tar cache");
+                return false;
+            }
+        }
+        Err(e) => {
+            tracing::warn!("Failed to download tar cache. Error: {e:?}");
+            return false;
+        }
+    }
+
+    match Command::new("tar")
+        .current_dir(ROOT_CACHE_DIR)
+        .arg("-xpvf")
+        .arg(format!("{ROOT_CACHE_DIR}/{TAR_CACHE_FILENAME}"))
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .spawn()
+    {
+        Ok(mut h) => {
+            if !h.wait().await.unwrap().success() {
+                tracing::warn!("Failed to untar cache");
+                return false;
+            }
+        }
+        Err(e) => {
+            tracing::warn!("Failed untar cache. Error: {e:?}");
+            return false;
+        }
+    }
+
+    tracing::info!(
+        "Finished copying cache from bucket {bucket} as tar, took: {:?}s",
+        elapsed.elapsed().as_secs()
+    );
+    return true;
+}
 
 #[tracing::instrument(level = "trace", skip_all)]
 pub async fn create_token_for_owner<'c>(
@@ -109,31 +284,12 @@ pub async fn create_token_for_owner<'c>(
 }
 
 const TMP_DIR: &str = "/tmp/windmill";
-const PIP_SUPERCACHE_DIR: &str = "/tmp/windmill/cache/pip_permanent";
-const PIP_CACHE_DIR: &str = "/tmp/windmill/cache/pip";
-const DENO_CACHE_DIR: &str = "/tmp/windmill/cache/deno";
-const GO_CACHE_DIR: &str = "/tmp/windmill/cache/go";
+const ROOT_CACHE_DIR: &str = "/tmp/windmill/cache/";
+const PIP_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "pip");
+const DENO_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "deno");
+const GO_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "go");
 const NUM_SECS_ENV_CHECK: u64 = 15;
-const DEFAULT_HEAVY_DEPS: [&str; 18] = [
-    "numpy",
-    "pandas",
-    "anyio",
-    "attrs",
-    "certifi",
-    "h11",
-    "httpcore",
-    "httpx",
-    "idna",
-    "python-dateutil",
-    "rfc3986",
-    "six",
-    "sniffio",
-    "windmill-api",
-    "wmill",
-    "psycopg2-binary",
-    "matplotlib",
-    "seaborn",
-];
+const NUM_SECS_SYNC: u64 = 60 * 10;
 
 const INCLUDE_DEPS_PY_SH_CONTENT: &str = include_str!("../nsjail/download_deps.py.sh");
 const NSJAIL_CONFIG_DOWNLOAD_PY_CONTENT: &str = include_str!("../nsjail/download.py.config.proto");
@@ -144,6 +300,7 @@ const NSJAIL_CONFIG_RUN_BASH_CONTENT: &str = include_str!("../nsjail/run.bash.co
 const NSJAIL_CONFIG_RUN_DENO_CONTENT: &str = include_str!("../nsjail/run.deno.config.proto");
 const MAX_LOG_SIZE: u32 = 200000;
 const GO_REQ_SPLITTER: &str = "//go.sum";
+const GIT_VERSION: &str = git_version!(args = ["--tag", "--always"], fallback = "unknown-version");
 
 #[derive(Clone)]
 pub struct Metrics {
@@ -192,20 +349,16 @@ pub async fn run_worker(
     ip: &str,
     sleep_queue: u64,
     worker_config: WorkerConfig,
+    sync_bucket: Option<String>,
     mut rx: tokio::sync::broadcast::Receiver<()>,
 ) {
+    tracing::info!("Starting worker {worker_instance} {worker_name}, version: {GIT_VERSION}");
     let start_time = Instant::now();
 
     let worker_dir = format!("{TMP_DIR}/{worker_name}");
     tracing::debug!(worker_dir = %worker_dir, worker_name = %worker_name, "Creating worker dir");
 
-    for x in [
-        &worker_dir,
-        PIP_SUPERCACHE_DIR,
-        PIP_CACHE_DIR,
-        DENO_CACHE_DIR,
-        GO_CACHE_DIR,
-    ] {
+    for x in [&worker_dir, PIP_CACHE_DIR, DENO_CACHE_DIR, GO_CACHE_DIR] {
         DirBuilder::new()
             .recursive(true)
             .create(x)
@@ -220,7 +373,7 @@ pub async fn run_worker(
     )
     .await;
 
-    let mut last_ping = Instant::now() - Duration::from_secs(NUM_SECS_ENV_CHECK + 1);
+    let mut last_ping = Instant::now() - Duration::from_secs(NUM_SECS_SYNC + 1);
 
     insert_initial_ping(worker_instance, &worker_name, ip, db).await;
 
@@ -264,20 +417,23 @@ pub async fn run_worker(
     let go_path = std::env::var("GO_PATH").unwrap_or_else(|_| "/usr/bin/go".to_string());
     let python_path =
         std::env::var("PYTHON_PATH").unwrap_or_else(|_| "/usr/local/bin/python3".to_string());
-    let python_heavy_deps = std::env::var("PYTHON_HEAVY_DEPS")
-        .map(|x| x.split(',').map(|x| x.to_string()).collect::<Vec<_>>())
-        .unwrap_or_else(|_| vec![]);
     let nsjail_path = std::env::var("NSJAIL_PATH").unwrap_or_else(|_| "nsjail".to_string());
     let path_env = std::env::var("PATH").unwrap_or_else(|_| String::new());
     let home_env = std::env::var("HOME").unwrap_or_else(|_| String::new());
     let pip_index_url = std::env::var("PIP_INDEX_URL").ok();
     let pip_extra_index_url = std::env::var("PIP_EXTRA_INDEX_URL").ok();
     let pip_trusted_host = std::env::var("PIP_TRUSTED_HOST").ok();
+
+    #[cfg(feature = "enterprise")]
+    let tar_cache_rate = std::env::var("TAR_CACHE_RATE")
+        .ok()
+        .and_then(|x| x.parse::<i32>().ok())
+        .unwrap_or(100);
+
     let envs = Envs {
         deno_path,
         go_path,
         python_path,
-        python_heavy_deps,
         nsjail_path,
         path_env,
         home_env,
@@ -286,6 +442,19 @@ pub async fn run_worker(
         pip_trusted_host,
     };
     WORKER_STARTED.inc();
+
+    #[cfg(feature = "enterprise")]
+    if let Some(ref s) = sync_bucket.clone() {
+        // We try to download the entire cache as a tar, it is much faster over S3
+        if !copy_cache_from_bucket_as_tar(&s).await {
+            // We revert to copying the cache from the bucket
+            copy_cache_from_bucket(&s).await;
+        }
+    }
+
+    #[cfg(feature = "enterprise")]
+    let mut last_sync =
+        Instant::now() + Duration.from_secs(rand::thread_rng().gen_range(0..NUM_SECS_SYNC));
 
     let (same_worker_tx, mut same_worker_rx) = mpsc::channel::<Uuid>(5);
 
@@ -307,6 +476,18 @@ pub async fn run_worker(
                 .expect("update worker ping");
 
                 last_ping = Instant::now();
+            }
+
+            #[cfg(feature = "enterprise")]
+            if last_sync.elapsed().as_secs() > NUM_SECS_SYNC {
+                if let Some(ref s) = sync_bucket.clone() {
+                    copy_cache_from_bucket(&s).await;
+                    copy_cache_to_bucket(&s).await;
+                    if rand::thread_rng().gen_range(0..tar_cache_rate) == 1 {
+                        copy_cache_to_bucket_as_tar(&s).await;
+                    }
+                }
+                last_sync = Instant::now();
             }
 
             let (do_break, next_job) = async {
@@ -548,7 +729,6 @@ struct Envs {
     deno_path: String,
     go_path: String,
     python_path: String,
-    python_heavy_deps: Vec<String>,
     nsjail_path: String,
     path_env: String,
     home_env: String,
@@ -847,8 +1027,17 @@ mount {{
             ))?,
         )
     } else {
-        "".to_string()
+        r#"
+mount {
+    dst: "/shared"
+    fstype: "tmpfs"
+    rw: true
+    options: "size=500000000"
+}
+        "#
+        .to_string()
     };
+
     let result: error::Result<serde_json::Value> = match language {
         None => {
             return Err(Error::ExecutionErr(
@@ -1086,6 +1275,18 @@ func Run(req Req) (interface{{}}, error){{
                 .replace("{SHARED_MOUNT}", shared_mount),
         )
         .await?;
+        let build_go = Command::new(go_path)
+            .current_dir(job_dir)
+            .env_clear()
+            .env("PATH", path_env)
+            .env("BASE_INTERNAL_URL", base_internal_url)
+            .env("GOPATH", GO_CACHE_DIR)
+            .env("HOME", home_env)
+            .args(vec!["build", "main.go"])
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()?;
+        handle_child(&job.id, db, logs, timeout, build_go).await?;
 
         Command::new(nsjail_path)
             .current_dir(job_dir)
@@ -1093,14 +1294,7 @@ func Run(req Req) (interface{{}}, error){{
             .envs(reserved_variables)
             .env("PATH", path_env)
             .env("BASE_INTERNAL_URL", base_internal_url)
-            .args(vec![
-                "--config",
-                "run.config.proto",
-                "--",
-                go_path,
-                "run",
-                "main.go",
-            ])
+            .args(vec!["--config", "run.config.proto", "--", "/tmp/go/main"])
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .spawn()?
@@ -1361,7 +1555,6 @@ async fn handle_python_job(
     envs @ Envs {
         nsjail_path,
         python_path,
-        python_heavy_deps,
         path_env,
         pip_extra_index_url,
         pip_index_url,
@@ -1407,25 +1600,12 @@ async fn handle_python_job(
                 job_dir,
                 "download.config.proto",
                 &NSJAIL_CONFIG_DOWNLOAD_PY_CONTENT
-                    .replace("{JOB_DIR}", job_dir)
                     .replace("{WORKER_DIR}", &worker_dir)
                     .replace("{CACHE_DIR}", PIP_CACHE_DIR)
                     .replace("{CLONE_NEWUSER}", &(!disable_nuser).to_string()),
             )
             .await?;
         }
-
-        let mut heavy_deps = DEFAULT_HEAVY_DEPS
-            .iter()
-            .map(|s| s.to_string())
-            .collect::<Vec<String>>();
-        heavy_deps.extend(python_heavy_deps.into_iter().map(|s| s.to_string()));
-
-        let (heavy, regular): (Vec<&str>, Vec<&str>) = requirements
-            .split("\n")
-            .partition(|d| heavy_deps.iter().any(|hd| d.starts_with(hd)));
-
-        let _ = write_file(job_dir, "requirements.txt", &regular.join("\n")).await?;
 
         let mut vars = vec![("PATH", path_env)];
         if let Some(url) = pip_extra_index_url {
@@ -1438,80 +1618,20 @@ async fn handle_python_job(
             vars.push(("TRUSTED_HOST", host));
         }
 
-        if heavy.len() > 0 {
-            logs.push_str(&format!(
-                "\nheavy deps detected, using supercache for: {heavy:?}"
-            ));
-            additional_python_paths =
-                handle_python_heavy_reqs(python_path, heavy, vars.clone(), job, logs, db, timeout)
-                    .await?;
-        }
-
-        if regular.len() > 0 {
-            tracing::info!(
-                worker_name = %worker_name,
-                job_id = %job.id,
-                workspace_id = %job.workspace_id,
-                "started setup python dependencies"
-            );
-
-            let child = if !disable_nsjail {
-                Command::new(nsjail_path)
-                    .current_dir(job_dir)
-                    .env_clear()
-                    .envs(vars)
-                    .args(vec!["--config", "download.config.proto"])
-                    .stdout(Stdio::piped())
-                    .stderr(Stdio::piped())
-                    .spawn()?
-            } else {
-                let mut args = vec![
-                    "-m",
-                    "pip",
-                    "install",
-                    "--no-deps",
-                    "--no-color",
-                    "--isolated",
-                    "--no-warn-conflicts",
-                    "--disable-pip-version-check",
-                    "-t",
-                    "./dependencies",
-                    "-r",
-                    "./requirements.txt",
-                ];
-                if let Some(url) = pip_extra_index_url {
-                    args.extend(["--extra-index-url", url]);
-                }
-                if let Some(url) = pip_index_url {
-                    args.extend(["--index-url", url]);
-                }
-                if let Some(host) = pip_trusted_host {
-                    args.extend(["--trusted-host", host]);
-                }
-                Command::new(python_path)
-                    .current_dir(job_dir)
-                    .env_clear()
-                    .envs(vars)
-                    .args(args)
-                    .stdout(Stdio::piped())
-                    .stderr(Stdio::piped())
-                    .spawn()?
-            };
-
-            logs.push_str("\n--- PIP DEPENDENCIES INSTALL ---\n");
-            let child = handle_child(&job.id, db, logs, timeout, child).await;
-            tracing::info!(
-                worker_name = %worker_name,
-                job_id = %job.id,
-                workspace_id = %job.workspace_id,
-                is_ok = child.is_ok(),
-                "finished setting up python dependencies {}",
-                job.id
-            );
-            child?;
-        } else {
-            logs.push_str("\nskipping pip install since not needed");
-        };
+        additional_python_paths = handle_python_reqs(
+            python_path,
+            requirements.split("\n").collect(),
+            vars.clone(),
+            job,
+            logs,
+            db,
+            timeout,
+            nsjail_path,
+            disable_nsjail.clone(),
+            worker_name,
+            job_dir,
+        )
+        .await?;
     }
     logs.push_str("\n\n--- PYTHON CODE EXECUTION ---\n");
 
@@ -1568,10 +1688,7 @@ with open("result.json", 'w') as f:
     write_file(job_dir, "main.py", &wrapper_content).await?;
 
     let mut reserved_variables = get_reserved_variables(job, &token, &base_url, db).await?;
-    let additional_python_paths_folders = additional_python_paths
-        .iter()
-        .map(|x| format!(":{x}"))
-        .join("");
+    let additional_python_paths_folders = additional_python_paths.iter().join(":");
     if !disable_nsjail {
         let shared_deps = additional_python_paths
             .into_iter()
@@ -1603,10 +1720,7 @@ mount {{
         )
         .await?;
     } else {
-        reserved_variables.insert(
-            "PYTHONPATH".to_string(),
-            format!("{job_dir}/dependencies{additional_python_paths_folders}"),
-        );
+        reserved_variables.insert("PYTHONPATH".to_string(), additional_python_paths_folders);
     }
 
     tracing::info!(
@@ -1898,10 +2012,10 @@ async fn pip_compile(
     db: &Pool<Postgres>,
     timeout: i32,
 ) -> error::Result<String> {
-    logs.push_str(&format!("content of requirements:\n{}\n", requirements));
+    logs.push_str(&format!("\ncontent of requirements:\n{}", requirements));
     let file = "requirements.in";
     write_file(job_dir, file, &requirements).await?;
-    let mut args = vec!["-q", "--no-header", file];
+    let mut args = vec!["-q", "--no-header", file, "--resolver=backtracking"];
     if let Some(url) = pip_extra_index_url {
         args.extend(["--extra-index-url", url]);
     }
@@ -2463,50 +2577,84 @@ async fn handle_zombie_jobs(db: &Pool<Postgres>, timeout: i32, base_url: &str) {
     }
 }
 
-async fn handle_python_heavy_reqs(
+async fn handle_python_reqs(
     python_path: &String,
-    heavy_requirements: Vec<&str>,
+    requirements: Vec<&str>,
     vars: Vec<(&str, &String)>,
     job: &QueuedJob,
     logs: &mut String,
     db: &sqlx::Pool<sqlx::Postgres>,
     timeout: i32,
+    nsjail_path: &str,
+    disable_nsjail: bool,
+    worker_name: &str,
+    job_dir: &str,
 ) -> error::Result<Vec<String>> {
     let mut req_paths: Vec<String> = vec![];
-    for req in heavy_requirements {
+    for req in requirements {
         // todo: handle many reqs
-        let venv_p = format!("{PIP_SUPERCACHE_DIR}/{req}");
+        let venv_p = format!("{PIP_CACHE_DIR}/{req}");
         if metadata(&venv_p).await.is_ok() {
-            tracing::info!("already exists: {:?}", &venv_p);
             req_paths.push(venv_p);
             continue;
         }
 
-        logs.push_str("\n--- PIP SUPERCACHE INSTALL ---\n");
-        logs.push_str(&format!("\nthe heavy dependency {req} is being installed for the first time.\nIt will take a bit longer but further execution will be much faster!"));
+        logs.push_str("\n--- PIP INSTALL ---\n");
+        logs.push_str(&format!("\n{req} is being installed for the first time.\n It will be cached for all ulterior uses."));
 
-        logs.push_str("pip install\n");
-        let child = Command::new(python_path)
-            .env_clear()
-            .envs(vars.clone())
-            .args(vec![
-                "-m",
-                "pip",
-                "install",
-                &req,
-                "-I",
-                "--no-deps",
-                "--no-color",
-                "--isolated",
-                "--no-warn-conflicts",
-                "--disable-pip-version-check",
-                "-t",
-                venv_p.as_str(),
-            ])
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()?;
-        handle_child(&job.id, db, logs, timeout, child).await?;
+        tracing::info!(
+            worker_name = %worker_name,
+            job_id = %job.id,
+            workspace_id = %job.workspace_id,
+            "started setup python dependencies"
+        );
+
+        let child = if !disable_nsjail {
+            let mut vars = vars.clone();
+            let req = req.to_string();
+            vars.push(("REQ", &req));
+            vars.push(("TARGET", &venv_p));
+            Command::new(nsjail_path)
+                .current_dir(job_dir)
+                .env_clear()
+                .envs(vars)
+                .args(vec!["--config", "download.config.proto"])
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped())
+                .spawn()?
+        } else {
+            Command::new(python_path)
+                .env_clear()
+                .envs(vars.clone())
+                .args(vec![
+                    "-m",
+                    "pip",
+                    "install",
+                    &req,
+                    "-I",
+                    "--no-deps",
+                    "--no-color",
+                    "--isolated",
+                    "--no-warn-conflicts",
+                    "--disable-pip-version-check",
+                    "-t",
+                    venv_p.as_str(),
+                ])
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped())
+                .spawn()?
+        };
+
+        let child = handle_child(&job.id, db, logs, timeout, child).await;
+        tracing::info!(
+            worker_name = %worker_name,
+            job_id = %job.id,
+            workspace_id = %job.workspace_id,
+            is_ok = child.is_ok(),
+            "finished setting up python dependencies {}",
+            job.id
+        );
+        child?;
 
         req_paths.push(venv_p);
     }

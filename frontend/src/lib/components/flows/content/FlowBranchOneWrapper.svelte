@@ -22,16 +22,16 @@
 	const { previewArgs } = getContext<FlowEditorContext>('FlowEditorContext')
 	let editor: SimpleEditor | undefined = undefined
 
-	$: pickableProperties = getStepPropPicker(
+	$: stepPropPicker = getStepPropPicker(
 		$flowStateStore,
 		parentModule,
 		previousModule,
 		parentModule.id,
 		$flowStore,
-		previewArgs,
+		$previewArgs,
 		false,
 		true
-	).pickableProperties
+	)
 </script>
 
 <div class="h-full flex flex-col">
@@ -47,7 +47,7 @@
 						<div class="border w-full">
 							<PropPickerWrapper
 								notSelectable
-								{pickableProperties}
+								pickableProperties={stepPropPicker.pickableProperties}
 								on:select={({ detail }) => {
 									editor?.insertAtCursor(detail)
 								}}
@@ -58,6 +58,7 @@
 									bind:code={branch.expr}
 									class="small-editor"
 									shouldBindKey={false}
+									extraLib={stepPropPicker.extraLib}
 								/>
 							</PropPickerWrapper>
 						</div>

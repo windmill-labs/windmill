@@ -1,6 +1,6 @@
 [package]
 name = "windmill"
-version = "1.47.3"
+version = "1.50.0"
 authors.workspace = true
 edition.workspace = true
 
@@ -19,13 +19,16 @@ members = [
 ]
 
 [workspace.package]
-version = "1.47.3"
+version = "1.50.0"
 authors = ["Ruben Fiszel <ruben@windmill.dev>"]
 edition = "2021"
 
 [[bin]]
 name = "windmill"
 path = "./src/main.rs"
+
+[features]
+enterprise = ["windmill-worker/enterprise"]
 
 [dependencies]
 anyhow.workspace = true
@@ -139,3 +142,4 @@ tokio-stream = "0.1.11"
 async-compression = { version = "0.3.15", features = ["tokio"] }
 bytes = "1.2.1"
 querystring = "1.1.0"
+const_format = { version = "0.2", features = ["rust_1_64", "rust_1_51"] }

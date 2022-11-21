@@ -24,7 +24,7 @@
 			<Icon data={faClose} />
 		</Button>
 		<span class="font-bold truncate">{title}</span>
-		<div class="flex flex-row">
+		<div class="flex flex-row m-1">
 			{#if $$slots.submission}
 				<slot name="submission" class="sticky" />
 			{/if}

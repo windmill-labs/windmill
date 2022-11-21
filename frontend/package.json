@@ -1,6 +1,6 @@
 {
 	"name": "windmill",
-	"version": "1.47.3",
+	"version": "1.50.0",
 	"scripts": {
 		"dev": "vite dev",
 		"build": "vite build",
@@ -42,6 +42,7 @@
 		"svelte-awesome": "^3.0.0",
 		"svelte-check": "^2.9.2",
 		"svelte-dnd-action": "^0.9.21",
+		"svelte-grid": "^5.1.1",
 		"svelte-heros": "^2.3.5",
 		"svelte-highlight": "^6.2.1",
 		"svelte-markdown": "^0.2.3",
@@ -59,6 +60,7 @@
 	"dependencies": {
 		"@fortawesome/free-brands-svg-icons": "^6.2.0",
 		"@fortawesome/free-solid-svg-icons": "^6.2.0",
+		"@leeoniya/ufuzzy": "^0.8.0",
 		"@redocly/json-to-json-schema": "^0.0.1",
 		"async-mutex": "^0.4.0",
 		"chartjs-adapter-date-fns": "^2.0.0",

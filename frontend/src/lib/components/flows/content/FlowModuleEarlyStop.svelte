@@ -63,6 +63,7 @@
 						lang="javascript"
 						bind:code={flowModule.stop_after_if.expr}
 						class="small-editor"
+						extraLib={`declare const result = ${JSON.stringify(result)};`}
 					/>
 				</PropPickerWrapper>
 			</div>

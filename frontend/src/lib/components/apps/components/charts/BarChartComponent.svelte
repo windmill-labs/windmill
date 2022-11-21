@@ -2,7 +2,7 @@
 	import type { Schema } from '$lib/common'
 	import { emptySchema } from '$lib/utils'
 	import { getContext } from 'svelte'
-	import type { AppEditorContext } from '../types'
+	import type { AppEditorContext } from '../../types'
 	import { Bar } from 'svelte-chartjs'
 
 	import {

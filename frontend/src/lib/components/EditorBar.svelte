@@ -10,6 +10,7 @@
 		faCode,
 		faCube,
 		faDollarSign,
+		faEye,
 		faRotate,
 		faRotateLeft,
 		faWallet
@@ -23,7 +24,7 @@
 	import Button from './common/button/Button.svelte'
 	import HighlightCode from './HighlightCode.svelte'
 	import DrawerContent from './common/drawer/DrawerContent.svelte'
-	import { Drawer } from './common'
+	import { Badge, Drawer } from './common'
 
 	export let lang: 'python3' | 'deno' | 'go' | 'bash'
 	export let editor: Editor
@@ -54,9 +55,7 @@
 	$: editor && addEditorActions()
 
 	async function loadVariables() {
-		return (await VariableService.listVariable({ workspace: $workspaceStore ?? '' })).map((x) => {
-			return { name: x.path, ...x }
-		})
+		return await VariableService.listVariable({ workspace: $workspaceStore ?? '' })
 	}
 
 	async function loadContextualVariables() {
@@ -147,13 +146,10 @@
 		sendUserToast(`${name} inserted at cursor`)
 	}}
 	itemName="Variable"
-	extraField="name"
+	extraField="path"
 	loadItems={loadVariables}
 >
 	<div slot="submission" class="flex flex-row">
-		<div class="text-xs mr-2 align-middle">
-			The variable you were looking for does not exist yet?
-		</div>
 		<Button
 			variant="border"
 			color="blue"
@@ -193,7 +189,8 @@
 		sendUserToast(`${path} inserted at cursor`)
 	}}
 	itemName="Resource"
-	extraField="resource_type"
+	buttons={{ edit: (x) => resourceEditor.initEdit(x) }}
+	extraField="description"
 	loadItems={async () =>
 		await ResourceService.listResource({ workspace: $workspaceStore ?? 'NO_W' })}
 >
@@ -217,17 +214,14 @@
 <ResourceEditor bind:this={resourceEditor} on:refresh={resourcePicker.openDrawer} />
 <VariableEditor bind:this={variableEditor} on:create={variablePicker.openDrawer} />
 
-<div class="flex flex-row justify-between items-center overflow-hidden w-full">
+<div class="flex flex-row justify-between items-center overflow-hidden w-full px-1">
 	<div class="flex flex-row divide-x items-center">
 		<div class="mx-2">
-			<span
-				title={validCode
-					? 'last signature parsing was sucessful'
-					: 'last signature parsing was succesful'}
-				class="relative inline-flex rounded-full h-2 w-2 {validCode
-					? 'bg-green-500/80'
-					: 'bg-red-500'}"
-			/>
+			{#if validCode}
+				<Badge color="green">Inputs</Badge>
+			{:else}
+				<Badge color="red">Inputs</Badge>
+			{/if}
 		</div>
 		<div>
 			<Button
@@ -239,7 +233,7 @@
 				startIcon={{ icon: faDollarSign }}
 				{iconOnly}
 			>
-				+Contextual Variable
+				+Context Var
 			</Button>
 		</div>
 		<div>
@@ -252,7 +246,7 @@
 				startIcon={{ icon: faWallet }}
 				{iconOnly}
 			>
-				+Variable
+				+Var
 			</Button>
 		</div>
 		<div>
@@ -277,9 +271,9 @@
 				color="light"
 				on:click={scriptPicker.openDrawer}
 				{iconOnly}
-				startIcon={{ icon: faCode }}
+				startIcon={{ icon: faEye }}
 			>
-				View Script
+				Script
 			</Button>
 		</div>
 
@@ -293,13 +287,13 @@
 				{iconOnly}
 				startIcon={{ icon: faRotateLeft }}
 			>
-				Reset content
+				Reset
 			</Button>
 		</div>
 	</div>
-	<div>
+	<div class="py-1">
 		<Button
-			btnClasses="ml-1 !font-medium"
+			btnClasses="!font-medium"
 			size="xs"
 			spacingSize="md"
 			color="light"
@@ -307,9 +301,9 @@
 			startIcon={{ icon: faRotate }}
 		>
 			{#if !iconOnly}
-				Reload assistants
+				Assistant
 			{/if}
-			<span class="ml-1">
+			<span class="ml-1 -my-1">
 				{#if lang == 'deno'}
 					(<span class={websocketAlive.deno ? 'green' : 'text-red-700'}>Deno</span>)
 				{:else if lang == 'go'}

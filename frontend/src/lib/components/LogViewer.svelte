@@ -21,7 +21,7 @@
 		<div
 			class="sticky top-0 right-0 w-full flex flex-row-reverse justify-between text-gray-500 text-sm bg-gray-50/20"
 		>
-			<div>
+			<div class="p-2 text-xs flex gap-2 items-center">
 				Auto scroll
 				<input type="checkbox" bind:checked={scroll} />
 			</div>

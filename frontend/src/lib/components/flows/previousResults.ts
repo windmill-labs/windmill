@@ -137,28 +137,28 @@ export function buildExtraLib(flowInput: Record<string, any>, results: Record<st
 * get variable (including secret) at path
 * @param {string} path - path of the variable (e.g: g/all/pretty_secret)
 */
-export function variable(path: string): string;
+declare function variable(path: string): string;
 
 /**
 * get resource at path
 * @param {string} path - path of the resource (e.g: g/all/my_resource)
 */
-export function resource(path: string): any;
+declare function resource(path: string): any;
 
 /**
 * flow input as an object
 */
-export const flow_input = ${JSON.stringify(flowInput)};
+declare const flow_input = ${JSON.stringify(flowInput)};
 
 /**
 * static params of this same step
 */
-export const params: any;
+declare const params: any;
 
 /**
  * result by id
  */
-export const results = ${JSON.stringify(results)};
+declare const results = ${JSON.stringify(results)};
 `
 
 }

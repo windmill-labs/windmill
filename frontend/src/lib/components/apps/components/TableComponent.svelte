@@ -1,109 +1,141 @@
 <script lang="ts">
-	import type {} from '$lib/common'
+	import Button from '$lib/components/common/button/Button.svelte'
 	import { classNames } from '$lib/utils'
+	import { getContext } from 'svelte'
+	import type { Output } from '../rx'
+	import type { AppEditorContext, ComponentInputsSpec, InputsSpec } from '../types'
+	import ComponentInputValue from './helpers/ComponentInputValue.svelte'
+	import DebouncedInput from './helpers/DebouncedInput.svelte'
+	import RunnableComponent from './helpers/RunnableComponent.svelte'
 
 	export let id: string
-	export let title: string
-	export let description: string | undefined = undefined
+	export let inputs: InputsSpec
+	export let path: string | undefined = undefined
+	export let runType: 'script' | 'flow' | undefined = undefined
+	export let inlineScriptName: string | undefined = undefined
+	export let componentInputs: ComponentInputsSpec
 
-	export let headers: string[]
-	export let data: Array<Record<string, any>>
+	const { worldStore } = getContext<AppEditorContext>('AppEditorContext')
 
-	export const staticOutputs: string[] = []
+	// ComponentInput: Static/dynamic
+	// ScriptInput: Run form: Static/Dynamic/User
+	// paramInput: Search : configurable only at component level (toggle)
 
-	let query: string = ''
-	let page: number = 1
+	export const staticOutputs: string[] = ['selectedRow', 'loading', 'result']
+
+	$: outputs = $worldStore?.outputsById[id] as {
+		selectedRow: Output<any>
+		result: Output<Array<string>>
+		loading: Output<boolean>
+	}
+
+	let selectedRowIndex = -1
+
+	function toggleRow(row: Record<string, any>, rowIndex: number) {
+		if (selectedRowIndex === rowIndex) {
+			selectedRowIndex = -1
+			outputs.selectedRow.set(null)
+		} else {
+			selectedRowIndex = rowIndex
+			outputs?.selectedRow.set(row)
+		}
+	}
+
+	let searchEnabledValue: boolean | undefined = undefined
+	let paginationEnabled: boolean | undefined = undefined
+
+	let page = 1
+	let search = ''
+
+	let result: Array<Record<string, any>> = []
+	$: headers = Object.keys(result[0] || {}) || []
 </script>
 
-<div class="p-8 w-full">
-	<div class="sm:flex sm:items-center">
-		<div class="sm:flex-auto">
-			<h1 class="text-xl font-semibold text-gray-900">{title}</h1>
-			{#if description}
-				<p class="mt-2 text-sm text-gray-700">
-					{description}
-				</p>
-			{/if}
-		</div>
-	</div>
-	<div class="my-4 flex flex-col">
-		<div class="-my-2 -mx-4 overflow-x-auto sm:-mx-6 lg:-mx-8">
-			<div class="inline-block min-w-full py-2 align-middle md:px-6 lg:px-8">
-				<div class="overflow-hidden shadow ring-1 ring-black ring-opacity-5 md:rounded-lg">
-					<table class="min-w-full divide-y divide-gray-300">
-						<thead class="bg-gray-50">
-							<tr>
-								{#each headers as header}
-									<th
-										scope="col"
-										class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider"
-									>
-										{header}
-									</th>
-								{/each}
-								<th scope="col" class="relative py-3.5 pl-3 pr-4 sm:pr-6">
-									<span class="sr-only">Edit</span>
-								</th>
-							</tr>
-						</thead>
-						<tbody class="divide-y divide-gray-200 bg-white">
-							{#each data as x}
-								<tr>
-									{#each headers as header}
-										<td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-											{x[header]}
-										</td>
-									{/each}
-									<td
-										class="relative whitespace-nowrap py-4 pl-3 pr-4 text-right text-sm font-medium sm:pr-6"
-									>
-										<a href="#" class="text-indigo-600 hover:text-indigo-900">
-											Edit
-											<span class="sr-only">, Lindsay Walton </span>
-										</a>
-									</td>
-								</tr>
-							{/each}
-						</tbody>
-					</table>
+<ComponentInputValue input={componentInputs.searchEnabled} bind:value={searchEnabledValue} />
+<ComponentInputValue input={componentInputs.paginationEnabled} bind:value={paginationEnabled} />
+
+<RunnableComponent
+	{id}
+	{path}
+	{runType}
+	{inlineScriptName}
+	bind:inputs
+	bind:result
+	extraQueryParams={{ search, page }}
+>
+	<div class="gap-2 flex flex-col mt-2">
+		{#if searchEnabledValue}
+			<div>
+				<div>
+					<DebouncedInput placeholder="Search..." bind:value={search} />
 				</div>
 			</div>
+		{/if}
+		<div class="flex flex-col">
+			<table class="divide-y divide-gray-300 border">
+				{#if headers}
+					<thead class="bg-gray-50">
+						<tr>
+							{#each headers as header}
+								<th
+									scope="col"
+									class="px-4 py-2 text-left text-xs font-medium text-gray-500 tracking-wider"
+								>
+									{header.replace(/([A-Z]+)*([A-Z][a-z])/g, '$1 $2')}
+								</th>
+							{/each}
+							<th scope="col" class="relative py-2 px-4">
+								<span class="sr-only">Edit</span>
+							</th>
+						</tr>
+					</thead>
+				{/if}
+				<tbody class="divide-y divide-gray-200 bg-white">
+					{#each result as row, rowIndex (rowIndex)}
+						<tr
+							class={classNames(
+								selectedRowIndex === rowIndex ? 'bg-blue-100 hover:bg-blue-200' : 'hover:bg-blue-50'
+							)}
+							on:click={() => toggleRow(row, rowIndex)}
+						>
+							{#each headers as header}
+								<td class="px-4 py-2 whitespace-nowrap text-sm text-gray-900">
+									{row[header]}
+								</td>
+							{/each}
+							<td class="relative whitespace-nowrap px-4 py-2 text-right ">
+								{#if false}
+									<Button color="blue" size="xs" variant="contained">Edit</Button>
+								{/if}
+							</td>
+						</tr>
+					{/each}
+				</tbody>
+			</table>
 		</div>
-	</div>
 
-	<nav>
-		<ul class="inline-flex -space-x-px">
-			<li>
-				<button
-					on:click={() => (page -= 1)}
-					class="text-sm py-2 px-4 text-gray-500 bg-white rounded-l-lg border border-gray-300 hover:bg-gray-100 hover:text-gray-700"
+		{#if paginationEnabled}
+			<div class="flex flex-row gap-2">
+				<Button
+					on:click={() => {
+						page = page - 1
+					}}
+					color="light"
+					size="xs"
+					variant="border"
+					disabled={page === 1}
 				>
 					Previous
-				</button>
-			</li>
-
-			{#each Array(5) as x, i}
-				<li>
-					<button
-						on:click={() => (page = i)}
-						class={classNames(
-							'text-sm py-2 px-4 text-gray-500 bg-white border border-gray-300 hover:bg-gray-100 hover:text-gray-700',
-							page === i ? 'bg-blue-100 font-bold' : 'bg-white'
-						)}
-					>
-						{i}
-					</button>
-				</li>
-			{/each}
-
-			<li>
-				<button
-					on:click={() => (page += 1)}
-					class="text-sm py-2 px-4 text-gray-500 bg-white rounded-r-lg border border-gray-300 hover:bg-gray-100 hover:text-gray-700 dark:bg-gray-800 dark:border-gray-700 dark:text-gray-400 dark:hover:bg-gray-700 dark:hover:text-white"
+				</Button>
+				<Button
+					on:click={() => {
+						page = page + 1
+					}}
+					color="light"
+					size="xs"
+					variant="border">Next</Button
 				>
-					Next
-				</button>
-			</li>
-		</ul>
-	</nav>
-</div>
+			</div>
+		{/if}
+	</div>
+</RunnableComponent>

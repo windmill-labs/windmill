@@ -5,8 +5,7 @@
 	import { onMount } from 'svelte'
 	import { UserService } from '$lib/gen'
 	import CenteredModal from '$lib/components/CenteredModal.svelte'
-	import Icon from 'svelte-awesome'
-	import { faSpinner } from '@fortawesome/free-solid-svg-icons'
+
 	import { userStore, workspaceStore } from '$lib/stores'
 	import { getUserExt } from '$lib/user'
 	import { logoutWithRedirect } from '$lib/logout'
@@ -31,6 +30,10 @@
 			} catch (e) {
 				await logoutWithRedirect(rd ?? undefined)
 				sendUserToast(e.body ?? e.message, true)
+				return
+			}
+			if (rd?.startsWith('http')) {
+				goto(rd)
 				return
 			}
 			if ($workspaceStore) {

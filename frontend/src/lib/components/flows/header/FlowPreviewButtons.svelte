@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { Badge } from '$lib/components/common'
 	import Button from '$lib/components/common/button/Button.svelte'
 
 	import Drawer from '$lib/components/common/drawer/Drawer.svelte'
@@ -11,16 +12,17 @@
 	let previewOpen = false
 	let previewMode: 'upTo' | 'whole' = 'whole'
 
-	$: upToDisabled = [
-		'settings',
-		'settings-schedule',
-		'settings-retries',
-		'settings-same-worker',
-		'settings-graph',
-		'inputs',
-		'schedules',
-		'failure'
-	].includes($selectedId)
+	$: upToDisabled =
+		[
+			'settings',
+			'settings-schedule',
+			'settings-retries',
+			'settings-same-worker',
+			'settings-graph',
+			'inputs',
+			'schedules',
+			'failure'
+		].includes($selectedId) || $selectedId.includes('branch')
 </script>
 
 <div class="flex flex-row-reverse justify-between items-center gap-x-2">
@@ -46,10 +48,10 @@
 			}}
 			endIcon={{ icon: faPlay }}
 		>
-			Test up to step {$selectedId
-				.split('-')
-				.map((x) => (Number.isNaN(Number(x)) ? x : Number(x) + 1))
-				.join(' ')}
+			Test up to
+			<Badge baseClass="ml-1" color="indigo">
+				{$selectedId}
+			</Badge>
 		</Button>
 	{/if}
 </div>

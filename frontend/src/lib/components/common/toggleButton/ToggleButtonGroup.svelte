@@ -6,13 +6,15 @@
 </script>
 
 <script lang="ts">
-	import { setContext } from 'svelte'
+	import { createEventDispatcher, setContext } from 'svelte'
 	import { writable, type Writable } from 'svelte/store'
 
 	export let selected: any
+	const dispatch = createEventDispatcher()
 
 	const selectedContent = writable(selected)
 
+	$: $selectedContent && dispatch('selected', $selectedContent)
 	setContext<ToggleButtonContext>('ToggleButtonGroup', {
 		selected: selectedContent,
 		select: (value: any) => {

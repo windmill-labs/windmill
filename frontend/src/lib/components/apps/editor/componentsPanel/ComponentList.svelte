@@ -1,105 +1,73 @@
 <script lang="ts">
-	import { flip } from 'svelte/animate'
-	import { dndzone, TRIGGERS, SHADOW_ITEM_MARKER_PROPERTY_NAME } from 'svelte-dnd-action'
 	import Icon from 'svelte-awesome'
-	import { faDisplay } from '@fortawesome/free-solid-svg-icons'
-	import { faWpforms } from '@fortawesome/free-brands-svg-icons'
+	import type { AppComponent, AppEditorContext, GridItem } from '../../types'
+	import { displayData } from '../../utils'
+	import { componentSets } from './data'
+
+	import gridHelp from 'svelte-grid/build/helper/index.mjs'
+	import { getContext } from 'svelte'
 	import { getNextId } from '$lib/components/flows/flowStateUtils'
+	import type { Size } from 'svelte-grid'
 
-	const defaultProps = {
-		horizontalAlignement: 'center',
-		verticalAlignement: 'center',
-		title: 'My title',
-		description: 'My description',
-		configSchema: undefined,
-		inputs: {},
-		componentInputs: {}
-	}
+	const { app } = getContext<AppEditorContext>('AppEditorContext')
 
-	let items = [
-		{
-			...defaultProps,
-			// Used by the dnd library, should be replaced by unique id
-			id: 'displaycomponent',
-			type: 'displaycomponent',
-			componentInputs: {
-				result: {
-					id: undefined,
-					name: undefined,
-					type: 'output',
-					defaultValue: undefined
-				}
+	const COLS = 6
+
+	function addComponent(
+		appComponent: AppComponent,
+		defaultDimensions: Size,
+		minDimensions: Size = { w: 1, h: 1 },
+		maxDimensions: Size = { w: 6, h: 12 }
+	) {
+		const grid = $app.grid ?? []
+		const id = getNextId(grid.map((gridItem) => gridItem.data.id))
+
+		appComponent.id = id
+
+		let newItem: GridItem = {
+			[COLS]: {
+				fixed: false,
+				resizable: true,
+				draggable: true,
+				customDragger: false,
+				customResizer: false,
+				min: minDimensions,
+				max: maxDimensions,
+				x: 0,
+				y: 0,
+				...defaultDimensions
+			},
+			data: JSON.parse(JSON.stringify(appComponent)),
+			id: id
+		}
+
+		let findOutPosition = gridHelp.findSpace(newItem, grid, COLS)
+
+		newItem = {
+			...newItem,
+			[COLS]: {
+				...newItem[COLS],
+				...findOutPosition
 			}
-		},
-		{
-			...defaultProps,
-			// Used by the dnd library, should be replaced by unique id
-			id: 'runformcomponent',
-			type: 'runformcomponent'
 		}
-	]
 
-	const displayData = {
-		displaycomponent: {
-			name: 'Display component',
-			icon: faDisplay
-		},
-		runformcomponent: {
-			name: 'Run form',
-			icon: faWpforms
-		}
-	}
-
-	const flipDurationMs = 300
-	let shouldIgnoreDndEvents = false
-
-	function handleDndConsider(e) {
-		const { trigger, id } = e.detail.info
-		if (trigger === TRIGGERS.DRAG_STARTED) {
-			const idx = items.findIndex((item) => item.id === id)
-
-			e.detail.items = e.detail.items.filter((item) => !item[SHADOW_ITEM_MARKER_PROPERTY_NAME])
-
-			e.detail.items.splice(idx, 0, {
-				...items[idx],
-				id: getNextId(e.detail.items.map((item) => item.id)),
-				// @ts-ignore
-				type: items[idx].type,
-				width: 100
-			})
-			items = e.detail.items
-
-			shouldIgnoreDndEvents = true
-		} else if (!shouldIgnoreDndEvents) {
-			items = e.detail.items
-		} else {
-			items = [...items]
-		}
-	}
-
-	function handleDndFinalize(e) {
-		if (!shouldIgnoreDndEvents) {
-			items = e.detail.items
-		} else {
-			items = [...items]
-			shouldIgnoreDndEvents = false
-		}
+		$app.grid = [...grid, newItem]
 	}
 </script>
 
-<section
-	use:dndzone={{ items, flipDurationMs, type: 'component' }}
-	on:consider={handleDndConsider}
-	on:finalize={handleDndFinalize}
-	class="grid grid-cols-2 gap-2 p-2"
->
-	{#each items as item (item.id)}
-		<div
-			class="border shadow-sm h-24 p-2 flex flex-col gap-2 items-center justify-center bg-white rounded-md"
-			animate:flip={{ duration: flipDurationMs }}
-		>
-			<Icon data={displayData[item.type].icon} scale={1.6} />
-			<div class="text-xs">{displayData[item.type].name}</div>
-		</div>
-	{/each}
-</section>
+{#each componentSets as componentSet, index (index)}
+	<div class="px-4 pt-4 text-sm font-semibold">{componentSet.title}</div>
+
+	<section class="grid grid-cols-3 gap-1 p-4">
+		{#each componentSet.components as item, componentIndex (componentIndex)}
+			<!-- svelte-ignore a11y-click-events-have-key-events -->
+			<div
+				class="border shadow-sm h-16 p-2 flex flex-col gap-2 items-center justify-center bg-white rounded-md scale-100 hover:scale-105 ease-in duration-75"
+				on:click={() => addComponent(item, { w: 2, h: 2 })}
+			>
+				<Icon data={displayData[item.type].icon} scale={1.6} class="text-blue-800" />
+				<div class="text-xs">{displayData[item.type].name}</div>
+			</div>
+		{/each}
+	</section>
+{/each}

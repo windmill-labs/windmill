@@ -1,33 +1,15 @@
 from typing import Any, Union, Dict
+from typing import Generic, TypeVar, TypeAlias
 
 import os
 
 from time import sleep
 
 from windmill_api.client import AuthenticatedClient
-from windmill_api.api.settings import backend_version
-from windmill_api.api.job import run_script_by_hash, get_job, get_completed_job
-
-from windmill_api.api.resource import get_resource as get_resource_api
-from windmill_api.api.variable import get_variable as get_variable_api
-from windmill_api.api.resource import exists_resource, update_resource, create_resource
-from windmill_api.api.variable import exists_variable, update_variable, create_variable
-
-from windmill_api.models.update_resource_json_body import UpdateResourceJsonBody
-from windmill_api.models.create_variable_json_body import CreateVariableJsonBody
-from windmill_api.models.update_variable_json_body import UpdateVariableJsonBody
-from windmill_api.models.create_resource_json_body import CreateResourceJsonBody
-from windmill_api.models.get_job_response_200_type import GetJobResponse200Type
-
-
-from windmill_api.models.run_script_by_hash_json_body import RunScriptByHashJsonBody
-
 
 from enum import Enum
 
 from windmill_api.types import Unset
-
-from typing import Generic, TypeVar, TypeAlias
 
 S = TypeVar("S")
 
@@ -82,6 +64,8 @@ def get_version() -> str:
     """
     Returns the current version of the backend
     """
+    from windmill_api.api.settings import backend_version
+
     return backend_version.sync_detailed(client=create_client()).content.decode(
         "us-ascii"
     )
@@ -95,6 +79,10 @@ def run_script_async(
     """
     Launch the run of a script and return immediately its job id
     """
+    from windmill_api.api.job import run_script_by_hash
+
+    from windmill_api.models.run_script_by_hash_json_body import RunScriptByHashJsonBody
+
     return run_script_by_hash.sync_detailed(
         client=create_client(),
         workspace=get_workspace(),
@@ -128,6 +116,9 @@ def get_job_status(job_id: str) -> JobStatus:
     """
     Returns the status of a queued or completed job
     """
+    from windmill_api.models.get_job_response_200_type import GetJobResponse200Type
+    from windmill_api.api.job import get_job
+
     res = get_job.sync_detailed(
         client=create_client(), workspace=get_workspace(), id=job_id
     ).parsed
@@ -150,6 +141,8 @@ def get_result(job_id: str) -> Dict[str, Any]:
     """
     Returns the result of a completed job
     """
+    from windmill_api.api.job import get_completed_job
+
     res = get_completed_job.sync_detailed(
         client=create_client(), workspace=get_workspace(), id=job_id
     ).parsed
@@ -161,21 +154,26 @@ def get_result(job_id: str) -> Dict[str, Any]:
         return res.result.to_dict()  # type: ignore
 
 
-def get_resource(path: str | None = None) -> Any:
+def get_resource(path: str | None = None, none_if_undefined: bool = False) -> Any:
     """
-    Returns the resource at a given path as a python dict.
+    Returns the resource at a given path
     """
+    from windmill_api.api.resource import get_resource as get_resource_api
+
     path = path or get_state_path()
     parsed = get_resource_api.sync_detailed(
         workspace=get_workspace(), path=path, client=create_client()
     ).parsed
     if parsed is None:
-        raise Exception(
-            f"Resource at path {path} does not exist or you do not have read permissions on it"
-        )
+        if none_if_undefined:
+            return None
+        else:
+            raise Exception(
+                f"Resource at path {path} does not exist or you do not have read permissions on it"
+            )
 
     if isinstance(parsed.value, Unset):
-        return {}
+        return None
 
     raw = parsed.value
     return _transform_leaf(raw)
@@ -185,7 +183,7 @@ def get_state() -> Any:
     """
     Get the state
     """
-    return get_resource(None)
+    return get_resource(None, True)
 
 
 def set_resource(
@@ -194,6 +192,14 @@ def set_resource(
     """
     Set the resource at a given path as a string, creating it if it does not exist
     """
+    from windmill_api.models.create_resource_json_body import CreateResourceJsonBody
+    from windmill_api.api.resource import (
+        exists_resource,
+        update_resource,
+        create_resource,
+    )
+    from windmill_api.models.update_resource_json_body import UpdateResourceJsonBody
+
     path = path or get_state_path()
     workspace = get_workspace()
     client = create_client()
@@ -223,10 +229,52 @@ def set_state(value: Any) -> None:
     set_resource(value, None)
 
 
+def set_shared_state_pickle(value: Any, path: str = "state.pickle") -> None:
+    """
+    Set the state in the shared folder using pickle
+    """
+    import pickle
+
+    with open(f"/shared/{path}", "wb") as handle:
+        pickle.dump(value, handle, protocol=pickle.HIGHEST_PROTOCOL)
+
+
+def get_shared_state_pickle(path: str = "state.pickle") -> Any:
+    """
+    Get the state in the shared folder using pickle
+    """
+    import pickle
+
+    with open(f"/shared/{path}", "rb") as handle:
+        return pickle.load(handle)
+
+
+def set_shared_state(value: Any, path: str = "state.json") -> None:
+    """
+    Set the state in the shared folder using pickle
+    """
+    import json
+
+    with open(f"/shared/{path}", "w", encoding="utf-8") as f:
+        json.dump(value, f, ensure_ascii=False, indent=4)
+
+
+def get_shared_state(path: str = "state.json") -> None:
+    """
+    Set the state in the shared folder using pickle
+    """
+    import json
+
+    with open(f"/shared/{path}", "r", encoding="utf-8") as f:
+        return json.load(f)
+
+
 def get_variable(path: str) -> str:
     """
     Returns the variable at a given path as a string
     """
+    from windmill_api.api.variable import get_variable as get_variable_api
+
     res = get_variable_api.sync_detailed(
         workspace=get_workspace(), path=path, client=create_client()
     ).parsed
@@ -242,6 +290,15 @@ def set_variable(path: str, value: str) -> None:
     """
     Set the variable at a given path as a string, creating it if it does not exist
     """
+    from windmill_api.api.variable import (
+        exists_variable,
+        update_variable,
+        create_variable,
+    )
+
+    from windmill_api.models.update_variable_json_body import UpdateVariableJsonBody
+    from windmill_api.models.create_variable_json_body import CreateVariableJsonBody
+
     workspace = get_workspace()
     client = create_client()
     if not exists_variable.sync_detailed(
@@ -264,25 +321,10 @@ def set_variable(path: str, value: str) -> None:
 
 
 def get_state_path() -> str:
-    """
-    Get a stable path for next execution of the script to point to the same resource
-    """
-    permissioned_as = os.environ.get("WM_PERMISSIONED_AS")
-    flow_path = os.environ.get("WM_FLOW_PATH") or "NO_FLOW_PATH"
-    script_path = os.environ.get("WM_JOB_PATH") or "NO_JOB_PATH"
-    env_schedule_path = os.environ.get("WM_SCHEDULE_PATH")
-    schedule_path = (
-        ""
-        if env_schedule_path is None or env_schedule_path == ""
-        else f"/{env_schedule_path}"
-    )
-
-    if script_path.endswith("/"):
-        raise Exception(
-            "The script path must not end with '/', give a name to your script!"
-        )
-
-    return f"{permissioned_as}/{flow_path}/{script_path}{schedule_path}"
+    state_path = os.environ.get("WM_STATE_PATH")
+    if state_path is None:
+        raise Exception("State path not found")
+    return state_path
 
 
 def _transform_leaves(d: Dict[str, Any]) -> Dict[str, Any]:

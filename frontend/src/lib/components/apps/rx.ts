@@ -1,4 +1,4 @@
-import type { AppInputTransform, DynamicInput, InputsSpec, StaticInput } from './types'
+import type { AppInputTransform } from './types'
 
 export interface Subscriber<T> {
 	next(v: T)
@@ -21,6 +21,7 @@ export type World = {
 }
 
 export function buildWorld(components: Record<string, string[]>) {
+	console.log({ components })
 	const newWorld = buildObservableWorld()
 	const outputsById: Record<string, Record<string, Output<any>>> = {}
 
@@ -30,6 +31,7 @@ export function buildWorld(components: Record<string, string[]>) {
 			outputsById[k][o] = newWorld.newOutput(k, o)
 		}
 	}
+
 	return { outputsById, connect: newWorld.connect }
 }
 
@@ -47,7 +49,11 @@ export function buildObservableWorld() {
 			let obs = observables[`${inputSpec.id}.${inputSpec.name}`]
 
 			if (!obs) {
-				throw Error('Observable at ' + inputSpec.id + '.' + inputSpec.name + ' not found')
+				console.warn('Observable at ' + inputSpec.id + '.' + inputSpec.name + ' not found')
+				return {
+					peak: () => undefined,
+					next: () => {}
+				}
 			}
 			obs.subscribe(input)
 			return input

@@ -932,6 +932,7 @@ fn spawn_test_worker(
             ip,
             sleep_queue,
             worker_config,
+            None,
             rx,
         )
         .await

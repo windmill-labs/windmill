@@ -122,15 +122,11 @@ export function isCodeInjection(expr: string | undefined): boolean {
 }
 
 export function getDefaultExpr(
-	importPath: string | undefined = undefined,
 	key: string = 'myfield',
-	previousExpr?: string
+	previousModuleId: string | undefined,
+	previousExpr?: string,
 ) {
-	const expr = previousExpr ?? `results.${key}`
-	return `import { results, flow_input, variable, resource, params } from 'windmill${importPath ? `@${importPath}` : ''
-		}'
-
-${expr}`
+	return previousExpr ?? (previousModuleId ? `results.${previousModuleId}.${key}` : `flow_input.${key}`)
 }
 
 export function jobsToResults(jobs: Job[]) {
@@ -160,8 +156,6 @@ export function codeToStaticTemplate(code?: string): string | undefined {
 
 	const lines = code
 		.split('\n')
-		.slice(1)
-		.filter((x) => x != '')
 
 	if (lines.length == 1) {
 		const line = lines[0].trim()

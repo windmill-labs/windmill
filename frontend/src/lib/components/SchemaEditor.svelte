@@ -11,6 +11,7 @@
 	import TableCustom from './TableCustom.svelte'
 	import Toggle from './Toggle.svelte'
 	import Tooltip from './Tooltip.svelte'
+	import { flip } from 'svelte/animate'
 
 	const dispatch = createEventDispatcher()
 
@@ -108,11 +109,7 @@
 			if (Object.keys(schema.properties).includes(argName)) {
 				delete schema.properties[argName]
 
-				const requiredIndex = schema.required.findIndex((arg) => arg === argName)
-
-				if (requiredIndex > -1) {
-					schema.required = schema.required.slice(requiredIndex, 1)
-				}
+				schema.required = schema.required.filter((arg) => arg !== argName)
 
 				schema = schema
 				schemaString = JSON.stringify(schema, null, '\t')
@@ -136,22 +133,32 @@
 			viewJsonSchema = true
 		}
 	}
+
+	function changePosition(i: number, up: boolean): any {
+		const entries = Object.entries(schema.properties)
+		var element = entries[i]
+		entries.splice(i, 1)
+		entries.splice(up ? i - 1 : i + 1, 0, element)
+		schema.properties = Object.fromEntries(entries)
+	}
 </script>
 
 <div class="flex flex-col">
 	<div class="flex justify-between gap-x-2">
-		<Button
-			variant="contained"
-			color="blue"
-			size="sm"
-			startIcon={{ icon: faPlus }}
-			on:click={() => {
-				modalProperty = Object.assign({}, DEFAULT_PROPERTY)
-				schemaModal.openDrawer()
-			}}
-		>
-			Add argument
-		</Button>
+		<div>
+			<Button
+				variant="contained"
+				color="blue"
+				size="md"
+				startIcon={{ icon: faPlus }}
+				on:click={() => {
+					modalProperty = Object.assign({}, DEFAULT_PROPERTY)
+					schemaModal.openDrawer()
+				}}
+			>
+				Add Property
+			</Button>
+		</div>
 
 		<div class="flex items-center">
 			<Toggle
@@ -184,8 +191,8 @@
 							<th />
 						</tr>
 						<tbody slot="body">
-							{#each Object.entries(schema.properties) as [name, property] (name)}
-								<tr>
+							{#each Object.entries(schema.properties) as [name, property], i (name)}
+								<tr animate:flip={{ duration: 50 }}>
 									<td class="font-bold">{name}</td>
 									<td>
 										<SchemaEditorProperty {property} />
@@ -198,10 +205,21 @@
 										{/if}</td
 									>
 									<td class="justify-end flex">
+										{#if i > 0}
+											<button on:click={() => changePosition(i, true)} class="text-lg mr-2"
+												>&uparrow;</button
+											>
+										{/if}
+										{#if i < Object.keys(schema.properties).length - 1}
+											<button on:click={() => changePosition(i, false)} class="text-lg mr-2"
+												>&downarrow;</button
+											>
+										{/if}
+
 										<Button
 											color="red"
 											variant="border"
-											btnClasses="mr-2"
+											btnClasses="mx-2"
 											size="sm"
 											startIcon={{ icon: faTrash }}
 											on:click={() => handleDeleteArgument(name)}

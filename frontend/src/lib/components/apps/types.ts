@@ -1,5 +1,6 @@
 import type { Schema, SchemaProperty } from '$lib/common'
-import type { Policy } from '$lib/gen'
+import type { Preview } from '$lib/gen'
+import type { FilledItem } from 'svelte-grid'
 import type { Writable } from 'svelte/store'
 import type { World } from './rx'
 
@@ -23,38 +24,47 @@ export type StaticInput = {
 	type: 'static'
 	value: any
 	visible?: boolean
+	fieldType: 'text' | 'textarea' | 'number' | 'boolean' | 'select' | 'date' | 'time' | 'datetime'
 }
 
 export type AppInputTransform = DynamicInput | StaticInput | UserInput
 
 // Inner inputs, (search, filter, page, inputs of a script or flow)
 export type InputsSpec = Record<FieldID, AppInputTransform>
-export type ComponentInputsSpec = Record<FieldID, DynamicInput>
+export type ComponentInputsSpec = Record<FieldID, DynamicInput | StaticInput>
+
+export type TextComponent = {
+	type: 'textcomponent'
+}
 
 export type TextInputComponent = {
 	type: 'textinputcomponent'
 }
 
-export type RunFormComponent = {
-	type: 'runformcomponent'
+export type ButtonComponent = {
+	type: 'buttoncomponent'
+}
+
+type Runnable = {
+	inlineScriptName?: string
 	path?: string
 	runType?: 'script' | 'flow'
 }
 
-export type BarChartComponent = {
-	type: 'barchartcomponent'
-	inputs: {}
+export type RunFormComponent = Runnable & {
+	type: 'runformcomponent'
 }
 
-export type TableComponent = {
+export type BarChartComponent = {
+	type: 'barchartcomponent'
+}
+
+export type PieChartComponent = {
+	type: 'piechartcomponent'
+}
+
+export type TableComponent = Runnable & {
 	type: 'tablecomponent'
-	inputs: {}
-	path: string
-	runType: 'script' | 'flow'
-	title: string
-	description: string | undefined
-	headers: string[]
-	data: Array<Record<string, any>>
 }
 
 export type DisplayComponent = {
@@ -68,34 +78,44 @@ export type AppComponent =
 			| TextInputComponent
 			| BarChartComponent
 			| TableComponent
+			| TextComponent
+			| TableComponent
+			| ButtonComponent
+			| PieChartComponent
 	  ) & {
 			id: ComponentID
-			title: string
-			description: string
 			width: number
 			horizontalAlignement?: 'left' | 'center' | 'right'
 			verticalAlignement?: 'top' | 'center' | 'bottom'
-			configSchema: Schema | undefined
+
 			inputs: InputsSpec
+			// Only dynamic inputs (Result of display)
 			componentInputs: ComponentInputsSpec
+			runnable?: boolean | undefined
+
+			// TODO: add min/max width/height
 	  }
 
 type SectionID = string
 
 export type AppSection = {
-	title: string
-	description: string
 	components: AppComponent[]
 	id: SectionID
-	columns: 1 | 2 | 3
 }
+
+export type GridItem = FilledItem<{
+	data: AppComponent
+	id: string
+}>
 
 export type App = {
-	sections: AppSection[]
+	grid: GridItem[]
+	inlineScripts: Record<
+		string,
+		{ content: string; language: Preview.language; path: string; schema: Schema }
+	>
 	title: string
 }
-
-export type AppSelection = { sectionIndex: number; componentIndex: number | undefined }
 
 export type ConnectingInput = {
 	opened: boolean
@@ -106,13 +126,14 @@ export type AppEditorContext = {
 	worldStore: Writable<World | undefined>
 	staticOutputs: Writable<Record<string, string[]>>
 	app: Writable<App>
-	selection: Writable<AppSelection | undefined>
+	selectedComponent: Writable<string | undefined>
 	mode: Writable<EditorMode>
 	schemas: Writable<Schema[]>
 	connectingInput: Writable<ConnectingInput>
+	resizing: Writable<boolean>
 }
 
-export type EditorMode = 'width' | 'dnd' | 'preview'
+export type EditorMode = 'dnd' | 'preview'
 
 type FieldID = string
 

@@ -18,9 +18,11 @@
 	export let inputs: InputsSpec
 	export let path: string | undefined = undefined
 	export let runType: 'script' | 'flow' | undefined = undefined
+	export let inlineScriptName: string | undefined = undefined
 
 	export const staticOutputs = ['loading', 'result']
-	const { worldStore } = getContext<AppEditorContext>('AppEditorContext')
+
+	const { worldStore, app } = getContext<AppEditorContext>('AppEditorContext')
 	let pagePath = $page.params.path
 
 	$: outputs = $worldStore?.outputsById[id] as {
@@ -40,6 +42,11 @@
 
 	$: if ($workspaceStore && path && runType) {
 		loadSchemaFromTriggerable($workspaceStore, path, runType)
+	}
+
+	$: if (inlineScriptName) {
+		schema = $app.inlineScripts[inlineScriptName].schema
+		reloadSchemaAndArgs()
 	}
 
 	$: if (inputs && schema !== undefined) {
@@ -82,17 +89,28 @@
 	}, [])
 
 	async function executeComponent() {
-		await testJobLoader?.abstractRun(() =>
-			AppService.executeComponent({
+		await testJobLoader?.abstractRun(() => {
+			const requestBody = {
+				args,
+				force_viewer_static_fields: {}
+			}
+
+			if (inlineScriptName && $app.inlineScripts[inlineScriptName]) {
+				requestBody['raw_code'] = {
+					content: $app.inlineScripts[inlineScriptName].content,
+					language: $app.inlineScripts[inlineScriptName].language,
+					path: $app.inlineScripts[inlineScriptName].path
+				}
+			} else if (path && runType) {
+				requestBody['path'] = `${runType}/${path}`
+			}
+
+			return AppService.executeComponent({
 				workspace: $workspaceStore!,
 				path: pagePath,
-				requestBody: {
-					path: `${runType}/${path}`,
-					args,
-					force_viewer_static_fields: {}
-				}
+				requestBody
 			})
-		)
+		})
 
 		outputs?.loading.set(true)
 	}

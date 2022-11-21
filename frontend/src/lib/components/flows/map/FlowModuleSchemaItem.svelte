@@ -1,17 +1,10 @@
 <script lang="ts">
 	import Badge from '$lib/components/common/badge/Badge.svelte'
 	import { classNames } from '$lib/utils'
-	import {
-		faBed,
-		faRepeat,
-		faStop,
-		faTimesCircle,
-		faTrashAlt
-	} from '@fortawesome/free-solid-svg-icons'
+	import { faBed, faRepeat, faStop, faTimesCircle } from '@fortawesome/free-solid-svg-icons'
 	import { createEventDispatcher } from 'svelte'
 	import Icon from 'svelte-awesome'
 
-	export let color: 'blue' | 'orange' | 'indigo' = 'blue'
 	export let isFirst: boolean = false
 	export let isLast: boolean = false
 	export let hasLine: boolean = true
@@ -32,25 +25,11 @@
 <div class="flex relative" on:click>
 	<div
 		class={classNames(
-			'flex mr-2 ml-0.5',
+			'flex pl-6 ml-0.5',
 			hasLine ? 'line' : '',
 			isFirst ? 'justify-center items-start' : 'justify-center items-center'
 		)}
-	>
-		<div
-			class={classNames(
-				'flex justify-center items-center w-6 h-6 border rounded-full text-xs font-bold',
-				color === 'blue'
-					? 'bg-blue-200 text-blue-800'
-					: color === 'orange'
-					? 'bg-orange-200 text-orange-800'
-					: 'bg-blue-100 text-blue-600',
-				''
-			)}
-		>
-			<slot name="icon" />
-		</div>
-	</div>
+	/>
 	<div
 		class={classNames(
 			'w-full flex overflow-hidden rounded-sm cursor-pointer mr-2',
@@ -76,8 +55,12 @@
 			{/if}
 		</div>
 		<div
-			class="flex justify-between items-center w-full overflow-hidden border p-2 bg-white text-2xs module"
+			class="flex justify-between items-center w-full overflow-hidden rounded-sm border border-gray-400 p-2 bg-white text-2xs module"
 		>
+			{#if $$slots.icon}
+				<slot name="icon" />
+				<span class="mr-2" />
+			{/if}
 			<div class="flex-1 truncate" class:font-bold={bold}>{label}</div>
 			<div class="flex items-center space-x-2">
 				{#if id}
@@ -106,7 +89,7 @@
 		display: flex !important;
 	}
 	.line {
-		background: repeating-linear-gradient(to bottom, transparent 0 4px, #bbb 4px 8px) 50%/1px 100%
-			no-repeat;
+		background: repeating-linear-gradient(to bottom, transparent 0 4px, rgb(120, 120, 120) 4px 8px)
+			50%/1px 100% no-repeat;
 	}
 </style>
