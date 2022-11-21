@@ -61,7 +61,7 @@
 			variant === 'border' ? 'border' : '',
 			ButtonType.FontSizeClasses[size],
 			ButtonType.SpacingClasses[spacingSize],
-			'focus:ring-4 font-semibold',
+			'focus:ring-2 font-semibold',
 			'rounded-md',
 			'justify-center items-center text-center whitespace-nowrap inline-flex',
 			btnClasses,

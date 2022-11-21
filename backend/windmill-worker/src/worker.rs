@@ -147,8 +147,9 @@ async fn copy_cache_to_bucket_as_tar(bucket: &str) {
     }
 
     match Command::new("rclone")
+        .current_dir(ROOT_CACHE_DIR)
         .arg("copyto")
-        .arg(ROOT_CACHE_DIR)
+        .arg(TAR_CACHE_FILENAME)
         .arg(format!(":s3,env_auth=true:{bucket}/{TAR_CACHE_FILENAME}"))
         .arg("--size-only")
         .arg("--fast-list")
