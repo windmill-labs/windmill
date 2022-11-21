@@ -14,10 +14,8 @@
 	export let editableSchema = false
 	export let isValid: boolean = true
 	export let extraLib: string = 'missing extraLib'
-	export let importPath: string | undefined = undefined
 	export let autofocus = false
-	export let animateNew = false
-
+	export let previousModuleId: string | undefined = undefined
 	let clazz: string = ''
 	export { clazz as class }
 
@@ -46,12 +44,12 @@
 			<div transition:slide|local>
 				{#if inputTransform}
 					<InputTransformForm
+						{previousModuleId}
 						bind:arg={args[argName]}
 						bind:schema
 						bind:argName
 						bind:inputCheck={inputCheck[argName]}
 						bind:extraLib
-						bind:importPath
 					/>
 				{:else}
 					<ArgInput

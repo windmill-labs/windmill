@@ -10,6 +10,7 @@
 	import { deleteFlowStateById, emptyModule, idMutex } from '../flowStateUtils'
 	import { emptyFlowModuleState } from '../utils'
 	import { flowStateStore } from '../flowState'
+	import { slide } from 'svelte/transition'
 
 	export let module: FlowModule
 
@@ -46,9 +47,9 @@
 </script>
 
 {#if module.value.type === 'branchone'}
-	<div class="flex text-xs">
+	<div class="flex text-xs px-2">
 		<div
-			class="w-full space-y-2 flex flex-col border p-2 bg-gray-500 border-gray-600 bg-opacity-10 rounded-sm my-2 relative"
+			class="w-full space-y-2 pb-2 flex flex-col border bg-gray-500 border-gray-600 bg-opacity-10 rounded-sm my-2 relative"
 		>
 			<!-- svelte-ignore a11y-click-events-have-key-events -->
 			<div
@@ -57,9 +58,9 @@
 					select(`${module.id}-branch-default`)
 				}}
 				class={classNames(
-					'border w-full rounded-md p-2 bg-white text-sm cursor-pointer flex items-center',
+					`border-b w-full p-2 bg-white border-gray-500 text-sm cursor-pointer flex items-center relative module`,
 					$selectedId === `${module.id}-branch-default`
-						? 'outline outline-offset-1 outline-2  outline-slate-900'
+						? 'outline outline-2  outline-slate-900'
 						: ''
 				)}
 			>
@@ -71,20 +72,21 @@
 				</span>
 			</div>
 			<div>
-				<FlowModuleSchemaMap bind:modules={module.value.default} color="indigo" />
+				<FlowModuleSchemaMap bind:modules={module.value.default} />
 			</div>
 
 			{#each module.value.branches ?? [] as branch, branchIndex (branchIndex)}
 				<!-- svelte-ignore a11y-click-events-have-key-events -->
 				<div
+					transition:slide|local
 					on:click={() => {
 						selectedBranch = branchIndex + 1
 						select(`${module.id}-branch-${branchIndex}`)
 					}}
 					class={classNames(
-						'border w-full rounded-md p-2 bg-white text-sm cursor-pointer flex items-center mb-4 module relative',
+						`border-b border-t w-full p-2 bg-white border-gray-500 text-sm cursor-pointer flex items-center relative module`,
 						$selectedId === `${module.id}-branch-${branchIndex}`
-							? 'outline outline-offset-1 outline-2  outline-slate-900'
+							? 'outline outline-2  outline-slate-900'
 							: ''
 					)}
 				>
@@ -109,10 +111,10 @@
 				</div>
 
 				<div>
-					<FlowModuleSchemaMap bind:modules={branch.modules} color="indigo" />
+					<FlowModuleSchemaMap bind:modules={branch.modules} />
 				</div>
 			{/each}
-			<div class="overflow-clip">
+			<div class="overflow-clip ml-2">
 				<Button
 					btnClasses=""
 					size="xs"

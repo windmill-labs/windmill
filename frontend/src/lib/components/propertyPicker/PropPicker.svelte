@@ -69,7 +69,7 @@
 				{`Mode: ${$propPickerConfig?.insertionMode}`}
 			</Badge>
 		{:else}
-			<Badge>&leftarrow; Select a step input</Badge>
+			<Badge color="blue">&leftarrow; Select a step input</Badge>
 		{/if}
 	</div>
 {/if}
@@ -107,6 +107,7 @@
 			<span class="font-bold text-sm">Previous Result</span>
 			<div class="overflow-y-auto mb-2">
 				<ObjectViewer
+					topLevelNode
 					pureViewer={!$propPickerConfig}
 					json={Object.fromEntries(
 						Object.entries(resultByIdFiltered).filter(([k, v]) => k == previousId)
@@ -121,6 +122,7 @@
 			<span class="font-bold text-sm">All Results</span>
 			<div class="overflow-y-auto mb-2">
 				<ObjectViewer
+					topLevelNode
 					pureViewer={!$propPickerConfig}
 					collapsed={true}
 					json={resultByIdFiltered}
@@ -139,9 +141,10 @@
 				<Button
 					color="light"
 					size="xs"
+					variant="border"
 					on:click={() => {
 						displayVariable = false
-					}}>(-)</Button
+					}}>-</Button
 				>
 				<ObjectViewer
 					pureViewer={!$propPickerConfig}
@@ -151,7 +154,7 @@
 				/>
 			{:else}
 				<button
-					class="key font-normal rounded px-1 hover:bg-blue-100 !p-0"
+					class="border border-blue-600 key font-normal rounded hover:bg-blue-100 px-1"
 					on:click={async () => {
 						await loadVariables()
 						displayVariable = true
@@ -164,10 +167,11 @@
 			{#if displayResources}
 				<Button
 					color="light"
+					variant="border"
 					size="xs"
 					on:click={() => {
 						displayResources = false
-					}}>(-)</Button
+					}}>-</Button
 				>
 				<ObjectViewer
 					pureViewer={!$propPickerConfig}
@@ -177,7 +181,7 @@
 				/>
 			{:else}
 				<button
-					class="key font-normal rounded px-1 hover:bg-blue-100 !p-0"
+					class="border border-blue-600 px-1 key font-normal rounded hover:bg-blue-100"
 					on:click={async () => {
 						await loadResources()
 						displayResources = true

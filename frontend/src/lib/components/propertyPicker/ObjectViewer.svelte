@@ -2,6 +2,7 @@
 	import { truncate } from '$lib/utils'
 
 	import { createEventDispatcher } from 'svelte'
+	import { Badge } from '../common'
 	import { NEVER_TESTED_THIS_FAR } from '../flows/utils'
 	import { getTypeAsString } from '../flows/utils'
 	import { computeKey } from './utils'
@@ -15,6 +16,7 @@
 	export let collapsed = level == 3 || Array.isArray(json)
 	export let rawKey = false
 	export let topBrackets = false
+	export let topLevelNode = false
 
 	const collapsedSymbol = '...'
 	let keys: string | any[]
@@ -43,17 +45,29 @@
 {#if keys.length > 0}
 	<span class:hidden={collapsed}>
 		{#if level != 0}
-			<span class="cursor-pointer hover:bg-gray-200 px-1 rounded" on:click={collapse}> (-) </span>
+			<span
+				class="cursor-pointer border border-gray-300 hover:bg-gray-200 px-1 rounded"
+				on:click={collapse}
+			>
+				-
+			</span>
 		{/if}
 		{#if level == 0 && topBrackets}<span class="h-0">{openBracket}</span>{/if}
 		<ul class="w-full">
 			{#each keys as key, index}
 				<li class="pt-1">
-					<button
-						on:click={() => selectProp(key)}
-						class="key {pureViewer ? 'cursor-auto' : ''} font-normal rounded px-1 hover:bg-blue-100"
-					>
-						{!isArray ? key : index}:
+					<button on:click={() => selectProp(key)}>
+						{#if topLevelNode}
+							<Badge baseClass="border border-blue-600" color="indigo">{key}</Badge>
+						{:else}
+							<span
+								class="key {pureViewer
+									? 'cursor-auto'
+									: 'border border-gray-300'} font-normal rounded px-1 hover:bg-blue-100"
+							>
+								{!isArray ? key : index}</span
+							>
+						{/if}:
 					</button>
 
 					{#if getTypeAsString(json[key]) === 'object'}
@@ -69,7 +83,7 @@
 						<button
 							class="val {pureViewer
 								? 'cursor-auto'
-								: ''} rounded px-1 hover:bg-blue-100 {getTypeAsString(json[key])}"
+								: ''} rounded hover:bg-blue-100 {getTypeAsString(json[key])}"
 							on:click={() => selectProp(key)}
 						>
 							{#if json[key] === NEVER_TESTED_THIS_FAR}
@@ -86,7 +100,11 @@
 		</ul>
 		{#if level == 0 && topBrackets}<span class="h-0">{closeBracket}</span>{/if}
 	</span>
-	<span class="cursor-pointer hover:bg-gray-200" class:hidden={!collapsed} on:click={collapse}>
+	<span
+		class="border border-blue-600 rounded px-1 cursor-pointer hover:bg-gray-200"
+		class:hidden={!collapsed}
+		on:click={collapse}
+	>
 		{openBracket}{collapsedSymbol}{closeBracket}
 	</span>
 	{#if !isLast && collapsed}

@@ -7,10 +7,17 @@
 	import InsertModuleButton from './InsertModuleButton.svelte'
 	import FlowBranchOneMap from './FlowBranchOneMap.svelte'
 	import FlowBranchAllMap from './FlowBranchAllMap.svelte'
+	import {
+		faBuilding,
+		faCode,
+		faCodeBranch,
+		faLongArrowDown,
+		faQuestion,
+		faRepeat
+	} from '@fortawesome/free-solid-svg-icons'
+	import Icon from 'svelte-awesome'
 
 	export let mod: FlowModule
-	export let index: number
-	export let color: 'blue' | 'orange' | 'indigo' = 'blue'
 
 	const { select, selectedId } = getContext<FlowEditorContext>('FlowEditorContext')
 	const dispatch = createEventDispatcher<{ delete: CustomEvent<MouseEvent>; insert: void }>()
@@ -40,14 +47,14 @@
 				{...itemProps}
 			>
 				<div slot="icon">
-					<span>{index + 1}</span>
+					<Icon data={faRepeat} scale={0.8} />
 				</div>
 			</FlowModuleSchemaItem>
 			<div class="flex flex-row w-full">
 				<div class="w-7 shrink-0 line" />
 				<div class="grow my-1 overflow-auto">
 					<div class="w-full">
-						<FlowModuleSchemaMap bind:modules={mod.value.modules} color="orange" />
+						<FlowModuleSchemaMap bind:modules={mod.value.modules} />
 					</div>
 				</div>
 			</div>
@@ -63,7 +70,7 @@
 				label={mod.summary || 'Run one branch'}
 			>
 				<div slot="icon">
-					<span>{index + 1}</span>
+					<Icon data={faCodeBranch} scale={0.8} />
 				</div>
 			</FlowModuleSchemaItem>
 			<FlowBranchOneMap bind:module={mod} />
@@ -79,7 +86,7 @@
 				label={mod.summary || 'Run all branches'}
 			>
 				<div slot="icon">
-					<span>{index + 1}</span>
+					<Icon data={faCodeBranch} scale={0.8} />
 				</div>
 			</FlowModuleSchemaItem>
 			<FlowBranchAllMap bind:module={mod} />
@@ -89,7 +96,6 @@
 			<FlowModuleSchemaItem
 				on:click={() => select(mod.id)}
 				on:delete={onDelete}
-				{color}
 				deletable
 				id={mod.id}
 				{...itemProps}
@@ -98,7 +104,13 @@
 					(mod.value.type === 'rawscript' ? `Inline ${mod.value.language}` : 'To be defined')}
 			>
 				<div slot="icon">
-					<span>{index + 1}</span>
+					{#if mod.value.type === 'rawscript'}
+						<Icon data={faCode} scale={0.8} />
+					{:else if mod.value.type === 'identity'}
+						<Icon data={faLongArrowDown} scale={0.8} />
+					{:else if mod.value.type === 'script'}
+						<Icon data={faBuilding} scale={0.8} />
+					{/if}
 				</div>
 			</FlowModuleSchemaItem>
 		</li>
@@ -107,7 +119,7 @@
 
 <style>
 	.line {
-		background: repeating-linear-gradient(to bottom, transparent 0 4px, #bbb 4px 8px) 50%/1px 100%
-			no-repeat;
+		background: repeating-linear-gradient(to bottom, transparent 0 4px, rgb(120, 120, 120) 4px 8px)
+			50%/1px 100% no-repeat;
 	}
 </style>

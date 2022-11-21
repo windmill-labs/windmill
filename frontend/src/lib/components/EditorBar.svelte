@@ -10,6 +10,7 @@
 		faCode,
 		faCube,
 		faDollarSign,
+		faEye,
 		faRotate,
 		faRotateLeft,
 		faWallet
@@ -232,7 +233,7 @@
 				startIcon={{ icon: faDollarSign }}
 				{iconOnly}
 			>
-				+Contextual Variable
+				+Context Var
 			</Button>
 		</div>
 		<div>
@@ -245,7 +246,7 @@
 				startIcon={{ icon: faWallet }}
 				{iconOnly}
 			>
-				+Variable
+				+Var
 			</Button>
 		</div>
 		<div>
@@ -270,9 +271,9 @@
 				color="light"
 				on:click={scriptPicker.openDrawer}
 				{iconOnly}
-				startIcon={{ icon: faCode }}
+				startIcon={{ icon: faEye }}
 			>
-				View Script
+				Script
 			</Button>
 		</div>
 
@@ -286,7 +287,7 @@
 				{iconOnly}
 				startIcon={{ icon: faRotateLeft }}
 			>
-				Reset content
+				Reset
 			</Button>
 		</div>
 	</div>
@@ -300,7 +301,7 @@
 			startIcon={{ icon: faRotate }}
 		>
 			{#if !iconOnly}
-				Reload assistants
+				Assistant
 			{/if}
 			<span class="ml-1 -my-1">
 				{#if lang == 'deno'}

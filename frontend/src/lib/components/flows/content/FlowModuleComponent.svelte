@@ -125,9 +125,9 @@
 			<svelte:fragment slot="header">
 				<FlowModuleHeader
 					bind:module={flowModule}
-					on:toggleSuspend={() => (selected = 'suspend')}
-					on:toggleRetry={() => (selected = 'retries')}
-					on:toggleStopAfterIf={() => (selected = 'early-stop')}
+					on:toggleSuspend={() => (selected = 'advanced-suspend')}
+					on:toggleRetry={() => (selected = 'advanced-retries')}
+					on:toggleStopAfterIf={() => (selected = 'advanced-early-stop')}
 					on:fork={async () => {
 						const [module, state] = await fork(flowModule)
 						flowModule = module
@@ -194,19 +194,9 @@
 					</Pane>
 					<Pane size={50} minSize={20}>
 						<Tabs bind:selected>
-							<Tab value="inputs"
-								><Tooltip>
-									Move the focus outside of the text editor to recompute the inputs or press
-									<Kbd>Ctrl/Cmd</Kbd> + <Kbd>S</Kbd>
-								</Tooltip><span class="font-semibold">Step Input</span></Tab
-							>
+							<Tab value="inputs"><span class="font-semibold">Step Input</span></Tab>
 							<Tab value="test"><span class="font-semibold text-md">Test this step</span></Tab>
-							<Tab value="retries">Retries</Tab>
-							{#if !$selectedId.includes('failure')}
-								<Tab value="early-stop">Early Stop</Tab>
-								<Tab value="suspend">Sleep/Suspend</Tab>
-								<Tab value="same_worker">Same Worker/Shared dir</Tab>
-							{/if}
+							<Tab value="advanced">Advanced</Tab>
 						</Tabs>
 						<div class="h-[calc(100%-32px)]">
 							{#if selected === 'inputs'}
@@ -215,7 +205,7 @@
 										<SchemaForm
 											schema={$flowStateStore[$selectedId]?.schema ?? {}}
 											inputTransform={true}
-											importPath={$selectedId}
+											previousModuleId={previousModule?.id}
 											bind:args={flowModule.value.input_transforms}
 											bind:extraLib={stepPropPicker.extraLib}
 										/>
@@ -227,27 +217,37 @@
 									mod={flowModule}
 									schema={$flowStateStore[$selectedId]?.schema ?? {}}
 								/>
-							{:else if selected === 'retries'}
-								<FlowRetries bind:flowModule class="px-4 pb-4 h-full overflow-auto" />
-							{:else if selected === 'early-stop'}
-								<FlowModuleEarlyStop bind:flowModule class="px-4 pb-4 h-full overflow-auto" />
-							{:else if selected === 'suspend'}
-								<div class="px-4 pb-4 h-full overflow-auto">
-									<FlowModuleSuspend previousModuleId={previousModule?.id} bind:flowModule />
-								</div>
-							{:else if selected === 'same_worker'}
-								<div class="p-4  h-full overflow-auto">
-									<Alert type="info" title="Share a directory using same worker">
-										If same worker is set, all steps will be run on the same worker and will share
-										the folder `/shared` to pass data between each other.
-									</Alert>
-									<Button
-										btnClasses="mt-4"
-										on:click={() => {
-											$selectedId = 'settings-same-worker'
-										}}>Set same worker in the flow settings</Button
-									>
-								</div>
+							{:else if selected.startsWith('advanced')}
+								<Tabs bind:selected>
+									<Tab value="advanced-retries">Retries</Tab>
+									{#if !$selectedId.includes('failure')}
+										<Tab value="advanced-early-stop">Early Stop</Tab>
+										<Tab value="advanced-suspend">Sleep/Suspend</Tab>
+										<Tab value="advanced-same_worker">Same Worker/Shared dir</Tab>
+									{/if}
+								</Tabs>
+								{#if selected === 'advanced-retries'}
+									<FlowRetries bind:flowModule class="px-4 pb-4 h-full overflow-auto" />
+								{:else if selected === 'advanced-early-stop'}
+									<FlowModuleEarlyStop bind:flowModule class="px-4 pb-4 h-full overflow-auto" />
+								{:else if selected === 'advanced-suspend'}
+									<div class="px-4 pb-4 h-full overflow-auto">
+										<FlowModuleSuspend previousModuleId={previousModule?.id} bind:flowModule />
+									</div>
+								{:else if selected === 'advanced-same_worker'}
+									<div class="p-4  h-full overflow-auto">
+										<Alert type="info" title="Share a directory using same worker">
+											If same worker is set, all steps will be run on the same worker and will share
+											the folder `/shared` to pass data between each other.
+										</Alert>
+										<Button
+											btnClasses="mt-4"
+											on:click={() => {
+												$selectedId = 'settings-same-worker'
+											}}>Set same worker in the flow settings</Button
+										>
+									</div>
+								{/if}
 							{/if}
 						</div>
 					</Pane>

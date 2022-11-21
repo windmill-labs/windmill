@@ -107,7 +107,12 @@
 					editor?.insertAtCursor(detail)
 				}}
 			>
-				<InputTransformForm bind:arg={flowModule.sleep} argName="sleep" {schema} />
+				<InputTransformForm
+					bind:arg={flowModule.sleep}
+					argName="sleep"
+					{schema}
+					{previousModuleId}
+				/>
 			</PropPickerWrapper>
 		</div>
 	{:else}

@@ -25,7 +25,7 @@
 	let editor: SimpleEditor | undefined = undefined
 	let selected: string = 'early-stop'
 
-	$: pickableProperties = getStepPropPicker(
+	$: stepPropPicker = getStepPropPicker(
 		$flowStateStore,
 		parentModule,
 		previousModule,
@@ -34,7 +34,7 @@
 		$previewArgs,
 		false,
 		true
-	).pickableProperties
+	)
 </script>
 
 <div class="h-full flex flex-col">
@@ -56,7 +56,7 @@
 						<div class="border w-full">
 							<PropPickerWrapper
 								notSelectable
-								{pickableProperties}
+								pickableProperties={stepPropPicker.pickableProperties}
 								on:select={({ detail }) => {
 									editor?.insertAtCursor(detail)
 								}}
@@ -67,6 +67,7 @@
 									bind:code={mod.value.iterator.expr}
 									class="small-editor"
 									shouldBindKey={false}
+									extraLib={stepPropPicker.extraLib}
 								/>
 							</PropPickerWrapper>
 						</div>

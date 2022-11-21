@@ -46,21 +46,24 @@
 </script>
 
 {#if module.value.type === 'branchall'}
-	<div class="flex text-xs">
+	<div class="flex text-xs px-2">
 		<div
-			class="w-full space-y-2 flex flex-col border p-2 bg-gray-500 border-gray-600 bg-opacity-10 rounded-sm my-2 relative"
+			class="w-full space-y-2 pb-2 flex flex-col border bg-gray-500 border-gray-600 bg-opacity-10 rounded-sm my-2 relative"
 		>
 			{#each module.value.branches ?? [] as branch, branchIndex (branchIndex)}
 				<!-- svelte-ignore a11y-click-events-have-key-events -->
 				<div
+					transition:slide|local
 					on:click={() => {
 						selectedBranch = branchIndex
 						select(`${module.id}-branch-${branchIndex}`)
 					}}
 					class={classNames(
-						'border w-full rounded-md p-2 bg-white text-sm cursor-pointer flex items-center relative module',
+						`border-b ${
+							branchIndex > 0 ? 'border-t' : ''
+						} w-full p-2 bg-white border-gray-500 text-sm cursor-pointer flex items-center relative module`,
 						$selectedId === `${module.id}-branch-${branchIndex}`
-							? 'outline outline-offset-1 outline-2  outline-slate-900'
+							? 'outline outline-2  outline-slate-900'
 							: ''
 					)}
 				>
@@ -85,10 +88,10 @@
 				</div>
 
 				<div>
-					<FlowModuleSchemaMap bind:modules={branch.modules} color="indigo" />
+					<FlowModuleSchemaMap bind:modules={branch.modules} />
 				</div>
 			{/each}
-			<div class="overflow-clip">
+			<div class="overflow-clip ml-2 mt-2">
 				<Button
 					size="xs"
 					color="dark"

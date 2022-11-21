@@ -10,6 +10,7 @@ export type Loop = {
 }
 
 export type Branch = {
+	node: Node,
 	type: 'branch',
 	items: NestedNodes[]
 }

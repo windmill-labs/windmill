@@ -1,7 +1,7 @@
 <script lang="ts">
 	import Svelvet, { type Edge } from 'svelvet'
 	import { sugiyama, dagStratify, decrossOpt, coordGreedy, coordCenter } from 'd3-dag'
-	import type { FlowModule, RawScript } from '../../gen'
+	import type { FlowModule, ForloopFlow, RawScript } from '../../gen'
 	import {
 		NODE,
 		createIdGenerator,
@@ -15,7 +15,7 @@
 		type NestedNodes,
 		type ModuleHost
 	} from '.'
-	import { truncate, truncateRev } from '$lib/utils'
+	import { defaultIfEmptyString, truncate, truncateRev } from '$lib/utils'
 	import { createEventDispatcher } from 'svelte'
 	import { numberToChars } from '../flows/utils'
 
@@ -67,7 +67,7 @@
 
 	function getConvertedFlowModule(
 		module: FlowModule,
-		parent: NestedNodes | undefined = undefined,
+		parent: NestedNodes | string | undefined = undefined,
 		edgeLabel: string | undefined = undefined
 	): GraphItem | undefined {
 		const type = module.value.type
@@ -96,22 +96,18 @@
 				edgeLabel
 			)
 		} else if (type === 'forloopflow') {
-			const expr = module.value.iterator['expr']
-			return flowModuleToLoop(
-				module.value.modules,
-				`For each item in: ${truncate(expr, 10)}`,
-				parent
-			)
+			return flowModuleToLoop(module.value.modules, module, parent)
 		} else if (type === 'branchone') {
 			const branches = [module.value.default, ...module.value.branches.map((b) => b.modules)]
 			return flowModuleToBranch(
+				module,
 				branches,
 				['Default', ...module.value.branches.map((x) => `If ${truncateRev(x.expr, 20)}`)],
 				parent
 			)
 		} else if (type === 'branchall') {
 			const branches = module.value.branches.map((b) => b.modules)
-			return flowModuleToBranch(branches, [], parent)
+			return flowModuleToBranch(module, branches, [], parent)
 		}
 		return flowModuleToNode(
 			parentIds,
@@ -124,7 +120,10 @@
 		)
 	}
 
-	function getParentIds(items: NestedNodes | undefined = undefined): string[] {
+	function getParentIds(items: string | NestedNodes | undefined = undefined): string[] {
+		if (typeof items == 'string') {
+			return [items]
+		}
 		const item = items?.at(-1) || nestedNodes.at(-1)
 		if (!item) return []
 
@@ -197,37 +196,72 @@
 
 	function flowModuleToLoop(
 		modules: FlowModule[],
-		startLabel: string,
-		parent: NestedNodes | undefined = undefined
+		module: FlowModule,
+		parent: NestedNodes | string | undefined = undefined
 	): Loop {
+		const value = module.value as ForloopFlow
+		const expr = value.iterator.type == 'static' ? value.iterator.value : value.iterator.expr
 		const loop: Loop = {
 			type: 'loop',
-			items: [createVirtualNode(getParentIds(parent), startLabel)]
+			items: [
+				flowModuleToNode(
+					getParentIds(parent),
+					module.id,
+					module.summary || `For Loop: ${defaultIfEmptyString(expr ?? '', 'TBD')}`,
+					'inline',
+					module,
+					undefined
+				)
+			]
 		}
 		modules.forEach((module) => {
 			const item = getConvertedFlowModule(module, loop.items)
 			item && loop.items.push(item)
 		})
-		loop.items.push(createVirtualNode(getParentIds(loop.items), "Collect iterations' results"))
+		loop.items.push(
+			createVirtualNode(
+				getParentIds(loop.items),
+				`Collect iterations' results of For Loop ${module.id}`
+			)
+		)
 		return loop
 	}
 
 	function flowModuleToBranch(
+		module: FlowModule,
 		branches: FlowModule[][],
 		edgesLabel: string[],
-		parent: NestedNodes | undefined = undefined
+		parent: string | NestedNodes | undefined = undefined
 	): Branch {
 		const branch: Branch = {
 			type: 'branch',
+			node: flowModuleToNode(
+				getParentIds(parent),
+				module.id,
+				module.summary || module.value.type == 'branchall'
+					? 'Run all branches'
+					: 'Run one branch given predicate',
+				'inline',
+				module,
+				undefined
+			),
 			items: []
+		}
+		const branchParent = [branch.node.id.toString()]
+		if (branches.length == 0) {
+			branch.items.push([createVirtualNode(branchParent, 'No branches')])
 		}
 		branches.forEach((modules, i) => {
 			const items: NestedNodes = []
 			if (!modules.length) {
-				items.push(createVirtualNode(getParentIds(parent), 'Empty branch', edgesLabel[i]))
+				items.push(createVirtualNode(branchParent, 'Empty branch', edgesLabel[i]))
 			} else {
 				modules.forEach((module) => {
-					const item = getConvertedFlowModule(module, items.length ? items : parent, edgesLabel[i])
+					const item = getConvertedFlowModule(
+						module,
+						items.length ? items : branch.node.id.toString(),
+						edgesLabel[i]
+					)
 					item && items.push(item)
 				})
 			}
@@ -244,6 +278,7 @@
 			} else if (isLoop(node)) {
 				flattenNestedNodes(node.items, array)
 			} else if (isBranch(node)) {
+				array.push(node.node)
 				node.items.forEach((item) => {
 					flattenNestedNodes(item, array)
 				})

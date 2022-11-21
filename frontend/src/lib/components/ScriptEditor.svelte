@@ -3,7 +3,7 @@
 	import { CompletedJob, Job, JobService } from '$lib/gen'
 	import { userStore, workspaceStore } from '$lib/stores'
 	import { emptySchema, scriptLangToEditorLang } from '$lib/utils'
-	import { faPlay, faRotateRight } from '@fortawesome/free-solid-svg-icons'
+	import { faPlay } from '@fortawesome/free-solid-svg-icons'
 	import Editor from './Editor.svelte'
 	import { inferArgs } from '$lib/infer'
 	import type { Preview } from '$lib/gen/models/Preview'
@@ -16,7 +16,6 @@
 	import { onMount } from 'svelte'
 	import { Button, Kbd } from './common'
 	import SplitPanesWrapper from './splitPanes/SplitPanesWrapper.svelte'
-	import Tooltip from './Tooltip.svelte'
 	import WindmillIcon from './icons/WindmillIcon.svelte'
 
 	// Exported
@@ -165,12 +164,7 @@
 	<Pane size={40} minSize={10}>
 		<Splitpanes horizontal>
 			<Pane size={33}>
-				<div class="w-full  bg-gray-100 px-2 text-sm"
-					>Preview <Tooltip>
-						To recompute the input schema press <Kbd>Ctrl/Cmd</Kbd> + <Kbd>S</Kbd> or move the focus
-						outside of the text editor
-					</Tooltip></div
-				>
+				<div class="w-full  bg-gray-100 px-2 text-sm">Preview</div>
 				<div class="px-2">
 					<div class="break-words relative font-sans">
 						<SchemaForm {schema} bind:args bind:isValid />

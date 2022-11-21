@@ -11,9 +11,9 @@
 	import FlowSettingsItem from './FlowSettingsItem.svelte'
 	import FlowInputsItem from './FlowInputsItem.svelte'
 	import InsertModuleButton from './InsertModuleButton.svelte'
+	import { slide } from 'svelte/transition'
 
 	export let root: boolean = false
-	export let color: 'blue' | 'orange' | 'indigo' = 'blue'
 	export let modules: FlowModule[]
 
 	let indexToRemove: number | undefined = undefined
@@ -79,7 +79,7 @@
 			<FlowSettingsItem />
 		</div>
 	{/if}
-	<ul class="w-full flex-auto relative overflow-y-auto overflow-x-hidden px-2 py-1">
+	<ul class="w-full flex-auto relative overflow-y-auto overflow-x-hidden {root ? 'px-2' : ''} py-1">
 		{#if root}
 			<li>
 				<FlowInputsItem />
@@ -87,21 +87,21 @@
 		{/if}
 
 		{#each modules as mod, index (mod.id ?? index)}
-			<MapItem
-				{color}
-				{index}
-				bind:mod
-				on:delete={(event) => {
-					if (event.detail.detail.shiftKey || isEmptyFlowModule(mod)) {
-						removeAtIndex(index)
-					} else {
-						indexToRemove = index
-					}
-				}}
-				on:insert={() => {
-					insertNewModuleAtIndex(index)
-				}}
-			/>
+			<div transition:slide|local>
+				<MapItem
+					bind:mod
+					on:delete={(event) => {
+						if (event.detail.detail.shiftKey || isEmptyFlowModule(mod)) {
+							removeAtIndex(index)
+						} else {
+							indexToRemove = index
+						}
+					}}
+					on:insert={() => {
+						insertNewModuleAtIndex(index)
+					}}
+				/>
+			</div>
 		{/each}
 
 		<InsertModuleButton on:click={() => insertNewModuleAtIndex(modules.length)} />
@@ -125,17 +125,3 @@
 		}
 	}}
 />
-
-<style>
-	.badge {
-		@apply whitespace-nowrap text-sm font-medium border px-2.5 py-0.5 rounded cursor-pointer flex items-center;
-	}
-
-	.badge-on {
-		@apply bg-blue-100 text-blue-800 hover:bg-blue-200;
-	}
-
-	.badge-off {
-		@apply bg-gray-100 text-gray-800 hover:bg-gray-200;
-	}
-</style>
