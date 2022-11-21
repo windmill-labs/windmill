@@ -59,6 +59,10 @@ export type BarChartComponent = {
 	type: 'barchartcomponent'
 }
 
+export type PieChartComponent = {
+	type: 'piechartcomponent'
+}
+
 export type TableComponent = Runnable & {
 	type: 'tablecomponent'
 }
@@ -77,6 +81,7 @@ export type AppComponent =
 			| TextComponent
 			| TableComponent
 			| ButtonComponent
+			| PieChartComponent
 	  ) & {
 			id: ComponentID
 			width: number

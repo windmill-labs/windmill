@@ -79,7 +79,7 @@
 		</Pane>
 	{/if}
 	<Pane size={60} maxSize={100}>
-		<div class="p-4 bg-gray-100 h-full">
+		<div class="p-4 bg-gray-100 h-full" id="faton">
 			{#if $appStore.grid}
 				<GridEditor />
 			{/if}

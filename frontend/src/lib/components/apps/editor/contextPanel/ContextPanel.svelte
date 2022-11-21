@@ -4,7 +4,6 @@
 	import Badge from '$lib/components/common/badge/Badge.svelte'
 	import Button from '$lib/components/common/button/Button.svelte'
 	import DrawerContent from '$lib/components/common/drawer/DrawerContent.svelte'
-	import ObjectViewer from '$lib/components/propertyPicker/ObjectViewer.svelte'
 	import ScriptEditor from '$lib/components/ScriptEditor.svelte'
 	import { Preview } from '$lib/gen'
 	import { DENO_INIT_CODE_CLEAR } from '$lib/script_helpers'
@@ -159,7 +158,16 @@
 		{#if outputs.length > 0}
 			<Badge color="blue">Component: {componentId}</Badge>
 
-			<ComponentOutputViewer {outputs} {componentId} />
+			<div class="w-full p-2 rounded-xs border">
+				<ComponentOutputViewer
+					{outputs}
+					{componentId}
+					on:select={({ detail }) => {
+						const [output] = detail.split('.')
+						connectInput(componentId, output)
+					}}
+				/>
+			</div>
 		{/if}
 	{/each}
 </PanelSection>

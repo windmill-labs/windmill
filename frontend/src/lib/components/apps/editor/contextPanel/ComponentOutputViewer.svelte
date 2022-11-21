@@ -20,4 +20,4 @@
 	})
 </script>
 
-<ObjectViewer pureViewer={true} json={object} />
+<ObjectViewer json={object} on:select topBrackets={true} />

@@ -24,8 +24,8 @@
 	}
 </script>
 
-<div class="bg-white">
-	<Grid bind:items={$app.grid} rowHeight={64} let:dataItem {cols}>
+<div class="bg-white h-full">
+	<Grid bind:items={$app.grid} rowHeight={32} let:dataItem {cols}>
 		{@const index = $app.grid.findIndex((c) => c.data.id === dataItem.data.id)}
 		<!-- svelte-ignore a11y-click-events-have-key-events -->
 		<div

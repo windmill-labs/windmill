@@ -81,7 +81,7 @@
 									scope="col"
 									class="px-4 py-2 text-left text-xs font-medium text-gray-500 tracking-wider"
 								>
-									{header}
+									{header.replace(/([A-Z]+)*([A-Z][a-z])/g, '$1 $2')}
 								</th>
 							{/each}
 							<th scope="col" class="relative py-2 px-4">
@@ -100,11 +100,13 @@
 						>
 							{#each headers as header}
 								<td class="px-4 py-2 whitespace-nowrap text-sm text-gray-900">
-									{row[header.toLocaleLowerCase()]}
+									{row[header]}
 								</td>
 							{/each}
 							<td class="relative whitespace-nowrap px-4 py-2 text-right ">
-								<Button color="blue" size="xs" variant="contained">Edit</Button>
+								{#if false}
+									<Button color="blue" size="xs" variant="contained">Edit</Button>
+								{/if}
 							</td>
 						</tr>
 					{/each}

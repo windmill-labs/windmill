@@ -17,7 +17,7 @@
 		appComponent: AppComponent,
 		defaultDimensions: Size,
 		minDimensions: Size = { w: 1, h: 1 },
-		maxDimensions: Size = { w: 6, h: 6 }
+		maxDimensions: Size = { w: 6, h: 12 }
 	) {
 		const grid = $app.grid ?? []
 		const id = getNextId(grid.map((gridItem) => gridItem.data.id))
