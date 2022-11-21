@@ -13,16 +13,24 @@
 		componentInputs.result.name
 
 	$: inputResult = hasConnection
-		? $worldStore?.connect<any>(componentInputs.result, (x) => {
+		? $worldStore?.connect<any>(componentInputs.result, () => {
 				update()
 		  })
-		: undefined
+		: {
+				peak: () => {
+					if (componentInputs.result.type === 'static') {
+						return componentInputs.result.value
+					}
+				}
+		  }
 
 	let result: any
 
 	function update() {
 		result = inputResult?.peak()
 	}
+
+	$: !hasConnection && componentInputs.result && update()
 
 	export const staticOutputs: string[] = []
 </script>

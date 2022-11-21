@@ -21,9 +21,9 @@
 
 	const { app } = getContext<AppEditorContext>('AppEditorContext')
 
-	function remove() {
+	function removeGridElement() {
 		const COLS = 6
-		const index = $app.grid.findIndex((c) => c.data.id === component?.id)
+		const index = $app.grid.findIndex((gridComponent) => gridComponent.data.id === component?.id)
 		$app.grid.splice(index, 1)
 		$app.grid = gridHelp.adjust($app.grid, COLS)
 	}
@@ -36,7 +36,7 @@
 				<InputsSpecsEditor bind:inputSpecs={component.inputs} />
 			{/if}
 
-			{#if component.type === 'runformcomponent' && component.path === undefined}
+			{#if component.runnable && component['path'] === undefined && component['inlineScriptName'] === undefined}
 				<span class="text-sm">Select a script or a flow to continue</span>
 				<PickScript
 					kind="script"
@@ -55,6 +55,22 @@
 						}
 					}}
 				/>
+			{/if}
+
+			{#if component.runnable && component['path'] === undefined && component['inlineScriptName'] === undefined}
+				{#each Object.keys($app.inlineScripts ?? {}) as inlineScriptName}
+					<Button
+						on:click={() => {
+							if (component?.runnable) {
+								// @ts-ignore
+								component.inlineScriptName = inlineScriptName
+							}
+						}}
+						size="xs"
+					>
+						Link {inlineScriptName}
+					</Button>
+				{/each}
 			{/if}
 
 			{#if component.componentInputs}
@@ -98,7 +114,7 @@
 				color="red"
 				variant="border"
 				startIcon={{ icon: faTrashAlt }}
-				on:click={remove}
+				on:click={removeGridElement}
 			>
 				Delete component
 			</Button>
