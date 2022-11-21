@@ -97,6 +97,23 @@ export async function setState(state: any): Promise<void> {
 }
 
 /**
+ * Set the shared state
+ * @param state state to set
+ */
+export async function setSharedState(state: any, path = 'state.json'): Promise<void> {
+    await Deno.writeTextFile(SHARED_FOLDER + '/' + path, JSON.stringify(state))
+}
+
+/**
+ * Get the shared state
+ * @param state state to set
+ */
+export async function getSharedState(path = 'state.json'): Promise<any> {
+    return JSON.parse(await Deno.readTextFile(SHARED_FOLDER + '/' + path))
+}
+
+
+/**
  * Get the internal state
  * @deprecated use getState instead
  */
