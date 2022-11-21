@@ -73,7 +73,7 @@
 		"monaco-languageclient": "4.0.1",
 		"set-interval-async": "^3.0.2",
 		"svelte-autosize": "^1.0.1",
-		"svelte-chartjs": "^3.0.1",
+		"svelte-chartjs": "^3.1.0",
 		"vscode-ws-jsonrpc": "^2.0.0"
 	}
 }
