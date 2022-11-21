@@ -7,11 +7,13 @@
  */
 
 use const_format::concatcp;
+use git_version::git_version;
 use itertools::Itertools;
 use sqlx::{Pool, Postgres, Transaction};
 use std::{borrow::Borrow, collections::HashMap, io, panic, process::Stdio, time::Duration};
 use tracing::{trace_span, Instrument};
 use uuid::Uuid;
+
 use windmill_common::{
     error::{self, to_anyhow, Error},
     flows::{FlowModuleValue, FlowValue},
@@ -49,15 +51,24 @@ use crate::{
 };
 
 #[cfg(feature = "enterprise")]
-async fn run_periodic_jobs(bucket: &str) {
-    tracing::info!("Running periodic jobs");
+use rand::Rng;
+
+#[cfg(feature = "enterprise")]
+const TAR_CACHE_FILENAME: &str = "entirecache.tar";
+
+#[cfg(feature = "enterprise")]
+async fn copy_cache_from_bucket(bucket: &str) {
+    tracing::info!("Copying cache from bucket {bucket}");
+    let elapsed = Instant::now();
 
     match Command::new("rclone")
         .arg("copy")
-        .arg(format!(":s3,env_auth=true:{}", bucket))
+        .arg(format!(":s3,env_auth=true:{bucket}"))
         .arg(ROOT_CACHE_DIR)
         .arg("--size-only")
         .arg("--fast-list")
+        .arg("--exclude")
+        .arg(format!("\"{TAR_CACHE_FILENAME}\""))
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .spawn()
@@ -67,13 +78,32 @@ async fn run_periodic_jobs(bucket: &str) {
         }
         Err(e) => tracing::warn!("Failed to run periodic job pull. Error: {:?}", e),
     }
+    tracing::info!(
+        "Finished copying cache from bucket {bucket}, took {:?}s",
+        elapsed.elapsed().as_secs()
+    );
 
+    for x in [PIP_CACHE_DIR, DENO_CACHE_DIR, GO_CACHE_DIR] {
+        DirBuilder::new()
+            .recursive(true)
+            .create(x)
+            .await
+            .expect("could not create initial worker dir");
+    }
+}
+
+#[cfg(feature = "enterprise")]
+async fn copy_cache_to_bucket(bucket: &str) {
+    tracing::info!("Copying cache to bucket {bucket}");
+    let elapsed = Instant::now();
     match Command::new("rclone")
         .arg("copy")
         .arg(ROOT_CACHE_DIR)
-        .arg(format!(":s3,env_auth=true:{}", bucket))
+        .arg(format!(":s3,env_auth=true:{bucket}"))
         .arg("--size-only")
         .arg("--fast-list")
+        .arg("--exclude")
+        .arg(format!("\"{TAR_CACHE_FILENAME}\""))
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .spawn()
@@ -83,20 +113,46 @@ async fn run_periodic_jobs(bucket: &str) {
         }
         Err(e) => tracing::warn!("Failed to run periodic job push. Error: {:?}", e),
     }
+    tracing::info!(
+        "Finished copying cache to bucket {bucket}, took: {:?}s",
+        elapsed.elapsed().as_secs()
+    );
 }
 
 #[cfg(feature = "enterprise")]
-async fn run_periodic_jobs_initial(bucket: &str) {
-    tracing::info!("Running periodic jobs");
+async fn copy_cache_to_bucket_as_tar(bucket: &str) {
+    tracing::info!("Copying cache to bucket {bucket} as tar");
+    let elapsed = Instant::now();
+
+    match Command::new("tar")
+        .current_dir(ROOT_CACHE_DIR)
+        .arg("-c")
+        .arg("-f")
+        .arg(format!("{ROOT_CACHE_DIR}/{TAR_CACHE_FILENAME}"))
+        .args(&["pip", "go", "deno"])
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .spawn()
+    {
+        Ok(mut h) => {
+            if !h.wait().await.unwrap().success() {
+                tracing::warn!("Failed to tar cache");
+                return;
+            }
+        }
+        Err(e) => {
+            tracing::warn!("Failed tar cache. Error: {e:?}");
+            return;
+        }
+    }
 
     match Command::new("rclone")
-        .arg("bisync")
-        .arg(format!(":s3,env_auth=true:{}", bucket))
-        .arg(ROOT_CACHE_DIR)
+        .current_dir(ROOT_CACHE_DIR)
+        .arg("copyto")
+        .arg(TAR_CACHE_FILENAME)
+        .arg(format!(":s3,env_auth=true:{bucket}/{TAR_CACHE_FILENAME}"))
         .arg("--size-only")
         .arg("--fast-list")
-        .arg("--force")
-        .arg("--resync")
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .spawn()
@@ -104,16 +160,66 @@ async fn run_periodic_jobs_initial(bucket: &str) {
         Ok(mut h) => {
             h.wait().await.unwrap();
         }
-        Err(e) => tracing::warn!("Failed to run periodic job. Error: {:?}", e),
+        Err(e) => tracing::warn!("Failed to copying tar cache to bucket. Error: {:?}", e),
+    }
+    tracing::info!(
+        "Finished copying cache to bucket {bucket} as tar, took: {:?}s",
+        elapsed.elapsed().as_secs()
+    );
+}
+
+#[cfg(feature = "enterprise")]
+async fn copy_cache_from_bucket_as_tar(bucket: &str) -> bool {
+    tracing::info!("Copying cache from bucket {bucket} as tar");
+    let elapsed = Instant::now();
+
+    match Command::new("rclone")
+        .arg("copyto")
+        .arg(format!(":s3,env_auth=true:{bucket}/{TAR_CACHE_FILENAME}"))
+        .arg(format!("{ROOT_CACHE_DIR}/{TAR_CACHE_FILENAME}"))
+        .arg("--size-only")
+        .arg("--fast-list")
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .spawn()
+    {
+        Ok(mut h) => {
+            if !h.wait().await.unwrap().success() {
+                tracing::warn!("Failed to download tar cache");
+                return false;
+            }
+        }
+        Err(e) => {
+            tracing::warn!("Failed to download tar cache. Error: {e:?}");
+            return false;
+        }
     }
 
-    for x in [PIP_CACHE_DIR, DENO_CACHE_DIR, GO_CACHE_DIR] {
-        DirBuilder::new()
-            .recursive(true)
-            .create(x)
-            .await
-            .expect("could not create initial worker dir");
+    match Command::new("tar")
+        .current_dir(ROOT_CACHE_DIR)
+        .arg("-xpvf")
+        .arg(format!("{ROOT_CACHE_DIR}/{TAR_CACHE_FILENAME}"))
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .spawn()
+    {
+        Ok(mut h) => {
+            if !h.wait().await.unwrap().success() {
+                tracing::warn!("Failed to untar cache");
+                return false;
+            }
+        }
+        Err(e) => {
+            tracing::warn!("Failed untar cache. Error: {e:?}");
+            return false;
+        }
     }
+
+    tracing::info!(
+        "Finished copying cache from bucket {bucket} as tar, took: {:?}s",
+        elapsed.elapsed().as_secs()
+    );
+    return true;
 }
 
 #[tracing::instrument(level = "trace", skip_all)]
@@ -194,6 +300,7 @@ const NSJAIL_CONFIG_RUN_BASH_CONTENT: &str = include_str!("../nsjail/run.bash.co
 const NSJAIL_CONFIG_RUN_DENO_CONTENT: &str = include_str!("../nsjail/run.deno.config.proto");
 const MAX_LOG_SIZE: u32 = 200000;
 const GO_REQ_SPLITTER: &str = "//go.sum";
+const GIT_VERSION: &str = git_version!(args = ["--tag", "--always"], fallback = "unknown-version");
 
 #[derive(Clone)]
 pub struct Metrics {
@@ -245,6 +352,7 @@ pub async fn run_worker(
     sync_bucket: Option<String>,
     mut rx: tokio::sync::broadcast::Receiver<()>,
 ) {
+    tracing::info!("Starting worker {worker_instance} {worker_name}, version: {GIT_VERSION}");
     let start_time = Instant::now();
 
     let worker_dir = format!("{TMP_DIR}/{worker_name}");
@@ -264,9 +372,6 @@ pub async fn run_worker(
         INCLUDE_DEPS_PY_SH_CONTENT,
     )
     .await;
-
-    #[cfg(feature = "enterprise")]
-    let mut last_sync = Instant::now() - Duration::from_secs(NUM_SECS_ENV_CHECK + 1);
 
     let mut last_ping = Instant::now() - Duration::from_secs(NUM_SECS_SYNC + 1);
 
@@ -318,6 +423,13 @@ pub async fn run_worker(
     let pip_index_url = std::env::var("PIP_INDEX_URL").ok();
     let pip_extra_index_url = std::env::var("PIP_EXTRA_INDEX_URL").ok();
     let pip_trusted_host = std::env::var("PIP_TRUSTED_HOST").ok();
+
+    #[cfg(feature = "enterprise")]
+    let tar_cache_rate = std::env::var("TAR_CACHE_RATE")
+        .ok()
+        .and_then(|x| x.parse::<i32>().ok())
+        .unwrap_or(100);
+
     let envs = Envs {
         deno_path,
         go_path,
@@ -333,8 +445,15 @@ pub async fn run_worker(
 
     #[cfg(feature = "enterprise")]
     if let Some(ref s) = sync_bucket.clone() {
-        run_periodic_jobs_initial(&s).await;
+        // We try to download the entire cache as a tar, it is much faster over S3
+        if !copy_cache_from_bucket_as_tar(&s).await {
+            // We revert to copying the cache from the bucket
+            copy_cache_from_bucket(&s).await;
+        }
     }
+
+    #[cfg(feature = "enterprise")]
+    let mut last_sync = Instant::now();
 
     let (same_worker_tx, mut same_worker_rx) = mpsc::channel::<Uuid>(5);
 
@@ -361,7 +480,11 @@ pub async fn run_worker(
             #[cfg(feature = "enterprise")]
             if last_sync.elapsed().as_secs() > NUM_SECS_SYNC {
                 if let Some(ref s) = sync_bucket.clone() {
-                    run_periodic_jobs(&s).await;
+                    copy_cache_from_bucket(&s).await;
+                    copy_cache_to_bucket(&s).await;
+                    if rand::thread_rng().gen_range(0..tar_cache_rate) == 1 {
+                        copy_cache_to_bucket_as_tar(&s).await;
+                    }
                 }
                 last_sync = Instant::now();
             }
@@ -1151,6 +1274,18 @@ func Run(req Req) (interface{{}}, error){{
                 .replace("{SHARED_MOUNT}", shared_mount),
         )
         .await?;
+        let build_go = Command::new(go_path)
+            .current_dir(job_dir)
+            .env_clear()
+            .env("PATH", path_env)
+            .env("BASE_INTERNAL_URL", base_internal_url)
+            .env("GOPATH", GO_CACHE_DIR)
+            .env("HOME", home_env)
+            .args(vec!["build", "main.go"])
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()?;
+        handle_child(&job.id, db, logs, timeout, build_go).await?;
 
         Command::new(nsjail_path)
             .current_dir(job_dir)
@@ -1158,14 +1293,7 @@ func Run(req Req) (interface{{}}, error){{
             .envs(reserved_variables)
             .env("PATH", path_env)
             .env("BASE_INTERNAL_URL", base_internal_url)
-            .args(vec![
-                "--config",
-                "run.config.proto",
-                "--",
-                go_path,
-                "run",
-                "main.go",
-            ])
+            .args(vec!["--config", "run.config.proto", "--", "/tmp/go/main"])
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .spawn()?

@@ -5,10 +5,10 @@
 	import CenteredModal from '$lib/components/CenteredModal.svelte'
 	import { sendUserToast } from '$lib/utils'
 	import FlowMetadata from '$lib/components/FlowMetadata.svelte'
-	import FlowModulesViewer from '$lib/components/FlowModulesViewer.svelte'
 	import JobArgs from '$lib/components/JobArgs.svelte'
 	import { onDestroy, onMount } from 'svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
+	import FlowGraph from '$lib/components/graph/FlowGraph.svelte'
 
 	let job: Job | undefined = undefined
 	let currentApprovers: { resume_id: number; approver: string }[] = []
@@ -21,6 +21,7 @@
 		.includes(new Number($page.params.resume).valueOf())
 
 	let timeout: NodeJS.Timer | undefined = undefined
+	let error: string | undefined = undefined
 
 	getJob()
 
@@ -28,14 +29,16 @@
 		timeout = setInterval(getJob, 1000)
 		window.onunhandledrejection = (event: PromiseRejectionEvent) => {
 			event.preventDefault()
-
+			timeout && clearInterval(timeout)
 			if (event.reason?.message) {
 				const { message, body, status } = event.reason
 
 				if (body) {
 					sendUserToast(`${body}`, true)
+					error = body.toString()
 				} else {
 					sendUserToast(`${message}`, true)
+					error = message.toString()
 				}
 			} else {
 				console.log('Caught unhandled promise rejection without message', event)
@@ -48,19 +51,15 @@
 	})
 
 	async function getJob() {
-		try {
-			const suspendedJobFlow = await JobService.getSuspendedJobFlow({
-				workspace: $page.params.workspace,
-				id: $page.params.job,
-				resumeId: new Number($page.params.resume).valueOf(),
-				signature: $page.params.hmac,
-				approver
-			})
-			job = suspendedJobFlow.job
-			currentApprovers = suspendedJobFlow.approvers
-		} catch (e) {
-			sendUserToast(e.message, true)
-		}
+		const suspendedJobFlow = await JobService.getSuspendedJobFlow({
+			workspace: $page.params.workspace,
+			id: $page.params.job,
+			resumeId: new Number($page.params.resume).valueOf(),
+			signature: $page.params.hmac,
+			approver
+		})
+		job = suspendedJobFlow.job
+		currentApprovers = suspendedJobFlow.approvers
 	}
 
 	async function resume() {
@@ -92,6 +91,9 @@
 
 <div class="min-h-screen antialiased text-gray-900">
 	<CenteredModal title="Approve resuming of flow?">
+		{#if error}
+			<h1 class="text-red-400">{error}</h1>
+		{/if}
 		<div class="flex flex-row justify-between flex-wrap sm:flex-nowrap gap-x-4">
 			<div class="w-full">
 				<h2 class="mt-4">Current approvers</h2>
@@ -167,10 +169,13 @@
 		</div>
 		{#if job && job.raw_flow}
 			<h2 class="mt-10">Flow details</h2>
-			<FlowModulesViewer
-				modules={job.raw_flow?.modules}
-				failureModule={job.raw_flow?.failure_module}
-			/>
+			<div class="border border-gray-700">
+				<FlowGraph
+					modules={job.raw_flow?.modules}
+					failureModule={job.raw_flow?.failure_module}
+					notSelectable
+				/>
+			</div>
 		{/if}
 	</CenteredModal>
 </div>

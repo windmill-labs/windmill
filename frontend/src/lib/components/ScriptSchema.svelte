@@ -21,7 +21,7 @@
 </script>
 
 <div class="w-full">
-	<h1 class="my-4">UI customisation</h1>
+	<h1 class="my-4">Advanced</h1>
 
 	<Tabs selected="ui">
 		<Tab value="ui">UI</Tab>
