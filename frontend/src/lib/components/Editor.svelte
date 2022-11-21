@@ -409,8 +409,8 @@
 			timeoutModel && clearTimeout(timeoutModel)
 			timeoutModel = setTimeout(() => {
 				code = getCode()
+				dispatch('change')
 			}, 500)
-			dispatch('change')
 		})
 
 		editor.onDidFocusEditorText(() => {

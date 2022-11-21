@@ -15,6 +15,7 @@ mv .gitignore2 .gitignore
 
 rm -rf windmill-api/ || true
 openapi-python-client generate --config $PWD/python-gen.yaml --path openapi-deref.json
+echo "" > windmill-api/windmill_api/models/__init__.py 
 rm -rf openapi/
 rm openapi*
 

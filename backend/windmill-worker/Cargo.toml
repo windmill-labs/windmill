@@ -47,3 +47,4 @@ dotenv.workspace = true
 rand.workspace = true # TODO: Remove. only used by token creation hack.
 deno_core.workspace = true
 const_format.workspace = true
+git-version.workspace = true
