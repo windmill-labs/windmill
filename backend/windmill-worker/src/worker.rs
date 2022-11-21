@@ -453,7 +453,8 @@ pub async fn run_worker(
     }
 
     #[cfg(feature = "enterprise")]
-    let mut last_sync = Instant::now();
+    let mut last_sync =
+        Instant::now() + Duration.from_secs(rand::thread_rng().gen_range(0..NUM_SECS_SYNC));
 
     let (same_worker_tx, mut same_worker_rx) = mpsc::channel::<Uuid>(5);
 
