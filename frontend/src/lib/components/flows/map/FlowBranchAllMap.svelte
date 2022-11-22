@@ -9,8 +9,8 @@
 	import { classNames } from '$lib/utils'
 	import Icon from 'svelte-awesome'
 	import { deleteFlowStateById, emptyModule, idMutex } from '../flowStateUtils'
-	import { emptyFlowModuleState } from '../utils'
-	import { flowStateStore } from '../flowState'
+
+	let selectedBranch = 0
 
 	export let module: FlowModule
 

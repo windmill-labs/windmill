@@ -61,7 +61,7 @@
 	const handleHide = () => (hidden = !hidden)
 </script>
 
-<span class="inline-flex justify-center items-center whitespace-nowrap">
+<span on:click on:keydown class="inline-flex justify-center items-center whitespace-nowrap">
 	<svelte:element
 		this={href ? 'a' : 'span'}
 		{href}

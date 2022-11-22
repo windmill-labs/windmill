@@ -2,51 +2,48 @@
 	import { ToggleButton, ToggleButtonGroup } from '$lib/components/common'
 	import WindmillIcon from '$lib/components/icons/WindmillIcon.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
-	import { RawScript, Script } from '$lib/gen'
+	import { RawScript } from '$lib/gen'
 
-	import {
-		faBolt,
-		faBuilding,
-		faCheck,
-		faCode,
-		faCodeBranch,
-		faRepeat
-	} from '@fortawesome/free-solid-svg-icons'
+	import { faBolt, faBuilding, faCheck, faCode } from '@fortawesome/free-solid-svg-icons'
 	import { createEventDispatcher } from 'svelte'
 	import FlowScriptPicker from '../pickers/FlowScriptPicker.svelte'
 	import PickHubScript from '../pickers/PickHubScript.svelte'
+	import WorkspaceScriptPicker from '../pickers/WorkspaceScriptPicker.svelte'
 
 	export let failureModule: boolean
 	export let shouldDisableTriggerScripts: boolean = false
 	const dispatch = createEventDispatcher()
-	let kind: 'script' | 'failure' | 'approval' | 'failure' = failureModule ? 'failure' : 'script'
+	let kind: 'script' | 'failure' | 'approval' | 'trigger' = failureModule ? 'failure' : 'script'
 	let pick_existing: 'workspace' | 'hub' = 'hub'
 </script>
 
-<div class="space-y-4 p-4">
+<div class="space-y-4 p-4 h-full flex flex-col">
 	{#if !failureModule}
-		<div class="max-w-min">
-			<ToggleButtonGroup bind:selected={kind}>
-				<ToggleButton position="left" value="script" size="sm" startIcon={{ icon: faCode }}>
-					Common
-				</ToggleButton>
-				{#if !shouldDisableTriggerScripts}
-					<ToggleButton position="center" value="trigger" size="sm" startIcon={{ icon: faBolt }}>
-						Trigger <Tooltip>
-							Used as a first step most commonly with a state and a schedule to watch for changes on
-							an external system, compute the diff since last time, set the new state. The diffs are
-							then treated one by one with a for-loop.
+		<div class="center-center">
+			<div class="max-w-min">
+				<ToggleButtonGroup bind:selected={kind}>
+					<ToggleButton position="left" value="script" size="sm" startIcon={{ icon: faCode }}>
+						Common
+					</ToggleButton>
+					{#if !shouldDisableTriggerScripts}
+						<ToggleButton position="center" value="trigger" size="sm" startIcon={{ icon: faBolt }}>
+							Trigger <Tooltip>
+								Used as a first step most commonly with a state and a schedule to watch for changes
+								on an external system, compute the diff since last time, set the new state. The
+								diffs are then treated one by one with a for-loop.
+							</Tooltip>
+						</ToggleButton>
+					{/if}
+					<ToggleButton position="right" value="approval" size="sm" startIcon={{ icon: faCheck }}>
+						Approval <Tooltip>
+							An approval step will suspend the execution of a flow until it has been approved
+							through the resume endpoints or the approval page by and solely by the recipients of
+							those secret urls. Use getResumeEndpoints from the wmill client to generate those
+							URLs.
 						</Tooltip>
 					</ToggleButton>
-				{/if}
-				<ToggleButton position="right" value="approval" size="sm" startIcon={{ icon: faCheck }}>
-					Approval <Tooltip>
-						An approval step will suspend the execution of a flow until it has been approved through
-						the resume endpoints or the approval page by and solely by the recipients of those
-						secret urls. Use getResumeEndpoints from the wmill client to generate those URLs.
-					</Tooltip>
-				</ToggleButton>
-			</ToggleButtonGroup>
+				</ToggleButtonGroup>
+			</div>
 		</div>
 	{/if}
 	<h3>Inline new</h3>
@@ -122,15 +119,18 @@
 	<div class="max-w-min">
 		<ToggleButtonGroup bind:selected={pick_existing}>
 			<ToggleButton position="left" value="hub" size="xs">
-				<WindmillIcon white height="16px" width="16px" /><div class="mr-1" />Hub
+				<WindmillIcon white={pick_existing == 'hub'} height="16px" width="16px" /><div
+					class="mr-1"
+				/>Hub
 			</ToggleButton>
 			<ToggleButton position="right" value="workspace" size="xs" startIcon={{ icon: faBuilding }}>
 				Workspace
 			</ToggleButton>
 		</ToggleButtonGroup>
 	</div>
-
 	{#if pick_existing == 'hub'}
-		<PickHubScript />
+		<PickHubScript {kind} on:pick />
+	{:else}
+		<WorkspaceScriptPicker {kind} on:pick />
 	{/if}
 </div>
