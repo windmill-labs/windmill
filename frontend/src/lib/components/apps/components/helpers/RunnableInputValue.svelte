@@ -7,7 +7,7 @@
 
 	const { worldStore } = getContext<AppEditorContext>('AppEditorContext')
 
-	$: hasConnection = input.type === 'output' && input.id && input.name
+	$: hasConnection = input.type === 'output' && input.id !== undefined && input.name !== undefined
 
 	$: inputResult = hasConnection
 		? $worldStore?.connect<any>(input, () => updateValue())

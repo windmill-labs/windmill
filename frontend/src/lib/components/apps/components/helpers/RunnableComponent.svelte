@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { page } from '$app/stores'
 	import type { Schema } from '$lib/common'
+	import Alert from '$lib/components/common/alert/Alert.svelte'
 	import Button from '$lib/components/common/button/Button.svelte'
 	import SchemaForm from '$lib/components/SchemaForm.svelte'
 	import TestJobLoader from '$lib/components/TestJobLoader.svelte'
@@ -11,8 +12,8 @@
 	import Icon from 'svelte-awesome'
 	import type { Output } from '../../rx'
 	import type { AppEditorContext, InputsSpec } from '../../types'
-	import { buildArgs, loadSchema, schemaToInputsSpec } from '../../utils'
-	import InputValue from './InputValue.svelte'
+	import { loadSchema, schemaToInputsSpec } from '../../utils'
+	import RunnableInputValue from './RunnableInputValue.svelte'
 
 	// Component props
 	export let id: string
@@ -30,8 +31,30 @@
 	// Local state
 	let args: Record<string, any> = {}
 	let schema: Schema | undefined = undefined
-	let isValid = true
 	let testIsLoading = false
+	let runnableInputValues: Record<string, any> = {}
+
+	$: mergedArgs = { ...args, ...extraQueryParams, ...runnableInputValues }
+
+	function isMergedArgsValid(mergedArgs: Record<string, any>) {
+		if (Object.keys(inputs).length !== Object.keys(runnableInputValues).length) {
+			return false
+		}
+
+		const areAllArgsValid = Object.values(mergedArgs).every(
+			(arg) => arg !== undefined && arg !== null
+		)
+
+		debugger
+
+		if (areAllArgsValid) {
+			executeComponent()
+		}
+
+		return areAllArgsValid
+	}
+
+	$: isValid = isMergedArgsValid(mergedArgs)
 
 	// Test job internal state
 	let testJob: CompletedJob | undefined = undefined
@@ -59,9 +82,17 @@
 
 	// Only loads the schema
 	$: if ($workspaceStore && path && runType) {
+		// Remote schema needs to be loaded
 		loadSchemaFromTriggerable($workspaceStore, path, runType)
 	} else if (inlineScriptName && $app.inlineScripts[inlineScriptName]) {
+		// Inline scripts directly provide the schema
 		schema = $app.inlineScripts[inlineScriptName].schema
+	}
+
+	// When the schema is loaded, we need to update the inputs spec
+	// in order to render the inputs the component panel
+	$: if (schema && Object.keys(schema.properties ?? {}).length !== Object.keys(inputs).length) {
+		inputs = schemaToInputsSpec(schema)
 	}
 
 	let schemaStripped: Schema | undefined = undefined
@@ -72,6 +103,7 @@
 		// Remove hidden static inputs
 		Object.keys(inputs).forEach((key: string) => {
 			const input = inputs[key]
+
 			if (input.type === 'static' && !input.visible && schemaStripped !== undefined) {
 				delete schemaStripped.properties[key]
 			}
@@ -101,10 +133,7 @@
 	async function executeComponent() {
 		await testJobLoader?.abstractRun(() => {
 			const requestBody = {
-				args: {
-					...args,
-					...extraQueryParams
-				},
+				args: mergedArgs,
 				force_viewer_static_fields: {}
 			}
 
@@ -128,7 +157,7 @@
 </script>
 
 {#each Object.keys(inputs) as key}
-	<InputValue input={inputs[key]} bind:value={args[key]} />
+	<RunnableInputValue input={inputs[key]} bind:value={runnableInputValues[key]} />
 {/each}
 
 <TestJobLoader
@@ -144,17 +173,23 @@
 />
 
 {#if schemaStripped !== undefined}
-	<SchemaForm schema={schemaStripped} bind:args {isValid} {disabledArgs} />
+	<SchemaForm schema={schemaStripped} bind:args {isValid} {disabledArgs} shouldHideNoInputs />
 {/if}
 
 {#if shouldTick === undefined}
-	<Button size="xs" color="dark" on:click={() => executeComponent()} disabled={!isValid}>
-		<div>
-			{Object.keys(args).length > 0 ? 'Submit' : 'Refresh'}
-			{#if testIsLoading}
-				<Icon data={faArrowsRotate} class="animate-spin ml-2" scale={0.8} />
-			{/if}
-		</div>
-	</Button>
+	{#if isValid}
+		<Button size="xs" color="dark" on:click={() => executeComponent()} disabled={!isValid}>
+			<div>
+				{Object.keys(args).length > 0 ? 'Submit' : 'Refresh'}
+				{#if testIsLoading}
+					<Icon data={faArrowsRotate} class="animate-spin ml-2" scale={0.8} />
+				{/if}
+			</div>
+		</Button>
+		<slot />
+	{:else}
+		<Alert type="warning" size="xs" class="mt-2" title="Missing inputs">
+			Please fill in all the inputs
+		</Alert>
+	{/if}
 {/if}
-<slot />
