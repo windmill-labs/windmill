@@ -17,16 +17,10 @@
 
 	const { worldStore } = getContext<AppEditorContext>('AppEditorContext')
 
-	// ComponentInput: Static/dynamic
-	// ScriptInput: Run form: Static/Dynamic/User
-	// paramInput: Search : configurable only at component level (toggle)
-
 	export const staticOutputs: string[] = ['selectedRow', 'loading', 'result']
 
 	$: outputs = $worldStore?.outputsById[id] as {
 		selectedRow: Output<any>
-		result: Output<Array<string>>
-		loading: Output<boolean>
 	}
 
 	let selectedRowIndex = -1
@@ -49,6 +43,10 @@
 
 	let result: Array<Record<string, any>> = []
 	$: headers = Object.keys(result[0] || {}) || []
+
+	const extraQueryParams = { search, page }
+
+	export const reservedKeys: string[] = Object.keys(extraQueryParams)
 </script>
 
 <ComponentInputValue input={componentInputs.searchEnabled} bind:value={searchEnabledValue} />

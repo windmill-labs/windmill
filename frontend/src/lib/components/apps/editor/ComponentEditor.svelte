@@ -33,7 +33,7 @@
 		class={classNames(
 			'p-2 border overflow-auto cursor-pointer  h-full bg-white',
 			selected ? 'border-blue-500' : 'border-white',
-			$mode === 'preview' ? 'border-white' : 'hover:border-blue-500 '
+			$mode === 'preview' ? 'border-white' : 'hover:border-blue-500'
 		)}
 	>
 		{#if component.type === 'runformcomponent'}

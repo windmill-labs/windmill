@@ -92,6 +92,7 @@ export type AppComponent =
 			// Only dynamic inputs (Result of display)
 			componentInputs: ComponentInputsSpec
 			runnable?: boolean | undefined
+			card?: boolean | undefined
 
 			// TODO: add min/max width/height
 	  }
