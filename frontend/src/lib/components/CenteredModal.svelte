@@ -30,11 +30,11 @@
 		<!-- empty row to make the form a little bit above vertical centering-->
 		<div class="py-12" />
 	</div>
-	<div class="hidden lg:block absolute top-10 right-50">
+	<div class="hidden lg:block absolute top-20 right-50">
 		<div class="animate-[spin_100s_linear_infinite] ">
 			<WindmillIcon white height="100px" width="100px" />
 		</div>
-		<h2 class=" text-center pt-2 text-gray-100">Windmill</h2>
+		<h2 class="text-center pt-2 text-gray-100">Windmill</h2>
 	</div>
 	<div class="absolute top-0 right-0 text-2xs text-gray-300 italic px-3 py-1">
 		windmill.dev backend v. <span class="font-mono">{version}</span>
