@@ -125,7 +125,11 @@
 							arg.expr = getDefaultExpr(
 								argName,
 								previousModuleId,
-								staticTemplate ? `\`${arg.value ?? ''}\`` : arg.value
+								staticTemplate
+									? `\`${arg.value ?? ''}\``
+									: arg.value
+									? JSON.stringify(arg.value, null, 4)
+									: ''
 							)
 
 							arg.value = undefined

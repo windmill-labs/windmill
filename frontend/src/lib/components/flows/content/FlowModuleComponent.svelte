@@ -165,7 +165,7 @@
 				<Splitpanes horizontal>
 					<Pane size={50} minSize={20}>
 						{#if flowModule.value.type === 'rawscript'}
-							<div on:mouseleave={() => reload(flowModule)} class="h-full">
+							<div class="h-full">
 								<Editor
 									bind:websocketAlive
 									bind:this={editor}
