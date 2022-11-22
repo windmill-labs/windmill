@@ -59,8 +59,8 @@
 	}
 </script>
 
-<div>
-	<div class="px-2 sticky">
+<div class="flex flex-col h-full">
+	<div class="px-2">
 		{#if !notSelectable}
 			<div class="flex flex-row space-x-1">
 				{#if $propPickerConfig}
@@ -71,7 +71,7 @@
 						{`Mode: ${$propPickerConfig?.insertionMode}`}
 					</Badge>
 				{:else}
-					<Badge color="blue">&leftarrow; Select a step input</Badge>
+					<Badge large color="blue">&leftarrow; Select a step input</Badge>
 				{/if}
 			</div>
 		{/if}
@@ -82,7 +82,7 @@
 			placeholder="Search prop..."
 		/>
 	</div>
-	<div class="overflow-y-auto p-1" class:bg-gray-100={!$propPickerConfig && !notSelectable}>
+	<div class="overflow-y-auto px-2 grow" class:bg-gray-100={!$propPickerConfig && !notSelectable}>
 		<div class="flex justify-between items-center space-x-1">
 			<span class="font-bold text-sm">Flow Input</span>
 			<div class="flex space-x-2 items-center" />
