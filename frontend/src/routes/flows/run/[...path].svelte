@@ -20,7 +20,7 @@
 	import { userStore, workspaceStore } from '$lib/stores'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
 	import RunForm from '$lib/components/RunForm.svelte'
-	import { Button } from '$lib/components/common'
+	import { Button, Skeleton } from '$lib/components/common'
 	import { faPlay, faScroll } from '@fortawesome/free-solid-svg-icons'
 	import SharedBadge from '$lib/components/SharedBadge.svelte'
 	import SvelteMarkdown from 'svelte-markdown'
@@ -131,13 +131,15 @@
 				<SvelteMarkdown source={defaultIfEmptyString(flow.description, 'No description')} />
 			</div>
 		</div>
+		<RunForm
+			autofocus
+			bind:this={runForm}
+			bind:isValid
+			detailed={false}
+			runnable={flow}
+			runAction={runFlow}
+		/>
+	{:else}
+		<Skeleton layout={[2, [3], 1, [2], 4, [4], 3, [8]]} />
 	{/if}
-	<RunForm
-		autofocus
-		bind:this={runForm}
-		bind:isValid
-		detailed={false}
-		runnable={flow}
-		runAction={runFlow}
-	/>
 </CenteredPage>

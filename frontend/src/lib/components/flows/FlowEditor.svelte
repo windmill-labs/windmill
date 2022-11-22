@@ -12,7 +12,7 @@
 
 <div class="h-full overflow-hidden border-t">
 	<Splitpanes>
-		<Pane size={25} minSize={20} class="h-full">
+		<Pane size={20} minSize={15} class="h-full">
 			<div class="grow overflow-auto bg-gray h-full bg-gray-50 relative">
 				{#if loading}
 					<div class="p-2 pt-10">
@@ -25,7 +25,7 @@
 				{/if}
 			</div>
 		</Pane>
-		<Pane size={75} minSize={40}>
+		<Pane size={80} minSize={40}>
 			{#if loading}
 				<div class="w-full h-full ">
 					<div class="block m-auto mt-40 w-10">

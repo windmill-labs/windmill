@@ -1,8 +1,15 @@
 <script lang="ts">
 	import type { FlowEditorContext } from '../types'
 	import { getContext } from 'svelte'
-	import { deleteFlowStateById, emptyModule, idMutex } from '$lib/components/flows/flowStateUtils'
-	import { flowStateStore } from '../flowState'
+	import {
+		createBranchAll,
+		createBranches,
+		createLoop,
+		deleteFlowStateById,
+		emptyModule,
+		idMutex
+	} from '$lib/components/flows/flowStateUtils'
+	import { flowStateStore, type FlowModuleState } from '../flowState'
 	import type { FlowModule } from '$lib/gen'
 	import FlowErrorHandlerItem from './FlowErrorHandlerItem.svelte'
 	import RemoveStepConfirmationModal from '../content/RemoveStepConfirmationModal.svelte'
@@ -19,12 +26,24 @@
 	let indexToRemove: number | undefined = undefined
 	const { select } = getContext<FlowEditorContext>('FlowEditorContext')
 
-	async function insertNewModuleAtIndex(index: number): Promise<void> {
+	async function insertNewModuleAtIndex(
+		index: number,
+		kind: 'script' | 'forloop' | 'branchone' | 'branchall'
+	): Promise<void> {
 		await idMutex.runExclusive(async () => {
-			const flowModule = emptyModule()
+			var module = emptyModule()
+			var state = emptyFlowModuleState()
+			if (kind == 'forloop') {
+				;[module, state] = await createLoop(module.id)
+			} else if (kind == 'branchone') {
+				;[module, state] = await createBranches(module.id)
+			} else if (kind == 'branchall') {
+				;[module, state] = await createBranchAll(module.id)
+			}
+			const flowModule = module
 			modules.splice(index, 0, flowModule)
 			modules = modules
-			$flowStateStore[flowModule.id] = emptyFlowModuleState()
+			$flowStateStore[flowModule.id] = state
 			select(flowModule.id)
 		})
 	}
@@ -75,11 +94,15 @@
 
 <div class="flex flex-col h-full">
 	{#if root}
-		<div class="flex-initial p-4 border-b">
+		<div class="flex-initial px-3 py-2 border-b">
 			<FlowSettingsItem />
 		</div>
 	{/if}
-	<ul class="w-full flex-auto relative overflow-y-auto overflow-x-hidden {root ? 'px-2' : ''} py-1">
+	<ul
+		class="w-full flex-auto relative  {root
+			? ' overflow-y-auto overflow-x-hidden px-2 my-2'
+			: ''} py-1"
+	>
 		{#if root}
 			<li>
 				<FlowInputsItem />
@@ -97,17 +120,17 @@
 							indexToRemove = index
 						}
 					}}
-					on:insert={() => {
-						insertNewModuleAtIndex(index)
+					on:insert={(e) => {
+						insertNewModuleAtIndex(index, e.detail)
 					}}
 				/>
 			</div>
 		{/each}
 
-		<InsertModuleButton on:click={() => insertNewModuleAtIndex(modules.length)} />
+		<InsertModuleButton on:new={(e) => insertNewModuleAtIndex(modules.length, e.detail)} />
 	</ul>
 	{#if root}
-		<div class="flex-none p-4 border-t">
+		<div class="flex-none px-4 py-2 border-t">
 			<FlowErrorHandlerItem />
 		</div>
 	{/if}
