@@ -94,7 +94,7 @@
 
 {#if arg != undefined}
 	<div class="flex flex-row justify-between gap-1 mb-1">
-		<div class="flex items-center grow">
+		<div class="flex items-center flex-wrap grow">
 			<FieldHeader
 				label={argName}
 				format={schema.properties[argName].format}

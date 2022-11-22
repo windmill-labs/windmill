@@ -178,13 +178,56 @@ export async function main() {
 }
 `
 
+export const PYTHON_INIT_CODE_TRIGGER = `import * as wmill from "https://deno.land/x/windmill@v${__pkg__.version}/mod.ts"
+
+export async function main() {
+
+    // A common trigger script would follow this pattern:
+    // 1. Get the last saved state
+    // const state = await wmill.getState()
+    // 2. Get the actual state from the external service
+    // const newState = await (await fetch('https://hacker-news.firebaseio.com/v0/topstories.json')).json()
+    // 3. Compare the two states and update the internal state
+    // await wmill.setState(newState)
+    // 4. Return the new rows
+    // return range from (state to newState)
+
+    return [1,2,3]
+
+    // In subsequent scripts, you may refer to each row/value returned by the trigger script using
+    // 'flow_input._value'
+}
+`
+
+
+export const GO_INIT_CODE_TRIGGER = `import * as wmill from "https://deno.land/x/windmill@v${__pkg__.version}/mod.ts"
+
+export async function main() {
+
+    // A common trigger script would follow this pattern:
+    // 1. Get the last saved state
+    // const state = await wmill.getState()
+    // 2. Get the actual state from the external service
+    // const newState = await (await fetch('https://hacker-news.firebaseio.com/v0/topstories.json')).json()
+    // 3. Compare the two states and update the internal state
+    // await wmill.setState(newState)
+    // 4. Return the new rows
+    // return range from (state to newState)
+
+    return [1,2,3]
+
+    // In subsequent scripts, you may refer to each row/value returned by the trigger script using
+    // 'flow_input._value'
+}
+`
+
 export const DENO_INIT_CODE_APPROVAL = `import * as wmill from "https://deno.land/x/windmill@v1.41.0/mod.ts"
 
 export async function main(approver?: string) {
   return wmill.getResumeEndpoints(approver)
 }`
 
-const ALL_INITIAL_CODE = [PYTHON_INIT_CODE, DENO_INIT_CODE, POSTGRES_INIT_CODE, DENO_INIT_CODE_TRIGGER, DENO_INIT_CODE_CLEAR, PYTHON_INIT_CODE_CLEAR, DENO_INIT_CODE_APPROVAL, DENO_FAILURE_MODULE_CODE]
+const ALL_INITIAL_CODE = [PYTHON_INIT_CODE, PYTHON_INIT_CODE_TRIGGER, DENO_INIT_CODE, POSTGRES_INIT_CODE, DENO_INIT_CODE_TRIGGER, DENO_INIT_CODE_CLEAR, PYTHON_INIT_CODE_CLEAR, DENO_INIT_CODE_APPROVAL, DENO_FAILURE_MODULE_CODE]
 
 export function isInitialCode(content: string): boolean {
   for (const code of ALL_INITIAL_CODE) {
@@ -221,6 +264,8 @@ export function initialCode(language: 'deno' | 'python3' | 'go' | 'bash', kind: 
       return PYTHON_INIT_CODE_CLEAR
     } else if (kind === 'failure') {
       return PYTHON_FAILURE_MODULE_CODE
+    } else if (kind === 'trigger') {
+      return PYTHON_INIT_CODE_TRIGGER
     } else {
       return PYTHON_INIT_CODE
     }
@@ -229,6 +274,8 @@ export function initialCode(language: 'deno' | 'python3' | 'go' | 'bash', kind: 
   } else {
     if (kind === 'failure') {
       return GO_FAILURE_MODULE_CODE
+    } else if (kind === 'trigger') {
+      return GO_TRIGGER_MODULE_CODE
     } else {
       return GO_INIT_CODE
     }
