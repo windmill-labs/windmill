@@ -59,135 +59,139 @@
 	}
 </script>
 
-{#if !notSelectable}
-	<div class="flex flex-row space-x-1">
-		{#if $propPickerConfig}
-			<Badge color="blue">
-				{`Selected: ${$propPickerConfig?.propName}`}
-			</Badge>
-			<Badge color="blue">
-				{`Mode: ${$propPickerConfig?.insertionMode}`}
-			</Badge>
-		{:else}
-			<Badge color="blue">&leftarrow; Select a step input</Badge>
+<div>
+	<div class="px-2 sticky">
+		{#if !notSelectable}
+			<div class="flex flex-row space-x-1">
+				{#if $propPickerConfig}
+					<Badge color="blue">
+						{`Selected: ${$propPickerConfig?.propName}`}
+					</Badge>
+					<Badge color="blue">
+						{`Mode: ${$propPickerConfig?.insertionMode}`}
+					</Badge>
+				{:else}
+					<Badge color="blue">&leftarrow; Select a step input</Badge>
+				{/if}
+			</div>
 		{/if}
-	</div>
-{/if}
-<input
-	type="text"
-	bind:value={search}
-	class="bg-gray-50 mt-1 border border-gray-300 text-gray-900 text-sm rounded-lg block px-2 mb-2 w-full"
-	placeholder="Search prop..."
-/>
-<div class:bg-gray-100={!$propPickerConfig && !notSelectable}>
-	<div class="flex justify-between items-center space-x-1">
-		<span class="font-bold text-sm">Flow Input</span>
-		<div class="flex space-x-2 items-center" />
-	</div>
-	<div class="overflow-y-auto mb-2">
-		<ObjectViewer
-			pureViewer={!$propPickerConfig}
-			json={flowInputsFiltered}
-			on:select={(e) => {
-				dispatch('select', `flow_input.${e.detail}`)
-			}}
+		<input
+			type="text"
+			bind:value={search}
+			class="bg-gray-50 mt-1 border border-gray-300 text-gray-900 text-sm rounded-lg block mb-2 w-full"
+			placeholder="Search prop..."
 		/>
 	</div>
-	{#if error}
-		<span class="font-bold text-sm">Error</span>
+	<div class="overflow-y-auto p-1" class:bg-gray-100={!$propPickerConfig && !notSelectable}>
+		<div class="flex justify-between items-center space-x-1">
+			<span class="font-bold text-sm">Flow Input</span>
+			<div class="flex space-x-2 items-center" />
+		</div>
 		<div class="overflow-y-auto mb-2">
 			<ObjectViewer
 				pureViewer={!$propPickerConfig}
-				json={{ previous_result: { error: 'The error to handle' } }}
-				on:select
+				json={flowInputsFiltered}
+				on:select={(e) => {
+					dispatch('select', `flow_input.${e.detail}`)
+				}}
 			/>
 		</div>
-	{:else}
-		{#if previousId}
-			<span class="font-bold text-sm">Previous Result</span>
+		{#if error}
+			<span class="font-bold text-sm">Error</span>
 			<div class="overflow-y-auto mb-2">
 				<ObjectViewer
-					topLevelNode
 					pureViewer={!$propPickerConfig}
-					json={Object.fromEntries(
-						Object.entries(resultByIdFiltered).filter(([k, v]) => k == previousId)
-					)}
-					on:select={(e) => {
-						dispatch('select', `results.${e.detail}`)
-					}}
+					json={{ previous_result: { error: 'The error to handle' } }}
+					on:select
 				/>
 			</div>
+		{:else}
+			{#if previousId}
+				<span class="font-bold text-sm">Previous Result</span>
+				<div class="overflow-y-auto mb-2">
+					<ObjectViewer
+						topLevelNode
+						pureViewer={!$propPickerConfig}
+						json={Object.fromEntries(
+							Object.entries(resultByIdFiltered).filter(([k, v]) => k == previousId)
+						)}
+						on:select={(e) => {
+							dispatch('select', `results.${e.detail}`)
+						}}
+					/>
+				</div>
+			{/if}
+			{#if Object.keys(pickableProperties.priorIds).length > 0}
+				<span class="font-bold text-sm">All Results</span>
+				<div class="overflow-y-auto mb-2">
+					<ObjectViewer
+						topLevelNode
+						pureViewer={!$propPickerConfig}
+						collapsed={true}
+						json={resultByIdFiltered}
+						on:select={(e) => {
+							dispatch('select', `results.${e.detail}`)
+						}}
+					/>
+				</div>
+			{/if}
 		{/if}
-		{#if Object.keys(pickableProperties.priorIds).length > 0}
-			<span class="font-bold text-sm">All Results</span>
-			<div class="overflow-y-auto mb-2">
-				<ObjectViewer
-					topLevelNode
-					pureViewer={!$propPickerConfig}
-					collapsed={true}
-					json={resultByIdFiltered}
-					on:select={(e) => {
-						dispatch('select', `results.${e.detail}`)
-					}}
-				/>
-			</div>
-		{/if}
-	{/if}
 
-	{#if displayContext}
-		<span class="font-bold text-sm">Variables </span>
-		<div class="overflow-y-auto mb-2">
-			{#if displayVariable}
-				<Button
-					color="light"
-					size="xs"
-					variant="border"
-					on:click={() => {
-						displayVariable = false
-					}}>-</Button
-				>
-				<ObjectViewer
-					pureViewer={!$propPickerConfig}
-					rawKey={true}
-					json={variables}
-					on:select={(e) => dispatch('select', `variable('${e.detail}')`)}
-				/>
-			{:else}
-				<button
-					class="border border-blue-600 key font-normal rounded hover:bg-blue-100 px-1"
-					on:click={async () => {
-						await loadVariables()
-						displayVariable = true
-					}}>{'{...}'}</button
-				>
-			{/if}
-		</div>
-		<span class="font-bold text-sm">Resources</span>
-		<div class="overflow-y-auto mb-2">
-			{#if displayResources}
-				<Button
-					color="light"
-					variant="border"
-					size="xs"
-					on:click={() => {
-						displayResources = false
-					}}>-</Button
-				>
-				<ObjectViewer
-					pureViewer={!$propPickerConfig}
-					rawKey={true}
-					json={resources}
-					on:select={(e) => dispatch('select', `resource('${e.detail}')`)}
-				/>
-			{:else}
-				<button
-					class="border border-blue-600 px-1 key font-normal rounded hover:bg-blue-100"
-					on:click={async () => {
-						await loadResources()
-						displayResources = true
-					}}>{'{...}'}</button
-				>
-			{/if}
-		</div>
-	{/if}
+		{#if displayContext}
+			<span class="font-bold text-sm">Variables </span>
+			<div class="overflow-y-auto mb-2">
+				{#if displayVariable}
+					<Button
+						color="light"
+						size="xs"
+						variant="border"
+						on:click={() => {
+							displayVariable = false
+						}}>-</Button
+					>
+					<ObjectViewer
+						pureViewer={!$propPickerConfig}
+						rawKey={true}
+						json={variables}
+						on:select={(e) => dispatch('select', `variable('${e.detail}')`)}
+					/>
+				{:else}
+					<button
+						class="border border-blue-600 key font-normal rounded hover:bg-blue-100 px-1"
+						on:click={async () => {
+							await loadVariables()
+							displayVariable = true
+						}}>{'{...}'}</button
+					>
+				{/if}
+			</div>
+			<span class="font-bold text-sm">Resources</span>
+			<div class="overflow-y-auto mb-2">
+				{#if displayResources}
+					<Button
+						color="light"
+						variant="border"
+						size="xs"
+						on:click={() => {
+							displayResources = false
+						}}>-</Button
+					>
+					<ObjectViewer
+						pureViewer={!$propPickerConfig}
+						rawKey={true}
+						json={resources}
+						on:select={(e) => dispatch('select', `resource('${e.detail}')`)}
+					/>
+				{:else}
+					<button
+						class="border border-blue-600 px-1 key font-normal rounded hover:bg-blue-100"
+						on:click={async () => {
+							await loadResources()
+							displayResources = true
+						}}>{'{...}'}</button
+					>
+				{/if}
+			</div>
+		{/if}
+	</div>
 </div>

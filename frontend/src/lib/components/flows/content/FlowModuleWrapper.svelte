@@ -46,34 +46,12 @@
 				Steps are retried until they succeed, or until the maximum number of retries defined for that
 				spec is reached, at which point the error handler is called.
 			</Alert>
-		{:else}
-			<h1 class="p-4"
-				>Select a step kind <Tooltip
-					>Until being defined, this step acts as an identify function, returning as result its
-					input and assigning it a key 'previous_result' if the input is not a json object</Tooltip
-				></h1
-			>
 		{/if}
 
 		<FlowInputs
 			shouldDisableTriggerScripts={parentModule !== undefined ||
 				previousModule !== undefined ||
 				$selectedId == 'failure'}
-			on:loop={async () => {
-				const [module, state] = await createLoop(flowModule.id)
-				flowModule = module
-				$flowStateStore[module.id] = state
-			}}
-			on:branchone={async () => {
-				const [module, state] = await createBranches(flowModule.id)
-				flowModule = module
-				$flowStateStore[module.id] = state
-			}}
-			on:branchall={async () => {
-				const [module, state] = await createBranchAll(flowModule.id)
-				flowModule = module
-				$flowStateStore[module.id] = state
-			}}
 			on:pick={async ({ detail }) => {
 				const { path, summary, kind } = detail
 				const [module, state] = await pickScript(path, summary, flowModule.id)

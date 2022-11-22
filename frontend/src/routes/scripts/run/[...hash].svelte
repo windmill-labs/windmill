@@ -23,7 +23,7 @@
 	import { inferArgs } from '$lib/infer'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
 	import RunForm from '$lib/components/RunForm.svelte'
-	import { Alert, Badge, Button } from '$lib/components/common'
+	import { Alert, Badge, Button, Skeleton } from '$lib/components/common'
 	import SharedBadge from '$lib/components/SharedBadge.svelte'
 	import SvelteMarkdown from 'svelte-markdown'
 	import { faPlay, faScroll } from '@fortawesome/free-solid-svg-icons'
@@ -167,30 +167,32 @@
 				<SvelteMarkdown source={defaultIfEmptyString(script.description, 'No description')} />
 			</div>
 		</div>
-	{/if}
 
-	{#if script?.lock_error_logs}
-		<div class="bg-red-100 border-l-4 border-red-500 text-red-700 p-4" role="alert">
-			<p class="font-bold">Not deployed properly</p>
-			<p>
-				This version of this script is unable to be run because because the deployment had the
-				following errors:
-			</p>
-			<pre class="w-full text-xs mt-2 whitespace-pre-wrap">{script.lock_error_logs}</pre>
-		</div>
-	{:else if script && script?.lock == undefined}
-		<div class="bg-orange-100 border-l-4 border-orange-500 text-orange-700 p-4" role="alert">
-			<p class="font-bold">Deployment in progress</p>
-			<p>Refresh this page in a few seconds.</p>
-		</div>
+		{#if script?.lock_error_logs}
+			<div class="bg-red-100 border-l-4 border-red-500 text-red-700 p-4" role="alert">
+				<p class="font-bold">Not deployed properly</p>
+				<p>
+					This version of this script is unable to be run because because the deployment had the
+					following errors:
+				</p>
+				<pre class="w-full text-xs mt-2 whitespace-pre-wrap">{script.lock_error_logs}</pre>
+			</div>
+		{:else if script && script?.lock == undefined}
+			<div class="bg-orange-100 border-l-4 border-orange-500 text-orange-700 p-4" role="alert">
+				<p class="font-bold">Deployment in progress</p>
+				<p>Refresh this page in a few seconds.</p>
+			</div>
+		{:else}
+			<RunForm
+				autofocus
+				detailed={false}
+				bind:isValid
+				bind:this={runForm}
+				runnable={script}
+				runAction={runScript}
+			/>
+		{/if}
 	{:else}
-		<RunForm
-			autofocus
-			detailed={false}
-			bind:isValid
-			bind:this={runForm}
-			runnable={script}
-			runAction={runScript}
-		/>
+		<Skeleton layout={[2, [3], 1, [2], 4, [4], 3, [8]]} />
 	{/if}
 </CenteredPage>

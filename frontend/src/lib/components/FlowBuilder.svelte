@@ -188,7 +188,7 @@
 
 <UnsavedConfirmationModal />
 
-<Drawer bind:this={flowViewer} size="900px">
+<Drawer bind:this={flowViewer} size="1200px">
 	<DrawerContent title="View Graph" on:close={flowViewer.closeDrawer} noPadding>
 		<FlowGraphViewer flow={$flowStore} overflowAuto />
 	</DrawerContent>
@@ -241,9 +241,11 @@
 				</div>
 			</Button>
 		</div>
-		<div class="flex flex-row-reverse ml-2 space-x-reverse space-x-2">
-			<Button disabled={pathError != ''} size="sm" on:click={saveFlow}>Save</Button>
+		<div class="flex flex-row space-x-2">
 			<FlowPreviewButtons />
+			<div>
+				<Button disabled={pathError != ''} size="sm" on:click={saveFlow}>Save</Button>
+			</div>
 		</div>
 	</div>
 

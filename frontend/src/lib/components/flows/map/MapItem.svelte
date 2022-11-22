@@ -12,7 +12,6 @@
 		faCode,
 		faCodeBranch,
 		faLongArrowDown,
-		faQuestion,
 		faRepeat
 	} from '@fortawesome/free-solid-svg-icons'
 	import Icon from 'svelte-awesome'
@@ -20,7 +19,10 @@
 	export let mod: FlowModule
 
 	const { select, selectedId } = getContext<FlowEditorContext>('FlowEditorContext')
-	const dispatch = createEventDispatcher<{ delete: CustomEvent<MouseEvent>; insert: void }>()
+	const dispatch = createEventDispatcher<{
+		delete: CustomEvent<MouseEvent>
+		insert: 'script' | 'forloop' | 'branchone' | 'branchall'
+	}>()
 
 	$: itemProps = {
 		selected: $selectedId === mod.id,
@@ -35,7 +37,7 @@
 </script>
 
 {#if mod}
-	<InsertModuleButton on:click={() => dispatch('insert')} />
+	<InsertModuleButton on:new={(e) => dispatch('insert', e.detail)} />
 	{#if mod.value.type === 'forloopflow'}
 		<li class="w-full">
 			<FlowModuleSchemaItem

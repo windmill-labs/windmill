@@ -56,7 +56,7 @@
 	{/if}
 </div>
 
-<Drawer bind:open={previewOpen} size="800px">
+<Drawer bind:open={previewOpen} size="1200px">
 	<FlowPreviewContent
 		open={previewOpen}
 		bind:previewMode
