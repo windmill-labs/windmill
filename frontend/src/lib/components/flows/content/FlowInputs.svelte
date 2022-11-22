@@ -89,7 +89,7 @@
 		{#if kind == 'script'}
 			<FlowScriptPicker
 				label="Bash"
-				lang={Script.language.PYTHON3}
+				lang={Script.language.BASH}
 				on:click={() => {
 					dispatch('new', {
 						language: RawScript.language.BASH,
