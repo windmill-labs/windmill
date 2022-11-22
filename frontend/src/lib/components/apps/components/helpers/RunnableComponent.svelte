@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { page } from '$app/stores'
 	import type { Schema } from '$lib/common'
+	import Alert from '$lib/components/common/alert/Alert.svelte'
 	import Button from '$lib/components/common/button/Button.svelte'
 	import SchemaForm from '$lib/components/SchemaForm.svelte'
 	import TestJobLoader from '$lib/components/TestJobLoader.svelte'
@@ -11,7 +12,8 @@
 	import Icon from 'svelte-awesome'
 	import type { Output } from '../../rx'
 	import type { AppEditorContext, InputsSpec } from '../../types'
-	import { buildArgs, loadSchema, schemaToInputsSpec } from '../../utils'
+	import { loadSchema, schemaToInputsSpec } from '../../utils'
+	import RunnableInputValue from './RunnableInputValue.svelte'
 
 	// Component props
 	export let id: string
@@ -20,9 +22,7 @@
 	export let runType: 'script' | 'flow' | undefined = undefined
 	export let inlineScriptName: string | undefined = undefined
 	export let extraQueryParams: Record<string, any> = {}
-
 	export let shouldTick: number | undefined = undefined
-
 	export let result: any = undefined
 
 	const { app, worldStore } = getContext<AppEditorContext>('AppEditorContext')
@@ -31,71 +31,97 @@
 	// Local state
 	let args: Record<string, any> = {}
 	let schema: Schema | undefined = undefined
-	let schemaClone: Schema | undefined = undefined
-
-	let isValid = true
 	let testIsLoading = false
+	let runnableInputValues: Record<string, any> = {}
 
-	$: if (outputs) {
-		outputs.loading.set(testIsLoading)
+	$: mergedArgs = { ...args, ...extraQueryParams, ...runnableInputValues }
+
+	function isMergedArgsValid(mergedArgs: Record<string, any>) {
+		if (Object.keys(inputs).length !== Object.keys(runnableInputValues).length) {
+			return false
+		}
+
+		const areAllArgsValid = Object.values(mergedArgs).every(
+			(arg) => arg !== undefined && arg !== null
+		)
+
+		debugger
+
+		if (areAllArgsValid) {
+			executeComponent()
+		}
+
+		return areAllArgsValid
 	}
 
+	$: isValid = isMergedArgsValid(mergedArgs)
+
+	// Test job internal state
 	let testJob: CompletedJob | undefined = undefined
 	let testJobLoader: TestJobLoader | undefined = undefined
 
-	$: if ($workspaceStore && path && runType) {
-		loadSchemaFromTriggerable($workspaceStore, path, runType)
+	$: outputs = $worldStore?.outputsById[id] as {
+		result: Output<Array<any>>
+		loading: Output<boolean>
 	}
 
-	$: if (inlineScriptName && $app.inlineScripts[inlineScriptName]) {
-		schema = $app.inlineScripts[inlineScriptName].schema
+	/**
+	 * Args are built from 3 sources:
+	 * 1. The inputs spec ( )
+	 * 2. The schema input transform with user submitted values§
+	 * 3. The extra query params
+	 */
 
-		Object.keys(extraQueryParams).forEach((key) => {
-			if (schema?.properties[key]) {
-				delete schema.properties[key]
-			}
-		})
-
-		reloadSchemaAndArgs()
-	}
-
-	$: if (inputs && schema !== undefined) {
-		if (Object.keys(schema.properties).length !== Object.keys(inputs).length) {
-			inputs = schemaToInputsSpec(schema)
-		}
-
-		reloadSchemaAndArgs()
-	}
-
-	// Load once
 	async function loadSchemaFromTriggerable(
 		workspace: string,
 		path: string,
 		runType: 'script' | 'flow'
 	) {
 		schema = await loadSchema(workspace, path, runType)
+	}
 
-		Object.keys(extraQueryParams).forEach((key) => {
-			if (schema?.properties[key]) {
-				delete schema.properties[key]
+	// Only loads the schema
+	$: if ($workspaceStore && path && runType) {
+		// Remote schema needs to be loaded
+		loadSchemaFromTriggerable($workspaceStore, path, runType)
+	} else if (inlineScriptName && $app.inlineScripts[inlineScriptName]) {
+		// Inline scripts directly provide the schema
+		schema = $app.inlineScripts[inlineScriptName].schema
+	}
+
+	// When the schema is loaded, we need to update the inputs spec
+	// in order to render the inputs the component panel
+	$: if (schema && Object.keys(schema.properties ?? {}).length !== Object.keys(inputs).length) {
+		inputs = schemaToInputsSpec(schema)
+	}
+
+	let schemaStripped: Schema | undefined = undefined
+
+	function stripSchema(schema: Schema) {
+		schemaStripped = JSON.parse(JSON.stringify(schema))
+
+		// Remove hidden static inputs
+		Object.keys(inputs).forEach((key: string) => {
+			const input = inputs[key]
+
+			if (input.type === 'static' && !input.visible && schemaStripped !== undefined) {
+				delete schemaStripped.properties[key]
+			}
+
+			if (input.type === 'output' && schemaStripped !== undefined) {
+				delete schemaStripped.properties[key]
 			}
 		})
-		args = buildArgs(inputs, schema)
+
+		// Remove extra query params from schema
+		Object.keys(extraQueryParams).forEach((key: string) => {
+			if (schemaStripped !== undefined) {
+				delete schemaStripped.properties[key]
+			}
+		})
 	}
 
-	async function reloadSchemaAndArgs() {
-		schemaClone = JSON.parse(JSON.stringify(schema))
-
-		if (schemaClone !== undefined) {
-			args = buildArgs(inputs, schemaClone)
-
-			Object.keys(schemaClone.properties).forEach((propKey) => {
-				if (!Object.keys(args).includes(propKey)) {
-					delete schemaClone!.properties[propKey]
-				}
-			})
-		}
-	}
+	$: schema && stripSchema(schema)
 
 	$: disabledArgs = Object.keys(inputs).reduce((a: string[], c: string) => {
 		if (inputs[c].type === 'static') {
@@ -107,10 +133,7 @@
 	async function executeComponent() {
 		await testJobLoader?.abstractRun(() => {
 			const requestBody = {
-				args: {
-					...args,
-					...extraQueryParams
-				},
+				args: mergedArgs,
 				force_viewer_static_fields: {}
 			}
 
@@ -131,18 +154,11 @@
 			})
 		})
 	}
-
-	$: if (testJobLoader && shouldTick) {
-		executeComponent()
-	}
-
-	$: extraQueryParams && executeComponent()
-
-	$: outputs = $worldStore?.outputsById[id] as {
-		result: Output<Array<any>>
-		loading: Output<boolean>
-	}
 </script>
+
+{#each Object.keys(inputs) as key}
+	<RunnableInputValue input={inputs[key]} bind:value={runnableInputValues[key]} />
+{/each}
 
 <TestJobLoader
 	on:done={() => {
@@ -156,18 +172,24 @@
 	bind:this={testJobLoader}
 />
 
-{#if schemaClone !== undefined}
-	<SchemaForm schema={schemaClone} bind:args bind:isValid {disabledArgs} />
+{#if schemaStripped !== undefined}
+	<SchemaForm schema={schemaStripped} bind:args {isValid} {disabledArgs} shouldHideNoInputs />
 {/if}
 
 {#if shouldTick === undefined}
-	<Button size="xs" color="dark" on:click={() => executeComponent()} disabled={!isValid}>
-		<div>
-			{Object.keys(args).length > 0 ? 'Submit' : 'Refresh'}
-			{#if testIsLoading}
-				<Icon data={faArrowsRotate} class="animate-spin ml-2" scale={0.8} />
-			{/if}
-		</div>
-	</Button>
+	{#if isValid}
+		<Button size="xs" color="dark" on:click={() => executeComponent()} disabled={!isValid}>
+			<div>
+				{Object.keys(args).length > 0 ? 'Submit' : 'Refresh'}
+				{#if testIsLoading}
+					<Icon data={faArrowsRotate} class="animate-spin ml-2" scale={0.8} />
+				{/if}
+			</div>
+		</Button>
+		<slot />
+	{:else}
+		<Alert type="warning" size="xs" class="mt-2" title="Missing inputs">
+			Please fill in all the inputs
+		</Alert>
+	{/if}
 {/if}
-<slot />

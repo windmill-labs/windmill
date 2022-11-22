@@ -59,7 +59,7 @@ export type BarChartComponent = {
 	type: 'barchartcomponent'
 }
 
-export type PieChartComponent = {
+export type PieChartComponent = Runnable & {
 	type: 'piechartcomponent'
 }
 

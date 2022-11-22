@@ -16,6 +16,9 @@
 	export let extraLib: string = 'missing extraLib'
 	export let autofocus = false
 	export let previousModuleId: string | undefined = undefined
+
+	export let shouldHideNoInputs: boolean = false
+
 	let clazz: string = ''
 	export { clazz as class }
 
@@ -73,7 +76,7 @@
 				{/if}
 			</div>
 		{/each}
-	{:else}
-		<p class="italic text-sm">No inputs</p>
+	{:else if !shouldHideNoInputs}
+		<div class="text-gray-500 text-sm">No inputs</div>
 	{/if}
 </div>

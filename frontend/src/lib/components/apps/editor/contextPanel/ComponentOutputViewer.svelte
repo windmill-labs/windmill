@@ -11,7 +11,6 @@
 	let object = {}
 
 	outputs.forEach((output) => {
-		console.log({ output })
 		$worldStore?.outputsById[componentId][output].subscribe({
 			next: (value) => {
 				object[output] = value

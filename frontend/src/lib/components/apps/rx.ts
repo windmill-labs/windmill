@@ -21,7 +21,6 @@ export type World = {
 }
 
 export function buildWorld(components: Record<string, string[]>) {
-	console.log({ components })
 	const newWorld = buildObservableWorld()
 	const outputsById: Record<string, Record<string, Output<any>>> = {}
 
