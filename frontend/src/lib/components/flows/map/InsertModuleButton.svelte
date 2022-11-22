@@ -1,12 +1,10 @@
 <script lang="ts">
 	import { Menu } from '$lib/components/common'
-	import MenuItem from '$lib/components/common/menu/MenuItem.svelte'
 	import { faCode, faCodeBranch, faPlus, faRepeat } from '@fortawesome/free-solid-svg-icons'
 	import { createEventDispatcher } from 'svelte'
 	import Icon from 'svelte-awesome'
 
 	const dispatch = createEventDispatcher()
-	let menu: Menu | undefined = undefined
 </script>
 
 <Menu noMinW placement="bottom-start" let:close>
@@ -17,7 +15,7 @@
 	>
 		<Icon data={faPlus} scale={0.8} />
 	</button>
-	<div class="divide-y divide-gray-100">
+	<div class="divide-y divide-gray-100 text-xs w-40">
 		<button
 			class="w-full text-left p-2"
 			on:click={() => {

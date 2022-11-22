@@ -2,7 +2,7 @@
 	import { ToggleButton, ToggleButtonGroup } from '$lib/components/common'
 	import WindmillIcon from '$lib/components/icons/WindmillIcon.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
-	import { RawScript } from '$lib/gen'
+	import { RawScript, Script } from '$lib/gen'
 
 	import { faBolt, faBuilding, faCheck, faCode } from '@fortawesome/free-solid-svg-icons'
 	import { createEventDispatcher } from 'svelte'
@@ -50,8 +50,7 @@
 	<div class="flex flex-row flex-wrap gap-x-4 gap-y-2">
 		<FlowScriptPicker
 			label="Typescript (Deno)"
-			icon={faCode}
-			iconColor="text-blue-800"
+			lang={Script.language.DENO}
 			on:click={() => {
 				dispatch('new', {
 					language: RawScript.language.DENO,
@@ -62,9 +61,8 @@
 		/>
 
 		<FlowScriptPicker
-			label="Python (3.10)"
-			icon={faCode}
-			iconColor="text-green-500"
+			label="Python (3.11)"
+			lang={Script.language.PYTHON3}
 			on:click={() => {
 				dispatch('new', {
 					language: RawScript.language.PYTHON3,
@@ -77,8 +75,7 @@
 		{#if kind != 'approval'}
 			<FlowScriptPicker
 				label="Go"
-				icon={faCode}
-				iconColor="text-blue-700"
+				lang={Script.language.GO}
 				on:click={() => {
 					dispatch('new', {
 						language: RawScript.language.GO,
@@ -92,8 +89,7 @@
 		{#if kind == 'script'}
 			<FlowScriptPicker
 				label="Bash"
-				icon={faCode}
-				iconColor="text-green-700"
+				lang={Script.language.PYTHON3}
 				on:click={() => {
 					dispatch('new', {
 						language: RawScript.language.BASH,
@@ -106,8 +102,7 @@
 			{#if !failureModule}
 				<FlowScriptPicker
 					label={`PostgreSQL`}
-					icon={faCode}
-					iconColor="text-blue-800"
+					lang="pgsql"
 					on:click={() =>
 						dispatch('new', { language: RawScript.language.DENO, kind, subkind: 'pgsql' })}
 				/>

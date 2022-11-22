@@ -161,63 +161,60 @@ export const DENO_INIT_CODE_TRIGGER = `import * as wmill from "https://deno.land
 
 export async function main() {
 
-    // A common trigger script would follow this pattern:
-    // 1. Get the last saved state
-    // const state = await wmill.getState()
-    // 2. Get the actual state from the external service
-    // const newState = await (await fetch('https://hacker-news.firebaseio.com/v0/topstories.json')).json()
-    // 3. Compare the two states and update the internal state
-    // await wmill.setState(newState)
-    // 4. Return the new rows
-    // return range from (state to newState)
+  // A common trigger script would follow this pattern:
+  // 1. Get the last saved state
+  // const state = await wmill.getState()
+  // 2. Get the actual state from the external service
+  // const newState = await (await fetch('https://hacker-news.firebaseio.com/v0/topstories.json')).json()
+  // 3. Compare the two states and update the internal state
+  // await wmill.setState(newState)
+  // 4. Return the new rows
+  // return range from (state to newState)
 
-    return [1,2,3]
+  return [1,2,3]
 
-    // In subsequent scripts, you may refer to each row/value returned by the trigger script using
-    // 'flow_input._value'
+  // In subsequent scripts, you may refer to each row/value returned by the trigger script using
+  // 'flow_input.iter.value'
 }
 `
 
-export const PYTHON_INIT_CODE_TRIGGER = `import * as wmill from "https://deno.land/x/windmill@v${__pkg__.version}/mod.ts"
+export const PYTHON_INIT_CODE_TRIGGER = `import wmill
 
-export async function main() {
-
-    // A common trigger script would follow this pattern:
-    // 1. Get the last saved state
-    // const state = await wmill.getState()
-    // 2. Get the actual state from the external service
-    // const newState = await (await fetch('https://hacker-news.firebaseio.com/v0/topstories.json')).json()
-    // 3. Compare the two states and update the internal state
-    // await wmill.setState(newState)
-    // 4. Return the new rows
-    // return range from (state to newState)
-
-    return [1,2,3]
-
-    // In subsequent scripts, you may refer to each row/value returned by the trigger script using
-    // 'flow_input._value'
-}
+def main():
+    # A common trigger script would follow this pattern:
+    # 1. Get the last saved state
+    # const state = wnmill.get_state()
+    # 2. Get the actual state from the external service
+    # const newState = ...
+    # 3. Compare the two states and update the internal state
+    # wmill.setState(newState)
+    # 4. Return the new rows
+    # return range from (state to newState)
+    return [1, 2, 3]
 `
 
 
-export const GO_INIT_CODE_TRIGGER = `import * as wmill from "https://deno.land/x/windmill@v${__pkg__.version}/mod.ts"
+export const GO_INIT_CODE_TRIGGER = `package inner
 
-export async function main() {
+import (
+	wmill "github.com/windmill-labs/windmill-go-client"
+)
 
-    // A common trigger script would follow this pattern:
-    // 1. Get the last saved state
-    // const state = await wmill.getState()
-    // 2. Get the actual state from the external service
-    // const newState = await (await fetch('https://hacker-news.firebaseio.com/v0/topstories.json')).json()
-    // 3. Compare the two states and update the internal state
-    // await wmill.setState(newState)
-    // 4. Return the new rows
-    // return range from (state to newState)
+func main() (interface{}, error) {
 
-    return [1,2,3]
+	// A common trigger script would follow this pattern:
+	// 1. Get the last saved state
+	state, _ := wmill.GetState()
+	// 2. Get the actual state from the external service
+	// newState := ...
+	// 3. Compare the two states and update the internal state
+	wmill.SetState(4)
+	// 4. Return the new rows
 
-    // In subsequent scripts, you may refer to each row/value returned by the trigger script using
-    // 'flow_input._value'
+	return state, nil
+
+	// In subsequent scripts, you may refer to each row/value returned by the trigger script using
+	// 'flow_input.iter.value'
 }
 `
 
@@ -275,7 +272,7 @@ export function initialCode(language: 'deno' | 'python3' | 'go' | 'bash', kind: 
     if (kind === 'failure') {
       return GO_FAILURE_MODULE_CODE
     } else if (kind === 'trigger') {
-      return GO_TRIGGER_MODULE_CODE
+      return GO_INIT_CODE_TRIGGER
     } else {
       return GO_INIT_CODE
     }
