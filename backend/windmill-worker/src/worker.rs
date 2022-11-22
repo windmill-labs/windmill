@@ -1861,8 +1861,20 @@ async fn handle_flow_dependency_job(
             new_flow_modules.push(e);
             continue;
         };
+        // sync with windmill-api/scripts
+        let dependencies = match language {
+            ScriptLang::Python3 => windmill_parser_py::parse_python_imports(&content)?.join("\n"),
+            _ => content.clone(),
+        };
         let new_lock = capture_dependency_job(
-            &job.id, &language, &content, logs, job_dir, db, timeout, envs,
+            &job.id,
+            &language,
+            &dependencies,
+            logs,
+            job_dir,
+            db,
+            timeout,
+            envs,
         )
         .await;
         match new_lock {
@@ -1877,8 +1889,15 @@ async fn handle_flow_dependency_job(
                 new_flow_modules.push(e);
                 continue;
             }
-            Err(_error) => {
+            Err(error) => {
                 // TODO: Record flow raw script error lock logs
+                tracing::warn!(
+                    path = path,
+                    language = ?language,
+                    error = ?error,
+                    logs = ?logs,
+                    "Failed to generate flow lock for raw script"
+                );
                 e.value = FlowModuleValue::RawScript {
                     lock: None,
                     path: path,
