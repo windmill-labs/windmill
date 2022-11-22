@@ -282,7 +282,7 @@
 						<div class="grid md:grid-cols-2 gap-4 sm:grid-cols-1 xl:grid-cols-3 mt-2">
 							{#each flows as { summary, path, extra_perms, canWrite }}
 								<a
-									class="border p-4 rounded-sm shadow-sm space-y-2 hover:border-blue-600 text-gray-800 flex flex-col justify-between"
+									class="border border-gray-400 p-4 rounded-sm shadow-sm space-y-2 hover:border-blue-600 text-gray-800 flex flex-col justify-between"
 									href="/flows/get/{path}"
 								>
 									<div class="px-6 overflow-auto ">

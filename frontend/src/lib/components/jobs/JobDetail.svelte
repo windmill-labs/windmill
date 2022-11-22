@@ -31,7 +31,7 @@
 	export let job: Job
 </script>
 
-<div class="border rounded py-4">
+<div class="border border-gray-400 rounded py-4">
 	<div class="grid grid-cols-1 lg:grid-cols-3 w-full gap-4">
 		<div class="flex-col">
 			<div class="flex flex-row text-sm">

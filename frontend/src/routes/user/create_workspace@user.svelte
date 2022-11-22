@@ -80,7 +80,7 @@
 	})
 </script>
 
-<CenteredModal title="Create a new workspace">
+<CenteredModal title="New Workspace">
 	{#if $page.url.hostname != 'app.windmill.dev'}
 		<Alert title="Restricted to 1 workspace - unlimited during beta" type="info">
 			More than 1 user-created workspace for self-hosted will require a team or enterprise license

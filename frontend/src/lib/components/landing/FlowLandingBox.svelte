@@ -9,7 +9,7 @@
 
 <a
 	href="#{flow.path}"
-	class="border p-4 rounded-sm shadow-sm space-y-2 hover:border-blue-600 text-gray-800 flex flex-col justify-between cursor-pointer"
+	class="border border-gray-400 p-4 rounded-sm shadow-sm space-y-2 hover:border-blue-600 text-gray-800 flex flex-col justify-between cursor-pointer"
 	on:click={() => goto(`/flows/get/${flow.path}`)}
 >
 	<div class="font-bold">{flow.summary || flow.path}</div>
