@@ -99,8 +99,8 @@
 		</div>
 	{/if}
 	<ul
-		class="w-full flex-auto relative overflow-y-auto overflow-x-hidden {root
-			? 'px-2 my-2'
+		class="w-full flex-auto relative  {root
+			? ' overflow-y-auto overflow-x-hidden px-2 my-2'
 			: ''} py-1"
 	>
 		{#if root}

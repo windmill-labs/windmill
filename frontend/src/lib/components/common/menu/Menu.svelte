@@ -47,7 +47,8 @@
 </script>
 
 <div class="relative" bind:this={menu}>
-	<div on:click={() => (show = !show)} on:click>
+	<!-- svelte-ignore a11y-click-events-have-key-events -->
+	<div on:click={() => (show = !show)}>
 		<slot name="trigger" />
 	</div>
 
