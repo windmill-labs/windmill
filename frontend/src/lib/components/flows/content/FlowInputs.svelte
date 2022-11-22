@@ -1,163 +1,131 @@
 <script lang="ts">
+	import { ToggleButton, ToggleButtonGroup } from '$lib/components/common'
+	import WindmillIcon from '$lib/components/icons/WindmillIcon.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import { RawScript, Script } from '$lib/gen'
 
-	import { faCode, faCodeBranch, faRepeat } from '@fortawesome/free-solid-svg-icons'
+	import { faBolt, faBuilding, faCheck, faCode } from '@fortawesome/free-solid-svg-icons'
 	import { createEventDispatcher } from 'svelte'
 	import FlowScriptPicker from '../pickers/FlowScriptPicker.svelte'
 	import PickHubScript from '../pickers/PickHubScript.svelte'
-	import PickScript from '../pickers/PickScript.svelte'
+	import WorkspaceScriptPicker from '../pickers/WorkspaceScriptPicker.svelte'
 
 	export let failureModule: boolean
 	export let shouldDisableTriggerScripts: boolean = false
 	const dispatch = createEventDispatcher()
+	let kind: 'script' | 'failure' | 'approval' | 'trigger' = failureModule ? 'failure' : 'script'
+	let pick_existing: 'workspace' | 'hub' = 'hub'
 </script>
 
-<div class="space-y-4 p-4">
-	<div class="text-sm font-bold">{failureModule ? 'Error handler' : 'Common script'}</div>
-	<div class="grid sm:grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+<div class="space-y-4 p-4 h-full flex flex-col">
+	{#if !failureModule}
+		<div class="center-center">
+			<div class="max-w-min">
+				<ToggleButtonGroup bind:selected={kind}>
+					<ToggleButton position="left" value="script" size="sm" startIcon={{ icon: faCode }}>
+						Common
+					</ToggleButton>
+					{#if !shouldDisableTriggerScripts}
+						<ToggleButton position="center" value="trigger" size="sm" startIcon={{ icon: faBolt }}>
+							Trigger <Tooltip>
+								Used as a first step most commonly with a state and a schedule to watch for changes
+								on an external system, compute the diff since last time, set the new state. The
+								diffs are then treated one by one with a for-loop.
+							</Tooltip>
+						</ToggleButton>
+					{/if}
+					<ToggleButton position="right" value="approval" size="sm" startIcon={{ icon: faCheck }}>
+						Approval <Tooltip>
+							An approval step will suspend the execution of a flow until it has been approved
+							through the resume endpoints or the approval page by and solely by the recipients of
+							those secret urls. Use getResumeEndpoints from the wmill client to generate those
+							URLs.
+						</Tooltip>
+					</ToggleButton>
+				</ToggleButtonGroup>
+			</div>
+		</div>
+	{/if}
+	<h3>Inline new</h3>
+	<div class="flex flex-row flex-wrap gap-x-4 gap-y-2">
 		<FlowScriptPicker
-			label="Inline Python (3.10)"
-			icon={faCode}
-			iconColor="text-green-500"
-			on:click={() => {
-				dispatch('new', {
-					language: RawScript.language.PYTHON3,
-					kind: failureModule ? 'failure' : 'script',
-					subkind: 'flow'
-				})
-			}}
-		/>
-
-		<FlowScriptPicker
-			label="Inline Typescript (Deno)"
-			icon={faCode}
-			iconColor="text-blue-800"
+			label="Typescript (Deno)"
+			lang={Script.language.DENO}
 			on:click={() => {
 				dispatch('new', {
 					language: RawScript.language.DENO,
-					kind: failureModule ? 'failure' : 'script',
+					kind,
 					subkind: 'flow'
 				})
 			}}
 		/>
 
 		<FlowScriptPicker
-			label="Inline Go"
-			icon={faCode}
-			iconColor="text-blue-700"
+			label="Python (3.11)"
+			lang={Script.language.PYTHON3}
 			on:click={() => {
 				dispatch('new', {
-					language: RawScript.language.GO,
-					kind: failureModule ? 'failure' : 'script',
-					subkind: 'flow'
+					language: RawScript.language.PYTHON3,
+					kind,
+					subkind: kind
 				})
 			}}
 		/>
 
-		<FlowScriptPicker
-			label="Inline Bash"
-			icon={faCode}
-			iconColor="text-green-700"
-			on:click={() => {
-				dispatch('new', {
-					language: RawScript.language.BASH,
-					kind: failureModule ? 'failure' : 'script',
-					subkind: 'flow'
-				})
-			}}
-		/>
-
-		{#if !failureModule}
+		{#if kind != 'approval'}
 			<FlowScriptPicker
-				label={`Inline PostgreSQL`}
-				icon={faCode}
-				iconColor="text-blue-800"
-				on:click={() =>
-					dispatch('new', { language: RawScript.language.DENO, kind: 'script', subkind: 'pgsql' })}
+				label="Go"
+				lang={Script.language.GO}
+				on:click={() => {
+					dispatch('new', {
+						language: RawScript.language.GO,
+						kind,
+						subkind: 'flow'
+					})
+				}}
 			/>
 		{/if}
 
-		<PickScript
-			customText={failureModule ? 'Error Handler from workspace' : undefined}
-			kind={failureModule ? Script.kind.FAILURE : Script.kind.SCRIPT}
-			on:pick
-		/>
-		<PickHubScript
-			customText={failureModule ? 'Error Handler from Hub' : undefined}
-			kind={failureModule ? Script.kind.FAILURE : Script.kind.SCRIPT}
-			on:pick
-		/>
+		{#if kind == 'script'}
+			<FlowScriptPicker
+				label="Bash"
+				lang={Script.language.PYTHON3}
+				on:click={() => {
+					dispatch('new', {
+						language: RawScript.language.BASH,
+						kind,
+						subkind: 'flow'
+					})
+				}}
+			/>
+
+			{#if !failureModule}
+				<FlowScriptPicker
+					label={`PostgreSQL`}
+					lang="pgsql"
+					on:click={() =>
+						dispatch('new', { language: RawScript.language.DENO, kind, subkind: 'pgsql' })}
+				/>
+			{/if}
+		{/if}
 	</div>
 
-	{#if !shouldDisableTriggerScripts}
-		<div class="text-sm font-bold pt-8">
-			Trigger script
-			<Tooltip>
-				Used as a first step most commonly with an internal state and a schedule to watch for
-				changes on an external system, compute the diff since last time, set the new state. The
-				diffs are then treated one by one with a for-loop.
-			</Tooltip>
-		</div>
-
-		<div class="grid sm:grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-			<PickScript customText="Trigger script from workspace" kind={Script.kind.TRIGGER} on:pick />
-			<PickHubScript customText="Trigger script from Hub" kind={Script.kind.TRIGGER} on:pick />
-			<FlowScriptPicker
-				label="Inline Typescript (Deno)"
-				icon={faCode}
-				iconColor="text-blue-800"
-				on:click={() => dispatch('new', { language: RawScript.language.DENO, kind: 'trigger' })}
-			/>
-		</div>
-	{/if}
-	{#if !failureModule}
-		<div class="text-sm font-bold pt-8">
-			Approval step
-			<Tooltip>
-				Inlined common scripts can be turned into approval step by changing their suspend settings.
-				An approval step will suspend the execution of a flow until it has been approved through the
-				resume endpoints or the approval page by and solely by the recipients of those secret urls.
-				Use getResumeEndpoints from the wmill client to generate those URLs.
-			</Tooltip>
-		</div>
-		<div class="grid sm:grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-			<PickScript customText="Approval step from workspace" kind={Script.kind.APPROVAL} on:pick />
-			<PickHubScript
-				customText={'Approval step from the Hub'}
-				kind={Script.kind.APPROVAL}
-				on:pick
-			/>
-			<FlowScriptPicker
-				label="Inline Typescript (Deno)"
-				icon={faCode}
-				iconColor="text-blue-800"
-				on:click={() => dispatch('new', { language: RawScript.language.DENO, kind: 'approval' })}
-			/>
-		</div>
-
-		<div class="text-sm font-bold pt-8">Flow primitive</div>
-
-		<div class="grid sm:grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-			<FlowScriptPicker
-				label={`Branches and switch to one`}
-				icon={faCodeBranch}
-				iconColor="text-blue-500"
-				on:click={() => dispatch('branchone')}
-			/>
-			<FlowScriptPicker
-				label={`Branches and run them all`}
-				icon={faCodeBranch}
-				iconColor="text-blue-500"
-				on:click={() => dispatch('branchall')}
-			/>
-
-			<FlowScriptPicker
-				label={`For loop`}
-				icon={faRepeat}
-				iconColor="text-blue-500"
-				on:click={() => dispatch('loop')}
-			/>
-		</div>
+	<h3>Use pre-made</h3>
+	<div class="max-w-min">
+		<ToggleButtonGroup bind:selected={pick_existing}>
+			<ToggleButton position="left" value="hub" size="xs">
+				<WindmillIcon white={pick_existing == 'hub'} height="16px" width="16px" /><div
+					class="mr-1"
+				/>Hub
+			</ToggleButton>
+			<ToggleButton position="right" value="workspace" size="xs" startIcon={{ icon: faBuilding }}>
+				Workspace
+			</ToggleButton>
+		</ToggleButtonGroup>
+	</div>
+	{#if pick_existing == 'hub'}
+		<PickHubScript {kind} on:pick />
+	{:else}
+		<WorkspaceScriptPicker {kind} on:pick />
 	{/if}
 </div>

@@ -1,8 +1,8 @@
 <script lang="ts">
 	import { classNames } from '$lib/utils'
 	import { onMount } from 'svelte'
-	import { scale } from 'svelte/transition'
 
+	export let noMinW = false
 	let show = false
 	let menu: HTMLDivElement
 
@@ -47,15 +47,17 @@
 </script>
 
 <div class="relative" bind:this={menu}>
-	<div on:click={() => (show = !show)} on:click>
+	<!-- svelte-ignore a11y-click-events-have-key-events -->
+	<div on:click={() => (show = !show)}>
 		<slot name="trigger" />
 	</div>
 
 	{#if show}
 		<div
 			class={classNames(
-				'z-50 absolute mt-2 w-60 rounded-md shadow-lg bg-white ring-1 ring-black ring-opacity-5 focus:outline-none',
-				placementsClasses[placement]
+				'z-50 absolute mt-2 rounded-md shadow-lg bg-white ring-1 ring-black ring-opacity-5 focus:outline-none',
+				placementsClasses[placement],
+				noMinW ? 'min-w-0' : 'w-60'
 			)}
 			role="menu"
 			tabindex="-1"

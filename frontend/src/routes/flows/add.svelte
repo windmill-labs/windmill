@@ -44,7 +44,8 @@
 				path: templatePath
 			})
 			Object.assign(flow, template)
-			flow.path = templatePath
+			const oldPath = flow.path.split('/')
+			flow.path = `u/${$userStore?.username}/${oldPath[oldPath.length - 1]}`
 			flow = flow
 			$page.url.searchParams.delete('template')
 			selectedId = 'settings-graph'
