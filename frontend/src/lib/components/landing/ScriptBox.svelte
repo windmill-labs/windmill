@@ -10,7 +10,7 @@
 </script>
 
 <a
-	class="border p-4 rounded-sm shadow-sm space-y-2 hover:border-blue-600 text-gray-800 flex flex-col justify-between"
+	class="border border-gray-400 p-4 rounded-sm shadow-sm space-y-2 hover:border-blue-600 text-gray-800 flex flex-col justify-between"
 	href="/scripts/get/{script.hash}"
 >
 	<div class="font-bold">{script.summary || script.path}</div>

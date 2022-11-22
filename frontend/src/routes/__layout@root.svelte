@@ -202,10 +202,10 @@
 		</div>
 	</div>
 {:else}
-	<CenteredModal title="Loading user">
+	<CenteredModal title="Loading user...">
 		<div class="w-full ">
-			<div class="block m-auto w-20">
-				<WindmillIcon class="animate-[spin_6s_linear_infinite]" height="80px" width="80px" />
+			<div class="block m-auto w-16">
+				<WindmillIcon class="animate-[spin_10s_linear_infinite]" height="60px" width="60px" />
 			</div>
 		</div>
 	</CenteredModal>
