@@ -14,7 +14,7 @@
 
 	const selectedContent = writable(selected)
 
-	$: $selectedContent && dispatch('selected', $selectedContent)
+	$: $selectedContent && dispatch('select', $selectedContent)
 	setContext<ToggleButtonContext>('ToggleButtonGroup', {
 		selected: selectedContent,
 		select: (value: any) => {

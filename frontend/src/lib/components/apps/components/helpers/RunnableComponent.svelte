@@ -36,7 +36,10 @@
 	$: mergedArgs = { ...args, ...extraQueryParams, ...runnableInputValues }
 
 	function argMergedArgsValid(mergedArgs: Record<string, any>) {
-		if (Object.keys(inputs).length !== Object.keys(runnableInputValues).length) {
+		if (
+			Object.keys(inputs).filter((k) => inputs[k].type !== 'user').length !==
+			Object.keys(runnableInputValues).length
+		) {
 			return false
 		}
 
@@ -47,6 +50,8 @@
 		if (areAllArgsValid && shouldTick === undefined) {
 			executeComponent()
 		}
+
+		console.log(areAllArgsValid)
 
 		return areAllArgsValid
 	}
@@ -194,11 +199,12 @@
 				{/if}
 			</div>
 		</Button>
+		<slot />
 	{:else}
 		<Alert type="warning" size="xs" class="mt-2" title="Missing inputs">
 			Please fill in all the inputs
 		</Alert>
 	{/if}
+{:else}
+	<slot />
 {/if}
-
-<slot />
