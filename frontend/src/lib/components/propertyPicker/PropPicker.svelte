@@ -64,10 +64,10 @@
 		{#if !notSelectable}
 			<div class="flex flex-row space-x-1">
 				{#if $propPickerConfig}
-					<Badge color="blue">
+					<Badge large color="blue">
 						{`Selected: ${$propPickerConfig?.propName}`}
 					</Badge>
-					<Badge color="blue">
+					<Badge large color="blue">
 						{`Mode: ${$propPickerConfig?.insertionMode}`}
 					</Badge>
 				{:else}
@@ -78,7 +78,7 @@
 		<input
 			type="text"
 			bind:value={search}
-			class="bg-gray-50 mt-1 border border-gray-300 text-gray-900 text-sm rounded-lg block mb-2 w-full"
+			class="bg-gray-50 mt-2 border border-gray-300 text-gray-900 text-sm rounded-lg block mb-2 w-full"
 			placeholder="Search prop..."
 		/>
 	</div>

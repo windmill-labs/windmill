@@ -67,6 +67,7 @@
 			arg.expr = getDefaultExpr(undefined, previousModuleId, rawValue)
 			arg.type = 'javascript'
 			propertyType = 'javascript'
+			monaco?.setCode(arg.expr)
 		}
 	}
 
