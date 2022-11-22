@@ -28,8 +28,8 @@
 	export let initialArgs: Record<string, any> = {}
 
 	const langs: [string, SupportedLanguage][] = [
-		['Typescript (Deno)', Script.language.DENO],
-		['Python 3.11', Script.language.PYTHON3],
+		['Typescript', Script.language.DENO],
+		['Python', Script.language.PYTHON3],
 		['Go', Script.language.GO],
 		['Bash', Script.language.BASH]
 	]

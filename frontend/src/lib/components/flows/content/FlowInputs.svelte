@@ -46,10 +46,15 @@
 			</div>
 		</div>
 	{/if}
-	<h3>Inline new</h3>
+	<h3
+		>Inline new<Tooltip
+			>Embed a script directly inside a flow instead of saving the script into your workspace for
+			reuse. You can always save an inline script later.</Tooltip
+		></h3
+	>
 	<div class="flex flex-row flex-wrap gap-x-4 gap-y-2">
 		<FlowScriptPicker
-			label="Typescript (Deno)"
+			label="Typescript"
 			lang={Script.language.DENO}
 			on:click={() => {
 				dispatch('new', {
@@ -61,7 +66,7 @@
 		/>
 
 		<FlowScriptPicker
-			label="Python (3.11)"
+			label="Python"
 			lang={Script.language.PYTHON3}
 			on:click={() => {
 				dispatch('new', {
@@ -110,7 +115,7 @@
 		{/if}
 	</div>
 
-	<h3>Use pre-made</h3>
+	<h3 class="pt-4">Use pre-made</h3>
 	<div class="max-w-min">
 		<ToggleButtonGroup bind:selected={pick_existing}>
 			<ToggleButton position="left" value="hub" size="xs">
