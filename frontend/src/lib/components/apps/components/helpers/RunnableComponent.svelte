@@ -12,6 +12,7 @@
 	import type { Output } from '../../rx'
 	import type { AppEditorContext, InputsSpec } from '../../types'
 	import { buildArgs, loadSchema, schemaToInputsSpec } from '../../utils'
+	import InputValue from './InputValue.svelte'
 
 	// Component props
 	export let id: string
@@ -20,9 +21,7 @@
 	export let runType: 'script' | 'flow' | undefined = undefined
 	export let inlineScriptName: string | undefined = undefined
 	export let extraQueryParams: Record<string, any> = {}
-
 	export let shouldTick: number | undefined = undefined
-
 	export let result: any = undefined
 
 	const { app, worldStore } = getContext<AppEditorContext>('AppEditorContext')
@@ -31,71 +30,66 @@
 	// Local state
 	let args: Record<string, any> = {}
 	let schema: Schema | undefined = undefined
-	let schemaClone: Schema | undefined = undefined
-
 	let isValid = true
 	let testIsLoading = false
 
-	$: if (outputs) {
-		outputs.loading.set(testIsLoading)
-	}
-
+	// Test job internal state
 	let testJob: CompletedJob | undefined = undefined
 	let testJobLoader: TestJobLoader | undefined = undefined
 
-	$: if ($workspaceStore && path && runType) {
-		loadSchemaFromTriggerable($workspaceStore, path, runType)
+	$: outputs = $worldStore?.outputsById[id] as {
+		result: Output<Array<any>>
+		loading: Output<boolean>
 	}
 
-	$: if (inlineScriptName && $app.inlineScripts[inlineScriptName]) {
-		schema = $app.inlineScripts[inlineScriptName].schema
+	/**
+	 * Args are built from 3 sources:
+	 * 1. The inputs spec ( )
+	 * 2. The schema input transform with user submitted values§
+	 * 3. The extra query params
+	 */
 
-		Object.keys(extraQueryParams).forEach((key) => {
-			if (schema?.properties[key]) {
-				delete schema.properties[key]
-			}
-		})
-
-		reloadSchemaAndArgs()
-	}
-
-	$: if (inputs && schema !== undefined) {
-		if (Object.keys(schema.properties).length !== Object.keys(inputs).length) {
-			inputs = schemaToInputsSpec(schema)
-		}
-
-		reloadSchemaAndArgs()
-	}
-
-	// Load once
 	async function loadSchemaFromTriggerable(
 		workspace: string,
 		path: string,
 		runType: 'script' | 'flow'
 	) {
 		schema = await loadSchema(workspace, path, runType)
+	}
 
-		Object.keys(extraQueryParams).forEach((key) => {
-			if (schema?.properties[key]) {
-				delete schema.properties[key]
+	// Only loads the schema
+	$: if ($workspaceStore && path && runType) {
+		loadSchemaFromTriggerable($workspaceStore, path, runType)
+	} else if (inlineScriptName && $app.inlineScripts[inlineScriptName]) {
+		schema = $app.inlineScripts[inlineScriptName].schema
+	}
+
+	let schemaStripped: Schema | undefined = undefined
+
+	function stripSchema(schema: Schema) {
+		schemaStripped = JSON.parse(JSON.stringify(schema))
+
+		// Remove hidden static inputs
+		Object.keys(inputs).forEach((key: string) => {
+			const input = inputs[key]
+			if (input.type === 'static' && !input.visible && schemaStripped !== undefined) {
+				delete schemaStripped.properties[key]
+			}
+
+			if (input.type === 'output' && schemaStripped !== undefined) {
+				delete schemaStripped.properties[key]
 			}
 		})
-		args = buildArgs(inputs, schema)
+
+		// Remove extra query params from schema
+		Object.keys(extraQueryParams).forEach((key: string) => {
+			if (schemaStripped !== undefined) {
+				delete schemaStripped.properties[key]
+			}
+		})
 	}
 
-	async function reloadSchemaAndArgs() {
-		schemaClone = JSON.parse(JSON.stringify(schema))
-
-		if (schemaClone !== undefined) {
-			args = buildArgs(inputs, schemaClone)
-
-			Object.keys(schemaClone.properties).forEach((propKey) => {
-				if (!Object.keys(args).includes(propKey)) {
-					delete schemaClone!.properties[propKey]
-				}
-			})
-		}
-	}
+	$: schema && stripSchema(schema)
 
 	$: disabledArgs = Object.keys(inputs).reduce((a: string[], c: string) => {
 		if (inputs[c].type === 'static') {
@@ -131,18 +125,11 @@
 			})
 		})
 	}
-
-	$: if (testJobLoader && shouldTick) {
-		executeComponent()
-	}
-
-	$: extraQueryParams && executeComponent()
-
-	$: outputs = $worldStore?.outputsById[id] as {
-		result: Output<Array<any>>
-		loading: Output<boolean>
-	}
 </script>
+
+{#each Object.keys(inputs) as key}
+	<InputValue input={inputs[key]} bind:value={args[key]} />
+{/each}
 
 <TestJobLoader
 	on:done={() => {
@@ -156,8 +143,8 @@
 	bind:this={testJobLoader}
 />
 
-{#if schemaClone !== undefined}
-	<SchemaForm schema={schemaClone} bind:args bind:isValid {disabledArgs} />
+{#if schemaStripped !== undefined}
+	<SchemaForm schema={schemaStripped} bind:args {isValid} {disabledArgs} />
 {/if}
 
 {#if shouldTick === undefined}

@@ -91,14 +91,7 @@ const chartComponents = {
 			...defaultProps,
 			id: 'piechartcomponent',
 			type: 'piechartcomponent',
-			componentInputs: {
-				dataset: {
-					type: 'static',
-					visible: true,
-					value: {},
-					fieldType: 'textarea'
-				}
-			}
+			runnable: true
 		},
 		{
 			...defaultProps,

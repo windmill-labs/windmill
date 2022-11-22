@@ -13,11 +13,16 @@
 		ArcElement
 	} from 'chart.js'
 	import type { ChartData } from 'chart.js'
-	import ComponentInputValue from '../helpers/ComponentInputValue.svelte'
-	import type { ComponentInputsSpec } from '../../types'
+	import type { InputsSpec } from '../../types'
+	import RunnableComponent from '../helpers/RunnableComponent.svelte'
 
-	export let componentInputs: ComponentInputsSpec
-	export const staticOutputs: string[] = []
+	export let id: string
+	export let inputs: InputsSpec
+	export let path: string | undefined = undefined
+	export let runType: 'script' | 'flow' | undefined = undefined
+	export let inlineScriptName: string | undefined = undefined
+
+	export const staticOutputs: string[] = ['loading', 'result']
 
 	ChartJS.register(
 		Title,
@@ -34,33 +39,13 @@
 		responsive: true
 	}
 
-	let dataSetValue: Record<string, number> | undefined = undefined
-
-	let data: ChartData<'pie', number[], unknown> = { datasets: [], labels: [] }
-
-	function populateDataSet() {
-		if (dataSetValue) {
-			data.datasets = [
-				{
-					data: Object.values(dataSetValue).filter((val) => typeof val === 'number'),
-					backgroundColor: ['#F7464A', '#46BFBD', '#FDB45C', '#949FB1', '#4D5360', '#AC64AD'],
-					hoverBackgroundColor: ['#FF5A5E', '#5AD3D1', '#FFC870', '#A8B3C5', '#616774', '#DA92DB']
-				}
-			]
-			data.labels = Object.keys(dataSetValue)
-				.filter((key) => typeof dataSetValue?.[key] === 'number')
-				.map((s) => s.replace(/([A-Z]+)*([A-Z][a-z])/g, '$1 $2'))
-
-			data = data
-		}
-	}
-
-	$: dataSetValue && populateDataSet()
+	let result: ChartData<'pie', number[], unknown> | undefined = undefined
 </script>
 
-<ComponentInputValue input={componentInputs.dataset} bind:value={dataSetValue} />
-{#if data.datasets.length > 0}
-	<Pie {data} {options} />
-{:else}
-	<span>No dataset</span>
-{/if}
+<RunnableComponent {id} {path} {runType} {inlineScriptName} {inputs} bind:result>
+	{#if result}
+		<Pie data={result} {options} />
+	{:else}
+		<span>No dataset</span>
+	{/if}
+</RunnableComponent>
