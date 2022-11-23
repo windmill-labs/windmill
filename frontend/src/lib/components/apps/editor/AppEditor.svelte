@@ -69,7 +69,9 @@
 <AppEditorHeader bind:title={$appStore.title} bind:mode={$mode} />
 <SplitPanesWrapper>
 	<Pane size={20} minSize={20} maxSize={40}>
-		<ContextPanel appPath={path} />
+		{#if $mode === 'dnd'}
+			<ContextPanel appPath={path} />
+		{/if}
 	</Pane>
 	<Pane size={60} maxSize={100}>
 		<div class="p-4 bg-gray-100 h-full" id="faton">
@@ -79,36 +81,38 @@
 		</div>
 	</Pane>
 	<Pane size={20} minSize={20} maxSize={40}>
-		<Tabs bind:selected={selectedTab}>
-			<Tab value="insert" size="xs">
-				<div class="m-1 flex flex-row gap-2">
-					<Icon data={faPlus} />
-					<span>Insert</span>
-				</div>
-			</Tab>
-			<Tab value="settings" size="xs">
-				<div class="m-1 flex flex-row gap-2">
-					<Icon data={faSliders} />
-					<span>Settings</span>
-				</div>
-			</Tab>
-			<svelte:fragment slot="content">
-				<TabContent value="settings">
-					{#if $selectedComponent !== undefined}
-						{#each $appStore.grid as gridItem (gridItem.id)}
-							{#if gridItem.data.id === $selectedComponent}
-								<ComponentPanel bind:component={gridItem.data} />
-							{/if}
-						{/each}
-					{/if}
-					{#if $selectedComponent === undefined}
-						<div class="p-4 text-sm">No component selected.</div>
-					{/if}
-				</TabContent>
-				<TabContent value="insert">
-					<ComponentList />
-				</TabContent>
-			</svelte:fragment>
-		</Tabs>
+		{#if $mode === 'dnd'}
+			<Tabs bind:selected={selectedTab}>
+				<Tab value="insert" size="xs">
+					<div class="m-1 flex flex-row gap-2">
+						<Icon data={faPlus} />
+						<span>Insert</span>
+					</div>
+				</Tab>
+				<Tab value="settings" size="xs">
+					<div class="m-1 flex flex-row gap-2">
+						<Icon data={faSliders} />
+						<span>Settings</span>
+					</div>
+				</Tab>
+				<svelte:fragment slot="content">
+					<TabContent value="settings">
+						{#if $selectedComponent !== undefined}
+							{#each $appStore.grid as gridItem (gridItem.id)}
+								{#if gridItem.data.id === $selectedComponent}
+									<ComponentPanel bind:component={gridItem.data} />
+								{/if}
+							{/each}
+						{/if}
+						{#if $selectedComponent === undefined}
+							<div class="p-4 text-sm">No component selected.</div>
+						{/if}
+					</TabContent>
+					<TabContent value="insert">
+						<ComponentList />
+					</TabContent>
+				</svelte:fragment>
+			</Tabs>
+		{/if}
 	</Pane>
 </SplitPanesWrapper>

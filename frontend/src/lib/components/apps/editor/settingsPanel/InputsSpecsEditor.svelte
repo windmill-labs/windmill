@@ -8,7 +8,7 @@
 	export let inputSpecs: InputsSpec
 
 	const userTypeKeys = ['schemaProperty', 'defaultValue', 'value']
-	const staticTypeKeys = ['visible', 'value', 'fieldType']
+	const staticTypeKeys = ['value']
 	const dynamicTypeKeys = ['id', 'name', 'defaultValue']
 
 	function sanitizeInputSpec(type: 'user' | 'static' | 'output', inputSpecKey: string) {

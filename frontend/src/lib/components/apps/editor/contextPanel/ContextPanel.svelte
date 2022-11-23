@@ -161,8 +161,7 @@
 					{outputs}
 					{componentId}
 					on:select={({ detail }) => {
-						const [output] = detail.split('.')
-						connectInput(componentId, output)
+						connectInput(componentId, detail)
 					}}
 				/>
 			</div>
