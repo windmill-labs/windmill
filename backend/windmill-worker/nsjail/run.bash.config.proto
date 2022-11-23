@@ -71,6 +71,14 @@ mount {
 	is_bind: true
 }
 
+
+mount {
+    src: "/etc/ld.so.cache"
+    dst: "/etc/ld.so.cache"
+	is_bind: true
+    mandatory: false
+}
+
 mount {
     src: "/etc/pki"
     dst: "/etc/pki"
