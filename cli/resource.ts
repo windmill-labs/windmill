@@ -1,9 +1,9 @@
 import { Command } from "https://deno.land/x/cliffy@v0.25.4/command/command.ts";
-import { ResourceService } from "https://deno.land/x/windmill@v1.41.0/mod.ts";
+import { ResourceService } from "https://deno.land/x/windmill@v1.50.0/mod.ts";
 import { GlobalOptions } from "./types.ts";
 import { colors } from "https://deno.land/x/cliffy@v0.25.4/ansi/colors.ts";
 import { getContext } from "./context.ts";
-import { Resource } from "https://deno.land/x/windmill@v1.41.0/windmill-api/index.ts";
+import { Resource } from "https://deno.land/x/windmill@v1.50.0/windmill-api/index.ts";
 import { Table } from "https://deno.land/x/cliffy@v0.25.4/table/table.ts";
 
 type ResourceFile = {

@@ -147,6 +147,10 @@
 	)
 
 	async function executeComponent() {
+		if (!schema) {
+			return
+		}
+
 		outputs?.loading.set(true)
 
 		await testJobLoader?.abstractRun(() => {

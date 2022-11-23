@@ -2,7 +2,7 @@ import { colors } from "https://deno.land/x/cliffy@v0.25.4/ansi/colors.ts";
 import {
   setClient,
   UserService,
-} from "https://deno.land/x/windmill@v1.41.0/mod.ts";
+} from "https://deno.land/x/windmill@v1.50.0/mod.ts";
 import { getToken } from "./login.ts";
 import { getDefaultRemote, getRemote } from "./remote.ts";
 import { getStore } from "./store.ts";
