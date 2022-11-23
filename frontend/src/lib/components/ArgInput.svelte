@@ -38,6 +38,7 @@
 	export let displayHeader = true
 	export let properties: { [name: string]: SchemaProperty } | undefined = undefined
 	export let autofocus = false
+	export let compact = false
 
 	let seeEditable: boolean = enum_ != undefined || pattern != undefined
 	const dispatch = createEventDispatcher()
@@ -366,8 +367,16 @@
 			{/if}
 			<slot name="actions" />
 		</div>
-		<div class="text-right text-xs {error === '' ? 'text-white' : 'text-red-600'}">
-			{error === '' ? '...' : error}
-		</div>
+		{#if !compact || (error && error != '')}
+			<div class="text-right text-xs text-red-600">
+				{#if error === ''}
+					&nbsp;
+				{:else}
+					{error}
+				{/if}
+			</div>
+		{:else}
+			<div class="mb-2" />
+		{/if}
 	</div>
 </div>

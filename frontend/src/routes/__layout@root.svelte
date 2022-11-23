@@ -135,11 +135,15 @@
 					}}
 				>
 					<div
-						class="flex items-center gap-x-2 flex-shrink-0 p-4 font-extrabold text-white w-14"
+						class="flex flex-row items-center flex-shrink-0 px-4 py-3.5 font-extrabold text-white w-14"
 						class:w-40={!isCollapsed}
 					>
-						<WindmillIcon white={true} height="20px" width="20px" />
-						{#if !isCollapsed}Windmill{/if}
+						<div class="mr-1">
+							<WindmillIcon white={true} height="19px" width="20px" />
+						</div>
+						<span class="-my-2"
+							>{#if !isCollapsed}Windmill{/if}</span
+						>
 					</div>
 				</button>
 
