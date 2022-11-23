@@ -19,6 +19,7 @@ Setup the CLI by running `wmill setup`. This will guide you through the setup pr
 Run a script or flow using `wmill flow/script run u/username/path/to/script` and pass any inputs using `--input.name value`
 
 Flow Steps and Logs will be streamed during execution automatically.
+[![asciicast](https://asciinema.org/a/OBzotSxbJjB0lhUqKAsG9zttk.svg)](https://asciinema.org/a/OBzotSxbJjB0lhUqKAsG9zttk)
 
 ## Pushing Resources, Scripts & More
 
