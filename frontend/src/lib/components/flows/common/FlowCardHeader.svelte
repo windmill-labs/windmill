@@ -19,7 +19,7 @@
 </script>
 
 <div
-	class="flex items-center justify-between py-2 px-4 border-b border-gray-300 space-x-2  h-12 flex-nowrap"
+	class="flex items-center justify-between py-2 px-4 border-b border-gray-300 space-x-2  h-full max-h-12 flex-nowrap"
 >
 	{#if flowModule}
 		<span class="text-sm w-full">

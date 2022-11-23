@@ -61,7 +61,7 @@
 		>
 			<div
 				class={classNames(
-					'fixed inset-0 bg-gray-800 bg-opacity-75 transition-opacity ease-linear duration-300 z-40',
+					'fixed inset-0 bg-[#2e3440] bg-opacity-75 transition-opacity ease-linear duration-300 z-40',
 					menuOpen ? 'opacity-100' : 'opacity-0'
 				)}
 			/>
@@ -99,7 +99,7 @@
 							</svg>
 						</button>
 					</div>
-					<div class="bg-gray-800 h-full">
+					<div class="bg-[#2e3440] h-full">
 						<div
 							class="flex items-center gap-x-2 flex-shrink-0 p-4 font-extrabold text-white w-10"
 							class:w-40={!isCollapsed}
@@ -128,7 +128,7 @@
 				isCollapsed ? 'md:w-12' : 'md:w-40'
 			)}
 		>
-			<div class="flex-1 flex flex-col min-h-0 shadow-lg bg-gray-800">
+			<div class="flex-1 flex flex-col min-h-0 shadow-lg bg-[#2e3440]">
 				<button
 					on:click={() => {
 						isCollapsed = !isCollapsed
@@ -157,7 +157,7 @@
 				</div>
 				<SidebarContent {isCollapsed} />
 
-				<div class="flex-shrink-0 flex p-4 border-t border-gray-300">
+				<div class="flex-shrink-0 flex px-4 pb-3.5 pt-3 border-t border-gray-300">
 					<button
 						on:click={() => {
 							isCollapsed = !isCollapsed

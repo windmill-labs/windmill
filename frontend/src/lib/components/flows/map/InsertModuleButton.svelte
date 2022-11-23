@@ -17,7 +17,7 @@
 	</button>
 	<div class="divide-y divide-gray-100 text-xs w-40">
 		<button
-			class="w-full text-left p-2"
+			class="w-full text-left p-2 hover:bg-gray-100"
 			on:click={() => {
 				close()
 				dispatch('new', 'script')
@@ -29,7 +29,7 @@
 			Script
 		</button>
 		<button
-			class="w-full text-left p-2"
+			class="w-full text-left p-2 hover:bg-gray-100"
 			on:click={() => {
 				close()
 				dispatch('new', 'forloop')
@@ -41,7 +41,7 @@
 		</button>
 
 		<button
-			class="w-full text-left p-2"
+			class="w-full text-left p-2 hover:bg-gray-100"
 			on:click={() => {
 				close()
 				dispatch('new', 'branchone')
@@ -53,7 +53,7 @@
 		</button>
 
 		<button
-			class="w-full text-left p-2"
+			class="w-full text-left p-2 hover:bg-gray-100"
 			on:click={() => {
 				close()
 				dispatch('new', 'branchall')
