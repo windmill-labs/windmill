@@ -1,5 +1,8 @@
 import { Command } from "https://deno.land/x/cliffy@v0.25.4/command/command.ts";
-import { FlowService } from "https://deno.land/x/windmill@v1.41.0/mod.ts";
+import {
+  FlowService,
+  JobService,
+} from "https://deno.land/x/windmill@v1.41.0/mod.ts";
 import { GlobalOptions } from "./types.ts";
 import {
   Flow,
@@ -8,6 +11,8 @@ import {
 import { colors } from "https://deno.land/x/cliffy@v0.25.4/ansi/colors.ts";
 import { getContext } from "./context.ts";
 import { Table } from "https://deno.land/x/cliffy@v0.25.4/table/table.ts";
+import { track_job } from "./script.ts";
+import { resolve } from "https://deno.land/std@0.141.0/path/win32.ts";
 
 type Options = GlobalOptions;
 
@@ -100,6 +105,42 @@ async function list(opts: GlobalOptions & { showArchived?: boolean }) {
     )
     .render();
 }
+async function run(
+  opts: GlobalOptions & {
+    input: Record<string, any>;
+  },
+  path: string
+) {
+  const { workspace } = await getContext(opts);
+  const id = await JobService.runFlowByPath({
+    workspace,
+    path,
+    requestBody: opts.input,
+  });
+
+  let i = 0;
+  while (true) {
+    const jobInfo = await JobService.getJob({ workspace, id });
+    if (jobInfo.flow_status!.modules.length <= i) {
+      break;
+    }
+    const module = jobInfo.flow_status!.modules[i];
+
+    if (module.job) {
+      console.log("====== Job " + (i + 1) + " ======");
+      await track_job(workspace, module.job);
+    } else {
+      console.log(module.type);
+      await new Promise((resolve, _) =>
+        setTimeout(() => resolve(undefined), 100)
+      );
+      continue;
+    }
+    i++;
+  }
+
+  console.log(colors.green.underline.bold("Flow ran to completion"));
+}
 
 const command = new Command()
   .description("flow related commands")
@@ -110,6 +151,10 @@ const command = new Command()
     "push a local flow spec. This overrides any remote versions."
   )
   .arguments("<file_path:string> <remote_path:string>")
-  .action(push as any);
+  .action(push as any)
+  .command("run", "run a flow by path.")
+  .arguments("<path:string>")
+  .option("--input.* <input>", "Inputs to pass to the script")
+  .action(run as any);
 
 export default command;

@@ -4,6 +4,7 @@ import { GlobalOptions } from "./types.ts";
 import { colors } from "https://deno.land/x/cliffy@v0.25.4/ansi/colors.ts";
 import { getContext } from "./context.ts";
 import {
+  Job,
   JobService,
   Script,
 } from "https://deno.land/x/windmill@v1.41.0/windmill-api/index.ts";
@@ -171,6 +172,7 @@ async function list(opts: GlobalOptions & { showArchived?: boolean }) {
     )
     .render();
 }
+
 async function run(
   opts: GlobalOptions & {
     input: Record<string, any>;
@@ -187,11 +189,22 @@ async function run(
   track_job(workspace, id);
 }
 
-async function track_job(workspace: string, id: string) {
-  console.log(colors.yellow("Waiting for Job to start..."));
+export async function track_job(workspace: string, id: string) {
+  try {
+    const result = await JobService.getCompletedJob({ workspace, id });
+
+    console.log(result.logs);
+    console.log(colors.bold.underline.green("Job Completed"));
+    return;
+  } catch {
+    /* ignore */
+  }
+
+  console.log(colors.yellow("Waiting for Job " + id + " to start..."));
 
   let logOffset = 0;
   let running = false;
+  let retry = 0;
   while (true) {
     let updates: {
       running?: boolean | undefined;
@@ -206,7 +219,12 @@ async function track_job(workspace: string, id: string) {
         running,
       });
     } catch {
-      break;
+      retry++;
+      if (retry > 3) {
+        console.log("failed to get job updated. skipping log streaming.");
+        break;
+      }
+      continue;
     }
 
     if (!running && updates.running === true) {
@@ -220,6 +238,7 @@ async function track_job(workspace: string, id: string) {
     }
 
     if (updates.completed === true) {
+      console.log("completed");
       running = false;
       break;
     }
@@ -231,8 +250,22 @@ async function track_job(workspace: string, id: string) {
       );
     }
   }
+  await new Promise((resolve, _) => setTimeout(() => resolve(undefined), 1000));
 
-  console.log(colors.bold.underline.green("Job Completed"));
+  try {
+    const final_job = await JobService.getCompletedJob({ workspace, id });
+    if ((final_job.logs?.length ?? -1) > logOffset) {
+      console.log(final_job.logs!.substring(logOffset));
+    }
+
+    if (final_job.success) {
+      console.log(colors.bold.underline.green("Job Completed"));
+    } else {
+      console.log(colors.bold.underline.red("Job Completed"));
+    }
+  } catch {
+    console.log("Job appears to have completed, but no data can be retrieved");
+  }
 }
 
 async function show(opts: GlobalOptions, path: string) {
