@@ -113,11 +113,11 @@
 			</PanelSection>
 		{/if}
 
-		{#if component.verticalAlignement !== undefined}
-			<PanelSection title="Alignement">
-				<div class="w-full text-xs font-bold">Horizontal alignement</div>
+		{#if component.verticalAlignment !== undefined}
+			<PanelSection title="Alignment">
+				<div class="w-full text-xs font-bold">Horizontal alignment</div>
 
-				<ToggleButtonGroup bind:selected={component.horizontalAlignement}>
+				<ToggleButtonGroup bind:selected={component.horizontalAlignment}>
 					<ToggleButton position="left" value="left" size="xs">
 						<Icon data={faAlignLeft} />
 					</ToggleButton>
@@ -128,9 +128,9 @@
 						<Icon data={faAlignRight} />
 					</ToggleButton>
 				</ToggleButtonGroup>
-				<div class="w-full text-xs font-bold">Vertical alignement</div>
+				<div class="w-full text-xs font-bold">Vertical alignment</div>
 
-				<ToggleButtonGroup bind:selected={component.verticalAlignement}>
+				<ToggleButtonGroup bind:selected={component.verticalAlignment}>
 					<ToggleButton position="left" value="top" size="xs">
 						<Icon data={faAlignLeft} />
 					</ToggleButton>
