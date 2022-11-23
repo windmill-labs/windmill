@@ -34,7 +34,7 @@
 		on:click={() => {
 			runnableComponent?.runComponent()
 		}}
-		btnClasses="h-full"
+		btnClasses="w-full h-full"
 		{color}
 	>
 		{labelValue}
