@@ -1,7 +1,7 @@
 import { colors } from "https://deno.land/x/cliffy@v0.25.4/ansi/colors.ts";
 import { Command } from "https://deno.land/x/cliffy@v0.25.4/command/command.ts";
 import { Table } from "https://deno.land/x/cliffy@v0.25.4/table/table.ts";
-import { VariableService } from "https://deno.land/x/windmill@v1.41.0/mod.ts";
+import { VariableService } from "https://deno.land/x/windmill@v1.50.0/mod.ts";
 import { getContext } from "./context.ts";
 import { GlobalOptions } from "./types.ts";
 

@@ -10,7 +10,7 @@ import {
   setClient,
   UserService,
   WorkspaceService,
-} from "https://deno.land/x/windmill@v1.41.0/mod.ts";
+} from "https://deno.land/x/windmill@v1.50.0/mod.ts";
 import { getStore } from "./store.ts";
 import { add as addRemote, setDefault as setDefaultRemote } from "./remote.ts";
 

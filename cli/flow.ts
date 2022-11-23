@@ -1,10 +1,10 @@
 import { Command } from "https://deno.land/x/cliffy@v0.25.4/command/command.ts";
-import { FlowService } from "https://deno.land/x/windmill@v1.41.0/mod.ts";
+import { FlowService } from "https://deno.land/x/windmill@v1.50.0/mod.ts";
 import { GlobalOptions } from "./types.ts";
 import {
   Flow,
   OpenFlow,
-} from "https://deno.land/x/windmill@v1.41.0/windmill-api/index.ts";
+} from "https://deno.land/x/windmill@v1.50.0/windmill-api/index.ts";
 import { colors } from "https://deno.land/x/cliffy@v0.25.4/ansi/colors.ts";
 import { getContext } from "./context.ts";
 import { Table } from "https://deno.land/x/cliffy@v0.25.4/table/table.ts";
