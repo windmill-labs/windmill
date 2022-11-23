@@ -97,7 +97,6 @@ export type Aligned = {
 
 export interface BaseAppComponent extends Partial<Aligned> {
 	id: ComponentID
-	width: number
 	inputs: InputsSpec
 	// Only dynamic inputs (Result of display)
 	componentInputs: ComponentInputsSpec
