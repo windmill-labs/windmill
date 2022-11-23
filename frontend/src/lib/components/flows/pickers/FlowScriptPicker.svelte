@@ -13,7 +13,7 @@
 
 <Button
 	{disabled}
-	btnClasses="truncate"
+	btnClasses="h-24 w-24 truncate"
 	on:click
 	size="sm"
 	spacingSize="md"
@@ -24,7 +24,10 @@
 		classes: iconColor
 	}}
 >
-	{#if lang}
-		<LanguageIcon {lang} />
-	{/if}<span class="ml-2">{label}</span>
+	<div class="flex justify-center flex-col items-center gap-2">
+		{#if lang}
+			<LanguageIcon {lang} />
+		{/if}
+		<span class="text-xs">{label}</span>
+	</div>
 </Button>

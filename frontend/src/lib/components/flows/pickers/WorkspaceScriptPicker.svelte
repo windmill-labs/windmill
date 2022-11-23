@@ -41,7 +41,7 @@
 			{#each filteredItems as obj}
 				<li class="flex flex-row w-full">
 					<button
-						class="py-4 px-1 gap-1 flex flex-row grow hover:bg-white hover:border text-black"
+						class="py-4 px-1 gap-1 flex flex-row grow hover:bg-blue-50 bg-white transition-all text-black"
 						on:click={() => {
 							dispatch('pick', obj)
 						}}

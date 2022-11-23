@@ -32,7 +32,7 @@
 </script>
 
 <div class="border-b flex flex-row justify-between py-1 px-4 items-center">
-	<span class="text-sm">{title}</span>
+	<input class="text-sm w-64" bind:value={title} />
 	<div>
 		<ToggleButtonGroup bind:selected={mode}>
 			<ToggleButton position="left" value="dnd" startIcon={{ icon: faHand }} size="xs">

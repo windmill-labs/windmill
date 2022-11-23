@@ -65,6 +65,6 @@
 			}
 		}}
 	>
-		Connect this input to an ouput
+		Connect this input to an output
 	</Button>
 {/if}

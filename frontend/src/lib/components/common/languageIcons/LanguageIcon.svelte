@@ -5,8 +5,8 @@
 	import { BashIcon, GoIcon, PythonIcon, TypeScriptIcon } from './'
 
 	export let lang: SupportedLanguage | 'pgsql'
-	export let width = 16
-	export let height = 16
+	export let width = 30
+	export let height = 30
 	export let scale = 1
 	const langToComponent: Record<SupportedLanguage | 'pgsql', typeof SvelteComponent> = {
 		go: GoIcon,
