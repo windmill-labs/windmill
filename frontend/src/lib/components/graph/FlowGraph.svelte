@@ -112,7 +112,7 @@
 		return flowModuleToNode(
 			parentIds,
 			module.id,
-			module.summary || 'Identity script',
+			module.summary || 'Identity step',
 			'inline',
 			module,
 			undefined,

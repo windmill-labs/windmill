@@ -79,6 +79,13 @@ mount {
 }
 
 mount {
+    src: "/etc/ca-certificates"
+    dst: "/etc/ca-certificates"
+    is_bind: true
+    mandatory: false
+}
+
+mount {
     src: "/etc/resolv.conf"
     dst: "/etc/resolv.conf"
 	is_bind: true
@@ -91,14 +98,6 @@ mount {
 }
 
 iface_no_lo: true
-
-mount {
-    src: "{CACHE_DIR}"
-    dst: "/tmp/.cache/go"
-    is_bind: true
-    rw: true
-    mandatory: false
-}
 
 {SHARED_MOUNT}
 

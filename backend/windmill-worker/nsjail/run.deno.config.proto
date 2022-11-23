@@ -106,6 +106,13 @@ mount {
 }
 
 mount {
+    src: "/etc/ca-certificates"
+    dst: "/etc/ca-certificates"
+    is_bind: true
+    mandatory: false
+}
+
+mount {
     src: "/etc/resolv.conf"
     dst: "/etc/resolv.conf"
 	is_bind: true
