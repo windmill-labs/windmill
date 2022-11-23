@@ -3,9 +3,10 @@
 	import type { StaticInput, DynamicInput, AppEditorContext, UserInput } from '../../types'
 	import { accessPropertyByPath } from '../../utils'
 
-	type T = $$Generic
+	type T = string | number | boolean | Record<string | number, any> | undefined
+
 	export let input: DynamicInput | StaticInput | UserInput
-	export let value: T | undefined = undefined
+	export let value: T
 
 	const { worldStore } = getContext<AppEditorContext>('AppEditorContext')
 
@@ -25,12 +26,12 @@
 		}
 	}
 
-	function onValueChange(newValue: T): void {
+	function onValueChange(newValue: any): void {
 		if (input.type === 'output') {
 			if (input.name?.includes('.')) {
 				const path = input.name.split('.').slice(1).join('.')
 
-				value = accessPropertyByPath(newValue, path)
+				value = accessPropertyByPath<T>(newValue, path)
 			} else {
 				value = newValue
 			}

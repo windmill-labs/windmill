@@ -1,4 +1,4 @@
-import type { AppComponent } from '../../types'
+import type { AppComponent, ComponentSet } from '../../types'
 import { defaultAlignement, defaultProps } from './componentDefaultProps'
 
 const windmillComponents = {
@@ -20,7 +20,7 @@ const windmillComponents = {
 	] as AppComponent[]
 }
 
-const plainComponents = {
+const plainComponents: ComponentSet = {
 	title: 'Plain Components',
 	components: [
 		{
@@ -47,11 +47,18 @@ const plainComponents = {
 					visible: true,
 					value: 'Lorem ipsum',
 					fieldType: 'textarea'
+				},
+				color: {
+					fieldType: 'select',
+					type: 'static',
+					visible: true,
+					value: 'blue',
+					optionValuesKey: 'buttonColorOptions',
 				}
 			},
 			runnable: true
 		}
-	] as AppComponent[]
+	]
 }
 
 const chartComponents = {
