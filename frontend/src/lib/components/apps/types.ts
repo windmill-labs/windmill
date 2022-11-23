@@ -34,7 +34,7 @@ export type StaticInputType =
 
 type BaseStaticInput<T extends StaticInputType, V> = {
 	fieldType: T
-	value: V
+	value: V | undefined
 	type: 'static'
 	visible?: boolean
 }
