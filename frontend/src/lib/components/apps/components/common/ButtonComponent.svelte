@@ -29,7 +29,7 @@
 			on:click={() => {
 				tick = tick + 1
 			}}
-			btnClasses="h-full "
+			btnClasses="h-full"
 		>
 			{labelValue}
 		</Button>

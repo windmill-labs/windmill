@@ -35,6 +35,19 @@
 
 	$: mergedArgs = { ...args, ...extraQueryParams, ...runnableInputValues }
 
+	// TODO: Review
+	function setStaticInputsToArgs() {
+		Object.entries(inputs).forEach(([key, value]) => {
+			if (value.type === 'static') {
+				args[key] = value.value
+			}
+		})
+
+		args = args
+	}
+
+	$: inputs && setStaticInputsToArgs()
+
 	function argMergedArgsValid(mergedArgs: Record<string, any>) {
 		if (
 			Object.keys(inputs).filter((k) => inputs[k].type !== 'user').length !==
@@ -50,8 +63,6 @@
 		if (areAllArgsValid && shouldTick === undefined) {
 			executeComponent()
 		}
-
-		console.log(areAllArgsValid)
 
 		return areAllArgsValid
 	}

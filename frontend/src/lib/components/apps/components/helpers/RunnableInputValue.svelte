@@ -8,10 +8,27 @@
 
 	const { worldStore } = getContext<AppEditorContext>('AppEditorContext')
 
-	$: input.type === 'output' && $worldStore?.connect<any>(input, onValueChange)
-	$: input.type === 'static' && (value = input.value)
+	$: input && handleConnection()
+
+	function handleConnection() {
+		if (input.type === 'output') {
+			$worldStore?.connect<any>(input, onValueChange)
+		} else if (input.type === 'static') {
+			setValue()
+		}
+	}
+
+	function setValue() {
+		if (input.type === 'static') {
+			value = input.value
+		}
+	}
 
 	function onValueChange(newValue: T): void {
-		value = newValue
+		if (input.type === 'output') {
+			value = newValue
+		} else {
+			// TODO: handle disconnect
+		}
 	}
 </script>
