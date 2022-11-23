@@ -131,7 +131,7 @@ paths:
   /auth/logout:
     post:
       security: []
-      summary: logout 
+      summary: logout
       operationId: logout
       tags:
         - user
@@ -2386,7 +2386,7 @@ paths:
                 path:
                   type: string
                 value: {}
-                summary: 
+                summary:
                   type: string
                 policy:
                   $ref: "#/components/schemas/Policy"
@@ -2474,7 +2474,7 @@ paths:
                 path:
                   type: string
                 args: {}
-                raw_code: 
+                raw_code:
                   type: object
                   properties:
                     content:
@@ -2498,7 +2498,6 @@ paths:
             text/plain:
               schema:
                 type: string
-
 
   /w/{workspace}/jobs/run/f/{path}:
     post:
@@ -4706,7 +4705,6 @@ components:
         on_behalf_of:
           type: string
 
-
     ListableApp:
       type: object
       properties:
@@ -4749,7 +4747,7 @@ components:
           type: string
           format: date-time
         value: {}
-        policy:        
+        policy:
           $ref: "#/components/schemas/Policy"
         execution_mode:
           type: string
