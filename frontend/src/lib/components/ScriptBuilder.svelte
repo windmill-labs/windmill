@@ -93,7 +93,7 @@
 <UnsavedConfirmationModal />
 <div class="flex flex-col h-screen">
 	<!-- Nav between steps-->
-	<div class="flex flex-col w-full px-2 pt-1  border-b shadow-sm" style="padding-bottom: 3px;">
+	<div class="flex flex-col w-full px-2 py-1  border-b shadow-sm">
 		<div
 			class="justify-between flex flex-row w-full items-center overflow-x-auto scrollbar-hidden px-2"
 		>

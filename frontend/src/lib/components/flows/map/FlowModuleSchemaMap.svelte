@@ -94,7 +94,7 @@
 
 <div class="flex flex-col h-full">
 	{#if root}
-		<div class="flex-initial px-3 py-2 border-b">
+		<div class="flex-initial flex px-3 items-center h-12 border-b border-gray-300">
 			<FlowSettingsItem />
 		</div>
 	{/if}
