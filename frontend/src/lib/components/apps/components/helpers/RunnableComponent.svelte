@@ -22,7 +22,7 @@
 	export let runType: 'script' | 'flow' | undefined = undefined
 	export let inlineScriptName: string | undefined = undefined
 	export let extraQueryParams: Record<string, any> = {}
-	export let shouldTick: number | undefined = undefined
+	export let autoRefresh: boolean = true
 	export let result: any = undefined
 
 	const { app, worldStore } = getContext<AppEditorContext>('AppEditorContext')
@@ -60,7 +60,7 @@
 			(arg) => arg !== undefined && arg !== null
 		)
 
-		if (areAllArgsValid && shouldTick === undefined) {
+		if (areAllArgsValid && autoRefresh) {
 			executeComponent()
 		}
 
@@ -173,7 +173,7 @@
 		})
 	}
 
-	$: if (testJobLoader && shouldTick && shouldTick > 0) {
+	export function runComponent() {
 		executeComponent()
 	}
 </script>
@@ -200,7 +200,7 @@
 	<SchemaForm schema={schemaStripped} bind:args {isValid} {disabledArgs} shouldHideNoInputs />
 {/if}
 
-{#if shouldTick === undefined}
+{#if autoRefresh === true}
 	{#if isValid}
 		<Button size="xs" color="dark" on:click={() => executeComponent()} disabled={!isValid}>
 			<div>
