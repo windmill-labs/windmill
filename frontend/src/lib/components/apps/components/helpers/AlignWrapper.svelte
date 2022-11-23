@@ -1,13 +1,11 @@
 <script lang="ts">
 	import { classNames } from '$lib/utils'
 
-	export let horizontalAlignement: 'left' | 'center' | 'right' | undefined
-	export let verticalAlignement: 'top' | 'center' | 'bottom' | undefined
+	export let horizontalAlignment: 'left' | 'center' | 'right' | undefined
+	export let verticalAlignment: 'top' | 'center' | 'bottom' | undefined
 
-	function tailwindHorizontalAlignement(
-		horizontalAlignement: 'left' | 'center' | 'right' | undefined
-	) {
-		switch (horizontalAlignement) {
+	function tailwindHorizontalAlignment(horizontalAlignment) {
+		switch (horizontalAlignment) {
 			case 'left':
 				return 'justify-start'
 			case 'center':
@@ -17,8 +15,8 @@
 		}
 	}
 
-	function tailwindVerticalAlignement(verticalAlignement: 'top' | 'center' | 'bottom' | undefined) {
-		switch (verticalAlignement) {
+	function tailwindVerticalAlignment(verticalAlignment) {
+		switch (verticalAlignment) {
 			case 'top':
 				return 'items-start'
 			case 'center':
@@ -30,8 +28,8 @@
 
 	$: classes = classNames(
 		'flex w-full h-full flex-col',
-		tailwindHorizontalAlignement(horizontalAlignement),
-		tailwindVerticalAlignement(verticalAlignement)
+		tailwindHorizontalAlignment(horizontalAlignment),
+		tailwindVerticalAlignment(verticalAlignment)
 	)
 </script>
 
