@@ -6,6 +6,7 @@ import { passwordGenerator } from "https://deno.land/x/password_generator@latest
 import { getContext } from "./context.ts";
 import { GlobalOptions } from "./types.ts";
 import { colors } from "https://deno.land/x/cliffy@v0.25.4/ansi/colors.ts";
+import { Input } from "https://deno.land/x/cliffy@v0.25.4/prompt/input.ts";
 
 async function list(opts: GlobalOptions) {
   const _ = await getContext(opts);
@@ -66,7 +67,9 @@ async function add(
 }
 async function remove(opts: GlobalOptions, email: string) {
   const _ = await getContext(opts);
-  throw new Error("API unsupported");
+
+  await UserService.globalUserDelete({ email });
+  console.log(colors.green("Deleted User " + email));
 }
 
 const command = new Command()
