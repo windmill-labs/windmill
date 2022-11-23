@@ -1,5 +1,5 @@
 <script lang="ts">
-	import Button from '$lib/components/common/button/Button.svelte'
+	import { Button, type ButtonType } from '$lib/components/common'
 	import type { ComponentInputsSpec, InputsSpec } from '../../types'
 	import ComponentInputValue from '../helpers/ComponentInputValue.svelte'
 	import RunnableComponent from '../helpers/RunnableComponent.svelte'
@@ -17,11 +17,12 @@
 	export const staticOutputs: string[] = ['loading', 'result']
 
 	let labelValue: string = 'Default label'
-
+	let color: ButtonType.Color
 	let runnableComponent: RunnableComponent
 </script>
 
 <ComponentInputValue input={componentInputs.label} bind:value={labelValue} />
+<ComponentInputValue input={componentInputs.color} bind:value={color} />
 
 <RunnableComponent
 	bind:this={runnableComponent}
@@ -38,6 +39,7 @@
 				runnableComponent?.runComponent()
 			}}
 			btnClasses="h-full"
+			{color}
 		>
 			{labelValue}
 		</Button>
