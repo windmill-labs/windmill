@@ -1,6 +1,6 @@
 import { Command } from "https://deno.land/x/cliffy@v0.25.4/command/command.ts";
 import { GlobalOptions } from "./types.ts";
-import { WorkspaceService } from "https://deno.land/x/windmill@v1.41.0/windmill-api/index.ts";
+import { WorkspaceService } from "https://deno.land/x/windmill@v1.50.0/windmill-api/index.ts";
 import { colors } from "https://deno.land/x/cliffy@v0.25.4/ansi/colors.ts";
 import { Table } from "https://deno.land/x/cliffy@v0.25.4/table/mod.ts";
 import { getContext } from "./context.ts";

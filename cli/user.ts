@@ -1,7 +1,7 @@
 import { Command } from "https://deno.land/x/cliffy@v0.25.4/command/command.ts";
 import { Table } from "https://deno.land/x/cliffy@v0.25.4/table/table.ts";
-import { UserService } from "https://deno.land/x/windmill@v1.41.0/mod.ts";
-import { GlobalUserInfo } from "https://deno.land/x/windmill@v1.41.0/windmill-api/index.ts";
+import { UserService } from "https://deno.land/x/windmill@v1.50.0/mod.ts";
+import { GlobalUserInfo } from "https://deno.land/x/windmill@v1.50.0/windmill-api/index.ts";
 import { passwordGenerator } from "https://deno.land/x/password_generator@latest/mod.ts"; // TODO: I think the version is called latest, but it's still pinned.
 import { getContext } from "./context.ts";
 import { GlobalOptions } from "./types.ts";
