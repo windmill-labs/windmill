@@ -26,8 +26,7 @@
 	function removeGridElement() {
 		if (component) {
 			const COLS = 6
-			const index = $app.grid.findIndex((gridComponent) => gridComponent.data.id === component?.id)
-			$app.grid.splice(index, 1)
+			$app.grid = $app.grid.filter((gridComponent) => gridComponent.data.id !== component?.id)
 			$app.grid = gridHelp.adjust($app.grid, COLS)
 
 			// Delete static inputs

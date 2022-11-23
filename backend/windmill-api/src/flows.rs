@@ -6,6 +6,7 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
+use hyper::StatusCode;
 use reqwest::Client;
 use sql_builder::prelude::*;
 
@@ -137,7 +138,7 @@ async fn create_flow(
     Extension(user_db): Extension<UserDB>,
     Path(w_id): Path<String>,
     Json(nf): Json<NewFlow>,
-) -> Result<String> {
+) -> Result<(StatusCode, String)> {
     // cron::Schedule::from_str(&ns.schedule).map_err(|e| error::Error::BadRequest(e.to_string()))?;
     let mut tx = user_db.clone().begin(&authed).await?;
 
@@ -200,7 +201,7 @@ async fn create_flow(
     .await?;
     tx.commit().await?;
 
-    Ok(nf.path.to_string())
+    Ok((StatusCode::CREATED, nf.path.to_string()))
 }
 
 async fn check_schedule_conflict<'c>(

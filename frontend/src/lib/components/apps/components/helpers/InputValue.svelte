@@ -1,9 +1,12 @@
 <script lang="ts">
 	import { getContext } from 'svelte'
 	import type { StaticInput, DynamicInput, AppEditorContext, UserInput } from '../../types'
+	import { accessPropertyByPath } from '../../utils'
+
+	type T = string | number | boolean | Record<string | number, any> | undefined
 
 	export let input: DynamicInput | StaticInput | UserInput
-	export let value: any
+	export let value: T
 
 	const { worldStore } = getContext<AppEditorContext>('AppEditorContext')
 
@@ -25,7 +28,13 @@
 
 	function onValueChange(newValue: any): void {
 		if (input.type === 'output') {
-			value = newValue
+			if (input.name?.includes('.')) {
+				const path = input.name.split('.').slice(1).join('.')
+
+				value = accessPropertyByPath<T>(newValue, path)
+			} else {
+				value = newValue
+			}
 		} else {
 			// TODO: handle disconnect
 		}

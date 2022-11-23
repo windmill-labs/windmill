@@ -2330,24 +2330,143 @@ async fn test_failure_module(db: Pool<Postgres>) {
     assert_eq!(json!({ "l": [0, 1, 2] }), result);
 }
 
-// #[cfg(test)]
-// mod client_test {
-//     use windmill_common::error::to_anyhow;
+#[sqlx::test(fixtures("base"))]
+async fn test_flow_lock_all(db: Pool<Postgres>) {
+    use futures::StreamExt;
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await;
+    let port = server.addr.port();
 
-//     #[tokio::test]
-//     async fn test_rust_client() -> Result<(), Box<dyn std::error::Error>> {
-//         println!(
-//             "{:#?}",
-//             windmill_api_client::create_client(
-//                 "http://windmill.wimill.xyz",
-//                 "XXXXXXXXXXXXXXX".to_string(),
-//             )
-//             .get_variable("demo", "u/ruben/test", Some(true))
-//             .await
-//             .map_err(to_anyhow)
-//             .map(|v| { v.into_inner() })?
-//             .value
-//         );
-//         Ok(())
-//     }
-// }
+    let flow: windmill_api_client::types::OpenFlow = serde_json::from_value(serde_json::json!({
+        "summary": "",
+        "description": "",
+        "value": {
+            "modules": [
+                {
+                    "id": "a",
+                    "value": {
+                        "lock": null,
+                        "path": null,
+                        "type": "rawscript",
+                        "content": "import wmill\n\ndef main():\n  return \"Test\"\n",
+                        "language": "python3",
+                        "input_transforms": {}
+                    },
+                    "summary": null,
+                    "stop_after_if": null,
+                    "input_transforms": {}
+                },
+                {
+                    "id": "b",
+                    "value": {
+                        "lock": null,
+                        "path": null,
+                        "type": "rawscript",
+                        "content": "import * as wmill from \"https://deno.land/x/windmill@v1.50.0/mod.ts\"\n\nexport async function main() {\n  return \"Hello\"\n}\n",
+                        "language": "deno",
+                        "input_transforms": {}
+                    },
+                    "summary": null,
+                    "stop_after_if": null,
+                    "input_transforms": {}
+                },
+                {
+                    "id": "c",
+                    "value": {
+                        "lock": null,
+                        "path": null,
+                        "type": "rawscript",
+                        "content": "package inner\n\nimport (\n\t\"fmt\"\n\t\"rsc.io/quote\"\n  wmill \"github.com/windmill-labs/windmill-go-client\"\n)\n\n// the main must return (interface{}, error)\n\nfunc main() (interface{}, error) {\n\tfmt.Println(\"Hello, World\")\n  // v, _ := wmill.GetVariable(\"g/all/pretty_secret\")\n  return \"Test\"\n}\n",
+                        "language": "go",
+                        "input_transforms": {}
+                    },
+                    "summary": null,
+                    "stop_after_if": null,
+                    "input_transforms": {}
+                },
+                {
+                    "id": "d",
+                    "value": {
+                        "lock": null,
+                        "path": null,
+                        "type": "rawscript",
+                        "content": "\n# the last line of the stdout is the return value\necho \"Hello $msg\"\n",
+                        "language": "bash",
+                        "input_transforms": {}
+                    },
+                    "summary": null,
+                    "stop_after_if": null,
+                    "input_transforms": {}
+                }
+            ],
+            "failure_module": null
+        },
+        "schema": {
+            "type": "object",
+            "$schema": "https://json-schema.org/draft/2020-12/schema",
+            "required": [],
+            "properties": {}
+        }
+    }))
+    .unwrap();
+
+    let client = windmill_api_client::create_client(
+        &format!("http://localhost:{port}"),
+        "SECRET_TOKEN".to_owned(),
+    );
+    client
+        .create_flow(
+            "test-workspace",
+            &windmill_api_client::types::OpenFlowWPath {
+                open_flow: flow,
+                path: "g/all/flow_lock_all".to_owned(),
+            },
+        )
+        .await
+        .unwrap();
+    let mut str = listen_for_completed_jobs(&db).await;
+    let listen_first_job = str.next();
+    in_test_worker(&db, listen_first_job, port).await;
+
+    client
+        .get_flow_by_path("test-workspace", "g/all/flow_lock_all")
+        .await
+        .unwrap()
+        .into_inner()
+        .subtype_0
+        .value
+        .modules
+        .into_iter()
+        .for_each(|m| {
+            assert!(matches!(
+                m.value,
+                windmill_api_client::types::FlowModuleValue::Rawscript {
+                    language: windmill_api_client::types::RawScriptLanguage::Deno | windmill_api_client::types::RawScriptLanguage::Bash,
+                    lock: Some(ref lock),
+                    ..
+                } if lock == "")
+                || matches!(
+                m.value,
+                windmill_api_client::types::FlowModuleValue::Rawscript {
+                    language: windmill_api_client::types::RawScriptLanguage::Go | windmill_api_client::types::RawScriptLanguage::Python3,
+                    lock: Some(ref lock),
+                    ..
+                } if lock.len() > 0)
+            );
+        });
+}
+
+#[sqlx::test(fixtures("base"))]
+async fn test_rust_client(db: Pool<Postgres>) {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await;
+    let port = server.addr.port();
+
+    windmill_api_client::create_client(
+        &format!("http://localhost:{port}"),
+        "SECRET_TOKEN".to_string(),
+    )
+    .list_workspaces()
+    .await
+    .unwrap();
+}

@@ -45,10 +45,13 @@ export function buildObservableWorld() {
 			}
 		} else if (inputSpec.type === 'output') {
 			const input = cachedInput(next)
-			let obs = observables[`${inputSpec.id}.${inputSpec.name}`]
+
+			const [name] = inputSpec.name ? inputSpec.name.split('.') : [undefined]
+
+			let obs = observables[`${inputSpec.id}.${name}`]
 
 			if (!obs) {
-				console.warn('Observable at ' + inputSpec.id + '.' + inputSpec.name + ' not found')
+				console.warn('Observable at ' + inputSpec.id + '.' + name + ' not found')
 				return {
 					peak: () => undefined,
 					next: () => {}

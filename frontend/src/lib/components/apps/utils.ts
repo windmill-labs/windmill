@@ -73,3 +73,23 @@ export const displayData = {
 		icon: faBarChart
 	}
 }
+
+export function accessPropertyByPath<T>(object: T, path: string): T | undefined {
+	// convert indexes to properties
+	path = path.replace(/\[(\w+)\]/g, '.$1')
+	// strip a leading dot
+	path = path.replace(/^\./, '')
+
+	let a = path.split('.')
+
+	for (let i = 0, depth = a.length; i < depth; ++i) {
+		let key = a[i]
+		if (object[key]) {
+			object = object[key]
+		} else {
+			// Value not found
+			return
+		}
+	}
+	return object
+}
