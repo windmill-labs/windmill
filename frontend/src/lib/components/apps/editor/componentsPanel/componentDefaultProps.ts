@@ -1,3 +1,5 @@
+import type { Aligned } from "../../types"
+
 const defaultProps = {
 	inputs: {},
 	componentInputs: {},
@@ -5,9 +7,9 @@ const defaultProps = {
 	width: 0
 }
 
-const defaultAlignement = {
-	horizontalAlignement: 'center',
-	verticalAlignement: 'center'
+const defaultAlignement: Aligned = {
+	horizontalAlignment: 'center',
+	verticalAlignment: 'center'
 }
 
 export { defaultProps, defaultAlignement }

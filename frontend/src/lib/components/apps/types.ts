@@ -2,6 +2,7 @@ import type { Schema, SchemaProperty } from '$lib/common'
 import type { Preview } from '$lib/gen'
 import type { FilledItem } from 'svelte-grid'
 import type { Writable } from 'svelte/store'
+import type { staticValues } from './editor/componentsPanel/componentStaticValues'
 import type { World } from './rx'
 
 export type UserInput = {
@@ -20,21 +21,42 @@ export type DynamicInput = {
 	defaultValue: any
 }
 
-export type StaticInput = {
+export type StaticInputType =
+	('text'
+	| 'textarea'
+	| 'number'
+	| 'boolean'
+	| 'select'
+	| 'date'
+	| 'time'
+	| 'datetime'
+	| 'object')
+
+type BaseStaticInput<T extends StaticInputType, V> = {
+	fieldType: T
+	value: V
 	type: 'static'
-	value: any
 	visible?: boolean
-	fieldType:
-		| 'text'
-		| 'textarea'
-		| 'number'
-		| 'boolean'
-		| 'select'
-		| 'date'
-		| 'time'
-		| 'datetime'
-		| 'object'
 }
+
+export type SelectStaticInput = BaseStaticInput<'select', string> & {
+	/**
+	 * One of the keys of `staticValues` from `lib/components/apps/editor/componentsPanel/componentStaticValues`
+	 */
+	optionValuesKey: keyof typeof staticValues
+}
+
+export type StaticInput = 
+		BaseStaticInput<'text', string>
+	| BaseStaticInput<'textarea', string>
+	| BaseStaticInput<'number', number>
+	| BaseStaticInput<'boolean', boolean>
+	| SelectStaticInput
+	| BaseStaticInput<'date', string>
+	| BaseStaticInput<'time', string>
+	| BaseStaticInput<'datetime', string>
+	| BaseStaticInput<'object', Record<string | number, any>>
+
 
 export type AppInputTransform = DynamicInput | StaticInput | UserInput
 
@@ -42,69 +64,71 @@ export type AppInputTransform = DynamicInput | StaticInput | UserInput
 export type InputsSpec = Record<FieldID, AppInputTransform>
 export type ComponentInputsSpec = Record<FieldID, DynamicInput | StaticInput>
 
-export type TextComponent = {
-	type: 'textcomponent'
-}
-
-export type TextInputComponent = {
-	type: 'textinputcomponent'
-}
-
-export type ButtonComponent = {
-	type: 'buttoncomponent'
-}
-
 type Runnable = {
 	inlineScriptName?: string
 	path?: string
 	runType?: 'script' | 'flow'
 }
 
-export type RunFormComponent = Runnable & {
-	type: 'runformcomponent'
+type BaseComponent<T extends string> = {
+	type: T
 }
 
-export type BarChartComponent = {
-	type: 'barchartcomponent'
+export type TextComponent = BaseComponent<'textcomponent'>
+export type TextInputComponent = BaseComponent<'textinputcomponent'>
+export type ButtonComponent = BaseComponent<'buttoncomponent'>
+export type RunFormComponent = Runnable & BaseComponent<'runformcomponent'>
+export type BarChartComponent = BaseComponent<'barchartcomponent'>
+export type PieChartComponent = Runnable & BaseComponent<'piechartcomponent'>
+export type TableComponent = Runnable & BaseComponent<'tablecomponent'>
+export type DisplayComponent = BaseComponent<'displaycomponent'>
+export type ImageComponent = BaseComponent<'imagecomponent'>
+export type InputComponent = BaseComponent<'inputcomponent'>
+export type SelectComponent = BaseComponent<'selectcomponent'>
+export type CheckboxComponent = BaseComponent<'checkboxcomponent'>
+export type RadioComponent = BaseComponent<'radiocomponent'>
+
+export type HorizontalAlignment = 'left' | 'center' | 'right'
+export type VerticalAlignment = 'top' | 'center' | 'bottom'
+export type Aligned = {
+	horizontalAlignment: HorizontalAlignment
+	verticalAlignment: VerticalAlignment
 }
 
-export type PieChartComponent = Runnable & {
-	type: 'piechartcomponent'
-}
+export interface BaseAppComponent extends Partial<Aligned> {
+	id: ComponentID
+	width: number
+	inputs: InputsSpec
+	// Only dynamic inputs (Result of display)
+	componentInputs: ComponentInputsSpec
+	runnable?: boolean | undefined
+	card?: boolean | undefined
 
-export type TableComponent = Runnable & {
-	type: 'tablecomponent'
-}
-
-export type DisplayComponent = {
-	type: 'displaycomponent'
+	// TODO: add min/max width/height
 }
 
 export type AppComponent =
-	| (
-			| RunFormComponent
-			| DisplayComponent
-			| TextInputComponent
-			| BarChartComponent
-			| TableComponent
-			| TextComponent
-			| TableComponent
-			| ButtonComponent
-			| PieChartComponent
-	  ) & {
-			id: ComponentID
-			width: number
-			horizontalAlignement?: 'left' | 'center' | 'right'
-			verticalAlignement?: 'top' | 'center' | 'bottom'
+	BaseAppComponent & (
+		RunFormComponent
+		| DisplayComponent
+		| TextInputComponent
+		| BarChartComponent
+		| TableComponent
+		| TextComponent
+		| TableComponent
+		| ButtonComponent
+		| PieChartComponent
+		|	ImageComponent
+		|	InputComponent
+		|	SelectComponent
+		|	CheckboxComponent
+		|	RadioComponent
+	)
 
-			inputs: InputsSpec
-			// Only dynamic inputs (Result of display)
-			componentInputs: ComponentInputsSpec
-			runnable?: boolean | undefined
-			card?: boolean | undefined
-
-			// TODO: add min/max width/height
-	  }
+export type ComponentSet = {
+	title: string,
+	components: AppComponent[]
+}
 
 type SectionID = string
 
