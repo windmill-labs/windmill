@@ -4,7 +4,7 @@
 	import { getContext } from 'svelte'
 	import type { Output } from '../rx'
 	import type { AppEditorContext, ComponentInputsSpec, InputsSpec } from '../types'
-	import ComponentInputValue from './helpers/ComponentInputValue.svelte'
+	import InputValue from './helpers/InputValue.svelte'
 	import DebouncedInput from './helpers/DebouncedInput.svelte'
 	import RunnableComponent from './helpers/RunnableComponent.svelte'
 
@@ -49,8 +49,8 @@
 	export const reservedKeys: string[] = Object.keys(extraQueryParams)
 </script>
 
-<ComponentInputValue input={componentInputs.searchEnabled} bind:value={searchEnabledValue} />
-<ComponentInputValue input={componentInputs.paginationEnabled} bind:value={paginationEnabled} />
+<InputValue input={componentInputs.searchEnabled} bind:value={searchEnabledValue} />
+<InputValue input={componentInputs.paginationEnabled} bind:value={paginationEnabled} />
 
 <RunnableComponent
 	{id}

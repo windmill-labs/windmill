@@ -16,11 +16,6 @@ const windmillComponents = {
 					defaultValue: undefined
 				}
 			}
-		},
-		{
-			...defaultProps,
-			id: 'runformcomponent',
-			type: 'runformcomponent'
 		}
 	] as AppComponent[]
 }
@@ -55,31 +50,6 @@ const plainComponents = {
 				}
 			},
 			runnable: true
-		},
-		{
-			...defaultProps,
-			id: 'imagecomponent',
-			type: 'imagecomponent'
-		},
-		{
-			...defaultProps,
-			id: 'inputcomponent',
-			type: 'inputcomponent'
-		},
-		{
-			...defaultProps,
-			id: 'selectcomponent',
-			type: 'selectcomponent'
-		},
-		{
-			...defaultProps,
-			id: 'checkboxcomponent',
-			type: 'checkboxcomponent'
-		},
-		{
-			...defaultProps,
-			id: 'radiocomponent',
-			type: 'radiocomponent'
 		}
 	] as AppComponent[]
 }
