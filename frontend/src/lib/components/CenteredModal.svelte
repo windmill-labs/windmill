@@ -11,7 +11,7 @@
 	})
 </script>
 
-<div class="flex justify-center min-h-screen pt-10 relative">
+<div class="flex justify-center min-h-screen pt-10 relative bg-[#3b4252]">
 	<div class="w-10/12 md:w-7/12 lg:w-6/12 xl:4/12 m-auto z-10">
 		<div class="border rounded-md py-4 px-16 shadow-md bg-gray-50">
 			<h1 class="justify-center text-center font-medium pb-4">
