@@ -2,9 +2,8 @@
 	import { getContext } from 'svelte'
 	import type { StaticInput, DynamicInput, AppEditorContext, UserInput } from '../../types'
 
-	type T = $$Generic
 	export let input: DynamicInput | StaticInput | UserInput
-	export let value: T
+	export let value: any
 
 	const { worldStore } = getContext<AppEditorContext>('AppEditorContext')
 
@@ -24,7 +23,7 @@
 		}
 	}
 
-	function onValueChange(newValue: T): void {
+	function onValueChange(newValue: any): void {
 		if (input.type === 'output') {
 			value = newValue
 		} else {

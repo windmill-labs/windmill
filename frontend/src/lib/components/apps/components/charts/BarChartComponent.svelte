@@ -1,8 +1,4 @@
 <script lang="ts">
-	import type { Schema } from '$lib/common'
-	import { emptySchema } from '$lib/utils'
-	import { getContext } from 'svelte'
-	import type { AppEditorContext } from '../../types'
 	import { Bar } from 'svelte-chartjs'
 
 	import {
@@ -17,6 +13,19 @@
 		BarElement
 	} from 'chart.js'
 
+	import type { ChartData } from 'chart.js'
+
+	import type { InputsSpec } from '../../types'
+	import RunnableComponent from '../helpers/RunnableComponent.svelte'
+
+	export let id: string
+	export let inputs: InputsSpec
+	export let path: string | undefined = undefined
+	export let runType: 'script' | 'flow' | undefined = undefined
+	export let inlineScriptName: string | undefined = undefined
+
+	export const staticOutputs: string[] = ['loading', 'result']
+
 	ChartJS.register(
 		Title,
 		Tooltip,
@@ -28,28 +37,11 @@
 		BarElement
 	)
 
-	const { worldStore } = getContext<AppEditorContext>('AppEditorContext')
-	export const schema: Schema = emptySchema()
-	export const staticOutputs: string[] = []
-
-	const data = {
-		labels: ['Red', 'Blue', 'Yellow'],
-		datasets: [
-			{
-				label: '% of Votes',
-				data: [12, 19, 3],
-				backgroundColor: [
-					'rgba(255, 134,159,0.4)',
-					'rgba(98,  182, 239,0.4)',
-					'rgba(255, 218, 128,0.4)'
-				],
-				borderWidth: 2,
-				borderColor: ['rgba(255, 134, 159, 1)', 'rgba(98,  182, 239, 1)', 'rgba(255, 218, 128, 1)']
-			}
-		]
-	}
+	let result: ChartData<'bar', number[], unknown> | undefined = undefined
 </script>
 
-{#if $worldStore}
-	<Bar {data} options={{ responsive: true }} />
-{/if}
+<RunnableComponent {id} {path} {runType} {inlineScriptName} bind:inputs bind:result>
+	{#if result}
+		<Bar data={result} options={{ responsive: true, animation: false }} />
+	{/if}
+</RunnableComponent>

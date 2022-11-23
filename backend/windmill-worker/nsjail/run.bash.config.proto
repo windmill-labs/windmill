@@ -71,9 +71,24 @@ mount {
 	is_bind: true
 }
 
+
+mount {
+    src: "/etc/ld.so.cache"
+    dst: "/etc/ld.so.cache"
+	is_bind: true
+    mandatory: false
+}
+
 mount {
     src: "/etc/pki"
     dst: "/etc/pki"
+    is_bind: true
+    mandatory: false
+}
+
+mount {
+    src: "/etc/ca-certificates"
+    dst: "/etc/ca-certificates"
     is_bind: true
     mandatory: false
 }
@@ -91,14 +106,6 @@ mount {
 }
 
 iface_no_lo: true
-
-mount {
-    src: "{CACHE_DIR}"
-    dst: "/tmp/.cache/go"
-    is_bind: true
-    rw: true
-    mandatory: false
-}
 
 {SHARED_MOUNT}
 

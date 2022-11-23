@@ -21,13 +21,19 @@
 
 	export let component: AppComponent | undefined
 
-	const { app } = getContext<AppEditorContext>('AppEditorContext')
+	const { app, staticOutputs } = getContext<AppEditorContext>('AppEditorContext')
 
 	function removeGridElement() {
-		const COLS = 6
-		const index = $app.grid.findIndex((gridComponent) => gridComponent.data.id === component?.id)
-		$app.grid.splice(index, 1)
-		$app.grid = gridHelp.adjust($app.grid, COLS)
+		if (component) {
+			const COLS = 6
+			const index = $app.grid.findIndex((gridComponent) => gridComponent.data.id === component?.id)
+			$app.grid.splice(index, 1)
+			$app.grid = gridHelp.adjust($app.grid, COLS)
+
+			// Delete static inputs
+			delete $staticOutputs[component.id]
+			$staticOutputs = $staticOutputs
+		}
 	}
 </script>
 
@@ -68,17 +74,17 @@
 					<PickScript
 						kind="script"
 						on:pick={({ detail }) => {
-							if (component && component.type === 'runformcomponent') {
-								component.path = detail.path
-								component.runType = 'script'
+							if (component?.runnable) {
+								component['path'] = detail.path
+								component['runType'] = 'script'
 							}
 						}}
 					/>
 					<PickFlow
 						on:pick={({ detail }) => {
-							if (component && component.type === 'runformcomponent') {
-								component.path = detail.path
-								component.runType = 'flow'
+							if (component?.runnable) {
+								component['path'] = detail.path
+								component['runType'] = 'flow'
 							}
 						}}
 					/>

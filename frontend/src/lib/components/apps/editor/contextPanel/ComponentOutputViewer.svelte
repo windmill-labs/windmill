@@ -10,7 +10,7 @@
 
 	let object = {}
 
-	outputs.forEach((output) => {
+	outputs.forEach((output: string) => {
 		$worldStore?.outputsById[componentId][output].subscribe({
 			next: (value) => {
 				object[output] = value

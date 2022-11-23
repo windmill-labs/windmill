@@ -2,9 +2,7 @@ import type { Aligned } from "../../types"
 
 const defaultProps = {
 	inputs: {},
-	componentInputs: {},
-	alignable: false,
-	width: 0
+	componentInputs: {}
 }
 
 const defaultAlignement: Aligned = {
