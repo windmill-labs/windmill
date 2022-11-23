@@ -183,7 +183,7 @@ async function run(
   let id = await JobService.runScriptByPath({
     workspace,
     path,
-    requestBody: opts.input,
+    requestBody: opts.input ?? {},
   });
 
   track_job(workspace, id);

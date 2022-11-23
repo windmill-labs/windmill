@@ -115,7 +115,7 @@ async function run(
   const id = await JobService.runFlowByPath({
     workspace,
     path,
-    requestBody: opts.input,
+    requestBody: opts.input ?? {},
   });
 
   let i = 0;
