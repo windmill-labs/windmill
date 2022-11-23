@@ -14,9 +14,15 @@ Update to the latest version using `wmill upgrade`.
 
 Setup the CLI by running `wmill setup`. This will guide you through the setup process easily.
 
-## Pushing Resources
+## Running Flows & Scripts
 
-The CLI can push resource specifications to a windmill instance. See the [examples/](./examples/) folder for formats.
+Run a script or flow using `wmill flow/script run u/username/path/to/script` and pass any inputs using `--input.name value`
+
+Flow Steps and Logs will be streamed during execution automatically.
+
+## Pushing Resources, Scripts & More
+
+The CLI can push specifications to a windmill instance. See the [examples/](./examples/) folder for formats.
 
 ### Pushing a folder
 
