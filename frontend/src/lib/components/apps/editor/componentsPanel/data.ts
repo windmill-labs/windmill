@@ -53,10 +53,24 @@ const plainComponents: ComponentSet = {
 					type: 'static',
 					visible: true,
 					value: 'blue',
-					optionValuesKey: 'buttonColorOptions',
+					optionValuesKey: 'buttonColorOptions'
 				}
 			},
 			runnable: true
+		},
+		{
+			...defaultProps,
+			...defaultAlignement,
+			id: 'checkboxcomponent',
+			type: 'checkboxcomponent',
+			componentInputs: {
+				label: {
+					type: 'static',
+					visible: true,
+					value: 'Lorem ipsum',
+					fieldType: 'textarea'
+				}
+			}
 		}
 	]
 }

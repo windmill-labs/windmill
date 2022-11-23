@@ -9,6 +9,7 @@
 	import { displayData } from '../utils'
 	import ButtonComponent from '../components/common/ButtonComponent.svelte'
 	import PieChartComponent from '../components/charts/PieChartComponent.svelte'
+	import CheckboxComponent from '../components/select/CheckboxComponent.svelte'
 
 	export let component: AppComponent
 	export let selected: boolean
@@ -59,6 +60,8 @@
 			<TextComponent {...component} />
 		{:else if component.type === 'buttoncomponent'}
 			<ButtonComponent {...component} bind:staticOutputs={$staticOutputs[component.id]} />
+		{:else if component.type === 'checkboxcomponent'}
+			<CheckboxComponent {...component} bind:staticOutputs={$staticOutputs[component.id]} />
 		{/if}
 	</div>
 </div>

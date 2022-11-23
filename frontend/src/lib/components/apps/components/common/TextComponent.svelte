@@ -5,8 +5,8 @@
 	import InputValue from '../helpers/InputValue.svelte'
 
 	export let componentInputs: ComponentInputsSpec
-	export let horizontalAlignement: 'left' | 'center' | 'right' | undefined = undefined
-	export let verticalAlignement: 'top' | 'center' | 'bottom' | undefined = undefined
+	export let horizontalAlignment: 'left' | 'center' | 'right' | undefined = undefined
+	export let verticalAlignment: 'top' | 'center' | 'bottom' | undefined = undefined
 
 	export const staticOutputs: string[] = []
 
@@ -15,6 +15,6 @@
 
 <InputValue input={componentInputs.content} bind:value={contentValue} />
 
-<AlignWrapper {horizontalAlignement} {verticalAlignement}>
+<AlignWrapper {horizontalAlignment} {verticalAlignment}>
 	<SvelteMarkdown source={String(contentValue)} />
 </AlignWrapper>
