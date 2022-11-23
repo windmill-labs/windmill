@@ -131,9 +131,7 @@ export type AppEditorContext = {
 	app: Writable<App>
 	selectedComponent: Writable<string | undefined>
 	mode: Writable<EditorMode>
-	schemas: Writable<Schema[]>
 	connectingInput: Writable<ConnectingInput>
-	resizing: Writable<boolean>
 }
 
 export type EditorMode = 'dnd' | 'preview'

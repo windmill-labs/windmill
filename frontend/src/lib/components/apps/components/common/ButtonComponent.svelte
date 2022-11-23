@@ -3,7 +3,6 @@
 	import type { ComponentInputsSpec, InputsSpec } from '../../types'
 	import InputValue from '../helpers/InputValue.svelte'
 	import RunnableComponent from '../helpers/RunnableComponent.svelte'
-	import AlignWrapper from '../helpers/AlignWrapper.svelte'
 
 	export let id: string
 	export let inputs: InputsSpec
@@ -11,8 +10,6 @@
 	export let runType: 'script' | 'flow' | undefined = undefined
 	export let inlineScriptName: string | undefined = undefined
 	export let componentInputs: ComponentInputsSpec
-	export let horizontalAlignement: 'left' | 'center' | 'right' | undefined = undefined
-	export let verticalAlignement: 'top' | 'center' | 'bottom' | undefined = undefined
 
 	export const staticOutputs: string[] = ['loading', 'result']
 
@@ -32,14 +29,12 @@
 	{id}
 	autoRefresh={false}
 >
-	<AlignWrapper {horizontalAlignement} {verticalAlignement}>
-		<Button
-			on:click={() => {
-				runnableComponent?.runComponent()
-			}}
-			btnClasses="h-full"
-		>
-			{labelValue}
-		</Button>
-	</AlignWrapper>
+	<Button
+		on:click={() => {
+			runnableComponent?.runComponent()
+		}}
+		btnClasses="h-full w-full"
+	>
+		{labelValue}
+	</Button>
 </RunnableComponent>

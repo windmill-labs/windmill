@@ -1,13 +1,11 @@
 <script lang="ts">
 	import ItemPicker from '$lib/components/ItemPicker.svelte'
-	import { faBuilding, faUserGroup } from '@fortawesome/free-solid-svg-icons'
-	import { Script, ScriptService } from '$lib/gen'
+	import { ScriptService } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { createEventDispatcher } from 'svelte'
-	import FlowScriptPicker from './FlowScriptPicker.svelte'
+	import Button from '$lib/components/common/button/Button.svelte'
 
 	export let kind: string
-	export let customText: string | undefined = undefined
 
 	type Item = { summary: String; path: String; version?: String }
 
@@ -29,9 +27,6 @@
 	{loadItems}
 />
 
-<FlowScriptPicker
-	label={customText ?? `${kind == Script.kind.SCRIPT ? 'Script' : `${kind} script`} from workspace`}
-	icon={faBuilding}
-	iconColor="text-blue-500"
-	on:click={() => itemPicker.openDrawer()}
-/>
+<Button size="xs" color="dark" on:click={() => itemPicker.openDrawer()}
+	>Pick script from workflow</Button
+>

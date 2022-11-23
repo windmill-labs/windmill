@@ -1,10 +1,9 @@
 <script lang="ts">
 	import ItemPicker from '$lib/components/ItemPicker.svelte'
-	import { faUserGroup } from '@fortawesome/free-solid-svg-icons'
 	import { FlowService } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { createEventDispatcher } from 'svelte'
-	import FlowScriptPicker from '$lib/components/flows/pickers/FlowScriptPicker.svelte'
+	import Button from '$lib/components/common/button/Button.svelte'
 
 	type Item = { summary: String; path: String; version?: String }
 
@@ -26,9 +25,6 @@
 	{loadItems}
 />
 
-<FlowScriptPicker
-	label={`Pick flow from workspace`}
-	icon={faUserGroup}
-	iconColor="text-blue-500"
-	on:click={() => itemPicker.openDrawer()}
-/>
+<Button size="xs" color="dark" on:click={() => itemPicker.openDrawer()}>
+	Pick flow from workspace
+</Button>
