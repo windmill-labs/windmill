@@ -14,7 +14,6 @@
 	export const staticOutputs: string[] = ['loading', 'result']
 
 	let labelValue: string = 'Default label'
-
 	let runnableComponent: RunnableComponent
 </script>
 
