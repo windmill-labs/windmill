@@ -27,19 +27,25 @@
 
 <div class="bg-white h-full">
 	<Grid bind:items={$app.grid} rowHeight={32} let:dataItem {cols}>
-		{@const index = $app.grid.findIndex((c) => c.data.id === dataItem.data.id)}
-		<!-- svelte-ignore a11y-click-events-have-key-events -->
-		<div
-			class={classNames('h-full w-full flex justify-center align-center border border-gray-100')}
-			on:click={() => {
-				$selectedComponent = dataItem.data.id
-			}}
-		>
-			<ComponentEditor
-				bind:component={$app.grid[index].data}
-				selected={$selectedComponent === dataItem.data.id}
-			/>
-		</div>
+		{#each $app.grid as gridComponent (gridComponent.id)}
+			{#if gridComponent.data.id === dataItem.data.id}
+				<!-- svelte-ignore a11y-click-events-have-key-events -->
+
+				<div
+					class={classNames(
+						'h-full w-full flex justify-center align-center border border-gray-100'
+					)}
+					on:click={() => {
+						$selectedComponent = dataItem.data.id
+					}}
+				>
+					<ComponentEditor
+						bind:component={gridComponent.data}
+						selected={$selectedComponent === dataItem.data.id}
+					/>
+				</div>
+			{/if}
+		{/each}
 	</Grid>
 </div>
 

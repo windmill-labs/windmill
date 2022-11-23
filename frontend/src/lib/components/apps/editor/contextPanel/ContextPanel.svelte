@@ -16,7 +16,8 @@
 
 	export let appPath: string
 
-	const { connectingInput, staticOutputs, app } = getContext<AppEditorContext>('AppEditorContext')
+	const { connectingInput, staticOutputs, app, worldStore } =
+		getContext<AppEditorContext>('AppEditorContext')
 
 	function connectInput(id: string, name: string) {
 		if ($connectingInput) {
@@ -152,7 +153,7 @@
 
 <PanelSection title="Outputs">
 	{#each Object.entries($staticOutputs) as [componentId, outputs], index}
-		{#if outputs.length > 0}
+		{#if outputs.length > 0 && $worldStore?.outputsById[componentId]}
 			<Badge color="blue">Component: {componentId}</Badge>
 
 			<div class="w-full p-2 rounded-xs border">
