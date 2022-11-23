@@ -1,6 +1,7 @@
 <script lang="ts">
 	import type { StaticInput } from '../../types'
 	import Toggle from '$lib/components/Toggle.svelte'
+	import { staticValues } from '../componentsPanel/componentStaticValues'
 
 	export let input: StaticInput
 	export let canHide: boolean
@@ -16,6 +17,14 @@
 	<textarea bind:value={input.value} />
 {:else if input.fieldType === 'boolean'}
 	<Toggle bind:checked={input.value} />
+{:else if input.fieldType === 'select'}
+	<select bind:value={input.value}>
+		{#each staticValues[input.optionValuesKey] || [] as option}
+			<option value={option}>
+				{option}
+			</option>
+		{/each}
+	</select>
 {:else}
 	<input bind:value={input.value} />
 {/if}

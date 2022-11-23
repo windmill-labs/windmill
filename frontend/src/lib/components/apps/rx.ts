@@ -12,7 +12,7 @@ export interface Output<T> extends Observable<T> {
 }
 
 export interface Input<T> extends Subscriber<T> {
-	peak(): T | undefined
+	peak(): T | any | undefined
 }
 
 export type World = {
