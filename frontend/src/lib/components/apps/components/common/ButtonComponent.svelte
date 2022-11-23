@@ -1,7 +1,7 @@
 <script lang="ts">
 	import Button from '$lib/components/common/button/Button.svelte'
 	import type { ComponentInputsSpec, InputsSpec } from '../../types'
-	import ComponentInputValue from '../helpers/ComponentInputValue.svelte'
+	import InputValue from '../helpers/InputValue.svelte'
 	import RunnableComponent from '../helpers/RunnableComponent.svelte'
 	import AlignWrapper from '../helpers/AlignWrapper.svelte'
 
@@ -21,7 +21,7 @@
 	let runnableComponent: RunnableComponent
 </script>
 
-<ComponentInputValue input={componentInputs.label} bind:value={labelValue} />
+<InputValue input={componentInputs.label} bind:value={labelValue} />
 
 <RunnableComponent
 	bind:this={runnableComponent}

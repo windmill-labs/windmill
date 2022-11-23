@@ -68,17 +68,17 @@
 					<PickScript
 						kind="script"
 						on:pick={({ detail }) => {
-							if (component && component.type === 'runformcomponent') {
-								component.path = detail.path
-								component.runType = 'script'
+							if (component?.runnable) {
+								component['path'] = detail.path
+								component['runType'] = 'script'
 							}
 						}}
 					/>
 					<PickFlow
 						on:pick={({ detail }) => {
-							if (component && component.type === 'runformcomponent') {
-								component.path = detail.path
-								component.runType = 'flow'
+							if (component?.runnable) {
+								component['path'] = detail.path
+								component['runType'] = 'flow'
 							}
 						}}
 					/>

@@ -1,8 +1,6 @@
 const defaultProps = {
 	inputs: {},
-	componentInputs: {},
-	alignable: false,
-	width: 0
+	componentInputs: {}
 }
 
 const defaultAlignement = {
