@@ -3,8 +3,12 @@ import { ScriptService } from "https://deno.land/x/windmill@v1.41.0/mod.ts";
 import { GlobalOptions } from "./types.ts";
 import { colors } from "https://deno.land/x/cliffy@v0.25.4/ansi/colors.ts";
 import { getContext } from "./context.ts";
-import { Script } from "https://deno.land/x/windmill@v1.41.0/windmill-api/index.ts";
+import {
+  JobService,
+  Script,
+} from "https://deno.land/x/windmill@v1.41.0/windmill-api/index.ts";
 import { Table } from "https://deno.land/x/cliffy@v0.25.4/table/table.ts";
+import { green } from "https://deno.land/std@0.161.0/fmt/colors.ts";
 
 type ScriptFile = {
   parent_hash?: string;
@@ -167,6 +171,69 @@ async function list(opts: GlobalOptions & { showArchived?: boolean }) {
     )
     .render();
 }
+async function run(
+  opts: GlobalOptions & {
+    input: Record<string, any>;
+  },
+  path: string
+) {
+  const { workspace } = await getContext(opts);
+  let id = await JobService.runScriptByPath({
+    workspace,
+    path,
+    requestBody: opts.input,
+  });
+
+  track_job(workspace, id);
+}
+
+async function track_job(workspace: string, id: string) {
+  console.log(colors.yellow("Waiting for Job to start..."));
+
+  let logOffset = 0;
+  let running = false;
+  while (true) {
+    let updates: {
+      running?: boolean | undefined;
+      completed?: boolean | undefined;
+      new_logs?: string | undefined;
+    };
+    try {
+      updates = await JobService.getJobUpdates({
+        workspace,
+        id,
+        logOffset,
+        running,
+      });
+    } catch {
+      break;
+    }
+
+    if (!running && updates.running === true) {
+      running = true;
+      console.log(colors.green("Job running. Streaming logs..."));
+    }
+
+    if (updates.new_logs) {
+      console.log(updates.new_logs);
+      logOffset += updates.new_logs.length;
+    }
+
+    if (updates.completed === true) {
+      running = false;
+      break;
+    }
+
+    if (running && updates.running === false) {
+      running = false;
+      console.log(
+        colors.yellow("Job suspended. Waiting for it to continue...")
+      );
+    }
+  }
+
+  console.log(colors.bold.underline.green("Job Completed"));
+}
 
 async function show(opts: GlobalOptions, path: string) {
   const { workspace } = await getContext(opts);
@@ -189,6 +256,10 @@ const command = new Command()
   .action(push as any)
   .command("show", "show a scripts content")
   .arguments("<path:string>")
-  .action(show as any);
+  .action(show as any)
+  .command("run", "run a script by path")
+  .arguments("<path:string>")
+  .option("--input.* <input>", "Inputs to pass to the script")
+  .action(run as any);
 
 export default command;
