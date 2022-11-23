@@ -3,6 +3,7 @@
 	import type { AppEditorContext } from '../types'
 	import Grid from 'svelte-grid'
 	import ComponentEditor from './ComponentEditor.svelte'
+	import { classNames } from '$lib/utils'
 
 	const { selectedComponent, app, mode } = getContext<AppEditorContext>('AppEditorContext')
 
@@ -29,7 +30,7 @@
 		{@const index = $app.grid.findIndex((c) => c.data.id === dataItem.data.id)}
 		<!-- svelte-ignore a11y-click-events-have-key-events -->
 		<div
-			class="h-full w-full flex justify-center align-center border border-gray-100"
+			class={classNames('h-full w-full flex justify-center align-center border border-gray-100')}
 			on:click={() => {
 				$selectedComponent = dataItem.data.id
 			}}
@@ -45,6 +46,6 @@
 <style>
 	:global(.svlt-grid-shadow) {
 		/* Back shadow */
-		background: lightblue !important;
+		background: rgb(147 197 253) !important;
 	}
 </style>

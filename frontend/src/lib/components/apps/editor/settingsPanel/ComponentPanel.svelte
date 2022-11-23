@@ -6,6 +6,8 @@
 		faAlignCenter,
 		faAlignLeft,
 		faAlignRight,
+		faClose,
+		faPen,
 		faTrashAlt
 	} from '@fortawesome/free-solid-svg-icons'
 	import { getContext } from 'svelte'
@@ -31,52 +33,85 @@
 
 {#if component}
 	<div class="flex flex-col w-full divide-y">
-		<PanelSection title="Context">
-			{#if component.inputs}
-				<InputsSpecsEditor bind:inputSpecs={component.inputs} />
-			{/if}
+		{#if component.runnable}
+			<PanelSection title="Runnable">
+				{#if component['inlineScriptName']}
+					<span class="text-xs">{component['inlineScriptName']}</span>
+					<div class="w-full flex flex-row gap-2">
+						<Button
+							size="xs"
+							color="dark"
+							startIcon={{ icon: faPen }}
+							on:click={() => {
+								alert('TODO')
+							}}
+						>
+							Edit
+						</Button>
 
-			{#if component.runnable && component['path'] === undefined && component['inlineScriptName'] === undefined}
-				<span class="text-sm">Select a script or a flow to continue</span>
-				<PickScript
-					kind="script"
-					on:pick={({ detail }) => {
-						if (component && component.type === 'runformcomponent') {
-							component.path = detail.path
-							component.runType = 'script'
-						}
-					}}
-				/>
-				<PickFlow
-					on:pick={({ detail }) => {
-						if (component && component.type === 'runformcomponent') {
-							component.path = detail.path
-							component.runType = 'flow'
-						}
-					}}
-				/>
-			{/if}
+						<Button
+							size="xs"
+							color="light"
+							variant="border"
+							startIcon={{ icon: faClose }}
+							on:click={() => {
+								alert('TODO')
+							}}
+						>
+							Clear
+						</Button>
+					</div>
+				{/if}
 
-			{#if component.runnable && component['path'] === undefined && component['inlineScriptName'] === undefined}
-				{#each Object.keys($app.inlineScripts ?? {}) as inlineScriptName}
-					<Button
-						on:click={() => {
-							if (component?.runnable) {
-								// @ts-ignore
-								component.inlineScriptName = inlineScriptName
+				{#if component.runnable && component['path'] === undefined && component['inlineScriptName'] === undefined}
+					<span class="text-sm">Select a script or a flow to continue</span>
+					<PickScript
+						kind="script"
+						on:pick={({ detail }) => {
+							if (component && component.type === 'runformcomponent') {
+								component.path = detail.path
+								component.runType = 'script'
 							}
 						}}
-						size="xs"
-					>
-						Link {inlineScriptName}
-					</Button>
-				{/each}
-			{/if}
+					/>
+					<PickFlow
+						on:pick={({ detail }) => {
+							if (component && component.type === 'runformcomponent') {
+								component.path = detail.path
+								component.runType = 'flow'
+							}
+						}}
+					/>
+				{/if}
 
-			{#if component.componentInputs}
+				{#if component.runnable && component['path'] === undefined && component['inlineScriptName'] === undefined}
+					{#each Object.keys($app.inlineScripts ?? {}) as inlineScriptName}
+						<Button
+							on:click={() => {
+								if (component?.runnable) {
+									// @ts-ignore
+									component.inlineScriptName = inlineScriptName
+								}
+							}}
+							size="xs"
+						>
+							Link {inlineScriptName}
+						</Button>
+					{/each}
+				{/if}
+			</PanelSection>
+		{/if}
+		{#if Object.values(component.inputs).length > 0}
+			<PanelSection title="Runnable inputs">
+				<InputsSpecsEditor bind:inputSpecs={component.inputs} />
+			</PanelSection>
+		{/if}
+
+		{#if Object.values(component.componentInputs).length > 0}
+			<PanelSection title="Component parameters">
 				<ComponentInputsSpecsEditor bind:componentInputSpecs={component.componentInputs} />
-			{/if}
-		</PanelSection>
+			</PanelSection>
+		{/if}
 
 		{#if component.verticalAlignement !== undefined}
 			<PanelSection title="Alignement">

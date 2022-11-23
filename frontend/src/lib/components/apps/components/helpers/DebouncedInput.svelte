@@ -5,8 +5,9 @@
 
 	let timer: NodeJS.Timeout
 
-	function debounce(event: KeyboardEvent) {
+	function debounce(event: KeyboardEvent): void {
 		clearTimeout(timer)
+
 		timer = setTimeout(() => {
 			const target = event.target as HTMLInputElement
 			value = target.value

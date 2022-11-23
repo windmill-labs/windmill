@@ -77,11 +77,13 @@ export async function loadSchema(
 export function schemaToInputsSpec(schema: Schema): InputsSpec {
 	return Object.keys(schema.properties).reduce((accu, key) => {
 		const property = schema.properties[key]
+
 		accu[key] = {
 			type: 'static',
 			defaultValue: property.default,
 			value: undefined,
-			visible: true
+			visible: true,
+			fieldType: property.type
 		}
 		return accu
 	}, {})

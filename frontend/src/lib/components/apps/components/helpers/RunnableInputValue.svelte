@@ -2,26 +2,33 @@
 	import { getContext } from 'svelte'
 	import type { StaticInput, DynamicInput, AppEditorContext, UserInput } from '../../types'
 
+	type T = $$Generic
 	export let input: DynamicInput | StaticInput | UserInput
-	export let value: any
+	export let value: T
 
 	const { worldStore } = getContext<AppEditorContext>('AppEditorContext')
 
-	$: hasConnection = input.type === 'output' && input.id !== undefined && input.name !== undefined
+	$: input && handleConnection()
 
-	$: inputResult = hasConnection
-		? $worldStore?.connect<any>(input, () => updateValue())
-		: {
-				peak: () => {
-					if (input.type === 'static') {
-						return input.value
-					}
-				}
-		  }
-
-	function updateValue() {
-		value = inputResult?.peak()
+	function handleConnection() {
+		if (input.type === 'output') {
+			$worldStore?.connect<any>(input, onValueChange)
+		} else if (input.type === 'static') {
+			setValue()
+		}
 	}
 
-	$: !hasConnection && input && input.type === 'static' && updateValue()
+	function setValue() {
+		if (input.type === 'static') {
+			value = input.value
+		}
+	}
+
+	function onValueChange(newValue: T): void {
+		if (input.type === 'output') {
+			value = newValue
+		} else {
+			// TODO: handle disconnect
+		}
+	}
 </script>
