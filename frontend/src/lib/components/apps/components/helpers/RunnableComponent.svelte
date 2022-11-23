@@ -13,7 +13,7 @@
 	import type { Output } from '../../rx'
 	import type { AppEditorContext, InputsSpec } from '../../types'
 	import { loadSchema, schemaToInputsSpec } from '../../utils'
-	import RunnableInputValue from './RunnableInputValue.svelte'
+	import InputValue from './InputValue.svelte'
 
 	// Component props
 	export let id: string
@@ -179,7 +179,7 @@
 </script>
 
 {#each Object.keys(inputs) as key}
-	<RunnableInputValue input={inputs[key]} bind:value={runnableInputValues[key]} />
+	<InputValue input={inputs[key]} bind:value={runnableInputValues[key]} />
 {/each}
 
 <TestJobLoader

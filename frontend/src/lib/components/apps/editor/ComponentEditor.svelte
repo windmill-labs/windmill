@@ -3,7 +3,6 @@
 	import { getContext } from 'svelte'
 	import BarChartComponent from '../components/charts/BarChartComponent.svelte'
 	import DisplayComponent from '../components/DisplayComponent.svelte'
-	import RunFormComponent from '../components/RunFormComponent.svelte'
 	import TableComponent from '../components/TableComponent.svelte'
 	import TextComponent from '../components/common/TextComponent.svelte'
 	import type { AppComponent, AppEditorContext } from '../types'
@@ -36,16 +35,14 @@
 			$mode === 'preview' ? 'border-white' : 'hover:border-blue-500'
 		)}
 	>
-		{#if component.type === 'runformcomponent'}
-			<RunFormComponent
+		{#if component.type === 'displaycomponent'}
+			<DisplayComponent {...component} bind:staticOutputs={$staticOutputs[component.id]} />
+		{:else if component.type === 'barchartcomponent'}
+			<BarChartComponent
 				{...component}
 				bind:inputs={component.inputs}
 				bind:staticOutputs={$staticOutputs[component.id]}
 			/>
-		{:else if component.type === 'displaycomponent'}
-			<DisplayComponent {...component} bind:staticOutputs={$staticOutputs[component.id]} />
-		{:else if component.type === 'barchartcomponent'}
-			<BarChartComponent {...component} bind:staticOutputs={$staticOutputs[component.id]} />
 		{:else if component.type === 'piechartcomponent'}
 			<PieChartComponent
 				{...component}
@@ -59,17 +56,9 @@
 				bind:inputs={component.inputs}
 			/>
 		{:else if component.type === 'textcomponent'}
-			<TextComponent
-				{...component}
-				bind:staticOutputs={$staticOutputs[component.id]}
-				bind:componentInputs={component.componentInputs}
-			/>
+			<TextComponent {...component} />
 		{:else if component.type === 'buttoncomponent'}
-			<ButtonComponent
-				{...component}
-				bind:staticOutputs={$staticOutputs[component.id]}
-				bind:componentInputs={component.componentInputs}
-			/>
+			<ButtonComponent {...component} bind:staticOutputs={$staticOutputs[component.id]} />
 		{/if}
 	</div>
 </div>

@@ -60,11 +60,7 @@ type Runnable = {
 	runType?: 'script' | 'flow'
 }
 
-export type RunFormComponent = Runnable & {
-	type: 'runformcomponent'
-}
-
-export type BarChartComponent = {
+export type BarChartComponent = Runnable & {
 	type: 'barchartcomponent'
 }
 
@@ -82,7 +78,6 @@ export type DisplayComponent = {
 
 export type AppComponent =
 	| (
-			| RunFormComponent
 			| DisplayComponent
 			| TextInputComponent
 			| BarChartComponent
@@ -93,12 +88,10 @@ export type AppComponent =
 			| PieChartComponent
 	  ) & {
 			id: ComponentID
-			width: number
 			horizontalAlignement?: 'left' | 'center' | 'right'
 			verticalAlignement?: 'top' | 'center' | 'bottom'
 
 			inputs: InputsSpec
-			// Only dynamic inputs (Result of display)
 			componentInputs: ComponentInputsSpec
 			runnable?: boolean | undefined
 			card?: boolean | undefined
