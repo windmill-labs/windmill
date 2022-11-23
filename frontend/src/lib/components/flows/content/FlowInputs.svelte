@@ -46,13 +46,14 @@
 			</div>
 		</div>
 	{/if}
-	<h3
-		>Inline new<Tooltip
-			>Embed a script directly inside a flow instead of saving the script into your workspace for
-			reuse. You can always save an inline script later.</Tooltip
-		></h3
-	>
-	<div class="flex flex-row flex-wrap gap-x-4 gap-y-2">
+	<h3>
+		Inline new
+		<Tooltip>
+			Embed a script directly inside a flow instead of saving the script into your workspace for
+			reuse. You can always save an inline script later.
+		</Tooltip>
+	</h3>
+	<div class="flex flex-row flex-wrap gap-2">
 		<FlowScriptPicker
 			label="Typescript"
 			lang={Script.language.DENO}
