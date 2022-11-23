@@ -92,13 +92,15 @@
 	$: confirmationModalOpen = indexToRemove !== undefined
 </script>
 
-<div class="flex flex-col h-full">
+<div class="flex flex-col h-full relative">
 	{#if root}
-		<div class="flex-initial flex px-3 items-center h-12 border-b border-gray-300">
+		<div
+			class="z-10 sticky top-0 bg-gray-50 flex-initial inline-flex px-3 py-2 items-center h-full max-h-12 border-b border-gray-300"
+		>
 			<FlowSettingsItem />
 		</div>
 	{/if}
-	<ul class="w-full flex-auto relative  {root ? ' overflow-auto px-2 my-2' : ''} py-1">
+	<ul class="w-full flex-auto   {root ? 'px-2 pb-2 pt-3' : ''} py-1">
 		{#if root}
 			<li>
 				<FlowInputsItem />
@@ -126,7 +128,7 @@
 		<InsertModuleButton on:new={(e) => insertNewModuleAtIndex(modules.length, e.detail)} />
 	</ul>
 	{#if root}
-		<div class="flex-none px-4 py-2 border-t">
+		<div class="sticky bottom-0 bg-gray-50 flex-none px-4 py-1 pb-2 border-t">
 			<FlowErrorHandlerItem />
 		</div>
 	{/if}
