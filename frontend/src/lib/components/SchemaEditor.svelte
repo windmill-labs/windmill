@@ -135,12 +135,17 @@
 	}
 
 	function changePosition(i: number, up: boolean): any {
+		isAnimated = true
+		setTimeout(() => {
+			isAnimated = false
+		}, 500)
 		const entries = Object.entries(schema.properties)
 		var element = entries[i]
 		entries.splice(i, 1)
 		entries.splice(up ? i - 1 : i + 1, 0, element)
 		schema.properties = Object.fromEntries(entries)
 	}
+	let isAnimated = false
 </script>
 
 <div class="flex flex-col">
@@ -148,8 +153,8 @@
 		<div>
 			<Button
 				variant="contained"
-				color="blue"
-				size="md"
+				color="dark"
+				size="sm"
 				startIcon={{ icon: faPlus }}
 				on:click={() => {
 					modalProperty = Object.assign({}, DEFAULT_PROPERTY)
@@ -164,7 +169,7 @@
 			<Toggle
 				on:change={() => switchTab()}
 				options={{
-					right: 'Json Schema Editor'
+					right: 'As JSON'
 				}}
 			/>
 			<div class="ml-2">
@@ -192,7 +197,7 @@
 						</tr>
 						<tbody slot="body">
 							{#each Object.entries(schema.properties) as [name, property], i (name)}
-								<tr animate:flip={{ duration: 50 }}>
+								<tr animate:flip>
 									<td class="font-bold">{name}</td>
 									<td>
 										<SchemaEditorProperty {property} />
@@ -206,13 +211,17 @@
 									>
 									<td class="justify-end flex">
 										{#if i > 0}
-											<button on:click={() => changePosition(i, true)} class="text-lg mr-2"
-												>&uparrow;</button
+											<button
+												on:click={() => changePosition(i, true)}
+												class="text-lg mr-2 {isAnimated ? 'invisible' : ''}"
+											>
+												&uparrow;</button
 											>
 										{/if}
 										{#if i < Object.keys(schema.properties).length - 1}
-											<button on:click={() => changePosition(i, false)} class="text-lg mr-2"
-												>&downarrow;</button
+											<button
+												on:click={() => changePosition(i, false)}
+												class="text-lg mr-2 {isAnimated ? 'invisible' : ''}">&downarrow;</button
 											>
 										{/if}
 

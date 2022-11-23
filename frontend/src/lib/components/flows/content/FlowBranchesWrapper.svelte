@@ -80,7 +80,7 @@
 										{branch.summary && branch.summary != '' ? branch.summary : 'No summary'}</div
 									>
 									<div>
-										<Button size="sm" on:click={() => ($selectedId = branch.id)}>
+										<Button color="dark" size="sm" on:click={() => ($selectedId = branch.id)}>
 											Set branch {i} predicate</Button
 										>
 									</div>
@@ -94,7 +94,7 @@
 										{branch.summary && branch.summary != '' ? branch.summary : 'No summary'}
 									</div>
 									<div>
-										<Button size="sm" on:click={() => ($selectedId = branch.id)}>
+										<Button color="dark" size="sm" on:click={() => ($selectedId = branch.id)}>
 											Set branch {i} summary</Button
 										>
 									</div>

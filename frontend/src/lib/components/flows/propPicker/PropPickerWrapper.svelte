@@ -49,10 +49,10 @@
 </script>
 
 <Splitpanes>
-	<Pane minSize={20} size={66} class="relative p-4 !transition-none">
+	<Pane minSize={20} size={60} class="relative p-4 !transition-none">
 		<slot />
 	</Pane>
-	<Pane minSize={20} size={34} class="px-2 py-2 h-full !transition-none">
+	<Pane minSize={20} size={40} class="py-2 relative !transition-none">
 		{#if result}
 			<PropPickerResult {result} />
 		{:else if pickableProperties}

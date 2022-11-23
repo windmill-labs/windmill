@@ -1,6 +1,6 @@
 <script lang="ts">
 	import ItemPicker from '$lib/components/ItemPicker.svelte'
-	import { faUserGroup } from '@fortawesome/free-solid-svg-icons'
+	import { faBuilding, faUserGroup } from '@fortawesome/free-solid-svg-icons'
 	import { Script, ScriptService } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { createEventDispatcher } from 'svelte'
@@ -31,7 +31,7 @@
 
 <FlowScriptPicker
 	label={customText ?? `${kind == Script.kind.SCRIPT ? 'Script' : `${kind} script`} from workspace`}
-	icon={faUserGroup}
+	icon={faBuilding}
 	iconColor="text-blue-500"
 	on:click={() => itemPicker.openDrawer()}
 />

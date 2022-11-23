@@ -1,39 +1,88 @@
 <script lang="ts">
-	import { faUserGroup } from '@fortawesome/free-solid-svg-icons'
-
-	import FlowScriptPicker from '$lib/components/flows/pickers/FlowScriptPicker.svelte'
-	import ItemPicker from '$lib/components/ItemPicker.svelte'
 	import { hubScripts } from '$lib/stores'
 	import { createEventDispatcher } from 'svelte'
-	import { Script } from '$lib/gen'
 	import type { HubItem } from './model'
+	import Fuse from 'fuse.js'
+	import IconedResourceType from '$lib/components/IconedResourceType.svelte'
+	import { Badge } from '$lib/components/common'
 
-	export let kind: Script.kind
-	export let customText: string | undefined = undefined
+	export let kind: 'script' | 'trigger' | 'approval' | 'failure' = 'script'
 
-	let items: HubItem[]
-	$: items = $hubScripts?.filter((x) => x.kind == kind) ?? []
-	let itemPicker: ItemPicker
+	let items: HubItem[] = []
+
+	let filteredItems: Item[] | undefined = []
+	let itemsFilter = ''
+	let appFilter: string | undefined = undefined
+
+	const fuseOptions = {
+		includeScore: false,
+		keys: ['path', 'summay']
+	}
+	const fuse: Fuse<Item> = new Fuse(items, fuseOptions)
+
+	$: {
+		items =
+			$hubScripts?.filter(
+				(x) => x.kind == kind && (appFilter == undefined || x.app == appFilter)
+			) ?? []
+		fuse.setCollection(items)
+	}
+
+	$: filteredItems =
+		itemsFilter.length > 0 && items ? fuse.search(itemsFilter).map((value) => value.item) : items
+
+	$: apps = Array.from(new Set(filteredItems?.map((x) => x.app) ?? []))
 
 	const dispatch = createEventDispatcher()
 </script>
 
-<ItemPicker
-	bind:this={itemPicker}
-	pickCallback={(path, summary) => {
-		dispatch('pick', { path, summary, kind })
-	}}
-	itemName={'Script'}
-	extraField="summary"
-	loadItems={async () => {
-		return items
-	}}
-	noItemMessage="Hub not reachable. If your environment is air gapped, contact sales@windmill.dev to setup a local mirror."
-/>
+<div class="flex flex-col min-h-0">
+	<div class="w-12/12 pb-4">
+		<input type="text" placeholder="Search script" bind:value={itemsFilter} class="search-item" />
+	</div>
 
-<FlowScriptPicker
-	label={customText ?? `${kind == Script.kind.SCRIPT ? 'Script' : `${kind} script`} from the Hub`}
-	icon={faUserGroup}
-	iconColor="text-blue-500"
-	on:click={() => itemPicker.openDrawer()}
-/>
+	<div class="gap-2 w-full flex flex-wrap pb-4">
+		{#each apps as app}
+			<Badge
+				class="cursor-pointer"
+				on:click={() => {
+					appFilter = appFilter == app ? undefined : app
+				}}
+				capitalize
+				color={app === appFilter ? 'blue' : 'gray'}
+			>
+				{app}
+				{#if app === appFilter}&cross;{/if}
+			</Badge>
+		{/each}
+	</div>
+	{#if filteredItems}
+		<div class="overflow-auto">
+			<ul class="divide-y divide-gray-200">
+				{#each filteredItems as obj}
+					<li class="flex flex-row w-full">
+						<button
+							class="py-4 px-1 gap-1 flex flex-row grow hover:bg-white hover:border text-black"
+							on:click={() => {
+								dispatch('pick', obj)
+							}}
+						>
+							<div class="mr-2 text-sm text-left truncate w-24">
+								<IconedResourceType after={true} silent={false} name={obj['app']} />
+							</div>
+							<div class="flex flex-col">
+								<div class="text-sm font-semibold flex flex-col">
+									<span class="mr-2 text-left">{obj['summary'] ?? ''}</span>
+									<span class="font-normal text-xs text-left italic overflow-hidden"
+										>{obj['path'] ?? ''}</span
+									>
+								</div>
+								<div class="text-xs font-light italic text-left">{obj['description'] ?? ''}</div>
+							</div>
+						</button>
+					</li>
+				{/each}
+			</ul>
+		</div>
+	{/if}
+</div>

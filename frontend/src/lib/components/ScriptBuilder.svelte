@@ -19,14 +19,21 @@
 	import { faChevronDown, faChevronUp, faPen, faSave } from '@fortawesome/free-solid-svg-icons'
 	import Breadcrumb from './common/breadcrumb/Breadcrumb.svelte'
 	import Toggle from './Toggle.svelte'
+	import LanguageIcon from './common/languageIcons/LanguageIcon.svelte'
+	import type { SupportedLanguage } from '$lib/common'
 
 	export let script: Script
 	export let initialPath: string = ''
 	export let template: 'pgsql' | 'script' = 'script'
 	export let initialArgs: Record<string, any> = {}
 
+	const langs: [string, SupportedLanguage][] = [
+		['Typescript', Script.language.DENO],
+		['Python', Script.language.PYTHON3],
+		['Go', Script.language.GO],
+		['Bash', Script.language.BASH]
+	]
 	let viewScriptKind = script.kind !== Script.kind.SCRIPT
-	let viewTemplate = script.kind !== Script.kind.SCRIPT && script.language == Script.language.DENO
 
 	let pathError = ''
 
@@ -185,18 +192,36 @@
 					/>
 				</label>
 				<h2 class="border-b pb-1 mt-4">Language</h2>
-				<div class="max-w-md">
-					<RadioButton
-						label="Language"
-						options={[
-							['Typescript (Deno)', 'deno'],
-							['Python 3.11', 'python3'],
-							['Go', 'go'],
-							['Bash', 'bash']
-						]}
-						on:change={(e) => initContent(e.detail, script.kind, template)}
-						bind:value={script.language}
-					/>
+				<div class="max-w-md flex flex-row gap-x-2">
+					{#each langs as [label, lang]}
+						{@const isPicked = script.language == lang && template == 'script'}
+						<Button
+							size="sm"
+							variant="border"
+							color={isPicked ? 'blue' : 'dark'}
+							btnClasses={isPicked ? '!border-2 !bg-blue-50/75' : 'm-[1px]'}
+							on:click={() => {
+								script.language = lang
+								template = 'script'
+								initContent(lang, script.kind, template)
+							}}
+						>
+							<LanguageIcon {lang} /><span class="ml-2">{label}</span>
+						</Button>
+					{/each}
+					<Button
+						size="sm"
+						variant="border"
+						color={template == 'pgsql' ? 'blue' : 'dark'}
+						btnClasses={template == 'pgsql' ? '!border-2 !bg-blue-50/75' : 'm-[1px]'}
+						on:click={() => {
+							script.language = Script.language.DENO
+							template = 'pgsql'
+							initContent(script.language, script.kind, template)
+						}}
+					>
+						<LanguageIcon lang="pgsql" /><span class="ml-2">PostgreSQL</span>
+					</Button>
 				</div>
 				<h2 class="border-b pb-1 mt-4">Advanced</h2>
 				<div>
@@ -206,7 +231,7 @@
 						endIcon={{ icon: viewScriptKind ? faChevronUp : faChevronDown }}
 						on:click={() => (viewScriptKind = !viewScriptKind)}
 					>
-						Specialize the script as a specific module kind for flows
+						Tag this script as having a specific purpose inside flows
 					</Button>
 				</div>
 				{#if viewScriptKind}
@@ -248,31 +273,6 @@
 							bind:value={script.kind}
 						/>
 					</div>
-				{/if}
-				{#if script.language == 'deno' && script.kind == Script.kind.SCRIPT}
-					<div
-						><Button
-							color="light"
-							size="sm"
-							endIcon={{ icon: viewTemplate ? faChevronUp : faChevronDown }}
-							on:click={() => (viewTemplate = !viewTemplate)}
-						>
-							Use a predefined template specific to this language and script kind
-						</Button>
-					</div>
-					{#if viewTemplate}
-						<div class="max-w-lg">
-							<RadioButton
-								label="Template"
-								options={[
-									['Standard', 'script'],
-									['PostgreSQL Prepared Statement', 'pgsql']
-								]}
-								on:change={(e) => initContent(script.language, script.kind, e.detail)}
-								bind:value={template}
-							/>
-						</div>
-					{/if}
 				{/if}
 				<div class="ml-3">
 					<Toggle

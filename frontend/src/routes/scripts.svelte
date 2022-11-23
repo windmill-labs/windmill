@@ -298,7 +298,7 @@
 						<div class="grid md:grid-cols-2 gap-4 sm:grid-cols-1 xl:grid-cols-3 mt-2">
 							{#each scripts as { summary, path, hash, language, extra_perms, canWrite, lock_error_logs, kind }}
 								<a
-									class="border p-4 rounded-sm shadow-sm space-y-2 hover:border-blue-600 text-gray-800 flex flex-col justify-between"
+									class="border border-gray-400 p-4 rounded-sm shadow-sm space-y-2 hover:border-blue-600 text-gray-800 flex flex-col justify-between"
 									href="/scripts/get/{hash}"
 								>
 									<div class="flex flex-col gap-1">

@@ -152,7 +152,7 @@ export async function runFlowPreview(args: Record<string, any>, flow: Flow) {
 }
 
 export function codeToStaticTemplate(code?: string): string | undefined {
-	if (!code) return undefined
+	if (!code || typeof code != 'string') return undefined
 
 	const lines = code
 		.split('\n')

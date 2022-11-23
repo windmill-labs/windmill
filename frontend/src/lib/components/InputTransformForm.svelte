@@ -67,6 +67,7 @@
 			arg.expr = getDefaultExpr(undefined, previousModuleId, rawValue)
 			arg.type = 'javascript'
 			propertyType = 'javascript'
+			monaco?.setCode(arg.expr)
 		}
 	}
 
@@ -92,8 +93,8 @@
 </script>
 
 {#if arg != undefined}
-	<div class="flex flex-row justify-between gap-4 mb-1">
-		<div class="flex items-center grow">
+	<div class="flex flex-row justify-between gap-1 mb-1">
+		<div class="flex items-center flex-wrap grow">
 			<FieldHeader
 				label={argName}
 				format={schema.properties[argName].format}
@@ -114,55 +115,63 @@
 				</span>
 			{/if}
 		</div>
-		<div>
-			<ToggleButtonGroup
-				bind:selected={propertyType}
-				on:selected={(e) => {
-					const staticTemplate = isStaticTemplate(inputCat)
-					if (e.detail === 'javascript') {
-						arg.expr = getDefaultExpr(
-							argName,
-							previousModuleId,
-							staticTemplate ? `\`${arg.value ?? ''}\`` : arg.value
-						)
+		<div class="flex flex-row gap-1 flex-wrap">
+			<div>
+				<ToggleButtonGroup
+					bind:selected={propertyType}
+					on:selected={(e) => {
+						const staticTemplate = isStaticTemplate(inputCat)
+						if (e.detail === 'javascript') {
+							arg.expr = getDefaultExpr(
+								argName,
+								previousModuleId,
+								staticTemplate
+									? `\`${arg.value ?? ''}\``
+									: arg.value
+									? JSON.stringify(arg.value, null, 4)
+									: ''
+							)
 
-						arg.value = undefined
-						propertyType = 'javascript'
-						arg.type = 'javascript'
-					} else {
-						arg.value = staticTemplate ? codeToStaticTemplate(arg.expr) : undefined
-						arg.expr = undefined
-						propertyType = 'static'
-						if (!isStaticTemplate) {
-							arg.type = 'static'
+							arg.value = undefined
+							propertyType = 'javascript'
+							arg.type = 'javascript'
 						} else {
-							setPropertyType(arg.value)
+							arg.value = staticTemplate ? codeToStaticTemplate(arg.expr) : undefined
+							arg.expr = undefined
+							propertyType = 'static'
+							if (!isStaticTemplate) {
+								arg.type = 'static'
+							} else {
+								setPropertyType(arg.value)
+							}
 						}
-					}
-				}}
-			>
-				{#if isStaticTemplate(inputCat)}
-					<ToggleButton position="left" value="static" size="xs">Template</ToggleButton>
-				{:else}
-					<ToggleButton position="left" value="static" size="xs">Static</ToggleButton>
-				{/if}
+					}}
+				>
+					{#if isStaticTemplate(inputCat)}
+						<ToggleButton position="left" value="static" size="xs">Template</ToggleButton>
+					{:else}
+						<ToggleButton position="left" value="static" size="xs">Static</ToggleButton>
+					{/if}
 
-				<ToggleButton position="right" value="javascript" startIcon={{ icon: faCode }} size="xs">
-					Dynamic (JS)
-				</ToggleButton>
-			</ToggleButtonGroup>
+					<ToggleButton position="right" value="javascript" startIcon={{ icon: faCode }} size="xs">
+						Dynamic (JS)
+					</ToggleButton>
+				</ToggleButtonGroup>
+			</div>
+			<div>
+				<Button
+					variant="contained"
+					color="blue"
+					size="xs"
+					on:click={() => {
+						focusProp(argName, 'connect', (path) => {
+							connectProperty(path)
+							return false
+						})
+					}}>Connect &rightarrow;</Button
+				>
+			</div>
 		</div>
-		<Button
-			variant="contained"
-			color="blue"
-			size="xs"
-			on:click={() => {
-				focusProp(argName, 'connect', (path) => {
-					connectProperty(path)
-					return false
-				})
-			}}>Connect &rightarrow;</Button
-		>
 	</div>
 	<div class="max-w-xs" />
 

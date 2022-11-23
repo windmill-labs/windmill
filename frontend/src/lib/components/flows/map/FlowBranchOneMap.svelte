@@ -21,15 +21,12 @@
 	async function addBranch() {
 		await idMutex.runExclusive(async () => {
 			if (module.value.type === 'branchone') {
-				const newModule = emptyModule()
 				module.value.branches.splice(module.value.branches.length, 0, {
 					summary: '',
-					expr: '',
-					modules: [newModule]
+					expr: 'false',
+					modules: []
 				})
 				module = module
-
-				$flowStateStore[newModule.id] = emptyFlowModuleState()
 			}
 		})
 	}
@@ -77,41 +74,42 @@
 
 			{#each module.value.branches ?? [] as branch, branchIndex (branchIndex)}
 				<!-- svelte-ignore a11y-click-events-have-key-events -->
-				<div
-					transition:slide|local
-					on:click={() => {
-						selectedBranch = branchIndex + 1
-						select(`${module.id}-branch-${branchIndex}`)
-					}}
-					class={classNames(
-						`border-b border-t w-full p-2 bg-white border-gray-500 text-sm cursor-pointer flex items-center relative module`,
-						$selectedId === `${module.id}-branch-${branchIndex}`
-							? 'outline outline-2  outline-slate-900'
-							: ''
-					)}
-				>
-					<Icon data={faCodeBranch} class="mr-2" />
-					<span
-						class="text-xs flex flex-row justify-between w-full flex-wrap gap-2 items-center truncate"
+				<div transition:slide|local>
+					<div
+						on:click={() => {
+							selectedBranch = branchIndex + 1
+							select(`${module.id}-branch-${branchIndex}`)
+						}}
+						class={classNames(
+							`border-b border-t w-full p-2 bg-white border-gray-500 text-sm cursor-pointer flex items-center relative module`,
+							$selectedId === `${module.id}-branch-${branchIndex}`
+								? 'outline outline-2  outline-slate-900'
+								: ''
+						)}
 					>
-						{branch.summary || `Branch ${branchIndex}`}
-						<button
-							class="absolute -top-2 -right-2 rounded-full bg-white h-4 w-4 center-center trash {$selectedId ===
-							`${module.id}-branch-${branchIndex}`
-								? ''
-								: '!hidden'}"
-							on:click={() => removeBranch(branchIndex)}
-							><Icon
-								data={faTimesCircle}
-								class="text-gray-600 hover:text-red-600"
-								scale={0.9}
-							/></button
+						<Icon data={faCodeBranch} class="mr-2" />
+						<span
+							class="text-xs flex flex-row justify-between w-full flex-wrap gap-2 items-center truncate"
 						>
-					</span>
-				</div>
+							{branch.summary || `Branch ${branchIndex}`}
+							<button
+								class="absolute -top-2 -right-2 rounded-full bg-white h-4 w-4 center-center trash {$selectedId ===
+								`${module.id}-branch-${branchIndex}`
+									? ''
+									: '!hidden'}"
+								on:click={() => removeBranch(branchIndex)}
+								><Icon
+									data={faTimesCircle}
+									class="text-gray-600 hover:text-red-600"
+									scale={0.9}
+								/></button
+							>
+						</span>
+					</div>
 
-				<div>
-					<FlowModuleSchemaMap bind:modules={branch.modules} />
+					<div>
+						<FlowModuleSchemaMap bind:modules={branch.modules} />
+					</div>
 				</div>
 			{/each}
 			<div class="overflow-clip ml-2">

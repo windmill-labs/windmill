@@ -41,16 +41,18 @@
 		}
 	}}
 	class={classNames(
-		'border rounded-md p-2 bg-white text-sm border-gray-400 cursor-pointer flex flex-col overflow-x-hidden ',
+		'border rounded-sm p-2 bg-white text-sm border-gray-400 cursor-pointer flex flex-col overflow-x-hidden ',
 		$selectedId.includes('failure') ? 'outline outline-offset-1 outline-2 outline-slate-900' : ''
 	)}
 >
 	<div class=" flex justify-between items-center flex-wrap">
 		<div>
 			<Icon data={faBug} class="mr-2" />
-			<span class="font-bold">Error handler</span>
+			<span class="font-bold text-xs">Error handler</span>
 		</div>
-		<Toggle checked={Boolean($flowStore.value.failure_module)} on:change={onToggle} />
+		<div class="-my-1">
+			<Toggle checked={Boolean($flowStore.value.failure_module)} on:change={onToggle} />
+		</div>
 	</div>
 
 	<div class="w-full truncate block">

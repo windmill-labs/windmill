@@ -1,8 +1,10 @@
+import type { Script } from "./gen"
+
 export type OwnerKind = 'group' | 'user'
 
 export type ActionKind = 'Create' | 'Update' | 'Delete' | 'Execute'
 
-export type SupportedLanguage = 'deno' | 'python3' | 'go' | 'bash'
+export type SupportedLanguage = Script.language
 
 export interface SchemaProperty {
 	type: string | undefined
