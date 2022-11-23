@@ -9,7 +9,6 @@
 	import AppEditorHeader from './AppEditorHeader.svelte'
 	import GridEditor from './GridEditor.svelte'
 
-	import type { Schema } from '$lib/common'
 	import Tabs from '$lib/components/common/tabs/Tabs.svelte'
 	import TabContent from '$lib/components/common/tabs/TabContent.svelte'
 	import { Tab } from '$lib/components/common'
@@ -18,7 +17,6 @@
 	import { faPlus, faSliders } from '@fortawesome/free-solid-svg-icons'
 	import ComponentPanel from './settingsPanel/ComponentPanel.svelte'
 	import ContextPanel from './contextPanel/ContextPanel.svelte'
-	import { classNames } from '$lib/utils'
 
 	export let app: App
 	export let path: string
@@ -28,8 +26,6 @@
 	const staticOutputs = writable<Record<string, string[]>>({})
 	const selectedComponent = writable<string | undefined>(undefined)
 	const mode = writable<EditorMode>('dnd')
-	const schemas = writable<Schema[]>([])
-	const resizing = writable<boolean>(false)
 	const connectingInput = writable<ConnectingInput>({
 		opened: false,
 		input: undefined
@@ -41,9 +37,7 @@
 		app: appStore,
 		selectedComponent,
 		mode,
-		schemas,
-		connectingInput,
-		resizing
+		connectingInput
 	})
 
 	function clearSelectionOnPreview() {
@@ -72,7 +66,7 @@
 	})
 </script>
 
-<AppEditorHeader title={app.title} bind:mode={$mode} />
+<AppEditorHeader bind:title={$appStore.title} bind:mode={$mode} />
 <SplitPanesWrapper>
 	<Pane size={20} minSize={20} maxSize={40}>
 		<ContextPanel appPath={path} />
