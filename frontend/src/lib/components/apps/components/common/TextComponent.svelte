@@ -16,5 +16,5 @@
 <InputValue input={componentInputs.content} bind:value={contentValue} />
 
 <AlignWrapper {horizontalAlignement} {verticalAlignement}>
-	<SvelteMarkdown source={contentValue} />
+	<SvelteMarkdown source={String(contentValue)} />
 </AlignWrapper>

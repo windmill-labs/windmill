@@ -1,5 +1,5 @@
 import { Command } from "https://deno.land/x/cliffy@v0.25.4/command/command.ts";
-import { ScriptService } from "https://deno.land/x/windmill@v1.41.0/mod.ts";
+import { ScriptService } from "https://deno.land/x/windmill@v1.50.0/mod.ts";
 import { GlobalOptions } from "./types.ts";
 import { colors } from "https://deno.land/x/cliffy@v0.25.4/ansi/colors.ts";
 import { getContext } from "./context.ts";
@@ -7,7 +7,7 @@ import {
   Job,
   JobService,
   Script,
-} from "https://deno.land/x/windmill@v1.41.0/windmill-api/index.ts";
+} from "https://deno.land/x/windmill@v1.50.0/windmill-api/index.ts";
 import { Table } from "https://deno.land/x/cliffy@v0.25.4/table/table.ts";
 import { green } from "https://deno.land/std@0.161.0/fmt/colors.ts";
 
