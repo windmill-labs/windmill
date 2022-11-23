@@ -18,17 +18,26 @@
 
 	let labelValue: string = 'Default label'
 
-	let tick = 0
+	let runnableComponent: RunnableComponent
 </script>
 
 <ComponentInputValue input={componentInputs.label} bind:value={labelValue} />
 
-<RunnableComponent bind:inputs {path} {runType} {inlineScriptName} {id} shouldTick={tick}>
+<RunnableComponent
+	bind:this={runnableComponent}
+	bind:inputs
+	{path}
+	{runType}
+	{inlineScriptName}
+	{id}
+	autoRefresh={false}
+>
 	<AlignWrapper {horizontalAlignement} {verticalAlignement}>
 		<Button
 			on:click={() => {
-				tick = tick + 1
+				runnableComponent?.runComponent()
 			}}
+			btnClasses="h-full"
 		>
 			{labelValue}
 		</Button>

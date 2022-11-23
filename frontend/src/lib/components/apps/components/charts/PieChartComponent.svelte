@@ -42,10 +42,8 @@
 	let result: ChartData<'pie', number[], unknown> | undefined = undefined
 </script>
 
-<RunnableComponent {id} {path} {runType} {inlineScriptName} {inputs} bind:result>
+<RunnableComponent {id} {path} {runType} {inlineScriptName} bind:inputs bind:result>
 	{#if result}
 		<Pie data={result} {options} />
-	{:else}
-		<span>No dataset</span>
 	{/if}
 </RunnableComponent>

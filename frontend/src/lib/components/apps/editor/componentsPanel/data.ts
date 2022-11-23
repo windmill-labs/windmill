@@ -91,12 +91,15 @@ const chartComponents = {
 			...defaultProps,
 			id: 'piechartcomponent',
 			type: 'piechartcomponent',
-			runnable: true
+			runnable: true,
+			card: true
 		},
 		{
 			...defaultProps,
 			id: 'barchartcomponent',
-			type: 'barchartcomponent'
+			type: 'barchartcomponent',
+			runnable: true,
+			card: true
 		}
 	] as AppComponent[]
 }
@@ -120,7 +123,8 @@ const tableComponents = {
 					fieldType: 'boolean'
 				}
 			},
-			runnable: true
+			runnable: true,
+			card: true
 		}
 	] as AppComponent[]
 }

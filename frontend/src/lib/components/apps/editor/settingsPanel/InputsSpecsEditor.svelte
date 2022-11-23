@@ -7,6 +7,38 @@
 
 	export let inputSpecs: InputsSpec
 
+	const userTypeKeys = ['schemaProperty', 'defaultValue', 'value']
+	const staticTypeKeys = ['visible', 'value', 'fieldType']
+	const dynamicTypeKeys = ['id', 'name', 'defaultValue']
+
+	function sanitizeInputSpec(type: 'user' | 'static' | 'output', inputSpecKey: string) {
+		const inputSpec = inputSpecs[inputSpecKey]
+		if (type === 'user') {
+			for (const key of staticTypeKeys) {
+				delete inputSpec[key]
+			}
+			for (const key of dynamicTypeKeys) {
+				delete inputSpec[key]
+			}
+		} else if (type === 'static') {
+			for (const key of userTypeKeys) {
+				delete inputSpec[key]
+			}
+			for (const key of dynamicTypeKeys) {
+				delete inputSpec[key]
+			}
+		} else if (type === 'output') {
+			for (const key of userTypeKeys) {
+				delete inputSpec[key]
+			}
+			for (const key of staticTypeKeys) {
+				delete inputSpec[key]
+			}
+		}
+
+		inputSpecs[inputSpecKey] = inputSpec
+	}
+
 	let openedProp = Object.keys(inputSpecs)[0]
 </script>
 
@@ -26,7 +58,10 @@
 		</div>
 		{#if inputSpecKey === openedProp}
 			<div class="flex flex-col w-full gap-2">
-				<ToggleButtonGroup bind:selected={inputSpecs[inputSpecKey].type}>
+				<ToggleButtonGroup
+					bind:selected={inputSpecs[inputSpecKey].type}
+					on:select={(x) => sanitizeInputSpec(x.detail, inputSpecKey)}
+				>
 					<ToggleButton position="left" value="static" startIcon={{ icon: faBolt }} size="xs">
 						Static
 					</ToggleButton>

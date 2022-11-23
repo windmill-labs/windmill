@@ -22,13 +22,12 @@
 	export let runType: 'script' | 'flow' | undefined = undefined
 	export let inlineScriptName: string | undefined = undefined
 	export let extraQueryParams: Record<string, any> = {}
-	export let shouldTick: number | undefined = undefined
+	export let autoRefresh: boolean = true
 	export let result: any = undefined
 
 	const { app, worldStore } = getContext<AppEditorContext>('AppEditorContext')
-	let pagePath = $page.params.path
 
-	// Local state
+	let pagePath = $page.params.path
 	let args: Record<string, any> = {}
 	let schema: Schema | undefined = undefined
 	let testIsLoading = false
@@ -36,8 +35,24 @@
 
 	$: mergedArgs = { ...args, ...extraQueryParams, ...runnableInputValues }
 
-	function isMergedArgsValid(mergedArgs: Record<string, any>) {
-		if (Object.keys(inputs).length !== Object.keys(runnableInputValues).length) {
+	// TODO: Review
+	function setStaticInputsToArgs() {
+		Object.entries(inputs).forEach(([key, value]) => {
+			if (value.type === 'static') {
+				args[key] = value.value
+			}
+		})
+
+		args = args
+	}
+
+	$: inputs && setStaticInputsToArgs()
+
+	function argMergedArgsValid(mergedArgs: Record<string, any>) {
+		if (
+			Object.keys(inputs).filter((k) => inputs[k].type !== 'user').length !==
+			Object.keys(runnableInputValues).length
+		) {
 			return false
 		}
 
@@ -45,16 +60,14 @@
 			(arg) => arg !== undefined && arg !== null
 		)
 
-		debugger
-
-		if (areAllArgsValid) {
+		if (areAllArgsValid && autoRefresh) {
 			executeComponent()
 		}
 
 		return areAllArgsValid
 	}
 
-	$: isValid = isMergedArgsValid(mergedArgs)
+	$: isValid = argMergedArgsValid(mergedArgs)
 
 	// Test job internal state
 	let testJob: CompletedJob | undefined = undefined
@@ -64,13 +77,6 @@
 		result: Output<Array<any>>
 		loading: Output<boolean>
 	}
-
-	/**
-	 * Args are built from 3 sources:
-	 * 1. The inputs spec ( )
-	 * 2. The schema input transform with user submitted values§
-	 * 3. The extra query params
-	 */
 
 	async function loadSchemaFromTriggerable(
 		workspace: string,
@@ -91,8 +97,15 @@
 
 	// When the schema is loaded, we need to update the inputs spec
 	// in order to render the inputs the component panel
-	$: if (schema && Object.keys(schema.properties ?? {}).length !== Object.keys(inputs).length) {
-		inputs = schemaToInputsSpec(schema)
+	$: if (schema && Object.keys(schema.properties).length !== Object.keys(inputs).length) {
+		let schemaWithoutExtraQueries: Schema = JSON.parse(JSON.stringify(schema))
+
+		// Remove extra query params from the schema, which are not directly configurable by the user
+		Object.keys(extraQueryParams).forEach((key) => {
+			delete schemaWithoutExtraQueries.properties[key]
+		})
+
+		inputs = schemaToInputsSpec(schemaWithoutExtraQueries)
 	}
 
 	let schemaStripped: Schema | undefined = undefined
@@ -123,14 +136,19 @@
 
 	$: schema && stripSchema(schema)
 
-	$: disabledArgs = Object.keys(inputs).reduce((a: string[], c: string) => {
-		if (inputs[c].type === 'static') {
-			a = [...a, c]
-		}
-		return a
-	}, [])
+	$: disabledArgs = Object.keys(inputs).reduce(
+		(disabledArgsAccumulator: string[], inputName: string) => {
+			if (inputs[inputName].type === 'static') {
+				disabledArgsAccumulator = [...disabledArgsAccumulator, inputName]
+			}
+			return disabledArgsAccumulator
+		},
+		[]
+	)
 
 	async function executeComponent() {
+		outputs?.loading.set(true)
+
 		await testJobLoader?.abstractRun(() => {
 			const requestBody = {
 				args: mergedArgs,
@@ -154,6 +172,10 @@
 			})
 		})
 	}
+
+	export function runComponent() {
+		executeComponent()
+	}
 </script>
 
 {#each Object.keys(inputs) as key}
@@ -164,6 +186,8 @@
 	on:done={() => {
 		if (testJob) {
 			outputs.result.set(testJob?.result)
+			outputs?.loading.set(false)
+
 			result = testJob?.result
 		}
 	}}
@@ -176,7 +200,7 @@
 	<SchemaForm schema={schemaStripped} bind:args {isValid} {disabledArgs} shouldHideNoInputs />
 {/if}
 
-{#if shouldTick === undefined}
+{#if autoRefresh === true}
 	{#if isValid}
 		<Button size="xs" color="dark" on:click={() => executeComponent()} disabled={!isValid}>
 			<div>
@@ -192,4 +216,6 @@
 			Please fill in all the inputs
 		</Alert>
 	{/if}
+{:else}
+	<slot />
 {/if}

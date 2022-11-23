@@ -16,8 +16,7 @@
 
 	export let appPath: string
 
-	const { connectingInput, staticOutputs, app, worldStore } =
-		getContext<AppEditorContext>('AppEditorContext')
+	const { connectingInput, staticOutputs, app } = getContext<AppEditorContext>('AppEditorContext')
 
 	function connectInput(id: string, name: string) {
 		if ($connectingInput) {
@@ -54,8 +53,6 @@
 		}
 		scriptCreationDrawer.closeDrawer()
 	}
-
-	// Inline DENO, Inline Python, Inline GO, Inline SQL
 
 	let selectedScript:
 		| { content: string; language: Preview.language; path: string; schema: Schema }
