@@ -37,6 +37,6 @@
 		<h2 class="text-center pt-2 text-gray-100">Windmill</h2>
 	</div>
 	<div class="absolute top-0 right-0 text-2xs text-gray-300 italic px-3 py-1">
-		windmill.dev backend v. <span class="font-mono">{version}</span>
+		<span class="font-mono">{version}</span>
 	</div>
 </div>
