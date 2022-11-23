@@ -71,6 +71,10 @@ export const displayData = {
 	tablecomponent: {
 		name: 'Table',
 		icon: faBarChart
+	},
+	checkboxcomponent: {
+		name: 'Checkbox',
+		icon: faBarChart
 	}
 }
 
