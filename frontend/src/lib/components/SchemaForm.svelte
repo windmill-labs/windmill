@@ -18,6 +18,7 @@
 	export let previousModuleId: string | undefined = undefined
 
 	export let shouldHideNoInputs: boolean = false
+	export let compact = false
 
 	let clazz: string = ''
 	export { clazz as class }
@@ -72,6 +73,7 @@
 						bind:itemsType={schema.properties[argName].items}
 						disabled={disabledArgs.includes(argName)}
 						{editableSchema}
+						{compact}
 					/>
 				{/if}
 			</div>

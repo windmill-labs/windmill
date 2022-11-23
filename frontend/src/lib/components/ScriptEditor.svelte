@@ -109,7 +109,7 @@
 
 <svelte:window on:keydown={onKeyDown} />
 
-<div class="border-b-2 shadow-sm p-1 pr-4" bind:clientWidth={width}>
+<div class="border-b-2 shadow-sm px-1 pr-4" bind:clientWidth={width}>
 	<div class="flex justify-between space-x-2">
 		<EditorBar
 			{validCode}
@@ -118,19 +118,20 @@
 			{lang}
 			{websocketAlive}
 		/>
-
-		<Button
-			target="_blank"
-			href="https://github.com/windmill-labs/windmill/tree/main/cli"
-			color="light"
-			size="sm"
-			btnClasses="mr-1 hidden md:block"
-			startIcon={{
-				icon: faGithub
-			}}
-		>
-			Sync from Github
-		</Button>
+		<div class="py-1">
+			<Button
+				target="_blank"
+				href="https://github.com/windmill-labs/windmill/tree/main/cli"
+				color="light"
+				size="xs"
+				btnClasses="mr-1 hidden md:block"
+				startIcon={{
+					icon: faGithub
+				}}
+			>
+				Sync from Github
+			</Button>
+		</div>
 	</div>
 </div>
 <SplitPanesWrapper>
@@ -167,7 +168,7 @@
 				<div class="w-full  bg-gray-100 px-2 text-sm">Preview</div>
 				<div class="px-2">
 					<div class="break-words relative font-sans">
-						<SchemaForm {schema} bind:args bind:isValid />
+						<SchemaForm compact {schema} bind:args bind:isValid />
 					</div>
 				</div>
 			</Pane>

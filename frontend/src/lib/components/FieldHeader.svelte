@@ -15,9 +15,9 @@
 	<span class="font-semibold">
 		{label}
 	</span>
-	<Required {required} class="!ml-0 pr-1" />
+	<Required {required} class="!ml-0" />
 
-	<span class="text-sm italic text-indigo-800">
+	<span class="text-sm italic ml-1 text-indigo-800">
 		({type ?? 'any'}{contentEncoding && contentEncoding != ''
 			? `, encoding: ${contentEncoding}`
 			: ''}{format && format != '' ? `, format: ${format}` : ''}{itemsType?.type

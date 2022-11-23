@@ -67,7 +67,7 @@
 								dispatch('pick', obj)
 							}}
 						>
-							<div class="mr-2 text-sm text-left truncate w-24">
+							<div class="mr-2 text-sm text-left truncate w-24  shrink-0">
 								<IconedResourceType after={true} silent={false} name={obj['app']} />
 							</div>
 							<div class="flex flex-col">

@@ -98,11 +98,7 @@
 			<FlowSettingsItem />
 		</div>
 	{/if}
-	<ul
-		class="w-full flex-auto relative  {root
-			? ' overflow-y-auto overflow-x-hidden px-2 my-2'
-			: ''} py-1"
-	>
+	<ul class="w-full flex-auto relative  {root ? ' overflow-auto px-2 my-2' : ''} py-1">
 		{#if root}
 			<li>
 				<FlowInputsItem />
