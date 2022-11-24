@@ -100,7 +100,7 @@
 		}
 	}
 
-	function storeRedirect(provider: typeof providers[number]['type']) {
+	function storeRedirect(provider: string) {
 		if (rd) {
 			localStorage.setItem('rd', rd)
 		}
@@ -128,6 +128,16 @@
 						{name}
 					</Button>
 				{/if}
+			{/each}
+			{#each logins as login}
+				<Button
+					color="dark"
+					variant="border"
+					btnClasses="mt-2 w-full"
+					on:click={() => storeRedirect(login)}
+				>
+					{login}
+				</Button>
 			{/each}
 		</div>
 		<div class="flex flex-row-reverse w-full">
