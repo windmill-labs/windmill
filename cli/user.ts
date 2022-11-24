@@ -42,7 +42,7 @@ async function list(opts: GlobalOptions) {
 
 async function add(
   opts: GlobalOptions & {
-    superAdmin?: boolean;
+    superadmin?: boolean;
     company?: string;
     name?: string;
   },
@@ -55,7 +55,7 @@ async function add(
     requestBody: {
       email,
       password: password_final,
-      super_admin: opts.superAdmin ?? false,
+      super_admin: opts.superadmin ?? false,
       company: opts.company,
       name: opts.name,
     },
