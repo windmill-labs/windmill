@@ -93,6 +93,8 @@ pub struct OAuthClient {
     id: String,
     secret: String,
     allowed_domains: Option<Vec<String>>,
+    connect_config: Option<OAuthConfig>,
+    login_config: Option<OAuthConfig>,
 }
 pub struct AllClients {
     pub logins: BasicClientsMap,
@@ -132,20 +134,28 @@ pub async fn build_oauth_clients(base_url: &str) -> anyhow::Result<AllClients> {
 
     let logins = login_configs
         .into_iter()
-        .filter(|x| oauths.contains_key(&x.0))
-        .map(|(k, v)| {
-            let scopes = v.scopes.clone();
-            let extra_params = v.extra_params.clone();
-            let client_params = oauths.get(&k).unwrap().clone();
-            let named_client =
-                build_basic_client(k.clone(), v, client_params.clone(), true, base_url, None);
+        .filter_map(|x| oauths.get(&x.0).map(|c| (x.0, (c, x.1))))
+        .chain(oauths.iter().filter_map(|x| {
+            x.1.login_config
+                .as_ref()
+                .map(|c| (x.0.clone(), (x.1, c.clone())))
+        }))
+        .map(|(k, (client_params, config))| {
+            let named_client = build_basic_client(
+                k.clone(),
+                config.clone(),
+                client_params.clone(),
+                true,
+                base_url,
+                None,
+            );
             (
                 named_client.0,
                 ClientWithScopes {
                     client: named_client.1,
-                    scopes: scopes.unwrap_or(vec![]),
-                    extra_params,
-                    allowed_domains: client_params.allowed_domains,
+                    scopes: config.scopes.unwrap_or(vec![]),
+                    extra_params: config.extra_params,
+                    allowed_domains: client_params.allowed_domains.clone(),
                 },
             )
         })
@@ -153,15 +163,17 @@ pub async fn build_oauth_clients(base_url: &str) -> anyhow::Result<AllClients> {
 
     let connects = connect_configs
         .into_iter()
-        .filter(|x| oauths.contains_key(&x.0))
-        .map(|(k, v)| {
-            let scopes = v.scopes.clone();
-            let extra_params = v.extra_params.clone();
-
+        .filter_map(|x| oauths.get(&x.0).map(|c| (x.0, (c, x.1))))
+        .chain(oauths.iter().filter_map(|x| {
+            x.1.connect_config
+                .as_ref()
+                .map(|c| (x.0.clone(), (x.1, c.clone())))
+        }))
+        .map(|(k, (client_params, config))| {
             let named_client = build_basic_client(
                 k.clone(),
-                v,
-                oauths.get(&k).unwrap().clone(),
+                config.clone(),
+                client_params.clone(),
                 false,
                 base_url,
                 None,
@@ -170,8 +182,8 @@ pub async fn build_oauth_clients(base_url: &str) -> anyhow::Result<AllClients> {
                 named_client.0,
                 ClientWithScopes {
                     client: named_client.1,
-                    scopes: scopes.unwrap_or(vec![]),
-                    extra_params,
+                    scopes: config.scopes.unwrap_or(vec![]),
+                    extra_params: config.extra_params,
                     allowed_domains: None,
                 },
             )

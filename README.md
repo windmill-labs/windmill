@@ -218,6 +218,32 @@ To add more "connect an app" OAuth clients to the Windmill project, read the
 [Contributor's guide](https://docs.windmill.dev/docs/contributors_guide). We
 welcome contributions!
 
+You may also add your own custom OAuth2 IdP and OAuth2 Resource provider:
+
+```json
+{
+  "<client>": {
+    "id": "<CLIENT_ID>",
+    "secret": "<CLIENT_SECRET>",
+    // To add a new OAuth2 IdP
+    "login_config": {
+      "auth_url": "<auth_endpoint>",
+      "token_url": "<token_endpoint>",
+      "scopes": ["scope1", "scope2"],
+      "extra_params": "<if_needed>"
+    },
+    // To add a new OAuth2 Resource
+    "connect_config": {
+      "auth_url": "<auth_endpoint>",
+      "token_url": "<token_endpoint>",
+      "scopes": ["scope1", "scope2"],
+      "extra_params": "<if_needed>"
+    }
+  }
+}
+```
+
+
 ### Resource types
 
 You will also want to import all the approved resource types from
