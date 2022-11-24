@@ -10,6 +10,7 @@ import {
 } from "https://deno.land/x/windmill@v1.50.0/windmill-api/index.ts";
 import { Table } from "https://deno.land/x/cliffy@v0.25.4/table/table.ts";
 import { green } from "https://deno.land/std@0.161.0/fmt/colors.ts";
+import { resolve } from "https://deno.land/std@0.141.0/path/win32.ts";
 
 type ScriptFile = {
   parent_hash?: string;
@@ -177,6 +178,7 @@ async function run(
   opts: GlobalOptions & {
     input: Record<string, any>;
     inputFrom: string | undefined;
+    silent: boolean;
   },
   path: string
 ) {
@@ -186,13 +188,27 @@ async function run(
     ? JSON.parse(await Deno.readTextFile(opts.inputFrom))
     : {};
   const input = { ...(opts.input ?? {}), ...inputFileContents };
-  let id = await JobService.runScriptByPath({
+  const id = await JobService.runScriptByPath({
     workspace,
     path,
     requestBody: input,
   });
 
-  track_job(workspace, id);
+  if (!opts.silent) {
+    await track_job(workspace, id);
+  }
+
+  while (true) {
+    try {
+      const result =
+        (await JobService.getCompletedJob({ workspace, id })).result ?? {};
+      console.log(result);
+
+      break;
+    } catch {
+      new Promise((resolve, _) => setTimeout(() => resolve(undefined), 100));
+    }
+  }
 }
 
 export async function track_job(workspace: string, id: string) {
@@ -302,6 +318,10 @@ const command = new Command()
   .option(
     "--inputFrom <path:string>",
     "Read a JSON input object from a file. This will be merged with --input.* arguments."
+  )
+  .option(
+    "-s --silent",
+    "Do not ouput anything other then the final output. Useful for scripting."
   )
   .action(run as any);
 

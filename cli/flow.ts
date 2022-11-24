@@ -110,6 +110,7 @@ async function run(
   opts: GlobalOptions & {
     input: Record<string, any>;
     inputFrom: string | undefined;
+    silent: boolean;
   },
   path: string
 ) {
@@ -135,8 +136,10 @@ async function run(
     const module = jobInfo.flow_status!.modules[i];
 
     if (module.job) {
-      console.log("====== Job " + (i + 1) + " ======");
-      await track_job(workspace, module.job);
+      if (!opts.silent) {
+        console.log("====== Job " + (i + 1) + " ======");
+        await track_job(workspace, module.job);
+      }
     } else {
       console.log(module.type);
       await new Promise((resolve, _) =>
@@ -147,7 +150,11 @@ async function run(
     i++;
   }
 
-  console.log(colors.green.underline.bold("Flow ran to completion"));
+  if (!opts.silent) {
+    console.log(colors.green.underline.bold("Flow ran to completion"));
+  }
+  const jobInfo = await JobService.getCompletedJob({ workspace, id });
+  console.log(jobInfo.result ?? {});
 }
 
 const command = new Command()
@@ -166,6 +173,10 @@ const command = new Command()
   .option(
     "--inputFrom <path:string>",
     "Read a JSON input object from a file. This will be merged with --input.* arguments."
+  )
+  .option(
+    "-s --silent",
+    "Do not ouput anything other then the final output. Useful for scripting."
   )
   .action(run as any);
 
