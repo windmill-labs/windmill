@@ -98,22 +98,6 @@
 						}}
 					/>
 				{/if}
-
-				<!-- {#if component.runnable && component['path'] === undefined && component['inlineScriptName'] === undefined}
-					{#each Object.keys($app.inlineScripts ?? {}) as inlineScriptName}
-						<Button
-							on:click={() => {
-								if (component?.runnable) {
-									// @ts-ignore
-									component.inlineScriptName = inlineScriptName
-								}
-							}}
-							size="xs"
-						>
-							Link {inlineScriptName}
-						</Button>
-					{/each}
-				{/if} -->
 			</PanelSection>
 		{/if}
 		{#if Object.values(component.inputs).length > 0}
