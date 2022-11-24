@@ -26,7 +26,7 @@
 	let inputCat: InputCat = 'object'
 	let propertyType = getPropertyType(arg)
 
-	$: isStaticTemplate(inputCat) && setPropertyType(arg.expr)
+	$: isStaticTemplate(inputCat) && arg.expr && (arg.value = codeToStaticTemplate(arg.expr))
 
 	function getPropertyType(arg: InputTransform | any): 'static' | 'javascript' {
 		let type: 'static' | 'javascript' = arg?.type ?? 'static'
@@ -44,6 +44,7 @@
 		}
 
 		if (isCodeInjection(rawValue)) {
+			console.log(rawValue)
 			arg.expr = getDefaultExpr(argName, previousModuleId, `\`${rawValue}\``)
 			arg.type = 'javascript'
 			propertyType = 'static'
