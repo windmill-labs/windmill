@@ -21,8 +21,8 @@
 	export let id: string = ''
 	export let nonCaptureEvent: boolean = false
 	export let buttonType: 'button' | 'submit' | 'reset' = 'button'
+	export let loading = false
 
-	let loading = false
 
 	const dispatch = createEventDispatcher()
 	// Order of classes: border, border modifier, bg, bg modifier, text, text modifier, everything else
@@ -68,7 +68,6 @@
 			btnClasses,
 			disabled ? 'bg-gray-300' : ''
 		),
-		disabled,
 		href,
 		target,
 		tabindex: disabled ? -1 : 0,
@@ -106,6 +105,7 @@
 	on:focus
 	on:blur
 	{...buttonProps}
+	disabled={disabled || loading}
 	type="submit"
 >
 	{#if loading}
