@@ -180,23 +180,27 @@ export async function resolve(inputs: string[]): Promise<Record<string, any>> {
   }
 
   for (const input of inputs) {
-    let jsonObj;
+    let data: string;
     if (input.startsWith("@")) {
-      let data: string;
       if (input == "@-") {
         data = new TextDecoder().decode(await readAll(Deno.stdin));
       } else {
         data = await Deno.readTextFile(input.substring(1));
       }
-      jsonObj = JSON.parse(data);
     } else {
       if (input.startsWith("{")) {
-        jsonObj = JSON.parse(input);
+        data = input;
       } else {
         const key = input.split("=", 1)[0];
         const value = JSON.parse(input.substring(key.length + 1));
-        jsonObj = Object.fromEntries([[key, value]]);
+        data = JSON.stringify(Object.fromEntries([[key, value]]));
       }
+    }
+    let jsonObj;
+    try {
+      jsonObj = JSON.parse(data);
+    } catch {
+      jsonObj = data;
     }
     result = { ...result, ...jsonObj };
   }
