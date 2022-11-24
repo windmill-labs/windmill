@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { fade } from 'svelte/transition'
 	import type { Schema } from '$lib/common'
 	import { Drawer } from '$lib/components/common'
 	import Badge from '$lib/components/common/badge/Badge.svelte'
@@ -18,6 +19,10 @@
 
 	const { connectingInput, staticOutputs, app, worldStore } =
 		getContext<AppEditorContext>('AppEditorContext')
+	let newScriptPath: string
+	let ignorePathError = false
+
+	$: isTakenPath = Object.keys($app.inlineScripts).includes(newScriptPath)
 
 	function connectInput(id: string, name: string) {
 		if ($connectingInput) {
@@ -34,10 +39,9 @@
 	}
 
 	function createScript() {
-		const input = document.getElementById('scriptPath') as HTMLInputElement
-		const scriptPath = input.value
-
-		const path = `${appPath}/inline-script/${scriptPath}`
+		// To prevent the error message flashing up just before the drawer is closed
+		ignorePathError = true
+		const path = `${appPath}/inline-script/${newScriptPath}`
 		const inlineScript = {
 			content: DENO_INIT_CODE_CLEAR,
 			language: Preview.language.DENO,
@@ -46,13 +50,18 @@
 		}
 
 		if ($app.inlineScripts) {
-			$app.inlineScripts[scriptPath] = inlineScript
+			$app.inlineScripts[newScriptPath] = inlineScript
 		} else {
 			$app.inlineScripts = {
-				[scriptPath]: inlineScript
+				[newScriptPath]: inlineScript
 			}
 		}
 		scriptCreationDrawer.closeDrawer()
+	}
+
+	function afterCreateScript() {
+		newScriptPath = ''
+		ignorePathError = false
 	}
 
 	let selectedScript:
@@ -63,15 +72,32 @@
 	let scriptCreationDrawer: Drawer
 </script>
 
-<Drawer bind:this={scriptCreationDrawer} size="1000px">
+<Drawer bind:this={scriptCreationDrawer} size="600px" on:afterClose={afterCreateScript}>
 	<DrawerContent
 		title="Script creation"
 		on:close={() => {
 			scriptCreationDrawer.closeDrawer()
 		}}
 	>
-		<input value="" id="scriptPath" />
-		<Button on:click={createScript}>Create</Button>
+		<label for="pathInput" class="text-sm font-semibold">
+			Script name
+		</label>
+		<div class="flex justify-between items-center gap-4">
+			<input id="pathInput" class="grow min-w-[150px]" bind:value={newScriptPath} />
+			<Button 
+				on:click={createScript}
+				size="sm"
+				disabled={isTakenPath}
+				startIcon={{icon: faPlus}}
+			>
+				Create
+			</Button>
+		</div>
+	{#if isTakenPath && !ignorePathError}
+		<div transition:fade={{ duration: 100 }} class="text-sm text-red-600 h-5 mt-1">
+			This name is already used.
+		</div>
+	{/if}
 	</DrawerContent>
 </Drawer>
 
