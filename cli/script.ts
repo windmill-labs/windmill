@@ -192,8 +192,14 @@ export async function resolve(inputs: string[]): Promise<Record<string, any>> {
         data = input;
       } else {
         const key = input.split("=", 1)[0];
-        const value = JSON.parse(input.substring(key.length + 1));
-        data = JSON.stringify(Object.fromEntries([[key, value]]));
+        const value = input.substring(key.length + 1);
+        let o;
+        try {
+          o = JSON.parse(value);
+        } catch {
+          o = value;
+        }
+        data = JSON.stringify(Object.fromEntries([[key, o]]));
       }
     }
     let jsonObj;
@@ -202,6 +208,7 @@ export async function resolve(inputs: string[]): Promise<Record<string, any>> {
     } catch {
       jsonObj = data;
     }
+    console.log(jsonObj);
     result = { ...result, ...jsonObj };
   }
   return result;
