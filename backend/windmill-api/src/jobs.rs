@@ -128,10 +128,9 @@ async fn cancel_job_api(
         let (job_o, tx) = get_job_by_id(tx, &w_id, id).await?;
         tx.commit().await?;
         let err = match job_o {
-            Some(Job::CompletedJob(_)) => error::Error::BadRequest(format!(
-                "queued job id {} exists but is already completed and cannot be canceled",
-                id
-            )),
+            Some(Job::CompletedJob(_)) => {
+                return Ok(format!("queued job id {} is already completed", id))
+            }
             _ => error::Error::NotFound(format!("queued job id {} does not exist", id)),
         };
         Err(err)
