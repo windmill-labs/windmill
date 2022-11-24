@@ -11,9 +11,7 @@ import {
 import { colors } from "https://deno.land/x/cliffy@v0.25.4/ansi/colors.ts";
 import { getContext } from "./context.ts";
 import { Table } from "https://deno.land/x/cliffy@v0.25.4/table/table.ts";
-import { track_job } from "./script.ts";
-import { resolve } from "https://deno.land/std@0.141.0/path/win32.ts";
-import { Input } from "https://deno.land/x/cliffy@v0.25.4/prompt/input.ts";
+import { resolve, track_job } from "./script.ts";
 
 type Options = GlobalOptions;
 
@@ -108,18 +106,14 @@ async function list(opts: GlobalOptions & { showArchived?: boolean }) {
 }
 async function run(
   opts: GlobalOptions & {
-    input: Record<string, any>;
-    inputFrom: string | undefined;
+    input: string[];
     silent: boolean;
   },
   path: string
 ) {
   const { workspace } = await getContext(opts);
 
-  const inputFileContents = opts.inputFrom
-    ? JSON.parse(await Deno.readTextFile(opts.inputFrom))
-    : {};
-  const input = { ...(opts.input ?? {}), ...inputFileContents };
+  const input = await resolve(opts.input);
 
   const id = await JobService.runFlowByPath({
     workspace,
@@ -169,10 +163,9 @@ const command = new Command()
   .action(push as any)
   .command("run", "run a flow by path.")
   .arguments("<path:string>")
-  .option("--input.* <input>", "Inputs to pass to the script")
   .option(
-    "--inputFrom <path:string>",
-    "Read a JSON input object from a file. This will be merged with --input.* arguments."
+    "-i --input [inputs...:string]",
+    "Inputs specified as JSON objects or simply as <name>=<value>. Supports file inputs using @<filename> and stdin using @- these also need to be formatted as JSON. Later inputs override earlier ones."
   )
   .option(
     "-s --silent",

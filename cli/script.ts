@@ -4,13 +4,11 @@ import { GlobalOptions } from "./types.ts";
 import { colors } from "https://deno.land/x/cliffy@v0.25.4/ansi/colors.ts";
 import { getContext } from "./context.ts";
 import {
-  Job,
   JobService,
   Script,
 } from "https://deno.land/x/windmill@v1.50.0/windmill-api/index.ts";
 import { Table } from "https://deno.land/x/cliffy@v0.25.4/table/table.ts";
-import { green } from "https://deno.land/std@0.161.0/fmt/colors.ts";
-import { resolve } from "https://deno.land/std@0.141.0/path/win32.ts";
+import { readAll } from "https://deno.land/std@0.165.0/streams/mod.ts";
 
 type ScriptFile = {
   parent_hash?: string;
@@ -174,20 +172,42 @@ async function list(opts: GlobalOptions & { showArchived?: boolean }) {
     .render();
 }
 
+export async function resolve(inputs: string[]): Promise<Record<string, any>> {
+  let result = {};
+
+  for (const input of inputs) {
+    let jsonObj;
+    if (input.startsWith("@")) {
+      let data: string;
+      if (input == "@-") {
+        data = new TextDecoder().decode(await readAll(Deno.stdin));
+      } else {
+        data = await Deno.readTextFile(input.substring(1));
+      }
+      jsonObj = JSON.parse(data);
+    } else {
+      if (input.startsWith("{")) {
+        jsonObj = JSON.parse(input);
+      } else {
+        const key = input.split("=", 1)[0];
+        jsonObj = Object.fromEntries([[key, input.substring(key.length)]]);
+      }
+    }
+    result = { ...result, ...jsonObj };
+  }
+  return result;
+}
+
 async function run(
   opts: GlobalOptions & {
-    input: Record<string, any>;
-    inputFrom: string | undefined;
+    input: string[];
     silent: boolean;
   },
   path: string
 ) {
   const { workspace } = await getContext(opts);
 
-  const inputFileContents = opts.inputFrom
-    ? JSON.parse(await Deno.readTextFile(opts.inputFrom))
-    : {};
-  const input = { ...(opts.input ?? {}), ...inputFileContents };
+  const input = await resolve(opts.input);
   const id = await JobService.runScriptByPath({
     workspace,
     path,
@@ -314,10 +334,9 @@ const command = new Command()
   .action(show as any)
   .command("run", "run a script by path")
   .arguments("<path:string>")
-  .option("--input.* <input>", "Inputs to pass to the script")
   .option(
-    "--inputFrom <path:string>",
-    "Read a JSON input object from a file. This will be merged with --input.* arguments."
+    "-i --input [inputs...:string]",
+    "Inputs specified as JSON objects or simply as <name>=<value>. Supports file inputs using @<filename> and stdin using @- these also need to be formatted as JSON. Later inputs override earlier ones."
   )
   .option(
     "-s --silent",
