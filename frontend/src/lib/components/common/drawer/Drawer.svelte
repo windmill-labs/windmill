@@ -7,6 +7,8 @@
 	export let placement = 'right'
 	export let size = '600px'
 
+	$: durationMs = duration * 1000
+
 	export function toggleDrawer() {
 		open = !open
 	}
@@ -16,6 +18,9 @@
 	}
 	export function closeDrawer() {
 		open = false
+		setTimeout(() => {
+			dispatch('afterClose')
+		}, durationMs)
 	}
 
 	export function isOpen() {
@@ -56,7 +61,7 @@
 	$: open ? dispatch('open') : dispatch('close')
 
 	let timeout = true
-	$: !open ? setTimeout(() => (timeout = true), duration * 1000) : (timeout = false)
+	$: !open ? setTimeout(() => (timeout = true), durationMs) : (timeout = false)
 	onMount(() => {
 		mounted = true
 		scrollLock(open)

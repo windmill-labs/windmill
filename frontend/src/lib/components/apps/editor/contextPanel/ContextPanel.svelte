@@ -20,6 +20,7 @@
 	const { connectingInput, staticOutputs, app, worldStore } =
 		getContext<AppEditorContext>('AppEditorContext')
 	let newScriptPath: string
+	let ignorePathError = false
 
 	$: isTakenPath = Object.keys($app.inlineScripts).includes(newScriptPath)
 
@@ -38,6 +39,8 @@
 	}
 
 	function createScript() {
+		// To prevent the error message flashing up just before the drawer is closed
+		ignorePathError = true
 		const path = `${appPath}/inline-script/${newScriptPath}`
 		const inlineScript = {
 			content: DENO_INIT_CODE_CLEAR,
@@ -56,6 +59,11 @@
 		scriptCreationDrawer.closeDrawer()
 	}
 
+	function afterCreateScript() {
+		newScriptPath = ''
+		ignorePathError = false
+	}
+
 	let selectedScript:
 		| { content: string; language: Preview.language; path: string; schema: Schema }
 		| undefined = undefined
@@ -64,7 +72,7 @@
 	let scriptCreationDrawer: Drawer
 </script>
 
-<Drawer bind:this={scriptCreationDrawer} size="600px">
+<Drawer bind:this={scriptCreationDrawer} size="600px" on:afterClose={afterCreateScript}>
 	<DrawerContent
 		title="Script creation"
 		on:close={() => {
@@ -85,13 +93,11 @@
 				Create
 			</Button>
 		</div>
-		<div class="text-sm text-red-600 h-5 mt-1">
-			{#if isTakenPath}
-				<span transition:fade={{ duration: 100 }}>
-					This name is already used.
-				</span>
-			{/if}
+	{#if isTakenPath && !ignorePathError}
+		<div transition:fade={{ duration: 100 }} class="text-sm text-red-600 h-5 mt-1">
+			This name is already used.
 		</div>
+	{/if}
 	</DrawerContent>
 </Drawer>
 
