@@ -175,6 +175,10 @@ async function list(opts: GlobalOptions & { showArchived?: boolean }) {
 export async function resolve(inputs: string[]): Promise<Record<string, any>> {
   let result = {};
 
+  if (!inputs) {
+    return result;
+  }
+
   for (const input of inputs) {
     let jsonObj;
     if (input.startsWith("@")) {
@@ -190,7 +194,8 @@ export async function resolve(inputs: string[]): Promise<Record<string, any>> {
         jsonObj = JSON.parse(input);
       } else {
         const key = input.split("=", 1)[0];
-        jsonObj = Object.fromEntries([[key, input.substring(key.length)]]);
+        const value = JSON.parse(input.substring(key.length + 1));
+        jsonObj = Object.fromEntries([[key, value]]);
       }
     }
     result = { ...result, ...jsonObj };
