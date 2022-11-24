@@ -7,26 +7,37 @@
 	import { userStore, workspaceStore } from '$lib/stores'
 	import { faDisplay, faExternalLink, faHand } from '@fortawesome/free-solid-svg-icons'
 	import { getContext } from 'svelte'
+	import { sendUserToast } from '../../../utils'
 	import type { AppEditorContext, EditorMode } from '../types'
 
-	export let title: string
-	export let mode: EditorMode
-
 	const { app } = getContext<AppEditorContext>('AppEditorContext')
+	export let title: string = $app.title || ''
+	export let mode: EditorMode
+	const loading = {
+		publish: false,
+		save: false
+	}
 
 	async function save() {
-		await AppService.updateApp({
+		loading.save = true
+		AppService.updateApp({
 			workspace: $workspaceStore!,
 			path: $page.params.path,
 			requestBody: {
 				value: $app!,
-				summary: 'App summary',
+				summary: title,
 				policy: {
 					triggerables: {},
 					execution_mode: Policy.execution_mode.PUBLISHER,
 					on_behalf_of: `u/${$userStore?.username}`
 				}
 			}
+		}).then(() => {
+			sendUserToast('Saved successfully.')
+		}).catch(() => {
+			sendUserToast('Error during saving. Please try again later.', true)
+		}).finally(() => {
+			loading.save = false
 		})
 	}
 </script>
@@ -47,6 +58,6 @@
 		<Button color="dark" size="xs" variant="border" startIcon={{ icon: faExternalLink }}>
 			Publish
 		</Button>
-		<Button on:click={save} color="dark" size="xs">Save</Button>
+		<Button loading={loading.save} on:click={save} color="dark" size="xs">Save</Button>
 	</div>
 </div>
