@@ -18,6 +18,7 @@
 	import CenteredModal from '$lib/components/CenteredModal.svelte'
 	import { getUserExt, refreshSuperadmin } from '$lib/user'
 	import { Button } from '$lib/components/common'
+	import { x86asm } from 'svelte-highlight/languages'
 
 	let email = $page.url.searchParams.get('email') ?? ''
 	let password = $page.url.searchParams.get('password') ?? ''
@@ -40,6 +41,8 @@
 			icon: faGoogle
 		}
 	] as const
+
+	const providersType = providers.map((p) => p.type as string)
 
 	let showPassword = false
 	let logins: string[] = []
@@ -129,7 +132,7 @@
 					</Button>
 				{/if}
 			{/each}
-			{#each logins as login}
+			{#each logins.filter((x) => !providersType.includes(x)) as login}
 				<Button
 					color="dark"
 					variant="border"
