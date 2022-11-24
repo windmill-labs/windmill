@@ -26,6 +26,8 @@
 	let inputCat: InputCat = 'object'
 	let propertyType = getPropertyType(arg)
 
+	$: isStaticTemplate(inputCat) && setPropertyType(arg.expr)
+
 	function getPropertyType(arg: InputTransform | any): 'static' | 'javascript' {
 		let type: 'static' | 'javascript' = arg?.type ?? 'static'
 		if (type == 'javascript') {
