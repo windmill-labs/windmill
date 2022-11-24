@@ -192,7 +192,7 @@
 					/>
 				</label>
 				<h2 class="border-b pb-1 mt-4">Language</h2>
-				<div class="max-w-md flex flex-row gap-x-2">
+				<div class="flex flex-row gap-2 flex-wrap">
 					{#each langs as [label, lang]}
 						{@const isPicked = script.language == lang && template == 'script'}
 						<Button
