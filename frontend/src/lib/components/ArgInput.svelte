@@ -254,7 +254,7 @@
 						size="sm"
 						btnClasses="mt-1"
 						on:click={() => {
-							if (value == undefined) {
+							if (value == undefined || !Array.isArray(value)) {
 								value = []
 							}
 							value = value.concat('')
