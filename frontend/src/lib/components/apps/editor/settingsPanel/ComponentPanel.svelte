@@ -18,6 +18,7 @@
 	import InputsSpecsEditor from './InputsSpecsEditor.svelte'
 	import PickFlow from './PickFlow.svelte'
 	import gridHelp from 'svelte-grid/build/helper/index.mjs'
+	import PickInlineScript from './PickInlineScript.svelte'
 
 	export let component: AppComponent | undefined
 
@@ -70,6 +71,15 @@
 
 				{#if component.runnable && component['path'] === undefined && component['inlineScriptName'] === undefined}
 					<span class="text-sm">Select a script or a flow to continue</span>
+					<PickInlineScript
+						scripts={(Object.keys($app.inlineScripts) || []).map((summary) => ({summary}))}
+						on:pick={({ detail }) => {
+							if (component?.runnable) {
+								// @ts-ignore
+								component.inlineScriptName = detail.summary
+							}
+						}}
+					/>
 					<PickScript
 						kind="script"
 						on:pick={({ detail }) => {
@@ -89,7 +99,7 @@
 					/>
 				{/if}
 
-				{#if component.runnable && component['path'] === undefined && component['inlineScriptName'] === undefined}
+				<!-- {#if component.runnable && component['path'] === undefined && component['inlineScriptName'] === undefined}
 					{#each Object.keys($app.inlineScripts ?? {}) as inlineScriptName}
 						<Button
 							on:click={() => {
@@ -103,7 +113,7 @@
 							Link {inlineScriptName}
 						</Button>
 					{/each}
-				{/if}
+				{/if} -->
 			</PanelSection>
 		{/if}
 		{#if Object.values(component.inputs).length > 0}
