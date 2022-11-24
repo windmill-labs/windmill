@@ -12,6 +12,12 @@
 	export let selected: any
 	const dispatch = createEventDispatcher()
 
+	$: setSelected(selected)
+
+	function setSelected(selected: any) {
+		selectedContent.set(selected)
+	}
+
 	const selectedContent = writable(selected)
 
 	$: $selectedContent && dispatch('selected', $selectedContent)

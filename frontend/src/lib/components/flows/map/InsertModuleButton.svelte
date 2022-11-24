@@ -26,7 +26,7 @@
 			tabindex="-1"
 		>
 			<Icon data={faCode} scale={0.8} class="mr-1" />
-			Script
+			Script or Module
 		</button>
 		<button
 			class="w-full text-left p-2 hover:bg-gray-100"

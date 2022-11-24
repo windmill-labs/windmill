@@ -133,7 +133,7 @@
 			}}>Fill test args from payload</Button
 		>
 	</div>
-	<div class="grow pb-8 max-h-1/2 overflow-auto">
+	<div class="h-full grow pb-20 max-h-60 overflow-auto">
 		<SchemaForm
 			class="h-full pt-4"
 			schema={$flowStore.schema}
