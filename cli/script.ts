@@ -176,14 +176,20 @@ async function list(opts: GlobalOptions & { showArchived?: boolean }) {
 async function run(
   opts: GlobalOptions & {
     input: Record<string, any>;
+    inputFrom: string | undefined;
   },
   path: string
 ) {
   const { workspace } = await getContext(opts);
+
+  const inputFileContents = opts.inputFrom
+    ? JSON.parse(await Deno.readTextFile(opts.inputFrom))
+    : {};
+  const input = { ...(opts.input ?? {}), ...inputFileContents };
   let id = await JobService.runScriptByPath({
     workspace,
     path,
-    requestBody: opts.input ?? {},
+    requestBody: input,
   });
 
   track_job(workspace, id);
@@ -293,6 +299,10 @@ const command = new Command()
   .command("run", "run a script by path")
   .arguments("<path:string>")
   .option("--input.* <input>", "Inputs to pass to the script")
+  .option(
+    "--inputFrom <path:string>",
+    "Read a JSON input object from a file. This will be merged with --input.* arguments."
+  )
   .action(run as any);
 
 export default command;

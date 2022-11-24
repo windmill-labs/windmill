@@ -13,6 +13,7 @@ import { getContext } from "./context.ts";
 import { Table } from "https://deno.land/x/cliffy@v0.25.4/table/table.ts";
 import { track_job } from "./script.ts";
 import { resolve } from "https://deno.land/std@0.141.0/path/win32.ts";
+import { Input } from "https://deno.land/x/cliffy@v0.25.4/prompt/input.ts";
 
 type Options = GlobalOptions;
 
@@ -108,14 +109,21 @@ async function list(opts: GlobalOptions & { showArchived?: boolean }) {
 async function run(
   opts: GlobalOptions & {
     input: Record<string, any>;
+    inputFrom: string | undefined;
   },
   path: string
 ) {
   const { workspace } = await getContext(opts);
+
+  const inputFileContents = opts.inputFrom
+    ? JSON.parse(await Deno.readTextFile(opts.inputFrom))
+    : {};
+  const input = { ...(opts.input ?? {}), ...inputFileContents };
+
   const id = await JobService.runFlowByPath({
     workspace,
     path,
-    requestBody: opts.input ?? {},
+    requestBody: input,
   });
 
   let i = 0;
@@ -155,6 +163,10 @@ const command = new Command()
   .command("run", "run a flow by path.")
   .arguments("<path:string>")
   .option("--input.* <input>", "Inputs to pass to the script")
+  .option(
+    "--inputFrom <path:string>",
+    "Read a JSON input object from a file. This will be merged with --input.* arguments."
+  )
   .action(run as any);
 
 export default command;
