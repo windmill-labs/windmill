@@ -2,7 +2,9 @@ FROM debian:buster-slim as nsjail
 
 WORKDIR /nsjail
 
-RUN apt-get -y update \
+ARG features=""
+
+RUN if [[ "$features" == *"enterprise"* ]]; then apt-get -y update \
     && apt-get install -y \
     bison=2:3.3.* \
     flex=2.6.* \
@@ -13,11 +15,12 @@ RUN apt-get -y update \
     libnl-route-3-dev=3.4.* \
     make=4.2.* \
     pkg-config=0.29-6 \
-    protobuf-compiler=3.6.*
+    protobuf-compiler=3.6.*; fi
 
-RUN git clone -b master --single-branch https://github.com/google/nsjail.git . \
+
+RUN if [[ "$features" == *"enterprise"* ]]; then git clone -b master --single-branch https://github.com/google/nsjail.git . \
     && git checkout dccf911fd2659e7b08ce9507c25b2b38ec2c5800
-RUN make
+RUN if [[ "$features" == *"enterprise"* ]]; then make; else touch nsjail fi
 
 FROM rust:slim-buster AS rust_base
 
