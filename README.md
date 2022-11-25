@@ -229,6 +229,7 @@ You may also add your own custom OAuth2 IdP and OAuth2 Resource provider:
     "login_config": {
       "auth_url": "<auth_endpoint>",
       "token_url": "<token_endpoint>",
+      "userinfo_url": "<userinfo endpoint>",
       "scopes": ["scope1", "scope2"],
       "extra_params": "<if_needed>"
     },
