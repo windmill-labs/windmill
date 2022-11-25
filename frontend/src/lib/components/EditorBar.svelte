@@ -141,13 +141,16 @@
 			}
 			editor.insertAtCursor(`v, _ := wmill.GetVariable("${path}")`)
 		} else if (lang == 'bash') {
-			sendUserToast('Not supported yet', true)
+			editor.insertAtCursor(`curl -s -H "Authorization: Bearer $WM_TOKEN" \\
+  "$WM_BASE_URL/api/w/$WM_WORKSPACE/variables/get/${path}" \\
+  | jq -r .value`)
 		}
 		sendUserToast(`${name} inserted at cursor`)
 	}}
 	itemName="Variable"
 	extraField="path"
 	loadItems={loadVariables}
+	buttons={{ 'Edit/View': (x) => variableEditor.editVariable(x) }}
 >
 	<div slot="submission" class="flex flex-row">
 		<Button
@@ -184,12 +187,14 @@
 			}
 			editor.insertAtCursor(`r, _ := wmill.GetResource("${path}")`)
 		} else if (lang == 'bash') {
-			sendUserToast('Not supported yet', true)
+			editor.insertAtCursor(`curl -s -H "Authorization: Bearer $WM_TOKEN" \\
+  "$WM_BASE_URL/api/w/$WM_WORKSPACE/resources/get/${path}" \\
+  | jq -r .value`)
 		}
 		sendUserToast(`${path} inserted at cursor`)
 	}}
 	itemName="Resource"
-	buttons={{ edit: (x) => resourceEditor.initEdit(x) }}
+	buttons={{ 'Edit/View': (x) => resourceEditor.initEdit(x) }}
 	extraField="description"
 	loadItems={async () =>
 		await ResourceService.listResource({ workspace: $workspaceStore ?? 'NO_W' })}
