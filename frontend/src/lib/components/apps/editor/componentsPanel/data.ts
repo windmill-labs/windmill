@@ -1,7 +1,7 @@
 import type { AppComponent, ComponentSet } from '../../types'
 import { defaultAlignement, defaultProps } from './componentDefaultProps'
 
-const windmillComponents = {
+const windmillComponents: ComponentSet = {
 	title: 'Windmill Components',
 	components: [
 		{
@@ -17,26 +17,26 @@ const windmillComponents = {
 				}
 			}
 		}
-	] as AppComponent[]
+	]
 }
 
-const plainComponents: ComponentSet = {
-	title: 'Plain Components',
+const textInputs: ComponentSet = {
+	title: 'Text Inputs',
 	components: [
-		{
-			...defaultProps,
-			...defaultAlignement,
-			id: 'textcomponent',
-			type: 'textcomponent',
-			componentInputs: {
-				content: {
-					type: 'static',
-					visible: true,
-					value: 'Lorem ipsum',
-					fieldType: 'textarea'
-				}
-			}
-		},
+
+	]
+}
+
+const numberInputs: ComponentSet = {
+	title: 'Number Inputs',
+	components: [
+
+	]
+}
+
+const buttons: ComponentSet = {
+	title: 'Buttons',
+	components: [
 		{
 			...defaultProps,
 			id: 'buttoncomponent',
@@ -58,6 +58,12 @@ const plainComponents: ComponentSet = {
 			},
 			runnable: true
 		},
+	]
+}
+
+const selectInputs: ComponentSet = {
+	title: 'Select Inputs',
+	components: [
 		{
 			...defaultProps,
 			...defaultAlignement,
@@ -75,29 +81,30 @@ const plainComponents: ComponentSet = {
 	]
 }
 
-const chartComponents = {
-	title: 'Charts',
+const dateTimeInputs: ComponentSet = {
+	title: 'Date and Time Inputs',
 	components: [
-		{
-			...defaultProps,
-			id: 'piechartcomponent',
-			type: 'piechartcomponent',
-			runnable: true,
-			card: true
-		},
-		{
-			...defaultProps,
-			id: 'barchartcomponent',
-			type: 'barchartcomponent',
-			runnable: true,
-			card: true
-		}
-	] as AppComponent[]
+
+	]
 }
 
-const tableComponents = {
-	title: 'Table',
+const dataDisplay: ComponentSet = {
+	title: 'Data Display',
 	components: [
+		{
+			...defaultProps,
+			...defaultAlignement,
+			id: 'textcomponent',
+			type: 'textcomponent',
+			componentInputs: {
+				content: {
+					type: 'static',
+					visible: true,
+					value: 'Lorem ipsum',
+					fieldType: 'textarea'
+				}
+			}
+		},
 		{
 			...defaultProps,
 			id: 'tablecomponent',
@@ -116,10 +123,38 @@ const tableComponents = {
 			},
 			runnable: true,
 			card: true
-		}
-	] as AppComponent[]
+		},
+		{
+			...defaultProps,
+			id: 'piechartcomponent',
+			type: 'piechartcomponent',
+			runnable: true,
+			card: true
+		},
+		{
+			...defaultProps,
+			id: 'barchartcomponent',
+			type: 'barchartcomponent',
+			runnable: true,
+			card: true
+		},
+	]
 }
 
-const componentSets = [windmillComponents, plainComponents, chartComponents, tableComponents]
+
+
+
+
+
+
+const componentSets = [
+	windmillComponents,
+	textInputs,
+	numberInputs,
+	buttons,
+	selectInputs,
+	dateTimeInputs,
+	dataDisplay
+]
 
 export { componentSets }
