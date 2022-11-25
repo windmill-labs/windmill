@@ -3,8 +3,12 @@ import { ScriptService } from "https://deno.land/x/windmill@v1.50.0/mod.ts";
 import { GlobalOptions } from "./types.ts";
 import { colors } from "https://deno.land/x/cliffy@v0.25.4/ansi/colors.ts";
 import { getContext } from "./context.ts";
-import { Script } from "https://deno.land/x/windmill@v1.50.0/windmill-api/index.ts";
+import {
+  JobService,
+  Script,
+} from "https://deno.land/x/windmill@v1.50.0/windmill-api/index.ts";
 import { Table } from "https://deno.land/x/cliffy@v0.25.4/table/table.ts";
+import { readAll } from "https://deno.land/std@0.165.0/streams/mod.ts";
 
 type ScriptFile = {
   parent_hash?: string;
@@ -168,6 +172,158 @@ async function list(opts: GlobalOptions & { showArchived?: boolean }) {
     .render();
 }
 
+export async function resolve(inputs: string[]): Promise<Record<string, any>> {
+  let result = {};
+
+  if (!inputs) {
+    return result;
+  }
+
+  for (const input of inputs) {
+    let data: string;
+    if (input.startsWith("@")) {
+      if (input == "@-") {
+        data = new TextDecoder().decode(await readAll(Deno.stdin));
+      } else {
+        data = await Deno.readTextFile(input.substring(1));
+      }
+    } else {
+      if (input.startsWith("{")) {
+        data = input;
+      } else {
+        const key = input.split("=", 1)[0];
+        const value = input.substring(key.length + 1);
+        let o;
+        try {
+          o = JSON.parse(value);
+        } catch {
+          o = value;
+        }
+        data = JSON.stringify(Object.fromEntries([[key, o]]));
+      }
+    }
+    let jsonObj;
+    try {
+      jsonObj = JSON.parse(data);
+    } catch {
+      jsonObj = data;
+    }
+    result = { ...result, ...jsonObj };
+  }
+  return result;
+}
+
+async function run(
+  opts: GlobalOptions & {
+    input: string[];
+    silent: boolean;
+  },
+  path: string
+) {
+  const { workspace } = await getContext(opts);
+
+  const input = await resolve(opts.input);
+  const id = await JobService.runScriptByPath({
+    workspace,
+    path,
+    requestBody: input,
+  });
+
+  if (!opts.silent) {
+    await track_job(workspace, id);
+  }
+
+  while (true) {
+    try {
+      const result =
+        (await JobService.getCompletedJob({ workspace, id })).result ?? {};
+      console.log(result);
+
+      break;
+    } catch {
+      new Promise((resolve, _) => setTimeout(() => resolve(undefined), 100));
+    }
+  }
+}
+
+export async function track_job(workspace: string, id: string) {
+  try {
+    const result = await JobService.getCompletedJob({ workspace, id });
+
+    console.log(result.logs);
+    console.log(colors.bold.underline.green("Job Completed"));
+    return;
+  } catch {
+    /* ignore */
+  }
+
+  console.log(colors.yellow("Waiting for Job " + id + " to start..."));
+
+  let logOffset = 0;
+  let running = false;
+  let retry = 0;
+  while (true) {
+    let updates: {
+      running?: boolean | undefined;
+      completed?: boolean | undefined;
+      new_logs?: string | undefined;
+    };
+    try {
+      updates = await JobService.getJobUpdates({
+        workspace,
+        id,
+        logOffset,
+        running,
+      });
+    } catch {
+      retry++;
+      if (retry > 3) {
+        console.log("failed to get job updated. skipping log streaming.");
+        break;
+      }
+      continue;
+    }
+
+    if (!running && updates.running === true) {
+      running = true;
+      console.log(colors.green("Job running. Streaming logs..."));
+    }
+
+    if (updates.new_logs) {
+      console.log(updates.new_logs);
+      logOffset += updates.new_logs.length;
+    }
+
+    if (updates.completed === true) {
+      running = false;
+      break;
+    }
+
+    if (running && updates.running === false) {
+      running = false;
+      console.log(
+        colors.yellow("Job suspended. Waiting for it to continue...")
+      );
+    }
+  }
+  await new Promise((resolve, _) => setTimeout(() => resolve(undefined), 1000));
+
+  try {
+    const final_job = await JobService.getCompletedJob({ workspace, id });
+    if ((final_job.logs?.length ?? -1) > logOffset) {
+      console.log(final_job.logs!.substring(logOffset));
+    }
+
+    if (final_job.success) {
+      console.log(colors.bold.underline.green("Job Completed"));
+    } else {
+      console.log(colors.bold.underline.red("Job Completed"));
+    }
+  } catch {
+    console.log("Job appears to have completed, but no data can be retrieved");
+  }
+}
+
 async function show(opts: GlobalOptions, path: string) {
   const { workspace } = await getContext(opts);
   const s = await ScriptService.getScriptByPath({ workspace, path });
@@ -189,6 +345,17 @@ const command = new Command()
   .action(push as any)
   .command("show", "show a scripts content")
   .arguments("<path:string>")
-  .action(show as any);
+  .action(show as any)
+  .command("run", "run a script by path")
+  .arguments("<path:string>")
+  .option(
+    "-i --input [inputs...:string]",
+    "Inputs specified as JSON objects or simply as <name>=<value>. Supports file inputs using @<filename> and stdin using @- these also need to be formatted as JSON. Later inputs override earlier ones."
+  )
+  .option(
+    "-s --silent",
+    "Do not ouput anything other then the final output. Useful for scripting."
+  )
+  .action(run as any);
 
 export default command;

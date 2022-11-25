@@ -1,0 +1,99 @@
+# VHS documentation
+#
+# Output:
+#   Output <path>.gif               Create a GIF output at the given <path>
+#   Output <path>.mp4               Create an MP4 output at the given <path>
+#   Output <path>.webm              Create a WebM output at the given <path>
+#
+# Require:
+#   Require <string>                Ensure a program is on the $PATH to proceed
+#
+# Settings:
+#   Set FontSize <number>           Set the font size of the terminal
+#   Set FontFamily <string>         Set the font family of the terminal
+#   Set Height <number>             Set the height of the terminal
+#   Set Width <number>              Set the width of the terminal
+#   Set LetterSpacing <float>       Set the font letter spacing (tracking)
+#   Set LineHeight <float>          Set the font line height
+#   Set LoopOffset <float>%         Set the starting frame offset for the GIF loop
+#   Set Theme <json|string>         Set the theme of the terminal
+#   Set Padding <number>            Set the padding of the terminal
+#   Set Framerate <number>          Set the framerate of the recording
+#   Set PlaybackSpeed <float>       Set the playback speed of the recording
+#
+# Sleep:
+#   Sleep <time>                    Sleep for a set amount of <time> in seconds
+#
+# Type:
+#   Type[@<time>] "<characters>"    Type <characters> into the terminal with a
+#                                   <time> delay between each character
+#
+# Keys:
+#   Backspace[@<time>] [number]     Press the Backspace key
+#   Down[@<time>] [number]          Press the Down key
+#   Enter[@<time>] [number]         Press the Enter key
+#   Space[@<time>] [number]         Press the Space key
+#   Tab[@<time>] [number]           Press the Tab key
+#   Left[@<time>] [number]          Press the Left Arrow key
+#   Right[@<time>] [number]         Press the Right Arrow key
+#   Up[@<time>] [number]            Press the Up Arrow key
+#   Down[@<time>] [number]          Press the Down Arrow key
+#   Ctrl+<key>                      Press the Control key + <key> (e.g. Ctrl+C)
+#
+# Display:
+#   Hide                            Hide the subsequent commands from the output
+#   Show                            Show the subsequent commands in the output
+
+Output output/setup.mp4
+Output output/setup.gif
+
+Set Theme nord
+
+Require wmill
+Require docker
+
+Set FontSize 16
+Set Width 1200
+Set Height 600
+
+Hide
+
+Type "rm -r ~/.config/windmill" Enter
+Type "cd ../../" Enter
+# Type "docker compose pull" Enter
+# Type "docker compose down" Enter
+Ctrl+L
+
+Show
+
+# once wait is supported see https://github.com/charmbracelet/vhs/issues/70
+# Type "docker compose up -d" Enter Sleep 1400ms
+
+Type "wmill setup" Enter Sleep 500ms
+Type "http://localhost" Enter Sleep 500ms
+Type "local" Enter Sleep 500ms
+Enter # Use Username/Password Sleep 500ms
+Type "admin@windmill.dev" Enter Sleep 500ms
+Type "changeme" Enter Sleep 500ms
+Down Enter Sleep 500ms
+
+Sleep 1s
+
+Type "wmill user" Enter Sleep 500ms
+Type "wmill user add admin@example.com password12 --superadmin" Enter Sleep 500ms
+Type "wmill user" Enter Sleep 500ms
+
+Sleep 1s
+
+Type "wmill login" Enter Sleep 500ms
+Type "admin@example.com" Enter Sleep 500ms
+Type "password12" Enter Sleep 500ms
+
+Sleep 1s
+
+Type "wmill user" Enter Sleep 500ms
+Type "wmill user remove admin@windmill.dev" Enter Sleep 500ms
+
+Type "wmill user" Enter Sleep 500ms
+
+Sleep 10s
