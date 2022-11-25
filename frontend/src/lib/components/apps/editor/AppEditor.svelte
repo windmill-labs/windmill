@@ -54,16 +54,7 @@
 	$: mounted && ($worldStore = buildWorld($staticOutputs))
 
 	$: $mode && $selectedComponent && clearSelectionOnPreview()
-	$: selectedTab = 'settings'
-
-	// If ever the the selected component changes, we need to update the selected tab
-	selectedComponent.subscribe(() => {
-		if (selectedTab === 'insert') {
-			setTimeout(() => {
-				selectedTab = 'settings'
-			})
-		}
-	})
+	$: selectedTab = $selectedComponent ? 'settings' : 'insert'
 </script>
 
 <AppEditorHeader bind:title={$appStore.title} bind:mode={$mode} />
