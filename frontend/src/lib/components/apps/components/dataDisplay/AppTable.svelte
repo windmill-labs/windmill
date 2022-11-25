@@ -2,11 +2,11 @@
 	import Button from '$lib/components/common/button/Button.svelte'
 	import { classNames } from '$lib/utils'
 	import { getContext } from 'svelte'
-	import type { Output } from '../rx'
-	import type { AppEditorContext, ComponentInputsSpec, InputsSpec } from '../types'
-	import InputValue from './helpers/InputValue.svelte'
-	import DebouncedInput from './helpers/DebouncedInput.svelte'
-	import RunnableComponent from './helpers/RunnableComponent.svelte'
+	import type { Output } from '../../rx'
+	import type { AppEditorContext, ComponentInputsSpec, InputsSpec } from '../../types'
+	import InputValue from '../helpers/InputValue.svelte'
+	import DebouncedInput from '../helpers/DebouncedInput.svelte'
+	import RunnableComponent from '../helpers/RunnableComponent.svelte'
 
 	export let id: string
 	export let inputs: InputsSpec
