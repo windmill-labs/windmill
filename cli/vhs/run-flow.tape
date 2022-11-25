@@ -44,7 +44,7 @@
 #   Hide                            Hide the subsequent commands from the output
 #   Show                            Show the subsequent commands in the output
 
-Output output/run-flow.webm
+Output output/run-flow.mp4
 
 Set Theme nord
 

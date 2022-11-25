@@ -44,7 +44,7 @@
 #   Hide                            Hide the subsequent commands from the output
 #   Show                            Show the subsequent commands in the output
 
-Output output/setup.webm
+Output output/setup.mp4
 
 Set Theme nord
 
