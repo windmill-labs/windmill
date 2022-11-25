@@ -1,8 +1,7 @@
 # Windmill CLI
 
 A simple CLI allowing interactions with windmill from the command line.
-
-[![asciicast](https://asciinema.org/a/533968.svg)](https://asciinema.org/a/533968)
+![](./vhs/output/setup.gif)
 
 ## Installation
 
@@ -19,11 +18,7 @@ Setup the CLI by running `wmill setup`. This will guide you through the setup pr
 Run a script or flow using `wmill flow/script run u/username/path/to/script` and pass any inputs using `--input/-i <name>=<value>` curl-style syntax using `-i @-` for stdin or `-i @<filename>` is also supported
 
 Flow Steps and Logs will be streamed during execution automatically.
-<video autoplay loop muted playsinline>
-
-  <source src="./output/run-flow.webm" type="video/webm">
-  <img id="imgScale" src="./output/run-flow.gif" />
-</video>
+![](./vhs/output/run-flow.gif)
 
 ## Pushing Resources, Scripts & More
 

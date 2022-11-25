@@ -45,7 +45,6 @@
 #   Show                            Show the subsequent commands in the output
 
 Output output/setup.gif
-Output output/setup.webm
 
 Require wmill
 Require docker
