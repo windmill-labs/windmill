@@ -45,6 +45,7 @@
 #   Show                            Show the subsequent commands in the output
 
 Output output/setup.mp4
+Output output/setup.gif
 
 Set Theme nord
 

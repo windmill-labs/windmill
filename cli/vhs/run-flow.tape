@@ -45,6 +45,7 @@
 #   Show                            Show the subsequent commands in the output
 
 Output output/run-flow.mp4
+Output output/run-flow.gif
 
 Set Theme nord
 
