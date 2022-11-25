@@ -76,6 +76,7 @@ pub struct ClientWithScopes {
     scopes: Vec<String>,
     extra_params: Option<HashMap<String, String>>,
     allowed_domains: Option<Vec<String>>,
+    userinfo_url: Option<String>,
 }
 
 pub type BasicClientsMap = HashMap<String, ClientWithScopes>;
@@ -84,6 +85,7 @@ pub type BasicClientsMap = HashMap<String, ClientWithScopes>;
 pub struct OAuthConfig {
     auth_url: String,
     token_url: String,
+    userinfo_url: Option<String>,
     scopes: Option<Vec<String>>,
     extra_params: Option<HashMap<String, String>>,
 }
@@ -156,6 +158,7 @@ pub async fn build_oauth_clients(base_url: &str) -> anyhow::Result<AllClients> {
                     scopes: config.scopes.unwrap_or(vec![]),
                     extra_params: config.extra_params,
                     allowed_domains: client_params.allowed_domains.clone(),
+                    userinfo_url: config.userinfo_url,
                 },
             )
         })
@@ -185,6 +188,7 @@ pub async fn build_oauth_clients(base_url: &str) -> anyhow::Result<AllClients> {
                     scopes: config.scopes.unwrap_or(vec![]),
                     extra_params: config.extra_params,
                     allowed_domains: None,
+                    userinfo_url: None,
                 },
             )
         })
@@ -196,6 +200,7 @@ pub async fn build_oauth_clients(base_url: &str) -> anyhow::Result<AllClients> {
             OAuthConfig {
                 auth_url: "https://slack.com/oauth/authorize".to_string(),
                 token_url: "https://slack.com/api/oauth.access".to_string(),
+                userinfo_url: None,
                 scopes: None,
                 extra_params: None,
             },
@@ -779,6 +784,7 @@ async fn slack_command(
 #[allow(non_snake_case)]
 #[derive(Deserialize)]
 pub struct UserInfo {
+    email: String,
     name: Option<String>,
     company: Option<String>,
     displayName: Option<String>,
@@ -803,8 +809,12 @@ async fn login_callback(
 
     if let Ok(token) = token_res {
         let token = &token.access_token.to_string();
+        let userinfo_url = client_w_config.userinfo_url.as_ref().ok_or_else(|| {
+            Error::BadConfig(format!("Missing userinfo_url in client {client_name}"))
+        })?;
+        let user = http_get_user_info(&http_client, userinfo_url, token).await?;
 
-        let email = get_email(&http_client, &client_name, token).await?;
+        let email = user.email;
 
         if let Some(domains) = &client_w_config.allowed_domains {
             if !domains.iter().any(|d| email.ends_with(d)) {
@@ -841,15 +851,17 @@ async fn login_callback(
                 )));
             }
         } else {
-            let user = get_user_info(&http_client, &client_name, &token).await?;
-
+            let mut name = user.name;
+            if name.is_none() || name == Some(String::new()) {
+                name = user.displayName;
+            }
             sqlx::query(&format!(
                 "INSERT INTO password (email, name, company, login_type, verified) VALUES ($1, \
                  $2, $3, '{}', true)",
                 &client_name
             ))
             .bind(&email)
-            .bind(&user.name)
+            .bind(&name)
             .bind(user.company)
             .execute(&mut tx)
             .await?;
@@ -923,100 +935,18 @@ async fn exchange_code<T: DeserializeOwned>(
         .map_err(|e| error::Error::InternalErr(format!("{:?}", e)))
 }
 
-#[derive(Deserialize)]
-pub struct GHEmailInfo {
-    email: String,
-    verified: bool,
-    primary: bool,
-}
-
-#[derive(Deserialize)]
-pub struct EmailInfo {
-    email: String,
-}
-
-async fn get_email(http_client: &Client, client_name: &str, token: &str) -> error::Result<String> {
-    let email = match client_name {
-        "github" => http_get_user_info::<Vec<GHEmailInfo>>(
-            http_client,
-            "https://api.github.com/user/emails",
-            token,
-        )
-        .await?
-        .iter()
-        .find(|x| x.primary && x.verified)
-        .ok_or(error::Error::BadRequest(format!(
-            "user does not have any primary and verified address"
-        )))?
-        .email
-        .to_string(),
-        "gitlab" => {
-            http_get_user_info::<EmailInfo>(http_client, "https://gitlab.com/api/v4/user", token)
-                .await?
-                .email
-                .to_string()
-        }
-        "google" => http_get_user_info::<EmailInfo>(
-            http_client,
-            "https://www.googleapis.com/oauth2/v1/userinfo?alt=json",
-            token,
-        )
-        .await?
-        .email
-        .to_string(),
-        _ => {
-            return Err(error::Error::BadRequest(
-                "client name not recognized".to_string(),
-            ))
-        }
-    };
-    Ok(email)
-}
-
-async fn get_user_info(
-    http_client: &Client,
-    client_name: &str,
-    token: &str,
-) -> error::Result<UserInfo> {
-    let email = match client_name {
-        "github" => http_get_user_info(http_client, "https://api.github.com/user", token).await?,
-        "gitlab" => {
-            http_get_user_info(http_client, "https://gitlab.com/api/v4/user", token).await?
-        }
-        "google" => {
-            let google_user_info: UserInfo = http_get_user_info(
-                http_client,
-                "https://www.googleapis.com/oauth2/v1/userinfo?alt=json",
-                token,
-            )
-            .await?;
-            UserInfo {
-                name: google_user_info.displayName.clone(),
-                company: None,
-                displayName: google_user_info.displayName,
-            }
-        }
-        _ => {
-            return Err(error::Error::BadRequest(
-                "client name not recognized".to_string(),
-            ))
-        }
-    };
-    Ok(email)
-}
-
-async fn http_get_user_info<T: DeserializeOwned>(
+async fn http_get_user_info(
     http_client: &Client,
     url: &str,
     token: &str,
-) -> error::Result<T> {
+) -> error::Result<UserInfo> {
     Ok(http_client
         .get(url)
         .bearer_auth(token)
         .send()
         .await
         .map_err(to_anyhow)?
-        .json::<T>()
+        .json()
         .await
         .map_err(to_anyhow)?)
 }
