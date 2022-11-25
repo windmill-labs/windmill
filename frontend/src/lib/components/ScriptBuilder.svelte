@@ -15,12 +15,13 @@
 	import CenteredPage from './CenteredPage.svelte'
 	import UnsavedConfirmationModal from './common/confirmationModal/UnsavedConfirmationModal.svelte'
 	import { dirtyStore } from './common/confirmationModal/dirtyStore'
-	import { Button } from './common'
+	import { Button, ToggleButton, ToggleButtonGroup } from './common'
 	import { faChevronDown, faChevronUp, faPen, faSave } from '@fortawesome/free-solid-svg-icons'
 	import Breadcrumb from './common/breadcrumb/Breadcrumb.svelte'
 	import Toggle from './Toggle.svelte'
 	import LanguageIcon from './common/languageIcons/LanguageIcon.svelte'
 	import type { SupportedLanguage } from '$lib/common'
+	import Tooltip from './Tooltip.svelte'
 
 	export let script: Script
 	export let initialPath: string = ''
@@ -171,7 +172,7 @@
 	{#if step === 1}
 		<CenteredPage>
 			<div class="space-y-6">
-				<h2 class="border-b pb-1 mt-4">Path & Summary</h2>
+				<h3 class="border-b pb-1 mt-4">Path & Summary</h3>
 				<Path
 					bind:this={pathC}
 					bind:error={pathError}
@@ -191,7 +192,7 @@
 						rows="1"
 					/>
 				</label>
-				<h2 class="border-b pb-1 mt-4">Language</h2>
+				<h3 class="border-b pb-1 mt-4">Language</h3>
 				<div class="flex flex-row gap-2 flex-wrap">
 					{#each langs as [label, lang]}
 						{@const isPicked = script.language == lang && template == 'script'}
@@ -206,7 +207,10 @@
 								initContent(lang, script.kind, template)
 							}}
 						>
-							<LanguageIcon {lang} /><span class="ml-2">{label}</span>
+							<LanguageIcon {lang} />
+							<span class="ml-2">
+								{label}
+							</span>
 						</Button>
 					{/each}
 					<Button
@@ -223,58 +227,52 @@
 						<LanguageIcon lang="pgsql" /><span class="ml-2">PostgreSQL</span>
 					</Button>
 				</div>
-				<h2 class="border-b pb-1 mt-4">Advanced</h2>
-				<div>
-					<Button
-						color="light"
-						size="sm"
-						endIcon={{ icon: viewScriptKind ? faChevronUp : faChevronDown }}
-						on:click={() => (viewScriptKind = !viewScriptKind)}
-					>
-						Tag this script as having a specific purpose inside flows
-					</Button>
-				</div>
-				{#if viewScriptKind}
-					<div class="max-w-lg">
-						<RadioButton
-							label="Script Type"
-							options={[
-								['Common Script', Script.kind.SCRIPT],
-								[
-									{
-										title: 'Trigger Script',
-										desc: `First module of flows to trigger them based on watching changes external periodically using an internal state`
-									},
-									Script.kind.TRIGGER
-								],
-								[
-									{
-										title: 'Error Handler',
-										desc: `Handle errors for flows after all retries attempts have been exhausted`
-									},
-									Script.kind.FAILURE
-								],
-								[
-									{
-										title: 'Approval Script',
-										desc: `Send notification externally to ask for approval to continue a flow`
-									},
-									Script.kind.APPROVAL
-								]
+				<h3 class="border-b pb-1 mt-4">Advanced</h3>
 
-								// ['Command Handler', Script.kind.COMMAND]
-							]}
-							on:change={(e) => {
-								if (isInitialCode(script.content)) {
-									template = 'script'
-									initContent(script.language, e.detail, template)
-								}
-							}}
-							bind:value={script.kind}
-						/>
-					</div>
-				{/if}
-				<div class="ml-3">
+				<div class="w-min">
+					<ToggleButtonGroup
+						bind:selected={script.kind}
+						on:selected={(e) => {
+							if (isInitialCode(script.content)) {
+								template = 'script'
+								initContent(script.language, e.detail, template)
+							}
+						}}
+					>
+						<ToggleButton position="left" value={Script.kind.SCRIPT} size="sm">
+							Common Script
+						</ToggleButton>
+						<ToggleButton position="center" value={Script.kind.TRIGGER} size="sm">
+							<span class="flex gap-2">
+								Trigger Script
+								<Tooltip>
+									First module of flows to trigger them based on watching changes external
+									periodically using an internal state
+								</Tooltip>
+							</span>
+						</ToggleButton>
+
+						<ToggleButton position="center" value={Script.kind.FAILURE} size="sm">
+							<span class="flex gap-2">
+								Error Handler
+								<Tooltip>
+									Handle errors for flows after all retries attempts have been exhausted
+								</Tooltip>
+							</span>
+						</ToggleButton>
+
+						<ToggleButton position="right" value={Script.kind.APPROVAL} size="sm">
+							<span class="flex gap-2">
+								Approval Script
+								<Tooltip>
+									Send notification externally to ask for approval to continue a flow
+								</Tooltip>
+							</span>
+						</ToggleButton>
+					</ToggleButtonGroup>
+				</div>
+
+				<div>
 					<Toggle
 						bind:checked={script.is_template}
 						options={{ right: 'Save as a workspace template' }}
