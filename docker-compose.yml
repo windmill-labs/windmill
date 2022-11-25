@@ -38,9 +38,10 @@ services:
       - PYTHON_PATH=/usr/local/bin/python3
       - METRICS_ADDR=false
       # for ease of use, nsjail which provide isolation in untrusted environment is disabled by default. 
-      # To enable it, uncomment the following line and set the container as privileged.     
+      # To enable it, uncomment the following line, set the container as privileged and
+      # rebuild the image with nsjail=true or use the enterprise edition
       # - DISABLE_NSJAIL=false
-      # - DISABLE_NUSER=fals
+      # - DISABLE_NUSER=false
       # - NSJAIL_PATH=nsjail
     depends_on:
       db:

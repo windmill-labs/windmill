@@ -142,6 +142,7 @@ jobs:
           push: true
           build-args: |
             features=enterprise
+            nsjail=true
           tags: |
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee:latest
             ${{ steps.meta-ee-public.outputs.tags }}
