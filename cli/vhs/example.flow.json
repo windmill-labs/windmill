@@ -1,37 +1,55 @@
 {
-    "summary": "",
-    "description": "",
-    "value": {
-        "modules": [
-            {
-                "id": "a",
-                "value": {
-                    "type": "rawscript",
-                    "content": "// import * as wmill from \"https://deno.land/x/windmill@v1.50.0/mod.ts\"\n\nexport async function main(x: string) {\n  console.log(\"Hello from Deno! The argument x is \" + x);\n  return x;\n}\n",
-                    "language": "deno",
-                    "input_transforms": {
-                        "x": {
-                            "type": "static",
-                            "value": ""
-                        }
-                    }
-                }
-            },
-            {
-                "id": "b",
-                "value": {
-                    "type": "rawscript",
-                    "content": "def main():\n  print(\"Hello from Step 2, in Python!\");\n",
-                    "language": "python3",
-                    "input_transforms": {}
-                }
+  "summary": "",
+  "description": "",
+  "value": {
+    "modules": [
+      {
+        "id": "a",
+        "value": {
+          "lock": "",
+          "path": null,
+          "type": "rawscript",
+          "content": "// import * as wmill from \"https://deno.land/x/windmill@v1.50.0/mod.ts\"\n\nexport async function main(x: string) {\n  console.log(\"Hello from Deno! The argument x is \" + x);\n  return x;\n}\n",
+          "language": "deno",
+          "input_transforms": {
+            "x": {
+              "expr": "`${flow_input.x}`",
+              "type": "javascript"
             }
-        ]
-    },
-    "schema": {
-        "$schema": "https://json-schema.org/draft/2020-12/schema",
-        "properties": {},
-        "required": [],
-        "type": "object"
+          }
+        },
+        "summary": null,
+        "stop_after_if": null,
+        "input_transforms": {}
+      },
+      {
+        "id": "b",
+        "value": {
+          "lock": "",
+          "path": null,
+          "type": "rawscript",
+          "content": "def main():\n  print(\"Hello from Step 2, in Python!\");\n",
+          "language": "python3",
+          "input_transforms": {}
+        },
+        "summary": null,
+        "stop_after_if": null,
+        "input_transforms": {}
+      }
+    ],
+    "failure_module": null
+  },
+  "schema": {
+    "type": "object",
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "required": [],
+    "properties": {
+      "x": {
+        "type": "string",
+        "format": "",
+        "default": "",
+        "description": ""
+      }
     }
+  }
 }

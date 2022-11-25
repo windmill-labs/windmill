@@ -44,22 +44,24 @@
 #   Hide                            Hide the subsequent commands from the output
 #   Show                            Show the subsequent commands in the output
 
-Output output/run-flow.gif
+Output output/run-flow.webm
+
+Set Theme nord
 
 Require wmill
 
-Set FontSize 12
+Set FontSize 16
 Set Width 1200
 Set Height 600
-Set LoopOffset 50%
 
 Hide
 
 Type "name=$(cat /proc/sys/kernel/random/uuid | sed 's/[-]//g' | head -c 20; echo;)" Enter
 Type "cat ./example.flow.json | wmill flow push /dev/stdin u/admin/$name" Enter
 Sleep 1s
+Ctrl+L
 
 Show
 
-Type "wmill flow run u/admin/$name" Enter
+Type "wmill flow run u/admin/$name -i x=5" Enter
 Sleep 10s

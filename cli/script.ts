@@ -208,7 +208,6 @@ export async function resolve(inputs: string[]): Promise<Record<string, any>> {
     } catch {
       jsonObj = data;
     }
-    console.log(jsonObj);
     result = { ...result, ...jsonObj };
   }
   return result;
@@ -296,7 +295,6 @@ export async function track_job(workspace: string, id: string) {
     }
 
     if (updates.completed === true) {
-      console.log("completed");
       running = false;
       break;
     }

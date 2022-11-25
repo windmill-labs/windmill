@@ -44,15 +44,16 @@
 #   Hide                            Hide the subsequent commands from the output
 #   Show                            Show the subsequent commands in the output
 
-Output output/setup.gif
+Output output/setup.webm
+
+Set Theme nord
 
 Require wmill
 Require docker
 
-Set FontSize 12
+Set FontSize 16
 Set Width 1200
 Set Height 600
-Set LoopOffset 50%
 
 Hide
 
@@ -60,6 +61,7 @@ Type "rm -r ~/.config/windmill" Enter
 Type "cd ../../" Enter
 # Type "docker compose pull" Enter
 # Type "docker compose down" Enter
+Ctrl+L
 
 Show
 
