@@ -251,7 +251,7 @@
 				startIcon={{ icon: faWallet }}
 				{iconOnly}
 			>
-				+Var
+				+Variable
 			</Button>
 		</div>
 		<div>
