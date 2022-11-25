@@ -22,7 +22,8 @@ services:
 
   windmill:
     image: ghcr.io/windmill-labs/windmill:main
-    privileged: true
+    # Set privileged to true if enabling nsjail
+    privileged: false
     restart: unless-stopped
     ports:
       - 8000:8000
@@ -32,13 +33,15 @@ services:
       - BASE_INTERNAL_URL=http://localhost:8000
       - RUST_LOG=info
       - NUM_WORKERS=3
-      - DISABLE_NUSER=false
-      - DISABLE_NSJAIL=false
-      - KEEP_JOB_DIR=true
+      - KEEP_JOB_DIR=false
       - DENO_PATH=/usr/bin/deno
       - PYTHON_PATH=/usr/local/bin/python3
-      - NSJAIL_PATH=nsjail
       - METRICS_ADDR=false
+      # for ease of use, nsjail which provide isolation in untrusted environment is disabled by default. 
+      # To enable it, uncomment the following line and set the container as privileged.     
+      # - DISABLE_NSJAIL=false
+      # - DISABLE_NUSER=fals
+      # - NSJAIL_PATH=nsjail
     depends_on:
       db:
         condition: service_healthy
