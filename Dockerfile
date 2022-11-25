@@ -19,8 +19,8 @@ RUN if [[ "$features" == "true" ]]; then apt-get -y update \
 
 
 RUN if [[ "$features" == "true" ]]; then git clone -b master --single-branch https://github.com/google/nsjail.git . \
-    && git checkout dccf911fd2659e7b08ce9507c25b2b38ec2c5800
-RUN if [[ "$features" == "true" ]]; then make; else touch nsjail fi
+    && git checkout dccf911fd2659e7b08ce9507c25b2b38ec2c5800; fi
+RUN if [[ "$features" == "true" ]]; then make; else touch nsjail; fi
 
 FROM rust:slim-buster AS rust_base
 
