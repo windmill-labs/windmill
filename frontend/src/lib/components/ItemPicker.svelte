@@ -57,12 +57,13 @@
 				{#each new Array(6) as _}
 					<Skeleton layout={[[2], 0.7]} />
 				{/each}
-			{:else if filteredItems}
+			{:else if filteredItems?.length}
 				<ul class="divide-y divide-gray-200">
 					{#each filteredItems as obj}
 						<li class="flex flex-row w-full">
 							<button
-								class="py-4 px-1 gap-1 flex flex-row grow hover:bg-white hover:border text-black"
+								class="py-4 px-1 gap-1 flex flex-row grow border  border-gray-300 border-opacity-0 
+								hover:bg-white hover:border-opacity-100 text-black"
 								on:click={() => {
 									if (closeOnClick) {
 										drawer.closeDrawer()
@@ -113,7 +114,9 @@
 					{/each}
 				</ul>
 			{:else}
-				<span class="mt-2 text-sm text-red-400">{noItemMessage}</span>
+				<div class="text-center text-sm text-gray-600 mt-2">
+					{@html noItemMessage}
+				</div>
 			{/if}
 		</div>
 		<span slot="submission" class="mr-2">
