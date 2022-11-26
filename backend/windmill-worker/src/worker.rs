@@ -542,28 +542,27 @@ pub async fn run_worker(
                         .expect("could not create job dir");
 
                     let same_worker = job.same_worker;
-                    let is_flow = job.job_kind == JobKind::Flow || job.job_kind == JobKind::FlowPreview || job.job_kind == JobKind::FlowDependencies;
 
-                    if is_flow && same_worker {
-                        let target = &format!("{job_dir}/shared");
-                        if let Some(parent_flow) = job.parent_job {
-                            let parent_shared_dir = format!("{worker_dir}/{parent_flow}/shared");
-                            if metadata(&parent_shared_dir).await.is_err() {
-                                DirBuilder::new()
-                                    .recursive(true)
-                                    .create(&parent_shared_dir)
-                                    .await
-                                    .expect("could not create parent shared dir");
-                            }
-                            symlink(&parent_shared_dir, target)
-                                .await
-                                .expect("could not symlink target");
-                        } else {
+                    let target = &format!("{job_dir}/shared");
+
+                    if same_worker && job.parent_job.is_some() {
+                        let parent_flow = job.parent_job.unwrap();
+                        let parent_shared_dir = format!("{worker_dir}/{parent_flow}/shared");
+                        if metadata(&parent_shared_dir).await.is_err() {
                             DirBuilder::new()
-                                .create(target)
+                                .recursive(true)
+                                .create(&parent_shared_dir)
                                 .await
-                                .expect("could not create shared dir");
+                                .expect("could not create parent shared dir");
                         }
+                        symlink(&parent_shared_dir, target)
+                            .await
+                            .expect("could not symlink target");
+                    } else {
+                        DirBuilder::new()
+                            .create(target)
+                            .await
+                            .expect("could not create shared dir");
                     }
                     let tx = db.begin().await.expect("could not start token transaction");
                     let (tx, token) = create_token_for_owner(
@@ -577,6 +576,7 @@ pub async fn run_worker(
                     .await.expect("could not create job token");
                     tx.commit().await.expect("could not commit job token");
                     let job_client = windmill_api_client::create_client(&worker_config.base_url, token.clone());
+                    let is_flow = job.job_kind == JobKind::Flow || job.job_kind == JobKind::FlowPreview || job.job_kind == JobKind::FlowDependencies;
 
                     if let Some(err) = handle_queued_job(
                         job.clone(),
@@ -610,6 +610,7 @@ pub async fn run_worker(
                         )
                         .await;
                     };
+
 
                     if !worker_config.keep_job_dir && !(is_flow && same_worker) {
                         let _ = tokio::fs::remove_dir_all(job_dir).await;
@@ -1016,26 +1017,15 @@ async fn handle_code_execution_job(
         format!(
             r#"
 mount {{
-    src: "{worker_dir}/{}/shared"
+    src: "{job_dir}/shared"
     dst: "/tmp/shared"
     is_bind: true
     rw: true
 }}
-        "#,
-            job.parent_job.ok_or(Error::ExecutionErr(
-                "no parent job, required for same worker job".to_string()
-            ))?,
+        "#
         )
     } else {
-        r#"
-mount {
-    dst: "/tmp/shared"
-    fstype: "tmpfs"
-    rw: true
-    options: "size=500000000"
-}
-        "#
-        .to_string()
+        "".to_string()
     };
 
     let result: error::Result<serde_json::Value> = match language {
