@@ -892,8 +892,9 @@ async fn login_callback(
             if demo_exists {
                 if let Err(e) = sqlx::query!(
                     "INSERT INTO workspace_invite
-            (workspace_id, email, is_admin)
-            VALUES ('demo', $1, false)",
+                (workspace_id, email, is_admin)
+                VALUES ('demo', $1, false)
+                ON CONFLICT DO NOTHING",
                     &email
                 )
                 .execute(&mut tx)
