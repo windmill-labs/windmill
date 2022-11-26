@@ -15,7 +15,7 @@ import variable from "./variable.ts";
 import push from "./push.ts";
 import pull from "./pull.ts";
 
-const VERSION = "v1.50.0";
+const VERSION = "v1.51.0";
 
 await new Command()
   .name("wmill")
