@@ -199,19 +199,24 @@
 	loadItems={async () =>
 		await ResourceService.listResource({ workspace: $workspaceStore ?? 'NO_W' })}
 >
-	<div slot="submission" class="flex flex-row gap-x-1">
-		<Button target="_blank" color="blue" size="sm" href="/resources?connect_app=undefined">
+	<div slot="submission" class="flex flex-row gap-x-1 mr-2">
+		<Button
+			target="_blank"
+			variant="border"
+			color="blue"
+			size="sm"
+			href="/resources?connect_app=undefined"
+		>
 			Connect an API
 		</Button>
 		<Button
-			variant="border"
 			color="blue"
 			size="sm"
 			on:click={() => {
 				resourceEditor.initNew()
 			}}
 		>
-			New custom resource
+			Add a resource
 		</Button>
 	</div>
 </ItemPicker>

@@ -151,12 +151,18 @@
 					}}
 				>
 					{#if isStaticTemplate(inputCat)}
-						<ToggleButton position="left" value="static" size="xs">Template</ToggleButton>
+						<ToggleButton light position="left" value="static" size="xs">Template</ToggleButton>
 					{:else}
-						<ToggleButton position="left" value="static" size="xs">Static</ToggleButton>
+						<ToggleButton light position="left" value="static" size="xs">Static</ToggleButton>
 					{/if}
 
-					<ToggleButton position="right" value="javascript" startIcon={{ icon: faCode }} size="xs">
+					<ToggleButton
+						light
+						position="right"
+						value="javascript"
+						startIcon={{ icon: faCode }}
+						size="xs"
+					>
 						Dynamic (JS)
 					</ToggleButton>
 				</ToggleButtonGroup>

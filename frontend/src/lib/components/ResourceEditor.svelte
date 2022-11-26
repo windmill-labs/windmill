@@ -15,6 +15,7 @@
 	import DrawerContent from './common/drawer/DrawerContent.svelte'
 	import autosize from 'svelte-autosize'
 	import SimpleEditor from './SimpleEditor.svelte'
+	import AppConnect from './AppConnect.svelte'
 
 	let path = ''
 	let initialPath = ''
@@ -217,8 +218,17 @@
 				</div>
 			{/if}
 		</div>
-		<span slot="submission" class="flex gap-4">
+		<span slot="submission" class="flex gap-4 mr-2">
 			{#if step === 1}
+				<Button
+					target="_blank"
+					color="blue"
+					variant="border"
+					size="sm"
+					href="/resources?connect_app=undefined"
+				>
+					Connect an API
+				</Button>
 				<Button
 					on:click={async () => {
 						await loadResourceType()
