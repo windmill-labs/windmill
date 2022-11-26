@@ -369,7 +369,7 @@
 								>
 								<td
 									><span class="text-gray-500 text-xs"
-										><SvelteMarkdown source={truncate(description ?? '', 30)} /></span
+										><SvelteMarkdown source={truncate(description ?? '', 200)} /></span
 									></td
 								>
 								<td>
