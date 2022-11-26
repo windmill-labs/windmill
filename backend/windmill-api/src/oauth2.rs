@@ -813,9 +813,24 @@ async fn login_callback(
         let userinfo_url = client_w_config.userinfo_url.as_ref().ok_or_else(|| {
             Error::BadConfig(format!("Missing userinfo_url in client {client_name}"))
         })?;
-        let user = http_get_user_info(&http_client, userinfo_url, token).await?;
+        let user = http_get_user_info::<UserInfo>(&http_client, userinfo_url, token).await?;
 
-        let email = user.email;
+        let email = match client_name.as_str() {
+            "github" => http_get_user_info::<Vec<GHEmailInfo>>(
+                &http_client,
+                "https://api.github.com/user/emails",
+                token,
+            )
+            .await?
+            .iter()
+            .find(|x| x.primary && x.verified)
+            .ok_or(error::Error::BadRequest(format!(
+                "user does not have any primary and verified address"
+            )))?
+            .email
+            .to_string(),
+            _ => user.email,
+        };
 
         if let Some(domains) = &client_w_config.allowed_domains {
             if !domains.iter().any(|d| email.ends_with(d)) {
@@ -937,11 +952,18 @@ async fn exchange_code<T: DeserializeOwned>(
         .map_err(|e| error::Error::InternalErr(format!("{:?}", e)))
 }
 
-async fn http_get_user_info(
+#[derive(Deserialize)]
+pub struct GHEmailInfo {
+    email: String,
+    verified: bool,
+    primary: bool,
+}
+
+async fn http_get_user_info<T: DeserializeOwned>(
     http_client: &Client,
     url: &str,
     token: &str,
-) -> error::Result<UserInfo> {
+) -> error::Result<T> {
     Ok(http_client
         .get(url)
         .bearer_auth(token)
@@ -949,10 +971,10 @@ async fn http_get_user_info(
         .await
         .map_err(to_anyhow)
         .context("failed to fetch user info")?
-        .json()
+        .json::<T>()
         .await
         .map_err(to_anyhow)
-        .context("failed to decode email from user info")?)
+        .context("failed to decode json from user info")?)
 }
 
 fn oauth_redirect(

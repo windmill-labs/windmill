@@ -895,6 +895,38 @@ async fn add_user_to_workspace<'c>(
     is_admin: bool,
     mut tx: sqlx::Transaction<'c, sqlx::Postgres>,
 ) -> error::Result<sqlx::Transaction<'c, sqlx::Postgres>> {
+    let already_exists_username = sqlx::query_scalar!(
+        "SELECT EXISTS(SELECT 1 FROM usr WHERE workspace_id = $1 AND username = $2)",
+        &w_id,
+        username,
+    )
+    .fetch_one(&mut tx)
+    .await?
+    .unwrap_or(false);
+
+    if already_exists_username {
+        return Err(Error::BadRequest(format!(
+            "user with username {} already exists in workspace {}",
+            username, w_id
+        )));
+    }
+
+    let already_exists_email = sqlx::query_scalar!(
+        "SELECT EXISTS(SELECT 1 FROM usr WHERE workspace_id = $1 AND email = $2)",
+        &w_id,
+        username,
+    )
+    .fetch_one(&mut tx)
+    .await?
+    .unwrap_or(false);
+
+    if already_exists_email {
+        return Err(Error::BadRequest(format!(
+            "user with email {} already exists in workspace {}",
+            email, w_id
+        )));
+    }
+
     sqlx::query!(
         "INSERT INTO usr
             (workspace_id, email, username, is_admin)
@@ -1006,11 +1038,18 @@ async fn delete_user(
 
     require_super_admin(&mut tx, email.clone()).await?;
 
-    sqlx::query!("DELETE FROM usr WHERE email = $1", &email_to_delete)
+    let username = sqlx::query_scalar!(
+        "DELETE FROM usr WHERE email = $1 RETURNING username",
+        &email_to_delete
+    )
+    .fetch_one(&mut tx)
+    .await?;
+
+    sqlx::query!("DELETE FROM password WHERE email = $1", &email_to_delete)
         .execute(&mut tx)
         .await?;
 
-    sqlx::query!("DELETE FROM password WHERE email = $1", &email_to_delete)
+    sqlx::query!("DELETE FROM usr_to_group WHERE usr = $1", &username)
         .execute(&mut tx)
         .await?;
 
@@ -1092,7 +1131,14 @@ async fn delete_workspace_user(
 
     let email_to_delete = not_found_if_none(email_to_delete_o, "User", &username_to_delete)?;
 
-    sqlx::query!("DELETE FROM usr WHERE email = $1", email_to_delete)
+    let username = sqlx::query_scalar!(
+        "DELETE FROM usr WHERE email = $1 RETURNING username",
+        email_to_delete
+    )
+    .fetch_one(&mut tx)
+    .await?;
+
+    sqlx::query!("DELETE FROM usr_to_group WHERE usr = $1", &username)
         .execute(&mut tx)
         .await?;
 

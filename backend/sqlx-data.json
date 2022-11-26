@@ -445,18 +445,6 @@
     },
     "query": "SELECT dependency_job FROM flow WHERE path = $1 AND workspace_id = $2"
   },
-  "1ad8677694aca94ee0e6da287d7cc028dcf673583a0e3e4fedd0e5d6766c5860": {
-    "describe": {
-      "columns": [],
-      "nullable": [],
-      "parameters": {
-        "Left": [
-          "Text"
-        ]
-      }
-    },
-    "query": "DELETE FROM usr WHERE email = $1"
-  },
   "1b31847d6187d6969deac5aa7b2feb169ef963449ac2d3ea06e1ed785f6d42e7": {
     "describe": {
       "columns": [
@@ -739,6 +727,18 @@
       }
     },
     "query": "UPDATE workspace_settings SET slack_command_script = $1 WHERE workspace_id = $2"
+  },
+  "29785ae8f0cd2dbadc9fd294dc2d6eb396df0d8c5ce23184d5a20a1bdd6f3993": {
+    "describe": {
+      "columns": [],
+      "nullable": [],
+      "parameters": {
+        "Left": [
+          "Text"
+        ]
+      }
+    },
+    "query": "DELETE FROM usr_to_group WHERE usr = $1"
   },
   "2a4be8334db7d39f3d954193a8b0169cc4a4a07e081d2fa61d8764879d6a8ff5": {
     "describe": {
@@ -1969,6 +1969,26 @@
     },
     "query": "SELECT email, login_type::text, verified, super_admin, name, company from password LIMIT $1 OFFSET $2"
   },
+  "7a511ce8dbbf761423b527672ab02156aba5594623dc269992b34398673ca387": {
+    "describe": {
+      "columns": [
+        {
+          "name": "username",
+          "ordinal": 0,
+          "type_info": "Varchar"
+        }
+      ],
+      "nullable": [
+        false
+      ],
+      "parameters": {
+        "Left": [
+          "Text"
+        ]
+      }
+    },
+    "query": "DELETE FROM usr WHERE email = $1 RETURNING username"
+  },
   "7aef087f9e10dd32417477109b97c99b85d68ce1be2bafdc145aed0aa8e5d989": {
     "describe": {
       "columns": [],
@@ -2249,6 +2269,27 @@
       }
     },
     "query": "SELECT * from resource_type WHERE (workspace_id = $1 OR workspace_id = 'starter') ORDER BY name"
+  },
+  "8c11511a74a41a65f448249a00ebe6964a61d00c2f7b4875a55e64741bf1f0ca": {
+    "describe": {
+      "columns": [
+        {
+          "name": "exists",
+          "ordinal": 0,
+          "type_info": "Bool"
+        }
+      ],
+      "nullable": [
+        null
+      ],
+      "parameters": {
+        "Left": [
+          "Text",
+          "Text"
+        ]
+      }
+    },
+    "query": "SELECT EXISTS(SELECT 1 FROM usr WHERE workspace_id = $1 AND email = $2)"
   },
   "8caa01546506f42740b7973a3a45e40093a06714b8524570c5143b77af4a8e19": {
     "describe": {

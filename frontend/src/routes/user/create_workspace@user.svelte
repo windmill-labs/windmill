@@ -105,7 +105,7 @@
 		{/if}
 		<input type="text" bind:value={username} on:keyup={handleKeyUp} class="mt-1" />
 	</label>
-	<div class="flex flex-row justify-between pt-4">
+	<div class="flex flex-row justify-between pt-4 gap-x-1">
 		<Button variant="border" size="sm" href="/user/workspaces"
 			>&leftarrow; Back to workspaces</Button
 		>
