@@ -1014,6 +1014,13 @@ async fn delete_user(
         .execute(&mut tx)
         .await?;
 
+    sqlx::query!(
+        "DELETE FROM workspace_invite WHERE email = $1",
+        &email_to_delete
+    )
+    .execute(&mut tx)
+    .await?;
+
     audit_log(
         &mut tx,
         &email.unwrap(),
