@@ -10,6 +10,7 @@ use std::{collections::HashMap, fmt::Debug};
 
 use std::sync::Arc;
 
+use anyhow::Context;
 use axum::{
     async_trait,
     body::Bytes,
@@ -946,10 +947,12 @@ async fn http_get_user_info(
         .bearer_auth(token)
         .send()
         .await
-        .map_err(to_anyhow)?
+        .map_err(to_anyhow)
+        .context("failed to fetch user info")?
         .json()
         .await
-        .map_err(to_anyhow)?)
+        .map_err(to_anyhow)
+        .context("failed to decode email from user info")?)
 }
 
 fn oauth_redirect(
