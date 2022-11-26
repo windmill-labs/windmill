@@ -1,6 +1,32 @@
 # Changelog
 
 
+## [1.51.0](https://github.com/windmill-labs/windmill/compare/v1.50.0...v1.51.0) (2022-11-26)
+
+
+### Features
+
+* Add notification on app save ([#943](https://github.com/windmill-labs/windmill/issues/943)) ([79cec36](https://github.com/windmill-labs/windmill/commit/79cec368ba643a88a554a88e4bc0500701e2fcc8))
+* **backend:** add configurable custom client ([975a1db](https://github.com/windmill-labs/windmill/commit/975a1db10ea592038cef0c2677e66a8b6d6b8ee5))
+* **cli:** Run flows & scripts ([#940](https://github.com/windmill-labs/windmill/issues/940)) ([cdd3e2c](https://github.com/windmill-labs/windmill/commit/cdd3e2cfc11cd003246643528b950cd0aafe1140))
+* **frontend:** Add guard against script overwrite ([#944](https://github.com/windmill-labs/windmill/issues/944)) ([dd75b37](https://github.com/windmill-labs/windmill/commit/dd75b370afd3d7e6a112e0ec9a6444a82b5620e3))
+* **frontend:** Add inline script picker to apps ([#945](https://github.com/windmill-labs/windmill/issues/945)) ([ddab2df](https://github.com/windmill-labs/windmill/commit/ddab2dffd5459a3e35a368e09a64ebcbceefc87a))
+* **frontend:** flow UX overhaul II + go + python support for trigger scripts ([#928](https://github.com/windmill-labs/windmill/issues/928)) ([802abe7](https://github.com/windmill-labs/windmill/commit/802abe7f901fc93bee1be401a3166fa22b63d00c))
+* **frontend:** login page makeup ([5028d86](https://github.com/windmill-labs/windmill/commit/5028d8603d08f13f4c9ae061b5aa9c6b4b5ea4f4))
+* **frontend:** login page makeup ([ced2678](https://github.com/windmill-labs/windmill/commit/ced2678a21e2078973cfbe506586061f806c2dfe))
+* Update apps button component with colors ([#936](https://github.com/windmill-labs/windmill/issues/936)) ([4b2b346](https://github.com/windmill-labs/windmill/commit/4b2b3467d2bbb204acd5330c4c100d63acb4e40a))
+
+
+### Bug Fixes
+
+* **backend:** bash flow lock & add flow lock tests ([#933](https://github.com/windmill-labs/windmill/issues/933)) ([4ddb3ec](https://github.com/windmill-labs/windmill/commit/4ddb3ec276ef9140e15a8604d796c3a2e6210311))
+* **deno-client:** pg 0.16.1 -&gt; 0.17.0 ([ac6454b](https://github.com/windmill-labs/windmill/commit/ac6454b3835562f70694ce2b935e4b229f9118c6))
+* **frontend:** add checkbox component + fix alignment ([#941](https://github.com/windmill-labs/windmill/issues/941)) ([43a1d7e](https://github.com/windmill-labs/windmill/commit/43a1d7ef2a1c9167262ea7d19cc0fb10d0493eed))
+* **frontend:** Cleanup dead code ([#935](https://github.com/windmill-labs/windmill/issues/935)) ([fa4840a](https://github.com/windmill-labs/windmill/commit/fa4840ad656b2cb592c644193f617b49e53211aa))
+* **frontend:** Fix context panel + delete component ([#937](https://github.com/windmill-labs/windmill/issues/937)) ([ab481b3](https://github.com/windmill-labs/windmill/commit/ab481b3096ae6390e0d08b23a6b18f0f988cf1bd))
+* **frontend:** prevent runnable to run if the script is not defined ([#938](https://github.com/windmill-labs/windmill/issues/938)) ([e64195e](https://github.com/windmill-labs/windmill/commit/e64195e42b940e552d9b89b040dff4a4d0f8be37))
+* **frontend:** properly refresh context panel + Adjust style in the flow editor ([#934](https://github.com/windmill-labs/windmill/issues/934)) ([b59a1de](https://github.com/windmill-labs/windmill/commit/b59a1de93baade3ad576300c07143fbd3f074054))
+
 ## [1.50.0](https://github.com/windmill-labs/windmill/compare/v1.49.1...v1.50.0) (2022-11-21)
 
 
