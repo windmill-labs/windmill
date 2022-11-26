@@ -785,7 +785,7 @@ async fn slack_command(
 #[allow(non_snake_case)]
 #[derive(Deserialize)]
 pub struct UserInfo {
-    email: String,
+    email: Option<String>,
     name: Option<String>,
     company: Option<String>,
     displayName: Option<String>,
@@ -829,7 +829,9 @@ async fn login_callback(
             )))?
             .email
             .to_string(),
-            _ => user.email,
+            _ => user.email.ok_or_else(|| {
+                error::Error::BadRequest("email address not fetchable from user info".to_string())
+            })?,
         };
 
         if let Some(domains) = &client_w_config.allowed_domains {
