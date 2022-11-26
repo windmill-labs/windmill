@@ -1,10 +1,10 @@
 <script lang="ts">
 	import { ScriptService, FlowService, Script } from '$lib/gen'
 
-	import { faSearch } from '@fortawesome/free-solid-svg-icons'
 	import { hubScripts, workspaceStore } from '$lib/stores'
 	import { createEventDispatcher } from 'svelte'
-	import ItemPicker from './ItemPicker.svelte'
+
+	import Select from 'svelte-select'
 
 	import { getScriptByPath } from '$lib/utils'
 	import RadioButton from './RadioButton.svelte'
@@ -17,8 +17,7 @@
 	export let itemKind: 'hub' | 'script' | 'flow' = allowHub ? 'hub' : 'script'
 	export let kind: Script.kind = Script.kind.SCRIPT
 
-	let items: { summary: String; path: String; version?: String }[] = []
-	let itemPicker: ItemPicker
+	let items: { value: string; label: string }[] = []
 	let drawerViewer: Drawer
 	let code: string = ''
 	let lang: 'deno' | 'python3' | 'go' | 'bash' | undefined
@@ -30,53 +29,39 @@
 
 	async function loadItems(): Promise<void> {
 		if (itemKind == 'flow') {
-			items = await FlowService.listFlows({ workspace: $workspaceStore! })
+			items = (await FlowService.listFlows({ workspace: $workspaceStore! })).map((flow) => ({
+				value: flow.path,
+				label: `${flow.path}${flow.summary ? `| ${flow.summary}` : ''}`
+			}))
 		} else if (itemKind == 'script') {
-			items = await ScriptService.listScripts({ workspace: $workspaceStore!, kind })
+			items = (await ScriptService.listScripts({ workspace: $workspaceStore!, kind })).map(
+				(script) => ({
+					value: script.path,
+					label: `${script.path}${script.summary ? `| ${script.summary}` : ''}`
+				})
+			)
 		} else {
-			items = $hubScripts ?? []
+			items =
+				$hubScripts?.map((x) => ({
+					value: x.path,
+					label: `${x.path}${x.summary ? `| ${x.summary}` : ''}`
+				})) ?? []
 		}
 	}
 
-	$: {
-		if ($workspaceStore) {
-			loadItems()
-		}
-	}
+	$: $workspaceStore && itemKind && loadItems()
+
+	$: dispatch('select', { path: scriptPath })
 </script>
 
-<ItemPicker
-	bind:this={itemPicker}
-	pickCallback={(path, _) => {
-		scriptPath = path
-		dispatch('select', { path: scriptPath })
-	}}
-	itemName={itemKind == 'flow' ? 'Flow' : 'Script'}
-	extraField="summary"
-	loadItems={async () => {
-		await loadItems()
-		return items
-	}}
-/>
-
-<div class="flex flex-row flex-wrap items-center gap-4 w-full">
+<div class="flex flex-row  items-center gap-4 w-full">
 	{#if options.length > 1}
-		<div class="w-80 -mb-2">
+		<div class="w-80">
 			<RadioButton bind:value={itemKind} {options} />
 		</div>
 	{/if}
 
-	<div class="flex items-center grow gap-4">
-		<input class="grow w-full" type="text" value={scriptPath ?? 'No path chosen yet'} disabled />
-		<Button
-			size="sm"
-			endIcon={{ icon: faSearch }}
-			btnClasses="mx-auto whitespace-nowrap"
-			on:click={() => itemPicker.openDrawer()}
-		>
-			Pick a {itemKind} path
-		</Button>
-	</div>
+	<Select class="grow" bind:justValue={scriptPath} {items} placeholder="Pick a {itemKind}" />
 	{#if scriptPath !== undefined && scriptPath !== ''}
 		<Button
 			color="light"

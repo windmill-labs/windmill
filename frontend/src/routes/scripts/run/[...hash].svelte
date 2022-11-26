@@ -23,7 +23,7 @@
 	import { inferArgs } from '$lib/infer'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
 	import RunForm from '$lib/components/RunForm.svelte'
-	import { Alert, Badge, Button, Skeleton } from '$lib/components/common'
+	import { Alert, Badge, Button, Kbd, Skeleton } from '$lib/components/common'
 	import SharedBadge from '$lib/components/SharedBadge.svelte'
 	import SvelteMarkdown from 'svelte-markdown'
 	import { faPlay, faScroll } from '@fortawesome/free-solid-svg-icons'
@@ -128,7 +128,7 @@
 								<Button
 									startIcon={{ icon: faPlay }}
 									disabled={runForm == undefined || !isValid}
-									on:click={() => runForm?.run()}>Run (Ctrl+Enter)</Button
+									on:click={() => runForm?.run()}>Run <Kbd class="ml-2">Ctrl+Enter</Kbd></Button
 								>
 							</div>
 						</div>
