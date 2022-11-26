@@ -222,7 +222,7 @@
 			</Button>
 		</div>
 	</PageHeader>
-	<div class="overflow-x-auto pb-40 pr-4">
+	<div class="overflow-x-auto pb-40">
 		{#if loading.resources}
 			<Skeleton layout={[0.5, [2], 1]} />
 			{#each new Array(6) as _}
