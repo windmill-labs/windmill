@@ -1969,6 +1969,18 @@
     },
     "query": "SELECT email, login_type::text, verified, super_admin, name, company from password LIMIT $1 OFFSET $2"
   },
+  "7aef087f9e10dd32417477109b97c99b85d68ce1be2bafdc145aed0aa8e5d989": {
+    "describe": {
+      "columns": [],
+      "nullable": [],
+      "parameters": {
+        "Left": [
+          "Varchar"
+        ]
+      }
+    },
+    "query": "INSERT INTO workspace_invite\n                (workspace_id, email, is_admin)\n                VALUES ('demo', $1, false)\n                ON CONFLICT DO NOTHING"
+  },
   "7b1239ad6460e8f5fb41bfe12f662a779528784ec8cf3f6dcce5545ab90bf234": {
     "describe": {
       "columns": [
@@ -3019,6 +3031,18 @@
     },
     "query": "INSERT INTO token\n            (token, email, label, expiration, super_admin)\n            VALUES ($1, $2, $3, now() + ($4 || ' hours')::interval, $5)"
   },
+  "b081cd4ddd24e8510efaeb8a1dc921e1f208216cbf32402e8a65a3a260219628": {
+    "describe": {
+      "columns": [],
+      "nullable": [],
+      "parameters": {
+        "Left": [
+          "Text"
+        ]
+      }
+    },
+    "query": "DELETE FROM workspace_invite WHERE email = $1"
+  },
   "b1d619ba58b58805308bcf1d5c46a3c1998a52c63aeb7c06f4c2a34916702537": {
     "describe": {
       "columns": [],
@@ -3753,18 +3777,6 @@
       }
     },
     "query": "UPDATE app SET versions = array_append(versions, $1) WHERE path = $2 AND workspace_id = $3"
-  },
-  "dd60eb23701e97460e307b6152404e939e5bbf22d425cadd876f629134c4a683": {
-    "describe": {
-      "columns": [],
-      "nullable": [],
-      "parameters": {
-        "Left": [
-          "Varchar"
-        ]
-      }
-    },
-    "query": "INSERT INTO workspace_invite\n            (workspace_id, email, is_admin)\n            VALUES ('demo', $1, false)"
   },
   "df8f9b2e601b0157759e9507308ea7df562a7a42516be0fcb465b8e34de0f438": {
     "describe": {
