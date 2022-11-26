@@ -30,7 +30,8 @@
 		faShare,
 		faTrash,
 		faCircle,
-		faChain
+		faChain,
+		faSave
 	} from '@fortawesome/free-solid-svg-icons'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
 	import Icon from 'svelte-awesome'
@@ -202,7 +203,7 @@
 		</div>
 		<div slot="submission">
 			{#if typeDrawerMode === 'create'}
-				<Button on:click={addResourceType}>Save</Button>
+				<Button startIcon={{ icon: faSave }} on:click={addResourceType}>Save</Button>
 			{/if}
 		</div>
 	</DrawerContent>
@@ -214,10 +215,10 @@
 		tooltip="Save and permission rich objects (JSON) including credentials obtained through OAuth."
 	>
 		<div class="flex flex-row space-x-4">
-			<Button size="sm" startIcon={{ icon: faChain }} on:click={() => appConnect.open()}>
+			<Button size="md" startIcon={{ icon: faChain }} on:click={() => appConnect.open()}>
 				Connect an API
 			</Button>
-			<Button size="sm" startIcon={{ icon: faPlus }} on:click={() => resourceEditor?.initNew()}>
+			<Button size="md" startIcon={{ icon: faPlus }} on:click={() => resourceEditor?.initNew()}>
 				Add a resource
 			</Button>
 		</div>
@@ -335,7 +336,7 @@
 		primary={false}
 		tooltip="Schema and label to filter resources by type"
 	>
-		<Button size="sm" startIcon={{ icon: faPlus }} on:click={startNewType}>Add a type</Button>
+		<Button size="md" startIcon={{ icon: faPlus }} on:click={startNewType}>Add a type</Button>
 	</PageHeader>
 
 	{#if loading.types}

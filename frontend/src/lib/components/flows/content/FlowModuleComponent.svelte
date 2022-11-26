@@ -163,7 +163,7 @@
 				style="max-height: calc(100% - {totalTopGap}px) !important;"
 			>
 				<Splitpanes horizontal>
-					<Pane size={50} minSize={20}>
+					<Pane size={flowModule.value.type === 'script' ? 30 : 50} minSize={20}>
 						{#if flowModule.value.type === 'rawscript'}
 							<div class="h-full">
 								<Editor
@@ -192,7 +192,7 @@
 							<FlowModuleScript path={flowModule.value.path} />
 						{/if}
 					</Pane>
-					<Pane size={50} minSize={20}>
+					<Pane size={flowModule.value.type === 'script' ? 70 : 30} minSize={20}>
 						<Tabs bind:selected>
 							<Tab value="inputs"><span class="font-semibold">Step Input</span></Tab>
 							<Tab value="test"><span class="font-semibold text-md">Test this step</span></Tab>

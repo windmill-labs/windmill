@@ -79,7 +79,7 @@
 				placeholder="New group name"
 				bind:value={newGroupName}
 			/>
-			<Button size="sm" startIcon={{ icon: faPlus }} disabled={!newGroupName} on:click={addGroup}>
+			<Button size="md" startIcon={{ icon: faPlus }} disabled={!newGroupName} on:click={addGroup}>
 				New&nbsp;group
 			</Button>
 		</div>

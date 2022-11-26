@@ -36,7 +36,7 @@
 </script>
 
 <ResourceEditor bind:this={resourceEditor} on:refresh={() => loadResources(resourceType)} />
-<div class="flex flex-row gap-x-1">
+<div class="flex flex-row gap-x-1 w-full">
 	<Select
 		bind:justValue={value}
 		items={collection}

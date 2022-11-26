@@ -37,11 +37,11 @@
 </script>
 
 <div class="flex flex-col min-h-0">
-	<div class="w-12/12 pb-4">
+	<div class="w-12/12 pb-2">
 		<input type="text" placeholder="Search script" bind:value={itemsFilter} class="search-item" />
 	</div>
 
-	<div class="gap-2 w-full flex flex-wrap pb-4">
+	<div class="gap-2 w-full flex flex-wrap pb-2">
 		{#each apps as app}
 			<Badge
 				class="cursor-pointer"
@@ -67,18 +67,10 @@
 								dispatch('pick', obj)
 							}}
 						>
-							<div class="mr-2 text-sm text-left truncate w-24  shrink-0">
+							<div class="mr-2 text-sm text-left truncate w-36  shrink-0">
 								<IconedResourceType after={true} silent={false} name={obj['app']} />
 							</div>
-							<div class="flex flex-col">
-								<div class="text-sm font-semibold flex flex-col">
-									<span class="mr-2 text-left">{obj['summary'] ?? ''}</span>
-									<span class="font-normal text-xs text-left italic overflow-hidden"
-										>{obj['path'] ?? ''}</span
-									>
-								</div>
-								<div class="text-xs font-light italic text-left">{obj['description'] ?? ''}</div>
-							</div>
+							<div class="mr-2 text-left">{obj['summary'] ?? ''}</div>
 						</button>
 					</li>
 				{/each}

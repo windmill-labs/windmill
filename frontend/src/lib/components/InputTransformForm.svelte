@@ -151,7 +151,9 @@
 					}}
 				>
 					{#if isStaticTemplate(inputCat)}
-						<ToggleButton light position="left" value="static" size="xs">Template</ToggleButton>
+						<ToggleButton light position="left" value="static" size="xs">
+							{'${} '}Templatable</ToggleButton
+						>
 					{:else}
 						<ToggleButton light position="left" value="static" size="xs">Static</ToggleButton>
 					{/if}

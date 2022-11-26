@@ -79,7 +79,7 @@
 		title="Variables"
 		tooltip="Save and permission strings to be reused in Scripts and Flows."
 	>
-		<Button size="sm" startIcon={{ icon: faPlus }} on:click={() => variableEditor.initNew()}>
+		<Button size="md" startIcon={{ icon: faPlus }} on:click={() => variableEditor.initNew()}>
 			New&nbsp;variable
 		</Button>
 	</PageHeader>

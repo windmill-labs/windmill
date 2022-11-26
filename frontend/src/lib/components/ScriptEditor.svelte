@@ -194,7 +194,7 @@
 								classes: 'animate-none'
 							}}
 						>
-							{#if testIsLoading}Running{:else}Test <Kbd class="ml-4">Ctrl+Enter</Kbd>{/if}
+							{#if testIsLoading}Running{:else}Test <Kbd class="ml-4 text-5xs">Ctrl+Enter</Kbd>{/if}
 						</Button>
 					{/if}
 				</div>
