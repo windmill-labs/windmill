@@ -48,7 +48,7 @@
 
 <!-- Buttons -->
 <div class="flex flex-row gap-2">
-	<ButtonPopup size="sm" startIcon={{ icon: faPlus }} href="/flows/add">
+	<ButtonPopup size="md" startIcon={{ icon: faPlus }} href="/flows/add">
 		<svelte:fragment slot="main">New Flow</svelte:fragment>
 		<ButtonPopupItem on:click={() => drawers.hub?.openDrawer()}>
 			Import flow from WindmillHub

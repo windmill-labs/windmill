@@ -60,27 +60,23 @@
 	$: value && valueToPath()
 </script>
 
-<div class="flex flex-col w-full flex-wrap gap-x-2 gap-y-0.5">
-	<div class="shrink flex flex-row justify-center">
-		<div>
-			<ToggleButtonGroup
-				bind:selected={option}
-				on:selected={(e) => {
-					if (e.detail === 'resource') {
-						resourceToValue()
-					} else {
-						argToValue()
-					}
-				}}
-			>
-				<ToggleButton light position="left" value="resource" size="xs"
-					>Resource ({resourceTypeName})</ToggleButton
-				>
-				<ToggleButton light position="right" value="raw" size="xs">Raw</ToggleButton>
-			</ToggleButtonGroup>
-		</div>
-	</div>
-	<div>
+<div class="flex flex-row w-full flex-wrap gap-x-2 gap-y-0.5">
+	<ToggleButtonGroup
+		col
+		bind:selected={option}
+		on:selected={(e) => {
+			if (e.detail === 'resource') {
+				resourceToValue()
+			} else {
+				argToValue()
+			}
+		}}
+	>
+		<ToggleButton light position="center" value="resource" size="xs">Resource</ToggleButton>
+		<ToggleButton light position="center" value="raw" size="xs">Raw</ToggleButton>
+	</ToggleButtonGroup>
+
+	<div class="grow flex items-center">
 		{#if option == 'resource'}
 			<ResourcePicker
 				on:refresh={() => loadSchema(format)}

@@ -16,6 +16,7 @@
 	import autosize from 'svelte-autosize'
 	import SimpleEditor from './SimpleEditor.svelte'
 	import AppConnect from './AppConnect.svelte'
+	import { faSave } from '@fortawesome/free-solid-svg-icons'
 
 	let path = ''
 	let initialPath = ''
@@ -240,7 +241,9 @@
 				</Button>
 			{:else}
 				<Button variant="border" on:click={() => (step = 1)}>Back</Button>
-				<Button on:click={resourceAction} disabled={!isValid}>Save</Button>
+				<Button startIcon={{ icon: faSave }} on:click={resourceAction} disabled={!isValid}
+					>Save</Button
+				>
 			{/if}
 		</span>
 	</DrawerContent>

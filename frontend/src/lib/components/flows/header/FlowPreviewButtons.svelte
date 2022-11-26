@@ -32,7 +32,7 @@
 			previewOpen = !previewOpen
 		}}
 		size="sm"
-		endIcon={{ icon: faPlay }}
+		startIcon={{ icon: faPlay }}
 	>
 		Test flow
 	</Button>
@@ -46,7 +46,7 @@
 				previewMode = 'upTo'
 				previewOpen = !previewOpen
 			}}
-			endIcon={{ icon: faPlay }}
+			startIcon={{ icon: faPlay }}
 		>
 			Test up to
 			<Badge baseClass="ml-1" color="indigo">
