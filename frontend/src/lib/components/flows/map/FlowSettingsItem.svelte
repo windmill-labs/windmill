@@ -5,6 +5,7 @@
 	import { faCalendarAlt, faSliders } from '@fortawesome/free-solid-svg-icons'
 	import { classNames } from '$lib/utils'
 	import { Badge } from '$lib/components/common'
+	import { flowStore } from '../flowStore'
 
 	const { select, selectedId, schedule } = getContext<FlowEditorContext>('FlowEditorContext')
 
@@ -17,19 +18,19 @@
 <!-- svelte-ignore a11y-click-events-have-key-events -->
 <div on:click={() => select('settings')} class={settingsClass}>
 	<Icon data={faSliders} class="mr-2" />
-	<span
-		class="text-xs font-bold flex flex-row justify-between w-full  gap-2 items-center flex-wrap truncate"
-	>
+	<span class="text-xs font-bold flex flex-row justify-between w-full gap-2 items-center truncate">
 		Settings
 		<span
 			class={classNames('badge', $schedule?.enabled ? 'badge-on' : 'badge-off')}
 			on:click|stopPropagation={() => select('settings-schedule')}
 		>
 			{#if $schedule?.enabled}
-				<Badge color="gray"
-					>{$schedule.cron}
-					<Icon class={$schedule.cron ? 'ml-2' : ''} data={faCalendarAlt} scale={0.8} />
+				<Badge color="gray" baseClass="truncate">
+					<Icon data={faCalendarAlt} scale={0.8} />
 				</Badge>
+			{/if}
+			{#if $flowStore.value.same_worker}
+				<Badge color="blue" baseClass="truncate">same worker</Badge>
 			{/if}
 		</span>
 	</span>

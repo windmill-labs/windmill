@@ -238,7 +238,7 @@
 									<div class="p-4  h-full overflow-auto">
 										<Alert type="info" title="Share a directory using same worker">
 											If same worker is set, all steps will be run on the same worker and will share
-											the folder `/shared` to pass data between each other.
+											the folder `./shared` to pass data between each other.
 										</Alert>
 										<Button
 											btnClasses="mt-4"
