@@ -8,7 +8,7 @@
 
 <script lang="ts">
 	import { canWrite, emptySchema, sendUserToast, truncate } from '$lib/utils'
-	import { ResourceService, VariableService } from '$lib/gen'
+	import { OauthService, ResourceService, VariableService, type ListableResource } from '$lib/gen'
 	import type { Resource, ResourceType } from '$lib/gen'
 	import PageHeader from '$lib/components/PageHeader.svelte'
 	import ResourceEditor from '$lib/components/ResourceEditor.svelte'
@@ -31,7 +31,8 @@
 		faTrash,
 		faCircle,
 		faChain,
-		faSave
+		faSave,
+		faRefresh
 	} from '@fortawesome/free-solid-svg-icons'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
 	import Icon from 'svelte-awesome'
@@ -47,7 +48,7 @@
 	import Toggle from '$lib/components/Toggle.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 
-	type ResourceW = Resource & { canWrite: boolean }
+	type ResourceW = ListableResource & { canWrite: boolean }
 	type ResourceTypeW = ResourceType & { canWrite: boolean }
 
 	let resources: ResourceW[] | undefined
@@ -94,9 +95,9 @@
 		loading.types = false
 	}
 
-	async function deleteResource(path: string, is_oauth: boolean): Promise<void> {
-		if (is_oauth) {
-			await VariableService.deleteVariable({ workspace: $workspaceStore!, path })
+	async function deleteResource(path: string, account?: number): Promise<void> {
+		if (account) {
+			OauthService.disconnectAccount({ workspace: $workspaceStore!, id: account })
 		}
 		await ResourceService.deleteResource({ workspace: $workspaceStore!, path })
 		loadResources()
@@ -253,12 +254,12 @@
 					<th>path</th>
 					<th>resource type</th>
 					<th>description</th>
-					<th>OAuth</th>
+					<th />
 					<th />
 				</tr>
 				<tbody slot="body">
 					{#if resources}
-						{#each resources as { path, description, resource_type, extra_perms, canWrite, is_oauth }}
+						{#each resources as { path, description, resource_type, extra_perms, canWrite, is_oauth, is_linked, account, refresh_error, is_expired }}
 							<tr>
 								<td class="my-12"
 									><a
@@ -285,20 +286,74 @@
 									></td
 								>
 								<td class="text-center">
-									{#if is_oauth}
-										<Popover>
-											<Icon
-												class="text-green-600 animate-[pulse_5s_linear_infinite]"
-												data={faCircle}
-												scale={0.7}
-												label="Variable is tied to an OAuth app"
-											/>
-											<div slot="text">
-												The resource is tied to an OAuth app. The token is refreshed automatically
-												if applicable.
+									<div class="flex flex-row">
+										<div class="w-10">
+											{#if is_linked}
+												<Popover>
+													<Icon data={faChain} />
+													<div slot="text">
+														This resource is linked with a variable of the same path. They are
+														deleted and renamed together.
+													</div>
+												</Popover>
+											{/if}
+										</div>
+										<div class="w-10">
+											{#if account}
+												<Popover>
+													<Icon data={faRefresh} />
+													<div slot="text">
+														The OAuth token is kept up-to-date in the background by Windmill using
+														its refresh token
+													</div>
+												</Popover>
+											{/if}
+										</div>
+
+										{#if is_oauth}
+											<div class="w-10">
+												{#if refresh_error}
+													<Popover>
+														<Icon
+															class="text-red-600 animate-[pulse_5s_linear_infinite]"
+															data={faCircle}
+															scale={0.7}
+															label="Error during exchange of the refresh token"
+														/>
+														<div slot="text">
+															Latest exchange of the refresh token did not succeed. Error: {refresh_error}
+														</div>
+													</Popover>
+												{:else if is_expired}
+													<Popover>
+														<Icon
+															class="text-yellow-600 animate-[pulse_5s_linear_infinite]"
+															data={faCircle}
+															scale={0.7}
+															label="Variable is expired"
+														/>
+														<div slot="text">
+															The access_token is expired, it will get renewed the next time this
+															variable is fetched or you can request is to be refreshed in the
+															dropdown on the right.
+														</div>
+													</Popover>
+												{:else}
+													<Popover>
+														<Icon
+															class="text-green-600 animate-[pulse_5s_linear_infinite]"
+															data={faCircle}
+															scale={0.7}
+															label="Variable is tied to an OAuth app"
+														/>
+														<div slot="text">
+															The resource was connected through OAuth and the token is not expired.
+														</div>
+													</Popover>
+												{/if}
 											</div>
-										</Popover>
-									{/if}
+										{/if}
+									</div>
 								</td>
 								<td>
 									<Dropdown
@@ -326,14 +381,33 @@
 												type: 'delete',
 												action: (event) => {
 													if (event?.shiftKey) {
-														deleteResource(path, is_oauth)
+														deleteResource(path, account)
 													} else {
 														deleteConfirmedCallback = () => {
-															deleteResource(path, is_oauth)
+															deleteResource(path, account)
 														}
 													}
 												}
-											}
+											},
+											...(account != undefined
+												? [
+														{
+															displayName: 'Refresh token',
+															icon: faRefresh,
+															action: async () => {
+																await OauthService.refreshToken({
+																	workspace: $workspaceStore ?? '',
+																	id: account ?? 0,
+																	requestBody: {
+																		path
+																	}
+																})
+																sendUserToast('Token refreshed')
+																loadResources()
+															}
+														}
+												  ]
+												: [])
 										]}
 										relative={true}
 									/>

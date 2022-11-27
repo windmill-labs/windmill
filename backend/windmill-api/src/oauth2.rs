@@ -514,7 +514,7 @@ pub async fn _refresh_token<'c>(
     if let Err(token_err) = token {
         sqlx::query!(
             "UPDATE account SET refresh_error = $1 WHERE workspace_id = $2 AND id = $3",
-            token_err.to_string(),
+            token_err.alt(),
             w_id,
             id,
         )
@@ -522,8 +522,8 @@ pub async fn _refresh_token<'c>(
         .await?;
         tx.commit().await?;
         return Err(error::Error::BadRequest(format!(
-            "Error refreshing token: {:#?}",
-            token_err
+            "Error refreshing token: {}",
+            token_err.alt()
         )));
     };
 
@@ -676,14 +676,13 @@ async fn connect_slack_callback(
 
     sqlx::query!(
         "INSERT INTO resource
-            (workspace_id, path, value, description, resource_type, is_oauth)
-            VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT (workspace_id, path) DO UPDATE SET value = $3",
+            (workspace_id, path, value, description, resource_type)
+            VALUES ($1, $2, $3, $4, $5) ON CONFLICT (workspace_id, path) DO UPDATE SET value = $3",
         w_id,
         token_path,
         serde_json::json!({ "token": format!("$var:{token_path}") }),
         "The slack bot token to act on behalf of the installed app of the connected workspace",
         "slack",
-        true
     )
     .execute(&mut tx)
     .await?;

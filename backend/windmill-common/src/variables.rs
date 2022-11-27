@@ -27,9 +27,10 @@ pub struct ListableVariable {
     pub description: String,
     pub extra_perms: serde_json::Value,
     pub account: Option<i32>,
-    pub is_oauth: bool,
+    pub is_oauth: Option<bool>,
     pub is_expired: Option<bool>,
     pub refresh_error: Option<String>,
+    pub is_linked: Option<bool>,
 }
 
 #[derive(Deserialize)]

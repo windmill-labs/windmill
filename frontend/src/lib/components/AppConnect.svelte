@@ -151,8 +151,7 @@
 					resource_type,
 					path,
 					value: resourceValue,
-					description,
-					is_oauth: !manual
+					description
 				}
 			})
 			dispatch('refresh')
