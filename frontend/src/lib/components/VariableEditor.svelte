@@ -70,7 +70,7 @@
 			decryptSecret: true
 		})
 		variable.value = getV.value ?? ''
-		editor?.getCode(variable.value)
+		editor?.setCode(variable.value)
 	}
 
 	const MAX_VARIABLE_LENGTH = 3000
