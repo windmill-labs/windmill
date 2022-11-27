@@ -5,6 +5,7 @@
 	import { getContext } from 'svelte'
 	import type { AppComponent, AppEditorContext } from '../../types'
 	import { defaultProps } from '../componentsPanel/componentDefaultProps'
+	import PanelSection from './common/PanelSection.svelte'
 	import ComponentPanel from './ComponentPanel.svelte'
 
 	export let components: AppComponent[]
@@ -23,22 +24,25 @@
 				label: {
 					type: 'static',
 					visible: true,
-					value: 'Lorem ipsum',
-					fieldType: 'textarea'
+					value: 'Action',
+					fieldType: 'textarea',
+					defaultValue: 'Action'
 				},
 				color: {
 					fieldType: 'select',
 					type: 'static',
 					visible: true,
-					value: 'blue',
-					optionValuesKey: 'buttonColorOptions'
+					value: 'dark',
+					optionValuesKey: 'buttonColorOptions',
+					defaultValue: 'dark'
 				},
 				size: {
 					fieldType: 'select',
 					type: 'static',
 					visible: true,
-					value: 'md',
-					optionValuesKey: 'buttonSizeOptions'
+					value: 'xs',
+					optionValuesKey: 'buttonSizeOptions',
+					defaultValue: 'xs'
 				}
 			},
 			runnable: true
@@ -48,10 +52,21 @@
 	}
 </script>
 
-<Button size="xs" color="dark" startIcon={{ icon: faPlus }} on:click={addComponent}>
-	Create an action
-</Button>
-
-{#each components as component}
-	<ComponentPanel {component} />
-{/each}
+<PanelSection title="Table actions">
+	<svelte:fragment slot="action">
+		<Button size="xs" color="dark" startIcon={{ icon: faPlus }} on:click={addComponent}>
+			Create an action
+		</Button>
+	</svelte:fragment>
+	{#each components as component}
+		<div class="w-full border">
+			<div class="border-b py-1 px-2 text-sm text-white bg-gray-500">Component: {component.id}</div>
+			<ComponentPanel
+				bind:component
+				onDelete={() => {
+					components = components.filter((c) => c.id !== component.id)
+				}}
+			/>
+		</div>
+	{/each}
+</PanelSection>

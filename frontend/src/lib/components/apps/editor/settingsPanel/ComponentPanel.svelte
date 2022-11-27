@@ -21,18 +21,27 @@
 	import TableActions from './TableActions.svelte'
 
 	export let component: AppComponent | undefined
+	export let onDelete: (() => void) | undefined = undefined
 
 	const { app, staticOutputs } = getContext<AppEditorContext>('AppEditorContext')
 
 	function removeGridElement() {
-		if (component) {
-			const COLS = 6
-			$app.grid = $app.grid.filter((gridComponent) => gridComponent.data.id !== component?.id)
-			$app.grid = gridHelp.adjust($app.grid, COLS)
-
-			// Delete static inputs
+		if (onDelete && component) {
 			delete $staticOutputs[component.id]
 			$staticOutputs = $staticOutputs
+
+			onDelete()
+			// Delete static inputs
+		} else {
+			if (component) {
+				const COLS = 6
+				$app.grid = $app.grid.filter((gridComponent) => gridComponent.data.id !== component?.id)
+				$app.grid = gridHelp.adjust($app.grid, COLS)
+
+				// Delete static inputs
+				delete $staticOutputs[component.id]
+				$staticOutputs = $staticOutputs
+			}
 		}
 	}
 </script>
@@ -115,9 +124,7 @@
 		{/if}
 
 		{#if component.type === 'tablecomponent' && Array.isArray(component.components)}
-			<PanelSection title="Inner runnnbles" root={false}>
-				<TableActions bind:components={component.components} />
-			</PanelSection>
+			<TableActions bind:components={component.components} />
 		{/if}
 
 		{#if component.verticalAlignment !== undefined}
@@ -158,7 +165,7 @@
 				startIcon={{ icon: faTrashAlt }}
 				on:click={removeGridElement}
 			>
-				Delete component
+				Delete component: {component.id}
 			</Button>
 		</PanelSection>
 	</div>
