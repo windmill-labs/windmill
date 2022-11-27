@@ -62,7 +62,7 @@
 			<Alert title="Demo workspace">The demo workspace shared in which all users get invited.</Alert
 			>
 		{:else if $workspaceStore == 'starter'}
-			<Alert title="Demo workspace"
+			<Alert title="Stater workspace"
 				>The starter workspace has all its elements (variables, resources, scripts, flows) shared
 				across all other workspaces. Useful to seed workspace with common elements within your
 				organization.</Alert
