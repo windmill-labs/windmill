@@ -13,6 +13,7 @@
 	export let retry: boolean = false
 	export let earlyStop: boolean = false
 	export let suspend: boolean = false
+	export let sleep: boolean = false
 	export let bold: boolean = false
 	export let id: string | undefined = undefined
 	export let label: string
@@ -48,7 +49,7 @@
 					<Icon scale={0.8} data={faStop} />
 				</div>
 			{/if}
-			{#if suspend}
+			{#if suspend || sleep}
 				<div class="bg-white rounded border text-gray-600 px-1">
 					<Icon scale={0.8} data={faBed} />
 				</div>
