@@ -6,12 +6,14 @@
 	import { workspaceStore } from '$lib/stores'
 	import Required from './Required.svelte'
 	import Tooltip from './Tooltip.svelte'
-	import { Button } from './common'
+	import { Button, ToggleButton, ToggleButtonGroup } from './common'
 	import Drawer from './common/drawer/Drawer.svelte'
 	import DrawerContent from './common/drawer/DrawerContent.svelte'
 	import Alert from './common/alert/Alert.svelte'
 	import autosize from 'svelte-autosize'
 	import Toggle from './Toggle.svelte'
+	import { faSave } from '@fortawesome/free-solid-svg-icons'
+	import SimpleEditor from './SimpleEditor.svelte'
 
 	const dispatch = createEventDispatcher()
 
@@ -114,9 +116,10 @@
 			sendUserToast(`Could not update variable: ${err.body}`, true)
 		}
 	}
+	let editorKind: 'plain' | 'json' | 'yaml' = 'plain'
 </script>
 
-<Drawer bind:this={drawer}>
+<Drawer bind:this={drawer} size="900px">
 	<DrawerContent
 		title={edit ? `Update variable at ${initialPath}` : 'Add a variable'}
 		on:close={drawer.closeDrawer}
@@ -136,28 +139,15 @@
 				<div class="mt-4">
 					<Toggle bind:checked={variable.is_secret} options={{ right: 'Secret' }} />
 					{#if variable.is_secret}
-						<Alert type="warning" title="Not visible after this">
-							If the variable is a secret, you will not be able to read the value of it from the
-							variable editor UI but only within scripts.
-							<Tooltip>
-								Within scripts, every read of the value create the audit log:
-								'variables.decrypt_secret'
-							</Tooltip>
+						<Alert type="warning" title="Audit log for each access">
+							Every secret is encrypted at rest and in transit with a key specific to this
+							workspace. In addition, any read of a secret variable generates an audit log whose
+							operation name is: variables.decrypt_secret
 						</Alert>
 					{/if}
 				</div>
 			</div>
-			<!-- 
-			{#if variable.is_secret}
-				<div class="mb-1 col-span-10">
-					<Password
-						bind:password={variable.value}
-						placeholder={'******** (only fill to update value)'}
-						label={`<span class="font-semibold text-gray-700">Secret value</span>
-							<span class="text-sm text-gray-500">(${variable.value.length}/3000 characters)</span>`}
-					/>
-				</div>
-			{:else} -->
+
 			<div>
 				<div class="mb-1">
 					<span class="font-semibold text-gray-700">Variable value</span>
@@ -165,17 +155,34 @@
 					{#if edit && variable.is_secret}<Button
 							variant="border"
 							size="xs"
-							on:click={() => loadVariable(initialPath)}
-							>Load secret value (generate audit log)</Button
+							on:click={() => loadVariable(initialPath)}>Load secret value</Button
 						>{/if}
 				</div>
-				<textarea
-					rows="4"
-					type="text"
-					use:autosize
-					bind:value={variable.value}
-					placeholder="Update variable value"
-				/>
+				<div class="flex flex-row">
+					{#if editorKind == 'plain'}
+						<textarea
+							rows="4"
+							type="text"
+							use:autosize
+							bind:value={variable.value}
+							placeholder="Update variable value"
+						/>
+					{:else if editorKind == 'json'}
+						<div class="border rounded mb-4 w-full border-gray-700">
+							<SimpleEditor autoHeight lang="json" bind:code={variable.value} />
+						</div>
+					{:else if editorKind == 'yaml'}
+						<div class="border rounded mb-4 w-full border-gray-700">
+							<SimpleEditor autoHeight lang="yaml" bind:code={variable.value} />
+						</div>
+					{/if}
+
+					<ToggleButtonGroup col bind:selected={editorKind}>
+						<ToggleButton light position="center" value="plain" size="xs">Plain</ToggleButton>
+						<ToggleButton light position="center" value="json" size="xs">Json</ToggleButton>
+						<ToggleButton light position="center" value="yaml" size="xs">YAML</ToggleButton>
+					</ToggleButtonGroup>
+				</div>
 			</div>
 			<!-- {/if} -->
 
@@ -197,8 +204,10 @@
 			<Button
 				on:click={() => (edit ? updateVariable() : createVariable())}
 				disabled={!valid || pathError != ''}
+				btnClasses="mr-2"
+				startIcon={{ icon: faSave }}
 			>
-				{edit ? 'Save' : 'Add'}
+				{edit ? 'Update' : 'Save'}
 			</Button>
 		</div>
 	</DrawerContent>

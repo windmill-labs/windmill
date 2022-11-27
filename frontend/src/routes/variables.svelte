@@ -102,7 +102,7 @@
 					<th />
 				</tr>
 				<tbody slot="body">
-					{#each variables as { path, value, is_secret, description, extra_perms, canWrite, account, is_oauth }}
+					{#each variables as { path, value, is_secret, description, extra_perms, canWrite, account, is_oauth, is_expired, refresh_error }}
 						<tr>
 							<td
 								><a
@@ -137,18 +137,45 @@
 
 							<td class="text-center">
 								{#if is_oauth}
-									<Popover>
-										<Icon
-											class="text-green-600 animate-[pulse_5s_linear_infinite]"
-											data={faCircle}
-											scale={0.7}
-											label="Variable is tied to an OAuth app"
-										/>
-										<div slot="text">
-											The variable is tied to an OAuth app. The token is refreshed automatically if
-											applicable.
-										</div>
-									</Popover>
+									{#if refresh_error}
+										<Popover>
+											<Icon
+												class="text-red-600 animate-[pulse_5s_linear_infinite]"
+												data={faCircle}
+												scale={0.7}
+												label="Error during exchange of the refresh token"
+											/>
+											<div slot="text">
+												Latest exchange of the refresh token did not succeed. Error: {refresh_error}
+											</div>
+										</Popover>
+									{:else if is_expired}
+										<Popover>
+											<Icon
+												class="text-yellow-600 animate-[pulse_5s_linear_infinite]"
+												data={faCircle}
+												scale={0.7}
+												label="Variable is expired"
+											/>
+											<div slot="text">
+												The access_token is expired, it will get renewed the next time this variable
+												is fetched or you can request is to be refreshed in the variable dropdown.
+											</div>
+										</Popover>
+									{:else}
+										<Popover>
+											<Icon
+												class="text-green-600 animate-[pulse_5s_linear_infinite]"
+												data={faCircle}
+												scale={0.7}
+												label="Variable is tied to an OAuth app"
+											/>
+											<div slot="text">
+												The variable is tied to an OAuth app. The token is refreshed automatically
+												if applicable.
+											</div>
+										</Popover>
+									{/if}
 								{/if}
 							</td>
 							<td
