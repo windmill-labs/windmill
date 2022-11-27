@@ -70,6 +70,7 @@
 			decryptSecret: true
 		})
 		variable.value = getV.value ?? ''
+		editor?.getCode(variable.value)
 	}
 
 	const MAX_VARIABLE_LENGTH = 3000
@@ -117,6 +118,7 @@
 		}
 	}
 	let editorKind: 'plain' | 'json' | 'yaml' = 'plain'
+	let editor: SimpleEditor | undefined = undefined
 </script>
 
 <Drawer bind:this={drawer} size="900px">
@@ -170,11 +172,11 @@
 						/>
 					{:else if editorKind == 'json'}
 						<div class="border rounded mb-4 w-full border-gray-700">
-							<SimpleEditor autoHeight lang="json" bind:code={variable.value} />
+							<SimpleEditor bind:this={editor} autoHeight lang="json" bind:code={variable.value} />
 						</div>
 					{:else if editorKind == 'yaml'}
 						<div class="border rounded mb-4 w-full border-gray-700">
-							<SimpleEditor autoHeight lang="yaml" bind:code={variable.value} />
+							<SimpleEditor bind:this={editor} autoHeight lang="yaml" bind:code={variable.value} />
 						</div>
 					{/if}
 
