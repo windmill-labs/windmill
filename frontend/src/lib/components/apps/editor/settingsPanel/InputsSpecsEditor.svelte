@@ -1,15 +1,19 @@
 <script lang="ts">
-	import { ToggleButton, ToggleButtonGroup } from '$lib/components/common'
-	import { classNames } from '$lib/utils'
+	import { Badge, ToggleButton, ToggleButtonGroup } from '$lib/components/common'
+	import { capitalize, classNames } from '$lib/utils'
 	import { faBolt, faLink, faUser } from '@fortawesome/free-solid-svg-icons'
 	import type { InputsSpec } from '../../types'
+	import { fieldTypeToTsType } from '../../utils'
 	import InputsSpecEditor from './InputsSpecEditor.svelte'
 
 	export let inputSpecs: InputsSpec
+	export let userInputEnabled: boolean = true
 
-	const userTypeKeys = ['schemaProperty', 'defaultValue', 'value']
+	let openedProp: string | undefined = Object.keys(inputSpecs)[0]
+
+	const userTypeKeys = ['value']
 	const staticTypeKeys = ['value']
-	const dynamicTypeKeys = ['id', 'name', 'defaultValue']
+	const dynamicTypeKeys = ['id', 'name']
 
 	function sanitizeInputSpec(type: 'user' | 'static' | 'output', inputSpecKey: string) {
 		const inputSpec = inputSpecs[inputSpecKey]
@@ -38,42 +42,65 @@
 
 		inputSpecs[inputSpecKey] = inputSpec
 	}
-
-	let openedProp = Object.keys(inputSpecs)[0]
 </script>
 
-<div class="w-full flex flex-col gap-4">
-	{#each Object.keys(inputSpecs) as inputSpecKey}
-		<!-- svelte-ignore a11y-click-events-have-key-events -->
-		<div
-			class={classNames(
-				'w-full text-xs font-bold  border rounded-md py-1 px-2 cursor-pointer hover:bg-gray-800 hover:text-white transition-all',
-				openedProp !== inputSpecKey ? 'bg-gray-200 ' : 'bg-gray-600 text-gray-300'
-			)}
-			on:click={() => {
-				openedProp = inputSpecKey
-			}}
-		>
-			{inputSpecKey}
-		</div>
-		{#if inputSpecKey === openedProp}
-			<div class="flex flex-col w-full gap-2">
-				<ToggleButtonGroup
-					bind:selected={inputSpecs[inputSpecKey].type}
-					on:select={(x) => sanitizeInputSpec(x.detail, inputSpecKey)}
-				>
-					<ToggleButton position="left" value="static" startIcon={{ icon: faBolt }} size="xs">
-						Static
-					</ToggleButton>
-					<ToggleButton position="center" value="output" startIcon={{ icon: faLink }} size="xs">
-						Dynamic
-					</ToggleButton>
-					<ToggleButton position="right" value="user" startIcon={{ icon: faUser }} size="xs">
-						User
-					</ToggleButton>
-				</ToggleButtonGroup>
-				<InputsSpecEditor bind:appInputTransform={inputSpecs[inputSpecKey]} canHide />
+<div class="w-full flex flex-col gap-2">
+	{#each Object.keys(inputSpecs) as inputSpecKey, index (index)}
+		{@const input = inputSpecs[inputSpecKey]}
+
+		<div>
+			<div
+				class={classNames(
+					'w-full text-xs font-bold py-1.5 px-2 cursor-pointer transition-all justify-between flex items-center border border-gray-3 rounded-md',
+					openedProp === inputSpecKey
+						? 'bg-gray-700 hover:bg-gray-900 focus:bg-gray-900 text-white'
+						: 'bg-white border-gray-300  hover:bg-gray-100 focus:bg-gray-100 text-gray-700'
+				)}
+				on:keypress
+				on:click={() => {
+					if (openedProp === inputSpecKey) {
+						openedProp = undefined
+					} else {
+						openedProp = inputSpecKey
+					}
+				}}
+			>
+				{inputSpecKey}
+				{#if input.fieldType}
+					<Badge color={openedProp === inputSpecKey ? 'dark-blue' : 'blue'}>
+						{capitalize(fieldTypeToTsType(input.fieldType))}
+					</Badge>
+				{/if}
 			</div>
-		{/if}
+			{#if inputSpecKey === openedProp}
+				<div class="flex flex-col w-full gap-2 my-2">
+					<ToggleButtonGroup
+						bind:selected={inputSpecs[inputSpecKey].type}
+						on:selected={({ detail }) => sanitizeInputSpec(detail, inputSpecKey)}
+					>
+						<ToggleButton position="left" value="static" startIcon={{ icon: faBolt }} size="xs">
+							Static
+						</ToggleButton>
+						<ToggleButton
+							position={userInputEnabled ? 'center' : 'right'}
+							value="output"
+							startIcon={{ icon: faLink }}
+							size="xs"
+						>
+							Dynamic
+						</ToggleButton>
+						{#if userInputEnabled}
+							<ToggleButton position="right" value="user" startIcon={{ icon: faUser }} size="xs">
+								User
+							</ToggleButton>
+						{/if}
+					</ToggleButtonGroup>
+					<InputsSpecEditor
+						bind:appInputTransform={inputSpecs[inputSpecKey]}
+						canHide={userInputEnabled}
+					/>
+				</div>
+			{/if}
+		</div>
 	{/each}
 </div>
