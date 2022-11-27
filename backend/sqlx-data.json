@@ -146,6 +146,20 @@
     },
     "query": "DELETE FROM variable WHERE path = $1 AND workspace_id = $2"
   },
+  "09e2a19435068f9e9bfd5bcb44b4e283c71729f81550f6f7156ce4970345cc07": {
+    "describe": {
+      "columns": [],
+      "nullable": [],
+      "parameters": {
+        "Left": [
+          "Text",
+          "Text",
+          "Int4"
+        ]
+      }
+    },
+    "query": "UPDATE account SET refresh_error = $1 WHERE workspace_id = $2 AND id = $3"
+  },
   "0a7212dd507ed8f7a311724185e39ecc1809abb208a681ad711614c27baadd83": {
     "describe": {
       "columns": [

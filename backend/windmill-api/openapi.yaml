@@ -4128,6 +4128,10 @@ components:
           type: object
           additionalProperties:
             type: boolean
+        is_expired:
+          type: boolean
+        refresh_error:
+          type: string
       required:
         - workspace_id
         - path

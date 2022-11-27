@@ -82,11 +82,11 @@ async fn list_variables(
     let mut tx = user_db.begin(&authed).await?;
 
     let rows = sqlx::query_as::<_, ListableVariable>(
-        "SELECT workspace_id, path, CASE WHEN is_secret IS TRUE THEN null ELSE value::text END as \
-         value, is_secret, description, extra_perms, account, is_oauth, false as is_expired from \
-         variable
-         WHERE (workspace_id = $1 OR (is_secret IS NOT TRUE AND workspace_id = 'starter')) ORDER \
-         BY path",
+        "SELECT variable.workspace_id, path, CASE WHEN is_secret IS TRUE THEN null ELSE value::text END as value, 
+         is_secret, description, extra_perms, account, is_oauth, (now() > account.expires_at) as is_expired,
+         account.refresh_error from variable
+         LEFT JOIN account ON variable.account = account.id AND account.workspace_id = variable.workspace_id
+         WHERE variable.workspace_id = $1 OR (is_secret IS NOT TRUE AND variable.workspace_id = 'starter') ORDER BY path",
     )
     .bind(&w_id)
     .fetch_all(&mut tx)
@@ -113,7 +113,7 @@ async fn get_variable(
     let mut tx = user_db.begin(&authed).await?;
 
     let variable_o = sqlx::query_as::<_, ListableVariable>(
-        "SELECT variable.*, (now() > account.expires_at) as is_expired from variable
+        "SELECT variable.*, (now() > account.expires_at) as is_expired, account.refresh_error from variable
         LEFT JOIN account ON variable.account = account.id
         WHERE variable.path = $1 AND (variable.workspace_id = $2 OR (is_secret IS NOT TRUE AND \
          variable.workspace_id = 'starter')) 

@@ -509,18 +509,25 @@ pub async fn _refresh_token<'c>(
         .client)
         .to_owned();
 
-    let token_json = client
-        .exchange_refresh_token(&RefreshToken::from(account.refresh_token.clone()))
-        .with_client(&http_client)
-        .execute::<serde_json::Value>()
-        .await
-        .map_err(to_anyhow)?;
+    let token = _exchange_token(client, &account.refresh_token, http_client).await;
 
-    let token = serde_json::from_value::<TokenResponse>(token_json.clone()).map_err(|e| {
-        Error::BadConfig(format!(
-            "Error deserializing response as a new token: {e}\nresponse:{token_json}"
-        ))
-    })?;
+    if let Err(token_err) = token {
+        sqlx::query!(
+            "UPDATE account SET refresh_error = $1 WHERE workspace_id = $2 AND id = $3",
+            token_err.to_string(),
+            w_id,
+            id,
+        )
+        .execute(&mut tx)
+        .await?;
+        tx.commit().await?;
+        return Err(error::Error::BadRequest(format!(
+            "Error refreshing token: {:#?}",
+            token_err
+        )));
+    };
+
+    let token = token.unwrap();
 
     let expires_at = now_from_db(&mut tx).await?
         + chrono::Duration::seconds(
@@ -558,6 +565,25 @@ pub async fn _refresh_token<'c>(
     .await?;
     tx.commit().await?;
     Ok(token_str)
+}
+
+async fn _exchange_token(
+    client: OClient,
+    refresh_token: &str,
+    http_client: Client,
+) -> Result<TokenResponse, Error> {
+    let token_json = client
+        .exchange_refresh_token(&RefreshToken::from(refresh_token.clone()))
+        .with_client(&http_client)
+        .execute::<serde_json::Value>()
+        .await
+        .map_err(to_anyhow)?;
+    let token = serde_json::from_value::<TokenResponse>(token_json.clone()).map_err(|e| {
+        Error::BadConfig(format!(
+            "Error deserializing response as a new token: {e}\nresponse:{token_json}"
+        ))
+    })?;
+    Ok(token)
 }
 
 #[derive(Deserialize)]

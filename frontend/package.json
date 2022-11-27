@@ -71,6 +71,7 @@
 		"monaco-editor": "^0.34.1",
 		"monaco-editor-workers": "^0.34.2",
 		"monaco-languageclient": "4.0.1",
+		"monaco-yaml": "^4.0.2",
 		"set-interval-async": "^3.0.2",
 		"svelte-autosize": "^1.0.1",
 		"svelte-chartjs": "^3.1.0",
