@@ -61,6 +61,15 @@
 		drawer.openDrawer()
 	}
 
+	export async function loadVariable(path: string): Promise<void> {
+		const getV = await VariableService.getVariable({
+			workspace: $workspaceStore ?? '',
+			path,
+			decryptSecret: true
+		})
+		variable.value = getV.value ?? ''
+	}
+
 	const MAX_VARIABLE_LENGTH = 3000
 
 	$: valid = variable.value.length <= MAX_VARIABLE_LENGTH
@@ -152,14 +161,20 @@
 			<div>
 				<div class="mb-1">
 					<span class="font-semibold text-gray-700">Variable value</span>
-					<span class="text-sm text-gray-500">({variable.value.length}/3000 characters)</span>
+					<span class="text-sm text-gray-500 mr-4">({variable.value.length}/3000 characters)</span>
+					{#if edit && variable.is_secret}<Button
+							variant="border"
+							size="xs"
+							on:click={() => loadVariable(initialPath)}
+							>Load secret value (generate audit log)</Button
+						>{/if}
 				</div>
 				<textarea
 					rows="4"
 					type="text"
 					use:autosize
 					bind:value={variable.value}
-					placeholder="My variable value"
+					placeholder="Update variable value"
 				/>
 			</div>
 			<!-- {/if} -->

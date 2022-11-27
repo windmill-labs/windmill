@@ -14,7 +14,7 @@ export async function loadFlowSchedule(path: string, workspace: string = ''): Pr
 	})
 
 	if (!existsSchedule) {
-		throw new Error(`Flow at path: ${path} doesn't exit`)
+		throw new Error(`Flow at path: ${path} doesn't exist`)
 	}
 
 	const schedule = await ScheduleService.getSchedule({

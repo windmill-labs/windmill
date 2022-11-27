@@ -19,7 +19,7 @@
 	import ShareModal from '$lib/components/ShareModal.svelte'
 	import SharedBadge from '$lib/components/SharedBadge.svelte'
 	import SvelteMarkdown from 'svelte-markdown'
-	import { userStore, workspaceStore, oauthStore } from '$lib/stores'
+	import { userStore, workspaceStore, oauthStore, superadmin } from '$lib/stores'
 	import SchemaEditor from '$lib/components/SchemaEditor.svelte'
 	import type { Schema } from '$lib/common'
 	import SchemaViewer from '$lib/components/SchemaViewer.svelte'
@@ -30,7 +30,8 @@
 		faShare,
 		faTrash,
 		faCircle,
-		faChain
+		faChain,
+		faSave
 	} from '@fortawesome/free-solid-svg-icons'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
 	import Icon from 'svelte-awesome'
@@ -43,6 +44,8 @@
 	import Drawer from '$lib/components/common/drawer/Drawer.svelte'
 	import DrawerContent from '$lib/components/common/drawer/DrawerContent.svelte'
 	import Popover from '$lib/components/Popover.svelte'
+	import Toggle from '$lib/components/Toggle.svelte'
+	import Tooltip from '$lib/components/Tooltip.svelte'
 
 	type ResourceW = Resource & { canWrite: boolean }
 	type ResourceTypeW = ResourceType & { canWrite: boolean }
@@ -103,7 +106,7 @@
 		await ResourceService.createResourceType({
 			workspace: $workspaceStore!,
 			requestBody: {
-				name: 'c_' + newResourceTypeName,
+				name: (disableCustomPrefix ? '' : 'c_') + newResourceTypeName,
 				schema: newResourceTypeSchema,
 				description: newResourceTypeDescription
 			}
@@ -158,6 +161,8 @@
 			}
 		}
 	})
+
+	let disableCustomPrefix = false
 </script>
 
 <Drawer bind:this={resourceViewer} size="800px">
@@ -167,14 +172,28 @@
 				<div class="flex flex-col gap-6">
 					<label for="inp">
 						<div class="mb-1 font-semibold text-gray-700">Name<Required required={true} /></div>
-						<div>
-							<span
-								class="border border-gray-700 rounded p-1 -mr-4 text-sm bg-gray-200 inline-block w-8"
-								>c_</span
-							>
+						<div class="flex flex-row items-center gap-x-4">
+							{#if !disableCustomPrefix}
+								<span
+									class="border border-gray-700 rounded p-1 -mr-6 text-sm bg-gray-200 inline-block w-8"
+									>c_</span
+								>
+							{/if}
+
 							<div class="inline-block">
 								<input id="inp" type="text" bind:value={newResourceTypeName} />
 							</div>
+
+							{#if $userStore?.is_admin}
+								<Toggle
+									bind:checked={disableCustomPrefix}
+									options={{ right: 'disable c_ prefix (admin only)' }}
+								/>
+								<Tooltip
+									>Resource types are synchronized with the official types on the hub regularly. The
+									`c_` prefix is to avoid name clashes with them.</Tooltip
+								>
+							{/if}
 						</div>
 					</label>
 					<label>
@@ -202,7 +221,7 @@
 		</div>
 		<div slot="submission">
 			{#if typeDrawerMode === 'create'}
-				<Button on:click={addResourceType}>Save</Button>
+				<Button startIcon={{ icon: faSave }} on:click={addResourceType}>Save</Button>
 			{/if}
 		</div>
 	</DrawerContent>
@@ -214,15 +233,15 @@
 		tooltip="Save and permission rich objects (JSON) including credentials obtained through OAuth."
 	>
 		<div class="flex flex-row space-x-4">
-			<Button size="sm" startIcon={{ icon: faChain }} on:click={() => appConnect.open()}>
+			<Button size="md" startIcon={{ icon: faChain }} on:click={() => appConnect.open()}>
 				Connect an API
 			</Button>
-			<Button size="sm" startIcon={{ icon: faPlus }} on:click={() => resourceEditor?.initNew()}>
+			<Button size="md" startIcon={{ icon: faPlus }} on:click={() => resourceEditor?.initNew()}>
 				Add a resource
 			</Button>
 		</div>
 	</PageHeader>
-	<div class="overflow-x-auto pb-40 pr-4">
+	<div class="overflow-x-auto pb-40">
 		{#if loading.resources}
 			<Skeleton layout={[0.5, [2], 1]} />
 			{#each new Array(6) as _}
@@ -335,7 +354,7 @@
 		primary={false}
 		tooltip="Schema and label to filter resources by type"
 	>
-		<Button size="sm" startIcon={{ icon: faPlus }} on:click={startNewType}>Add a type</Button>
+		<Button size="md" startIcon={{ icon: faPlus }} on:click={startNewType}>Add a type</Button>
 	</PageHeader>
 
 	{#if loading.types}
@@ -369,7 +388,7 @@
 								>
 								<td
 									><span class="text-gray-500 text-xs"
-										><SvelteMarkdown source={truncate(description ?? '', 30)} /></span
+										><SvelteMarkdown source={truncate(description ?? '', 200)} /></span
 									></td
 								>
 								<td>

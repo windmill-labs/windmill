@@ -162,6 +162,7 @@
 					variant={step == 1 ? 'border' : 'contained'}
 					disabled={step === 1 && pathError !== ''}
 					btnClasses={step == 1 && initialPath == '' ? 'invisible' : ''}
+					startIcon={{ icon: faSave }}
 					on:click={editScript}>Save</Button
 				>
 			</div>

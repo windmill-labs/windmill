@@ -46,7 +46,7 @@
 
 <!-- Buttons -->
 <div class="flex flex-row gap-2">
-	<ButtonPopup size="sm" startIcon={{ icon: faPlus }} href="/scripts/add">
+	<ButtonPopup size="md" startIcon={{ icon: faPlus }} href="/scripts/add">
 		<svelte:fragment slot="main">New Script</svelte:fragment>
 		<ButtonPopupItem on:click={() => drawers.hub?.openDrawer()}>
 			Import script from WindmillHub

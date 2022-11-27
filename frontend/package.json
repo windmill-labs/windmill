@@ -1,6 +1,6 @@
 {
 	"name": "windmill",
-	"version": "1.50.0",
+	"version": "1.51.0",
 	"scripts": {
 		"dev": "vite dev",
 		"build": "vite build",
@@ -74,6 +74,7 @@
 		"set-interval-async": "^3.0.2",
 		"svelte-autosize": "^1.0.1",
 		"svelte-chartjs": "^3.1.0",
+		"svelte-select": "^5.0.0-beta.40",
 		"vscode-ws-jsonrpc": "^2.0.0"
 	}
 }

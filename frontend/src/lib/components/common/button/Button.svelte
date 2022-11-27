@@ -23,7 +23,6 @@
 	export let buttonType: 'button' | 'submit' | 'reset' = 'button'
 	export let loading = false
 
-
 	const dispatch = createEventDispatcher()
 	// Order of classes: border, border modifier, bg, bg modifier, text, text modifier, everything else
 	const colorVariants: Record<ButtonType.Color, Record<ButtonType.Variant, string>> = {
@@ -46,6 +45,12 @@
 			border:
 				'border-gray-800 hover:border-gray-900 focus:border-gray-900 bg-white hover:bg-gray-200 focus:bg-gray-200 text-gray-800 hover:text-gray-900 focus:text-gray-900 focus:ring-gray-300',
 			contained: 'bg-gray-700 hover:bg-gray-900 focus:bg-gray-900 text-white focus:ring-gray-300'
+		},
+		gray: {
+			border:
+				'border-gray-600 hover:border-gray-900 focus:border-gray-900 bg-white hover:bg-gray-200 focus:bg-gray-200 text-gray-800 hover:text-gray-900 focus:text-gray-900 focus:ring-gray-300',
+			contained:
+				'bg-gray-700/90 hover:bg-gray-900/90 focus:bg-gray-900/90 text-white focus:ring-gray-300'
 		},
 		light: {
 			border:

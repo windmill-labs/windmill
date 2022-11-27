@@ -10,7 +10,7 @@
 		sendUserToast,
 		setQueryWithoutLoad
 	} from '$lib/utils'
-	import { faEye, faPen } from '@fortawesome/free-solid-svg-icons'
+	import { faEye, faPen, faSave } from '@fortawesome/free-solid-svg-icons'
 	import { setContext } from 'svelte'
 	import { writable } from 'svelte/store'
 	import CenteredPage from './CenteredPage.svelte'
@@ -244,7 +244,12 @@
 		<div class="flex flex-row space-x-2">
 			<FlowPreviewButtons />
 			<div class="center-center">
-				<Button disabled={pathError != ''} size="sm" on:click={saveFlow}>Save</Button>
+				<Button
+					disabled={pathError != ''}
+					startIcon={{ icon: faSave }}
+					size="sm"
+					on:click={saveFlow}>Save</Button
+				>
 			</div>
 		</div>
 	</div>

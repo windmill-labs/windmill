@@ -1116,7 +1116,7 @@ async fn test_deno_flow_same_worker(db: Pool<Postgres>) {
     let server = ApiServer::start(db.clone()).await;
 
     let write_file = r#"export async function main(loop: boolean, i: number, path: string) {  
-            await Deno.writeTextFile(`/shared/${path}`, `${loop} ${i}`);
+            await Deno.writeTextFile(`./shared/${path}`, `${loop} ${i}`);
         }"#
     .to_string();
 
@@ -1201,7 +1201,7 @@ async fn test_deno_flow_same_worker(db: Pool<Postgres>) {
                                     .into(),
                                     language: ScriptLang::Deno,
                                     content: r#"export async function main(path: string, path2: string) {  
-                                        return await Deno.readTextFile(`/shared/${path}`) + "," + await Deno.readTextFile(`/shared/${path2}`);
+                                        return await Deno.readTextFile(`./shared/${path}`) + "," + await Deno.readTextFile(`./shared/${path2}`);
                                     }"#
                                     .to_string(),
                                     path: None,
@@ -1245,7 +1245,7 @@ async fn test_deno_flow_same_worker(db: Pool<Postgres>) {
                     .into(),
                         language: ScriptLang::Deno,
                         content: r#"export async function main(path: string, loops: string[], path2: string) {
-                            return await Deno.readTextFile(`/shared/${path}`) + "," + loops + "," + await Deno.readTextFile(`/shared/${path2}`);
+                            return await Deno.readTextFile(`./shared/${path}`) + "," + loops + "," + await Deno.readTextFile(`./shared/${path2}`);
                         }"#
                         .to_string(),
                         path: None,

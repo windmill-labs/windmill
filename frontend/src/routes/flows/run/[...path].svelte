@@ -20,7 +20,7 @@
 	import { userStore, workspaceStore } from '$lib/stores'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
 	import RunForm from '$lib/components/RunForm.svelte'
-	import { Button, Skeleton } from '$lib/components/common'
+	import { Button, Kbd, Skeleton } from '$lib/components/common'
 	import { faPlay, faScroll } from '@fortawesome/free-solid-svg-icons'
 	import SharedBadge from '$lib/components/SharedBadge.svelte'
 	import SvelteMarkdown from 'svelte-markdown'
@@ -103,7 +103,7 @@
 								<Button
 									startIcon={{ icon: faPlay }}
 									disabled={runForm == undefined || !isValid}
-									on:click={() => runForm?.run()}>Run (Ctrl+Enter)</Button
+									on:click={() => runForm?.run()}>Run <Kbd class="ml-2">Ctrl+Enter</Kbd></Button
 								>
 							</div>
 						</div>

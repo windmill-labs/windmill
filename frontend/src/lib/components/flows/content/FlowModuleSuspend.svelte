@@ -73,8 +73,9 @@
 
 <h2 class="mt-4"
 	>Sleep<Tooltip>
-		If defined, at the end of the step, the flow will sleep for a number of seconds before being
-		resumed. Sleeping is passive and does not consume any resources.</Tooltip
+		If defined, at the end of the step, the flow will sleep for a number of seconds before
+		scheduling the next job (if any, no effect if the step is the last one). Sleeping is passive and
+		does not consume any resources.</Tooltip
 	></h2
 >
 <Toggle

@@ -20,7 +20,7 @@
 	import { userStore, workspaceStore } from '$lib/stores'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
 	import Icon from 'svelte-awesome'
-	import { faPlus, faCircle, faLock, faEyeSlash } from '@fortawesome/free-solid-svg-icons'
+	import { faPlus, faCircle, faEyeSlash } from '@fortawesome/free-solid-svg-icons'
 	import { Button } from '$lib/components/common'
 	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
 	import { Alert, Badge, Skeleton } from '$lib/components/common'
@@ -79,7 +79,7 @@
 		title="Variables"
 		tooltip="Save and permission strings to be reused in Scripts and Flows."
 	>
-		<Button size="sm" startIcon={{ icon: faPlus }} on:click={() => variableEditor.initNew()}>
+		<Button size="md" startIcon={{ icon: faPlus }} on:click={() => variableEditor.initNew()}>
 			New&nbsp;variable
 		</Button>
 	</PageHeader>

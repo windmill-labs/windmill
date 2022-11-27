@@ -10,6 +10,7 @@ use std::{collections::HashMap, fmt::Debug};
 
 use std::sync::Arc;
 
+use anyhow::Context;
 use axum::{
     async_trait,
     body::Bytes,
@@ -784,7 +785,7 @@ async fn slack_command(
 #[allow(non_snake_case)]
 #[derive(Deserialize)]
 pub struct UserInfo {
-    email: String,
+    email: Option<String>,
     name: Option<String>,
     company: Option<String>,
     displayName: Option<String>,
@@ -812,9 +813,26 @@ async fn login_callback(
         let userinfo_url = client_w_config.userinfo_url.as_ref().ok_or_else(|| {
             Error::BadConfig(format!("Missing userinfo_url in client {client_name}"))
         })?;
-        let user = http_get_user_info(&http_client, userinfo_url, token).await?;
+        let user = http_get_user_info::<UserInfo>(&http_client, userinfo_url, token).await?;
 
-        let email = user.email;
+        let email = match client_name.as_str() {
+            "github" => http_get_user_info::<Vec<GHEmailInfo>>(
+                &http_client,
+                "https://api.github.com/user/emails",
+                token,
+            )
+            .await?
+            .iter()
+            .find(|x| x.primary && x.verified)
+            .ok_or(error::Error::BadRequest(format!(
+                "user does not have any primary and verified address"
+            )))?
+            .email
+            .to_string(),
+            _ => user.email.ok_or_else(|| {
+                error::Error::BadRequest("email address not fetchable from user info".to_string())
+            })?,
+        };
 
         if let Some(domains) = &client_w_config.allowed_domains {
             if !domains.iter().any(|d| email.ends_with(d)) {
@@ -892,8 +910,9 @@ async fn login_callback(
             if demo_exists {
                 if let Err(e) = sqlx::query!(
                     "INSERT INTO workspace_invite
-            (workspace_id, email, is_admin)
-            VALUES ('demo', $1, false)",
+                (workspace_id, email, is_admin)
+                VALUES ('demo', $1, false)
+                ON CONFLICT DO NOTHING",
                     &email
                 )
                 .execute(&mut tx)
@@ -935,20 +954,29 @@ async fn exchange_code<T: DeserializeOwned>(
         .map_err(|e| error::Error::InternalErr(format!("{:?}", e)))
 }
 
-async fn http_get_user_info(
+#[derive(Deserialize)]
+pub struct GHEmailInfo {
+    email: String,
+    verified: bool,
+    primary: bool,
+}
+
+async fn http_get_user_info<T: DeserializeOwned>(
     http_client: &Client,
     url: &str,
     token: &str,
-) -> error::Result<UserInfo> {
+) -> error::Result<T> {
     Ok(http_client
         .get(url)
         .bearer_auth(token)
         .send()
         .await
-        .map_err(to_anyhow)?
-        .json()
+        .map_err(to_anyhow)
+        .context("failed to fetch user info")?
+        .json::<T>()
         .await
-        .map_err(to_anyhow)?)
+        .map_err(to_anyhow)
+        .context("failed to decode json from user info")?)
 }
 
 fn oauth_redirect(
