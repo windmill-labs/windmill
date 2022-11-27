@@ -1,10 +1,10 @@
 <script lang="ts">
 	import DisplayResult from '$lib/components/DisplayResult.svelte'
 	import { getContext } from 'svelte'
-	import type { AppEditorContext, ComponentInputsSpec } from '../types'
+	import type { AppEditorContext, InputsSpec } from '../types'
 	import InputValue from './helpers/InputValue.svelte'
 
-	export let componentInputs: ComponentInputsSpec
+	export let componentInputs: InputsSpec
 
 	const { worldStore } = getContext<AppEditorContext>('AppEditorContext')
 

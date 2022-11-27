@@ -1,11 +1,11 @@
 <script lang="ts">
 	import { getContext } from 'svelte'
-	import type { StaticInput, DynamicInput, AppEditorContext, UserInput } from '../../types'
+	import type { AppEditorContext, AppInputTransform } from '../../types'
 	import { accessPropertyByPath } from '../../utils'
 
 	type T = string | number | boolean | Record<string | number, any> | undefined
 
-	export let input: DynamicInput | StaticInput | UserInput
+	export let input: AppInputTransform
 	export let value: T
 
 	const { worldStore } = getContext<AppEditorContext>('AppEditorContext')
@@ -17,6 +17,8 @@
 			$worldStore?.connect<any>(input, onValueChange)
 		} else if (input.type === 'static') {
 			setValue()
+		} else {
+			value = undefined
 		}
 	}
 
