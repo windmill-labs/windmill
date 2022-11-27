@@ -5,7 +5,7 @@
 	import { Pane } from 'svelte-splitpanes'
 	import { writable } from 'svelte/store'
 	import { buildWorld, type World } from '../rx'
-	import type { App, AppEditorContext, ConnectingInput, EditorMode } from '../types'
+	import type { App, AppEditorContext, ConnectingInput, EditorMode, InputType } from '../types'
 	import AppEditorHeader from './AppEditorHeader.svelte'
 	import GridEditor from './GridEditor.svelte'
 
@@ -26,7 +26,7 @@
 	const staticOutputs = writable<Record<string, string[]>>({})
 	const selectedComponent = writable<string | undefined>(undefined)
 	const mode = writable<EditorMode>('dnd')
-	const connectingInput = writable<ConnectingInput>({
+	const connectingInput = writable<ConnectingInput<InputType, any>>({
 		opened: false,
 		input: undefined
 	})
