@@ -100,7 +100,7 @@
 								<div class="flex flex-row">
 									{#each Object.entries(buttons) as [name, button]}
 										<button
-											class="py-4 px-1 gap-1 flex flex-row grow hover:bg-white hover:border text-black"
+											class="py-4 px-1 gap-1 flex flex-row grow  text-black"
 											on:click={() => {
 												button(obj['path'] ?? '')
 											}}

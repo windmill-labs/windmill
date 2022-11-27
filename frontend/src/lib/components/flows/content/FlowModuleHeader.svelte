@@ -40,7 +40,10 @@
 			<Icon data={faArrowRotateForward} scale={0.8} />
 		</span>
 		<span
-			class={classNames('badge', Boolean(module.suspend) ? 'badge-on' : 'badge-off')}
+			class={classNames(
+				'badge',
+				Boolean(module.suspend) || Boolean(module.sleep) ? 'badge-on' : 'badge-off'
+			)}
 			on:click={() => dispatch('toggleSuspend')}
 		>
 			<Icon data={faBed} scale={0.8} />

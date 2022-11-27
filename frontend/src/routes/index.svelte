@@ -8,7 +8,7 @@
 	import ScriptGettingStarted from '$lib/components/landing/ScriptGettingStarted.svelte'
 	import { FlowService, Job, JobService, Script, ScriptService, type Flow } from '$lib/gen'
 	import { userStore, workspaceStore } from '$lib/stores'
-	import { Skeleton } from '$lib/components/common'
+	import { Alert, Skeleton } from '$lib/components/common'
 
 	let scripts: Script[] = []
 	let flows: Flow[] = []
@@ -57,7 +57,17 @@
 
 <CenteredPage>
 	<h1 class="flex items-center min-h-[48px] font-black my-4">Home</h1>
-	<div class="space-y-12">
+	<div class="space-y-8">
+		{#if $workspaceStore == 'demo'}
+			<Alert title="Demo workspace">The demo workspace shared in which all users get invited.</Alert
+			>
+		{:else if $workspaceStore == 'starter'}
+			<Alert title="Stater workspace"
+				>The starter workspace has all its elements (variables, resources, scripts, flows) shared
+				across all other workspaces. Useful to seed workspace with common elements within your
+				organization.</Alert
+			>
+		{/if}
 		<div>
 			<h2 class="border-b mb-4 py-2">
 				<span class="text-black-gradient">Scripts</span>

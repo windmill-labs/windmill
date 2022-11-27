@@ -1,4 +1,4 @@
-export const BUTTON_COLORS = ['blue', 'red', 'dark', 'light', 'green'] as const
+export const BUTTON_COLORS = ['blue', 'red', 'dark', 'light', 'green', 'gray'] as const
 
 export namespace ButtonType {
 

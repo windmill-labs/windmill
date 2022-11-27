@@ -1,7 +1,7 @@
 <script lang="ts">
 	import Svelvet, { type Edge } from 'svelvet'
-	import { sugiyama, dagStratify, decrossOpt, coordGreedy, coordCenter } from 'd3-dag'
-	import type { FlowModule, ForloopFlow, RawScript } from '../../gen'
+	import { sugiyama, dagStratify, decrossOpt, coordCenter } from 'd3-dag'
+	import { type FlowModule, FlowStatusModule, type ForloopFlow, RawScript } from '../../gen'
 	import {
 		NODE,
 		createIdGenerator,
@@ -15,14 +15,16 @@
 		type NestedNodes,
 		type ModuleHost
 	} from '.'
-	import { defaultIfEmptyString, truncate, truncateRev } from '$lib/utils'
+	import { defaultIfEmptyString, truncateRev } from '$lib/utils'
 	import { createEventDispatcher } from 'svelte'
 	import { numberToChars } from '../flows/utils'
+	import type { FlowState } from '../flows/flowState'
 
 	export let modules: FlowModule[] | undefined = []
 	export let failureModule: FlowModule | undefined = undefined
 	export let minHeight: number = 0
 	export let notSelectable = false
+	export let flowModuleStates: Record<string, FlowStatusModule.type> | undefined = undefined
 
 	let selectedNode: string | undefined = undefined
 
@@ -35,7 +37,7 @@
 	let dispatch = createEventDispatcher()
 
 	$: {
-		width && height && minHeight && selectedNode
+		width && height && minHeight && selectedNode && flowModuleStates
 		if (modules) {
 			createGraph(modules, failureModule)
 		} else {
@@ -137,6 +139,18 @@
 		return []
 	}
 
+	function getStateColor(state: FlowStatusModule.type | undefined): string {
+		switch (state) {
+			case FlowStatusModule.type.SUCCESS:
+				return 'rgb(34 197 94)'
+			case FlowStatusModule.type.FAILURE:
+				return 'rgb(248 113 113)'
+			case FlowStatusModule.type.IN_PROGRESS:
+				return 'rgb(253 224 71)'
+			default:
+				return '#fff'
+		}
+	}
 	function flowModuleToNode(
 		parentIds: string[],
 		id: string,
@@ -182,7 +196,10 @@
 			width: NODE.width,
 			height: NODE.height,
 			borderColor: selectedNode == onClickDetail.id ? 'black' : '#999',
-			bgColor: selectedNode == onClickDetail.id ? '#f5f5f5' : 'white',
+			bgColor:
+				selectedNode == onClickDetail.id
+					? '#f5f5f5'
+					: getStateColor(flowModuleStates?.[onClickDetail.id]),
 			parentIds,
 			clickCallback: (node) => {
 				if (!notSelectable) {

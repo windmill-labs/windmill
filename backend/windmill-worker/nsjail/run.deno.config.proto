@@ -93,34 +93,20 @@ mount {
 }
 
 mount {
-    src: "/etc/ssl"
-    dst: "/etc/ssl"
-	is_bind: true
-}
-
-mount {
-    src: "/etc/pki"
-    dst: "/etc/pki"
-    is_bind: true
-    mandatory: false
-}
-
-mount {
-    src: "/etc/ca-certificates"
-    dst: "/etc/ca-certificates"
-    is_bind: true
-    mandatory: false
-}
-
-mount {
-    src: "/etc/resolv.conf"
-    dst: "/etc/resolv.conf"
+    src: "/etc"
+    dst: "/etc"
 	is_bind: true
 }
 
 mount {
     src: "/dev/random"
     dst: "/dev/random"
+    is_bind: true
+}
+
+mount {
+    src: "/dev/urandom"
+    dst: "/dev/urandom"
     is_bind: true
 }
 

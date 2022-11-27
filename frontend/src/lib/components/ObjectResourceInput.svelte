@@ -1,13 +1,15 @@
 <script lang="ts">
 	import { ResourceService } from '$lib/gen'
+	import { logout } from '$lib/logout'
 
 	import { workspaceStore } from '$lib/stores'
-	import RadioButton from './RadioButton.svelte'
+	import { ToggleButton, ToggleButtonGroup } from './common'
 	import ResourcePicker from './ResourcePicker.svelte'
 	import SchemaForm from './SchemaForm.svelte'
 
 	export let format: string
 	export let value: any
+	export let compact: boolean
 
 	function isString(value: any) {
 		return typeof value === 'string' || value instanceof String
@@ -58,18 +60,23 @@
 	$: value && valueToPath()
 </script>
 
-<div class="flex flex-row w-full flex-wrap gap-x-2">
-	<div class="shrink">
-		<RadioButton
-			options={[
-				[`Resource (${resourceTypeName})`, 'resource'],
-				[`Raw object value`, 'raw']
-			]}
-			on:change={argToValue}
-			bind:value={option}
-		/>
-	</div>
-	<div class="grow">
+<div class="flex flex-row w-full flex-wrap gap-x-2 gap-y-0.5">
+	<ToggleButtonGroup
+		col
+		bind:selected={option}
+		on:selected={(e) => {
+			if (e.detail === 'resource') {
+				resourceToValue()
+			} else {
+				argToValue()
+			}
+		}}
+	>
+		<ToggleButton light position="center" value="resource" size="xs">Resource</ToggleButton>
+		<ToggleButton light position="center" value="raw" size="xs">Raw</ToggleButton>
+	</ToggleButtonGroup>
+
+	<div class="grow flex items-center">
 		{#if option == 'resource'}
 			<ResourcePicker
 				on:refresh={() => loadSchema(format)}
@@ -83,13 +90,9 @@
 					: undefined}
 			/>
 		{:else}
-			<div class="border rounded p-5 w-full">
-				<h2 class="mb-5">
-					Object of <a target="_blank" href="/resources">resource type</a>
-					{resourceTypeName}
-				</h2>
+			<div class="border rounded p-2 w-full">
 				{#if !isString(args)}
-					<SchemaForm {schema} bind:isValid bind:args />
+					<SchemaForm {compact} {schema} bind:isValid bind:args />
 				{/if}
 			</div>
 		{/if}

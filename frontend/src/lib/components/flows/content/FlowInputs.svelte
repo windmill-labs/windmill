@@ -17,7 +17,7 @@
 	let pick_existing: 'workspace' | 'hub' = 'hub'
 </script>
 
-<div class="space-y-4 p-4 h-full flex flex-col">
+<div class="p-4 h-full flex flex-col">
 	{#if !failureModule}
 		<div class="center-center">
 			<div class="max-w-min">
@@ -46,89 +46,93 @@
 			</div>
 		</div>
 	{/if}
-	<h3>
+	<h3 class="pb-2">
 		Inline new
 		<Tooltip>
 			Embed a script directly inside a flow instead of saving the script into your workspace for
 			reuse. You can always save an inline script later.
 		</Tooltip>
 	</h3>
-	<div class="flex flex-row flex-wrap gap-2">
-		<FlowScriptPicker
-			label="Typescript"
-			lang={Script.language.DENO}
-			on:click={() => {
-				dispatch('new', {
-					language: RawScript.language.DENO,
-					kind,
-					subkind: 'flow'
-				})
-			}}
-		/>
-
-		<FlowScriptPicker
-			label="Python"
-			lang={Script.language.PYTHON3}
-			on:click={() => {
-				dispatch('new', {
-					language: RawScript.language.PYTHON3,
-					kind,
-					subkind: kind
-				})
-			}}
-		/>
-
-		{#if kind != 'approval'}
+	<div class="flex flex-row">
+		<div class="flex flex-row flex-wrap gap-2">
 			<FlowScriptPicker
-				label="Go"
-				lang={Script.language.GO}
+				label="Typescript"
+				lang={Script.language.DENO}
 				on:click={() => {
 					dispatch('new', {
-						language: RawScript.language.GO,
-						kind,
-						subkind: 'flow'
-					})
-				}}
-			/>
-		{/if}
-
-		{#if kind == 'script'}
-			<FlowScriptPicker
-				label="Bash"
-				lang={Script.language.BASH}
-				on:click={() => {
-					dispatch('new', {
-						language: RawScript.language.BASH,
+						language: RawScript.language.DENO,
 						kind,
 						subkind: 'flow'
 					})
 				}}
 			/>
 
-			{#if !failureModule}
+			<FlowScriptPicker
+				label="Python"
+				lang={Script.language.PYTHON3}
+				on:click={() => {
+					dispatch('new', {
+						language: RawScript.language.PYTHON3,
+						kind,
+						subkind: 'flow'
+					})
+				}}
+			/>
+
+			{#if kind != 'approval'}
 				<FlowScriptPicker
-					label={`PostgreSQL`}
-					lang="pgsql"
-					on:click={() =>
-						dispatch('new', { language: RawScript.language.DENO, kind, subkind: 'pgsql' })}
+					label="Go"
+					lang={Script.language.GO}
+					on:click={() => {
+						dispatch('new', {
+							language: RawScript.language.GO,
+							kind,
+							subkind: 'flow'
+						})
+					}}
 				/>
 			{/if}
-		{/if}
+
+			{#if kind == 'script'}
+				<FlowScriptPicker
+					label="Bash"
+					lang={Script.language.BASH}
+					on:click={() => {
+						dispatch('new', {
+							language: RawScript.language.BASH,
+							kind,
+							subkind: 'flow'
+						})
+					}}
+				/>
+
+				{#if !failureModule}
+					<FlowScriptPicker
+						label={`PostgreSQL`}
+						lang="pgsql"
+						on:click={() =>
+							dispatch('new', { language: RawScript.language.DENO, kind, subkind: 'pgsql' })}
+					/>
+				{/if}
+			{/if}
+		</div>
 	</div>
 
-	<h3 class="pt-4">Use pre-made</h3>
-	<div class="max-w-min">
-		<ToggleButtonGroup bind:selected={pick_existing}>
-			<ToggleButton position="left" value="hub" size="xs">
-				<WindmillIcon white={pick_existing == 'hub'} height="16px" width="16px" /><div
-					class="mr-1"
-				/>Hub
-			</ToggleButton>
-			<ToggleButton position="right" value="workspace" size="xs" startIcon={{ icon: faBuilding }}>
-				Workspace
-			</ToggleButton>
-		</ToggleButtonGroup>
-	</div>
+	<div class="flex flex-row gap-x-2 mt-8 mb-2"
+		><h3>Use pre-made</h3>
+		<div class="max-w-min">
+			<ToggleButtonGroup bind:selected={pick_existing}>
+				<ToggleButton position="left" value="hub" size="xs">
+					<WindmillIcon white={pick_existing == 'hub'} height="16px" width="16px" /><div
+						class="mr-1"
+					/>Hub
+				</ToggleButton>
+				<ToggleButton position="right" value="workspace" size="xs" startIcon={{ icon: faBuilding }}>
+					Workspace
+				</ToggleButton>
+			</ToggleButtonGroup>
+		</div></div
+	>
 	{#if pick_existing == 'hub'}
 		<PickHubScript {kind} on:pick />
 	{:else}

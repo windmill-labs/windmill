@@ -82,7 +82,7 @@ async fn main() -> anyhow::Result<()> {
                 let disable_nsjail = std::env::var("DISABLE_NSJAIL")
                     .ok()
                     .and_then(|x| x.parse::<bool>().ok())
-                    .unwrap_or(false);
+                    .unwrap_or(true);
                 let keep_job_dir = std::env::var("KEEP_JOB_DIR")
                     .ok()
                     .and_then(|x| x.parse::<bool>().ok())
@@ -182,6 +182,13 @@ pub async fn run_workers(
     #[cfg(not(feature = "enterprise"))]
     if license_key.is_some() {
         panic!("License key is required ONLY for the enterprise edition");
+    }
+
+    #[cfg(not(feature = "enterprise"))]
+    if !worker_config.disable_nsjail {
+        tracing::warn!(
+            "NSJAIL to sandbox process in untrusted environments is an enterprise feature but allowed to be used for testing purposes"
+        );
     }
 
     let instance_name = rd_string(5);

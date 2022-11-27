@@ -8,6 +8,7 @@
 	import InviteGlobalUser from '$lib/components/InviteGlobalUser.svelte'
 	import { Alert, Badge, Drawer, DrawerContent } from '$lib/components/common'
 	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
+	import { sendUserToast } from '$lib/utils'
 
 	let drawer: Drawer
 
@@ -44,6 +45,7 @@
 	async function listUsers(): Promise<void> {
 		users = await UserService.listUsersAsSuperAdmin({ perPage: 100000 })
 		fuse?.setCollection(users)
+		userFilter = userFilter
 	}
 </script>
 
@@ -128,6 +130,7 @@
 												on:click={async () => {
 													deleteConfirmedCallback = async () => {
 														await UserService.globalUserDelete({ email })
+														sendUserToast(`User ${email} removed`)
 														listUsers()
 													}
 													openConfirmation = true

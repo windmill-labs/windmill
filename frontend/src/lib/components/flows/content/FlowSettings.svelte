@@ -89,8 +89,8 @@
 							title="Toggle Same Worker to have all steps be ran on the same worker"
 						>
 							Steps will be run one after the other on the same worker, and will share a folder at
-							`/shared` in which they can store heavier data and pass them to the next step. <br
-							/><br />Beware that the `/shared` folder is not preserved across suspends and sleeps.
+							`./shared` in which they can store heavier data and pass them to the next step. <br
+							/><br />Beware that the `./shared` folder is not preserved across suspends and sleeps.
 						</Alert>
 						<span class="my-2 text-sm font-bold">Same Worker</span>
 						<Toggle

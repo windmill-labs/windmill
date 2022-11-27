@@ -58,7 +58,7 @@
 	<Pane size={50} minSize={20} class="p-4">
 		{#if $flowStore.value.same_worker}
 			<div class="mb-1 bg-yellow-100 text-yellow-700 p-1 text-xs"
-				>Using same_worker does not preserve /shared across individual step tests</div
+				>The `./shared` folder is not passed across individual "Test this step"</div
 			>
 		{/if}
 

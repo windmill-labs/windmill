@@ -1,12 +1,12 @@
 <script lang="ts">
 	import { classNames } from '$lib/utils'
-	import { faRing } from '@fortawesome/free-solid-svg-icons'
 	import { getContext } from 'svelte'
 	import Button from '../button/Button.svelte'
 	import type { ToggleButtonContext } from './ToggleButtonGroup.svelte'
 
 	export let value: any
 	export let position: 'left' | 'center' | 'right'
+	export let light = false
 
 	const { select, selected } = getContext<ToggleButtonContext>('ToggleButtonGroup')
 </script>
@@ -20,7 +20,7 @@
 		position === 'center' ? 'rounded-none border-t border-b' : '',
 		position === 'right' ? 'rounded-none rounded-r-md !border border-l-0' : ''
 	)}
-	color={$selected === value ? 'dark' : 'light'}
+	color={$selected === value ? (light ? 'gray' : 'dark') : 'light'}
 	variant="contained"
 >
 	<slot />

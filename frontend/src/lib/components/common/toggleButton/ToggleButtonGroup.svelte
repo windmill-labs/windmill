@@ -11,6 +11,7 @@
 
 	export let selected: any
 	const dispatch = createEventDispatcher()
+	export let col = false
 
 	$: setSelected(selected)
 
@@ -30,6 +31,6 @@
 	})
 </script>
 
-<div class="flex w-full rounded-md shadow-sm" role="group">
+<div class:flex-col={col} class="flex rounded-md shadow-sm" role="group">
 	<slot />
 </div>
