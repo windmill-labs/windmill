@@ -316,17 +316,17 @@ async fn op_get_id(args: Vec<String>) -> Result<Option<serde_json::Value>, anyho
 }
 
 #[op]
-async fn op_resource(
-    args: Vec<String>,
-) -> Result<windmill_api_client::types::Resource, anyhow::Error> {
+async fn op_resource(args: Vec<String>) -> Result<serde_json::Value, anyhow::Error> {
     let workspace = &args[0];
     let path = &args[1];
     let token = &args[2];
     let base_url = &args[3];
     let client = windmill_api_client::create_client(base_url, token.clone());
     let result = client.get_resource(workspace, path).await?;
-    // TODO: verify this works. Previously this returned Option<serde_jons::Value>, now it's statically typed.
-    Ok(result.into_inner())
+    Ok(result
+        .into_inner()
+        .value
+        .unwrap_or_else(|| serde_json::json!({})))
 }
 
 #[cfg(test)]

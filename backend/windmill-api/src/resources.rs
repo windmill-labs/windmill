@@ -72,7 +72,21 @@ pub struct Resource {
     pub description: Option<String>,
     pub resource_type: String,
     pub extra_perms: serde_json::Value,
-    pub is_oauth: bool,
+}
+
+#[derive(FromRow, Serialize, Deserialize)]
+pub struct ListableResource {
+    pub workspace_id: String,
+    pub path: String,
+    pub value: Option<serde_json::Value>,
+    pub description: Option<String>,
+    pub resource_type: String,
+    pub extra_perms: serde_json::Value,
+    pub is_linked: Option<bool>,
+    pub is_oauth: Option<bool>,
+    pub is_expired: Option<bool>,
+    pub refresh_error: Option<String>,
+    pub account: Option<i32>,
 }
 
 #[derive(Deserialize)]
@@ -81,7 +95,6 @@ pub struct CreateResource {
     pub value: Option<serde_json::Value>,
     pub description: Option<String>,
     pub resource_type: String,
-    pub is_oauth: Option<bool>,
 }
 #[derive(Deserialize)]
 struct EditResource {
@@ -100,31 +113,42 @@ async fn list_resources(
     Query(pagination): Query<Pagination>,
     Extension(user_db): Extension<UserDB>,
     Path(w_id): Path<String>,
-) -> JsonResult<Vec<Resource>> {
+) -> JsonResult<Vec<ListableResource>> {
     let (per_page, offset) = paginate(pagination);
 
     let mut sqlb = SqlBuilder::select_from("resource")
         .fields(&[
-            "workspace_id",
-            "path",
+            "resource.workspace_id",
+            "resource.path",
             "null::JSONB as value",
-            "description",
+            "resource.description",
             "resource_type",
-            "extra_perms",
-            "is_oauth",
+            "resource.extra_perms",
+            "(now() > account.expires_at) as is_expired",
+            "variable.path IS NOT NULL as is_linked",
+            "variable.is_oauth",
+            "variable.account",
+            "account.refresh_error",
         ])
+        .left()
+        .join("variable")
+        .on("variable.path = resource.path AND variable.workspace_id = resource.workspace_id")
+        .left()
+        .join("account")
+        .on("variable.account = account.id AND account.workspace_id = variable.workspace_id")
         .order_by("path", true)
-        .and_where("workspace_id = ? OR workspace_id = 'starter'".bind(&w_id))
+        .and_where("resource.workspace_id = ? OR resource.workspace_id = 'starter'".bind(&w_id))
         .offset(offset)
         .limit(per_page)
         .clone();
+
     if let Some(rt) = &lq.resource_type {
         sqlb.and_where_eq("resource_type", "?".bind(rt));
     }
 
     let sql = sqlb.sql().map_err(|e| Error::InternalErr(e.to_string()))?;
     let mut tx = user_db.begin(&authed).await?;
-    let rows = sqlx::query_as::<_, Resource>(&sql)
+    let rows = sqlx::query_as::<_, ListableResource>(&sql)
         .fetch_all(&mut tx)
         .await?;
 
@@ -137,14 +161,20 @@ async fn get_resource(
     authed: Authed,
     Extension(user_db): Extension<UserDB>,
     Path((w_id, path)): Path<(String, StripPath)>,
-) -> JsonResult<Resource> {
+) -> JsonResult<ListableResource> {
     let path = path.to_path();
     let mut tx = user_db.begin(&authed).await?;
 
     let resource_o = sqlx::query_as!(
-        Resource,
-        "SELECT * from resource WHERE path = $1 AND (workspace_id = $2 OR workspace_id = \
-         'starter')",
+        ListableResource,
+        "SELECT resource.*, (now() > account.expires_at) as is_expired, account.refresh_error,
+        variable.path IS NOT NULL as is_linked,
+        variable.is_oauth as \"is_oauth?\",
+        variable.account
+        FROM resource
+        LEFT JOIN variable ON variable.path = resource.path AND variable.workspace_id = resource.workspace_id
+        LEFT JOIN account ON variable.account = account.id AND account.workspace_id = resource.workspace_id
+        WHERE resource.path = $1 AND (resource.workspace_id = $2 OR resource.workspace_id = 'starter')",
         path.to_owned(),
         &w_id
     )
@@ -206,14 +236,13 @@ async fn create_resource(
 
     sqlx::query!(
         "INSERT INTO resource
-            (workspace_id, path, value, description, resource_type, is_oauth)
-            VALUES ($1, $2, $3, $4, $5, $6)",
+            (workspace_id, path, value, description, resource_type)
+            VALUES ($1, $2, $3, $4, $5)",
         w_id,
         resource.path,
         resource.value,
         resource.description,
         resource.resource_type,
-        resource.is_oauth.unwrap_or(false)
     )
     .execute(&mut tx)
     .await?;
@@ -245,6 +274,13 @@ async fn delete_resource(
 
     sqlx::query!(
         "DELETE FROM resource WHERE path = $1 AND workspace_id = $2",
+        path,
+        w_id
+    )
+    .execute(&mut tx)
+    .await?;
+    sqlx::query!(
+        "DELETE FROM variable WHERE path = $1 AND workspace_id = $2",
         path,
         w_id
     )
@@ -297,6 +333,17 @@ async fn update_resource(
     let npath_o: Option<String> = sqlx::query_scalar(&sql).fetch_optional(&mut tx).await?;
 
     let npath = not_found_if_none(npath_o, "Resource", path)?;
+
+    if let Some(npath) = ns.path {
+        sqlx::query!(
+            "UPDATE variable SET path = $1 WHERE path = $2 AND workspace_id = $3",
+            npath,
+            path,
+            w_id
+        )
+        .execute(&mut tx)
+        .await?;
+    }
 
     audit_log(
         &mut tx,

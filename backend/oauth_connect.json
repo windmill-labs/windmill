@@ -1,96 +1,75 @@
 {
-    "github": {
-        "auth_url": "https://github.com/login/oauth/authorize",
-        "token_url": "https://github.com/login/oauth/access_token",
-        "scopes": [
-            "workflow",
-            "repo"
-        ]
-    },
-    "gitlab": {
-        "auth_url": "https://gitlab.com/oauth/authorize",
-        "token_url": "https://gitlab.com/oauth/token",
-        "scopes": [
-            "api"
-        ]
-    },
-    "bitbucket": {
-        "auth_url": "https://bitbucket.org/site/oauth2/authorize",
-        "token_url": "https://bitbucket.org/site/oauth2/access_token",
-        "scopes": [
-            "repository"
-        ]
-    },
-    "slack": {
-        "auth_url": "https://slack.com/oauth/authorize",
-        "token_url": "https://slack.com/api/oauth.access",
-        "scopes": [
-            "chat:write:user",
-            "users:read",
-            "users:read.email"
-        ]
-    },
-    "gsheets": {
-        "auth_url": "https://accounts.google.com/o/oauth2/v2/auth",
-        "token_url": "https://oauth2.googleapis.com/token",
-        "scopes": [
-            "https://www.googleapis.com/auth/spreadsheets"
-        ],
-        "extra_params": {
-            "access_type": "offline",
-            "consent": "prompt"
-        }
-    },
-    "gdrive": {
-        "auth_url": "https://accounts.google.com/o/oauth2/v2/auth",
-        "token_url": "https://oauth2.googleapis.com/token",
-        "scopes": [
-            "https://www.googleapis.com/auth/drive"
-        ],
-        "extra_params": {
-            "access_type": "offline",
-            "consent": "prompt"
-        }
-    },
-    "gmail": {
-        "auth_url": "https://accounts.google.com/o/oauth2/v2/auth",
-        "token_url": "https://oauth2.googleapis.com/token",
-        "scopes": [
-            "https://www.googleapis.com/auth/gmail.send"
-        ],
-        "extra_params": {
-            "access_type": "offline",
-            "consent": "prompt"
-        }
-    },
-    "gcal": {
-        "auth_url": "https://accounts.google.com/o/oauth2/v2/auth",
-        "token_url": "https://oauth2.googleapis.com/token",
-        "scopes": [
-            "https://www.googleapis.com/auth/calendar.events"
-        ],
-        "extra_params": {
-            "access_type": "offline",
-            "consent": "prompt"
-        }
-    },
-    "gcloud": {
-        "auth_url": "https://accounts.google.com/o/oauth2/v2/auth",
-        "token_url": "https://oauth2.googleapis.com/token",
-        "scopes": [
-            "https://www.googleapis.com/auth/cloud-platform"
-        ],
-        "extra_params": {
-            "access_type": "offline",
-            "consent": "prompt"
-        }
-    },
-    "basecamp": {
-        "auth_url": "https://launchpad.37signals.com/authorization/new",
-        "token_url": "https://launchpad.37signals.com/authorization/token",
-        "scopes": [],
-        "extra_params": {
-            "type": "web_server"
-        }
+  "github": {
+    "auth_url": "https://github.com/login/oauth/authorize",
+    "token_url": "https://github.com/login/oauth/access_token",
+    "scopes": ["workflow", "repo"]
+  },
+  "gitlab": {
+    "auth_url": "https://gitlab.com/oauth/authorize",
+    "token_url": "https://gitlab.com/oauth/token",
+    "scopes": ["api"]
+  },
+  "bitbucket": {
+    "auth_url": "https://bitbucket.org/site/oauth2/authorize",
+    "token_url": "https://bitbucket.org/site/oauth2/access_token",
+    "scopes": ["repository"]
+  },
+  "slack": {
+    "auth_url": "https://slack.com/oauth/authorize",
+    "token_url": "https://slack.com/api/oauth.access",
+    "scopes": ["chat:write:user", "users:read", "users:read.email"]
+  },
+  "gsheets": {
+    "auth_url": "https://accounts.google.com/o/oauth2/v2/auth",
+    "token_url": "https://oauth2.googleapis.com/token",
+    "scopes": ["https://www.googleapis.com/auth/spreadsheets"],
+    "extra_params": {
+      "access_type": "offline",
+      "prompt": "consent"
     }
+  },
+  "gdrive": {
+    "auth_url": "https://accounts.google.com/o/oauth2/v2/auth",
+    "token_url": "https://oauth2.googleapis.com/token",
+    "scopes": ["https://www.googleapis.com/auth/drive"],
+    "extra_params": {
+      "access_type": "offline",
+      "prompt": "consent"
+    }
+  },
+  "gmail": {
+    "auth_url": "https://accounts.google.com/o/oauth2/v2/auth",
+    "token_url": "https://oauth2.googleapis.com/token",
+    "scopes": ["https://www.googleapis.com/auth/gmail.send"],
+    "extra_params": {
+      "access_type": "offline",
+      "prompt": "consent"
+    }
+  },
+  "gcal": {
+    "auth_url": "https://accounts.google.com/o/oauth2/v2/auth",
+    "token_url": "https://oauth2.googleapis.com/token",
+    "scopes": ["https://www.googleapis.com/auth/calendar.events"],
+    "extra_params": {
+      "access_type": "offline",
+      "prompt": "consent"
+    }
+  },
+  "gcloud": {
+    "auth_url": "https://accounts.google.com/o/oauth2/v2/auth",
+    "token_url": "https://oauth2.googleapis.com/token",
+    "scopes": ["https://www.googleapis.com/auth/cloud-platform"],
+    "extra_params": {
+      "access_type": "offline",
+      "prompt": "consent"
+    }
+  },
+  "basecamp": {
+    "auth_url": "https://launchpad.37signals.com/authorization/new",
+    "token_url": "https://launchpad.37signals.com/authorization/token",
+    "scopes": [],
+    "extra_params": {
+      "type": "web_server"
+    }
+  }
 }

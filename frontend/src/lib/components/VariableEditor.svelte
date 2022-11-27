@@ -155,7 +155,8 @@
 					{#if edit && variable.is_secret}<Button
 							variant="border"
 							size="xs"
-							on:click={() => loadVariable(initialPath)}>Load secret value</Button
+							on:click={() => loadVariable(initialPath)}
+							>Load secret value<Tooltip>Will generate an audit log</Tooltip></Button
 						>{/if}
 				</div>
 				<div class="flex flex-row">
