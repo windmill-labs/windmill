@@ -80,7 +80,7 @@
 			{/if}
 		</div>
 	</Pane>
-	<Pane size={20} minSize={20} maxSize={40}>
+	<Pane size={25} minSize={20} maxSize={40}>
 		{#if $mode === 'dnd'}
 			<Tabs bind:selected={selectedTab}>
 				<Tab value="insert" size="xs">

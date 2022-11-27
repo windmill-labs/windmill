@@ -1,10 +1,10 @@
 <script lang="ts">
 	import SvelteMarkdown from 'svelte-markdown'
-	import type { ComponentInputsSpec } from '../../types'
+	import type { InputsSpec } from '../../types'
 	import AlignWrapper from '../helpers/AlignWrapper.svelte'
 	import InputValue from '../helpers/InputValue.svelte'
 
-	export let componentInputs: ComponentInputsSpec
+	export let componentInputs: InputsSpec
 	export let horizontalAlignment: 'left' | 'center' | 'right' | undefined = undefined
 	export let verticalAlignment: 'top' | 'center' | 'bottom' | undefined = undefined
 

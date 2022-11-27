@@ -14,11 +14,11 @@
 	import Icon from 'svelte-awesome'
 	import type { AppComponent, AppEditorContext } from '../../types'
 	import PanelSection from './common/PanelSection.svelte'
-	import ComponentInputsSpecsEditor from './ComponentInputsSpecsEditor.svelte'
 	import InputsSpecsEditor from './InputsSpecsEditor.svelte'
 	import PickFlow from './PickFlow.svelte'
 	import gridHelp from 'svelte-grid/build/helper/index.mjs'
 	import PickInlineScript from './PickInlineScript.svelte'
+	import TableActions from './TableActions.svelte'
 
 	export let component: AppComponent | undefined
 
@@ -72,7 +72,7 @@
 				{#if component.runnable && component['path'] === undefined && component['inlineScriptName'] === undefined}
 					<span class="text-sm">Select a script or a flow to continue</span>
 					<PickInlineScript
-						scripts={(Object.keys($app.inlineScripts) || []).map((summary) => ({summary}))}
+						scripts={(Object.keys($app.inlineScripts) || []).map((summary) => ({ summary }))}
 						on:pick={({ detail }) => {
 							if (component?.runnable) {
 								// @ts-ignore
@@ -107,8 +107,16 @@
 		{/if}
 
 		{#if Object.values(component.componentInputs).length > 0}
-			<PanelSection title="Component parameters">
-				<ComponentInputsSpecsEditor bind:componentInputSpecs={component.componentInputs} />
+			<PanelSection
+				title={`Component parameters (${Object.values(component.componentInputs).length})`}
+			>
+				<InputsSpecsEditor bind:inputSpecs={component.componentInputs} userInputEnabled={false} />
+			</PanelSection>
+		{/if}
+
+		{#if component.type === 'tablecomponent' && Array.isArray(component.components)}
+			<PanelSection title="Inner runnnbles" root={false}>
+				<TableActions bind:components={component.components} />
 			</PanelSection>
 		{/if}
 

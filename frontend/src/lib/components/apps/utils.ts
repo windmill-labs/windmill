@@ -1,4 +1,4 @@
-import type { InputsSpec } from './types'
+import type { InputsSpec, InputType } from './types'
 import type { Schema } from '$lib/common'
 
 import { FlowService, ScriptService } from '$lib/gen'
@@ -96,4 +96,22 @@ export function accessPropertyByPath<T>(object: T, path: string): T | undefined 
 		}
 	}
 	return object
+}
+
+export function fieldTypeToTsType(InputType: InputType): string {
+	switch (InputType) {
+		case 'text':
+		case 'textarea':
+		case 'date':
+		case 'time':
+		case 'datetime':
+		case 'select':
+			return 'string'
+		case 'number':
+			return 'number'
+		case 'boolean':
+			return 'boolean'
+		case 'object':
+			return 'object'
+	}
 }

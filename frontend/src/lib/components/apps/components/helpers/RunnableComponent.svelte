@@ -87,10 +87,10 @@
 	}
 
 	// Only loads the schema
-	$: if ($workspaceStore && path && runType) {
+	$: if ($workspaceStore && path && runType && !schema) {
 		// Remote schema needs to be loaded
 		loadSchemaFromTriggerable($workspaceStore, path, runType)
-	} else if (inlineScriptName && $app.inlineScripts[inlineScriptName]) {
+	} else if (inlineScriptName && $app.inlineScripts[inlineScriptName] && !schema) {
 		// Inline scripts directly provide the schema
 		schema = $app.inlineScripts[inlineScriptName].schema
 	}
@@ -110,7 +110,7 @@
 
 	let schemaStripped: Schema | undefined = undefined
 
-	function stripSchema(schema: Schema) {
+	function stripSchema(schema: Schema, inputs: InputsSpec) {
 		schemaStripped = JSON.parse(JSON.stringify(schema))
 
 		// Remove hidden static inputs
@@ -134,7 +134,7 @@
 		})
 	}
 
-	$: schema && stripSchema(schema)
+	$: schema && inputs && stripSchema(schema, inputs)
 
 	$: disabledArgs = Object.keys(inputs).reduce(
 		(disabledArgsAccumulator: string[], inputName: string) => {
