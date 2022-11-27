@@ -48,8 +48,8 @@
 
 <div class="relative" bind:this={menu}>
 	<!-- svelte-ignore a11y-click-events-have-key-events -->
-	<div on:click={() => (show = !show)}>
-		<slot name="trigger" />
+	<div on:click={() => (show = !show)} class="cursor-pointer hover:bg-gray-100/30">
+		<slot class="triggerable" name="trigger" />
 	</div>
 
 	{#if show}

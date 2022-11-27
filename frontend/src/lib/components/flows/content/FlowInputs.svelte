@@ -74,7 +74,7 @@
 					dispatch('new', {
 						language: RawScript.language.PYTHON3,
 						kind,
-						subkind: kind
+						subkind: 'flow'
 					})
 				}}
 			/>
