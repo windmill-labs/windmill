@@ -39,7 +39,6 @@
 	import SharedBadge from '$lib/components/SharedBadge.svelte'
 	import SvelteMarkdown from 'svelte-markdown'
 	import SchemaViewer from '$lib/components/SchemaViewer.svelte'
-	import Dropdown from '$lib/components/Dropdown.svelte'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
 	import { onDestroy } from 'svelte'
 	import HighlightCode from '$lib/components/HighlightCode.svelte'
@@ -49,7 +48,6 @@
 		Tab,
 		TabContent,
 		Button,
-		ActionRow,
 		Alert,
 		ButtonPopup,
 		ButtonPopupItem
