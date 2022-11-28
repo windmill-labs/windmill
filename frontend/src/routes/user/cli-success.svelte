@@ -7,7 +7,7 @@
 	import Icon from 'svelte-awesome'
 
 	sendUserToast('Sucess. You can return to your terminal now.')
-	// goto('/')
+	goto('/')
 </script>
 
 <div class="my-grid">
@@ -23,6 +23,8 @@
 		grid-auto-rows: 1fr;
 		grid-auto-columns: 1fr;
 		aspect-ratio: 1/1;
+		max-height: 100vh;
+		max-width: 100vw;
 	}
 	.my-center {
 		grid-area: c;
