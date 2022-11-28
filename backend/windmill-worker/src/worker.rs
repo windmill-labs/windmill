@@ -1611,7 +1611,10 @@ async fn handle_python_job(
 
         additional_python_paths = handle_python_reqs(
             python_path,
-            requirements.split("\n").collect(),
+            requirements
+                .split("\n")
+                .filter(|x| !x.starts_with("--"))
+                .collect(),
             vars.clone(),
             job,
             logs,
@@ -2618,6 +2621,12 @@ async fn handle_python_reqs(
         );
 
         let child = if !disable_nsjail {
+            tracing::info!(
+                worker_name = %worker_name,
+                job_id = %job.id,
+                workspace_id = %job.workspace_id,
+                "starting nsjail"
+            );
             let mut vars = vars.clone();
             let req = req.to_string();
             vars.push(("REQ", &req));
