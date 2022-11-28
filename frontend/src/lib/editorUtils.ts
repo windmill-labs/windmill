@@ -1,13 +1,13 @@
 
 
-export function editorConfig(model: any, code: string, lang: string, automaticLayout: boolean) {
+export function editorConfig(model: any, code: string, lang: string, automaticLayout: boolean, fixedOverflowWidgets: boolean) {
     return {
         model,
         value: code,
         language: lang,
         automaticLayout,
         readOnly: false,
-        fixedOverflowWidgets: true,
+        fixedOverflowWidgets,
         autoDetectHighContrast: true,
         //lineNumbers: 'off',
         //lineDecorationsWidth: 0,
