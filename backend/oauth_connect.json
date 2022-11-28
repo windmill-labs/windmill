@@ -71,5 +71,10 @@
     "extra_params": {
       "type": "web_server"
     }
+  },
+  "mailchimp": {
+    "auth_url": "https://login.mailchimp.com/oauth2/authorize",
+    "token_url": "https://login.mailchimp.com/oauth2/token",
+    "scopes": []
   }
 }
