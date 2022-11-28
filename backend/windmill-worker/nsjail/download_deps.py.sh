@@ -19,6 +19,5 @@ then
       echo "\$TRUSTED_HOST is set to $TRUSTED_HOST"
 fi
 
-/usr/local/bin/python3 -m pip install $REQ -I -t $TARGET --no-cache\
-    --no-color --no-deps --isolated --no-warn-conflicts --disable-pip-version-check $INDEX_URL_ARG $EXTRA_INDEX_URL_ARG $TRUSTED_HOST_ARG
-
+CMD="/usr/local/bin/python3 -m pip install $REQ -I -t $TARGET --no-cache --no-color --no-deps --isolated --no-warn-conflicts --disable-pip-version-check $INDEX_URL_ARG $EXTRA_INDEX_URL_ARG $TRUSTED_HOST_ARG"
+eval $CMD
