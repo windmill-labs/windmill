@@ -1,44 +1,47 @@
 import { Command } from "https://deno.land/x/cliffy@v0.25.4/command/mod.ts";
-import {
-  Input,
-  Secret,
-} from "https://deno.land/x/cliffy@v0.25.4/prompt/mod.ts";
 import { GlobalOptions } from "./types.ts";
-import {
-  setClient,
-  UserService,
-} from "https://deno.land/x/windmill@v1.50.0/mod.ts";
 import { colors } from "https://deno.land/x/cliffy@v0.25.4/ansi/colors.ts";
 import { getStore } from "./store.ts";
-import { getDefaultRemote, getRemote } from "./remote.ts";
+import { getDefaultRemote } from "./remote.ts";
+import { serve as serveHttp } from "https://deno.land/std@0.165.0/http/server.ts";
+import { getAvailablePort } from "https://deno.land/x/port/mod.ts";
 
 export type Options = GlobalOptions;
 
-async function login(
-  { remote, baseUrl }: Options,
-  email?: string,
-  password?: string
-) {
-  if (remote) {
-    baseUrl = baseUrl ?? (await getRemote(remote))?.baseUrl;
-  }
+async function login({ baseUrl }: Options) {
   baseUrl = baseUrl ?? (await getDefaultRemote())?.baseUrl;
   baseUrl = baseUrl ?? "https://app.windmill.dev";
-  setClient("no-token", baseUrl);
   const urlStore = await getStore(baseUrl);
-  email = email ?? (await Input.prompt({ message: "Input your Email" }));
-  password =
-    password ?? (await Secret.prompt({ message: "Input your Password" }));
 
-  const token = await UserService.login({
-    requestBody: {
-      email: email,
-      password: password,
-    },
-  });
+  // Start listening on port 8080 of localhost.
+  const port = await getAvailablePort();
+  if (port == undefined) {
+    console.log(colors.red.underline("failed to aquire port"));
+    return;
+  }
+
+  const server = Deno.listen({ transport: "tcp", port });
+  console.log(`Login by going to ${baseUrl}/user/cli?port=${port}`);
+  const firstConnection = await server.accept();
+  const httpFirstConnection = Deno.serveHttp(firstConnection);
+  const firstRequest = await httpFirstConnection.nextRequest();
+  const token = new URL(firstRequest?.request.url!).searchParams.get("token");
+  await firstRequest?.respondWith(
+    new Response(
+      "Got Token. You may close this tab now & return to your terminal."
+    )
+  );
+
+  if (token === undefined || token === null) {
+    console.log(colors.red.underline("Invalid Request. Failed to log in."));
+    return;
+  }
 
   await Deno.writeTextFile(urlStore + "token", token);
   console.log(colors.bold.underline.green("Successfully logged in!"));
+
+  httpFirstConnection.close();
+  server.close();
 }
 
 export async function getToken(baseUrl: string): Promise<string> {
@@ -59,7 +62,6 @@ const command = new Command()
   .description(
     "Log into windmill. The credentials are not stored, but the token they are exchanged for will be."
   )
-  .arguments("[email:string] [password:string]")
   .action(login as any);
 
 export default command;
