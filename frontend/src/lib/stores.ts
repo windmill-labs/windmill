@@ -24,12 +24,13 @@ export const usersWorkspaceStore = writable<UserWorkspaceList | undefined>(undef
 export const superadmin = writable<String | false | undefined>(undefined)
 export const hubScripts = writable<
 	| Array<{
-			path: string
-			summary: string
-			approved: boolean
-			kind: string
-			app: string
-	  }>
+		path: string
+		summary: string
+		approved: boolean
+		kind: string
+		app: string
+		ask_id: number
+	}>
 	| undefined
 >(undefined)
 

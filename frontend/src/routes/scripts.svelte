@@ -13,6 +13,7 @@
 		faCodeFork,
 		faEdit,
 		faEye,
+		faGlobe,
 		faList,
 		faPlay,
 		faShare
@@ -40,6 +41,8 @@
 	import CreateActions from '$lib/components/scripts/CreateActions.svelte'
 	import HighlightCode from '$lib/components/HighlightCode.svelte'
 	import Drawer from '$lib/components/common/drawer/Drawer.svelte'
+	import PickHubScript from '$lib/components/flows/pickers/PickHubScript.svelte'
+	import type { HubItem } from '$lib/components/flows/pickers/model'
 
 	type Tab = 'all' | 'personal' | 'groups' | 'shared' | 'examples' | 'hub'
 	type Section = [string, ScriptW[]]
@@ -70,15 +73,10 @@
 	let codeViewer: Drawer
 	let codeViewerContent: string = ''
 	let codeViewerLanguage: 'deno' | 'python3' | 'go' | 'bash' = 'deno'
-	let codeViewerPath: string = ''
+	let codeViewerObj: HubItem | undefined = undefined
 
 	$: filteredScripts =
 		scriptFilter.length > 0 ? fuse.search(scriptFilter).map((value) => value.item) : scripts
-
-	$: filteredHub =
-		hubFilter.length > 0
-			? hubScriptsFuse.search(hubFilter).map((value) => value.item)
-			: $hubScripts ?? []
 
 	$: {
 		let defaults: string[] = []
@@ -130,11 +128,11 @@
 		sendUserToast(`Successfully archived script ${path}`)
 	}
 
-	async function viewCode(path: string) {
-		const { content, language } = await getScriptByPath(path)
+	async function viewCode(obj: HubItem) {
+		const { content, language } = await getScriptByPath(obj.path)
 		codeViewerContent = content
 		codeViewerLanguage = language
-		codeViewerPath = path
+		codeViewerObj = obj
 		codeViewer.openDrawer()
 	}
 
@@ -152,8 +150,20 @@
 	}
 </script>
 
-<Drawer bind:this={codeViewer}>
-	<DrawerContent title="Script {codeViewerPath}" on:close={codeViewer.closeDrawer}>
+<Drawer bind:this={codeViewer} size="900px">
+	<DrawerContent title={codeViewerObj?.summary ?? ''} on:close={codeViewer.closeDrawer}>
+		<div slot="submission" class="flex flex-row gap-2 pr-2"
+			><Button
+				href="https://hub.windmill.dev/scripts/{codeViewerObj?.app ?? ''}/{codeViewerObj?.ask_id ??
+					0}"
+				startIcon={{ icon: faGlobe }}
+				variant="border">View on the Hub</Button
+			><Button
+				href="/scripts/add?hub={encodeURIComponent(codeViewerObj?.path ?? '')}"
+				startIcon={{ icon: faCodeFork }}>Fork</Button
+			></div
+		>
+
 		<HighlightCode language={codeViewerLanguage} code={codeViewerContent} />
 	</DrawerContent>
 </Drawer>
@@ -216,57 +226,19 @@
 						</Tooltip>
 					</h2>
 				{:else if sectionTab == 'hub'}
-					<h2 class="text-lg xl:text-xl">
+					<h2 class="text-lg xl:text-xl mb-4">
 						Approved scripts from the WindmillHub <Tooltip>
 							All approved Deno scripts from the <a href="https://hub.windmill.dev">WindmillHub</a>.
 							Approved scripts have been reviewed by the Windmill team and are safe to use in
-							production. The hub only offers Deno scripts because Hub scripts are meant to be
-							solely used as building blocks of flows and are much more efficient to execute than
-							their Python counterparts.
+							production.
 						</Tooltip>
 					</h2>
-					<input
-						type="text"
-						placeholder="Search hub scripts"
-						bind:value={hubFilter}
-						class="search-bar mt-2"
-					/>
-					<div class="relative">
+
+					<div class="flex flex-col max-h-screen">
 						{#if $hubScripts != undefined}
-							<TableCustom>
-								<tr slot="header-row">
-									<th>App</th>
-									<th>Summary</th>
-									<th />
-								</tr>
-								<tbody slot="body">
-									{#each filteredHub ?? [] as { path, summary, app, ask_id }}
-										<tr>
-											<td class="font-black">{app}</td>
-											<td
-												><button class="text-left" on:click={() => viewCode(path)}>{summary}</button
-												></td
-											>
-											<td class="whitespace-nowrap"
-												><button class="text-blue-500" on:click={() => viewCode(path)}
-													>view code</button
-												>
-												|
-												<a
-													target="_blank"
-													href={`https://hub.windmill.dev/scripts/${app}/${ask_id}`}>hub's page</a
-												>
-												|
-												<a class="font-bold" href={`/scripts/add?hub=${encodeURIComponent(path)}`}
-													>fork</a
-												>
-											</td>
-										</tr>
-									{/each}
-								</tbody>
-							</TableCustom>
+							<PickHubScript on:pick={(e) => viewCode(e.detail)} />
 						{:else}
-							<span class="mt-2 text-sm text-red-400">
+							<span class="mt-2 text-sm">
 								Hub not reachable. If your environment is air gapped, contact sales@windmill.dev to
 								setup a local mirror.
 							</span>

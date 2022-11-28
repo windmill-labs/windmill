@@ -10,7 +10,7 @@
 
 	let items: HubItem[] = []
 
-	let filteredItems: Item[] | undefined = []
+	let filteredItems: HubItem[] | undefined = []
 	let itemsFilter = ''
 	let appFilter: string | undefined = undefined
 
@@ -18,7 +18,7 @@
 		includeScore: false,
 		keys: ['path', 'summay']
 	}
-	const fuse: Fuse<Item> = new Fuse(items, fuseOptions)
+	const fuse: Fuse<HubItem> = new Fuse(items, fuseOptions)
 
 	$: {
 		items =
@@ -44,7 +44,7 @@
 	<div class="gap-2 w-full flex flex-wrap pb-2">
 		{#each apps as app}
 			<Badge
-				class="cursor-pointer"
+				class="cursor-pointer hover:bg-gray-200"
 				on:click={() => {
 					appFilter = appFilter == app ? undefined : app
 				}}
@@ -67,7 +67,7 @@
 								dispatch('pick', obj)
 							}}
 						>
-							<div class="mr-2 text-sm text-left truncate w-36  shrink-0">
+							<div class="mr-2 text-sm text-left truncate w-36 shrink-0">
 								<IconedResourceType after={true} silent={false} name={obj['app']} />
 							</div>
 							<div class="mr-2 text-left">{obj['summary'] ?? ''}</div>

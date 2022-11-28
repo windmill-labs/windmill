@@ -18,7 +18,6 @@
 	import CenteredModal from '$lib/components/CenteredModal.svelte'
 	import { getUserExt, refreshSuperadmin } from '$lib/user'
 	import { Button } from '$lib/components/common'
-	import { x86asm } from 'svelte-highlight/languages'
 
 	let email = $page.url.searchParams.get('email') ?? ''
 	let password = $page.url.searchParams.get('password') ?? ''

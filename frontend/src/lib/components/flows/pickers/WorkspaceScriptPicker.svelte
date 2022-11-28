@@ -7,7 +7,7 @@
 
 	export let kind: 'script' | 'trigger' | 'approval' | 'failure' = 'script'
 
-	let items: HubItem[] = []
+	let items: Item[] = []
 
 	let filteredItems: Item[] | undefined = []
 	let itemsFilter = ''
