@@ -858,7 +858,7 @@ async fn handle_queued_job(
                         Error::ExitStatus(_) => {
                             let last_10_log_lines = logs
                                 .lines()
-                                .skip(logs.lines().count().max(10) - 10)
+                                .skip(logs.lines().count().max(13) - 13)
                                 .join("\n")
                                 .to_string()
                                 .replace("\n\n", "\n");
