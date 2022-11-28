@@ -74,7 +74,7 @@
 		<ContextPanel appPath={path} />
 	</Pane>
 	<Pane size={previewing ? 100 : 60}>
-		<div class="p-4 bg-gray-100 h-full" id="faton">
+		<div class="p-4 bg-gray-100 h-full">
 			{#if $appStore.grid}
 				<GridEditor />
 			{/if}

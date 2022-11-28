@@ -140,12 +140,16 @@ export type GridItem = FilledItem<{
 	id: string
 }>
 
+export type InlineScript = {
+	content: string
+	language: Preview.language
+	path: string
+	schema: Schema
+}
+
 export type App = {
 	grid: GridItem[]
-	inlineScripts: Record<
-		string,
-		{ content: string; language: Preview.language; path: string; schema: Schema }
-	>
+	inlineScripts: Record<string, InlineScript>
 	title: string
 }
 

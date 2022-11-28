@@ -37,7 +37,8 @@ const plainComponents: ComponentSet = {
 					fieldType: 'textarea',
 					defaultValue: 'Lorem ipsum'
 				}
-			}
+			},
+			card: false
 		},
 		{
 			...defaultProps,
@@ -68,7 +69,8 @@ const plainComponents: ComponentSet = {
 					defaultValue: 'md'
 				}
 			},
-			runnable: true
+			runnable: true,
+			card: false
 		},
 		{
 			...defaultProps,
@@ -83,7 +85,8 @@ const plainComponents: ComponentSet = {
 					fieldType: 'textarea',
 					defaultValue: 'Lorem ipsum'
 				}
-			}
+			},
+			card: false
 		}
 	]
 }

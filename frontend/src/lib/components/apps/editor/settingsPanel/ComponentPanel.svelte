@@ -34,9 +34,13 @@
 			// Delete static inputs
 		} else {
 			if (component) {
-				const COLS = 6
 				$app.grid = $app.grid.filter((gridComponent) => gridComponent.data.id !== component?.id)
-				$app.grid = gridHelp.adjust($app.grid, COLS)
+
+				/*
+				COLS.forEach((colIndex) => {
+					$app.grid = gridHelp.adjust($app.grid, colIndex)
+				})
+				*/
 
 				// Delete static inputs
 				delete $staticOutputs[component.id]

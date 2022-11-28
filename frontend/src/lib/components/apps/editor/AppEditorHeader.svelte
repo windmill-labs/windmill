@@ -5,7 +5,14 @@
 	import ToggleButtonGroup from '$lib/components/common/toggleButton/ToggleButtonGroup.svelte'
 	import { AppService, Policy } from '$lib/gen'
 	import { userStore, workspaceStore } from '$lib/stores'
-	import { faDisplay, faExternalLink, faHand } from '@fortawesome/free-solid-svg-icons'
+	import {
+		faDesktopAlt,
+		faDisplay,
+		faExternalLink,
+		faHand,
+		faMobileAlt,
+		faTabletAlt
+	} from '@fortawesome/free-solid-svg-icons'
 	import { getContext } from 'svelte'
 	import { sendUserToast } from '../../../utils'
 	import type { AppEditorContext, EditorMode } from '../types'
@@ -32,13 +39,16 @@
 					on_behalf_of: `u/${$userStore?.username}`
 				}
 			}
-		}).then(() => {
-			sendUserToast('Saved successfully.')
-		}).catch(() => {
-			sendUserToast('Error during saving. Please try again later.', true)
-		}).finally(() => {
-			loading.save = false
 		})
+			.then(() => {
+				sendUserToast('Saved successfully.')
+			})
+			.catch(() => {
+				sendUserToast('Error during saving. Please try again later.', true)
+			})
+			.finally(() => {
+				loading.save = false
+			})
 	}
 </script>
 
@@ -47,10 +57,23 @@
 	<div>
 		<ToggleButtonGroup bind:selected={mode}>
 			<ToggleButton position="left" value="dnd" startIcon={{ icon: faHand }} size="xs">
-				Component editor
+				Editor
 			</ToggleButton>
 			<ToggleButton position="right" value="preview" startIcon={{ icon: faDisplay }} size="xs">
 				Preview
+			</ToggleButton>
+		</ToggleButtonGroup>
+	</div>
+	<div>
+		<ToggleButtonGroup bind:selected={mode}>
+			<ToggleButton position="left" value="dnd" startIcon={{ icon: faMobileAlt }} size="xs">
+				Mobile
+			</ToggleButton>
+			<ToggleButton position="center" value="preview" startIcon={{ icon: faTabletAlt }} size="xs">
+				Tablet
+			</ToggleButton>
+			<ToggleButton position="right" value="preview" startIcon={{ icon: faDesktopAlt }} size="xs">
+				Desktop
 			</ToggleButton>
 		</ToggleButtonGroup>
 	</div>

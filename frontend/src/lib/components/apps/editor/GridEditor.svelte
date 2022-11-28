@@ -4,36 +4,27 @@
 	import Grid from 'svelte-grid'
 	import ComponentEditor from './ComponentEditor.svelte'
 	import { classNames } from '$lib/utils'
+	import { columnConfiguration, disableDrag, enableDrag } from '../gridUtils'
 
 	const { selectedComponent, app, mode } = getContext<AppEditorContext>('AppEditorContext')
 
-	const COLS = 6
-	const cols: [number, number][] = [[1200, COLS]]
-
 	$: if ($mode === 'preview') {
-		$app.grid.map((c) => {
-			c[COLS].customDragger = true
-			c[COLS].customResizer = true
-			return c
-		})
+		$app.grid.map((gridItem) => disableDrag(gridItem))
 	} else {
-		$app.grid.map((c) => {
-			c[COLS].customDragger = false
-			c[COLS].customResizer = false
-			return c
-		})
+		$app.grid.map((gridItem) => enableDrag(gridItem))
 	}
 </script>
 
 <div class="bg-white h-full">
-	<Grid bind:items={$app.grid} rowHeight={32} let:dataItem {cols}>
+	<Grid bind:items={$app.grid} rowHeight={64} let:dataItem cols={columnConfiguration}>
 		{#each $app.grid as gridComponent (gridComponent.id)}
 			{#if gridComponent.data.id === dataItem.data.id}
 				<!-- svelte-ignore a11y-click-events-have-key-events -->
 
 				<div
 					class={classNames(
-						'h-full w-full flex justify-center align-center border border-gray-100'
+						'h-full w-full flex justify-center align-center',
+						gridComponent.data.card ? 'border border-gray-100 p-2' : ''
 					)}
 					on:click={() => {
 						$selectedComponent = dataItem.data.id
