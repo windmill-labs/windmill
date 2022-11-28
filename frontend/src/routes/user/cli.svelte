@@ -21,14 +21,12 @@
 	}
 </script>
 
-<!-- Enable submit form on enter -->
-
 <CenteredModal title="Authorize this request for a Token">
 	<p class="text-center text-lg">
 		Token will be posted to your local machine to port {port}
 	</p>
 	<div class="flex flex-row justify-between pt-4 gap-x-1">
-		<Button variant="border" size="sm" href="/user/workspaces">Decline</Button>
+		<Button variant="border" size="sm" href="/">Decline</Button>
 		<button
 			class="place-items-end bg-blue-500 hover:bg-blue-700 text-white font-bold py-1 px-2 border rounded"
 			type="button"
