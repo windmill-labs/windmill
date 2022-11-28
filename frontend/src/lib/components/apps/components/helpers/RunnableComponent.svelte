@@ -7,7 +7,7 @@
 	import TestJobLoader from '$lib/components/TestJobLoader.svelte'
 	import { AppService, type CompletedJob } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
-	import { faArrowsRotate } from '@fortawesome/free-solid-svg-icons'
+	import { faArrowsRotate, faRefresh } from '@fortawesome/free-solid-svg-icons'
 	import { getContext } from 'svelte'
 	import Icon from 'svelte-awesome'
 	import type { Output } from '../../rx'
@@ -206,14 +206,17 @@
 
 {#if autoRefresh === true}
 	{#if isValid}
-		<Button size="xs" color="dark" on:click={() => executeComponent()} disabled={!isValid}>
-			<div>
-				{Object.keys(args).length > 0 ? 'Submit' : 'Refresh'}
-				{#if testIsLoading}
-					<Icon data={faArrowsRotate} class="animate-spin ml-2" scale={0.8} />
-				{/if}
-			</div>
-		</Button>
+		<div class="flex flex-row-reverse">
+			<Button
+				size="xs"
+				color="light"
+				variant="border"
+				on:click={() => executeComponent()}
+				disabled={!isValid}
+				startIcon={{ icon: faRefresh, classes: testIsLoading ? 'animate-spin' : '' }}
+				iconOnly
+			/>
+		</div>
 		<slot />
 	{:else}
 		<Alert type="warning" size="xs" class="mt-2" title="Missing inputs">
