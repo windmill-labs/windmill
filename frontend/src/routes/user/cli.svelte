@@ -5,6 +5,7 @@
 	import { page } from '$app/stores'
 	import CenteredModal from '$lib/components/CenteredModal.svelte'
 	import { Button } from '$lib/components/common'
+	import { workspaceStore, usersWorkspaceStore } from '$lib/stores'
 
 	let port = Number($page.url.searchParams.get('port'))
 	port = port == 0 || port == NaN ? 80 : port
@@ -17,7 +18,7 @@
 			}
 		})
 
-		await goto('http://localhost:' + port + '?token=' + newToken)
+		await goto('http://localhost:' + port + '?token=' + newToken + '&workspace=' + $workspaceStore)
 	}
 </script>
 

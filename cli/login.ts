@@ -3,8 +3,7 @@ import { GlobalOptions } from "./types.ts";
 import { colors } from "https://deno.land/x/cliffy@v0.25.4/ansi/colors.ts";
 import { getStore } from "./store.ts";
 import { getDefaultRemote } from "./remote.ts";
-import { serve as serveHttp } from "https://deno.land/std@0.165.0/http/server.ts";
-import { getAvailablePort } from "https://deno.land/x/port/mod.ts";
+import { getAvailablePort } from "https://deno.land/x/port@1.0.0/mod.ts";
 
 export type Options = GlobalOptions;
 
@@ -25,7 +24,9 @@ async function login({ baseUrl }: Options) {
   const firstConnection = await server.accept();
   const httpFirstConnection = Deno.serveHttp(firstConnection);
   const firstRequest = (await httpFirstConnection.nextRequest())!;
-  const token = new URL(firstRequest.request.url!).searchParams.get("token");
+  const params = new URL(firstRequest.request.url!).searchParams;
+  const token = params.get("token");
+  const workspace = params.get("workspace");
   await firstRequest?.respondWith(
     Response.redirect(baseUrl + "/user/cli-success", 302)
   );
@@ -36,7 +37,12 @@ async function login({ baseUrl }: Options) {
   }
 
   await Deno.writeTextFile(urlStore + "token", token);
-  console.log(colors.bold.underline.green("Successfully logged in!"));
+  await Deno.writeTextFile(urlStore + "default_workspace_id", workspace!);
+  console.log(
+    colors.bold.underline.green(
+      "Successfully logged in & switched to workspace " + workspace
+    )
+  );
 
   httpFirstConnection.close();
   server.close();
