@@ -7,10 +7,33 @@ import { getAvailablePort } from "https://deno.land/x/port@1.0.0/mod.ts";
 
 export type Options = GlobalOptions;
 
-async function login({ baseUrl }: Options) {
+async function login({
+  baseUrl,
+  token: existingToken,
+  workspace: existingWorkspace,
+}: Options) {
   baseUrl = baseUrl ?? (await getDefaultRemote())?.baseUrl;
   baseUrl = baseUrl ?? "https://app.windmill.dev";
   const urlStore = await getStore(baseUrl);
+
+  if (existingToken) {
+    await Deno.writeTextFile(urlStore + "token", existingToken);
+
+    if (existingWorkspace) {
+      await Deno.writeTextFile(
+        urlStore + "default_workspace_id",
+        existingWorkspace!
+      );
+      console.log(
+        colors.bold.underline.green(
+          "Successfully logged in & switched to workspace " + existingWorkspace
+        )
+      );
+    } else {
+      console.log(colors.bold.underline.green("Successfully logged in"));
+    }
+    return;
+  }
 
   // Start listening on port 8080 of localhost.
   const port = await getAvailablePort();
