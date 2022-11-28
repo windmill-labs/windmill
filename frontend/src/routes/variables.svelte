@@ -164,7 +164,7 @@
 											<Popover>
 												<Icon data={faRefresh} />
 												<div slot="text">
-													This OAuth token is kept up-to-date in the background by Windmill using
+													This OAuth token will be kept up-to-date in the background by Windmill using
 													its refresh token
 												</div>
 											</Popover>
