@@ -176,6 +176,11 @@ const config = {
 						fontSize: '25px'
 					}
 				},
+				mark: {
+					backgroundColor: theme('colors.yellow.200'),
+					border: `1px solid ${theme('colors.gray.600')}`,
+					borderRadius: theme('borderRadius.sm'),
+				},
 				h3: {
 					fontSize: '18px',
 					fontWeight: theme('fontWeight.bold'),

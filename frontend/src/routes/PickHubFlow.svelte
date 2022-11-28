@@ -1,36 +1,38 @@
 <script lang="ts">
-	import { hubScripts } from '$lib/stores'
 	import { createEventDispatcher, onMount } from 'svelte'
-	import type { HubItem } from './model'
-	import IconedResourceType from '$lib/components/IconedResourceType.svelte'
 	import { Badge, Skeleton } from '$lib/components/common'
 	import SearchItems from '$lib/components/SearchItems.svelte'
-	import { loadHubScripts } from '$lib/utils'
+	import { loadHubFlows } from '$lib/utils'
 
-	export let kind: 'script' | 'trigger' | 'approval' | 'failure' = 'script'
-
-	$: items = ($hubScripts ?? []).filter((i) => i.kind === kind)
-
-	let filteredItems: (HubItem & { marked?: string })[] = []
+	type Item = { apps: string[]; summary: string }
+	let hubFlows: any[] | undefined = undefined
+	let filteredItems: (Item & { marked?: string })[] = []
 	let filter = ''
 	let appFilter: string | undefined = undefined
 
-	$: apps = Array.from(new Set(filteredItems?.map((x) => x.app) ?? [])).sort()
+	$: prefilteredItems = appFilter
+		? (hubFlows ?? []).filter((i) => i.apps.includes(appFilter))
+		: hubFlows ?? []
+
+	$: apps = Array.from(new Set(filteredItems?.flatMap((x) => x.apps) ?? [])).sort()
 
 	const dispatch = createEventDispatcher()
 
-	onMount(() => {
-		if (!$hubScripts) {
-			loadHubScripts()
-		}
+	onMount(async () => {
+		hubFlows = await loadHubFlows()
 	})
 </script>
 
-<SearchItems {filter} {items} bind:filteredItems f={(x) => x.summary} />
+<SearchItems
+	{filter}
+	items={prefilteredItems}
+	bind:filteredItems
+	f={(x) => x.summary + ' (' + x.apps.join(', ') + ')'}
+/>
 
 <div class="flex flex-col min-h-0">
 	<div class="w-12/12 pb-2 flex flex-row mt-1 gap-1">
-		<input type="text" placeholder="Search Scripts" bind:value={filter} class="text-2xl grow" />
+		<input type="text" placeholder="Search Flows" bind:value={filter} class="text-2xl grow" />
 	</div>
 
 	<div class="gap-2 w-full flex flex-wrap pb-2">
@@ -50,7 +52,7 @@
 	</div>
 	<div class="overflow-auto">
 		<ul class="divide-y divide-gray-200">
-			{#if $hubScripts}
+			{#if hubFlows}
 				{#if filter.length > 0 && filteredItems.length == 0}
 					<p>No items found</p>
 				{/if}
@@ -62,9 +64,7 @@
 								dispatch('pick', obj)
 							}}
 						>
-							<div class="mr-2 text-sm text-left truncate w-32 shrink-0">
-								<IconedResourceType after={true} silent={false} name={obj['app']} />
-							</div>
+							<div class="mr-2 text-sm text-left w-32 shrink-0">{obj.apps.join(', ')}</div>
 							<div class="mr-2 text-left">
 								{#if obj.marked}
 									{@html obj.marked ?? ''}

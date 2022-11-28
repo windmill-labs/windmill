@@ -23,7 +23,7 @@ export namespace ButtonType {
 	export const SpacingClasses: Record<ButtonType.Size, string> = {
 		xs: 'px-3 py-1.5',
 		sm: 'px-3 py-1.5',
-		md: 'px-4 py-2',
+		md: 'px-3 py-1.5',
 		lg: 'px-4 py-2',
 		xl: 'px-4 py-2'
 	} as const

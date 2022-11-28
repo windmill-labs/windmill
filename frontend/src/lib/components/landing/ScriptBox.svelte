@@ -5,6 +5,7 @@
 	import { truncateHash } from '$lib/utils'
 	import { faPencil, faPlay } from '@fortawesome/free-solid-svg-icons'
 	import { Button, Badge } from '$lib/components/common'
+	import { LanguageIcon } from '../common/languageIcons'
 
 	export let script: Script
 </script>
@@ -17,15 +18,9 @@
 
 	<div class="inline-flex justify-between w-full">
 		<div class="text-xs">{script.path}</div>
-
-		<Badge color="gray">
-			{truncateHash(script.hash)}
-		</Badge>
+		<div><LanguageIcon height={16} lang={script.language} /></div>
 	</div>
 	<div class="inline-flex space-x-1 w-full">
-		<Badge color="blue" capitalize>
-			{script.language}
-		</Badge>
 		{#if script.kind !== 'script'}
 			<Badge color="green" capitalize>
 				{script.kind}
