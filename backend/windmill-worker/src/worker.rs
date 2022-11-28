@@ -1147,7 +1147,7 @@ async fn handle_go_job(
         false
     };
     logs.push_str("\n\n--- GO DEPENDENCIES SETUP ---\n");
-    set_logs(logs, job.id, db).await;
+    set_logs(logs, &job.id, db).await;
 
     install_go_dependencies(
         &job.id,
@@ -1163,7 +1163,7 @@ async fn handle_go_job(
     .await?;
 
     logs.push_str("\n\n--- GO CODE EXECUTION ---\n");
-    set_logs(logs, job.id, db).await;
+    set_logs(logs, &job.id, db).await;
     create_args_and_out_file(client, job, job_dir).await?;
     {
         let sig = windmill_parser_go::parse_go_sig(&inner_content)?;
@@ -1320,7 +1320,7 @@ async fn handle_bash_job(
     shared_mount: &str,
 ) -> Result<serde_json::Value, Error> {
     logs.push_str("\n\n--- BASH CODE EXECUTION ---\n");
-    set_logs(logs, job.id, db).await;
+    set_logs(logs, &job.id, db).await;
     write_file(job_dir, "main.sh", content).await?;
 
     let mut reserved_variables = get_reserved_variables(job, &token, &base_url, db).await?;
@@ -1414,7 +1414,7 @@ async fn handle_deno_job(
     lockfile: Option<String>,
 ) -> error::Result<serde_json::Value> {
     logs.push_str("\n\n--- DENO CODE EXECUTION ---\n");
-    set_logs(logs, job.id, db).await;
+    set_logs(logs, &job.id, db).await;
     let lockfile = lockfile.and_then(|e| if e.starts_with("{") { Some(e) } else { None });
     let _ = write_file(
         job_dir,
@@ -1629,7 +1629,7 @@ async fn handle_python_job(
     }
     logs.push_str("\n\n--- PYTHON CODE EXECUTION ---\n");
 
-    set_logs(logs, job.id, db).await;
+    set_logs(logs, &job.id, db).await;
 
     let _ = write_file(job_dir, "inner.py", inner_content).await?;
 
@@ -2023,9 +2023,12 @@ async fn pip_compile(
     db: &Pool<Postgres>,
     timeout: i32,
 ) -> error::Result<String> {
+    logs.push_str(&format!("\nresolving dependencies..."));
+    set_logs(logs, job_id, db).await;
     logs.push_str(&format!("\ncontent of requirements:\n{}", requirements));
     let file = "requirements.in";
     write_file(job_dir, file, &requirements).await?;
+
     let mut args = vec!["-q", "--no-header", file, "--resolver=backtracking"];
     if let Some(url) = pip_extra_index_url {
         args.extend(["--extra-index-url", url]);
@@ -2463,7 +2466,7 @@ fn append_with_limit(dst: &mut String, src: &str, limit: &mut usize) {
 }
 
 #[tracing::instrument(level = "trace", skip_all)]
-async fn set_logs(logs: &str, id: uuid::Uuid, db: &Pool<Postgres>) {
+async fn set_logs(logs: &str, id: &uuid::Uuid, db: &Pool<Postgres>) {
     if sqlx::query!(
         "UPDATE queue SET logs = $1 WHERE id = $2",
         logs.to_owned(),
