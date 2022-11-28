@@ -29,7 +29,7 @@
 </script>
 
 <div
-	class="ml-2 {relative ? 'relative' : ''} {$$props.class}"
+	class="{relative ? 'relative' : ''} {$$props.class}"
 	use:clickOutside
 	on:click_outside={handleClickOutsideMenu}
 >
