@@ -95,10 +95,11 @@
 	</DrawerContent>
 </Drawer>
 
-<Drawer bind:this={scriptEditorDrawer} size="1000px">
+<Drawer bind:this={scriptEditorDrawer} size="1200px">
 	<DrawerContent
 		title="Script Editor"
 		noPadding
+		forceOverflowVisible
 		on:close={() => {
 			scriptEditorDrawer.closeDrawer()
 		}}
@@ -109,6 +110,7 @@
 				bind:code={selectedScript.content}
 				path={selectedScript.path}
 				bind:schema={selectedScript.schema}
+				fixedOverflowWidgets={false}
 			/>
 		{/if}
 	</DrawerContent>

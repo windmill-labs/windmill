@@ -65,6 +65,7 @@
 	export let automaticLayout = true
 	export let websocketAlive = { pyright: false, black: false, deno: false, go: false }
 	export let shouldBindKey: boolean = true
+	export let fixedOverflowWidgets = true
 
 	let websockets: [MonacoLanguageClient, WebSocket][] = []
 	let websocketInterval: NodeJS.Timer | undefined
@@ -399,7 +400,7 @@
 		model.updateOptions(updateOptions)
 		editor = monaco.editor.create(
 			divEl as HTMLDivElement,
-			editorConfig(model, code, lang, automaticLayout)
+			editorConfig(model, code, lang, automaticLayout, fixedOverflowWidgets)
 		)
 
 		let timeoutModel: NodeJS.Timeout | undefined = undefined

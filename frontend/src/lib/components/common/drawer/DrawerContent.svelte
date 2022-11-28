@@ -7,6 +7,7 @@
 	export let title: string | undefined = undefined
 	export let overflow_y = true
 	export let noPadding = false
+	export let forceOverflowVisible = false
 	const dispatch = createEventDispatcher()
 </script>
 
@@ -32,7 +33,9 @@
 	</div>
 
 	<div
-		class="{noPadding ? '' : 'py-2 px-6'} grow h-full max-h-full"
+		class="{noPadding ? '' : 'py-2 px-6'} grow h-full max-h-full {forceOverflowVisible
+			? '!overflow-visible'
+			: ''}"
 		class:overflow-y-auto={overflow_y}
 	>
 		<slot />
