@@ -1,32 +1,18 @@
 <script lang="ts">
 	import { goto } from '$app/navigation'
+	import CenteredModal from '$lib/components/CenteredModal.svelte'
 	import WindmillIcon from '$lib/components/icons/WindmillIcon.svelte'
 
 	import { sendUserToast } from '$lib/utils'
-	import { faSpinner } from '@fortawesome/free-solid-svg-icons'
-	import Icon from 'svelte-awesome'
 
 	sendUserToast('Sucess. You can return to your terminal now.')
 	goto('/')
 </script>
 
-<div class="my-grid">
-	<div class="my-center">
-		<div class="animate-spin"><WindmillIcon width="100%" height="100%" /></div>
+<CenteredModal title="Redirecting to Home...">
+	<div class="w-full ">
+		<div class="block m-auto w-20">
+			<WindmillIcon class="animate-[spin_6s_linear_infinite]" height="80px" width="80px" />
+		</div>
 	</div>
-</div>
-
-<style>
-	.my-grid {
-		display: grid;
-		grid-template-areas: 'a a a' 'b c d' 'e e e';
-		grid-auto-rows: 1fr;
-		grid-auto-columns: 1fr;
-		aspect-ratio: 1/1;
-		max-height: 100vh;
-		max-width: 100vw;
-	}
-	.my-center {
-		grid-area: c;
-	}
-</style>
+</CenteredModal>
