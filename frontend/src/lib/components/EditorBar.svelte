@@ -68,7 +68,9 @@
 		const workspaceScripts: { path: string; summary?: string }[] = await ScriptService.listScripts({
 			workspace: $workspaceStore ?? 'NO_W'
 		})
-		await loadHubScripts()
+		if (!$hubScripts) {
+			await loadHubScripts()
+		}
 		const hubScripts_ = $hubScripts ?? []
 
 		return workspaceScripts.concat(hubScripts_)

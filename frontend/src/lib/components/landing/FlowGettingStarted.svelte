@@ -5,18 +5,10 @@
 	import HatIcon from '../icons/HatIcon.svelte'
 </script>
 
-<div class="p-4 border border-gray-300 rounded-md bg-gray-50 overflow-auto">
-	<div class="flex items-center">
-		<h3 class="inline-flex items-center font-semibold">
-			<HatIcon class="w-6 h-6 mr-2" />
-			Getting started
-		</h3>
-	</div>
-	<div class="mt-2 mb-4 text-sm text-gray-700 ">
+<div class=" overflow-auto">
+	<div class="mt-2 mb-4 text-sm text-gray-700 dark:text-gray-300">
 		Flows allow you to streamline complex processes and operations by chaining simple steps
-		together. Each Flow is composed of one or more steps. Create a new flow or find inspiration on
-		the Hub!
-	</div>
+		together. Each Flow is composed of one or more steps.
 	<div class="flex flex-row flex-wrap gap-y-2">
 		<Button href="/flows/add" color="dark" size="xs" btnClasses="mr-2" startIcon={{ icon: faPlus }}>
 			Create flow
