@@ -1,10 +1,8 @@
 <script lang="ts">
 	import { goto } from '$app/navigation'
 
-	import { UserService, WorkspaceService } from '$lib/gen'
-	import { validateUsername } from '$lib/utils'
+	import { UserService } from '$lib/gen'
 	import { page } from '$app/stores'
-	import { usersWorkspaceStore, workspaceStore } from '$lib/stores'
 	import CenteredModal from '$lib/components/CenteredModal.svelte'
 	import { Button } from '$lib/components/common'
 

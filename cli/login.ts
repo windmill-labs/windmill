@@ -24,12 +24,10 @@ async function login({ baseUrl }: Options) {
   console.log(`Login by going to ${baseUrl}/user/cli?port=${port}`);
   const firstConnection = await server.accept();
   const httpFirstConnection = Deno.serveHttp(firstConnection);
-  const firstRequest = await httpFirstConnection.nextRequest();
-  const token = new URL(firstRequest?.request.url!).searchParams.get("token");
+  const firstRequest = (await httpFirstConnection.nextRequest())!;
+  const token = new URL(firstRequest.request.url!).searchParams.get("token");
   await firstRequest?.respondWith(
-    new Response(
-      "Got Token. You may close this tab now & return to your terminal."
-    )
+    Response.redirect(baseUrl + "/user/cli-success", 302)
   );
 
   if (token === undefined || token === null) {
