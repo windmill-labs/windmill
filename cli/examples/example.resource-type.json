@@ -1,0 +1,15 @@
+{
+  "schema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+      "apiKey": {
+        "type": "string",
+        "description": "",
+        "default": "keyXXXXXXXXXXXXXX"
+      }
+    },
+    "required": [],
+    "type": "object"
+  },
+  "description": "Example Description"
+}
