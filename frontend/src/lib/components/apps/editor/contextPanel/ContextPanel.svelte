@@ -138,7 +138,7 @@
 				)}
 			>
 				<span class="text-xs">{key}</span>
-				<div>
+				<div class="flex gap-2">
 					<Button
 						size="xs"
 						color="light"

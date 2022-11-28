@@ -36,7 +36,8 @@
 	)
 
 	let options = {
-		responsive: true
+		responsive: true,
+		animation: false
 	}
 
 	let result: ChartData<'pie', number[], unknown> | undefined = undefined
