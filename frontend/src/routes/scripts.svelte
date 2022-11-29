@@ -35,7 +35,9 @@
 	import PickHubScript from '$lib/components/flows/pickers/PickHubScript.svelte'
 	import type { HubItem } from '$lib/components/flows/pickers/model'
 	import Icon from 'svelte-awesome'
-
+	import SearchItems from '$lib/components/SearchItems.svelte'
+	import Star from '$lib/components/Star.svelte'
+	import LanguageIcon from '$lib/components/common/languageIcons/LanguageIcon.svelte'
 	type Tab = 'workspace' | 'hub'
 	type ScriptW = Script & { canWrite: boolean; marked?: string }
 	let scripts: ScriptW[] = []
@@ -53,9 +55,6 @@
 	let codeViewerContent: string = ''
 	let codeViewerLanguage: 'deno' | 'python3' | 'go' | 'bash' = 'deno'
 	let codeViewerObj: HubItem | undefined = undefined
-
-	import SearchItems from '$lib/components/SearchItems.svelte'
-	import LanguageIcon from '$lib/components/common/languageIcons/LanguageIcon.svelte'
 
 	async function loadScripts(): Promise<void> {
 		scripts = (await ScriptService.listScripts({ workspace: $workspaceStore!, perPage: 300 })).map(
@@ -161,7 +160,7 @@
 		</div>
 		<div class="grid grid-cols-1 gap-4 lg:grid-cols-2 mt-2 w-full">
 			{#if !loading}
-				{#each filteredScripts as { summary, path, hash, language, extra_perms, canWrite, lock_error_logs, kind, marked } (path)}
+				{#each filteredScripts as { summary, path, hash, language, extra_perms, canWrite, lock_error_logs, kind, marked, starred } (path)}
 					<a
 						class="border border-gray-400 p-2 rounded-sm shadow-sm  hover:border-blue-600 text-gray-800"
 						href="/scripts/get/{hash}"
@@ -177,6 +176,7 @@
 							<div class="flex flex-row  justify-between w-full grow gap-2 items-start">
 								<div class="text-gray-700 text-xs flex flex-row  flex-wrap  gap-x-1 items-center">
 									{path}
+									<Star kind="script" {path} {starred} on:starred={loadScripts} />
 									<SharedBadge {canWrite} extraPerms={extra_perms} />
 									<div><LanguageIcon height={16} lang={language} /></div>
 									{#if kind != 'script'}

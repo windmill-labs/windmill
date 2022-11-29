@@ -45,6 +45,7 @@
 		"svelte-grid": "^5.1.1",
 		"svelte-heros": "^2.3.5",
 		"svelte-highlight": "^6.2.1",
+		"svelte-lucide": "^0.2.0",
 		"svelte-markdown": "^0.2.3",
 		"svelte-overlay": "^1.4.1",
 		"svelte-popperjs": "^1.3.2",
