@@ -12,7 +12,11 @@
 		toggl: {
 			img: 'toggl_connect.png',
 			instructions: 'Go to https://track.toggl.com/profile -> API Token'
-		}
+		},
+		mailchimp: {
+			img: 'mailchimp_connect.png',
+			instructions: 'Go to https://admin.mailchimp.com/account/api/ -> Your API Keys'
+		},
 	}
 </script>
 
