@@ -30,6 +30,20 @@ pub struct Flow {
     pub extra_perms: serde_json::Value,
 }
 
+#[derive(Serialize)]
+#[cfg_attr(feature = "sqlx", derive(sqlx::FromRow))]
+pub struct ListableFlow {
+    pub workspace_id: String,
+    pub path: String,
+    pub summary: String,
+    pub description: String,
+    pub edited_by: String,
+    pub edited_at: chrono::DateTime<chrono::Utc>,
+    pub archived: bool,
+    pub extra_perms: serde_json::Value,
+    pub starred: bool,
+}
+
 #[derive(Deserialize)]
 #[cfg_attr(feature = "sqlx", derive(sqlx::FromRow))]
 pub struct NewFlow {
@@ -224,4 +238,5 @@ pub struct ListFlowQuery {
     pub show_archived: Option<bool>,
     pub order_by: Option<String>,
     pub order_desc: Option<bool>,
+    pub starred_only: Option<bool>,
 }

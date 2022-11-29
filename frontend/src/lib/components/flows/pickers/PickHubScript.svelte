@@ -29,8 +29,8 @@
 <SearchItems {filter} {items} bind:filteredItems f={(x) => x.summary} />
 
 <div class="flex flex-col min-h-0">
-	<div class="w-12/12 pb-2 flex flex-row mt-1 gap-1">
-		<input type="text" placeholder="Search Scripts" bind:value={filter} class="text-2xl grow" />
+	<div class="w-12/12 pb-2 flex flex-row my-1 gap-1">
+		<input type="text" placeholder="Search Hub Scripts" bind:value={filter} class="text-2xl grow" />
 	</div>
 
 	<div class="gap-2 w-full flex flex-wrap pb-2">
