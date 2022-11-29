@@ -1,7 +1,9 @@
 import type { Schema } from '$lib/common'
 import type { Preview } from '$lib/gen'
+import type { ComponentProps } from 'svelte'
 import type { FilledItem } from 'svelte-grid'
 import type { Writable } from 'svelte/store'
+import type { AppButton } from './components'
 import type { staticValues } from './editor/componentsPanel/componentStaticValues'
 import type { World } from './rx'
 
@@ -78,7 +80,7 @@ export type BarChartComponent = BaseComponent<'barchartcomponent'>
 export type PieChartComponent = Runnable & BaseComponent<'piechartcomponent'>
 export type TableComponent = Runnable &
 	BaseComponent<'tablecomponent'> & {
-		components: AppComponent[]
+		actionButtons: (BaseAppComponent & ButtonComponent)[]
 	}
 
 export type DisplayComponent = BaseComponent<'displaycomponent'>

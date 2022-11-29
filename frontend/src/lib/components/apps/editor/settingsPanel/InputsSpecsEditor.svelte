@@ -47,7 +47,6 @@
 <div class="w-full flex flex-col gap-2">
 	{#each Object.keys(inputSpecs) as inputSpecKey, index (index)}
 		{@const input = inputSpecs[inputSpecKey]}
-
 		<div>
 			<div
 				class={classNames(
@@ -66,7 +65,7 @@
 				}}
 			>
 				{inputSpecKey}
-				{#if input.fieldType}
+				{#if input?.fieldType}
 					<Badge color={openedProp === inputSpecKey ? 'dark-blue' : 'blue'}>
 						{capitalize(fieldTypeToTsType(input.fieldType))}
 					</Badge>

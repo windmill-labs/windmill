@@ -62,6 +62,7 @@
 		"@fortawesome/free-solid-svg-icons": "^6.2.0",
 		"@leeoniya/ufuzzy": "^0.8.0",
 		"@redocly/json-to-json-schema": "^0.0.1",
+		"@types/node": "^18.11.9",
 		"async-mutex": "^0.4.0",
 		"chartjs-adapter-date-fns": "^2.0.0",
 		"chartjs-plugin-zoom": "^1.2.1",
