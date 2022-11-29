@@ -6,126 +6,70 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
-use crate::{
-    db::{UserDB, DB},
-    users::Authed,
-};
+use crate::{db::DB, users::Authed};
 use axum::{
-    extract::{Extension, Path, Query},
-    routing::{delete, get, post},
+    extract::{Extension, Path},
+    routing::post,
     Json, Router,
 };
-use windmill_audit::{audit_log, ActionKind};
-use windmill_common::{
-    error::{Error, JsonResult, Result},
-    users::owner_to_token_owner,
-    utils::{not_found_if_none, paginate, Pagination},
-};
+use windmill_common::error::Result;
 
 use serde::{Deserialize, Serialize};
-use sqlx::{FromRow, Postgres, Transaction};
 
 pub fn workspaced_service() -> Router {
     Router::new()
-        .route("/list", get(list_groups))
-        .route("/listnames", get(list_group_names))
-        .route("/create", post(create_group))
-        .route("/get/:name", get(get_group))
-        .route("/update/:name", post(update_group))
-        .route("/delete/:name", delete(delete_group))
-        .route("/adduser/:name", post(add_user))
-        .route("/removeuser/:name", post(remove_user))
+        .route("/star", post(star))
+        .route("/unstar", post(unstar))
 }
 
-#[derive(FromRow, Serialize, Deserialize)]
-pub struct Group {
-    pub workspace_id: String,
-    pub name: String,
-    pub summary: Option<String>,
-    pub extra_perms: serde_json::Value,
+#[derive(sqlx::Type, Serialize, Deserialize, Debug, PartialEq, Clone)]
+#[sqlx(type_name = "FAVORITE_KIND", rename_all = "lowercase")]
+#[serde(rename_all(serialize = "lowercase", deserialize = "lowercase"))]
+pub enum FavoriteKind {
+    Script,
+    Flow,
+    App,
 }
-
 #[derive(Deserialize)]
-pub struct NewGroup {
-    pub name: String,
-    pub summary: Option<String>,
+pub struct Favorite {
+    pub favorite_kind: FavoriteKind,
+    pub path: String,
 }
 
-#[derive(Serialize)]
-pub struct GroupInfo {
-    pub workspace_id: String,
-    pub name: String,
-    pub summary: Option<String>,
-    pub members: Vec<String>,
-    pub extra_perms: serde_json::Value,
-}
-
-#[derive(Deserialize)]
-pub struct EditGroup {
-    pub summary: Option<String>,
-}
-
-#[derive(Deserialize)]
-pub struct Username {
-    pub username: String,
-}
-
-async fn add_user(
+async fn star(
     authed: Authed,
-    Extension(user_db): Extension<UserDB>,
-    Path((w_id, name)): Path<(String, String)>,
-    Json(Username { username: user_username }): Json<Username>,
+    Extension(db): Extension<DB>,
+    Path(w_id): Path<String>,
+    Json(Favorite { favorite_kind, path }): Json<Favorite>,
 ) -> Result<String> {
-    let mut tx = user_db.begin(&authed).await?;
-
-    not_found_if_none(get_group_opt(&mut tx, &w_id, &name).await?, "Group", &name)?;
-
-    sqlx::query_as!(
-        Group,
-        "INSERT INTO usr_to_group (workspace_id, usr, group_) VALUES ($1, $2, $3)",
+    sqlx::query!(
+        "INSERT INTO favorite (workspace_id, usr, path, favorite_kind) VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING",
         &w_id,
-        user_username,
-        name,
+        authed.username,
+        path,
+        favorite_kind: FavoriteKind,
     )
-    .execute(&mut tx)
+    .execute(&db)
     .await?;
 
-    audit_log(
-        &mut tx,
-        &authed.username,
-        "group.adduser",
-        ActionKind::Update,
-        &w_id,
-        Some(&name.to_string()),
-        Some([("user", user_username.as_str())].into()),
-    )
-    .await?;
-    tx.commit().await?;
-    Ok(format!("Added {} to group {}", user_username, name))
+    Ok(format!("Starred {}", path))
 }
 
-async fn remove_user(
+async fn unstar(
     authed: Authed,
-    Extension(user_db): Extension<UserDB>,
-    Path((w_id, name)): Path<(String, String)>,
-    Json(Username { username: user_username }): Json<Username>,
+    Extension(db): Extension<DB>,
+    Path(w_id): Path<String>,
+    Json(Favorite { favorite_kind, path }): Json<Favorite>,
 ) -> Result<String> {
-    let mut tx = user_db.begin(&authed).await?;
-
-    not_found_if_none(get_group_opt(&mut tx, &w_id, &name).await?, "Group", &name)?;
-    if &name == "all" {
-        return Err(Error::BadRequest(format!("Cannot delete users from all")));
-    }
-    sqlx::query_as!(
-        Group,
-        "DELETE FROM usr_to_group WHERE usr = $1 AND group_ = $2 AND workspace_id = $3",
-        user_username,
-        name,
+    sqlx::query!(
+        "DELETE FROM favorite WHERE workspace_id = $1 AND usr = $2 AND path = $3 AND favorite_kind = $4",
         &w_id,
+        authed.username,
+        path,
+        favorite_kind: FavoriteKind,
     )
-    .execute(&mut tx)
+    .execute(&db)
     .await?;
 
-    tx.commit().await?;
-    Ok(format!("Removed {} to group {}", user_username, name))
+    Ok(format!("Starred {}", path))
 }

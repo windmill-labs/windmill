@@ -126,6 +126,27 @@ pub struct Script {
     pub kind: ScriptKind,
 }
 
+#[derive(Serialize)]
+#[cfg_attr(feature = "sqlx", derive(sqlx::FromRow))]
+pub struct ListableScript {
+    pub workspace_id: String,
+    pub hash: ScriptHash,
+    pub path: String,
+    pub parent_hashes: Option<ScriptHashes>,
+    pub summary: String,
+    pub description: String,
+    pub created_by: String,
+    pub created_at: chrono::DateTime<chrono::Utc>,
+    pub archived: bool,
+    pub deleted: bool,
+    pub is_template: bool,
+    pub extra_perms: serde_json::Value,
+    pub lock_error_logs: Option<String>,
+    pub language: ScriptLang,
+    pub kind: ScriptKind,
+    pub starred: bool,
+}
+
 #[derive(Serialize, Deserialize, Debug)]
 #[cfg_attr(feature = "sqlx", derive(sqlx::Type))]
 #[cfg_attr(feature = "sqlx", sqlx)]

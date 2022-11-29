@@ -3572,6 +3572,52 @@ paths:
         "404":
           description: capture does not exist for this flow
 
+  /w/{workspace}/favorites/star:
+    post:
+      summary: star item
+      operationId: star
+      tags:
+        - favorite
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                path:
+                  type: string
+                favorite_kind:
+                  type: string
+                  enum: [flow, app, script]
+      responses:
+        "200":
+          description: star item
+
+  /w/{workspace}/favorites/unstar:
+    post:
+      summary: unstar item
+      operationId: unstar
+      tags:
+        - favorite
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                path:
+                  type: string
+                favorite_kind:
+                  type: string
+                  enum: [flow, app, script]
+      responses:
+        "200":
+          description: unstar item
+
 components:
   securitySchemes:
     bearerAuth:
@@ -3808,6 +3854,8 @@ components:
         kind:
           type: string
           enum: [script, failure, trigger, command, approval]
+        starred:
+          type: boolean
       required:
         - hash
         - path
@@ -3821,6 +3869,7 @@ components:
         - extra_perms
         - language
         - kind
+        - starred
 
     ScriptArgs:
       type: object
