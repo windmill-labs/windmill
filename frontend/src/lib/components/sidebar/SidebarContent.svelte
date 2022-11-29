@@ -19,8 +19,6 @@
 
 	const mainMenuLinks = [
 		{ label: 'Home', href: '/', icon: faHomeAlt },
-		{ label: 'Scripts', href: '/scripts', icon: faCode },
-		{ label: 'Flows', href: '/flows', icon: faWind },
 		{ label: 'Runs', href: '/runs', icon: faPlay },
 		{ label: 'Schedules', href: '/schedules', icon: faCalendar },
 		{ label: 'Variables', href: '/variables', icon: faWallet },
@@ -54,18 +52,17 @@
 
 <div class="flex-1 flex flex-col py-4 overflow-x-hidden scrollbar-hidden">
 	<nav class="h-full flex justify-between flex-col px-2">
-		<div class="space-y-1">
+		<div class="space-y-1 pt-4">
 			{#each mainMenuLinks as menuLink}
 				<MenuLink class="text-lg" {...menuLink} {isCollapsed} />
-			{/each}
-			<div class="h-8" />
-			{#each secondaryMenuLinks as menuLink}
-				<MenuLink class="text-xs" {...menuLink} {isCollapsed} />
 			{/each}
 		</div>
 
 		<div class="space-1-2">
-			<div class="h-4" />
+			{#each secondaryMenuLinks as menuLink}
+				<MenuLink class="text-xs" {...menuLink} {isCollapsed} />
+			{/each}
+			<div class="h-8" />
 			{#each thirdMenuLinks as menuLink}
 				<MenuLink class="text-xs" {...menuLink} {isCollapsed} />
 			{/each}

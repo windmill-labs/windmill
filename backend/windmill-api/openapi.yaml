@@ -1748,6 +1748,13 @@ paths:
           in: query
           schema:
             type: string
+        - name: starred_only
+          description: |
+            (default false)
+            show only the starred items
+          in: query
+          schema:
+            type: boolean
       responses:
         "200":
           description: All available scripts
@@ -2188,6 +2195,13 @@ paths:
             show also the archived files.
             when multiple archived hash share the same path, only the ones with the latest create_at
             are displayed.
+          in: query
+          schema:
+            type: boolean
+        - name: starred_only
+          description: |
+            (default false)
+            show only the starred items
           in: query
           schema:
             type: boolean
@@ -4744,6 +4758,8 @@ components:
         extra_perms:
           type: object
         additionalProperties:
+          type: boolean
+        starred:
           type: boolean
       required:
         - path

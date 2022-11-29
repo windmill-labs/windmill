@@ -5,12 +5,12 @@
 	export let items: any[]
 	export let f: (item: any) => string
 	export let filteredItems: (any & { marked: string })[]
+	export let opts: uFuzzy.Options = {}
 
-	let opts = {}
 	let uf = new uFuzzy(opts)
 	$: plaintextItems = items.map((item) => f(item))
 
-	$: plaintextItems && filter != undefined && setTimeout(() => filterItems(), 100)
+	$: plaintextItems && filter != undefined && setTimeout(() => filterItems(), 0)
 
 	function filterItems() {
 		if (filter.length == 0) {
@@ -24,6 +24,7 @@
 		let order = uf.sort(info, plaintextItems, filter)
 
 		let result: any[] = []
+
 		for (let i = 0; i < order.length; i++) {
 			let infoIdx = order[i]
 			result.push({

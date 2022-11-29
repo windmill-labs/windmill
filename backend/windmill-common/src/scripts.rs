@@ -189,6 +189,7 @@ pub struct ListScriptQuery {
     pub order_desc: Option<bool>,
     pub is_template: Option<bool>,
     pub kind: Option<String>,
+    pub starred_only: Option<bool>,
 }
 
 pub fn to_i64(s: &str) -> crate::error::Result<i64> {

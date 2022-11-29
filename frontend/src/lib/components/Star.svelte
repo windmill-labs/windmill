@@ -17,13 +17,13 @@
 				workspace: $workspaceStore!,
 				requestBody: { path, favorite_kind: kind }
 			})
-			sendUserToast('Unstarred')
+			sendUserToast('Marked as favorite, it will appear first in the list')
 		} else {
 			await FavoriteService.star({
 				workspace: $workspaceStore!,
 				requestBody: { path, favorite_kind: kind }
 			})
-			sendUserToast('Starred')
+			sendUserToast('Marked as favorite, it will appear first in the list')
 		}
 		dispatch('starred', !starred)
 	}

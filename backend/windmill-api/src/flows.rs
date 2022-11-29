@@ -20,7 +20,7 @@ use sqlx::{Postgres, Transaction};
 use windmill_audit::{audit_log, ActionKind};
 use windmill_common::{
     error::{self, to_anyhow, Error, JsonResult, Result},
-    flows::{Flow, ListFlowQuery, NewFlow},
+    flows::{Flow, ListFlowQuery, ListableFlow, NewFlow},
     utils::{
         http_get_from_hub, list_elems_from_hub, not_found_if_none, paginate, Pagination, StripPath,
     },
@@ -54,24 +54,30 @@ async fn list_flows(
     Path(w_id): Path<String>,
     Query(pagination): Query<Pagination>,
     Query(lq): Query<ListFlowQuery>,
-) -> JsonResult<Vec<Flow>> {
+) -> JsonResult<Vec<ListableFlow>> {
     let (per_page, offset) = paginate(pagination);
 
     let mut sqlb = SqlBuilder::select_from("flow as o")
         .fields(&[
-            "workspace_id",
-            "path",
+            "o.workspace_id",
+            "o.path",
             "summary",
             "description",
-            "'{}'::jsonb as value",
             "edited_by",
             "edited_at",
             "archived",
-            "null schema",
             "extra_perms",
+            "favorite.path IS NOT NULL as starred",
         ])
+        .left()
+        .join("favorite")
+        .on(
+            "favorite.favorite_kind = 'flow' AND favorite.path = o.path AND favorite.usr = ?"
+                .bind(&authed.username),
+        )
+        .order_desc("favorite.path IS NOT NULL")
         .order_by("edited_at", lq.order_desc.unwrap_or(true))
-        .and_where("workspace_id = ? OR workspace_id = 'starter'".bind(&w_id))
+        .and_where("o.workspace_id = ? OR o.workspace_id = 'starter'".bind(&w_id))
         .offset(offset)
         .limit(per_page)
         .clone();
@@ -88,10 +94,15 @@ async fn list_flows(
     if let Some(cb) = &lq.edited_by {
         sqlb.and_where_eq("edited_by", "?".bind(cb));
     }
+    if let Some(so) = &lq.starred_only {
+        sqlb.and_where_eq("starred", "?".bind(so));
+    }
 
     let sql = sqlb.sql().map_err(|e| Error::InternalErr(e.to_string()))?;
     let mut tx = user_db.begin(&authed).await?;
-    let rows = sqlx::query_as::<_, Flow>(&sql).fetch_all(&mut tx).await?;
+    let rows = sqlx::query_as::<_, ListableFlow>(&sql)
+        .fetch_all(&mut tx)
+        .await?;
     tx.commit().await?;
     Ok(Json(rows))
 }

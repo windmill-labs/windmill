@@ -146,6 +146,9 @@ async fn list_scripts(
     if let Some(k) = &lq.kind {
         sqlb.and_where_eq("kind", "?".bind(&k.to_lowercase()));
     }
+    if let Some(so) = &lq.starred_only {
+        sqlb.and_where_eq("starred", "?".bind(so));
+    }
 
     let sql = sqlb.sql().map_err(|e| Error::InternalErr(e.to_string()))?;
     let mut tx = user_db.begin(&authed).await?;
