@@ -1,24 +1,66 @@
+<script context="module">
+	export function load() {
+		return {
+			stuff: { title: 'Scripts' }
+		}
+	}
+</script>
+
 <script lang="ts">
-	import { goto } from '$app/navigation'
-	import type { App } from '$lib/components/apps/types'
+	import { faCodeFork, faEdit, faPlay, faPlus } from '@fortawesome/free-solid-svg-icons'
+	import { AppService, Policy, type ListableApp } from '$lib/gen'
+	import { superadmin, userStore, workspaceStore } from '$lib/stores'
+	import { canWrite, sendUserToast } from '$lib/utils'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
-	import { DrawerContent, Skeleton } from '$lib/components/common'
-	import Button from '$lib/components/common/button/Button.svelte'
-	import Drawer from '$lib/components/common/drawer/Drawer.svelte'
 	import PageHeader from '$lib/components/PageHeader.svelte'
-	import Path from '$lib/components/Path.svelte'
 	import SharedBadge from '$lib/components/SharedBadge.svelte'
-	import { AppService, ListableApp, Policy } from '$lib/gen'
-	import { userStore, workspaceStore } from '$lib/stores'
-	import { sendUserToast } from '$lib/utils'
-	import { faEdit, faPlus } from '@fortawesome/free-solid-svg-icons'
+	import { Button, Badge, Skeleton, Drawer, DrawerContent } from '$lib/components/common'
+
+	type ListableAppMarked = ListableApp & { canWrite: boolean; marked?: string }
+
+	let apps: ListableAppMarked[] = []
+	let preFilteredApps: ListableAppMarked[] = []
+	let filteredApps: ListableAppMarked[] = []
+	let filter = ''
+	let loading = true
 
 	let path: string = ''
 	let initialPath = ''
 	let pathError = ''
 
-	let apps: ListableApp[] | undefined = undefined
+	async function loadApps(): Promise<void> {
+		apps = (await AppService.listApps({ workspace: $workspaceStore! })).map((x) => {
+			return {
+				canWrite:
+					x.path && x.extra_perms
+						? canWrite(x.path, x.extra_perms, $userStore) && x.workspace_id == $workspaceStore
+						: false,
+				...x
+			}
+		})
 
+		loading = false
+	}
+
+	import SearchItems from '$lib/components/SearchItems.svelte'
+	import type { App } from '$lib/components/apps/types'
+	import { goto } from '$app/navigation'
+	import Path from '$lib/components/Path.svelte'
+
+	$: owners = Array.from(
+		new Set(filteredApps?.map((x) => x.path?.split('/').slice(0, 2).join('/')) ?? [])
+	).sort()
+
+	$: preFilteredApps =
+		ownerFilter != undefined ? apps.filter((x) => x.path?.startsWith(ownerFilter ?? '')) : apps
+
+	let ownerFilter: string | undefined = undefined
+
+	$: {
+		if ($workspaceStore && ($userStore || $superadmin)) {
+			loadApps()
+		}
+	}
 	async function createApp() {
 		const appJson: App = {
 			grid: [],
@@ -48,20 +90,10 @@
 		}
 	}
 
-	async function loadApps(): Promise<void> {
-		apps = await AppService.listApps({ workspace: $workspaceStore! })
-	}
-
 	let drawerOpen = false
 
 	function closeDrawer() {
 		drawerOpen = false
-	}
-
-	$: {
-		if ($workspaceStore && $userStore) {
-			loadApps()
-		}
 	}
 </script>
 
@@ -79,57 +111,98 @@
 	</DrawerContent>
 </Drawer>
 
+<SearchItems
+	{filter}
+	items={preFilteredApps}
+	bind:filteredItems={filteredApps}
+	f={(x) => x.summary + ' (' + x.path + ')'}
+/>
+
 <CenteredPage>
-	<PageHeader title="Apps">
-		<Button size="sm" startIcon={{ icon: faPlus }} on:click={() => (drawerOpen = true)}>
+	<PageHeader
+		title="Apps"
+		tooltip="A Script can be used standalone or as part of a Flow. 
+		When standalone, it has webhooks and an auto-generated UI from its parameters whom you can access clicking on 'Run'.
+		Scripts have owners (users or groups) and can be shared to users and groups."
+	>
+		<Button size="md" startIcon={{ icon: faPlus }} on:click={() => (drawerOpen = true)}>
 			New app
 		</Button>
 	</PageHeader>
 
-	<div class="p-4 border ">
-		{#if !apps}
-			<div class="grid gap-4 sm:grid-cols-1 md:grid-cols-2 xl:grid-cols-3 mt-2">
-				{#each new Array(3) as _}
-					<Skeleton layout={[[8.5]]} />
-				{/each}
-			</div>
-		{:else if apps?.length == 0}
-			<p class="text-xs text-gray-600 italic mt-2">No scripts yet</p>
-		{:else if apps}
-			<div class="grid md:grid-cols-2 gap-4 sm:grid-cols-1 xl:grid-cols-3 mt-2">
-				{#each apps as { summary, path, extra_perms }}
-					<a
-						class="border p-4 rounded-sm shadow-sm space-y-2 hover:border-blue-600 text-gray-800 flex flex-col justify-between"
-						href="/apps/get/{path}"
-					>
-						<div class="flex flex-col gap-1">
-							<a href="/apps/get/{path}" class="px-6">
-								<div class="font-semibold text-gray-700">
-									{!summary || summary.length == 0 ? path : summary}
+	<div class="mb-1" />
+
+	<input type="text" placeholder="Search Scripts" bind:value={filter} class="text-2xl mt-2" />
+
+	<div class="gap-2 w-full flex flex-wrap pb-1 pt-2">
+		{#each owners as owner}
+			<Badge
+				class="cursor-pointer hover:bg-gray-200"
+				on:click={() => {
+					ownerFilter = ownerFilter == owner ? undefined : owner
+				}}
+				color={owner === ownerFilter ? 'blue' : 'gray'}
+			>
+				{owner}
+				{#if owner === ownerFilter}&cross;{/if}
+			</Badge>
+		{/each}
+	</div>
+	<div class="grid grid-cols-1 gap-4 lg:grid-cols-2 mt-2 w-full">
+		{#if !loading}
+			{#each filteredApps as { summary, path, extra_perms, marked, canWrite }, index (`${path}-${index}`)}
+				<a
+					class="border border-gray-400 p-2 rounded-sm shadow-sm  hover:border-blue-600 text-gray-800"
+					href="/apps/get/{path}"
+				>
+					<div class="flex flex-col gap-1 w-full h-full">
+						<div class="font-semibold text-gray-700 truncate">
+							{#if marked}
+								{@html marked}
+							{:else}
+								{!summary || summary.length == 0 ? path : summary}
+							{/if}
+						</div>
+						<div class="flex flex-row  justify-between w-full grow gap-2 items-start">
+							<div class="text-gray-700 text-xs flex flex-row  flex-wrap  gap-x-1 items-center">
+								{path}
+								<SharedBadge {canWrite} extraPerms={extra_perms} />
+							</div>
+							<div class="flex flex-col items-end grow pt-4">
+								<div class="flex flex-row-reverse place gap-x-2 items-end">
+									<div>
+										<Button
+											color="dark"
+											size="xs"
+											startIcon={{ icon: faPlay }}
+											href="/apps/edit/{path}"
+										>
+											Run
+										</Button>
+									</div>
+									{#if canWrite}
+										<div>
+											<Button
+												variant="border"
+												color="dark"
+												size="xs"
+												startIcon={{ icon: faEdit }}
+												href="/apps/get/{path}"
+											>
+												Edit
+											</Button>
+										</div>
+									{/if}
 								</div>
-								<p class="text-gray-700 text-xs">
-									{path}
-								</p>
-							</a>
-							<div class="flex flex-wrap items-center gap-2 mt-1 px-6">
-								<SharedBadge canWrite={true} extraPerms={extra_perms} />
 							</div>
 						</div>
-						<div class="flex flex-row-reverse items-end w-full gap-2 pr-2 mt-2">
-							<div>
-								<Button
-									variant="border"
-									size="xs"
-									startIcon={{ icon: faEdit }}
-									href="/apps/edit/{path}"
-								>
-									Edit
-								</Button>
-							</div>
-						</div>
-					</a>
-				{/each}
-			</div>
+					</div>
+				</a>
+			{/each}
+		{:else}
+			{#each Array(10).fill(0) as _}
+				<Skeleton layout={[[4]]} />
+			{/each}
 		{/if}
 	</div>
 </CenteredPage>

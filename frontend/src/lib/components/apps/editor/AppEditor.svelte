@@ -27,12 +27,13 @@
 
 	export let app: App
 	export let path: string
+	export let initialMode: EditorMode = 'dnd'
 
 	const appStore = writable<App>(app)
 	const worldStore = writable<World | undefined>(undefined)
 	const staticOutputs = writable<Record<string, string[]>>({})
 	const selectedComponent = writable<string | undefined>(undefined)
-	const mode = writable<EditorMode>('dnd')
+	const mode = writable<EditorMode>(initialMode)
 	const breakpoint = writable<EditorBreakpoint>('lg')
 
 	const connectingInput = writable<ConnectingInput<InputType, any>>({
@@ -77,7 +78,9 @@
 	$: previewing = $mode === 'preview'
 </script>
 
-<AppEditorHeader bind:title={$appStore.title} bind:mode={$mode} bind:breakpoint={$breakpoint} />
+{#if initialMode !== 'preview'}
+	<AppEditorHeader bind:title={$appStore.title} bind:mode={$mode} bind:breakpoint={$breakpoint} />
+{/if}
 
 <SplitPanesWrapper>
 	<Pane size={previewing ? 0 : 20} minSize={20} maxSize={40}>
