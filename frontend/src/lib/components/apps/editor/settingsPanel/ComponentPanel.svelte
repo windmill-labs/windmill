@@ -123,8 +123,8 @@
 			</PanelSection>
 		{/if}
 
-		{#if component.type === 'tablecomponent' && Array.isArray(component.components)}
-			<TableActions bind:components={component.components} />
+		{#if component.type === 'tablecomponent' && Array.isArray(component.actionButtons)}
+			<TableActions bind:components={component.actionButtons} />
 		{/if}
 
 		{#if component.verticalAlignment !== undefined}

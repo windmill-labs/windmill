@@ -140,7 +140,7 @@ const dataDisplay: ComponentSet = {
 			},
 			runnable: true,
 			card: true,
-			components: []
+			actionButtons: []
 		},
 		{
 			...defaultProps,
