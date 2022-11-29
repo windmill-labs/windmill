@@ -12,6 +12,8 @@
 	export let type: AlertType = 'info'
 	export let title: string
 
+	export let size: 'xs' | 'sm' = 'sm'
+
 	const icons: Record<AlertType, IconDefinition> = {
 		info: faInfoCircle,
 		warning: faWarning,
@@ -47,15 +49,36 @@
 	}
 </script>
 
-<div class={classNames('rounded-md p-4 ', classes[type].bgClass, $$props.class)}>
+<div
+	class={classNames(
+		'rounded-md',
+		size === 'sm' ? 'p-4' : 'p-2 ',
+		classes[type].bgClass,
+		$$props.class
+	)}
+>
 	<div class="flex">
 		<div class="flex h-8 w-8 items-center justify-center rounded-full">
 			<Icon data={icons[type]} class={classes[type].iconClass} />
 		</div>
 
 		<div class="ml-2 w-full">
-			<span class={classNames('text-sm font-medium', classes[type].titleClass)}>{title}</span>
-			<div class={classNames('mt-2 text-sm', classes[type].descriptionClass)}>
+			<span
+				class={classNames(
+					size === 'sm' ? 'text-sm' : 'text-xs ',
+					'font-medium',
+					classes[type].titleClass
+				)}
+			>
+				{title}
+			</span>
+			<div
+				class={classNames(
+					size === 'sm' ? 'text-sm' : 'text-xs ',
+					'mt-2',
+					classes[type].descriptionClass
+				)}
+			>
 				<slot />
 			</div>
 		</div>

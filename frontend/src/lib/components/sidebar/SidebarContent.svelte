@@ -11,9 +11,10 @@
 		faUsersCog,
 		faWallet,
 		faWind,
-		faCog
+		faCog,
+		faDisplay
 	} from '@fortawesome/free-solid-svg-icons'
-	import { faDiscord, faGithub } from '@fortawesome/free-brands-svg-icons'
+	import { faAppStore, faDiscord, faGithub } from '@fortawesome/free-brands-svg-icons'
 	import MenuLink from './MenuLink.svelte'
 	import { userStore } from '$lib/stores'
 
@@ -21,6 +22,7 @@
 		{ label: 'Home', href: '/', icon: faHomeAlt },
 		{ label: 'Scripts', href: '/scripts', icon: faCode },
 		{ label: 'Flows', href: '/flows', icon: faWind },
+		{ label: 'Apps', href: '/apps', icon: faDisplay },
 		{ label: 'Runs', href: '/runs', icon: faPlay },
 		{ label: 'Schedules', href: '/schedules', icon: faCalendar },
 		{ label: 'Variables', href: '/variables', icon: faWallet },

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import Alert from '$lib/components/common/alert/Alert.svelte'
 	import Button from '$lib/components/common/button/Button.svelte'
 	import { getNextId } from '$lib/components/flows/flowStateUtils'
 	import { faPlus } from '@fortawesome/free-solid-svg-icons'
@@ -58,9 +59,15 @@
 			Create an action
 		</Button>
 	</svelte:fragment>
+	<div class="w-full">
+		<Alert title="Special argument" size="xs">
+			A "row" argument is automatically added to the script. It contains the row data.
+		</Alert>
+	</div>
 	{#each components as component}
 		<div class="w-full border">
 			<div class="border-b py-1 px-2 text-sm text-white bg-gray-500">Component: {component.id}</div>
+
 			<ComponentPanel
 				bind:component
 				onDelete={() => {
