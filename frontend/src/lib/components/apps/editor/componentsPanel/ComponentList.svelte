@@ -36,7 +36,7 @@
 			...defaultDimensions
 		}
 
-		let newItem: GridItem = {
+		const newItem: GridItem = {
 			data: JSON.parse(JSON.stringify(appComponent)),
 			id: id
 		}

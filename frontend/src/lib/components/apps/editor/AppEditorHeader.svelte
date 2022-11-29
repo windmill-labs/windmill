@@ -15,11 +15,12 @@
 	} from '@fortawesome/free-solid-svg-icons'
 	import { getContext } from 'svelte'
 	import { sendUserToast } from '../../../utils'
-	import type { AppEditorContext, EditorMode } from '../types'
+	import type { AppEditorContext, EditorBreakpoint, EditorMode } from '../types'
 
 	const { app } = getContext<AppEditorContext>('AppEditorContext')
 	export let title: string = $app.title || ''
 	export let mode: EditorMode
+	export let breakpoint: EditorBreakpoint
 	const loading = {
 		publish: false,
 		save: false
@@ -65,14 +66,14 @@
 		</ToggleButtonGroup>
 	</div>
 	<div>
-		<ToggleButtonGroup bind:selected={mode}>
-			<ToggleButton position="left" value="dnd" startIcon={{ icon: faMobileAlt }} size="xs">
+		<ToggleButtonGroup bind:selected={breakpoint}>
+			<ToggleButton position="left" value="sm" startIcon={{ icon: faMobileAlt }} size="xs">
 				Mobile
 			</ToggleButton>
-			<ToggleButton position="center" value="preview" startIcon={{ icon: faTabletAlt }} size="xs">
+			<ToggleButton position="center" value="md" startIcon={{ icon: faTabletAlt }} size="xs">
 				Tablet
 			</ToggleButton>
-			<ToggleButton position="right" value="preview" startIcon={{ icon: faDesktopAlt }} size="xs">
+			<ToggleButton position="right" value="lg" startIcon={{ icon: faDesktopAlt }} size="xs">
 				Desktop
 			</ToggleButton>
 		</ToggleButtonGroup>

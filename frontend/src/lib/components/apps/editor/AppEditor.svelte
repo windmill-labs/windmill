@@ -5,7 +5,14 @@
 	import { Pane } from 'svelte-splitpanes'
 	import { writable } from 'svelte/store'
 	import { buildWorld, type World } from '../rx'
-	import type { App, AppEditorContext, ConnectingInput, EditorMode, InputType } from '../types'
+	import type {
+		App,
+		AppEditorContext,
+		ConnectingInput,
+		EditorBreakpoint,
+		EditorMode,
+		InputType
+	} from '../types'
 	import AppEditorHeader from './AppEditorHeader.svelte'
 	import GridEditor from './GridEditor.svelte'
 
@@ -26,6 +33,8 @@
 	const staticOutputs = writable<Record<string, string[]>>({})
 	const selectedComponent = writable<string | undefined>(undefined)
 	const mode = writable<EditorMode>('dnd')
+	const breakpoint = writable<EditorBreakpoint>('lg')
+
 	const connectingInput = writable<ConnectingInput<InputType, any>>({
 		opened: false,
 		input: undefined
@@ -37,7 +46,8 @@
 		app: appStore,
 		selectedComponent,
 		mode,
-		connectingInput
+		connectingInput,
+		breakpoint
 	})
 
 	function clearSelectionOnPreview() {
@@ -52,7 +62,6 @@
 	})
 
 	$: mounted && ($worldStore = buildWorld($staticOutputs))
-
 	$: $mode && $selectedComponent && clearSelectionOnPreview()
 	$: selectedTab = 'settings'
 
@@ -68,7 +77,8 @@
 	$: previewing = $mode === 'preview'
 </script>
 
-<AppEditorHeader bind:title={$appStore.title} bind:mode={$mode} />
+<AppEditorHeader bind:title={$appStore.title} bind:mode={$mode} bind:breakpoint={$breakpoint} />
+
 <SplitPanesWrapper>
 	<Pane size={previewing ? 0 : 20} minSize={20} maxSize={40}>
 		<ContextPanel appPath={path} />

@@ -165,9 +165,11 @@ export type AppEditorContext = {
 	selectedComponent: Writable<string | undefined>
 	mode: Writable<EditorMode>
 	connectingInput: Writable<ConnectingInput<any, any>>
+	breakpoint: Writable<EditorBreakpoint>
 }
 
 export type EditorMode = 'dnd' | 'preview'
+export type EditorBreakpoint = 'sm' | 'md' | 'lg'
 
 type FieldID = string
 
