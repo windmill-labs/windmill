@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { goto } from '$app/navigation'
-	import { faPlus } from '@fortawesome/free-solid-svg-icons'
+	import { faPlus, faScroll } from '@fortawesome/free-solid-svg-icons'
 	import Fuse from 'fuse.js'
 	import { Script } from '$lib/gen'
 	import { ScriptService } from '$lib/gen'
@@ -10,12 +10,11 @@
 	import type { HubItem } from '../flows/pickers/model'
 	import Drawer from '$lib/components/common/drawer/Drawer.svelte'
 	import DrawerContent from '$lib/components/common/drawer/DrawerContent.svelte'
+	import Icon from 'svelte-awesome'
 
 	const drawers: {
-		hub: ItemPicker | undefined
 		template: Drawer | undefined
 	} = {
-		hub: undefined,
 		template: undefined
 	}
 	let hubItems: HubItem[]
@@ -47,29 +46,13 @@
 <!-- Buttons -->
 <div class="flex flex-row gap-2">
 	<ButtonPopup size="md" startIcon={{ icon: faPlus }} href="/scripts/add">
-		<svelte:fragment slot="main">New Script</svelte:fragment>
-		<ButtonPopupItem on:click={() => drawers.hub?.openDrawer()}>
-			Import script from WindmillHub
-		</ButtonPopupItem>
+		<svelte:fragment slot="main">New Script<Icon data={faScroll} class="ml-1" /></svelte:fragment>
 		<ButtonPopupItem on:click={() => drawers.template?.toggleDrawer()}>
-			Import script from template
+			Import from template
 		</ButtonPopupItem>
 	</ButtonPopup>
 </div>
 
-<!-- Initially hidden elements in a drawer -->
-<!-- WindmillHub script list -->
-<ItemPicker
-	bind:this={drawers.hub}
-	pickCallback={(path) => {
-		goto('/scripts/add?hub=' + path)
-	}}
-	itemName={'Script'}
-	extraField="summary"
-	loadItems={async () => {
-		return hubItems
-	}}
-/>
 <!-- Template script list -->
 <Drawer bind:this={drawers.template} size="800px" on:open={loadTemplateScripts}>
 	<DrawerContent title="Pick a template" on:close={() => drawers.template?.toggleDrawer()}>

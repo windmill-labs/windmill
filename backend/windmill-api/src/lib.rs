@@ -27,6 +27,7 @@ mod apps;
 mod audit;
 mod capture;
 mod db;
+mod favorite;
 mod flows;
 mod granular_acls;
 mod groups;
@@ -123,7 +124,8 @@ pub async fn run_server(
                         .nest("/workspaces", workspaces::workspaced_service())
                         .nest("/flows", flows::workspaced_service())
                         .nest("/capture", capture::workspaced_service())
-                        .nest("/apps", apps::workspaced_service()),
+                        .nest("/apps", apps::workspaced_service())
+                        .nest("/favorites", favorite::workspaced_service()),
                 )
                 .nest("/workspaces", workspaces::global_service())
                 .nest(

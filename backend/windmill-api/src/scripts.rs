@@ -31,7 +31,8 @@ use std::{
 use windmill_common::{
     error::{Error, JsonResult, Result},
     scripts::{
-        to_i64, HubScript, ListScriptQuery, NewScript, Script, ScriptHash, ScriptKind, ScriptLang,
+        to_i64, HubScript, ListScriptQuery, ListableScript, NewScript, Script, ScriptHash,
+        ScriptKind, ScriptLang,
     },
     users::owner_to_token_owner,
     utils::{
@@ -76,32 +77,37 @@ async fn list_scripts(
     Path(w_id): Path<String>,
     Query(pagination): Query<Pagination>,
     Query(lq): Query<ListScriptQuery>,
-) -> JsonResult<Vec<Script>> {
+) -> JsonResult<Vec<ListableScript>> {
     let (per_page, offset) = paginate(pagination);
 
     let mut sqlb = SqlBuilder::select_from("script as o")
         .fields(&[
-            "workspace_id",
+            "o.workspace_id",
             "hash",
-            "path",
+            "o.path",
             "array_remove(array[parent_hashes[1]], NULL) as parent_hashes",
             "summary",
             "description",
-            "'' as content",
             "created_by",
             "created_at",
             "archived",
-            "null as schema",
             "deleted",
             "is_template",
             "extra_perms",
-            "null as lock",
             "CASE WHEN lock_error_logs IS NOT NULL THEN 'error' ELSE null END as lock_error_logs",
             "language",
             "kind",
+            "favorite.path IS NOT NULL as starred",
         ])
+        .left()
+        .join("favorite")
+        .on(
+            "favorite.favorite_kind = 'script' AND favorite.path = o.path AND favorite.usr = ?"
+                .bind(&authed.username),
+        )
+        .order_desc("favorite.path IS NOT NULL")
         .order_by("created_at", lq.order_desc.unwrap_or(true))
-        .and_where("workspace_id = ? OR workspace_id = 'starter'".bind(&w_id))
+        .and_where("o.workspace_id = ? OR o.workspace_id = 'starter'".bind(&w_id))
         .offset(offset)
         .limit(per_page)
         .clone();
@@ -110,7 +116,8 @@ async fn list_scripts(
         sqlb.and_where_eq(
             "created_at",
             "(select max(created_at) from script where o.path = path 
-            AND (workspace_id = $1 OR workspace_id = 'starter'))",
+            AND (workspace_id = ? OR workspace_id = 'starter'))"
+                .bind(&w_id),
         );
     } else {
         sqlb.and_where_eq("archived", false);
@@ -139,10 +146,15 @@ async fn list_scripts(
     if let Some(k) = &lq.kind {
         sqlb.and_where_eq("kind", "?".bind(&k.to_lowercase()));
     }
+    if let Some(so) = &lq.starred_only {
+        sqlb.and_where_eq("starred", "?".bind(so));
+    }
 
     let sql = sqlb.sql().map_err(|e| Error::InternalErr(e.to_string()))?;
     let mut tx = user_db.begin(&authed).await?;
-    let rows = sqlx::query_as::<_, Script>(&sql).fetch_all(&mut tx).await?;
+    let rows = sqlx::query_as::<_, ListableScript>(&sql)
+        .fetch_all(&mut tx)
+        .await?;
     tx.commit().await?;
     Ok(Json(rows))
 }
