@@ -30,12 +30,21 @@
 <Skeleton loading={app == undefined} layout={[10]} />
 
 <CenteredPage>
-	<div class="flex justify-between my-2">
-		<Button href="/apps" startIcon={{ icon: faArrowLeft }} color="dark">Back to apps</Button>
-		<Button href="/apps/edit/{$page.params.path}" startIcon={{ icon: faPen }}>Edit</Button>
-	</div>
-
 	{#if app}
-		<AppEditor app={app.value} path={app.path} initialMode="preview" />
+		<div class="flex justify-between my-2 items-center">
+			<div class="flex gap-4 items-center">
+				<Button size="xs" href="/apps" startIcon={{ icon: faArrowLeft }} color="dark">
+					Back to apps
+				</Button>
+				<div>{app.value.title}</div>
+			</div>
+			<Button size="xs" href="/apps/edit/{$page.params.path}" startIcon={{ icon: faPen }}>
+				Edit
+			</Button>
+		</div>
+
+		<div class="h-screen">
+			<AppEditor app={app.value} path={app.path} initialMode="preview" />
+		</div>
 	{/if}
 </CenteredPage>

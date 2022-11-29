@@ -200,7 +200,7 @@
 	bind:this={testJobLoader}
 />
 
-{#if schemaStripped !== undefined}
+{#if schemaStripped !== undefined && !autoRefresh}
 	<SchemaForm schema={schemaStripped} bind:args {isValid} {disabledArgs} shouldHideNoInputs />
 {/if}
 

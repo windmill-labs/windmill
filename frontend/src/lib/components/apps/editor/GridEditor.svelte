@@ -24,7 +24,7 @@
 				<div
 					class={classNames(
 						'h-full w-full flex justify-center align-center',
-						gridComponent.data.card ? 'border border-gray-100 p-2' : ''
+						gridComponent.data.card ? 'border border-gray-100' : ''
 					)}
 					on:click={() => {
 						$selectedComponent = dataItem.data.id
