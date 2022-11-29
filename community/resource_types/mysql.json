@@ -20,7 +20,7 @@
       },
       "user": {
         "type": "string",
-        "description": "The postgres username"
+        "description": "The MySQL username"
       },
       "database": {
         "type": "string",
@@ -28,7 +28,7 @@
       },
       "password": {
         "type": "string",
-        "description": "The postgres users password"
+        "description": "The MySQL user password"
       }
     }
   },
