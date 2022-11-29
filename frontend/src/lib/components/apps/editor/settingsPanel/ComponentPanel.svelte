@@ -7,7 +7,6 @@
 		faAlignLeft,
 		faAlignRight,
 		faClose,
-		faPen,
 		faTrashAlt
 	} from '@fortawesome/free-solid-svg-icons'
 	import { getContext } from 'svelte'
@@ -21,6 +20,7 @@
 	import TableActions from './TableActions.svelte'
 	import { capitalize } from '$lib/utils'
 	import Badge from '$lib/components/common/badge/Badge.svelte'
+	import { gridColumns } from '../../gridUtils'
 
 	export let component: AppComponent | undefined
 	export let onDelete: (() => void) | undefined = undefined
@@ -38,11 +38,9 @@
 			if (component) {
 				$app.grid = $app.grid.filter((gridComponent) => gridComponent.data.id !== component?.id)
 
-				/*
-				COLS.forEach((colIndex) => {
+				gridColumns.forEach((colIndex) => {
 					$app.grid = gridHelp.adjust($app.grid, colIndex)
 				})
-				*/
 
 				// Delete static inputs
 				delete $staticOutputs[component.id]
@@ -88,6 +86,8 @@
 
 				{#if component.runnable && component['path'] === undefined && component['inlineScriptName'] === undefined}
 					<span class="text-sm">Select a script or a flow to continue</span>
+
+					<Button size="xs">Create a new script</Button>
 					<PickInlineScript
 						scripts={(Object.keys($app.inlineScripts) || []).map((summary) => ({ summary }))}
 						on:pick={({ detail }) => {

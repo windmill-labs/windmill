@@ -169,7 +169,7 @@ export type AppEditorContext = {
 }
 
 export type EditorMode = 'dnd' | 'preview'
-export type EditorBreakpoint = 'sm' | 'md' | 'lg'
+export type EditorBreakpoint = 'sm' | 'lg'
 
 type FieldID = string
 

@@ -24,6 +24,8 @@
 	import { faPlus, faSliders } from '@fortawesome/free-solid-svg-icons'
 	import ComponentPanel from './settingsPanel/ComponentPanel.svelte'
 	import ContextPanel from './contextPanel/ContextPanel.svelte'
+	import { classNames } from '$lib/utils'
+	import { Breakpoints } from '../gridUtils'
 
 	export let app: App
 	export let path: string
@@ -76,6 +78,8 @@
 	})
 
 	$: previewing = $mode === 'preview'
+
+	$: width = $breakpoint === 'sm' ? 'w-[640px]' : 'w-full '
 </script>
 
 {#if initialMode !== 'preview'}
@@ -87,9 +91,11 @@
 		<ContextPanel appPath={path} />
 	</Pane>
 	<Pane size={previewing ? 100 : 60}>
-		<div class="p-4 bg-gray-100 h-full">
+		<div class="p-4 bg-gray-100 h-full w-full">
 			{#if $appStore.grid}
-				<GridEditor />
+				<div class={classNames('mx-auto h-full', width)}>
+					<GridEditor />
+				</div>
 			{/if}
 		</div>
 	</Pane>

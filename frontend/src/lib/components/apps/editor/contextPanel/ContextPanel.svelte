@@ -118,15 +118,14 @@
 	<svelte:fragment slot="action">
 		<Button
 			size="xs"
-			color="dark"
-			variant="contained"
+			color="light"
+			variant="border"
 			on:click={() => {
 				scriptCreationDrawer?.openDrawer()
 			}}
 			startIcon={{ icon: faPlus }}
-		>
-			<span>Add script</span>
-		</Button>
+			iconOnly
+		/>
 	</svelte:fragment>
 
 	<div class="w-full border rounded-sm">

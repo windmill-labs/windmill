@@ -3,16 +3,13 @@ import type { GridItem } from './types'
 type ColumnConfiguration = [number, number][]
 
 const Breakpoints = {
-	sm: 500,
-	md: 750,
-	lg: 1000
+	sm: 640,
+	lg: 1024
 }
 
 const columnConfiguration: ColumnConfiguration = [
 	// Starting from 1000px, the grid will have 12 columns
 	[Breakpoints.lg, 12],
-	// Between 750px and 1000px, the grid will have 8 columns
-	[Breakpoints.md, 6],
 	// Starting from 500px, the grid will have 1 columns
 	[Breakpoints.sm, 1]
 ]
@@ -35,4 +32,4 @@ function enableDrag(component: GridItem): GridItem {
 	return component
 }
 
-export { gridColumns, columnConfiguration, disableDrag, enableDrag }
+export { gridColumns, columnConfiguration, disableDrag, enableDrag, Breakpoints }

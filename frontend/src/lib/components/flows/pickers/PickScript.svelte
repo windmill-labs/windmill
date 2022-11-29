@@ -27,6 +27,6 @@
 	{loadItems}
 />
 
-<Button size="xs" color="dark" on:click={() => itemPicker.openDrawer()}
-	>Pick script from workflow</Button
->
+<Button size="xs" color="dark" on:click={() => itemPicker.openDrawer()}>
+	Pick script from workspace
+</Button>
