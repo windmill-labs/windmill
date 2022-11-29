@@ -1,18 +1,36 @@
 <script lang="ts" context="module">
-	const apiTokenApps: Record<string, { img?: string; instructions: string; key?: string }> = {
+	const apiTokenApps: Record<string, { img?: string; instructions: string[]; key?: string }> = {
 		airtable: {
 			img: 'airtable_connect.png',
-			instructions: 'Click on the top-right avatar -> Account -> Api'
+			instructions: [
+				'Click on the top-right avatar',
+				'Click on Account',
+				'Find "Api"'
+			]
 		},
 		discord_webhook: {
 			img: 'discord_webhook.png',
-			instructions: 'Server Settings -> Integration -> Webhooks',
+			instructions: [
+				'Click on Server Settings',
+				'Click on Integration',
+				'Find "Webhooks"'
+			],
 			key: 'webhook_url'
 		},
 		toggl: {
 			img: 'toggl_connect.png',
-			instructions: 'Go to https://track.toggl.com/profile -> API Token'
-		}
+			instructions: [
+				'Go to <a href="https://track.toggl.com/profile" target="_blank" rel=”noopener noreferrer”>https://track.toggl.com/profile</a>',
+				'Find "API Token"'
+			]
+		},
+		mailchimp: {
+			img: 'mailchimp_connect.png',
+			instructions: [
+				'Go to <a href="https://admin.mailchimp.com/account/api" target="_blank" rel=”noopener noreferrer”>https://admin.mailchimp.com/account/api</a>',
+				'Find "Your API Keys"'
+			]
+		},
 	}
 </script>
 
@@ -34,7 +52,7 @@
 	let value: string = ''
 	let valueToken: TokenResponse
 	let connects: Record<string, { scopes: string[]; extra_params?: Record<string, string> }> = {}
-	let connectsManual: [string, { img?: string; instructions: string; key?: string }][] = []
+	let connectsManual: [string, { img?: string; instructions: string[]; key?: string }][] = []
 	let key: string = 'token'
 
 	$: key = apiTokenApps[resource_type]?.key ?? 'token'
@@ -290,8 +308,14 @@
 		{:else if step == 2}
 			{#if manual}
 				<div class="mb-1 font-semibold text-gray-700 mt-6">Instructions</div>
-				<div>
-					{apiTokenApps[resource_type].instructions}
+				<div class="pl-10">
+					<ol class="list-decimal">
+						{#each apiTokenApps[resource_type].instructions as step}
+							<li>
+								{@html step}
+							</li>
+						{/each}
+					</ol>
 				</div>
 				{#if apiTokenApps[resource_type].img}
 					<div class="mt-4">
