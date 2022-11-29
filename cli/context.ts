@@ -1,3 +1,4 @@
+import { parse } from "https://deno.land/std@0.141.0/datetime/mod.ts";
 import { colors } from "https://deno.land/x/cliffy@v0.25.4/ansi/colors.ts";
 import {
   setClient,
@@ -29,6 +30,12 @@ export async function getContext({
   }
   baseUrl = baseUrl ?? (await getDefaultRemote())?.baseUrl;
   baseUrl = baseUrl ?? "https://app.windmill.dev";
+  const parsedUrl = new URL(baseUrl);
+  let urlWorkspace: string | undefined = parsedUrl.username;
+  if (urlWorkspace == "") urlWorkspace = undefined;
+  parsedUrl.username = "";
+  baseUrl = parsedUrl.toString();
+  baseUrl = baseUrl.substring(0, baseUrl.length - 1);
   if (email && password) {
     setClient("no-token", baseUrl);
     token =
@@ -37,7 +44,8 @@ export async function getContext({
   token = token ?? (await getToken(baseUrl));
   setClient(token, baseUrl);
   const urlStore = await getStore(baseUrl);
-  const workspaceId = workspace ?? (await getDefaultWorkspaceId(urlStore));
+  const workspaceId =
+    workspace ?? urlWorkspace ?? (await getDefaultWorkspaceId(urlStore));
   if (!workspaceId) {
     console.log(colors.red("No default workspace set and no override given."));
     Deno.exit(-2);

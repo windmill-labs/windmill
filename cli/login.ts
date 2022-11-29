@@ -14,6 +14,14 @@ async function login({
 }: Options) {
   baseUrl = baseUrl ?? (await getDefaultRemote())?.baseUrl;
   baseUrl = baseUrl ?? "https://app.windmill.dev";
+  const parsedUrl = new URL(baseUrl);
+  const urlWorkspace: string | undefined = parsedUrl.username;
+  if (urlWorkspace != "") {
+    existingWorkspace = existingWorkspace ?? urlWorkspace;
+    parsedUrl.username = "";
+    baseUrl = parsedUrl.toString();
+    baseUrl = baseUrl.substring(0, baseUrl.length - 1);
+  }
   const urlStore = await getStore(baseUrl);
 
   if (existingToken) {
@@ -35,11 +43,29 @@ async function login({
     return;
   }
 
-  // Start listening on port 8080 of localhost.
+  const { token, workspace } = await browserLogin(baseUrl);
+
+  if (!token) {
+    console.log(colors.red.underline("Invalid Request. Failed to log in."));
+    return;
+  }
+
+  await Deno.writeTextFile(urlStore + "token", token);
+  await Deno.writeTextFile(urlStore + "default_workspace_id", workspace!);
+  console.log(
+    colors.bold.underline.green(
+      "Successfully logged in & switched to workspace " + workspace
+    )
+  );
+}
+
+export async function browserLogin(
+  baseUrl: string
+): Promise<{ token: string | null; workspace: string | null }> {
   const port = await getAvailablePort();
   if (port == undefined) {
     console.log(colors.red.underline("failed to aquire port"));
-    return;
+    return { token: null, workspace: null };
   }
 
   const server = Deno.listen({ transport: "tcp", port });
@@ -54,23 +80,12 @@ async function login({
     Response.redirect(baseUrl + "/user/cli-success", 302)
   );
 
-  if (token === undefined || token === null) {
-    console.log(colors.red.underline("Invalid Request. Failed to log in."));
-    return;
-  }
-
-  await Deno.writeTextFile(urlStore + "token", token);
-  await Deno.writeTextFile(urlStore + "default_workspace_id", workspace!);
-  console.log(
-    colors.bold.underline.green(
-      "Successfully logged in & switched to workspace " + workspace
-    )
-  );
-
-  httpFirstConnection.close();
-  server.close();
+  setTimeout(() => {
+    httpFirstConnection.close();
+    server.close();
+  }, 10);
+  return { token, workspace };
 }
-
 export async function getToken(baseUrl: string): Promise<string> {
   const baseStore = await getStore(baseUrl);
   try {
