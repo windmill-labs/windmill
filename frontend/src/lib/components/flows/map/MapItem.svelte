@@ -28,7 +28,8 @@
 		selected: $selectedId === mod.id,
 		retry: mod.retry?.constant != undefined || mod.retry?.exponential != undefined,
 		earlyStop: mod.stop_after_if != undefined,
-		suspend: Boolean(mod.suspend)
+		suspend: Boolean(mod.suspend),
+		sleep: Boolean(mod.sleep)
 	}
 
 	function onDelete(event: CustomEvent<MouseEvent>) {

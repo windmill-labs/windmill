@@ -7,6 +7,7 @@ import { pushResource } from "./resource.ts";
 import { findContentFile, pushScript } from "./script.ts";
 import { GlobalOptions } from "./types.ts";
 import { pushVariable } from "./variable.ts";
+import { pushResourceType } from "./resource-type.ts";
 
 type Candidate = {
   path: string;
@@ -48,6 +49,16 @@ async function findCandidateFiles(dir: string): Promise<Candidate[]> {
           )
         );
         candidates.push(...(await findCandidateFiles(path.join(dir, e.name))));
+      }
+    } else {
+      // handle root files
+      if (e.name.endsWith(".resource-type.json")) {
+        candidates.push({
+          group: false,
+          groupOrUsername: "",
+          path: dir + (dir.endsWith("/") ? "" : "/") + e.name,
+        });
+        console.log(candidates);
       }
     }
   }
@@ -100,6 +111,26 @@ async function push(opts: GlobalOptions, dir?: string) {
 
     // get the type & filter it for valid ones.
     const type = fileNameParts.at(-2);
+    if (type == "resource-type") {
+      if (candidate.group == false && candidate.groupOrUsername == "") {
+        console.log("pushing resource type " + fileNameParts.at(-3)!);
+        await pushResourceType(
+          workspace,
+          candidate.path,
+          fileNameParts.at(-3)!
+        );
+      } else {
+        console.log(
+          colors.yellow(
+            "Found resource type file at " +
+              candidate.path +
+              " this appears to be inside a path folder. Resource types are not addressed by path. Place them at the root or inside only an organizational folder. Ignoring this file!"
+          )
+        );
+      }
+      continue;
+    }
+
     if (
       type != "flow" &&
       type != "resource" &&

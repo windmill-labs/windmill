@@ -3,19 +3,22 @@
 	import { classNames } from '$lib/utils'
 	import { getContext } from 'svelte'
 	import type { Output } from '../../rx'
-	import type { AppEditorContext, ComponentInputsSpec, InputsSpec } from '../../types'
+	import type { AppEditorContext, AppComponent, InputsSpec } from '../../types'
 	import InputValue from '../helpers/InputValue.svelte'
 	import DebouncedInput from '../helpers/DebouncedInput.svelte'
 	import RunnableComponent from '../helpers/RunnableComponent.svelte'
+	import ButtonComponent from '../buttons/AppButton.svelte'
 
 	export let id: string
 	export let inputs: InputsSpec
 	export let path: string | undefined = undefined
 	export let runType: 'script' | 'flow' | undefined = undefined
 	export let inlineScriptName: string | undefined = undefined
-	export let componentInputs: ComponentInputsSpec
+	export let componentInputs: InputsSpec
+	export let components: AppComponent[]
 
-	const { worldStore } = getContext<AppEditorContext>('AppEditorContext')
+	const { worldStore, staticOutputs: staticOutputsStore } =
+		getContext<AppEditorContext>('AppEditorContext')
 
 	export const staticOutputs: string[] = ['selectedRow', 'loading', 'result']
 
@@ -102,8 +105,17 @@
 								</td>
 							{/each}
 							<td class="relative whitespace-nowrap px-4 py-2 text-right ">
-								{#if false}
-									<Button color="blue" size="xs" variant="contained">Edit</Button>
+								{#if components?.length > 0}
+									<div class="flex gap-2">
+										{#each components as component}
+											<ButtonComponent
+												{...component}
+												extraQueryParams={{ row }}
+												bind:inputs={component.inputs}
+												bind:staticOutputs={$staticOutputsStore[component.id]}
+											/>
+										{/each}
+									</div>
 								{/if}
 							</td>
 						</tr>

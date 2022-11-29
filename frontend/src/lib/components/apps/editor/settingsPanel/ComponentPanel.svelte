@@ -14,25 +14,34 @@
 	import Icon from 'svelte-awesome'
 	import type { AppComponent, AppEditorContext } from '../../types'
 	import PanelSection from './common/PanelSection.svelte'
-	import ComponentInputsSpecsEditor from './ComponentInputsSpecsEditor.svelte'
 	import InputsSpecsEditor from './InputsSpecsEditor.svelte'
 	import PickFlow from './PickFlow.svelte'
 	import gridHelp from 'svelte-grid/build/helper/index.mjs'
 	import PickInlineScript from './PickInlineScript.svelte'
+	import TableActions from './TableActions.svelte'
 
 	export let component: AppComponent | undefined
+	export let onDelete: (() => void) | undefined = undefined
 
 	const { app, staticOutputs } = getContext<AppEditorContext>('AppEditorContext')
 
 	function removeGridElement() {
-		if (component) {
-			const COLS = 6
-			$app.grid = $app.grid.filter((gridComponent) => gridComponent.data.id !== component?.id)
-			$app.grid = gridHelp.adjust($app.grid, COLS)
-
-			// Delete static inputs
+		if (onDelete && component) {
 			delete $staticOutputs[component.id]
 			$staticOutputs = $staticOutputs
+
+			onDelete()
+			// Delete static inputs
+		} else {
+			if (component) {
+				const COLS = 6
+				$app.grid = $app.grid.filter((gridComponent) => gridComponent.data.id !== component?.id)
+				$app.grid = gridHelp.adjust($app.grid, COLS)
+
+				// Delete static inputs
+				delete $staticOutputs[component.id]
+				$staticOutputs = $staticOutputs
+			}
 		}
 	}
 </script>
@@ -72,7 +81,7 @@
 				{#if component.runnable && component['path'] === undefined && component['inlineScriptName'] === undefined}
 					<span class="text-sm">Select a script or a flow to continue</span>
 					<PickInlineScript
-						scripts={(Object.keys($app.inlineScripts) || []).map((summary) => ({summary}))}
+						scripts={(Object.keys($app.inlineScripts) || []).map((summary) => ({ summary }))}
 						on:pick={({ detail }) => {
 							if (component?.runnable) {
 								// @ts-ignore
@@ -107,9 +116,15 @@
 		{/if}
 
 		{#if Object.values(component.componentInputs).length > 0}
-			<PanelSection title="Component parameters">
-				<ComponentInputsSpecsEditor bind:componentInputSpecs={component.componentInputs} />
+			<PanelSection
+				title={`Component parameters (${Object.values(component.componentInputs).length})`}
+			>
+				<InputsSpecsEditor bind:inputSpecs={component.componentInputs} userInputEnabled={false} />
 			</PanelSection>
+		{/if}
+
+		{#if component.type === 'tablecomponent' && Array.isArray(component.components)}
+			<TableActions bind:components={component.components} />
 		{/if}
 
 		{#if component.verticalAlignment !== undefined}
@@ -150,7 +165,7 @@
 				startIcon={{ icon: faTrashAlt }}
 				on:click={removeGridElement}
 			>
-				Delete component
+				Delete component: {component.id}
 			</Button>
 		</PanelSection>
 	</div>

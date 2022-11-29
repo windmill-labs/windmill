@@ -146,6 +146,20 @@
     },
     "query": "DELETE FROM variable WHERE path = $1 AND workspace_id = $2"
   },
+  "09e2a19435068f9e9bfd5bcb44b4e283c71729f81550f6f7156ce4970345cc07": {
+    "describe": {
+      "columns": [],
+      "nullable": [],
+      "parameters": {
+        "Left": [
+          "Text",
+          "Text",
+          "Int4"
+        ]
+      }
+    },
+    "query": "UPDATE account SET refresh_error = $1 WHERE workspace_id = $2 AND id = $3"
+  },
   "0a7212dd507ed8f7a311724185e39ecc1809abb208a681ad711614c27baadd83": {
     "describe": {
       "columns": [
@@ -209,23 +223,6 @@
       }
     },
     "query": "INSERT INTO usr\n            (workspace_id, email, username, is_admin)\n            VALUES ($1, $2, $3, $4)"
-  },
-  "0c3a39eafc349870be019318d6925922558ac20fdd76b042d69ccd8a527e3ff5": {
-    "describe": {
-      "columns": [],
-      "nullable": [],
-      "parameters": {
-        "Left": [
-          "Varchar",
-          "Varchar",
-          "Jsonb",
-          "Text",
-          "Varchar",
-          "Bool"
-        ]
-      }
-    },
-    "query": "INSERT INTO resource\n            (workspace_id, path, value, description, resource_type, is_oauth)\n            VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT (workspace_id, path) DO UPDATE SET value = $3"
   },
   "0d6412bc3ebb1d58bdd9cbcef774dacf9016fa402af5c1b4e339b9a3d7163d5e": {
     "describe": {
@@ -444,18 +441,6 @@
       }
     },
     "query": "SELECT dependency_job FROM flow WHERE path = $1 AND workspace_id = $2"
-  },
-  "1ad8677694aca94ee0e6da287d7cc028dcf673583a0e3e4fedd0e5d6766c5860": {
-    "describe": {
-      "columns": [],
-      "nullable": [],
-      "parameters": {
-        "Left": [
-          "Text"
-        ]
-      }
-    },
-    "query": "DELETE FROM usr WHERE email = $1"
   },
   "1b31847d6187d6969deac5aa7b2feb169ef963449ac2d3ea06e1ed785f6d42e7": {
     "describe": {
@@ -676,23 +661,6 @@
     },
     "query": "SELECT now()"
   },
-  "27eb5f99dc9289670673fb999ba9e67abccba212b506c30ba47e6c4fef6d53c4": {
-    "describe": {
-      "columns": [],
-      "nullable": [],
-      "parameters": {
-        "Left": [
-          "Varchar",
-          "Varchar",
-          "Jsonb",
-          "Text",
-          "Varchar",
-          "Bool"
-        ]
-      }
-    },
-    "query": "INSERT INTO resource\n            (workspace_id, path, value, description, resource_type, is_oauth)\n            VALUES ($1, $2, $3, $4, $5, $6)"
-  },
   "282655dc568d000379196fae0dee32438a824d93f4ad2fcc155269e76f4ca20d": {
     "describe": {
       "columns": [],
@@ -739,6 +707,18 @@
       }
     },
     "query": "UPDATE workspace_settings SET slack_command_script = $1 WHERE workspace_id = $2"
+  },
+  "29785ae8f0cd2dbadc9fd294dc2d6eb396df0d8c5ce23184d5a20a1bdd6f3993": {
+    "describe": {
+      "columns": [],
+      "nullable": [],
+      "parameters": {
+        "Left": [
+          "Text"
+        ]
+      }
+    },
+    "query": "DELETE FROM usr_to_group WHERE usr = $1"
   },
   "2a4be8334db7d39f3d954193a8b0169cc4a4a07e081d2fa61d8764879d6a8ff5": {
     "describe": {
@@ -1057,6 +1037,20 @@
       }
     },
     "query": "UPDATE queue SET logs = concat(logs, $1::text) WHERE id = $2"
+  },
+  "493be465bf70411f933de8dd4da1c5b410fd5c79a0c17172e7882e292c1378b5": {
+    "describe": {
+      "columns": [],
+      "nullable": [],
+      "parameters": {
+        "Left": [
+          "Varchar",
+          "Text",
+          "Text"
+        ]
+      }
+    },
+    "query": "UPDATE variable SET path = $1 WHERE path = $2 AND workspace_id = $3"
   },
   "499978e08a3a5e4d09d20f4212dbeff6ed5c5d4a696243cd3687c71099e8a6a6": {
     "describe": {
@@ -1897,6 +1891,87 @@
     },
     "query": "SELECT EXISTS(SELECT 1 FROM usr WHERE workspace_id = $1 AND username = $2)"
   },
+  "71b953191b3175a32a22f803205a5fd3dedef1baa0993afad08109ab5bf62fe9": {
+    "describe": {
+      "columns": [
+        {
+          "name": "workspace_id",
+          "ordinal": 0,
+          "type_info": "Varchar"
+        },
+        {
+          "name": "path",
+          "ordinal": 1,
+          "type_info": "Varchar"
+        },
+        {
+          "name": "value",
+          "ordinal": 2,
+          "type_info": "Jsonb"
+        },
+        {
+          "name": "description",
+          "ordinal": 3,
+          "type_info": "Text"
+        },
+        {
+          "name": "resource_type",
+          "ordinal": 4,
+          "type_info": "Varchar"
+        },
+        {
+          "name": "extra_perms",
+          "ordinal": 5,
+          "type_info": "Jsonb"
+        },
+        {
+          "name": "is_expired",
+          "ordinal": 6,
+          "type_info": "Bool"
+        },
+        {
+          "name": "refresh_error",
+          "ordinal": 7,
+          "type_info": "Text"
+        },
+        {
+          "name": "is_linked",
+          "ordinal": 8,
+          "type_info": "Bool"
+        },
+        {
+          "name": "is_oauth?",
+          "ordinal": 9,
+          "type_info": "Bool"
+        },
+        {
+          "name": "account",
+          "ordinal": 10,
+          "type_info": "Int4"
+        }
+      ],
+      "nullable": [
+        false,
+        false,
+        true,
+        true,
+        false,
+        false,
+        null,
+        true,
+        null,
+        false,
+        true
+      ],
+      "parameters": {
+        "Left": [
+          "Text",
+          "Text"
+        ]
+      }
+    },
+    "query": "SELECT resource.*, (now() > account.expires_at) as is_expired, account.refresh_error,\n        variable.path IS NOT NULL as is_linked,\n        variable.is_oauth as \"is_oauth?\",\n        variable.account\n        FROM resource\n        LEFT JOIN variable ON variable.path = resource.path AND variable.workspace_id = resource.workspace_id\n        LEFT JOIN account ON variable.account = account.id AND account.workspace_id = resource.workspace_id\n        WHERE resource.path = $1 AND (resource.workspace_id = $2 OR resource.workspace_id = 'starter')"
+  },
   "765c18d77412cbb4474f4074d583b9b44681f3b9f58754662ac07a3a3470a3c5": {
     "describe": {
       "columns": [
@@ -1968,6 +2043,38 @@
       }
     },
     "query": "SELECT email, login_type::text, verified, super_admin, name, company from password LIMIT $1 OFFSET $2"
+  },
+  "7a511ce8dbbf761423b527672ab02156aba5594623dc269992b34398673ca387": {
+    "describe": {
+      "columns": [
+        {
+          "name": "username",
+          "ordinal": 0,
+          "type_info": "Varchar"
+        }
+      ],
+      "nullable": [
+        false
+      ],
+      "parameters": {
+        "Left": [
+          "Text"
+        ]
+      }
+    },
+    "query": "DELETE FROM usr WHERE email = $1 RETURNING username"
+  },
+  "7aef087f9e10dd32417477109b97c99b85d68ce1be2bafdc145aed0aa8e5d989": {
+    "describe": {
+      "columns": [],
+      "nullable": [],
+      "parameters": {
+        "Left": [
+          "Varchar"
+        ]
+      }
+    },
+    "query": "INSERT INTO workspace_invite\n                (workspace_id, email, is_admin)\n                VALUES ('demo', $1, false)\n                ON CONFLICT DO NOTHING"
   },
   "7b1239ad6460e8f5fb41bfe12f662a779528784ec8cf3f6dcce5545ab90bf234": {
     "describe": {
@@ -2092,6 +2199,20 @@
     },
     "query": "UPDATE group_ SET summary = $1 WHERE name = $2 AND workspace_id = $3"
   },
+  "83fc9bf32b9b40987feff61fea82e20613e74efb7bf8ba52485566667ccf2284": {
+    "describe": {
+      "columns": [],
+      "nullable": [],
+      "parameters": {
+        "Left": [
+          "Varchar",
+          "Text",
+          "Text"
+        ]
+      }
+    },
+    "query": "UPDATE resource SET path = $1 WHERE path = $2 AND workspace_id = $3"
+  },
   "853788436dbe987853433e8dc83665f68bd127de31d4c807abafeead896f6ac4": {
     "describe": {
       "columns": [
@@ -2200,6 +2321,22 @@
     },
     "query": "SELECT 1 FROM script WHERE hash = $1 AND workspace_id = $2"
   },
+  "8a80333c2fbf7b50fed305882de6e4ffda985d5c648cd617add6c9e6a9c03f34": {
+    "describe": {
+      "columns": [],
+      "nullable": [],
+      "parameters": {
+        "Left": [
+          "Varchar",
+          "Varchar",
+          "Jsonb",
+          "Text",
+          "Varchar"
+        ]
+      }
+    },
+    "query": "INSERT INTO resource\n            (workspace_id, path, value, description, resource_type)\n            VALUES ($1, $2, $3, $4, $5)"
+  },
   "8ad6a17eecce77f61236e0585ba89b99a32e07ad37b97662007db35acb59d139": {
     "describe": {
       "columns": [
@@ -2237,6 +2374,27 @@
       }
     },
     "query": "SELECT * from resource_type WHERE (workspace_id = $1 OR workspace_id = 'starter') ORDER BY name"
+  },
+  "8c11511a74a41a65f448249a00ebe6964a61d00c2f7b4875a55e64741bf1f0ca": {
+    "describe": {
+      "columns": [
+        {
+          "name": "exists",
+          "ordinal": 0,
+          "type_info": "Bool"
+        }
+      ],
+      "nullable": [
+        null
+      ],
+      "parameters": {
+        "Left": [
+          "Text",
+          "Text"
+        ]
+      }
+    },
+    "query": "SELECT EXISTS(SELECT 1 FROM usr WHERE workspace_id = $1 AND email = $2)"
   },
   "8caa01546506f42740b7973a3a45e40093a06714b8524570c5143b77af4a8e19": {
     "describe": {
@@ -2417,63 +2575,6 @@
       }
     },
     "query": "UPDATE password SET password_hash = $1 WHERE email = $2"
-  },
-  "904457944cbfdcefa1934059bbfea015a411c739124cf06367975cfd9cd0dd0d": {
-    "describe": {
-      "columns": [
-        {
-          "name": "workspace_id",
-          "ordinal": 0,
-          "type_info": "Varchar"
-        },
-        {
-          "name": "path",
-          "ordinal": 1,
-          "type_info": "Varchar"
-        },
-        {
-          "name": "value",
-          "ordinal": 2,
-          "type_info": "Jsonb"
-        },
-        {
-          "name": "description",
-          "ordinal": 3,
-          "type_info": "Text"
-        },
-        {
-          "name": "resource_type",
-          "ordinal": 4,
-          "type_info": "Varchar"
-        },
-        {
-          "name": "extra_perms",
-          "ordinal": 5,
-          "type_info": "Jsonb"
-        },
-        {
-          "name": "is_oauth",
-          "ordinal": 6,
-          "type_info": "Bool"
-        }
-      ],
-      "nullable": [
-        false,
-        false,
-        true,
-        true,
-        false,
-        false,
-        false
-      ],
-      "parameters": {
-        "Left": [
-          "Text",
-          "Text"
-        ]
-      }
-    },
-    "query": "SELECT * from resource WHERE path = $1 AND (workspace_id = $2 OR workspace_id = 'starter')"
   },
   "90719f6230467b08e5f2cc89271bcf5e4a6cec39e9d9b42ef3b90f09b3135b83": {
     "describe": {
@@ -3018,6 +3119,18 @@
       }
     },
     "query": "INSERT INTO token\n            (token, email, label, expiration, super_admin)\n            VALUES ($1, $2, $3, now() + ($4 || ' hours')::interval, $5)"
+  },
+  "b081cd4ddd24e8510efaeb8a1dc921e1f208216cbf32402e8a65a3a260219628": {
+    "describe": {
+      "columns": [],
+      "nullable": [],
+      "parameters": {
+        "Left": [
+          "Text"
+        ]
+      }
+    },
+    "query": "DELETE FROM workspace_invite WHERE email = $1"
   },
   "b1d619ba58b58805308bcf1d5c46a3c1998a52c63aeb7c06f4c2a34916702537": {
     "describe": {
@@ -3754,18 +3867,6 @@
     },
     "query": "UPDATE app SET versions = array_append(versions, $1) WHERE path = $2 AND workspace_id = $3"
   },
-  "dd60eb23701e97460e307b6152404e939e5bbf22d425cadd876f629134c4a683": {
-    "describe": {
-      "columns": [],
-      "nullable": [],
-      "parameters": {
-        "Left": [
-          "Varchar"
-        ]
-      }
-    },
-    "query": "INSERT INTO workspace_invite\n            (workspace_id, email, is_admin)\n            VALUES ('demo', $1, false)"
-  },
   "df8f9b2e601b0157759e9507308ea7df562a7a42516be0fcb465b8e34de0f438": {
     "describe": {
       "columns": [
@@ -3929,6 +4030,22 @@
       }
     },
     "query": "DELETE FROM password WHERE email = $1"
+  },
+  "ea8ebb8d972fe99c960b5a69f794ee2b57bfb1914bf370c5b10313e45fa9b65f": {
+    "describe": {
+      "columns": [],
+      "nullable": [],
+      "parameters": {
+        "Left": [
+          "Varchar",
+          "Varchar",
+          "Jsonb",
+          "Text",
+          "Varchar"
+        ]
+      }
+    },
+    "query": "INSERT INTO resource\n            (workspace_id, path, value, description, resource_type)\n            VALUES ($1, $2, $3, $4, $5) ON CONFLICT (workspace_id, path) DO UPDATE SET value = $3"
   },
   "ed400dbf4a1fa597bc984240cfe9069369a8a265b127116187d78c0ba93ae076": {
     "describe": {
@@ -4307,11 +4424,6 @@
           "name": "extra_perms",
           "ordinal": 5,
           "type_info": "Jsonb"
-        },
-        {
-          "name": "is_oauth",
-          "ordinal": 6,
-          "type_info": "Bool"
         }
       ],
       "nullable": [
@@ -4319,7 +4431,6 @@
         false,
         true,
         true,
-        false,
         false,
         false
       ],

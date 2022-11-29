@@ -13,7 +13,8 @@ const windmillComponents: ComponentSet = {
 					id: undefined,
 					name: undefined,
 					type: 'output',
-					defaultValue: undefined
+					defaultValue: {},
+					fieldType: 'object'
 				}
 			}
 		}
@@ -46,14 +47,24 @@ const buttons: ComponentSet = {
 					type: 'static',
 					visible: true,
 					value: 'Lorem ipsum',
-					fieldType: 'textarea'
+					fieldType: 'textarea',
+					defaultValue: 'Lorem ipsum'
 				},
 				color: {
 					fieldType: 'select',
 					type: 'static',
 					visible: true,
 					value: 'blue',
-					optionValuesKey: 'buttonColorOptions'
+					optionValuesKey: 'buttonColorOptions',
+					defaultValue: 'blue'
+				},
+				size: {
+					fieldType: 'select',
+					type: 'static',
+					visible: true,
+					value: 'md',
+					optionValuesKey: 'buttonSizeOptions',
+					defaultValue: 'md'
 				}
 			},
 			runnable: true
@@ -73,8 +84,9 @@ const selectInputs: ComponentSet = {
 				label: {
 					type: 'static',
 					visible: true,
-					value: 'Lorem ipsum',
-					fieldType: 'textarea'
+					value: undefined,
+					fieldType: 'textarea',
+					defaultValue: 'Lorem ipsum'
 				}
 			}
 		}
@@ -101,7 +113,8 @@ const dataDisplay: ComponentSet = {
 					type: 'static',
 					visible: true,
 					value: 'Lorem ipsum',
-					fieldType: 'textarea'
+					fieldType: 'textarea',
+					defaultValue: 'Lorem ipsum'
 				}
 			}
 		},
@@ -113,16 +126,21 @@ const dataDisplay: ComponentSet = {
 				searchEnabled: {
 					type: 'static',
 					value: false,
-					fieldType: 'boolean'
+					fieldType: 'boolean',
+					visible: true,
+					defaultValue: false
 				},
 				paginationEnabled: {
 					type: 'static',
 					value: false,
-					fieldType: 'boolean'
+					fieldType: 'boolean',
+					visible: true,
+					defaultValue: false
 				}
 			},
 			runnable: true,
-			card: true
+			card: true,
+			components: []
 		},
 		{
 			...defaultProps,

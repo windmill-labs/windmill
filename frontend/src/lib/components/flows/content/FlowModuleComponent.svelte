@@ -163,7 +163,7 @@
 				style="max-height: calc(100% - {totalTopGap}px) !important;"
 			>
 				<Splitpanes horizontal>
-					<Pane size={50} minSize={20}>
+					<Pane size={flowModule.value.type === 'script' ? 30 : 50} minSize={20}>
 						{#if flowModule.value.type === 'rawscript'}
 							<div class="h-full">
 								<Editor
@@ -192,7 +192,7 @@
 							<FlowModuleScript path={flowModule.value.path} />
 						{/if}
 					</Pane>
-					<Pane size={50} minSize={20}>
+					<Pane size={flowModule.value.type === 'script' ? 70 : 50} minSize={20}>
 						<Tabs bind:selected>
 							<Tab value="inputs"><span class="font-semibold">Step Input</span></Tab>
 							<Tab value="test"><span class="font-semibold text-md">Test this step</span></Tab>
@@ -238,7 +238,7 @@
 									<div class="p-4  h-full overflow-auto">
 										<Alert type="info" title="Share a directory using same worker">
 											If same worker is set, all steps will be run on the same worker and will share
-											the folder `/shared` to pass data between each other.
+											the folder `./shared` to pass data between each other.
 										</Alert>
 										<Button
 											btnClasses="mt-4"

@@ -13,5 +13,7 @@ export async function onRequest(context: EventContext<unknown, string, unknown>)
 
     const url = new URL(request.url)
     url.hostname = "app.windmill.dev"
-    return fetch(url.toString(), { method: request.method, body: request.body, headers: request.headers, redirect: 'manual' })
+    const res = await fetch(url.toString(), { method: request.method, body: request.body, headers: request.headers, redirect: 'manual' })
+    res.headers.set('set-cookie', res.headers.get('set-cookie')?.replace('Domain=windmill.dev;', '') ?? '')
+    return res
 }

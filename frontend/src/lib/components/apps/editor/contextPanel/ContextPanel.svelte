@@ -32,7 +32,8 @@
 					id,
 					name,
 					type: 'output',
-					defaultValue: undefined
+					defaultValue: undefined,
+					fieldType: 'any'
 				}
 			}
 		}
@@ -79,32 +80,26 @@
 			scriptCreationDrawer.closeDrawer()
 		}}
 	>
-		<label for="pathInput" class="text-sm font-semibold">
-			Script name
-		</label>
+		<label for="pathInput" class="text-sm font-semibold"> Script name </label>
 		<div class="flex justify-between items-center gap-4">
 			<input id="pathInput" class="grow min-w-[150px]" bind:value={newScriptPath} />
-			<Button 
-				on:click={createScript}
-				size="sm"
-				disabled={isTakenPath}
-				startIcon={{icon: faPlus}}
-			>
+			<Button on:click={createScript} size="sm" disabled={isTakenPath} startIcon={{ icon: faPlus }}>
 				Create
 			</Button>
 		</div>
-	{#if isTakenPath && !ignorePathError}
-		<div transition:fade={{ duration: 100 }} class="text-sm text-red-600 h-5 mt-1">
-			This name is already used.
-		</div>
-	{/if}
+		{#if isTakenPath && !ignorePathError}
+			<div transition:fade={{ duration: 100 }} class="text-sm text-red-600 h-5 mt-1">
+				This name is already used.
+			</div>
+		{/if}
 	</DrawerContent>
 </Drawer>
 
-<Drawer bind:this={scriptEditorDrawer} size="1000px">
+<Drawer bind:this={scriptEditorDrawer} size="1200px">
 	<DrawerContent
 		title="Script Editor"
 		noPadding
+		forceOverflowVisible
 		on:close={() => {
 			scriptEditorDrawer.closeDrawer()
 		}}
@@ -115,6 +110,7 @@
 				bind:code={selectedScript.content}
 				path={selectedScript.path}
 				bind:schema={selectedScript.schema}
+				fixedOverflowWidgets={false}
 			/>
 		{/if}
 	</DrawerContent>
@@ -144,7 +140,7 @@
 				)}
 			>
 				<span class="text-xs">{key}</span>
-				<div>
+				<div class="flex gap-2">
 					<Button
 						size="xs"
 						color="light"

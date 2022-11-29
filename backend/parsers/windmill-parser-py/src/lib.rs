@@ -104,26 +104,8 @@ pub fn parse_python_signature(code: &str) -> error::Result<MainArgSignature> {
                             "bytes" => Typ::Bytes,
                             "datetime" => Typ::Datetime,
                             "datetime.datetime" => Typ::Datetime,
-                            _ => Typ::Unknown,
+                            _ => Typ::Resource(id),
                         },
-                        Located { node: ExprKind::Subscript { slice, value, .. }, .. } => {
-                            match (*value, *slice) {
-                                (
-                                    Located { node: ExprKind::Name { id, .. }, .. },
-                                    Located {
-                                        node:
-                                            ExprKind::Constant {
-                                                value: Constant::Str(resource_name),
-                                                ..
-                                            },
-                                        ..
-                                    },
-                                ) if id == "Resource" || id.ends_with(".Resource") => {
-                                    Typ::Resource(resource_name)
-                                }
-                                _ => Typ::Unknown,
-                            }
-                        }
                         _ => Typ::Unknown,
                     });
 
@@ -344,10 +326,11 @@ def main(test1: str, name: datetime.datetime = datetime.now(), byte: bytes = byt
 
 import os
 
+postgresql = dict
 def main(test1: str,
     name: datetime.datetime = datetime.now(),
     byte: bytes = bytes(1),
-    resource: Resource['postgres'] = \"g/all/resource\"):
+    resource: postgresql = \"$res:g/all/resource\"):
 
 	print(f\"Hello World and a warm welcome especially to {name}\")
 	print(\"The env variable at `all/pretty_secret`: \", os.environ.get(\"ALL_PRETTY_SECRET\"))
@@ -385,8 +368,8 @@ def main(test1: str,
                     Arg {
                         otyp: None,
                         name: "resource".to_string(),
-                        typ: Typ::Resource("postgres".to_string()),
-                        default: Some(json!("g/all/resource")),
+                        typ: Typ::Resource("postgresql".to_string()),
+                        default: Some(json!("$res:g/all/resource")),
                         has_default: true
                     }
                 ]

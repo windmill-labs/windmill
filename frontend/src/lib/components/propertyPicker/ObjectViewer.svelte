@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { truncate } from '$lib/utils'
+	import { pluralize, truncate } from '$lib/utils'
 
 	import { createEventDispatcher } from 'svelte'
 	import { Badge } from '../common'
@@ -45,6 +45,7 @@
 {#if keys.length > 0}
 	<span class:hidden={collapsed}>
 		{#if level != 0}
+			<!-- svelte-ignore a11y-click-events-have-key-events -->
 			<span
 				class="cursor-pointer border border-gray-300 hover:bg-gray-200 px-1 rounded"
 				on:click={collapse}
@@ -100,6 +101,7 @@
 		</ul>
 		{#if level == 0 && topBrackets}<span class="h-0">{closeBracket}</span>{/if}
 	</span>
+	<!-- svelte-ignore a11y-click-events-have-key-events -->
 	<span
 		class="border border-blue-600 rounded px-1 cursor-pointer hover:bg-gray-200"
 		class:hidden={!collapsed}
@@ -107,6 +109,11 @@
 	>
 		{openBracket}{collapsedSymbol}{closeBracket}
 	</span>
+	{#if collapsed}
+		<span class="text-gray-500 text-xs">
+			{pluralize(Object.keys(json).length, Array.isArray(json) ? 'item' : 'key')}
+		</span>
+	{/if}
 	{#if !isLast && collapsed}
 		<span class="text-black">,</span>
 	{/if}

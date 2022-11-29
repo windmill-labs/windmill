@@ -7,7 +7,7 @@
 	import TestJobLoader from '$lib/components/TestJobLoader.svelte'
 	import { AppService, type CompletedJob } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
-	import { faArrowsRotate } from '@fortawesome/free-solid-svg-icons'
+	import { faArrowsRotate, faRefresh } from '@fortawesome/free-solid-svg-icons'
 	import { getContext } from 'svelte'
 	import Icon from 'svelte-awesome'
 	import type { Output } from '../../rx'
@@ -87,10 +87,10 @@
 	}
 
 	// Only loads the schema
-	$: if ($workspaceStore && path && runType) {
+	$: if ($workspaceStore && path && runType && !schema) {
 		// Remote schema needs to be loaded
 		loadSchemaFromTriggerable($workspaceStore, path, runType)
-	} else if (inlineScriptName && $app.inlineScripts[inlineScriptName]) {
+	} else if (inlineScriptName && $app.inlineScripts[inlineScriptName] && !schema) {
 		// Inline scripts directly provide the schema
 		schema = $app.inlineScripts[inlineScriptName].schema
 	}
@@ -110,7 +110,7 @@
 
 	let schemaStripped: Schema | undefined = undefined
 
-	function stripSchema(schema: Schema) {
+	function stripSchema(schema: Schema, inputs: InputsSpec) {
 		schemaStripped = JSON.parse(JSON.stringify(schema))
 
 		// Remove hidden static inputs
@@ -134,7 +134,7 @@
 		})
 	}
 
-	$: schema && stripSchema(schema)
+	$: schema && inputs && stripSchema(schema, inputs)
 
 	$: disabledArgs = Object.keys(inputs).reduce(
 		(disabledArgsAccumulator: string[], inputName: string) => {
@@ -206,14 +206,17 @@
 
 {#if autoRefresh === true}
 	{#if isValid}
-		<Button size="xs" color="dark" on:click={() => executeComponent()} disabled={!isValid}>
-			<div>
-				{Object.keys(args).length > 0 ? 'Submit' : 'Refresh'}
-				{#if testIsLoading}
-					<Icon data={faArrowsRotate} class="animate-spin ml-2" scale={0.8} />
-				{/if}
-			</div>
-		</Button>
+		<div class="flex flex-row-reverse">
+			<Button
+				size="xs"
+				color="light"
+				variant="border"
+				on:click={() => executeComponent()}
+				disabled={!isValid}
+				startIcon={{ icon: faRefresh, classes: testIsLoading ? 'animate-spin' : '' }}
+				iconOnly
+			/>
+		</div>
 		<slot />
 	{:else}
 		<Alert type="warning" size="xs" class="mt-2" title="Missing inputs">

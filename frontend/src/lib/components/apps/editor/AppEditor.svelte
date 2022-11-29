@@ -5,7 +5,7 @@
 	import { Pane } from 'svelte-splitpanes'
 	import { writable } from 'svelte/store'
 	import { buildWorld, type World } from '../rx'
-	import type { App, AppEditorContext, ConnectingInput, EditorMode } from '../types'
+	import type { App, AppEditorContext, ConnectingInput, EditorMode, InputType } from '../types'
 	import AppEditorHeader from './AppEditorHeader.svelte'
 	import GridEditor from './GridEditor.svelte'
 
@@ -26,7 +26,7 @@
 	const staticOutputs = writable<Record<string, string[]>>({})
 	const selectedComponent = writable<string | undefined>(undefined)
 	const mode = writable<EditorMode>('dnd')
-	const connectingInput = writable<ConnectingInput>({
+	const connectingInput = writable<ConnectingInput<InputType, any>>({
 		opened: false,
 		input: undefined
 	})
@@ -55,55 +55,52 @@
 
 	$: $mode && $selectedComponent && clearSelectionOnPreview()
 	$: selectedTab = $selectedComponent ? 'settings' : 'insert'
+	$: previewing = $mode === 'preview'
 </script>
 
 <AppEditorHeader bind:title={$appStore.title} bind:mode={$mode} />
 <SplitPanesWrapper>
-	<Pane size={20} minSize={20} maxSize={40}>
-		{#if $mode === 'dnd'}
-			<ContextPanel appPath={path} />
-		{/if}
+	<Pane size={previewing ? 0 : 20} minSize={20} maxSize={40}>
+		<ContextPanel appPath={path} />
 	</Pane>
-	<Pane size={60} maxSize={100}>
+	<Pane size={previewing ? 100 : 60}>
 		<div class="p-4 bg-gray-100 h-full" id="faton">
 			{#if $appStore.grid}
 				<GridEditor />
 			{/if}
 		</div>
 	</Pane>
-	<Pane size={20} minSize={20} maxSize={40}>
-		{#if $mode === 'dnd'}
-			<Tabs bind:selected={selectedTab}>
-				<Tab value="insert" size="xs">
-					<div class="m-1 flex flex-row gap-2">
-						<Icon data={faPlus} />
-						<span>Insert</span>
-					</div>
-				</Tab>
-				<Tab value="settings" size="xs">
-					<div class="m-1 flex flex-row gap-2">
-						<Icon data={faSliders} />
-						<span>Settings</span>
-					</div>
-				</Tab>
-				<svelte:fragment slot="content">
-					<TabContent value="settings">
-						{#if $selectedComponent !== undefined}
-							{#each $appStore.grid as gridItem (gridItem.id)}
-								{#if gridItem.data.id === $selectedComponent}
-									<ComponentPanel bind:component={gridItem.data} />
-								{/if}
-							{/each}
-						{/if}
-						{#if $selectedComponent === undefined}
-							<div class="p-4 text-sm">No component selected.</div>
-						{/if}
-					</TabContent>
-					<TabContent value="insert">
-						<ComponentList />
-					</TabContent>
-				</svelte:fragment>
-			</Tabs>
-		{/if}
+	<Pane size={previewing ? 0 : 25} minSize={20} maxSize={40}>
+		<Tabs bind:selected={selectedTab}>
+			<Tab value="insert" size="xs">
+				<div class="m-1 flex flex-row gap-2">
+					<Icon data={faPlus} />
+					<span>Insert</span>
+				</div>
+			</Tab>
+			<Tab value="settings" size="xs">
+				<div class="m-1 flex flex-row gap-2">
+					<Icon data={faSliders} />
+					<span>Settings</span>
+				</div>
+			</Tab>
+			<svelte:fragment slot="content">
+				<TabContent value="settings">
+					{#if $selectedComponent !== undefined}
+						{#each $appStore.grid as gridItem (gridItem.id)}
+							{#if gridItem.data.id === $selectedComponent}
+								<ComponentPanel bind:component={gridItem.data} />
+							{/if}
+						{/each}
+					{/if}
+					{#if $selectedComponent === undefined}
+						<div class="p-4 text-sm">No component selected.</div>
+					{/if}
+				</TabContent>
+				<TabContent value="insert">
+					<ComponentList />
+				</TabContent>
+			</svelte:fragment>
+		</Tabs>
 	</Pane>
 </SplitPanesWrapper>

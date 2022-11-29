@@ -1,8 +1,12 @@
 <script lang="ts">
 	import { ResourceService, type Resource } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
+	import { faPlus, faRotateRight } from '@fortawesome/free-solid-svg-icons'
 	import { createEventDispatcher } from 'svelte'
+	import Icon from 'svelte-awesome'
+	import { Button } from './common'
 	import ResourceEditor from './ResourceEditor.svelte'
+	import Select from 'svelte-select'
 
 	const dispatch = createEventDispatcher()
 	let resources: Resource[] = []
@@ -24,38 +28,33 @@
 		}
 	}
 	$: dispatch('change', value)
+
+	$: collection = resources.map((x) => ({
+		value: x.path,
+		label: `${x.path}${x.description ? ' | ' + x.description : ''}`
+	}))
 </script>
 
 <ResourceEditor bind:this={resourceEditor} on:refresh={() => loadResources(resourceType)} />
-<select bind:value placeholder="Pick a resource {resourceType}">
-	<option value={undefined} />
-	{#each resources as r}
-		<option value={r.path}>{r.path}{r.description ? ' | ' + r.description : ''}</option>
-	{/each}
-</select>
-<div class="flex flex-row gap-2">
-	<a
-		class="text-xs hover:underline"
-		rel="noreferrer"
-		target="_blank"
-		href="/resources?connect_app={resourceType}">Connect {resourceType} with OAuth</a
-	>
-	<button
-		class="text-xs text-blue-500 font-normal"
-		type="button"
-		on:click={() => {
-			loadResources(resourceType)
-		}}
-	>
-		refresh
-	</button>
-	<button
-		class="text-xs text-blue-500 font-normal"
-		type="button"
+<div class="flex flex-row gap-x-1 w-full">
+	<Select
+		bind:justValue={value}
+		items={collection}
+		class="grow"
+		placeholder="Pick a {resourceType} resource"
+	/>
+	<Button
+		variant="border"
+		size="xs"
 		on:click={() => {
 			resourceEditor.initNew(resourceType)
-		}}
+		}}><Icon scale={0.8} data={faPlus} /></Button
 	>
-		+Create a new {resourceType}
-	</button>
+	<Button
+		variant="border"
+		size="xs"
+		on:click={() => {
+			loadResources(resourceType)
+		}}><Icon scale={0.8} data={faRotateRight} /></Button
+	>
 </div>

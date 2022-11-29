@@ -1,50 +1,42 @@
 <script lang="ts">
 	import { hubScripts } from '$lib/stores'
-	import { createEventDispatcher } from 'svelte'
+	import { createEventDispatcher, onMount } from 'svelte'
 	import type { HubItem } from './model'
-	import Fuse from 'fuse.js'
 	import IconedResourceType from '$lib/components/IconedResourceType.svelte'
-	import { Badge } from '$lib/components/common'
+	import { Badge, Skeleton } from '$lib/components/common'
+	import SearchItems from '$lib/components/SearchItems.svelte'
+	import { loadHubScripts } from '$lib/utils'
 
 	export let kind: 'script' | 'trigger' | 'approval' | 'failure' = 'script'
 
-	let items: HubItem[] = []
+	$: items = ($hubScripts ?? []).filter((i) => i.kind === kind)
 
-	let filteredItems: Item[] | undefined = []
-	let itemsFilter = ''
+	let filteredItems: (HubItem & { marked?: string })[] = []
+	let filter = ''
 	let appFilter: string | undefined = undefined
 
-	const fuseOptions = {
-		includeScore: false,
-		keys: ['path', 'summay']
-	}
-	const fuse: Fuse<Item> = new Fuse(items, fuseOptions)
-
-	$: {
-		items =
-			$hubScripts?.filter(
-				(x) => x.kind == kind && (appFilter == undefined || x.app == appFilter)
-			) ?? []
-		fuse.setCollection(items)
-	}
-
-	$: filteredItems =
-		itemsFilter.length > 0 && items ? fuse.search(itemsFilter).map((value) => value.item) : items
-
-	$: apps = Array.from(new Set(filteredItems?.map((x) => x.app) ?? []))
+	$: apps = Array.from(new Set(filteredItems?.map((x) => x.app) ?? [])).sort()
 
 	const dispatch = createEventDispatcher()
+
+	onMount(() => {
+		if (!$hubScripts) {
+			loadHubScripts()
+		}
+	})
 </script>
 
+<SearchItems {filter} {items} bind:filteredItems f={(x) => x.summary} />
+
 <div class="flex flex-col min-h-0">
-	<div class="w-12/12 pb-4">
-		<input type="text" placeholder="Search script" bind:value={itemsFilter} class="search-item" />
+	<div class="w-12/12 pb-2 flex flex-row mt-1 gap-1">
+		<input type="text" placeholder="Search Scripts" bind:value={filter} class="text-2xl grow" />
 	</div>
 
-	<div class="gap-2 w-full flex flex-wrap pb-4">
+	<div class="gap-2 w-full flex flex-wrap pb-2">
 		{#each apps as app}
 			<Badge
-				class="cursor-pointer"
+				class="cursor-pointer hover:bg-gray-200"
 				on:click={() => {
 					appFilter = appFilter == app ? undefined : app
 				}}
@@ -56,9 +48,12 @@
 			</Badge>
 		{/each}
 	</div>
-	{#if filteredItems}
-		<div class="overflow-auto">
-			<ul class="divide-y divide-gray-200">
+	<div class="overflow-auto">
+		<ul class="divide-y divide-gray-200">
+			{#if $hubScripts}
+				{#if filter.length > 0 && filteredItems.length == 0}
+					<p>No items found</p>
+				{/if}
 				{#each filteredItems as obj}
 					<li class="flex flex-row w-full">
 						<button
@@ -67,22 +62,24 @@
 								dispatch('pick', obj)
 							}}
 						>
-							<div class="mr-2 text-sm text-left truncate w-24  shrink-0">
+							<div class="mr-2 text-sm text-left truncate w-32 shrink-0">
 								<IconedResourceType after={true} silent={false} name={obj['app']} />
 							</div>
-							<div class="flex flex-col">
-								<div class="text-sm font-semibold flex flex-col">
-									<span class="mr-2 text-left">{obj['summary'] ?? ''}</span>
-									<span class="font-normal text-xs text-left italic overflow-hidden"
-										>{obj['path'] ?? ''}</span
-									>
-								</div>
-								<div class="text-xs font-light italic text-left">{obj['description'] ?? ''}</div>
+							<div class="mr-2 text-left">
+								{#if obj.marked}
+									{@html obj.marked ?? ''}
+								{:else}
+									{obj.summary ?? ''}
+								{/if}
 							</div>
 						</button>
 					</li>
 				{/each}
-			</ul>
-		</div>
-	{/if}
+			{:else}
+				{#each Array(10).fill(0) as sk}
+					<Skeleton layout={[[4], 0.5]} />
+				{/each}
+			{/if}
+		</ul>
+	</div>
 </div>

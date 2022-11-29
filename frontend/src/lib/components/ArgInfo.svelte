@@ -43,8 +43,8 @@
 		}}>{value}</button
 	>
 {:else if typeof value !== 'object'}
-	{truncate(JSON.stringify(value), 40)}
-	{#if JSON.stringify(value).length > 40}
+	{truncate(JSON.stringify(value), 100)}
+	{#if JSON.stringify(value).length > 100}
 		<button
 			class="text-xs text-blue-500"
 			on:click={() => {

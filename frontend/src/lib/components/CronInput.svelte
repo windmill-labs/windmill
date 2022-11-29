@@ -49,7 +49,7 @@
 	/>
 </div>
 {#if !disabled}
-	<div class="flex flex-row text-xs text-blue-500 gap-3 pl-28">
+	<div class="flex flex-row text-xs text-blue-500 gap-3 pl-28 mb-2">
 		<button
 			on:click={() => {
 				schedule = '0 */15 * * *'

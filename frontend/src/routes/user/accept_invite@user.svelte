@@ -2,7 +2,7 @@
 	import { goto } from '$app/navigation'
 
 	import { UserService, WorkspaceService } from '$lib/gen'
-	import { sendUserToast, validateUsername } from '$lib/utils'
+	import { validateUsername } from '$lib/utils'
 	import { page } from '$app/stores'
 	import { usersWorkspaceStore, workspaceStore } from '$lib/stores'
 	import CenteredModal from '$lib/components/CenteredModal.svelte'
@@ -68,7 +68,7 @@
 			class:input-error={errorUsername != ''}
 		/>
 	</label>
-	<div class="flex flex-row justify-between pt-4">
+	<div class="flex flex-row justify-between pt-4 gap-x-1">
 		<Button variant="border" size="sm" href="/user/workspaces"
 			>&leftarrow; Back to workspaces</Button
 		>

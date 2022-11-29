@@ -10,6 +10,7 @@ use std::{collections::HashMap, fmt::Debug};
 
 use std::sync::Arc;
 
+use anyhow::Context;
 use axum::{
     async_trait,
     body::Bytes,
@@ -508,18 +509,25 @@ pub async fn _refresh_token<'c>(
         .client)
         .to_owned();
 
-    let token_json = client
-        .exchange_refresh_token(&RefreshToken::from(account.refresh_token.clone()))
-        .with_client(&http_client)
-        .execute::<serde_json::Value>()
-        .await
-        .map_err(to_anyhow)?;
+    let token = _exchange_token(client, &account.refresh_token, http_client).await;
 
-    let token = serde_json::from_value::<TokenResponse>(token_json.clone()).map_err(|e| {
-        Error::BadConfig(format!(
-            "Error deserializing response as a new token: {e}\nresponse:{token_json}"
-        ))
-    })?;
+    if let Err(token_err) = token {
+        sqlx::query!(
+            "UPDATE account SET refresh_error = $1 WHERE workspace_id = $2 AND id = $3",
+            token_err.alt(),
+            w_id,
+            id,
+        )
+        .execute(&mut tx)
+        .await?;
+        tx.commit().await?;
+        return Err(error::Error::BadRequest(format!(
+            "Error refreshing token: {}",
+            token_err.alt()
+        )));
+    };
+
+    let token = token.unwrap();
 
     let expires_at = now_from_db(&mut tx).await?
         + chrono::Duration::seconds(
@@ -557,6 +565,25 @@ pub async fn _refresh_token<'c>(
     .await?;
     tx.commit().await?;
     Ok(token_str)
+}
+
+async fn _exchange_token(
+    client: OClient,
+    refresh_token: &str,
+    http_client: Client,
+) -> Result<TokenResponse, Error> {
+    let token_json = client
+        .exchange_refresh_token(&RefreshToken::from(refresh_token.clone()))
+        .with_client(&http_client)
+        .execute::<serde_json::Value>()
+        .await
+        .map_err(to_anyhow)?;
+    let token = serde_json::from_value::<TokenResponse>(token_json.clone()).map_err(|e| {
+        Error::BadConfig(format!(
+            "Error deserializing response as a new token: {e}\nresponse:{token_json}"
+        ))
+    })?;
+    Ok(token)
 }
 
 #[derive(Deserialize)]
@@ -649,14 +676,13 @@ async fn connect_slack_callback(
 
     sqlx::query!(
         "INSERT INTO resource
-            (workspace_id, path, value, description, resource_type, is_oauth)
-            VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT (workspace_id, path) DO UPDATE SET value = $3",
+            (workspace_id, path, value, description, resource_type)
+            VALUES ($1, $2, $3, $4, $5) ON CONFLICT (workspace_id, path) DO UPDATE SET value = $3",
         w_id,
         token_path,
         serde_json::json!({ "token": format!("$var:{token_path}") }),
         "The slack bot token to act on behalf of the installed app of the connected workspace",
         "slack",
-        true
     )
     .execute(&mut tx)
     .await?;
@@ -784,7 +810,7 @@ async fn slack_command(
 #[allow(non_snake_case)]
 #[derive(Deserialize)]
 pub struct UserInfo {
-    email: String,
+    email: Option<String>,
     name: Option<String>,
     company: Option<String>,
     displayName: Option<String>,
@@ -812,9 +838,26 @@ async fn login_callback(
         let userinfo_url = client_w_config.userinfo_url.as_ref().ok_or_else(|| {
             Error::BadConfig(format!("Missing userinfo_url in client {client_name}"))
         })?;
-        let user = http_get_user_info(&http_client, userinfo_url, token).await?;
+        let user = http_get_user_info::<UserInfo>(&http_client, userinfo_url, token).await?;
 
-        let email = user.email;
+        let email = match client_name.as_str() {
+            "github" => http_get_user_info::<Vec<GHEmailInfo>>(
+                &http_client,
+                "https://api.github.com/user/emails",
+                token,
+            )
+            .await?
+            .iter()
+            .find(|x| x.primary && x.verified)
+            .ok_or(error::Error::BadRequest(format!(
+                "user does not have any primary and verified address"
+            )))?
+            .email
+            .to_string(),
+            _ => user.email.ok_or_else(|| {
+                error::Error::BadRequest("email address not fetchable from user info".to_string())
+            })?,
+        };
 
         if let Some(domains) = &client_w_config.allowed_domains {
             if !domains.iter().any(|d| email.ends_with(d)) {
@@ -892,8 +935,9 @@ async fn login_callback(
             if demo_exists {
                 if let Err(e) = sqlx::query!(
                     "INSERT INTO workspace_invite
-            (workspace_id, email, is_admin)
-            VALUES ('demo', $1, false)",
+                (workspace_id, email, is_admin)
+                VALUES ('demo', $1, false)
+                ON CONFLICT DO NOTHING",
                     &email
                 )
                 .execute(&mut tx)
@@ -935,20 +979,29 @@ async fn exchange_code<T: DeserializeOwned>(
         .map_err(|e| error::Error::InternalErr(format!("{:?}", e)))
 }
 
-async fn http_get_user_info(
+#[derive(Deserialize)]
+pub struct GHEmailInfo {
+    email: String,
+    verified: bool,
+    primary: bool,
+}
+
+async fn http_get_user_info<T: DeserializeOwned>(
     http_client: &Client,
     url: &str,
     token: &str,
-) -> error::Result<UserInfo> {
+) -> error::Result<T> {
     Ok(http_client
         .get(url)
         .bearer_auth(token)
         .send()
         .await
-        .map_err(to_anyhow)?
-        .json()
+        .map_err(to_anyhow)
+        .context("failed to fetch user info")?
+        .json::<T>()
         .await
-        .map_err(to_anyhow)?)
+        .map_err(to_anyhow)
+        .context("failed to decode json from user info")?)
 }
 
 fn oauth_redirect(

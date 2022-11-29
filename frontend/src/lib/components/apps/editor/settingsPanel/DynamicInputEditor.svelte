@@ -1,16 +1,19 @@
 <script lang="ts">
-	import type { AppEditorContext, DynamicInput } from '../../types'
+	import type { AppEditorContext, DynamicInput, InputType } from '../../types'
 	import { Badge, Button } from '$lib/components/common'
 	import { faLink } from '@fortawesome/free-solid-svg-icons'
 	import { getContext } from 'svelte'
 
-	export let input: DynamicInput
+	export let input: DynamicInput<InputType, any>
 
 	const { connectingInput, selectedComponent } = getContext<AppEditorContext>('AppEditorContext')
 
 	function applyConnection() {
 		if (!$connectingInput.opened && $connectingInput.input !== undefined) {
-			input = $connectingInput.input
+			input.id = $connectingInput.input.id
+			input.name = $connectingInput.input.name
+
+			// TODO: CHeck whether types are ok
 
 			// TODO: Check whether this is needed
 			$selectedComponent = $selectedComponent

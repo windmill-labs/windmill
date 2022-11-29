@@ -542,28 +542,27 @@ pub async fn run_worker(
                         .expect("could not create job dir");
 
                     let same_worker = job.same_worker;
-                    let is_flow = job.job_kind == JobKind::Flow || job.job_kind == JobKind::FlowPreview || job.job_kind == JobKind::FlowDependencies;
 
-                    if is_flow && same_worker {
-                        let target = &format!("{job_dir}/shared");
-                        if let Some(parent_flow) = job.parent_job {
-                            let parent_shared_dir = format!("{worker_dir}/{parent_flow}/shared");
-                            if metadata(&parent_shared_dir).await.is_err() {
-                                DirBuilder::new()
-                                    .recursive(true)
-                                    .create(&parent_shared_dir)
-                                    .await
-                                    .expect("could not create parent shared dir");
-                            }
-                            symlink(&parent_shared_dir, target)
-                                .await
-                                .expect("could not symlink target");
-                        } else {
+                    let target = &format!("{job_dir}/shared");
+
+                    if same_worker && job.parent_job.is_some() {
+                        let parent_flow = job.parent_job.unwrap();
+                        let parent_shared_dir = format!("{worker_dir}/{parent_flow}/shared");
+                        if metadata(&parent_shared_dir).await.is_err() {
                             DirBuilder::new()
-                                .create(target)
+                                .recursive(true)
+                                .create(&parent_shared_dir)
                                 .await
-                                .expect("could not create shared dir");
+                                .expect("could not create parent shared dir");
                         }
+                        symlink(&parent_shared_dir, target)
+                            .await
+                            .expect("could not symlink target");
+                    } else {
+                        DirBuilder::new()
+                            .create(target)
+                            .await
+                            .expect("could not create shared dir");
                     }
                     let tx = db.begin().await.expect("could not start token transaction");
                     let (tx, token) = create_token_for_owner(
@@ -577,6 +576,7 @@ pub async fn run_worker(
                     .await.expect("could not create job token");
                     tx.commit().await.expect("could not commit job token");
                     let job_client = windmill_api_client::create_client(&worker_config.base_url, token.clone());
+                    let is_flow = job.job_kind == JobKind::Flow || job.job_kind == JobKind::FlowPreview || job.job_kind == JobKind::FlowDependencies;
 
                     if let Some(err) = handle_queued_job(
                         job.clone(),
@@ -610,6 +610,7 @@ pub async fn run_worker(
                         )
                         .await;
                     };
+
 
                     if !worker_config.keep_job_dir && !(is_flow && same_worker) {
                         let _ = tokio::fs::remove_dir_all(job_dir).await;
@@ -857,7 +858,7 @@ async fn handle_queued_job(
                         Error::ExitStatus(_) => {
                             let last_10_log_lines = logs
                                 .lines()
-                                .skip(logs.lines().count().max(10) - 10)
+                                .skip(logs.lines().count().max(13) - 13)
                                 .join("\n")
                                 .to_string()
                                 .replace("\n\n", "\n");
@@ -1016,26 +1017,15 @@ async fn handle_code_execution_job(
         format!(
             r#"
 mount {{
-    src: "{worker_dir}/{}/shared"
-    dst: "/shared"
+    src: "{job_dir}/shared"
+    dst: "/tmp/shared"
     is_bind: true
     rw: true
 }}
-        "#,
-            job.parent_job.ok_or(Error::ExecutionErr(
-                "no parent job, required for same worker job".to_string()
-            ))?,
+        "#
         )
     } else {
-        r#"
-mount {
-    dst: "/shared"
-    fstype: "tmpfs"
-    rw: true
-    options: "size=500000000"
-}
-        "#
-        .to_string()
+        "".to_string()
     };
 
     let result: error::Result<serde_json::Value> = match language {
@@ -1157,7 +1147,7 @@ async fn handle_go_job(
         false
     };
     logs.push_str("\n\n--- GO DEPENDENCIES SETUP ---\n");
-    set_logs(logs, job.id, db).await;
+    set_logs(logs, &job.id, db).await;
 
     install_go_dependencies(
         &job.id,
@@ -1173,7 +1163,7 @@ async fn handle_go_job(
     .await?;
 
     logs.push_str("\n\n--- GO CODE EXECUTION ---\n");
-    set_logs(logs, job.id, db).await;
+    set_logs(logs, &job.id, db).await;
     create_args_and_out_file(client, job, job_dir).await?;
     {
         let sig = windmill_parser_go::parse_go_sig(&inner_content)?;
@@ -1330,7 +1320,7 @@ async fn handle_bash_job(
     shared_mount: &str,
 ) -> Result<serde_json::Value, Error> {
     logs.push_str("\n\n--- BASH CODE EXECUTION ---\n");
-    set_logs(logs, job.id, db).await;
+    set_logs(logs, &job.id, db).await;
     write_file(job_dir, "main.sh", content).await?;
 
     let mut reserved_variables = get_reserved_variables(job, &token, &base_url, db).await?;
@@ -1424,7 +1414,7 @@ async fn handle_deno_job(
     lockfile: Option<String>,
 ) -> error::Result<serde_json::Value> {
     logs.push_str("\n\n--- DENO CODE EXECUTION ---\n");
-    set_logs(logs, job.id, db).await;
+    set_logs(logs, &job.id, db).await;
     let lockfile = lockfile.and_then(|e| if e.starts_with("{") { Some(e) } else { None });
     let _ = write_file(
         job_dir,
@@ -1520,6 +1510,7 @@ run();
                 .env("DENO_DIR", DENO_CACHE_DIR)
                 .env("DENO_AUTH_TOKENS", deno_auth_tokens)
                 .env("BASE_INTERNAL_URL", base_internal_url)
+                .env("NO_COLOR", "true")
                 .args(args)
                 .stdout(Stdio::piped())
                 .stderr(Stdio::piped())
@@ -1620,7 +1611,10 @@ async fn handle_python_job(
 
         additional_python_paths = handle_python_reqs(
             python_path,
-            requirements.split("\n").collect(),
+            requirements
+                .split("\n")
+                .filter(|x| !x.starts_with("--"))
+                .collect(),
             vars.clone(),
             job,
             logs,
@@ -1635,7 +1629,7 @@ async fn handle_python_job(
     }
     logs.push_str("\n\n--- PYTHON CODE EXECUTION ---\n");
 
-    set_logs(logs, job.id, db).await;
+    set_logs(logs, &job.id, db).await;
 
     let _ = write_file(job_dir, "inner.py", inner_content).await?;
 
@@ -2029,9 +2023,12 @@ async fn pip_compile(
     db: &Pool<Postgres>,
     timeout: i32,
 ) -> error::Result<String> {
+    logs.push_str(&format!("\nresolving dependencies..."));
+    set_logs(logs, job_id, db).await;
     logs.push_str(&format!("\ncontent of requirements:\n{}", requirements));
     let file = "requirements.in";
     write_file(job_dir, file, &requirements).await?;
+
     let mut args = vec!["-q", "--no-header", file, "--resolver=backtracking"];
     if let Some(url) = pip_extra_index_url {
         args.extend(["--extra-index-url", url]);
@@ -2469,7 +2466,7 @@ fn append_with_limit(dst: &mut String, src: &str, limit: &mut usize) {
 }
 
 #[tracing::instrument(level = "trace", skip_all)]
-async fn set_logs(logs: &str, id: uuid::Uuid, db: &Pool<Postgres>) {
+async fn set_logs(logs: &str, id: &uuid::Uuid, db: &Pool<Postgres>) {
     if sqlx::query!(
         "UPDATE queue SET logs = $1 WHERE id = $2",
         logs.to_owned(),
@@ -2627,6 +2624,12 @@ async fn handle_python_reqs(
         );
 
         let child = if !disable_nsjail {
+            tracing::info!(
+                worker_name = %worker_name,
+                job_id = %job.id,
+                workspace_id = %job.workspace_id,
+                "starting nsjail"
+            );
             let mut vars = vars.clone();
             let req = req.to_string();
             vars.push(("REQ", &req));

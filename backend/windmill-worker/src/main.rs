@@ -76,7 +76,7 @@ async fn main() -> anyhow::Result<()> {
         let disable_nsjail = std::env::var("DISABLE_NSJAIL")
             .ok()
             .and_then(|x| x.parse::<bool>().ok())
-            .unwrap_or(false);
+            .unwrap_or(true);
         let keep_job_dir = std::env::var("KEEP_JOB_DIR")
             .ok()
             .and_then(|x| x.parse::<bool>().ok())

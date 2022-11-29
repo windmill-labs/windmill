@@ -151,8 +151,7 @@
 					resource_type,
 					path,
 					value: resourceValue,
-					description,
-					is_oauth: !manual
+					description
 				}
 			})
 			dispatch('refresh')
@@ -201,7 +200,12 @@
 					You can also contribute to windmill and add it as an API integration if relevant.
 				</Alert>
 			{/if}
-			<div class="mb-1 font-semibold text-gray-700">OAuth APIs</div>
+			<h2 class="mb-2">OAuth APIs</h2>
+			{#if Object.keys(connects).length == 0}
+				<Alert class="mb-4" type="error" title="No OAuth connection setup">
+					Your instance has no OAuth connection setup. You can still add a resource manually.
+				</Alert>
+			{/if}
 			<div class="grid sm:grid-cols-2 md:grid-cols-3 gap-x-2 gap-y-1 items-center mb-2">
 				{#each Object.entries(connects).sort((a, b) => a[0].localeCompare(b[0])) as [key, values]}
 					<Button
@@ -222,7 +226,7 @@
 					</Button>
 				{/each}
 			</div>
-			<div class="mb-1 font-semibold text-gray-700 mt-6">Scopes</div>
+			<h3>Scopes</h3>
 			{#if !manual && resource_type != ''}
 				{#each scopes as v}
 					<div class="flex flex-row max-w-md mb-2">
@@ -259,47 +263,13 @@
 			{:else}
 				<p class="italic text-sm">Pick an OAuth API and customize the scopes here</p>
 			{/if}
-			<div class="mb-1 font-semibold text-gray-700 mt-6">Extra params</div>
-			{#if !manual && resource_type != ''}
-				{#each extra_params as [k, v]}
-					<div class="flex flex-row max-w-md mb-2">
-						<input type="text" bind:value={k} class="mr-2" />
-						<input type="text" bind:value={v} />
-
-						<Button
-							variant="border"
-							color="red"
-							size="xs"
-							btnClasses="mx-6"
-							on:click={() => {
-								extra_params = extra_params.filter((el) => el[0] != k)
-							}}
-						>
-							<Icon data={faMinus} />
-						</Button>
-					</div>
-				{/each}
-				<div class="flex items-center mt-1">
-					<Button
-						variant="border"
-						color="blue"
-						size="sm"
-						endIcon={{ icon: faPlus }}
-						on:click={() => {
-							extra_params.push(['', ''])
-							extra_params = extra_params
-						}}
-					>
-						Add item
-					</Button>
-					<span class="ml-2 text-sm text-gray-500">
-						({(extra_params ?? []).length} item{(extra_params ?? []).length > 1 ? 's' : ''})
-					</span>
-				</div>
-			{:else}
-				<p class="italic text-sm">Pick an OAuth API and customize the extra parameters here</p>
+			<h2 class="mt-8 mb-2">Non OAuth APIs</h2>
+			{#if Object.keys(connectsManual).length == 0}
+				<Alert class="mb-4" type="error" title="No resource types synced">
+					Your instance has no resource types setup. Sync with the hub to get all the latest
+					resource types.
+				</Alert>
 			{/if}
-			<div class="mb-1 font-semibold text-gray-700 mt-6">Non OAuth APIs</div>
 			<div class="grid sm:grid-cols-2 md:grid-cols-3 gap-x-2 gap-y-1 items-center mb-2">
 				{#each connectsManual as [key, instructions]}
 					<Button

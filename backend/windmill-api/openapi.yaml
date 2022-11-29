@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.50.0
+  version: 1.51.0
   title: Windmill server API
   contact:
     name: Windmill contact
@@ -1331,7 +1331,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/Resource"
+                $ref: "#/components/schemas/ListableResource"
 
   /w/{workspace}/resources/get_value/{path}:
     get:
@@ -1389,7 +1389,7 @@ paths:
               schema:
                 type: array
                 items:
-                  $ref: "#/components/schemas/Resource"
+                  $ref: "#/components/schemas/ListableResource"
 
   /w/{workspace}/resources/type/create:
     post:
@@ -4128,6 +4128,12 @@ components:
           type: object
           additionalProperties:
             type: boolean
+        is_expired:
+          type: boolean
+        refresh_error:
+          type: string
+        is_linked:
+          type: boolean
       required:
         - workspace_id
         - path
@@ -4362,8 +4368,6 @@ components:
           type: string
         resource_type:
           type: string
-        is_oauth:
-          type: boolean
       required:
         - path
         - value
@@ -4400,6 +4404,38 @@ components:
         - path
         - resource_type
         - is_oauth
+
+    ListableResource:
+      type: object
+      properties:
+        workspace_id:
+          type: string
+        path:
+          type: string
+        description:
+          type: string
+        resource_type:
+          type: string
+        value: {}
+        is_oauth:
+          type: boolean
+        extra_perms:
+          type: object
+          additionalProperties:
+            type: boolean
+        is_expired:
+          type: boolean
+        refresh_error:
+          type: string
+        is_linked:
+          type: boolean
+        account:
+          type: number
+      required:
+        - path
+        - resource_type
+        - is_oauth
+        - is_linked
 
     ResourceType:
       type: object

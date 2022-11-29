@@ -9,119 +9,65 @@
 <script lang="ts">
 	import {
 		faArchive,
+		faBuilding,
 		faCalendarAlt,
 		faCodeFork,
 		faEdit,
 		faEye,
+		faGlobe,
 		faList,
 		faPlay,
 		faShare
 	} from '@fortawesome/free-solid-svg-icons'
-	import Fuse from 'fuse.js'
 	import type { Script } from '$lib/gen'
 	import { ScriptService } from '$lib/gen'
-	import { superadmin, userStore, workspaceStore, hubScripts } from '$lib/stores'
-	import {
-		canWrite,
-		getScriptByPath,
-		groupBy,
-		loadHubScripts,
-		sendUserToast,
-		truncateHash
-	} from '$lib/utils'
+	import { superadmin, userStore, workspaceStore } from '$lib/stores'
+	import { canWrite, getScriptByPath, sendUserToast } from '$lib/utils'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
 	import Dropdown from '$lib/components/Dropdown.svelte'
 	import PageHeader from '$lib/components/PageHeader.svelte'
 	import SharedBadge from '$lib/components/SharedBadge.svelte'
 	import ShareModal from '$lib/components/ShareModal.svelte'
-	import Tooltip from '$lib/components/Tooltip.svelte'
-	import TableCustom from '$lib/components/TableCustom.svelte'
 	import { Button, Tabs, Tab, Badge, Skeleton, DrawerContent } from '$lib/components/common'
 	import CreateActions from '$lib/components/scripts/CreateActions.svelte'
 	import HighlightCode from '$lib/components/HighlightCode.svelte'
 	import Drawer from '$lib/components/common/drawer/Drawer.svelte'
+	import PickHubScript from '$lib/components/flows/pickers/PickHubScript.svelte'
+	import type { HubItem } from '$lib/components/flows/pickers/model'
+	import Icon from 'svelte-awesome'
 
-	type Tab = 'all' | 'personal' | 'groups' | 'shared' | 'examples' | 'hub'
-	type Section = [string, ScriptW[]]
-	type ScriptW = Script & { canWrite: boolean; tab: Tab }
+	type Tab = 'workspace' | 'hub'
+	type ScriptW = Script & { canWrite: boolean; marked?: string }
 	let scripts: ScriptW[] = []
-	let filteredScripts: ScriptW[]
-	let scriptFilter = ''
-	let hubFilter = ''
-	let groupedScripts: Section[] = []
-	let communityScripts: Section[] = []
+	let preFilteredScripts: ScriptW[] = []
+	let filteredScripts: ScriptW[] = []
+	let filter = ''
+
 	let loading = true
 
-	let tab: Tab = 'all'
+	let tab: Tab = 'workspace'
 
 	let shareModal: ShareModal
-
-	const fuseOptions = {
-		includeScore: false,
-		keys: ['description', 'path', 'content', 'hash', 'summary']
-	}
-	const fuse: Fuse<ScriptW> = new Fuse(scripts, fuseOptions)
-
-	const hubScriptsFuse: Fuse<any> = new Fuse($hubScripts ?? [], {
-		includeScore: false,
-		keys: ['app', 'path', 'summary']
-	})
 
 	let codeViewer: Drawer
 	let codeViewerContent: string = ''
 	let codeViewerLanguage: 'deno' | 'python3' | 'go' | 'bash' = 'deno'
-	let codeViewerPath: string = ''
+	let codeViewerObj: HubItem | undefined = undefined
 
-	$: filteredScripts =
-		scriptFilter.length > 0 ? fuse.search(scriptFilter).map((value) => value.item) : scripts
-
-	$: filteredHub =
-		hubFilter.length > 0
-			? hubScriptsFuse.search(hubFilter).map((value) => value.item)
-			: $hubScripts ?? []
-
-	$: {
-		let defaults: string[] = []
-
-		if (tab == 'all' || tab == 'personal') {
-			defaults = defaults.concat(`u/${$userStore?.username}`)
-		}
-		if (tab == 'all' || tab == 'groups') {
-			defaults = defaults.concat($userStore?.groups.map((x) => `g/${x}`) ?? [])
-		}
-		groupedScripts = groupBy(
-			filteredScripts.filter((x) => x.tab != 'examples'),
-			(sc: Script) => sc.path.split('/').slice(0, 2).join('/'),
-			defaults
-		)
-		communityScripts = [['examples', filteredScripts.filter((x) => x.tab == 'examples')]]
-	}
-
-	function tabFromPath(path: string) {
-		let t: Tab = 'shared'
-		let path_prefix = path.split('/').slice(0, 2)
-		if (path_prefix[0] == 'u' && path_prefix[1] == $userStore?.username) {
-			t = 'personal'
-		} else if (path_prefix[0] == 'g' && $userStore?.groups.includes(path_prefix[1])) {
-			t = 'groups'
-		}
-		return t
-	}
+	import SearchItems from '$lib/components/SearchItems.svelte'
+	import LanguageIcon from '$lib/components/common/languageIcons/LanguageIcon.svelte'
 
 	async function loadScripts(): Promise<void> {
-		const allScripts = (
-			await ScriptService.listScripts({ workspace: $workspaceStore!, perPage: 300 })
-		).map((x: Script) => {
-			let t: Tab = x.workspace_id == $workspaceStore ? tabFromPath(x.path) : 'examples'
-			return {
-				canWrite: canWrite(x.path, x.extra_perms, $userStore) && x.workspace_id == $workspaceStore,
-				tab: t,
-				...x
+		scripts = (await ScriptService.listScripts({ workspace: $workspaceStore!, perPage: 300 })).map(
+			(x: Script) => {
+				return {
+					canWrite:
+						canWrite(x.path, x.extra_perms, $userStore) && x.workspace_id == $workspaceStore,
+					...x
+				}
 			}
-		})
-		scripts = tab == 'all' ? allScripts : allScripts.filter((x) => x.tab == tab)
+		)
 		loading = false
-		fuse.setCollection(scripts)
 	}
 
 	async function archiveScript(path: string): Promise<void> {
@@ -130,30 +76,51 @@
 		sendUserToast(`Successfully archived script ${path}`)
 	}
 
-	async function viewCode(path: string) {
-		const { content, language } = await getScriptByPath(path)
+	async function viewCode(obj: HubItem) {
+		const { content, language } = await getScriptByPath(obj.path)
 		codeViewerContent = content
 		codeViewerLanguage = language
-		codeViewerPath = path
+		codeViewerObj = obj
 		codeViewer.openDrawer()
 	}
 
-	async function loadHubScriptsWFuse(): Promise<void> {
-		await loadHubScripts()
-		hubScriptsFuse.setCollection($hubScripts ?? [])
-	}
+	$: owners = Array.from(
+		new Set(filteredScripts?.map((x) => x.path.split('/').slice(0, 2).join('/')) ?? [])
+	).sort()
 
-	loadHubScriptsWFuse()
+	$: preFilteredScripts =
+		ownerFilter != undefined ? scripts.filter((x) => x.path.startsWith(ownerFilter ?? '')) : scripts
+
+	let ownerFilter: string | undefined = undefined
 
 	$: {
-		if ($workspaceStore && ($userStore || $superadmin) && tab) {
+		if ($workspaceStore && ($userStore || $superadmin)) {
 			loadScripts()
 		}
 	}
 </script>
 
-<Drawer bind:this={codeViewer}>
-	<DrawerContent title="Script {codeViewerPath}" on:close={codeViewer.closeDrawer}>
+<SearchItems
+	{filter}
+	items={preFilteredScripts}
+	bind:filteredItems={filteredScripts}
+	f={(x) => x.summary + ' (' + x.path + ')'}
+/>
+
+<Drawer bind:this={codeViewer} size="900px">
+	<DrawerContent title={codeViewerObj?.summary ?? ''} on:close={codeViewer.closeDrawer}>
+		<div slot="submission" class="flex flex-row gap-2 pr-2"
+			><Button
+				href="https://hub.windmill.dev/scripts/{codeViewerObj?.app ?? ''}/{codeViewerObj?.ask_id ??
+					0}"
+				startIcon={{ icon: faGlobe }}
+				variant="border">View on the Hub</Button
+			><Button
+				href="/scripts/add?hub={encodeURIComponent(codeViewerObj?.path ?? '')}"
+				startIcon={{ icon: faCodeFork }}>Fork</Button
+			></div
+		>
+
 		<HighlightCode language={codeViewerLanguage} code={codeViewerContent} />
 	</DrawerContent>
 </Drawer>
@@ -169,160 +136,58 @@
 	</PageHeader>
 
 	<Tabs bind:selected={tab}>
-		<Tab value="all">All</Tab>
-		<Tab value="hub">Hub</Tab>
-		<Tab value="personal">{`Personal space (${$userStore?.username})`}</Tab>
-		<Tab value="groups">Groups</Tab>
-		<Tab value="shared">Shared</Tab>
-		<Tab value="examples">Examples</Tab>
+		<Tab size="xl" value="workspace"><Icon data={faBuilding} class="mr-1" /> Workspace</Tab>
+		<Tab size="xl" value="hub"><Icon data={faGlobe} class="mr-1" /> Hub</Tab>
 	</Tabs>
 
-	{#if tab != 'hub'}
-		<input
-			type="text"
-			placeholder="Search scripts"
-			bind:value={scriptFilter}
-			class="search-bar mt-2"
-		/>
-	{/if}
+	<div class="mb-1" />
 
-	<div class="grid grid-cols-1 divide-y">
-		{#each tab == 'all' ? ['personal', 'groups', 'shared', 'examples', 'hub'] : [tab] as sectionTab}
-			<div class="shadow p-4 my-2">
-				{#if sectionTab == 'personal'}
-					<h2>
-						<span class="text-lg xl:text-xl">Personal</span>
-						<span class="text-sm">
-							({`u/${$userStore?.username}`}) <Tooltip>
-								All scripts owned by you (and visible only to you if you do not explicitly share
-								them)
-							</Tooltip>
-						</span>
-					</h2>
-				{:else if sectionTab == 'groups'}
-					<h2 class="text-lg xl:text-xl">
-						Groups <Tooltip>All scripts being owned by groups that you are member of</Tooltip>
-					</h2>
-				{:else if sectionTab == 'shared'}
-					<h2 class="text-lg xl:text-xl">
-						Shared <Tooltip>All scripts visible to you because they have been shared to you</Tooltip
-						>
-					</h2>
-				{:else if sectionTab == 'examples'}
-					<h2 class="text-lg xl:text-xl">
-						Public <Tooltip>
-							Template and examples shared across all workspaces of this instance. They are managed
-							from a special workspace called 'starter' that only superadmin can change.
-						</Tooltip>
-					</h2>
-				{:else if sectionTab == 'hub'}
-					<h2 class="text-lg xl:text-xl">
-						Approved scripts from the WindmillHub <Tooltip>
-							All approved Deno scripts from the <a href="https://hub.windmill.dev">WindmillHub</a>.
-							Approved scripts have been reviewed by the Windmill team and are safe to use in
-							production. The hub only offers Deno scripts because Hub scripts are meant to be
-							solely used as building blocks of flows and are much more efficient to execute than
-							their Python counterparts.
-						</Tooltip>
-					</h2>
-					<input
-						type="text"
-						placeholder="Search hub scripts"
-						bind:value={hubFilter}
-						class="search-bar mt-2"
-					/>
-					<div class="relative">
-						{#if $hubScripts != undefined}
-							<TableCustom>
-								<tr slot="header-row">
-									<th>App</th>
-									<th>Summary</th>
-									<th />
-								</tr>
-								<tbody slot="body">
-									{#each filteredHub ?? [] as { path, summary, app, ask_id }}
-										<tr>
-											<td class="font-black">{app}</td>
-											<td
-												><button class="text-left" on:click={() => viewCode(path)}>{summary}</button
-												></td
-											>
-											<td class="whitespace-nowrap"
-												><button class="text-blue-500" on:click={() => viewCode(path)}
-													>view code</button
-												>
-												|
-												<a
-													target="_blank"
-													href={`https://hub.windmill.dev/scripts/${app}/${ask_id}`}>hub's page</a
-												>
-												|
-												<a class="font-bold" href={`/scripts/add?hub=${encodeURIComponent(path)}`}
-													>fork</a
-												>
-											</td>
-										</tr>
-									{/each}
-								</tbody>
-							</TableCustom>
-						{:else}
-							<span class="mt-2 text-sm text-red-400">
-								Hub not reachable. If your environment is air gapped, contact sales@windmill.dev to
-								setup a local mirror.
-							</span>
-						{/if}
-					</div>
-				{/if}
-				{#each sectionTab == 'examples' ? communityScripts : groupedScripts.filter((x) => tabFromPath(x[0]) == sectionTab) as [section, scripts]}
-					{#if sectionTab != 'personal' && sectionTab != 'examples'}
-						<div class="font-bold text-gray-700 mt-2 mb-2">
-							{section}
-							{#if section == 'g/all'}
-								<Tooltip
-									>'g/all' is the namespace for the group all. Every user is a member of all.
-									Everything in this namespace is visible by all users. At the opposite, 'u/myuser'
-									are private user namespaces.</Tooltip
-								>
-							{/if}
-						</div>
-					{/if}
-					{#if loading}
-						<div class="grid gap-4 sm:grid-cols-1 md:grid-cols-2 xl:grid-cols-3 mt-2">
-							{#each new Array(3) as _}
-								<Skeleton layout={[[8.5]]} />
-							{/each}
-						</div>
-					{:else if scripts.length == 0 && sectionTab == 'personal'}
-						<p class="text-xs text-gray-600 italic mt-2">No scripts yet</p>
-					{:else}
-						<div class="grid md:grid-cols-2 gap-4 sm:grid-cols-1 xl:grid-cols-3 mt-2">
-							{#each scripts as { summary, path, hash, language, extra_perms, canWrite, lock_error_logs, kind }}
-								<a
-									class="border border-gray-400 p-4 rounded-sm shadow-sm space-y-2 hover:border-blue-600 text-gray-800 flex flex-col justify-between"
-									href="/scripts/get/{hash}"
-								>
-									<div class="flex flex-col gap-1">
-										<a href="/scripts/get/{hash}" class="px-6">
-											<div class="font-semibold text-gray-700">
-												{!summary || summary.length == 0 ? path : summary}
-											</div>
-											<p class="text-gray-700 text-xs">
-												{path}
-												<Badge color="gray" baseClass="text-xs">{truncateHash(hash)}</Badge>
-											</p>
-										</a>
-										<div class="flex flex-wrap items-center gap-2 mt-1 px-6">
-											<SharedBadge {canWrite} extraPerms={extra_perms} />
-											<Badge color="blue" capitalize>{language}</Badge>
-											{#if kind != 'script'}
-												<Badge color="blue" capitalize>{kind}</Badge>
-											{/if}
-											{#if lock_error_logs}
-												<Badge color="red">Deployment error</Badge>
-											{/if}
-										</div>
-									</div>
-									<div class="flex flex-row-reverse items-end w-full gap-2 pr-2 mt-2">
+	{#if tab == 'workspace'}
+		<input type="text" placeholder="Search Scripts" bind:value={filter} class="text-2xl mt-2" />
+
+		<div class="gap-2 w-full flex flex-wrap pb-1 pt-2">
+			{#each owners as owner}
+				<Badge
+					class="cursor-pointer hover:bg-gray-200"
+					on:click={() => {
+						ownerFilter = ownerFilter == owner ? undefined : owner
+					}}
+					color={owner === ownerFilter ? 'blue' : 'gray'}
+				>
+					{owner}
+					{#if owner === ownerFilter}&cross;{/if}
+				</Badge>
+			{/each}
+		</div>
+		<div class="grid grid-cols-1 gap-4 lg:grid-cols-2 mt-2 w-full">
+			{#if !loading}
+				{#each filteredScripts as { summary, path, hash, language, extra_perms, canWrite, lock_error_logs, kind, marked } (path)}
+					<a
+						class="border border-gray-400 p-2 rounded-sm shadow-sm  hover:border-blue-600 text-gray-800"
+						href="/scripts/get/{hash}"
+					>
+						<div class="flex flex-col gap-1 w-full h-full">
+							<div class="font-semibold text-gray-700 truncate">
+								{#if marked}
+									{@html marked}
+								{:else}
+									{!summary || summary.length == 0 ? path : summary}
+								{/if}
+							</div>
+							<div class="flex flex-row  justify-between w-full grow gap-2 items-start">
+								<div class="text-gray-700 text-xs flex flex-row  flex-wrap  gap-x-1 items-center">
+									{path}
+									<SharedBadge {canWrite} extraPerms={extra_perms} />
+									<div><LanguageIcon height={16} lang={language} /></div>
+									{#if kind != 'script'}
+										<Badge color="blue" capitalize>{kind}</Badge>
+									{/if}
+									{#if lock_error_logs}
+										<Badge color="red">Deployment error</Badge>
+									{/if}
+								</div>
+								<div class="flex flex-col items-end grow pt-4">
+									<div class="flex flex-row-reverse place gap-x-2 items-end">
 										<div>
 											<Dropdown
 												dropdownItems={[
@@ -378,10 +243,21 @@
 												]}
 											/>
 										</div>
+										<div>
+											<Button
+												color="dark"
+												size="xs"
+												startIcon={{ icon: faPlay }}
+												href="/scripts/run/{hash}"
+											>
+												Run
+											</Button>
+										</div>
 										{#if canWrite}
 											<div>
 												<Button
 													variant="border"
+													color="dark"
 													size="xs"
 													startIcon={{ icon: faEdit }}
 													href="/scripts/edit/{hash}?step=2"
@@ -392,6 +268,7 @@
 										{:else}
 											<div>
 												<Button
+													color="dark"
 													variant="border"
 													size="xs"
 													startIcon={{ icon: faCodeFork }}
@@ -401,25 +278,21 @@
 												</Button>
 											</div>
 										{/if}
-										<div>
-											<Button
-												variant="border"
-												size="xs"
-												startIcon={{ icon: faPlay }}
-												href="/scripts/run/{hash}"
-											>
-												Run
-											</Button>
-										</div>
 									</div>
-								</a>
-							{/each}
-						</div>
-					{/if}
+								</div></div
+							>
+						</div></a
+					>
 				{/each}
-			</div>
-		{/each}
-	</div>
+			{:else}
+				{#each Array(10).fill(0) as sk}
+					<Skeleton layout={[[4]]} />
+				{/each}
+			{/if}
+		</div>
+	{:else}
+		<PickHubScript on:pick={(e) => viewCode(e.detail)} />
+	{/if}
 </CenteredPage>
 
 <ShareModal

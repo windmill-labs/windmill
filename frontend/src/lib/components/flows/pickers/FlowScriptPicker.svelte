@@ -13,7 +13,7 @@
 
 <Button
 	{disabled}
-	btnClasses="h-24 w-24 truncate"
+	btnClasses="w-24 truncate"
 	on:click
 	size="sm"
 	spacingSize="md"

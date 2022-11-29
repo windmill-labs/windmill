@@ -2,7 +2,9 @@ FROM debian:buster-slim as nsjail
 
 WORKDIR /nsjail
 
-RUN apt-get -y update \
+ARG nsjail=""
+
+RUN  if [ "$nsjail" = "true" ]; then apt-get -y update \
     && apt-get install -y \
     bison=2:3.3.* \
     flex=2.6.* \
@@ -13,11 +15,12 @@ RUN apt-get -y update \
     libnl-route-3-dev=3.4.* \
     make=4.2.* \
     pkg-config=0.29-6 \
-    protobuf-compiler=3.6.*
+    protobuf-compiler=3.6.*; fi
 
-RUN git clone -b master --single-branch https://github.com/google/nsjail.git . \
-    && git checkout dccf911fd2659e7b08ce9507c25b2b38ec2c5800
-RUN make
+
+RUN if [ "$nsjail" = "true" ]; then git clone -b master --single-branch https://github.com/google/nsjail.git . \
+    && git checkout dccf911fd2659e7b08ce9507c25b2b38ec2c5800; fi
+RUN if [ "$nsjail" = "true" ]; then make; else touch nsjail; fi
 
 FROM rust:slim-buster AS rust_base
 
@@ -97,11 +100,12 @@ RUN set -eux; \
     case "$arch" in \
     'amd64') \
     targz='go1.19.3.linux-amd64.tar.gz'; \
-    sha256='74b9640724fd4e6bb0ed2a1bc44ae813a03f1e72a4c76253e2d5c015494430ba'; \
     ;; \
     'arm64') \
     targz='go1.19.3.linux-arm64.tar.gz'; \
-    sha256='99de2fe112a52ab748fb175edea64b313a0c8d51d6157dba683a6be163fd5eab'; \
+    ;; \
+    'armhf') \
+    targz='go1.19.3.linux-armv6l.tar.gz'; \
     ;; \
     *) echo >&2 "error: unsupported architecture '$arch' (likely packaging update needed)"; exit 1 ;; \
     esac; \

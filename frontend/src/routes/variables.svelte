@@ -20,7 +20,18 @@
 	import { userStore, workspaceStore } from '$lib/stores'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
 	import Icon from 'svelte-awesome'
-	import { faPlus, faCircle, faLock, faEyeSlash } from '@fortawesome/free-solid-svg-icons'
+	import {
+		faPlus,
+		faCircle,
+		faEyeSlash,
+		faRotateRight,
+		faArrowRotateRight,
+		faRefresh,
+		faChain,
+		faTrash,
+		faEdit,
+		faShare
+	} from '@fortawesome/free-solid-svg-icons'
 	import { Button } from '$lib/components/common'
 	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
 	import { Alert, Badge, Skeleton } from '$lib/components/common'
@@ -79,7 +90,7 @@
 		title="Variables"
 		tooltip="Save and permission strings to be reused in Scripts and Flows."
 	>
-		<Button size="sm" startIcon={{ icon: faPlus }} on:click={() => variableEditor.initNew()}>
+		<Button size="md" startIcon={{ icon: faPlus }} on:click={() => variableEditor.initNew()}>
 			New&nbsp;variable
 		</Button>
 	</PageHeader>
@@ -98,11 +109,11 @@
 
 					<th>value</th>
 					<th>description</th>
-					<th>OAuth</th>
+					<th />
 					<th />
 				</tr>
 				<tbody slot="body">
-					{#each variables as { path, value, is_secret, description, extra_perms, canWrite, account, is_oauth }}
+					{#each variables as { path, value, is_secret, description, extra_perms, canWrite, account, is_oauth, is_expired, refresh_error, is_linked }}
 						<tr>
 							<td
 								><a
@@ -136,32 +147,88 @@
 							>
 
 							<td class="text-center">
-								{#if is_oauth}
-									<Popover>
-										<Icon
-											class="text-green-600 animate-[pulse_5s_linear_infinite]"
-											data={faCircle}
-											scale={0.7}
-											label="Variable is tied to an OAuth app"
-										/>
-										<div slot="text">
-											The variable is tied to an OAuth app. The token is refreshed automatically if
-											applicable.
+								<div class="flex flex-row">
+									<div class="w-10">
+										{#if is_linked}
+											<Popover>
+												<Icon data={faChain} />
+												<div slot="text">
+													This variable is linked with a resource of the same path. They are deleted
+													and renamed together.
+												</div>
+											</Popover>
+										{/if}
+									</div>
+									<div class="w-10">
+										{#if account}
+											<Popover>
+												<Icon data={faRefresh} />
+												<div slot="text">
+													This OAuth token will be kept up-to-date in the background by Windmill using
+													its refresh token
+												</div>
+											</Popover>
+										{/if}
+									</div>
+
+									{#if is_oauth}
+										<div class="w-10">
+											{#if refresh_error}
+												<Popover>
+													<Icon
+														class="text-red-600 animate-[pulse_5s_linear_infinite]"
+														data={faCircle}
+														scale={0.7}
+														label="Error during exchange of the refresh token"
+													/>
+													<div slot="text">
+														Latest exchange of the refresh token did not succeed. Error: {refresh_error}
+													</div>
+												</Popover>
+											{:else if is_expired}
+												<Popover>
+													<Icon
+														class="text-yellow-600 animate-[pulse_5s_linear_infinite]"
+														data={faCircle}
+														scale={0.7}
+														label="Variable is expired"
+													/>
+													<div slot="text">
+														The access_token is expired, it will get renewed the next time this
+														variable is fetched or you can request is to be refreshed in the
+														dropdown on the right.
+													</div>
+												</Popover>
+											{:else}
+												<Popover>
+													<Icon
+														class="text-green-600 animate-[pulse_5s_linear_infinite]"
+														data={faCircle}
+														scale={0.7}
+														label="Variable is tied to an OAuth app"
+													/>
+													<div slot="text">
+														The variable was connected through OAuth and the token is not expired.
+													</div>
+												</Popover>
+											{/if}
 										</div>
-									</Popover>
-								{/if}
+									{/if}
+								</div>
 							</td>
 							<td
 								><Dropdown
 									dropdownItems={[
 										{
 											displayName: 'Edit',
+											icon: faEdit,
 											action: () => variableEditor.editVariable(path),
 											disabled: !canWrite
 										},
 										{
 											displayName: 'Delete',
-
+											icon: faTrash,
+											type: 'delete',
 											action: (event) => {
 												if (event?.shiftKey) {
 													deleteVariable(path, account)
@@ -178,12 +245,14 @@
 											action: () => {
 												shareModal.openDrawer(path)
 											},
+											icon: faShare,
 											disabled: !canWrite
 										},
 										...(account != undefined
 											? [
 													{
 														displayName: 'Refresh token',
+														icon: faRefresh,
 														action: async () => {
 															await OauthService.refreshToken({
 																workspace: $workspaceStore ?? '',
@@ -193,6 +262,7 @@
 																}
 															})
 															sendUserToast('Token refreshed')
+															loadVariables()
 														}
 													}
 											  ]

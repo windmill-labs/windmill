@@ -123,9 +123,12 @@
 	$: {
 		if (value == undefined || value == null) {
 			value = defaultValue
-			if ((defaultValue === undefined || defaultValue === null) && inputCat === 'string') {
-				value = ''
-			}
+			if (defaultValue === undefined || defaultValue === null)
+				if (inputCat === 'string') {
+					value = ''
+				} else if (inputCat == 'enum') {
+					value = enum_?.[0]
+				}
 		}
 	}
 
@@ -268,7 +271,7 @@
 					</span>
 				</div>
 			{:else if inputCat == 'resource-object'}
-				<ObjectResourceInput {format} bind:value />
+				<ObjectResourceInput {compact} {format} bind:value />
 			{:else if inputCat == 'object'}
 				{#if properties && Object.keys(properties).length > 0}
 					<div class="p-4 pl-8 border rounded w-full">

@@ -2,7 +2,7 @@
 	import { Job, JobService, type Flow, type FlowModule } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { faClose, faPlay, faRefresh } from '@fortawesome/free-solid-svg-icons'
-	import { Button } from './common'
+	import { Button, Kbd } from './common'
 	import { createEventDispatcher, getContext } from 'svelte'
 	import Icon from 'svelte-awesome'
 	import { dfs, flowStore } from './flows/flowStore'
@@ -96,12 +96,12 @@
 <svelte:window on:keydown={onKeyDown} />
 
 <div class="flex divide-y flex-col space-y-2 h-screen bg-white px-6 py-2 w-full">
-	<div class="flex flex-row justify-between w-full items-center gap-x-1">
+	<div class="flex flex-row justify-between w-full items-center gap-x-2">
 		<Button
 			variant="border"
 			size="lg"
 			color="dark"
-			btnClasses="!p-0 !w-8 !h-8"
+			btnClasses="!p-0 !w-16 !h-full"
 			on:click={() => {
 				dispatch('close')
 			}}
@@ -109,80 +109,70 @@
 			<Icon data={faClose} />
 		</Button>
 
-		<div class="flex flex-row justify-center items-center">
-			<div class="flex justify-center p-2 w-8 h-8 bg-blue-200 rounded-lg mr-2 ">
-				<Icon data={faPlay} scale={1} class="text-blue-500" />
-			</div>
-
-			<h3
-				class="text-lg leading-6 font-bold text-gray-900 inline-flex flex-row justify-between w-full"
+		{#if isRunning}
+			<Button
+				disabled={!isValid}
+				color="red"
+				on:click={async () => {
+					isRunning = false
+					try {
+						jobId &&
+							(await JobService.cancelQueuedJob({
+								workspace: $workspaceStore ?? '',
+								id: jobId,
+								requestBody: {}
+							}))
+					} catch {}
+					jobId = undefined
+				}}
+				size="md"
+				btnClasses="w-full"
 			>
-				<div>
-					Test {previewMode === 'upTo'
-						? `up to step ${$selectedId.split('-').join(',')}`
-						: ' whole flow'}
-				</div>
-			</h3>
-		</div>
+				Cancel
+			</Button>
+		{:else}
+			<Button
+				variant="contained"
+				startIcon={{ icon: isRunning ? faRefresh : faPlay }}
+				color="blue"
+				size="sm"
+				btnClasses="w-full"
+				disabled={!isValid}
+				on:click={() => runPreview($previewArgs)}
+			>
+				Test flow <Kbd class="ml-2">Ctrl+Enter</Kbd>
+			</Button>
+		{/if}
 		<Button
-			btnClasses="ml-2"
+			btnClasses="h-full"
 			size="sm"
 			variant="border"
 			on:click={() => {
 				capturePayload.openDrawer()
-			}}>Fill test args from payload</Button
+			}}>Fill test args from a request</Button
 		>
 	</div>
-	<div class="h-full grow pb-20 max-h-60 overflow-auto">
+	<FlowProgressBar {job} bind:reset={jobProgressReset} />
+
+	<div class="overflow-y-auto grow flex-col flex divide-y divide-gray-600 ">
 		<SchemaForm
-			class="h-full pt-4"
+			compact
+			class="py-4"
 			schema={$flowStore.schema}
 			bind:isValid
 			bind:args={$previewArgs}
 		/>
-	</div>
-	{#if isRunning}
-		<Button
-			disabled={!isValid}
-			color="red"
-			on:click={async () => {
-				isRunning = false
-				try {
-					jobId &&
-						(await JobService.cancelQueuedJob({
-							workspace: $workspaceStore ?? '',
-							id: jobId,
-							requestBody: {}
-						}))
-				} catch {}
-				jobId = undefined
-			}}
-			size="md"
-		>
-			Cancel
-		</Button>
-	{:else}
-		<Button
-			variant="contained"
-			endIcon={{ icon: isRunning ? faRefresh : faPlay }}
-			color="blue"
-			btnClasses="w-full"
-			disabled={!isValid}
-			on:click={() => runPreview($previewArgs)}
-		>
-			Test flow (Ctrl/Cmd + Enter)
-		</Button>
-	{/if}
 
-	<FlowProgressBar {job} bind:reset={jobProgressReset} class="py-4" />
-
-	<div class="h-full overflow-y-auto mb-16 pt-4 grow">
-		{#if jobId}
-			<FlowStatusViewer
-				bind:flowState={$flowStateStore}
-				{jobId}
-				on:jobsLoaded={({ detail }) => onJobsLoaded(detail)}
-			/>
-		{/if}
+		<div class="h-full pt-4 grow">
+			{#if jobId}
+				<FlowStatusViewer
+					bind:flowState={$flowStateStore}
+					{jobId}
+					on:jobsLoaded={({ detail }) => onJobsLoaded(detail)}
+				/>
+			{:else}
+				<div class="italic text-gray-500 h-full grow"> Flow status will be displayed here </div>
+			{/if}
+		</div>
 	</div>
 </div>

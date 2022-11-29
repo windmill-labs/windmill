@@ -68,7 +68,9 @@
 		const workspaceScripts: { path: string; summary?: string }[] = await ScriptService.listScripts({
 			workspace: $workspaceStore ?? 'NO_W'
 		})
-		await loadHubScripts()
+		if (!$hubScripts) {
+			await loadHubScripts()
+		}
 		const hubScripts_ = $hubScripts ?? []
 
 		return workspaceScripts.concat(hubScripts_)
@@ -141,13 +143,16 @@
 			}
 			editor.insertAtCursor(`v, _ := wmill.GetVariable("${path}")`)
 		} else if (lang == 'bash') {
-			sendUserToast('Not supported yet', true)
+			editor.insertAtCursor(`curl -s -H "Authorization: Bearer $WM_TOKEN" \\
+  "$WM_BASE_URL/api/w/$WM_WORKSPACE/variables/get/${path}" \\
+  | jq -r .value`)
 		}
 		sendUserToast(`${name} inserted at cursor`)
 	}}
 	itemName="Variable"
 	extraField="path"
 	loadItems={loadVariables}
+	buttons={{ 'Edit/View': (x) => variableEditor.editVariable(x) }}
 >
 	<div slot="submission" class="flex flex-row">
 		<Button
@@ -184,29 +189,36 @@
 			}
 			editor.insertAtCursor(`r, _ := wmill.GetResource("${path}")`)
 		} else if (lang == 'bash') {
-			sendUserToast('Not supported yet', true)
+			editor.insertAtCursor(`curl -s -H "Authorization: Bearer $WM_TOKEN" \\
+  "$WM_BASE_URL/api/w/$WM_WORKSPACE/resources/get/${path}" \\
+  | jq -r .value`)
 		}
 		sendUserToast(`${path} inserted at cursor`)
 	}}
 	itemName="Resource"
-	buttons={{ edit: (x) => resourceEditor.initEdit(x) }}
+	buttons={{ 'Edit/View': (x) => resourceEditor.initEdit(x) }}
 	extraField="description"
 	loadItems={async () =>
 		await ResourceService.listResource({ workspace: $workspaceStore ?? 'NO_W' })}
 >
-	<div slot="submission" class="flex flex-row gap-x-1">
-		<Button target="_blank" color="blue" size="sm" href="/resources?connect_app=undefined">
+	<div slot="submission" class="flex flex-row gap-x-1 mr-2">
+		<Button
+			target="_blank"
+			variant="border"
+			color="blue"
+			size="sm"
+			href="/resources?connect_app=undefined"
+		>
 			Connect an API
 		</Button>
 		<Button
-			variant="border"
 			color="blue"
 			size="sm"
 			on:click={() => {
 				resourceEditor.initNew()
 			}}
 		>
-			New custom resource
+			Add a resource
 		</Button>
 	</div>
 </ItemPicker>
@@ -246,7 +258,7 @@
 				startIcon={{ icon: faWallet }}
 				{iconOnly}
 			>
-				+Var
+				+Variable
 			</Button>
 		</div>
 		<div>

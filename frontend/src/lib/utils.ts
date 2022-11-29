@@ -376,7 +376,6 @@ export function schemaToObject(schema: Schema, args: Record<string, any>): Objec
 	return object
 }
 
-
 export type InputCat =
 	| 'string'
 	| 'number'
@@ -536,7 +535,9 @@ export function classNames(...classes: Array<string | undefined>): string {
 	return classes.filter(Boolean).join(' ')
 }
 
-export function scriptLangToEditorLang(lang: Script.language): 'typescript' | 'python' | 'go' | 'shell' {
+export function scriptLangToEditorLang(
+	lang: Script.language
+): 'typescript' | 'python' | 'go' | 'shell' {
 	if (lang == 'deno') {
 		return 'typescript'
 	} else if (lang == 'python3') {
@@ -569,4 +570,8 @@ export function pluralize(quantity: number, word: string, customPlural?: string)
 	} else {
 		return `${quantity} ${word}s`
 	}
+}
+
+export function capitalize(word: string): string {
+	return word.charAt(0).toUpperCase() + word.slice(1)
 }

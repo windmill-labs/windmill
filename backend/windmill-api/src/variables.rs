@@ -82,11 +82,14 @@ async fn list_variables(
     let mut tx = user_db.begin(&authed).await?;
 
     let rows = sqlx::query_as::<_, ListableVariable>(
-        "SELECT workspace_id, path, CASE WHEN is_secret IS TRUE THEN null ELSE value::text END as \
-         value, is_secret, description, extra_perms, account, is_oauth, false as is_expired from \
-         variable
-         WHERE (workspace_id = $1 OR (is_secret IS NOT TRUE AND workspace_id = 'starter')) ORDER \
-         BY path",
+        "SELECT variable.workspace_id, variable.path, CASE WHEN is_secret IS TRUE THEN null ELSE variable.value::text END as value, 
+         is_secret, variable.description, variable.extra_perms, account, is_oauth, (now() > account.expires_at) as is_expired,
+         account.refresh_error,
+         resource.path IS NOT NULL as is_linked
+         from variable
+         LEFT JOIN account ON variable.account = account.id AND account.workspace_id = variable.workspace_id
+         LEFT JOIN resource ON resource.path = variable.path AND resource.workspace_id = variable.workspace_id
+         WHERE variable.workspace_id = $1 OR (is_secret IS NOT TRUE AND variable.workspace_id = 'starter') ORDER BY path",
     )
     .bind(&w_id)
     .fetch_all(&mut tx)
@@ -113,8 +116,11 @@ async fn get_variable(
     let mut tx = user_db.begin(&authed).await?;
 
     let variable_o = sqlx::query_as::<_, ListableVariable>(
-        "SELECT variable.*, (now() > account.expires_at) as is_expired from variable
+        "SELECT variable.*, (now() > account.expires_at) as is_expired, account.refresh_error,
+        resource.path IS NOT NULL as is_linked
+        from variable
         LEFT JOIN account ON variable.account = account.id
+        LEFT JOIN resource ON resource.path = variable.path AND resource.workspace_id = variable.workspace_id
         WHERE variable.path = $1 AND (variable.workspace_id = $2 OR (is_secret IS NOT TRUE AND \
          variable.workspace_id = 'starter')) 
         LIMIT 1",
@@ -255,6 +261,13 @@ async fn delete_variable(
     )
     .execute(&mut tx)
     .await?;
+    sqlx::query!(
+        "DELETE FROM resource WHERE path = $1 AND workspace_id = $2",
+        path,
+        w_id
+    )
+    .execute(&mut tx)
+    .await?;
     audit_log(
         &mut tx,
         &authed.username,
@@ -334,6 +347,17 @@ async fn update_variable(
     let sql = sqlb.sql().map_err(|e| Error::InternalErr(e.to_string()))?;
 
     let npath_o: Option<String> = sqlx::query_scalar(&sql).fetch_optional(&mut tx).await?;
+
+    if let Some(npath) = ns.path {
+        sqlx::query!(
+            "UPDATE resource SET path = $1 WHERE path = $2 AND workspace_id = $3",
+            npath,
+            path,
+            w_id
+        )
+        .execute(&mut tx)
+        .await?;
+    }
 
     let npath = not_found_if_none(npath_o, "Variable", path)?;
 
