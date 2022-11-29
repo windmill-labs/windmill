@@ -43,7 +43,17 @@ async function login({
     return;
   }
 
-  const { token, workspace } = await browserLogin(baseUrl);
+  let { token, workspace } = await browserLogin(baseUrl);
+
+  if (existingWorkspace && workspace && existingWorkspace != workspace) {
+    console.log(
+      colors.yellow.underline(
+        "! Already got workspace information from URL & mismatched with login information. Using " +
+          existingWorkspace
+      )
+    );
+    workspace = existingWorkspace;
+  }
 
   if (!token) {
     console.log(colors.red.underline("Invalid Request. Failed to log in."));
