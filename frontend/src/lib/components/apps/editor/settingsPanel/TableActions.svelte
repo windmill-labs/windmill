@@ -3,12 +3,12 @@
 	import { getNextId } from '$lib/components/flows/flowStateUtils'
 	import { faPlus } from '@fortawesome/free-solid-svg-icons'
 	import { getContext } from 'svelte'
-	import type { AppComponent, AppEditorContext } from '../../types'
+	import type { ButtonComponent, AppEditorContext, BaseAppComponent } from '../../types'
 	import { defaultProps } from '../componentsPanel/componentDefaultProps'
 	import PanelSection from './common/PanelSection.svelte'
 	import ComponentPanel from './ComponentPanel.svelte'
 
-	export let components: AppComponent[]
+	export let components: (BaseAppComponent & ButtonComponent)[]
 
 	const { app } = getContext<AppEditorContext>('AppEditorContext')
 
@@ -16,7 +16,7 @@
 		const grid = $app.grid ?? []
 		const id = getNextId(grid.map((gridItem) => gridItem.data.id))
 
-		const newComponent: AppComponent = {
+		const newComponent: (BaseAppComponent & ButtonComponent) = {
 			...defaultProps,
 			id,
 			type: 'buttoncomponent',

@@ -21,9 +21,9 @@
 <div
 	class={classNames(
 		$selected?.startsWith(value)
-			? 'border-b-2 border-gray-600 text-gray-800 '
-			: 'hover:border-b-2 hover:border-gray-300 text-gray-600',
-		'py-1 px-4 cursor-pointer transition-all ease-linear font-medium',
+			? 'border-gray-600 text-gray-800 '
+			: 'border-gray-300 border-opacity-0 hover:border-opacity-100 text-gray-600',
+		'border-b-2 py-1 px-4 cursor-pointer transition-all ease-linear font-medium',
 		fontSizeClasses[size],
 		$$props.class
 	)}
