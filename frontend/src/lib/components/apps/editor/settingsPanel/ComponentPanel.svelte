@@ -19,6 +19,8 @@
 	import gridHelp from 'svelte-grid/build/helper/index.mjs'
 	import PickInlineScript from './PickInlineScript.svelte'
 	import TableActions from './TableActions.svelte'
+	import { capitalize } from '$lib/utils'
+	import Badge from '$lib/components/common/badge/Badge.svelte'
 
 	export let component: AppComponent | undefined
 	export let onDelete: (() => void) | undefined = undefined
@@ -54,31 +56,33 @@
 	<div class="flex flex-col w-full divide-y">
 		{#if component.runnable}
 			<PanelSection title="Runnable">
-				{#if component['inlineScriptName']}
-					<span class="text-xs">{component['inlineScriptName']}</span>
-					<div class="w-full flex flex-row gap-2">
+				<svelte:fragment slot="action">
+					{#if component.runnable && (component['inlineScriptName'] || component['path'])}
 						<Button
 							size="xs"
-							color="dark"
-							startIcon={{ icon: faPen }}
-							on:click={() => {
-								alert('TODO')
-							}}
-						>
-							Edit
-						</Button>
-
-						<Button
-							size="xs"
-							color="light"
+							color="red"
 							variant="border"
 							startIcon={{ icon: faClose }}
 							on:click={() => {
-								alert('TODO')
+								if (component) {
+									component['inlineScriptName'] = undefined
+								}
 							}}
 						>
 							Clear
 						</Button>
+					{/if}
+				</svelte:fragment>
+
+				{#if component.runnable && component['inlineScriptName']}
+					<span class="text-xs">{component['inlineScriptName']}</span>
+				{/if}
+
+				{#if component.runnable && component['path']}
+					<div class="flex gap-2 items-center">
+						<Badge color="blue">{capitalize(component['runType'])}</Badge>
+
+						<span class="text-xs">{component['path']}</span>
 					</div>
 				{/if}
 

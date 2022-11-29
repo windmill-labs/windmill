@@ -58,7 +58,7 @@
 	<nav class="h-full flex justify-between flex-col px-2">
 		<div class="space-y-1">
 			{#each mainMenuLinks as menuLink}
-				<MenuLink class="text-lg" {...menuLink} {isCollapsed} />
+				<MenuLink class="text-xs" {...menuLink} {isCollapsed} />
 			{/each}
 			<div class="h-8" />
 			{#each secondaryMenuLinks as menuLink}
