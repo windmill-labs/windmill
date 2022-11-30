@@ -3,13 +3,13 @@
 	import Icon from 'svelte-awesome'
 
 	import UserMenu from '$lib/components/sidebar/UserMenu.svelte'
-	import { OpenAPI } from '$lib/gen'
+	import { FlowService, OpenAPI, ScriptService } from '$lib/gen'
 	import { classNames } from '$lib/utils'
 
 	import WorkspaceMenu from '$lib/components/sidebar/WorkspaceMenu.svelte'
 	import SidebarContent from '$lib/components/sidebar/SidebarContent.svelte'
 	import '../app.css'
-	import { superadmin, userStore } from '$lib/stores'
+	import { starStore, superadmin, userStore, workspaceStore } from '$lib/stores'
 	import CenteredModal from '$lib/components/CenteredModal.svelte'
 	import { beforeNavigate, goto } from '$app/navigation'
 	import UserSettings from '$lib/components/UserSettings.svelte'
@@ -33,6 +33,30 @@
 	})
 
 	let innerWidth = window.innerWidth
+
+	let favoriteLinks = [] as { label: string; href: string }[]
+	$: $workspaceStore && $starStore && loadFavorites()
+
+	async function loadFavorites() {
+		const scripts = await ScriptService.listScripts({
+			workspace: $workspaceStore ?? '',
+			starredOnly: true
+		})
+		const flows = await FlowService.listFlows({
+			workspace: $workspaceStore ?? '',
+			starredOnly: true
+		})
+		favoriteLinks = [
+			...scripts.map((s) => ({
+				label: s.summary || s.path,
+				href: `/scripts/run/${s.hash}`
+			})),
+			...flows.map((f) => ({
+				label: f.summary || f.path,
+				href: `/flows/run/${f.path}`
+			}))
+		]
+	}
 
 	$: innerWidth < 1248 && innerWidth >= 768 && (isCollapsed = true)
 	$: (innerWidth >= 1248 || innerWidth < 768) && (isCollapsed = false)
@@ -116,7 +140,7 @@
 							/>
 						</div>
 
-						<SidebarContent {isCollapsed} />
+						<SidebarContent {favoriteLinks} {isCollapsed} />
 					</div>
 				</div>
 			</div>
@@ -155,7 +179,7 @@
 						{isCollapsed}
 					/>
 				</div>
-				<SidebarContent {isCollapsed} />
+				<SidebarContent {favoriteLinks} {isCollapsed} />
 
 				<div class="flex-shrink-0 flex px-4 pb-3.5 pt-3 border-t border-gray-300">
 					<button

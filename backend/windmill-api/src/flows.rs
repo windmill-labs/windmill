@@ -72,7 +72,7 @@ async fn list_flows(
         .left()
         .join("favorite")
         .on(
-            "favorite.favorite_kind = 'flow' AND favorite.path = o.path AND favorite.usr = ?"
+            "favorite.favorite_kind = 'flow' AND favorite.workspace_id = o.workspace_id AND favorite.path = o.path AND favorite.usr = ?"
                 .bind(&authed.username),
         )
         .order_desc("favorite.path IS NOT NULL")
@@ -94,8 +94,8 @@ async fn list_flows(
     if let Some(cb) = &lq.edited_by {
         sqlb.and_where_eq("edited_by", "?".bind(cb));
     }
-    if let Some(so) = &lq.starred_only {
-        sqlb.and_where_eq("starred", "?".bind(so));
+    if lq.starred_only.unwrap_or(false) {
+        sqlb.and_where_is_not_null("favorite.path");
     }
 
     let sql = sqlb.sql().map_err(|e| Error::InternalErr(e.to_string()))?;

@@ -71,5 +71,5 @@ async fn unstar(
     .execute(&db)
     .await?;
 
-    Ok(format!("Starred {}", path))
+    Ok(format!("Unstarred {}", path))
 }

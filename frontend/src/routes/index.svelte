@@ -334,7 +334,7 @@
 
 				<div class="grid grid-cols-1 gap-4 lg:grid-cols-2 mt-2 w-full">
 					{#if !loading}
-						{#each filter != '' ? filteredItems : preFilteredItems as item (item.path)}
+						{#each filter != '' ? filteredItems : preFilteredItems as item (item.type + item.path)}
 							{#if item.type == 'script'}
 								<ScriptBox
 									starred={item.starred}

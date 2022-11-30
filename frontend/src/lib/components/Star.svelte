@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { FavoriteService } from '$lib/gen'
-	import { workspaceStore } from '$lib/stores'
+	import { starStore, workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/utils'
 	import { faStar } from '@fortawesome/free-solid-svg-icons'
 	import { createEventDispatcher } from 'svelte'
@@ -17,13 +17,15 @@
 				workspace: $workspaceStore!,
 				requestBody: { path, favorite_kind: kind }
 			})
-			sendUserToast('Marked as favorite, it will appear first in the list')
+			sendUserToast('Unstarred')
+			$starStore = $starStore + 1
 		} else {
 			await FavoriteService.star({
 				workspace: $workspaceStore!,
 				requestBody: { path, favorite_kind: kind }
 			})
-			sendUserToast('Marked as favorite, it will appear first in the list')
+			sendUserToast('Marked as favorite, it will appear first')
+			$starStore = $starStore + 1
 		}
 		dispatch('starred', !starred)
 	}

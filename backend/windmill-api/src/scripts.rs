@@ -102,7 +102,7 @@ async fn list_scripts(
         .left()
         .join("favorite")
         .on(
-            "favorite.favorite_kind = 'script' AND favorite.path = o.path AND favorite.usr = ?"
+            "favorite.favorite_kind = 'script' AND favorite.workspace_id = o.workspace_id AND favorite.path = o.path AND favorite.usr = ?"
                 .bind(&authed.username),
         )
         .order_desc("favorite.path IS NOT NULL")
@@ -146,8 +146,8 @@ async fn list_scripts(
     if let Some(k) = &lq.kind {
         sqlb.and_where_eq("kind", "?".bind(&k.to_lowercase()));
     }
-    if let Some(so) = &lq.starred_only {
-        sqlb.and_where_eq("starred", "?".bind(so));
+    if lq.starred_only.unwrap_or(false) {
+        sqlb.and_where_is_not_null("favorite.path");
     }
 
     let sql = sqlb.sql().map_err(|e| Error::InternalErr(e.to_string()))?;
