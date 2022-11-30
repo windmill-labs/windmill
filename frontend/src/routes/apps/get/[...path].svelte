@@ -22,6 +22,7 @@
 	async function loadApp() {
 		app = await AppService.getAppByPath({ workspace: $workspaceStore!, path: $page.params.path })
 	}
+
 	$: if ($workspaceStore) {
 		loadApp()
 	}

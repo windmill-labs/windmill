@@ -25,7 +25,6 @@
 	import ComponentPanel from './settingsPanel/ComponentPanel.svelte'
 	import ContextPanel from './contextPanel/ContextPanel.svelte'
 	import { classNames } from '$lib/utils'
-	import { Breakpoints } from '../gridUtils'
 
 	export let app: App
 	export let path: string

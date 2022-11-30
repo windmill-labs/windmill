@@ -17,7 +17,7 @@
 
 	export let appPath: string
 
-	const { connectingInput, staticOutputs, app, worldStore } =
+	const { connectingInput, staticOutputs, app, worldStore, selectedComponent } =
 		getContext<AppEditorContext>('AppEditorContext')
 	let newScriptPath: string
 	let ignorePathError = false
@@ -88,7 +88,7 @@
 				id="pathInput"
 				class="grow min-w-[150px]"
 				bind:value={newScriptPath}
-				on:keypress={e => e.key === 'Enter' && createScript()}
+				on:keypress={(e) => e.key === 'Enter' && createScript()}
 			/>
 			<Button on:click={createScript} size="sm" disabled={isTakenPath} startIcon={{ icon: faPlus }}>
 				Create
@@ -184,7 +184,14 @@
 		{#if outputs.length > 0 && $worldStore?.outputsById[componentId]}
 			<Badge color="blue">Component: {componentId}</Badge>
 
-			<div class="w-full p-2 rounded-xs border">
+			<div
+				class={classNames(
+					'w-full p-2 rounded-xs border',
+					$selectedComponent === componentId
+						? 'outline-1 outline outline-offset-2 outline-blue-500'
+						: ''
+				)}
+			>
 				<ComponentOutputViewer
 					{outputs}
 					{componentId}

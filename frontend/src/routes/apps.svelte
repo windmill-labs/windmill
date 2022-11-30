@@ -7,7 +7,7 @@
 </script>
 
 <script lang="ts">
-	import { faCodeFork, faEdit, faPlay, faPlus } from '@fortawesome/free-solid-svg-icons'
+	import { faCodeFork, faEdit, faPlay, faPlus, faTrash } from '@fortawesome/free-solid-svg-icons'
 	import { AppService, Policy, type ListableApp } from '$lib/gen'
 	import { superadmin, userStore, workspaceStore } from '$lib/stores'
 	import { canWrite, sendUserToast } from '$lib/utils'
@@ -190,6 +190,22 @@
 												href="/apps/edit/{path}"
 											>
 												Edit
+											</Button>
+											<Button
+												variant="border"
+												color="red"
+												size="xs"
+												startIcon={{ icon: faTrash }}
+												on:click={() => {
+													if ($workspaceStore && path) {
+														AppService.deleteApp({
+															workspace: $workspaceStore,
+															path
+														})
+													}
+												}}
+											>
+												Delete
 											</Button>
 										</div>
 									{/if}
