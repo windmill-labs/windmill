@@ -4823,6 +4823,8 @@ components:
           type: object
           additionalProperties:
             type: boolean
+        starred:
+          type: boolean
         execution_mode:
           type: string
           enum: [viewer, publisher, anonymous]

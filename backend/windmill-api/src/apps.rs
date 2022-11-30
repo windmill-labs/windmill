@@ -54,6 +54,7 @@ pub struct ListableApp {
     pub version: i64,
     pub extra_perms: serde_json::Value,
     pub execution_mode: String,
+    pub starred: bool,
 }
 
 #[derive(FromRow, Serialize, Deserialize)]
@@ -132,7 +133,15 @@ async fn list_apps(
             "versions[array_upper(versions, 1)] as version",
             "policy->>'execution_mode' as execution_mode",
             "extra_perms",
+            "favorite.path IS NOT NULL as starred",
         ])
+        .left()
+        .join("favorite")
+        .on(
+            "favorite.favorite_kind = 'app' AND favorite.workspace_id = o.workspace_id AND favorite.path = o.path AND favorite.usr = ?"
+                .bind(&authed.username),
+        )
+        .order_desc("favorite.path IS NOT NULL")
         .order_by("path", true)
         .and_where("workspace_id = ?".bind(&w_id))
         .offset(offset)
