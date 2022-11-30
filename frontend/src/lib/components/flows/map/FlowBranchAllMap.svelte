@@ -64,7 +64,7 @@
 								: ''
 						)}
 					>
-						<Icon data={faCodeBranch} class="mr-2" />
+						<Icon data={faCodeBranch} scale={1.1} class="mr-2" />
 						<span
 							class="text-xs flex flex-row justify-between w-full flex-wrap gap-2 items-center truncate"
 						>

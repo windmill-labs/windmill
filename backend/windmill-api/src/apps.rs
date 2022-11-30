@@ -127,8 +127,8 @@ async fn list_apps(
     let sqlb = SqlBuilder::select_from("app")
         .fields(&[
             "id",
-            "workspace_id",
-            "path",
+            "app.workspace_id",
+            "app.path",
             "summary",
             "versions[array_upper(versions, 1)] as version",
             "policy->>'execution_mode' as execution_mode",
@@ -138,7 +138,7 @@ async fn list_apps(
         .left()
         .join("favorite")
         .on(
-            "favorite.favorite_kind = 'app' AND favorite.workspace_id = o.workspace_id AND favorite.path = o.path AND favorite.usr = ?"
+            "favorite.favorite_kind = 'app' AND favorite.workspace_id = app.workspace_id AND favorite.path = app.path AND favorite.usr = ?"
                 .bind(&authed.username),
         )
         .order_desc("favorite.path IS NOT NULL")

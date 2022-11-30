@@ -47,6 +47,7 @@ Windmill Labs offers commercial licenses, an enterprise edition, local hub mirro
 <b>Disclaimer: </b>Windmill is in <b>BETA</b>. It is secure to run in production but we are still <a href="https://github.com/orgs/windmill-labs/projects/2">improving the product fast<a/>.
 </p>
 
+![Windmill Screenshot](./imgs/windmill-flow.png)
 ![Windmill Screenshot](./imgs/windmill.png)
 
 Windmill is <b>fully open-sourced (AGPLv3)</b>:
@@ -80,31 +81,21 @@ Windmill is <b>fully open-sourced (AGPLv3)</b>:
 1. Define a minimal and generic script in Python, Typescript, Go or Bash that solves a
    specific task. Here sending an email with SMTP. The code can be defined in
    the provided Web IDE or synchronized with your own github repo:
-   ![Step 1](./imgs/python-script.png)
+   ![Step 1](./imgs/windmill-editor.png)
 
-2. Your scripts parameters are automatically parsed and generate a frontend. You
-   can narrow down the types during task definition to specify regex for string,
-   an enum or a specific format for objects. Each script correspond to an app by
-   itself: ![Step 2](./imgs/arguments.png)
+2. Your scripts parameters are automatically parsed and generate a frontend. 
+   ![Step 2](./imgs/windmill-run.png)
+   ![Step 3](./imgs/windmill-result.png)
 
 3. Make it flow! You can chain your scripts or scripts made by the community
-   shared on [WindmillHub](https://hub.windmill.dev). There is tight integration
-   between Windmill and the hub to make it easy to build flows from a soon-to-be
-   exhaustive library of generic modules. In flows, one can pipe output to input
-   using rich expressions that are just plain Javascript underneath. Flows
-   support for-loops, branching, approval steps. As such and coupled with
-   inputs being able to refer to any step's output, they are actual DAG rather
-   than just linear sequences. They are backed by an open JSON spec we call
-   [OpenFlow](https://docs.windmill.dev/docs/openflow)
+   shared on [WindmillHub](https://hub.windmill.dev). 
+  ![Step 4](./imgs/windmill-flow.png)
 
-Both scripts and flows are not restricted to be triggered by the UI. They can be
-triggered by a schedule, watch for changes (using
-[internal states](https://docs.windmill.dev/docs/reference#internal-state)) or
-triggered through API with either an async or sync webhook. The latter kind of
-endpoints make Windmill akin to a self-hostable AWS Lambda. Windmill can be the
-central place to host, build and run all of your integrations, automation and
-internal apps. We include credentials management and OAuth integration, groups
-and much more!
+4. (Coming soon) Build complex UI on top of your scripts and flows. 
+
+Scripts and flows can also be triggered by a cron schedule '*/5 * * * *' or through webhooks.
+
+You can build your entire infra on top of Windmill!
 
 ## CLI
 
