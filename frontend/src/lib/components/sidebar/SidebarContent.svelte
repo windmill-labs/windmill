@@ -59,10 +59,12 @@
 				<MenuLink class="text-lg" {...menuLink} {isCollapsed} />
 			{/each}
 			<div class="h-2" />
-			<div class="max-h-40 overflow-y-auto flex flex-col space-y-1.5 max-w-xs">
-				{#each favoriteLinks as menuLink (menuLink.href)}
-					<MenuLink class="text-xs max-w-xs truncate" {...menuLink} {isCollapsed} icon={faStar} />
-				{/each}
+			<div class="max-h-40 overflow-y-auto  max-w-xs truncate">
+				<div class="flex flex-col max-h-min">
+					{#each favoriteLinks as menuLink (menuLink.href)}
+						<MenuLink class="text-xs max-w-xs truncate" {...menuLink} {isCollapsed} icon={faStar} />
+					{/each}
+				</div>
 			</div>
 			<div class="h-2" />
 		</div>
