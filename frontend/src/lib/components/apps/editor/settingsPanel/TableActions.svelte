@@ -57,7 +57,7 @@
 	let openedComponentId: string | undefined = components[0]?.id
 </script>
 
-<PanelSection title="Table actions">
+<PanelSection title={`Table actions ${components.length > 0 ? `(${components.length})` : ''}`}>
 	<svelte:fragment slot="action">
 		<Button
 			size="xs"
