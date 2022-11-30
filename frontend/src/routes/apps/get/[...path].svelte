@@ -8,16 +8,21 @@
 
 <script lang="ts">
 	import { page } from '$app/stores'
+	import AppEditor from '$lib/components/apps/editor/AppEditor.svelte'
+
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
 	import { Skeleton } from '$lib/components/common'
+	import Button from '$lib/components/common/button/Button.svelte'
 	import { AppService, AppWithLastVersion } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
+	import { faArrowLeft, faPen } from '@fortawesome/free-solid-svg-icons'
 
 	let app: AppWithLastVersion | undefined = undefined
 
 	async function loadApp() {
 		app = await AppService.getAppByPath({ workspace: $workspaceStore!, path: $page.params.path })
 	}
+
 	$: if ($workspaceStore) {
 		loadApp()
 	}
@@ -26,10 +31,21 @@
 <Skeleton loading={app == undefined} layout={[10]} />
 
 <CenteredPage>
-	<a href="/apps">Back to apps</a>
-
 	{#if app}
-		<a href="/apps/edit/{$page.params.path}">Edit</a>
-		<div>{JSON.stringify(app, null, 4)} </div>
+		<div class="flex justify-between my-2 items-center">
+			<div class="flex gap-4 items-center">
+				<Button size="xs" href="/apps" startIcon={{ icon: faArrowLeft }} color="dark">
+					Back to apps
+				</Button>
+				<div>{app.value.title}</div>
+			</div>
+			<Button size="xs" href="/apps/edit/{$page.params.path}" startIcon={{ icon: faPen }}>
+				Edit
+			</Button>
+		</div>
+
+		<div class="h-screen">
+			<AppEditor app={app.value} path={app.path} initialMode="preview" />
+		</div>
 	{/if}
 </CenteredPage>

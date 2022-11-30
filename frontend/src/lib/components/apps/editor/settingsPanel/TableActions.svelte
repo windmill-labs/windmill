@@ -1,6 +1,9 @@
 <script lang="ts">
+	import { Badge } from '$lib/components/common'
+	import Alert from '$lib/components/common/alert/Alert.svelte'
 	import Button from '$lib/components/common/button/Button.svelte'
 	import { getNextId } from '$lib/components/flows/flowStateUtils'
+	import { classNames } from '$lib/utils'
 	import { faPlus } from '@fortawesome/free-solid-svg-icons'
 	import { getContext } from 'svelte'
 	import type { ButtonComponent, AppEditorContext, BaseAppComponent } from '../../types'
@@ -16,7 +19,7 @@
 		const grid = $app.grid ?? []
 		const id = getNextId(grid.map((gridItem) => gridItem.data.id))
 
-		const newComponent: (BaseAppComponent & ButtonComponent) = {
+		const newComponent: BaseAppComponent & ButtonComponent = {
 			...defaultProps,
 			id,
 			type: 'buttoncomponent',
@@ -50,23 +53,63 @@
 
 		components = [...components, newComponent]
 	}
+
+	let openedComponentId: string | undefined = components[0]?.id
 </script>
 
-<PanelSection title="Table actions">
+<PanelSection title={`Table actions ${components.length > 0 ? `(${components.length})` : ''}`}>
 	<svelte:fragment slot="action">
-		<Button size="xs" color="dark" startIcon={{ icon: faPlus }} on:click={addComponent}>
-			Create an action
-		</Button>
+		<Button
+			size="xs"
+			color="light"
+			variant="border"
+			startIcon={{ icon: faPlus }}
+			on:click={addComponent}
+			iconOnly
+		/>
 	</svelte:fragment>
-	{#each components as component}
-		<div class="w-full border">
-			<div class="border-b py-1 px-2 text-sm text-white bg-gray-500">Component: {component.id}</div>
-			<ComponentPanel
-				bind:component
-				onDelete={() => {
-					components = components.filter((c) => c.id !== component.id)
-				}}
-			/>
+	{#if components.length > 0}
+		<div class="w-full">
+			<Alert title="Special argument" size="xs">
+				A "row" argument is automatically added to the script. It contains the row data.
+			</Alert>
 		</div>
+	{/if}
+	{#each components as component}
+		<div
+			class={classNames(
+				'w-full text-xs font-bold py-1.5 px-2 cursor-pointer transition-all justify-between flex items-center border border-gray-3 rounded-md',
+				'bg-white border-gray-300  hover:bg-gray-100 focus:bg-gray-100 text-gray-700',
+				openedComponentId === component.id ? 'outline outline-gray-500 outline-offset-1' : ''
+			)}
+			on:click={() => {
+				if (openedComponentId === component.id) {
+					openedComponentId = undefined
+				} else {
+					openedComponentId = component.id
+				}
+			}}
+			on:keypress
+		>
+			<div
+				>{component.componentInputs.label.type === 'static'
+					? component.componentInputs.label.value
+					: ''}
+			</div>
+			<Badge color="dark-blue">
+				Component: {component.id}
+			</Badge>
+		</div>
+
+		{#if openedComponentId === component.id}
+			<div class="w-full border">
+				<ComponentPanel
+					bind:component
+					onDelete={() => {
+						components = components.filter((c) => c.id !== component.id)
+					}}
+				/>
+			</div>
+		{/if}
 	{/each}
 </PanelSection>

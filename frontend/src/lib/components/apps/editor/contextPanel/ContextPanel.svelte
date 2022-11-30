@@ -17,7 +17,7 @@
 
 	export let appPath: string
 
-	const { connectingInput, staticOutputs, app, worldStore } =
+	const { connectingInput, staticOutputs, app, worldStore, selectedComponent } =
 		getContext<AppEditorContext>('AppEditorContext')
 	let newScriptPath: string
 	let ignorePathError = false
@@ -57,7 +57,7 @@
 				[newScriptPath]: inlineScript
 			}
 		}
-		scriptCreationDrawer.closeDrawer()
+		closeDrawer()
 	}
 
 	function afterCreateScript() {
@@ -70,16 +70,17 @@
 		| undefined = undefined
 	let scriptEditorDrawer: Drawer
 
-	let scriptCreationDrawer: Drawer
+	let scriptCreationDrawer: Drawer | undefined = undefined
+
+	function closeDrawer() {
+		if (scriptEditorDrawer.closeDrawer) {
+			scriptEditorDrawer.closeDrawer()
+		}
+	}
 </script>
 
 <Drawer bind:this={scriptCreationDrawer} size="600px" on:afterClose={afterCreateScript}>
-	<DrawerContent
-		title="Script creation"
-		on:close={() => {
-			scriptCreationDrawer.closeDrawer()
-		}}
-	>
+	<DrawerContent title="Script creation" on:close={closeDrawer}>
 		<label for="pathInput" class="text-sm font-semibold"> Script name </label>
 		<div class="flex justify-between items-center gap-4">
 			<!-- svelte-ignore a11y-autofocus -->
@@ -88,7 +89,7 @@
 				id="pathInput"
 				class="grow min-w-[150px]"
 				bind:value={newScriptPath}
-				on:keypress={e => e.key === 'Enter' && createScript()}
+				on:keypress={(e) => e.key === 'Enter' && createScript()}
 			/>
 			<Button on:click={createScript} size="sm" disabled={isTakenPath} startIcon={{ icon: faPlus }}>
 				Create
@@ -103,14 +104,7 @@
 </Drawer>
 
 <Drawer bind:this={scriptEditorDrawer} size="1200px">
-	<DrawerContent
-		title="Script Editor"
-		noPadding
-		forceOverflowVisible
-		on:close={() => {
-			scriptEditorDrawer.closeDrawer()
-		}}
-	>
+	<DrawerContent title="Script Editor" noPadding forceOverflowVisible on:close={closeDrawer}>
 		{#if selectedScript}
 			<ScriptEditor
 				lang={selectedScript.language}
@@ -127,15 +121,12 @@
 	<svelte:fragment slot="action">
 		<Button
 			size="xs"
-			color="dark"
-			variant="contained"
-			on:click={() => {
-				scriptCreationDrawer?.openDrawer()
-			}}
+			color="light"
+			variant="border"
+			on:click={closeDrawer}
 			startIcon={{ icon: faPlus }}
-		>
-			<span>Add script</span>
-		</Button>
+			iconOnly
+		/>
 	</svelte:fragment>
 
 	<div class="w-full border rounded-sm">
@@ -157,7 +148,7 @@
 						on:click={() => {
 							if (value) {
 								selectedScript = value
-								scriptEditorDrawer.openDrawer()
+								scriptEditorDrawer.openDrawer && scriptEditorDrawer.openDrawer()
 							}
 						}}
 					/>
@@ -185,7 +176,14 @@
 		{#if outputs.length > 0 && $worldStore?.outputsById[componentId]}
 			<Badge color="blue">Component: {componentId}</Badge>
 
-			<div class="w-full p-2 rounded-xs border">
+			<div
+				class={classNames(
+					'w-full p-2 rounded-xs border',
+					$selectedComponent === componentId
+						? 'outline-1 outline outline-offset-2 outline-blue-500'
+						: ''
+				)}
+			>
 				<ComponentOutputViewer
 					{outputs}
 					{componentId}
