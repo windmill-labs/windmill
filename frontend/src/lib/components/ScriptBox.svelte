@@ -26,7 +26,17 @@
 	export let marked: string | undefined
 	export let starred: boolean
 	export let shareModal: ShareModal
-	let { summary, path, hash, language, extra_perms, canWrite, lock_error_logs, kind } = script
+	let {
+		summary,
+		path,
+		hash,
+		language,
+		extra_perms,
+		canWrite,
+		lock_error_logs,
+		kind,
+		workspace_id
+	} = script
 
 	const dispatch = createEventDispatcher()
 	async function archiveScript(path: string): Promise<void> {
@@ -53,7 +63,13 @@
 		<div class="flex flex-row  justify-between w-full grow gap-2 items-start">
 			<div class="text-gray-700 text-xs flex flex-row  flex-wrap  gap-x-1 items-center">
 				{path}
-				<Star kind="script" {path} {starred} on:starred={() => dispatch('change')} />
+				<Star
+					kind="script"
+					{path}
+					{starred}
+					workspace_id={workspace_id ?? $workspaceStore ?? ''}
+					on:starred={() => dispatch('change')}
+				/>
 				<SharedBadge {canWrite} extraPerms={extra_perms} />
 				<div><LanguageIcon height={16} lang={language} /></div>
 				{#if kind != 'script'}
