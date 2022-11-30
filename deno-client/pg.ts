@@ -3,21 +3,21 @@ import { type Resource } from "./mod.ts"
 
 /**
  * deno-postgres client API is very flexible:
- * https://deno.land/x/postgres@v0.16.1/mod.ts?s=QueryClient
+ * https://deno.land/x/postgres@v0.17.0/mod.ts?s=QueryClient
  * 
- * @param db the postgresql resource to generate the client for
+ * @param db the PostgreSQL resource to generate the client for
  * 
  * @returns the client for the resource
  * 
- * Usage:
- * Static query:
+ * @example
+ * // Static query
  * ```ts
- * const {rows} = await pgClient(db).queryObject(
+ * const { rows } = await pgClient(db).queryObject(
  *   "SELECT ID, NAME FROM CLIENTS"
  * );
  * ```
  * 
- * Prepared Statements:
+ * // Prepared Statements
  * ```ts
  * const { rows } = await pgClient(db).queryObject`SELECT ID, NAME FROM CLIENTS WHERE ID = ${id}`;
  * ```
@@ -32,13 +32,14 @@ export function pgClient(
 
 /**
  * deno-postgres client API is very flexible:
- * https://deno.land/x/postgres@v0.16.1/mod.ts?s=QueryClient
+ * https://deno.land/x/postgres@v0.17.0/mod.ts?s=QueryClient
  * 
- * @param db the postgresql resource to generate the client for
+ * @param db the PostgreSQL resource to run sql query for
  * 
  * @returns the rows corresponding to the returned objetcs
  * 
- * Prepared Statements:
+ * @example
+ * // Prepared Statements
  * ```ts
  * const { rows } = await pgSql(db)`SELECT ID, NAME FROM CLIENTS WHERE ID = ${id}`;
  * ```
