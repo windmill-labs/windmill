@@ -7,9 +7,8 @@
 	import TestJobLoader from '$lib/components/TestJobLoader.svelte'
 	import { AppService, type CompletedJob } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
-	import { faArrowsRotate, faRefresh } from '@fortawesome/free-solid-svg-icons'
+	import { faRefresh } from '@fortawesome/free-solid-svg-icons'
 	import { getContext } from 'svelte'
-	import Icon from 'svelte-awesome'
 	import type { Output } from '../../rx'
 	import type { AppEditorContext, InputsSpec } from '../../types'
 	import { loadSchema, schemaToInputsSpec } from '../../utils'
@@ -200,11 +199,15 @@
 	bind:this={testJobLoader}
 />
 
-{#if schemaStripped !== undefined && !autoRefresh}
+{#if schemaStripped !== undefined && autoRefresh}
 	<SchemaForm schema={schemaStripped} bind:args {isValid} {disabledArgs} shouldHideNoInputs />
 {/if}
 
-{#if autoRefresh === true}
+{#if inlineScriptName === undefined && path === undefined && runType === undefined}
+	<Alert type="warning" size="xs" class="mt-2" title="Missing runnable">
+		Please select a runnable
+	</Alert>
+{:else if autoRefresh === true}
 	{#if isValid}
 		<div class="flex flex-row-reverse">
 			<Button

@@ -96,8 +96,6 @@
 				{/if}
 
 				{#if component.runnable && component['path'] === undefined && component['inlineScriptName'] === undefined}
-					<span class="text-sm">Select a script or a flow to continue</span>
-
 					<div class="text-sm">Inline scripts:</div>
 					<div class="flex gap-2">
 						<Button

@@ -20,7 +20,7 @@
 		appComponent: AppComponent,
 		defaultDimensions: Size,
 		minDimensions: Size = { w: 2, h: 1 },
-		maxDimensions: Size = { w: 6, h: 12 }
+		maxDimensions: Size = { w: 12, h: 12 }
 	) {
 		const grid = $app.grid ?? []
 		const id = getNextId(grid.map((gridItem) => gridItem.data.id))
@@ -33,8 +33,6 @@
 			draggable: true,
 			customDragger: false,
 			customResizer: false,
-			min: minDimensions,
-			max: maxDimensions,
 			x: 0,
 			y: 0,
 			...defaultDimensions
@@ -45,10 +43,25 @@
 			id: id
 		}
 
+		function getMinMaxDimensions(column) {
+			if (column === 3) {
+				return {
+					min: { w: 1, h: 1 },
+					max: { w: 3, h: 12 }
+				}
+			} else {
+				return {
+					min: minDimensions,
+					max: maxDimensions
+				}
+			}
+		}
+
 		gridColumns.forEach((column) => {
 			newItem[column] = newComponent
 			const position = gridHelp.findSpace(newItem, grid, column)
-			newItem[column] = { ...newItem[column], ...position }
+			const dimensions = getMinMaxDimensions(column)
+			newItem[column] = { ...newItem[column], ...position, ...dimensions }
 		})
 
 		$app.grid = [...grid, newItem]

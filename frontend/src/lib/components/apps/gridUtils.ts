@@ -8,10 +8,8 @@ const Breakpoints = {
 }
 
 const columnConfiguration: ColumnConfiguration = [
-	// Starting from 1000px, the grid will have 12 columns
 	[Breakpoints.lg, 12],
-	// Starting from 500px, the grid will have 1 columns
-	[Breakpoints.sm, 1]
+	[Breakpoints.sm, 3]
 ]
 
 const gridColumns = columnConfiguration.map((value) => value[1])
