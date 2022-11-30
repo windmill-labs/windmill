@@ -4825,6 +4825,9 @@ components:
             type: boolean
         starred:
           type: boolean
+        edited_at:
+          type: string
+          format: date-time
         execution_mode:
           type: string
           enum: [viewer, publisher, anonymous]
