@@ -22,7 +22,7 @@ Open-source developer infrastructure for internal tools. Self-hostable alternati
 
 ---
 
-**Join the beta (personal workspaces are free forever)**:
+**Try it (personal workspaces are free forever)**:
 <https://app.windmill.dev>
 
 **Documentation**: <https://docs.windmill.dev>
@@ -35,16 +35,11 @@ Open-source developer infrastructure for internal tools. Self-hostable alternati
 
 **Roadmap**: <https://github.com/orgs/windmill-labs/projects/2>
 
-**[Self-host instruction](#how-to-self-host)**
-
 You can show your support for the project by starring this repo.
 
 ---
-
-Windmill Labs offers commercial licenses and support to convert your existing
-automation and help you scale it in production. If interested, contact
-ruben@windmill.dev (founder of Windmill).
-
+Windmill Labs offers commercial licenses, an enterprise edition, local hub mirrors, and support.
+ruben@windmill.dev (founder of Windmill) for more info.
 ---
 
 # Windmill
@@ -57,7 +52,31 @@ ruben@windmill.dev (founder of Windmill).
 
 Windmill is <b>fully open-sourced (AGPLv3)</b>:
 
-## What is the general idea behind Windmill
+- [Windmill](#windmill)
+  - [Main Concepts](#main-concepts)
+  - [CLI](#cli)
+  - [Layout](#layout)
+  - [Stack](#stack)
+  - [Security](#security)
+    - [Sandboxing and workload isolation](#sandboxing-and-workload-isolation)
+    - [Secrets, credentials and sensitive values](#secrets-credentials-and-sensitive-values)
+  - [Performance](#performance)
+  - [Architecture](#architecture)
+    - [Big-picture Architecture](#big-picture-architecture)
+    - [Technical Architecture](#technical-architecture)
+  - [How to self-host](#how-to-self-host)
+    - [Docker compose](#docker-compose)
+    - [Commercial license](#commercial-license)
+    - [OAuth for self-hosting (very optional)](#oauth-for-self-hosting-very-optional)
+    - [Resource types](#resource-types)
+  - [Environment Variables](#environment-variables)
+  - [Run a local dev setup](#run-a-local-dev-setup)
+    - [only Frontend](#only-frontend)
+    - [Backend + Frontend](#backend--frontend)
+  - [Contributors](#contributors)
+  - [Copyright](#copyright)
+
+## Main Concepts
 
 1. Define a minimal and generic script in Python, Typescript, Go or Bash that solves a
    specific task. Here sending an email with SMTP. The code can be defined in
@@ -138,9 +157,7 @@ That is what we do at <https://app.windmill.dev>.
 
 ## Performance
 
-The performances are great, as long as you do not exceed the parallelism of the
-workers, we are
-[worse than AWS Lambda for small workloads but not by that much](https://docs.windmill.dev/docs/benchmark)
+Once a job started, there is no overhead compared to running the same script on the node with its corresponding runner (Deno/Go/Python/Bash). The added latency from a job being pulled from the queue, started, and then having its result sent back to the database is ~50ms. A typical lightweight deno job will take around 100ms total.
 
 ## Architecture
 
