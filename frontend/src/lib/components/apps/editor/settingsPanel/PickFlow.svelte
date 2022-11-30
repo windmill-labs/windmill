@@ -4,6 +4,7 @@
 	import { workspaceStore } from '$lib/stores'
 	import { createEventDispatcher } from 'svelte'
 	import Button from '$lib/components/common/button/Button.svelte'
+	import { Wind } from 'svelte-lucide'
 
 	type Item = { summary: String; path: String; version?: String }
 
@@ -25,6 +26,17 @@
 	{loadItems}
 />
 
-<Button size="xs" color="dark" on:click={() => itemPicker.openDrawer()}>
-	Pick flow from workspace
+<Button
+	on:click={() => itemPicker.openDrawer()}
+	btnClasses="w-24 truncate"
+	size="sm"
+	spacingSize="md"
+	variant="border"
+	color="light"
+>
+	<div class="flex justify-center flex-col items-center gap-2">
+		<Wind size="18px" />
+
+		<span class="text-xs">Flow</span>
+	</div>
 </Button>

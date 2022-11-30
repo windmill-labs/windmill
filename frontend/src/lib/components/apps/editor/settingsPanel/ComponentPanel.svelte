@@ -21,6 +21,7 @@
 	import { capitalize } from '$lib/utils'
 	import Badge from '$lib/components/common/badge/Badge.svelte'
 	import { gridColumns } from '../../gridUtils'
+	import { Plus } from 'svelte-lucide'
 
 	export let component: AppComponent | undefined
 	export let onDelete: (() => void) | undefined = undefined
@@ -97,33 +98,53 @@
 				{#if component.runnable && component['path'] === undefined && component['inlineScriptName'] === undefined}
 					<span class="text-sm">Select a script or a flow to continue</span>
 
-					<Button size="xs">Create a new script</Button>
-					<PickInlineScript
-						scripts={(Object.keys($app.inlineScripts) || []).map((summary) => ({ summary }))}
-						on:pick={({ detail }) => {
-							if (component?.runnable) {
-								// @ts-ignore
-								component.inlineScriptName = detail.summary
-							}
-						}}
-					/>
-					<PickScript
-						kind="script"
-						on:pick={({ detail }) => {
-							if (component?.runnable) {
-								component['path'] = detail.path
-								component['runType'] = 'script'
-							}
-						}}
-					/>
-					<PickFlow
-						on:pick={({ detail }) => {
-							if (component?.runnable) {
-								component['path'] = detail.path
-								component['runType'] = 'flow'
-							}
-						}}
-					/>
+					<div class="text-sm">Inline scripts:</div>
+					<div class="flex gap-2">
+						<Button
+							btnClasses="w-24 truncate"
+							size="sm"
+							spacingSize="md"
+							variant="border"
+							color="light"
+						>
+							<div class="flex justify-center flex-col items-center gap-2">
+								<Plus size="18px" />
+
+								<span class="text-xs">Create</span>
+							</div>
+						</Button>
+
+						<PickInlineScript
+							scripts={(Object.keys($app.inlineScripts) || []).map((summary) => ({ summary }))}
+							on:pick={({ detail }) => {
+								if (component?.runnable) {
+									// @ts-ignore
+									component.inlineScriptName = detail.summary
+								}
+							}}
+						/>
+					</div>
+
+					<div class="text-sm">Pick from workspace:</div>
+					<div class="flex gap-2">
+						<PickScript
+							kind="script"
+							on:pick={({ detail }) => {
+								if (component?.runnable) {
+									component['path'] = detail.path
+									component['runType'] = 'script'
+								}
+							}}
+						/>
+						<PickFlow
+							on:pick={({ detail }) => {
+								if (component?.runnable) {
+									component['path'] = detail.path
+									component['runType'] = 'flow'
+								}
+							}}
+						/>
+					</div>
 				{/if}
 			</PanelSection>
 		{/if}
