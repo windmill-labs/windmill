@@ -53,7 +53,7 @@
 				class={classNames(
 					'w-full text-xs font-bold py-1.5 px-2 cursor-pointer transition-all justify-between flex items-center border border-gray-3 rounded-md',
 					openedProp === inputSpecKey
-						? 'bg-gray-700 hover:bg-gray-900 focus:bg-gray-900 text-white'
+						? 'outline outline-gray-500 outline-offset-1 bg-white border-gray-300  hover:bg-gray-100 focus:bg-gray-100 text-gray-700'
 						: 'bg-white border-gray-300  hover:bg-gray-100 focus:bg-gray-100 text-gray-700'
 				)}
 				on:keypress
