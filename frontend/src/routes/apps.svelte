@@ -175,9 +175,9 @@
 											color="dark"
 											size="xs"
 											startIcon={{ icon: faPlay }}
-											href="/apps/edit/{path}"
+											href="/apps/get/{path}"
 										>
-											Run
+											Preview
 										</Button>
 									</div>
 									{#if canWrite}
@@ -187,7 +187,7 @@
 												color="dark"
 												size="xs"
 												startIcon={{ icon: faEdit }}
-												href="/apps/get/{path}"
+												href="/apps/edit/{path}"
 											>
 												Edit
 											</Button>
