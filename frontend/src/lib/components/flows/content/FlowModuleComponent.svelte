@@ -22,8 +22,7 @@
 	import FlowModuleSuspend from './FlowModuleSuspend.svelte'
 	import FlowRetries from './FlowRetries.svelte'
 	import { getStepPropPicker } from '../previousResults'
-	import Tooltip from '$lib/components/Tooltip.svelte'
-	import { Kbd } from '$lib/components/common'
+
 	import Button from '$lib/components/common/button/Button.svelte'
 	import Alert from '$lib/components/common/alert/Alert.svelte'
 
