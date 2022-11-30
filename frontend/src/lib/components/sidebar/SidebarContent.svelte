@@ -2,7 +2,6 @@
 	import {
 		faBookOpen,
 		faCalendar,
-		faCode,
 		faCubes,
 		faEye,
 		faHomeAlt,
@@ -10,12 +9,13 @@
 		faRobot,
 		faUsersCog,
 		faWallet,
-		faWind,
-		faCog
+		faCog,
+		faStar
 	} from '@fortawesome/free-solid-svg-icons'
 	import { faDiscord, faGithub } from '@fortawesome/free-brands-svg-icons'
 	import MenuLink from './MenuLink.svelte'
-	import { userStore } from '$lib/stores'
+	import { starStore, userStore, workspaceStore } from '$lib/stores'
+	import { FlowService, ScriptService } from '$lib/gen'
 
 	const mainMenuLinks = [
 		{ label: 'Home', href: '/', icon: faHomeAlt },
@@ -24,6 +24,8 @@
 		{ label: 'Variables', href: '/variables', icon: faWallet },
 		{ label: 'Resources', href: '/resources', icon: faCubes }
 	]
+
+	export let favoriteLinks = [] as { label: string; href: string }[]
 
 	$: secondaryMenuLinks = [
 		{ label: 'Groups', href: '/groups', icon: faUsersCog },
@@ -53,17 +55,23 @@
 <div class="flex-1 flex flex-col py-4 overflow-x-hidden scrollbar-hidden">
 	<nav class="h-full flex justify-between flex-col px-2">
 		<div class="space-y-1 pt-4">
-			{#each mainMenuLinks as menuLink}
+			{#each mainMenuLinks as menuLink (menuLink.href)}
 				<MenuLink class="text-lg" {...menuLink} {isCollapsed} />
 			{/each}
+			<div class="h-2" />
+			<div class="max-h-40 overflow-y-auto flex flex-col space-y-1.5 max-w-xs">
+				{#each favoriteLinks as menuLink (menuLink.href)}
+					<MenuLink class="text-xs max-w-xs truncate" {...menuLink} {isCollapsed} icon={faStar} />
+				{/each}
+			</div>
+			<div class="h-2" />
 		</div>
-
 		<div class="space-1-2">
-			{#each secondaryMenuLinks as menuLink}
+			{#each secondaryMenuLinks as menuLink (menuLink.href)}
 				<MenuLink class="text-xs" {...menuLink} {isCollapsed} />
 			{/each}
 			<div class="h-8" />
-			{#each thirdMenuLinks as menuLink}
+			{#each thirdMenuLinks as menuLink (menuLink.href)}
 				<MenuLink class="text-xs" {...menuLink} {isCollapsed} />
 			{/each}
 		</div>
