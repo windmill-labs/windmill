@@ -37,7 +37,6 @@ Open-source developer infrastructure for internal tools. Self-hostable alternati
 
 You can show your support for the project by starring this repo.
 
----
 Windmill Labs offers commercial licenses, an enterprise edition, local hub mirrors, and support.
 ruben@windmill.dev (founder of Windmill) for more info.
 ---
