@@ -86,7 +86,7 @@
 						{/each}
 					</div>
 				{:else}
-					<div class="text-xs text-gray-500 text-center py-1">
+					<div class="text-xs text-gray-500 py-1 px-2">
 						There are no components in this group yet
 					</div>
 				{/if}
