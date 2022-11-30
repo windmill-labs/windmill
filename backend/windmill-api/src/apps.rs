@@ -132,6 +132,7 @@ async fn list_apps(
             "summary",
             "versions[array_upper(versions, 1)] as version",
             "policy->>'execution_mode' as execution_mode",
+            "app_version.created_at as edited_at",
             "extra_perms",
             "favorite.path IS NOT NULL as starred",
         ])
@@ -141,9 +142,14 @@ async fn list_apps(
             "favorite.favorite_kind = 'app' AND favorite.workspace_id = app.workspace_id AND favorite.path = app.path AND favorite.usr = ?"
                 .bind(&authed.username),
         )
+        .left()
+        .join("app_version")
+        .on(
+            "app_version.id = versions[array_upper(versions, 1)]"
+        )
         .order_desc("favorite.path IS NOT NULL")
-        .order_by("path", true)
-        .and_where("workspace_id = ?".bind(&w_id))
+        .order_by("app_version.created_at", true)
+        .and_where("app.workspace_id = ? OR app.workspace_id = 'starter'".bind(&w_id))
         .offset(offset)
         .limit(per_page)
         .clone();
