@@ -332,7 +332,7 @@
 					{/each}
 				</div>
 
-				<div class="grid grid-cols-1 gap-4 lg:grid-cols-2 mt-2 w-full">
+				<div class="grid grid-cols-1 gap-4 lg:grid-cols-2 mt-2 w-full overflow-auto">
 					{#if !loading}
 						{#each filter != '' ? filteredItems : preFilteredItems as item (item.type + item.path)}
 							{#if item.type == 'script'}
