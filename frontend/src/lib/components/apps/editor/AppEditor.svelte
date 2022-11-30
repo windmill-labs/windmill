@@ -5,7 +5,14 @@
 	import { Pane } from 'svelte-splitpanes'
 	import { writable } from 'svelte/store'
 	import { buildWorld, type World } from '../rx'
-	import type { App, AppEditorContext, ConnectingInput, EditorMode, InputType } from '../types'
+	import type {
+		App,
+		AppEditorContext,
+		ConnectingInput,
+		EditorBreakpoint,
+		EditorMode,
+		InputType
+	} from '../types'
 	import AppEditorHeader from './AppEditorHeader.svelte'
 	import GridEditor from './GridEditor.svelte'
 
@@ -17,15 +24,19 @@
 	import { faPlus, faSliders } from '@fortawesome/free-solid-svg-icons'
 	import ComponentPanel from './settingsPanel/ComponentPanel.svelte'
 	import ContextPanel from './contextPanel/ContextPanel.svelte'
+	import { classNames } from '$lib/utils'
 
 	export let app: App
 	export let path: string
+	export let initialMode: EditorMode = 'dnd'
 
 	const appStore = writable<App>(app)
 	const worldStore = writable<World | undefined>(undefined)
 	const staticOutputs = writable<Record<string, string[]>>({})
 	const selectedComponent = writable<string | undefined>(undefined)
-	const mode = writable<EditorMode>('dnd')
+	const mode = writable<EditorMode>(initialMode)
+	const breakpoint = writable<EditorBreakpoint>('lg')
+
 	const connectingInput = writable<ConnectingInput<InputType, any>>({
 		opened: false,
 		input: undefined
@@ -37,7 +48,8 @@
 		app: appStore,
 		selectedComponent,
 		mode,
-		connectingInput
+		connectingInput,
+		breakpoint
 	})
 
 	function clearSelectionOnPreview() {
@@ -52,21 +64,27 @@
 	})
 
 	$: mounted && ($worldStore = buildWorld($staticOutputs))
-
 	$: $mode && $selectedComponent && clearSelectionOnPreview()
 	$: selectedTab = $selectedComponent ? 'settings' : 'insert'
 	$: previewing = $mode === 'preview'
+
+	$: width = $breakpoint === 'sm' ? 'w-[640px]' : 'w-full '
 </script>
 
-<AppEditorHeader bind:title={$appStore.title} bind:mode={$mode} />
+{#if initialMode !== 'preview'}
+	<AppEditorHeader bind:title={$appStore.title} bind:mode={$mode} bind:breakpoint={$breakpoint} />
+{/if}
+
 <SplitPanesWrapper class="max-w-full overflow-hidden">
 	<Pane size={previewing ? 0 : 20} minSize={previewing ? 0 : 20} maxSize={40}>
 		<ContextPanel appPath={path} />
 	</Pane>
 	<Pane size={previewing ? 100 : 60}>
-		<div class="p-4 bg-gray-100 h-full" id="faton">
+		<div class="p-4 bg-gray-100 h-full w-full">
 			{#if $appStore.grid}
-				<GridEditor />
+				<div class={classNames('mx-auto h-full', width)}>
+					<GridEditor />
+				</div>
 			{/if}
 		</div>
 	</Pane>

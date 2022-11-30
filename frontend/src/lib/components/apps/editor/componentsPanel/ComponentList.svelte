@@ -11,6 +11,7 @@
 	import type { Size } from 'svelte-grid'
 	import { faAngleDown } from '@fortawesome/free-solid-svg-icons'
 	import { isOpenStore } from './store'
+	import { gridColumns } from '../../gridUtils'
 
 	const { app } = getContext<AppEditorContext>('AppEditorContext')
 	const COLS = 6
@@ -18,81 +19,91 @@
 	function addComponent(
 		appComponent: AppComponent,
 		defaultDimensions: Size,
-		minDimensions: Size = { w: 1, h: 1 },
-		maxDimensions: Size = { w: 6, h: 12 }
+		minDimensions: Size = { w: 2, h: 1 },
+		maxDimensions: Size = { w: 12, h: 12 }
 	) {
 		const grid = $app.grid ?? []
 		const id = getNextId(grid.map((gridItem) => gridItem.data.id))
 
 		appComponent.id = id
 
-		let newItem: GridItem = {
-			[COLS]: {
-				fixed: false,
-				resizable: true,
-				draggable: true,
-				customDragger: false,
-				customResizer: false,
-				min: minDimensions,
-				max: maxDimensions,
-				x: 0,
-				y: 0,
-				...defaultDimensions
-			},
+		const newComponent = {
+			fixed: false,
+			resizable: true,
+			draggable: true,
+			customDragger: false,
+			customResizer: false,
+			x: 0,
+			y: 0,
+			...defaultDimensions
+		}
+
+		const newItem: GridItem = {
 			data: JSON.parse(JSON.stringify(appComponent)),
 			id: id
 		}
 
-		let findOutPosition = gridHelp.findSpace(newItem, grid, COLS)
-
-		newItem = {
-			...newItem,
-			[COLS]: {
-				...newItem[COLS],
-				...findOutPosition
+		function getMinMaxDimensions(column) {
+			if (column === 3) {
+				return {
+					min: { w: 1, h: 1 },
+					max: { w: 3, h: 12 }
+				}
+			} else {
+				return {
+					min: minDimensions,
+					max: maxDimensions
+				}
 			}
 		}
+
+		gridColumns.forEach((column) => {
+			newItem[column] = newComponent
+			const position = gridHelp.findSpace(newItem, grid, column)
+			const dimensions = getMinMaxDimensions(column)
+			newItem[column] = { ...newItem[column], ...position, ...dimensions }
+		})
 
 		$app.grid = [...grid, newItem]
 	}
 
 	onMount(() => {
-		isOpenStore.addItems(componentSets.map(set => ({ [set.title]: true })))
+		isOpenStore.addItems(componentSets.map((set) => ({ [set.title]: true })))
 	})
 </script>
 
-{#each componentSets as {title, components}, index (index)}
+{#each componentSets as { title, components }, index (index)}
 	{@const isOpen = $isOpenStore[title]}
-		<section class="mt-1 mb-2 px-2">
-			<button
-				on:click|preventDefault={() => isOpenStore.toggle(title)}
-				class="w-full flex justify-between items-center text-gray-700 px-2 py-1 
+	<section class="mt-1 mb-2 px-2">
+		<button
+			on:click|preventDefault={() => isOpenStore.toggle(title)}
+			class="w-full flex justify-between items-center text-gray-700 px-2 py-1 
 				rounded-sm hover:bg-gray-100"
-			>
-				<h1 class="text-sm font-semibold text-left">{title}</h1>
-				<Icon data={faAngleDown} class="rotate-0 duration-300 {isOpen ? '!rotate-180' : ''}" />
-			</button>
-			{#if isOpen}
-				<div transition:slide|local={{ duration: 300 }}>
-					{#if components.length}
-						<div class="grid grid-cols-3 gap-1 p-2">
-							{#each components as item, componentIndex (componentIndex)}
-								<button
-									on:click={() => addComponent(item, { w: 2, h: 2 })}
-									class="border shadow-sm h-16 p-2 flex flex-col gap-2 items-center
+		>
+			<h1 class="text-sm font-semibold text-left">{title}</h1>
+			<Icon data={faAngleDown} class="rotate-0 duration-300 {isOpen ? '!rotate-180' : ''}" />
+		</button>
+		{#if isOpen}
+			<div transition:slide|local={{ duration: 300 }}>
+				{#if components.length}
+					<div class="grid grid-cols-3 gap-1 p-2">
+						{#each components as item, componentIndex (componentIndex)}
+							<button
+								on:click={() => addComponent(item, { w: 2, h: 2 })}
+								class="border shadow-sm h-16 p-2 flex flex-col gap-2 items-center
 									justify-center bg-white rounded-md scale-100 hover:scale-105 ease-in duration-75"
-								>
-									<Icon data={displayData[item.type].icon} scale={1.6} class="text-blue-800" />
-									<div class="text-xs">{displayData[item.type].name}</div>
-								</button>
-							{/each}
-						</div>
-					{:else}
-						<div class="text-xs text-gray-500 text-center py-1">
-							There are no components in this group yet
-						</div>
-					{/if}
-				</div>
-			{/if}
-		</section>
+							>
+								<Icon data={displayData[item.type].icon} scale={1.6} class="text-blue-800" />
+								<div class="text-xs">{displayData[item.type].name}</div>
+							</button>
+						{/each}
+					</div>
+				{:else}
+					<div class="text-xs text-gray-500 py-1 px-2">
+						There are no components in this group yet
+					</div>
+				{/if}
+			</div>
+		{/if}
+	</section>
 {/each}

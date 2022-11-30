@@ -142,12 +142,16 @@ export type GridItem = FilledItem<{
 	id: string
 }>
 
+export type InlineScript = {
+	content: string
+	language: Preview.language
+	path: string
+	schema: Schema
+}
+
 export type App = {
 	grid: GridItem[]
-	inlineScripts: Record<
-		string,
-		{ content: string; language: Preview.language; path: string; schema: Schema }
-	>
+	inlineScripts: Record<string, InlineScript>
 	title: string
 }
 
@@ -163,9 +167,11 @@ export type AppEditorContext = {
 	selectedComponent: Writable<string | undefined>
 	mode: Writable<EditorMode>
 	connectingInput: Writable<ConnectingInput<any, any>>
+	breakpoint: Writable<EditorBreakpoint>
 }
 
 export type EditorMode = 'dnd' | 'preview'
+export type EditorBreakpoint = 'sm' | 'lg'
 
 type FieldID = string
 
