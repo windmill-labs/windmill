@@ -5,14 +5,21 @@
 	import ToggleButtonGroup from '$lib/components/common/toggleButton/ToggleButtonGroup.svelte'
 	import { AppService, Policy } from '$lib/gen'
 	import { userStore, workspaceStore } from '$lib/stores'
-	import { faDisplay, faExternalLink, faHand } from '@fortawesome/free-solid-svg-icons'
+	import {
+		faDesktopAlt,
+		faDisplay,
+		faExternalLink,
+		faHand,
+		faMobileAlt
+	} from '@fortawesome/free-solid-svg-icons'
 	import { getContext } from 'svelte'
 	import { sendUserToast } from '../../../utils'
-	import type { AppEditorContext, EditorMode } from '../types'
+	import type { AppEditorContext, EditorBreakpoint, EditorMode } from '../types'
 
 	const { app } = getContext<AppEditorContext>('AppEditorContext')
 	export let title: string = $app.title || ''
 	export let mode: EditorMode
+	export let breakpoint: EditorBreakpoint
 	const loading = {
 		publish: false,
 		save: false
@@ -32,27 +39,42 @@
 					on_behalf_of: `u/${$userStore?.username}`
 				}
 			}
-		}).then(() => {
-			sendUserToast('Saved successfully.')
-		}).catch(() => {
-			sendUserToast('Error during saving. Please try again later.', true)
-		}).finally(() => {
-			loading.save = false
 		})
+			.then(() => {
+				sendUserToast('Saved successfully.')
+			})
+			.catch(() => {
+				sendUserToast('Error during saving. Please try again later.', true)
+			})
+			.finally(() => {
+				loading.save = false
+			})
 	}
 </script>
 
 <div class="border-b flex flex-row justify-between py-1 px-4 items-center">
 	<input class="text-sm w-64" bind:value={title} />
-	<div>
-		<ToggleButtonGroup bind:selected={mode}>
-			<ToggleButton position="left" value="dnd" startIcon={{ icon: faHand }} size="xs">
-				Component editor
-			</ToggleButton>
-			<ToggleButton position="right" value="preview" startIcon={{ icon: faDisplay }} size="xs">
-				Preview
-			</ToggleButton>
-		</ToggleButtonGroup>
+	<div class="flex gap-8">
+		<div>
+			<ToggleButtonGroup bind:selected={mode}>
+				<ToggleButton position="left" value="dnd" startIcon={{ icon: faHand }} size="xs">
+					Editor
+				</ToggleButton>
+				<ToggleButton position="right" value="preview" startIcon={{ icon: faDisplay }} size="xs">
+					Preview
+				</ToggleButton>
+			</ToggleButtonGroup>
+		</div>
+		<div>
+			<ToggleButtonGroup bind:selected={breakpoint}>
+				<ToggleButton position="left" value="sm" startIcon={{ icon: faMobileAlt }} size="xs">
+					Mobile
+				</ToggleButton>
+				<ToggleButton position="right" value="lg" startIcon={{ icon: faDesktopAlt }} size="xs">
+					Desktop
+				</ToggleButton>
+			</ToggleButtonGroup>
+		</div>
 	</div>
 	<div class="flex flex-row gap-2">
 		<Button color="dark" size="xs" variant="border" startIcon={{ icon: faExternalLink }}>

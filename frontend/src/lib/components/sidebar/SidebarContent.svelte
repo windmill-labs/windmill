@@ -12,7 +12,7 @@
 		faCog,
 		faStar
 	} from '@fortawesome/free-solid-svg-icons'
-	import { faDiscord, faGithub } from '@fortawesome/free-brands-svg-icons'
+	import { faAppStore, faDiscord, faGithub } from '@fortawesome/free-brands-svg-icons'
 	import MenuLink from './MenuLink.svelte'
 	import { starStore, userStore, workspaceStore } from '$lib/stores'
 	import { FlowService, ScriptService } from '$lib/gen'

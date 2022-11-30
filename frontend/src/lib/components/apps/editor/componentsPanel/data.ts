@@ -23,16 +23,12 @@ const windmillComponents: ComponentSet = {
 
 const textInputs: ComponentSet = {
 	title: 'Text Inputs',
-	components: [
-
-	]
+	components: []
 }
 
 const numberInputs: ComponentSet = {
 	title: 'Number Inputs',
-	components: [
-
-	]
+	components: []
 }
 
 const buttons: ComponentSet = {
@@ -67,8 +63,9 @@ const buttons: ComponentSet = {
 					defaultValue: 'md'
 				}
 			},
-			runnable: true
-		},
+			runnable: true,
+			card: false
+		}
 	]
 }
 
@@ -88,16 +85,15 @@ const selectInputs: ComponentSet = {
 					fieldType: 'textarea',
 					defaultValue: 'Lorem ipsum'
 				}
-			}
+			},
+			card: false
 		}
 	]
 }
 
 const dateTimeInputs: ComponentSet = {
 	title: 'Date and Time Inputs',
-	components: [
-
-	]
+	components: []
 }
 
 const dataDisplay: ComponentSet = {
@@ -155,15 +151,9 @@ const dataDisplay: ComponentSet = {
 			type: 'barchartcomponent',
 			runnable: true,
 			card: true
-		},
+		}
 	]
 }
-
-
-
-
-
-
 
 const componentSets = [
 	windmillComponents,
