@@ -20,6 +20,7 @@ export const userStore = writable<UserExt | undefined>(undefined)
 export const workspaceStore = writable<string | undefined>(
 	persistedWorkspace ? String(persistedWorkspace) : undefined
 )
+export const starStore = writable(1)
 export const usersWorkspaceStore = writable<UserWorkspaceList | undefined>(undefined)
 export const superadmin = writable<String | false | undefined>(undefined)
 export const hubScripts = writable<

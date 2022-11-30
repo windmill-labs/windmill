@@ -54,8 +54,30 @@
 	<div class="flex flex-col w-full divide-y">
 		{#if component.runnable}
 			<PanelSection title="Runnable">
-				<svelte:fragment slot="action">
-					{#if component.runnable && (component['inlineScriptName'] || component['path'])}
+				{#if component.runnable && component['inlineScriptName']}
+					<div class="flex justify-between w-full items-center">
+						<span class="text-xs">{component['inlineScriptName']}</span>
+						<Button
+							size="xs"
+							color="red"
+							startIcon={{ icon: faClose }}
+							on:click={() => {
+								if (component) {
+									component['inlineScriptName'] = undefined
+								}
+							}}
+						>
+							Clear
+						</Button>
+					</div>
+				{/if}
+
+				{#if component.runnable && component['path']}
+					<div class="flex gap-2 items-center">
+						<div>
+							<Badge color="blue">{capitalize(component['runType'])}</Badge>
+							<span class="text-xs">{component['path']}</span>
+						</div>
 						<Button
 							size="xs"
 							color="red"
@@ -69,18 +91,6 @@
 						>
 							Clear
 						</Button>
-					{/if}
-				</svelte:fragment>
-
-				{#if component.runnable && component['inlineScriptName']}
-					<span class="text-xs">{component['inlineScriptName']}</span>
-				{/if}
-
-				{#if component.runnable && component['path']}
-					<div class="flex gap-2 items-center">
-						<Badge color="blue">{capitalize(component['runType'])}</Badge>
-
-						<span class="text-xs">{component['path']}</span>
 					</div>
 				{/if}
 
@@ -131,8 +141,8 @@
 			</PanelSection>
 		{/if}
 
-		{#if component.type === 'tablecomponent' && Array.isArray(component.components)}
-			<TableActions bind:components={component.components} />
+		{#if component.type === 'tablecomponent' && Array.isArray(component.actionButtons)}
+			<TableActions bind:components={component.actionButtons} />
 		{/if}
 
 		{#if component.verticalAlignment !== undefined}

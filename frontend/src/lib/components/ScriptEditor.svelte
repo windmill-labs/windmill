@@ -24,6 +24,7 @@
 	export let path: string | undefined
 	export let lang: Preview.language
 	export let initialArgs: Record<string, any> = {}
+	export let fixedOverflowWidgets = true
 
 	let websocketAlive = { pyright: false, black: false, deno: false, go: false }
 
@@ -134,10 +135,10 @@
 		</div>
 	</div>
 </div>
-<SplitPanesWrapper>
-	<Pane size={60} minSize={10}>
+<SplitPanesWrapper panesClass="!overflow-visible">
+	<Pane size={60} minSize={10} class="!overflow-visible">
 		<div
-			class="p-2 h-full"
+			class="p-2 h-full !overflow-visible"
 			on:mouseleave={() => {
 				inferSchema()
 			}}
@@ -156,9 +157,10 @@
 					localStorage.setItem(path ?? 'last_save', code)
 					lastSave = code
 				}}
-				class="flex flex-1 h-full"
+				class="flex flex-1 h-full !overflow-visible"
 				lang={scriptLangToEditorLang(lang)}
 				automaticLayout={true}
+				{fixedOverflowWidgets}
 			/>
 		</div>
 	</Pane>

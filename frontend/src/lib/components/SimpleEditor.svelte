@@ -107,7 +107,7 @@
 
 		editor = monaco.editor.create(
 			divEl as HTMLDivElement,
-			editorConfig(model, code, lang, automaticLayout)
+			editorConfig(model, code, lang, automaticLayout, true)
 		)
 
 		let timeoutModel: NodeJS.Timeout | undefined = undefined

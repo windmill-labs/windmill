@@ -2,12 +2,12 @@
 	import Button from '$lib/components/common/button/Button.svelte'
 	import { classNames } from '$lib/utils'
 	import { getContext } from 'svelte'
-	import type { Output } from '../rx'
-	import type { AppComponent, AppEditorContext, InputsSpec } from '../types'
-	import InputValue from './helpers/InputValue.svelte'
-	import DebouncedInput from './helpers/DebouncedInput.svelte'
-	import RunnableComponent from './helpers/RunnableComponent.svelte'
-	import ButtonComponent from './common/ButtonComponent.svelte'
+	import type { Output } from '../../rx'
+	import type { AppEditorContext, BaseAppComponent, ButtonComponent, InputsSpec } from '../../types'
+	import InputValue from '../helpers/InputValue.svelte'
+	import DebouncedInput from '../helpers/DebouncedInput.svelte'
+	import RunnableComponent from '../helpers/RunnableComponent.svelte'
+	import AppButton from '../buttons/AppButton.svelte'
 
 	export let id: string
 	export let inputs: InputsSpec
@@ -15,7 +15,7 @@
 	export let runType: 'script' | 'flow' | undefined = undefined
 	export let inlineScriptName: string | undefined = undefined
 	export let componentInputs: InputsSpec
-	export let components: AppComponent[]
+	export let actionButtons: (BaseAppComponent & ButtonComponent)[]
 
 	const { worldStore, staticOutputs: staticOutputsStore } =
 		getContext<AppEditorContext>('AppEditorContext')
@@ -105,14 +105,14 @@
 								</td>
 							{/each}
 							<td class="relative whitespace-nowrap px-4 py-2 text-right ">
-								{#if components?.length > 0}
-									<div class="flex gap-2">
-										{#each components as component}
-											<ButtonComponent
-												{...component}
+								{#if actionButtons?.length > 0}
+									<div class="center-center gap-2">
+										{#each actionButtons as props}
+											<AppButton
+												{...props}
 												extraQueryParams={{ row }}
-												bind:inputs={component.inputs}
-												bind:staticOutputs={$staticOutputsStore[component.id]}
+												bind:inputs={props.inputs}
+												bind:staticOutputs={$staticOutputsStore[props.id]}
 											/>
 										{/each}
 									</div>

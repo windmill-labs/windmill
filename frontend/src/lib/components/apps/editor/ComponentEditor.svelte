@@ -1,15 +1,15 @@
 <script lang="ts">
 	import { classNames } from '$lib/utils'
 	import { getContext } from 'svelte'
-	import BarChartComponent from '../components/charts/BarChartComponent.svelte'
+	import BarChartComponent from '../components/dataDisplay/AppBarChart.svelte'
 	import DisplayComponent from '../components/DisplayComponent.svelte'
-	import TableComponent from '../components/TableComponent.svelte'
-	import TextComponent from '../components/common/TextComponent.svelte'
+	import TableComponent from '../components/dataDisplay/AppTable.svelte'
+	import TextComponent from '../components/dataDisplay/AppText.svelte'
 	import type { AppComponent, AppEditorContext } from '../types'
 	import { displayData } from '../utils'
-	import ButtonComponent from '../components/common/ButtonComponent.svelte'
-	import PieChartComponent from '../components/charts/PieChartComponent.svelte'
-	import CheckboxComponent from '../components/select/CheckboxComponent.svelte'
+	import ButtonComponent from '../components/buttons/AppButton.svelte'
+	import PieChartComponent from '../components/dataDisplay/AppPieChart.svelte'
+	import CheckboxComponent from '../components/selectInputs/AppCheckbox.svelte'
 
 	export let component: AppComponent
 	export let selected: boolean

@@ -573,5 +573,5 @@ export function pluralize(quantity: number, word: string, customPlural?: string)
 }
 
 export function capitalize(word: string): string {
-	return word.charAt(0).toUpperCase() + word.slice(1)
+	return word ? word.charAt(0).toUpperCase() + word.slice(1) : ''
 }

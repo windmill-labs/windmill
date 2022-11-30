@@ -15,7 +15,8 @@
 	}
 </script>
 
-<div class="bg-white h-full">
+<!-- svelte-ignore a11y-click-events-have-key-events -->
+<div class="bg-white h-full" on:click|preventDefault={() => ($selectedComponent = undefined)}>
 	<Grid bind:items={$app.grid} rowHeight={64} let:dataItem cols={columnConfiguration}>
 		{#each $app.grid as gridComponent (gridComponent.id)}
 			{#if gridComponent.data.id === dataItem.data.id}
@@ -26,7 +27,7 @@
 						'h-full w-full flex justify-center align-center',
 						gridComponent.data.card ? 'border border-gray-100' : ''
 					)}
-					on:click={() => {
+					on:click|preventDefault|stopPropagation={() => {
 						$selectedComponent = dataItem.data.id
 					}}
 				>

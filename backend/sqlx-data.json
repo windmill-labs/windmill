@@ -580,6 +580,32 @@
     },
     "query": "SELECT workspace.id, workspace.name, usr.username\n     FROM workspace, usr WHERE usr.workspace_id = workspace.id AND usr.email = $1 AND deleted = false"
   },
+  "22e14fc3bb5d8cf3006f0002e8522b8cc0b2fece43f03c0f025e7acefa0d4f32": {
+    "describe": {
+      "columns": [],
+      "nullable": [],
+      "parameters": {
+        "Left": [
+          "Text",
+          "Text",
+          "Text",
+          {
+            "Custom": {
+              "kind": {
+                "Enum": [
+                  "app",
+                  "script",
+                  "flow"
+                ]
+              },
+              "name": "favorite_kind"
+            }
+          }
+        ]
+      }
+    },
+    "query": "DELETE FROM favorite WHERE workspace_id = $1 AND usr = $2 AND path = $3 AND favorite_kind = $4"
+  },
   "23086afd75927486884944e48b768e956d1fd77ce08c6f345fcde083b1e9bbf1": {
     "describe": {
       "columns": [
@@ -1718,6 +1744,32 @@
       }
     },
     "query": "UPDATE queue SET canceled = true, canceled_by = $1, canceled_reason = $2 WHERE parent_job = $3 AND workspace_id = $4 RETURNING id"
+  },
+  "653685b39d93008762818d0518b953632040122a9af98332d3fd1d12244b1b80": {
+    "describe": {
+      "columns": [],
+      "nullable": [],
+      "parameters": {
+        "Left": [
+          "Varchar",
+          "Varchar",
+          "Varchar",
+          {
+            "Custom": {
+              "kind": {
+                "Enum": [
+                  "app",
+                  "script",
+                  "flow"
+                ]
+              },
+              "name": "favorite_kind"
+            }
+          }
+        ]
+      }
+    },
+    "query": "INSERT INTO favorite (workspace_id, usr, path, favorite_kind) VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING"
   },
   "6c63bbcb45d3f51eccaea52ec862700e1f1c2426d823abd951e1eea4fd9b85aa": {
     "describe": {

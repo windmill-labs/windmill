@@ -1,16 +1,20 @@
 <script lang="ts">
+	import { slide } from 'svelte/transition'
 	import Icon from 'svelte-awesome'
 	import type { AppComponent, AppEditorContext, GridItem } from '../../types'
 	import { displayData } from '../../utils'
 	import { componentSets } from './data'
 
 	import gridHelp from 'svelte-grid/build/helper/index.mjs'
-	import { getContext } from 'svelte'
+	import { getContext, onMount } from 'svelte'
 	import { getNextId } from '$lib/components/flows/flowStateUtils'
 	import type { Size } from 'svelte-grid'
+	import { faAngleDown } from '@fortawesome/free-solid-svg-icons'
+	import { isOpenStore } from './store'
 	import { gridColumns } from '../../gridUtils'
 
 	const { app } = getContext<AppEditorContext>('AppEditorContext')
+	const COLS = 6
 
 	function addComponent(
 		appComponent: AppComponent,
@@ -49,21 +53,44 @@
 
 		$app.grid = [...grid, newItem]
 	}
+
+	onMount(() => {
+		isOpenStore.addItems(componentSets.map((set) => ({ [set.title]: true })))
+	})
 </script>
 
-{#each componentSets as componentSet, index (index)}
-	<div class="px-4 pt-4 text-sm font-semibold">{componentSet.title}</div>
-
-	<section class="grid grid-cols-3 gap-1 p-4">
-		{#each componentSet.components as item, componentIndex (componentIndex)}
-			<!-- svelte-ignore a11y-click-events-have-key-events -->
-			<div
-				class="border shadow-sm h-16 p-2 flex flex-col gap-2 items-center justify-center bg-white rounded-md scale-100 hover:scale-105 ease-in duration-75"
-				on:click={() => addComponent(item, { w: 2, h: 1 })}
-			>
-				<Icon data={displayData[item.type].icon} scale={1.6} class="text-blue-800" />
-				<div class="text-xs">{displayData[item.type].name}</div>
+{#each componentSets as { title, components }, index (index)}
+	{@const isOpen = $isOpenStore[title]}
+	<section class="mt-1 mb-2 px-2">
+		<button
+			on:click|preventDefault={() => isOpenStore.toggle(title)}
+			class="w-full flex justify-between items-center text-gray-700 px-2 py-1 
+				rounded-sm hover:bg-gray-100"
+		>
+			<h1 class="text-sm font-semibold text-left">{title}</h1>
+			<Icon data={faAngleDown} class="rotate-0 duration-300 {isOpen ? '!rotate-180' : ''}" />
+		</button>
+		{#if isOpen}
+			<div transition:slide|local={{ duration: 300 }}>
+				{#if components.length}
+					<div class="grid grid-cols-3 gap-1 p-2">
+						{#each components as item, componentIndex (componentIndex)}
+							<button
+								on:click={() => addComponent(item, { w: 2, h: 2 })}
+								class="border shadow-sm h-16 p-2 flex flex-col gap-2 items-center
+									justify-center bg-white rounded-md scale-100 hover:scale-105 ease-in duration-75"
+							>
+								<Icon data={displayData[item.type].icon} scale={1.6} class="text-blue-800" />
+								<div class="text-xs">{displayData[item.type].name}</div>
+							</button>
+						{/each}
+					</div>
+				{:else}
+					<div class="text-xs text-gray-500 text-center py-1">
+						There are no components in this group yet
+					</div>
+				{/if}
 			</div>
-		{/each}
+		{/if}
 	</section>
 {/each}

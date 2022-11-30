@@ -82,7 +82,14 @@
 	>
 		<label for="pathInput" class="text-sm font-semibold"> Script name </label>
 		<div class="flex justify-between items-center gap-4">
-			<input id="pathInput" class="grow min-w-[150px]" bind:value={newScriptPath} />
+			<!-- svelte-ignore a11y-autofocus -->
+			<input
+				autofocus
+				id="pathInput"
+				class="grow min-w-[150px]"
+				bind:value={newScriptPath}
+				on:keypress={e => e.key === 'Enter' && createScript()}
+			/>
 			<Button on:click={createScript} size="sm" disabled={isTakenPath} startIcon={{ icon: faPlus }}>
 				Create
 			</Button>
@@ -95,10 +102,11 @@
 	</DrawerContent>
 </Drawer>
 
-<Drawer bind:this={scriptEditorDrawer} size="1000px">
+<Drawer bind:this={scriptEditorDrawer} size="1200px">
 	<DrawerContent
 		title="Script Editor"
 		noPadding
+		forceOverflowVisible
 		on:close={() => {
 			scriptEditorDrawer.closeDrawer()
 		}}
@@ -109,6 +117,7 @@
 				bind:code={selectedScript.content}
 				path={selectedScript.path}
 				bind:schema={selectedScript.schema}
+				fixedOverflowWidgets={false}
 			/>
 		{/if}
 	</DrawerContent>

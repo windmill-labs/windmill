@@ -66,17 +66,7 @@
 
 	$: mounted && ($worldStore = buildWorld($staticOutputs))
 	$: $mode && $selectedComponent && clearSelectionOnPreview()
-	$: selectedTab = 'settings'
-
-	// If ever the the selected component changes, we need to update the selected tab
-	selectedComponent.subscribe(() => {
-		if (selectedTab === 'insert') {
-			setTimeout(() => {
-				selectedTab = 'settings'
-			})
-		}
-	})
-
+	$: selectedTab = $selectedComponent ? 'settings' : 'insert'
 	$: previewing = $mode === 'preview'
 
 	$: width = $breakpoint === 'sm' ? 'w-[640px]' : 'w-full '
@@ -86,8 +76,8 @@
 	<AppEditorHeader bind:title={$appStore.title} bind:mode={$mode} bind:breakpoint={$breakpoint} />
 {/if}
 
-<SplitPanesWrapper>
-	<Pane size={previewing ? 0 : 20} minSize={20} maxSize={40}>
+<SplitPanesWrapper class="max-w-full overflow-hidden">
+	<Pane size={previewing ? 0 : 20} minSize={previewing ? 0 : 20} maxSize={40}>
 		<ContextPanel appPath={path} />
 	</Pane>
 	<Pane size={previewing ? 100 : 60}>
@@ -99,7 +89,7 @@
 			{/if}
 		</div>
 	</Pane>
-	<Pane size={previewing ? 0 : 25} minSize={20} maxSize={40}>
+	<Pane size={previewing ? 0 : 25} minSize={previewing ? 0 : 20} maxSize={40}>
 		<Tabs bind:selected={selectedTab}>
 			<Tab value="insert" size="xs">
 				<div class="m-1 flex flex-row gap-2">
