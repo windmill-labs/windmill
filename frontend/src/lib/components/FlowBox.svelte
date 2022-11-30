@@ -26,7 +26,7 @@
 	export let starred: boolean
 
 	export let shareModal: ShareModal
-	const { summary, path, extra_perms, canWrite } = flow
+	const { summary, path, extra_perms, canWrite, workspace_id } = flow
 
 	async function archiveFlow(path: string): Promise<void> {
 		try {
@@ -58,7 +58,13 @@
 		<div class="flex flex-row  justify-between w-full grow gap-2 items-start">
 			<div class="text-gray-700 text-xs flex flex-row  flex-wrap  gap-x-1 items-center"
 				>{path}
-				<Star kind="flow" {path} {starred} on:starred={() => dispatch('change')} />
+				<Star
+					workspace_id={workspace_id ?? $workspaceStore ?? ''}
+					kind="flow"
+					{path}
+					{starred}
+					on:starred={() => dispatch('change')}
+				/>
 				<SharedBadge {canWrite} extraPerms={extra_perms} />
 			</div>
 			<div class="flex flex-row-reverse place gap-x-2 pt-4">

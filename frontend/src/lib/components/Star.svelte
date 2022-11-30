@@ -10,18 +10,19 @@
 	export let path: string
 	export let kind: 'flow' | 'app' | 'script'
 	export let starred = false
+	export let workspace_id: string
 
 	async function onClick() {
 		if (starred) {
 			await FavoriteService.unstar({
-				workspace: $workspaceStore!,
+				workspace: workspace_id,
 				requestBody: { path, favorite_kind: kind }
 			})
 			sendUserToast('Unstarred')
 			$starStore = $starStore + 1
 		} else {
 			await FavoriteService.star({
-				workspace: $workspaceStore!,
+				workspace: workspace_id,
 				requestBody: { path, favorite_kind: kind }
 			})
 			sendUserToast('Marked as favorite, it will appear first')
