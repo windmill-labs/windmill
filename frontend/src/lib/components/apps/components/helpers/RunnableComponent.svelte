@@ -203,7 +203,7 @@
 	<SchemaForm schema={schemaStripped} bind:args {isValid} {disabledArgs} shouldHideNoInputs />
 {/if}
 
-{#if inlineScriptName === undefined && path === undefined && runType === undefined}
+{#if inlineScriptName === undefined && path === undefined && runType === undefined && autoRefresh}
 	<Alert type="warning" size="xs" class="mt-2" title="Missing runnable">
 		Please select a runnable
 	</Alert>
