@@ -15,6 +15,8 @@
 		faRepeat
 	} from '@fortawesome/free-solid-svg-icons'
 	import Icon from 'svelte-awesome'
+	import IconedResourceType from '$lib/components/IconedResourceType.svelte'
+	import IconedPath from '$lib/components/IconedPath.svelte'
 
 	export let mod: FlowModule
 
@@ -112,7 +114,11 @@
 					{:else if mod.value.type === 'identity'}
 						<Icon data={faLongArrowDown} scale={0.8} />
 					{:else if mod.value.type === 'script'}
-						<Icon data={faBuilding} scale={0.8} />
+						{#if mod.value.path.startsWith('hub/')}
+							<IconedPath path={mod.value.path} />
+						{:else}
+							<Icon data={faBuilding} scale={0.8} />
+						{/if}
 					{/if}
 				</div>
 			</FlowModuleSchemaItem>
