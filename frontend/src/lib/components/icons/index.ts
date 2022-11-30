@@ -19,6 +19,7 @@ import Slack from './Slack.svelte'
 import TogglIcon from './TogglIcon.svelte'
 import WindmillIcon from './WindmillIcon.svelte'
 import MailchimpIcon from './MailchimpIcon.svelte'
+import SendgridIcon from './SendgridIcon.svelte'
 
 export const APP_TO_ICON_COMPONENT =  {
 	postgresql: PostgresIcon,
@@ -42,7 +43,8 @@ export const APP_TO_ICON_COMPONENT =  {
 	matrix: MatrixIcon,
 	windmill: WindmillIcon,
 	http: HttpIcon,
-	mailchimp: MailchimpIcon
+	mailchimp: MailchimpIcon,
+	sendgrid: SendgridIcon,
 } as const
 
 export {
@@ -67,4 +69,5 @@ export {
 	TogglIcon,
 	WindmillIcon,
 	MailchimpIcon,
+	SendgridIcon,
 }

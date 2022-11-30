@@ -31,6 +31,14 @@
 				'Find "Your API Keys"'
 			]
 		},
+		sendgrid: {
+			img: 'sendgrid_connect.png',
+			instructions: [
+				'Go to <a href="https://app.sendgrid.com/settings/api_keys" target="_blank" rel=”noopener noreferrer”>https://app.sendgrid.com/settings/api_keys</a>',
+				'Create an API key',
+				'Copy your key'
+			]
+		},
 	}
 </script>
 
