@@ -1,100 +1,217 @@
+// deno-lint-ignore-file no-explicit-any
 import { Command } from "https://deno.land/x/cliffy@v0.25.4/command/command.ts";
+import { Table } from "https://deno.land/x/cliffy@v0.25.4/table/table.ts";
 import { GlobalOptions } from "./types.ts";
-import { WorkspaceService } from "https://deno.land/x/windmill@v1.50.0/windmill-api/index.ts";
+import { DelimiterStream } from "https://deno.land/std@0.165.0/streams/mod.ts";
 import { colors } from "https://deno.land/x/cliffy@v0.25.4/ansi/colors.ts";
-import { Table } from "https://deno.land/x/cliffy@v0.25.4/table/mod.ts";
-import { getContext } from "./context.ts";
+import { getRootStore } from "./store.ts";
+import { Input } from "https://deno.land/x/cliffy@v0.25.4/prompt/input.ts";
 
-export async function getDefaultWorkspaceId(
-  urlStore: string
-): Promise<string | null> {
+export type Workspace = { remote: string; workspaceId: string; name: string };
+
+function makeWorkspaceStream(
+  readable: ReadableStream<Uint8Array>
+): ReadableStream<Workspace> {
+  return readable
+    .pipeThrough(new DelimiterStream(new TextEncoder().encode("\n")))
+    .pipeThrough(new TextDecoderStream())
+    .pipeThrough(
+      new TransformStream({
+        transform(line, controller) {
+          try {
+            if (line.length <= 2) {
+              return;
+            }
+            controller.enqueue(JSON.parse(line) as Workspace);
+          } catch {
+            /* ignore */
+          }
+        },
+      })
+    );
+}
+
+async function allWorkspaces(): Promise<Workspace[]> {
+  const file = await Deno.open((await getRootStore()) + "/remotes.ndjson");
+  const workspaceStream = makeWorkspaceStream(file.readable);
+
+  const workspaces: Workspace[] = [];
+  for await (const workspace of workspaceStream) {
+    workspaces.push(workspace);
+  }
+  file.close();
+
+  return workspaces;
+}
+
+async function getActiveWorkspaceName(
+  opts: GlobalOptions
+): Promise<string | undefined> {
+  if (opts.workspace) {
+    return opts.workspace;
+  }
   try {
-    return await Deno.readTextFile(urlStore + "default_workspace_id");
+    return await Deno.readTextFile((await getRootStore()) + "/activeWorkspace");
   } catch {
-    return null;
+    return undefined;
   }
 }
 
-type ListOptions = GlobalOptions;
-async function list(opts: ListOptions) {
-  const { workspace: defaultId } = await getContext(opts);
-  const workspaces = await WorkspaceService.listWorkspaces();
+export async function getActiveWorkspace(
+  opts: GlobalOptions
+): Promise<Workspace | undefined> {
+  const name = await getActiveWorkspaceName(opts);
+  if (!name) {
+    return undefined;
+  }
+  return await getWorkspaceByName(name);
+}
+
+export async function getWorkspaceByName(
+  workspaceName: string
+): Promise<Workspace | undefined> {
+  const file = await Deno.open((await getRootStore()) + "/remotes.ndjson");
+  const workspaceStream = makeWorkspaceStream(file.readable);
+  for await (const workspace of workspaceStream) {
+    if (workspace.name === workspaceName) {
+      file.close();
+      return workspace;
+    }
+  }
+  file.close();
+  return undefined;
+}
+
+async function list(opts: GlobalOptions) {
+  const workspaces = await allWorkspaces();
+  const activeName = await getActiveWorkspaceName(opts);
+
   new Table()
-    .header(["id", "name"])
+    .header(["name", "remote", "workspace id"])
+    .padding(2)
+    .border(true)
     .body(
-      workspaces.map((w) => {
-        if (w.id == defaultId)
-          return [colors.underline.green(w.id), colors.underline.green(w.name)];
-        else return [w.id, w.name];
+      workspaces.map((x) => {
+        const a = [x.name, x.remote, x.workspaceId];
+        if (x.name === activeName) {
+          return a.map((x) => colors.underline(x));
+        } else {
+          return a;
+        }
       })
     )
-    .padding(2)
-    .align("center")
-    .border(true)
     .render();
 }
 
-type GetDefaultOptions = GlobalOptions;
-async function getDefault(opts: GetDefaultOptions) {
-  const { urlStore } = await getContext(opts);
-  const id = await getDefaultWorkspaceId(urlStore);
-  if (!id) {
-    console.log(
-      colors.red(
-        "No default workspace set. Run windmill workspace set-default <workspace_id> to set."
-      )
-    );
-    return;
-  }
-  const info = (await WorkspaceService.listWorkspaces()).find(
-    (x) => x.id == id
-  );
-  if (!info) {
-    console.log(
-      colors.underline.red(
-        "Default workspace is set, but cannot be found on remote. Maybe it has been deleted?"
-      )
-    );
-    return;
-  }
-  console.log(colors.green("Id: " + info.id + " Name: " + info.name));
-}
-
-type SetDefaultOptions = GlobalOptions;
-async function setDefault(opts: SetDefaultOptions, workspace_id: string) {
+async function switchC(opts: GlobalOptions, workspaceName: string) {
   if (opts.workspace) {
     console.log(
-      colors.underline.bold.red(
-        "!! --workspace option set, but this command expects the workspace to be passed as a positional argument. !!"
+      colors.red.bold(
+        "! Workspace needs to be specified as positional argument, not as option."
       )
     );
     return;
   }
 
-  const { urlStore } = await getContext(opts);
-  const info = (await WorkspaceService.listWorkspaces()).find(
-    (x) => x.id == workspace_id
+  const all = await allWorkspaces();
+  if (all.findIndex((x) => x.name === workspaceName) === -1) {
+    console.log(colors.red.bold("! This workspace name does not exist."));
+    return;
+  }
+
+  return await Deno.writeTextFile(
+    (await getRootStore()) + "/activeWorkspace",
+    workspaceName
   );
-  if (!info) {
+}
+
+export async function add(
+  opts: GlobalOptions,
+  workspaceName: string | undefined,
+  workspaceId: string | undefined,
+  remote: string | undefined
+) {
+  if (opts.workspace) {
     console.log(
-      colors.underline.red(
-        "Given workspace id " +
-          workspace_id +
-          " cannot be found on remote. Maybe it has been deleted?"
+      colors.red.bold(
+        "! Workspace needs to be specified as positional argument, not as option."
       )
     );
     return;
   }
-  await Deno.writeTextFile(urlStore + "default_workspace_id", workspace_id);
+
+  if (!workspaceName) {
+    workspaceName = await Input.prompt("Name this workspace:");
+  }
+
+  const all = await allWorkspaces();
+  if (all.findIndex((x) => x.name === workspaceName) !== -1) {
+    console.log(colors.red.bold("! Workspace name already exists"));
+    return;
+  }
+
+  if (!workspaceId) {
+    workspaceId = await Input.prompt("Enter the ID of this workspace");
+  }
+
+  if (!remote) {
+    // first check whether workspaceId is actually a URL
+    try {
+      const url = new URL(workspaceId);
+      workspaceId = url.username;
+      url.username = "";
+      remote = url.toString();
+    } catch {
+      // not a url
+      remote = await Input.prompt("Enter the Remote URL");
+    }
+  }
+
+  await addWorkspace({
+    name: workspaceName,
+    remote: remote,
+    workspaceId: workspaceId,
+  });
+  console.log(colors.green.underline("Succesfully added workspace!"));
+}
+
+export async function addWorkspace(workspace: Workspace) {
+  const file = await Deno.open((await getRootStore()) + "/remotes.ndjson", {
+    append: true,
+    write: true,
+    read: false,
+    create: true,
+  });
+  await file.write(new TextEncoder().encode(JSON.stringify(workspace)));
+  file.close();
+}
+
+async function remove(_opts: GlobalOptions, name: string) {
+  const orgWorkspaces = await allWorkspaces();
+  await Deno.writeTextFile(
+    (await getRootStore()) + "/remotes.ndjson",
+    orgWorkspaces
+      .filter((x) => x.name !== name)
+      .map((x) => JSON.stringify(x))
+      .join("\n")
+  );
+  console.log(colors.green.underline("Succesfully removed workspace!"));
 }
 
 const command = new Command()
   .description("workspace related commands")
   .action(list as any)
-  .command("get-default", "get the current default workspace")
-  .action(getDefault as any)
-  .command("set-default", "set the current default workspace")
-  .arguments("<workspace_id:string>")
-  .action(setDefault as any);
+  .command("switch")
+  .description("Switch to another workspace")
+  .arguments("<workspace_name:string>")
+  .action(switchC as any)
+  .command("add")
+  .description("Add a workspace")
+  .arguments("[workspace_name:string] [workspace_id:string] [remote:string]")
+  .action(add as any)
+  .command("remove")
+  .description("Remove a workspace")
+  .arguments("<workspace_name:string>")
+  .action(remove as any);
 
 export default command;

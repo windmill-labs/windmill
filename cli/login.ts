@@ -1,72 +1,23 @@
+// deno-lint-ignore-file no-explicit-any
 import { Command } from "https://deno.land/x/cliffy@v0.25.4/command/mod.ts";
 import { GlobalOptions } from "./types.ts";
 import { colors } from "https://deno.land/x/cliffy@v0.25.4/ansi/colors.ts";
 import { getStore } from "./store.ts";
-import { getDefaultRemote } from "./remote.ts";
 import { getAvailablePort } from "https://deno.land/x/port@1.0.0/mod.ts";
+import { UserService } from "https://deno.land/x/windmill@v1.50.0/mod.ts";
+type Options = GlobalOptions;
 
-export type Options = GlobalOptions;
+async function login(opts: Options) {
+  
+}
 
-async function login({
-  baseUrl,
-  token: existingToken,
-  workspace: existingWorkspace,
-}: Options) {
-  baseUrl = baseUrl ?? (await getDefaultRemote())?.baseUrl;
-  baseUrl = baseUrl ?? "https://app.windmill.dev";
-  const parsedUrl = new URL(baseUrl);
-  const urlWorkspace: string | undefined = parsedUrl.username;
-  if (urlWorkspace != "") {
-    existingWorkspace = existingWorkspace ?? urlWorkspace;
-    parsedUrl.username = "";
-    baseUrl = parsedUrl.toString();
-    baseUrl = baseUrl.substring(0, baseUrl.length - 1);
-  }
-  const urlStore = await getStore(baseUrl);
-
-  if (existingToken) {
-    await Deno.writeTextFile(urlStore + "token", existingToken);
-
-    if (existingWorkspace) {
-      await Deno.writeTextFile(
-        urlStore + "default_workspace_id",
-        existingWorkspace!
-      );
-      console.log(
-        colors.bold.underline.green(
-          "Successfully logged in & switched to workspace " + existingWorkspace
-        )
-      );
-    } else {
-      console.log(colors.bold.underline.green("Successfully logged in"));
-    }
-    return;
+export async function tryGetLoginInfo(opts: GlobalOptions): Promise<string | undefined> {
+  if (opts.token) {
+    return opts.token;
   }
 
-  let { token, workspace } = await browserLogin(baseUrl);
-
-  if (existingWorkspace && workspace && existingWorkspace != workspace) {
-    console.log(
-      colors.yellow.underline(
-        "! Already got workspace information from URL & mismatched with login information. Using " +
-          existingWorkspace
-      )
-    );
-    workspace = existingWorkspace;
+  if (opts.email && opts.password) {
   }
-
-  if (!token) {
-    console.log(colors.red.underline("Invalid Request. Failed to log in."));
-    return;
-  }
-
-  await Deno.writeTextFile(urlStore + "token", token);
-  await Deno.writeTextFile(urlStore + "default_workspace_id", workspace!);
-  console.log(
-    colors.bold.underline.green(
-      "Successfully logged in & switched to workspace " + workspace
-    )
-  );
 }
 
 export async function browserLogin(

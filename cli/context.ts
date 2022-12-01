@@ -1,14 +1,12 @@
-import { parse } from "https://deno.land/std@0.141.0/datetime/mod.ts";
+// deno-lint-ignore-file no-explicit-any
 import { colors } from "https://deno.land/x/cliffy@v0.25.4/ansi/colors.ts";
-import {
-  setClient,
-  UserService,
-} from "https://deno.land/x/windmill@v1.50.0/mod.ts";
-import { getToken } from "./login.ts";
-import { getDefaultRemote, getRemote } from "./remote.ts";
-import { getStore } from "./store.ts";
+import { setClient } from "https://deno.land/x/windmill@v1.50.0/mod.ts";
 import { GlobalOptions } from "./types.ts";
-import { getDefaultWorkspaceId } from "./workspace.ts";
+import {
+  getActiveWorkspace,
+  getWorkspaceByName,
+  Workspace,
+} from "./workspace.ts";
 
 export type Context = {
   workspace: string;
@@ -17,43 +15,41 @@ export type Context = {
   token: string;
 };
 
-export async function getContext({
-  baseUrl,
-  remote,
-  workspace,
-  token,
-  email,
-  password,
-}: GlobalOptions): Promise<Context> {
-  if (remote) {
-    baseUrl = baseUrl ?? (await getRemote(remote))?.baseUrl;
+export async function resolveWorkspace(
+  opts: GlobalOptions
+): Promise<Workspace> {
+  const cache = (opts as any).__secret_workspace;
+  if (cache) return cache;
+
+  if (opts.workspace) {
+    const e = await getWorkspaceByName(opts.workspace);
+    if (!e) {
+      console.log(colors.red.underline("Given workspace does not exist."));
+      return Deno.exit(-1);
+    }
+    (opts as any).__secret_workspace = e;
+    return e;
   }
-  baseUrl = baseUrl ?? (await getDefaultRemote())?.baseUrl;
-  baseUrl = baseUrl ?? "https://app.windmill.dev";
-  const parsedUrl = new URL(baseUrl);
-  let urlWorkspace: string | undefined = parsedUrl.username;
-  if (urlWorkspace == "") urlWorkspace = undefined;
-  parsedUrl.username = "";
-  baseUrl = parsedUrl.toString();
-  baseUrl = baseUrl.substring(0, baseUrl.length - 1);
-  if (email && password) {
-    setClient("no-token", baseUrl);
-    token =
-      token ?? (await UserService.login({ requestBody: { email, password } }));
+
+  const defaultWorkspace = await getActiveWorkspace(opts);
+  if (!defaultWorkspace) {
+    console.log(colors.red.underline("No workspace given and no default set."));
+    return Deno.exit(-3);
   }
-  token = token ?? (await getToken(baseUrl));
-  setClient(token, baseUrl);
-  const urlStore = await getStore(baseUrl);
-  const workspaceId =
-    workspace ?? urlWorkspace ?? (await getDefaultWorkspaceId(urlStore));
-  if (!workspaceId) {
-    console.log(colors.red("No default workspace set and no override given."));
+
+  return defaultWorkspace;
+}
+
+export async function requireLogin(opts: GlobalOptions) {
+  const workspace = await resolveWorkspace(opts);
+
+  let token: string | undefined;
+  tryGetLoginInfo()
+
+  if (token) {
+    setClient(token, workspace.remote);
+  } else {
+    console.log(colors.red.underline("You need to be logged in to do this."));
     Deno.exit(-2);
   }
-  return {
-    workspace: workspaceId,
-    baseUrl: baseUrl,
-    urlStore: urlStore,
-    token: token,
-  };
 }

@@ -1,15 +1,15 @@
+// deno-lint-ignore-file no-explicit-any
 import { Command } from "https://deno.land/x/cliffy@v0.25.4/command/command.ts";
 import { Table } from "https://deno.land/x/cliffy@v0.25.4/table/table.ts";
 import { UserService } from "https://deno.land/x/windmill@v1.50.0/mod.ts";
 import { GlobalUserInfo } from "https://deno.land/x/windmill@v1.50.0/windmill-api/index.ts";
 import { passwordGenerator } from "https://deno.land/x/password_generator@latest/mod.ts"; // TODO: I think the version is called latest, but it's still pinned.
-import { getContext } from "./context.ts";
+import { requireLogin } from "./context.ts";
 import { GlobalOptions } from "./types.ts";
 import { colors } from "https://deno.land/x/cliffy@v0.25.4/ansi/colors.ts";
-import { Input } from "https://deno.land/x/cliffy@v0.25.4/prompt/input.ts";
 
 async function list(opts: GlobalOptions) {
-  const _ = await getContext(opts);
+  await requireLogin(opts);
 
   const perPage = 10;
   let page = 0;
@@ -49,7 +49,7 @@ async function add(
   email: string,
   password?: string
 ) {
-  const _ = await getContext(opts);
+  await requireLogin(opts);
   const password_final = password ?? passwordGenerator("*", 15);
   await UserService.createUserGlobally({
     requestBody: {
@@ -66,7 +66,7 @@ async function add(
   console.log(colors.underline.green("New User Created."));
 }
 async function remove(opts: GlobalOptions, email: string) {
-  const _ = await getContext(opts);
+  await requireLogin(opts);
 
   await UserService.globalUserDelete({ email });
   console.log(colors.green("Deleted User " + email));
