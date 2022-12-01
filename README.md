@@ -49,6 +49,7 @@ Windmill Labs offers commercial licenses, an enterprise edition, local hub mirro
 
 ![Windmill Screenshot](./imgs/windmill-flow.png)
 ![Windmill Screenshot](./imgs/windmill.png)
+![CLI Screencast](./vhs/output/setup.gif)
 
 Windmill is <b>fully open-sourced (AGPLv3)</b>:
 

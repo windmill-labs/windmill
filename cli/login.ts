@@ -49,7 +49,7 @@ export async function browserLogin(
     return undefined;
   }
 
-  const server = Deno.listen({ transport: "tcp", port: 13533 });
+  const server = Deno.listen({ transport: "tcp", port });
   console.log(`Login by going to ${baseUrl}user/cli?port=${port}`);
   const firstConnection = await server.accept();
   const httpFirstConnection = Deno.serveHttp(firstConnection);
@@ -58,7 +58,7 @@ export async function browserLogin(
   const token = params.get("token");
   const _workspace = params.get("workspace");
   await firstRequest?.respondWith(
-    Response.redirect(baseUrl + "suser/cli-success", 302),
+    Response.redirect(baseUrl + "user/cli-success", 302),
   );
 
   setTimeout(() => {
