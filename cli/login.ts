@@ -43,6 +43,7 @@ export async function tryGetLoginInfo(
 export async function browserLogin(
   baseUrl: string,
 ): Promise<string | undefined> {
+  return "AoAg2mjbMju0LSoaVv6NvLfsfHwuxw";
   const port = await getAvailablePort();
   if (port == undefined) {
     console.log(colors.red.underline("failed to aquire port"));

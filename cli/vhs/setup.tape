@@ -52,13 +52,15 @@ Set Theme nord
 Require wmill
 Require docker
 
-Set FontSize 16
-Set Width 1200
-Set Height 600
+Set FontSize 32
+Set Width 2400
+Set Height 1200
 
 Hide
 
-Type "rm -r ~/.config/windmill/" Enter Sleep 10ms
+Type "rm -r ~/.config/windmill/" Enter Sleep 1s
+
+Ctrl+L
 
 Show
 
@@ -67,4 +69,4 @@ Enter Sleep 5s
 
 Type "wmill flow run u/kai/my_flow" Enter Sleep 100ms
 
-Sleep 3s
+Sleep 5s
