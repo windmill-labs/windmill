@@ -188,6 +188,10 @@ export async function add(
     workspaceId: workspaceId,
     token: token,
   });
+  await Deno.writeTextFile(
+    (await getRootStore()) + "/activeWorkspace",
+    workspaceName,
+  );
   console.log(colors.green.underline("Succesfully added workspace!"));
 }
 
