@@ -8,7 +8,7 @@ A simple CLI allowing interactions with windmill from the command line.
 Install the `wmill` CLI tool using
 `deno install --unstable -A https://deno.land/x/wmill/main.ts`.
 
-Update to the latest version using `wmill upgrade`. ![](./vhs/output/setup.gif)
+Update to the latest version using `wmill upgrade`.
 
 ## Workspaces
 
