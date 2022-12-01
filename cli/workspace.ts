@@ -51,7 +51,7 @@ async function allWorkspaces(): Promise<Workspace[]> {
     }
 
     return workspaces;
-  } catch {
+  } catch (e) {
     return [];
   }
 }
@@ -198,7 +198,7 @@ export async function addWorkspace(workspace: Workspace) {
     read: false,
     create: true,
   });
-  await file.write(new TextEncoder().encode(JSON.stringify(workspace)));
+  await file.write(new TextEncoder().encode(JSON.stringify(workspace) + "\n"));
   file.close();
 }
 
