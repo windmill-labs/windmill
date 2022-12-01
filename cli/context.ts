@@ -1,6 +1,7 @@
 // deno-lint-ignore-file no-explicit-any
 import { colors } from "https://deno.land/x/cliffy@v0.25.4/ansi/colors.ts";
 import { setClient } from "https://deno.land/x/windmill@v1.50.0/mod.ts";
+import { tryGetLoginInfo } from "./login.ts";
 import { GlobalOptions } from "./types.ts";
 import {
   getActiveWorkspace,
@@ -43,8 +44,7 @@ export async function resolveWorkspace(
 export async function requireLogin(opts: GlobalOptions) {
   const workspace = await resolveWorkspace(opts);
 
-  let token: string | undefined;
-  tryGetLoginInfo()
+  const token = await tryGetLoginInfo(opts);
 
   if (token) {
     setClient(token, workspace.remote);

@@ -10,7 +10,7 @@ import { Input } from "https://deno.land/x/cliffy@v0.25.4/prompt/input.ts";
 export type Workspace = { remote: string; workspaceId: string; name: string };
 
 function makeWorkspaceStream(
-  readable: ReadableStream<Uint8Array>
+  readable: ReadableStream<Uint8Array>,
 ): ReadableStream<Workspace> {
   return readable
     .pipeThrough(new DelimiterStream(new TextEncoder().encode("\n")))
@@ -27,7 +27,7 @@ function makeWorkspaceStream(
             /* ignore */
           }
         },
-      })
+      }),
     );
 }
 
@@ -45,7 +45,7 @@ async function allWorkspaces(): Promise<Workspace[]> {
 }
 
 async function getActiveWorkspaceName(
-  opts: GlobalOptions
+  opts: GlobalOptions,
 ): Promise<string | undefined> {
   if (opts.workspace) {
     return opts.workspace;
@@ -58,7 +58,7 @@ async function getActiveWorkspaceName(
 }
 
 export async function getActiveWorkspace(
-  opts: GlobalOptions
+  opts: GlobalOptions,
 ): Promise<Workspace | undefined> {
   const name = await getActiveWorkspaceName(opts);
   if (!name) {
@@ -68,7 +68,7 @@ export async function getActiveWorkspace(
 }
 
 export async function getWorkspaceByName(
-  workspaceName: string
+  workspaceName: string,
 ): Promise<Workspace | undefined> {
   const file = await Deno.open((await getRootStore()) + "/remotes.ndjson");
   const workspaceStream = makeWorkspaceStream(file.readable);
@@ -98,7 +98,7 @@ async function list(opts: GlobalOptions) {
         } else {
           return a;
         }
-      })
+      }),
     )
     .render();
 }
@@ -107,8 +107,8 @@ async function switchC(opts: GlobalOptions, workspaceName: string) {
   if (opts.workspace) {
     console.log(
       colors.red.bold(
-        "! Workspace needs to be specified as positional argument, not as option."
-      )
+        "! Workspace needs to be specified as positional argument, not as option.",
+      ),
     );
     return;
   }
@@ -121,21 +121,28 @@ async function switchC(opts: GlobalOptions, workspaceName: string) {
 
   return await Deno.writeTextFile(
     (await getRootStore()) + "/activeWorkspace",
-    workspaceName
+    workspaceName,
   );
+}
+
+export async function setWorkspaceToken(
+  workspace: Workspace,
+  token: string | undefined,
+) {
+  throw undefined;
 }
 
 export async function add(
   opts: GlobalOptions,
   workspaceName: string | undefined,
   workspaceId: string | undefined,
-  remote: string | undefined
+  remote: string | undefined,
 ) {
   if (opts.workspace) {
     console.log(
       colors.red.bold(
-        "! Workspace needs to be specified as positional argument, not as option."
-      )
+        "! Workspace needs to be specified as positional argument, not as option.",
+      ),
     );
     return;
   }
@@ -193,7 +200,7 @@ async function remove(_opts: GlobalOptions, name: string) {
     orgWorkspaces
       .filter((x) => x.name !== name)
       .map((x) => JSON.stringify(x))
-      .join("\n")
+      .join("\n"),
   );
   console.log(colors.green.underline("Succesfully removed workspace!"));
 }

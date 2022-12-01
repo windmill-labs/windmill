@@ -23,7 +23,6 @@ async function list(opts: GlobalOptions) {
       break;
     }
   }
-
   new Table()
     .header(["email", "name", "company", "verified", "super admin"])
     .padding(2)
