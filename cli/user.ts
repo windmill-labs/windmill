@@ -72,7 +72,7 @@ async function remove(opts: GlobalOptions, email: string) {
 }
 
 async function createToken(
-  opts: GlobalOptions & { username: string; password: string },
+  opts: GlobalOptions & { email: string; password: string },
 ) {
   if (opts.email && opts.password) {
     console.log(
