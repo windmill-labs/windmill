@@ -8,7 +8,6 @@ import script from "./script.ts";
 import workspace from "./workspace.ts";
 import resource from "./resource.ts";
 import user from "./user.ts";
-import setup from "./setup.ts";
 import variable from "./variable.ts";
 import push from "./push.ts";
 import pull from "./pull.ts";
@@ -42,7 +41,6 @@ await new Command()
   .command("workspace", workspace)
   .command("resource", resource)
   .command("user", user)
-  .command("setup", setup)
   .command("variable", variable)
   .command("push", push)
   .command("pull", pull)
