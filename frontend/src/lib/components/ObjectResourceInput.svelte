@@ -6,6 +6,7 @@
 	import { ToggleButton, ToggleButtonGroup } from './common'
 	import ResourcePicker from './ResourcePicker.svelte'
 	import SchemaForm from './SchemaForm.svelte'
+	import SimpleEditor from './SimpleEditor.svelte'
 
 	export let format: string
 	export let value: any
@@ -28,9 +29,16 @@
 
 	async function loadSchema(format: string) {
 		resourceTypeName = format.substring('resource-'.length)
-		schema = (
-			await ResourceService.getResourceType({ workspace: $workspaceStore!, path: resourceTypeName })
-		).schema
+		try {
+			schema = (
+				await ResourceService.getResourceType({
+					workspace: $workspaceStore!,
+					path: resourceTypeName
+				})
+			).schema
+		} catch (e) {
+			schema = undefined
+		}
 	}
 
 	function argToValue() {
@@ -91,8 +99,12 @@
 			/>
 		{:else}
 			<div class="border rounded p-2 w-full">
-				{#if !isString(args)}
-					<SchemaForm {compact} {schema} bind:isValid bind:args />
+				{#if schema != undefined}
+					{#if !isString(args)}
+						<SchemaForm {compact} {schema} bind:isValid bind:args />
+					{/if}
+				{:else}
+					<SimpleEditor autoHeight lang="json" bind:value={args} />
 				{/if}
 			</div>
 		{/if}
