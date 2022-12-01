@@ -5,7 +5,6 @@
 	import { createEventDispatcher } from 'svelte'
 	import Icon from 'svelte-awesome'
 	import { Button } from './common'
-	import ResourceEditor from './ResourceEditor.svelte'
 	import Select from 'svelte-select'
 
 	const dispatch = createEventDispatcher()
@@ -14,8 +13,6 @@
 	export let initialValue: string | undefined = undefined
 	export let value: string | undefined = initialValue
 	export let resourceType: string | undefined = undefined
-
-	let resourceEditor: ResourceEditor
 
 	async function loadResources(resourceType: string | undefined) {
 		const v = value
@@ -35,7 +32,6 @@
 	}))
 </script>
 
-<ResourceEditor bind:this={resourceEditor} on:refresh={() => loadResources(resourceType)} />
 <div class="flex flex-row gap-x-1 w-full">
 	<Select
 		bind:justValue={value}
@@ -43,12 +39,8 @@
 		class="grow"
 		placeholder="Pick a {resourceType} resource"
 	/>
-	<Button
-		variant="border"
-		size="xs"
-		on:click={() => {
-			resourceEditor.initNew(resourceType)
-		}}><Icon scale={0.8} data={faPlus} /></Button
+	<Button variant="border" target="_blank" size="xs" href="/resources?connect_app={resourceType}"
+		><Icon scale={0.8} data={faPlus} /></Button
 	>
 	<Button
 		variant="border"

@@ -1331,7 +1331,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/ListableResource"
+                $ref: "#/components/schemas/Resource"
 
   /w/{workspace}/resources/get_value/{path}:
     get:

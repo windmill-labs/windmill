@@ -126,14 +126,14 @@ async fn list_apps(
 
     let sqlb = SqlBuilder::select_from("app")
         .fields(&[
-            "id",
+            "app.id",
             "app.workspace_id",
             "app.path",
-            "summary",
-            "versions[array_upper(versions, 1)] as version",
-            "policy->>'execution_mode' as execution_mode",
+            "app.summary",
+            "app.versions[array_upper(app.versions, 1)] as version",
+            "app.policy->>'execution_mode' as execution_mode",
             "app_version.created_at as edited_at",
-            "extra_perms",
+            "app.extra_perms",
             "favorite.path IS NOT NULL as starred",
         ])
         .left()

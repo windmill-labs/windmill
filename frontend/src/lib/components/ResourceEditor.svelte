@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { type Resource, ResourceService, type ResourceType, VariableService } from '$lib/gen'
-	import { allTrue, emptySchema, sendUserToast } from '$lib/utils'
+	import { allTrue, canWrite, sendUserToast } from '$lib/utils'
 	import { createEventDispatcher } from 'svelte'
 	import type { Schema } from '$lib/common'
 	import Path from './Path.svelte'
@@ -8,21 +8,17 @@
 	import ItemPicker from './ItemPicker.svelte'
 	import VariableEditor from './VariableEditor.svelte'
 	import Required from './Required.svelte'
-	import { Button, Drawer } from './common'
+	import { Alert, Button, Drawer } from './common'
 
-	import { workspaceStore } from '$lib/stores'
-	import ResourceTypePicker from './ResourceTypePicker.svelte'
+	import { userStore, workspaceStore } from '$lib/stores'
 	import DrawerContent from './common/drawer/DrawerContent.svelte'
 	import autosize from 'svelte-autosize'
 	import SimpleEditor from './SimpleEditor.svelte'
-	import AppConnect from './AppConnect.svelte'
 	import { faSave } from '@fortawesome/free-solid-svg-icons'
 
 	let path = ''
 	let initialPath = ''
 	let pathError = ''
-
-	let step = 1
 
 	let resourceToEdit: Resource | undefined
 
@@ -32,6 +28,7 @@
 	let resourceType: ResourceType
 	let resourceSchema: Schema | undefined
 	let args: Record<string, any> = {}
+	let can_write = true
 
 	let error: string | undefined
 
@@ -44,39 +41,18 @@
 
 	const dispatch = createEventDispatcher()
 
-	export async function initNew(rt?: string) {
-		step = 1
-		args = {}
-		path = ''
-		description = ''
-		initialPath = ''
-		resourceSchema = emptySchema()
-		resourceToEdit = undefined
-		selectedResourceType = rt
-		drawer.openDrawer()
-	}
-
 	export async function initEdit(p: string): Promise<void> {
 		initialPath = p
 		path = p
-		step = 2
 		resourceToEdit = await ResourceService.getResource({ workspace: $workspaceStore!, path: p })
 		description = resourceToEdit!.description ?? ''
 		selectedResourceType = resourceToEdit!.resource_type
 		args = resourceToEdit!.value
+		can_write =
+			resourceToEdit.workspace_id == $workspaceStore &&
+			canWrite(p, resourceToEdit.extra_perms ?? {}, $userStore)
 		await loadResourceType()
-		drawer.openDrawer()
-	}
-
-	async function createResource(): Promise<void> {
-		await ResourceService.createResource({
-			workspace: $workspaceStore!,
-			requestBody: { path, value: args, description, resource_type: resourceType.name }
-		})
-		sendUserToast(`Successfully created resource at ${path}`)
-
-		dispatch('refresh')
-		drawer.closeDrawer()
+		drawer.openDrawer?.()
 	}
 
 	async function editResource(): Promise<void> {
@@ -97,7 +73,7 @@
 				})
 				sendUserToast(`Successfully updated resource at ${path}`)
 				dispatch('refresh')
-				drawer.closeDrawer()
+				drawer.closeDrawer?.()
 			} else {
 				throw Error('Cannot edit undefined resourceToEdit')
 			}
@@ -126,10 +102,6 @@
 		}
 	}
 
-	function resourceAction() {
-		return resourceToEdit ? editResource() : createResource()
-	}
-
 	let inputCheck: { [id: string]: boolean } = {}
 
 	$: isValid = allTrue(inputCheck) ?? false
@@ -141,48 +113,43 @@
 		on:close={drawer.closeDrawer}
 	>
 		<div>
-			<!-- content -->
-			{#if step === 1}
-				<div class="flex flex-col gap-3 py-3  text-gray-700">
-					<div>
-						<span class="text-red-600 text-2xs grow">{error ?? ''}</span>
-						<span class="mb-1 font-semibold text-gray-700">Path</span>
-						<Path
-							bind:error={pathError}
-							bind:path
-							{initialPath}
-							namePlaceholder="my_resource"
-							kind="resource"
-						/>
-					</div>
-					<span class=" mt-3 font-semibold text-gray-700 "
-						>Description <Required required={false} />
-					</span>
-					<textarea
-						type="text"
-						use:autosize
-						bind:value={description}
-						placeholder={DESCRIPTION_PLACEHOLDER}
-					/>
-					<div>
-						<div class="mb-2 font-semibold text-gray-700">
-							Resource type<Required required={true} />
+			<div class="flex flex-col gap-3 py-3  text-gray-700">
+				<div>
+					{#if !can_write}
+						<div class="m-2">
+							<Alert type="warning" title="Only read access"
+								>You only have read access to this resource and cannot edit it</Alert
+							>
 						</div>
-						<ResourceTypePicker
-							bind:value={selectedResourceType}
-							notPickable={resourceToEdit != undefined}
-							on:click={() => {
-								args = {}
-							}}
-						/>
-					</div>
+					{/if}
+
+					<span class="text-red-600 text-2xs grow">{error ?? ''}</span>
+					<Path
+						disabled={!can_write}
+						bind:error={pathError}
+						bind:path
+						{initialPath}
+						namePlaceholder="my_resource"
+						kind="resource"
+					/>
 				</div>
-			{:else}
+				<h3>Description <Required required={false} /> </h3>
+				<textarea
+					type="text"
+					disabled={!can_write}
+					use:autosize
+					bind:value={description}
+					placeholder={DESCRIPTION_PLACEHOLDER}
+				/>
+
+				<h3 class="mt-4">Value</h3>
 				<div class="text-sm">
 					{#if resourceSchema && resourceSchema?.properties}
 						{#each Object.keys(resourceSchema.properties) as fieldName}
-							<div class="flex flex-row w-full items-end justify-between">
+							<div class="flex flex-row w-full items-center justify-between">
 								<ArgInput
+									compact
+									disabled={!can_write}
 									label={fieldName}
 									description={resourceSchema.properties[fieldName]?.description}
 									bind:value={args[fieldName]}
@@ -197,7 +164,7 @@
 									properties={resourceSchema.properties[fieldName]?.properties}
 									format={resourceSchema.properties[fieldName]?.format}
 								/>
-								<div class="pb-6 ml-2 relative">
+								<div class="ml-2 relative">
 									<Button
 										variant="border"
 										color="blue"
@@ -205,7 +172,7 @@
 										btnClasses="min-w-min items-center leading-4 py-0"
 										on:click={() => {
 											pickForField = fieldName
-											itemPicker.openDrawer()
+											itemPicker.openDrawer?.()
 										}}>Insert variable</Button
 									>
 								</div>
@@ -217,34 +184,12 @@
 						</div>
 					{/if}
 				</div>
-			{/if}
+			</div>
 		</div>
 		<span slot="submission" class="flex gap-4 mr-2">
-			{#if step === 1}
-				<Button
-					target="_blank"
-					color="blue"
-					variant="border"
-					size="sm"
-					href="/resources?connect_app=undefined"
-				>
-					Connect an API
-				</Button>
-				<Button
-					on:click={async () => {
-						await loadResourceType()
-						step = 2
-					}}
-					disabled={selectedResourceType == undefined || pathError != ''}
-				>
-					Next
-				</Button>
-			{:else}
-				<Button variant="border" on:click={() => (step = 1)}>Back</Button>
-				<Button startIcon={{ icon: faSave }} on:click={resourceAction} disabled={!isValid}
-					>Save</Button
-				>
-			{/if}
+			<Button startIcon={{ icon: faSave }} on:click={editResource} disabled={!can_write || !isValid}
+				>Save</Button
+			>
 		</span>
 	</DrawerContent>
 </Drawer>
@@ -273,7 +218,7 @@
 			color="blue"
 			size="sm"
 			on:click={() => {
-				variableEditor.initNew()
+				variableEditor?.initNew?.()
 			}}
 		>
 			Create a new variable

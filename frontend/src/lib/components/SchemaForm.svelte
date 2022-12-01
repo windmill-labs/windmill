@@ -19,6 +19,7 @@
 
 	export let shouldHideNoInputs: boolean = false
 	export let compact = false
+	export let password: string | undefined = undefined
 
 	let clazz: string = ''
 	export { clazz as class }
@@ -74,6 +75,7 @@
 						disabled={disabledArgs.includes(argName)}
 						{editableSchema}
 						{compact}
+						password={argName == password}
 					/>
 				{/if}
 			</div>
