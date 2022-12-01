@@ -46,7 +46,7 @@
 		{#if !isCollapsed}
 			<span
 				class={classNames(
-					'whitespace-pre text-white',
+					'whitespace-pre text-white truncate',
 					isSelected ? ' text-gray-700 font-bold' : 'text-white group-hover:text-gray-900'
 				)}
 			>

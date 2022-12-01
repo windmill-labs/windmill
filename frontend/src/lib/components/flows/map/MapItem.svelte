@@ -8,6 +8,7 @@
 	import FlowBranchOneMap from './FlowBranchOneMap.svelte'
 	import FlowBranchAllMap from './FlowBranchAllMap.svelte'
 	import {
+		faArrowRotateForward,
 		faBuilding,
 		faCode,
 		faCodeBranch,
@@ -15,6 +16,8 @@
 		faRepeat
 	} from '@fortawesome/free-solid-svg-icons'
 	import Icon from 'svelte-awesome'
+	import IconedResourceType from '$lib/components/IconedResourceType.svelte'
+	import LanguageIcon from '$lib/components/common/languageIcons/LanguageIcon.svelte'
 
 	export let mod: FlowModule
 
@@ -50,7 +53,7 @@
 				{...itemProps}
 			>
 				<div slot="icon">
-					<Icon data={faRepeat} scale={0.8} />
+					<Icon data={faArrowRotateForward} scale={1.1} />
 				</div>
 			</FlowModuleSchemaItem>
 			<div class="flex flex-row w-full">
@@ -73,7 +76,7 @@
 				label={mod.summary || 'Run one branch'}
 			>
 				<div slot="icon">
-					<Icon data={faCodeBranch} scale={0.8} />
+					<Icon data={faCodeBranch} scale={1} />
 				</div>
 			</FlowModuleSchemaItem>
 			<FlowBranchOneMap bind:module={mod} />
@@ -89,7 +92,7 @@
 				label={mod.summary || 'Run all branches'}
 			>
 				<div slot="icon">
-					<Icon data={faCodeBranch} scale={0.8} />
+					<Icon data={faCodeBranch} scale={1} />
 				</div>
 			</FlowModuleSchemaItem>
 			<FlowBranchAllMap bind:module={mod} />
@@ -108,11 +111,17 @@
 			>
 				<div slot="icon">
 					{#if mod.value.type === 'rawscript'}
-						<Icon data={faCode} scale={0.8} />
+						<LanguageIcon lang={mod.value.language} width={16} height={16} />
 					{:else if mod.value.type === 'identity'}
-						<Icon data={faLongArrowDown} scale={0.8} />
+						<Icon data={faLongArrowDown} scale={1.1} />
 					{:else if mod.value.type === 'script'}
-						<Icon data={faBuilding} scale={0.8} />
+						{#if mod.value.path.startsWith('hub/')}
+							<div class="w-5">
+								<IconedResourceType name={mod.value.path.split('/')[2]} silent={true} />
+							</div>
+						{:else}
+							<Icon data={faBuilding} scale={1.1} />
+						{/if}
 					{/if}
 				</div>
 			</FlowModuleSchemaItem>

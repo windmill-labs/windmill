@@ -15,6 +15,7 @@
 	import SimpleEditor from './SimpleEditor.svelte'
 	import autosize from 'svelte-autosize'
 	import Toggle from './Toggle.svelte'
+	import Password from './Password.svelte'
 
 	export let label: string = ''
 	export let value: any
@@ -39,6 +40,7 @@
 	export let properties: { [name: string]: SchemaProperty } | undefined = undefined
 	export let autofocus = false
 	export let compact = false
+	export let password = false
 
 	let seeEditable: boolean = enum_ != undefined || pattern != undefined
 	const dispatch = createEventDispatcher()
@@ -336,24 +338,28 @@
 						: undefined}
 				/>
 			{:else if inputCat == 'string'}
-				<textarea
-					{autofocus}
-					rows="1"
-					bind:this={el}
-					on:focus={() => dispatch('focus')}
-					on:blur={() => dispatch('blur')}
-					use:autosize
-					type="text"
-					{disabled}
-					class="col-span-10 {valid
-						? ''
-						: 'border border-red-700 border-opacity-30 focus:border-red-700 focus:border-opacity-30 bg-red-100'}"
-					placeholder={defaultValue ?? ''}
-					bind:value
-					on:input={() => {
-						dispatch('input', { rawValue: value, isRaw: false })
-					}}
-				/>
+				{#if password}
+					<Password bind:password={value} />
+				{:else}
+					<textarea
+						{autofocus}
+						rows="1"
+						bind:this={el}
+						on:focus={() => dispatch('focus')}
+						on:blur={() => dispatch('blur')}
+						use:autosize
+						type="text"
+						{disabled}
+						class="col-span-10 {valid
+							? ''
+							: 'border border-red-700 border-opacity-30 focus:border-red-700 focus:border-opacity-30 bg-red-100'}"
+						placeholder={defaultValue ?? ''}
+						bind:value
+						on:input={() => {
+							dispatch('input', { rawValue: value, isRaw: false })
+						}}
+					/>
+				{/if}
 			{/if}
 			{#if !required && inputCat != 'resource-object'}
 				<!-- <Tooltip placement="bottom" content="Reset to default value">

@@ -22,7 +22,7 @@ Open-source developer infrastructure for internal tools. Self-hostable alternati
 
 ---
 
-**Join the beta (personal workspaces are free forever)**:
+**Try it (personal workspaces are free forever)**:
 <https://app.windmill.dev>
 
 **Documentation**: <https://docs.windmill.dev>
@@ -35,15 +35,9 @@ Open-source developer infrastructure for internal tools. Self-hostable alternati
 
 **Roadmap**: <https://github.com/orgs/windmill-labs/projects/2>
 
-**[Self-host instruction](#how-to-self-host)**
-
 You can show your support for the project by starring this repo.
 
----
-
-Windmill Labs offers commercial licenses and support to convert your existing
-automation and help you scale it in production. If interested, contact
-ruben@windmill.dev (founder of Windmill).
+Windmill Labs offers commercial licenses, an enterprise edition, local hub mirrors, and support: contact ruben@windmill.dev.
 
 ---
 
@@ -53,40 +47,56 @@ ruben@windmill.dev (founder of Windmill).
 <b>Disclaimer: </b>Windmill is in <b>BETA</b>. It is secure to run in production but we are still <a href="https://github.com/orgs/windmill-labs/projects/2">improving the product fast<a/>.
 </p>
 
+![Windmill Screenshot](./imgs/windmill-flow.png)
 ![Windmill Screenshot](./imgs/windmill.png)
 
 Windmill is <b>fully open-sourced (AGPLv3)</b>:
 
-## What is the general idea behind Windmill
+- [Windmill](#windmill)
+  - [Main Concepts](#main-concepts)
+  - [CLI](#cli)
+  - [Layout](#layout)
+  - [Stack](#stack)
+  - [Security](#security)
+    - [Sandboxing and workload isolation](#sandboxing-and-workload-isolation)
+    - [Secrets, credentials and sensitive values](#secrets-credentials-and-sensitive-values)
+  - [Performance](#performance)
+  - [Architecture](#architecture)
+    - [Big-picture Architecture](#big-picture-architecture)
+    - [Technical Architecture](#technical-architecture)
+  - [How to self-host](#how-to-self-host)
+    - [Docker compose](#docker-compose)
+    - [Commercial license](#commercial-license)
+    - [OAuth for self-hosting (very optional)](#oauth-for-self-hosting-very-optional)
+    - [Resource types](#resource-types)
+  - [Environment Variables](#environment-variables)
+  - [Run a local dev setup](#run-a-local-dev-setup)
+    - [only Frontend](#only-frontend)
+    - [Backend + Frontend](#backend--frontend)
+  - [Contributors](#contributors)
+  - [Copyright](#copyright)
+
+## Main Concepts
 
 1. Define a minimal and generic script in Python, Typescript, Go or Bash that solves a
    specific task. Here sending an email with SMTP. The code can be defined in
    the provided Web IDE or synchronized with your own github repo:
-   ![Step 1](./imgs/python-script.png)
+   ![Step 1](./imgs/windmill-editor.png)
 
-2. Your scripts parameters are automatically parsed and generate a frontend. You
-   can narrow down the types during task definition to specify regex for string,
-   an enum or a specific format for objects. Each script correspond to an app by
-   itself: ![Step 2](./imgs/arguments.png)
+2. Your scripts parameters are automatically parsed and generate a frontend. 
+   ![Step 2](./imgs/windmill-run.png)
+   ![Step 3](./imgs/windmill-result.png)
 
 3. Make it flow! You can chain your scripts or scripts made by the community
-   shared on [WindmillHub](https://hub.windmill.dev). There is tight integration
-   between Windmill and the hub to make it easy to build flows from a soon-to-be
-   exhaustive library of generic modules. In flows, one can pipe output to input
-   using rich expressions that are just plain Javascript underneath. Flows
-   support for-loops, branching, approval steps. As such and coupled with
-   inputs being able to refer to any step's output, they are actual DAG rather
-   than just linear sequences. They are backed by an open JSON spec we call
-   [OpenFlow](https://docs.windmill.dev/docs/openflow)
+   shared on [WindmillHub](https://hub.windmill.dev). 
+  ![Step 4](./imgs/windmill-flow.png)
 
-Both scripts and flows are not restricted to be triggered by the UI. They can be
-triggered by a schedule, watch for changes (using
-[internal states](https://docs.windmill.dev/docs/reference#internal-state)) or
-triggered through API with either an async or sync webhook. The latter kind of
-endpoints make Windmill akin to a self-hostable AWS Lambda. Windmill can be the
-central place to host, build and run all of your integrations, automation and
-internal apps. We include credentials management and OAuth integration, groups
-and much more!
+4. (Coming soon) Build complex UI on top of your scripts and flows. 
+  ![Step 5](./imgs/windmill-builder.png)
+
+Scripts and flows can also be triggered by a cron schedule '*/5 * * * *' or through webhooks.
+
+You can build your entire infra on top of Windmill!
 
 ## CLI
 
@@ -138,9 +148,7 @@ That is what we do at <https://app.windmill.dev>.
 
 ## Performance
 
-The performances are great, as long as you do not exceed the parallelism of the
-workers, we are
-[worse than AWS Lambda for small workloads but not by that much](https://docs.windmill.dev/docs/benchmark)
+Once a job started, there is no overhead compared to running the same script on the node with its corresponding runner (Deno/Go/Python/Bash). The added latency from a job being pulled from the queue, started, and then having its result sent back to the database is ~50ms. A typical lightweight deno job will take around 100ms total.
 
 ## Architecture
 
@@ -251,6 +259,37 @@ You will also want to import all the approved resource types from
 [WindmillHub](https://hub.windmill.dev). There is no automatic way to do this
 automatically currently, but it will be possible using a command with the
 upcoming CLI tool.
+
+## Environment Variables
+
+| Environment Variable name | Default                | Description                                                                                                                                                                                        | Api Server/Worker/All |
+| ------------------------- | ---------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------- |
+| DATABASE_URL              |                        | The Postgres database url.                                                                                                                                                                         | All                   |
+| DISABLE_NSJAIL            | true                   | Disable Nsjail Sandboxing                                                                                                                                                                          |                       | Worker |
+| NUM_WORKERS               | 3                      | The number of worker per Worker instance (set to 1 on Eks to have 1 pod = 1 worker)                                                                                                                | Worker                |
+| METRICS_ADDR              | None                   | The socket addr at which to expose Prometheus metrics at the /metrics path. Set to "true" to expose it on port 8001                                                                                | All                   |
+| JSON_FMT                  | false                  | Output the logs in json format instead of logfmt                                                                                                                                                   | All                   |
+| BASE_URL                  | http://localhost:8000  | The base url that is exposed publicly to access your instance                                                                                                                                      | Server                |
+| BASE_INTERNAL_URL         | http://localhost:8000  | The base url that is reachable by your workers to talk to the Servers. This help avoiding going through the external load balancer for VPC-internal requests.                                      | Worker                |
+| TIMEOUT                   | 300                    | The timeout in seconds for the execution of a script                                                                                                                                               | Worker                |
+| SLEEP_QUEUE               | 50                     | The number of ms to sleep in between the last check for new jobs in the DB. It is multiplied by NUM_WORKERS such that in average, for one worker instance, there is one pull every SLEEP_QUEUE ms. | Worker                |
+| DISABLE_NUSER             | false                  | If Nsjail is enabled, disable the nsjail's `clone_newuser` setting                                                                                                                                 | Worker                |
+| KEEP_JOB_DIR              | false                  | Keep the job directory after the job is done. Useful for debugging.                                                                                                                                | Worker                |
+| LICENSE_KEY (EE only)     | None                   | License key checked at startup for the Enterprise Edition of Windmill                                                                                                                              | Worker                |
+| S3_CACHE_BUCKET (EE only) | None                   | The S3 bucket to sync the cache of the workers to                                                                                                                                                  | Worker                |
+| TAR_CACHE_RATE (EE only)  | 100                    | The rate at which to tar the cache of the workers. 100 means every 100th job in average (uniformly randomly distributed).                                                                          | Worker                |
+| SLACK_SIGNING_SECRET      | None                   | The signing secret of your Slack app. See [Slack documentation](https://api.slack.com/authentication/verifying-requests-from-slack)                                                                | Server                |
+| COOKIE_DOMAIN             | None                   | The domain of the cookie. If not set, the cookie will be set by the browser based on the full origin                                                                                               | Server                |
+| SERVE_CSP                 | None                   | The CSP directives to use when serving the frontend static assets                                                                                                                                  | Server                |
+| DENO_PATH                 | /usr/bin/deno          | The path to the deno binary.                                                                                                                                                                       | Worker                |
+| PYTHON_PATH               | /usr/local/bin/python3 | The path to the python binary.                                                                                                                                                                     | Worker                |
+| GO_PATH                   | /usr/bin/go            | The path to the go binary.                                                                                                                                                                         | Worker                |
+| PIP_INDEX_URL             | None                   | The index url to pass for pip.                                                                                                                                                                     | Worker                |
+| PIP_EXTRA_INDEX_URL       | None                   | The extra index url to  pass to pip.                                                                                                                                                               | Worker                |
+| PIP_TRUSTED_HOST          | None                   | The trusted host to pass to pip.                                                                                                                                                                   | Worker                |
+| PATH                      | None                   | The path environment variable, usually inherited                                                                                                                                                   | Worker                |
+| HOME                      | None                   | The home directory to use for Go and Bash                                                                                        , usually inherited                                               | Worker                |
+
 
 ## Run a local dev setup
 

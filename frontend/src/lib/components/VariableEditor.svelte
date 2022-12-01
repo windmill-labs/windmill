@@ -1,9 +1,9 @@
 <script lang="ts">
-	import { sendUserToast } from '$lib/utils'
+	import { canWrite, sendUserToast } from '$lib/utils'
 	import { VariableService } from '$lib/gen'
 	import Path from './Path.svelte'
 	import { createEventDispatcher } from 'svelte'
-	import { workspaceStore } from '$lib/stores'
+	import { userStore, workspaceStore } from '$lib/stores'
 	import Required from './Required.svelte'
 	import Tooltip from './Tooltip.svelte'
 	import { Button, ToggleButton, ToggleButtonGroup } from './common'
@@ -34,6 +34,7 @@
 	let edit = false
 	let initialPath: string
 	let pathError = ''
+	let can_write = true
 
 	export function initNew(): void {
 		variable = {
@@ -44,6 +45,7 @@
 		edit = false
 		initialPath = ''
 		path = ''
+		can_write = true
 		drawer.openDrawer()
 	}
 
@@ -54,6 +56,9 @@
 			path,
 			decryptSecret: false
 		})
+		can_write =
+			getV.workspace_id == $workspaceStore && canWrite(path, getV.extra_perms ?? {}, $userStore)
+
 		variable = {
 			value: getV.value ?? '',
 			is_secret: getV.is_secret,
@@ -129,8 +134,16 @@
 		<div class="flex flex-col gap-6">
 			<div>
 				<div>
+					{#if !can_write}
+						<div class="m-2">
+							<Alert type="warning" title="Only read access"
+								>You only have read access to this resource and cannot edit it</Alert
+							>
+						</div>
+					{/if}
 					<div class="mb-1 font-semibold text-gray-700">General</div>
 					<Path
+						disabled={!can_write}
 						bind:error={pathError}
 						bind:path
 						{initialPath}
@@ -164,6 +177,7 @@
 				<div class="flex flex-row">
 					{#if editorKind == 'plain'}
 						<textarea
+							disabled={!can_write}
 							rows="4"
 							type="text"
 							use:autosize
@@ -206,7 +220,7 @@
 		<div slot="submission">
 			<Button
 				on:click={() => (edit ? updateVariable() : createVariable())}
-				disabled={!valid || pathError != ''}
+				disabled={!can_write || !valid || pathError != ''}
 				btnClasses="mr-2"
 				startIcon={{ icon: faSave }}
 			>

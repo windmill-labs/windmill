@@ -2,19 +2,11 @@
 	const apiTokenApps: Record<string, { img?: string; instructions: string[]; key?: string }> = {
 		airtable: {
 			img: 'airtable_connect.png',
-			instructions: [
-				'Click on the top-right avatar',
-				'Click on Account',
-				'Find "Api"'
-			]
+			instructions: ['Click on the top-right avatar', 'Click on Account', 'Find "Api"']
 		},
 		discord_webhook: {
 			img: 'discord_webhook.png',
-			instructions: [
-				'Click on Server Settings',
-				'Click on Integration',
-				'Find "Webhooks"'
-			],
+			instructions: ['Click on Server Settings', 'Click on Integration', 'Find "Webhooks"'],
 			key: 'webhook_url'
 		},
 		toggl: {
@@ -30,7 +22,7 @@
 				'Go to <a href="https://admin.mailchimp.com/account/api" target="_blank" rel=”noopener noreferrer”>https://admin.mailchimp.com/account/api</a>',
 				'Find "Your API Keys"'
 			]
-		},
+		}
 	}
 </script>
 
@@ -43,10 +35,10 @@
 	import { sendUserToast, truncateRev } from '$lib/utils'
 	import { createEventDispatcher } from 'svelte'
 	import Icon from 'svelte-awesome'
-	import Password from './Password.svelte'
 	import Path from './Path.svelte'
 	import { Alert, Button, Drawer } from './common'
 	import DrawerContent from './common/drawer/DrawerContent.svelte'
+	import ApiConnectForm from './ApiConnectForm.svelte'
 
 	let manual = false
 	let value: string = ''
@@ -54,6 +46,7 @@
 	let connects: Record<string, { scopes: string[]; extra_params?: Record<string, string> }> = {}
 	let connectsManual: [string, { img?: string; instructions: string[]; key?: string }][] = []
 	let key: string = 'token'
+	let args = {}
 
 	$: key = apiTokenApps[resource_type]?.key ?? 'token'
 
@@ -83,7 +76,7 @@
 			scopes = connect.scopes
 			extra_params = Object.entries(connect.extra_params ?? {})
 		}
-		drawer.openDrawer()
+		drawer.openDrawer?.()
 	}
 
 	export function openFromOauth(rt: string) {
@@ -94,7 +87,7 @@
 		manual = false
 		step = 3
 		no_back = true
-		drawer.openDrawer()
+		drawer.openDrawer?.()
 	}
 
 	async function loadConnects() {
@@ -105,7 +98,16 @@
 		const availableRts = await ResourceService.listResourceTypeNames({
 			workspace: $workspaceStore!
 		})
-		connectsManual = Object.entries(apiTokenApps).filter(([key, _]) => availableRts.includes(key))
+		connectsManual = availableRts
+			.filter((x) => !Object.keys(connects).includes(x))
+			.map((x) => [
+				x,
+				apiTokenApps[x] ?? {
+					instructions: '',
+					img: undefined,
+					key: undefined
+				}
+			])
 	}
 
 	async function next() {
@@ -150,18 +152,19 @@
 				)
 			}
 			const description = `${manual ? 'Token' : 'OAuth token'} for ${resource_type}`
+
 			await VariableService.createVariable({
 				workspace: $workspaceStore!,
 				requestBody: {
 					path,
-					value,
+					value: manual ? args[key] : value,
 					is_secret: true,
 					description,
 					is_oauth: !manual,
 					account: account
 				}
 			})
-			const resourceValue = {}
+			const resourceValue = args
 			resourceValue[key] = `$var:${path}`
 			await ResourceService.createResource({
 				workspace: $workspaceStore!,
@@ -174,7 +177,7 @@
 			})
 			dispatch('refresh')
 			sendUserToast(`App token set at resource and variable path: ${path}`)
-			drawer.closeDrawer()
+			drawer.closeDrawer?.()
 		}
 	}
 
@@ -195,7 +198,11 @@
 			resource_type == 'gsheets')
 	$: disabled =
 		(step == 1 && resource_type == '') ||
-		(step == 2 && value == '') ||
+		(step == 2 &&
+			value == '' &&
+			args['token'] == '' &&
+			args['password'] == '' &&
+			args['api_key'] == '') ||
 		(step == 3 && pathError != '')
 </script>
 
@@ -307,23 +314,26 @@
 			</div>
 		{:else if step == 2}
 			{#if manual}
-				<div class="mb-1 font-semibold text-gray-700 mt-6">Instructions</div>
-				<div class="pl-10">
-					<ol class="list-decimal">
-						{#each apiTokenApps[resource_type].instructions as step}
-							<li>
-								{@html step}
-							</li>
-						{/each}
-					</ol>
-				</div>
-				{#if apiTokenApps[resource_type].img}
-					<div class="mt-4">
-						<img alt="connect" src={apiTokenApps[resource_type].img} />
+				{#if apiTokenApps[resource_type]}
+					<div class="mb-1 font-semibold text-gray-700 mt-6">Instructions</div>
+					<div class="pl-10">
+						<ol class="list-decimal">
+							{#each apiTokenApps[resource_type].instructions as step}
+								<li>
+									{@html step}
+								</li>
+							{/each}
+						</ol>
 					</div>
+					{#if apiTokenApps[resource_type].img}
+						<div class="mt-4">
+							<img alt="connect" src={apiTokenApps[resource_type].img} />
+						</div>
+					{/if}
 				{/if}
+
 				<div class="mt-4">
-					<Password bind:password={value} label="Paste token here" />
+					<ApiConnectForm password={key} {resource_type} bind:args />
 				</div>
 			{/if}
 		{:else}
@@ -333,27 +343,25 @@
 				initialPath={`u/${$userStore?.username ?? ''}/my_${resource_type}`}
 				kind="resource"
 			/>
-			<ul class="mt-10 bg-white">
-				<li>
-					1. A secret variable containing the token <span class="font-bold"
-						>{truncateRev(value, 5, '*****')}</span
-					>
-					will be stored at
-					<span class="font-mono">{path}</span>. You can refer to this variable anywhere this token
-					is required.
-				</li>
-				<li class="mt-4">
-					2. A resource with a unique token field will be stored at <span class="font-mono"
-						>{path}</span
-					>
-					and refer to the secret variable <span class="font-mono">{path}</span> as its token (using
-					variable templating
-					<span class="font-mono">`$var:${path}`</span>). You can refer to this resource anywhere
-					this token is required. A script can use the resource type
-					<span class="font-mono">{resource_type}</span> as a type parameter to restrict the kind of
-					tokens it accepts to this api.
-				</li>
-			</ul>
+			{#if apiTokenApps[resource_type] || !manual}
+				{manual}
+				{apiTokenApps[resource_type]}
+				<ul class="mt-10 bg-white">
+					<li>
+						1. A secret variable containing the {apiTokenApps[resource_type]?.key ?? 'token'}<span
+							class="font-bold">{truncateRev(value, 5, '*****')}</span
+						>
+						will be stored a
+						<span class="font-mono">{path}</span>.
+					</li>
+					<li class="mt-4">
+						2. The resource containing that token will be stored at the same path<span
+							class="font-mono">{path}</span
+						>. The Variable and Resource will be "linked together", they will be deleted and renamed
+						together.
+					</li></ul
+				>
+			{/if}
 		{/if}
 		<div slot="submission" class="flex items-center gap-4">
 			{#if step > 1 && !no_back}
