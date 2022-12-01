@@ -61,6 +61,7 @@
 		if (rawValue) {
 			try {
 				value = JSON.parse(rawValue)
+				error = ''
 			} catch (err) {
 				error = err.toString()
 			}
