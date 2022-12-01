@@ -1,14 +1,18 @@
+// deno-lint-ignore-file no-explicit-any
 import { colors } from "https://deno.land/x/cliffy@v0.25.4/ansi/colors.ts";
 import { Command } from "https://deno.land/x/cliffy@v0.25.4/command/command.ts";
 import { Table } from "https://deno.land/x/cliffy@v0.25.4/table/table.ts";
 import { VariableService } from "https://deno.land/x/windmill@v1.50.0/mod.ts";
-import { getContext } from "./context.ts";
+import { requireLogin, resolveWorkspace } from "./context.ts";
 import { GlobalOptions } from "./types.ts";
 
 async function list(opts: GlobalOptions) {
-  const { workspace } = await getContext(opts);
+  const workspace = await resolveWorkspace(opts);
+  await requireLogin(opts);
 
-  const variables = await VariableService.listVariable({ workspace });
+  const variables = await VariableService.listVariable({
+    workspace: workspace.workspaceId,
+  });
 
   new Table()
     .header(["Path", "Is Secret", "Account", "Value"])
@@ -20,7 +24,7 @@ async function list(opts: GlobalOptions) {
         x.is_secret ? "true" : "false",
         x.account ?? "-",
         x.value ?? "-",
-      ])
+      ]),
     )
     .render();
 }
@@ -34,13 +38,14 @@ type VariableFile = {
 };
 
 async function push(opts: GlobalOptions, filePath: string, remotePath: string) {
-  const { workspace } = await getContext(opts);
+  const workspace = await resolveWorkspace(opts);
+  await requireLogin(opts);
 
   if (!(remotePath.startsWith("g") || remotePath.startsWith("u"))) {
     console.log(
       colors.red(
-        "Given remote path looks invalid. Remote paths are typicall of the form <u|g>/<username|group>/..."
-      )
+        "Given remote path looks invalid. Remote paths are typicall of the form <u|g>/<username|group>/...",
+      ),
     );
     return;
   }
@@ -52,14 +57,14 @@ async function push(opts: GlobalOptions, filePath: string, remotePath: string) {
 
   console.log(colors.bold.yellow("Pushing variable..."));
 
-  await pushVariable(workspace, filePath, remotePath);
+  await pushVariable(workspace.workspaceId, filePath, remotePath);
   console.log(colors.bold.underline.green("Variable successfully pushed"));
 }
 
 export async function pushVariable(
   workspace: string,
   filePath: string,
-  remotePath: string
+  remotePath: string,
 ) {
   const data: VariableFile = JSON.parse(await Deno.readTextFile(filePath));
   if (await VariableService.existsVariable({ workspace, path: remotePath })) {
@@ -72,8 +77,8 @@ export async function pushVariable(
         colors.red.underline.bold(
           "Remote variable at " +
             remotePath +
-            " exists & has a different oauth state. This cannot be updated. If you wish to do this anyways, consider deleting the remote resource."
-        )
+            " exists & has a different oauth state. This cannot be updated. If you wish to do this anyways, consider deleting the remote resource.",
+        ),
       );
       return;
     }
@@ -83,8 +88,8 @@ export async function pushVariable(
         colors.red.underline.bold(
           "Remote variable at " +
             remotePath +
-            " exists & has a different account state. This cannot be updated. If you wish to do this anyways, consider deleting the remote resource."
-        )
+            " exists & has a different account state. This cannot be updated. If you wish to do this anyways, consider deleting the remote resource.",
+        ),
       );
       return;
     }
@@ -94,8 +99,8 @@ export async function pushVariable(
         colors.red.underline.bold(
           "Remote variable at " +
             remotePath +
-            " exists & is secret. Variables cannot be updated to be no longer secret. If you wish to do this anyways, consider deleting the remote resource."
-        )
+            " exists & is secret. Variables cannot be updated to be no longer secret. If you wish to do this anyways, consider deleting the remote resource.",
+        ),
       );
       return;
     }
@@ -134,7 +139,7 @@ const command = new Command()
   .action(list as any)
   .command(
     "push",
-    "Push a local variable spec. This overrides any remote versions."
+    "Push a local variable spec. This overrides any remote versions.",
   )
   .arguments("<file_path:string> <remote_path:string>")
   .action(push as any);

@@ -49,5 +49,5 @@ export async function requireLogin(opts: GlobalOptions) {
     token = workspace.token;
   }
 
-  setClient(token, workspace.remote);
+  setClient(token, workspace.remote.substring(0, workspace.remote.length - 1));
 }

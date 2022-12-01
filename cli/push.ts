@@ -1,7 +1,8 @@
+// deno-lint-ignore-file no-explicit-any
 import { colors } from "https://deno.land/x/cliffy@v0.25.4/ansi/colors.ts";
 import { Command } from "https://deno.land/x/cliffy@v0.25.4/command/command.ts";
 import * as path from "https://deno.land/std@0.162.0/path/mod.ts";
-import { getContext } from "./context.ts";
+import { requireLogin, resolveWorkspace } from "./context.ts";
 import { pushFlow } from "./flow.ts";
 import { pushResource } from "./resource.ts";
 import { findContentFile, pushScript } from "./script.ts";
@@ -45,8 +46,8 @@ async function findCandidateFiles(dir: string): Promise<Candidate[]> {
       } else {
         console.log(
           colors.yellow(
-            "Including organizational folder " + e.name + " in push!"
-          )
+            "Including organizational folder " + e.name + " in push!",
+          ),
         );
         candidates.push(...(await findCandidateFiles(path.join(dir, e.name))));
       }
@@ -67,7 +68,8 @@ async function findCandidateFiles(dir: string): Promise<Candidate[]> {
 
 async function push(opts: GlobalOptions, dir?: string) {
   dir = dir ?? Deno.cwd();
-  const { workspace } = await getContext(opts);
+  const workspace = await resolveWorkspace(opts);
+  await requireLogin(opts);
 
   console.log(colors.blue("Searching Directory..."));
   const candidates: Candidate[] = await findCandidateFiles(dir);
@@ -75,7 +77,7 @@ async function push(opts: GlobalOptions, dir?: string) {
   for (const candidate of candidates) {
     // full file name. No leading /. includes .type.json
     const fileName = candidate.path.substring(
-      candidate.path.lastIndexOf("/") + 1
+      candidate.path.lastIndexOf("/") + 1,
     );
     // figure out just the path after ...../u|g/username|group/ (in extra dir)
     const dirParts = candidate.path.split("/").filter((x) => x.length > 0);
@@ -98,7 +100,7 @@ async function push(opts: GlobalOptions, dir?: string) {
     // invalid file names, like my.cool.script.script.json. Not valid.
     if (fileNameParts.length != 3) {
       console.log(
-        colors.yellow("invalid file name found at " + candidate.path)
+        colors.yellow("invalid file name found at " + candidate.path),
       );
       continue;
     }
@@ -115,17 +117,17 @@ async function push(opts: GlobalOptions, dir?: string) {
       if (candidate.group == false && candidate.groupOrUsername == "") {
         console.log("pushing resource type " + fileNameParts.at(-3)!);
         await pushResourceType(
-          workspace,
+          workspace.workspaceId,
           candidate.path,
-          fileNameParts.at(-3)!
+          fileNameParts.at(-3)!,
         );
       } else {
         console.log(
           colors.yellow(
             "Found resource type file at " +
               candidate.path +
-              " this appears to be inside a path folder. Resource types are not addressed by path. Place them at the root or inside only an organizational folder. Ignoring this file!"
-          )
+              " this appears to be inside a path folder. Resource types are not addressed by path. Place them at the root or inside only an organizational folder. Ignoring this file!",
+          ),
         );
       }
       continue;
@@ -139,15 +141,14 @@ async function push(opts: GlobalOptions, dir?: string) {
     ) {
       console.log(
         colors.yellow(
-          "file with invalid type " + type + " found at " + candidate.path
-        )
+          "file with invalid type " + type + " found at " + candidate.path,
+        ),
       );
       continue;
     }
 
     // create the remotePath for the API
-    const remotePath =
-      (candidate.group ? "g/" : "u/") +
+    const remotePath = (candidate.group ? "g/" : "u/") +
       candidate.groupOrUsername +
       "/" +
       (extraDir.length > 0 ? extraDir + "/" : "") +
@@ -156,9 +157,9 @@ async function push(opts: GlobalOptions, dir?: string) {
     console.log("pushing " + type + " to " + remotePath);
 
     if (type == "flow") {
-      await pushFlow(candidate.path, workspace, remotePath);
+      await pushFlow(candidate.path, workspace.workspaceId, remotePath);
     } else if (type == "resource") {
-      await pushResource(workspace, candidate.path, remotePath);
+      await pushResource(workspace.workspaceId, candidate.path, remotePath);
     } else if (type == "script") {
       let contentPath: string;
       try {
@@ -167,9 +168,14 @@ async function push(opts: GlobalOptions, dir?: string) {
         console.log(colors.red(e));
         continue;
       }
-      await pushScript(candidate.path, contentPath, workspace, remotePath);
+      await pushScript(
+        candidate.path,
+        contentPath,
+        workspace.workspaceId,
+        remotePath,
+      );
     } else if (type == "variable") {
-      await pushVariable(workspace, candidate.path, remotePath);
+      await pushVariable(workspace.workspaceId, candidate.path, remotePath);
     }
   }
   console.log(colors.underline.bold.green("Successfully Pushed all files."));

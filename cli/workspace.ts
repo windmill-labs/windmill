@@ -38,16 +38,22 @@ function makeWorkspaceStream(
 }
 
 async function allWorkspaces(): Promise<Workspace[]> {
-  const file = await Deno.open((await getRootStore()) + "/remotes.ndjson");
-  const workspaceStream = makeWorkspaceStream(file.readable);
+  try {
+    const file = await Deno.open((await getRootStore()) + "remotes.ndjson", {
+      write: false,
+      read: true,
+    });
+    const workspaceStream = makeWorkspaceStream(file.readable);
 
-  const workspaces: Workspace[] = [];
-  for await (const workspace of workspaceStream) {
-    workspaces.push(workspace);
+    const workspaces: Workspace[] = [];
+    for await (const workspace of workspaceStream) {
+      workspaces.push(workspace);
+    }
+
+    return workspaces;
+  } catch {
+    return [];
   }
-  file.close();
-
-  return workspaces;
 }
 
 async function getActiveWorkspaceName(
@@ -76,15 +82,13 @@ export async function getActiveWorkspace(
 export async function getWorkspaceByName(
   workspaceName: string,
 ): Promise<Workspace | undefined> {
-  const file = await Deno.open((await getRootStore()) + "/remotes.ndjson");
+  const file = await Deno.open((await getRootStore()) + "remotes.ndjson");
   const workspaceStream = makeWorkspaceStream(file.readable);
   for await (const workspace of workspaceStream) {
     if (workspace.name === workspaceName) {
-      file.close();
       return workspace;
     }
   }
-  file.close();
   return undefined;
 }
 
@@ -169,7 +173,7 @@ export async function add(
       remote = url.toString();
     } catch {
       // not a url
-      remote = await Input.prompt("Enter the Remote URL");
+      remote = new URL(await Input.prompt("Enter the Remote URL")).toString();
     }
   }
 
@@ -188,7 +192,7 @@ export async function add(
 }
 
 export async function addWorkspace(workspace: Workspace) {
-  const file = await Deno.open((await getRootStore()) + "/remotes.ndjson", {
+  const file = await Deno.open((await getRootStore()) + "remotes.ndjson", {
     append: true,
     write: true,
     read: false,
@@ -201,7 +205,7 @@ export async function addWorkspace(workspace: Workspace) {
 async function remove(_opts: GlobalOptions, name: string) {
   const orgWorkspaces = await allWorkspaces();
   await Deno.writeTextFile(
-    (await getRootStore()) + "/remotes.ndjson",
+    (await getRootStore()) + "remotes.ndjson",
     orgWorkspaces
       .filter((x) => x.name !== name)
       .map((x) => JSON.stringify(x))
