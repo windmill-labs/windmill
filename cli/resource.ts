@@ -2,7 +2,7 @@ import { Command } from "https://deno.land/x/cliffy@v0.25.4/command/command.ts";
 import { ResourceService } from "https://deno.land/x/windmill@v1.50.0/mod.ts";
 import { GlobalOptions } from "./types.ts";
 import { colors } from "https://deno.land/x/cliffy@v0.25.4/ansi/colors.ts";
-import { getContext } from "./context.ts";
+import { requireLogin, resolveWorkspace } from "./context.ts";
 import { Resource } from "https://deno.land/x/windmill@v1.50.0/windmill-api/index.ts";
 import { Table } from "https://deno.land/x/cliffy@v0.25.4/table/table.ts";
 
@@ -76,7 +76,8 @@ export async function pushResource(
 
 type PushOptions = GlobalOptions;
 async function push(opts: PushOptions, filePath: string, remotePath: string) {
-  const { workspace } = await getContext(opts);
+  const workspace = await resolveWorkspace(opts);
+  await requireLogin(opts);
 
   if (!(remotePath.startsWith("g") || remotePath.startsWith("u"))) {
     console.log(
@@ -94,18 +95,19 @@ async function push(opts: PushOptions, filePath: string, remotePath: string) {
 
   console.log(colors.bold.yellow("Pushing resource..."));
 
-  await pushResource(workspace, filePath, remotePath);
+  await pushResource(workspace.workspaceId, filePath, remotePath);
   console.log(colors.bold.underline.green("Resource successfully pushed"));
 }
 
 async function list(opts: GlobalOptions) {
-  const { workspace } = await getContext(opts);
+  const workspace = await resolveWorkspace(opts);
+  await requireLogin(opts);
   let page = 0;
   const perPage = 10;
   const total: Resource[] = [];
   while (true) {
     const res = await ResourceService.listResource({
-      workspace,
+      workspace: workspace.workspaceId,
       page,
       perPage,
     });

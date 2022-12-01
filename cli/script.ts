@@ -1,8 +1,9 @@
+// deno-lint-ignore-file no-explicit-any
 import { Command } from "https://deno.land/x/cliffy@v0.25.4/command/command.ts";
 import { ScriptService } from "https://deno.land/x/windmill@v1.50.0/mod.ts";
 import { GlobalOptions } from "./types.ts";
 import { colors } from "https://deno.land/x/cliffy@v0.25.4/ansi/colors.ts";
-import { getContext } from "./context.ts";
+import { resolveWorkspace, requireLogin } from "./context.ts";
 import {
   JobService,
   Script,
@@ -27,7 +28,7 @@ async function push(
   remotePath: string,
   contentPath?: string
 ) {
-  const { workspace } = await getContext(opts);
+  const workspace = await resolveWorkspace(opts);
   if (!(remotePath.startsWith("g") || remotePath.startsWith("u"))) {
     console.log(
       colors.red(
@@ -50,7 +51,8 @@ async function push(
     }
   }
 
-  await pushScript(filePath, contentPath, workspace, remotePath);
+  await requireLogin(opts);
+  await pushScript(filePath, contentPath, workspace.workspaceId, remotePath);
   console.log(colors.bold.underline.green("Script successfully pushed"));
 }
 
@@ -136,14 +138,15 @@ export async function pushScript(
 }
 
 async function list(opts: GlobalOptions & { showArchived?: boolean }) {
-  const { workspace } = await getContext(opts);
+  const workspace = await resolveWorkspace(opts);
+  await requireLogin(opts);
 
   let page = 0;
   const perPage = 10;
   const total: Script[] = [];
   while (true) {
     const res = await ScriptService.listScripts({
-      workspace,
+      workspace: workspace.workspaceId,
       page,
       perPage,
       showArchived: opts.showArchived ?? false,
@@ -220,23 +223,29 @@ async function run(
   },
   path: string
 ) {
-  const { workspace } = await getContext(opts);
+  const workspace = await resolveWorkspace(opts);
+  await requireLogin(opts);
 
   const input = await resolve(opts.input);
   const id = await JobService.runScriptByPath({
-    workspace,
+    workspace: workspace.workspaceId,
     path,
     requestBody: input,
   });
 
   if (!opts.silent) {
-    await track_job(workspace, id);
+    await track_job(workspace.workspaceId, id);
   }
 
   while (true) {
     try {
       const result =
-        (await JobService.getCompletedJob({ workspace, id })).result ?? {};
+        (
+          await JobService.getCompletedJob({
+            workspace: workspace.workspaceId,
+            id,
+          })
+        ).result ?? {};
       console.log(result);
 
       break;
@@ -325,8 +334,12 @@ export async function track_job(workspace: string, id: string) {
 }
 
 async function show(opts: GlobalOptions, path: string) {
-  const { workspace } = await getContext(opts);
-  const s = await ScriptService.getScriptByPath({ workspace, path });
+  const workspace = await resolveWorkspace(opts);
+  await requireLogin(opts);
+  const s = await ScriptService.getScriptByPath({
+    workspace: workspace.workspaceId,
+    path,
+  });
   console.log(colors.underline(s.path));
   if (s.description) console.log(s.description);
   console.log("");

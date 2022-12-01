@@ -33,6 +33,22 @@ pub struct ListableVariable {
     pub is_linked: Option<bool>,
 }
 
+#[derive(Serialize, Deserialize)]
+#[cfg_attr(feature = "sqlx", derive(sqlx::FromRow))]
+
+pub struct ExportableListableVariable {
+    pub workspace_id: String,
+    pub path: String,
+    pub value: Option<String>,
+    pub is_secret: bool,
+    pub description: String,
+    pub extra_perms: serde_json::Value,
+    pub account: Option<i32>,
+    pub is_oauth: Option<bool>,
+    pub is_expired: Option<bool>,
+    pub is_linked: Option<bool>,
+}
+
 #[derive(Deserialize)]
 pub struct CreateVariable {
     pub path: String,
