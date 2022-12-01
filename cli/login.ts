@@ -37,15 +37,6 @@ export async function tryGetLoginInfo(
     return opts.token;
   }
 
-  if (opts.email && opts.password) {
-    return await UserService.login({
-      requestBody: {
-        email: opts.email,
-        password: opts.password,
-      },
-    });
-  }
-
   return undefined;
 }
 

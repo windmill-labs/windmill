@@ -18,22 +18,8 @@ await new Command()
   .name("wmill")
   .description("A simple CLI tool for windmill.")
   .globalOption(
-    "--workspace <workspace_id:string>",
+    "--workspace <workspace:string>",
     "Specify the target workspace. This overrides the default workspace.",
-  )
-  .globalOption(
-    "--email <email:string>",
-    "Specify credentials to use for authentication. This will not be stored. It will only be used to exchange for a token with the API server, which will not be stored either.",
-    {
-      depends: ["password"],
-    },
-  )
-  .globalOption(
-    "--password <password:string>",
-    "Specify credentials to use for authentication. This will not be stored. It will only be used to exchange for a token with the API server, which will not be stored either.",
-    {
-      depends: ["email"],
-    },
   )
   .version(VERSION)
   .command("flow", flow)
