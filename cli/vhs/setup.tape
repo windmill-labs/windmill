@@ -58,42 +58,13 @@ Set Height 600
 
 Hide
 
-Type "rm -r ~/.config/windmill" Enter
-Type "cd ../../" Enter
-# Type "docker compose pull" Enter
-# Type "docker compose down" Enter
-Ctrl+L
+Type "rm -r ~/.config/windmill/" Enter Sleep 10ms
 
 Show
 
-# once wait is supported see https://github.com/charmbracelet/vhs/issues/70
-# Type "docker compose up -d" Enter Sleep 1400ms
+Type "wmill workspace add cloud private https://app.windmill.dev/" Enter Sleep 500ms
+Enter Sleep 5s
 
-Type "wmill setup" Enter Sleep 500ms
-Type "http://localhost" Enter Sleep 500ms
-Type "local" Enter Sleep 500ms
-Enter # Use Username/Password Sleep 500ms
-Type "admin@windmill.dev" Enter Sleep 500ms
-Type "changeme" Enter Sleep 500ms
-Down Enter Sleep 500ms
+Type "wmill flow run u/kai/my_flow" Enter Sleep 100ms
 
-Sleep 1s
-
-Type "wmill user" Enter Sleep 500ms
-Type "wmill user add admin@example.com password12 --superadmin" Enter Sleep 500ms
-Type "wmill user" Enter Sleep 500ms
-
-Sleep 1s
-
-Type "wmill login" Enter Sleep 500ms
-Type "admin@example.com" Enter Sleep 500ms
-Type "password12" Enter Sleep 500ms
-
-Sleep 1s
-
-Type "wmill user" Enter Sleep 500ms
-Type "wmill user remove admin@windmill.dev" Enter Sleep 500ms
-
-Type "wmill user" Enter Sleep 500ms
-
-Sleep 10s
+Sleep 3s

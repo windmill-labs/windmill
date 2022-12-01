@@ -22,7 +22,6 @@ pass any inputs using `--input/-i <name>=<value>` curl-style syntax using
 `-i @-` for stdin or `-i @<filename>` is also supported
 
 Flow Steps and Logs will be streamed during execution automatically.
-![](./vhs/output/run-flow.gif)
 
 ## Pushing Resources, Scripts & More
 
