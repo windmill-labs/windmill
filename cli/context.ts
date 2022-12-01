@@ -17,7 +17,7 @@ export type Context = {
 };
 
 export async function resolveWorkspace(
-  opts: GlobalOptions
+  opts: GlobalOptions,
 ): Promise<Workspace> {
   const cache = (opts as any).__secret_workspace;
   if (cache) return cache;
@@ -44,12 +44,10 @@ export async function resolveWorkspace(
 export async function requireLogin(opts: GlobalOptions) {
   const workspace = await resolveWorkspace(opts);
 
-  const token = await tryGetLoginInfo(opts);
-
-  if (token) {
-    setClient(token, workspace.remote);
-  } else {
-    console.log(colors.red.underline("You need to be logged in to do this."));
-    Deno.exit(-2);
+  let token = await tryGetLoginInfo(opts);
+  if (!token) {
+    token = workspace.token;
   }
+
+  setClient(token, workspace.remote);
 }

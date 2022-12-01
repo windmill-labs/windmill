@@ -6,8 +6,14 @@ import { DelimiterStream } from "https://deno.land/std@0.165.0/streams/mod.ts";
 import { colors } from "https://deno.land/x/cliffy@v0.25.4/ansi/colors.ts";
 import { getRootStore } from "./store.ts";
 import { Input } from "https://deno.land/x/cliffy@v0.25.4/prompt/input.ts";
+import { loginInteractive, tryGetLoginInfo } from "./login.ts";
 
-export type Workspace = { remote: string; workspaceId: string; name: string };
+export type Workspace = {
+  remote: string;
+  workspaceId: string;
+  name: string;
+  token: string;
+};
 
 function makeWorkspaceStream(
   readable: ReadableStream<Uint8Array>,
@@ -125,13 +131,6 @@ async function switchC(opts: GlobalOptions, workspaceName: string) {
   );
 }
 
-export async function setWorkspaceToken(
-  workspace: Workspace,
-  token: string | undefined,
-) {
-  throw undefined;
-}
-
 export async function add(
   opts: GlobalOptions,
   workspaceName: string | undefined,
@@ -174,10 +173,16 @@ export async function add(
     }
   }
 
+  let token = await tryGetLoginInfo(opts);
+  while (!token) {
+    token = await loginInteractive(remote);
+  }
+
   await addWorkspace({
     name: workspaceName,
     remote: remote,
     workspaceId: workspaceId,
+    token: token,
   });
   console.log(colors.green.underline("Succesfully added workspace!"));
 }

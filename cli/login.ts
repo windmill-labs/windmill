@@ -1,19 +1,12 @@
-// deno-lint-ignore-file no-explicit-any
-import { Command } from "https://deno.land/x/cliffy@v0.25.4/command/mod.ts";
 import { Select } from "https://deno.land/x/cliffy@v0.25.4/prompt/select.ts";
 import { GlobalOptions } from "./types.ts";
 import { colors } from "https://deno.land/x/cliffy@v0.25.4/ansi/colors.ts";
-import { getStore } from "./store.ts";
 import { getAvailablePort } from "https://deno.land/x/port@1.0.0/mod.ts";
 import { UserService } from "https://deno.land/x/windmill@v1.50.0/mod.ts";
-import { resolveWorkspace } from "./context.ts";
 import { Secret } from "https://deno.land/x/cliffy@v0.25.4/prompt/secret.ts";
-import { setWorkspaceToken } from "./workspace.ts";
-type Options = GlobalOptions;
+import { Workspace } from "./workspace.ts";
 
-async function login(opts: Options) {
-  const workspace = await resolveWorkspace(opts);
-
+export async function loginInteractive(remote: string) {
   let token: string | undefined;
   if (
     await Select.prompt({
@@ -30,12 +23,12 @@ async function login(opts: Options) {
       ],
     }) === "b"
   ) {
-    token = await browserLogin(workspace.remote);
+    token = await browserLogin(remote);
   } else {
     token = await Secret.prompt("Enter your token");
   }
 
-  setWorkspaceToken(workspace, token);
+  return token;
 }
 
 export async function tryGetLoginInfo(
@@ -84,24 +77,3 @@ export async function browserLogin(
   }, 10);
   return token ?? undefined;
 }
-export async function getToken(baseUrl: string): Promise<string> {
-  const baseStore = await getStore(baseUrl);
-  try {
-    return await Deno.readTextFile(baseStore + "token");
-  } catch {
-    console.log(
-      colors.bold.underline.red(
-        "You need to be logged in to do this! Run 'windmill login' to login.",
-      ),
-    );
-    return Deno.exit(-1);
-  }
-}
-
-const command = new Command()
-  .description(
-    "Log into windmill. The credentials are not stored, but the token they are exchanged for will be.",
-  )
-  .action(login as any);
-
-export default command;
