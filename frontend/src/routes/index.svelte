@@ -29,22 +29,16 @@
 	import type { HubItem } from '$lib/components/flows/pickers/model'
 	import ShareModal from '$lib/components/ShareModal.svelte'
 	import Icon from 'svelte-awesome'
-	import {
-		faBuilding,
-		faCodeFork,
-		faGlobe,
-		faScroll,
-		faWind
-	} from '@fortawesome/free-solid-svg-icons'
+	import { faCodeFork, faGlobe, faScroll, faWind } from '@fortawesome/free-solid-svg-icons'
 	import PickHubScript from '$lib/components/flows/pickers/PickHubScript.svelte'
 	import PickHubFlow from './PickHubFlow.svelte'
 	import FlowViewer from '$lib/components/FlowViewer.svelte'
 	import HighlightCode from '$lib/components/HighlightCode.svelte'
 	import SearchItems from '$lib/components/SearchItems.svelte'
 	import Badge from '$lib/components/common/badge/Badge.svelte'
-	import ScriptBox from '$lib/components/ScriptBox.svelte'
-	import FlowBox from '$lib/components/FlowBox.svelte'
 	import type uFuzzy from '@leeoniya/ufuzzy'
+	import { Building, Globe2 } from 'svelte-lucide'
+	import Table from '$lib/components/common/table/Table.svelte'
 
 	let jobs: Job[] = []
 
@@ -232,17 +226,22 @@
 
 <Drawer bind:this={codeViewer} size="900px">
 	<DrawerContent title={codeViewerObj?.summary ?? ''} on:close={codeViewer.closeDrawer}>
-		<div slot="submission" class="flex flex-row gap-2 pr-2"
-			><Button
+		<div slot="submission" class="flex flex-row gap-2 pr-2">
+			<Button
 				href="https://hub.windmill.dev/scripts/{codeViewerObj?.app ?? ''}/{codeViewerObj?.ask_id ??
 					0}"
 				startIcon={{ icon: faGlobe }}
-				variant="border">View on the Hub</Button
-			><Button
+				variant="border"
+			>
+				View on the Hub
+			</Button>
+			<Button
 				href="/scripts/add?hub={encodeURIComponent(codeViewerObj?.path ?? '')}"
-				startIcon={{ icon: faCodeFork }}>Fork</Button
-			></div
-		>
+				startIcon={{ icon: faCodeFork }}
+			>
+				Fork
+			</Button>
+		</div>
 
 		<HighlightCode language={codeViewerLanguage} code={codeViewerContent} />
 	</DrawerContent>
@@ -250,15 +249,18 @@
 
 <Drawer bind:this={flowViewer} size="900px">
 	<DrawerContent title="Hub flow" on:close={flowViewer.closeDrawer}>
-		<div slot="submission" class="flex flex-row gap-2 pr-2"
-			><Button
+		<div slot="submission" class="flex flex-row gap-2 pr-2">
+			<Button
 				href="https://hub.windmill.dev/flows/{flowViewerFlow?.flow?.id}"
 				startIcon={{ icon: faGlobe }}
-				variant="border">View on the Hub</Button
-			><Button href="/flows/add?hub={flowViewerFlow?.flow?.id}" startIcon={{ icon: faCodeFork }}
-				>Fork</Button
-			></div
-		>
+				variant="border"
+			>
+				View on the Hub
+			</Button>
+			<Button href="/flows/add?hub={flowViewerFlow?.flow?.id}" startIcon={{ icon: faCodeFork }}>
+				Fork
+			</Button>
+		</div>
 
 		{#if flowViewerFlow?.flow}
 			<FlowViewer flow={flowViewerFlow.flow} />
@@ -273,11 +275,11 @@
 	{:else if $workspaceStore == 'starter'}
 		<div class="my-4" />
 
-		<Alert title="Stater workspace"
-			>The starter workspace has all its elements (variables, resources, scripts, flows) shared
+		<Alert title="Stater workspace">
+			The starter workspace has all its elements (variables, resources, scripts, flows) shared
 			across all other workspaces. Useful to seed workspace with common elements within your
-			organization.</Alert
-		>
+			organization.
+		</Alert>
 	{/if}
 	<PageHeader title="Home">
 		<div class="flex flex-row gap-8">
@@ -288,15 +290,31 @@
 
 	<div class="my-6" />
 	<Tabs bind:selected={tab}>
-		<Tab size="xl" value="workspace"><Icon data={faBuilding} class="mr-2" />Workspace</Tab>
-		<Tab value="hubscripts"><Icon data={faGlobe} class="mr-2" />Hub Scripts</Tab>
-		<Tab value="hubflows"><Icon data={faGlobe} class="mr-2" />Hub Flows</Tab>
+		<Tab size="xs" value="workspace">
+			<div class="flex gap-2 items-center my-1">
+				<Building size="18px" />
+				Workspace
+			</div>
+		</Tab>
+		<Tab size="xs" value="hubscripts">
+			<div class="flex gap-2 items-center my-1">
+				<Globe2 size="18px" />
+				Hub Scripts
+			</div>
+		</Tab>
+		<Tab size="xs" value="hubflows">
+			<div class="flex gap-2 items-center my-1">
+				<Globe2 size="18px" />
+				Hub Flows
+			</div>
+		</Tab>
 	</Tabs>
 	<div class="my-2" />
 	<div class="flex flex-col gap-y-16">
 		<div class="max-h-screen h-full flex flex-col">
 			{#if tab == 'workspace'}
 				<div class="w-12/12 pb-2 flex flex-row my-1 gap-1">
+					<!-- svelte-ignore a11y-autofocus -->
 					<input
 						type="text"
 						autofocus
@@ -309,15 +327,17 @@
 				<div class="max-w-min">
 					<ToggleButtonGroup bind:selected={itemKind}>
 						<ToggleButton light position="left" value="all" size="xs">All</ToggleButton>
-						<ToggleButton light position="center" value="script" size="xs"
-							><Icon data={faScroll} class="mr-1" />Scripts</ToggleButton
-						>
-						<ToggleButton light position="right" value="flow" size="xs"
-							><Icon data={faWind} class="mr-1" />Flows</ToggleButton
-						>
+						<ToggleButton light position="center" value="script" size="xs">
+							<Icon data={faScroll} class="mr-1" />
+							Scripts
+						</ToggleButton>
+						<ToggleButton light position="right" value="flow" size="xs">
+							<Icon data={faWind} class="mr-1" />
+							Flows
+						</ToggleButton>
 					</ToggleButtonGroup>
 				</div>
-				<div class="gap-2 w-full flex flex-wrap pb-1 pt-2">
+				<div class="gap-2 w-full flex flex-wrap pb-1 pt-2 my-4">
 					{#each owners as owner}
 						<Badge
 							class="cursor-pointer hover:bg-gray-200"
@@ -331,34 +351,11 @@
 						</Badge>
 					{/each}
 				</div>
-
-				<div class="grid grid-cols-1 gap-4 lg:grid-cols-2 mt-2 w-full overflow-auto">
-					{#if !loading}
-						{#each filter != '' ? filteredItems : preFilteredItems as item (item.type + item.path)}
-							{#if item.type == 'script'}
-								<ScriptBox
-									starred={item.starred}
-									marked={item.marked}
-									on:change={loadScripts}
-									script={item}
-									shareModal={shareModalScripts}
-								/>
-							{:else if item.type == 'flow'}
-								<FlowBox
-									starred={item.starred ?? false}
-									marked={item.marked}
-									on:change={loadFlows}
-									flow={item}
-									shareModal={shareModalFlows}
-								/>
-							{/if}
-						{/each}
-					{:else}
-						{#each Array(10).fill(0) as sk}
-							<Skeleton layout={[[4]]} />
-						{/each}
-					{/if}
-				</div>
+				<Table
+					items={filter != '' ? filteredItems : preFilteredItems}
+					shareModal={shareModalScripts}
+					on:change={loadScripts}
+				/>
 			{:else if tab == 'hubscripts'}
 				<PickHubScript on:pick={(e) => viewCode(e.detail)} />
 			{:else if tab == 'hubflows'}
@@ -386,7 +383,8 @@
 						stroke="currentColor"
 						viewBox="0 0 24 24"
 						xmlns="http://www.w3.org/2000/svg"
-						><path
+					>
+						<path
 							stroke-linecap="round"
 							stroke-linejoin="round"
 							stroke-width="2"

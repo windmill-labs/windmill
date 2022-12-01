@@ -78,7 +78,8 @@
 								scale={0.6}
 								class="inline mr-2 {item.type == 'delete' ? 'text-red-500' : 'text-gray-700'}"
 							/>
-						{/if}{item.displayName}
+						{/if}
+						{item.displayName}
 					</button>
 				{:else if item.href}
 					<a
@@ -93,21 +94,26 @@
 						tabindex="-1"
 						id="user-menu-item-{name}-{i}}"
 						class:disabled={item.disabled}
-						>{#if item.icon}
+					>
+						{#if item.icon}
 							<Icon
 								data={item.icon}
 								scale={0.6}
 								class="inline mr-2 {item.type == 'delete' ? 'text-red-500' : 'text-gray-700'}"
 							/>
-						{/if}{item.displayName}</a
-					>
+						{/if}
+						{item.displayName}
+					</a>
 				{:else}
 					<span
 						class="block px-4 py-2 text-sm text-gray-700"
 						role="menuitem"
 						tabindex="-1"
-						id="user-menu-item-{name}-{i}}">{item.displayName}</span
-					>{/if}
+						id="user-menu-item-{name}-{i}}"
+					>
+						{item.displayName}
+					</span>
+				{/if}
 			{/each}
 		{/if}
 	</div>

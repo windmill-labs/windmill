@@ -10,7 +10,7 @@
 	export let rounded = false
 	export let index = false
 	export let dismissable = false
-	export let baseClass = 'text-center -mb-0.5'
+	export let baseClass = 'text-center'
 	export let capitalize = false
 	export let icon: BadgeIconProps | undefined = undefined
 

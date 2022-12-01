@@ -14,6 +14,7 @@
 	export let target: ButtonType.Target = '_self'
 	export let startIcon: ButtonType.Icon | undefined = undefined
 	export let endIcon: ButtonType.Icon | undefined = undefined
+	export let spacingSize: ButtonType.Size = size
 
 	let ref: ButtonType.Element
 
@@ -24,7 +25,8 @@
 		size,
 		color,
 		variant,
-		disabled
+		disabled,
+		spacingSize
 	}
 </script>
 

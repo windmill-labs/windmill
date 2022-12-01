@@ -269,9 +269,9 @@
 						startIcon={{ icon: faArrowLeft }}
 						href="/scripts/get/{script.parent_hashes[0]}"
 					>
-						<svelte:fragment slot="main"
-							>Previous version ({script.parent_hashes.length})</svelte:fragment
-						>
+						<svelte:fragment slot="main">
+							Previous version ({script.parent_hashes.length})
+						</svelte:fragment>
 
 						{#each script.parent_hashes as hash}
 							<ButtonPopupItem href="/scripts/get/{hash}" btnClasses="!m-0">
@@ -283,7 +283,7 @@
 			</div>
 
 			{#if script.lock_error_logs || topHash || script.archived || script.deleted}
-				<div class="flex flex-col gap-2 mb-2">
+				<div class="flex flex-col gap-2 my-2">
 					{#if script.lock_error_logs}
 						<div class="bg-red-100 border-l-4 border-red-500 text-red-700 p-4" role="alert">
 							<p class="font-bold">Error deploying this script</p>

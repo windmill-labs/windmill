@@ -179,7 +179,7 @@ const config = {
 				mark: {
 					backgroundColor: theme('colors.yellow.200'),
 					border: `1px solid ${theme('colors.gray.600')}`,
-					borderRadius: theme('borderRadius.sm'),
+					borderRadius: theme('borderRadius.sm')
 				},
 				h3: {
 					fontSize: '18px',
@@ -292,10 +292,9 @@ const config = {
 			addComponents({
 				'.table-custom': {
 					'& th': {
-						paddingTop: theme('spacing.3'),
-						paddingRight: theme('spacing.1'),
-						paddingLeft: theme('spacing.1'),
-						paddingBottom: theme('spacing.3'),
+						paddingRight: theme('spacing.2'),
+						paddingTop: theme('spacing.2'),
+						paddingBottom: theme('spacing.2'),
 						fontSize: theme('fontSize.sm'),
 						textAlign: 'left',
 						fontWeight: theme('fontWeight.semibold'),

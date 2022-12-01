@@ -141,7 +141,7 @@
 			{#if logs}
 				{#each logs as { id, timestamp, username, operation, action_kind, resource, parameters }}
 					<tr>
-						<td class="">{id}</td>
+						<td>{id}</td>
 						<td class="">
 							<div class="whitespace-nowrap overflow-x-auto no-scrollbar max-w-xs">
 								{displayDate(timestamp)}
@@ -153,8 +153,8 @@
 						<td class="">
 							<div class="whitespace-nowrap overflow-x-auto no-scrollbar w-20">
 								{username}
-							</div></td
-						>
+							</div>
+						</td>
 						<td class=""><pre>{operation}</pre></td>
 						<td class="">{resource}</td>
 						<td class="">
