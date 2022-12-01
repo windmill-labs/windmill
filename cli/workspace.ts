@@ -51,7 +51,7 @@ async function allWorkspaces(): Promise<Workspace[]> {
     }
 
     return workspaces;
-  } catch (e) {
+  } catch (_) {
     return [];
   }
 }
