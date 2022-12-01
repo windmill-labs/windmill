@@ -8,7 +8,7 @@ export async function loginInteractive(remote: string) {
   let token: string | undefined;
   if (
     await Select.prompt({
-      message: "How do you wanna login",
+      message: "How do you want to login",
       options: [
         {
           name: "Browser",
@@ -49,7 +49,7 @@ export async function browserLogin(
     return undefined;
   }
 
-  const server = Deno.listen({ transport: "tcp", port });
+  const server = Deno.listen({ transport: "tcp", port: 13533 });
   console.log(`Login by going to ${baseUrl}user/cli?port=${port}`);
   const firstConnection = await server.accept();
   const httpFirstConnection = Deno.serveHttp(firstConnection);
