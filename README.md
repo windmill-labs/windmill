@@ -49,7 +49,6 @@ mirrors, and support: contact ruben@windmill.dev.
 
 ![Windmill Screenshot](./imgs/windmill-flow.png)
 ![Windmill Screenshot](./imgs/windmill.png)
-![CLI Screencast](./cli/vhs/output/setup.gif)
 
 Windmill is <b>fully open-sourced (AGPLv3)</b>:
 
@@ -104,6 +103,8 @@ You can build your entire infra on top of Windmill!
 We have a powerful CLI to interact with the windmill platform and sync your
 scripts from your own github repo. See
 [more details](https://github.com/windmill-labs/windmill/tree/main/cli)
+
+![CLI Screencast](./cli/vhs/output/setup.gif)
 
 ## Layout
 
