@@ -2666,6 +2666,7 @@ async fn handle_python_reqs(
             }
             Command::new(python_path)
                 .env_clear()
+                .env("PATH", path_env)
                 .args(args)
                 .stdout(Stdio::piped())
                 .stderr(Stdio::piped())
