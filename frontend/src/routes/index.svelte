@@ -465,7 +465,7 @@
 								{/if}
 							</VirtualList>
 						</div>
-						<span class="text-sm ">{pluralize(items.length, 'item')}</span>
+						<span class="text-sm">{pluralize(items.length, 'item')}</span>
 					{/if}
 				</div>
 			{:else if tab == 'hubscripts'}
