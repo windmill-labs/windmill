@@ -30,7 +30,13 @@
 	import { canWrite, getScriptByPath } from '$lib/utils'
 	import type { HubItem } from '$lib/components/flows/pickers/model'
 	import ShareModal from '$lib/components/ShareModal.svelte'
-	import { faCodeFork, faGlobe } from '@fortawesome/free-solid-svg-icons'
+	import {
+		faCodeFork,
+		faDashboard,
+		faGlobe,
+		faLayerGroup,
+		faPlus
+	} from '@fortawesome/free-solid-svg-icons'
 	import PickHubScript from '$lib/components/flows/pickers/PickHubScript.svelte'
 	import PickHubFlow from './PickHubFlow.svelte'
 	import FlowViewer from '$lib/components/FlowViewer.svelte'
@@ -198,8 +204,6 @@
 				interIns
 			} = info
 
-			let startPer = performance.now()
-
 			const sortResult = idx
 				.map((v, i) => i)
 				.sort(
@@ -224,12 +228,10 @@
 							(preFilteredItems[idx[ib]].starred ? 100 : 0) -
 							(preFilteredItems[idx[ia]].starred ? 100 : 0)
 				)
-			console.log(`Fuzzy took ${performance.now() - startPer}ms`)
 			return sortResult
 		}
 	}
 
-	$: filteredItems && console.log({ filteredItems })
 	$: items = filter !== '' ? filteredItems : preFilteredItems
 </script>
 
@@ -316,6 +318,9 @@
 	{/if}
 	<PageHeader title="Home">
 		<div class="flex flex-row gap-2">
+			<Button size="sm" spacingSize="lg" color="dark" startIcon={{ icon: faPlus }}>
+				Create app
+			</Button>
 			<CreateActionsScript />
 			<CreateActionsFlow />
 		</div>
