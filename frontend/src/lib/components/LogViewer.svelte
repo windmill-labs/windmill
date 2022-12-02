@@ -21,7 +21,7 @@
 </script>
 
 <Drawer bind:this={logViewer} size="900px">
-	<DrawerContent title={'Expanded Logs'} on:close={logViewer.closeDrawer}>
+	<DrawerContent title="Expanded Logs" on:close={logViewer.closeDrawer}>
 		<div>
 			<pre class="bg-gray-50 text-xs w-full p-2"
 				>{#if content}{content}{:else if isLoading}Waiting for job to start...{:else}No logs are available yet{/if}</pre

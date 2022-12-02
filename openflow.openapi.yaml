@@ -202,6 +202,8 @@ components:
             $ref: "#/components/schemas/InputTransform"
         path:
           type: string
+        hash:
+          type: string
         type:
           type: string
           enum:
