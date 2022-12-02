@@ -1,4 +1,4 @@
-import { ResourceService, VariableService } from './windmill-api/index.ts'
+import { JobService, ResourceService, VariableService } from './windmill-api/index.ts'
 import { OpenAPI } from './windmill-api/index.ts'
 
 export {
@@ -168,87 +168,30 @@ export async function databaseUrlFromResource(path: string): Promise<string> {
     return `postgresql://${resource.user}:${resource.password}@${resource.host}:${resource.port}/${resource.dbname}?sslmode=${resource.sslmode}`
 }
 
-
-export interface NonceAndHmac {
-    nonce: number;
-    signature: string;
-}
-
 /**
- * Get HMAC and nonce needed for approval script
- * @param workspace workspace name
- * @param jobId
+ * Get URLs needed for resuming a flow after this step
  * @param approver approver name
- * @returns HMAC and nonce needed to authorize approval script actions
+ * @returns approval page UI URL, resume and cancel API URLs for resumeing the flow
  */
-export async function genNounceAndHmac(workspace: string, jobId: string, approver?: string): Promise<NonceAndHmac> {
-    const nonce = Math.floor(Math.random() * 4294967295);
-    const u = new URL(
-        `/api/w/${workspace}/jobs/job_signature/${jobId}/${nonce}`,
-        Deno.env.get("WM_BASE_URL"),
-    );
-
-    u.searchParams.append('token', Deno.env.get("WM_TOKEN") ?? '');
-    if (approver) {
-        u.searchParams.append('approver', approver);
-    }
-
-    const sig = await fetch(u.toString());
-    return {
-        nonce,
-        signature: await sig.text()
-    };
-}
-
-export interface ResumeEndpoints {
+export async function getResumeUrls(approver?: string): Promise<{
     approvalPage: string;
     resume: string;
     cancel: string;
+}> {
+    const nonce = Math.floor(Math.random() * 4294967295);
+    const workspace = getWorkspace()
+    return await JobService.getResumeUrls({ workspace, resumeId: nonce, approver, id: Deno.env.get("WM_JOB_ID") ?? 'NO_JOB_ID' })
 }
 
 /**
- * Get URLs needed for approval script
- * @param approver approver name
- * @returns approval page UI URL, resume and cancel API URLs for approval script
+ * @deprecated use getResumeUrls instead
  */
-export async function getResumeEndpoints(approver?: string): Promise<ResumeEndpoints> {
-    const workspace = getWorkspace()
-
-    const { nonce, signature } = await genNounceAndHmac(
-        workspace,
-        Deno.env.get("WM_JOB_ID") ?? "no_job_id",
-        approver
-    );
-
-    function getResumeUrl(op: string): string {
-        const u = new URL(
-            `${op}/${Deno.env.get("WM_JOB_ID")}/${nonce}/${signature}`,
-            Deno.env.get("WM_BASE_URL") + `/api/w/${workspace}/jobs/`,
-        );
-        if (approver) {
-            u.searchParams.append('approver', approver);
-        }
-
-        return u.toString();
-    }
-
-    function getApprovalPage() {
-        const u = new URL(
-            `/approve/${workspace}/${Deno.env.get("WM_JOB_ID")}/${nonce}/${signature}`,
-            Deno.env.get("WM_BASE_URL"),
-        );
-        if (approver) {
-            u.searchParams.append('approver', approver);
-        }
-
-        return u.toString();
-    }
-
-    return {
-        approvalPage: getApprovalPage(),
-        resume: getResumeUrl("resume"),
-        cancel: getResumeUrl("cancel"),
-    };
+export function getResumeEndpoints(approver?: string): Promise<{
+    approvalPage: string;
+    resume: string;
+    cancel: string;
+}> {
+    return getResumeUrls(approver)
 }
 
 export function base64ToUint8Array(data: string): Uint8Array {
