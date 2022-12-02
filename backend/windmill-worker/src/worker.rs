@@ -1543,15 +1543,7 @@ async fn create_args_and_out_file(
 #[tracing::instrument(level = "trace", skip_all)]
 async fn handle_python_job(
     WorkerConfig { base_internal_url, base_url, disable_nuser, disable_nsjail, .. }: &WorkerConfig,
-    envs @ Envs {
-        nsjail_path,
-        python_path,
-        path_env,
-        pip_extra_index_url,
-        pip_index_url,
-        pip_trusted_host,
-        ..
-    }: &Envs,
+    envs @ Envs { nsjail_path, python_path, path_env, .. }: &Envs,
     requirements_o: Option<String>,
     job_dir: &str,
     worker_dir: &str,
@@ -1598,29 +1590,16 @@ async fn handle_python_job(
             .await?;
         }
 
-        let mut vars = vec![("PATH", path_env)];
-        if let Some(url) = pip_extra_index_url {
-            vars.push(("EXTRA_INDEX_URL", url));
-        }
-        if let Some(url) = pip_index_url {
-            vars.push(("INDEX_URL", url));
-        }
-        if let Some(host) = pip_trusted_host {
-            vars.push(("TRUSTED_HOST", host));
-        }
-
         additional_python_paths = handle_python_reqs(
-            python_path,
             requirements
                 .split("\n")
                 .filter(|x| !x.starts_with("--"))
                 .collect(),
-            vars.clone(),
+            envs,
             job,
             logs,
             db,
             timeout,
-            nsjail_path,
             disable_nsjail.clone(),
             worker_name,
             job_dir,
@@ -2592,19 +2571,38 @@ async fn handle_zombie_jobs(db: &Pool<Postgres>, timeout: i32, base_url: &str) {
 }
 
 async fn handle_python_reqs(
-    python_path: &String,
     requirements: Vec<&str>,
-    vars: Vec<(&str, &String)>,
+    Envs {
+        python_path,
+        path_env,
+        pip_index_url,
+        pip_extra_index_url,
+        pip_trusted_host,
+        nsjail_path,
+        ..
+    }: &Envs,
     job: &QueuedJob,
     logs: &mut String,
     db: &sqlx::Pool<sqlx::Postgres>,
     timeout: i32,
-    nsjail_path: &str,
     disable_nsjail: bool,
     worker_name: &str,
     job_dir: &str,
 ) -> error::Result<Vec<String>> {
     let mut req_paths: Vec<String> = vec![];
+    let mut vars = vec![("PATH", path_env)];
+    if !disable_nsjail {
+        if let Some(url) = pip_extra_index_url {
+            vars.push(("EXTRA_INDEX_URL", url));
+        }
+        if let Some(url) = pip_index_url {
+            vars.push(("INDEX_URL", url));
+        }
+        if let Some(host) = pip_trusted_host {
+            vars.push(("TRUSTED_HOST", host));
+        }
+    };
+
     for req in requirements {
         // todo: handle many reqs
         let venv_p = format!("{PIP_CACHE_DIR}/{req}");
@@ -2643,23 +2641,32 @@ async fn handle_python_reqs(
                 .stderr(Stdio::piped())
                 .spawn()?
         } else {
+            let mut args = vec![
+                "-m",
+                "pip",
+                "install",
+                &req,
+                "-I",
+                "--no-deps",
+                "--no-color",
+                "--isolated",
+                "--no-warn-conflicts",
+                "--disable-pip-version-check",
+                "-t",
+                venv_p.as_str(),
+            ];
+            if let Some(url) = pip_extra_index_url {
+                args.extend(["--extra-index-url", &url]);
+            }
+            if let Some(url) = pip_index_url {
+                args.extend(["--index-url", &url]);
+            }
+            if let Some(host) = pip_trusted_host {
+                args.extend(["--trusted-host", &host]);
+            }
             Command::new(python_path)
                 .env_clear()
-                .envs(vars.clone())
-                .args(vec![
-                    "-m",
-                    "pip",
-                    "install",
-                    &req,
-                    "-I",
-                    "--no-deps",
-                    "--no-color",
-                    "--isolated",
-                    "--no-warn-conflicts",
-                    "--disable-pip-version-check",
-                    "-t",
-                    venv_p.as_str(),
-                ])
+                .args(args)
                 .stdout(Stdio::piped())
                 .stderr(Stdio::piped())
                 .spawn()?
