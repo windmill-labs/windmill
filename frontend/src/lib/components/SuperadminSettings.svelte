@@ -121,6 +121,7 @@
 															is_super_admin: !super_admin
 														}
 													})
+													sendUserToast('User updated')
 													listUsers()
 												}}>{super_admin ? 'demote' : 'promote'}</button
 											>
