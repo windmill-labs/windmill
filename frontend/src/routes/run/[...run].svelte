@@ -106,11 +106,11 @@
 			<h2>Are you in the right workspace?</h2>
 			<div class="flex flex-col gap-2">
 				{#each $usersWorkspaceStore?.workspaces ?? [] as workspace}
-					<div
-						><Button variant="border" href="/run/{$page.params.run}?workspace={workspace.id}"
-							>See in {workspace.name}</Button
-						></div
-					>
+					<div>
+						<Button variant="border" href="/run/{$page.params.run}?workspace={workspace.id}">
+							See in {workspace.name}
+						</Button>
+					</div>
 				{/each}
 				<div>
 					<Button href="/runs">Go to runs page</Button>
@@ -307,7 +307,7 @@
 
 				<Skeleton loading={!job} layout={[[5]]} />
 				{#if job}
-					<div class="flex flex-row border rounded-md p-3 max-h-1/2 overflow-auto">
+					<div class="flex flex-row border rounded-md p-2 mt-2 max-h-1/2 overflow-auto">
 						{#if viewTab == 'logs'}
 							<div class="w-full">
 								<LogViewer isLoading={!(job && 'logs' in job && job.logs)} content={job?.logs} />

@@ -4831,7 +4831,15 @@ components:
         execution_mode:
           type: string
           enum: [viewer, publisher, anonymous]
-
+      required:
+        - id
+        - workspace_id
+        - path
+        - summary
+        - version
+        - extra_perms
+        - edited_at
+        - execution_mode
     AppWithLastVersion:
       type: object
       properties:

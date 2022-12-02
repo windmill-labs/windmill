@@ -3,6 +3,9 @@
 	export let value: string
 	export let debounceDelay: number = 500
 
+	let parentClass: string | undefined = undefined
+	export { parentClass as class }
+
 	let timer: NodeJS.Timeout
 
 	function debounce(event: KeyboardEvent): void {
@@ -15,4 +18,4 @@
 	}
 </script>
 
-<input {placeholder} on:keyup={debounce} />
+<input {placeholder} on:keyup={debounce} class={parentClass} />
