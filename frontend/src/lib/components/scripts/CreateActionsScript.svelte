@@ -6,7 +6,6 @@
 	import { ScriptService } from '$lib/gen'
 	import { workspaceStore, hubScripts } from '$lib/stores'
 	import { ButtonPopup, ButtonPopupItem } from '$lib/components/common'
-	import ItemPicker from '../ItemPicker.svelte'
 	import type { HubItem } from '../flows/pickers/model'
 	import Drawer from '$lib/components/common/drawer/Drawer.svelte'
 	import DrawerContent from '$lib/components/common/drawer/DrawerContent.svelte'
@@ -17,6 +16,7 @@
 	} = {
 		template: undefined
 	}
+
 	let hubItems: HubItem[]
 	let templateScripts: Script[] = []
 	let templateFilter = ''
@@ -45,8 +45,8 @@
 
 <!-- Buttons -->
 <div class="flex flex-row gap-2">
-	<ButtonPopup size="md" startIcon={{ icon: faPlus }} href="/scripts/add">
-		<svelte:fragment slot="main">New Script<Icon data={faScroll} class="ml-1" /></svelte:fragment>
+	<ButtonPopup size="sm" spacingSize="xl" startIcon={{ icon: faPlus }} href="/scripts/add">
+		<svelte:fragment slot="main">New Script</svelte:fragment>
 		<ButtonPopupItem on:click={() => drawers.template?.toggleDrawer()}>
 			Import from template
 		</ButtonPopupItem>

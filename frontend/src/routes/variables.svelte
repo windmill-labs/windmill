@@ -24,8 +24,6 @@
 		faPlus,
 		faCircle,
 		faEyeSlash,
-		faRotateRight,
-		faArrowRotateRight,
 		faRefresh,
 		faChain,
 		faTrash,
@@ -164,8 +162,8 @@
 											<Popover>
 												<Icon data={faRefresh} />
 												<div slot="text">
-													This OAuth token will be kept up-to-date in the background by Windmill using
-													its refresh token
+													This OAuth token will be kept up-to-date in the background by Windmill
+													using its refresh token
 												</div>
 											</Popover>
 										{/if}

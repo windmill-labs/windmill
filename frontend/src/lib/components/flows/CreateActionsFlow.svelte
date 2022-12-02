@@ -1,16 +1,15 @@
 <script lang="ts">
 	import { goto } from '$app/navigation'
-	import { faPlus, faWind } from '@fortawesome/free-solid-svg-icons'
+	import { faPlus } from '@fortawesome/free-solid-svg-icons'
 	import Fuse from 'fuse.js'
 
-	import { loadHubFlows, sendUserToast } from '$lib/utils'
+	import { loadHubFlows } from '$lib/utils'
 	import { Button, ButtonPopup, ButtonPopupItem } from '$lib/components/common'
 	import ItemPicker from '../ItemPicker.svelte'
 	import Drawer from '$lib/components/common/drawer/Drawer.svelte'
 	import DrawerContent from '$lib/components/common/drawer/DrawerContent.svelte'
 	import SimpleEditor from '$lib/components/SimpleEditor.svelte'
 	import { flowStore, initFlow } from '$lib/components/flows/flowStore'
-	import Icon from 'svelte-awesome'
 
 	let hubFlows: any[] | undefined = undefined
 
@@ -21,7 +20,7 @@
 		hub: undefined,
 		json: undefined
 	}
-	let hubItems: any[] = []
+
 	let pendingJson: string
 	let hubFilter = ''
 
@@ -49,8 +48,8 @@
 
 <!-- Buttons -->
 <div class="flex flex-row gap-2">
-	<ButtonPopup size="md" startIcon={{ icon: faPlus }} href="/flows/add">
-		<svelte:fragment slot="main">New Flow<Icon data={faWind} class="ml-1" /></svelte:fragment>
+	<ButtonPopup size="sm" spacingSize="xl" startIcon={{ icon: faPlus }} href="/flows/add">
+		<svelte:fragment slot="main">New Flow</svelte:fragment>
 		<ButtonPopupItem on:click={() => drawers.json?.toggleDrawer()}>
 			Import from raw JSON
 		</ButtonPopupItem>

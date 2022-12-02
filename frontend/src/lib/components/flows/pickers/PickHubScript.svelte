@@ -8,12 +8,14 @@
 	import { loadHubScripts } from '$lib/utils'
 
 	export let kind: 'script' | 'trigger' | 'approval' | 'failure' = 'script'
+	export let filter = ''
 
 	$: items = ($hubScripts ?? []).filter((i) => i.kind === kind)
 
 	let filteredItems: (HubItem & { marked?: string })[] = []
-	let filter = ''
 	let appFilter: string | undefined = undefined
+
+	$: prefilteredItems = appFilter ? (items ?? []).filter((i) => i.app == appFilter) : items ?? []
 
 	$: apps = Array.from(new Set(filteredItems?.map((x) => x.app) ?? [])).sort()
 
@@ -26,7 +28,7 @@
 	})
 </script>
 
-<SearchItems {filter} {items} bind:filteredItems f={(x) => x.summary} />
+<SearchItems {filter} items={prefilteredItems} bind:filteredItems f={(x) => x.summary} />
 
 <div class="flex flex-col min-h-0">
 	<div class="w-12/12 pb-2 flex flex-row my-1 gap-1">

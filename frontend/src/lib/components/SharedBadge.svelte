@@ -49,7 +49,7 @@
 </script>
 
 {#if kind === 'read' || kind === 'write'}
-	<Badge icon={{ data: faPeopleGroup }} capitalize color="blue">
+	<Badge icon={{ data: faPeopleGroup }} capitalize color="blue" baseClass="border border-blue-200">
 		{kind}
 		{#if reason}
 			<Tooltip>{reason}</Tooltip>

@@ -176,15 +176,19 @@
 			on:click={() => {
 				goto('/runs?' + $page.url.searchParams.toString())
 			}}
-			size="xs"><Icon data={faSearchMinus} /></Button
+			size="xs"
 		>
+			<Icon data={faSearchMinus} />
+		</Button>
 		<Button
 			variant="border"
 			on:click={() => {
 				goto('/runs?' + $page.url.searchParams.toString())
 			}}
-			size="xs"><Icon data={faSearch} /></Button
+			size="xs"
 		>
+			<Icon data={faSearch} />
+		</Button>
 	</div>
 
 	<div class="max-w-7x mt-2">
@@ -248,8 +252,10 @@
 						maxTs = undefined
 						jobs = await fetchJobs(maxTs, minTs)
 					}}
-					size="xs"><Icon data={faSearchMinus} /></Button
+					size="xs"
 				>
+					<Icon data={faSearchMinus} />
+				</Button>
 			</div>
 			<Skeleton loading={!jobs} layout={[[6], 1, [6], 1, [6], 1, [6], 1, [6]]} />
 			{#if jobs}

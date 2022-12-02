@@ -327,6 +327,24 @@ def get_state_path() -> str:
     return state_path
 
 
+def get_resume_urls(approver: str | None = None) -> Dict:
+    from windmill_api.api.job import get_resume_urls as get_resume_urls_api
+
+    workspace = get_workspace()
+    client = create_client()
+    job_id = os.environ.get("WM_JOB_ID") or "NO_ID"
+    import random
+
+    nonce = random.randint(0, 1000000000)
+    res = get_resume_urls_api.sync_detailed(
+        workspace, job_id, nonce, client=client, approver=approver
+    )
+    if res.parsed is not None:
+        return res.parsed.to_dict()
+    else:
+        raise Exception("Failed to get resume urls")
+
+
 def _transform_leaves(d: Dict[str, Any]) -> Dict[str, Any]:
     return {k: _transform_leaf(v) for k, v in d.items()}
 

@@ -83,9 +83,3 @@
 		</TableCustom>
 	{/each}
 </CenteredPage>
-
-<style>
-	td {
-		@apply text-xs;
-	}
-</style>

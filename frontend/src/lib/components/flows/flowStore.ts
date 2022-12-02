@@ -37,7 +37,6 @@ export function dfs(modules: FlowModule[]): string[] {
 
 
 export async function initFlow(flow: Flow) {
-
 	let counter = 0
 	for (const mod of flow.value.modules) {
 		migrateFlowModule(mod)

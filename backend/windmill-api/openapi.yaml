@@ -1331,7 +1331,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/ListableResource"
+                $ref: "#/components/schemas/Resource"
 
   /w/{workspace}/resources/get_value/{path}:
     get:
@@ -2886,6 +2886,43 @@ paths:
             text/plain:
               schema:
                 type: string
+
+  /w/{workspace}/jobs/resume_urls/{id}/{resume_id}:
+    get:
+      summary:  get resume urls given a job_id, resume_id and a nonce to resume a flow
+      operationId: getResumeUrls
+      tags:
+        - job
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/JobId"
+        - name: resume_id
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: approver
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: url endpoints
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  approvalPage:
+                    type: string
+                  resume: 
+                    type: string
+                  cancel:
+                    type: string
+                required:
+                  - approvalPage
+                  - resume
+                  - cancel
 
   /w/{workspace}/jobs/resume/{id}/{resume_id}/{signature}:
     get:
@@ -4825,10 +4862,21 @@ components:
             type: boolean
         starred:
           type: boolean
+        edited_at:
+          type: string
+          format: date-time
         execution_mode:
           type: string
           enum: [viewer, publisher, anonymous]
-
+      required:
+        - id
+        - workspace_id
+        - path
+        - summary
+        - version
+        - extra_perms
+        - edited_at
+        - execution_mode
     AppWithLastVersion:
       type: object
       properties:

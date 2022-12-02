@@ -15,7 +15,7 @@
 	import Button from '$lib/components/common/button/Button.svelte'
 	import { AppService, AppWithLastVersion } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
-	import { faArrowLeft, faPen } from '@fortawesome/free-solid-svg-icons'
+	import { faPen } from '@fortawesome/free-solid-svg-icons'
 
 	let app: AppWithLastVersion | undefined = undefined
 
@@ -33,12 +33,8 @@
 <CenteredPage>
 	{#if app}
 		<div class="flex justify-between my-2 items-center">
-			<div class="flex gap-4 items-center">
-				<Button size="xs" href="/apps" startIcon={{ icon: faArrowLeft }} color="dark">
-					Back to apps
-				</Button>
-				<div>{app.value.title}</div>
-			</div>
+			<div>{app.value.title}</div>
+
 			<Button size="xs" href="/apps/edit/{$page.params.path}" startIcon={{ icon: faPen }}>
 				Edit
 			</Button>

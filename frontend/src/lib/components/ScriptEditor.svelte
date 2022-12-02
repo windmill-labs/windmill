@@ -167,7 +167,7 @@
 	<Pane size={40} minSize={10}>
 		<Splitpanes horizontal>
 			<Pane size={33}>
-				<div class="w-full  bg-gray-100 px-2 text-sm">Preview</div>
+				<div class="w-full border-b p-2 text-xs font-bold">Preview</div>
 				<div class="px-2">
 					<div class="break-words relative font-sans">
 						<SchemaForm compact {schema} bind:args bind:isValid />

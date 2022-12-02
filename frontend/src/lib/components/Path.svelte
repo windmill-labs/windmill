@@ -26,6 +26,7 @@
 	export let initialPath: string
 	export let path = ''
 	export let error = ''
+	export let disabled = false
 
 	export let kind: PathKind
 
@@ -176,6 +177,7 @@
 			</span>
 
 			<select
+				{disabled}
 				bind:value={meta.ownerKind}
 				on:change={() => {
 					if (meta.ownerKind === 'group') {
@@ -202,7 +204,7 @@
 		{:else}
 			<label class="block">
 				<span class="text-gray-700 text-sm">Owner</span>
-				<select bind:value={meta.owner}>
+				<select {disabled} bind:value={meta.owner}>
 					{#each groups as g}
 						<option>{g.name}</option>
 					{/each}
@@ -215,6 +217,7 @@
 				<Required required={true} />
 			</span>
 			<input
+				{disabled}
 				type="text"
 				id="path"
 				autofocus

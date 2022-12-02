@@ -46,7 +46,7 @@ mod workspaces;
 
 const GIT_VERSION: &str = git_version!(args = ["--tag", "--always"], fallback = "unknown-version");
 
-struct BaseUrl(String);
+pub struct BaseUrl(String);
 pub struct IsSecure(bool);
 pub struct CookieDomain(Option<String>);
 pub struct CloudHosted(bool);

@@ -1,6 +1,5 @@
 <script lang="ts">
 	import type { Schema } from '$lib/common'
-	import type { InputTransform } from '$lib/gen'
 	import type { InputCat } from '$lib/utils'
 	import { getContext } from 'svelte'
 
@@ -12,6 +11,9 @@
 	import SimpleEditor from './SimpleEditor.svelte'
 	import { Button, ToggleButton, ToggleButtonGroup } from './common'
 	import { faCode } from '@fortawesome/free-solid-svg-icons'
+	import type VariableEditor from './VariableEditor.svelte'
+	import type ItemPicker from './ItemPicker.svelte'
+	import type { InputTransform } from '$lib/gen'
 
 	export let schema: Schema
 	export let arg: InputTransform | any
@@ -19,6 +21,9 @@
 	export let extraLib: string = 'missing extraLib'
 	export let inputCheck: boolean = true
 	export let previousModuleId: string | undefined
+	export let pickForField: string | undefined = undefined
+	export let variableEditor: VariableEditor | undefined = undefined
+	export let itemPicker: ItemPicker | undefined = undefined
 
 	export let monaco: SimpleEditor | undefined = undefined
 	let argInput: ArgInput | undefined = undefined
@@ -211,6 +216,9 @@
 					setPropertyType(e.detail.rawValue)
 				}
 			}}
+			{variableEditor}
+			{itemPicker}
+			bind:pickForField
 		/>
 	{:else if arg.expr != undefined}
 		<div class="border rounded p-2 mt-2 border-gray-300">

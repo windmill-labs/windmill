@@ -6,11 +6,11 @@
 	export let args: any
 </script>
 
-<TableCustom class="px-10 py-2">
-	<tr slot="header-row"
-		><th>Argument</th>
-		<th>Value</th></tr
-	>
+<TableCustom class="py-2">
+	<tr slot="header-row">
+		<th>Argument</th>
+		<th>Value</th>
+	</tr>
 	<tbody slot="body">
 		{#if args && Object.keys(args).length > 0}
 			{#each Object.entries(args) as [arg, value]}

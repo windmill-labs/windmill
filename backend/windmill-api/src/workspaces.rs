@@ -26,7 +26,7 @@ use windmill_common::{
     flows::Flow,
     scripts::{Schema, Script, ScriptLang},
     utils::{paginate, rd_string, require_admin, Pagination},
-    variables::ListableVariable,
+    variables::ExportableListableVariable,
 };
 
 use hyper::{header, StatusCode};
@@ -649,7 +649,7 @@ async fn tarball_workspace(
     }
 
     {
-        let variables = sqlx::query_as::<_, ListableVariable>(
+        let variables = sqlx::query_as::<_, ExportableListableVariable>(
             "SELECT *, false as is_expired FROM variable WHERE workspace_id = $1 AND is_secret = false",
         )
         .bind(&w_id)
