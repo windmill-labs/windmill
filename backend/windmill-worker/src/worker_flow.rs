@@ -1453,9 +1453,15 @@ async fn compute_next_flow_transform<'c>(
             tx,
             NextFlowTransform::Continue(vec![JobPayload::Identity], NextStatus::NextStep),
         )),
-        FlowModuleValue::Script { path: script_path, .. } => {
-            let payload =
-                script_path_to_payload(script_path, &mut tx, &flow_job.workspace_id).await?;
+        FlowModuleValue::Script { path: script_path, hash: script_hash, .. } => {
+            let payload = if script_hash.is_none() {
+                script_path_to_payload(script_path, &mut tx, &flow_job.workspace_id).await?
+            } else {
+                JobPayload::ScriptHash {
+                    hash: script_hash.clone().unwrap(),
+                    path: script_path.to_owned(),
+                }
+            };
             Ok((
                 tx,
                 NextFlowTransform::Continue(vec![payload], NextStatus::NextStep),
