@@ -1,5 +1,11 @@
 <script lang="ts">
-	import { faChevronDown, faChevronUp, faMinus, faPlus } from '@fortawesome/free-solid-svg-icons'
+	import {
+		faChevronDown,
+		faChevronUp,
+		faDollarSign,
+		faMinus,
+		faPlus
+	} from '@fortawesome/free-solid-svg-icons'
 
 	import { setInputCat as computeInputCat, type InputCat } from '$lib/utils'
 	import { Button } from './common'
@@ -15,6 +21,9 @@
 	import SimpleEditor from './SimpleEditor.svelte'
 	import autosize from 'svelte-autosize'
 	import Toggle from './Toggle.svelte'
+	import Password from './Password.svelte'
+	import type VariableEditor from './VariableEditor.svelte'
+	import type ItemPicker from './ItemPicker.svelte'
 
 	export let label: string = ''
 	export let value: any
@@ -39,6 +48,10 @@
 	export let properties: { [name: string]: SchemaProperty } | undefined = undefined
 	export let autofocus = false
 	export let compact = false
+	export let password = false
+	export let pickForField: string | undefined = undefined
+	export let variableEditor: VariableEditor | undefined = undefined
+	export let itemPicker: ItemPicker | undefined = undefined
 
 	let seeEditable: boolean = enum_ != undefined || pattern != undefined
 	const dispatch = createEventDispatcher()
@@ -59,6 +72,7 @@
 		if (rawValue) {
 			try {
 				value = JSON.parse(rawValue)
+				error = ''
 			} catch (err) {
 				error = err.toString()
 			}
@@ -336,24 +350,58 @@
 						: undefined}
 				/>
 			{:else if inputCat == 'string'}
-				<textarea
-					{autofocus}
-					rows="1"
-					bind:this={el}
-					on:focus={() => dispatch('focus')}
-					on:blur={() => dispatch('blur')}
-					use:autosize
-					type="text"
-					{disabled}
-					class="col-span-10 {valid
-						? ''
-						: 'border border-red-700 border-opacity-30 focus:border-red-700 focus:border-opacity-30 bg-red-100'}"
-					placeholder={defaultValue ?? ''}
-					bind:value
-					on:input={() => {
-						dispatch('input', { rawValue: value, isRaw: false })
-					}}
-				/>
+				<div class="flex flex-col w-full">
+					<div class="flex flex-row w-full items- justify-between">
+						{#if password}
+							<Password bind:password={value} />
+						{:else}
+							<textarea
+								{autofocus}
+								rows="1"
+								bind:this={el}
+								on:focus={() => dispatch('focus')}
+								on:blur={() => dispatch('blur')}
+								use:autosize
+								type="text"
+								{disabled}
+								class="col-span-10 {valid
+									? ''
+									: 'border border-red-700 border-opacity-30 focus:border-red-700 focus:border-opacity-30 bg-red-100'}"
+								placeholder={defaultValue ?? ''}
+								bind:value
+								on:input={() => {
+									dispatch('input', { rawValue: value, isRaw: false })
+								}}
+							/>
+							{#if itemPicker}
+								<div class="ml-1 relative">
+									<Button
+										{disabled}
+										variant="border"
+										color="blue"
+										size="sm"
+										btnClasses="min-w-min items-center leading-4 py-0"
+										on:click={() => {
+											pickForField = label
+											itemPicker?.openDrawer?.()
+										}}><Icon data={faDollarSign} /></Button
+									>
+								</div>
+							{/if}
+						{/if}
+					</div>
+					{#if variableEditor}
+						<div class="text-sm text-gray-600">
+							{#if value?.startsWith('$var:')}
+								Linked to variable <button
+									class="text-blue-500 underline"
+									on:click={() => variableEditor?.editVariable?.(value.slice(5))}
+									>{value.slice(5)}</button
+								>
+							{/if}
+						</div>
+					{/if}
+				</div>
 			{/if}
 			{#if !required && inputCat != 'resource-object'}
 				<!-- <Tooltip placement="bottom" content="Reset to default value">

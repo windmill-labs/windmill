@@ -22,6 +22,17 @@
 	.monaco-workbench > .notifications-toasts.visible {
 		display: none !important;
 	}
+
+	svelte-virtual-list-row {
+		overflow: visible !important;
+	}
+
+	svelte-virtual-list-contents > * + * {
+		border-top-width: 1px !important;
+		border-bottom-width: 0px !important
+	}
+
+	
 }
 
 @layer components {
@@ -31,3 +42,4 @@
 		cursor: pointer !important;
 	}
 }
+

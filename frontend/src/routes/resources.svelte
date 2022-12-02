@@ -8,20 +8,17 @@
 
 <script lang="ts">
 	import { canWrite, emptySchema, sendUserToast, truncate } from '$lib/utils'
-	import { OauthService, ResourceService, VariableService, type ListableResource } from '$lib/gen'
-	import type { Resource, ResourceType } from '$lib/gen'
+	import { OauthService, ResourceService, type ListableResource } from '$lib/gen'
+	import type { ResourceType } from '$lib/gen'
 	import PageHeader from '$lib/components/PageHeader.svelte'
 	import ResourceEditor from '$lib/components/ResourceEditor.svelte'
 	import TableCustom from '$lib/components/TableCustom.svelte'
-	import Highlight from 'svelte-highlight'
-	import json from 'svelte-highlight/languages/json'
 	import IconedResourceType from '$lib/components/IconedResourceType.svelte'
 	import ShareModal from '$lib/components/ShareModal.svelte'
 	import SharedBadge from '$lib/components/SharedBadge.svelte'
 	import SvelteMarkdown from 'svelte-markdown'
-	import { userStore, workspaceStore, oauthStore, superadmin } from '$lib/stores'
+	import { userStore, workspaceStore, oauthStore } from '$lib/stores'
 	import SchemaEditor from '$lib/components/SchemaEditor.svelte'
-	import type { Schema } from '$lib/common'
 	import SchemaViewer from '$lib/components/SchemaViewer.svelte'
 	import Dropdown from '$lib/components/Dropdown.svelte'
 	import {
@@ -53,14 +50,20 @@
 
 	let resources: ResourceW[] | undefined
 	let resourceTypes: ResourceTypeW[] | undefined
-	let resourceViewer: Drawer
-	let resourceViewerTitle: string = ''
-	let resourceViewerSchema: Schema = emptySchema()
-	let resourceViewerDescription = ''
-	let typeDrawerMode: 'view' | 'view-type' | 'create' = 'view'
-	let newResourceTypeName: string
-	let newResourceTypeSchema: Schema
-	let newResourceTypeDescription: string
+
+	let resourceTypeViewer: Drawer
+	let resourceTypeViewerObj = {
+		rt: '',
+		description: '',
+		schema: emptySchema()
+	}
+
+	let resourceTypeDrawer: Drawer
+	let newResourceType = {
+		name: '',
+		schema: emptySchema(),
+		description: ''
+	}
 	let resourceEditor: ResourceEditor | undefined
 	let shareModal: ShareModal
 	let appConnect: AppConnect
@@ -107,12 +110,13 @@
 		await ResourceService.createResourceType({
 			workspace: $workspaceStore!,
 			requestBody: {
-				name: (disableCustomPrefix ? '' : 'c_') + newResourceTypeName,
-				schema: newResourceTypeSchema,
-				description: newResourceTypeDescription
+				name: (disableCustomPrefix ? '' : 'c_') + newResourceType.name,
+				schema: newResourceType.schema,
+				description: newResourceType.description
 			}
 		})
-		resourceViewer.closeDrawer()
+		resourceTypeDrawer.closeDrawer?.()
+		sendUserToast('Resource type created')
 		loadResourceTypes()
 	}
 
@@ -133,12 +137,12 @@
 	}
 
 	const startNewType = () => {
-		resourceViewerTitle = `Create a Resource Type`
-		newResourceTypeName = 'my_resource_type'
-		newResourceTypeSchema = emptySchema()
-		newResourceTypeDescription = 'my description'
-		typeDrawerMode = 'create'
-		resourceViewer.openDrawer()
+		newResourceType = {
+			name: 'my_resource_type',
+			schema: emptySchema(),
+			description: ''
+		}
+		resourceTypeDrawer.openDrawer?.()
 	}
 
 	$: {
@@ -151,14 +155,14 @@
 	onMount(() => {
 		let resource_type = $page.url.searchParams.get('resource_type')
 		if ($oauthStore && resource_type) {
-			appConnect.openFromOauth(resource_type)
+			appConnect.openFromOauth?.(resource_type)
 		}
 		if ($page.url.searchParams.get('connect_app')) {
 			const rt = $page.url.searchParams.get('connect_app') ?? undefined
 			if (rt == 'undefined') {
-				appConnect.open()
+				appConnect.open?.()
 			} else {
-				appConnect.open(rt)
+				appConnect.open?.(rt)
 			}
 		}
 	})
@@ -166,64 +170,60 @@
 	let disableCustomPrefix = false
 </script>
 
-<Drawer bind:this={resourceViewer} size="800px">
-	<DrawerContent title={resourceViewerTitle} on:close={resourceViewer.closeDrawer}>
+<Drawer bind:this={resourceTypeViewer} size="800px">
+	<DrawerContent title={resourceTypeViewerObj.rt} on:close={resourceTypeViewer.closeDrawer}>
 		<div>
-			{#if typeDrawerMode === 'create'}
-				<div class="flex flex-col gap-6">
-					<label for="inp">
-						<div class="mb-1 font-semibold text-gray-700">Name<Required required={true} /></div>
-						<div class="flex flex-row items-center gap-x-4">
-							{#if !disableCustomPrefix}
-								<span
-									class="border border-gray-700 rounded p-1 -mr-6 text-sm bg-gray-200 inline-block w-8"
-									>c_</span
-								>
-							{/if}
+			<h1 class="mb-8 mt-4"><IconedResourceType name={resourceTypeViewerObj.rt} /></h1>
+			<div class="py-2 box prose mb-8">
+				<SvelteMarkdown source={resourceTypeViewerObj.description} />
+			</div>
+			<SchemaViewer schema={resourceTypeViewerObj.schema} />
+		</div>
+	</DrawerContent>
+</Drawer>
 
-							<div class="inline-block">
-								<input id="inp" type="text" bind:value={newResourceTypeName} />
-							</div>
+<Drawer bind:this={resourceTypeDrawer} size="800px">
+	<DrawerContent title="Create resource type" on:close={resourceTypeDrawer.closeDrawer}>
+		<div>
+			<div class="flex flex-col gap-6">
+				<label for="inp">
+					<div class="mb-1 font-semibold text-gray-700">Name<Required required={true} /></div>
+					<div class="flex flex-row items-center gap-x-4">
+						{#if !disableCustomPrefix}
+							<span
+								class="border border-gray-700 rounded p-1 -mr-6 text-sm bg-gray-200 inline-block w-8"
+								>c_</span
+							>
+						{/if}
 
-							{#if $userStore?.is_admin}
-								<Toggle
-									bind:checked={disableCustomPrefix}
-									options={{ right: 'disable c_ prefix (admin only)' }}
-								/>
-								<Tooltip
-									>Resource types are synchronized with the official types on the hub regularly. The
-									`c_` prefix is to avoid name clashes with them.</Tooltip
-								>
-							{/if}
+						<div class="inline-block">
+							<input id="inp" type="text" bind:value={newResourceType.name} />
 						</div>
-					</label>
-					<label>
-						<div class="mb-1 font-semibold text-gray-700">Description</div>
-						<input type="text" bind:value={newResourceTypeDescription} /></label
-					>
-					<div>
-						<div class="mb-1 font-semibold text-gray-700">Schema</div>
-						<SchemaEditor bind:schema={newResourceTypeSchema} />
+
+						{#if $userStore?.is_admin}
+							<Toggle
+								bind:checked={disableCustomPrefix}
+								options={{ right: 'disable c_ prefix (admin only)' }}
+							/>
+							<Tooltip
+								>Resource types are synchronized with the official types on the hub regularly. The
+								`c_` prefix is to avoid name clashes with them.</Tooltip
+							>
+						{/if}
 					</div>
+				</label>
+				<label>
+					<div class="mb-1 font-semibold text-gray-700">Description</div>
+					<input type="text" bind:value={newResourceType.description} /></label
+				>
+				<div>
+					<div class="mb-1 font-semibold text-gray-700">Schema</div>
+					<SchemaEditor bind:schema={newResourceType.schema} />
 				</div>
-			{:else if typeDrawerMode === 'view'}
-				<div class="py-2 ">
-					<SvelteMarkdown source={resourceViewerDescription} />
-				</div>
-				<div class="border p-2">
-					<Highlight language={json} code={JSON.stringify(resourceViewerSchema, null, 4)} />
-				</div>
-			{:else if typeDrawerMode === 'view-type'}
-				<div class="py-2">
-					<SvelteMarkdown source={resourceViewerDescription} />
-				</div>
-				<SchemaViewer schema={resourceViewerSchema} />
-			{/if}
+			</div>
 		</div>
 		<div slot="submission">
-			{#if typeDrawerMode === 'create'}
-				<Button startIcon={{ icon: faSave }} on:click={addResourceType}>Save</Button>
-			{/if}
+			<Button startIcon={{ icon: faSave }} on:click={addResourceType}>Save</Button>
 		</div>
 	</DrawerContent>
 </Drawer>
@@ -234,11 +234,8 @@
 		tooltip="Save and permission rich objects (JSON) including credentials obtained through OAuth."
 	>
 		<div class="flex flex-row space-x-4">
-			<Button size="md" startIcon={{ icon: faChain }} on:click={() => appConnect.open()}>
-				Connect an API
-			</Button>
-			<Button size="md" startIcon={{ icon: faPlus }} on:click={() => resourceEditor?.initNew()}>
-				Add a resource
+			<Button size="md" startIcon={{ icon: faChain }} on:click={() => appConnect.open?.()}>
+				Add a resource/API
 			</Button>
 		</div>
 	</PageHeader>
@@ -265,17 +262,7 @@
 									><a
 										class="break-words"
 										href="#{path}"
-										on:click={async () => {
-											resourceViewerTitle = `Resource ${path}`
-											const resource = await ResourceService.getResource({
-												workspace: $workspaceStore ?? 'no_workspace',
-												path
-											})
-											resourceViewerSchema = resource.value
-											resourceViewerDescription = resource.description ?? ''
-											typeDrawerMode = 'view'
-											resourceViewer.openDrawer()
-										}}>{path}</a
+										on:click={() => resourceEditor?.initEdit?.(path)}>{path}</a
 									>
 									<div class="mb-1 -mt-1"><SharedBadge {canWrite} extraPerms={extra_perms} /></div>
 								</td>
@@ -303,8 +290,8 @@
 												<Popover>
 													<Icon data={faRefresh} />
 													<div slot="text">
-														The OAuth token will be kept up-to-date in the background by Windmill using
-														its refresh token
+														The OAuth token will be kept up-to-date in the background by Windmill
+														using its refresh token
 													</div>
 												</Popover>
 											{/if}
@@ -363,7 +350,7 @@
 												icon: faShare,
 												disabled: !canWrite,
 												action: () => {
-													shareModal.openDrawer(path)
+													shareModal.openDrawer?.(path)
 												}
 											},
 											{
@@ -371,7 +358,7 @@
 												icon: faEdit,
 												disabled: !canWrite,
 												action: () => {
-													resourceEditor?.initEdit(path)
+													resourceEditor?.initEdit?.(path)
 												}
 											},
 											{
@@ -428,7 +415,9 @@
 		primary={false}
 		tooltip="Schema and label to filter resources by type"
 	>
-		<Button size="md" startIcon={{ icon: faPlus }} on:click={startNewType}>Add a type</Button>
+		<Button size="md" startIcon={{ icon: faPlus }} on:click={startNewType}
+			>Add a resource type</Button
+		>
 	</PageHeader>
 
 	{#if loading.types}
@@ -452,11 +441,13 @@
 									><a
 										href="#{name}"
 										on:click={() => {
-											resourceViewerTitle = `Resource type ${name}`
-											resourceViewerSchema = schema
-											resourceViewerDescription = description ?? ''
-											typeDrawerMode = 'view-type'
-											resourceViewer.openDrawer()
+											resourceTypeViewerObj = {
+												rt: name,
+												schema: schema,
+												description: description ?? ''
+											}
+
+											resourceTypeViewer.openDrawer?.()
 										}}><IconedResourceType after={true} {name} /></a
 									></td
 								>

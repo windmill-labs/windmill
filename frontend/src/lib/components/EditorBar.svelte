@@ -211,15 +211,6 @@
 		>
 			Connect an API
 		</Button>
-		<Button
-			color="blue"
-			size="sm"
-			on:click={() => {
-				resourceEditor.initNew()
-			}}
-		>
-			Add a resource
-		</Button>
 	</div>
 </ItemPicker>
 

@@ -2,19 +2,11 @@
 	const apiTokenApps: Record<string, { img?: string; instructions: string[]; key?: string }> = {
 		airtable: {
 			img: 'airtable_connect.png',
-			instructions: [
-				'Click on the top-right avatar',
-				'Click on Account',
-				'Find "Api"'
-			]
+			instructions: ['Click on the top-right avatar', 'Click on Account', 'Find "Api"']
 		},
 		discord_webhook: {
 			img: 'discord_webhook.png',
-			instructions: [
-				'Click on Server Settings',
-				'Click on Integration',
-				'Find "Webhooks"'
-			],
+			instructions: ['Click on Server Settings', 'Click on Integration', 'Find "Webhooks"'],
 			key: 'webhook_url'
 		},
 		toggl: {
@@ -31,6 +23,14 @@
 				'Find "Your API Keys"'
 			]
 		},
+		sendgrid: {
+			img: 'sendgrid_connect.png',
+			instructions: [
+				'Go to <a href="https://app.sendgrid.com/settings/api_keys" target="_blank" rel=”noopener noreferrer”>https://app.sendgrid.com/settings/api_keys</a>',
+				'Create an API key',
+				'Copy your key'
+			]
+		},
 	}
 </script>
 
@@ -40,13 +40,13 @@
 	import IconedResourceType from './IconedResourceType.svelte'
 	import { OauthService, ResourceService, VariableService, type TokenResponse } from '$lib/gen'
 	import { page } from '$app/stores'
-	import { sendUserToast, truncateRev } from '$lib/utils'
+	import { emptyString, sendUserToast, truncateRev } from '$lib/utils'
 	import { createEventDispatcher } from 'svelte'
 	import Icon from 'svelte-awesome'
-	import Password from './Password.svelte'
 	import Path from './Path.svelte'
 	import { Alert, Button, Drawer } from './common'
 	import DrawerContent from './common/drawer/DrawerContent.svelte'
+	import ApiConnectForm from './ApiConnectForm.svelte'
 
 	let manual = false
 	let value: string = ''
@@ -54,6 +54,7 @@
 	let connects: Record<string, { scopes: string[]; extra_params?: Record<string, string> }> = {}
 	let connectsManual: [string, { img?: string; instructions: string[]; key?: string }][] = []
 	let key: string = 'token'
+	let args = {}
 
 	$: key = apiTokenApps[resource_type]?.key ?? 'token'
 
@@ -61,6 +62,7 @@
 	let extra_params: [string, string][] = []
 
 	let path: string
+	let description = ''
 
 	let drawer: Drawer
 	let resource_type = ''
@@ -83,7 +85,7 @@
 			scopes = connect.scopes
 			extra_params = Object.entries(connect.extra_params ?? {})
 		}
-		drawer.openDrawer()
+		drawer.openDrawer?.()
 	}
 
 	export function openFromOauth(rt: string) {
@@ -94,7 +96,7 @@
 		manual = false
 		step = 3
 		no_back = true
-		drawer.openDrawer()
+		drawer.openDrawer?.()
 	}
 
 	async function loadConnects() {
@@ -105,11 +107,20 @@
 		const availableRts = await ResourceService.listResourceTypeNames({
 			workspace: $workspaceStore!
 		})
-		connectsManual = Object.entries(apiTokenApps).filter(([key, _]) => availableRts.includes(key))
+		connectsManual = availableRts
+			.filter((x) => !Object.keys(connects).includes(x))
+			.map((x) => [
+				x,
+				apiTokenApps[x] ?? {
+					instructions: '',
+					img: undefined,
+					key: undefined
+				}
+			])
 	}
 
 	async function next() {
-		if (step < 3 && manual) {
+		if (step == 1 && manual) {
 			step += 1
 		} else if (step == 1 && !manual) {
 			const url = new URL(`/api/oauth/connect/${resource_type}`, $page.url.origin)
@@ -149,20 +160,27 @@
 					})
 				)
 			}
-			const description = `${manual ? 'Token' : 'OAuth token'} for ${resource_type}`
-			await VariableService.createVariable({
-				workspace: $workspaceStore!,
-				requestBody: {
-					path,
-					value,
-					is_secret: true,
-					description,
-					is_oauth: !manual,
-					account: account
-				}
-			})
-			const resourceValue = {}
-			resourceValue[key] = `$var:${path}`
+
+			const resourceValue = args
+
+			if (!manual || containsSecret) {
+				await VariableService.createVariable({
+					workspace: $workspaceStore!,
+					requestBody: {
+						path,
+						value: manual ? args[key] : value,
+						is_secret: true,
+						description: emptyString(description)
+							? `${manual ? 'Token' : 'OAuth token'} for ${resource_type}`
+							: description,
+						is_oauth: !manual,
+						account: account
+					}
+				})
+				resourceValue[key] = `$var:${path}`
+			} else {
+			}
+
 			await ResourceService.createResource({
 				workspace: $workspaceStore!,
 				requestBody: {
@@ -174,7 +192,7 @@
 			})
 			dispatch('refresh')
 			sendUserToast(`App token set at resource and variable path: ${path}`)
-			drawer.closeDrawer()
+			drawer.closeDrawer?.()
 		}
 	}
 
@@ -193,9 +211,17 @@
 			resource_type == 'gcal' ||
 			resource_type == 'gdrive' ||
 			resource_type == 'gsheets')
+
+	$: containsSecret =
+		args && Object.keys(args).filter((x) => ['token', 'password', 'api_key'].includes(x)).length > 0
 	$: disabled =
 		(step == 1 && resource_type == '') ||
-		(step == 2 && value == '') ||
+		(step == 2 &&
+			value == '' &&
+			args['token'] == '' &&
+			args['password'] == '' &&
+			args['api_key'] == '' &&
+			!containsSecret) ||
 		(step == 3 && pathError != '')
 </script>
 
@@ -305,8 +331,18 @@
 					</Button>
 				{/each}
 			</div>
-		{:else if step == 2}
-			{#if manual}
+		{:else if step == 2 && manual}
+			<Path
+				bind:error={pathError}
+				bind:path
+				initialPath={`u/${$userStore?.username ?? ''}/my_${resource_type}`}
+				kind="resource"
+			/>
+			<label>
+				<div class="mb-1 font-semibold text-gray-700">Description</div>
+				<input type="text" bind:value={description} /></label
+			>
+			{#if apiTokenApps[resource_type]}
 				<div class="mb-1 font-semibold text-gray-700 mt-6">Instructions</div>
 				<div class="pl-10">
 					<ol class="list-decimal">
@@ -322,10 +358,11 @@
 						<img alt="connect" src={apiTokenApps[resource_type].img} />
 					</div>
 				{/if}
-				<div class="mt-4">
-					<Password bind:password={value} label="Paste token here" />
-				</div>
 			{/if}
+
+			<div class="mt-4">
+				<ApiConnectForm password={key} {resource_type} bind:args />
+			</div>
 		{:else}
 			<Path
 				bind:error={pathError}
@@ -333,27 +370,22 @@
 				initialPath={`u/${$userStore?.username ?? ''}/my_${resource_type}`}
 				kind="resource"
 			/>
-			<ul class="mt-10 bg-white">
-				<li>
-					1. A secret variable containing the token <span class="font-bold"
-						>{truncateRev(value, 5, '*****')}</span
-					>
-					will be stored at
-					<span class="font-mono">{path}</span>. You can refer to this variable anywhere this token
-					is required.
-				</li>
-				<li class="mt-4">
-					2. A resource with a unique token field will be stored at <span class="font-mono"
-						>{path}</span
-					>
-					and refer to the secret variable <span class="font-mono">{path}</span> as its token (using
-					variable templating
-					<span class="font-mono">`$var:${path}`</span>). You can refer to this resource anywhere
-					this token is required. A script can use the resource type
-					<span class="font-mono">{resource_type}</span> as a type parameter to restrict the kind of
-					tokens it accepts to this api.
-				</li>
-			</ul>
+			{#if apiTokenApps[resource_type] || !manual}
+				<ul class="mt-10 bg-white">
+					<li>
+						1. A secret variable containing the {apiTokenApps[resource_type]?.key ?? 'token'}
+						<span class="font-bold">{truncateRev(value, 5, '*****')}</span>
+						will be stored a
+						<span class="font-mono whitespace-nowrap">{path}</span>.
+					</li>
+					<li class="mt-4">
+						2. The resource containing that token will be stored at the same path <span
+							class="font-mono whitespace-nowrap">{path}</span
+						>. The Variable and Resource will be "linked together", they will be deleted and renamed
+						together.
+					</li></ul
+				>
+			{/if}
 		{/if}
 		<div slot="submission" class="flex items-center gap-4">
 			{#if step > 1 && !no_back}
@@ -367,10 +399,10 @@
 				<Button {disabled} on:click={next}>
 					{#if step == 1 && !manual}
 						Connect
-					{:else if step == 3}
-						Add resource
-					{:else}
+					{:else if step == 1 && manual}
 						Next
+					{:else}
+						Save
 					{/if}
 				</Button>
 			{/if}
