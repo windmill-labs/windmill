@@ -31,37 +31,43 @@
 		if (itemKind == 'flow') {
 			items = (await FlowService.listFlows({ workspace: $workspaceStore! })).map((flow) => ({
 				value: flow.path,
-				label: `${flow.path}${flow.summary ? `| ${flow.summary}` : ''}`
+				label: `${flow.path}${flow.summary ? ` | ${flow.summary}` : ''}`
 			}))
 		} else if (itemKind == 'script') {
 			items = (await ScriptService.listScripts({ workspace: $workspaceStore!, kind })).map(
 				(script) => ({
 					value: script.path,
-					label: `${script.path}${script.summary ? `| ${script.summary}` : ''}`
+					label: `${script.path}${script.summary ? ` | ${script.summary}` : ''}`
 				})
 			)
 		} else {
 			items =
 				$hubScripts?.map((x) => ({
 					value: x.path,
-					label: `${x.path}${x.summary ? `| ${x.summary}` : ''}`
+					label: `${x.path}${x.summary ? ` | ${x.summary}` : ''}`
 				})) ?? []
 		}
 	}
 
 	$: $workspaceStore && itemKind && loadItems()
-
-	$: dispatch('select', { path: scriptPath })
 </script>
 
 <div class="flex flex-row  items-center gap-4 w-full">
 	{#if options.length > 1}
-		<div class="w-80">
+		<div class="w-80 mt-1">
 			<RadioButton bind:value={itemKind} {options} />
 		</div>
 	{/if}
 
-	<Select class="grow" bind:justValue={scriptPath} {items} placeholder="Pick a {itemKind}" />
+	<Select
+		class="grow"
+		on:change={() => {
+			dispatch('select', { path: scriptPath })
+		}}
+		bind:justValue={scriptPath}
+		{items}
+		placeholder="Pick a {itemKind}"
+	/>
 	{#if scriptPath !== undefined && scriptPath !== ''}
 		<Button
 			color="light"
