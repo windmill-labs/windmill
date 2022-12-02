@@ -1,7 +1,6 @@
 <script lang="ts">
 	import { workspaceStore } from '$lib/stores'
 	import { createEventDispatcher } from 'svelte'
-	import type { HubItem } from './model'
 	import Fuse from 'fuse.js'
 	import { ScriptService } from '$lib/gen'
 
@@ -10,7 +9,7 @@
 	let items: Item[] = []
 
 	let filteredItems: Item[] | undefined = []
-	let itemsFilter = ''
+	export let filter = ''
 
 	const fuseOptions = {
 		includeScore: false,
@@ -18,10 +17,10 @@
 	}
 	const fuse: Fuse<Item> = new Fuse(items, fuseOptions)
 
-	$: $workspaceStore && loadItems()
+	$: $workspaceStore && kind && loadItems()
 
 	$: filteredItems =
-		itemsFilter.length > 0 && items ? fuse.search(itemsFilter).map((value) => value.item) : items
+		filter.length > 0 && items ? fuse.search(filter).map((value) => value.item) : items
 
 	async function loadItems(): Promise<void> {
 		items = await ScriptService.listScripts({ workspace: $workspaceStore!, kind })
@@ -32,8 +31,8 @@
 </script>
 
 <div class="flex flex-col min-h-0">
-	<div class="w-12/12 pb-4">
-		<input type="text" placeholder="Search script" bind:value={itemsFilter} class="search-item" />
+	<div class="w-12/12 pb-4 mt-1">
+		<input type="text" placeholder="Search script" bind:value={filter} class="text-2xl grow" />
 	</div>
 
 	{#if filteredItems}
