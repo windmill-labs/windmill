@@ -8,11 +8,11 @@
 	import { loadHubScripts } from '$lib/utils'
 
 	export let kind: 'script' | 'trigger' | 'approval' | 'failure' = 'script'
+	export let filter = ''
 
 	$: items = ($hubScripts ?? []).filter((i) => i.kind === kind)
 
 	let filteredItems: (HubItem & { marked?: string })[] = []
-	let filter = ''
 	let appFilter: string | undefined = undefined
 
 	$: prefilteredItems = appFilter ? (items ?? []).filter((i) => i.app == appFilter) : items ?? []

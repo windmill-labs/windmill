@@ -1,8 +1,9 @@
+// deno-lint-ignore-file no-explicit-any
 import { Command } from "https://deno.land/x/cliffy@v0.25.4/command/command.ts";
 import { ResourceService } from "https://deno.land/x/windmill@v1.50.0/mod.ts";
 import { GlobalOptions } from "./types.ts";
 import { colors } from "https://deno.land/x/cliffy@v0.25.4/ansi/colors.ts";
-import { getContext } from "./context.ts";
+import { requireLogin, resolveWorkspace } from "./context.ts";
 import { Table } from "https://deno.land/x/cliffy@v0.25.4/table/table.ts";
 
 type ResourceTypeFile = {
@@ -13,7 +14,7 @@ type ResourceTypeFile = {
 export async function pushResourceType(
   workspace: string,
   filePath: string,
-  name: string
+  name: string,
 ) {
   const data: ResourceTypeFile = JSON.parse(await Deno.readTextFile(filePath));
   if (
@@ -47,23 +48,24 @@ export async function pushResourceType(
 
 type PushOptions = GlobalOptions;
 async function push(opts: PushOptions, filePath: string, name: string) {
-  const { workspace } = await getContext(opts);
-
   const fstat = await Deno.stat(filePath);
   if (!fstat.isFile) {
     throw new Error("file path must refer to a file.");
   }
+  const workspace = await resolveWorkspace(opts);
+  await requireLogin(opts);
 
   console.log(colors.bold.yellow("Pushing resource..."));
 
-  await pushResourceType(workspace, filePath, name);
+  await pushResourceType(workspace.workspaceId, filePath, name);
   console.log(colors.bold.underline.green("Resource successfully pushed"));
 }
 
 async function list(opts: GlobalOptions) {
-  const { workspace } = await getContext(opts);
+  const workspace = await resolveWorkspace(opts);
+  await requireLogin(opts);
   const res = await ResourceService.listResourceType({
-    workspace,
+    workspace: workspace.workspaceId,
   });
 
   new Table()
@@ -79,7 +81,7 @@ const command = new Command()
   .action(list as any)
   .command(
     "push",
-    "push a local resource spec. This overrides any remote versions."
+    "push a local resource spec. This overrides any remote versions.",
   )
   .arguments("<file_path:string> <name:string>")
   .action(push as any);

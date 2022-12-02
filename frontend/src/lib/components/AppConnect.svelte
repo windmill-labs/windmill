@@ -32,7 +32,7 @@
 	import IconedResourceType from './IconedResourceType.svelte'
 	import { OauthService, ResourceService, VariableService, type TokenResponse } from '$lib/gen'
 	import { page } from '$app/stores'
-	import { sendUserToast, truncateRev } from '$lib/utils'
+	import { emptyString, sendUserToast, truncateRev } from '$lib/utils'
 	import { createEventDispatcher } from 'svelte'
 	import Icon from 'svelte-awesome'
 	import Path from './Path.svelte'
@@ -54,6 +54,7 @@
 	let extra_params: [string, string][] = []
 
 	let path: string
+	let description = ''
 
 	let drawer: Drawer
 	let resource_type = ''
@@ -111,7 +112,7 @@
 	}
 
 	async function next() {
-		if (step < 3 && manual) {
+		if (step == 1 && manual) {
 			step += 1
 		} else if (step == 1 && !manual) {
 			const url = new URL(`/api/oauth/connect/${resource_type}`, $page.url.origin)
@@ -151,21 +152,27 @@
 					})
 				)
 			}
-			const description = `${manual ? 'Token' : 'OAuth token'} for ${resource_type}`
 
-			await VariableService.createVariable({
-				workspace: $workspaceStore!,
-				requestBody: {
-					path,
-					value: manual ? args[key] : value,
-					is_secret: true,
-					description,
-					is_oauth: !manual,
-					account: account
-				}
-			})
 			const resourceValue = args
-			resourceValue[key] = `$var:${path}`
+
+			if (!manual || containsSecret) {
+				await VariableService.createVariable({
+					workspace: $workspaceStore!,
+					requestBody: {
+						path,
+						value: manual ? args[key] : value,
+						is_secret: true,
+						description: emptyString(description)
+							? `${manual ? 'Token' : 'OAuth token'} for ${resource_type}`
+							: description,
+						is_oauth: !manual,
+						account: account
+					}
+				})
+				resourceValue[key] = `$var:${path}`
+			} else {
+			}
+
 			await ResourceService.createResource({
 				workspace: $workspaceStore!,
 				requestBody: {
@@ -196,13 +203,17 @@
 			resource_type == 'gcal' ||
 			resource_type == 'gdrive' ||
 			resource_type == 'gsheets')
+
+	$: containsSecret =
+		args && Object.keys(args).filter((x) => ['token', 'password', 'api_key'].includes(x)).length > 0
 	$: disabled =
 		(step == 1 && resource_type == '') ||
 		(step == 2 &&
 			value == '' &&
 			args['token'] == '' &&
 			args['password'] == '' &&
-			args['api_key'] == '') ||
+			args['api_key'] == '' &&
+			!containsSecret) ||
 		(step == 3 && pathError != '')
 </script>
 
@@ -312,30 +323,38 @@
 					</Button>
 				{/each}
 			</div>
-		{:else if step == 2}
-			{#if manual}
-				{#if apiTokenApps[resource_type]}
-					<div class="mb-1 font-semibold text-gray-700 mt-6">Instructions</div>
-					<div class="pl-10">
-						<ol class="list-decimal">
-							{#each apiTokenApps[resource_type].instructions as step}
-								<li>
-									{@html step}
-								</li>
-							{/each}
-						</ol>
-					</div>
-					{#if apiTokenApps[resource_type].img}
-						<div class="mt-4">
-							<img alt="connect" src={apiTokenApps[resource_type].img} />
-						</div>
-					{/if}
-				{/if}
-
-				<div class="mt-4">
-					<ApiConnectForm password={key} {resource_type} bind:args />
+		{:else if step == 2 && manual}
+			<Path
+				bind:error={pathError}
+				bind:path
+				initialPath={`u/${$userStore?.username ?? ''}/my_${resource_type}`}
+				kind="resource"
+			/>
+			<label>
+				<div class="mb-1 font-semibold text-gray-700">Description</div>
+				<input type="text" bind:value={description} /></label
+			>
+			{#if apiTokenApps[resource_type]}
+				<div class="mb-1 font-semibold text-gray-700 mt-6">Instructions</div>
+				<div class="pl-10">
+					<ol class="list-decimal">
+						{#each apiTokenApps[resource_type].instructions as step}
+							<li>
+								{@html step}
+							</li>
+						{/each}
+					</ol>
 				</div>
+				{#if apiTokenApps[resource_type].img}
+					<div class="mt-4">
+						<img alt="connect" src={apiTokenApps[resource_type].img} />
+					</div>
+				{/if}
 			{/if}
+
+			<div class="mt-4">
+				<ApiConnectForm password={key} {resource_type} bind:args />
+			</div>
 		{:else}
 			<Path
 				bind:error={pathError}
@@ -344,19 +363,16 @@
 				kind="resource"
 			/>
 			{#if apiTokenApps[resource_type] || !manual}
-				{manual}
-				{apiTokenApps[resource_type]}
 				<ul class="mt-10 bg-white">
 					<li>
-						1. A secret variable containing the {apiTokenApps[resource_type]?.key ?? 'token'}<span
-							class="font-bold">{truncateRev(value, 5, '*****')}</span
-						>
+						1. A secret variable containing the {apiTokenApps[resource_type]?.key ?? 'token'}
+						<span class="font-bold">{truncateRev(value, 5, '*****')}</span>
 						will be stored a
-						<span class="font-mono">{path}</span>.
+						<span class="font-mono whitespace-nowrap">{path}</span>.
 					</li>
 					<li class="mt-4">
-						2. The resource containing that token will be stored at the same path<span
-							class="font-mono">{path}</span
+						2. The resource containing that token will be stored at the same path <span
+							class="font-mono whitespace-nowrap">{path}</span
 						>. The Variable and Resource will be "linked together", they will be deleted and renamed
 						together.
 					</li></ul
@@ -375,10 +391,10 @@
 				<Button {disabled} on:click={next}>
 					{#if step == 1 && !manual}
 						Connect
-					{:else if step == 3}
-						Add resource
-					{:else}
+					{:else if step == 1 && manual}
 						Next
+					{:else}
+						Save
 					{/if}
 				</Button>
 			{/if}

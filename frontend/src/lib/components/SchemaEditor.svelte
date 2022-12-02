@@ -1,6 +1,6 @@
 <script lang="ts">
 	import type { Schema, SchemaProperty } from '$lib/common'
-	import { emptySchema, sendUserToast } from '$lib/utils'
+	import { emptySchema, emptyString, sendUserToast } from '$lib/utils'
 	import { faPen, faPlus, faTrash } from '@fortawesome/free-solid-svg-icons'
 	import { Button } from './common'
 	import { createEventDispatcher } from 'svelte'
@@ -146,6 +146,7 @@
 		schema.properties = Object.fromEntries(entries)
 	}
 	let isAnimated = false
+	let error = ''
 </script>
 
 <div class="flex flex-col">
@@ -254,13 +255,17 @@
 				{/if}
 			</div>
 		{:else}
-			<div class="border rounded mt-4 p-2">
+			{#if !emptyString(error)}<span class="text-red-400">{error}</span>{:else}<div
+					class="py-6"
+				/>{/if}
+			<div class="border rounded  p-2">
 				<SimpleEditor
 					on:change={() => {
 						try {
 							schema = JSON.parse(schemaString)
+							error = ''
 						} catch (err) {
-							sendUserToast(err.message, true)
+							error = err.message
 						}
 					}}
 					bind:code={schemaString}

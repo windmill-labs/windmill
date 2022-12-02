@@ -22,8 +22,7 @@ Open-source developer infrastructure for internal tools. Self-hostable alternati
 
 ---
 
-**Try it (personal workspaces are free forever)**:
-<https://app.windmill.dev>
+**Try it (personal workspaces are free forever)**: <https://app.windmill.dev>
 
 **Documentation**: <https://docs.windmill.dev>
 
@@ -37,7 +36,8 @@ Open-source developer infrastructure for internal tools. Self-hostable alternati
 
 You can show your support for the project by starring this repo.
 
-Windmill Labs offers commercial licenses, an enterprise edition, local hub mirrors, and support: contact ruben@windmill.dev.
+Windmill Labs offers commercial licenses, an enterprise edition, local hub
+mirrors, and support: contact ruben@windmill.dev.
 
 ---
 
@@ -78,23 +78,23 @@ Windmill is <b>fully open-sourced (AGPLv3)</b>:
 
 ## Main Concepts
 
-1. Define a minimal and generic script in Python, Typescript, Go or Bash that solves a
-   specific task. Here sending an email with SMTP. The code can be defined in
-   the provided Web IDE or synchronized with your own github repo:
+1. Define a minimal and generic script in Python, Typescript, Go or Bash that
+   solves a specific task. Here sending an email with SMTP. The code can be
+   defined in the provided Web IDE or synchronized with your own github repo:
    ![Step 1](./imgs/windmill-editor.png)
 
-2. Your scripts parameters are automatically parsed and generate a frontend. 
-   ![Step 2](./imgs/windmill-run.png)
-   ![Step 3](./imgs/windmill-result.png)
+2. Your scripts parameters are automatically parsed and generate a frontend.
+   ![Step 2](./imgs/windmill-run.png) ![Step 3](./imgs/windmill-result.png)
 
 3. Make it flow! You can chain your scripts or scripts made by the community
-   shared on [WindmillHub](https://hub.windmill.dev). 
-  ![Step 4](./imgs/windmill-flow.png)
+   shared on [WindmillHub](https://hub.windmill.dev).
+   ![Step 4](./imgs/windmill-flow.png)
 
-4. (Coming soon) Build complex UI on top of your scripts and flows. 
-  ![Step 5](./imgs/windmill-builder.png)
+4. (Coming soon) Build complex UI on top of your scripts and flows.
+   ![Step 5](./imgs/windmill-builder.png)
 
-Scripts and flows can also be triggered by a cron schedule '*/5 * * * *' or through webhooks.
+Scripts and flows can also be triggered by a cron schedule '*/5 * * * *' or
+through webhooks.
 
 You can build your entire infra on top of Windmill!
 
@@ -103,6 +103,8 @@ You can build your entire infra on top of Windmill!
 We have a powerful CLI to interact with the windmill platform and sync your
 scripts from your own github repo. See
 [more details](https://github.com/windmill-labs/windmill/tree/main/cli)
+
+![CLI Screencast](./cli/vhs/output/setup.gif)
 
 ## Layout
 
@@ -148,7 +150,11 @@ That is what we do at <https://app.windmill.dev>.
 
 ## Performance
 
-Once a job started, there is no overhead compared to running the same script on the node with its corresponding runner (Deno/Go/Python/Bash). The added latency from a job being pulled from the queue, started, and then having its result sent back to the database is ~50ms. A typical lightweight deno job will take around 100ms total.
+Once a job started, there is no overhead compared to running the same script on
+the node with its corresponding runner (Deno/Go/Python/Bash). The added latency
+from a job being pulled from the queue, started, and then having its result sent
+back to the database is ~50ms. A typical lightweight deno job will take around
+100ms total.
 
 ## Architecture
 
@@ -200,8 +206,8 @@ be AGPLv3 or you must get a commercial license. Contact us at
 
 In addition, a commercial license grants you a dedicated engineer to transition
 your current infrastructure to Windmill, support with tight SLA, audit logs
-export features, SSO, unlimited users creation, advanced permission managing features
-such as groups and the ability to create more than one workspace.
+export features, SSO, unlimited users creation, advanced permission managing
+features such as groups and the ability to create more than one workspace.
 
 ### OAuth for self-hosting (very optional)
 
@@ -252,7 +258,6 @@ You may also add your own custom OAuth2 IdP and OAuth2 Resource provider:
 }
 ```
 
-
 ### Resource types
 
 You will also want to import all the approved resource types from
@@ -265,7 +270,7 @@ upcoming CLI tool.
 | Environment Variable name | Default                | Description                                                                                                                                                                                        | Api Server/Worker/All |
 | ------------------------- | ---------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------- |
 | DATABASE_URL              |                        | The Postgres database url.                                                                                                                                                                         | All                   |
-| DISABLE_NSJAIL            | true                   | Disable Nsjail Sandboxing                                                                                                                                                                          |                       | Worker |
+| DISABLE_NSJAIL            | true                   | Disable Nsjail Sandboxing                                                                                                                                                                          |                       |
 | NUM_WORKERS               | 3                      | The number of worker per Worker instance (set to 1 on Eks to have 1 pod = 1 worker)                                                                                                                | Worker                |
 | METRICS_ADDR              | None                   | The socket addr at which to expose Prometheus metrics at the /metrics path. Set to "true" to expose it on port 8001                                                                                | All                   |
 | JSON_FMT                  | false                  | Output the logs in json format instead of logfmt                                                                                                                                                   | All                   |
@@ -285,11 +290,10 @@ upcoming CLI tool.
 | PYTHON_PATH               | /usr/local/bin/python3 | The path to the python binary.                                                                                                                                                                     | Worker                |
 | GO_PATH                   | /usr/bin/go            | The path to the go binary.                                                                                                                                                                         | Worker                |
 | PIP_INDEX_URL             | None                   | The index url to pass for pip.                                                                                                                                                                     | Worker                |
-| PIP_EXTRA_INDEX_URL       | None                   | The extra index url to  pass to pip.                                                                                                                                                               | Worker                |
+| PIP_EXTRA_INDEX_URL       | None                   | The extra index url to pass to pip.                                                                                                                                                                | Worker                |
 | PIP_TRUSTED_HOST          | None                   | The trusted host to pass to pip.                                                                                                                                                                   | Worker                |
 | PATH                      | None                   | The path environment variable, usually inherited                                                                                                                                                   | Worker                |
-| HOME                      | None                   | The home directory to use for Go and Bash                                                                                        , usually inherited                                               | Worker                |
-
+| HOME                      | None                   | The home directory to use for Go and Bash , usually inherited                                                                                                                                      | Worker                |
 
 ## Run a local dev setup
 
@@ -310,9 +314,9 @@ See the [./frontend/README_DEV.md](./frontend/README_DEV.md) file for all
 running options.
 
 1. Create a Postgres Database for Windmill and create an admin role inside your
-   Postgres setup.
-   The easiest way to get a working postgres is running `cargo install sqlx-cli && sqlx migrate run`.
-   This will also avoid compile time issue with sqlx's `query!` macro
+   Postgres setup. The easiest way to get a working postgres is running
+   `cargo install sqlx-cli && sqlx migrate run`. This will also avoid compile
+   time issue with sqlx's `query!` macro
 2. Install [nsjail](https://github.com/google/nsjail) and have it accessible in
    your PATH
 3. Install deno and python3, have the bins at `/usr/bin/deno` and
@@ -321,7 +325,8 @@ running options.
 5. Install the [lld linker](https://lld.llvm.org/)
 6. Go to `frontend/`:
    1. `npm install`, `npm run generate-backend-client` then `npm run dev`
-   2. In another shell `npm run build` otherwise the backend will not find the `frontend/build` folder and will crash
+   2. In another shell `npm run build` otherwise the backend will not find the
+      `frontend/build` folder and will crash
    3. In another shell `sudo caddy run --config Caddyfile`
 7. Go to `backend/`:
    `DATABASE_URL=<DATABASE_URL_TO_YOUR_WINDMILL_DB> RUST_LOG=info cargo run`

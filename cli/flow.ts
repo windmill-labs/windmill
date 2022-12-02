@@ -1,3 +1,4 @@
+// deno-lint-ignore-file no-explicit-any
 import { Command } from "https://deno.land/x/cliffy@v0.25.4/command/command.ts";
 import {
   FlowService,
@@ -9,31 +10,32 @@ import {
   OpenFlow,
 } from "https://deno.land/x/windmill@v1.50.0/windmill-api/index.ts";
 import { colors } from "https://deno.land/x/cliffy@v0.25.4/ansi/colors.ts";
-import { getContext } from "./context.ts";
+import { requireLogin, resolveWorkspace } from "./context.ts";
 import { Table } from "https://deno.land/x/cliffy@v0.25.4/table/table.ts";
 import { resolve, track_job } from "./script.ts";
 
 type Options = GlobalOptions;
 
 async function push(opts: Options, filePath: string, remotePath: string) {
-  const { workspace } = await getContext(opts);
-
   if (!(remotePath.startsWith("g") || remotePath.startsWith("u"))) {
     console.log(
       colors.red(
-        "Given remote path looks invalid. Remote paths are typicall of the form <u|g>/<username|group>/..."
-      )
+        "Given remote path looks invalid. Remote paths are typicall of the form <u|g>/<username|group>/...",
+      ),
     );
     return;
   }
-  await pushFlow(filePath, workspace, remotePath);
+  const workspace = await resolveWorkspace(opts);
+  await requireLogin(opts);
+
+  await pushFlow(filePath, workspace.remote, remotePath);
   console.log(colors.bold.underline.green("Flow successfully pushed"));
 }
 
 export async function pushFlow(
   filePath: string,
   workspace: string,
-  remotePath: string
+  remotePath: string,
 ) {
   const data: OpenFlow = JSON.parse(await Deno.readTextFile(filePath));
   if (
@@ -70,14 +72,15 @@ export async function pushFlow(
 }
 
 async function list(opts: GlobalOptions & { showArchived?: boolean }) {
-  const { workspace } = await getContext(opts);
+  const workspace = await resolveWorkspace(opts);
+  await requireLogin(opts);
 
   let page = 0;
   const perPage = 10;
   const total: Flow[] = [];
   while (true) {
     const res = await FlowService.listFlows({
-      workspace,
+      workspace: workspace.workspaceId,
       page,
       perPage,
       showArchived: opts.showArchived ?? false,
@@ -100,7 +103,7 @@ async function list(opts: GlobalOptions & { showArchived?: boolean }) {
         x.edited_at,
         x.edited_by,
         x.description ?? "-",
-      ])
+      ]),
     )
     .render();
 }
@@ -109,21 +112,25 @@ async function run(
     input: string[];
     silent: boolean;
   },
-  path: string
+  path: string,
 ) {
-  const { workspace } = await getContext(opts);
+  const workspace = await resolveWorkspace(opts);
+  await requireLogin(opts);
 
   const input = await resolve(opts.input);
 
   const id = await JobService.runFlowByPath({
-    workspace,
+    workspace: workspace.workspaceId,
     path,
     requestBody: input,
   });
 
   let i = 0;
   while (true) {
-    const jobInfo = await JobService.getJob({ workspace, id });
+    const jobInfo = await JobService.getJob({
+      workspace: workspace.workspaceId,
+      id,
+    });
     if (jobInfo.flow_status!.modules.length <= i) {
       break;
     }
@@ -132,7 +139,7 @@ async function run(
     if (module.job) {
       if (!opts.silent) {
         console.log("====== Job " + (i + 1) + " ======");
-        await track_job(workspace, module.job);
+        await track_job(workspace.workspaceId, module.job);
       }
     } else {
       console.log(module.type);
@@ -147,7 +154,10 @@ async function run(
   if (!opts.silent) {
     console.log(colors.green.underline.bold("Flow ran to completion"));
   }
-  const jobInfo = await JobService.getCompletedJob({ workspace, id });
+  const jobInfo = await JobService.getCompletedJob({
+    workspace: workspace.workspaceId,
+    id,
+  });
   console.log(jobInfo.result ?? {});
 }
 
@@ -157,7 +167,7 @@ const command = new Command()
   .action(list as any)
   .command(
     "push",
-    "push a local flow spec. This overrides any remote versions."
+    "push a local flow spec. This overrides any remote versions.",
   )
   .arguments("<file_path:string> <remote_path:string>")
   .action(push as any)
@@ -165,11 +175,11 @@ const command = new Command()
   .arguments("<path:string>")
   .option(
     "-i --input [inputs...:string]",
-    "Inputs specified as JSON objects or simply as <name>=<value>. Supports file inputs using @<filename> and stdin using @- these also need to be formatted as JSON. Later inputs override earlier ones."
+    "Inputs specified as JSON objects or simply as <name>=<value>. Supports file inputs using @<filename> and stdin using @- these also need to be formatted as JSON. Later inputs override earlier ones.",
   )
   .option(
     "-s --silent",
-    "Do not ouput anything other then the final output. Useful for scripting."
+    "Do not ouput anything other then the final output. Useful for scripting.",
   )
   .action(run as any);
 

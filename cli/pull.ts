@@ -1,10 +1,11 @@
+// deno-lint-ignore-file no-explicit-any
 import { Untar } from "https://deno.land/std@0.162.0/archive/tar.ts";
 import { Command } from "https://deno.land/x/cliffy@v0.25.4/command/command.ts";
 import {
   copy,
   readerFromStreamReader,
 } from "https://deno.land/std@0.162.0/streams/mod.ts";
-import { getContext } from "./context.ts";
+import { resolveWorkspace } from "./context.ts";
 import { GlobalOptions } from "./types.ts";
 import * as path from "https://deno.land/std@0.162.0/path/mod.ts";
 import { colors } from "https://deno.land/x/cliffy@v0.25.4/ansi/colors.ts";
@@ -12,18 +13,19 @@ import { ensureDir } from "https://deno.land/std@0.162.0/fs/ensure_dir.ts";
 import { Confirm } from "https://deno.land/x/cliffy@v0.25.4/prompt/confirm.ts";
 
 async function pull(opts: GlobalOptions & { override: boolean }, dir: string) {
-  const { workspace, baseUrl, token } = await getContext(opts);
+  const workspace = await resolveWorkspace(opts);
 
   const requestHeaders: HeadersInit = new Headers();
-  requestHeaders.set("Authorization", "Bearer " + token);
+  requestHeaders.set("Authorization", "Bearer " + workspace.token);
   requestHeaders.set("Content-Type", "application/octet-stream");
 
   const tarResponse = await fetch(
-    baseUrl + "/api/w/" + workspace + "/workspaces/tarball",
+    workspace.remote + "api/w/" + workspace.workspaceId +
+      "/workspaces/tarball",
     {
       headers: requestHeaders,
       method: "GET",
-    }
+    },
   );
 
   if (!tarResponse.ok) {
@@ -61,7 +63,7 @@ async function pull(opts: GlobalOptions & { override: boolean }, dir: string) {
           !(await Confirm.prompt(
             "Conflict at " +
               filePath +
-              " do you want to override the local version?"
+              " do you want to override the local version?",
           ))
         ) {
           continue;
@@ -77,7 +79,7 @@ async function pull(opts: GlobalOptions & { override: boolean }, dir: string) {
 
 const command = new Command()
   .description(
-    "Pull all definitions in the current workspace from the API and write them to disk."
+    "Pull all definitions in the current workspace from the API and write them to disk.",
   )
   .arguments("<dir:string>")
   .action(pull as any);

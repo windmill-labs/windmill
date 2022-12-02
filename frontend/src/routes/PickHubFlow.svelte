@@ -4,10 +4,11 @@
 	import SearchItems from '$lib/components/SearchItems.svelte'
 	import { loadHubFlows } from '$lib/utils'
 
+	export let filter = ''
+
 	type Item = { apps: string[]; summary: string }
 	let hubFlows: any[] | undefined = undefined
 	let filteredItems: (Item & { marked?: string })[] = []
-	let filter = ''
 	let appFilter: string | undefined = undefined
 
 	$: prefilteredItems = appFilter

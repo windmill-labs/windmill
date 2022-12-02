@@ -15,6 +15,7 @@
 	const dispatch = createEventDispatcher()
 	let kind: 'script' | 'failure' | 'approval' | 'trigger' = failureModule ? 'failure' : 'script'
 	let pick_existing: 'workspace' | 'hub' = 'hub'
+	let filter = ''
 </script>
 
 <div class="p-4 h-full flex flex-col">
@@ -134,8 +135,8 @@
 		</div></div
 	>
 	{#if pick_existing == 'hub'}
-		<PickHubScript {kind} on:pick />
+		<PickHubScript bind:filter {kind} on:pick />
 	{:else}
-		<WorkspaceScriptPicker {kind} on:pick />
+		<WorkspaceScriptPicker bind:filter {kind} on:pick />
 	{/if}
 </div>

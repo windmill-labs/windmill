@@ -115,7 +115,8 @@
 				description: newResourceType.description
 			}
 		})
-		resourceTypeViewer.closeDrawer?.()
+		resourceTypeDrawer.closeDrawer?.()
+		sendUserToast('Resource type created')
 		loadResourceTypes()
 	}
 
