@@ -55,7 +55,7 @@
 	<nav class="h-full flex justify-between flex-col px-2">
 		<div class="space-y-1 pt-4">
 			{#each mainMenuLinks as menuLink (menuLink.href)}
-				<MenuLink class="text-lg" {...menuLink} {isCollapsed} />
+				<MenuLink class="text-md" {...menuLink} {isCollapsed} />
 			{/each}
 			<div class="h-2" />
 			<div class="max-h-40 overflow-y-auto  max-w-xs truncate">

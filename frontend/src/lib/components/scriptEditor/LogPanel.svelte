@@ -65,7 +65,7 @@
 	</DrawerContent>
 </Drawer>
 
-<Tabs bind:selected={selectedTab}>
+<Tabs bind:selected={selectedTab} class="mt-1">
 	<Tab value="logs" size="xs">Logs/Result</Tab>
 	<Tab value="history" size="xs">History</Tab>
 	<Tab value="last_save" size="xs">Last save</Tab>
