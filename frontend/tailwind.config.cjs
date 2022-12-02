@@ -291,9 +291,10 @@ const config = {
 			addComponents({
 				'.table-custom': {
 					'& th': {
-						paddingRight: theme('spacing.2'),
-						paddingTop: theme('spacing.2'),
-						paddingBottom: theme('spacing.2'),
+						paddingTop: theme('spacing.3'),
+						paddingRight: theme('spacing.1'),
+						paddingLeft: theme('spacing.1'),
+						paddingBottom: theme('spacing.3'),
 						fontSize: theme('fontSize.sm'),
 						textAlign: 'left',
 						fontWeight: theme('fontWeight.semibold'),
