@@ -3,6 +3,7 @@
 	import { onMount } from 'svelte'
 	export let password: string
 	export let placeholder = '******'
+	export let disabled = false
 
 	onMount(() => {
 		const passwordToggle = document.querySelector('.js-password-toggle')
@@ -42,5 +43,6 @@
 		bind:value={password}
 		autocomplete="off"
 		{placeholder}
+		{disabled}
 	/>
 </div>

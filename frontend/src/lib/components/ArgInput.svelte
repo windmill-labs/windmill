@@ -353,7 +353,7 @@
 				<div class="flex flex-col w-full">
 					<div class="flex flex-row w-full items- justify-between">
 						{#if password}
-							<Password bind:password={value} />
+							<Password {disabled} bind:password={value} />
 						{:else}
 							<textarea
 								{autofocus}
