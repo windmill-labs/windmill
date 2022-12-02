@@ -48,6 +48,8 @@
 	import DrawerContent from './common/drawer/DrawerContent.svelte'
 	import ApiConnectForm from './ApiConnectForm.svelte'
 
+	export let newPageOAuth = false
+
 	let manual = false
 	let value: string = ''
 	let valueToken: TokenResponse
@@ -87,6 +89,8 @@
 		if (connect) {
 			scopes = connect.scopes
 			extra_params = Object.entries(connect.extra_params ?? {})
+		} else {
+			manual = true
 		}
 		drawer.openDrawer?.()
 	}
@@ -131,7 +135,11 @@
 			if (extra_params.length > 0) {
 				extra_params.forEach(([key, value]) => url.searchParams.append(key, value))
 			}
-			window.location.href = url.toString()
+			if (!newPageOAuth) {
+				window.location.href = url.toString()
+			} else {
+				window.open(url.toString(), '_blank')
+			}
 		} else {
 			let exists = await VariableService.existsVariable({
 				workspace: $workspaceStore!,
