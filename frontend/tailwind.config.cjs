@@ -178,7 +178,6 @@ const config = {
 				},
 				mark: {
 					backgroundColor: theme('colors.yellow.200'),
-					border: `1px solid ${theme('colors.gray.600')}`,
 					borderRadius: theme('borderRadius.sm')
 				},
 				h3: {

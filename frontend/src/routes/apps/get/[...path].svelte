@@ -33,12 +33,8 @@
 <CenteredPage>
 	{#if app}
 		<div class="flex justify-between my-2 items-center">
-			<div class="flex gap-4 items-center">
-				<Button size="xs" href="/apps" startIcon={{ icon: faArrowLeft }} color="dark">
-					Back to apps
-				</Button>
-				<div>{app.value.title}</div>
-			</div>
+			<div>{app.value.title}</div>
+
 			<Button size="xs" href="/apps/edit/{$page.params.path}" startIcon={{ icon: faPen }}>
 				Edit
 			</Button>

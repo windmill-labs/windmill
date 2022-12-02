@@ -17,8 +17,8 @@
 	btnClasses={classNames(
 		'border-gray-200 focus:ring-0 w-full',
 		position === 'left' ? 'rounded-none rounded-l-lg border' : '',
-		position === 'center' ? 'rounded-none border-t border-b' : '',
-		position === 'right' ? 'rounded-none rounded-r-md !border border-l-0' : ''
+		position === 'center' ? 'rounded-none border-t border-b border-r' : '',
+		position === 'right' ? 'rounded-none rounded-r-md  border-r border-y' : ''
 	)}
 	color={$selected === value ? (light ? 'gray' : 'dark') : 'light'}
 	variant="contained"

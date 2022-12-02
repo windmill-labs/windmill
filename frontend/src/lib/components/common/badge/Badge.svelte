@@ -8,7 +8,6 @@
 	export let large = false
 	export let href = ''
 	export let rounded = false
-	export let index = false
 	export let dismissable = false
 	export let baseClass = 'text-center'
 	export let capitalize = false
@@ -51,10 +50,6 @@
 		href &&
 			(color.startsWith(ColorModifier) ? hovers[color.replace(ColorModifier, '')] : hovers[color]),
 		rounded ? 'rounded-full px-2 py-1' : 'rounded px-2.5 py-0.5',
-		index
-			? 'absolute flex justify-center items-center font-bold overflow-hidden border-2 border-white dark:border-gray-900' +
-					(large ? 'w-7 h-7 -top-3.5 -right-3.5' : 'w-6 h-6 -top-3 -right-3')
-			: '',
 		$$props.class
 	)
 	$: iconProps = icon ? { ...defaulIconProps, ...icon } : { data: undefined }
