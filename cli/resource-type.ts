@@ -32,6 +32,17 @@ export async function pushResourceTypeDef(
     })
   ) {
     console.log(colors.yellow("Updating existing resource type..."));
+    if (
+      (await ResourceService.listResourceType({ workspace })).findIndex((x) =>
+        x.name === name
+      ) === -1
+    ) {
+      console.log(
+        "Resource type " + name +
+          " is already taken for the current workspace, but cannot be updated. Is this a conflict with starter?",
+      );
+      return;
+    }
     await ResourceService.updateResourceType({
       workspace: workspace,
       path: name,

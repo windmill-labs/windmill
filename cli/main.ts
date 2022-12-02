@@ -51,5 +51,7 @@ try {
 } catch (e) {
   if (e.name === "ApiError") {
     console.log("Server failed. " + e.statusText + ": " + e.body);
+  } else {
+    throw e;
   }
 }
