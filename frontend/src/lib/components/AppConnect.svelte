@@ -30,7 +30,7 @@
 				'Create an API key',
 				'Copy your key'
 			]
-		},
+		}
 	}
 </script>
 
@@ -53,10 +53,13 @@
 	let valueToken: TokenResponse
 	let connects: Record<string, { scopes: string[]; extra_params?: Record<string, string> }> = {}
 	let connectsManual: [string, { img?: string; instructions: string[]; key?: string }][] = []
-	let key: string = 'token'
 	let args = {}
 
-	$: key = apiTokenApps[resource_type]?.key ?? 'token'
+	$: key =
+		apiTokenApps[resource_type]?.key ??
+		(args != undefined
+			? Object.keys(args).filter((x) => ['token', 'password', 'api_key'].includes(x))[0]
+			: undefined)
 
 	let scopes: string[] = []
 	let extra_params: [string, string][] = []
@@ -163,12 +166,12 @@
 
 			const resourceValue = args
 
-			if (!manual || containsSecret) {
+			if (!manual || key != undefined) {
 				await VariableService.createVariable({
 					workspace: $workspaceStore!,
 					requestBody: {
 						path,
-						value: manual ? args[key] : value,
+						value: manual ? args[key ?? ''] : value,
 						is_secret: true,
 						description: emptyString(description)
 							? `${manual ? 'Token' : 'OAuth token'} for ${resource_type}`
@@ -177,8 +180,7 @@
 						account: account
 					}
 				})
-				resourceValue[key] = `$var:${path}`
-			} else {
+				resourceValue[key ?? 'token'] = `$var:${path}`
 			}
 
 			await ResourceService.createResource({
@@ -212,8 +214,6 @@
 			resource_type == 'gdrive' ||
 			resource_type == 'gsheets')
 
-	$: containsSecret =
-		args && Object.keys(args).filter((x) => ['token', 'password', 'api_key'].includes(x)).length > 0
 	$: disabled =
 		(step == 1 && resource_type == '') ||
 		(step == 2 &&
@@ -221,7 +221,7 @@
 			args['token'] == '' &&
 			args['password'] == '' &&
 			args['api_key'] == '' &&
-			!containsSecret) ||
+			key != undefined) ||
 		(step == 3 && pathError != '')
 </script>
 
@@ -338,10 +338,11 @@
 				initialPath={`u/${$userStore?.username ?? ''}/my_${resource_type}`}
 				kind="resource"
 			/>
-			<label>
-				<div class="mb-1 font-semibold text-gray-700">Description</div>
-				<input type="text" bind:value={description} /></label
-			>
+			<h2 class="mt-4 mb-2">Description</h2>
+
+			<input type="text" bind:value={description} />
+
+			<h2 class="mt-4">Value</h2>
 			{#if apiTokenApps[resource_type]}
 				<div class="mb-1 font-semibold text-gray-700 mt-6">Instructions</div>
 				<div class="pl-10">
@@ -361,7 +362,7 @@
 			{/if}
 
 			<div class="mt-4">
-				<ApiConnectForm password={key} {resource_type} bind:args />
+				<ApiConnectForm password={key ?? ''} {resource_type} bind:args />
 			</div>
 		{:else}
 			<Path
