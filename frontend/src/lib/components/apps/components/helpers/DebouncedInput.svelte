@@ -3,7 +3,7 @@
 	export let value: string
 	export let debounceDelay: number = 500
 
-	let parentClass: string
+	let parentClass: string | undefined = undefined
 	export { parentClass as class }
 
 	let timer: NodeJS.Timeout

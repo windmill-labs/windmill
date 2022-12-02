@@ -16,8 +16,7 @@
 		canWrite,
 		defaultIfEmptyString,
 		scriptToHubUrl,
-		copyToClipboard,
-		emptyString
+		copyToClipboard
 	} from '$lib/utils'
 	import {
 		faPlay,

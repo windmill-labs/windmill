@@ -15,7 +15,7 @@
 	import Button from '$lib/components/common/button/Button.svelte'
 	import { AppService, AppWithLastVersion } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
-	import { faArrowLeft, faPen } from '@fortawesome/free-solid-svg-icons'
+	import { faPen } from '@fortawesome/free-solid-svg-icons'
 
 	let app: AppWithLastVersion | undefined = undefined
 

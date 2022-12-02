@@ -19,7 +19,7 @@
 		faShare
 	} from '@fortawesome/free-solid-svg-icons'
 	import { createEventDispatcher } from 'svelte'
-	import { GitBranch, GitBranchPlus, Network, Wind } from 'svelte-lucide'
+	import { Wind } from 'svelte-lucide'
 
 	import Button from '../button/Button.svelte'
 
@@ -48,7 +48,7 @@
 		<div
 			class="bg-[#f0fdfa] rounded-md p-1 flex justify-center items-center border-[#99f6e4] border"
 		>
-			<GitBranch size="18px" color="#14b8a6" />
+			<Wind size="18px" color="#14b8a6" />
 		</div>
 	</td>
 

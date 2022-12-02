@@ -69,7 +69,7 @@
 			<Dropdown
 				dropdownItems={[
 					{
-						displayName: 'View script',
+						displayName: 'View app',
 						icon: faEye,
 						href: `/apps/get/${path}`
 					}

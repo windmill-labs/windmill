@@ -4,8 +4,6 @@
 	import { workspaceStore } from '$lib/stores'
 	import { page } from '$app/stores'
 
-	import gridHelp from 'svelte-grid/build/helper/index.mjs'
-
 	let app: AppWithLastVersion | undefined = undefined
 	let path = $page.params.path
 

@@ -52,6 +52,7 @@
 
 	import { fade } from 'svelte/transition'
 	import { flip } from 'svelte/animate'
+	import CreateApp from '$lib/components/apps/CreateApp.svelte'
 
 	let jobs: Job[] = []
 
@@ -318,9 +319,7 @@
 	{/if}
 	<PageHeader title="Home">
 		<div class="flex flex-row gap-2">
-			<Button size="sm" spacingSize="lg" color="dark" startIcon={{ icon: faPlus }}>
-				Create app
-			</Button>
+			<CreateApp />
 			<CreateActionsScript />
 			<CreateActionsFlow />
 		</div>
@@ -376,13 +375,13 @@
 						</ToggleButtonGroup>
 					</div>
 
-					<div class="relative text-gray-600">
+					<div class="relative text-gray-600 w-full">
 						<!-- svelte-ignore a11y-autofocus -->
 						<input
 							autofocus
 							placeholder="Search Scripts, Flows & Apps"
 							bind:value={filter}
-							class="bg-white !h-10 !px-4 !pr-10 !rounded-lg text-sm focus:outline-none !w-96"
+							class="bg-white !h-10 !px-4 !pr-10 !rounded-lg text-sm focus:outline-none"
 						/>
 						<button type="submit" class="absolute right-0 top-0 mt-3 mr-4">
 							<svg
