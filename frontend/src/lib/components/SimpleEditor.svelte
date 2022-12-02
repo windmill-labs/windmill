@@ -115,8 +115,8 @@
 			timeoutModel && clearTimeout(timeoutModel)
 			timeoutModel = setTimeout(() => {
 				code = getCode()
-			}, 500)
-			dispatch('change')
+				dispatch('change')
+			}, 200)
 		})
 
 		if (autoHeight) {

@@ -115,7 +115,7 @@
 				description: newResourceType.description
 			}
 		})
-		resourceTypeViewer.closeDrawer?.()
+		resourceTypeDrawer.closeDrawer?.()
 		loadResourceTypes()
 	}
 
