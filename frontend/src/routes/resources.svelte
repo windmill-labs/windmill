@@ -116,6 +116,7 @@
 			}
 		})
 		resourceTypeDrawer.closeDrawer?.()
+		sendUserToast('Resource type created')
 		loadResourceTypes()
 	}
 
