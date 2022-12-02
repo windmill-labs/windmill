@@ -1,12 +1,9 @@
 <script lang="ts">
 	import { type Resource, ResourceService, type ResourceType, VariableService } from '$lib/gen'
-	import { allTrue, canWrite, sendUserToast } from '$lib/utils'
+	import { canWrite, sendUserToast } from '$lib/utils'
 	import { createEventDispatcher } from 'svelte'
 	import type { Schema } from '$lib/common'
 	import Path from './Path.svelte'
-	import ArgInput from './ArgInput.svelte'
-	import ItemPicker from './ItemPicker.svelte'
-	import VariableEditor from './VariableEditor.svelte'
 	import Required from './Required.svelte'
 	import { Alert, Button, Drawer } from './common'
 
@@ -15,6 +12,7 @@
 	import autosize from 'svelte-autosize'
 	import SimpleEditor from './SimpleEditor.svelte'
 	import { faSave } from '@fortawesome/free-solid-svg-icons'
+	import SchemaForm from './SchemaForm.svelte'
 
 	let path = ''
 	let initialPath = ''
@@ -32,9 +30,6 @@
 
 	let error: string | undefined
 
-	let pickForField: string | undefined
-	let itemPicker: ItemPicker
-	let variableEditor: VariableEditor
 	let drawer: Drawer
 
 	let rawCode: string | undefined = undefined
@@ -102,9 +97,7 @@
 		}
 	}
 
-	let inputCheck: { [id: string]: boolean } = {}
-
-	$: isValid = allTrue(inputCheck) ?? false
+	let isValid = true
 </script>
 
 <Drawer bind:this={drawer} size="800px">
@@ -145,39 +138,7 @@
 				<h3 class="mt-4">Value</h3>
 				<div class="text-sm">
 					{#if resourceSchema && resourceSchema?.properties}
-						{#each Object.keys(resourceSchema.properties) as fieldName}
-							<div class="flex flex-row w-full items-center justify-between">
-								<ArgInput
-									compact
-									disabled={!can_write}
-									label={fieldName}
-									description={resourceSchema.properties[fieldName]?.description}
-									bind:value={args[fieldName]}
-									type={resourceSchema.properties[fieldName]?.type}
-									required={resourceSchema.required.includes(fieldName)}
-									pattern={resourceSchema.properties[fieldName]?.pattern}
-									bind:valid={inputCheck[fieldName]}
-									defaultValue={resourceSchema.properties[fieldName]?.default}
-									enum_={resourceSchema.properties[fieldName]?.enum}
-									contentEncoding={resourceSchema.properties[fieldName]?.contentEncoding}
-									itemsType={resourceSchema.properties[fieldName]?.items}
-									properties={resourceSchema.properties[fieldName]?.properties}
-									format={resourceSchema.properties[fieldName]?.format}
-								/>
-								<div class="ml-2 relative">
-									<Button
-										variant="border"
-										color="blue"
-										size="sm"
-										btnClasses="min-w-min items-center leading-4 py-0"
-										on:click={() => {
-											pickForField = fieldName
-											itemPicker.openDrawer?.()
-										}}>Insert variable</Button
-									>
-								</div>
-							</div>
-						{/each}
+						<SchemaForm compact schema={resourceSchema} bind:args bind:isValid />
 					{:else}
 						<div class="h-full w-full">
 							<SimpleEditor class="editor" lang="json" bind:code={rawCode} />
@@ -193,37 +154,3 @@
 		</span>
 	</DrawerContent>
 </Drawer>
-
-<ItemPicker
-	bind:this={itemPicker}
-	pickCallback={(path, _) => {
-		if (pickForField) {
-			args[pickForField] = '$var:' + path
-		}
-	}}
-	itemName="Variable"
-	extraField="name"
-	loadItems={async () =>
-		(await VariableService.listVariable({ workspace: $workspaceStore ?? '' })).map((x) => ({
-			name: x.path,
-			...x
-		}))}
->
-	<div
-		slot="submission"
-		class="flex flex-row-reverse w-full p-5 bg-white border-t border-gray-200 rounded-bl-lg rounded-br-lg"
-	>
-		<Button
-			variant="border"
-			color="blue"
-			size="sm"
-			on:click={() => {
-				variableEditor?.initNew?.()
-			}}
-		>
-			Create a new variable
-		</Button>
-	</div>
-</ItemPicker>
-
-<VariableEditor bind:this={variableEditor} on:create={itemPicker.openDrawer} />
