@@ -11,6 +11,7 @@ import user from "./user.ts";
 import variable from "./variable.ts";
 import push from "./push.ts";
 import pull from "./pull.ts";
+import hub from "./hub.ts";
 
 const VERSION = "v1.52.0";
 
@@ -31,6 +32,7 @@ try {
     .command("variable", variable)
     .command("push", push)
     .command("pull", pull)
+    .command("hub", hub)
     .command(
       "upgrade",
       new UpgradeCommand({
@@ -49,5 +51,7 @@ try {
 } catch (e) {
   if (e.name === "ApiError") {
     console.log("Server failed. " + e.statusText + ": " + e.body);
+  } else {
+    throw e;
   }
 }
