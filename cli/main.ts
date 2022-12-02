@@ -12,7 +12,7 @@ import variable from "./variable.ts";
 import push from "./push.ts";
 import pull from "./pull.ts";
 
-const VERSION = "v1.51.0";
+const VERSION = "v1.52.0";
 
 try {
   await new Command()
