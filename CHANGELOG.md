@@ -1,6 +1,13 @@
 # Changelog
 
 
+## [1.53.0](https://github.com/windmill-labs/windmill/compare/v1.52.0...v1.53.0) (2022-12-02)
+
+
+### Features
+
+* **cli:** hub sync ([#975](https://github.com/windmill-labs/windmill/issues/975)) ([2265372](https://github.com/windmill-labs/windmill/commit/22653727a4106fa604796b3958efab94762041c2))
+
 ## [1.52.0](https://github.com/windmill-labs/windmill/compare/v1.51.0...v1.52.0) (2022-12-02)
 
 
