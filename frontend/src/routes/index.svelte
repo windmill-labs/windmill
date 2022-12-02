@@ -360,9 +360,9 @@
 					{/if}
 				</div>
 			{:else if tab == 'hubscripts'}
-				<PickHubScript on:pick={(e) => viewCode(e.detail)} />
+				<PickHubScript bind:filter on:pick={(e) => viewCode(e.detail)} />
 			{:else if tab == 'hubflows'}
-				<PickHubFlow on:pick={(e) => viewFlow(e.detail)} />
+				<PickHubFlow bind:filter on:pick={(e) => viewFlow(e.detail)} />
 			{/if}
 		</div>
 		<div>
