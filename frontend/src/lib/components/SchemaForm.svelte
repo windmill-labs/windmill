@@ -31,7 +31,7 @@
 	let inputCheck: { [id: string]: boolean } = {}
 	$: isValid = allTrue(inputCheck) ?? false
 
-	$: if (args == undefined) {
+	$: if (args == undefined || typeof args !== 'object') {
 		args = {}
 	}
 
@@ -67,7 +67,7 @@
 						{itemPicker}
 						bind:pickForField
 					/>
-				{:else}
+				{:else if typeof args == 'object'}
 					<ArgInput
 						autofocus={i == 0 && autofocus}
 						label={argName}
@@ -91,6 +91,8 @@
 						{itemPicker}
 						bind:pickForField
 					/>
+				{:else}
+					Expected args to be an object, got {JSON.stringify(args)} instead
 				{/if}
 			</div>
 		{/each}
