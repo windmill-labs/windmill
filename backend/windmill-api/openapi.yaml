@@ -2887,6 +2887,43 @@ paths:
               schema:
                 type: string
 
+  /w/{workspace}/jobs/resume_urls/{id}/{resume_id}:
+    get:
+      summary:  get resume urls given a job_id, resume_id and a nonce to resume a flow
+      operationId: getResumeUrls
+      tags:
+        - job
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/JobId"
+        - name: resume_id
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: approver
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: url endpoints
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  approvalPage:
+                    type: string
+                  resume: 
+                    type: string
+                  cancel:
+                    type: string
+                required:
+                  - approvalPage
+                  - resume
+                  - cancel
+
   /w/{workspace}/jobs/resume/{id}/{resume_id}/{signature}:
     get:
       summary: resume a job for a suspended flow
