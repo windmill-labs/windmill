@@ -6,6 +6,7 @@
 	import Icon from 'svelte-awesome'
 	import { Button } from './common'
 	import Select from 'svelte-select'
+	import AppConnect from './AppConnect.svelte'
 
 	const dispatch = createEventDispatcher()
 	let resources: Resource[] = []
@@ -30,7 +31,10 @@
 		value: x.path,
 		label: `${x.path}${x.description ? ' | ' + x.description : ''}`
 	}))
+	let appConnect: AppConnect
 </script>
+
+<AppConnect newPageOAuth bind:this={appConnect} />
 
 <div class="flex flex-row gap-x-1 w-full">
 	<Select
@@ -39,8 +43,8 @@
 		class="grow"
 		placeholder="Pick a {resourceType} resource"
 	/>
-	<Button variant="border" target="_blank" size="xs" href="/resources?connect_app={resourceType}"
-		><Icon scale={0.8} data={faPlus} /></Button
+	<Button variant="border" size="xs" on:click={() => appConnect?.open?.(resourceType)}>
+		<Icon scale={0.8} data={faPlus} /></Button
 	>
 	<Button
 		variant="border"
