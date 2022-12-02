@@ -426,6 +426,7 @@ mod tests {
                             InputTransform::Static { value: serde_json::json!("test2") },
                         )]
                         .into(),
+                        hash: None,
                     },
                     stop_after_if: None,
                     summary: None,
@@ -477,6 +478,7 @@ mod tests {
                 value: FlowModuleValue::Script {
                     path: "test".to_string(),
                     input_transforms: HashMap::new(),
+                    hash: None,
                 },
                 stop_after_if: Some(StopAfterIf {
                     expr: "previous.isEmpty()".to_string(),

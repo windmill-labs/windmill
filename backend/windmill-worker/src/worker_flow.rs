@@ -816,19 +816,27 @@ async fn push_next_flow_job(
         if let Some(it) = sleep_input_transform {
             let json_value = match it {
                 InputTransform::Static { value } => value,
-                InputTransform::Javascript { expr } => eval_timeout(
-                    expr.to_string(),
-                    [("result".to_string(), last_result.clone())].into(),
-                    None,
-                    None,
-                    "".to_string(),
-                )
-                .await
-                .map_err(|e| {
-                    Error::ExecutionErr(format!(
-                        "Error during isolated evaluation of expression `{expr}`:\n{e}"
-                    ))
-                })?,
+                InputTransform::Javascript { expr } => {
+                    let flow_input = flow_job.args.clone().unwrap_or_else(|| json!({}));
+
+                    eval_timeout(
+                        expr.to_string(),
+                        [
+                            ("result".to_string(), last_result.clone()),
+                            ("flow_input".to_string(), flow_input),
+                        ]
+                        .into(),
+                        None,
+                        None,
+                        "".to_string(),
+                    )
+                    .await
+                    .map_err(|e| {
+                        Error::ExecutionErr(format!(
+                            "Error during isolated evaluation of expression `{expr}`:\n{e}"
+                        ))
+                    })?
+                }
             };
             match json_value {
                 serde_json::Value::Number(n) => {

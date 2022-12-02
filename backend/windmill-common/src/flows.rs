@@ -12,7 +12,7 @@ use serde::{self, Deserialize, Serialize};
 
 use crate::{
     more_serde::{default_false, default_id, default_true, is_default},
-    scripts::{Schema, ScriptLang},
+    scripts::{Schema, ScriptHash, ScriptLang},
 };
 
 #[derive(Serialize)]
@@ -200,6 +200,7 @@ pub enum FlowModuleValue {
         #[serde(alias = "input_transform")]
         input_transforms: HashMap<String, InputTransform>,
         path: String,
+        hash: Option<ScriptHash>,
     },
     ForloopFlow {
         iterator: InputTransform,
