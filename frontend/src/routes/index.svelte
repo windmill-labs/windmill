@@ -13,6 +13,7 @@
 		type OpenFlow
 	} from '$lib/gen'
 	import { superadmin, userStore, workspaceStore } from '$lib/stores'
+	import VirtualList from '@sveltejs/svelte-virtual-list'
 	import {
 		Alert,
 		Button,
@@ -27,7 +28,7 @@
 	import PageHeader from '$lib/components/PageHeader.svelte'
 	import CreateActionsFlow from '$lib/components/flows/CreateActionsFlow.svelte'
 	import CreateActionsScript from '$lib/components/scripts/CreateActionsScript.svelte'
-	import { canWrite, getScriptByPath } from '$lib/utils'
+	import { canWrite, classNames, getScriptByPath, pluralize } from '$lib/utils'
 	import type { HubItem } from '$lib/components/flows/pickers/model'
 	import ShareModal from '$lib/components/ShareModal.svelte'
 	import {
@@ -234,6 +235,8 @@
 	}
 
 	$: items = filter !== '' ? filteredItems : preFilteredItems
+
+	$: containerHeight = items.length < 5 ? items.length * 80 : 800
 </script>
 
 <SearchItems
@@ -348,7 +351,7 @@
 	</Tabs>
 	<div class="my-2" />
 	<div class="flex flex-col gap-y-16">
-		<div class="max-h-screen h-full flex flex-col">
+		<div class="flex flex-col">
 			{#if tab == 'workspace'}
 				<div class="flex justify-between items-center gap-2 ">
 					<div>
@@ -424,7 +427,7 @@
 						{/each}
 					</div>
 				{/if}
-				<div class="overflow-auto">
+				<div>
 					{#if filteredItems.length === 0}
 						<div class="flex justify-center items-center h-48">
 							<div class="text-gray-500 text-center">
@@ -433,15 +436,13 @@
 							</div>
 						</div>
 					{:else}
-						<Table>
-							{#each items as item, index (item.type + item.path + index)}
+						<div class={classNames('border rounded-md')} style="height:calc(100vh - 18em)">
+							<VirtualList {items} let:item>
 								{#if item.type == 'script'}
 									<ScriptRow
 										starred={item.starred ?? false}
 										marked={item.marked}
-										on:change={() => {
-											loadScripts()
-										}}
+										on:change={loadScripts}
 										script={item}
 										shareModal={shareModalScripts}
 									/>
@@ -462,8 +463,9 @@
 										shareModal={shareModalFlows}
 									/>
 								{/if}
-							{/each}
-						</Table>
+							</VirtualList>
+						</div>
+						<span class="text-sm ">{pluralize(items.length, 'item')}</span>
 					{/if}
 				</div>
 			{:else if tab == 'hubscripts'}
@@ -471,38 +473,6 @@
 			{:else if tab == 'hubflows'}
 				<PickHubFlow bind:filter on:pick={(e) => viewFlow(e.detail)} />
 			{/if}
-		</div>
-		<div>
-			<h2 class="border-b mb-4 py-2">
-				<span class="text-black-gradient">Runs</span>
-			</h2>
-
-			<div class="grid grid-cols-1 gap-4 my-4">
-				<Skeleton {loading} layout={[[6], 1, [6], 1, [6]]} />
-				{#each jobs.splice(0, 3) as job}
-					<JobDetail {job} />
-				{/each}
-				<a
-					href="/runs"
-					class="text-sm font-extrabold text-gray-700 hover:underline inline-flex items-center"
-				>
-					All runs
-					<svg
-						class="w-4 h-4 ml-2"
-						fill="none"
-						stroke="currentColor"
-						viewBox="0 0 24 24"
-						xmlns="http://www.w3.org/2000/svg"
-					>
-						<path
-							stroke-linecap="round"
-							stroke-linejoin="round"
-							stroke-width="2"
-							d="M17 8l4 4m0 0l-4 4m4-4H3"
-						/>
-					</svg>
-				</a>
-			</div>
 		</div>
 	</div>
 </CenteredPage>
