@@ -14,6 +14,7 @@ import setup from "./setup.ts";
 import variable from "./variable.ts";
 import push from "./push.ts";
 import pull from "./pull.ts";
+import hub from "./hub.ts";
 
 const VERSION = "v1.51.0";
 
@@ -25,25 +26,25 @@ await new Command()
     "Specify the base url to use when interacting with the API.",
     {
       conflicts: ["remote"],
-    }
+    },
   )
   .globalOption(
     "--workspace <workspace_id:string>",
-    "Specify the target workspace. This overrides the default workspace."
+    "Specify the target workspace. This overrides the default workspace.",
   )
   .globalOption(
     "--remote <remote_name:string>",
     "Specify the target remote, add to this list via `wmill remote add`.",
     {
       conflicts: ["base-url"],
-    }
+    },
   )
   .globalOption(
     "--token <token:string>",
     "Specify a token to use for authentication. This will not be stored. Takes presedence over username/password",
     {
       conflicts: ["email", "password"],
-    }
+    },
   )
   .globalOption(
     "--email <email:string>",
@@ -51,7 +52,7 @@ await new Command()
     {
       depends: ["password"],
       conflicts: ["token"],
-    }
+    },
   )
   .globalOption(
     "--password <password:string>",
@@ -59,7 +60,7 @@ await new Command()
     {
       depends: ["email"],
       conflicts: ["token"],
-    }
+    },
   )
   .version(VERSION)
   .command("login", login)
@@ -73,6 +74,7 @@ await new Command()
   .command("variable", variable)
   .command("push", push)
   .command("pull", pull)
+  .command("hub", hub)
   .command(
     "upgrade",
     new UpgradeCommand({
@@ -85,6 +87,6 @@ await new Command()
         "--unstable",
       ],
       provider: new DenoLandProvider({ name: "wmill" }),
-    })
+    }),
   )
   .parse(Deno.args);

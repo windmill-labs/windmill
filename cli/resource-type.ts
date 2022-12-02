@@ -13,9 +13,17 @@ type ResourceTypeFile = {
 export async function pushResourceType(
   workspace: string,
   filePath: string,
-  name: string
+  name: string,
 ) {
   const data: ResourceTypeFile = JSON.parse(await Deno.readTextFile(filePath));
+  await pushResourceTypeDef(workspace, name, data);
+}
+
+export async function pushResourceTypeDef(
+  workspace: string,
+  name: string,
+  data: ResourceTypeFile,
+) {
   if (
     await ResourceService.existsResourceType({
       workspace: workspace,
@@ -79,7 +87,7 @@ const command = new Command()
   .action(list as any)
   .command(
     "push",
-    "push a local resource spec. This overrides any remote versions."
+    "push a local resource spec. This overrides any remote versions.",
   )
   .arguments("<file_path:string> <name:string>")
   .action(push as any);
