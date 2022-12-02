@@ -1,0 +1,19 @@
+{
+  "workspace_id": "starter",
+  "name": "sendgrid",
+  "schema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+      "token": {
+        "type": "string",
+        "description": "API token",
+        "default": ""
+      }
+    },
+    "required": [
+      "token"
+    ],
+    "type": "object"
+  },
+  "description": "The Sendgrid API token"
+}
