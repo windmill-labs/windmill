@@ -460,7 +460,6 @@
 										marked={item.marked}
 										on:change={loadApps}
 										app={item}
-										shareModal={shareModalFlows}
 									/>
 								{/if}
 							</VirtualList>
