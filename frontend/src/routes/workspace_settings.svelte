@@ -7,7 +7,6 @@
 </script>
 
 <script lang="ts">
-	import Fuse from 'fuse.js'
 	import {
 		UserService,
 		type WorkspaceInvite,
@@ -28,23 +27,16 @@
 	import { Button } from '$lib/components/common'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import { faScroll, faWind } from '@fortawesome/free-solid-svg-icons'
+	import SearchItems from '$lib/components/SearchItems.svelte'
 
 	let users: User[] = []
 	let invites: WorkspaceInvite[] = []
-	let filteredUsers: User[] | undefined
+	let filteredUsers: User[] = []
 	let userFilter = ''
 	let scriptPath: string
 	let initialPath: string
 	let team_name: string | undefined
 	let itemKind: 'flow' | 'script' = 'flow'
-
-	const fuseOptions = {
-		includeScore: false,
-		keys: ['username', 'email']
-	}
-
-	const fuse: Fuse<User> = new Fuse(users, fuseOptions)
-	$: filteredUsers = fuse?.search(userFilter).map((value) => value.item)
 
 	// function getDropDownItems(username: string): DropdownItem[] {
 	// 	return [
@@ -88,7 +80,6 @@
 
 	async function listUsers(): Promise<void> {
 		users = await UserService.listUsers({ workspace: $workspaceStore! })
-		fuse?.setCollection(users)
 	}
 
 	async function listInvites(): Promise<void> {
@@ -104,6 +95,13 @@
 	}
 </script>
 
+<SearchItems
+	filter={userFilter}
+	items={users}
+	bind:filteredItems={filteredUsers}
+	f={(x) => x.email + ' ' + x.name + ' ' + x.company}
+/>
+
 <CenteredPage>
 	{#if $userStore?.is_admin}
 		<PageHeader title="Workspace Settings of {$workspaceStore}" />
@@ -113,16 +111,16 @@
 		<div class="pb-1">
 			<input placeholder="Search users" bind:value={userFilter} class="input mt-1" />
 		</div>
-		<TableCustom>
-			<tr slot="header-row">
-				<th>email</th>
-				<th>username</th>
-				<th>role</th>
-				<th colspan="3">jobs &amp; flows (<abbr title="past two weeks">2w</abbr>)</th>
-			</tr>
-			<tbody slot="body">
-				{#if filteredUsers && users}
-					{#each userFilter === '' ? users : filteredUsers as { email, username, is_admin, usage }}
+		<div class="overflow-auto max-h-screen">
+			<TableCustom>
+				<tr slot="header-row">
+					<th>email</th>
+					<th>username</th>
+					<th>role</th>
+					<th colspan="3">jobs &amp; flows (<abbr title="past two weeks">2w</abbr>)</th>
+				</tr>
+				<tbody slot="body">
+					{#each filteredUsers as { email, username, is_admin, usage } (email)}
 						<tr class="border">
 							<td>{email}</td>
 							<td>{username}</td>
@@ -130,7 +128,7 @@
 							<td>{usage?.jobs}</td>
 							<td>{usage?.flows}</td>
 							<td>{msToSec(usage?.duration_ms)}s</td>
-							<td
+							<td class="whitespace-nowrap"
 								><button
 									class="ml-2 text-red-500"
 									on:click={async () => {
@@ -138,6 +136,7 @@
 											workspace: $workspaceStore ?? '',
 											username
 										})
+										sendUserToast('User removed')
 										listUsers()
 									}}>remove</button
 								>
@@ -152,49 +151,52 @@
 												is_admin: !is_admin
 											}
 										})
+										sendUserToast('User updated')
 										listUsers()
 									}}>{is_admin ? 'demote' : 'promote'}</button
 								></td
 							>
 						</tr>
 					{/each}
-				{/if}
-			</tbody>
-		</TableCustom>
-
+				</tbody>
+			</TableCustom>
+		</div>
 		<PageHeader title="Pending invites" primary={false}>
 			<InviteUser on:new={listInvites} />
 		</PageHeader>
-		<TableCustom>
-			<tr slot="header-row">
-				<th>email</th>
-				<th>role</th>
-				<th />
-			</tr>
-			<tbody slot="body">
-				{#each invites as { email, is_admin }}
-					<tr class="border">
-						<td>{email}</td>
-						<td>{is_admin ? 'admin' : 'user'}</td>
-						<td>
-							<button
-								class="ml-2 text-red-500"
-								on:click={async () => {
-									await WorkspaceService.deleteInvite({
-										workspace: $workspaceStore ?? '',
-										requestBody: {
-											email,
-											is_admin
-										}
-									})
-									listInvites()
-								}}>remove</button
-							></td
-						>
-					</tr>
-				{/each}
-			</tbody>
-		</TableCustom>
+
+		<div class="overflow-auto max-h-screen">
+			<TableCustom>
+				<tr slot="header-row">
+					<th>email</th>
+					<th>role</th>
+					<th />
+				</tr>
+				<tbody slot="body">
+					{#each invites as { email, is_admin }}
+						<tr class="border">
+							<td>{email}</td>
+							<td>{is_admin ? 'admin' : 'user'}</td>
+							<td>
+								<button
+									class="ml-2 text-red-500"
+									on:click={async () => {
+										await WorkspaceService.deleteInvite({
+											workspace: $workspaceStore ?? '',
+											requestBody: {
+												email,
+												is_admin
+											}
+										})
+										listInvites()
+									}}>remove</button
+								></td
+							>
+						</tr>
+					{/each}
+				</tbody>
+			</TableCustom>
+		</div>
 		<div class="mt-20" />
 		<PageHeader title="Slack integration" primary={false} />
 		<p class="text-xs text-gray-700 my-1">

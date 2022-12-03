@@ -52,7 +52,12 @@
 			password
 		}
 
-		await UserService.login({ requestBody })
+		try {
+			await UserService.login({ requestBody })
+		} catch (err) {
+			sendUserToast('Invalid credentials', true)
+			return
+		}
 
 		// Once logged in, we can fetch the workspaces
 		$usersWorkspaceStore = await WorkspaceService.listUserWorkspaces()
