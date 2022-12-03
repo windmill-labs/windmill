@@ -8,16 +8,9 @@
 	import FlowModuleComponent from './FlowModuleComponent.svelte'
 	import FlowBranchAllWrapper from './FlowBranchAllWrapper.svelte'
 	import FlowBranchOneWrapper from './FlowBranchOneWrapper.svelte'
-	import {
-		createInlineScriptModule,
-		createLoop,
-		createBranches,
-		pickScript,
-		createBranchAll
-	} from '$lib/components/flows/flowStateUtils'
+	import { createInlineScriptModule, pickScript } from '$lib/components/flows/flowStateUtils'
 	import FlowInputs from './FlowInputs.svelte'
 	import { flowStateStore, type FlowModuleState } from '../flowState'
-	import Tooltip from '$lib/components/Tooltip.svelte'
 	import { Alert } from '$lib/components/common'
 
 	const { selectedId } = getContext<FlowEditorContext>('FlowEditorContext')

@@ -9,6 +9,7 @@
 		onSelect: SelectCallback
 	}
 
+	writable
 	export type PropPickerWrapperContext = {
 		propPickerConfig: Writable<PropPickerConfig | undefined>
 		focusProp: (propName: string, insertionMode: InsertionMode, onSelect: SelectCallback) => void

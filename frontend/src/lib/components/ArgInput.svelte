@@ -20,6 +20,7 @@
 	import type { SchemaProperty } from '$lib/common'
 	import SimpleEditor from './SimpleEditor.svelte'
 	import autosize from 'svelte-autosize'
+	import * as autosizeLib from 'autosize'
 	import Toggle from './Toggle.svelte'
 	import Password from './Password.svelte'
 	import type VariableEditor from './VariableEditor.svelte'
@@ -52,6 +53,7 @@
 	export let pickForField: string | undefined = undefined
 	export let variableEditor: VariableEditor | undefined = undefined
 	export let itemPicker: ItemPicker | undefined = undefined
+	export let noMargin = false
 
 	let seeEditable: boolean = enum_ != undefined || pattern != undefined
 	const dispatch = createEventDispatcher()
@@ -108,6 +110,10 @@
 
 	export function focus() {
 		el?.focus()
+		if (el) {
+			el.style.height = '5px'
+			el.style.height = el.scrollHeight + 50 + 'px'
+		}
 	}
 
 	function validateInput(pattern: string | undefined, v: any): void {
@@ -392,7 +398,7 @@
 					</div>
 					{#if variableEditor}
 						<div class="text-sm text-gray-600">
-							{#if value?.startsWith('$var:')}
+							{#if value && typeof value == 'string' && value?.startsWith('$var:')}
 								Linked to variable <button
 									class="text-blue-500 underline"
 									on:click={() => variableEditor?.editVariable?.(value.slice(5))}
@@ -426,7 +432,7 @@
 					{error}
 				{/if}
 			</div>
-		{:else}
+		{:else if !noMargin}
 			<div class="mb-2" />
 		{/if}
 	</div>

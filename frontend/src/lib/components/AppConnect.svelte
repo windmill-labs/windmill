@@ -272,6 +272,7 @@
 	on:open={() => {
 		loadResources()
 	}}
+	size="800px"
 >
 	<DrawerContent title="Connect an API" on:close={drawer.closeDrawer}>
 		{#if step == 1}
