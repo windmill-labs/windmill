@@ -36,6 +36,7 @@ pub fn workspaced_service() -> Router {
         .route("/list", get(list_apps))
         .route("/get/p/*path", get(get_app))
         .route("/get/v/*id", get(get_app_by_id))
+        .route("/exists/*path", post(exists_app))
         .route("/update/*path", post(update_app))
         .route("/delete/*path", delete(delete_app))
         .route("/create", post(create_app))
@@ -538,6 +539,23 @@ async fn execute_component(
 
     tx.commit().await?;
     Ok(uuid.to_string())
+}
+
+async fn exists_app(
+    Extension(db): Extension<DB>,
+    Path((w_id, path)): Path<(String, StripPath)>,
+) -> JsonResult<bool> {
+    let path = path.to_path();
+    let exists = sqlx::query_scalar!(
+        "SELECT EXISTS(SELECT 1 FROM app WHERE path = $1 AND workspace_id = $2)",
+        path,
+        w_id
+    )
+    .fetch_one(&db)
+    .await?
+    .unwrap_or(false);
+
+    Ok(Json(exists))
 }
 
 fn build_args(
