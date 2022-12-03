@@ -47,9 +47,11 @@
 	import { Alert, Button, Drawer } from './common'
 	import DrawerContent from './common/drawer/DrawerContent.svelte'
 	import ApiConnectForm from './ApiConnectForm.svelte'
+	import SearchItems from './SearchItems.svelte'
 
 	export let newPageOAuth = false
 
+	let filter = ''
 	let manual = false
 	let value: string = ''
 	let valueToken: TokenResponse
@@ -232,7 +234,24 @@
 			args['api_key'] == '' &&
 			key != undefined) ||
 		(step == 3 && pathError != '')
+
+	let filteredConnects: [string, { scopes: string[]; extra_params?: Record<string, string> }][] = []
+	let filteredConnectsManual: [string, { img?: string; instructions: string[]; key?: string }][] =
+		[]
 </script>
+
+<SearchItems
+	{filter}
+	items={Object.entries(connects).sort((a, b) => a[0].localeCompare(b[0]))}
+	bind:filteredItems={filteredConnects}
+	f={(x) => x[0]}
+/>
+<SearchItems
+	{filter}
+	items={connectsManual.sort((a, b) => a[0].localeCompare(b[0]))}
+	bind:filteredItems={filteredConnectsManual}
+	f={(x) => x[0]}
+/>
 
 <Drawer
 	bind:this={drawer}
@@ -253,6 +272,15 @@
 					You can also contribute to windmill and add it as an API integration if relevant.
 				</Alert>
 			{/if}
+			<div class="w-12/12 pb-2 flex flex-row my-1 gap-1">
+				<input
+					type="text"
+					placeholder="Search resource type"
+					bind:value={filter}
+					class="text-2xl grow"
+				/>
+			</div>
+
 			<h2 class="mb-2">OAuth APIs</h2>
 			{#if Object.keys(connects).length == 0}
 				<Alert class="mb-4" type="error" title="No OAuth connection setup">
@@ -260,7 +288,7 @@
 				</Alert>
 			{/if}
 			<div class="grid sm:grid-cols-2 md:grid-cols-3 gap-x-2 gap-y-1 items-center mb-2">
-				{#each Object.entries(connects).sort((a, b) => a[0].localeCompare(b[0])) as [key, values]}
+				{#each filteredConnects as [key, values]}
 					<Button
 						size="sm"
 						variant="border"
@@ -324,7 +352,7 @@
 				</Alert>
 			{/if}
 			<div class="grid sm:grid-cols-2 md:grid-cols-3 gap-x-2 gap-y-1 items-center mb-2">
-				{#each connectsManual as [key, instructions]}
+				{#each filteredConnectsManual as [key, instructions]}
 					<Button
 						size="sm"
 						variant="border"
