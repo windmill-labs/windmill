@@ -40,11 +40,38 @@
 		animation: false
 	}
 
-	let result: ChartData<'pie', number[], unknown> | undefined = undefined
+	let nextColor = 0
+
+	// TODO: Replace with nicer windmill branded color pallet.
+	const colors = ['#3b82f6', '#ff6384', '#4bc0c0', '#ff9f40', '#9966ff', '#ffcd56', '#c9cbcf']
+
+	function generateColor() {
+		const col = colors[nextColor]
+		nextColor = (nextColor + 1) % colors.length
+		return col
+	}
+
+	let result: { name: string; value: number; color: string | undefined }[] | undefined = undefined
+	let data: ChartData<'pie', number[], string> | undefined = undefined
+
+	$: if (Array.isArray(result)) {
+		nextColor = 0
+		data = {
+			datasets: [
+				{
+					data: result.map((x) => x.value),
+					backgroundColor: result.map((x) => x.color ?? generateColor())
+				}
+			],
+			labels: result.map((x) => x.name)
+		}
+	} else {
+		data = undefined
+	}
 </script>
 
 <RunnableComponent {id} {path} {runType} {inlineScriptName} bind:inputs bind:result>
 	{#if result}
-		<Pie data={result} {options} />
+		<Pie {data} {options} />
 	{/if}
 </RunnableComponent>
