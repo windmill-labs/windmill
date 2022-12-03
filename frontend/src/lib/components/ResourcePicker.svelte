@@ -38,6 +38,7 @@
 
 <div class="flex flex-row gap-x-1 w-full">
 	<Select
+		value={collection.find((x) => x.value == value)}
 		bind:justValue={value}
 		items={collection}
 		class="grow"

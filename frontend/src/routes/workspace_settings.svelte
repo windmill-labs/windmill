@@ -34,6 +34,7 @@
 	let filteredUsers: User[] | undefined
 	let userFilter = ''
 	let scriptPath: string
+	let initialPath: string
 	let team_name: string | undefined
 	let itemKind: 'flow' | 'script' = 'flow'
 
@@ -81,7 +82,8 @@
 	async function loadSlack(): Promise<void> {
 		const settings = await WorkspaceService.getSettings({ workspace: $workspaceStore! })
 		team_name = settings.slack_name
-		scriptPath = settings.slack_command_script ?? ''
+		scriptPath = (settings.slack_command_script ?? '').split('/').slice(1).join('/')
+		initialPath = scriptPath
 	}
 
 	async function listUsers(): Promise<void> {
@@ -244,6 +246,7 @@
 			allowFlow
 			bind:itemKind
 			bind:scriptPath
+			{initialPath}
 			on:select={editSlackCommand}
 		/>
 
