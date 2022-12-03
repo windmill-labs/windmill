@@ -42,7 +42,7 @@
 </script>
 
 <Row
-	href={`/flows/get/${path}`}
+	href={`/flows/run/${path}`}
 	kind="flow"
 	workspaceId={workspace_id ?? $workspaceStore ?? ''}
 	{marked}

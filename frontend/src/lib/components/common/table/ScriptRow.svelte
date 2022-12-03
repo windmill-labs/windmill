@@ -49,7 +49,7 @@
 </script>
 
 <Row
-	href={`/scripts/get/${hash}`}
+	href={`/scripts/run/${hash}`}
 	kind="script"
 	{marked}
 	{path}
