@@ -7,7 +7,6 @@
 	import { getScriptByPath, loadHubScripts, sendUserToast } from '$lib/utils'
 
 	import {
-		faCode,
 		faCube,
 		faDollarSign,
 		faEye,
@@ -246,7 +245,7 @@
 				on:click={variablePicker.openDrawer}
 				size="xs"
 				spacingSize="md"
-				startIcon={{ icon: faWallet }}
+				startIcon={{ icon: faDollarSign }}
 				{iconOnly}
 			>
 				+Variable

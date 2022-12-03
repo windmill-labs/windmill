@@ -1,12 +1,13 @@
 <script lang="ts">
 	import { ResourceService, type Resource } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
-	import { faPlus, faRotateRight } from '@fortawesome/free-solid-svg-icons'
+	import { faPen, faPlus, faRotateRight } from '@fortawesome/free-solid-svg-icons'
 	import { createEventDispatcher } from 'svelte'
 	import Icon from 'svelte-awesome'
 	import { Button } from './common'
 	import Select from 'svelte-select'
 	import AppConnect from './AppConnect.svelte'
+	import ResourceEditor from './ResourceEditor.svelte'
 
 	const dispatch = createEventDispatcher()
 	let resources: Resource[] = []
@@ -32,6 +33,7 @@
 		label: `${x.path}${x.description ? ' | ' + x.description : ''}`
 	}))
 	let appConnect: AppConnect
+	let resourceEditor: ResourceEditor
 </script>
 
 <AppConnect
@@ -43,14 +45,22 @@
 	bind:this={appConnect}
 />
 
+<ResourceEditor bind:this={resourceEditor} on:refresh={() => loadResources(resourceType)} />
+
 <div class="flex flex-row gap-x-1 w-full">
 	<Select
 		value={collection.find((x) => x.value == value)}
 		bind:justValue={value}
 		items={collection}
-		class="grow"
+		class="text-clip grow min-w-0"
 		placeholder="Pick a {resourceType} resource"
 	/>
+	{#if value && value != ''}
+		<Button variant="border" size="xs" on:click={() => resourceEditor?.initEdit?.(value ?? '')}>
+			<Icon scale={0.8} data={faPen} /></Button
+		>
+	{/if}
+
 	<Button variant="border" size="xs" on:click={() => appConnect?.open?.(resourceType)}>
 		<Icon scale={0.8} data={faPlus} /></Button
 	>

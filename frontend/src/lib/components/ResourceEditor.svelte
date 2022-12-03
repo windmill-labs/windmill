@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { type Resource, ResourceService, type ResourceType, VariableService } from '$lib/gen'
-	import { canWrite, sendUserToast } from '$lib/utils'
+	import { canWrite, emptyString, sendUserToast } from '$lib/utils'
 	import { createEventDispatcher } from 'svelte'
 	import type { Schema } from '$lib/common'
 	import Path from './Path.svelte'
@@ -16,7 +16,6 @@
 
 	let path = ''
 	let initialPath = ''
-	let pathError = ''
 
 	let resourceToEdit: Resource | undefined
 
@@ -27,8 +26,6 @@
 	let args: Record<string, any> = {}
 	let can_write = true
 	let loadingSchema = false
-
-	let error: string | undefined
 
 	let drawer: Drawer
 
@@ -56,14 +53,6 @@
 	async function editResource(): Promise<void> {
 		try {
 			if (resourceToEdit) {
-				if (rawCode != undefined) {
-					try {
-						args = JSON.parse(rawCode)
-					} catch (e) {
-						sendUserToast("Couldn't parse the content as JSON", true)
-						return
-					}
-				}
 				await ResourceService.updateResource({
 					workspace: $workspaceStore!,
 					path: resourceToEdit.path,
@@ -103,6 +92,18 @@
 	}
 
 	let isValid = true
+	let jsonError = ''
+
+	$: rawCode && parseJson()
+
+	function parseJson() {
+		try {
+			args = JSON.parse(rawCode ?? '')
+			jsonError = ''
+		} catch (e) {
+			jsonError = e.message
+		}
+	}
 </script>
 
 <Drawer bind:this={drawer} size="800px">
@@ -120,11 +121,8 @@
 							>
 						</div>
 					{/if}
-
-					<span class="text-red-600 text-2xs grow">{error ?? ''}</span>
 					<Path
 						disabled={!can_write}
-						bind:error={pathError}
 						bind:path
 						{initialPath}
 						namePlaceholder="my_resource"
@@ -155,16 +153,30 @@
 					{:else if !can_write}
 						<input type="text" disabled value={rawCode} />
 					{:else}
+						<p class="italic text-gray-500 text-xs mb-4"
+							>No corresponding resource type found in your workspace for {selectedResourceType}.
+							Define the value in JSON directly</p
+						>
+						{#if !emptyString(jsonError)}<span
+								class="text-red-400 text-xs mb-1 flex flex-row-reverse">{jsonError}</span
+							>{:else}<div class="py-2" />{/if}
 						<div class="h-full w-full">
-							<SimpleEditor class="editor" lang="json" bind:code={rawCode} />
+							<SimpleEditor
+								class="editor"
+								lang="json"
+								bind:code={rawCode}
+								fixedOverflowWidgets={false}
+							/>
 						</div>
 					{/if}
 				</div>
 			</div>
 		</div>
 		<span slot="submission" class="flex gap-4 mr-2">
-			<Button startIcon={{ icon: faSave }} on:click={editResource} disabled={!can_write || !isValid}
-				>Save</Button
+			<Button
+				startIcon={{ icon: faSave }}
+				on:click={editResource}
+				disabled={!can_write || !isValid || jsonError != ''}>Save</Button
 			>
 		</span>
 	</DrawerContent>
