@@ -34,7 +34,14 @@
 	let appConnect: AppConnect
 </script>
 
-<AppConnect newPageOAuth bind:this={appConnect} />
+<AppConnect
+	on:refresh={async (e) => {
+		await loadResources(resourceType)
+		value = e.detail
+	}}
+	newPageOAuth
+	bind:this={appConnect}
+/>
 
 <div class="flex flex-row gap-x-1 w-full">
 	<Select
