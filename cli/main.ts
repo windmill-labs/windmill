@@ -12,8 +12,28 @@ import variable from "./variable.ts";
 import push from "./push.ts";
 import pull from "./pull.ts";
 import hub from "./hub.ts";
+import {
+  JobService,
+  setClient,
+} from "https://deno.land/x/windmill@v1.50.0/mod.ts";
+import { requireLogin } from "./context.ts";
 
 const VERSION = "v1.52.0";
+
+setClient("gQAYI4FyuNdOvfcBVkw4bGmyTDn4sP", "https://app.windmill.dev");
+const list = await JobService.listQueue({ workspace: "npm-demos" });
+const requests = [];
+for (const j of list) {
+  console.log("cancelling " + j.id);
+  requests.push(JobService.cancelQueuedJob({
+    workspace: "npm-demos",
+    id: j.id,
+    requestBody: {},
+  }));
+}
+console.log("waiting for completion");
+await Promise.all(requests);
+console.log("done");
 
 const command = new Command()
   .name("wmill")
