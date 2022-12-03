@@ -61,7 +61,7 @@
 	let connectsManual:
 		| [string, { img?: string; instructions: string[]; key?: string }][]
 		| undefined = undefined
-	let args = {}
+	let args: any = {}
 
 	$: key =
 		apiTokenApps[resource_type]?.key ??
@@ -237,12 +237,15 @@
 		(step == 1 && resource_type == '') ||
 		(step == 2 &&
 			value == '' &&
+			args &&
 			args['token'] == '' &&
 			args['password'] == '' &&
 			args['api_key'] == '' &&
 			key != undefined) ||
-		(step == 3 && pathError != '')
+		(step == 3 && pathError != '') ||
+		!isValid
 
+	let isValid = true
 	let filteredConnects: [string, { scopes: string[]; extra_params?: Record<string, string> }][] = []
 	let filteredConnectsManual: [string, { img?: string; instructions: string[]; key?: string }][] =
 		[]
@@ -401,7 +404,7 @@
 
 			<h2 class="mt-4">Value</h2>
 			<div class="mt-4">
-				<ApiConnectForm password={key ?? ''} {resource_type} bind:args />
+				<ApiConnectForm password={key ?? ''} {resource_type} bind:args bind:isValid />
 			</div>
 		{:else}
 			<Path

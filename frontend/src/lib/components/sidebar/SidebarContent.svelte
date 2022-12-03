@@ -8,9 +8,9 @@
 		faPlay,
 		faRobot,
 		faUsersCog,
-		faWallet,
 		faCog,
-		faStar
+		faStar,
+		faDollarSign
 	} from '@fortawesome/free-solid-svg-icons'
 	import { faDiscord, faGithub } from '@fortawesome/free-brands-svg-icons'
 	import MenuLink from './MenuLink.svelte'
@@ -19,7 +19,7 @@
 	const mainMenuLinks = [
 		{ label: 'Home', href: '/', icon: faHomeAlt },
 		{ label: 'Runs', href: '/runs', icon: faPlay },
-		{ label: 'Variables', href: '/variables', icon: faWallet },
+		{ label: 'Variables', href: '/variables', icon: faDollarSign },
 		{ label: 'Resources', href: '/resources', icon: faCubes }
 	]
 
