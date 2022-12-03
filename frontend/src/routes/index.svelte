@@ -228,6 +228,22 @@
 	}
 
 	$: items = filter !== '' ? filteredItems : preFilteredItems
+	let start: number
+	let end: number
+
+	$: clientHeight = 0
+
+	$: height = (100 * clientHeight) / window.innerHeight
+
+	function resetScroll() {
+		const element = document.getElementsByTagName('svelte-virtual-list-viewport')
+		const firstElement = element.item(0)
+		if (firstElement) {
+			firstElement.scrollTop = 0
+		}
+	}
+
+	$: items && resetScroll()
 </script>
 
 <SearchItems
@@ -298,171 +314,182 @@
 	</DrawerContent>
 </Drawer>
 
-<CenteredPage>
-	{#if $workspaceStore == 'demo'}
-		<div class="my-4" />
-		<Alert title="Demo workspace">The demo workspace shared in which all users get invited.</Alert>
-	{:else if $workspaceStore == 'starter'}
-		<div class="my-4" />
+<div bind:clientHeight>
+	<CenteredPage>
+		{#if $workspaceStore == 'demo'}
+			<div class="my-4" />
+			<Alert title="Demo workspace">The demo workspace shared in which all users get invited.</Alert
+			>
+		{:else if $workspaceStore == 'starter'}
+			<div class="my-4" />
 
-		<Alert title="Stater workspace">
-			The starter workspace has all its elements (variables, resources, scripts, flows) shared
-			across all other workspaces. Useful to seed workspace with common elements within your
-			organization.
-		</Alert>
-	{/if}
-	<PageHeader title="Home">
-		<div class="flex flex-row gap-2 flex-wrap">
-			<CreateApp />
-			<CreateActionsScript />
-			<CreateActionsFlow />
-		</div>
-	</PageHeader>
+			<Alert title="Stater workspace">
+				The starter workspace has all its elements (variables, resources, scripts, flows) shared
+				across all other workspaces. Useful to seed workspace with common elements within your
+				organization.
+			</Alert>
+		{/if}
+		<PageHeader title="Home">
+			<div class="flex flex-row gap-2 flex-wrap">
+				<CreateApp />
+				<CreateActionsScript />
+				<CreateActionsFlow />
+			</div>
+		</PageHeader>
 
-	<div class="my-6" />
-	<Tabs bind:selected={tab}>
-		<Tab size="xs" value="workspace">
-			<div class="flex gap-2 items-center my-1">
-				<Building size="18px" />
-				Workspace
-			</div>
-		</Tab>
-		<Tab size="xs" value="hubscripts">
-			<div class="flex gap-2 items-center my-1">
-				<Globe2 size="18px" />
-				Hub Scripts
-			</div>
-		</Tab>
-		<Tab size="xs" value="hubflows">
-			<div class="flex gap-2 items-center my-1">
-				<Globe2 size="18px" />
-				Hub Flows
-			</div>
-		</Tab>
-	</Tabs>
-	<div class="my-2" />
-	<div class="flex flex-col gap-y-16">
-		<div class="flex flex-col">
-			{#if tab == 'workspace'}
-				<div class="flex flex-col md:flex-row gap-2 items-center sm:justify-between w-full">
-					<div>
-						<ToggleButtonGroup bind:selected={itemKind}>
-							<ToggleButton light position="left" value="all" size="sm">All</ToggleButton>
-							<ToggleButton light position="center" value="script" size="sm">
-								<div class="flex gap-1 items-center">
-									<Code2 size="16px" />
-									Scripts
-								</div>
-							</ToggleButton>
-							<ToggleButton light position="center" value="flow" size="sm">
-								<div class="flex gap-1 items-center">
-									<Wind size="16px" />
-									Flows
-								</div>
-							</ToggleButton>
-							<ToggleButton light position="right" value="app" size="sm">
-								<div class="flex gap-1 items-center">
-									<LayoutDashboard size="16px" />
-									Apps
-								</div>
-							</ToggleButton>
-						</ToggleButtonGroup>
-					</div>
-
-					<div class="relative text-gray-600 w-full">
-						<!-- svelte-ignore a11y-autofocus -->
-						<input
-							autofocus
-							placeholder="Search Scripts, Flows & Apps"
-							bind:value={filter}
-							class="bg-white !h-10 !px-4 !pr-10 !rounded-lg text-sm focus:outline-none"
-						/>
-						<button type="submit" class="absolute right-0 top-0 mt-3 mr-4">
-							<svg
-								class="h-4 w-4 fill-current"
-								xmlns="http://www.w3.org/2000/svg"
-								xmlns:xlink="http://www.w3.org/1999/xlink"
-								version="1.1"
-								id="Capa_1"
-								x="0px"
-								y="0px"
-								viewBox="0 0 56.966 56.966"
-								style="enable-background:new 0 0 56.966 56.966;"
-								xml:space="preserve"
-								width="512px"
-								height="512px"
-							>
-								<path
-									d="M55.146,51.887L41.588,37.786c3.486-4.144,5.396-9.358,5.396-14.786c0-12.682-10.318-23-23-23s-23,10.318-23,23  s10.318,23,23,23c4.761,0,9.298-1.436,13.177-4.162l13.661,14.208c0.571,0.593,1.339,0.92,2.162,0.92  c0.779,0,1.518-0.297,2.079-0.837C56.255,54.982,56.293,53.08,55.146,51.887z M23.984,6c9.374,0,17,7.626,17,17s-7.626,17-17,17  s-17-7.626-17-17S14.61,6,23.984,6z"
-								/>
-							</svg>
-						</button>
-					</div>
+		<div class="my-6" />
+		<Tabs bind:selected={tab}>
+			<Tab size="xs" value="workspace">
+				<div class="flex gap-2 items-center my-1">
+					<Building size="18px" />
+					Workspace
 				</div>
-				{#if owners.length > 0}
-					<div class="gap-2 w-full flex flex-wrap my-4">
-						{#each owners as owner (owner)}
-							<div in:fade animate:flip={{ duration: 200 }}>
-								<Badge
-									class="cursor-pointer hover:bg-gray-200"
-									on:click={() => {
-										ownerFilter = ownerFilter == owner ? undefined : owner
-									}}
-									color={owner === ownerFilter ? 'blue' : 'gray'}
-									baseClass={owner === ownerFilter ? 'border border-blue-500' : 'border'}
-								>
-									{owner}
-									{#if owner === ownerFilter}&cross;{/if}
-								</Badge>
-							</div>
-						{/each}
-					</div>
+			</Tab>
+			<Tab size="xs" value="hubscripts">
+				<div class="flex gap-2 items-center my-1">
+					<Globe2 size="18px" />
+					Hub Scripts
+				</div>
+			</Tab>
+			<Tab size="xs" value="hubflows">
+				<div class="flex gap-2 items-center my-1">
+					<Globe2 size="18px" />
+					Hub Flows
+				</div>
+			</Tab>
+		</Tabs>
+		<div class="my-2" />
+		<div class="flex flex-col gap-y-16">
+			<div class="flex flex-col">
+				{#if tab == 'hubscripts'}
+					<PickHubScript bind:filter on:pick={(e) => viewCode(e.detail)} />
+				{:else if tab == 'hubflows'}
+					<PickHubFlow bind:filter on:pick={(e) => viewFlow(e.detail)} />
 				{/if}
-				<div>
-					{#if filteredItems.length === 0}
-						<div class="flex justify-center items-center h-48">
-							<div class="text-gray-500 text-center">
-								<div class="text-2xl font-bold">No items found</div>
-								<div class="text-sm">Try changing your search or filters</div>
-							</div>
+			</div>
+		</div>
+	</CenteredPage>
+</div>
+
+{#if tab == 'workspace'}
+	<CenteredPage>
+		<div class="flex flex-col md:flex-row gap-2 items-center sm:justify-between w-full">
+			<div>
+				<ToggleButtonGroup bind:selected={itemKind}>
+					<ToggleButton light position="left" value="all" size="sm">All</ToggleButton>
+					<ToggleButton light position="center" value="script" size="sm">
+						<div class="flex gap-1 items-center">
+							<Code2 size="16px" />
+							Scripts
 						</div>
-					{:else}
-						<div class={classNames('border rounded-md')} style="height:calc(100vh - 18em)">
-							<VirtualList {items} let:item>
-								{#if item.type == 'script'}
-									<ScriptRow
-										starred={item.starred ?? false}
-										marked={item.marked}
-										on:change={loadScripts}
-										script={item}
-										shareModal={shareModalScripts}
-									/>
-								{:else if item.type == 'flow'}
-									<FlowRow
-										starred={item.starred ?? false}
-										marked={item.marked}
-										on:change={loadFlows}
-										flow={item}
-										shareModal={shareModalFlows}
-									/>
-								{:else if item.type == 'app'}
-									<AppRow
-										starred={item.starred ?? false}
-										marked={item.marked}
-										on:change={loadApps}
-										app={item}
-									/>
-								{/if}
-							</VirtualList>
+					</ToggleButton>
+					<ToggleButton light position="center" value="flow" size="sm">
+						<div class="flex gap-1 items-center">
+							<Wind size="16px" />
+							Flows
 						</div>
-						<span class="text-sm">{pluralize(items.length, 'item')}</span>
-					{/if}
+					</ToggleButton>
+					<ToggleButton light position="right" value="app" size="sm">
+						<div class="flex gap-1 items-center">
+							<LayoutDashboard size="16px" />
+							Apps
+						</div>
+					</ToggleButton>
+				</ToggleButtonGroup>
+			</div>
+
+			<div class="relative text-gray-600 w-full">
+				<!-- svelte-ignore a11y-autofocus -->
+				<input
+					autofocus
+					placeholder="Search Scripts, Flows & Apps"
+					bind:value={filter}
+					class="bg-white !h-10 !px-4 !pr-10 !rounded-lg text-sm focus:outline-none"
+				/>
+				<button type="submit" class="absolute right-0 top-0 mt-3 mr-4">
+					<svg
+						class="h-4 w-4 fill-current"
+						xmlns="http://www.w3.org/2000/svg"
+						xmlns:xlink="http://www.w3.org/1999/xlink"
+						version="1.1"
+						id="Capa_1"
+						x="0px"
+						y="0px"
+						viewBox="0 0 56.966 56.966"
+						style="enable-background:new 0 0 56.966 56.966;"
+						xml:space="preserve"
+						width="512px"
+						height="512px"
+					>
+						<path
+							d="M55.146,51.887L41.588,37.786c3.486-4.144,5.396-9.358,5.396-14.786c0-12.682-10.318-23-23-23s-23,10.318-23,23  s10.318,23,23,23c4.761,0,9.298-1.436,13.177-4.162l13.661,14.208c0.571,0.593,1.339,0.92,2.162,0.92  c0.779,0,1.518-0.297,2.079-0.837C56.255,54.982,56.293,53.08,55.146,51.887z M23.984,6c9.374,0,17,7.626,17,17s-7.626,17-17,17  s-17-7.626-17-17S14.61,6,23.984,6z"
+						/>
+					</svg>
+				</button>
+			</div>
+		</div>
+		{#if owners.length > 0}
+			<div class="gap-2 w-full flex flex-wrap my-4">
+				{#each owners as owner (owner)}
+					<div in:fade animate:flip={{ duration: 200 }}>
+						<Badge
+							class="cursor-pointer hover:bg-gray-200"
+							on:click={() => {
+								ownerFilter = ownerFilter == owner ? undefined : owner
+							}}
+							color={owner === ownerFilter ? 'blue' : 'gray'}
+							baseClass={owner === ownerFilter ? 'border border-blue-500' : 'border'}
+						>
+							{owner}
+							{#if owner === ownerFilter}&cross;{/if}
+						</Badge>
+					</div>
+				{/each}
+			</div>
+		{/if}
+		<div>
+			{#if filteredItems.length === 0}
+				<div class="flex justify-center items-center h-48">
+					<div class="text-gray-500 text-center">
+						<div class="text-2xl font-bold">No items found</div>
+						<div class="text-sm">Try changing your search or filters</div>
+					</div>
 				</div>
-			{:else if tab == 'hubscripts'}
-				<PickHubScript bind:filter on:pick={(e) => viewCode(e.detail)} />
-			{:else if tab == 'hubflows'}
-				<PickHubFlow bind:filter on:pick={(e) => viewFlow(e.detail)} />
+			{:else}
+				<div
+					class={classNames('border rounded-md')}
+					style={`height: calc(100vh - 10em - ${height}vh);`}
+				>
+					<VirtualList {items} let:item bind:start bind:end>
+						{#if item.type == 'script'}
+							<ScriptRow
+								starred={item.starred ?? false}
+								marked={item.marked}
+								on:change={loadScripts}
+								script={item}
+								shareModal={shareModalScripts}
+							/>
+						{:else if item.type == 'flow'}
+							<FlowRow
+								starred={item.starred ?? false}
+								marked={item.marked}
+								on:change={loadFlows}
+								flow={item}
+								shareModal={shareModalFlows}
+							/>
+						{:else if item.type == 'app'}
+							<AppRow
+								starred={item.starred ?? false}
+								marked={item.marked}
+								on:change={loadApps}
+								app={item}
+							/>
+						{/if}
+					</VirtualList>
+				</div>
+				<span class="text-xs">{pluralize(items.length, 'item')}</span>
+				<span class="text-xs">{`(${start} - ${end})`}</span>
 			{/if}
 		</div>
-	</div>
-</CenteredPage>
+	</CenteredPage>
+{/if}

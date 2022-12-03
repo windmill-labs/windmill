@@ -29,7 +29,7 @@
 
 	svelte-virtual-list-contents > * + * {
 		border-top-width: 1px !important;
-		border-bottom-width: 0px !important
+		border-bottom-width: 0px !important;
 	}
 
 	
