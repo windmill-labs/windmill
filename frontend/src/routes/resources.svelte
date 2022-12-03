@@ -478,7 +478,14 @@
 									></td
 								>
 								<td>
-									{#if $userStore?.is_admin}
+									{#if !canWrite}
+										<Badge
+											>Shared globally<Tooltip
+												>This resource type is from the 'starter' workspace shared with all
+												workspaces</Tooltip
+											></Badge
+										>
+									{:else if $userStore?.is_admin}
 										<Button
 											size="sm"
 											color="red"
@@ -491,8 +498,8 @@
 									{:else}
 										<Badge
 											>Non Editable <Tooltip
-												>Since resource types are shared with the whole workspace. Only admins can
-												edit/delete resource types</Tooltip
+												>Since resource types are shared with the whole workspace, only admins can
+												edit/delete them</Tooltip
 											></Badge
 										>
 									{/if}
