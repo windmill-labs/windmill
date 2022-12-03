@@ -2347,6 +2347,23 @@ paths:
                 items:
                   $ref: "#/components/schemas/ListableApp"
 
+  /w/{workspace}/apps/exists/{path}:
+    get:
+      summary: does an app exisst at path
+      operationId: existsApp
+      tags:
+        - app
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+      responses:
+        "200":
+          description: app exists
+          content:
+            application/json:
+              schema:
+                type: boolean
+
   /w/{workspace}/apps/get/p/{path}:
     get:
       summary: get app by path
@@ -3260,7 +3277,7 @@ paths:
         - $ref: "#/components/parameters/Path"
       responses:
         "200":
-          description: schedule deleted
+          description: schedule exists
           content:
             application/json:
               schema:
