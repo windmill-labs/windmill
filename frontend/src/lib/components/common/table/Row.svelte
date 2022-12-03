@@ -17,7 +17,7 @@
 	export let workspaceId: string
 </script>
 
-<a class="hover:bg-gray-50 cursor-pointer w-full flex items-center p-4 gap-4" {href}>
+<a class="hover:bg-gray-50 cursor-pointer w-full flex items-center p-4 gap-4 min-w-[1000px]" {href}>
 	<RowIcon {kind} />
 
 	<div class="w-full">

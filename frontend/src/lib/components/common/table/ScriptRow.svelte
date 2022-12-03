@@ -19,6 +19,7 @@
 	import { createEventDispatcher } from 'svelte'
 	import Badge from '../badge/Badge.svelte'
 	import Button from '../button/Button.svelte'
+	import LanguageBadge from './LanguageBadge.svelte'
 	import Row from './Row.svelte'
 
 	export let script: Script & { canWrite: boolean }
@@ -53,15 +54,20 @@
 	{marked}
 	{path}
 	{summary}
-	workspaceId={workspace_id ?? $workspaceStore ?? ''}
 	{starred}
+	workspaceId={workspace_id ?? $workspaceStore ?? ''}
+	on:change
 >
 	<svelte:fragment slot="badges">
 		<SharedBadge {canWrite} extraPerms={extra_perms} />
 		{#if lock_error_logs}
 			<Badge color="red" baseClass="border border-red-200">Deployment failed</Badge>
 		{/if}
-		<Badge color="gray" baseClass="border">{capitalize(kind)}</Badge>
+		{#if kind !== 'script'}
+			<Badge color="gray" baseClass="border">{capitalize(kind)}</Badge>
+		{/if}
+
+		<LanguageBadge {language} />
 	</svelte:fragment>
 	<svelte:fragment slot="actions">
 		<Dropdown
