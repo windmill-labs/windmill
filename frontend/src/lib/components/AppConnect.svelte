@@ -80,6 +80,7 @@
 	export async function open(rt?: string) {
 		step = 1
 		value = ''
+		description = ''
 		no_back = false
 		resource_type = rt ?? ''
 
@@ -200,7 +201,7 @@
 					description
 				}
 			})
-			dispatch('refresh')
+			dispatch('refresh', path)
 			sendUserToast(`App token set at resource and variable path: ${path}`)
 			drawer.closeDrawer?.()
 		}
