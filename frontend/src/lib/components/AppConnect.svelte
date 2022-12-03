@@ -98,6 +98,9 @@
 			extra_params = Object.entries(connect.extra_params ?? {})
 		} else {
 			manual = true
+			if (rt) {
+				next()
+			}
 		}
 		drawer.openDrawer?.()
 	}

@@ -96,8 +96,7 @@
 	<CenteredPage>
 		{#if $workspaceStore == 'demo'}
 			<div class="my-4" />
-			<Alert title="Demo workspace">The demo workspace shared in which all users get invited.</Alert
-			>
+			<Alert title="Demo workspace">All uers get an invitation to this workspace.</Alert>
 		{:else if $workspaceStore == 'starter'}
 			<div class="my-4" />
 
@@ -117,19 +116,19 @@
 
 		<div class="my-6" />
 		<Tabs bind:selected={tab}>
-			<Tab size="xs" value="workspace">
+			<Tab size="md" value="workspace">
 				<div class="flex gap-2 items-center my-1">
 					<Building size="18px" />
 					Workspace
 				</div>
 			</Tab>
-			<Tab size="xs" value="hubscripts">
+			<Tab size="md" value="hubscripts">
 				<div class="flex gap-2 items-center my-1">
 					<Globe2 size="18px" />
 					Hub Scripts
 				</div>
 			</Tab>
-			<Tab size="xs" value="hubflows">
+			<Tab size="md" value="hubflows">
 				<div class="flex gap-2 items-center my-1">
 					<Globe2 size="18px" />
 					Hub Flows
