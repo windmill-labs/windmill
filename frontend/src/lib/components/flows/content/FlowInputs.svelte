@@ -48,7 +48,7 @@
 		</div>
 	{/if}
 	<h3 class="pb-2">
-		Inline new
+		Inline new {kind == 'script' ? 'common' : kind} script
 		<Tooltip>
 			Embed a script directly inside a flow instead of saving the script into your workspace for
 			reuse. You can always save an inline script later.
