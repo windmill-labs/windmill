@@ -18,6 +18,7 @@
 		Button,
 		Drawer,
 		DrawerContent,
+		Skeleton,
 		Tab,
 		Tabs,
 		ToggleButton,
@@ -63,9 +64,9 @@
 	type TableFlow = TableItem<Flow, 'flow'>
 	type TableApp = TableItem<ListableApp, 'app'>
 
-	let scripts: TableScript[] = []
-	let flows: TableFlow[] = []
-	let apps: TableApp[] = []
+	let scripts: TableScript[] | undefined
+	let flows: TableFlow[] | undefined
+	let apps: TableApp[] | undefined
 
 	let filteredItems: (TableScript | TableFlow | TableApp)[] = []
 
@@ -143,24 +144,37 @@
 		new Set(filteredItems?.map((x) => x.path.split('/').slice(0, 2).join('/')) ?? [])
 	).sort()
 
-	let combinedItems: (TableScript | TableFlow | TableApp)[] = []
+	let combinedItems: (TableScript | TableFlow | TableApp)[] | undefined = undefined
 
-	$: combinedItems = [
-		...flows.map((x) => ({ ...x, type: 'flow' as 'flow', time: new Date(x.edited_at).getTime() })),
-		...scripts.map((x) => ({
-			...x,
-			type: 'script' as 'script',
-			time: new Date(x.created_at).getTime()
-		})),
-		...apps.map((x) => ({ ...x, type: 'app' as 'app', time: new Date(x.edited_at).getTime() }))
-	].sort((a, b) => (a.starred != b.starred ? (a.starred ? -1 : 1) : a.time - b.time > 0 ? -1 : 1))
+	$: combinedItems =
+		flows == undefined || scripts == undefined || apps == undefined
+			? undefined
+			: [
+					...flows.map((x) => ({
+						...x,
+						type: 'flow' as 'flow',
+						time: new Date(x.edited_at).getTime()
+					})),
+					...scripts.map((x) => ({
+						...x,
+						type: 'script' as 'script',
+						time: new Date(x.created_at).getTime()
+					})),
+					...apps.map((x) => ({
+						...x,
+						type: 'app' as 'app',
+						time: new Date(x.edited_at).getTime()
+					}))
+			  ].sort((a, b) =>
+					a.starred != b.starred ? (a.starred ? -1 : 1) : a.time - b.time > 0 ? -1 : 1
+			  )
 
 	$: preFilteredItems =
 		ownerFilter != undefined
-			? combinedItems.filter(
+			? combinedItems?.filter(
 					(x) => x.path.startsWith(ownerFilter ?? '') && (x.type == itemKind || itemKind == 'all')
 			  )
-			: combinedItems.filter((x) => x.type == itemKind || itemKind == 'all')
+			: combinedItems?.filter((x) => x.type == itemKind || itemKind == 'all')
 
 	let ownerFilter: string | undefined = undefined
 
@@ -220,8 +234,8 @@
 						start[ia] - start[ib] ||
 						// alphabetic
 						cmp(haystack[idx[ia]], haystack[idx[ib]]) +
-							(preFilteredItems[idx[ib]].starred ? 100 : 0) -
-							(preFilteredItems[idx[ia]].starred ? 100 : 0)
+							(preFilteredItems?.[idx[ib]]?.starred ? 100 : 0) -
+							(preFilteredItems?.[idx[ia]]?.starred ? 100 : 0)
 				)
 			return sortResult
 		}
@@ -448,7 +462,13 @@
 			</div>
 		{/if}
 		<div>
-			{#if filteredItems.length === 0}
+			{#if filteredItems == undefined}
+				<div class="mt-4" />
+				<Skeleton layout={[[2], 1]} />
+				{#each new Array(6) as _}
+					<Skeleton layout={[[4], 0.5]} />
+				{/each}
+			{:else if filteredItems.length === 0}
 				<div class="flex justify-center items-center h-48">
 					<div class="text-gray-500 text-center">
 						<div class="text-2xl font-bold">No items found</div>
@@ -487,7 +507,7 @@
 						{/if}
 					</VirtualList>
 				</div>
-				<span class="text-xs">{pluralize(items.length, 'item')}</span>
+				<span class="text-xs">{pluralize(items?.length ?? 0, 'item')}</span>
 				<span class="text-xs">{`(${start} - ${end})`}</span>
 			{/if}
 		</div>

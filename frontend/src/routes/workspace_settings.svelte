@@ -24,14 +24,14 @@
 	import { goto } from '$app/navigation'
 	import InviteUser from '$lib/components/InviteUser.svelte'
 	import ScriptPicker from '$lib/components/ScriptPicker.svelte'
-	import { Button } from '$lib/components/common'
+	import { Button, Skeleton } from '$lib/components/common'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import { faScroll, faWind } from '@fortawesome/free-solid-svg-icons'
 	import SearchItems from '$lib/components/SearchItems.svelte'
 
-	let users: User[] = []
+	let users: User[] | undefined = undefined
 	let invites: WorkspaceInvite[] = []
-	let filteredUsers: User[] = []
+	let filteredUsers: User[] | undefined = undefined
 	let userFilter = ''
 	let scriptPath: string
 	let initialPath: string
@@ -120,44 +120,56 @@
 					<th colspan="3">jobs &amp; flows (<abbr title="past two weeks">2w</abbr>)</th>
 				</tr>
 				<tbody slot="body">
-					{#each filteredUsers as { email, username, is_admin, usage } (email)}
-						<tr class="border">
-							<td>{email}</td>
-							<td>{username}</td>
-							<td>{is_admin ? 'admin' : 'user'}</td>
-							<td>{usage?.jobs}</td>
-							<td>{usage?.flows}</td>
-							<td>{msToSec(usage?.duration_ms)}s</td>
-							<td class="whitespace-nowrap"
-								><button
-									class="ml-2 text-red-500"
-									on:click={async () => {
-										await UserService.deleteUser({
-											workspace: $workspaceStore ?? '',
-											username
-										})
-										sendUserToast('User removed')
-										listUsers()
-									}}>remove</button
+					{#if filteredUsers}
+						{#each filteredUsers as { email, username, is_admin, usage } (email)}
+							<tr class="border">
+								<td>{email}</td>
+								<td>{username}</td>
+								<td>{is_admin ? 'admin' : 'user'}</td>
+								<td>{usage?.jobs}</td>
+								<td>{usage?.flows}</td>
+								<td>{msToSec(usage?.duration_ms)}s</td>
+								<td class="whitespace-nowrap"
+									><button
+										class="ml-2 text-red-500"
+										on:click={async () => {
+											await UserService.deleteUser({
+												workspace: $workspaceStore ?? '',
+												username
+											})
+											sendUserToast('User removed')
+											listUsers()
+										}}>remove</button
+									>
+									-
+									<button
+										class="text-blue-500"
+										on:click={async () => {
+											await UserService.updateUser({
+												workspace: $workspaceStore ?? '',
+												username,
+												requestBody: {
+													is_admin: !is_admin
+												}
+											})
+											sendUserToast('User updated')
+											listUsers()
+										}}>{is_admin ? 'demote' : 'promote'}</button
+									></td
 								>
-								-
-								<button
-									class="text-blue-500"
-									on:click={async () => {
-										await UserService.updateUser({
-											workspace: $workspaceStore ?? '',
-											username,
-											requestBody: {
-												is_admin: !is_admin
-											}
-										})
-										sendUserToast('User updated')
-										listUsers()
-									}}>{is_admin ? 'demote' : 'promote'}</button
-								></td
-							>
-						</tr>
-					{/each}
+							</tr>
+						{/each}
+					{:else}
+						{#each new Array(6) as _}
+							<tr class="border">
+								{#each new Array(4) as _}
+									<td>
+										<Skeleton layout={[[2]]} />
+									</td>
+								{/each}
+							</tr>
+						{/each}
+					{/if}
 				</tbody>
 			</TableCustom>
 		</div>

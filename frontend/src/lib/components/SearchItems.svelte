@@ -2,18 +2,18 @@
 	import uFuzzy from '@leeoniya/ufuzzy'
 
 	export let filter: string = ''
-	export let items: any[]
+	export let items: any[] | undefined
 	export let f: (item: any) => string
-	export let filteredItems: (any & { marked: string })[]
+	export let filteredItems: (any & { marked: string })[] | undefined
 	export let opts: uFuzzy.Options = {}
 
 	let uf = new uFuzzy(opts)
-	$: plaintextItems = items.map((item) => f(item))
+	$: plaintextItems = items?.map((item) => f(item)) ?? []
 
 	$: plaintextItems && filter != undefined && setTimeout(() => filterItems(), 0)
 
 	function filterItems() {
-		if (filter.length == 0) {
+		if (items == undefined || filter.length == 0) {
 			filteredItems = items
 			return
 		}
