@@ -478,17 +478,23 @@
 									></td
 								>
 								<td>
-									{#if canWrite}
+									{#if $userStore?.is_admin}
 										<Button
 											size="sm"
 											color="red"
 											variant="border"
 											startIcon={{ icon: faTrash }}
 											on:click={() => handleDeleteResourceType(name)}
-											disabled={!($userStore?.is_admin || false)}
 										>
 											Delete
 										</Button>
+									{:else}
+										<Badge
+											>Non Editable <Tooltip
+												>Since resource types are shared with the whole workspace. Only admins can
+												edit/delete resource types</Tooltip
+											></Badge
+										>
 									{/if}
 								</td>
 							</tr>

@@ -14,7 +14,9 @@
 		{name}
 	{/if}
 	{#if APP_TO_ICON_COMPONENT[name]}
-		<svelte:component this={APP_TO_ICON_COMPONENT[name]} {height} {width} />
+		<span class="text-gray-700">
+			<svelte:component this={APP_TO_ICON_COMPONENT[name]} {height} {width} />
+		</span>
 	{:else}
 		<span style="width: {width}" class="bg-gray-100 rounded-full" />
 	{/if}
