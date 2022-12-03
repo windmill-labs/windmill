@@ -1,5 +1,8 @@
 <script lang="ts">
 	import { createPopperActions } from 'svelte-popperjs'
+
+	export let notClickable = false
+
 	const [popperRef, popperContent] = createPopperActions({
 		placement: 'auto'
 	})
@@ -37,7 +40,12 @@
 	}
 </script>
 
-<button use:popperRef on:mouseenter={open} on:mouseleave={close}>
+<button
+	class:cursor-default={notClickable}
+	use:popperRef
+	on:mouseenter={open}
+	on:mouseleave={close}
+>
 	<slot />
 </button>
 {#if showTooltip}
