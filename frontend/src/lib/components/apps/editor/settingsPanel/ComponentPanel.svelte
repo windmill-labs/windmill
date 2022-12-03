@@ -86,7 +86,7 @@
 							startIcon={{ icon: faClose }}
 							on:click={() => {
 								if (component) {
-									component['inlineScriptName'] = undefined
+									component['path'] = undefined
 								}
 							}}
 						>
