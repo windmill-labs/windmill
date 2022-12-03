@@ -44,7 +44,7 @@
 	import { createEventDispatcher } from 'svelte'
 	import Icon from 'svelte-awesome'
 	import Path from './Path.svelte'
-	import { Alert, Button, Drawer, Skeleton } from './common'
+	import { Button, Drawer, Skeleton } from './common'
 	import DrawerContent from './common/drawer/DrawerContent.svelte'
 	import ApiConnectForm from './ApiConnectForm.svelte'
 	import SearchItems from './SearchItems.svelte'

@@ -14,6 +14,7 @@
 	export let schema: Schema
 	export let args: Record<string, InputTransform | any> = {}
 	export let disabledArgs: string[] = []
+	export let disabled = false
 
 	export let editableSchema = false
 	export let isValid: boolean = true
@@ -83,7 +84,7 @@
 						contentEncoding={schema.properties[argName].contentEncoding}
 						properties={schema.properties[argName].properties}
 						bind:itemsType={schema.properties[argName].items}
-						disabled={disabledArgs.includes(argName)}
+						disabled={disabledArgs.includes(argName) || disabled}
 						{editableSchema}
 						{compact}
 						password={argName == password}
