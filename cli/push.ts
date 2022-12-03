@@ -17,12 +17,14 @@ type Candidate = {
 };
 async function findCandidateFiles(dir: string): Promise<Candidate[]> {
   const candidates: Candidate[] = [];
+  if (dir.startsWith(".")) return [];
   for await (const e of Deno.readDir(dir)) {
     if (e.isDirectory) {
       if (e.name == "u" || e.name == "g") {
         const newDir = dir + (dir.endsWith("/") ? "" : "/") + e.name;
         for await (const e2 of Deno.readDir(newDir)) {
           if (e2.isDirectory) {
+            if (e2.name.startsWith(".")) return [];
             const groupOrUserName = e2.name;
             const stack: string[] = [];
             stack.push(newDir + "/" + groupOrUserName + "/");
