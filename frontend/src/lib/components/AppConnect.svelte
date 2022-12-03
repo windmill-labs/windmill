@@ -35,7 +35,7 @@
 </script>
 
 <script lang="ts">
-	import { oauthStore, userStore, workspaceStore } from '$lib/stores'
+	import { oauthStore, workspaceStore } from '$lib/stores'
 	import { faMinus, faPlus } from '@fortawesome/free-solid-svg-icons'
 	import IconedResourceType from './IconedResourceType.svelte'
 	import { OauthService, ResourceService, VariableService, type TokenResponse } from '$lib/gen'
@@ -44,7 +44,7 @@
 	import { createEventDispatcher } from 'svelte'
 	import Icon from 'svelte-awesome'
 	import Path from './Path.svelte'
-	import { Alert, Button, Drawer } from './common'
+	import { Alert, Button, Drawer, Skeleton } from './common'
 	import DrawerContent from './common/drawer/DrawerContent.svelte'
 	import ApiConnectForm from './ApiConnectForm.svelte'
 	import SearchItems from './SearchItems.svelte'
@@ -55,8 +55,12 @@
 	let manual = false
 	let value: string = ''
 	let valueToken: TokenResponse
-	let connects: Record<string, { scopes: string[]; extra_params?: Record<string, string> }> = {}
-	let connectsManual: [string, { img?: string; instructions: string[]; key?: string }][] = []
+	let connects:
+		| Record<string, { scopes: string[]; extra_params?: Record<string, string> }>
+		| undefined = undefined
+	let connectsManual:
+		| [string, { img?: string; instructions: string[]; key?: string }][]
+		| undefined = undefined
 	let args = {}
 
 	$: key =
@@ -88,7 +92,7 @@
 
 		await loadConnects()
 
-		const connect = connects[resource_type]
+		const connect = connects?.[resource_type]
 		if (connect) {
 			scopes = connect.scopes
 			extra_params = Object.entries(connect.extra_params ?? {})
@@ -114,11 +118,12 @@
 	}
 
 	async function loadResources() {
+		await loadConnects()
 		const availableRts = await ResourceService.listResourceTypeNames({
 			workspace: $workspaceStore!
 		})
 		connectsManual = availableRts
-			.filter((x) => !Object.keys(connects).includes(x))
+			.filter((x) => !Object.keys(connects ?? {}).includes(x))
 			.map((x) => [
 				x,
 				apiTokenApps[x] ?? {
@@ -242,13 +247,13 @@
 
 <SearchItems
 	{filter}
-	items={Object.entries(connects).sort((a, b) => a[0].localeCompare(b[0]))}
+	items={connects ? Object.entries(connects).sort((a, b) => a[0].localeCompare(b[0])) : undefined}
 	bind:filteredItems={filteredConnects}
 	f={(x) => x[0]}
 />
 <SearchItems
 	{filter}
-	items={connectsManual.sort((a, b) => a[0].localeCompare(b[0]))}
+	items={connectsManual?.sort((a, b) => a[0].localeCompare(b[0]))}
 	bind:filteredItems={filteredConnectsManual}
 	f={(x) => x[0]}
 />
@@ -259,19 +264,11 @@
 		dispatch('close')
 	}}
 	on:open={() => {
-		loadConnects()
 		loadResources()
 	}}
 >
 	<DrawerContent title="Connect an API" on:close={drawer.closeDrawer}>
 		{#if step == 1}
-			{#if resource_type && !connects[resource_type] && !connectsManual.find((x) => x[0] == resource_type)}
-				<Alert class="mb-4" type="error" title="Resource type not found">
-					The resource type "{resource_type}" seems to not have an OAuth API integration. You can
-					still create this resource manually by closing this modal and pressing: "Add a resource".
-					You can also contribute to windmill and add it as an API integration if relevant.
-				</Alert>
-			{/if}
 			<div class="w-12/12 pb-2 flex flex-row my-1 gap-1">
 				<input
 					type="text"
@@ -282,91 +279,92 @@
 			</div>
 
 			<h2 class="mb-2">OAuth APIs</h2>
-			{#if Object.keys(connects).length == 0}
-				<Alert class="mb-4" type="error" title="No OAuth connection setup">
-					Your instance has no OAuth connection setup. You can still add a resource manually.
-				</Alert>
-			{/if}
 			<div class="grid sm:grid-cols-2 md:grid-cols-3 gap-x-2 gap-y-1 items-center mb-2">
-				{#each filteredConnects as [key, values]}
-					<Button
-						size="sm"
-						variant="border"
-						color={key === resource_type ? 'blue' : 'dark'}
-						btnClasses={key === resource_type ? '!border-2 !bg-blue-50/75' : 'm-[1px]'}
-						on:click={() => {
-							manual = false
-							resource_type = key
-							scopes = values.scopes
-							extra_params = Object.entries(values.extra_params ?? {})
-							next()
-						}}
-					>
-						<IconedResourceType name={key} after={true} width="20px" height="20px" />
-					</Button>
-				{/each}
-			</div>
-			<h3>Scopes</h3>
-			{#if !manual && resource_type != ''}
-				{#each scopes as v}
-					<div class="flex flex-row max-w-md mb-2">
-						<input type="text" bind:value={v} />
+				{#if filteredConnects}
+					{#each filteredConnects as [key, values]}
 						<Button
+							size="sm"
 							variant="border"
-							color="red"
-							size="xs"
-							btnClasses="mx-6"
+							color={key === resource_type ? 'blue' : 'dark'}
+							btnClasses={key === resource_type ? '!border-2 !bg-blue-50/75' : 'm-[1px]'}
 							on:click={() => {
-								scopes = scopes.filter((el) => el != v)
+								manual = false
+								resource_type = key
+								scopes = values.scopes
+								extra_params = Object.entries(values.extra_params ?? {})
 							}}
 						>
-							<Icon data={faMinus} />
+							<IconedResourceType name={key} after={true} width="20px" height="20px" />
 						</Button>
+					{/each}
+				{:else}
+					{#each new Array(3) as _}
+						<Skeleton layout={[[2]]} />
+					{/each}
+				{/if}
+			</div>
+			{#if manual == false && resource_type != ''}
+				<h3>Scopes</h3>
+				{#if !manual && resource_type != ''}
+					{#each scopes as v}
+						<div class="flex flex-row max-w-md mb-2">
+							<input type="text" bind:value={v} />
+							<Button
+								variant="border"
+								color="red"
+								size="xs"
+								btnClasses="mx-6"
+								on:click={() => {
+									scopes = scopes.filter((el) => el != v)
+								}}
+							>
+								<Icon data={faMinus} />
+							</Button>
+						</div>
+					{/each}
+					<div class="flex items-center mt-1">
+						<Button
+							variant="border"
+							color="blue"
+							size="sm"
+							endIcon={{ icon: faPlus }}
+							on:click={() => {
+								scopes = scopes.concat('')
+							}}
+						>
+							Add item
+						</Button>
+						<span class="ml-2 text-sm text-gray-500">
+							({(scopes ?? []).length} item{(scopes ?? []).length > 1 ? 's' : ''})
+						</span>
 					</div>
-				{/each}
-				<div class="flex items-center mt-1">
-					<Button
-						variant="border"
-						color="blue"
-						size="sm"
-						endIcon={{ icon: faPlus }}
-						on:click={() => {
-							scopes = scopes.concat('')
-						}}
-					>
-						Add item
-					</Button>
-					<span class="ml-2 text-sm text-gray-500">
-						({(scopes ?? []).length} item{(scopes ?? []).length > 1 ? 's' : ''})
-					</span>
-				</div>
-			{:else}
-				<p class="italic text-sm">Pick an OAuth API and customize the scopes here</p>
+				{/if}
 			{/if}
+
 			<h2 class="mt-8 mb-2">Non OAuth APIs</h2>
-			{#if Object.keys(connectsManual).length == 0}
-				<Alert class="mb-4" type="error" title="No resource types synced">
-					Your instance has no resource types setup. Sync with the hub to get all the latest
-					resource types.
-				</Alert>
-			{/if}
 			<div class="grid sm:grid-cols-2 md:grid-cols-3 gap-x-2 gap-y-1 items-center mb-2">
-				{#each filteredConnectsManual as [key, instructions]}
-					<Button
-						size="sm"
-						variant="border"
-						color={key === resource_type ? 'blue' : 'dark'}
-						btnClasses={key === resource_type ? '!border-2 !bg-blue-50/75' : 'm-[1px]'}
-						on:click={() => {
-							manual = true
-							resource_type = key
-							next()
-							dispatch('click')
-						}}
-					>
-						<IconedResourceType name={key} after={true} width="20px" height="20px" />
-					</Button>
-				{/each}
+				{#if filteredConnectsManual}
+					{#each filteredConnectsManual as [key, instructions]}
+						<Button
+							size="sm"
+							variant="border"
+							color={key === resource_type ? 'blue' : 'dark'}
+							btnClasses={key === resource_type ? '!border-2 !bg-blue-50/75' : 'm-[1px]'}
+							on:click={() => {
+								manual = true
+								resource_type = key
+								next()
+								dispatch('click')
+							}}
+						>
+							<IconedResourceType name={key} after={true} width="20px" height="20px" />
+						</Button>
+					{/each}
+				{:else}
+					{#each new Array(9) as _}
+						<Skeleton layout={[[2]]} />
+					{/each}
+				{/if}
 			</div>
 		{:else if step == 2 && manual}
 			<Path
