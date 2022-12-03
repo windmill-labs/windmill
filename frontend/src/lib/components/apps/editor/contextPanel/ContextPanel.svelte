@@ -57,7 +57,9 @@
 				[newScriptPath]: inlineScript
 			}
 		}
-		closeDrawer()
+		scriptCreationDrawer?.closeDrawer?.()
+		selectedScript = inlineScript
+		scriptEditorDrawer.openDrawer?.()
 	}
 
 	function afterCreateScript() {
@@ -71,16 +73,10 @@
 	let scriptEditorDrawer: Drawer
 
 	let scriptCreationDrawer: Drawer | undefined = undefined
-
-	function closeDrawer() {
-		if (scriptEditorDrawer.closeDrawer) {
-			scriptEditorDrawer.closeDrawer()
-		}
-	}
 </script>
 
 <Drawer bind:this={scriptCreationDrawer} size="600px" on:afterClose={afterCreateScript}>
-	<DrawerContent title="Script creation" on:close={closeDrawer}>
+	<DrawerContent title="Script creation" on:close={scriptCreationDrawer.closeDrawer}>
 		<label for="pathInput" class="text-sm font-semibold"> Script name </label>
 		<div class="flex justify-between items-center gap-4">
 			<!-- svelte-ignore a11y-autofocus -->
@@ -104,7 +100,12 @@
 </Drawer>
 
 <Drawer bind:this={scriptEditorDrawer} size="1200px">
-	<DrawerContent title="Script Editor" noPadding forceOverflowVisible on:close={closeDrawer}>
+	<DrawerContent
+		title="Script Editor"
+		noPadding
+		forceOverflowVisible
+		on:close={scriptEditorDrawer.closeDrawer}
+	>
 		{#if selectedScript}
 			<ScriptEditor
 				lang={selectedScript.language}
@@ -123,7 +124,7 @@
 			size="xs"
 			color="light"
 			variant="border"
-			on:click={closeDrawer}
+			on:click={scriptCreationDrawer?.openDrawer}
 			startIcon={{ icon: faPlus }}
 			iconOnly
 		/>
