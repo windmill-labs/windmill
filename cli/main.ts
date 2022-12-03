@@ -15,39 +15,40 @@ import hub from "./hub.ts";
 
 const VERSION = "v1.52.0";
 
+const command = new Command()
+  .name("wmill")
+  .description("A simple CLI tool for windmill.")
+  .globalOption(
+    "--workspace <workspace:string>",
+    "Specify the target workspace. This overrides the default workspace.",
+  )
+  .version(VERSION)
+  .command("flow", flow)
+  .command("script", script)
+  .command("workspace", workspace)
+  .command("resource", resource)
+  .command("user", user)
+  .command("variable", variable)
+  .command("push", push)
+  .command("pull", pull)
+  .command("hub", hub)
+  .command(
+    "upgrade",
+    new UpgradeCommand({
+      main: "main.ts",
+      args: [
+        "--allow-net",
+        "--allow-read",
+        "--allow-write",
+        "--allow-env",
+        "--unstable",
+      ],
+      provider: new DenoLandProvider({ name: "wmill" }),
+    }),
+  );
+
 try {
-  await new Command()
-    .name("wmill")
-    .description("A simple CLI tool for windmill.")
-    .globalOption(
-      "--workspace <workspace:string>",
-      "Specify the target workspace. This overrides the default workspace.",
-    )
-    .version(VERSION)
-    .command("flow", flow)
-    .command("script", script)
-    .command("workspace", workspace)
-    .command("resource", resource)
-    .command("user", user)
-    .command("variable", variable)
-    .command("push", push)
-    .command("pull", pull)
-    .command("hub", hub)
-    .command(
-      "upgrade",
-      new UpgradeCommand({
-        main: "main.ts",
-        args: [
-          "--allow-net",
-          "--allow-read",
-          "--allow-write",
-          "--allow-env",
-          "--unstable",
-        ],
-        provider: new DenoLandProvider({ name: "wmill" }),
-      }),
-    )
-    .parse(Deno.args);
+  await command.parse(Deno.args);
 } catch (e) {
   if (e.name === "ApiError") {
     console.log("Server failed. " + e.statusText + ": " + e.body);
@@ -55,3 +56,5 @@ try {
     throw e;
   }
 }
+
+export default command;

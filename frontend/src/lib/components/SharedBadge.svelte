@@ -54,7 +54,7 @@
 		<Users size="12" />
 		{kind}
 		{#if reason}
-			<Tooltip>{reason}</Tooltip>
+			<Tooltip><span class="normal-case">{reason}</span></Tooltip>
 		{/if}
 	</Badge>
 {/if}

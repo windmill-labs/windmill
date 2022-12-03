@@ -249,6 +249,7 @@
 			<TableCustom>
 				<tr slot="header-row">
 					<th>path</th>
+					<th />
 					<th>resource type</th>
 					<th>description</th>
 					<th />
@@ -258,15 +259,35 @@
 					{#if resources}
 						{#each resources as { path, description, resource_type, extra_perms, canWrite, is_oauth, is_linked, account, refresh_error, is_expired }}
 							<tr>
-								<td class="my-12"
-									><a
+								<td>
+									<a
 										class="break-words"
 										href="#{path}"
 										on:click={() => resourceEditor?.initEdit?.(path)}>{path}</a
 									>
-									<div class="mb-1 -mt-1"><SharedBadge {canWrite} extraPerms={extra_perms} /></div>
 								</td>
-								<td class="px-2"><IconedResourceType name={resource_type} after={true} /></td>
+								<td><SharedBadge {canWrite} extraPerms={extra_perms} /></td>
+								<td class="px-2"
+									><a
+										href="#{name}"
+										on:click={() => {
+											const linkedRt = resourceTypes?.find((rt) => rt.name === resource_type)
+											if (linkedRt) {
+												resourceTypeViewerObj = {
+													rt: linkedRt.name,
+													schema: linkedRt.schema,
+													description: linkedRt.description ?? ''
+												}
+												resourceTypeViewer.openDrawer?.()
+											} else {
+												sendUserToast(
+													`Resource type ${resource_type} not found in workspace.`,
+													true
+												)
+											}
+										}}><IconedResourceType name={resource_type} after={true} /></a
+									></td
+								>
 								<td
 									><span class="text-gray-500 text-xs"
 										><SvelteMarkdown source={truncate(description ?? '', 30)} /></span
@@ -457,17 +478,30 @@
 									></td
 								>
 								<td>
-									{#if canWrite}
+									{#if !canWrite}
+										<Badge
+											>Shared globally<Tooltip
+												>This resource type is from the 'starter' workspace shared with all
+												workspaces</Tooltip
+											></Badge
+										>
+									{:else if $userStore?.is_admin}
 										<Button
 											size="sm"
 											color="red"
 											variant="border"
 											startIcon={{ icon: faTrash }}
 											on:click={() => handleDeleteResourceType(name)}
-											disabled={!($userStore?.is_admin || false)}
 										>
 											Delete
 										</Button>
+									{:else}
+										<Badge
+											>Non Editable <Tooltip
+												>Since resource types are shared with the whole workspace, only admins can
+												edit/delete them</Tooltip
+											></Badge
+										>
 									{/if}
 								</td>
 							</tr>
