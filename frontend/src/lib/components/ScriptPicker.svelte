@@ -11,6 +11,7 @@
 	import { Button, Drawer, DrawerContent } from './common'
 	import HighlightCode from './HighlightCode.svelte'
 
+	export let initialPath: string | undefined = undefined
 	export let scriptPath: string | undefined = undefined
 	export let allowFlow = false
 	export let allowHub = false
@@ -49,7 +50,7 @@
 		}
 	}
 
-	$: $workspaceStore && itemKind && loadItems()
+	$: itemKind && $workspaceStore && loadItems()
 </script>
 
 <div class="flex flex-row  items-center gap-4 w-full">
@@ -60,6 +61,7 @@
 	{/if}
 
 	<Select
+		value={items.find((x) => x.value == initialPath)}
 		class="grow"
 		on:change={() => {
 			dispatch('select', { path: scriptPath })
