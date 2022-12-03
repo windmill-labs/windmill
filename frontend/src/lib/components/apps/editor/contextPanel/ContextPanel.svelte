@@ -175,7 +175,15 @@
 <PanelSection title="Outputs">
 	{#each Object.entries($staticOutputs) as [componentId, outputs], index}
 		{#if outputs.length > 0 && $worldStore?.outputsById[componentId]}
-			<Badge color="blue">Component: {componentId}</Badge>
+			<Button
+				btnClasses="bg-blue-100 text-blue-800 hover:bg-blue-200 !px-2 !py-1 text-xs focus:bg-blue-200"
+				size="xs"
+				spacingSize="xs"
+				on:click={() => ($selectedComponent = componentId)}
+				color="blue"
+			>
+				Component: {componentId}
+			</Button>
 
 			<div
 				class={classNames(
