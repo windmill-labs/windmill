@@ -299,8 +299,7 @@
 							resource_type = key
 							scopes = values.scopes
 							extra_params = Object.entries(values.extra_params ?? {})
-
-							dispatch('click')
+							next()
 						}}
 					>
 						<IconedResourceType name={key} after={true} width="20px" height="20px" />
@@ -361,6 +360,7 @@
 						on:click={() => {
 							manual = true
 							resource_type = key
+							next()
 							dispatch('click')
 						}}
 					>
@@ -372,7 +372,8 @@
 			<Path
 				bind:error={pathError}
 				bind:path
-				initialPath={`u/${$userStore?.username ?? ''}/my_${resource_type}`}
+				initialPath=""
+				namePlaceholder="my_{resource_type}"
 				kind="resource"
 			/>
 			<h2 class="mt-4 mb-2">Description</h2>
@@ -403,9 +404,10 @@
 			</div>
 		{:else}
 			<Path
+				initialPath=""
+				namePlaceholder="my_{resource_type}"
 				bind:error={pathError}
 				bind:path
-				initialPath={`u/${$userStore?.username ?? ''}/my_${resource_type}`}
 				kind="resource"
 			/>
 			{#if apiTokenApps[resource_type] || !manual}
