@@ -5,7 +5,7 @@
 	import type { Schema } from '$lib/common'
 	import Path from './Path.svelte'
 	import Required from './Required.svelte'
-	import { Alert, Button, Drawer } from './common'
+	import { Alert, Button, Drawer, Skeleton } from './common'
 
 	import { userStore, workspaceStore } from '$lib/stores'
 	import DrawerContent from './common/drawer/DrawerContent.svelte'
@@ -23,10 +23,10 @@
 	let description: string = ''
 	let DESCRIPTION_PLACEHOLDER = `You can use markdown to style your description`
 	let selectedResourceType: string | undefined
-	let resourceType: ResourceType
 	let resourceSchema: Schema | undefined
 	let args: Record<string, any> = {}
 	let can_write = true
+	let loadingSchema = false
 
 	let error: string | undefined
 
@@ -39,15 +39,18 @@
 	export async function initEdit(p: string): Promise<void> {
 		initialPath = p
 		path = p
+		resourceToEdit = undefined
+		resourceSchema = undefined
+		loadingSchema = true
+		drawer.openDrawer?.()
 		resourceToEdit = await ResourceService.getResource({ workspace: $workspaceStore!, path: p })
 		description = resourceToEdit!.description ?? ''
 		selectedResourceType = resourceToEdit!.resource_type
+		loadResourceType()
 		args = resourceToEdit!.value
 		can_write =
 			resourceToEdit.workspace_id == $workspaceStore &&
 			canWrite(p, resourceToEdit.extra_perms ?? {}, $userStore)
-		await loadResourceType()
-		drawer.openDrawer?.()
 	}
 
 	async function editResource(): Promise<void> {
@@ -80,7 +83,7 @@
 	async function loadResourceType(): Promise<void> {
 		if (selectedResourceType) {
 			try {
-				resourceType = await ResourceService.getResourceType({
+				const resourceType = await ResourceService.getResourceType({
 					workspace: $workspaceStore!,
 					path: selectedResourceType
 				})
@@ -90,11 +93,13 @@
 				}
 			} catch (err) {
 				resourceSchema = undefined
+				loadingSchema = false
 				rawCode = JSON.stringify(args, null, 2)
 			}
 		} else {
 			sendUserToast(`ResourceType cannot be undefined.`, true)
 		}
+		loadingSchema = false
 	}
 
 	let isValid = true
@@ -137,7 +142,9 @@
 
 				<h3 class="mt-4">Value</h3>
 				<div class="text-sm">
-					{#if resourceSchema && resourceSchema?.properties}
+					{#if loadingSchema}
+						<Skeleton layout={[[4]]} />
+					{:else if resourceSchema && resourceSchema?.properties}
 						<SchemaForm
 							disabled={!can_write}
 							compact

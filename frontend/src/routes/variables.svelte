@@ -30,14 +30,19 @@
 		faEdit,
 		faShare
 	} from '@fortawesome/free-solid-svg-icons'
-	import { Button } from '$lib/components/common'
+	import { Button, Tab, Tabs } from '$lib/components/common'
 	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
 	import { Alert, Badge, Skeleton } from '$lib/components/common'
 	import Popover from '$lib/components/Popover.svelte'
+	import { Building, DollarSign } from 'svelte-lucide'
+	import Tooltip from '$lib/components/Tooltip.svelte'
+	import SearchItems from '$lib/components/SearchItems.svelte'
 
 	type ListableVariableW = ListableVariable & { canWrite: boolean }
 
+	let filter = ''
 	let variables: ListableVariableW[] = []
+	let filteredItems: ListableVariableW[] = []
 	let contextualVariables: ContextualVariable[] = []
 	let shareModal: ShareModal
 	let variableEditor: VariableEditor
@@ -81,7 +86,15 @@
 			loadContextualVariables()
 		}
 	}
+	let tab: 'workspace' | 'contextual' = 'workspace'
 </script>
+
+<SearchItems
+	{filter}
+	items={variables}
+	bind:filteredItems
+	f={(x) => x.path + ' ' + x.description}
+/>
 
 <CenteredPage>
 	<PageHeader
@@ -94,188 +107,6 @@
 	</PageHeader>
 
 	<VariableEditor bind:this={variableEditor} on:create={loadVariables} />
-	<div class="relative overflow-x-auto pb-40 pr-4">
-		{#if loading.variables}
-			<Skeleton layout={[0.5, [2], 1]} />
-			{#each new Array(3) as _}
-				<Skeleton layout={[[3.5], 0.5]} />
-			{/each}
-		{:else}
-			<TableCustom>
-				<tr slot="header-row">
-					<th>path</th>
-
-					<th>value</th>
-					<th>description</th>
-					<th />
-					<th />
-				</tr>
-				<tbody slot="body">
-					{#each variables as { path, value, is_secret, description, extra_perms, canWrite, account, is_oauth, is_expired, refresh_error, is_linked }}
-						<tr>
-							<td
-								><a
-									class="break-words"
-									id="edit-{path}"
-									on:click={() => variableEditor.editVariable(path)}
-									href="#{path}">{path}</a
-								>
-								<div><SharedBadge {canWrite} extraPerms={extra_perms} /></div>
-							</td>
-							<td>
-								<span class="inline-flex flex-row">
-									<span class="text-sm break-words">
-										{truncate(value ?? '****', 20)}
-									</span>
-									{#if is_secret}
-										<Popover>
-											<Icon
-												label="Secret"
-												class="text-gray-700 mb-2 ml-2"
-												data={faEyeSlash}
-												scale={0.8}
-											/>
-											<span slot="text">This item is secret</span>
-										</Popover>
-									{/if}
-								</span>
-							</td>
-							<td class="break-words"
-								><span class="text-xs text-gray-500">{truncate(description ?? '', 50)}</span></td
-							>
-
-							<td class="text-center">
-								<div class="flex flex-row">
-									<div class="w-10">
-										{#if is_linked}
-											<Popover>
-												<Icon data={faChain} />
-												<div slot="text">
-													This variable is linked with a resource of the same path. They are deleted
-													and renamed together.
-												</div>
-											</Popover>
-										{/if}
-									</div>
-									<div class="w-10">
-										{#if account}
-											<Popover>
-												<Icon data={faRefresh} />
-												<div slot="text">
-													This OAuth token will be kept up-to-date in the background by Windmill
-													using its refresh token
-												</div>
-											</Popover>
-										{/if}
-									</div>
-
-									{#if is_oauth}
-										<div class="w-10">
-											{#if refresh_error}
-												<Popover>
-													<Icon
-														class="text-red-600 animate-[pulse_5s_linear_infinite]"
-														data={faCircle}
-														scale={0.7}
-														label="Error during exchange of the refresh token"
-													/>
-													<div slot="text">
-														Latest exchange of the refresh token did not succeed. Error: {refresh_error}
-													</div>
-												</Popover>
-											{:else if is_expired}
-												<Popover>
-													<Icon
-														class="text-yellow-600 animate-[pulse_5s_linear_infinite]"
-														data={faCircle}
-														scale={0.7}
-														label="Variable is expired"
-													/>
-													<div slot="text">
-														The access_token is expired, it will get renewed the next time this
-														variable is fetched or you can request is to be refreshed in the
-														dropdown on the right.
-													</div>
-												</Popover>
-											{:else}
-												<Popover>
-													<Icon
-														class="text-green-600 animate-[pulse_5s_linear_infinite]"
-														data={faCircle}
-														scale={0.7}
-														label="Variable is tied to an OAuth app"
-													/>
-													<div slot="text">
-														The variable was connected through OAuth and the token is not expired.
-													</div>
-												</Popover>
-											{/if}
-										</div>
-									{/if}
-								</div>
-							</td>
-							<td
-								><Dropdown
-									dropdownItems={[
-										{
-											displayName: 'Edit',
-											icon: faEdit,
-											action: () => variableEditor.editVariable(path),
-											disabled: !canWrite
-										},
-										{
-											displayName: 'Delete',
-											icon: faTrash,
-											type: 'delete',
-											action: (event) => {
-												if (event?.shiftKey) {
-													deleteVariable(path, account)
-												} else {
-													deleteConfirmedCallback = () => {
-														deleteVariable(path, account)
-													}
-												}
-											},
-											disabled: !canWrite
-										},
-										{
-											displayName: 'Share',
-											action: () => {
-												shareModal.openDrawer(path)
-											},
-											icon: faShare,
-											disabled: !canWrite
-										},
-										...(account != undefined
-											? [
-													{
-														displayName: 'Refresh token',
-														icon: faRefresh,
-														action: async () => {
-															await OauthService.refreshToken({
-																workspace: $workspaceStore ?? '',
-																id: account ?? 0,
-																requestBody: {
-																	path
-																}
-															})
-															sendUserToast('Token refreshed')
-															loadVariables()
-														}
-													}
-											  ]
-											: [])
-									]}
-									relative={true}
-								/></td
-							>
-						</tr>
-					{/each}
-				</tbody>
-			</TableCustom>
-		{/if}
-	</div>
-
 	<ShareModal
 		bind:this={shareModal}
 		kind="variable"
@@ -284,30 +115,225 @@
 		}}
 	/>
 
-	<PageHeader
-		title="Contextual Variables"
-		tooltip="
-			Contextual variables are utility variables passed to your environment when running a script
-			and depends on the execution context. Variables cannot use a reseved variable name."
-		primary={false}
-	/>
+	<Tabs bind:selected={tab}>
+		<Tab size="md" value="workspace">
+			<div class="flex gap-2 items-center my-1">
+				<Building size="18px" />
+				Workspace
+			</div>
+		</Tab>
+		<Tab size="md" value="contextual">
+			<div class="flex gap-2 items-center my-1">
+				<DollarSign size="18px" />
+				Contextual <Tooltip>
+					Contextual variables are utility variables passed to your environment when running a
+					script and depends on the execution context.</Tooltip
+				>
+			</div>
+		</Tab>
+	</Tabs>
+	{#if tab == 'workspace'}
+		<div class="pt-2">
+			<input placeholder="Search Variable" bind:value={filter} class="input mt-1" />
+		</div>
+		<div class="relative overflow-x-auto pb-40 pr-4">
+			{#if loading.variables}
+				<Skeleton layout={[0.5, [2], 1]} />
+				{#each new Array(3) as _}
+					<Skeleton layout={[[3.5], 0.5]} />
+				{/each}
+			{:else}
+				<TableCustom>
+					<tr slot="header-row">
+						<th>path</th>
 
-	<div class="overflow-auto">
-		<div class="my-5" />
-		{#if loading.contextual}
-			<Skeleton layout={[0.5, [2], 1]} />
-			{#each new Array(8) as _}
-				<Skeleton layout={[[2.8], 0.5]} />
-			{/each}
-		{:else}
-			<TableSimple
-				headers={['name', 'example of value', 'description']}
-				data={contextualVariables}
-				keys={['name', 'value', 'description']}
-				twTextSize="text-sm"
-			/>
-		{/if}
-	</div>
+						<th>value</th>
+						<th>description</th>
+						<th />
+						<th />
+					</tr>
+					<tbody slot="body">
+						{#each filteredItems as { path, value, is_secret, description, extra_perms, canWrite, account, is_oauth, is_expired, refresh_error, is_linked }}
+							<tr>
+								<td
+									><a
+										class="break-words"
+										id="edit-{path}"
+										on:click={() => variableEditor.editVariable(path)}
+										href="#{path}">{path}</a
+									>
+									<div><SharedBadge {canWrite} extraPerms={extra_perms} /></div>
+								</td>
+								<td>
+									<span class="inline-flex flex-row">
+										<span class="text-sm break-words">
+											{truncate(value ?? '****', 20)}
+										</span>
+										{#if is_secret}
+											<Popover notClickable>
+												<Icon
+													label="Secret"
+													class="text-gray-700 mb-2 ml-2"
+													data={faEyeSlash}
+													scale={0.8}
+												/>
+												<span slot="text">This item is secret</span>
+											</Popover>
+										{/if}
+									</span>
+								</td>
+								<td class="break-words"
+									><span class="text-xs text-gray-500">{truncate(description ?? '', 50)}</span></td
+								>
+
+								<td class="text-center">
+									<div class="flex flex-row">
+										<div class="w-10">
+											{#if is_linked}
+												<Popover notClickable>
+													<Icon data={faChain} />
+													<div slot="text">
+														This variable is linked with a resource of the same path. They are
+														deleted and renamed together.
+													</div>
+												</Popover>
+											{/if}
+										</div>
+										<div class="w-10">
+											{#if account}
+												<Popover notClickable>
+													<Icon data={faRefresh} />
+													<div slot="text">
+														This OAuth token will be kept up-to-date in the background by Windmill
+														using its refresh token
+													</div>
+												</Popover>
+											{/if}
+										</div>
+
+										{#if is_oauth}
+											<div class="w-10">
+												{#if refresh_error}
+													<Popover notClickable>
+														<Icon
+															class="text-red-600 animate-[pulse_5s_linear_infinite]"
+															data={faCircle}
+															scale={0.7}
+															label="Error during exchange of the refresh token"
+														/>
+														<div slot="text">
+															Latest exchange of the refresh token did not succeed. Error: {refresh_error}
+														</div>
+													</Popover>
+												{:else if is_expired}
+													<Popover notClickable>
+														<Icon
+															class="text-yellow-600 animate-[pulse_5s_linear_infinite]"
+															data={faCircle}
+															scale={0.7}
+															label="Variable is expired"
+														/>
+														<div slot="text">
+															The access_token is expired, it will get renewed the next time this
+															variable is fetched or you can request is to be refreshed in the
+															dropdown on the right.
+														</div>
+													</Popover>
+												{:else}
+													<Popover notClickable>
+														<Icon
+															class="text-green-600 animate-[pulse_5s_linear_infinite]"
+															data={faCircle}
+															scale={0.7}
+															label="Variable is tied to an OAuth app"
+														/>
+														<div slot="text">
+															The variable was connected through OAuth and the token is not expired.
+														</div>
+													</Popover>
+												{/if}
+											</div>
+										{/if}
+									</div>
+								</td>
+								<td
+									><Dropdown
+										dropdownItems={[
+											{
+												displayName: 'Edit',
+												icon: faEdit,
+												action: () => variableEditor.editVariable(path),
+												disabled: !canWrite
+											},
+											{
+												displayName: 'Delete',
+												icon: faTrash,
+												type: 'delete',
+												action: (event) => {
+													if (event?.shiftKey) {
+														deleteVariable(path, account)
+													} else {
+														deleteConfirmedCallback = () => {
+															deleteVariable(path, account)
+														}
+													}
+												},
+												disabled: !canWrite
+											},
+											{
+												displayName: 'Share',
+												action: () => {
+													shareModal.openDrawer(path)
+												},
+												icon: faShare,
+												disabled: !canWrite
+											},
+											...(account != undefined
+												? [
+														{
+															displayName: 'Refresh token',
+															icon: faRefresh,
+															action: async () => {
+																await OauthService.refreshToken({
+																	workspace: $workspaceStore ?? '',
+																	id: account ?? 0,
+																	requestBody: {
+																		path
+																	}
+																})
+																sendUserToast('Token refreshed')
+																loadVariables()
+															}
+														}
+												  ]
+												: [])
+										]}
+										relative={true}
+									/></td
+								>
+							</tr>
+						{/each}
+					</tbody>
+				</TableCustom>
+			{/if}
+		</div>
+	{:else if tab == 'contextual'}
+		<div class="overflow-auto">
+			{#if loading.contextual}
+				<Skeleton layout={[0.5, [2], 1]} />
+				{#each new Array(8) as _}
+					<Skeleton layout={[[2.8], 0.5]} />
+				{/each}
+			{:else}
+				<TableSimple
+					headers={['name', 'example of value', 'description']}
+					data={contextualVariables}
+					keys={['name', 'value', 'description']}
+					twTextSize="text-sm"
+				/>
+			{/if}
+		</div>
+	{/if}
 </CenteredPage>
 
 <ConfirmationModal

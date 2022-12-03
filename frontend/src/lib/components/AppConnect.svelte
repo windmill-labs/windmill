@@ -378,9 +378,8 @@
 
 			<input type="text" bind:value={description} />
 
-			<h2 class="mt-4">Value</h2>
 			{#if apiTokenApps[resource_type]}
-				<div class="mb-1 font-semibold text-gray-700 mt-6">Instructions</div>
+				<h2 class="mt-4 mb-2">Instructions</h2>
 				<div class="pl-10">
 					<ol class="list-decimal">
 						{#each apiTokenApps[resource_type].instructions as step}
@@ -397,6 +396,7 @@
 				{/if}
 			{/if}
 
+			<h2 class="mt-4">Value</h2>
 			<div class="mt-4">
 				<ApiConnectForm password={key ?? ''} {resource_type} bind:args />
 			</div>
