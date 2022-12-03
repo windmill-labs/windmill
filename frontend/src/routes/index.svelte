@@ -1,6 +1,5 @@
 <script lang="ts">
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
-	import JobDetail from '$lib/components/jobs/JobDetail.svelte'
 	import {
 		AppService,
 		FlowService,
@@ -19,7 +18,6 @@
 		Button,
 		Drawer,
 		DrawerContent,
-		Skeleton,
 		Tab,
 		Tabs,
 		ToggleButton,
@@ -31,13 +29,7 @@
 	import { canWrite, classNames, getScriptByPath, pluralize } from '$lib/utils'
 	import type { HubItem } from '$lib/components/flows/pickers/model'
 	import ShareModal from '$lib/components/ShareModal.svelte'
-	import {
-		faCodeFork,
-		faDashboard,
-		faGlobe,
-		faLayerGroup,
-		faPlus
-	} from '@fortawesome/free-solid-svg-icons'
+	import { faCodeFork, faGlobe } from '@fortawesome/free-solid-svg-icons'
 	import PickHubScript from '$lib/components/flows/pickers/PickHubScript.svelte'
 	import PickHubFlow from './PickHubFlow.svelte'
 	import FlowViewer from '$lib/components/FlowViewer.svelte'
@@ -46,7 +38,7 @@
 	import Badge from '$lib/components/common/badge/Badge.svelte'
 	import type uFuzzy from '@leeoniya/ufuzzy'
 	import { Building, Code2, Globe2, LayoutDashboard, Wind } from 'svelte-lucide'
-	import Table from '$lib/components/common/table/Table.svelte'
+
 	import ScriptRow from '$lib/components/common/table/ScriptRow.svelte'
 	import FlowRow from '$lib/components/common/table/FlowRow.svelte'
 	import AppRow from '$lib/components/common/table/AppRow.svelte'
@@ -191,6 +183,7 @@
 		}
 	}
 	const cmp = new Intl.Collator('en').compare
+
 	const opts: uFuzzy.Options = {
 		sort: (info, haystack, needle) => {
 			let {
@@ -235,8 +228,6 @@
 	}
 
 	$: items = filter !== '' ? filteredItems : preFilteredItems
-
-	$: containerHeight = items.length < 5 ? items.length * 80 : 800
 </script>
 
 <SearchItems
@@ -321,7 +312,7 @@
 		</Alert>
 	{/if}
 	<PageHeader title="Home">
-		<div class="flex flex-row gap-2">
+		<div class="flex flex-row gap-2 flex-wrap">
 			<CreateApp />
 			<CreateActionsScript />
 			<CreateActionsFlow />
@@ -353,7 +344,7 @@
 	<div class="flex flex-col gap-y-16">
 		<div class="flex flex-col">
 			{#if tab == 'workspace'}
-				<div class="flex justify-between items-center gap-2 ">
+				<div class="flex flex-col md:flex-row gap-2 items-center sm:justify-between w-full">
 					<div>
 						<ToggleButtonGroup bind:selected={itemKind}>
 							<ToggleButton light position="left" value="all" size="sm">All</ToggleButton>
