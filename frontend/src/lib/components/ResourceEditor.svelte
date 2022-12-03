@@ -138,7 +138,15 @@
 				<h3 class="mt-4">Value</h3>
 				<div class="text-sm">
 					{#if resourceSchema && resourceSchema?.properties}
-						<SchemaForm compact schema={resourceSchema} bind:args bind:isValid />
+						<SchemaForm
+							disabled={!can_write}
+							compact
+							schema={resourceSchema}
+							bind:args
+							bind:isValid
+						/>
+					{:else if !can_write}
+						<input type="text" disabled value={rawCode} />
 					{:else}
 						<div class="h-full w-full">
 							<SimpleEditor class="editor" lang="json" bind:code={rawCode} />
