@@ -31,14 +31,15 @@
 <SearchItems {filter} items={prefilteredItems} bind:filteredItems f={(x) => x.summary} />
 
 <div class="flex flex-col min-h-0">
-	<div class="w-12/12 pb-2 flex flex-row my-1 gap-1">
+	<div class="w-full flex mt-1 items-center gap-2 mb-5">
+		<slot />
 		<input type="text" placeholder="Search Hub Scripts" bind:value={filter} class="text-2xl grow" />
 	</div>
 
-	<div class="gap-2 w-full flex flex-wrap pb-2">
+	<div class="gap-2 w-full flex flex-wrap pb-3">
 		{#each apps as app}
 			<Badge
-				class="cursor-pointer hover:bg-gray-200"
+				class="cursor-pointer hover:bg-gray-200 border"
 				on:click={() => {
 					appFilter = appFilter == app ? undefined : app
 				}}
