@@ -24,7 +24,7 @@
 
 	export let script: Script
 	export let initialPath: string = ''
-	export let template: 'pgsql' | 'script' = 'script'
+	export let template: 'pgsql'| 'mysql' | 'script' = 'script'
 	export let initialArgs: Record<string, any> = {}
 
 	const langs: [string, SupportedLanguage][] = [
@@ -50,7 +50,7 @@
 	function initContent(
 		language: 'deno' | 'python3' | 'go' | 'bash',
 		kind: Script.kind,
-		template: 'pgsql' | 'script'
+		template: 'pgsql' | 'mysql' | 'script'
 	) {
 		script.content = initialCode(language, kind, template)
 	}
