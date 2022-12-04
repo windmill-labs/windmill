@@ -127,12 +127,12 @@
 		>Use pre-made <span class="text-blue-500">{kind == 'script' ? 'common' : kind}</span> script</h3
 	>
 	{#if pick_existing == 'hub'}
-		<PickHubScript bind:filter {kind} on:pick
-			><ToggleHubWorkspace bind:selected={pick_existing} /></PickHubScript
-		>
+		<PickHubScript bind:filter {kind} on:pick>
+			<ToggleHubWorkspace bind:selected={pick_existing} />
+		</PickHubScript>
 	{:else}
-		<WorkspaceScriptPicker bind:filter {kind} on:pick
-			><ToggleHubWorkspace bind:selected={pick_existing} /></WorkspaceScriptPicker
-		>
+		<WorkspaceScriptPicker bind:filter {kind} on:pick>
+			<ToggleHubWorkspace bind:selected={pick_existing} />
+		</WorkspaceScriptPicker>
 	{/if}
 </div>
