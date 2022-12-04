@@ -15,6 +15,7 @@
 	import { getStepPropPicker } from '../previousResults'
 	import { flowStateStore } from '../flowState'
 	import { flowStore } from '../flowStore'
+	import FlowModuleSleep from './FlowModuleSleep.svelte'
 
 	const { previewArgs } = getContext<FlowEditorContext>('FlowEditorContext')
 
@@ -98,7 +99,8 @@
 				<Tabs bind:selected>
 					<!-- <Tab value="retries">Retries</Tab> -->
 					<Tab value="early-stop">Early Stop</Tab>
-					<Tab value="suspend">Sleep/Suspend</Tab>
+					<Tab value="suspend">Suspend</Tab>
+					<Tab value="sleep">Sleep</Tab>
 
 					<svelte:fragment slot="content">
 						<div class="overflow-hidden bg-white" style="height:calc(100% - 32px);">
@@ -116,7 +118,12 @@
 
 							<TabContent value="suspend" class="flex flex-col flex-1 h-full">
 								<div class="p-4 overflow-y-auto">
-									<FlowModuleSuspend previousModuleId={previousModule?.id} bind:flowModule={mod} />
+									<FlowModuleSuspend bind:flowModule={mod} />
+								</div>
+							</TabContent>
+							<TabContent value="sleep" class="flex flex-col flex-1 h-full">
+								<div class="p-4 overflow-y-auto">
+									<FlowModuleSleep previousModuleId={previousModule?.id} bind:flowModule={mod} />
 								</div>
 							</TabContent>
 						</div>

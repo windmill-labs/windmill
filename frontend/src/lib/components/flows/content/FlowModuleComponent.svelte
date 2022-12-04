@@ -25,6 +25,7 @@
 
 	import Button from '$lib/components/common/button/Button.svelte'
 	import Alert from '$lib/components/common/alert/Alert.svelte'
+	import FlowModuleSleep from './FlowModuleSleep.svelte'
 
 	const { selectedId, previewArgs } = getContext<FlowEditorContext>('FlowEditorContext')
 
@@ -56,7 +57,7 @@
 	$: stepPropPicker = failureModule
 		? {
 				pickableProperties: {
-					flow_input: $flowStateStore.previewArgs,
+					flow_input: $previewArgs,
 					priorIds: {},
 					previousId: undefined
 				},
@@ -221,7 +222,8 @@
 									<Tab value="advanced-retries">Retries</Tab>
 									{#if !$selectedId.includes('failure')}
 										<Tab value="advanced-early-stop">Early Stop</Tab>
-										<Tab value="advanced-suspend">Sleep/Suspend</Tab>
+										<Tab value="advanced-suspend">Suspend</Tab>
+										<Tab value="advanced-sleep">Sleep</Tab>
 										<Tab value="advanced-same_worker">Same Worker/Shared dir</Tab>
 									{/if}
 								</Tabs>
@@ -231,7 +233,11 @@
 									<FlowModuleEarlyStop bind:flowModule class="px-4 pb-4 h-full overflow-auto" />
 								{:else if selected === 'advanced-suspend'}
 									<div class="px-4 pb-4 h-full overflow-auto">
-										<FlowModuleSuspend previousModuleId={previousModule?.id} bind:flowModule />
+										<FlowModuleSuspend bind:flowModule />
+									</div>
+								{:else if selected === 'advanced-sleep'}
+									<div class="px-4 pb-4 h-full overflow-auto">
+										<FlowModuleSleep previousModuleId={previousModule?.id} bind:flowModule />
 									</div>
 								{:else if selected === 'advanced-same_worker'}
 									<div class="p-4  h-full overflow-auto">

@@ -165,50 +165,52 @@
 		</div>
 	</Pane>
 	<Pane size={40} minSize={10}>
-		<Splitpanes horizontal>
-			<Pane size={33}>
-				<div class="w-full border-b p-2 text-xs font-bold">Preview</div>
-				<div class="px-2">
-					<div class="break-words relative font-sans">
-						<SchemaForm compact {schema} bind:args bind:isValid />
+		<div class="flex flex-col h-full">
+			<div class="px-2 w-full border-b py-1">
+				{#if testIsLoading}
+					<Button on:click={testJobLoader?.cancelJob} btnClasses="w-full" color="red" size="xs">
+						<WindmillIcon
+							white={true}
+							class="animate-[spin_5s_linear_infinite] mr-2 text-white"
+							height="20px"
+							width="20px"
+						/>
+						Cancel
+					</Button>
+				{:else}
+					<Button
+						on:click={runTest}
+						btnClasses="w-full"
+						size="xs"
+						startIcon={{
+							icon: faPlay,
+							classes: 'animate-none'
+						}}
+					>
+						{#if testIsLoading}Running{:else}Test <Kbd class="ml-4 text-5xs -my-0.5">Ctrl+Enter</Kbd
+							>{/if}
+					</Button>
+				{/if}
+			</div>
+			<Splitpanes horizontal>
+				<Pane size={33}>
+					<div class="px-2">
+						<div class="break-words relative font-sans">
+							<SchemaForm compact {schema} bind:args bind:isValid />
+						</div>
 					</div>
-				</div>
-			</Pane>
-			<Pane size={67}>
-				<div class="px-2 py-1 w-full">
-					{#if testIsLoading}
-						<Button on:click={testJobLoader?.cancelJob} btnClasses="w-full" color="red" size="xs">
-							<WindmillIcon
-								white={true}
-								class="animate-[spin_5s_linear_infinite] mr-2 text-white"
-								height="20px"
-								width="20px"
-							/>
-							Cancel
-						</Button>
-					{:else}
-						<Button
-							on:click={runTest}
-							btnClasses="w-full"
-							size="xs"
-							startIcon={{
-								icon: faPlay,
-								classes: 'animate-none'
-							}}
-						>
-							{#if testIsLoading}Running{:else}Test <Kbd class="ml-4 text-5xs">Ctrl+Enter</Kbd>{/if}
-						</Button>
-					{/if}
-				</div>
-				<LogPanel
-					{path}
-					{lang}
-					previewJob={testJob}
-					{pastPreviews}
-					previewIsLoading={testIsLoading}
-					bind:lastSave
-				/>
-			</Pane>
-		</Splitpanes>
+				</Pane>
+				<Pane size={67}>
+					<LogPanel
+						{path}
+						{lang}
+						previewJob={testJob}
+						{pastPreviews}
+						previewIsLoading={testIsLoading}
+						bind:lastSave
+					/>
+				</Pane>
+			</Splitpanes>
+		</div>
 	</Pane>
 </SplitPanesWrapper>
