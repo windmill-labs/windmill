@@ -25,6 +25,7 @@ use sql_builder::{bind::Bind, SqlBuilder};
 use sqlx::{types::Uuid, FromRow};
 use windmill_audit::{audit_log, ActionKind};
 use windmill_common::{
+    apps::ListAppQuery,
     error::{to_anyhow, Error, JsonResult, Result},
     users::owner_to_token_owner,
     utils::{not_found_if_none, paginate, Pagination, StripPath},
@@ -120,12 +121,13 @@ pub struct EditApp {
 async fn list_apps(
     authed: Authed,
     Query(pagination): Query<Pagination>,
+    Query(lq): Query<ListAppQuery>,
     Extension(user_db): Extension<UserDB>,
     Path(w_id): Path<String>,
 ) -> JsonResult<Vec<ListableApp>> {
     let (per_page, offset) = paginate(pagination);
 
-    let sqlb = SqlBuilder::select_from("app")
+    let mut sqlb = SqlBuilder::select_from("app")
         .fields(&[
             "app.id",
             "app.workspace_id",
@@ -154,6 +156,11 @@ async fn list_apps(
         .offset(offset)
         .limit(per_page)
         .clone();
+
+    if lq.starred_only.unwrap_or(false) {
+        sqlb.and_where_is_not_null("favorite.path");
+    }
+
     let sql = sqlb.sql().map_err(|e| Error::InternalErr(e.to_string()))?;
     let mut tx = user_db.begin(&authed).await?;
     let rows = sqlx::query_as::<_, ListableApp>(&sql)

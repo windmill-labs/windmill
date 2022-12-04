@@ -88,6 +88,7 @@
 		}
 		goto(`?step=${step}`)
 	}
+	$: kind = script.kind as 'script' | 'trigger' | 'approval' | undefined
 </script>
 
 <UnsavedConfirmationModal />
@@ -290,7 +291,7 @@
 			bind:code={script.content}
 			lang={script.language}
 			{initialArgs}
-			kind={script.kind}
+			{kind}
 		/>
 	{:else if step === 3}
 		<CenteredPage>
