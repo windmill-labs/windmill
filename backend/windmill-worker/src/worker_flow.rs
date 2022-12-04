@@ -818,11 +818,7 @@ async fn push_next_flow_job(
                 InputTransform::Static { value } => value,
                 InputTransform::Javascript { expr } => eval_timeout(
                     expr.to_string(),
-                    [
-                        ("flow_input".to_string(), flow_input),
-                        ("result".to_string(), last_result.clone()),
-                    ]
-                    .into(),
+                    [("result".to_string(), last_result.clone())].into(),
                     None,
                     None,
                     "".to_string(),
