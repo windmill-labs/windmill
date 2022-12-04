@@ -14,7 +14,7 @@
 	} from '@fortawesome/free-solid-svg-icons'
 	import { faDiscord, faGithub } from '@fortawesome/free-brands-svg-icons'
 	import MenuLink from './MenuLink.svelte'
-	import { userStore } from '$lib/stores'
+	import { superadmin, userStore } from '$lib/stores'
 
 	const mainMenuLinks = [
 		{ label: 'Home', href: '/', icon: faHomeAlt },
@@ -33,7 +33,7 @@
 			label: 'Workspace',
 			href: '/workspace_settings',
 			icon: faCog,
-			disabled: !$userStore?.is_admin
+			disabled: !($userStore?.is_admin || $superadmin)
 		},
 		{ label: 'Workers', href: '/workers', icon: faRobot }
 	]
