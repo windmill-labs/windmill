@@ -8,6 +8,7 @@ export {
 } from './windmill-api/index.ts'
 
 export { pgSql, pgClient } from './pg.ts'
+export { mySql, mysqlClient } from './mysql.ts'
 
 export type Sql = string
 export type Email = string
