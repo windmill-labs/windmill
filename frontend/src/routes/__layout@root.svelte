@@ -3,7 +3,7 @@
 	import Icon from 'svelte-awesome'
 
 	import UserMenu from '$lib/components/sidebar/UserMenu.svelte'
-	import { FlowService, OpenAPI, ScriptService } from '$lib/gen'
+	import { AppService, FlowService, OpenAPI, ScriptService } from '$lib/gen'
 	import { classNames } from '$lib/utils'
 
 	import WorkspaceMenu from '$lib/components/sidebar/WorkspaceMenu.svelte'
@@ -16,6 +16,7 @@
 	import SuperadminSettings from '$lib/components/SuperadminSettings.svelte'
 	import WindmillIcon from '$lib/components/icons/WindmillIcon.svelte'
 	import { page } from '$app/stores'
+	import FavoriteMenu from '$lib/components/sidebar/FavoriteMenu.svelte'
 
 	OpenAPI.WITH_CREDENTIALS = true
 
@@ -34,7 +35,7 @@
 
 	let innerWidth = window.innerWidth
 
-	let favoriteLinks = [] as { label: string; href: string }[]
+	let favoriteLinks = [] as { label: string; href: string; kind: 'app' | 'script' | 'flow' }[]
 	$: $workspaceStore && $starStore && loadFavorites()
 
 	async function loadFavorites() {
@@ -46,14 +47,25 @@
 			workspace: $workspaceStore ?? '',
 			starredOnly: true
 		})
+		const apps = await AppService.listApps({
+			workspace: $workspaceStore ?? '',
+			starredOnly: true
+		})
 		favoriteLinks = [
 			...scripts.map((s) => ({
 				label: s.summary || s.path,
-				href: `/scripts/run/${s.hash}`
+				href: `/scripts/run/${s.hash}`,
+				kind: 'script' as 'script'
 			})),
 			...flows.map((f) => ({
 				label: f.summary || f.path,
-				href: `/flows/run/${f.path}`
+				href: `/flows/run/${f.path}`,
+				kind: 'flow' as 'flow'
+			})),
+			...apps.map((f) => ({
+				label: f.summary || f.path,
+				href: `/apps/get/${f.path}`,
+				kind: 'app' as 'app'
 			}))
 		]
 	}
@@ -138,9 +150,10 @@
 								on:user-settings={() => userSettings.openDrawer()}
 								on:superadmin-settings={() => superadminSettings.openDrawer()}
 							/>
+							<FavoriteMenu {favoriteLinks} />
 						</div>
 
-						<SidebarContent {favoriteLinks} {isCollapsed} />
+						<SidebarContent {isCollapsed} />
 					</div>
 				</div>
 			</div>
@@ -155,7 +168,7 @@
 			<div class="flex-1 flex flex-col min-h-0 shadow-lg bg-[#2e3440]">
 				<button
 					on:click={() => {
-						isCollapsed = !isCollapsed
+						goto('/')
 					}}
 				>
 					<div
@@ -170,7 +183,6 @@
 						>
 					</div>
 				</button>
-
 				<div class="px-2 py-4 space-y-2 border-y border-gray-300">
 					<WorkspaceMenu {isCollapsed} />
 					<UserMenu
@@ -178,8 +190,9 @@
 						on:superadmin-settings={() => superadminSettings.openDrawer()}
 						{isCollapsed}
 					/>
+					<FavoriteMenu {favoriteLinks} />
 				</div>
-				<SidebarContent {favoriteLinks} {isCollapsed} />
+				<SidebarContent {isCollapsed} />
 
 				<div class="flex-shrink-0 flex px-4 pb-3.5 pt-3 border-t border-gray-300">
 					<button

@@ -8,7 +8,7 @@
 	export let pickCallback: (path: string, f: string) => void
 	export let loadItems: () => Promise<Item[] | undefined>
 	export let extraField: string = 'path'
-	export let extraField2: string | undefined
+	export let extraField2: string | undefined = undefined
 	export let itemName: string
 	export let closeOnClick = true
 	/** Displayed if the load function returns no items. */

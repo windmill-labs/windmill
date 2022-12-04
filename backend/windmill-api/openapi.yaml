@@ -2337,6 +2337,13 @@ paths:
           in: query
           schema:
             type: string
+        - name: starred_only
+          description: |
+            (default false)
+            show only the starred items
+          in: query
+          schema:
+            type: boolean
       responses:
         "200":
           description: All available apps
