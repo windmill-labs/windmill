@@ -66,6 +66,9 @@ function getQueryAdapter(template: TemplateStringsArray, args: unknown[]) {
     return [text, args];
 }
 
-function getRowsAdapter(rows: object[]) {
+function getRowsAdapter(rows: object[] | object) {
+    if (!Array.isArray(rows)) {
+        return rows;
+    }
     return rows.map((r) => Object.values(r))
 }
