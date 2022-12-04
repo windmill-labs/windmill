@@ -96,7 +96,7 @@
 	<CenteredPage>
 		{#if $workspaceStore == 'demo'}
 			<div class="my-4" />
-			<Alert title="Demo workspace">All uers get an invitation to this workspace.</Alert>
+			<Alert title="Demo workspace">All users get an invitation to this workspace.</Alert>
 		{:else if $workspaceStore == 'starter'}
 			<div class="my-4" />
 

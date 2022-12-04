@@ -818,7 +818,11 @@ async fn push_next_flow_job(
                 InputTransform::Static { value } => value,
                 InputTransform::Javascript { expr } => eval_timeout(
                     expr.to_string(),
-                    [("result".to_string(), last_result.clone())].into(),
+                    [
+                        ("flow_input".to_string(), flow_input),
+                        ("result".to_string(), last_result.clone()),
+                    ]
+                    .into(),
                     None,
                     None,
                     "".to_string(),
@@ -835,7 +839,7 @@ async fn push_next_flow_job(
                     n.as_u64().map(|x| from_now(Duration::from_secs(x)))
                 }
                 _ => Err(Error::ExecutionErr(format!(
-                    "Expected an array value, found: {json_value}"
+                    "Expected a number value, found: {json_value}"
                 )))?,
             }
         } else {
