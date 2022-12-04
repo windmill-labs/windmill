@@ -28,7 +28,6 @@
 	import FlowViewer from '$lib/components/FlowViewer.svelte'
 	import HighlightCode from '$lib/components/HighlightCode.svelte'
 	import SearchItems from '$lib/components/SearchItems.svelte'
-	import Badge from '$lib/components/common/badge/Badge.svelte'
 	import type uFuzzy from '@leeoniya/ufuzzy'
 	import { Code2, LayoutDashboard, Wind } from 'svelte-lucide'
 
@@ -36,8 +35,8 @@
 	import FlowRow from '$lib/components/common/table/FlowRow.svelte'
 	import AppRow from '$lib/components/common/table/AppRow.svelte'
 
-	import { fade } from 'svelte/transition'
-	import { flip } from 'svelte/animate'
+	import NoItemFound from './NoItemFound.svelte'
+	import ListFilters from './ListFilters.svelte'
 
 	let jobs: Job[] = []
 
@@ -358,25 +357,8 @@
 			</button>
 		</div>
 	</div>
-	{#if owners.length > 0}
-		<div class="gap-2 w-full flex flex-wrap my-4">
-			{#each owners as owner (owner)}
-				<div in:fade animate:flip={{ duration: 200 }}>
-					<Badge
-						class="cursor-pointer hover:bg-gray-200"
-						on:click={() => {
-							ownerFilter = ownerFilter == owner ? undefined : owner
-						}}
-						color={owner === ownerFilter ? 'blue' : 'gray'}
-						baseClass={owner === ownerFilter ? 'border border-blue-500' : 'border'}
-					>
-						{owner}
-						{#if owner === ownerFilter}&cross;{/if}
-					</Badge>
-				</div>
-			{/each}
-		</div>
-	{/if}
+
+	<ListFilters bind:selectedFilter={ownerFilter} filters={owners} />
 	<div>
 		{#if filteredItems == undefined}
 			<div class="mt-4" />
@@ -385,12 +367,7 @@
 				<Skeleton layout={[[4], 0.5]} />
 			{/each}
 		{:else if filteredItems.length === 0}
-			<div class="flex justify-center items-center h-48">
-				<div class="text-gray-500 text-center">
-					<div class="text-2xl font-bold">No items found</div>
-					<div class="text-sm">Try changing your search or filters</div>
-				</div>
-			</div>
+			<NoItemFound />
 		{:else}
 			<div
 				class={classNames('border rounded-md')}

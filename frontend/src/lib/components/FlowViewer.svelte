@@ -45,7 +45,7 @@
 
 	<svelte:fragment slot="content">
 		<TabContent value="ui">
-			<div class="flow-root w-full pb-4">
+			<div class="flow-root w-full p-4">
 				{#if !noSummary}
 					<h2 class="my-4">{flow.summary}</h2>
 					<SvelteMarkdown source={flow.description ?? ''} />
@@ -80,7 +80,7 @@
 			</div>
 		</TabContent>
 		<TabContent value="json">
-			<div class="relative">
+			<div class="p-4">
 				<Button
 					on:click={() => copyToClipboard(JSON.stringify(flowFiltered, null, 4))}
 					color="dark"
