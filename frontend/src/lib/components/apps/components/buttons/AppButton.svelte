@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { Button, type ButtonType } from '$lib/components/common'
 	import type { InputsSpec } from '../../types'
+	import AlignWrapper from '../helpers/AlignWrapper.svelte'
 	import InputValue from '../helpers/InputValue.svelte'
 	import RunnableComponent from '../helpers/RunnableComponent.svelte'
 
@@ -11,6 +12,9 @@
 	export let inlineScriptName: string | undefined = undefined
 	export let componentInputs: InputsSpec
 	export let extraQueryParams: Record<string, any> = {}
+
+	export let horizontalAlignment: 'left' | 'center' | 'right' | undefined = undefined
+	export let verticalAlignment: 'top' | 'center' | 'bottom' | undefined = undefined
 
 	export const staticOutputs: string[] = ['loading', 'result']
 
@@ -34,14 +38,15 @@
 	autoRefresh={false}
 	{extraQueryParams}
 >
-	<Button
-		on:click={() => {
-			runnableComponent?.runComponent()
-		}}
-		btnClasses="w-full h-full"
-		{size}
-		{color}
+	<AlignWrapper {horizontalAlignment} {verticalAlignment}>
+		<Button
+			on:click={() => {
+				runnableComponent?.runComponent()
+			}}
+			{size}
+			{color}
+		>
+			{labelValue}
+		</Button></AlignWrapper
 	>
-		{labelValue}
-	</Button>
 </RunnableComponent>
