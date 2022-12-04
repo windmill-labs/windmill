@@ -22,6 +22,10 @@ const command = new Command()
     "--workspace <workspace:string>",
     "Specify the target workspace. This overrides the default workspace.",
   )
+  .globalOption(
+    "--token <token:string>",
+    "Specify an API token. This will override any stored token.",
+  )
   .version(VERSION)
   .command("flow", flow)
   .command("script", script)
