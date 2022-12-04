@@ -46,12 +46,16 @@
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import Tabs from '$lib/components/common/tabs/Tabs.svelte'
 	import { Building } from 'svelte-lucide'
+	import ListFilters from '$lib/components/home/ListFilters.svelte'
+	import SearchItems from '$lib/components/SearchItems.svelte'
 
 	type ResourceW = ListableResource & { canWrite: boolean }
 	type ResourceTypeW = ResourceType & { canWrite: boolean }
 
 	let resources: ResourceW[] | undefined
 	let resourceTypes: ResourceTypeW[] | undefined
+
+	let filteredItems: (ResourceW & { marked?: string })[] | undefined = undefined
 
 	let resourceTypeViewer: Drawer
 	let resourceTypeViewerObj = {
@@ -76,6 +80,26 @@
 	}
 
 	$: open = Boolean(deleteConfirmedCallback)
+
+	$: owners = Array.from(
+		new Set(filteredItems?.map((x) => x.path.split('/').slice(0, 2).join('/')) ?? [])
+	).sort()
+
+	$: types = Array.from(new Set(filteredItems?.map((x) => x.resource_type))).sort()
+
+	let filter = ''
+	let ownerFilter: string | undefined = undefined
+	let typeFilter: string | undefined = undefined
+
+	$: preFilteredItemsOwners =
+		ownerFilter == undefined
+			? resources
+			: resources?.filter((x) => x.path.startsWith(ownerFilter ?? ''))
+
+	$: preFilteredType =
+		typeFilter == undefined
+			? preFilteredItemsOwners
+			: preFilteredItemsOwners?.filter((x) => x.resource_type == typeFilter)
 
 	async function loadResources(): Promise<void> {
 		resources = (await ResourceService.listResource({ workspace: $workspaceStore! })).map((x) => {
@@ -231,6 +255,13 @@
 	</DrawerContent>
 </Drawer>
 
+<SearchItems
+	{filter}
+	items={preFilteredType}
+	bind:filteredItems
+	f={(x) => x.path + ' ' + x.resource_type + ' ' + x.description + ' '}
+/>
+
 <CenteredPage>
 	<PageHeader
 		title="Resources"
@@ -262,6 +293,12 @@
 		</Tab>
 	</Tabs>
 	{#if tab == 'workspace'}
+		<div class="pt-2">
+			<input placeholder="Search Resource" bind:value={filter} class="input mt-1" />
+		</div>
+		<ListFilters bind:selectedFilter={ownerFilter} filters={owners} />
+		<ListFilters bind:selectedFilter={typeFilter} filters={types} />
+
 		<div class="overflow-x-auto pb-40">
 			{#if loading.resources}
 				<Skeleton layout={[0.5, [2], 1]} />
@@ -279,14 +316,15 @@
 						<th />
 					</tr>
 					<tbody slot="body">
-						{#if resources}
-							{#each resources as { path, description, resource_type, extra_perms, canWrite, is_oauth, is_linked, account, refresh_error, is_expired }}
+						{#if filteredItems}
+							{#each filteredItems as { path, description, resource_type, extra_perms, canWrite, is_oauth, is_linked, account, refresh_error, is_expired, marked }}
 								<tr>
 									<td>
 										<a
 											class="break-words"
 											href="#{path}"
-											on:click={() => resourceEditor?.initEdit?.(path)}>{path}</a
+											on:click={() => resourceEditor?.initEdit?.(path)}
+											>{#if marked}{@html marked}{:else}{path}{/if}</a
 										>
 									</td>
 									<td><SharedBadge {canWrite} extraPerms={extra_perms} /></td>
