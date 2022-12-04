@@ -224,6 +224,19 @@
 					>
 						<LanguageIcon lang="pgsql" /><span class="ml-2">PostgreSQL</span>
 					</Button>
+					<Button
+						size="sm"
+						variant="border"
+						color={template == 'mysql' ? 'blue' : 'dark'}
+						btnClasses={template == 'mysql' ? '!border-2 !bg-blue-50/75' : 'm-[1px]'}
+						on:click={() => {
+							script.language = Script.language.DENO
+							template = 'mysql'
+							initContent(script.language, script.kind, template)
+						}}
+					>
+						<LanguageIcon lang="mysql" /><span class="ml-2">MySQL</span>
+					</Button>
 				</div>
 				<h2 class="border-b pb-1 mt-4">Advanced</h2>
 				<div>
