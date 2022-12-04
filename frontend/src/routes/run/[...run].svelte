@@ -26,7 +26,7 @@
 		faFastForward
 	} from '@fortawesome/free-solid-svg-icons'
 	import DisplayResult from '$lib/components/DisplayResult.svelte'
-	import { userStore, usersWorkspaceStore, workspaceStore } from '$lib/stores'
+	import { superadmin, userStore, usersWorkspaceStore, workspaceStore } from '$lib/stores'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
 	import FlowStatusViewer from '$lib/components/FlowStatusViewer.svelte'
 	import HighlightCode from '$lib/components/HighlightCode.svelte'
@@ -129,7 +129,7 @@
 			<svelte:fragment slot="left">
 				{@const isScript = job?.job_kind === 'script'}
 				{@const runsHref = `/runs/${job?.script_path}${!isScript ? '?jobKind=flow' : ''}`}
-				{#if job && 'deleted' in job && !job?.deleted && ($userStore?.is_admin ?? false)}
+				{#if job && 'deleted' in job && !job?.deleted && ($superadmin || ($userStore?.is_admin ?? false))}
 					<Button
 						disabled={not_same_workspace}
 						variant="border"

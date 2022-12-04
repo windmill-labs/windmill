@@ -21,7 +21,7 @@
 		ToggleButton,
 		ToggleButtonGroup
 	} from '$lib/components/common'
-	import { canWrite, classNames, getScriptByPath, pluralize } from '$lib/utils'
+	import { canWrite, classNames, pluralize } from '$lib/utils'
 	import type { HubItem } from '$lib/components/flows/pickers/model'
 	import ShareModal from '$lib/components/ShareModal.svelte'
 	import { faCodeFork, faGlobe } from '@fortawesome/free-solid-svg-icons'

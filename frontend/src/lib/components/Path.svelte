@@ -10,7 +10,7 @@
 		type Group
 	} from '$lib/gen'
 	import { GroupService } from '$lib/gen'
-	import { userStore, workspaceStore } from '$lib/stores'
+	import { superadmin, userStore, workspaceStore } from '$lib/stores'
 	import { sleep } from '$lib/utils'
 	import { createEventDispatcher } from 'svelte'
 	import Required from './Required.svelte'
@@ -198,7 +198,7 @@
 					type="text"
 					bind:value={meta.owner}
 					placeholder={$userStore?.username ?? ''}
-					disabled={!($userStore?.is_admin ?? false)}
+					disabled={!($superadmin || ($userStore?.is_admin ?? false))}
 				/>
 			</label>
 		{:else}

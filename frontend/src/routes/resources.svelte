@@ -17,7 +17,7 @@
 	import ShareModal from '$lib/components/ShareModal.svelte'
 	import SharedBadge from '$lib/components/SharedBadge.svelte'
 	import SvelteMarkdown from 'svelte-markdown'
-	import { userStore, workspaceStore, oauthStore } from '$lib/stores'
+	import { userStore, workspaceStore, oauthStore, superadmin } from '$lib/stores'
 	import SchemaEditor from '$lib/components/SchemaEditor.svelte'
 	import SchemaViewer from '$lib/components/SchemaViewer.svelte'
 	import Dropdown from '$lib/components/Dropdown.svelte'
@@ -203,7 +203,7 @@
 							<input id="inp" type="text" bind:value={newResourceType.name} />
 						</div>
 
-						{#if $userStore?.is_admin}
+						{#if $userStore?.is_admin || $superadmin}
 							<Toggle
 								bind:checked={disableCustomPrefix}
 								options={{ right: 'disable c_ prefix (admin only)' }}
@@ -500,7 +500,7 @@
 													workspaces</Tooltip
 												></Badge
 											>
-										{:else if $userStore?.is_admin}
+										{:else if $userStore?.is_admin || $superadmin}
 											<Button
 												size="sm"
 												color="red"

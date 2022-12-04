@@ -4,7 +4,7 @@ import { FlowService, Script, ScriptService, type Flow, type FlowModule, type Us
 import { toast } from '@zerodevx/svelte-toast'
 import { get } from 'svelte/store'
 import type { Schema, SupportedLanguage } from './common'
-import { hubScripts, workspaceStore, type UserExt } from './stores'
+import { hubScripts, superadmin, workspaceStore, type UserExt } from './stores'
 
 export function validateUsername(username: string): string {
 	if (username != '' && !/^\w+$/.test(username)) {
@@ -59,9 +59,8 @@ export function displayDate(dateString: string | undefined): string {
 	if (date.toString() === 'Invalid Date') {
 		return ''
 	} else {
-		return `${date.getFullYear()}/${
-			date.getMonth() + 1
-		}/${date.getDate()} at ${date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
+		return `${date.getFullYear()}/${date.getMonth() + 1
+			}/${date.getDate()} at ${date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
 	}
 }
 
@@ -180,7 +179,7 @@ export function canWrite(
 	if (!user) {
 		return false
 	}
-	if (user.is_admin) {
+	if (user.is_admin || get(superadmin)) {
 		return true
 	}
 	let userOwner = `u/${user.username}`

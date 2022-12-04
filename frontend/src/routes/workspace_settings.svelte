@@ -17,7 +17,7 @@
 	import type { User } from '$lib/gen'
 	import { sendUserToast, msToSec } from '$lib/utils'
 	import PageHeader from '$lib/components/PageHeader.svelte'
-	import { userStore, usersWorkspaceStore, workspaceStore } from '$lib/stores'
+	import { superadmin, userStore, usersWorkspaceStore, workspaceStore } from '$lib/stores'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
 	import { faSlack } from '@fortawesome/free-brands-svg-icons'
 	import TableCustom from '$lib/components/TableCustom.svelte'
@@ -103,7 +103,7 @@
 />
 
 <CenteredPage>
-	{#if $userStore?.is_admin}
+	{#if $userStore?.is_admin || $superadmin}
 		<PageHeader title="Workspace Settings of {$workspaceStore}" />
 
 		<PageHeader title="Members" primary={false} />
