@@ -224,7 +224,7 @@
 										<Tab value="advanced-early-stop">Early Stop</Tab>
 										<Tab value="advanced-suspend">Suspend</Tab>
 										<Tab value="advanced-sleep">Sleep</Tab>
-										<Tab value="advanced-same_worker">Same Worker/Shared dir</Tab>
+										<Tab value="advanced-same_worker">Shared Directory</Tab>
 									{/if}
 								</Tabs>
 								{#if selected === 'advanced-retries'}
@@ -241,15 +241,15 @@
 									</div>
 								{:else if selected === 'advanced-same_worker'}
 									<div class="p-4  h-full overflow-auto">
-										<Alert type="info" title="Share a directory using same worker">
-											If same worker is set, all steps will be run on the same worker and will share
-											the folder `./shared` to pass data between each other.
+										<Alert type="info" title="Share a directory between steps">
+											If shared directory is set, will share a folder that will be mounted on
+											`./shared` for each of them to pass data between each other.
 										</Alert>
 										<Button
 											btnClasses="mt-4"
 											on:click={() => {
 												$selectedId = 'settings-same-worker'
-											}}>Set same worker in the flow settings</Button
+											}}>Set shared directory in the flow settings</Button
 										>
 									</div>
 								{/if}

@@ -23,6 +23,7 @@
 	export let code: string
 	export let path: string | undefined
 	export let lang: Preview.language
+	export let kind: 'script' | 'trigger' | 'approval' | undefined = undefined
 	export let initialArgs: Record<string, any> = {}
 	export let fixedOverflowWidgets = true
 
@@ -118,6 +119,7 @@
 			{editor}
 			{lang}
 			{websocketAlive}
+			{kind}
 		/>
 		<div class="py-1">
 			<Button

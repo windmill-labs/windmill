@@ -361,7 +361,7 @@
 	{#if owners.length > 0}
 		<div class="gap-2 w-full flex flex-wrap my-4">
 			{#each owners as owner (owner)}
-				<div in:fade animate:flip={{ duration: 200 }}>
+				<div in:fade={{ duration: 50 }} animate:flip={{ duration: 100 }}>
 					<Badge
 						class="cursor-pointer hover:bg-gray-200"
 						on:click={() => {

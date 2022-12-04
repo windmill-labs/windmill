@@ -290,6 +290,7 @@
 			bind:code={script.content}
 			lang={script.language}
 			{initialArgs}
+			kind={script.kind}
 		/>
 	{:else if step === 3}
 		<CenteredPage>

@@ -71,7 +71,6 @@
 		"chartjs-adapter-date-fns": "^2.0.0",
 		"chartjs-plugin-zoom": "^1.2.1",
 		"date-fns": "^2.29.3",
-		"fuse.js": "^6.4.6",
 		"highlight.js": "^11.5.1",
 		"monaco-editor": "^0.34.1",
 		"monaco-editor-workers": "^0.34.2",

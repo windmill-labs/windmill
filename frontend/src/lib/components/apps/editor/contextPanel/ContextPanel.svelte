@@ -9,7 +9,7 @@
 	import { Preview } from '$lib/gen'
 	import { DENO_INIT_CODE_CLEAR } from '$lib/script_helpers'
 	import { classNames, emptySchema } from '$lib/utils'
-	import { faEdit, faPlus, faTrash } from '@fortawesome/free-solid-svg-icons'
+	import { faEdit, faPlus, faSave, faTrash } from '@fortawesome/free-solid-svg-icons'
 	import { getContext } from 'svelte'
 	import type { AppEditorContext } from '../../types'
 	import PanelSection from '../settingsPanel/common/PanelSection.svelte'
@@ -115,6 +115,9 @@
 				fixedOverflowWidgets={false}
 			/>
 		{/if}
+		<div slot="submission" class="flex items-center gap-4">
+			<Button startIcon={{ icon: faSave }} disabled>Automatically Saved</Button>
+		</div>
 	</DrawerContent>
 </Drawer>
 
