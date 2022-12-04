@@ -50,18 +50,24 @@
 
 <Drawer bind:this={codeViewer} size="900px">
 	<DrawerContent title={codeViewerObj?.summary ?? ''} on:close={codeViewer.closeDrawer}>
-		<div slot="submission" class="flex flex-row gap-2 pr-2">
+		<div slot="submission">
 			<Button
 				href="https://hub.windmill.dev/scripts/{codeViewerObj?.app ?? ''}/{codeViewerObj?.ask_id ??
 					0}"
-				startIcon={{ icon: faGlobe }}
-				variant="border"
+				variant="contained"
+				color="light"
+				size="sm"
 			>
-				View on the Hub
+				<div class="flex gap-2 items-center my-1">
+					<Globe2 size="18px" />
+					View on the Hub
+				</div>
 			</Button>
 			<Button
 				href="/scripts/add?hub={encodeURIComponent(codeViewerObj?.path ?? '')}"
 				startIcon={{ icon: faCodeFork }}
+				color="dark"
+				size="sm"
 			>
 				Fork
 			</Button>
@@ -72,7 +78,7 @@
 </Drawer>
 
 <Drawer bind:this={flowViewer} size="900px">
-	<DrawerContent title="Hub flow" on:close={flowViewer.closeDrawer}>
+	<DrawerContent title="Hub flow" on:close={flowViewer.closeDrawer} noPadding>
 		<div slot="submission" class="flex flex-row gap-2 pr-2">
 			<Button
 				href="https://hub.windmill.dev/flows/{flowViewerFlow?.flow?.id}"
@@ -87,7 +93,9 @@
 		</div>
 
 		{#if flowViewerFlow?.flow}
-			<FlowViewer flow={flowViewerFlow.flow} />
+			<div class="p-4">
+				<FlowViewer flow={flowViewerFlow.flow} />
+			</div>
 		{/if}
 	</DrawerContent>
 </Drawer>
@@ -114,7 +122,6 @@
 			</div>
 		</PageHeader>
 
-		<div class="my-6" />
 		<Tabs bind:selected={tab}>
 			<Tab size="md" value="workspace">
 				<div class="flex gap-2 items-center my-1">

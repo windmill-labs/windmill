@@ -7,7 +7,6 @@
 	import { getScriptByPath, sendUserToast } from '$lib/utils'
 
 	import {
-		faBuilding,
 		faCube,
 		faDollarSign,
 		faEye,
@@ -82,12 +81,12 @@
 	<DrawerContent title="Code" on:close={scriptPicker.closeDrawer}>
 		{#if pick_existing == 'hub'}
 			<PickHubScript bind:filter {kind} on:pick={onScriptPick}>
-				<ToggleHubWorkspace bind:selected={pick_existing} /></PickHubScript
-			>
+				<ToggleHubWorkspace bind:selected={pick_existing} />
+			</PickHubScript>
 		{:else}
-			<WorkspaceScriptPicker bind:filter {kind} on:pick={onScriptPick}
-				><ToggleHubWorkspace bind:selected={pick_existing} /></WorkspaceScriptPicker
-			>
+			<WorkspaceScriptPicker bind:filter {kind} on:pick={onScriptPick}>
+				<ToggleHubWorkspace bind:selected={pick_existing} />
+			</WorkspaceScriptPicker>
 		{/if}
 	</DrawerContent>
 </Drawer>

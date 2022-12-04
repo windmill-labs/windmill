@@ -3,8 +3,6 @@
 	import {
 		AppService,
 		FlowService,
-		Job,
-		JobService,
 		ListableApp,
 		Script,
 		ScriptService,
@@ -13,22 +11,10 @@
 	} from '$lib/gen'
 	import { superadmin, userStore, workspaceStore } from '$lib/stores'
 	import VirtualList from '@sveltejs/svelte-virtual-list'
-	import {
-		Button,
-		Drawer,
-		DrawerContent,
-		Skeleton,
-		ToggleButton,
-		ToggleButtonGroup
-	} from '$lib/components/common'
+	import { Drawer, Skeleton, ToggleButton, ToggleButtonGroup } from '$lib/components/common'
 	import { canWrite, classNames, pluralize } from '$lib/utils'
 	import type { HubItem } from '$lib/components/flows/pickers/model'
 	import ShareModal from '$lib/components/ShareModal.svelte'
-	import { faCodeFork, faGlobe } from '@fortawesome/free-solid-svg-icons'
-	import FlowViewer from '$lib/components/FlowViewer.svelte'
-	import HighlightCode from '$lib/components/HighlightCode.svelte'
-	import SearchItems from '$lib/components/SearchItems.svelte'
-	import Badge from '$lib/components/common/badge/Badge.svelte'
 	import type uFuzzy from '@leeoniya/ufuzzy'
 	import { Code2, LayoutDashboard, Wind } from 'svelte-lucide'
 
@@ -36,10 +22,9 @@
 	import FlowRow from '$lib/components/common/table/FlowRow.svelte'
 	import AppRow from '$lib/components/common/table/AppRow.svelte'
 
-	import { fade } from 'svelte/transition'
-	import { flip } from 'svelte/animate'
-
-	let jobs: Job[] = []
+	import NoItemFound from './NoItemFound.svelte'
+	import ListFilters from './ListFilters.svelte'
+	import SearchItems from '../SearchItems.svelte'
 
 	type TableItem<T, U extends 'script' | 'flow' | 'app'> = T & {
 		canWrite: boolean
@@ -66,13 +51,6 @@
 	let shareModalFlows: ShareModal
 
 	let loading = true
-	let flowViewer: Drawer
-	let flowViewerFlow: { flow?: OpenFlow & { id?: number } } | undefined
-
-	let codeViewer: Drawer
-	let codeViewerContent: string = ''
-	let codeViewerLanguage: 'deno' | 'python3' | 'go' | 'bash' = 'deno'
-	let codeViewerObj: HubItem | undefined = undefined
 
 	async function loadScripts(): Promise<void> {
 		const loadedScripts = await ScriptService.listScripts({
@@ -152,24 +130,14 @@
 
 	let ownerFilter: string | undefined = undefined
 
-	async function loadJobs() {
-		jobs = await JobService.listJobs({
-			workspace: $workspaceStore!,
-			success: true,
-			createdBy: $userStore?.username,
-			jobKinds: 'flow,script'
-		})
-		loading = false
-	}
-
 	$: {
 		if (($userStore || $superadmin) && $workspaceStore) {
 			loadScripts()
 			loadFlows()
 			loadApps()
-			loadJobs()
 		}
 	}
+
 	const cmp = new Intl.Collator('en').compare
 
 	const opts: uFuzzy.Options = {
@@ -258,50 +226,6 @@
 	}}
 />
 
-<Drawer bind:this={codeViewer} size="900px">
-	<DrawerContent title={codeViewerObj?.summary ?? ''} on:close={codeViewer.closeDrawer}>
-		<div slot="submission" class="flex flex-row gap-2 pr-2">
-			<Button
-				href="https://hub.windmill.dev/scripts/{codeViewerObj?.app ?? ''}/{codeViewerObj?.ask_id ??
-					0}"
-				startIcon={{ icon: faGlobe }}
-				variant="border"
-			>
-				View on the Hub
-			</Button>
-			<Button
-				href="/scripts/add?hub={encodeURIComponent(codeViewerObj?.path ?? '')}"
-				startIcon={{ icon: faCodeFork }}
-			>
-				Fork
-			</Button>
-		</div>
-
-		<HighlightCode language={codeViewerLanguage} code={codeViewerContent} />
-	</DrawerContent>
-</Drawer>
-
-<Drawer bind:this={flowViewer} size="900px">
-	<DrawerContent title="Hub flow" on:close={flowViewer.closeDrawer}>
-		<div slot="submission" class="flex flex-row gap-2 pr-2">
-			<Button
-				href="https://hub.windmill.dev/flows/{flowViewerFlow?.flow?.id}"
-				startIcon={{ icon: faGlobe }}
-				variant="border"
-			>
-				View on the Hub
-			</Button>
-			<Button href="/flows/add?hub={flowViewerFlow?.flow?.id}" startIcon={{ icon: faCodeFork }}>
-				Fork
-			</Button>
-		</div>
-
-		{#if flowViewerFlow?.flow}
-			<FlowViewer flow={flowViewerFlow.flow} />
-		{/if}
-	</DrawerContent>
-</Drawer>
-
 <CenteredPage>
 	<div class="flex flex-col md:flex-row gap-2 items-center sm:justify-between w-full">
 		<div>
@@ -358,25 +282,8 @@
 			</button>
 		</div>
 	</div>
-	{#if owners.length > 0}
-		<div class="gap-2 w-full flex flex-wrap my-4">
-			{#each owners as owner (owner)}
-				<div in:fade={{ duration: 50 }} animate:flip={{ duration: 100 }}>
-					<Badge
-						class="cursor-pointer hover:bg-gray-200"
-						on:click={() => {
-							ownerFilter = ownerFilter == owner ? undefined : owner
-						}}
-						color={owner === ownerFilter ? 'blue' : 'gray'}
-						baseClass={owner === ownerFilter ? 'border border-blue-500' : 'border'}
-					>
-						{owner}
-						{#if owner === ownerFilter}&cross;{/if}
-					</Badge>
-				</div>
-			{/each}
-		</div>
-	{/if}
+
+	<ListFilters bind:selectedFilter={ownerFilter} filters={owners} />
 	<div>
 		{#if filteredItems == undefined}
 			<div class="mt-4" />
@@ -385,12 +292,7 @@
 				<Skeleton layout={[[4], 0.5]} />
 			{/each}
 		{:else if filteredItems.length === 0}
-			<div class="flex justify-center items-center h-48">
-				<div class="text-gray-500 text-center">
-					<div class="text-2xl font-bold">No items found</div>
-					<div class="text-sm">Try changing your search or filters</div>
-				</div>
-			</div>
+			<NoItemFound />
 		{:else}
 			<div
 				class={classNames('border rounded-md')}
