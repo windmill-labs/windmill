@@ -93,7 +93,9 @@
 		</div>
 
 		{#if flowViewerFlow?.flow}
-			<FlowViewer flow={flowViewerFlow.flow} />
+			<div class="p-4">
+				<FlowViewer flow={flowViewerFlow.flow} />
+			</div>
 		{/if}
 	</DrawerContent>
 </Drawer>
