@@ -260,6 +260,7 @@
 				/>{/if}
 			<div class="border rounded  p-2">
 				<SimpleEditor
+					fixedOverflowWidgets={false}
 					on:change={() => {
 						try {
 							schema = JSON.parse(schemaString)

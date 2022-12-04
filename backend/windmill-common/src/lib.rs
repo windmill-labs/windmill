@@ -10,6 +10,7 @@ use std::net::SocketAddr;
 
 use error::Error;
 
+pub mod apps;
 pub mod error;
 pub mod external_ip;
 pub mod flow_status;

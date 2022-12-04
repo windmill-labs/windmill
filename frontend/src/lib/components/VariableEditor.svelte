@@ -186,11 +186,23 @@
 						/>
 					{:else if editorKind == 'json'}
 						<div class="border rounded mb-4 w-full border-gray-700">
-							<SimpleEditor bind:this={editor} autoHeight lang="json" bind:code={variable.value} />
+							<SimpleEditor
+								bind:this={editor}
+								autoHeight
+								lang="json"
+								bind:code={variable.value}
+								fixedOverflowWidgets={false}
+							/>
 						</div>
 					{:else if editorKind == 'yaml'}
 						<div class="border rounded mb-4 w-full border-gray-700">
-							<SimpleEditor bind:this={editor} autoHeight lang="yaml" bind:code={variable.value} />
+							<SimpleEditor
+								bind:this={editor}
+								autoHeight
+								lang="yaml"
+								bind:code={variable.value}
+								fixedOverflowWidgets={false}
+							/>
 						</div>
 					{/if}
 

@@ -11,7 +11,7 @@
 {#if Array.isArray(filters) && filters.length > 0}
 	<div class="gap-2 w-full flex flex-wrap my-4">
 		{#each filters as filter (filter)}
-			<div in:fade animate:flip={{ duration: 100 }}>
+			<div in:fade={{ duration: 50 }} animate:flip={{ duration: 100 }}>
 				<Badge
 					class={classNames(
 						'cursor-pointer',

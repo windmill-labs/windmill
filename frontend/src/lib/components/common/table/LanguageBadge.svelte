@@ -8,7 +8,7 @@
 	export let language: Script.language
 
 	const languageLabel = {
-		[Script.language.PYTHON3]: 'Python 3',
+		[Script.language.PYTHON3]: 'Python',
 		[Script.language.DENO]: 'TypeScript',
 		[Script.language.GO]: 'Go',
 		[Script.language.BASH]: 'Bash'

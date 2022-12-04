@@ -36,6 +36,7 @@ const buttons: ComponentSet = {
 	components: [
 		{
 			...defaultProps,
+			...defaultAlignement,
 			id: 'buttoncomponent',
 			type: 'buttoncomponent',
 			componentInputs: {

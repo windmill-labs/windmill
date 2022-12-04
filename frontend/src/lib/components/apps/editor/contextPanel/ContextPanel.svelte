@@ -9,7 +9,7 @@
 	import { Preview } from '$lib/gen'
 	import { DENO_INIT_CODE_CLEAR } from '$lib/script_helpers'
 	import { classNames, emptySchema } from '$lib/utils'
-	import { faEdit, faPlus, faTrash } from '@fortawesome/free-solid-svg-icons'
+	import { faEdit, faPlus, faSave, faTrash } from '@fortawesome/free-solid-svg-icons'
 	import { getContext } from 'svelte'
 	import type { AppEditorContext } from '../../types'
 	import PanelSection from '../settingsPanel/common/PanelSection.svelte'
@@ -115,6 +115,9 @@
 				fixedOverflowWidgets={false}
 			/>
 		{/if}
+		<div slot="submission" class="flex items-center gap-4">
+			<Button startIcon={{ icon: faSave }} disabled>Automatically Saved</Button>
+		</div>
 	</DrawerContent>
 </Drawer>
 
@@ -175,7 +178,15 @@
 <PanelSection title="Outputs">
 	{#each Object.entries($staticOutputs) as [componentId, outputs], index}
 		{#if outputs.length > 0 && $worldStore?.outputsById[componentId]}
-			<Badge color="blue">Component: {componentId}</Badge>
+			<Button
+				btnClasses="bg-blue-100 text-blue-800 hover:bg-blue-200 !px-2 !py-1 text-xs focus:bg-blue-200"
+				size="xs"
+				spacingSize="xs"
+				on:click={() => ($selectedComponent = componentId)}
+				color="blue"
+			>
+				Component: {componentId}
+			</Button>
 
 			<div
 				class={classNames(

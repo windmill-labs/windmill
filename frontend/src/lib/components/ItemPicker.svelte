@@ -1,13 +1,14 @@
 <script lang="ts">
-	import Fuse from 'fuse.js'
 	import { Drawer, Skeleton } from './common'
 	import DrawerContent from './common/drawer/DrawerContent.svelte'
 	import IconedResourceType from './IconedResourceType.svelte'
+	import SearchItems from './SearchItems.svelte'
 
 	type Item = Record<string, any>
 	export let pickCallback: (path: string, f: string) => void
 	export let loadItems: () => Promise<Item[] | undefined>
-	export let extraField: string
+	export let extraField: string = 'path'
+	export let extraField2: string | undefined = undefined
 	export let itemName: string
 	export let closeOnClick = true
 	/** Displayed if the load function returns no items. */
@@ -19,31 +20,32 @@
 	let loading = false
 	let items: Item[] | undefined = []
 	let filteredItems: Item[] | undefined = []
-	let itemsFilter = ''
-
-	const fuseOptions = {
-		includeScore: false,
-		keys: ['path', extraField]
-	}
-	const fuse: Fuse<Item> = new Fuse(items, fuseOptions)
+	let filter = ''
 
 	export function openDrawer() {
 		loading = true
 		loadItems().then((v) => {
 			items = v
-			if (items) {
-				fuse.setCollection(items)
-			}
 			loading = false
 		})
-		drawer.openDrawer()
+		drawer.openDrawer?.()
 	}
-
-	$: filteredItems =
-		itemsFilter.length > 0 && items ? fuse.search(itemsFilter).map((value) => value.item) : items
 
 	let drawer: Drawer
 </script>
+
+<SearchItems
+	{filter}
+	{items}
+	bind:filteredItems
+	f={(x) =>
+		(extraField2 ? x[extraField2] + ' ' : '') +
+		(x[extraField] ?? '') +
+		' ' +
+		(x['path'] && x['path'] != x[extraField] ? '(' + x['path'] + ')' ?? '' : '') +
+		' ' +
+		(x['description'] != x[extraField] ? x['description'] ?? '' : '')}
+/>
 
 <Drawer bind:this={drawer} size="600px">
 	<DrawerContent title="Search a {itemName}" on:close={drawer.closeDrawer}>
@@ -52,7 +54,7 @@
 				<input
 					type="text"
 					placeholder="Search {itemName}"
-					bind:value={itemsFilter}
+					bind:value={filter}
 					class="search-item"
 				/>
 			</div>
@@ -89,17 +91,24 @@
 									</div>
 								{/if}
 								<div class="flex flex-col">
-									<div class="text-sm font-semibold flex flex-col">
-										<span class="mr-2 text-left">{obj[extraField] ?? ''}</span>
-										{#if extraField != 'path'}
-											<span class="font-normal text-xs text-left italic overflow-hidden"
-												>{obj['path'] ?? ''}</span
+									{#if obj.marked}
+										<div class="text-sm font-semibold">
+											{@html obj.marked}
+										</div>
+									{:else}
+										<div class="text-sm font-semibold flex flex-col">
+											<span class="mr-2 text-left">{obj[extraField] ?? ''}</span>
+											{#if extraField != 'path'}
+												<span class="font-normal text-xs text-left italic overflow-hidden"
+													>{obj['path'] ?? ''}</span
+												>
+											{/if}
+										</div>
+										{#if extraField != 'description'}
+											<div class="text-xs font-light italic text-left"
+												>{obj['description'] ?? ''}</div
 											>
 										{/if}
-									</div>
-									{#if extraField != 'description'}
-										<div class="text-xs font-light italic text-left">{obj['description'] ?? ''}</div
-										>
 									{/if}
 								</div>
 							</button>

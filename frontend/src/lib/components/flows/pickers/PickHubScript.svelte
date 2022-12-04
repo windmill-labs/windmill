@@ -29,7 +29,10 @@
 </script>
 
 <SearchItems {filter} items={prefilteredItems} bind:filteredItems f={(x) => x.summary} />
-<input type="text" placeholder="Search Hub Scripts" bind:value={filter} class="text-2xl" />
+<div class="w-full flex mt-1 items-center gap-2 mb-5">
+	<slot />
+	<input type="text" placeholder="Search Hub Scripts" bind:value={filter} class="text-2xl grow" />
+</div>
 <ListFilters filters={apps} bind:selectedFilter={appFilter} />
 
 {#if $hubScripts}

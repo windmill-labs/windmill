@@ -3,7 +3,6 @@
 	import {
 		AppService,
 		FlowService,
-		Job,
 		JobService,
 		ListableApp,
 		Script,
@@ -37,8 +36,6 @@
 
 	import NoItemFound from './NoItemFound.svelte'
 	import ListFilters from './ListFilters.svelte'
-
-	let jobs: Job[] = []
 
 	type TableItem<T, U extends 'script' | 'flow' | 'app'> = T & {
 		canWrite: boolean
@@ -151,24 +148,14 @@
 
 	let ownerFilter: string | undefined = undefined
 
-	async function loadJobs() {
-		jobs = await JobService.listJobs({
-			workspace: $workspaceStore!,
-			success: true,
-			createdBy: $userStore?.username,
-			jobKinds: 'flow,script'
-		})
-		loading = false
-	}
-
 	$: {
 		if (($userStore || $superadmin) && $workspaceStore) {
 			loadScripts()
 			loadFlows()
 			loadApps()
-			loadJobs()
 		}
 	}
+
 	const cmp = new Intl.Collator('en').compare
 
 	const opts: uFuzzy.Options = {

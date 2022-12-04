@@ -9,7 +9,6 @@
 		faRobot,
 		faUsersCog,
 		faCog,
-		faStar,
 		faDollarSign
 	} from '@fortawesome/free-solid-svg-icons'
 	import { faDiscord, faGithub } from '@fortawesome/free-brands-svg-icons'
@@ -22,8 +21,6 @@
 		{ label: 'Variables', href: '/variables', icon: faDollarSign },
 		{ label: 'Resources', href: '/resources', icon: faCubes }
 	]
-
-	export let favoriteLinks = [] as { label: string; href: string }[]
 
 	$: secondaryMenuLinks = [
 		{ label: 'Schedules', href: '/schedules', icon: faCalendar },
@@ -51,20 +48,12 @@
 	export let isCollapsed: boolean = false
 </script>
 
-<div class="flex-1 flex flex-col py-4 overflow-x-hidden scrollbar-hidden">
+<div class="flex-1 flex flex-col pb-4 overflow-x-hidden scrollbar-hidden">
 	<nav class="h-full flex justify-between flex-col px-2">
 		<div class="space-y-1 pt-4">
 			{#each mainMenuLinks as menuLink (menuLink.href)}
 				<MenuLink class="text-md" {...menuLink} {isCollapsed} />
 			{/each}
-			<div class="h-2" />
-			<div class="max-h-40 overflow-y-auto  max-w-xs truncate">
-				<div class="flex flex-col max-h-min">
-					{#each favoriteLinks as menuLink (menuLink.href)}
-						<MenuLink class="text-xs max-w-xs truncate" {...menuLink} {isCollapsed} icon={faStar} />
-					{/each}
-				</div>
-			</div>
 			<div class="h-2" />
 		</div>
 		<div class="space-1-2">

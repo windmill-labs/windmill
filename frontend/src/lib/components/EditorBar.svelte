@@ -3,19 +3,18 @@
 </script>
 
 <script lang="ts">
-	import { ResourceService, ScriptService, VariableService } from '$lib/gen'
-	import { getScriptByPath, loadHubScripts, sendUserToast } from '$lib/utils'
+	import { ResourceService, VariableService } from '$lib/gen'
+	import { getScriptByPath, sendUserToast } from '$lib/utils'
 
 	import {
 		faCube,
 		faDollarSign,
 		faEye,
 		faRotate,
-		faRotateLeft,
-		faWallet
+		faRotateLeft
 	} from '@fortawesome/free-solid-svg-icons'
 
-	import { hubScripts, workspaceStore } from '$lib/stores'
+	import { workspaceStore } from '$lib/stores'
 	import type Editor from './Editor.svelte'
 	import ItemPicker from './ItemPicker.svelte'
 	import ResourceEditor from './ResourceEditor.svelte'
@@ -24,23 +23,27 @@
 	import HighlightCode from './HighlightCode.svelte'
 	import DrawerContent from './common/drawer/DrawerContent.svelte'
 	import { Badge, Drawer } from './common'
+	import WorkspaceScriptPicker from './flows/pickers/WorkspaceScriptPicker.svelte'
+	import PickHubScript from './flows/pickers/PickHubScript.svelte'
+	import ToggleHubWorkspace from './ToggleHubWorkspace.svelte'
+	import Skeleton from './common/skeleton/Skeleton.svelte'
 
 	export let lang: 'python3' | 'deno' | 'go' | 'bash'
 	export let editor: Editor
 	export let websocketAlive: { pyright: boolean; black: boolean; deno: boolean; go: boolean }
 	export let iconOnly: boolean = false
 	export let validCode: boolean = true
+	export let kind: 'script' | 'trigger' | 'approval' = 'script'
 
 	let contextualVariablePicker: ItemPicker
 	let variablePicker: ItemPicker
 	let resourcePicker: ItemPicker
-	let scriptPicker: ItemPicker
 	let variableEditor: VariableEditor
 	let resourceEditor: ResourceEditor
 
 	let codeViewer: Drawer
-	let codeLang: 'python3' | 'deno' | 'go' | 'bash' = 'deno'
-	let codeContent: string = ''
+	let codeObj: { language: 'python3' | 'deno' | 'go' | 'bash'; content: string } | undefined =
+		undefined
 
 	function addEditorActions() {
 		editor.addAction('insert-variable', 'Windmill: Insert variable', () => {
@@ -63,36 +66,38 @@
 		})
 	}
 
-	async function loadScripts(): Promise<{ path: string; summary?: string }[]> {
-		const workspaceScripts: { path: string; summary?: string }[] = await ScriptService.listScripts({
-			workspace: $workspaceStore ?? 'NO_W'
-		})
-		if (!$hubScripts) {
-			await loadHubScripts()
-		}
-		const hubScripts_ = $hubScripts ?? []
+	let scriptPicker: Drawer
+	let pick_existing: 'hub' | 'workspace' = 'hub'
+	let filter = ''
 
-		return workspaceScripts.concat(hubScripts_)
+	async function onScriptPick(e: { detail: { path: string } }) {
+		codeObj = undefined
+		codeViewer?.openDrawer?.()
+		codeObj = await getScriptByPath(e.detail.path ?? '')
 	}
 </script>
 
-<ItemPicker
-	bind:this={scriptPicker}
-	pickCallback={async (path, _) => {
-		const { language, content } = await getScriptByPath(path ?? '')
-		codeContent = content
-		codeLang = language
-		codeViewer.openDrawer()
-	}}
-	closeOnClick={false}
-	itemName="script"
-	extraField="summary"
-	loadItems={loadScripts}
-/>
+<Drawer bind:this={scriptPicker} size="900px">
+	<DrawerContent title="Code" on:close={scriptPicker.closeDrawer}>
+		{#if pick_existing == 'hub'}
+			<PickHubScript bind:filter {kind} on:pick={onScriptPick}>
+				<ToggleHubWorkspace bind:selected={pick_existing} />
+			</PickHubScript>
+		{:else}
+			<WorkspaceScriptPicker bind:filter {kind} on:pick={onScriptPick}>
+				<ToggleHubWorkspace bind:selected={pick_existing} />
+			</WorkspaceScriptPicker>
+		{/if}
+	</DrawerContent>
+</Drawer>
 
 <Drawer bind:this={codeViewer} size="600px">
 	<DrawerContent title="Code" on:close={codeViewer.closeDrawer}>
-		<HighlightCode language={codeLang} code={codeContent} />
+		{#if codeObj}
+			<HighlightCode language={codeObj?.language} code={codeObj?.content} />
+		{:else}
+			<Skeleton layout={[[40]]} />
+		{/if}
 	</DrawerContent>
 </Drawer>
 
@@ -197,6 +202,7 @@
 	itemName="Resource"
 	buttons={{ 'Edit/View': (x) => resourceEditor.initEdit(x) }}
 	extraField="description"
+	extraField2="resource_type"
 	loadItems={async () =>
 		await ResourceService.listResource({ workspace: $workspaceStore ?? 'NO_W' })}
 >
