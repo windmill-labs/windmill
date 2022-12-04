@@ -1006,13 +1006,63 @@ async fn update_user(
     require_super_admin(&mut tx, email.clone()).await?;
 
     if let Some(sa) = eu.is_super_admin {
-        sqlx::query_scalar!(
-            "UPDATE password SET super_admin = $1 WHERE email = $2",
-            sa,
+        let is_super_admin = sqlx::query_scalar!(
+            "SELECT super_admin FROM password WHERE email = $1",
             &email_to_update
         )
-        .execute(&mut tx)
+        .fetch_one(&mut tx)
         .await?;
+
+        if is_super_admin != sa {
+            sqlx::query_scalar!(
+                "UPDATE password SET super_admin = $1 WHERE email = $2",
+                sa,
+                &email_to_update
+            )
+            .execute(&mut tx)
+            .await?;
+
+            if !sa {
+                sqlx::query_scalar!(
+                    "DELETE FROM workspace_invite WHERE
+                    workspace_id = 'superadmins' AND email = $1",
+                    &email_to_update
+                )
+                .execute(&mut tx)
+                .await?;
+
+                let username = sqlx::query_scalar!(
+                    "DELETE FROM usr WHERE email = $1 RETURNING username",
+                    &email_to_update
+                )
+                .fetch_one(&mut tx)
+                .await?;
+
+                sqlx::query!("DELETE FROM usr_to_group WHERE usr = $1", &username)
+                    .execute(&mut tx)
+                    .await?;
+
+                audit_log(
+                    &mut tx,
+                    &username,
+                    "users.delete",
+                    ActionKind::Delete,
+                    "superadmins",
+                    Some(&username),
+                    None,
+                )
+                .await?;
+            } else {
+                sqlx::query!(
+                    "INSERT INTO workspace_invite
+                        (workspace_id, email, is_admin)
+                        VALUES ('superadmins', $1, true)",
+                    &email_to_update
+                )
+                .execute(&mut tx)
+                .await?;
+            }
+        }
     }
 
     audit_log(
@@ -1131,20 +1181,20 @@ async fn delete_workspace_user(
 
     let email_to_delete = not_found_if_none(email_to_delete_o, "User", &username_to_delete)?;
 
-    let username = sqlx::query_scalar!(
-        "DELETE FROM usr WHERE email = $1 RETURNING username",
-        email_to_delete
-    )
-    .fetch_one(&mut tx)
-    .await?;
-
-    sqlx::query!("DELETE FROM usr_to_group WHERE usr = $1", &username)
+    sqlx::query_scalar!("DELETE FROM usr WHERE email = $1", email_to_delete)
         .execute(&mut tx)
         .await?;
 
+    sqlx::query!(
+        "DELETE FROM usr_to_group WHERE usr = $1",
+        &username_to_delete
+    )
+    .execute(&mut tx)
+    .await?;
+
     audit_log(
         &mut tx,
-        &username,
+        &username_to_delete,
         "users.delete",
         ActionKind::Delete,
         &w_id,
