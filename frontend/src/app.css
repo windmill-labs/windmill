@@ -23,6 +23,10 @@
 		display: none !important;
 	}
 
+	.nowrap pre code.hljs {
+		whitespace: normal !important;
+	}
+
 	svelte-virtual-list-row {
 		overflow: visible !important;
 	}
@@ -31,8 +35,6 @@
 		border-top-width: 1px !important;
 		border-bottom-width: 0px !important;
 	}
-
-	
 }
 
 @layer components {
@@ -42,4 +44,3 @@
 		cursor: pointer !important;
 	}
 }
-
