@@ -14,7 +14,7 @@
 </script>
 
 <div class="flex flex-col divide-y h-screen max-h-screen">
-	<div class="flex justify-between w-wull items-center px-4 py-2 ">
+	<div class="flex justify-between w-wull items-center px-2 py-2 ">
 		<div class="flex items-center gap-2">
 			<button
 				on:click={() => dispatch('close')}

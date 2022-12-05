@@ -39,7 +39,7 @@
 	{#if filteredItems.length == 0}
 		<NoItemFound />
 	{:else}
-		<ul class="divide-y divide-gray-200 border rounded-md overflow-hidden">
+		<ul class="divide-y divide-gray-200 border rounded-md">
 			{#each filteredItems as item (item.path)}
 				<li class="flex flex-row w-full">
 					<button
