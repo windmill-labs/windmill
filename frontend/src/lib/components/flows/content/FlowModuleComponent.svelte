@@ -59,7 +59,8 @@
 				pickableProperties: {
 					flow_input: $previewArgs,
 					priorIds: {},
-					previousId: undefined
+					previousId: undefined,
+					hasResume: false
 				},
 				extraLib: ''
 		  }
