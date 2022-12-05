@@ -121,6 +121,22 @@
 					/>
 				</div>
 			{/if}
+			{#if pickableProperties.hasResume}
+				<span class="font-bold text-sm">Resume payloads</span>
+				<div class="overflow-y-auto mb-2">
+					<ObjectViewer
+						topLevelNode
+						pureViewer={!$propPickerConfig}
+						json={{
+							resume: 'The resume payload',
+							resumes: 'All resume payloads from all approvers'
+						}}
+						on:select={(e) => {
+							dispatch('select', `${e.detail}`)
+						}}
+					/>
+				</div>
+			{/if}
 			{#if Object.keys(pickableProperties.priorIds).length > 0}
 				<span class="font-bold text-sm">All Results</span>
 				<div class="overflow-y-auto mb-2">
