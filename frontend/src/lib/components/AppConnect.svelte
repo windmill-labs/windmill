@@ -432,7 +432,7 @@
 				>
 			{/if}
 		{/if}
-		<div slot="submission" class="flex items-center gap-4">
+		<div slot="actions">
 			{#if step > 1 && !no_back}
 				<Button variant="border" on:click={back}>Back</Button>
 			{/if}

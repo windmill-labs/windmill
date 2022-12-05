@@ -34,6 +34,8 @@
 <Drawer bind:this={drawer} size="800px">
 	<DrawerContent title="Import flow from JSON" on:close={() => drawer?.toggleDrawer?.()}>
 		<SimpleEditor bind:code={pendingJson} lang="json" class="h-full" fixedOverflowWidgets={false} />
-		<span slot="submission"><Button size="sm" on:click={importJson}>Import</Button></span>
+		<svelte:fragment slot="actions">
+			<Button size="sm" on:click={importJson}>Import</Button>
+		</svelte:fragment>
 	</DrawerContent>
 </Drawer>

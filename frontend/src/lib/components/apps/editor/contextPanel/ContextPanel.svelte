@@ -115,9 +115,9 @@
 				fixedOverflowWidgets={false}
 			/>
 		{/if}
-		<div slot="submission" class="flex items-center gap-4">
+		<svelte:fragment slot="actions">
 			<Button startIcon={{ icon: faSave }} disabled>Automatically Saved</Button>
-		</div>
+		</svelte:fragment>
 	</DrawerContent>
 </Drawer>
 

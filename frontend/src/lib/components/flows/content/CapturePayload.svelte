@@ -93,24 +93,28 @@
 		<div class="box p-2 my-2  mb-4">
 			<ObjectViewer topBrackets={true} json={captureInput} />
 		</div>
-		<div class="flex flex-row-reverse gap-2" slot="submission">
-			<Button
-				size="sm"
-				on:click={() => {
-					$previewArgs = captureInput
-					$flowStore.schema = jsonSchema
-					sendUserToast('Copied as flow inputs and test args')
-				}}>Copy as flow inputs and test args</Button
-			>
+		<svelte:fragment slot="actions">
 			<Button
 				size="sm"
 				variant="border"
 				on:click={() => {
 					$previewArgs = captureInput
 					sendUserToast('Copied as test args')
-				}}>Copy only as test args</Button
+				}}
 			>
-		</div>
+				Copy only as test args
+			</Button>
+			<Button
+				size="sm"
+				on:click={() => {
+					$previewArgs = captureInput
+					$flowStore.schema = jsonSchema
+					sendUserToast('Copied as flow inputs and test args')
+				}}
+			>
+				Copy as flow inputs and test args
+			</Button>
+		</svelte:fragment>
 		<h3 class="mt-2">Derived inputs schema</h3>
 		<div class="box p-2">
 			<SchemaViewer schema={jsonSchema} />
