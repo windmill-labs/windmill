@@ -211,7 +211,7 @@
 
 <Drawer bind:this={resourceTypeDrawer} size="800px">
 	<DrawerContent title="Create resource type" on:close={resourceTypeDrawer.closeDrawer}>
-		<svelte:fragment slot="submission">
+		<svelte:fragment slot="actions">
 			<Button startIcon={{ icon: faSave }} on:click={addResourceType}>Save</Button>
 		</svelte:fragment>
 		<div class="flex flex-col gap-6">

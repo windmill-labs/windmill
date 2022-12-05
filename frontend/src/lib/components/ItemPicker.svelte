@@ -135,8 +135,8 @@
 				</div>
 			{/if}
 		</div>
-		<span slot="submission" class="mr-2">
+		<svelte:fragment slot="actions">
 			<slot name="submission" />
-		</span>
+		</svelte:fragment>
 	</DrawerContent>
 </Drawer>
