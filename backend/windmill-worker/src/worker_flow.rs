@@ -1194,7 +1194,7 @@ async fn push_next_flow_job(
             tx,
             &flow_job.workspace_id,
             payload,
-            Some(args),
+            args,
             &flow_job.created_by,
             flow_job.permissioned_as.to_owned(),
             scheduled_for_o,
