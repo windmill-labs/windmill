@@ -337,7 +337,7 @@ components:
           type: string
           enum:
             - WaitingForPriorSteps
-            - WaitingForEvent
+            - WaitingForEvents
             - WaitingForExecutor
             - InProgress
             - Success

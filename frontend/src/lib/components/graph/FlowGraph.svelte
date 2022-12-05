@@ -142,11 +142,11 @@
 	function getStateColor(state: FlowStatusModule.type | undefined): string {
 		switch (state) {
 			case FlowStatusModule.type.SUCCESS:
-				return 'rgb(34 197 94)'
+				return 'rgb(193, 255, 216)'
 			case FlowStatusModule.type.FAILURE:
 				return 'rgb(248 113 113)'
 			case FlowStatusModule.type.IN_PROGRESS:
-				return 'rgb(253 224 71)'
+				return 'rgb(253, 240, 176)'
 			default:
 				return '#fff'
 		}

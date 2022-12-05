@@ -92,7 +92,7 @@
 </script>
 
 <div class="min-h-screen antialiased text-gray-900">
-	<CenteredModal title="Approve resuming of flow?">
+	<CenteredModal title="Approval for resuming of flow">
 		{#if error}
 			<h1 class="text-red-400">{error}</h1>
 		{/if}

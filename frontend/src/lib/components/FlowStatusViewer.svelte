@@ -57,13 +57,11 @@
 	}
 
 	$: innerModules =
-		job?.flow_status?.modules
-			.filter((x) => x.job != jobId)
-			.concat(
-				job?.flow_status.failure_module.type != 'WaitingForPriorSteps'
-					? job?.flow_status.failure_module
-					: []
-			) ?? []
+		job?.flow_status?.modules.concat(
+			job?.flow_status.failure_module.type != 'WaitingForPriorSteps'
+				? job?.flow_status.failure_module
+				: []
+		) ?? []
 
 	let errorCount = 0
 	async function loadJobInProgress() {
@@ -135,7 +133,7 @@
 			</Tabs>
 		{/if}
 
-		<div class="{selected == 'graph' && !isListJob ? 'hidden' : ''} ">
+		<div class={selected == 'graph' && !isListJob ? 'hidden' : ''}>
 			{#if isListJob}
 				<h3 class="text-md leading-6 font-bold text-gray-600 border-b mb-4">
 					Embedded flows: ({flowJobIds?.flowJobs.length} items)
@@ -174,7 +172,7 @@
 							jobId={loopJobId}
 							on:jobsLoaded={(e) => {
 								if (flowJobIds?.moduleId) {
-									if (flowState) {
+									if (flowState?.[flowJobIds.moduleId]) {
 										if (
 											!flowState[flowJobIds.moduleId].previewResult ||
 											!Array.isArray(flowState[flowJobIds.moduleId]?.previewResult)
@@ -186,6 +184,13 @@
 										jobResults[j] =
 											e.detail.result == null ? 'Job in progress ...' : e.detail.result
 										jobFailures[j] = e.detail.success === false
+									}
+									if (e.detail.type == 'QueuedJob') {
+										localFlowModuleStates[flowJobIds.moduleId] = FlowStatusModule.type.IN_PROGRESS
+									} else {
+										localFlowModuleStates[flowJobIds.moduleId] = e.detail.success
+											? FlowStatusModule.type.SUCCESS
+											: FlowStatusModule.type.FAILURE
 									}
 								}
 							}}
@@ -249,8 +254,7 @@
 							{:else}
 								<span class="italic text-gray-600">
 									<Icon data={faHourglassHalf} class="mr-2" />
-
-									{#if mod.type == FlowStatusModule.type.WAITING_FOR_EVENT}
+									{#if mod.type == FlowStatusModule.type.WAITING_FOR_EVENTS}
 										Waiting to be resumed by receivent events such as approvals
 									{:else if mod.type == FlowStatusModule.type.WAITING_FOR_PRIOR_STEPS}
 										Waiting for prior steps to complete
@@ -267,6 +271,7 @@
 	</div>
 	{#if job.raw_flow && !isListJob}
 		<div class="{selected != 'graph' ? 'hidden' : ''} lg:mx-40 mx-10 border border-gray-400 mt-4">
+			<div class="border" />
 			<FlowGraph
 				flowModuleStates={localFlowModuleStates}
 				notSelectable

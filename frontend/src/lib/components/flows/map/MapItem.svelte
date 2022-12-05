@@ -116,8 +116,13 @@
 						<Icon data={faLongArrowDown} scale={1.1} />
 					{:else if mod.value.type === 'script'}
 						{#if mod.value.path.startsWith('hub/')}
-							<div class="w-5">
-								<IconedResourceType name={mod.value.path.split('/')[2]} silent={true} />
+							<div>
+								<IconedResourceType
+									width="20px"
+									height="20px"
+									name={mod.value.path.split('/')[2]}
+									silent={true}
+								/>
 							</div>
 						{:else}
 							<Icon data={faBuilding} scale={1.1} />
