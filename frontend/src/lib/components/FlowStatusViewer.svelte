@@ -8,11 +8,12 @@
 	import { createEventDispatcher } from 'svelte'
 	import { onDestroy } from 'svelte'
 	import type { FlowState } from './flows/flowState'
-	import { Badge, Button, Tab } from './common'
+	import { Button, Tab } from './common'
 	import DisplayResult from './DisplayResult.svelte'
 	import Tabs from './common/tabs/Tabs.svelte'
 	import { FlowGraph } from './graph'
 	import ModuleStatus from './ModuleStatus.svelte'
+	import { displayDate } from '$lib/utils'
 
 	const dispatch = createEventDispatcher()
 
@@ -28,12 +29,12 @@
 	export let job: Job | undefined = undefined
 	export let flowModuleStates: Record<
 		string,
-		{ type: FlowStatusModule.type; logs?: string; result?: any }
+		{ type: FlowStatusModule.type; logs?: string; result?: any; scheduled_for?: string }
 	> = {}
 
 	let localFlowModuleStates: Record<
 		string,
-		{ type: FlowStatusModule.type; logs?: string; result?: any }
+		{ type: FlowStatusModule.type; logs?: string; result?: any; scheduled_for?: string }
 	> = {}
 
 	let selectedNode: string | undefined = undefined
@@ -72,15 +73,30 @@
 				: []
 		) ?? []
 
-	$: innerModules.forEach((module, i) => {
-		if (
-			module.type === FlowStatusModule.type.WAITING_FOR_EVENTS &&
-			localFlowModuleStates?.[innerModules?.[i - 1]?.id ?? '']?.type ==
-				FlowStatusModule.type.SUCCESS
-		) {
-			localFlowModuleStates[module.id ?? ''] = { type: module.type }
-		}
-	})
+	$: innerModules && updateInnerModules()
+
+	function updateInnerModules() {
+		innerModules.forEach((module, i) => {
+			if (
+				module.type === FlowStatusModule.type.WAITING_FOR_EVENTS &&
+				localFlowModuleStates?.[innerModules?.[i - 1]?.id ?? '']?.type ==
+					FlowStatusModule.type.SUCCESS
+			) {
+				localFlowModuleStates[module.id ?? ''] = { type: module.type }
+			} else if (module.type === FlowStatusModule.type.WAITING_FOR_EXECUTOR) {
+				console.log(module.job)
+				JobService.getJob({
+					workspace: $workspaceStore ?? '',
+					id: module.job ?? ''
+				}).then((job) => {
+					localFlowModuleStates[module.id ?? ''] = {
+						type: module.type,
+						scheduled_for: 'scheduled for ' + displayDate(job?.['scheduled_for'], true)
+					}
+				})
+			}
+		})
+	}
 
 	let errorCount = 0
 	async function loadJobInProgress() {
@@ -288,7 +304,10 @@
 									}}
 								/>
 							{:else}
-								<ModuleStatus type={mod.type} />
+								<ModuleStatus
+									type={mod.type}
+									scheduled_for={localFlowModuleStates?.[mod.id ?? '']?.scheduled_for}
+								/>
 							{/if}
 						</li>
 					{/each}
@@ -316,7 +335,10 @@
 					{#if selectedNode}
 						{#if localFlowModuleStates[selectedNode]}
 							<div class="px-2">
-								<ModuleStatus type={localFlowModuleStates[selectedNode].type} />
+								<ModuleStatus
+									type={localFlowModuleStates[selectedNode]?.type}
+									scheduled_for={localFlowModuleStates[selectedNode]?.['scheduled_for']}
+								/>
 							</div>
 							<FlowJobResult
 								noBorder

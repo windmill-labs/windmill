@@ -24,7 +24,10 @@
 	export let minHeight: number = 0
 	export let notSelectable = false
 	export let flowModuleStates:
-		| Record<string, { type: FlowStatusModule.type; logs?: string; result?: any }>
+		| Record<
+				string,
+				{ type: FlowStatusModule.type; logs?: string; result?: any; scheduled_for?: string }
+		  >
 		| undefined = undefined
 
 	let selectedNode: string | undefined = undefined
@@ -150,6 +153,8 @@
 				return 'rgb(253, 240, 176)'
 			case FlowStatusModule.type.WAITING_FOR_EVENTS:
 				return 'rgb(229, 176, 253)'
+			case FlowStatusModule.type.WAITING_FOR_EXECUTOR:
+				return 'rgb(255, 208, 193)'
 			default:
 				return '#fff'
 		}
@@ -193,6 +198,9 @@
 						</span>
 					</div>
 				</div>
+				<div class="text-2xs absolute -top-6 text-gray-600 truncate">${
+					flowModuleStates?.[onClickDetail.id]?.scheduled_for ?? ''
+				}<div>
 			`
 			},
 			host,
