@@ -20,7 +20,7 @@
 	let resourceToEdit: Resource | undefined
 
 	let description: string = ''
-	let DESCRIPTION_PLACEHOLDER = `You can use markdown to style your description`
+	let DESCRIPTION_PLACEHOLDER = `Describe what this resource is for`
 	let selectedResourceType: string | undefined
 	let resourceSchema: Schema | undefined
 	let args: Record<string, any> = {}

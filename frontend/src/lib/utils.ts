@@ -294,6 +294,9 @@ export function groupBy<T>(
 	})
 }
 
+export function removeMarkdown(text: string): string {
+	return text.replace(/[[\*|\-|#\_]/g, '')
+}
 export function truncate(s: string, n: number, suffix: string = '...'): string {
 	if (!s) {
 		return ''

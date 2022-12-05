@@ -48,6 +48,7 @@
 	import DrawerContent from './common/drawer/DrawerContent.svelte'
 	import ApiConnectForm from './ApiConnectForm.svelte'
 	import SearchItems from './SearchItems.svelte'
+	import autosize from 'svelte-autosize'
 
 	export let newPageOAuth = false
 
@@ -383,7 +384,7 @@
 			/>
 			<h2 class="mt-4 mb-2">Description</h2>
 
-			<input type="text" bind:value={description} />
+			<textarea type="text" autocomplete="off" use:autosize bind:value={description} />
 
 			{#if apiTokenApps[resource_type]}
 				<h2 class="mt-4 mb-2">Instructions</h2>
@@ -403,7 +404,7 @@
 				{/if}
 			{/if}
 
-			<h2 class="mt-4">Value</h2>
+			<h2 class="mt-8">Value</h2>
 			<div class="mt-4">
 				<ApiConnectForm password={key ?? ''} {resource_type} bind:args bind:isValid />
 			</div>
