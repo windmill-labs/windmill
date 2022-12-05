@@ -1475,7 +1475,9 @@ async fn compute_next_flow_transform<'c>(
             let new_args: &mut Map<String, serde_json::Value> = &mut Map::new();
 
             let next_loop_status = match status_module {
-                FlowStatusModule::WaitingForPriorSteps { .. } => {
+                FlowStatusModule::WaitingForPriorSteps { .. }
+                | FlowStatusModule::WaitingForEvents { .. }
+                | FlowStatusModule::WaitingForExecutor { .. } => {
                     let (token, by_id) = if let Some(x) = transform_context {
                         x
                     } else {
@@ -1594,7 +1596,9 @@ async fn compute_next_flow_transform<'c>(
         }
         FlowModuleValue::BranchOne { branches, default, .. } => {
             let branch = match status_module {
-                FlowStatusModule::WaitingForPriorSteps { .. } => {
+                FlowStatusModule::WaitingForPriorSteps { .. }
+                | FlowStatusModule::WaitingForEvents { .. }
+                | FlowStatusModule::WaitingForExecutor { .. } => {
                     let mut branch_chosen = BranchChosen::Default;
                     let (token, idcontext) =
                         get_transform_context(db, &flow_job, previous_id, &status).await?;
@@ -1658,7 +1662,9 @@ async fn compute_next_flow_transform<'c>(
         }
         FlowModuleValue::BranchAll { branches, parallel, .. } => {
             let (status, flow_jobs) = match status_module {
-                FlowStatusModule::WaitingForPriorSteps { .. } => {
+                FlowStatusModule::WaitingForPriorSteps { .. }
+                | FlowStatusModule::WaitingForEvents { .. }
+                | FlowStatusModule::WaitingForExecutor { .. } => {
                     if branches.is_empty() {
                         return Ok((tx, NextFlowTransform::EmptyInnerFlows));
                     } else if *parallel {
