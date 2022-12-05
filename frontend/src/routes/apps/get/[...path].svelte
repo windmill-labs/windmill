@@ -9,6 +9,7 @@
 <script lang="ts">
 	import { page } from '$app/stores'
 	import AppEditor from '$lib/components/apps/editor/AppEditor.svelte'
+	import AppPreview from '$lib/components/apps/editor/AppPreview.svelte'
 
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
 	import { Skeleton } from '$lib/components/common'
@@ -32,16 +33,16 @@
 
 <CenteredPage>
 	{#if app}
-		<div class="flex justify-between my-2 items-center">
-			<div>{app.value.title}</div>
+		<div class="flex justify-between items-center py-4">
+			<h2>{app.value.title}</h2>
 
 			<Button size="xs" href="/apps/edit/{$page.params.path}" startIcon={{ icon: faPen }}>
 				Edit
 			</Button>
 		</div>
 
-		<div class="h-screen">
-			<AppEditor app={app.value} path={app.path} initialMode="preview" />
+		<div class="border rounded-md p-2">
+			<AppPreview app={app.value} initialMode="preview" />
 		</div>
 	{/if}
 </CenteredPage>
