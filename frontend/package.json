@@ -69,7 +69,7 @@
 		"async-mutex": "^0.4.0",
 		"autosize": "^5.0.2",
 		"chartjs-adapter-date-fns": "^2.0.0",
-		"chartjs-plugin-zoom": "^1.2.1",
+		"chartjs-plugin-zoom": "^2.0.0",
 		"date-fns": "^2.29.3",
 		"highlight.js": "^11.5.1",
 		"monaco-editor": "^0.34.1",
