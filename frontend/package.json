@@ -80,6 +80,6 @@
 		"svelte-autosize": "^1.0.1",
 		"svelte-chartjs": "^3.1.0",
 		"svelte-select": "^5.0.0-beta.40",
-		"vscode-ws-jsonrpc": "^2.0.0"
+		"vscode-ws-jsonrpc": "^2.0.1"
 	}
 }
