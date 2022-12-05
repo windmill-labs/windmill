@@ -18,7 +18,8 @@
 		| 'gif'
 		| 'error'
 		| 'approval'
-		| undefined = inferResultKind(result)
+		| undefined
+	$: resultKind = inferResultKind(result)
 
 	let forceJson = false
 
@@ -79,7 +80,7 @@
 	{#if result != undefined}
 		{#if resultKind && resultKind != 'json'}
 			<div class="mb-2 text-gray-500 text-sm bg-gray-50/20">
-				as JSON <input type="checkbox" bind:checked={forceJson} /></div
+				as JSON&nbsp;<input type="checkbox" bind:checked={forceJson} /></div
 			>{/if}{#if typeof result == 'object' && Object.keys(result).length > 0}<div
 				class="mb-2 text-sm text-gray-700"
 				>The result keys are: <b>{truncate(Object.keys(result).join(', '), 50)}</b></div

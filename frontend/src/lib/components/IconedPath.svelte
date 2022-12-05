@@ -7,10 +7,12 @@
 
 <div class="flex space-x-2 items-center">
 	{#if path.startsWith('hub/')}
-		<IconedResourceType name={path.split('/')[2]} silent={true} />
-		<span>{path}</span>
+		<div>
+			<IconedResourceType width="20px" height="20px" name={path.split('/')[2]} silent={true} />
+		</div>
+		<span class="text-sm">{path}</span>
 	{:else}
 		<Badge color="blue">Workspace</Badge>
-		<span>{path}</span>
+		<span class="text-sm">{path}</span>
 	{/if}
 </div>

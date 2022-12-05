@@ -5,27 +5,16 @@
 	export let job: QueuedJob | CompletedJob
 </script>
 
-<div class="overflow-x-auto relative">
-	<table class="text-sm text-left text-gray-500 dark:text-gray-400">
-		<tbody>
-			<tr>
-				<th scope="row" class="py-2 pr-6 font-bold text-gray-900 whitespace-nowrap dark:text-white">
-					Status
-				</th>
-				<td class="py-2 "> <JobStatus {job} /></td>
-			</tr>
-			{#if job}
-				<tr>
-					<th scope="row" class="py-2 pr-6  font-bold text-gray-900 whitespace-nowrap ">
-						Job Id
-					</th>
-					<td class="py-2">
-						<a rel="noreferrer" target="_blank" href="/run/{job?.id}?workspace={job?.workspace_id}">
-							{job?.id}
-						</a>
-					</td>
-				</tr>
-			{/if}
-		</tbody>
-	</table>
+<div class="grid grid-cols-2 gap-4 mb-1 text-gray-500 dark:text-gray-400">
+	<JobStatus {job} />
+	{#if job}
+		<div
+			><div class=" text-gray-900 whitespace-nowrap ">
+				<span class="font-bold">Job Id</span>
+				<a rel="noreferrer" target="_blank" href="/run/{job?.id}?workspace={job?.workspace_id}">
+					{job?.id}
+				</a>
+			</div>
+		</div>
+	{/if}
 </div>

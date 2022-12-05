@@ -8,7 +8,7 @@
 	import { createEventDispatcher } from 'svelte'
 	import { onDestroy } from 'svelte'
 	import type { FlowState } from './flows/flowState'
-	import { Button, Tab } from './common'
+	import { Badge, Button, Tab } from './common'
 	import DisplayResult from './DisplayResult.svelte'
 	import Tabs from './common/tabs/Tabs.svelte'
 	import { FlowGraph } from './graph'
@@ -25,9 +25,17 @@
 		  }
 		| undefined = undefined
 	export let job: Job | undefined = undefined
-	export let flowModuleStates: Record<string, FlowStatusModule.type> = {}
+	export let flowModuleStates: Record<
+		string,
+		{ type: FlowStatusModule.type; logs?: string; result?: any }
+	> = {}
 
-	let localFlowModuleStates: Record<string, FlowStatusModule.type> = {}
+	let localFlowModuleStates: Record<
+		string,
+		{ type: FlowStatusModule.type; logs?: string; result?: any }
+	> = {}
+
+	let selectedNode: string | undefined = undefined
 
 	let jobResults: any[] = []
 	let jobFailures: boolean[] = []
@@ -41,7 +49,7 @@
 		Object.entries(localFlowModuleStates).forEach(([moduleId, state]) => {
 			if (
 				flowModuleStates[moduleId] !== state &&
-				flowModuleStates[moduleId] !== FlowStatusModule.type.FAILURE
+				flowModuleStates[moduleId]?.type !== FlowStatusModule.type.FAILURE
 			) {
 				flowModuleStates[moduleId] = state
 			}
@@ -63,14 +71,27 @@
 				: []
 		) ?? []
 
+	$: innerModules.forEach((module, i) => {
+		if (
+			module.type === FlowStatusModule.type.WAITING_FOR_EVENTS &&
+			localFlowModuleStates?.[innerModules?.[i - 1]?.id ?? '']?.type ==
+				FlowStatusModule.type.SUCCESS
+		) {
+			localFlowModuleStates[module.id ?? ''] = { type: module.type }
+		}
+	})
+
 	let errorCount = 0
 	async function loadJobInProgress() {
 		if (jobId != '00000000-0000-0000-0000-000000000000') {
 			try {
-				job = await JobService.getJob({
+				const newJob = await JobService.getJob({
 					workspace: $workspaceStore ?? '',
 					id: jobId ?? ''
 				})
+				if (JSON.stringify(newJob) !== JSON.stringify(job)) {
+					job = newJob
+				}
 				errorCount = 0
 			} catch (e) {
 				errorCount += 1
@@ -186,11 +207,18 @@
 										jobFailures[j] = e.detail.success === false
 									}
 									if (e.detail.type == 'QueuedJob') {
-										localFlowModuleStates[flowJobIds.moduleId] = FlowStatusModule.type.IN_PROGRESS
+										localFlowModuleStates[flowJobIds.moduleId] = {
+											type: FlowStatusModule.type.IN_PROGRESS,
+											logs: e.detail.logs
+										}
 									} else {
-										localFlowModuleStates[flowJobIds.moduleId] = e.detail.success
-											? FlowStatusModule.type.SUCCESS
-											: FlowStatusModule.type.FAILURE
+										localFlowModuleStates[flowJobIds.moduleId] = {
+											type: e.detail.success
+												? FlowStatusModule.type.SUCCESS
+												: FlowStatusModule.type.FAILURE,
+											logs: e.detail.logs,
+											result: e.detail.result
+										}
 									}
 								}
 							}}
@@ -242,11 +270,18 @@
 												flowState[mod.id].previewArgs = e.detail.args
 											}
 											if (e.detail.type == 'QueuedJob') {
-												localFlowModuleStates[mod.id] = FlowStatusModule.type.IN_PROGRESS
+												localFlowModuleStates[mod.id] = {
+													type: FlowStatusModule.type.IN_PROGRESS,
+													logs: e.detail.logs
+												}
 											} else {
-												localFlowModuleStates[mod.id] = e.detail.success
-													? FlowStatusModule.type.SUCCESS
-													: FlowStatusModule.type.FAILURE
+												localFlowModuleStates[mod.id] = {
+													type: e.detail.success
+														? FlowStatusModule.type.SUCCESS
+														: FlowStatusModule.type.FAILURE,
+													logs: e.detail.logs,
+													result: e.detail.result
+												}
 											}
 										}
 									}}
@@ -270,14 +305,35 @@
 		</div>
 	</div>
 	{#if job.raw_flow && !isListJob}
-		<div class="{selected != 'graph' ? 'hidden' : ''} lg:mx-40 mx-10 border border-gray-400 mt-4">
+		<div class="{selected != 'graph' ? 'hidden' : ''} mx-10 mt-4">
 			<div class="border" />
-			<FlowGraph
-				flowModuleStates={localFlowModuleStates}
-				notSelectable
-				modules={job.raw_flow?.modules ?? []}
-				failureModule={job.raw_flow?.failure_module}
-			/>
+			<div class="grid grid-cols-3">
+				<div class="col-span-2 bg-gray-50">
+					<FlowGraph
+						flowModuleStates={localFlowModuleStates}
+						on:click={(e) => {
+							if (e.detail.id) {
+								selectedNode = e.detail.id
+							}
+						}}
+						modules={job.raw_flow?.modules ?? []}
+						failureModule={job.raw_flow?.failure_module}
+					/>
+				</div>
+				<div class="border-l border-gray-400">
+					{#if selectedNode}
+						{#if localFlowModuleStates[selectedNode]}
+							<Badge>{localFlowModuleStates[selectedNode].type}</Badge>
+							<FlowJobResult
+								noBorder
+								col
+								result={localFlowModuleStates[selectedNode].result ?? {}}
+								logs={localFlowModuleStates[selectedNode].logs ?? ''}
+							/>
+						{/if}
+					{:else}<p class="p-2 text-gray-600 italic">Select a node to see its details here</p>{/if}
+				</div>
+			</div>
 		</div>
 	{/if}
 {:else}
