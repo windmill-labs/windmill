@@ -12,6 +12,7 @@
 	import DisplayResult from './DisplayResult.svelte'
 	import Tabs from './common/tabs/Tabs.svelte'
 	import { FlowGraph } from './graph'
+	import ModuleStatus from './ModuleStatus.svelte'
 
 	const dispatch = createEventDispatcher()
 
@@ -287,16 +288,7 @@
 									}}
 								/>
 							{:else}
-								<span class="italic text-gray-600">
-									<Icon data={faHourglassHalf} class="mr-2" />
-									{#if mod.type == FlowStatusModule.type.WAITING_FOR_EVENTS}
-										Waiting to be resumed by receivent events such as approvals
-									{:else if mod.type == FlowStatusModule.type.WAITING_FOR_PRIOR_STEPS}
-										Waiting for prior steps to complete
-									{:else if mod.type == FlowStatusModule.type.WAITING_FOR_EXECUTOR}
-										Job is ready to be executed and will be picked up by the next available worker
-									{/if}
-								</span>
+								<ModuleStatus type={mod.type} />
 							{/if}
 						</li>
 					{/each}
@@ -323,13 +315,20 @@
 				<div class="border-l border-gray-400">
 					{#if selectedNode}
 						{#if localFlowModuleStates[selectedNode]}
-							<Badge>{localFlowModuleStates[selectedNode].type}</Badge>
+							<div class="px-2">
+								<ModuleStatus type={localFlowModuleStates[selectedNode].type} />
+							</div>
 							<FlowJobResult
 								noBorder
 								col
 								result={localFlowModuleStates[selectedNode].result ?? {}}
 								logs={localFlowModuleStates[selectedNode].logs ?? ''}
 							/>
+						{:else}
+							<p class="p-2 text-gray-600 italic"
+								>The execution of this node has no information attached to it. The job likely did
+								not run yet</p
+							>
 						{/if}
 					{:else}<p class="p-2 text-gray-600 italic">Select a node to see its details here</p>{/if}
 				</div>
