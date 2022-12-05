@@ -95,7 +95,7 @@ export async function createLoop(id: string): Promise<[FlowModule, FlowModuleSta
 		value: {
 			type: 'forloopflow',
 			modules: [],
-			iterator: { type: 'javascript', expr: '' },
+			iterator: { type: 'javascript', expr: '["iterator require expression that returns an array"]' },
 			skip_failures: true
 		}
 	}

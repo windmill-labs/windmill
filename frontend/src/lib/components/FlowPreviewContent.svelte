@@ -18,8 +18,8 @@
 	export let previewMode: 'upTo' | 'whole'
 	export let open: boolean
 
-	let jobId: string | undefined = undefined
-	let job: Job | undefined = undefined
+	export let jobId: string | undefined = undefined
+	export let job: Job | undefined = undefined
 	let isValid: boolean = false
 	let isRunning: boolean = false
 	let jobProgressReset: () => void
@@ -83,11 +83,8 @@
 		}
 	}
 
-	function onJobsLoaded(newJob: Job | undefined) {
-		job = newJob
-		if (job?.type === 'CompletedJob') {
-			isRunning = false
-		}
+	$: if (job?.type === 'CompletedJob') {
+		isRunning = false
 	}
 </script>
 
@@ -162,14 +159,9 @@
 			bind:isValid
 			bind:args={$previewArgs}
 		/>
-
 		<div class="h-full pt-4 grow">
 			{#if jobId}
-				<FlowStatusViewer
-					bind:flowState={$flowStateStore}
-					{jobId}
-					on:jobsLoaded={({ detail }) => onJobsLoaded(detail)}
-				/>
+				<FlowStatusViewer bind:flowState={$flowStateStore} {jobId} bind:job />
 			{:else}
 				<div class="italic text-gray-500 h-full grow"> Flow status will be displayed here </div>
 			{/if}
