@@ -18,13 +18,14 @@
 	import { defaultIfEmptyString, truncateRev } from '$lib/utils'
 	import { createEventDispatcher } from 'svelte'
 	import { numberToChars } from '../flows/utils'
-	import type { FlowState } from '../flows/flowState'
 
 	export let modules: FlowModule[] | undefined = []
 	export let failureModule: FlowModule | undefined = undefined
 	export let minHeight: number = 0
 	export let notSelectable = false
-	export let flowModuleStates: Record<string, FlowStatusModule.type> | undefined = undefined
+	export let flowModuleStates:
+		| Record<string, { type: FlowStatusModule.type; logs?: string; result?: any }>
+		| undefined = undefined
 
 	let selectedNode: string | undefined = undefined
 
@@ -147,6 +148,8 @@
 				return 'rgb(248 113 113)'
 			case FlowStatusModule.type.IN_PROGRESS:
 				return 'rgb(253, 240, 176)'
+			case FlowStatusModule.type.WAITING_FOR_EVENTS:
+				return 'rgb(229, 176, 253)'
 			default:
 				return '#fff'
 		}
@@ -199,7 +202,7 @@
 			bgColor:
 				selectedNode == onClickDetail.id
 					? '#f5f5f5'
-					: getStateColor(flowModuleStates?.[onClickDetail.id]),
+					: getStateColor(flowModuleStates?.[onClickDetail.id]?.type),
 			parentIds,
 			clickCallback: (node) => {
 				if (!notSelectable) {
@@ -391,7 +394,7 @@
 	}
 </script>
 
-<div bind:clientWidth={width} class="w-full h-full overflow-hidden">
+<div bind:clientWidth={width} class="w-full h-full overflow-hidden relative">
 	{#if width && height}
 		<Svelvet {nodes} {width} {edges} {height} bgColor="rgb(249 250 251)" />
 	{/if}

@@ -15,21 +15,21 @@
 	let stepDetail: FlowModule | undefined = undefined
 </script>
 
-<div class="flex flex-col h-full">
-	<div class="h-full w-full border border-gray-700" class:overflow-auto={overflowAuto}>
+<div class="grid grid-cols-3 w-full h-full">
+	<div class="h-full col-span-2 w-full border border-gray-700" class:overflow-auto={overflowAuto}>
 		<FlowGraph
 			modules={flow?.value?.modules}
 			failureModule={flow?.value?.failure_module}
 			on:click={(e) => (stepDetail = e.detail)}
 		/>
 	</div>
-	<div class="w-full border-l border-r border-b border-gray-700 min-h-[150px] p-2">
+	<div class="w-full border-r border-b border-t border-gray-700 min-h-[150px] p-2 overflow-auto">
 		{#if stepDetail == undefined}
 			<span class="font-black text-lg w-full my-4">
 				<span>Click on a step to see its details</span>
 			</span>
 		{:else}
-			<div class="font-black text-lg w-full mb-2 "
+			<div class="font-black text-lg w-full mb-6"
 				>Step {stepDetail.id ?? ''}<span class="ml-2 font-normal">{stepDetail.summary || ''}</span
 				></div
 			>
@@ -37,7 +37,7 @@
 				<div> An identity step return as output its input </div>
 			{:else if stepDetail.value.type == 'rawscript'}
 				<div class="text-2xs mb-4">
-					<h3>Step Inputs</h3>
+					<h3 class="mb-2">Step Inputs</h3>
 					<InputTransformsViewer
 						inputTransforms={stepDetail?.value?.input_transforms ??
 							stepDetail?.input_transforms ??
@@ -45,7 +45,7 @@
 					/>
 				</div>
 
-				<h3>Code</h3>
+				<h3 class="mb-2">Code</h3>
 				<HighlightCode language={stepDetail.value.language} code={stepDetail.value.content} />
 			{:else if stepDetail.value.type == 'script'}
 				<div class="mb-4">
@@ -59,7 +59,7 @@
 					</a>
 				</div>
 				<div class="text-2xs mb-4">
-					<h3>Step Inputs</h3>
+					<h3 class="mb-2">Step Inputs</h3>
 					<InputTransformsViewer
 						inputTransforms={stepDetail?.value?.input_transforms ??
 							stepDetail?.input_transforms ??
