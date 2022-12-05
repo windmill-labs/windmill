@@ -7,7 +7,7 @@
 </script>
 
 <script lang="ts">
-	import { canWrite, emptySchema, sendUserToast, truncate } from '$lib/utils'
+	import { canWrite, emptySchema, removeMarkdown, sendUserToast, truncate } from '$lib/utils'
 	import { OauthService, ResourceService, type ListableResource } from '$lib/gen'
 	import type { ResourceType } from '$lib/gen'
 	import PageHeader from '$lib/components/PageHeader.svelte'
@@ -48,6 +48,7 @@
 	import { Building } from 'svelte-lucide'
 	import ListFilters from '$lib/components/home/ListFilters.svelte'
 	import SearchItems from '$lib/components/SearchItems.svelte'
+	import autosize from 'svelte-autosize'
 
 	type ResourceW = ListableResource & { canWrite: boolean }
 	type ResourceTypeW = ResourceType & { canWrite: boolean }
@@ -243,7 +244,12 @@
 			</label>
 			<label>
 				<div class="mb-1 font-semibold text-gray-700">Description</div>
-				<input type="text" bind:value={newResourceType.description} /></label
+				<textarea
+					type="text"
+					use:autosize
+					autocomplete="off"
+					bind:value={newResourceType.description}
+				/></label
 			>
 			<div>
 				<div class="mb-1 font-semibold text-gray-700">Schema</div>
@@ -349,7 +355,7 @@
 									>
 									<td
 										><span class="text-gray-500 text-xs"
-											><SvelteMarkdown source={truncate(description ?? '', 30)} /></span
+											>{removeMarkdown(truncate(description ?? '', 30))}</span
 										></td
 									>
 									<td class="text-center">
@@ -525,7 +531,7 @@
 									>
 									<td
 										><span class="text-gray-500 text-xs"
-											><SvelteMarkdown source={truncate(description ?? '', 200)} /></span
+											>{removeMarkdown(truncate(description ?? '', 200))}</span
 										></td
 									>
 									<td>
