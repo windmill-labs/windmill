@@ -73,7 +73,7 @@
 				: []
 		) ?? []
 
-	$: innerModules && updateInnerModules()
+	$: innerModules && localFlowModuleStates && updateInnerModules()
 
 	function updateInnerModules() {
 		innerModules.forEach((module, i) => {
@@ -83,8 +83,10 @@
 					FlowStatusModule.type.SUCCESS
 			) {
 				localFlowModuleStates[module.id ?? ''] = { type: module.type }
-			} else if (module.type === FlowStatusModule.type.WAITING_FOR_EXECUTOR) {
-				console.log(module.job)
+			} else if (
+				module.type === FlowStatusModule.type.WAITING_FOR_EXECUTOR &&
+				localFlowModuleStates[module.id ?? '']?.scheduled_for == undefined
+			) {
 				JobService.getJob({
 					workspace: $workspaceStore ?? '',
 					id: module.job ?? ''
