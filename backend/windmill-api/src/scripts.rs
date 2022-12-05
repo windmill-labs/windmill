@@ -337,7 +337,7 @@ async fn create_script(
             tx,
             &w_id,
             windmill_queue::JobPayload::Dependencies { hash, dependencies, language: ns.language },
-            None,
+            serde_json::Map::new(),
             &authed.username,
             owner_to_token_owner(&authed.username, false),
             None,

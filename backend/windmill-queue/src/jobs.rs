@@ -243,7 +243,7 @@ pub async fn push<'c>(
     mut tx: Transaction<'c, Postgres>,
     workspace_id: &str,
     job_payload: JobPayload,
-    args: Option<serde_json::Map<String, serde_json::Value>>,
+    args: serde_json::Map<String, serde_json::Value>,
     user: &str,
     permissioned_as: String,
     scheduled_for_o: Option<chrono::DateTime<chrono::Utc>>,
@@ -253,7 +253,7 @@ pub async fn push<'c>(
     mut same_worker: bool,
 ) -> Result<(Uuid, Transaction<'c, Postgres>), Error> {
     let scheduled_for = scheduled_for_o.unwrap_or_else(chrono::Utc::now);
-    let args_json = args.map(serde_json::Value::Object);
+    let args_json = serde_json::Value::Object(args);
     let job_id: Uuid = Ulid::new().into();
 
     let premium_workspace =
