@@ -26,4 +26,4 @@
 	$: lang = getLang(language)
 </script>
 
-<Highlight language={lang} {code} />
+<Highlight className="nowrap {$$props.class}" language={lang} {code} />

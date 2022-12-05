@@ -285,7 +285,6 @@ const config = {
 					fontFamily: theme('fontFamily.mono'),
 					fontSize: theme('fontSize.sm') + ' !important',
 					lineHeight: theme('lineHeight.4') + ' !important',
-					whiteSpace: 'pre-wrap'
 				}
 			})
 			addComponents({

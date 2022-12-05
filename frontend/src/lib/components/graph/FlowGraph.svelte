@@ -32,7 +32,7 @@
 
 	let selectedNode: string | undefined = undefined
 
-	const idGenerator = createIdGenerator()
+	let idGenerator: Generator
 	let nestedNodes: NestedNodes
 	let nodes: Node[] = []
 	let edges: Edge[] = []
@@ -43,6 +43,7 @@
 	$: {
 		width && height && minHeight && selectedNode && flowModuleStates
 		if (modules) {
+			idGenerator = createIdGenerator()
 			createGraph(modules, failureModule)
 		} else {
 			nodes = edges = []
@@ -181,6 +182,7 @@
 		}
 		const wrapperWidth = lang ? 'w-[calc(100%-70px)]' : 'w-[calc(100%-50px)]'
 		const graphId = idGenerator.next().value
+		let nodeId = onClickDetail.id ?? numberToChars(graphId - 1)
 		return {
 			id: graphId,
 			position: { x: -1, y: -1 },
@@ -199,22 +201,22 @@
 					</div>
 				</div>
 				<div class="text-2xs absolute -top-6 text-gray-600 truncate">${
-					flowModuleStates?.[onClickDetail.id]?.scheduled_for ?? ''
+					flowModuleStates?.[nodeId]?.scheduled_for ?? ''
 				}<div>
 			`
 			},
 			host,
 			width: NODE.width,
 			height: NODE.height,
-			borderColor: selectedNode == onClickDetail.id ? 'black' : '#999',
-			bgColor:
-				selectedNode == onClickDetail.id
-					? '#f5f5f5'
-					: getStateColor(flowModuleStates?.[onClickDetail.id]?.type),
+			borderColor: selectedNode == nodeId ? 'black' : '#999',
+			bgColor: selectedNode == nodeId ? '#f5f5f5' : getStateColor(flowModuleStates?.[nodeId]?.type),
 			parentIds,
 			clickCallback: (node) => {
 				if (!notSelectable) {
-					selectedNode = onClickDetail.id
+					selectedNode = nodeId
+				}
+				if (onClickDetail.id == undefined) {
+					onClickDetail.id = numberToChars(graphId - 1)
 				}
 				dispatch('click', onClickDetail)
 			},

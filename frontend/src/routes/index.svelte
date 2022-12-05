@@ -77,7 +77,7 @@
 	</DrawerContent>
 </Drawer>
 
-<Drawer bind:this={flowViewer} size="900px">
+<Drawer bind:this={flowViewer} size="1200px">
 	<DrawerContent title="Hub flow" on:close={flowViewer.closeDrawer}>
 		<svelte:fragment slot="actions">
 			<Button
