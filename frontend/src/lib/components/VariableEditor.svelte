@@ -229,15 +229,14 @@
 				/>
 			</div>
 		</div>
-		<div slot="submission">
+		<svelte:fragment slot="actions">
 			<Button
 				on:click={() => (edit ? updateVariable() : createVariable())}
 				disabled={!can_write || !valid || pathError != ''}
-				btnClasses="mr-2"
 				startIcon={{ icon: faSave }}
 			>
 				{edit ? 'Update' : 'Save'}
 			</Button>
-		</div>
+		</svelte:fragment>
 	</DrawerContent>
 </Drawer>

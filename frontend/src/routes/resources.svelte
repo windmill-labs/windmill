@@ -211,46 +211,44 @@
 
 <Drawer bind:this={resourceTypeDrawer} size="800px">
 	<DrawerContent title="Create resource type" on:close={resourceTypeDrawer.closeDrawer}>
-		<div>
-			<div class="flex flex-col gap-6">
-				<label for="inp">
-					<div class="mb-1 font-semibold text-gray-700">Name<Required required={true} /></div>
-					<div class="flex flex-row items-center gap-x-4">
-						{#if !disableCustomPrefix}
-							<span
-								class="border border-gray-700 rounded p-1 -mr-6 text-sm bg-gray-200 inline-block w-8"
-								>c_</span
-							>
-						{/if}
-
-						<div class="inline-block">
-							<input id="inp" type="text" bind:value={newResourceType.name} />
-						</div>
-
-						{#if $userStore?.is_admin || $superadmin}
-							<Toggle
-								bind:checked={disableCustomPrefix}
-								options={{ right: 'disable c_ prefix (admin only)' }}
-							/>
-							<Tooltip
-								>Resource types are synchronized with the official types on the hub regularly. The
-								`c_` prefix is to avoid name clashes with them.</Tooltip
-							>
-						{/if}
-					</div>
-				</label>
-				<label>
-					<div class="mb-1 font-semibold text-gray-700">Description</div>
-					<input type="text" bind:value={newResourceType.description} /></label
-				>
-				<div>
-					<div class="mb-1 font-semibold text-gray-700">Schema</div>
-					<SchemaEditor bind:schema={newResourceType.schema} />
-				</div>
-			</div>
-		</div>
-		<div slot="submission">
+		<svelte:fragment slot="submission">
 			<Button startIcon={{ icon: faSave }} on:click={addResourceType}>Save</Button>
+		</svelte:fragment>
+		<div class="flex flex-col gap-6">
+			<label for="inp">
+				<div class="mb-1 font-semibold text-gray-700">Name<Required required={true} /></div>
+				<div class="flex flex-row items-center gap-x-4">
+					{#if !disableCustomPrefix}
+						<span
+							class="border border-gray-700 rounded p-1 -mr-6 text-sm bg-gray-200 inline-block w-8"
+							>c_</span
+						>
+					{/if}
+
+					<div class="inline-block">
+						<input id="inp" type="text" bind:value={newResourceType.name} />
+					</div>
+
+					{#if $userStore?.is_admin || $superadmin}
+						<Toggle
+							bind:checked={disableCustomPrefix}
+							options={{ right: 'disable c_ prefix (admin only)' }}
+						/>
+						<Tooltip
+							>Resource types are synchronized with the official types on the hub regularly. The
+							`c_` prefix is to avoid name clashes with them.</Tooltip
+						>
+					{/if}
+				</div>
+			</label>
+			<label>
+				<div class="mb-1 font-semibold text-gray-700">Description</div>
+				<input type="text" bind:value={newResourceType.description} /></label
+			>
+			<div>
+				<div class="mb-1 font-semibold text-gray-700">Schema</div>
+				<SchemaEditor bind:schema={newResourceType.schema} />
+			</div>
 		</div>
 	</DrawerContent>
 </Drawer>

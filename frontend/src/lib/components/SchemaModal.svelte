@@ -200,15 +200,16 @@
 			{/if}
 		</div>
 
-		<button
-			disabled={!property.name || !property.selectedType || error != ''}
-			slot="submission"
-			class="px-4 py-2 text-white font-semibold bg-blue-500 rounded"
-			on:click={() => {
-				dispatch('save')
-			}}
-		>
-			Save
-		</button>
+		<svelte:fragment slot="actions">
+			<Button
+				color="blue"
+				disabled={!property.name || !property.selectedType || error != ''}
+				on:click={() => {
+					dispatch('save')
+				}}
+			>
+				Save
+			</Button>
+		</svelte:fragment>
 	</DrawerContent>
 </Drawer>
