@@ -101,7 +101,7 @@
 </Drawer>
 
 <div bind:clientHeight>
-	<CenteredPage>
+	<div class="max-w-6xl mx-auto px-4 sm:px-6 md:px-8 h-fit-content">
 		{#if $workspaceStore == 'demo'}
 			<div class="my-4" />
 			<Alert title="Demo workspace">All users get an invitation to this workspace.</Alert>
@@ -152,7 +152,7 @@
 				{/if}
 			</div>
 		</div>
-	</CenteredPage>
+	</div>
 </div>
 
 {#if tab == 'workspace'}
