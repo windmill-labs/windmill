@@ -13,7 +13,7 @@ import push from "./push.ts";
 import pull from "./pull.ts";
 import hub from "./hub.ts";
 
-const VERSION = "v1.52.0";
+const VERSION = "v1.53.0";
 
 const command = new Command()
   .name("wmill")
