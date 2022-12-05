@@ -172,12 +172,14 @@
 				</div>
 			</div>
 		</div>
-		<span slot="submission" class="flex gap-4 mr-2">
+		<svelte:fragment slot="actions">
 			<Button
 				startIcon={{ icon: faSave }}
 				on:click={editResource}
-				disabled={!can_write || !isValid || jsonError != ''}>Save</Button
+				disabled={!can_write || !isValid || jsonError != ''}
 			>
-		</span>
+				Save
+			</Button>
+		</svelte:fragment>
 	</DrawerContent>
 </Drawer>

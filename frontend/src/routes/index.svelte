@@ -36,13 +36,13 @@
 		codeViewerContent = content
 		codeViewerLanguage = language
 		codeViewerObj = obj
-		codeViewer.openDrawer()
+		codeViewer.openDrawer?.()
 	}
 
 	async function viewFlow(obj: { flow_id: number }): Promise<void> {
 		const hub = await FlowService.getHubFlowById({ id: obj.flow_id })
 		flowViewerFlow = hub
-		flowViewer.openDrawer()
+		flowViewer.openDrawer?.()
 	}
 
 	$: clientHeight = 0
@@ -50,15 +50,15 @@
 
 <Drawer bind:this={codeViewer} size="900px">
 	<DrawerContent title={codeViewerObj?.summary ?? ''} on:close={codeViewer.closeDrawer}>
-		<div slot="submission">
+		<svelte:fragment slot="actions">
 			<Button
 				href="https://hub.windmill.dev/scripts/{codeViewerObj?.app ?? ''}/{codeViewerObj?.ask_id ??
 					0}"
 				variant="contained"
 				color="light"
-				size="sm"
+				size="xs"
 			>
-				<div class="flex gap-2 items-center my-1">
+				<div class="flex gap-2 items-center">
 					<Globe2 size="18px" />
 					View on the Hub
 				</div>
@@ -67,30 +67,40 @@
 				href="/scripts/add?hub={encodeURIComponent(codeViewerObj?.path ?? '')}"
 				startIcon={{ icon: faCodeFork }}
 				color="dark"
-				size="sm"
+				size="xs"
 			>
 				Fork
 			</Button>
-		</div>
+		</svelte:fragment>
 
 		<HighlightCode language={codeViewerLanguage} code={codeViewerContent} />
 	</DrawerContent>
 </Drawer>
 
 <Drawer bind:this={flowViewer} size="900px">
-	<DrawerContent title="Hub flow" on:close={flowViewer.closeDrawer} noPadding>
-		<div slot="submission" class="flex flex-row gap-2 pr-2">
+	<DrawerContent title="Hub flow" on:close={flowViewer.closeDrawer}>
+		<svelte:fragment slot="actions">
 			<Button
 				href="https://hub.windmill.dev/flows/{flowViewerFlow?.flow?.id}"
-				startIcon={{ icon: faGlobe }}
-				variant="border"
+				variant="contained"
+				color="light"
+				size="xs"
 			>
-				View on the Hub
+				<div class="flex gap-2 items-center">
+					<Globe2 size="18px" />
+					View on the Hub
+				</div>
 			</Button>
-			<Button href="/flows/add?hub={flowViewerFlow?.flow?.id}" startIcon={{ icon: faCodeFork }}>
+
+			<Button
+				href="/flows/add?hub={flowViewerFlow?.flow?.id}"
+				startIcon={{ icon: faCodeFork }}
+				color="dark"
+				size="xs"
+			>
 				Fork
 			</Button>
-		</div>
+		</svelte:fragment>
 
 		{#if flowViewerFlow?.flow}
 			<div class="p-4">
