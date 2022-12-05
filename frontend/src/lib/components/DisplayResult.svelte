@@ -3,6 +3,8 @@
 	import { json } from 'svelte-highlight/languages'
 	import TableCustom from './TableCustom.svelte'
 	import { truncate } from '$lib/utils'
+	import { Button } from './common'
+	import autosize from 'svelte-autosize'
 
 	export let result: any
 
@@ -15,6 +17,7 @@
 		| 'jpeg'
 		| 'gif'
 		| 'error'
+		| 'approval'
 		| undefined = inferResultKind(result)
 
 	let forceJson = false
@@ -57,11 +60,19 @@
 					return 'file'
 				} else if (keys.length == 1 && keys[0] == 'error' && typeof result['error'] == 'string') {
 					return 'error'
+				} else if (
+					keys.length == 3 &&
+					keys.includes('resume') &&
+					keys.includes('cancel') &&
+					keys.includes('approvalPage')
+				) {
+					return 'approval'
 				}
 			} catch (err) {}
 		}
 		return 'json'
 	}
+	let payload = ''
 </script>
 
 <div class="inline-highlight">
@@ -131,6 +142,31 @@
 			</div>
 		{:else if !forceJson && resultKind == 'error'}<div
 				><pre class="text-sm text-red-500 whitespace-pre-wrap">{result.error}</pre>
+			</div>
+		{:else if !forceJson && resultKind == 'approval'}<div class="flex flex-col gap-1 mx-4">
+				<Button
+					color="green"
+					variant="border"
+					on:click={() =>
+						fetch(result['resume'], {
+							method: 'POST',
+							body: JSON.stringify(payload),
+							headers: { 'Content-Type': 'application/json' }
+						})}
+				>
+					Resume</Button
+				>
+				<Button color="red" variant="border" on:click={() => fetch(result['cancel'])}>Cancel</Button
+				>
+				<div>
+					<h3>Payload</h3>
+					<div class="border border-black">
+						<input type="text" bind:value={payload} use:autosize />
+					</div>
+				</div>
+				<div class="center-center"
+					><a rel="noreferrer" target="_blank" href={result['approvalPage']}>Approval Page</a></div
+				>
 			</div>
 		{:else}<Highlight
 				language={json}

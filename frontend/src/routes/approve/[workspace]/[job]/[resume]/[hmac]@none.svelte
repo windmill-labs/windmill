@@ -9,6 +9,7 @@
 	import { onDestroy, onMount } from 'svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import FlowGraph from '$lib/components/graph/FlowGraph.svelte'
+	import autosize from 'svelte-autosize'
 
 	let job: Job | undefined = undefined
 	let currentApprovers: { resume_id: number; approver: string }[] = []
@@ -22,6 +23,7 @@
 
 	let timeout: NodeJS.Timer | undefined = undefined
 	let error: string | undefined = undefined
+	let payload = ''
 
 	getJob()
 
@@ -69,7 +71,7 @@
 			resumeId: new Number($page.params.resume).valueOf(),
 			signature: $page.params.hmac,
 			approver,
-			requestBody: {}
+			requestBody: payload
 		})
 		sendUserToast('Flow approved')
 		getJob()
@@ -159,6 +161,10 @@
 				size="md"
 				disabled={completed || alreadyResumed}>Approve/Resume</Button
 			>
+		</div>
+		<div>
+			<h3>Payload (optional)</h3>
+			<input type="text" bind:value={payload} use:autosize />
 		</div>
 
 		<div class="mt-4 flex flex-row flex-wrap justify-between"
