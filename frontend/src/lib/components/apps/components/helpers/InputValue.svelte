@@ -10,7 +10,7 @@
 
 	const { worldStore } = getContext<AppEditorContext>('AppEditorContext')
 
-	$: $worldStore && handleConnection()
+	$: input && $worldStore && handleConnection()
 
 	function handleConnection() {
 		if (input.type === 'output') {
