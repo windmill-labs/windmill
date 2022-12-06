@@ -1,4 +1,4 @@
-import type { Aligned } from "../../types"
+import type { Aligned } from '../../types'
 
 const defaultProps = {
 	inputs: {},

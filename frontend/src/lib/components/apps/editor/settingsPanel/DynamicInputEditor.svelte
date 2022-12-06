@@ -13,14 +13,10 @@
 			input.id = $connectingInput.input.id
 			input.name = $connectingInput.input.name
 
-			// TODO: CHeck whether types are ok
-
-			// TODO: Check whether this is needed
-			$selectedComponent = $selectedComponent
-
 			$connectingInput = {
 				opened: false,
-				input: undefined
+				input: undefined,
+				sourceName: undefined
 			}
 		}
 	}
@@ -64,7 +60,8 @@
 		on:click={() => {
 			$connectingInput = {
 				opened: true,
-				input: undefined
+				input: undefined,
+				sourceName: input.name
 			}
 		}}
 	>

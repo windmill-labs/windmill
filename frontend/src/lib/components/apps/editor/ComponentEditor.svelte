@@ -6,35 +6,32 @@
 	import TableComponent from '../components/dataDisplay/AppTable.svelte'
 	import TextComponent from '../components/dataDisplay/AppText.svelte'
 	import type { AppComponent, AppEditorContext } from '../types'
-	import { displayData } from '../utils'
 	import ButtonComponent from '../components/buttons/AppButton.svelte'
 	import PieChartComponent from '../components/dataDisplay/AppPieChart.svelte'
 	import CheckboxComponent from '../components/selectInputs/AppCheckbox.svelte'
+	import ComponentHeader from './ComponentHeader.svelte'
 
 	export let component: AppComponent
 	export let selected: boolean
 
-	const { staticOutputs, mode } = getContext<AppEditorContext>('AppEditorContext')
+	$: shouldDisplayOverlay = selected && $mode !== 'preview'
+
+	const { staticOutputs, mode, connectingInput } = getContext<AppEditorContext>('AppEditorContext')
 </script>
 
 <div class="h-full flex flex-col w-full">
-	{#if selected}
-		<span
-			class={classNames(
-				'text-white px-1 text-2xs py-0.5 font-bold rounded-t-sm w-fit absolute -top-5',
-				selected ? 'bg-indigo-500' : 'bg-gray-500'
-			)}
-		>
-			{displayData[component.type].name} - {component.id}
-		</span>
+	{#if shouldDisplayOverlay}
+		<ComponentHeader {component} {selected} />
 	{/if}
 
 	<div
 		class={classNames(
 			' border overflow-auto cursor-pointer  h-full bg-white',
-			selected ? 'border-blue-500' : 'border-white',
-			$mode === 'preview' ? 'border-white' : 'hover:border-blue-500',
-			component.card ? 'p-2' : ''
+			shouldDisplayOverlay ? 'border-blue-500' : 'border-white',
+			!selected && $mode !== 'preview' && !component.card ? 'border-gray-100' : '',
+			$mode !== 'preview' && !$connectingInput.opened ? 'hover:border-blue-500' : '',
+			component.card ? 'p-2' : '',
+			'relative'
 		)}
 	>
 		{#if component.type === 'displaycomponent'}

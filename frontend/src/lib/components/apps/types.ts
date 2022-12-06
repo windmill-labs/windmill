@@ -158,6 +158,7 @@ export type App = {
 export type ConnectingInput<T, V> = {
 	opened: boolean
 	input?: DynamicInput<T, V>
+	sourceName?: string
 }
 
 export type AppEditorContext = {

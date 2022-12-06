@@ -57,6 +57,7 @@ export function buildObservableWorld() {
 					next: () => {}
 				}
 			}
+
 			obs.subscribe(input)
 			return input
 		} else if (inputSpec.type === 'user') {
@@ -82,6 +83,7 @@ export function buildObservableWorld() {
 }
 export function cachedInput<T>(nextParan: (x: T) => void): Input<T> {
 	let value: T | undefined = undefined
+
 	function peak(): T | undefined {
 		return value
 	}
@@ -104,12 +106,18 @@ export function settableOutput<T>(): Output<T> {
 	function subscribe(x: Subscriber<T>) {
 		if (!subscribers.includes(x)) {
 			subscribers.push(x)
+
+			// Send the current value to the new subscriber if it already exists
+			if (value !== undefined) {
+				x.next(value)
+			}
 		}
 	}
 
 	function set(x: T, force: boolean = false) {
 		if (value != x || force) {
 			value = x
+
 			subscribers.forEach((x) => x.next(value!))
 		}
 	}

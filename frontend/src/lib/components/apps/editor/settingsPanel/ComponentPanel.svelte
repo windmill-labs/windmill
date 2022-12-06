@@ -153,9 +153,7 @@
 		{/if}
 
 		{#if Object.values(component.componentInputs).length > 0}
-			<PanelSection
-				title={`Component parameters (${Object.values(component.componentInputs).length})`}
-			>
+			<PanelSection title={`Configuration (${Object.values(component.componentInputs).length})`}>
 				<InputsSpecsEditor bind:inputSpecs={component.componentInputs} userInputEnabled={false} />
 			</PanelSection>
 		{/if}

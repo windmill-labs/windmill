@@ -8,6 +8,7 @@
 
 	export let inputSpecs: InputsSpec
 	export let userInputEnabled: boolean = true
+	export let staticOnly: boolean = true
 
 	let openedProp: string | undefined = Object.keys(inputSpecs)[0]
 
@@ -72,27 +73,29 @@
 			</div>
 			{#if inputSpecKey === openedProp}
 				<div class="flex flex-col w-full gap-2 my-2">
-					<ToggleButtonGroup
-						bind:selected={inputSpecs[inputSpecKey].type}
-						on:selected={({ detail }) => sanitizeInputSpec(detail, inputSpecKey)}
-					>
-						<ToggleButton position="left" value="static" startIcon={{ icon: faBolt }} size="xs">
-							Static
-						</ToggleButton>
-						<ToggleButton
-							position={userInputEnabled ? 'center' : 'right'}
-							value="output"
-							startIcon={{ icon: faLink }}
-							size="xs"
+					{#if staticOnly}
+						<ToggleButtonGroup
+							bind:selected={inputSpecs[inputSpecKey].type}
+							on:selected={({ detail }) => sanitizeInputSpec(detail, inputSpecKey)}
 						>
-							Dynamic
-						</ToggleButton>
-						{#if userInputEnabled}
-							<ToggleButton position="right" value="user" startIcon={{ icon: faUser }} size="xs">
-								User
+							<ToggleButton position="left" value="static" startIcon={{ icon: faBolt }} size="xs">
+								Static
 							</ToggleButton>
-						{/if}
-					</ToggleButtonGroup>
+							<ToggleButton
+								position={userInputEnabled ? 'center' : 'right'}
+								value="output"
+								startIcon={{ icon: faLink }}
+								size="xs"
+							>
+								Dynamic
+							</ToggleButton>
+							{#if userInputEnabled}
+								<ToggleButton position="right" value="user" startIcon={{ icon: faUser }} size="xs">
+									User
+								</ToggleButton>
+							{/if}
+						</ToggleButtonGroup>
+					{/if}
 					<InputsSpecEditor
 						bind:appInputTransform={inputSpecs[inputSpecKey]}
 						canHide={userInputEnabled}

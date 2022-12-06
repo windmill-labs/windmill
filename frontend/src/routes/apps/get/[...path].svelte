@@ -42,7 +42,7 @@
 		</div>
 
 		<div class="border rounded-md p-2">
-			<AppPreview app={app.value} initialMode="preview" />
+			<AppPreview app={app.value} />
 		</div>
 	{/if}
 </CenteredPage>

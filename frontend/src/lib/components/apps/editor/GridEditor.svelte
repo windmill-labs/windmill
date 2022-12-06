@@ -5,10 +5,16 @@
 	import ComponentEditor from './ComponentEditor.svelte'
 	import { classNames } from '$lib/utils'
 	import { columnConfiguration, disableDrag, enableDrag } from '../gridUtils'
+	import { Alert } from '$lib/components/common'
+	import { fly } from 'svelte/transition'
 
-	const { selectedComponent, app, mode } = getContext<AppEditorContext>('AppEditorContext')
+	import Button from '$lib/components/common/button/Button.svelte'
 
-	$: if ($mode === 'preview') {
+	const { selectedComponent, app, mode, connectingInput } =
+		getContext<AppEditorContext>('AppEditorContext')
+
+	// The drag is disabled when the user is connecting an input
+	$: if ($mode === 'preview' || $connectingInput.opened) {
 		$app.grid.map((gridItem) => disableDrag(gridItem))
 	} else {
 		$app.grid.map((gridItem) => enableDrag(gridItem))
@@ -16,7 +22,10 @@
 </script>
 
 <!-- svelte-ignore a11y-click-events-have-key-events -->
-<div class="bg-white h-full" on:click|preventDefault={() => ($selectedComponent = undefined)}>
+<div
+	class="bg-white h-full relative"
+	on:click|preventDefault={() => ($selectedComponent = undefined)}
+>
 	<Grid bind:items={$app.grid} rowHeight={64} let:dataItem cols={columnConfiguration}>
 		{#each $app.grid as gridComponent (gridComponent.id)}
 			{#if gridComponent.data.id === dataItem.data.id}
@@ -28,7 +37,9 @@
 						gridComponent.data.card ? 'border border-gray-100' : ''
 					)}
 					on:click|preventDefault|stopPropagation={() => {
-						$selectedComponent = dataItem.data.id
+						if (!$connectingInput.opened) {
+							$selectedComponent = dataItem.data.id
+						}
 					}}
 				>
 					<ComponentEditor
@@ -39,6 +50,31 @@
 			{/if}
 		{/each}
 	</Grid>
+	{#if $connectingInput.opened}
+		<div
+			class="fixed top-32 left-0 w-full z-10 flex justify-center items-center"
+			transition:fly={{ duration: 100, y: -100 }}
+		>
+			<Alert title="Connecting" type="info">
+				<div class="flex gap-2 flex-col">
+					Click on the output of the component you want to connect to on the left panel.
+					<div>
+						<Button
+							color="blue"
+							variant="border"
+							size="xs"
+							on:click={() => {
+								$connectingInput.opened = false
+								$connectingInput.input = undefined
+							}}
+						>
+							Stop connecting</Button
+						>
+					</div>
+				</div>
+			</Alert>
+		</div>
+	{/if}
 </div>
 
 <style>
