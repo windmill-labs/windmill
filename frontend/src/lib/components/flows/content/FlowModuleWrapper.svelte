@@ -46,8 +46,8 @@
 				previousModule !== undefined ||
 				$selectedId == 'failure'}
 			on:pick={async ({ detail }) => {
-				const { path, summary, kind } = detail
-				const [module, state] = await pickScript(path, summary, flowModule.id)
+				const { path, summary, kind, hash } = detail
+				const [module, state] = await pickScript(path, summary, flowModule.id, hash)
 
 				if (kind == Script.kind.APPROVAL) {
 					module.suspend = { required_events: 1, timeout: 1800 }

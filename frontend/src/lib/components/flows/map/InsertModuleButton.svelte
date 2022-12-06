@@ -1,8 +1,9 @@
 <script lang="ts">
 	import { Menu } from '$lib/components/common'
-	import { faCode, faCodeBranch, faPlus, faRepeat } from '@fortawesome/free-solid-svg-icons'
+	import { faCode, faCodeBranch, faPlus } from '@fortawesome/free-solid-svg-icons'
 	import { createEventDispatcher } from 'svelte'
 	import Icon from 'svelte-awesome'
+	import { Repeat } from 'svelte-lucide'
 
 	const dispatch = createEventDispatcher()
 </script>
@@ -26,17 +27,20 @@
 			tabindex="-1"
 		>
 			<Icon data={faCode} scale={0.8} class="mr-1" />
-			Script or Module
+			Script
 		</button>
 		<button
-			class="w-full text-left p-2 hover:bg-gray-100"
+			class="w-full inline-flex gap-1 text-left p-2 hover:bg-gray-100"
 			on:click={() => {
 				close()
 				dispatch('new', 'forloop')
 			}}
 			role="menuitem"
 		>
-			<Icon data={faRepeat} scale={0.8} class="mr-1" />
+			<span>
+				<Repeat size="14px" />
+			</span>
+
 			For Loop
 		</button>
 

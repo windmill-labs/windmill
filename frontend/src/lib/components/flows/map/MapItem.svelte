@@ -7,17 +7,11 @@
 	import InsertModuleButton from './InsertModuleButton.svelte'
 	import FlowBranchOneMap from './FlowBranchOneMap.svelte'
 	import FlowBranchAllMap from './FlowBranchAllMap.svelte'
-	import {
-		faArrowRotateForward,
-		faBuilding,
-		faCode,
-		faCodeBranch,
-		faLongArrowDown,
-		faRepeat
-	} from '@fortawesome/free-solid-svg-icons'
+	import { faCodeBranch, faLongArrowDown } from '@fortawesome/free-solid-svg-icons'
 	import Icon from 'svelte-awesome'
 	import IconedResourceType from '$lib/components/IconedResourceType.svelte'
 	import LanguageIcon from '$lib/components/common/languageIcons/LanguageIcon.svelte'
+	import { Building, Repeat } from 'svelte-lucide'
 
 	export let mod: FlowModule
 
@@ -53,7 +47,7 @@
 				{...itemProps}
 			>
 				<div slot="icon">
-					<Icon data={faArrowRotateForward} scale={1.1} />
+					<Repeat size="16px" />
 				</div>
 			</FlowModuleSchemaItem>
 			<div class="flex flex-row w-full">
@@ -125,7 +119,7 @@
 								/>
 							</div>
 						{:else}
-							<Icon data={faBuilding} scale={1.1} />
+							<Building size="14px" />
 						{/if}
 					{/if}
 				</div>

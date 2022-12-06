@@ -212,9 +212,6 @@ export function charsToNumber(n: string): number {
 	return res - 1
 }
 
-export function isEmptyFlowModule(flowModule: FlowModule): boolean {
-	return flowModule.value.type === 'identity'
-}
 
 export async function findNextAvailablePath(path: string): Promise<string> {
 	try {
