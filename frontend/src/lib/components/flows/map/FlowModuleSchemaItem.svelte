@@ -54,7 +54,7 @@
 					<div class="bg-white rounded border text-gray-700 px-1">
 						<Icon scale={0.8} data={faStop} />
 					</div>
-					<span slot="text">Early Stop</span>
+					<span slot="text">Early Stop/Break</span>
 				</Popover>
 			{/if}
 			{#if sleep}

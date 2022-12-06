@@ -11,9 +11,9 @@
 	import { Button, Tab } from './common'
 	import DisplayResult from './DisplayResult.svelte'
 	import Tabs from './common/tabs/Tabs.svelte'
-	import { FlowGraph } from './graph'
+	import { FlowGraph, type GraphModuleState } from './graph'
 	import ModuleStatus from './ModuleStatus.svelte'
-	import { displayDate } from '$lib/utils'
+	import { displayDate, truncateRev } from '$lib/utils'
 
 	const dispatch = createEventDispatcher()
 
@@ -27,15 +27,10 @@
 		  }
 		| undefined = undefined
 	export let job: Job | undefined = undefined
-	export let flowModuleStates: Record<
-		string,
-		{ type: FlowStatusModule.type; logs?: string; result?: any; scheduled_for?: string }
-	> = {}
 
-	let localFlowModuleStates: Record<
-		string,
-		{ type: FlowStatusModule.type; logs?: string; result?: any; scheduled_for?: string }
-	> = {}
+	export let flowModuleStates: Record<string, GraphModuleState> = {}
+
+	let localFlowModuleStates: Record<string, GraphModuleState> = {}
 
 	let selectedNode: string | undefined = undefined
 
@@ -93,7 +88,8 @@
 				}).then((job) => {
 					localFlowModuleStates[module.id ?? ''] = {
 						type: module.type,
-						scheduled_for: 'scheduled for ' + displayDate(job?.['scheduled_for'], true)
+						scheduled_for: 'scheduled for ' + displayDate(job?.['scheduled_for'], true),
+						job_id: job?.id
 					}
 				})
 			}
@@ -228,15 +224,17 @@
 									if (e.detail.type == 'QueuedJob') {
 										localFlowModuleStates[flowJobIds.moduleId] = {
 											type: FlowStatusModule.type.IN_PROGRESS,
-											logs: e.detail.logs
+											logs: e.detail.logs,
+											job_id: e.detail.id
 										}
 									} else {
 										localFlowModuleStates[flowJobIds.moduleId] = {
 											type: e.detail.success
 												? FlowStatusModule.type.SUCCESS
 												: FlowStatusModule.type.FAILURE,
-											logs: e.detail.logs,
-											result: e.detail.result
+											logs: 'All jobs completed',
+											result: jobResults,
+											job_id: e.detail.id
 										}
 									}
 								}
@@ -299,7 +297,8 @@
 														? FlowStatusModule.type.SUCCESS
 														: FlowStatusModule.type.FAILURE,
 													logs: e.detail.logs,
-													result: e.detail.result
+													result: e.detail.result,
+													job_id: e.detail.id
 												}
 											}
 										}
@@ -333,21 +332,28 @@
 						failureModule={job.raw_flow?.failure_module}
 					/>
 				</div>
-				<div class="border-l border-gray-400">
+				<div class="border-l border-gray-400 pt-1">
 					{#if selectedNode}
-						{#if localFlowModuleStates[selectedNode]}
-							<div class="px-2">
-								<ModuleStatus
-									type={localFlowModuleStates[selectedNode]?.type}
-									scheduled_for={localFlowModuleStates[selectedNode]?.['scheduled_for']}
-								/>
+						{@const node = localFlowModuleStates[selectedNode]}
+						{#if node}
+							<div class="px-2 flex gap-2 min-w-0 ">
+								<ModuleStatus type={node.type} scheduled_for={node['scheduled_for']} />
+								{#if node.job_id}
+									<div class="truncate"
+										><div class=" text-gray-900 whitespace-nowrap truncate">
+											<span class="font-bold">Job Id</span>
+											<a
+												rel="noreferrer"
+												target="_blank"
+												href="/run/{node.job_id ?? ''}?workspace={job?.workspace_id}"
+											>
+												{truncateRev(node.job_id ?? '', 10) ?? ''}
+											</a>
+										</div>
+									</div>
+								{/if}
 							</div>
-							<FlowJobResult
-								noBorder
-								col
-								result={localFlowModuleStates[selectedNode].result ?? {}}
-								logs={localFlowModuleStates[selectedNode].logs ?? ''}
-							/>
+							<FlowJobResult noBorder col result={node.result ?? {}} logs={node.logs ?? ''} />
 						{:else}
 							<p class="p-2 text-gray-600 italic"
 								>The execution of this node has no information attached to it. The job likely did

@@ -13,7 +13,8 @@
 		type Loop,
 		type Branch,
 		type NestedNodes,
-		type ModuleHost
+		type ModuleHost,
+		type GraphModuleState
 	} from '.'
 	import { defaultIfEmptyString, truncateRev } from '$lib/utils'
 	import { createEventDispatcher } from 'svelte'
@@ -23,12 +24,7 @@
 	export let failureModule: FlowModule | undefined = undefined
 	export let minHeight: number = 0
 	export let notSelectable = false
-	export let flowModuleStates:
-		| Record<
-				string,
-				{ type: FlowStatusModule.type; logs?: string; result?: any; scheduled_for?: string }
-		  >
-		| undefined = undefined
+	export let flowModuleStates: Record<string, GraphModuleState> | undefined = undefined
 
 	let selectedNode: string | undefined = undefined
 

@@ -223,7 +223,7 @@
 								<Tabs bind:selected>
 									<Tab value="advanced-retries">Retries</Tab>
 									{#if !$selectedId.includes('failure')}
-										<Tab value="advanced-early-stop">Early Stop</Tab>
+										<Tab value="advanced-early-stop">Early Stop/Break</Tab>
 										<Tab value="advanced-suspend">Suspend</Tab>
 										<Tab value="advanced-sleep">Sleep</Tab>
 										<Tab value="advanced-same_worker">Shared Directory</Tab>
