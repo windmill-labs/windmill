@@ -4,7 +4,7 @@ import { FlowService, Script, ScriptService, type Flow, type FlowModule, type Us
 import { toast } from '@zerodevx/svelte-toast'
 import { get } from 'svelte/store'
 import type { Schema, SupportedLanguage } from './common'
-import { hubScripts, workspaceStore, type UserExt } from './stores'
+import { hubScripts, superadmin, workspaceStore, type UserExt } from './stores'
 
 export function validateUsername(username: string): string {
 	if (username != '' && !/^\w+$/.test(username)) {
@@ -42,7 +42,7 @@ export function displayDaysAgo(dateString: string): string {
 	} else {
 		let dAgo = daysAgo(date)
 		if (dAgo == 0) {
-			return `yday at ${date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
+			return `yesterday at ${date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
 		} else if (dAgo > 7) {
 			return `${dAgo + 1} days ago at ${date.toLocaleTimeString([], {
 				hour: '2-digit',
@@ -54,13 +54,13 @@ export function displayDaysAgo(dateString: string): string {
 	}
 }
 
-export function displayDate(dateString: string | undefined): string {
+export function displayDate(dateString: string | undefined, displaySecond = false): string {
 	const date = new Date(dateString ?? '')
 	if (date.toString() === 'Invalid Date') {
 		return ''
 	} else {
 		return `${date.getFullYear()}/${date.getMonth() + 1
-			}/${date.getDate()} at ${date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
+			}/${date.getDate()} at ${date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: displaySecond ? '2-digit' : undefined })}`
 	}
 }
 
@@ -179,7 +179,7 @@ export function canWrite(
 	if (!user) {
 		return false
 	}
-	if (user.is_admin) {
+	if (user.is_admin || get(superadmin)) {
 		return true
 	}
 	let userOwner = `u/${user.username}`
@@ -294,6 +294,9 @@ export function groupBy<T>(
 	})
 }
 
+export function removeMarkdown(text: string): string {
+	return text.replace(/[[\*|\-|#\_]/g, '')
+}
 export function truncate(s: string, n: number, suffix: string = '...'): string {
 	if (!s) {
 		return ''

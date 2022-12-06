@@ -46,7 +46,6 @@ pub struct ExportableListableVariable {
     pub account: Option<i32>,
     pub is_oauth: Option<bool>,
     pub is_expired: Option<bool>,
-    pub is_linked: Option<bool>,
 }
 
 #[derive(Deserialize)]

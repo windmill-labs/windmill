@@ -29,7 +29,7 @@
 			<Tabs selected={defaultTab}>
 				<Tab value="metadata">Metadata</Tab>
 				<Tab value="schedule">Schedule</Tab>
-				<Tab value="same-worker">Same Worker</Tab>
+				<Tab value="same-worker">Shared Directory</Tab>
 				<Tab value="graph">Graph</Tab>
 
 				<svelte:fragment slot="content">
@@ -84,19 +84,16 @@
 					</TabContent>
 
 					<TabContent value="same-worker" class="p-4 flex flex-col">
-						<Alert
-							type="info"
-							title="Toggle Same Worker to have all steps be ran on the same worker"
-						>
-							Steps will be run one after the other on the same worker, and will share a folder at
-							`./shared` in which they can store heavier data and pass them to the next step. <br
-							/><br />Beware that the `./shared` folder is not preserved across suspends and sleeps.
+						<Alert type="info" title="Shared Directory">
+							Steps will share a folder at `./shared` in which they can store heavier data and pass
+							them to the next step. <br /><br />Beware that the `./shared` folder is not preserved
+							across suspends and sleeps.
 						</Alert>
-						<span class="my-2 text-sm font-bold">Same Worker</span>
+						<span class="my-2 text-sm font-bold">Shared Directoryr</span>
 						<Toggle
 							bind:checked={$flowStore.value.same_worker}
 							options={{
-								right: 'Same Worker'
+								right: 'Shared Directory on `./shared`'
 							}}
 						/>
 					</TabContent>

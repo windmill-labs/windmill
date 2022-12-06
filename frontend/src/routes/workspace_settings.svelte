@@ -7,7 +7,6 @@
 </script>
 
 <script lang="ts">
-	import Fuse from 'fuse.js'
 	import {
 		UserService,
 		type WorkspaceInvite,
@@ -18,32 +17,26 @@
 	import type { User } from '$lib/gen'
 	import { sendUserToast, msToSec } from '$lib/utils'
 	import PageHeader from '$lib/components/PageHeader.svelte'
-	import { userStore, usersWorkspaceStore, workspaceStore } from '$lib/stores'
+	import { superadmin, userStore, usersWorkspaceStore, workspaceStore } from '$lib/stores'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
 	import { faSlack } from '@fortawesome/free-brands-svg-icons'
 	import TableCustom from '$lib/components/TableCustom.svelte'
 	import { goto } from '$app/navigation'
 	import InviteUser from '$lib/components/InviteUser.svelte'
 	import ScriptPicker from '$lib/components/ScriptPicker.svelte'
-	import { Button } from '$lib/components/common'
+	import { Button, Skeleton } from '$lib/components/common'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import { faScroll, faWind } from '@fortawesome/free-solid-svg-icons'
+	import SearchItems from '$lib/components/SearchItems.svelte'
 
-	let users: User[] = []
+	let users: User[] | undefined = undefined
 	let invites: WorkspaceInvite[] = []
-	let filteredUsers: User[] | undefined
+	let filteredUsers: User[] | undefined = undefined
 	let userFilter = ''
 	let scriptPath: string
+	let initialPath: string
 	let team_name: string | undefined
 	let itemKind: 'flow' | 'script' = 'flow'
-
-	const fuseOptions = {
-		includeScore: false,
-		keys: ['username', 'email']
-	}
-
-	const fuse: Fuse<User> = new Fuse(users, fuseOptions)
-	$: filteredUsers = fuse?.search(userFilter).map((value) => value.item)
 
 	// function getDropDownItems(username: string): DropdownItem[] {
 	// 	return [
@@ -81,12 +74,12 @@
 	async function loadSlack(): Promise<void> {
 		const settings = await WorkspaceService.getSettings({ workspace: $workspaceStore! })
 		team_name = settings.slack_name
-		scriptPath = settings.slack_command_script ?? ''
+		scriptPath = (settings.slack_command_script ?? '').split('/').slice(1).join('/')
+		initialPath = scriptPath
 	}
 
 	async function listUsers(): Promise<void> {
 		users = await UserService.listUsers({ workspace: $workspaceStore! })
-		fuse?.setCollection(users)
 	}
 
 	async function listInvites(): Promise<void> {
@@ -102,8 +95,15 @@
 	}
 </script>
 
+<SearchItems
+	filter={userFilter}
+	items={users}
+	bind:filteredItems={filteredUsers}
+	f={(x) => x.email + ' ' + x.name + ' ' + x.company}
+/>
+
 <CenteredPage>
-	{#if $userStore?.is_admin}
+	{#if $userStore?.is_admin || $superadmin}
 		<PageHeader title="Workspace Settings of {$workspaceStore}" />
 
 		<PageHeader title="Members" primary={false} />
@@ -111,88 +111,104 @@
 		<div class="pb-1">
 			<input placeholder="Search users" bind:value={userFilter} class="input mt-1" />
 		</div>
-		<TableCustom>
-			<tr slot="header-row">
-				<th>email</th>
-				<th>username</th>
-				<th>role</th>
-				<th colspan="3">jobs &amp; flows (<abbr title="past two weeks">2w</abbr>)</th>
-			</tr>
-			<tbody slot="body">
-				{#if filteredUsers && users}
-					{#each userFilter === '' ? users : filteredUsers as { email, username, is_admin, usage }}
+		<div class="overflow-auto max-h-screen">
+			<TableCustom>
+				<tr slot="header-row">
+					<th>email</th>
+					<th>username</th>
+					<th>role</th>
+					<th colspan="3">jobs &amp; flows (<abbr title="past two weeks">2w</abbr>)</th>
+				</tr>
+				<tbody slot="body">
+					{#if filteredUsers}
+						{#each filteredUsers as { email, username, is_admin, usage } (email)}
+							<tr class="border">
+								<td>{email}</td>
+								<td>{username}</td>
+								<td>{is_admin ? 'admin' : 'user'}</td>
+								<td>{usage?.jobs}</td>
+								<td>{usage?.flows}</td>
+								<td>{msToSec(usage?.duration_ms)}s</td>
+								<td class="whitespace-nowrap"
+									><button
+										class="ml-2 text-red-500"
+										on:click={async () => {
+											await UserService.deleteUser({
+												workspace: $workspaceStore ?? '',
+												username
+											})
+											sendUserToast('User removed')
+											listUsers()
+										}}>remove</button
+									>
+									-
+									<button
+										class="text-blue-500"
+										on:click={async () => {
+											await UserService.updateUser({
+												workspace: $workspaceStore ?? '',
+												username,
+												requestBody: {
+													is_admin: !is_admin
+												}
+											})
+											sendUserToast('User updated')
+											listUsers()
+										}}>{is_admin ? 'demote' : 'promote'}</button
+									></td
+								>
+							</tr>
+						{/each}
+					{:else}
+						{#each new Array(6) as _}
+							<tr class="border">
+								{#each new Array(4) as _}
+									<td>
+										<Skeleton layout={[[2]]} />
+									</td>
+								{/each}
+							</tr>
+						{/each}
+					{/if}
+				</tbody>
+			</TableCustom>
+		</div>
+		<PageHeader title="Pending invites" primary={false}>
+			<InviteUser on:new={listInvites} />
+		</PageHeader>
+
+		<div class="overflow-auto max-h-screen">
+			<TableCustom>
+				<tr slot="header-row">
+					<th>email</th>
+					<th>role</th>
+					<th />
+				</tr>
+				<tbody slot="body">
+					{#each invites as { email, is_admin }}
 						<tr class="border">
 							<td>{email}</td>
-							<td>{username}</td>
 							<td>{is_admin ? 'admin' : 'user'}</td>
-							<td>{usage?.jobs}</td>
-							<td>{usage?.flows}</td>
-							<td>{msToSec(usage?.duration_ms)}s</td>
-							<td
-								><button
+							<td>
+								<button
 									class="ml-2 text-red-500"
 									on:click={async () => {
-										await UserService.deleteUser({
+										await WorkspaceService.deleteInvite({
 											workspace: $workspaceStore ?? '',
-											username
-										})
-										listUsers()
-									}}>remove</button
-								>
-								-
-								<button
-									class="text-blue-500"
-									on:click={async () => {
-										await UserService.updateUser({
-											workspace: $workspaceStore ?? '',
-											username,
 											requestBody: {
-												is_admin: !is_admin
+												email,
+												is_admin
 											}
 										})
-										listUsers()
-									}}>{is_admin ? 'demote' : 'promote'}</button
+										listInvites()
+									}}>remove</button
 								></td
 							>
 						</tr>
 					{/each}
-				{/if}
-			</tbody>
-		</TableCustom>
-
-		<PageHeader title="Pending invites" primary={false}>
-			<InviteUser on:new={listInvites} />
-		</PageHeader>
-		<TableCustom>
-			<tr slot="header-row">
-				<th>email</th>
-				<th>role</th>
-				<th />
-			</tr>
-			<tbody slot="body">
-				{#each invites as { email, is_admin }}
-					<tr class="border">
-						<td>{email}</td>
-						<td>{is_admin ? 'admin' : 'user'}</td>
-						<td>
-							<button
-								class="ml-2 text-red-500"
-								on:click={async () => {
-									await WorkspaceService.deleteInvite({
-										workspace: $workspaceStore ?? '',
-										requestBody: {
-											email,
-											is_admin
-										}
-									})
-									listInvites()
-								}}>remove</button
-							></td
-						>
-					</tr>
-				{/each}
-			</tbody>
-		</TableCustom>
+				</tbody>
+			</TableCustom>
+		</div>
 		<div class="mt-20" />
 		<PageHeader title="Slack integration" primary={false} />
 		<p class="text-xs text-gray-700 my-1">
@@ -244,6 +260,7 @@
 			allowFlow
 			bind:itemKind
 			bind:scriptPath
+			{initialPath}
 			on:select={editSlackCommand}
 		/>
 

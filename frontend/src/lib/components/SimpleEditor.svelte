@@ -41,6 +41,7 @@
 	export let extraLib: string = ''
 	export let shouldBindKey: boolean = true
 	export let autoHeight = false
+	export let fixedOverflowWidgets = true
 
 	const dispatch = createEventDispatcher()
 
@@ -107,7 +108,7 @@
 
 		editor = monaco.editor.create(
 			divEl as HTMLDivElement,
-			editorConfig(model, code, lang, automaticLayout, true)
+			editorConfig(model, code, lang, automaticLayout, fixedOverflowWidgets)
 		)
 
 		let timeoutModel: NodeJS.Timeout | undefined = undefined
@@ -115,8 +116,8 @@
 			timeoutModel && clearTimeout(timeoutModel)
 			timeoutModel = setTimeout(() => {
 				code = getCode()
-			}, 500)
-			dispatch('change')
+				dispatch('change')
+			}, 200)
 		})
 
 		if (autoHeight) {

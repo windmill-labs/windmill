@@ -4,6 +4,7 @@
 
 	import Drawer from '$lib/components/common/drawer/Drawer.svelte'
 	import FlowPreviewContent from '$lib/components/FlowPreviewContent.svelte'
+	import type { Job } from '$lib/gen'
 	import { faPlay } from '@fortawesome/free-solid-svg-icons'
 
 	import { getContext } from 'svelte'
@@ -11,6 +12,9 @@
 	const { selectedId } = getContext<FlowEditorContext>('FlowEditorContext')
 	let previewOpen = false
 	let previewMode: 'upTo' | 'whole' = 'whole'
+
+	let jobId: string | undefined = undefined
+	let job: Job | undefined = undefined
 
 	$: upToDisabled =
 		[
@@ -60,6 +64,8 @@
 	<FlowPreviewContent
 		open={previewOpen}
 		bind:previewMode
+		bind:job
+		bind:jobId
 		on:close={() => {
 			previewOpen = false
 		}}

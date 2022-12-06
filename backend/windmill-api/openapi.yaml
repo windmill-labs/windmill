@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.51.0
+  version: 1.53.0
   title: Windmill server API
   contact:
     name: Windmill contact
@@ -2121,6 +2121,7 @@ paths:
           schema:
             type: integer
         - $ref: "#/components/parameters/ParentJob"
+        - $ref: "#/components/parameters/IncludeHeader"
 
       requestBody:
         description: script args
@@ -2337,6 +2338,13 @@ paths:
           in: query
           schema:
             type: string
+        - name: starred_only
+          description: |
+            (default false)
+            show only the starred items
+          in: query
+          schema:
+            type: boolean
       responses:
         "200":
           description: All available apps
@@ -2346,6 +2354,23 @@ paths:
                 type: array
                 items:
                   $ref: "#/components/schemas/ListableApp"
+
+  /w/{workspace}/apps/exists/{path}:
+    get:
+      summary: does an app exisst at path
+      operationId: existsApp
+      tags:
+        - app
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+      responses:
+        "200":
+          description: app exists
+          content:
+            application/json:
+              schema:
+                type: boolean
 
   /w/{workspace}/apps/get/p/{path}:
     get:
@@ -2534,6 +2559,7 @@ paths:
           schema:
             type: integer
         - $ref: "#/components/parameters/ParentJob"
+        - $ref: "#/components/parameters/IncludeHeader"
 
       requestBody:
         description: flow args
@@ -2573,6 +2599,7 @@ paths:
           schema:
             type: integer
         - $ref: "#/components/parameters/ParentJob"
+        - $ref: "#/components/parameters/IncludeHeader"
 
       requestBody:
         description: Partially filled args
@@ -2599,6 +2626,8 @@ paths:
         - job
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/IncludeHeader"
+
       requestBody:
         description: preview
         required: true
@@ -2624,6 +2653,8 @@ paths:
         - job
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/IncludeHeader"
+
       requestBody:
         description: preview
         required: true
@@ -2886,6 +2917,43 @@ paths:
             text/plain:
               schema:
                 type: string
+
+  /w/{workspace}/jobs/resume_urls/{id}/{resume_id}:
+    get:
+      summary:  get resume urls given a job_id, resume_id and a nonce to resume a flow
+      operationId: getResumeUrls
+      tags:
+        - job
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/JobId"
+        - name: resume_id
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: approver
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: url endpoints
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  approvalPage:
+                    type: string
+                  resume: 
+                    type: string
+                  cancel:
+                    type: string
+                required:
+                  - approvalPage
+                  - resume
+                  - cancel
 
   /w/{workspace}/jobs/resume/{id}/{resume_id}/{signature}:
     get:
@@ -3223,7 +3291,7 @@ paths:
         - $ref: "#/components/parameters/Path"
       responses:
         "200":
-          description: schedule deleted
+          description: schedule exists
           content:
             application/json:
               schema:
@@ -3728,6 +3796,15 @@ components:
       schema:
         type: string
         format: uuid
+    IncludeHeader:
+      name: include_header
+      description: |
+        List of headers's keys (separated with ',') whove value are added to the args
+        Header's key lowercased and '-'' replaced to '_' such that 'Content-Type' becomes the 'content_type' arg key
+      in: query
+      schema:
+        type: string
+
     ScriptStartPath:
       name: script_path_start
       description: mask to filter matching starting path
@@ -4831,7 +4908,15 @@ components:
         execution_mode:
           type: string
           enum: [viewer, publisher, anonymous]
-
+      required:
+        - id
+        - workspace_id
+        - path
+        - summary
+        - version
+        - extra_perms
+        - edited_at
+        - execution_mode
     AppWithLastVersion:
       type: object
       properties:

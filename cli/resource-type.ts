@@ -17,6 +17,14 @@ export async function pushResourceType(
   name: string,
 ) {
   const data: ResourceTypeFile = JSON.parse(await Deno.readTextFile(filePath));
+  await pushResourceTypeDef(workspace, name, data);
+}
+
+export async function pushResourceTypeDef(
+  workspace: string,
+  name: string,
+  data: ResourceTypeFile,
+) {
   if (
     await ResourceService.existsResourceType({
       workspace: workspace,
@@ -24,6 +32,17 @@ export async function pushResourceType(
     })
   ) {
     console.log(colors.yellow("Updating existing resource type..."));
+    if (
+      (await ResourceService.listResourceType({ workspace })).findIndex((x) =>
+        x.name === name
+      ) === -1
+    ) {
+      console.log(
+        "Resource type " + name +
+          " is already taken for the current workspace, but cannot be updated. Is this a conflict with starter?",
+      );
+      return;
+    }
     await ResourceService.updateResourceType({
       workspace: workspace,
       path: name,

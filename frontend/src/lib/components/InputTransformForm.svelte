@@ -1,6 +1,5 @@
 <script lang="ts">
 	import type { Schema } from '$lib/common'
-	import type { InputTransform } from '$lib/gen'
 	import type { InputCat } from '$lib/utils'
 	import { getContext } from 'svelte'
 
@@ -12,6 +11,9 @@
 	import SimpleEditor from './SimpleEditor.svelte'
 	import { Button, ToggleButton, ToggleButtonGroup } from './common'
 	import { faCode } from '@fortawesome/free-solid-svg-icons'
+	import type VariableEditor from './VariableEditor.svelte'
+	import type ItemPicker from './ItemPicker.svelte'
+	import type { InputTransform } from '$lib/gen'
 
 	export let schema: Schema
 	export let arg: InputTransform | any
@@ -19,6 +21,9 @@
 	export let extraLib: string = 'missing extraLib'
 	export let inputCheck: boolean = true
 	export let previousModuleId: string | undefined
+	export let pickForField: string | undefined = undefined
+	export let variableEditor: VariableEditor | undefined = undefined
+	export let itemPicker: ItemPicker | undefined = undefined
 
 	export let monaco: SimpleEditor | undefined = undefined
 	let argInput: ArgInput | undefined = undefined
@@ -87,11 +92,13 @@
 				arg.expr = path
 				arg.type = 'javascript'
 				propertyType = 'javascript'
+				monaco?.setCode(arg.expr)
 				return true
 			})
 		}
 	}
-	const { focusProp } = getContext<PropPickerWrapperContext>('PropPickerWrapper')
+
+	const { focusProp, propPickerConfig } = getContext<PropPickerWrapperContext>('PropPickerWrapper')
 </script>
 
 {#if arg != undefined}
@@ -117,22 +124,24 @@
 				</span>
 			{/if}
 		</div>
-		<div class="flex flex-row gap-1 flex-wrap">
+		<div class="flex flex-row gap-4 flex-wrap">
 			<div>
 				<ToggleButtonGroup
 					bind:selected={propertyType}
 					on:selected={(e) => {
 						const staticTemplate = isStaticTemplate(inputCat)
 						if (e.detail === 'javascript') {
-							arg.expr = getDefaultExpr(
-								argName,
-								previousModuleId,
-								staticTemplate
-									? `\`${arg.value ?? ''}\``
-									: arg.value
-									? JSON.stringify(arg.value, null, 4)
-									: ''
-							)
+							if (arg.expr == undefined) {
+								arg.expr = getDefaultExpr(
+									argName,
+									previousModuleId,
+									staticTemplate
+										? `\`${arg.value ?? ''}\``
+										: arg.value
+										? JSON.stringify(arg.value, null, 4)
+										: ''
+								)
+							}
 
 							arg.value = undefined
 							propertyType = 'javascript'
@@ -177,7 +186,7 @@
 					on:click={() => {
 						focusProp(argName, 'connect', (path) => {
 							connectProperty(path)
-							return false
+							return true
 						})
 					}}>Connect &rightarrow;</Button
 				>
@@ -186,54 +195,73 @@
 	</div>
 	<div class="max-w-xs" />
 
-	{#if propertyType === undefined || propertyType == 'static'}
-		<ArgInput
-			bind:this={argInput}
-			on:focus={onFocus}
-			label={argName}
-			bind:editor={monaco}
-			bind:description={schema.properties[argName].description}
-			bind:value={arg.value}
-			type={schema.properties[argName].type}
-			required={schema.required.includes(argName)}
-			bind:pattern={schema.properties[argName].pattern}
-			bind:valid={inputCheck}
-			defaultValue={schema.properties[argName].default}
-			bind:enum_={schema.properties[argName].enum}
-			bind:format={schema.properties[argName].format}
-			contentEncoding={schema.properties[argName].contentEncoding}
-			bind:itemsType={schema.properties[argName].items}
-			properties={schema.properties[argName].properties}
-			displayHeader={false}
-			bind:inputCat
-			on:input={(e) => {
-				if (isStaticTemplate(inputCat)) {
-					setPropertyType(e.detail.rawValue)
-				}
-			}}
-		/>
-	{:else if arg.expr != undefined}
-		<div class="border rounded p-2 mt-2 border-gray-300">
-			<SimpleEditor
-				bind:this={monaco}
-				bind:code={arg.expr}
-				{extraLib}
-				lang="javascript"
-				shouldBindKey={false}
-				on:focus={() => {
-					focusProp(argName, 'insert', (path) => {
-						monaco?.insertAtCursor(path)
-						return false
-					})
+	<div
+		class="relative {$propPickerConfig?.propName == argName
+			? 'outline outline-offset-0 outline-2 outline-blue-500 rounded-md'
+			: ''}"
+	>
+		{#if $propPickerConfig?.propName == argName && $propPickerConfig?.insertionMode == 'connect'}
+			<span
+				class={'text-white  z-50 px-1 text-2xs py-0.5 font-bold rounded-t-sm w-fit absolute top-0 right-0 bg-blue-500'}
+			>
+				Connect input &rightarrow;
+			</span>
+		{/if}
+		{#if propertyType === undefined || propertyType == 'static'}
+			<ArgInput
+				noMargin
+				compact
+				bind:this={argInput}
+				on:focus={onFocus}
+				label={argName}
+				bind:editor={monaco}
+				bind:description={schema.properties[argName].description}
+				bind:value={arg.value}
+				type={schema.properties[argName].type}
+				required={schema.required.includes(argName)}
+				bind:pattern={schema.properties[argName].pattern}
+				bind:valid={inputCheck}
+				defaultValue={schema.properties[argName].default}
+				bind:enum_={schema.properties[argName].enum}
+				bind:format={schema.properties[argName].format}
+				contentEncoding={schema.properties[argName].contentEncoding}
+				bind:itemsType={schema.properties[argName].items}
+				properties={schema.properties[argName].properties}
+				displayHeader={false}
+				bind:inputCat
+				on:input={(e) => {
+					if (isStaticTemplate(inputCat)) {
+						setPropertyType(e.detail.rawValue)
+					}
 				}}
-				autoHeight
+				{variableEditor}
+				{itemPicker}
+				bind:pickForField
 			/>
-		</div>
-		<DynamicInputHelpBox />
-		<div class="mb-2" />
-	{:else}
-		Not recognized input type {argName}
-	{/if}
+		{:else if arg.expr != undefined}
+			<div class="border rounded p-2 mt-2 border-gray-300">
+				<SimpleEditor
+					bind:this={monaco}
+					bind:code={arg.expr}
+					{extraLib}
+					lang="javascript"
+					shouldBindKey={false}
+					on:focus={() => {
+						focusProp(argName, 'insert', (path) => {
+							monaco?.insertAtCursor(path)
+							return false
+						})
+					}}
+					autoHeight
+				/>
+			</div>
+			<DynamicInputHelpBox />
+			<div class="mb-2" />
+		{:else}
+			Not recognized input type {argName}
+		{/if}
+	</div>
+	<div class="mb-6" />
 {:else}
 	<p class="text-sm text-gray-700">Arg at {argName} is undefined</p>
 {/if}

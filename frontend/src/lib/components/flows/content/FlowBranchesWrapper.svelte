@@ -11,6 +11,7 @@
 	import FlowCard from '../common/FlowCard.svelte'
 	import type { FlowEditorContext } from '../types'
 	import FlowModuleEarlyStop from './FlowModuleEarlyStop.svelte'
+	import FlowModuleSleep from './FlowModuleSleep.svelte'
 	import FlowModuleSuspend from './FlowModuleSuspend.svelte'
 	// import FlowRetries from './FlowRetries.svelte'
 
@@ -117,7 +118,8 @@
 				<Tabs bind:selected>
 					<!-- <Tab value="retries">Retries</Tab> -->
 					<Tab value="early-stop">Early Stop</Tab>
-					<Tab value="suspend">Sleep/Suspend</Tab>
+					<Tab value="suspend">Suspend</Tab>
+					<Tab value="sleep">Sleep</Tab>
 
 					<svelte:fragment slot="content">
 						<div class="overflow-hidden bg-white">
@@ -135,7 +137,12 @@
 
 							<TabContent value="suspend" class="flex flex-col flex-1 h-full">
 								<div class="p-4 overflow-y-auto">
-									<FlowModuleSuspend previousModuleId={previousModule?.id} bind:flowModule />
+									<FlowModuleSuspend bind:flowModule />
+								</div>
+							</TabContent>
+							<TabContent value="sleep" class="flex flex-col flex-1 h-full">
+								<div class="p-4 overflow-y-auto">
+									<FlowModuleSleep previousModuleId={previousModule?.id} bind:flowModule />
 								</div>
 							</TabContent>
 						</div>

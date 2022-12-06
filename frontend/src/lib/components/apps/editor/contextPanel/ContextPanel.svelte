@@ -9,7 +9,7 @@
 	import { Preview } from '$lib/gen'
 	import { DENO_INIT_CODE_CLEAR } from '$lib/script_helpers'
 	import { classNames, emptySchema } from '$lib/utils'
-	import { faEdit, faPlus, faTrash } from '@fortawesome/free-solid-svg-icons'
+	import { faEdit, faPlus, faSave, faTrash } from '@fortawesome/free-solid-svg-icons'
 	import { getContext } from 'svelte'
 	import type { AppEditorContext } from '../../types'
 	import PanelSection from '../settingsPanel/common/PanelSection.svelte'
@@ -57,7 +57,9 @@
 				[newScriptPath]: inlineScript
 			}
 		}
-		closeDrawer()
+		scriptCreationDrawer?.closeDrawer?.()
+		selectedScript = inlineScript
+		scriptEditorDrawer.openDrawer?.()
 	}
 
 	function afterCreateScript() {
@@ -71,16 +73,10 @@
 	let scriptEditorDrawer: Drawer
 
 	let scriptCreationDrawer: Drawer | undefined = undefined
-
-	function closeDrawer() {
-		if (scriptEditorDrawer.closeDrawer) {
-			scriptEditorDrawer.closeDrawer()
-		}
-	}
 </script>
 
 <Drawer bind:this={scriptCreationDrawer} size="600px" on:afterClose={afterCreateScript}>
-	<DrawerContent title="Script creation" on:close={closeDrawer}>
+	<DrawerContent title="Script creation" on:close={scriptCreationDrawer.closeDrawer}>
 		<label for="pathInput" class="text-sm font-semibold"> Script name </label>
 		<div class="flex justify-between items-center gap-4">
 			<!-- svelte-ignore a11y-autofocus -->
@@ -104,7 +100,12 @@
 </Drawer>
 
 <Drawer bind:this={scriptEditorDrawer} size="1200px">
-	<DrawerContent title="Script Editor" noPadding forceOverflowVisible on:close={closeDrawer}>
+	<DrawerContent
+		title="Script Editor"
+		noPadding
+		forceOverflowVisible
+		on:close={scriptEditorDrawer.closeDrawer}
+	>
 		{#if selectedScript}
 			<ScriptEditor
 				lang={selectedScript.language}
@@ -114,6 +115,9 @@
 				fixedOverflowWidgets={false}
 			/>
 		{/if}
+		<svelte:fragment slot="actions">
+			<Button startIcon={{ icon: faSave }} disabled>Automatically Saved</Button>
+		</svelte:fragment>
 	</DrawerContent>
 </Drawer>
 
@@ -123,7 +127,7 @@
 			size="xs"
 			color="light"
 			variant="border"
-			on:click={closeDrawer}
+			on:click={scriptCreationDrawer?.openDrawer}
 			startIcon={{ icon: faPlus }}
 			iconOnly
 		/>
@@ -174,7 +178,15 @@
 <PanelSection title="Outputs">
 	{#each Object.entries($staticOutputs) as [componentId, outputs], index}
 		{#if outputs.length > 0 && $worldStore?.outputsById[componentId]}
-			<Badge color="blue">Component: {componentId}</Badge>
+			<Button
+				btnClasses="bg-blue-100 text-blue-800 hover:bg-blue-200 !px-2 !py-1 text-xs focus:bg-blue-200"
+				size="xs"
+				spacingSize="xs"
+				on:click={() => ($selectedComponent = componentId)}
+				color="blue"
+			>
+				Component: {componentId}
+			</Button>
 
 			<div
 				class={classNames(

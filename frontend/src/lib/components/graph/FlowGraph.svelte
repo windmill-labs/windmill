@@ -18,17 +18,21 @@
 	import { defaultIfEmptyString, truncateRev } from '$lib/utils'
 	import { createEventDispatcher } from 'svelte'
 	import { numberToChars } from '../flows/utils'
-	import type { FlowState } from '../flows/flowState'
 
 	export let modules: FlowModule[] | undefined = []
 	export let failureModule: FlowModule | undefined = undefined
 	export let minHeight: number = 0
 	export let notSelectable = false
-	export let flowModuleStates: Record<string, FlowStatusModule.type> | undefined = undefined
+	export let flowModuleStates:
+		| Record<
+				string,
+				{ type: FlowStatusModule.type; logs?: string; result?: any; scheduled_for?: string }
+		  >
+		| undefined = undefined
 
 	let selectedNode: string | undefined = undefined
 
-	const idGenerator = createIdGenerator()
+	let idGenerator: Generator
 	let nestedNodes: NestedNodes
 	let nodes: Node[] = []
 	let edges: Edge[] = []
@@ -39,6 +43,7 @@
 	$: {
 		width && height && minHeight && selectedNode && flowModuleStates
 		if (modules) {
+			idGenerator = createIdGenerator()
 			createGraph(modules, failureModule)
 		} else {
 			nodes = edges = []
@@ -142,11 +147,15 @@
 	function getStateColor(state: FlowStatusModule.type | undefined): string {
 		switch (state) {
 			case FlowStatusModule.type.SUCCESS:
-				return 'rgb(34 197 94)'
+				return 'rgb(193, 255, 216)'
 			case FlowStatusModule.type.FAILURE:
 				return 'rgb(248 113 113)'
 			case FlowStatusModule.type.IN_PROGRESS:
-				return 'rgb(253 224 71)'
+				return 'rgb(253, 240, 176)'
+			case FlowStatusModule.type.WAITING_FOR_EVENTS:
+				return 'rgb(229, 176, 253)'
+			case FlowStatusModule.type.WAITING_FOR_EXECUTOR:
+				return 'rgb(255, 208, 193)'
 			default:
 				return '#fff'
 		}
@@ -173,6 +182,7 @@
 		}
 		const wrapperWidth = lang ? 'w-[calc(100%-70px)]' : 'w-[calc(100%-50px)]'
 		const graphId = idGenerator.next().value
+		let nodeId = onClickDetail.id ?? numberToChars(graphId - 1)
 		return {
 			id: graphId,
 			position: { x: -1, y: -1 },
@@ -190,20 +200,23 @@
 						</span>
 					</div>
 				</div>
+				<div class="text-2xs absolute -top-6 text-gray-600 truncate">${
+					flowModuleStates?.[nodeId]?.scheduled_for ?? ''
+				}<div>
 			`
 			},
 			host,
 			width: NODE.width,
 			height: NODE.height,
-			borderColor: selectedNode == onClickDetail.id ? 'black' : '#999',
-			bgColor:
-				selectedNode == onClickDetail.id
-					? '#f5f5f5'
-					: getStateColor(flowModuleStates?.[onClickDetail.id]),
+			borderColor: selectedNode == nodeId ? 'black' : '#999',
+			bgColor: selectedNode == nodeId ? '#f5f5f5' : getStateColor(flowModuleStates?.[nodeId]?.type),
 			parentIds,
 			clickCallback: (node) => {
 				if (!notSelectable) {
-					selectedNode = onClickDetail.id
+					selectedNode = nodeId
+				}
+				if (onClickDetail.id == undefined) {
+					onClickDetail.id = numberToChars(graphId - 1)
 				}
 				dispatch('click', onClickDetail)
 			},
@@ -391,7 +404,7 @@
 	}
 </script>
 
-<div bind:clientWidth={width} class="w-full h-full overflow-hidden">
+<div bind:clientWidth={width} class="w-full h-full overflow-hidden relative">
 	{#if width && height}
 		<Svelvet {nodes} {width} {edges} {height} bgColor="rgb(249 250 251)" />
 	{/if}

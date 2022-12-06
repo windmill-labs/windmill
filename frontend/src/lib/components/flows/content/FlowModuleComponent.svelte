@@ -25,6 +25,7 @@
 
 	import Button from '$lib/components/common/button/Button.svelte'
 	import Alert from '$lib/components/common/alert/Alert.svelte'
+	import FlowModuleSleep from './FlowModuleSleep.svelte'
 
 	const { selectedId, previewArgs } = getContext<FlowEditorContext>('FlowEditorContext')
 
@@ -56,9 +57,10 @@
 	$: stepPropPicker = failureModule
 		? {
 				pickableProperties: {
-					flow_input: $flowStateStore.previewArgs,
+					flow_input: $previewArgs,
 					priorIds: {},
-					previousId: undefined
+					previousId: undefined,
+					hasResume: false
 				},
 				extraLib: ''
 		  }
@@ -221,8 +223,9 @@
 									<Tab value="advanced-retries">Retries</Tab>
 									{#if !$selectedId.includes('failure')}
 										<Tab value="advanced-early-stop">Early Stop</Tab>
-										<Tab value="advanced-suspend">Sleep/Suspend</Tab>
-										<Tab value="advanced-same_worker">Same Worker/Shared dir</Tab>
+										<Tab value="advanced-suspend">Suspend</Tab>
+										<Tab value="advanced-sleep">Sleep</Tab>
+										<Tab value="advanced-same_worker">Shared Directory</Tab>
 									{/if}
 								</Tabs>
 								{#if selected === 'advanced-retries'}
@@ -231,19 +234,23 @@
 									<FlowModuleEarlyStop bind:flowModule class="px-4 pb-4 h-full overflow-auto" />
 								{:else if selected === 'advanced-suspend'}
 									<div class="px-4 pb-4 h-full overflow-auto">
-										<FlowModuleSuspend previousModuleId={previousModule?.id} bind:flowModule />
+										<FlowModuleSuspend bind:flowModule />
+									</div>
+								{:else if selected === 'advanced-sleep'}
+									<div class="px-4 pb-4 h-full overflow-auto">
+										<FlowModuleSleep previousModuleId={previousModule?.id} bind:flowModule />
 									</div>
 								{:else if selected === 'advanced-same_worker'}
 									<div class="p-4  h-full overflow-auto">
-										<Alert type="info" title="Share a directory using same worker">
-											If same worker is set, all steps will be run on the same worker and will share
-											the folder `./shared` to pass data between each other.
+										<Alert type="info" title="Share a directory between steps">
+											If shared directory is set, will share a folder that will be mounted on
+											`./shared` for each of them to pass data between each other.
 										</Alert>
 										<Button
 											btnClasses="mt-4"
 											on:click={() => {
 												$selectedId = 'settings-same-worker'
-											}}>Set same worker in the flow settings</Button
+											}}>Set shared directory in the flow settings</Button
 										>
 									</div>
 								{/if}

@@ -26,7 +26,7 @@
 		faFastForward
 	} from '@fortawesome/free-solid-svg-icons'
 	import DisplayResult from '$lib/components/DisplayResult.svelte'
-	import { userStore, usersWorkspaceStore, workspaceStore } from '$lib/stores'
+	import { superadmin, userStore, usersWorkspaceStore, workspaceStore } from '$lib/stores'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
 	import FlowStatusViewer from '$lib/components/FlowStatusViewer.svelte'
 	import HighlightCode from '$lib/components/HighlightCode.svelte'
@@ -106,11 +106,11 @@
 			<h2>Are you in the right workspace?</h2>
 			<div class="flex flex-col gap-2">
 				{#each $usersWorkspaceStore?.workspaces ?? [] as workspace}
-					<div
-						><Button variant="border" href="/run/{$page.params.run}?workspace={workspace.id}"
-							>See in {workspace.name}</Button
-						></div
-					>
+					<div>
+						<Button variant="border" href="/run/{$page.params.run}?workspace={workspace.id}">
+							See in {workspace.name}
+						</Button>
+					</div>
 				{/each}
 				<div>
 					<Button href="/runs">Go to runs page</Button>
@@ -129,7 +129,7 @@
 			<svelte:fragment slot="left">
 				{@const isScript = job?.job_kind === 'script'}
 				{@const runsHref = `/runs/${job?.script_path}${!isScript ? '?jobKind=flow' : ''}`}
-				{#if job && 'deleted' in job && !job?.deleted && ($userStore?.is_admin ?? false)}
+				{#if job && 'deleted' in job && !job?.deleted && ($superadmin || ($userStore?.is_admin ?? false))}
 					<Button
 						disabled={not_same_workspace}
 						variant="border"
@@ -307,7 +307,7 @@
 
 				<Skeleton loading={!job} layout={[[5]]} />
 				{#if job}
-					<div class="flex flex-row border rounded-md p-3 max-h-1/2 overflow-auto">
+					<div class="flex flex-row border rounded-md p-2 mt-2 max-h-1/2 overflow-auto">
 						{#if viewTab == 'logs'}
 							<div class="w-full">
 								<LogViewer isLoading={!(job && 'logs' in job && job.logs)} content={job?.logs} />

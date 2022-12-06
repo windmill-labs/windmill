@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { userStore } from '$lib/stores'
-	import { faPeopleGroup } from '@fortawesome/free-solid-svg-icons'
+	import { Users } from 'svelte-lucide'
 	import Badge from './common/badge/Badge.svelte'
 	import Tooltip from './Tooltip.svelte'
 
@@ -49,10 +49,11 @@
 </script>
 
 {#if kind === 'read' || kind === 'write'}
-	<Badge icon={{ data: faPeopleGroup }} capitalize color="blue">
+	<Badge capitalize color="blue" baseClass="border border-blue-200 flex gap-1 items-center">
+		<Users size="12" />
 		{kind}
 		{#if reason}
-			<Tooltip>{reason}</Tooltip>
+			<Tooltip><span class="normal-case">{reason}</span></Tooltip>
 		{/if}
 	</Badge>
 {/if}

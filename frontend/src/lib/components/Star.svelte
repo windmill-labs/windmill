@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { FavoriteService } from '$lib/gen'
-	import { starStore, workspaceStore } from '$lib/stores'
+	import { starStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/utils'
 	import { faStar } from '@fortawesome/free-solid-svg-icons'
 	import { createEventDispatcher } from 'svelte'

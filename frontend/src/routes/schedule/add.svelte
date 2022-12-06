@@ -29,6 +29,7 @@
 	let schedule: string = '0 0 12 * *'
 
 	let script_path = $page.url.searchParams.get('path') || ''
+	let initialScriptPath = script_path
 	let is_flow = $page.url.searchParams.get('isFlow') == 'true'
 	let itemKind: 'flow' | 'script' = is_flow ? 'flow' : 'script'
 
@@ -69,6 +70,7 @@
 			enabled = s.enabled
 			schedule = s.schedule
 			script_path = s.script_path ?? ''
+			initialScriptPath = script_path
 			args = s.args ?? {}
 		} catch (err) {
 			sendUserToast(`Could not load schedule: ${err}`, true)
@@ -135,6 +137,7 @@
 			Pick a script or flow to be triggered by the schedule<Required required={true} />
 		</p>
 		<ScriptPicker
+			initialPath={initialScriptPath}
 			kind={Script.kind.SCRIPT}
 			allowFlow={true}
 			bind:itemKind

@@ -11,7 +11,7 @@
 	const dispatch = createEventDispatcher()
 </script>
 
-<div class="mt-8 flex flex-col {$$props.class}">
+<div class="mt-2 flex flex-col {$$props.class}">
 	<div class="inline-block min-w-full align-middle">
 		<table class="min-w-full divide-y divide-gray-300 table-auto">
 			<thead>

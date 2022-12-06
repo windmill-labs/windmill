@@ -3,11 +3,15 @@
 	import { Badge, Skeleton } from '$lib/components/common'
 	import SearchItems from '$lib/components/SearchItems.svelte'
 	import { loadHubFlows } from '$lib/utils'
+	import ListFilters from '$lib/components/home/ListFilters.svelte'
+	import NoItemFound from '$lib/components/home/NoItemFound.svelte'
+	import RowIcon from '$lib/components/common/table/RowIcon.svelte'
 
-	type Item = { apps: string[]; summary: string }
+	export let filter = ''
+
+	type Item = { apps: string[]; summary: string; path: string }
 	let hubFlows: any[] | undefined = undefined
 	let filteredItems: (Item & { marked?: string })[] = []
-	let filter = ''
 	let appFilter: string | undefined = undefined
 
 	$: prefilteredItems = appFilter
@@ -29,57 +33,48 @@
 	bind:filteredItems
 	f={(x) => x.summary + ' (' + x.apps.join(', ') + ')'}
 />
-
-<div class="flex flex-col min-h-0">
-	<div class="w-12/12 pb-2 flex flex-row my-1 gap-1">
-		<input type="text" placeholder="Search Hub Flows" bind:value={filter} class="text-2xl grow" />
-	</div>
-
-	<div class="gap-2 w-full flex flex-wrap pb-2">
-		{#each apps as app}
-			<Badge
-				class="cursor-pointer hover:bg-gray-200"
-				on:click={() => {
-					appFilter = appFilter == app ? undefined : app
-				}}
-				capitalize
-				color={app === appFilter ? 'blue' : 'gray'}
-			>
-				{app}
-				{#if app === appFilter}&cross;{/if}
-			</Badge>
-		{/each}
-	</div>
-	<div class="overflow-auto">
-		<ul class="divide-y divide-gray-200">
-			{#if hubFlows}
-				{#if filter.length > 0 && filteredItems.length == 0}
-					<p>No items found</p>
-				{/if}
-				{#each filteredItems as obj}
-					<li class="flex flex-row w-full">
-						<button
-							class="py-4 px-1 gap-1 flex flex-row grow hover:bg-blue-50 bg-white transition-all"
-							on:click={() => {
-								dispatch('pick', obj)
-							}}
-						>
-							<div class="mr-2 text-sm text-left w-32 shrink-0">{obj.apps.join(', ')}</div>
-							<div class="mr-2 text-left">
-								{#if obj.marked}
-									{@html obj.marked ?? ''}
-								{:else}
-									{obj.summary ?? ''}
-								{/if}
-							</div>
-						</button>
-					</li>
-				{/each}
-			{:else}
-				{#each Array(10).fill(0) as sk}
-					<Skeleton layout={[[4], 0.5]} />
-				{/each}
-			{/if}
-		</ul>
-	</div>
+<div class="w-full flex mt-1 items-center gap-2">
+	<slot />
+	<input type="text" placeholder="Search Hub Scripts" bind:value={filter} class="text-2xl grow" />
 </div>
+<ListFilters filters={apps} bind:selectedFilter={appFilter} />
+
+{#if hubFlows}
+	{#if filteredItems.length == 0}
+		<NoItemFound />
+	{:else}
+		<ul class="divide-y divide-gray-200 border rounded-md">
+			{#each filteredItems as item (item)}
+				<li class="flex flex-row w-full">
+					<button
+						class="p-4 gap-4 flex flex-row grow justify-between hover:bg-gray-50 bg-white transition-all items-center"
+						on:click={() => dispatch('pick', item)}
+					>
+						<div class="flex items-center gap-4">
+							<RowIcon kind="flow" />
+
+							<div class="w-full text-left font-normal ">
+								<div class="text-gray-900 flex-wrap text-md font-semibold mb-1">
+									{#if item.marked}
+										{@html item.marked ?? ''}
+									{:else}
+										{item.summary ?? ''}
+									{/if}
+								</div>
+							</div>
+						</div>
+						<div class="min-w-1/3 gap-2 flex flex-wrap justify-end">
+							{#each item.apps as app}
+								<Badge color="gray" baseClass="border">{app}</Badge>
+							{/each}
+						</div>
+					</button>
+				</li>
+			{/each}
+		</ul>
+	{/if}
+{:else}
+	{#each Array(10).fill(0) as _}
+		<Skeleton layout={[[4], 0.5]} />
+	{/each}
+{/if}

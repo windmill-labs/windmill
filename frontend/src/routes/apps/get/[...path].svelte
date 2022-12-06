@@ -9,13 +9,14 @@
 <script lang="ts">
 	import { page } from '$app/stores'
 	import AppEditor from '$lib/components/apps/editor/AppEditor.svelte'
+	import AppPreview from '$lib/components/apps/editor/AppPreview.svelte'
 
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
 	import { Skeleton } from '$lib/components/common'
 	import Button from '$lib/components/common/button/Button.svelte'
 	import { AppService, AppWithLastVersion } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
-	import { faArrowLeft, faPen } from '@fortawesome/free-solid-svg-icons'
+	import { faPen } from '@fortawesome/free-solid-svg-icons'
 
 	let app: AppWithLastVersion | undefined = undefined
 
@@ -32,20 +33,16 @@
 
 <CenteredPage>
 	{#if app}
-		<div class="flex justify-between my-2 items-center">
-			<div class="flex gap-4 items-center">
-				<Button size="xs" href="/apps" startIcon={{ icon: faArrowLeft }} color="dark">
-					Back to apps
-				</Button>
-				<div>{app.value.title}</div>
-			</div>
+		<div class="flex justify-between items-center py-4">
+			<h2>{app.value.title}</h2>
+
 			<Button size="xs" href="/apps/edit/{$page.params.path}" startIcon={{ icon: faPen }}>
 				Edit
 			</Button>
 		</div>
 
-		<div class="h-screen">
-			<AppEditor app={app.value} path={app.path} initialMode="preview" />
+		<div class="border rounded-md p-2">
+			<AppPreview app={app.value} initialMode="preview" />
 		</div>
 	{/if}
 </CenteredPage>

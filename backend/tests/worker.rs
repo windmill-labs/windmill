@@ -821,7 +821,7 @@ impl RunJob {
             tx,
             "test-workspace",
             payload,
-            Some(args),
+            args,
             /* user */ "test-user",
             /* permissioned_as */ "u/admin".to_string(),
             /* scheduled_for_o */ None,

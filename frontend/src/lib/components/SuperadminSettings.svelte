@@ -1,6 +1,4 @@
 <script lang="ts">
-	import Fuse from 'fuse.js'
-
 	import { UserService, SettingsService, GlobalUserInfo } from '$lib/gen'
 
 	import TableCustom from '$lib/components/TableCustom.svelte'
@@ -9,34 +7,27 @@
 	import { Alert, Badge, Drawer, DrawerContent } from '$lib/components/common'
 	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
 	import { sendUserToast } from '$lib/utils'
+	import SearchItems from './SearchItems.svelte'
 
 	let drawer: Drawer
+	let filter = ''
 
 	export function openDrawer() {
 		loadVersion()
 		listUsers()
-		drawer?.openDrawer()
+		drawer?.openDrawer?.()
 	}
 
 	export function toggleDrawer() {
-		drawer?.toggleDrawer()
+		drawer?.toggleDrawer?.()
 	}
 
 	let version: string | undefined
 	let users: GlobalUserInfo[] = []
-	let filteredUsers: GlobalUserInfo[] | undefined
-	let userFilter = ''
+	let filteredUsers: GlobalUserInfo[] = []
 
 	let deleteConfirmedCallback: (() => void) | undefined = undefined
 	$: openConfirmation = Boolean(deleteConfirmedCallback)
-
-	const fuseOptions = {
-		includeScore: false,
-		keys: ['email', 'name', 'company']
-	}
-
-	const fuse: Fuse<GlobalUserInfo> = new Fuse(users, fuseOptions)
-	$: filteredUsers = fuse?.search(userFilter).map((value) => value.item)
 
 	async function loadVersion(): Promise<void> {
 		version = await SettingsService.backendVersion()
@@ -44,10 +35,15 @@
 
 	async function listUsers(): Promise<void> {
 		users = await UserService.listUsersAsSuperAdmin({ perPage: 100000 })
-		fuse?.setCollection(users)
-		userFilter = userFilter
 	}
 </script>
+
+<SearchItems
+	{filter}
+	items={users}
+	bind:filteredItems={filteredUsers}
+	f={(x) => x.email + ' ' + x.name + ' ' + x.company}
+/>
 
 <Drawer bind:this={drawer} on:open={listUsers} size="900px">
 	<DrawerContent overflow_y={false} title="Superadmin Settings" on:close={drawer.closeDrawer}>
@@ -89,7 +85,7 @@
 				<InviteGlobalUser on:new={listUsers} />
 				<div class="pb-1" />
 
-				<input placeholder="Search users" bind:value={userFilter} class="input mt-1" />
+				<input placeholder="Search users" bind:value={filter} class="input mt-1" />
 			</div>
 			<div class="mt-2 overflow-auto">
 				<TableCustom>
@@ -103,7 +99,7 @@
 					</tr>
 					<tbody slot="body" class="overflow-y-auto h-full max-h-full">
 						{#if filteredUsers && users}
-							{#each userFilter === '' ? users : filteredUsers as { email, super_admin, login_type, name, company }}
+							{#each filteredUsers as { email, super_admin, login_type, name, company } (email)}
 								<tr class="border">
 									<td>{email}</td>
 									<td>{super_admin ? 'yes' : ''}</td>
@@ -121,6 +117,7 @@
 															is_super_admin: !super_admin
 														}
 													})
+													sendUserToast('User updated')
 													listUsers()
 												}}>{super_admin ? 'demote' : 'promote'}</button
 											>

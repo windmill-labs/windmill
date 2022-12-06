@@ -1,6 +1,60 @@
 # Changelog
 
 
+## [1.53.0](https://github.com/windmill-labs/windmill/compare/v1.52.0...v1.53.0) (2022-12-05)
+
+
+### Features
+
+* add include_header to pass request headers to script ([31c317b](https://github.com/windmill-labs/windmill/commit/31c317b3581e24aa24fa41a708f080c1d1de7e0c))
+* **cli:** hub sync ([#975](https://github.com/windmill-labs/windmill/issues/975)) ([2265372](https://github.com/windmill-labs/windmill/commit/22653727a4106fa604796b3958efab94762041c2))
+* **frontend:** Add app preview ([#993](https://github.com/windmill-labs/windmill/issues/993)) ([c9ad638](https://github.com/windmill-labs/windmill/commit/c9ad63895891ab3bbaeab43a008573f5bd3681b5))
+* **frontend:** clarified UX for connect step ([e4839e2](https://github.com/windmill-labs/windmill/commit/e4839e21ff5d60bec4499245742f2400168c70ad))
+* **frontend:** introduce mysql as a script language ([#982](https://github.com/windmill-labs/windmill/issues/982)) ([e089109](https://github.com/windmill-labs/windmill/commit/e089109b50bd014c7a4f0fd7f60c53e8be63fb95))
+* refactor favorite menu ([c55fae5](https://github.com/windmill-labs/windmill/commit/c55fae54dd043eb1c01a15c8005e29166a4e992b))
+
+
+### Bug Fixes
+
+* **cli:** Fix cli pull push ([#985](https://github.com/windmill-labs/windmill/issues/985)) ([1bac237](https://github.com/windmill-labs/windmill/commit/1bac23785cb6af255732b1a2551bf9ffa00e24e7))
+* **frontend:** Align hub flow list + fix drawer content everywhere ([#991](https://github.com/windmill-labs/windmill/issues/991)) ([9f59a16](https://github.com/windmill-labs/windmill/commit/9f59a160c39048447ffeefc5070c52e8692c8316))
+* **frontend:** Fix app InputValue sync ([#994](https://github.com/windmill-labs/windmill/issues/994)) ([e217fbf](https://github.com/windmill-labs/windmill/commit/e217fbf071fa834c4b4288f602125164bf1d93bf))
+* **frontend:** fix app preview ([#979](https://github.com/windmill-labs/windmill/issues/979)) ([129a0ad](https://github.com/windmill-labs/windmill/commit/129a0ad56b58840620fdc77e619928e04c67cd1f))
+* **frontend:** fix home ([#981](https://github.com/windmill-labs/windmill/issues/981)) ([fa64e83](https://github.com/windmill-labs/windmill/commit/fa64e83f7ea6bc7786a15db647319d2f2a322b5b))
+* **frontend:** fix home header ([#977](https://github.com/windmill-labs/windmill/issues/977)) ([e9fa0ad](https://github.com/windmill-labs/windmill/commit/e9fa0ad0b75d0678167e7a48f8406639e85986a9))
+* **frontend:** Fix home margins ([#992](https://github.com/windmill-labs/windmill/issues/992)) ([62d2a33](https://github.com/windmill-labs/windmill/commit/62d2a3343dc27317f33446918404373b7d8285f5))
+* **frontend:** Make context clickable ([#984](https://github.com/windmill-labs/windmill/issues/984)) ([9264f4b](https://github.com/windmill-labs/windmill/commit/9264f4b233858537bb344355c5be43be3ec9d8d9))
+* **frontend:** variables and resources uses tab navigation ([90ce431](https://github.com/windmill-labs/windmill/commit/90ce4314181d8e5031c08d5fbb75b920c33b7f75))
+
+## [1.52.0](https://github.com/windmill-labs/windmill/compare/v1.51.0...v1.52.0) (2022-12-02)
+
+
+### Features
+
+* add favorite/star + remove flows/scripts page in favor of unified home page ([#968](https://github.com/windmill-labs/windmill/issues/968)) ([f3f694e](https://github.com/windmill-labs/windmill/commit/f3f694e9251fc62d8e3e10497e8936c588b456ba))
+* **cli:** improved setup & allow workspace in base url & refactor workspaces/remotes to unify ([#966](https://github.com/windmill-labs/windmill/issues/966)) ([d3a171c](https://github.com/windmill-labs/windmill/commit/d3a171c28355c5d452e6e9caa0aa741c1ff23875))
+* **cli:** Login via Frontend ([#956](https://github.com/windmill-labs/windmill/issues/956)) ([2c31a9c](https://github.com/windmill-labs/windmill/commit/2c31a9cbdf84ff2659313df799cbd79f9c167325))
+* **deno-client:** support mysql ([#971](https://github.com/windmill-labs/windmill/issues/971)) ([0e402f6](https://github.com/windmill-labs/windmill/commit/0e402f6a9dfd1b6d00f6d2a951740d7aea0a8b70))
+* **frontend:** Add actions to tables ([#951](https://github.com/windmill-labs/windmill/issues/951)) ([1069105](https://github.com/windmill-labs/windmill/commit/10691054510dd955a6f0d36c0186fdab9ce0facc))
+* **frontend:** Add Mailchimp resource instructions ([#967](https://github.com/windmill-labs/windmill/issues/967)) ([ba90e8c](https://github.com/windmill-labs/windmill/commit/ba90e8c1b8131e1b1e38322d165c04a53a8622b2))
+* **frontend:** flow status viewer include a graph ([02a9c5c](https://github.com/windmill-labs/windmill/commit/02a9c5c4eac557486df6908536a8467d68b92eca))
+* **frontend:** rework script detail ([#952](https://github.com/windmill-labs/windmill/issues/952)) ([6c45fe7](https://github.com/windmill-labs/windmill/commit/6c45fe7344858761422916cc497018b35753e0ce))
+* **frontend:** Update app component list ([#947](https://github.com/windmill-labs/windmill/issues/947)) ([ec1cebc](https://github.com/windmill-labs/windmill/commit/ec1cebc7920350939e365322f77898b31cafd795))
+* overhaul scripts and flows page ([4946093](https://github.com/windmill-labs/windmill/commit/494609364c9d6109c08c7531cf02223793325f88))
+* overhaul scripts and flows page ([c26be86](https://github.com/windmill-labs/windmill/commit/c26be86cef9d6cad44ae7cbbb5e0fd5d147c5c52))
+* **python:** add support for parsing resource type in python ([63d95cf](https://github.com/windmill-labs/windmill/commit/63d95cfbb31a2b599fa9deaee203e1c4c2f0715e))
+* refactor variable + resource linkage + OAuth visibility ([37967a7](https://github.com/windmill-labs/windmill/commit/37967a795006c2eb4e8b218abb3d1b0525c17d5e))
+* unify resources under a single connect API ([539d6be](https://github.com/windmill-labs/windmill/commit/539d6be9088ccb2d18b0d16ca020b23bffaa79b9))
+
+
+### Bug Fixes
+
+* **backend:** support PIP_INDEX_URL ([12f9677](https://github.com/windmill-labs/windmill/commit/12f967726b96cc04e5024134216727ddfcd5fe82))
+* **backend:** support PIP_INDEX_URL ([afcb44a](https://github.com/windmill-labs/windmill/commit/afcb44a12707dc3b0839182479438d2b010362ca))
+* **frontend:** Fix pie animation + actions wrap ([#953](https://github.com/windmill-labs/windmill/issues/953)) ([ed7838d](https://github.com/windmill-labs/windmill/commit/ed7838d6bcf538525f6b3e4257bffe6d51318c8a))
+* **frontend:** psql demo expects integers as a key ([#958](https://github.com/windmill-labs/windmill/issues/958)) ([4d8a5c4](https://github.com/windmill-labs/windmill/commit/4d8a5c4fd927e421825a9d9d2dc5dcfaf8b3949a))
+* **frontend:** Refactor apps to support multiple breakpoints ([#957](https://github.com/windmill-labs/windmill/issues/957)) ([96666af](https://github.com/windmill-labs/windmill/commit/96666af3d9d6f68e4e5bb0f7a748614c9916f394))
+
 ## [1.51.0](https://github.com/windmill-labs/windmill/compare/v1.50.0...v1.51.0) (2022-11-26)
 
 

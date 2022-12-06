@@ -6,7 +6,8 @@ import type { FlowState } from './flowState'
 export type PickableProperties = {
 	flow_input: Object
 	priorIds: Record<string, any>
-	previousId: string | undefined
+	previousId: string | undefined,
+	hasResume: boolean
 }
 
 type StepPropPicker = {
@@ -118,8 +119,11 @@ export function getStepPropPicker(
 	const pickableProperties = {
 		flow_input: flowInput,
 		priorIds: priorIds,
-		previousId: previousIds[0]
+		previousId: previousIds[0],
+		hasResume: previousModule?.suspend != undefined,
 	}
+
+
 
 	if (approvers && ((previousModule?.suspend?.required_events ?? 0) > 0)) {
 		pickableProperties["approvers"] = "The list of approvers"

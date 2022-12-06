@@ -12,6 +12,8 @@
 	import DisplayResult from './DisplayResult.svelte'
 	import Tabs from './common/tabs/Tabs.svelte'
 	import { FlowGraph } from './graph'
+	import ModuleStatus from './ModuleStatus.svelte'
+	import { displayDate } from '$lib/utils'
 
 	const dispatch = createEventDispatcher()
 
@@ -25,9 +27,17 @@
 		  }
 		| undefined = undefined
 	export let job: Job | undefined = undefined
-	export let flowModuleStates: Record<string, FlowStatusModule.type> = {}
+	export let flowModuleStates: Record<
+		string,
+		{ type: FlowStatusModule.type; logs?: string; result?: any; scheduled_for?: string }
+	> = {}
 
-	let localFlowModuleStates: Record<string, FlowStatusModule.type> = {}
+	let localFlowModuleStates: Record<
+		string,
+		{ type: FlowStatusModule.type; logs?: string; result?: any; scheduled_for?: string }
+	> = {}
+
+	let selectedNode: string | undefined = undefined
 
 	let jobResults: any[] = []
 	let jobFailures: boolean[] = []
@@ -41,7 +51,7 @@
 		Object.entries(localFlowModuleStates).forEach(([moduleId, state]) => {
 			if (
 				flowModuleStates[moduleId] !== state &&
-				flowModuleStates[moduleId] !== FlowStatusModule.type.FAILURE
+				flowModuleStates[moduleId]?.type !== FlowStatusModule.type.FAILURE
 			) {
 				flowModuleStates[moduleId] = state
 			}
@@ -57,22 +67,50 @@
 	}
 
 	$: innerModules =
-		job?.flow_status?.modules
-			.filter((x) => x.job != jobId)
-			.concat(
-				job?.flow_status.failure_module.type != 'WaitingForPriorSteps'
-					? job?.flow_status.failure_module
-					: []
-			) ?? []
+		job?.flow_status?.modules.concat(
+			job?.flow_status.failure_module.type != 'WaitingForPriorSteps'
+				? job?.flow_status.failure_module
+				: []
+		) ?? []
+
+	$: innerModules && localFlowModuleStates && updateInnerModules()
+
+	function updateInnerModules() {
+		innerModules.forEach((module, i) => {
+			if (
+				module.type === FlowStatusModule.type.WAITING_FOR_EVENTS &&
+				localFlowModuleStates?.[innerModules?.[i - 1]?.id ?? '']?.type ==
+					FlowStatusModule.type.SUCCESS
+			) {
+				localFlowModuleStates[module.id ?? ''] = { type: module.type }
+			} else if (
+				module.type === FlowStatusModule.type.WAITING_FOR_EXECUTOR &&
+				localFlowModuleStates[module.id ?? '']?.scheduled_for == undefined
+			) {
+				JobService.getJob({
+					workspace: $workspaceStore ?? '',
+					id: module.job ?? ''
+				}).then((job) => {
+					localFlowModuleStates[module.id ?? ''] = {
+						type: module.type,
+						scheduled_for: 'scheduled for ' + displayDate(job?.['scheduled_for'], true)
+					}
+				})
+			}
+		})
+	}
 
 	let errorCount = 0
 	async function loadJobInProgress() {
 		if (jobId != '00000000-0000-0000-0000-000000000000') {
 			try {
-				job = await JobService.getJob({
+				const newJob = await JobService.getJob({
 					workspace: $workspaceStore ?? '',
 					id: jobId ?? ''
 				})
+				if (JSON.stringify(newJob) !== JSON.stringify(job)) {
+					job = newJob
+				}
 				errorCount = 0
 			} catch (e) {
 				errorCount += 1
@@ -135,7 +173,7 @@
 			</Tabs>
 		{/if}
 
-		<div class="{selected == 'graph' && !isListJob ? 'hidden' : ''} ">
+		<div class={selected == 'graph' && !isListJob ? 'hidden' : ''}>
 			{#if isListJob}
 				<h3 class="text-md leading-6 font-bold text-gray-600 border-b mb-4">
 					Embedded flows: ({flowJobIds?.flowJobs.length} items)
@@ -174,7 +212,7 @@
 							jobId={loopJobId}
 							on:jobsLoaded={(e) => {
 								if (flowJobIds?.moduleId) {
-									if (flowState) {
+									if (flowState?.[flowJobIds.moduleId]) {
 										if (
 											!flowState[flowJobIds.moduleId].previewResult ||
 											!Array.isArray(flowState[flowJobIds.moduleId]?.previewResult)
@@ -186,6 +224,20 @@
 										jobResults[j] =
 											e.detail.result == null ? 'Job in progress ...' : e.detail.result
 										jobFailures[j] = e.detail.success === false
+									}
+									if (e.detail.type == 'QueuedJob') {
+										localFlowModuleStates[flowJobIds.moduleId] = {
+											type: FlowStatusModule.type.IN_PROGRESS,
+											logs: e.detail.logs
+										}
+									} else {
+										localFlowModuleStates[flowJobIds.moduleId] = {
+											type: e.detail.success
+												? FlowStatusModule.type.SUCCESS
+												: FlowStatusModule.type.FAILURE,
+											logs: e.detail.logs,
+											result: e.detail.result
+										}
 									}
 								}
 							}}
@@ -237,27 +289,27 @@
 												flowState[mod.id].previewArgs = e.detail.args
 											}
 											if (e.detail.type == 'QueuedJob') {
-												localFlowModuleStates[mod.id] = FlowStatusModule.type.IN_PROGRESS
+												localFlowModuleStates[mod.id] = {
+													type: FlowStatusModule.type.IN_PROGRESS,
+													logs: e.detail.logs
+												}
 											} else {
-												localFlowModuleStates[mod.id] = e.detail.success
-													? FlowStatusModule.type.SUCCESS
-													: FlowStatusModule.type.FAILURE
+												localFlowModuleStates[mod.id] = {
+													type: e.detail.success
+														? FlowStatusModule.type.SUCCESS
+														: FlowStatusModule.type.FAILURE,
+													logs: e.detail.logs,
+													result: e.detail.result
+												}
 											}
 										}
 									}}
 								/>
 							{:else}
-								<span class="italic text-gray-600">
-									<Icon data={faHourglassHalf} class="mr-2" />
-
-									{#if mod.type == FlowStatusModule.type.WAITING_FOR_EVENT}
-										Waiting to be resumed by receivent events such as approvals
-									{:else if mod.type == FlowStatusModule.type.WAITING_FOR_PRIOR_STEPS}
-										Waiting for prior steps to complete
-									{:else if mod.type == FlowStatusModule.type.WAITING_FOR_EXECUTOR}
-										Job is ready to be executed and will be picked up by the next available worker
-									{/if}
-								</span>
+								<ModuleStatus
+									type={mod.type}
+									scheduled_for={localFlowModuleStates?.[mod.id ?? '']?.scheduled_for}
+								/>
 							{/if}
 						</li>
 					{/each}
@@ -266,13 +318,45 @@
 		</div>
 	</div>
 	{#if job.raw_flow && !isListJob}
-		<div class="{selected != 'graph' ? 'hidden' : ''} lg:mx-40 mx-10 border border-gray-400 mt-4">
-			<FlowGraph
-				flowModuleStates={localFlowModuleStates}
-				notSelectable
-				modules={job.raw_flow?.modules ?? []}
-				failureModule={job.raw_flow?.failure_module}
-			/>
+		<div class="{selected != 'graph' ? 'hidden' : ''} mx-10 mt-4">
+			<div class="border" />
+			<div class="grid grid-cols-3">
+				<div class="col-span-2 bg-gray-50">
+					<FlowGraph
+						flowModuleStates={localFlowModuleStates}
+						on:click={(e) => {
+							if (e.detail.id) {
+								selectedNode = e.detail.id
+							}
+						}}
+						modules={job.raw_flow?.modules ?? []}
+						failureModule={job.raw_flow?.failure_module}
+					/>
+				</div>
+				<div class="border-l border-gray-400">
+					{#if selectedNode}
+						{#if localFlowModuleStates[selectedNode]}
+							<div class="px-2">
+								<ModuleStatus
+									type={localFlowModuleStates[selectedNode]?.type}
+									scheduled_for={localFlowModuleStates[selectedNode]?.['scheduled_for']}
+								/>
+							</div>
+							<FlowJobResult
+								noBorder
+								col
+								result={localFlowModuleStates[selectedNode].result ?? {}}
+								logs={localFlowModuleStates[selectedNode].logs ?? ''}
+							/>
+						{:else}
+							<p class="p-2 text-gray-600 italic"
+								>The execution of this node has no information attached to it. The job likely did
+								not run yet</p
+							>
+						{/if}
+					{:else}<p class="p-2 text-gray-600 italic">Select a node to see its details here</p>{/if}
+				</div>
+			</div>
 		</div>
 	{/if}
 {:else}

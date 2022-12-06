@@ -22,38 +22,59 @@
 				'Go to <a href="https://admin.mailchimp.com/account/api" target="_blank" rel=”noopener noreferrer”>https://admin.mailchimp.com/account/api</a>',
 				'Find "Your API Keys"'
 			]
+		},
+		sendgrid: {
+			img: 'sendgrid_connect.png',
+			instructions: [
+				'Go to <a href="https://app.sendgrid.com/settings/api_keys" target="_blank" rel=”noopener noreferrer”>https://app.sendgrid.com/settings/api_keys</a>',
+				'Create an API key',
+				'Copy your key'
+			]
 		}
 	}
 </script>
 
 <script lang="ts">
-	import { oauthStore, userStore, workspaceStore } from '$lib/stores'
+	import { oauthStore, workspaceStore } from '$lib/stores'
 	import { faMinus, faPlus } from '@fortawesome/free-solid-svg-icons'
 	import IconedResourceType from './IconedResourceType.svelte'
 	import { OauthService, ResourceService, VariableService, type TokenResponse } from '$lib/gen'
 	import { page } from '$app/stores'
-	import { sendUserToast, truncateRev } from '$lib/utils'
+	import { emptyString, sendUserToast, truncateRev } from '$lib/utils'
 	import { createEventDispatcher } from 'svelte'
 	import Icon from 'svelte-awesome'
 	import Path from './Path.svelte'
-	import { Alert, Button, Drawer } from './common'
+	import { Button, Drawer, Skeleton } from './common'
 	import DrawerContent from './common/drawer/DrawerContent.svelte'
 	import ApiConnectForm from './ApiConnectForm.svelte'
+	import SearchItems from './SearchItems.svelte'
+	import autosize from 'svelte-autosize'
 
+	export let newPageOAuth = false
+
+	let filter = ''
 	let manual = false
 	let value: string = ''
 	let valueToken: TokenResponse
-	let connects: Record<string, { scopes: string[]; extra_params?: Record<string, string> }> = {}
-	let connectsManual: [string, { img?: string; instructions: string[]; key?: string }][] = []
-	let key: string = 'token'
-	let args = {}
+	let connects:
+		| Record<string, { scopes: string[]; extra_params?: Record<string, string> }>
+		| undefined = undefined
+	let connectsManual:
+		| [string, { img?: string; instructions: string[]; key?: string }][]
+		| undefined = undefined
+	let args: any = {}
 
-	$: key = apiTokenApps[resource_type]?.key ?? 'token'
+	$: key =
+		apiTokenApps[resource_type]?.key ??
+		(args != undefined
+			? Object.keys(args).filter((x) => ['token', 'password', 'api_key'].includes(x))[0]
+			: undefined)
 
 	let scopes: string[] = []
 	let extra_params: [string, string][] = []
 
 	let path: string
+	let description = ''
 
 	let drawer: Drawer
 	let resource_type = ''
@@ -66,15 +87,21 @@
 	export async function open(rt?: string) {
 		step = 1
 		value = ''
+		description = ''
 		no_back = false
 		resource_type = rt ?? ''
 
 		await loadConnects()
 
-		const connect = connects[resource_type]
+		const connect = connects?.[resource_type]
 		if (connect) {
 			scopes = connect.scopes
 			extra_params = Object.entries(connect.extra_params ?? {})
+		} else {
+			manual = true
+			if (rt) {
+				next()
+			}
 		}
 		drawer.openDrawer?.()
 	}
@@ -95,11 +122,12 @@
 	}
 
 	async function loadResources() {
+		await loadConnects()
 		const availableRts = await ResourceService.listResourceTypeNames({
 			workspace: $workspaceStore!
 		})
 		connectsManual = availableRts
-			.filter((x) => !Object.keys(connects).includes(x))
+			.filter((x) => !Object.keys(connects ?? {}).includes(x))
 			.map((x) => [
 				x,
 				apiTokenApps[x] ?? {
@@ -119,7 +147,11 @@
 			if (extra_params.length > 0) {
 				extra_params.forEach(([key, value]) => url.searchParams.append(key, value))
 			}
-			window.location.href = url.toString()
+			if (!newPageOAuth) {
+				window.location.href = url.toString()
+			} else {
+				window.open(url.toString(), '_blank')
+			}
 		} else {
 			let exists = await VariableService.existsVariable({
 				workspace: $workspaceStore!,
@@ -151,21 +183,26 @@
 					})
 				)
 			}
-			const description = `${manual ? 'Token' : 'OAuth token'} for ${resource_type}`
 
-			await VariableService.createVariable({
-				workspace: $workspaceStore!,
-				requestBody: {
-					path,
-					value: manual ? args[key] : value,
-					is_secret: true,
-					description,
-					is_oauth: !manual,
-					account: account
-				}
-			})
 			const resourceValue = args
-			resourceValue[key] = `$var:${path}`
+
+			if (!manual || key != undefined) {
+				await VariableService.createVariable({
+					workspace: $workspaceStore!,
+					requestBody: {
+						path,
+						value: manual ? args[key ?? ''] : value,
+						is_secret: true,
+						description: emptyString(description)
+							? `${manual ? 'Token' : 'OAuth token'} for ${resource_type}`
+							: description,
+						is_oauth: !manual,
+						account: account
+					}
+				})
+				resourceValue[key ?? 'token'] = `$var:${path}`
+			}
+
 			await ResourceService.createResource({
 				workspace: $workspaceStore!,
 				requestBody: {
@@ -175,7 +212,7 @@
 					description
 				}
 			})
-			dispatch('refresh')
+			dispatch('refresh', path)
 			sendUserToast(`App token set at resource and variable path: ${path}`)
 			drawer.closeDrawer?.()
 		}
@@ -196,15 +233,37 @@
 			resource_type == 'gcal' ||
 			resource_type == 'gdrive' ||
 			resource_type == 'gsheets')
+
 	$: disabled =
 		(step == 1 && resource_type == '') ||
 		(step == 2 &&
 			value == '' &&
+			args &&
 			args['token'] == '' &&
 			args['password'] == '' &&
-			args['api_key'] == '') ||
-		(step == 3 && pathError != '')
+			args['api_key'] == '' &&
+			key != undefined) ||
+		(step == 3 && pathError != '') ||
+		!isValid
+
+	let isValid = true
+	let filteredConnects: [string, { scopes: string[]; extra_params?: Record<string, string> }][] = []
+	let filteredConnectsManual: [string, { img?: string; instructions: string[]; key?: string }][] =
+		[]
 </script>
+
+<SearchItems
+	{filter}
+	items={connects ? Object.entries(connects).sort((a, b) => a[0].localeCompare(b[0])) : undefined}
+	bind:filteredItems={filteredConnects}
+	f={(x) => x[0]}
+/>
+<SearchItems
+	{filter}
+	items={connectsManual?.sort((a, b) => a[0].localeCompare(b[0]))}
+	bind:filteredItems={filteredConnectsManual}
+	f={(x) => x[0]}
+/>
 
 <Drawer
 	bind:this={drawer}
@@ -212,115 +271,123 @@
 		dispatch('close')
 	}}
 	on:open={() => {
-		loadConnects()
 		loadResources()
 	}}
+	size="800px"
 >
 	<DrawerContent title="Connect an API" on:close={drawer.closeDrawer}>
 		{#if step == 1}
-			{#if resource_type && !connects[resource_type] && !connectsManual.find((x) => x[0] == resource_type)}
-				<Alert class="mb-4" type="error" title="Resource type not found">
-					The resource type "{resource_type}" seems to not have an OAuth API integration. You can
-					still create this resource manually by closing this modal and pressing: "Add a resource".
-					You can also contribute to windmill and add it as an API integration if relevant.
-				</Alert>
-			{/if}
-			<h2 class="mb-2">OAuth APIs</h2>
-			{#if Object.keys(connects).length == 0}
-				<Alert class="mb-4" type="error" title="No OAuth connection setup">
-					Your instance has no OAuth connection setup. You can still add a resource manually.
-				</Alert>
-			{/if}
-			<div class="grid sm:grid-cols-2 md:grid-cols-3 gap-x-2 gap-y-1 items-center mb-2">
-				{#each Object.entries(connects).sort((a, b) => a[0].localeCompare(b[0])) as [key, values]}
-					<Button
-						size="sm"
-						variant="border"
-						color={key === resource_type ? 'blue' : 'dark'}
-						btnClasses={key === resource_type ? '!border-2 !bg-blue-50/75' : 'm-[1px]'}
-						on:click={() => {
-							manual = false
-							resource_type = key
-							scopes = values.scopes
-							extra_params = Object.entries(values.extra_params ?? {})
-
-							dispatch('click')
-						}}
-					>
-						<IconedResourceType name={key} after={true} width="20px" height="20px" />
-					</Button>
-				{/each}
+			<div class="w-12/12 pb-2 flex flex-row my-1 gap-1">
+				<input
+					type="text"
+					placeholder="Search resource type"
+					bind:value={filter}
+					class="text-2xl grow"
+				/>
 			</div>
-			<h3>Scopes</h3>
-			{#if !manual && resource_type != ''}
-				{#each scopes as v}
-					<div class="flex flex-row max-w-md mb-2">
-						<input type="text" bind:value={v} />
+
+			<h2 class="mb-2">OAuth APIs</h2>
+			<div class="grid sm:grid-cols-2 md:grid-cols-3 gap-x-2 gap-y-1 items-center mb-2">
+				{#if filteredConnects}
+					{#each filteredConnects as [key, values]}
 						<Button
+							size="sm"
 							variant="border"
-							color="red"
-							size="xs"
-							btnClasses="mx-6"
+							color={key === resource_type ? 'blue' : 'dark'}
+							btnClasses={key === resource_type ? '!border-2 !bg-blue-50/75' : 'm-[1px]'}
 							on:click={() => {
-								scopes = scopes.filter((el) => el != v)
+								manual = false
+								resource_type = key
+								scopes = values.scopes
+								extra_params = Object.entries(values.extra_params ?? {})
 							}}
 						>
-							<Icon data={faMinus} />
+							<IconedResourceType name={key} after={true} width="20px" height="20px" />
 						</Button>
+					{/each}
+				{:else}
+					{#each new Array(3) as _}
+						<Skeleton layout={[[2]]} />
+					{/each}
+				{/if}
+			</div>
+			{#if manual == false && resource_type != ''}
+				<h3>Scopes</h3>
+				{#if !manual && resource_type != ''}
+					{#each scopes as v}
+						<div class="flex flex-row max-w-md mb-2">
+							<input type="text" bind:value={v} />
+							<Button
+								variant="border"
+								color="red"
+								size="xs"
+								btnClasses="mx-6"
+								on:click={() => {
+									scopes = scopes.filter((el) => el != v)
+								}}
+							>
+								<Icon data={faMinus} />
+							</Button>
+						</div>
+					{/each}
+					<div class="flex items-center mt-1">
+						<Button
+							variant="border"
+							color="blue"
+							size="sm"
+							endIcon={{ icon: faPlus }}
+							on:click={() => {
+								scopes = scopes.concat('')
+							}}
+						>
+							Add item
+						</Button>
+						<span class="ml-2 text-sm text-gray-500">
+							({(scopes ?? []).length} item{(scopes ?? []).length > 1 ? 's' : ''})
+						</span>
 					</div>
-				{/each}
-				<div class="flex items-center mt-1">
-					<Button
-						variant="border"
-						color="blue"
-						size="sm"
-						endIcon={{ icon: faPlus }}
-						on:click={() => {
-							scopes = scopes.concat('')
-						}}
-					>
-						Add item
-					</Button>
-					<span class="ml-2 text-sm text-gray-500">
-						({(scopes ?? []).length} item{(scopes ?? []).length > 1 ? 's' : ''})
-					</span>
-				</div>
-			{:else}
-				<p class="italic text-sm">Pick an OAuth API and customize the scopes here</p>
+				{/if}
 			{/if}
+
 			<h2 class="mt-8 mb-2">Non OAuth APIs</h2>
-			{#if Object.keys(connectsManual).length == 0}
-				<Alert class="mb-4" type="error" title="No resource types synced">
-					Your instance has no resource types setup. Sync with the hub to get all the latest
-					resource types.
-				</Alert>
-			{/if}
 			<div class="grid sm:grid-cols-2 md:grid-cols-3 gap-x-2 gap-y-1 items-center mb-2">
-				{#each connectsManual as [key, instructions]}
-					<Button
-						size="sm"
-						variant="border"
-						color={key === resource_type ? 'blue' : 'dark'}
-						btnClasses={key === resource_type ? '!border-2 !bg-blue-50/75' : 'm-[1px]'}
-						on:click={() => {
-							manual = true
-							resource_type = key
-							dispatch('click')
-						}}
-					>
-						<IconedResourceType name={key} after={true} width="20px" height="20px" />
-					</Button>
-				{/each}
+				{#if filteredConnectsManual}
+					{#each filteredConnectsManual as [key, instructions]}
+						<Button
+							size="sm"
+							variant="border"
+							color={key === resource_type ? 'blue' : 'dark'}
+							btnClasses={key === resource_type ? '!border-2 !bg-blue-50/75' : 'm-[1px]'}
+							on:click={() => {
+								manual = true
+								resource_type = key
+								next()
+								dispatch('click')
+							}}
+						>
+							<IconedResourceType name={key} after={true} width="20px" height="20px" />
+						</Button>
+					{/each}
+				{:else}
+					{#each new Array(9) as _}
+						<Skeleton layout={[[2]]} />
+					{/each}
+				{/if}
 			</div>
 		{:else if step == 2 && manual}
 			<Path
 				bind:error={pathError}
 				bind:path
-				initialPath={`u/${$userStore?.username ?? ''}/my_${resource_type}`}
+				initialPath=""
+				namePlaceholder="my_{resource_type}"
 				kind="resource"
 			/>
+			<h2 class="mt-4 mb-2">Description</h2>
+
+			<textarea type="text" autocomplete="off" use:autosize bind:value={description} />
+
 			{#if apiTokenApps[resource_type]}
-				<div class="mb-1 font-semibold text-gray-700 mt-6">Instructions</div>
+				<h2 class="mt-4 mb-2">Instructions</h2>
 				<div class="pl-10">
 					<ol class="list-decimal">
 						{#each apiTokenApps[resource_type].instructions as step}
@@ -337,14 +404,16 @@
 				{/if}
 			{/if}
 
+			<h2 class="mt-8">Value</h2>
 			<div class="mt-4">
-				<ApiConnectForm password={key} {resource_type} bind:args />
+				<ApiConnectForm password={key ?? ''} {resource_type} bind:args bind:isValid />
 			</div>
 		{:else}
 			<Path
+				initialPath=""
+				namePlaceholder="my_{resource_type}"
 				bind:error={pathError}
 				bind:path
-				initialPath={`u/${$userStore?.username ?? ''}/my_${resource_type}`}
 				kind="resource"
 			/>
 			{#if apiTokenApps[resource_type] || !manual}
@@ -364,7 +433,7 @@
 				>
 			{/if}
 		{/if}
-		<div slot="submission" class="flex items-center gap-4">
+		<div slot="actions">
 			{#if step > 1 && !no_back}
 				<Button variant="border" on:click={back}>Back</Button>
 			{/if}

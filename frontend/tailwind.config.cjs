@@ -178,8 +178,7 @@ const config = {
 				},
 				mark: {
 					backgroundColor: theme('colors.yellow.200'),
-					border: `1px solid ${theme('colors.gray.600')}`,
-					borderRadius: theme('borderRadius.sm'),
+					borderRadius: theme('borderRadius.sm')
 				},
 				h3: {
 					fontSize: '18px',
@@ -286,7 +285,6 @@ const config = {
 					fontFamily: theme('fontFamily.mono'),
 					fontSize: theme('fontSize.sm') + ' !important',
 					lineHeight: theme('lineHeight.4') + ' !important',
-					whiteSpace: 'pre-wrap'
 				}
 			})
 			addComponents({

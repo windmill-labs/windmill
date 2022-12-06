@@ -13,7 +13,7 @@
 	import { displayDate } from '$lib/utils'
 	import { goto } from '$app/navigation'
 	import PageHeader from '$lib/components/PageHeader.svelte'
-	import { userStore, workspaceStore } from '$lib/stores'
+	import { superadmin, userStore, workspaceStore } from '$lib/stores'
 	import TableCustom from '$lib/components/TableCustom.svelte'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
 	import Icon from 'svelte-awesome'
@@ -52,9 +52,10 @@
 	}
 
 	async function loadUsers() {
-		usernames = $userStore?.is_admin
-			? await UserService.listUsernames({ workspace: $workspaceStore! })
-			: [$userStore?.username ?? '']
+		usernames =
+			$userStore?.is_admin || $superadmin
+				? await UserService.listUsernames({ workspace: $workspaceStore! })
+				: [$userStore?.username ?? '']
 	}
 
 	async function gotoUsername(username: string | undefined): Promise<void> {
@@ -102,11 +103,11 @@
 		<label>
 			<select class="px-6" bind:value={username} on:change={() => gotoUsername(username)}>
 				{#if usernames}
-					{#if $userStore?.is_admin}
+					{#if $userStore?.is_admin || $superadmin}
 						<option selected>all</option>
 					{/if}
 					{#each usernames as e}
-						{#if e == username || $userStore?.is_admin}
+						{#if e == username || $userStore?.is_admin || $superadmin}
 							<option>{e}</option>
 						{:else}
 							<option disabled>{e}</option>
@@ -141,7 +142,7 @@
 			{#if logs}
 				{#each logs as { id, timestamp, username, operation, action_kind, resource, parameters }}
 					<tr>
-						<td class="">{id}</td>
+						<td>{id}</td>
 						<td class="">
 							<div class="whitespace-nowrap overflow-x-auto no-scrollbar max-w-xs">
 								{displayDate(timestamp)}
@@ -153,8 +154,8 @@
 						<td class="">
 							<div class="whitespace-nowrap overflow-x-auto no-scrollbar w-20">
 								{username}
-							</div></td
-						>
+							</div>
+						</td>
 						<td class=""><pre>{operation}</pre></td>
 						<td class="">{resource}</td>
 						<td class="">

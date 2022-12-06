@@ -1,63 +1,116 @@
 <script lang="ts">
 	import { workspaceStore } from '$lib/stores'
 	import { createEventDispatcher } from 'svelte'
-	import type { HubItem } from './model'
-	import Fuse from 'fuse.js'
 	import { ScriptService } from '$lib/gen'
+	import SearchItems from '$lib/components/SearchItems.svelte'
+	import { Badge, Skeleton } from '$lib/components/common'
+	import { fade } from 'svelte/transition'
+	import { flip } from 'svelte/animate'
+	import { emptyString } from '$lib/utils'
 
 	export let kind: 'script' | 'trigger' | 'approval' | 'failure' = 'script'
+	export let isTemplate: boolean | undefined = undefined
 
-	let items: Item[] = []
-
-	let filteredItems: Item[] | undefined = []
-	let itemsFilter = ''
-
-	const fuseOptions = {
-		includeScore: false,
-		keys: ['path', 'summay']
+	type Item = {
+		path: string
+		summary?: string
+		description?: string
 	}
-	const fuse: Fuse<Item> = new Fuse(items, fuseOptions)
 
-	$: $workspaceStore && loadItems()
+	let items: Item[] | undefined = undefined
 
-	$: filteredItems =
-		itemsFilter.length > 0 && items ? fuse.search(itemsFilter).map((value) => value.item) : items
+	let filteredItems: (Item & { marked?: string })[] | undefined = undefined
+	export let filter = ''
+
+	$: $workspaceStore && kind && loadItems()
 
 	async function loadItems(): Promise<void> {
-		items = await ScriptService.listScripts({ workspace: $workspaceStore!, kind })
-		fuse.setCollection(items)
+		items = await ScriptService.listScripts({ workspace: $workspaceStore!, kind, isTemplate })
 	}
+
+	let ownerFilter: string | undefined = undefined
+	$: prefilteredItems = ownerFilter ? items?.filter((x) => x.path.startsWith(ownerFilter!)) : items
+
+	$: owners = Array.from(
+		new Set(filteredItems?.map((x) => x.path.split('/').slice(0, 2).join('/')) ?? [])
+	).sort()
 
 	const dispatch = createEventDispatcher()
 </script>
 
+<SearchItems
+	{filter}
+	items={prefilteredItems}
+	bind:filteredItems
+	f={(x) => (emptyString(x.summary) ? x.path : x.summary + ' (' + x.path + ')')}
+/>
 <div class="flex flex-col min-h-0">
-	<div class="w-12/12 pb-4">
-		<input type="text" placeholder="Search script" bind:value={itemsFilter} class="search-item" />
+	<div class="w-full flex mt-1 items-center gap-2 mb-3">
+		<slot />
+		<input
+			type="text"
+			placeholder="Search Workspace Scripts"
+			bind:value={filter}
+			class="text-2xl grow"
+		/>
 	</div>
 
 	{#if filteredItems}
+		{#if owners.length > 0}
+			<div class="gap-2 w-full flex flex-wrap my-2">
+				{#each owners as owner (owner)}
+					<div in:fade={{ duration: 50 }} animate:flip={{ duration: 100 }}>
+						<Badge
+							class="cursor-pointer hover:bg-gray-200"
+							on:click={() => {
+								ownerFilter = ownerFilter == owner ? undefined : owner
+							}}
+							color={owner === ownerFilter ? 'blue' : 'gray'}
+							baseClass={owner === ownerFilter ? 'border border-blue-500' : 'border'}
+						>
+							{owner}
+							{#if owner === ownerFilter}&cross;{/if}
+						</Badge>
+					</div>
+				{/each}
+			</div>
+		{/if}
+		{#if filter.length > 0 && filteredItems.length == 0}
+			<p class="py-5">No items found</p>
+		{/if}
 		<ul class="divide-y divide-gray-200 overflow-auto">
-			{#each filteredItems as obj}
+			{#each filteredItems as { path, summary, description, marked }}
 				<li class="flex flex-row w-full">
 					<button
 						class="py-4 px-1 gap-1 flex flex-row grow hover:bg-blue-50 bg-white transition-all text-black"
 						on:click={() => {
-							dispatch('pick', obj)
+							dispatch('pick', { path })
 						}}
 					>
 						<div class="flex flex-col">
 							<div class="text-sm font-semibold flex flex-col">
-								<span class="mr-2 text-left">{obj['summary'] ?? ''}</span>
+								<span class="mr-2 text-left">
+									{#if marked}
+										{@html marked}
+									{:else}
+										{!summary || summary.length == 0 ? path : summary}
+									{/if}</span
+								>
 								<span class="font-normal text-xs text-left italic overflow-hidden"
-									>{obj['path'] ?? ''}</span
+									>{path ?? ''}</span
 								>
 							</div>
-							<div class="text-xs font-light italic text-left">{obj['description'] ?? ''}</div>
+							<div class="text-xs font-light italic text-left">{description ?? ''}</div>
 						</div>
 					</button>
 				</li>
 			{/each}
 		</ul>
+	{:else}
+		<div class="mt-6" />
+
+		{#each new Array(6) as _}
+			<Skeleton layout={[[4], 0.7]} />
+		{/each}
 	{/if}
 </div>

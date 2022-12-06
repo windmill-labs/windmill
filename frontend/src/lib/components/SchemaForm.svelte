@@ -1,15 +1,20 @@
 <script lang="ts">
 	import type { Schema } from '$lib/common'
-	import type { InputTransform } from '$lib/gen'
+	import { VariableService, type InputTransform } from '$lib/gen'
+	import { workspaceStore } from '$lib/stores'
 	import { allTrue } from '$lib/utils'
 	import { slide } from 'svelte/transition'
 	import ArgInput from './ArgInput.svelte'
+	import { Button } from './common'
 	import InputTransformForm from './InputTransformForm.svelte'
+	import ItemPicker from './ItemPicker.svelte'
+	import VariableEditor from './VariableEditor.svelte'
 
 	export let inputTransform = false
 	export let schema: Schema
 	export let args: Record<string, InputTransform | any> = {}
 	export let disabledArgs: string[] = []
+	export let disabled = false
 
 	export let editableSchema = false
 	export let isValid: boolean = true
@@ -27,7 +32,7 @@
 	let inputCheck: { [id: string]: boolean } = {}
 	$: isValid = allTrue(inputCheck) ?? false
 
-	$: if (args == undefined) {
+	$: if (args == undefined || typeof args !== 'object') {
 		args = {}
 	}
 
@@ -41,6 +46,10 @@
 	}
 
 	$: schema?.properties && removeExtraKey()
+
+	let pickForField: string | undefined
+	let itemPicker: ItemPicker
+	let variableEditor: VariableEditor
 </script>
 
 <div class="w-full {clazz}">
@@ -55,8 +64,11 @@
 						bind:argName
 						bind:inputCheck={inputCheck[argName]}
 						bind:extraLib
+						{variableEditor}
+						{itemPicker}
+						bind:pickForField
 					/>
-				{:else}
+				{:else if typeof args == 'object'}
 					<ArgInput
 						autofocus={i == 0 && autofocus}
 						label={argName}
@@ -72,11 +84,16 @@
 						contentEncoding={schema.properties[argName].contentEncoding}
 						properties={schema.properties[argName].properties}
 						bind:itemsType={schema.properties[argName].items}
-						disabled={disabledArgs.includes(argName)}
+						disabled={disabledArgs.includes(argName) || disabled}
 						{editableSchema}
 						{compact}
 						password={argName == password}
+						{variableEditor}
+						{itemPicker}
+						bind:pickForField
 					/>
+				{:else}
+					Expected args to be an object, got {JSON.stringify(args)} instead
 				{/if}
 			</div>
 		{/each}
@@ -84,3 +101,41 @@
 		<div class="text-gray-500 text-sm">No inputs</div>
 	{/if}
 </div>
+
+<ItemPicker
+	bind:this={itemPicker}
+	pickCallback={(path, _) => {
+		if (pickForField) {
+			if (inputTransform) {
+				args[pickForField].value = '$var:' + path
+			} else {
+				args[pickForField] = '$var:' + path
+			}
+		}
+	}}
+	itemName="Variable"
+	extraField="name"
+	loadItems={async () =>
+		(await VariableService.listVariable({ workspace: $workspaceStore ?? '' })).map((x) => ({
+			name: x.path,
+			...x
+		}))}
+>
+	<div
+		slot="submission"
+		class="flex flex-row-reverse w-full p-5 bg-white border-t border-gray-200 rounded-bl-lg rounded-br-lg"
+	>
+		<Button
+			variant="border"
+			color="blue"
+			size="sm"
+			on:click={() => {
+				variableEditor?.initNew?.()
+			}}
+		>
+			Create a new variable
+		</Button>
+	</div>
+</ItemPicker>
+
+<VariableEditor bind:this={variableEditor} on:create={itemPicker.openDrawer} />

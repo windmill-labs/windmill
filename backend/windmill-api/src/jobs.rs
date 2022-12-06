@@ -6,6 +6,8 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
+use std::sync::Arc;
+
 use anyhow::Context;
 use axum::{
     extract::{FromRequest, Path, Query},
@@ -14,10 +16,11 @@ use axum::{
     Extension, Json, Router,
 };
 use hmac::Mac;
-use hyper::StatusCode;
+use hyper::{HeaderMap, StatusCode};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use sql_builder::{prelude::*, quote, SqlBuilder};
 use sqlx::{query_scalar, types::Uuid, Postgres, Transaction};
+use urlencoding::encode;
 use windmill_audit::{audit_log, ActionKind};
 use windmill_common::{
     error::{self, to_anyhow, Error},
@@ -34,6 +37,7 @@ use crate::{
     db::{UserDB, DB},
     users::Authed,
     variables::get_workspace_key,
+    BaseUrl,
 };
 
 pub fn workspaced_service() -> Router {
@@ -64,6 +68,7 @@ pub fn workspaced_service() -> Router {
             "/job_signature/:job_id/:resume_id",
             get(create_job_signature),
         )
+        .route("/resume_urls/:job_id/:resume_id", get(get_resume_urls))
         .route("/result_by_id/:job_id/:node_id", get(get_result_by_id))
 }
 
@@ -235,16 +240,17 @@ pub struct CompletedJob {
     pub is_skipped: bool,
 }
 
-#[derive(Deserialize, Clone, Copy)]
+#[derive(Deserialize, Clone)]
 pub struct RunJobQuery {
     scheduled_for: Option<chrono::DateTime<chrono::Utc>>,
     scheduled_in_secs: Option<i64>,
     parent_job: Option<Uuid>,
+    include_header: Option<String>,
 }
 
 impl RunJobQuery {
     async fn get_scheduled_for<'c>(
-        self,
+        &self,
         db: &mut Transaction<'c, Postgres>,
     ) -> error::Result<Option<chrono::DateTime<chrono::Utc>>> {
         if let Some(scheduled_for) = self.scheduled_for {
@@ -255,6 +261,27 @@ impl RunJobQuery {
         } else {
             Ok(None)
         }
+    }
+
+    fn add_include_headers(
+        &self,
+        headers: HeaderMap,
+        mut args: serde_json::Map<String, serde_json::Value>,
+    ) -> serde_json::Map<String, serde_json::Value> {
+        self.include_header
+            .as_ref()
+            .map(|s| s.split(",").map(|s| s.to_string()).collect::<Vec<_>>())
+            .unwrap_or_default()
+            .iter()
+            .for_each(|h| {
+                if let Some(v) = headers.get(h) {
+                    args.insert(
+                        h.to_string().to_lowercase().replace('-', "_"),
+                        serde_json::Value::String(v.to_str().unwrap().to_string()),
+                    );
+                }
+            });
+        args
     }
 }
 
@@ -662,14 +689,72 @@ pub async fn create_job_signature(
     Query(approver): Query<QueryApprover>,
 ) -> error::Result<String> {
     let key = get_workspace_key(&w_id, &mut user_db.begin(&authed).await?).await?;
+    create_signature(key, job_id, resume_id, approver.approver)
+}
+
+fn create_signature(
+    key: String,
+    job_id: Uuid,
+    resume_id: u32,
+    approver: Option<String>,
+) -> Result<String, Error> {
     let mut mac = HmacSha256::new_from_slice(key.as_bytes()).map_err(to_anyhow)?;
     mac.update(job_id.as_bytes());
     mac.update(resume_id.to_be_bytes().as_ref());
-    tracing::info!("approver: {:?}", approver.approver);
-    if let Some(approver) = approver.approver {
+    if let Some(approver) = approver {
         mac.update(approver.as_bytes());
     }
     Ok(hex::encode(mac.finalize().into_bytes()))
+}
+
+#[allow(non_snake_case)]
+#[derive(Serialize)]
+pub struct ResumeUrls {
+    approvalPage: String,
+    cancel: String,
+    resume: String,
+}
+
+fn build_resume_url(
+    op: &str,
+    w_id: &str,
+    job_id: &Uuid,
+    resume_id: &u32,
+    signature: &str,
+    approver: &str,
+    base_url: &str,
+) -> String {
+    format!("{base_url}/api/w/{w_id}/jobs/{op}/{job_id}/{resume_id}/{signature}{approver}")
+}
+
+pub async fn get_resume_urls(
+    authed: Authed,
+    Extension(user_db): Extension<UserDB>,
+    Path((w_id, job_id, resume_id)): Path<(String, Uuid, u32)>,
+    Query(approver): Query<QueryApprover>,
+    Extension(base_url): Extension<Arc<BaseUrl>>,
+) -> error::JsonResult<ResumeUrls> {
+    let key = get_workspace_key(&w_id, &mut user_db.begin(&authed).await?).await?;
+    let signature = create_signature(key, job_id, resume_id, approver.approver.clone())?;
+    let base_url = base_url.0.clone();
+    let approver = approver
+        .approver
+        .as_ref()
+        .map(|x| format!("?approver={}", encode(x)))
+        .unwrap_or_else(String::new);
+    let res = ResumeUrls {
+        approvalPage: format!(
+            "{base_url}/approve/{w_id}/{job_id}/{resume_id}/{signature}{approver}"
+        ),
+        cancel: build_resume_url(
+            "cancel", &w_id, &job_id, &resume_id, &signature, &approver, &base_url,
+        ),
+        resume: build_resume_url(
+            "resume", &w_id, &job_id, &resume_id, &signature, &approver, &base_url,
+        ),
+    };
+
+    Ok(Json(res))
 }
 
 #[derive(Serialize, Debug)]
@@ -858,10 +943,13 @@ pub async fn run_flow_by_path(
     Path((w_id, flow_path)): Path<(String, StripPath)>,
     axum::Json(args): axum::Json<Option<serde_json::Map<String, serde_json::Value>>>,
     Query(run_query): Query<RunJobQuery>,
+    headers: HeaderMap,
 ) -> error::Result<(StatusCode, String)> {
     let flow_path = flow_path.to_path();
     let mut tx = user_db.begin(&authed).await?;
     let scheduled_for = run_query.get_scheduled_for(&mut tx).await?;
+    let args = run_query.add_include_headers(headers, args.unwrap_or_default());
+
     let (uuid, tx) = push(
         tx,
         &w_id,
@@ -886,11 +974,13 @@ pub async fn run_job_by_path(
     Path((w_id, script_path)): Path<(String, StripPath)>,
     axum::Json(args): axum::Json<Option<serde_json::Map<String, serde_json::Value>>>,
     Query(run_query): Query<RunJobQuery>,
+    headers: HeaderMap,
 ) -> error::Result<(StatusCode, String)> {
     let script_path = script_path.to_path();
     let mut tx = user_db.begin(&authed).await?;
     let job_payload = script_path_to_payload(script_path, &mut tx, &w_id).await?;
     let scheduled_for = run_query.get_scheduled_for(&mut tx).await?;
+    let args = run_query.add_include_headers(headers, args.unwrap_or_default());
 
     let (uuid, tx) = push(
         tx,
@@ -948,11 +1038,14 @@ pub async fn run_wait_result_job_by_path(
     Path((w_id, script_path)): Path<(String, StripPath)>,
     axum::Json(args): axum::Json<Option<serde_json::Map<String, serde_json::Value>>>,
     Query(run_query): Query<RunJobQuery>,
+    headers: HeaderMap,
 ) -> error::JsonResult<serde_json::Value> {
     let script_path = script_path.to_path();
     let mut tx = user_db.clone().begin(&authed).await?;
     let job_payload = script_path_to_payload(script_path, &mut tx, &w_id).await?;
     let scheduled_for = run_query.get_scheduled_for(&mut tx).await?;
+
+    let args = run_query.add_include_headers(headers, args.unwrap_or_default());
 
     let (uuid, tx) = push(
         tx,
@@ -979,11 +1072,13 @@ pub async fn run_wait_result_job_by_hash(
     Path((w_id, script_hash)): Path<(String, ScriptHash)>,
     axum::Json(args): axum::Json<Option<serde_json::Map<String, serde_json::Value>>>,
     Query(run_query): Query<RunJobQuery>,
+    headers: HeaderMap,
 ) -> error::JsonResult<serde_json::Value> {
     let hash = script_hash.0;
     let mut tx = user_db.clone().begin(&authed).await?;
     let path = get_path_for_hash(&mut tx, &w_id, hash).await?;
     let scheduled_for = run_query.get_scheduled_for(&mut tx).await?;
+    let args = run_query.add_include_headers(headers, args.unwrap_or_default());
 
     let (uuid, tx) = push(
         tx,
@@ -1024,10 +1119,12 @@ async fn run_preview_job(
     Extension(user_db): Extension<UserDB>,
     Path(w_id): Path<String>,
     Json(preview): Json<Preview>,
-    Query(sch_query): Query<RunJobQuery>,
+    Query(run_query): Query<RunJobQuery>,
+    headers: HeaderMap,
 ) -> error::Result<(StatusCode, String)> {
     let mut tx = user_db.begin(&authed).await?;
-    let scheduled_for = sch_query.get_scheduled_for(&mut tx).await?;
+    let scheduled_for = run_query.get_scheduled_for(&mut tx).await?;
+    let args = run_query.add_include_headers(headers, preview.args.unwrap_or_default());
 
     let (uuid, tx) = push(
         tx,
@@ -1038,7 +1135,7 @@ async fn run_preview_job(
             language: preview.language,
             lock: None,
         }),
-        preview.args,
+        args,
         &authed.username,
         owner_to_token_owner(&authed.username, false),
         scheduled_for,
@@ -1057,15 +1154,18 @@ async fn run_preview_flow_job(
     Extension(user_db): Extension<UserDB>,
     Path(w_id): Path<String>,
     Json(raw_flow): Json<PreviewFlow>,
-    Query(sch_query): Query<RunJobQuery>,
+    Query(run_query): Query<RunJobQuery>,
+    headers: HeaderMap,
 ) -> error::Result<(StatusCode, String)> {
     let mut tx = user_db.begin(&authed).await?;
-    let scheduled_for = sch_query.get_scheduled_for(&mut tx).await?;
+    let scheduled_for = run_query.get_scheduled_for(&mut tx).await?;
+    let args = run_query.add_include_headers(headers, raw_flow.args.unwrap_or_default());
+
     let (uuid, tx) = push(
         tx,
         &w_id,
         JobPayload::RawFlow { value: raw_flow.value, path: raw_flow.path },
-        raw_flow.args,
+        args,
         &authed.username,
         owner_to_token_owner(&authed.username, false),
         scheduled_for,
@@ -1085,11 +1185,13 @@ pub async fn run_job_by_hash(
     Path((w_id, script_hash)): Path<(String, ScriptHash)>,
     axum::Json(args): axum::Json<Option<serde_json::Map<String, serde_json::Value>>>,
     Query(run_query): Query<RunJobQuery>,
+    headers: HeaderMap,
 ) -> error::Result<(StatusCode, String)> {
     let hash = script_hash.0;
     let mut tx = user_db.begin(&authed).await?;
     let path = get_path_for_hash(&mut tx, &w_id, hash).await?;
     let scheduled_for = run_query.get_scheduled_for(&mut tx).await?;
+    let args = run_query.add_include_headers(headers, args.unwrap_or_default());
 
     let (uuid, tx) = push(
         tx,

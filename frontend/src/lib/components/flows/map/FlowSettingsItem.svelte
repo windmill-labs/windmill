@@ -30,7 +30,7 @@
 				</Badge>
 			{/if}
 			{#if $flowStore.value.same_worker}
-				<Badge color="blue" baseClass="truncate">same worker</Badge>
+				<Badge color="blue" baseClass="truncate">./shared</Badge>
 			{/if}
 		</span>
 	</span>

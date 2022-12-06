@@ -54,7 +54,15 @@
 	</Pane>
 	<Pane minSize={20} size={40} class="py-2 relative !transition-none">
 		{#if result}
-			<PropPickerResult {result} />
+			<PropPickerResult
+				{result}
+				on:select={({ detail }) => {
+					dispatch('select', detail)
+					if ($propPickerConfig?.onSelect(detail)) {
+						propPickerConfig.set(undefined)
+					}
+				}}
+			/>
 		{:else if pickableProperties}
 			<PropPicker
 				{displayContext}
