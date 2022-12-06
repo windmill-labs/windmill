@@ -816,19 +816,27 @@ async fn push_next_flow_job(
         if let Some(it) = sleep_input_transform {
             let json_value = match it {
                 InputTransform::Static { value } => value,
-                InputTransform::Javascript { expr } => eval_timeout(
-                    expr.to_string(),
-                    [("result".to_string(), last_result.clone())].into(),
-                    None,
-                    None,
-                    "".to_string(),
-                )
-                .await
-                .map_err(|e| {
-                    Error::ExecutionErr(format!(
-                        "Error during isolated evaluation of expression `{expr}`:\n{e}"
-                    ))
-                })?,
+                InputTransform::Javascript { expr } => {
+                    let flow_input = flow_job.args.clone().unwrap_or_else(|| json!({}));
+
+                    eval_timeout(
+                        expr.to_string(),
+                        [
+                            ("result".to_string(), last_result.clone()),
+                            ("flow_input".to_string(), flow_input),
+                        ]
+                        .into(),
+                        None,
+                        None,
+                        "".to_string(),
+                    )
+                    .await
+                    .map_err(|e| {
+                        Error::ExecutionErr(format!(
+                            "Error during isolated evaluation of expression `{expr}`:\n{e}"
+                        ))
+                    })?
+                }
             };
             match json_value {
                 serde_json::Value::Number(n) => {
@@ -1445,9 +1453,15 @@ async fn compute_next_flow_transform<'c>(
             tx,
             NextFlowTransform::Continue(vec![JobPayload::Identity], NextStatus::NextStep),
         )),
-        FlowModuleValue::Script { path: script_path, .. } => {
-            let payload =
-                script_path_to_payload(script_path, &mut tx, &flow_job.workspace_id).await?;
+        FlowModuleValue::Script { path: script_path, hash: script_hash, .. } => {
+            let payload = if script_hash.is_none() {
+                script_path_to_payload(script_path, &mut tx, &flow_job.workspace_id).await?
+            } else {
+                JobPayload::ScriptHash {
+                    hash: script_hash.clone().unwrap(),
+                    path: script_path.to_owned(),
+                }
+            };
             Ok((
                 tx,
                 NextFlowTransform::Continue(vec![payload], NextStatus::NextStep),

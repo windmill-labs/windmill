@@ -5,7 +5,6 @@
 	import SchemaForm from '$lib/components/SchemaForm.svelte'
 	import FlowCard from '../common/FlowCard.svelte'
 	import { copyFirstStepSchema, flowStore } from '../flowStore'
-	import { isEmptyFlowModule } from '../utils'
 	import CapturePayload from './CapturePayload.svelte'
 
 	let capturePayload: CapturePayload
@@ -29,7 +28,7 @@
 				color="dark"
 				size="sm"
 				disabled={$flowStore.value.modules.length === 0 ||
-					isEmptyFlowModule($flowStore.value.modules[0])}
+					$flowStore.value.modules[0].value.type == 'identity'}
 				on:click={copyFirstStepSchema}
 			>
 				First step's inputs

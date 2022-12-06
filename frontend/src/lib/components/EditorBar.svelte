@@ -270,21 +270,6 @@
 				+Resource
 			</Button>
 		</div>
-
-		<div>
-			<Button
-				btnClasses="mx-1 !font-medium"
-				size="xs"
-				spacingSize="md"
-				color="light"
-				on:click={scriptPicker.openDrawer}
-				{iconOnly}
-				startIcon={{ icon: faEye }}
-			>
-				Script
-			</Button>
-		</div>
-
 		<div>
 			<Button
 				btnClasses="mx-1 !font-medium"
@@ -298,30 +283,45 @@
 				Reset
 			</Button>
 		</div>
+		<div>
+			<Button
+				btnClasses="!font-medium"
+				size="xs"
+				spacingSize="md"
+				color="light"
+				on:click={editor.reloadWebsocket}
+				startIcon={{ icon: faRotate }}
+			>
+				{#if !iconOnly}
+					Assistant
+				{/if}
+				<span class="ml-1 -my-1">
+					{#if lang == 'deno'}
+						(<span class={websocketAlive.deno ? 'green' : 'text-red-700'}>Deno</span>)
+					{:else if lang == 'go'}
+						(<span class={websocketAlive.go ? 'green' : 'text-red-700'}>Go</span>)
+					{:else if lang == 'python3'}
+						(<span class={websocketAlive.pyright ? 'green' : 'text-red-700'}>Pyright</span>
+						<span class={websocketAlive.black ? 'green' : 'text-red-700'}>Black</span>)
+					{/if}
+				</span>
+			</Button></div
+		>
 	</div>
 	<div class="py-1">
-		<Button
-			btnClasses="!font-medium"
-			size="xs"
-			spacingSize="md"
-			color="light"
-			on:click={editor.reloadWebsocket}
-			startIcon={{ icon: faRotate }}
-		>
-			{#if !iconOnly}
-				Assistant
-			{/if}
-			<span class="ml-1 -my-1">
-				{#if lang == 'deno'}
-					(<span class={websocketAlive.deno ? 'green' : 'text-red-700'}>Deno</span>)
-				{:else if lang == 'go'}
-					(<span class={websocketAlive.go ? 'green' : 'text-red-700'}>Go</span>)
-				{:else if lang == 'python3'}
-					(<span class={websocketAlive.pyright ? 'green' : 'text-red-700'}>Pyright</span>
-					<span class={websocketAlive.black ? 'green' : 'text-red-700'}>Black</span>)
-				{/if}
-			</span>
-		</Button>
+		<div>
+			<Button
+				btnClasses="mx-1 !font-medium"
+				size="xs"
+				spacingSize="md"
+				color="light"
+				on:click={scriptPicker.openDrawer}
+				{iconOnly}
+				startIcon={{ icon: faEye }}
+			>
+				Script
+			</Button>
+		</div>
 	</div>
 </div>
 

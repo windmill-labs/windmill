@@ -127,6 +127,7 @@
 				<FlowModuleHeader
 					bind:module={flowModule}
 					on:toggleSuspend={() => (selected = 'advanced-suspend')}
+					on:toggleSleep={() => (selected = 'advanced-sleep')}
 					on:toggleRetry={() => (selected = 'advanced-retries')}
 					on:toggleStopAfterIf={() => (selected = 'advanced-early-stop')}
 					on:fork={async () => {
