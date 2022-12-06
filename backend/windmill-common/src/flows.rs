@@ -200,6 +200,7 @@ pub enum FlowModuleValue {
         #[serde(alias = "input_transform")]
         input_transforms: HashMap<String, InputTransform>,
         path: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
         hash: Option<ScriptHash>,
     },
     ForloopFlow {
