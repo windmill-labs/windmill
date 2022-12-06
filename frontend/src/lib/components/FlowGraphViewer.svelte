@@ -162,6 +162,8 @@
 				<p>Run all branches</p>
 			{:else if stepDetail.value.type == 'branchone'}
 				<p>Run one branch based on a predicate</p>
+			{:else if stepDetail.value.type == 'flow'}
+				<p>Run a workspace flow</p>
 			{/if}
 		{/if}
 	</div>

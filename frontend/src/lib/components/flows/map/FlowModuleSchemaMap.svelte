@@ -28,10 +28,10 @@
 
 	async function insertNewModuleAtIndex(
 		index: number,
-		kind: 'script' | 'forloop' | 'branchone' | 'branchall'
+		kind: 'script' | 'forloop' | 'branchone' | 'branchall' | 'flow'
 	): Promise<void> {
 		await idMutex.runExclusive(async () => {
-			var module = emptyModule()
+			var module = emptyModule(kind == 'flow')
 			var state = emptyFlowModuleState()
 			if (kind == 'forloop') {
 				;[module, state] = await createLoop(module.id)

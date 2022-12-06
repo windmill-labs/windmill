@@ -1086,7 +1086,8 @@ async fn push_next_flow_job(
 
     let mut args = match &module.value {
         FlowModuleValue::Script { input_transforms, .. }
-        | FlowModuleValue::RawScript { input_transforms, .. } => {
+        | FlowModuleValue::RawScript { input_transforms, .. }
+        | FlowModuleValue::Flow { input_transforms, .. } => {
             let ctx = get_transform_context(db, &flow_job, previous_id.clone(), &status).await?;
             transform_context = Some(ctx);
             let (token, by_id) = transform_context.as_ref().unwrap();
@@ -1464,6 +1465,13 @@ async fn compute_next_flow_transform<'c>(
             tx,
             NextFlowTransform::Continue(vec![JobPayload::Identity], NextStatus::NextStep),
         )),
+        FlowModuleValue::Flow { path, .. } => {
+            let payload = JobPayload::Flow(path.to_string());
+            Ok((
+                tx,
+                NextFlowTransform::Continue(vec![payload], NextStatus::NextStep),
+            ))
+        }
         FlowModuleValue::Script { path: script_path, hash: script_hash, .. } => {
             let payload = if script_hash.is_none() {
                 script_path_to_payload(script_path, &mut tx, &flow_job.workspace_id).await?
