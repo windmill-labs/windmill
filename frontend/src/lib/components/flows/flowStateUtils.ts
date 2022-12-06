@@ -62,11 +62,12 @@ export function nextId(): string {
 export async function pickScript(
 	path: string,
 	summary: string,
-	id: string
+	id: string,
+	hash?: string
 ): Promise<[FlowModule & { value: PathScript }, FlowModuleState]> {
 	const flowModule: FlowModule & { value: PathScript } = {
 		id,
-		value: { type: 'script', path, input_transforms: {} },
+		value: { type: 'script', path, hash, input_transforms: {} },
 		summary
 	}
 
@@ -95,7 +96,7 @@ export async function createLoop(id: string): Promise<[FlowModule, FlowModuleSta
 		value: {
 			type: 'forloopflow',
 			modules: [],
-			iterator: { type: 'javascript', expr: '["iterator require expression that returns an array"]' },
+			iterator: { type: 'javascript', expr: '["dynamic or static array"]' },
 			skip_failures: true
 		}
 	}
@@ -200,7 +201,7 @@ export async function createScriptFromInlineScript(
 
 	const availablePath = await findNextAvailablePath(path)
 
-	await ScriptService.createScript({
+	const hash = await ScriptService.createScript({
 		workspace: get(workspaceStore)!,
 		requestBody: {
 			path: availablePath,
@@ -214,7 +215,7 @@ export async function createScriptFromInlineScript(
 		}
 	})
 
-	return pickScript(availablePath, flowModule.summary ?? '', flowModule.id)
+	return pickScript(availablePath, flowModule.summary ?? '', flowModule.id, hash)
 }
 
 export function deleteFlowStateById(id: string) {

@@ -13,7 +13,7 @@
 	import type { FlowModule } from '$lib/gen'
 	import FlowErrorHandlerItem from './FlowErrorHandlerItem.svelte'
 	import RemoveStepConfirmationModal from '../content/RemoveStepConfirmationModal.svelte'
-	import { emptyFlowModuleState, isEmptyFlowModule } from '../utils'
+	import { emptyFlowModuleState } from '../utils'
 	import MapItem from './MapItem.svelte'
 	import FlowSettingsItem from './FlowSettingsItem.svelte'
 	import FlowInputsItem from './FlowInputsItem.svelte'
@@ -112,7 +112,7 @@
 				<MapItem
 					bind:mod
 					on:delete={(event) => {
-						if (event.detail.detail.shiftKey || isEmptyFlowModule(mod)) {
+						if (event.detail.detail.shiftKey || mod.value.type === 'identity') {
 							removeAtIndex(index)
 						} else {
 							indexToRemove = index
