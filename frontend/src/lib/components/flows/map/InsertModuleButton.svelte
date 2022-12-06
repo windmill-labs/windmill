@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { Menu } from '$lib/components/common'
-	import { faCode, faCodeBranch, faPlus } from '@fortawesome/free-solid-svg-icons'
+	import { faCode, faCodeBranch, faPlus, faWind } from '@fortawesome/free-solid-svg-icons'
 	import { createEventDispatcher } from 'svelte'
 	import Icon from 'svelte-awesome'
 	import { Repeat } from 'svelte-lucide'
@@ -66,6 +66,18 @@
 		>
 			<Icon data={faCodeBranch} scale={0.8} class="mr-1" />
 			Branch to all
+		</button>
+
+		<button
+			class="w-full text-left p-2 hover:bg-gray-100"
+			on:click={() => {
+				close()
+				dispatch('new', 'flow')
+			}}
+			role="menuitem"
+		>
+			<Icon data={faWind} scale={0.8} class="mr-1" />
+			Flow
 		</button>
 	</div>
 </Menu>

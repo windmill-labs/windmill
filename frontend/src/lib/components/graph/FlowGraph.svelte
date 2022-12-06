@@ -111,6 +111,16 @@
 		} else if (type === 'branchall') {
 			const branches = module.value.branches.map((b) => b.modules)
 			return flowModuleToBranch(module, branches, [], parent)
+		} else if (type === 'flow') {
+			return flowModuleToNode(
+				parentIds,
+				module.id,
+				module.summary || 'Flow ' + module.value.path,
+				'inline',
+				module,
+				undefined,
+				edgeLabel
+			)
 		}
 		return flowModuleToNode(
 			parentIds,

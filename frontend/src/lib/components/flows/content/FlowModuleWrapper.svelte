@@ -8,10 +8,15 @@
 	import FlowModuleComponent from './FlowModuleComponent.svelte'
 	import FlowBranchAllWrapper from './FlowBranchAllWrapper.svelte'
 	import FlowBranchOneWrapper from './FlowBranchOneWrapper.svelte'
-	import { createInlineScriptModule, pickScript } from '$lib/components/flows/flowStateUtils'
+	import {
+		createInlineScriptModule,
+		pickFlow,
+		pickScript
+	} from '$lib/components/flows/flowStateUtils'
 	import FlowInputs from './FlowInputs.svelte'
-	import { flowStateStore, type FlowModuleState } from '../flowState'
+	import { flowStateStore } from '../flowState'
 	import { Alert } from '$lib/components/common'
+	import FlowInputsFlow from './FlowInputsFlow.svelte'
 
 	const { selectedId } = getContext<FlowEditorContext>('FlowEditorContext')
 
@@ -41,41 +46,54 @@
 			</Alert>
 		{/if}
 
-		<FlowInputs
-			shouldDisableTriggerScripts={parentModule !== undefined ||
-				previousModule !== undefined ||
-				$selectedId == 'failure'}
-			on:pick={async ({ detail }) => {
-				const { path, summary, kind, hash } = detail
-				const [module, state] = await pickScript(path, summary, flowModule.id, hash)
+		{#if flowModule.value.flow}
+			<FlowInputsFlow
+				failureModule={$selectedId === 'failure'}
+				on:pick={async ({ detail }) => {
+					const { path, summary } = detail
+					const [module, state] = await pickFlow(path, summary, flowModule.id)
 
-				if (kind == Script.kind.APPROVAL) {
-					module.suspend = { required_events: 1, timeout: 1800 }
-				}
+					flowModule = module
+					$flowStateStore[module.id] = state
+				}}
+			/>
+		{:else}
+			<FlowInputs
+				shouldDisableTriggerScripts={parentModule !== undefined ||
+					previousModule !== undefined ||
+					$selectedId == 'failure'}
+				on:pick={async ({ detail }) => {
+					const { path, summary, kind, hash } = detail
+					const [module, state] = await pickScript(path, summary, flowModule.id, hash)
 
-				flowModule = module
-				$flowStateStore[module.id] = state
-			}}
-			on:new={async ({ detail }) => {
-				const { language, kind, subkind } = detail
+					if (kind == Script.kind.APPROVAL) {
+						module.suspend = { required_events: 1, timeout: 1800 }
+					}
 
-				const [module, state] = await createInlineScriptModule(
-					language,
-					kind,
-					subkind,
-					flowModule.id
-				)
+					flowModule = module
+					$flowStateStore[module.id] = state
+				}}
+				on:new={async ({ detail }) => {
+					const { language, kind, subkind } = detail
 
-				if (kind == Script.kind.APPROVAL) {
-					module.suspend = { required_events: 1, timeout: 1800 }
-				}
+					const [module, state] = await createInlineScriptModule(
+						language,
+						kind,
+						subkind,
+						flowModule.id
+					)
 
-				flowModule = module
-				$flowStateStore[module.id] = state
-			}}
-			failureModule={$selectedId === 'failure'}
-		/>
-	{:else if flowModule.value.type === 'rawscript' || flowModule.value.type === 'script'}
+					if (kind == Script.kind.APPROVAL) {
+						module.suspend = { required_events: 1, timeout: 1800 }
+					}
+
+					flowModule = module
+					$flowStateStore[module.id] = state
+				}}
+				failureModule={$selectedId === 'failure'}
+			/>
+		{/if}
+	{:else if flowModule.value.type === 'rawscript' || flowModule.value.type === 'script' || flowModule.value.type === 'flow'}
 		<FlowModuleComponent bind:flowModule {parentModule} {previousModule} />
 	{/if}
 {:else if flowModule.value.type === 'forloopflow'}

@@ -1,5 +1,5 @@
 import type { Schema } from '$lib/common'
-import { Script, ScriptService, type FlowModule, type PathScript, type RawScript } from '$lib/gen'
+import { Script, ScriptService, type FlowModule, type PathFlow, type PathScript, type RawScript } from '$lib/gen'
 import { initialCode } from '$lib/script_helpers'
 import { userStore, workspaceStore } from '$lib/stores'
 import { getScriptByPath } from '$lib/utils'
@@ -20,7 +20,7 @@ export async function loadFlowModuleState(flowModule: FlowModule): Promise<FlowM
 	try {
 		const { input_transforms, schema } = await loadSchemaFromModule(flowModule)
 
-		if (flowModule.value.type == 'script' || flowModule.value.type == 'rawscript') {
+		if (flowModule.value.type == 'script' || flowModule.value.type == 'rawscript' || flowModule.value.type == 'flow') {
 			flowModule.value.input_transforms = input_transforms
 		}
 		return { schema, previewResult: NEVER_TESTED_THIS_FAR }
@@ -68,6 +68,20 @@ export async function pickScript(
 	const flowModule: FlowModule & { value: PathScript } = {
 		id,
 		value: { type: 'script', path, hash, input_transforms: {} },
+		summary
+	}
+
+	return [flowModule, await loadFlowModuleState(flowModule)]
+}
+
+export async function pickFlow(
+	path: string,
+	summary: string,
+	id: string,
+): Promise<[FlowModule & { value: PathFlow }, FlowModuleState]> {
+	const flowModule: FlowModule & { value: PathFlow } = {
+		id,
+		value: { type: 'flow', path, input_transforms: {} },
 		summary
 	}
 
@@ -136,6 +150,22 @@ export async function createBranchAll(id: string): Promise<[FlowModule, FlowModu
 	return [branchesFlowModules, flowModuleState]
 }
 
+export async function createFlow(id: string): Promise<[FlowModule, FlowModuleState]> {
+	const flowFlowModules: FlowModule = {
+		id,
+		value: {
+			type: 'flow',
+			path: '',
+			input_transforms: {},
+		},
+		summary: ''
+	}
+
+	const flowModuleState = await loadFlowModuleState(flowFlowModules)
+
+	return [flowFlowModules, flowModuleState]
+}
+
 export async function fork(
 	flowModule: FlowModule
 ): Promise<[FlowModule & { value: RawScript }, FlowModuleState]> {
@@ -168,10 +198,10 @@ async function createInlineScriptModuleFromPath(
 	}
 }
 
-export function emptyModule(): FlowModule {
+export function emptyModule(flow?: boolean): FlowModule {
 	return {
 		id: nextId(),
-		value: { type: 'identity' }
+		value: { type: 'identity', flow }
 	}
 }
 

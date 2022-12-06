@@ -124,7 +124,20 @@
 				</span>
 			{/if}
 		</div>
-		<div class="flex flex-row gap-4 flex-wrap">
+		<div class="flex flex-row-reverse gap-x-4 gap-y-1 flex-wrap">
+			<div>
+				<Button
+					variant="contained"
+					color="blue"
+					size="xs"
+					on:click={() => {
+						focusProp(argName, 'connect', (path) => {
+							connectProperty(path)
+							return true
+						})
+					}}>Connect &rightarrow;</Button
+				>
+			</div>
 			<div>
 				<ToggleButtonGroup
 					bind:selected={propertyType}
@@ -177,19 +190,6 @@
 						Dynamic (JS)
 					</ToggleButton>
 				</ToggleButtonGroup>
-			</div>
-			<div>
-				<Button
-					variant="contained"
-					color="blue"
-					size="xs"
-					on:click={() => {
-						focusProp(argName, 'connect', (path) => {
-							connectProperty(path)
-							return true
-						})
-					}}>Connect &rightarrow;</Button
-				>
 			</div>
 		</div>
 	</div>
