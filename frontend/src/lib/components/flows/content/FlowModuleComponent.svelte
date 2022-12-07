@@ -12,7 +12,7 @@
 	import FlowCard from '../common/FlowCard.svelte'
 	import FlowModuleHeader from './FlowModuleHeader.svelte'
 	import { flowStateStore } from '../flowState'
-	import { scriptLangToEditorLang } from '$lib/utils'
+	import { schemaToObject, scriptLangToEditorLang } from '$lib/utils'
 	import PropPickerWrapper from '../propPicker/PropPickerWrapper.svelte'
 	import { afterUpdate, getContext, setContext } from 'svelte'
 	import type { FlowEditorContext } from '../types'
@@ -59,7 +59,7 @@
 	$: stepPropPicker = failureModule
 		? {
 				pickableProperties: {
-					flow_input: $previewArgs,
+					flow_input: schemaToObject($flowStore.schema, $previewArgs),
 					priorIds: {},
 					previousId: undefined,
 					hasResume: false
@@ -204,7 +204,10 @@
 						<div class="h-[calc(100%-32px)]">
 							{#if selected === 'inputs'}
 								<div class="h-full overflow-auto">
-									<PropPickerWrapper pickableProperties={stepPropPicker.pickableProperties}>
+									<PropPickerWrapper
+										pickableProperties={stepPropPicker.pickableProperties}
+										error={failureModule}
+									>
 										<SchemaForm
 											schema={$flowStateStore[$selectedId]?.schema ?? {}}
 											inputTransform={true}
