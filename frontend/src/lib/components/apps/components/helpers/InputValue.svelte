@@ -1,12 +1,12 @@
 <script lang="ts">
 	import { getContext } from 'svelte'
-	import type { ConnectableInput } from '../../inputType'
+	import type { AppInput } from '../../inputType'
 	import type { AppEditorContext } from '../../types'
 	import { accessPropertyByPath } from '../../utils'
 
 	type T = string | number | boolean | Record<string | number, any> | undefined
 
-	export let input: ConnectableInput
+	export let input: AppInput
 	export let value: T
 
 	const { worldStore } = getContext<AppEditorContext>('AppEditorContext')

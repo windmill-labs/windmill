@@ -25,6 +25,7 @@
 	import { Plus } from 'svelte-lucide'
 	import StaticInputEditor from './StaticInputEditor.svelte'
 	import ConnectedInputEditor from './ConnectedInputEditor.svelte'
+	import { sanitizeInputSpec } from '../../utils'
 
 	export let component: AppComponent | undefined
 	export let onDelete: (() => void) | undefined = undefined
@@ -52,8 +53,6 @@
 			}
 		}
 	}
-
-	let mainInputType: 'static' | 'connected' | 'result' = 'static'
 </script>
 
 {#if component}
@@ -61,7 +60,15 @@
 		{#if component.componentInput}
 			<PanelSection title="Main input">
 				<div class="w-full">
-					<ToggleButtonGroup bind:selected={mainInputType}>
+					<ToggleButtonGroup
+						bind:selected={component.componentInput.type}
+						on:selected={() => {
+							if (component?.componentInput) {
+								// @ts-ignore
+								sanitizeInputSpec(component.componentInput)
+							}
+						}}
+					>
 						<ToggleButton position="left" value="static" startIcon={{ icon: faBolt }} size="xs">
 							Static
 						</ToggleButton>
@@ -78,9 +85,9 @@
 						</ToggleButton>
 					</ToggleButtonGroup>
 
-					{#if mainInputType === 'static'}
+					{#if component.componentInput.type === 'static'}
 						<StaticInputEditor bind:componentInput={component.componentInput} />
-					{:else if mainInputType === 'connected' && component.componentInput !== undefined}
+					{:else if component.componentInput.type === 'connected' && component.componentInput !== undefined}
 						<ConnectedInputEditor bind:componentInput={component.componentInput} />
 					{:else if component && component.componentInput?.type === 'runnable' && component.componentInput.runnable}
 						<div class="flex justify-between w-full items-center">

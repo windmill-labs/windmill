@@ -2,7 +2,7 @@ import type { Schema } from '$lib/common'
 import type { Preview } from '$lib/gen'
 import type { FilledItem } from 'svelte-grid'
 import type { Writable } from 'svelte/store'
-import type { ComponentInput, ComponentParameter, ConnectedInput } from './inputType'
+import type { AppInput, ConnectedInput } from './inputType'
 import type { World } from './rx'
 
 type BaseComponent<T extends string> = {
@@ -39,8 +39,8 @@ export type Aligned = {
 
 export interface BaseAppComponent extends Partial<Aligned> {
 	id: ComponentID
-	componentInput: ComponentInput | undefined
-	configuration: Record<string, ComponentParameter>
+	componentInput: AppInput | undefined
+	configuration: Record<string, AppInput>
 	card: boolean | undefined
 	// TODO: add min/max width/height
 }

@@ -1,4 +1,4 @@
-import type { ConnectableInput } from './inputType'
+import type { AppInput } from './inputType'
 
 export interface Subscriber<T> {
 	next(v: T)
@@ -17,7 +17,7 @@ export interface Input<T> extends Subscriber<T> {
 
 export type World = {
 	outputsById: Record<string, Record<string, Output<any>>>
-	connect: <T>(inputSpec: ConnectableInput, next: (x: T) => void) => Input<T>
+	connect: <T>(inputSpec: AppInput, next: (x: T) => void) => Input<T>
 }
 
 export function buildWorld(components: Record<string, string[]>) {
@@ -38,7 +38,7 @@ export function buildWorld(components: Record<string, string[]>) {
 export function buildObservableWorld() {
 	const observables: Record<string, Output<any>> = {}
 
-	function connect<T>(inputSpec: ConnectableInput, next: (x: T) => void): Input<T> {
+	function connect<T>(inputSpec: AppInput, next: (x: T) => void): Input<T> {
 		if (inputSpec.type === 'static') {
 			return {
 				peak: () => inputSpec.value,

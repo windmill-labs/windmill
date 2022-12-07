@@ -14,12 +14,12 @@
 	} from 'chart.js'
 	import type { ChartData } from 'chart.js'
 	import RunnableWrapper from '../helpers/RunnableWrapper.svelte'
-	import type { ComponentInput, ComponentParameter } from '../../inputType'
+	import type { AppInput } from '../../inputType'
 	import InputValue from '../helpers/InputValue.svelte'
 
 	export let id: string
-	export let componentInput: ComponentInput | undefined
-	export let configuration: Record<string, ComponentParameter>
+	export let componentInput: AppInput | undefined
+	export let configuration: Record<string, AppInput>
 
 	export const staticOutputs: string[] = ['loading', 'result']
 

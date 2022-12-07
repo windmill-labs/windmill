@@ -9,7 +9,7 @@
 	import { workspaceStore } from '$lib/stores'
 	import { faRefresh } from '@fortawesome/free-solid-svg-icons'
 	import { getContext } from 'svelte'
-	import type { Runnable } from '../../inputType'
+	import type { AppInputs, Runnable } from '../../inputType'
 	import type { Output } from '../../rx'
 	import type { AppEditorContext } from '../../types'
 	import { loadSchema, schemaToInputsSpec } from '../../utils'
@@ -17,7 +17,7 @@
 
 	// Component props
 	export let id: string
-	export let fields: InputsSpec
+	export let inputs: AppInputs
 	export let runnable: Runnable
 	export let extraQueryParams: Record<string, any> = {}
 	export let autoRefresh: boolean = true
@@ -85,10 +85,12 @@
 	}
 
 	// Only loads the schema
-	$: if ($workspaceStore && path && runType && !schema) {
+	$: if ($workspaceStore && runnable?.type === 'runnableByPath' && !schema) {
 		// Remote schema needs to be loaded
+		const { path, runType } = runnable
 		loadSchemaFromTriggerable($workspaceStore, path, runType)
-	} else if (inlineScriptName && $app.inlineScripts[inlineScriptName] && !schema) {
+	} else if (runnable?.type === 'runnableByName' && !schema) {
+		const { inlineScriptName } = runnable
 		// Inline scripts directly provide the schema
 		schema = $app.inlineScripts[inlineScriptName].schema
 	}
@@ -108,7 +110,7 @@
 
 	let schemaStripped: Schema | undefined = undefined
 
-	function stripSchema(schema: Schema, inputs: InputsSpec) {
+	function stripSchema(schema: Schema, inputs: AppInputs) {
 		schemaStripped = JSON.parse(JSON.stringify(schema))
 
 		// Remove hidden static inputs
@@ -119,7 +121,7 @@
 				delete schemaStripped.properties[key]
 			}
 
-			if (input.type === 'output' && schemaStripped !== undefined) {
+			if (input.type === 'connected' && schemaStripped !== undefined) {
 				delete schemaStripped.properties[key]
 			}
 		})
@@ -157,13 +159,16 @@
 				force_viewer_static_fields: {}
 			}
 
-			if (inlineScriptName && $app.inlineScripts[inlineScriptName]) {
+			if (runnable?.type === 'runnableByName') {
+				const { inlineScriptName } = runnable
+
 				requestBody['raw_code'] = {
 					content: $app.inlineScripts[inlineScriptName].content,
 					language: $app.inlineScripts[inlineScriptName].language,
 					path: $app.inlineScripts[inlineScriptName].path
 				}
-			} else if (path && runType) {
+			} else if (runnable?.type === 'runnableByPath') {
+				const { path, runType } = runnable
 				requestBody['path'] = `${runType}/${path}`
 			}
 
@@ -202,7 +207,7 @@
 	<SchemaForm schema={schemaStripped} bind:args {isValid} {disabledArgs} shouldHideNoInputs />
 {/if}
 
-{#if inlineScriptName === undefined && path === undefined && runType === undefined && autoRefresh}
+{#if !runnable}
 	<Alert type="warning" size="xs" class="mt-2" title="Missing runnable">
 		Please select a runnable
 	</Alert>

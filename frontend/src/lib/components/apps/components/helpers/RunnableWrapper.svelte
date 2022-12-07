@@ -1,9 +1,9 @@
 <script lang="ts">
-	import type { ComponentInput } from '../../inputType'
+	import type { AppInput } from '../../inputType'
 	import NonRunnableComponent from './NonRunnableComponent.svelte'
 	import RunnableComponent from './RunnableComponent.svelte'
 
-	export let componentInput: ComponentInput | undefined
+	export let componentInput: AppInput | undefined
 	export let id: string
 	export let result: any = undefined
 
@@ -18,7 +18,7 @@
 {:else if componentInput.type === 'runnable'}
 	<RunnableComponent
 		bind:this={runnableComponent}
-		bind:fields={componentInput.fields}
+		bind:inputs={componentInput.fields}
 		bind:result
 		runnable={componentInput.runnable}
 		{autoRefresh}

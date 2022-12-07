@@ -1,10 +1,10 @@
 <script lang="ts">
 	import DisplayResult from '$lib/components/DisplayResult.svelte'
-	import type { ComponentInput } from '../inputType'
+	import type { AppInput } from '../inputType'
 	import RunnableWrapper from './helpers/RunnableWrapper.svelte'
 
 	export let id: string
-	export let componentInput: ComponentInput | undefined
+	export let componentInput: AppInput | undefined
 	export const staticOutputs: string[] = []
 
 	let result: any = undefined

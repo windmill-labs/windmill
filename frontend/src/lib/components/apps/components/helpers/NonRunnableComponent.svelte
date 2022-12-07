@@ -1,12 +1,12 @@
 <script lang="ts">
 	import { getContext } from 'svelte'
-	import type { ComponentInput } from '../../inputType'
+	import type { AppInput } from '../../inputType'
 	import type { Output } from '../../rx'
 	import type { AppEditorContext } from '../../types'
 	import InputValue from './InputValue.svelte'
 
 	export let result: any = undefined
-	export let componentInput: ComponentInput
+	export let componentInput: AppInput
 	export let id: string
 
 	// Sync the result to the output

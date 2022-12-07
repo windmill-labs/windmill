@@ -1,11 +1,11 @@
 <script lang="ts">
 	import SvelteMarkdown from 'svelte-markdown'
-	import type { ComponentInput } from '../../inputType'
+	import type { AppInput } from '../../inputType'
 	import AlignWrapper from '../helpers/AlignWrapper.svelte'
 	import RunnableWrapper from '../helpers/RunnableWrapper.svelte'
 
 	export let id: string
-	export let componentInput: ComponentInput | undefined
+	export let componentInput: AppInput | undefined
 	export let horizontalAlignment: 'left' | 'center' | 'right' | undefined = undefined
 	export let verticalAlignment: 'top' | 'center' | 'bottom' | undefined = undefined
 

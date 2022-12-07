@@ -1,9 +1,9 @@
 <script lang="ts">
-	import type { ComponentInput } from '../../inputType'
+	import type { AppInput } from '../../inputType'
 	import ConnectedInputEditor from './ConnectedInputEditor.svelte'
 	import StaticInputEditor from './StaticInputEditor.svelte'
 
-	export let componentInput: ComponentInput
+	export let componentInput: AppInput
 	export let canHide: boolean = false
 </script>
 

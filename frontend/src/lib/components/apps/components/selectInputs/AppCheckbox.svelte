@@ -1,14 +1,14 @@
 <script lang="ts">
 	import Toggle from '$lib/components/Toggle.svelte'
 	import { getContext } from 'svelte'
-	import type { ComponentParameter } from '../../inputType'
+	import type { AppInput } from '../../inputType'
 	import type { Output } from '../../rx'
 	import type { AppEditorContext } from '../../types'
 	import AlignWrapper from '../helpers/AlignWrapper.svelte'
 	import InputValue from '../helpers/InputValue.svelte'
 
 	export let id: string
-	export let configuration: Record<string, ComponentParameter>
+	export let configuration: Record<string, AppInput>
 	export let horizontalAlignment: 'left' | 'center' | 'right' | undefined = undefined
 	export let verticalAlignment: 'top' | 'center' | 'bottom' | undefined = undefined
 

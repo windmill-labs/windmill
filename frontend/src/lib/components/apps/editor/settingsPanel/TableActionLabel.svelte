@@ -1,8 +1,8 @@
 <script lang="ts">
 	import InputValue from '../../components/helpers/InputValue.svelte'
-	import type { ConnectableInput } from '../../inputType'
+	import type { AppInput } from '../../inputType'
 
-	export let componentInput: ConnectableInput | undefined
+	export let componentInput: AppInput | undefined
 	let label: string = ''
 </script>
 

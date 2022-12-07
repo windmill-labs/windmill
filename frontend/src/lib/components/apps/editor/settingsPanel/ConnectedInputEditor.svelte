@@ -3,16 +3,19 @@
 	import { Badge, Button } from '$lib/components/common'
 	import { faLink } from '@fortawesome/free-solid-svg-icons'
 	import { getContext } from 'svelte'
-	import type { ComponentInput, ConnectedInput } from '../../inputType'
+	import type { AppInput } from '../../inputType'
 
-	export let componentInput: ComponentInput
+	export let componentInput: AppInput
 
 	const { connectingInput } = getContext<AppEditorContext>('AppEditorContext')
 
 	function applyConnection() {
-		if (!$connectingInput.opened && $connectingInput.input !== undefined) {
+		if (
+			!$connectingInput.opened &&
+			$connectingInput.input !== undefined &&
+			componentInput.type === 'connected'
+		) {
 			componentInput.connection = $connectingInput.input.connection
-
 			$connectingInput = {
 				opened: false,
 				input: undefined,
@@ -43,7 +46,9 @@
 			startIcon={{ icon: faLink }}
 			color="red"
 			on:click={() => {
-				componentInput.connection = undefined
+				if (componentInput.type === 'connected') {
+					componentInput.connection = undefined
+				}
 			}}
 		>
 			Clear connection
@@ -58,10 +63,12 @@
 			startIcon={{ icon: faLink }}
 			color="dark"
 			on:click={() => {
-				$connectingInput = {
-					opened: true,
-					input: undefined,
-					sourceName: componentInput.connection?.path
+				if (componentInput.type === 'connected') {
+					$connectingInput = {
+						opened: true,
+						input: undefined,
+						sourceName: componentInput.connection?.path
+					}
 				}
 			}}
 		>

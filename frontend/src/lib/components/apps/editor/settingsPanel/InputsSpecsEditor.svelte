@@ -2,47 +2,15 @@
 	import { Badge, ToggleButton, ToggleButtonGroup } from '$lib/components/common'
 	import { capitalize, classNames } from '$lib/utils'
 	import { faBolt, faLink, faUser } from '@fortawesome/free-solid-svg-icons'
-	import type { InputsSpec } from '../../inputType'
-	import { fieldTypeToTsType } from '../../utils'
+	import type { AppInputs } from '../../inputType'
+	import { fieldTypeToTsType, sanitizeInputSpec } from '../../utils'
 	import InputsSpecEditor from './InputsSpecEditor.svelte'
 
-	export let inputSpecs: InputsSpec
+	export let inputSpecs: AppInputs
 	export let userInputEnabled: boolean = true
 	export let staticOnly: boolean = true
 
 	let openedProp: string | undefined = Object.keys(inputSpecs)[0]
-
-	const userTypeKeys = ['value']
-	const staticTypeKeys = ['value']
-	const dynamicTypeKeys = ['id', 'name']
-
-	function sanitizeInputSpec(type: 'user' | 'static' | 'output', inputSpecKey: string) {
-		const inputSpec = inputSpecs[inputSpecKey]
-		if (type === 'user') {
-			for (const key of staticTypeKeys) {
-				delete inputSpec[key]
-			}
-			for (const key of dynamicTypeKeys) {
-				delete inputSpec[key]
-			}
-		} else if (type === 'static') {
-			for (const key of userTypeKeys) {
-				delete inputSpec[key]
-			}
-			for (const key of dynamicTypeKeys) {
-				delete inputSpec[key]
-			}
-		} else if (type === 'output') {
-			for (const key of userTypeKeys) {
-				delete inputSpec[key]
-			}
-			for (const key of staticTypeKeys) {
-				delete inputSpec[key]
-			}
-		}
-
-		inputSpecs[inputSpecKey] = inputSpec
-	}
 </script>
 
 <div class="w-full flex flex-col gap-2">
@@ -76,7 +44,7 @@
 					{#if staticOnly}
 						<ToggleButtonGroup
 							bind:selected={inputSpecs[inputSpecKey].type}
-							on:selected={({ detail }) => sanitizeInputSpec(detail, inputSpecKey)}
+							on:selected={() => sanitizeInputSpec(inputSpecs[inputSpecKey])}
 						>
 							<ToggleButton position="left" value="static" startIcon={{ icon: faBolt }} size="xs">
 								Static

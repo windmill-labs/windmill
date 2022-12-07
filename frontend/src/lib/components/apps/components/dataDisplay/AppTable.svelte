@@ -7,12 +7,12 @@
 	import InputValue from '../helpers/InputValue.svelte'
 	import DebouncedInput from '../helpers/DebouncedInput.svelte'
 	import AppButton from '../buttons/AppButton.svelte'
-	import type { ComponentInput, ComponentParameter } from '../../inputType'
+	import type { AppInput } from '../../inputType'
 	import RunnableWrapper from '../helpers/RunnableWrapper.svelte'
 
 	export let id: string
-	export let componentInput: ComponentInput | undefined
-	export let configuration: Record<string, ComponentParameter>
+	export let componentInput: AppInput | undefined
+	export let configuration: Record<string, AppInput>
 	export let actionButtons: (BaseAppComponent & ButtonComponent)[]
 
 	const { worldStore, staticOutputs: staticOutputsStore } =

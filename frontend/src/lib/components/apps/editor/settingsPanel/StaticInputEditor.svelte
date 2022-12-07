@@ -1,9 +1,9 @@
 <script lang="ts">
 	import Toggle from '$lib/components/Toggle.svelte'
 	import { staticValues } from '../componentsPanel/componentStaticValues'
-	import type { ComponentInput } from '../../inputType'
+	import type { AppInput } from '../../inputType'
 
-	export let componentInput: ComponentInput | undefined
+	export let componentInput: AppInput | undefined
 	export let canHide: boolean = false
 </script>
 
