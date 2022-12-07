@@ -20,7 +20,7 @@
 			<Toggle
 				bind:checked={branch.skip_failure}
 				options={{
-					right: 'Skip failure'
+					right: 'Skip failures'
 				}}
 			/>
 		</div>
