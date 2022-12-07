@@ -30,6 +30,8 @@
 	</span>
 {:else if type == FlowStatusModule.type.SUCCESS}
 	<Badge color="green">Success</Badge>
+{:else if type == FlowStatusModule.type.FAILURE}
+	<Badge color="red">Failure</Badge>
 {/if}
 
 <style>

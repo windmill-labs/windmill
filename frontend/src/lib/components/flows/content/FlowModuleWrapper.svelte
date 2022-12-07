@@ -94,7 +94,12 @@
 			/>
 		{/if}
 	{:else if flowModule.value.type === 'rawscript' || flowModule.value.type === 'script' || flowModule.value.type === 'flow'}
-		<FlowModuleComponent bind:flowModule {parentModule} {previousModule} />
+		<FlowModuleComponent
+			bind:flowModule
+			{parentModule}
+			{previousModule}
+			failureModule={$selectedId === 'failure'}
+		/>
 	{/if}
 {:else if flowModule.value.type === 'forloopflow'}
 	{#each flowModule.value.modules as submodule, index (index)}

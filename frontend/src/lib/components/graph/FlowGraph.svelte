@@ -34,19 +34,22 @@
 	let edges: Edge[] = []
 	let width: number, height: number
 
+	let loadedFlows: Record<string, FlowModule[]> = {}
+
 	let dispatch = createEventDispatcher()
 
 	$: {
 		width && height && minHeight && selectedNode && flowModuleStates
-		if (modules) {
-			idGenerator = createIdGenerator()
-			createGraph(modules, failureModule)
-		} else {
-			nodes = edges = []
-		}
+		createGraph()
 	}
 
-	function createGraph(modules: FlowModule[], failureModule?: FlowModule) {
+	async function createGraph() {
+		if (modules) {
+			idGenerator = createIdGenerator()
+		} else {
+			nodes = edges = []
+			return
+		}
 		nestedNodes = nodes = []
 
 		nestedNodes.push(createVirtualNode(getParentIds(), 'Flow start'))

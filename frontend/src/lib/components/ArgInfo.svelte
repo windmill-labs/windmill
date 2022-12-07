@@ -24,8 +24,12 @@
 </script>
 
 <Drawer bind:this={jsonViewer} size="800px">
-	<DrawerContent title="See JSON" on:close={jsonViewer.toggleDrawer}>
-		<Highlight language={json} code={JSON.stringify(jsonViewerContent, null, 4)} />
+	<DrawerContent title="Argument Details" on:close={jsonViewer.toggleDrawer}>
+		{#if isString(jsonViewerContent)}
+			<pre>{jsonViewerContent}</pre>
+		{:else}
+			<ObjectViewer pureViewer json={jsonViewerContent} />
+		{/if}
 	</DrawerContent>
 </Drawer>
 
