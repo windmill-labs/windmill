@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { workspaceStore, usersWorkspaceStore } from '$lib/stores'
+	import { workspaceStore, userWorkspaces } from '$lib/stores'
 	import { classNames } from '$lib/utils'
 	import { faBuilding } from '@fortawesome/free-solid-svg-icons'
 	import Icon from 'svelte-awesome'
@@ -29,7 +29,7 @@
 
 	<div class="divide-y divide-gray-100" role="none">
 		<table class="w-full">
-			{#each $usersWorkspaceStore?.workspaces ?? [] as workspace}
+			{#each $userWorkspaces as workspace}
 				<tr
 					class="text-xs cursor-pointer"
 					on:click={() => {
