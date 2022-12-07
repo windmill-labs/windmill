@@ -13,7 +13,8 @@
 		type Loop,
 		type Branch,
 		type NestedNodes,
-		type ModuleHost
+		type ModuleHost,
+		type GraphModuleState
 	} from '.'
 	import { defaultIfEmptyString, truncateRev } from '$lib/utils'
 	import { createEventDispatcher } from 'svelte'
@@ -23,30 +24,32 @@
 	export let failureModule: FlowModule | undefined = undefined
 	export let minHeight: number = 0
 	export let notSelectable = false
-	export let flowModuleStates:
-		| Record<string, { type: FlowStatusModule.type; logs?: string; result?: any }>
-		| undefined = undefined
+	export let flowModuleStates: Record<string, GraphModuleState> | undefined = undefined
 
 	let selectedNode: string | undefined = undefined
 
-	const idGenerator = createIdGenerator()
+	let idGenerator: Generator
 	let nestedNodes: NestedNodes
 	let nodes: Node[] = []
 	let edges: Edge[] = []
 	let width: number, height: number
 
+	let loadedFlows: Record<string, FlowModule[]> = {}
+
 	let dispatch = createEventDispatcher()
 
 	$: {
 		width && height && minHeight && selectedNode && flowModuleStates
-		if (modules) {
-			createGraph(modules, failureModule)
-		} else {
-			nodes = edges = []
-		}
+		createGraph()
 	}
 
-	function createGraph(modules: FlowModule[], failureModule?: FlowModule) {
+	async function createGraph() {
+		if (modules) {
+			idGenerator = createIdGenerator()
+		} else {
+			nodes = edges = []
+			return
+		}
 		nestedNodes = nodes = []
 
 		nestedNodes.push(createVirtualNode(getParentIds(), 'Flow start'))
@@ -111,6 +114,16 @@
 		} else if (type === 'branchall') {
 			const branches = module.value.branches.map((b) => b.modules)
 			return flowModuleToBranch(module, branches, [], parent)
+		} else if (type === 'flow') {
+			return flowModuleToNode(
+				parentIds,
+				module.id,
+				module.summary || 'Flow ' + module.value.path,
+				'inline',
+				module,
+				undefined,
+				edgeLabel
+			)
 		}
 		return flowModuleToNode(
 			parentIds,
@@ -150,6 +163,8 @@
 				return 'rgb(253, 240, 176)'
 			case FlowStatusModule.type.WAITING_FOR_EVENTS:
 				return 'rgb(229, 176, 253)'
+			case FlowStatusModule.type.WAITING_FOR_EXECUTOR:
+				return 'rgb(255, 208, 193)'
 			default:
 				return '#fff'
 		}
@@ -176,6 +191,7 @@
 		}
 		const wrapperWidth = lang ? 'w-[calc(100%-70px)]' : 'w-[calc(100%-50px)]'
 		const graphId = idGenerator.next().value
+		let nodeId = onClickDetail.id ?? numberToChars(graphId - 1)
 		return {
 			id: graphId,
 			position: { x: -1, y: -1 },
@@ -193,20 +209,23 @@
 						</span>
 					</div>
 				</div>
+				<div class="text-2xs absolute -top-6 text-gray-600 truncate">${
+					flowModuleStates?.[nodeId]?.scheduled_for ?? ''
+				}<div>
 			`
 			},
 			host,
 			width: NODE.width,
 			height: NODE.height,
-			borderColor: selectedNode == onClickDetail.id ? 'black' : '#999',
-			bgColor:
-				selectedNode == onClickDetail.id
-					? '#f5f5f5'
-					: getStateColor(flowModuleStates?.[onClickDetail.id]?.type),
+			borderColor: selectedNode == nodeId ? 'black' : '#999',
+			bgColor: selectedNode == nodeId ? '#f5f5f5' : getStateColor(flowModuleStates?.[nodeId]?.type),
 			parentIds,
 			clickCallback: (node) => {
 				if (!notSelectable) {
-					selectedNode = onClickDetail.id
+					selectedNode = nodeId
+				}
+				if (onClickDetail.id == undefined) {
+					onClickDetail.id = numberToChars(graphId - 1)
 				}
 				dispatch('click', onClickDetail)
 			},

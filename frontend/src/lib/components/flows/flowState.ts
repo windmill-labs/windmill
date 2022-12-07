@@ -2,7 +2,7 @@ import type { Schema } from '$lib/common'
 import type { Flow, FlowModule, FlowStatusModule } from '$lib/gen'
 import { writable } from 'svelte/store'
 import { loadFlowModuleState } from './flowStateUtils'
-import { emptyFlowModuleState, isEmptyFlowModule } from './utils'
+import { emptyFlowModuleState } from './utils'
 
 export type FlowModuleState = {
 	schema: Schema
@@ -57,7 +57,7 @@ async function mapFlowModule(flowModule: FlowModule, modulesState: FlowState) {
 		)
 	}
 
-	if (isEmptyFlowModule(flowModule)) {
+	if (value.type === 'identity') {
 		modulesState[flowModule.id] = emptyFlowModuleState()
 	} else {
 		const flowModuleState = await loadFlowModuleState(flowModule)

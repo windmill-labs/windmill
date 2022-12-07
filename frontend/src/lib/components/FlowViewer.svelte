@@ -2,7 +2,7 @@
 	import Highlight from 'svelte-highlight'
 	import json from 'svelte-highlight/languages/json'
 	import { faClipboard } from '@fortawesome/free-solid-svg-icons'
-	import type { FlowModule, FlowValue } from '$lib/gen'
+	import type { FlowValue } from '$lib/gen'
 	import { Tab, Tabs, TabContent, Button } from './common'
 	import SchemaViewer from './SchemaViewer.svelte'
 	import FieldHeader from './FieldHeader.svelte'

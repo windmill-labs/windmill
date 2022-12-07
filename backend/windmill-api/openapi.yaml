@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.52.0
+  version: 1.53.0
   title: Windmill server API
   contact:
     name: Windmill contact
@@ -2121,6 +2121,7 @@ paths:
           schema:
             type: integer
         - $ref: "#/components/parameters/ParentJob"
+        - $ref: "#/components/parameters/IncludeHeader"
 
       requestBody:
         description: script args
@@ -2558,6 +2559,7 @@ paths:
           schema:
             type: integer
         - $ref: "#/components/parameters/ParentJob"
+        - $ref: "#/components/parameters/IncludeHeader"
 
       requestBody:
         description: flow args
@@ -2597,6 +2599,7 @@ paths:
           schema:
             type: integer
         - $ref: "#/components/parameters/ParentJob"
+        - $ref: "#/components/parameters/IncludeHeader"
 
       requestBody:
         description: Partially filled args
@@ -2623,6 +2626,8 @@ paths:
         - job
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/IncludeHeader"
+
       requestBody:
         description: preview
         required: true
@@ -2648,6 +2653,8 @@ paths:
         - job
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/IncludeHeader"
+
       requestBody:
         description: preview
         required: true
@@ -3789,6 +3796,15 @@ components:
       schema:
         type: string
         format: uuid
+    IncludeHeader:
+      name: include_header
+      description: |
+        List of headers's keys (separated with ',') whove value are added to the args
+        Header's key lowercased and '-'' replaced to '_' such that 'Content-Type' becomes the 'content_type' arg key
+      in: query
+      schema:
+        type: string
+
     ScriptStartPath:
       name: script_path_start
       description: mask to filter matching starting path

@@ -1,11 +1,10 @@
 <script lang="ts">
 	import { ToggleButton, ToggleButtonGroup } from '$lib/components/common'
-	import WindmillIcon from '$lib/components/icons/WindmillIcon.svelte'
 	import ToggleHubWorkspace from '$lib/components/ToggleHubWorkspace.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import { RawScript, Script } from '$lib/gen'
 
-	import { faBolt, faBuilding, faCheck, faCode } from '@fortawesome/free-solid-svg-icons'
+	import { faBolt, faCheck, faCode } from '@fortawesome/free-solid-svg-icons'
 	import { createEventDispatcher } from 'svelte'
 	import FlowScriptPicker from '../pickers/FlowScriptPicker.svelte'
 	import PickHubScript from '../pickers/PickHubScript.svelte'
@@ -51,7 +50,7 @@
 			</div>
 		</div>
 	{/if}
-	<h3 class="pb-2">
+	<h3 class="pb-2 pt-4">
 		Inline new <span class="text-blue-500">{kind == 'script' ? 'common' : kind}</span> script
 		<Tooltip>
 			Embed a script directly inside a flow instead of saving the script into your workspace for
@@ -138,7 +137,7 @@
 			<ToggleHubWorkspace bind:selected={pick_existing} />
 		</PickHubScript>
 	{:else}
-		<WorkspaceScriptPicker bind:filter {kind} on:pick>
+		<WorkspaceScriptPicker displayLock bind:filter {kind} on:pick>
 			<ToggleHubWorkspace bind:selected={pick_existing} />
 		</WorkspaceScriptPicker>
 	{/if}

@@ -3,15 +3,21 @@
 	import { getContext } from 'svelte'
 
 	import type { FlowEditorContext } from '../types'
-	import FlowBranchesWrapper from './FlowBranchesWrapper.svelte'
 	import FlowLoop from './FlowLoop.svelte'
 	import FlowModuleComponent from './FlowModuleComponent.svelte'
 	import FlowBranchAllWrapper from './FlowBranchAllWrapper.svelte'
 	import FlowBranchOneWrapper from './FlowBranchOneWrapper.svelte'
-	import { createInlineScriptModule, pickScript } from '$lib/components/flows/flowStateUtils'
+	import {
+		createInlineScriptModule,
+		pickFlow,
+		pickScript
+	} from '$lib/components/flows/flowStateUtils'
 	import FlowInputs from './FlowInputs.svelte'
-	import { flowStateStore, type FlowModuleState } from '../flowState'
+	import { flowStateStore } from '../flowState'
 	import { Alert } from '$lib/components/common'
+	import FlowInputsFlow from './FlowInputsFlow.svelte'
+	import FlowBranchesAllWrapper from './FlowBranchesAllWrapper.svelte'
+	import FlowBranchesOneWrapper from './FlowBranchesOneWrapper.svelte'
 
 	const { selectedId } = getContext<FlowEditorContext>('FlowEditorContext')
 
@@ -27,8 +33,10 @@
 {#if flowModule.id === $selectedId}
 	{#if flowModule.value.type === 'forloopflow'}
 		<FlowLoop bind:mod={flowModule} {parentModule} {previousModule} />
-	{:else if flowModule.value.type === 'branchone' || flowModule.value.type === 'branchall'}
-		<FlowBranchesWrapper {previousModule} bind:flowModule {parentModule} />
+	{:else if flowModule.value.type === 'branchone'}
+		<FlowBranchesOneWrapper {previousModule} bind:flowModule />
+	{:else if flowModule.value.type === 'branchall'}
+		<FlowBranchesAllWrapper {previousModule} bind:flowModule />
 	{:else if flowModule.value.type === 'identity'}
 		{#if $selectedId == 'failure'}
 			<Alert type="info" title="Error handlers are triggered upon non recovered errors">
@@ -41,42 +49,60 @@
 			</Alert>
 		{/if}
 
-		<FlowInputs
-			shouldDisableTriggerScripts={parentModule !== undefined ||
-				previousModule !== undefined ||
-				$selectedId == 'failure'}
-			on:pick={async ({ detail }) => {
-				const { path, summary, kind } = detail
-				const [module, state] = await pickScript(path, summary, flowModule.id)
+		{#if flowModule.value.flow}
+			<FlowInputsFlow
+				failureModule={$selectedId === 'failure'}
+				on:pick={async ({ detail }) => {
+					const { path, summary } = detail
+					const [module, state] = await pickFlow(path, summary, flowModule.id)
 
-				if (kind == Script.kind.APPROVAL) {
-					module.suspend = { required_events: 1, timeout: 1800 }
-				}
+					flowModule = module
+					$flowStateStore[module.id] = state
+				}}
+			/>
+		{:else}
+			<FlowInputs
+				shouldDisableTriggerScripts={parentModule !== undefined ||
+					previousModule !== undefined ||
+					$selectedId == 'failure'}
+				on:pick={async ({ detail }) => {
+					const { path, summary, kind, hash } = detail
+					const [module, state] = await pickScript(path, summary, flowModule.id, hash)
 
-				flowModule = module
-				$flowStateStore[module.id] = state
-			}}
-			on:new={async ({ detail }) => {
-				const { language, kind, subkind } = detail
+					if (kind == Script.kind.APPROVAL) {
+						module.suspend = { required_events: 1, timeout: 1800 }
+					}
 
-				const [module, state] = await createInlineScriptModule(
-					language,
-					kind,
-					subkind,
-					flowModule.id
-				)
+					flowModule = module
+					$flowStateStore[module.id] = state
+				}}
+				on:new={async ({ detail }) => {
+					const { language, kind, subkind } = detail
 
-				if (kind == Script.kind.APPROVAL) {
-					module.suspend = { required_events: 1, timeout: 1800 }
-				}
+					const [module, state] = await createInlineScriptModule(
+						language,
+						kind,
+						subkind,
+						flowModule.id
+					)
 
-				flowModule = module
-				$flowStateStore[module.id] = state
-			}}
+					if (kind == Script.kind.APPROVAL) {
+						module.suspend = { required_events: 1, timeout: 1800 }
+					}
+
+					flowModule = module
+					$flowStateStore[module.id] = state
+				}}
+				failureModule={$selectedId === 'failure'}
+			/>
+		{/if}
+	{:else if flowModule.value.type === 'rawscript' || flowModule.value.type === 'script' || flowModule.value.type === 'flow'}
+		<FlowModuleComponent
+			bind:flowModule
+			{parentModule}
+			{previousModule}
 			failureModule={$selectedId === 'failure'}
 		/>
-	{:else if flowModule.value.type === 'rawscript' || flowModule.value.type === 'script'}
-		<FlowModuleComponent bind:flowModule {parentModule} {previousModule} />
 	{/if}
 {:else if flowModule.value.type === 'forloopflow'}
 	{#each flowModule.value.modules as submodule, index (index)}
@@ -88,7 +114,10 @@
 	{/each}
 {:else if flowModule.value.type === 'branchone'}
 	{#if $selectedId === `${flowModule?.id}-branch-default`}
-		<div class="p-4 text-sm truncate">Default branch</div>
+		<div class="p-2">
+			<h3 class="mb-4">Default branch</h3>
+			Nothing to configure, this is the default branch if none of the predicates are met.
+		</div>
 	{:else}
 		{#each flowModule.value.default as submodule, index}
 			<svelte:self

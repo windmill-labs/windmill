@@ -18,10 +18,11 @@
 
 <div class="flex flex-col items-start space-y-2 {$$props.class}">
 	<h2 class="mt-2"
-		>Early stop <Tooltip>
+		>Early stop/Break<Tooltip>
 			If defined, at the end of the step, the predicate expression will be evaluated to decide if
 			the flow should stop early. Skipped flows are just a label useful to not see them in the runs
-			page.</Tooltip
+			page. If stop early is run within a forloop, it will just break the for-loop and have it stop
+			at that iteration instead of stopping the whole flow.</Tooltip
 		></h2
 	>
 	<Toggle
@@ -37,7 +38,7 @@
 			}
 		}}
 		options={{
-			right: 'Early stop if condition met'
+			right: 'Early stop or Break if condition met'
 		}}
 	/>
 

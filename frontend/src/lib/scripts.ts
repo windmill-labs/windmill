@@ -1,6 +1,6 @@
 import { get } from 'svelte/store'
 import type { Schema } from './common'
-import { ScriptService } from './gen'
+import { FlowService, ScriptService } from './gen'
 import { inferArgs } from './infer'
 import { workspaceStore } from './stores'
 import { emptySchema } from './utils'
@@ -22,4 +22,14 @@ export async function loadSchema(path: string): Promise<Schema> {
 		})
 		return script.schema
 	}
+}
+
+
+export async function loadSchemaFlow(path: string): Promise<Schema> {
+	const flow = await FlowService.getFlowByPath({
+		workspace: get(workspaceStore)!,
+		path: path ?? ''
+	})
+	return flow.schema
+
 }

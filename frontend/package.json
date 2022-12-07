@@ -1,6 +1,6 @@
 {
 	"name": "windmill",
-	"version": "1.52.0",
+	"version": "1.53.0",
 	"scripts": {
 		"dev": "vite dev",
 		"build": "vite build",
@@ -51,7 +51,7 @@
 		"svelte-popperjs": "^1.3.2",
 		"svelte-preprocess": "^4.9.8",
 		"svelte-splitpanes": "^0.7.3",
-		"svelte2tsx": "^0.5.20",
+		"svelte2tsx": "^0.5.22",
 		"svelvet": "^4.0.3",
 		"tailwindcss": "^3.2.2",
 		"tslib": "^2.4.1",
@@ -69,7 +69,7 @@
 		"async-mutex": "^0.4.0",
 		"autosize": "^5.0.2",
 		"chartjs-adapter-date-fns": "^2.0.0",
-		"chartjs-plugin-zoom": "^1.2.1",
+		"chartjs-plugin-zoom": "^2.0.0",
 		"date-fns": "^2.29.3",
 		"highlight.js": "^11.5.1",
 		"monaco-editor": "^0.34.1",
@@ -80,6 +80,6 @@
 		"svelte-autosize": "^1.0.1",
 		"svelte-chartjs": "^3.1.0",
 		"svelte-select": "^5.0.0-beta.40",
-		"vscode-ws-jsonrpc": "^2.0.0"
+		"vscode-ws-jsonrpc": "^2.0.1"
 	}
 }

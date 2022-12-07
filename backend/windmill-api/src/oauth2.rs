@@ -783,7 +783,7 @@ async fn slack_command(
                 tx,
                 &settings.workspace_id,
                 payload,
-                Some(map),
+                map,
                 &form.user_name,
                 "g/slack".to_string(),
                 None,

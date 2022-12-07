@@ -8,7 +8,7 @@ import {
 	type Job
 } from '$lib/gen'
 import { inferArgs } from '$lib/infer'
-import { loadSchema } from '$lib/scripts'
+import { loadSchema, loadSchemaFlow } from '$lib/scripts'
 import { workspaceStore } from '$lib/stores'
 import { emptySchema } from '$lib/utils'
 import { get } from 'svelte/store'
@@ -67,13 +67,15 @@ export async function loadSchemaFromModule(module: FlowModule): Promise<{
 }> {
 	const mod = module.value
 
-	if (mod.type == 'rawscript' || mod.type === 'script') {
+	if (mod.type == 'rawscript' || mod.type === 'script' || mod.type === 'flow') {
 		let schema: Schema
 		if (mod.type === 'rawscript') {
 			schema = emptySchema()
 			await inferArgs(mod.language!, mod.content ?? '', schema)
-		} else if (mod.path && mod.path != '') {
+		} else if (mod.type == 'script' && mod.path && mod.path != '') {
 			schema = await loadSchema(mod.path!)
+		} else if (mod.type == 'flow' && mod.path && mod.path != '') {
+			schema = await loadSchemaFlow(mod.path!)
 		} else {
 			return {
 				input_transforms: {},
@@ -212,9 +214,6 @@ export function charsToNumber(n: string): number {
 	return res - 1
 }
 
-export function isEmptyFlowModule(flowModule: FlowModule): boolean {
-	return flowModule.value.type === 'identity'
-}
 
 export async function findNextAvailablePath(path: string): Promise<string> {
 	try {
