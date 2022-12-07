@@ -1,4 +1,4 @@
-import type { AppInputTransform } from './types'
+import type { ConnectableInput } from './inputType'
 
 export interface Subscriber<T> {
 	next(v: T)
@@ -17,7 +17,7 @@ export interface Input<T> extends Subscriber<T> {
 
 export type World = {
 	outputsById: Record<string, Record<string, Output<any>>>
-	connect: <T>(inputSpec: AppInputTransform, next: (x: T) => void) => Input<T>
+	connect: <T>(inputSpec: ConnectableInput, next: (x: T) => void) => Input<T>
 }
 
 export function buildWorld(components: Record<string, string[]>) {
@@ -26,6 +26,7 @@ export function buildWorld(components: Record<string, string[]>) {
 
 	for (const [k, outputs] of Object.entries(components)) {
 		outputsById[k] = {}
+
 		for (const o of outputs) {
 			outputsById[k][o] = newWorld.newOutput(k, o)
 		}
@@ -37,21 +38,30 @@ export function buildWorld(components: Record<string, string[]>) {
 export function buildObservableWorld() {
 	const observables: Record<string, Output<any>> = {}
 
-	function connect<T>(inputSpec: AppInputTransform, next: (x: T) => void): Input<T> {
+	function connect<T>(inputSpec: ConnectableInput, next: (x: T) => void): Input<T> {
 		if (inputSpec.type === 'static') {
 			return {
 				peak: () => inputSpec.value,
 				next: () => {}
 			}
-		} else if (inputSpec.type === 'output') {
+		} else if (inputSpec.type === 'connected') {
 			const input = cachedInput(next)
 
-			const [name] = inputSpec.name ? inputSpec.name.split('.') : [undefined]
+			const connection = inputSpec.connection
 
-			let obs = observables[`${inputSpec.id}.${name}`]
+			if (!connection) {
+				return {
+					peak: () => undefined,
+					next: () => {}
+				}
+			}
+
+			const { componentId, path } = connection
+
+			let obs = observables[`${componentId}.${path}`]
 
 			if (!obs) {
-				console.warn('Observable at ' + inputSpec.id + '.' + name + ' not found')
+				console.warn('Observable at ' + componentId + '.' + path + ' not found')
 				return {
 					peak: () => undefined,
 					next: () => {}

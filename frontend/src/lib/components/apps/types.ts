@@ -1,72 +1,9 @@
 import type { Schema } from '$lib/common'
 import type { Preview } from '$lib/gen'
-import type { ComponentProps } from 'svelte'
 import type { FilledItem } from 'svelte-grid'
 import type { Writable } from 'svelte/store'
-import type { AppButton } from './components'
-import type { staticValues } from './editor/componentsPanel/componentStaticValues'
+import type { ComponentInput, ComponentParameter, ConnectedInput } from './inputType'
 import type { World } from './rx'
-
-export type UserInput<T, V> = {
-	type: 'user'
-	value: V | undefined
-	defaultValue: V
-	fieldType: T
-}
-
-export type DynamicInput<T, V> = {
-	type: 'output'
-	id: FieldID | undefined
-	name: string | undefined
-	defaultValue: V
-	fieldType: T
-}
-
-export type InputType =
-	| 'text'
-	| 'textarea'
-	| 'number'
-	| 'boolean'
-	| 'select'
-	| 'date'
-	| 'time'
-	| 'datetime'
-	| 'object'
-
-export type StaticInput<T, V> = {
-	value: V | undefined
-	type: 'static'
-	visible?: boolean
-	defaultValue: V
-	fieldType: T
-}
-
-type AppInput<T extends InputType, V> = StaticInput<T, V> | DynamicInput<T, V> | UserInput<T, V>
-
-export type AppInputTransform =
-	| AppInput<'text', string>
-	| AppInput<'textarea', string>
-	| AppInput<'number', number>
-	| AppInput<'boolean', boolean>
-	| (AppInput<'select', string> & {
-			/**
-			 * One of the keys of `staticValues` from `lib/components/apps/editor/componentsPanel/componentStaticValues`
-			 */
-			optionValuesKey: keyof typeof staticValues
-	  })
-	| AppInput<'date', string>
-	| AppInput<'time', string>
-	| AppInput<'datetime', string>
-	| AppInput<'object', Record<string | number, any>>
-
-// Inner inputs, (search, filter, page, inputs of a script or flow)
-export type InputsSpec = Record<FieldID, AppInputTransform>
-
-type Runnable = {
-	inlineScriptName?: string
-	path?: string
-	runType?: 'script' | 'flow'
-}
 
 type BaseComponent<T extends string> = {
 	type: T
@@ -74,14 +11,16 @@ type BaseComponent<T extends string> = {
 
 export type TextComponent = BaseComponent<'textcomponent'>
 export type TextInputComponent = BaseComponent<'textinputcomponent'>
-export type ButtonComponent = Runnable & BaseComponent<'buttoncomponent'>
-export type RunFormComponent = Runnable & BaseComponent<'runformcomponent'>
+export type ButtonComponent = BaseComponent<'buttoncomponent'> & {
+	recompute: string[] | undefined
+}
+
+export type RunFormComponent = BaseComponent<'runformcomponent'>
 export type BarChartComponent = BaseComponent<'barchartcomponent'>
-export type PieChartComponent = Runnable & BaseComponent<'piechartcomponent'>
-export type TableComponent = Runnable &
-	BaseComponent<'tablecomponent'> & {
-		actionButtons: (BaseAppComponent & ButtonComponent)[]
-	}
+export type PieChartComponent = BaseComponent<'piechartcomponent'>
+export type TableComponent = BaseComponent<'tablecomponent'> & {
+	actionButtons: (BaseAppComponent & ButtonComponent)[]
+}
 
 export type DisplayComponent = BaseComponent<'displaycomponent'>
 export type ImageComponent = BaseComponent<'imagecomponent'>
@@ -92,6 +31,7 @@ export type RadioComponent = BaseComponent<'radiocomponent'>
 
 export type HorizontalAlignment = 'left' | 'center' | 'right'
 export type VerticalAlignment = 'top' | 'center' | 'bottom'
+
 export type Aligned = {
 	horizontalAlignment: HorizontalAlignment
 	verticalAlignment: VerticalAlignment
@@ -99,11 +39,9 @@ export type Aligned = {
 
 export interface BaseAppComponent extends Partial<Aligned> {
 	id: ComponentID
-	inputs: InputsSpec
-	componentInputs: InputsSpec
-	runnable?: boolean | undefined
-	card?: boolean | undefined
-
+	componentInput: ComponentInput | undefined
+	configuration: Record<string, ComponentParameter>
+	card: boolean | undefined
 	// TODO: add min/max width/height
 }
 
@@ -155,9 +93,9 @@ export type App = {
 	title: string
 }
 
-export type ConnectingInput<T, V> = {
+export type ConnectingInput = {
 	opened: boolean
-	input?: DynamicInput<T, V>
+	input?: ConnectedInput
 	sourceName?: string
 }
 
@@ -167,20 +105,11 @@ export type AppEditorContext = {
 	app: Writable<App>
 	selectedComponent: Writable<string | undefined>
 	mode: Writable<EditorMode>
-	connectingInput: Writable<ConnectingInput<any, any>>
+	connectingInput: Writable<ConnectingInput>
 	breakpoint: Writable<EditorBreakpoint>
 }
 
 export type EditorMode = 'dnd' | 'preview'
 export type EditorBreakpoint = 'sm' | 'lg'
 
-type FieldID = string
-
 type ComponentID = string
-
-export type EditorConfig = {
-	staticInputDisabled: boolean
-	outputInputDisabled: boolean
-	userInputEnabled: boolean
-	visibiltyEnabled: boolean
-}

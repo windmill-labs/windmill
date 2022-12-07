@@ -14,15 +14,13 @@
 	} from 'chart.js'
 
 	import type { ChartData } from 'chart.js'
-
-	import type { InputsSpec } from '../../types'
-	import RunnableComponent from '../helpers/RunnableComponent.svelte'
+	import RunnableWrapper from '../helpers/RunnableWrapper.svelte'
+	import type { ComponentInput, ComponentParameter } from '../../inputType'
+	import InputValue from '../helpers/InputValue.svelte'
 
 	export let id: string
-	export let inputs: InputsSpec
-	export let path: string | undefined = undefined
-	export let runType: 'script' | 'flow' | undefined = undefined
-	export let inlineScriptName: string | undefined = undefined
+	export let componentInput: ComponentInput | undefined
+	export let configuration: Record<string, ComponentParameter>
 
 	export const staticOutputs: string[] = ['loading', 'result']
 
@@ -38,10 +36,30 @@
 	)
 
 	let result: ChartData<'bar', number[], unknown> | undefined = undefined
+	let labels: string[] = []
+	let theme: string[] = []
+
+	const options = {
+		responsive: true,
+		animation: false
+	}
+
+	$: data = {
+		labels,
+		datasets: [
+			{
+				data: result,
+				backgroundColor: theme
+			}
+		]
+	}
 </script>
 
-<RunnableComponent {id} {path} {runType} {inlineScriptName} bind:inputs bind:result>
-	{#if result}
-		<Bar data={result} options={{ responsive: true, animation: false }} />
+<InputValue input={configuration.theme} bind:value={theme} />
+<InputValue input={configuration.labels} bind:value={labels} />
+
+<RunnableWrapper {componentInput} {id} bind:result>
+	{#if data}
+		<Bar {data} {options} />
 	{/if}
-</RunnableComponent>
+</RunnableWrapper>

@@ -3,18 +3,16 @@
 	import { classNames } from '$lib/utils'
 	import { getContext } from 'svelte'
 	import type { Output } from '../../rx'
-	import type { AppEditorContext, BaseAppComponent, ButtonComponent, InputsSpec } from '../../types'
+	import type { AppEditorContext, BaseAppComponent, ButtonComponent } from '../../types'
 	import InputValue from '../helpers/InputValue.svelte'
 	import DebouncedInput from '../helpers/DebouncedInput.svelte'
-	import RunnableComponent from '../helpers/RunnableComponent.svelte'
 	import AppButton from '../buttons/AppButton.svelte'
+	import type { ComponentInput, ComponentParameter } from '../../inputType'
+	import RunnableWrapper from '../helpers/RunnableWrapper.svelte'
 
 	export let id: string
-	export let inputs: InputsSpec
-	export let path: string | undefined = undefined
-	export let runType: 'script' | 'flow' | undefined = undefined
-	export let inlineScriptName: string | undefined = undefined
-	export let componentInputs: InputsSpec
+	export let componentInput: ComponentInput | undefined
+	export let configuration: Record<string, ComponentParameter>
 	export let actionButtons: (BaseAppComponent & ButtonComponent)[]
 
 	const { worldStore, staticOutputs: staticOutputsStore } =
@@ -38,7 +36,7 @@
 		}
 	}
 
-	let searchEnabledValue: boolean | undefined = undefined
+	let searchConfiguration: 'Frontend | Backend' | 'Disabled' = 'Disabled'
 	let paginationEnabled: boolean | undefined = undefined
 
 	let page = 1
@@ -52,20 +50,12 @@
 	export const reservedKeys: string[] = Object.keys(extraQueryParams)
 </script>
 
-<InputValue input={componentInputs.searchEnabled} bind:value={searchEnabledValue} />
-<InputValue input={componentInputs.paginationEnabled} bind:value={paginationEnabled} />
+<InputValue input={configuration.searchConfiguration} bind:value={searchConfiguration} />
+<InputValue input={configuration.paginationEnabled} bind:value={paginationEnabled} />
 
-<RunnableComponent
-	{id}
-	{path}
-	{runType}
-	{inlineScriptName}
-	bind:inputs
-	bind:result
-	extraQueryParams={{ search, page }}
->
+<RunnableWrapper {componentInput} {id} bind:result extraQueryParams={{ search, page }}>
 	<div class="gap-2 flex flex-col mt-2">
-		{#if searchEnabledValue}
+		{#if searchConfiguration !== 'Disabled'}
 			<div>
 				<div>
 					<DebouncedInput placeholder="Search..." bind:value={search} />
@@ -111,7 +101,7 @@
 											<AppButton
 												{...props}
 												extraQueryParams={{ row }}
-												bind:inputs={props.inputs}
+												bind:componentInput={props.componentInput}
 												bind:staticOutputs={$staticOutputsStore[props.id]}
 											/>
 										{/each}
@@ -148,4 +138,4 @@
 			</div>
 		{/if}
 	</div>
-</RunnableComponent>
+</RunnableWrapper>

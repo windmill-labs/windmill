@@ -8,8 +8,7 @@
 		AppEditorContext,
 		ConnectingInput,
 		EditorBreakpoint,
-		EditorMode,
-		InputType
+		EditorMode
 	} from '../types'
 	import GridEditor from './GridEditor.svelte'
 
@@ -24,7 +23,7 @@
 	const mode = writable<EditorMode>('preview')
 	const breakpoint = writable<EditorBreakpoint>('lg')
 
-	const connectingInput = writable<ConnectingInput<InputType, any>>({
+	const connectingInput = writable<ConnectingInput>({
 		opened: false,
 		input: undefined
 	})

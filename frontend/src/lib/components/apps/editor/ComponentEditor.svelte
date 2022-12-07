@@ -39,23 +39,23 @@
 		{:else if component.type === 'barchartcomponent'}
 			<BarChartComponent
 				{...component}
-				bind:inputs={component.inputs}
+				bind:componentInput={component.componentInput}
 				bind:staticOutputs={$staticOutputs[component.id]}
 			/>
 		{:else if component.type === 'piechartcomponent'}
 			<PieChartComponent
 				{...component}
 				bind:staticOutputs={$staticOutputs[component.id]}
-				bind:inputs={component.inputs}
+				bind:componentInput={component.componentInput}
 			/>
 		{:else if component.type === 'tablecomponent'}
 			<TableComponent
 				{...component}
 				bind:staticOutputs={$staticOutputs[component.id]}
-				bind:inputs={component.inputs}
+				bind:componentInput={component.componentInput}
 			/>
 		{:else if component.type === 'textcomponent'}
-			<TextComponent {...component} />
+			<TextComponent {...component} bind:staticOutputs={$staticOutputs[component.id]} />
 		{:else if component.type === 'buttoncomponent'}
 			<ButtonComponent {...component} bind:staticOutputs={$staticOutputs[component.id]} />
 		{:else if component.type === 'checkboxcomponent'}

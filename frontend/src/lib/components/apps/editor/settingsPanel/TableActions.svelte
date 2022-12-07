@@ -10,6 +10,7 @@
 	import { defaultProps } from '../componentsPanel/componentDefaultProps'
 	import PanelSection from './common/PanelSection.svelte'
 	import ComponentPanel from './ComponentPanel.svelte'
+	import TableActionLabel from './TableActionLabel.svelte'
 
 	export let components: (BaseAppComponent & ButtonComponent)[]
 
@@ -23,7 +24,7 @@
 			...defaultProps,
 			id,
 			type: 'buttoncomponent',
-			componentInputs: {
+			configuration: {
 				label: {
 					type: 'static',
 					visible: true,
@@ -48,7 +49,14 @@
 					defaultValue: 'xs'
 				}
 			},
-			runnable: true
+			componentInput: {
+				type: 'static',
+				fieldType: 'textarea',
+				defaultValue: '',
+				value: ''
+			},
+			recompute: undefined,
+			card: false
 		}
 
 		components = [...components, newComponent]
@@ -91,10 +99,8 @@
 			}}
 			on:keypress
 		>
-			<div
-				>{component.componentInputs.label.type === 'static'
-					? component.componentInputs.label.value
-					: ''}
+			<div>
+				<TableActionLabel componentInput={component.componentInput} />
 			</div>
 			<Badge color="dark-blue">
 				Component: {component.id}

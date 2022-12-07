@@ -6,7 +6,10 @@
 		faAlignCenter,
 		faAlignLeft,
 		faAlignRight,
+		faArrowRight,
+		faBolt,
 		faClose,
+		faCode,
 		faTrashAlt
 	} from '@fortawesome/free-solid-svg-icons'
 	import { getContext } from 'svelte'
@@ -18,10 +21,10 @@
 	import gridHelp from 'svelte-grid/build/helper/index.mjs'
 	import PickInlineScript from './PickInlineScript.svelte'
 	import TableActions from './TableActions.svelte'
-	import { capitalize } from '$lib/utils'
-	import Badge from '$lib/components/common/badge/Badge.svelte'
 	import { gridColumns } from '../../gridUtils'
 	import { Plus } from 'svelte-lucide'
+	import StaticInputEditor from './StaticInputEditor.svelte'
+	import ConnectedInputEditor from './ConnectedInputEditor.svelte'
 
 	export let component: AppComponent | undefined
 	export let onDelete: (() => void) | undefined = undefined
@@ -49,112 +52,135 @@
 			}
 		}
 	}
+
+	let mainInputType: 'static' | 'connected' | 'result' = 'static'
 </script>
 
 {#if component}
 	<div class="flex flex-col w-full divide-y">
-		{#if component.runnable}
-			<PanelSection title="Runnable">
-				{#if component.runnable && component['inlineScriptName']}
-					<div class="flex justify-between w-full items-center">
-						<span class="text-xs">{component['inlineScriptName']}</span>
-						<Button
+		{#if component.componentInput}
+			<PanelSection title="Main input">
+				<div class="w-full">
+					<ToggleButtonGroup bind:selected={mainInputType}>
+						<ToggleButton position="left" value="static" startIcon={{ icon: faBolt }} size="xs">
+							Static
+						</ToggleButton>
+						<ToggleButton
+							value="connected"
+							position="center"
+							startIcon={{ icon: faArrowRight }}
 							size="xs"
-							color="red"
-							startIcon={{ icon: faClose }}
-							on:click={() => {
-								if (component) {
-									component['inlineScriptName'] = undefined
-								}
-							}}
 						>
-							Clear
-						</Button>
-					</div>
-				{/if}
+							Connect
+						</ToggleButton>
+						<ToggleButton position="right" value="result" startIcon={{ icon: faCode }} size="xs">
+							Script
+						</ToggleButton>
+					</ToggleButtonGroup>
 
-				{#if component.runnable && component['path']}
-					<div class="flex gap-2 items-center">
-						<div>
-							<Badge color="blue">{capitalize(component['runType'])}</Badge>
-							<span class="text-xs">{component['path']}</span>
+					{#if mainInputType === 'static'}
+						<StaticInputEditor bind:componentInput={component.componentInput} />
+					{:else if mainInputType === 'connected' && component.componentInput !== undefined}
+						<ConnectedInputEditor bind:componentInput={component.componentInput} />
+					{:else if component && component.componentInput?.type === 'runnable' && component.componentInput.runnable}
+						<div class="flex justify-between w-full items-center">
+							<span class="text-xs"
+								>{component.componentInput.runnable.type === 'runnableByName'
+									? component.componentInput.runnable.inlineScriptName
+									: component.componentInput.runnable.path}</span
+							>
+							<Button
+								size="xs"
+								color="red"
+								startIcon={{ icon: faClose }}
+								on:click={() => {
+									if (component) {
+										component.componentInput = undefined
+									}
+								}}
+							>
+								Clear
+							</Button>
 						</div>
-						<Button
-							size="xs"
-							color="red"
-							variant="border"
-							startIcon={{ icon: faClose }}
-							on:click={() => {
-								if (component) {
-									component['path'] = undefined
-								}
-							}}
-						>
-							Clear
-						</Button>
-					</div>
-				{/if}
+					{:else}
+						<div class="text-sm">Inline scripts:</div>
+						<div class="flex gap-2">
+							<Button
+								btnClasses="w-24 truncate"
+								size="sm"
+								spacingSize="md"
+								variant="border"
+								color="light"
+							>
+								<div class="flex justify-center flex-col items-center gap-2">
+									<Plus size="18px" />
 
-				{#if component.runnable && component['path'] === undefined && component['inlineScriptName'] === undefined}
-					<div class="text-sm">Inline scripts:</div>
-					<div class="flex gap-2">
-						<Button
-							btnClasses="w-24 truncate"
-							size="sm"
-							spacingSize="md"
-							variant="border"
-							color="light"
-						>
-							<div class="flex justify-center flex-col items-center gap-2">
-								<Plus size="18px" />
+									<span class="text-xs">Create</span>
+								</div>
+							</Button>
 
-								<span class="text-xs">Create</span>
-							</div>
-						</Button>
+							<PickInlineScript
+								scripts={(Object.keys($app.inlineScripts) || []).map((summary) => ({ summary }))}
+								on:pick={({ detail }) => {
+									if (
+										component &&
+										component.componentInput &&
+										component.componentInput.type === 'runnable'
+									) {
+										component.componentInput.runnable = {
+											type: 'runnableByName',
+											inlineScriptName: detail.summary
+										}
+									}
+								}}
+							/>
+						</div>
 
-						<PickInlineScript
-							scripts={(Object.keys($app.inlineScripts) || []).map((summary) => ({ summary }))}
-							on:pick={({ detail }) => {
-								if (component?.runnable) {
-									// @ts-ignore
-									component.inlineScriptName = detail.summary
-								}
-							}}
-						/>
-					</div>
-
-					<div class="text-sm">Pick from workspace:</div>
-					<div class="flex gap-2">
-						<PickScript
-							kind="script"
-							on:pick={({ detail }) => {
-								if (component?.runnable) {
-									component['path'] = detail.path
-									component['runType'] = 'script'
-								}
-							}}
-						/>
-						<PickFlow
-							on:pick={({ detail }) => {
-								if (component?.runnable) {
-									component['path'] = detail.path
-									component['runType'] = 'flow'
-								}
-							}}
-						/>
-					</div>
-				{/if}
+						<div class="text-sm">Pick from workspace:</div>
+						<div class="flex gap-2">
+							<PickScript
+								kind="script"
+								on:pick={({ detail }) => {
+									if (
+										component &&
+										component.componentInput &&
+										component.componentInput.type === 'runnable'
+									) {
+										component.componentInput.runnable = {
+											type: 'runnableByPath',
+											path: detail.path,
+											runType: 'script'
+										}
+									}
+								}}
+							/>
+							<PickFlow
+								on:pick={({ detail }) => {
+									if (
+										component &&
+										component.componentInput &&
+										component.componentInput.type === 'runnable'
+									) {
+										component.componentInput.runnable = {
+											type: 'runnableByPath',
+											path: detail.path,
+											runType: 'flow'
+										}
+									}
+								}}
+							/>
+						</div>
+					{/if}
+				</div>
 			</PanelSection>
 		{/if}
-		{#if Object.values(component.inputs).length > 0}
-			<PanelSection title="Runnable inputs">
-				<InputsSpecsEditor bind:inputSpecs={component.inputs} />
-			</PanelSection>
+		{#if component.componentInput?.type === 'runnable'}
+			<PanelSection title="Runnable inputs">TODO</PanelSection>
 		{/if}
 
-		{#if Object.values(component.componentInputs).length > 0}
-			<PanelSection title={`Configuration (${Object.values(component.componentInputs).length})`}>
-				<InputsSpecsEditor bind:inputSpecs={component.componentInputs} userInputEnabled={false} />
+		{#if Object.values(component.configuration).length > 0}
+			<PanelSection title={`Configuration (${Object.values(component.configuration).length})`}>
+				<InputsSpecsEditor bind:inputSpecs={component.configuration} userInputEnabled={false} />
 			</PanelSection>
 		{/if}
 

@@ -13,14 +13,13 @@
 		ArcElement
 	} from 'chart.js'
 	import type { ChartData } from 'chart.js'
-	import type { InputsSpec } from '../../types'
-	import RunnableComponent from '../helpers/RunnableComponent.svelte'
+	import RunnableWrapper from '../helpers/RunnableWrapper.svelte'
+	import type { ComponentInput, ComponentParameter } from '../../inputType'
+	import InputValue from '../helpers/InputValue.svelte'
 
 	export let id: string
-	export let inputs: InputsSpec
-	export let path: string | undefined = undefined
-	export let runType: 'script' | 'flow' | undefined = undefined
-	export let inlineScriptName: string | undefined = undefined
+	export let componentInput: ComponentInput | undefined
+	export let configuration: Record<string, ComponentParameter>
 
 	export const staticOutputs: string[] = ['loading', 'result']
 
@@ -35,43 +34,31 @@
 		ArcElement
 	)
 
-	let options = {
+	let result: ChartData<'bar', number[], unknown> | undefined = undefined
+	let labels: string[] = []
+	let theme: string[] = []
+
+	const options = {
 		responsive: true,
 		animation: false
 	}
 
-	let nextColor = 0
-
-	// TODO: Replace with nicer windmill branded color pallet.
-	const colors = ['#3b82f6', '#ff6384', '#4bc0c0', '#ff9f40', '#9966ff', '#ffcd56', '#c9cbcf']
-
-	function generateColor() {
-		const col = colors[nextColor]
-		nextColor = (nextColor + 1) % colors.length
-		return col
-	}
-
-	let result: { name: string; value: number; color: string | undefined }[] | undefined = undefined
-	let data: ChartData<'pie', number[], string> | undefined = undefined
-
-	$: if (Array.isArray(result)) {
-		nextColor = 0
-		data = {
-			datasets: [
-				{
-					data: result.map((x) => x.value),
-					backgroundColor: result.map((x) => x.color ?? generateColor())
-				}
-			],
-			labels: result.map((x) => x.name)
-		}
-	} else {
-		data = undefined
+	$: data = {
+		labels,
+		datasets: [
+			{
+				data: result,
+				backgroundColor: theme
+			}
+		]
 	}
 </script>
 
-<RunnableComponent {id} {path} {runType} {inlineScriptName} bind:inputs bind:result>
-	{#if result}
+<InputValue input={configuration.theme} bind:value={theme} />
+<InputValue input={configuration.labels} bind:value={labels} />
+
+<RunnableWrapper {componentInput} {id} bind:result>
+	{#if data}
 		<Pie {data} {options} />
 	{/if}
-</RunnableComponent>
+</RunnableWrapper>

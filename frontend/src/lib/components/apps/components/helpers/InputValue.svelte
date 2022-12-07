@@ -1,11 +1,12 @@
 <script lang="ts">
 	import { getContext } from 'svelte'
-	import type { AppEditorContext, AppInputTransform } from '../../types'
+	import type { ConnectableInput } from '../../inputType'
+	import type { AppEditorContext } from '../../types'
 	import { accessPropertyByPath } from '../../utils'
 
 	type T = string | number | boolean | Record<string | number, any> | undefined
 
-	export let input: AppInputTransform
+	export let input: ConnectableInput
 	export let value: T
 
 	const { worldStore } = getContext<AppEditorContext>('AppEditorContext')
@@ -13,7 +14,7 @@
 	$: input && $worldStore && handleConnection()
 
 	function handleConnection() {
-		if (input.type === 'output') {
+		if (input.type === 'connected') {
 			$worldStore?.connect<any>(input, onValueChange)
 		} else if (input.type === 'static') {
 			setValue()
@@ -29,11 +30,24 @@
 	}
 
 	function onValueChange(newValue: any): void {
-		if (input.type === 'output') {
-			if (input.name?.includes('.')) {
-				const path = input.name.split('.').slice(1).join('.')
+		if (input.type === 'connected' && newValue) {
+			const { connection } = input
 
-				value = accessPropertyByPath<T>(newValue, path)
+			if (!connection) {
+				// No connection
+				return
+			}
+
+			const { componentId, path } = connection
+
+			const hasSubPath = ['.', '['].includes(path)
+
+			if (hasSubPath) {
+				// Must remove top level property from path
+				// Which was manually added, i.e. result
+				const realPath = path.split('.').slice(1).join('.')
+
+				value = accessPropertyByPath<T>(newValue, realPath)
 			} else {
 				value = newValue
 			}

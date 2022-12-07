@@ -9,17 +9,16 @@
 	import { workspaceStore } from '$lib/stores'
 	import { faRefresh } from '@fortawesome/free-solid-svg-icons'
 	import { getContext } from 'svelte'
+	import type { Runnable } from '../../inputType'
 	import type { Output } from '../../rx'
-	import type { AppEditorContext, InputsSpec } from '../../types'
+	import type { AppEditorContext } from '../../types'
 	import { loadSchema, schemaToInputsSpec } from '../../utils'
 	import InputValue from './InputValue.svelte'
 
 	// Component props
 	export let id: string
-	export let inputs: InputsSpec
-	export let path: string | undefined = undefined
-	export let runType: 'script' | 'flow' | undefined = undefined
-	export let inlineScriptName: string | undefined = undefined
+	export let fields: InputsSpec
+	export let runnable: Runnable
 	export let extraQueryParams: Record<string, any> = {}
 	export let autoRefresh: boolean = true
 	export let result: any = undefined

@@ -2,7 +2,7 @@
 	import { Badge, ToggleButton, ToggleButtonGroup } from '$lib/components/common'
 	import { capitalize, classNames } from '$lib/utils'
 	import { faBolt, faLink, faUser } from '@fortawesome/free-solid-svg-icons'
-	import type { InputsSpec } from '../../types'
+	import type { InputsSpec } from '../../inputType'
 	import { fieldTypeToTsType } from '../../utils'
 	import InputsSpecEditor from './InputsSpecEditor.svelte'
 
@@ -97,7 +97,7 @@
 						</ToggleButtonGroup>
 					{/if}
 					<InputsSpecEditor
-						bind:appInputTransform={inputSpecs[inputSpecKey]}
+						bind:componentInput={inputSpecs[inputSpecKey]}
 						canHide={userInputEnabled}
 					/>
 				</div>
