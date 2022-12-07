@@ -59,12 +59,13 @@
 	<div class="flex flex-col w-full divide-y">
 		{#if component.componentInput}
 			<PanelSection title="Main input">
-				<div class="w-full">
+				<div class="flex flex-col w-full gap-2 my-2">
 					<ToggleButtonGroup
 						bind:selected={component.componentInput.type}
 						on:selected={() => {
 							if (component?.componentInput) {
 								// @ts-ignore
+
 								sanitizeInputSpec(component.componentInput)
 							}
 						}}
@@ -101,9 +102,8 @@
 								color="red"
 								startIcon={{ icon: faClose }}
 								on:click={() => {
-									if (component) {
-										component.componentInput = undefined
-									}
+									// @ts-ignore
+									component.componentInput.runnable = undefined
 								}}
 							>
 								Clear

@@ -37,7 +37,15 @@
 
 	let result: ChartData<'bar', number[], unknown> | undefined = undefined
 	let labels: string[] = []
-	let theme: string[] = []
+	let theme: string = 'theme1'
+
+	$: backgroundColor = {
+		theme1: ['#FF6384', '#4BC0C0', '#FFCE56', '#E7E9ED', '#36A2EB'],
+		// blue theme
+		theme2: ['#4e73df', '#1cc88a', '#36b9cc', '#f6c23e', '#e74a3b'],
+		// red theme
+		theme3: ['#e74a3b', '#4e73df', '#1cc88a', '#36b9cc', '#f6c23e']
+	}[theme]
 
 	const options = {
 		responsive: true,
@@ -49,7 +57,7 @@
 		datasets: [
 			{
 				data: result,
-				backgroundColor: theme
+				backgroundColor
 			}
 		]
 	}

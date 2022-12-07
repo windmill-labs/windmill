@@ -74,7 +74,7 @@ export type AppInput =
 	| AppInputSpec<'time', string>
 	| AppInputSpec<'datetime', string>
 	| AppInputSpec<'object', Record<string | number, any>>
-	| AppInputSpec<'array', Array<any>>
+	| AppInputSpec<'array', any[]>
 	| (AppInputSpec<'select', string> & {
 			/**
 			 * One of the keys of `staticValues` from `lib/components/apps/editor/componentsPanel/componentStaticValues`

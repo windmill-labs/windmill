@@ -25,7 +25,6 @@
 
 	function connectInput(componentId: string, path: string) {
 		if ($connectingInput) {
-			debugger
 			$connectingInput = {
 				opened: false,
 				input: {

@@ -9,7 +9,7 @@
 	export let horizontalAlignment: 'left' | 'center' | 'right' | undefined = undefined
 	export let verticalAlignment: 'top' | 'center' | 'bottom' | undefined = undefined
 
-	export const staticOutputs: string[] = ['result']
+	export const staticOutputs: string[] = ['result', 'loading']
 
 	let result: string = ''
 </script>

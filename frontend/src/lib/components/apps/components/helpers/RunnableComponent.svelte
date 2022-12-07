@@ -33,7 +33,6 @@
 
 	$: mergedArgs = { ...args, ...extraQueryParams, ...runnableInputValues }
 
-	// TODO: Review
 	function setStaticInputsToArgs() {
 		Object.entries(inputs ?? {}).forEach(([key, value]) => {
 			if (value.type === 'static') {
@@ -46,7 +45,7 @@
 
 	$: inputs && setStaticInputsToArgs()
 
-	function argMergedArgsValid(mergedArgs: Record<string, any>) {
+	function argMergedArgsValid(mergedArgs: Record<string, any>, testJobLoader) {
 		if (
 			Object.keys(inputs ?? {}).filter((k) => inputs[k].type !== 'user').length !==
 			Object.keys(runnableInputValues).length
@@ -58,14 +57,14 @@
 			(arg) => arg !== undefined && arg !== null
 		)
 
-		if (areAllArgsValid && autoRefresh) {
+		if (areAllArgsValid && autoRefresh && testJobLoader) {
 			executeComponent()
 		}
 
 		return areAllArgsValid
 	}
 
-	$: isValid = argMergedArgsValid(mergedArgs)
+	$: isValid = argMergedArgsValid(mergedArgs, testJobLoader)
 
 	// Test job internal state
 	let testJob: CompletedJob | undefined = undefined
@@ -191,11 +190,10 @@
 
 <TestJobLoader
 	on:done={() => {
-		if (testJob) {
-			outputs.result.set(testJob?.result)
-			outputs?.loading?.set(false)
-
-			result = testJob?.result
+		if (testJob && outputs) {
+			outputs.result?.set(testJob?.result)
+			outputs.loading?.set(false)
+			result = testJob.result
 		}
 	}}
 	bind:isLoading={testIsLoading}
