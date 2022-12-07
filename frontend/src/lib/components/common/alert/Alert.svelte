@@ -11,6 +11,7 @@
 
 	export let type: AlertType = 'info'
 	export let title: string
+	export let notRounded = false
 
 	export let size: 'xs' | 'sm' = 'sm'
 
@@ -51,7 +52,7 @@
 
 <div
 	class={classNames(
-		'rounded-md',
+		notRounded ? '' : 'rounded-md',
 		size === 'sm' ? 'p-4' : 'p-2 ',
 		classes[type].bgClass,
 		$$props.class

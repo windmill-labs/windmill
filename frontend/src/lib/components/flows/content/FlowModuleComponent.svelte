@@ -36,10 +36,6 @@
 	export let parentModule: FlowModule | undefined = undefined
 	export let previousModule: FlowModule | undefined
 
-	let value: PathFlow | RawScript | PathScript = flowModule.value as
-		| PathFlow
-		| RawScript
-		| PathScript
 	$: value = flowModule.value as PathFlow | RawScript | PathScript
 
 	let editor: Editor
