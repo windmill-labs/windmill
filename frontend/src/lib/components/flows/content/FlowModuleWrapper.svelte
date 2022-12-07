@@ -3,7 +3,6 @@
 	import { getContext } from 'svelte'
 
 	import type { FlowEditorContext } from '../types'
-	import FlowBranchesWrapper from './FlowBranchesWrapper.svelte'
 	import FlowLoop from './FlowLoop.svelte'
 	import FlowModuleComponent from './FlowModuleComponent.svelte'
 	import FlowBranchAllWrapper from './FlowBranchAllWrapper.svelte'
@@ -17,6 +16,8 @@
 	import { flowStateStore } from '../flowState'
 	import { Alert } from '$lib/components/common'
 	import FlowInputsFlow from './FlowInputsFlow.svelte'
+	import FlowBranchesAllWrapper from './FlowBranchesAllWrapper.svelte'
+	import FlowBranchesOneWrapper from './FlowBranchesOneWrapper.svelte'
 
 	const { selectedId } = getContext<FlowEditorContext>('FlowEditorContext')
 
@@ -32,8 +33,10 @@
 {#if flowModule.id === $selectedId}
 	{#if flowModule.value.type === 'forloopflow'}
 		<FlowLoop bind:mod={flowModule} {parentModule} {previousModule} />
-	{:else if flowModule.value.type === 'branchone' || flowModule.value.type === 'branchall'}
-		<FlowBranchesWrapper {previousModule} bind:flowModule {parentModule} />
+	{:else if flowModule.value.type === 'branchone'}
+		<FlowBranchesOneWrapper {previousModule} bind:flowModule />
+	{:else if flowModule.value.type === 'branchall'}
+		<FlowBranchesAllWrapper {previousModule} bind:flowModule />
 	{:else if flowModule.value.type === 'identity'}
 		{#if $selectedId == 'failure'}
 			<Alert type="info" title="Error handlers are triggered upon non recovered errors">
@@ -111,7 +114,10 @@
 	{/each}
 {:else if flowModule.value.type === 'branchone'}
 	{#if $selectedId === `${flowModule?.id}-branch-default`}
-		<div class="p-4 text-sm truncate">Default branch</div>
+		<div class="p-2">
+			<h3 class="mb-4">Default branch</h3>
+			Nothing to configure, this is the default branch if none of the predicates are met.
+		</div>
 	{:else}
 		{#each flowModule.value.default as submodule, index}
 			<svelte:self

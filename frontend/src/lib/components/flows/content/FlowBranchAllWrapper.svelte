@@ -16,7 +16,7 @@
 			<input bind:value={branch.summary} placeholder={'Summary'} />
 		</div>
 		<div class="p-4">
-			<div class="mt-6 mb-2 text-sm font-bold">Skip failures</div>
+			<div class="mt-2 mb-2 text-sm font-bold">Skip failures</div>
 			<Toggle
 				bind:checked={branch.skip_failure}
 				options={{
