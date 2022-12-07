@@ -59,7 +59,10 @@ async function pull(opts: GlobalOptions) {
     await pushResourceTypeDef(
       workspace.workspaceId,
       x.name,
-      x,
+      {
+        description: x.description,
+        schema: JSON.parse(x.schema),
+      },
     );
   }
 }
