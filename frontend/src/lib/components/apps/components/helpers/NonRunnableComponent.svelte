@@ -22,7 +22,7 @@
 		}
 	}
 
-	$: result && setOutput()
+	$: result !== undefined && setOutput()
 </script>
 
 {#if componentInput.type !== 'runnable'}

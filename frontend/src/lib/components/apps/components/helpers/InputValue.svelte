@@ -30,7 +30,8 @@
 	}
 
 	function onValueChange(newValue: any): void {
-		if (input.type === 'connected' && newValue) {
+		console.log('onValueChange', newValue)
+		if (input.type === 'connected' && newValue !== undefined) {
 			const { connection } = input
 
 			if (!connection) {

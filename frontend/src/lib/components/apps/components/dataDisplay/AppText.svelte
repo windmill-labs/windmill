@@ -16,6 +16,12 @@
 
 <RunnableWrapper {componentInput} {id} bind:result>
 	<AlignWrapper {horizontalAlignment} {verticalAlignment}>
-		<SvelteMarkdown source={String(result)} />
+		{#if result === ''}
+			<div class="text-gray-400 bg-gray-100 flex justify-center items-center h-full w-full">
+				No text
+			</div>
+		{:else}
+			<SvelteMarkdown source={String(result)} />
+		{/if}
 	</AlignWrapper>
 </RunnableWrapper>
