@@ -36,7 +36,7 @@
 		}
 	}
 
-	let searchConfiguration: 'Frontend | Backend' | 'Disabled' = 'Disabled'
+	let searchConfiguration: 'Frontend' | 'Backend' | 'Disabled' = 'Disabled'
 	let paginationEnabled: boolean | undefined = undefined
 
 	let page = 1
@@ -48,6 +48,9 @@
 	const extraQueryParams = { search, page }
 
 	export const reservedKeys: string[] = Object.keys(extraQueryParams)
+
+	$: (searchConfiguration === 'Frontend' || searchConfiguration === 'Backend') &&
+		(extraQueryParams.search = search)
 </script>
 
 <InputValue input={configuration.searchConfiguration} bind:value={searchConfiguration} />

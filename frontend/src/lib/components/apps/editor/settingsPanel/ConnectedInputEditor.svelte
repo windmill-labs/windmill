@@ -10,6 +10,7 @@
 	const { connectingInput } = getContext<AppEditorContext>('AppEditorContext')
 
 	function applyConnection() {
+		debugger
 		if (
 			!$connectingInput.opened &&
 			$connectingInput.input !== undefined &&

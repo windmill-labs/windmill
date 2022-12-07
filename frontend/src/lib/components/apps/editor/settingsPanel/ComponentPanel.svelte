@@ -80,7 +80,7 @@
 						>
 							Connect
 						</ToggleButton>
-						<ToggleButton position="right" value="result" startIcon={{ icon: faCode }} size="xs">
+						<ToggleButton position="right" value="runnable" startIcon={{ icon: faCode }} size="xs">
 							Script
 						</ToggleButton>
 					</ToggleButtonGroup>
@@ -91,11 +91,11 @@
 						<ConnectedInputEditor bind:componentInput={component.componentInput} />
 					{:else if component && component.componentInput?.type === 'runnable' && component.componentInput.runnable}
 						<div class="flex justify-between w-full items-center">
-							<span class="text-xs"
-								>{component.componentInput.runnable.type === 'runnableByName'
+							<span class="text-xs">
+								{component.componentInput.runnable.type === 'runnableByName'
 									? component.componentInput.runnable.inlineScriptName
-									: component.componentInput.runnable.path}</span
-							>
+									: component.componentInput.runnable.path}
+							</span>
 							<Button
 								size="xs"
 								color="red"
@@ -182,7 +182,7 @@
 			</PanelSection>
 		{/if}
 		{#if component.componentInput?.type === 'runnable'}
-			<PanelSection title="Runnable inputs">TODO</PanelSection>
+			<PanelSection title="Runnable inputs" />
 		{/if}
 
 		{#if Object.values(component.configuration).length > 0}

@@ -15,7 +15,7 @@
 
 {#if componentInput === undefined}
 	<slot />
-{:else if componentInput.type === 'runnable'}
+{:else if componentInput.type === 'runnable' && componentInput.runnable}
 	<RunnableComponent
 		bind:this={runnableComponent}
 		bind:inputs={componentInput.fields}

@@ -35,7 +35,7 @@
 
 	// TODO: Review
 	function setStaticInputsToArgs() {
-		Object.entries(inputs).forEach(([key, value]) => {
+		Object.entries(inputs ?? {}).forEach(([key, value]) => {
 			if (value.type === 'static') {
 				args[key] = value.value
 			}
@@ -48,7 +48,7 @@
 
 	function argMergedArgsValid(mergedArgs: Record<string, any>) {
 		if (
-			Object.keys(inputs).filter((k) => inputs[k].type !== 'user').length !==
+			Object.keys(inputs ?? {}).filter((k) => inputs[k].type !== 'user').length !==
 			Object.keys(runnableInputValues).length
 		) {
 			return false
@@ -97,7 +97,7 @@
 
 	// When the schema is loaded, we need to update the inputs spec
 	// in order to render the inputs the component panel
-	$: if (schema && Object.keys(schema.properties).length !== Object.keys(inputs).length) {
+	$: if (schema && Object.keys(schema.properties).length !== Object.keys(inputs ?? {}).length) {
 		let schemaWithoutExtraQueries: Schema = JSON.parse(JSON.stringify(schema))
 
 		// Remove extra query params from the schema, which are not directly configurable by the user
@@ -114,7 +114,7 @@
 		schemaStripped = JSON.parse(JSON.stringify(schema))
 
 		// Remove hidden static inputs
-		Object.keys(inputs).forEach((key: string) => {
+		Object.keys(inputs ?? {}).forEach((key: string) => {
 			const input = inputs[key]
 
 			if (input.type === 'static' && !input.visible && schemaStripped !== undefined) {
@@ -136,7 +136,7 @@
 
 	$: schema && inputs && stripSchema(schema, inputs)
 
-	$: disabledArgs = Object.keys(inputs).reduce(
+	$: disabledArgs = Object.keys(inputs ?? {}).reduce(
 		(disabledArgsAccumulator: string[], inputName: string) => {
 			if (inputs[inputName].type === 'static') {
 				disabledArgsAccumulator = [...disabledArgsAccumulator, inputName]
@@ -151,7 +151,7 @@
 			return
 		}
 
-		outputs?.loading.set(true)
+		outputs?.loading?.set(true)
 
 		await testJobLoader?.abstractRun(() => {
 			const requestBody = {
@@ -185,7 +185,7 @@
 	}
 </script>
 
-{#each Object.keys(inputs) as key}
+{#each Object.keys(inputs ?? {}) as key}
 	<InputValue input={inputs[key]} bind:value={runnableInputValues[key]} />
 {/each}
 
@@ -193,7 +193,7 @@
 	on:done={() => {
 		if (testJob) {
 			outputs.result.set(testJob?.result)
-			outputs?.loading.set(false)
+			outputs?.loading?.set(false)
 
 			result = testJob?.result
 		}
