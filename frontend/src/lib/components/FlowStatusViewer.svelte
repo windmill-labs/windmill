@@ -226,7 +226,8 @@
 										localFlowModuleStates[flowJobIds.moduleId] = {
 											type: FlowStatusModule.type.IN_PROGRESS,
 											logs: e.detail.logs,
-											job_id: e.detail.id
+											job_id: e.detail.id,
+											iteration_total: flowJobIds?.flowJobs.length
 										}
 									} else {
 										localFlowModuleStates[flowJobIds.moduleId] = {
@@ -235,7 +236,8 @@
 												: FlowStatusModule.type.FAILURE,
 											logs: 'All jobs completed',
 											result: jobResults,
-											job_id: e.detail.id
+											job_id: e.detail.id,
+											iteration_total: flowJobIds?.flowJobs.length
 										}
 									}
 								}

@@ -186,7 +186,8 @@
 		host: ModuleHost,
 		onClickDetail: any,
 		lang?: RawScript.language,
-		edgeLabel?: string
+		edgeLabel?: string,
+		header?: string
 	): Node {
 		const langImg: Record<RawScript.language, string> = {
 			deno: '/icons/ts-lang.svg',
@@ -220,7 +221,7 @@
 					</div>
 				</div>
 				<div class="text-2xs absolute -top-6 text-gray-600 truncate">${
-					flowModuleStates?.[nodeId]?.scheduled_for ?? ''
+					flowModuleStates?.[nodeId]?.scheduled_for ?? header ?? ''
 				}<div>
 			`
 			},
@@ -259,7 +260,11 @@
 					module.summary || `For Loop: ${defaultIfEmptyString(expr ?? '', 'TBD')}`,
 					'inline',
 					module,
-					undefined
+					undefined,
+					undefined,
+					flowModuleStates?.[module.id]?.iteration_total
+						? 'Iteration ' + flowModuleStates?.[module.id]?.iteration_total
+						: ''
 				)
 			]
 		}
