@@ -1,6 +1,15 @@
 # Changelog
 
 
+## [1.54.0](https://github.com/windmill-labs/windmill/compare/v1.53.0...v1.54.0) (2022-12-08)
+
+
+### Features
+
+* add lockable version to scripts inside flows ([#972](https://github.com/windmill-labs/windmill/issues/972)) ([799fa92](https://github.com/windmill-labs/windmill/commit/799fa925b39316f6f8232d01959c35c4d6fa9533))
+* **frontend:** Add support for object editor + fix wording ([#1004](https://github.com/windmill-labs/windmill/issues/1004)) ([a562dee](https://github.com/windmill-labs/windmill/commit/a562dee3cebfc07f72f0e952cb102c4c86022937))
+* implement flow as a flow step ([8c1c508](https://github.com/windmill-labs/windmill/commit/8c1c5083585f4882aac3f05f71ad1a6414772082))
+
 ## [1.53.0](https://github.com/windmill-labs/windmill/compare/v1.52.0...v1.53.0) (2022-12-05)
 
 
