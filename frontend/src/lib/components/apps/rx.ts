@@ -58,10 +58,12 @@ export function buildObservableWorld() {
 
 			const { componentId, path } = connection
 
-			let obs = observables[`${componentId}.${path}`]
+			const [p] = path ? path.split('.') : [undefined]
+
+			let obs = observables[`${componentId}.${p}`]
 
 			if (!obs) {
-				console.warn('Observable at ' + componentId + '.' + path + ' not found')
+				console.warn('Observable at ' + componentId + '.' + p + ' not found')
 				return {
 					peak: () => undefined,
 					next: () => {}

@@ -30,8 +30,7 @@
 	}
 
 	function onValueChange(newValue: any): void {
-		console.log('onValueChange', newValue)
-		if (input.type === 'connected' && newValue !== undefined) {
+		if (input.type === 'connected' && newValue !== undefined && newValue !== null) {
 			const { connection } = input
 
 			if (!connection) {
@@ -41,7 +40,7 @@
 
 			const { componentId, path } = connection
 
-			const hasSubPath = ['.', '['].includes(path)
+			const hasSubPath = ['.', '['].some((x) => path.includes(x))
 
 			if (hasSubPath) {
 				// Must remove top level property from path

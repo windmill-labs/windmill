@@ -56,7 +56,7 @@
 <InputValue input={configuration.searchConfiguration} bind:value={searchConfiguration} />
 <InputValue input={configuration.paginationEnabled} bind:value={paginationEnabled} />
 
-<RunnableWrapper {componentInput} {id} bind:result extraQueryParams={{ search, page }}>
+<RunnableWrapper bind:componentInput {id} bind:result extraQueryParams={{ search, page }}>
 	<div class="gap-2 flex flex-col mt-2">
 		{#if searchConfiguration !== 'Disabled'}
 			<div>

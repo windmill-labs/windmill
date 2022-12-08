@@ -182,7 +182,9 @@
 			</PanelSection>
 		{/if}
 		{#if component.componentInput?.type === 'runnable'}
-			<PanelSection title="Runnable inputs" />
+			<PanelSection title="Runnable inputs">
+				<InputsSpecsEditor bind:inputSpecs={component.componentInput.fields} />
+			</PanelSection>
 		{/if}
 
 		{#if Object.values(component.configuration).length > 0}

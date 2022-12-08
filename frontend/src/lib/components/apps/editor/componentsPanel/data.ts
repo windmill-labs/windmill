@@ -1,11 +1,10 @@
 import type { ComponentSet } from '../../types'
-import { defaultAlignement, defaultProps } from './componentDefaultProps'
+import { defaultAlignement } from './componentDefaultProps'
 
 const windmillComponents: ComponentSet = {
 	title: 'Windmill Components',
 	components: [
 		{
-			...defaultProps,
 			id: 'displaycomponent',
 			type: 'displaycomponent',
 			componentInput: {
@@ -34,7 +33,6 @@ const buttons: ComponentSet = {
 	title: 'Buttons',
 	components: [
 		{
-			...defaultProps,
 			...defaultAlignement,
 			id: 'buttoncomponent',
 			type: 'buttoncomponent',
@@ -80,7 +78,6 @@ const selectInputs: ComponentSet = {
 	title: 'Select Inputs',
 	components: [
 		{
-			...defaultProps,
 			...defaultAlignement,
 			id: 'checkboxcomponent',
 			type: 'checkboxcomponent',
@@ -108,7 +105,6 @@ const dataDisplay: ComponentSet = {
 	title: 'Data Display',
 	components: [
 		{
-			...defaultProps,
 			...defaultAlignement,
 			id: 'textcomponent',
 			type: 'textcomponent',
@@ -123,7 +119,6 @@ const dataDisplay: ComponentSet = {
 			card: false
 		},
 		{
-			...defaultProps,
 			id: 'tablecomponent',
 			type: 'tablecomponent',
 			configuration: {
@@ -174,7 +169,6 @@ const dataDisplay: ComponentSet = {
 			actionButtons: []
 		},
 		{
-			...defaultProps,
 			id: 'piechartcomponent',
 			type: 'piechartcomponent',
 			configuration: {
@@ -201,7 +195,6 @@ const dataDisplay: ComponentSet = {
 			card: true
 		},
 		{
-			...defaultProps,
 			id: 'barchartcomponent',
 			type: 'barchartcomponent',
 			configuration: {
