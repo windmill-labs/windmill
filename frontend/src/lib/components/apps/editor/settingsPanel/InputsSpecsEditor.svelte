@@ -43,10 +43,7 @@
 				{#if inputSpecKey === openedProp}
 					<div class="flex flex-col w-full gap-2 my-2">
 						{#if staticOnly}
-							<ToggleButtonGroup
-								bind:selected={inputSpecs[inputSpecKey].type}
-								on:selected={() => sanitizeInputSpec(inputSpecs[inputSpecKey])}
-							>
+							<ToggleButtonGroup bind:selected={inputSpecs[inputSpecKey].type}>
 								<ToggleButton position="left" value="static" startIcon={{ icon: faBolt }} size="xs">
 									Static
 								</ToggleButton>

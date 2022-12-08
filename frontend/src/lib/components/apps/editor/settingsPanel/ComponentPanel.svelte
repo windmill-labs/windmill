@@ -60,16 +60,7 @@
 		{#if component.componentInput}
 			<PanelSection title="Main input">
 				<div class="flex flex-col w-full gap-2 my-2">
-					<ToggleButtonGroup
-						bind:selected={component.componentInput.type}
-						on:selected={() => {
-							if (component?.componentInput) {
-								// @ts-ignore
-
-								sanitizeInputSpec(component.componentInput)
-							}
-						}}
-					>
+					<ToggleButtonGroup bind:selected={component.componentInput.type}>
 						<ToggleButton position="left" value="static" startIcon={{ icon: faBolt }} size="xs">
 							Static
 						</ToggleButton>

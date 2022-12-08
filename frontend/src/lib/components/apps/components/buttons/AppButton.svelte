@@ -29,7 +29,7 @@
 
 <RunnableWrapper
 	bind:runnableComponent
-	{componentInput}
+	bind:componentInput
 	{id}
 	{extraQueryParams}
 	autoRefresh={false}

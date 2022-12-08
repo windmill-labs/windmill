@@ -10,7 +10,7 @@
 	let result: any = undefined
 </script>
 
-<RunnableWrapper bind:result {id} {componentInput}>
+<RunnableWrapper bind:result bind:componentInput {id}>
 	<div class="w-full border-b px-2 text-xs p-1 font-semibold bg-gray-500 text-white rounded-t-sm">
 		Results
 	</div>

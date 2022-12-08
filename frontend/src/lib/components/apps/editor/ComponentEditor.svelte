@@ -35,7 +35,11 @@
 		)}
 	>
 		{#if component.type === 'displaycomponent'}
-			<DisplayComponent {...component} bind:staticOutputs={$staticOutputs[component.id]} />
+			<DisplayComponent
+				{...component}
+				bind:componentInput={component.componentInput}
+				bind:staticOutputs={$staticOutputs[component.id]}
+			/>
 		{:else if component.type === 'barchartcomponent'}
 			<BarChartComponent
 				{...component}
@@ -55,9 +59,17 @@
 				bind:componentInput={component.componentInput}
 			/>
 		{:else if component.type === 'textcomponent'}
-			<TextComponent {...component} bind:staticOutputs={$staticOutputs[component.id]} />
+			<TextComponent
+				{...component}
+				bind:componentInput={component.componentInput}
+				bind:staticOutputs={$staticOutputs[component.id]}
+			/>
 		{:else if component.type === 'buttoncomponent'}
-			<ButtonComponent {...component} bind:staticOutputs={$staticOutputs[component.id]} />
+			<ButtonComponent
+				{...component}
+				bind:componentInput={component.componentInput}
+				bind:staticOutputs={$staticOutputs[component.id]}
+			/>
 		{:else if component.type === 'checkboxcomponent'}
 			<CheckboxComponent {...component} bind:staticOutputs={$staticOutputs[component.id]} />
 		{/if}
