@@ -122,14 +122,14 @@ const dataDisplay: ComponentSet = {
 			id: 'tablecomponent',
 			type: 'tablecomponent',
 			configuration: {
-				searchConfiguration: {
+				search: {
 					fieldType: 'select',
 					type: 'static',
 					value: 'Disabled',
 					optionValuesKey: 'tableSearchOptions',
 					defaultValue: 'Disabled'
 				},
-				paginationEnabled: {
+				pagination: {
 					type: 'static',
 					value: false,
 					fieldType: 'boolean',
