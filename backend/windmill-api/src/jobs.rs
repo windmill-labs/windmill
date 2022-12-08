@@ -807,6 +807,7 @@ struct UnifiedJob {
     is_flow_step: bool,
     language: Option<ScriptLang>,
     is_skipped: bool,
+    pre_run_error: Option<String>,
 }
 
 impl From<UnifiedJob> for Job {
@@ -867,6 +868,7 @@ impl From<UnifiedJob> for Job {
                 is_flow_step: uj.is_flow_step,
                 language: uj.language,
                 same_worker: false,
+                pre_run_error: uj.pre_run_error,
             }),
             t => panic!("job type {} not valid", t),
         }
@@ -962,6 +964,7 @@ pub async fn run_flow_by_path(
         run_query.parent_job,
         false,
         false,
+        None,
     )
     .await?;
     tx.commit().await?;
@@ -994,6 +997,7 @@ pub async fn run_job_by_path(
         run_query.parent_job,
         false,
         false,
+        None,
     )
     .await?;
     tx.commit().await?;
@@ -1059,6 +1063,7 @@ pub async fn run_wait_result_job_by_path(
         run_query.parent_job,
         false,
         false,
+        None,
     )
     .await?;
     tx.commit().await?;
@@ -1092,6 +1097,7 @@ pub async fn run_wait_result_job_by_hash(
         run_query.parent_job,
         false,
         false,
+        None,
     )
     .await?;
     tx.commit().await?;
@@ -1143,6 +1149,7 @@ async fn run_preview_job(
         None,
         false,
         false,
+        None,
     )
     .await?;
     tx.commit().await?;
@@ -1173,6 +1180,7 @@ async fn run_preview_flow_job(
         None,
         false,
         false,
+        None,
     )
     .await?;
     tx.commit().await?;
@@ -1205,6 +1213,7 @@ pub async fn run_job_by_hash(
         run_query.parent_job,
         false,
         false,
+        None,
     )
     .await?;
     tx.commit().await?;
