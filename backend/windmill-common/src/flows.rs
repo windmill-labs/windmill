@@ -160,6 +160,12 @@ pub struct FlowModule {
     pub sleep: Option<InputTransform>,
 }
 
+impl FlowModule {
+    pub fn id_append(&mut self, s: &str) {
+        self.id = format!("{}-{}", self.id, s);
+    }
+}
+
 #[derive(Deserialize, Serialize, Debug, Clone, PartialEq)]
 #[serde(
     tag = "type",

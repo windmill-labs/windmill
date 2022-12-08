@@ -18,7 +18,7 @@
 	} from '.'
 	import { defaultIfEmptyString, truncateRev } from '$lib/utils'
 	import { createEventDispatcher } from 'svelte'
-	import { numberToChars } from '../flows/utils'
+	import { charsToNumber, numberToChars } from '../flows/utils'
 
 	export let modules: FlowModule[] | undefined = []
 	export let failureModule: FlowModule | undefined = undefined
@@ -57,14 +57,21 @@
 			const item = getConvertedFlowModule(m)
 			item && nestedNodes.push(item)
 		})
-		const endParentIds = getParentIds()
 		nestedNodes.push(createVirtualNode(getParentIds(), 'Flow end'))
-		if (failureModule) {
-			nestedNodes.push(createErrorHandler(endParentIds, failureModule))
+
+		if (!flowModuleStates) {
+			if (failureModule) nestedNodes.push(createErrorHandler(failureModule))
+		} else {
+			Object.entries(flowModuleStates ?? [])
+				.filter(([k, v]) => k.startsWith('failure'))
+				.forEach(([k, v]) => {
+					nestedNodes.push(createErrorHandler({ id: k } as FlowModule, v.parent_module))
+				})
 		}
 
 		const flatNodes = flattenNestedNodes(nestedNodes)
 		const layered = layoutNodes(flatNodes)
+
 		nodes = layered.nodes
 		// width = layered.width
 		height = layered.height
@@ -144,7 +151,7 @@
 		if (!item) return []
 
 		if (isNode(item)) {
-			return ['' + item.id]
+			return [numberToChars(item.id)]
 		} else if (isLoop(item)) {
 			return getParentIds(item.items)
 		} else if (isBranch(item)) {
@@ -190,10 +197,10 @@
 			inline: ''
 		}
 		const wrapperWidth = lang ? 'w-[calc(100%-70px)]' : 'w-[calc(100%-50px)]'
-		const graphId = idGenerator.next().value
-		let nodeId = onClickDetail.id ?? numberToChars(graphId - 1)
+		let nodeId = id ?? numberToChars(idGenerator.next().value - 1)
+
 		return {
-			id: graphId,
+			id: charsToNumber(nodeId),
 			position: { x: -1, y: -1 },
 			data: {
 				html: `
@@ -205,7 +212,7 @@
 						${lang ? `<img src="${langImg[lang]}" class="grayscale">` : ''}
 						${host != 'inline' ? `<img src="${hostImg[host]}" class="grayscale">` : ''}
 						<span class="center-center font-semibold bg-indigo-100 text-indigo-800 rounded px-1 pb-[2px] ml-[2px]">
-							${id ?? numberToChars(graphId - 1)}
+							${nodeId}
 						</span>
 					</div>
 				</div>
@@ -225,7 +232,7 @@
 					selectedNode = nodeId
 				}
 				if (onClickDetail.id == undefined) {
-					onClickDetail.id = numberToChars(graphId - 1)
+					onClickDetail.id = nodeId
 				}
 				dispatch('click', onClickDetail)
 			},
@@ -286,7 +293,7 @@
 			),
 			items: []
 		}
-		const branchParent = [branch.node.id.toString()]
+		const branchParent = [numberToChars(branch.node.id)]
 		if (branches.length == 0) {
 			branch.items.push([createVirtualNode(branchParent, 'No branches')])
 		}
@@ -298,7 +305,7 @@
 				modules.forEach((module) => {
 					const item = getConvertedFlowModule(
 						module,
-						items.length ? items : branch.node.id.toString(),
+						items.length ? items : numberToChars(branch.node.id),
 						edgesLabel[i]
 					)
 					item && items.push(item)
@@ -327,8 +334,9 @@
 	}
 
 	function layoutNodes(nodes: Node[]): { nodes: Node[]; height: number } {
-		const stratify = dagStratify().id(({ id }: Node) => '' + id)
+		const stratify = dagStratify().id(({ id }: Node) => numberToChars(id))
 		const dag = stratify(nodes)
+
 		const layout = sugiyama()
 			.decross(decrossOpt())
 			.coord(coordCenter())
@@ -337,7 +345,7 @@
 		return {
 			nodes: dag.descendants().map((des) => ({
 				...des.data,
-				id: +des.data.id,
+				id: des.data.id,
 				position: {
 					x: des.x ? des.x + (width - boxSize.width - NODE.width) / 2 : 0,
 					y: des.y || 0
@@ -353,7 +361,7 @@
 			node.parentIds.forEach((pid, i) => {
 				edges.push({
 					id: `e-${pid}-${node.id}`,
-					source: +pid,
+					source: charsToNumber(pid),
 					target: node.id,
 					labelBgColor: 'white',
 					arrow: true,
@@ -369,7 +377,7 @@
 
 	function createVirtualNode(parentIds: string[], label: string, edgesLabel?: string): Node {
 		return {
-			id: idGenerator.next().value,
+			id: -idGenerator.next().value - 1,
 			position: { x: -1, y: -1 },
 			data: {
 				html: `
@@ -386,28 +394,34 @@
 		}
 	}
 
-	function createErrorHandler(parentIds: string[], module: FlowModule): Node {
+	function createErrorHandler(mod: FlowModule, parent_module?: string): Node {
 		return {
-			id: -1,
+			id: -idGenerator.next().value - 1,
 			position: { x: -1, y: -1 },
 			data: {
 				html: `
-				<div class="w-full max-h-full text-center ellipsize-multi-line text-2xs [-webkit-line-clamp:2] px-1">
-					Error handler
+				<div class="w-full flex justify-between items-center px-1">
+					<div class="text-left ellipsize text-2xs truncate">
+						Error Handler
+					</div>
+					<div class="flex items-center">
+						<span class="center-center font-semibold bg-indigo-100 text-indigo-800 rounded px-1 pb-[2px] ml-[2px]">
+							${mod.id}
+						</span>
+					</div>
 				</div>
 			`
 			},
 			width: NODE.width,
 			height: NODE.height,
-			bgColor: 'rgb(248 113 113)',
+			bgColor: selectedNode == mod.id ? '#f5f5f5' : getStateColor(flowModuleStates?.[mod.id]?.type),
 			borderColor: '#999',
-
-			parentIds,
+			parentIds: parent_module ? [parent_module] : [],
 			clickCallback: (node) => {
 				if (!notSelectable) {
-					selectedNode = module.id
+					selectedNode = mod.id
 				}
-				dispatch('click', module)
+				dispatch('click', mod)
 			}
 		}
 	}
