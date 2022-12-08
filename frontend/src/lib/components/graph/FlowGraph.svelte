@@ -35,11 +35,13 @@
 	let width: number, height: number
 
 	let loadedFlows: Record<string, FlowModule[]> = {}
+	let errorHandlers: Record<string, number> = {}
 
 	let dispatch = createEventDispatcher()
 
 	$: {
 		width && height && minHeight && selectedNode && flowModuleStates
+		nodes = edges = []
 		createGraph()
 	}
 
@@ -53,6 +55,7 @@
 		nestedNodes = nodes = []
 
 		nestedNodes.push(createVirtualNode(getParentIds(), 'Flow start'))
+
 		modules.forEach((m) => {
 			const item = getConvertedFlowModule(m)
 			item && nestedNodes.push(item)
@@ -68,7 +71,6 @@
 					nestedNodes.push(createErrorHandler({ id: k } as FlowModule, v.parent_module))
 				})
 		}
-
 		const flatNodes = flattenNestedNodes(nestedNodes)
 		const layered = layoutNodes(flatNodes)
 
@@ -151,7 +153,8 @@
 		if (!item) return []
 
 		if (isNode(item)) {
-			return [numberToChars(item.id)]
+			const id = numberToChars(item.id)
+			return [id]
 		} else if (isLoop(item)) {
 			return getParentIds(item.items)
 		} else if (isBranch(item)) {
@@ -267,7 +270,9 @@
 		loop.items.push(
 			createVirtualNode(
 				getParentIds(loop.items),
-				`Collect iterations' results of For Loop ${module.id}`
+				`Collect iterations' results of For Loop ${module.id}`,
+				undefined,
+				1000
 			)
 		)
 		return loop
@@ -359,25 +364,56 @@
 		const edges: Edge[] = []
 		nodes.forEach((node) => {
 			node.parentIds.forEach((pid, i) => {
-				edges.push({
-					id: `e-${pid}-${node.id}`,
-					source: charsToNumber(pid),
-					target: node.id,
-					labelBgColor: 'white',
-					arrow: true,
-					animate: false,
-					noHandle: false,
-					label: node.edgeLabel
-					// type: 'smoothstep'
-				})
+				// skip virtual nodes such as collect result
+				if (errorHandlers[pid] && node.id < 900 && nodes.find((x) => x.id == errorHandlers[pid])) {
+					edges.push({
+						id: `e-${pid}-${node.id}`,
+						source: charsToNumber(pid),
+						target: errorHandlers[pid],
+						labelBgColor: 'white',
+						arrow: true,
+						animate: false,
+						noHandle: false,
+						label: node.edgeLabel
+						// type: 'smoothstep'
+					})
+					edges.push({
+						id: `e-${pid}-${node.id}`,
+						source: errorHandlers[pid],
+						target: node.id,
+						labelBgColor: 'white',
+						arrow: true,
+						animate: false,
+						noHandle: false,
+						label: node.edgeLabel
+						// type: 'smoothstep'
+					})
+				} else {
+					edges.push({
+						id: `e-${pid}-${node.id}`,
+						source: charsToNumber(pid),
+						target: node.id,
+						labelBgColor: 'white',
+						arrow: true,
+						animate: false,
+						noHandle: false,
+						label: node.edgeLabel
+						// type: 'smoothstep'
+					})
+				}
 			})
 		})
 		return edges
 	}
 
-	function createVirtualNode(parentIds: string[], label: string, edgesLabel?: string): Node {
+	function createVirtualNode(
+		parentIds: string[],
+		label: string,
+		edgesLabel?: string,
+		offset?: number
+	): Node {
 		return {
-			id: -idGenerator.next().value - 1,
+			id: -idGenerator.next().value - 1 + (offset ?? 0),
 			position: { x: -1, y: -1 },
 			data: {
 				html: `
@@ -395,8 +431,10 @@
 	}
 
 	function createErrorHandler(mod: FlowModule, parent_module?: string): Node {
+		const nId = -idGenerator.next().value - 1 + 1100
+		parent_module && (errorHandlers[parent_module] = nId)
 		return {
-			id: -idGenerator.next().value - 1,
+			id: nId,
 			position: { x: -1, y: -1 },
 			data: {
 				html: `
