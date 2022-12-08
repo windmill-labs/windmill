@@ -12,7 +12,7 @@
 	const { select, selectedId } = getContext<FlowEditorContext>('FlowEditorContext')
 
 	function onToggle() {
-		if ($flowStore.value.failure_module) {
+		if ($flowStore?.value?.failure_module) {
 			$flowStore.value.failure_module = undefined
 			// By default, we return to settings when disabling the failure module
 			select('settings')
@@ -34,7 +34,7 @@
 <!-- svelte-ignore a11y-click-events-have-key-events -->
 <div
 	on:click={() => {
-		if ($flowStore.value.failure_module) {
+		if ($flowStore?.value?.failure_module) {
 			select('failure')
 		} else {
 			onToggle()
@@ -42,7 +42,7 @@
 	}}
 	class={classNames(
 		'border rounded-sm px-2 py-1 bg-white text-sm border-gray-400 cursor-pointer flex flex-col overflow-x-hidden ',
-		$selectedId.includes('failure') ? 'outline outline-offset-1 outline-2 outline-slate-900' : ''
+		$selectedId?.includes('failure') ? 'outline outline-offset-1 outline-2 outline-slate-900' : ''
 	)}
 >
 	<div class=" flex justify-between items-center flex-wrap">
@@ -51,12 +51,12 @@
 			<span class="font-bold text-xs">Error handler</span>
 		</div>
 		<div class="-my-1">
-			<Toggle checked={Boolean($flowStore.value.failure_module)} on:change={onToggle} />
+			<Toggle checked={Boolean($flowStore?.value?.failure_module)} on:change={onToggle} />
 		</div>
 	</div>
 
 	<div class="w-full truncate block">
-		{#if Boolean($flowStore.value.failure_module)}
+		{#if Boolean($flowStore?.value?.failure_module)}
 			<span>
 				{$flowStore.value.failure_module?.summary ||
 					($flowStore.value.failure_module?.value.type === 'rawscript'

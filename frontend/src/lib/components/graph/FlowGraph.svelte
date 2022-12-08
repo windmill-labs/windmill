@@ -34,7 +34,6 @@
 	let edges: Edge[] = []
 	let width: number, height: number
 
-	let loadedFlows: Record<string, FlowModule[]> = {}
 	let errorHandlers: Record<string, number> = {}
 
 	let dispatch = createEventDispatcher()
@@ -55,13 +54,13 @@
 		}
 		nestedNodes = nodes = []
 
-		nestedNodes.push(createVirtualNode(getParentIds(), 'Flow start'))
+		nestedNodes.push(createVirtualNode(getParentIds(), 'Start'))
 
 		modules.forEach((m) => {
 			const item = getConvertedFlowModule(m)
 			item && nestedNodes.push(item)
 		})
-		nestedNodes.push(createVirtualNode(getParentIds(), 'Flow end'))
+		nestedNodes.push(createVirtualNode(getParentIds(), 'End'))
 
 		if (!flowModuleStates) {
 			if (failureModule) nestedNodes.push(createErrorHandler(failureModule))
@@ -430,9 +429,15 @@
 			},
 			width: NODE.width,
 			height: NODE.height,
-			borderColor: '#999',
-			bgColor: '#d4e4ff',
-			parentIds
+			borderColor: selectedNode == label ? 'black' : '#999',
+			bgColor: selectedNode == label ? '#f5f5f5' : '#d4e4ff',
+			parentIds,
+			clickCallback: (node) => {
+				if (!notSelectable) {
+					selectedNode = label
+				}
+				dispatch('click', label)
+			}
 		}
 	}
 
@@ -459,7 +464,7 @@
 			width: NODE.width,
 			height: NODE.height,
 			bgColor: selectedNode == mod.id ? '#f5f5f5' : getStateColor(flowModuleStates?.[mod.id]?.type),
-			borderColor: '#999',
+			borderColor: selectedNode == mod.id ? 'black' : '#999',
 			parentIds: parent_module ? [parent_module] : [],
 			clickCallback: (node) => {
 				if (!notSelectable) {
