@@ -66,6 +66,7 @@ Windmill is <b>fully open-sourced (AGPLv3)</b>:
     - [Technical Architecture](#technical-architecture)
   - [How to self-host](#how-to-self-host)
     - [Docker compose](#docker-compose)
+    - [Kubernetes (k8s) and Helm charts](#kubernetes-k8s-and-helm-charts)
     - [Commercial license](#commercial-license)
     - [OAuth for self-hosting (very optional)](#oauth-for-self-hosting-very-optional)
     - [Resource types](#resource-types)
@@ -191,6 +192,10 @@ To disable nsjail altogether, set `DISABLE_NSJAIL=true`.
 The default super-admin user is: admin@windmill.dev / changeme
 
 From there, you can create other users (do not forget to change the password!)
+
+### Kubernetes (k8s) and Helm charts
+
+We publish helm charts at: <https://github.com/windmill-labs/windmill-helm-charts>
 
 ### Commercial license
 
