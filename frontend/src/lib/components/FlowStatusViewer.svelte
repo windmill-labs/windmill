@@ -355,9 +355,9 @@
 						on:click={(e) => {
 							if (e.detail.id) {
 								selectedNode = e.detail.id
-							} else if (e.detail == 'End') {
+							} else if (e.detail == 'Result') {
 								selectedNode = 'end'
-							} else if (e.detail == 'Start') {
+							} else if (e.detail == 'Input') {
 								selectedNode = 'start'
 							}
 						}}

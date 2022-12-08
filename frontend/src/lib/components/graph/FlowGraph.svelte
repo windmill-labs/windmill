@@ -54,13 +54,13 @@
 		}
 		nestedNodes = nodes = []
 
-		nestedNodes.push(createVirtualNode(getParentIds(), 'Start'))
+		nestedNodes.push(createVirtualNode(getParentIds(), 'Input'))
 
 		modules.forEach((m) => {
 			const item = getConvertedFlowModule(m)
 			item && nestedNodes.push(item)
 		})
-		nestedNodes.push(createVirtualNode(getParentIds(), 'End'))
+		nestedNodes.push(createVirtualNode(getParentIds(), 'Result'))
 
 		if (!flowModuleStates) {
 			if (failureModule) nestedNodes.push(createErrorHandler(failureModule))
