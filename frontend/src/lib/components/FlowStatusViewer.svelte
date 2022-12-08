@@ -31,6 +31,7 @@
 	export let flowModuleStates: Record<string, GraphModuleState> = {}
 
 	let localFlowModuleStates: Record<string, GraphModuleState> = {}
+	export let retry_status: Record<string, number> = {}
 
 	let selectedNode: string | undefined = undefined
 
@@ -58,6 +59,16 @@
 		if (len != lastSize) {
 			forloop_selected = flowJobIds?.flowJobs[len - 1] ?? ''
 			lastSize = len
+		}
+	}
+
+	$: updateFailCount(job?.flow_status?.retry?.fail_count)
+
+	function updateFailCount(count?: number) {
+		if (count) {
+			retry_status[jobId ?? ''] = count
+		} else {
+			delete retry_status[jobId ?? '']
 		}
 	}
 
@@ -123,6 +134,7 @@
 
 	function updateJobId() {
 		if (jobId !== job?.id) {
+			retry_status = {}
 			localFlowModuleStates = {}
 			loadJobInProgress()
 		}
@@ -204,6 +216,7 @@
 					</Button>
 					<div class="border p-6" class:hidden={forloop_selected != loopJobId}>
 						<svelte:self
+							bind:retry_status
 							bind:flowState
 							bind:flowModuleStates={localFlowModuleStates}
 							jobId={loopJobId}
@@ -274,6 +287,7 @@
 						<li class="w-full border border-gray-600 p-6 space-y-2 bg-blue-50/50">
 							{#if [FlowStatusModule.type.IN_PROGRESS, FlowStatusModule.type.SUCCESS, FlowStatusModule.type.FAILURE].includes(mod.type)}
 								<svelte:self
+									bind:retry_status
 									bind:flowState
 									bind:flowModuleStates={localFlowModuleStates}
 									jobId={mod.job}
@@ -303,7 +317,9 @@
 													logs: e.detail.logs,
 													result: e.detail.result,
 													job_id: e.detail.id,
-													parent_module: mod['parent_module']
+													parent_module: mod['parent_module'],
+													iteration_total: mod.iterator?.itered?.length
+													// retries: flowState?.raw_flow
 												}
 											}
 										}
@@ -326,6 +342,14 @@
 			<div class="border" />
 			<div class="grid grid-cols-3">
 				<div class="col-span-2 bg-gray-50">
+					<div class="flex flex-col">
+						{#each Object.values(retry_status) as count}
+							<span class="text-sm">
+								Retry in progress, # of failed attempts: {count}
+							</span>
+						{/each}
+					</div>
+
 					<FlowGraph
 						flowModuleStates={localFlowModuleStates}
 						on:click={(e) => {
