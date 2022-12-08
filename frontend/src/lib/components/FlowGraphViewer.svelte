@@ -11,6 +11,7 @@
 	import typescript from 'svelte-highlight/languages/typescript'
 	import { cleanExpr } from './flows/utils'
 	import FlowPathViewer from './flows/content/FlowPathViewer.svelte'
+	import SchemaViewer from './SchemaViewer.svelte'
 	export let flow: {
 		summary: string
 		description?: string
@@ -20,14 +21,14 @@
 	export let overflowAuto = false
 	export let noSide = false
 
-	let stepDetail: FlowModule | undefined = undefined
+	let stepDetail: FlowModule | string | undefined = undefined
 	let codeViewer: Drawer
 	let topHeight = 0
 </script>
 
 <Drawer bind:this={codeViewer} size="900px">
 	<DrawerContent title={'Expanded Code'} on:close={codeViewer.closeDrawer}>
-		{#if stepDetail}
+		{#if stepDetail && typeof stepDetail != 'string'}
 			{#if stepDetail.value.type == 'script'}
 				<div class="mb-4">
 					<a
@@ -95,7 +96,11 @@
 				<span class="font-black text-lg w-full my-4">
 					<span>Click on a step to see its details</span>
 				</span>
-			{:else}
+			{:else if stepDetail == 'Input'}
+				<SchemaViewer schema={flow?.schema} />
+			{:else if stepDetail == 'Result'}
+				End of the flow
+			{:else if typeof stepDetail != 'string' && stepDetail.value}
 				<div class="font-black text-lg w-full mb-6"
 					>Step {stepDetail.id ?? ''}<span class="ml-2 font-normal">{stepDetail.summary || ''}</span
 					></div
