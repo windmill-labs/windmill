@@ -25,6 +25,7 @@ export type GraphModuleState = {
 	scheduled_for?: string
 	job_id?: string
 	parent_module?: string
+	iteration_total?: number
 }
 
 export type NestedNodes = GraphItem[]
