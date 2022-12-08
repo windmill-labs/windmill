@@ -251,7 +251,7 @@ pub async fn push<'c>(
     parent_job: Option<Uuid>,
     is_flow_step: bool,
     mut same_worker: bool,
-    pre_run_error: Option<windmill_common::error::Error>,
+    pre_run_error: Option<&windmill_common::error::Error>,
 ) -> Result<(Uuid, Transaction<'c, Postgres>), Error> {
     let scheduled_for = scheduled_for_o.unwrap_or_else(chrono::Utc::now);
     let args_json = serde_json::Value::Object(args);
