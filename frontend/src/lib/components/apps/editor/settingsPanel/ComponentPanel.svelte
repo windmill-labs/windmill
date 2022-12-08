@@ -72,7 +72,7 @@
 							Connect
 						</ToggleButton>
 						<ToggleButton position="right" value="runnable" startIcon={{ icon: faCode }} size="xs">
-							Script
+							Computed
 						</ToggleButton>
 					</ToggleButtonGroup>
 
