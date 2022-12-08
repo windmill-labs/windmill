@@ -29,7 +29,7 @@
 />
 
 <Button
-	on:click={() => itemPicker.openDrawer()}
+	on:click={() => itemPicker?.openDrawer()}
 	btnClasses="w-24 truncate"
 	size="sm"
 	spacingSize="md"

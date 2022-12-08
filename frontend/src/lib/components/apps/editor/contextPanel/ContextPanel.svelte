@@ -2,7 +2,6 @@
 	import { fade } from 'svelte/transition'
 	import type { Schema } from '$lib/common'
 	import { Drawer } from '$lib/components/common'
-	import Badge from '$lib/components/common/badge/Badge.svelte'
 	import Button from '$lib/components/common/button/Button.svelte'
 	import DrawerContent from '$lib/components/common/drawer/DrawerContent.svelte'
 	import ScriptEditor from '$lib/components/ScriptEditor.svelte'
@@ -24,16 +23,16 @@
 
 	$: isTakenPath = Object.keys($app.inlineScripts).includes(newScriptPath)
 
-	function connectInput(id: string, name: string) {
+	function connectInput(componentId: string, path: string) {
 		if ($connectingInput) {
 			$connectingInput = {
 				opened: false,
 				input: {
-					id,
-					name,
-					type: 'output',
-					defaultValue: undefined,
-					fieldType: 'any'
+					connection: {
+						componentId,
+						path
+					},
+					type: 'connected'
 				}
 			}
 		}

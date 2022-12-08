@@ -1,16 +1,15 @@
 <script lang="ts">
 	import { Button, type ButtonType } from '$lib/components/common'
-	import type { InputsSpec } from '../../types'
+	import type { AppInput } from '../../inputType'
 	import AlignWrapper from '../helpers/AlignWrapper.svelte'
 	import InputValue from '../helpers/InputValue.svelte'
-	import RunnableComponent from '../helpers/RunnableComponent.svelte'
+	import type RunnableComponent from '../helpers/RunnableComponent.svelte'
+	import RunnableWrapper from '../helpers/RunnableWrapper.svelte'
 
 	export let id: string
-	export let inputs: InputsSpec
-	export let path: string | undefined = undefined
-	export let runType: 'script' | 'flow' | undefined = undefined
-	export let inlineScriptName: string | undefined = undefined
-	export let componentInputs: InputsSpec
+	export let componentInput: AppInput | undefined
+	export let configuration: Record<string, AppInput>
+
 	export let extraQueryParams: Record<string, any> = {}
 
 	export let horizontalAlignment: 'left' | 'center' | 'right' | undefined = undefined
@@ -24,19 +23,16 @@
 	let runnableComponent: RunnableComponent
 </script>
 
-<InputValue input={componentInputs.label} bind:value={labelValue} />
-<InputValue input={componentInputs.color} bind:value={color} />
-<InputValue input={componentInputs.size} bind:value={size} />
+<InputValue input={configuration.label} bind:value={labelValue} />
+<InputValue input={configuration.color} bind:value={color} />
+<InputValue input={configuration.size} bind:value={size} />
 
-<RunnableComponent
-	bind:this={runnableComponent}
-	bind:inputs
-	{path}
-	{runType}
-	{inlineScriptName}
+<RunnableWrapper
+	bind:runnableComponent
+	bind:componentInput
 	{id}
-	autoRefresh={false}
 	{extraQueryParams}
+	autoRefresh={false}
 >
 	<AlignWrapper {horizontalAlignment} {verticalAlignment}>
 		<Button
@@ -47,6 +43,6 @@
 			{color}
 		>
 			{labelValue}
-		</Button></AlignWrapper
-	>
-</RunnableComponent>
+		</Button>
+	</AlignWrapper>
+</RunnableWrapper>

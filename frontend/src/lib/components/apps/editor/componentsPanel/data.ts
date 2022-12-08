@@ -1,22 +1,20 @@
-import type { AppComponent, ComponentSet } from '../../types'
-import { defaultAlignement, defaultProps } from './componentDefaultProps'
+import type { ComponentSet } from '../../types'
+import { defaultAlignement } from './componentDefaultProps'
 
 const windmillComponents: ComponentSet = {
 	title: 'Windmill Components',
 	components: [
 		{
-			...defaultProps,
 			id: 'displaycomponent',
 			type: 'displaycomponent',
-			componentInputs: {
-				result: {
-					id: undefined,
-					name: undefined,
-					type: 'output',
-					defaultValue: {},
-					fieldType: 'object'
-				}
-			}
+			componentInput: {
+				type: 'static',
+				fieldType: 'text',
+				defaultValue: 'Lorem Ipsum',
+				value: 'Lorem Ipsum'
+			},
+			configuration: {},
+			card: false
 		}
 	]
 }
@@ -35,11 +33,17 @@ const buttons: ComponentSet = {
 	title: 'Buttons',
 	components: [
 		{
-			...defaultProps,
 			...defaultAlignement,
 			id: 'buttoncomponent',
 			type: 'buttoncomponent',
-			componentInputs: {
+			componentInput: {
+				type: 'static',
+				fieldType: 'textarea',
+				defaultValue: '',
+				value: ''
+			},
+			recompute: undefined,
+			configuration: {
 				label: {
 					type: 'static',
 					visible: true,
@@ -64,7 +68,7 @@ const buttons: ComponentSet = {
 					defaultValue: 'md'
 				}
 			},
-			runnable: true,
+
 			card: false
 		}
 	]
@@ -74,11 +78,10 @@ const selectInputs: ComponentSet = {
 	title: 'Select Inputs',
 	components: [
 		{
-			...defaultProps,
 			...defaultAlignement,
 			id: 'checkboxcomponent',
 			type: 'checkboxcomponent',
-			componentInputs: {
+			configuration: {
 				label: {
 					type: 'static',
 					visible: true,
@@ -87,6 +90,7 @@ const selectInputs: ComponentSet = {
 					defaultValue: 'Lorem ipsum'
 				}
 			},
+			componentInput: undefined,
 			card: false
 		}
 	]
@@ -101,31 +105,29 @@ const dataDisplay: ComponentSet = {
 	title: 'Data Display',
 	components: [
 		{
-			...defaultProps,
 			...defaultAlignement,
 			id: 'textcomponent',
 			type: 'textcomponent',
-			componentInputs: {
-				content: {
-					type: 'static',
-					visible: true,
-					value: 'Lorem ipsum',
-					fieldType: 'textarea',
-					defaultValue: 'Lorem ipsum'
-				}
-			}
+			componentInput: {
+				type: 'static',
+				visible: true,
+				value: 'Lorem ipsum',
+				fieldType: 'textarea',
+				defaultValue: 'Lorem ipsum'
+			},
+			configuration: {},
+			card: false
 		},
 		{
-			...defaultProps,
 			id: 'tablecomponent',
 			type: 'tablecomponent',
-			componentInputs: {
-				searchEnabled: {
+			configuration: {
+				searchConfiguration: {
+					fieldType: 'select',
 					type: 'static',
-					value: false,
-					fieldType: 'boolean',
-					visible: true,
-					defaultValue: false
+					value: 'Disabled',
+					optionValuesKey: 'tableSearchOptions',
+					defaultValue: 'Disabled'
 				},
 				paginationEnabled: {
 					type: 'static',
@@ -135,22 +137,87 @@ const dataDisplay: ComponentSet = {
 					defaultValue: false
 				}
 			},
-			runnable: true,
+			componentInput: {
+				type: 'static',
+				fieldType: 'array',
+				defaultValue: [
+					{
+						id: 1,
+						name: 'Lorem ipsum',
+						age: 42
+					},
+					{
+						id: 2,
+						name: 'Lorem ipsum',
+						age: 42
+					}
+				],
+				value: [
+					{
+						id: 1,
+						name: 'Lorem ipsum',
+						age: 42
+					},
+					{
+						id: 2,
+						name: 'Lorem ipsum',
+						age: 42
+					}
+				]
+			},
 			card: true,
 			actionButtons: []
 		},
 		{
-			...defaultProps,
 			id: 'piechartcomponent',
 			type: 'piechartcomponent',
-			runnable: true,
+			configuration: {
+				theme: {
+					type: 'static',
+					value: 'theme1',
+					fieldType: 'select',
+					optionValuesKey: 'chartThemeOptions',
+					defaultValue: 'theme1'
+				},
+				labels: {
+					type: 'static',
+					value: ['Lorem ipsum', 'Lorem ipsum', 'Lorem ipsum'],
+					fieldType: 'array',
+					defaultValue: ['Lorem ipsum', 'Lorem ipsum', 'Lorem ipsum']
+				}
+			},
+			componentInput: {
+				type: 'static',
+				fieldType: 'array',
+				defaultValue: [25, 50, 25],
+				value: [25, 50, 25]
+			},
 			card: true
 		},
 		{
-			...defaultProps,
 			id: 'barchartcomponent',
 			type: 'barchartcomponent',
-			runnable: true,
+			configuration: {
+				theme: {
+					type: 'static',
+					value: 'theme1',
+					fieldType: 'select',
+					optionValuesKey: 'chartThemeOptions',
+					defaultValue: 'theme1'
+				},
+				labels: {
+					type: 'static',
+					value: ['Lorem ipsum', 'Lorem ipsum', 'Lorem ipsum'],
+					fieldType: 'array',
+					defaultValue: ['Lorem ipsum', 'Lorem ipsum', 'Lorem ipsum']
+				}
+			},
+			componentInput: {
+				type: 'static',
+				fieldType: 'array',
+				defaultValue: [25, 50, 25],
+				value: [25, 50, 25]
+			},
 			card: true
 		}
 	]
